@@ -65,8 +65,8 @@ ffi-s8-mixed-import-export	ffi	ffi/s8-mixed-import-export.hs	xfail	roundtrip mis
 ffi-s8-multiple-foreign-decls	ffi	ffi/s8-multiple-foreign-decls.hs	xfail	roundtrip mismatch against oracle AST
 
 decls-type-signature	declarations	declarations/type-signature.hs	xfail	roundtrip mismatch against oracle AST
-decls-multiple-equations	declarations	declarations/multiple-equations.hs	xfail	roundtrip mismatch against oracle AST
-decls-pattern-binding	declarations	declarations/pattern-binding.hs	xfail	roundtrip mismatch against oracle AST
+decls-multiple-equations	declarations	declarations/multiple-equations.hs	pass	
+decls-pattern-binding	declarations	declarations/pattern-binding.hs	pass	
 decls-data	declarations	declarations/data.hs	pass	
 decls-data-context	declarations	declarations/data-context.hs	pass	
 decls-data-prefix-positional	declarations	declarations/data-prefix-positional.hs	pass	
@@ -100,14 +100,14 @@ decls-fixity	declarations	declarations/fixity.hs	pass
 decls-default	declarations	declarations/default.hs	pass	default declarations unsupported
 decls-deriving	declarations	declarations/deriving.hs	pass	
 
-expr-if-then-else	expressions	expressions/if-then-else.hs	xfail	roundtrip mismatch against oracle AST
-expr-case-of	expressions	expressions/case-of.hs	xfail	roundtrip mismatch against oracle AST
-expr-let-in	expressions	expressions/let-in.hs	xfail	roundtrip mismatch against oracle AST
+expr-if-then-else	expressions	expressions/if-then-else.hs	pass	
+expr-case-of	expressions	expressions/case-of.hs	pass	
+expr-let-in	expressions	expressions/let-in.hs	pass	
 expr-lambda	expressions	expressions/lambda.hs	xfail	lambda expressions unsupported
 expr-list-tuple	expressions	expressions/list-tuple.hs	pass	list and tuple expressions unsupported
 expr-sections	expressions	expressions/sections.hs	xfail	sections unsupported
 expr-do-notation	expressions	expressions/do-notation.hs	xfail	do notation unsupported
-expr-where-clause	expressions	expressions/where-clause.hs	xfail	roundtrip mismatch against oracle AST
+expr-where-clause	expressions	expressions/where-clause.hs	pass	
 expr-list-comprehension	expressions	expressions/list-comprehension.hs	xfail	list comprehensions unsupported
 expr-arithmetic-seq	expressions	expressions/arithmetic-seq.hs	xfail	arithmetic sequences unsupported
 
@@ -126,8 +126,8 @@ expr-s3-operators-varsym-paren	expressions	expressions/operators-varsym-paren.hs
 expr-s3-operators-backtick-varid	expressions	expressions/operators-backtick-varid.hs	xfail	section 3 expression variation unsupported
 expr-s3-operators-conop-colon	expressions	expressions/operators-conop-colon.hs	xfail	section 3 expression variation unsupported
 expr-s3-operators-backtick-conid	expressions	expressions/operators-backtick-conid.hs	xfail	section 3 expression variation unsupported
-expr-s3-application-left-assoc	expressions	expressions/application-left-assoc.hs	xfail	roundtrip mismatch against oracle AST
-expr-s3-application-constructor-partial	expressions	expressions/application-constructor-partial.hs	xfail	roundtrip mismatch against oracle AST
+expr-s3-application-left-assoc	expressions	expressions/application-left-assoc.hs	pass	
+expr-s3-application-constructor-partial	expressions	expressions/application-constructor-partial.hs	pass	
 expr-s3-lambda-single-apat	expressions	expressions/lambda-single-apat.hs	xfail	section 3 expression variation unsupported
 expr-s3-lambda-multi-apat	expressions	expressions/lambda-multi-apat.hs	xfail	section 3 expression variation unsupported
 expr-s3-lambda-pattern-apat	expressions	expressions/lambda-pattern-apat.hs	xfail	section 3 expression variation unsupported
@@ -139,8 +139,8 @@ expr-s3-section-left	expressions	expressions/section-left.hs	xfail	section 3 exp
 expr-s3-section-right	expressions	expressions/section-right.hs	xfail	section 3 expression variation unsupported
 expr-s3-section-backtick-left	expressions	expressions/section-backtick-left.hs	xfail	section 3 expression variation unsupported
 expr-s3-section-backtick-right	expressions	expressions/section-backtick-right.hs	xfail	section 3 expression variation unsupported
-expr-s3-conditional-basic	expressions	expressions/conditional-basic.hs	xfail	roundtrip mismatch against oracle AST
-expr-s3-conditional-semicolons	expressions	expressions/conditional-semicolons.hs	xfail	roundtrip mismatch against oracle AST
+expr-s3-conditional-basic	expressions	expressions/conditional-basic.hs	pass	
+expr-s3-conditional-semicolons	expressions	expressions/conditional-semicolons.hs	pass	
 expr-s3-list-empty	expressions	expressions/list-empty.hs	pass	
 expr-s3-list-singleton	expressions	expressions/list-singleton.hs	pass	
 expr-s3-list-multiple	expressions	expressions/list-multiple.hs	pass	
@@ -152,14 +152,14 @@ expr-s3-arithseq-from	expressions	expressions/arithseq-from.hs	xfail	section 3 e
 expr-s3-arithseq-from-then	expressions	expressions/arithseq-from-then.hs	xfail	section 3 expression variation unsupported
 expr-s3-arithseq-from-to	expressions	expressions/arithseq-from-to.hs	xfail	section 3 expression variation unsupported
 expr-s3-arithseq-from-then-to	expressions	expressions/arithseq-from-then-to.hs	xfail	section 3 expression variation unsupported
-expr-s3-listcomp-generator	expressions	expressions/listcomp-generator.hs	xfail	roundtrip mismatch against oracle AST
-expr-s3-listcomp-guards	expressions	expressions/listcomp-guards.hs	xfail	roundtrip mismatch against oracle AST
-expr-s3-listcomp-let-qualifier	expressions	expressions/listcomp-let-qualifier.hs	xfail	roundtrip mismatch against oracle AST
-expr-s3-listcomp-multi-generator	expressions	expressions/listcomp-multi-generator.hs	xfail	roundtrip mismatch against oracle AST
+expr-s3-listcomp-generator	expressions	expressions/listcomp-generator.hs	pass	
+expr-s3-listcomp-guards	expressions	expressions/listcomp-guards.hs	pass	
+expr-s3-listcomp-let-qualifier	expressions	expressions/listcomp-let-qualifier.hs	pass	
+expr-s3-listcomp-multi-generator	expressions	expressions/listcomp-multi-generator.hs	pass	
 expr-s3-let-basic	expressions	expressions/let-basic.hs	xfail	section 3 expression variation unsupported
 expr-s3-let-multiple-decls	expressions	expressions/let-multiple-decls.hs	xfail	section 3 expression variation unsupported
-expr-s3-case-basic	expressions	expressions/case-basic.hs	xfail	roundtrip mismatch against oracle AST
-expr-s3-case-guarded-alts	expressions	expressions/case-guarded-alts.hs	xfail	roundtrip mismatch against oracle AST
+expr-s3-case-basic	expressions	expressions/case-basic.hs	pass	
+expr-s3-case-guarded-alts	expressions	expressions/case-guarded-alts.hs	pass	
 expr-s3-do-single-expression	expressions	expressions/do-single-expression.hs	xfail	section 3 expression variation unsupported
 expr-s3-do-bind-stmt	expressions	expressions/do-bind-stmt.hs	xfail	section 3 expression variation unsupported
 expr-s3-do-let-stmt	expressions	expressions/do-let-stmt.hs	xfail	section 3 expression variation unsupported
@@ -169,28 +169,28 @@ expr-s3-record-construction-empty	expressions	expressions/record-construction-em
 expr-s3-record-construction-fields	expressions	expressions/record-construction-fields.hs	xfail	section 3 expression variation unsupported
 expr-s3-record-update-single	expressions	expressions/record-update-single.hs	pass	
 expr-s3-record-update-multiple	expressions	expressions/record-update-multiple.hs	pass	
-expr-s3-expr-type-signature-basic	expressions	expressions/expr-type-signature-basic.hs	xfail	section 3 expression variation unsupported
-expr-s3-expr-type-signature-context	expressions	expressions/expr-type-signature-context.hs	xfail	section 3 expression variation unsupported
-expr-s3-pattern-infix-constructor	expressions	expressions/pattern-infix-constructor.hs	xfail	roundtrip mismatch against oracle AST
-expr-s3-pattern-negative-literal	expressions	expressions/pattern-negative-literal.hs	xfail	roundtrip mismatch against oracle AST
+expr-s3-expr-type-signature-basic	expressions	expressions/expr-type-signature-basic.hs	pass	
+expr-s3-expr-type-signature-context	expressions	expressions/expr-type-signature-context.hs	pass	
+expr-s3-pattern-infix-constructor	expressions	expressions/pattern-infix-constructor.hs	pass	
+expr-s3-pattern-negative-literal	expressions	expressions/pattern-negative-literal.hs	pass	
 expr-s3-pattern-constructor-application	expressions	expressions/pattern-constructor-application.hs	pass	
-expr-s3-pattern-as-pattern	expressions	expressions/pattern-as-pattern.hs	xfail	roundtrip mismatch against oracle AST
+expr-s3-pattern-as-pattern	expressions	expressions/pattern-as-pattern.hs	pass	
 expr-s3-pattern-nullary-constructor	expressions	expressions/pattern-nullary-constructor.hs	pass	
 expr-s3-pattern-labeled	expressions	expressions/pattern-labeled.hs	pass	
-expr-s3-pattern-literal	expressions	expressions/pattern-literal.hs	xfail	roundtrip mismatch against oracle AST
-expr-s3-pattern-wildcard	expressions	expressions/pattern-wildcard.hs	xfail	roundtrip mismatch against oracle AST
-expr-s3-pattern-parenthesized	expressions	expressions/pattern-parenthesized.hs	xfail	roundtrip mismatch against oracle AST
-expr-s3-pattern-tuple	expressions	expressions/pattern-tuple.hs	xfail	roundtrip mismatch against oracle AST
-expr-s3-pattern-list	expressions	expressions/pattern-list.hs	xfail	roundtrip mismatch against oracle AST
-expr-s3-pattern-irrefutable	expressions	expressions/pattern-irrefutable.hs	xfail	roundtrip mismatch against oracle AST
+expr-s3-pattern-literal	expressions	expressions/pattern-literal.hs	pass	
+expr-s3-pattern-wildcard	expressions	expressions/pattern-wildcard.hs	pass	
+expr-s3-pattern-parenthesized	expressions	expressions/pattern-parenthesized.hs	pass	
+expr-s3-pattern-tuple	expressions	expressions/pattern-tuple.hs	pass	
+expr-s3-pattern-list	expressions	expressions/pattern-list.hs	pass	
+expr-s3-pattern-irrefutable	expressions	expressions/pattern-irrefutable.hs	pass	
 
 pat-constructor	patterns	patterns/constructor.hs	pass	
-pat-tuple-list	patterns	patterns/tuple-list.hs	xfail	roundtrip mismatch against oracle AST
-pat-as-pattern	patterns	patterns/as-pattern.hs	xfail	roundtrip mismatch against oracle AST
-pat-irrefutable	patterns	patterns/irrefutable.hs	xfail	roundtrip mismatch against oracle AST
-pat-guards	patterns	patterns/guards.hs	xfail	roundtrip mismatch against oracle AST
-pat-infix-constructor	patterns	patterns/infix-constructor.hs	xfail	roundtrip mismatch against oracle AST
-pat-negative-literal	patterns	patterns/negative-literal.hs	xfail	roundtrip mismatch against oracle AST
+pat-tuple-list	patterns	patterns/tuple-list.hs	pass	
+pat-as-pattern	patterns	patterns/as-pattern.hs	pass	
+pat-irrefutable	patterns	patterns/irrefutable.hs	pass	
+pat-guards	patterns	patterns/guards.hs	pass	
+pat-infix-constructor	patterns	patterns/infix-constructor.hs	pass	
+pat-negative-literal	patterns	patterns/negative-literal.hs	pass	
 pat-labeled	patterns	patterns/labeled.hs	xfail	roundtrip mismatch against oracle AST
 pat-literal-wildcard-parenthesized	patterns	patterns/literal-wildcard-parenthesized.hs	xfail	roundtrip mismatch against oracle AST
 pat-contexts	patterns	patterns/contexts.hs	xfail	pattern matching contexts unsupported
@@ -198,23 +198,23 @@ pat-contexts	patterns	patterns/contexts.hs	xfail	pattern matching contexts unsup
 types-context	types	types/context.hs	xfail	roundtrip mismatch against oracle AST
 types-tuple-list	types	types/tuple-list-types.hs	xfail	roundtrip mismatch against oracle AST
 types-newtype-record	types	types/newtype-record.hs	pass	
-types-multi-vars-signature	types	types/multi-vars-signature.hs	xfail	roundtrip mismatch against oracle AST
-types-context-multi-vars	types	types/context-multi-vars.hs	xfail	roundtrip mismatch against oracle AST
-types-signature-where	types	types/signature-where.hs	xfail	local type signatures in where bindings unsupported
-types-inline-signature-basic	types	types/inline-signature-basic.hs	xfail	expression type signatures in declarations unsupported
-types-inline-signature-context	types	types/inline-signature-context.hs	xfail	expression type signatures with contexts unsupported
-types-inline-signature-lambda	types	types/inline-signature-lambda.hs	xfail	inline lambda body type signatures unsupported
-types-let-signature	types	types/let-signature.hs	xfail	local let type signatures unsupported
-types-guard-inline-signature	types	types/guard-inline-signature.hs	xfail	inline type signatures in guards unsupported
+types-multi-vars-signature	types	types/multi-vars-signature.hs	pass	
+types-context-multi-vars	types	types/context-multi-vars.hs	pass	
+types-signature-where	types	types/signature-where.hs	pass	
+types-inline-signature-basic	types	types/inline-signature-basic.hs	pass	
+types-inline-signature-context	types	types/inline-signature-context.hs	pass	
+types-inline-signature-lambda	types	types/inline-signature-lambda.hs	pass	
+types-let-signature	types	types/let-signature.hs	pass	
+types-guard-inline-signature	types	types/guard-inline-signature.hs	pass	
 types-list-type-constructor	types	types/list-type-constructor.hs	xfail	roundtrip mismatch against oracle AST
-types-maybe-type-constructor	types	types/maybe-type-constructor.hs	xfail	roundtrip mismatch against oracle AST
+types-maybe-type-constructor	types	types/maybe-type-constructor.hs	pass	
 types-function-type-constructor	types	types/function-type-constructor.hs	xfail	roundtrip mismatch against oracle AST
 types-function-type-constructor-partial	types	types/function-type-constructor-partial.hs	xfail	roundtrip mismatch against oracle AST
 types-tuple-type-constructor	types	types/tuple-type-constructor.hs	xfail	roundtrip mismatch against oracle AST
-types-nested-maybe-list	types	types/nested-maybe-list.hs	xfail	roundtrip mismatch against oracle AST
+types-nested-maybe-list	types	types/nested-maybe-list.hs	pass	
 
 layout-let	layout	layout/let-layout.hs	xfail	layout-sensitive let unsupported
-layout-where	layout	layout/where-layout.hs	xfail	roundtrip mismatch against oracle AST
+layout-where	layout	layout/where-layout.hs	pass	
 
 lexical-block-comments	lexical	lexical/block-comments.hs	xfail	block comments unsupported
 lexical-strings-chars	lexical	lexical/strings-chars.hs	pass	string and char literals unsupported

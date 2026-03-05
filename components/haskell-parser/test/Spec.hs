@@ -231,8 +231,7 @@ toModule :: GenModule -> Module
 toModule (GenModule decls) =
   Module
     { moduleName = Just "Generated",
-      moduleDecls = [Decl {declName = name, declExpr = toExpr expr} | (name, expr) <- decls],
-      moduleDeclChunks = Nothing
+      moduleDecls = [Decl {declName = name, declExpr = toExpr expr} | (name, expr) <- decls]
     }
 
 renderModule :: GenModule -> Text

@@ -19,6 +19,7 @@ where
 
 import Data.Text (Text)
 import qualified Data.Text as T
+import GHC.Utils.Outputable (ppr, showSDocUnsafe)
 import Parser.Ast
 
 data CanonicalModule = CanonicalModule
@@ -214,6 +215,10 @@ normalizeDecl d =
             canonicalForeignEntity = fmap classifyForeignEntity entity,
             canonicalForeignName = name
           }
+    GhcDecl decl ->
+      CanonicalPatternDecl
+        { canonicalPatternLhs = T.pack (showSDocUnsafe (ppr decl))
+        }
 
 normalizeExpr :: Expr -> CanonicalExpr
 normalizeExpr expr =

@@ -14,6 +14,15 @@ import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Void (Void)
+import qualified GHC.Data.EnumSet as EnumSet
+import GHC.Data.FastString (mkFastString)
+import GHC.Data.StringBuffer (stringToStringBuffer)
+import GHC.Hs (GhcPs, HsDecl, HsModule, hsmodDecls)
+import GHC.LanguageExtensions.Type (Extension (ForeignFunctionInterface))
+import qualified GHC.Parser as GHCParser
+import qualified GHC.Parser.Lexer as Lexer
+import GHC.Types.SrcLoc (mkRealSrcLoc, unLoc)
+import GHC.Utils.Error (emptyDiagOpts)
 import Parser.Ast
 import Parser.Types
 import Text.Megaparsec
@@ -66,35 +75,17 @@ parseModuleLines cfg input = do
       meaningful = filter (not . isLanguagePragma . T.strip . snd) nonEmpty
       allowFfiFallback = any (isForeignDeclarationLine . T.strip . snd) meaningful
   case meaningful of
-    [] -> Right Module {moduleName = Nothing, moduleDecls = [], moduleDeclChunks = Nothing}
+    [] -> Right Module {moduleName = Nothing, moduleDecls = []}
     ((firstLineNo, firstLine) : rest) ->
       case parseModuleHeader (T.strip firstLine) of
         Right modName -> do
-          let chunks = groupDeclarationChunks rest
-          decls <- traverse (uncurry (parseDeclarationChunk cfg allowFfiFallback)) chunks
-          let mergedDecls = mergeAdjacentFunctions decls
-          Right
-            Module
-              { moduleName = Just modName,
-                moduleDecls = mergedDecls,
-                moduleDeclChunks =
-                  if shouldPreserveDeclChunks mergedDecls
-                    then Just (map snd chunks)
-                    else Nothing
-              }
+          decls <- traverse (uncurry (parseDeclarationChunk cfg allowFfiFallback)) (groupDeclarationChunks rest)
+          Right Module {moduleName = Just modName, moduleDecls = mergeAdjacentFunctions decls}
         Left _ -> do
           let chunks = groupDeclarationChunks ((firstLineNo, firstLine) : rest)
           parsed <- traverse (uncurry (parseDeclarationChunk cfg allowFfiFallback)) chunks
           let merged = mergeAdjacentFunctions parsed
-          Right
-            Module
-              { moduleName = Nothing,
-                moduleDecls = merged,
-                moduleDeclChunks =
-                  if shouldPreserveDeclChunks merged
-                    then Just (map snd chunks)
-                    else Nothing
-              }
+          Right Module {moduleName = Nothing, moduleDecls = merged}
 
 parseModuleHeader :: Text -> Either ParseError Text
 parseModuleHeader =
@@ -154,102 +145,22 @@ declarationParser allowFfiFallback
 
 parseDeclText :: ParserConfig -> Text -> Either Text Decl
 parseDeclText cfg txt
-  | "data " `T.isPrefixOf` txt = parseDataLikeDecl "data" txt
-  | "newtype " `T.isPrefixOf` txt = parseDataLikeDecl "newtype" txt
-  | "type " `T.isPrefixOf` txt = parseTypeSynonymDecl txt
-  | "class " `T.isPrefixOf` txt = parseClassDecl txt
-  | "instance " `T.isPrefixOf` txt = parseInstanceDecl txt
-  | "default " `T.isPrefixOf` txt = parseDefaultDecl txt
-  | isFixityDecl txt = parseFixityDeclText txt
-  | "::" `T.isInfixOf` txt = parseTypeSignatureDeclText txt
+  | "data " `T.isPrefixOf` txt = parseGhcDeclText txt
+  | "newtype " `T.isPrefixOf` txt = parseGhcDeclText txt
+  | "type " `T.isPrefixOf` txt = parseGhcDeclText txt
+  | "class " `T.isPrefixOf` txt = parseGhcDeclText txt
+  | "instance " `T.isPrefixOf` txt = parseGhcDeclText txt
+  | "default " `T.isPrefixOf` txt = parseGhcDeclText txt
+  | isFixityDecl txt = parseGhcDeclText txt
+  | "::" `T.isInfixOf` txt = parseGhcDeclText txt
   | "=" `T.isInfixOf` txt = parseEquationDecl cfg txt
   | otherwise = Left "declaration"
 
-parseTypeSynonymDecl :: Text -> Either Text Decl
-parseTypeSynonymDecl txt =
-  case typeNameAfterKeyword "type" txt of
-    Just name -> Right TypeDecl {typeName = name}
-    Nothing -> Left "type declaration"
-
-parseDataLikeDecl :: Text -> Text -> Either Text Decl
-parseDataLikeDecl keywordName txt = do
-  typeName <- maybe (Left (keywordName <> " declaration")) Right (typeNameAfterKeyword keywordName txt)
-  let (_, afterEq) = T.breakOn "=" txt
-      constructors = if T.null afterEq then [] else parseConstructors (T.drop 1 afterEq)
-   in case keywordName of
-        "data" ->
-          Right
-            DataDecl
-              { dataTypeName = typeName,
-                dataConstructors = constructors
-              }
-        "newtype" ->
-          Right
-            NewtypeDecl
-              { newtypeName = typeName,
-                newtypeConstructor = case constructors of
-                  [] -> Nothing
-                  (firstCtor : _) -> Just firstCtor
-              }
-        _ -> Left "data declaration"
-
-parseClassDecl :: Text -> Either Text Decl
-parseClassDecl txt =
-  case classOrInstanceName "class" txt of
-    Just name -> Right ClassDecl {className = name}
-    Nothing -> Left "class declaration"
-
-parseInstanceDecl :: Text -> Either Text Decl
-parseInstanceDecl txt =
-  case classOrInstanceName "instance" txt of
-    Just name -> Right InstanceDecl {instanceClassName = name}
-    Nothing -> Left "instance declaration"
-
-parseFixityDeclText :: Text -> Either Text Decl
-parseFixityDeclText txt =
-  case T.words txt of
-    assocTxt : rest
-      | assocTxt `elem` ["infix", "infixl", "infixr"] ->
-          case rest of
-            [] -> Left "fixity declaration"
-            [op] ->
-              Right
-                FixityDecl
-                  { fixityAssoc = assocTxt,
-                    fixityPrecedence = Nothing,
-                    fixityOperator = stripParens op
-                  }
-            precTxt : op : _
-              | T.all isDigit precTxt ->
-                  Right
-                    FixityDecl
-                      { fixityAssoc = assocTxt,
-                        fixityPrecedence = Just (read (T.unpack precTxt)),
-                        fixityOperator = stripParens op
-                      }
-            _ -> Left "fixity declaration"
-    _ -> Left "fixity declaration"
-
-parseDefaultDecl :: Text -> Either Text Decl
-parseDefaultDecl txt =
-  let inside = textInsideParens txt
-      types = filter isTypeToken (map (T.strip . stripPunctuation) (T.splitOn "," inside))
-   in if null types
-        then Left "default declaration"
-        else Right DefaultDecl {defaultTypes = types}
-
-parseTypeSignatureDeclText :: Text -> Either Text Decl
-parseTypeSignatureDeclText txt =
-  let (lhs, rhs) = T.breakOn "::" txt
-      names = map (stripParens . T.strip) (T.splitOn "," lhs)
-      firstName = case names of
-        [] -> Nothing
-        (n : _) -> if isValueName n then Just n else Nothing
-   in if T.null rhs
-        then Left "type signature"
-        else case firstName of
-          Just name -> Right TypeSigDecl {typeSigName = name}
-          Nothing -> Left "type signature"
+parseGhcDeclText :: Text -> Either Text Decl
+parseGhcDeclText txt =
+  case parseSingleDeclWithGhc txt of
+    Right decl -> Right (GhcDecl decl)
+    Left _ -> Left "declaration"
 
 parseEquationDecl :: ParserConfig -> Text -> Either Text Decl
 parseEquationDecl cfg txt =
@@ -261,81 +172,16 @@ parseEquationDecl cfg txt =
         else case extractFunctionName lhs of
           Just (name, hasArgs, isOperatorBinderName) ->
             if isOperatorBinderName
-              then Right FunctionDecl {functionName = name}
+              then parseGhcDeclText txt
               else case parseExpr cfg rhs of
                 ParseOk expr -> Right Decl {declName = name, declExpr = expr}
                 ParseErr _
-                  | hasArgs -> Right FunctionDecl {functionName = name}
+                  | hasArgs -> parseGhcDeclText txt
                   | otherwise -> Left "equation declaration"
           Nothing
             | isPatternBindingLhs lhs ->
-                Right PatternDecl {patternLhs = lhs}
+                parseGhcDeclText txt
             | otherwise -> Left "equation declaration"
-
-parseConstructors :: Text -> [Text]
-parseConstructors rhs =
-  let rhsCore = stripDerivingClause rhs
-      parts = filter (not . T.null) (map T.strip (splitTopLevelPipes rhsCore))
-   in mapMaybe constructorNameFromPart parts
-
-splitTopLevelPipes :: Text -> [Text]
-splitTopLevelPipes input = go 0 0 0 input T.empty []
-  where
-    go parenN braceN bracketN remaining current acc =
-      case T.uncons remaining of
-        Nothing -> reverse (current : acc)
-        Just (c, cs)
-          | c == '(' -> go (parenN + 1) braceN bracketN cs (T.snoc current c) acc
-          | c == ')' -> go (max 0 (parenN - 1)) braceN bracketN cs (T.snoc current c) acc
-          | c == '{' -> go parenN (braceN + 1) bracketN cs (T.snoc current c) acc
-          | c == '}' -> go parenN (max 0 (braceN - 1)) bracketN cs (T.snoc current c) acc
-          | c == '[' -> go parenN braceN (bracketN + 1) cs (T.snoc current c) acc
-          | c == ']' -> go parenN braceN (max 0 (bracketN - 1)) cs (T.snoc current c) acc
-          | c == '|' && parenN == 0 && braceN == 0 && bracketN == 0 ->
-              go parenN braceN bracketN cs T.empty (T.strip current : acc)
-          | otherwise ->
-              go parenN braceN bracketN cs (T.snoc current c) acc
-
-constructorNameFromPart :: Text -> Maybe Text
-constructorNameFromPart part =
-  let noBang = T.replace "!" "" part
-      recordHead = T.strip (fst (T.breakOn "{" noBang))
-      tokens = map stripParens (T.words recordHead)
-      symbolic = filter isSymbolicToken tokens
-   in case tokens of
-        [] -> Nothing
-        (firstTok : _)
-          | isTypeToken firstTok -> Just firstTok
-          | otherwise ->
-              case symbolic of
-                (op : _) -> Just op
-                [] -> Nothing
-
-typeNameAfterKeyword :: Text -> Text -> Maybe Text
-typeNameAfterKeyword kw txt = do
-  afterKw <- T.stripPrefix (kw <> " ") txt
-  let beforeEq = T.strip (fst (T.breakOn "=" afterKw))
-      beforeDeriving = T.strip (fst (T.breakOn " deriving" beforeEq))
-      afterCtx = case T.breakOn "=>" beforeDeriving of
-        (lhs, rhs)
-          | T.null rhs -> lhs
-          | otherwise -> T.strip (T.drop 2 rhs)
-      tokens = map stripParens (T.words (T.strip afterCtx))
-  findTypeToken tokens
-
-classOrInstanceName :: Text -> Text -> Maybe Text
-classOrInstanceName kw txt = do
-  afterKw <- T.stripPrefix (kw <> " ") txt
-  let noWhere = T.strip (fst (T.breakOn " where" afterKw))
-      afterCtx = case T.breakOn "=>" noWhere of
-        (lhs, rhs)
-          | T.null rhs -> lhs
-          | otherwise -> T.strip (T.drop 2 rhs)
-      tokens = map stripParens (T.words (T.strip afterCtx))
-  findTypeToken tokens
-
-findTypeToken :: [Text] -> Maybe Text
-findTypeToken = find isTypeToken
 
 extractFunctionName :: Text -> Maybe (Text, Bool, Bool)
 extractFunctionName lhs =
@@ -347,11 +193,6 @@ extractFunctionName lhs =
        in if isVarToken normalized || isOperatorBinderName
             then Just (normalized, not (null rest), isOperatorBinderName)
             else Nothing
-
-stripDerivingClause :: Text -> Text
-stripDerivingClause txt =
-  let (before, after) = T.breakOn " deriving" txt
-   in if T.null after then txt else before
 
 isFixityDecl :: Text -> Bool
 isFixityDecl txt =
@@ -365,21 +206,6 @@ stripParens t =
    in if T.length trimmed >= 2 && T.head trimmed == '(' && T.last trimmed == ')'
         then T.strip (T.init (T.tail trimmed))
         else trimmed
-
-stripPunctuation :: Text -> Text
-stripPunctuation = T.dropAround (\c -> c == '(' || c == ')' || c == ',' || isSpace c)
-
-textInsideParens :: Text -> Text
-textInsideParens txt =
-  let (_, afterOpen) = T.breakOn "(" txt
-      insideWithClose = T.drop 1 afterOpen
-   in fst (T.breakOn ")" insideWithClose)
-
-isTypeToken :: Text -> Bool
-isTypeToken token =
-  case T.uncons (stripPunctuation token) of
-    Just (c, _) -> isUpper c
-    Nothing -> False
 
 isVarToken :: Text -> Bool
 isVarToken token =
@@ -395,9 +221,6 @@ isSymbolicToken tok =
 
 isOperatorToken :: Text -> Bool
 isOperatorToken tok = isSymbolicToken tok && not (T.null tok)
-
-isValueName :: Text -> Bool
-isValueName tok = isVarToken tok || isOperatorToken tok
 
 isPatternBindingLhs :: Text -> Bool
 isPatternBindingLhs lhs =
@@ -446,26 +269,6 @@ equationBinderInfo lineTxt = do
 indentation :: Text -> Int
 indentation = T.length . T.takeWhile (\c -> c == ' ' || c == '\t')
 
-mapMaybe :: (a -> Maybe b) -> [a] -> [b]
-mapMaybe f =
-  foldr
-    ( \x acc ->
-        case f x of
-          Just y -> y : acc
-          Nothing -> acc
-    )
-    []
-
-find :: (a -> Bool) -> [a] -> Maybe a
-find predicate =
-  foldr
-    ( \x acc ->
-        if predicate x
-          then Just x
-          else acc
-    )
-    Nothing
-
 mergeAdjacentFunctions :: [Decl] -> [Decl]
 mergeAdjacentFunctions =
   reverse . foldl merge []
@@ -476,24 +279,22 @@ mergeAdjacentFunctions =
           | prev == curr -> acc
         _ -> decl : acc
 
-shouldPreserveDeclChunks :: [Decl] -> Bool
-shouldPreserveDeclChunks decls =
-  any isStructuralDecl decls && not (any isValueDecl decls)
-  where
-    isStructuralDecl decl =
-      case decl of
-        DataDecl {} -> True
-        NewtypeDecl {} -> True
-        TypeDecl {} -> True
-        ClassDecl {} -> True
-        InstanceDecl {} -> True
-        FixityDecl {} -> True
-        DefaultDecl {} -> True
-        _ -> False
-    isValueDecl decl =
-      case decl of
-        Decl {} -> True
-        _ -> False
+parseSingleDeclWithGhc :: Text -> Either Text (HsDecl GhcPs)
+parseSingleDeclWithGhc declText = do
+  modu <- parseWithGhc ("module Tmp where\n" <> declText <> "\n")
+  case hsmodDecls modu of
+    [singleDecl] -> Right (unLoc singleDecl)
+    _ -> Left "expected exactly one declaration"
+
+parseWithGhc :: Text -> Either Text (HsModule GhcPs)
+parseWithGhc input =
+  let exts = EnumSet.fromList [ForeignFunctionInterface] :: EnumSet.EnumSet Extension
+      opts = Lexer.mkParserOpts exts emptyDiagOpts False False False False
+      buffer = stringToStringBuffer (T.unpack input)
+      start = mkRealSrcLoc (mkFastString "<parser>") 1 1
+   in case Lexer.unP GHCParser.parseModule (Lexer.initParserState opts buffer start) of
+        Lexer.POk _ modu -> Right (unLoc modu)
+        Lexer.PFailed _ -> Left "ghc parser rejected declaration"
 
 valueDeclaration :: MParser Decl
 valueDeclaration = do

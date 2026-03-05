@@ -9,6 +9,7 @@ where
 import Data.Maybe (catMaybes, fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
+import GHC.Utils.Outputable (ppr, showSDocUnsafe)
 import Parser.Ast
 import Prettyprinter
   ( Doc,
@@ -32,16 +33,12 @@ prettyExpr = renderDoc . prettyExprPrec 0
 
 prettyModule :: Module -> Text
 prettyModule modu =
-  renderDoc (vsep (headerLines <> declLines))
+  renderDoc (vsep (headerLines <> map prettyDecl (moduleDecls modu)))
   where
     headerLines =
       case moduleName modu of
         Just name -> ["module" <+> pretty name <+> "where"]
         Nothing -> []
-    declLines =
-      case moduleDeclChunks modu of
-        Just chunks | length chunks == length (moduleDecls modu) -> map pretty chunks
-        _ -> map prettyDecl (moduleDecls modu)
 
 prettyDecl :: Decl -> Doc ann
 prettyDecl decl =
@@ -79,6 +76,7 @@ prettyDecl decl =
             Just "::",
             Just "Int"
           ]
+    GhcDecl decl -> pretty (T.pack (showSDocUnsafe (ppr decl)))
 
 functionBinder :: Text -> Doc ann
 functionBinder name
