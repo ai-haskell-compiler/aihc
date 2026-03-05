@@ -26,17 +26,17 @@ Current progress baseline:
 Run full tests:
 
 ```bash
-nix shell nixpkgs#ghc nixpkgs#cabal-install --command bash -lc 'cd components/haskell-parser && cabal test --test-show-details=direct'
+nix run .#parser-test
 ```
 
 Run progress summary:
 
 ```bash
-nix shell nixpkgs#ghc nixpkgs#cabal-install --command bash -lc 'cd components/haskell-parser && cabal run h2010-progress'
+nix run .#parser-progress
 ```
 
 Strict mode (non-zero exit on regressions or `XPASS`):
 
 ```bash
-nix shell nixpkgs#ghc nixpkgs#cabal-install --command bash -lc 'cd components/haskell-parser && cabal run h2010-progress -- --strict'
+nix run .#parser-progress-strict
 ```

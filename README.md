@@ -11,5 +11,5 @@ Current Haskell2010 progress:
 Recompute progress with:
 
 ```bash
-nix shell nixpkgs#ghc nixpkgs#cabal-install --command bash -lc 'cd components/haskell-parser && cabal run h2010-progress'
+nix run .#parser-progress
 ```
