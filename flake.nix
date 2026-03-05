@@ -71,6 +71,7 @@
         let
           hsPkgs = pkgs.haskellPackages.override {
             overrides = final: prev: {
+              ghc-lib-parser = pkgs.haskell.lib.dontHaddock final.ghc-lib-parser_9_14_1_20251220;
               aihc-parser = final.callCabal2nix "aihc-parser" ./components/haskell-parser { };
               aihc-name-resolution =
                 final.callCabal2nix "aihc-name-resolution" ./components/haskell-name-resolution { };

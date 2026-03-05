@@ -1,4 +1,3 @@
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Test.Oracle
@@ -46,12 +45,7 @@ oracleCanonicalModule input = do
 
 parseWithGhc :: Text -> Either Text (HsModule GhcPs)
 parseWithGhc input =
-  let opts =
-#if MIN_VERSION_ghc_lib_parser(9,10,0)
-        mkParserOpts (EnumSet.empty :: EnumSet.EnumSet Extension) emptyDiagOpts [] False False False False
-#else
-        mkParserOpts (EnumSet.empty :: EnumSet.EnumSet Extension) emptyDiagOpts False False False False
-#endif
+  let opts = mkParserOpts (EnumSet.empty :: EnumSet.EnumSet Extension) emptyDiagOpts False False False False
       buffer = stringToStringBuffer (T.unpack input)
       start = mkRealSrcLoc (mkFastString "<oracle>") 1 1
    in case unP parseModule (initParserState opts buffer start) of
