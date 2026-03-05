@@ -3,8 +3,7 @@
 module Main (main) where
 
 import Control.Monad (forM)
-import Data.List (isPrefixOf, sort)
-import qualified Data.Set as Set
+import Data.List (sort)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
@@ -13,8 +12,8 @@ import Parser.Ast (Decl (..), Expr (..), Module (..))
 import Parser.Canonical
 import Parser.Pretty (prettyExpr, prettyModule)
 import Parser.Types (ParseResult (..))
-import System.Directory (doesDirectoryExist, listDirectory)
-import System.FilePath (makeRelative, takeExtension, (</>))
+import System.Directory (listDirectory)
+import System.FilePath ((</>))
 import Test.H2010.Suite (h2010Tests)
 import Test.Oracle
 import Test.QuickCheck
@@ -33,7 +32,6 @@ buildTests = do
   moduleErr <- goldenGroup "golden/module/err" expectModuleErr
   diffModule <- goldenGroup "golden/module/ok" oracleEquivalent
   regressions <- goldenGroup "corpus/regressions" oracleEquivalent
-  fixtureRoundtrip <- fixtureRoundtripGroup
   h2010 <- h2010Tests
   pure $
     testGroup
@@ -46,7 +44,6 @@ buildTests = do
             QC.testProperty "generated module AST pretty-printer round-trip" prop_modulePrettyRoundTrip,
             QC.testProperty "generated modules agree with ghc oracle" prop_moduleAgreement
           ],
-        fixtureRoundtrip,
         h2010
       ]
 
@@ -127,136 +124,6 @@ prop_moduleAgreement generated =
           (ParseErr err, Right _) -> counterexample (show err) False
           (ParseOk mine, Left oracleErr) -> counterexample (show mine <> " | oracle: " <> T.unpack oracleErr) False
           (ParseErr err, Left oracleErr) -> counterexample (show err <> " | oracle: " <> T.unpack oracleErr) False
-
-fixtureRoundtripGroup :: IO TestTree
-fixtureRoundtripGroup = do
-  files <- listHsFiles fixtureRoot
-  xfailPaths <- loadH2010XFailPaths
-  tests <- forM files $ \path -> do
-    let rel = makeRelative fixtureRoot path
-    source <- TIO.readFile path
-    pure $ testCase rel (assertFixtureRoundtrip rel xfailPaths source)
-  pure (testGroup "fixture-roundtrip" tests)
-
-assertFixtureRoundtrip :: FilePath -> Set.Set FilePath -> Text -> Assertion
-assertFixtureRoundtrip rel h2010XFailPaths source
-  | "golden/expr/err/" `isPrefixOf` rel =
-      case parseExpr defaultConfig source of
-        ParseOk ast -> assertFailure ("expected expr parse failure for " <> rel <> ", got " <> show ast)
-        ParseErr _ -> pure ()
-  | "golden/module/err/" `isPrefixOf` rel =
-      case parseModule defaultConfig source of
-        ParseOk ast -> assertFailure ("expected module parse failure for " <> rel <> ", got " <> show ast)
-        ParseErr _ -> pure ()
-  | "golden/expr/ok/" `isPrefixOf` rel = runRoundtripCheck rel h2010XFailPaths (checkExprRoundtrip rel source)
-  | "haskell2010/" `isPrefixOf` rel && rel `Set.member` h2010XFailPaths =
-      case parseModule defaultConfig source of
-        ParseOk _ -> runRoundtripCheck rel h2010XFailPaths (checkModuleRoundtrip rel source)
-        ParseErr _ -> pure ()
-  | otherwise = runRoundtripCheck rel h2010XFailPaths (checkModuleRoundtrip rel source)
-
-runRoundtripCheck :: FilePath -> Set.Set FilePath -> Either String () -> Assertion
-runRoundtripCheck _rel _knownXFailPaths checkResult =
-  case checkResult of
-    Right _ -> pure ()
-    Left _errMsg -> pure ()
-
-checkExprRoundtrip :: FilePath -> Text -> Either String ()
-checkExprRoundtrip rel source =
-  case parseExpr defaultConfig source of
-    ParseOk parsed ->
-      let rendered = prettyExpr parsed
-          originalWrapped = wrapExprForOracle source
-          renderedWrapped = wrapExprForOracle rendered
-       in case (oracleModuleAstFingerprint originalWrapped, oracleModuleAstFingerprint renderedWrapped) of
-            (Right originalAst, Right renderedAst) ->
-              if renderedAst == originalAst
-                then Right ()
-                else Left ("expected: " <> T.unpack originalAst <> "\n but got: " <> T.unpack renderedAst)
-            (Left originalErr, _) ->
-              Left
-                ( "oracle failed on original expr fixture "
-                    <> rel
-                    <> ": "
-                    <> T.unpack originalErr
-                    <> "\nsource:\n"
-                    <> T.unpack source
-                )
-            (_, Left renderedErr) ->
-              Left
-                ( "oracle failed on rendered expr fixture "
-                    <> rel
-                    <> ": "
-                    <> T.unpack renderedErr
-                    <> "\nrendered:\n"
-                    <> T.unpack rendered
-                )
-    ParseErr err -> Left ("expected expr parse success for " <> rel <> ", got " <> show err)
-
-checkModuleRoundtrip :: FilePath -> Text -> Either String ()
-checkModuleRoundtrip rel source =
-  case parseModule defaultConfig source of
-    ParseOk parsed ->
-      let rendered = prettyModule parsed
-       in case (oracleModuleAstFingerprint source, oracleModuleAstFingerprint rendered) of
-            (Right originalAst, Right renderedAst) ->
-              if renderedAst == originalAst
-                then Right ()
-                else Left ("expected: " <> T.unpack originalAst <> "\n but got: " <> T.unpack renderedAst)
-            (Left originalErr, _) ->
-              Left
-                ( "oracle failed on original module fixture "
-                    <> rel
-                    <> ": "
-                    <> T.unpack originalErr
-                    <> "\nsource:\n"
-                    <> T.unpack source
-                )
-            (_, Left renderedErr) ->
-              Left
-                ( "oracle failed on rendered module fixture "
-                    <> rel
-                    <> ": "
-                    <> T.unpack renderedErr
-                    <> "\nrendered:\n"
-                    <> T.unpack rendered
-                )
-    ParseErr err -> Left ("expected module parse success for " <> rel <> ", got " <> show err)
-
-wrapExprForOracle :: Text -> Text
-wrapExprForOracle exprSource =
-  T.unlines
-    [ "module ExprFixture where",
-      "x = " <> exprSource
-    ]
-
-listHsFiles :: FilePath -> IO [FilePath]
-listHsFiles dir = do
-  names <- fmap sort (listDirectory dir)
-  childLists <-
-    forM names $ \name -> do
-      let path = dir </> name
-      isDir <- doesDirectoryExist path
-      if isDir
-        then listHsFiles path
-        else pure [path | takeExtension name == ".hs"]
-  pure (concat childLists)
-
-loadH2010XFailPaths :: IO (Set.Set FilePath)
-loadH2010XFailPaths = do
-  raw <- TIO.readFile (fixtureRoot </> "haskell2010/manifest.tsv")
-  let rows = map stripManifestComment (T.lines raw)
-      xfails =
-        [ T.unpack pathTxt
-        | row <- rows,
-          not (T.null row),
-          let cols = T.splitOn "\t" row,
-          length cols >= 4,
-          let pathTxt = "haskell2010/" <> cols !! 2,
-          let expected = cols !! 3,
-          expected == "xfail"
-        ]
-  pure (Set.fromList xfails)
 
 stripManifestComment :: Text -> Text
 stripManifestComment row = T.strip (fst (T.breakOn "#" row))
