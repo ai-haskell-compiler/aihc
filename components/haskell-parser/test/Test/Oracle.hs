@@ -38,7 +38,7 @@ import GHC.Types.Name.Reader (RdrName, rdrNameOcc)
 import GHC.Types.SourceText (IntegralLit (..))
 import GHC.Types.SrcLoc (mkRealSrcLoc, unLoc)
 import GHC.Utils.Error (emptyDiagOpts, pprMessages)
-import GHC.Utils.Outputable (ppr, showSDocUnsafe)
+import GHC.Utils.Outputable (Outputable, ppr, showSDocUnsafe)
 import Parser.Canonical
 import Text.Read (readMaybe)
 
@@ -213,8 +213,36 @@ toCanonicalExpr expr =
       let name = unLoc locatedName
           rendered = T.pack (occNameString (rdrNameOcc name))
        in Right (canonicalizeVar rendered)
+    HsIf _ cond yes no ->
+      CIf <$> toCanonicalExpr (unLoc cond) <*> toCanonicalExpr (unLoc yes) <*> toCanonicalExpr (unLoc no)
+    HsLam _ _ mg -> toCanonicalLambda mg
     HsPar _ inner -> toCanonicalExpr (unLoc inner)
     HsApp _ f x -> CApp <$> toCanonicalExpr (unLoc f) <*> toCanonicalExpr (unLoc x)
+    OpApp _ lhs op rhs ->
+      CInfix
+        <$> toCanonicalExpr (unLoc lhs)
+        <*> toCanonicalOperator (unLoc op)
+        <*> toCanonicalExpr (unLoc rhs)
+    NegApp _ inner _ -> CNegate <$> toCanonicalExpr (unLoc inner)
+    SectionL _ lhs op ->
+      CSectionL <$> toCanonicalExpr (unLoc lhs) <*> toCanonicalOperator (unLoc op)
+    SectionR _ op rhs ->
+      CSectionR <$> toCanonicalOperator (unLoc op) <*> toCanonicalExpr (unLoc rhs)
+    HsLet _ localBinds body ->
+      CLet <$> toCanonicalLocalBinds localBinds <*> toCanonicalExpr (unLoc body)
+    HsCase _ scrutinee mg ->
+      CCase <$> toCanonicalExpr (unLoc scrutinee) <*> toCanonicalCaseAlts mg
+    HsDo _ ctxt locatedStmts ->
+      case ctxt of
+        ListComp -> toCanonicalListComp (toList (unLoc locatedStmts))
+        _ -> CDo <$> traverse toCanonicalDoStmt (toList (unLoc locatedStmts))
+    ArithSeq _ _ seqInfo -> CArithSeq <$> toCanonicalArithSeq seqInfo
+    RecordCon _ conName fields ->
+      CRecordCon (renderText conName) <$> toCanonicalRecordFields fields
+    RecordUpd {rupd_expr = baseExpr} ->
+      CRecordUpd <$> toCanonicalExpr (unLoc baseExpr) <*> pure []
+    ExprWithTySig _ inner ty ->
+      CTypeSig <$> toCanonicalExpr (unLoc inner) <*> pure (renderText ty)
     ExplicitList _ values -> CList <$> traverse (toCanonicalExpr . unLoc) (toList values)
     ExplicitTuple _ args _ ->
       if all isTupleMissing args
@@ -254,3 +282,149 @@ toTupleArgExpr arg =
   case arg of
     Present _ expr -> toCanonicalExpr (unLoc expr)
     Missing _ -> Left "mixed tuple sections unsupported"
+
+toCanonicalLambda :: MatchGroup GhcPs (LHsExpr GhcPs) -> Either String CanonicalExpr
+toCanonicalLambda mg =
+  case toList (unLoc (mg_alts mg)) of
+    [locatedMatch] ->
+      let match = unLoc locatedMatch
+       in case toSimpleMatchBody match of
+            Just body ->
+              Right
+                ( CLambda
+                    [renderText pat | pat <- unLoc (m_pats match)]
+                    body
+                )
+            Nothing -> Left "unsupported lambda body"
+    _ -> Left "unsupported lambda alternatives"
+
+toSimpleMatchBody :: Match GhcPs (LHsExpr GhcPs) -> Maybe CanonicalExpr
+toSimpleMatchBody match =
+  case m_grhss match of
+    GRHSs _ grhss _ ->
+      case toList grhss of
+        [grhs] ->
+          case unLoc grhs of
+            GRHS _ [] body ->
+              case toCanonicalExpr (unLoc body) of
+                Right canonExpr -> Just canonExpr
+                Left _ -> Nothing
+            _ -> Nothing
+        _ -> Nothing
+    XGRHSs _ -> Nothing
+
+toCanonicalOperator :: HsExpr GhcPs -> Either String Text
+toCanonicalOperator opExpr =
+  case opExpr of
+    HsVar _ locatedName -> Right (renderRdrName (unLoc locatedName))
+    _ -> Right (renderText opExpr)
+
+toCanonicalLocalBinds :: HsLocalBinds GhcPs -> Either String [(Text, CanonicalExpr)]
+toCanonicalLocalBinds localBinds =
+  case localBinds of
+    HsValBinds _ valBinds ->
+      case valBinds of
+        ValBinds _ bag _ -> do
+          let binds = toList bag
+          fmap concat (traverse toCanonicalLocalBind binds)
+        XValBindsLR (NValBinds binds _) ->
+          concat
+            <$> traverse
+              ( \(_, bag) ->
+                  fmap concat (traverse toCanonicalLocalBind (toList bag))
+              )
+              binds
+    EmptyLocalBinds _ -> Right []
+    _ -> Left "unsupported let bindings"
+
+toCanonicalLocalBind :: LHsBindLR GhcPs GhcPs -> Either String [(Text, CanonicalExpr)]
+toCanonicalLocalBind locatedBind =
+  case unLoc locatedBind of
+    FunBind {fun_id = locatedName, fun_matches = MG {mg_alts = locatedMatches}} ->
+      case toList (unLoc locatedMatches) of
+        [singleMatch] ->
+          case toSimpleMatchBody (unLoc singleMatch) of
+            Just body -> Right [(occNameText (unLoc locatedName), body)]
+            Nothing -> Left "unsupported let binding rhs"
+        _ -> Left "unsupported let binding matches"
+    _ -> Left "unsupported let binding"
+
+toCanonicalCaseAlts :: MatchGroup GhcPs (LHsExpr GhcPs) -> Either String [CanonicalCaseAlt]
+toCanonicalCaseAlts mg = traverse toCanonicalCaseAlt (toList (unLoc (mg_alts mg)))
+
+toCanonicalCaseAlt :: LMatch GhcPs (LHsExpr GhcPs) -> Either String CanonicalCaseAlt
+toCanonicalCaseAlt locatedMatch =
+  let match = unLoc locatedMatch
+   in case unLoc (m_pats match) of
+        [pat] ->
+          case toSimpleMatchBody match of
+            Just body ->
+              Right
+                CanonicalCaseAlt
+                  { canonicalCaseAltPattern = renderText pat,
+                    canonicalCaseAltExpr = body
+                  }
+            Nothing -> Left "unsupported case alternative"
+        _ -> Left "unsupported case pattern"
+
+toCanonicalDoStmt :: ExprLStmt GhcPs -> Either String CanonicalDoStmt
+toCanonicalDoStmt locatedStmt =
+  case unLoc locatedStmt of
+    LastStmt _ body _ _ -> CDoExpr <$> toCanonicalExpr (unLoc body)
+    BodyStmt _ body _ _ -> CDoExpr <$> toCanonicalExpr (unLoc body)
+    BindStmt _ pat body ->
+      CDoBind (renderText pat) <$> toCanonicalExpr (unLoc body)
+    LetStmt _ localBinds -> CDoLet <$> toCanonicalLocalBinds localBinds
+    _ -> Left "unsupported do statement"
+
+toCanonicalListComp :: [ExprLStmt GhcPs] -> Either String CanonicalExpr
+toCanonicalListComp stmts =
+  case reverse stmts of
+    [] -> Left "unsupported list comprehension"
+    (lastStmt : reversedQuals) ->
+      case unLoc lastStmt of
+        LastStmt _ body _ _ ->
+          CListComp <$> toCanonicalExpr (unLoc body) <*> traverse toCanonicalCompStmt (reverse reversedQuals)
+        _ -> Left "unsupported list comprehension"
+
+toCanonicalCompStmt :: ExprLStmt GhcPs -> Either String CanonicalCompStmt
+toCanonicalCompStmt locatedStmt =
+  case unLoc locatedStmt of
+    BindStmt _ pat body ->
+      CCompGen (renderText pat) <$> toCanonicalExpr (unLoc body)
+    LetStmt _ localBinds -> CCompLet <$> toCanonicalLocalBinds localBinds
+    BodyStmt _ guardExpr _ _ -> CCompGuard <$> toCanonicalExpr (unLoc guardExpr)
+    _ -> Left "unsupported list-comprehension qualifier"
+
+toCanonicalArithSeq :: ArithSeqInfo GhcPs -> Either String CanonicalArithSeq
+toCanonicalArithSeq seqInfo =
+  case seqInfo of
+    From start -> CArithSeqFrom <$> toCanonicalExpr (unLoc start)
+    FromThen start next -> CArithSeqFromThen <$> toCanonicalExpr (unLoc start) <*> toCanonicalExpr (unLoc next)
+    FromTo start end -> CArithSeqFromTo <$> toCanonicalExpr (unLoc start) <*> toCanonicalExpr (unLoc end)
+    FromThenTo start next end ->
+      CArithSeqFromThenTo
+        <$> toCanonicalExpr (unLoc start)
+        <*> toCanonicalExpr (unLoc next)
+        <*> toCanonicalExpr (unLoc end)
+
+toCanonicalRecordFields :: HsRecordBinds GhcPs -> Either String [(Text, CanonicalExpr)]
+toCanonicalRecordFields fields =
+  traverse toCanonicalRecordField (toList (rec_flds fields))
+
+toCanonicalRecordField :: LHsRecField GhcPs (LHsExpr GhcPs) -> Either String (Text, CanonicalExpr)
+toCanonicalRecordField locatedField =
+  let field = unLoc locatedField
+   in do
+        expr <- toCanonicalExpr (unLoc (hfbRHS field))
+        pure (renderText (hfbLHS field), expr)
+
+renderRdrName :: RdrName -> Text
+renderRdrName = T.pack . occNameString . rdrNameOcc
+
+renderText :: (Outputable a) => a -> Text
+renderText = normalizeRenderedText . T.pack . showSDocUnsafe . ppr
+
+normalizeRenderedText :: Text -> Text
+normalizeRenderedText =
+  T.unwords . T.words

@@ -1,6 +1,10 @@
 module Parser.Ast
-  ( CallConv (..),
+  ( ArithSeq (..),
+    CallConv (..),
+    CaseAlt (..),
+    CompStmt (..),
     Decl (..),
+    DoStmt (..),
     Expr (..),
     ForeignDirection (..),
     ForeignSafety (..),
@@ -61,8 +65,47 @@ data Expr
   | EFloat Double
   | EChar Char
   | EString Text
+  | EIf Expr Expr Expr
+  | ELambda [Text] Expr
+  | EInfix Expr Text Expr
+  | ENegate Expr
+  | ESectionL Expr Text
+  | ESectionR Text Expr
+  | ELet [(Text, Expr)] Expr
+  | ECase Expr [CaseAlt]
+  | EDo [DoStmt]
+  | EListComp Expr [CompStmt]
+  | EArithSeq ArithSeq
+  | ERecordCon Text [(Text, Expr)]
+  | ERecordUpd Expr [(Text, Expr)]
+  | ETypeSig Expr Text
   | EList [Expr]
   | ETuple [Expr]
   | ETupleCon Int
   | EApp Expr Expr
+  deriving (Eq, Show)
+
+data CaseAlt = CaseAlt
+  { caseAltPattern :: Text,
+    caseAltExpr :: Expr
+  }
+  deriving (Eq, Show)
+
+data DoStmt
+  = DoBind Text Expr
+  | DoLet [(Text, Expr)]
+  | DoExpr Expr
+  deriving (Eq, Show)
+
+data CompStmt
+  = CompGen Text Expr
+  | CompGuard Expr
+  | CompLet [(Text, Expr)]
+  deriving (Eq, Show)
+
+data ArithSeq
+  = ArithSeqFrom Expr
+  | ArithSeqFromThen Expr Expr
+  | ArithSeqFromTo Expr Expr
+  | ArithSeqFromThenTo Expr Expr Expr
   deriving (Eq, Show)
