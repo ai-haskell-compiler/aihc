@@ -8,6 +8,8 @@ module Parser
 
 import Data.Char (isAlphaNum)
 import Data.List.NonEmpty (NonEmpty ((:|)))
+import qualified Data.List.NonEmpty as NE
+import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Void (Void)
@@ -15,6 +17,7 @@ import Parser.Ast
 import Parser.Types
 import Text.Megaparsec
   ( Parsec
+  , choice
   , errorOffset
   , eof
   , many
@@ -149,12 +152,10 @@ typeConstructor = lexeme scLine $ do
 
 identifierLexeme :: MParser () -> MParser Text
 identifierLexeme sc = lexeme sc $ do
+  notFollowedBy reservedWord
   first <- C.letterChar <|> C.char '_'
   rest <- many identTailChar
-  let ident = T.pack (first : rest)
-  if ident `elem` reservedWords
-    then fail "identifier"
-    else pure ident
+  pure (T.pack (first : rest))
 
 identTailChar :: MParser Char
 identTailChar =
@@ -211,13 +212,31 @@ bundleToError input bundle =
       let off = errorOffset firstErr
           (ln, cl) = offsetToLineCol input off
           foundTok = tokenAt input off
+          expectedItems = toExpectations firstErr
        in ParseError
             { offset = off
             , line = ln
             , col = cl
-            , expected = ["valid syntax"]
+            , expected =
+                if null expectedItems
+                  then ["valid syntax"]
+                  else expectedItems
             , found = foundTok
             }
+
+toExpectations :: MP.ParseError Text Void -> [Text]
+toExpectations parseErr =
+  case parseErr of
+    MP.TrivialError _ _ expectedItems ->
+      map renderErrorItem (Set.toList expectedItems)
+    MP.FancyError _ _ -> []
+
+renderErrorItem :: MP.ErrorItem Char -> Text
+renderErrorItem item =
+  case item of
+    MP.Tokens chars -> T.pack (NE.toList chars)
+    MP.Label labelChars -> T.pack (NE.toList labelChars)
+    MP.EndOfInput -> "<eof>"
 
 offsetToLineCol :: Text -> Int -> (Int, Int)
 offsetToLineCol input rawOffset =
@@ -239,3 +258,9 @@ tokenAt input off
 
 reservedWords :: [Text]
 reservedWords = ["module", "where", "data"]
+
+reservedWord :: MParser ()
+reservedWord =
+  choice (map oneReservedWord reservedWords)
+  where
+    oneReservedWord kw = try (C.string kw *> notFollowedBy identTailOrStartChar)
