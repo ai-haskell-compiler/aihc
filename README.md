@@ -3,14 +3,15 @@
 ## Docs
 
 - [Haskell 2010 Language Report (Markdown)](docs/haskell2010-language-report.md)
+- [Compiler Pipeline Overview](PIPELINE.md)
 
 ## Parser Progress
 
 The from-scratch parser lives in `components/haskell-parser`.
 
 Current Haskell2010 progress:
-- `19/194` syntax cases implemented (`12.88%` complete)
-- status breakdown: `PASS=19`, `XFAIL=169`, `XPASS=6`, `FAIL=0`
+- `41/194` syntax cases implemented (`24.22%` complete)
+- status breakdown: `PASS=41`, `XFAIL=147`, `XPASS=6`, `FAIL=0`
 
 Recompute progress with:
 

@@ -129,6 +129,8 @@ reservedWords =
     "deriving",
     "do",
     "else",
+    "export",
+    "foreign",
     "if",
     "import",
     "in",

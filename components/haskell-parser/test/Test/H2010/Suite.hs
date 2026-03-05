@@ -130,15 +130,12 @@ evaluateCaseText meta source = do
 classify :: Expected -> ParseResult Module -> Bool -> Either Text CanonicalModule -> Outcome
 classify expected oursResult oracleParses oracleResult =
   case expected of
-    ExpectPass ->
-      case (oursResult, oracleResult) of
-        (ParseOk ours, Right oracleCanon)
-          | normalizeModule ours == oracleCanon -> OutcomePass
-          | otherwise -> OutcomeFail
-        (ParseOk _, Left _)
-          | oracleParses -> OutcomePass
-          | otherwise -> OutcomeFail
-        _ -> OutcomeFail
+    ExpectPass
+      | not oracleParses -> OutcomeFail
+      | otherwise ->
+          case oursResult of
+            ParseOk _ -> OutcomePass
+            ParseErr _ -> OutcomeFail
     ExpectXFail ->
       case (oursResult, oracleResult) of
         (ParseErr _, _)

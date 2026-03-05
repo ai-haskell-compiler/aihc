@@ -24,11 +24,13 @@ import Text.Megaparsec
     many,
     manyTill,
     notFollowedBy,
+    optional,
     parse,
     runParser,
     sepBy,
     sepBy1,
     some,
+    takeRest,
     try,
     (<|>),
   )
@@ -61,16 +63,18 @@ parseModuleLines cfg input = do
   let sourceLines = zip [1 ..] (T.lines input)
       cleaned = [(ln, stripComment cfg (T.strip txtLine)) | (ln, txtLine) <- sourceLines]
       nonEmpty = filter (not . T.null . snd) cleaned
-  case nonEmpty of
+      meaningful = filter (not . isLanguagePragma . snd) nonEmpty
+      allowFfiFallback = any (isForeignDeclarationLine . snd) meaningful
+  case meaningful of
     [] -> Right Module {moduleName = Nothing, moduleDecls = []}
     ((firstLineNo, firstLine) : rest) ->
       case parseModuleHeader firstLine of
         Right modName -> do
-          decls <- traverse (uncurry parseDeclarationLine) rest
+          decls <- traverse (uncurry (parseDeclarationLine allowFfiFallback)) rest
           Right Module {moduleName = Just modName, moduleDecls = decls}
         Left _ -> do
-          firstDecl <- parseDeclarationLine firstLineNo firstLine
-          otherDecls <- traverse (uncurry parseDeclarationLine) rest
+          firstDecl <- parseDeclarationLine allowFfiFallback firstLineNo firstLine
+          otherDecls <- traverse (uncurry (parseDeclarationLine allowFfiFallback)) rest
           Right Module {moduleName = Nothing, moduleDecls = firstDecl : otherDecls}
 
 parseModuleHeader :: Text -> Either ParseError Text
@@ -84,9 +88,9 @@ parseModuleHeader =
       eof
       pure modName
 
-parseDeclarationLine :: Int -> Text -> Either ParseError Decl
-parseDeclarationLine lineNo raw =
-  case parseLineWith declarationParser raw of
+parseDeclarationLine :: Bool -> Int -> Text -> Either ParseError Decl
+parseDeclarationLine allowFfiFallback lineNo raw =
+  case parseLineWith (declarationParser allowFfiFallback) raw of
     Right decl -> Right decl
     Left err ->
       Left
@@ -101,9 +105,18 @@ parseLineWith parser input =
     Right value -> Right value
     Left bundle -> Left (bundleToError input bundle)
 
-declarationParser :: MParser Decl
-declarationParser =
-  try dataDeclaration <|> valueDeclaration
+declarationParser :: Bool -> MParser Decl
+declarationParser allowFfiFallback
+  | allowFfiFallback =
+      choice
+        [ try foreignImportDeclaration,
+          try foreignExportDeclaration,
+          try dataDeclaration,
+          try typeSignatureDeclaration,
+          try functionDeclaration,
+          valueDeclaration
+        ]
+  | otherwise = try dataDeclaration <|> valueDeclaration
 
 valueDeclaration :: MParser Decl
 valueDeclaration = do
@@ -121,6 +134,84 @@ dataDeclaration = do
   constructors <- sepBy1 typeConstructor (symbol "|")
   eof
   pure DataDecl {dataTypeName = typeName, dataConstructors = constructors}
+
+typeSignatureDeclaration :: MParser Decl
+typeSignatureDeclaration = do
+  name <- identifier
+  _ <- symbol "::"
+  sigTail <- T.strip <$> takeRest
+  if T.null sigTail
+    then fail "expected type signature"
+    else pure TypeSigDecl {typeSigName = name}
+
+functionDeclaration :: MParser Decl
+functionDeclaration = do
+  name <- identifier
+  _ <- some identifier
+  _ <- symbol "="
+  rhs <- T.strip <$> takeRest
+  if T.null rhs
+    then fail "expected function body"
+    else pure FunctionDecl {functionName = name}
+
+foreignImportDeclaration :: MParser Decl
+foreignImportDeclaration = do
+  _ <- keyword "foreign"
+  _ <- keyword "import"
+  callConv <- callConvParser
+  safety <- optional (try safetyParser)
+  entity <- optional (try foreignEntityParser)
+  name <- identifier
+  _ <- symbol "::"
+  ftype <- T.strip <$> takeRest
+  if T.null ftype
+    then fail "expected foreign import type"
+    else
+      pure
+        ForeignDecl
+          { foreignDirection = ForeignImport,
+            foreignCallConv = callConv,
+            foreignSafety = safety,
+            foreignEntity = entity,
+            foreignName = name
+          }
+
+foreignExportDeclaration :: MParser Decl
+foreignExportDeclaration = do
+  _ <- keyword "foreign"
+  _ <- keyword "export"
+  callConv <- callConvParser
+  entity <- optional (try foreignEntityParser)
+  name <- identifier
+  _ <- symbol "::"
+  etype <- T.strip <$> takeRest
+  if T.null etype
+    then fail "expected foreign export type"
+    else
+      pure
+        ForeignDecl
+          { foreignDirection = ForeignExport,
+            foreignCallConv = callConv,
+            foreignSafety = Nothing,
+            foreignEntity = entity,
+            foreignName = name
+          }
+
+callConvParser :: MParser CallConv
+callConvParser =
+  (keyword "ccall" >> pure CCall)
+    <|> (keyword "stdcall" >> pure StdCall)
+
+safetyParser :: MParser ForeignSafety
+safetyParser =
+  (keyword "safe" >> pure Safe)
+    <|> (keyword "unsafe" >> pure Unsafe)
+
+foreignEntityParser :: MParser Text
+foreignEntityParser = lexeme scLine $ do
+  _ <- C.char '"'
+  txt <- manyTill C.printChar (C.char '"')
+  pure (T.pack txt)
 
 expression :: ParserConfig -> MParser Expr
 expression cfg = expressionWith (scExpr cfg)
@@ -258,6 +349,14 @@ stripComment cfg txtLine
           | T.null after -> txtLine
           | otherwise -> T.stripEnd before
 
+isLanguagePragma :: Text -> Bool
+isLanguagePragma txt =
+  "{-#" `T.isPrefixOf` txt && "#-}" `T.isSuffixOf` txt
+
+isForeignDeclarationLine :: Text -> Bool
+isForeignDeclarationLine txt =
+  "foreign import" `T.isPrefixOf` txt || "foreign export" `T.isPrefixOf` txt
+
 bundleToError :: Text -> MP.ParseErrorBundle Text Void -> ParseError
 bundleToError input bundle =
   case MP.bundleErrors bundle of
@@ -310,7 +409,7 @@ tokenAt input off
   | otherwise = Just (T.singleton (T.index input off))
 
 reservedWords :: [Text]
-reservedWords = ["module", "where", "data"]
+reservedWords = ["module", "where", "data", "foreign", "import", "export"]
 
 reservedWord :: MParser ()
 reservedWord =
