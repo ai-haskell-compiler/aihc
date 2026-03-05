@@ -206,6 +206,12 @@ types-inline-signature-context	types	types/inline-signature-context.hs	xfail	exp
 types-inline-signature-lambda	types	types/inline-signature-lambda.hs	xfail	inline lambda body type signatures unsupported
 types-let-signature	types	types/let-signature.hs	xfail	local let type signatures unsupported
 types-guard-inline-signature	types	types/guard-inline-signature.hs	xfail	inline type signatures in guards unsupported
+types-list-type-constructor	types	types/list-type-constructor.hs	pass	
+types-maybe-type-constructor	types	types/maybe-type-constructor.hs	pass	
+types-function-type-constructor	types	types/function-type-constructor.hs	pass	
+types-function-type-constructor-partial	types	types/function-type-constructor-partial.hs	pass	
+types-tuple-type-constructor	types	types/tuple-type-constructor.hs	pass	
+types-nested-maybe-list	types	types/nested-maybe-list.hs	pass	
 
 layout-let	layout	layout/let-layout.hs	xfail	layout-sensitive let unsupported
 layout-where	layout	layout/where-layout.hs	pass	layout-sensitive where unsupported
