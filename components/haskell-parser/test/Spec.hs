@@ -168,11 +168,11 @@ checkExprRoundtrip rel source =
       let rendered = prettyExpr parsed
           originalWrapped = wrapExprForOracle source
           renderedWrapped = wrapExprForOracle rendered
-       in case (oracleCanonicalModule originalWrapped, oracleCanonicalModule renderedWrapped) of
-            (Right originalCanon, Right renderedCanon) ->
-              if renderedCanon == originalCanon
+       in case (oracleModuleAstFingerprint originalWrapped, oracleModuleAstFingerprint renderedWrapped) of
+            (Right originalAst, Right renderedAst) ->
+              if renderedAst == originalAst
                 then Right ()
-                else Left ("expected: " <> show originalCanon <> "\n but got: " <> show renderedCanon)
+                else Left ("expected: " <> T.unpack originalAst <> "\n but got: " <> T.unpack renderedAst)
             (Left originalErr, _) ->
               Left
                 ( "oracle failed on original expr fixture "
@@ -198,11 +198,11 @@ checkModuleRoundtrip rel source =
   case parseModule defaultConfig source of
     ParseOk parsed ->
       let rendered = prettyModule parsed
-       in case (oracleCanonicalModule source, oracleCanonicalModule rendered) of
-            (Right originalCanon, Right renderedCanon) ->
-              if renderedCanon == originalCanon
+       in case (oracleModuleAstFingerprint source, oracleModuleAstFingerprint rendered) of
+            (Right originalAst, Right renderedAst) ->
+              if renderedAst == originalAst
                 then Right ()
-                else Left ("expected: " <> show originalCanon <> "\n but got: " <> show renderedCanon)
+                else Left ("expected: " <> T.unpack originalAst <> "\n but got: " <> T.unpack renderedAst)
             (Left originalErr, _) ->
               Left
                 ( "oracle failed on original module fixture "
