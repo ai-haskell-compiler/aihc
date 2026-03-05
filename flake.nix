@@ -56,6 +56,36 @@
             cabal run h2010-progress -- --strict
           '';
 
+          name-resolution-test = mkApp "name-resolution-test" ''
+            set -euo pipefail
+            test -d components/haskell-name-resolution || {
+              echo "Run this app from the repository root." >&2
+              exit 1
+            }
+            cd components/haskell-name-resolution
+            cabal test --test-show-details=direct
+          '';
+
+          name-resolution-progress = mkApp "name-resolution-progress" ''
+            set -euo pipefail
+            test -d components/haskell-name-resolution || {
+              echo "Run this app from the repository root." >&2
+              exit 1
+            }
+            cd components/haskell-name-resolution
+            cabal run name-resolution-progress
+          '';
+
+          name-resolution-progress-strict = mkApp "name-resolution-progress-strict" ''
+            set -euo pipefail
+            test -d components/haskell-name-resolution || {
+              echo "Run this app from the repository root." >&2
+              exit 1
+            }
+            cd components/haskell-name-resolution
+            cabal run name-resolution-progress -- --strict
+          '';
+
           default = mkApp "default" ''
             set -euo pipefail
             test -d components/haskell-parser || {
@@ -65,6 +95,29 @@
             cd components/haskell-parser
             cabal test --test-show-details=direct
           '';
+        });
+
+      checks = forAllSystems (pkgs:
+        let
+          hsPkgs = pkgs.haskellPackages.override {
+            overrides = final: prev: {
+              ghc-lib-parser = pkgs.haskell.lib.dontHaddock final.ghc-lib-parser_9_14_1_20251220;
+              aihc-parser = final.callCabal2nix "aihc-parser" ./components/haskell-parser { };
+              aihc-name-resolution =
+                final.callCabal2nix "aihc-name-resolution" ./components/haskell-name-resolution { };
+            };
+          };
+          parserTests = pkgs.haskell.lib.doCheck (pkgs.haskell.lib.dontHaddock hsPkgs.aihc-parser);
+          nameResolutionTests =
+            pkgs.haskell.lib.doCheck (pkgs.haskell.lib.dontHaddock hsPkgs.aihc-name-resolution);
+        in {
+          parser-tests = parserTests;
+          name-resolution-tests = nameResolutionTests;
+          all-tests =
+            pkgs.linkFarm "aihc-all-tests" [
+              { name = "parser-tests"; path = parserTests; }
+              { name = "name-resolution-tests"; path = nameResolutionTests; }
+            ];
         });
     };
 }
