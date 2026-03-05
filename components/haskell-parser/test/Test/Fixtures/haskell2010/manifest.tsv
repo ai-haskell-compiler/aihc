@@ -198,6 +198,14 @@ pat-contexts	patterns	patterns/contexts.hs	xfail	pattern matching contexts unsup
 types-context	types	types/context.hs	pass	type contexts unsupported
 types-tuple-list	types	types/tuple-list-types.hs	pass	complex type signatures unsupported
 types-newtype-record	types	types/newtype-record.hs	pass	record syntax unsupported
+types-multi-vars-signature	types	types/multi-vars-signature.hs	pass	
+types-context-multi-vars	types	types/context-multi-vars.hs	pass	
+types-signature-where	types	types/signature-where.hs	xfail	local type signatures in where bindings unsupported
+types-inline-signature-basic	types	types/inline-signature-basic.hs	xfail	expression type signatures in declarations unsupported
+types-inline-signature-context	types	types/inline-signature-context.hs	xfail	expression type signatures with contexts unsupported
+types-inline-signature-lambda	types	types/inline-signature-lambda.hs	xfail	inline lambda body type signatures unsupported
+types-let-signature	types	types/let-signature.hs	xfail	local let type signatures unsupported
+types-guard-inline-signature	types	types/guard-inline-signature.hs	xfail	inline type signatures in guards unsupported
 
 layout-let	layout	layout/let-layout.hs	xfail	layout-sensitive let unsupported
 layout-where	layout	layout/where-layout.hs	pass	layout-sensitive where unsupported
