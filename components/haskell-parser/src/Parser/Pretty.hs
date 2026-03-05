@@ -6,42 +6,58 @@ module Parser.Pretty
   )
 where
 
-import Data.Maybe (fromMaybe)
+import Data.Maybe (catMaybes, fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Parser.Ast
+import Prettyprinter
+  ( Doc,
+    Pretty (pretty),
+    braces,
+    brackets,
+    comma,
+    defaultLayoutOptions,
+    hsep,
+    layoutPretty,
+    parens,
+    punctuate,
+    semi,
+    vsep,
+    (<+>),
+  )
+import Prettyprinter.Render.Text (renderStrict)
 
 prettyExpr :: Expr -> Text
-prettyExpr = prettyExprPrec 0
+prettyExpr = renderDoc . prettyExprPrec 0
 
 prettyModule :: Module -> Text
 prettyModule modu =
-  T.unlines (headerLines <> map prettyDecl (moduleDecls modu))
+  renderDoc (vsep (headerLines <> map prettyDecl (moduleDecls modu)))
   where
     headerLines =
       case moduleName modu of
-        Just name -> ["module " <> name <> " where"]
+        Just name -> ["module" <+> pretty name <+> "where"]
         Nothing -> []
 
-prettyDecl :: Decl -> Text
+prettyDecl :: Decl -> Doc ann
 prettyDecl decl =
   case decl of
-    Decl {declName = name, declExpr = expr} -> name <> " = " <> prettyExpr expr
-    PatternDecl {patternLhs = lhs} -> lhs <> " = 0"
-    TypeSigDecl {typeSigName = name} -> name <> " :: T"
-    FunctionDecl {functionName = name} -> functionBinder name <> " _x = ?"
-    TypeDecl {typeName = name} -> "type " <> name <> " = " <> name
-    DataDecl {dataTypeName = typeName, dataConstructors = ctors} ->
+    Decl {declName = name, declExpr = expr} -> pretty name <+> "=" <+> prettyExprPrec 0 expr
+    PatternDecl {patternLhs = lhs} -> pretty lhs <+> "=" <+> "0"
+    TypeSigDecl {typeSigName = name} -> pretty name <+> "::" <+> "T"
+    FunctionDecl {functionName = name} -> functionBinder name <+> "_x" <+> "=" <+> "?"
+    TypeDecl {typeName = name} -> "type" <+> pretty name <+> "=" <+> pretty name
+    DataDecl {dataTypeName = dataType, dataConstructors = ctors} ->
       if null ctors
-        then "data " <> typeName
-        else "data " <> typeName <> " = " <> T.intercalate " | " ctors
+        then "data" <+> pretty dataType
+        else "data" <+> pretty dataType <+> "=" <+> hsep (punctuate "|" (map pretty ctors))
     NewtypeDecl {newtypeName = name, newtypeConstructor = ctor} ->
-      "newtype " <> name <> " = " <> fromMaybe ("Mk" <> name) ctor
-    ClassDecl {className = name} -> "class " <> name <> " where"
-    InstanceDecl {instanceClassName = name} -> "instance " <> name <> " where"
+      "newtype" <+> pretty name <+> "=" <+> pretty (fromMaybe ("Mk" <> name) ctor)
+    ClassDecl {className = name} -> "class" <+> pretty name <+> "where"
+    InstanceDecl {instanceClassName = name} -> "instance" <+> pretty name <+> "where"
     FixityDecl {fixityAssoc = assoc, fixityPrecedence = prec, fixityOperator = op} ->
-      assoc <> maybe "" ((" " <>) . T.pack . show) prec <> " " <> op
-    DefaultDecl {defaultTypes = tys} -> "default (" <> T.intercalate ", " tys <> ")"
+      hsep (pretty assoc : maybe [] (pure . pretty . show) prec <> [pretty op])
+    DefaultDecl {defaultTypes = tys} -> "default" <+> parens (hsep (punctuate comma (map pretty tys)))
     ForeignDecl
       { foreignDirection = direction,
         foreignCallConv = callConv,
@@ -49,124 +65,128 @@ prettyDecl decl =
         foreignEntity = entity,
         foreignName = name
       } ->
-        T.unwords
-          [ "foreign",
-            directionText direction,
-            callConvText callConv,
-            maybe "" safetyText safety,
-            maybe "" quoted entity,
-            name,
-            "::",
-            "Int"
+        hsep . catMaybes $
+          [ Just "foreign",
+            Just (directionText direction),
+            Just (callConvText callConv),
+            safetyText <$> safety,
+            quoted <$> entity,
+            Just (pretty name),
+            Just "::",
+            Just "Int"
           ]
 
-functionBinder :: Text -> Text
+functionBinder :: Text -> Doc ann
 functionBinder name
-  | isOperatorToken name = "(" <> name <> ")"
-  | otherwise = name
+  | isOperatorToken name = parens (pretty name)
+  | otherwise = pretty name
 
-prettyExprPrec :: Int -> Expr -> Text
+prettyExprPrec :: Int -> Expr -> Doc ann
 prettyExprPrec prec expr =
   case expr of
     EApp fn arg ->
-      parenthesize (prec > 2) (prettyExprPrec 2 fn <> " " <> prettyExprPrec 3 arg)
-    EVar name -> name
-    EInt value -> T.pack (show value)
-    EFloat value -> T.pack (show value)
-    EChar value -> T.pack (show value)
-    EString value -> T.pack (show value)
+      parenthesize (prec > 2) (prettyExprPrec 2 fn <+> prettyExprPrec 3 arg)
+    EVar name -> pretty name
+    EInt value -> pretty (show value)
+    EFloat value -> pretty (show value)
+    EChar value -> pretty (show value)
+    EString value -> pretty (show value)
     EIf cond yes no ->
       parenthesize
         (prec > 0)
-        ("if " <> prettyExpr cond <> " then " <> prettyExpr yes <> " else " <> prettyExpr no)
-    ELambda params body -> parenthesize (prec > 0) ("\\" <> T.unwords params <> " -> " <> prettyExpr body)
-    EInfix lhs op rhs -> parenthesize (prec > 1) (prettyExprPrec 1 lhs <> " " <> op <> " " <> prettyExprPrec 1 rhs)
+        ("if" <+> prettyExprPrec 0 cond <+> "then" <+> prettyExprPrec 0 yes <+> "else" <+> prettyExprPrec 0 no)
+    ELambda params body ->
+      parenthesize (prec > 0) ("\\" <> hsep (map pretty params) <+> "->" <+> prettyExprPrec 0 body)
+    EInfix lhs op rhs -> parenthesize (prec > 1) (prettyExprPrec 1 lhs <+> pretty op <+> prettyExprPrec 1 rhs)
     ENegate inner -> parenthesize (prec > 2) ("-" <> prettyExprPrec 3 inner)
-    ESectionL lhs op -> parenthesize False ("(" <> prettyExpr lhs <> " " <> op <> ")")
-    ESectionR op rhs -> parenthesize False ("(" <> op <> " " <> prettyExpr rhs <> ")")
+    ESectionL lhs op -> parens (prettyExprPrec 0 lhs <+> pretty op)
+    ESectionR op rhs -> parens (pretty op <+> prettyExprPrec 0 rhs)
     ELet bindings body ->
       parenthesize
         (prec > 0)
-        ( "let "
-            <> T.intercalate "; " [name <> " = " <> prettyExpr value | (name, value) <- bindings]
-            <> " in "
-            <> prettyExpr body
+        ( "let"
+            <+> hsep (punctuate semi (map prettyBinding bindings))
+            <+> "in"
+            <+> prettyExprPrec 0 body
         )
     ECase scrutinee alts ->
       parenthesize
         (prec > 0)
-        ( "case "
-            <> prettyExpr scrutinee
-            <> " of "
-            <> T.intercalate "; " [pat <> " -> " <> prettyExpr altExpr | CaseAlt pat altExpr <- alts]
+        ( "case"
+            <+> prettyExprPrec 0 scrutinee
+            <+> "of"
+            <+> hsep (punctuate semi (map prettyCaseAlt alts))
         )
     EDo stmts ->
       parenthesize
         (prec > 0)
-        ( "do { "
-            <> T.intercalate "; " (map prettyDoStmt stmts)
-            <> " }"
-        )
+        ("do" <+> braces (hsep (punctuate semi (map prettyDoStmt stmts))))
     EListComp body quals ->
-      "["
-        <> prettyExpr body
-        <> " | "
-        <> T.intercalate ", " (map prettyCompStmt quals)
-        <> "]"
+      brackets
+        ( prettyExprPrec 0 body
+            <+> "|"
+            <+> hsep (punctuate comma (map prettyCompStmt quals))
+        )
     EArithSeq seqInfo -> prettyArithSeq seqInfo
     ERecordCon name fields ->
-      name <> " { " <> T.intercalate ", " [fname <> " = " <> prettyExpr fexpr | (fname, fexpr) <- fields] <> " }"
+      pretty name <+> braces (hsep (punctuate comma (map prettyBinding fields)))
     ERecordUpd base fields ->
-      prettyExprPrec 3 base <> " { " <> T.intercalate ", " [fname <> " = " <> prettyExpr fexpr | (fname, fexpr) <- fields] <> " }"
-    ETypeSig inner sigText -> parenthesize (prec > 1) (prettyExprPrec 1 inner <> " :: " <> sigText)
-    EList values -> "[" <> T.intercalate ", " (map prettyExpr values) <> "]"
-    ETuple values -> "(" <> T.intercalate ", " (map prettyExpr values) <> ")"
-    ETupleCon arity -> "(" <> T.replicate (max 1 (arity - 1)) "," <> ")"
+      prettyExprPrec 3 base <+> braces (hsep (punctuate comma (map prettyBinding fields)))
+    ETypeSig inner sigText -> parenthesize (prec > 1) (prettyExprPrec 1 inner <+> "::" <+> pretty sigText)
+    EList values -> brackets (hsep (punctuate comma (map (prettyExprPrec 0) values)))
+    ETuple values -> parens (hsep (punctuate comma (map (prettyExprPrec 0) values)))
+    ETupleCon arity -> parens (pretty (T.replicate (max 1 (arity - 1)) ","))
 
-prettyDoStmt :: DoStmt -> Text
+prettyBinding :: (Text, Expr) -> Doc ann
+prettyBinding (name, value) = pretty name <+> "=" <+> prettyExprPrec 0 value
+
+prettyCaseAlt :: CaseAlt -> Doc ann
+prettyCaseAlt (CaseAlt pat altExpr) = pretty pat <+> "->" <+> prettyExprPrec 0 altExpr
+
+prettyDoStmt :: DoStmt -> Doc ann
 prettyDoStmt stmt =
   case stmt of
-    DoBind pat expr -> pat <> " <- " <> prettyExpr expr
-    DoLet bindings -> "let " <> T.intercalate "; " [name <> " = " <> prettyExpr value | (name, value) <- bindings]
-    DoExpr expr -> prettyExpr expr
+    DoBind pat expr -> pretty pat <+> "<-" <+> prettyExprPrec 0 expr
+    DoLet bindings -> "let" <+> hsep (punctuate semi (map prettyBinding bindings))
+    DoExpr expr -> prettyExprPrec 0 expr
 
-prettyCompStmt :: CompStmt -> Text
+prettyCompStmt :: CompStmt -> Doc ann
 prettyCompStmt stmt =
   case stmt of
-    CompGen pat expr -> pat <> " <- " <> prettyExpr expr
-    CompGuard expr -> prettyExpr expr
-    CompLet bindings -> "let " <> T.intercalate "; " [name <> " = " <> prettyExpr value | (name, value) <- bindings]
+    CompGen pat expr -> pretty pat <+> "<-" <+> prettyExprPrec 0 expr
+    CompGuard expr -> prettyExprPrec 0 expr
+    CompLet bindings -> "let" <+> hsep (punctuate semi (map prettyBinding bindings))
 
-prettyArithSeq :: ArithSeq -> Text
+prettyArithSeq :: ArithSeq -> Doc ann
 prettyArithSeq seqInfo =
   case seqInfo of
-    ArithSeqFrom fromExpr -> "[" <> prettyExpr fromExpr <> "..]"
-    ArithSeqFromThen fromExpr thenExpr -> "[" <> prettyExpr fromExpr <> ", " <> prettyExpr thenExpr <> "..]"
-    ArithSeqFromTo fromExpr toExpr -> "[" <> prettyExpr fromExpr <> ".." <> prettyExpr toExpr <> "]"
+    ArithSeqFrom fromExpr -> brackets (prettyExprPrec 0 fromExpr <> "..")
+    ArithSeqFromThen fromExpr thenExpr -> brackets (prettyExprPrec 0 fromExpr <> ", " <> prettyExprPrec 0 thenExpr <> "..")
+    ArithSeqFromTo fromExpr toExpr -> brackets (prettyExprPrec 0 fromExpr <> ".." <> prettyExprPrec 0 toExpr)
     ArithSeqFromThenTo fromExpr thenExpr toExpr ->
-      "[" <> prettyExpr fromExpr <> ", " <> prettyExpr thenExpr <> ".." <> prettyExpr toExpr <> "]"
+      brackets (prettyExprPrec 0 fromExpr <> ", " <> prettyExprPrec 0 thenExpr <> ".." <> prettyExprPrec 0 toExpr)
 
-parenthesize :: Bool -> Text -> Text
-parenthesize shouldWrap txt
-  | shouldWrap = "(" <> txt <> ")"
-  | otherwise = txt
+parenthesize :: Bool -> Doc ann -> Doc ann
+parenthesize shouldWrap doc
+  | shouldWrap = parens doc
+  | otherwise = doc
 
-quoted :: Text -> Text
-quoted txt = T.pack (show (T.unpack txt))
+quoted :: Text -> Doc ann
+quoted txt = pretty (show (T.unpack txt))
 
-directionText :: ForeignDirection -> Text
+directionText :: ForeignDirection -> Doc ann
 directionText direction =
   case direction of
     ForeignImport -> "import"
     ForeignExport -> "export"
 
-callConvText :: CallConv -> Text
+callConvText :: CallConv -> Doc ann
 callConvText callConv =
   case callConv of
     CCall -> "ccall"
     StdCall -> "stdcall"
 
-safetyText :: ForeignSafety -> Text
+safetyText :: ForeignSafety -> Doc ann
 safetyText safety =
   case safety of
     Safe -> "safe"
@@ -175,3 +195,6 @@ safetyText safety =
 isOperatorToken :: Text -> Bool
 isOperatorToken tok =
   not (T.null tok) && T.all (`elem` (":!#$%&*+./<=>?@\\^|-~" :: String)) tok
+
+renderDoc :: Doc ann -> Text
+renderDoc = renderStrict . layoutPretty defaultLayoutOptions
