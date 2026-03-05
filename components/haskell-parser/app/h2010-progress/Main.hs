@@ -13,7 +13,7 @@ import GHC.Data.StringBuffer (stringToStringBuffer)
 import GHC.Hs (HsModule, GhcPs)
 import GHC.LanguageExtensions.Type (Extension)
 import qualified GHC.Parser as GHCParser
-import GHC.Parser.Lexer (ParseResult (..), initParserState, mkParserOpts, unP)
+import qualified GHC.Parser.Lexer as Lexer
 import GHC.Types.SrcLoc (mkRealSrcLoc, unLoc)
 import GHC.Utils.Error (emptyDiagOpts)
 import qualified Parser
@@ -133,12 +133,12 @@ oracleParsesModule input =
 
 parseWithGhc :: Text -> Either String (HsModule GhcPs)
 parseWithGhc input =
-  let opts = mkParserOpts (EnumSet.empty :: EnumSet.EnumSet Extension) emptyDiagOpts False False False False
+  let opts = Lexer.mkParserOpts (EnumSet.empty :: EnumSet.EnumSet Extension) emptyDiagOpts False False False False
       buffer = stringToStringBuffer (T.unpack input)
       start = mkRealSrcLoc (mkFastString "<h2010-progress>") 1 1
-   in case unP GHCParser.parseModule (initParserState opts buffer start) of
-        POk _ modu -> Right (unLoc modu)
-        PFailed _ -> Left "oracle parse failed"
+   in case Lexer.unP GHCParser.parseModule (Lexer.initParserState opts buffer start) of
+        Lexer.POk _ modu -> Right (unLoc modu)
+        Lexer.PFailed _ -> Left "oracle parse failed"
 
 loadManifest :: IO [CaseMeta]
 loadManifest = do
