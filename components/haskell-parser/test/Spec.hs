@@ -90,8 +90,8 @@ prop_moduleAgreement generated =
         case (parseModule defaultConfig source, oracleCanonicalModule source) of
           (ParseOk mine, Right ghcCanon) -> normalizeModule mine === ghcCanon
           (ParseErr err, Right _) -> counterexample (show err) False
-          (ParseOk _, Left _) -> property True
-          (ParseErr _, Left _) -> property True
+          (ParseOk mine, Left oracleErr) -> counterexample (show mine <> " | oracle: " <> T.unpack oracleErr) False
+          (ParseErr err, Left oracleErr) -> counterexample (show err <> " | oracle: " <> T.unpack oracleErr) False
 
 newtype GenModule = GenModule {unGenModule :: [(Text, GenExpr)]}
   deriving (Show)

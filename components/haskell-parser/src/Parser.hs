@@ -239,11 +239,11 @@ parseModuleLines cfg input = do
     ((firstLineNo, firstLine) : rest) ->
       case parseModuleHeader firstLine of
         Just modName -> do
-          decls <- traverse (uncurry parseDeclarationLine) rest
+          decls <- traverse (\(lineNo, lineText) -> parseDeclarationLine cfg lineNo lineText) rest
           Right Module {moduleName = Just modName, moduleDecls = decls}
         Nothing -> do
-          firstDecl <- parseDeclarationLine firstLineNo firstLine
-          otherDecls <- traverse (uncurry parseDeclarationLine) rest
+          firstDecl <- parseDeclarationLine cfg firstLineNo firstLine
+          otherDecls <- traverse (\(lineNo, lineText) -> parseDeclarationLine cfg lineNo lineText) rest
           Right Module {moduleName = Nothing, moduleDecls = firstDecl : otherDecls}
 
 parseModuleHeader :: Text -> Maybe Text
@@ -252,8 +252,8 @@ parseModuleHeader headerLine =
     ["module", modName, "where"] | isValidIdent modName -> Just modName
     _ -> Nothing
 
-parseDeclarationLine :: Int -> Text -> Either ParseError Decl
-parseDeclarationLine lineNo raw =
+parseDeclarationLine :: ParserConfig -> Int -> Text -> Either ParseError Decl
+parseDeclarationLine cfg lineNo raw =
   let (lhs, rhsRaw) = T.breakOn "=" raw
    in if T.null rhsRaw
         then Left (lineError lineNo 1 ["declaration (<name> = <expr>)"] raw)
@@ -264,7 +264,7 @@ parseDeclarationLine lineNo raw =
            in if not (isValidIdent name)
                 then Left (lineError lineNo 1 ["identifier"] raw)
                 else
-                  case parseExpr defaultConfig rhs of
+                  case parseExpr cfg rhs of
                     ParseOk expr -> Right Decl {declName = name, declExpr = expr}
                     ParseErr err ->
                       Left

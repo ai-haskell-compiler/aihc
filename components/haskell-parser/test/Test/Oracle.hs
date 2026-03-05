@@ -17,15 +17,19 @@ import GHC.LanguageExtensions.Type (Extension)
 import GHC.Parser (parseModule)
 import GHC.Parser.Lexer
   ( ParseResult (..)
+  , getPsErrorMessages
   , initParserState
   , mkParserOpts
   , unP
   )
 import GHC.Types.Name.Occurrence (occNameString)
 import GHC.Types.Name.Reader (rdrNameOcc)
+import GHC.Types.Error (NoDiagnosticOpts (NoDiagnosticOpts))
 import GHC.Types.SourceText (IntegralLit (..))
 import GHC.Types.SrcLoc (mkRealSrcLoc, unLoc)
+import GHC.Utils.Error (pprMessages)
 import GHC.Utils.Error (emptyDiagOpts)
+import GHC.Utils.Outputable (showSDocUnsafe)
 import Parser.Canonical
 
 oracleParsesModule :: Text -> Bool
@@ -46,7 +50,9 @@ parseWithGhc input =
       start = mkRealSrcLoc (mkFastString "<oracle>") 1 1
    in case unP parseModule (initParserState opts buffer start) of
         POk _ modu -> Right (unLoc modu)
-        PFailed _ -> Left "ghc-lib-parser failed"
+        PFailed st ->
+          let rendered = showSDocUnsafe (pprMessages NoDiagnosticOpts (getPsErrorMessages st))
+           in Left (T.pack rendered)
 
 toCanonicalModule :: HsModule GhcPs -> Either String CanonicalModule
 toCanonicalModule modu = do
