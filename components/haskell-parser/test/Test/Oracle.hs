@@ -239,8 +239,8 @@ toCanonicalExpr expr =
     ArithSeq _ _ seqInfo -> CArithSeq <$> toCanonicalArithSeq seqInfo
     RecordCon _ conName fields ->
       CRecordCon (renderText conName) <$> toCanonicalRecordFields fields
-    RecordUpd {rupd_expr = baseExpr} ->
-      CRecordUpd <$> toCanonicalExpr (unLoc baseExpr) <*> pure []
+    RecordUpd {rupd_expr = baseExpr, rupd_flds = fields} ->
+      CRecordUpd <$> toCanonicalExpr (unLoc baseExpr) <*> toCanonicalRecordUpdFields fields
     ExprWithTySig _ inner ty ->
       CTypeSig <$> toCanonicalExpr (unLoc inner) <*> pure (renderText ty)
     ExplicitList _ values -> CList <$> traverse (toCanonicalExpr . unLoc) (toList values)
@@ -419,6 +419,21 @@ toCanonicalRecordField locatedField =
         expr <- toCanonicalExpr (unLoc (hfbRHS field))
         pure (renderText (hfbLHS field), expr)
 
+toCanonicalRecordUpdFields :: LHsRecUpdFields GhcPs -> Either String [(Text, CanonicalExpr)]
+toCanonicalRecordUpdFields fields =
+  case fields of
+    RegularRecUpdFields {recUpdFields = recordFields} ->
+      traverse toCanonicalRecordUpdField recordFields
+    OverloadedRecUpdFields {} ->
+      Left "unsupported overloaded record update fields"
+
+toCanonicalRecordUpdField :: LHsRecUpdField GhcPs GhcPs -> Either String (Text, CanonicalExpr)
+toCanonicalRecordUpdField locatedField =
+  let field = unLoc locatedField
+   in do
+        expr <- toCanonicalExpr (unLoc (hfbRHS field))
+        pure (renderText (hfbLHS field), expr)
+
 renderRdrName :: RdrName -> Text
 renderRdrName = T.pack . occNameString . rdrNameOcc
 
@@ -427,4 +442,9 @@ renderText = normalizeRenderedText . T.pack . showSDocUnsafe . ppr
 
 normalizeRenderedText :: Text -> Text
 normalizeRenderedText =
-  T.unwords . T.words
+  T.strip . T.map replaceLayout
+  where
+    replaceLayout '\n' = ' '
+    replaceLayout '\r' = ' '
+    replaceLayout '\t' = ' '
+    replaceLayout c = c
