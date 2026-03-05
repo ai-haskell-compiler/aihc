@@ -27,6 +27,7 @@ import Text.Megaparsec
     optional,
     parse,
     runParser,
+    sepBy,
     sepBy1,
     some,
     takeRest,
@@ -213,26 +214,60 @@ foreignEntityParser = lexeme scLine $ do
   pure (T.pack txt)
 
 expression :: ParserConfig -> MParser Expr
-expression cfg = do
-  atoms <- some (atom cfg)
-  pure (foldl1 EApp atoms)
+expression cfg = expressionWith (scExpr cfg)
 
 expressionLine :: MParser Expr
-expressionLine = do
-  atoms <- some atomLine
+expressionLine = expressionWith scLine
+
+expressionWith :: MParser () -> MParser Expr
+expressionWith sc = do
+  atoms <- some (atomWith sc)
   pure (foldl1 EApp atoms)
 
-atom :: ParserConfig -> MParser Expr
-atom cfg =
-  parens (expression cfg)
-    <|> (EInt <$> integer (scExpr cfg))
-    <|> (EVar <$> identifierLexeme (scExpr cfg))
+atomWith :: MParser () -> MParser Expr
+atomWith sc =
+  listLiteral sc
+    <|> parenExpression sc
+    <|> try (EFloat <$> floating sc)
+    <|> (EInt <$> integer sc)
+    <|> (EChar <$> charLiteral sc)
+    <|> (EString <$> stringLiteral sc)
+    <|> (EVar <$> identifierLexeme sc)
 
-atomLine :: MParser Expr
-atomLine =
-  parens expressionLine
-    <|> (EInt <$> integer scLine)
-    <|> (EVar <$> identifierLexeme scLine)
+listLiteral :: MParser () -> MParser Expr
+listLiteral sc = do
+  _ <- symbolWith sc "["
+  elems <- expressionWith sc `sepBy` symbolWith sc ","
+  _ <- symbolWith sc "]"
+  pure (EList elems)
+
+parenExpression :: MParser () -> MParser Expr
+parenExpression sc =
+  try (tupleConstructor sc)
+    <|> do
+      _ <- symbolWith sc "("
+      ( do
+          _ <- symbolWith sc ")"
+          pure (ETuple [])
+        )
+        <|> do
+          firstExpr <- expressionWith sc
+          ( do
+              _ <- symbolWith sc ","
+              rest <- expressionWith sc `sepBy1` symbolWith sc ","
+              _ <- symbolWith sc ")"
+              pure (ETuple (firstExpr : rest))
+            )
+            <|> do
+              _ <- symbolWith sc ")"
+              pure firstExpr
+
+tupleConstructor :: MParser () -> MParser Expr
+tupleConstructor sc = do
+  _ <- symbolWith sc "("
+  commas <- some (lexeme sc (C.char ','))
+  _ <- symbolWith sc ")"
+  pure (ETupleCon (length commas + 1))
 
 identifier :: MParser Text
 identifier = identifierLexeme scLine
@@ -257,20 +292,36 @@ identTailChar =
     <|> C.char '\''
 
 integer :: MParser () -> MParser Integer
-integer sc = lexeme sc L.decimal
+integer sc = lexeme sc (try hexadecimal <|> L.decimal)
+  where
+    hexadecimal = do
+      _ <- C.string "0x" <|> C.string "0X"
+      L.hexadecimal
+
+floating :: MParser () -> MParser Double
+floating sc = lexeme sc $ do
+  whole <- some C.digitChar
+  _ <- C.char '.'
+  frac <- some C.digitChar
+  pure (read (whole <> "." <> frac))
+
+charLiteral :: MParser () -> MParser Char
+charLiteral sc = lexeme sc (C.char '\'' *> L.charLiteral <* C.char '\'')
+
+stringLiteral :: MParser () -> MParser Text
+stringLiteral sc = lexeme sc $ do
+  _ <- C.char '"'
+  chars <- manyTill L.charLiteral (C.char '"')
+  pure (T.pack chars)
 
 symbol :: Text -> MParser Text
 symbol = L.symbol scLine
 
-parens :: MParser a -> MParser a
-parens parser = do
-  _ <- symbol "("
-  value <- parser
-  _ <- symbol ")"
-  pure value
-
 keyword :: Text -> MParser Text
 keyword kw = lexeme scLine (C.string kw <* notFollowedBy identTailOrStartChar)
+
+symbolWith :: MParser () -> Text -> MParser Text
+symbolWith = L.symbol
 
 identTailOrStartChar :: MParser Char
 identTailOrStartChar = MP.satisfy isIdentTailOrStart

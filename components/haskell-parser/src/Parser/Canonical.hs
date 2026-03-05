@@ -65,6 +65,12 @@ data CanonicalForeignSafety
 data CanonicalExpr
   = CVar Text
   | CInt Integer
+  | CFloat Double
+  | CChar Char
+  | CString Text
+  | CList [CanonicalExpr]
+  | CTuple [CanonicalExpr]
+  | CTupleCon Int
   | CApp CanonicalExpr CanonicalExpr
   deriving (Eq, Show)
 
@@ -116,6 +122,12 @@ normalizeExpr expr =
   case expr of
     EVar name -> CVar name
     EInt value -> CInt value
+    EFloat value -> CFloat value
+    EChar value -> CChar value
+    EString value -> CString value
+    EList values -> CList (fmap normalizeExpr values)
+    ETuple values -> CTuple (fmap normalizeExpr values)
+    ETupleCon arity -> CTupleCon arity
     EApp fn arg -> CApp (normalizeExpr fn) (normalizeExpr arg)
 
 normalizeDirection :: ForeignDirection -> CanonicalForeignDirection

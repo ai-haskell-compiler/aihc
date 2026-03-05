@@ -21,9 +21,12 @@ import qualified GHC.Parser.Lexer as Lexer
 import GHC.Types.SrcLoc (mkRealSrcLoc, unLoc)
 import GHC.Utils.Error (emptyDiagOpts)
 import qualified Parser
+import Parser.Ast (Module)
+import Parser.Canonical (CanonicalModule, normalizeModule)
 import Parser.Types (ParseResult (..))
 import System.Directory (doesFileExist)
 import System.FilePath ((</>))
+import Test.Oracle (oracleCanonicalModule)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertFailure, testCase)
 
@@ -119,27 +122,31 @@ evaluateCase meta = do
 
 evaluateCaseText :: CaseMeta -> Text -> IO Outcome
 evaluateCaseText meta source = do
-  let oracleOk = oracleParsesModule source
-      oursOk = parserParsesModule source
-  pure $ classify (caseExpected meta) oracleOk oursOk
+  let oursResult = Parser.parseModule Parser.defaultConfig source
+      oracleResult = oracleCanonicalModule source
+      oracleParses = oracleParsesModule source
+  pure $ classify (caseExpected meta) oursResult oracleParses oracleResult
 
-classify :: Expected -> Bool -> Bool -> Outcome
-classify expected oracleOk oursOk =
+classify :: Expected -> ParseResult Module -> Bool -> Either Text CanonicalModule -> Outcome
+classify expected oursResult oracleParses oracleResult =
   case expected of
     ExpectPass
-      | not oracleOk -> OutcomeFail
-      | oursOk -> OutcomePass
-      | otherwise -> OutcomeFail
-    ExpectXFail
-      | not oracleOk -> OutcomeFail
-      | oursOk -> OutcomeXPass
-      | otherwise -> OutcomeXFail
-
-parserParsesModule :: Text -> Bool
-parserParsesModule input =
-  case Parser.parseModule Parser.defaultConfig input of
-    ParseOk _ -> True
-    ParseErr _ -> False
+      | not oracleParses -> OutcomeFail
+      | otherwise ->
+          case oursResult of
+            ParseOk _ -> OutcomePass
+            ParseErr _ -> OutcomeFail
+    ExpectXFail ->
+      case (oursResult, oracleResult) of
+        (ParseErr _, _)
+          | oracleParses -> OutcomeXFail
+          | otherwise -> OutcomeFail
+        (ParseOk ours, Right oracleCanon)
+          | normalizeModule ours == oracleCanon -> OutcomeXPass
+          | otherwise -> OutcomeFail
+        (ParseOk _, Left _)
+          | oracleParses -> OutcomeXPass
+          | otherwise -> OutcomeFail
 
 oracleParsesModule :: Text -> Bool
 oracleParsesModule input =
