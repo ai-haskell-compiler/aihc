@@ -302,7 +302,7 @@ toCanonicalDecl locatedDecl =
                     _ -> Left "unsupported guarded rhs"
                 _ -> Left "unsupported function rhs"
               pure
-                CanonicalDecl
+                CanonicalValueDecl
                   { canonicalDeclName = T.pack (occNameString (rdrNameOcc name))
                   , canonicalDeclExpr = expr
                   }

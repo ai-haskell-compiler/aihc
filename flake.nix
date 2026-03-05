@@ -107,9 +107,17 @@
                 final.callCabal2nix "aihc-name-resolution" ./components/haskell-name-resolution { };
             };
           };
+          parserTests = pkgs.haskell.lib.doCheck (pkgs.haskell.lib.dontHaddock hsPkgs.aihc-parser);
+          nameResolutionTests =
+            pkgs.haskell.lib.doCheck (pkgs.haskell.lib.dontHaddock hsPkgs.aihc-name-resolution);
         in {
-          parser-tests = pkgs.haskell.lib.doCheck (pkgs.haskell.lib.dontHaddock hsPkgs.aihc-parser);
-          name-resolution-tests = pkgs.haskell.lib.doCheck (pkgs.haskell.lib.dontHaddock hsPkgs.aihc-name-resolution);
+          parser-tests = parserTests;
+          name-resolution-tests = nameResolutionTests;
+          all-tests =
+            pkgs.linkFarm "aihc-all-tests" [
+              { name = "parser-tests"; path = parserTests; }
+              { name = "name-resolution-tests"; path = nameResolutionTests; }
+            ];
         });
     };
 }
