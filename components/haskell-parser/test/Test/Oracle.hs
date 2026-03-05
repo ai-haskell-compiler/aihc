@@ -2,6 +2,7 @@
 
 module Test.Oracle
   ( oracleCanonicalModule,
+    oracleModuleAstFingerprint,
     oracleParsesModule,
   )
 where
@@ -53,6 +54,11 @@ oracleCanonicalModule :: Text -> Either Text CanonicalModule
 oracleCanonicalModule input = do
   parsed <- parseWithGhc input
   first T.pack (toCanonicalModule parsed)
+
+oracleModuleAstFingerprint :: Text -> Either Text Text
+oracleModuleAstFingerprint input = do
+  parsed <- parseWithGhc input
+  pure (T.pack (showSDocUnsafe (ppr parsed)))
 
 parseWithGhc :: Text -> Either Text (HsModule GhcPs)
 parseWithGhc input =

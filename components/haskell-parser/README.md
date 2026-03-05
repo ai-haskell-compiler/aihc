@@ -12,14 +12,14 @@ Each case is marked with one expected status:
 - `xfail`: known unimplemented syntax; parser is expected to reject it for now
 
 Runtime outcomes are reported as:
-- `PASS`: expected `pass`, parser accepted, oracle accepted
-- `XFAIL`: expected `xfail`, parser still rejects or remains non-canonical vs oracle
-- `XPASS`: expected `xfail`, parser accepted and matches oracle canonical output
+- `PASS`: expected `pass`, oracle accepts source, and `parse -> pretty` preserves GHC AST
+- `XFAIL`: expected `xfail`, case still fails oracle and/or round-trip checks
+- `XPASS`: expected `xfail`, case now passes both oracle and round-trip checks
 - `FAIL`: regression or invalid case/manifest (for example oracle rejects a `pass` case)
 
 Current progress baseline:
-- `123/199` implemented (`61.8%` complete)
-- `PASS=123`, `XFAIL=76`, `XPASS=0`, `FAIL=0`
+- `26/213` implemented (`12.2%` complete)
+- `PASS=26`, `XFAIL=187`, `XPASS=0`, `FAIL=0`
 
 ## Commands
 

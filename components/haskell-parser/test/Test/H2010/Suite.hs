@@ -13,11 +13,11 @@ import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import qualified Parser
 import Parser.Ast (Module)
-import Parser.Canonical (CanonicalModule, normalizeModule)
+import Parser.Pretty (prettyModule)
 import Parser.Types (ParseResult (..))
 import System.Directory (doesFileExist)
 import System.FilePath ((</>))
-import Test.Oracle (oracleCanonicalModule)
+import Test.Oracle (oracleModuleAstFingerprint, oracleParsesModule)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertFailure, testCase)
 
@@ -60,7 +60,7 @@ mkSummaryTest cases = do
       let (passN, xfailN, xpassN, failN) = foldr countOutcome (0, 0, 0, 0) outcomes
           totalN = passN + xfailN + xpassN + failN
           completion = pct (passN + xpassN) totalN
-      when (failN > 0) $
+      when (failN > 0 || xpassN > 0) $
         assertFailure
           ( "Haskell2010 regressions found. "
               <> "pass="
@@ -104,6 +104,15 @@ assertCase meta source = do
             <> " reason="
             <> caseReason meta
         )
+    OutcomeXPass ->
+      assertFailure
+        ( "Unexpected pass in xfail case "
+            <> caseId meta
+            <> " ("
+            <> caseCategory meta
+            <> ") reason="
+            <> caseReason meta
+        )
     _ -> pure ()
 
 evaluateCase :: CaseMeta -> IO Outcome
@@ -114,27 +123,29 @@ evaluateCase meta = do
 evaluateCaseText :: CaseMeta -> Text -> IO Outcome
 evaluateCaseText meta source = do
   let oursResult = Parser.parseModule Parser.defaultConfig source
-      oracleResult = oracleCanonicalModule source
-  pure $ classify (caseExpected meta) oursResult oracleResult
+      oracleOk = oracleParsesModule source
+      roundtripOk = moduleRoundtripsViaGhc source oursResult
+  pure $ classify (caseExpected meta) oracleOk roundtripOk
 
-classify :: Expected -> ParseResult Module -> Either Text CanonicalModule -> Outcome
-classify expected oursResult oracleResult =
+classify :: Expected -> Bool -> Bool -> Outcome
+classify expected oracleOk roundtripOk =
   case expected of
     ExpectPass
-      | Left _ <- oracleResult -> OutcomeFail
-      | otherwise ->
-          case oursResult of
-            ParseOk _ -> OutcomePass
-            ParseErr _ -> OutcomeFail
-    ExpectXFail ->
-      case oursResult of
-        ParseErr _ -> OutcomeXFail
-        ParseOk ours ->
-          case oracleResult of
-            Right oracleCanon
-              | normalizeModule ours == oracleCanon -> OutcomeXPass
-              | otherwise -> OutcomeXFail
-            Left _ -> OutcomeXFail
+      | oracleOk && roundtripOk -> OutcomePass
+      | otherwise -> OutcomeFail
+    ExpectXFail
+      | oracleOk && roundtripOk -> OutcomeXPass
+      | otherwise -> OutcomeXFail
+
+moduleRoundtripsViaGhc :: Text -> ParseResult Module -> Bool
+moduleRoundtripsViaGhc source oursResult =
+  case oursResult of
+    ParseErr _ -> False
+    ParseOk parsed ->
+      let rendered = prettyModule parsed
+       in case (oracleModuleAstFingerprint source, oracleModuleAstFingerprint rendered) of
+            (Right sourceAst, Right renderedAst) -> sourceAst == renderedAst
+            _ -> False
 
 loadManifest :: IO [CaseMeta]
 loadManifest = do

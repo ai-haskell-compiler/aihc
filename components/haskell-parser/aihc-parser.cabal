@@ -14,6 +14,7 @@ library
       Parser
     , Parser.Ast
     , Parser.Canonical
+    , Parser.Pretty
     , Parser.Types
   hs-source-dirs:   src
   build-depends:
@@ -21,6 +22,7 @@ library
     , text >=1.2
     , containers
     , megaparsec
+    , prettyprinter
   ghc-options:        -Wall
   default-language: Haskell2010
 

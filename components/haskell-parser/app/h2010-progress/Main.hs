@@ -16,7 +16,10 @@ import qualified GHC.Parser as GHCParser
 import qualified GHC.Parser.Lexer as Lexer
 import GHC.Types.SrcLoc (mkRealSrcLoc, unLoc)
 import GHC.Utils.Error (emptyDiagOpts)
+import GHC.Utils.Outputable (ppr, showSDocUnsafe)
 import qualified Parser
+import Parser.Ast (Module)
+import Parser.Pretty (prettyModule)
 import Parser.Types (ParseResult (..))
 import System.Directory (doesFileExist)
 import System.Environment (getArgs)
@@ -103,27 +106,32 @@ pct done totalN
 evaluateCase :: CaseMeta -> IO (CaseMeta, Outcome, String)
 evaluateCase meta = do
   source <- TIO.readFile (fixtureRoot </> casePath meta)
-  let oracleOk = oracleParsesModule source
-      oursOk = parserParsesModule source
-      (outcome, details) = classify (caseExpected meta) oracleOk oursOk
+  let parsed = Parser.parseModule Parser.defaultConfig source
+      oracleOk = oracleParsesModule source
+      roundtripOk = moduleRoundtripsViaGhc source parsed
+      (outcome, details) = classify (caseExpected meta) oracleOk roundtripOk
   pure (meta, outcome, details)
 
 classify :: Expected -> Bool -> Bool -> (Outcome, String)
-classify expected oracleOk oursOk =
+classify expected oracleOk roundtripOk =
   case expected of
     ExpectPass
       | not oracleOk -> (OutcomeFail, "oracle rejected pass case")
-      | oursOk -> (OutcomePass, "")
-      | otherwise -> (OutcomeFail, "parser rejected pass case")
+      | not roundtripOk -> (OutcomeFail, "roundtrip mismatch against oracle AST")
+      | otherwise -> (OutcomePass, "")
     ExpectXFail
-      | oursOk -> (OutcomeXPass, "parser now accepts xfail case")
+      | oracleOk && roundtripOk -> (OutcomeXPass, "case now passes oracle and roundtrip checks")
       | otherwise -> (OutcomeXFail, "")
 
-parserParsesModule :: Text -> Bool
-parserParsesModule input =
-  case Parser.parseModule Parser.defaultConfig input of
-    ParseOk _ -> True
+moduleRoundtripsViaGhc :: Text -> ParseResult Module -> Bool
+moduleRoundtripsViaGhc source oursResult =
+  case oursResult of
     ParseErr _ -> False
+    ParseOk parsed ->
+      let rendered = prettyModule parsed
+       in case (oracleModuleAstFingerprint source, oracleModuleAstFingerprint rendered) of
+            (Right sourceAst, Right renderedAst) -> sourceAst == renderedAst
+            _ -> False
 
 oracleParsesModule :: Text -> Bool
 oracleParsesModule input =
@@ -131,7 +139,12 @@ oracleParsesModule input =
     Right _ -> True
     Left _ -> False
 
-parseWithGhc :: Text -> Either String (HsModule GhcPs)
+oracleModuleAstFingerprint :: Text -> Either Text Text
+oracleModuleAstFingerprint input = do
+  parsed <- parseWithGhc input
+  pure (T.pack (showSDocUnsafe (ppr parsed)))
+
+parseWithGhc :: Text -> Either Text (HsModule GhcPs)
 parseWithGhc input =
   let exts = EnumSet.fromList [ForeignFunctionInterface] :: EnumSet.EnumSet Extension
       opts = Lexer.mkParserOpts exts emptyDiagOpts False False False False
