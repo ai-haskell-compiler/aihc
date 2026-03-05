@@ -4,27 +4,14 @@ Source: <https://www.haskell.org/onlinereport/haskell2010/> (canonical online pu
 
 This document is a Markdown conversion of the published HTML report.
 
+Haskell 2010
 
+Language Report
 
-Haskell 2010  
-  
-Language Report  
-  
-
-
-
-
-
-Simon Marlow  
+Simon Marlow\
 (editor)
 
-
-
-
-
 Copyright notice.
-
-
 
 The authors and publisher intend this Report to belong to the entire
 Haskell community, and grant permission to copy and distribute it for
@@ -34,649 +21,630 @@ distributed for any purpose, provided that the modified version is
 clearly presented as such, and that it does not claim to be a definition
 of the language Haskell 2010.
 
-
-
 ## Contents
 
-
-
 I  The Haskell 2010
-Language  
+Language\
 1
-Introduction  
- 1.1 Program
-Structure  
- 1.2 The Haskell
-Kernel  
- 1.3 Values and
-Types  
- 1.4
-Namespaces  
+Introduction\
+1.1 Program
+Structure\
+1.2 The Haskell
+Kernel\
+1.3 Values and
+Types\
+1.4
+Namespaces\
 2 Lexical
-Structure  
- 2.1 Notational
-Conventions  
- 2.2 Lexical Program
-Structure  
- 2.3
-Comments  
- 2.4 Identifiers and
-Operators  
- 2.5 Numeric
-Literals  
- 2.6 Character and String
-Literals  
- 2.7
-Layout  
+Structure\
+2.1 Notational
+Conventions\
+2.2 Lexical Program
+Structure\
+2.3
+Comments\
+2.4 Identifiers and
+Operators\
+2.5 Numeric
+Literals\
+2.6 Character and String
+Literals\
+2.7
+Layout\
 3
-Expressions  
- 3.1
-Errors  
- 3.2 Variables, Constructors, Operators, and
-Literals  
- 3.3 Curried Applications and Lambda
-Abstractions  
- 3.4 Operator
-Applications  
- 3.5
-Sections  
- 3.6
-Conditionals  
- 3.7
-Lists  
- 3.8
-Tuples  
- 3.9 Unit Expressions and Parenthesized
-Expressions  
- 3.10 Arithmetic
-Sequences  
- 3.11 List
-Comprehensions  
- 3.12 Let
-Expressions  
- 3.13 Case
-Expressions  
- 3.14 Do
-Expressions  
- 3.15 Datatypes with Field
-Labels  
-  3.15.1
-Selection  
-  3.15.2
-Using Field Labels  
-  3.15.3
-Field Labels  
- 3.16 Expression
-Type-Signatures  
- 3.17 Pattern
-Matching  
-  3.17.1
-Patterns  
-  3.17.2
-Semantics of Pattern Matching  
-  3.17.3
-of Pattern Matching  
+Expressions\
+3.1
+Errors\
+3.2 Variables, Constructors, Operators, and
+Literals\
+3.3 Curried Applications and Lambda
+Abstractions\
+3.4 Operator
+Applications\
+3.5
+Sections\
+3.6
+Conditionals\
+3.7
+Lists\
+3.8
+Tuples\
+3.9 Unit Expressions and Parenthesized
+Expressions\
+3.10 Arithmetic
+Sequences\
+3.11 List
+Comprehensions\
+3.12 Let
+Expressions\
+3.13 Case
+Expressions\
+3.14 Do
+Expressions\
+3.15 Datatypes with Field
+Labels\
+3.15.1
+Selection\
+3.15.2
+Using Field Labels\
+3.15.3
+Field Labels\
+3.16 Expression
+Type-Signatures\
+3.17 Pattern
+Matching\
+3.17.1
+Patterns\
+3.17.2
+Semantics of Pattern Matching\
+3.17.3
+of Pattern Matching\
 4 Declarations and
-Bindings  
- 4.1 Overview of Types and
-Classes  
-  4.1.1
-Kinds  
-  4.1.2
-Types  
-  4.1.3
-Assertions and Contexts  
-  4.1.4
-Types and Classes  
- 4.2 User-Defined
-Datatypes  
-  4.2.1
-Datatype Declarations  
-  4.2.2
-Declarations  
-  4.2.3
-Renamings  
- 4.3 Type Classes and
-Overloading  
-  4.3.1
-Declarations  
-  4.3.2
-Declarations  
-  4.3.3
-Instances  
-  4.3.4
-and Defaults for Overloaded Numeric Operations  
- 4.4 Nested
-Declarations  
-  4.4.1
-Signatures  
-  4.4.2
-Declarations  
-  4.4.3
-Pattern Bindings  
-   4.4.3.1
-bindings  
-   4.4.3.2
-bindings  
- 4.5 Static Semantics of Function and Pattern
-Bindings  
-  4.5.1
-Analysis  
-  4.5.2
-Generalization  
-  4.5.3
-Reduction Errors  
-  4.5.4
-Monomorphism  
-  4.5.5
-Restriction  
- 4.6 Kind
-Inference  
+Bindings\
+4.1 Overview of Types and
+Classes\
+4.1.1
+Kinds\
+4.1.2
+Types\
+4.1.3
+Assertions and Contexts\
+4.1.4
+Types and Classes\
+4.2 User-Defined
+Datatypes\
+4.2.1
+Datatype Declarations\
+4.2.2
+Declarations\
+4.2.3
+Renamings\
+4.3 Type Classes and
+Overloading\
+4.3.1
+Declarations\
+4.3.2
+Declarations\
+4.3.3
+Instances\
+4.3.4
+and Defaults for Overloaded Numeric Operations\
+4.4 Nested
+Declarations\
+4.4.1
+Signatures\
+4.4.2
+Declarations\
+4.4.3
+Pattern Bindings\
+4.4.3.1
+bindings\
+4.4.3.2
+bindings\
+4.5 Static Semantics of Function and Pattern
+Bindings\
+4.5.1
+Analysis\
+4.5.2
+Generalization\
+4.5.3
+Reduction Errors\
+4.5.4
+Monomorphism\
+4.5.5
+Restriction\
+4.6 Kind
+Inference\
 5
-Modules  
- 5.1 Module
-Structure  
- 5.2 Export
-Lists  
- 5.3 Import
-Declarations  
-  5.3.1
-imported  
-  5.3.2
-import  
-  5.3.3
-aliases  
-  5.3.4
-Examples  
- 5.4 Importing and Exporting Instance
-Declarations  
- 5.5 Name Clashes and
-Closure  
-  5.5.1
-names  
-  5.5.2
-clashes  
-  5.5.3
-Closure  
- 5.6 Standard
-Prelude  
-  5.6.1
-The Prelude Module  
-  5.6.2
-Prelude Names  
- 5.7 Separate
-Compilation  
- 5.8 Abstract
-Datatypes  
+Modules\
+5.1 Module
+Structure\
+5.2 Export
+Lists\
+5.3 Import
+Declarations\
+5.3.1
+imported\
+5.3.2
+import\
+5.3.3
+aliases\
+5.3.4
+Examples\
+5.4 Importing and Exporting Instance
+Declarations\
+5.5 Name Clashes and
+Closure\
+5.5.1
+names\
+5.5.2
+clashes\
+5.5.3
+Closure\
+5.6 Standard
+Prelude\
+5.6.1
+The Prelude Module\
+5.6.2
+Prelude Names\
+5.7 Separate
+Compilation\
+5.8 Abstract
+Datatypes\
 6 Predefined Types and
-Classes  
- 6.1 Standard Haskell
-Types  
-  6.1.1
-Booleans  
-  6.1.2
-Strings  
-  6.1.3
-Lists  
-  6.1.4
-Tuples  
-  6.1.5
-Datatype  
-  6.1.6
-Types  
-  6.1.7
-IOError Types  
-  6.1.8
-Types  
- 6.2 Strict
-Evaluation  
- 6.3 Standard Haskell
-Classes  
-  6.3.1
-Class  
-  6.3.2
-Class  
-  6.3.3
-Show Classes  
-  6.3.4
-Class  
-  6.3.5
-Class  
-  6.3.6
-Class  
-  6.3.7
-Class  
- 6.4
-Numbers  
-  6.4.1
-Literals  
-  6.4.2
-Number-Theoretic Operations  
-  6.4.3
-and Logarithms  
-  6.4.4
-Sign  
-  6.4.5
-Functions  
-  6.4.6
-Component Extraction  
+Classes\
+6.1 Standard Haskell
+Types\
+6.1.1
+Booleans\
+6.1.2
+Strings\
+6.1.3
+Lists\
+6.1.4
+Tuples\
+6.1.5
+Datatype\
+6.1.6
+Types\
+6.1.7
+IOError Types\
+6.1.8
+Types\
+6.2 Strict
+Evaluation\
+6.3 Standard Haskell
+Classes\
+6.3.1
+Class\
+6.3.2
+Class\
+6.3.3
+Show Classes\
+6.3.4
+Class\
+6.3.5
+Class\
+6.3.6
+Class\
+6.3.7
+Class\
+6.4
+Numbers\
+6.4.1
+Literals\
+6.4.2
+Number-Theoretic Operations\
+6.4.3
+and Logarithms\
+6.4.4
+Sign\
+6.4.5
+Functions\
+6.4.6
+Component Extraction\
 7 Basic
-Input/Output  
- 7.1 Standard I/O
-Functions  
- 7.2 Sequencing I/O
-Operations  
- 7.3 Exception Handling in the I/O
-Monad  
+Input/Output\
+7.1 Standard I/O
+Functions\
+7.2 Sequencing I/O
+Operations\
+7.3 Exception Handling in the I/O
+Monad\
 8 Foreign Function
-Interface  
- 8.1 Foreign
-Languages  
- 8.2
-Contexts  
-  8.2.1
-Type Consistency  
- 8.3 Lexical
-Structure  
- 8.4 Foreign
-Declarations  
-  8.4.1
-Conventions  
-  8.4.2
-Types  
-  8.4.3
-Declarations  
-  8.4.4
-Declarations  
- 8.5 Specification of External
-Entities  
-  8.5.1
-Calls  
-  8.5.2
-Calls  
- 8.6
-Marshalling  
- 8.7 The External C
-Interface  
+Interface\
+8.1 Foreign
+Languages\
+8.2
+Contexts\
+8.2.1
+Type Consistency\
+8.3 Lexical
+Structure\
+8.4 Foreign
+Declarations\
+8.4.1
+Conventions\
+8.4.2
+Types\
+8.4.3
+Declarations\
+8.4.4
+Declarations\
+8.5 Specification of External
+Entities\
+8.5.1
+Calls\
+8.5.2
+Calls\
+8.6
+Marshalling\
+8.7 The External C
+Interface\
 9 Standard
-Prelude  
- 9.1 Prelude
-PreludeList  
- 9.2 Prelude
-PreludeText  
- 9.3 Prelude
-PreludeIO  
+Prelude\
+9.1 Prelude
+PreludeList\
+9.2 Prelude
+PreludeText\
+9.3 Prelude
+PreludeIO\
 10 Syntax
-Reference  
- 10.1 Notational
-Conventions  
- 10.2 Lexical
-Syntax  
- 10.3
-Layout  
- 10.4 Literate
-comments  
- 10.5 Context-Free
-Syntax  
- 10.6 Fixity
-Resolution  
+Reference\
+10.1 Notational
+Conventions\
+10.2 Lexical
+Syntax\
+10.3
+Layout\
+10.4 Literate
+comments\
+10.5 Context-Free
+Syntax\
+10.6 Fixity
+Resolution\
 11 Specification of Derived
-Instances  
- 11.1 Derived instances of
+Instances\
+11.1 Derived instances of
 Eq and
-Ord  
- 11.2 Derived instances of
-Enum  
- 11.3 Derived instances of
-Bounded  
- 11.4 Derived instances of
+Ord\
+11.2 Derived instances of
+Enum\
+11.3 Derived instances of
+Bounded\
+11.4 Derived instances of
 Read and
-Show  
- 11.5 An
-Example  
+Show\
+11.5 An
+Example\
 12 Compiler
-Pragmas  
- 12.1
-Inlining  
- 12.2
-Specialization  
- 12.3 Language
-extensions  
+Pragmas\
+12.1
+Inlining\
+12.2
+Specialization\
+12.3 Language
+extensions\
 II  The Haskell 2010
-Libraries  
+Libraries\
 13
-Control.Monad  
- 13.1 Functor and monad
-classes   
- 13.2
-Functions   
-  13.2.1
-conventions   
-  13.2.2
-Basic Monad functions   
-  13.2.3
-Generalisations of list functions   
-  13.2.4
-execution of monadic expressions   
-  13.2.5
-lifting operators   
+Control.Monad\
+13.1 Functor and monad
+classes\
+13.2
+Functions\
+13.2.1
+conventions\
+13.2.2
+Basic Monad functions\
+13.2.3
+Generalisations of list functions\
+13.2.4
+execution of monadic expressions\
+13.2.5
+lifting operators\
 14
-Data.Array  
- 14.1 Immutable non-strict
-arrays   
- 14.2 Array
-construction   
- 14.3 Accessing
-arrays   
- 14.4 Incremental array
-updates   
- 14.5 Derived
-arrays   
- 14.6
-Specification   
+Data.Array\
+14.1 Immutable non-strict
+arrays\
+14.2 Array
+construction\
+14.3 Accessing
+arrays\
+14.4 Incremental array
+updates\
+14.5 Derived
+arrays\
+14.6
+Specification\
 15
-Data.Bits  
+Data.Bits\
 16
-Data.Char  
- 16.1 Characters and
-strings   
- 16.2 Character
-classification   
-  16.2.1
-Subranges   
-  16.2.2
-general categories   
- 16.3 Case
-conversion   
- 16.4 Single digit
-characters   
- 16.5 Numeric
-representations   
- 16.6 String
-representations   
+Data.Char\
+16.1 Characters and
+strings\
+16.2 Character
+classification\
+16.2.1
+Subranges\
+16.2.2
+general categories\
+16.3 Case
+conversion\
+16.4 Single digit
+characters\
+16.5 Numeric
+representations\
+16.6 String
+representations\
 17
-Data.Complex  
- 17.1 Rectangular
-form   
- 17.2 Polar
-form   
- 17.3
-Conjugate   
- 17.4
-Specification   
+Data.Complex\
+17.1 Rectangular
+form\
+17.2 Polar
+form\
+17.3
+Conjugate\
+17.4
+Specification\
 18
-Data.Int  
- 18.1 Signed integer
-types   
+Data.Int\
+18.1 Signed integer
+types\
 19
-Data.Ix  
- 19.1 The Ix
-class   
- 19.2 Deriving Instances of
-Ix  
+Data.Ix\
+19.1 The Ix
+class\
+19.2 Deriving Instances of
+Ix\
 20
-Data.List  
- 20.1 Basic
-functions   
- 20.2 List
-transformations   
- 20.3 Reducing lists
-(folds)   
-  20.3.1
-folds   
- 20.4 Building
-lists   
-  20.4.1
+Data.List\
+20.1 Basic
+functions\
+20.2 List
+transformations\
+20.3 Reducing lists
+(folds)\
+20.3.1
+folds\
+20.4 Building
+lists\
+20.4.1
 Scans
-  
-  20.4.2
-maps   
-  20.4.3
-lists   
-  20.4.4
-Unfolding   
- 20.5
-Sublists   
-  20.5.1
-sublists   
-  20.5.2
-Predicates   
- 20.6 Searching
-lists   
-  20.6.1
-equality   
-  20.6.2
-with a predicate   
- 20.7 Indexing
-lists   
- 20.8 Zipping and unzipping
-lists   
- 20.9 Special
-lists   
-  20.9.1
-strings   
-  20.9.2
-operations   
-  20.9.3
-lists   
- 20.10 Generalized
-functions   
-  20.10.1
-The ”By” operations   
-   20.10.1.1
-User-supplied equality (replacing an Eq context)   
-   20.10.1.2
-User-supplied comparison (replacing an Ord context)   
-  20.10.2
-The ”generic” operations   
+
+20.4.2
+maps\
+20.4.3
+lists\
+20.4.4
+Unfolding\
+20.5
+Sublists\
+20.5.1
+sublists\
+20.5.2
+Predicates\
+20.6 Searching
+lists\
+20.6.1
+equality\
+20.6.2
+with a predicate\
+20.7 Indexing
+lists\
+20.8 Zipping and unzipping
+lists\
+20.9 Special
+lists\
+20.9.1
+strings\
+20.9.2
+operations\
+20.9.3
+lists\
+20.10 Generalized
+functions\
+20.10.1
+The ”By” operations\
+20.10.1.1
+User-supplied equality (replacing an Eq context)\
+20.10.1.2
+User-supplied comparison (replacing an Ord context)\
+20.10.2
+The ”generic” operations\
 21
-Data.Maybe  
- 21.1 The Maybe
-type and operations   
- 21.2
-Specification   
+Data.Maybe\
+21.1 The Maybe
+type and operations\
+21.2
+Specification\
 22
-Data.Ratio  
- 22.1
-Specification   
+Data.Ratio\
+22.1
+Specification\
 23
-Data.Word  
- 23.1 Unsigned integral
-types   
+Data.Word\
+23.1 Unsigned integral
+types\
 24
-Foreign  
+Foreign\
 25
-Foreign.C  
+Foreign.C\
 26
-Foreign.C.Error  
- 26.1 Haskell representations of
+Foreign.C.Error\
+26.1 Haskell representations of
 errno
-values   
-  26.1.1
-Common errno symbols   
-  26.1.2
-Errno functions   
-  26.1.3
-IO operations that may fail   
+values\
+26.1.1
+Common errno symbols\
+26.1.2
+Errno functions\
+26.1.3
+IO operations that may fail\
 27
-Foreign.C.String  
- 27.1 C
-strings   
-  27.1.1
-locale-dependent encoding   
-  27.1.2
-characters   
- 27.2 C wide
-strings   
+Foreign.C.String\
+27.1 C
+strings\
+27.1.1
+locale-dependent encoding\
+27.1.2
+characters\
+27.2 C wide
+strings\
 28
-Foreign.C.Types  
- 28.1 Representations of C
-types   
-  28.1.1
-types   
-  28.1.2
-types   
-  28.1.3
-types   
-  28.1.4
-types   
+Foreign.C.Types\
+28.1 Representations of C
+types\
+28.1.1
+types\
+28.1.2
+types\
+28.1.3
+types\
+28.1.4
+types\
 29
-Foreign.ForeignPtr  
- 29.1 Finalised data
-pointers   
-  29.1.1
-operations   
-  29.1.2
-operations   
-  29.1.3
-managed memory   
+Foreign.ForeignPtr\
+29.1 Finalised data
+pointers\
+29.1.1
+operations\
+29.1.2
+operations\
+29.1.3
+managed memory\
 30
-Foreign.Marshal  
+Foreign.Marshal\
 31
-Foreign.Marshal.Alloc  
- 31.1 Memory
-allocation   
-  31.1.1
-allocation   
-  31.1.2
-allocation   
+Foreign.Marshal.Alloc\
+31.1 Memory
+allocation\
+31.1.1
+allocation\
+31.1.2
+allocation\
 32
-Foreign.Marshal.Array  
- 32.1 Marshalling
-arrays   
-  32.1.1
-Allocation   
-  32.1.2
-Marshalling   
-  32.1.3
-allocation and marshalling   
-  32.1.4
+Foreign.Marshal.Array\
+32.1 Marshalling
+arrays\
+32.1.1
+Allocation\
+32.1.2
+Marshalling\
+32.1.3
+allocation and marshalling\
+32.1.4
 Copying
-  
-  32.1.5
-length   
-  32.1.6
+
+32.1.5
+length\
+32.1.6
 Indexing
-  
+
 33
-Foreign.Marshal.Error  
+Foreign.Marshal.Error\
 34
-Foreign.Marshal.Utils  
- 34.1 General marshalling
-utilities   
-  34.1.1
-allocation and marshalling   
-  34.1.2
-of Boolean values (non-zero corresponds to True)   
-  34.1.3
-of Maybe values   
-  34.1.4
-lists of storable objects   
-  34.1.5
-interface to memcpy and memmove   
+Foreign.Marshal.Utils\
+34.1 General marshalling
+utilities\
+34.1.1
+allocation and marshalling\
+34.1.2
+of Boolean values (non-zero corresponds to True)\
+34.1.3
+of Maybe values\
+34.1.4
+lists of storable objects\
+34.1.5
+interface to memcpy and memmove\
 35
-Foreign.Ptr  
- 35.1 Data
-pointers   
- 35.2 Function
-pointers   
- 35.3 Integral types with lossless conversion
-to and from pointers   
+Foreign.Ptr\
+35.1 Data
+pointers\
+35.2 Function
+pointers\
+35.3 Integral types with lossless conversion
+to and from pointers\
 36
-Foreign.StablePtr  
- 36.1 Stable references to Haskell
-values   
-  36.1.1
-interface   
+Foreign.StablePtr\
+36.1 Stable references to Haskell
+values\
+36.1.1
+interface\
 37
-Foreign.Storable  
+Foreign.Storable\
 38
-Numeric  
- 38.1
-Showing   
- 38.2
-Reading   
- 38.3
-Miscellaneous   
+Numeric\
+38.1
+Showing\
+38.2
+Reading\
+38.3
+Miscellaneous\
 39
-System.Environment  
+System.Environment\
 40
-System.Exit  
+System.Exit\
 41
-System.IO  
- 41.1 The IO
-monad   
- 41.2 Files and
-handles   
-  41.2.1
-handles   
- 41.3 Opening and closing
-files   
-  41.3.1
-files   
-  41.3.2
-files   
-  41.3.3
-cases   
-  41.3.4
-locking   
- 41.4 Operations on
-handles   
-  41.4.1
-and changing the size of a file   
-  41.4.2
-the end of input   
-  41.4.3
-operations   
-  41.4.4
-Repositioning handles   
-  41.4.5
-properties   
-  41.4.6
-operations   
-  41.4.7
-handle state   
- 41.5 Text input and
-output   
-  41.5.1
-input   
-  41.5.2
-output   
-  41.5.3
-cases for standard input and output   
+System.IO\
+41.1 The IO
+monad\
+41.2 Files and
+handles\
+41.2.1
+handles\
+41.3 Opening and closing
+files\
+41.3.1
+files\
+41.3.2
+files\
+41.3.3
+cases\
+41.3.4
+locking\
+41.4 Operations on
+handles\
+41.4.1
+and changing the size of a file\
+41.4.2
+the end of input\
+41.4.3
+operations\
+41.4.4
+Repositioning handles\
+41.4.5
+properties\
+41.4.6
+operations\
+41.4.7
+handle state\
+41.5 Text input and
+output\
+41.5.1
+input\
+41.5.2
+output\
+41.5.3
+cases for standard input and output\
 42
-System.IO.Error  
- 42.1 I/O
-errors   
-  42.1.1
-I/O errors   
-  42.1.2
-of I/O errors   
- 42.2 Types of I/O
-error   
- 42.3 Throwing and catching I/O
-errors 
+System.IO.Error\
+42.1 I/O
+errors\
+42.1.1
+I/O errors\
+42.1.2
+of I/O errors\
+42.2 Types of I/O
+error\
+42.3 Throwing and catching I/O
+errors
 
+______________________________________________________________________
 
-
-
-
-
-
-
-
-
----
-
-
-
-\[prev-tail\]
-
-
+[prev-tail]
 
 ## Preface
-
-
 
 “Some half dozen persons have written technically
 on combinatory logic, and most of these,
@@ -689,16 +657,10 @@ necessary for accuracy; and excessive
 condensation would be false economy here, even more than it is
 ordinarily.”
 
-
-
-Haskell B. Curry and Robert Feys  
+Haskell B. Curry and Robert Feys\
 in the Preface to Combinatory Logic
-\[3\],
+[3],
 May 31, 1956
-
-
-
-
 
 In September of 1987 a meeting was held at the conference on Functional
 Programming Languages and Computer Architecture (FPCA ’87) in Portland,
@@ -723,17 +685,17 @@ basis for much of ours.
 The committee’s primary goal was to design a language that satisfied
 these constraints:
 
-1.  It should be suitable for teaching, research,
-    and applications, including building large systems.
-2.  It should be completely described via the
-    publication of a formal syntax and semantics.
-3.  It should be freely available. Anyone should be
-    permitted to implement the language and distribute it to whomever
-    they please.
-4.  It should be based on ideas that enjoy a wide
-    consensus.
-5.  It should reduce unnecessary diversity in
-    functional programming languages.
+1. It should be suitable for teaching, research,
+   and applications, including building large systems.
+1. It should be completely described via the
+   publication of a formal syntax and semantics.
+1. It should be freely available. Anyone should be
+   permitted to implement the language and distribute it to whomever
+   they please.
+1. It should be based on ideas that enjoy a wide
+   consensus.
+1. It should reduce unnecessary diversity in
+   functional programming languages.
 
 ### Haskell 2010: language and libraries
 
@@ -784,13 +746,11 @@ New language features:
 Removed language features:
 
 - The (n
-  +
+  \+
   k)
   pattern syntax.
 
 ### Haskell Resources
-
-
 
 The Haskell web site http://haskell.org gives access to many
 useful resources, including:
@@ -816,60 +776,56 @@ on the Language and Library committees, in particular, devoted a huge
 amount of time and energy to the language. Here they are, with their
 affiliation(s) for the relevant period:
 
-
-
-Arvind (MIT)  
-Lennart Augustsson (Chalmers University)  
-Dave Barton (Mitre Corp)  
-Brian Boutel (Victoria University of Wellington)  
-Warren Burton (Simon Fraser University)  
-Manuel M T Chakravarty (University of New South Wales)  
-Duncan Coutts (Well-Typed LLP)  
-Jon Fairbairn (University of Cambridge)  
-Joseph Fasel (Los Alamos National Laboratory)  
-John Goerzen  
-Andy Gordon (University of Cambridge)  
-Maria Guzman (Yale University)  
-Kevin Hammond \[editor\] (University of Glasgow)  
-Bastiaan Heeren (Utrecht University)  
-Ralf Hinze (University of Bonn)  
-Paul Hudak \[editor\] (Yale University)  
-John Hughes \[editor\] (University of Glasgow; Chalmers University)  
-Thomas Johnsson (Chalmers University)  
-Isaac Jones (Galois, inc.)  
+Arvind (MIT)\
+Lennart Augustsson (Chalmers University)\
+Dave Barton (Mitre Corp)\
+Brian Boutel (Victoria University of Wellington)\
+Warren Burton (Simon Fraser University)\
+Manuel M T Chakravarty (University of New South Wales)\
+Duncan Coutts (Well-Typed LLP)\
+Jon Fairbairn (University of Cambridge)\
+Joseph Fasel (Los Alamos National Laboratory)\
+John Goerzen\
+Andy Gordon (University of Cambridge)\
+Maria Guzman (Yale University)\
+Kevin Hammond [editor] (University of Glasgow)\
+Bastiaan Heeren (Utrecht University)\
+Ralf Hinze (University of Bonn)\
+Paul Hudak [editor] (Yale University)\
+John Hughes [editor] (University of Glasgow; Chalmers University)\
+Thomas Johnsson (Chalmers University)\
+Isaac Jones (Galois, inc.)\
 Mark Jones (Yale University, University of Nottingham, Oregon Graduate
-Institute)  
-Dick Kieburtz (Oregon Graduate Institute)  
+Institute)\
+Dick Kieburtz (Oregon Graduate Institute)\
 John Launchbury (University of Glasgow; Oregon Graduate Institute;
-Galois, inc.)  
-Andres Löh (Utrecht University)  
-Ian Lynagh (Well-Typed LLP)  
-Simon Marlow \[editor\] (Microsoft Research)  
-John Meacham  
-Erik Meijer (Utrecht University)  
-Ravi Nanavati (Bluespec, inc.)  
-Rishiyur Nikhil (MIT)  
-Henrik Nilsson (University of Nottingham)  
-Ross Paterson (City University, London)  
-John Peterson \[editor\] (Yale University)  
-Simon Peyton Jones \[editor\] (University of Glasgow; Microsoft Research
-Ltd)  
-Mike Reeve (Imperial College)  
-Alastair Reid (University of Glasgow)  
-Colin Runciman (University of York)  
-Don Stewart (Galois, inc.)  
-Martin Sulzmann (Informatik Consulting Systems AG)  
-Audrey Tang  
-Simon Thompson (University of Kent)  
-Philip Wadler \[editor\] (University of Glasgow)  
-Malcolm Wallace (University of York)  
-Stephanie Weirich (University of Pennsylvania)  
-David Wise (Indiana University)  
+Galois, inc.)\
+Andres Löh (Utrecht University)\
+Ian Lynagh (Well-Typed LLP)\
+Simon Marlow [editor] (Microsoft Research)\
+John Meacham\
+Erik Meijer (Utrecht University)\
+Ravi Nanavati (Bluespec, inc.)\
+Rishiyur Nikhil (MIT)\
+Henrik Nilsson (University of Nottingham)\
+Ross Paterson (City University, London)\
+John Peterson [editor] (Yale University)\
+Simon Peyton Jones [editor] (University of Glasgow; Microsoft Research
+Ltd)\
+Mike Reeve (Imperial College)\
+Alastair Reid (University of Glasgow)\
+Colin Runciman (University of York)\
+Don Stewart (Galois, inc.)\
+Martin Sulzmann (Informatik Consulting Systems AG)\
+Audrey Tang\
+Simon Thompson (University of Kent)\
+Philip Wadler [editor] (University of Glasgow)\
+Malcolm Wallace (University of York)\
+Stephanie Weirich (University of Pennsylvania)\
+David Wise (Indiana University)\
 Jonathan Young (Yale University)
 
-
-
-Those marked \[editor\] served as the co-ordinating editor for one or
+Those marked [editor] served as the co-ordinating editor for one or
 more revisions of the language.
 
 In addition, dozens of other people made helpful contributions, some
@@ -907,225 +863,201 @@ developed over the years. Although it is difficult to pinpoint the
 origin of many ideas, the following languages were particularly
 influential: Lisp (and its modern-day incarnations Common Lisp and
 Scheme); Landin’s ISWIM; APL; Backus’s FP
-\[1\]; ML and
+[1]; ML and
 Standard ML; Hope and Hope<sup>+</sup>;
 Clean; Id; Gofer; Sisal; and Turner’s series of languages culminating in
 Miranda<sup>1</sup>
 . Without these forerunners Haskell would not have been possible.
 
-Simon Marlow  
+Simon Marlow\
 Cambridge, April 2010
 
+[prev-tail]
 
+______________________________________________________________________
 
-\[prev-tail\]
-
-
-
-
-
----
-
-
-
-\[prev-tail\]
-
-
+[prev-tail]
 
 # Part I The Haskell 2010 Language
 
-
-
 1
-Introduction  
- 1.1 Program
-Structure  
- 1.2 The Haskell
-Kernel  
- 1.3 Values and
-Types  
- 1.4
-Namespaces  
+Introduction\
+1.1 Program
+Structure\
+1.2 The Haskell
+Kernel\
+1.3 Values and
+Types\
+1.4
+Namespaces\
 2 Lexical
-Structure  
- 2.1 Notational
-Conventions  
- 2.2 Lexical Program
-Structure  
- 2.3
-Comments  
- 2.4 Identifiers and
-Operators  
- 2.5 Numeric
-Literals  
- 2.6 Character and String
-Literals  
- 2.7
-Layout  
+Structure\
+2.1 Notational
+Conventions\
+2.2 Lexical Program
+Structure\
+2.3
+Comments\
+2.4 Identifiers and
+Operators\
+2.5 Numeric
+Literals\
+2.6 Character and String
+Literals\
+2.7
+Layout\
 3
-Expressions  
- 3.1
-Errors  
- 3.2 Variables, Constructors, Operators, and
-Literals  
- 3.3 Curried Applications and Lambda
-Abstractions  
- 3.4 Operator
-Applications  
- 3.5
-Sections  
- 3.6
-Conditionals  
- 3.7
-Lists  
- 3.8
-Tuples  
- 3.9 Unit Expressions and Parenthesized
-Expressions  
- 3.10 Arithmetic
-Sequences  
- 3.11 List
-Comprehensions  
- 3.12 Let
-Expressions  
- 3.13 Case
-Expressions  
- 3.14 Do
-Expressions  
- 3.15 Datatypes with Field
-Labels  
- 3.16 Expression
-Type-Signatures  
- 3.17 Pattern
-Matching  
+Expressions\
+3.1
+Errors\
+3.2 Variables, Constructors, Operators, and
+Literals\
+3.3 Curried Applications and Lambda
+Abstractions\
+3.4 Operator
+Applications\
+3.5
+Sections\
+3.6
+Conditionals\
+3.7
+Lists\
+3.8
+Tuples\
+3.9 Unit Expressions and Parenthesized
+Expressions\
+3.10 Arithmetic
+Sequences\
+3.11 List
+Comprehensions\
+3.12 Let
+Expressions\
+3.13 Case
+Expressions\
+3.14 Do
+Expressions\
+3.15 Datatypes with Field
+Labels\
+3.16 Expression
+Type-Signatures\
+3.17 Pattern
+Matching\
 4 Declarations and
-Bindings  
- 4.1 Overview of Types and
-Classes  
- 4.2 User-Defined
-Datatypes  
- 4.3 Type Classes and
-Overloading  
- 4.4 Nested
-Declarations  
- 4.5 Static Semantics of Function and Pattern
-Bindings  
- 4.6 Kind
-Inference  
+Bindings\
+4.1 Overview of Types and
+Classes\
+4.2 User-Defined
+Datatypes\
+4.3 Type Classes and
+Overloading\
+4.4 Nested
+Declarations\
+4.5 Static Semantics of Function and Pattern
+Bindings\
+4.6 Kind
+Inference\
 5
-Modules  
- 5.1 Module
-Structure  
- 5.2 Export
-Lists  
- 5.3 Import
-Declarations  
- 5.4 Importing and Exporting Instance
-Declarations  
- 5.5 Name Clashes and
-Closure  
- 5.6 Standard
-Prelude  
- 5.7 Separate
-Compilation  
- 5.8 Abstract
-Datatypes  
+Modules\
+5.1 Module
+Structure\
+5.2 Export
+Lists\
+5.3 Import
+Declarations\
+5.4 Importing and Exporting Instance
+Declarations\
+5.5 Name Clashes and
+Closure\
+5.6 Standard
+Prelude\
+5.7 Separate
+Compilation\
+5.8 Abstract
+Datatypes\
 6 Predefined Types and
-Classes  
- 6.1 Standard Haskell
-Types  
- 6.2 Strict
-Evaluation  
- 6.3 Standard Haskell
-Classes  
- 6.4
-Numbers  
+Classes\
+6.1 Standard Haskell
+Types\
+6.2 Strict
+Evaluation\
+6.3 Standard Haskell
+Classes\
+6.4
+Numbers\
 7 Basic
-Input/Output  
- 7.1 Standard I/O
-Functions  
- 7.2 Sequencing I/O
-Operations  
- 7.3 Exception Handling in the I/O
-Monad  
+Input/Output\
+7.1 Standard I/O
+Functions\
+7.2 Sequencing I/O
+Operations\
+7.3 Exception Handling in the I/O
+Monad\
 8 Foreign Function
-Interface  
- 8.1 Foreign
-Languages  
- 8.2
-Contexts  
- 8.3 Lexical
-Structure  
- 8.4 Foreign
-Declarations  
- 8.5 Specification of External
-Entities  
- 8.6
-Marshalling  
- 8.7 The External C
-Interface  
+Interface\
+8.1 Foreign
+Languages\
+8.2
+Contexts\
+8.3 Lexical
+Structure\
+8.4 Foreign
+Declarations\
+8.5 Specification of External
+Entities\
+8.6
+Marshalling\
+8.7 The External C
+Interface\
 9 Standard
-Prelude  
- 9.1 Prelude
-PreludeList  
- 9.2 Prelude
-PreludeText  
- 9.3 Prelude
-PreludeIO  
+Prelude\
+9.1 Prelude
+PreludeList\
+9.2 Prelude
+PreludeText\
+9.3 Prelude
+PreludeIO\
 10 Syntax
-Reference  
- 10.1 Notational
-Conventions  
- 10.2 Lexical
-Syntax  
- 10.3
-Layout  
- 10.4 Literate
-comments  
- 10.5 Context-Free
-Syntax  
- 10.6 Fixity
-Resolution  
+Reference\
+10.1 Notational
+Conventions\
+10.2 Lexical
+Syntax\
+10.3
+Layout\
+10.4 Literate
+comments\
+10.5 Context-Free
+Syntax\
+10.6 Fixity
+Resolution\
 11 Specification of Derived
-Instances  
- 11.1 Derived instances of
+Instances\
+11.1 Derived instances of
 Eq and
-Ord  
- 11.2 Derived instances of
-Enum  
- 11.3 Derived instances of
-Bounded  
- 11.4 Derived instances of
+Ord\
+11.2 Derived instances of
+Enum\
+11.3 Derived instances of
+Bounded\
+11.4 Derived instances of
 Read and
-Show  
- 11.5 An
-Example  
+Show\
+11.5 An
+Example\
 12 Compiler
-Pragmas  
- 12.1
-Inlining  
- 12.2
-Specialization  
- 12.3 Language
+Pragmas\
+12.1
+Inlining\
+12.2
+Specialization\
+12.3 Language
 extensions
 
+[prev-tail]
 
+______________________________________________________________________
 
-
-
-\[prev-tail\]
-
-
-
-
-
----
-
-
-
-\[up\]
-
-
+[up]
 
 ## Chapter 1 Introduction
 
@@ -1148,35 +1080,33 @@ etc. This includes such issues as the nature of programming environments
 and the error messages returned for undefined programs (i.e. programs
 that formally evaluate to ⊥).
 
-### 1.1  Program Structure
-
-
+### 1.1 Program Structure
 
 In this section, we describe the abstract syntactic and semantic
 structure of Haskell, as well as how it relates to the organization of
 the rest of the report.
 
-1.  At the topmost level a Haskell program is a
-    set of modules, described in
-    Chapter 5. Modules provide a way to
-    control namespaces and to re-use software in large programs.
-2.  The top level of a module consists of a
-    collection of declarations, of which
-    there are several kinds, all described in
-    Chapter 4. Declarations define things
-    such as ordinary values, datatypes, type classes, and fixity
-    information.
-3.  At the next lower level are
-    expressions, described in
-    Chapter 3. An expression denotes a
-    value and has a
-    static type; expressions are at the
-    heart of Haskell programming “in the small.”
-4.  At the bottom level is Haskell’s
-    lexical structure, defined in
-    Chapter 2. The lexical structure
-    captures the concrete representation of Haskell programs in text
-    files.
+1. At the topmost level a Haskell program is a
+   set of modules, described in
+   Chapter 5. Modules provide a way to
+   control namespaces and to re-use software in large programs.
+1. The top level of a module consists of a
+   collection of declarations, of which
+   there are several kinds, all described in
+   Chapter 4. Declarations define things
+   such as ordinary values, datatypes, type classes, and fixity
+   information.
+1. At the next lower level are
+   expressions, described in
+   Chapter 3. An expression denotes a
+   value and has a
+   static type; expressions are at the
+   heart of Haskell programming “in the small.”
+1. At the bottom level is Haskell’s
+   lexical structure, defined in
+   Chapter 2. The lexical structure
+   captures the concrete representation of Haskell programs in text
+   files.
 
 This report proceeds bottom-up with respect to Haskell’s syntactic
 structure.
@@ -1193,17 +1123,9 @@ instances, and pragmas supported by most Haskell compilers.
 Examples of Haskell program fragments in running text are given in
 typewriter font:
 
-
-
-
-
- let x = 1    
-     z = x+y    
- in  z+1
-
-
-
-
+let x = 1  \
+z = x+y  \
+in  z+1
 
 “Holes” in program fragments representing arbitrary pieces of Haskell
 code are written in italics, as in
@@ -1213,9 +1135,7 @@ e for expressions,
 d for declarations,
 t for types, etc.
 
-### 1.2  The Haskell Kernel
-
-
+### 1.2 The Haskell Kernel
 
 Haskell has adopted many of the convenient syntactic structures that
 have become popular in functional programming. In this Report, the
@@ -1231,10 +1151,7 @@ the kernel is given as the syntax is introduced. This modular design
 facilitates reasoning about Haskell programs and provides useful
 guidelines for implementors of the language.
 
-### 1.3  Values and Types
-
- 
-
+### 1.3 Values and Types
 
 An expression evaluates to a
 value and has a static
@@ -1255,9 +1172,7 @@ mechanism for detecting or acting upon errors. However, implementations
 will probably try to provide useful information about errors. See
 Section 3.1.
 
-### 1.4  Namespaces
-
-
+### 1.4 Namespaces
 
 There are six kinds of names in Haskell: those for
 variables and
@@ -1268,46 +1183,32 @@ type classes refer to entities related to
 the type system; and module names refer to
 modules. There are two constraints on naming:
 
-1.  Names for variables and type variables are
-    identifiers beginning with lowercase letters or underscore; the
-    other four kinds of names are identifiers beginning with uppercase
-    letters.
-2.  An identifier must not be used as the name of
-    a type constructor and a class in the same scope.
+1. Names for variables and type variables are
+   identifiers beginning with lowercase letters or underscore; the
+   other four kinds of names are identifiers beginning with uppercase
+   letters.
+1. An identifier must not be used as the name of
+   a type constructor and a class in the same scope.
 
 These are the only constraints; for example,
 Int may simultaneously be the name of a
 module, class, and constructor within a single scope.
 
+[up]
 
+______________________________________________________________________
 
-\[up\]
-
-
-
-
-
----
-
-
-
-\[prev-tail\]
-\[up\]
-
-
+[prev-tail]
+[up]
 
 ## Chapter 2 Lexical Structure
-
-
 
 In this chapter, we describe the low-level lexical structure of Haskell.
 Most of the details may be skipped in a first reading of the report.
 
-### 2.1  Notational Conventions
+### 2.1 Notational Conventions
 
 These notational conventions are used for presenting syntax:
-
-
 
 <table id="TBL-1" class="array" data-cellpadding="0"
 data-cellspacing="0">
@@ -1370,36 +1271,26 @@ terminal syntax in typewriter font
 </tbody>
 </table>
 
-
-
 Because the syntax in this section describes
 lexical syntax, all whitespace is
 expressed explicitly; there is no implicit space between juxtaposed
 symbols. BNF-like syntax is used throughout, with productions having the
 form:
 
-
-
-
-
-|  |  |  |
+| | | |
 |:---|:--:|:---|
-| nonterm  | → | alt<sub>1</sub> \| alt<sub>2</sub> \| … \| alt<sub>n</sub> |
-
-
-
-
+| nonterm | → | alt<sub>1</sub> | alt<sub>2</sub> | … | alt<sub>n</sub> |
 
 Care must be taken in distinguishing metalogical syntax such as
-\| and
-\[…\]
+| and
+[…]
 from concrete terminal syntax (given in typewriter font) such as
-\| and
-\[...\], although usually the context makes
+| and
+[...], although usually the context makes
 the distinction clear.
 
 Haskell uses the Unicode
-\[2\] character
+[2] character
 set. However, source programs are currently
 biased toward the ASCII character set used
 in earlier versions of Haskell.
@@ -1408,91 +1299,63 @@ This syntax depends on properties of the Unicode characters as defined
 by the Unicode consortium. Haskell compilers are expected to make use of
 new versions of Unicode as they are made available.
 
-### 2.2  Lexical Program Structure
+### 2.2 Lexical Program Structure
 
-
-
-
-
-|  |  |  |
+| | | |
 |:---|----|----|
-|  |  |  |
-| program  | → | { lexeme \| whitespace }  |
-| lexeme  | → | qvarid \| qconid \| qvarsym \| qconsym  |
-|  | \| | literal \| special \| reservedop \| reservedid  |
-| literal  | → | integer \| float \| char \| string  |
-| special  | → | ( \| ) \| , \| ; \| \[ \| \] \| \` \| { \| } |
-|    |  |  |
-|  |  |  |
-| whitespace  | → | whitestuff {whitestuff}  |
-| whitestuff  | → | whitechar \| comment \| ncomment  |
-| whitechar  | → | newline \| vertab \| space \| tab \| uniWhite  |
-| newline  | → | return linefeed \| return \| linefeed \| formfeed  |
-| return  | → | a carriage return |
-| linefeed  | → | a line feed |
-| vertab  | → | a vertical tab |
-| formfeed  | → | a form feed |
-| space  | → | a space |
-| tab  | → | a horizontal tab |
-| uniWhite  | → | any Unicode character defined as whitespace |
-|    |  |  |
-|  |  |  |
-| comment  | → | dashes \[ any<sub>⟨symbol⟩</sub> {any} \] newline  |
-| dashes  | → | -- {-}  |
-| opencom  | → | {- |
-| closecom  | → | -} |
-| ncomment  | → | opencom ANY seq {ncomment ANY seq} closecom  |
-| ANY seq  | → | {ANY }<sub>⟨{ANY } ( opencom \| closecom ) {ANY }⟩</sub> |
-| ANY  | → | graphic \| whitechar  |
-| any  | → | graphic \| space \| tab  |
-| graphic  | → | small \| large \| symbol \| digit \| special \| " \| ' |
-|    |  |  |
-|  |  |  |
-| small  | → | ascSmall \| uniSmall \| \_ |
-| ascSmall  | → | a \| b \| … \| z |
-| uniSmall  | → | any Unicode lowercase letter |
-|    |  |  |
-|  |  |  |
-| large  | → | ascLarge \| uniLarge  |
-| ascLarge  | → | A \| B \| … \| Z |
-| uniLarge  | → | any uppercase or titlecase Unicode letter |
-| symbol  | → | ascSymbol \| uniSymbol<sub>⟨special \| \_ \| " \| '⟩</sub> |
-|    |  |  |
-|  |  |  |
-| ascSymbol  | → | ! \| \# \| \$ \| % \| & \| ⋆ \| + \| . \| / \| \< \| = \| \> \| ? \| @  |
-|  | \| | \\ \| ^ \| \| \| - \| ~ \| : |
-| uniSymbol  | → | any Unicode symbol or punctuation |
-| digit  | → | ascDigit \| uniDigit  |
-| ascDigit  | → | 0 \| 1 \| … \| 9 |
-| uniDigit  | → | any Unicode decimal digit |
-| octit  | → | 0 \| 1 \| … \| 7 |
-| hexit  | → | digit \| A \| … \| F \| a \| … \| f |
-|    |  |  |
-|  |  |  |
-
-
-
-
-
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
-
+| | | |
+| program | → | { lexeme | whitespace } |
+| lexeme | → | qvarid | qconid | qvarsym | qconsym |
+| | | | literal | special | reservedop | reservedid |
+| literal | → | integer | float | char | string |
+| special | → | ( | ) | , | ; | [ | ] | \` | { | } |
+|   | | |
+| | | |
+| whitespace | → | whitestuff {whitestuff} |
+| whitestuff | → | whitechar | comment | ncomment |
+| whitechar | → | newline | vertab | space | tab | uniWhite |
+| newline | → | return linefeed | return | linefeed | formfeed |
+| return | → | a carriage return |
+| linefeed | → | a line feed |
+| vertab | → | a vertical tab |
+| formfeed | → | a form feed |
+| space | → | a space |
+| tab | → | a horizontal tab |
+| uniWhite | → | any Unicode character defined as whitespace |
+|   | | |
+| | | |
+| comment | → | dashes \[ any<sub>⟨symbol⟩</sub> {any} \] newline |
+| dashes | → | -- {-} |
+| opencom | → | {- |
+| closecom | → | -} |
+| ncomment | → | opencom ANY seq {ncomment ANY seq} closecom |
+| ANY seq | → | {ANY }<sub>⟨{ANY } ( opencom | closecom ) {ANY }⟩</sub> |
+| ANY | → | graphic | whitechar |
+| any | → | graphic | space | tab |
+| graphic | → | small | large | symbol | digit | special | " | ' |
+|   | | |
+| | | |
+| small | → | ascSmall | uniSmall | _ |
+| ascSmall | → | a | b | … | z |
+| uniSmall | → | any Unicode lowercase letter |
+|   | | |
+| | | |
+| large | → | ascLarge | uniLarge |
+| ascLarge | → | A | B | … | Z |
+| uniLarge | → | any uppercase or titlecase Unicode letter |
+| symbol | → | ascSymbol | uniSymbol<sub>⟨special | _ | " | '⟩</sub> |
+|   | | |
+| | | |
+| ascSymbol | → | ! | # | $ | % | & | ⋆ | + | . | / | \< | = | > | ? | @ |
+| | | | \\ | ^ | | | - | ~ | : |
+| uniSymbol | → | any Unicode symbol or punctuation |
+| digit | → | ascDigit | uniDigit |
+| ascDigit | → | 0 | 1 | … | 9 |
+| uniDigit | → | any Unicode decimal digit |
+| octit | → | 0 | 1 | … | 7 |
+| hexit | → | digit | A | … | F | a | … | f |
+|   | | |
+| | | |
 
 Lexical analysis should use the “maximal munch” rule: at each point, the
 longest possible lexeme satisfying the
@@ -1510,7 +1373,7 @@ delimiter for lexemes.
 Characters not in the category ANY are not
 valid in Haskell programs and should result in a lexing error.
 
-### 2.3  Comments
+### 2.3 Comments
 
 Comments are valid whitespace.
 
@@ -1518,8 +1381,8 @@ An ordinary comment begins with a sequence
 of two or more consecutive dashes (e.g. --)
 and extends to the following newline. The
 sequence of dashes must not form part of a legal lexeme. For
-example, “--\>” or
-“\|--” do not
+example, “-->” or
+“|--” do not
 begin a comment, because both of these are legal lexemes; however
 “--foo” does start a comment.
 
@@ -1552,29 +1415,16 @@ occurrence of {- or
 -} within a string or within an end-of-line
 comment in that code will interfere with the nested comments.
 
-### 2.4  Identifiers and Operators
+### 2.4 Identifiers and Operators
 
- 
-
-
-
-
-
-|  |  |  |
+| | | |
 |:---|:--:|:---|
-| varid  | → | (small {small \| large \| digit \| ' })<sub>⟨reservedid⟩</sub> |
-| conid  | → | large {small \| large \| digit \| ' }  |
-| reservedid  | → | case \| class \| data \| default \| deriving \| do \| else |
-|  | \| | foreign \| if \| import \| in \| infix \| infixl |
-|  | \| | infixr \| instance \| let \| module \| newtype \| of |
-|  | \| | then \| type \| where \| \_ |
-
-
-
-
-
- 
-
+| varid | → | (small {small | large | digit | ' })<sub>⟨reservedid⟩</sub> |
+| conid | → | large {small | large | digit | ' } |
+| reservedid | → | case | class | data | default | deriving | do | else |
+| | | | foreign | if | import | in | infix | infixl |
+| | | | infixr | instance | let | module | newtype | of |
+| | | | then | type | where | _ |
 
 An identifier consists of a letter followed by zero or more letters,
 digits, underscores, and single quotes. Identifiers are lexically
@@ -1596,22 +1446,11 @@ identifiers beginning with underscore. This allows programmers to use
 “\_foo” for a parameter that they expect to
 be unused.
 
-
-
-
-
-|  |  |  |
+| | | |
 |:---|:--:|:---|
-| varsym  | → | ( symbol<sub>⟨:⟩</sub> {symbol} )<sub>⟨reservedop \| dashes⟩</sub> |
-| consym  | → | ( : {symbol})<sub>⟨reservedop⟩</sub> |
-| reservedop  | → | .. \| : \| :: \| = \| \\ \| \| \| \<- \| -\> \| @ \| ~ \| =\> |
-
-
-
-
-
- 
-
+| varsym | → | ( symbol<sub>⟨:⟩</sub> {symbol} )<sub>⟨reservedop | dashes⟩</sub> |
+| consym | → | ( : {symbol})<sub>⟨reservedop⟩</sub> |
+| reservedop | → | .. | : | :: | = | \\ | | | \<- | -> | @ | ~ | => |
 
 Operator symbols
 are formed from one or more symbol
@@ -1625,8 +1464,8 @@ namespaces (Section 1.4):
 Notice that a colon by itself, “:”, is
 reserved solely for use as the Haskell list constructor; this makes its
 treatment uniform with other parts of list syntax, such as
-“\[\]” and
-“\[a,b\]”.
+“[]” and
+“[a,b]”.
 
 Other than the special syntax for prefix negation, all operators are
 infix, although each infix operator can be used in a
@@ -1638,33 +1477,21 @@ operators are just predefined symbols and may be rebound.
 In the remainder of the report six different kinds of
 names will be used:
 
-
-
-
-
-|  |  |  |  |
+| | | | |
 |:---|:--:|:---|----|
-| varid  |       |     (variables)  |  |
-| conid  |       |     (constructors)  |  |
-| tyvar  | → | varid  |     (type variables)  |
-| tycon  | → | conid  |     (type constructors)  |
-| tycls  | → | conid  |     (type classes)  |
-| modid  | → | {conid .} conid |     (modules)  |
-
-
-
-
-
- 
- 
- 
+| varid |      |     (variables) | |
+| conid |      |     (constructors) | |
+| tyvar | → | varid |     (type variables) |
+| tycon | → | conid |     (type constructors) |
+| tycls | → | conid |     (type classes) |
+| modid | → | {conid .} conid |     (modules) |
 
 Variables and type variables are represented by identifiers beginning
 with small letters, and the others by identifiers beginning with
 capitals; also, variables and constructors have infix forms, the other
 four do not. Module names are a dot-separated sequence of
 conids. Namespaces are also discussed in
-Section 1.4. 
+Section 1.4.
 
 A name may optionally be qualified in
 certain circumstances by prepending them with a module identifier. This
@@ -1672,31 +1499,17 @@ applies to variable, constructor, type constructor and type class names,
 but not type variables or module names. Qualified names are discussed in
 detail in Chapter 5.
 
-
-
-
-
-|  |  |  |
+| | | |
 |:---|:--:|:---|
-| qvarid  | → | \[modid .\] varid  |
-| qconid  | → | \[modid .\] conid  |
-| qtycon  | → | \[modid .\] tycon  |
-| qtycls  | → | \[modid .\] tycls  |
-| qvarsym  | → | \[modid .\] varsym  |
-| qconsym  | → | \[modid .\] consym  |
-
-
-
-
-
- 
- 
- 
+| qvarid | → | [modid .] varid |
+| qconid | → | [modid .] conid |
+| qtycon | → | [modid .] tycon |
+| qtycls | → | [modid .] tycls |
+| qvarsym | → | [modid .] varsym |
+| qconsym | → | [modid .] consym |
 
 Since a qualified name is a lexeme, no spaces are allowed between the
 qualifier and the name. Sample lexical analyses are shown below.
-
-
 
 <table id="TBL-8" class="tabular" data-cellspacing="0"
 data-cellpadding="0" data-rules="groups">
@@ -1759,58 +1572,33 @@ style="text-align: left; white-space: nowrap;"></td>
 </tbody>
 </table>
 
-
-
 The qualifier does not change the syntactic treatment of a name; for
 example, Prelude.+ is an infix operator
 with the same fixity as the definition of +
 in the Prelude (Section 4.4.2).
 
-### 2.5  Numeric Literals
+### 2.5 Numeric Literals
 
-
-
-
-
-
-
-|  |  |  |
+| | | |
 |:---|:--:|:---|
-| decimal  | → | digit{digit}  |
-| octal  | → | octit{octit}  |
-| hexadecimal  | → | hexit{hexit}  |
+| decimal | → | digit{digit} |
+| octal | → | octit{octit} |
+| hexadecimal | → | hexit{hexit} |
 
-
-
-
-
- 
-
-
-
-
-
-
-|  |  |  |
+| | | |
 |:---|:--:|:---|
-| integer  | → | decimal  |
-|  | \| | 0o octal \| 0O octal  |
-|  | \| | 0x hexadecimal \| 0X hexadecimal  |
-|    |  |  |
-|  |  |  |
-|    |  |  |
-|  |  |  |
-| float  | → | decimal . decimal \[exponent\]  |
-|  | \| | decimal exponent  |
-|    |  |  |
-|  |  |  |
-| exponent  | → | (e \| E) \[+ \| -\] decimal  |
-
-
-
-
-
- 
+| integer | → | decimal |
+| | | | 0o octal | 0O octal |
+| | | | 0x hexadecimal | 0X hexadecimal |
+|   | | |
+| | | |
+|   | | |
+| | | |
+| float | → | decimal . decimal [exponent] |
+| | | | decimal exponent |
+|   | | |
+| | | |
+| exponent | → | (e | E) [+ | -] decimal |
 
 There are two distinct kinds of numeric literals: integer and floating.
 Integer literals may be given in decimal (the default), octal (prefixed
@@ -1824,39 +1612,20 @@ Section 3.4. The typing of numeric
 literals is discussed in
 Section 6.4.1.
 
-### 2.6  Character and String Literals
+### 2.6 Character and String Literals
 
- 
-
-
-
-
-
-|  |  |  |
+| | | |
 |:---|:--:|:---|
-| char  | → | ' (graphic<sub>⟨' \| \\⟩</sub> \| space \| escape<sub>⟨\\⟩</sub>) ' |
-| string  | → | " {graphic<sub>⟨" \| \\⟩</sub> \| space \| escape \| gap} " |
-| escape  | → | \\ ( charesc \| ascii \| decimal \| o octal \| x hexadecimal )  |
-| charesc  | → | a \| b \| f \| n \| r \| t \| v \| \\ \| " \| ' \| & |
-| ascii  | → | ^cntrl \| NUL \| SOH \| STX \| ETX \| EOT \| ENQ \| ACK |
-|  | \| | BEL \| BS \| HT \| LF \| VT \| FF \| CR \| SO \| SI \| DLE |
-|  | \| | DC1 \| DC2 \| DC3 \| DC4 \| NAK \| SYN \| ETB \| CAN |
-|  | \| | EM \| SUB \| ESC \| FS \| GS \| RS \| US \| SP \| DEL |
-| cntrl  | → | ascLarge \| @ \| \[ \| \\ \| \] \| ^ \| \_ |
-| gap  | → | \\ whitechar {whitechar} \\ |
-
-
-
-
-
- 
- 
- 
- 
- 
- 
- 
-
+| char | → | ' (graphic<sub>⟨' | \\⟩</sub> | space | escape<sub>⟨\\⟩</sub>) ' |
+| string | → | " {graphic<sub>⟨" | \\⟩</sub> | space | escape | gap} " |
+| escape | → | \\ ( charesc | ascii | decimal | o octal | x hexadecimal ) |
+| charesc | → | a | b | f | n | r | t | v | \\ | " | ' | & |
+| ascii | → | ^cntrl | NUL | SOH | STX | ETX | EOT | ENQ | ACK |
+| | | | BEL | BS | HT | LF | VT | FF | CR | SO | SI | DLE |
+| | | | DC1 | DC2 | DC3 | DC4 | NAK | SYN | ETB | CAN |
+| | | | EM | SUB | ESC | FS | GS | RS | US | SP | DEL |
+| cntrl | → | ascLarge | @ | [ | \\ | ] | ^ | _ |
+| gap | → | \\ whitechar {whitechar} \\ |
 
 Character literals are written between single quotes, as in
 'a', and strings between double quotes, as
@@ -1869,31 +1638,31 @@ double quote " may be used in a character,
 but must be escaped in a string. \\ must
 always be escaped. The category charesc
 also includes portable representations for the characters “alert”
-(\a), “backspace”
-(\b), “form feed”
-(\f), “new line”
-(\n), “carriage return”
-(\r), “horizontal tab”
-(\t), and “vertical tab”
-(\v).
+(\\a), “backspace”
+(\\b), “form feed”
+(\\f), “new line”
+(\\n), “carriage return”
+(\\r), “horizontal tab”
+(\\t), and “vertical tab”
+(\\v).
 
 Escape characters for the Unicode character
 set, including control characters such as
 \\X, are also provided. Numeric escapes
-such as \137 are used to designate the
+such as \\137 are used to designate the
 character with decimal representation 137; octal
-(e.g. \o137) and hexadecimal
-(e.g. \x37) representations are also
+(e.g. \\o137) and hexadecimal
+(e.g. \\x37) representations are also
 allowed.
 
 Consistent with the “maximal munch” rule,
 numeric escape characters in strings consist
 of all consecutive digits and may be of arbitrary length. Similarly, the
-one ambiguous ASCII escape code, "\SOH", is
+one ambiguous ASCII escape code, "\\SOH", is
 parsed as a string of length 1. The escape character
 \\ is provided as a “null character” to
-allow strings such as "\137\\9" and
-"\SO\\H" to be constructed (both of length
+allow strings such as "\\137\\9" and
+"\\SO\\H" to be constructed (both of length
 two). Thus "\\" is equivalent to
 "" and the character
 '\\' is disallowed. Further equivalences of
@@ -1905,23 +1674,13 @@ characters—which is ignored. This allows one to write long strings on
 more than one line by writing a backslant at the end of one line and at
 the start of the next. For example,
 
-
-
-
-
-"Here is a backslant \\ as well as \137, \\    
-    \a numeric escape character, and \\X, a control character."
-
-
-
-
+"Here is a backslant \\ as well as \\137, \\  \
+\\a numeric escape character, and \\X, a control character."
 
 String literals are actually abbreviations for lists of characters (see
 Section 3.7).
 
-### 2.7  Layout
-
-
+### 2.7 Layout
 
 Haskell permits the omission of the braces and semicolons used in
 several grammar productions, by using layout
@@ -1969,17 +1728,9 @@ definition of the layout rules.
 Given these rules, a single newline may actually terminate several
 layout lists. Also, these rules permit:
 
-
-
-
-
-f x = let a = 1; b = 2    
-          g y = exp2    
-       in exp1
-
-
-
-
+f x = let a = 1; b = 2  \
+g y = exp2  \
+in exp1
 
 making a, b
 and g all part of the same layout list.
@@ -1996,126 +1747,66 @@ case expression, inserted because the end
 of the tuple was detected, and (c) the close brace at the very end,
 inserted because of the column 0 indentation of the end-of-file token.
 
-------------------------------------------------------------------------
+______________________________________________________________________
 
-
-
-
-
-
-
-
-
-
-
-
-
-module AStack( Stack, push, pop, top, size ) where    
-data Stack a = Empty    
-             \| MkStack a (Stack a)    
-   
-push :: a -\> Stack a -\> Stack a    
-push x s = MkStack x s    
-   
-size :: Stack a -\> Int    
-size s = length (stkToLst s)  where    
-           stkToLst  Empty         = \[\]    
-           stkToLst (MkStack x s)  = x:xs where xs = stkToLst s    
-   
-pop :: Stack a -\> (a, Stack a)    
-pop (MkStack x s)    
-  = (x, case s of r -\> i r where i x = x) -- (pop Empty) is an error
-   
-   
-top :: Stack a -\> a    
+module AStack( Stack, push, pop, top, size ) where  \
+data Stack a = Empty  \
+| MkStack a (Stack a)  \
+\
+push :: a -> Stack a -> Stack a  \
+push x s = MkStack x s  \
+\
+size :: Stack a -> Int  \
+size s = length (stkToLst s)  where  \
+stkToLst  Empty         = []  \
+stkToLst (MkStack x s)  = x:xs where xs = stkToLst s  \
+\
+pop :: Stack a -> (a, Stack a)  \
+pop (MkStack x s)  \
+= (x, case s of r -> i r where i x = x) -- (pop Empty) is an error
+\
+\
+top :: Stack a -> a  \
 top (MkStack x s) = x                     -- (top Empty) is an error
-
-
-
-
-
-
-
-
-
-  
-
-
 
 Figure 2.1: A sample
 program
 
-
-
-
-
-
-
-
-
-
-
-module AStack( Stack, push, pop, top, size ) where    
-{data Stack a = Empty    
-             \| MkStack a (Stack a)    
-   
-;push :: a -\> Stack a -\> Stack a    
-;push x s = MkStack x s    
-   
-;size :: Stack a -\> Int    
-;size s = length (stkToLst s)  where    
-           {stkToLst  Empty         = \[\]    
-           ;stkToLst (MkStack x s)  = x:xs where {xs = stkToLst s    
-   
-}};pop :: Stack a -\> (a, Stack a)    
-;pop (MkStack x s)    
-  = (x, case s of {r -\> i r where {i x = x}}) -- (pop Empty) is an error
-   
-   
-;top :: Stack a -\> a    
+module AStack( Stack, push, pop, top, size ) where  \
+{data Stack a = Empty  \
+| MkStack a (Stack a)  \
+\
+;push :: a -> Stack a -> Stack a  \
+;push x s = MkStack x s  \
+\
+;size :: Stack a -> Int  \
+;size s = length (stkToLst s)  where  \
+{stkToLst  Empty         = []  \
+;stkToLst (MkStack x s)  = x:xs where {xs = stkToLst s  \
+\
+}};pop :: Stack a -> (a, Stack a)  \
+;pop (MkStack x s)  \
+= (x, case s of {r -> i r where {i x = x}}) -- (pop Empty) is an error
+\
+\
+;top :: Stack a -> a  \
 ;top (MkStack x s) = x                        -- (top Empty) is an error
-   
+\
 }
-
-
-
-
-
-
-
-
-
-
 
 Figure 2.2: Sample program
 with layout expanded
 
+______________________________________________________________________
 
+[prev-tail]
 
+______________________________________________________________________
 
-
-------------------------------------------------------------------------
-
-
-
-\[prev-tail\]
-
-
-
-
-
----
-
-
-
-\[prev-tail\]
-\[up\]
-
-
+[prev-tail]
+[up]
 
 ## Chapter 3 Expressions
-
-
 
 In this chapter, we describe the syntax and informal semantics of
 Haskell expressions, including their
@@ -2132,52 +1823,40 @@ identifier “concatMap” is in scope where
 the list comprehension is used, and (if it is in scope) what it is bound
 to.
 
-
-
-
-
-|  |  |  |  |
+| | | | |
 |:---|:--:|:---|:---|
-| exp  | → | infixexp :: \[context =\>\] type |     (expression type signature)  |
-|  | \| | infixexp |  |
-|    |  |  |  |
-|  |  |  |  |
-| infixexp | → | lexp qop infixexp |     (infix operator application)  |
-|  | \| | - infixexp |     (prefix negation)  |
-|  | \| | lexp |  |
-|    |  |  |  |
-|  |  |  |  |
-| lexp | → | \\ apat<sub>1</sub> … apat<sub>n</sub> -\> exp  |     (lambda abstraction, n ≥ 1)  |
-|  | \| | let decls in exp  |     (let expression)  |
-|  | \| | if exp \[;\] then exp \[;\] else exp |     (conditional)  |
-|  | \| | case exp of { alts } |     (case expression)  |
-|  | \| | do { stmts } |     (do expression)  |
-|  | \| | fexp  |  |
-| fexp  | → | \[fexp\] aexp  |     (function application)  |
-|    |  |  |  |
-|  |  |  |  |
-| aexp  | → | qvar  |     (variable)  |
-|  | \| | gcon  |     (general constructor)  |
-|  | \| | literal  |  |
-|  | \| | ( exp ) |     (parenthesized expression)  |
-|  | \| | ( exp<sub>1</sub> , … , exp<sub>k</sub> ) |     (tuple, k ≥ 2)  |
-|  | \| | \[ exp<sub>1</sub> , … , exp<sub>k</sub> \] |     (list, k ≥ 1)  |
-|  | \| | \[ exp<sub>1</sub> \[, exp<sub>2</sub>\] .. \[exp<sub>3</sub>\] \] |     (arithmetic sequence)  |
-|  | \| | \[ exp \| qual<sub>1</sub> , … , qual<sub>n</sub> \] |     (list comprehension, n ≥ 1)  |
-|  | \| | ( infixexp qop ) |     (left section)  |
-|  | \| | ( qop<sub>⟨-⟩</sub> infixexp ) |     (right section)  |
-|  | \| | qcon { fbind<sub>1</sub> , … , fbind<sub>n</sub> } |     (labeled construction, n ≥ 0)  |
-|  | \| | aexp<sub>⟨qcon⟩</sub> { fbind<sub>1</sub> , … , fbind<sub>n</sub> } |     (labeled update, n  ≥  1)  |
-|    |  |  |  |
-|  |  |  |  |
-
-
-
-
-
- 
- 
-
+| exp | → | infixexp :: [context =>] type |     (expression type signature) |
+| | | | infixexp | |
+|   | | | |
+| | | | |
+| infixexp | → | lexp qop infixexp |     (infix operator application) |
+| | | | - infixexp |     (prefix negation) |
+| | | | lexp | |
+|   | | | |
+| | | | |
+| lexp | → | \\ apat<sub>1</sub> … apat<sub>n</sub> -> exp |     (lambda abstraction, n ≥ 1) |
+| | | | let decls in exp |     (let expression) |
+| | | | if exp [;] then exp [;] else exp |     (conditional) |
+| | | | case exp of { alts } |     (case expression) |
+| | | | do { stmts } |     (do expression) |
+| | | | fexp | |
+| fexp | → | [fexp] aexp |     (function application) |
+|   | | | |
+| | | | |
+| aexp | → | qvar |     (variable) |
+| | | | gcon |     (general constructor) |
+| | | | literal | |
+| | | | ( exp ) |     (parenthesized expression) |
+| | | | ( exp<sub>1</sub> , … , exp<sub>k</sub> ) |     (tuple, k ≥ 2) |
+| | | | \[ exp<sub>1</sub> , … , exp<sub>k</sub> \] |     (list, k ≥ 1) |
+| | | | \[ exp<sub>1</sub> \[, exp<sub>2</sub>\] .. \[exp<sub>3</sub>\] \] |     (arithmetic sequence) |
+| | | | \[ exp | qual<sub>1</sub> , … , qual<sub>n</sub> \] |     (list comprehension, n ≥ 1) |
+| | | | ( infixexp qop ) |     (left section) |
+| | | | ( qop<sub>⟨-⟩</sub> infixexp ) |     (right section) |
+| | | | qcon { fbind<sub>1</sub> , … , fbind<sub>n</sub> } |     (labeled construction, n ≥ 0) |
+| | | | aexp<sub>⟨qcon⟩</sub> { fbind<sub>1</sub> , … , fbind<sub>n</sub> } |     (labeled update, n  ≥  1) |
+|   | | | |
+| | | | |
 
 Expressions involving infix operators are disambiguated by the
 operator’s fixity (see Section 4.4.2).
@@ -2199,16 +1878,17 @@ j unless a
 = l or
 a =
 b =
- r.
+r.
 
 An example algorithm for resolving expressions involving infix operators
 is given in Section 10.6.
 
 Negation is the only prefix operator in
 Haskell; it has the same precedence as the infix
+
 - operator defined in the Prelude (see
-Section 4.4.2,
-Figure 4.1).
+  Section 4.4.2,
+  Figure 4.1).
 
 The grammar is ambiguous regarding the extent of lambda abstractions,
 let expressions, and conditionals. The ambiguity is resolved by the
@@ -2216,8 +1896,6 @@ meta-rule that each of these constructs extends as far to the right as
 possible.
 
 Sample parses are shown below.
-
-
 
 <table id="TBL-13" class="tabular" data-cellspacing="0"
 data-cellpadding="0" data-rules="groups">
@@ -2284,15 +1962,11 @@ style="text-align: left; white-space: nowrap;"></td>
 </tbody>
 </table>
 
-
-
 For the sake of clarity, the rest of this section will assume that
 expressions involving infix operators have been resolved according to
 the fixities of the operators.
 
-### 3.1  Errors
-
-
+### 3.1 Errors
 
 Errors during expression evaluation, denoted by
 ⊥
@@ -2304,18 +1978,8 @@ demanded, results in an error. When evaluated, errors cause immediate
 program termination and cannot be caught by the user. The Prelude
 provides two functions to directly cause such errors:
 
-
-
-
-
-error     :: String -\> a    
+error     :: String -> a  \
 undefined :: a
-
-
-
-
-
- 
 
 A call to error terminates execution of the
 program and returns an appropriate error indication to the operating
@@ -2332,60 +1996,33 @@ error function in these translations are
 only suggestions; implementations may choose to display more or less
 information when an error occurs.
 
-### 3.2  Variables, Constructors, Operators, and Literals
+### 3.2 Variables, Constructors, Operators, and Literals
 
-
-
-
-
-|  |  |  |  |
+| | | | |
 |:---|:--:|:---|:---|
-| aexp  | → | qvar  |     (variable)  |
-|  | \| | gcon  |     (general constructor)  |
-|  | \| | literal  |  |
+| aexp | → | qvar |     (variable) |
+| | | | gcon |     (general constructor) |
+| | | | literal | |
 
-
-
-
-
- 
- 
-
-
-
-
-
-
-|  |  |  |  |
+| | | | |
 |:---|:--:|:---|----|
-| gcon  | → | () |  |
-|  | \| | \[\] |  |
-|  | \| | (,{,}) |  |
-|  | \| | qcon  |  |
-|    |  |  |  |
-|  |  |  |  |
-| var  | → | varid \| ( varsym ) |     (variable)  |
-| qvar  | → | qvarid \| ( qvarsym ) |     (qualified variable)  |
-| con  | → | conid \| ( consym ) |     (constructor)  |
-| qcon  | → | qconid \| ( gconsym ) |     (qualified constructor)  |
-| varop  | → | varsym \| \`  varid \` |     (variable operator)  |
-| qvarop  | → | qvarsym \| \`  qvarid \` |     (qualified variable operator)  |
-| conop  | → | consym \| \`  conid \` |     (constructor operator)  |
-| qconop  | → | gconsym \| \`  qconid \` |     (qualified constructor operator)  |
-| op  | → | varop \| conop  |     (operator)  |
-| qop  | → | qvarop \| qconop  |     (qualified operator)  |
-| gconsym  | → | : \| qconsym  |  |
-
-
-
-
-
- 
- 
- 
- 
- 
-
+| gcon | → | () | |
+| | | | [] | |
+| | | | (,{,}) | |
+| | | | qcon | |
+|   | | | |
+| | | | |
+| var | → | varid | ( varsym ) |     (variable) |
+| qvar | → | qvarid | ( qvarsym ) |     (qualified variable) |
+| con | → | conid | ( consym ) |     (constructor) |
+| qcon | → | qconid | ( gconsym ) |     (qualified constructor) |
+| varop | → | varsym | \`  varid \` |     (variable operator) |
+| qvarop | → | qvarsym | \`  qvarid \` |     (qualified variable operator) |
+| conop | → | consym | \`  conid \` |     (constructor operator) |
+| qconop | → | gconsym | \`  qconid \` |     (qualified constructor operator) |
+| op | → | varop | conop |     (operator) |
+| qop | → | qvarop | qconop |     (qualified operator) |
+| gconsym | → | : | qconsym | |
 
 Haskell provides special syntax to support infix notation. An
 operator is a function that can be applied
@@ -2395,21 +2032,22 @@ using a section
 
 An operator is either an
 operator symbol, such as
-+ or \$\$, or
-is an ordinary identifier enclosed in grave accents (backquotes), such
-as \` op
-\`. For example, instead of writing the
-prefix application
-op x y,
-one can write the infix application
-x\`
-op
-\` y. If no
-fixity declaration is given for
-\` op
-\` then it defaults to highest precedence
-and left associativity (see
-Section 4.4.2).
+
+- or $$, or
+  is an ordinary identifier enclosed in grave accents (backquotes), such
+  as \` op
+  \`. For example, instead of writing the
+  prefix application
+  op x y,
+  one can write the infix application
+  x\`
+  op
+  \` y. If no
+  fixity declaration is given for
+  \` op
+  \` then it defaults to highest precedence
+  and left associativity (see
+  Section 4.4.2).
 
 Dually, an operator symbol can be converted to an ordinary identifier by
 enclosing it in parentheses. For example,
@@ -2419,14 +2057,13 @@ x + y,
 and
 foldr (⋆) 1 xs
 is equivalent to
-foldr (\x y -\> x⋆y) 1 xs.
+foldr (\\x y -> x⋆y) 1 xs.
 
 Special syntax is used to name some constructors for some of the
 built-in types, as found in the production for
 gcon and
 literal. These are described in
 Section 6.1.
-
 
 An integer literal represents the application of the function
 fromInteger to
@@ -2435,12 +2072,6 @@ Similarly, a floating point literal stands for an application of
 fromRational to
 a value of type Rational (that is,
 Ratio Integer).
-
-
-
-
-
-
 
 Translation:
 The integer literal i is equivalent to
@@ -2459,33 +2090,15 @@ Ratio.% constructs a rational from two
 integers, as defined in the Ratio
 library. The integers
 n and d are
-chosen so that n∕d 
+chosen so that n∕d
 =  f.
 
+### 3.3 Curried Applications and Lambda Abstractions
 
-
-
-
-
-
-### 3.3  Curried Applications and Lambda Abstractions
-
- 
-
-
-
-
-
-|  |  |  |  |
+| | | | |
 |:---|:--:|:---|:---|
-| fexp  | → | \[fexp\] aexp  |     (function application)  |
-| lexp  | → | \\ apat<sub>1</sub> … apat<sub>n</sub> -\> exp  |     (lambda abstraction, n ≥ 1)  |
-
-
-
-
-
- 
+| fexp | → | [fexp] aexp |     (function application) |
+| lexp | → | \\ apat<sub>1</sub> … apat<sub>n</sub> -> exp |     (lambda abstraction, n ≥ 1) |
 
 Function
 application is written
@@ -2498,73 +2111,41 @@ could be a data constructor, partial applications of data constructors
 are allowed.
 
 Lambda abstractions are written
-\\ p<sub>1</sub> … p<sub>n</sub> -\> e,
+\\ p<sub>1</sub> … p<sub>n</sub> -> e,
 where the
 p<sub>i</sub>
 are patterns. An expression such as
-\x:xs-\>x is syntactically incorrect; it
-may legally be written as \\x:xs)-\>x.
+\\x:xs->x is syntactically incorrect; it
+may legally be written as \\x:xs)->x.
 
 The set of patterns must be
 linear—no
 variable may appear more than once in the set.
 
-
-
-
-
-
-
 Translation:
 The following identity holds:
 
-
-
-
-
-|  |  |  |
+| | | |
 |:---|:--:|:---|
-| \\ p<sub>1</sub> … p<sub>n</sub> -\> e | = | \\ x<sub>1</sub> … x<sub>n</sub> -\> case (x<sub>1</sub>, …, x<sub>n</sub>) of (p<sub>1</sub>, …, p<sub>n</sub>) -\> e |
-
-
-
-
+| \\ p<sub>1</sub> … p<sub>n</sub> -> e | = | \\ x<sub>1</sub> … x<sub>n</sub> -> case (x<sub>1</sub>, …, x<sub>n</sub>) of (p<sub>1</sub>, …, p<sub>n</sub>) -> e |
 
 where the
 x<sub>i</sub>
 are new identifiers.
-
-
-
-
-
-
 
 Given this translation combined with the semantics of case expressions
 and pattern matching described in Section [3.17.3](#x8-610003.17.3), if
 the pattern fails to match, then the result is
 ⊥.
 
-### 3.4  Operator Applications
+### 3.4 Operator Applications
 
-
-
-
-
-
-
-|  |  |  |  |
+| | | | |
 |:---|:--:|:---|----|
-| infixexp | → | lexp qop infixexp |  |
-|  | \| | - infixexp |     (prefix negation)  |
-|  | \| | lexp |  |
-| qop  | → | qvarop \| qconop  |     (qualified operator)  |
-
-
-
-
-
- 
+| infixexp | → | lexp qop infixexp | |
+| | | | - infixexp |     (prefix negation) |
+| | | | lexp | |
+| qop | → | qvarop | qconop |     (qualified operator) |
 
 The form
 e<sub>1</sub> qop e<sub>2</sub>
@@ -2582,69 +2163,39 @@ negate (e).
 The binary - operator does not necessarily
 refer to the definition of - in the
 Prelude; it may be rebound by the module system. However, unary
+
 - will always refer to the
-negate function defined in the Prelude.
-There is no link between the local meaning of the
+  negate function defined in the Prelude.
+  There is no link between the local meaning of the
 - operator and unary negation.
 
 Prefix negation has the same precedence as the infix operator
+
 - defined in the Prelude (see
-Table 4.1). Because
-e1-e2 parses as an infix application of the
-binary operator -, one must write
-e1(-e2) for the alternative parsing.
-Similarly, (-) is syntax for
-(\\ x y -\> x-y),
-as with any infix operator, and does not denote
-(\\ x -\> -x)—one
-must use negate for that.
-
-
-
-
-
-
+  Table 4.1). Because
+  e1-e2 parses as an infix application of the
+  binary operator -, one must write
+  e1(-e2) for the alternative parsing.
+  Similarly, (-) is syntax for
+  (\\ x y -> x-y),
+  as with any infix operator, and does not denote
+  (\\ x -> -x)—one
+  must use negate for that.
 
 Translation:
 The following identities hold:
 
-
-
-
-
-|  |  |  |
+| | | |
 |:---|:--:|:---|
 | e<sub>1</sub> op e<sub>2</sub> | = | (op) e<sub>1</sub> e<sub>2</sub> |
 | -e | = | negate (e) |
 
+### 3.5 Sections
 
-
-
-
-
-
-
-
-
-
-### 3.5  Sections
-
-
-
-
-
-
-
-|  |  |  |  |
+| | | | |
 |:---|:--:|:---|:---|
-| aexp  | → | ( infixexp qop ) |     (left section)  |
-|  | \| | ( qop<sub>⟨-⟩</sub> infixexp ) |     (right section)  |
-
-
-
-
-
- 
+| aexp | → | ( infixexp qop ) |     (left section) |
+| | | | ( qop<sub>⟨-⟩</sub> infixexp ) |     (right section) |
 
 Sections are written as
 ( op e )
@@ -2671,52 +2222,20 @@ invalid, but (+a⋆b) and
 written as (+(a+b)). As another example,
 the expression
 
-
-
-
-
-  (let n = 10 in n +)
-
-
-
-
+(let n = 10 in n +)
 
 is invalid because, by the let/lambda meta-rule
 (Section [3](#x8-220003)), the expression
 
-
-
-
-
-  (let n = 10 in n + x)
-
-
-
-
+(let n = 10 in n + x)
 
 parses as
 
-
-
-
-
-  (let n = 10 in (n + x))
-
-
-
-
+(let n = 10 in (n + x))
 
 rather than
 
-
-
-
-
-  ((let n = 10 in n) + x)
-
-
-
-
+((let n = 10 in n) + x)
 
 Because - is treated specially in the
 grammar,
@@ -2730,56 +2249,24 @@ is equivalent to the disallowed section. The expression
 (+ (- exp))
 can serve the same purpose.
 
-
-
-
-
-
-
 Translation:
 The following identities hold:
 
-
-
-
-
-|  |  |  |
+| | | |
 |:---|:--:|:---|
-| (op e) | = | \\ x -\> x op e |
-| (e op) | = | \\ x -\> e op x |
-
-
-
-
+| (op e) | = | \\ x -> x op e |
+| (e op) | = | \\ x -> e op x |
 
 where op is a binary operator,
 e is an expression, and
 x is a variable that does not occur free in
 e.
 
+### 3.6 Conditionals
 
-
-
-
-
-
-### 3.6  Conditionals
-
-
-
-
-
-
-
-|  |  |  |
+| | | |
 |:---|:--:|:---|
-| lexp  | → | if exp \[;\] then exp \[;\] else exp |
-
-
-
-
-
-
+| lexp | → | if exp [;] then exp [;] else exp |
 
 A conditional expression
 has the form
@@ -2794,26 +2281,12 @@ e<sub>1</sub> is
 False, and ⊥
 otherwise.
 
-
-
-
-
-
-
 Translation:
 The following identity holds:
 
-
-
-
-
-|  |  |  |
+| | | |
 |:---|:--:|:---|
-| if e<sub>1</sub> then e<sub>2</sub> else e<sub>3</sub> | = | case e<sub>1</sub> of { True -\> e<sub>2</sub> ; False -\> e<sub>3</sub> } |
-
-
-
-
+| if e<sub>1</sub> then e<sub>2</sub> else e<sub>3</sub> | = | case e<sub>1</sub> of { True -> e<sub>2</sub> ; False -> e<sub>3</sub> } |
 
 where True and
 False are the two nullary constructors from
@@ -2827,71 +2300,42 @@ e<sub>3</sub>
 must have the same type, which is also the type of the entire
 conditional expression.
 
+### 3.7 Lists
 
-
-
-
-
-
-### 3.7  Lists
-
-
-
-
-
-|  |  |  |  |
+| | | | |
 |:---|:--:|:---|----|
-| infixexp  | → | exp<sub>1</sub> qop exp<sub>2</sub> |  |
-| aexp  | → | \[ exp<sub>1</sub> , … , exp<sub>k</sub> \] |     (k ≥ 1)  |
-|  | \| | gcon  |  |
-| gcon  | → | \[\] |  |
-|  | \| | qcon  |  |
-| qcon  | → | ( gconsym ) |  |
-| qop  | → | qconop  |  |
-| qconop  | → | gconsym  |  |
-| gconsym  | → | : |  |
-
-
-
-
-
-
+| infixexp | → | exp<sub>1</sub> qop exp<sub>2</sub> | |
+| aexp | → | \[ exp<sub>1</sub> , … , exp<sub>k</sub> \] |     (k ≥ 1) |
+| | | | gcon | |
+| gcon | → | [] | |
+| | | | qcon | |
+| qcon | → | ( gconsym ) | |
+| qop | → | qconop | |
+| qconop | → | gconsym | |
+| gconsym | → | : | |
 
 Lists are
 written
 \[e<sub>1</sub>, …, e<sub>k</sub>\],
 where k ≥
+
 1. The list constructor is
-:, and the empty list is denoted
-\[\]. Standard operations on lists are
-given in the Prelude (see
-Section 6.1.3, and
-Chapter 9 notably
-Section 9.1).
-
-
-
-
-
-
+   :, and the empty list is denoted
+   []. Standard operations on lists are
+   given in the Prelude (see
+   Section 6.1.3, and
+   Chapter 9 notably
+   Section 9.1).
 
 Translation:
 The following identity holds:
 
-
-
-
-
-|  |  |  |
+| | | |
 |:---|:--:|:---|
-| \[e<sub>1</sub>, …, e<sub>k</sub>\] | = | e<sub>1</sub> : (e<sub>2</sub> : ( … (e<sub>k</sub> : \[\]))) |
-
-
-
-
+| \[e<sub>1</sub>, …, e<sub>k</sub>\] | = | e<sub>1</sub> : (e<sub>2</sub> : ( … (e<sub>k</sub> : []))) |
 
 where : and
-\[\] are constructors for lists, as defined
+[] are constructors for lists, as defined
 in the Prelude (see Section 6.1.3).
 The types of
 e<sub>1</sub>
@@ -2899,40 +2343,24 @@ through
 e<sub>k</sub>
 must all be the same (call it t), and the
 type of the overall expression is
-\[t\]
+[t]
 (see Section 4.1.2).
 
-
-
-
-
-
-
 The constructor “:” is reserved solely for
-list construction; like \[\], it is
+list construction; like [], it is
 considered part of the language syntax, and cannot be hidden or
 redefined. It is a right-associative operator, with precedence level 5
 (Section 4.4.2).
 
-### 3.8  Tuples
+### 3.8 Tuples
 
-
-
-
-
-|  |  |  |  |
+| | | | |
 |:---|:--:|:---|:---|
-| aexp  | → | ( exp<sub>1</sub> , … , exp<sub>k</sub> ) |     (k ≥ 2)  |
-|  | \| | qcon  |  |
-| qcon  | → | (,{,}) |  |
-|    |  |  |  |
-|  |  |  |  |
-
-
-
-
-
-
+| aexp | → | ( exp<sub>1</sub> , … , exp<sub>k</sub> ) |     (k ≥ 2) |
+| | | | qcon | |
+| qcon | → | (,{,}) | |
+|   | | | |
+| | | | |
 
 Tuples are
 written
@@ -2948,12 +2376,6 @@ there are n −
 denote the same value. Standard operations on tuples are given in the
 Prelude (see Section 6.1.4 and
 Chapter 9).
-
-
-
-
-
-
 
 Translation:
 (e<sub>1</sub>, …, e<sub>k</sub>)
@@ -2972,31 +2394,13 @@ respectively, then the type of the resulting tuple is
 (t<sub>1</sub>, …, t<sub>k</sub>)
 (see Section 4.1.2).
 
+### 3.9 Unit Expressions and Parenthesized Expressions
 
-
-
-
-
-
-### 3.9  Unit Expressions and Parenthesized Expressions
-
-
-
-
-
-
-
-|  |  |  |
+| | | |
 |:---|:--:|:---|
-| aexp  | → | gcon  |
-|  | \| | ( exp ) |
-| gcon  | → | () |
-
-
-
-
-
-
+| aexp | → | gcon |
+| | | | ( exp ) |
+| gcon | → | () |
 
 The form
 (e)
@@ -3010,37 +2414,15 @@ of that type apart from ⊥, and can be
 thought of as the “nullary tuple” (see
 Section 6.1.5).
 
-
-
-
-
-
-
 Translation:
 (e)
 is equivalent to e.
 
+### 3.10 Arithmetic Sequences
 
-
-
-
-
-
-### 3.10  Arithmetic Sequences
-
-
-
-
-
-|  |  |  |
+| | | |
 |:---|:--:|:---|
-| aexp  | → | \[ exp<sub>1</sub> \[, exp<sub>2</sub>\] .. \[exp<sub>3</sub>\] \] |
-
-
-
-
-
-
+| aexp | → | \[ exp<sub>1</sub> \[, exp<sub>2</sub>\] .. \[exp<sub>3</sub>\] \] |
 
 The arithmetic
 sequence
@@ -3052,29 +2434,15 @@ has type t, and
 t is an instance of class
 Enum.
 
-
-
-
-
-
-
 Translation:
 Arithmetic sequences satisfy these identities:
 
-
-
-
-
-|  |  |  |
+| | | |
 |:---|:--:|:---|
 | \[ e<sub>1</sub>.. \] | = | enumFrom e<sub>1</sub> |
 | \[ e<sub>1</sub>,e<sub>2</sub>.. \] | = | enumFromThen e<sub>1</sub> e<sub>2</sub> |
 | \[ e<sub>1</sub>..e<sub>3</sub> \] | = | enumFromTo e<sub>1</sub> e<sub>3</sub> |
 | \[ e<sub>1</sub>,e<sub>2</sub>..e<sub>3</sub> \] | = | enumFromThenTo e<sub>1</sub> e<sub>2</sub> e<sub>3</sub> |
-
-
-
-
 
 where enumFrom,
 enumFromThen,
@@ -3083,41 +2451,23 @@ enumFromThenTo are class methods in the
 class Enum as defined in the Prelude (see
 Figure 6.1).
 
-
-
-
-
-
-
 The semantics of arithmetic sequences therefore depends entirely on the
 instance declaration for the type t. See
 Section 6.3.4 for more details of
 which Prelude types are in
 Enum and their semantics.
 
-### 3.11  List Comprehensions
+### 3.11 List Comprehensions
 
- 
-
-
-
-
-
-|  |  |  |  |
+| | | | |
 |:---|:--:|:---|:---|
-| aexp  | → | \[ exp \| qual<sub>1</sub> , … , qual<sub>n</sub> \] |     (list comprehension, n ≥ 1)  |
-| qual  | → | pat \<- exp  |     (generator)  |
-|  | \| | let decls  |     (local declaration)  |
-|  | \| | exp  |     (boolean guard)  |
-
-
-
-
-
- 
+| aexp | → | \[ exp | qual<sub>1</sub> , … , qual<sub>n</sub> \] |     (list comprehension, n ≥ 1) |
+| qual | → | pat \<- exp |     (generator) |
+| | | | let decls |     (local declaration) |
+| | | | exp |     (boolean guard) |
 
 A list comprehension has the form
-\[ e \| q<sub>1</sub>, …, q<sub>n</sub> \],n
+\[ e | q<sub>1</sub>, …, q<sub>n</sub> \],n
 ≥
 1, where
 the
@@ -3130,7 +2480,7 @@ qualifiers are either
   where p is a pattern (see
   Section [3.17](#x8-580003.17)) of type t
   and e is an expression of type
-  \[t\]
+  [t]
 - local bindings that provide new
   definitions for use in the generated expression
   e or subsequent boolean guards and
@@ -3146,23 +2496,13 @@ qualifier list. Binding of variables occurs according to the normal
 pattern matching rules (see Section [3.17](#x8-580003.17)), and if a
 match fails then that element of the list is simply skipped over. Thus:
 
+\[ x |  xs   \<- \[ [(1,2),(3,4)], [(5,4),(3,2)] \],  \
+(3,x) \<- xs \]
 
-
-
-
-\[ x \|  xs   \<- \[ \[(1,2),(3,4)\], \[(5,4),(3,2)\] \],    
-      (3,x) \<- xs \]
-
-
-
-
-
-yields the list \[4,2\]. If a qualifier is
+yields the list [4,2]. If a qualifier is
 a boolean guard, it must evaluate to True
 for the previous pattern match to succeed. As usual, bindings in list
 comprehensions can shadow those in outer scopes; for example:
-
-
 
 <table id="TBL-31" class="array" data-cellpadding="0"
 data-cellspacing="0">
@@ -3187,35 +2527,19 @@ data-cellspacing="0">
 </tbody>
 </table>
 
-
-
-
-
-
-
-
-
 Translation:
 List comprehensions satisfy these identities, which may be used as a
 translation into the kernel:
 
-
-
-
-
-|  |  |  |
+| | | |
 |:---|:--:|:---|
-| \[  e \| True \] | = | \[e\] |
-| \[  e \| q \] | = | \[  e \| q, True \] |
-| \[  e \| b,  Q  \] | = | if b then \[  e \| Q \] else \[\] |
-| \[  e \| p \<- l,  Q \] | = | let ok p = \[  e \| Q \] |
-|  |  |     ok \_ = \[\] |
-|  |  | in concatMap ok  l |
-| \[  e \| let decls,  Q \] | = | let decls in \[  e \| Q \] |
-
-
-
-
+| [  e | True ] | = | [e] |
+| [  e | q ] | = | [  e | q, True ] |
+| [  e | b,  Q  ] | = | if b then [  e | Q ] else [] |
+| [  e | p \<- l,  Q ] | = | let ok p = [  e | Q ] |
+| | |     ok _ = [] |
+| | | in concatMap ok  l |
+| [  e | let decls,  Q ] | = | let decls in [  e | Q ] |
 
 where e ranges over expressions,
 p over patterns,
@@ -3228,35 +2552,17 @@ ok is a fresh variable. The function
 concatMap, and boolean value
 True, are defined in the Prelude.
 
-
-
-
-
-
-
 As indicated by the translation of list comprehensions, variables bound
 by let have fully polymorphic types while
 those defined by \<- are lambda bound and
 are thus monomorphic (see Section
 4.5.4).
 
-### 3.12  Let Expressions
+### 3.12 Let Expressions
 
-
-
-
-
-
-
-|  |  |  |
+| | | |
 |:---|:--:|:---|
-| lexp  | → | let decls in exp  |
-
-
-
-
-
- 
+| lexp | → | let decls in exp |
 
 Let expressions have the general form
 let { d<sub>1</sub> ; … ; d<sub>n</sub> } in e,
@@ -3269,23 +2575,13 @@ Chapter 4. Pattern bindings are matched
 lazily; an implicit ~ makes these patterns
 irrefutable. For example,
 
-
-
-|  |
+| |
 |:---|
 | let (x,y) = undefined in e |
-
-
 
 does not cause an execution-time error until
 x or y is
 evaluated.
-
-
-
-
-
-
 
 Translation:
 The dynamic semantics of the expression
@@ -3303,20 +2599,12 @@ are patterns and expressions respectively, using the translation in
 Section 4.4.3. Once done, these
 identities hold, which may be used as a translation into the kernel:
 
-
-
-
-
-|  |  |  |
+| | | |
 |:---|:--:|:---|
 | let {p<sub>1</sub>=e<sub>1</sub>;  ... ; p<sub>n</sub>=e<sub>n</sub>} in e<sub>0</sub> | = | let (~p<sub>1</sub>, ... ,~p<sub>n</sub>) = (e<sub>1</sub>, ... ,e<sub>n</sub>) in e<sub>0</sub> |
-| let p = e<sub>1</sub>  in  e<sub>0</sub> | = | case e<sub>1</sub> of ~p -\> e<sub>0</sub> |
-|  |  | where no variable in p appears free in e<sub>1</sub> |
-| let p = e<sub>1</sub>  in  e<sub>0</sub> | = | let p = fix ( \\ ~p -\> e<sub>1</sub>) in e<sub>0</sub> |
-
-
-
-
+| let p = e<sub>1</sub>  in  e<sub>0</sub> | = | case e<sub>1</sub> of ~p -> e<sub>0</sub> |
+| | | where no variable in p appears free in e<sub>1</sub> |
+| let p = e<sub>1</sub>  in  e<sub>0</sub> | = | let p = fix ( \\ ~p -> e<sub>1</sub>) in e<sub>0</sub> |
 
 where fix is the least fixpoint operator.
 Note the use of the irrefutable patterns
@@ -3327,40 +2615,22 @@ of the bound variables. The static semantics of the bindings in a
 let expression are described in
 Section 4.4.3.
 
+### 3.13 Case Expressions
 
-
-
-
-
-
-### 3.13  Case Expressions
-
-
-
-
-
-|  |  |  |  |
+| | | | |
 |:---|:--:|:---|----|
-| lexp  | → | case exp of { alts } |  |
-| alts  | → | alt<sub>1</sub> ; … ; alt<sub>n</sub> |     (n ≥ 1)  |
-| alt  | → | pat -\> exp \[where decls\]  |  |
-|  | \| | pat gdpat \[where decls\]  |  |
-|  | \| |  |     (empty alternative)  |
-|    |  |  |  |
-|  |  |  |  |
-| gdpat  | → | guards -\> exp \[ gdpat \] |  |
-| guards | → | \| guard<sub>1</sub>, …, guard<sub>n</sub> |     (n ≥ 1) |
+| lexp | → | case exp of { alts } | |
+| alts | → | alt<sub>1</sub> ; … ; alt<sub>n</sub> |     (n ≥ 1) |
+| alt | → | pat -> exp [where decls] | |
+| | | | pat gdpat [where decls] | |
+| | | | |     (empty alternative) |
+|   | | | |
+| | | | |
+| gdpat | → | guards -> exp [ gdpat ] | |
+| guards | → | | guard<sub>1</sub>, …, guard<sub>n</sub> |     (n ≥ 1) |
 | guard | → | pat \<- infixexp |     (pattern guard) |
-|  | \| | let decls |     (local declaration) |
-|  | \| | infixexp  |     (boolean guard)  |
-
-
-
-
-
- 
- 
- 
+| | | | let decls |     (local declaration) |
+| | | | infixexp |     (boolean guard) |
 
 A case
 expression has the general form
@@ -3368,8 +2638,6 @@ case e of { p<sub>1</sub> match<sub>1</sub> ; … ; p<sub>n</sub> matc
 where each
 match<sub>i</sub>
 is of the general form
-
-
 
 <table id="TBL-37" class="array" data-cellpadding="0"
 data-cellspacing="0">
@@ -3414,10 +2682,8 @@ where decls<sub>i</sub>
 </tbody>
 </table>
 
-
-
 (Notice that in the syntax rule for guards,
-the “\|” is a terminal symbol, not the
+the “|” is a terminal symbol, not the
 syntactic metasymbol for alternation.) Each alternative
 p<sub>i</sub> match<sub>i</sub>
 consists of a pattern
@@ -3432,7 +2698,6 @@ e<sub>ij</sub>
 (expressions), followed by optional bindings
 (decls<sub>i</sub>)
 that scope over all of the guards and expressions of the alternative.
- 
 
 A guard has
 one of the following forms:
@@ -3461,10 +2726,8 @@ one of the following forms:
   True \<- g.
 
 An alternative of the form
-pat -\> exp where decls
+pat -> exp where decls
 is treated as shorthand for:
-
-
 
 <table id="TBL-38" class="array" data-cellpadding="0"
 data-cellspacing="0">
@@ -3490,8 +2753,6 @@ where decls
 </tr>
 </tbody>
 </table>
-
-
 
 A case expression must have at least one alternative and each
 alternative must have at least one body. Each body must have the same
@@ -3526,30 +2787,14 @@ semantics of case expressions in Section [3.17.3](#x8-610003.17.3).
 
 A note about parsing. The expression
 
-
-
-
-
-  case x of { (a,\_) \| let b = not a in b :: Bool -\> a }
-
-
-
-
+case x of { (a,\_) | let b = not a in b :: Bool -> a }
 
 is tricky to parse correctly. It has a single unambiguous parse, namely
 
-
-
-
-
-  case x of { (a,\_) \| (let b = not a in b :: Bool) -\> a }
-
-
-
-
+case x of { (a,\_) | (let b = not a in b :: Bool) -> a }
 
 However, the phrase
-Bool -\> a
+Bool -> a
 is syntactically valid as a type, and parsers with limited lookahead may
 incorrectly commit to this choice, and hence reject the program.
 Programmers are advised, therefore, to avoid guards that end with a type
@@ -3557,105 +2802,55 @@ signature — indeed that is why a guard
 contains an infixexp not an
 exp.
 
-### 3.14  Do Expressions
+### 3.14 Do Expressions
 
- 
-
-
-
-
-
-
-|  |  |  |  |
+| | | | |
 |:---|:--:|:---|:---|
-| lexp  | → | do { stmts } |     (do expression)  |
-| stmts  | → | stmt<sub>1</sub> … stmt<sub>n</sub> exp \[;\]  |     (n ≥ 0)  |
-| stmt  | → | exp ; |  |
-|  | \| | pat \<- exp ; |  |
-|  | \| | let decls ; |  |
-|  | \| | ; |     (empty statement)  |
-
-
-
-
-
- 
-
+| lexp | → | do { stmts } |     (do expression) |
+| stmts | → | stmt<sub>1</sub> … stmt<sub>n</sub> exp [;] |     (n ≥ 0) |
+| stmt | → | exp ; | |
+| | | | pat \<- exp ; | |
+| | | | let decls ; | |
+| | | | ; |     (empty statement) |
 
 A do expression provides a more
 conventional syntax for monadic programming. It allows an expression
 such as
 
-
-
-
-
-  putStr "x: "    \>\>    
-  getLine         \>\>= \l -\>    
-  return (words l)
-
-
-
-
+putStr "x: "    >>  \
+getLine         >>= \\l ->  \
+return (words l)
 
 to be written in a more traditional way as:
 
-
-
-
-
-  do putStr "x: "    
-     l \<- getLine    
-     return (words l)
-
-
-
-
-
-
-
-
-
-
+do putStr "x: "  \
+l \<- getLine  \
+return (words l)
 
 Translation:
 Do expressions satisfy these identities, which may be used as a
 translation into the kernel, after eliminating empty
 stmts:
 
-
-
-
-
-|  |  |  |
+| | | |
 |:---|:--:|:---|
 | do {e} | = | e |
-| do {e;stmts} | = | e \>\> do {stmts} |
+| do {e;stmts} | = | e >> do {stmts} |
 | do {p \<- e; stmts} | = | let ok p = do {stmts} |
-|  |  |     ok \_ = fail "..." |
-|  |  |   in e \>\>= ok |
+| | |     ok _ = fail "..." |
+| | |   in e >>= ok |
 | do {let decls; stmts} | = | let decls in do {stmts} |
-|  |  |  |
-
-
-
-
+| | | |
 
 The ellipsis "..." stands for a
 compiler-generated error message, passed to
 fail, preferably giving some indication of
 the location of the pattern-match failure; the functions
-\>\>, \>\>=,
+\>>, >>=,
 and fail are operations in the class
 Monad, as defined in the
 Prelude; and ok
 is a fresh identifier.
-
-
-
-
-
-
 
 As indicated by the translation of do,
 variables bound by let have fully
@@ -3663,10 +2858,7 @@ polymorphic types while those defined by
 \<- are lambda bound and are thus
 monomorphic.
 
-### 3.15  Datatypes with Field Labels
-
- 
-
+### 3.15 Datatypes with Field Labels
 
 A datatype declaration may optionally define field labels (see
 Section 4.2.1). These field labels can
@@ -3679,37 +2871,19 @@ datatype, however, a field label can be used in more than one
 constructor provided the field has the same typing in all constructors.
 To illustrate the last point, consider:
 
-
-
-
-
-  data S = S1 { x :: Int } \| S2 { x :: Int }   -- OK    
-  data T = T1 { y :: Int } \| T2 { y :: Bool }  -- BAD
-
-
-
-
+data S = S1 { x :: Int } | S2 { x :: Int }   -- OK  \
+data T = T1 { y :: Int } | T2 { y :: Bool }  -- BAD
 
 Here S is legal but
 T is not, because
 y is given inconsistent typings in the
 latter.
 
-#### 3.15.1  Field Selection
+#### 3.15.1 Field Selection
 
-
-
-
-
-|  |  |  |
+| | | |
 |:---|:--:|:---|
-| aexp  | → | qvar  |
-
-
-
-
-
-
+| aexp | → | qvar |
 
 Field labels are used as selector functions. When used as a variable, a
 field label serves as a function that extracts the field from an object.
@@ -3720,28 +2894,14 @@ construction (Section [3.15.2](#x8-520003.15.2)) and update
 (Section [3.15.3](#x8-540003.15.3)), field labels cannot be confused
 with ordinary variables.
 
-
-
-
-
-
-
 Translation:
 A field label f introduces a selector
 function defined as:
 
-
-
-
-
-|  |  |  |
+| | | |
 |:---|:--:|:---|
-| f x | = | case x of { C<sub>1</sub> p<sub>11</sub> … p<sub>1k</sub>  -\>  e<sub>1</sub> ;… ; C<sub>n</sub> p<sub>n1</sub> … p<sub>nk</sub>  -\>  e<sub>n</sub> } |
-|  |  |  |
-
-
-
-
+| f x | = | case x of { C<sub>1</sub> p<sub>11</sub> … p<sub>1k</sub>  ->  e<sub>1</sub> ;… ; C<sub>n</sub> p<sub>n1</sub> … p<sub>nk</sub>  ->  e<sub>n</sub> } |
+| | | |
 
 where
 C<sub>1</sub> … C<sub>n</sub>
@@ -3751,37 +2911,19 @@ p<sub>ij</sub>
 is y when f
 labels the jth component of
 C<sub>i</sub>
-or \_ otherwise, and
+or _ otherwise, and
 e<sub>i</sub>
 is y when some field in
 C<sub>i</sub>
 has a label of f or
 undefined otherwise.
 
+#### 3.15.2 Construction Using Field Labels
 
-
-
-
-
-
-#### 3.15.2  Construction Using Field Labels
-
-
-
-
-
-
-
-|  |  |  |  |
+| | | | |
 |:---|:--:|:---|:---|
-| aexp  | → | qcon { fbind<sub>1</sub> , … , fbind<sub>n</sub> } |     (labeled construction, n ≥ 0)  |
-| fbind  | → | qvar = exp  |  |
-
-
-
-
-
-
+| aexp | → | qcon { fbind<sub>1</sub> , … , fbind<sub>n</sub> } |     (labeled construction, n ≥ 0) |
+| fbind | → | qvar = exp | |
 
 A constructor with labeled fields may be used to construct a value in
 which the components are specified by name rather than by position.
@@ -3812,29 +2954,15 @@ F ⊥<sub>1</sub> … ⊥<sub>n</sub>,
 where n is the arity of
 F.
 
-
-
-
-
-
-
 Translation:
 In the binding f
 = v, the field
 f labels v.
 
-
-
-
-
-|  |  |  |
+| | | |
 |:---|:--:|:---|
 | C { bs } | = | C (pick<sub>1</sub><sup>C</sup> bs undefined) … (pick<sub>k</sub><sup>C</sup> bs undefined) |
-|  |  |  |
-
-
-
-
+| | | |
 
 where k is the arity of
 C.
@@ -3842,8 +2970,6 @@ C.
 The auxiliary function
 pick<sub>i</sub><sup>C</sup> bs d
 is defined as follows:
-
-
 
 If the ith component of a constructor
 C has the field label
@@ -3855,29 +2981,11 @@ is v. Otherwise,
 pick<sub>i</sub><sup>C</sup> bs d
 is the default value d.
 
+#### 3.15.3 Updates Using Field Labels
 
-
-
-
-
-
-
-
-#### 3.15.3  Updates Using Field Labels
-
-
-
-
-
-
-
-|  |  |  |  |
+| | | | |
 |:---|:--:|:---|:---|
-| aexp  | → | aexp<sub>⟨qcon⟩</sub> { fbind<sub>1</sub> , … , fbind<sub>n</sub> } |     (labeled update, n ≥ 1)  |
-
-
-
-
+| aexp | → | aexp<sub>⟨qcon⟩</sub> { fbind<sub>1</sub> , … , fbind<sub>n</sub> } |     (labeled update, n ≥ 1) |
 
 Values belonging to a datatype with field labels may be
 non-destructively updated. This creates a new value in which the
@@ -3891,31 +2999,17 @@ restricted in the following ways:
 - An execution error occurs when the value being updated does not
   contain all of the specified labels.
 
-
-
-
-
-
-
 Translation:
 Using the prior definition of pick,
 
-
-
-
-
-|  |  |  |
+| | | |
 |:---|:--:|:---|
 | e { bs } | = | case e of |
-|  |  |         C<sub>1</sub> v<sub>1</sub> … v<sub>k<sub>1</sub></sub> -\> C<sub>1</sub> (pick<sub>1</sub><sup>C<sub>1</sub></sup> bs v<sub>1</sub>) … (pick<sub>k <sub>1</sub></sub><sup>C<sub>1</sub></sup> bs v <sub>k<sub>1</sub></sub>) |
-|  |  |              ... |
-|  |  |         C<sub>j</sub> v<sub>1</sub> … v<sub>k<sub>j</sub></sub> -\> C<sub>j</sub> (pick<sub>1</sub><sup>C<sub>j</sub></sup> bs v<sub>1</sub>) … (pick<sub>k <sub>j</sub></sub><sup>C<sub>j</sub></sup> bs v <sub>k<sub>j</sub></sub>) |
-|  |  |         \_ -\> error "Update error" |
-|  |  |  |
-
-
-
-
+| | |         C<sub>1</sub> v<sub>1</sub> … v<sub>k<sub>1</sub></sub> -> C<sub>1</sub> (pick<sub>1</sub><sup>C<sub>1</sub></sup> bs v<sub>1</sub>) … (pick<sub>k <sub>1</sub></sub><sup>C<sub>1</sub></sup> bs v <sub>k<sub>1</sub></sub>) |
+| | |              ... |
+| | |         C<sub>j</sub> v<sub>1</sub> … v<sub>k<sub>j</sub></sub> -> C<sub>j</sub> (pick<sub>1</sub><sup>C<sub>j</sub></sup> bs v<sub>1</sub>) … (pick<sub>k <sub>j</sub></sub><sup>C<sub>j</sub></sup> bs v <sub>k<sub>j</sub></sub>) |
+| | |         _ -> error "Update error" |
+| | | |
 
 where
 {C<sub>1</sub>,…,C<sub>j</sub>}
@@ -3925,27 +3019,11 @@ k<sub>i</sub>
 is the arity of
 C<sub>i</sub>.
 
-
-
-
-
-
-
 Here are some examples using labeled fields:
 
-
-
-
-
-data T    = C1 {f1,f2 :: Int}    
-          \| C2 {f1 :: Int,    
-                f3,f4 :: Char}
-
-
-
-
-
-
+data T    = C1 {f1,f2 :: Int}  \
+| C2 {f1 :: Int,  \
+f3,f4 :: Char}
 
 <table id="TBL-47" class="tabular" data-cellspacing="0"
 data-cellpadding="0" data-rules="groups">
@@ -4000,8 +3078,6 @@ style="text-align: left; white-space: nowrap;"></td>
 </tbody>
 </table>
 
-
-
 The field f1 is common to both constructors
 in T. This example translates expressions using constructors in
 field-label notation into equivalent expressions using the same
@@ -4010,23 +3086,11 @@ no single constructor defines the set of field labels used in an update,
 such as
 x {f2 = 1, f3 = 'x'}.
 
-### 3.16  Expression Type-Signatures
+### 3.16 Expression Type-Signatures
 
-
-
-
-
-
-
-|  |  |  |
+| | | |
 |:---|:--:|:---|
-| exp  | → | exp :: \[context =\>\] type  |
-
-
-
-
-
- 
+| exp | → | exp :: [context =>] type |
 
 Expression type-signatures have the form
 e :: t,
@@ -4043,35 +3107,13 @@ be more specific than the principal type derivable from
 exp, but it is an error to give a type that
 is more general than, or not comparable to, the principal type.
 
-
-
-
-
-
-
 Translation:
 
-
-
-
-
-|  |  |  |
+| | | |
 |:---|:--:|:---|
 | e :: t | = | let { v :: t;  v = e } in v |
 
-
-
-
-
-
-
-
-
-
-
-### 3.17  Pattern Matching
-
-
+### 3.17 Pattern Matching
 
 Patterns appear in lambda abstractions,
 function definitions, pattern bindings, list comprehensions, do
@@ -4079,45 +3121,33 @@ expressions, and case expressions. However, the first five of these
 ultimately translate into case expressions, so defining the semantics of
 pattern matching for case expressions is sufficient.
 
-#### 3.17.1  Patterns
+#### 3.17.1 Patterns
 
 Patterns have this syntax:
 
-
-
-
-
-|  |  |  |  |
+| | | | |
 |:---|:--:|:---|:---|
-| pat  | → | lpat qconop pat |     (infix constructor)  |
-|  | \| | lpat |  |
-|    |  |  |  |
-|  |  |  |  |
-| lpat | → | apat  |  |
-|  | \| | - (integer \| float) |     (negative literal)  |
-|  | \| | gcon apat<sub>1</sub> … apat<sub>k</sub> |     (arity gcon  =  k, k ≥ 1)  |
-|    |  |  |  |
-|  |  |  |  |
-| apat  | → | var \[ @ apat\]  |     (as pattern)  |
-|  | \| | gcon  |     (arity gcon  =  0)  |
-|  | \| | qcon { fpat<sub>1</sub> , … , fpat<sub>k</sub> } |     (labeled pattern, k ≥ 0)  |
-|  | \| | literal  |  |
-|  | \| | \_ |     (wildcard)  |
-|  | \| | ( pat ) |     (parenthesized pattern)  |
-|  | \| | ( pat<sub>1</sub> , … , pat<sub>k</sub> ) |     (tuple pattern, k ≥ 2)  |
-|  | \| | \[ pat<sub>1</sub> , … , pat<sub>k</sub> \] |     (list pattern, k ≥ 1)  |
-|  | \| | ~ apat  |     (irrefutable pattern)  |
-|    |  |  |  |
-|  |  |  |  |
-| fpat  | → | qvar = pat  |  |
-
-
-
-
-
- 
- 
-
+| pat | → | lpat qconop pat |     (infix constructor) |
+| | | | lpat | |
+|   | | | |
+| | | | |
+| lpat | → | apat | |
+| | | | - (integer | float) |     (negative literal) |
+| | | | gcon apat<sub>1</sub> … apat<sub>k</sub> |     (arity gcon  =  k, k ≥ 1) |
+|   | | | |
+| | | | |
+| apat | → | var [ @ apat] |     (as pattern) |
+| | | | gcon |     (arity gcon  =  0) |
+| | | | qcon { fpat<sub>1</sub> , … , fpat<sub>k</sub> } |     (labeled pattern, k ≥ 0) |
+| | | | literal | |
+| | | | _ |     (wildcard) |
+| | | | ( pat ) |     (parenthesized pattern) |
+| | | | ( pat<sub>1</sub> , … , pat<sub>k</sub> ) |     (tuple pattern, k ≥ 2) |
+| | | | \[ pat<sub>1</sub> , … , pat<sub>k</sub> \] |     (list pattern, k ≥ 1) |
+| | | | ~ apat |     (irrefutable pattern) |
+|   | | | |
+| | | | |
+| fpat | → | qvar = pat | |
 
 The arity of a constructor must match the number of sub-patterns
 associated with it; one cannot match against a partially-applied
@@ -4128,15 +3158,7 @@ linear
 —no variable may appear more than once. For
 example, this definition is illegal:
 
-
-
-
-
 f (x,x) = x     -- ILLEGAL; x used twice in pattern
-
-
-
-
 
 Patterns of the form
 var@pat
@@ -4145,58 +3167,26 @@ and allow one to use
 var as a name for the value being matched
 by pat. For example,
 
-
-
-
-
-case e of { xs@(x:rest) -\> if x==0 then rest else xs }
-
-
-
-
+case e of { xs@(x:rest) -> if x==0 then rest else xs }
 
 is equivalent to:
 
+let { xs = e } in  \
+case xs of { (x:rest) -> if x==0 then rest else xs }
 
-
-
-
-let { xs = e } in    
-  case xs of { (x:rest) -\> if x==0 then rest else xs }
-
-
-
-
-
-Patterns of the form \_ are
+Patterns of the form _ are
 wildcards and
 are useful when some part of a pattern is not referenced on the
 right-hand-side. It is as if an identifier not used elsewhere were put
 in its place. For example,
 
-
-
-
-
-case e of { \[x,\_,\_\]  -\>  if x==0 then True else False }
-
-
-
-
+case e of { [x,\_,\_]  ->  if x==0 then True else False }
 
 is equivalent to:
 
+case e of { [x,y,z]  ->  if x==0 then True else False }
 
-
-
-
-case e of { \[x,y,z\]  -\>  if x==0 then True else False }
-
-
-
-
-
-#### 3.17.2  Informal Semantics of Pattern Matching
+#### 3.17.2 Informal Semantics of Pattern Matching
 
 Patterns are matched against values. Attempting to match a pattern can
 have one of three results: it may fail; it
@@ -4206,105 +3196,106 @@ variable in the pattern; or it may diverge
 proceeds from left to right, and outside to inside, according to the
 following rules:
 
-1.  Matching the pattern
-    var against a value
-    v always succeeds and binds
-    var to
-    v.
+1. Matching the pattern
+   var against a value
+   v always succeeds and binds
+   var to
+   v.
 
-2.  Matching the pattern
-    ~apat
-    against a value v always succeeds. The
-    free variables in apat are bound to the
-    appropriate values if matching apat
-    against v would otherwise succeed, and
-    to ⊥ if matching
-    apat against
-    v fails or diverges. (Binding does
-    not imply evaluation.)
+1. Matching the pattern
+   ~apat
+   against a value v always succeeds. The
+   free variables in apat are bound to the
+   appropriate values if matching apat
+   against v would otherwise succeed, and
+   to ⊥ if matching
+   apat against
+   v fails or diverges. (Binding does
+   not imply evaluation.)
 
-    Operationally, this means that no matching is done on a
-    ~apat
-    pattern until one of the variables in
-    apat is used. At that point the entire
-    pattern is matched against the value, and if the match fails or
-    diverges, so does the overall computation.
+   Operationally, this means that no matching is done on a
+   ~apat
+   pattern until one of the variables in
+   apat is used. At that point the entire
+   pattern is matched against the value, and if the match fails or
+   diverges, so does the overall computation.
 
-3.  Matching the wildcard pattern
-    \_ against any value always succeeds,
-    and no binding is done.
+1. Matching the wildcard pattern
+   \_ against any value always succeeds,
+   and no binding is done.
 
-4.  Matching the pattern
-    con pat
-    against a value, where con is a
-    constructor defined by newtype, depends
-    on the value:
+1. Matching the pattern
+   con pat
+   against a value, where con is a
+   constructor defined by newtype, depends
+   on the value:
 
-    - If the value is of the form
-      con v,
-      then pat is matched against
-      v.
-    - If the value is ⊥, then
-      pat is matched against
-      ⊥.
+   - If the value is of the form
+     con v,
+     then pat is matched against
+     v.
+   - If the value is ⊥, then
+     pat is matched against
+     ⊥.
 
-    That is, constructors associated with
-    newtype serve only to change the type
-    of a value.
+   That is, constructors associated with
+   newtype serve only to change the type
+   of a value.
 
-5.  Matching the pattern
-    con pat<sub>1</sub> … pat<sub>n</sub>
-    against a value, where con is a
-    constructor defined by data, depends on
-    the value:
-    - If the value is of the form
-      con v<sub>1</sub> … v<sub>n</sub>,
-      sub-patterns are matched left-to-right against the components of
-      the data value; if all matches succeed, the overall match
-      succeeds; the first to fail or diverge causes the overall match to
-      fail or diverge, respectively.
-    - If the value is of the form
-      con′ v<sub>1</sub> … v<sub>m</sub>,
-      where con is a different constructor
-      to con′,
-      the match fails.
-    - If the value is ⊥, the match
-      diverges.
+1. Matching the pattern
+   con pat<sub>1</sub> … pat<sub>n</sub>
+   against a value, where con is a
+   constructor defined by data, depends on
+   the value:
 
-6.  Matching against a constructor using labeled
-    fields is the same as matching ordinary constructor patterns except
-    that the fields are matched in the order they are named in the field
-    list. All fields listed must be declared by the constructor; fields
-    may not be named more than once. Fields not named by the pattern are
-    ignored (matched against \_).
+   - If the value is of the form
+     con v<sub>1</sub> … v<sub>n</sub>,
+     sub-patterns are matched left-to-right against the components of
+     the data value; if all matches succeed, the overall match
+     succeeds; the first to fail or diverge causes the overall match to
+     fail or diverge, respectively.
+   - If the value is of the form
+     con′ v<sub>1</sub> … v<sub>m</sub>,
+     where con is a different constructor
+     to con′,
+     the match fails.
+   - If the value is ⊥, the match
+     diverges.
 
-7.  Matching a numeric, character, or string
-    literal pattern k against a value
-    v succeeds
-    if
-    v  ==  k,
-    where == is overloaded based on the
-    type of the pattern. The match diverges if this test
-    diverges.
+1. Matching against a constructor using labeled
+   fields is the same as matching ordinary constructor patterns except
+   that the fields are matched in the order they are named in the field
+   list. All fields listed must be declared by the constructor; fields
+   may not be named more than once. Fields not named by the pattern are
+   ignored (matched against \_).
 
-    The interpretation of numeric literals is exactly as described in
-    Section [3.2](#x8-240003.2); that is, the overloaded function
-    fromInteger or
-    fromRational is applied to an
-    Integer or
-    Rational literal (resp) to convert it
-    to the appropriate type.
+1. Matching a numeric, character, or string
+   literal pattern k against a value
+   v succeeds
+   if
+   v  ==  k,
+   where == is overloaded based on the
+   type of the pattern. The match diverges if this test
+   diverges.
 
-8.  Matching an as-pattern
-    var@apat
-    against a value v is
-    the result of matching
-    apat against
-    v, augmented with the binding of
-    var to v.
-    If the match of apat against
-    v fails or diverges, then so does the
-    overall match.
+   The interpretation of numeric literals is exactly as described in
+   Section [3.2](#x8-240003.2); that is, the overloaded function
+   fromInteger or
+   fromRational is applied to an
+   Integer or
+   Rational literal (resp) to convert it
+   to the appropriate type.
+
+1. Matching an as-pattern
+   var@apat
+   against a value v is
+   the result of matching
+   apat against
+   v, augmented with the binding of
+   var to v.
+   If the match of apat against
+   v fails or diverges, then so does the
+   overall match.
 
 Aside from the obvious static type constraints (for example, it is a
 static error to match a character against a boolean), the following
@@ -4337,85 +3328,58 @@ patterns are refutable.
 
 Here are some examples:
 
-1.  If the pattern
-    \['a','b'\] is matched against
-    \['x',⊥\],
-    then 'a'
-    fails to match against
-    'x', and the result is a failed match.
-    But if \['a','b'\] is matched against
-    \[⊥,'x'\],
-    then attempting to match 'a' against
-    ⊥ causes the match to
-    diverge.
+1. If the pattern
+   ['a','b'] is matched against
+   ['x',⊥],
+   then 'a'
+   fails to match against
+   'x', and the result is a failed match.
+   But if ['a','b'] is matched against
+   [⊥,'x'],
+   then attempting to match 'a' against
+   ⊥ causes the match to
+   diverge.
 
-2.  These examples demonstrate refutable
-    vs. irrefutable matching:
-    
+1. These examples demonstrate refutable
+   vs. irrefutable matching:
 
-    |  |
-    |:---|
-    | (\\ ~(x,y) -\> 0) ⊥    ⇒    0 |
-    | (\\  (x,y) -\> 0) ⊥    ⇒    ⊥  |
+   | |
+   |:---|
+   | (\\ ~(x,y) -> 0) ⊥    ⇒    0 |
+   | (\\  (x,y) -> 0) ⊥    ⇒    ⊥ |
 
-    
+   | |
+   |:---|
+   | (\\ ~[x] -> 0) []    ⇒    0 |
+   | (\\ ~[x] -> x) []    ⇒    ⊥ |
 
-    
+   | |
+   |:---|
+   | (\\ ~[x,~(a,b)] -> x) [(0,1),⊥]    ⇒    (0,1) |
+   | (\\ ~[x, (a,b)] -> x) [(0,1),⊥]    ⇒    ⊥ |
 
-    |  |
-    |:---|
-    | (\\ ~\[x\] -\> 0) \[\]    ⇒    0 |
-    | (\\ ~\[x\] -\> x) \[\]    ⇒    ⊥  |
+   | |
+   |:---|
+   | (\\  (x:xs) -> x:x:xs) ⊥   ⇒   ⊥ |
+   | (\\ ~(x:xs) -> x:x:xs) ⊥   ⇒   ⊥:⊥:⊥ |
 
-    
+1. Consider the following declarations:
 
-    
+   newtype N = N Bool  \
+   data    D = D !Bool
 
-    |  |
-    |:---|
-    | (\\ ~\[x,~(a,b)\] -\> x) \[(0,1),⊥\]    ⇒    (0,1) |
-    | (\\ ~\[x, (a,b)\] -\> x) \[(0,1),⊥\]    ⇒    ⊥  |
+   These examples illustrate the difference in pattern matching between
+   types defined by data and
+   newtype:
 
-    
+   | |
+   |:---|
+   | (\\  (N True) -> True) ⊥     ⇒    ⊥ |
+   | (\\  (D True) -> True) ⊥     ⇒    ⊥ |
+   | (\\ ~(D True) -> True) ⊥     ⇒    True |
 
-    
-
-    |  |
-    |:---|
-    | (\\  (x:xs) -\> x:x:xs) ⊥   ⇒   ⊥  |
-    | (\\ ~(x:xs) -\> x:x:xs) ⊥   ⇒   ⊥:⊥:⊥  |
-
-    
-
-3.  Consider the following declarations:
-
-    
-
-    
-
-      newtype N = N Bool    
-      data    D = D !Bool
-
-    
-
-    
-
-    These examples illustrate the difference in pattern matching between
-    types defined by data and
-    newtype:
-
-    
-
-    |  |
-    |:---|
-    | (\\  (N True) -\> True) ⊥     ⇒    ⊥ |
-    | (\\  (D True) -\> True) ⊥     ⇒    ⊥ |
-    | (\\ ~(D True) -\> True) ⊥     ⇒    True |
-
-    
-
-    Additional examples may be found in
-    Section 4.2.3.
+   Additional examples may be found in
+   Section 4.2.3.
 
 Top level patterns in case expressions and the set of top level patterns
 in function or pattern bindings may have zero or more associated
@@ -4427,21 +3391,13 @@ of a function or case expression. In particular, an otherwise
 irrefutable pattern may be evaluated because
 of a guard. For example, in
 
-
-
-
-
-f :: (Int,Int,Int) -\> \[Int\] -\> Int    
-f ~(x,y,z) \[a\] \| (a == y) = 1
-
-
-
-
+f :: (Int,Int,Int) -> [Int] -> Int  \
+f ~(x,y,z) [a] | (a == y) = 1
 
 both a and y
 will be evaluated by == in the guard.
 
-#### 3.17.3  Formal Semantics of Pattern Matching
+#### 3.17.3 Formal Semantics of Pattern Matching
 
 The semantics of all pattern matching constructs other than
 case expressions are defined by giving
@@ -4453,220 +3409,136 @@ Figures [3.1](#x8-610011)–[3.3](#x8-610033). Any implementation should
 behave so that these identities hold; it is not expected that it will
 use them directly, since that would generate rather inefficient code.
 
-------------------------------------------------------------------------
+______________________________________________________________________
 
-
-
-
-
-
-
-
-
-
-
-
-
-|  |  |
+| | |
 |:--:|:---|
-| (a)  | case e of { alts } = (\\v -\> case v of { alts }) e |
-|  | where v is a new variable  |
-| (b)  | case  v of {  p <sub>1</sub>  match<sub>1</sub>;  … ; p<sub>n</sub>  match<sub>n</sub> } |
-|  | =  case v of { p<sub>1</sub>  match<sub>1</sub> ; |
-|  |                 \_  -\> … case v of { |
-|  |                            p<sub>n</sub>  match<sub>n</sub> ; |
-|  |                            \_  -\> error "No match" }…} |
-|  |  where each match<sub>i</sub> has the form:  |
-|  |   \| gs<sub>i,1</sub>  -\> e<sub>i,1</sub> ; … ; \| gs<sub>i,m<sub>i</sub></sub> -\> e<sub>i,m<sub>i</sub></sub> where { decls<sub>i</sub> } |
+| (a) | case e of { alts } = (\\v -> case v of { alts }) e |
+| | where v is a new variable |
+| (b) | case  v of {  p <sub>1</sub>  match<sub>1</sub>;  … ; p<sub>n</sub>  match<sub>n</sub> } |
+| | =  case v of { p<sub>1</sub>  match<sub>1</sub> ; |
+| |                 _  -> … case v of { |
+| |                            p<sub>n</sub>  match<sub>n</sub> ; |
+| |                            _  -> error "No match" }…} |
+| |  where each match<sub>i</sub> has the form: |
+| |   | gs<sub>i,1</sub>  -> e<sub>i,1</sub> ; … ; | gs<sub>i,m<sub>i</sub></sub> -> e<sub>i,m<sub>i</sub></sub> where { decls<sub>i</sub> } |
 |   |   |
-| (c)  | case v of { p \| gs<sub>1</sub> -\> e<sub>1</sub> ; … |
-|  |              \| gs<sub>n</sub> -\> e<sub>n</sub> where { decls } |
-|  |             \_     -\> e′ } |
-|  | = case e′ of { y -\> |
-|  |    case v of { |
-|  |      p -\> let { decls } in |
-|  |           case () of { |
-|  |             () \| gs<sub>1</sub> -\> e<sub>1</sub>; |
-|  |             \_ -\> … case () of { |
-|  |                        () \| gs<sub>n</sub> -\> e<sub>n</sub>; |
-|  |                        \_  -\> y } … } |
-|  |      \_ -\> y }} |
-|  | where y is a new variable  |
+| (c) | case v of { p | gs<sub>1</sub> -> e<sub>1</sub> ; … |
+| |              | gs<sub>n</sub> -> e<sub>n</sub> where { decls } |
+| |             _     -> e′ } |
+| | = case e′ of { y -> |
+| |    case v of { |
+| |      p -> let { decls } in |
+| |           case () of { |
+| |             () | gs<sub>1</sub> -> e<sub>1</sub>; |
+| |             _ -> … case () of { |
+| |                        () | gs<sub>n</sub> -> e<sub>n</sub>; |
+| |                        _  -> y } … } |
+| |      _ -> y }} |
+| | where y is a new variable |
 |   |   |
-| (d)  | case v of { ~p -\> e; \_ -\> e′ } |
-|  | = (\\x<sub>1</sub> … x<sub>n</sub> -\> e ) (case v of { p-\> x<sub>1</sub> })… (case v of { p -\> x<sub>n</sub>}) |
-|  | where x<sub>1</sub>,…,x<sub>n</sub> are all the variables in p  |
+| (d) | case v of { ~p -> e; _ -> e′ } |
+| | = (\\x<sub>1</sub> … x<sub>n</sub> -> e ) (case v of { p-> x<sub>1</sub> })… (case v of { p -> x<sub>n</sub>}) |
+| | where x<sub>1</sub>,…,x<sub>n</sub> are all the variables in p |
 |   |   |
-| (e)  | case v of { x@p -\> e; \_ -\> e′ } |
-|  | =  case v of { p -\> ( \\ x -\> e ) v ; \_ -\> e′ } |
+| (e) | case v of { x@p -> e; _ -> e′ } |
+| | =  case v of { p -> ( \\ x -> e ) v ; _ -> e′ } |
 |   |   |
-| (f)  | case v of { \_ -\> e; \_ -\> e′ } = e  |
+| (f) | case v of { _ -> e; _ -> e′ } = e |
 |   |   |
-|  |  |
-
-
-
-
-
-
-
-
-
-  
-
-
+| | |
 
 Figure 3.1: Semantics of
 Case Expressions, Part 1
 
+______________________________________________________________________
 
+______________________________________________________________________
 
-
-
-------------------------------------------------------------------------
-
-------------------------------------------------------------------------
-
-
-
-
-
-
-
-
-
-
-
-
-
-|  |  |
+| | |
 |:--:|:---|
-| (g)  | case v of { K p<sub>1</sub>…p<sub>n</sub> -\> e; \_ -\> e′ } |
-|  | = case v of { |
-|  |      K x<sub>1</sub>…x<sub>n</sub> -\> case x<sub>1</sub> of { |
-|  |                     p<sub>1</sub> -\> … case x<sub>n</sub> of { p<sub>n</sub> -\> e ; \_ -\> e′ } … |
-|  |                     \_  -\> e′ } |
-|  |      \_ -\> e′ } |
+| (g) | case v of { K p<sub>1</sub>…p<sub>n</sub> -> e; _ -> e′ } |
+| | = case v of { |
+| |      K x<sub>1</sub>…x<sub>n</sub> -> case x<sub>1</sub> of { |
+| |                     p<sub>1</sub> -> … case x<sub>n</sub> of { p<sub>n</sub> -> e ; _ -> e′ } … |
+| |                     _  -> e′ } |
+| |      _ -> e′ } |
 |   |   |
-|  | at least one of p<sub>1</sub>,…,p<sub>n</sub> is not a variable; x<sub>1</sub>,…,x<sub>n</sub> are new variables  |
+| | at least one of p<sub>1</sub>,…,p<sub>n</sub> is not a variable; x<sub>1</sub>,…,x<sub>n</sub> are new variables |
 |   |   |
-| (h)  | case v of { k -\> e; \_ -\> e′ } = if (v==k) then e else e′  |
-|  | where k is a numeric, character, or string literal  |
+| (h) | case v of { k -> e; _ -> e′ } = if (v==k) then e else e′ |
+| | where k is a numeric, character, or string literal |
 |   |   |
-| (i)  | case v of { x -\> e; \_ -\> e′ } = case v of { x -\> e } |
+| (i) | case v of { x -> e; _ -> e′ } = case v of { x -> e } |
 |   |   |
-| (j)  | case v of { x -\> e } = ( \\ x -\> e ) v  |
+| (j) | case v of { x -> e } = ( \\ x -> e ) v |
 |   |   |
-| (k)  | case N v of { N p -\> e; \_ -\> e′ } |
-|  | = case v of { p -\> e; \_ -\> e′ } |
-|  | where N is a newtype constructor  |
+| (k) | case N v of { N p -> e; _ -> e′ } |
+| | = case v of { p -> e; _ -> e′ } |
+| | where N is a newtype constructor |
 |   |   |
-| (l)  | case ⊥ of { N p -\> e; \_ -\> e′ } = case ⊥ of { p -\> e } |
-|  | where N is a newtype constructor  |
+| (l) | case ⊥ of { N p -> e; _ -> e′ } = case ⊥ of { p -> e } |
+| | where N is a newtype constructor |
 |   |   |
-| (m)  | case  v  of {  K  { f<sub>1</sub>  =  p<sub>1</sub>  ,  f<sub>2</sub>  =  p<sub>2</sub>  , … } -\>  e ; \_ -\>  e′ } |
-|  | =  case e′ of { |
-|  |     y -\> |
-|  |     case  v  of {  |
-|  |       K  {  f<sub>1</sub>  =  p<sub>1</sub>  } -\> |
-|  |             case  v  of { K  { f<sub>2</sub>  =  p<sub>2</sub>  , …  } -\>  e ; \_ -\>  y  }; |
-|  |             \_ -\>  y  }} |
-|  | where f<sub>1</sub>, f<sub>2</sub>, … are fields of constructor K; y is a new variable  |
+| (m) | case  v  of {  K  { f<sub>1</sub>  =  p<sub>1</sub>  ,  f<sub>2</sub>  =  p<sub>2</sub>  , … } ->  e ; _ ->  e′ } |
+| | =  case e′ of { |
+| |     y -> |
+| |     case  v  of {  |
+| |       K  {  f<sub>1</sub>  =  p<sub>1</sub>  } -> |
+| |             case  v  of { K  { f<sub>2</sub>  =  p<sub>2</sub>  , …  } ->  e ; _ ->  y  }; |
+| |             _ ->  y  }} |
+| | where f<sub>1</sub>, f<sub>2</sub>, … are fields of constructor K; y is a new variable |
 |   |   |
-| (n)  | case  v  of {  K  { f  =  p } -\>  e ; \_ -\>  e′ } |
-|  | = case  v  of { |
-|  |      K p<sub>1</sub> … p<sub>n</sub>  -\>  e ; \_ -\>  e′ } |
-|  | where p<sub>i</sub> is p if f labels the ith component of K, \_ otherwise  |
-| (o)  | case  v  of {  K  {} -\>  e ; \_ -\>  e′ } |
-|  | = case  v  of { |
-|  |      K \_… \_ -\>  e ; \_ -\>  e′ } |
-| (p)  | case (K′ e<sub>1</sub> … e<sub>m</sub>) of { K x<sub>1</sub> … x<sub>n</sub> -\> e; \_ -\> e′ } = e′  |
-|  | where K and K′ are distinct data constructors of arity n and m, respectively  |
+| (n) | case  v  of {  K  { f  =  p } ->  e ; _ ->  e′ } |
+| | = case  v  of { |
+| |      K p<sub>1</sub> … p<sub>n</sub>  ->  e ; _ ->  e′ } |
+| | where p<sub>i</sub> is p if f labels the ith component of K, _ otherwise |
+| (o) | case  v  of {  K  {} ->  e ; _ ->  e′ } |
+| | = case  v  of { |
+| |      K \_… _ ->  e ; _ ->  e′ } |
+| (p) | case (K′ e<sub>1</sub> … e<sub>m</sub>) of { K x<sub>1</sub> … x<sub>n</sub> -> e; _ -> e′ } = e′ |
+| | where K and K′ are distinct data constructors of arity n and m, respectively |
 |   |   |
-| (q)  | case (K e<sub>1</sub> … e<sub>n</sub>) of { K x<sub>1</sub> … x<sub>n</sub> -\> e; \_ -\> e′ } |
-|  | = (\\x<sub>1</sub> … x<sub>n</sub> -\> e) e<sub>1</sub> … e<sub>n</sub> |
-|  | where K is a data constructor of arity n  |
+| (q) | case (K e<sub>1</sub> … e<sub>n</sub>) of { K x<sub>1</sub> … x<sub>n</sub> -> e; _ -> e′ } |
+| | = (\\x<sub>1</sub> … x<sub>n</sub> -> e) e<sub>1</sub> … e<sub>n</sub> |
+| | where K is a data constructor of arity n |
 |   |   |
-| (r)  | case ⊥ of { K x<sub>1</sub> … x<sub>n</sub> -\> e; \_ -\> e′ } =  ⊥  |
-|  | where K is a data constructor of arity n  |
+| (r) | case ⊥ of { K x<sub>1</sub> … x<sub>n</sub> -> e; _ -> e′ } =  ⊥ |
+| | where K is a data constructor of arity n |
 |   |   |
-|  |  |
-
-
-
-
-
-
-
-
-
-  
-
-
+| | |
 
 Figure 3.2: Semantics of
 Case Expressions, Part 2
 
+______________________________________________________________________
 
+______________________________________________________________________
 
-
-
-------------------------------------------------------------------------
-
-------------------------------------------------------------------------
-
-
-
-
-
-
-
-
-
-
-
-
-
-|  |  |
+| | |
 |:--:|:---|
-| (s)  | case () of { () \| g<sub>1</sub>, …, g<sub>n</sub> -\> e; \_ -\> e′ } |
-|  | = case () of { |
-|  |     () \| g<sub>1</sub> -\> … case () of { |
-|  |                    () \| g<sub>n</sub> -\> e; |
-|  |                    \_ -\> e′ } …  |
-|  |     \_ -\> e′ } |
-|  | where y is a new variable  |
+| (s) | case () of { () | g<sub>1</sub>, …, g<sub>n</sub> -> e; _ -> e′ } |
+| | = case () of { |
+| |     () | g<sub>1</sub> -> … case () of { |
+| |                    () | g<sub>n</sub> -> e; |
+| |                    _ -> e′ } … |
+| |     _ -> e′ } |
+| | where y is a new variable |
 |   |   |
-| (t)  | case () of { () \| p \<- e<sub>0</sub> -\> e; \_ -\> e′ } |
-|  | = case e<sub>0</sub> of { p -\> e; \_ -\> e′ } |
-| (u)  | case () of { () \| let decls -\> e; \_ -\> e′ } |
-|  | = let decls in e  |
+| (t) | case () of { () | p \<- e<sub>0</sub> -> e; _ -> e′ } |
+| | = case e<sub>0</sub> of { p -> e; _ -> e′ } |
+| (u) | case () of { () | let decls -> e; _ -> e′ } |
+| | = let decls in e |
 |   |   |
-| (v)  | case () of { () \| e<sub>0</sub> -\> e; \_ -\> e′ } |
-|  | = if e<sub>0</sub> then e else e′  |
+| (v) | case () of { () | e<sub>0</sub> -> e; _ -> e′ } |
+| | = if e<sub>0</sub> then e else e′ |
 |   |   |
-|  |  |
-
-
-
-
-
-
-
-
-
-  
-
-
+| | |
 
 Figure 3.3: Semantics of
 Case Expressions, Part 3
 
-
-
-
-
-------------------------------------------------------------------------
+______________________________________________________________________
 
 In Figures [3.1](#x8-610011)–[3.3](#x8-610033):
 e,
@@ -4704,97 +3576,67 @@ Rule (h) in Figure [3.2](#x8-610022) involves the overloaded operator
 ==; it is this rule that defines the
 meaning of pattern matching against overloaded constants.
 
-
 These identities all preserve the static semantics. Rules (d), (e), (j),
 and (q) use a lambda rather than a let;
 this indicates that variables bound by case
 are monomorphically typed
 (Section 4.1.4).
 
+[prev-tail]
 
+______________________________________________________________________
 
-
-\[prev-tail\]
-
-
-
-
-
----
-
-
-
-\[prev-tail\]
-\[up\]
-
-
+[prev-tail]
+[up]
 
 ## Chapter 4 Declarations and Bindings
-
-
 
 In this chapter, we describe the syntax and informal semantics of
 Haskell declarations.
 
-
-
-
-
-|  |  |  |  |
+| | | | |
 |:---|:--:|:---|----|
-| module  | → | module modid \[exports\] where body  |  |
-|  | \| | body  |  |
-| body  | → | { impdecls ; topdecls } |  |
-|  | \| | { impdecls } |  |
-|  | \| | { topdecls } |  |
-|    |  |  |  |
-|  |  |  |  |
-| topdecls  | → | topdecl<sub>1</sub> ; … ; topdecl<sub>n</sub> |     (n ≥ 1)  |
-| topdecl  | → | type simpletype = type  |  |
-|  | \| | data \[context =\>\] simpletype \[= constrs\] \[deriving\] |  |
-|  | \| | newtype \[context =\>\] simpletype = newconstr \[deriving\]  |  |
-|  | \| | class \[scontext =\>\] tycls tyvar \[where cdecls\]  |  |
-|  | \| | instance \[scontext =\>\] qtycls inst \[where idecls\]  |  |
-|  | \| | default (type<sub>1</sub> , … , type<sub>n</sub>) |       (n ≥ 0)  |
-|  | \| | foreign fdecl  |  |
-|  | \| | decl  |  |
-|    |  |  |  |
-|  |  |  |  |
-| decls  | → | { decl<sub>1</sub> ; … ; decl<sub>n</sub> } |     (n ≥ 0)  |
-| decl  | → | gendecl  |  |
-|  | \| | (funlhs \| pat) rhs |  |
-|    |  |  |  |
-|  |  |  |  |
-| cdecls  | → | { cdecl<sub>1</sub> ; … ; cdecl<sub>n</sub> } |     (n ≥ 0)  |
-| cdecl  | → | gendecl  |  |
-|  | \| | (funlhs \| var) rhs  |  |
-|    |  |  |  |
-|  |  |  |  |
-| idecls  | → | { idecl<sub>1</sub> ; … ; idecl<sub>n</sub> } |     (n ≥ 0)  |
-| idecl  | → | (funlhs \| var) rhs  |  |
-|  | \| |  |     (empty)  |
-|    |  |  |  |
-|  |  |  |  |
-| gendecl  | → | vars :: \[context =\>\] type  |     (type signature)  |
-|  | \| | fixity \[integer\] ops  |     (fixity declaration)  |
-|  | \| |  |     (empty declaration)  |
-|    |  |  |  |
-|  |  |  |  |
-| ops  | → | op<sub>1</sub> , … , op<sub>n</sub> |     (n ≥ 1)  |
-| vars  | → | var<sub>1</sub> , … , var<sub>n</sub> |     (n ≥ 1)  |
-| fixity  | → | infixl \| infixr \| infix |  |
-
-
-
-
-
- 
- 
- 
- 
- 
- 
-
+| module | → | module modid [exports] where body | |
+| | | | body | |
+| body | → | { impdecls ; topdecls } | |
+| | | | { impdecls } | |
+| | | | { topdecls } | |
+|   | | | |
+| | | | |
+| topdecls | → | topdecl<sub>1</sub> ; … ; topdecl<sub>n</sub> |     (n ≥ 1) |
+| topdecl | → | type simpletype = type | |
+| | | | data [context =>] simpletype [= constrs] [deriving] | |
+| | | | newtype [context =>] simpletype = newconstr [deriving] | |
+| | | | class [scontext =>] tycls tyvar [where cdecls] | |
+| | | | instance [scontext =>] qtycls inst [where idecls] | |
+| | | | default (type<sub>1</sub> , … , type<sub>n</sub>) |       (n ≥ 0) |
+| | | | foreign fdecl | |
+| | | | decl | |
+|   | | | |
+| | | | |
+| decls | → | { decl<sub>1</sub> ; … ; decl<sub>n</sub> } |     (n ≥ 0) |
+| decl | → | gendecl | |
+| | | | (funlhs | pat) rhs | |
+|   | | | |
+| | | | |
+| cdecls | → | { cdecl<sub>1</sub> ; … ; cdecl<sub>n</sub> } |     (n ≥ 0) |
+| cdecl | → | gendecl | |
+| | | | (funlhs | var) rhs | |
+|   | | | |
+| | | | |
+| idecls | → | { idecl<sub>1</sub> ; … ; idecl<sub>n</sub> } |     (n ≥ 0) |
+| idecl | → | (funlhs | var) rhs | |
+| | | | |     (empty) |
+|   | | | |
+| | | | |
+| gendecl | → | vars :: [context =>] type |     (type signature) |
+| | | | fixity [integer] ops |     (fixity declaration) |
+| | | | |     (empty declaration) |
+|   | | | |
+| | | | |
+| ops | → | op<sub>1</sub> , … , op<sub>n</sub> |     (n ≥ 1) |
+| vars | → | var<sub>1</sub> , … , var<sub>n</sub> |     (n ≥ 1) |
+| fixity | → | infixl | infixr | infix | |
 
 The declarations in the syntactic category
 topdecls are only allowed at the top level
@@ -4823,17 +3665,16 @@ type and data
 declarations. These “built-in” datatypes are described in detail in
 Section 6.1.
 
-### 4.1  Overview of Types and Classes
+### 4.1 Overview of Types and Classes
 
 Haskell uses a traditional Hindley-Milner
 polymorphic type system to provide a static type semantics
-\[4, 6\],
+[4, 6],
 but the type system has been extended with type
 classes (or just
 classes) that
 provide a structured way to introduce overloaded
 functions.
-
 
 A class declaration
 (Section [4.3.1](#x10-760004.3.1)) introduces a new
@@ -4844,7 +3685,7 @@ instance declaration
 instance of a class and includes the
 definitions of the overloaded operations—called
 class methods—instantiated on the named
-type. 
+type.
 
 For example, suppose we wish to overload the operations
 (+) and negate
@@ -4852,18 +3693,10 @@ on types Int and
 Float. We introduce a new type class called
 Num:
 
-
-
-
-
-  class Num a  where          -- simplified class declaration for Num
-   
-    (+)    :: a -\> a -\> a     -- (Num is defined in the Prelude)    
-    negate :: a -\> a
-
-
-
-
+class Num a  where          -- simplified class declaration for Num
+\
+(+)    :: a -> a -> a     -- (Num is defined in the Prelude)  \
+negate :: a -> a
 
 This declaration may be read “a type a is
 an instance of the class Num if there are
@@ -4873,21 +3706,13 @@ negate, of the given types, defined on it.”
 We may then declare Int and
 Float to be instances of this class:
 
-
-
-
-
-  instance Num Int  where     -- simplified instance of Num Int    
-    x + y       =  addInt x y    
-    negate x    =  negateInt x    
-   
-  instance Num Float  where   -- simplified instance of Num Float    
-    x + y       =  addFloat x y    
-    negate x    =  negateFloat x
-
-
-
-
+instance Num Int  where     -- simplified instance of Num Int  \
+x + y       =  addInt x y  \
+negate x    =  negateInt x  \
+\
+instance Num Float  where   -- simplified instance of Num Float  \
+x + y       =  addFloat x y  \
+negate x    =  negateFloat x
 
 where addInt,
 negateInt,
@@ -4902,16 +3727,16 @@ Num as witnessed by these definitions
 negate.”
 
 More examples of type classes can be found in the papers by Jones
-\[8\] or
+[8] or
 Wadler and Blott
-\[13\]. The
+[13]. The
 term ‘type class’ was used to describe the original Haskell 1.0 type
 system; ‘constructor class’ was used to describe an extension to the
 original type classes. There is no longer any reason to use two
 different terms: in this report, ‘type class’ includes both the original
 Haskell type classes and the constructor classes introduced by Jones.
 
-#### 4.1.1  Kinds
+#### 4.1.1 Kinds
 
 To ensure that they are valid, type expressions are classified into
 different kinds,
@@ -4938,126 +3763,113 @@ unlike types, kinds are entirely implicit and are not a visible part of
 the language. Kind inference is discussed in
 Section [4.6](#x10-970004.6).
 
-#### 4.1.2  Syntax of Types
+#### 4.1.2 Syntax of Types
 
-
-
-
-
-
-
-|  |  |  |  |
+| | | | |
 |:---|:--:|:---|:---|
-| type  | → | btype \[-\> type\]  |     (function type)  |
-|    |  |  |  |
-|  |  |  |  |
-| btype  | → | \[btype\] atype  |     (type application)  |
-|    |  |  |  |
-|  |  |  |  |
-| atype  | → | gtycon  |  |
-|  | \| | tyvar  |  |
-|  | \| | ( type<sub>1</sub> , … , type<sub>k</sub> ) |     (tuple type, k ≥ 2)  |
-|  | \| | \[ type \] |     (list type)  |
-|  | \| | ( type ) |     (parenthesised constructor)  |
-|    |  |  |  |
-|  |  |  |  |
-| gtycon  | → | qtycon  |  |
-|  | \| | () |     (unit type)  |
-|  | \| | \[\] |     (list constructor)  |
-|  | \| | (-\>) |     (function constructor)  |
-|  | \| | (,{,}) |     (tupling constructors)  |
-
-
-
-
-
- 
- 
+| type | → | btype [-> type] |     (function type) |
+|   | | | |
+| | | | |
+| btype | → | [btype] atype |     (type application) |
+|   | | | |
+| | | | |
+| atype | → | gtycon | |
+| | | | tyvar | |
+| | | | ( type<sub>1</sub> , … , type<sub>k</sub> ) |     (tuple type, k ≥ 2) |
+| | | | [ type ] |     (list type) |
+| | | | ( type ) |     (parenthesised constructor) |
+|   | | | |
+| | | | |
+| gtycon | → | qtycon | |
+| | | | () |     (unit type) |
+| | | | [] |     (list constructor) |
+| | | | (->) |     (function constructor) |
+| | | | (,{,}) |     (tupling constructors) |
 
 The syntax for Haskell type expressions
- is given
+is given
 above. Just as data values are built using data constructors, type
 values are built from
 type constructors.
 As with data constructors, the names of type constructors start with
 uppercase letters. Unlike data constructors, infix type constructors are
-not allowed (other than (-\>)).
+not allowed (other than (->)).
 
 The main forms of type expression are as follows:
 
-1.  Type variables, written as identifiers
-    beginning with a lowercase letter. The kind of a variable is
-    determined implicitly by the context in which it appears.
+1. Type variables, written as identifiers
+   beginning with a lowercase letter. The kind of a variable is
+   determined implicitly by the context in which it appears.
 
-2.  Type constructors. Most type constructors are
-    written as an identifier beginning with an uppercase letter. For
-    example:
+1. Type constructors. Most type constructors are
+   written as an identifier beginning with an uppercase letter. For
+   example:
 
-    - Char,
-      Int,
-      Integer,
-      Float,
-      Double and
-      Bool are type constants with kind
-      ∗.
-    - Maybe and
-      IO are unary type constructors, and
-      treated as types with kind ∗→∗.
-    - The declarations
-      data T ...
-      or
-      newtype T ...
-      add the type constructor T to the
-      type vocabulary. The kind of T is
-      determined by kind inference.
+   - Char,
+     Int,
+     Integer,
+     Float,
+     Double and
+     Bool are type constants with kind
+     ∗.
+   - Maybe and
+     IO are unary type constructors, and
+     treated as types with kind ∗→∗.
+   - The declarations
+     data T ...
+     or
+     newtype T ...
+     add the type constructor T to the
+     type vocabulary. The kind of T is
+     determined by kind inference.
 
-    Special syntax is provided for certain built-in type constructors:
+   Special syntax is provided for certain built-in type constructors:
 
-    - The trivial
-      type is written as
-      () and has kind
-      ∗. It denotes the “nullary tuple”
-      type, and has exactly one value, also written
-      () (see
-      Sections 3.9
-      and 6.1.5).
-    - The function type is written as
-      (-\>) and
-      has kind
-      ∗→∗→∗.
-    - The list type is written as
-      \[\] and has kind
-      ∗→∗.
-    - The tuple types are written as
-      (,),
-      (,,), and so on. Their kinds are
-      ∗→∗→∗,
-      ∗→∗→∗→
-      ∗, and so on.
+   - The trivial
+     type is written as
+     () and has kind
+     ∗. It denotes the “nullary tuple”
+     type, and has exactly one value, also written
+     () (see
+     Sections 3.9
+     and 6.1.5).
+   - The function type is written as
+     (->) and
+     has kind
+     ∗→∗→∗.
+   - The list type is written as
+     [] and has kind
+     ∗→∗.
+   - The tuple types are written as
+     (,),
+     (,,), and so on. Their kinds are
+     ∗→∗→∗,
+     ∗→∗→∗→
+     ∗, and so on.
 
-    Use of the (-\>) and
-    \[\] constants is described in more
-    detail below.
+   Use of the (->) and
+   [] constants is described in more
+   detail below.
 
-3.  Type application. If
-    t<sub>1</sub>
-    is a type of kind
-    κ<sub>1</sub>
-    →
-    κ<sub>2</sub>
-    and
-    t<sub>2</sub>
-    is a type of kind
-    κ<sub>1</sub>,
-    then
-    t<sub>1</sub> t<sub>2</sub>
-    is a type expression of kind
-    κ<sub>2</sub>.
+1. Type application. If
+   t<sub>1</sub>
+   is a type of kind
+   κ<sub>1</sub>
+   →
+   κ<sub>2</sub>
+   and
+   t<sub>2</sub>
+   is a type of kind
+   κ<sub>1</sub>,
+   then
+   t<sub>1</sub> t<sub>2</sub>
+   is a type expression of kind
+   κ<sub>2</sub>.
 
-4.  A parenthesized
-    type, having form
-    (t),
-    is identical to the type t.
+1. A parenthesized
+   type, having form
+   (t),
+   is identical to the type t.
 
 For example, the type expression
 IO a can be
@@ -5077,46 +3889,46 @@ kinds for user-defined datatypes, type synonyms, and classes.
 Special syntax is provided to allow certain type expressions to be
 written in a more traditional style:
 
-1.  A function
-    type has the form
-    t<sub>1</sub> -\> t<sub>2</sub>,
-    which is equivalent to the type
-    (-\>) t<sub>1</sub> t<sub>2</sub>.
-    Function arrows associate to the right. For example,
-    Int -\> Int -\> Float
-    means
-    Int -\> (Int -\> Float).
-2.  A tuple
-    type has the form
-    (t<sub>1</sub>, … , t<sub>k</sub>)
-    where k ≥
-    2, which is equivalent to the
-    type
-    (,…,) t<sub>1</sub> … t<sub>k</sub>
-    where there are
-    k−1
-    commas between the parenthesis. It denotes the type of
-    k-tuples with the first component of
-    type
-    t<sub>1</sub>,
-    the second component of type
-    t<sub>2</sub>,
-    and so on (see Sections 3.8 and
-    6.1.4).
-3.  A list
-    type has the form
-    \[t\],
-    which is equivalent to the type
-    \[\] t. It
-    denotes the type of lists with elements of type
-    t (see
-    Sections 3.7 and
-    6.1.3).
+1. A function
+   type has the form
+   t<sub>1</sub> -> t<sub>2</sub>,
+   which is equivalent to the type
+   (->) t<sub>1</sub> t<sub>2</sub>.
+   Function arrows associate to the right. For example,
+   Int -> Int -> Float
+   means
+   Int -> (Int -> Float).
+1. A tuple
+   type has the form
+   (t<sub>1</sub>, … , t<sub>k</sub>)
+   where k ≥
+   2, which is equivalent to the
+   type
+   (,…,) t<sub>1</sub> … t<sub>k</sub>
+   where there are
+   k−1
+   commas between the parenthesis. It denotes the type of
+   k-tuples with the first component of
+   type
+   t<sub>1</sub>,
+   the second component of type
+   t<sub>2</sub>,
+   and so on (see Sections 3.8 and
+   6.1.4).
+1. A list
+   type has the form
+   [t],
+   which is equivalent to the type
+   [] t. It
+   denotes the type of lists with elements of type
+   t (see
+   Sections 3.7 and
+   6.1.3).
 
 These special syntactic forms always denote the built-in type
 constructors for functions, tuples, and lists, regardless of what is in
 scope. In a similar way, the prefix type constructors
-(-\>), \[\],
+(->), [],
 (), (,), and
 so on, always denote the built-in type constructors; they cannot be
 qualified, nor mentioned in import or export lists
@@ -5131,63 +3943,49 @@ t<sub>i</sub>
 is the type of expression or pattern
 e<sub>i</sub>,
 then the expressions
-(\\ e<sub>1</sub> -\> e<sub>2</sub>),
+(\\ e<sub>1</sub> -> e<sub>2</sub>),
 \[e<sub>1</sub>\],
 and
 (e<sub>1</sub>,e<sub>2</sub>)
 have the types
-(t<sub>1</sub> -\> t<sub>2</sub>),
+(t<sub>1</sub> -> t<sub>2</sub>),
 \[t<sub>1</sub>\],
 and
 (t<sub>1</sub>,t<sub>2</sub>),
-respectively. 
+respectively.
 
 With one exception (that of the distinguished type variable in a class
 declaration (Section [4.3.1](#x10-760004.3.1))), the type variables in a
 Haskell type expression are all assumed to be universally quantified;
 there is no explicit syntax for universal
-quantification \[4\].
+quantification [4].
 For example, the type expression
-a -\> a
+a -> a
 denotes the type
-∀ a. a 
+∀ a. a
 →  a.
 For clarity, however, we often write quantification explicitly when
 discussing the types of Haskell programs. When we write an explicitly
 quantified type, the scope of the ∀ extends
 as far to the right as possible; for example,
-∀ a. a 
+∀ a. a
 →  a
 means
-∀ a. (a 
+∀ a. (a
 →
- a).
+a).
 
-#### 4.1.3  Syntax of Class Assertions and Contexts
+#### 4.1.3 Syntax of Class Assertions and Contexts
 
- 
-
-
-
-
-
-|  |  |  |  |
+| | | | |
 |:---|:--:|:---|----|
-| context  | → | class  |  |
-|  | \| | ( class<sub>1</sub> , … , class<sub>n</sub> ) |     (n ≥ 0)  |
-| class  | → | qtycls tyvar  |  |
-|  | \| | qtycls ( tyvar atype<sub>1</sub> … atype<sub>n</sub> ) |     (n ≥ 1)  |
-| qtycls  | → | \[ modid . \] tycls  |  |
-| tycls  | → | conid  |  |
-| tyvar  | → | varid  |  |
-
-
-
-
-
- 
- 
-
+| context | → | class | |
+| | | | ( class<sub>1</sub> , … , class<sub>n</sub> ) |     (n ≥ 0) |
+| class | → | qtycls tyvar | |
+| | | | qtycls ( tyvar atype<sub>1</sub> … atype<sub>n</sub> ) |     (n ≥ 1) |
+| qtycls | → | [ modid . ] tycls | |
+| tycls | → | conid | |
+| tyvar | → | varid | |
 
 A class assertion has form
 qtycls tyvar,
@@ -5206,28 +4004,28 @@ more types. The outer parentheses may be omitted when
 n = 1. In
 general, we use cx to denote a context and
 we write
-cx =\> t
+cx => t
 to indicate the type t restricted by the
 context cx. The context
 cx must only contain type variables
 referenced in t. For convenience, we write
-cx =\> t
+cx => t
 even if the context cx is empty, although
 in this case the concrete syntax contains no
-=\>.
+=>.
 
-#### 4.1.4  Semantics of Types and Classes
+#### 4.1.4 Semantics of Types and Classes
 
 In this section, we provide informal details of the type system. (Wadler
 and Blott
-\[13\] and
-Jones \[8\]
+[13] and
+Jones [8]
 discuss type and constructor classes, respectively, in more detail.)
 
 The Haskell type system attributes a type
 to each expression in the program.
 In general, a type is of the form
-∀ u. cx 
+∀ u. cx
 ⇒  t,
 where u is a
 set of type variables
@@ -5240,17 +4038,9 @@ cx must be of the form given above in
 Section [4.1.3](#x10-660004.1.3). For example, here are some valid
 types:
 
-
-
-
-
-  Eq a =\> a -\> a    
-  (Eq a, Show a, Eq b) =\> \[a\] -\> \[b\] -\> String    
-  (Eq (f a), Functor f) =\> (a -\> b) -\> f a -\> f b -\> Bool
-
-
-
-
+Eq a => a -> a  \
+(Eq a, Show a, Eq b) => [a] -> [b] -> String  \
+(Eq (f a), Functor f) => (a -> b) -> f a -> f b -> Bool
 
 In the third type, the constraint
 Eq (f a)
@@ -5284,13 +4074,13 @@ Sections 3.16
 and [4.4.1](#x10-810004.4.1)).
 
 The type
-∀ u. cx<sub>1</sub> 
+∀ u. cx<sub>1</sub>
 ⇒
- t<sub>1</sub>
+t<sub>1</sub>
 is more general than the type
-∀ w. cx<sub>2</sub> 
+∀ w. cx<sub>2</sub>
 ⇒
- t<sub>2</sub>
+t<sub>2</sub>
 if and only if there is a substitution S
 whose domain is
 u such that:
@@ -5305,29 +4095,21 @@ u such that:
   also holds.
 
 A value of type
-∀ u. cx 
+∀ u. cx
 ⇒  t,
 may be instantiated at types
 s if and only
 if the context
-cx\[s∕u\]
+cx[s∕u]
 holds. For example, consider the function
 double:
 
-
-
-
-
-  double x = x + x
-
-
-
-
+double x = x + x
 
 The most general type of double is
-∀ a. Num a 
+∀ a. Num a
 ⇒
- a 
+a
 →  a.
 double may be applied to values of type
 Int (instantiating
@@ -5342,9 +4124,7 @@ Num. The user may choose to declare such an
 instance, in which case double may indeed
 be applied to a Char.
 
-### 4.2  User-Defined Datatypes
-
-
+### 4.2 User-Defined Datatypes
 
 In this section, we describe algebraic datatypes
 (data declarations), renamed datatypes
@@ -5352,40 +4132,25 @@ In this section, we describe algebraic datatypes
 (type declarations). These declarations may
 only appear at the top level of a module.
 
-#### 4.2.1  Algebraic Datatype Declarations
+#### 4.2.1 Algebraic Datatype Declarations
 
-
-
-
-
-
-
-|  |  |  |  |
+| | | | |
 |:---|:--:|:---|----|
-| topdecl  | → | data \[context =\>\] simpletype \[= constrs\] \[deriving\] |  |
-|    |  |  |  |
-|  |  |  |  |
-| simpletype  | → | tycon tyvar<sub>1</sub> … tyvar<sub>k</sub> |     (k ≥ 0)  |
-|    |  |  |  |
-|  |  |  |  |
-| constrs  | → | constr<sub>1</sub> \| … \| constr<sub>n</sub> |     (n ≥ 1)  |
-| constr  | → | con \[!\] atype<sub>1</sub> … \[!\] atype<sub>k</sub> |     (arity con  =  k, k ≥ 0)  |
-|  | \| | (btype \| ! atype) conop (btype \| ! atype)  |     (infix conop)  |
-|  | \| | con { fielddecl<sub>1</sub> , … , fielddecl<sub>n</sub> } |     (n ≥ 0)  |
-| fielddecl  | → | vars :: (type \| ! atype)  |  |
-|    |  |  |  |
-|  |  |  |  |
-| deriving  | → | deriving (dclass \| (dclass<sub>1</sub>, … , dclass<sub>n</sub>))  |     (n ≥ 0)  |
-| dclass  | → | qtycls  |  |
-
-
-
-
-
- 
- 
- 
- 
+| topdecl | → | data [context =>] simpletype [= constrs] [deriving] | |
+|   | | | |
+| | | | |
+| simpletype | → | tycon tyvar<sub>1</sub> … tyvar<sub>k</sub> |     (k ≥ 0) |
+|   | | | |
+| | | | |
+| constrs | → | constr<sub>1</sub> | … | constr<sub>n</sub> |     (n ≥ 1) |
+| constr | → | con [!] atype<sub>1</sub> … [!] atype<sub>k</sub> |     (arity con  =  k, k ≥ 0) |
+| | | | (btype | ! atype) conop (btype | ! atype) |     (infix conop) |
+| | | | con { fielddecl<sub>1</sub> , … , fielddecl<sub>n</sub> } |     (n ≥ 0) |
+| fielddecl | → | vars :: (type | ! atype) | |
+|   | | | |
+| | | | |
+| deriving | → | deriving (dclass | (dclass<sub>1</sub>, … , dclass<sub>n</sub>)) |     (n ≥ 0) |
+| dclass | → | qtycls | |
 
 The precedence for
 constr is the same as that for
@@ -5396,28 +4161,28 @@ parses as
 a : (Foo a)).
 
 An algebraic datatype declaration has the form:
-data cx =\> T u<sub>1</sub> … u<sub>k</sub> = K<sub>1</sub> t<sub>11</sub> … t<sub>1k<sub>1</sub></sub> \| <img src="haskell0x.png" class="cdots" alt="⋅⋅⋅" /> \| K<sub>n</sub> t<sub>n1</sub> … t<sub>nk<sub>n</sub></sub>
+data cx => T u<sub>1</sub> … u<sub>k</sub> = K<sub>1</sub> t<sub>11</sub> … t<sub>1k<sub>1</sub></sub> | <img src="haskell0x.png" class="cdots" alt="⋅⋅⋅" /> | K<sub>n</sub> t<sub>n1</sub> … t<sub>nk<sub>n</sub></sub>
 where cx is a context. This declaration
 introduces a new type constructor
 T with zero or more constituent
 data constructors
 K<sub>1</sub>, …, K<sub>n</sub>.
- In this
+In this
 Report, the unqualified term “constructor” always means “data
 constructor”.
 
 The types of the data constructors are given by:
-K<sub>i</sub> 
+K<sub>i</sub>
 ::
- ∀ u<sub>1</sub> … u<sub>k</sub>.  cx<sub>i</sub> 
+∀ u<sub>1</sub> … u<sub>k</sub>.  cx<sub>i</sub>
 ⇒
- t<sub>i1</sub> 
+t<sub>i1</sub>
 →
- <img src="haskell1x.png" class="cdots" alt="⋅⋅⋅" /> 
+<img src="haskell1x.png" class="cdots" alt="⋅⋅⋅" />
 →
- t<sub>ik<sub>i</sub></sub> 
+t<sub>ik<sub>i</sub></sub>
 →
- (T u<sub>1</sub> … u<sub>k</sub>)
+(T u<sub>1</sub> … u<sub>k</sub>)
 where
 cx<sub>i</sub>
 is the largest subset of cx that constrains
@@ -5449,22 +4214,12 @@ k arguments.
 
 For example, the declaration
 
-
-
-
-
-  data Eq a =\> Set a = NilSet \| ConsSet a (Set a)
-
-
-
-
+data Eq a => Set a = NilSet | ConsSet a (Set a)
 
 introduces a type constructor Set of kind
 ∗→∗, and constructors
 NilSet and
 ConsSet with types
-
-
 
 <table id="TBL-63" class="array" data-cellpadding="0"
 data-cellspacing="0">
@@ -5488,8 +4243,6 @@ ConsSet
 </tbody>
 </table>
 
-
-
 In the example given, the overloaded type for
 ConsSet ensures that
 ConsSet can only be applied to values whose
@@ -5499,18 +4252,10 @@ rise to an
 Eq a
 constraint. For example:
 
-
-
-
-
-  f (ConsSet a s) = a
-
-
-
-
+f (ConsSet a s) = a
 
 the function f has inferred type
-Eq a =\> Set a -\> a.
+Eq a => Set a -> a.
 The context in the data declaration has no
 other effect whatsoever.
 
@@ -5526,7 +4271,7 @@ derived instances, and is described in
 Section [4.3.3](#x10-780004.3.3).
 
 Labelled
-Fields  A data constructor of
+Fields A data constructor of
 arity k creates an object with
 k components. These components are normally
 accessed positionally as arguments to the constructor in expressions or
@@ -5546,27 +4291,11 @@ shorthand for operations using an underlying positional constructor. The
 arguments to the positional constructor occur in the same order as the
 labeled fields. For example, the declaration
 
-
-
-
-
-  data C = F { f1,f2 :: Int, f3 :: Bool }
-
-
-
-
+data C = F { f1,f2 :: Int, f3 :: Bool }
 
 defines a type and constructor identical to the one produced by
 
-
-
-
-
-  data C = F Int Int Bool
-
-
-
-
+data C = F Int Int Bool
 
 Operations using field labels are described in
 Section 3.15. A
@@ -5585,7 +4314,7 @@ F was declared with
 record syntax.
 
 Strictness
-Flags  Whenever a data
+Flags Whenever a data
 constructor is applied, each argument to the constructor is evaluated if
 and only if the corresponding type in the algebraic datatype declaration
 has a strictness flag, denoted by an exclamation point,
@@ -5595,15 +4324,9 @@ is an ordinary varsym not a reservedop; it
 has special significance only in the context of the argument types of a
 data declaration.
 
-
-
-
-
-
-
 Translation:
 A declaration of the form
-data cx =\> T u<sub>1</sub> … u<sub>k</sub> = … \| K s<sub>1</sub> … s<sub>n</sub> \| …
+data cx => T u<sub>1</sub> … u<sub>k</sub> = … | K s<sub>1</sub> … s<sub>n</sub> | …
 where each
 s<sub>i</sub>
 is either of the form
@@ -5612,16 +4335,16 @@ or
 t<sub>i</sub>,
 replaces every occurrence of K in an
 expression by
-(\\ x<sub>1</sub> … x<sub>n</sub> -\> ( ((K op<sub>1</sub> x<sub>1</sub>) op<sub>2</sub> x<sub>2</sub>) … ) op<sub>n</sub> x<sub>n</sub>)
+(\\ x<sub>1</sub> … x<sub>n</sub> -> ( ((K op<sub>1</sub> x<sub>1</sub>) op<sub>2</sub> x<sub>2</sub>) … ) op<sub>n</sub> x<sub>n</sub>)
 where
 op<sub>i</sub>
-is the non-strict apply function \$ if
+is the non-strict apply function $ if
 s<sub>i</sub>
 is of the form
 t<sub>i</sub>,
 and
 op<sub>i</sub>
-is the strict apply function \$! (see
+is the strict apply function $! (see
 Section 6.2) if
 s<sub>i</sub>
 is of the form
@@ -5629,30 +4352,12 @@ is of the form
 Pattern matching on K is not affected by
 strictness flags.
 
+#### 4.2.2 Type Synonym Declarations
 
-
-
-
-
-
-#### 4.2.2  Type Synonym Declarations
-
-
-
-
-
-
-
-|  |  |  |  |
+| | | | |
 |:---|:--:|:---|----|
-| topdecl  | → | type simpletype = type  |  |
-| simpletype  | → | tycon tyvar<sub>1</sub> … tyvar<sub>k</sub> |     (k ≥ 0)  |
-
-
-
-
-
- 
+| topdecl | → | type simpletype = type | |
+| simpletype | → | tycon tyvar<sub>1</sub> … tyvar<sub>k</sub> |     (k ≥ 0) |
 
 A type synonym declaration introduces a new type that is equivalent to
 an old type. It has the form
@@ -5686,15 +4391,7 @@ Section [4.6](#x10-970004.6).
 For example, the following definition can be used to provide an
 alternative way of writing the list type constructor:
 
-
-
-
-
-  type List = \[\]
-
-
-
-
+type List = []
 
 Type constructor symbols T introduced by
 type synonym declarations cannot be partially applied; it is a static
@@ -5702,37 +4399,21 @@ error to use T without the full number of
 arguments.
 
 Although recursive and mutually recursive datatypes are allowed,
- this is not
+this is not
 so for type synonyms, unless an
 algebraic datatype intervenes. For
 example,
 
-
-
-
-
-  type Rec a   =  \[Circ a\]    
-  data Circ a  =  Tag \[Rec a\]
-
-
-
-
+type Rec a   =  [Circ a]  \
+data Circ a  =  Tag [Rec a]
 
 is allowed, whereas
 
-
-
-
-
-  type Rec a   =  \[Circ a\]        -- invalid    
-  type Circ a  =  \[Rec a\]         -- invalid
-
-
-
-
+type Rec a   =  [Circ a]        -- invalid  \
+type Circ a  =  [Rec a]         -- invalid
 
 is not. Similarly,
-type Rec a = \[Rec a\]
+type Rec a = [Rec a]
 is not allowed.
 
 Type synonyms are a convenient, but strictly syntactic, mechanism to
@@ -5741,30 +4422,17 @@ completely interchangeable, except in the instance type of an
 instance declaration
 (Section [4.3.2](#x10-770004.3.2)).
 
-#### 4.2.3  Datatype Renamings
+#### 4.2.3 Datatype Renamings
 
-
-
-
-
-
-
-|  |  |  |  |
+| | | | |
 |:---|:--:|:---|----|
-| topdecl  | → | newtype \[context =\>\] simpletype = newconstr \[deriving\]  |  |
-| newconstr  | → | con atype  |  |
-|  | \| | con { var :: type } |  |
-| simpletype  | → | tycon tyvar<sub>1</sub> … tyvar<sub>k</sub> |     (k ≥ 0)  |
-
-
-
-
-
- 
-
+| topdecl | → | newtype [context =>] simpletype = newconstr [deriving] | |
+| newconstr | → | con atype | |
+| | | | con { var :: type } | |
+| simpletype | → | tycon tyvar<sub>1</sub> … tyvar<sub>k</sub> |     (k ≥ 0) |
 
 A declaration of the form
-newtype cx =\> T u<sub>1</sub> … u<sub>k</sub> = N t
+newtype cx => T u<sub>1</sub> … u<sub>k</sub> = N t
 introduces a new type whose representation is the same as an existing
 type. The type
 (T u<sub>1</sub>… u<sub>k</sub>)
@@ -5803,22 +4471,14 @@ type (type synonyms), and
 newtype (renaming types.) Given the
 declarations
 
-
-
-
-
-  data D1 = D1 Int    
-  data D2 = D2 !Int    
-  type S = Int    
-  newtype N = N Int    
-  d1 (D1 i) = 42    
-  d2 (D2 i) = 42    
-  s i = 42    
-  n (N i) = 42
-
-
-
-
+data D1 = D1 Int  \
+data D2 = D2 !Int  \
+type S = Int  \
+newtype N = N Int  \
+d1 (D1 i) = 42  \
+d2 (D2 i) = 42  \
+s i = 42  \
+n (N i) = 42
 
 the expressions
 (d1 ⊥),
@@ -5845,64 +4505,30 @@ Section [4.3.3](#x10-780004.3.3).
 A newtype declaration may use field-naming
 syntax, though of course there may only be one field. Thus:
 
-
-
-
-
-  newtype Age = Age { unAge :: Int }
-
-
-
-
+newtype Age = Age { unAge :: Int }
 
 brings into scope both a constructor and a de-constructor:
 
+Age   :: Int -> Age  \
+unAge :: Age -> Int
 
+### 4.3 Type Classes and Overloading
 
+#### 4.3.1 Class Declarations
 
-
-  Age   :: Int -\> Age    
-  unAge :: Age -\> Int
-
-
-
-
-
-### 4.3  Type Classes and Overloading
-
- 
-
-#### 4.3.1  Class Declarations
-
-
-
-
-
-
-
-|  |  |  |  |
+| | | | |
 |:---|:--:|:---|----|
-| topdecl  | → | class \[scontext =\>\] tycls tyvar \[where cdecls\]  |  |
-| scontext  | → | simpleclass  |  |
-|  | \| | ( simpleclass<sub>1</sub> , … , simpleclass<sub>n</sub> ) |     (n ≥ 0)  |
-| simpleclass  | → | qtycls tyvar  |  |
-| cdecls  | → | { cdecl<sub>1</sub> ; … ; cdecl<sub>n</sub> } |     (n ≥ 0)  |
-| cdecl  | → | gendecl  |  |
-|  | \| | (funlhs \| var) rhs  |  |
-
-
-
-
-
- 
- 
-
+| topdecl | → | class [scontext =>] tycls tyvar [where cdecls] | |
+| scontext | → | simpleclass | |
+| | | | ( simpleclass<sub>1</sub> , … , simpleclass<sub>n</sub> ) |     (n ≥ 0) |
+| simpleclass | → | qtycls tyvar | |
+| cdecls | → | { cdecl<sub>1</sub> ; … ; cdecl<sub>n</sub> } |     (n ≥ 0) |
+| cdecl | → | gendecl | |
+| | | | (funlhs | var) rhs | |
 
 A class declaration introduces a new class
 and the operations (class methods) on it.
 A class declaration has the general form:
-
-
 
 <table id="TBL-67" class="array" data-cellpadding="0"
 data-cellspacing="0">
@@ -5914,8 +4540,6 @@ class cx =&gt; C u where cdecls
 </tr>
 </tbody>
 </table>
-
-
 
 This introduces a new class name C; the
 type variable u is scoped only over the
@@ -5941,7 +4565,7 @@ declarations:
   the
   v<sub>i</sub>
   for which there is an explicit type signature
-  v<sub>i</sub> :: cx<sub>i</sub> =\> t<sub>i</sub>
+  v<sub>i</sub> :: cx<sub>i</sub> => t<sub>i</sub>
   in cdecls. Class methods share the top
   level namespace with variable bindings and field names; they must not
   conflict with other top level bindings in scope. That is, a class
@@ -5971,23 +4595,15 @@ declarations:
   cx<sub>i</sub>
   may not constrain u. For example:
 
-  
-
-  
-
-    class Foo a where    
-      op :: Num b =\> a -\> b -\> a
-
-  
-
-  
+  class Foo a where  \
+  op :: Num b => a -> b -> a
 
   Here the type of op is
-  ∀ a, b. (Foo a, Num b)  
+  ∀ a, b. (Foo a, Num b)
   ⇒
-   a 
+  a
   →
-   b 
+  b
   →  a.
 
 - The cdecls may also contain a
@@ -6009,17 +4625,9 @@ declarations:
   normal value definition, except that the left hand side may only be a
   variable or function definition. For example:
 
-  
-
-  
-
-    class Foo a where    
-      op1, op2 :: a -\> a    
-      (op1, op2) = ...
-
-  
-
-  
+  class Foo a where  \
+  op1, op2 :: a -> a  \
+  (op1, op2) = ...
 
   is not permitted, because the left hand side of the default
   declaration is a pattern.
@@ -6032,15 +4640,7 @@ where part may
 be useful for combining a collection of classes into a larger one that
 inherits all of the class methods in the original ones. For example:
 
-
-
-
-
-  class  (Read a, Show a) =\> Textual a
-
-
-
-
+class  (Read a, Show a) => Textual a
 
 In such a case, if a type is an instance of all
 superclasses, it is not
@@ -6049,44 +4649,28 @@ even though the subclass has no immediate class methods. The
 instance declaration must be given
 explicitly with no where part.
 
+#### 4.3.2 Instance Declarations
 
-#### 4.3.2  Instance Declarations
-
-
-
-
-
-
-
-|  |  |  |  |
+| | | | |
 |:---|:--:|:---|----|
-| topdecl  | → | instance \[scontext =\>\] qtycls inst \[where idecls\]  |  |
-| inst  | → | gtycon  |  |
-|  | \| | ( gtycon tyvar<sub>1</sub> … tyvar<sub>k</sub> ) |     (k ≥ 0, tyvars  distinct)  |
-|  | \| | ( tyvar<sub>1</sub> , … , tyvar<sub>k</sub> ) |     (k ≥ 2, tyvars  distinct)  |
-|  | \| | \[ tyvar \] |  |
-|  | \| | ( tyvar<sub>1</sub> -\> tyvar<sub>2</sub> ) |     (tyvar<sub>1</sub>  and tyvar<sub>2</sub>  distinct)  |
-| idecls  | → | { idecl<sub>1</sub> ; … ; idecl<sub>n</sub> } |     (n ≥ 0)  |
-| idecl  | → | (funlhs \| var) rhs  |  |
-|  | \| |  |     (empty)  |
-
-
-
-
-
- 
- 
- 
-
+| topdecl | → | instance [scontext =>] qtycls inst [where idecls] | |
+| inst | → | gtycon | |
+| | | | ( gtycon tyvar<sub>1</sub> … tyvar<sub>k</sub> ) |     (k ≥ 0, tyvars  distinct) |
+| | | | ( tyvar<sub>1</sub> , … , tyvar<sub>k</sub> ) |     (k ≥ 2, tyvars  distinct) |
+| | | | [ tyvar ] | |
+| | | | ( tyvar<sub>1</sub> -> tyvar<sub>2</sub> ) |     (tyvar<sub>1</sub>  and tyvar<sub>2</sub>  distinct) |
+| idecls | → | { idecl<sub>1</sub> ; … ; idecl<sub>n</sub> } |     (n ≥ 0) |
+| idecl | → | (funlhs | var) rhs | |
+| | | | |     (empty) |
 
 An instance declaration introduces an
 instance of a class. Let
-class cx =\> C u where { cbody }
+class cx => C u where { cbody }
 be a class declaration. The general form of
 the corresponding instance declaration is:
-instance cx′ =\> C (T u<sub>1</sub> … u<sub>k</sub>) where { d }
+instance cx′ => C (T u<sub>1</sub> … u<sub>k</sub>) where { d }
 where k ≥
-0. The type
+0\. The type
 (T u<sub>1</sub> … u<sub>k</sub>)
 must take the form of a type constructor T
 applied to simple type variables
@@ -6098,17 +4682,9 @@ must all be distinct.
 
 This prohibits instance declarations such as:
 
-
-
-
-
-  instance C (a,a) where ...    
-  instance C (Int,a) where ...    
-  instance C \[\[a\]\] where ...
-
-
-
-
+instance C (a,a) where ...  \
+instance C (Int,a) where ...  \
+instance C \[[a]\] where ...
 
 The declarations d may contain bindings
 only for the class methods of
@@ -6120,19 +4696,11 @@ Section 5.2.) For example, this is
 legal, even though range is in scope only
 with the qualified name Data.Ix.range.
 
-
-
-
-
-  module A where    
-    import qualified Data.Ix    
-   
-    instance Data.Ix.Ix T where    
-      range = ...
-
-
-
-
+module A where  \
+import qualified Data.Ix  \
+\
+instance Data.Ix.Ix T where  \
+range = ...
 
 The declarations may not contain any type signatures or fixity
 declarations,
@@ -6169,18 +4737,18 @@ to these static restrictions:
   cx′. Under
   this assumption, the following two conditions must also be satisfied:
 
-  1.  The constraints expressed by the superclass
-      context
-      cx\[(T u1 … uk)∕u\]
-      of C must be satisfied. In other
-      words, T must be an instance of each
-      of C’s superclasses and the contexts
-      of all superclass instances must be implied by
-      cx′.
-  2.  Any constraints on the type variables in
-      the instance type that are required for the class method
-      declarations in d to be well-typed
-      must also be satisfied.
+  1. The constraints expressed by the superclass
+     context
+     cx[(T u1 … uk)∕u]
+     of C must be satisfied. In other
+     words, T must be an instance of each
+     of C’s superclasses and the contexts
+     of all superclass instances must be implied by
+     cx′.
+  1. Any constraints on the type variables in
+     the instance type that are required for the class method
+     declarations in d to be well-typed
+     must also be satisfied.
 
   In fact, except in pathological cases it is possible to infer from the
   instance declaration the most general instance context
@@ -6191,50 +4759,34 @@ to these static restrictions:
 The following example illustrates the restrictions imposed by superclass
 instances:
 
-
-
-
-
-  class Foo a =\> Bar a where ...    
-   
-  instance (Eq a, Show a) =\> Foo \[a\] where ...    
-   
-  instance Num a =\> Bar \[a\] where ...
-
-
-
-
+class Foo a => Bar a where ...  \
+\
+instance (Eq a, Show a) => Foo [a] where ...  \
+\
+instance Num a => Bar [a] where ...
 
 This example is valid Haskell. Since Foo is
 a superclass of Bar, the second instance
-declaration is only valid if \[a\] is an
+declaration is only valid if [a] is an
 instance of Foo under the assumption
 Num a. The
 first instance declaration does indeed say that
-\[a\] is an instance of
+[a] is an instance of
 Foo under this assumption, because
 Eq and Show
 are superclasses of Num.
 
 If the two instance declarations instead read like this:
 
-
-
-
-
-  instance Num a =\> Foo \[a\] where ...    
-   
-  instance (Eq a, Show a) =\> Bar \[a\] where ...
-
-
-
-
+instance Num a => Foo [a] where ...  \
+\
+instance (Eq a, Show a) => Bar [a] where ...
 
 then the program would be invalid. The second instance declaration is
-valid only if \[a\] is an instance of
+valid only if [a] is an instance of
 Foo under the assumptions
 (Eq a, Show a).
-But this does not hold, since \[a\] is only
+But this does not hold, since [a] is only
 an instance of Foo under the stronger
 assumption
 Num a.
@@ -6242,9 +4794,7 @@ Num a.
 Further examples of instance declarations
 may be found in Chapter 9.
 
-#### 4.3.3  Derived Instances
-
-
+#### 4.3.3 Derived Instances
 
 As mentioned in Section [4.2.1](#x10-690004.2.1),
 data and
@@ -6296,23 +4846,11 @@ that datatype; that is, omitting a deriving
 form is equivalent to including an empty deriving form:
 deriving ().
 
-#### 4.3.4  Ambiguous Types, and Defaults for Overloaded Numeric Operations
+#### 4.3.4 Ambiguous Types, and Defaults for Overloaded Numeric Operations
 
- 
-
-
-
-
-
-|  |  |  |  |
+| | | | |
 |:---|:--:|:---|:---|
-| topdecl  | → | default (type<sub>1</sub> , … , type<sub>n</sub>) |     (n ≥ 0)  |
-
-
-
-
-
-
+| topdecl | → | default (type<sub>1</sub> , … , type<sub>n</sub>) |     (n ≥ 0) |
 
 A problem inherent with Haskell-style overloading is the possibility of
 an ambiguous type.
@@ -6324,20 +4862,10 @@ Bool are members of
 Read and Show,
 then the expression
 
-
-
-
-
-  let x = read "..." in show x  -- invalid
-
-
-
-
+let x = read "..." in show x  -- invalid
 
 is ambiguous, because the types for show
 and read,
-
-
 
 <table id="TBL-70" class="array" data-cellpadding="0"
 data-cellspacing="0">
@@ -6361,8 +4889,6 @@ read
 </tbody>
 </table>
 
-
-
 could be satisfied by instantiating a as
 either Int in both cases, or
 Bool. Such expressions are considered
@@ -6370,7 +4896,7 @@ ill-typed, a static error.
 
 We say that an expression e has an
 ambiguous type if, in its type
-∀ u. cx 
+∀ u. cx
 ⇒  t,
 there is a type variable u in
 u that occurs
@@ -6380,9 +4906,9 @@ t. Such types are invalid.
 For example, the earlier expression involving
 show and read
 has an ambiguous type since its type is
-∀ a.  Show  a, Read  a 
+∀ a.  Show  a, Read  a
 ⇒
- String.
+String.
 
 Ambiguous types can only be circumvented by input from the user. One way
 is through the use of expression
@@ -6391,15 +4917,7 @@ as described in
 Section 3.16. For example, for the
 ambiguous expression given earlier, one could write:
 
-
-
-
-
-  let x = read "..." in show (x::Bool)
-
-
-
-
+let x = read "..." in show (x::Bool)
 
 which disambiguates the type.
 
@@ -6414,15 +4932,7 @@ x, but x and
 y are forced to have the same type. For
 example,
 
-
-
-
-
-  approxSqrt x = encodeFloat 1 (exponent x ‘div‘ 2) ‘asTypeOf‘ x
-
-
-
-
+approxSqrt x = encodeFloat 1 (exponent x ‘div‘ 2) ‘asTypeOf‘ x
 
 (See Section 6.4.6 for a description
 of encodeFloat and
@@ -6462,49 +4972,29 @@ Only one default declaration is permitted per module, and its effect is
 limited to that module. If no default declaration is given in a module
 then it assumed to be:
 
-
-
-
-
-  default (Integer, Double)
-
-
-
-
+default (Integer, Double)
 
 The empty default declaration,
 default (),
 turns off all defaults in a module.
 
-### 4.4  Nested Declarations
+### 4.4 Nested Declarations
 
 The following declarations may be used in any declaration list,
 including the top level of a module.
 
-#### 4.4.1  Type Signatures
+#### 4.4.1 Type Signatures
 
-
-
-
-
-
-
-|  |  |  |  |
+| | | | |
 |:---|:--:|:---|----|
-| gendecl  | → | vars :: \[context =\>\] type  |  |
-| vars  | → | var<sub>1</sub> , …, var<sub>n</sub> |     (n ≥ 1)  |
-
-
-
-
-
- 
+| gendecl | → | vars :: [context =>] type | |
+| vars | → | var<sub>1</sub> , …, var<sub>n</sub> |     (n ≥ 1) |
 
 A type signature specifies types for variables, possibly with respect to
 a context. A type signature has the form:
-v<sub>1</sub>, …, v<sub>n</sub> :: cx =\> t
+v<sub>1</sub>, …, v<sub>n</sub> :: cx => t
 which is equivalent to asserting
-v<sub>i</sub> :: cx =\> t
+v<sub>i</sub> :: cx => t
 for each i from
 1 to n. Each
 v<sub>i</sub>
@@ -6519,16 +5009,8 @@ appearing in a signature is universally quantified over that signature,
 and hence the scope of a type variable is limited to the type signature
 that contains it. For example, in the following declarations
 
-
-
-
-
-  f :: a -\> a    
-  f x = x :: a                  -- invalid
-
-
-
-
+f :: a -> a  \
+f x = x :: a                  -- invalid
 
 the a’s in the two type signatures are
 quite distinct. Indeed, these declarations contain a static error, since
@@ -6558,52 +5040,28 @@ generalization, as described in Section [4.5.2](#x10-900004.5.2)).
 
 For example, if we define
 
-
-
-
-
-  sqr x  =  x⋆x
-
-
-
-
+sqr x  =  x⋆x
 
 then the principal type is
-sqr 
+sqr
 ::
- ∀ a.  Num  a 
+∀ a.  Num  a
 ⇒
- a 
+a
 →  a,
 which allows applications such as
 sqr 5 or
 sqr 0.1. It is
 also valid to declare a more specific type, such as
 
-
-
-
-
-  sqr :: Int -\> Int
-
-
-
-
+sqr :: Int -> Int
 
 but now applications such as
 sqr 0.1 are
 invalid. Type signatures such as
 
-
-
-
-
-  sqr :: (Num a, Num b) =\> a -\> b     -- invalid    
-  sqr :: a -\> a                       -- invalid
-
-
-
-
+sqr :: (Num a, Num b) => a -> b     -- invalid  \
+sqr :: a -> a                       -- invalid
 
 are invalid, as they are more general than the principal type of
 sqr.
@@ -6614,54 +5072,33 @@ recursion. The following definition
 is pathological, but illustrates how a type signature can be used to
 specify a type more general than the one that would be inferred:
 
-
-
-
-
-  data T a  =  K (T Int) (T a)    
-  f         :: T a -\> a    
-  f (K x y) =  if f x == 1 then f y else undefined
-
-
-
-
+data T a  =  K (T Int) (T a)  \
+f         :: T a -> a  \
+f (K x y) =  if f x == 1 then f y else undefined
 
 If we remove the signature declaration, the type of
 f will be inferred as
-T Int -\> Int
+T Int -> Int
 due to the first recursive call for which the argument to
 f is
 T Int.
 Polymorphic recursion allows the user to supply the more general type
 signature,
-T a -\> a.
+T a -> a.
 
-#### 4.4.2  Fixity Declarations
+#### 4.4.2 Fixity Declarations
 
-
-
-
-
-
-
-|  |  |  |  |
+| | | | |
 |:---|:--:|:---|----|
-| gendecl  | → | fixity \[integer\] ops  |  |
-| fixity  | → | infixl \| infixr \| infix |  |
-| ops  | → | op<sub>1</sub> , … , op<sub>n</sub> |     (n ≥ 1)  |
-| op  | → | varop \| conop  |  |
-
-
-
-
-
- 
- 
+| gendecl | → | fixity [integer] ops | |
+| fixity | → | infixl | infixr | infix | |
+| ops | → | op<sub>1</sub> , … , op<sub>n</sub> |     (n ≥ 1) |
+| op | → | varop | conop | |
 
 A fixity declaration gives the fixity and binding precedence of one or
 more operators. The integer in a fixity
 declaration must be in the range 0 to
-9. A fixity declaration may appear anywhere
+9\. A fixity declaration may appear anywhere
 that a type signature appears and, like a type signature, declares a
 property of a particular operator. Also like a type signature, a fixity
 declaration can only occur in the same sequence of declarations as the
@@ -6682,17 +5119,7 @@ to be infixl 9
 fixities). Table [4.1](#x10-820061) lists the fixities and precedences
 of the operators defined in the Prelude.
 
-
-
-
-
-------------------------------------------------------------------------
-
-
-
-
-
-
+______________________________________________________________________
 
 <table id="TBL-73" class="tabular" data-cellspacing="0"
 data-cellpadding="0" data-rules="groups">
@@ -6925,65 +5352,28 @@ style="text-align: right; white-space: nowrap;"></td>
 </tbody>
 </table>
 
-
-
-
-
-  
-
-
-
 Table 4.1: Precedences and
 fixities of prelude operators
 
-
-
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
-
-
-
-
-------------------------------------------------------------------------
-
-
+______________________________________________________________________
 
 Fixity is a property of a particular entity (constructor or variable),
 just like its type; fixity is not a property of that entity’s
 name. For example:
 
-
-
-
-
-  module Bar( op ) where    
-    infixr 7 ‘op‘    
-    op = ...    
-   
-  module Foo where    
-    import qualified Bar    
-    infix 3 ‘op‘    
-   
-    a ‘op‘ b = (a ‘Bar.op‘ b) + 1    
-   
-    f x = let    
-             p ‘op‘ q = (p ‘Foo.op‘ q) ⋆ 2    
-          in ...
-
-
-
-
+module Bar( op ) where  \
+infixr 7 ‘op‘  \
+op = ...  \
+\
+module Foo where  \
+import qualified Bar  \
+infix 3 ‘op‘  \
+\
+a ‘op‘ b = (a ‘Bar.op‘ b) + 1  \
+\
+f x = let  \
+p ‘op‘ q = (p ‘Foo.op‘ q) ⋆ 2  \
+in ...
 
 Here, ‘Bar.op‘ is
 infixr 7,
@@ -6995,45 +5385,31 @@ of infixl 9.
 (It would also be possible to give a fixity to the nested definition of
 ‘op‘ with a nested fixity declaration.)
 
-#### 4.4.3  Function and Pattern Bindings
+#### 4.4.3 Function and Pattern Bindings
 
- 
-
-
-
-
-
-|  |  |  |  |
+| | | | |
 |:---|:--:|:---|----|
-| decl  | → | (funlhs \| pat) rhs |  |
-|    |  |  |  |
-|  |  |  |  |
-| funlhs  | → | var apat { apat }  |  |
-|  | \| | pat varop pat |  |
-|  | \| | ( funlhs ) apat { apat }  |  |
-|    |  |  |  |
-|  |  |  |  |
-| rhs  | → | = exp \[where decls\]  |  |
-|  | \| | gdrhs \[where decls\]  |  |
-|    |  |  |  |
-|  |  |  |  |
-| gdrhs  | → | guards = exp \[gdrhs\] |  |
-|    |  |  |  |
-|  |  |  |  |
-| guards | → | \| guard<sub>1</sub>, …, guard<sub>n</sub> |     (n ≥ 1) |
-|    |  |  |  |
-|  |  |  |  |
+| decl | → | (funlhs | pat) rhs | |
+|   | | | |
+| | | | |
+| funlhs | → | var apat { apat } | |
+| | | | pat varop pat | |
+| | | | ( funlhs ) apat { apat } | |
+|   | | | |
+| | | | |
+| rhs | → | = exp [where decls] | |
+| | | | gdrhs [where decls] | |
+|   | | | |
+| | | | |
+| gdrhs | → | guards = exp [gdrhs] | |
+|   | | | |
+| | | | |
+| guards | → | | guard<sub>1</sub>, …, guard<sub>n</sub> |     (n ≥ 1) |
+|   | | | |
+| | | | |
 | guard | → | pat \<- infixexp |     (pattern guard) |
-|  | \| | let decls |     (local declaration) |
-|  | \| | infixexp  |     (boolean guard)  |
-
-
-
-
-
- 
- 
- 
+| | | | let decls |     (local declaration) |
+| | | | infixexp |     (boolean guard) |
 
 We distinguish two cases within this syntax: a
 pattern binding occurs when the left hand
@@ -7043,15 +5419,11 @@ may appear at the top-level of a module or within a
 where or let
 construct.
 
-##### 4.4.3.1  Function bindings
-
-
+##### 4.4.3.1 Function bindings
 
 A function binding binds a variable to a function value. The general
 form of a function binding for variable x
 is:
-
-
 
 <table id="TBL-75" class="array" data-cellpadding="0"
 data-cellspacing="0">
@@ -7088,15 +5460,11 @@ match<sub>n</sub>
 </tbody>
 </table>
 
-
-
 where each
 p<sub>ij</sub>
 is a pattern, and where each
 match<sub>i</sub>
 is of the general form:
-
-
 
 <table id="TBL-76" class="array" data-cellpadding="0"
 data-cellspacing="0">
@@ -7109,11 +5477,7 @@ data-cellspacing="0">
 </tbody>
 </table>
 
-
-
 or
-
-
 
 <table id="TBL-77" class="array" data-cellpadding="0"
 data-cellspacing="0">
@@ -7155,8 +5519,6 @@ where { decls<sub>i</sub> }
 </tbody>
 </table>
 
-
-
 and where n ≥
 1, 1
 ≤ i
@@ -7164,8 +5526,6 @@ and where n ≥
 m<sub>i</sub>
 ≥ 1. The former
 is treated as shorthand for a particular case of the latter, namely:
-
-
 
 <table id="TBL-78" class="array" data-cellpadding="0"
 data-cellspacing="0">
@@ -7178,8 +5538,6 @@ data-cellspacing="0">
 </tbody>
 </table>
 
-
-
 Note that all clauses defining a function must be contiguous, and the
 number of patterns in each clause must be the same. The set of patterns
 corresponding to each match must be
@@ -7190,17 +5548,9 @@ Alternative syntax is provided for binding functional values to infix
 operators. For example, these three function definitions are all
 equivalent:
 
-
-
-
-
-  plus x y z = x+y+z    
-  x ‘plus‘ y = \\z -\> x+y+z    
-  (x ‘plus‘ y) z = x+y+z
-
-
-
-
+plus x y z = x+y+z  \
+x ‘plus‘ y = \\z -> x+y+z  \
+(x ‘plus‘ y) z = x+y+z
 
 Note that fixity resolution applies to the infix variants of the
 function binding in the same way as for expressions
@@ -7211,15 +5561,7 @@ level. For example, if we are defining a new operator
 \## with precedence 6, then this definition
 would be illegal:
 
-
-
-
-
-  a ## b : xs = exp
-
-
-
-
+a ## b : xs = exp
 
 because : has precedence 5, so the left
 hand side resolves to
@@ -7228,18 +5570,10 @@ and this cannot be a pattern binding because
 (a ## x)
 is not a valid pattern.
 
-
-
-
-
-
-
 Translation:
 The general binding form for functions is semantically equivalent to the
 equation (i.e. simple pattern binding):
-x = \\ x<sub>1</sub> … x<sub>k</sub> -\> case (x<sub>1</sub>, …, x<sub>k</sub>) of
-
-
+x = \\ x<sub>1</sub> … x<sub>k</sub> -> case (x<sub>1</sub>, …, x<sub>k</sub>) of
 
 <table id="TBL-79" class="array" data-cellpadding="0"
 data-cellspacing="0">
@@ -7262,25 +5596,15 @@ data-cellspacing="0">
 </tbody>
 </table>
 
-
-
 where the
 x<sub>i</sub>
 are new identifiers.
 
-
-
-
-
-
-
-##### 4.4.3.2  Pattern bindings
-
-
+##### 4.4.3.2 Pattern bindings
 
 A pattern binding binds variables to values. A
 simple pattern binding has form
-p 
+p
 =  e.
 The pattern p
 is matched “lazily” as an irrefutable
@@ -7292,8 +5616,6 @@ The general form of a pattern binding is
 p match, where
 a match is the same structure as for
 function bindings above; in other words, a pattern binding is:
-
-
 
 <table id="TBL-80" class="array" data-cellpadding="0"
 data-cellspacing="0">
@@ -7349,19 +5671,9 @@ where { decls }
 </tbody>
 </table>
 
-
-
-
-
-
-
-
-
 Translation:
 The pattern binding above is semantically equivalent to this simple
 pattern binding:
-
-
 
 <table id="TBL-81" class="array" data-cellpadding="0"
 data-cellspacing="0">
@@ -7434,21 +5746,13 @@ case () of 
 </tbody>
 </table>
 
-
-
-
-
-
-
-
-
-### 4.5  Static Semantics of Function and Pattern Bindings
+### 4.5 Static Semantics of Function and Pattern Bindings
 
 The static semantics of the function and pattern bindings of a
 let expression or
 where clause are discussed in this section.
 
-#### 4.5.1  Dependency Analysis
+#### 4.5.1 Dependency Analysis
 
 In general the static semantics are given by applying the normal
 Hindley-Milner inference rules. In order to
@@ -7461,13 +5765,13 @@ depends on a binding
 b2 in the same
 list of declarations if either
 
-1.  b1
-    contains a free identifier that has no type signature and is bound
-    by b2,
-    or
-2.  b1
-    depends on a binding that depends on
-    b2.
+1. b1
+   contains a free identifier that has no type signature and is bound
+   by b2,
+   or
+1. b1
+   depends on a binding that depends on
+   b2.
 
 A declaration group is a minimal set of
 mutually dependent bindings. Hindley-Milner type inference is applied to
@@ -7475,42 +5779,34 @@ each declaration group in dependency order. The order of declarations in
 where/let
 constructs is irrelevant.
 
-#### 4.5.2  Generalization
+#### 4.5.2 Generalization
 
 The Hindley-Milner type system assigns types to a let-expression in two
 stages:
 
-1.  The declaration groups are considered in
-    dependency order. For each group, a type with no universal
-    quantification is inferred for each variable bound in the group.
-    Then, all type variables that occur in these types are universally
-    quantified unless they are associated with bound variables in the
-    type environment; this is called generalization.
-2.  Finally, the body of the let-expression is
-    typed.
+1. The declaration groups are considered in
+   dependency order. For each group, a type with no universal
+   quantification is inferred for each variable bound in the group.
+   Then, all type variables that occur in these types are universally
+   quantified unless they are associated with bound variables in the
+   type environment; this is called generalization.
+1. Finally, the body of the let-expression is
+   typed.
 
 For example, consider the declaration
 
-
-
-
-
-  f x = let g y = (y,y)    
-        in ...
-
-
-
-
+f x = let g y = (y,y)  \
+in ...
 
 The type of g’s definition is
-a 
+a
 →
- (a,a).
+(a,a).
 The generalization step attributes to g the
 polymorphic type
-∀ a.  a 
+∀ a.  a
 →
- (a,a),
+(a,a),
 after which the typing of the “...” part
 can proceed.
 
@@ -7519,28 +5815,20 @@ a single declaration group are collected together, to form the context
 for the type of each variable declared in the group. For example, in the
 definition:
 
-
-
-
-
-  f x = let g1 x y = if x\>y then show x else g2 y x    
-            g2 p q = g1 q p    
-        in ...
-
-
-
-
+f x = let g1 x y = if x>y then show x else g2 y x  \
+g2 p q = g1 q p  \
+in ...
 
 The types of the definitions of g1 and
 g2 are both
-a 
+a
 →
- a 
+a
 →
- String, and
+String, and
 the accumulated constraints are
 Ord a (arising
-from the use of \>), and
+from the use of >), and
 Show a
 (arising from the use of show). The type
 variables appearing in this collection of constraints are called the
@@ -7549,13 +5837,13 @@ constrained type variables.
 The generalization step attributes to both
 g1 and g2 the
 type
-∀ a. (Ord a, Show a) 
+∀ a. (Ord a, Show a)
 ⇒
- a 
+a
 →
- a 
+a
 →
- String Notice
+String Notice
 that g2 is overloaded in the same way as
 g1 even though the occurrences of
 \> and show
@@ -7565,9 +5853,7 @@ If the programmer supplies explicit type signatures for more than one
 variable in a declaration group, the contexts of these signatures must
 be identical up to renaming of the type variables.
 
-#### 4.5.3  Context Reduction Errors
-
-
+#### 4.5.3 Context Reduction Errors
 
 As mentioned in Section [4.1.4](#x10-670004.1.4), the context of a type
 may constrain only a type variable, or the application of a type
@@ -7576,39 +5862,15 @@ must be expressed in a form in which all context constraints have be
 reduced to this “head normal form”. Consider, for example, the
 definition:
 
-
-
-
-
-  f xs y  =  xs == \[y\]
-
-
-
-
+f xs y  =  xs == [y]
 
 Its type is given by
 
-
-
-
-
-  f :: Eq a =\> \[a\] -\> a -\> Bool
-
-
-
-
+f :: Eq a => [a] -> a -> Bool
 
 and not
 
-
-
-
-
-  f :: Eq \[a\] =\> \[a\] -\> a -\> Bool
-
-
-
-
+f :: Eq [a] => [a] -> a -> Bool
 
 Even though the equality is taken at the list type, the context must be
 simplified, using the instance declaration for
@@ -7621,23 +5883,15 @@ where m is one of the type variables being generalized; that is, where
 the class C applies to a type expression
 that is not a type variable or a type constructor. Consider:
 
-
-
-
-
-  f :: (Monad m, Eq (m a)) =\> a -\> m a -\> Bool    
-  f x y = return x == y
-
-
-
-
+f :: (Monad m, Eq (m a)) => a -> m a -> Bool  \
+f x y = return x == y
 
 The type of return is
-Monad m =\> a -\> m a;
+Monad m => a -> m a;
 the type of (==) is
-Eq a =\> a -\> a -\> Bool.
+Eq a => a -> a -> Bool.
 The type of f should be therefore
-(Monad m, Eq (m a)) =\> a -\> m a -\> Bool,
+(Monad m, Eq (m a)) => a -> m a -> Bool,
 and the context cannot be simplified further.
 
 The instance declaration derived from a data type
@@ -7649,112 +5903,72 @@ C a, where
 a is a type variable. For example, in the
 type
 
-
-
-
-
-  data Apply a b = App (a b)  deriving Show
-
-
-
-
+data Apply a b = App (a b)  deriving Show
 
 the derived Show instance will produce a context
 Show (a b),
 which cannot be reduced and is not simple; thus a static error results.
 
-#### 4.5.4  Monomorphism
+#### 4.5.4 Monomorphism
 
 Sometimes it is not possible to generalize over all the type variables
 used in the type of the definition. For example, consider the
 declaration
 
-
-
-
-
-  f x = let g y z = (\[x,y\], z)    
-        in ...
-
-
-
-
+f x = let g y z = ([x,y], z)  \
+in ...
 
 In an environment where x has type
 a, the type of
 g’s definition is
-a 
+a
 →
- b 
+b
 →
- (\[a\],b).
+([a],b).
 The generalization step attributes to g the
 type
-∀ b.  a 
+∀ b.  a
 →
- b 
+b
 →
- (\[a\],b);
+([a],b);
 only b can be universally quantified
 because a occurs in the type environment.
 We say that the type of g is
 monomorphic in the type variable
-a. 
+a.
 
 The effect of such monomorphism is that the first argument of all
 applications of g must be of a single type.
 For example, it would be valid for the
 “...” to be
 
-
-
-
-
-  (g True, g False)
-
-
-
-
+(g True, g False)
 
 (which would, incidentally, force x to have
 type Bool) but invalid for it to be
 
-
-
-
-
-  (g True, g 'c')
-
-
-
-
+(g True, g 'c')
 
 In general, a type
-∀ u. cx 
+∀ u. cx
 ⇒  t is
 said to be monomorphic
 in the type variable
 a if a is free
 in
-∀ u. cx 
+∀ u. cx
 ⇒  t.
 
 It is worth noting that the explicit type signatures provided by Haskell
 are not powerful enough to express types that include monomorphic type
 variables. For example, we cannot write
 
-
-
-
-
-  f x = let    
-          g :: a -\> b -\> (\[a\],b)    
-          g y z = (\[x,y\], z)    
-        in ...
-
-
-
-
+f x = let  \
+g :: a -> b -> ([a],b)  \
+g y z = ([x,y], z)  \
+in ...
 
 because that would claim that g was
 polymorphic in both a and
@@ -7763,22 +5977,12 @@ this program, g can only be given a type
 signature if its first argument is restricted to a type not involving
 type variables; for example
 
-
-
-
-
-  g :: Int -\> b -\> (\[Int\],b)
-
-
-
-
+g :: Int -> b -> ([Int],b)
 
 This signature would also cause x to have
 type Int.
 
-#### 4.5.5  The Monomorphism Restriction
-
-
+#### 4.5.5 The Monomorphism Restriction
 
 Haskell places certain extra restrictions on the generalization step,
 beyond the standard Hindley-Milner restriction described above, which
@@ -7794,26 +5998,20 @@ binding in which the pattern consists of only a single variable
 
 The following two rules define the monomorphism restriction:
 
-
-
-
-
-
-
 The
 monomorphism restriction
 
-Rule 1.  
+Rule 1.\
 We say that a given declaration group is
 unrestricted if and only if:
 
-(a):  
+(a):\
 every variable in the group is bound by a function binding or a simple
 pattern binding
 (Section [4.4.3.2](#x10-860004.4.3.2)),
 and
 
-(b):  
+(b):\
 an explicit type signature is given for every variable in the group that
 is bound by simple pattern binding.
 
@@ -7825,18 +6023,12 @@ group may not be generalized in the generalization step for that
 group. (Recall that a type variable is constrained if it must belong to
 some type class; see Section [4.5.2](#x10-900004.5.2).)
 
-Rule 2.  
+Rule 2.\
 Any monomorphic type variables that remain when type inference for an
 entire module is complete, are considered
 ambiguous,
 and are resolved to particular types using the defaulting rules
 (Section [4.3.4](#x10-790004.3.4)).
-
-
-
-
-
-
 
 Motivation
 Rule 1 is required for two reasons, both of which are fairly subtle.
@@ -7846,27 +6038,11 @@ Rule 1 is required for two reasons, both of which are fairly subtle.
   genericLength is a standard function (in
   library Data.List) whose type is given by
 
-  
-
-  
-
-    genericLength :: Num a =\> \[b\] -\> a
-
-  
-
-  
+  genericLength :: Num a => [b] -> a
 
   Now consider the following expression:
 
-  
-
-  
-
-    let { len = genericLength xs } in (len, len)
-
-  
-
-  
+  let { len = genericLength xs } in (len, len)
 
   It looks as if len should be computed
   only once, but without Rule 1 it might be computed twice, once at each
@@ -7874,51 +6050,27 @@ Rule 1 is required for two reasons, both of which are fairly subtle.
   the computation to be repeated, an explicit type signature may be
   added:
 
-  
-
-  
-
-    let { len :: Num a =\> a; len = genericLength xs } in (len, len)
-
-  
-
-  
+  let { len :: Num a => a; len = genericLength xs } in (len, len)
 
 - Rule 1 prevents
   ambiguity. For example, consider the declaration group
 
-  
-
-  
-
-    \[(n,s)\] = reads t
-
-  
-
-  
+  [(n,s)] = reads t
 
   Recall that reads is a standard function
   whose type is given by the signature
 
-  
-
-  
-
-    reads :: (Read a) =\> String -\> \[(a,String)\]
-
-  
-
-  
+  reads :: (Read a) => String -> [(a,String)]
 
   Without Rule 1, n would be assigned the
   type
-  ∀ a. Read a 
+  ∀ a. Read a
   ⇒  a
   and s the type
   ∀ a.
   Read a
   ⇒
-   String. The
+  String. The
   latter is an invalid type, because it is inherently ambiguous. It is
   not possible to determine at what overloading to use
   s, nor can this be solved by adding a
@@ -7934,15 +6086,7 @@ Rule 1 is required for two reasons, both of which are fairly subtle.
   The same constraint applies to pattern-bound functions. For example,
   in
 
-  
-
-  
-
-    (f,g) = ((+),(-))
-
-  
-
-  
+  (f,g) = ((+),(-))
 
   both f and g
   are monomorphic regardless of any type signatures supplied for
@@ -7954,25 +6098,17 @@ type inference on modules outside the current module. Rule 2 states that
 the exact types of all the variables bound in a module must be
 determined by that module alone, and not by any modules that import it.
 
-
-
-
-
-  module M1(len1) where    
-    default( Int, Double )    
-    len1 = genericLength "Hello"    
-   
-  module M2 where    
-    import M1(len1)    
-    len2 = (2⋆len1) :: Rational
-
-
-
-
+module M1(len1) where  \
+default( Int, Double )  \
+len1 = genericLength "Hello"  \
+\
+module M2 where  \
+import M1(len1)  \
+len2 = (2⋆len1) :: Rational
 
 When type inference on module M1 is
 complete, len1 has the monomorphic type
-Num a =\> a
+Num a => a
 (by Rule 1). Rule 2 now states that the monomorphic type variable
 a is ambiguous, and must be resolved using
 the defaulting rules of Section [4.3.4](#x10-790004.3.4). Hence,
@@ -7990,30 +6126,14 @@ The monomorphism rule has a number of consequences for the programmer.
 Anything defined with function syntax usually generalizes as a function
 is expected to. Thus in
 
-
-
-
-
-  f x y = x+y
-
-
-
-
+f x y = x+y
 
 the function f may be used at any
 overloading in class Num. There is no
 danger of recomputation here. However, the same function defined with
 pattern syntax:
 
-
-
-
-
-  f = \x -\> \y -\> x+y
-
-
-
-
+f = \\x -> \\y -> x+y
 
 requires a type signature if f is to be
 fully overloaded. Many functions are most naturally defined using simple
@@ -8021,41 +6141,23 @@ pattern bindings; the user must be careful to affix these with type
 signatures to retain full overloading. The standard prelude contains
 many examples of this:
 
-
-
-
-
-  sum  :: (Num a) =\> \[a\] -\> a    
-  sum  =  foldl (+) 0  
-
-
-
-
+sum  :: (Num a) => [a] -> a  \
+sum  =  foldl (+) 0
 
 Rule 1 applies to both top-level and nested definitions. Consider
 
-
-
-
-
-  module M where    
-    len1 = genericLength "Hello"    
-    len2 = (2⋆len1) :: Rational
-
-
-
-
+module M where  \
+len1 = genericLength "Hello"  \
+len2 = (2⋆len1) :: Rational
 
 Here, type inference finds that len1 has
 the monomorphic type
-(Num a =\> a);
+(Num a => a);
 and the type variable a is resolved to
 Rational when performing type inference on
 len2.
 
-### 4.6  Kind Inference
-
- 
+### 4.6 Kind Inference
 
 This section describes the rules that are used to perform
 kind inference, i.e. to calculate a
@@ -8072,26 +6174,18 @@ S and a class
 C, all of which would be included in the
 same dependency group:
 
-
-
-
-
-  data C a =\> D a = Foo (S a)    
-  type S a = \[D a\]    
-  class C a where    
-      bar :: a -\> D a -\> Bool
-
-
-
-
+data C a => D a = Foo (S a)  \
+type S a = [D a]  \
+class C a where  \
+bar :: a -> D a -> Bool
 
 The kinds of variables, constructors, and classes within each group are
 determined using standard techniques of type inference and
 kind-preserving unification
-\[8\]. For
+[8]. For
 example, in the definitions above, the parameter
 a appears as an argument of the function
-constructor (-\>) in the type of
+constructor (->) in the type of
 bar and hence must have kind
 ∗. It follows that both
 D and S must
@@ -8106,16 +6200,8 @@ an arbitrary kind κ for the
 a parameter in each of the following
 examples:
 
-
-
-
-
-  data App f a = A (f a)    
-  data Tree a  = Leaf \| Fork (Tree a) (Tree a)
-
-
-
-
+data App f a = A (f a)  \
+data Tree a  = Leaf | Fork (Tree a) (Tree a)
 
 This would give kinds
 (κ
@@ -8142,43 +6228,23 @@ changing it to
 (∗→∗)
 →∗, for instance), and instead
 generates a static error because the kind of
-\[\], ∗→∗,
+[], ∗→∗,
 does not match the kind ∗ that is expected
 for an argument of Tree:
 
-
-
-
-
-  type FunnyTree = Tree \[\]     -- invalid
-
-
-
-
+type FunnyTree = Tree []     -- invalid
 
 This is important because it ensures that each constructor and class are
 used consistently with the same kind whenever they are in scope.
 
+[prev-tail]
 
+______________________________________________________________________
 
-\[prev-tail\]
-
-
-
-
-
----
-
-
-
-\[prev-tail\]
-\[up\]
-
-
+[prev-tail]
+[up]
 
 ## Chapter 5 Modules
-
-
 
 A module defines a collection of values, datatypes, type synonyms,
 classes, etc. (see Chapter 4), in an
@@ -8217,41 +6283,25 @@ module
 bodies<sup>1</sup>
 . For example, here is a three-module program:
 
-
-
-
-
-  module Main where    
-    import A    
-    import B    
-    main = A.f \>\> B.f    
-   
-  module A where    
-    f = ...    
-   
-  module B where    
-    f = ...
-
-
-
-
+module Main where  \
+import A  \
+import B  \
+main = A.f >> B.f  \
+\
+module A where  \
+f = ...  \
+\
+module B where  \
+f = ...
 
 It is equivalent to the following single-module program:
 
-
-
-
-
-  module Main where    
-    main = af \>\> bf    
-   
-    af = ...    
-   
-    bf = ...
-
-
-
-
+module Main where  \
+main = af >> bf  \
+\
+af = ...  \
+\
+bf = ...
 
 Because they are allowed to be mutually recursive, modules allow a
 program to be partitioned freely without regard to dependencies.
@@ -8264,19 +6314,9 @@ Main and
 Foreign.Marshal.Alloc are all valid module
 names.
 
-
-
-
-
-|  |  |  |  |
+| | | | |
 |:---|:--:|:---|:---|
-| modid  | → | {conid .} conid |     (modules)  |
-
-
-
-
-
-
+| modid | → | {conid .} conid |     (modules) |
 
 Module names can be thought of as being arranged in a hierarchy in which
 appending a new component creates a child of the original module name.
@@ -8292,34 +6332,23 @@ Section [5.6](#x11-1110005.6)), plus a set of standard library modules
 that may be imported as required (see
 Part II).
 
-### 5.1  Module Structure
+### 5.1 Module Structure
 
 A module defines a mutually recursive scope containing declarations for
 value bindings, data types, type synonyms, classes, etc. (see
 Chapter 4).
 
-
-
-
-
-|  |  |  |  |
+| | | | |
 |:---|:--:|:---|----|
-| module  | → | module modid \[exports\] where body  |  |
-|  | \| | body  |  |
-| body  | → | { impdecls ; topdecls } |  |
-|  | \| | { impdecls } |  |
-|  | \| | { topdecls } |  |
-|    |  |  |  |
-|  |  |  |  |
-| impdecls  | → | impdecl<sub>1</sub> ; … ; impdecl<sub>n</sub> |     (n ≥ 1)  |
-| topdecls  | → | topdecl<sub>1</sub> ; … ; topdecl<sub>n</sub> |     (n ≥ 1)  |
-
-
-
-
-
- 
- 
+| module | → | module modid [exports] where body | |
+| | | | body | |
+| body | → | { impdecls ; topdecls } | |
+| | | | { impdecls } | |
+| | | | { topdecls } | |
+|   | | | |
+| | | | |
+| impdecls | → | impdecl<sub>1</sub> ; … ; impdecl<sub>n</sub> |     (n ≥ 1) |
+| topdecls | → | topdecl<sub>1</sub> ; … ; topdecl<sub>n</sub> |     (n ≥ 1) |
 
 A module begins with a header: the keyword
 module, the module name, and a list of
@@ -8340,32 +6369,20 @@ If the first lexeme in the abbreviated module is not a
 {, then the layout rule applies for the top
 level of the module.
 
-### 5.2  Export Lists
+### 5.2 Export Lists
 
-
-
-
-
-
-
-|  |  |  |  |
+| | | | |
 |:---|:--:|:---|:---|
-| exports  | → | ( export<sub>1</sub> , … , export<sub>n</sub> \[ , \] ) |     (n ≥ 0)  |
-|    |  |  |  |
-|  |  |  |  |
-| export  | → | qvar  |  |
-|  | \| | qtycon \[(..) \| ( cname<sub>1</sub> , … , cname<sub>n</sub> )\]  |     (n ≥ 0)  |
-|  | \| | qtycls \[(..) \| ( var<sub>1</sub> , … , var<sub>n</sub> )\]  |     (n ≥ 0)  |
-|  | \| | module modid  |  |
-|    |  |  |  |
-|  |  |  |  |
-| cname  | → | var \| con  |  |
-
-
-
-
-
- 
+| exports | → | ( export<sub>1</sub> , … , export<sub>n</sub> [ , ] ) |     (n ≥ 0) |
+|   | | | |
+| | | | |
+| export | → | qvar | |
+| | | | qtycon \[(..) | ( cname<sub>1</sub> , … , cname<sub>n</sub> )\] |     (n ≥ 0) |
+| | | | qtycls \[(..) | ( var<sub>1</sub> , … , var<sub>n</sub> )\] |     (n ≥ 0) |
+| | | | module modid | |
+|   | | | |
+| | | | |
+| cname | → | var | con | |
 
 An export list identifies the entities to
 be exported by a module declaration. A module implementation may only
@@ -8376,146 +6393,123 @@ that are imported.
 
 Entities in an export list may be named as follows:
 
-1.  A value, field name, or class method,
-    whether declared in the module body or imported, may be named by
-    giving the name of the value as a
-    qvarid, which must be in scope.
-    Operators should be enclosed in parentheses to turn them into
-    qvarids.
+1. A value, field name, or class method,
+   whether declared in the module body or imported, may be named by
+   giving the name of the value as a
+   qvarid, which must be in scope.
+   Operators should be enclosed in parentheses to turn them into
+   qvarids.
 
-2.  An algebraic datatype
-    T
-    declared by a
-    data or
-    newtype declaration may be named in one
-    of three ways:
+1. An algebraic datatype
+   T
+   declared by a
+   data or
+   newtype declaration may be named in one
+   of three ways:
 
-    - The form T names the type
-      but not the constructors or field
-      names. The ability to export a type without its
-      constructors allows the construction of abstract datatypes (see
-      Section [5.8](#x11-1150005.8)).
-    - The form
-      T(c<sub>1</sub>,…,c<sub>n</sub>),
-      names the type and some or all of its constructors and field
-      names.
-    - The abbreviated form
-      T(..)
-      names the type and all its constructors and field names that are
-      currently in scope (whether qualified or not).
+   - The form T names the type
+     but not the constructors or field
+     names. The ability to export a type without its
+     constructors allows the construction of abstract datatypes (see
+     Section [5.8](#x11-1150005.8)).
+   - The form
+     T(c<sub>1</sub>,…,c<sub>n</sub>),
+     names the type and some or all of its constructors and field
+     names.
+   - The abbreviated form
+     T(..)
+     names the type and all its constructors and field names that are
+     currently in scope (whether qualified or not).
 
-    In all cases, the (possibly-qualified) type constructor
-    T must be in scope. The constructor and
-    field names
-    c<sub>i</sub>
-    in the second form are unqualified; one of these subordinate names
-    is legal if and only if (a) it names a constructor or field of
-    T , and (b) the constructor or field is
-    in scope in the module body regardless
-    of whether it is in scope under a
-    qualified or unqualified name. For example, the following is
-    legal
+   In all cases, the (possibly-qualified) type constructor
+   T must be in scope. The constructor and
+   field names
+   c<sub>i</sub>
+   in the second form are unqualified; one of these subordinate names
+   is legal if and only if (a) it names a constructor or field of
+   T , and (b) the constructor or field is
+   in scope in the module body regardless
+   of whether it is in scope under a
+   qualified or unqualified name. For example, the following is
+   legal
 
-    
+   module A( Mb.Maybe( Nothing, Just ) ) where  \
+   import qualified Data.Maybe as Mb
 
-    
+   Data constructors cannot be named in export lists except as
+   subordinate names, because they cannot otherwise be distinguished
+   from type constructors.
 
-      module A( Mb.Maybe( Nothing, Just ) ) where    
-        import qualified Data.Maybe as Mb
+1. A type synonym
+   T declared by a
+   type declaration may be named by the
+   form T , where
+   T is in scope.
 
-    
+1. A class
+   C with operations
+   f<sub>1</sub>,…,f<sub>n</sub>
+   declared in a class declaration may be
+   named in one of three ways:
 
-    
+```
+- The form C names the class
+  but not the class methods.
+- The form
+  C(f<sub>1</sub>,…,f<sub>n</sub>),
+  names the class and some or all of its methods.
+- The abbreviated form
+  C(..)
+  names the class and all its methods that are in scope (whether
+  qualified or not).
 
-    Data constructors cannot be named in export lists except as
-    subordinate names, because they cannot otherwise be distinguished
-    from type constructors.
+In all cases, C must be in scope. In
+the second form, one of the (unqualified) subordinate names
+f<sub>i</sub>
+is legal if and only if (a) it names a class method of
+C, and (b) the class method is in scope
+in the module body regardless of whether it is in scope under a
+qualified or unqualified name.
+```
 
-3.  A type synonym
-    T declared by a
-    type declaration may be named by the
-    form T , where
-    T is in scope.
-    
+5. The form
+   “module M”
+   names the set of all entities that are in scope with both an
+   unqualified name “e” and a qualified
+   name “M.e”. This set may be empty. For
+   example:
 
-4.   A class
-    C with operations
-    f<sub>1</sub>,…,f<sub>n</sub>
-    declared in a class declaration may be
-    named in one of three ways:
+   module Queue( module Stack, enqueue, dequeue ) where  \
+   import Stack  \
+   ...
 
-    - The form C names the class
-      but not the class methods.
-    - The form
-      C(f<sub>1</sub>,…,f<sub>n</sub>),
-      names the class and some or all of its methods.
-    - The abbreviated form
-      C(..)
-      names the class and all its methods that are in scope (whether
-      qualified or not).
+   Here the module Queue uses the module
+   name Stack in its export list to
+   abbreviate all the entities imported from
+   Stack.
 
-    In all cases, C must be in scope. In
-    the second form, one of the (unqualified) subordinate names
-    f<sub>i</sub>
-    is legal if and only if (a) it names a class method of
-    C, and (b) the class method is in scope
-    in the module body regardless of whether it is in scope under a
-    qualified or unqualified name.
+   A module can name its own local definitions in its export list using
+   its own name in the
+   “module M”
+   syntax, because a local declaration brings into scope both a
+   qualified and unqualified name (Section [5.5.1](#x11-1080005.5.1)).
+   For example:
 
-5.  The form
-    “module M”
-    names the set of all entities that are in scope with both an
-    unqualified name “e” and a qualified
-    name “M.e”. This set may be empty. For
-    example:
+   module Mod1( module Mod1, module Mod2 ) where  \
+   import Mod2  \
+   import Mod3
 
-    
+   Here module Mod1 exports all local
+   definitions as well as those imported from
+   Mod2 but not those imported from
+   Mod3.
 
-    
-
-      module Queue( module Stack, enqueue, dequeue ) where    
-          import Stack    
-          ...
-
-    
-
-    
-
-    Here the module Queue uses the module
-    name Stack in its export list to
-    abbreviate all the entities imported from
-    Stack.
-
-    A module can name its own local definitions in its export list using
-    its own name in the
-    “module M”
-    syntax, because a local declaration brings into scope both a
-    qualified and unqualified name (Section [5.5.1](#x11-1080005.5.1)).
-    For example:
-
-    
-
-    
-
-      module Mod1( module Mod1, module Mod2 ) where    
-      import Mod2    
-      import Mod3
-
-    
-
-    
-
-    Here module Mod1 exports all local
-    definitions as well as those imported from
-    Mod2 but not those imported from
-    Mod3.
-
-    It is an error to use
-    module M
-    in an export list unless M is the
-    module bearing the export list, or M is
-    imported by at least one import declaration (qualified or
-    unqualified).
+   It is an error to use
+   module M
+   in an export list unless M is the
+   module bearing the export list, or M is
+   imported by at least one import declaration (qualified or
+   unqualified).
 
 Exports lists are cumulative: the set of entities exported by an export
 list is the union of the entities exported by the individual items of
@@ -8536,18 +6530,10 @@ The unqualified names of the entities
 exported by a module must all be distinct (within their respective
 namespace). For example
 
-
-
-
-
-  module A ( C.f, C.g, g, module B ) where   -- an invalid module    
-  import B(f)    
-  import qualified C(f,g)    
-  g = f True
-
-
-
-
+module A ( C.f, C.g, g, module B ) where   -- an invalid module  \
+import B(f)  \
+import qualified C(f,g)  \
+g = f True
 
 There are no name clashes within module A
 itself, but there are name clashes in the export list between
@@ -8560,33 +6546,20 @@ C.f (assuming
 B.f and C.f
 are different entities).
 
-### 5.3  Import Declarations
+### 5.3 Import Declarations
 
-
-
-
-
-
-
-|  |  |  |  |
+| | | | |
 |:---|:--:|:---|----|
-| impdecl  | → | import \[qualified\] modid \[as modid\] \[impspec\]  |  |
-|  | \| |  |     (empty declaration)  |
-| impspec  | → | ( import<sub>1</sub> , … , import<sub>n</sub> \[ , \] ) |     (n ≥ 0)  |
-|  | \| | hiding ( import<sub>1</sub> , … , import<sub>n</sub> \[ , \] ) |     (n ≥ 0)  |
-|    |  |  |  |
-|  |  |  |  |
-| import  | → | var  |  |
-|  | \| | tycon \[ (..) \| ( cname<sub>1</sub> , … , cname<sub>n</sub> )\]  |     (n ≥ 0)  |
-|  | \| | tycls \[(..) \| ( var<sub>1</sub> , … , var<sub>n</sub> )\]  |     (n ≥ 0)  |
-| cname  | → | var \| con  |  |
-
-
-
-
-
- 
- 
+| impdecl | → | import [qualified] modid [as modid] [impspec] | |
+| | | | |     (empty declaration) |
+| impspec | → | ( import<sub>1</sub> , … , import<sub>n</sub> [ , ] ) |     (n ≥ 0) |
+| | | | hiding ( import<sub>1</sub> , … , import<sub>n</sub> [ , ] ) |     (n ≥ 0) |
+|   | | | |
+| | | | |
+| import | → | var | |
+| | | | tycon \[ (..) | ( cname<sub>1</sub> , … , cname<sub>n</sub> )\] |     (n ≥ 0) |
+| | | | tycls \[(..) | ( var<sub>1</sub> , … , var<sub>n</sub> )\] |     (n ≥ 0) |
+| cname | → | var | con | |
 
 The entities exported by a module may be brought into scope in another
 module with an import declaration at the
@@ -8610,57 +6583,47 @@ reservedid. They have special significance
 only in the context of an import
 declaration; they may also be used as variables.
 
-#### 5.3.1  What is imported
+#### 5.3.1 What is imported
 
 Exactly which entities are to be imported can be specified in one of the
 following three ways:
 
-1.  The imported entities can be specified
-    explicitly by listing them in parentheses. Items in the list have
-    the same form as those in export lists, except qualifiers are not
-    permitted and the ‘module
-    modid’ entity is not permitted. When
-    the (..) form of import is used for a
-    type or class, the (..) refers to all
-    of the constructors, methods, or field names exported from the
-    module.
+1. The imported entities can be specified
+   explicitly by listing them in parentheses. Items in the list have
+   the same form as those in export lists, except qualifiers are not
+   permitted and the ‘module
+   modid’ entity is not permitted. When
+   the (..) form of import is used for a
+   type or class, the (..) refers to all
+   of the constructors, methods, or field names exported from the
+   module.
 
-    The list must name only entities exported by the imported module.
-    The list may be empty, in which case nothing except the instances is
-    imported.
+   The list must name only entities exported by the imported module.
+   The list may be empty, in which case nothing except the instances is
+   imported.
 
-2.  Entities can be excluded by using the form
-    hiding(import<sub>1</sub> , … , import<sub>n</sub>
-    ), which
-    specifies that all entities exported by the named module should be
-    imported except for those named in the list. Data constructors may
-    be named directly in hiding lists without being prefixed by the
-    associated type. Thus, in
+1. Entities can be excluded by using the form
+   hiding(import<sub>1</sub> , … , import<sub>n</sub>
+   ), which
+   specifies that all entities exported by the named module should be
+   imported except for those named in the list. Data constructors may
+   be named directly in hiding lists without being prefixed by the
+   associated type. Thus, in
 
-    
+   import M hiding (C)
 
-    
+   any constructor, class, or type named C
+   is excluded. In contrast, using C in an
+   import list names only a class or type.
 
-      import M hiding (C)
+   It is an error to hide an entity that is not, in fact, exported by
+   the imported module.
 
-    
+1. Finally, if
+   impspec is omitted then all the
+   entities exported by the specified module are imported.
 
-    
-
-    any constructor, class, or type named C
-    is excluded. In contrast, using C in an
-    import list names only a class or type.
-
-    It is an error to hide an entity that is not, in fact, exported by
-    the imported module.
-
-3.  Finally, if
-    impspec is omitted then all the
-    entities exported by the specified module are imported.
-
-#### 5.3.2  Qualified import
-
-
+#### 5.3.2 Qualified import
 
 For each entity imported under the rules of
 Section [5.3.1](#x11-1020005.3.1), the top-level environment is
@@ -8685,39 +6648,23 @@ The ability to exclude the unqualified names allows full programmer
 control of the unqualified namespace: a locally defined entity can share
 the same name as a qualified import:
 
+module Ring where  \
+import qualified Prelude    -- All Prelude names must be qualified  \
+import Data.List( nub )  \
+\
+l1 + l2 = l1 Prelude.++ l2  -- This + differs from the one in the Prelude
+\
+l1 ⋆ l2 = nub (l1 + l2)     -- This ⋆ differs from the one in the Prelude
+\
+\
+succ = (Prelude.+ 1)
 
-
-
-
-  module Ring where    
-  import qualified Prelude    -- All Prelude names must be qualified    
-  import Data.List( nub )    
-   
-  l1 + l2 = l1 Prelude.++ l2  -- This + differs from the one in the Prelude
-   
-  l1 ⋆ l2 = nub (l1 + l2)     -- This ⋆ differs from the one in the Prelude
-   
-   
-  succ = (Prelude.+ 1)
-
-
-
-
-
-#### 5.3.3  Local aliases
+#### 5.3.3 Local aliases
 
 Imported modules may be assigned a local alias in the importing module
 using the as clause. For example, in
 
-
-
-
-
-  import qualified VeryLongModuleName as C
-
-
-
-
+import qualified VeryLongModuleName as C
 
 entities must be referenced using ‘C.’ as a
 qualifier instead of ‘VeryLongModuleName.’.
@@ -8727,18 +6674,10 @@ qualifiers used for the imported module. It is legal for more than one
 module in scope to use the same qualifier, provided that all names can
 still be resolved unambiguously. For example:
 
-
-
-
-
-  module M where    
-    import qualified Foo as A    
-    import qualified Baz as A    
-    x = A.f
-
-
-
-
+module M where  \
+import qualified Foo as A  \
+import qualified Baz as A  \
+x = A.f
 
 This module is legal provided only that Foo
 and Baz do not both export
@@ -8748,29 +6687,17 @@ An as clause may also be used on an
 un-qualifiedimport
 statement:
 
-
-
-
-
-  import Foo as A(f)
-
-
-
-
+import Foo as A(f)
 
 This declaration brings into scope f and
 A.f.
 
-#### 5.3.4  Examples
+#### 5.3.4 Examples
 
 To clarify the above import rules, suppose the module
 A exports x
 and y. Then this table shows what names are
 brought into scope by the specified import statement:
-
-
-
-
 
 <table id="TBL-86" class="tabular" data-cellspacing="0"
 data-cellpadding="0" data-rules="groups">
@@ -8880,17 +6807,11 @@ style="text-align: left; white-space: nowrap;"></td>
 </tbody>
 </table>
 
-
-
-
-
 In all cases, all instance declarations in scope in module
 A are imported
 (Section [5.4](#x11-1060005.4)).
 
-### 5.4  Importing and Exporting Instance Declarations
-
-
+### 5.4 Importing and Exporting Instance Declarations
 
 Instance declarations cannot be explicitly named on import or export
 lists. All instances in scope within a module are
@@ -8907,25 +6828,15 @@ M, but does bring in any instances visible
 in M. A module whose only purpose is to
 provide instance declarations can have an empty export list. For example
 
+module MyInstances() where  \
+instance Show (a -> b) where  \
+show fn = "\<<function>>"  \
+instance Show (IO a) where  \
+show io = "\<<IO action>>"
 
+### 5.5 Name Clashes and Closure
 
-
-
-  module MyInstances() where    
-    instance Show (a -\> b) where    
-      show fn = "\<\<function\>\>"    
-    instance Show (IO a) where    
-      show io = "\<\<IO action\>\>"
-
-
-
-
-
-### 5.5  Name Clashes and Closure
-
-#### 5.5.1  Qualified names
-
-
+#### 5.5.1 Qualified names
 
 A qualified name is written as
 modid.name
@@ -8937,33 +6848,17 @@ brought into scope:
   and the qualified name of the entity
   being defined. Thus:
 
-  
-
-  
-
-    module M where    
-      f x = ...    
-      g x = M.f x x
-
-  
-
-  
+  module M where  \
+  f x = ...  \
+  g x = M.f x x
 
   is legal. The defining occurrence must
   mention the unqualified name; therefore,
   it is illegal to write
 
-  
-
-  
-
-    module M where    
-      M.f x = ...                 -- ILLEGAL    
-      g x = let M.y = x+1 in ...  -- ILLEGAL
-
-  
-
-  
+  module M where  \
+  M.f x = ...                 -- ILLEGAL  \
+  g x = let M.y = x+1 in ...  -- ILLEGAL
 
 - By an
   import
@@ -8975,7 +6870,7 @@ brought into scope:
   replaced with an unqualified one without forcing changes in the
   references to the imported names.
 
-#### 5.5.2  Name clashes
+#### 5.5.2 Name clashes
 
 If a module contains a bound occurrence of a name, such as
 f or A.f, it
@@ -8988,33 +6883,25 @@ It is not an error for there to exist
 names that cannot be so resolved, provided that the program does not
 mention those names. For example:
 
-
-
-
-
-  module A where    
-    import B    
-    import C    
-    tup = (b, c, d, x)    
-   
-  module B( d, b, x, y ) where    
-    import D    
-    x = ...    
-    y = ...    
-    b = ...    
-   
-  module C( d, c, x, y ) where    
-    import D    
-    x = ...    
-    y = ...    
-    c = ...    
-   
-  module D( d ) where    
-    d = ...
-
-
-
-
+module A where  \
+import B  \
+import C  \
+tup = (b, c, d, x)  \
+\
+module B( d, b, x, y ) where  \
+import D  \
+x = ...  \
+y = ...  \
+b = ...  \
+\
+module C( d, c, x, y ) where  \
+import D  \
+x = ...  \
+y = ...  \
+c = ...  \
+\
+module D( d ) where  \
+d = ...
 
 Consider the definition of tup.
 
@@ -9051,20 +6938,12 @@ can occur at top level —
 Section 4.4.2). For example, the
 following module is legal:
 
-
-
-
-
-  module F where    
-   
-    sin :: Float -\> Float    
-    sin x = (x::Float)    
-   
-    f x = Prelude.sin (F.sin x)
-
-
-
-
+module F where  \
+\
+sin :: Float -> Float  \
+sin x = (x::Float)  \
+\
+f x = Prelude.sin (F.sin x)
 
 The local declaration for sin is legal,
 even though the Prelude function sin is
@@ -9077,9 +6956,7 @@ signature in the first line of F
 unambiguously refers to the local declaration for
 sin.
 
-#### 5.5.3  Closure
-
-
+#### 5.5.3 Closure
 
 Every module in a Haskell program must be
 closed. That is, every name explicitly
@@ -9099,21 +6976,13 @@ explicitly exported: the following program is valid even though
 T does not escape
 M1:
 
-
-
-
-
-  module M1(x) where    
-    data T = T    
-    x = T    
-   
-  module M2 where    
-    import M1(x)    
-    y = x
-
-
-
-
+module M1(x) where  \
+data T = T  \
+x = T  \
+\
+module M2 where  \
+import M1(x)  \
+y = x
 
 In this example, there is no way to supply an explicit type signature
 for y since T
@@ -9125,18 +6994,10 @@ program.
 The type of an exported entity is unaffected by non-exported type
 synonyms. For example, in
 
-
-
-
-
-  module M(x) where    
-    type T = Int    
-    x :: T    
-    x = 1
-
-
-
-
+module M(x) where  \
+type T = Int  \
+x :: T  \
+x = 1
 
 the type of x is both
 T and Int;
@@ -9148,9 +7009,7 @@ T is to allow other modules to refer it by
 name; the type checker finds the definition of
 T if needed whether or not it is exported.
 
-### 5.6  Standard Prelude
-
- 
+### 5.6 Standard Prelude
 
 Many of the features of Haskell are defined in Haskell itself as a
 library of standard datatypes, classes, and functions, called the
@@ -9171,9 +7030,7 @@ language definition. This means, for example, that a compiler may
 optimize calls to functions in the Prelude without consulting the source
 code of the Prelude.
 
-#### 5.6.1  The Prelude Module
-
- 
+#### 5.6.1 The Prelude Module
 
 The Prelude module is imported
 automatically into all modules as if by the statement
@@ -9206,26 +7063,18 @@ of the Prelude module; they should be
 considered part of its implementation, not part of the language
 definition.
 
-#### 5.6.2  Shadowing Prelude Names
+#### 5.6.2 Shadowing Prelude Names
 
 The rules about the Prelude have been cast so that it is possible to use
 Prelude names for nonstandard purposes; however, every module that does
 so must have an import declaration that
 makes this nonstandard usage explicit. For example:
 
-
-
-
-
-  module A( null, nonNull ) where    
-    import Prelude hiding( null )    
-    null, nonNull :: Int -\> Bool    
-    null    x = x == 0    
-    nonNull x = not (null x)
-
-
-
-
+module A( null, nonNull ) where  \
+import Prelude hiding( null )  \
+null, nonNull :: Int -> Bool  \
+null    x = x == 0  \
+nonNull x = not (null x)
 
 Module A redefines
 null, and contains an unqualified reference
@@ -9247,20 +7096,12 @@ objects in the Prelude are referenced by special syntactic constructs.
 Redefining names used by the Prelude does not affect the meaning of
 these special constructs. For example, in
 
-
-
-
-
-  module B where    
-    import Prelude()    
-    import MyPrelude    
-    f x = (x,x)    
-    g x = (,) x x    
-    h x = \[x\] ++ \[\]
-
-
-
-
+module B where  \
+import Prelude()  \
+import MyPrelude  \
+f x = (x,x)  \
+g x = (,) x x  \
+h x = [x] ++ []
 
 the explicit
 import Prelude()
@@ -9270,11 +7111,11 @@ import MyPrelude
 brings the non-standard prelude into scope. The special syntax for
 tuples (such as (x,x) and
 (,)) and lists (such as
-\[x\] and
-\[\]) continues to refer to the tuples and
+[x] and
+[]) continues to refer to the tuples and
 lists defined by the standard Prelude;
 there is no way to redefine the meaning of
-\[x\], for example, in terms of a different
+[x], for example, in terms of a different
 implementation of lists. On the other hand, the use of
 ++ is not special syntax, so it refers to
 ++ imported from
@@ -9286,9 +7127,7 @@ Prelude. For example, one cannot define a
 new instance for
 Show Char.
 
-### 5.7  Separate Compilation
-
-
+### 5.7 Separate Compilation
 
 Depending on the Haskell implementation used, separate compilation of
 mutually recursive modules may require that imported modules contain
@@ -9297,27 +7136,17 @@ compiled. Explicit type signatures for all exported values may be
 necessary to deal with mutual recursion. The precise details of separate
 compilation are not defined by this report.
 
-### 5.8  Abstract Datatypes
-
-
+### 5.8 Abstract Datatypes
 
 The ability to export a datatype without its constructors allows the
 construction of abstract datatypes (ADTs). For example, an ADT for
 stacks could be defined as:
 
-
-
-
-
-  module Stack( StkType, push, pop, empty ) where    
-    data StkType a = EmptyStk \| Stk a (StkType a)    
-    push x s = Stk x s    
-    pop (Stk \_ s) = s    
-    empty = EmptyStk
-
-
-
-
+module Stack( StkType, push, pop, empty ) where  \
+data StkType a = EmptyStk | Stk a (StkType a)  \
+push x s = Stk x s  \
+pop (Stk _ s) = s  \
+empty = EmptyStk
 
 Modules importing Stack cannot construct
 values of type StkType because they do not
@@ -9329,36 +7158,18 @@ It is also possible to build an ADT on top of an existing type by using
 a newtype declaration. For example, stacks
 can be defined with lists:
 
+module Stack( StkType, push, pop, empty ) where  \
+newtype StkType a = Stk [a]  \
+push x (Stk s) = Stk (x:s)  \
+pop (Stk (\_:s)) = Stk s  \
+empty = Stk []
 
+[prev-tail]
 
+______________________________________________________________________
 
-
-  module Stack( StkType, push, pop, empty ) where    
-    newtype StkType a = Stk \[a\]    
-    push x (Stk s) = Stk (x:s)    
-    pop (Stk (\_:s)) = Stk s    
-    empty = Stk \[\]
-
-
-
-
-
-
-
-\[prev-tail\]
-
-
-
-
-
----
-
-
-
-\[prev-tail\]
-\[up\]
-
-
+[prev-tail]
+[up]
 
 ## Chapter 6 Predefined Types and Classes
 
@@ -9371,7 +7182,7 @@ Chapter 9. Other predefined types such as
 arrays, complex numbers, and rationals are defined in
 Part II.
 
-### 6.1  Standard Haskell Types
+### 6.1 Standard Haskell Types
 
 These types are defined by the Haskell Prelude. Numeric types are
 described in Section [6.4](#x13-1350006.4). When appropriate, the
@@ -9379,40 +7190,25 @@ Haskell definition of the type is given. Some definitions may not be
 completely valid on syntactic grounds but they faithfully convey the
 meaning of the underlying type.
 
-#### 6.1.1  Booleans
+#### 6.1.1 Booleans
 
-
-
-
-
-
-
-data  Bool  =  False \| True deriving    
-                             (Read, Show, Eq, Ord, Enum, Bounded)
-
-
-
-
+data  Bool  =  False | True deriving  \
+(Read, Show, Eq, Ord, Enum, Bounded)
 
 The boolean type Bool is an enumeration.
 The basic boolean functions are && (and),
-\|\| (or), and
+|| (or), and
 not. The name
 otherwise is defined as
 True to make guarded expressions more
-readable.  
- 
- 
+readable.
 
-
-#### 6.1.2  Characters and Strings
-
- 
+#### 6.1.2 Characters and Strings
 
 The character type
 Char is an
 enumeration whose values represent Unicode
-characters \[2\].
+characters [2].
 The lexical syntax for characters is defined in
 Section 2.6; character literals are
 nullary constructors in the datatype Char.
@@ -9430,53 +7226,33 @@ Note that ASCII control characters each have several representations in
 character literals: numeric escapes, ASCII mnemonic escapes, and the
 \\X notation.
 In addition, there are the following equivalences:
-\a and \BEL,
-\b and \BS,
-\f and \FF,
-\r and \CR,
-\t and \HT,
-\v and \VT,
-and \n and
-\LF.
+\\a and \\BEL,
+\\b and \\BS,
+\\f and \\FF,
+\\r and \\CR,
+\\t and \\HT,
+\\v and \\VT,
+and \\n and
+\\LF.
 
 A string is a list of characters:
 
-
-
-
-
-type  String  =  \[Char\]
-
-
-
-
-
-
+type  String  =  [Char]
 
 Strings may be abbreviated using the lexical syntax described in
 Section 2.6. For example,
 "A string"
 abbreviates
-\[ 'A',' ','s','t','r', 'i','n','g'\]
+[ 'A',' ','s','t','r', 'i','n','g']
 
-#### 6.1.3  Lists
+#### 6.1.3 Lists
 
-
-
-
-
-
-
-data  \[a\]  =  \[\] \| a : \[a\]  deriving (Eq, Ord)
-
-
-
-
+data  [a]  =  [] | a : [a]  deriving (Eq, Ord)
 
 Lists are an algebraic datatype of two constructors, although with
 special syntax, as described in
 Section 3.7. The first constructor is the
-null list, written ‘\[\]’ (“nil”),
+null list, written ‘[]’ (“nil”),
 and the second is
 ‘:’ (“cons”).
 The module
@@ -9493,9 +7269,7 @@ Ord, Monad,
 Functor, and
 MonadPlus.
 
-#### 6.1.4  Tuples
-
-
+#### 6.1.4 Tuples
 
 Tuples are algebraic datatypes with special syntax, as defined in
 Section 3.8. Each tuple type has a single
@@ -9523,49 +7297,31 @@ thus, (Int,Bool,Int) and
 (,,) Int Bool Int
 denote the same type.
 
-
 The following functions are defined for pairs (2-tuples):
 fst, snd,
 curry, and
 uncurry. Similar functions are not
 predefined for larger tuples.
 
-
-
-
-#### 6.1.5  The Unit Datatype
-
-
-
-
+#### 6.1.5 The Unit Datatype
 
 data  () = () deriving (Eq, Ord, Bounded, Enum, Read, Show)
-
-
-
-
 
 The unit datatype () has one
 non-⊥ member, the nullary constructor
 (). See also
 Section 3.9.
 
-
-#### 6.1.6  Function Types
-
-
+#### 6.1.6 Function Types
 
 Functions are an abstract type: no constructors directly create
 functional values. The following simple functions are found in the
 Prelude: id,
 const, (.),
-flip, (\$),
+flip, ($),
 and until.
 
-
-
-
-#### 6.1.7  The IO and IOError Types
+#### 6.1.7 The IO and IOError Types
 
 The IO type serves as a tag for operations
 (actions) that interact with the outside world. The
@@ -9584,25 +7340,14 @@ a few I/O functions (defined in
 Section 9.3), and
 Part II contains many more.
 
+#### 6.1.8 Other Types
 
-#### 6.1.8  Other Types
-
-
-
-
-
-data  Maybe a     =  Nothing \| Just a  deriving (Eq, Ord, Read, Show)
-   
-data  Either a b  =  Left a \| Right b  deriving (Eq, Ord, Read, Show)
-   
-data  Ordering    =  LT \| EQ \| GT deriving    
-                                  (Eq, Ord, Bounded, Enum, Read, Show)
-
-
-
-
-
-
+data  Maybe a     =  Nothing | Just a  deriving (Eq, Ord, Read, Show)
+\
+data  Either a b  =  Left a | Right b  deriving (Eq, Ord, Read, Show)
+\
+data  Ordering    =  LT | EQ | GT deriving  \
+(Eq, Ord, Bounded, Enum, Read, Show)
 
 The Maybe type is an instance of classes
 Functor,
@@ -9614,30 +7359,17 @@ Ord. The functions
 maybe and
 either are found in the Prelude.
 
-### 6.2  Strict Evaluation
-
- 
-
+### 6.2 Strict Evaluation
 
 Function application in Haskell is non-strict; that is, a function
 argument is evaluated only when required. Sometimes it is desirable to
 force the evaluation of a value, using the
 seq function:
 
-
-
-
-
-  seq :: a -\> b -\> b
-
-
-
-
+seq :: a -> b -> b
 
 The function seq is defined by the
 equations:
-
-
 
 <table id="TBL-87" class="array" data-cellpadding="0"
 data-cellspacing="0">
@@ -9659,90 +7391,61 @@ seq a b  =  b, if a ≠ ⊥
 </tbody>
 </table>
 
-
-
-  
 seq is usually introduced to improve
 performance by avoiding unneeded laziness. Strict datatypes (see
 Section 4.2.1)
-are defined in terms of the \$! operator.
+are defined in terms of the $! operator.
 However, the provision of seq has important
 semantic consequences, because it is available at
 every type. As a consequence, ⊥ is
 not the same as
-\x -\> ⊥,
+\\x -> ⊥,
 since seq can be used to distinguish them.
 For the same reason, the existence of seq
 weakens Haskell’s parametricity properties.
 
-The operator \$! is strict (call-by-value)
+The operator $! is strict (call-by-value)
 application, and is defined in terms of
 seq. The Prelude also defines the
-\$ operator to perform non-strict
+$ operator to perform non-strict
 application.
 
+infixr 0 $, $!  \
+($), ($!) :: (a -> b) -> a -> b  \
+f $  x   =          f x  \
+f $! x   =  x ‘seq‘ f x
 
-
-
-
-  infixr 0 \$, \$!    
-  (\$), (\$!) :: (a -\> b) -\> a -\> b    
-  f \$  x   =          f x    
-  f \$! x   =  x ‘seq‘ f x
-
-
-
-
-
-The non-strict application operator \$ may
+The non-strict application operator $ may
 appear redundant, since ordinary application
 (f x) means
 the same as
-(f \$ x).
-However, \$ has low, right-associative
+(f $ x).
+However, $ has low, right-associative
 binding precedence, so it sometimes allows parentheses to be omitted;
 for example:
 
-
-
-
-
-  f \$ g \$ h x  =  f (g (h x))
-
-
-
-
+f $ g $ h x  =  f (g (h x))
 
 It is also useful in higher-order situations, such as
-map (\$ 0) xs,
+map ($ 0) xs,
 or
-zipWith (\$) fs xs.
+zipWith ($) fs xs.
 
-### 6.3  Standard Haskell Classes
+### 6.3 Standard Haskell Classes
 
 Figure [6.1](#x13-1270011) shows the hierarchy of Haskell classes
 defined in the Prelude and the Prelude types that are instances of these
 classes.
 
-------------------------------------------------------------------------
-
-
-
-
+______________________________________________________________________
 
 <img src="haskell2x.png" class="graphics"
-style="width:3.98152in;height:5.17208in" alt="PIC" />  
-
-
+style="width:3.98152in;height:5.17208in" alt="PIC" />
 
 Figure 6.1: Standard
 Haskell Classes
 
-
-
-
-
-------------------------------------------------------------------------
+______________________________________________________________________
 
 Default class method declarations
 (Section 4.3) are provided for many of
@@ -9754,24 +7457,13 @@ declarations, provide a reasonable definition for all the class methods.
 If there is no such comment, then all class methods must be given to
 fully specify an instance.
 
-#### 6.3.1  The Eq Class
+#### 6.3.1 The Eq Class
 
- 
-
-
-
-
-
-
-  class  Eq a  where    
-        (==), (/=)  ::  a -\> a -\> Bool    
-   
-        x /= y  = not (x == y)    
-        x == y  = not (x /= y)
-
-
-
-
+class  Eq a  where  \
+(==), (/=)  ::  a -> a -> Bool  \
+\
+x /= y  = not (x == y)  \
+x == y  = not (x /= y)
 
 The Eq class provides equality
 (==) and inequality
@@ -9790,40 +7482,27 @@ then both will loop. If one is defined, the default method for the other
 will make use of the one that is defined. If both are defined, neither
 default method is used.
 
-#### 6.3.2  The Ord Class
+#### 6.3.2 The Ord Class
 
- 
- 
- 
- 
-
-
-
-
-
-  class  (Eq a) =\> Ord a  where    
-    compare              :: a -\> a -\> Ordering    
-    (\<), (\<=), (\>=), (\>) :: a -\> a -\> Bool    
-    max, min             :: a -\> a -\> a    
-   
-    compare x y \| x == y    = EQ    
-                \| x \<= y    = LT    
-                \| otherwise = GT    
-   
-    x \<= y  = compare x y /= GT    
-    x \<  y  = compare x y == LT    
-    x \>= y  = compare x y /= LT    
-    x \>  y  = compare x y == GT    
-   
-    -- Note that (min x y, max x y) = (x,y) or (y,x)    
-    max x y \| x \<= y    =  y    
-            \| otherwise =  x    
-    min x y \| x \<= y    =  x    
-            \| otherwise =  y
-
-
-
-
+class  (Eq a) => Ord a  where  \
+compare              :: a -> a -> Ordering  \
+(\<), (\<=), (>=), (>) :: a -> a -> Bool  \
+max, min             :: a -> a -> a  \
+\
+compare x y | x == y    = EQ  \
+| x \<= y    = LT  \
+| otherwise = GT  \
+\
+x \<= y  = compare x y /= GT  \
+x \<  y  = compare x y == LT  \
+x >= y  = compare x y /= LT  \
+x >  y  = compare x y == GT  \
+\
+-- Note that (min x y, max x y) = (x,y) or (y,x)  \
+max x y | x \<= y    =  y  \
+| otherwise =  x  \
+min x y | x \<= y    =  x  \
+| otherwise =  y
 
 The Ord class is used for totally ordered
 datatypes. All basic datatypes except for functions,
@@ -9843,38 +7522,24 @@ compare function or with type-specific
 == and \<=
 functions.
 
-#### 6.3.3  The Read and Show Classes
+#### 6.3.3 The Read and Show Classes
 
- 
- 
- 
- 
-
-
-
-
-
-
-type  ReadS a = String -\> \[(a,String)\]    
-type  ShowS   = String -\> String    
-   
-class  Read a  where    
-    readsPrec :: Int -\> ReadS a    
-    readList  :: ReadS \[a\]    
-    -- ... default decl for readList given in Prelude    
-   
-class  Show a  where    
-    showsPrec :: Int -\> a -\> ShowS    
-    show      :: a -\> String    
-    showList  :: \[a\] -\> ShowS    
-   
-    showsPrec \_ x s   = show x ++ s    
-    show x            = showsPrec 0 x ""    
-    -- ... default decl for showList given in Prelude
-
-
-
-
+type  ReadS a = String -> [(a,String)]  \
+type  ShowS   = String -> String  \
+\
+class  Read a  where  \
+readsPrec :: Int -> ReadS a  \
+readList  :: ReadS [a]  \
+-- ... default decl for readList given in Prelude  \
+\
+class  Show a  where  \
+showsPrec :: Int -> a -> ShowS  \
+show      :: a -> String  \
+showList  :: [a] -> ShowS  \
+\
+showsPrec _ x s   = show x ++ s  \
+show x            = showsPrec 0 x ""  \
+-- ... default decl for showList given in Prelude
 
 The Read and
 Show classes are used to convert values to
@@ -9911,39 +7576,26 @@ Show and Read.
 (If desired, a programmer can easily make functions and
 IO types into (vacuous) instances of
 Show, by providing an instance
-declaration.) 
- 
+declaration.)
 
 For convenience, the Prelude provides the following auxiliary functions:
 
-
-
-
-
-reads   :: (Read a) =\> ReadS a    
-reads   =  readsPrec 0    
-   
-shows   :: (Show a) =\> a -\> ShowS    
-shows   =  showsPrec 0    
-   
-read    :: (Read a) =\> String -\> a    
-read s  =  case \[x \| (x,t) \<- reads s, ("","") \<- lex t\] of    
-              \[x\] -\> x    
-              \[\]  -\> error "PreludeText.read: no parse"    
-              \_   -\> error "PreludeText.read: ambiguous parse"
-
-
-
-
-
- 
- 
+reads   :: (Read a) => ReadS a  \
+reads   =  readsPrec 0  \
+\
+shows   :: (Show a) => a -> ShowS  \
+shows   =  showsPrec 0  \
+\
+read    :: (Read a) => String -> a  \
+read s  =  case [x | (x,t) \<- reads s, ("","") \<- lex t] of  \
+[x] -> x  \
+[]  -> error "PreludeText.read: no parse"  \
+_   -> error "PreludeText.read: ambiguous parse"
 
 shows and
 reads use a default precedence of 0. The
 read function reads input from a string,
 which must be completely consumed by the input process.
-
 
 The function
 lex :: ReadS String,
@@ -9953,35 +7605,22 @@ and returning the characters that constitute the lexeme. If the input
 string contains only white space, lex
 returns a single successful “lexeme” consisting of the empty string.
 (Thus lex "" =
-\[("","")\].) If there is no legal lexeme
+[("","")].) If there is no legal lexeme
 at the beginning of the input string, lex
-fails (i.e. returns \[\]).
+fails (i.e. returns []).
 
-#### 6.3.4  The Enum Class
+#### 6.3.4 The Enum Class
 
- 
- 
- 
-
-
-
-
-
-
-class  Enum a  where    
-    succ, pred     :: a -\> a    
-    toEnum         :: Int -\> a    
-    fromEnum       :: a -\> Int    
-    enumFrom       :: a -\> \[a\]            -- \[n..\]    
-    enumFromThen   :: a -\> a -\> \[a\]       -- \[n,n'..\]    
-    enumFromTo     :: a -\> a -\> \[a\]       -- \[n..m\]    
-    enumFromThenTo :: a -\> a -\> a -\> \[a\]  -- \[n,n'..m\]    
-   
-    -- Default declarations given in Prelude
-
-
-
-
+class  Enum a  where  \
+succ, pred     :: a -> a  \
+toEnum         :: Int -> a  \
+fromEnum       :: a -> Int  \
+enumFrom       :: a -> [a]            -- [n..]  \
+enumFromThen   :: a -> a -> [a]       -- [n,n'..]  \
+enumFromTo     :: a -> a -> [a]       -- [n..m]  \
+enumFromThenTo :: a -> a -> a -> [a]  -- [n,n'..m]  \
+\
+-- Default declarations given in Prelude
 
 Class Enum defines operations on
 sequentially ordered types. The functions
@@ -10008,27 +7647,22 @@ Enum, the following should hold:
   and
   pred minBound
   should result in a runtime error.
+
 - fromEnum and
   toEnum should give a runtime error if the
   result value is not representable in the result type. For example,
   toEnum 7 :: Bool
   is an error.
+
 - enumFrom and
   enumFromThen should be defined with an
   implicit bound, thus:
-  
 
-  
-
-    enumFrom     x   = enumFromTo     x maxBound    
-    enumFromThen x y = enumFromThenTo x y bound    
-      where    
-        bound \| fromEnum y \>= fromEnum x = maxBound    
-              \| otherwise                = minBound
-
-  
-
-  
+  enumFrom     x   = enumFromTo     x maxBound  \
+  enumFromThen x y = enumFromThenTo x y bound  \
+  where  \
+  bound | fromEnum y >= fromEnum x = maxBound  \
+  | otherwise                = minBound
 
 The following Prelude types are instances
 of Enum:
@@ -10038,8 +7672,8 @@ of Enum:
   Ordering. The semantics of these
   instances is given by Chapter 11. For
   example,
-  \[LT ..\] is
-  the list \[LT,EQ,GT\].
+  [LT ..] is
+  the list [LT,EQ,GT].
 - Char: the instance is given in
   Chapter 9, based on the primitive
   functions that convert between a Char and
@@ -10071,17 +7705,17 @@ following meaning:
   enumFrom e<sub>1</sub>
   is the list
   \[e<sub>1</sub>,e<sub>1</sub>
-  +
+  \+
   1,e<sub>1</sub>
-  +
+  \+
   2,…\].
 - The sequence
   enumFromThen e<sub>1</sub> e<sub>2</sub>
   is the list
   \[e<sub>1</sub>,e<sub>1</sub>
-  +
+  \+
   i,e<sub>1</sub>
-  +
+  \+
   2i,…\],
   where the increment, i, is
   e<sub>2</sub>
@@ -10093,21 +7727,21 @@ following meaning:
   enumFromTo e<sub>1</sub> e<sub>3</sub>
   is the list
   \[e<sub>1</sub>,e<sub>1</sub>
-  +
+  \+
   1,e<sub>1</sub>
-  +
+  \+
   2,…e<sub>3</sub>\].
   The list is empty if
-  e<sub>1</sub> 
+  e<sub>1</sub>
   \>
-   e<sub>3</sub>.
+  e<sub>3</sub>.
 - The sequence
   enumFromThenTo e<sub>1</sub> e<sub>2</sub> e<sub>3</sub>
   is the list
   \[e<sub>1</sub>,e<sub>1</sub>
-  +
+  \+
   i,e<sub>1</sub>
-  +
+  \+
   2i,…e<sub>3</sub>\],
   where the increment, i, is
   e<sub>2</sub>
@@ -10117,16 +7751,16 @@ following meaning:
   next element would be greater than
   e<sub>3</sub>;
   the list is empty if
-  e<sub>1</sub> 
+  e<sub>1</sub>
   \>
-   e<sub>3</sub>.
+  e<sub>3</sub>.
   If the increment is negative, the list terminates when the next
   element would be less than
   e<sub>3</sub>;
   the list is empty if
-  e1 
+  e1
   \<
-   e<sub>3</sub>.
+  e<sub>3</sub>.
 
 For Float and
 Double, the semantics of the
@@ -10134,12 +7768,12 @@ enumFrom family is given by the rules for
 Int above, except that the list terminates
 when the elements become greater than
 e<sub>3</sub>
-+
+\+
 i∕2 for
 positive increment i, or when they become
 less than
 e<sub>3</sub>
-+
+\+
 i∕2 for
 negative i.
 
@@ -10147,21 +7781,10 @@ For all four of these Prelude numeric types, all of the
 enumFrom family of functions are strict in
 all their arguments.
 
-#### 6.3.5  The Functor Class
+#### 6.3.5 The Functor Class
 
- 
-
-
-
-
-
-
-class  Functor f  where    
-    fmap    :: (a -\> b) -\> f a -\> f b
-
-
-
-
+class  Functor f  where  \
+fmap    :: (a -> b) -> f a -> f b
 
 The Functor class is used for types that
 can be mapped over. Lists, IO, and
@@ -10169,8 +7792,6 @@ Maybe are in this class.
 
 Instances of Functor should satisfy the
 following laws:
-
-
 
 <table id="TBL-88" class="array" data-cellpadding="0"
 data-cellspacing="0">
@@ -10206,34 +7827,19 @@ fmap f . fmap g
 </tbody>
 </table>
 
-
-
-  
 All instances of Functor defined in the
 Prelude satisfy these laws.
 
-#### 6.3.6  The Monad Class
+#### 6.3.6 The Monad Class
 
- 
- 
- 
-
-
-
-
-
-class  Monad m  where    
-    (\>\>=)   :: m a -\> (a -\> m b) -\> m b    
-    (\>\>)    :: m a -\> m b -\> m b    
-    return  :: a -\> m a    
-    fail    :: String -\> m a    
-   
-    m \>\> k  =  m \>\>= \\ -\> k    
-    fail s  = error s
-
-
-
-
+class  Monad m  where  \
+(>>=)   :: m a -> (a -> m b) -> m b  \
+(>>)    :: m a -> m b -> m b  \
+return  :: a -> m a  \
+fail    :: String -> m a  \
+\
+m >> k  =  m >>= \\ -> k  \
+fail s  = error s
 
 The Monad class defines the basic
 operations over a monad. See
@@ -10250,7 +7856,7 @@ In the Prelude, lists, Maybe, and
 IO are all instances of
 Monad. The
 fail method for lists returns the empty
-list \[\], for
+list [], for
 Maybe returns
 Nothing, and for
 IO raises a user exception in the IO monad
@@ -10258,8 +7864,6 @@ IO raises a user exception in the IO monad
 
 Instances of Monad should satisfy the
 following laws:
-
-
 
 <table id="TBL-89" class="array" data-cellpadding="0"
 data-cellspacing="0">
@@ -10306,14 +7910,9 @@ m &gt;&gt;= (\x -&gt; k x &gt;&gt;= h)
 </tbody>
 </table>
 
-
-
-  
 Instances of both Monad and
 Functor should additionally satisfy the
 law:
-
-
 
 <table id="TBL-90" class="array" data-cellpadding="0"
 data-cellspacing="0">
@@ -10338,43 +7937,21 @@ xs &gt;&gt;= return . f
 </tbody>
 </table>
 
-
-
-  
 All instances of Monad defined in the
 Prelude satisfy these laws.
 
 The Prelude provides the following auxiliary functions:
 
+sequence  :: Monad m => [m a] -> m [a]  \
+sequence\_ :: Monad m => [m a] -> m ()  \
+mapM      :: Monad m => (a -> m b) -> [a] -> m [b]  \
+mapM\_     :: Monad m => (a -> m b) -> [a] -> m ()  \
+(=\<<)     :: Monad m => (a -> m b) -> m a -> m b
 
+#### 6.3.7 The Bounded Class
 
-
-
-sequence  :: Monad m =\> \[m a\] -\> m \[a\]    
-sequence\_ :: Monad m =\> \[m a\] -\> m ()    
-mapM      :: Monad m =\> (a -\> m b) -\> \[a\] -\> m \[b\]    
-mapM\_     :: Monad m =\> (a -\> m b) -\> \[a\] -\> m ()    
-(=\<\<)     :: Monad m =\> (a -\> m b) -\> m a -\> m b
-
-
-
-
-
- 
- 
-
-
-#### 6.3.7  The Bounded Class
-
- 
-
-
-
-
-class  Bounded a  where    
-    minBound, maxBound :: a
-
-
+class  Bounded a  where  \
+minBound, maxBound :: a
 
 The Bounded class is used to name the upper
 and lower limits of a type. Ord is not a
@@ -10392,9 +7969,7 @@ Bounded may also be derived for
 single-constructor datatypes whose constituent types are in
 Bounded.
 
-### 6.4  Numbers
-
-
+### 6.4 Numbers
 
 Haskell provides several kinds of numbers; the numeric types and the
 operations upon them have been heavily influenced by Common Lisp and
@@ -10437,11 +8012,11 @@ Prelude class RealFloat.
 The standard numeric types are listed in Table [6.1](#x13-1350121). The
 finite-precision integer type
 Int covers at
-least the range \[ 
+least the range \[
 −
- 2<sup>29</sup>, 2<sup>29</sup> 
+2<sup>29</sup>, 2<sup>29</sup>
 −
- 1\]. As
+1\]. As
 Int is an instance of the
 Bounded class,
 maxBound and
@@ -10457,15 +8032,7 @@ undefined; an implementation may choose error
 (⊥, semantically), a truncated value, or a
 special value such as infinity, indefinite, etc.
 
-
-
-
-
-------------------------------------------------------------------------
-
-
-
-
+______________________________________________________________________
 
 <table id="TBL-91" class="tabular" data-cellspacing="0"
 data-cellpadding="0" data-rules="groups">
@@ -10561,191 +8128,84 @@ style="text-align: left; white-space: nowrap;"></td>
 </tbody>
 </table>
 
-
-
-  
-
-
-
 Table 6.1: Standard
 Numeric Types
 
-
-
-
-
-
-
-------------------------------------------------------------------------
-
-
+______________________________________________________________________
 
 The standard numeric classes and other numeric functions defined in the
 Prelude are shown in Figures [6.2](#x13-1350142)–[6.3](#x13-1350573).
 Figure [6.1](#x13-1270011) shows the class dependencies and built-in
 types that are instances of the numeric classes.
 
-------------------------------------------------------------------------
+______________________________________________________________________
 
-
-
-
-
-
-
-
-
-
-
-
-
-class  (Eq a, Show a) =\> Num a  where    
-    (+), (-), (⋆)  :: a -\> a -\> a    
-    negate         :: a -\> a    
-    abs, signum    :: a -\> a    
-    fromInteger    :: Integer -\> a    
-   
-class  (Num a, Ord a) =\> Real a  where    
-    toRational ::  a -\> Rational    
-   
-class  (Real a, Enum a) =\> Integral a  where    
-    quot, rem, div, mod :: a -\> a -\> a    
-    quotRem, divMod     :: a -\> a -\> (a,a)    
-    toInteger           :: a -\> Integer    
-   
-class  (Num a) =\> Fractional a  where    
-    (/)          :: a -\> a -\> a    
-    recip        :: a -\> a    
-    fromRational :: Rational -\> a    
-   
-class  (Fractional a) =\> Floating a  where    
-    pi                  :: a    
-    exp, log, sqrt      :: a -\> a    
-    (⋆⋆), logBase       :: a -\> a -\> a    
-    sin, cos, tan       :: a -\> a    
-    asin, acos, atan    :: a -\> a    
-    sinh, cosh, tanh    :: a -\> a    
-    asinh, acosh, atanh :: a -\> a
-
-
-
-
-
-
-
-
-
-  
-
-
+class  (Eq a, Show a) => Num a  where  \
+(+), (-), (⋆)  :: a -> a -> a  \
+negate         :: a -> a  \
+abs, signum    :: a -> a  \
+fromInteger    :: Integer -> a  \
+\
+class  (Num a, Ord a) => Real a  where  \
+toRational ::  a -> Rational  \
+\
+class  (Real a, Enum a) => Integral a  where  \
+quot, rem, div, mod :: a -> a -> a  \
+quotRem, divMod     :: a -> a -> (a,a)  \
+toInteger           :: a -> Integer  \
+\
+class  (Num a) => Fractional a  where  \
+(/)          :: a -> a -> a  \
+recip        :: a -> a  \
+fromRational :: Rational -> a  \
+\
+class  (Fractional a) => Floating a  where  \
+pi                  :: a  \
+exp, log, sqrt      :: a -> a  \
+(⋆⋆), logBase       :: a -> a -> a  \
+sin, cos, tan       :: a -> a  \
+asin, acos, atan    :: a -> a  \
+sinh, cosh, tanh    :: a -> a  \
+asinh, acosh, atanh :: a -> a
 
 Figure 6.2: Standard
 Numeric Classes and Related Operations, Part 1
 
+______________________________________________________________________
 
+______________________________________________________________________
 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
-
-
-
-------------------------------------------------------------------------
-
-------------------------------------------------------------------------
-
-
-
-
-
-
-
-
-
-
-
-
-
-class  (Real a, Fractional a) =\> RealFrac a  where    
-    properFraction   :: (Integral b) =\> a -\> (b,a)    
-    truncate, round  :: (Integral b) =\> a -\> b    
-    ceiling, floor   :: (Integral b) =\> a -\> b    
-   
-class  (RealFrac a, Floating a) =\> RealFloat a  where    
-    floatRadix          :: a -\> Integer    
-    floatDigits         :: a -\> Int    
-    floatRange          :: a -\> (Int,Int)    
-    decodeFloat         :: a -\> (Integer,Int)    
-    encodeFloat         :: Integer -\> Int -\> a    
-    exponent            :: a -\> Int    
-    significand         :: a -\> a    
-    scaleFloat          :: Int -\> a -\> a    
-    isNaN, isInfinite, isDenormalized, isNegativeZero, isIEEE    
-                        :: a -\> Bool    
-    atan2               :: a -\> a -\> a    
-   
-gcd, lcm :: (Integral a) =\> a -\> a-\> a    
-(^)      :: (Num a, Integral b) =\> a -\> b -\> a    
-(^^)     :: (Fractional a, Integral b) =\> a -\> b -\> a    
-   
-fromIntegral :: (Integral a, Num b) =\> a -\> b    
-realToFrac   :: (Real a, Fractional b) =\> a -\> b
-
-
-
-
-
-
-
-
-
-  
-
-
+class  (Real a, Fractional a) => RealFrac a  where  \
+properFraction   :: (Integral b) => a -> (b,a)  \
+truncate, round  :: (Integral b) => a -> b  \
+ceiling, floor   :: (Integral b) => a -> b  \
+\
+class  (RealFrac a, Floating a) => RealFloat a  where  \
+floatRadix          :: a -> Integer  \
+floatDigits         :: a -> Int  \
+floatRange          :: a -> (Int,Int)  \
+decodeFloat         :: a -> (Integer,Int)  \
+encodeFloat         :: Integer -> Int -> a  \
+exponent            :: a -> Int  \
+significand         :: a -> a  \
+scaleFloat          :: Int -> a -> a  \
+isNaN, isInfinite, isDenormalized, isNegativeZero, isIEEE  \
+:: a -> Bool  \
+atan2               :: a -> a -> a  \
+\
+gcd, lcm :: (Integral a) => a -> a-> a  \
+(^)      :: (Num a, Integral b) => a -> b -> a  \
+(^^)     :: (Fractional a, Integral b) => a -> b -> a  \
+\
+fromIntegral :: (Integral a, Num b) => a -> b  \
+realToFrac   :: (Real a, Fractional b) => a -> b
 
 Figure 6.3: Standard
 Numeric Classes and Related Operations, Part 2
 
+______________________________________________________________________
 
-
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
-
-
-
-------------------------------------------------------------------------
-
-#### 6.4.1  Numeric Literals
+#### 6.4.1 Numeric Literals
 
 The syntax of numeric literals is given in
 Section 2.5. An integer literal
@@ -10758,31 +8218,19 @@ to a value of type Rational (that is,
 Ratio Integer).
 Given the typings:
 
-
-
-
-
-fromInteger  :: (Num a) =\> Integer -\> a    
-fromRational :: (Fractional a) =\> Rational -\> a
-
-
-
-
-
- 
+fromInteger  :: (Num a) => Integer -> a  \
+fromRational :: (Fractional a) => Rational -> a
 
 integer and floating literals have the typings
-(Num a) =\> a
+(Num a) => a
 and
-(Fractional a) =\> a,
+(Fractional a) => a,
 respectively. Numeric literals are defined in this indirect way so that
 they may be interpreted as values of any appropriate numeric type. See
 Section 4.3.4 for a discussion of
 overloading ambiguity.
 
-#### 6.4.2  Arithmetic and Number-Theoretic Operations
-
-
+#### 6.4.2 Arithmetic and Number-Theoretic Operations
 
 The infix class methods (+),
 (⋆),
@@ -10803,16 +8251,8 @@ rem, div, and
 mod class methods satisfy these laws if
 y is non-zero:
 
-
-
-
-
-(x ‘quot‘ y)⋆y + (x ‘rem‘ y) == x    
+(x ‘quot‘ y)⋆y + (x ‘rem‘ y) == x  \
 (x ‘div‘  y)⋆y + (x ‘mod‘ y) == x
-
-
-
-
 
 ‘quot‘ is integer division truncated toward
 zero, while the result of ‘div‘ is
@@ -10821,31 +8261,13 @@ quotRem class method takes a dividend and a
 divisor as arguments and returns a (quotient, remainder) pair;
 divMod is defined similarly:
 
-
-
-
-
-quotRem x y  =  (x ‘quot‘ y, x ‘rem‘ y)    
+quotRem x y  =  (x ‘quot‘ y, x ‘rem‘ y)  \
 divMod  x y  =  (x ‘div‘  y, x ‘mod‘ y)
-
-
-
-
 
 Also available on integral numbers are the even and odd predicates:
 
-
-
-
-
-even x =  x ‘rem‘ 2 == 0    
+even x =  x ‘rem‘ 2 == 0  \
 odd    =  not . even
-
-
-
-
-
- 
 
 Finally, there are the greatest common divisor and least common multiple
 functions.
@@ -10868,9 +8290,7 @@ x y is the
 smallest positive integer that both x and
 y divide.
 
-#### 6.4.3  Exponentiation and Logarithms
-
- 
+#### 6.4.3 Exponentiation and Logarithms
 
 The one-argument exponential function
 exp and the
@@ -10899,9 +8319,7 @@ including zero;
 1, and 0
 otherwise.
 
-#### 6.4.4  Magnitude and Sign
-
- 
+#### 6.4.4 Magnitude and Sign
 
 A number has a magnitude and a
 sign. The functions
@@ -10909,36 +8327,18 @@ abs and
 signum apply
 to any number and satisfy the law:
 
-
-
-
-
 abs x ⋆ signum x == x
-
-
-
-
 
 For real numbers, these functions are defined by:
 
+abs x    | x >= 0  = x  \
+| x \<  0  = -x  \
+\
+signum x | x >  0  = 1  \
+| x == 0  = 0  \
+| x \<  0  = -1
 
-
-
-
-abs x    \| x \>= 0  = x    
-         \| x \<  0  = -x    
-   
-signum x \| x \>  0  = 1    
-         \| x == 0  = 0    
-         \| x \<  0  = -1
-
-
-
-
-
-#### 6.4.5  Trigonometric Functions
-
-
+#### 6.4.5 Trigonometric Functions
 
 Class Floating provides the circular and
 hyperbolic sine,
@@ -10961,7 +8361,7 @@ the point
 atan2
 y x returns a
 value in the range
-\[-pi, pi\].
+[-pi, pi].
 It follows the Common Lisp semantics for the origin when signed zeroes
 are supported. atan2
 y 1, with
@@ -10973,13 +8373,11 @@ but implementors can provide a more accurate implementation.
 
 The precise definition of the above functions is as in Common Lisp,
 which in turn follows Penfield’s proposal for
-APL \[12\].
+APL [12].
 See these references for discussions of branch cuts, discontinuities,
 and implementation.
 
-#### 6.4.6  Coercions and Component Extraction
-
-
+#### 6.4.6 Coercions and Component Extraction
 
 The ceiling,
 floor,
@@ -11004,19 +8402,20 @@ properFraction
 takes a real fractional number x and
 returns a pair
 (n,f)
-such that x 
+such that x
 =  n
-+ f,
-and: n is an integral number with the same
-sign as x; and
-f is a fraction
-f with the same type and sign as
-x, and with absolute value less than 1. The
-ceiling,
-floor,
-truncate, and
-round functions can be defined in terms of
-properFraction.
+
+- f,
+  and: n is an integral number with the same
+  sign as x; and
+  f is a fraction
+  f with the same type and sign as
+  x, and with absolute value less than 1. The
+  ceiling,
+  floor,
+  truncate, and
+  round functions can be defined in terms of
+  properFraction.
 
 Two functions convert numbers to type
 Rational:
@@ -11031,7 +8430,7 @@ where a rational p∕q in reduced form is
 simpler than another
 p<sup>′</sup>∕q<sup>′</sup>
 if
-\|p\|≤\|p<sup>′</sup>\|
+|p|≤|p<sup>′</sup>|
 and q ≤
 q<sup>′</sup>.
 Every real interval contains a unique simplest rational; in particular,
@@ -11064,7 +8463,7 @@ where b is the floating-point radix, and
 furthermore, either m and
 n are both zero or else
 b<sup>d−1</sup>
-≤\|m\|
+≤|m|
 \<
 b<sup>d</sup>, where
 d is the value of
@@ -11094,39 +8493,17 @@ all return false.
 
 Also available are the following coercion functions:
 
+fromIntegral :: (Integral a, Num b)    => a -> b  \
+realToFrac   :: (Real a, Fractional b) => a -> b
 
+[prev-tail]
 
+______________________________________________________________________
 
-
-fromIntegral :: (Integral a, Num b)    =\> a -\> b    
-realToFrac   :: (Real a, Fractional b) =\> a -\> b
-
-
-
-
-
- 
-
-
-
-\[prev-tail\]
-
-
-
-
-
----
-
-
-
-\[prev-tail\]
-\[up\]
-
-
+[prev-tail]
+[up]
 
 ## Chapter 7 Basic Input/Output
-
-
 
 The I/O system in Haskell is purely functional, yet has all of the
 expressive power found in conventional programming languages. To achieve
@@ -11143,7 +8520,7 @@ this order. Actions, however, must be ordered in a well-defined manner
 for program execution – and I/O in particular – to be meaningful.
 Haskell’s I/O monad provides the user with a way to specify the
 sequential chaining of actions, and an implementation is obliged to
-preserve this order. 
+preserve this order.
 
 The term monad comes from a branch of
 mathematics known as category theory. From
@@ -11158,7 +8535,7 @@ Section 6.3.6) sequentially compose
 actions, corresponding to sequencing operators (such as the semicolon)
 in imperative languages.
 
-### 7.1  Standard I/O Functions
+### 7.1 Standard I/O Functions
 
 Although Haskell provides fairly sophisticated I/O facilities, as
 defined in the IO library, it is possible
@@ -11171,28 +8548,17 @@ characters of input, return and linefeed, may read as a single newline
 character. These functions cannot be used portably for binary I/O.
 
 In the following, recall that String is a
-synonym for \[Char\]
+synonym for [Char]
 (Section 6.1.2).
 
 Output
 Functions These functions write to the standard output device
 (this is normally the user’s terminal).
 
-
-
-
-
-  putChar  :: Char -\> IO ()    
-  putStr   :: String -\> IO ()    
-  putStrLn :: String -\> IO ()  -- adds a newline    
-  print    :: Show a =\> a -\> IO ()
-
-
-
-
-
- 
- 
+putChar  :: Char -> IO ()  \
+putStr   :: String -> IO ()  \
+putStrLn :: String -> IO ()  -- adds a newline  \
+print    :: Show a => a -> IO ()
 
 The print function outputs a value of any
 printable type to the standard output device. Printable types are those
@@ -11204,38 +8570,18 @@ newline.
 For example, a program to print the first 20 integers and their powers
 of 2 could be written as:
 
-
-
-
-
-main = print (\[(n, 2^n) \| n \<- \[0..19\]\])
-
-
-
-
+main = print (\[(n, 2^n) | n \<- [0..19]\])
 
 Input
 Functions These functions read input from the standard input
 device (normally the user’s terminal).
 
-
-
-
-
-  getChar     :: IO Char    
-  getLine     :: IO String    
-  getContents :: IO String    
-  interact    :: (String -\> String) -\> IO ()    
-  readIO      :: Read a =\> String -\> IO a    
-  readLn      :: Read a =\> IO a
-
-
-
-
-
- 
- 
- 
+getChar     :: IO Char  \
+getLine     :: IO String  \
+getContents :: IO String  \
+interact    :: (String -> String) -> IO ()  \
+readIO      :: Read a => String -> IO a  \
+readLn      :: Read a => IO a
 
 The getChar operation raises an exception
 (Section [7.3](#x14-1480007.3)) on end-of-file; a predicate
@@ -11248,7 +8594,7 @@ the IO library.
 The getContents operation returns all user
 input as a single string, which is read lazily as it is needed. The
 interact function takes a function of type
-String-\>String as its argument. The entire
+String->String as its argument. The entire
 input from the standard input device is passed to this function as its
 argument, and the resulting string is output on the standard output
 device.
@@ -11266,15 +8612,7 @@ The following program simply removes all non-ASCII characters from its
 standard input and echoes the result on its standard output. (The
 isAscii function is defined in a library.)
 
-
-
-
-
 main = interact (filter isAscii)
-
-
-
-
 
 Files
 These functions operate on files of characters. Files are named by
@@ -11288,22 +8626,11 @@ readFile function reads a file and returns
 the contents of the file as a string. The file is read lazily, on
 demand, as with getContents.
 
-
-
-
-
-  type FilePath =  String    
-   
-  writeFile  :: FilePath -\> String -\> IO ()    
-  appendFile :: FilePath -\> String -\> IO ()    
-  readFile   :: FilePath           -\> IO String
-
-
-
-
-
- 
- 
+type FilePath =  String  \
+\
+writeFile  :: FilePath -> String -> IO ()  \
+appendFile :: FilePath -> String -> IO ()  \
+readFile   :: FilePath           -> IO String
 
 Note that writeFile and
 appendFile write a literal string to a
@@ -11312,54 +8639,28 @@ print, use the
 show function to convert the value to a
 string first.
 
+main = appendFile "squares" (show \[(x,x⋆x) | x \<- [0,0.1..2]\])
 
-
-
-
-main = appendFile "squares" (show \[(x,x⋆x) \| x \<- \[0,0.1..2\]\])
-
-
-
-
-
-### 7.2  Sequencing I/O Operations
-
- 
+### 7.2 Sequencing I/O Operations
 
 The type constructor IO is an instance of
 the Monad class. The two monadic binding
 functions, methods in the Monad class, are
 used to compose a series of I/O operations. The
-\>\> function is used where the result of
+\>> function is used where the result of
 the first operation is uninteresting, for example when it is
-(). The \>\>=
+(). The >>=
 operation passes the result of the first operation as an argument to the
 second operation.
 
-
-
-
-
-  (\>\>=) :: IO a -\> (a -\> IO b) -\> IO b    
-  (\>\>)  :: IO a -\> IO b        -\> IO b
-
-
-
-
+(>>=) :: IO a -> (a -> IO b) -> IO b  \
+(>>)  :: IO a -> IO b        -> IO b
 
 For example,
 
-
-
-
-
-main = readFile "input-file"                       \>\>= \\s -\>    
-       writeFile "output-file" (filter isAscii s)  \>\>    
-       putStr "Filtering successful\n"
-
-
-
-
+main = readFile "input-file"                       >>= \\s ->  \
+writeFile "output-file" (filter isAscii s)  >>  \
+putStr "Filtering successful\\n"
 
 is similar to the previous example using
 interact, but takes its input from
@@ -11367,27 +8668,18 @@ interact, but takes its input from
 "output-file". A message is printed on the
 standard output before the program completes.
 
-
 The do notation allows programming in a
 more imperative syntactic style. A slightly more elaborate version of
 the previous example would be:
 
-
-
-
-
-main = do    
-        putStr "Input file: "    
-        ifile \<- getLine    
-        putStr "Output file: "    
-        ofile \<- getLine    
-        s \<- readFile ifile    
-        writeFile ofile (filter isAscii s)    
-        putStr "Filtering successful\n"
-
-
-
-
+main = do  \
+putStr "Input file: "  \
+ifile \<- getLine  \
+putStr "Output file: "  \
+ofile \<- getLine  \
+s \<- readFile ifile  \
+writeFile ofile (filter isAscii s)  \
+putStr "Filtering successful\\n"
 
 The return function is used to define the
 result of an I/O operation. For example,
@@ -11395,23 +8687,13 @@ getLine is defined in terms of
 getChar, using
 return to define the result:
 
+getLine :: IO String  \
+getLine = do c \<- getChar  \
+if c == '\\n' then return ""  \
+else do s \<- getLine  \
+return (c:s)
 
-
-
-
-getLine :: IO String    
-getLine = do c \<- getChar    
-             if c == '\n' then return ""    
-                          else do s \<- getLine    
-                                  return (c:s)
-
-
-
-
-
-### 7.3  Exception Handling in the I/O Monad
-
-
+### 7.3 Exception Handling in the I/O Monad
 
 The I/O monad includes a simple exception handling system. Any I/O
 operation may raise an exception instead of returning a result.
@@ -11425,32 +8707,12 @@ Prelude function that creates an IOError
 value is userError. User error values
 include a string describing the error.
 
-
-
-
-
-  userError :: String -\> IOError
-
-
-
-
-
-
+userError :: String -> IOError
 
 Exceptions are raised and caught using the following functions:
 
-
-
-
-
-  ioError :: IOError -\> IO a    
-  catch   :: IO a    -\> (IOError -\> IO a) -\> IO a 
-
-
-
-
-
- 
+ioError :: IOError -> IO a  \
+catch   :: IO a    -> (IOError -> IO a) -> IO a
 
 The ioError function raises an exception;
 the catch function establishes a handler
@@ -11461,18 +8723,10 @@ handlers are not selective: all exceptions are caught. Exception
 propagation must be explicitly provided in a handler by re-raising any
 unwanted exceptions. For example, in
 
-
-
-
-
-f = catch g (\e -\> if IO.isEOFError e then return \[\] else ioError e)
-
-
-
-
+f = catch g (\\e -> if IO.isEOFError e then return [] else ioError e)
 
 the function f returns
-\[\] when an end-of-file exception occurs
+[] when an end-of-file exception occurs
 in g; otherwise, the exception is
 propagated to the next outer handler. The
 isEOFError function is part of
@@ -11488,40 +8742,20 @@ Monad class
 (Section 6.3.6) raises a
 userError, thus:
 
-
-
-
-
-  instance Monad IO where    
-    ...bindings for return, (\>\>=), (\>\>)    
-   
-    fail s = ioError (userError s)
-
-
-
-
-
-
+instance Monad IO where  \
+...bindings for return, (>>=), (>>)  \
+\
+fail s = ioError (userError s)
 
 The exceptions raised by the I/O functions in the Prelude are defined in
 Chapter 42.
 
+[prev-tail]
 
+______________________________________________________________________
 
-\[prev-tail\]
-
-
-
-
-
----
-
-
-
-\[prev-tail\]
-\[up\]
-
-
+[prev-tail]
+[up]
 
 ## Chapter 8 Foreign Function Interface
 
@@ -11533,7 +8767,7 @@ other languages such that the source code is portable across different
 implementations of Haskell and non-Haskell systems as well as
 independent of the architecture and operating system.
 
-### 8.1  Foreign Languages
+### 8.1 Foreign Languages
 
 The Haskell FFI currently only specifies the interaction between Haskell
 code and foreign code that follows the C calling convention. However,
@@ -11551,9 +8785,9 @@ language that is used in conjunction with Haskell. However, there are
 two areas where FFI specifications must become language specific: (1)
 the specification of external names and (2) the marshalling of the basic
 types of a foreign language. As an example of the former, consider that
-in C \[9\] a simple
+in C [9] a simple
 identifier is sufficient to identify an object, while
-Java \[5\],
+Java [5],
 in general, requires a qualified name in conjunction with argument and
 result types to resolve possible overloading. Regarding the second
 point, consider that many languages do not specify the exact
@@ -11574,7 +8808,7 @@ is described in Section [8.5](#x15-1610008.5), whereas the marshalling
 of the basic types in dependence on a foreign language is described in
 Section [8.6](#x15-1690008.6).
 
-### 8.2  Contexts
+### 8.2 Contexts
 
 For a given Haskell system, we define the Haskell
 context to be the execution context of the abstract machine on
@@ -11593,7 +8827,7 @@ contexts and invoke functions that are executed in an external context
 as well as vice versa. In the rest of this definition, external contexts
 are usually identified by a calling convention.
 
-#### 8.2.1  Cross Language Type Consistency
+#### 8.2.1 Cross Language Type Consistency
 
 Given that many external languages support static types, the question
 arises whether the consistency of Haskell types with the types of the
@@ -11614,7 +8848,7 @@ check consistency with foreign types. Nevertheless, Haskell systems are
 encouraged to provide any cross language consistency checks that can be
 implemented with reasonable effort.
 
-### 8.3  Lexical Structure
+### 8.3 Lexical Structure
 
 The FFI reserves a single keyword foreign,
 and a set of special identifiers. The latter have a special meaning only
@@ -11632,53 +8866,37 @@ not explicitly listed here.
 To refer to objects of an external C context, we introduce the following
 phrases:
 
-
-
-
-
-|  |  |  |  |
+| | | | |
 |:---|:--:|:---|:---|
-| chname  | → | {chchar} . h |     (C header filename)  |
-| cid  | → | letter {letter \| ascDigit}  |     (C identifier)  |
-| chchar  | → | letter \| ascSymbol<sub>⟨&⟩</sub> |  |
-| letter  | → | ascSmall \| ascLarge \| \_ |  |
-
-
-
-
+| chname | → | {chchar} . h |     (C header filename) |
+| cid | → | letter {letter | ascDigit} |     (C identifier) |
+| chchar | → | letter | ascSymbol<sub>⟨&⟩</sub> | |
+| letter | → | ascSmall | ascLarge | _ | |
 
 The range of lexemes that are admissible for
 chname is a subset of those permitted as
-arguments to the \#include directive in C.
+arguments to the #include directive in C.
 In particular, a file name chname must end
 in the suffix .h. The lexemes produced by
 cid coincide with those allowed as C
 identifiers, as specified
-in \[9\].
+in [9].
 
-### 8.4  Foreign Declarations
+### 8.4 Foreign Declarations
 
 The syntax of foreign declarations is as follows:
 
-
-
-
-
-|  |  |  |  |
+| | | | |
 |:---|:--:|:---|----|
-| topdecl  | → | foreign fdecl  |  |
-| fdecl  | → | import callconv \[safety\] impent var :: ftype  |     (define variable)  |
-|  | \| | export callconv expent var :: ftype  |     (expose variable)  |
-| callconv  | → | ccall \| stdcall \| cplusplus |     (calling convention)  |
-|  | \| | jvm \| dotnet |  |
-|  | \| |  system-specific calling conventions |  |
-| impent  | → | \[string\]  |  |
-| expent  | → | \[string\]  |  |
-| safety  | → | unsafe \| safe |  |
-
-
-
-
+| topdecl | → | foreign fdecl | |
+| fdecl | → | import callconv [safety] impent var :: ftype |     (define variable) |
+| | | | export callconv expent var :: ftype |     (expose variable) |
+| callconv | → | ccall | stdcall | cplusplus |     (calling convention) |
+| | | | jvm | dotnet | |
+| | | |  system-specific calling conventions | |
+| impent | → | [string] | |
+| expent | → | [string] | |
+| safety | → | unsafe | safe | |
 
 There are two flavours of foreign declarations: import and export
 declarations. An import declaration makes an
@@ -11703,7 +8921,7 @@ string would be the empty string (i.e., be of the form
 ""); in this case, the string may be
 omitted in its entirety.
 
-#### 8.4.1  Calling Conventions
+#### 8.4.1 Calling Conventions
 
 The binary interface to an external entity on a given architecture is
 determined by a calling convention. It often depends on the programming
@@ -11714,7 +8932,7 @@ compiled.
 As an example of how the calling convention is dominated by the system
 rather than the programming language, consider that an entity compiled
 to byte code for the Java Virtual Machine
-(JVM) \[11\]
+(JVM) [11]
 needs to be invoked by the rules of the JVM rather than that of the
 source language in which it is implemented (the entity might be
 implemented in Oberon, for example).
@@ -11727,17 +8945,7 @@ support additional calling conventions. In addition to
 ccall, Table [8.1](#x15-1550011) specifies
 a range of identifiers for common calling conventions.
 
-
-
-
-
-------------------------------------------------------------------------
-
-
-
-
-
-
+______________________________________________________________________
 
 <table id="TBL-94" class="tabular" data-cellspacing="0"
 data-cellpadding="0" data-rules="groups">
@@ -11809,24 +9017,10 @@ style="text-align: left; white-space: nowrap;"></td>
 </tbody>
 </table>
 
-
-
-  
-
-
-
 Table 8.1: Calling
 conventions
 
-
-
-
-
-
-
-------------------------------------------------------------------------
-
-
+______________________________________________________________________
 
 Implementations need not implement all of these conventions, but if any
 is implemented, it must use the listed name. For any other calling
@@ -11843,10 +9037,10 @@ target code of that system. For example, the calling convention
 jvm will be trivial to implement for a
 Haskell compiler generating Java code, whereas for a Haskell compiler
 generating C code, the Java Native Interface
-(JNI) \[10\] has
+(JNI) [10] has
 to be targeted.
 
-#### 8.4.2  Foreign Types
+#### 8.4.2 Foreign Types
 
 The following types constitute the set of basic
 foreign types:
@@ -11877,29 +9071,21 @@ and results.
 
 Foreign types are produced according to the following grammar:
 
-
-
-
-
-|  |  |  |  |
+| | | | |
 |:---|:--:|:---|----|
-| ftype  | → | frtype  |  |
-|  | \| | fatype  →  ftype  |  |
-| frtype  | → | fatype  |  |
-|  | \| | () |  |
-| fatype  | → | qtycon atype<sub>1</sub> … atype<sub>k</sub> |     (k  ≥  0)  |
-
-
-
-
+| ftype | → | frtype | |
+| | | | fatype  →  ftype | |
+| frtype | → | fatype | |
+| | | | () | |
+| fatype | → | qtycon atype<sub>1</sub> … atype<sub>k</sub> |     (k  ≥  0) |
 
 A foreign type is the Haskell type of an external entity. Only a subset
 of Haskell’s types are permissible as foreign types, as only a
 restricted set of types can be canonically transferred between the
 Haskell context and an external context. A foreign type has the form
-at<sub>1</sub> -\> <img src="haskell3x.png" class="cdots" alt="⋅⋅⋅" /> -\> at<sub>n</sub> -\> rt
+at<sub>1</sub> -> <img src="haskell3x.png" class="cdots" alt="⋅⋅⋅" /> -> at<sub>n</sub> -> rt
 where n ≥
-0. It implies that the arity of the
+0\. It implies that the arity of the
 external entity is n.
 
 External functions are strict in all arguments.
@@ -11920,11 +9106,7 @@ either
   where T is defined by a
   newtype declaration
 
-  
-
   newtype T a<sub>1</sub> … a<sub>n</sub> = N t
-
-  
 
   and
 
@@ -11964,11 +9146,7 @@ either
   where T is defined by a
   newtype declaration
 
-  
-
   newtype T a<sub>1</sub> … a<sub>n</sub> = N t
-
-  
 
   and
 
@@ -11977,7 +9155,7 @@ either
   - t\[t′<sub>1</sub>∕a<sub>1</sub>..t′<sub>n</sub>∕a<sub>n</sub>\]
     is a marshallable foreign result type
 
-#### 8.4.3  Import Declarations
+#### 8.4.3 Import Declarations
 
 Generally, an import declaration has the form
 foreign import c e v :: t
@@ -11992,32 +9170,16 @@ variable v is defined by an import
 declaration, no other top-level declaration for v
 is allowed in the same module. For example, the declaration
 
-
-
-
-
-foreign import ccall "string.h strlen"    
-   cstrlen :: Ptr CChar -\> IO CSize
-
-
-
-
+foreign import ccall "string.h strlen"  \
+cstrlen :: Ptr CChar -> IO CSize
 
 introduces the function cstrlen, which
 invokes the external function strlen using
 the standard C calling convention. Some external entities can be
 imported as pure functions; for example,
 
-
-
-
-
-foreign import ccall "math.h sin"    
-   sin :: CDouble -\> CDouble.
-
-
-
-
+foreign import ccall "math.h sin"  \
+sin :: CDouble -> CDouble.
 
 Such a declaration asserts that the external entity is a true function;
 i.e., when applied to the same argument values, it always produces the
@@ -12047,7 +9209,7 @@ objects other than stable pointers
 (cf. Section 36) may be moved or
 garbage collected by the storage manager.
 
-#### 8.4.4  Export Declarations
+#### 8.4.4 Export Declarations
 
 The general form of export declarations is
 foreign export c e v :: t
@@ -12063,23 +9225,15 @@ v. The type t
 must be an instance of the type of
 v. For example, we may have
 
-
-
-
-
-foreign export ccall "addInt"   (+) :: Int   -\> Int   -\> Int    
-foreign export ccall "addFloat" (+) :: Float -\> Float -\> Float
-
-
-
-
+foreign export ccall "addInt"   (+) :: Int   -> Int   -> Int  \
+foreign export ccall "addFloat" (+) :: Float -> Float -> Float
 
 If an evaluation triggered by an external invocation of an exported
 Haskell value returns with an exception, the system behaviour is
 undefined. Thus, Haskell exceptions have to be caught within Haskell and
 explicitly marshalled to the foreign code.
 
-### 8.5  Specification of External Entities
+### 8.5 Specification of External Entities
 
 Each foreign declaration has to specify the external entity that is
 accessed or provided by that declaration. The syntax and semantics of
@@ -12129,7 +9283,7 @@ stdcall. Other calling conventions from
 Table [8.1](#x15-1550011) are expected to be defined in future versions
 of Haskell.
 
-#### 8.5.1  Standard C Calls
+#### 8.5.1 Standard C Calls
 
 The following defines the structure of external entities for foreign
 declarations under the ccall calling
@@ -12140,7 +9294,7 @@ defined.
 The FFI covers only access to C functions and global variables. There
 are no mechanisms to access other entities of C programs. In particular,
 there is no support for accessing pre-processor symbols from Haskell,
-which includes \#defined constants. Access
+which includes #defined constants. Access
 from Haskell to such entities is the domain of language-specific tools,
 which provide added convenience over the plain FFI as defined here.
 
@@ -12149,19 +9303,11 @@ Declarations For import declarations, the syntax for the
 specification of external entities under the
 ccall calling convention is as follows:
 
-
-
-
-
-|  |  |  |  |
+| | | | |
 |:---|:--:|:---|:---|
-| impent  | → | " \[static\] \[chname\] \[&\] \[cid\] " |     (static function or address)  |
-|  | \| | " dynamic " |     (stub factory importing addresses)  |
-|  | \| | " wrapper " |     (stub factory exporting thunks)  |
-
-
-
-
+| impent | → | " [static] [chname] [&] [cid] " |     (static function or address) |
+| | | | " dynamic " |     (stub factory importing addresses) |
+| | | | " wrapper " |     (stub factory exporting thunks) |
 
 The first alternative either imports a static function
 cid or, if &
@@ -12173,11 +9319,7 @@ intended meaning is that the header file declares the C entity
 identified by cid. In particular, when the
 Haskell system compiles Haskell to C code, the directive
 
-
-
-\#include "chname"
-
-
+#include "chname"
 
 needs to be placed into any generated C file that refers to the foreign
 entity before the first occurrence of that entity in the generated C
@@ -12204,15 +9346,7 @@ import an address (i.e., where & is not
 used in the specification of the external entity) always refers to a C
 function, even if the Haskell type is non-functional. For example,
 
-
-
-
-
 foreign import ccall foo :: CInt
-
-
-
-
 
 refers to a pure C function foo with no
 arguments that returns an integer value. Similarly, if the type is
@@ -12221,15 +9355,7 @@ declaration refers to an impure nullary function. If a Haskell program
 needs to access a C variable bar of integer
 type,
 
-
-
-
-
 foreign import ccall "&" bar :: Ptr CInt
-
-
-
-
 
 must be used to obtain a pointer referring to the variable. The variable
 can be read and updated using the routines provided by the module
@@ -12240,17 +9366,9 @@ Export
 Declarations External entities in
 ccall export declarations are of the form
 
-
-
-
-
-|  |  |  |
+| | | |
 |:---|:--:|:---|
-| expent  | → | " \[cid\] " |
-
-
-
-
+| expent | → | " [cid] " |
 
 The optional C identifier cid defines the
 external name by which the exported Haskell variable is accessible in C.
@@ -12264,7 +9382,7 @@ constraints regarding the admissible Haskell type that the variable
 defined in the import may have. These constraints are specified in the
 following.
 
-Static Functions.  
+Static Functions.\
 A static function can be of any foreign type; in particular, the result
 type may or may not be in the IO monad. If a function that is not pure
 is not imported in the IO monad, the system behaviour is undefined.
@@ -12273,22 +9391,14 @@ label is performed.
 
 As an example, consider
 
-
-
-
-
-foreign import ccall "static stdlib.h"    
-   system :: Ptr CChar -\> IO CInt
-
-
-
-
+foreign import ccall "static stdlib.h"  \
+system :: Ptr CChar -> IO CInt
 
 This declaration imports the system()
 function whose prototype is available from
 stdlib.h.
 
-Static addresses.  
+Static addresses.\
 The type of an imported address is constrained to be of the form
 Ptr a
 or
@@ -12297,61 +9407,37 @@ where a can be any type.
 
 As an example, consider
 
-
-
-
-
 foreign import ccall "errno.h &errno" errno :: Ptr CInt
-
-
-
-
 
 It imports the address of the variable
 errno, which is of the C type
 int.
 
-Dynamic import.  
+Dynamic import.\
 The type of a dynamic stub has to be of the
 form
-(FunPtr ft) -\> ft,
+(FunPtr ft) -> ft,
 where ft may be any foreign type.
 
 As an example, consider
 
-
-
-
-
-foreign import ccall "dynamic"    
-  mkFun :: FunPtr (CInt -\> IO ()) -\> (CInt -\> IO ())
-
-
-
-
+foreign import ccall "dynamic"  \
+mkFun :: FunPtr (CInt -> IO ()) -> (CInt -> IO ())
 
 The stub factory mkFun converts any pointer
 to a C function that gets an integer value as its only argument and does
 not have a return value into a corresponding Haskell function.
 
-Dynamic wrapper.  
+Dynamic wrapper.\
 The type of a wrapper stub has to be of the
 form
-ft -\> IO (FunPtr ft),
+ft -> IO (FunPtr ft),
 where ft may be any foreign type.
 
 As an example, consider
 
-
-
-
-
-foreign import ccall "wrapper"    
-  mkCallback :: IO () -\> IO (FunPtr (IO ()))
-
-
-
-
+foreign import ccall "wrapper"  \
+mkCallback :: IO () -> IO (FunPtr (IO ()))
 
 The stub factory mkCallback turns any
 Haskell computation of type
@@ -12362,18 +9448,18 @@ into the Haskell context by invoking the referenced function.
 Specification
 of Header Files A C header specified in an import
 declaration is always included by
-\#include "chname".
+#include "chname".
 There is no explicit support for
-\#include \<chname\>
+#include \<chname>
 style inclusion. The ISO
-C99 \[7\] standard
+C99 [7] standard
 guarantees that any search path that would be used for a
-\#include \<chname\>
+#include \<chname>
 is also used for
-\#include "chname"
+#include "chname"
 and it is guaranteed that these paths are searched after all paths that
 are unique to
-\#include "chname".
+#include "chname".
 Furthermore, we require that chname ends in
 .h to make parsing of the specification of
 external entities unambiguous.
@@ -12415,19 +9501,11 @@ declaration must use the types after
 argument promotion. For example, consider the following C function
 definition, which lacks a prototype:
 
-
-
-
-
-void foo (a)    
-float a;    
-{    
-  ...    
+void foo (a)  \
+float a;  \
+{  \
+...  \
 }
-
-
-
-
 
 The lack of a prototype implies that a C compiler will apply default
 argument promotion to the parameter a, and
@@ -12438,39 +9516,15 @@ Hence, the correct
 foreign import
 declaration is
 
-
-
-
-
-foreign import ccall foo :: Double -\> IO ()
-
-
-
-
+foreign import ccall foo :: Double -> IO ()
 
 In contrast, a C function compiled with the prototype
 
-
-
-
-
 void foo (float a);
-
-
-
-
 
 requires
 
-
-
-
-
-foreign import ccall foo :: Float -\> IO ()
-
-
-
-
+foreign import ccall foo :: Float -> IO ()
 
 A similar situation arises in the case of
 foreign export
@@ -12488,14 +9542,14 @@ be different for such functions, a Haskell system will, in general, not
 be able to make use of variable argument functions. Hence, their use is
 deprecated in portable code.
 
-#### 8.5.2  Win32 API Calls
+#### 8.5.2 Win32 API Calls
 
 The specification of external entities under the
 stdcall calling convention is identical to
 that for standard C calls. The two calling conventions only differ in
 the generated code.
 
-### 8.6  Marshalling
+### 8.6 Marshalling
 
 In addition to the language extension discussed in previous sections,
 the FFI includes a set of standard libraries, which ease portable use of
@@ -12539,19 +9593,9 @@ Thus, to represent C interfaces faithfully in Haskell, for each integral
 type in C, we need to have an integral type in Haskell that is
 guaranteed to have the same size as the corresponding C type.
 
-### 8.7  The External C Interface
+### 8.7 The External C Interface
 
-
-
-
-
-------------------------------------------------------------------------
-
-
-
-
-
-
+______________________________________________________________________
 
 <table id="TBL-98" class="tabular" data-cellspacing="0"
 data-cellpadding="0" data-rules="groups">
@@ -12806,36 +9850,12 @@ style="text-align: left; white-space: nowrap;"></td>
 </tbody>
 </table>
 
-
-
-  
-
-
-
 Table 8.2: C Interface to
 Basic Haskell Types
 
+______________________________________________________________________
 
-
-
-
-
-
-------------------------------------------------------------------------
-
-
-
-
-
-
-
-------------------------------------------------------------------------
-
-
-
-
-
-
+______________________________________________________________________
 
 <table id="TBL-99" class="tabular" data-cellspacing="0"
 data-cellpadding="0" data-rules="groups">
@@ -13373,24 +10393,10 @@ style="text-align: left; white-space: nowrap;"></td>
 </tbody>
 </table>
 
-
-
-  
-
-
-
 Table 8.3: C Interface to
 Range and Precision of Basic Types
 
-
-
-
-
-
-
-------------------------------------------------------------------------
-
-
+______________________________________________________________________
 
 Every Haskell system that implements the FFI needs to provide a C header
 file named HsFFI.h that defines the C
@@ -13419,12 +10425,12 @@ Table [8.3](#x15-1700023) contains symbols characterising the range and
 precision of the types from Table [8.2](#x15-1700012). Where available,
 the table states the corresponding Haskell values. All C symbols, with
 the exception of HS_FLOAT_ROUND are
-constants that are suitable for use in \#if
+constants that are suitable for use in #if
 preprocessing directives. Note that there is only one rounding style
 (HS_FLOAT_ROUND) and one radix
 (HS_FLOAT_RADIX), as this is all that is
 supported by ISO
-C \[7\].
+C [7].
 
 Moreover, an implementation that does not support 64 bit integral types
 on the C side should implement HsInt64 and
@@ -13437,22 +10443,14 @@ In addition, to the symbols from Table [8.2](#x15-1700012)
 and [8.3](#x15-1700023), the header HsFFI.h
 must also contain the following prototypes:
 
-
-
-
-
-void hs_init     (int ⋆argc, char ⋆⋆argv\[\]);    
-void hs_exit     (void);    
-void hs_set_argv (int argc, char ⋆argv\[\]);    
-   
-void hs_perform_gc (void);    
-   
-void hs_free_stable_ptr (HsStablePtr sp);    
+void hs_init     (int ⋆argc, char ⋆⋆argv[]);  \
+void hs_exit     (void);  \
+void hs_set_argv (int argc, char ⋆argv[]);  \
+\
+void hs_perform_gc (void);  \
+\
+void hs_free_stable_ptr (HsStablePtr sp);  \
 void hs_free_fun_ptr    (HsFunPtr fp);
-
-
-
-
 
 These routines are useful for mixed language programs, where the main
 application is implemented in a foreign language that accesses routines
@@ -13512,22 +10510,12 @@ hs_free_fun_ptr() are the C counterparts of
 the Haskell functions freeStablePtr and
 freeHaskellFunPtr.
 
+[prev-tail]
 
+______________________________________________________________________
 
-\[prev-tail\]
-
-
-
-
-
----
-
-
-
-\[prev-tail\]
-\[up\]
-
-
+[prev-tail]
+[up]
 
 ## Chapter 9 Standard Prelude
 
@@ -13597,2277 +10585,1282 @@ given in the Data.List library, with the
 prefix “generic”; for example
 genericLength.
 
+module Prelude (  \
+module PreludeList, module PreludeText, module PreludeIO,  \
+Bool(False, True),  \
+Maybe(Nothing, Just),  \
+Either(Left, Right),  \
+Ordering(LT, EQ, GT),  \
+Char, String, Int, Integer, Float, Double, Rational, IO,
 
-
-module Prelude (    
-    module PreludeList, module PreludeText, module PreludeIO,    
-    Bool(False, True),    
-    Maybe(Nothing, Just),    
-    Either(Left, Right),    
-    Ordering(LT, EQ, GT),    
-    Char, String, Int, Integer, Float, Double, Rational, IO,
-
-
-
-
-
-
-
---      These built-in types are defined in the Prelude, but    
---      are denoted by built-in syntax, and cannot legally    
---      appear in an export list.    
---  List type: \[\]((:), \[\])    
---  Tuple types: (,)((,)), (,,)((,,)), etc.    
---  Trivial type: ()(())    
---  Functions: (-\>)    
-   
-    Eq((==), (/=)),    
-    Ord(compare, (\<), (\<=), (\>=), (\>), max, min),    
-    Enum(succ, pred, toEnum, fromEnum, enumFrom, enumFromThen,    
-         enumFromTo, enumFromThenTo),    
-    Bounded(minBound, maxBound),    
-    Num((+), (-), (⋆), negate, abs, signum, fromInteger),    
-    Real(toRational),    
-    Integral(quot, rem, div, mod, quotRem, divMod, toInteger),    
-    Fractional((/), recip, fromRational),    
-    Floating(pi, exp, log, sqrt, (⋆⋆), logBase, sin, cos, tan,    
-             asin, acos, atan, sinh, cosh, tanh, asinh, acosh, atanh),
-   
-    RealFrac(properFraction, truncate, round, ceiling, floor),    
-    RealFloat(floatRadix, floatDigits, floatRange, decodeFloat,    
-              encodeFloat, exponent, significand, scaleFloat, isNaN,    
-              isInfinite, isDenormalized, isIEEE, isNegativeZero, atan2),
-   
-    Monad((\>\>=), (\>\>), return, fail),    
-    Functor(fmap),    
-    mapM, mapM\_, sequence, sequence\_, (=\<\<),    
-    maybe, either,    
-    (&&), (\|\|), not, otherwise,    
-    subtract, even, odd, gcd, lcm, (^), (^^),    
-    fromIntegral, realToFrac,    
-    fst, snd, curry, uncurry, id, const, (.), flip, (\$), until,    
-    asTypeOf, error, undefined,    
-    seq, (\$!)    
-  ) where
-
-
-
-
+--      These built-in types are defined in the Prelude, but  \
+--      are denoted by built-in syntax, and cannot legally  \
+--      appear in an export list.  \
+--  List type: \[\]((:), [])  \
+--  Tuple types: (,)((,)), (,,)((,,)), etc.  \
+--  Trivial type: ()(())  \
+--  Functions: (->)  \
+\
+Eq((==), (/=)),  \
+Ord(compare, (\<), (\<=), (>=), (>), max, min),  \
+Enum(succ, pred, toEnum, fromEnum, enumFrom, enumFromThen,  \
+enumFromTo, enumFromThenTo),  \
+Bounded(minBound, maxBound),  \
+Num((+), (-), (⋆), negate, abs, signum, fromInteger),  \
+Real(toRational),  \
+Integral(quot, rem, div, mod, quotRem, divMod, toInteger),  \
+Fractional((/), recip, fromRational),  \
+Floating(pi, exp, log, sqrt, (⋆⋆), logBase, sin, cos, tan,  \
+asin, acos, atan, sinh, cosh, tanh, asinh, acosh, atanh),
+\
+RealFrac(properFraction, truncate, round, ceiling, floor),  \
+RealFloat(floatRadix, floatDigits, floatRange, decodeFloat,  \
+encodeFloat, exponent, significand, scaleFloat, isNaN,  \
+isInfinite, isDenormalized, isIEEE, isNegativeZero, atan2),
+\
+Monad((>>=), (>>), return, fail),  \
+Functor(fmap),  \
+mapM, mapM\_, sequence, sequence\_, (=\<<),  \
+maybe, either,  \
+(&&), (||), not, otherwise,  \
+subtract, even, odd, gcd, lcm, (^), (^^),  \
+fromIntegral, realToFrac,  \
+fst, snd, curry, uncurry, id, const, (.), flip, ($), until,  \
+asTypeOf, error, undefined,  \
+seq, ($!)  \
+) where
 
 import PreludeBuiltin                      -- Contains all ‘prim' values
-   
-import UnicodePrims( primUnicodeMaxChar )  -- Unicode primitives    
-import PreludeList    
-import PreludeText    
-import PreludeIO    
+\
+import UnicodePrims( primUnicodeMaxChar )  -- Unicode primitives  \
+import PreludeList  \
+import PreludeText  \
+import PreludeIO  \
 import Data.Ratio( Rational )
 
-
-
-
-
-
-
-infixr 9  .    
-infixr 8  ^, ^^, ⋆⋆    
-infixl 7  ⋆, /, ‘quot‘, ‘rem‘, ‘div‘, ‘mod‘    
+infixr 9  .  \
+infixr 8  ^, ^^, ⋆⋆  \
+infixl 7  ⋆, /, ‘quot‘, ‘rem‘, ‘div‘, ‘mod‘  \
 infixl 6  +, -
 
-
-
-
-
-
-
--- The (:) operator is built-in syntax, and cannot legally be given    
--- a fixity declaration; but its fixity is given by:    
---   infixr 5  :    
-   
-infix  4  ==, /=, \<, \<=, \>=, \>    
-infixr 3  &&    
-infixr 2  \|\|    
-infixl 1  \>\>, \>\>=    
-infixr 1  =\<\<    
-infixr 0  \$, \$!, ‘seq‘
-
-
-
-
-
-
-
--- Standard types, classes, instances and related functions    
-   
--- Equality and Ordered classes    
-   
-class  Eq a  where    
-    (==), (/=) :: a -\> a -\> Bool    
-   
-        -- Minimal complete definition:    
-        --      (==) or (/=)    
-    x /= y     =  not (x == y)    
-    x == y     =  not (x /= y)
-
-
-
-
-
-class  (Eq a) =\> Ord a  where    
-    compare              :: a -\> a -\> Ordering    
-    (\<), (\<=), (\>=), (\>) :: a -\> a -\> Bool    
-    max, min             :: a -\> a -\> a    
-   
-        -- Minimal complete definition:    
-        --      (\<=) or compare    
-        -- Using compare can be more efficient for complex types.    
-    compare x y    
-         \| x == y    =  EQ    
-         \| x \<= y    =  LT    
-         \| otherwise =  GT    
-   
-    x \<= y           =  compare x y /= GT    
-    x \<  y           =  compare x y == LT    
-    x \>= y           =  compare x y /= LT    
-    x \>  y           =  compare x y == GT
-
-
-
-
-
--- note that (min x y, max x y) = (x,y) or (y,x)    
-    max x y    
-         \| x \<= y    =  y    
-         \| otherwise =  x    
-    min x y    
-         \| x \<= y    =  x    
-         \| otherwise =  y
-
-
-
-
-
--- Enumeration and Bounded classes    
-   
-class  Enum a  where    
-    succ, pred       :: a -\> a    
-    toEnum           :: Int -\> a    
-    fromEnum         :: a -\> Int    
-    enumFrom         :: a -\> \[a\]             -- \[n..\]    
-    enumFromThen     :: a -\> a -\> \[a\]        -- \[n,n'..\]    
-    enumFromTo       :: a -\> a -\> \[a\]        -- \[n..m\]    
-    enumFromThenTo   :: a -\> a -\> a -\> \[a\]   -- \[n,n'..m\]    
-   
-        -- Minimal complete definition:    
-        --      toEnum, fromEnum    
-        --    
-        -- NOTE: these default methods only make sense for types    
-        --       that map injectively into Int using fromEnum    
-        --       and toEnum.    
-    succ             =  toEnum . (+1) . fromEnum    
-    pred             =  toEnum . (subtract 1) . fromEnum    
-    enumFrom x       =  map toEnum \[fromEnum x ..\]    
-    enumFromTo x y   =  map toEnum \[fromEnum x .. fromEnum y\]    
-    enumFromThen x y =  map toEnum \[fromEnum x, fromEnum y ..\]    
-    enumFromThenTo x y z =    
-                        map toEnum \[fromEnum x, fromEnum y .. fromEnum z\]
-
-
-
-
-
-class  Bounded a  where    
-    minBound         :: a    
-    maxBound         :: a
-
-
-
-
-
--- Numeric classes    
-   
-class  (Eq a, Show a) =\> Num a  where    
-    (+), (-), (⋆)    :: a -\> a -\> a    
-    negate           :: a -\> a    
-    abs, signum      :: a -\> a    
-    fromInteger      :: Integer -\> a    
-   
-        -- Minimal complete definition:    
-        --      All, except negate or (-)    
-    x - y            =  x + negate y    
-    negate x         =  0 - x
-
-
-
-
-
-class  (Num a, Ord a) =\> Real a  where    
-    toRational       ::  a -\> Rational
-
-
-
-
-
-class  (Real a, Enum a) =\> Integral a  where    
-    quot, rem        :: a -\> a -\> a    
-    div, mod         :: a -\> a -\> a    
-    quotRem, divMod  :: a -\> a -\> (a,a)    
-    toInteger        :: a -\> Integer    
-   
-        -- Minimal complete definition:    
-        --      quotRem, toInteger    
-    n ‘quot‘ d       =  q  where (q,r) = quotRem n d    
-    n ‘rem‘ d        =  r  where (q,r) = quotRem n d    
-    n ‘div‘ d        =  q  where (q,r) = divMod n d    
-    n ‘mod‘ d        =  r  where (q,r) = divMod n d    
-    divMod n d       =  if signum r == - signum d then (q-1, r+d) else qr
-   
-                        where qr@(q,r) = quotRem n d
-
-
-
-
-
-class  (Num a) =\> Fractional a  where    
-    (/)              :: a -\> a -\> a    
-    recip            :: a -\> a    
-    fromRational     :: Rational -\> a    
-   
-        -- Minimal complete definition:    
-        --      fromRational and (recip or (/))    
-    recip x          =  1 / x    
-    x / y            =  x ⋆ recip y
-
-
-
-
-
-class  (Fractional a) =\> Floating a  where    
-    pi                  :: a    
-    exp, log, sqrt      :: a -\> a    
-    (⋆⋆), logBase       :: a -\> a -\> a    
-    sin, cos, tan       :: a -\> a    
-    asin, acos, atan    :: a -\> a    
-    sinh, cosh, tanh    :: a -\> a    
-    asinh, acosh, atanh :: a -\> a    
-   
-        -- Minimal complete definition:    
-        --      pi, exp, log, sin, cos, sinh, cosh    
-        --      asin, acos, atan    
-        --      asinh, acosh, atanh    
-    x ⋆⋆ y           =  exp (log x ⋆ y)    
-    logBase x y      =  log y / log x    
-    sqrt x           =  x ⋆⋆ 0.5    
-    tan  x           =  sin  x / cos  x    
-    tanh x           =  sinh x / cosh x
-
-
-
-
-
-class  (Real a, Fractional a) =\> RealFrac a  where    
-    properFraction   :: (Integral b) =\> a -\> (b,a)    
-    truncate, round  :: (Integral b) =\> a -\> b    
-    ceiling, floor   :: (Integral b) =\> a -\> b    
-   
-        -- Minimal complete definition:    
-        --      properFraction    
-    truncate x       =  m  where (m,\_) = properFraction x    
-   
-    round x          =  let (n,r) = properFraction x    
-                            m     = if r \< 0 then n - 1 else n + 1    
-                          in case signum (abs r - 0.5) of    
-                                -1 -\> n    
-                                0  -\> if even n then n else m    
-                                1  -\> m    
-   
-    ceiling x        =  if r \> 0 then n + 1 else n    
-                        where (n,r) = properFraction x    
-   
-    floor x          =  if r \< 0 then n - 1 else n    
-                        where (n,r) = properFraction x
-
-
-
-
-
-class  (RealFrac a, Floating a) =\> RealFloat a  where    
-    floatRadix       :: a -\> Integer    
-    floatDigits      :: a -\> Int    
-    floatRange       :: a -\> (Int,Int)    
-    decodeFloat      :: a -\> (Integer,Int)    
-    encodeFloat      :: Integer -\> Int -\> a    
-    exponent         :: a -\> Int    
-    significand      :: a -\> a    
-    scaleFloat       :: Int -\> a -\> a    
-    isNaN, isInfinite, isDenormalized, isNegativeZero, isIEEE    
-                     :: a -\> Bool    
-    atan2            :: a -\> a -\> a    
-   
-        -- Minimal complete definition:    
-        --      All except exponent, significand,    
-        --                 scaleFloat, atan2    
-    exponent x       =  if m == 0 then 0 else n + floatDigits x    
-                        where (m,n) = decodeFloat x    
-   
-    significand x    =  encodeFloat m (- floatDigits x)    
-                        where (m,\_) = decodeFloat x    
-   
-    scaleFloat k x   =  encodeFloat m (n+k)    
-                        where (m,n) = decodeFloat x    
-   
-    atan2 y x    
-      \| x\>0           =  atan (y/x)    
-      \| x==0 && y\>0   =  pi/2    
-      \| x\<0  && y\>0   =  pi + atan (y/x)    
-      \|(x\<=0 && y\<0)  \|\|    
-       (x\<0 && isNegativeZero y) \|\|    
-       (isNegativeZero x && isNegativeZero y)    
-                      = -atan2 (-y) x    
-      \| y==0 && (x\<0 \|\| isNegativeZero x)    
-                      =  pi    -- must be after the previous test on zero y
-   
-      \| x==0 && y==0  =  y     -- must be after the other double zero tests
-   
-      \| otherwise     =  x + y -- x or y is a NaN, return a NaN (via +)
-
-
-
-
-
--- Numeric functions    
-   
-subtract         :: (Num a) =\> a -\> a -\> a    
+-- The (:) operator is built-in syntax, and cannot legally be given  \
+-- a fixity declaration; but its fixity is given by:  \
+--   infixr 5  :  \
+\
+infix  4  ==, /=, \<, \<=, >=, >  \
+infixr 3  &&  \
+infixr 2  ||  \
+infixl 1  >>, >>=  \
+infixr 1  =\<<  \
+infixr 0  $, $!, ‘seq‘
+
+-- Standard types, classes, instances and related functions  \
+\
+-- Equality and Ordered classes  \
+\
+class  Eq a  where  \
+(==), (/=) :: a -> a -> Bool  \
+\
+-- Minimal complete definition:  \
+--      (==) or (/=)  \
+x /= y     =  not (x == y)  \
+x == y     =  not (x /= y)
+
+class  (Eq a) => Ord a  where  \
+compare              :: a -> a -> Ordering  \
+(\<), (\<=), (>=), (>) :: a -> a -> Bool  \
+max, min             :: a -> a -> a  \
+\
+-- Minimal complete definition:  \
+--      (\<=) or compare  \
+-- Using compare can be more efficient for complex types.  \
+compare x y  \
+| x == y    =  EQ  \
+| x \<= y    =  LT  \
+| otherwise =  GT  \
+\
+x \<= y           =  compare x y /= GT  \
+x \<  y           =  compare x y == LT  \
+x >= y           =  compare x y /= LT  \
+x >  y           =  compare x y == GT
+
+-- note that (min x y, max x y) = (x,y) or (y,x)  \
+max x y  \
+| x \<= y    =  y  \
+| otherwise =  x  \
+min x y  \
+| x \<= y    =  x  \
+| otherwise =  y
+
+-- Enumeration and Bounded classes  \
+\
+class  Enum a  where  \
+succ, pred       :: a -> a  \
+toEnum           :: Int -> a  \
+fromEnum         :: a -> Int  \
+enumFrom         :: a -> [a]             -- [n..]  \
+enumFromThen     :: a -> a -> [a]        -- [n,n'..]  \
+enumFromTo       :: a -> a -> [a]        -- [n..m]  \
+enumFromThenTo   :: a -> a -> a -> [a]   -- [n,n'..m]  \
+\
+-- Minimal complete definition:  \
+--      toEnum, fromEnum  \
+--  \
+-- NOTE: these default methods only make sense for types  \
+--       that map injectively into Int using fromEnum  \
+--       and toEnum.  \
+succ             =  toEnum . (+1) . fromEnum  \
+pred             =  toEnum . (subtract 1) . fromEnum  \
+enumFrom x       =  map toEnum [fromEnum x ..]  \
+enumFromTo x y   =  map toEnum [fromEnum x .. fromEnum y]  \
+enumFromThen x y =  map toEnum [fromEnum x, fromEnum y ..]  \
+enumFromThenTo x y z =  \
+map toEnum [fromEnum x, fromEnum y .. fromEnum z]
+
+class  Bounded a  where  \
+minBound         :: a  \
+maxBound         :: a
+
+-- Numeric classes  \
+\
+class  (Eq a, Show a) => Num a  where  \
+(+), (-), (⋆)    :: a -> a -> a  \
+negate           :: a -> a  \
+abs, signum      :: a -> a  \
+fromInteger      :: Integer -> a  \
+\
+-- Minimal complete definition:  \
+--      All, except negate or (-)  \
+x - y            =  x + negate y  \
+negate x         =  0 - x
+
+class  (Num a, Ord a) => Real a  where  \
+toRational       ::  a -> Rational
+
+class  (Real a, Enum a) => Integral a  where  \
+quot, rem        :: a -> a -> a  \
+div, mod         :: a -> a -> a  \
+quotRem, divMod  :: a -> a -> (a,a)  \
+toInteger        :: a -> Integer  \
+\
+-- Minimal complete definition:  \
+--      quotRem, toInteger  \
+n ‘quot‘ d       =  q  where (q,r) = quotRem n d  \
+n ‘rem‘ d        =  r  where (q,r) = quotRem n d  \
+n ‘div‘ d        =  q  where (q,r) = divMod n d  \
+n ‘mod‘ d        =  r  where (q,r) = divMod n d  \
+divMod n d       =  if signum r == - signum d then (q-1, r+d) else qr
+\
+where qr@(q,r) = quotRem n d
+
+class  (Num a) => Fractional a  where  \
+(/)              :: a -> a -> a  \
+recip            :: a -> a  \
+fromRational     :: Rational -> a  \
+\
+-- Minimal complete definition:  \
+--      fromRational and (recip or (/))  \
+recip x          =  1 / x  \
+x / y            =  x ⋆ recip y
+
+class  (Fractional a) => Floating a  where  \
+pi                  :: a  \
+exp, log, sqrt      :: a -> a  \
+(⋆⋆), logBase       :: a -> a -> a  \
+sin, cos, tan       :: a -> a  \
+asin, acos, atan    :: a -> a  \
+sinh, cosh, tanh    :: a -> a  \
+asinh, acosh, atanh :: a -> a  \
+\
+-- Minimal complete definition:  \
+--      pi, exp, log, sin, cos, sinh, cosh  \
+--      asin, acos, atan  \
+--      asinh, acosh, atanh  \
+x ⋆⋆ y           =  exp (log x ⋆ y)  \
+logBase x y      =  log y / log x  \
+sqrt x           =  x ⋆⋆ 0.5  \
+tan  x           =  sin  x / cos  x  \
+tanh x           =  sinh x / cosh x
+
+class  (Real a, Fractional a) => RealFrac a  where  \
+properFraction   :: (Integral b) => a -> (b,a)  \
+truncate, round  :: (Integral b) => a -> b  \
+ceiling, floor   :: (Integral b) => a -> b  \
+\
+-- Minimal complete definition:  \
+--      properFraction  \
+truncate x       =  m  where (m,\_) = properFraction x  \
+\
+round x          =  let (n,r) = properFraction x  \
+m     = if r \< 0 then n - 1 else n + 1  \
+in case signum (abs r - 0.5) of  \
+-1 -> n  \
+0  -> if even n then n else m  \
+1  -> m  \
+\
+ceiling x        =  if r > 0 then n + 1 else n  \
+where (n,r) = properFraction x  \
+\
+floor x          =  if r \< 0 then n - 1 else n  \
+where (n,r) = properFraction x
+
+class  (RealFrac a, Floating a) => RealFloat a  where  \
+floatRadix       :: a -> Integer  \
+floatDigits      :: a -> Int  \
+floatRange       :: a -> (Int,Int)  \
+decodeFloat      :: a -> (Integer,Int)  \
+encodeFloat      :: Integer -> Int -> a  \
+exponent         :: a -> Int  \
+significand      :: a -> a  \
+scaleFloat       :: Int -> a -> a  \
+isNaN, isInfinite, isDenormalized, isNegativeZero, isIEEE  \
+:: a -> Bool  \
+atan2            :: a -> a -> a  \
+\
+-- Minimal complete definition:  \
+--      All except exponent, significand,  \
+--                 scaleFloat, atan2  \
+exponent x       =  if m == 0 then 0 else n + floatDigits x  \
+where (m,n) = decodeFloat x  \
+\
+significand x    =  encodeFloat m (- floatDigits x)  \
+where (m,\_) = decodeFloat x  \
+\
+scaleFloat k x   =  encodeFloat m (n+k)  \
+where (m,n) = decodeFloat x  \
+\
+atan2 y x  \
+| x>0           =  atan (y/x)  \
+| x==0 && y>0   =  pi/2  \
+| x\<0  && y>0   =  pi + atan (y/x)  \
+|(x\<=0 && y\<0)  ||  \
+(x\<0 && isNegativeZero y) ||  \
+(isNegativeZero x && isNegativeZero y)  \
+= -atan2 (-y) x  \
+| y==0 && (x\<0 || isNegativeZero x)  \
+=  pi    -- must be after the previous test on zero y
+\
+| x==0 && y==0  =  y     -- must be after the other double zero tests
+\
+| otherwise     =  x + y -- x or y is a NaN, return a NaN (via +)
+
+-- Numeric functions  \
+\
+subtract         :: (Num a) => a -> a -> a  \
 subtract         =  flip (-)
 
-
-
-
-
-
-
-even, odd        :: (Integral a) =\> a -\> Bool    
-even n           =  n ‘rem‘ 2 == 0    
+even, odd        :: (Integral a) => a -> Bool  \
+even n           =  n ‘rem‘ 2 == 0  \
 odd              =  not . even
 
+gcd              :: (Integral a) => a -> a -> a  \
+gcd 0 0          =  error "Prelude.gcd: gcd 0 0 is undefined"  \
+gcd x y          =  gcd' (abs x) (abs y)  \
+where gcd' x 0  =  x  \
+gcd' x y  =  gcd' y (x ‘rem‘ y)
 
-
-
-
-
-
-gcd              :: (Integral a) =\> a -\> a -\> a    
-gcd 0 0          =  error "Prelude.gcd: gcd 0 0 is undefined"    
-gcd x y          =  gcd' (abs x) (abs y)    
-                    where gcd' x 0  =  x    
-                          gcd' x y  =  gcd' y (x ‘rem‘ y)
-
-
-
-
-
-
-
-lcm              :: (Integral a) =\> a -\> a -\> a    
-lcm \_ 0          =  0    
-lcm 0 \_          =  0    
+lcm              :: (Integral a) => a -> a -> a  \
+lcm _ 0          =  0  \
+lcm 0 _          =  0  \
 lcm x y          =  abs ((x ‘quot‘ (gcd x y)) ⋆ y)
 
+(^)              :: (Num a, Integral b) => a -> b -> a  \
+x ^ 0            =  1  \
+x ^ n | n > 0    =  f x (n-1) x  \
+where f _ 0 y = y  \
+f x n y = g x n  where  \
+g x n | even n  = g (x⋆x) (n ‘quot‘ 2)
+\
+| otherwise = f x (n-1) (x⋆y)
+\
+\_ ^ _            = error "Prelude.^: negative exponent"
 
+(^^)             :: (Fractional a, Integral b) => a -> b -> a  \
+x ^^ n           =  if n >= 0 then x^n else recip (x^(-n))
 
-
-
-
-
-(^)              :: (Num a, Integral b) =\> a -\> b -\> a    
-x ^ 0            =  1    
-x ^ n \| n \> 0    =  f x (n-1) x    
-                    where f \_ 0 y = y    
-                          f x n y = g x n  where    
-                                    g x n \| even n  = g (x⋆x) (n ‘quot‘ 2)
-   
-                                          \| otherwise = f x (n-1) (x⋆y)
-   
-\_ ^ \_            = error "Prelude.^: negative exponent"
-
-
-
-
-
-
-
-(^^)             :: (Fractional a, Integral b) =\> a -\> b -\> a    
-x ^^ n           =  if n \>= 0 then x^n else recip (x^(-n))
-
-
-
-
-
-
-
-fromIntegral     :: (Integral a, Num b) =\> a -\> b    
+fromIntegral     :: (Integral a, Num b) => a -> b  \
 fromIntegral     =  fromInteger . toInteger
 
-
-
-
-
-
-
-realToFrac     :: (Real a, Fractional b) =\> a -\> b    
+realToFrac     :: (Real a, Fractional b) => a -> b  \
 realToFrac      =  fromRational . toRational
 
+-- Monadic classes  \
+\
+class  Functor f  where  \
+fmap              :: (a -> b) -> f a -> f b
 
+class  Monad m  where  \
+(>>=)  :: m a -> (a -> m b) -> m b  \
+(>>)   :: m a -> m b -> m b  \
+return :: a -> m a  \
+fail   :: String -> m a  \
+\
+-- Minimal complete definition:  \
+--      (>>=), return  \
+m >> k  =  m >>= \\ -> k  \
+fail s  = error s
 
+sequence       :: Monad m => [m a] -> m [a]  \
+sequence       =  foldr mcons (return [])  \
+where mcons p q = p >>= \\x -> q >>= \\y -> return (x:y)
 
+sequence\_      :: Monad m => [m a] -> m ()  \
+sequence\_      =  foldr (>>) (return ())
 
-
-
--- Monadic classes    
-   
-class  Functor f  where    
-    fmap              :: (a -\> b) -\> f a -\> f b
-
-
-
-
-
-class  Monad m  where    
-    (\>\>=)  :: m a -\> (a -\> m b) -\> m b    
-    (\>\>)   :: m a -\> m b -\> m b    
-    return :: a -\> m a    
-    fail   :: String -\> m a    
-   
-        -- Minimal complete definition:    
-        --      (\>\>=), return    
-    m \>\> k  =  m \>\>= \\ -\> k    
-    fail s  = error s
-
-
-
-
-
-sequence       :: Monad m =\> \[m a\] -\> m \[a\]    
-sequence       =  foldr mcons (return \[\])    
-                    where mcons p q = p \>\>= \x -\> q \>\>= \y -\> return (x:y)
-
-
-
-
-
-
-
-sequence\_      :: Monad m =\> \[m a\] -\> m ()    
-sequence\_      =  foldr (\>\>) (return ())
-
-
-
-
-
-
-
--- The xxxM functions take list arguments, but lift the function or    
--- list element to a monad type    
-mapM             :: Monad m =\> (a -\> m b) -\> \[a\] -\> m \[b\]    
+-- The xxxM functions take list arguments, but lift the function or  \
+-- list element to a monad type  \
+mapM             :: Monad m => (a -> m b) -> [a] -> m [b]  \
 mapM f as        =  sequence (map f as)
 
-
-
-
-
-
-
-mapM\_            :: Monad m =\> (a -\> m b) -\> \[a\] -\> m ()    
+mapM\_            :: Monad m => (a -> m b) -> [a] -> m ()  \
 mapM\_ f as       =  sequence\_ (map f as)
 
+(=\<<)            :: Monad m => (a -> m b) -> m a -> m b  \
+f =\<< x          =  x >>= f
 
+-- Trivial type  \
+\
+data  ()  =  ()  deriving (Eq, Ord, Enum, Bounded)  \
+-- Not legal Haskell; for illustration only
 
-
-
-
-
-(=\<\<)            :: Monad m =\> (a -\> m b) -\> m a -\> m b    
-f =\<\< x          =  x \>\>= f
-
-
-
-
-
-
-
--- Trivial type    
-   
-data  ()  =  ()  deriving (Eq, Ord, Enum, Bounded)    
-        -- Not legal Haskell; for illustration only
-
-
-
-
-
--- Function type    
-   
--- identity function    
-id               :: a -\> a    
+-- Function type  \
+\
+-- identity function  \
+id               :: a -> a  \
 id x             =  x
 
+-- constant function  \
+const            :: a -> b -> a  \
+const x _        =  x
 
-
-
-
-
-
--- constant function    
-const            :: a -\> b -\> a    
-const x \_        =  x
-
-
-
-
-
-
-
--- function composition    
-(.)              :: (b -\> c) -\> (a -\> b) -\> a -\> c    
-f . g            =  \\x -\> f (g x)
-
-
-
-
-
-
+-- function composition  \
+(.)              :: (b -> c) -> (a -> b) -> a -> c  \
+f . g            =  \\x -> f (g x)
 
 -- flip f  takes its (first) two arguments in the reverse order of f.
-   
-flip             :: (a -\> b -\> c) -\> b -\> a -\> c    
+\
+flip             :: (a -> b -> c) -> b -> a -> c  \
 flip f x y       =  f y x
 
-
-
-
-
-
-
-seq :: a -\> b -\> b    
+seq :: a -> b -> b  \
 seq = ...       -- Primitive
 
+-- right-associating infix application operators  \
+-- (useful in continuation-passing style)  \
+($), ($!) :: (a -> b) -> a -> b  \
+f $  x    =  f x  \
+f $! x    =  x ‘seq‘ f x
 
+-- Boolean type  \
+\
+data  Bool  =  False | True     deriving (Eq, Ord, Enum, Read, Show, Bounded)
 
+-- Boolean functions  \
+\
+(&&), (||)       :: Bool -> Bool -> Bool  \
+True  && x       =  x  \
+False && _       =  False  \
+True  || _       =  True  \
+False || x       =  x
 
-
-
-
--- right-associating infix application operators    
--- (useful in continuation-passing style)    
-(\$), (\$!) :: (a -\> b) -\> a -\> b    
-f \$  x    =  f x    
-f \$! x    =  x ‘seq‘ f x
-
-
-
-
-
-
-
--- Boolean type    
-   
-data  Bool  =  False \| True     deriving (Eq, Ord, Enum, Read, Show, Bounded)
-
-
-
-
-
-
-
--- Boolean functions    
-   
-(&&), (\|\|)       :: Bool -\> Bool -\> Bool    
-True  && x       =  x    
-False && \_       =  False    
-True  \|\| \_       =  True    
-False \|\| x       =  x
-
-
-
-
-
-
-
-not              :: Bool -\> Bool    
-not True         =  False    
+not              :: Bool -> Bool  \
+not True         =  False  \
 not False        =  True
 
-
-
-
-
-
-
-otherwise        :: Bool    
+otherwise        :: Bool  \
 otherwise        =  True
 
+-- Character type  \
+\
+data Char = ... 'a' | 'b' ... -- Unicode values
 
+instance  Eq Char  where  \
+c == c'          =  fromEnum c == fromEnum c'
 
+instance  Ord Char  where  \
+c \<= c'          =  fromEnum c \<= fromEnum c'
 
+instance  Enum Char  where  \
+toEnum            = primIntToChar  \
+fromEnum          = primCharToInt  \
+enumFrom c        = map toEnum [fromEnum c .. fromEnum (maxBound::Char)]
+\
+enumFromThen c c' = map toEnum [fromEnum c, fromEnum c' .. fromEnum lastChar]
+\
+where lastChar :: Char  \
+lastChar | c' \< c    = minBound  \
+| otherwise = maxBound
 
+instance  Bounded Char  where  \
+minBound  =  '\\0'  \
+maxBound  =  primUnicodeMaxChar
 
+type  String = [Char]
 
--- Character type    
-   
-data Char = ... 'a' \| 'b' ... -- Unicode values
+-- Maybe type  \
+\
+data  Maybe a  =  Nothing | Just a      deriving (Eq, Ord, Read, Show)
 
-
-
-
-
-
-
-instance  Eq Char  where    
-    c == c'          =  fromEnum c == fromEnum c'
-
-
-
-
-
-instance  Ord Char  where    
-    c \<= c'          =  fromEnum c \<= fromEnum c'
-
-
-
-
-
-instance  Enum Char  where    
-    toEnum            = primIntToChar    
-    fromEnum          = primCharToInt    
-    enumFrom c        = map toEnum \[fromEnum c .. fromEnum (maxBound::Char)\]
-   
-    enumFromThen c c' = map toEnum \[fromEnum c, fromEnum c' .. fromEnum lastChar\]
-   
-                      where lastChar :: Char    
-                            lastChar \| c' \< c    = minBound    
-                                     \| otherwise = maxBound
-
-
-
-
-
-instance  Bounded Char  where    
-    minBound  =  '\0'    
-    maxBound  =  primUnicodeMaxChar
-
-
-
-
-
-type  String = \[Char\]
-
-
-
-
-
-
-
--- Maybe type    
-   
-data  Maybe a  =  Nothing \| Just a      deriving (Eq, Ord, Read, Show)
-
-
-
-
-
-
-
-maybe              :: b -\> (a -\> b) -\> Maybe a -\> b    
-maybe n f Nothing  =  n    
+maybe              :: b -> (a -> b) -> Maybe a -> b  \
+maybe n f Nothing  =  n  \
 maybe n f (Just x) =  f x
 
+instance  Functor Maybe  where  \
+fmap f Nothing    =  Nothing  \
+fmap f (Just x)   =  Just (f x)
 
+instance  Monad Maybe  where  \
+(Just x) >>= k   =  k x  \
+Nothing  >>= k   =  Nothing  \
+return           =  Just  \
+fail s           =  Nothing
 
+-- Either type  \
+\
+data  Either a b  =  Left a | Right b   deriving (Eq, Ord, Read, Show)
 
-
-
-
-instance  Functor Maybe  where    
-    fmap f Nothing    =  Nothing    
-    fmap f (Just x)   =  Just (f x)
-
-
-
-
-
-instance  Monad Maybe  where    
-    (Just x) \>\>= k   =  k x    
-    Nothing  \>\>= k   =  Nothing    
-    return           =  Just    
-    fail s           =  Nothing
-
-
-
-
-
--- Either type    
-   
-data  Either a b  =  Left a \| Right b   deriving (Eq, Ord, Read, Show)
-
-
-
-
-
-
-
-either               :: (a -\> c) -\> (b -\> c) -\> Either a b -\> c    
-either f g (Left x)  =  f x    
+either               :: (a -> c) -> (b -> c) -> Either a b -> c  \
+either f g (Left x)  =  f x  \
 either f g (Right y) =  g y
 
-
-
-
-
-
-
--- IO type    
-   
+-- IO type  \
+\
 data IO a = ...         -- abstract
 
+instance  Functor IO where  \
+fmap f x           =  x >>= (return . f)
 
+instance Monad IO where  \
+(>>=)  = ...  \
+return = ...  \
+fail s = ioError (userError s)
 
-
-
-
-
-instance  Functor IO where    
-   fmap f x           =  x \>\>= (return . f)
-
-
-
-
-
-instance Monad IO where    
-   (\>\>=)  = ...    
-   return = ...    
-   fail s = ioError (userError s)
-
-
-
-
-
--- Ordering type    
-   
-data  Ordering  =  LT \| EQ \| GT    
-          deriving (Eq, Ord, Enum, Read, Show, Bounded)
-
-
-
-
-
-
+-- Ordering type  \
+\
+data  Ordering  =  LT | EQ | GT  \
+deriving (Eq, Ord, Enum, Read, Show, Bounded)
 
 -- Standard numeric types.  The data declarations for these types cannot
-   
+\
 -- be expressed directly in Haskell since the constructor lists would be
-   
--- far too large.    
-   
-data  Int  =  minBound ... -1 \| 0 \| 1 ... maxBound    
-instance  Eq       Int  where ...    
-instance  Ord      Int  where ...    
-instance  Num      Int  where ...    
-instance  Real     Int  where ...    
-instance  Integral Int  where ...    
-instance  Enum     Int  where ...    
+\
+-- far too large.  \
+\
+data  Int  =  minBound ... -1 | 0 | 1 ... maxBound  \
+instance  Eq       Int  where ...  \
+instance  Ord      Int  where ...  \
+instance  Num      Int  where ...  \
+instance  Real     Int  where ...  \
+instance  Integral Int  where ...  \
+instance  Enum     Int  where ...  \
 instance  Bounded  Int  where ...
 
-
-
-
-
-
-
-data  Integer  =  ... -1 \| 0 \| 1 ...    
-instance  Eq       Integer  where ...    
-instance  Ord      Integer  where ...    
-instance  Num      Integer  where ...    
-instance  Real     Integer  where ...    
-instance  Integral Integer  where ...    
+data  Integer  =  ... -1 | 0 | 1 ...  \
+instance  Eq       Integer  where ...  \
+instance  Ord      Integer  where ...  \
+instance  Num      Integer  where ...  \
+instance  Real     Integer  where ...  \
+instance  Integral Integer  where ...  \
 instance  Enum     Integer  where ...
 
-
-
-
-
-
-
-data  Float    
-instance  Eq         Float  where ...    
-instance  Ord        Float  where ...    
-instance  Num        Float  where ...    
-instance  Real       Float  where ...    
-instance  Fractional Float  where ...    
-instance  Floating   Float  where ...    
-instance  RealFrac   Float  where ...    
+data  Float  \
+instance  Eq         Float  where ...  \
+instance  Ord        Float  where ...  \
+instance  Num        Float  where ...  \
+instance  Real       Float  where ...  \
+instance  Fractional Float  where ...  \
+instance  Floating   Float  where ...  \
+instance  RealFrac   Float  where ...  \
 instance  RealFloat  Float  where ...
 
-
-
-
-
-
-
-data  Double    
-instance  Eq         Double  where ...    
-instance  Ord        Double  where ...    
-instance  Num        Double  where ...    
-instance  Real       Double  where ...    
-instance  Fractional Double  where ...    
-instance  Floating   Double  where ...    
-instance  RealFrac   Double  where ...    
+data  Double  \
+instance  Eq         Double  where ...  \
+instance  Ord        Double  where ...  \
+instance  Num        Double  where ...  \
+instance  Real       Double  where ...  \
+instance  Fractional Double  where ...  \
+instance  Floating   Double  where ...  \
+instance  RealFrac   Double  where ...  \
 instance  RealFloat  Double  where ...
 
-
-
-
-
-
-
--- The Enum instances for Floats and Doubles are slightly unusual.    
--- The ‘toEnum' function truncates numbers to Int.  The definitions    
+-- The Enum instances for Floats and Doubles are slightly unusual.  \
+-- The ‘toEnum' function truncates numbers to Int.  The definitions  \
 -- of enumFrom and enumFromThen allow floats to be used in arithmetic
-   
--- series: \[0,0.1 .. 0.95\].  However, roundoff errors make these somewhat
-   
+\
+-- series: [0,0.1 .. 0.95].  However, roundoff errors make these somewhat
+\
 -- dubious.  This example may have either 10 or 11 elements, depending on
-   
--- how 0.1 is represented.    
-   
-instance  Enum Float  where    
-    succ x           =  x+1    
-    pred x           =  x-1    
-    toEnum           =  fromIntegral    
-    fromEnum         =  fromInteger . truncate   -- may overflow    
-    enumFrom         =  numericEnumFrom    
-    enumFromThen     =  numericEnumFromThen    
-    enumFromTo       =  numericEnumFromTo    
-    enumFromThenTo   =  numericEnumFromThenTo
+\
+-- how 0.1 is represented.  \
+\
+instance  Enum Float  where  \
+succ x           =  x+1  \
+pred x           =  x-1  \
+toEnum           =  fromIntegral  \
+fromEnum         =  fromInteger . truncate   -- may overflow  \
+enumFrom         =  numericEnumFrom  \
+enumFromThen     =  numericEnumFromThen  \
+enumFromTo       =  numericEnumFromTo  \
+enumFromThenTo   =  numericEnumFromThenTo
 
+instance  Enum Double  where  \
+succ x           =  x+1  \
+pred x           =  x-1  \
+toEnum           =  fromIntegral  \
+fromEnum         =  fromInteger . truncate   -- may overflow  \
+enumFrom         =  numericEnumFrom  \
+enumFromThen     =  numericEnumFromThen  \
+enumFromTo       =  numericEnumFromTo  \
+enumFromThenTo   =  numericEnumFromThenTo
 
-
-
-
-instance  Enum Double  where    
-    succ x           =  x+1    
-    pred x           =  x-1    
-    toEnum           =  fromIntegral    
-    fromEnum         =  fromInteger . truncate   -- may overflow    
-    enumFrom         =  numericEnumFrom    
-    enumFromThen     =  numericEnumFromThen    
-    enumFromTo       =  numericEnumFromTo    
-    enumFromThenTo   =  numericEnumFromThenTo
-
-
-
-
-
-numericEnumFrom         :: (Fractional a) =\> a -\> \[a\]    
-numericEnumFromThen     :: (Fractional a) =\> a -\> a -\> \[a\]    
-numericEnumFromTo       :: (Fractional a, Ord a) =\> a -\> a -\> \[a\]
-   
-numericEnumFromThenTo   :: (Fractional a, Ord a) =\> a -\> a -\> a -\> \[a\]
-   
-numericEnumFrom         =  iterate (+1)    
-numericEnumFromThen n m =  iterate (+(m-n)) n    
-numericEnumFromTo n m   =  takeWhile (\<= m+1/2) (numericEnumFrom n)    
+numericEnumFrom         :: (Fractional a) => a -> [a]  \
+numericEnumFromThen     :: (Fractional a) => a -> a -> [a]  \
+numericEnumFromTo       :: (Fractional a, Ord a) => a -> a -> [a]
+\
+numericEnumFromThenTo   :: (Fractional a, Ord a) => a -> a -> a -> [a]
+\
+numericEnumFrom         =  iterate (+1)  \
+numericEnumFromThen n m =  iterate (+(m-n)) n  \
+numericEnumFromTo n m   =  takeWhile (\<= m+1/2) (numericEnumFrom n)  \
 numericEnumFromThenTo n n' m = takeWhile p (numericEnumFromThen n n')
-   
-                             where    
-                               p \| n' \>= n   = (\<= m + (n'-n)/2)    
-                                 \| otherwise = (\>= m + (n'-n)/2)
+\
+where  \
+p | n' >= n   = (\<= m + (n'-n)/2)  \
+| otherwise = (>= m + (n'-n)/2)
 
+-- Lists  \
+\
+data  [a]  =  [] | a : [a]  deriving (Eq, Ord)  \
+-- Not legal Haskell; for illustration only
 
+instance Functor [] where  \
+fmap = map
 
+instance  Monad []  where  \
+m >>= k          = concat (map k m)  \
+return x         = [x]  \
+fail s           = []
 
+-- Tuples  \
+\
+data  (a,b)   =  (a,b)    deriving (Eq, Ord, Bounded)  \
+data  (a,b,c) =  (a,b,c)  deriving (Eq, Ord, Bounded)  \
+-- Not legal Haskell; for illustration only
 
-
-
--- Lists    
-   
-data  \[a\]  =  \[\] \| a : \[a\]  deriving (Eq, Ord)    
-        -- Not legal Haskell; for illustration only
-
-
-
-
-
-instance Functor \[\] where    
-    fmap = map
-
-
-
-
-
-instance  Monad \[\]  where    
-    m \>\>= k          = concat (map k m)    
-    return x         = \[x\]    
-    fail s           = \[\]
-
-
-
-
-
--- Tuples    
-   
-data  (a,b)   =  (a,b)    deriving (Eq, Ord, Bounded)    
-data  (a,b,c) =  (a,b,c)  deriving (Eq, Ord, Bounded)    
-        -- Not legal Haskell; for illustration only
-
-
-
-
-
--- component projections for pairs:    
--- (NB: not provided for triples, quadruples, etc.)    
-fst              :: (a,b) -\> a    
+-- component projections for pairs:  \
+-- (NB: not provided for triples, quadruples, etc.)  \
+fst              :: (a,b) -> a  \
 fst (x,y)        =  x
 
-
-
-
-
-
-
-snd              :: (a,b) -\> b    
+snd              :: (a,b) -> b  \
 snd (x,y)        =  y
 
-
-
-
-
-
-
--- curry converts an uncurried function to a curried function;    
--- uncurry converts a curried function to a function on pairs.    
-curry            :: ((a, b) -\> c) -\> a -\> b -\> c    
+-- curry converts an uncurried function to a curried function;  \
+-- uncurry converts a curried function to a function on pairs.  \
+curry            :: ((a, b) -> c) -> a -> b -> c  \
 curry f x y      =  f (x, y)
 
-
-
-
-
-
-
-uncurry          :: (a -\> b -\> c) -\> ((a, b) -\> c)    
+uncurry          :: (a -> b -> c) -> ((a, b) -> c)  \
 uncurry f p      =  f (fst p) (snd p)
 
-
-
-
-
-
-
--- Misc functions    
-   
--- until p f  yields the result of applying f until p holds.    
-until            :: (a -\> Bool) -\> (a -\> a) -\> a -\> a    
-until p f x    
-     \| p x       =  x    
-     \| otherwise =  until p f (f x)
-
-
-
-
-
-
+-- Misc functions  \
+\
+-- until p f  yields the result of applying f until p holds.  \
+until            :: (a -> Bool) -> (a -> a) -> a -> a  \
+until p f x  \
+| p x       =  x  \
+| otherwise =  until p f (f x)
 
 -- asTypeOf is a type-restricted version of const.  It is usually used
-   
--- as an infix operator, and its typing forces its first argument    
+\
+-- as an infix operator, and its typing forces its first argument  \
 -- (which is usually overloaded) to have the same type as the second.
-   
-asTypeOf         :: a -\> a -\> a    
+\
+asTypeOf         :: a -> a -> a  \
 asTypeOf         =  const
 
-
-
-
-
-
-
--- error stops execution and displays an error message    
-   
-error            :: String -\> a    
+-- error stops execution and displays an error message  \
+\
+error            :: String -> a  \
 error            =  primError
 
-
-
-
-
-
-
 -- It is expected that compilers will recognize this and insert error
-   
+\
 -- messages that are more appropriate to the context in which undefined
-   
--- appears.    
-   
-undefined        :: a    
+\
+-- appears.  \
+\
+undefined        :: a  \
 undefined        =  error "Prelude.undefined"
 
+### 9.1 Prelude PreludeList
 
-
-
-
-### 9.1  Prelude PreludeList
-
-
-
--- Standard list functions    
-   
-module PreludeList (    
-    map, (++), filter, concat, concatMap,    
-    head, last, tail, init, null, length, (!!),    
-    foldl, foldl1, scanl, scanl1, foldr, foldr1, scanr, scanr1,    
-    iterate, repeat, replicate, cycle,    
-    take, drop, splitAt, takeWhile, dropWhile, span, break,    
-    lines, words, unlines, unwords, reverse, and, or,    
-    any, all, elem, notElem, lookup,    
-    sum, product, maximum, minimum,    
-    zip, zip3, zipWith, zipWith3, unzip, unzip3)    
-  where
-
-
-
-
-
-
+-- Standard list functions  \
+\
+module PreludeList (  \
+map, (++), filter, concat, concatMap,  \
+head, last, tail, init, null, length, (!!),  \
+foldl, foldl1, scanl, scanl1, foldr, foldr1, scanr, scanr1,  \
+iterate, repeat, replicate, cycle,  \
+take, drop, splitAt, takeWhile, dropWhile, span, break,  \
+lines, words, unlines, unwords, reverse, and, or,  \
+any, all, elem, notElem, lookup,  \
+sum, product, maximum, minimum,  \
+zip, zip3, zipWith, zipWith3, unzip, unzip3)  \
+where
 
 import qualified Data.Char(isSpace)
 
-
-
-
-
-infixl 9  !!    
-infixr 5  ++    
+infixl 9  !!  \
+infixr 5  ++  \
 infix  4  ‘elem‘, ‘notElem‘
 
-
-
-
-
-
-
--- Map and append    
-map :: (a -\> b) -\> \[a\] -\> \[b\]    
-map f \[\]     = \[\]    
+-- Map and append  \
+map :: (a -> b) -> [a] -> [b]  \
+map f []     = []  \
 map f (x:xs) = f x : map f xs
 
-
-
-
-
-
-
-(++) :: \[a\] -\> \[a\] -\> \[a\]    
-\[\]     ++ ys = ys    
+(++) :: [a] -> [a] -> [a]  \
+[]     ++ ys = ys  \
 (x:xs) ++ ys = x : (xs ++ ys)
 
+filter :: (a -> Bool) -> [a] -> [a]  \
+filter p []                 = []  \
+filter p (x:xs) | p x       = x : filter p xs  \
+| otherwise = filter p xs
 
+concat :: \[[a]\] -> [a]  \
+concat xss = foldr (++) [] xss
 
-
-
-
-
-filter :: (a -\> Bool) -\> \[a\] -\> \[a\]    
-filter p \[\]                 = \[\]    
-filter p (x:xs) \| p x       = x : filter p xs    
-                \| otherwise = filter p xs
-
-
-
-
-
-
-
-concat :: \[\[a\]\] -\> \[a\]    
-concat xss = foldr (++) \[\] xss
-
-
-
-
-
-
-
-concatMap :: (a -\> \[b\]) -\> \[a\] -\> \[b\]    
+concatMap :: (a -> [b]) -> [a] -> [b]  \
 concatMap f = concat . map f
 
+-- head and tail extract the first element and remaining elements,  \
+-- respectively, of a list, which must be non-empty.  last and init  \
+-- are the dual functions working from the end of a finite list,  \
+-- rather than the beginning.  \
+\
+head             :: [a] -> a  \
+head (x:\_)       =  x  \
+head []          =  error "Prelude.head: empty list"
 
+tail             :: [a] -> [a]  \
+tail (\_:xs)      =  xs  \
+tail []          =  error "Prelude.tail: empty list"
 
+last             :: [a] -> a  \
+last [x]         =  x  \
+last (\_:xs)      =  last xs  \
+last []          =  error "Prelude.last: empty list"
 
+init             :: [a] -> [a]  \
+init [x]         =  []  \
+init (x:xs)      =  x : init xs  \
+init []          =  error "Prelude.init: empty list"
 
-
-
--- head and tail extract the first element and remaining elements,    
--- respectively, of a list, which must be non-empty.  last and init    
--- are the dual functions working from the end of a finite list,    
--- rather than the beginning.    
-   
-head             :: \[a\] -\> a    
-head (x:\_)       =  x    
-head \[\]          =  error "Prelude.head: empty list"
-
-
-
-
-
-
-
-tail             :: \[a\] -\> \[a\]    
-tail (\_:xs)      =  xs    
-tail \[\]          =  error "Prelude.tail: empty list"
-
-
-
-
-
-
-
-last             :: \[a\] -\> a    
-last \[x\]         =  x    
-last (\_:xs)      =  last xs    
-last \[\]          =  error "Prelude.last: empty list"
-
-
-
-
-
-
-
-init             :: \[a\] -\> \[a\]    
-init \[x\]         =  \[\]    
-init (x:xs)      =  x : init xs    
-init \[\]          =  error "Prelude.init: empty list"
-
-
-
-
-
-
-
-null             :: \[a\] -\> Bool    
-null \[\]          =  True    
+null             :: [a] -> Bool  \
+null []          =  True  \
 null (\_:\_)       =  False
 
-
-
-
-
-
-
--- length returns the length of a finite list as an Int.    
-length           :: \[a\] -\> Int    
-length \[\]        =  0    
+-- length returns the length of a finite list as an Int.  \
+length           :: [a] -> Int  \
+length []        =  0  \
 length (\_:l)     =  1 + length l
 
-
-
-
-
-
-
--- List index (subscript) operator, 0-origin    
-(!!)                :: \[a\] -\> Int -\> a    
-xs     !! n \| n \< 0 =  error "Prelude.!!: negative index"    
-\[\]     !! \_         =  error "Prelude.!!: index too large"    
-(x:\_)  !! 0         =  x    
+-- List index (subscript) operator, 0-origin  \
+(!!)                :: [a] -> Int -> a  \
+xs     !! n | n \< 0 =  error "Prelude.!!: negative index"  \
+[]     !! _         =  error "Prelude.!!: index too large"  \
+(x:\_)  !! 0         =  x  \
 (\_:xs) !! n         =  xs !! (n-1)
 
-
-
-
-
-
-
 -- foldl, applied to a binary operator, a starting value (typically the
-   
+\
 -- left-identity of the operator), and a list, reduces the list using
-   
--- the binary operator, from left to right:    
---  foldl f z \[x1, x2, ..., xn\] == (...((z ‘f‘ x1) ‘f‘ x2) ‘f‘...) ‘f‘ xn
-   
+\
+-- the binary operator, from left to right:  \
+--  foldl f z [x1, x2, ..., xn] == (...((z ‘f‘ x1) ‘f‘ x2) ‘f‘...) ‘f‘ xn
+\
 -- foldl1 is a variant that has no starting value argument, and  thus must
-   
+\
 -- be applied to non-empty lists.  scanl is similar to foldl, but returns
-   
--- a list of successive reduced values from the left:    
---      scanl f z \[x1, x2, ...\] == \[z, z ‘f‘ x1, (z ‘f‘ x1) ‘f‘ x2, ...\]
-   
--- Note that  last (scanl f z xs) == foldl f z xs.    
--- scanl1 is similar, again without the starting element:    
---      scanl1 f \[x1, x2, ...\] == \[x1, x1 ‘f‘ x2, ...\]    
-   
-foldl            :: (a -\> b -\> a) -\> a -\> \[b\] -\> a    
-foldl f z \[\]     =  z    
+\
+-- a list of successive reduced values from the left:  \
+--      scanl f z [x1, x2, ...] == [z, z ‘f‘ x1, (z ‘f‘ x1) ‘f‘ x2, ...]
+\
+-- Note that  last (scanl f z xs) == foldl f z xs.  \
+-- scanl1 is similar, again without the starting element:  \
+--      scanl1 f [x1, x2, ...] == [x1, x1 ‘f‘ x2, ...]  \
+\
+foldl            :: (a -> b -> a) -> a -> [b] -> a  \
+foldl f z []     =  z  \
 foldl f z (x:xs) =  foldl f (f z x) xs
 
+foldl1           :: (a -> a -> a) -> [a] -> a  \
+foldl1 f (x:xs)  =  foldl f x xs  \
+foldl1 _ []      =  error "Prelude.foldl1: empty list"
 
+scanl            :: (a -> b -> a) -> a -> [b] -> [a]  \
+scanl f q xs     =  q : (case xs of  \
+[]   -> []  \
+x:xs -> scanl f (f q x) xs)
 
-
-
-
-
-foldl1           :: (a -\> a -\> a) -\> \[a\] -\> a    
-foldl1 f (x:xs)  =  foldl f x xs    
-foldl1 \_ \[\]      =  error "Prelude.foldl1: empty list"
-
-
-
-
-
-
-
-scanl            :: (a -\> b -\> a) -\> a -\> \[b\] -\> \[a\]    
-scanl f q xs     =  q : (case xs of    
-                            \[\]   -\> \[\]    
-                            x:xs -\> scanl f (f q x) xs)
-
-
-
-
-
-
-
-scanl1           :: (a -\> a -\> a) -\> \[a\] -\> \[a\]    
-scanl1 f (x:xs)  =  scanl f x xs    
-scanl1 \_ \[\]      =  \[\]
-
-
-
-
-
-
+scanl1           :: (a -> a -> a) -> [a] -> [a]  \
+scanl1 f (x:xs)  =  scanl f x xs  \
+scanl1 _ []      =  []
 
 -- foldr, foldr1, scanr, and scanr1 are the right-to-left duals of the
-   
--- above functions.    
-   
-foldr            :: (a -\> b -\> b) -\> b -\> \[a\] -\> b    
-foldr f z \[\]     =  z    
+\
+-- above functions.  \
+\
+foldr            :: (a -> b -> b) -> b -> [a] -> b  \
+foldr f z []     =  z  \
 foldr f z (x:xs) =  f x (foldr f z xs)
 
+foldr1           :: (a -> a -> a) -> [a] -> a  \
+foldr1 f [x]     =  x  \
+foldr1 f (x:xs)  =  f x (foldr1 f xs)  \
+foldr1 _ []      =  error "Prelude.foldr1: empty list"
 
+scanr             :: (a -> b -> b) -> b -> [a] -> [b]  \
+scanr f q0 []     =  [q0]  \
+scanr f q0 (x:xs) =  f x q : qs  \
+where qs@(q:\_) = scanr f q0 xs
 
-
-
-
-
-foldr1           :: (a -\> a -\> a) -\> \[a\] -\> a    
-foldr1 f \[x\]     =  x    
-foldr1 f (x:xs)  =  f x (foldr1 f xs)    
-foldr1 \_ \[\]      =  error "Prelude.foldr1: empty list"
-
-
-
-
-
-
-
-scanr             :: (a -\> b -\> b) -\> b -\> \[a\] -\> \[b\]    
-scanr f q0 \[\]     =  \[q0\]    
-scanr f q0 (x:xs) =  f x q : qs    
-                     where qs@(q:\_) = scanr f q0 xs 
-
-
-
-
-
-
-
-scanr1          :: (a -\> a -\> a) -\> \[a\] -\> \[a\]    
-scanr1 f \[\]     =  \[\]    
-scanr1 f \[x\]    =  \[x\]    
-scanr1 f (x:xs) =  f x q : qs    
-                   where qs@(q:\_) = scanr1 f xs 
-
-
-
-
-
-
+scanr1          :: (a -> a -> a) -> [a] -> [a]  \
+scanr1 f []     =  []  \
+scanr1 f [x]    =  [x]  \
+scanr1 f (x:xs) =  f x q : qs  \
+where qs@(q:\_) = scanr1 f xs
 
 -- iterate f x returns an infinite list of repeated applications of f to x:
-   
--- iterate f x == \[x, f x, f (f x), ...\]    
-iterate          :: (a -\> a) -\> a -\> \[a\]    
+\
+-- iterate f x == [x, f x, f (f x), ...]  \
+iterate          :: (a -> a) -> a -> [a]  \
 iterate f x      =  x : iterate f (f x)
 
-
-
-
-
-
-
--- repeat x is an infinite list, with x the value of every element.    
-repeat           :: a -\> \[a\]    
+-- repeat x is an infinite list, with x the value of every element.  \
+repeat           :: a -> [a]  \
 repeat x         =  xs where xs = x:xs
 
-
-
-
-
-
-
 -- replicate n x is a list of length n with x the value of every element
-   
-replicate        :: Int -\> a -\> \[a\]    
+\
+replicate        :: Int -> a -> [a]  \
 replicate n x    =  take n (repeat x)
 
-
-
-
-
-
-
--- cycle ties a finite list into a circular one, or equivalently,    
--- the infinite repetition of the original list.  It is the identity    
--- on infinite lists.    
-   
-cycle            :: \[a\] -\> \[a\]    
-cycle \[\]         =  error "Prelude.cycle: empty list"    
+-- cycle ties a finite list into a circular one, or equivalently,  \
+-- the infinite repetition of the original list.  It is the identity  \
+-- on infinite lists.  \
+\
+cycle            :: [a] -> [a]  \
+cycle []         =  error "Prelude.cycle: empty list"  \
 cycle xs         =  xs' where xs' = xs ++ xs'
 
-
-
-
-
-
-
 -- take n, applied to a list xs, returns the prefix of xs of length n,
-   
--- or xs itself if n \> length xs.  drop n xs returns the suffix of xs
-   
--- after the first n elements, or \[\] if n \> length xs.  splitAt n xs
-   
--- is equivalent to (take n xs, drop n xs).    
-   
-take                   :: Int -\> \[a\] -\> \[a\]    
-take n \_      \| n \<= 0 =  \[\]    
-take \_ \[\]              =  \[\]    
+\
+-- or xs itself if n > length xs.  drop n xs returns the suffix of xs
+\
+-- after the first n elements, or [] if n > length xs.  splitAt n xs
+\
+-- is equivalent to (take n xs, drop n xs).  \
+\
+take                   :: Int -> [a] -> [a]  \
+take n _      | n \<= 0 =  []  \
+take _ []              =  []  \
 take n (x:xs)          =  x : take (n-1) xs
 
-
-
-
-
-
-
-drop                   :: Int -\> \[a\] -\> \[a\]    
-drop n xs     \| n \<= 0 =  xs    
-drop \_ \[\]              =  \[\]    
+drop                   :: Int -> [a] -> [a]  \
+drop n xs     | n \<= 0 =  xs  \
+drop _ []              =  []  \
 drop n (\_:xs)          =  drop (n-1) xs
 
-
-
-
-
-
-
-splitAt                  :: Int -\> \[a\] -\> (\[a\],\[a\])    
+splitAt                  :: Int -> [a] -> ([a],[a])  \
 splitAt n xs             =  (take n xs, drop n xs)
 
-
-
-
-
-
-
 -- takeWhile, applied to a predicate p and a list xs, returns the longest
-   
+\
 -- prefix (possibly empty) of xs of elements that satisfy p.  dropWhile p xs
-   
--- returns the remaining suffix.  span p xs is equivalent to    
+\
+-- returns the remaining suffix.  span p xs is equivalent to  \
 -- (takeWhile p xs, dropWhile p xs), while break p uses the negation of p.
-   
-   
-takeWhile               :: (a -\> Bool) -\> \[a\] -\> \[a\]    
-takeWhile p \[\]          =  \[\]    
-takeWhile p (x:xs)    
-            \| p x       =  x : takeWhile p xs    
-            \| otherwise =  \[\]
+\
+\
+takeWhile               :: (a -> Bool) -> [a] -> [a]  \
+takeWhile p []          =  []  \
+takeWhile p (x:xs)  \
+| p x       =  x : takeWhile p xs  \
+| otherwise =  []
 
+dropWhile               :: (a -> Bool) -> [a] -> [a]  \
+dropWhile p []          =  []  \
+dropWhile p xs@(x:xs')  \
+| p x       =  dropWhile p xs'  \
+| otherwise =  xs
 
-
-
-
-
-
-dropWhile               :: (a -\> Bool) -\> \[a\] -\> \[a\]    
-dropWhile p \[\]          =  \[\]    
-dropWhile p xs@(x:xs')    
-            \| p x       =  dropWhile p xs'    
-            \| otherwise =  xs
-
-
-
-
-
-
-
-span, break             :: (a -\> Bool) -\> \[a\] -\> (\[a\],\[a\])    
-span p \[\]            = (\[\],\[\])    
-span p xs@(x:xs')    
-            \| p x       =  (x:ys,zs)    
-            \| otherwise =  (\[\],xs)    
-                           where (ys,zs) = span p xs'
-
-
-
-
-
-
+span, break             :: (a -> Bool) -> [a] -> ([a],[a])  \
+span p []            = ([],[])  \
+span p xs@(x:xs')  \
+| p x       =  (x:ys,zs)  \
+| otherwise =  ([],xs)  \
+where (ys,zs) = span p xs'
 
 break p                 =  span (not . p)
 
-
-
-
-
 -- lines breaks a string up into a list of strings at newline characters.
-   
--- The resulting strings do not contain newlines.  Similary, words    
--- breaks a string up into a list of words, which were delimited by    
--- white space.  unlines and unwords are the inverse operations.    
--- unlines joins lines with terminating newlines, and unwords joins    
--- words with separating spaces.    
-   
-lines            :: String -\> \[String\]    
-lines ""         =  \[\]    
-lines s          =  let (l, s') = break (== '\n') s    
-                      in  l : case s' of    
-                                \[\]      -\> \[\]    
-                                (\_:s'') -\> lines s''
+\
+-- The resulting strings do not contain newlines.  Similary, words  \
+-- breaks a string up into a list of words, which were delimited by  \
+-- white space.  unlines and unwords are the inverse operations.  \
+-- unlines joins lines with terminating newlines, and unwords joins  \
+-- words with separating spaces.  \
+\
+lines            :: String -> [String]  \
+lines ""         =  []  \
+lines s          =  let (l, s') = break (== '\\n') s  \
+in  l : case s' of  \
+[]      -> []  \
+(\_:s'') -> lines s''
 
+words            :: String -> [String]  \
+words s          =  case dropWhile Char.isSpace s of  \
+"" -> []  \
+s' -> w : words s''  \
+where (w, s'') = break Char.isSpace s'
 
+unlines          :: [String] -> String  \
+unlines          =  concatMap (++ "\\n")
 
-
-
-
-
-words            :: String -\> \[String\]    
-words s          =  case dropWhile Char.isSpace s of    
-                      "" -\> \[\]    
-                      s' -\> w : words s''    
-                            where (w, s'') = break Char.isSpace s'
-
-
-
-
-
-
-
-unlines          :: \[String\] -\> String    
-unlines          =  concatMap (++ "\n")
-
-
-
-
-
-
-
-unwords          :: \[String\] -\> String    
-unwords \[\]       =  ""    
-unwords ws       =  foldr1 (\w s -\> w ++ ' ':s) ws
-
-
-
-
-
-
+unwords          :: [String] -> String  \
+unwords []       =  ""  \
+unwords ws       =  foldr1 (\\w s -> w ++ ' ':s) ws
 
 -- reverse xs returns the elements of xs in reverse order.  xs must be finite.
-   
-reverse          :: \[a\] -\> \[a\]    
-reverse          =  foldl (flip (:)) \[\]
-
-
-
-
-
-
+\
+reverse          :: [a] -> [a]  \
+reverse          =  foldl (flip (:)) []
 
 -- and returns the conjunction of a Boolean list.  For the result to be
-   
+\
 -- True, the list must be finite; False, however, results from a False
-   
--- value at a finite index of a finite or infinite list.  or is the    
--- disjunctive dual of and.    
-and, or          :: \[Bool\] -\> Bool    
-and              =  foldr (&&) True    
-or               =  foldr (\|\|) False
+\
+-- value at a finite index of a finite or infinite list.  or is the  \
+-- disjunctive dual of and.  \
+and, or          :: [Bool] -> Bool  \
+and              =  foldr (&&) True  \
+or               =  foldr (||) False
 
-
-
-
-
-
-
--- Applied to a predicate and a list, any determines if any element    
--- of the list satisfies the predicate.  Similarly, for all.    
-any, all         :: (a -\> Bool) -\> \[a\] -\> Bool    
-any p            =  or . map p    
+-- Applied to a predicate and a list, any determines if any element  \
+-- of the list satisfies the predicate.  Similarly, for all.  \
+any, all         :: (a -> Bool) -> [a] -> Bool  \
+any p            =  or . map p  \
 all p            =  and . map p
 
-
-
-
-
-
-
 -- elem is the list membership predicate, usually written in infix form,
-   
--- e.g., x ‘elem‘ xs.  notElem is the negation.    
-elem, notElem    :: (Eq a) =\> a -\> \[a\] -\> Bool    
-elem x           =  any (== x)    
+\
+-- e.g., x ‘elem‘ xs.  notElem is the negation.  \
+elem, notElem    :: (Eq a) => a -> [a] -> Bool  \
+elem x           =  any (== x)  \
 notElem x        =  all (/= x)
 
-
-
-
-
-
-
--- lookup key assocs looks up a key in an association list.    
-lookup           :: (Eq a) =\> a -\> \[(a,b)\] -\> Maybe b    
-lookup key \[\]    =  Nothing    
-lookup key ((x,y):xys)    
-    \| key == x   =  Just y    
-    \| otherwise  =  lookup key xys
-
-
-
-
-
-
+-- lookup key assocs looks up a key in an association list.  \
+lookup           :: (Eq a) => a -> [(a,b)] -> Maybe b  \
+lookup key []    =  Nothing  \
+lookup key ((x,y):xys)  \
+| key == x   =  Just y  \
+| otherwise  =  lookup key xys
 
 -- sum and product compute the sum or product of a finite list of numbers.
-   
-sum, product     :: (Num a) =\> \[a\] -\> a    
-sum              =  foldl (+) 0    
+\
+sum, product     :: (Num a) => [a] -> a  \
+sum              =  foldl (+) 0  \
 product          =  foldl (⋆) 1
 
-
-
-
-
-
-
 -- maximum and minimum return the maximum or minimum value from a list,
-   
--- which must be non-empty, finite, and of an ordered type.    
-maximum, minimum :: (Ord a) =\> \[a\] -\> a    
-maximum \[\]       =  error "Prelude.maximum: empty list"    
+\
+-- which must be non-empty, finite, and of an ordered type.  \
+maximum, minimum :: (Ord a) => [a] -> a  \
+maximum []       =  error "Prelude.maximum: empty list"  \
 maximum xs       =  foldl1 max xs
 
-
-
-
-
-
-
-minimum \[\]       =  error "Prelude.minimum: empty list"    
+minimum []       =  error "Prelude.minimum: empty list"  \
 minimum xs       =  foldl1 min xs
 
-
-
-
-
 -- zip takes two lists and returns a list of corresponding pairs.  If one
-   
+\
 -- input list is short, excess elements of the longer list are discarded.
-   
+\
 -- zip3 takes three lists and returns a list of triples.  Zips for larger
-   
--- tuples are in the List library    
-   
-zip              :: \[a\] -\> \[b\] -\> \[(a,b)\]    
+\
+-- tuples are in the List library  \
+\
+zip              :: [a] -> [b] -> [(a,b)]  \
 zip              =  zipWith (,)
 
-
-
-
-
-
-
-zip3             :: \[a\] -\> \[b\] -\> \[c\] -\> \[(a,b,c)\]    
+zip3             :: [a] -> [b] -> [c] -> [(a,b,c)]  \
 zip3             =  zipWith3 (,,)
 
-
-
-
-
-
-
--- The zipWith family generalises the zip family by zipping with the    
+-- The zipWith family generalises the zip family by zipping with the  \
 -- function given as the first argument, instead of a tupling function.
-   
+\
 -- For example, zipWith (+) is applied to two lists to produce the list
-   
--- of corresponding sums.    
-   
-zipWith          :: (a-\>b-\>c) -\> \[a\]-\>\[b\]-\>\[c\]    
-zipWith z (a:as) (b:bs)    
-                 =  z a b : zipWith z as bs    
-zipWith \_ \_ \_    =  \[\]
-
-
-
-
-
-
-
-zipWith3         :: (a-\>b-\>c-\>d) -\> \[a\]-\>\[b\]-\>\[c\]-\>\[d\]
-   
-zipWith3 z (a:as) (b:bs) (c:cs)    
-                 =  z a b c : zipWith3 z as bs cs    
-zipWith3 \_ \_ \_ \_ =  \[\]
-
-
-
-
-
-
-
--- unzip transforms a list of pairs into a pair of lists.    
-   
-unzip            :: \[(a,b)\] -\> (\[a\],\[b\])    
-unzip            =  foldr (\\a,b) ~(as,bs) -\> (a:as,b:bs)) (\[\],\[\])
-
-
-
-
-
-
-
-unzip3           :: \[(a,b,c)\] -\> (\[a\],\[b\],\[c\])    
-unzip3           =  foldr (\\a,b,c) ~(as,bs,cs) -\> (a:as,b:bs,c:cs))
-   
-                          (\[\],\[\],\[\])
-
-
-
-
-
-### 9.2  Prelude PreludeText
-
-
-
-module PreludeText (    
-    ReadS, ShowS,    
-    Read(readsPrec, readList),    
-    Show(showsPrec, show, showList),    
-    reads, shows, read, lex,    
-    showChar, showString, readParen, showParen ) where
-
-
-
-
-
-
-
--- The instances of Read and Show for    
---      Bool, Maybe, Either, Ordering    
--- are done via "deriving" clauses in Prelude.hs    
-   
-import Data.Char(isSpace, isAlpha, isDigit, isAlphaNum,    
-                 showLitChar, readLitChar, lexLitChar)
-
-
-
-
-
-
-
-import Numeric(showSigned, showInt, readSigned, readDec, showFloat,    
-               readFloat, lexDigits)
-
-
-
-
-
-
-
-type  ReadS a  = String -\> \[(a,String)\]    
-type  ShowS    = String -\> String
-
-
-
-
-
-
-
-class  Read a  where    
-    readsPrec        :: Int -\> ReadS a    
-    readList         :: ReadS \[a\]    
-   
-        -- Minimal complete definition:    
-        --      readsPrec    
-    readList         = readParen False (\r -\> \[pr \| ("\[",s)  \<- lex r,
-   
-                                                    pr       \<- readl s\])
-   
-                       where readl  s = \[(\[\],t)   \| ("\]",t)  \<- lex s\] ++
-   
-                                        \[(x:xs,u) \| (x,t)    \<- reads s,
-   
-                                                    (xs,u)   \<- readl' t\]
-   
-                             readl' s = \[(\[\],t)   \| ("\]",t)  \<- lex s\] ++
-   
-                                        \[(x:xs,v) \| (",",t)  \<- lex s,
-   
-                                                    (x,u)    \<- reads t,
-   
-                                                    (xs,v)   \<- readl' u\]
-
-
-
-
-
-class  Show a  where    
-    showsPrec        :: Int -\> a -\> ShowS    
-    show             :: a -\> String    
-    showList         :: \[a\] -\> ShowS    
-   
-        -- Mimimal complete definition:    
-        --      show or showsPrec    
-    showsPrec \_ x s   = show x ++ s    
-   
-    show x            = showsPrec 0 x ""    
-   
-    showList \[\]       = showString "\[\]"    
-    showList (x:xs)   = showChar '\[' . shows x . showl xs    
-                        where showl \[\]     = showChar '\]'    
-                              showl (x:xs) = showChar ',' . shows x .
-   
-                                             showl xs
-
-
-
-
-
-reads            :: (Read a) =\> ReadS a    
+\
+-- of corresponding sums.  \
+\
+zipWith          :: (a->b->c) -> [a]->[b]->[c]  \
+zipWith z (a:as) (b:bs)  \
+=  z a b : zipWith z as bs  \
+zipWith _ _ _    =  []
+
+zipWith3         :: (a->b->c->d) -> [a]->[b]->[c]->[d]
+\
+zipWith3 z (a:as) (b:bs) (c:cs)  \
+=  z a b c : zipWith3 z as bs cs  \
+zipWith3 _ _ _ _ =  []
+
+-- unzip transforms a list of pairs into a pair of lists.  \
+\
+unzip            :: [(a,b)] -> ([a],[b])  \
+unzip            =  foldr (\\a,b) ~(as,bs) -> (a:as,b:bs)) ([],[])
+
+unzip3           :: [(a,b,c)] -> ([a],[b],[c])  \
+unzip3           =  foldr (\\a,b,c) ~(as,bs,cs) -> (a:as,b:bs,c:cs))
+\
+([],[],[])
+
+### 9.2 Prelude PreludeText
+
+module PreludeText (  \
+ReadS, ShowS,  \
+Read(readsPrec, readList),  \
+Show(showsPrec, show, showList),  \
+reads, shows, read, lex,  \
+showChar, showString, readParen, showParen ) where
+
+-- The instances of Read and Show for  \
+--      Bool, Maybe, Either, Ordering  \
+-- are done via "deriving" clauses in Prelude.hs  \
+\
+import Data.Char(isSpace, isAlpha, isDigit, isAlphaNum,  \
+showLitChar, readLitChar, lexLitChar)
+
+import Numeric(showSigned, showInt, readSigned, readDec, showFloat,  \
+readFloat, lexDigits)
+
+type  ReadS a  = String -> [(a,String)]  \
+type  ShowS    = String -> String
+
+class  Read a  where  \
+readsPrec        :: Int -> ReadS a  \
+readList         :: ReadS [a]  \
+\
+-- Minimal complete definition:  \
+--      readsPrec  \
+readList         = readParen False (\\r -> \[pr | ("\[",s)  \<- lex r,
+\
+pr       \<- readl s\])
+\
+where readl  s = \[([],t)   | ("\]",t)  \<- lex s\] ++
+\
+\[(x:xs,u) | (x,t)    \<- reads s,
+\
+(xs,u)   \<- readl' t\]
+\
+readl' s = \[([],t)   | ("\]",t)  \<- lex s\] ++
+\
+\[(x:xs,v) | (",",t)  \<- lex s,
+\
+(x,u)    \<- reads t,
+\
+(xs,v)   \<- readl' u\]
+
+class  Show a  where  \
+showsPrec        :: Int -> a -> ShowS  \
+show             :: a -> String  \
+showList         :: [a] -> ShowS  \
+\
+-- Mimimal complete definition:  \
+--      show or showsPrec  \
+showsPrec _ x s   = show x ++ s  \
+\
+show x            = showsPrec 0 x ""  \
+\
+showList []       = showString "[]"  \
+showList (x:xs)   = showChar '\[' . shows x . showl xs  \
+where showl []     = showChar '\]'  \
+showl (x:xs) = showChar ',' . shows x .
+\
+showl xs
+
+reads            :: (Read a) => ReadS a  \
 reads            =  readsPrec 0
 
-
-
-
-
-
-
-shows            :: (Show a) =\> a -\> ShowS    
+shows            :: (Show a) => a -> ShowS  \
 shows            =  showsPrec 0
 
+read             :: (Read a) => String -> a  \
+read s           =  case [x | (x,t) \<- reads s, ("","") \<- lex t] of
+\
+[x] -> x  \
+[]  -> error "Prelude.read: no parse"  \
+_   -> error "Prelude.read: ambiguous parse"
 
-
-
-
-
-
-read             :: (Read a) =\> String -\> a    
-read s           =  case \[x \| (x,t) \<- reads s, ("","") \<- lex t\] of
-   
-                         \[x\] -\> x    
-                         \[\]  -\> error "Prelude.read: no parse"    
-                         \_   -\> error "Prelude.read: ambiguous parse"
-
-
-
-
-
-
-
-showChar         :: Char -\> ShowS    
+showChar         :: Char -> ShowS  \
 showChar         =  (:)
 
-
-
-
-
-
-
-showString       :: String -\> ShowS    
+showString       :: String -> ShowS  \
 showString       =  (++)
 
-
-
-
-
-
-
-showParen        :: Bool -\> ShowS -\> ShowS    
+showParen        :: Bool -> ShowS -> ShowS  \
 showParen b p    =  if b then showChar '(' . p . showChar ')' else p
 
-
-
-
-
-
-
-readParen        :: Bool -\> ReadS a -\> ReadS a    
-readParen b g    =  if b then mandatory else optional    
-                    where optional r  = g r ++ mandatory r    
-                          mandatory r = \[(x,u) \| ("(",s) \<- lex r,
-   
-                                                 (x,t)   \<- optional s,
-   
-                                                 (")",u) \<- lex t    \]
-
-
-
-
-
-
+readParen        :: Bool -> ReadS a -> ReadS a  \
+readParen b g    =  if b then mandatory else optional  \
+where optional r  = g r ++ mandatory r  \
+mandatory r = \[(x,u) | ("(",s) \<- lex r,
+\
+(x,t)   \<- optional s,
+\
+(")",u) \<- lex t    \]
 
 -- This lexer is not completely faithful to the Haskell lexical syntax.
-   
--- Current limitations:    
---    Qualified names are not handled properly    
+\
+-- Current limitations:  \
+--    Qualified names are not handled properly  \
 --    Octal and hexidecimal numerics are not recognized as a single token
-   
---    Comments are not treated properly    
-   
-lex              :: ReadS String    
-lex ""           =  \[("","")\]    
-lex (c:s)    
-   \| isSpace c   =  lex (dropWhile isSpace s)    
-lex ('\\':s)     =  \[('\\':ch++"'", t) \| (ch,'\\':t)  \<- lexLitChar s,
-   
-                                         ch /= "'" \]    
-lex ('"':s)      =  \[('"':str, t)      \| (str,t) \<- lexString s\]    
-                    where    
-                    lexString ('"':s) = \[("\\",s)\]    
-                    lexString s = \[(ch++str, u)    
-                                         \| (ch,t)  \<- lexStrItem s,
-   
-                                           (str,u) \<- lexString t  \]
-   
-   
-                    lexStrItem ('\\':'&':s) =  \[("\\&",s)\]    
-                    lexStrItem ('\\':c:s) \| isSpace c    
-                                           =  \[("\\&",t) \|    
-                                               '\\':t \<-    
-                                                   \[dropWhile isSpace s\]\]
-   
-                    lexStrItem s           =  lexLitChar s
-
-
-
-
-
-
-
-lex (c:s) \| isSingle c = \[(\[c\],s)\]    
-          \| isSym c    = \[(c:sym,t)       \| (sym,t) \<- \[span isSym s\]\]
-   
-          \| isAlpha c  = \[(c:nam,t)       \| (nam,t) \<- \[span isIdChar s\]\]
-   
-          \| isDigit c  = \[(c:ds++fe,t)    \| (ds,s)  \<- \[span isDigit s\],
-   
-                                            (fe,t)  \<- lexFracExp s     \]
-   
-          \| otherwise  = \[\]    -- bad character    
-             where    
-              isSingle c =  c ‘elem‘ ",;()\[\]{}\_‘"    
-              isSym c    =  c ‘elem‘ "!@#\$%&⋆+./\<=\>?\\^\|:-~"    
-              isIdChar c =  isAlphaNum c \|\| c ‘elem‘ "\_'"    
-   
-              lexFracExp ('.':c:cs) \| isDigit c    
-                            = \[('.':ds++e,u) \| (ds,t) \<- lexDigits (c:cs),
-   
-                                               (e,u)  \<- lexExp t\]    
-              lexFracExp s  = lexExp s    
-   
-              lexExp (e:s) \| e ‘elem‘ "eE"    
-                       = \[(e:c:ds,u) \| (c:t)  \<- \[s\], c ‘elem‘ "+-",
-   
-                                                 (ds,u) \<- lexDigits t\] ++
-   
-                         \[(e:ds,t)   \| (ds,t) \<- lexDigits s\]    
-              lexExp s = \[("",s)\]
-
-
-
-
-
-instance  Show Int  where    
-    showsPrec n = showsPrec n . toInteger    
-        -- Converting to Integer avoids    
-        -- possible difficulty with minInt
-
-
-
-
-
-instance  Read Int  where    
-  readsPrec p r = \[(fromInteger i, t) \| (i,t) \<- readsPrec p r\]    
-        -- Reading at the Integer type avoids    
-        -- possible difficulty with minInt
-
-
-
-
-
-instance  Show Integer  where    
-    showsPrec           = showSigned showInt
-
-
-
-
-
-instance  Read Integer  where    
-    readsPrec p         = readSigned readDec
-
-
-
-
-
-instance  Show Float  where    
-    showsPrec p         = showFloat
-
-
-
-
-
-instance  Read Float  where    
-    readsPrec p         = readSigned readFloat
-
-
-
-
-
-instance  Show Double  where    
-    showsPrec p         = showFloat
-
-
-
-
-
-instance  Read Double  where    
-    readsPrec p         = readSigned readFloat
-
-
-
-
-
-instance  Show ()  where    
-    showsPrec p () = showString "()"
-
-
-
-
-
-instance Read () where    
-    readsPrec p    = readParen False    
-                            (\r -\> \[((),t) \| ("(",s) \<- lex r,    
-                                             (")",t) \<- lex s \] )    
-instance  Show Char  where    
-    showsPrec p '\\' = showString "'\\''"    
-    showsPrec p c    = showChar '\\' . showLitChar c . showChar '\\'    
-   
-    showList cs = showChar '"' . showl cs    
-                 where showl ""       = showChar '"'    
-                       showl ('"':cs) = showString "\\\\" . showl cs    
-                       showl (c:cs)   = showLitChar c . showl cs
-
-
-
-
-
-instance  Read Char  where    
-    readsPrec p      = readParen False    
-                            (\r -\> \[(c,t) \| ('\\':s,t)\<- lex r,    
-                                            (c,"\\")  \<- readLitChar s\])
-   
-   
-    readList = readParen False (\r -\> \[(l,t) \| ('"':s, t) \<- lex r,
-   
-                                               (l,\_)      \<- readl s \])
-   
-        where readl ('"':s)      = \[("",s)\]    
-              readl ('\\':'&':s) = readl s    
-              readl s            = \[(c:cs,u) \| (c ,t) \<- readLitChar s,
-   
-                                               (cs,u) \<- readl t       \]
-
-
-
-
-
-instance  (Show a) =\> Show \[a\]  where    
-    showsPrec p      = showList
-
-
-
-
-
-instance  (Read a) =\> Read \[a\]  where    
-    readsPrec p      = readList
-
-
-
-
-
--- Tuples    
-   
-instance  (Show a, Show b) =\> Show (a,b)  where    
-    showsPrec p (x,y) = showChar '(' . shows x . showChar ',' .    
-                                       shows y . showChar ')'
-
-
-
-
-
-instance  (Read a, Read b) =\> Read (a,b)  where    
-    readsPrec p       = readParen False    
-                            (\r -\> \[((x,y), w) \| ("(",s) \<- lex r,
-   
-                                                 (x,t)   \<- reads s,
-   
-                                                 (",",u) \<- lex t,    
-                                                 (y,v)   \<- reads u,
-   
-                                                 (")",w) \<- lex v \] )
-
-
-
-
-
--- Other tuples have similar Read and Show instances    
-   
-
-
-
-### 9.3  Prelude PreludeIO
-
-
-
-module PreludeIO (    
-    FilePath, IOError, ioError, userError, catch,    
-    putChar, putStr, putStrLn, print,    
-    getChar, getLine, getContents, interact,    
-    readFile, writeFile, appendFile, readIO, readLn    
-  ) where
-
-
-
-
-
-
+\
+--    Comments are not treated properly  \
+\
+lex              :: ReadS String  \
+lex ""           =  [("","")]  \
+lex (c:s)  \
+| isSpace c   =  lex (dropWhile isSpace s)  \
+lex ('\\':s)     =  \[('\\':ch++"'", t) | (ch,'\\':t)  \<- lexLitChar s,
+\
+ch /= "'" \]  \
+lex ('"':s)      =  [('"':str, t)      | (str,t) \<- lexString s]  \
+where  \
+lexString ('"':s) = [("\\",s)]  \
+lexString s = \[(ch++str, u)  \
+| (ch,t)  \<- lexStrItem s,
+\
+(str,u) \<- lexString t  \]
+\
+\
+lexStrItem ('\\':'&':s) =  [("\\&",s)]  \
+lexStrItem ('\\':c:s) | isSpace c  \
+=  \[("\\&",t) |  \
+'\\':t \<-  \
+[dropWhile isSpace s]\]
+\
+lexStrItem s           =  lexLitChar s
+
+lex (c:s) | isSingle c = \[([c],s)\]  \
+| isSym c    = \[(c:sym,t)       | (sym,t) \<- [span isSym s]\]
+\
+| isAlpha c  = \[(c:nam,t)       | (nam,t) \<- [span isIdChar s]\]
+\
+| isDigit c  = \[(c:ds++fe,t)    | (ds,s)  \<- [span isDigit s],
+\
+(fe,t)  \<- lexFracExp s     \]
+\
+| otherwise  = []    -- bad character  \
+where  \
+isSingle c =  c ‘elem‘ ",;()[]{}\_‘"  \
+isSym c    =  c ‘elem‘ "!@#$%&⋆+./\<=>?\\^|:-~"  \
+isIdChar c =  isAlphaNum c || c ‘elem‘ "\_'"  \
+\
+lexFracExp ('.':c:cs) | isDigit c  \
+= \[('.':ds++e,u) | (ds,t) \<- lexDigits (c:cs),
+\
+(e,u)  \<- lexExp t\]  \
+lexFracExp s  = lexExp s  \
+\
+lexExp (e:s) | e ‘elem‘ "eE"  \
+= \[(e:c:ds,u) | (c:t)  \<- [s], c ‘elem‘ "+-",
+\
+(ds,u) \<- lexDigits t\] ++
+\
+[(e:ds,t)   | (ds,t) \<- lexDigits s]  \
+lexExp s = [("",s)]
+
+instance  Show Int  where  \
+showsPrec n = showsPrec n . toInteger  \
+-- Converting to Integer avoids  \
+-- possible difficulty with minInt
+
+instance  Read Int  where  \
+readsPrec p r = [(fromInteger i, t) | (i,t) \<- readsPrec p r]  \
+-- Reading at the Integer type avoids  \
+-- possible difficulty with minInt
+
+instance  Show Integer  where  \
+showsPrec           = showSigned showInt
+
+instance  Read Integer  where  \
+readsPrec p         = readSigned readDec
+
+instance  Show Float  where  \
+showsPrec p         = showFloat
+
+instance  Read Float  where  \
+readsPrec p         = readSigned readFloat
+
+instance  Show Double  where  \
+showsPrec p         = showFloat
+
+instance  Read Double  where  \
+readsPrec p         = readSigned readFloat
+
+instance  Show ()  where  \
+showsPrec p () = showString "()"
+
+instance Read () where  \
+readsPrec p    = readParen False  \
+(\\r -> \[((),t) | ("(",s) \<- lex r,  \
+(")",t) \<- lex s \] )  \
+instance  Show Char  where  \
+showsPrec p '\\' = showString "'\\''"  \
+showsPrec p c    = showChar '\\' . showLitChar c . showChar '\\'  \
+\
+showList cs = showChar '"' . showl cs  \
+where showl ""       = showChar '"'  \
+showl ('"':cs) = showString "\\\\" . showl cs  \
+showl (c:cs)   = showLitChar c . showl cs
+
+instance  Read Char  where  \
+readsPrec p      = readParen False  \
+(\\r -> \[(c,t) | ('\\':s,t)\<- lex r,  \
+(c,"\\")  \<- readLitChar s\])
+\
+\
+readList = readParen False (\\r -> \[(l,t) | ('"':s, t) \<- lex r,
+\
+(l,\_)      \<- readl s \])
+\
+where readl ('"':s)      = [("",s)]  \
+readl ('\\':'&':s) = readl s  \
+readl s            = \[(c:cs,u) | (c ,t) \<- readLitChar s,
+\
+(cs,u) \<- readl t       \]
+
+instance  (Show a) => Show [a]  where  \
+showsPrec p      = showList
+
+instance  (Read a) => Read [a]  where  \
+readsPrec p      = readList
+
+-- Tuples  \
+\
+instance  (Show a, Show b) => Show (a,b)  where  \
+showsPrec p (x,y) = showChar '(' . shows x . showChar ',' .  \
+shows y . showChar ')'
+
+instance  (Read a, Read b) => Read (a,b)  where  \
+readsPrec p       = readParen False  \
+(\\r -> \[((x,y), w) | ("(",s) \<- lex r,
+\
+(x,t)   \<- reads s,
+\
+(",",u) \<- lex t,  \
+(y,v)   \<- reads u,
+\
+(")",w) \<- lex v \] )
+
+-- Other tuples have similar Read and Show instances
+
+### 9.3 Prelude PreludeIO
+
+module PreludeIO (  \
+FilePath, IOError, ioError, userError, catch,  \
+putChar, putStr, putStrLn, print,  \
+getChar, getLine, getContents, interact,  \
+readFile, writeFile, appendFile, readIO, readLn  \
+) where
 
 import PreludeBuiltin
 
-
-
-
-
-
-
 type  FilePath = String
-
-
-
-
-
-
 
 data IOError    -- The internals of this type are system dependent
 
-
-
-
-
-
-
-instance  Show IOError  where ...    
+instance  Show IOError  where ...  \
 instance  Eq IOError  where ...
 
-
-
-
-
-ioError    ::  IOError -\> IO a    
+ioError    ::  IOError -> IO a  \
 ioError    =   primIOError
 
-
-
-
-
-
-
-userError  ::  String -\> IOError    
+userError  ::  String -> IOError  \
 userError  =   primUserError
 
-
-
-
-
-
-
-catch      ::  IO a -\> (IOError -\> IO a) -\> IO a    
+catch      ::  IO a -> (IOError -> IO a) -> IO a  \
 catch      =   primCatch
 
-
-
-
-
-
-
-putChar    :: Char -\> IO ()    
+putChar    :: Char -> IO ()  \
 putChar    =  primPutChar
 
-
-
-
-
-
-
-putStr     :: String -\> IO ()    
+putStr     :: String -> IO ()  \
 putStr s   =  mapM\_ putChar s
 
+putStrLn   :: String -> IO ()  \
+putStrLn s =  do putStr s  \
+putStr "\\n"
 
-
-
-
-
-
-putStrLn   :: String -\> IO ()    
-putStrLn s =  do putStr s    
-                 putStr "\n"
-
-
-
-
-
-
-
-print      :: Show a =\> a -\> IO ()    
+print      :: Show a => a -> IO ()  \
 print x    =  putStrLn (show x)
 
-
-
-
-
-
-
-getChar    :: IO Char    
+getChar    :: IO Char  \
 getChar    =  primGetChar
 
+getLine    :: IO String  \
+getLine    =  do c \<- getChar  \
+if c == '\\n' then return "" else  \
+do s \<- getLine  \
+return (c:s)
 
-
-
-
-
-
-getLine    :: IO String    
-getLine    =  do c \<- getChar    
-                 if c == '\n' then return "" else    
-                    do s \<- getLine    
-                       return (c:s)
-
-
-
-
-
-
-
-getContents :: IO String    
+getContents :: IO String  \
 getContents =  primGetContents
 
+interact    ::  (String -> String) -> IO ()  \
+-- The hSetBuffering ensures the expected interactive behaviour  \
+interact f  =  do hSetBuffering stdin  NoBuffering  \
+hSetBuffering stdout NoBuffering  \
+s \<- getContents  \
+putStr (f s)
 
-
-
-
-
-
-interact    ::  (String -\> String) -\> IO ()    
--- The hSetBuffering ensures the expected interactive behaviour    
-interact f  =  do hSetBuffering stdin  NoBuffering    
-                  hSetBuffering stdout NoBuffering    
-                  s \<- getContents    
-                  putStr (f s)
-
-
-
-
-
-
-
-readFile   :: FilePath -\> IO String    
+readFile   :: FilePath -> IO String  \
 readFile   =  primReadFile
 
-
-
-
-
-
-
-writeFile  :: FilePath -\> String -\> IO ()    
+writeFile  :: FilePath -> String -> IO ()  \
 writeFile  =  primWriteFile
 
+appendFile :: FilePath -> String -> IO ()  \
+appendFile =  primAppendFile  \
+\
+-- raises an exception instead of an error  \
+readIO   :: Read a => String -> IO a  \
+readIO s =  case [x | (x,t) \<- reads s, ("","") \<- lex t] of  \
+[x] -> return x  \
+[]  -> ioError (userError "Prelude.readIO: no parse")
+\
+_   -> ioError (userError "Prelude.readIO: ambiguous parse")
 
+readLn :: Read a => IO a  \
+readLn =  do l \<- getLine  \
+r \<- readIO l  \
+return r
 
+[prev-tail]
 
+______________________________________________________________________
 
-
-
-appendFile :: FilePath -\> String -\> IO ()    
-appendFile =  primAppendFile    
-   
-  -- raises an exception instead of an error    
-readIO   :: Read a =\> String -\> IO a    
-readIO s =  case \[x \| (x,t) \<- reads s, ("","") \<- lex t\] of    
-              \[x\] -\> return x    
-              \[\]  -\> ioError (userError "Prelude.readIO: no parse")
-   
-              \_   -\> ioError (userError "Prelude.readIO: ambiguous parse")
-
-
-
-
-
-
-
-readLn :: Read a =\> IO a    
-readLn =  do l \<- getLine    
-             r \<- readIO l    
-             return r
-
-
-
-
-
-
-
-\[prev-tail\]
-
-
-
-
-
----
-
-
-
-\[prev-tail\]
-\[up\]
-
-
+[prev-tail]
+[up]
 
 ## Chapter 10 Syntax Reference
 
-
-
-### 10.1  Notational Conventions
+### 10.1 Notational Conventions
 
 These notational conventions are used for presenting syntax:
-
-
 
 <table id="TBL-100" class="array" data-cellpadding="0"
 data-cellspacing="0">
@@ -15930,21 +11923,11 @@ terminal syntax in typewriter font
 </tbody>
 </table>
 
-
-
 BNF-like syntax is used throughout, with productions having the form:
 
-
-
-
-
-|  |  |  |
+| | | |
 |:---|:--:|:---|
-| nonterm  | → | alt<sub>1</sub> \| alt<sub>2</sub> \| … \| alt<sub>n</sub> |
-
-
-
-
+| nonterm | → | alt<sub>1</sub> | alt<sub>2</sub> | … | alt<sub>n</sub> |
 
 In both the lexical and the context-free syntax, there are some
 ambiguities that are to be resolved by making grammatical phrases as
@@ -15955,173 +11938,120 @@ In the context-free syntax, this means that conditionals,
 let-expressions, and lambda abstractions extend to the right as far as
 possible.
 
-### 10.2  Lexical Syntax
+### 10.2 Lexical Syntax
 
-
-
-
-
-|  |  |  |
+| | | |
 |:---|----|----|
-|  |  |  |
-| program  | → | { lexeme \| whitespace }  |
-| lexeme  | → | qvarid \| qconid \| qvarsym \| qconsym  |
-|  | \| | literal \| special \| reservedop \| reservedid  |
-| literal  | → | integer \| float \| char \| string  |
-| special  | → | ( \| ) \| , \| ; \| \[ \| \] \| \` \| { \| } |
-|    |  |  |
-|  |  |  |
-| whitespace  | → | whitestuff {whitestuff}  |
-| whitestuff  | → | whitechar \| comment \| ncomment  |
-| whitechar  | → | newline \| vertab \| space \| tab \| uniWhite  |
-| newline  | → | return linefeed \| return \| linefeed \| formfeed  |
-| return  | → | a carriage return |
-| linefeed  | → | a line feed |
-| vertab  | → | a vertical tab |
-| formfeed  | → | a form feed |
-| space  | → | a space |
-| tab  | → | a horizontal tab |
-| uniWhite  | → | any Unicode character defined as whitespace |
-|    |  |  |
-|  |  |  |
-| comment  | → | dashes \[ any<sub>⟨symbol⟩</sub> {any} \] newline  |
-| dashes  | → | -- {-}  |
-| opencom  | → | {- |
-| closecom  | → | -} |
-| ncomment  | → | opencom ANY seq {ncomment ANY seq} closecom  |
-| ANY seq  | → | {ANY }<sub>⟨{ANY } ( opencom \| closecom ) {ANY }⟩</sub> |
-| ANY  | → | graphic \| whitechar  |
-| any  | → | graphic \| space \| tab  |
-| graphic  | → | small \| large \| symbol \| digit \| special \| " \| ' |
-|    |  |  |
-|  |  |  |
-| small  | → | ascSmall \| uniSmall \| \_ |
-| ascSmall  | → | a \| b \| … \| z |
-| uniSmall  | → | any Unicode lowercase letter |
-|    |  |  |
-|  |  |  |
-| large  | → | ascLarge \| uniLarge  |
-| ascLarge  | → | A \| B \| … \| Z |
-| uniLarge  | → | any uppercase or titlecase Unicode letter |
-| symbol  | → | ascSymbol \| uniSymbol<sub>⟨special \| \_ \| " \| '⟩</sub> |
-|    |  |  |
-|  |  |  |
-| ascSymbol  | → | ! \| \# \| \$ \| % \| & \| ⋆ \| + \| . \| / \| \< \| = \| \> \| ? \| @  |
-|  | \| | \\ \| ^ \| \| \| - \| ~ \| : |
-| uniSymbol  | → | any Unicode symbol or punctuation |
-| digit  | → | ascDigit \| uniDigit  |
-| ascDigit  | → | 0 \| 1 \| … \| 9 |
-| uniDigit  | → | any Unicode decimal digit |
-| octit  | → | 0 \| 1 \| … \| 7 |
-| hexit  | → | digit \| A \| … \| F \| a \| … \| f |
-|    |  |  |
-|  |  |  |
+| | | |
+| program | → | { lexeme | whitespace } |
+| lexeme | → | qvarid | qconid | qvarsym | qconsym |
+| | | | literal | special | reservedop | reservedid |
+| literal | → | integer | float | char | string |
+| special | → | ( | ) | , | ; | [ | ] | \` | { | } |
+|   | | |
+| | | |
+| whitespace | → | whitestuff {whitestuff} |
+| whitestuff | → | whitechar | comment | ncomment |
+| whitechar | → | newline | vertab | space | tab | uniWhite |
+| newline | → | return linefeed | return | linefeed | formfeed |
+| return | → | a carriage return |
+| linefeed | → | a line feed |
+| vertab | → | a vertical tab |
+| formfeed | → | a form feed |
+| space | → | a space |
+| tab | → | a horizontal tab |
+| uniWhite | → | any Unicode character defined as whitespace |
+|   | | |
+| | | |
+| comment | → | dashes \[ any<sub>⟨symbol⟩</sub> {any} \] newline |
+| dashes | → | -- {-} |
+| opencom | → | {- |
+| closecom | → | -} |
+| ncomment | → | opencom ANY seq {ncomment ANY seq} closecom |
+| ANY seq | → | {ANY }<sub>⟨{ANY } ( opencom | closecom ) {ANY }⟩</sub> |
+| ANY | → | graphic | whitechar |
+| any | → | graphic | space | tab |
+| graphic | → | small | large | symbol | digit | special | " | ' |
+|   | | |
+| | | |
+| small | → | ascSmall | uniSmall | _ |
+| ascSmall | → | a | b | … | z |
+| uniSmall | → | any Unicode lowercase letter |
+|   | | |
+| | | |
+| large | → | ascLarge | uniLarge |
+| ascLarge | → | A | B | … | Z |
+| uniLarge | → | any uppercase or titlecase Unicode letter |
+| symbol | → | ascSymbol | uniSymbol<sub>⟨special | _ | " | '⟩</sub> |
+|   | | |
+| | | |
+| ascSymbol | → | ! | # | $ | % | & | ⋆ | + | . | / | \< | = | > | ? | @ |
+| | | | \\ | ^ | | | - | ~ | : |
+| uniSymbol | → | any Unicode symbol or punctuation |
+| digit | → | ascDigit | uniDigit |
+| ascDigit | → | 0 | 1 | … | 9 |
+| uniDigit | → | any Unicode decimal digit |
+| octit | → | 0 | 1 | … | 7 |
+| hexit | → | digit | A | … | F | a | … | f |
+|   | | |
+| | | |
 
-
-
-
-
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
-
-
-
-
-
-
-|  |  |  |  |
+| | | | |
 |:---|:--:|:---|----|
-| varid  | → | (small {small \| large \| digit \| ' })<sub>⟨reservedid⟩</sub> |  |
-| conid  | → | large {small \| large \| digit \| ' }  |  |
-| reservedid  | → | case \| class \| data \| default \| deriving \| do \| else |  |
-|  | \| | foreign \| if \| import \| in \| infix \| infixl |  |
-|  | \| | infixr \| instance \| let \| module \| newtype \| of |  |
-|  | \| | then \| type \| where \| \_ |  |
-|    |  |  |  |
-|  |  |  |  |
-| varsym  | → | ( symbol<sub>⟨:⟩</sub> {symbol} )<sub>⟨reservedop \| dashes⟩</sub> |  |
-| consym  | → | ( : {symbol})<sub>⟨reservedop⟩</sub> |  |
-| reservedop  | → | .. \| : \| :: \| = \| \\ \| \| \| \<- \| -\> \|  @ \| ~ \| =\> |  |
-|    |  |  |  |
-|  |  |  |  |
-| varid  |       |     (variables)  |  |
-| conid  |       |     (constructors)  |  |
-| tyvar  | → | varid  |     (type variables)  |
-| tycon  | → | conid  |     (type constructors)  |
-| tycls  | → | conid  |     (type classes)  |
-| modid  | → | {conid .} conid |     (modules)  |
-|    |  |  |  |
-|  |  |  |  |
-| qvarid  | → | \[ modid . \] varid  |  |
-| qconid  | → | \[ modid . \] conid  |  |
-| qtycon  | → | \[ modid . \] tycon  |  |
-| qtycls  | → | \[ modid . \] tycls  |  |
-| qvarsym  | → | \[ modid . \] varsym  |  |
-| qconsym  | → | \[ modid . \] consym  |  |
-|    |  |  |  |
-|  |  |  |  |
-| decimal  | → | digit{digit}  |  |
-| octal  | → | octit{octit}  |  |
-| hexadecimal  | → | hexit{hexit}  |  |
-|    |  |  |  |
-|  |  |  |  |
-| integer  | → | decimal  |  |
-|  | \| | 0o octal \| 0O octal  |  |
-|  | \| | 0x hexadecimal \| 0X hexadecimal  |  |
-| float  | → | decimal . decimal \[exponent\]  |  |
-|  | \| | decimal exponent  |  |
-| exponent  | → | (e \| E) \[+ \| -\] decimal  |  |
-|    |  |  |  |
-|  |  |  |  |
-| char  | → | ' (graphic<sub>⟨' \| \\⟩</sub> \| space \| escape<sub>⟨\\⟩</sub>) ' |  |
-| string  | → | " {graphic<sub>⟨" \| \\⟩</sub> \| space \| escape \| gap} " |  |
-| escape  | → | \\ ( charesc \| ascii \| decimal \| o octal \| x hexadecimal )  |  |
-| charesc  | → | a \| b \| f \| n \| r \| t \| v \| \\ \| " \| ' \| & |  |
-| ascii  | → | ^cntrl \| NUL \| SOH \| STX \| ETX \| EOT \| ENQ \| ACK |  |
-|  | \| | BEL \| BS \| HT \| LF \| VT \| FF \| CR \| SO \| SI \| DLE |  |
-|  | \| | DC1 \| DC2 \| DC3 \| DC4 \| NAK \| SYN \| ETB \| CAN |  |
-|  | \| | EM \| SUB \| ESC \| FS \| GS \| RS \| US \| SP \| DEL |  |
-| cntrl  | → | ascLarge \| @ \| \[ \| \\ \| \] \| ^ \| \_ |  |
-| gap  | → | \\ whitechar {whitechar} \\ |  |
+| varid | → | (small {small | large | digit | ' })<sub>⟨reservedid⟩</sub> | |
+| conid | → | large {small | large | digit | ' } | |
+| reservedid | → | case | class | data | default | deriving | do | else | |
+| | | | foreign | if | import | in | infix | infixl | |
+| | | | infixr | instance | let | module | newtype | of | |
+| | | | then | type | where | _ | |
+|   | | | |
+| | | | |
+| varsym | → | ( symbol<sub>⟨:⟩</sub> {symbol} )<sub>⟨reservedop | dashes⟩</sub> | |
+| consym | → | ( : {symbol})<sub>⟨reservedop⟩</sub> | |
+| reservedop | → | .. | : | :: | = | \\ | | | \<- | -> |  @ | ~ | => | |
+|   | | | |
+| | | | |
+| varid |      |     (variables) | |
+| conid |      |     (constructors) | |
+| tyvar | → | varid |     (type variables) |
+| tycon | → | conid |     (type constructors) |
+| tycls | → | conid |     (type classes) |
+| modid | → | {conid .} conid |     (modules) |
+|   | | | |
+| | | | |
+| qvarid | → | [ modid . ] varid | |
+| qconid | → | [ modid . ] conid | |
+| qtycon | → | [ modid . ] tycon | |
+| qtycls | → | [ modid . ] tycls | |
+| qvarsym | → | [ modid . ] varsym | |
+| qconsym | → | [ modid . ] consym | |
+|   | | | |
+| | | | |
+| decimal | → | digit{digit} | |
+| octal | → | octit{octit} | |
+| hexadecimal | → | hexit{hexit} | |
+|   | | | |
+| | | | |
+| integer | → | decimal | |
+| | | | 0o octal | 0O octal | |
+| | | | 0x hexadecimal | 0X hexadecimal | |
+| float | → | decimal . decimal [exponent] | |
+| | | | decimal exponent | |
+| exponent | → | (e | E) [+ | -] decimal | |
+|   | | | |
+| | | | |
+| char | → | ' (graphic<sub>⟨' | \\⟩</sub> | space | escape<sub>⟨\\⟩</sub>) ' | |
+| string | → | " {graphic<sub>⟨" | \\⟩</sub> | space | escape | gap} " | |
+| escape | → | \\ ( charesc | ascii | decimal | o octal | x hexadecimal ) | |
+| charesc | → | a | b | f | n | r | t | v | \\ | " | ' | & | |
+| ascii | → | ^cntrl | NUL | SOH | STX | ETX | EOT | ENQ | ACK | |
+| | | | BEL | BS | HT | LF | VT | FF | CR | SO | SI | DLE | |
+| | | | DC1 | DC2 | DC3 | DC4 | NAK | SYN | ETB | CAN | |
+| | | | EM | SUB | ESC | FS | GS | RS | US | SP | DEL | |
+| cntrl | → | ascLarge | @ | [ | \\ | ] | ^ | _ | |
+| gap | → | \\ whitechar {whitechar} \\ | |
 
-
-
-
-
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
-
-
-### 10.3  Layout
-
-
+### 10.3 Layout
 
 Section 2.7 gives an informal discussion
 of the layout rule. This section defines it more precisely.
@@ -16156,7 +12086,7 @@ translation. The input to L is:
     lexeme.
 
   - Where the start of a lexeme is preceded only by white space on the
-    same line, this lexeme is preceded by \< n
+    same line, this lexeme is preceded by < n
     \> where n is the indentation of
     the lexeme, provided that it is not, as a consequence of the first
     two rules, preceded by
@@ -16164,19 +12094,11 @@ translation. The input to L is:
     (NB: a string literal may span multiple lines –
     Section 2.6. So in the fragment
 
-    
+    f = ("Hello \\  \
+    \\Bill", "Jake")
 
-    
-
-      f = ("Hello \\    
-              \Bill", "Jake")
-
-    
-
-    
-
-    There is no \< n \> inserted before the
-    \Bill, because it is not the beginning
+    There is no < n > inserted before the
+    \\Bill, because it is not the beginning
     of a complete lexeme; nor before the ,,
     because it is not preceded only by white space.)
 - A stack of “layout contexts”, in which each element is either:
@@ -16208,18 +12130,14 @@ writing programs in which the meaning of implicit layout depends on the
 width of non-space characters.
 
 The application
-L tokens \[\]
+L tokens []
 delivers a layout-insensitive translation of
 tokens, where
 tokens is the result of lexically analysing
 a module and adding column-number indicators to it as described above.
 The definition of L is as follows, where we
 use “:” as a stream construction operator,
-and “\[\]” for the empty stream.
-
-
-
-
+and “[]” for the empty stream.
 
 <table id="TBL-104" class="array" data-cellpadding="0"
 data-cellspacing="0">
@@ -16448,54 +12366,42 @@ if m≠0 (Note 6)
 </tbody>
 </table>
 
-
-
-
-
-Note 1.  
+Note 1.\
 A nested context must be further indented than the enclosing context
-(n \> m). If not,
+(n > m). If not,
 L fails, and the compiler should indicate a
 layout error. An example is:
 
-
-
-
-
-  f x = let    
-           h y = let    
-    p z = z    
-                 in p    
-        in h
-
-
-
-
+f x = let  \
+h y = let  \
+p z = z  \
+in p  \
+in h
 
 Here, the definition of p is indented less
 than the indentation of the enclosing context, which is set in this case
 by the definition of h.
 
-Note 2.  
+Note 2.\
 If the first token after a where (say) is
 not indented more than the enclosing layout context, then the block must
 be empty, so empty braces are inserted. The
 {n}
-token is replaced by \< n \>, to
+token is replaced by < n >, to
 mimic the situation if the empty braces had been explicit.
 
-Note 3.  
+Note 3.\
 By matching against 0 for the current layout context, we ensure that an
 explicit close brace can only match an explicit open brace. A parse
 error results if an explicit close brace matches an implicit open brace.
 
-Note 4.  
+Note 4.\
 This clause means that all brace pairs are treated as explicit layout
 contexts, including labelled construction and update
 (Section 3.15). This is a difference
 between this formulation and Haskell 1.4.
 
-Note 5.  
+Note 5.\
 The side condition
 parse-error(t)
 is to be interpreted as follows: if the tokens generated so far by
@@ -16512,12 +12418,9 @@ The test m∕ = 0
 checks that an implicitly-added closing brace would match an
 implicit open brace.
 
-Note 6.  
-At the end of the input, any pending close-braces are inserted. It is an
-error at this point to be within a non-layout context (i.e. 
-m 
-=
- 0).
+# Note 6.<br /> At the end of the input, any pending close-braces are inserted. It is an error at this point to be within a non-layout context (i.e.  m
+
+0).
 
 If none of the rules given above matches, then the algorithm fails. It
 can fail for instance when the end of the input is reached, and a
@@ -16529,50 +12432,32 @@ let }.
 Note 1 implements the feature that layout processing can be stopped
 prematurely by a parse error. For example
 
-
-
-
-
-        let x = e; y = x in e'
-
-
-
-
+let x = e; y = x in e'
 
 is valid, because it translates to
 
-
-
-
-
-        let { x = e; y = x } in e'
-
-
-
-
+let { x = e; y = x } in e'
 
 The close brace is inserted due to the parse error rule above.
 
-### 10.4  Literate comments
-
-
+### 10.4 Literate comments
 
 The “literate comment” convention, first developed by Richard Bird and
 Philip Wadler for Orwell, and inspired in turn by Donald Knuth’s
 “literate programming”, is an alternative style for encoding Haskell
 source code. The literate style encourages comments by making them the
-default. A line in which “\>” is the first
+default. A line in which “>” is the first
 character is treated as part of the program; all other lines are
 comments.
 
 The program text is recovered by taking only those lines beginning with
-“\>”, and replacing the leading
-“\>” with a space. Layout and comments
+“>”, and replacing the leading
+“>” with a space. Layout and comments
 apply exactly as described in Chapter [10](#x17-17500010) in the
 resulting text.
 
 To capture some cases where one omits an
-“\>” by mistake, it is an error for a
+“>” by mistake, it is an error for a
 program line to appear adjacent to a non-blank comment line, where a
 line is taken as blank if it consists only of whitespace.
 
@@ -16581,336 +12466,310 @@ with “.hs” indicating a usual Haskell file
 and “.lhs” indicating a literate Haskell
 file. Using this style, a simple factorial program would be:
 
-
-
-
-
-   This literate program prompts the user for a number    
-   and prints the factorial of that number:    
-   
-\> main :: IO ()    
-   
-\> main = do putStr "Enter a number: "    
-\>           l \<- readLine    
-\>           putStr "n!= "    
-\>           print (fact (read l))    
-   
-  This is the factorial function.    
-   
-\> fact :: Integer -\> Integer    
-\> fact 0 = 1    
+This literate program prompts the user for a number  \
+and prints the factorial of that number:  \
+\
+\> main :: IO ()  \
+\
+\> main = do putStr "Enter a number: "  \
+\>           l \<- readLine  \
+\>           putStr "n!= "  \
+\>           print (fact (read l))  \
+\
+This is the factorial function.  \
+\
+\> fact :: Integer -> Integer  \
+\> fact 0 = 1  \
 \> fact n = n ⋆ fact (n-1)
-
-
-
-
 
 An alternative style of literate programming is particularly suitable
 for use with the LaTeX text processing system. In this convention, only
 those parts of the literate program that are entirely enclosed between
-\begin{code}…\end{code}
+\\begin{code}…\\end{code}
 delimiters are treated as program text; all other lines are comments.
 More precisely:
 
 - Program code begins on the first line following a line that begins
-  \begin{code}.
+  \\begin{code}.
 - Program code ends just before a subsequent line that begins
-  \end{code} (ignoring string literals, of
+  \\end{code} (ignoring string literals, of
   course).
 
 It is not necessary to insert additional blank lines before or after
 these delimiters, though it may be stylistically desirable. For example,
 
-
-
-
-
-\documentstyle{article}    
-   
-\begin{document}    
-   
-\chapter{Introduction}    
-   
-This is a trivial program that prints the first 20 factorials.    
-   
-\begin{code}    
-main :: IO ()    
-main =  print \[ (n, product \[1..n\]) \| n \<- \[1..20\]\]    
-\end{code}    
-   
-\end{document}
-
-
-
-
+\\documentstyle{article}  \
+\
+\\begin{document}  \
+\
+\\chapter{Introduction}  \
+\
+This is a trivial program that prints the first 20 factorials.  \
+\
+\\begin{code}  \
+main :: IO ()  \
+main =  print \[ (n, product [1..n]) | n \<- [1..20]\]  \
+\\end{code}  \
+\
+\\end{document}
 
 This style uses the same file extension. It is not advisable to mix
 these two styles in the same file.
 
-### 10.5  Context-Free Syntax
+### 10.5 Context-Free Syntax
 
-
-
-
-
-|  |  |  |  |
+| | | | |
 |:---|:--:|:---|----|
-| module  | → | module modid \[exports\] where body  |  |
-|  | \| | body |  |
-| body  | → | { impdecls ; topdecls } |  |
-|  | \| | { impdecls } |  |
-|  | \| | { topdecls } |  |
-|    |  |  |  |
-|  |  |  |  |
-| impdecls  | → | impdecl<sub>1</sub> ; … ; impdecl<sub>n</sub> |     (n ≥ 1) |
-|    |  |  |  |
-|  |  |  |  |
-| exports  | → | ( export<sub>1</sub> , … , export<sub>n</sub> \[ , \] ) |     (n ≥ 0)  |
-|    |  |  |  |
-|  |  |  |  |
-| export  | → | qvar  |  |
-|  | \| | qtycon \[(..) \| ( cname<sub>1</sub> , … , cname<sub>n</sub> )\]  |     (n ≥ 0)  |
-|  | \| | qtycls \[(..) \| ( qvar<sub>1</sub> , … , qvar<sub>n</sub> )\]  |     (n ≥ 0)  |
-|  | \| | module modid  |  |
-|    |  |  |  |
-|  |  |  |  |
-| impdecl  | → | import \[qualified\] modid \[as modid\] \[impspec\]  |  |
-|  | \| |  |     (empty declaration)  |
-|    |  |  |  |
-|  |  |  |  |
-| impspec  | → | ( import<sub>1</sub> , … , import<sub>n</sub> \[ , \] ) |     (n ≥ 0)  |
-|  | \| | hiding ( import<sub>1</sub> , … , import<sub>n</sub> \[ , \] ) |     (n ≥ 0)  |
-|    |  |  |  |
-|  |  |  |  |
-| import  | → | var  |  |
-|  | \| | tycon \[ (..) \| ( cname<sub>1</sub> , … , cname<sub>n</sub> )\]  |     (n ≥ 0)  |
-|  | \| | tycls \[(..) \| ( var<sub>1</sub> , … , var<sub>n</sub> )\]  |     (n ≥ 0)  |
-| cname  | → | var \| con  |  |
-|    |  |  |  |
-|  |  |  |  |
-| topdecls  | → | topdecl<sub>1</sub> ; … ; topdecl<sub>n</sub> |     (n ≥ 0)  |
-| topdecl  | → | type simpletype = type  |  |
-|  | \| | data \[context =\>\] simpletype \[= constrs\] \[deriving\] |  |
-|  | \| | newtype \[context =\>\] simpletype = newconstr \[deriving\]  |  |
-|  | \| | class \[scontext =\>\] tycls tyvar \[where cdecls\]  |  |
-|  | \| | instance \[scontext =\>\] qtycls inst \[where idecls\]  |  |
-|  | \| | default (type<sub>1</sub> , … , type<sub>n</sub>) |     (n ≥ 0)  |
-|  | \| | foreign fdecl  |  |
-|  | \| | decl  |  |
-|    |  |  |  |
-|  |  |  |  |
-| decls  | → | { decl<sub>1</sub> ; … ; decl<sub>n</sub> } |     (n ≥ 0)  |
-| decl  | → | gendecl  |  |
-|  | \| | (funlhs \| pat) rhs |  |
-|    |  |  |  |
-|  |  |  |  |
-| cdecls  | → | { cdecl<sub>1</sub> ; … ; cdecl<sub>n</sub> } |     (n ≥ 0)  |
-| cdecl  | → | gendecl  |  |
-|  | \| | (funlhs \| var) rhs  |  |
-|    |  |  |  |
-|  |  |  |  |
-| idecls  | → | { idecl<sub>1</sub> ; … ; idecl<sub>n</sub> } |     (n ≥ 0)  |
-| idecl  | → | (funlhs \| var) rhs  |  |
-|  | \| |  |     (empty)  |
-|    |  |  |  |
-|  |  |  |  |
-| gendecl  | → | vars :: \[context =\>\] type  |     (type signature)  |
-|  | \| | fixity \[integer\] ops  |     (fixity declaration)  |
-|  | \| |  |     (empty declaration)  |
-|    |  |  |  |
-|  |  |  |  |
-| ops  | → | op<sub>1</sub> , … , op<sub>n</sub> |     (n ≥ 1)  |
-| vars  | → | var<sub>1</sub> , …, var<sub>n</sub> |     (n ≥ 1)  |
-| fixity  | → | infixl \| infixr \| infix |  |
-|    |  |  |  |
-|  |  |  |  |
-| type  | → | btype \[-\> type\]  |     (function type)  |
-|    |  |  |  |
-|  |  |  |  |
-| btype  | → | \[btype\] atype  |     (type application)  |
-|    |  |  |  |
-|  |  |  |  |
-| atype  | → | gtycon  |  |
-|  | \| | tyvar  |  |
-|  | \| | ( type<sub>1</sub> , … , type<sub>k</sub> ) |     (tuple type, k ≥ 2)  |
-|  | \| | \[ type \] |     (list type)  |
-|  | \| | ( type ) |     (parenthesized constructor)  |
-|    |  |  |  |
-|  |  |  |  |
-| gtycon  | → | qtycon  |  |
-|  | \| | () |     (unit type)  |
-|  | \| | \[\] |     (list constructor)  |
-|  | \| | (-\>) |     (function constructor)  |
-|  | \| | (,{,}) |     (tupling constructors)  |
-|    |  |  |  |
-|  |  |  |  |
-| context  | → | class  |  |
-|  | \| | ( class<sub>1</sub> , … , class<sub>n</sub> ) |     (n ≥ 0)  |
-| class  | → | qtycls tyvar  |  |
-|  | \| | qtycls ( tyvar atype<sub>1</sub> … atype<sub>n</sub> ) |     (n ≥ 1)  |
-| scontext  | → | simpleclass  |  |
-|  | \| | ( simpleclass<sub>1</sub> , … , simpleclass<sub>n</sub> ) |     (n ≥ 0)  |
-| simpleclass  | → | qtycls tyvar  |  |
-|    |  |  |  |
-|  |  |  |  |
-| simpletype  | → | tycon tyvar<sub>1</sub> … tyvar<sub>k</sub> |     (k ≥ 0)  |
-| constrs  | → | constr<sub>1</sub> \| … \| constr<sub>n</sub> |     (n ≥ 1)  |
-| constr  | → | con \[!\] atype<sub>1</sub> … \[!\] atype<sub>k</sub> |     (arity con  =  k, k ≥ 0)  |
-|  | \| | (btype \| ! atype) conop (btype \| ! atype)  |     (infix conop)  |
-|  | \| | con { fielddecl<sub>1</sub> , … , fielddecl<sub>n</sub> } |     (n ≥ 0)  |
-| newconstr  | → | con atype  |  |
-|  | \| | con { var :: type } |  |
-| fielddecl  | → | vars :: (type \| ! atype)  |  |
-| deriving  | → | deriving (dclass \| (dclass<sub>1</sub>, … , dclass<sub>n</sub>))  |     (n ≥ 0)  |
-| dclass  | → | qtycls  |  |
-|    |  |  |  |
-|  |  |  |  |
-| inst  | → | gtycon  |  |
-|  | \| | ( gtycon tyvar<sub>1</sub> … tyvar<sub>k</sub> ) |     (k ≥ 0, tyvars distinct)  |
-|  | \| | ( tyvar<sub>1</sub> , … , tyvar<sub>k</sub> ) |     (k ≥ 2, tyvars distinct)  |
-|  | \| | \[ tyvar \] |  |
-|  | \| | ( tyvar<sub>1</sub> -\> tyvar<sub>2</sub> ) |     tyvar<sub>1</sub> and tyvar<sub>2</sub> distinct |
-|    |  |  |  |
-|  |  |  |  |
-| fdecl  | → | import callconv \[safety\] impent var :: ftype  |     (define variable)  |
-|  | \| | export callconv expent var :: ftype  |     (expose variable)  |
-| callconv  | → | ccall \| stdcall \| cplusplus |     (calling convention)  |
-|  | \| | jvm \| dotnet |  |
-|  | \| |  system-specific calling conventions |  |
-| impent  | → | \[string\]  |     (see Section 8.5.1)  |
-| expent  | → | \[string\]  |     (see Section 8.5.1)  |
-| safety  | → | unsafe \| safe |  |
-|    |  |  |  |
-|  |  |  |  |
-| ftype  | → | frtype  |  |
-|  | \| | fatype  →  ftype  |  |
-| frtype  | → | fatype  |  |
-|  | \| | () |  |
-| fatype  | → | qtycon atype<sub>1</sub> … atype<sub>k</sub> |     (k  ≥  0)  |
-|    |  |  |  |
-|  |  |  |  |
-| funlhs  | → | var apat { apat }  |  |
-|  | \| | pat varop pat |  |
-|  | \| | ( funlhs ) apat { apat }  |  |
-|    |  |  |  |
-|  |  |  |  |
-| rhs  | → | = exp \[where decls\]  |  |
-|  | \| | gdrhs \[where decls\]  |  |
-|    |  |  |  |
-|  |  |  |  |
-| gdrhs  | → | guards = exp \[gdrhs\] |  |
-|    |  |  |  |
-|  |  |  |  |
-| guards | → | \| guard<sub>1</sub>, …, guard<sub>n</sub> |     (n ≥ 1) |
+| module | → | module modid [exports] where body  | |
+| | | | body | |
+| body | → | { impdecls ; topdecls } | |
+| | | | { impdecls } | |
+| | | | { topdecls } | |
+|   | | | |
+| | | | |
+| impdecls | → | impdecl<sub>1</sub> ; … ; impdecl<sub>n</sub> |     (n ≥ 1) |
+|   | | | |
+| | | | |
+| exports | → | ( export<sub>1</sub> , … , export<sub>n</sub> [ , ] ) |     (n ≥ 0) |
+|   | | | |
+| | | | |
+| export | → | qvar | |
+| | | | qtycon \[(..) | ( cname<sub>1</sub> , … , cname<sub>n</sub> )\] |     (n ≥ 0) |
+| | | | qtycls \[(..) | ( qvar<sub>1</sub> , … , qvar<sub>n</sub> )\] |     (n ≥ 0) |
+| | | | module modid | |
+|   | | | |
+| | | | |
+| impdecl | → | import [qualified] modid [as modid] [impspec] | |
+| | | | |     (empty declaration) |
+|   | | | |
+| | | | |
+| impspec | → | ( import<sub>1</sub> , … , import<sub>n</sub> [ , ] ) |     (n ≥ 0) |
+| | | | hiding ( import<sub>1</sub> , … , import<sub>n</sub> [ , ] ) |     (n ≥ 0) |
+|   | | | |
+| | | | |
+| import | → | var | |
+| | | | tycon \[ (..) | ( cname<sub>1</sub> , … , cname<sub>n</sub> )\] |     (n ≥ 0) |
+| | | | tycls \[(..) | ( var<sub>1</sub> , … , var<sub>n</sub> )\] |     (n ≥ 0) |
+| cname | → | var | con | |
+|   | | | |
+| | | | |
+| topdecls | → | topdecl<sub>1</sub> ; … ; topdecl<sub>n</sub> |     (n ≥ 0) |
+| topdecl | → | type simpletype = type | |
+| | | | data [context =>] simpletype [= constrs] [deriving] | |
+| | | | newtype [context =>] simpletype = newconstr [deriving] | |
+| | | | class [scontext =>] tycls tyvar [where cdecls] | |
+| | | | instance [scontext =>] qtycls inst [where idecls] | |
+| | | | default (type<sub>1</sub> , … , type<sub>n</sub>) |     (n ≥ 0) |
+| | | | foreign fdecl | |
+| | | | decl | |
+|   | | | |
+| | | | |
+| decls | → | { decl<sub>1</sub> ; … ; decl<sub>n</sub> } |     (n ≥ 0) |
+| decl | → | gendecl | |
+| | | | (funlhs | pat) rhs | |
+|   | | | |
+| | | | |
+| cdecls | → | { cdecl<sub>1</sub> ; … ; cdecl<sub>n</sub> } |     (n ≥ 0) |
+| cdecl | → | gendecl | |
+| | | | (funlhs | var) rhs | |
+|   | | | |
+| | | | |
+| idecls | → | { idecl<sub>1</sub> ; … ; idecl<sub>n</sub> } |     (n ≥ 0) |
+| idecl | → | (funlhs | var) rhs | |
+| | | | |     (empty) |
+|   | | | |
+| | | | |
+| gendecl | → | vars :: [context =>] type |     (type signature) |
+| | | | fixity [integer] ops |     (fixity declaration) |
+| | | | |     (empty declaration) |
+|   | | | |
+| | | | |
+| ops | → | op<sub>1</sub> , … , op<sub>n</sub> |     (n ≥ 1) |
+| vars | → | var<sub>1</sub> , …, var<sub>n</sub> |     (n ≥ 1) |
+| fixity | → | infixl | infixr | infix | |
+|   | | | |
+| | | | |
+| type | → | btype [-> type] |     (function type) |
+|   | | | |
+| | | | |
+| btype | → | [btype] atype |     (type application) |
+|   | | | |
+| | | | |
+| atype | → | gtycon | |
+| | | | tyvar | |
+| | | | ( type<sub>1</sub> , … , type<sub>k</sub> ) |     (tuple type, k ≥ 2) |
+| | | | [ type ] |     (list type) |
+| | | | ( type ) |     (parenthesized constructor) |
+|   | | | |
+| | | | |
+| gtycon | → | qtycon | |
+| | | | () |     (unit type) |
+| | | | [] |     (list constructor) |
+| | | | (->) |     (function constructor) |
+| | | | (,{,}) |     (tupling constructors) |
+|   | | | |
+| | | | |
+| context | → | class | |
+| | | | ( class<sub>1</sub> , … , class<sub>n</sub> ) |     (n ≥ 0) |
+| class | → | qtycls tyvar | |
+| | | | qtycls ( tyvar atype<sub>1</sub> … atype<sub>n</sub> ) |     (n ≥ 1) |
+| scontext | → | simpleclass | |
+| | | | ( simpleclass<sub>1</sub> , … , simpleclass<sub>n</sub> ) |     (n ≥ 0) |
+| simpleclass | → | qtycls tyvar | |
+|   | | | |
+| | | | |
+| simpletype | → | tycon tyvar<sub>1</sub> … tyvar<sub>k</sub> |     (k ≥ 0) |
+| constrs | → | constr<sub>1</sub> | … | constr<sub>n</sub> |     (n ≥ 1) |
+| constr | → | con [!] atype<sub>1</sub> … [!] atype<sub>k</sub> |     (arity con  =  k, k ≥ 0) |
+| | | | (btype | ! atype) conop (btype | ! atype) |     (infix conop) |
+| | | | con { fielddecl<sub>1</sub> , … , fielddecl<sub>n</sub> } |     (n ≥ 0) |
+| newconstr | → | con atype | |
+| | | | con { var :: type } | |
+| fielddecl | → | vars :: (type | ! atype) | |
+| deriving | → | deriving (dclass | (dclass<sub>1</sub>, … , dclass<sub>n</sub>)) |     (n ≥ 0) |
+| dclass | → | qtycls | |
+|   | | | |
+| | | | |
+| inst | → | gtycon | |
+| | | | ( gtycon tyvar<sub>1</sub> … tyvar<sub>k</sub> ) |     (k ≥ 0, tyvars distinct) |
+| | | | ( tyvar<sub>1</sub> , … , tyvar<sub>k</sub> ) |     (k ≥ 2, tyvars distinct) |
+| | | | [ tyvar ] | |
+| | | | ( tyvar<sub>1</sub> -> tyvar<sub>2</sub> ) |     tyvar<sub>1</sub> and tyvar<sub>2</sub> distinct |
+|   | | | |
+| | | | |
+| fdecl | → | import callconv [safety] impent var :: ftype |     (define variable) |
+| | | | export callconv expent var :: ftype |     (expose variable) |
+| callconv | → | ccall | stdcall | cplusplus |     (calling convention) |
+| | | | jvm | dotnet | |
+| | | |  system-specific calling conventions | |
+| impent | → | [string] |     (see Section 8.5.1) |
+| expent | → | [string] |     (see Section 8.5.1) |
+| safety | → | unsafe | safe | |
+|   | | | |
+| | | | |
+| ftype | → | frtype | |
+| | | | fatype  →  ftype | |
+| frtype | → | fatype | |
+| | | | () | |
+| fatype | → | qtycon atype<sub>1</sub> … atype<sub>k</sub> |     (k  ≥  0) |
+|   | | | |
+| | | | |
+| funlhs | → | var apat { apat } | |
+| | | | pat varop pat | |
+| | | | ( funlhs ) apat { apat } | |
+|   | | | |
+| | | | |
+| rhs | → | = exp [where decls] | |
+| | | | gdrhs [where decls] | |
+|   | | | |
+| | | | |
+| gdrhs | → | guards = exp [gdrhs] | |
+|   | | | |
+| | | | |
+| guards | → | | guard<sub>1</sub>, …, guard<sub>n</sub> |     (n ≥ 1) |
 | guard | → | pat \<- infixexp |     (pattern guard) |
-|  | \| | let decls |     (local declaration) |
-|  | \| | infixexp  |     (boolean guard)  |
-|    |  |  |  |
-|  |  |  |  |
-| exp  | → | infixexp :: \[context =\>\] type |     (expression type signature)  |
-|  | \| | infixexp |  |
-|    |  |  |  |
-|  |  |  |  |
-| infixexp | → | lexp qop infixexp |     (infix operator application)  |
-|  | \| | - infixexp |     (prefix negation)  |
-|  | \| | lexp |  |
-|    |  |  |  |
-|  |  |  |  |
-| lexp | → | \\ apat<sub>1</sub> … apat<sub>n</sub> -\> exp  |     (lambda abstraction, n ≥ 1)  |
-|  | \| | let decls in exp  |     (let expression)  |
-|  | \| | if exp \[;\] then exp \[;\] else exp |     (conditional)  |
-|  | \| | case exp of { alts } |     (case expression)  |
-|  | \| | do { stmts } |     (do expression)  |
-|  | \| | fexp  |  |
-| fexp  | → | \[fexp\] aexp  |     (function application)  |
-|    |  |  |  |
-|  |  |  |  |
-| aexp  | → | qvar  |     (variable)  |
-|  | \| | gcon  |     (general constructor)  |
-|  | \| | literal  |  |
-|  | \| | ( exp ) |     (parenthesized expression)  |
-|  | \| | ( exp<sub>1</sub> , … , exp<sub>k</sub> ) |     (tuple, k ≥ 2)  |
-|  | \| | \[ exp<sub>1</sub> , … , exp<sub>k</sub> \] |     (list, k ≥ 1)  |
-|  | \| | \[ exp<sub>1</sub> \[, exp<sub>2</sub>\] .. \[exp<sub>3</sub>\] \] |     (arithmetic sequence)  |
-|  | \| | \[ exp \| qual<sub>1</sub> , … , qual<sub>n</sub> \] |     (list comprehension, n ≥ 1)  |
-|  | \| | ( infixexp qop ) |     (left section)  |
-|  | \| | ( qop<sub>⟨-⟩</sub> infixexp ) |     (right section)  |
-|  | \| | qcon { fbind<sub>1</sub> , … , fbind<sub>n</sub> } |     (labeled construction, n ≥ 0)  |
-|  | \| | aexp<sub>⟨qcon⟩</sub> { fbind<sub>1</sub> , … , fbind<sub>n</sub> } |     (labeled update, n  ≥  1)  |
-|    |  |  |  |
-|  |  |  |  |
-| qual  | → | pat \<- exp  |     (generator)  |
-|  | \| | let decls  |     (local declaration)  |
-|  | \| | exp  |     (guard)  |
-|    |  |  |  |
-|  |  |  |  |
-| alts  | → | alt<sub>1</sub> ; … ; alt<sub>n</sub> |     (n ≥ 1)  |
-| alt  | → | pat -\> exp \[where decls\]  |  |
-|  | \| | pat gdpat \[where decls\]  |  |
-|  | \| |  |     (empty alternative)  |
-|    |  |  |  |
-|  |  |  |  |
-| gdpat  | → | guards -\> exp \[ gdpat \] |  |
-|    |  |  |  |
-|  |  |  |  |
-| stmts  | → | stmt<sub>1</sub> … stmt<sub>n</sub> exp \[;\]  |     (n ≥ 0)  |
-| stmt  | → | exp ; |  |
-|  | \| | pat \<- exp ; |  |
-|  | \| | let decls ; |  |
-|  | \| | ; |     (empty statement)  |
-|    |  |  |  |
-|  |  |  |  |
-| fbind  | → | qvar = exp  |  |
-|    |  |  |  |
-|  |  |  |  |
-| pat  | → | lpat qconop pat |     (infix constructor)  |
-|  | \| | lpat |  |
-|    |  |  |  |
-|  |  |  |  |
-| lpat | → | apat  |  |
-|  | \| | - (integer \| float) |     (negative literal)  |
-|  | \| | gcon apat<sub>1</sub> … apat<sub>k</sub> |     (arity gcon  =  k, k ≥ 1)  |
-|    |  |  |  |
-|  |  |  |  |
-| apat  | → | var \[ @ apat\]  |     (as pattern)  |
-|  | \| | gcon  |     (arity gcon  =  0)  |
-|  | \| | qcon { fpat<sub>1</sub> , … , fpat<sub>k</sub> } |     (labeled pattern, k ≥ 0)  |
-|  | \| | literal  |  |
-|  | \| | \_ |     (wildcard)  |
-|  | \| | ( pat ) |     (parenthesized pattern)  |
-|  | \| | ( pat<sub>1</sub> , … , pat<sub>k</sub> ) |     (tuple pattern, k ≥ 2)  |
-|  | \| | \[ pat<sub>1</sub> , … , pat<sub>k</sub> \] |     (list pattern, k ≥ 1)  |
-|  | \| | ~ apat  |     (irrefutable pattern)  |
-|    |  |  |  |
-|  |  |  |  |
-| fpat  | → | qvar = pat  |  |
-|    |  |  |  |
-|  |  |  |  |
-| gcon  | → | () |  |
-|  | \| | \[\] |  |
-|  | \| | (,{,}) |  |
-|  | \| | qcon  |  |
-|    |  |  |  |
-|  |  |  |  |
-| var  | → | varid \| ( varsym ) |     (variable)  |
-| qvar  | → | qvarid \| ( qvarsym ) |     (qualified variable)  |
-| con  | → | conid \| ( consym ) |     (constructor)  |
-| qcon  | → | qconid \| ( gconsym ) |     (qualified constructor)  |
-| varop  | → | varsym \| \`  varid \` |     (variable operator)  |
-| qvarop  | → | qvarsym \| \`  qvarid \` |     (qualified variable operator)  |
-| conop  | → | consym \| \`  conid \` |     (constructor operator)  |
-| qconop  | → | gconsym \| \`  qconid \` |     (qualified constructor operator)  |
-| op  | → | varop \| conop  |     (operator)  |
-| qop  | → | qvarop \| qconop  |     (qualified operator)  |
-| gconsym  | → | : \| qconsym  |  |
+| | | | let decls |     (local declaration) |
+| | | | infixexp |     (boolean guard) |
+|   | | | |
+| | | | |
+| exp | → | infixexp :: [context =>] type |     (expression type signature) |
+| | | | infixexp | |
+|   | | | |
+| | | | |
+| infixexp | → | lexp qop infixexp |     (infix operator application) |
+| | | | - infixexp |     (prefix negation) |
+| | | | lexp | |
+|   | | | |
+| | | | |
+| lexp | → | \\ apat<sub>1</sub> … apat<sub>n</sub> -> exp |     (lambda abstraction, n ≥ 1) |
+| | | | let decls in exp |     (let expression) |
+| | | | if exp [;] then exp [;] else exp |     (conditional) |
+| | | | case exp of { alts } |     (case expression) |
+| | | | do { stmts } |     (do expression) |
+| | | | fexp | |
+| fexp | → | [fexp] aexp |     (function application) |
+|   | | | |
+| | | | |
+| aexp | → | qvar |     (variable) |
+| | | | gcon |     (general constructor) |
+| | | | literal | |
+| | | | ( exp ) |     (parenthesized expression) |
+| | | | ( exp<sub>1</sub> , … , exp<sub>k</sub> ) |     (tuple, k ≥ 2) |
+| | | | \[ exp<sub>1</sub> , … , exp<sub>k</sub> \] |     (list, k ≥ 1) |
+| | | | \[ exp<sub>1</sub> \[, exp<sub>2</sub>\] .. \[exp<sub>3</sub>\] \] |     (arithmetic sequence) |
+| | | | \[ exp | qual<sub>1</sub> , … , qual<sub>n</sub> \] |     (list comprehension, n ≥ 1) |
+| | | | ( infixexp qop ) |     (left section) |
+| | | | ( qop<sub>⟨-⟩</sub> infixexp ) |     (right section) |
+| | | | qcon { fbind<sub>1</sub> , … , fbind<sub>n</sub> } |     (labeled construction, n ≥ 0) |
+| | | | aexp<sub>⟨qcon⟩</sub> { fbind<sub>1</sub> , … , fbind<sub>n</sub> } |     (labeled update, n  ≥  1) |
+|   | | | |
+| | | | |
+| qual | → | pat \<- exp |     (generator) |
+| | | | let decls |     (local declaration) |
+| | | | exp |     (guard) |
+|   | | | |
+| | | | |
+| alts | → | alt<sub>1</sub> ; … ; alt<sub>n</sub> |     (n ≥ 1) |
+| alt | → | pat -> exp [where decls] | |
+| | | | pat gdpat [where decls] | |
+| | | | |     (empty alternative) |
+|   | | | |
+| | | | |
+| gdpat | → | guards -> exp [ gdpat ] | |
+|   | | | |
+| | | | |
+| stmts | → | stmt<sub>1</sub> … stmt<sub>n</sub> exp [;] |     (n ≥ 0) |
+| stmt | → | exp ; | |
+| | | | pat \<- exp ; | |
+| | | | let decls ; | |
+| | | | ; |     (empty statement) |
+|   | | | |
+| | | | |
+| fbind | → | qvar = exp | |
+|   | | | |
+| | | | |
+| pat | → | lpat qconop pat |     (infix constructor) |
+| | | | lpat | |
+|   | | | |
+| | | | |
+| lpat | → | apat | |
+| | | | - (integer | float) |     (negative literal) |
+| | | | gcon apat<sub>1</sub> … apat<sub>k</sub> |     (arity gcon  =  k, k ≥ 1) |
+|   | | | |
+| | | | |
+| apat | → | var [ @ apat] |     (as pattern) |
+| | | | gcon |     (arity gcon  =  0) |
+| | | | qcon { fpat<sub>1</sub> , … , fpat<sub>k</sub> } |     (labeled pattern, k ≥ 0) |
+| | | | literal | |
+| | | | _ |     (wildcard) |
+| | | | ( pat ) |     (parenthesized pattern) |
+| | | | ( pat<sub>1</sub> , … , pat<sub>k</sub> ) |     (tuple pattern, k ≥ 2) |
+| | | | \[ pat<sub>1</sub> , … , pat<sub>k</sub> \] |     (list pattern, k ≥ 1) |
+| | | | ~ apat |     (irrefutable pattern) |
+|   | | | |
+| | | | |
+| fpat | → | qvar = pat | |
+|   | | | |
+| | | | |
+| gcon | → | () | |
+| | | | [] | |
+| | | | (,{,}) | |
+| | | | qcon | |
+|   | | | |
+| | | | |
+| var | → | varid | ( varsym ) |     (variable) |
+| qvar | → | qvarid | ( qvarsym ) |     (qualified variable) |
+| con | → | conid | ( consym ) |     (constructor) |
+| qcon | → | qconid | ( gconsym ) |     (qualified constructor) |
+| varop | → | varsym | \`  varid \` |     (variable operator) |
+| qvarop | → | qvarsym | \`  qvarid \` |     (qualified variable operator) |
+| conop | → | consym | \`  conid \` |     (constructor operator) |
+| qconop | → | gconsym | \`  qconid \` |     (qualified constructor operator) |
+| op | → | varop | conop |     (operator) |
+| qop | → | qvarop | qconop |     (qualified operator) |
+| gconsym | → | : | qconsym | |
 
-
-
-
-
-### 10.6  Fixity Resolution
-
-
+### 10.6 Fixity Resolution
 
 The following is an example implementation of fixity resolution for
 Haskell expressions. Fixity resolution also applies to Haskell patterns,
@@ -16930,78 +12789,62 @@ producing a useful error message, but the
 Maybe type will suffice to illustrate the
 algorithm here.
 
-
-
-
-
-import Control.Monad    
-   
-type Prec   = Int    
-type Var    = String    
-   
-data Op = Op String Prec Fixity    
-  deriving (Eq,Show)    
-   
-data Fixity = Leftfix \| Rightfix \| Nonfix    
-  deriving (Eq,Show)    
-   
-data Exp = Var Var \| OpApp Exp Op Exp \| Neg Exp    
-  deriving (Eq,Show)    
-   
-data Tok = TExp Exp \| TOp Op \| TNeg    
-  deriving (Eq,Show)    
-   
-resolve :: \[Tok\] -\> Maybe Exp    
-resolve tokens = fmap fst \$ parseNeg (Op "" (-1) Nonfix) tokens    
-  where    
-    parseNeg :: Op -\> \[Tok\] -\> Maybe (Exp,\[Tok\])    
-    parseNeg op1 (TExp e1 : rest)    
-       = parse op1 e1 rest    
-    parseNeg op1 (TNeg : rest)    
-       = do guard (prec1 \< 6)    
-            (r, rest') \<- parseNeg (Op "-" 6 Leftfix) rest    
-            parse op1 (Neg r) rest'    
-       where    
-          Op \_ prec1 fix1 = op1    
-   
-    parse :: Op -\> Exp -\> \[Tok\] -\> Maybe (Exp, \[Tok\])    
-    parse \_   e1 \[\] = Just (e1, \[\])    
-    parse op1 e1 (TOp op2 : rest)    
-       -- case (1): check for illegal expressions    
-       \| prec1 == prec2 && (fix1 /= fix2 \|\| fix1 == Nonfix)    
-       = Nothing    
-   
-       -- case (2): op1 and op2 should associate to the left    
-       \| prec1 \> prec2 \|\| (prec1 == prec2 && fix1 == Leftfix)    
-       = Just (e1, TOp op2 : rest)    
-   
-       -- case (3): op1 and op2 should associate to the right    
-       \| otherwise    
-       = do (r,rest') \<- parseNeg op2 rest    
-            parse op1 (OpApp e1 op2 r) rest'    
-       where    
-         Op \_ prec1 fix1 = op1    
-         Op \_ prec2 fix2 = op2
-
-
-
-
+import Control.Monad  \
+\
+type Prec   = Int  \
+type Var    = String  \
+\
+data Op = Op String Prec Fixity  \
+deriving (Eq,Show)  \
+\
+data Fixity = Leftfix | Rightfix | Nonfix  \
+deriving (Eq,Show)  \
+\
+data Exp = Var Var | OpApp Exp Op Exp | Neg Exp  \
+deriving (Eq,Show)  \
+\
+data Tok = TExp Exp | TOp Op | TNeg  \
+deriving (Eq,Show)  \
+\
+resolve :: [Tok] -> Maybe Exp  \
+resolve tokens = fmap fst $ parseNeg (Op "" (-1) Nonfix) tokens  \
+where  \
+parseNeg :: Op -> [Tok] -> Maybe (Exp,[Tok])  \
+parseNeg op1 (TExp e1 : rest)  \
+= parse op1 e1 rest  \
+parseNeg op1 (TNeg : rest)  \
+= do guard (prec1 \< 6)  \
+(r, rest') \<- parseNeg (Op "-" 6 Leftfix) rest  \
+parse op1 (Neg r) rest'  \
+where  \
+Op _ prec1 fix1 = op1  \
+\
+parse :: Op -> Exp -> [Tok] -> Maybe (Exp, [Tok])  \
+parse _   e1 [] = Just (e1, [])  \
+parse op1 e1 (TOp op2 : rest)  \
+-- case (1): check for illegal expressions  \
+| prec1 == prec2 && (fix1 /= fix2 || fix1 == Nonfix)  \
+= Nothing  \
+\
+-- case (2): op1 and op2 should associate to the left  \
+| prec1 > prec2 || (prec1 == prec2 && fix1 == Leftfix)  \
+= Just (e1, TOp op2 : rest)  \
+\
+-- case (3): op1 and op2 should associate to the right  \
+| otherwise  \
+= do (r,rest') \<- parseNeg op2 rest  \
+parse op1 (OpApp e1 op2 r) rest'  \
+where  \
+Op _ prec1 fix1 = op1  \
+Op _ prec2 fix2 = op2
 
 The algorithm works as follows. At each stage we have a call
 
-
-
-      parse op1 E1 (op2 : tokens)
-
-
+parse op1 E1 (op2 : tokens)
 
 which means that we are looking at an expression like
 
-
-
-      E0 ‘op1‘ E1 ‘op2‘ ...     (1)
-
-
+E0 ‘op1‘ E1 ‘op2‘ ...     (1)
 
 (the caller holds E0). The job of parse is
 to build the expression to the right of
@@ -17010,36 +12853,36 @@ remaining input.
 
 There are three cases to consider:
 
-1.  if op1 and
-    op2 have the same precedence, but they
-    do not have the same associativity, or they are declared to be
-    nonfix, then the expression is illegal.
-2.  If op1 has a
-    higher precedence than op2, or
-    op1 and
-    op2 should left-associate, then we know
-    that the expression to the right of op1
-    is E1, so we return this to the
-    caller.
-3.  Otherwise, we know we want to build an
-    expression of the form
-    E1 ‘op2‘ R.
-    To find R, we call
-    parseNeg op2 tokens
-    to compute the expression to the right of
-    op2, namely
-    R (more about
-    parseNeg below, but essentially if
-    tokens is of the form
-    (E2 : rest),
-    then this is equivalent to
-    parse op2 E2 rest).
-    Now, we have
-    E0 ‘op1‘ (E1 ‘op2‘ R) ‘op3‘ ...
-    where op3 is the next operator in the
-    input. This is an instance of (1) above, so to continue we call
-    parse, with the new
-    E1 == (E1 ‘op2‘ R).
+1. if op1 and
+   op2 have the same precedence, but they
+   do not have the same associativity, or they are declared to be
+   nonfix, then the expression is illegal.
+1. If op1 has a
+   higher precedence than op2, or
+   op1 and
+   op2 should left-associate, then we know
+   that the expression to the right of op1
+   is E1, so we return this to the
+   caller.
+1. Otherwise, we know we want to build an
+   expression of the form
+   E1 ‘op2‘ R.
+   To find R, we call
+   parseNeg op2 tokens
+   to compute the expression to the right of
+   op2, namely
+   R (more about
+   parseNeg below, but essentially if
+   tokens is of the form
+   (E2 : rest),
+   then this is equivalent to
+   parse op2 E2 rest).
+   Now, we have
+   E0 ‘op1‘ (E1 ‘op2‘ R) ‘op3‘ ...
+   where op3 is the next operator in the
+   input. This is an instance of (1) above, so to continue we call
+   parse, with the new
+   E1 == (E1 ‘op2‘ R).
 
 To initialise the algorithm, we set op1 to
 be an imaginary operator with precedence lower than anything else. Hence
@@ -17065,35 +12908,24 @@ The function parseNeg handles prefix
 negation. If we encounter a negation operator, and it is legal in this
 position (the operator to the left has precedence lower than 6), then we
 proceed in a similar way to case (3) above: compute the argument to
+
 - by recursively calling
-parseNeg, and then continue by calling
-parse.
+  parseNeg, and then continue by calling
+  parse.
 
 Note that this algorithm is insensitive to the range and resolution of
 precedences. There is no reason in principle that Haskell should be
 limited to integral precedences in the range 1 to 10; a larger range, or
 fractional values, would present no additional difficulties.
 
+[prev-tail]
 
+______________________________________________________________________
 
-\[prev-tail\]
-
-
-
-
-
----
-
-
-
-\[prev-tail\]
-\[up\]
-
-
+[prev-tail]
+[up]
 
 ## Chapter 11 Specification of Derived Instances
-
-
 
 A derived instance is an instance
 declaration that is generated automatically in conjunction with a
@@ -17107,8 +12939,6 @@ by the Prelude.
 
 If T is an algebraic datatype declared
 by:
-
-
 
 <table id="TBL-106" class="array" data-cellpadding="0"
 data-cellspacing="0">
@@ -17137,44 +12967,42 @@ deriving (C<sub>1</sub>, …, C<sub>m</sub>)
 </tbody>
 </table>
 
-
-
 (where m ≥
 0 and the parentheses may be omitted
 if m = 1) then
 a derived instance declaration is possible for a class
 C if these conditions hold:
 
-1.  C is one of
-    Eq, Ord,
-    Enum,
-    Bounded,
-    Show, or
-    Read.
-2.  There is a context
-    cx′ such
-    that
-    cx′ 
-    ⇒
-     C t<sub>ij</sub>
-    holds for each of the constituent types
-    t<sub>ij</sub>.
-3.  If C is
-    Bounded, the type must be either an
-    enumeration (all constructors must be nullary) or have only one
-    constructor.
-4.  If C is
-    Enum, the type must be an
-    enumeration.
-5.  There must be no explicit instance
-    declaration elsewhere in the program that makes
-    T u<sub>1</sub> … u<sub>k</sub>
-    an instance of C.
-6.  If the data declaration has no constructors
-    (i.e. when n =
-    0), then no classes are derivable (i.e.
-    m =
-    0)
+1. C is one of
+   Eq, Ord,
+   Enum,
+   Bounded,
+   Show, or
+   Read.
+1. There is a context
+   cx′ such
+   that
+   cx′
+   ⇒
+   C t<sub>ij</sub>
+   holds for each of the constituent types
+   t<sub>ij</sub>.
+1. If C is
+   Bounded, the type must be either an
+   enumeration (all constructors must be nullary) or have only one
+   constructor.
+1. If C is
+   Enum, the type must be an
+   enumeration.
+1. There must be no explicit instance
+   declaration elsewhere in the program that makes
+   T u<sub>1</sub> … u<sub>k</sub>
+   an instance of C.
+1. If the data declaration has no constructors
+   (i.e. when n =
+   0), then no classes are derivable (i.e.
+   m =
+   0\)
 
 For the purposes of derived instances, a
 newtype declaration is treated as a
@@ -17193,7 +13021,7 @@ deriving ()
 may be used.
 
 Each derived instance declaration will have the form:
-instance (cx, cx′) =\> C<sub>i</sub> (T u<sub>1</sub> … u<sub>k</sub>) where { d }
+instance (cx, cx′) => C<sub>i</sub> (T u<sub>1</sub> … u<sub>k</sub>) where { d }
 where d is derived automatically depending
 on
 C<sub>i</sub>
@@ -17211,9 +13039,7 @@ Prelude classes are now given. Free variables and constructors used in
 these translations always refer to entities defined by the
 Prelude.
 
-### 11.1  Derived instances of Eq and Ord
-
- 
+### 11.1 Derived instances of Eq and Ord
 
 The class methods automatically introduced by derived instances of
 Eq and Ord are
@@ -17222,8 +13048,8 @@ Eq and Ord are
 compare,
 (\<),
 (\<=),
-(\>),
-(\>=),
+(>),
+(>=),
 max,
 and min. The
 latter seven operators are defined so as to compare their arguments
@@ -17231,17 +13057,13 @@ lexicographically with respect to the constructor set given, with
 earlier constructors in the datatype declaration counting as smaller
 than later ones. For example, for the Bool
 datatype, we have that
-(True \> False) == True.
+(True > False) == True.
 
 Derived comparisons always traverse constructors from left to right.
 These examples illustrate this property:
 
-
-
-(1,undefined) == (2,undefined) ⇒    False  
+(1,undefined) == (2,undefined) ⇒    False\
 (undefined,1) == (undefined,2) ⇒    ⊥
-
-
 
 All derived operations of class Eq and
 Ord are strict in both arguments. For
@@ -17251,9 +13073,7 @@ is ⊥, even though
 False is the first constructor of the
 Bool type.
 
-### 11.2  Derived instances of Enum
-
-
+### 11.2 Derived instances of Enum
 
 Derived instance declarations for the class
 Enum are only possible for enumerations
@@ -17277,55 +13097,29 @@ constructors.
 
 The definitions of the remaining methods are
 
-
-
-
-
-  enumFrom x           = enumFromTo x lastCon    
-  enumFromThen x y     = enumFromThenTo x y bound    
-                       where    
-                         bound \| fromEnum y \>= fromEnum x = lastCon
-   
-                               \| otherwise                = firstCon
-   
-  enumFromTo x y       = map toEnum \[fromEnum x .. fromEnum y\]    
-  enumFromThenTo x y z = map toEnum \[fromEnum x, fromEnum y .. fromEnum z\]
-
-
-
-
+enumFrom x           = enumFromTo x lastCon  \
+enumFromThen x y     = enumFromThenTo x y bound  \
+where  \
+bound | fromEnum y >= fromEnum x = lastCon
+\
+| otherwise                = firstCon
+\
+enumFromTo x y       = map toEnum [fromEnum x .. fromEnum y]  \
+enumFromThenTo x y z = map toEnum [fromEnum x, fromEnum y .. fromEnum z]
 
 where firstCon and
 lastCon are respectively the first and last
 constructors listed in the data
 declaration. For example, given the datatype:
 
-
-
-
-
-  data  Color = Red \| Orange \| Yellow \| Green  deriving (Enum)
-
-
-
-
+data  Color = Red | Orange | Yellow | Green  deriving (Enum)
 
 we would have:
 
+[Orange ..]         ==  [Orange, Yellow, Green]  \
+fromEnum Yellow     ==  2
 
-
-
-
-  \[Orange ..\]         ==  \[Orange, Yellow, Green\]    
-  fromEnum Yellow     ==  2
-
-
-
-
-
-### 11.3  Derived instances of Bounded
-
-
+### 11.3 Derived instances of Bounded
 
 The Bounded class introduces the class
 methods
@@ -17337,34 +13131,16 @@ data declaration are the bounds. For a type
 with a single constructor, the constructor is applied to the bounds for
 the constituent types. For example, the following datatype:
 
-
-
-
-
-  data  Pair a b = Pair a b deriving Bounded
-
-
-
-
+data  Pair a b = Pair a b deriving Bounded
 
 would generate the following Bounded
 instance:
 
+instance (Bounded a,Bounded b) => Bounded (Pair a b) where  \
+minBound = Pair minBound minBound  \
+maxBound = Pair maxBound maxBound
 
-
-
-
-  instance (Bounded a,Bounded b) =\> Bounded (Pair a b) where    
-    minBound = Pair minBound minBound    
-    maxBound = Pair maxBound maxBound
-
-
-
-
-
-### 11.4  Derived instances of Read and Show
-
- 
+### 11.4 Derived instances of Read and Show
 
 The class methods automatically introduced by derived instances of
 Read and Show
@@ -17411,12 +13187,8 @@ to d.
 
 It should be the case that
 
-
-
 (x,"") is an element of
 (readsPrec d (showsPrec d x ""))
-
-
 
 That is, readsPrec should be able to parse
 the string produced by showsPrec, and
@@ -17432,7 +13204,7 @@ readsPrec will parse any valid
 representation of the standard types apart from strings, for which only
 quoted strings are accepted, and other lists, for which only the
 bracketed form
-\[…\] is
+[…] is
 accepted. See Chapter 9 for full details.
 
 The result of show is a syntactically
@@ -17459,25 +13231,17 @@ Show obey:
 - Associativity is not used to reduce the occurrence of parentheses,
   although precedence may be. For example, given
 
-  
-
-  
-
-    infixr 4 :\$    
-    data T = Int :\$ T  \|  NT
-
-  
-
-  
+  infixr 4 :$  \
+  data T = Int :$ T  |  NT
 
   then:
 
-  - show (1 :\$ 2 :\$ NT)
+  - show (1 :$ 2 :$ NT)
     produces the string
-    "1 :\$ (2 :\$ NT)".
-  - read "1 :\$ (2 :\$ NT)"
+    "1 :$ (2 :$ NT)".
+  - read "1 :$ (2 :$ NT)"
     succeeds, with the obvious result.
-  - read "1 :\$ 2 :\$ NT"
+  - read "1 :$ 2 :$ NT"
     fails.
 
 - If the constructor is defined using record syntax, the derived
@@ -17502,20 +13266,12 @@ uses. Some problems include:
   Prelude. For example, there is no way to change the formatting of
   floating point numbers.
 
-### 11.5  An Example
+### 11.5 An Example
 
 As a complete example, consider a tree datatype:
 
-
-
-
-
-  data Tree a = Leaf a \| Tree a :^: Tree a    
-       deriving (Eq, Ord, Read, Show)
-
-
-
-
+data Tree a = Leaf a | Tree a :^: Tree a  \
+deriving (Eq, Ord, Read, Show)
 
 Automatic derivation of instance declarations for
 Bounded and
@@ -17527,113 +13283,73 @@ Figure [11.1](#x18-1870021), Note the implicit use of default class
 method definitions—for example, only
 \<= is defined for
 Ord, with the other class methods
-(\<, \>,
+(\<, >,
 \>=, max, and
 min) being defined by the defaults given in
 the class declaration shown in
 Figure 6.1.
 
-------------------------------------------------------------------------
+______________________________________________________________________
 
-
-
-
-
-
-
-
-
-
-
-
-
-infixr 5 :^:    
-data Tree a =  Leaf a  \|  Tree a :^: Tree a    
-   
-instance (Eq a) =\> Eq (Tree a) where    
-        Leaf m == Leaf n  =  m==n    
-        u:^:v  == x:^:y   =  u==x && v==y    
-             \_ == \_       =  False    
-   
-instance (Ord a) =\> Ord (Tree a) where    
-        Leaf m \<= Leaf n  =  m\<=n    
-        Leaf m \<= x:^:y   =  True    
-        u:^:v  \<= Leaf n  =  False    
-        u:^:v  \<= x:^:y   =  u\<x \|\| u==x && v\<=y    
-   
-instance (Show a) =\> Show (Tree a) where    
-   
-        showsPrec d (Leaf m) = showParen (d \> app_prec) showStr    
-          where    
-             showStr = showString "Leaf " . showsPrec (app_prec+1) m    
-   
-        showsPrec d (u :^: v) = showParen (d \> up_prec) showStr    
-          where    
-             showStr = showsPrec (up_prec+1) u .    
-                       showString " :^: "      .    
-                       showsPrec (up_prec+1) v    
-                -- Note: right-associativity of :^: ignored    
-   
-instance (Read a) =\> Read (Tree a) where    
-   
-        readsPrec d r =  readParen (d \> up_prec)    
-                         (\r -\> \[(u:^:v,w) \|    
-                                 (u,s) \<- readsPrec (up_prec+1) r,    
-                                 (":^:",t) \<- lex s,    
-                                 (v,w) \<- readsPrec (up_prec+1) t\]) r
-   
-   
-                      ++ readParen (d \> app_prec)    
-                         (\r -\> \[(Leaf m,t) \|    
-                                 ("Leaf",s) \<- lex r,    
-                                 (m,t) \<- readsPrec (app_prec+1) s\]) r
-   
-   
-up_prec  = 5    -- Precedence of :^:    
-app_prec = 10   -- Application has precedence one more than    
-                -- the most tightly-binding operator
-
-
-
-
-
-
-
-
-
-  
-
-
+infixr 5 :^:  \
+data Tree a =  Leaf a  |  Tree a :^: Tree a  \
+\
+instance (Eq a) => Eq (Tree a) where  \
+Leaf m == Leaf n  =  m==n  \
+u:^:v  == x:^:y   =  u==x && v==y  \
+_ == _       =  False  \
+\
+instance (Ord a) => Ord (Tree a) where  \
+Leaf m \<= Leaf n  =  m\<=n  \
+Leaf m \<= x:^:y   =  True  \
+u:^:v  \<= Leaf n  =  False  \
+u:^:v  \<= x:^:y   =  u\<x || u==x && v\<=y  \
+\
+instance (Show a) => Show (Tree a) where  \
+\
+showsPrec d (Leaf m) = showParen (d > app_prec) showStr  \
+where  \
+showStr = showString "Leaf " . showsPrec (app_prec+1) m  \
+\
+showsPrec d (u :^: v) = showParen (d > up_prec) showStr  \
+where  \
+showStr = showsPrec (up_prec+1) u .  \
+showString " :^: "      .  \
+showsPrec (up_prec+1) v  \
+-- Note: right-associativity of :^: ignored  \
+\
+instance (Read a) => Read (Tree a) where  \
+\
+readsPrec d r =  readParen (d > up_prec)  \
+(\\r -> \[(u:^:v,w) |  \
+(u,s) \<- readsPrec (up_prec+1) r,  \
+(":^:",t) \<- lex s,  \
+(v,w) \<- readsPrec (up_prec+1) t\]) r
+\
+\
+++ readParen (d > app_prec)  \
+(\\r -> \[(Leaf m,t) |  \
+("Leaf",s) \<- lex r,  \
+(m,t) \<- readsPrec (app_prec+1) s\]) r
+\
+\
+up_prec  = 5    -- Precedence of :^:  \
+app_prec = 10   -- Application has precedence one more than  \
+-- the most tightly-binding operator
 
 Figure 11.1: Example of
 Derived Instances
 
+______________________________________________________________________
 
+[prev-tail]
 
+______________________________________________________________________
 
-
-------------------------------------------------------------------------
-
-
-
-\[prev-tail\]
-
-
-
-
-
----
-
-
-
-\[prev-tail\]
-\[up\]
-
-
+[prev-tail]
+[up]
 
 ## Chapter 12 Compiler Pragmas
-
-
 
 Some compiler implementations support compiler
 pragmas, which are used to give additional
@@ -17646,61 +13362,35 @@ encouraged to support the LANGUAGE pragma described below as there are
 many language extensions being used in practice.
 
 Lexically, pragmas appear as comments, except that the enclosing syntax
-is {-#\#-}.
+is {-##-}.
 
-### 12.1  Inlining
+### 12.1 Inlining
 
-
-
-
-
-
-
-|  |  |  |
+| | | |
 |:---|:--:|:---|
-| decl  | → | {-# INLINE qvars \#-} |
-| decl  | → | {-# NOINLINE qvars \#-} |
-
-
-
-
+| decl | → | {-# INLINE qvars #-} |
+| decl | → | {-# NOINLINE qvars #-} |
 
 The INLINE pragma instructs the compiler to
 inline the specified variables at their use sites. Compilers will often
 automatically inline simple expressions. This may be prevented by the
 NOINLINE pragma.
 
-### 12.2  Specialization
+### 12.2 Specialization
 
-
-
-
-
-|  |  |  |  |
+| | | | |
 |:---|:--:|:---|:---|
-| decl  | → | {-# SPECIALIZE spec<sub>1</sub> , … , spec<sub>k</sub> \#-} |     (k ≥ 1)  |
-| spec  | → | vars  ::  type  |  |
-
-
-
-
+| decl | → | {-# SPECIALIZE spec<sub>1</sub> , … , spec<sub>k</sub> #-} |     (k ≥ 1) |
+| spec | → | vars  ::  type | |
 
 Specialization is used to avoid inefficiencies involved in dispatching
 overloaded functions. For example, in
 
-
-
-
-
-factorial :: Num a =\> a -\> a    
-factorial 0 = 0    
-factorial n = n ⋆ factorial (n-1)    
-{-# SPECIALIZE factorial :: Int -\> Int,    
-               factorial :: Integer -\> Integer #-}
-
-
-
-
+factorial :: Num a => a -> a  \
+factorial 0 = 0  \
+factorial n = n ⋆ factorial (n-1)  \
+{-# SPECIALIZE factorial :: Int -> Int,  \
+factorial :: Integer -> Integer #-}
 
 calls to factorial in which the compiler
 can detect that the parameter is either Int
@@ -17708,7 +13398,7 @@ or Integer will use specialized versions of
 factorial which do not involve overloaded
 numeric operations.
 
-### 12.3  Language extensions
+### 12.3 Language extensions
 
 The LANGUAGE pragma is a file-header
 pragma. A file-header pragma must precede the module keyword in a source
@@ -17720,15 +13410,7 @@ followed by a comma-separated list of named language features.
 For example, to enable scoped type variables and preprocessing with CPP,
 if your Haskell implementation supports these extensions:
 
-
-
-
-
 {-# LANGUAGE ScopedTypeVariables, CPP #-}
-
-
-
-
 
 If a Haskell implementation does not recognize or support a particular
 language feature that a source file requests (or cannot support the
@@ -17742,271 +13424,223 @@ implementation-specific features dependencies or non-standard pragmas)
 are specifically permitted. Haskell 2010 implementations that support
 the LANGUAGE pragma are required to support
 
-
-
-
-
 {-# LANGUAGE Haskell2010 #-}
-
-
-
-
 
 Those implementations are also encouraged to support the following named
 language features:
 
-
-
-
-
-PatternGuards, NoNPlusKPatterns, RelaxedPolyRec,    
+PatternGuards, NoNPlusKPatterns, RelaxedPolyRec,  \
 EmptyDataDecls, ForeignFunctionInterface
-
-
-
-
 
 These are the named language extensions supported by some pre-Haskell
 2010 implementations, that have been integrated into this report.
 
+[prev-tail]
 
+______________________________________________________________________
 
-\[prev-tail\]
-
-
-
-
-
----
-
-
-
-\[prev-tail\]
-
-
+[prev-tail]
 
 # Part II The Haskell 2010 Libraries
 
-
-
 13
-Control.Monad  
- 13.1 Functor and monad
-classes   
- 13.2
-Functions   
+Control.Monad\
+13.1 Functor and monad
+classes\
+13.2
+Functions\
 14
-Data.Array  
- 14.1 Immutable non-strict
-arrays   
- 14.2 Array
-construction   
- 14.3 Accessing
-arrays   
- 14.4 Incremental array
-updates   
- 14.5 Derived
-arrays   
- 14.6
-Specification   
+Data.Array\
+14.1 Immutable non-strict
+arrays\
+14.2 Array
+construction\
+14.3 Accessing
+arrays\
+14.4 Incremental array
+updates\
+14.5 Derived
+arrays\
+14.6
+Specification\
 15
-Data.Bits  
+Data.Bits\
 16
-Data.Char  
- 16.1 Characters and
-strings   
- 16.2 Character
-classification   
- 16.3 Case
-conversion   
- 16.4 Single digit
-characters   
- 16.5 Numeric
-representations   
- 16.6 String
-representations   
+Data.Char\
+16.1 Characters and
+strings\
+16.2 Character
+classification\
+16.3 Case
+conversion\
+16.4 Single digit
+characters\
+16.5 Numeric
+representations\
+16.6 String
+representations\
 17
-Data.Complex  
- 17.1 Rectangular
-form   
- 17.2 Polar
-form   
- 17.3
-Conjugate   
- 17.4
-Specification   
+Data.Complex\
+17.1 Rectangular
+form\
+17.2 Polar
+form\
+17.3
+Conjugate\
+17.4
+Specification\
 18
-Data.Int  
- 18.1 Signed integer
-types   
+Data.Int\
+18.1 Signed integer
+types\
 19
-Data.Ix  
- 19.1 The Ix
-class   
- 19.2 Deriving Instances of
-Ix  
+Data.Ix\
+19.1 The Ix
+class\
+19.2 Deriving Instances of
+Ix\
 20
-Data.List  
- 20.1 Basic
-functions   
- 20.2 List
-transformations   
- 20.3 Reducing lists
-(folds)   
- 20.4 Building
-lists   
- 20.5
-Sublists   
- 20.6 Searching
-lists   
- 20.7 Indexing
-lists   
- 20.8 Zipping and unzipping
-lists   
- 20.9 Special
-lists   
- 20.10 Generalized
-functions   
+Data.List\
+20.1 Basic
+functions\
+20.2 List
+transformations\
+20.3 Reducing lists
+(folds)\
+20.4 Building
+lists\
+20.5
+Sublists\
+20.6 Searching
+lists\
+20.7 Indexing
+lists\
+20.8 Zipping and unzipping
+lists\
+20.9 Special
+lists\
+20.10 Generalized
+functions\
 21
-Data.Maybe  
- 21.1 The Maybe
-type and operations   
- 21.2
-Specification   
+Data.Maybe\
+21.1 The Maybe
+type and operations\
+21.2
+Specification\
 22
-Data.Ratio  
- 22.1
-Specification   
+Data.Ratio\
+22.1
+Specification\
 23
-Data.Word  
- 23.1 Unsigned integral
-types   
+Data.Word\
+23.1 Unsigned integral
+types\
 24
-Foreign  
+Foreign\
 25
-Foreign.C  
+Foreign.C\
 26
-Foreign.C.Error  
- 26.1 Haskell representations of
+Foreign.C.Error\
+26.1 Haskell representations of
 errno
-values   
+values\
 27
-Foreign.C.String  
- 27.1 C
-strings   
- 27.2 C wide
-strings   
+Foreign.C.String\
+27.1 C
+strings\
+27.2 C wide
+strings\
 28
-Foreign.C.Types  
- 28.1 Representations of C
-types   
+Foreign.C.Types\
+28.1 Representations of C
+types\
 29
-Foreign.ForeignPtr  
- 29.1 Finalised data
-pointers   
+Foreign.ForeignPtr\
+29.1 Finalised data
+pointers\
 30
-Foreign.Marshal  
+Foreign.Marshal\
 31
-Foreign.Marshal.Alloc  
- 31.1 Memory
-allocation   
+Foreign.Marshal.Alloc\
+31.1 Memory
+allocation\
 32
-Foreign.Marshal.Array  
- 32.1 Marshalling
-arrays   
+Foreign.Marshal.Array\
+32.1 Marshalling
+arrays\
 33
-Foreign.Marshal.Error  
+Foreign.Marshal.Error\
 34
-Foreign.Marshal.Utils  
- 34.1 General marshalling
-utilities   
+Foreign.Marshal.Utils\
+34.1 General marshalling
+utilities\
 35
-Foreign.Ptr  
- 35.1 Data
-pointers   
- 35.2 Function
-pointers   
- 35.3 Integral types with lossless conversion
-to and from pointers   
+Foreign.Ptr\
+35.1 Data
+pointers\
+35.2 Function
+pointers\
+35.3 Integral types with lossless conversion
+to and from pointers\
 36
-Foreign.StablePtr  
- 36.1 Stable references to Haskell
-values   
+Foreign.StablePtr\
+36.1 Stable references to Haskell
+values\
 37
-Foreign.Storable  
+Foreign.Storable\
 38
-Numeric  
- 38.1
-Showing   
- 38.2
-Reading   
- 38.3
-Miscellaneous   
+Numeric\
+38.1
+Showing\
+38.2
+Reading\
+38.3
+Miscellaneous\
 39
-System.Environment  
+System.Environment\
 40
-System.Exit  
+System.Exit\
 41
-System.IO  
- 41.1 The IO
-monad   
- 41.2 Files and
-handles   
- 41.3 Opening and closing
-files   
- 41.4 Operations on
-handles   
- 41.5 Text input and
-output   
+System.IO\
+41.1 The IO
+monad\
+41.2 Files and
+handles\
+41.3 Opening and closing
+files\
+41.4 Operations on
+handles\
+41.5 Text input and
+output\
 42
-System.IO.Error  
- 42.1 I/O
-errors   
- 42.2 Types of I/O
-error   
- 42.3 Throwing and catching I/O
-errors   
+System.IO.Error\
+42.1 I/O
+errors\
+42.2 Types of I/O
+error\
+42.3 Throwing and catching I/O
+errors\
 Bibliography
 
+[prev-tail]
 
+______________________________________________________________________
 
-
-
-\[prev-tail\]
-
-
-
-
-
----
-
-
-
-\[up\]
-
-
+[up]
 
 ## Chapter 13 Control.Monad
 
-
-
-
-
-module Control.Monad (    
-    Functor(fmap),  Monad((\>\>=), (\>\>), return, fail),  MonadPlus(mzero, mplus),
-   
-    mapM,  mapM\_,  forM,  forM\_,  sequence,  sequence\_,  (=\<\<),  (\>=\>),  (\<=\<),
-   
-    forever,  void,  join,  msum,  filterM,  mapAndUnzipM,  zipWithM,
-   
-    zipWithM\_,  foldM,  foldM\_,  replicateM,  replicateM\_,  guard,  when,
-   
-    unless,  liftM,  liftM2,  liftM3,  liftM4,  liftM5,  ap    
-  ) where
-
-
-
-
+module Control.Monad (  \
+Functor(fmap),  Monad((>>=), (>>), return, fail),  MonadPlus(mzero, mplus),
+\
+mapM,  mapM\_,  forM,  forM\_,  sequence,  sequence\_,  (=\<<),  (>=>),  (\<=\<),
+\
+forever,  void,  join,  msum,  filterM,  mapAndUnzipM,  zipWithM,
+\
+zipWithM\_,  foldM,  foldM\_,  replicateM,  replicateM\_,  guard,  when,
+\
+unless,  liftM,  liftM2,  liftM3,  liftM4,  liftM5,  ap  \
+) where
 
 The Control.Monad module provides the
 Functor,
@@ -18014,31 +13648,19 @@ Monad and
 MonadPlus
 classes, together with some useful operations on monads.
 
-### 13.1  Functor and monad classes
+### 13.1 Functor and monad classes
 
-
-
-|  |
+| |
 |:---|
-| class Functor f where  |
-
-
+| class Functor f where |
 
 The Functor
 class is used for types that can be mapped over. Instances of
 Functor
 should satisfy the following laws:
 
-
-
-
-
- fmap id  ==  id    
- fmap (f . g)  ==  fmap f . fmap g
-
-
-
-
+fmap id  ==  id  \
+fmap (f . g)  ==  fmap f . fmap g
 
 The instances of
 Functor for
@@ -18047,32 +13669,20 @@ System.IO.IO satisfy these laws.
 
 Methods
 
-
-
-|  |
+| |
 |:---|
-| fmap :: (a -\> b) -\> f a -\> f b  |
+| fmap :: (a -> b) -> f a -> f b |
 
-
-
-
-
-|  |
+| |
 |:---|
-| instance Functor \[\]  |
-| instance Functor IO  |
-| instance Functor Maybe  |
-| instance Ix i =\> Functor (Array i)  |
+| instance Functor [] |
+| instance Functor IO |
+| instance Functor Maybe |
+| instance Ix i => Functor (Array i) |
 
-
-
-
-
-|  |
+| |
 |:---|
-| class Monad m where  |
-
-
+| class Monad m where |
 
 The Monad
 class defines the basic operations over a
@@ -18084,39 +13694,23 @@ actions. Haskell’s do expressions provide a
 convenient syntax for writing monadic expressions.
 
 Minimal complete definition:
-\>\>= and
+\>>= and
 return.
 
 Instances of
 Monad should
 satisfy the following laws:
 
-
-
-
-
- return a \>\>= k  ==  k a    
- m \>\>= return  ==  m    
- m \>\>= (\x -\> k x \>\>= h)  ==  (m \>\>= k) \>\>= h
-
-
-
-
+return a >>= k  ==  k a  \
+m >>= return  ==  m  \
+m >>= (\\x -> k x >>= h)  ==  (m >>= k) >>= h
 
 Instances of both
 Monad and
 Functor
 should additionally satisfy the law:
 
-
-
-
-
- fmap f xs  ==  xs \>\>= return . f
-
-
-
-
+fmap f xs  ==  xs >>= return . f
 
 The instances of
 Monad for
@@ -18126,118 +13720,74 @@ Prelude satisfy these laws.
 
 Methods
 
-
-
-|  |
+| |
 |:---|
-| (\>\>=) :: m a -\> (a -\> m b) -\> m b  |
-
-
+| (>>=) :: m a -> (a -> m b) -> m b |
 
 Sequentially compose two actions, passing any value produced by the
 first as an argument to the second.
 
-
-
-|  |
+| |
 |:---|
-| (\>\>) :: m a -\> m b -\> m b  |
-
-
+| (>>) :: m a -> m b -> m b |
 
 Sequentially compose two actions, discarding any value produced by the
 first, like sequencing operators (such as the semicolon) in imperative
 languages.
 
-
-
-|  |
+| |
 |:---|
-| return :: a -\> m a  |
-
-
+| return :: a -> m a |
 
 Inject a value into the monadic type.
 
-
-
-|  |
+| |
 |:---|
-| fail :: String -\> m a  |
-
-
+| fail :: String -> m a |
 
 Fail with a message. This operation is not part of the mathematical
 definition of a monad, but is invoked on pattern-match failure in a
 do expression.
 
-
-
-|  |
+| |
 |:---|
-| instance Monad \[\]  |
-| instance Monad IO  |
-| instance Monad Maybe  |
+| instance Monad [] |
+| instance Monad IO |
+| instance Monad Maybe |
 
-
-
-
-
-|  |
+| |
 |:---|
-| class Monad m =\> MonadPlus m where  |
-
-
+| class Monad m => MonadPlus m where |
 
 Monads that also support choice and failure.
 
 Methods
 
-
-
-|  |
+| |
 |:---|
-| mzero :: m a  |
-
-
+| mzero :: m a |
 
 the identity of
 mplus. It
 should also satisfy the equations
 
+mzero >>= f  =  mzero  \
+v >> mzero   =  mzero
 
-
-
-
- mzero \>\>= f  =  mzero    
- v \>\> mzero   =  mzero
-
-
-
-
-
-
-
-|  |
+| |
 |:---|
-| mplus :: m a -\> m a -\> m a  |
-
-
+| mplus :: m a -> m a -> m a |
 
 an associative operation
 
-
-
-|  |
+| |
 |:---|
-| instance MonadPlus \[\]  |
-| instance MonadPlus Maybe  |
+| instance MonadPlus [] |
+| instance MonadPlus Maybe |
 
+### 13.2 Functions
 
-
-### 13.2  Functions
-
-#### 13.2.1  Naming conventions
+#### 13.2.1 Naming conventions
 
 The functions in this library use the following naming conventions:
 
@@ -18246,16 +13796,8 @@ The functions in this library use the following naming conventions:
   m is added to function results (modulo
   currying) and nowhere else. So, for example,
 
-
-
-
-
-  filter  ::              (a -\>   Bool) -\> \[a\] -\>   \[a\]    
-  filterM :: (Monad m) =\> (a -\> m Bool) -\> \[a\] -\> m \[a\]
-
-
-
-
+filter  ::              (a ->   Bool) -> [a] ->   [a]  \
+filterM :: (Monad m) => (a -> m Bool) -> [a] -> m [a]
 
 - A postfix ’\_’ changes the result type
   from (m a)
@@ -18263,206 +13805,130 @@ The functions in this library use the following naming conventions:
   (m ()).
   Thus, for example:
 
-
-
-
-
-  sequence  :: Monad m =\> \[m a\] -\> m \[a\]    
-  sequence\_ :: Monad m =\> \[m a\] -\> m ()
-
-
-
-
+sequence  :: Monad m => [m a] -> m [a]  \
+sequence\_ :: Monad m => [m a] -> m ()
 
 - A prefix ’m’ generalizes an existing
   function to a monadic form. Thus, for example:
 
+sum  :: Num a       => [a]   -> a  \
+msum :: MonadPlus m => [m a] -> m a
 
+#### 13.2.2 Basic Monad functions
 
-
-
-  sum  :: Num a       =\> \[a\]   -\> a    
-  msum :: MonadPlus m =\> \[m a\] -\> m a
-
-
-
-
-
-#### 13.2.2  Basic Monad functions
-
-
-
-|  |
+| |
 |:---|
-| mapM :: Monad m =\> (a -\> m b) -\> \[a\] -\> m \[b\]  |
-
-
+| mapM :: Monad m => (a -> m b) -> [a] -> m [b] |
 
 mapM f is
 equivalent to
 sequence . map f.
 
-
-
-|  |
+| |
 |:---|
-| mapM\_ :: Monad m =\> (a -\> m b) -\> \[a\] -\> m ()  |
-
-
+| mapM\_ :: Monad m => (a -> m b) -> [a] -> m () |
 
 mapM\_ f is
 equivalent to
 sequence\_ . map f.
 
-
-
-|  |
+| |
 |:---|
-| forM :: Monad m =\> \[a\] -\> (a -\> m b) -\> m \[b\]  |
-
-
+| forM :: Monad m => [a] -> (a -> m b) -> m [b] |
 
 forM is
 mapM with its
 arguments flipped
 
-
-
-|  |
+| |
 |:---|
-| forM\_ :: Monad m =\> \[a\] -\> (a -\> m b) -\> m ()  |
-
-
+| forM\_ :: Monad m => [a] -> (a -> m b) -> m () |
 
 forM\_ is
 mapM\_ with
 its arguments flipped
 
-
-
-|  |
+| |
 |:---|
-| sequence :: Monad m =\> \[m a\] -\> m \[a\]  |
-
-
+| sequence :: Monad m => [m a] -> m [a] |
 
 Evaluate each action in the sequence from left to right, and collect the
 results.
 
-
-
-|  |
+| |
 |:---|
-| sequence\_ :: Monad m =\> \[m a\] -\> m ()  |
-
-
+| sequence\_ :: Monad m => [m a] -> m () |
 
 Evaluate each action in the sequence from left to right, and ignore the
 results.
 
-
-
-|  |
+| |
 |:---|
-| (=\<\<) :: Monad m =\> (a -\> m b) -\> m a -\> m b  |
-
-
+| (=\<<) :: Monad m => (a -> m b) -> m a -> m b |
 
 Same as
-\>\>=, but
+\>>=, but
 with the arguments interchanged.
 
-
-
-|  |
+| |
 |:---|
-| (\>=\>) :: Monad m =\> (a -\> m b) -\> (b -\> m c) -\> a -\> m c  |
-
-
+| (>=>) :: Monad m => (a -> m b) -> (b -> m c) -> a -> m c |
 
 Left-to-right Kleisli composition of monads.
 
-
-
-|  |
+| |
 |:---|
-| (\<=\<) :: Monad m =\> (b -\> m c) -\> (a -\> m b) -\> a -\> m c  |
-
-
+| (\<=\<) :: Monad m => (b -> m c) -> (a -> m b) -> a -> m c |
 
 Right-to-left Kleisli composition of monads.
-(\>=\>), with the arguments flipped
+(>=>), with the arguments flipped
 
-
-
-|  |
+| |
 |:---|
-| forever :: Monad m =\> m a -\> m b  |
-
-
+| forever :: Monad m => m a -> m b |
 
 forever act
 repeats the action infinitely.
 
-
-
-|  |
+| |
 |:---|
-| void :: Functor f =\> f a -\> f ()  |
-
-
+| void :: Functor f => f a -> f () |
 
 void value
 discards or ignores the result of evaluation, such as the return
 value of an
 IO action.
 
-#### 13.2.3  Generalisations of list functions
+#### 13.2.3 Generalisations of list functions
 
-
-
-|  |
+| |
 |:---|
-| join :: Monad m =\> m (m a) -\> m a  |
-
-
+| join :: Monad m => m (m a) -> m a |
 
 The join
 function is the conventional monad join operator. It is used to remove
 one level of monadic structure, projecting its bound argument into the
 outer level.
 
-
-
-|  |
+| |
 |:---|
-| msum :: MonadPlus m =\> \[m a\] -\> m a  |
-
-
+| msum :: MonadPlus m => [m a] -> m a |
 
 This generalizes the list-based
 concat
 function.
 
-
-
-|  |
+| |
 |:---|
-| filterM :: Monad m =\> (a -\> m Bool) -\> \[a\] -\> m \[a\]  |
-
-
+| filterM :: Monad m => (a -> m Bool) -> [a] -> m [a] |
 
 This generalizes the list-based
 filter
 function.
 
-
-
-|  |
+| |
 |:---|
-| mapAndUnzipM :: Monad m =\> (a -\> m (b, c)) -\> \[a\] -\> m (\[b\], \[c\])  |
-
-
+| mapAndUnzipM :: Monad m => (a -> m (b, c)) -> [a] -> m ([b], [c]) |
 
 The
 mapAndUnzipM
@@ -18470,39 +13936,27 @@ function maps its first argument over a list, returning the result as a
 pair of lists. This function is mainly used with complicated data
 structures or a state-transforming monad.
 
-
-
-|  |
+| |
 |:---|
-| zipWithM :: Monad m =\> (a -\> b -\> m c) -\> \[a\] -\> \[b\] -\> m \[c\]  |
-
-
+| zipWithM :: Monad m => (a -> b -> m c) -> [a] -> [b] -> m [c] |
 
 The zipWithM
 function generalizes
 zipWith to
 arbitrary monads.
 
-
-
-|  |
+| |
 |:---|
-| zipWithM\_ :: Monad m =\> (a -\> b -\> m c) -\> \[a\] -\> \[b\] -\> m ()  |
-
-
+| zipWithM\_ :: Monad m => (a -> b -> m c) -> [a] -> [b] -> m () |
 
 zipWithM\_ is
 the extension of
 zipWithM
 which ignores the final result.
 
-
-
-|  |
+| |
 |:---|
-| foldM :: Monad m =\> (a -\> b -\> m a) -\> a -\> \[b\] -\> m a  |
-
-
+| foldM :: Monad m => (a -> b -> m a) -> a -> [b] -> m a |
 
 The foldM
 function is analogous to
@@ -18510,82 +13964,50 @@ foldl, except
 that its result is encapsulated in a monad. Note that
 foldM works
 from left-to-right over the list arguments. This could be an issue where
-(\>\>) and the ‘folded function’ are not
+(>>) and the ‘folded function’ are not
 commutative.
 
+foldM f a1 [x1, x2, ..., xm]
 
+\==
 
-
-
-       foldM f a1 \[x1, x2, ..., xm\]
-
-
-
-
-
-==
-
-
-
-
-
-       do    
-         a2 \<- f a1 x1    
-         a3 \<- f a2 x2    
-         ...    
-         f am xm
-
-
-
-
+do  \
+a2 \<- f a1 x1  \
+a3 \<- f a2 x2  \
+...  \
+f am xm
 
 If right-to-left evaluation is required, the input list should be
 reversed.
 
-
-
-|  |
+| |
 |:---|
-| foldM\_ :: Monad m =\> (a -\> b -\> m a) -\> a -\> \[b\] -\> m ()  |
-
-
+| foldM\_ :: Monad m => (a -> b -> m a) -> a -> [b] -> m () |
 
 Like foldM,
 but discards the result.
 
-
-
-|  |
+| |
 |:---|
-| replicateM :: Monad m =\> Int -\> m a -\> m \[a\]  |
-
-
+| replicateM :: Monad m => Int -> m a -> m [a] |
 
 replicateM n act
 performs the action n times,
 gathering the results.
 
-
-
-|  |
+| |
 |:---|
-| replicateM\_ :: Monad m =\> Int -\> m a -\> m ()  |
-
-
+| replicateM\_ :: Monad m => Int -> m a -> m () |
 
 Like
 replicateM,
 but discards the result.
 
-#### 13.2.4  Conditional execution of monadic expressions
+#### 13.2.4 Conditional execution of monadic expressions
 
-
-
-|  |
+| |
 |:---|
-| guard :: MonadPlus m =\> Bool -\> m ()  |
-
-
+| guard :: MonadPlus m => Bool -> m () |
 
 guard b is
 return () if
@@ -18595,122 +14017,74 @@ mzero if
 b is
 False.
 
-
-
-|  |
+| |
 |:---|
-| when :: Monad m =\> Bool -\> m () -\> m ()  |
-
-
+| when :: Monad m => Bool -> m () -> m () |
 
 Conditional execution of monadic expressions. For example,
 
+when debug (putStr "Debugging\\n")
 
-
-
-
-       when debug (putStr "Debugging\n")
-
-
-
-
-
-will output the string Debugging\n if the
+will output the string Debugging\\n if the
 Boolean value debug is
 True, and
 otherwise do nothing.
 
-
-
-|  |
+| |
 |:---|
-| unless :: Monad m =\> Bool -\> m () -\> m ()  |
-
-
+| unless :: Monad m => Bool -> m () -> m () |
 
 The reverse of
 when.
 
-#### 13.2.5  Monadic lifting operators
+#### 13.2.5 Monadic lifting operators
 
-
-
-|  |
+| |
 |:---|
-| liftM :: Monad m =\> (a1 -\> r) -\> m a1 -\> m r  |
-
-
+| liftM :: Monad m => (a1 -> r) -> m a1 -> m r |
 
 Promote a function to a monad.
 
-
-
-|  |
+| |
 |:---|
-| liftM2 :: Monad m =\> (a1 -\> a2 -\> r) -\> m a1 -\> m a2 -\> m r  |
-
-
+| liftM2 :: Monad m => (a1 -> a2 -> r) -> m a1 -> m a2 -> m r |
 
 Promote a function to a monad, scanning the monadic arguments from left
 to right. For example,
 
+liftM2 (+) [0,1] [0,2] = [0,2,1,3]  \
+liftM2 (+) (Just 1) Nothing = Nothing
 
-
-
-
-    liftM2 (+) \[0,1\] \[0,2\] = \[0,2,1,3\]    
-    liftM2 (+) (Just 1) Nothing = Nothing
-
-
-
-
-
-
-
-|  |
+| |
 |:---|
-| liftM3 :: Monad m =\> (a1 -\> a2 -\> a3 -\> r)  |
-|                      -\> m a1 -\> m a2 -\> m a3 -\> m r |
-
-
+| liftM3 :: Monad m => (a1 -> a2 -> a3 -> r) |
+|                      -> m a1 -> m a2 -> m a3 -> m r |
 
 Promote a function to a monad, scanning the monadic arguments from left
 to right (cf.
 liftM2).
 
-
-
-|  |
+| |
 |:---|
-| liftM4 :: Monad m =\> (a1 -\> a2 -\> a3 -\> a4 -\> r)  |
-|                      -\> m a1 -\> m a2 -\> m a3 -\> m a4 -\> m r |
-
-
+| liftM4 :: Monad m => (a1 -> a2 -> a3 -> a4 -> r) |
+|                      -> m a1 -> m a2 -> m a3 -> m a4 -> m r |
 
 Promote a function to a monad, scanning the monadic arguments from left
 to right (cf.
 liftM2).
 
-
-
-|  |
+| |
 |:---|
-| liftM5 :: Monad m =\> (a1 -\> a2 -\> a3 -\> a4 -\> a5 -\> r)  |
-|                      -\> m a1 -\> m a2 -\> m a3 -\> m a4 -\> m a5 -\> m r |
-
-
+| liftM5 :: Monad m => (a1 -> a2 -> a3 -> a4 -> a5 -> r) |
+|                      -> m a1 -> m a2 -> m a3 -> m a4 -> m a5 -> m r |
 
 Promote a function to a monad, scanning the monadic arguments from left
 to right (cf.
 liftM2).
 
-
-
-|  |
+| |
 |:---|
-| ap :: Monad m =\> m (a -\> b) -\> m a -\> m b  |
-
-
+| ap :: Monad m => m (a -> b) -> m a -> m b |
 
 In many situations, the
 liftM
@@ -18718,62 +14092,28 @@ operations can be replaced by uses of
 ap, which
 promotes function application.
 
-
-
-
-
-       return f ‘ap‘ x1 ‘ap‘ ... ‘ap‘ xn
-
-
-
-
+return f ‘ap‘ x1 ‘ap‘ ... ‘ap‘ xn
 
 is equivalent to
 
+liftMn f x1 x2 ... xn
 
+[up]
 
+______________________________________________________________________
 
-
-       liftMn f x1 x2 ... xn
-
-
-
-
-
-
-
-\[up\]
-
-
-
-
-
----
-
-
-
-\[prev-tail\]
-\[up\]
-
-
+[prev-tail]
+[up]
 
 ## Chapter 14 Data.Array
 
+module Data.Array (  \
+module Data.Ix,  Array,  array,  listArray,  accumArray,  (!),  bounds,
+\
+indices,  elems,  assocs,  (//),  accum,  ixmap  \
+) where
 
-
-
-
-module Data.Array (    
-    module Data.Ix,  Array,  array,  listArray,  accumArray,  (!),  bounds,
-   
-    indices,  elems,  assocs,  (//),  accum,  ixmap    
-  ) where
-
-
-
-
-
-### 14.1  Immutable non-strict arrays
+### 14.1 Immutable non-strict arrays
 
 Haskell provides indexable arrays, which
 may be thought of as functions whose domains are isomorphic to
@@ -18788,59 +14128,39 @@ contents of the module Data.Ix are
 re-exported from Data.Array for
 convenience:
 
-
-
-|  |
+| |
 |:---|
-| module Data.Ix  |
+| module Data.Ix |
 
-
-
-
-
-|  |
+| |
 |:---|
-| data Ix i =\> Array i e  |
-
-
+| data Ix i => Array i e |
 
 The type of immutable non-strict (boxed) arrays with indices in
 i and elements in
 e.
 
-
-
-|  |
+| |
 |:---|
-| instance Ix i =\> Functor (Array i)  |
-| instance (Ix i, Eq e) =\> Eq (Array i e)  |
-| instance (Ix i, Ord e) =\> Ord (Array i e)  |
-| instance (Ix a, Read a, Read b) =\> Read (Array a b)  |
-| instance (Ix a, Show a, Show b) =\> Show (Array a b)  |
+| instance Ix i => Functor (Array i) |
+| instance (Ix i, Eq e) => Eq (Array i e) |
+| instance (Ix i, Ord e) => Ord (Array i e) |
+| instance (Ix a, Read a, Read b) => Read (Array a b) |
+| instance (Ix a, Show a, Show b) => Show (Array a b) |
 
+### 14.2 Array construction
 
-
-### 14.2  Array construction
-
-
-
-|                                     |
+| |
 |:------------------------------------|
-| array  |
+| array |
 
-
-
-
-
-|  |  |  |
+| | | |
 |:---|:---|----|
-| ::  | Ix i  |  |
-| =\>  | (i, i)  | a pair of bounds, each of the index type of the array. These bounds are the lowest and highest indices in the array, in that order. For example, a one-origin vector of length ’10’ has bounds ’(1,10)’, and a one-origin ’10’ by ’10’ matrix has bounds ’((1,1),(10,10))’. |
-| -\>  | \[(i, e)\]  | a list of associations of the form (index, value). Typically, this list will be expressed as a comprehension. An association ’(i, x)’ defines the value of the array at index i to be x. |
-| -\>  | Array i e  |  |
-|  |  |  |
-
-
+| :: | Ix i | |
+| => | (i, i) | a pair of bounds, each of the index type of the array. These bounds are the lowest and highest indices in the array, in that order. For example, a one-origin vector of length ’10’ has bounds ’(1,10)’, and a one-origin ’10’ by ’10’ matrix has bounds ’((1,1),(10,10))’. |
+| -> | [(i, e)] | a list of associations of the form (index, value). Typically, this list will be expressed as a comprehension. An association ’(i, x)’ defines the value of the array at index i to be x. |
+| -> | Array i e | |
+| | | |
 
 Construct an array with the specified bounds and containing values for
 given indices within these bounds.
@@ -18855,15 +14175,7 @@ strict in the bounds argument and in the indices of the association
 list, but non-strict in the values. Thus, recurrences such as the
 following are possible:
 
-
-
-
-
- a = array (1,100) ((1,1) : \[(i, i ⋆ a!(i-1)) \| i \<- \[2..100\]\])
-
-
-
-
+a = array (1,100) ((1,1) : \[(i, i ⋆ a!(i-1)) | i \<- [2..100]\])
 
 Not every index within the bounds of the array need appear in the
 association list, but the values associated with indices that do not
@@ -18875,38 +14187,26 @@ an array-bounds error, but
 bounds still
 yields the bounds with which the array was constructed.
 
-
-
-|  |
+| |
 |:---|
-| listArray :: Ix i =\> (i, i) -\> \[e\] -\> Array i e  |
-
-
+| listArray :: Ix i => (i, i) -> [e] -> Array i e |
 
 Construct an array from a pair of bounds and a list of values in index
 order.
 
-
-
-|                                          |
+| |
 |:-----------------------------------------|
-| accumArray  |
+| accumArray |
 
-
-
-
-
-|  |  |  |
+| | | |
 |:---|:---|----|
-| ::  | Ix i  |  |
-| =\>  | (e -\> a -\> e) | accumulating function |
-| -\>  | e  | initial value |
-| -\>  | (i, i)  | bounds of the array |
-| -\>  | \[(i, a)\]  | association list |
-| -\>  | Array i e  |  |
-|  |  |  |
-
-
+| :: | Ix i | |
+| => | (e -> a -> e) | accumulating function |
+| -> | e | initial value |
+| -> | (i, i) | bounds of the array |
+| -> | [(i, a)] | association list |
+| -> | Array i e | |
+| | | |
 
 The
 accumArray
@@ -18917,16 +14217,8 @@ values of some index type, hist produces a
 histogram of the number of occurrences of each index within a specified
 range:
 
-
-
-
-
- hist :: (Ix a, Num b) =\> (a,a) -\> \[a\] -\> Array a b    
- hist bnds is = accumArray (+) 0 bnds \[(i, 1) \| i\<-is, inRange bnds i\]
-
-
-
-
+hist :: (Ix a, Num b) => (a,a) -> [a] -> Array a b  \
+hist bnds is = accumArray (+) 0 bnds [(i, 1) | i\<-is, inRange bnds i]
 
 If the accumulating function is strict, then
 accumArray is
@@ -18935,82 +14227,50 @@ Thus, unlike ordinary arrays built with
 array,
 accumulated arrays should not in general be recursive.
 
-### 14.3  Accessing arrays
+### 14.3 Accessing arrays
 
-
-
-|  |
+| |
 |:---|
-| (!) :: Ix i =\> Array i e -\> i -\> e  |
-
-
+| (!) :: Ix i => Array i e -> i -> e |
 
 The value at the given index in an array.
 
-
-
-|  |
+| |
 |:---|
-| bounds :: Ix i =\> Array i e -\> (i, i)  |
-
-
+| bounds :: Ix i => Array i e -> (i, i) |
 
 The bounds with which an array was constructed.
 
-
-
-|  |
+| |
 |:---|
-| indices :: Ix i =\> Array i e -\> \[i\]  |
-
-
+| indices :: Ix i => Array i e -> [i] |
 
 The list of indices of an array in ascending order.
 
-
-
-|  |
+| |
 |:---|
-| elems :: Ix i =\> Array i e -\> \[e\]  |
-
-
+| elems :: Ix i => Array i e -> [e] |
 
 The list of elements of an array in index order.
 
-
-
-|  |
+| |
 |:---|
-| assocs :: Ix i =\> Array i e -\> \[(i, e)\]  |
-
-
+| assocs :: Ix i => Array i e -> [(i, e)] |
 
 The list of associations of an array in index order.
 
-### 14.4  Incremental array updates
+### 14.4 Incremental array updates
 
-
-
-|  |
+| |
 |:---|
-| (//) :: Ix i =\> Array i e -\> \[(i, e)\] -\> Array i e  |
-
-
+| (//) :: Ix i => Array i e -> [(i, e)] -> Array i e |
 
 Constructs an array identical to the first argument except that it has
 been updated by the associations in the right argument. For example, if
 m is a 1-origin, n
 by n matrix, then
 
-
-
-
-
- m//\[((i,i), 0) \| i \<- \[1..n\]\]
-
-
-
-
+m//\[((i,i), 0) | i \<- [1..n]\]
 
 is the same matrix, except with the diagonal zeroed.
 
@@ -19018,14 +14278,10 @@ Repeated indices in the association list are handled as for
 array: the
 resulting array is undefined (i.e. bottom),
 
-
-
-|  |
+| |
 |:---|
-| accum :: Ix i =\> (e -\> a -\> e)  |
-|                  -\> Array i e -\> \[(i, a)\] -\> Array i e  |
-
-
+| accum :: Ix i => (e -> a -> e) |
+|                  -> Array i e -> [(i, a)] -> Array i e |
 
 accum f takes
 an array and an association list and accumulates pairs from the list
@@ -19035,26 +14291,14 @@ accumArray
 can be defined using
 accum:
 
+accumArray f z b = accum f (array b [(i, z) | i \<- range b])
 
+### 14.5 Derived arrays
 
-
-
- accumArray f z b = accum f (array b \[(i, z) \| i \<- range b\])
-
-
-
-
-
-### 14.5  Derived arrays
-
-
-
-|  |
+| |
 |:---|
-| ixmap :: (Ix i, Ix j) =\> (i, i)  |
-|                          -\> (i -\> j) -\> Array j e -\> Array i e  |
-
-
+| ixmap :: (Ix i, Ix j) => (i, i) |
+|                          -> (i -> j) -> Array j e -> Array i e |
 
 ixmap allows
 for transformations on array indices. It may be thought of as providing
@@ -19068,169 +14312,139 @@ instance of the
 Functor
 class.
 
-### 14.6  Specification
+### 14.6 Specification
 
+module  Array (  \
+module Data.Ix,  -- export all of Data.Ix  \
+Array, array, listArray, (!), bounds, indices, elems, assocs,  \
+accumArray, (//), accum, ixmap ) where  \
+\
+import Data.Ix  \
+import Data.List( (\\) )  \
+\
+infixl 9  !, //  \
+\
+data (Ix a) => Array a b = MkArray (a,a) (a -> b) deriving ()  \
+\
+array       :: (Ix a) => (a,a) -> [(a,b)] -> Array a b  \
+array b ivs  \
+| any (not . inRange b. fst) ivs  \
+= error "Data.Array.array: out-of-range array association"  \
+| otherwise  \
+= MkArray b arr  \
+where  \
+arr j = case [ v | (i,v) \<- ivs, i == j ] of  \
+[v]   -> v  \
+[]    -> error "Data.Array.!: undefined array element"
+\
+_     -> error "Data.Array.!: multiply defined array element"
+\
+\
+listArray             :: (Ix a) => (a,a) -> [b] -> Array a b  \
+listArray b vs        =  array b (zipWith (\\a b -> (a,b)) (range b) vs)
+\
+\
+(!)                   :: (Ix a) => Array a b -> a -> b  \
+(!) (MkArray _ f)     =  f  \
+\
+bounds                :: (Ix a) => Array a b -> (a,a)  \
+bounds (MkArray b \_)  =  b  \
+\
+indices               :: (Ix a) => Array a b -> [a]  \
+indices               =  range . bounds  \
+\
+elems                 :: (Ix a) => Array a b -> [b]  \
+elems a               =  [a!i | i \<- indices a]  \
+\
+assocs                :: (Ix a) => Array a b -> [(a,b)]  \
+assocs a              =  [(i, a!i) | i \<- indices a]  \
+\
+(//)                  :: (Ix a) => Array a b -> [(a,b)] -> Array a b
+\
+a // new_ivs          = array (bounds a) (old_ivs ++ new_ivs)  \
+where  \
+old_ivs = \[(i,a!i) | i \<- indices a,  \
+i ‘notElem‘ new_is\]  \
+new_is  = [i | (i,\_) \<- new_ivs]  \
+\
+accum                 :: (Ix a) => (b -> c -> b) -> Array a b -> [(a,c)]
+\
+-> Array a b  \
+accum f               =  foldl (\\a (i,v) -> a // [(i,f (a!i) v)])
+\
+\
+accumArray            :: (Ix a) => (b -> c -> b) -> b -> (a,a) -> [(a,c)]
+\
+-> Array a b  \
+accumArray f z b      =  accum f (array b [(i,z) | i \<- range b])
+\
+\
+ixmap                 :: (Ix a, Ix b) => (a,a) -> (a -> b) -> Array b c
+\
+-> Array a c  \
+ixmap b f a           = array b [(i, a ! f i) | i \<- range b]  \
+\
+instance  (Ix a)          => Functor (Array a) where  \
+fmap fn (MkArray b f) =  MkArray b (fn . f)  \
+\
+instance  (Ix a, Eq b)  => Eq (Array a b)  where  \
+a == a' =  assocs a == assocs a'  \
+\
+instance  (Ix a, Ord b) => Ord (Array a b)  where  \
+a \<= a' =  assocs a \<= assocs a'  \
+\
+instance  (Ix a, Show a, Show b) => Show (Array a b)  where  \
+showsPrec p a = showParen (p > arrPrec) (  \
+showString "array " .  \
+showsPrec (arrPrec+1) (bounds a) . showChar ' ' .
+\
+showsPrec (arrPrec+1) (assocs a)                  )
+\
+\
+instance  (Ix a, Read a, Read b) => Read (Array a b)  where  \
+readsPrec p = readParen (p > arrPrec)  \
+(\\r -> \[ (array b as, u)  \
+| ("array",s) \<- lex r,  \
+(b,t)       \<- readsPrec (arrPrec+1) s,  \
+(as,u)      \<- readsPrec (arrPrec+1) t \])  \
+\
+-- Precedence of the 'array' function is that of application itself  \
+arrPrec = 10
 
+[prev-tail]
 
+______________________________________________________________________
 
-
- module  Array (    
-     module Data.Ix,  -- export all of Data.Ix    
-     Array, array, listArray, (!), bounds, indices, elems, assocs,    
-     accumArray, (//), accum, ixmap ) where    
-   
- import Data.Ix    
- import Data.List( (\\) )    
-   
- infixl 9  !, //    
-   
- data (Ix a) =\> Array a b = MkArray (a,a) (a -\> b) deriving ()    
-   
- array       :: (Ix a) =\> (a,a) -\> \[(a,b)\] -\> Array a b    
- array b ivs    
-   \| any (not . inRange b. fst) ivs    
-      = error "Data.Array.array: out-of-range array association"    
-   \| otherwise    
-      = MkArray b arr    
-   where    
-     arr j = case \[ v \| (i,v) \<- ivs, i == j \] of    
-               \[v\]   -\> v    
-               \[\]    -\> error "Data.Array.!: undefined array element"
-   
-               \_     -\> error "Data.Array.!: multiply defined array element"
-   
-   
- listArray             :: (Ix a) =\> (a,a) -\> \[b\] -\> Array a b    
- listArray b vs        =  array b (zipWith (\\a b -\> (a,b)) (range b) vs)
-   
-   
- (!)                   :: (Ix a) =\> Array a b -\> a -\> b    
- (!) (MkArray \_ f)     =  f    
-   
- bounds                :: (Ix a) =\> Array a b -\> (a,a)    
- bounds (MkArray b \_)  =  b    
-   
- indices               :: (Ix a) =\> Array a b -\> \[a\]    
- indices               =  range . bounds    
-   
- elems                 :: (Ix a) =\> Array a b -\> \[b\]    
- elems a               =  \[a!i \| i \<- indices a\]    
-   
- assocs                :: (Ix a) =\> Array a b -\> \[(a,b)\]    
- assocs a              =  \[(i, a!i) \| i \<- indices a\]    
-   
- (//)                  :: (Ix a) =\> Array a b -\> \[(a,b)\] -\> Array a b
-   
- a // new_ivs          = array (bounds a) (old_ivs ++ new_ivs)    
-                       where    
-                         old_ivs = \[(i,a!i) \| i \<- indices a,    
-                                              i ‘notElem‘ new_is\]    
-                         new_is  = \[i \| (i,\_) \<- new_ivs\]    
-   
- accum                 :: (Ix a) =\> (b -\> c -\> b) -\> Array a b -\> \[(a,c)\]
-   
-                                    -\> Array a b    
- accum f               =  foldl (\a (i,v) -\> a // \[(i,f (a!i) v)\])
-   
-   
- accumArray            :: (Ix a) =\> (b -\> c -\> b) -\> b -\> (a,a) -\> \[(a,c)\]
-   
-                                    -\> Array a b    
- accumArray f z b      =  accum f (array b \[(i,z) \| i \<- range b\])
-   
-   
- ixmap                 :: (Ix a, Ix b) =\> (a,a) -\> (a -\> b) -\> Array b c
-   
-                                          -\> Array a c    
- ixmap b f a           = array b \[(i, a ! f i) \| i \<- range b\]    
-   
- instance  (Ix a)          =\> Functor (Array a) where    
-     fmap fn (MkArray b f) =  MkArray b (fn . f)    
-   
- instance  (Ix a, Eq b)  =\> Eq (Array a b)  where    
-     a == a' =  assocs a == assocs a'    
-   
- instance  (Ix a, Ord b) =\> Ord (Array a b)  where    
-     a \<= a' =  assocs a \<= assocs a'    
-   
- instance  (Ix a, Show a, Show b) =\> Show (Array a b)  where    
-     showsPrec p a = showParen (p \> arrPrec) (    
-                     showString "array " .    
-                     showsPrec (arrPrec+1) (bounds a) . showChar ' ' .
-   
-                     showsPrec (arrPrec+1) (assocs a)                  )
-   
-   
- instance  (Ix a, Read a, Read b) =\> Read (Array a b)  where    
-     readsPrec p = readParen (p \> arrPrec)    
-            (\r -\> \[ (array b as, u)    
-                   \| ("array",s) \<- lex r,    
-                     (b,t)       \<- readsPrec (arrPrec+1) s,    
-                     (as,u)      \<- readsPrec (arrPrec+1) t \])    
-   
- -- Precedence of the 'array' function is that of application itself    
- arrPrec = 10
-
-
-
-
-
-
-
-\[prev-tail\]
-
-
-
-
-
----
-
-
-
-\[prev-tail\]
-\[up\]
-
-
+[prev-tail]
+[up]
 
 ## Chapter 15 Data.Bits
 
-
-
-
-
-module Data.Bits (    
-    Bits((.&.),    
-         (.\|.),    
-         xor,    
-         complement,    
-         shift,    
-         rotate,    
-         bit,    
-         setBit,    
-         clearBit,    
-         complementBit,    
-         testBit,    
-         bitSize,    
-         isSigned,    
-         shiftL,    
-         shiftR,    
-         rotateL,    
-         rotateR)    
-  ) where
-
-
-
-
+module Data.Bits (  \
+Bits((.&.),  \
+(.|.),  \
+xor,  \
+complement,  \
+shift,  \
+rotate,  \
+bit,  \
+setBit,  \
+clearBit,  \
+complementBit,  \
+testBit,  \
+bitSize,  \
+isSigned,  \
+shiftL,  \
+shiftR,  \
+rotateL,  \
+rotateR)  \
+) where
 
 This module defines bitwise operations for signed and unsigned integers.
 
-
-
-|  |
+| |
 |:---|
-| class Num a =\> Bits a where  |
-
-
+| class Num a => Bits a where |
 
 The Bits
 class defines bitwise operations over integral types.
@@ -19239,7 +14453,7 @@ class defines bitwise operations over integral types.
 
 Minimal complete definition:
 .&.,
-.\|.,
+.|.,
 xor,
 complement,
 (shift or
@@ -19253,53 +14467,33 @@ isSigned.
 
 Methods
 
-
-
-|  |
+| |
 |:---|
-| (.&.) :: a -\> a -\> a  |
-
-
+| (.&.) :: a -> a -> a |
 
 Bitwise ”and”
 
-
-
-|  |
+| |
 |:---|
-| (.\|.) :: a -\> a -\> a  |
-
-
+| (.|.) :: a -> a -> a |
 
 Bitwise ”or”
 
-
-
-|  |
+| |
 |:---|
-| xor :: a -\> a -\> a  |
-
-
+| xor :: a -> a -> a |
 
 Bitwise ”xor”
 
-
-
-|  |
+| |
 |:---|
-| complement :: a -\> a  |
-
-
+| complement :: a -> a |
 
 Reverse all the bits in the argument
 
-
-
-|  |
+| |
 |:---|
-| shift :: a -\> Int -\> a  |
-
-
+| shift :: a -> Int -> a |
 
 shift x i
 shifts x left by
@@ -19315,13 +14509,9 @@ shiftL and
 shiftR,
 depending on which is more convenient for the type in question.
 
-
-
-|  |
+| |
 |:---|
-| rotate :: a -\> Int -\> a  |
-
-
+| rotate :: a -> Int -> a |
 
 rotate x i
 rotates x left by
@@ -19340,72 +14530,48 @@ rotateL and
 rotateR,
 depending on which is more convenient for the type in question.
 
-
-
-|  |
+| |
 |:---|
-| bit :: Int -\> a  |
-
-
+| bit :: Int -> a |
 
 bit i is a
 value with the ith bit set and all other
 bits clear
 
-
-
-|  |
+| |
 |:---|
-| setBit :: a -\> Int -\> a  |
-
-
+| setBit :: a -> Int -> a |
 
 x ‘setBit‘ i
 is the same as
-x .\|. bit i
+x .|. bit i
 
-
-
-|  |
+| |
 |:---|
-| clearBit :: a -\> Int -\> a  |
-
-
+| clearBit :: a -> Int -> a |
 
 x ‘clearBit‘ i
 is the same as
 x .&. complement (bit i)
 
-
-
-|  |
+| |
 |:---|
-| complementBit :: a -\> Int -\> a  |
-
-
+| complementBit :: a -> Int -> a |
 
 x ‘complementBit‘ i
 is the same as
 x ‘xor‘ bit i
 
-
-
-|  |
+| |
 |:---|
-| testBit :: a -\> Int -\> Bool  |
-
-
+| testBit :: a -> Int -> Bool |
 
 Return True
 if the nth bit of the argument is 1
 
-
-
-|  |
+| |
 |:---|
-| bitSize :: a -\> Int  |
-
-
+| bitSize :: a -> Int |
 
 Return the number of bits in the type of the argument. The actual value
 of the argument is ignored. The function
@@ -19413,25 +14579,17 @@ bitSize is
 undefined for types that do not have a fixed bitsize, like
 Integer.
 
-
-
-|  |
+| |
 |:---|
-| isSigned :: a -\> Bool  |
-
-
+| isSigned :: a -> Bool |
 
 Return True
 if the argument is a signed type. The actual value of the argument is
 ignored
 
-
-
-|  |
+| |
 |:---|
-| shiftL :: a -\> Int -\> a  |
-
-
+| shiftL :: a -> Int -> a |
 
 Shift the argument left by the specified number of bits (which must be
 non-negative).
@@ -19442,13 +14600,9 @@ unified
 shift,
 depending on which is more convenient for the type in question.
 
-
-
-|  |
+| |
 |:---|
-| shiftR :: a -\> Int -\> a  |
-
-
+| shiftR :: a -> Int -> a |
 
 Shift the first argument right by the specified number of bits (which
 must be non-negative). Right shifts perform sign extension on signed
@@ -19461,13 +14615,9 @@ unified
 shift,
 depending on which is more convenient for the type in question.
 
-
-
-|  |
+| |
 |:---|
-| rotateL :: a -\> Int -\> a  |
-
-
+| rotateL :: a -> Int -> a |
 
 Rotate the argument left by the specified number of bits (which must be
 non-negative).
@@ -19478,13 +14628,9 @@ the unified
 rotate,
 depending on which is more convenient for the type in question.
 
-
-
-|  |
+| |
 |:---|
-| rotateR :: a -\> Int -\> a  |
-
-
+| rotateR :: a -> Int -> a |
 
 Rotate the argument right by the specified number of bits (which must be
 non-negative).
@@ -19495,129 +14641,103 @@ the unified
 rotate,
 depending on which is more convenient for the type in question.
 
-
-
-|  |
+| |
 |:---|
-| instance Bits Int  |
+| instance Bits Int |
 | instance Bits Int8 |
-| instance Bits Int16  |
+| instance Bits Int16 |
 | instance Bits Int32 |
-| instance Bits Int64  |
+| instance Bits Int64 |
 | instance Bits Integer |
-| instance Bits Word  |
+| instance Bits Word |
 | instance Bits Word8 |
-| instance Bits Word16  |
+| instance Bits Word16 |
 | instance Bits Word32 |
-| instance Bits Word64  |
+| instance Bits Word64 |
 | instance Bits WordPtr |
-| instance Bits IntPtr  |
+| instance Bits IntPtr |
 | instance Bits CChar |
-| instance Bits CSChar  |
+| instance Bits CSChar |
 | instance Bits CUChar |
-| instance Bits CShort  |
-| instance Bits CUShort  |
-| instance Bits CInt  |
-| instance Bits CUInt  |
-| instance Bits CLong  |
-| instance Bits CULong  |
-| instance Bits CLLong  |
-| instance Bits CULLong  |
-| instance Bits CPtrdiff  |
-| instance Bits CSize  |
-| instance Bits CWchar  |
-| instance Bits CSigAtomic  |
-| instance Bits CIntPtr  |
-| instance Bits CUIntPtr  |
-| instance Bits CIntMax  |
-| instance Bits CUIntMax  |
+| instance Bits CShort |
+| instance Bits CUShort |
+| instance Bits CInt |
+| instance Bits CUInt |
+| instance Bits CLong |
+| instance Bits CULong |
+| instance Bits CLLong |
+| instance Bits CULLong |
+| instance Bits CPtrdiff |
+| instance Bits CSize |
+| instance Bits CWchar |
+| instance Bits CSigAtomic |
+| instance Bits CIntPtr |
+| instance Bits CUIntPtr |
+| instance Bits CIntMax |
+| instance Bits CUIntMax |
 
+[prev-tail]
 
+______________________________________________________________________
 
-
-
-\[prev-tail\]
-
-
-
-
-
----
-
-
-
-\[prev-tail\]
-\[up\]
-
-
+[prev-tail]
+[up]
 
 ## Chapter 16 Data.Char
 
+module Data.Char (  \
+Char,  String,  isControl,  isSpace,  isLower,  isUpper,  isAlpha,
+\
+isAlphaNum,  isPrint,  isDigit,  isOctDigit,  isHexDigit,  isLetter,
+\
+isMark,  isNumber,  isPunctuation,  isSymbol,  isSeparator,  isAscii,
+\
+isLatin1,  isAsciiUpper,  isAsciiLower,  \
+GeneralCategory(UppercaseLetter,  \
+LowercaseLetter,  \
+TitlecaseLetter,  \
+ModifierLetter,  \
+OtherLetter,  \
+NonSpacingMark,  \
+SpacingCombiningMark,  \
+EnclosingMark,  \
+DecimalNumber,  \
+LetterNumber,  \
+OtherNumber,  \
+ConnectorPunctuation,  \
+DashPunctuation,  \
+OpenPunctuation,  \
+ClosePunctuation,  \
+InitialQuote,  \
+FinalQuote,  \
+OtherPunctuation,  \
+MathSymbol,  \
+CurrencySymbol,  \
+ModifierSymbol,  \
+OtherSymbol,  \
+Space,  \
+LineSeparator,  \
+ParagraphSeparator,  \
+Control,  \
+Format,  \
+Surrogate,  \
+PrivateUse,  \
+NotAssigned),  \
+generalCategory,  toUpper,  toLower,  toTitle,  digitToInt,  intToDigit,
+\
+ord,  chr,  showLitChar,  lexLitChar,  readLitChar  \
+) where
 
+### 16.1 Characters and strings
 
-
-
-module Data.Char (    
-    Char,  String,  isControl,  isSpace,  isLower,  isUpper,  isAlpha,
-   
-    isAlphaNum,  isPrint,  isDigit,  isOctDigit,  isHexDigit,  isLetter,
-   
-    isMark,  isNumber,  isPunctuation,  isSymbol,  isSeparator,  isAscii,
-   
-    isLatin1,  isAsciiUpper,  isAsciiLower,    
-    GeneralCategory(UppercaseLetter,    
-                    LowercaseLetter,    
-                    TitlecaseLetter,    
-                    ModifierLetter,    
-                    OtherLetter,    
-                    NonSpacingMark,    
-                    SpacingCombiningMark,    
-                    EnclosingMark,    
-                    DecimalNumber,    
-                    LetterNumber,    
-                    OtherNumber,    
-                    ConnectorPunctuation,    
-                    DashPunctuation,    
-                    OpenPunctuation,    
-                    ClosePunctuation,    
-                    InitialQuote,    
-                    FinalQuote,    
-                    OtherPunctuation,    
-                    MathSymbol,    
-                    CurrencySymbol,    
-                    ModifierSymbol,    
-                    OtherSymbol,    
-                    Space,    
-                    LineSeparator,    
-                    ParagraphSeparator,    
-                    Control,    
-                    Format,    
-                    Surrogate,    
-                    PrivateUse,    
-                    NotAssigned),    
-    generalCategory,  toUpper,  toLower,  toTitle,  digitToInt,  intToDigit,
-   
-    ord,  chr,  showLitChar,  lexLitChar,  readLitChar    
-  ) where
-
-
-
-
-
-### 16.1  Characters and strings
-
-
-
-|                                                                      |
+| |
 |:---------------------------------------------------------------------|
-| data Char  |
-
-
+| data Char |
 
 The character type
 Char is an
 enumeration whose values represent Unicode (or equivalently ISO/IEC
-10646) characters (see
+10646\) characters (see
 http://www.unicode.org/ for details). This
 set extends the ISO 8859-1 (Latin-1) character set (the first 256
 charachers), which is itself an extension of the ASCII character set
@@ -19634,106 +14754,74 @@ Prelude.Enum class respectively (or
 equivalently ord and
 chr).
 
-
-
-|  |
+| |
 |:---|
-| instance Bounded Char  |
+| instance Bounded Char |
 | instance Enum Char |
-| instance Eq Char  |
-| instance Ord Char  |
-| instance Read Char  |
-| instance Show Char  |
-| instance Ix Char  |
-| instance Storable Char  |
+| instance Eq Char |
+| instance Ord Char |
+| instance Read Char |
+| instance Show Char |
+| instance Ix Char |
+| instance Storable Char |
 
-
-
-
-
-|  |
+| |
 |:---|
-| type String = \[Char\]  |
-
-
+| type String = [Char] |
 
 A String is a
 list of characters. String constants in Haskell are values of type
 String.
 
-### 16.2  Character classification
+### 16.2 Character classification
 
 Unicode characters are divided into letters, numbers, marks,
 punctuation, symbols, separators (including spaces) and others
 (including control characters).
 
-
-
-|  |
+| |
 |:---|
-| isControl :: Char -\> Bool  |
-
-
+| isControl :: Char -> Bool |
 
 Selects control characters, which are the non-printing characters of the
 Latin-1 subset of Unicode.
 
-
-
-|  |
+| |
 |:---|
-| isSpace :: Char -\> Bool  |
-
-
+| isSpace :: Char -> Bool |
 
 Returns True
 for any Unicode space character, and the control characters
-\t, \n,
-\r, \f,
-\v.
+\\t, \\n,
+\\r, \\f,
+\\v.
 
-
-
-|  |
+| |
 |:---|
-| isLower :: Char -\> Bool  |
-
-
+| isLower :: Char -> Bool |
 
 Selects lower-case alphabetic Unicode characters (letters).
 
-
-
-|  |
+| |
 |:---|
-| isUpper :: Char -\> Bool  |
-
-
+| isUpper :: Char -> Bool |
 
 Selects upper-case or title-case alphabetic Unicode characters
 (letters). Title case is used by a small number of letter ligatures like
 the single-character form of Lj.
 
-
-
-|  |
+| |
 |:---|
-| isAlpha :: Char -\> Bool  |
-
-
+| isAlpha :: Char -> Bool |
 
 Selects alphabetic Unicode characters (lower-case, upper-case and
 title-case letters, plus letters of caseless scripts and modifiers
 letters). This function is equivalent to
 Data.Char.isLetter.
 
-
-
-|  |
+| |
 |:---|
-| isAlphaNum :: Char -\> Bool  |
-
-
+| isAlphaNum :: Char -> Bool |
 
 Selects alphabetic or numeric digit Unicode characters.
 
@@ -19743,287 +14831,199 @@ isDigit. Such
 digits may be part of identifiers but are not used by the printer and
 reader to represent numbers.
 
-
-
-|  |
+| |
 |:---|
-| isPrint :: Char -\> Bool  |
-
-
+| isPrint :: Char -> Bool |
 
 Selects printable Unicode characters (letters, numbers, marks,
 punctuation, symbols and spaces).
 
-
-
-|  |
+| |
 |:---|
-| isDigit :: Char -\> Bool  |
-
-
+| isDigit :: Char -> Bool |
 
 Selects ASCII digits, i.e.
 '0'..'9'.
 
-
-
-|  |
+| |
 |:---|
-| isOctDigit :: Char -\> Bool  |
-
-
+| isOctDigit :: Char -> Bool |
 
 Selects ASCII octal digits, i.e.
 '0'..'7'.
 
-
-
-|  |
+| |
 |:---|
-| isHexDigit :: Char -\> Bool  |
-
-
+| isHexDigit :: Char -> Bool |
 
 Selects ASCII hexadecimal digits, i.e.
 '0'..'9',
 'a'..'f',
 'A'..'F'.
 
-
-
-|  |
+| |
 |:---|
-| isLetter :: Char -\> Bool  |
-
-
+| isLetter :: Char -> Bool |
 
 Selects alphabetic Unicode characters (lower-case, upper-case and
 title-case letters, plus letters of caseless scripts and modifiers
 letters). This function is equivalent to
 Data.Char.isAlpha.
 
-
-
-|  |
+| |
 |:---|
-| isMark :: Char -\> Bool  |
-
-
+| isMark :: Char -> Bool |
 
 Selects Unicode mark characters, e.g. accents and the like, which
 combine with preceding letters.
 
-
-
-|  |
+| |
 |:---|
-| isNumber :: Char -\> Bool  |
-
-
+| isNumber :: Char -> Bool |
 
 Selects Unicode numeric characters, including digits from various
 scripts, Roman numerals, etc.
 
-
-
-|  |
+| |
 |:---|
-| isPunctuation :: Char -\> Bool  |
-
-
+| isPunctuation :: Char -> Bool |
 
 Selects Unicode punctuation characters, including various kinds of
 connectors, brackets and quotes.
 
-
-
-|  |
+| |
 |:---|
-| isSymbol :: Char -\> Bool  |
-
-
+| isSymbol :: Char -> Bool |
 
 Selects Unicode symbol characters, including mathematical and currency
 symbols.
 
-
-
-|  |
+| |
 |:---|
-| isSeparator :: Char -\> Bool  |
-
-
+| isSeparator :: Char -> Bool |
 
 Selects Unicode space and separator characters.
 
-#### 16.2.1  Subranges
+#### 16.2.1 Subranges
 
-
-
-|  |
+| |
 |:---|
-| isAscii :: Char -\> Bool  |
-
-
+| isAscii :: Char -> Bool |
 
 Selects the first 128 characters of the Unicode character set,
 corresponding to the ASCII character set.
 
-
-
-|  |
+| |
 |:---|
-| isLatin1 :: Char -\> Bool  |
-
-
+| isLatin1 :: Char -> Bool |
 
 Selects the first 256 characters of the Unicode character set,
 corresponding to the ISO 8859-1 (Latin-1) character set.
 
-
-
-|  |
+| |
 |:---|
-| isAsciiUpper :: Char -\> Bool  |
-
-
+| isAsciiUpper :: Char -> Bool |
 
 Selects ASCII upper-case letters, i.e. characters satisfying both
 isAscii and
 isUpper.
 
-
-
-|  |
+| |
 |:---|
-| isAsciiLower :: Char -\> Bool  |
-
-
+| isAsciiLower :: Char -> Bool |
 
 Selects ASCII lower-case letters, i.e. characters satisfying both
 isAscii and
 isLower.
 
-#### 16.2.2  Unicode general categories
+#### 16.2.2 Unicode general categories
 
-
-
-|  |
+| |
 |:---|
-| data GeneralCategory  |
+| data GeneralCategory |
 
-
-
-
-
-|  |  |  |
+| | | |
 |:---|:---|:---|
-| =  | UppercaseLetter  | Lu: Letter, Uppercase |
-| \|  | LowercaseLetter  | Ll: Letter, Lowercase |
-| \|  | TitlecaseLetter  | Lt: Letter, Titlecase |
-| \|  | ModifierLetter  | Lm: Letter, Modifier |
-| \|  | OtherLetter  | Lo: Letter, Other |
-| \|  | NonSpacingMark  | Mn: Mark, Non-Spacing |
-| \|  | SpacingCombiningMark  | Mc: Mark, Spacing Combining |
-| \|  | EnclosingMark  | Me: Mark, Enclosing |
-| \|  | DecimalNumber  | Nd: Number, Decimal |
-| \|  | LetterNumber  | Nl: Number, Letter |
-| \|  | OtherNumber  | No: Number, Other |
-| \|  | ConnectorPunctuation  | Pc: Punctuation, Connector |
-| \|  | DashPunctuation  | Pd: Punctuation, Dash |
-| \|  | OpenPunctuation  | Ps: Punctuation, Open |
-| \|  | ClosePunctuation  | Pe: Punctuation, Close |
-| \|  | InitialQuote  | Pi: Punctuation, Initial quote |
-| \|  | FinalQuote  | Pf: Punctuation, Final quote |
-| \|  | OtherPunctuation  | Po: Punctuation, Other |
-| \|  | MathSymbol  | Sm: Symbol, Math |
-| \|  | CurrencySymbol  | Sc: Symbol, Currency |
-| \|  | ModifierSymbol  | Sk: Symbol, Modifier |
-| \|  | OtherSymbol  | So: Symbol, Other |
-| \|  | Space  | Zs: Separator, Space |
-| \|  | LineSeparator  | Zl: Separator, Line |
-| \|  | ParagraphSeparator  | Zp: Separator, Paragraph |
-| \|  | Control  | Cc: Other, Control |
-| \|  | Format  | Cf: Other, Format |
-| \|  | Surrogate  | Cs: Other, Surrogate |
-| \|  | PrivateUse  | Co: Other, Private Use |
-| \|  | NotAssigned  | Cn: Other, Not Assigned |
-|  |  |  |
-
-
+| = | UppercaseLetter | Lu: Letter, Uppercase |
+| | | LowercaseLetter | Ll: Letter, Lowercase |
+| | | TitlecaseLetter | Lt: Letter, Titlecase |
+| | | ModifierLetter | Lm: Letter, Modifier |
+| | | OtherLetter | Lo: Letter, Other |
+| | | NonSpacingMark | Mn: Mark, Non-Spacing |
+| | | SpacingCombiningMark | Mc: Mark, Spacing Combining |
+| | | EnclosingMark | Me: Mark, Enclosing |
+| | | DecimalNumber | Nd: Number, Decimal |
+| | | LetterNumber | Nl: Number, Letter |
+| | | OtherNumber | No: Number, Other |
+| | | ConnectorPunctuation | Pc: Punctuation, Connector |
+| | | DashPunctuation | Pd: Punctuation, Dash |
+| | | OpenPunctuation | Ps: Punctuation, Open |
+| | | ClosePunctuation | Pe: Punctuation, Close |
+| | | InitialQuote | Pi: Punctuation, Initial quote |
+| | | FinalQuote | Pf: Punctuation, Final quote |
+| | | OtherPunctuation | Po: Punctuation, Other |
+| | | MathSymbol | Sm: Symbol, Math |
+| | | CurrencySymbol | Sc: Symbol, Currency |
+| | | ModifierSymbol | Sk: Symbol, Modifier |
+| | | OtherSymbol | So: Symbol, Other |
+| | | Space | Zs: Separator, Space |
+| | | LineSeparator | Zl: Separator, Line |
+| | | ParagraphSeparator | Zp: Separator, Paragraph |
+| | | Control | Cc: Other, Control |
+| | | Format | Cf: Other, Format |
+| | | Surrogate | Cs: Other, Surrogate |
+| | | PrivateUse | Co: Other, Private Use |
+| | | NotAssigned | Cn: Other, Not Assigned |
+| | | |
 
 Unicode General Categories (column 2 of the UnicodeData table) in the
 order they are listed in the Unicode standard.
 
-
-
-|  |
+| |
 |:---|
-| instance Bounded GeneralCategory  |
-| instance Enum GeneralCategory  |
-| instance Eq GeneralCategory  |
-| instance Ord GeneralCategory  |
-| instance Read GeneralCategory  |
-| instance Show GeneralCategory  |
-| instance Ix GeneralCategory  |
+| instance Bounded GeneralCategory |
+| instance Enum GeneralCategory |
+| instance Eq GeneralCategory |
+| instance Ord GeneralCategory |
+| instance Read GeneralCategory |
+| instance Show GeneralCategory |
+| instance Ix GeneralCategory |
 
-
-
-
-
-|  |
+| |
 |:---|
-| generalCategory :: Char -\> GeneralCategory  |
-
-
+| generalCategory :: Char -> GeneralCategory |
 
 The Unicode general category of the character.
 
-### 16.3  Case conversion
+### 16.3 Case conversion
 
-
-
-|  |
+| |
 |:---|
-| toUpper :: Char -\> Char  |
-
-
+| toUpper :: Char -> Char |
 
 Convert a letter to the corresponding upper-case letter, if any. Any
 other character is returned unchanged.
 
-
-
-|  |
+| |
 |:---|
-| toLower :: Char -\> Char  |
-
-
+| toLower :: Char -> Char |
 
 Convert a letter to the corresponding lower-case letter, if any. Any
 other character is returned unchanged.
 
-
-
-|  |
+| |
 |:---|
-| toTitle :: Char -\> Char  |
-
-
+| toTitle :: Char -> Char |
 
 Convert a letter to the corresponding title-case or upper-case letter,
 if any. (Title case differs from upper case only for a small number of
 ligature letters.) Any other character is returned unchanged.
 
-### 16.4  Single digit characters
+### 16.4 Single digit characters
 
-
-
-|  |
+| |
 |:---|
-| digitToInt :: Char -\> Int  |
-
-
+| digitToInt :: Char -> Int |
 
 Convert a single digit
 Char to the
@@ -20036,13 +15036,9 @@ but recognises both upper and lower-case hexadecimal digits (i.e.
 'a'..'f',
 'A'..'F').
 
-
-
-|  |
+| |
 |:---|
-| intToDigit :: Int -\> Char  |
-
-
+| intToDigit :: Int -> Char |
 
 Convert an
 Int in the
@@ -20052,147 +15048,77 @@ Char. This
 function fails on other inputs, and generates lower-case hexadecimal
 digits.
 
-### 16.5  Numeric representations
+### 16.5 Numeric representations
 
-
-
-|  |
+| |
 |:---|
-| ord :: Char -\> Int  |
-
-
+| ord :: Char -> Int |
 
 The Prelude.fromEnum method restricted to
 the type Data.Char.Char.
 
-
-
-|  |
+| |
 |:---|
-| chr :: Int -\> Char  |
-
-
+| chr :: Int -> Char |
 
 The Prelude.toEnum method restricted to the
 type Data.Char.Char.
 
-### 16.6  String representations
+### 16.6 String representations
 
-
-
-|  |
+| |
 |:---|
-| showLitChar :: Char -\> ShowS  |
-
-
+| showLitChar :: Char -> ShowS |
 
 Convert a character to a string using only printable characters, using
 Haskell source-language escape conventions. For example:
 
+showLitChar '\\n' s  =  "\\n" ++ s
 
-
-
-
- showLitChar '\n' s  =  "\\n" ++ s
-
-
-
-
-
-
-
-|  |
+| |
 |:---|
-| lexLitChar :: ReadS String  |
-
-
+| lexLitChar :: ReadS String |
 
 Read a string representation of a character, using Haskell
 source-language escape conventions. For example:
 
+lexLitChar  "\\nHello"  =  [("\\n", "Hello")]
 
-
-
-
- lexLitChar  "\\nHello"  =  \[("\\n", "Hello")\]
-
-
-
-
-
-
-
-|  |
+| |
 |:---|
-| readLitChar :: ReadS Char  |
-
-
+| readLitChar :: ReadS Char |
 
 Read a string representation of a character, using Haskell
 source-language escape conventions, and convert it to the character that
 it encodes. For example:
 
+readLitChar "\\nHello"  =  [('\\n', "Hello")]
 
+[prev-tail]
 
+______________________________________________________________________
 
-
- readLitChar "\\nHello"  =  \[('\n', "Hello")\]
-
-
-
-
-
-
-
-\[prev-tail\]
-
-
-
-
-
----
-
-
-
-\[prev-tail\]
-\[up\]
-
-
+[prev-tail]
+[up]
 
 ## Chapter 17 Data.Complex
 
+module Data.Complex (  \
+Complex(:+),  realPart,  imagPart,  mkPolar,  cis,  polar,  magnitude,
+\
+phase,  conjugate  \
+) where
 
+### 17.1 Rectangular form
 
-
-
-module Data.Complex (    
-    Complex(:+),  realPart,  imagPart,  mkPolar,  cis,  polar,  magnitude,
-   
-    phase,  conjugate    
-  ) where
-
-
-
-
-
-### 17.1  Rectangular form
-
-
-
-|  |
+| |
 |:---|
-| data RealFloat a =\> Complex a  |
+| data RealFloat a => Complex a |
 
-
-
-
-
-|  |  |  |
+| | | |
 |:---|:---|:---|
-| =  | !a :+ !a  | forms a complex number from its real and imaginary rectangular components. |
-|  |  |  |
-
-
+| = | !a :+ !a | forms a complex number from its real and imaginary rectangular components. |
+| | | |
 
 Complex numbers are an algebraic type.
 
@@ -20203,71 +15129,47 @@ oriented in the positive real direction, whereas
 signum z has
 the phase of z, but unit magnitude.
 
-
-
-|  |
+| |
 |:---|
-| instance RealFloat a =\> Eq (Complex a)  |
-| instance RealFloat a =\> Floating (Complex a)  |
-| instance RealFloat a =\> Fractional (Complex a)  |
-| instance RealFloat a =\> Num (Complex a)  |
-| instance (Read a, RealFloat a) =\> Read (Complex a)  |
-| instance RealFloat a =\> Show (Complex a)  |
+| instance RealFloat a => Eq (Complex a) |
+| instance RealFloat a => Floating (Complex a) |
+| instance RealFloat a => Fractional (Complex a) |
+| instance RealFloat a => Num (Complex a) |
+| instance (Read a, RealFloat a) => Read (Complex a) |
+| instance RealFloat a => Show (Complex a) |
 
-
-
-
-
-|  |
+| |
 |:---|
-| realPart :: RealFloat a =\> Complex a -\> a  |
-
-
+| realPart :: RealFloat a => Complex a -> a |
 
 Extracts the real part of a complex number.
 
-
-
-|  |
+| |
 |:---|
-| imagPart :: RealFloat a =\> Complex a -\> a  |
-
-
+| imagPart :: RealFloat a => Complex a -> a |
 
 Extracts the imaginary part of a complex number.
 
-### 17.2  Polar form
+### 17.2 Polar form
 
-
-
-|  |
+| |
 |:---|
-| mkPolar :: RealFloat a =\> a -\> a -\> Complex a  |
-
-
+| mkPolar :: RealFloat a => a -> a -> Complex a |
 
 Form a complex number from polar components of magnitude and phase.
 
-
-
-|  |
+| |
 |:---|
-| cis :: RealFloat a =\> a -\> Complex a  |
-
-
+| cis :: RealFloat a => a -> Complex a |
 
 cis t is a
 complex value with magnitude 1 and phase
 t (modulo
 2⋆pi).
 
-
-
-|  |
+| |
 |:---|
-| polar :: RealFloat a =\> Complex a -\> (a, a)  |
-
-
+| polar :: RealFloat a => Complex a -> (a, a) |
 
 The function
 polar takes a
@@ -20276,186 +15178,148 @@ the magnitude is nonnegative, and the phase in the range
 (-pi, pi\]; if
 the magnitude is zero, then so is the phase.
 
-
-
-|  |
+| |
 |:---|
-| magnitude :: RealFloat a =\> Complex a -\> a  |
-
-
+| magnitude :: RealFloat a => Complex a -> a |
 
 The nonnegative magnitude of a complex number.
 
-
-
-|  |
+| |
 |:---|
-| phase :: RealFloat a =\> Complex a -\> a  |
-
-
+| phase :: RealFloat a => Complex a -> a |
 
 The phase of a complex number, in the range
 (-pi, pi\]. If
 the magnitude is zero, then so is the phase.
 
-### 17.3  Conjugate
+### 17.3 Conjugate
 
-
-
-|  |
+| |
 |:---|
-| conjugate :: RealFloat a =\> Complex a -\> Complex a  |
-
-
+| conjugate :: RealFloat a => Complex a -> Complex a |
 
 The conjugate of a complex number.
 
-### 17.4  Specification
+### 17.4 Specification
 
+module Data.Complex(Complex((:+)), realPart, imagPart, conjugate, mkPolar,
+\
+cis, polar, magnitude, phase)  where  \
+\
+infix  6  :+  \
+\
+data  (RealFloat a)     => Complex a = !a :+ !a  deriving (Eq,Read,Show)
+\
+\
+\
+realPart, imagPart :: (RealFloat a) => Complex a -> a  \
+realPart (x:+y)        =  x  \
+imagPart (x:+y)        =  y  \
+\
+conjugate      :: (RealFloat a) => Complex a -> Complex a  \
+conjugate (x:+y) =  x :+ (-y)  \
+\
+mkPolar                :: (RealFloat a) => a -> a -> Complex a  \
+mkPolar r theta        =  r ⋆ cos theta :+ r ⋆ sin theta  \
+\
+cis            :: (RealFloat a) => a -> Complex a  \
+cis theta      =  cos theta :+ sin theta  \
+\
+polar          :: (RealFloat a) => Complex a -> (a,a)  \
+polar z                =  (magnitude z, phase z)  \
+\
+magnitude :: (RealFloat a) => Complex a -> a  \
+magnitude (x:+y) =  scaleFloat k  \
+(sqrt ((scaleFloat mk x)^2 + (scaleFloat mk y)^2))
+\
+where k  = max (exponent x) (exponent y)  \
+mk = - k  \
+\
+phase :: (RealFloat a) => Complex a -> a  \
+phase (0 :+ 0) = 0  \
+phase (x :+ y) = atan2 y x  \
+\
+\
+instance  (RealFloat a) => Num (Complex a)  where  \
+(x:+y) + (x':+y') =  (x+x') :+ (y+y')  \
+(x:+y) - (x':+y') =  (x-x') :+ (y-y')  \
+(x:+y) ⋆ (x':+y') =  (x⋆x'-y⋆y') :+ (x⋆y'+y⋆x')  \
+negate (x:+y)     =  negate x :+ negate y  \
+abs z             =  magnitude z :+ 0  \
+signum 0          =  0  \
+signum z@(x:+y)   =  x/r :+ y/r  where r = magnitude z  \
+fromInteger n     =  fromInteger n :+ 0  \
+\
+instance  (RealFloat a) => Fractional (Complex a)  where  \
+(x:+y) / (x':+y') =  (x⋆x''+y⋆y'') / d :+ (y⋆x''-x⋆y'') / d  \
+where x'' = scaleFloat k x'  \
+y'' = scaleFloat k y'  \
+k   = - max (exponent x') (exponent y')
+\
+d   = x'⋆x'' + y'⋆y''  \
+\
+fromRational a    =  fromRational a :+ 0  \
+\
+instance  (RealFloat a) => Floating (Complex a)       where  \
+pi             =  pi :+ 0  \
+exp (x:+y)     =  expx ⋆ cos y :+ expx ⋆ sin y  \
+where expx = exp x  \
+log z          =  log (magnitude z) :+ phase z  \
+\
+sqrt 0         =  0  \
+sqrt z@(x:+y)  =  u :+ (if y \< 0 then -v else v)  \
+where (u,v) = if x \< 0 then (v',u') else (u',v')
+\
+v'    = abs y / (u'⋆2)  \
+u'    = sqrt ((magnitude z + abs x) / 2)
+\
+\
+sin (x:+y)     =  sin x ⋆ cosh y :+ cos x ⋆ sinh y  \
+cos (x:+y)     =  cos x ⋆ cosh y :+ (- sin x ⋆ sinh y)  \
+tan (x:+y)     =  (sinx⋆coshy:+cosx⋆sinhy)/(cosx⋆coshy:+(-sinx⋆sinhy))
+\
+where sinx  = sin x  \
+cosx  = cos x  \
+sinhy = sinh y  \
+coshy = cosh y  \
+\
+sinh (x:+y)    =  cos y ⋆ sinh x :+ sin  y ⋆ cosh x  \
+cosh (x:+y)    =  cos y ⋆ cosh x :+ sin y ⋆ sinh x  \
+tanh (x:+y)    =  (cosy⋆sinhx:+siny⋆coshx)/(cosy⋆coshx:+siny⋆sinhx)
+\
+where siny  = sin y  \
+cosy  = cos y  \
+sinhx = sinh x  \
+coshx = cosh x  \
+\
+asin z@(x:+y)  =  y':+(-x')  \
+where  (x':+y') = log (((-y):+x) + sqrt (1 - z⋆z))
+\
+acos z@(x:+y)  =  y'':+(-x'')  \
+where (x'':+y'') = log (z + ((-y'):+x'))  \
+(x':+y')   = sqrt (1 - z⋆z)  \
+atan z@(x:+y)  =  y':+(-x')  \
+where (x':+y') = log (((1-y):+x) / sqrt (1+z⋆z))
+\
+\
+asinh z        =  log (z + sqrt (1+z⋆z))  \
+acosh z        =  log (z + (z+1) ⋆ sqrt ((z-1)/(z+1)))  \
+atanh z        =  log ((1+z) / sqrt (1-z⋆z))
 
+[prev-tail]
 
+______________________________________________________________________
 
-
- module Data.Complex(Complex((:+)), realPart, imagPart, conjugate, mkPolar,
-   
-                     cis, polar, magnitude, phase)  where    
-   
- infix  6  :+    
-   
- data  (RealFloat a)     =\> Complex a = !a :+ !a  deriving (Eq,Read,Show)
-   
-   
-   
- realPart, imagPart :: (RealFloat a) =\> Complex a -\> a    
- realPart (x:+y)        =  x    
- imagPart (x:+y)        =  y    
-   
- conjugate      :: (RealFloat a) =\> Complex a -\> Complex a    
- conjugate (x:+y) =  x :+ (-y)    
-   
- mkPolar                :: (RealFloat a) =\> a -\> a -\> Complex a    
- mkPolar r theta        =  r ⋆ cos theta :+ r ⋆ sin theta    
-   
- cis            :: (RealFloat a) =\> a -\> Complex a    
- cis theta      =  cos theta :+ sin theta    
-   
- polar          :: (RealFloat a) =\> Complex a -\> (a,a)    
- polar z                =  (magnitude z, phase z)    
-   
- magnitude :: (RealFloat a) =\> Complex a -\> a    
- magnitude (x:+y) =  scaleFloat k    
-                    (sqrt ((scaleFloat mk x)^2 + (scaleFloat mk y)^2))
-   
-                   where k  = max (exponent x) (exponent y)    
-                         mk = - k    
-   
- phase :: (RealFloat a) =\> Complex a -\> a    
- phase (0 :+ 0) = 0    
- phase (x :+ y) = atan2 y x    
-   
-   
- instance  (RealFloat a) =\> Num (Complex a)  where    
-     (x:+y) + (x':+y') =  (x+x') :+ (y+y')    
-     (x:+y) - (x':+y') =  (x-x') :+ (y-y')    
-     (x:+y) ⋆ (x':+y') =  (x⋆x'-y⋆y') :+ (x⋆y'+y⋆x')    
-     negate (x:+y)     =  negate x :+ negate y    
-     abs z             =  magnitude z :+ 0    
-     signum 0          =  0    
-     signum z@(x:+y)   =  x/r :+ y/r  where r = magnitude z    
-     fromInteger n     =  fromInteger n :+ 0    
-   
- instance  (RealFloat a) =\> Fractional (Complex a)  where    
-     (x:+y) / (x':+y') =  (x⋆x''+y⋆y'') / d :+ (y⋆x''-x⋆y'') / d    
-                          where x'' = scaleFloat k x'    
-                                y'' = scaleFloat k y'    
-                                k   = - max (exponent x') (exponent y')
-   
-                                d   = x'⋆x'' + y'⋆y''    
-   
-     fromRational a    =  fromRational a :+ 0    
-   
- instance  (RealFloat a) =\> Floating (Complex a)       where    
-     pi             =  pi :+ 0    
-     exp (x:+y)     =  expx ⋆ cos y :+ expx ⋆ sin y    
-                       where expx = exp x    
-     log z          =  log (magnitude z) :+ phase z    
-   
-     sqrt 0         =  0    
-     sqrt z@(x:+y)  =  u :+ (if y \< 0 then -v else v)    
-                       where (u,v) = if x \< 0 then (v',u') else (u',v')
-   
-                             v'    = abs y / (u'⋆2)    
-                             u'    = sqrt ((magnitude z + abs x) / 2)
-   
-   
-     sin (x:+y)     =  sin x ⋆ cosh y :+ cos x ⋆ sinh y    
-     cos (x:+y)     =  cos x ⋆ cosh y :+ (- sin x ⋆ sinh y)    
-     tan (x:+y)     =  (sinx⋆coshy:+cosx⋆sinhy)/(cosx⋆coshy:+(-sinx⋆sinhy))
-   
-                       where sinx  = sin x    
-                             cosx  = cos x    
-                             sinhy = sinh y    
-                             coshy = cosh y    
-   
-     sinh (x:+y)    =  cos y ⋆ sinh x :+ sin  y ⋆ cosh x    
-     cosh (x:+y)    =  cos y ⋆ cosh x :+ sin y ⋆ sinh x    
-     tanh (x:+y)    =  (cosy⋆sinhx:+siny⋆coshx)/(cosy⋆coshx:+siny⋆sinhx)
-   
-                       where siny  = sin y    
-                             cosy  = cos y    
-                             sinhx = sinh x    
-                             coshx = cosh x    
-   
-     asin z@(x:+y)  =  y':+(-x')    
-                       where  (x':+y') = log (((-y):+x) + sqrt (1 - z⋆z))
-   
-     acos z@(x:+y)  =  y'':+(-x'')    
-                       where (x'':+y'') = log (z + ((-y'):+x'))    
-                             (x':+y')   = sqrt (1 - z⋆z)    
-     atan z@(x:+y)  =  y':+(-x')    
-                       where (x':+y') = log (((1-y):+x) / sqrt (1+z⋆z))
-   
-   
-     asinh z        =  log (z + sqrt (1+z⋆z))    
-     acosh z        =  log (z + (z+1) ⋆ sqrt ((z-1)/(z+1)))    
-     atanh z        =  log ((1+z) / sqrt (1-z⋆z))    
-
-
-
-
-
-
-
-\[prev-tail\]
-
-
-
-
-
----
-
-
-
-\[prev-tail\]
-\[up\]
-
-
+[prev-tail]
+[up]
 
 ## Chapter 18 Data.Int
 
+module Data.Int (  \
+Int,  Int8,  Int16,  Int32,  Int64  \
+) where
 
-
-
-
-module Data.Int (    
-    Int,  Int8,  Int16,  Int32,  Int64    
-  ) where
-
-
-
-
-
-### 18.1  Signed integer types
+### 18.1 Signed integer types
 
 This module provides signed integer types of unspecified width
 (Int) and
@@ -20488,199 +15352,137 @@ the type result in either zero or -1, depending on the sign of the value
 being shifted. This is contrary to the behaviour in C, which is
 undefined; a common interpretation is to truncate the shift count to the
 width of the type, for example
-1 \<\< 32 == 1
+1 \<< 32 == 1
 in some C implementations.
 
-
-
-|                                                                     |
+| |
 |:--------------------------------------------------------------------|
-| data Int  |
-
-
+| data Int |
 
 A fixed-precision integer type with at least the range
-\[-2^29 .. 2^29-1\].
+[-2^29 .. 2^29-1].
 The exact range for a given implementation can be determined by using
 Prelude.minBound and
 Prelude.maxBound from the
 Prelude.Bounded class.
 
-
-
-|  |
+| |
 |:---|
-| instance Bounded Int  |
+| instance Bounded Int |
 | instance Enum Int |
-| instance Eq Int  |
-| instance Integral Int  |
-| instance Num Int  |
+| instance Eq Int |
+| instance Integral Int |
+| instance Num Int |
 | instance Ord Int |
-| instance Read Int  |
-| instance Real Int  |
-| instance Show Int  |
-| instance Ix Int  |
-| instance Storable Int  |
-| instance Bits Int  |
+| instance Read Int |
+| instance Real Int |
+| instance Show Int |
+| instance Ix Int |
+| instance Storable Int |
+| instance Bits Int |
 
-
-
-
-
-|                                                                      |
+| |
 |:---------------------------------------------------------------------|
-| data Int8  |
-
-
+| data Int8 |
 
 8-bit signed integer type
 
-
-
-|  |
+| |
 |:---|
-| instance Bounded Int8  |
+| instance Bounded Int8 |
 | instance Enum Int8 |
-| instance Eq Int8  |
-| instance Integral Int8  |
-| instance Num Int8  |
+| instance Eq Int8 |
+| instance Integral Int8 |
+| instance Num Int8 |
 | instance Ord Int8 |
-| instance Read Int8  |
-| instance Real Int8  |
-| instance Show Int8  |
-| instance Ix Int8  |
-| instance Storable Int8  |
-| instance Bits Int8  |
+| instance Read Int8 |
+| instance Real Int8 |
+| instance Show Int8 |
+| instance Ix Int8 |
+| instance Storable Int8 |
+| instance Bits Int8 |
 
-
-
-
-
-|                                                                       |
+| |
 |:----------------------------------------------------------------------|
-| data Int16  |
-
-
+| data Int16 |
 
 16-bit signed integer type
 
-
-
-|  |
+| |
 |:---|
-| instance Bounded Int16  |
+| instance Bounded Int16 |
 | instance Enum Int16 |
-| instance Eq Int16  |
-| instance Integral Int16  |
-| instance Num Int16  |
+| instance Eq Int16 |
+| instance Integral Int16 |
+| instance Num Int16 |
 | instance Ord Int16 |
-| instance Read Int16  |
-| instance Real Int16  |
-| instance Show Int16  |
-| instance Ix Int16  |
-| instance Storable Int16  |
-| instance Bits Int16  |
+| instance Read Int16 |
+| instance Real Int16 |
+| instance Show Int16 |
+| instance Ix Int16 |
+| instance Storable Int16 |
+| instance Bits Int16 |
 
-
-
-
-
-|                                                                       |
+| |
 |:----------------------------------------------------------------------|
-| data Int32  |
-
-
+| data Int32 |
 
 32-bit signed integer type
 
-
-
-|  |
+| |
 |:---|
-| instance Bounded Int32  |
+| instance Bounded Int32 |
 | instance Enum Int32 |
-| instance Eq Int32  |
-| instance Integral Int32  |
-| instance Num Int32  |
+| instance Eq Int32 |
+| instance Integral Int32 |
+| instance Num Int32 |
 | instance Ord Int32 |
-| instance Read Int32  |
-| instance Real Int32  |
-| instance Show Int32  |
-| instance Ix Int32  |
-| instance Storable Int32  |
-| instance Bits Int32  |
+| instance Read Int32 |
+| instance Real Int32 |
+| instance Show Int32 |
+| instance Ix Int32 |
+| instance Storable Int32 |
+| instance Bits Int32 |
 
-
-
-
-
-|                                                                       |
+| |
 |:----------------------------------------------------------------------|
-| data Int64  |
-
-
+| data Int64 |
 
 64-bit signed integer type
 
-
-
-|  |
+| |
 |:---|
-| instance Bounded Int64  |
+| instance Bounded Int64 |
 | instance Enum Int64 |
-| instance Eq Int64  |
-| instance Integral Int64  |
-| instance Num Int64  |
+| instance Eq Int64 |
+| instance Integral Int64 |
+| instance Num Int64 |
 | instance Ord Int64 |
-| instance Read Int64  |
-| instance Real Int64  |
-| instance Show Int64  |
-| instance Ix Int64  |
-| instance Storable Int64  |
-| instance Bits Int64  |
+| instance Read Int64 |
+| instance Real Int64 |
+| instance Show Int64 |
+| instance Ix Int64 |
+| instance Storable Int64 |
+| instance Bits Int64 |
 
+[prev-tail]
 
+______________________________________________________________________
 
-
-
-\[prev-tail\]
-
-
-
-
-
----
-
-
-
-\[prev-tail\]
-\[up\]
-
-
+[prev-tail]
+[up]
 
 ## Chapter 19 Data.Ix
 
+module Data.Ix (  \
+Ix(range, index, inRange, rangeSize)  \
+) where
 
+### 19.1 The Ix class
 
-
-
-module Data.Ix (    
-    Ix(range, index, inRange, rangeSize)    
-  ) where
-
-
-
-
-
-### 19.1  The Ix class
-
-
-
-|  |
+| |
 |:---|
-| class Ord a =\> Ix a where  |
-
-
+| class Ord a => Ix a where |
 
 The Ix class
 is used to map a contiguous subrange of values in a type onto integers.
@@ -20693,12 +15495,12 @@ contiguous subrange of values.
 An implementation is entitled to assume the following laws about these
 operations:
 
-- inRange (l,u) i == elem i (range (l,u)) 
+- inRange (l,u) i == elem i (range (l,u))
 - range (l,u) !! index (l,u) i == i,
   when
   inRange (l,u) i
-- map (index (l,u)) (range (l,u))) == \[0..rangeSize (l,u)-1\] 
-- rangeSize (l,u) == length (range (l,u)) 
+- map (index (l,u)) (range (l,u))) == [0..rangeSize (l,u)-1]
+- rangeSize (l,u) == length (range (l,u))
 
 Minimal complete instance:
 range,
@@ -20707,77 +15509,57 @@ inRange.
 
 Methods
 
-
-
-|  |
+| |
 |:---|
-| range :: (a, a) -\> \[a\]  |
-
-
+| range :: (a, a) -> [a] |
 
 The list of values in the subrange defined by a bounding pair.
 
-
-
-|  |
+| |
 |:---|
-| index :: (a, a) -\> a -\> Int  |
-
-
+| index :: (a, a) -> a -> Int |
 
 The position of a subscript in the subrange.
 
-
-
-|  |
+| |
 |:---|
-| inRange :: (a, a) -\> a -\> Bool  |
-
-
+| inRange :: (a, a) -> a -> Bool |
 
 Returns True
 the given subscript lies in the range defined the bounding pair.
 
-
-
-|  |
+| |
 |:---|
-| rangeSize :: (a, a) -\> Int  |
-
-
+| rangeSize :: (a, a) -> Int |
 
 The size of the subrange defined by a bounding pair.
 
-
-
-|  |
+| |
 |:---|
-| instance Ix Bool  |
+| instance Ix Bool |
 | instance Ix Char |
-| instance Ix Int  |
+| instance Ix Int |
 | instance Ix Int8 |
-| instance Ix Int16  |
+| instance Ix Int16 |
 | instance Ix Int32 |
-| instance Ix Int64  |
+| instance Ix Int64 |
 | instance Ix Integer |
-| instance Ix Ordering  |
-| instance Ix Word  |
+| instance Ix Ordering |
+| instance Ix Word |
 | instance Ix Word8 |
-| instance Ix Word16  |
-| instance Ix Word32  |
-| instance Ix Word64  |
-| instance Ix ()  |
-| instance Ix GeneralCategory  |
-| instance Ix SeekMode  |
-| instance Ix IOMode  |
-| instance (Ix a, Ix b) =\> Ix (a, b)  |
-| instance (Ix a1, Ix a2, Ix a3) =\> Ix (a1, a2, a3)  |
-| instance (Ix a1, Ix a2, Ix a3, Ix a4) =\> Ix (a1, a2, a3, a4)  |
-| instance (Ix a1, Ix a2, Ix a3, Ix a4, Ix a5) =\> Ix (a1, a2, a3, a4, a5)  |
+| instance Ix Word16 |
+| instance Ix Word32 |
+| instance Ix Word64 |
+| instance Ix () |
+| instance Ix GeneralCategory |
+| instance Ix SeekMode |
+| instance Ix IOMode |
+| instance (Ix a, Ix b) => Ix (a, b) |
+| instance (Ix a1, Ix a2, Ix a3) => Ix (a1, a2, a3) |
+| instance (Ix a1, Ix a2, Ix a3, Ix a4) => Ix (a1, a2, a3, a4) |
+| instance (Ix a1, Ix a2, Ix a3, Ix a4, Ix a5) => Ix (a1, a2, a3, a4, a5) |
 
-
-
-### 19.2  Deriving Instances of Ix
+### 19.2 Deriving Instances of Ix
 
 It is possible to derive an instance of Ix
 automatically, using a deriving
@@ -20795,214 +15577,136 @@ being 0 to n-1 inclusive. This is the same numbering defined by the
 Enum class. For example, given the
 datatype:
 
-
-
-
-
- data Colour = Red \| Orange \| Yellow \| Green \| Blue \| Indigo \| Violet
-
-
-
-
+data Colour = Red | Orange | Yellow | Green | Blue | Indigo | Violet
 
 we would have:
 
-
-
-
-
- range   (Yellow,Blue)        ==  \[Yellow,Green,Blue\]    
- index   (Yellow,Blue) Green  ==  1    
- inRange (Yellow,Blue) Red    ==  False
-
-
-
-
+range   (Yellow,Blue)        ==  [Yellow,Green,Blue]  \
+index   (Yellow,Blue) Green  ==  1  \
+inRange (Yellow,Blue) Red    ==  False
 
 For single-constructor datatypes, the
 derived instance declarations are as shown for tuples:
 
+instance  (Ix a, Ix b)  => Ix (a,b) where  \
+range ((l,l'),(u,u'))  \
+= [(i,i') | i \<- range (l,u), i' \<- range (l',u')]
+\
+index ((l,l'),(u,u')) (i,i')  \
+=  index (l,u) i ⋆ rangeSize (l',u') + index (l',u') i'
+\
+inRange ((l,l'),(u,u')) (i,i')  \
+= inRange (l,u) i && inRange (l',u') i'  \
+\
+-- Instances for other tuples are obtained from this scheme:  \
+--  \
+--  instance  (Ix a1, Ix a2, ... , Ix ak) => Ix (a1,a2,...,ak)  where
+\
+--      range ((l1,l2,...,lk),(u1,u2,...,uk)) =  \
+--          \[(i1,i2,...,ik) | i1 \<- range (l1,u1),  \
+--                            i2 \<- range (l2,u2),  \
+--                            ...  \
+--                            ik \<- range (lk,uk)\]  \
+--  \
+--      index ((l1,l2,...,lk),(u1,u2,...,uk)) (i1,i2,...,ik) =  \
+--        index (lk,uk) ik + rangeSize (lk,uk) ⋆ (  \
+--         index (lk-1,uk-1) ik-1 + rangeSize (lk-1,uk-1) ⋆ (  \
+--          ...  \
+--           index (l1,u1)))  \
+--  \
+--      inRange ((l1,l2,...lk),(u1,u2,...,uk)) (i1,i2,...,ik) =  \
+--          inRange (l1,u1) i1 && inRange (l2,u2) i2 &&  \
+--              ... && inRange (lk,uk) ik
 
+[prev-tail]
 
+______________________________________________________________________
 
-
- instance  (Ix a, Ix b)  =\> Ix (a,b) where    
-         range ((l,l'),(u,u'))    
-                 = \[(i,i') \| i \<- range (l,u), i' \<- range (l',u')\]
-   
-         index ((l,l'),(u,u')) (i,i')    
-                 =  index (l,u) i ⋆ rangeSize (l',u') + index (l',u') i'
-   
-         inRange ((l,l'),(u,u')) (i,i')    
-                 = inRange (l,u) i && inRange (l',u') i'    
-   
- -- Instances for other tuples are obtained from this scheme:    
- --    
- --  instance  (Ix a1, Ix a2, ... , Ix ak) =\> Ix (a1,a2,...,ak)  where
-   
- --      range ((l1,l2,...,lk),(u1,u2,...,uk)) =    
- --          \[(i1,i2,...,ik) \| i1 \<- range (l1,u1),    
- --                            i2 \<- range (l2,u2),    
- --                            ...    
- --                            ik \<- range (lk,uk)\]    
- --    
- --      index ((l1,l2,...,lk),(u1,u2,...,uk)) (i1,i2,...,ik) =    
- --        index (lk,uk) ik + rangeSize (lk,uk) ⋆ (    
- --         index (lk-1,uk-1) ik-1 + rangeSize (lk-1,uk-1) ⋆ (    
- --          ...    
- --           index (l1,u1)))    
- --    
- --      inRange ((l1,l2,...lk),(u1,u2,...,uk)) (i1,i2,...,ik) =    
- --          inRange (l1,u1) i1 && inRange (l2,u2) i2 &&    
- --              ... && inRange (lk,uk) ik
-
-
-
-
-
-
-
-\[prev-tail\]
-
-
-
-
-
----
-
-
-
-\[prev-tail\]
-\[up\]
-
-
+[prev-tail]
+[up]
 
 ## Chapter 20 Data.List
 
+module Data.List (  \
+(++),  head,  last,  tail,  init,  null,  length,  map,  reverse,
+\
+intersperse,  intercalate,  transpose,  subsequences,  permutations,
+\
+foldl,  foldl',  foldl1,  foldl1',  foldr,  foldr1,  concat,  concatMap,
+\
+and,  or,  any,  all,  sum,  product,  maximum,  minimum,  scanl,  scanl1,
+\
+scanr,  scanr1,  mapAccumL,  mapAccumR,  iterate,  repeat,  replicate,
+\
+cycle,  unfoldr,  take,  drop,  splitAt,  takeWhile,  dropWhile,  span,
+\
+break,  stripPrefix,  group,  inits,  tails,  isPrefixOf,  isSuffixOf,
+\
+isInfixOf,  elem,  notElem,  lookup,  find,  filter,  partition,  (!!),
+\
+elemIndex,  elemIndices,  findIndex,  findIndices,  zip,  zip3,  zip4,
+\
+zip5,  zip6,  zip7,  zipWith,  zipWith3,  zipWith4,  zipWith5,  zipWith6,
+\
+zipWith7,  unzip,  unzip3,  unzip4,  unzip5,  unzip6,  unzip7,  lines,
+\
+words,  unlines,  unwords,  nub,  delete,  (\\),  union,  intersect,  sort,
+\
+insert,  nubBy,  deleteBy,  deleteFirstsBy,  unionBy,  intersectBy,
+\
+groupBy,  sortBy,  insertBy,  maximumBy,  minimumBy,  genericLength,
+\
+genericTake,  genericDrop,  genericSplitAt,  genericIndex,  genericReplicate
+\
+) where
 
+### 20.1 Basic functions
 
-
-
-module Data.List (    
-    (++),  head,  last,  tail,  init,  null,  length,  map,  reverse,
-   
-    intersperse,  intercalate,  transpose,  subsequences,  permutations,
-   
-    foldl,  foldl',  foldl1,  foldl1',  foldr,  foldr1,  concat,  concatMap,
-   
-    and,  or,  any,  all,  sum,  product,  maximum,  minimum,  scanl,  scanl1,
-   
-    scanr,  scanr1,  mapAccumL,  mapAccumR,  iterate,  repeat,  replicate,
-   
-    cycle,  unfoldr,  take,  drop,  splitAt,  takeWhile,  dropWhile,  span,
-   
-    break,  stripPrefix,  group,  inits,  tails,  isPrefixOf,  isSuffixOf,
-   
-    isInfixOf,  elem,  notElem,  lookup,  find,  filter,  partition,  (!!),
-   
-    elemIndex,  elemIndices,  findIndex,  findIndices,  zip,  zip3,  zip4,
-   
-    zip5,  zip6,  zip7,  zipWith,  zipWith3,  zipWith4,  zipWith5,  zipWith6,
-   
-    zipWith7,  unzip,  unzip3,  unzip4,  unzip5,  unzip6,  unzip7,  lines,
-   
-    words,  unlines,  unwords,  nub,  delete,  (\\),  union,  intersect,  sort,
-   
-    insert,  nubBy,  deleteBy,  deleteFirstsBy,  unionBy,  intersectBy,
-   
-    groupBy,  sortBy,  insertBy,  maximumBy,  minimumBy,  genericLength,
-   
-    genericTake,  genericDrop,  genericSplitAt,  genericIndex,  genericReplicate
-   
-  ) where
-
-
-
-
-
-### 20.1  Basic functions
-
-
-
-|  |
+| |
 |:---|
-| (++) :: \[a\] -\> \[a\] -\> \[a\]  |
-
-
+| (++) :: [a] -> [a] -> [a] |
 
 Append two lists, i.e.,
 
-
-
-
-
- \[x1, ..., xm\] ++ \[y1, ..., yn\] == \[x1, ..., xm, y1, ..., yn\]    
- \[x1, ..., xm\] ++ \[y1, ...\] == \[x1, ..., xm, y1, ...\]
-
-
-
-
+[x1, ..., xm] ++ [y1, ..., yn] == [x1, ..., xm, y1, ..., yn]  \
+[x1, ..., xm] ++ [y1, ...] == [x1, ..., xm, y1, ...]
 
 If the first list is not finite, the result is the first list.
 
-
-
-|  |
+| |
 |:---|
-| head :: \[a\] -\> a  |
-
-
+| head :: [a] -> a |
 
 Extract the first element of a list, which must be non-empty.
 
-
-
-|  |
+| |
 |:---|
-| last :: \[a\] -\> a  |
-
-
+| last :: [a] -> a |
 
 Extract the last element of a list, which must be finite and non-empty.
 
-
-
-|  |
+| |
 |:---|
-| tail :: \[a\] -\> \[a\]  |
-
-
+| tail :: [a] -> [a] |
 
 Extract the elements after the head of a list, which must be non-empty.
 
-
-
-|  |
+| |
 |:---|
-| init :: \[a\] -\> \[a\]  |
-
-
+| init :: [a] -> [a] |
 
 Return all the elements of a list except the last one. The list must be
 non-empty.
 
-
-
-|  |
+| |
 |:---|
-| null :: \[a\] -\> Bool  |
-
-
+| null :: [a] -> Bool |
 
 Test whether a list is empty.
 
-
-
-|  |
+| |
 |:---|
-| length :: \[a\] -\> Int  |
-
-
+| length :: [a] -> Int |
 
 O(n).
 length
@@ -21012,73 +15716,41 @@ instance of the more general
 Data.List.genericLength, the result type of
 which may be any kind of number.
 
-### 20.2  List transformations
+### 20.2 List transformations
 
-
-
-|  |
+| |
 |:---|
-| map :: (a -\> b) -\> \[a\] -\> \[b\]  |
-
-
+| map :: (a -> b) -> [a] -> [b] |
 
 mapf xs
 is the list obtained by applying f
 to each element of xs, i.e.,
 
+map f [x1, x2, ..., xn] == [f x1, f x2, ..., f xn]  \
+map f [x1, x2, ...] == [f x1, f x2, ...]
 
-
-
-
- map f \[x1, x2, ..., xn\] == \[f x1, f x2, ..., f xn\]    
- map f \[x1, x2, ...\] == \[f x1, f x2, ...\]
-
-
-
-
-
-
-
-|  |
+| |
 |:---|
-| reverse :: \[a\] -\> \[a\]  |
-
-
+| reverse :: [a] -> [a] |
 
 reversexs
 returns the elements of xs in
 reverse order. xs must be finite.
 
-
-
-|  |
+| |
 |:---|
-| intersperse :: a -\> \[a\] -\> \[a\]  |
-
-
+| intersperse :: a -> [a] -> [a] |
 
 The
 intersperse
 function takes an element and a list and ‘intersperses’ that element
 between the elements of the list. For example,
 
+intersperse ',' "abcde" == "a,b,c,d,e"
 
-
-
-
- intersperse ',' "abcde" == "a,b,c,d,e"
-
-
-
-
-
-
-
-|  |
+| |
 |:---|
-| intercalate :: \[a\] -\> \[\[a\]\] -\> \[a\]  |
-
-
+| intercalate :: [a] -> \[[a]\] -> [a] |
 
 intercalate
 xs xss is
@@ -21087,116 +15759,60 @@ equivalent to
 It inserts the list xs in between the lists
 in xss and concatenates the result.
 
-
-
-|  |
+| |
 |:---|
-| transpose :: \[\[a\]\] -\> \[\[a\]\]  |
-
-
+| transpose :: \[[a]\] -> \[[a]\] |
 
 The transpose
 function transposes the rows and columns of its argument. For example,
 
+transpose \[[1,2,3],[4,5,6]\] == \[[1,4],[2,5],[3,6]\]
 
-
-
-
- transpose \[\[1,2,3\],\[4,5,6\]\] == \[\[1,4\],\[2,5\],\[3,6\]\]
-
-
-
-
-
-
-
-|  |
+| |
 |:---|
-| subsequences :: \[a\] -\> \[\[a\]\]  |
-
-
+| subsequences :: [a] -> \[[a]\] |
 
 The
 subsequences
 function returns the list of all subsequences of the argument.
 
+subsequences "abc" == ["","a","b","ab","c","ac","bc","abc"]
 
-
-
-
- subsequences "abc" == \["","a","b","ab","c","ac","bc","abc"\]
-
-
-
-
-
-
-
-|  |
+| |
 |:---|
-| permutations :: \[a\] -\> \[\[a\]\]  |
-
-
+| permutations :: [a] -> \[[a]\] |
 
 The
 permutations
 function returns the list of all permutations of the argument.
 
+permutations "abc" == ["abc","bac","cba","bca","cab","acb"]
 
+### 20.3 Reducing lists (folds)
 
-
-
- permutations "abc" == \["abc","bac","cba","bca","cab","acb"\]
-
-
-
-
-
-### 20.3  Reducing lists (folds)
-
-
-
-|  |
+| |
 |:---|
-| foldl :: (a -\> b -\> a) -\> a -\> \[b\] -\> a  |
-
-
+| foldl :: (a -> b -> a) -> a -> [b] -> a |
 
 foldl,
 applied to a binary operator, a starting value (typically the
 left-identity of the operator), and a list, reduces the list using the
 binary operator, from left to right:
 
-
-
-
-
- foldl f z \[x1, x2, ..., xn\] == (...((z ‘f‘ x1) ‘f‘ x2) ‘f‘...) ‘f‘ xn
-
-
-
-
+foldl f z [x1, x2, ..., xn] == (...((z ‘f‘ x1) ‘f‘ x2) ‘f‘...) ‘f‘ xn
 
 The list must be finite.
 
-
-
-|  |
+| |
 |:---|
-| foldl' :: (a -\> b -\> a) -\> a -\> \[b\] -\> a  |
-
-
+| foldl' :: (a -> b -> a) -> a -> [b] -> a |
 
 A strict version of
 foldl.
 
-
-
-|  |
+| |
 |:---|
-| foldl1 :: (a -\> a -\> a) -\> \[a\] -\> a  |
-
-
+| foldl1 :: (a -> a -> a) -> [a] -> a |
 
 foldl1 is a
 variant of
@@ -21204,47 +15820,27 @@ foldl that
 has no starting value argument, and thus must be applied to non-empty
 lists.
 
-
-
-|  |
+| |
 |:---|
-| foldl1' :: (a -\> a -\> a) -\> \[a\] -\> a  |
-
-
+| foldl1' :: (a -> a -> a) -> [a] -> a |
 
 A strict version of
 foldl1
 
-
-
-|  |
+| |
 |:---|
-| foldr :: (a -\> b -\> b) -\> b -\> \[a\] -\> b  |
-
-
+| foldr :: (a -> b -> b) -> b -> [a] -> b |
 
 foldr,
 applied to a binary operator, a starting value (typically the
 right-identity of the operator), and a list, reduces the list using the
 binary operator, from right to left:
 
+foldr f z [x1, x2, ..., xn] == x1 ‘f‘ (x2 ‘f‘ ... (xn ‘f‘ z)...)
 
-
-
-
- foldr f z \[x1, x2, ..., xn\] == x1 ‘f‘ (x2 ‘f‘ ... (xn ‘f‘ z)...)
-
-
-
-
-
-
-
-|  |
+| |
 |:---|
-| foldr1 :: (a -\> a -\> a) -\> \[a\] -\> a  |
-
-
+| foldr1 :: (a -> a -> a) -> [a] -> a |
 
 foldr1 is a
 variant of
@@ -21252,35 +15848,23 @@ foldr that
 has no starting value argument, and thus must be applied to non-empty
 lists.
 
-#### 20.3.1  Special folds
+#### 20.3.1 Special folds
 
-
-
-|  |
+| |
 |:---|
-| concat :: \[\[a\]\] -\> \[a\]  |
-
-
+| concat :: \[[a]\] -> [a] |
 
 Concatenate a list of lists.
 
-
-
-|  |
+| |
 |:---|
-| concatMap :: (a -\> \[b\]) -\> \[a\] -\> \[b\]  |
-
-
+| concatMap :: (a -> [b]) -> [a] -> [b] |
 
 Map a function over a list and concatenate the results.
 
-
-
-|  |
+| |
 |:---|
-| and :: \[Bool\] -\> Bool  |
-
-
+| and :: [Bool] -> Bool |
 
 and returns
 the conjunction of a Boolean list. For the result to be
@@ -21291,13 +15875,9 @@ however, results from a
 False value
 at a finite index of a finite or infinite list.
 
-
-
-|  |
+| |
 |:---|
-| or :: \[Bool\] -\> Bool  |
-
-
+| or :: [Bool] -> Bool |
 
 or returns
 the disjunction of a Boolean list. For the result to be
@@ -21308,13 +15888,9 @@ however, results from a
 True value at
 a finite index of a finite or infinite list.
 
-
-
-|  |
+| |
 |:---|
-| any :: (a -\> Bool) -\> \[a\] -\> Bool  |
-
-
+| any :: (a -> Bool) -> [a] -> Bool |
 
 Applied to a predicate and a list,
 any
@@ -21328,13 +15904,9 @@ True value
 for the predicate applied to an element at a finite index of a finite or
 infinite list.
 
-
-
-|  |
+| |
 |:---|
-| all :: (a -\> Bool) -\> \[a\] -\> Bool  |
-
-
+| all :: (a -> Bool) -> [a] -> Bool |
 
 Applied to a predicate and a list,
 all
@@ -21348,35 +15920,23 @@ False value
 for the predicate applied to an element at a finite index of a finite or
 infinite list.
 
-
-
-|  |
+| |
 |:---|
-| sum :: Num a =\> \[a\] -\> a  |
-
-
+| sum :: Num a => [a] -> a |
 
 The sum
 function computes the sum of a finite list of numbers.
 
-
-
-|  |
+| |
 |:---|
-| product :: Num a =\> \[a\] -\> a  |
-
-
+| product :: Num a => [a] -> a |
 
 The product
 function computes the product of a finite list of numbers.
 
-
-
-|  |
+| |
 |:---|
-| maximum :: Ord a =\> \[a\] -\> a  |
-
-
+| maximum :: Ord a => [a] -> a |
 
 maximum
 returns the maximum value from a list, which must be non-empty, finite,
@@ -21384,13 +15944,9 @@ and of an ordered type. It is a special case of
 maximumBy,
 which allows the programmer to supply their own comparison function.
 
-
-
-|  |
+| |
 |:---|
-| minimum :: Ord a =\> \[a\] -\> a  |
-
-
+| minimum :: Ord a => [a] -> a |
 
 minimum
 returns the minimum value from a list, which must be non-empty, finite,
@@ -21398,113 +15954,61 @@ and of an ordered type. It is a special case of
 minimumBy,
 which allows the programmer to supply their own comparison function.
 
-### 20.4  Building lists
+### 20.4 Building lists
 
-#### 20.4.1  Scans
+#### 20.4.1 Scans
 
-
-
-|  |
+| |
 |:---|
-| scanl :: (a -\> b -\> a) -\> a -\> \[b\] -\> \[a\]  |
-
-
+| scanl :: (a -> b -> a) -> a -> [b] -> [a] |
 
 scanl is
 similar to
 foldl, but
 returns a list of successive reduced values from the left:
 
-
-
-
-
- scanl f z \[x1, x2, ...\] == \[z, z ‘f‘ x1, (z ‘f‘ x1) ‘f‘ x2, ...\]
-
-
-
-
+scanl f z [x1, x2, ...] == [z, z ‘f‘ x1, (z ‘f‘ x1) ‘f‘ x2, ...]
 
 Note that
 
+last (scanl f z xs) == foldl f z xs.
 
-
-
-
- last (scanl f z xs) == foldl f z xs.
-
-
-
-
-
-
-
-|  |
+| |
 |:---|
-| scanl1 :: (a -\> a -\> a) -\> \[a\] -\> \[a\]  |
-
-
+| scanl1 :: (a -> a -> a) -> [a] -> [a] |
 
 scanl1 is a
 variant of
 scanl that
 has no starting value argument:
 
+scanl1 f [x1, x2, ...] == [x1, x1 ‘f‘ x2, ...]
 
-
-
-
- scanl1 f \[x1, x2, ...\] == \[x1, x1 ‘f‘ x2, ...\]
-
-
-
-
-
-
-
-|  |
+| |
 |:---|
-| scanr :: (a -\> b -\> b) -\> b -\> \[a\] -\> \[b\]  |
-
-
+| scanr :: (a -> b -> b) -> b -> [a] -> [b] |
 
 scanr is the
 right-to-left dual of
 scanl. Note
 that
 
+head (scanr f z xs) == foldr f z xs.
 
-
-
-
- head (scanr f z xs) == foldr f z xs.
-
-
-
-
-
-
-
-|  |
+| |
 |:---|
-| scanr1 :: (a -\> a -\> a) -\> \[a\] -\> \[a\]  |
-
-
+| scanr1 :: (a -> a -> a) -> [a] -> [a] |
 
 scanr1 is a
 variant of
 scanr that
 has no starting value argument.
 
-#### 20.4.2  Accumulating maps
+#### 20.4.2 Accumulating maps
 
-
-
-|  |
+| |
 |:---|
-| mapAccumL :: (acc -\> x -\> (acc, y)) -\> acc -\> \[x\] -\> (acc, \[y\])  |
-
-
+| mapAccumL :: (acc -> x -> (acc, y)) -> acc -> [x] -> (acc, [y]) |
 
 The mapAccumL
 function behaves like a combination of
@@ -21514,13 +16018,9 @@ applies a function to each element of a list, passing an accumulating
 parameter from left to right, and returning a final value of this
 accumulator together with the new list.
 
-
-
-|  |
+| |
 |:---|
-| mapAccumR :: (acc -\> x -\> (acc, y)) -\> acc -\> \[x\] -\> (acc, \[y\])  |
-
-
+| mapAccumR :: (acc -> x -> (acc, y)) -> acc -> [x] -> (acc, [y]) |
 
 The mapAccumR
 function behaves like a combination of
@@ -21530,49 +16030,29 @@ applies a function to each element of a list, passing an accumulating
 parameter from right to left, and returning a final value of this
 accumulator together with the new list.
 
-#### 20.4.3  Infinite lists
+#### 20.4.3 Infinite lists
 
-
-
-|  |
+| |
 |:---|
-| iterate :: (a -\> a) -\> a -\> \[a\]  |
-
-
+| iterate :: (a -> a) -> a -> [a] |
 
 iteratef x
 returns an infinite list of repeated applications of
 f to x:
 
+iterate f x == [x, f x, f (f x), ...]
 
-
-
-
- iterate f x == \[x, f x, f (f x), ...\]
-
-
-
-
-
-
-
-|  |
+| |
 |:---|
-| repeat :: a -\> \[a\]  |
-
-
+| repeat :: a -> [a] |
 
 repeatx
 is an infinite list, with x the
 value of every element.
 
-
-
-|  |
+| |
 |:---|
-| replicate :: Int -\> a -\> \[a\]  |
-
-
+| replicate :: Int -> a -> [a] |
 
 replicaten x
 is a list of length n with
@@ -21581,27 +16061,19 @@ instance of the more general
 Data.List.genericReplicate, in which
 n may be of any integral type.
 
-
-
-|  |
+| |
 |:---|
-| cycle :: \[a\] -\> \[a\]  |
-
-
+| cycle :: [a] -> [a] |
 
 cycle ties a
 finite list into a circular one, or equivalently, the infinite
 repetition of the original list. It is the identity on infinite lists.
 
-#### 20.4.4  Unfolding
+#### 20.4.4 Unfolding
 
-
-
-|  |
+| |
 |:---|
-| unfoldr :: (b -\> Maybe (a, b)) -\> b -\> \[a\]  |
-
-
+| unfoldr :: (b -> Maybe (a, b)) -> b -> [a] |
 
 The unfoldr
 function is a ‘dual’ to
@@ -21618,156 +16090,88 @@ in which case, a is a prepended to the list
 and b is used as the next element in a
 recursive call. For example,
 
-
-
-
-
- iterate f == unfoldr (\x -\> Just (x, f x))
-
-
-
-
+iterate f == unfoldr (\\x -> Just (x, f x))
 
 In some cases,
 unfoldr can
 undo a foldr
 operation:
 
-
-
-
-
- unfoldr f' (foldr f z xs) == xs
-
-
-
-
+unfoldr f' (foldr f z xs) == xs
 
 if the following holds:
 
-
-
-
-
- f' (f x y) = Just (x,y)    
- f' z       = Nothing
-
-
-
-
+f' (f x y) = Just (x,y)  \
+f' z       = Nothing
 
 A simple use of unfoldr:
 
+unfoldr (\\b -> if b == 0 then Nothing else Just (b, b-1)) 10  \
+[10,9,8,7,6,5,4,3,2,1]
 
+### 20.5 Sublists
 
+#### 20.5.1 Extracting sublists
 
-
- unfoldr (\b -\> if b == 0 then Nothing else Just (b, b-1)) 10    
-  \[10,9,8,7,6,5,4,3,2,1\]
-
-
-
-
-
-### 20.5  Sublists
-
-#### 20.5.1  Extracting sublists
-
-
-
-|  |
+| |
 |:---|
-| take :: Int -\> \[a\] -\> \[a\]  |
-
-
+| take :: Int -> [a] -> [a] |
 
 taken,
 applied to a list xs, returns the prefix of
 xs of length
 n, or xs
 itself if
-n \> length xs:
+n > length xs:
 
-
-
-
-
- take 5 "Hello World!" == "Hello"    
- take 3 \[1,2,3,4,5\] == \[1,2,3\]    
- take 3 \[1,2\] == \[1,2\]    
- take 3 \[\] == \[\]    
- take (-1) \[1,2\] == \[\]    
- take 0 \[1,2\] == \[\]
-
-
-
-
+take 5 "Hello World!" == "Hello"  \
+take 3 [1,2,3,4,5] == [1,2,3]  \
+take 3 [1,2] == [1,2]  \
+take 3 [] == []  \
+take (-1) [1,2] == []  \
+take 0 [1,2] == []
 
 It is an instance of the more general
 Data.List.genericTake, in which
 n may be of any integral type.
 
-
-
-|  |
+| |
 |:---|
-| drop :: Int -\> \[a\] -\> \[a\]  |
-
-
+| drop :: Int -> [a] -> [a] |
 
 dropn xs
 returns the suffix of xs after the
 first n elements, or
-\[\] if
-n \> length xs:
+[] if
+n > length xs:
 
-
-
-
-
- drop 6 "Hello World!" == "World!"    
- drop 3 \[1,2,3,4,5\] == \[4,5\]    
- drop 3 \[1,2\] == \[\]    
- drop 3 \[\] == \[\]    
- drop (-1) \[1,2\] == \[1,2\]    
- drop 0 \[1,2\] == \[1,2\]
-
-
-
-
+drop 6 "Hello World!" == "World!"  \
+drop 3 [1,2,3,4,5] == [4,5]  \
+drop 3 [1,2] == []  \
+drop 3 [] == []  \
+drop (-1) [1,2] == [1,2]  \
+drop 0 [1,2] == [1,2]
 
 It is an instance of the more general
 Data.List.genericDrop, in which
 n may be of any integral type.
 
-
-
-|  |
+| |
 |:---|
-| splitAt :: Int -\> \[a\] -\> (\[a\], \[a\])  |
-
-
+| splitAt :: Int -> [a] -> ([a], [a]) |
 
 splitAtn xs
 returns a tuple where first element is xs
 prefix of length n and second
 element is the remainder of the list:
 
-
-
-
-
- splitAt 6 "Hello World!" == ("Hello ","World!")    
- splitAt 3 \[1,2,3,4,5\] == (\[1,2,3\],\[4,5\])    
- splitAt 1 \[1,2,3\] == (\[1\],\[2,3\])    
- splitAt 3 \[1,2,3\] == (\[1,2,3\],\[\])    
- splitAt 4 \[1,2,3\] == (\[1,2,3\],\[\])    
- splitAt 0 \[1,2,3\] == (\[\],\[1,2,3\])    
- splitAt (-1) \[1,2,3\] == (\[\],\[1,2,3\])
-
-
-
-
+splitAt 6 "Hello World!" == ("Hello ","World!")  \
+splitAt 3 [1,2,3,4,5] == ([1,2,3],[4,5])  \
+splitAt 1 [1,2,3] == ([1],[2,3])  \
+splitAt 3 [1,2,3] == ([1,2,3],[])  \
+splitAt 4 [1,2,3] == ([1,2,3],[])  \
+splitAt 0 [1,2,3] == ([],[1,2,3])  \
+splitAt (-1) [1,2,3] == ([],[1,2,3])
 
 It is equivalent to
 (take n xs, drop n xs).
@@ -21776,13 +16180,9 @@ instance of the more general
 Data.List.genericSplitAt, in which
 n may be of any integral type.
 
-
-
-|  |
+| |
 |:---|
-| takeWhile :: (a -\> Bool) -\> \[a\] -\> \[a\]  |
-
-
+| takeWhile :: (a -> Bool) -> [a] -> [a] |
 
 takeWhile,
 applied to a predicate p and a list
@@ -21790,49 +16190,25 @@ xs, returns the longest prefix (possibly
 empty) of xs of elements that satisfy
 p:
 
+takeWhile (\< 3) [1,2,3,4,1,2,3,4] == [1,2]  \
+takeWhile (\< 9) [1,2,3] == [1,2,3]  \
+takeWhile (\< 0) [1,2,3] == []
 
-
-
-
- takeWhile (\< 3) \[1,2,3,4,1,2,3,4\] == \[1,2\]    
- takeWhile (\< 9) \[1,2,3\] == \[1,2,3\]    
- takeWhile (\< 0) \[1,2,3\] == \[\]
-
-
-
-
-
-
-
-|  |
+| |
 |:---|
-| dropWhile :: (a -\> Bool) -\> \[a\] -\> \[a\]  |
-
-
+| dropWhile :: (a -> Bool) -> [a] -> [a] |
 
 dropWhilep xs
 returns the suffix remaining after
 takeWhilep xs:
 
+dropWhile (\< 3) [1,2,3,4,5,1,2,3] == [3,4,5,1,2,3]  \
+dropWhile (\< 9) [1,2,3] == []  \
+dropWhile (\< 0) [1,2,3] == [1,2,3]
 
-
-
-
- dropWhile (\< 3) \[1,2,3,4,5,1,2,3\] == \[3,4,5,1,2,3\]    
- dropWhile (\< 9) \[1,2,3\] == \[\]    
- dropWhile (\< 0) \[1,2,3\] == \[1,2,3\]
-
-
-
-
-
-
-
-|  |
+| |
 |:---|
-| span :: (a -\> Bool) -\> \[a\] -\> (\[a\], \[a\])  |
-
-
+| span :: (a -> Bool) -> [a] -> ([a], [a]) |
 
 span, applied
 to a predicate p and a list
@@ -21841,29 +16217,17 @@ longest prefix (possibly empty) of xs of
 elements that satisfy p and second element
 is the remainder of the list:
 
-
-
-
-
- span (\< 3) \[1,2,3,4,1,2,3,4\] == (\[1,2\],\[3,4,1,2,3,4\])    
- span (\< 9) \[1,2,3\] == (\[1,2,3\],\[\])    
- span (\< 0) \[1,2,3\] == (\[\],\[1,2,3\])
-
-
-
-
+span (\< 3) [1,2,3,4,1,2,3,4] == ([1,2],[3,4,1,2,3,4])  \
+span (\< 9) [1,2,3] == ([1,2,3],[])  \
+span (\< 0) [1,2,3] == ([],[1,2,3])
 
 spanp xs
 is equivalent to
 (takeWhile p xs, dropWhile p xs)
 
-
-
-|  |
+| |
 |:---|
-| break :: (a -\> Bool) -\> \[a\] -\> (\[a\], \[a\])  |
-
-
+| break :: (a -> Bool) -> [a] -> ([a], [a]) |
 
 break,
 applied to a predicate p and a list
@@ -21873,29 +16237,17 @@ elements that do not satisfy
 p and second element is the
 remainder of the list:
 
-
-
-
-
- break (\> 3) \[1,2,3,4,1,2,3,4\] == (\[1,2,3\],\[4,1,2,3,4\])    
- break (\< 9) \[1,2,3\] == (\[\],\[1,2,3\])    
- break (\> 9) \[1,2,3\] == (\[1,2,3\],\[\])
-
-
-
-
+break (> 3) [1,2,3,4,1,2,3,4] == ([1,2,3],[4,1,2,3,4])  \
+break (\< 9) [1,2,3] == ([],[1,2,3])  \
+break (> 9) [1,2,3] == ([1,2,3],[])
 
 breakp
 is equivalent to
 span (not . p).
 
-
-
-|  |
+| |
 |:---|
-| stripPrefix :: Eq a =\> \[a\] -\> \[a\] -\> Maybe \[a\]  |
-
-
+| stripPrefix :: Eq a => [a] -> [a] -> Maybe [a] |
 
 The
 stripPrefix
@@ -21905,99 +16257,51 @@ the list did not start with the prefix given, or
 Just the list
 after the prefix, if it does.
 
+stripPrefix "foo" "foobar" == Just "bar"  \
+stripPrefix "foo" "foo" == Just ""  \
+stripPrefix "foo" "barfoo" == Nothing  \
+stripPrefix "foo" "barfoobaz" == Nothing
 
-
-
-
- stripPrefix "foo" "foobar" == Just "bar"    
- stripPrefix "foo" "foo" == Just ""    
- stripPrefix "foo" "barfoo" == Nothing    
- stripPrefix "foo" "barfoobaz" == Nothing
-
-
-
-
-
-
-
-|  |
+| |
 |:---|
-| group :: Eq a =\> \[a\] -\> \[\[a\]\]  |
-
-
+| group :: Eq a => [a] -> \[[a]\] |
 
 The group
 function takes a list and returns a list of lists such that the
 concatenation of the result is equal to the argument. Moreover, each
 sublist in the result contains only equal elements. For example,
 
-
-
-
-
- group "Mississippi" = \["M","i","ss","i","ss","i","pp","i"\]
-
-
-
-
+group "Mississippi" = ["M","i","ss","i","ss","i","pp","i"]
 
 It is a special case of
 groupBy,
 which allows the programmer to supply their own equality test.
 
-
-
-|  |
+| |
 |:---|
-| inits :: \[a\] -\> \[\[a\]\]  |
-
-
+| inits :: [a] -> \[[a]\] |
 
 The inits
 function returns all initial segments of the argument, shortest first.
 For example,
 
+inits "abc" == ["","a","ab","abc"]
 
-
-
-
- inits "abc" == \["","a","ab","abc"\]
-
-
-
-
-
-
-
-|  |
+| |
 |:---|
-| tails :: \[a\] -\> \[\[a\]\]  |
-
-
+| tails :: [a] -> \[[a]\] |
 
 The tails
 function returns all final segments of the argument, longest first. For
 example,
 
+tails "abc" == ["abc", "bc", "c",""]
 
+#### 20.5.2 Predicates
 
-
-
- tails "abc" == \["abc", "bc", "c",""\]
-
-
-
-
-
-#### 20.5.2  Predicates
-
-
-
-|  |
+| |
 |:---|
-| isPrefixOf :: Eq a =\> \[a\] -\> \[a\] -\> Bool  |
-
-
+| isPrefixOf :: Eq a => [a] -> [a] -> Bool |
 
 The
 isPrefixOf
@@ -22005,13 +16309,9 @@ function takes two lists and returns
 True iff the
 first list is a prefix of the second.
 
-
-
-|  |
+| |
 |:---|
-| isSuffixOf :: Eq a =\> \[a\] -\> \[a\] -\> Bool  |
-
-
+| isSuffixOf :: Eq a => [a] -> [a] -> Bool |
 
 The
 isSuffixOf
@@ -22019,13 +16319,9 @@ function takes two lists and returns
 True iff the
 first list is a suffix of the second. Both lists must be finite.
 
-
-
-|  |
+| |
 |:---|
-| isInfixOf :: Eq a =\> \[a\] -\> \[a\] -\> Bool  |
-
-
+| isInfixOf :: Eq a => [a] -> [a] -> Bool |
 
 The isInfixOf
 function takes two lists and returns
@@ -22034,28 +16330,16 @@ first list is contained, wholly and intact, anywhere within the second.
 
 Example:
 
-
-
-
-
-isInfixOf "Haskell" "I really like Haskell." == True    
+isInfixOf "Haskell" "I really like Haskell." == True  \
 isInfixOf "Ial" "I really like Haskell." == False
 
+### 20.6 Searching lists
 
+#### 20.6.1 Searching by equality
 
-
-
-### 20.6  Searching lists
-
-#### 20.6.1  Searching by equality
-
-
-
-|  |
+| |
 |:---|
-| elem :: Eq a =\> a -\> \[a\] -\> Bool  |
-
-
+| elem :: Eq a => a -> [a] -> Bool |
 
 elem is the
 list membership predicate, usually written in infix form, e.g.,
@@ -22067,38 +16351,26 @@ True,
 however, results from an element equal to x
 found at a finite index of a finite or infinite list.
 
-
-
-|  |
+| |
 |:---|
-| notElem :: Eq a =\> a -\> \[a\] -\> Bool  |
-
-
+| notElem :: Eq a => a -> [a] -> Bool |
 
 notElem is
 the negation of
 elem.
 
-
-
-|  |
+| |
 |:---|
-| lookup :: Eq a =\> a -\> \[(a, b)\] -\> Maybe b  |
-
-
+| lookup :: Eq a => a -> [(a, b)] -> Maybe b |
 
 lookupkey assocs
 looks up a key in an association list.
 
-#### 20.6.2  Searching with a predicate
+#### 20.6.2 Searching with a predicate
 
-
-
-|  |
+| |
 |:---|
-| find :: (a -\> Bool) -\> \[a\] -\> Maybe a  |
-
-
+| find :: (a -> Bool) -> [a] -> Maybe a |
 
 The find
 function takes a predicate and a list and returns the first element in
@@ -22106,75 +16378,43 @@ the list matching the predicate, or
 Nothing if
 there is no such element.
 
-
-
-|  |
+| |
 |:---|
-| filter :: (a -\> Bool) -\> \[a\] -\> \[a\]  |
-
-
+| filter :: (a -> Bool) -> [a] -> [a] |
 
 filter,
 applied to a predicate and a list, returns the list of those elements
 that satisfy the predicate; i.e.,
 
+filter p xs = [ x | x \<- xs, p x]
 
-
-
-
- filter p xs = \[ x \| x \<- xs, p x\]
-
-
-
-
-
-
-
-|  |
+| |
 |:---|
-| partition :: (a -\> Bool) -\> \[a\] -\> (\[a\], \[a\])  |
-
-
+| partition :: (a -> Bool) -> [a] -> ([a], [a]) |
 
 The partition
 function takes a predicate a list and returns the pair of lists of
 elements which do and do not satisfy the predicate, respectively; i.e.,
 
+partition p xs == (filter p xs, filter (not . p) xs)
 
-
-
-
- partition p xs == (filter p xs, filter (not . p) xs)
-
-
-
-
-
-### 20.7  Indexing lists
+### 20.7 Indexing lists
 
 These functions treat a list xs as a
 indexed collection, with indices ranging from 0 to
 length xs - 1.
 
-
-
-|  |
+| |
 |:---|
-| (!!) :: \[a\] -\> Int -\> a  |
-
-
+| (!!) :: [a] -> Int -> a |
 
 List index (subscript) operator, starting from 0. It is an instance of
 the more general Data.List.genericIndex,
 which takes an index of any integral type.
 
-
-
-|  |
+| |
 |:---|
-| elemIndex :: Eq a =\> a -\> \[a\] -\> Maybe Int  |
-
-
+| elemIndex :: Eq a => a -> [a] -> Maybe Int |
 
 The elemIndex
 function returns the index of the first element in the given list which
@@ -22184,13 +16424,9 @@ query element, or
 Nothing if
 there is no such element.
 
-
-
-|  |
+| |
 |:---|
-| elemIndices :: Eq a =\> a -\> \[a\] -\> \[Int\]  |
-
-
+| elemIndices :: Eq a => a -> [a] -> [Int] |
 
 The
 elemIndices
@@ -22199,13 +16435,9 @@ elemIndex, by
 returning the indices of all elements equal to the query element, in
 ascending order.
 
-
-
-|  |
+| |
 |:---|
-| findIndex :: (a -\> Bool) -\> \[a\] -\> Maybe Int  |
-
-
+| findIndex :: (a -> Bool) -> [a] -> Maybe Int |
 
 The findIndex
 function takes a predicate and a list and returns the index of the first
@@ -22213,13 +16445,9 @@ element in the list satisfying the predicate, or
 Nothing if
 there is no such element.
 
-
-
-|  |
+| |
 |:---|
-| findIndices :: (a -\> Bool) -\> \[a\] -\> \[Int\]  |
-
-
+| findIndices :: (a -> Bool) -> [a] -> [Int] |
 
 The
 findIndices
@@ -22228,90 +16456,62 @@ findIndex, by
 returning the indices of all elements satisfying the predicate, in
 ascending order.
 
-### 20.8  Zipping and unzipping lists
+### 20.8 Zipping and unzipping lists
 
-
-
-|  |
+| |
 |:---|
-| zip :: \[a\] -\> \[b\] -\> \[(a, b)\]  |
-
-
+| zip :: [a] -> [b] -> [(a, b)] |
 
 zip takes two
 lists and returns a list of corresponding pairs. If one input list is
 short, excess elements of the longer list are discarded.
 
-
-
-|  |
+| |
 |:---|
-| zip3 :: \[a\] -\> \[b\] -\> \[c\] -\> \[(a, b, c)\]  |
-
-
+| zip3 :: [a] -> [b] -> [c] -> [(a, b, c)] |
 
 zip3 takes
 three lists and returns a list of triples, analogous to
 zip.
 
-
-
-|  |
+| |
 |:---|
-| zip4 :: \[a\] -\> \[b\] -\> \[c\] -\> \[d\] -\> \[(a, b, c, d)\]  |
-
-
+| zip4 :: [a] -> [b] -> [c] -> [d] -> [(a, b, c, d)] |
 
 The zip4
 function takes four lists and returns a list of quadruples, analogous to
 zip.
 
-
-
-|  |
+| |
 |:---|
-| zip5 :: \[a\] -\> \[b\] -\> \[c\] -\> \[d\] -\> \[e\] -\> \[(a, b, c, d, e)\]  |
-
-
+| zip5 :: [a] -> [b] -> [c] -> [d] -> [e] -> [(a, b, c, d, e)] |
 
 The zip5
 function takes five lists and returns a list of five-tuples, analogous
 to zip.
 
-
-
-|  |
+| |
 |:---|
-| zip6 :: \[a\]  |
-|         -\> \[b\] -\> \[c\] -\> \[d\] -\> \[e\] -\> \[f\] -\> \[(a, b, c, d, e, f)\]  |
-
-
+| zip6 :: [a] |
+|         -> [b] -> [c] -> [d] -> [e] -> [f] -> [(a, b, c, d, e, f)] |
 
 The zip6
 function takes six lists and returns a list of six-tuples, analogous to
 zip.
 
-
-
-|  |
+| |
 |:---|
-| zip7 :: \[a\]  |
-|         -\> \[b\]  |
-|            -\> \[c\] -\> \[d\] -\> \[e\] -\> \[f\] -\> \[g\] -\> \[(a, b, c, d, e, f, g)\]  |
-
-
+| zip7 :: [a] |
+|         -> [b] |
+|            -> [c] -> [d] -> [e] -> [f] -> [g] -> [(a, b, c, d, e, f, g)] |
 
 The zip7
 function takes seven lists and returns a list of seven-tuples, analogous
 to zip.
 
-
-
-|  |
+| |
 |:---|
-| zipWith :: (a -\> b -\> c) -\> \[a\] -\> \[b\] -\> \[c\]  |
-
-
+| zipWith :: (a -> b -> c) -> [a] -> [b] -> [c] |
 
 zipWith
 generalises
@@ -22321,13 +16521,9 @@ tupling function. For example,
 zipWith (+) is
 applied to two lists to produce the list of corresponding sums.
 
-
-
-|  |
+| |
 |:---|
-| zipWith3 :: (a -\> b -\> c -\> d) -\> \[a\] -\> \[b\] -\> \[c\] -\> \[d\]  |
-
-
+| zipWith3 :: (a -> b -> c -> d) -> [a] -> [b] -> [c] -> [d] |
 
 The zipWith3
 function takes a function which combines three elements, as well as
@@ -22335,56 +16531,40 @@ three lists and returns a list of their point-wise combination,
 analogous to
 zipWith.
 
-
-
-|  |
+| |
 |:---|
-| zipWith4 :: (a -\> b -\> c -\> d -\> e)  |
-|             -\> \[a\] -\> \[b\] -\> \[c\] -\> \[d\] -\> \[e\]  |
-
-
+| zipWith4 :: (a -> b -> c -> d -> e) |
+|             -> [a] -> [b] -> [c] -> [d] -> [e] |
 
 The zipWith4
 function takes a function which combines four elements, as well as four
 lists and returns a list of their point-wise combination, analogous to
 zipWith.
 
-
-
-|  |
+| |
 |:---|
-| zipWith5 :: (a -\> b -\> c -\> d -\> e -\> f)  |
-|             -\> \[a\] -\> \[b\] -\> \[c\] -\> \[d\] -\> \[e\] -\> \[f\]  |
-
-
+| zipWith5 :: (a -> b -> c -> d -> e -> f) |
+|             -> [a] -> [b] -> [c] -> [d] -> [e] -> [f] |
 
 The zipWith5
 function takes a function which combines five elements, as well as five
 lists and returns a list of their point-wise combination, analogous to
 zipWith.
 
-
-
-|  |
+| |
 |:---|
-| zipWith6 :: (a -\> b -\> c -\> d -\> e -\> f -\> g)  |
-|             -\> \[a\] -\> \[b\] -\> \[c\] -\> \[d\] -\> \[e\] -\> \[f\] -\> \[g\]  |
-
-
+| zipWith6 :: (a -> b -> c -> d -> e -> f -> g) |
+|             -> [a] -> [b] -> [c] -> [d] -> [e] -> [f] -> [g] |
 
 The zipWith6
 function takes a function which combines six elements, as well as six
 lists and returns a list of their point-wise combination, analogous to
 zipWith.
 
-
-
-|  |
+| |
 |:---|
-| zipWith7 :: (a -\> b -\> c -\> d -\> e -\> f -\> g -\> h)  |
-|             -\> \[a\] -\> \[b\] -\> \[c\] -\> \[d\] -\> \[e\] -\> \[f\] -\> \[g\] -\> \[h\]  |
-
-
+| zipWith7 :: (a -> b -> c -> d -> e -> f -> g -> h) |
+|             -> [a] -> [b] -> [c] -> [d] -> [e] -> [f] -> [g] -> [h] |
 
 The zipWith7
 function takes a function which combines seven elements, as well as
@@ -22392,141 +16572,97 @@ seven lists and returns a list of their point-wise combination,
 analogous to
 zipWith.
 
-
-
-|  |
+| |
 |:---|
-| unzip :: \[(a, b)\] -\> (\[a\], \[b\])  |
-
-
+| unzip :: [(a, b)] -> ([a], [b]) |
 
 unzip
 transforms a list of pairs into a list of first components and a list of
 second components.
 
-
-
-|  |
+| |
 |:---|
-| unzip3 :: \[(a, b, c)\] -\> (\[a\], \[b\], \[c\])  |
-
-
+| unzip3 :: [(a, b, c)] -> ([a], [b], [c]) |
 
 The unzip3
 function takes a list of triples and returns three lists, analogous to
 unzip.
 
-
-
-|  |
+| |
 |:---|
-| unzip4 :: \[(a, b, c, d)\] -\> (\[a\], \[b\], \[c\], \[d\])  |
-
-
+| unzip4 :: [(a, b, c, d)] -> ([a], [b], [c], [d]) |
 
 The unzip4
 function takes a list of quadruples and returns four lists, analogous to
 unzip.
 
-
-
-|  |
+| |
 |:---|
-| unzip5 :: \[(a, b, c, d, e)\] -\> (\[a\], \[b\], \[c\], \[d\], \[e\])  |
-
-
+| unzip5 :: [(a, b, c, d, e)] -> ([a], [b], [c], [d], [e]) |
 
 The unzip5
 function takes a list of five-tuples and returns five lists, analogous
 to unzip.
 
-
-
-|  |
+| |
 |:---|
-| unzip6 :: \[(a, b, c, d, e, f)\] -\> (\[a\], \[b\], \[c\], \[d\], \[e\], \[f\])  |
-
-
+| unzip6 :: [(a, b, c, d, e, f)] -> ([a], [b], [c], [d], [e], [f]) |
 
 The unzip6
 function takes a list of six-tuples and returns six lists, analogous to
 unzip.
 
-
-
-|  |
+| |
 |:---|
-| unzip7 :: \[(a, b, c, d, e, f, g)\]  |
-|           -\> (\[a\], \[b\], \[c\], \[d\], \[e\], \[f\], \[g\])  |
-
-
+| unzip7 :: [(a, b, c, d, e, f, g)] |
+|           -> ([a], [b], [c], [d], [e], [f], [g]) |
 
 The unzip7
 function takes a list of seven-tuples and returns seven lists, analogous
 to unzip.
 
-### 20.9  Special lists
+### 20.9 Special lists
 
-#### 20.9.1  Functions on strings
+#### 20.9.1 Functions on strings
 
-
-
-|  |
+| |
 |:---|
-| lines :: String -\> \[String\]  |
-
-
+| lines :: String -> [String] |
 
 lines breaks
 a string up into a list of strings at newline characters. The resulting
 strings do not contain newlines.
 
-
-
-|  |
+| |
 |:---|
-| words :: String -\> \[String\]  |
-
-
+| words :: String -> [String] |
 
 words breaks
 a string up into a list of words, which were delimited by white space.
 
-
-
-|  |
+| |
 |:---|
-| unlines :: \[String\] -\> String  |
-
-
+| unlines :: [String] -> String |
 
 unlines is an
 inverse operation to
 lines. It
 joins lines, after appending a terminating newline to each.
 
-
-
-|  |
+| |
 |:---|
-| unwords :: \[String\] -\> String  |
-
-
+| unwords :: [String] -> String |
 
 unwords is an
 inverse operation to
 words. It
 joins words with separating spaces.
 
-#### 20.9.2  ”Set” operations
+#### 20.9.2 ”Set” operations
 
-
-
-|  |
+| |
 |:---|
-| nub :: Eq a =\> \[a\] -\> \[a\]  |
-
-
+| nub :: Eq a => [a] -> [a] |
 
 O(n^2). The
 nub function
@@ -22537,39 +16673,23 @@ nub means
 nubBy, which
 allows the programmer to supply their own equality test.
 
-
-
-|  |
+| |
 |:---|
-| delete :: Eq a =\> a -\> \[a\] -\> \[a\]  |
-
-
+| delete :: Eq a => a -> [a] -> [a] |
 
 deletex
 removes the first occurrence of x
 from its list argument. For example,
 
-
-
-
-
- delete 'a' "banana" == "bnana"
-
-
-
-
+delete 'a' "banana" == "bnana"
 
 It is a special case of
 deleteBy,
 which allows the programmer to supply their own equality test.
 
-
-
-|  |
+| |
 |:---|
-| (\\) :: Eq a =\> \[a\] -\> \[a\] -\> \[a\]  |
-
-
+| (\\) :: Eq a => [a] -> [a] -> [a] |
 
 The \\
 function is list difference ((non-associative). In the result of
@@ -22578,40 +16698,20 @@ the first occurrence of each element of ys
 in turn (if any) has been removed from
 xs. Thus
 
-
-
-
-
- (xs ++ ys) \\ xs == ys.
-
-
-
-
+(xs ++ ys) \\ xs == ys.
 
 It is a special case of
 deleteFirstsBy,
 which allows the programmer to supply their own equality test.
 
-
-
-|  |
+| |
 |:---|
-| union :: Eq a =\> \[a\] -\> \[a\] -\> \[a\]  |
-
-
+| union :: Eq a => [a] -> [a] -> [a] |
 
 The union
 function returns the list union of the two lists. For example,
 
-
-
-
-
- "dog" ‘union‘ "cow" == "dogcw"
-
-
-
-
+"dog" ‘union‘ "cow" == "dogcw"
 
 Duplicates, and elements of the first list, are removed from the the
 second list, but if the first list contains duplicates, so will the
@@ -22619,65 +16719,37 @@ result. It is a special case of
 unionBy,
 which allows the programmer to supply their own equality test.
 
-
-
-|  |
+| |
 |:---|
-| intersect :: Eq a =\> \[a\] -\> \[a\] -\> \[a\]  |
-
-
+| intersect :: Eq a => [a] -> [a] -> [a] |
 
 The intersect
 function takes the list intersection of two lists. For example,
 
-
-
-
-
- \[1,2,3,4\] ‘intersect‘ \[2,4,6,8\] == \[2,4\]
-
-
-
-
+[1,2,3,4] ‘intersect‘ [2,4,6,8] == [2,4]
 
 If the first list contains duplicates, so will the result.
 
-
-
-
-
- \[1,2,2,3,4\] ‘intersect‘ \[6,4,4,2\] == \[2,2,4\]
-
-
-
-
+[1,2,2,3,4] ‘intersect‘ [6,4,4,2] == [2,2,4]
 
 It is a special case of
 intersectBy,
 which allows the programmer to supply their own equality test.
 
-#### 20.9.3  Ordered lists
+#### 20.9.3 Ordered lists
 
-
-
-|  |
+| |
 |:---|
-| sort :: Ord a =\> \[a\] -\> \[a\]  |
-
-
+| sort :: Ord a => [a] -> [a] |
 
 The sort
 function implements a stable sorting algorithm. It is a special case of
 sortBy, which
 allows the programmer to supply their own comparison function.
 
-
-
-|  |
+| |
 |:---|
-| insert :: Ord a =\> a -\> \[a\] -\> \[a\]  |
-
-
+| insert :: Ord a => a -> [a] -> [a] |
 
 The insert
 function takes an element and a list and inserts the element into the
@@ -22687,24 +16759,20 @@ result will also be sorted. It is a special case of
 insertBy,
 which allows the programmer to supply their own comparison function.
 
-### 20.10  Generalized functions
+### 20.10 Generalized functions
 
-#### 20.10.1  The ”By” operations
+#### 20.10.1 The ”By” operations
 
 By convention, overloaded functions have a non-overloaded counterpart
 whose name is suffixed with ‘By’.
 
-##### 20.10.1.1  User-supplied equality (replacing an Eq context)
+##### 20.10.1.1 User-supplied equality (replacing an Eq context)
 
 The predicate is assumed to define an equivalence.
 
-
-
-|  |
+| |
 |:---|
-| nubBy :: (a -\> a -\> Bool) -\> \[a\] -\> \[a\]  |
-
-
+| nubBy :: (a -> a -> Bool) -> [a] -> [a] |
 
 The nubBy
 function behaves just like
@@ -22712,135 +16780,95 @@ nub, except
 it uses a user-supplied equality predicate instead of the overloaded
 == function.
 
-
-
-|  |
+| |
 |:---|
-| deleteBy :: (a -\> a -\> Bool) -\> a -\> \[a\] -\> \[a\]  |
-
-
+| deleteBy :: (a -> a -> Bool) -> a -> [a] -> [a] |
 
 The deleteBy
 function behaves like
 delete, but
 takes a user-supplied equality predicate.
 
-
-
-|  |
+| |
 |:---|
-| deleteFirstsBy :: (a -\> a -\> Bool) -\> \[a\] -\> \[a\] -\> \[a\]  |
-
-
+| deleteFirstsBy :: (a -> a -> Bool) -> [a] -> [a] -> [a] |
 
 The
 deleteFirstsBy
 function takes a predicate and two lists and returns the first list with
 the first occurrence of each element of the second list removed.
 
-
-
-|  |
+| |
 |:---|
-| unionBy :: (a -\> a -\> Bool) -\> \[a\] -\> \[a\] -\> \[a\]  |
-
-
+| unionBy :: (a -> a -> Bool) -> [a] -> [a] -> [a] |
 
 The unionBy
 function is the non-overloaded version of
 union.
 
-
-
-|  |
+| |
 |:---|
-| intersectBy :: (a -\> a -\> Bool) -\> \[a\] -\> \[a\] -\> \[a\]  |
-
-
+| intersectBy :: (a -> a -> Bool) -> [a] -> [a] -> [a] |
 
 The
 intersectBy
 function is the non-overloaded version of
 intersect.
 
-
-
-|  |
+| |
 |:---|
-| groupBy :: (a -\> a -\> Bool) -\> \[a\] -\> \[\[a\]\]  |
-
-
+| groupBy :: (a -> a -> Bool) -> [a] -> \[[a]\] |
 
 The groupBy
 function is the non-overloaded version of
 group.
 
-##### 20.10.1.2  User-supplied comparison (replacing an Ord context)
+##### 20.10.1.2 User-supplied comparison (replacing an Ord context)
 
 The function is assumed to define a total ordering.
 
-
-
-|  |
+| |
 |:---|
-| sortBy :: (a -\> a -\> Ordering) -\> \[a\] -\> \[a\]  |
-
-
+| sortBy :: (a -> a -> Ordering) -> [a] -> [a] |
 
 The sortBy
 function is the non-overloaded version of
 sort.
 
-
-
-|  |
+| |
 |:---|
-| insertBy :: (a -\> a -\> Ordering) -\> a -\> \[a\] -\> \[a\]  |
-
-
+| insertBy :: (a -> a -> Ordering) -> a -> [a] -> [a] |
 
 The non-overloaded version of
 insert.
 
-
-
-|  |
+| |
 |:---|
-| maximumBy :: (a -\> a -\> Ordering) -\> \[a\] -\> a  |
-
-
+| maximumBy :: (a -> a -> Ordering) -> [a] -> a |
 
 The maximumBy
 function takes a comparison function and a list and returns the greatest
 element of the list by the comparison function. The list must be finite
 and non-empty.
 
-
-
-|  |
+| |
 |:---|
-| minimumBy :: (a -\> a -\> Ordering) -\> \[a\] -\> a  |
-
-
+| minimumBy :: (a -> a -> Ordering) -> [a] -> a |
 
 The minimumBy
 function takes a comparison function and a list and returns the least
 element of the list by the comparison function. The list must be finite
 and non-empty.
 
-#### 20.10.2  The ”generic” operations
+#### 20.10.2 The ”generic” operations
 
 The prefix ‘generic’ indicates an
 overloaded function that is a generalized version of a
 Prelude function.
 
-
-
-|  |
+| |
 |:---|
-| genericLength :: Num i =\> \[b\] -\> i  |
-
-
+| genericLength :: Num i => [b] -> i |
 
 The
 genericLength
@@ -22853,13 +16881,9 @@ Num. It is,
 however, less efficient than
 length.
 
-
-
-|  |
+| |
 |:---|
-| genericTake :: Integral i =\> i -\> \[a\] -\> \[a\]  |
-
-
+| genericTake :: Integral i => i -> [a] -> [a] |
 
 The
 genericTake
@@ -22869,13 +16893,9 @@ accepts any
 Integral
 value as the number of elements to take.
 
-
-
-|  |
+| |
 |:---|
-| genericDrop :: Integral i =\> i -\> \[a\] -\> \[a\]  |
-
-
+| genericDrop :: Integral i => i -> [a] -> [a] |
 
 The
 genericDrop
@@ -22885,13 +16905,9 @@ accepts any
 Integral
 value as the number of elements to drop.
 
-
-
-|  |
+| |
 |:---|
-| genericSplitAt :: Integral i =\> i -\> \[b\] -\> (\[b\], \[b\])  |
-
-
+| genericSplitAt :: Integral i => i -> [b] -> ([b], [b]) |
 
 The
 genericSplitAt
@@ -22901,13 +16917,9 @@ which accepts any
 Integral
 value as the position at which to split.
 
-
-
-|  |
+| |
 |:---|
-| genericIndex :: Integral a =\> \[b\] -\> a -\> b  |
-
-
+| genericIndex :: Integral a => [b] -> a -> b |
 
 The
 genericIndex
@@ -22917,13 +16929,9 @@ accepts any
 Integral
 value as the index.
 
-
-
-|  |
+| |
 |:---|
-| genericReplicate :: Integral i =\> i -\> a -\> \[a\]  |
-
-
+| genericReplicate :: Integral i => i -> a -> [a] |
 
 The
 genericReplicate
@@ -22933,58 +16941,32 @@ which accepts any
 Integral
 value as the number of repetitions to make.
 
+[prev-tail]
 
+______________________________________________________________________
 
-\[prev-tail\]
-
-
-
-
-
----
-
-
-
-\[prev-tail\]
-\[up\]
-
-
+[prev-tail]
+[up]
 
 ## Chapter 21 Data.Maybe
 
+module Data.Maybe (  \
+Maybe(Nothing, Just),  maybe,  isJust,  isNothing,  fromJust,  fromMaybe,
+\
+listToMaybe,  maybeToList,  catMaybes,  mapMaybe  \
+) where
 
+### 21.1 The Maybe type and operations
 
-
-
-module Data.Maybe (    
-    Maybe(Nothing, Just),  maybe,  isJust,  isNothing,  fromJust,  fromMaybe,
-   
-    listToMaybe,  maybeToList,  catMaybes,  mapMaybe    
-  ) where
-
-
-
-
-
-### 21.1  The Maybe type and operations
-
-
-
-|  |
+| |
 |:---|
-| data Maybe a  |
+| data Maybe a |
 
-
-
-
-
-|                                  |                                       |     |
+| | | |
 |:---------------------------------|:--------------------------------------|:----|
-| =   | Nothing  |     |
-| \|  | Just a   |     |
-|                                  |                                       |     |
-
-
+| = | Nothing | |
+| | | Just a | |
+| | | |
 
 The Maybe
 type encapsulates an optional value. A value of type
@@ -23005,27 +16987,19 @@ Nothing. A
 richer error monad can be built using the
 Data.Either.Either type.
 
-
-
-|  |
+| |
 |:---|
-| instance Monad Maybe  |
-| instance Functor Maybe  |
-| instance MonadPlus Maybe  |
-| instance Eq a =\> Eq (Maybe a)  |
-| instance Ord a =\> Ord (Maybe a)  |
-| instance Read a =\> Read (Maybe a)  |
-| instance Show a =\> Show (Maybe a)  |
+| instance Monad Maybe |
+| instance Functor Maybe |
+| instance MonadPlus Maybe |
+| instance Eq a => Eq (Maybe a) |
+| instance Ord a => Ord (Maybe a) |
+| instance Read a => Read (Maybe a) |
+| instance Show a => Show (Maybe a) |
 
-
-
-
-
-|  |
+| |
 |:---|
-| maybe :: b -\> (a -\> b) -\> Maybe a -\> b  |
-
-
+| maybe :: b -> (a -> b) -> Maybe a -> b |
 
 The maybe
 function takes a default value, a function, and a
@@ -23038,13 +17012,9 @@ to the value inside the
 Just and
 returns the result.
 
-
-
-|  |
+| |
 |:---|
-| isJust :: Maybe a -\> Bool  |
-
-
+| isJust :: Maybe a -> Bool |
 
 The isJust
 function returns
@@ -23052,13 +17022,9 @@ True iff its
 argument is of the form
 Just \_.
 
-
-
-|  |
+| |
 |:---|
-| isNothing :: Maybe a -\> Bool  |
-
-
+| isNothing :: Maybe a -> Bool |
 
 The isNothing
 function returns
@@ -23066,13 +17032,9 @@ True iff its
 argument is
 Nothing.
 
-
-
-|  |
+| |
 |:---|
-| fromJust :: Maybe a -\> a  |
-
-
+| fromJust :: Maybe a -> a |
 
 The fromJust
 function extracts the element out of a
@@ -23080,13 +17042,9 @@ Just and
 throws an error if its argument is
 Nothing.
 
-
-
-|  |
+| |
 |:---|
-| fromMaybe :: a -\> Maybe a -\> a  |
-
-
+| fromMaybe :: a -> Maybe a -> a |
 
 The fromMaybe
 function takes a default value and and
@@ -23096,13 +17054,9 @@ is Nothing,
 it returns the default values; otherwise, it returns the value contained
 in the Maybe.
 
-
-
-|  |
+| |
 |:---|
-| listToMaybe :: \[a\] -\> Maybe a  |
-
-
+| listToMaybe :: [a] -> Maybe a |
 
 The
 listToMaybe
@@ -23112,13 +17066,9 @@ empty list or Just a
 where a is the first element of the
 list.
 
-
-
-|  |
+| |
 |:---|
-| maybeToList :: Maybe a -\> \[a\]  |
-
-
+| maybeToList :: Maybe a -> [a] |
 
 The
 maybeToList
@@ -23127,13 +17077,9 @@ Nothing or a
 singleton list when not given
 Nothing.
 
-
-
-|  |
+| |
 |:---|
-| catMaybes :: \[Maybe a\] -\> \[a\]  |
-
-
+| catMaybes :: [Maybe a] -> [a] |
 
 The catMaybes
 function takes a list of
@@ -23141,13 +17087,9 @@ Maybes and
 returns a list of all the
 Just values.
 
-
-
-|  |
+| |
 |:---|
-| mapMaybe :: (a -\> Maybe b) -\> \[a\] -\> \[b\]  |
-
-
+| mapMaybe :: (a -> Maybe b) -> [a] -> [b] |
 
 The mapMaybe
 function is a version of
@@ -23161,169 +17103,115 @@ element is added on to the result list. If it just
 Just b, then
 b is included in the result list.
 
-### 21.2  Specification
+### 21.2 Specification
 
+module Data.Maybe(  \
+Maybe(Nothing, Just),  \
+isJust, isNothing,  \
+fromJust, fromMaybe, listToMaybe, maybeToList,  \
+catMaybes, mapMaybe,  \
+maybe  \
+) where  \
+\
+maybe                  :: b -> (a -> b) -> Maybe a -> b  \
+maybe n _ Nothing      =  n  \
+maybe _ f (Just x)     =  f x  \
+\
+isJust                 :: Maybe a -> Bool  \
+isJust (Just a)        =  True  \
+isJust Nothing         =  False  \
+\
+isNothing              :: Maybe a -> Bool  \
+isNothing              =  not . isJust  \
+\
+fromJust               :: Maybe a -> a  \
+fromJust (Just a)      =  a  \
+fromJust Nothing       =  error "Maybe.fromJust: Nothing"  \
+\
+fromMaybe              :: a -> Maybe a -> a  \
+fromMaybe d Nothing    =  d  \
+fromMaybe d (Just a)   =  a  \
+\
+maybeToList            :: Maybe a -> [a]  \
+maybeToList Nothing    =  []  \
+maybeToList (Just a)   =  [a]  \
+\
+listToMaybe            :: [a] -> Maybe a  \
+listToMaybe []         =  Nothing  \
+listToMaybe (a:\_)      =  Just a  \
+\
+catMaybes              :: [Maybe a] -> [a]  \
+catMaybes ms           =  [ m | Just m \<- ms ]  \
+\
+mapMaybe               :: (a -> Maybe b) -> [a] -> [b]  \
+mapMaybe f             =  catMaybes . map f
 
+[prev-tail]
 
+______________________________________________________________________
 
-
- module Data.Maybe(    
-     Maybe(Nothing, Just),    
-     isJust, isNothing,    
-     fromJust, fromMaybe, listToMaybe, maybeToList,    
-     catMaybes, mapMaybe,    
-     maybe    
-   ) where    
-   
- maybe                  :: b -\> (a -\> b) -\> Maybe a -\> b    
- maybe n \_ Nothing      =  n    
- maybe \_ f (Just x)     =  f x    
-   
- isJust                 :: Maybe a -\> Bool    
- isJust (Just a)        =  True    
- isJust Nothing         =  False    
-   
- isNothing              :: Maybe a -\> Bool    
- isNothing              =  not . isJust    
-   
- fromJust               :: Maybe a -\> a    
- fromJust (Just a)      =  a    
- fromJust Nothing       =  error "Maybe.fromJust: Nothing"    
-   
- fromMaybe              :: a -\> Maybe a -\> a    
- fromMaybe d Nothing    =  d    
- fromMaybe d (Just a)   =  a    
-   
- maybeToList            :: Maybe a -\> \[a\]    
- maybeToList Nothing    =  \[\]    
- maybeToList (Just a)   =  \[a\]    
-   
- listToMaybe            :: \[a\] -\> Maybe a    
- listToMaybe \[\]         =  Nothing    
- listToMaybe (a:\_)      =  Just a    
-   
- catMaybes              :: \[Maybe a\] -\> \[a\]    
- catMaybes ms           =  \[ m \| Just m \<- ms \]    
-   
- mapMaybe               :: (a -\> Maybe b) -\> \[a\] -\> \[b\]    
- mapMaybe f             =  catMaybes . map f
-
-
-
-
-
-
-
-\[prev-tail\]
-
-
-
-
-
----
-
-
-
-\[prev-tail\]
-\[up\]
-
-
+[prev-tail]
+[up]
 
 ## Chapter 22 Data.Ratio
 
+module Data.Ratio (  \
+Ratio,  Rational,  (%),  numerator,  denominator,  approxRational
+\
+) where
 
-
-
-
-module Data.Ratio (    
-    Ratio,  Rational,  (%),  numerator,  denominator,  approxRational
-   
-  ) where
-
-
-
-
-
-
-
-|  |
+| |
 |:---|
-| data Integral a =\> Ratio a  |
-
-
+| data Integral a => Ratio a |
 
 Rational numbers, with numerator and denominator of some
 Integral
 type.
 
-
-
-|  |
+| |
 |:---|
-| instance Integral a =\> Enum (Ratio a)  |
-| instance Integral a =\> Eq (Ratio a)  |
-| instance Integral a =\> Fractional (Ratio a)  |
-| instance Integral a =\> Num (Ratio a)  |
-| instance Integral a =\> Ord (Ratio a)  |
-| instance (Integral a, Read a) =\> Read (Ratio a)  |
-| instance Integral a =\> Real (Ratio a)  |
-| instance Integral a =\> RealFrac (Ratio a)  |
-| instance Integral a =\> Show (Ratio a)  |
+| instance Integral a => Enum (Ratio a) |
+| instance Integral a => Eq (Ratio a) |
+| instance Integral a => Fractional (Ratio a) |
+| instance Integral a => Num (Ratio a) |
+| instance Integral a => Ord (Ratio a) |
+| instance (Integral a, Read a) => Read (Ratio a) |
+| instance Integral a => Real (Ratio a) |
+| instance Integral a => RealFrac (Ratio a) |
+| instance Integral a => Show (Ratio a) |
 
-
-
-
-
-|  |
+| |
 |:---|
-| type Rational = Ratio Integer  |
-
-
+| type Rational = Ratio Integer |
 
 Arbitrary-precision rational numbers, represented as a ratio of two
 Integer
 values. A rational number may be constructed using the
 % operator.
 
-
-
-|  |
+| |
 |:---|
-| (%) :: Integral a =\> a -\> a -\> Ratio a  |
-
-
+| (%) :: Integral a => a -> a -> Ratio a |
 
 Forms the ratio of two integral numbers.
 
-
-
-|  |
+| |
 |:---|
-| numerator :: Integral a =\> Ratio a -\> a  |
-
-
+| numerator :: Integral a => Ratio a -> a |
 
 Extract the numerator of the ratio in reduced form: the numerator and
 denominator have no common factor and the denominator is positive.
 
-
-
-|  |
+| |
 |:---|
-| denominator :: Integral a =\> Ratio a -\> a  |
-
-
+| denominator :: Integral a => Ratio a -> a |
 
 Extract the denominator of the ratio in reduced form: the numerator and
 denominator have no common factor and the denominator is positive.
 
-
-
-|  |
+| |
 |:---|
-| approxRational :: RealFrac a =\> a -\> a -\> Rational  |
-
-
+| approxRational :: RealFrac a => a -> a -> Rational |
 
 approxRational,
 applied to two real fractional numbers x
@@ -23342,159 +17230,133 @@ Any real interval contains a unique simplest rational; in particular,
 note that 0/1 is the simplest rational of
 all.
 
-### 22.1  Specification
+### 22.1 Specification
 
+module  Data.Ratio (  \
+Ratio, Rational, (%), numerator, denominator, approxRational ) where
+\
+\
+infixl 7  %  \
+\
+ratPrec = 7 :: Int  \
+\
+data  (Integral a)      => Ratio a = !a :% !a  deriving (Eq)  \
+type  Rational          =  Ratio Integer  \
+\
+(%)                     :: (Integral a) => a -> a -> Ratio a  \
+numerator, denominator  :: (Integral a) => Ratio a -> a  \
+approxRational          :: (RealFrac a) => a -> a -> Rational  \
+\
+\
+-- "reduce" is a subsidiary function used only in this module.  \
+-- It normalises a ratio by dividing both numerator  \
+-- and denominator by their greatest common divisor.  \
+--  \
+-- E.g., 12 ‘reduce‘ 8    ==  3 :%   2  \
+--       12 ‘reduce‘ (-8) ==  3 :% (-2)  \
+\
+reduce _ 0              =  error "Data.Ratio.% : zero denominator"  \
+reduce x y              =  (x ‘quot‘ d) :% (y ‘quot‘ d)  \
+where d = gcd x y  \
+\
+x % y                   =  reduce (x ⋆ signum y) (abs y)  \
+\
+numerator (x :% \_)      =  x  \
+\
+denominator (\_ :% y)    =  y  \
+\
+\
+instance  (Integral a)  => Ord (Ratio a)  where  \
+(x:%y) \<= (x':%y')  =  x ⋆ y' \<= x' ⋆ y  \
+(x:%y) \<  (x':%y')  =  x ⋆ y' \<  x' ⋆ y  \
+\
+instance  (Integral a)  => Num (Ratio a)  where  \
+(x:%y) + (x':%y')   =  reduce (x⋆y' + x'⋆y) (y⋆y')  \
+(x:%y) ⋆ (x':%y')   =  reduce (x ⋆ x') (y ⋆ y')  \
+negate (x:%y)       =  (-x) :% y  \
+abs (x:%y)          =  abs x :% y  \
+signum (x:%y)       =  signum x :% 1  \
+fromInteger x       =  fromInteger x :% 1  \
+\
+instance  (Integral a)  => Real (Ratio a)  where  \
+toRational (x:%y)   =  toInteger x :% toInteger y  \
+\
+instance  (Integral a)  => Fractional (Ratio a)  where  \
+(x:%y) / (x':%y')   =  (x⋆y') % (y⋆x')  \
+recip (x:%y)        =  y % x  \
+fromRational (x:%y) =  fromInteger x :% fromInteger y  \
+\
+instance  (Integral a)  => RealFrac (Ratio a)  where  \
+properFraction (x:%y) = (fromIntegral q, r:%y)  \
+where (q,r) = quotRem x y  \
+\
+instance  (Integral a)  => Enum (Ratio a)  where  \
+succ x           =  x+1  \
+pred x           =  x-1  \
+toEnum           =  fromIntegral  \
+fromEnum         =  fromInteger . truncate        -- May overflow
+\
+enumFrom         =  numericEnumFrom               -- These numericEnumXXX functions
+\
+enumFromThen     =  numericEnumFromThen   -- are as defined in Prelude.hs
+\
+enumFromTo       =  numericEnumFromTo     -- but not exported from it!
+\
+enumFromThenTo   =  numericEnumFromThenTo  \
+\
+instance  (Read a, Integral a)  => Read (Ratio a)  where  \
+readsPrec p  =  readParen (p > ratPrec)  \
+(\\r -> \[(x%y,u) | (x,s)   \<- readsPrec (ratPrec+1) r,
+\
+("%",t) \<- lex s,  \
+(y,u)   \<- readsPrec (ratPrec+1) t \])
+\
+\
+instance  (Integral a)  => Show (Ratio a)  where  \
+showsPrec p (x:%y)  =  showParen (p > ratPrec)  \
+showsPrec (ratPrec+1) x .  \
+showString " % " .  \
+showsPrec (ratPrec+1) y)  \
+\
+\
+\
+approxRational x eps    =  simplest (x-eps) (x+eps)  \
+where simplest x y | y \< x      =  simplest y x  \
+| x == y     =  xr  \
+| x > 0      =  simplest' n d n' d'  \
+| y \< 0      =  - simplest' (-n') d' (-n) d
+\
+| otherwise  =  0 :% 1  \
+where xr@(n:%d) = toRational x
+\
+(n':%d')  = toRational y
+\
+\
+simplest' n d n' d'       -- assumes 0 \< n%d \< n'%d'
+\
+| r == 0     =  q :% 1  \
+| q /= q'    =  (q+1) :% 1  \
+| otherwise  =  (q⋆n''+d'') :% n''  \
+where (q,r)      =  quotRem n d
+\
+(q',r')    =  quotRem n' d'
+\
+(n'':%d'') =  simplest' d' r' d r
 
+[prev-tail]
 
+______________________________________________________________________
 
-
- module  Data.Ratio (    
-     Ratio, Rational, (%), numerator, denominator, approxRational ) where
-   
-   
- infixl 7  %    
-   
- ratPrec = 7 :: Int    
-   
- data  (Integral a)      =\> Ratio a = !a :% !a  deriving (Eq)    
- type  Rational          =  Ratio Integer    
-   
- (%)                     :: (Integral a) =\> a -\> a -\> Ratio a    
- numerator, denominator  :: (Integral a) =\> Ratio a -\> a    
- approxRational          :: (RealFrac a) =\> a -\> a -\> Rational    
-   
-   
- -- "reduce" is a subsidiary function used only in this module.    
- -- It normalises a ratio by dividing both numerator    
- -- and denominator by their greatest common divisor.    
- --    
- -- E.g., 12 ‘reduce‘ 8    ==  3 :%   2    
- --       12 ‘reduce‘ (-8) ==  3 :% (-2)    
-   
- reduce \_ 0              =  error "Data.Ratio.% : zero denominator"    
- reduce x y              =  (x ‘quot‘ d) :% (y ‘quot‘ d)    
-                            where d = gcd x y    
-   
- x % y                   =  reduce (x ⋆ signum y) (abs y)    
-   
- numerator (x :% \_)      =  x    
-   
- denominator (\_ :% y)    =  y    
-   
-   
- instance  (Integral a)  =\> Ord (Ratio a)  where    
-     (x:%y) \<= (x':%y')  =  x ⋆ y' \<= x' ⋆ y    
-     (x:%y) \<  (x':%y')  =  x ⋆ y' \<  x' ⋆ y    
-   
- instance  (Integral a)  =\> Num (Ratio a)  where    
-     (x:%y) + (x':%y')   =  reduce (x⋆y' + x'⋆y) (y⋆y')    
-     (x:%y) ⋆ (x':%y')   =  reduce (x ⋆ x') (y ⋆ y')    
-     negate (x:%y)       =  (-x) :% y    
-     abs (x:%y)          =  abs x :% y    
-     signum (x:%y)       =  signum x :% 1    
-     fromInteger x       =  fromInteger x :% 1    
-   
- instance  (Integral a)  =\> Real (Ratio a)  where    
-     toRational (x:%y)   =  toInteger x :% toInteger y    
-   
- instance  (Integral a)  =\> Fractional (Ratio a)  where    
-     (x:%y) / (x':%y')   =  (x⋆y') % (y⋆x')    
-     recip (x:%y)        =  y % x    
-     fromRational (x:%y) =  fromInteger x :% fromInteger y    
-   
- instance  (Integral a)  =\> RealFrac (Ratio a)  where    
-     properFraction (x:%y) = (fromIntegral q, r:%y)    
-                             where (q,r) = quotRem x y    
-   
- instance  (Integral a)  =\> Enum (Ratio a)  where    
-     succ x           =  x+1    
-     pred x           =  x-1    
-     toEnum           =  fromIntegral    
-     fromEnum         =  fromInteger . truncate        -- May overflow
-   
-     enumFrom         =  numericEnumFrom               -- These numericEnumXXX functions
-   
-     enumFromThen     =  numericEnumFromThen   -- are as defined in Prelude.hs
-   
-     enumFromTo       =  numericEnumFromTo     -- but not exported from it!
-   
-     enumFromThenTo   =  numericEnumFromThenTo    
-   
- instance  (Read a, Integral a)  =\> Read (Ratio a)  where    
-     readsPrec p  =  readParen (p \> ratPrec)    
-                               (\r -\> \[(x%y,u) \| (x,s)   \<- readsPrec (ratPrec+1) r,
-   
-                                                 ("%",t) \<- lex s,    
-                                                 (y,u)   \<- readsPrec (ratPrec+1) t \])
-   
-   
- instance  (Integral a)  =\> Show (Ratio a)  where    
-     showsPrec p (x:%y)  =  showParen (p \> ratPrec)    
-                               showsPrec (ratPrec+1) x .    
-                               showString " % " .    
-                               showsPrec (ratPrec+1) y)    
-   
-   
-   
- approxRational x eps    =  simplest (x-eps) (x+eps)    
-         where simplest x y \| y \< x      =  simplest y x    
-                            \| x == y     =  xr    
-                            \| x \> 0      =  simplest' n d n' d'    
-                            \| y \< 0      =  - simplest' (-n') d' (-n) d
-   
-                            \| otherwise  =  0 :% 1    
-                                         where xr@(n:%d) = toRational x
-   
-                                               (n':%d')  = toRational y
-   
-   
-               simplest' n d n' d'       -- assumes 0 \< n%d \< n'%d'
-   
-                         \| r == 0     =  q :% 1    
-                         \| q /= q'    =  (q+1) :% 1    
-                         \| otherwise  =  (q⋆n''+d'') :% n''    
-                                      where (q,r)      =  quotRem n d
-   
-                                            (q',r')    =  quotRem n' d'
-   
-                                            (n'':%d'') =  simplest' d' r' d r
-
-
-
-
-
-
-
-\[prev-tail\]
-
-
-
-
-
----
-
-
-
-\[prev-tail\]
-\[up\]
-
-
+[prev-tail]
+[up]
 
 ## Chapter 23 Data.Word
 
+module Data.Word (  \
+Word,  Word8,  Word16,  Word32,  Word64  \
+) where
 
-
-
-
-module Data.Word (    
-    Word,  Word8,  Word16,  Word32,  Word64    
-  ) where
-
-
-
-
-
-### 23.1  Unsigned integral types
+### 23.1 Unsigned integral types
 
 This module provides unsigned integer types of unspecified width
 (Word) and
@@ -23526,364 +17388,250 @@ Right and left shifts by amounts greater than or equal to the width of
 the type result in a zero result. This is contrary to the behaviour in
 C, which is undefined; a common interpretation is to truncate the shift
 count to the width of the type, for example
-1 \<\< 32 == 1
+1 \<< 32 == 1
 in some C implementations.
 
-
-
-|                                                                      |
+| |
 |:---------------------------------------------------------------------|
-| data Word  |
-
-
+| data Word |
 
 A Word is an
 unsigned integral type, with the same size as
 Int.
 
-
-
-|  |
+| |
 |:---|
-| instance Bounded Word  |
+| instance Bounded Word |
 | instance Enum Word |
-| instance Eq Word  |
-| instance Integral Word  |
-| instance Num Word  |
+| instance Eq Word |
+| instance Integral Word |
+| instance Num Word |
 | instance Ord Word |
-| instance Read Word  |
-| instance Real Word  |
-| instance Show Word  |
-| instance Ix Word  |
-| instance Storable Word  |
-| instance Bits Word  |
+| instance Read Word |
+| instance Real Word |
+| instance Show Word |
+| instance Ix Word |
+| instance Storable Word |
+| instance Bits Word |
 
-
-
-
-
-|                                                                       |
+| |
 |:----------------------------------------------------------------------|
-| data Word8  |
-
-
+| data Word8 |
 
 8-bit unsigned integer type
 
-
-
-|  |
+| |
 |:---|
-| instance Bounded Word8  |
+| instance Bounded Word8 |
 | instance Enum Word8 |
-| instance Eq Word8  |
-| instance Integral Word8  |
-| instance Num Word8  |
+| instance Eq Word8 |
+| instance Integral Word8 |
+| instance Num Word8 |
 | instance Ord Word8 |
-| instance Read Word8  |
-| instance Real Word8  |
-| instance Show Word8  |
-| instance Ix Word8  |
-| instance Storable Word8  |
-| instance Bits Word8  |
+| instance Read Word8 |
+| instance Real Word8 |
+| instance Show Word8 |
+| instance Ix Word8 |
+| instance Storable Word8 |
+| instance Bits Word8 |
 
-
-
-
-
-|                                                                        |
+| |
 |:-----------------------------------------------------------------------|
-| data Word16  |
-
-
+| data Word16 |
 
 16-bit unsigned integer type
 
-
-
-|  |
+| |
 |:---|
-| instance Bounded Word16  |
+| instance Bounded Word16 |
 | instance Enum Word16 |
-| instance Eq Word16  |
-| instance Integral Word16  |
-| instance Num Word16  |
+| instance Eq Word16 |
+| instance Integral Word16 |
+| instance Num Word16 |
 | instance Ord Word16 |
-| instance Read Word16  |
-| instance Real Word16  |
-| instance Show Word16  |
-| instance Ix Word16  |
-| instance Storable Word16  |
-| instance Bits Word16  |
+| instance Read Word16 |
+| instance Real Word16 |
+| instance Show Word16 |
+| instance Ix Word16 |
+| instance Storable Word16 |
+| instance Bits Word16 |
 
-
-
-
-
-|                                                                        |
+| |
 |:-----------------------------------------------------------------------|
-| data Word32  |
-
-
+| data Word32 |
 
 32-bit unsigned integer type
 
-
-
-|  |
+| |
 |:---|
-| instance Bounded Word32  |
+| instance Bounded Word32 |
 | instance Enum Word32 |
-| instance Eq Word32  |
-| instance Integral Word32  |
-| instance Num Word32  |
+| instance Eq Word32 |
+| instance Integral Word32 |
+| instance Num Word32 |
 | instance Ord Word32 |
-| instance Read Word32  |
-| instance Real Word32  |
-| instance Show Word32  |
-| instance Ix Word32  |
-| instance Storable Word32  |
-| instance Bits Word32  |
+| instance Read Word32 |
+| instance Real Word32 |
+| instance Show Word32 |
+| instance Ix Word32 |
+| instance Storable Word32 |
+| instance Bits Word32 |
 
-
-
-
-
-|                                                                        |
+| |
 |:-----------------------------------------------------------------------|
-| data Word64  |
-
-
+| data Word64 |
 
 64-bit unsigned integer type
 
-
-
-|  |
+| |
 |:---|
-| instance Bounded Word64  |
+| instance Bounded Word64 |
 | instance Enum Word64 |
-| instance Eq Word64  |
-| instance Integral Word64  |
-| instance Num Word64  |
+| instance Eq Word64 |
+| instance Integral Word64 |
+| instance Num Word64 |
 | instance Ord Word64 |
-| instance Read Word64  |
-| instance Real Word64  |
-| instance Show Word64  |
-| instance Ix Word64  |
-| instance Storable Word64  |
-| instance Bits Word64  |
+| instance Read Word64 |
+| instance Real Word64 |
+| instance Show Word64 |
+| instance Ix Word64 |
+| instance Storable Word64 |
+| instance Bits Word64 |
 
+[prev-tail]
 
+______________________________________________________________________
 
-
-
-\[prev-tail\]
-
-
-
-
-
----
-
-
-
-\[prev-tail\]
-\[up\]
-
-
+[prev-tail]
+[up]
 
 ## Chapter 24 Foreign
 
-
-
-
-
-module Foreign (    
-    module Data.Bits,  module Data.Int,  module Data.Word,  module Foreign.Ptr,
-   
-    module Foreign.ForeignPtr,  module Foreign.StablePtr,    
-    module Foreign.Storable,  module Foreign.Marshal    
-  ) where
-
-
-
-
+module Foreign (  \
+module Data.Bits,  module Data.Int,  module Data.Word,  module Foreign.Ptr,
+\
+module Foreign.ForeignPtr,  module Foreign.StablePtr,  \
+module Foreign.Storable,  module Foreign.Marshal  \
+) where
 
 The module Foreign combines the interfaces
 of all modules providing language-independent marshalling support,
 namely
 
-
-
-|  |
+| |
 |:---|
-| module Data.Bits  |
+| module Data.Bits |
 | module Data.Int |
-| module Data.Word  |
+| module Data.Word |
 | module Foreign.Ptr |
-| module Foreign.ForeignPtr  |
-| module Foreign.StablePtr  |
-| module Foreign.Storable  |
-| module Foreign.Marshal  |
+| module Foreign.ForeignPtr |
+| module Foreign.StablePtr |
+| module Foreign.Storable |
+| module Foreign.Marshal |
 
+[prev-tail]
 
+______________________________________________________________________
 
-
-
-\[prev-tail\]
-
-
-
-
-
----
-
-
-
-\[prev-tail\]
-\[up\]
-
-
+[prev-tail]
+[up]
 
 ## Chapter 25 Foreign.C
 
-
-
-
-
-module Foreign.C (    
-    module Foreign.C.Types,  module Foreign.C.String,  module Foreign.C.Error
-   
-  ) where
-
-
-
-
+module Foreign.C (  \
+module Foreign.C.Types,  module Foreign.C.String,  module Foreign.C.Error
+\
+) where
 
 The module Foreign.C combines the
 interfaces of all modules providing C-specific marshalling support,
 namely
 
-
-
-|  |
+| |
 |:---|
-| module Foreign.C.Types  |
-| module Foreign.C.String  |
-| module Foreign.C.Error  |
+| module Foreign.C.Types |
+| module Foreign.C.String |
+| module Foreign.C.Error |
 
+[prev-tail]
 
+______________________________________________________________________
 
-
-
-\[prev-tail\]
-
-
-
-
-
----
-
-
-
-\[prev-tail\]
-\[up\]
-
-
+[prev-tail]
+[up]
 
 ## Chapter 26 Foreign.C.Error
 
-
-
-
-
-module Foreign.C.Error (    
-    Errno(Errno),  eOK,  e2BIG,  eACCES,  eADDRINUSE,  eADDRNOTAVAIL,  eADV,
-   
-    eAFNOSUPPORT,  eAGAIN,  eALREADY,  eBADF,  eBADMSG,  eBADRPC,  eBUSY,
-   
-    eCHILD,  eCOMM,  eCONNABORTED,  eCONNREFUSED,  eCONNRESET,  eDEADLK,
-   
-    eDESTADDRREQ,  eDIRTY,  eDOM,  eDQUOT,  eEXIST,  eFAULT,  eFBIG,  eFTYPE,
-   
-    eHOSTDOWN,  eHOSTUNREACH,  eIDRM,  eILSEQ,  eINPROGRESS,  eINTR,  eINVAL,
-   
-    eIO,  eISCONN,  eISDIR,  eLOOP,  eMFILE,  eMLINK,  eMSGSIZE,  eMULTIHOP,
-   
-    eNAMETOOLONG,  eNETDOWN,  eNETRESET,  eNETUNREACH,  eNFILE,  eNOBUFS,
-   
-    eNODATA,  eNODEV,  eNOENT,  eNOEXEC,  eNOLCK,  eNOLINK,  eNOMEM,  eNOMSG,
-   
-    eNONET,  eNOPROTOOPT,  eNOSPC,  eNOSR,  eNOSTR,  eNOSYS,  eNOTBLK,
-   
-    eNOTCONN,  eNOTDIR,  eNOTEMPTY,  eNOTSOCK,  eNOTTY,  eNXIO,  eOPNOTSUPP,
-   
-    ePERM,  ePFNOSUPPORT,  ePIPE,  ePROCLIM,  ePROCUNAVAIL,  ePROGMISMATCH,
-   
-    ePROGUNAVAIL,  ePROTO,  ePROTONOSUPPORT,  ePROTOTYPE,  eRANGE,  eREMCHG,
-   
-    eREMOTE,  eROFS,  eRPCMISMATCH,  eRREMOTE,  eSHUTDOWN,  eSOCKTNOSUPPORT,
-   
-    eSPIPE,  eSRCH,  eSRMNT,  eSTALE,  eTIME,  eTIMEDOUT,  eTOOMANYREFS,
-   
-    eTXTBSY,  eUSERS,  eWOULDBLOCK,  eXDEV,  isValidErrno,  getErrno,
-   
-    resetErrno,  errnoToIOError,  throwErrno,  throwErrnoIf,  throwErrnoIf\_,
-   
-    throwErrnoIfRetry,  throwErrnoIfRetry\_,  throwErrnoIfMinus1,    
-    throwErrnoIfMinus1\_,  throwErrnoIfMinus1Retry,  throwErrnoIfMinus1Retry\_,
-   
-    throwErrnoIfNull,  throwErrnoIfNullRetry,  throwErrnoIfRetryMayBlock,
-   
-    throwErrnoIfRetryMayBlock\_,  throwErrnoIfMinus1RetryMayBlock,    
-    throwErrnoIfMinus1RetryMayBlock\_,  throwErrnoIfNullRetryMayBlock,
-   
-    throwErrnoPath,  throwErrnoPathIf,  throwErrnoPathIf\_,    
-    throwErrnoPathIfNull,  throwErrnoPathIfMinus1,  throwErrnoPathIfMinus1\_
-   
-  ) where
-
-
-
-
+module Foreign.C.Error (  \
+Errno(Errno),  eOK,  e2BIG,  eACCES,  eADDRINUSE,  eADDRNOTAVAIL,  eADV,
+\
+eAFNOSUPPORT,  eAGAIN,  eALREADY,  eBADF,  eBADMSG,  eBADRPC,  eBUSY,
+\
+eCHILD,  eCOMM,  eCONNABORTED,  eCONNREFUSED,  eCONNRESET,  eDEADLK,
+\
+eDESTADDRREQ,  eDIRTY,  eDOM,  eDQUOT,  eEXIST,  eFAULT,  eFBIG,  eFTYPE,
+\
+eHOSTDOWN,  eHOSTUNREACH,  eIDRM,  eILSEQ,  eINPROGRESS,  eINTR,  eINVAL,
+\
+eIO,  eISCONN,  eISDIR,  eLOOP,  eMFILE,  eMLINK,  eMSGSIZE,  eMULTIHOP,
+\
+eNAMETOOLONG,  eNETDOWN,  eNETRESET,  eNETUNREACH,  eNFILE,  eNOBUFS,
+\
+eNODATA,  eNODEV,  eNOENT,  eNOEXEC,  eNOLCK,  eNOLINK,  eNOMEM,  eNOMSG,
+\
+eNONET,  eNOPROTOOPT,  eNOSPC,  eNOSR,  eNOSTR,  eNOSYS,  eNOTBLK,
+\
+eNOTCONN,  eNOTDIR,  eNOTEMPTY,  eNOTSOCK,  eNOTTY,  eNXIO,  eOPNOTSUPP,
+\
+ePERM,  ePFNOSUPPORT,  ePIPE,  ePROCLIM,  ePROCUNAVAIL,  ePROGMISMATCH,
+\
+ePROGUNAVAIL,  ePROTO,  ePROTONOSUPPORT,  ePROTOTYPE,  eRANGE,  eREMCHG,
+\
+eREMOTE,  eROFS,  eRPCMISMATCH,  eRREMOTE,  eSHUTDOWN,  eSOCKTNOSUPPORT,
+\
+eSPIPE,  eSRCH,  eSRMNT,  eSTALE,  eTIME,  eTIMEDOUT,  eTOOMANYREFS,
+\
+eTXTBSY,  eUSERS,  eWOULDBLOCK,  eXDEV,  isValidErrno,  getErrno,
+\
+resetErrno,  errnoToIOError,  throwErrno,  throwErrnoIf,  throwErrnoIf\_,
+\
+throwErrnoIfRetry,  throwErrnoIfRetry\_,  throwErrnoIfMinus1,  \
+throwErrnoIfMinus1\_,  throwErrnoIfMinus1Retry,  throwErrnoIfMinus1Retry\_,
+\
+throwErrnoIfNull,  throwErrnoIfNullRetry,  throwErrnoIfRetryMayBlock,
+\
+throwErrnoIfRetryMayBlock\_,  throwErrnoIfMinus1RetryMayBlock,  \
+throwErrnoIfMinus1RetryMayBlock\_,  throwErrnoIfNullRetryMayBlock,
+\
+throwErrnoPath,  throwErrnoPathIf,  throwErrnoPathIf\_,  \
+throwErrnoPathIfNull,  throwErrnoPathIfMinus1,  throwErrnoPathIfMinus1\_
+\
+) where
 
 The module Foreign.C.Error facilitates
 C-specific error handling of errno.
 
-### 26.1  Haskell representations of errno values
+### 26.1 Haskell representations of errno values
 
-
-
-|                                                                          |
+| |
 |:-------------------------------------------------------------------------|
-| newtype Errno  |
+| newtype Errno |
 
-
-
-
-
-|  |  |  |
+| | | |
 |:---|:---|:---|
-| =  | Errno CInt  |  |
-|  |  |  |
-
-
+| = | Errno CInt | |
+| | | |
 
 Haskell representation for errno values.
 The implementation is deliberately exposed, to allow users to add their
 own definitions of
 Errno values.
 
-
-
-|  |
+| |
 |:---|
-| instance Eq Errno  |
+| instance Eq Errno |
 
-
-
-#### 26.1.1  Common errno symbols
+#### 26.1.1 Common errno symbols
 
 Different operating systems and/or C libraries often support different
 values of errno. This module defines the
@@ -23891,213 +17639,209 @@ common values, but due to the open definition of
 Errno users
 may add definitions which are not predefined.
 
-eOK :: Errno  
+eOK :: Errno
 
-e2BIG :: Errno  
+e2BIG :: Errno
 
-eACCES :: Errno  
+eACCES :: Errno
 
-eADDRINUSE :: Errno  
+eADDRINUSE :: Errno
 
-eADDRNOTAVAIL :: Errno  
+eADDRNOTAVAIL :: Errno
 
-eADV :: Errno  
+eADV :: Errno
 
-eAFNOSUPPORT :: Errno  
+eAFNOSUPPORT :: Errno
 
-eAGAIN :: Errno  
+eAGAIN :: Errno
 
-eALREADY :: Errno  
+eALREADY :: Errno
 
-eBADF :: Errno  
+eBADF :: Errno
 
-eBADMSG :: Errno  
+eBADMSG :: Errno
 
-eBADRPC :: Errno  
+eBADRPC :: Errno
 
-eBUSY :: Errno  
+eBUSY :: Errno
 
-eCHILD :: Errno  
+eCHILD :: Errno
 
-eCOMM :: Errno  
+eCOMM :: Errno
 
-eCONNABORTED :: Errno  
+eCONNABORTED :: Errno
 
-eCONNREFUSED :: Errno  
+eCONNREFUSED :: Errno
 
-eCONNRESET :: Errno  
+eCONNRESET :: Errno
 
-eDEADLK :: Errno  
+eDEADLK :: Errno
 
-eDESTADDRREQ :: Errno  
+eDESTADDRREQ :: Errno
 
-eDIRTY :: Errno  
+eDIRTY :: Errno
 
-eDOM :: Errno  
+eDOM :: Errno
 
-eDQUOT :: Errno  
+eDQUOT :: Errno
 
-eEXIST :: Errno  
+eEXIST :: Errno
 
-eFAULT :: Errno  
+eFAULT :: Errno
 
-eFBIG :: Errno  
+eFBIG :: Errno
 
-eFTYPE :: Errno  
+eFTYPE :: Errno
 
-eHOSTDOWN :: Errno  
+eHOSTDOWN :: Errno
 
-eHOSTUNREACH :: Errno  
+eHOSTUNREACH :: Errno
 
-eIDRM :: Errno  
+eIDRM :: Errno
 
-eILSEQ :: Errno  
+eILSEQ :: Errno
 
-eINPROGRESS :: Errno  
+eINPROGRESS :: Errno
 
-eINTR :: Errno  
+eINTR :: Errno
 
-eINVAL :: Errno  
+eINVAL :: Errno
 
-eIO :: Errno  
+eIO :: Errno
 
-eISCONN :: Errno  
+eISCONN :: Errno
 
-eISDIR :: Errno  
+eISDIR :: Errno
 
-eLOOP :: Errno  
+eLOOP :: Errno
 
-eMFILE :: Errno  
+eMFILE :: Errno
 
-eMLINK :: Errno  
+eMLINK :: Errno
 
-eMSGSIZE :: Errno  
+eMSGSIZE :: Errno
 
-eMULTIHOP :: Errno  
+eMULTIHOP :: Errno
 
-eNAMETOOLONG :: Errno  
+eNAMETOOLONG :: Errno
 
-eNETDOWN :: Errno  
+eNETDOWN :: Errno
 
-eNETRESET :: Errno  
+eNETRESET :: Errno
 
-eNETUNREACH :: Errno  
+eNETUNREACH :: Errno
 
-eNFILE :: Errno  
+eNFILE :: Errno
 
-eNOBUFS :: Errno  
+eNOBUFS :: Errno
 
-eNODATA :: Errno  
+eNODATA :: Errno
 
-eNODEV :: Errno  
+eNODEV :: Errno
 
-eNOENT :: Errno  
+eNOENT :: Errno
 
-eNOEXEC :: Errno  
+eNOEXEC :: Errno
 
-eNOLCK :: Errno  
+eNOLCK :: Errno
 
-eNOLINK :: Errno  
+eNOLINK :: Errno
 
-eNOMEM :: Errno  
+eNOMEM :: Errno
 
-eNOMSG :: Errno  
+eNOMSG :: Errno
 
-eNONET :: Errno  
+eNONET :: Errno
 
-eNOPROTOOPT :: Errno  
+eNOPROTOOPT :: Errno
 
-eNOSPC :: Errno  
+eNOSPC :: Errno
 
-eNOSR :: Errno  
+eNOSR :: Errno
 
-eNOSTR :: Errno  
+eNOSTR :: Errno
 
-eNOSYS :: Errno  
+eNOSYS :: Errno
 
-eNOTBLK :: Errno  
+eNOTBLK :: Errno
 
-eNOTCONN :: Errno  
+eNOTCONN :: Errno
 
-eNOTDIR :: Errno  
+eNOTDIR :: Errno
 
-eNOTEMPTY :: Errno  
+eNOTEMPTY :: Errno
 
-eNOTSOCK :: Errno  
+eNOTSOCK :: Errno
 
-eNOTTY :: Errno  
+eNOTTY :: Errno
 
-eNXIO :: Errno  
+eNXIO :: Errno
 
-eOPNOTSUPP :: Errno  
+eOPNOTSUPP :: Errno
 
-ePERM :: Errno  
+ePERM :: Errno
 
-ePFNOSUPPORT :: Errno  
+ePFNOSUPPORT :: Errno
 
-ePIPE :: Errno  
+ePIPE :: Errno
 
-ePROCLIM :: Errno  
+ePROCLIM :: Errno
 
-ePROCUNAVAIL :: Errno  
+ePROCUNAVAIL :: Errno
 
-ePROGMISMATCH :: Errno  
+ePROGMISMATCH :: Errno
 
-ePROGUNAVAIL :: Errno  
+ePROGUNAVAIL :: Errno
 
-ePROTO :: Errno  
+ePROTO :: Errno
 
-ePROTONOSUPPORT :: Errno  
+ePROTONOSUPPORT :: Errno
 
-ePROTOTYPE :: Errno  
+ePROTOTYPE :: Errno
 
-eRANGE :: Errno  
+eRANGE :: Errno
 
-eREMCHG :: Errno  
+eREMCHG :: Errno
 
-eREMOTE :: Errno  
+eREMOTE :: Errno
 
-eROFS :: Errno  
+eROFS :: Errno
 
-eRPCMISMATCH :: Errno  
+eRPCMISMATCH :: Errno
 
-eRREMOTE :: Errno  
+eRREMOTE :: Errno
 
-eSHUTDOWN :: Errno  
+eSHUTDOWN :: Errno
 
-eSOCKTNOSUPPORT :: Errno  
+eSOCKTNOSUPPORT :: Errno
 
-eSPIPE :: Errno  
+eSPIPE :: Errno
 
-eSRCH :: Errno  
+eSRCH :: Errno
 
-eSRMNT :: Errno  
+eSRMNT :: Errno
 
-eSTALE :: Errno  
+eSTALE :: Errno
 
-eTIME :: Errno  
+eTIME :: Errno
 
-eTIMEDOUT :: Errno  
+eTIMEDOUT :: Errno
 
-eTOOMANYREFS :: Errno  
+eTOOMANYREFS :: Errno
 
-eTXTBSY :: Errno  
+eTXTBSY :: Errno
 
-eUSERS :: Errno  
+eUSERS :: Errno
 
-eWOULDBLOCK :: Errno  
+eWOULDBLOCK :: Errno
 
-eXDEV :: Errno  
+eXDEV :: Errno
 
-#### 26.1.2  Errno functions
+#### 26.1.2 Errno functions
 
-
-
-|  |
+| |
 |:---|
-| isValidErrno :: Errno -\> Bool  |
-
-
+| isValidErrno :: Errno -> Bool |
 
 Yield True if
 the given
@@ -24108,48 +17852,32 @@ of Errno is
 also system dependent as it is only defined for valid values of
 Errno.
 
-
-
-|  |
+| |
 |:---|
-| getErrno :: IO Errno  |
-
-
+| getErrno :: IO Errno |
 
 Get the current value of errno in the
 current thread.
 
-
-
-|  |
+| |
 |:---|
-| resetErrno :: IO ()  |
-
-
+| resetErrno :: IO () |
 
 Reset the current thread’s errno value to
 eOK.
 
-
-
-|                                              |
+| |
 |:---------------------------------------------|
-| errnoToIOError  |
+| errnoToIOError |
 
-
-
-
-
-|  |  |  |
+| | | |
 |:---|:---|:---|
-| ::  | String  | the location where the error occurred |
-| -\>  | Errno  | the error number |
-| -\>  | Maybe Handle  | optional handle associated with the error |
-| -\>  | Maybe String  | optional filename associated with the error |
-| -\>  | IOError  |  |
-|  |  |  |
-
-
+| :: | String | the location where the error occurred |
+| -> | Errno | the error number |
+| -> | Maybe Handle | optional handle associated with the error |
+| -> | Maybe String | optional filename associated with the error |
+| -> | IOError | |
+| | | |
 
 Construct an
 IOError based
@@ -24158,50 +17886,34 @@ Errno value.
 The optional information can be used to improve the accuracy of error
 messages.
 
-
-
-|                                          |
+| |
 |:-----------------------------------------|
-| throwErrno  |
+| throwErrno |
 
-
-
-
-
-|  |  |  |
+| | | |
 |:---|:---|:---|
-| ::  | String  | textual description of the error location |
-| -\>  | IO a  |  |
-|  |  |  |
-
-
+| :: | String | textual description of the error location |
+| -> | IO a | |
+| | | |
 
 Throw an
 IOError
 corresponding to the current value of
 getErrno.
 
-#### 26.1.3  Guards for IO operations that may fail
+#### 26.1.3 Guards for IO operations that may fail
 
-
-
-|                                            |
+| |
 |:-------------------------------------------|
-| throwErrnoIf  |
+| throwErrnoIf |
 
-
-
-
-
-|  |  |  |
+| | | |
 |:---|:---|:---|
-| ::  | (a -\> Bool)  | predicate to apply to the result value of the IO operation |
-| -\>  | String  | textual description of the location |
-| -\>  | IO a  | the IO operation to be executed |
-| -\>  | IO a  |  |
-|  |  |  |
-
-
+| :: | (a -> Bool) | predicate to apply to the result value of the IO operation |
+| -> | String | textual description of the location |
+| -> | IO a | the IO operation to be executed |
+| -> | IO a | |
+| | | |
 
 Throw an
 IOError
@@ -24211,13 +17923,9 @@ the result value of the
 IO action
 meets the given predicate.
 
-
-
-|  |
+| |
 |:---|
-| throwErrnoIf\_ :: (a -\> Bool) -\> String -\> IO a -\> IO ()  |
-
-
+| throwErrnoIf\_ :: (a -> Bool) -> String -> IO a -> IO () |
 
 as
 throwErrnoIf,
@@ -24225,13 +17933,9 @@ but discards the result of the
 IO action
 after error handling.
 
-
-
-|  |
+| |
 |:---|
-| throwErrnoIfRetry :: (a -\> Bool) -\> String -\> IO a -\> IO a  |
-
-
+| throwErrnoIfRetry :: (a -> Bool) -> String -> IO a -> IO a |
 
 as
 throwErrnoIf,
@@ -24241,25 +17945,17 @@ when it yields the error code
 eINTR - this
 amounts to the standard retry loop for interrupted POSIX system calls.
 
-
-
-|  |
+| |
 |:---|
-| throwErrnoIfRetry\_ :: (a -\> Bool) -\> String -\> IO a -\> IO ()  |
-
-
+| throwErrnoIfRetry\_ :: (a -> Bool) -> String -> IO a -> IO () |
 
 as
 throwErrnoIfRetry,
 but discards the result.
 
-
-
-|  |
+| |
 |:---|
-| throwErrnoIfMinus1 :: Num a =\> String -\> IO a -\> IO a  |
-
-
+| throwErrnoIfMinus1 :: Num a => String -> IO a -> IO a |
 
 Throw an
 IOError
@@ -24268,25 +17964,17 @@ getErrno if
 the IO action
 returns a result of -1.
 
-
-
-|  |
+| |
 |:---|
-| throwErrnoIfMinus1\_ :: Num a =\> String -\> IO a -\> IO ()  |
-
-
+| throwErrnoIfMinus1\_ :: Num a => String -> IO a -> IO () |
 
 as
 throwErrnoIfMinus1,
 but discards the result.
 
-
-
-|  |
+| |
 |:---|
-| throwErrnoIfMinus1Retry :: Num a =\> String -\> IO a -\> IO a  |
-
-
+| throwErrnoIfMinus1Retry :: Num a => String -> IO a -> IO a |
 
 Throw an
 IOError
@@ -24296,25 +17984,17 @@ the IO action
 returns a result of -1, but retries in case
 of an interrupted operation.
 
-
-
-|  |
+| |
 |:---|
-| throwErrnoIfMinus1Retry\_ :: Num a =\> String -\> IO a -\> IO ()  |
-
-
+| throwErrnoIfMinus1Retry\_ :: Num a => String -> IO a -> IO () |
 
 as
 throwErrnoIfMinus1,
 but discards the result.
 
-
-
-|  |
+| |
 |:---|
-| throwErrnoIfNull :: String -\> IO (Ptr a) -\> IO (Ptr a)  |
-
-
+| throwErrnoIfNull :: String -> IO (Ptr a) -> IO (Ptr a) |
 
 Throw an
 IOError
@@ -24324,13 +18004,9 @@ the IO action
 returns
 nullPtr.
 
-
-
-|  |
+| |
 |:---|
-| throwErrnoIfNullRetry :: String -\> IO (Ptr a) -\> IO (Ptr a)  |
-
-
+| throwErrnoIfNullRetry :: String -> IO (Ptr a) -> IO (Ptr a) |
 
 Throw an
 IOError
@@ -24341,26 +18017,18 @@ returns
 nullPtr, but
 retry in case of an interrupted operation.
 
-
-
-|                                                         |
+| |
 |:--------------------------------------------------------|
-| throwErrnoIfRetryMayBlock  |
+| throwErrnoIfRetryMayBlock |
 
-
-
-
-
-|  |  |  |
+| | | |
 |:---|:---|:---|
-| ::  | (a -\> Bool)  | predicate to apply to the result value of the IO operation |
-| -\>  | String  | textual description of the location |
-| -\>  | IO a  | the IO operation to be executed |
-| -\>  | IO b  | action to execute before retrying if an immediate retry would block |
-| -\>  | IO a  |  |
-|  |  |  |
-
-
+| :: | (a -> Bool) | predicate to apply to the result value of the IO operation |
+| -> | String | textual description of the location |
+| -> | IO a | the IO operation to be executed |
+| -> | IO b | action to execute before retrying if an immediate retry would block |
+| -> | IO a | |
+| | | |
 
 as
 throwErrnoIfRetry,
@@ -24369,176 +18037,118 @@ eAGAIN or
 eWOULDBLOCK,
 an alternative action is executed before retrying.
 
-
-
-|  |
+| |
 |:---|
-| throwErrnoIfRetryMayBlock\_ :: (a -\> Bool)  |
-|                               -\> String -\> IO a -\> IO b -\> IO ()  |
-
-
+| throwErrnoIfRetryMayBlock\_ :: (a -> Bool) |
+|                               -> String -> IO a -> IO b -> IO () |
 
 as
 throwErrnoIfRetryMayBlock,
 but discards the result.
 
-
-
-|  |
+| |
 |:---|
-| throwErrnoIfMinus1RetryMayBlock :: Num a =\> String  |
-|                                             -\> IO a -\> IO b -\> IO a |
-
-
+| throwErrnoIfMinus1RetryMayBlock :: Num a => String |
+|                                             -> IO a -> IO b -> IO a |
 
 as
 throwErrnoIfMinus1Retry,
 but checks for operations that would block.
 
-
-
-|  |
+| |
 |:---|
-| throwErrnoIfMinus1RetryMayBlock\_ :: Num a =\> String  |
-|                                              -\> IO a -\> IO b -\> IO ()  |
-
-
+| throwErrnoIfMinus1RetryMayBlock\_ :: Num a => String |
+|                                              -> IO a -> IO b -> IO () |
 
 as
 throwErrnoIfMinus1RetryMayBlock,
 but discards the result.
 
-
-
-|  |
+| |
 |:---|
-| throwErrnoIfNullRetryMayBlock :: String  |
-|                                  -\> IO (Ptr a) -\> IO b -\> IO (Ptr a)  |
-
-
+| throwErrnoIfNullRetryMayBlock :: String |
+|                                  -> IO (Ptr a) -> IO b -> IO (Ptr a) |
 
 as
 throwErrnoIfNullRetry,
 but checks for operations that would block.
 
-
-
-|  |
+| |
 |:---|
-| throwErrnoPath :: String -\> FilePath -\> IO a  |
-
-
+| throwErrnoPath :: String -> FilePath -> IO a |
 
 as
 throwErrno,
 but exceptions include the given path when appropriate.
 
-
-
-|  |
+| |
 |:---|
-| throwErrnoPathIf :: (a -\> Bool)  |
-|                     -\> String -\> FilePath -\> IO a -\> IO a  |
-
-
+| throwErrnoPathIf :: (a -> Bool) |
+|                     -> String -> FilePath -> IO a -> IO a |
 
 as
 throwErrnoIf,
 but exceptions include the given path when appropriate.
 
-
-
-|  |
+| |
 |:---|
-| throwErrnoPathIf\_ :: (a -\> Bool)  |
-|                      -\> String -\> FilePath -\> IO a -\> IO ()  |
-
-
+| throwErrnoPathIf\_ :: (a -> Bool) |
+|                      -> String -> FilePath -> IO a -> IO () |
 
 as
 throwErrnoIf\_,
 but exceptions include the given path when appropriate.
 
-
-
-|  |
+| |
 |:---|
-| throwErrnoPathIfNull :: String  |
-|                         -\> FilePath -\> IO (Ptr a) -\> IO (Ptr a)  |
-
-
+| throwErrnoPathIfNull :: String |
+|                         -> FilePath -> IO (Ptr a) -> IO (Ptr a) |
 
 as
 throwErrnoIfNull,
 but exceptions include the given path when appropriate.
 
-
-
-|  |
+| |
 |:---|
-| throwErrnoPathIfMinus1 :: Num a =\> String  |
-|                                    -\> FilePath -\> IO a -\> IO a |
-
-
+| throwErrnoPathIfMinus1 :: Num a => String |
+|                                    -> FilePath -> IO a -> IO a |
 
 as
 throwErrnoIfMinus1,
 but exceptions include the given path when appropriate.
 
-
-
-|  |
+| |
 |:---|
-| throwErrnoPathIfMinus1\_ :: Num a =\> String  |
-|                                     -\> FilePath -\> IO a -\> IO ()  |
-
-
+| throwErrnoPathIfMinus1\_ :: Num a => String |
+|                                     -> FilePath -> IO a -> IO () |
 
 as
 throwErrnoIfMinus1\_,
 but exceptions include the given path when appropriate.
 
+[prev-tail]
 
+______________________________________________________________________
 
-\[prev-tail\]
-
-
-
-
-
----
-
-
-
-\[prev-tail\]
-\[up\]
-
-
+[prev-tail]
+[up]
 
 ## Chapter 27 Foreign.C.String
 
-
-
-
-
-module Foreign.C.String (    
-    CString,  CStringLen,  peekCString,  peekCStringLen,  newCString,
-   
-    newCStringLen,  withCString,  withCStringLen,  charIsRepresentable,
-   
-    castCharToCChar,  castCCharToChar,  castCharToCUChar,  castCUCharToChar,
-   
-    castCharToCSChar,  castCSCharToChar,  peekCAString,  peekCAStringLen,
-   
-    newCAString,  newCAStringLen,  withCAString,  withCAStringLen,  CWString,
-   
-    CWStringLen,  peekCWString,  peekCWStringLen,  newCWString,    
-    newCWStringLen,  withCWString,  withCWStringLen    
-  ) where
-
-
-
-
+module Foreign.C.String (  \
+CString,  CStringLen,  peekCString,  peekCStringLen,  newCString,
+\
+newCStringLen,  withCString,  withCStringLen,  charIsRepresentable,
+\
+castCharToCChar,  castCCharToChar,  castCharToCUChar,  castCUCharToChar,
+\
+castCharToCSChar,  castCSCharToChar,  peekCAString,  peekCAStringLen,
+\
+newCAString,  newCAStringLen,  withCAString,  withCAStringLen,  CWString,
+\
+CWStringLen,  peekCWString,  peekCWStringLen,  newCWString,  \
+newCWStringLen,  withCWString,  withCWStringLen  \
+) where
 
 Utilities for primitive marshalling of C strings.
 
@@ -24550,62 +18160,42 @@ C string, and therefore all the marshalling routines include memory
 allocation. The translation between Unicode and the encoding of the
 current locale may be lossy.
 
-### 27.1  C strings
+### 27.1 C strings
 
-
-
-|  |
+| |
 |:---|
-| type CString = Ptr CChar  |
-
-
+| type CString = Ptr CChar |
 
 A C string is a reference to an array of C characters terminated by NUL.
 
-
-
-|  |
+| |
 |:---|
-| type CStringLen = (Ptr CChar, Int)  |
-
-
+| type CStringLen = (Ptr CChar, Int) |
 
 A string with explicit length information in bytes instead of a
 terminating NUL (allowing NUL characters in the middle of the string).
 
-#### 27.1.1  Using a locale-dependent encoding
+#### 27.1.1 Using a locale-dependent encoding
 
 Currently these functions are identical to their
 CAString counterparts; eventually they will
 use an encoding determined by the current locale.
 
-
-
-|  |
+| |
 |:---|
-| peekCString :: CString -\> IO String  |
-
-
+| peekCString :: CString -> IO String |
 
 Marshal a NUL terminated C string into a Haskell string.
 
-
-
-|  |
+| |
 |:---|
-| peekCStringLen :: CStringLen -\> IO String  |
-
-
+| peekCStringLen :: CStringLen -> IO String |
 
 Marshal a C string with explicit length into a Haskell string.
 
-
-
-|  |
+| |
 |:---|
-| newCString :: String -\> IO CString  |
-
-
+| newCString :: String -> IO CString |
 
 Marshal a Haskell string into a NUL terminated C string.
 
@@ -24615,13 +18205,9 @@ Marshal a Haskell string into a NUL terminated C string.
   using Foreign.Marshal.Alloc.free or
   Foreign.Marshal.Alloc.finalizerFree.
 
-
-
-|  |
+| |
 |:---|
-| newCStringLen :: String -\> IO CStringLen  |
-
-
+| newCStringLen :: String -> IO CStringLen |
 
 Marshal a Haskell string into a C string (ie, character array) with
 explicit length information.
@@ -24630,13 +18216,9 @@ explicit length information.
   using Foreign.Marshal.Alloc.free or
   Foreign.Marshal.Alloc.finalizerFree.
 
-
-
-|  |
+| |
 |:---|
-| withCString :: String -\> (CString -\> IO a) -\> IO a  |
-
-
+| withCString :: String -> (CString -> IO a) -> IO a |
 
 Marshal a Haskell string into a NUL terminated C string using temporary
 storage.
@@ -24647,13 +18229,9 @@ storage.
   normally or via an exception), so the pointer to the temporary storage
   must not be used after this.
 
-
-
-|  |
+| |
 |:---|
-| withCStringLen :: String -\> (CStringLen -\> IO a) -\> IO a  |
-
-
+| withCStringLen :: String -> (CStringLen -> IO a) -> IO a |
 
 Marshal a Haskell string into a C string (ie, character array) in
 temporary storage, with explicit length information.
@@ -24662,13 +18240,9 @@ temporary storage, with explicit length information.
   normally or via an exception), so the pointer to the temporary storage
   must not be used after this.
 
-
-
-|  |
+| |
 |:---|
-| charIsRepresentable :: Char -\> IO Bool  |
-
-
+| charIsRepresentable :: Char -> IO Bool |
 
 Determines whether a character can be accurately encoded in a
 CString.
@@ -24677,111 +18251,75 @@ Unrepresentable characters are converted to
 
 Currently only Latin-1 characters are representable.
 
-#### 27.1.2  Using 8-bit characters
+#### 27.1.2 Using 8-bit characters
 
 These variants of the above functions are for use with C libraries that
 are ignorant of Unicode. These functions should be used with care, as a
 loss of information can occur.
 
-
-
-|  |
+| |
 |:---|
-| castCharToCChar :: Char -\> CChar  |
-
-
+| castCharToCChar :: Char -> CChar |
 
 Convert a Haskell character to a C character. This function is only safe
 on the first 256 characters.
 
-
-
-|  |
+| |
 |:---|
-| castCCharToChar :: CChar -\> Char  |
-
-
+| castCCharToChar :: CChar -> Char |
 
 Convert a C byte, representing a Latin-1 character, to the corresponding
 Haskell character.
 
-
-
-|  |
+| |
 |:---|
-| castCharToCUChar :: Char -\> CUChar  |
-
-
+| castCharToCUChar :: Char -> CUChar |
 
 Convert a Haskell character to a C
 unsigned char.
 This function is only safe on the first 256 characters.
 
-
-
-|  |
+| |
 |:---|
-| castCUCharToChar :: CUChar -\> Char  |
-
-
+| castCUCharToChar :: CUChar -> Char |
 
 Convert a C
 unsigned char,
 representing a Latin-1 character, to the corresponding Haskell
 character.
 
-
-
-|  |
+| |
 |:---|
-| castCharToCSChar :: Char -\> CSChar  |
-
-
+| castCharToCSChar :: Char -> CSChar |
 
 Convert a Haskell character to a C
 signed char.
 This function is only safe on the first 256 characters.
 
-
-
-|  |
+| |
 |:---|
-| castCSCharToChar :: CSChar -\> Char  |
-
-
+| castCSCharToChar :: CSChar -> Char |
 
 Convert a C
 signed char,
 representing a Latin-1 character, to the corresponding Haskell
 character.
 
-
-
-|  |
+| |
 |:---|
-| peekCAString :: CString -\> IO String  |
-
-
+| peekCAString :: CString -> IO String |
 
 Marshal a NUL terminated C string into a Haskell string.
 
-
-
-|  |
+| |
 |:---|
-| peekCAStringLen :: CStringLen -\> IO String  |
-
-
+| peekCAStringLen :: CStringLen -> IO String |
 
 Marshal a C string with explicit length into a Haskell string.
 
-
-
-|  |
+| |
 |:---|
-| newCAString :: String -\> IO CString  |
-
-
+| newCAString :: String -> IO CString |
 
 Marshal a Haskell string into a NUL terminated C string.
 
@@ -24791,13 +18329,9 @@ Marshal a Haskell string into a NUL terminated C string.
   using Foreign.Marshal.Alloc.free or
   Foreign.Marshal.Alloc.finalizerFree.
 
-
-
-|  |
+| |
 |:---|
-| newCAStringLen :: String -\> IO CStringLen  |
-
-
+| newCAStringLen :: String -> IO CStringLen |
 
 Marshal a Haskell string into a C string (ie, character array) with
 explicit length information.
@@ -24806,13 +18340,9 @@ explicit length information.
   using Foreign.Marshal.Alloc.free or
   Foreign.Marshal.Alloc.finalizerFree.
 
-
-
-|  |
+| |
 |:---|
-| withCAString :: String -\> (CString -\> IO a) -\> IO a  |
-
-
+| withCAString :: String -> (CString -> IO a) -> IO a |
 
 Marshal a Haskell string into a NUL terminated C string using temporary
 storage.
@@ -24823,13 +18353,9 @@ storage.
   normally or via an exception), so the pointer to the temporary storage
   must not be used after this.
 
-
-
-|  |
+| |
 |:---|
-| withCAStringLen :: String -\> (CStringLen -\> IO a) -\> IO a  |
-
-
+| withCAStringLen :: String -> (CStringLen -> IO a) -> IO a |
 
 Marshal a Haskell string into a C string (ie, character array) in
 temporary storage, with explicit length information.
@@ -24838,7 +18364,7 @@ temporary storage, with explicit length information.
   normally or via an exception), so the pointer to the temporary storage
   must not be used after this.
 
-### 27.2  C wide strings
+### 27.2 C wide strings
 
 These variants of the above functions are for use with C libraries that
 encode Unicode using the C wchar_t type in
@@ -24848,57 +18374,37 @@ a system-dependent way. The only encodings supported are
   \_\_STDC_ISO_10646\_\_), or
 - UTF-16 (as used on Windows systems).
 
-
-
-|  |
+| |
 |:---|
-| type CWString = Ptr CWchar  |
-
-
+| type CWString = Ptr CWchar |
 
 A C wide string is a reference to an array of C wide characters
 terminated by NUL.
 
-
-
-|  |
+| |
 |:---|
-| type CWStringLen = (Ptr CWchar, Int)  |
-
-
+| type CWStringLen = (Ptr CWchar, Int) |
 
 A wide character string with explicit length information in
 CWchars
 instead of a terminating NUL (allowing NUL characters in the middle of
 the string).
 
-
-
-|  |
+| |
 |:---|
-| peekCWString :: CWString -\> IO String  |
-
-
+| peekCWString :: CWString -> IO String |
 
 Marshal a NUL terminated C wide string into a Haskell string.
 
-
-
-|  |
+| |
 |:---|
-| peekCWStringLen :: CWStringLen -\> IO String  |
-
-
+| peekCWStringLen :: CWStringLen -> IO String |
 
 Marshal a C wide string with explicit length into a Haskell string.
 
-
-
-|  |
+| |
 |:---|
-| newCWString :: String -\> IO CWString  |
-
-
+| newCWString :: String -> IO CWString |
 
 Marshal a Haskell string into a NUL terminated C wide string.
 
@@ -24908,13 +18414,9 @@ Marshal a Haskell string into a NUL terminated C wide string.
   freed using Foreign.Marshal.Alloc.free or
   Foreign.Marshal.Alloc.finalizerFree.
 
-
-
-|  |
+| |
 |:---|
-| newCWStringLen :: String -\> IO CWStringLen  |
-
-
+| newCWStringLen :: String -> IO CWStringLen |
 
 Marshal a Haskell string into a C wide string (ie, wide character array)
 with explicit length information.
@@ -24923,13 +18425,9 @@ with explicit length information.
   freed using Foreign.Marshal.Alloc.free or
   Foreign.Marshal.Alloc.finalizerFree.
 
-
-
-|  |
+| |
 |:---|
-| withCWString :: String -\> (CWString -\> IO a) -\> IO a  |
-
-
+| withCWString :: String -> (CWString -> IO a) -> IO a |
 
 Marshal a Haskell string into a NUL terminated C wide string using
 temporary storage.
@@ -24940,13 +18438,9 @@ temporary storage.
   normally or via an exception), so the pointer to the temporary storage
   must not be used after this.
 
-
-
-|  |
+| |
 |:---|
-| withCWStringLen :: String -\> (CWStringLen -\> IO a) -\> IO a  |
-
-
+| withCWStringLen :: String -> (CWStringLen -> IO a) -> IO a |
 
 Marshal a Haskell string into a NUL terminated C wide string using
 temporary storage.
@@ -24957,44 +18451,26 @@ temporary storage.
   normally or via an exception), so the pointer to the temporary storage
   must not be used after this.
 
+[prev-tail]
 
+______________________________________________________________________
 
-\[prev-tail\]
-
-
-
-
-
----
-
-
-
-\[prev-tail\]
-\[up\]
-
-
+[prev-tail]
+[up]
 
 ## Chapter 28 Foreign.C.Types
 
+module Foreign.C.Types (  \
+CChar,  CSChar,  CUChar,  CShort,  CUShort,  CInt,  CUInt,  CLong,  CULong,
+\
+CPtrdiff,  CSize,  CWchar,  CSigAtomic,  CLLong,  CULLong,  CIntPtr,
+\
+CUIntPtr,  CIntMax,  CUIntMax,  CClock,  CTime,  CFloat,  CDouble,  CFile,
+\
+CFpos,  CJmpBuf  \
+) where
 
-
-
-
-module Foreign.C.Types (    
-    CChar,  CSChar,  CUChar,  CShort,  CUShort,  CInt,  CUInt,  CLong,  CULong,
-   
-    CPtrdiff,  CSize,  CWchar,  CSigAtomic,  CLLong,  CULLong,  CIntPtr,
-   
-    CUIntPtr,  CIntMax,  CUIntMax,  CClock,  CTime,  CFloat,  CDouble,  CFile,
-   
-    CFpos,  CJmpBuf    
-  ) where
-
-
-
-
-
-### 28.1  Representations of C types
+### 28.1 Representations of C types
 
 These types are needed to accurately represent C function prototypes, in
 order to access C library interfaces in Haskell. The Haskell system is
@@ -25053,7 +18529,7 @@ t:
   type class implement the same function as the corresponding bitwise
   operation in C on t.
 
-#### 28.1.1  Integral types
+#### 28.1.1 Integral types
 
 These types are are represented as newtypes
 of types in Data.Int and
@@ -25070,549 +18546,397 @@ Real,
 Integral and
 Bits.
 
-
-
-|                                                                       |
+| |
 |:----------------------------------------------------------------------|
-| data CChar  |
-
-
+| data CChar |
 
 Haskell type representing the C char type.
 
-
-
-|  |
+| |
 |:---|
-| instance Bounded CChar  |
+| instance Bounded CChar |
 | instance Enum CChar |
-| instance Eq CChar  |
-| instance Integral CChar  |
-| instance Num CChar  |
+| instance Eq CChar |
+| instance Integral CChar |
+| instance Num CChar |
 | instance Ord CChar |
-| instance Read CChar  |
-| instance Real CChar  |
-| instance Show CChar  |
-| instance Storable CChar  |
-| instance Bits CChar  |
+| instance Read CChar |
+| instance Real CChar |
+| instance Show CChar |
+| instance Storable CChar |
+| instance Bits CChar |
 
-
-
-
-
-|                                                                        |
+| |
 |:-----------------------------------------------------------------------|
-| data CSChar  |
-
-
+| data CSChar |
 
 Haskell type representing the C
 signed char
 type.
 
-
-
-|  |
+| |
 |:---|
-| instance Bounded CSChar  |
+| instance Bounded CSChar |
 | instance Enum CSChar |
-| instance Eq CSChar  |
-| instance Integral CSChar  |
-| instance Num CSChar  |
+| instance Eq CSChar |
+| instance Integral CSChar |
+| instance Num CSChar |
 | instance Ord CSChar |
-| instance Read CSChar  |
-| instance Real CSChar  |
-| instance Show CSChar  |
-| instance Storable CSChar  |
-| instance Bits CSChar  |
+| instance Read CSChar |
+| instance Real CSChar |
+| instance Show CSChar |
+| instance Storable CSChar |
+| instance Bits CSChar |
 
-
-
-
-
-|                                                                        |
+| |
 |:-----------------------------------------------------------------------|
-| data CUChar  |
-
-
+| data CUChar |
 
 Haskell type representing the C
 unsigned char
 type.
 
-
-
-|  |
+| |
 |:---|
-| instance Bounded CUChar  |
+| instance Bounded CUChar |
 | instance Enum CUChar |
-| instance Eq CUChar  |
-| instance Integral CUChar  |
-| instance Num CUChar  |
+| instance Eq CUChar |
+| instance Integral CUChar |
+| instance Num CUChar |
 | instance Ord CUChar |
-| instance Read CUChar  |
-| instance Real CUChar  |
-| instance Show CUChar  |
-| instance Storable CUChar  |
-| instance Bits CUChar  |
+| instance Read CUChar |
+| instance Real CUChar |
+| instance Show CUChar |
+| instance Storable CUChar |
+| instance Bits CUChar |
 
-
-
-
-
-|                                                                        |
+| |
 |:-----------------------------------------------------------------------|
-| data CShort  |
-
-
+| data CShort |
 
 Haskell type representing the C short type.
 
-
-
-|  |
+| |
 |:---|
-| instance Bounded CShort  |
+| instance Bounded CShort |
 | instance Enum CShort |
-| instance Eq CShort  |
-| instance Integral CShort  |
-| instance Num CShort  |
+| instance Eq CShort |
+| instance Integral CShort |
+| instance Num CShort |
 | instance Ord CShort |
-| instance Read CShort  |
-| instance Real CShort  |
-| instance Show CShort  |
-| instance Storable CShort  |
-| instance Bits CShort  |
+| instance Read CShort |
+| instance Real CShort |
+| instance Show CShort |
+| instance Storable CShort |
+| instance Bits CShort |
 
-
-
-
-
-|                                                                         |
+| |
 |:------------------------------------------------------------------------|
-| data CUShort  |
-
-
+| data CUShort |
 
 Haskell type representing the C
 unsigned short
 type.
 
-
-
-|  |
+| |
 |:---|
-| instance Bounded CUShort  |
+| instance Bounded CUShort |
 | instance Enum CUShort |
-| instance Eq CUShort  |
-| instance Integral CUShort  |
-| instance Num CUShort  |
+| instance Eq CUShort |
+| instance Integral CUShort |
+| instance Num CUShort |
 | instance Ord CUShort |
-| instance Read CUShort  |
-| instance Real CUShort  |
-| instance Show CUShort  |
-| instance Storable CUShort  |
-| instance Bits CUShort  |
+| instance Read CUShort |
+| instance Real CUShort |
+| instance Show CUShort |
+| instance Storable CUShort |
+| instance Bits CUShort |
 
-
-
-
-
-|                                                                      |
+| |
 |:---------------------------------------------------------------------|
-| data CInt  |
-
-
+| data CInt |
 
 Haskell type representing the C int type.
 
-
-
-|  |
+| |
 |:---|
-| instance Bounded CInt  |
+| instance Bounded CInt |
 | instance Enum CInt |
-| instance Eq CInt  |
-| instance Integral CInt  |
-| instance Num CInt  |
+| instance Eq CInt |
+| instance Integral CInt |
+| instance Num CInt |
 | instance Ord CInt |
-| instance Read CInt  |
-| instance Real CInt  |
-| instance Show CInt  |
-| instance Storable CInt  |
-| instance Bits CInt  |
+| instance Read CInt |
+| instance Real CInt |
+| instance Show CInt |
+| instance Storable CInt |
+| instance Bits CInt |
 
-
-
-
-
-|                                                                       |
+| |
 |:----------------------------------------------------------------------|
-| data CUInt  |
-
-
+| data CUInt |
 
 Haskell type representing the C
 unsigned int
 type.
 
-
-
-|  |
+| |
 |:---|
-| instance Bounded CUInt  |
+| instance Bounded CUInt |
 | instance Enum CUInt |
-| instance Eq CUInt  |
-| instance Integral CUInt  |
-| instance Num CUInt  |
+| instance Eq CUInt |
+| instance Integral CUInt |
+| instance Num CUInt |
 | instance Ord CUInt |
-| instance Read CUInt  |
-| instance Real CUInt  |
-| instance Show CUInt  |
-| instance Storable CUInt  |
-| instance Bits CUInt  |
+| instance Read CUInt |
+| instance Real CUInt |
+| instance Show CUInt |
+| instance Storable CUInt |
+| instance Bits CUInt |
 
-
-
-
-
-|                                                                       |
+| |
 |:----------------------------------------------------------------------|
-| data CLong  |
-
-
+| data CLong |
 
 Haskell type representing the C long type.
 
-
-
-|  |
+| |
 |:---|
-| instance Bounded CLong  |
-| instance Enum CLong  |
-| instance Eq CLong  |
-| instance Integral CLong  |
-| instance Num CLong  |
-| instance Ord CLong  |
-| instance Read CLong  |
-| instance Real CLong  |
-| instance Show CLong  |
-| instance Storable CLong  |
-| instance Bits CLong  |
+| instance Bounded CLong |
+| instance Enum CLong |
+| instance Eq CLong |
+| instance Integral CLong |
+| instance Num CLong |
+| instance Ord CLong |
+| instance Read CLong |
+| instance Real CLong |
+| instance Show CLong |
+| instance Storable CLong |
+| instance Bits CLong |
 
-
-
-
-
-|                                                                        |
+| |
 |:-----------------------------------------------------------------------|
-| data CULong  |
-
-
+| data CULong |
 
 Haskell type representing the C
 unsigned long
 type.
 
-
-
-|  |
+| |
 |:---|
-| instance Bounded CULong  |
-| instance Enum CULong  |
-| instance Eq CULong  |
-| instance Integral CULong  |
-| instance Num CULong  |
-| instance Ord CULong  |
-| instance Read CULong  |
-| instance Real CULong  |
-| instance Show CULong  |
-| instance Storable CULong  |
-| instance Bits CULong  |
+| instance Bounded CULong |
+| instance Enum CULong |
+| instance Eq CULong |
+| instance Integral CULong |
+| instance Num CULong |
+| instance Ord CULong |
+| instance Read CULong |
+| instance Real CULong |
+| instance Show CULong |
+| instance Storable CULong |
+| instance Bits CULong |
 
-
-
-
-
-|                                                                          |
+| |
 |:-------------------------------------------------------------------------|
-| data CPtrdiff  |
-
-
+| data CPtrdiff |
 
 Haskell type representing the C ptrdiff_t
 type.
 
-
-
-|  |
+| |
 |:---|
-| instance Bounded CPtrdiff  |
+| instance Bounded CPtrdiff |
 | instance Enum CPtrdiff |
-| instance Eq CPtrdiff  |
-| instance Integral CPtrdiff  |
-| instance Num CPtrdiff  |
+| instance Eq CPtrdiff |
+| instance Integral CPtrdiff |
+| instance Num CPtrdiff |
 | instance Ord CPtrdiff |
-| instance Read CPtrdiff  |
-| instance Real CPtrdiff  |
-| instance Show CPtrdiff  |
-| instance Storable CPtrdiff  |
-| instance Bits CPtrdiff  |
+| instance Read CPtrdiff |
+| instance Real CPtrdiff |
+| instance Show CPtrdiff |
+| instance Storable CPtrdiff |
+| instance Bits CPtrdiff |
 
-
-
-
-
-|                                                                       |
+| |
 |:----------------------------------------------------------------------|
-| data CSize  |
-
-
+| data CSize |
 
 Haskell type representing the C size_t
 type.
 
-
-
-|  |
+| |
 |:---|
-| instance Bounded CSize  |
+| instance Bounded CSize |
 | instance Enum CSize |
-| instance Eq CSize  |
-| instance Integral CSize  |
-| instance Num CSize  |
+| instance Eq CSize |
+| instance Integral CSize |
+| instance Num CSize |
 | instance Ord CSize |
-| instance Read CSize  |
-| instance Real CSize  |
-| instance Show CSize  |
-| instance Storable CSize  |
-| instance Bits CSize  |
+| instance Read CSize |
+| instance Real CSize |
+| instance Show CSize |
+| instance Storable CSize |
+| instance Bits CSize |
 
-
-
-
-
-|                                                                        |
+| |
 |:-----------------------------------------------------------------------|
-| data CWchar  |
-
-
+| data CWchar |
 
 Haskell type representing the C wchar_t
 type.
 
-
-
-|  |
+| |
 |:---|
-| instance Bounded CWchar  |
+| instance Bounded CWchar |
 | instance Enum CWchar |
-| instance Eq CWchar  |
-| instance Integral CWchar  |
-| instance Num CWchar  |
+| instance Eq CWchar |
+| instance Integral CWchar |
+| instance Num CWchar |
 | instance Ord CWchar |
-| instance Read CWchar  |
-| instance Real CWchar  |
-| instance Show CWchar  |
-| instance Storable CWchar  |
-| instance Bits CWchar  |
+| instance Read CWchar |
+| instance Real CWchar |
+| instance Show CWchar |
+| instance Storable CWchar |
+| instance Bits CWchar |
 
-
-
-
-
-|  |
+| |
 |:---|
-| data CSigAtomic  |
-
-
+| data CSigAtomic |
 
 Haskell type representing the C sig_atomic_t
 type.
 
-
-
-|  |
+| |
 |:---|
-| instance Bounded CSigAtomic  |
-| instance Enum CSigAtomic  |
-| instance Eq CSigAtomic  |
-| instance Integral CSigAtomic  |
-| instance Num CSigAtomic  |
-| instance Ord CSigAtomic  |
-| instance Read CSigAtomic  |
-| instance Real CSigAtomic  |
-| instance Show CSigAtomic  |
-| instance Storable CSigAtomic  |
-| instance Bits CSigAtomic  |
+| instance Bounded CSigAtomic |
+| instance Enum CSigAtomic |
+| instance Eq CSigAtomic |
+| instance Integral CSigAtomic |
+| instance Num CSigAtomic |
+| instance Ord CSigAtomic |
+| instance Read CSigAtomic |
+| instance Real CSigAtomic |
+| instance Show CSigAtomic |
+| instance Storable CSigAtomic |
+| instance Bits CSigAtomic |
 
-
-
-
-
-|                                                                        |
+| |
 |:-----------------------------------------------------------------------|
-| data CLLong  |
-
-
+| data CLLong |
 
 Haskell type representing the C
 long long
 type.
 
-
-
-|  |
+| |
 |:---|
-| instance Bounded CLLong  |
-| instance Enum CLLong  |
-| instance Eq CLLong  |
-| instance Integral CLLong  |
-| instance Num CLLong  |
-| instance Ord CLLong  |
-| instance Read CLLong  |
-| instance Real CLLong  |
-| instance Show CLLong  |
-| instance Storable CLLong  |
-| instance Bits CLLong  |
+| instance Bounded CLLong |
+| instance Enum CLLong |
+| instance Eq CLLong |
+| instance Integral CLLong |
+| instance Num CLLong |
+| instance Ord CLLong |
+| instance Read CLLong |
+| instance Real CLLong |
+| instance Show CLLong |
+| instance Storable CLLong |
+| instance Bits CLLong |
 
-
-
-
-
-|                                                                         |
+| |
 |:------------------------------------------------------------------------|
-| data CULLong  |
-
-
+| data CULLong |
 
 Haskell type representing the C
 unsigned long long
 type.
 
-
-
-|  |
+| |
 |:---|
-| instance Bounded CULLong  |
-| instance Enum CULLong  |
-| instance Eq CULLong  |
-| instance Integral CULLong  |
-| instance Num CULLong  |
-| instance Ord CULLong  |
-| instance Read CULLong  |
-| instance Real CULLong  |
-| instance Show CULLong  |
-| instance Storable CULLong  |
-| instance Bits CULLong  |
+| instance Bounded CULLong |
+| instance Enum CULLong |
+| instance Eq CULLong |
+| instance Integral CULLong |
+| instance Num CULLong |
+| instance Ord CULLong |
+| instance Read CULLong |
+| instance Real CULLong |
+| instance Show CULLong |
+| instance Storable CULLong |
+| instance Bits CULLong |
 
-
-
-
-
-|                                                                         |
+| |
 |:------------------------------------------------------------------------|
-| data CIntPtr  |
+| data CIntPtr |
 
-
-
-
-
-|  |
+| |
 |:---|
-| instance Bounded CIntPtr  |
+| instance Bounded CIntPtr |
 | instance Enum CIntPtr |
-| instance Eq CIntPtr  |
-| instance Integral CIntPtr  |
-| instance Num CIntPtr  |
+| instance Eq CIntPtr |
+| instance Integral CIntPtr |
+| instance Num CIntPtr |
 | instance Ord CIntPtr |
-| instance Read CIntPtr  |
-| instance Real CIntPtr  |
-| instance Show CIntPtr  |
-| instance Storable CIntPtr  |
-| instance Bits CIntPtr  |
+| instance Read CIntPtr |
+| instance Real CIntPtr |
+| instance Show CIntPtr |
+| instance Storable CIntPtr |
+| instance Bits CIntPtr |
 
-
-
-
-
-|                                                                          |
+| |
 |:-------------------------------------------------------------------------|
-| data CUIntPtr  |
+| data CUIntPtr |
 
-
-
-
-
-|  |
+| |
 |:---|
-| instance Bounded CUIntPtr  |
+| instance Bounded CUIntPtr |
 | instance Enum CUIntPtr |
-| instance Eq CUIntPtr  |
-| instance Integral CUIntPtr  |
-| instance Num CUIntPtr  |
+| instance Eq CUIntPtr |
+| instance Integral CUIntPtr |
+| instance Num CUIntPtr |
 | instance Ord CUIntPtr |
-| instance Read CUIntPtr  |
-| instance Real CUIntPtr  |
-| instance Show CUIntPtr  |
-| instance Storable CUIntPtr  |
-| instance Bits CUIntPtr  |
+| instance Read CUIntPtr |
+| instance Real CUIntPtr |
+| instance Show CUIntPtr |
+| instance Storable CUIntPtr |
+| instance Bits CUIntPtr |
 
-
-
-
-
-|                                                                         |
+| |
 |:------------------------------------------------------------------------|
-| data CIntMax  |
+| data CIntMax |
 
-
-
-
-
-|  |
+| |
 |:---|
-| instance Bounded CIntMax  |
+| instance Bounded CIntMax |
 | instance Enum CIntMax |
-| instance Eq CIntMax  |
-| instance Integral CIntMax  |
-| instance Num CIntMax  |
+| instance Eq CIntMax |
+| instance Integral CIntMax |
+| instance Num CIntMax |
 | instance Ord CIntMax |
-| instance Read CIntMax  |
-| instance Real CIntMax  |
-| instance Show CIntMax  |
-| instance Storable CIntMax  |
-| instance Bits CIntMax  |
+| instance Read CIntMax |
+| instance Real CIntMax |
+| instance Show CIntMax |
+| instance Storable CIntMax |
+| instance Bits CIntMax |
 
-
-
-
-
-|                                                                          |
+| |
 |:-------------------------------------------------------------------------|
-| data CUIntMax  |
+| data CUIntMax |
 
-
-
-
-
-|  |
+| |
 |:---|
-| instance Bounded CUIntMax  |
+| instance Bounded CUIntMax |
 | instance Enum CUIntMax |
-| instance Eq CUIntMax  |
-| instance Integral CUIntMax  |
-| instance Num CUIntMax  |
+| instance Eq CUIntMax |
+| instance Integral CUIntMax |
+| instance Num CUIntMax |
 | instance Ord CUIntMax |
-| instance Read CUIntMax  |
-| instance Real CUIntMax  |
-| instance Show CUIntMax  |
-| instance Storable CUIntMax  |
-| instance Bits CUIntMax  |
+| instance Read CUIntMax |
+| instance Real CUIntMax |
+| instance Show CUIntMax |
+| instance Storable CUIntMax |
+| instance Bits CUIntMax |
 
-
-
-#### 28.1.2  Numeric types
+#### 28.1.2 Numeric types
 
 These types are are represented as newtypes
 of basic foreign types, and are instances of
@@ -25624,59 +18948,43 @@ Show,
 Enum and
 Storable.
 
-
-
-|                                                                        |
+| |
 |:-----------------------------------------------------------------------|
-| data CClock  |
-
-
+| data CClock |
 
 Haskell type representing the C clock_t
 type.
 
-
-
-|  |
+| |
 |:---|
-| instance Enum CClock  |
+| instance Enum CClock |
 | instance Eq CClock |
-| instance Num CClock  |
+| instance Num CClock |
 | instance Ord CClock |
-| instance Read CClock  |
-| instance Real CClock  |
-| instance Show CClock  |
-| instance Storable CClock  |
+| instance Read CClock |
+| instance Real CClock |
+| instance Show CClock |
+| instance Storable CClock |
 
-
-
-
-
-|                                                                       |
+| |
 |:----------------------------------------------------------------------|
-| data CTime  |
-
-
+| data CTime |
 
 Haskell type representing the C time_t
 type.
 
-
-
-|  |
+| |
 |:---|
-| instance Enum CTime  |
+| instance Enum CTime |
 | instance Eq CTime |
-| instance Num CTime  |
+| instance Num CTime |
 | instance Ord CTime |
-| instance Read CTime  |
-| instance Real CTime  |
-| instance Show CTime  |
-| instance Storable CTime  |
+| instance Read CTime |
+| instance Real CTime |
+| instance Show CTime |
+| instance Storable CTime |
 
-
-
-#### 28.1.3  Floating types
+#### 28.1.3 Floating types
 
 These types are are represented as newtypes
 of Float and
@@ -25695,145 +19003,95 @@ Floating,
 RealFrac and
 RealFloat.
 
-
-
-|                                                                        |
+| |
 |:-----------------------------------------------------------------------|
-| data CFloat  |
-
-
+| data CFloat |
 
 Haskell type representing the C float type.
 
-
-
-|  |
+| |
 |:---|
-| instance Enum CFloat  |
+| instance Enum CFloat |
 | instance Eq CFloat |
-| instance Floating CFloat  |
-| instance Fractional CFloat  |
+| instance Floating CFloat |
+| instance Fractional CFloat |
 | instance Num CFloat |
-| instance Ord CFloat  |
-| instance Read CFloat  |
-| instance Real CFloat  |
-| instance RealFloat CFloat  |
-| instance RealFrac CFloat  |
-| instance Show CFloat  |
-| instance Storable CFloat  |
+| instance Ord CFloat |
+| instance Read CFloat |
+| instance Real CFloat |
+| instance RealFloat CFloat |
+| instance RealFrac CFloat |
+| instance Show CFloat |
+| instance Storable CFloat |
 
-
-
-
-
-|                                                                         |
+| |
 |:------------------------------------------------------------------------|
-| data CDouble  |
-
-
+| data CDouble |
 
 Haskell type representing the C double
 type.
 
-
-
-|  |
+| |
 |:---|
-| instance Enum CDouble  |
+| instance Enum CDouble |
 | instance Eq CDouble |
-| instance Floating CDouble  |
-| instance Fractional CDouble  |
+| instance Floating CDouble |
+| instance Fractional CDouble |
 | instance Num CDouble |
-| instance Ord CDouble  |
-| instance Read CDouble  |
-| instance Real CDouble  |
-| instance RealFloat CDouble  |
-| instance RealFrac CDouble  |
-| instance Show CDouble  |
-| instance Storable CDouble  |
+| instance Ord CDouble |
+| instance Read CDouble |
+| instance Real CDouble |
+| instance RealFloat CDouble |
+| instance RealFrac CDouble |
+| instance Show CDouble |
+| instance Storable CDouble |
 
+#### 28.1.4 Other types
 
-
-#### 28.1.4  Other types
-
-
-
-|                                                                       |
+| |
 |:----------------------------------------------------------------------|
-| data CFile  |
-
-
+| data CFile |
 
 Haskell type representing the C FILE type.
 
-
-
-|                                                                       |
+| |
 |:----------------------------------------------------------------------|
-| data CFpos  |
-
-
+| data CFpos |
 
 Haskell type representing the C fpos_t
 type.
 
-
-
-|                                                                         |
+| |
 |:------------------------------------------------------------------------|
-| data CJmpBuf  |
-
-
+| data CJmpBuf |
 
 Haskell type representing the C jmp_buf
 type.
 
+[prev-tail]
 
+______________________________________________________________________
 
-\[prev-tail\]
-
-
-
-
-
----
-
-
-
-\[prev-tail\]
-\[up\]
-
-
+[prev-tail]
+[up]
 
 ## Chapter 29 Foreign.ForeignPtr
 
+module Foreign.ForeignPtr (  \
+ForeignPtr,  FinalizerPtr,  FinalizerEnvPtr,  newForeignPtr,  \
+newForeignPtr\_,  addForeignPtrFinalizer,  newForeignPtrEnv,  \
+addForeignPtrFinalizerEnv,  withForeignPtr,  finalizeForeignPtr,  \
+unsafeForeignPtrToPtr,  touchForeignPtr,  castForeignPtr,  \
+mallocForeignPtr,  mallocForeignPtrBytes,  mallocForeignPtrArray,
+\
+mallocForeignPtrArray0  \
+) where
 
+### 29.1 Finalised data pointers
 
-
-
-module Foreign.ForeignPtr (    
-    ForeignPtr,  FinalizerPtr,  FinalizerEnvPtr,  newForeignPtr,    
-    newForeignPtr\_,  addForeignPtrFinalizer,  newForeignPtrEnv,    
-    addForeignPtrFinalizerEnv,  withForeignPtr,  finalizeForeignPtr,    
-    unsafeForeignPtrToPtr,  touchForeignPtr,  castForeignPtr,    
-    mallocForeignPtr,  mallocForeignPtrBytes,  mallocForeignPtrArray,
-   
-    mallocForeignPtrArray0    
-  ) where
-
-
-
-
-
-### 29.1  Finalised data pointers
-
-
-
-|  |
+| |
 |:---|
-| data ForeignPtr a  |
-
-
+| data ForeignPtr a |
 
 The type
 ForeignPtr
@@ -25861,45 +19119,29 @@ ForeignPtr
 should normally be an instance of class
 Storable.
 
-
-
-|  |
+| |
 |:---|
-| instance Eq (ForeignPtr a)  |
-| instance Ord (ForeignPtr a)  |
-| instance Show (ForeignPtr a)  |
+| instance Eq (ForeignPtr a) |
+| instance Ord (ForeignPtr a) |
+| instance Show (ForeignPtr a) |
 
-
-
-
-
-|  |
+| |
 |:---|
-| type FinalizerPtr a = FunPtr (Ptr a -\> IO ())  |
-
-
+| type FinalizerPtr a = FunPtr (Ptr a -> IO ()) |
 
 A finalizer is represented as a pointer to a foreign function that, at
 finalisation time, gets as an argument a plain pointer variant of the
 foreign pointer that the finalizer is associated with.
 
-
-
-|  |
+| |
 |:---|
-| type FinalizerEnvPtr env a = FunPtr (Ptr env -\> Ptr a -\> IO ())  |
+| type FinalizerEnvPtr env a = FunPtr (Ptr env -> Ptr a -> IO ()) |
 
+#### 29.1.1 Basic operations
 
-
-#### 29.1.1  Basic operations
-
-
-
-|  |
+| |
 |:---|
-| newForeignPtr :: FinalizerPtr a -\> Ptr a -\> IO (ForeignPtr a)  |
-
-
+| newForeignPtr :: FinalizerPtr a -> Ptr a -> IO (ForeignPtr a) |
 
 Turns a plain memory reference into a foreign pointer, and associates a
 finalizer with the reference. The finalizer will be executed after the
@@ -25907,38 +19149,26 @@ last reference to the foreign object is dropped. There is no guarantee
 of promptness, however the finalizer will be executed before the program
 exits.
 
-
-
-|  |
+| |
 |:---|
-| newForeignPtr\_ :: Ptr a -\> IO (ForeignPtr a)  |
-
-
+| newForeignPtr\_ :: Ptr a -> IO (ForeignPtr a) |
 
 Turns a plain memory reference into a foreign pointer that may be
 associated with finalizers by using
 addForeignPtrFinalizer.
 
-
-
-|  |
+| |
 |:---|
-| addForeignPtrFinalizer :: FinalizerPtr a -\> ForeignPtr a -\> IO ()  |
-
-
+| addForeignPtrFinalizer :: FinalizerPtr a -> ForeignPtr a -> IO () |
 
 This function adds a finalizer to the given foreign object. The
 finalizer will run before all other
 finalizers for the same object which have already been registered.
 
-
-
-|  |
+| |
 |:---|
-| newForeignPtrEnv :: FinalizerEnvPtr env a  |
-|                     -\> Ptr env -\> Ptr a -\> IO (ForeignPtr a)  |
-
-
+| newForeignPtrEnv :: FinalizerEnvPtr env a |
+|                     -> Ptr env -> Ptr a -> IO (ForeignPtr a) |
 
 This variant of
 newForeignPtr
@@ -25947,14 +19177,10 @@ finalized pointer. The environment that will be passed to the finalizer
 is fixed by the second argument to
 newForeignPtrEnv.
 
-
-
-|  |
+| |
 |:---|
-| addForeignPtrFinalizerEnv :: FinalizerEnvPtr env a  |
-|                              -\> Ptr env -\> ForeignPtr a -\> IO ()  |
-
-
+| addForeignPtrFinalizerEnv :: FinalizerEnvPtr env a |
+|                              -> Ptr env -> ForeignPtr a -> IO () |
 
 Like
 addForeignPtrFinalizerEnv
@@ -25963,13 +19189,9 @@ parameter to be passed to the finalizer. The environment passed to the
 finalizer is fixed by the second argument to
 addForeignPtrFinalizerEnv
 
-
-
-|  |
+| |
 |:---|
-| withForeignPtr :: ForeignPtr a -\> (Ptr a -\> IO b) -\> IO b  |
-
-
+| withForeignPtr :: ForeignPtr a -> (Ptr a -> IO b) -> IO b |
 
 This is a way to look at the pointer living inside a foreign object.
 This function takes a function which is applied to that pointer. The
@@ -25995,26 +19217,18 @@ using the operations from the
 Storable
 class.
 
-
-
-|  |
+| |
 |:---|
-| finalizeForeignPtr :: ForeignPtr a -\> IO ()  |
-
-
+| finalizeForeignPtr :: ForeignPtr a -> IO () |
 
 Causes the finalizers associated with a foreign pointer to be run
 immediately.
 
-#### 29.1.2  Low-level operations
+#### 29.1.2 Low-level operations
 
-
-
-|  |
+| |
 |:---|
-| unsafeForeignPtrToPtr :: ForeignPtr a -\> Ptr a  |
-
-
+| unsafeForeignPtrToPtr :: ForeignPtr a -> Ptr a |
 
 This function extracts the pointer component of a foreign pointer. This
 is a potentially dangerous operations, as if the argument to
@@ -26036,13 +19250,9 @@ touchForeignPtr.
 However, the latter routines are occasionally preferred in tool
 generated marshalling code.
 
-
-
-|  |
+| |
 |:---|
-| touchForeignPtr :: ForeignPtr a -\> IO ()  |
-
-
+| touchForeignPtr :: ForeignPtr a -> IO () |
 
 This function ensures that the foreign object in question is alive at
 the given place in the sequence of IO actions. In particular
@@ -26070,27 +19280,19 @@ In general, it is not recommended to use finalizers on separate objects
 with ordering constraints between them. To express the ordering robustly
 requires explicit synchronisation between finalizers.
 
-
-
-|  |
+| |
 |:---|
-| castForeignPtr :: ForeignPtr a -\> ForeignPtr b  |
-
-
+| castForeignPtr :: ForeignPtr a -> ForeignPtr b |
 
 This function casts a
 ForeignPtr
 parameterised by one type into another type.
 
-#### 29.1.3  Allocating managed memory
+#### 29.1.3 Allocating managed memory
 
-
-
-|  |
+| |
 |:---|
-| mallocForeignPtr :: Storable a =\> IO (ForeignPtr a)  |
-
-
+| mallocForeignPtr :: Storable a => IO (ForeignPtr a) |
 
 Allocate some memory and return a
 ForeignPtr to
@@ -26101,15 +19303,7 @@ discarded.
 mallocForeignPtr
 is equivalent to
 
-
-
-
-
-    do { p \<- malloc; newForeignPtr finalizerFree p }
-
-
-
-
+do { p \<- malloc; newForeignPtr finalizerFree p }
 
 although it may be implemented differently internally: you may not
 assume that the memory returned by
@@ -26117,26 +19311,18 @@ mallocForeignPtr
 has been allocated with
 Foreign.Marshal.Alloc.malloc.
 
-
-
-|  |
+| |
 |:---|
-| mallocForeignPtrBytes :: Int -\> IO (ForeignPtr a)  |
-
-
+| mallocForeignPtrBytes :: Int -> IO (ForeignPtr a) |
 
 This function is similar to
 mallocForeignPtr,
 except that the size of the memory required is given explicitly as a
 number of bytes.
 
-
-
-|  |
+| |
 |:---|
-| mallocForeignPtrArray :: Storable a =\> Int -\> IO (ForeignPtr a)  |
-
-
+| mallocForeignPtrArray :: Storable a => Int -> IO (ForeignPtr a) |
 
 This function is similar to
 Foreign.Marshal.Array.mallocArray, but
@@ -26146,13 +19332,9 @@ mallocForeignPtr,
 it is not guaranteed that the block of memory was allocated by
 Foreign.Marshal.Alloc.malloc.
 
-
-
-|  |
+| |
 |:---|
-| mallocForeignPtrArray0 :: Storable a =\> Int -\> IO (ForeignPtr a)  |
-
-
+| mallocForeignPtrArray0 :: Storable a => Int -> IO (ForeignPtr a) |
 
 This function is similar to
 Foreign.Marshal.Array.mallocArray0, but
@@ -26162,63 +19344,37 @@ mallocForeignPtr,
 it is not guaranteed that the block of memory was allocated by
 Foreign.Marshal.Alloc.malloc.
 
+[prev-tail]
 
+______________________________________________________________________
 
-\[prev-tail\]
-
-
-
-
-
----
-
-
-
-\[prev-tail\]
-\[up\]
-
-
+[prev-tail]
+[up]
 
 ## Chapter 30 Foreign.Marshal
 
-
-
-
-
-module Foreign.Marshal (    
-    module Foreign.Marshal.Alloc,  module Foreign.Marshal.Array,    
-    module Foreign.Marshal.Error,  module Foreign.Marshal.Utils,    
-    unsafeLocalState    
-  ) where
-
-
-
-
+module Foreign.Marshal (  \
+module Foreign.Marshal.Alloc,  module Foreign.Marshal.Array,  \
+module Foreign.Marshal.Error,  module Foreign.Marshal.Utils,  \
+unsafeLocalState  \
+) where
 
 The module Foreign.Marshal re-exports the
 other modules in the Foreign.Marshal
 hierarchy:
 
-
-
-|  |
+| |
 |:---|
-| module Foreign.Marshal.Alloc  |
-| module Foreign.Marshal.Array  |
-| module Foreign.Marshal.Error  |
-| module Foreign.Marshal.Utils  |
-
-
+| module Foreign.Marshal.Alloc |
+| module Foreign.Marshal.Array |
+| module Foreign.Marshal.Error |
+| module Foreign.Marshal.Utils |
 
 and provides one function:
 
-
-
-|  |
+| |
 |:---|
-| unsafeLocalState :: IO a -\> a  |
-
-
+| unsafeLocalState :: IO a -> a |
 
 Sometimes an external entity is a pure function, except that it passes
 arguments and/or results via pointers. The function
@@ -26239,38 +19395,20 @@ that does not obey these rules results in undefined behaviour.
 It is expected that this operation will be replaced in a future revision
 of Haskell.
 
+[prev-tail]
 
+______________________________________________________________________
 
-\[prev-tail\]
-
-
-
-
-
----
-
-
-
-\[prev-tail\]
-\[up\]
-
-
+[prev-tail]
+[up]
 
 ## Chapter 31 Foreign.Marshal.Alloc
 
-
-
-
-
-module Foreign.Marshal.Alloc (    
-    alloca,  allocaBytes,  malloc,  mallocBytes,  realloc,  reallocBytes,
-   
-    free,  finalizerFree    
-  ) where
-
-
-
-
+module Foreign.Marshal.Alloc (  \
+alloca,  allocaBytes,  malloc,  mallocBytes,  realloc,  reallocBytes,
+\
+free,  finalizerFree  \
+) where
 
 The module Foreign.Marshal.Alloc provides
 operations to allocate and deallocate blocks of raw memory (i.e.,
@@ -26306,17 +19444,13 @@ specific type must be sufficiently aligned for that type. Array
 allocation routines need to obey the same alignment constraints for each
 array element.
 
-### 31.1  Memory allocation
+### 31.1 Memory allocation
 
-#### 31.1.1  Local allocation
+#### 31.1.1 Local allocation
 
-
-
-|  |
+| |
 |:---|
-| alloca :: Storable a =\> (Ptr a -\> IO b) -\> IO b  |
-
-
+| alloca :: Storable a => (Ptr a -> IO b) -> IO b |
 
 alloca f
 executes the computation f, passing
@@ -26328,13 +19462,9 @@ The memory is freed when f terminates
 f must not be
 used after this.
 
-
-
-|  |
+| |
 |:---|
-| allocaBytes :: Int -\> (Ptr a -\> IO b) -\> IO b  |
-
-
+| allocaBytes :: Int -> (Ptr a -> IO b) -> IO b |
 
 allocaBytes n f
 executes the computation f, passing
@@ -26348,15 +19478,11 @@ The memory is freed when f terminates
 f must not be
 used after this.
 
-#### 31.1.2  Dynamic allocation
+#### 31.1.2 Dynamic allocation
 
-
-
-|  |
+| |
 |:---|
-| malloc :: Storable a =\> IO (Ptr a)  |
-
-
+| malloc :: Storable a => IO (Ptr a) |
 
 Allocate a block of memory that is sufficient to hold values of type
 a. The size of the area allocated is
@@ -26371,13 +19497,9 @@ free or
 finalizerFree
 when no longer required.
 
-
-
-|  |
+| |
 |:---|
-| mallocBytes :: Int -\> IO (Ptr a)  |
-
-
+| mallocBytes :: Int -> IO (Ptr a) |
 
 Allocate a block of memory of the given number of bytes. The block of
 memory is sufficiently aligned for any of the basic foreign types that
@@ -26388,13 +19510,9 @@ free or
 finalizerFree
 when no longer required.
 
-
-
-|  |
+| |
 |:---|
-| realloc :: Storable b =\> Ptr a -\> IO (Ptr b)  |
-
-
+| realloc :: Storable b => Ptr a -> IO (Ptr b) |
 
 Resize a memory area that was allocated with
 malloc or
@@ -26414,13 +19532,9 @@ realloc
 behaves like
 malloc.
 
-
-
-|  |
+| |
 |:---|
-| reallocBytes :: Ptr a -\> Int -\> IO (Ptr a)  |
-
-
+| reallocBytes :: Ptr a -> Int -> IO (Ptr a) |
 
 Resize a memory area that was allocated with
 malloc or
@@ -26443,13 +19557,9 @@ reallocBytes
 behaves like
 free.
 
-
-
-|  |
+| |
 |:---|
-| free :: Ptr a -\> IO ()  |
-
-
+| free :: Ptr a -> IO () |
 
 Free a block of memory that was allocated with
 malloc,
@@ -26461,13 +19571,9 @@ newX
 functions in Foreign.Marshal.Array
 or Foreign.C.String.
 
-
-
-|  |
+| |
 |:---|
-| finalizerFree :: FinalizerPtr a  |
-
-
+| finalizerFree :: FinalizerPtr a |
 
 A pointer to a foreign function equivalent to
 free, which
@@ -26479,42 +19585,24 @@ mallocBytes,
 realloc or
 reallocBytes.
 
+[prev-tail]
 
+______________________________________________________________________
 
-\[prev-tail\]
-
-
-
-
-
----
-
-
-
-\[prev-tail\]
-\[up\]
-
-
+[prev-tail]
+[up]
 
 ## Chapter 32 Foreign.Marshal.Array
 
-
-
-
-
-module Foreign.Marshal.Array (    
-    mallocArray,  mallocArray0,  allocaArray,  allocaArray0,  reallocArray,
-   
-    reallocArray0,  peekArray,  peekArray0,  pokeArray,  pokeArray0,  newArray,
-   
-    newArray0,  withArray,  withArray0,  withArrayLen,  withArrayLen0,
-   
-    copyArray,  moveArray,  lengthArray0,  advancePtr    
-  ) where
-
-
-
-
+module Foreign.Marshal.Array (  \
+mallocArray,  mallocArray0,  allocaArray,  allocaArray0,  reallocArray,
+\
+reallocArray0,  peekArray,  peekArray0,  pokeArray,  pokeArray0,  newArray,
+\
+newArray0,  withArray,  withArray0,  withArrayLen,  withArrayLen0,
+\
+copyArray,  moveArray,  lengthArray0,  advancePtr  \
+) where
 
 The module Foreign.Marshal.Array provides
 operations for marshalling Haskell lists into monolithic arrays and vice
@@ -26533,301 +19621,195 @@ mallocArray0
 allocates space for one more element to ensure that there is room for
 the terminator.
 
-### 32.1  Marshalling arrays
+### 32.1 Marshalling arrays
 
-#### 32.1.1  Allocation
+#### 32.1.1 Allocation
 
-
-
-|  |
+| |
 |:---|
-| mallocArray :: Storable a =\> Int -\> IO (Ptr a)  |
-
-
+| mallocArray :: Storable a => Int -> IO (Ptr a) |
 
 Allocate storage for the given number of elements of a storable type
 (like Foreign.Marshal.Alloc.malloc, but for
 multiple elements).
 
-
-
-|  |
+| |
 |:---|
-| mallocArray0 :: Storable a =\> Int -\> IO (Ptr a)  |
-
-
+| mallocArray0 :: Storable a => Int -> IO (Ptr a) |
 
 Like
 mallocArray,
 but add an extra position to hold a special termination element.
 
-
-
-|  |
+| |
 |:---|
-| allocaArray :: Storable a =\> Int -\> (Ptr a -\> IO b) -\> IO b  |
-
-
+| allocaArray :: Storable a => Int -> (Ptr a -> IO b) -> IO b |
 
 Temporarily allocate space for the given number of elements (like
 Foreign.Marshal.Alloc.alloca, but for
 multiple elements).
 
-
-
-|  |
+| |
 |:---|
-| allocaArray0 :: Storable a =\> Int -\> (Ptr a -\> IO b) -\> IO b  |
-
-
+| allocaArray0 :: Storable a => Int -> (Ptr a -> IO b) -> IO b |
 
 Like
 allocaArray,
 but add an extra position to hold a special termination element.
 
-
-
-|  |
+| |
 |:---|
-| reallocArray :: Storable a =\> Ptr a -\> Int -\> IO (Ptr a)  |
-
-
+| reallocArray :: Storable a => Ptr a -> Int -> IO (Ptr a) |
 
 Adjust the size of an array
 
-
-
-|  |
+| |
 |:---|
-| reallocArray0 :: Storable a =\> Ptr a -\> Int -\> IO (Ptr a)  |
-
-
+| reallocArray0 :: Storable a => Ptr a -> Int -> IO (Ptr a) |
 
 Adjust the size of an array including an extra position for the end
 marker.
 
-#### 32.1.2  Marshalling
+#### 32.1.2 Marshalling
 
-
-
-|  |
+| |
 |:---|
-| peekArray :: Storable a =\> Int -\> Ptr a -\> IO \[a\]  |
-
-
+| peekArray :: Storable a => Int -> Ptr a -> IO [a] |
 
 Convert an array of given length into a Haskell list.
 
-
-
-|  |
+| |
 |:---|
-| peekArray0 :: (Storable a, Eq a) =\> a -\> Ptr a -\> IO \[a\]  |
-
-
+| peekArray0 :: (Storable a, Eq a) => a -> Ptr a -> IO [a] |
 
 Convert an array terminated by the given end marker into a Haskell list
 
-
-
-|  |
+| |
 |:---|
-| pokeArray :: Storable a =\> Ptr a -\> \[a\] -\> IO ()  |
-
-
+| pokeArray :: Storable a => Ptr a -> [a] -> IO () |
 
 Write the list elements consecutive into memory
 
-
-
-|  |
+| |
 |:---|
-| pokeArray0 :: Storable a =\> a -\> Ptr a -\> \[a\] -\> IO ()  |
-
-
+| pokeArray0 :: Storable a => a -> Ptr a -> [a] -> IO () |
 
 Write the list elements consecutive into memory and terminate them with
 the given marker element
 
-#### 32.1.3  Combined allocation and marshalling
+#### 32.1.3 Combined allocation and marshalling
 
-
-
-|  |
+| |
 |:---|
-| newArray :: Storable a =\> \[a\] -\> IO (Ptr a)  |
-
-
+| newArray :: Storable a => [a] -> IO (Ptr a) |
 
 Write a list of storable elements into a newly allocated, consecutive
 sequence of storable values (like
 Foreign.Marshal.Utils.new, but for multiple
 elements).
 
-
-
-|  |
+| |
 |:---|
-| newArray0 :: Storable a =\> a -\> \[a\] -\> IO (Ptr a)  |
-
-
+| newArray0 :: Storable a => a -> [a] -> IO (Ptr a) |
 
 Write a list of storable elements into a newly allocated, consecutive
 sequence of storable values, where the end is fixed by the given end
 marker
 
-
-
-|  |
+| |
 |:---|
-| withArray :: Storable a =\> \[a\] -\> (Ptr a -\> IO b) -\> IO b  |
-
-
+| withArray :: Storable a => [a] -> (Ptr a -> IO b) -> IO b |
 
 Temporarily store a list of storable values in memory (like
 Foreign.Marshal.Utils.with, but for
 multiple elements).
 
-
-
-|  |
+| |
 |:---|
-| withArray0 :: Storable a =\> a -\> \[a\] -\> (Ptr a -\> IO b) -\> IO b  |
-
-
+| withArray0 :: Storable a => a -> [a] -> (Ptr a -> IO b) -> IO b |
 
 Like
 withArray,
 but a terminator indicates where the array ends
 
-
-
-|  |
+| |
 |:---|
-| withArrayLen :: Storable a =\> \[a\] -\> (Int -\> Ptr a -\> IO b) -\> IO b  |
-
-
+| withArrayLen :: Storable a => [a] -> (Int -> Ptr a -> IO b) -> IO b |
 
 Like
 withArray,
 but the action gets the number of values as an additional parameter
 
-
-
-|  |
+| |
 |:---|
-| withArrayLen0 :: Storable a =\> a  |
-|                                -\> \[a\] -\> (Int -\> Ptr a -\> IO b) -\> IO b  |
-
-
+| withArrayLen0 :: Storable a => a |
+|                                -> [a] -> (Int -> Ptr a -> IO b) -> IO b |
 
 Like
 withArrayLen,
 but a terminator indicates where the array ends
 
-#### 32.1.4  Copying
+#### 32.1.4 Copying
 
 (argument order: destination, source)
 
-
-
-|  |
+| |
 |:---|
-| copyArray :: Storable a =\> Ptr a -\> Ptr a -\> Int -\> IO ()  |
-
-
+| copyArray :: Storable a => Ptr a -> Ptr a -> Int -> IO () |
 
 Copy the given number of elements from the second array (source) into
 the first array (destination); the copied areas may
 not overlap
 
-
-
-|  |
+| |
 |:---|
-| moveArray :: Storable a =\> Ptr a -\> Ptr a -\> Int -\> IO ()  |
-
-
+| moveArray :: Storable a => Ptr a -> Ptr a -> Int -> IO () |
 
 Copy the given number of elements from the second array (source) into
 the first array (destination); the copied areas
 may overlap
 
-#### 32.1.5  Finding the length
+#### 32.1.5 Finding the length
 
-
-
-|  |
+| |
 |:---|
-| lengthArray0 :: (Storable a, Eq a) =\> a -\> Ptr a -\> IO Int  |
-
-
+| lengthArray0 :: (Storable a, Eq a) => a -> Ptr a -> IO Int |
 
 Return the number of elements in an array, excluding the terminator
 
-#### 32.1.6  Indexing
+#### 32.1.6 Indexing
 
-
-
-|  |
+| |
 |:---|
-| advancePtr :: Storable a =\> Ptr a -\> Int -\> Ptr a  |
-
-
+| advancePtr :: Storable a => Ptr a -> Int -> Ptr a |
 
 Advance a pointer into an array by the given number of elements
 
+[prev-tail]
 
+______________________________________________________________________
 
-\[prev-tail\]
-
-
-
-
-
----
-
-
-
-\[prev-tail\]
-\[up\]
-
-
+[prev-tail]
+[up]
 
 ## Chapter 33 Foreign.Marshal.Error
 
+module Foreign.Marshal.Error (  \
+throwIf,  throwIf\_,  throwIfNeg,  throwIfNeg\_,  throwIfNull,  void
+\
+) where
 
-
-
-
-module Foreign.Marshal.Error (    
-    throwIf,  throwIf\_,  throwIfNeg,  throwIfNeg\_,  throwIfNull,  void
-   
-  ) where
-
-
-
-
-
-
-
-|                                       |
+| |
 |:--------------------------------------|
-| throwIf  |
+| throwIf |
 
-
-
-
-
-|  |  |  |
+| | | |
 |:---|:---|:---|
-| ::  | (a -\> Bool)  | error condition on the result of the IO action |
-| -\>  | (a -\> String)  | computes an error message from erroneous results of the IO action |
-| -\>  | IO a  | the IO action to be executed |
-| -\>  | IO a  |  |
-|  |  |  |
-
-
+| :: | (a -> Bool) | error condition on the result of the IO action |
+| -> | (a -> String) | computes an error message from erroneous results of the IO action |
+| -> | IO a | the IO action to be executed |
+| -> | IO a | |
+| | | |
 
 Execute an IO
 action, throwing a
@@ -26838,104 +19820,62 @@ applied to the result returned by the
 IO action. If
 no exception is raised, return the result of the computation.
 
-
-
-|  |
+| |
 |:---|
-| throwIf\_ :: (a -\> Bool) -\> (a -\> String) -\> IO a -\> IO ()  |
-
-
+| throwIf\_ :: (a -> Bool) -> (a -> String) -> IO a -> IO () |
 
 Like throwIf,
 but discarding the result
 
-
-
-|  |
+| |
 |:---|
-| throwIfNeg :: (Ord a, Num a) =\> (a -\> String) -\> IO a -\> IO a  |
-
-
+| throwIfNeg :: (Ord a, Num a) => (a -> String) -> IO a -> IO a |
 
 Guards against negative result values
 
-
-
-|  |
+| |
 |:---|
-| throwIfNeg\_ :: (Ord a, Num a) =\> (a -\> String) -\> IO a -\> IO ()  |
-
-
+| throwIfNeg\_ :: (Ord a, Num a) => (a -> String) -> IO a -> IO () |
 
 Like
 throwIfNeg,
 but discarding the result
 
-
-
-|  |
+| |
 |:---|
-| throwIfNull :: String -\> IO (Ptr a) -\> IO (Ptr a)  |
-
-
+| throwIfNull :: String -> IO (Ptr a) -> IO (Ptr a) |
 
 Guards against null pointers
 
-
-
-|  |
+| |
 |:---|
-| void :: IO a -\> IO ()  |
-
-
+| void :: IO a -> IO () |
 
 Discard the return value of an
 IO action
 
+[prev-tail]
 
+______________________________________________________________________
 
-\[prev-tail\]
-
-
-
-
-
----
-
-
-
-\[prev-tail\]
-\[up\]
-
-
+[prev-tail]
+[up]
 
 ## Chapter 34 Foreign.Marshal.Utils
 
+module Foreign.Marshal.Utils (  \
+with,  new,  fromBool,  toBool,  maybeNew,  maybeWith,  maybePeek,
+\
+withMany,  copyBytes,  moveBytes  \
+) where
 
+### 34.1 General marshalling utilities
 
+#### 34.1.1 Combined allocation and marshalling
 
-
-module Foreign.Marshal.Utils (    
-    with,  new,  fromBool,  toBool,  maybeNew,  maybeWith,  maybePeek,
-   
-    withMany,  copyBytes,  moveBytes    
-  ) where
-
-
-
-
-
-### 34.1  General marshalling utilities
-
-#### 34.1.1  Combined allocation and marshalling
-
-
-
-|  |
+| |
 |:---|
-| with :: Storable a =\> a -\> (Ptr a -\> IO b) -\> IO b  |
-
-
+| with :: Storable a => a -> (Ptr a -> IO b) -> IO b |
 
 with val f
 executes the computation f, passing
@@ -26950,13 +19890,9 @@ The memory is freed when f terminates
 f must not be
 used after this.
 
-
-
-|  |
+| |
 |:---|
-| new :: Storable a =\> a -\> IO (Ptr a)  |
-
-
+| new :: Storable a => a -> IO (Ptr a) |
 
 Allocate a block of memory and marshal a value into it (the combination
 of malloc and
@@ -26972,39 +19908,27 @@ Foreign.Marshal.Alloc.free or
 Foreign.Marshal.Alloc.finalizerFree when no
 longer required.
 
-#### 34.1.2  Marshalling of Boolean values (non-zero corresponds to True)
+#### 34.1.2 Marshalling of Boolean values (non-zero corresponds to True)
 
-
-
-|  |
+| |
 |:---|
-| fromBool :: Num a =\> Bool -\> a  |
-
-
+| fromBool :: Num a => Bool -> a |
 
 Convert a Haskell
 Bool to its
 numeric representation
 
-
-
-|  |
+| |
 |:---|
-| toBool :: Num a =\> a -\> Bool  |
-
-
+| toBool :: Num a => a -> Bool |
 
 Convert a Boolean in numeric representation to a Haskell value
 
-#### 34.1.3  Marshalling of Maybe values
+#### 34.1.3 Marshalling of Maybe values
 
-
-
-|  |
+| |
 |:---|
-| maybeNew :: (a -\> IO (Ptr a)) -\> Maybe a -\> IO (Ptr a)  |
-
-
+| maybeNew :: (a -> IO (Ptr a)) -> Maybe a -> IO (Ptr a) |
 
 Allocate storage and marshal a storable value wrapped into a
 Maybe
@@ -27013,14 +19937,10 @@ Maybe
   is used to represent
   Nothing
 
-
-
-|  |
+| |
 |:---|
-| maybeWith :: (a -\> (Ptr b -\> IO c) -\> IO c)  |
-|              -\> Maybe a -\> (Ptr b -\> IO c) -\> IO c  |
-
-
+| maybeWith :: (a -> (Ptr b -> IO c) -> IO c) |
+|              -> Maybe a -> (Ptr b -> IO c) -> IO c |
 
 Converts a withXXX combinator into one
 marshalling a value wrapped into a
@@ -27029,95 +19949,61 @@ nullPtr to
 represent
 Nothing.
 
-
-
-|  |
+| |
 |:---|
-| maybePeek :: (Ptr a -\> IO b) -\> Ptr a -\> IO (Maybe b)  |
-
-
+| maybePeek :: (Ptr a -> IO b) -> Ptr a -> IO (Maybe b) |
 
 Convert a peek combinator into a one returning
 Nothing if
 applied to a
 nullPtr
 
-#### 34.1.4  Marshalling lists of storable objects
+#### 34.1.4 Marshalling lists of storable objects
 
-
-
-|  |
+| |
 |:---|
-| withMany :: (a -\> (b -\> res) -\> res) -\> \[a\] -\> (\[b\] -\> res) -\> res  |
-
-
+| withMany :: (a -> (b -> res) -> res) -> [a] -> ([b] -> res) -> res |
 
 Replicates a withXXX combinator over a list
 of objects, yielding a list of marshalled objects
 
-#### 34.1.5  Haskellish interface to memcpy and memmove
+#### 34.1.5 Haskellish interface to memcpy and memmove
 
 (argument order: destination, source)
 
-
-
-|  |
+| |
 |:---|
-| copyBytes :: Ptr a -\> Ptr a -\> Int -\> IO ()  |
-
-
+| copyBytes :: Ptr a -> Ptr a -> Int -> IO () |
 
 Copies the given number of bytes from the second area (source) into the
 first (destination); the copied areas may not
 overlap
 
-
-
-|  |
+| |
 |:---|
-| moveBytes :: Ptr a -\> Ptr a -\> Int -\> IO ()  |
-
-
+| moveBytes :: Ptr a -> Ptr a -> Int -> IO () |
 
 Copies the given number of bytes from the second area (source) into the
 first (destination); the copied areas may
 overlap
 
+[prev-tail]
 
+______________________________________________________________________
 
-\[prev-tail\]
-
-
-
-
-
----
-
-
-
-\[prev-tail\]
-\[up\]
-
-
+[prev-tail]
+[up]
 
 ## Chapter 35 Foreign.Ptr
 
-
-
-
-
-module Foreign.Ptr (    
-    Ptr,  nullPtr,  castPtr,  plusPtr,  alignPtr,  minusPtr,  FunPtr,
-   
-    nullFunPtr,  castFunPtr,  castFunPtrToPtr,  castPtrToFunPtr,    
-    freeHaskellFunPtr,  IntPtr,  ptrToIntPtr,  intPtrToPtr,  WordPtr,
-   
-    ptrToWordPtr,  wordPtrToPtr    
-  ) where
-
-
-
-
+module Foreign.Ptr (  \
+Ptr,  nullPtr,  castPtr,  plusPtr,  alignPtr,  minusPtr,  FunPtr,
+\
+nullFunPtr,  castFunPtr,  castFunPtrToPtr,  castPtrToFunPtr,  \
+freeHaskellFunPtr,  IntPtr,  ptrToIntPtr,  intPtrToPtr,  WordPtr,
+\
+ptrToWordPtr,  wordPtrToPtr  \
+) where
 
 The module Foreign.Ptr provides typed
 pointers to foreign entities. We distinguish two kinds of pointers:
@@ -27125,15 +20011,11 @@ pointers to data and pointers to functions. It is understood that these
 two kinds of pointers may be represented differently as they may be
 references to data and text segments, respectively.
 
-### 35.1  Data pointers
+### 35.1 Data pointers
 
-
-
-|  |
+| |
 |:---|
-| data Ptr a  |
-
-
+| data Ptr a |
 
 A value of type Ptr a
 represents a pointer to an object, or an array of objects, which
@@ -27147,24 +20029,16 @@ you can provide your own operations to access the pointer. For example
 you might write small foreign functions to get or set the fields of a C
 struct.
 
-
-
-|  |
+| |
 |:---|
-| instance Eq (Ptr a)  |
-| instance Ord (Ptr a)  |
-| instance Show (Ptr a)  |
-| instance Storable (Ptr a)  |
+| instance Eq (Ptr a) |
+| instance Ord (Ptr a) |
+| instance Show (Ptr a) |
+| instance Storable (Ptr a) |
 
-
-
-
-
-|  |
+| |
 |:---|
-| nullPtr :: Ptr a  |
-
-
+| nullPtr :: Ptr a |
 
 The constant
 nullPtr
@@ -27172,34 +20046,22 @@ contains a distinguished value of
 Ptr that is
 not associated with a valid memory location.
 
-
-
-|  |
+| |
 |:---|
-| castPtr :: Ptr a -\> Ptr b  |
-
-
+| castPtr :: Ptr a -> Ptr b |
 
 The castPtr
 function casts a pointer from one type to another.
 
-
-
-|  |
+| |
 |:---|
-| plusPtr :: Ptr a -\> Int -\> Ptr b  |
-
-
+| plusPtr :: Ptr a -> Int -> Ptr b |
 
 Advances the given address by the given offset in bytes.
 
-
-
-|  |
+| |
 |:---|
-| alignPtr :: Ptr a -\> Int -\> Ptr a  |
-
-
+| alignPtr :: Ptr a -> Int -> Ptr a |
 
 Given an arbitrary address and an alignment constraint,
 alignPtr
@@ -27208,36 +20070,20 @@ An alignment constraint x is fulfilled by
 any address divisible by x. This operation
 is idempotent.
 
-
-
-|  |
+| |
 |:---|
-| minusPtr :: Ptr a -\> Ptr b -\> Int  |
-
-
+| minusPtr :: Ptr a -> Ptr b -> Int |
 
 Computes the offset required to get from the second to the first
 argument. We have
 
+p2 == p1 ‘plusPtr‘ (p2 ‘minusPtr‘ p1)
 
+### 35.2 Function pointers
 
-
-
- p2 == p1 ‘plusPtr‘ (p2 ‘minusPtr‘ p1)
-
-
-
-
-
-### 35.2  Function pointers
-
-
-
-|  |
+| |
 |:---|
-| data FunPtr a  |
-
-
+| data FunPtr a |
 
 A value of type
 FunPtr a is a
@@ -27276,33 +20122,17 @@ FunPtr a may
 be a pointer to a foreign function, either returned by another foreign
 function or imported with a a static address import like
 
-
-
-
-
- foreign import ccall "stdlib.h &free"    
-   p_free :: FunPtr (Ptr a -\> IO ())
-
-
-
-
+foreign import ccall "stdlib.h &free"  \
+p_free :: FunPtr (Ptr a -> IO ())
 
 or a pointer to a Haskell function created using a
 wrapper stub declared to produce a
 FunPtr of the
 correct type. For example:
 
-
-
-
-
- type Compare = Int -\> Int -\> Bool    
- foreign import ccall "wrapper"    
-   mkCompare :: Compare -\> IO (FunPtr Compare)
-
-
-
-
+type Compare = Int -> Int -> Bool  \
+foreign import ccall "wrapper"  \
+mkCompare :: Compare -> IO (FunPtr Compare)
 
 Calls to wrapper stubs like mkCompare
 allocate storage, which should be released with
@@ -27315,36 +20145,20 @@ to corresponding Haskell functions, one can define a
 dynamic stub for the specific foreign
 type, e.g.
 
+type IntFunction = CInt -> IO ()  \
+foreign import ccall "dynamic"  \
+mkFun :: FunPtr IntFunction -> IntFunction
 
-
-
-
- type IntFunction = CInt -\> IO ()    
- foreign import ccall "dynamic"    
-   mkFun :: FunPtr IntFunction -\> IntFunction
-
-
-
-
-
-
-
-|  |
+| |
 |:---|
-| instance Eq (FunPtr a)  |
-| instance Ord (FunPtr a)  |
-| instance Show (FunPtr a)  |
-| instance Storable (FunPtr a)  |
+| instance Eq (FunPtr a) |
+| instance Ord (FunPtr a) |
+| instance Show (FunPtr a) |
+| instance Storable (FunPtr a) |
 
-
-
-
-
-|  |
+| |
 |:---|
-| nullFunPtr :: FunPtr a  |
-
-
+| nullFunPtr :: FunPtr a |
 
 The constant
 nullFunPtr
@@ -27352,26 +20166,18 @@ contains a distinguished value of
 FunPtr that
 is not associated with a valid memory location.
 
-
-
-|  |
+| |
 |:---|
-| castFunPtr :: FunPtr a -\> FunPtr b  |
-
-
+| castFunPtr :: FunPtr a -> FunPtr b |
 
 Casts a
 FunPtr to a
 FunPtr of a
 different type.
 
-
-
-|  |
+| |
 |:---|
-| castFunPtrToPtr :: FunPtr a -\> Ptr b  |
-
-
+| castFunPtrToPtr :: FunPtr a -> Ptr b |
 
 Casts a
 FunPtr to a
@@ -27382,13 +20188,9 @@ where data and function pointers range over the same set of addresses,
 and should only be used for bindings to external libraries whose
 interface already relies on this assumption.
 
-
-
-|  |
+| |
 |:---|
-| castPtrToFunPtr :: Ptr a -\> FunPtr b  |
-
-
+| castPtrToFunPtr :: Ptr a -> FunPtr b |
 
 Casts a Ptr
 to a FunPtr.
@@ -27398,13 +20200,9 @@ where data and function pointers range over the same set of addresses,
 and should only be used for bindings to external libraries whose
 interface already relies on this assumption.
 
-
-
-|  |
+| |
 |:---|
-| freeHaskellFunPtr :: FunPtr a -\> IO ()  |
-
-
+| freeHaskellFunPtr :: FunPtr a -> IO () |
 
 Release the storage associated with the given
 FunPtr, which
@@ -27412,155 +20210,101 @@ must have been obtained from a wrapper stub. This should be called
 whenever the return value from a foreign import wrapper function is no
 longer required; otherwise, the storage it uses will leak.
 
-### 35.3  Integral types with lossless conversion to and from pointers
+### 35.3 Integral types with lossless conversion to and from pointers
 
-
-
-|                                                                        |
+| |
 |:-----------------------------------------------------------------------|
-| data IntPtr  |
-
-
+| data IntPtr |
 
 A signed integral type that can be losslessly converted to and from
 Ptr. This type is also compatible with the
 C99 type intptr_t, and can be marshalled to
 and from that type safely.
 
-
-
-|  |
+| |
 |:---|
-| instance Bounded IntPtr  |
+| instance Bounded IntPtr |
 | instance Enum IntPtr |
-| instance Eq IntPtr  |
-| instance Integral IntPtr  |
-| instance Num IntPtr  |
+| instance Eq IntPtr |
+| instance Integral IntPtr |
+| instance Num IntPtr |
 | instance Ord IntPtr |
-| instance Read IntPtr  |
-| instance Real IntPtr  |
-| instance Show IntPtr  |
-| instance Storable IntPtr  |
-| instance Bits IntPtr  |
+| instance Read IntPtr |
+| instance Real IntPtr |
+| instance Show IntPtr |
+| instance Storable IntPtr |
+| instance Bits IntPtr |
 
-
-
-
-
-|  |
+| |
 |:---|
-| ptrToIntPtr :: Ptr a -\> IntPtr  |
-
-
+| ptrToIntPtr :: Ptr a -> IntPtr |
 
 casts a Ptr to an
 IntPtr
 
-
-
-|  |
+| |
 |:---|
-| intPtrToPtr :: IntPtr -\> Ptr a  |
-
-
+| intPtrToPtr :: IntPtr -> Ptr a |
 
 casts an IntPtr to a
 Ptr
 
-
-
-|                                                                         |
+| |
 |:------------------------------------------------------------------------|
-| data WordPtr  |
-
-
+| data WordPtr |
 
 An unsigned integral type that can be losslessly converted to and from
 Ptr. This type is also compatible with the
 C99 type uintptr_t, and can be marshalled
 to and from that type safely.
 
-
-
-|  |
+| |
 |:---|
-| instance Bounded WordPtr  |
+| instance Bounded WordPtr |
 | instance Enum WordPtr |
-| instance Eq WordPtr  |
-| instance Integral WordPtr  |
-| instance Num WordPtr  |
+| instance Eq WordPtr |
+| instance Integral WordPtr |
+| instance Num WordPtr |
 | instance Ord WordPtr |
-| instance Read WordPtr  |
-| instance Real WordPtr  |
-| instance Show WordPtr  |
-| instance Storable WordPtr  |
-| instance Bits WordPtr  |
+| instance Read WordPtr |
+| instance Real WordPtr |
+| instance Show WordPtr |
+| instance Storable WordPtr |
+| instance Bits WordPtr |
 
-
-
-
-
-|  |
+| |
 |:---|
-| ptrToWordPtr :: Ptr a -\> WordPtr  |
-
-
+| ptrToWordPtr :: Ptr a -> WordPtr |
 
 casts a Ptr to a
 WordPtr
 
-
-
-|  |
+| |
 |:---|
-| wordPtrToPtr :: WordPtr -\> Ptr a  |
-
-
+| wordPtrToPtr :: WordPtr -> Ptr a |
 
 casts a WordPtr to a
 Ptr
 
+[prev-tail]
 
+______________________________________________________________________
 
-\[prev-tail\]
-
-
-
-
-
----
-
-
-
-\[prev-tail\]
-\[up\]
-
-
+[prev-tail]
+[up]
 
 ## Chapter 36 Foreign.StablePtr
 
+module Foreign.StablePtr (  \
+StablePtr,  newStablePtr,  deRefStablePtr,  freeStablePtr,  \
+castStablePtrToPtr,  castPtrToStablePtr  \
+) where
 
+### 36.1 Stable references to Haskell values
 
-
-
-module Foreign.StablePtr (    
-    StablePtr,  newStablePtr,  deRefStablePtr,  freeStablePtr,    
-    castStablePtrToPtr,  castPtrToStablePtr    
-  ) where
-
-
-
-
-
-### 36.1  Stable references to Haskell values
-
-
-
-|  |
+| |
 |:---|
-| data StablePtr a  |
-
-
+| data StablePtr a |
 
 A stable pointer is a reference to a
 Haskell expression that is guaranteed not to be affected by garbage
@@ -27575,32 +20319,20 @@ StablePtr a is
 a stable pointer to a Haskell expression of type
 a.
 
-
-
-|  |
+| |
 |:---|
-| instance Eq (StablePtr a)  |
-| instance Storable (StablePtr a)  |
+| instance Eq (StablePtr a) |
+| instance Storable (StablePtr a) |
 
-
-
-
-
-|  |
+| |
 |:---|
-| newStablePtr :: a -\> IO (StablePtr a)  |
-
-
+| newStablePtr :: a -> IO (StablePtr a) |
 
 Create a stable pointer referring to the given Haskell value.
 
-
-
-|  |
+| |
 |:---|
-| deRefStablePtr :: StablePtr a -\> IO a  |
-
-
+| deRefStablePtr :: StablePtr a -> IO a |
 
 Obtain the Haskell value referenced by a stable pointer, i.e., the same
 value that was passed to the corresponding call to
@@ -27612,13 +20344,9 @@ the behaviour of
 deRefStablePtr
 is undefined.
 
-
-
-|  |
+| |
 |:---|
-| freeStablePtr :: StablePtr a -\> IO ()  |
-
-
+| freeStablePtr :: StablePtr a -> IO () |
 
 Dissolve the association between the stable pointer and the Haskell
 value. Afterwards, if the stable pointer is passed to
@@ -27638,13 +20366,9 @@ call to
 castStablePtrToPtr
 is guaranteed not to diverge.
 
-
-
-|  |
+| |
 |:---|
-| castStablePtrToPtr :: StablePtr a -\> Ptr ()  |
-
-
+| castStablePtrToPtr :: StablePtr a -> Ptr () |
 
 Coerce a stable pointer to an address. No guarantees are made about the
 resulting value, except that the original stable pointer can be
@@ -27655,27 +20379,15 @@ location and any attempt to pass it to the member functions of the class
 Foreign.Storable.Storable leads to
 undefined behaviour.
 
-
-
-|  |
+| |
 |:---|
-| castPtrToStablePtr :: Ptr () -\> StablePtr a  |
-
-
+| castPtrToStablePtr :: Ptr () -> StablePtr a |
 
 The inverse of
 castStablePtrToPtr,
 i.e., we have the identity
 
-
-
-
-
- sp == castPtrToStablePtr (castStablePtrToPtr sp)
-
-
-
-
+sp == castPtrToStablePtr (castStablePtrToPtr sp)
 
 for any stable pointer sp on which
 freeStablePtr
@@ -27684,21 +20396,13 @@ castPtrToStablePtr
 may only be applied to pointers that have been produced by
 castStablePtrToPtr.
 
-#### 36.1.1  The C-side interface
+#### 36.1.1 The C-side interface
 
 The following definition is available to C programs inter-operating with
 Haskell code when including the header
 HsFFI.h.
 
-
-
-
-
- typedef void ⋆HsStablePtr;
-
-
-
-
+typedef void ⋆HsStablePtr;
 
 Note that no assumptions may be made about the values representing
 stable pointers. In fact, they need not even be valid memory addresses.
@@ -27708,51 +20412,29 @@ deRefStablePtr
 will be able to reconstruct the Haskell value referred to by the stable
 pointer.
 
+[prev-tail]
 
+______________________________________________________________________
 
-\[prev-tail\]
-
-
-
-
-
----
-
-
-
-\[prev-tail\]
-\[up\]
-
-
+[prev-tail]
+[up]
 
 ## Chapter 37 Foreign.Storable
 
+module Foreign.Storable (  \
+Storable(sizeOf,  \
+alignment,  \
+peekElemOff,  \
+pokeElemOff,  \
+peekByteOff,  \
+pokeByteOff,  \
+peek,  \
+poke)  \
+) where
 
-
-
-
-module Foreign.Storable (    
-    Storable(sizeOf,    
-             alignment,    
-             peekElemOff,    
-             pokeElemOff,    
-             peekByteOff,    
-             pokeByteOff,    
-             peek,    
-             poke)    
-  ) where
-
-
-
-
-
-
-
-|  |
+| |
 |:---|
-| class Storable a where  |
-
-
+| class Storable a where |
 
 The member functions of this class facilitate writing values of
 primitive types to raw memory (which may have been allocated with the
@@ -27809,128 +20491,68 @@ pokeByteOff.
 
 Methods
 
-
-
-|  |
+| |
 |:---|
-| sizeOf :: a -\> Int  |
-
-
+| sizeOf :: a -> Int |
 
 Computes the storage requirements (in bytes) of the argument. The value
 of the argument is not used.
 
-
-
-|  |
+| |
 |:---|
-| alignment :: a -\> Int  |
-
-
+| alignment :: a -> Int |
 
 Computes the alignment constraint of the argument. An alignment
 constraint x is fulfilled by any address
 divisible by x. The value of the argument
 is not used.
 
-
-
-|  |
+| |
 |:---|
-| peekElemOff :: Ptr a -\> Int -\> IO a  |
-
-
+| peekElemOff :: Ptr a -> Int -> IO a |
 
 Read a value from a memory area regarded as an array of values of the
 same kind. The first argument specifies the start address of the array
 and the second the index into the array (the first element of the array
 has index 0). The following equality holds,
 
-
-
-
-
- peekElemOff addr idx = IOExts.fixIO \$ \result -\>    
-   peek (addr ‘plusPtr‘ (idx ⋆ sizeOf result))
-
-
-
-
+peekElemOff addr idx = IOExts.fixIO $ \\result ->  \
+peek (addr ‘plusPtr‘ (idx ⋆ sizeOf result))
 
 Note that this is only a specification, not necessarily the concrete
 implementation of the function.
 
-
-
-|  |
+| |
 |:---|
-| pokeElemOff :: Ptr a -\> Int -\> a -\> IO ()  |
-
-
+| pokeElemOff :: Ptr a -> Int -> a -> IO () |
 
 Write a value to a memory area regarded as an array of values of the
 same kind. The following equality holds:
 
+pokeElemOff addr idx x =  \
+poke (addr ‘plusPtr‘ (idx ⋆ sizeOf x)) x
 
-
-
-
- pokeElemOff addr idx x =    
-   poke (addr ‘plusPtr‘ (idx ⋆ sizeOf x)) x
-
-
-
-
-
-
-
-|  |
+| |
 |:---|
-| peekByteOff :: Ptr b -\> Int -\> IO a  |
-
-
+| peekByteOff :: Ptr b -> Int -> IO a |
 
 Read a value from a memory location given by a base address and offset.
 The following equality holds:
 
+peekByteOff addr off = peek (addr ‘plusPtr‘ off)
 
-
-
-
- peekByteOff addr off = peek (addr ‘plusPtr‘ off)
-
-
-
-
-
-
-
-|  |
+| |
 |:---|
-| pokeByteOff :: Ptr b -\> Int -\> a -\> IO ()  |
-
-
+| pokeByteOff :: Ptr b -> Int -> a -> IO () |
 
 Write a value to a memory location given by a base address and offset.
 The following equality holds:
 
+pokeByteOff addr off x = poke (addr ‘plusPtr‘ off) x
 
-
-
-
- pokeByteOff addr off x = poke (addr ‘plusPtr‘ off) x
-
-
-
-
-
-
-
-|  |
+| |
 |:---|
-| peek :: Ptr a -\> IO a  |
-
-
+| peek :: Ptr a -> IO a |
 
 Read a value from the given memory location.
 
@@ -27942,185 +20564,131 @@ a, as given by the function
 alignment is
 fulfilled.
 
-
-
-|  |
+| |
 |:---|
-| poke :: Ptr a -\> a -\> IO ()  |
-
-
+| poke :: Ptr a -> a -> IO () |
 
 Write the given value to the given memory location. Alignment
 restrictions might apply; see
 peek.
 
-
-
-|  |
+| |
 |:---|
-| instance Storable Bool  |
+| instance Storable Bool |
 | instance Storable Char |
-| instance Storable Double  |
+| instance Storable Double |
 | instance Storable Float |
-| instance Storable Int  |
+| instance Storable Int |
 | instance Storable Int8 |
-| instance Storable Int16  |
+| instance Storable Int16 |
 | instance Storable Int32 |
-| instance Storable Int64  |
+| instance Storable Int64 |
 | instance Storable Word |
-| instance Storable Word8  |
+| instance Storable Word8 |
 | instance Storable Word16 |
-| instance Storable Word32  |
+| instance Storable Word32 |
 | instance Storable Word64 |
-| instance Storable WordPtr  |
+| instance Storable WordPtr |
 | instance Storable IntPtr |
-| instance Storable CChar  |
+| instance Storable CChar |
 | instance Storable CSChar |
-| instance Storable CUChar  |
+| instance Storable CUChar |
 | instance Storable CShort |
-| instance Storable CUShort  |
+| instance Storable CUShort |
 | instance Storable CInt |
-| instance Storable CUInt  |
-| instance Storable CLong  |
-| instance Storable CULong  |
-| instance Storable CLLong  |
-| instance Storable CULLong  |
-| instance Storable CFloat  |
-| instance Storable CDouble  |
-| instance Storable CPtrdiff  |
-| instance Storable CSize  |
-| instance Storable CWchar  |
-| instance Storable CSigAtomic  |
-| instance Storable CClock  |
-| instance Storable CTime  |
-| instance Storable CIntPtr  |
-| instance Storable CUIntPtr  |
-| instance Storable CIntMax  |
-| instance Storable CUIntMax  |
-| instance Storable (StablePtr a)  |
-| instance Storable (Ptr a)  |
-| instance Storable (FunPtr a)  |
+| instance Storable CUInt |
+| instance Storable CLong |
+| instance Storable CULong |
+| instance Storable CLLong |
+| instance Storable CULLong |
+| instance Storable CFloat |
+| instance Storable CDouble |
+| instance Storable CPtrdiff |
+| instance Storable CSize |
+| instance Storable CWchar |
+| instance Storable CSigAtomic |
+| instance Storable CClock |
+| instance Storable CTime |
+| instance Storable CIntPtr |
+| instance Storable CUIntPtr |
+| instance Storable CIntMax |
+| instance Storable CUIntMax |
+| instance Storable (StablePtr a) |
+| instance Storable (Ptr a) |
+| instance Storable (FunPtr a) |
 
+[prev-tail]
 
+______________________________________________________________________
 
-
-
-\[prev-tail\]
-
-
-
-
-
----
-
-
-
-\[prev-tail\]
-\[up\]
-
-
+[prev-tail]
+[up]
 
 ## Chapter 38 Numeric
 
+module Numeric (  \
+showSigned,  showIntAtBase,  showInt,  showHex,  showOct,  showEFloat,
+\
+showFFloat,  showGFloat,  showFloat,  floatToDigits,  readSigned,  readInt,
+\
+readDec,  readOct,  readHex,  readFloat,  lexDigits,  fromRat  \
+) where
 
+### 38.1 Showing
 
-
-
-module Numeric (    
-    showSigned,  showIntAtBase,  showInt,  showHex,  showOct,  showEFloat,
-   
-    showFFloat,  showGFloat,  showFloat,  floatToDigits,  readSigned,  readInt,
-   
-    readDec,  readOct,  readHex,  readFloat,  lexDigits,  fromRat    
-  ) where
-
-
-
-
-
-### 38.1  Showing
-
-
-
-|                                          |
+| |
 |:-----------------------------------------|
-| showSigned  |
+| showSigned |
 
-
-
-
-
-|  |  |  |
+| | | |
 |:---|:---|----|
-| ::  | Real a  |  |
-| =\>  | (a -\> ShowS) | a function that can show unsigned values |
-| -\>  | Int  | the precedence of the enclosing context |
-| -\>  | a  | the value to show |
-| -\>  | ShowS  |  |
-|  |  |  |
-
-
+| :: | Real a | |
+| => | (a -> ShowS) | a function that can show unsigned values |
+| -> | Int | the precedence of the enclosing context |
+| -> | a | the value to show |
+| -> | ShowS | |
+| | | |
 
 Converts a possibly-negative
 Real value to
 a string.
 
-
-
-|  |
+| |
 |:---|
-| showIntAtBase :: Integral a =\> a -\> (Int -\> Char) -\> a -\> ShowS  |
-
-
+| showIntAtBase :: Integral a => a -> (Int -> Char) -> a -> ShowS |
 
 Shows a non-negative
 Integral
 number using the base specified by the first argument, and the character
 representation specified by the second.
 
-
-
-|  |
+| |
 |:---|
-| showInt :: Integral a =\> a -\> ShowS  |
-
-
+| showInt :: Integral a => a -> ShowS |
 
 Show non-negative
 Integral
 numbers in base 10.
 
-
-
-|  |
+| |
 |:---|
-| showHex :: Integral a =\> a -\> ShowS  |
-
-
+| showHex :: Integral a => a -> ShowS |
 
 Show non-negative
 Integral
 numbers in base 16.
 
-
-
-|  |
+| |
 |:---|
-| showOct :: Integral a =\> a -\> ShowS  |
-
-
+| showOct :: Integral a => a -> ShowS |
 
 Show non-negative
 Integral
 numbers in base 8.
 
-
-
-|  |
+| |
 |:---|
-| showEFloat :: RealFloat a =\> Maybe Int -\> a -\> ShowS  |
-
-
+| showEFloat :: RealFloat a => Maybe Int -> a -> ShowS |
 
 Show a signed
 RealFloat
@@ -28138,13 +20706,9 @@ Just d, then
 at most d digits after the decimal point
 are shown.
 
-
-
-|  |
+| |
 |:---|
-| showFFloat :: RealFloat a =\> Maybe Int -\> a -\> ShowS  |
-
-
+| showFFloat :: RealFloat a => Maybe Int -> a -> ShowS |
 
 Show a signed
 RealFloat
@@ -28162,13 +20726,9 @@ Just d, then
 at most d digits after the decimal point
 are shown.
 
-
-
-|  |
+| |
 |:---|
-| showGFloat :: RealFloat a =\> Maybe Int -\> a -\> ShowS  |
-
-
+| showGFloat :: RealFloat a => Maybe Int -> a -> ShowS |
 
 Show a signed
 RealFloat
@@ -28187,13 +20747,9 @@ Just d, then
 at most d digits after the decimal point
 are shown.
 
-
-
-|  |
+| |
 |:---|
-| showFloat :: RealFloat a =\> a -\> ShowS  |
-
-
+| showFloat :: RealFloat a => a -> ShowS |
 
 Show a signed
 RealFloat
@@ -28202,75 +20758,39 @@ whose absolute value lies between 0.1 and
 9,999,999, and scientific notation
 otherwise.
 
-
-
-|  |
+| |
 |:---|
-| floatToDigits :: RealFloat a =\> Integer -\> a -\> (\[Int\], Int)  |
-
-
+| floatToDigits :: RealFloat a => Integer -> a -> ([Int], Int) |
 
 floatToDigits
 takes a base and a non-negative
 RealFloat
 number, and returns a list of digits and an exponent. In particular, if
-x\>=0, and
+x>=0, and
 
-
-
-
-
- floatToDigits base x = (\[d1,d2,...,dn\], e)
-
-
-
-
+floatToDigits base x = ([d1,d2,...,dn], e)
 
 then
 
-1.  
+1.
 
-    
+```
+n \>= 1
+```
 
-    
+2.
 
-    n \>= 1
+```
+x = 0.d1d2...dn ⋆ (base⋆⋆e)
+```
 
-    
+3.
 
-    
+```
+0 \<= di \<= base-1
+```
 
-    
-
-2.  
-
-    
-
-    
-
-    x = 0.d1d2...dn ⋆ (base⋆⋆e)
-
-    
-
-    
-
-    
-
-3.  
-
-    
-
-    
-
-    0 \<= di \<= base-1
-
-    
-
-    
-
-    
-
-### 38.2  Reading
+### 38.2 Reading
 
 NB:
 readInt
@@ -28281,162 +20801,100 @@ is the ‘dual’ of
 showInt. The
 inconsistent naming is a historical accident.
 
-
-
-|  |
+| |
 |:---|
-| readSigned :: Real a =\> ReadS a -\> ReadS a  |
-
-
+| readSigned :: Real a => ReadS a -> ReadS a |
 
 Reads a signed
 Real
 value, given a reader for an unsigned value.
 
-
-
-|                                       |
+| |
 |:--------------------------------------|
-| readInt  |
+| readInt |
 
-
-
-
-
-|  |  |  |
+| | | |
 |:---|:---|----|
-| ::  | Num a  |  |
-| =\>  | a | the base |
-| -\>  | (Char -\> Bool)  | a predicate distinguishing valid digits in this base |
-| -\>  | (Char -\> Int)  | a function converting a valid digit character to an Int |
-| -\>  | ReadS a  |  |
-|  |  |  |
-
-
+| :: | Num a | |
+| => | a | the base |
+| -> | (Char -> Bool) | a predicate distinguishing valid digits in this base |
+| -> | (Char -> Int) | a function converting a valid digit character to an Int |
+| -> | ReadS a | |
+| | | |
 
 Reads an unsigned
 Integral
 value in an arbitrary base.
 
-
-
-|  |
+| |
 |:---|
-| readDec :: Num a =\> ReadS a  |
-
-
+| readDec :: Num a => ReadS a |
 
 Read an unsigned number in decimal notation.
 
-
-
-|  |
+| |
 |:---|
-| readOct :: Num a =\> ReadS a  |
-
-
+| readOct :: Num a => ReadS a |
 
 Read an unsigned number in octal notation.
 
-
-
-|  |
+| |
 |:---|
-| readHex :: Num a =\> ReadS a  |
-
-
+| readHex :: Num a => ReadS a |
 
 Read an unsigned number in hexadecimal notation. Both upper or lower
 case letters are allowed.
 
-
-
-|  |
+| |
 |:---|
-| readFloat :: RealFrac a =\> ReadS a  |
-
-
+| readFloat :: RealFrac a => ReadS a |
 
 Reads an unsigned
 RealFrac
 value, expressed in decimal scientific notation.
 
-
-
-|  |
+| |
 |:---|
-| lexDigits :: ReadS String  |
-
-
+| lexDigits :: ReadS String |
 
 Reads a non-empty string of decimal digits.
 
-### 38.3  Miscellaneous
+### 38.3 Miscellaneous
 
-
-
-|  |
+| |
 |:---|
-| fromRat :: RealFloat a =\> Rational -\> a  |
-
-
+| fromRat :: RealFloat a => Rational -> a |
 
 Converts a
 Rational
 value into any type in class
 RealFloat.
 
+[prev-tail]
 
+______________________________________________________________________
 
-\[prev-tail\]
-
-
-
-
-
----
-
-
-
-\[prev-tail\]
-\[up\]
-
-
+[prev-tail]
+[up]
 
 ## Chapter 39 System.Environment
 
+module System.Environment (  \
+getArgs,  getProgName,  getEnv  \
+) where
 
-
-
-
-module System.Environment (    
-    getArgs,  getProgName,  getEnv    
-  ) where
-
-
-
-
-
-
-
-|  |
+| |
 |:---|
-| getArgs :: IO \[String\]  |
-
-
+| getArgs :: IO [String] |
 
 Computation
 getArgs
 returns a list of the program’s command line arguments (not including
 the program name).
 
-
-
-|  |
+| |
 |:---|
-| getProgName :: IO String  |
-
-
+| getProgName :: IO String |
 
 Computation
 getProgName
@@ -28450,13 +20908,9 @@ really FOO.EXE, and that is what
 getProgName
 will return.
 
-
-
-|  |
+| |
 |:---|
-| getEnv :: String -\> IO String  |
-
-
+| getEnv :: String -> IO String |
 
 Computation
 getEnvvar
@@ -28468,77 +20922,43 @@ This computation may fail with:
 - System.IO.Error.isDoesNotExistError if
   the environment variable does not exist.
 
+[prev-tail]
 
+______________________________________________________________________
 
-\[prev-tail\]
-
-
-
-
-
----
-
-
-
-\[prev-tail\]
-\[up\]
-
-
+[prev-tail]
+[up]
 
 ## Chapter 40 System.Exit
 
+module System.Exit (  \
+ExitCode(ExitSuccess, ExitFailure),  exitWith,  exitFailure,  exitSuccess
+\
+) where
 
-
-
-
-module System.Exit (    
-    ExitCode(ExitSuccess, ExitFailure),  exitWith,  exitFailure,  exitSuccess
-   
-  ) where
-
-
-
-
-
-
-
-|                                                                          |
+| |
 |:-------------------------------------------------------------------------|
-| data ExitCode  |
+| data ExitCode |
 
-
-
-
-
-|  |  |  |
+| | | |
 |:---|:---|:---|
-| =  | ExitSuccess  | indicates successful termination; |
-| \|  | ExitFailure Int  | indicates program failure with an exit code. The exact interpretation of the code is operating-system dependent. In particular, some values may be prohibited (e.g. 0 on a POSIX-compliant system). |
-|  |  |  |
-
-
+| = | ExitSuccess | indicates successful termination; |
+| | | ExitFailure Int | indicates program failure with an exit code. The exact interpretation of the code is operating-system dependent. In particular, some values may be prohibited (e.g. 0 on a POSIX-compliant system). |
+| | | |
 
 Defines the exit codes that a program can return.
 
-
-
-|  |
+| |
 |:---|
-| instance Eq ExitCode  |
-| instance Ord ExitCode  |
+| instance Eq ExitCode |
+| instance Ord ExitCode |
 | instance Read ExitCode |
-| instance Show ExitCode  |
-|  |
+| instance Show ExitCode |
+| |
 
-
-
-
-
-|  |
+| |
 |:---|
-| exitWith :: ExitCode -\> IO a  |
-
-
+| exitWith :: ExitCode -> IO a |
 
 Computation
 exitWith code
@@ -28559,13 +20979,9 @@ bypasses the error handling in the I/O monad and cannot be intercepted
 by catch from
 the Prelude.
 
-
-
-|  |
+| |
 |:---|
-| exitFailure :: IO a  |
-
-
+| exitFailure :: IO a |
 
 The computation
 exitFailure
@@ -28576,13 +20992,9 @@ exitfail),
 where exitfail is
 implementation-dependent.
 
-
-
-|  |
+| |
 |:---|
-| exitSuccess :: IO a  |
-
-
+| exitSuccess :: IO a |
 
 The computation
 exitSuccess
@@ -28591,64 +21003,42 @@ exitWith
 ExitSuccess,
 It terminates the program successfully.
 
+[prev-tail]
 
+______________________________________________________________________
 
-\[prev-tail\]
-
-
-
-
-
----
-
-
-
-\[prev-tail\]
-\[up\]
-
-
+[prev-tail]
+[up]
 
 ## Chapter 41 System.IO
 
+module System.IO (  \
+IO,  fixIO,  FilePath,  Handle,  stdin,  stdout,  stderr,  withFile,
+\
+openFile,  IOMode(ReadMode, WriteMode, AppendMode, ReadWriteMode),  hClose,
+\
+readFile,  writeFile,  appendFile,  hFileSize,  hSetFileSize,  hIsEOF,
+\
+isEOF,  BufferMode(NoBuffering, LineBuffering, BlockBuffering),  \
+hSetBuffering,  hGetBuffering,  hFlush,  hGetPosn,  hSetPosn,  HandlePosn,
+\
+hSeek,  SeekMode(AbsoluteSeek, RelativeSeek, SeekFromEnd),  hTell,
+\
+hIsOpen,  hIsClosed,  hIsReadable,  hIsWritable,  hIsSeekable,  \
+hIsTerminalDevice,  hSetEcho,  hGetEcho,  hShow,  hWaitForInput,  hReady,
+\
+hGetChar,  hGetLine,  hLookAhead,  hGetContents,  hPutChar,  hPutStr,
+\
+hPutStrLn,  hPrint,  interact,  putChar,  putStr,  putStrLn,  print,
+\
+getChar,  getLine,  getContents,  readIO,  readLn  \
+) where
 
+### 41.1 The IO monad
 
-
-
-module System.IO (    
-    IO,  fixIO,  FilePath,  Handle,  stdin,  stdout,  stderr,  withFile,
-   
-    openFile,  IOMode(ReadMode, WriteMode, AppendMode, ReadWriteMode),  hClose,
-   
-    readFile,  writeFile,  appendFile,  hFileSize,  hSetFileSize,  hIsEOF,
-   
-    isEOF,  BufferMode(NoBuffering, LineBuffering, BlockBuffering),    
-    hSetBuffering,  hGetBuffering,  hFlush,  hGetPosn,  hSetPosn,  HandlePosn,
-   
-    hSeek,  SeekMode(AbsoluteSeek, RelativeSeek, SeekFromEnd),  hTell,
-   
-    hIsOpen,  hIsClosed,  hIsReadable,  hIsWritable,  hIsSeekable,    
-    hIsTerminalDevice,  hSetEcho,  hGetEcho,  hShow,  hWaitForInput,  hReady,
-   
-    hGetChar,  hGetLine,  hLookAhead,  hGetContents,  hPutChar,  hPutStr,
-   
-    hPutStrLn,  hPrint,  interact,  putChar,  putStr,  putStrLn,  print,
-   
-    getChar,  getLine,  getContents,  readIO,  readLn    
-  ) where
-
-
-
-
-
-### 41.1  The IO monad
-
-
-
-|  |
+| |
 |:---|
-| data IO a  |
-
-
+| data IO a |
 
 A value of type IO a
 is a computation which, when performed, does some I/O before
@@ -28665,29 +21055,21 @@ Main.main.
 IO is a
 monad, so IO
 actions can be combined using either the do-notation or the
-\>\> and \>\>=
+\>> and >>=
 operations from the Monad class.
 
-
-
-|  |
+| |
 |:---|
-| instance Monad IO  |
+| instance Monad IO |
 | instance Functor IO |
 
+fixIO :: (a -> IO a) -> IO a
 
+### 41.2 Files and handles
 
-fixIO :: (a -\> IO a) -\> IO a  
-
-### 41.2  Files and handles
-
-
-
-|  |
+| |
 |:---|
-| type FilePath = String  |
-
-
+| type FilePath = String |
 
 File and directory names are values of type
 String, whose
@@ -28695,13 +21077,9 @@ precise meaning is operating system dependent. Files can be opened,
 yielding a handle which can then be used to operate on the contents of
 that file.
 
-
-
-|                                                                        |
+| |
 |:-----------------------------------------------------------------------|
-| data Handle  |
-
-
+| data Handle |
 
 Haskell defines operations to read and write characters from and to
 files, represented by values of type
@@ -28736,65 +21114,45 @@ handle is equal according to
 itself; no attempt is made to compare the internal state of different
 handles for equality.
 
-
-
-|  |
+| |
 |:---|
-| instance Eq Handle  |
-| instance Show Handle  |
-|  |
+| instance Eq Handle |
+| instance Show Handle |
+| |
 
-
-
-#### 41.2.1  Standard handles
+#### 41.2.1 Standard handles
 
 Three handles are allocated during program initialisation, and are
 initially open.
 
-
-
-|  |
+| |
 |:---|
-| stdin :: Handle  |
-
-
+| stdin :: Handle |
 
 A handle managing input from the Haskell program’s standard input
 channel.
 
-
-
-|  |
+| |
 |:---|
-| stdout :: Handle  |
-
-
+| stdout :: Handle |
 
 A handle managing output to the Haskell program’s standard output
 channel.
 
-
-
-|  |
+| |
 |:---|
-| stderr :: Handle  |
-
-
+| stderr :: Handle |
 
 A handle managing output to the Haskell program’s standard error
 channel.
 
-### 41.3  Opening and closing files
+### 41.3 Opening and closing files
 
-#### 41.3.1  Opening files
+#### 41.3.1 Opening files
 
-
-
-|  |
+| |
 |:---|
-| withFile :: FilePath -\> IOMode -\> (Handle -\> IO r) -\> IO r  |
-
-
+| withFile :: FilePath -> IOMode -> (Handle -> IO r) -> IO r |
 
 withFile name mode act
 opens a file using
@@ -28807,13 +21165,9 @@ handle raises an exception, then this exception will be raised by
 withFile
 rather than any exception raised by act.
 
-
-
-|  |
+| |
 |:---|
-| openFile :: FilePath -\> IOMode -\> IO Handle  |
-
-
+| openFile :: FilePath -> IOMode -> IO Handle |
 
 Computation
 openFile
@@ -28852,50 +21206,34 @@ This operation may fail with:
 - isPermissionError if the user does not
   have permission to open the file.
 
-
-
-|                                                                        |
+| |
 |:-----------------------------------------------------------------------|
-| data IOMode  |
+| data IOMode |
 
-
-
-
-
-|  |  |  |
+| | | |
 |:---|:---|:---|
-| =  | ReadMode  |  |
-| \|  | WriteMode  |  |
-| \|  | AppendMode  |  |
-| \|  | ReadWriteMode  |  |
-|  |  |  |
-
-
+| = | ReadMode | |
+| | | WriteMode | |
+| | | AppendMode | |
+| | | ReadWriteMode | |
+| | | |
 
 See System.IO.openFile
 
-
-
-|  |
+| |
 |:---|
-| instance Enum IOMode  |
+| instance Enum IOMode |
 | instance Eq IOMode |
-| instance Ord IOMode  |
-| instance Read IOMode  |
-| instance Show IOMode  |
-| instance Ix IOMode  |
+| instance Ord IOMode |
+| instance Read IOMode |
+| instance Show IOMode |
+| instance Ix IOMode |
 
+#### 41.3.2 Closing files
 
-
-#### 41.3.2  Closing files
-
-
-
-|  |
+| |
 |:---|
-| hClose :: Handle -\> IO ()  |
-
-
+| hClose :: Handle -> IO () |
 
 Computation
 hClose
@@ -28913,44 +21251,32 @@ hClose) on
 the handle will still fail as if hdl had
 been successfully closed.
 
-#### 41.3.3  Special cases
+#### 41.3.3 Special cases
 
 These functions are also exported by the
 Prelude.
 
-
-
-|  |
+| |
 |:---|
-| readFile :: FilePath -\> IO String  |
-
-
+| readFile :: FilePath -> IO String |
 
 The readFile
 function reads a file and returns the contents of the file as a string.
 The file is read lazily, on demand, as with
 getContents.
 
-
-
-|  |
+| |
 |:---|
-| writeFile :: FilePath -\> String -\> IO ()  |
-
-
+| writeFile :: FilePath -> String -> IO () |
 
 The computation
 writeFilefile str
 function writes the string str, to
 the file file.
 
-
-
-|  |
+| |
 |:---|
-| appendFile :: FilePath -\> String -\> IO ()  |
-
-
+| appendFile :: FilePath -> String -> IO () |
 
 The computation
 appendFilefile str
@@ -28966,17 +21292,9 @@ print, use
 the show
 function to convert the value to a string first.
 
+main = appendFile "squares" (show \[(x,x⋆x) | x \<- [0,0.1..2]\])
 
-
-
-
- main = appendFile "squares" (show \[(x,x⋆x) \| x \<- \[0,0.1..2\]\])
-
-
-
-
-
-#### 41.3.4  File locking
+#### 41.3.4 File locking
 
 Implementations should enforce as far as possible, at least locally to
 the Haskell process, multiple-reader single-writer locking on files.
@@ -29001,17 +21319,13 @@ readFile will
 usually result in failure with
 System.IO.Error.isAlreadyInUseError.
 
-### 41.4  Operations on handles
+### 41.4 Operations on handles
 
-#### 41.4.1  Determining and changing the size of a file
+#### 41.4.1 Determining and changing the size of a file
 
-
-
-|  |
+| |
 |:---|
-| hFileSize :: Handle -\> IO Integer  |
-
-
+| hFileSize :: Handle -> IO Integer |
 
 For a handle hdl which attached to a
 physical file,
@@ -29019,27 +21333,19 @@ hFileSize
 hdl returns the size of that file in 8-bit
 bytes.
 
-
-
-|  |
+| |
 |:---|
-| hSetFileSize :: Handle -\> Integer -\> IO ()  |
-
-
+| hSetFileSize :: Handle -> Integer -> IO () |
 
 hSetFileSizehdlsize
 truncates the physical file with handle hdl
 to size bytes.
 
-#### 41.4.2  Detecting the end of input
+#### 41.4.2 Detecting the end of input
 
-
-
-|  |
+| |
 |:---|
-| hIsEOF :: Handle -\> IO Bool  |
-
-
+| hIsEOF :: Handle -> IO Bool |
 
 For a readable handle hdl,
 hIsEOF
@@ -29054,13 +21360,9 @@ NOTE: hIsEOF
 may block, because it has to attempt to read from the stream to
 determine whether there is any more data to be read.
 
-
-
-|  |
+| |
 |:---|
-| isEOF :: IO Bool  |
-
-
+| isEOF :: IO Bool |
 
 The computation
 isEOF is
@@ -29069,26 +21371,18 @@ hIsEOF,
 except that it works only on
 stdin.
 
-#### 41.4.3  Buffering operations
+#### 41.4.3 Buffering operations
 
-
-
-|  |
+| |
 |:---|
-| data BufferMode  |
+| data BufferMode |
 
-
-
-
-
-|  |  |  |
+| | | |
 |:---|:---|:---|
-| =  | NoBuffering  | buffering is disabled if possible. |
-| \|  | LineBuffering  | line-buffering should be enabled if possible. |
-| \|  | BlockBuffering (Maybe Int)  | block-buffering should be enabled if possible. The size of the buffer is n items if the argument is Justn and is otherwise implementation-dependent. |
-|  |  |  |
-
-
+| = | NoBuffering | buffering is disabled if possible. |
+| | | LineBuffering | line-buffering should be enabled if possible. |
+| | | BlockBuffering (Maybe Int) | block-buffering should be enabled if possible. The size of the buffer is n items if the argument is Justn and is otherwise implementation-dependent. |
+| | | |
 
 Three kinds of buffering are supported: line-buffering, block-buffering
 or no-buffering. These modes have the following effects. For output,
@@ -29131,24 +21425,16 @@ is attached to that handle. For most implementations, physical files
 will normally be block-buffered and terminals will normally be
 line-buffered.
 
-
-
-|  |
+| |
 |:---|
-| instance Eq BufferMode  |
-| instance Ord BufferMode  |
-| instance Read BufferMode  |
-| instance Show BufferMode  |
+| instance Eq BufferMode |
+| instance Ord BufferMode |
+| instance Read BufferMode |
+| instance Show BufferMode |
 
-
-
-
-
-|  |
+| |
 |:---|
-| hSetBuffering :: Handle -\> BufferMode -\> IO ()  |
-
-
+| hSetBuffering :: Handle -> BufferMode -> IO () |
 
 Computation
 hSetBufferinghdl mode
@@ -29175,26 +21461,18 @@ This operation may fail with:
   already been used for reading or writing and the implementation does
   not allow the buffering mode to be changed.
 
-
-
-|  |
+| |
 |:---|
-| hGetBuffering :: Handle -\> IO BufferMode  |
-
-
+| hGetBuffering :: Handle -> IO BufferMode |
 
 Computation
 hGetBufferinghdl
 returns the current buffering mode for
 hdl.
 
-
-
-|  |
+| |
 |:---|
-| hFlush :: Handle -\> IO ()  |
-
-
+| hFlush :: Handle -> IO () |
 
 The action
 hFlushhdl
@@ -29209,15 +21487,11 @@ This operation may fail with:
   limit would be exceeded. It is unspecified whether the characters in
   the buffer are discarded or retained under these circumstances.
 
-#### 41.4.4  Repositioning handles
+#### 41.4.4 Repositioning handles
 
-
-
-|  |
+| |
 |:---|
-| hGetPosn :: Handle -\> IO HandlePosn  |
-
-
+| hGetPosn :: Handle -> IO HandlePosn |
 
 Computation
 hGetPosnhdl
@@ -29225,13 +21499,9 @@ returns the current I/O position of hdl
 as a value of the abstract type
 HandlePosn.
 
-
-
-|  |
+| |
 |:---|
-| hSetPosn :: HandlePosn -\> IO ()  |
-
-
+| hSetPosn :: HandlePosn -> IO () |
 
 If a call to
 hGetPosnhdl
@@ -29247,30 +21517,18 @@ This operation may fail with:
 - isPermissionError if a system resource
   limit would be exceeded.
 
-
-
-|  |
+| |
 |:---|
-| data HandlePosn  |
+| data HandlePosn |
 
-
-
-
-
-|  |
+| |
 |:---|
-| instance Eq HandlePosn  |
+| instance Eq HandlePosn |
 | instance Show HandlePosn |
 
-
-
-
-
-|  |
+| |
 |:---|
-| hSeek :: Handle -\> SeekMode -\> Integer -\> IO ()  |
-
-
+| hSeek :: Handle -> SeekMode -> Integer -> IO () |
 
 Computation
 hSeekhdl mode i
@@ -29297,48 +21555,32 @@ This operation may fail with:
 - isPermissionError if a system resource
   limit would be exceeded.
 
-
-
-|                                                                          |
+| |
 |:-------------------------------------------------------------------------|
-| data SeekMode  |
+| data SeekMode |
 
-
-
-
-
-|  |  |  |
+| | | |
 |:---|:---|:---|
-| =  | AbsoluteSeek  | the position of hdl is set to i. |
-| \|  | RelativeSeek  | the position of hdl is set to offset i from the current position. |
-| \|  | SeekFromEnd  | the position of hdl is set to offset i from the end of the file. |
-|  |  |  |
-
-
+| = | AbsoluteSeek | the position of hdl is set to i. |
+| | | RelativeSeek | the position of hdl is set to offset i from the current position. |
+| | | SeekFromEnd | the position of hdl is set to offset i from the end of the file. |
+| | | |
 
 A mode that determines the effect of
 hSeekhdl mode i.
 
-
-
-|  |
+| |
 |:---|
-| instance Enum SeekMode  |
+| instance Enum SeekMode |
 | instance Eq SeekMode |
-| instance Ord SeekMode  |
-| instance Read SeekMode  |
-| instance Show SeekMode  |
-| instance Ix SeekMode  |
+| instance Ord SeekMode |
+| instance Read SeekMode |
+| instance Show SeekMode |
+| instance Ix SeekMode |
 
-
-
-
-
-|  |
+| |
 |:---|
-| hTell :: Handle -\> IO Integer  |
-
-
+| hTell :: Handle -> IO Integer |
 
 Computation
 hTellhdl
@@ -29353,7 +21595,7 @@ This operation may fail with:
 - isIllegalOperationError if the Handle is
   not seekable.
 
-#### 41.4.5  Handle properties
+#### 41.4.5 Handle properties
 
 Each of these operations returns
 True if the
@@ -29361,57 +21603,41 @@ handle has the the specified property, or
 False
 otherwise.
 
-hIsOpen :: Handle -\> IO Bool  
+hIsOpen :: Handle -> IO Bool
 
-hIsClosed :: Handle -\> IO Bool  
+hIsClosed :: Handle -> IO Bool
 
-hIsReadable :: Handle -\> IO Bool  
+hIsReadable :: Handle -> IO Bool
 
-hIsWritable :: Handle -\> IO Bool  
+hIsWritable :: Handle -> IO Bool
 
-hIsSeekable :: Handle -\> IO Bool  
+hIsSeekable :: Handle -> IO Bool
 
-#### 41.4.6  Terminal operations
+#### 41.4.6 Terminal operations
 
-
-
-|  |
+| |
 |:---|
-| hIsTerminalDevice :: Handle -\> IO Bool  |
-
-
+| hIsTerminalDevice :: Handle -> IO Bool |
 
 Is the handle connected to a terminal?
 
-
-
-|  |
+| |
 |:---|
-| hSetEcho :: Handle -\> Bool -\> IO ()  |
-
-
+| hSetEcho :: Handle -> Bool -> IO () |
 
 Set the echoing status of a handle connected to a terminal.
 
-
-
-|  |
+| |
 |:---|
-| hGetEcho :: Handle -\> IO Bool  |
-
-
+| hGetEcho :: Handle -> IO Bool |
 
 Get the echoing status of a handle connected to a terminal.
 
-#### 41.4.7  Showing handle state
+#### 41.4.7 Showing handle state
 
-
-
-|  |
+| |
 |:---|
-| hShow :: Handle -\> IO String  |
-
-
+| hShow :: Handle -> IO String |
 
 hShow is in
 the IO monad,
@@ -29419,17 +21645,13 @@ and gives more comprehensive output than the (pure) instance of
 Show for
 Handle.
 
-### 41.5  Text input and output
+### 41.5 Text input and output
 
-#### 41.5.1  Text input
+#### 41.5.1 Text input
 
-
-
-|  |
+| |
 |:---|
-| hWaitForInput :: Handle -\> Int -\> IO Bool  |
-
-
+| hWaitForInput :: Handle -> Int -> IO Bool |
 
 Computation
 hWaitForInputhdl t
@@ -29455,13 +21677,9 @@ This operation may fail with:
 - a decoding error, if the input begins with an invalid byte sequence in
   this Handle’s encoding.
 
-
-
-|  |
+| |
 |:---|
-| hReady :: Handle -\> IO Bool  |
-
-
+| hReady :: Handle -> IO Bool |
 
 Computation
 hReadyhdl
@@ -29473,13 +21691,9 @@ This operation may fail with:
 - System.IO.Error.isEOFError if the end of
   file has been reached.
 
-
-
-|  |
+| |
 |:---|
-| hGetChar :: Handle -\> IO Char  |
-
-
+| hGetChar :: Handle -> IO Char |
 
 Computation
 hGetChar
@@ -29492,13 +21706,9 @@ This operation may fail with:
 - isEOFError
   if the end of file has been reached.
 
-
-
-|  |
+| |
 |:---|
-| hGetLine :: Handle -\> IO String  |
-
-
+| hGetLine :: Handle -> IO String |
 
 Computation
 hGetLinehdl
@@ -29515,13 +21725,9 @@ If hGetLine
 encounters end-of-file at any other point while reading in a line, it is
 treated as a line terminator and the (partial) line is returned.
 
-
-
-|  |
+| |
 |:---|
-| hLookAhead :: Handle -\> IO Char  |
-
-
+| hLookAhead :: Handle -> IO Char |
 
 Computation
 hLookAhead
@@ -29533,13 +21739,9 @@ This operation may fail with:
 - isEOFError if the end of file has been
   reached.
 
-
-
-|  |
+| |
 |:---|
-| hGetContents :: Handle -\> IO String  |
-
-
+| hGetContents :: Handle -> IO String |
 
 Computation
 hGetContentshdl
@@ -29574,15 +21776,11 @@ This operation may fail with:
 - isEOFError
   if the end of file has been reached.
 
-#### 41.5.2  Text output
+#### 41.5.2 Text output
 
-
-
-|  |
+| |
 |:---|
-| hPutChar :: Handle -\> Char -\> IO ()  |
-
-
+| hPutChar :: Handle -> Char -> IO () |
 
 Computation
 hPutChar
@@ -29598,13 +21796,9 @@ This operation may fail with:
 - isPermissionError
   if another system resource limit would be exceeded.
 
-
-
-|  |
+| |
 |:---|
-| hPutStr :: Handle -\> String -\> IO ()  |
-
-
+| hPutStr :: Handle -> String -> IO () |
 
 Computation
 hPutStrhdl s
@@ -29618,25 +21812,17 @@ This operation may fail with:
 - isPermissionError
   if another system resource limit would be exceeded.
 
-
-
-|  |
+| |
 |:---|
-| hPutStrLn :: Handle -\> String -\> IO ()  |
-
-
+| hPutStrLn :: Handle -> String -> IO () |
 
 The same as
 hPutStr, but
 adds a newline character.
 
-
-
-|  |
+| |
 |:---|
-| hPrint :: Show a =\> Handle -\> a -\> IO ()  |
-
-
+| hPrint :: Show a => Handle -> a -> IO () |
 
 Computation
 hPrint
@@ -29653,66 +21839,46 @@ This operation may fail with:
 - System.IO.Error.isPermissionError if
   another system resource limit would be exceeded.
 
-#### 41.5.3  Special cases for standard input and output
+#### 41.5.3 Special cases for standard input and output
 
 These functions are also exported by the
 Prelude.
 
-
-
-|  |
+| |
 |:---|
-| interact :: (String -\> String) -\> IO ()  |
-
-
+| interact :: (String -> String) -> IO () |
 
 The interact
-function takes a function of type String-\>String
+function takes a function of type String->String
 as its argument. The entire input from the standard input device
 is passed to this function as its argument, and the resulting string is
 output on the standard output device.
 
-
-
-|  |
+| |
 |:---|
-| putChar :: Char -\> IO ()  |
-
-
+| putChar :: Char -> IO () |
 
 Write a character to the standard output device (same as
 hPutCharstdout).
 
-
-
-|  |
+| |
 |:---|
-| putStr :: String -\> IO ()  |
-
-
+| putStr :: String -> IO () |
 
 Write a string to the standard output device (same as
 hPutStrstdout).
 
-
-
-|  |
+| |
 |:---|
-| putStrLn :: String -\> IO ()  |
-
-
+| putStrLn :: String -> IO () |
 
 The same as
 putStr, but
 adds a newline character.
 
-
-
-|  |
+| |
 |:---|
-| print :: Show a =\> a -\> IO ()  |
-
-
+| print :: Show a => a -> IO () |
 
 The print
 function outputs a value of any printable type to the standard output
@@ -29726,45 +21892,25 @@ operation and adds a newline.
 For example, a program to print the first 20 integers and their powers
 of 2 could be written as:
 
+main = print (\[(n, 2^n) | n \<- [0..19]\])
 
-
-
-
- main = print (\[(n, 2^n) \| n \<- \[0..19\]\])
-
-
-
-
-
-
-
-|  |
+| |
 |:---|
-| getChar :: IO Char  |
-
-
+| getChar :: IO Char |
 
 Read a character from the standard input device (same as
 hGetCharstdin).
 
-
-
-|  |
+| |
 |:---|
-| getLine :: IO String  |
-
-
+| getLine :: IO String |
 
 Read a line from the standard input device (same as
 hGetLinestdin).
 
-
-
-|  |
+| |
 |:---|
-| getContents :: IO String  |
-
-
+| getContents :: IO String |
 
 The
 getContents
@@ -29772,13 +21918,9 @@ operation returns all user input as a single string, which is read
 lazily as it is needed (same as
 hGetContentsstdin).
 
-
-
-|  |
+| |
 |:---|
-| readIO :: Read a =\> String -\> IO a  |
-
-
+| readIO :: Read a => String -> IO a |
 
 The readIO
 function is similar to
@@ -29787,69 +21929,43 @@ that it signals parse failure to the
 IO monad
 instead of terminating the program.
 
-
-
-|  |
+| |
 |:---|
-| readLn :: Read a =\> IO a  |
-
-
+| readLn :: Read a => IO a |
 
 The readLn
 function combines
 getLine and
 readIO.
 
+[prev-tail]
 
+______________________________________________________________________
 
-\[prev-tail\]
-
-
-
-
-
----
-
-
-
-\[prev-tail\]
-\[up\]
-
-
+[prev-tail]
+[up]
 
 ## Chapter 42 System.IO.Error
 
+module System.IO.Error (  \
+IOError,  userError,  mkIOError,  annotateIOError,  isAlreadyExistsError,
+\
+isDoesNotExistError,  isAlreadyInUseError,  isFullError,  isEOFError,
+\
+isIllegalOperation,  isPermissionError,  isUserError,  ioeGetErrorString,
+\
+ioeGetHandle,  ioeGetFileName,  IOErrorType,  alreadyExistsErrorType,
+\
+doesNotExistErrorType,  alreadyInUseErrorType,  fullErrorType,  \
+eofErrorType,  illegalOperationErrorType,  permissionErrorType,  \
+userErrorType,  ioError,  catch,  try  \
+) where
 
+### 42.1 I/O errors
 
-
-
-module System.IO.Error (    
-    IOError,  userError,  mkIOError,  annotateIOError,  isAlreadyExistsError,
-   
-    isDoesNotExistError,  isAlreadyInUseError,  isFullError,  isEOFError,
-   
-    isIllegalOperation,  isPermissionError,  isUserError,  ioeGetErrorString,
-   
-    ioeGetHandle,  ioeGetFileName,  IOErrorType,  alreadyExistsErrorType,
-   
-    doesNotExistErrorType,  alreadyInUseErrorType,  fullErrorType,    
-    eofErrorType,  illegalOperationErrorType,  permissionErrorType,    
-    userErrorType,  ioError,  catch,  try    
-  ) where
-
-
-
-
-
-### 42.1  I/O errors
-
-
-
-|  |
+| |
 |:---|
-| type IOError = IOError  |
-
-
+| type IOError = IOError |
 
 Errors of type
 IOError are
@@ -29860,13 +21976,9 @@ System.IO.Error provides functions to
 interrogate and construct values of type
 IOError.
 
-
-
-|  |
+| |
 |:---|
-| userError :: String -\> IOError  |
-
-
+| userError :: String -> IOError |
 
 Construct an
 IOError value
@@ -29879,26 +21991,14 @@ raises a
 userError,
 thus:
 
+instance Monad IO where  \
+...  \
+fail s = ioError (userError s)
 
-
-
-
- instance Monad IO where    
-   ...    
-   fail s = ioError (userError s)
-
-
-
-
-
-
-
-|  |
+| |
 |:---|
-| mkIOError :: IOErrorType  |
-|              -\> String -\> Maybe Handle -\> Maybe FilePath -\> IOError  |
-
-
+| mkIOError :: IOErrorType |
+|              -> String -> Maybe Handle -> Maybe FilePath -> IOError |
 
 Construct an
 IOError of
@@ -29906,14 +22006,10 @@ the given type where the second argument describes the error location
 and the third and fourth argument contain the file handle and file path
 of the file involved in the error if applicable.
 
-
-
-|  |
+| |
 |:---|
-| annotateIOError :: IOError  |
-|                    -\> String -\> Maybe Handle -\> Maybe FilePath -\> IOError  |
-
-
+| annotateIOError :: IOError |
+|                    -> String -> Maybe Handle -> Maybe FilePath -> IOError |
 
 Adds a location description and maybe a file path and file handle to an
 IOError. If
@@ -29922,39 +22018,27 @@ in the
 IOError
 remains unaltered.
 
-#### 42.1.1  Classifying I/O errors
+#### 42.1.1 Classifying I/O errors
 
-
-
-|  |
+| |
 |:---|
-| isAlreadyExistsError :: IOError -\> Bool  |
-
-
+| isAlreadyExistsError :: IOError -> Bool |
 
 An error indicating that an
 IO operation
 failed because one of its arguments already exists.
 
-
-
-|  |
+| |
 |:---|
-| isDoesNotExistError :: IOError -\> Bool  |
-
-
+| isDoesNotExistError :: IOError -> Bool |
 
 An error indicating that an
 IO operation
 failed because one of its arguments does not exist.
 
-
-
-|  |
+| |
 |:---|
-| isAlreadyInUseError :: IOError -\> Bool  |
-
-
+| isAlreadyInUseError :: IOError -> Bool |
 
 An error indicating that an
 IO operation
@@ -29962,37 +22046,25 @@ failed because one of its arguments is a single-use resource, which is
 already being used (for example, opening the same file twice for writing
 might give this error).
 
-
-
-|  |
+| |
 |:---|
-| isFullError :: IOError -\> Bool  |
-
-
+| isFullError :: IOError -> Bool |
 
 An error indicating that an
 IO operation
 failed because the device is full.
 
-
-
-|  |
+| |
 |:---|
-| isEOFError :: IOError -\> Bool  |
-
-
+| isEOFError :: IOError -> Bool |
 
 An error indicating that an
 IO operation
 failed because the end of file has been reached.
 
-
-
-|  |
+| |
 |:---|
-| isIllegalOperation :: IOError -\> Bool  |
-
-
+| isIllegalOperation :: IOError -> Bool |
 
 An error indicating that an
 IO operation
@@ -30004,166 +22076,110 @@ In some cases, an implementation will not be able to distinguish between
 the possible error causes. In this case it should fail with
 isIllegalOperation.
 
-
-
-|  |
+| |
 |:---|
-| isPermissionError :: IOError -\> Bool  |
-
-
+| isPermissionError :: IOError -> Bool |
 
 An error indicating that an
 IO operation
 failed because the user does not have sufficient operating system
 privilege to perform that operation.
 
-
-
-|  |
+| |
 |:---|
-| isUserError :: IOError -\> Bool  |
-
-
+| isUserError :: IOError -> Bool |
 
 A programmer-defined error value constructed using
 userError.
 
-#### 42.1.2  Attributes of I/O errors
+#### 42.1.2 Attributes of I/O errors
 
-ioeGetErrorString :: IOError -\> String  
+ioeGetErrorString :: IOError -> String
 
-ioeGetHandle :: IOError -\> Maybe Handle  
+ioeGetHandle :: IOError -> Maybe Handle
 
-ioeGetFileName :: IOError -\> Maybe FilePath  
+ioeGetFileName :: IOError -> Maybe FilePath
 
-### 42.2  Types of I/O error
+### 42.2 Types of I/O error
 
-
-
-|  |
+| |
 |:---|
-| data IOErrorType  |
-
-
+| data IOErrorType |
 
 An abstract type that contains a value for each variant of
 IOError.
 
-
-
-|  |
+| |
 |:---|
-| instance Eq IOErrorType  |
-| instance Show IOErrorType  |
+| instance Eq IOErrorType |
+| instance Show IOErrorType |
 
-
-
-
-
-|  |
+| |
 |:---|
-| alreadyExistsErrorType :: IOErrorType  |
-
-
+| alreadyExistsErrorType :: IOErrorType |
 
 I/O error where the operation failed because one of its arguments
 already exists.
 
-
-
-|  |
+| |
 |:---|
-| doesNotExistErrorType :: IOErrorType  |
-
-
+| doesNotExistErrorType :: IOErrorType |
 
 I/O error where the operation failed because one of its arguments does
 not exist.
 
-
-
-|  |
+| |
 |:---|
-| alreadyInUseErrorType :: IOErrorType  |
-
-
+| alreadyInUseErrorType :: IOErrorType |
 
 I/O error where the operation failed because one of its arguments is a
 single-use resource, which is already being used.
 
-
-
-|  |
+| |
 |:---|
-| fullErrorType :: IOErrorType  |
-
-
+| fullErrorType :: IOErrorType |
 
 I/O error where the operation failed because the device is full.
 
-
-
-|  |
+| |
 |:---|
-| eofErrorType :: IOErrorType  |
-
-
+| eofErrorType :: IOErrorType |
 
 I/O error where the operation failed because the end of file has been
 reached.
 
-
-
-|  |
+| |
 |:---|
-| illegalOperationErrorType :: IOErrorType  |
-
-
+| illegalOperationErrorType :: IOErrorType |
 
 I/O error where the operation is not possible.
 
-
-
-|  |
+| |
 |:---|
-| permissionErrorType :: IOErrorType  |
-
-
+| permissionErrorType :: IOErrorType |
 
 I/O error where the operation failed because the user does not have
 sufficient operating system privilege to perform that operation.
 
-
-
-|  |
+| |
 |:---|
-| userErrorType :: IOErrorType  |
-
-
+| userErrorType :: IOErrorType |
 
 I/O error that is programmer-defined.
 
-### 42.3  Throwing and catching I/O errors
+### 42.3 Throwing and catching I/O errors
 
-
-
-|  |
+| |
 |:---|
-| ioError :: IOError -\> IO a  |
-
-
+| ioError :: IOError -> IO a |
 
 Raise an
 IOError in
 the IO monad.
 
-
-
-|  |
+| |
 |:---|
-| catch :: IO a -\> (IOError -\> IO a) -\> IO a  |
-
-
+| catch :: IO a -> (IOError -> IO a) -> IO a |
 
 The catch
 function establishes a handler that receives any
@@ -30178,18 +22194,10 @@ IOErrors are
 caught. Exception propagation must be explicitly provided in a handler
 by re-raising any unwanted exceptions. For example, in
 
-
-
-
-
- f = catch g (\e -\> if IO.isEOFError e then return \[\] else ioError e)
-
-
-
-
+f = catch g (\\e -> if IO.isEOFError e then return [] else ioError e)
 
 the function f returns
-\[\] when an end-of-file exception (cf.
+[] when an end-of-file exception (cf.
 isEOFError)
 occurs in g; otherwise, the exception is
 propagated to the next outer handler.
@@ -30199,160 +22207,85 @@ system prints the associated
 IOError value
 and exits the program.
 
-
-
-|  |
+| |
 |:---|
-| try :: IO a -\> IO (Either IOError a)  |
-
-
+| try :: IO a -> IO (Either IOError a) |
 
 The construct
 trycomp
 exposes IO errors which occur within a computation, and which are
 not fully handled.
 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
+[prev-tail]
 
+______________________________________________________________________
 
-
-\[prev-tail\]
-
-
-
-
-
----
-
-
-
-\[prev-tail\]
-\[up\]
-
-
+[prev-tail]
+[up]
 
 ## Bibliography
 
-
-
-
-\[1\]   J. Backus.
+[1]   J. Backus.
 Can programming be liberated from the von Neumann style? A functional
 style and its algebra of programs. CACM,
 21(8):613–641, August 1978.
 
-
-\[2\]   Unicode
+[2]   Unicode
 Consortium. Unicode standard.
 http://unicode.org/standard/standard.html.
 
-
-\[3\]   H.K.
+[3]   H.K.
 Curry and R. Feys. Combinatory Logic.
 North-Holland Pub. Co., Amsterdam, 1958.
 
-
-\[4\]   Luis
+[4]   Luis
 Damas and Robin Milner. Principal type-schemes for functional programs.
 In Conference
 Record of the 9th Annual ACM Symposium on
 Principles of Programming Languages, pages 207–12, New York,
-1982. ACM Press.
+1982\. ACM Press.
 
-
-\[5\]   James
+[5]   James
 Gosling, Bill Joy, and Guy Steele. The Java
 Language Specification. The Java Series. Addison-Wesley, 1997.
 
-
-\[6\]   R. Hindley.
+[6]   R. Hindley.
 The principal type scheme of an object in combinatory logic.
 Transactions of the
 American Mathematical Society, 146:29–60,
 December 1969.
 
-
-\[7\]   International Standard
+[7]   International Standard
 ISO/IEC. Programming languages – C. 9899:1999 (E).
 
-
-\[8\]   MP Jones.
+[8]   MP Jones.
 A system of constructor classes: overloading and implicit higher-order
 polymorphism. Journal of Functional
 Programming, 5(1):1–36, January 1995.
 
-
-\[9\]   Brian W.
+[9]   Brian W.
 Kernighan and Dennis M. Ritchie. The C
 Programming Language. Prentice Hall, second edition, 1988.
 
-
-\[10\]   Sheng
+[10]   Sheng
 Liang. The Java Native Interface: Programmer’s
 Guide and Specification. Addison Wesley, 1999.
 
-
-\[11\]   Tim
+[11]   Tim
 Lindholm and Frank Yellin. The Java Virtual
 Machine Specification. Addison-Wesley, 1996.
 
-
-\[12\]   P. Penfield,
+[12]   P. Penfield,
 Jr. Principal values and branch cuts in complex APL. In
 APL ’81 Conference
 Proceedings, pages 248–256, San Francisco,
 September 1981.
 
-
-\[13\]   P. Wadler
+[13]   P. Wadler
 and S. Blott. How to make ad hoc
 polymorphism less ad hoc. In
 Proceedings of 16th
 ACM Symposium on Principles of Programming
 Languages, pages 60–76, Austin, Texas, January 1989.
 
-
-
-
-
-\[prev-tail\]
-
-
-
-
-
+[prev-tail]
