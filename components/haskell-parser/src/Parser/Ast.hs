@@ -16,6 +16,10 @@ data Decl = Decl
   { declName :: Text
   , declExpr :: Expr
   }
+  | DataDecl
+      { dataTypeName :: Text
+      , dataConstructors :: [Text]
+      }
   deriving (Eq, Show)
 
 data Expr

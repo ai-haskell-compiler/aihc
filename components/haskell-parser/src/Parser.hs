@@ -6,7 +6,7 @@ module Parser
   , defaultConfig
   ) where
 
-import Data.Char (isAlpha, isAlphaNum, isDigit, isSpace)
+import Data.Char (isAlpha, isAlphaNum, isDigit, isSpace, toUpper)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Parser.Ast
@@ -254,27 +254,57 @@ parseModuleHeader headerLine =
 
 parseDeclarationLine :: ParserConfig -> Int -> Text -> Either ParseError Decl
 parseDeclarationLine cfg lineNo raw =
-  let (lhs, rhsRaw) = T.breakOn "=" raw
-   in if T.null rhsRaw
-        then Left (lineError lineNo 1 ["declaration (<name> = <expr>)"] raw)
-        else
-          let name = T.strip lhs
-              rhs = T.strip (T.drop 1 rhsRaw)
-              rhsOffset = T.length lhs + 2
-           in if not (isValidIdent name)
-                then Left (lineError lineNo 1 ["identifier"] raw)
-                else
-                  case parseExpr cfg rhs of
-                    ParseOk expr -> Right Decl {declName = name, declExpr = expr}
-                    ParseErr err ->
-                      Left
-                        ParseError
-                          { offset = offset err
-                          , line = lineNo
-                          , col = rhsOffset + col err
-                          , expected = expected err
-                          , found = found err
-                          }
+  case parseDataDeclaration raw of
+    Right decl -> Right decl
+    Left False ->
+      let (lhs, rhsRaw) = T.breakOn "=" raw
+       in if T.null rhsRaw
+            then Left (lineError lineNo 1 ["declaration (<name> = <expr>)"] raw)
+            else
+              let name = T.strip lhs
+                  rhs = T.strip (T.drop 1 rhsRaw)
+                  rhsOffset = T.length lhs + 2
+               in if not (isValidIdent name)
+                    then Left (lineError lineNo 1 ["identifier"] raw)
+                    else
+                      case parseExpr cfg rhs of
+                        ParseOk expr -> Right Decl {declName = name, declExpr = expr}
+                        ParseErr err ->
+                          Left
+                            ParseError
+                              { offset = offset err
+                              , line = lineNo
+                              , col = rhsOffset + col err
+                              , expected = expected err
+                              , found = found err
+                              }
+    Left True -> Left (lineError lineNo 1 ["data declaration"] raw)
+
+parseDataDeclaration :: Text -> Either Bool Decl
+parseDataDeclaration raw =
+  case T.stripPrefix "data" raw of
+    Nothing -> Left False
+    Just afterData ->
+      let trimmed = T.strip afterData
+          (typeChunk, constructorsChunkRaw) = T.breakOn "=" trimmed
+          typeWords = T.words (T.strip typeChunk)
+       in case (typeWords, T.stripPrefix "=" constructorsChunkRaw) of
+            ([typeName], Just constructorsChunk)
+              | isValidTypeCtor typeName ->
+                  let constructors = map T.strip (T.splitOn "|" constructorsChunk)
+                   in if null constructors || any T.null constructors
+                        then Left True
+                        else
+                          case traverse parseNullaryCtor constructors of
+                            Right ctorNames ->
+                              Right DataDecl {dataTypeName = typeName, dataConstructors = ctorNames}
+                            Left () -> Left True
+            _ -> Left True
+  where
+    parseNullaryCtor ctorText =
+      case T.words ctorText of
+        [ctorName] | isValidTypeCtor ctorName -> Right ctorName
+        _ -> Left ()
 
 lineError :: Int -> Int -> [Expectation] -> Text -> ParseError
 lineError lineNo colNo exps foundText =
@@ -304,6 +334,21 @@ isValidIdent ident =
         && T.all validTail rest
         && ident /= "module"
         && ident /= "where"
+        && ident /= "data"
   where
     validStart c = isAlpha c || c == '_'
+    validTail c = isAlphaNum c || c == '_' || c == '\''
+
+isValidTypeCtor :: Text -> Bool
+isValidTypeCtor ident =
+  case T.uncons ident of
+    Nothing -> False
+    Just (firstChar, rest) ->
+      isAlpha firstChar
+        && firstChar == toUpper firstChar
+        && T.all validTail rest
+        && ident /= "module"
+        && ident /= "where"
+        && ident /= "data"
+  where
     validTail c = isAlphaNum c || c == '_' || c == '\''
