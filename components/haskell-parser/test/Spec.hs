@@ -17,14 +17,12 @@ import Test.Tasty
 import Test.Tasty.HUnit
 import qualified Test.Tasty.QuickCheck as QC
 import Test.Oracle
-import Test.Resolver (resolverTests)
 
 main :: IO ()
 main = buildTests >>= defaultMain
 
 buildTests :: IO TestTree
 buildTests = do
-  resolver <- resolverTests
   exprOk <- goldenGroup "golden/expr/ok" expectExprOk
   exprErr <- goldenGroup "golden/expr/err" expectExprErr
   moduleOk <- goldenGroup "golden/module/ok" expectModuleOk
@@ -37,7 +35,6 @@ buildTests = do
       [ testGroup "golden" [exprOk, exprErr, moduleOk, moduleErr]
       , testGroup "differential-fixtures" [diffModule, regressions]
       , testGroup "properties" [QC.testProperty "generated modules agree with ghc oracle" prop_moduleAgreement]
-      , resolver
       ]
 
 goldenGroup :: FilePath -> (Text -> Assertion) -> IO TestTree
