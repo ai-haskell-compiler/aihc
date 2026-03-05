@@ -145,10 +145,7 @@ typeConstructor :: MParser Text
 typeConstructor = lexeme scLine $ do
   first <- C.upperChar
   rest <- many identTailChar
-  let ident = T.pack (first : rest)
-  if ident `elem` reservedWords
-    then fail "type constructor"
-    else pure ident
+  pure (T.pack (first : rest))
 
 identifierLexeme :: MParser () -> MParser Text
 identifierLexeme sc = lexeme sc $ do
