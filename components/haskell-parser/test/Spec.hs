@@ -148,18 +148,20 @@ assertFixtureRoundtrip rel h2010XFailPaths source
       case parseModule defaultConfig source of
         ParseOk ast -> assertFailure ("expected module parse failure for " <> rel <> ", got " <> show ast)
         ParseErr _ -> pure ()
-  | "golden/expr/ok/" `isPrefixOf` rel = runRoundtripCheck rel (checkExprRoundtrip rel source)
+  | "golden/expr/ok/" `isPrefixOf` rel = runRoundtripCheck rel h2010XFailPaths (checkExprRoundtrip rel source)
   | "haskell2010/" `isPrefixOf` rel && rel `Set.member` h2010XFailPaths =
       case parseModule defaultConfig source of
-        ParseOk _ -> runRoundtripCheck rel (checkModuleRoundtrip rel source)
+        ParseOk _ -> runRoundtripCheck rel h2010XFailPaths (checkModuleRoundtrip rel source)
         ParseErr _ -> pure ()
-  | otherwise = runRoundtripCheck rel (checkModuleRoundtrip rel source)
+  | otherwise = runRoundtripCheck rel h2010XFailPaths (checkModuleRoundtrip rel source)
 
-runRoundtripCheck :: FilePath -> Either String () -> Assertion
-runRoundtripCheck _rel checkResult =
+runRoundtripCheck :: FilePath -> Set.Set FilePath -> Either String () -> Assertion
+runRoundtripCheck rel knownXFailPaths checkResult =
   case checkResult of
     Right _ -> pure ()
-    Left _errMsg -> pure ()
+    Left errMsg
+      | rel `Set.member` knownXFailPaths -> pure ()
+      | otherwise -> assertFailure errMsg
 
 checkExprRoundtrip :: FilePath -> Text -> Either String ()
 checkExprRoundtrip rel source =
