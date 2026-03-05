@@ -40,5 +40,3 @@ Strict mode (non-zero exit on regressions or `XPASS`):
 ```bash
 nix run .#parser-progress-strict
 ```
-
-`nix flake check` runs this strict progress check.

@@ -40,5 +40,3 @@ Strict mode (non-zero on `FAIL` or `XPASS`):
 ```bash
 nix run .#name-resolution-progress-strict
 ```
-
-`nix flake check` runs this strict progress check.

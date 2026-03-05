@@ -19,12 +19,6 @@ Recompute progress with:
 nix run .#parser-progress
 ```
 
-Strict progress gate (fails on `FAIL` or `XPASS`):
-
-```bash
-nix run .#parser-progress-strict
-```
-
 ## Name-Resolution Progress
 
 The name-resolution component lives in `components/haskell-name-resolution`.
@@ -38,13 +32,3 @@ Recompute progress with:
 ```bash
 nix run .#name-resolution-progress
 ```
-
-Strict progress gate (fails on `FAIL` or `XPASS`):
-
-```bash
-nix run .#name-resolution-progress-strict
-```
-
-## CI / Flake Checks
-
-`nix flake check` includes strict progress checks for both components, so any `XPASS` now fails the check until the corresponding manifest rows are promoted from `xfail` to `pass`.
