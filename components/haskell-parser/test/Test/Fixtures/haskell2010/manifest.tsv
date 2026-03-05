@@ -11,7 +11,7 @@ modules-import-as	modules	modules/import-as.hs	xfail	imports unsupported
 decls-type-signature	declarations	declarations/type-signature.hs	xfail	type signatures unsupported
 decls-multiple-equations	declarations	declarations/multiple-equations.hs	xfail	multiple equations unsupported
 decls-pattern-binding	declarations	declarations/pattern-binding.hs	xfail	pattern bindings unsupported
-decls-data	declarations	declarations/data.hs	xfail	data declarations unsupported
+decls-data	declarations	declarations/data.hs	pass	
 decls-newtype	declarations	declarations/newtype.hs	xfail	newtype declarations unsupported
 decls-type-synonym	declarations	declarations/type-synonym.hs	xfail	type synonym declarations unsupported
 decls-class	declarations	declarations/class.hs	xfail	class declarations unsupported

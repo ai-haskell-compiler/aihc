@@ -16,10 +16,15 @@ data CanonicalModule = CanonicalModule
   }
   deriving (Eq, Show)
 
-data CanonicalDecl = CanonicalDecl
-  { canonicalDeclName :: Text
-  , canonicalDeclExpr :: CanonicalExpr
-  }
+data CanonicalDecl
+  = CanonicalValueDecl
+      { canonicalDeclName :: Text
+      , canonicalDeclExpr :: CanonicalExpr
+      }
+  | CanonicalDataDecl
+      { canonicalTypeName :: Text
+      , canonicalConstructors :: [Text]
+      }
   deriving (Eq, Show)
 
 data CanonicalExpr
@@ -37,10 +42,17 @@ normalizeModule m =
 
 normalizeDecl :: Decl -> CanonicalDecl
 normalizeDecl d =
-  CanonicalDecl
-    { canonicalDeclName = declName d
-    , canonicalDeclExpr = normalizeExpr (declExpr d)
-    }
+  case d of
+    Decl {declName = name, declExpr = expr} ->
+      CanonicalValueDecl
+        { canonicalDeclName = name
+        , canonicalDeclExpr = normalizeExpr expr
+        }
+    DataDecl {dataTypeName = typeName, dataConstructors = ctors} ->
+      CanonicalDataDecl
+        { canonicalTypeName = typeName
+        , canonicalConstructors = ctors
+        }
 
 normalizeExpr :: Expr -> CanonicalExpr
 normalizeExpr expr =

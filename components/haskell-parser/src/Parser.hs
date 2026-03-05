@@ -6,7 +6,7 @@ module Parser
   , defaultConfig
   ) where
 
-import Data.Char (isAlpha, isAlphaNum, isDigit, isSpace)
+import Data.Char (isAlpha, isAlphaNum, isDigit, isSpace, toUpper)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Parser.Ast
@@ -37,6 +37,11 @@ data PositionedToken = PositionedToken
 data PState = PState
   { inputTokens :: [PositionedToken]
   }
+
+data DataParseResult
+  = NotADataDecl
+  | InvalidDataDecl Text
+  | ParsedDataDecl Decl
 
 newtype P a = P
   { unP :: PState -> Either ParseError (a, PState)
@@ -254,27 +259,61 @@ parseModuleHeader headerLine =
 
 parseDeclarationLine :: ParserConfig -> Int -> Text -> Either ParseError Decl
 parseDeclarationLine cfg lineNo raw =
-  let (lhs, rhsRaw) = T.breakOn "=" raw
-   in if T.null rhsRaw
-        then Left (lineError lineNo 1 ["declaration (<name> = <expr>)"] raw)
-        else
-          let name = T.strip lhs
-              rhs = T.strip (T.drop 1 rhsRaw)
-              rhsOffset = T.length lhs + 2
-           in if not (isValidIdent name)
-                then Left (lineError lineNo 1 ["identifier"] raw)
-                else
-                  case parseExpr cfg rhs of
-                    ParseOk expr -> Right Decl {declName = name, declExpr = expr}
-                    ParseErr err ->
-                      Left
-                        ParseError
-                          { offset = offset err
-                          , line = lineNo
-                          , col = rhsOffset + col err
-                          , expected = expected err
-                          , found = found err
-                          }
+  case parseDataDeclaration raw of
+    ParsedDataDecl decl -> Right decl
+    NotADataDecl ->
+      let (lhs, rhsRaw) = T.breakOn "=" raw
+       in if T.null rhsRaw
+            then Left (lineError lineNo 1 ["declaration (<name> = <expr>)"] raw)
+            else
+              let name = T.strip lhs
+                  rhs = T.strip (T.drop 1 rhsRaw)
+                  rhsOffset = T.length lhs + 2
+               in if not (isValidIdent name)
+                    then Left (lineError lineNo 1 ["identifier"] raw)
+                    else
+                      case parseExpr cfg rhs of
+                        ParseOk expr -> Right Decl {declName = name, declExpr = expr}
+                        ParseErr err ->
+                          Left
+                            ParseError
+                              { offset = offset err
+                              , line = lineNo
+                              , col = rhsOffset + col err
+                              , expected = expected err
+                              , found = found err
+                              }
+    InvalidDataDecl reason ->
+      Left (lineError lineNo 1 [T.append "data declaration (" (T.append reason ")")] raw)
+
+parseDataDeclaration :: Text -> DataParseResult
+parseDataDeclaration raw =
+  case T.stripPrefix "data" raw of
+    Nothing -> NotADataDecl
+    Just afterData ->
+      case T.uncons afterData of
+        Just (nextChar, _) | not (isSpace nextChar) -> NotADataDecl
+        _ ->
+          let trimmed = T.strip afterData
+              (typeChunk, constructorsChunkRaw) = T.breakOn "=" trimmed
+              typeWords = T.words (T.strip typeChunk)
+           in case (typeWords, T.stripPrefix "=" constructorsChunkRaw) of
+                ([typeName], Just constructorsChunk)
+                  | isValidTypeCtor typeName ->
+                      let constructors = map T.strip (T.splitOn "|" constructorsChunk)
+                       in if null constructors || any T.null constructors
+                            then InvalidDataDecl "missing constructor"
+                            else
+                              case traverse parseNullaryCtor constructors of
+                                Right ctorNames ->
+                                  ParsedDataDecl DataDecl {dataTypeName = typeName, dataConstructors = ctorNames}
+                                Left () -> InvalidDataDecl "constructors must be nullary type constructors"
+                _ -> InvalidDataDecl "expected: data <Type> = <Ctor> | <Ctor>"
+  where
+    parseNullaryCtor ctorText =
+      case T.words ctorText of
+        [ctorName] | isValidTypeCtor ctorName -> Right ctorName
+        _ -> Left ()
 
 lineError :: Int -> Int -> [Expectation] -> Text -> ParseError
 lineError lineNo colNo exps foundText =
@@ -304,6 +343,21 @@ isValidIdent ident =
         && T.all validTail rest
         && ident /= "module"
         && ident /= "where"
+        && ident /= "data"
   where
     validStart c = isAlpha c || c == '_'
+    validTail c = isAlphaNum c || c == '_' || c == '\''
+
+isValidTypeCtor :: Text -> Bool
+isValidTypeCtor ident =
+  case T.uncons ident of
+    Nothing -> False
+    Just (firstChar, rest) ->
+      isAlpha firstChar
+        && firstChar == toUpper firstChar
+        && T.all validTail rest
+        && ident /= "module"
+        && ident /= "where"
+        && ident /= "data"
+  where
     validTail c = isAlphaNum c || c == '_' || c == '\''
