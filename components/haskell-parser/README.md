@@ -69,3 +69,62 @@ Extension strict mode (non-zero exit on regressions or `XPASS`):
 ```bash
 nix run .#parser-extension-progress-strict
 ```
+
+## Extension Support
+
+Beyond Haskell2010, we track support for various Haskell language extensions. Each extension has its own test directory under:
+- `test/Test/Fixtures/<ExtensionName>/manifest.tsv`
+
+### Generating Extension Status Report
+
+```bash
+nix run .#extension-report-markdown
+```
+
+This generates a markdown report showing:
+- Total extensions tracked
+- Supported extensions (all tests passing)
+- Partial support (some tests passing)
+- Haskell2010 baseline
+
+### Adding a New Extension
+
+1. Create a new directory: `test/Test/Fixtures/<ExtensionName>/`
+2. Add test files (valid Haskell source with the extension enabled)
+3. Create `manifest.tsv` with test cases in the same format as Haskell2010
+
+The manifest format:
+```
+<test-id>	<category>	<path/to/file.hs>	<pass|xfail>	<reason>
+```
+
+Example:
+```
+list-comp-parallel-1	expressions	list-comp.hs	pass	parallel list comprehension
+```
+
+### NIX Commands
+
+- `nix run .#extension-report-markdown` - Generate markdown report to stdout
+- `nix build .#extension-report` - Build report to result/ directory
+- `nix flake check` - Includes extension report as part of CI checks
+
+## Hackage Testing
+
+To validate the parser against real-world Haskell packages from Hackage:
+
+```bash
+nix run .#hackage-tester -- <package-name>
+```
+
+Example:
+```bash
+nix run .#hackage-tester -- transformers
+```
+
+The tool:
+- Downloads and caches packages locally in `~/.cache/aihc/hackage/`
+- Parses all `.hs` and `.lhs` files
+- Reports parse errors and roundtrip failures
+- Shows success rate for the package
+

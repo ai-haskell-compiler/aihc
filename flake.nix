@@ -5,15 +5,15 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
   };
 
-  outputs = { self, nixpkgs }:
-    let
-      systems = [
-        "x86_64-linux"
-        "aarch64-linux"
-        "x86_64-darwin"
-        "aarch64-darwin"
-      ];
-      forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f (import nixpkgs { inherit system; }));
+   outputs = { self, nixpkgs }:
+     let
+       systems = [
+         "x86_64-linux"
+         "aarch64-linux"
+         "x86_64-darwin"
+         "aarch64-darwin"
+       ];
+       forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f (import nixpkgs { inherit system; }));
     in {
       apps = forAllSystems (pkgs:
         let
@@ -54,6 +54,17 @@
             }
             cd components/haskell-parser
             cabal run extension-progress -- "$@"
+          '';
+
+          hackage-tester = mkApp "hackage-tester" ''
+            set -euo pipefail
+            test -d components/haskell-parser || {
+              echo "Run this app from the repository root." >&2
+              exit 1
+            }
+            cd components/haskell-parser
+            cabal update 2>/dev/null || true
+            cabal run hackage-tester -- "$@"
           '';
 
           parser-progress-strict = mkApp "parser-progress-strict" ''
@@ -186,20 +197,20 @@
           parser-progress-strict = parserProgressStrict;
           parser-extension-progress-strict = parserExtensionProgressStrict;
           name-resolution-progress-strict = nameResolutionProgressStrict;
-          nix-lint = nixLint;
-          haskell-lint = haskellLint;
-          haskell-format = haskellFormat;
-          all-tests =
-            pkgs.linkFarm "aihc-all-tests" [
-              { name = "parser-tests"; path = parserTests; }
-              { name = "name-resolution-tests"; path = nameResolutionTests; }
-              { name = "parser-progress-strict"; path = parserProgressStrict; }
-              { name = "parser-extension-progress-strict"; path = parserExtensionProgressStrict; }
-              { name = "name-resolution-progress-strict"; path = nameResolutionProgressStrict; }
-              { name = "nix-lint"; path = nixLint; }
-              { name = "haskell-lint"; path = haskellLint; }
-              { name = "haskell-format"; path = haskellFormat; }
-            ];
+           nix-lint = nixLint;
+           haskell-lint = haskellLint;
+           haskell-format = haskellFormat;
+           all-tests =
+             pkgs.linkFarm "aihc-all-tests" [
+               { name = "parser-tests"; path = parserTests; }
+               { name = "name-resolution-tests"; path = nameResolutionTests; }
+               { name = "parser-progress-strict"; path = parserProgressStrict; }
+               { name = "parser-extension-progress-strict"; path = parserExtensionProgressStrict; }
+               { name = "name-resolution-progress-strict"; path = nameResolutionProgressStrict; }
+               { name = "nix-lint"; path = nixLint; }
+               { name = "haskell-lint"; path = haskellLint; }
+               { name = "haskell-format"; path = haskellFormat; }
+             ];
         });
     };
 }
