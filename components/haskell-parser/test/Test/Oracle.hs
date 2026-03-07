@@ -2,10 +2,13 @@
 
 module Test.Oracle
   ( oracleModuleAstFingerprint,
+    oracleModuleAstFingerprintWithExtensions,
     oracleParsesModule,
+    oracleParsesModuleWithExtensions,
   )
 where
 
+import Data.List (nub)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified GHC.Data.EnumSet as EnumSet
@@ -27,19 +30,29 @@ import GHC.Utils.Error (emptyDiagOpts, pprMessages)
 import GHC.Utils.Outputable (ppr, showSDocUnsafe)
 
 oracleParsesModule :: Text -> Bool
-oracleParsesModule input =
+oracleParsesModule = oracleParsesModuleWithExtensions []
+
+oracleParsesModuleWithExtensions :: [Extension] -> Text -> Bool
+oracleParsesModuleWithExtensions exts input =
   case parseWithGhc input of
     Left _ -> False
     Right _ -> True
+  where
+    parseWithGhc = parseWithGhcWithExtensions exts
 
 oracleModuleAstFingerprint :: Text -> Either Text Text
-oracleModuleAstFingerprint input = do
+oracleModuleAstFingerprint = oracleModuleAstFingerprintWithExtensions []
+
+oracleModuleAstFingerprintWithExtensions :: [Extension] -> Text -> Either Text Text
+oracleModuleAstFingerprintWithExtensions exts input = do
   parsed <- parseWithGhc input
   pure (T.pack (showSDocUnsafe (ppr parsed)))
+  where
+    parseWithGhc = parseWithGhcWithExtensions exts
 
-parseWithGhc :: Text -> Either Text (HsModule GhcPs)
-parseWithGhc input =
-  let exts = EnumSet.fromList [ForeignFunctionInterface] :: EnumSet.EnumSet Extension
+parseWithGhcWithExtensions :: [Extension] -> Text -> Either Text (HsModule GhcPs)
+parseWithGhcWithExtensions extraExts input =
+  let exts = EnumSet.fromList (nub (ForeignFunctionInterface : extraExts)) :: EnumSet.EnumSet Extension
       opts = mkParserOpts exts emptyDiagOpts False False False False
       buffer = stringToStringBuffer (T.unpack input)
       start = mkRealSrcLoc (mkFastString "<oracle>") 1 1
