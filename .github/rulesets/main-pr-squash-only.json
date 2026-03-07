@@ -29,7 +29,7 @@
       "type": "required_status_checks",
       "parameters": {
         "contexts": [
-          "Nix Flake Check"
+          "flake-check"
         ],
         "strict": true
       }
