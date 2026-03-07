@@ -753,9 +753,7 @@ parseRhsExpr cfg rhs0 =
           ParseOk expr -> Right expr
           ParseErr _ -> Left "expression"
       decls <- parseLocalDecls cfg whereTxt
-      case localDeclsToSimpleBindings decls of
-        Just binds -> Right (EWhere bodyExpr binds)
-        Nothing -> Right (EWhereDecls bodyExpr decls)
+      Right (EWhereDecls bodyExpr decls)
 
 parseLocalDecls :: ParserConfig -> Text -> Either Text [Decl]
 parseLocalDecls cfg txt =
@@ -1152,15 +1150,7 @@ parseLambdaExpr txt = do
     else do
       pats <- traverse parsePatternText paramTokens
       body <- parseExprCore bodyTxt
-      pure $
-        case traverse simpleVarName pats of
-          Right names -> ELambda names body
-          Left _ -> ELambdaPats pats body
-  where
-    simpleVarName pat =
-      case pat of
-        PVar name -> Right name
-        _ -> Left ()
+      pure (ELambdaPats pats body)
 
 parseLetExpr :: Text -> Either Text Expr
 parseLetExpr txt = do
@@ -1168,9 +1158,7 @@ parseLetExpr txt = do
   (bindsTxt, bodyTxt) <- splitTopLevelOnce "in" rest
   decls <- parseLocalDecls defaultConfig bindsTxt
   body <- parseExprCore bodyTxt
-  case localDeclsToSimpleBindings decls of
-    Just binds -> Right (ELet binds body)
-    Nothing -> Right (ELetDecls decls body)
+  Right (ELetDecls decls body)
 
 parseCaseExpr :: Text -> Either Text Expr
 parseCaseExpr txt = do

@@ -504,22 +504,12 @@ prettyExprPrec prec expr =
       parenthesize
         (prec > 0)
         ("if" <+> prettyExprPrec 0 cond <+> "then" <+> prettyExprPrec 0 yes <+> "else" <+> prettyExprPrec 0 no)
-    ELambda params body ->
-      parenthesize (prec > 0) ("\\" <> hsep (map pretty params) <+> "->" <+> prettyExprPrec 0 body)
     ELambdaPats pats body ->
       parenthesize (prec > 0) ("\\" <+> hsep (map prettyPattern pats) <+> "->" <+> prettyExprPrec 0 body)
     EInfix lhs op rhs -> parenthesize (prec > 1) (prettyExprPrec 1 lhs <+> prettyExprOperator op <+> prettyExprPrec 1 rhs)
     ENegate inner -> parenthesize (prec > 2) ("-" <> prettyExprPrec 3 inner)
     ESectionL lhs op -> parens (prettyExprPrec 0 lhs <+> prettyExprOperator op)
     ESectionR op rhs -> parens (prettyExprOperator op <+> prettyExprPrec 0 rhs)
-    ELet bindings body ->
-      parenthesize
-        (prec > 0)
-        ( "let"
-            <+> hsep (punctuate semi (map prettyBinding bindings))
-            <+> "in"
-            <+> prettyExprPrec 0 body
-        )
     ELetDecls decls body ->
       parenthesize
         (prec > 0)
@@ -553,10 +543,6 @@ prettyExprPrec prec expr =
       prettyExprPrec 3 base <+> braces (hsep (punctuate comma (map prettyBinding fields)))
     ETypeSig inner ty -> parenthesize (prec > 1) (prettyExprPrec 1 inner <+> "::" <+> prettyType ty)
     EParen inner -> parens (prettyExprPrec 0 inner)
-    EWhere body binds ->
-      parenthesize
-        (prec > 0)
-        (prettyExprPrec 0 body <+> "where" <+> braces (hsep (punctuate semi (map prettyBinding binds))))
     EWhereDecls body decls ->
       parenthesize
         (prec > 0)

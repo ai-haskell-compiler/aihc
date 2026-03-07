@@ -285,13 +285,11 @@ data Expr
   | EChar Char
   | EString Text
   | EIf Expr Expr Expr
-  | ELambda [Text] Expr
   | ELambdaPats [Pattern] Expr
   | EInfix Expr Text Expr
   | ENegate Expr
   | ESectionL Expr Text
   | ESectionR Text Expr
-  | ELet [(Text, Expr)] Expr
   | ELetDecls [Decl] Expr
   | ECase Expr [CaseAlt]
   | EDo [DoStmt]
@@ -301,7 +299,6 @@ data Expr
   | ERecordUpd Expr [(Text, Expr)]
   | ETypeSig Expr Type
   | EParen Expr
-  | EWhere Expr [(Text, Expr)]
   | EWhereDecls Expr [Decl]
   | EList [Expr]
   | ETuple [Expr]

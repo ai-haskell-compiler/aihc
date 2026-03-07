@@ -137,18 +137,6 @@ resolveExpr cfg expr st =
           (x', st2) = resolveExpr cfg x st1
        in (RApp f' x', st2)
     EParen inner -> resolveExpr cfg inner st
-    EWhere body binds ->
-      let (binds', st1) =
-            foldl'
-              ( \(acc, stAcc) (_, bindExpr) ->
-                  let (resolvedBind, stNext) = resolveExpr cfg bindExpr stAcc
-                   in (acc <> [resolvedBind], stNext)
-              )
-              ([], st)
-              binds
-          (body', st2) = resolveExpr cfg body st1
-          combined = foldl' RApp body' binds'
-       in (combined, st2)
     EWhereDecls body _decls ->
       resolveExpr cfg body st
     EVar name ->

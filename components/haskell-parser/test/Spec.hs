@@ -251,9 +251,7 @@ stripExprParens expr =
     ESectionL l op -> ESectionL (stripExprParens l) op
     ESectionR op r -> ESectionR op (stripExprParens r)
     EIf c t f -> EIf (stripExprParens c) (stripExprParens t) (stripExprParens f)
-    ELambda ps b -> ELambda ps (stripExprParens b)
     ELambdaPats ps b -> ELambdaPats ps (stripExprParens b)
-    ELet binds body -> ELet [(n, stripExprParens v) | (n, v) <- binds] (stripExprParens body)
     ELetDecls decls body -> ELetDecls (map stripDeclParens decls) (stripExprParens body)
     ECase scrut alts ->
       ECase
@@ -291,7 +289,6 @@ stripExprParens expr =
     ERecordCon n fields -> ERecordCon n [(f, stripExprParens v) | (f, v) <- fields]
     ERecordUpd base fields -> ERecordUpd (stripExprParens base) [(f, stripExprParens v) | (f, v) <- fields]
     ETypeSig inner ty -> ETypeSig (stripExprParens inner) ty
-    EWhere body binds -> EWhere (stripExprParens body) [(n, stripExprParens v) | (n, v) <- binds]
     EWhereDecls body decls -> EWhereDecls (stripExprParens body) (map stripDeclParens decls)
     EList xs -> EList (map stripExprParens xs)
     ETuple xs -> ETuple (map stripExprParens xs)
