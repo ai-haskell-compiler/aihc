@@ -19,10 +19,10 @@ Recompute progress with:
 nix run .#parser-progress
 ```
 
-## Extension Support Progress
+## Haskell Parser Extension Support Progress
 
 Extension support tracking for `components/haskell-parser` is reported in:
-- [Haskell Extension Support Status](docs/haskell-extension-support.md)
+- [Haskell Parser Extension Support Status](docs/haskell-parser-extension-support.md)
 
 Current extension baseline:
 - Total tracked extensions: `33`
@@ -39,7 +39,7 @@ nix run .#parser-extension-progress
 Regenerate the markdown report with:
 
 ```bash
-nix run .#parser-extension-progress -- --markdown > docs/haskell-extension-support.md
+nix run .#parser-extension-progress -- --markdown > docs/haskell-parser-extension-support.md
 ```
 
 ## Name-Resolution Progress

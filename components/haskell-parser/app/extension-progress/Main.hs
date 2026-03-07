@@ -94,7 +94,7 @@ printTextSummary results = do
       inProgressN = length [() | result <- results, erStatus result == InProgress]
       plannedN = length [() | result <- results, erStatus result == Planned]
       totalN = length results
-  putStrLn "Haskell extension support progress"
+  putStrLn "Haskell parser extension support progress"
   putStrLn "================================="
   putStrLn ("SUPPORTED    " <> show supportedN)
   putStrLn ("IN_PROGRESS  " <> show inProgressN)
@@ -162,7 +162,7 @@ printXPass (spec, meta, details) =
 renderMarkdown :: String -> [ExtensionResult] -> String
 renderMarkdown generatedDate results =
   unlines
-    ( [ "# Haskell Extension Support Status",
+    ( [ "# Haskell Parser Extension Support Status",
         "",
         "**Generated**: " <> generatedDate,
         "",

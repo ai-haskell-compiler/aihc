@@ -36,7 +36,7 @@ Current extension baseline:
 - Planned: `32`
 
 Generated report:
-- `../../docs/haskell-extension-support.md`
+- `../../docs/haskell-parser-extension-support.md`
 
 ## Commands
 
