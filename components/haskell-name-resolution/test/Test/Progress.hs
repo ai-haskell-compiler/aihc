@@ -10,15 +10,10 @@ import Data.Char (isSpace)
 import Data.List (dropWhileEnd)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
-import Parser (defaultConfig, parseModule)
-import Parser.Types (ParseResult (..))
-import Resolver (defaultResolveConfig, resolveModule)
-import Resolver.Ast
-import Resolver.Types (diagCode, diagnostics, resolved)
+import Resolver (defaultResolveConfig)
 import System.Directory (doesFileExist)
 import System.FilePath ((</>))
-import Test.Oracle.Resolve (oracleResolveFacts)
-import Test.ResolveFacts (ResolveFacts (..), VarFact (..))
+import Test.LocatedFacts (LocatedFacts, normalizeLocatedFacts, oracleLocatedFacts, oursLocatedFacts, renderLocatedFactsDiff)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertFailure, testCase)
 
@@ -87,60 +82,23 @@ evaluateCase meta = do
 
 evaluateCaseText :: CaseMeta -> T.Text -> IO (Outcome, String)
 evaluateCaseText meta source =
-  case oracleResolveFacts defaultResolveConfig source of
-    Left oracleErr -> pure (OutcomeFail, "oracle failed: " <> T.unpack oracleErr)
-    Right oracleFacts -> do
-      let oursFacts = resolveFacts source
+  case (oursLocatedFacts defaultResolveConfig source, oracleLocatedFacts defaultResolveConfig source) of
+    (Left oursErr, _) -> pure (OutcomeFail, "ours located-facts failed: " <> T.unpack oursErr)
+    (_, Left oracleErr) -> pure (OutcomeFail, "oracle located-facts failed: " <> T.unpack oracleErr)
+    (Right oursFacts, Right oracleFacts) ->
       pure $ classify (caseExpected meta) oursFacts oracleFacts
 
-classify :: Expected -> Either String ResolveFacts -> ResolveFacts -> (Outcome, String)
-classify expected oursEither oracleFacts =
+classify :: Expected -> LocatedFacts -> LocatedFacts -> (Outcome, String)
+classify expected oursFacts oracleFacts =
   case expected of
     ExpectPass ->
-      case oursEither of
-        Left err -> (OutcomeFail, "expected pass but parser/resolver failed: " <> err)
-        Right oursFacts
-          | oursFacts == oracleFacts -> (OutcomePass, "")
-          | otherwise ->
-              ( OutcomeFail,
-                "facts differ from oracle"
-              )
+      if normalizeLocatedFacts oursFacts == normalizeLocatedFacts oracleFacts
+        then (OutcomePass, "")
+        else (OutcomeFail, "facts differ from oracle\n" <> renderLocatedFactsDiff oursFacts oracleFacts)
     ExpectXFail ->
-      case oursEither of
-        Left _ -> (OutcomeXFail, "")
-        Right oursFacts
-          | oursFacts == oracleFacts -> (OutcomeXPass, "expected xfail but now matches oracle")
-          | otherwise -> (OutcomeXFail, "")
-
-resolveFacts :: T.Text -> Either String ResolveFacts
-resolveFacts input =
-  case parseModule defaultConfig input of
-    ParseErr err -> Left (show err)
-    ParseOk modu ->
-      let rr = resolveModule defaultResolveConfig modu
-          resolvedMod = resolved rr
-          decls = resolvedDecls resolvedMod
-          vars = concatMap collectVars decls
-       in Right
-            ResolveFacts
-              { rfModuleName = resolvedModuleName resolvedMod,
-                rfDeclNames = map resolvedDeclName decls,
-                rfVars = vars,
-                rfDiagnosticCodes = map diagCode (diagnostics rr)
-              }
-  where
-    collectVars decl = collectExpr (resolvedDeclExpr decl)
-    collectExpr expr =
-      case expr of
-        RInt _ -> []
-        RApp f x -> collectExpr f <> collectExpr x
-        RVar name ->
-          [ VarFact
-              { vfName = rnText name,
-                vfBinding = fmap (const (rnText name)) (rnId name),
-                vfClass = rnClass name
-              }
-          ]
+      if normalizeLocatedFacts oursFacts == normalizeLocatedFacts oracleFacts
+        then (OutcomeXPass, "expected xfail but now matches oracle")
+        else (OutcomeXFail, "")
 
 loadManifest :: IO [CaseMeta]
 loadManifest = do
