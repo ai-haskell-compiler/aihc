@@ -25,7 +25,7 @@ jobs:
           s3-endpoint: ${{ vars.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
           bucket: nix-cache
           public-key: nix-cache:2eICaC37vEBexPk98J0dRt5FzSX7f6hx0vRl9tPaUuM=
-          aws-access-key-id: 27eecebe75df9848eba8023b20ca888b
+          aws-access-key-id: ${{ vars.R2_ACCESS_KEY }}
           aws-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           private-key: ${{ secrets.NIX_CACHE_PRIVATE_KEY }}
 
