@@ -9,7 +9,6 @@ module Parser
 where
 
 import Data.Char (isAlpha, isAlphaNum, isDigit, isHexDigit, isLower, isSpace, isUpper)
-import Data.List (foldl')
 import Data.List.NonEmpty (NonEmpty ((:|)))
 import qualified Data.List.NonEmpty as NE
 import Data.Maybe (fromMaybe, isJust)
@@ -257,21 +256,6 @@ importItemParser = do
         | otherwise -> ImportItemVar name
       Just Nothing -> ImportItemAll name
       Just (Just xs) -> ImportItemWith name xs
-
-parseDeclarationChunk :: ParserConfig -> Int -> Text -> Either ParseError Decl
-parseDeclarationChunk cfg lineNo raw =
-  let txt = T.strip raw
-   in case parseDeclText cfg txt of
-        Right decl -> Right decl
-        Left expectedText ->
-          Left
-            ParseError
-              { offset = 0,
-                line = lineNo,
-                col = 1,
-                expected = [expectedText],
-                found = if T.null txt then Nothing else Just txt
-              }
 
 parseDeclText :: ParserConfig -> Text -> Either Text Decl
 parseDeclText cfg txt
@@ -1498,7 +1482,7 @@ tokenizeExpr input = go (T.strip input) []
 
 consumeBalanced :: Char -> Char -> Text -> Either Text (Text, Text)
 consumeBalanced open close txt =
-  let (chunk, rest, ok) = scan 0 False False T.empty txt
+  let (chunk, rest, ok) = scan (0 :: Int) False False T.empty txt
    in if ok then Right (chunk, rest) else Left "expression"
   where
     scan depth inStr inChr acc remaining =
@@ -1579,7 +1563,7 @@ splitOuterBraces txt =
                in if T.null rest then Right (before, inside) else Left "braces"
 
 findMatchingBrace :: Text -> Maybe Int
-findMatchingBrace = go 0 0 False False
+findMatchingBrace = go (0 :: Int) (0 :: Int) False False
   where
     go ix depth inStr inChr remaining =
       case T.uncons remaining of
@@ -1633,7 +1617,7 @@ splitTopLevelMaybe token txt =
 findTopLevelKeyword :: Text -> Text -> Maybe Int
 findTopLevelKeyword token txt
   | T.null token = Nothing
-  | otherwise = go 0 0 0 False False 0 txt
+  | otherwise = go (0 :: Int) (0 :: Int) (0 :: Int) False False 0 txt
   where
     tokLen = T.length token
 
@@ -1677,7 +1661,7 @@ splitTopLevelToken token txt =
     Just (lhs, rhs) -> T.strip lhs : splitTopLevelToken token rhs
 
 splitTopLevel :: Char -> Text -> [Text]
-splitTopLevel delim input = reverse (go 0 0 0 False False T.empty input [])
+splitTopLevel delim input = reverse (go (0 :: Int) (0 :: Int) (0 :: Int) False False T.empty input [])
   where
     go parenN braceN bracketN inStr inChr current remaining acc =
       case T.uncons remaining of
@@ -1704,7 +1688,7 @@ splitTopLevel delim input = reverse (go 0 0 0 False False T.empty input [])
           | otherwise -> go parenN braceN bracketN inStr inChr (T.snoc current c) cs acc
 
 splitTopLevelWords :: Text -> [Text]
-splitTopLevelWords txt = reverse (go (T.strip txt) [] T.empty 0 0 0 False False)
+splitTopLevelWords txt = reverse (go (T.strip txt) [] T.empty (0 :: Int) (0 :: Int) (0 :: Int) False False)
   where
     flushToken token acc =
       if T.null (T.strip token)
@@ -1738,7 +1722,7 @@ splitTopLevelWords txt = reverse (go (T.strip txt) [] T.empty 0 0 0 False False)
 findTopLevelToken :: Text -> Text -> Maybe Int
 findTopLevelToken token txt
   | T.null token = Nothing
-  | otherwise = go 0 0 0 False False 0 txt
+  | otherwise = go (0 :: Int) (0 :: Int) (0 :: Int) False False 0 txt
   where
     go parenN braceN bracketN inStr inChr ix remaining =
       case T.uncons remaining of
@@ -1764,7 +1748,7 @@ findTopLevelToken token txt
           | otherwise -> go parenN braceN bracketN inStr inChr (ix + 1) cs
 
 findTopLevelEqualsIndex :: Text -> Maybe Int
-findTopLevelEqualsIndex txt = go 0 0 0 False 0 txt
+findTopLevelEqualsIndex txt = go (0 :: Int) (0 :: Int) (0 :: Int) False 0 txt
   where
     go parenN braceN bracketN inStr ix remaining =
       case T.uncons remaining of
@@ -1813,6 +1797,7 @@ findTopLevelOperatorTriple txt =
                in if T.null lhsTxt || T.null rhsTxt
                     then Nothing
                     else Just (lhsTxt, op, rhsTxt)
+        (_, TokAtom _ : _) -> Nothing
     Left _ -> Nothing
   where
     isOp token =
@@ -1910,7 +1895,7 @@ scLine :: MParser ()
 scLine = L.space C.space1 MP.empty MP.empty
 
 stripComments :: ParserConfig -> Text -> Text
-stripComments cfg = go 0 False False False T.empty
+stripComments cfg = go (0 :: Int) False False False T.empty
   where
     go blockDepth inStr inChr escaped acc remaining =
       case T.uncons remaining of
@@ -2054,7 +2039,7 @@ hasOuterBraces txt =
 
 outerWraps :: Text -> Char -> Char -> Bool
 outerWraps txt open close =
-  go 0 False False (T.unpack txt)
+  go (0 :: Int) False False (T.unpack txt)
   where
     go _ _ _ [] = False
     go depth inStr inChr (c : cs)
@@ -2075,32 +2060,6 @@ outerWraps txt open close =
                 then null cs
                 else go depth' inStr inChr cs
       | otherwise = go depth inStr inChr cs
-
-renderPatternText :: Pattern -> Text
-renderPatternText pat =
-  case pat of
-    PVar name -> name
-    PWildcard -> "_"
-    PLit lit ->
-      case lit of
-        LitInt n -> T.pack (show n)
-        LitIntBase _ repr -> repr
-        LitFloat n -> T.pack (show n)
-        LitChar c -> T.pack (show c)
-        LitString s -> T.pack (show (T.unpack s))
-    PTuple pats -> "(" <> T.intercalate ", " (map renderPatternText pats) <> ")"
-    PList pats -> "[" <> T.intercalate ", " (map renderPatternText pats) <> "]"
-    PCon con args -> T.unwords (con : map renderPatternText args)
-    PInfix lhs op rhs -> renderPatternText lhs <> " " <> op <> " " <> renderPatternText rhs
-    PAs name inner -> name <> "@" <> renderPatternText inner
-    PIrrefutable inner -> "~" <> renderPatternText inner
-    PNegLit lit -> "-" <> renderPatternText (PLit lit)
-    PParen inner -> "(" <> renderPatternText inner <> ")"
-    PRecord con fields ->
-      con
-        <> " { "
-        <> T.intercalate ", " [name <> " = " <> renderPatternText p | (name, p) <- fields]
-        <> " }"
 
 fromMaybeText :: Text -> Maybe Text -> Text
 fromMaybeText = fromMaybe
