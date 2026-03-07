@@ -24,6 +24,15 @@
           "squash"
         ]
       }
+    },
+    {
+      "type": "required_status_checks",
+      "parameters": {
+        "contexts": [
+          "flake-check"
+        ],
+        "strict": true
+      }
     }
   ],
   "bypass_actors": []
