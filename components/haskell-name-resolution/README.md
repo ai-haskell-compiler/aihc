@@ -8,7 +8,7 @@ Coverage is tracked with a manifest-driven capability corpus:
 - `test/Test/Fixtures/progress/manifest.tsv`
 
 Each case is marked as:
-- `pass`: expected to match oracle resolution facts
+- `pass`: expected to match oracle location-aware resolution facts (binding/use sites + diagnostics)
 - `xfail`: known unsupported behavior (tracked gap)
 
 Runtime outcomes:

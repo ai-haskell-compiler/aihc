@@ -9,6 +9,7 @@ import Control.Monad (forM)
 import Data.List (isSuffixOf, sort)
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
+import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import Parser
 import Parser.Types (ParseResult (..))
@@ -17,7 +18,7 @@ import Resolver.Ast
 import Resolver.Types
 import System.Directory (listDirectory)
 import System.FilePath ((</>))
-import Test.Oracle.Resolve
+import Test.LocatedFacts
 import Test.ResolveFacts
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -137,10 +138,17 @@ resolverFixtureGroup relDir = do
 fixtureOracleAgreement :: FilePath -> Assertion
 fixtureOracleAgreement path = do
   input <- TIO.readFile path
-  ours <- resolveFactsFromSource defaultResolveConfig input
-  case oracleResolveFacts defaultResolveConfig input of
-    Left err -> assertFailure ("oracle failed for fixture: " <> show err)
-    Right ghcFacts -> ours @?= ghcFacts
+  case (oursLocatedFacts defaultResolveConfig input, oracleLocatedFacts defaultResolveConfig input) of
+    (Left err, _) -> assertFailure ("ours located-facts failed for fixture: " <> T.unpack err)
+    (_, Left err) -> assertFailure ("oracle located-facts failed for fixture: " <> T.unpack err)
+    (Right ours, Right oracleFacts) ->
+      if normalizeLocatedFacts ours == normalizeLocatedFacts oracleFacts
+        then pure ()
+        else
+          assertFailure
+            ( "located facts differ from oracle:\n"
+                <> renderLocatedFactsDiff ours oracleFacts
+            )
 
 resolveFactsFromSource :: ResolveConfig -> Text -> IO ResolveFacts
 resolveFactsFromSource cfg input =
