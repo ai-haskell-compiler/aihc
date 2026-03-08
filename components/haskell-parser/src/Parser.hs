@@ -87,9 +87,9 @@ parseModuleLines cfg input = do
       case parseModuleBodyBraces cfg firstLineNo compactText of
         Right modu -> Right modu
         Left _ ->
-          case parseModuleHeader (T.strip firstLine) of
-            Right (modName, exports) -> do
-              (imports, decls) <- parseTopLevelChunks cfg (groupDeclarationChunks rest)
+          case consumeModuleHeader ((firstLineNo, firstLine) : rest) of
+            Just ((modName, exports), remainingRows) -> do
+              (imports, decls) <- parseTopLevelChunks cfg (groupDeclarationChunks remainingRows)
               Right
                 Module
                   { moduleSpan = span0,
@@ -98,7 +98,7 @@ parseModuleLines cfg input = do
                     moduleImports = imports,
                     moduleDecls = mergeAdjacentFunctions decls
                   }
-            Left _ -> do
+            Nothing -> do
               (imports, decls) <- parseTopLevelChunks cfg (groupDeclarationChunks ((firstLineNo, firstLine) : rest))
               Right
                 Module
@@ -108,6 +108,28 @@ parseModuleLines cfg input = do
                     moduleImports = imports,
                     moduleDecls = mergeAdjacentFunctions decls
                   }
+
+consumeModuleHeader :: [(Int, Text)] -> Maybe ((Text, Maybe [ExportSpec]), [(Int, Text)])
+consumeModuleHeader rows =
+  case rows of
+    [] -> Nothing
+    (_, firstLine) : _
+      | not (startsWithModuleKeyword firstLine) -> Nothing
+      | otherwise -> go [] rows
+  where
+    go _ [] = Nothing
+    go acc ((_, rawLine) : rest) =
+      let acc' = acc <> [T.strip rawLine]
+          candidate = T.intercalate "\n" acc'
+       in case parseModuleHeader candidate of
+            Right parsedHeader -> Just (parsedHeader, rest)
+            Left _ -> go acc' rest
+
+startsWithModuleKeyword :: Text -> Bool
+startsWithModuleKeyword txt =
+  case parseLineWith (keyword "module") (T.strip txt) of
+    Right _ -> True
+    Left _ -> False
 
 parseModuleBodyBraces :: ParserConfig -> Int -> Text -> Either ParseError Module
 parseModuleBodyBraces cfg lineNo txt
