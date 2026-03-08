@@ -70,12 +70,10 @@ parseModule cfg input =
 parseModuleLines :: ParserConfig -> Text -> Either ParseError Module
 parseModuleLines cfg input = do
   let strippedComments = stripComments cfg input
-      sourceLines = zip [1 ..] (T.lines strippedComments)
-      noPragmas = filter (not . isLanguagePragma . T.strip . snd) sourceLines
-      nonEmpty = filter (not . T.null . T.strip . snd) noPragmas
-      compactText = T.strip (T.unlines (map snd noPragmas))
-  case nonEmpty of
-    [] ->
+      compactText = T.strip strippedComments
+      firstLineNo = firstNonEmptyLineNo strippedComments
+  if T.null compactText
+    then
       Right
         Module
           { moduleSpan = span0,
@@ -84,64 +82,98 @@ parseModuleLines cfg input = do
             moduleImports = [],
             moduleDecls = []
           }
-    ((firstLineNo, firstLine) : rest) ->
-      case parseModuleBodyBraces cfg firstLineNo compactText of
-        Right modu -> Right modu
-        Left _ ->
-          case consumeModuleHeader ((firstLineNo, firstLine) : rest) of
-            Just ((modName, exports), remainingRows) -> do
-              (imports, decls) <- parseTopLevelChunks cfg (groupDeclarationChunks remainingRows)
-              Right
-                Module
-                  { moduleSpan = span0,
-                    moduleName = Just modName,
-                    moduleExports = exports,
-                    moduleImports = imports,
-                    moduleDecls = mergeAdjacentFunctions decls
-                  }
-            Nothing -> do
-              (imports, decls) <- parseTopLevelChunks cfg (groupDeclarationChunks ((firstLineNo, firstLine) : rest))
-              Right
-                Module
-                  { moduleSpan = span0,
-                    moduleName = Nothing,
-                    moduleExports = Nothing,
-                    moduleImports = imports,
-                    moduleDecls = mergeAdjacentFunctions decls
-                  }
+    else case parseModuleBodyBraces cfg firstLineNo compactText of
+      Right modu -> Right modu
+      Left _ ->
+        case runParser (moduleParser cfg <* eof) "<module>" strippedComments of
+          Right (header, chunks) -> do
+            (imports, decls) <- parseTopLevelChunks cfg chunks
+            Right
+              Module
+                { moduleSpan = span0,
+                  moduleName = fmap fst header,
+                  moduleExports = header >>= snd,
+                  moduleImports = imports,
+                  moduleDecls = mergeAdjacentFunctions decls
+                }
+          Left bundle -> Left (bundleToError strippedComments bundle)
 
-consumeModuleHeader :: [(Int, Text)] -> Maybe ((Text, Maybe [ExportSpec]), [(Int, Text)])
-consumeModuleHeader rows =
-  case rows of
-    [] -> Nothing
-    (_, firstLine) : _
-      | not (startsWithModuleKeyword firstLine) -> Nothing
-      | otherwise ->
-          let source = T.unlines (map (T.strip . snd) rows)
-           in case parseModuleHeaderPrefix source of
-                Right (parsedHeader, consumedRows)
-                  | consumedRows > 0 -> Just (parsedHeader, drop consumedRows rows)
-                _ -> Nothing
-
-startsWithModuleKeyword :: Text -> Bool
-startsWithModuleKeyword txt =
-  case parseLineWith (keyword "module") (T.strip txt) of
-    Right _ -> True
-    Left _ -> False
-
-parseModuleHeaderPrefix :: Text -> Either ParseError ((Text, Maybe [ExportSpec]), Int)
-parseModuleHeaderPrefix input =
-  case runParser headerPrefixParser "<module-header>" input of
-    Right value -> Right value
-    Left bundle -> Left (bundleToError input bundle)
+moduleParser :: ParserConfig -> MParser (Maybe (Text, Maybe [ExportSpec]), [(Int, Text)])
+moduleParser _cfg = do
+  skipBlankLines
+  header <- MP.optional (try moduleHeaderParser)
+  chunks <- gatherChunks
+  pure (header, chunks)
   where
-    headerPrefixParser = do
+    moduleHeaderParser = do
       _ <- keyword "module"
       modName <- identifier
       exports <- MP.optional (try exportSpecListParser)
-      _ <- C.string "where" <* notFollowedBy identTailOrStartChar
-      pos <- MP.getSourcePos
-      pure ((modName, exports), unPos (MP.sourceLine pos))
+      _ <- keyword "where"
+      pure (modName, exports)
+
+    gatherChunks = do
+      skipBlankLines
+      done <- MP.option False (True <$ eof)
+      if done
+        then pure []
+        else do
+          pos <- MP.getSourcePos
+          chunk <- topLevelChunkParser
+          rest <- gatherChunks
+          pure ((unPos (MP.sourceLine pos), chunk) : rest)
+
+topLevelChunkParser :: MParser Text
+topLevelChunkParser = do
+  first <- nonEmptyLineText
+  rest <- many (try continuationLineText)
+  pure (T.intercalate "\n" (first : rest))
+  where
+    continuationLineText = do
+      _ <- many (try blankLineParser)
+      ind <- MP.takeWhileP Nothing (\c -> c == ' ' || c == '\t')
+      if T.null ind
+        then fail "top-level chunk boundary"
+        else do
+          body <- MP.takeWhileP Nothing (/= '\n')
+          _ <- MP.optional C.eol
+          let txt = T.strip (ind <> body)
+          if T.null txt
+            then fail "empty continuation line"
+            else pure txt
+      where
+        blankLineParser = do
+          _ <- MP.takeWhileP Nothing (\c -> c == ' ' || c == '\t')
+          _ <- C.eol
+          pure ()
+
+nonEmptyLineText :: MParser Text
+nonEmptyLineText = do
+  _ <- MP.takeWhileP Nothing (\c -> c == ' ' || c == '\t')
+  body <- MP.takeWhileP Nothing (/= '\n')
+  _ <- MP.optional C.eol
+  let txt = T.strip body
+  if T.null txt
+    then fail "empty line"
+    else pure txt
+
+skipBlankLines :: MParser ()
+skipBlankLines =
+  MP.skipMany $ do
+    _ <- MP.takeWhileP Nothing (\c -> c == ' ' || c == '\t')
+    _ <- C.eol
+    pure ()
+
+firstNonEmptyLineNo :: Text -> Int
+firstNonEmptyLineNo txt = go 1 (T.lines txt)
+  where
+    go n ls =
+      case ls of
+        [] -> 1
+        l : rest ->
+          if T.null (T.strip l)
+            then go (n + 1) rest
+            else n
 
 parseModuleBodyBraces :: ParserConfig -> Int -> Text -> Either ParseError Module
 parseModuleBodyBraces cfg lineNo txt
@@ -1996,10 +2028,6 @@ stripComments cfg = go (0 :: Int) False False False T.empty
                             then go blockDepth False True False (T.snoc acc c) cs
                             else go blockDepth False False False (T.snoc acc c) cs
 
-isLanguagePragma :: Text -> Bool
-isLanguagePragma txt =
-  "{-#" `T.isPrefixOf` txt && "#-}" `T.isSuffixOf` txt
-
 isFixityDecl :: Text -> Bool
 isFixityDecl txt =
   case T.words txt of
@@ -2042,31 +2070,6 @@ isParenthesizedOperator tok =
         && T.head trimmed == '('
         && T.last trimmed == ')'
         && isOperatorToken (stripParens trimmed)
-
-groupDeclarationChunks :: [(Int, Text)] -> [(Int, Text)]
-groupDeclarationChunks = go Nothing []
-  where
-    go current acc rows =
-      case rows of
-        [] ->
-          case current of
-            Nothing -> reverse acc
-            Just (ln, pieces) -> reverse ((ln, T.intercalate "\n" (reverse pieces)) : acc)
-        (ln, rawLine) : rest ->
-          let trimmed = T.strip rawLine
-              ind = indentation rawLine
-           in if T.null trimmed
-                then go current acc rest
-                else case current of
-                  Nothing -> go (Just (ln, [trimmed])) acc rest
-                  Just (startLn, pieces)
-                    | ind == 0 ->
-                        go (Just (ln, [trimmed])) ((startLn, T.intercalate "\n" (reverse pieces)) : acc) rest
-                    | otherwise ->
-                        go (Just (startLn, trimmed : pieces)) acc rest
-
-indentation :: Text -> Int
-indentation = T.length . T.takeWhile (\c -> c == ' ' || c == '\t')
 
 hasOuterParens :: Text -> Bool
 hasOuterParens txt =
