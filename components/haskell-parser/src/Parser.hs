@@ -70,11 +70,17 @@ parseModule cfg input =
 parseModuleLines :: ParserConfig -> Text -> Either ParseError Module
 parseModuleLines cfg input = do
   let strippedComments = stripComments cfg input
-      compactText = T.strip strippedComments
-      firstLineNo = firstNonEmptyLineNo strippedComments
-  if T.null compactText
+  case runParser (moduleFileParser cfg <* eof) "<module>" strippedComments of
+    Right modu -> Right modu
+    Left bundle -> Left (bundleToError strippedComments bundle)
+
+moduleFileParser :: ParserConfig -> MParser Module
+moduleFileParser cfg = do
+  skipBlankLines
+  done <- MP.option False (True <$ eof)
+  if done
     then
-      Right
+      pure
         Module
           { moduleSpan = span0,
             moduleName = Nothing,
@@ -82,21 +88,25 @@ parseModuleLines cfg input = do
             moduleImports = [],
             moduleDecls = []
           }
-    else case parseModuleBodyBraces cfg firstLineNo compactText of
-      Right modu -> Right modu
-      Left _ ->
-        case runParser (moduleParser cfg <* eof) "<module>" strippedComments of
-          Right (header, chunks) -> do
-            (imports, decls) <- parseTopLevelChunks cfg chunks
-            Right
-              Module
-                { moduleSpan = span0,
-                  moduleName = fmap fst header,
-                  moduleExports = header >>= snd,
-                  moduleImports = imports,
-                  moduleDecls = mergeAdjacentFunctions decls
-                }
-          Left bundle -> Left (bundleToError strippedComments bundle)
+    else do
+      pos <- MP.getSourcePos
+      raw <- MP.getInput
+      case parseModuleBodyBraces cfg (unPos (MP.sourceLine pos)) (T.strip raw) of
+        Right modu -> MP.setInput "" >> pure modu
+        Left _ -> do
+          (header, chunks) <- moduleParser cfg
+          (imports, decls) <-
+            case parseTopLevelChunks cfg chunks of
+              Right result -> pure result
+              Left err -> fail (show err)
+          pure
+            Module
+              { moduleSpan = span0,
+                moduleName = fmap fst header,
+                moduleExports = header >>= snd,
+                moduleImports = imports,
+                moduleDecls = mergeAdjacentFunctions decls
+              }
 
 moduleParser :: ParserConfig -> MParser (Maybe (Text, Maybe [ExportSpec]), [(Int, Text)])
 moduleParser _cfg = do
@@ -163,17 +173,6 @@ skipBlankLines =
     _ <- MP.takeWhileP Nothing (\c -> c == ' ' || c == '\t')
     _ <- C.eol
     pure ()
-
-firstNonEmptyLineNo :: Text -> Int
-firstNonEmptyLineNo txt = go 1 (T.lines txt)
-  where
-    go n ls =
-      case ls of
-        [] -> 1
-        l : rest ->
-          if T.null (T.strip l)
-            then go (n + 1) rest
-            else n
 
 parseModuleBodyBraces :: ParserConfig -> Int -> Text -> Either ParseError Module
 parseModuleBodyBraces cfg lineNo txt
