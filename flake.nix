@@ -17,6 +17,13 @@
     in {
       apps = forAllSystems (pkgs:
         let
+          hsPkgs = pkgs.haskellPackages.override {
+            overrides = final: prev: {
+              ghc-lib-parser = pkgs.haskell.lib.dontHaddock final.ghc-lib-parser_9_14_1_20251220;
+              aihc-parser = final.callCabal2nix "aihc-parser" ./components/haskell-parser { };
+            };
+          };
+          extensionProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser "extension-progress";
           mkApp = name: text: {
             type = "app";
             program = "${pkgs.writeShellApplication {
@@ -53,7 +60,7 @@
               exit 1
             }
             cd components/haskell-parser
-            cabal run extension-progress -- "$@"
+            ${extensionProgressExe} "$@"
           '';
 
           hackage-tester = mkApp "hackage-tester" ''
@@ -84,7 +91,7 @@
               exit 1
             }
             cd components/haskell-parser
-            cabal run extension-progress -- --strict "$@"
+            ${extensionProgressExe} --strict "$@"
           '';
 
           name-resolution-test = mkApp "name-resolution-test" ''
