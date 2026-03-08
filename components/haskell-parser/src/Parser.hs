@@ -115,15 +115,11 @@ consumeModuleHeader rows =
     [] -> Nothing
     (_, firstLine) : _
       | not (startsWithModuleKeyword firstLine) -> Nothing
-      | otherwise -> go 0 [] rows
+      | otherwise -> go [] rows
   where
-    maxHeaderProbeLines :: Int
-    maxHeaderProbeLines = 64
-
-    go _ _ [] = Nothing
-    go lineCount acc ((_, rawLine) : rest) =
-      let lineCount' = lineCount + 1
-          trimmed = T.strip rawLine
+    go _ [] = Nothing
+    go acc ((_, rawLine) : rest) =
+      let trimmed = T.strip rawLine
           acc' = acc <> [trimmed]
        in if containsWhereKeyword trimmed
             then
@@ -132,9 +128,7 @@ consumeModuleHeader rows =
                     Right parsedHeader -> Just (parsedHeader, rest)
                     Left _ -> Nothing
             else
-              if lineCount' >= maxHeaderProbeLines
-                then Nothing
-                else go lineCount' acc' rest
+              go acc' rest
 
 startsWithModuleKeyword :: Text -> Bool
 startsWithModuleKeyword txt =
@@ -143,7 +137,24 @@ startsWithModuleKeyword txt =
     Left _ -> False
 
 containsWhereKeyword :: Text -> Bool
-containsWhereKeyword txt = "where" `elem` T.words txt
+containsWhereKeyword txt = go Nothing (T.unpack txt)
+  where
+    go _ [] = False
+    go prev chars =
+      case chars of
+        'w' : 'h' : 'e' : 'r' : 'e' : rest
+          | isTokenBoundary prev && isTokenBoundary (safeHead rest) -> True
+        c : rest -> go (Just c) rest
+
+    isTokenBoundary mChar =
+      case mChar of
+        Nothing -> True
+        Just c -> not (isIdentTailOrStart c)
+
+    safeHead xs =
+      case xs of
+        [] -> Nothing
+        y : _ -> Just y
 
 parseModuleBodyBraces :: ParserConfig -> Int -> Text -> Either ParseError Module
 parseModuleBodyBraces cfg lineNo txt
