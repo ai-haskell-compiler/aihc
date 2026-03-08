@@ -71,35 +71,12 @@ parseModuleLines :: ParserConfig -> Text -> Either ParseError Module
 parseModuleLines cfg input = do
   let strippedComments = stripComments cfg input
   case runParser (moduleFileParser cfg <* eof) "<module>" strippedComments of
-    Right modu -> Right modu
-    Left bundle -> Left (bundleToError strippedComments bundle)
-
-moduleFileParser :: ParserConfig -> MParser Module
-moduleFileParser cfg = do
-  skipBlankLines
-  done <- MP.option False (True <$ eof)
-  if done
-    then
-      pure
-        Module
-          { moduleSpan = span0,
-            moduleName = Nothing,
-            moduleExports = Nothing,
-            moduleImports = [],
-            moduleDecls = []
-          }
-    else do
-      pos <- MP.getSourcePos
-      raw <- MP.getInput
-      case parseModuleBodyBraces cfg (unPos (MP.sourceLine pos)) (T.strip raw) of
-        Right modu -> MP.setInput "" >> pure modu
-        Left _ -> do
-          (header, chunks) <- moduleParser cfg
-          (imports, decls) <-
-            case parseTopLevelChunks cfg chunks of
-              Right result -> pure result
-              Left err -> fail (show err)
-          pure
+    Right seed ->
+      case seed of
+        ParsedModule modu -> Right modu
+        ParsedChunks header chunks -> do
+          (imports, decls) <- parseTopLevelChunks cfg chunks
+          Right
             Module
               { moduleSpan = span0,
                 moduleName = fmap fst header,
@@ -107,6 +84,35 @@ moduleFileParser cfg = do
                 moduleImports = imports,
                 moduleDecls = mergeAdjacentFunctions decls
               }
+    Left bundle -> Left (bundleToError strippedComments bundle)
+
+data ModuleFileSeed
+  = ParsedModule Module
+  | ParsedChunks (Maybe (Text, Maybe [ExportSpec])) [(Int, Text)]
+
+moduleFileParser :: ParserConfig -> MParser ModuleFileSeed
+moduleFileParser cfg = do
+  skipBlankLines
+  done <- MP.option False (True <$ eof)
+  if done
+    then
+      pure $
+        ParsedModule
+          Module
+            { moduleSpan = span0,
+              moduleName = Nothing,
+              moduleExports = Nothing,
+              moduleImports = [],
+              moduleDecls = []
+            }
+    else do
+      pos <- MP.getSourcePos
+      raw <- MP.getInput
+      case parseModuleBodyBraces cfg (unPos (MP.sourceLine pos)) (T.strip raw) of
+        Right modu -> MP.setInput "" >> pure (ParsedModule modu)
+        Left _ -> do
+          (header, chunks) <- moduleParser cfg
+          pure (ParsedChunks header chunks)
 
 moduleParser :: ParserConfig -> MParser (Maybe (Text, Maybe [ExportSpec]), [(Int, Text)])
 moduleParser _cfg = do
