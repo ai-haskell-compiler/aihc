@@ -235,6 +235,7 @@ prettyPattern pat =
     PList _ elems -> brackets (hsep (punctuate comma (map prettyPattern elems)))
     PCon _ con args -> hsep (pretty con : map prettyPatternAtom args)
     PInfix _ lhs op rhs -> prettyPatternAtom lhs <+> pretty op <+> prettyPatternAtom rhs
+    PView _ viewExpr inner -> parens (prettyExprPrec 0 viewExpr <+> "->" <+> prettyPattern inner)
     PAs _ name inner -> pretty name <> "@" <> prettyPatternAtom inner
     PIrrefutable _ inner -> "~" <> prettyPatternAtom inner
     PNegLit _ lit -> "-" <> prettyLiteral lit
@@ -261,6 +262,7 @@ prettyPatternAtom pat =
     PList _ _ -> prettyPattern pat
     PTuple _ _ -> prettyPattern pat
     PParen _ _ -> prettyPattern pat
+    PView {} -> prettyPattern pat
     _ -> parens (prettyPattern pat)
 
 prettyLiteral :: Literal -> Doc ann

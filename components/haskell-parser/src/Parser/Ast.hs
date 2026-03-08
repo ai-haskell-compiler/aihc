@@ -156,6 +156,7 @@ data Pattern
   | PList SourceSpan [Pattern]
   | PCon SourceSpan Text [Pattern]
   | PInfix SourceSpan Pattern Text Pattern
+  | PView SourceSpan Expr Pattern
   | PAs SourceSpan Text Pattern
   | PIrrefutable SourceSpan Pattern
   | PNegLit SourceSpan Literal

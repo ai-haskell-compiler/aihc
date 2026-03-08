@@ -1,0 +1,3 @@
+viewpatterns-funarg	patterns	viewpatterns-funarg.hs	pass
+viewpatterns-casealt	patterns	viewpatterns-casealt.hs	pass
+viewpatterns-patbind	patterns	viewpatterns-patbind.hs	pass
