@@ -930,29 +930,32 @@ parseTypeText input =
       let stripped = T.strip atomTxt
        in if T.null stripped
             then Left "type"
-            else case T.uncons stripped of
-              Just ('[', _) | T.last stripped == ']' -> do
-                inner <- parseTypeText (T.init (T.tail stripped))
-                Right (TList span0 inner)
-              Just ('(', _)
-                | T.last stripped == ')' ->
-                    let inner = T.strip (T.init (T.tail stripped))
-                        tupleParts = splitTopLevel ',' inner
-                        tupleCtorLike = not (T.null inner) && T.all (== ',') inner
-                     in if inner == "->"
-                          then Right (TCon span0 "(->)")
-                          else
-                            if tupleCtorLike
-                              then Right (TCon span0 ("(" <> inner <> ")"))
+            else case parseQuasiQuoteText stripped of
+              Just (quoter, body) -> Right (TQuasiQuote span0 quoter body)
+              Nothing ->
+                case T.uncons stripped of
+                  Just ('[', _) | T.last stripped == ']' -> do
+                    inner <- parseTypeText (T.init (T.tail stripped))
+                    Right (TList span0 inner)
+                  Just ('(', _)
+                    | T.last stripped == ')' ->
+                        let inner = T.strip (T.init (T.tail stripped))
+                            tupleParts = splitTopLevel ',' inner
+                            tupleCtorLike = not (T.null inner) && T.all (== ',') inner
+                         in if inner == "->"
+                              then Right (TCon span0 "(->)")
                               else
-                                if T.null inner
-                                  then Right (TTuple span0 [])
+                                if tupleCtorLike
+                                  then Right (TCon span0 ("(" <> inner <> ")"))
                                   else
-                                    if length tupleParts > 1
-                                      then TTuple span0 <$> traverse parseTypeText tupleParts
-                                      else TParen span0 <$> parseTypeText inner
-              _ | isTypeToken stripped -> Right (TCon span0 stripped)
-              _ -> Right (TVar span0 stripped)
+                                    if T.null inner
+                                      then Right (TTuple span0 [])
+                                      else
+                                        if length tupleParts > 1
+                                          then TTuple span0 <$> traverse parseTypeText tupleParts
+                                          else TParen span0 <$> parseTypeText inner
+                  _ | isTypeToken stripped -> Right (TCon span0 stripped)
+                  _ -> Right (TVar span0 stripped)
 
 parseConstraints :: Text -> Either Text [Constraint]
 parseConstraints txt =
@@ -998,6 +1001,7 @@ parsePatternText input =
 parsePatternCore :: Text -> Either Text Pattern
 parsePatternCore txt
   | txt == "_" = Right (PWildcard span0)
+  | Just (quoter, body) <- parseQuasiQuoteText txt = Right (PQuasiQuote span0 quoter body)
   | otherwise =
       case parseLiteralText txt of
         Just lit -> Right (PLit span0 lit)
@@ -1168,6 +1172,7 @@ parseExprCore txt
   | "let " `T.isPrefixOf` txt = parseLetExpr txt
   | "case " `T.isPrefixOf` txt = parseCaseExpr txt
   | hasLeadingDoKeyword txt = parseDoExpr txt
+  | Just (quoter, body) <- parseQuasiQuoteText txt = Right (EQuasiQuote span0 quoter body)
   | T.length txt >= 2 && T.head txt == '[' && T.last txt == ']' = parseListExpr txt
   | otherwise =
       case splitTopLevelMaybe "::" txt of
@@ -1430,21 +1435,24 @@ parseAtomicExpression atomTxt =
   let txt = T.strip atomTxt
    in if T.null txt
         then Left "expression"
-        else case parseLiteralText txt of
-          Just lit ->
-            case lit of
-              LitInt _ n -> Right (EInt span0 n)
-              LitIntBase _ n repr -> Right (EIntBase span0 n repr)
-              LitFloat _ n -> Right (EFloat span0 n)
-              LitChar _ c -> Right (EChar span0 c)
-              LitString _ s -> Right (EString span0 s)
+        else case parseQuasiQuoteText txt of
+          Just (quoter, body) -> Right (EQuasiQuote span0 quoter body)
           Nothing ->
-            if hasOuterParens txt
-              then parseParenExpr txt
-              else
-                if T.length txt >= 2 && T.head txt == '[' && T.last txt == ']'
-                  then parseListExpr txt
-                  else Right (EVar span0 txt)
+            case parseLiteralText txt of
+              Just lit ->
+                case lit of
+                  LitInt _ n -> Right (EInt span0 n)
+                  LitIntBase _ n repr -> Right (EIntBase span0 n repr)
+                  LitFloat _ n -> Right (EFloat span0 n)
+                  LitChar _ c -> Right (EChar span0 c)
+                  LitString _ s -> Right (EString span0 s)
+              Nothing ->
+                if hasOuterParens txt
+                  then parseParenExpr txt
+                  else
+                    if T.length txt >= 2 && T.head txt == '[' && T.last txt == ']'
+                      then parseListExpr txt
+                      else Right (EVar span0 txt)
 
 parseParenExpr :: Text -> Either Text Expr
 parseParenExpr txt =
@@ -1522,7 +1530,10 @@ tokenizeExpr input = go (T.strip input) []
         Nothing -> Left "expression"
         Just (c, _)
           | c == '(' -> consumeBalanced '(' ')' txt
-          | c == '[' -> consumeBalanced '[' ']' txt
+          | c == '[' ->
+              case consumeQuasiQuoteChunk txt of
+                Just chunk -> Right chunk
+                Nothing -> consumeBalanced '[' ']' txt
           | c == '{' -> consumeBalanced '{' '}' txt
           | c == '"' -> consumeQuoted '"' txt
           | c == '\'' -> consumeQuoted '\'' txt
@@ -1556,6 +1567,38 @@ tokenizeExpr input = go (T.strip input) []
                   let (frac, tailTxt) = T.span isDigit afterDot
                    in (whole <> "." <> frac, tailTxt)
             _ -> (whole, rest)
+
+consumeQuasiQuoteChunk :: Text -> Maybe (Text, Text)
+consumeQuasiQuoteChunk txt = do
+  (_, _, rest) <- splitLeadingQuasiQuote txt
+  let consumedLen = T.length txt - T.length rest
+  pure (T.take consumedLen txt, rest)
+
+parseQuasiQuoteText :: Text -> Maybe (Text, Text)
+parseQuasiQuoteText txt = do
+  (quoter, body, rest) <- splitLeadingQuasiQuote txt
+  if T.null rest then Just (quoter, body) else Nothing
+
+splitLeadingQuasiQuote :: Text -> Maybe (Text, Text, Text)
+splitLeadingQuasiQuote txt = do
+  ('[', afterOpen) <- T.uncons txt
+  let (quoter, afterQuoter) = T.breakOn "|" afterOpen
+  if T.null quoter || not (isQuoterName quoter)
+    then Nothing
+    else do
+      bodyAndRest <- T.stripPrefix "|" afterQuoter
+      let (body, markerAndRest) = T.breakOn "|]" bodyAndRest
+      rest <- T.stripPrefix "|]" markerAndRest
+      pure (quoter, body, rest)
+
+isQuoterName :: Text -> Bool
+isQuoterName name =
+  all isQuoterSegment (T.splitOn "." name)
+  where
+    isQuoterSegment seg =
+      case T.uncons seg of
+        Just (c, rest) -> (isAlpha c || c == '_') && T.all isIdentTailOrStart rest
+        Nothing -> False
 
 consumeBalanced :: Char -> Char -> Text -> Either Text (Text, Text)
 consumeBalanced open close txt =
@@ -1710,6 +1753,8 @@ findTopLevelKeyword token txt
               if c == '\''
                 then go parenN braceN bracketN inStr False (ix + 1) cs
                 else go parenN braceN bracketN inStr True (ix + 1) cs
+          | Just (chunk, restAfter) <- consumeQuasiQuoteChunk remaining ->
+              go parenN braceN bracketN inStr inChr (ix + T.length chunk) restAfter
           | parenN == 0 && braceN == 0 && bracketN == 0 && T.isPrefixOf token remaining ->
               if matchesBoundary ix
                 then Just ix
@@ -1752,6 +1797,8 @@ splitTopLevel delim input = reverse (go (0 :: Int) (0 :: Int) (0 :: Int) False F
               if c == '\''
                 then go parenN braceN bracketN inStr False (T.snoc current c) cs acc
                 else go parenN braceN bracketN inStr True (T.snoc current c) cs acc
+          | Just (chunk, restAfter) <- consumeQuasiQuoteChunk remaining ->
+              go parenN braceN bracketN inStr inChr (current <> chunk) restAfter acc
           | c == '"' -> go parenN braceN bracketN True inChr (T.snoc current c) cs acc
           | c == '\'' -> go parenN braceN bracketN inStr True (T.snoc current c) cs acc
           | c == '(' -> go (parenN + 1) braceN bracketN inStr inChr (T.snoc current c) cs acc
@@ -1784,6 +1831,8 @@ splitTopLevelWords txt = reverse (go (T.strip txt) [] T.empty (0 :: Int) (0 :: I
               if c == '\''
                 then go cs acc (T.snoc token c) parenN braceN bracketN inStr False
                 else go cs acc (T.snoc token c) parenN braceN bracketN inStr True
+          | Just (chunk, restAfter) <- consumeQuasiQuoteChunk remaining ->
+              go restAfter acc (token <> chunk) parenN braceN bracketN inStr inChr
           | c == '"' -> go cs acc (T.snoc token c) parenN braceN bracketN True inChr
           | c == '\'' -> go cs acc (T.snoc token c) parenN braceN bracketN inStr True
           | c == '(' -> go cs acc (T.snoc token c) (parenN + 1) braceN bracketN inStr inChr
@@ -1813,6 +1862,8 @@ findTopLevelToken token txt
               if c == '\''
                 then go parenN braceN bracketN inStr False (ix + 1) cs
                 else go parenN braceN bracketN inStr True (ix + 1) cs
+          | Just (chunk, restAfter) <- consumeQuasiQuoteChunk remaining ->
+              go parenN braceN bracketN inStr inChr (ix + T.length chunk) restAfter
           | parenN == 0 && braceN == 0 && bracketN == 0 && T.isPrefixOf token remaining -> Just ix
           | c == '"' -> go parenN braceN bracketN True inChr (ix + 1) cs
           | c == '\'' -> go parenN braceN bracketN inStr True (ix + 1) cs
@@ -1835,6 +1886,8 @@ findTopLevelEqualsIndex txt = go (0 :: Int) (0 :: Int) (0 :: Int) False 0 txt
               if c == '"'
                 then go parenN braceN bracketN False (ix + 1) cs
                 else go parenN braceN bracketN True (ix + 1) cs
+          | Just (chunk, restAfter) <- consumeQuasiQuoteChunk remaining ->
+              go parenN braceN bracketN inStr (ix + T.length chunk) restAfter
           | c == '"' -> go parenN braceN bracketN True (ix + 1) cs
           | c == '(' -> go (parenN + 1) braceN bracketN inStr (ix + 1) cs
           | c == ')' -> go (max 0 (parenN - 1)) braceN bracketN inStr (ix + 1) cs
@@ -2010,23 +2063,27 @@ stripComments cfg = go (0 :: Int) False False False T.empty
                         then go blockDepth False False False (T.snoc acc c) cs
                         else go blockDepth False True False (T.snoc acc c) cs
           | otherwise ->
-              case T.stripPrefix "{-" remaining of
-                Just rest -> go (blockDepth + 1) False False False acc rest
+              case consumeQuasiQuoteChunk remaining of
+                Just (chunk, rest) ->
+                  go blockDepth False False False (acc <> chunk) rest
                 Nothing ->
-                  if allowLineComments cfg && "--" `T.isPrefixOf` remaining
-                    then
-                      let afterComment = T.drop 2 remaining
-                          (_, newlineAndRest) = T.break (== '\n') afterComment
-                       in case T.uncons newlineAndRest of
-                            Just ('\n', rest) -> go blockDepth False False False (T.snoc acc '\n') rest
-                            _ -> acc
-                    else
-                      if c == '"'
-                        then go blockDepth True False False (T.snoc acc c) cs
+                  case T.stripPrefix "{-" remaining of
+                    Just rest -> go (blockDepth + 1) False False False acc rest
+                    Nothing ->
+                      if allowLineComments cfg && "--" `T.isPrefixOf` remaining
+                        then
+                          let afterComment = T.drop 2 remaining
+                              (_, newlineAndRest) = T.break (== '\n') afterComment
+                           in case T.uncons newlineAndRest of
+                                Just ('\n', rest) -> go blockDepth False False False (T.snoc acc '\n') rest
+                                _ -> acc
                         else
-                          if c == '\''
-                            then go blockDepth False True False (T.snoc acc c) cs
-                            else go blockDepth False False False (T.snoc acc c) cs
+                          if c == '"'
+                            then go blockDepth True False False (T.snoc acc c) cs
+                            else
+                              if c == '\''
+                                then go blockDepth False True False (T.snoc acc c) cs
+                                else go blockDepth False False False (T.snoc acc c) cs
 
 isFixityDecl :: Text -> Bool
 isFixityDecl txt =

@@ -1,13 +1,13 @@
 # Haskell Parser Extension Support Status
 
-**Generated**: 2026-03-07
+**Generated**: 2026-03-08
 
 ## Summary
 
 - Total Extensions: 33
-- Supported: 1
+- Supported: 2
 - In Progress: 0
-- Planned: 32
+- Planned: 31
 
 ## Extension Status
 
@@ -42,7 +42,7 @@
 | ConstraintKinds | Planned | - | Constraint kinds |
 | PolyKinds | Planned | - | Polymorphic kinds |
 | TemplateHaskell | Planned | - | Template Haskell |
-| QuasiQuotes | Planned | - | Quasi quotes |
+| QuasiQuotes | Supported | 3/3 | Quasi quotes |
 | Arrows | Planned | - | Arrows |
 | ParallelArrays | Planned | - | Parallel arrays |
 | ExplicitNamespaces | Planned | - | Explicit namespaces |
