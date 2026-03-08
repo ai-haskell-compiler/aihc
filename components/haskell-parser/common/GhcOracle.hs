@@ -71,7 +71,6 @@ parseWithGhcWithExtensions sourceTag extraExts input =
 extractLanguagePragmas :: ParserOpts -> FilePath -> Text -> [Text]
 extractLanguagePragmas opts sourcePath input =
   let buffer = stringToStringBuffer (T.unpack input)
-      fallbackPragmas = extractLeadingLanguagePragmas input
       pragmasFromOptions =
         let (_, rawOpts) = getOptions opts [] buffer sourcePath
          in foldr collectLanguagePragma [] rawOpts
@@ -79,15 +78,8 @@ extractLanguagePragmas opts sourcePath input =
       optsResult =
         unsafePerformIO (try (evaluate (forceList pragmasFromOptions)))
    in case optsResult of
-        Right pragmas ->
-          case (pragmas, fallbackPragmas) of
-            ([], _) -> fallbackPragmas
-            (_, []) -> pragmas
-            _ ->
-              if pragmas == fallbackPragmas
-                then pragmas
-                else fallbackPragmas
-        Left _ -> fallbackPragmas
+        Right pragmas -> pragmas
+        Left _ -> []
   where
     forceList :: [Text] -> [Text]
     forceList xs = go xs `seq` xs
@@ -105,31 +97,6 @@ extractLanguagePragmas opts sourcePath input =
               | T.null (T.strip ext) -> acc
               | otherwise -> T.strip ext : acc
             Nothing -> acc
-
-extractLeadingLanguagePragmas :: Text -> [Text]
-extractLeadingLanguagePragmas = go False []
-  where
-    go inBlock acc txt =
-      case T.uncons txt of
-        Nothing -> reverse acc
-        Just _ ->
-          let (line, rest0) = T.break (== '\n') txt
-              rest = if T.null rest0 then rest0 else T.drop 1 rest0
-              stripped = T.strip line
-           in if inBlock
-                then
-                  if "-}" `T.isInfixOf` stripped
-                    then go False acc rest
-                    else go True acc rest
-                else
-                  if T.null stripped || "--" `T.isPrefixOf` stripped
-                    then go False acc rest
-                    else
-                      if "{-" `T.isPrefixOf` stripped && not ("{-#" `T.isPrefixOf` stripped)
-                        then go (not ("-}" `T.isInfixOf` stripped)) acc rest
-                        else case parseLanguagePragmaLine stripped of
-                          Just names -> go False (reverse names <> acc) rest
-                          Nothing -> reverse acc
 
 parseLanguagePragmaLine :: Text -> Maybe [Text]
 parseLanguagePragmaLine txt
