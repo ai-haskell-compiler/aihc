@@ -78,7 +78,8 @@ Beyond Haskell2010, we track support for various Haskell language extensions. Ea
 ### Generating Extension Status Report
 
 ```bash
-nix run .#extension-report-markdown
+nix run .#parser-extension-progress -- --markdown \
+  | sed -n '/^# Haskell Parser Extension Support Status/,$p'
 ```
 
 This generates a markdown report showing:
@@ -105,7 +106,7 @@ list-comp-parallel-1	expressions	list-comp.hs	pass	parallel list comprehension
 
 ### NIX Commands
 
-- `nix run .#extension-report-markdown` - Generate markdown report to stdout
+- `nix run .#parser-extension-progress -- --markdown | sed -n '/^# Haskell Parser Extension Support Status/,$p'` - Generate clean markdown report to stdout
 - `nix build .#extension-report` - Build report to result/ directory
 - `nix flake check` - Includes extension report as part of CI checks
 
