@@ -630,7 +630,6 @@ tightTypeAppTarget expr =
     EVar {} -> True
     EParen {} -> True
     ETupleCon {} -> True
-    ETypeApp {} -> True
     _ -> False
 
 quoted :: Text -> Doc ann

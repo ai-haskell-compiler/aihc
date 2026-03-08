@@ -131,7 +131,10 @@ classifyOutcome expected oracleOk roundtripOk =
       | not roundtripOk -> (OutcomeFail, "roundtrip mismatch against oracle AST")
       | otherwise -> (OutcomePass, "")
     ExpectXFail
-      | not oracleOk -> (OutcomeXFail, "")
+      | not oracleOk ->
+          ( OutcomeFail,
+            "oracle rejected xfail case (fixture invalid or missing oracle extension mapping)"
+          )
       | roundtripOk -> (OutcomeXPass, "case now passes oracle and roundtrip checks")
       | otherwise -> (OutcomeXFail, "")
 

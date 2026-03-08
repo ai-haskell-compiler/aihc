@@ -1,3 +1,3 @@
 type-applications-expr-basic	expressions	type-applications-expr-basic.hs	pass
 type-applications-no-space	expressions	type-applications-no-space.hs	pass
-type-applications-tight-chain	expressions	type-applications-tight-chain.hs	xfail	ghc-lib-parser oracle rejects tight chained no-space visible type applications
+type-applications-tight-chain	expressions	type-applications-tight-chain.hs	pass

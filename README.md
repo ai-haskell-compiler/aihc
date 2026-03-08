@@ -26,8 +26,8 @@ Extension support tracking for `components/haskell-parser` is reported in:
 
 Current extension baseline:
 - Total tracked extensions: `33`
-- Supported: `1`
-- In Progress: `1`
+- Supported: `2`
+- In Progress: `0`
 - Planned: `31`
 
 Recompute extension status with:

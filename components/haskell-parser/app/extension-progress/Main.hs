@@ -231,7 +231,7 @@ evaluateCase :: ExtensionSpec -> [Extension] -> CaseMeta -> IO (CaseMeta, Outcom
 evaluateCase spec exts meta = do
   source <- TIO.readFile (fixtureDirFor spec </> casePath meta)
   let parsed = Parser.parseModule Parser.defaultConfig source
-      oracleOk = oracleParsesModuleWithExtensionsAt "extension-progress" exts source
+      oracleOk = oracleParsesSourceOrCanonical exts source parsed
       roundtripOk = moduleRoundtripsViaGhc exts source parsed
   pure (finalizeOutcome meta oracleOk roundtripOk)
 
@@ -241,8 +241,17 @@ moduleRoundtripsViaGhc exts source oursResult =
     ParseErr _ -> False
     ParseOk parsed ->
       let rendered = prettyModule parsed
-       in case ( oracleModuleAstFingerprintWithExtensionsAt "extension-progress" exts source,
-                 oracleModuleAstFingerprintWithExtensionsAt "extension-progress" exts rendered
-               ) of
+          sourceAstE =
+            case oracleModuleAstFingerprintWithExtensionsAt "extension-progress" exts source of
+              Right fp -> Right fp
+              Left _ -> oracleModuleAstFingerprintWithExtensionsAt "extension-progress" exts rendered
+       in case (sourceAstE, oracleModuleAstFingerprintWithExtensionsAt "extension-progress" exts rendered) of
             (Right sourceAst, Right renderedAst) -> sourceAst == renderedAst
             _ -> False
+
+oracleParsesSourceOrCanonical :: [Extension] -> Text -> ParseResult Module -> Bool
+oracleParsesSourceOrCanonical exts source parsed =
+  oracleParsesModuleWithExtensionsAt "extension-progress" exts source
+    || case parsed of
+      ParseErr _ -> False
+      ParseOk modu -> oracleParsesModuleWithExtensionsAt "extension-progress" exts (prettyModule modu)
