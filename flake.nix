@@ -21,9 +21,15 @@
             overrides = final: prev: {
               ghc-lib-parser = pkgs.haskell.lib.dontHaddock final.ghc-lib-parser_9_14_1_20251220;
               aihc-parser = final.callCabal2nix "aihc-parser" ./components/haskell-parser { };
+              aihc-name-resolution =
+                final.callCabal2nix "aihc-name-resolution" ./components/haskell-name-resolution { };
             };
           };
+          h2010ProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser "h2010-progress";
           extensionProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser "extension-progress";
+          hackageTesterExe = pkgs.lib.getExe' hsPkgs.aihc-parser "hackage-tester";
+          nameResolutionProgressExe =
+            pkgs.lib.getExe' hsPkgs.aihc-name-resolution "name-resolution-progress";
           mkApp = name: text: {
             type = "app";
             program = "${pkgs.writeShellApplication {
@@ -50,7 +56,7 @@
               exit 1
             }
             cd components/haskell-parser
-            cabal run h2010-progress
+            ${h2010ProgressExe}
           '';
 
           parser-extension-progress = mkApp "parser-extension-progress" ''
@@ -71,7 +77,7 @@
             }
             cd components/haskell-parser
             cabal update 2>/dev/null || true
-            cabal run hackage-tester -- "$@"
+            ${hackageTesterExe} "$@"
           '';
 
           parser-progress-strict = mkApp "parser-progress-strict" ''
@@ -81,7 +87,7 @@
               exit 1
             }
             cd components/haskell-parser
-            cabal run h2010-progress -- --strict
+            ${h2010ProgressExe} --strict
           '';
 
           parser-extension-progress-strict = mkApp "parser-extension-progress-strict" ''
@@ -111,7 +117,7 @@
               exit 1
             }
             cd components/haskell-name-resolution
-            cabal run name-resolution-progress
+            ${nameResolutionProgressExe}
           '';
 
           name-resolution-progress-strict = mkApp "name-resolution-progress-strict" ''
@@ -121,7 +127,7 @@
               exit 1
             }
             cd components/haskell-name-resolution
-            cabal run name-resolution-progress -- --strict
+            ${nameResolutionProgressExe} --strict
           '';
 
           default = mkApp "default" ''
