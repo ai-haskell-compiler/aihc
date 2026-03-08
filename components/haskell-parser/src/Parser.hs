@@ -1497,11 +1497,8 @@ tokenizeExpr input = go (T.strip input) []
         then Left "expression"
         else do
           (typeAtom, tailTxt) <- consumeAtom trimmed
-          if not (T.null tailTxt) && T.head tailTxt == '@'
-            then Left "expression"
-            else do
-              ty <- parseTypeText typeAtom
-              Right (ty, tailTxt)
+          ty <- parseTypeText typeAtom
+          Right (ty, tailTxt)
 
     isAtomStop ch = isSpace ch || ch == '`' || ch == '@' || (isSymbolicOpChar ch && ch /= '.')
 
