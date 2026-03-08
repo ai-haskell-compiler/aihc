@@ -115,21 +115,35 @@ consumeModuleHeader rows =
     [] -> Nothing
     (_, firstLine) : _
       | not (startsWithModuleKeyword firstLine) -> Nothing
-      | otherwise -> go [] rows
+      | otherwise -> go 0 [] rows
   where
-    go _ [] = Nothing
-    go acc ((_, rawLine) : rest) =
-      let acc' = acc <> [T.strip rawLine]
-          candidate = T.intercalate "\n" acc'
-       in case parseModuleHeader candidate of
-            Right parsedHeader -> Just (parsedHeader, rest)
-            Left _ -> go acc' rest
+    maxHeaderProbeLines :: Int
+    maxHeaderProbeLines = 64
+
+    go _ _ [] = Nothing
+    go lineCount acc ((_, rawLine) : rest) =
+      let lineCount' = lineCount + 1
+          trimmed = T.strip rawLine
+          acc' = acc <> [trimmed]
+       in if containsWhereKeyword trimmed
+            then
+              let candidate = T.intercalate "\n" acc'
+               in case parseModuleHeader candidate of
+                    Right parsedHeader -> Just (parsedHeader, rest)
+                    Left _ -> Nothing
+            else
+              if lineCount' >= maxHeaderProbeLines
+                then Nothing
+                else go lineCount' acc' rest
 
 startsWithModuleKeyword :: Text -> Bool
 startsWithModuleKeyword txt =
   case parseLineWith (keyword "module") (T.strip txt) of
     Right _ -> True
     Left _ -> False
+
+containsWhereKeyword :: Text -> Bool
+containsWhereKeyword txt = "where" `elem` T.words txt
 
 parseModuleBodyBraces :: ParserConfig -> Int -> Text -> Either ParseError Module
 parseModuleBodyBraces cfg lineNo txt
