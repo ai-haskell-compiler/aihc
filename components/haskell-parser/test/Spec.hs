@@ -30,6 +30,7 @@ buildTests :: IO TestTree
 buildTests = do
   exprOk <- goldenGroup "golden/expr/ok" expectExprOk
   exprErr <- goldenGroup "golden/expr/err" expectExprErr
+  exprRoundtrip <- goldenGroup "golden/expr/roundtrip" expectExprRoundTrip
   moduleOk <- goldenGroup "golden/module/ok" expectModuleOk
   moduleErr <- goldenGroup "golden/module/err" expectModuleErr
   h2010 <- h2010Tests
@@ -37,7 +38,7 @@ buildTests = do
   pure $
     testGroup
       "aihc-parser"
-      [ testGroup "golden" [exprOk, exprErr, moduleOk, moduleErr],
+      [ testGroup "golden" [exprOk, exprErr, exprRoundtrip, moduleOk, moduleErr],
         testGroup
           "properties"
           [ QC.testProperty "generated expr AST pretty-printer round-trip" prop_exprPrettyRoundTrip,
@@ -67,6 +68,29 @@ expectExprErr input =
   case parseExpr defaultConfig input of
     ParseOk ast -> assertFailure ("expected expr failure, got " <> show ast)
     ParseErr _ -> pure ()
+
+expectExprRoundTrip :: Text -> Assertion
+expectExprRoundTrip input =
+  case parseExpr defaultConfig input of
+    ParseErr err -> assertFailure ("expected roundtrip source to parse, got " <> show err)
+    ParseOk parsed ->
+      let rendered = prettyExpr parsed
+       in case parseExpr defaultConfig rendered of
+            ParseErr err -> assertFailure ("expected rendered expr to parse, got " <> show err <> " rendered=" <> show rendered)
+            ParseOk reparsed ->
+              if stripExprParens reparsed == stripExprParens parsed
+                then pure ()
+                else
+                  assertFailure
+                    ( "expr roundtrip AST mismatch source="
+                        <> show input
+                        <> " rendered="
+                        <> show rendered
+                        <> " parsed="
+                        <> show parsed
+                        <> " reparsed="
+                        <> show reparsed
+                    )
 
 expectModuleOk :: Text -> Assertion
 expectModuleOk input =
