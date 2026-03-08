@@ -181,23 +181,20 @@ skipBlankLines =
     pure ()
 
 parseModuleBodyBraces :: ParserConfig -> Int -> Text -> Either ParseError Module
-parseModuleBodyBraces cfg lineNo txt
-  | hasOuterBraces txt =
-      case splitOuterBraces txt of
-        Right (before, inside)
-          | T.null (T.strip before) -> do
-              let chunks = map (lineNo,) (splitDeclItems inside)
-              (imports, decls) <- parseTopLevelChunks cfg chunks
-              Right
-                Module
-                  { moduleSpan = span0,
-                    moduleName = Nothing,
-                    moduleExports = Nothing,
-                    moduleImports = imports,
-                    moduleDecls = mergeAdjacentFunctions decls
-                  }
-        _ -> Left (mkModuleParseErr lineNo txt)
-  | otherwise = Left (mkModuleParseErr lineNo txt)
+parseModuleBodyBraces cfg lineNo txt =
+  case runParser (moduleBodyChunksParser <* eof) "<module-body>" txt of
+    Right bodyChunks -> do
+      let chunks = map (lineNo,) bodyChunks
+      (imports, decls) <- parseTopLevelChunks cfg chunks
+      Right
+        Module
+          { moduleSpan = span0,
+            moduleName = Nothing,
+            moduleExports = Nothing,
+            moduleImports = imports,
+            moduleDecls = mergeAdjacentFunctions decls
+          }
+    Left _ -> Left (mkModuleParseErr lineNo txt)
   where
     mkModuleParseErr ln raw =
       ParseError
@@ -207,6 +204,40 @@ parseModuleBodyBraces cfg lineNo txt
           expected = ["module body"],
           found = if T.null (T.strip raw) then Nothing else Just (T.strip raw)
         }
+
+moduleBodyChunksParser :: MParser [Text]
+moduleBodyChunksParser = do
+  _ <- C.char '{'
+  go (0 :: Int) False False T.empty []
+  where
+    go depth inStr inChr current acc = do
+      mCh <- MP.optional MP.anySingle
+      case mCh of
+        Nothing -> fail "module body"
+        Just ch
+          | inStr ->
+              if ch == '"'
+                then go depth False inChr (T.snoc current ch) acc
+                else go depth True inChr (T.snoc current ch) acc
+          | inChr ->
+              if ch == '\''
+                then go depth inStr False (T.snoc current ch) acc
+                else go depth inStr True (T.snoc current ch) acc
+          | ch == '"' -> go depth True inChr (T.snoc current ch) acc
+          | ch == '\'' -> go depth inStr True (T.snoc current ch) acc
+          | ch == '{' -> go (depth + 1) inStr inChr (T.snoc current ch) acc
+          | ch == '}' ->
+              if depth == 0
+                then pure (reverse (emitChunk current acc))
+                else go (depth - 1) inStr inChr (T.snoc current ch) acc
+          | ch == ';' && depth == 0 -> go depth inStr inChr T.empty (emitChunk current acc)
+          | otherwise -> go depth inStr inChr (T.snoc current ch) acc
+
+    emitChunk chunk acc
+      | T.null trimmed = acc
+      | otherwise = trimmed : acc
+      where
+        trimmed = T.strip chunk
 
 exportSpecListParser :: MParser [ExportSpec]
 exportSpecListParser = do
