@@ -1,13 +1,20 @@
+Build profile: -w ghc-9.10.3 -O1
+In order, the following will be built (use -v for more details):
+ - aihc-parser-0.1.0.0 (exe:extension-progress) (file /Users/lemmih/.codex/worktrees/4e0b/aihc/components/haskell-parser/dist-newstyle/build/aarch64-osx/ghc-9.10.3/aihc-parser-0.1.0.0/cache/build changed)
+Preprocessing executable 'extension-progress' for aihc-parser-0.1.0.0...
+Building executable 'extension-progress' for aihc-parser-0.1.0.0...
+[3 of 3] Compiling Main             ( app/extension-progress/Main.hs, dist-newstyle/build/aarch64-osx/ghc-9.10.3/aihc-parser-0.1.0.0/x/extension-progress/build/extension-progress/extension-progress-tmp/Main.o ) [Parser changed]
+[4 of 4] Linking dist-newstyle/build/aarch64-osx/ghc-9.10.3/aihc-parser-0.1.0.0/x/extension-progress/build/extension-progress/extension-progress [Objects changed]
 # Haskell Parser Extension Support Status
 
-**Generated**: 2026-03-07
+**Generated**: 2026-03-08
 
 ## Summary
 
 - Total Extensions: 33
-- Supported: 1
+- Supported: 2
 - In Progress: 0
-- Planned: 32
+- Planned: 31
 
 ## Extension Status
 
@@ -42,7 +49,7 @@
 | ConstraintKinds | Planned | - | Constraint kinds |
 | PolyKinds | Planned | - | Polymorphic kinds |
 | TemplateHaskell | Planned | - | Template Haskell |
-| QuasiQuotes | Planned | - | Quasi quotes |
+| QuasiQuotes | Supported | 3/3 | Quasi quotes |
 | Arrows | Planned | - | Arrows |
 | ParallelArrays | Planned | - | Parallel arrays |
 | ExplicitNamespaces | Planned | - | Explicit namespaces |
