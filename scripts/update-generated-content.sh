@@ -187,7 +187,9 @@ replace_marker_block() {
   ' "$file" > "$tmp_out"
 
   if [ "$mode" = "--update" ]; then
-    mv "$tmp_out" "$file"
+    if ! cmp -s "$file" "$tmp_out"; then
+      cat "$tmp_out" > "$file"
+    fi
   else
     if ! cmp -s "$file" "$tmp_out"; then
       echo "Generated block out of date: ${file} (${marker})" >&2
