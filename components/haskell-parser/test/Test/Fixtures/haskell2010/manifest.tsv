@@ -248,4 +248,3 @@ hashable-lowlevel-cpp-ifdef	corpus	corpus/hashable/hashable-lowlevel-cpp-ifdef.h
 hashable-properties-unboxed-tuples	corpus	corpus/hashable/hashable-properties-unboxed-tuples.hs	xfail	from hashable/tests/Properties.hs; parser rejects unboxed tuple syntax
 hashable-regress-cpp-have-mmap	corpus	corpus/hashable/hashable-regress-cpp-have-mmap.hs	xfail	from hashable/tests/Regress.hs; parser does not handle CPP conditional compilation
 hashable-xxhash-tests-numeric-underscores	corpus	corpus/hashable/hashable-xxhash-tests-numeric-underscores.hs	xfail	from hashable/tests/xxhash-tests.hs; parser rejects NumericUnderscores literals
-hashable-setup-shebang	corpus	corpus/hashable/hashable-setup-shebang.hs	xfail	from hashable/Setup.hs; parser rejects shebang headers
