@@ -12,7 +12,6 @@ The from-scratch parser lives in `components/haskell-parser`.
 Current Haskell2010 progress:
 <!-- AUTO-GENERATED: START parser-progress -->
 - `230/239` syntax cases implemented (`96.23%` complete)
-- status breakdown: `PASS=230`, `XFAIL=9`, `XPASS=0`, `FAIL=0`
 <!-- AUTO-GENERATED: END parser-progress -->
 
 ## Haskell Parser Extension Support Progress
@@ -26,6 +25,8 @@ Current extension baseline:
 - Supported: `4`
 - In Progress: `0`
 - Planned: `29`
+- Supported extensions: `ParallelListComp, ViewPatterns, TypeApplications, QuasiQuotes`
+- In Progress extensions: ``
 <!-- AUTO-GENERATED: END parser-extension-progress -->
 
 ## CPP Preprocessor Progress
@@ -35,7 +36,6 @@ The pure CPP component lives in `components/haskell-cpp`.
 Current progress:
 <!-- AUTO-GENERATED: START cpp-progress -->
 - `9/14` preprocessing cases implemented (`64.28%` complete)
-- status breakdown: `PASS=9`, `XFAIL=5`, `XPASS=0`, `FAIL=0`
 <!-- AUTO-GENERATED: END cpp-progress -->
 
 ## Name-Resolution Progress
@@ -45,7 +45,6 @@ The name-resolution component lives in `components/haskell-name-resolution`.
 Current progress:
 <!-- AUTO-GENERATED: START name-resolution-progress -->
 - `10/12` capability cases implemented (`83.33%` complete)
-- status breakdown: `PASS=10`, `XFAIL=2`, `XPASS=0`, `FAIL=0`
 <!-- AUTO-GENERATED: END name-resolution-progress -->
 
 Generate all tracked docs/sections:
