@@ -1090,9 +1090,7 @@ parseEquationDecl cfg txt = do
   case parseGuardedEquationDecl cfg txt of
     Right guardedDecl -> Right guardedDecl
     Left _ -> do
-      (lhsRaw, rhsRaw) <- splitTopLevelOnce "=" txt
-      let lhs = T.strip lhsRaw
-          rhs0 = T.strip rhsRaw
+      (lhs, rhs0) <- splitTopLevelOperatorTokenized "=" "equation declaration" txt
       if T.null lhs || T.null rhs0
         then Left "equation declaration"
         else do
@@ -1124,7 +1122,7 @@ parseGuardedEquationDecl cfg txt = do
     [] -> Left "equation declaration"
     (headRow : guardRows)
       | null guardRows -> Left "equation declaration"
-      | hasTopLevelEquals headRow -> Left "equation declaration"
+      | hasTopLevelEqualsTokenized headRow -> Left "equation declaration"
       | otherwise ->
           case parseFunctionLhs headRow of
             Nothing -> Left "equation declaration"
@@ -1147,7 +1145,7 @@ parseGuardedEquationDecl cfg txt = do
   where
     parseGuardRow row = do
       guardBody <- maybe (Left "guarded equation") Right (T.stripPrefix "|" row)
-      (guardTxt, exprTxt) <- splitTopLevelOnce "=" guardBody
+      (guardTxt, exprTxt) <- splitTopLevelOperatorTokenized "=" "guarded equation" guardBody
       guardExpr <-
         case parseExpr cfg guardTxt of
           ParseOk expr -> Right expr
@@ -1179,10 +1177,37 @@ parseLocalDecls cfg txt =
 parseLocalDecl :: ParserConfig -> Text -> Either Text Decl
 parseLocalDecl cfg row
   | T.null (T.strip row) = Left "local declaration"
-  | hasTopLevelTypeSig row = parseTypeSignatureDeclText row
+  | hasTopLevelTypeSigTokenized row = parseTypeSignatureDeclText row
   | isFixityDecl row = parseFixityDeclText row
-  | hasTopLevelEquals row = parseEquationDecl cfg row
+  | hasTopLevelEqualsTokenized row = parseEquationDecl cfg row
   | otherwise = Left "local declaration"
+
+splitTopLevelOperatorTokenized :: Text -> Text -> Text -> Either Text (Text, Text)
+splitTopLevelOperatorTokenized op errLabel txt =
+  case lexTokens txt of
+    Right toks ->
+      case splitTokensOnTopLevelOperator op toks of
+        Just _ ->
+          case splitTopLevelOnce op txt of
+            Right (lhs, rhs) -> Right (lhs, rhs)
+            Left _ -> Left errLabel
+        Nothing -> Left errLabel
+    Left _ ->
+      case splitTopLevelOnce op txt of
+        Right (lhs, rhs) -> Right (lhs, rhs)
+        Left _ -> Left errLabel
+
+hasTopLevelEqualsTokenized :: Text -> Bool
+hasTopLevelEqualsTokenized = hasTopLevelOperatorTokenized "="
+
+hasTopLevelTypeSigTokenized :: Text -> Bool
+hasTopLevelTypeSigTokenized = hasTopLevelOperatorTokenized "::"
+
+hasTopLevelOperatorTokenized :: Text -> Text -> Bool
+hasTopLevelOperatorTokenized op txt =
+  case lexTokens txt of
+    Right toks -> isJust (splitTokensOnTopLevelOperator op toks)
+    Left _ -> hasTopLevelToken op txt
 
 localDeclsToSimpleBindings :: [Decl] -> Maybe [(Text, Expr)]
 localDeclsToSimpleBindings = traverse toSimpleBinding
