@@ -23,10 +23,10 @@ Current extension baseline:
 <!-- AUTO-GENERATED: START parser-extension-progress -->
 - Total tracked extensions: `58`
 - Supported: `4`
-- In Progress: `0`
-- Planned: `54`
+- In Progress: `1`
+- Planned: `53`
 - Supported extensions: `ParallelListComp, QuasiQuotes, TypeApplications, ViewPatterns`
-- In Progress extensions: ``
+- In Progress extensions: `LambdaCase`
 <!-- AUTO-GENERATED: END parser-extension-progress -->
 
 ## CPP Preprocessor Progress
