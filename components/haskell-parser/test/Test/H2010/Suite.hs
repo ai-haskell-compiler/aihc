@@ -124,8 +124,7 @@ evaluateCase meta = do
 
 evaluateCaseText :: CaseMeta -> Text -> IO Outcome
 evaluateCaseText meta source = do
-  preprocessed <- preprocessForParserWithoutIncludes (casePath meta) source
-  let source' = resultOutput preprocessed
+  let source' = resultOutput (preprocessForParserWithoutIncludes (casePath meta) source)
       oursResult = Parser.parseModule Parser.defaultConfig source'
       oracleOk = oracleParsesModule source'
       roundtripOk = moduleRoundtripsViaGhc source' oursResult

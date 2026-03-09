@@ -108,8 +108,7 @@ pct done totalN
 evaluateCase :: CaseMeta -> IO (CaseMeta, Outcome, String)
 evaluateCase meta = do
   source <- TIO.readFile (fixtureRoot </> casePath meta)
-  preprocessed <- preprocessForParserWithoutIncludes (casePath meta) source
-  let source' = resultOutput preprocessed
+  let source' = resultOutput (preprocessForParserWithoutIncludes (casePath meta) source)
       parsed = Parser.parseModule Parser.defaultConfig source'
       oracleOk = oracleParsesModule source'
       roundtripOk = moduleRoundtripsViaGhc source' parsed

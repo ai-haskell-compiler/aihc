@@ -102,8 +102,7 @@ evaluateCaseFromFile spec exts meta = do
 
 evaluateCase :: ExtensionSpec -> [Extension] -> CaseMeta -> Text -> IO (CaseMeta, Outcome, String)
 evaluateCase _spec exts meta source = do
-  preprocessed <- preprocessForParserWithoutIncludes (casePath meta) source
-  let source' = resultOutput preprocessed
+  let source' = resultOutput (preprocessForParserWithoutIncludes (casePath meta) source)
       parsed = Parser.parseModule Parser.defaultConfig source'
       oracleOk = oracleParsesModuleWithExtensions exts source'
       roundtripOk = moduleRoundtripsViaGhc exts source' parsed

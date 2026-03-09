@@ -15,8 +15,9 @@ import Cpp
   )
 import Data.Text (Text)
 import qualified Data.Text as T
+import Data.Functor.Identity (Identity (..), runIdentity)
 
-preprocessForParser :: FilePath -> (IncludeRequest -> IO (Maybe Text)) -> Text -> IO Result
+preprocessForParser :: Monad m => FilePath -> (IncludeRequest -> m (Maybe Text)) -> Text -> m Result
 preprocessForParser inputFile resolveInclude source = do
   result <- drive (preprocess Config {configInputFile = inputFile} source)
   pure result {resultOutput = stripLinePragmas (resultOutput result)}
@@ -24,9 +25,9 @@ preprocessForParser inputFile resolveInclude source = do
     drive (Done result) = pure result
     drive (NeedInclude req k) = resolveInclude req >>= drive . k
 
-preprocessForParserWithoutIncludes :: FilePath -> Text -> IO Result
-preprocessForParserWithoutIncludes inputFile =
-  preprocessForParser inputFile (\_ -> pure Nothing)
+preprocessForParserWithoutIncludes :: FilePath -> Text -> Result
+preprocessForParserWithoutIncludes inputFile source =
+  runIdentity (preprocessForParser inputFile (\_ -> Identity Nothing) source)
 
 stripLinePragmas :: Text -> Text
 stripLinePragmas =
