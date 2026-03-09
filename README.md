@@ -1,4 +1,4 @@
-# aihc
+# AI-written Haskell Compiler (aihc)
 
 ## Docs
 
@@ -15,12 +15,6 @@ Current Haskell2010 progress:
 - status breakdown: `PASS=230`, `XFAIL=9`, `XPASS=0`, `FAIL=0`
 <!-- AUTO-GENERATED: END parser-progress -->
 
-Recompute progress with:
-
-```bash
-nix run .#parser-progress
-```
-
 ## Haskell Parser Extension Support Progress
 
 Extension support tracking for `components/haskell-parser` is reported in:
@@ -34,20 +28,6 @@ Current extension baseline:
 - Planned: `29`
 <!-- AUTO-GENERATED: END parser-extension-progress -->
 
-Recompute extension status with:
-
-```bash
-nix run .#parser-extension-progress
-```
-
-Regenerate the markdown report with:
-
-```bash
-nix run .#parser-extension-progress -- --markdown \
-  | sed -n '/^# Haskell Parser Extension Support Status/,$p' \
-  > docs/haskell-parser-extension-support.md
-```
-
 ## CPP Preprocessor Progress
 
 The pure CPP component lives in `components/haskell-cpp`.
@@ -58,12 +38,6 @@ Current progress:
 - status breakdown: `PASS=9`, `XFAIL=5`, `XPASS=0`, `FAIL=0`
 <!-- AUTO-GENERATED: END cpp-progress -->
 
-Recompute progress with:
-
-```bash
-nix run .#cpp-progress
-```
-
 ## Name-Resolution Progress
 
 The name-resolution component lives in `components/haskell-name-resolution`.
@@ -73,12 +47,6 @@ Current progress:
 - `10/12` capability cases implemented (`83.33%` complete)
 - status breakdown: `PASS=10`, `XFAIL=2`, `XPASS=0`, `FAIL=0`
 <!-- AUTO-GENERATED: END name-resolution-progress -->
-
-Recompute progress with:
-
-```bash
-nix run .#name-resolution-progress
-```
 
 Generate all tracked docs/sections:
 
