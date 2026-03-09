@@ -460,32 +460,44 @@ parseTypeSynonymDecl txt = do
 
 parseDataDeclText :: Text -> Either Text Decl
 parseDataDeclText txt = do
-  raw <- maybe (Left "data declaration") Right (T.stripPrefix "data" (T.stripStart txt))
-  parseDataLike False (T.strip raw)
+  toks <- lexTokens txt
+  bodyToks <-
+    case runParser (tokWord "data" *> many MP.anySingle <* eof) "<data-decl>" toks of
+      Right parsed -> Right parsed
+      Left _ -> Left "data declaration"
+  parseDataLike False bodyToks
 
 parseNewtypeDeclText :: Text -> Either Text Decl
 parseNewtypeDeclText txt = do
-  raw <- maybe (Left "newtype declaration") Right (T.stripPrefix "newtype" (T.stripStart txt))
-  parseDataLike True (T.strip raw)
+  toks <- lexTokens txt
+  bodyToks <-
+    case runParser (tokWord "newtype" *> many MP.anySingle <* eof) "<newtype-decl>" toks of
+      Right parsed -> Right parsed
+      Left _ -> Left "newtype declaration"
+  parseDataLike True bodyToks
 
-parseDataLike :: Bool -> Text -> Either Text Decl
-parseDataLike isNewtype raw = do
-  let (noDeriving, derivingClauseText) = splitDerivingClause raw
-  (lhs, rhsMaybe) <-
-    case splitTopLevelMaybe "=" noDeriving of
-      Just (a, b) -> Right (a, Just b)
-      Nothing -> Right (noDeriving, Nothing)
-  (ctx, headText) <- parseContextPrefix lhs
+parseDataLike :: Bool -> [LexToken] -> Either Text Decl
+parseDataLike isNewtype rawToks = do
+  let (noDerivingToks, derivingClauseToks) =
+        case splitTokensOnTopLevelKeyword "deriving" rawToks of
+          Just (before, after) -> (before, Just after)
+          Nothing -> (rawToks, Nothing)
+      (lhsToks, rhsToks) =
+        case splitTokensOnTopLevelOperator "=" noDerivingToks of
+          Just (a, b) -> (a, Just b)
+          Nothing -> (noDerivingToks, Nothing)
+      lhsText = T.strip (tokensToSourceText lhsToks)
+  (ctx, headText) <- parseContextPrefix lhsText
   let toks = splitTopLevelWords headText
   case toks of
     [] -> Left "data declaration"
     (typeName : params)
       | isTypeToken typeName -> do
           ctors <-
-            case rhsMaybe of
+            case rhsToks of
               Nothing -> Right []
-              Just rhsText -> parseConstructorsText rhsText
-          derivingClause <- traverse parseDerivingClauseText derivingClauseText
+              Just rhsText -> parseConstructorsText (tokensToSourceText rhsText)
+          derivingClause <- traverse (parseDerivingClauseText . tokensToSourceText) derivingClauseToks
           if isNewtype
             then
               Right
@@ -517,12 +529,6 @@ parseDataLike isNewtype raw = do
                       }
                 )
       | otherwise -> Left "data declaration"
-
-splitDerivingClause :: Text -> (Text, Maybe Text)
-splitDerivingClause txt =
-  case splitTopLevelMaybe " deriving" txt of
-    Nothing -> (T.strip txt, Nothing)
-    Just (before, after) -> (T.strip before, Just (T.strip after))
 
 parseDerivingClauseText :: Text -> Either Text DerivingClause
 parseDerivingClauseText txt
@@ -558,19 +564,29 @@ parsePrefixConstructor txt =
     [] -> Left "constructor"
     (name : args)
       | isTypeToken name || isOperatorToken name -> do
-          bangTypes <- traverse parseBangTypeText args
+          bangTypes <- traverse parseBangTypeText (normalizeBangTypeTokens args)
           Right (PrefixCon span0 (stripParens name) bangTypes)
       | otherwise -> Left "constructor"
 
 parseInfixConstructor :: Text -> Maybe DataConDecl
 parseInfixConstructor txt =
-  case splitTopLevelWords txt of
+  case normalizeBangTypeTokens (splitTopLevelWords txt) of
     [lhs, op, rhs]
       | isOperatorToken op -> do
           lhsTy <- either (const Nothing) Just (parseBangTypeText lhs)
           rhsTy <- either (const Nothing) Just (parseBangTypeText rhs)
           Just (InfixCon span0 lhsTy op rhsTy)
     _ -> Nothing
+
+normalizeBangTypeTokens :: [Text] -> [Text]
+normalizeBangTypeTokens toks =
+  case toks of
+    [] -> []
+    "!" : rest ->
+      case rest of
+        [] -> ["!"]
+        next : more -> ("!" <> next) : normalizeBangTypeTokens more
+    tok : rest -> tok : normalizeBangTypeTokens rest
 
 parseRecordConstructor :: Text -> Either Text DataConDecl
 parseRecordConstructor txt = do
@@ -629,14 +645,20 @@ parseBangTypeText txt =
 
 parseClassDeclText :: ParserConfig -> Text -> Either Text Decl
 parseClassDeclText cfg txt = do
-  raw <- maybe (Left "class declaration") Right (T.stripPrefix "class" (T.stripStart txt))
-  let (headText, bodyText) =
-        case splitTopLevelMaybe "where" raw of
+  toks <- lexTokens txt
+  rawToks <-
+    case runParser (tokWord "class" *> many MP.anySingle <* eof) "<class-decl>" toks of
+      Right parsed -> Right parsed
+      Left _ -> Left "class declaration"
+  let (headToks, bodyToks) =
+        case splitTokensOnTopLevelKeyword "where" rawToks of
           Just (a, b) -> (a, Just b)
-          Nothing -> (raw, Nothing)
+          Nothing -> (rawToks, Nothing)
+      headText = tokensToSourceText headToks
+      bodyText = fmap tokensToSourceText bodyToks
   (ctx, clsHead) <- parseContextPrefix headText
-  let toks = splitTopLevelWords clsHead
-  case toks of
+  let headToksWords = splitTopLevelWords clsHead
+  case headToksWords of
     [clsName, param]
       | isTypeToken clsName -> do
           items <- maybe (Right []) (parseClassItems cfg) bodyText
@@ -681,14 +703,20 @@ parseClassItem cfg txt
 
 parseInstanceDeclText :: ParserConfig -> Text -> Either Text Decl
 parseInstanceDeclText cfg txt = do
-  raw <- maybe (Left "instance declaration") Right (T.stripPrefix "instance" (T.stripStart txt))
-  let (headText, bodyText) =
-        case splitTopLevelMaybe "where" raw of
+  toks <- lexTokens txt
+  rawToks <-
+    case runParser (tokWord "instance" *> many MP.anySingle <* eof) "<instance-decl>" toks of
+      Right parsed -> Right parsed
+      Left _ -> Left "instance declaration"
+  let (headToks, bodyToks) =
+        case splitTokensOnTopLevelKeyword "where" rawToks of
           Just (a, b) -> (a, Just b)
-          Nothing -> (raw, Nothing)
+          Nothing -> (rawToks, Nothing)
+      headText = tokensToSourceText headToks
+      bodyText = fmap tokensToSourceText bodyToks
   (ctx, instHead) <- parseContextPrefix headText
-  let toks = splitTopLevelWords instHead
-  case toks of
+  let headToksWords = splitTopLevelWords instHead
+  case headToksWords of
     [] -> Left "instance declaration"
     (clsName : typeToks)
       | isTypeToken clsName -> do
@@ -854,6 +882,53 @@ splitTokensOnTopLevelCommas toks = go toks (0 :: Int) (0 :: Int) (0 :: Int) [] [
                     then Left "malformed token groups"
                     else go rest parenDepth bracketDepth braceDepth [] (reverse current : acc)
             _ -> go rest parenDepth bracketDepth braceDepth (tok : current) acc
+
+splitTokensOnTopLevelKeyword :: Text -> [LexToken] -> Maybe ([LexToken], [LexToken])
+splitTokensOnTopLevelKeyword kw = splitTokensOnTopLevel (isWordToken kw)
+
+splitTokensOnTopLevelOperator :: Text -> [LexToken] -> Maybe ([LexToken], [LexToken])
+splitTokensOnTopLevelOperator op = splitTokensOnTopLevel (isOperatorTokenKind op)
+
+splitTokensOnTopLevel :: (LexToken -> Bool) -> [LexToken] -> Maybe ([LexToken], [LexToken])
+splitTokensOnTopLevel isTarget toks = go toks (0 :: Int) (0 :: Int) (0 :: Int) []
+  where
+    go remaining parenDepth bracketDepth braceDepth acc =
+      case remaining of
+        [] -> Nothing
+        (tok : rest) ->
+          let atTop = parenDepth == 0 && bracketDepth == 0 && braceDepth == 0
+           in if atTop && isTarget tok
+                then Just (reverse acc, rest)
+                else case lexTokenKind tok of
+                  TkSymbol "(" -> go rest (parenDepth + 1) bracketDepth braceDepth (tok : acc)
+                  TkSymbol ")" ->
+                    if parenDepth <= 0
+                      then Nothing
+                      else go rest (parenDepth - 1) bracketDepth braceDepth (tok : acc)
+                  TkSymbol "[" -> go rest parenDepth (bracketDepth + 1) braceDepth (tok : acc)
+                  TkSymbol "]" ->
+                    if bracketDepth <= 0
+                      then Nothing
+                      else go rest parenDepth (bracketDepth - 1) braceDepth (tok : acc)
+                  TkSymbol "{" -> go rest parenDepth bracketDepth (braceDepth + 1) (tok : acc)
+                  TkSymbol "}" ->
+                    if braceDepth <= 0
+                      then Nothing
+                      else go rest parenDepth bracketDepth (braceDepth - 1) (tok : acc)
+                  _ -> go rest parenDepth bracketDepth braceDepth (tok : acc)
+
+isWordToken :: Text -> LexToken -> Bool
+isWordToken expectedWord tok =
+  case lexTokenKind tok of
+    TkKeyword txt -> txt == expectedWord
+    TkIdentifier txt -> txt == expectedWord
+    _ -> False
+
+isOperatorTokenKind :: Text -> LexToken -> Bool
+isOperatorTokenKind expectedOp tok =
+  case lexTokenKind tok of
+    TkOperator txt -> txt == expectedOp
+    _ -> False
 
 stripOuterParensTokens :: [LexToken] -> [LexToken]
 stripOuterParensTokens toks
@@ -1234,7 +1309,8 @@ parseTypeText input =
 parseConstraints :: Text -> Either Text [Constraint]
 parseConstraints txt =
   let stripped = T.strip txt
-   in if stripped == "()"
+      compact = T.filter (not . isSpace) stripped
+   in if stripped == "()" || compact == "()"
         then Right [Constraint {constraintSpan = span0, constraintClass = "()", constraintArgs = [], constraintParen = False}]
         else
           let inner = if hasOuterParens stripped then T.drop 1 (T.dropEnd 1 stripped) else stripped
