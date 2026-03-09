@@ -11,14 +11,20 @@ where
 import Data.Char (isAlpha, isAlphaNum, isDigit, isHexDigit, isLower, isSpace, isUpper)
 import Data.List.NonEmpty (NonEmpty ((:|)))
 import qualified Data.List.NonEmpty as NE
-import Data.Maybe (fromMaybe, isJust)
+import Data.Maybe (fromMaybe, isJust, mapMaybe)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Void (Void)
 import Numeric (readHex, readOct)
 import Parser.Ast
-import Parser.Lexer (parseImportDeclTokens, parseModuleHeaderTokens)
+import Parser.Lexer
+  ( LexToken (..),
+    LexTokenKind (..),
+    lexTokens,
+    parseImportDeclTokens,
+    parseModuleHeaderTokens,
+  )
 import Parser.Types
 import Text.Megaparsec
   ( Parsec,
@@ -289,19 +295,74 @@ parseImportDeclText :: Text -> Either Text ImportDecl
 parseImportDeclText = parseImportDeclTokens
 
 parseDeclText :: ParserConfig -> Text -> Either Text Decl
-parseDeclText cfg txt
-  | "foreign import" `T.isPrefixOf` txt = parseForeignDeclText ForeignImport txt
-  | "foreign export" `T.isPrefixOf` txt = parseForeignDeclText ForeignExport txt
-  | "data " `T.isPrefixOf` txt = parseDataDeclText txt
-  | "newtype " `T.isPrefixOf` txt = parseNewtypeDeclText txt
-  | "type " `T.isPrefixOf` txt = parseTypeSynonymDecl txt
-  | "class " `T.isPrefixOf` txt = parseClassDeclText cfg txt
-  | "instance " `T.isPrefixOf` txt = parseInstanceDeclText cfg txt
-  | "default " `T.isPrefixOf` txt = parseDefaultDeclText txt
-  | isFixityDecl txt = parseFixityDeclText txt
-  | hasTopLevelEquals txt = parseEquationDecl cfg txt
-  | hasTopLevelTypeSig txt = parseTypeSignatureDeclText txt
-  | otherwise = Left "declaration"
+parseDeclText cfg txt =
+  case classifyDeclHead txt of
+    DeclHeadForeignImport -> parseForeignDeclText ForeignImport txt
+    DeclHeadForeignExport -> parseForeignDeclText ForeignExport txt
+    DeclHeadData -> parseDataDeclText txt
+    DeclHeadNewtype -> parseNewtypeDeclText txt
+    DeclHeadTypeSynonym -> parseTypeSynonymDecl txt
+    DeclHeadClass -> parseClassDeclText cfg txt
+    DeclHeadInstance -> parseInstanceDeclText cfg txt
+    DeclHeadDefault -> parseDefaultDeclText txt
+    DeclHeadFixity -> parseFixityDeclText txt
+    DeclHeadOther
+      | hasTopLevelEquals txt -> parseEquationDecl cfg txt
+      | hasTopLevelTypeSig txt -> parseTypeSignatureDeclText txt
+      | otherwise -> Left "declaration"
+
+data DeclHead
+  = DeclHeadForeignImport
+  | DeclHeadForeignExport
+  | DeclHeadData
+  | DeclHeadNewtype
+  | DeclHeadTypeSynonym
+  | DeclHeadClass
+  | DeclHeadInstance
+  | DeclHeadDefault
+  | DeclHeadFixity
+  | DeclHeadOther
+
+classifyDeclHead :: Text -> DeclHead
+classifyDeclHead txt =
+  case lexTokens txt of
+    Right toks -> classifyDeclHeadTokens toks
+    Left _ -> classifyDeclHeadText txt
+
+classifyDeclHeadTokens :: [LexToken] -> DeclHead
+classifyDeclHeadTokens toks =
+  case mapMaybe tokenWord toks of
+    "foreign" : "import" : _ -> DeclHeadForeignImport
+    "foreign" : "export" : _ -> DeclHeadForeignExport
+    "data" : _ -> DeclHeadData
+    "newtype" : _ -> DeclHeadNewtype
+    "type" : _ -> DeclHeadTypeSynonym
+    "class" : _ -> DeclHeadClass
+    "instance" : _ -> DeclHeadInstance
+    "default" : _ -> DeclHeadDefault
+    "infix" : _ -> DeclHeadFixity
+    "infixl" : _ -> DeclHeadFixity
+    "infixr" : _ -> DeclHeadFixity
+    _ -> DeclHeadOther
+  where
+    tokenWord tok =
+      case lexTokenKind tok of
+        TkKeyword t -> Just t
+        TkIdentifier t -> Just t
+        _ -> Nothing
+
+classifyDeclHeadText :: Text -> DeclHead
+classifyDeclHeadText txt
+  | "foreign import" `T.isPrefixOf` txt = DeclHeadForeignImport
+  | "foreign export" `T.isPrefixOf` txt = DeclHeadForeignExport
+  | "data " `T.isPrefixOf` txt = DeclHeadData
+  | "newtype " `T.isPrefixOf` txt = DeclHeadNewtype
+  | "type " `T.isPrefixOf` txt = DeclHeadTypeSynonym
+  | "class " `T.isPrefixOf` txt = DeclHeadClass
+  | "instance " `T.isPrefixOf` txt = DeclHeadInstance
+  | "default " `T.isPrefixOf` txt = DeclHeadDefault
+  | isFixityDecl txt = DeclHeadFixity
+  | otherwise = DeclHeadOther
 
 parseTypeSignatureDeclText :: Text -> Either Text Decl
 parseTypeSignatureDeclText txt = do
