@@ -26,7 +26,7 @@ Current extension baseline:
 - In Progress: `0`
 - Planned: `54`
 - Supported extensions: `ParallelListComp, QuasiQuotes, TypeApplications, ViewPatterns`
-- In Progress extensions: _(none)_
+- In Progress extensions: ``
 <!-- AUTO-GENERATED: END parser-extension-progress -->
 
 ## CPP Preprocessor Progress
