@@ -315,8 +315,8 @@ parseDeclText cfg txt =
     DeclHeadDefault -> parseDefaultDeclText txt
     DeclHeadFixity -> parseFixityDeclText txt
     DeclHeadOther
-      | hasTopLevelEquals txt -> parseEquationDecl cfg txt
-      | hasTopLevelTypeSig txt -> parseTypeSignatureDeclText txt
+      | hasTopLevelEqualsTokenized txt -> parseEquationDecl cfg txt
+      | hasTopLevelTypeSigTokenized txt -> parseTypeSignatureDeclText txt
       | otherwise -> Left "declaration"
 
 data DeclHead
@@ -693,7 +693,7 @@ parseClassItems cfg txt =
 parseClassItem :: ParserConfig -> Text -> Either Text ClassDeclItem
 parseClassItem cfg txt
   | T.null (T.strip txt) = Left "class item"
-  | hasTopLevelTypeSig txt = do
+  | hasTopLevelTypeSigTokenized txt = do
       decl <- parseTypeSignatureDeclText txt
       case decl of
         DeclTypeSig _ names ty -> Right (ClassItemTypeSig span0 names ty)
@@ -703,7 +703,7 @@ parseClassItem cfg txt
       case decl of
         DeclFixity _ assoc prec ops -> Right (ClassItemFixity span0 assoc prec ops)
         _ -> Left "class item"
-  | hasTopLevelEquals txt = do
+  | hasTopLevelEqualsTokenized txt = do
       decl <- parseEquationDecl cfg txt
       case decl of
         DeclValue _ v -> Right (ClassItemDefault span0 v)
@@ -753,7 +753,7 @@ parseInstanceItems cfg txt =
 parseInstanceItem :: ParserConfig -> Text -> Either Text InstanceDeclItem
 parseInstanceItem cfg txt
   | T.null (T.strip txt) = Left "instance item"
-  | hasTopLevelTypeSig txt = do
+  | hasTopLevelTypeSigTokenized txt = do
       decl <- parseTypeSignatureDeclText txt
       case decl of
         DeclTypeSig _ names ty -> Right (InstanceItemTypeSig span0 names ty)
@@ -763,7 +763,7 @@ parseInstanceItem cfg txt
       case decl of
         DeclFixity _ assoc prec ops -> Right (InstanceItemFixity span0 assoc prec ops)
         _ -> Left "instance item"
-  | hasTopLevelEquals txt = do
+  | hasTopLevelEqualsTokenized txt = do
       decl <- parseEquationDecl cfg txt
       case decl of
         DeclValue _ v -> Right (InstanceItemBind span0 v)
@@ -2393,12 +2393,6 @@ findMatchingBrace = go (0 :: Int) (0 :: Int) False False
                 then Just ix
                 else go (ix + 1) (depth - 1) inStr inChr cs
           | otherwise -> go (ix + 1) depth inStr inChr cs
-
-hasTopLevelTypeSig :: Text -> Bool
-hasTopLevelTypeSig = hasTopLevelToken "::"
-
-hasTopLevelEquals :: Text -> Bool
-hasTopLevelEquals = hasTopLevelToken "="
 
 hasTopLevelToken :: Text -> Text -> Bool
 hasTopLevelToken token txt =
