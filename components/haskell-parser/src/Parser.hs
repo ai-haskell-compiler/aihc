@@ -374,26 +374,53 @@ parseTypeSignatureDeclText txt = do
       Right (DeclTypeSig span0 names ty)
 
 parseFixityDeclText :: Text -> Either Text Decl
-parseFixityDeclText txt =
-  case T.words txt of
-    assocTxt : rest -> do
-      assoc <- parseAssoc assocTxt
-      case rest of
-        [] -> Left "fixity declaration"
-        (x : xs)
-          | T.all isDigit x ->
-              case xs of
-                [] -> Left "fixity declaration"
-                _ -> Right (DeclFixity span0 assoc (Just (read (T.unpack x))) (map stripParens xs))
-          | otherwise -> Right (DeclFixity span0 assoc Nothing (map stripParens rest))
-    _ -> Left "fixity declaration"
-  where
-    parseAssoc token =
-      case token of
-        "infix" -> Right Infix
-        "infixl" -> Right InfixL
-        "infixr" -> Right InfixR
-        _ -> Left "fixity declaration"
+parseFixityDeclText txt = do
+  toks <- lexTokens txt
+  (assoc, prec, ops) <-
+    case runParser (fixityDeclTokParser <* eof) "<fixity-decl>" toks of
+      Right parsed -> Right parsed
+      Left _ -> Left "fixity declaration"
+  if null ops
+    then Left "fixity declaration"
+    else Right (DeclFixity span0 assoc prec ops)
+
+fixityDeclTokParser :: TokParser (FixityAssoc, Maybe Int, [Text])
+fixityDeclTokParser = do
+  assoc <- assocTokParser
+  prec <- MP.optional (try precedenceTokParser)
+  op <- fixityTargetTokParser
+  rest <- many (MP.optional (try (symbolTokParser ",")) *> fixityTargetTokParser)
+  pure (assoc, prec, op : rest)
+
+assocTokParser :: TokParser FixityAssoc
+assocTokParser =
+  tokenSatisfy $ \tok ->
+    case lexTokenKind tok of
+      TkIdentifier "infix" -> Just Infix
+      TkIdentifier "infixl" -> Just InfixL
+      TkIdentifier "infixr" -> Just InfixR
+      TkKeyword "infix" -> Just Infix
+      TkKeyword "infixl" -> Just InfixL
+      TkKeyword "infixr" -> Just InfixR
+      _ -> Nothing
+
+precedenceTokParser :: TokParser Int
+precedenceTokParser =
+  tokenSatisfy $ \tok ->
+    case lexTokenKind tok of
+      TkInteger n
+        | n >= 0 -> Just (fromInteger n)
+      _ -> Nothing
+
+fixityTargetTokParser :: TokParser Text
+fixityTargetTokParser =
+  anyOperatorTokParser
+    <|> identifierTokParser
+    <|> do
+      symbolTokParser "("
+      op <- anyOperatorTokParser
+      symbolTokParser ")"
+      pure op
 
 parseTypeSynonymDecl :: Text -> Either Text Decl
 parseTypeSynonymDecl txt = do
