@@ -5,7 +5,7 @@ This component implements a pure Haskell C preprocessor used by the parser pipel
 ## Why not use an off-the-shelf CPP?
 
 - We do not want to depend on an external system `cpp` binary, because availability and behavior vary by environment/version.
-- We do not want to depend on `cpphs` as a runtime library due licensing constraints (LGPL) and because we want full control of the implementation roadmap.
+- We do not want to depend on `cpphs` as a runtime library due to licensing constraints (LGPL) and because we want full control of the implementation roadmap.
 - We still use `cpphs` in tests as an oracle to measure behavioral compatibility.
 
 ## Progress Tracking

@@ -95,130 +95,104 @@ currentActive (f : _) = frameCurrentActive f
 type Continuation = EngineState -> Step
 
 processFile :: FilePath -> [Text] -> Int -> [CondFrame] -> EngineState -> Continuation -> Step
-processFile filePath lines0 lineNo stack st k
-  | lineNo > length lines0 = k st
-  | otherwise =
-      let line = lines0 !! (lineNo - 1)
-          active = currentActive stack
-       in case parseDirective line of
-            Nothing ->
-              if active
-                then processFile filePath lines0 (lineNo + 1) stack (emitLine (expandMacros (stMacros st) line) st) k
-                else processFile filePath lines0 (lineNo + 1) stack st k
-            Just directive ->
-              handleDirective directive
-  where
-    handleDirective directive =
-      case directive of
-        DirDefine name value ->
-          if currentActive stack
-            then processFile filePath lines0 (lineNo + 1) stack (st {stMacros = M.insert name value (stMacros st)}) k
-            else processFile filePath lines0 (lineNo + 1) stack st k
-        DirUndef name ->
-          if currentActive stack
-            then processFile filePath lines0 (lineNo + 1) stack (st {stMacros = M.delete name (stMacros st)}) k
-            else processFile filePath lines0 (lineNo + 1) stack st k
-        DirInclude kind includeTarget ->
-          if currentActive stack
-            then
-              let req =
-                    IncludeRequest
-                      { includePath = includeTarget,
-                        includeKind = kind,
-                        includeFrom = filePath,
-                        includeLine = lineNo
-                      }
-                  nextStep mContent =
-                    case mContent of
-                      Nothing ->
-                        processFile
-                          filePath
-                          lines0
-                          (lineNo + 1)
-                          stack
-                          (addDiag Error ("missing include: " <> T.pack includeTarget) filePath lineNo st)
-                          k
-                      Just includeText ->
-                        let stWithIncludePragma = emitLine (linePragma 1 includeTarget) st
-                            resumeParent stAfterInclude =
-                              processFile
-                                filePath
-                                lines0
-                                (lineNo + 1)
-                                stack
-                                (emitLine (linePragma (lineNo + 1) filePath) stAfterInclude)
-                                k
-                         in processFile includeTarget (T.lines includeText) 1 [] stWithIncludePragma resumeParent
-               in NeedInclude req nextStep
-            else processFile filePath lines0 (lineNo + 1) stack st k
-        DirIfDef name ->
-          let outer = currentActive stack
-              cond = M.member name (stMacros st)
-              frame = mkFrame outer cond
-           in processFile filePath lines0 (lineNo + 1) (frame : stack) st k
-        DirIfNDef name ->
-          let outer = currentActive stack
-              cond = not (M.member name (stMacros st))
-              frame = mkFrame outer cond
-           in processFile filePath lines0 (lineNo + 1) (frame : stack) st k
-        DirElse ->
-          case stack of
-            [] ->
-              processFile
-                filePath
-                lines0
-                (lineNo + 1)
-                stack
-                (addDiag Error "#else without matching conditional" filePath lineNo st)
-                k
-            f : rest ->
-              if frameInElse f
-                then
-                  processFile
-                    filePath
-                    lines0
-                    (lineNo + 1)
-                    stack
-                    (addDiag Error "duplicate #else in conditional block" filePath lineNo st)
-                    k
-                else
-                  let newCurrent = frameOuterActive f && not (frameConditionTrue f)
-                      f' =
-                        f
-                          { frameInElse = True,
-                            frameCurrentActive = newCurrent
-                          }
-                   in processFile filePath lines0 (lineNo + 1) (f' : rest) st k
-        DirEndIf ->
-          case stack of
-            [] ->
-              processFile
-                filePath
-                lines0
-                (lineNo + 1)
-                stack
-                (addDiag Error "#endif without matching conditional" filePath lineNo st)
-                k
-            _ : rest -> processFile filePath lines0 (lineNo + 1) rest st k
-        DirWarning msg ->
-          if currentActive stack
-            then processFile filePath lines0 (lineNo + 1) stack (addDiag Warning msg filePath lineNo st) k
-            else processFile filePath lines0 (lineNo + 1) stack st k
-        DirError msg ->
-          if currentActive stack
-            then processFile filePath lines0 (lineNo + 1) stack (addDiag Error msg filePath lineNo st) k
-            else processFile filePath lines0 (lineNo + 1) stack st k
-        DirUnsupported name ->
-          if currentActive stack
-            then
-              processFile
-                filePath
-                lines0
-                (lineNo + 1)
-                stack
-                (addDiag Warning ("unsupported directive: " <> name) filePath lineNo st)
-                k
-            else processFile filePath lines0 (lineNo + 1) stack st k
+processFile _ [] _ _ st k = k st
+processFile filePath (line : restLines) lineNo stack st k =
+  let active = currentActive stack
+      continue st' = processFile filePath restLines (lineNo + 1) stack st' k
+      continueWith stack' st' = processFile filePath restLines (lineNo + 1) stack' st' k
+      handleDirective directive =
+        case directive of
+          DirDefine name value ->
+            if currentActive stack
+              then continue (st {stMacros = M.insert name value (stMacros st)})
+              else continue st
+          DirUndef name ->
+            if currentActive stack
+              then continue (st {stMacros = M.delete name (stMacros st)})
+              else continue st
+          DirInclude kind includeTarget ->
+            if currentActive stack
+              then
+                let req =
+                      IncludeRequest
+                        { includePath = includeTarget,
+                          includeKind = kind,
+                          includeFrom = filePath,
+                          includeLine = lineNo
+                        }
+                    nextStep mContent =
+                      case mContent of
+                        Nothing ->
+                          continue
+                            (addDiag Error ("missing include: " <> T.pack includeTarget) filePath lineNo st)
+                        Just includeText ->
+                          let stWithIncludePragma = emitLine (linePragma 1 includeTarget) st
+                              resumeParent stAfterInclude =
+                                processFile
+                                  filePath
+                                  restLines
+                                  (lineNo + 1)
+                                  stack
+                                  (emitLine (linePragma (lineNo + 1) filePath) stAfterInclude)
+                                  k
+                           in processFile includeTarget (T.lines includeText) 1 [] stWithIncludePragma resumeParent
+                 in NeedInclude req nextStep
+              else continue st
+          DirIfDef name ->
+            let outer = currentActive stack
+                cond = M.member name (stMacros st)
+                frame = mkFrame outer cond
+             in continueWith (frame : stack) st
+          DirIfNDef name ->
+            let outer = currentActive stack
+                cond = not (M.member name (stMacros st))
+                frame = mkFrame outer cond
+             in continueWith (frame : stack) st
+          DirElse ->
+            case stack of
+              [] ->
+                continue
+                  (addDiag Error "#else without matching conditional" filePath lineNo st)
+              f : rest ->
+                if frameInElse f
+                  then
+                    continue
+                      (addDiag Error "duplicate #else in conditional block" filePath lineNo st)
+                  else
+                    let newCurrent = frameOuterActive f && not (frameConditionTrue f)
+                        f' =
+                          f
+                            { frameInElse = True,
+                              frameCurrentActive = newCurrent
+                            }
+                     in continueWith (f' : rest) st
+          DirEndIf ->
+            case stack of
+              [] ->
+                continue
+                  (addDiag Error "#endif without matching conditional" filePath lineNo st)
+              _ : rest -> continueWith rest st
+          DirWarning msg ->
+            if currentActive stack
+              then continue (addDiag Warning msg filePath lineNo st)
+              else continue st
+          DirError msg ->
+            if currentActive stack
+              then continue (addDiag Error msg filePath lineNo st)
+              else continue st
+          DirUnsupported name ->
+            if currentActive stack
+              then
+                continue
+                  (addDiag Warning ("unsupported directive: " <> name) filePath lineNo st)
+              else continue st
+   in case parseDirective line of
+        Nothing ->
+          if active
+            then continue (emitLine (expandMacros (stMacros st) line) st)
+            else continue st
+        Just directive ->
+          handleDirective directive
 
 mkFrame :: Bool -> Bool -> CondFrame
 mkFrame outer cond =
