@@ -242,7 +242,7 @@ lexical-operators	lexical	lexical/operators.hs	pass
 hashable-xxh3-cpp-include	corpus	corpus/hashable/hashable-xxh3-cpp-include.hs	xfail	from hashable/src/Data/Hashable/XXH3.hs; parser does not handle CPP include directives
 hashable-generic-instances-kind-arrow	corpus	corpus/hashable/hashable-generic-instances-kind-arrow.hs	xfail	from hashable/src/Data/Hashable/Generic/Instances.hs; parser rejects multiline LANGUAGE pragma lists
 hashable-mix-cpp-if	corpus	corpus/hashable/hashable-mix-cpp-if.hs	xfail	from hashable/src/Data/Hashable/Mix.hs; parser does not handle CPP conditionals
-hashable-ffi-unlifted-ffi-types	corpus	corpus/hashable/hashable-ffi-unlifted-ffi-types.hs	xfail	from hashable/src/Data/Hashable/FFI.hs; parser rejects foreign imports with unlifted FFI types
+hashable-ffi-capi-calling-convention	corpus	corpus/hashable/hashable-ffi-capi-calling-convention.hs	xfail	from hashable/src/Data/Hashable/FFI.hs; parser does not support capi calling convention (CApiFFI)
 hashable-class-package-imports	corpus	corpus/hashable/hashable-class-package-imports.hs	xfail	from hashable/src/Data/Hashable/Class.hs; parser rejects package-qualified imports
 hashable-lowlevel-cpp-ifdef	corpus	corpus/hashable/hashable-lowlevel-cpp-ifdef.hs	xfail	from hashable/src/Data/Hashable/LowLevel.hs; parser does not handle CPP ifdef blocks
 hashable-properties-unboxed-tuples	corpus	corpus/hashable/hashable-properties-unboxed-tuples.hs	xfail	from hashable/tests/Properties.hs; parser rejects unboxed tuple syntax
