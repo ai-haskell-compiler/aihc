@@ -4,7 +4,7 @@ module OracleExtensions
 where
 
 import ExtensionSupport (ExtensionSpec (..))
-import GHC.LanguageExtensions.Type (Extension (ParallelListComp, QuasiQuotes, TypeApplications))
+import GHC.LanguageExtensions.Type (Extension (ParallelListComp, QuasiQuotes, TypeApplications, ViewPatterns))
 
 resolveOracleExtensions :: ExtensionSpec -> IO [Extension]
 resolveOracleExtensions spec =
@@ -12,4 +12,5 @@ resolveOracleExtensions spec =
     "ParallelListComp" -> pure [ParallelListComp]
     "QuasiQuotes" -> pure [QuasiQuotes]
     "TypeApplications" -> pure [TypeApplications]
+    "ViewPatterns" -> pure [ViewPatterns]
     _ -> fail ("Unsupported extension fixture without oracle mapping: " <> extName spec)

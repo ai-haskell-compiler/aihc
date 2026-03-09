@@ -5,9 +5,9 @@
 ## Summary
 
 - Total Extensions: 33
-- Supported: 3
+- Supported: 4
 - In Progress: 0
-- Planned: 30
+- Planned: 29
 
 ## Extension Status
 
@@ -15,7 +15,7 @@
 |-----------|--------|---------------|-------|
 | ParallelListComp | Supported | 1/1 | Parallel list comprehensions |
 | TransformListComp | Planned | - | TransformListComp (then clauses in list comprehensions) |
-| ViewPatterns | Planned | - | View patterns |
+| ViewPatterns | Supported | 3/3 | View patterns |
 | PatternSynonyms | Planned | - | Pattern synonyms |
 | ScopedTypeVariables | Planned | - | Scoped type variables |
 | TypeApplications | Supported | 2/2 | Type applications |

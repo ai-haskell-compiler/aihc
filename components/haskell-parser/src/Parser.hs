@@ -1044,14 +1044,19 @@ parseParenedPattern txt
           parts = splitTopLevel ',' inner
        in if T.null inner
             then Just (PTuple span0 [])
-            else
-              if length parts > 1
-                then case traverse parsePatternText parts of
-                  Right pats -> Just (PTuple span0 pats)
-                  Left _ -> Nothing
-                else case parsePatternText inner of
-                  Right pat -> Just (PParen span0 pat)
-                  Left _ -> Nothing
+            else case splitTopLevelMaybe "->" inner of
+              Just (viewTxt, patTxt) ->
+                case (parseExprCore (T.strip viewTxt), parsePatternText (T.strip patTxt)) of
+                  (Right viewExpr, Right innerPat) -> Just (PView span0 viewExpr innerPat)
+                  _ -> Nothing
+              Nothing ->
+                if length parts > 1
+                  then case traverse parsePatternText parts of
+                    Right pats -> Just (PTuple span0 pats)
+                    Left _ -> Nothing
+                  else case parsePatternText inner of
+                    Right pat -> Just (PParen span0 pat)
+                    Left _ -> Nothing
   | otherwise = Nothing
 
 parseListPattern :: Text -> Maybe Pattern
