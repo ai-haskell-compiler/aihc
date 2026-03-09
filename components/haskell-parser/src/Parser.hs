@@ -91,15 +91,9 @@ parseModuleLines cfg input = do
       Right modu -> Right modu
       Left _ ->
         case runParser (moduleParser cfg <* eof) "<module>" strippedWithoutLeadingPragmas of
-          Right chunks0 ->
-            case splitModuleHeaderChunk chunks0 of
-              Right parsed ->
-                finishModule languagePragmas cfg parsed
-              Left _ ->
-                case runParser (legacyModuleParser cfg <* eof) "<module>" strippedWithoutLeadingPragmas of
-                  Right parsed ->
-                    finishModule languagePragmas cfg parsed
-                  Left bundle -> Left (bundleToError strippedWithoutLeadingPragmas bundle)
+          Right chunks0 -> do
+            parsed <- splitModuleHeaderChunk chunks0
+            finishModule languagePragmas cfg parsed
           Left bundle -> Left (bundleToError strippedWithoutLeadingPragmas bundle)
   where
     finishModule pragmas cfg' (header, chunks) = do
@@ -120,10 +114,10 @@ splitModuleHeaderChunk rows =
     [] -> Right (Nothing, [])
     ((lineNo, firstChunk) : rest) ->
       let stripped = T.strip firstChunk
-       in if not ("module" `T.isPrefixOf` stripped)
+       in if not (isModuleHeaderChunk stripped)
             then Right (Nothing, rows)
-            else case parseModuleHeaderText firstChunk of
-              Right header -> Right (Just header, rest)
+            else case parseHeader firstChunk rest of
+              Right parsed -> Right parsed
               Left _ ->
                 Left
                   ParseError
@@ -133,6 +127,29 @@ splitModuleHeaderChunk rows =
                       expected = ["module header"],
                       found = if T.null stripped then Nothing else Just stripped
                     }
+  where
+    parseHeader :: Text -> [(Int, Text)] -> Either Text (Maybe (Text, Maybe [ExportSpec]), [(Int, Text)])
+    parseHeader chunk remaining =
+      case parseModuleHeaderText chunk of
+        Right header -> Right (Just header, remaining)
+        Left _ ->
+          case remaining of
+            ((_, nextChunk) : rest')
+              | isWhereChunk (T.strip nextChunk) ->
+                  case parseModuleHeaderText (T.intercalate "\n" [chunk, nextChunk]) of
+                    Right header -> Right (Just header, rest')
+                    Left _ -> Left "module header"
+            _ -> Left "module header"
+
+    isModuleHeaderChunk txt =
+      case T.words txt of
+        "module" : _ -> True
+        _ -> False
+
+    isWhereChunk txt =
+      case T.words txt of
+        "where" : _ -> True
+        _ -> False
 
 parseModuleHeaderText :: Text -> Either Text (Text, Maybe [ExportSpec])
 parseModuleHeaderText txt =
@@ -147,24 +164,6 @@ moduleParser :: ParserConfig -> MParser [(Int, Text)]
 moduleParser _cfg = do
   skipBlankLines
   gatherChunks
-  where
-    gatherChunks = do
-      skipBlankLines
-      done <- MP.option False (True <$ eof)
-      if done
-        then pure []
-        else do
-          pos <- MP.getSourcePos
-          chunk <- topLevelChunkParser
-          rest <- gatherChunks
-          pure ((unPos (MP.sourceLine pos), chunk) : rest)
-
-legacyModuleParser :: ParserConfig -> MParser (Maybe (Text, Maybe [ExportSpec]), [(Int, Text)])
-legacyModuleParser _cfg = do
-  skipBlankLines
-  header <- MP.optional (try moduleHeaderLineParser)
-  chunks <- gatherChunks
-  pure (header, chunks)
   where
     gatherChunks = do
       skipBlankLines
