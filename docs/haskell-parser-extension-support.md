@@ -1,6 +1,6 @@
 # Haskell Parser Extension Support Status
 
-**Generated**: 2026-03-08
+**Generated**: 2026-03-09
 
 ## Summary
 
