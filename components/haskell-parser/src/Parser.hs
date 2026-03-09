@@ -8,7 +8,7 @@ module Parser
   )
 where
 
-import Data.Char (isAlpha, isAlphaNum, isDigit, isHexDigit, isLower, isSpace, isUpper)
+import Data.Char (isAlpha, isAlphaNum, isDigit, isHexDigit, isSpace)
 import Data.List.NonEmpty (NonEmpty ((:|)))
 import qualified Data.List.NonEmpty as NE
 import Data.Maybe (fromMaybe, isJust, mapMaybe)
@@ -21,9 +21,20 @@ import Parser.Ast
 import Parser.Lexer
   ( LexToken (..),
     LexTokenKind (..),
+    TokParser,
+    identifierTok,
+    isSymbolicOpChar,
+    isTypeToken,
+    isVarToken,
     lexTokens,
+    operatorTok,
     parseImportDeclTokens,
     parseModuleHeaderTokens,
+    quasiQuoteTok,
+    sepEndByTok,
+    stripParens,
+    symbolTok,
+    tokensToSourceText,
   )
 import Parser.Types
 import Text.Megaparsec
@@ -40,8 +51,6 @@ import qualified Text.Megaparsec.Char as C
 import Text.Megaparsec.Pos (unPos)
 
 type MParser = Parsec Void Text
-
-type TokParser = Parsec Void [LexToken]
 
 span0 :: SourceSpan
 span0 = noSourceSpan
@@ -984,9 +993,6 @@ unsnoc xs =
     [] -> Nothing
     y : ys -> Just (reverse ys, y)
 
-tokensToSourceText :: [LexToken] -> Text
-tokensToSourceText = T.unwords . map lexTokenText
-
 tokenSatisfy :: (LexToken -> Maybe a) -> TokParser a
 tokenSatisfy f = do
   tok <- MP.lookAhead MP.anySingle
@@ -1065,6 +1071,213 @@ symbolTokParser expectedSym =
     case lexTokenKind tok of
       TkSymbol txt | txt == expectedSym -> Just ()
       _ -> Nothing
+
+--------------------------------------------------------------------------------
+-- Token-based Type Parser (for future use - not yet fully compatible)
+--------------------------------------------------------------------------------
+
+-- | Parse a type from a token stream
+_typeTokParser :: TokParser Type
+_typeTokParser = _typeContextTokParser
+
+-- | Parse a type with optional context (constraints => type)
+_typeContextTokParser :: TokParser Type
+_typeContextTokParser = do
+  mConstraints <- MP.optional (try _constraintsWithArrowTokParser)
+  ty <- _funTypeTokParser
+  case mConstraints of
+    Nothing -> pure ty
+    Just constraints -> pure (TContext span0 constraints ty)
+
+-- | Parse constraints followed by =>
+_constraintsWithArrowTokParser :: TokParser [Constraint]
+_constraintsWithArrowTokParser = do
+  constraints <- _constraintsTokParser
+  operatorTok "=>"
+  pure constraints
+
+-- | Parse a function type (a -> b -> c)
+_funTypeTokParser :: TokParser Type
+_funTypeTokParser = do
+  first <- _typeAppTokParser
+  rest <- many (operatorTok "->" *> _typeAppTokParser)
+  pure (foldr1Safe (TFun span0) (first : rest))
+  where
+    foldr1Safe _ [x] = x
+    foldr1Safe f (x : xs) = f x (foldr1Safe f xs)
+    foldr1Safe _ [] = error "funTypeTokParser: impossible empty list"
+
+-- | Parse a type application (T a b c)
+_typeAppTokParser :: TokParser Type
+_typeAppTokParser = do
+  first <- _typeAtomTokParser
+  rest <- many _typeAtomTokParser
+  pure (foldl' (TApp span0) first rest)
+
+-- | Parse an atomic type (variable, constructor, tuple, list, parens)
+_typeAtomTokParser :: TokParser Type
+_typeAtomTokParser =
+  try _quasiQuoteTypeTokParser
+    <|> try _listTypeTokParser
+    <|> try _tupleOrParenTypeTokParser
+    <|> try _funArrowConTokParser
+    <|> _typeVarOrConTokParser
+
+-- | Parse a quasi-quoted type
+_quasiQuoteTypeTokParser :: TokParser Type
+_quasiQuoteTypeTokParser = do
+  (quoter, body) <- quasiQuoteTok
+  pure (TQuasiQuote span0 quoter body)
+
+-- | Parse a list type [a]
+_listTypeTokParser :: TokParser Type
+_listTypeTokParser = do
+  symbolTok "["
+  inner <- _typeTokParser
+  symbolTok "]"
+  pure (TList span0 inner)
+
+-- | Parse a tuple type, unit type, parenthesized type, or special constructors
+_tupleOrParenTypeTokParser :: TokParser Type
+_tupleOrParenTypeTokParser = do
+  symbolTok "("
+  result <- emptyOrContent
+  symbolTok ")"
+  pure result
+  where
+    emptyOrContent = do
+      done <- isJust <$> MP.optional (MP.lookAhead (symbolTok ")"))
+      if done
+        then pure (TTuple span0 [])
+        else do
+          -- Check for special case: (->)
+          mArrow <- MP.optional (try (operatorTok "->"))
+          case mArrow of
+            Just _ -> pure (TCon span0 "(->)")
+            Nothing -> do
+              -- Check for tuple constructor (,,,)
+              mCommas <- MP.optional (try tupleConstructorTokParser)
+              case mCommas of
+                Just n -> pure (TCon span0 ("(" <> T.replicate n "," <> ")"))
+                Nothing -> do
+                  -- Parse first type
+                  first <- _typeTokParser
+                  -- Check for more elements (tuple) or just parens
+                  rest <- many (symbolTok "," *> _typeTokParser)
+                  case rest of
+                    [] -> pure (TParen span0 first)
+                    _ -> pure (TTuple span0 (first : rest))
+
+    -- Parse tuple constructor like (,,) - returns number of commas
+    tupleConstructorTokParser :: TokParser Int
+    tupleConstructorTokParser = do
+      n <- length <$> MP.some (symbolTok ",")
+      -- Make sure next token is )
+      _ <- MP.lookAhead (symbolTok ")")
+      pure n
+
+-- | Parse the function arrow constructor (->)
+_funArrowConTokParser :: TokParser Type
+_funArrowConTokParser = do
+  symbolTok "("
+  operatorTok "->"
+  symbolTok ")"
+  pure (TCon span0 "(->)")
+
+-- | Parse a type variable or constructor
+_typeVarOrConTokParser :: TokParser Type
+_typeVarOrConTokParser = do
+  name <- identifierTok
+  pure $
+    if isTypeToken name
+      then TCon span0 name
+      else TVar span0 name
+
+--------------------------------------------------------------------------------
+-- Token-based Constraint Parser (for future use - not yet fully compatible)
+--------------------------------------------------------------------------------
+
+-- | Parse a list of constraints
+_constraintsTokParser :: TokParser [Constraint]
+_constraintsTokParser = do
+  mParen <- MP.optional (try (symbolTok "("))
+  case mParen of
+    Just _ -> do
+      -- Check for empty ()
+      mClose <- MP.optional (try (symbolTok ")"))
+      case mClose of
+        Just _ -> pure [Constraint span0 "()" [] False]
+        Nothing -> do
+          -- Parse comma-separated constraints
+          first <- _constraintTokParser
+          rest <- many (symbolTok "," *> _constraintTokParser)
+          symbolTok ")"
+          let constraints = first : rest
+          -- Mark single parenthesized constraint
+          case constraints of
+            [single] -> pure [single {constraintParen = True}]
+            _ -> pure constraints
+    Nothing -> do
+      -- Single constraint without parens
+      c <- _constraintTokParser
+      pure [c]
+
+-- | Parse a single constraint (Class arg1 arg2 ...)
+_constraintTokParser :: TokParser Constraint
+_constraintTokParser = do
+  clsName <- identifierTok
+  if not (isTypeToken clsName)
+    then fail "constraint class"
+    else do
+      args <- many _typeAtomTokParser
+      pure Constraint {constraintSpan = span0, constraintClass = clsName, constraintArgs = args, constraintParen = False}
+
+--------------------------------------------------------------------------------
+-- Token-based Bang Type Parser (for future use)
+--------------------------------------------------------------------------------
+
+-- | Parse a bang type (optionally strict type)
+_bangTypeTokParser :: TokParser BangType
+_bangTypeTokParser = do
+  mBang <- MP.optional (try (operatorTok "!"))
+  ty <- _typeTokParser
+  pure BangType {bangSpan = span0, bangStrict = isJust mBang, bangType = ty}
+
+--------------------------------------------------------------------------------
+-- Token-based Deriving Clause Parser (for future use)
+--------------------------------------------------------------------------------
+
+-- | Parse a deriving clause
+_derivingClauseTokParser :: TokParser DerivingClause
+_derivingClauseTokParser = do
+  -- Can be: deriving Foo, deriving (Foo, Bar), deriving ()
+  mParen <- MP.optional (try (symbolTok "("))
+  case mParen of
+    Just _ -> do
+      mClose <- MP.optional (try (symbolTok ")"))
+      case mClose of
+        Just _ -> pure (DerivingClause [])
+        Nothing -> do
+          classes <- _derivingClassTokParser `sepEndByTok` symbolTok ","
+          symbolTok ")"
+          pure (DerivingClause classes)
+    Nothing -> do
+      cls <- identifierTok
+      pure (DerivingClause [cls])
+
+-- | Parse a single deriving class name
+_derivingClassTokParser :: TokParser Text
+_derivingClassTokParser = do
+  -- Could be parenthesized like (Foo bar) or just Foo
+  mParen <- MP.optional (try (symbolTok "("))
+  case mParen of
+    Just _ -> do
+      -- Consume until matching close paren (simplified: just the class name)
+      cls <- identifierTok
+      _ <- many (try identifierTok) -- consume any args
+      symbolTok ")"
+      pure cls
+    Nothing -> identifierTok
 
 classifyForeignEntitySpec :: Maybe Text -> ForeignEntitySpec
 classifyForeignEntitySpec mEntity =
@@ -1266,6 +1479,7 @@ mergeAdjacentFunctions = reverse . foldl' merge []
     shouldMerge prevMatches currMatches =
       not (all (null . matchPats) (prevMatches <> currMatches))
 
+-- | Parse a type from Text using the original text-based parser
 parseTypeText :: Text -> Either Text Type
 parseTypeText input =
   parseTypeContext (T.strip input)
@@ -1279,7 +1493,7 @@ parseTypeText input =
         Nothing -> parseFunType txt
 
     parseFunType txt =
-      let parts = map T.strip (splitTopLevelToken "->" txt)
+      let parts = map T.strip (splitTopLevelTokenRaw "->" txt)
        in case parts of
             [] -> Left "type"
             [single] -> parseTypeApp single
@@ -1330,6 +1544,13 @@ parseTypeText input =
                                           else TParen span0 <$> parseTypeText inner
                   _ | isTypeToken stripped -> Right (TCon span0 stripped)
                   _ -> Right (TVar span0 stripped)
+
+-- Helper function for splitting on token (restoring the old one)
+splitTopLevelTokenRaw :: Text -> Text -> [Text]
+splitTopLevelTokenRaw token txt =
+  case splitTopLevelMaybe token txt of
+    Nothing -> [T.strip txt]
+    Just (lhs, rhs) -> T.strip lhs : splitTopLevelTokenRaw token rhs
 
 parseConstraints :: Text -> Either Text [Constraint]
 parseConstraints txt =
@@ -2189,12 +2410,6 @@ findTopLevelKeyword token txt
        in maybe True (not . isIdentTailOrStart) prevChar
             && maybe True (not . isIdentTailOrStart) nextChar
 
-splitTopLevelToken :: Text -> Text -> [Text]
-splitTopLevelToken token txt =
-  case splitTopLevelMaybe token txt of
-    Nothing -> [T.strip txt]
-    Just (lhs, rhs) -> T.strip lhs : splitTopLevelToken token rhs
-
 splitTopLevel :: Char -> Text -> [Text]
 splitTopLevel delim input = reverse (go (0 :: Int) (0 :: Int) (0 :: Int) False False T.empty input [])
   where
@@ -2352,9 +2567,6 @@ findTopLevelOperatorTriple txt =
 isIdentTailOrStart :: Char -> Bool
 isIdentTailOrStart c = isAlphaNum c || c == '_' || c == '\''
 
-isSymbolicOpChar :: Char -> Bool
-isSymbolicOpChar c = c `elem` (":!#$%&*+./<=>?\\^|-~" :: String)
-
 stripComments :: ParserConfig -> Text -> Text
 stripComments cfg = go (0 :: Int) False False False T.empty
   where
@@ -2454,27 +2666,6 @@ isFixityDecl txt =
   case T.words txt of
     (kw : _) -> kw `elem` ["infix", "infixl", "infixr"]
     _ -> False
-
-stripParens :: Text -> Text
-stripParens t =
-  let trimmed = T.strip t
-   in if T.length trimmed >= 2 && T.head trimmed == '(' && T.last trimmed == ')'
-        then T.strip (T.init (T.tail trimmed))
-        else trimmed
-
-isTypeToken :: Text -> Bool
-isTypeToken token =
-  case T.uncons (stripParens token) of
-    Just (c, _) -> isUpper c
-    Nothing -> False
-
-isVarToken :: Text -> Bool
-isVarToken token =
-  case T.uncons token of
-    Just (c, rest) ->
-      (isLower c || c == '_')
-        && T.all isIdentTailOrStart rest
-    Nothing -> False
 
 isValueName :: Text -> Bool
 isValueName tok = isVarToken tok || isOperatorToken tok

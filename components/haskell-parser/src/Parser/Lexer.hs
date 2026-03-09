@@ -3,13 +3,38 @@
 module Parser.Lexer
   ( LexToken (..),
     LexTokenKind (..),
+    TokParser,
     lexTokens,
+    runTokParser,
     parseImportDeclTokens,
     parseModuleHeaderTokens,
+    -- Token-level combinators
+    tokenSatisfy,
+    tokenSatisfy_,
+    keywordTok,
+    symbolTok,
+    operatorTok,
+    identifierTok,
+    identifierOrOperatorTok,
+    operatorTokP,
+    anyIdentifierTok,
+    integerTok,
+    floatTok,
+    charTok,
+    stringTok,
+    quasiQuoteTok,
+    sepEndByTok,
+    -- Utilities
+    isTypeToken,
+    isVarToken,
+    isSymbolicOpChar,
+    isIdentTailOrStart,
+    stripParens,
+    tokensToSourceText,
   )
 where
 
-import Data.Char (isAlphaNum, isHexDigit, isOctDigit, isUpper)
+import Data.Char (isAlphaNum, isHexDigit, isLower, isOctDigit, isUpper)
 import Data.Maybe (isJust)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -61,6 +86,13 @@ lexTokens input =
   case runParser (many (spaceConsumer *> lexTokenParser) <* spaceConsumer <* eof) "<lexer>" input of
     Right toks -> Right toks
     Left _ -> Left "token stream"
+
+-- | Run a TokParser on an already-lexed token stream
+runTokParser :: String -> TokParser a -> [LexToken] -> Either Text a
+runTokParser label p toks =
+  case runParser (p <* eof) label toks of
+    Right result -> Right result
+    Left _ -> Left (T.pack label)
 
 parseModuleHeaderTokens :: Text -> Either Text (Text, Maybe [ExportSpec])
 parseModuleHeaderTokens input = do
@@ -368,6 +400,64 @@ operatorTokP = tokenSatisfy $ \tok ->
     TkOperator txt -> Just txt
     _ -> Nothing
 
+-- | Match a specific operator
+operatorTok :: Text -> TokParser ()
+operatorTok expected =
+  tokenSatisfy_ $ \tok ->
+    case lexTokenKind tok of
+      TkOperator txt -> txt == expected
+      _ -> False
+
+-- | Match any identifier (including keywords that can be used as identifiers in some contexts)
+anyIdentifierTok :: TokParser Text
+anyIdentifierTok = tokenSatisfy $ \tok ->
+  case lexTokenKind tok of
+    TkIdentifier txt -> Just txt
+    TkKeyword txt -> Just txt
+    _ -> Nothing
+
+-- | Match an integer literal
+integerTok :: TokParser (Integer, Maybe Text)
+integerTok = tokenSatisfy $ \tok ->
+  case lexTokenKind tok of
+    TkInteger n ->
+      let txt = lexTokenText tok
+       in if "0x" `T.isPrefixOf` txt
+            || "0X" `T.isPrefixOf` txt
+            || "0o" `T.isPrefixOf` txt
+            || "0O" `T.isPrefixOf` txt
+            then Just (n, Just txt)
+            else Just (n, Nothing)
+    _ -> Nothing
+
+-- | Match a float literal
+floatTok :: TokParser Double
+floatTok = tokenSatisfy $ \tok ->
+  case lexTokenKind tok of
+    TkFloat n -> Just n
+    _ -> Nothing
+
+-- | Match a char literal
+charTok :: TokParser Char
+charTok = tokenSatisfy $ \tok ->
+  case lexTokenKind tok of
+    TkChar c -> Just c
+    _ -> Nothing
+
+-- | Match a string literal
+stringTok :: TokParser Text
+stringTok = tokenSatisfy $ \tok ->
+  case lexTokenKind tok of
+    TkString txt -> Just txt
+    _ -> Nothing
+
+-- | Match a quasi-quote
+quasiQuoteTok :: TokParser (Text, Text)
+quasiQuoteTok = tokenSatisfy $ \tok ->
+  case lexTokenKind tok of
+    TkQuasiQuote quoter body -> Just (quoter, body)
+    _ -> Nothing
+
 tokenSatisfy :: (LexToken -> Maybe a) -> TokParser a
 tokenSatisfy f = do
   tok <- MP.lookAhead anySingle
@@ -425,6 +515,18 @@ isTypeToken token =
     Just (c, _) -> isUpper c
     Nothing -> False
 
+isVarToken :: Text -> Bool
+isVarToken token =
+  case T.uncons token of
+    Just (c, rest) ->
+      (isLower c || c == '_')
+        && T.all isIdentTailOrStart rest
+    Nothing -> False
+
+-- | Reconstruct source text from a list of tokens
+tokensToSourceText :: [LexToken] -> Text
+tokensToSourceText = T.unwords . map lexTokenText
+
 stripParens :: Text -> Text
 stripParens t =
   let trimmed = T.strip t
@@ -434,10 +536,38 @@ stripParens t =
 
 reservedKeywords :: [Text]
 reservedKeywords =
-  [ "module",
+  [ -- Module system
+    "module",
     "where",
     "import",
     "qualified",
     "as",
-    "hiding"
+    "hiding",
+    -- Declarations
+    "data",
+    "newtype",
+    "type",
+    "class",
+    "instance",
+    "default",
+    "foreign",
+    "deriving",
+    -- Fixity
+    "infix",
+    "infixl",
+    "infixr",
+    -- Expressions
+    "if",
+    "then",
+    "else",
+    "let",
+    "in",
+    "case",
+    "of",
+    "do",
+    -- FFI
+    "ccall",
+    "stdcall",
+    "safe",
+    "unsafe"
   ]
