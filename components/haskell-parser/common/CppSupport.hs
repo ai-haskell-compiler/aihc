@@ -13,11 +13,11 @@ import Cpp
     Step (..),
     preprocess,
   )
+import Data.Functor.Identity (Identity (..), runIdentity)
 import Data.Text (Text)
 import qualified Data.Text as T
-import Data.Functor.Identity (Identity (..), runIdentity)
 
-preprocessForParser :: Monad m => FilePath -> (IncludeRequest -> m (Maybe Text)) -> Text -> m Result
+preprocessForParser :: (Monad m) => FilePath -> (IncludeRequest -> m (Maybe Text)) -> Text -> m Result
 preprocessForParser inputFile resolveInclude source = do
   result <- drive (preprocess Config {configInputFile = inputFile} source)
   pure result {resultOutput = stripLinePragmas (resultOutput result)}
