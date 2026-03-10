@@ -889,6 +889,9 @@ splitTokensOnTopLevelKeyword kw = splitTokensOnTopLevel (isWordToken kw)
 splitTokensOnTopLevelOperator :: Text -> [LexToken] -> Maybe ([LexToken], [LexToken])
 splitTokensOnTopLevelOperator op = splitTokensOnTopLevel (isOperatorTokenKind op)
 
+splitTokensOnTopLevelSymbol :: Text -> [LexToken] -> Maybe ([LexToken], [LexToken])
+splitTokensOnTopLevelSymbol sym = splitTokensOnTopLevel (isSymbolTokenKind sym)
+
 splitTokensOnTopLevel :: (LexToken -> Bool) -> [LexToken] -> Maybe ([LexToken], [LexToken])
 splitTokensOnTopLevel isTarget toks = go toks (0 :: Int) (0 :: Int) (0 :: Int) []
   where
@@ -928,6 +931,12 @@ isOperatorTokenKind :: Text -> LexToken -> Bool
 isOperatorTokenKind expectedOp tok =
   case lexTokenKind tok of
     TkOperator txt -> txt == expectedOp
+    _ -> False
+
+isSymbolTokenKind :: Text -> LexToken -> Bool
+isSymbolTokenKind expectedSym tok =
+  case lexTokenKind tok of
+    TkSymbol txt -> txt == expectedSym
     _ -> False
 
 stripOuterParensTokens :: [LexToken] -> [LexToken]
@@ -1231,40 +1240,108 @@ localDeclsToSimpleBindings = traverse toSimpleBinding
         _ -> Nothing
 
 parseFunctionLhs :: Text -> Maybe (Text, [Pattern])
-parseFunctionLhs lhs =
-  case splitTopLevelWords lhs of
-    [] -> Nothing
-    toks ->
-      case parseInfixFunctionLhs toks of
-        Just parsed -> Just parsed
-        Nothing -> parsePrefixFunctionLhs toks
+parseFunctionLhs = parseFunctionLhsToks
 
-parsePrefixFunctionLhs :: [Text] -> Maybe (Text, [Pattern])
-parsePrefixFunctionLhs toks =
+parseFunctionLhsToks :: Text -> Maybe (Text, [Pattern])
+parseFunctionLhsToks lhs =
+  case lexTokens lhs of
+    Left _ -> Nothing
+    Right toks ->
+      case parseInfixFunctionLhsToks toks of
+        Just parsed -> Just parsed
+        Nothing -> parsePrefixFunctionLhsToks toks
+
+parsePrefixFunctionLhsToks :: [LexToken] -> Maybe (Text, [Pattern])
+parsePrefixFunctionLhsToks toks =
   case toks of
     [] -> Nothing
     (firstTok : rest)
-      | isVarToken firstTok -> do
-          pats <- mapM (either (const Nothing) Just . parsePatternText) rest
-          Just (firstTok, pats)
-      | isParenthesizedOperator firstTok ->
-          let op = stripParens firstTok
-           in do
-                pats <- mapM (either (const Nothing) Just . parsePatternText) rest
-                Just (op, pats)
+      | isVarTok firstTok ->
+          case runParser (MP.many patternLhsArg <* eof) "<lhs-pats>" rest of
+            Right pats -> Just (getIdentifier firstTok, pats)
+            Left _ -> Nothing
+      | Just (opTok, restAfterParen) <- extractParenthesizedOp toks ->
+          case runParser (MP.many patternLhsArg <* eof) "<lhs-pats>" restAfterParen of
+            Right pats -> Just (opTok, pats)
+            Left _ -> Nothing
       | otherwise -> Nothing
+  where
+    -- patternLhsArg is like patternAtomTok but also handles as-patterns
+    patternLhsArg =
+      try asPatTok
+        <|> try irrefutablePatTok
+        <|> try negLitPatTok
+        <|> patternAtomTok
 
-parseInfixFunctionLhs :: [Text] -> Maybe (Text, [Pattern])
-parseInfixFunctionLhs toks =
-  case break isOperatorToken toks of
-    ([], _) -> Nothing
-    (_lhsToks, []) -> Nothing
-    (lhsToks, opTok : rhsToks)
+    isVarTok tok =
+      case lexTokenKind tok of
+        TkIdentifier name
+          | name == "_" -> False -- wildcard, not a variable
+          | not (T.null name) && isVarStart (T.head name) -> True
+        _ -> False
+
+    -- Variable names start with lowercase or underscore
+    isVarStart c = isLower c || c == '_'
+
+    getIdentifier tok =
+      case lexTokenKind tok of
+        TkIdentifier name -> name
+        _ -> T.empty
+
+    extractParenthesizedOp ts =
+      case ts of
+        (pOpen : opTok : pClose : rest)
+          | isSymbol "(" pOpen && isSymbol ")" pClose ->
+              case lexTokenKind opTok of
+                TkOperator op -> Just (op, rest)
+                _ -> Nothing
+        _ -> Nothing
+
+    isSymbol sym tok =
+      case lexTokenKind tok of
+        TkSymbol s -> s == sym
+        _ -> False
+
+parseInfixFunctionLhsToks :: [LexToken] -> Maybe (Text, [Pattern])
+parseInfixFunctionLhsToks toks =
+  -- Find an infix operator at top level (not inside brackets/parens/braces)
+  case splitTokensOnTopLevelInfixOp toks of
+    Nothing -> Nothing
+    Just (lhsToks, opName, rhsToks)
       | null lhsToks || null rhsToks -> Nothing
-      | otherwise -> do
-          lhsPat <- either (const Nothing) Just (parsePatternText (T.unwords lhsToks))
-          rhsPat <- either (const Nothing) Just (parsePatternText (T.unwords rhsToks))
-          Just (opTok, [lhsPat, rhsPat])
+      | otherwise ->
+          case (runParser (patternAtomTok <* eof) "<lhs-pat>" lhsToks, runParser (patternAtomTok <* eof) "<rhs-pat>" rhsToks) of
+            (Right lhsPat, Right rhsPat) -> Just (opName, [lhsPat, rhsPat])
+            _ -> Nothing
+
+splitTokensOnTopLevelInfixOp :: [LexToken] -> Maybe ([LexToken], Text, [LexToken])
+splitTokensOnTopLevelInfixOp = go (0 :: Int) (0 :: Int) (0 :: Int) []
+  where
+    go parenDepth bracketDepth braceDepth acc remaining =
+      case remaining of
+        [] -> Nothing
+        (tok : rest) ->
+          let atTop = parenDepth == 0 && bracketDepth == 0 && braceDepth == 0
+           in if atTop && isInfixOpTok tok
+                then
+                  let opName = case lexTokenKind tok of
+                        TkOperator op -> op
+                        _ -> T.empty
+                   in Just (reverse acc, opName, rest)
+                else case lexTokenKind tok of
+                  TkSymbol "(" -> go (parenDepth + 1) bracketDepth braceDepth (tok : acc) rest
+                  TkSymbol ")" -> go (max 0 (parenDepth - 1)) bracketDepth braceDepth (tok : acc) rest
+                  TkSymbol "[" -> go parenDepth (bracketDepth + 1) braceDepth (tok : acc) rest
+                  TkSymbol "]" -> go parenDepth (max 0 (bracketDepth - 1)) braceDepth (tok : acc) rest
+                  TkSymbol "{" -> go parenDepth bracketDepth (braceDepth + 1) (tok : acc) rest
+                  TkSymbol "}" -> go parenDepth bracketDepth (max 0 (braceDepth - 1)) (tok : acc) rest
+                  _ -> go parenDepth bracketDepth braceDepth (tok : acc) rest
+
+    isInfixOpTok tok =
+      case lexTokenKind tok of
+        TkOperator op
+          | op `notElem` ["->", "<-", "=>", "::", "=", "|", "@", "~", "\\"] -> True
+        _ -> False
 
 mergeAdjacentFunctions :: [Decl] -> [Decl]
 mergeAdjacentFunctions = reverse . foldl' merge []
@@ -1381,126 +1458,8 @@ parsePatternText input =
           Right toks ->
             case runParser (patternTokParser <* eof) "<pattern>" toks of
               Right pat -> Right pat
-              Left _err -> parsePatternTextFallback txt
-          Left _err -> parsePatternTextFallback txt
-
-parsePatternTextFallback :: Text -> Either Text Pattern
-parsePatternTextFallback txt =
-  case T.uncons txt of
-    Just ('~', rest) -> PIrrefutable span0 <$> parsePatternText rest
-    Just ('-', rest) ->
-      case parseLiteralText (T.strip rest) of
-        Just lit
-          | isNumericLiteral lit -> Right (PNegLit span0 lit)
-        _ -> parsePatternCore txt
-    _ -> parsePatternCore txt
-
-parsePatternCore :: Text -> Either Text Pattern
-parsePatternCore txt
-  | txt == "_" = Right (PWildcard span0)
-  | Just (quoter, body) <- parseQuasiQuoteText txt = Right (PQuasiQuote span0 quoter body)
-  | otherwise =
-      case parseLiteralText txt of
-        Just lit -> Right (PLit span0 lit)
-        Nothing ->
-          case parseAsPattern txt of
-            Just pat -> Right pat
-            Nothing ->
-              case parseParenedPattern txt of
-                Just pat -> Right pat
-                Nothing ->
-                  case parseListPattern txt of
-                    Just pat -> Right pat
-                    Nothing ->
-                      case parseRecordPattern txt of
-                        Just pat -> Right pat
-                        Nothing ->
-                          case parseInfixPattern txt of
-                            Just pat -> Right pat
-                            Nothing -> parseConOrVarPattern txt
-
-parseAsPattern :: Text -> Maybe Pattern
-parseAsPattern txt = do
-  (name, rest) <- splitTopLevelMaybe "@" txt
-  if isVarToken (T.strip name)
-    then case parsePatternText rest of
-      Right pat -> Just (PAs span0 (T.strip name) pat)
-      Left _ -> Nothing
-    else Nothing
-
-parseParenedPattern :: Text -> Maybe Pattern
-parseParenedPattern txt
-  | hasOuterParens txt =
-      let inner = T.strip (T.drop 1 (T.dropEnd 1 txt))
-          parts = splitTopLevel ',' inner
-       in if T.null inner
-            then Just (PTuple span0 [])
-            else case splitTopLevelMaybe "->" inner of
-              Just (viewTxt, patTxt) ->
-                case (parseExprCore (T.strip viewTxt), parsePatternText (T.strip patTxt)) of
-                  (Right viewExpr, Right innerPat) -> Just (PView span0 viewExpr innerPat)
-                  _ -> Nothing
-              Nothing ->
-                if length parts > 1
-                  then case traverse parsePatternText parts of
-                    Right pats -> Just (PTuple span0 pats)
-                    Left _ -> Nothing
-                  else case parsePatternText inner of
-                    Right pat -> Just (PParen span0 pat)
-                    Left _ -> Nothing
-  | otherwise = Nothing
-
-parseListPattern :: Text -> Maybe Pattern
-parseListPattern txt
-  | T.length txt >= 2 && T.head txt == '[' && T.last txt == ']' =
-      let inner = T.strip (T.init (T.tail txt))
-       in if T.null inner
-            then Just (PList span0 [])
-            else case traverse parsePatternText (splitTopLevel ',' inner) of
-              Right pats -> Just (PList span0 pats)
-              Left _ -> Nothing
-  | otherwise = Nothing
-
-parseRecordPattern :: Text -> Maybe Pattern
-parseRecordPattern txt = do
-  (ctor, fieldsTxt) <- either (const Nothing) Just (splitOuterBraces txt)
-  let ctorName = T.strip ctor
-  if T.null ctorName
-    then Nothing
-    else
-      let fields = filter (not . T.null) (map T.strip (splitTopLevel ',' fieldsTxt))
-       in case traverse parseField fields of
-            Right parsed -> Just (PRecord span0 ctorName parsed)
-            Left _ -> Nothing
-  where
-    parseField fieldTxt =
-      case splitTopLevelMaybe "=" fieldTxt of
-        Just (nameTxt, patTxt) -> do
-          pat <- parsePatternText patTxt
-          Right (T.strip nameTxt, pat)
-        Nothing -> do
-          pat <- parsePatternText fieldTxt
-          case pat of
-            PVar _ fieldName -> Right (fieldName, PVar span0 fieldName)
-            _ -> Left "field pattern"
-
-parseInfixPattern :: Text -> Maybe Pattern
-parseInfixPattern txt = do
-  (lhs, op, rhs) <- findTopLevelOperatorTriple txt
-  lhsPat <- either (const Nothing) Just (parsePatternText lhs)
-  rhsPat <- either (const Nothing) Just (parsePatternText rhs)
-  Just (PInfix span0 lhsPat op rhsPat)
-
-parseConOrVarPattern :: Text -> Either Text Pattern
-parseConOrVarPattern txt =
-  case splitTopLevelWords txt of
-    [] -> Left "pattern"
-    (firstTok : rest)
-      | isTypeToken firstTok -> do
-          args <- traverse parsePatternText rest
-          Right (PCon span0 firstTok args)
-      | isVarToken firstTok && null rest -> Right (PVar span0 firstTok)
-      | otherwise -> Left "pattern"
+              Left err -> Left ("pattern parse error: " <> T.pack (show err))
+          Left err -> Left ("pattern lex error: " <> err)
 
 -- Token-based pattern parsing
 parsePatternToks :: [LexToken] -> Either Text Pattern
@@ -1538,7 +1497,8 @@ numericLitTok =
 asPatTok :: TokParser Pattern
 asPatTok = do
   name <- varIdentifierTok
-  operatorTokParser "@"
+  -- @ can be lexed as either symbol or operator
+  _ <- symbolTokParser "@" <|> operatorTokParser "@"
   PAs span0 name <$> patternTokParser
 
 infixPatTok :: TokParser Pattern
@@ -1741,8 +1701,10 @@ ifExprTok :: TokParser Expr
 ifExprTok = do
   tokWord "if"
   cond <- exprTokParser
+  _ <- MP.optional (symbolTokParser ";")
   tokWord "then"
   thenExpr <- exprTokParser
+  _ <- MP.optional (symbolTokParser ";")
   tokWord "else"
   EIf span0 cond thenExpr <$> exprTokParser
 
@@ -1931,26 +1893,57 @@ parseExprOrTuple toks =
   where
     parseSectionToks ts =
       case ts of
+        -- Standalone operator: (+)
         [opTok] | isOpToken opTok ->
           case lexTokenKind opTok of
             TkOperator op -> Just (EVar span0 op)
             _ -> Nothing
+        -- Backtick operator alone: (`div`)
+        [bt1, opTok, bt2] | isBacktick bt1 && isBacktick bt2 ->
+          case lexTokenKind opTok of
+            TkIdentifier name -> Just (EVar span0 name)
+            _ -> Nothing
+        -- Right section: (op expr) e.g., (+ 1) or (`div` 2)
         (opTok : rest) | isOpToken opTok ->
           case (lexTokenKind opTok, parseExprToks rest) of
             (TkOperator op, Right rhs) -> Just (ESectionR span0 op rhs)
             _ -> Nothing
+        -- Backtick right section: (`op` expr)
+        (bt1 : opTok : bt2 : rest) | isBacktick bt1 && isBacktick bt2 ->
+          case (lexTokenKind opTok, parseExprToks rest) of
+            (TkIdentifier op, Right rhs) -> Just (ESectionR span0 op rhs)
+            _ -> Nothing
         _ ->
+          -- Left section: (expr op) or (expr `op`)
           case unsnoc ts of
             Just (init', opTok) | isOpToken opTok ->
               case (parseExprToks init', lexTokenKind opTok) of
                 (Right lhs, TkOperator op) -> Just (ESectionL span0 lhs op)
                 _ -> Nothing
-            _ -> Nothing
+            _ ->
+              -- Check for backtick left section (expr `op`)
+              case unsnoc3 ts of
+                Just (lhsToks, bt1, opTok, bt2)
+                  | isBacktick bt1 && isBacktick bt2 ->
+                      case (parseExprToks lhsToks, lexTokenKind opTok) of
+                        (Right lhs, TkIdentifier op) -> Just (ESectionL span0 lhs op)
+                        _ -> Nothing
+                _ -> Nothing
 
     isOpToken tok =
       case lexTokenKind tok of
         TkOperator _ -> True
         _ -> False
+
+    isBacktick tok =
+      case lexTokenKind tok of
+        TkSymbol "`" -> True
+        _ -> False
+
+    -- Extract the last 3 elements and the prefix
+    unsnoc3 xs = case reverse xs of
+      (a : b : c : rest) -> Just (reverse rest, c, b, a)
+      _ -> Nothing
 
 listExprTok :: TokParser Expr
 listExprTok = do
@@ -1976,7 +1969,7 @@ parseListInnerExpr toks =
             _ -> pure (EListCompParallel span0 bodyExpr qualifierGroups)
         Nothing ->
           -- Check for arithmetic sequence (..)
-          case splitTokensOnTopLevelOperator ".." toks of
+          case splitTokensOnTopLevelSymbol ".." toks of
             Just _ -> parseArithSeqToks toks
             Nothing -> do
               chunks <- either (fail . T.unpack) pure (splitTokensOnTopLevelCommas toks)
@@ -2018,7 +2011,7 @@ parseCompStmtToks toks =
 
 parseArithSeqToks :: [LexToken] -> TokParser Expr
 parseArithSeqToks toks =
-  case splitTokensOnTopLevelOperator ".." toks of
+  case splitTokensOnTopLevelSymbol ".." toks of
     Nothing -> fail "arithmetic sequence"
     Just (lhsToks, rhsToks) ->
       case splitTokensOnTopLevelCommas lhsToks of
@@ -2076,11 +2069,79 @@ parseRecordFieldTok toks =
 
 typeAppExprTok :: TokParser Expr
 typeAppExprTok = do
-  base <- varExprTok
-  symbolTokParser "@"
-  tyToks <- MP.some MP.anySingle
-  ty <- either (fail . T.unpack) pure (parseTypeText (tokensToSourceText tyToks))
-  pure (ETypeApp span0 base ty)
+  baseTok <- varExprTokWithSpan
+  atTok <-
+    tokenSatisfy $ \tok ->
+      case lexTokenKind tok of
+        TkSymbol "@" -> Just tok
+        _ -> Nothing
+  -- Type application requires whitespace before @
+  -- Check that there's a gap between the variable and @
+  let baseSpan = lexTokenSpan baseTok
+      atSpan = lexTokenSpan atTok
+  if sourceSpanEndCol baseSpan < sourceSpanStartCol atSpan
+    || sourceSpanEndLine baseSpan < sourceSpanStartLine atSpan
+    then do
+      -- Collect type argument tokens, but stop at another @ that would start another type app
+      tyToks <- collectTypeArgTokens
+      if null tyToks
+        then fail "expected type argument after @"
+        else do
+          ty <- either (fail . T.unpack) pure (parseTypeText (tokensToSourceText tyToks))
+          let base = case lexTokenKind baseTok of
+                TkIdentifier name -> EVar span0 name
+                _ -> error "impossible: varExprTokWithSpan returned non-identifier"
+          pure (ETypeApp span0 base ty)
+    else fail "type application requires whitespace before @"
+  where
+    -- Collect tokens for a type argument, stopping at @ that could start another type app
+    -- but also need to allow @ inside parentheses/brackets for things like f @(a @ b)
+    collectTypeArgTokens = go (0 :: Int) (0 :: Int) []
+      where
+        go parenDepth bracketDepth acc = do
+          mTok <- MP.optional (MP.lookAhead MP.anySingle)
+          case mTok of
+            Nothing -> pure (reverse acc)
+            Just tok
+              -- Stop at @ at top level (could be next type app)
+              | parenDepth == 0 && bracketDepth == 0 && isAtToken tok ->
+                  pure (reverse acc)
+              | otherwise ->
+                  case lexTokenKind tok of
+                    TkSymbol "(" -> do
+                      _ <- MP.anySingle
+                      go (parenDepth + 1) bracketDepth (tok : acc)
+                    TkSymbol ")" ->
+                      if parenDepth <= 0
+                        then pure (reverse acc)
+                        else do
+                          _ <- MP.anySingle
+                          go (parenDepth - 1) bracketDepth (tok : acc)
+                    TkSymbol "[" -> do
+                      _ <- MP.anySingle
+                      go parenDepth (bracketDepth + 1) (tok : acc)
+                    TkSymbol "]" ->
+                      if bracketDepth <= 0
+                        then pure (reverse acc)
+                        else do
+                          _ <- MP.anySingle
+                          go parenDepth (bracketDepth - 1) (tok : acc)
+                    _ -> do
+                      _ <- MP.anySingle
+                      go parenDepth bracketDepth (tok : acc)
+
+    isAtToken tok =
+      case lexTokenKind tok of
+        TkSymbol "@" -> True
+        _ -> False
+
+varExprTokWithSpan :: TokParser LexToken
+varExprTokWithSpan =
+  tokenSatisfy $ \tok ->
+    case lexTokenKind tok of
+      TkIdentifier name
+        | name `notElem` exprTerminatingKeywords -> Just tok
+      _ -> Nothing
 
 varExprTok :: TokParser Expr
 varExprTok =
@@ -2093,8 +2154,15 @@ varExprTok =
 -- Keywords that should terminate expression parsing (not be parsed as variables)
 exprTerminatingKeywords :: [Text]
 exprTerminatingKeywords =
-  [ "then", "else", "in", "of", "where"
-  , "let", "case", "if", "do"  -- These start new expressions, not continue them
+  [ "then",
+    "else",
+    "in",
+    "of",
+    "where",
+    "let",
+    "case",
+    "if",
+    "do"
   ]
 
 collectUntilKeyword :: Text -> TokParser [LexToken]
@@ -2148,14 +2216,6 @@ parseLiteralText txt
       Just (LitFloat span0 (read (T.unpack txt)))
   | otherwise = Nothing
 
-isNumericLiteral :: Literal -> Bool
-isNumericLiteral lit =
-  case lit of
-    LitInt {} -> True
-    LitIntBase {} -> True
-    LitFloat {} -> True
-    _ -> False
-
 isHexLiteral :: Text -> Bool
 isHexLiteral txt =
   case T.stripPrefix "0x" txt <|> T.stripPrefix "0X" txt of
@@ -2198,8 +2258,8 @@ parseExprText input =
           Right toks ->
             case runParser (exprTokParser <* eof) "<expr>" toks of
               Right expr -> Right expr
-              Left _err -> parseExprCore txt
-          Left _err -> parseExprCore txt
+              Left err -> Left ("expression parse error: " <> T.pack (show err))
+          Left err -> Left ("expression lex error: " <> err)
 
 parseExprCore :: Text -> Either Text Expr
 parseExprCore txt
@@ -2982,29 +3042,6 @@ findTopLevelEqualsIndex txt = go (0 :: Int) (0 :: Int) (0 :: Int) False 0 txt
 findTopLevelChar :: Char -> Text -> Maybe Int
 findTopLevelChar ch = findTopLevelToken (T.singleton ch)
 
-findTopLevelOperatorTriple :: Text -> Maybe (Text, Text, Text)
-findTopLevelOperatorTriple txt =
-  case tokenizeExpr txt of
-    Right toks ->
-      case break isOp toks of
-        (_, []) -> Nothing
-        (lhsSeg, TokOp op : rhsSeg)
-          | null lhsSeg || null rhsSeg -> Nothing
-          | otherwise ->
-              let lhsTxt = T.unwords [a | TokAtom a <- lhsSeg]
-                  rhsTxt = T.unwords [a | TokAtom a <- rhsSeg]
-               in if T.null lhsTxt || T.null rhsTxt
-                    then Nothing
-                    else Just (lhsTxt, op, rhsTxt)
-        (_, TokAtom _ : _) -> Nothing
-        (_, TokTypeApp _ : _) -> Nothing
-    Left _ -> Nothing
-  where
-    isOp token =
-      case token of
-        TokOp _ -> True
-        _ -> False
-
 isIdentTailOrStart :: Char -> Bool
 isIdentTailOrStart c = isAlphaNum c || c == '_' || c == '\''
 
@@ -3139,14 +3176,6 @@ isOperatorToken :: Text -> Bool
 isOperatorToken tok =
   let inner = stripParens tok
    in not (T.null inner) && T.all isSymbolicOpChar inner
-
-isParenthesizedOperator :: Text -> Bool
-isParenthesizedOperator tok =
-  let trimmed = T.strip tok
-   in T.length trimmed >= 3
-        && T.head trimmed == '('
-        && T.last trimmed == ')'
-        && isOperatorToken (stripParens trimmed)
 
 hasOuterParens :: Text -> Bool
 hasOuterParens txt =

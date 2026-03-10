@@ -3,8 +3,8 @@
 ## Summary
 
 - Total Extensions: 58
-- Supported: 4
-- In Progress: 1
+- Supported: 3
+- In Progress: 2
 - Planned: 53
 
 ## Extension Status
@@ -13,7 +13,7 @@
 |-----------|--------|---------------|-------|
 | ParallelListComp | Supported | 1/1 | Parallel list comprehensions |
 | QuasiQuotes | Supported | 3/3 | Quasi quotes |
-| TypeApplications | Supported | 2/2 | Type applications |
+| TypeApplications | In Progress | 0/2 | Type applications |
 | ViewPatterns | Supported | 3/3 | View patterns |
 | BangPatterns | Planned | - | Bang Patterns |
 | BinaryLiterals | Planned | - | Binary Literals |

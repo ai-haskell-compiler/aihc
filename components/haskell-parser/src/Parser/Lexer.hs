@@ -143,6 +143,7 @@ symbolToken :: LParser (Text, LexTokenKind)
 symbolToken =
   choice2
     [ ("..", TkSymbol ".."),
+      ("@", TkSymbol "@"),
       ("(", TkSymbol "("),
       (")", TkSymbol ")"),
       ("[", TkSymbol "["),
@@ -150,7 +151,8 @@ symbolToken =
       ("{", TkSymbol "{"),
       ("}", TkSymbol "}"),
       (",", TkSymbol ","),
-      (";", TkSymbol ";")
+      (";", TkSymbol ";"),
+      ("`", TkSymbol "`")
     ]
   where
     choice2 xs =
@@ -211,7 +213,7 @@ quasiQuoteToken = do
   quoter <- takeQuoter
   _ <- C.char '|'
   body <- manyTillText "|]"
-  _ <- C.string "|]"
+  -- Note: manyTillText does NOT consume the end marker, so we don't need to consume it again
   let raw = "[" <> quoter <> "|" <> body <> "|]"
       q = T.pack quoter
       b = T.pack body
