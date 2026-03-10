@@ -9,10 +9,11 @@ module Parser
 where
 
 import Data.Char (isAsciiLower)
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Void (Void)
-import Parser.Ast (CaseAlt (..), DataDecl (..), Decl (..), Expr (..), ImportDecl (..), Match (..), Module (..), Pattern (..), Rhs (..), SourceSpan (..), ValueDecl (..))
+import Parser.Ast (CaseAlt (..), DataConDecl (..), DataDecl (..), Decl (..), Expr (..), ImportDecl (..), Match (..), Module (..), Pattern (..), Rhs (..), SourceSpan (..), ValueDecl (..))
 import Parser.Lexer (LexToken (..), LexTokenKind (..), lexTokens)
 import Parser.Types
 import Text.Megaparsec (Parsec, anySingle, lookAhead, runParser, (<|>))
@@ -26,6 +27,7 @@ exprParser = ifExprParser <|> caseExprParser <|> appExprParser
 
 moduleParser :: TokParser Module
 moduleParser = withSpan $ do
+  languagePragmas <- MP.many languagePragmaParser
   mName <- MP.optional (moduleHeaderParser <* MP.many (symbolLikeTok ";"))
   imports <- MP.many (importDeclParser <* MP.many (symbolLikeTok ";"))
   decls <- MP.some (declParser <* MP.many (symbolLikeTok ";"))
@@ -33,11 +35,18 @@ moduleParser = withSpan $ do
     Module
       { moduleSpan = span',
         moduleName = mName,
-        moduleLanguagePragmas = [],
+        moduleLanguagePragmas = concat languagePragmas,
         moduleExports = Nothing,
         moduleImports = imports,
         moduleDecls = decls
       }
+
+languagePragmaParser :: TokParser [Text]
+languagePragmaParser =
+  tokenSatisfy $ \tok ->
+    case lexTokenKind tok of
+      TkPragmaLanguage names -> Just names
+      _ -> Nothing
 
 moduleHeaderParser :: TokParser Text
 moduleHeaderParser = do
@@ -73,6 +82,7 @@ dataDeclParser = withSpan $ do
     case lexTokenKind tok of
       TkIdentifier ident -> Just ident
       _ -> Nothing
+  constructors <- MP.optional (operatorLikeTok "=" *> dataConDeclParser `MP.sepBy1` operatorLikeTok "|")
   pure $ \span' ->
     DeclData
       span'
@@ -81,9 +91,17 @@ dataDeclParser = withSpan $ do
           dataDeclContext = [],
           dataDeclName = typeName,
           dataDeclParams = typeParams,
-          dataDeclConstructors = [],
+          dataDeclConstructors = fromMaybe [] constructors,
           dataDeclDeriving = Nothing
         }
+
+dataConDeclParser :: TokParser DataConDecl
+dataConDeclParser = withSpan $ do
+  name <- tokenSatisfy $ \tok ->
+    case lexTokenKind tok of
+      TkIdentifier ident -> Just ident
+      _ -> Nothing
+  pure $ \span' -> PrefixCon span' name []
 
 valueDeclParser :: TokParser Decl
 valueDeclParser = withSpan $ do
