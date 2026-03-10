@@ -34,7 +34,15 @@ import qualified Text.Megaparsec.Char.Lexer as L
 import Text.Megaparsec.Pos (unPos)
 
 data LexTokenKind
-  = TkKeyword Text
+  = TkKeywordModule
+  | TkKeywordWhere
+  | TkKeywordImport
+  | TkKeywordQualified
+  | TkKeywordAs
+  | TkKeywordHiding
+  | TkKeywordIf
+  | TkKeywordThen
+  | TkKeywordElse
   | TkIdentifier Text
   | TkOperator Text
   | TkInteger Integer
@@ -119,10 +127,7 @@ identifierToken = do
   let base = first : rest
       chunks = base : more
       ident = T.intercalate "." (map T.pack chunks)
-      kind =
-        if ident `elem` reservedKeywords
-          then TkKeyword ident
-          else TkIdentifier ident
+      kind = maybe (TkIdentifier ident) id (keywordTokenKind ident)
   pure (ident, kind)
 
 identTailChar :: LParser Char
@@ -342,16 +347,17 @@ identifierTok :: TokParser Text
 identifierTok = tokenSatisfy $ \tok ->
   case lexTokenKind tok of
     TkIdentifier txt -> Just txt
-    TkKeyword txt
-      | txt `elem` ["as", "qualified", "hiding"] -> Just txt
+    TkKeywordAs -> Just "as"
+    TkKeywordQualified -> Just "qualified"
+    TkKeywordHiding -> Just "hiding"
     _ -> Nothing
 
 keywordTok :: Text -> TokParser ()
 keywordTok expected =
   tokenSatisfy_ $ \tok ->
-    case lexTokenKind tok of
-      TkKeyword txt -> txt == expected
-      _ -> False
+    case keywordTokenKind expected of
+      Just expectedKind -> lexTokenKind tok == expectedKind
+      Nothing -> False
 
 symbolTok :: Text -> TokParser ()
 symbolTok expected =
@@ -430,12 +436,16 @@ stripParens t =
         then T.strip (T.init (T.tail trimmed))
         else trimmed
 
-reservedKeywords :: [Text]
-reservedKeywords =
-  [ "module",
-    "where",
-    "import",
-    "qualified",
-    "as",
-    "hiding"
-  ]
+keywordTokenKind :: Text -> Maybe LexTokenKind
+keywordTokenKind txt = case txt of
+  "module" -> Just TkKeywordModule
+  "where" -> Just TkKeywordWhere
+  "import" -> Just TkKeywordImport
+  "qualified" -> Just TkKeywordQualified
+  "as" -> Just TkKeywordAs
+  "hiding" -> Just TkKeywordHiding
+  "if" -> Just TkKeywordIf
+  "then" -> Just TkKeywordThen
+  "else" -> Just TkKeywordElse
+  _ -> Nothing
+
