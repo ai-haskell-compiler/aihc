@@ -8,6 +8,7 @@ module Parser.Lexer
 where
 
 import Data.Char (isAlphaNum, isHexDigit, isOctDigit)
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Void (Void)
@@ -31,7 +32,15 @@ import qualified Text.Megaparsec.Char.Lexer as L
 import Text.Megaparsec.Pos (unPos)
 
 data LexTokenKind
-  = TkKeyword Text
+  = TkKeywordModule
+  | TkKeywordWhere
+  | TkKeywordImport
+  | TkKeywordQualified
+  | TkKeywordAs
+  | TkKeywordHiding
+  | TkKeywordIf
+  | TkKeywordThen
+  | TkKeywordElse
   | TkIdentifier Text
   | TkOperator Text
   | TkInteger Integer
@@ -102,10 +111,7 @@ identifierToken = do
   let base = first : rest
       chunks = base : more
       ident = T.intercalate "." (map T.pack chunks)
-      kind =
-        if ident `elem` reservedKeywords
-          then TkKeyword ident
-          else TkIdentifier ident
+      kind = fromMaybe (TkIdentifier ident) (keywordTokenKind ident)
   pure (ident, kind)
 
 identTailChar :: LParser Char
@@ -248,12 +254,15 @@ isSymbolicOpChar c = c `elem` (":!#$%&*+./<=>?\\^|-~" :: String)
 isIdentTailOrStart :: Char -> Bool
 isIdentTailOrStart c = isAlphaNum c || c == '_' || c == '\''
 
-reservedKeywords :: [Text]
-reservedKeywords =
-  [ "module",
-    "where",
-    "import",
-    "qualified",
-    "as",
-    "hiding"
-  ]
+keywordTokenKind :: Text -> Maybe LexTokenKind
+keywordTokenKind txt = case txt of
+  "module" -> Just TkKeywordModule
+  "where" -> Just TkKeywordWhere
+  "import" -> Just TkKeywordImport
+  "qualified" -> Just TkKeywordQualified
+  "as" -> Just TkKeywordAs
+  "hiding" -> Just TkKeywordHiding
+  "if" -> Just TkKeywordIf
+  "then" -> Just TkKeywordThen
+  "else" -> Just TkKeywordElse
+  _ -> Nothing

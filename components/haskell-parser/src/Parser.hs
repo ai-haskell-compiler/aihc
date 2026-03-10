@@ -51,11 +51,11 @@ errorBundlePretty = show
 
 ifExprParser :: TokParser Expr
 ifExprParser = withSpan $ do
-  keywordLikeTok "if"
+  keywordTok TkKeywordIf
   cond <- exprParser
-  keywordLikeTok "then"
+  keywordTok TkKeywordThen
   yes <- exprParser
-  keywordLikeTok "else"
+  keywordTok TkKeywordElse
   no <- exprParser
   pure (\span' -> EIf span' cond yes no)
 
@@ -63,19 +63,14 @@ varExprParser :: TokParser Expr
 varExprParser = withSpan $ do
   name <- tokenSatisfy $ \tok ->
     case lexTokenKind tok of
-      TkIdentifier ident | ident `notElem` exprReservedKeywords -> Just ident
+      TkIdentifier ident -> Just ident
       _ -> Nothing
   pure (`EVar` name)
 
-keywordLikeTok :: Text -> TokParser ()
-keywordLikeTok expected =
+keywordTok :: LexTokenKind -> TokParser ()
+keywordTok expected =
   tokenSatisfy $ \tok ->
-    case lexTokenKind tok of
-      TkKeyword kw
-        | kw == expected -> Just ()
-      TkIdentifier kw
-        | kw == expected -> Just ()
-      _ -> Nothing
+    if lexTokenKind tok == expected then Just () else Nothing
 
 tokenSatisfy :: (LexToken -> Maybe a) -> TokParser a
 tokenSatisfy f = do
@@ -98,16 +93,3 @@ sourceSpanFromPositions start end =
       sourceSpanEndLine = MP.unPos (sourceLine end),
       sourceSpanEndCol = MP.unPos (sourceColumn end)
     }
-
-exprReservedKeywords :: [Text]
-exprReservedKeywords = ["if", "then", "else"] <> lexerReservedKeywords
-
-lexerReservedKeywords :: [Text]
-lexerReservedKeywords =
-  [ "module",
-    "where",
-    "import",
-    "qualified",
-    "as",
-    "hiding"
-  ]
