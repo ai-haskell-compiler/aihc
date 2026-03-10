@@ -41,6 +41,8 @@ data LexTokenKind
   | TkKeywordQualified
   | TkKeywordAs
   | TkKeywordHiding
+  | TkKeywordCase
+  | TkKeywordOf
   | TkKeywordIf
   | TkKeywordThen
   | TkKeywordElse
@@ -317,6 +319,8 @@ keywordTokenKind txt = case txt of
   "qualified" -> Just TkKeywordQualified
   "as" -> Just TkKeywordAs
   "hiding" -> Just TkKeywordHiding
+  "case" -> Just TkKeywordCase
+  "of" -> Just TkKeywordOf
   "if" -> Just TkKeywordIf
   "then" -> Just TkKeywordThen
   "else" -> Just TkKeywordElse
