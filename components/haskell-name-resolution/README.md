@@ -19,7 +19,7 @@ Runtime outcomes:
 
 Current baseline:
 <!-- AUTO-GENERATED: START name-resolution-progress -->
-- `10/12` implemented (`83.33%` complete)
+- `0/12` implemented (`0.00%` complete)
 <!-- AUTO-GENERATED: END name-resolution-progress -->
 
 ## Commands

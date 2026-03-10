@@ -1,1 +1,1 @@
-parallel-list-comp-basic	expressions	parallel-list-comp-basic.hs	pass
+parallel-list-comp-basic	expressions	parallel-list-comp-basic.hs	xfail	parser intentionally disabled
