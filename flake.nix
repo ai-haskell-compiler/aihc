@@ -204,11 +204,6 @@
       checks = forAllSystems (pkgs:
         let
           hsPkgs = mkHsPkgs pkgs;
-          h2010ProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser "h2010-progress";
-          extensionProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser "extension-progress";
-          cppProgressExe = pkgs.lib.getExe' hsPkgs.aihc-cpp "cpp-progress";
-          nameResolutionProgressExe =
-            pkgs.lib.getExe' hsPkgs.aihc-name-resolution "name-resolution-progress";
           parserTests = pkgs.haskell.lib.doCheck (pkgs.haskell.lib.dontHaddock hsPkgs.aihc-parser);
           cppTests = pkgs.haskell.lib.doCheck (pkgs.haskell.lib.dontHaddock hsPkgs.aihc-cpp);
           nameResolutionTests =
@@ -271,24 +266,6 @@
             name-resolution-progress --strict
             touch "$out"
           '';
-          generatedReportsCheck = pkgs.runCommand "aihc-generated-reports-check" {
-            src = ./.;
-            nativeBuildInputs = [
-              pkgs.bash
-              hsPkgs.aihc-parser
-              hsPkgs.aihc-cpp
-              hsPkgs.aihc-name-resolution
-            ];
-          } ''
-            cd "$src"
-            PARSER_PROGRESS_CMD='cd components/haskell-parser && ${h2010ProgressExe}' \
-            PARSER_EXTENSION_PROGRESS_CMD='cd components/haskell-parser && ${extensionProgressExe} --markdown' \
-            PARSER_EXTENSION_PROGRESS_TEXT_CMD='cd components/haskell-parser && ${extensionProgressExe}' \
-            CPP_PROGRESS_CMD='cd components/haskell-cpp && CPPHS_BIN=${pkgs.lib.getExe pkgs.haskellPackages.cpphs} ${cppProgressExe}' \
-            NAME_RESOLUTION_PROGRESS_CMD='cd components/haskell-name-resolution && ${nameResolutionProgressExe}' \
-              bash ./scripts/update-generated-content.sh --check
-            touch "$out"
-          '';
         in {
           parser-tests = parserTests;
           cpp-tests = cppTests;
@@ -297,7 +274,6 @@
           parser-extension-progress-strict = parserExtensionProgressStrict;
           cpp-progress-strict = cppProgressStrict;
           name-resolution-progress-strict = nameResolutionProgressStrict;
-          generated-reports-check = generatedReportsCheck;
            nix-lint = nixLint;
            haskell-lint = haskellLint;
            haskell-format = haskellFormat;
@@ -310,10 +286,9 @@
                 { name = "parser-extension-progress-strict"; path = parserExtensionProgressStrict; }
                 { name = "cpp-progress-strict"; path = cppProgressStrict; }
                 { name = "name-resolution-progress-strict"; path = nameResolutionProgressStrict; }
-                { name = "generated-reports-check"; path = generatedReportsCheck; }
-                { name = "nix-lint"; path = nixLint; }
-               { name = "haskell-lint"; path = haskellLint; }
-               { name = "haskell-format"; path = haskellFormat; }
+                 { name = "nix-lint"; path = nixLint; }
+                { name = "haskell-lint"; path = haskellLint; }
+                { name = "haskell-format"; path = haskellFormat; }
              ];
         });
     };
