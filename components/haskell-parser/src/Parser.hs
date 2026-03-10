@@ -1381,8 +1381,8 @@ parsePatternText input =
           Right toks ->
             case runParser (patternTokParser <* eof) "<pattern>" toks of
               Right pat -> Right pat
-              Left _ -> parsePatternTextFallback txt
-          Left _ -> parsePatternTextFallback txt
+              Left _err -> parsePatternTextFallback txt
+          Left _err -> parsePatternTextFallback txt
 
 parsePatternTextFallback :: Text -> Either Text Pattern
 parsePatternTextFallback txt =
@@ -1518,8 +1518,10 @@ patternTokParser =
     <|> patternAtomTok
 
 irrefutablePatTok :: TokParser Pattern
-irrefutablePatTok =
-  symbolTokParser "~" *> (PIrrefutable span0 <$> patternTokParser)
+irrefutablePatTok = do
+  -- Tilde can be lexed as either symbol or operator
+  _ <- symbolTokParser "~" <|> operatorTokParser "~"
+  PIrrefutable span0 <$> patternTokParser
 
 negLitPatTok :: TokParser Pattern
 negLitPatTok =
@@ -1563,7 +1565,8 @@ infixConOrOpTok =
 
 patternAtomTok :: TokParser Pattern
 patternAtomTok =
-  try wildcardPatTok
+  try irrefutablePatTok
+    <|> try wildcardPatTok
     <|> try quasiQuotePatTok
     <|> try literalPatTok
     <|> try parenPatTok
@@ -1745,7 +1748,8 @@ ifExprTok = do
 
 lambdaExprTok :: TokParser Expr
 lambdaExprTok = do
-  symbolTokParser "\\"
+  -- Lambda can be lexed as either symbol or operator
+  _ <- symbolTokParser "\\" <|> operatorTokParser "\\"
   pats <- MP.some patternAtomTok
   operatorTokParser "->"
   ELambdaPats span0 pats <$> exprTokParser
@@ -1811,12 +1815,25 @@ buildInfixExpr lhs = do
     Nothing -> buildAppExpr lhs
     Just op -> EInfix span0 lhs op <$> infixAndAppExprTok
 
+-- dotDotTok removed - arithmetic sequences are only valid inside [...]
+
 buildAppExpr :: Expr -> TokParser Expr
 buildAppExpr fn = do
-  mArg <- MP.optional (try exprAtomTok)
-  case mArg of
-    Nothing -> pure fn
-    Just arg -> buildAppExpr (EApp span0 fn arg)
+  -- Check for record update/construction with braces
+  mBrace <- MP.optional (try (MP.lookAhead (symbolTokParser "{")))
+  case mBrace of
+    Just () -> do
+      symbolTokParser "{"
+      innerToks <- collectBracketedToks "{" "}"
+      symbolTokParser "}"
+      fields <- parseRecordFieldsToks innerToks
+      let updatedExpr = ERecordUpd span0 fn fields
+      buildAppExpr updatedExpr
+    Nothing -> do
+      mArg <- MP.optional (try exprAtomTok)
+      case mArg of
+        Nothing -> pure fn
+        Just arg -> buildAppExpr (EApp span0 fn arg)
 
 infixOpTok :: TokParser Text
 infixOpTok =
@@ -2069,8 +2086,16 @@ varExprTok :: TokParser Expr
 varExprTok =
   tokenSatisfy $ \tok ->
     case lexTokenKind tok of
-      TkIdentifier name -> Just (EVar span0 name)
+      TkIdentifier name
+        | name `notElem` exprTerminatingKeywords -> Just (EVar span0 name)
       _ -> Nothing
+
+-- Keywords that should terminate expression parsing (not be parsed as variables)
+exprTerminatingKeywords :: [Text]
+exprTerminatingKeywords =
+  [ "then", "else", "in", "of", "where"
+  , "let", "case", "if", "do"  -- These start new expressions, not continue them
+  ]
 
 collectUntilKeyword :: Text -> TokParser [LexToken]
 collectUntilKeyword kw = go (0 :: Int) (0 :: Int) (0 :: Int) []
@@ -2173,8 +2198,8 @@ parseExprText input =
           Right toks ->
             case runParser (exprTokParser <* eof) "<expr>" toks of
               Right expr -> Right expr
-              Left _ -> parseExprCore txt
-          Left _ -> parseExprCore txt
+              Left _err -> parseExprCore txt
+          Left _err -> parseExprCore txt
 
 parseExprCore :: Text -> Either Text Expr
 parseExprCore txt
