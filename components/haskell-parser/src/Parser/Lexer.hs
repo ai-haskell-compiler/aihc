@@ -56,23 +56,21 @@ type LParser = Parsec Void Text
 
 type TokParser = Parsec Void [LexToken]
 
-lexTokens :: Text -> Either Text [LexToken]
+lexTokens :: Text -> [LexToken]
 lexTokens input =
   case runParser (many (spaceConsumer *> lexTokenParser) <* spaceConsumer <* eof) "<lexer>" input of
-    Right toks -> Right toks
-    Left _ -> Left "token stream"
+    Right toks -> toks
+    Left _ -> []
 
 parseModuleHeaderTokens :: Text -> Either Text (Text, Maybe [ExportSpec])
-parseModuleHeaderTokens input = do
-  toks <- lexTokens input
-  case runParser (moduleHeaderTokParser <* eof) "<module-header>" toks of
+parseModuleHeaderTokens input =
+  case runParser (moduleHeaderTokParser <* eof) "<module-header>" (lexTokens input) of
     Right header -> Right header
     Left _ -> Left "module header"
 
 parseImportDeclTokens :: Text -> Either Text ImportDecl
-parseImportDeclTokens input = do
-  toks <- lexTokens input
-  case runParser (importDeclTokParser <* eof) "<import-decl>" toks of
+parseImportDeclTokens input =
+  case runParser (importDeclTokParser <* eof) "<import-decl>" (lexTokens input) of
     Right decl -> Right decl
     Left _ -> Left "import declaration"
 
