@@ -93,4 +93,3 @@ sourceSpanFromPositions start end =
       sourceSpanEndLine = MP.unPos (sourceLine end),
       sourceSpanEndCol = MP.unPos (sourceColumn end)
     }
-

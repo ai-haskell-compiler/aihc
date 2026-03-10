@@ -10,7 +10,7 @@ module Parser.Lexer
 where
 
 import Data.Char (isAlphaNum, isHexDigit, isOctDigit, isUpper)
-import Data.Maybe (isJust)
+import Data.Maybe (fromMaybe, isJust)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Void (Void)
@@ -127,7 +127,7 @@ identifierToken = do
   let base = first : rest
       chunks = base : more
       ident = T.intercalate "." (map T.pack chunks)
-      kind = maybe (TkIdentifier ident) id (keywordTokenKind ident)
+      kind = fromMaybe (TkIdentifier ident) (keywordTokenKind ident)
   pure (ident, kind)
 
 identTailChar :: LParser Char
@@ -448,4 +448,3 @@ keywordTokenKind txt = case txt of
   "then" -> Just TkKeywordThen
   "else" -> Just TkKeywordElse
   _ -> Nothing
-
