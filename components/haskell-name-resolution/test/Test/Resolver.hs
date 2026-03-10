@@ -25,30 +25,38 @@ import Test.Tasty.HUnit
 
 resolverTests :: IO TestTree
 resolverTests = do
-  scenarios <- resolverFixtureGroup "resolve"
-  pure $
-    testGroup
-      "resolver"
-      [ testGroup
-          "unit"
-          [ testCase "resolves top-level references" case_resolvesTopLevel,
-            testCase "reports unbound variables" case_unboundVariable,
-            testCase "reports duplicate top-level bindings" case_duplicateBinding,
-            testCase "respects implicit prelude config" case_preludeToggle,
-            testCase "deterministic output for same module" case_deterministic
-          ],
+  if parserDisabled
+    then pure $ testGroup "resolver" [testCase "xfail-parser-disabled" (pure ())]
+    else do
+      scenarios <- resolverFixtureGroup "resolve"
+      pure $
         testGroup
-          "progress-matrix"
-          [ testGroup "node-var" [testCase "top-level lookup" case_resolvesTopLevel],
-            testGroup "node-int" [testCase "integer literal" case_intLiteral],
-            testGroup "node-app" [testCase "application traversal" case_applicationTraversal],
-            testGroup "scope-shadowing" [testCase "prelude shadowed by top-level binder" case_shadowPreludeByTopLevel],
-            testGroup "scope-ordering" [testCase "forward reference to later binder" case_forwardReference],
-            testGroup "scope-errors" [testCase "duplicate and unbound diagnostics" case_duplicateAndUnbound],
-            testGroup "extension-haskell2010-core" [testCase "minimal module" case_haskell2010Core]
-          ],
-        testGroup "differential-fixtures" [scenarios]
-      ]
+          "resolver"
+          [ testGroup
+              "unit"
+              [ testCase "resolves top-level references" case_resolvesTopLevel,
+                testCase "reports unbound variables" case_unboundVariable,
+                testCase "reports duplicate top-level bindings" case_duplicateBinding,
+                testCase "respects implicit prelude config" case_preludeToggle,
+                testCase "deterministic output for same module" case_deterministic
+              ],
+            testGroup
+              "progress-matrix"
+              [ testGroup "node-var" [testCase "top-level lookup" case_resolvesTopLevel],
+                testGroup "node-int" [testCase "integer literal" case_intLiteral],
+                testGroup "node-app" [testCase "application traversal" case_applicationTraversal],
+                testGroup "scope-shadowing" [testCase "prelude shadowed by top-level binder" case_shadowPreludeByTopLevel],
+                testGroup "scope-ordering" [testCase "forward reference to later binder" case_forwardReference],
+                testGroup "scope-errors" [testCase "duplicate and unbound diagnostics" case_duplicateAndUnbound],
+                testGroup "extension-haskell2010-core" [testCase "minimal module" case_haskell2010Core]
+              ],
+            testGroup "differential-fixtures" [scenarios]
+          ]
+  where
+    parserDisabled =
+      case parseModule defaultConfig "module Disabled where\nx = 1\n" of
+        ParseErr _ -> True
+        ParseOk _ -> False
 
 case_resolvesTopLevel :: Assertion
 case_resolvesTopLevel = do

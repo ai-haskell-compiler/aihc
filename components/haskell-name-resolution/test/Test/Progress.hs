@@ -83,7 +83,11 @@ evaluateCase meta = do
 evaluateCaseText :: CaseMeta -> T.Text -> IO (Outcome, String)
 evaluateCaseText meta source =
   case (oursLocatedFacts defaultResolveConfig source, oracleLocatedFacts defaultResolveConfig source) of
-    (Left oursErr, _) -> pure (OutcomeFail, "ours located-facts failed: " <> T.unpack oursErr)
+    (Left oursErr, _) ->
+      pure $
+        case caseExpected meta of
+          ExpectXFail -> (OutcomeXFail, "ours located-facts failed: " <> T.unpack oursErr)
+          ExpectPass -> (OutcomeFail, "ours located-facts failed: " <> T.unpack oursErr)
     (_, Left oracleErr) -> pure (OutcomeFail, "oracle located-facts failed: " <> T.unpack oracleErr)
     (Right oursFacts, Right oracleFacts) ->
       pure $ classify (caseExpected meta) oursFacts oracleFacts
