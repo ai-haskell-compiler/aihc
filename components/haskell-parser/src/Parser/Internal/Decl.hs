@@ -190,7 +190,13 @@ foreignEntityFromString txt
 
 dataDeclParser :: TokParser Decl
 dataDeclParser = withSpan $ do
-  keywordTok TkKeywordData
+  (declLine, declCol) <- tokenSatisfy $ \tok ->
+    case lexTokenKind tok of
+      TkKeywordData ->
+        case lexTokenSpan tok of
+          SourceSpan line col _ _ -> Just (line, col)
+          NoSourceSpan -> Just (1, 1)
+      _ -> Nothing
   (typeName, headLine) <- tokenSatisfy $ \tok ->
     case lexTokenKind tok of
       TkIdentifier ident ->
@@ -200,7 +206,7 @@ dataDeclParser = withSpan $ do
                 NoSourceSpan -> 1
          in Just (ident, line)
       _ -> Nothing
-  typeParams <- MP.many (sameLineIdentifierParser headLine)
+  typeParams <- MP.many (continuationIdentifierParser headLine declLine declCol)
   constructors <- MP.optional (operatorLikeTok "=" *> dataConDeclParser `MP.sepBy1` operatorLikeTok "|")
   pure $ \span' ->
     DeclData
@@ -214,11 +220,12 @@ dataDeclParser = withSpan $ do
           dataDeclDeriving = Nothing
         }
 
-sameLineIdentifierParser :: Int -> TokParser Text
-sameLineIdentifierParser expectedLine = do
+continuationIdentifierParser :: Int -> Int -> Int -> TokParser Text
+continuationIdentifierParser headLine declLine declCol = do
   nextTok <- lookAhead anySingle
   case lexTokenSpan nextTok of
-    SourceSpan line _ _ _ | line == expectedLine ->
+    SourceSpan line col _ _
+      | line == headLine || (line > declLine && col > declCol) ->
       tokenSatisfy $ \tok ->
         case lexTokenKind tok of
           TkIdentifier ident -> Just ident
