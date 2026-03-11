@@ -140,7 +140,8 @@ appExprParser = withSpan $ do
 
 atomExprParser :: TokParser Expr
 atomExprParser =
-  lambdaExprParser
+  MP.try parenOperatorExprParser
+    <|> lambdaExprParser
     <|> letExprParser
     <|> parenExprParser
     <|> listExprParser
@@ -150,6 +151,16 @@ atomExprParser =
     <|> charExprParser
     <|> stringExprParser
     <|> varExprParser
+
+parenOperatorExprParser :: TokParser Expr
+parenOperatorExprParser = withSpan $ do
+  symbolLikeTok "("
+  op <- tokenSatisfy $ \tok ->
+    case lexTokenKind tok of
+      TkOperator sym -> Just sym
+      _ -> Nothing
+  symbolLikeTok ")"
+  pure (`EVar` op)
 
 patternParser :: TokParser Pattern
 patternParser = asPatternParser
@@ -340,42 +351,69 @@ parenExprParser = withSpan $ do
 listExprParser :: TokParser Expr
 listExprParser = withSpan $ do
   symbolLikeTok "["
-  mClosed <- MP.optional (symbolLikeTok "]")
-  case mClosed of
+  mClose <- MP.optional (symbolLikeTok "]")
+  case mClose of
     Just () -> pure (`EList` [])
     Nothing -> do
-      first <- infixExprNoBarParser
-      mBar <- MP.optional (operatorLikeTok "|")
-      case mBar of
-        Just () -> do
-          quals <- compStmtParser `MP.sepBy1` symbolLikeTok ","
-          symbolLikeTok "]"
-          pure (\span' -> EListComp span' first quals)
-        Nothing -> do
-          rest <- MP.many (symbolLikeTok "," *> exprParser)
-          symbolLikeTok "]"
-          pure (`EList` (first : rest))
+      first <- exprParser
+      parseListTail first
 
-infixExprNoBarParser :: TokParser Expr
-infixExprNoBarParser = do
-  lhs <- appExprParser
-  rest <- MP.many ((,) <$> infixOperatorParserExcept ["|"] <*> appExprParser)
-  pure (foldl buildInfix lhs rest)
+parseListTail :: Expr -> TokParser (SourceSpan -> Expr)
+parseListTail first =
+  MP.try listCompTailParser
+    <|> MP.try arithFromToTailParser
+    <|> MP.try commaTailParser
+    <|> singletonTailParser
+  where
+    listCompTailParser = do
+      operatorLikeTok "|"
+      quals <- compStmtParser `MP.sepBy1` symbolLikeTok ","
+      symbolLikeTok "]"
+      pure (\span' -> EListComp span' first quals)
+
+    arithFromToTailParser = do
+      symbolLikeTok ".."
+      mTo <- MP.optional exprParser
+      symbolLikeTok "]"
+      pure $ \span' ->
+        EArithSeq span' $
+          case mTo of
+            Nothing -> ArithSeqFrom span' first
+            Just toExpr -> ArithSeqFromTo span' first toExpr
+
+    commaTailParser = do
+      symbolLikeTok ","
+      second <- exprParser
+      MP.try (arithFromThenTailParser second) <|> listTailParser second
+
+    arithFromThenTailParser second = do
+      symbolLikeTok ".."
+      mTo <- MP.optional exprParser
+      symbolLikeTok "]"
+      pure $ \span' ->
+        EArithSeq span' $
+          case mTo of
+            Nothing -> ArithSeqFromThen span' first second
+            Just toExpr -> ArithSeqFromThenTo span' first second toExpr
+
+    listTailParser second = do
+      rest <- MP.many (symbolLikeTok "," *> exprParser)
+      symbolLikeTok "]"
+      pure (\span' -> EList span' (first : second : rest))
+
+    singletonTailParser = do
+      symbolLikeTok "]"
+      pure (\span' -> EList span' [first])
 
 compStmtParser :: TokParser CompStmt
-compStmtParser = MP.try compGenParser <|> compGuardParser
+compStmtParser = MP.try compGenStmtParser <|> compGuardStmtParser
 
-compGenParser :: TokParser CompStmt
-compGenParser = withSpan $ do
+compGenStmtParser :: TokParser CompStmt
+compGenStmtParser = withSpan $ do
   pat <- patternParser
   operatorLikeTok "<-"
   expr <- exprParser
   pure (\span' -> CompGen span' pat expr)
-
-compGuardParser :: TokParser CompStmt
-compGuardParser = withSpan $ do
-  expr <- exprParser
-  pure (`CompGuard` expr)
 
 lambdaExprParser :: TokParser Expr
 lambdaExprParser = withSpan $ do
@@ -532,6 +570,11 @@ declSourceSpan decl =
     DeclInstance span' _ -> span'
     DeclDefault span' _ -> span'
     DeclForeign span' _ -> span'
+
+compGuardStmtParser :: TokParser CompStmt
+compGuardStmtParser = withSpan $ do
+  expr <- exprParser
+  pure (`CompGuard` expr)
 
 varExprParser :: TokParser Expr
 varExprParser = withSpan $ do
