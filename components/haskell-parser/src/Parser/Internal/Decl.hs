@@ -36,8 +36,7 @@ importDeclParser :: TokParser ImportDecl
 importDeclParser = withSpan $ do
   keywordTok TkKeywordImport
   isQualified <-
-    MP.option False
-      (keywordTok TkKeywordQualified >> pure True)
+    MP.option False (keywordTok TkKeywordQualified >> pure True)
   importedModule <- moduleNameParser
   importAlias <- MP.optional (keywordTok TkKeywordAs *> moduleNameParser)
   importSpec <- MP.optional importSpecParser
@@ -53,8 +52,7 @@ importDeclParser = withSpan $ do
 importSpecParser :: TokParser ImportSpec
 importSpecParser = withSpan $ do
   isHiding <-
-    MP.option False
-      (keywordTok TkKeywordHiding >> pure True)
+    MP.option False (keywordTok TkKeywordHiding >> pure True)
   symbolLikeTok "("
   items <- importItemParser `MP.sepBy` symbolLikeTok ","
   symbolLikeTok ")"
@@ -68,7 +66,7 @@ importSpecParser = withSpan $ do
 importItemParser :: TokParser ImportItem
 importItemParser = withSpan $ do
   itemName <- identifierTextParser
-  pure (\span' -> ImportItemVar span' itemName)
+  pure (`ImportItemVar` itemName)
 
 declParser :: TokParser Decl
 declParser =
