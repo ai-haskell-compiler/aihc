@@ -207,6 +207,7 @@ dataDeclParser = withSpan $ do
       TkIdentifier ident -> Just ident
       _ -> Nothing
   constructors <- MP.optional (operatorLikeTok "=" *> dataConDeclParser `MP.sepBy1` operatorLikeTok "|")
+  derivingClause <- MP.optional derivingClauseParser
   pure $ \span' ->
     DeclData
       span'
@@ -216,8 +217,21 @@ dataDeclParser = withSpan $ do
           dataDeclName = typeName,
           dataDeclParams = typeParams,
           dataDeclConstructors = fromMaybe [] constructors,
-          dataDeclDeriving = Nothing
+          dataDeclDeriving = derivingClause
         }
+
+derivingClauseParser :: TokParser DerivingClause
+derivingClauseParser = do
+  identifierExact "deriving"
+  classes <- parenClasses <|> singleClass
+  pure (DerivingClause classes)
+  where
+    singleClass = (: []) <$> identifierTextParser
+    parenClasses = do
+      symbolLikeTok "("
+      classes <- identifierTextParser `MP.sepBy` symbolLikeTok ","
+      symbolLikeTok ")"
+      pure classes
 
 dataConDeclParser :: TokParser DataConDecl
 dataConDeclParser = withSpan $ do
