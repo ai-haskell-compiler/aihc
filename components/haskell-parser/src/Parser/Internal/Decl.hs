@@ -15,8 +15,8 @@ import qualified Data.Text as T
 import Parser.Ast
 import Parser.Internal.Common
 import Parser.Internal.Expr (exprParser, simplePatternParser, typeParser)
-import Parser.Lexer (LexTokenKind (..), lexTokenKind, lexTokenSpan)
-import Text.Megaparsec (anySingle, lookAhead, (<|>))
+import Parser.Lexer (LexTokenKind (..), lexTokenKind)
+import Text.Megaparsec ((<|>))
 import qualified Text.Megaparsec as MP
 
 languagePragmaParser :: TokParser [Text]
@@ -190,23 +190,15 @@ foreignEntityFromString txt
 
 dataDeclParser :: TokParser Decl
 dataDeclParser = withSpan $ do
-  (declLine, declCol) <- tokenSatisfy $ \tok ->
+  keywordTok TkKeywordData
+  typeName <- tokenSatisfy $ \tok ->
     case lexTokenKind tok of
-      TkKeywordData ->
-        case lexTokenSpan tok of
-          SourceSpan line col _ _ -> Just (line, col)
-          NoSourceSpan -> Just (1, 1)
+      TkIdentifier ident -> Just ident
       _ -> Nothing
-  (typeName, headLine) <- tokenSatisfy $ \tok ->
+  typeParams <- MP.many $ tokenSatisfy $ \tok ->
     case lexTokenKind tok of
-      TkIdentifier ident ->
-        let line =
-              case lexTokenSpan tok of
-                SourceSpan startLine _ _ _ -> startLine
-                NoSourceSpan -> 1
-         in Just (ident, line)
+      TkIdentifier ident -> Just ident
       _ -> Nothing
-  typeParams <- MP.many (continuationIdentifierParser headLine declLine declCol)
   constructors <- MP.optional (operatorLikeTok "=" *> dataConDeclParser `MP.sepBy1` operatorLikeTok "|")
   pure $ \span' ->
     DeclData
@@ -219,18 +211,6 @@ dataDeclParser = withSpan $ do
           dataDeclConstructors = fromMaybe [] constructors,
           dataDeclDeriving = Nothing
         }
-
-continuationIdentifierParser :: Int -> Int -> Int -> TokParser Text
-continuationIdentifierParser headLine declLine declCol = do
-  nextTok <- lookAhead anySingle
-  case lexTokenSpan nextTok of
-    SourceSpan line col _ _
-      | line == headLine || (line > declLine && col > declCol) ->
-      tokenSatisfy $ \tok ->
-        case lexTokenKind tok of
-          TkIdentifier ident -> Just ident
-          _ -> Nothing
-    _ -> fail "line break"
 
 dataConDeclParser :: TokParser DataConDecl
 dataConDeclParser = withSpan $ do
