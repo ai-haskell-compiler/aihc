@@ -27,7 +27,7 @@ exprParser = do
       Nothing -> core
 
 exprCoreParser :: TokParser Expr
-exprCoreParser = doExprParser <|> ifExprParser <|> caseExprParser <|> lambdaExprParser <|> letExprParser <|> infixExprParser
+exprCoreParser = MP.try negateExprParser <|> doExprParser <|> ifExprParser <|> caseExprParser <|> lambdaExprParser <|> letExprParser <|> infixExprParser
 
 ifExprParser :: TokParser Expr
 ifExprParser = withSpan $ do
@@ -107,7 +107,7 @@ floatExprParser :: TokParser Expr
 floatExprParser = withSpan $ do
   (n, repr) <- tokenSatisfy $ \tok ->
     case lexTokenKind tok of
-      TkFloat x -> Just (x, lexTokenText tok)
+      TkFloat x txt -> Just (x, txt)
       _ -> Nothing
   pure (\span' -> EFloat span' n repr)
 
@@ -151,6 +151,12 @@ atomExprParser =
     <|> charExprParser
     <|> stringExprParser
     <|> varExprParser
+
+negateExprParser :: TokParser Expr
+negateExprParser = withSpan $ do
+  operatorLikeTok "-"
+  inner <- atomExprParser
+  pure (`ENegate` inner)
 
 parenOperatorExprParser :: TokParser Expr
 parenOperatorExprParser = withSpan $ do
@@ -270,7 +276,7 @@ floatLiteralParser :: TokParser Literal
 floatLiteralParser = withSpan $ do
   (n, repr) <- tokenSatisfy $ \tok ->
     case lexTokenKind tok of
-      TkFloat x -> Just (x, lexTokenText tok)
+      TkFloat x txt -> Just (x, txt)
       _ -> Nothing
   pure (\span' -> LitFloat span' n repr)
 
