@@ -4,16 +4,19 @@ module Parser.Lexer
   ( LexToken (..),
     LexTokenKind (..),
     lexTokens,
+    lexModuleTokens,
   )
 where
 
 import Control.Monad (void)
-import Data.Char (isAlphaNum, isDigit, isHexDigit, isOctDigit)
+import Data.Char (digitToInt, isAlphaNum, isDigit, isHexDigit, isOctDigit)
+import qualified Data.IntSet as IntSet
+import Data.List (find)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Void (Void)
-import Numeric (readHex, readOct)
+import Numeric (readHex, readInt, readOct)
 import Parser.Ast
 import Text.Megaparsec
   ( Parsec,
@@ -73,7 +76,13 @@ type LParser = Parsec Void Text
 lexTokens :: Text -> [LexToken]
 lexTokens input =
   case runParser (triviaConsumer *> many (lexTokenParser <* triviaConsumer) <* eof) "<lexer>" input of
-    Right toks -> applyLayoutTokens toks
+    Right toks -> applyLayoutTokens False toks
+    Left _ -> []
+
+lexModuleTokens :: Text -> [LexToken]
+lexModuleTokens input =
+  case runParser (triviaConsumer *> many (lexTokenParser <* triviaConsumer) <* eof) "<lexer>" input of
+    Right toks -> applyLayoutTokens True toks
     Left _ -> []
 
 data LayoutContext
@@ -83,51 +92,63 @@ data LayoutContext
 
 data LayoutState = LayoutState
   { layoutContexts :: [LayoutContext],
-    layoutPendingDo :: !Bool,
+    layoutPendingLayout :: !Bool,
     layoutPrevLine :: !(Maybe Int)
   }
   deriving (Eq, Show)
 
-applyLayoutTokens :: [LexToken] -> [LexToken]
-applyLayoutTokens toks =
-  go initialState toks
+applyLayoutTokens :: Bool -> [LexToken] -> [LexToken]
+applyLayoutTokens enableModuleLayout toks =
+  go initialState 0 toks
     <> closeAllImplicit (layoutContexts finalState) eofAnchor
   where
     initialState = LayoutState [] False Nothing
-    finalState = foldl stepState initialState toks
+    pendingOpenIndices =
+      if enableModuleLayout
+        then moduleLayoutOpenIndices toks
+        else IntSet.empty
+    finalState = foldl stepState initialState (zip [0 ..] toks)
     eofAnchor = eofAnchorSpan toks
 
-    go _ [] = []
-    go st (tok : rest) =
-      let (pendingInserted, stAfterPending, skipBOL) = openPendingDo st tok
+    go _ _ [] = []
+    go st idx (tok : rest) =
+      let stWithPending =
+            if IntSet.member idx pendingOpenIndices
+              then st {layoutPendingLayout = True}
+              else st
+          (pendingInserted, stAfterPending, skipBOL) = openPendingLayout stWithPending tok
           (bolInserted, stAfterBOL) = if skipBOL then ([], stAfterPending) else bolLayout stAfterPending tok
           stAfterToken = stepTokenContext stAfterBOL tok
           stNext = stAfterToken {layoutPrevLine = Just (tokenStartLine tok)}
-       in pendingInserted <> bolInserted <> (tok : go stNext rest)
+       in pendingInserted <> bolInserted <> (tok : go stNext (idx + 1) rest)
 
-    stepState st tok =
-      let (_, stAfterPending, skipBOL) = openPendingDo st tok
+    stepState st (idx, tok) =
+      let stWithPending =
+            if IntSet.member idx pendingOpenIndices
+              then st {layoutPendingLayout = True}
+              else st
+          (_, stAfterPending, skipBOL) = openPendingLayout stWithPending tok
           (_, stAfterBOL) = if skipBOL then ([], stAfterPending) else bolLayout stAfterPending tok
           stAfterToken = stepTokenContext stAfterBOL tok
        in stAfterToken {layoutPrevLine = Just (tokenStartLine tok)}
 
-openPendingDo :: LayoutState -> LexToken -> ([LexToken], LayoutState, Bool)
-openPendingDo st tok
-  | not (layoutPendingDo st) = ([], st, False)
+openPendingLayout :: LayoutState -> LexToken -> ([LexToken], LayoutState, Bool)
+openPendingLayout st tok
+  | not (layoutPendingLayout st) = ([], st, False)
   | otherwise =
       case lexTokenKind tok of
-        TkSymbol "{" -> ([], st {layoutPendingDo = False}, False)
+        TkSymbol "{" -> ([], st {layoutPendingLayout = False}, False)
         _ ->
           let col = tokenStartCol tok
               parentIndent = currentLayoutIndent (layoutContexts st)
               openTok = virtualSymbolToken "{" (lexTokenSpan tok)
               closeTok = virtualSymbolToken "}" (lexTokenSpan tok)
            in if col <= parentIndent
-                then ([openTok, closeTok], st {layoutPendingDo = False}, False)
+                then ([openTok, closeTok], st {layoutPendingLayout = False}, False)
                 else
                   ( [openTok],
                     st
-                      { layoutPendingDo = False,
+                      { layoutPendingLayout = False,
                         layoutContexts = LayoutImplicit col : layoutContexts st
                       },
                     True
@@ -141,9 +162,19 @@ bolLayout st tok
           (inserted, contexts') = closeForDedent col (lexTokenSpan tok) (layoutContexts st)
           eqSemi =
             case contexts' of
-              LayoutImplicit indent : _ | col == indent -> [virtualSymbolToken ";" (lexTokenSpan tok)]
+              LayoutImplicit indent : _
+                | col == indent,
+                  not (suppressesVirtualSemicolon tok) ->
+                    [virtualSymbolToken ";" (lexTokenSpan tok)]
               _ -> []
        in (inserted <> eqSemi, st {layoutContexts = contexts'})
+
+suppressesVirtualSemicolon :: LexToken -> Bool
+suppressesVirtualSemicolon tok =
+  case lexTokenKind tok of
+    TkKeywordThen -> True
+    TkKeywordElse -> True
+    _ -> False
 
 closeForDedent :: Int -> SourceSpan -> [LayoutContext] -> ([LexToken], [LayoutContext])
 closeForDedent col anchor = go []
@@ -162,10 +193,33 @@ closeAllImplicit contexts anchor =
 stepTokenContext :: LayoutState -> LexToken -> LayoutState
 stepTokenContext st tok =
   case lexTokenKind tok of
-    TkKeywordDo -> st {layoutPendingDo = True}
+    TkKeywordDo -> st {layoutPendingLayout = True}
     TkSymbol "{" -> st {layoutContexts = LayoutExplicit : layoutContexts st}
     TkSymbol "}" -> st {layoutContexts = popOneContext (layoutContexts st)}
     _ -> st
+
+moduleLayoutOpenIndices :: [LexToken] -> IntSet.IntSet
+moduleLayoutOpenIndices toks =
+  case firstNonPragma of
+    Nothing -> IntSet.empty
+    Just (startIx, startTok) ->
+      case lexTokenKind startTok of
+        TkKeywordModule ->
+          case find (\(ix, tok) -> ix > startIx && lexTokenKind tok == TkKeywordWhere) indexedToks of
+            Just (whereIx, _)
+              | whereIx + 1 < length toks -> IntSet.singleton (whereIx + 1)
+            _ -> IntSet.empty
+        _ -> IntSet.singleton startIx
+  where
+    indexedToks = zip [0 ..] toks
+    firstNonPragma =
+      find
+        ( \(_, tok) ->
+            case lexTokenKind tok of
+              TkPragmaLanguage _ -> False
+              _ -> True
+        )
+        indexedToks
 
 popOneContext :: [LayoutContext] -> [LayoutContext]
 popOneContext contexts =
@@ -327,17 +381,19 @@ symbolToken =
 intBaseToken :: LParser (Text, LexTokenKind)
 intBaseToken = do
   _ <- C.char '0'
-  base <- C.char 'x' <|> C.char 'X' <|> C.char 'o' <|> C.char 'O'
+  base <- C.char 'x' <|> C.char 'X' <|> C.char 'o' <|> C.char 'O' <|> C.char 'b' <|> C.char 'B'
   digitsRaw <-
     if base `elem` ['x', 'X']
       then digitsWithUnderscores isHexDigit
-      else digitsWithUnderscores isOctDigit
+      else
+        if base `elem` ['o', 'O']
+          then digitsWithUnderscores isOctDigit
+          else digitsWithUnderscores (`elem` ("01" :: String))
   let txt = T.pack ('0' : base : digitsRaw)
-      digits = filter (/= '_') digitsRaw
-      n =
-        if base `elem` ['x', 'X']
-          then readHexLiteral (T.pack digits)
-          else readOctLiteral (T.pack digits)
+      n
+        | base `elem` ['x', 'X'] = readHexLiteral txt
+        | base `elem` ['o', 'O'] = readOctLiteral txt
+        | otherwise = readBinLiteral txt
   pure (txt, TkIntegerBase n txt)
 
 intToken :: LParser (Text, LexTokenKind)
@@ -446,13 +502,19 @@ readMaybeChar raw =
 
 readHexLiteral :: Text -> Integer
 readHexLiteral txt =
-  case readHex (T.unpack txt) of
+  case readHex (T.unpack (T.filter (/= '_') (T.drop 2 txt))) of
     [(n, "")] -> n
     _ -> 0
 
 readOctLiteral :: Text -> Integer
 readOctLiteral txt =
-  case readOct (T.unpack txt) of
+  case readOct (T.unpack (T.filter (/= '_') (T.drop 2 txt))) of
+    [(n, "")] -> n
+    _ -> 0
+
+readBinLiteral :: Text -> Integer
+readBinLiteral txt =
+  case readInt 2 (`elem` ("01" :: String)) digitToInt (T.unpack (T.filter (/= '_') (T.drop 2 txt))) of
     [(n, "")] -> n
     _ -> 0
 
