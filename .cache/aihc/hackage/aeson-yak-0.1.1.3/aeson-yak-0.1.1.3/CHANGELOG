@@ -1,0 +1,13 @@
+0.1.1.3: Fix haddocks
+
+0.1.1.2: Eliminate upper bounds on Aeson
+
+0.1.1.1: Bump upper bounds on Aeson
+
+0.1.1.0: Eq and Show instances for Lousy.
+
+0.1.0.2: Get CHANGELOG into the tarball.
+
+0.1.0.1: Fix description rendering on Hackage.
+
+0.1.0.0: Initial release.

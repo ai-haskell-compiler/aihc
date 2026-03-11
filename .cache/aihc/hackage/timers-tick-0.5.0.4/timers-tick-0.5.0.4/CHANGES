@@ -1,0 +1,94 @@
+0.5.0.4
+-------
+
+- release 0.5.0.4
+- releaed dom 23 apr 2023, 19:25:22
+
+0.5.0.3
+-------
+
+- new repository: http://www.ariis.it/static/repos/stagit/timers-tick/
+- released dom 19 mar 2023, 10:41:06
+
+0.5.0.1
+-------
+
+- bump hspec
+- released sab 13 nov 2021, 18:26:33
+
+0.5.0.0
+-------
+
+- Hardened the behaviour of `creaTimedRes`. Now:
+    - it will error on non-positive durations
+    - it will error on non-positive number of cycle
+    - it allows the creation of expired `Reach` timers (1-length lists)
+
+0.4.3.0
+-------
+
+- Bumped dependencies
+- Added README
+- Released lun 4 ott 2021, 13:50:09
+
+0.4.2.0
+-------
+
+- Added `lapse` function.
+- Released Fri 22 Nov 2019 00:48:03 CET.
+
+0.4.1.0
+-------
+
+- Added convenience functions `creaTimerLoop` and `creaBoolTimerLoop`.
+- Released Tue 28 May 2019 12:45:58 CEST.
+
+0.4.0.0
+-------
+
+- Fixed loop/expire bug.
+- Released Thu 15 Mar 2018 11:51:15 CET.
+
+0.3.0.0
+-------
+
+- Reworked the API, added Reach ending, fixed bugs.
+- Released on Thu 15 Mar 2018 08:49:30 CET.
+
+0.2.0.0
+-------
+
+- Renamed `fetch` to `fetchFrame`.
+- Added `getFrames`.
+- Added Functor instance
+- Released on Thu 15 Mar 2018 03:33:20 CET
+
+0.1.2.0
+-------
+
+- Added Generic instance to Loop.
+- Released on Thu 15 Mar 2018 00:42:29 CET.
+
+0.1.1.0
+-------
+
+- Added Generic instance to TimedRes.
+- Released on Thu 15 Mar 2018 00:27:26 CET.
+
+0.1.0.2
+-------
+
+- Fixed tests.
+- Released on Wed 14 Mar 2018 14:47:40 CET.
+
+0.1.0.1
+-------
+
+- Added a homepage and darcs repo.
+- Released on Wed 14 Mar 2018 14:07:16 CET.
+
+0.1.0.0
+-------
+
+- Added basic animation/timer functionality.
+- Released on Wed 14 Mar 2018 13:36:06 CET.

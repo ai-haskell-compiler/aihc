@@ -1,0 +1,4 @@
+Left Unrecognized response from solver:
+  bad :reason-unknown value
+in response to command:
+  reason?

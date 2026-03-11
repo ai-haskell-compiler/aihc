@@ -1,0 +1,118 @@
+--- parse tree ---
+[ Code
+    "typ/compiler/array-13.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/compiler/array-13.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/compiler/array-13.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Comment
+, Code
+    "typ/compiler/array-13.typ"
+    ( line 3 , column 2 )
+    (Block
+       (CodeBlock
+          [ Let
+              (BasicBind (Just (Identifier "tasks")))
+              (Dict
+                 [ Reg
+                     ( Ident (Identifier "a")
+                     , Array
+                         [ Reg (Literal (Int 1))
+                         , Reg (Literal (Int 2))
+                         , Reg (Literal (Int 3))
+                         ]
+                     )
+                 , Reg
+                     ( Ident (Identifier "b")
+                     , Array
+                         [ Reg (Literal (Int 4))
+                         , Reg (Literal (Int 5))
+                         , Reg (Literal (Int 6))
+                         ]
+                     )
+                 ])
+          , FuncCall
+              (Ident (Identifier "test"))
+              [ NormalArg
+                  (FuncCall
+                     (FieldAccess
+                        (Ident (Identifier "pop"))
+                        (FuncCall
+                           (FieldAccess
+                              (Ident (Identifier "at")) (Ident (Identifier "tasks")))
+                           [ NormalArg (Literal (String "a")) ]))
+                     [])
+              , NormalArg (Literal (Int 3))
+              ]
+          , FuncCall
+              (FieldAccess
+                 (Ident (Identifier "push"))
+                 (FieldAccess
+                    (Ident (Identifier "b")) (Ident (Identifier "tasks"))))
+              [ NormalArg (Literal (Int 7)) ]
+          , FuncCall
+              (Ident (Identifier "test"))
+              [ NormalArg
+                  (FieldAccess (Ident (Identifier "a")) (Ident (Identifier "tasks")))
+              , NormalArg
+                  (Array [ Reg (Literal (Int 1)) , Reg (Literal (Int 2)) ])
+              ]
+          , FuncCall
+              (Ident (Identifier "test"))
+              [ NormalArg
+                  (FuncCall
+                     (FieldAccess
+                        (Ident (Identifier "at")) (Ident (Identifier "tasks")))
+                     [ NormalArg (Literal (String "b")) ])
+              , NormalArg
+                  (Array
+                     [ Reg (Literal (Int 4))
+                     , Reg (Literal (Int 5))
+                     , Reg (Literal (Int 6))
+                     , Reg (Literal (Int 7))
+                     ])
+              ]
+          ]))
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 text(body: [✅]), 
+                 text(body: [✅]), 
+                 text(body: [✅]), 
+                 parbreak() })

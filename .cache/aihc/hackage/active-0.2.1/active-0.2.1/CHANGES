@@ -1,0 +1,203 @@
+## [0.2.1](https://github.com/diagrams/active/tree/v0.2.1) (2023-12-15)
+
+- Allow `base-4.19`, test on GHC 9.8
+- Remove Template Haskell in order to ease cross-compilation (thanks to @georgefst)
+
+## [0.2.0.18](https://github.com/diagrams/active/tree/v0.2.0.18) (2023-06-10)
+
+- Fix failing test case ([#43](https://github.com/diagrams/active/issues/43))
+
+## [0.2.0.17](https://github.com/diagrams/active/tree/v0.2.0.17) (2023-03-31)
+
+- Updates for GHC 9.6
+- Allow `base-4.18`, `semigroupoids-6.0`
+
+## [0.2.0.16](https://github.com/diagrams/active/tree/v0.2.0.16) (2022-08-23)
+
+- Updates for GHC 9.4
+- Allow `base-4.17`, `lens-5.2`
+
+Hackage revisions:
+
+- r1 (30 Nov 2022): allow `linear-1.22`
+
+## [0.2.0.15](https://github.com/diagrams/active/tree/v0.2.0.15) (2021-05-24)
+
+- Updates for GHC 9.0
+
+## [0.2.0.14](https://github.com/diagrams/active/tree/v0.2.0.14) (2019-10-19)
+
+- Updates for GHC 8.8
+
+## [0.2.0.13](https://github.com/diagrams/active/tree/v0.2.0.13) (2017-05-16)
+
+- fix for `lens-4.15.2`
+
+Hackage revisions:
+
+- r1:
+    - allow `base-4.10` (GHC 8.2)
+- r2:
+    - allow `QuickCheck-2.10`
+- r3:
+    - allow `lens-4.16`
+    - allow `QuickCheck-2.11`
+- r4:
+    - allow `base-4.11` (GHC 8.4)
+
+- r8:
+    - allow `QuickCheck-2.13`
+
+- r9:
+    - allow `lens-4.18`
+    - allow `semigroups-0.19`
+
+## [0.2.0.12](https://github.com/diagrams/active/tree/v0.2.0.12) (2016-10-14)
+
+- allow `lens-4.15`
+
+Included in revision 1 on Hackage:
+- allow `semigroupoids-5.2`
+
+## [v0.2.0.11](https://github.com/diagrams/active/tree/v0.2.0.11) (2016-08-01)
+
+- update test suite for `QuickCheck-2.9`
+
+## [v0.2.0.10](https://github.com/diagrams/active/tree/v0.2.0.10) (2016-07-01)
+
+- allow `semigroupoids-5.1`
+
+## [v0.2.0.9](https://github.com/diagrams/active/tree/v0.2.0.9) (2016-05-01)
+
+- allow `lens-4.14`
+
+## [v0.2.0.8](https://github.com/diagrams/active/tree/v0.2.0.8) (2015-11-10)
+
+- allow `semigroups-0.18`
+
+## [v0.2.0.7](https://github.com/diagrams/active/tree/v0.2.0.7) (2015-11-09)
+
+- fix image links in documentation
+
+## [v0.2.0.6](https://github.com/diagrams/active/tree/v0.2.0.6) (2015-09-17)
+
+- allow `semigroups-0.17` in test suite
+
+## [v0.2.0.5](https://github.com/diagrams/active/tree/v0.2.0.5) (2015-09-15)
+
+- allow `semigroups-0.17`
+
+[Full Changelog](https://github.com/diagrams/active/compare/v0.2.0.4...v0.2.0.5)
+
+## [v0.2.0.4](https://github.com/diagrams/active/tree/v0.2.0.4) (2015-07-19)
+
+[Full Changelog](https://github.com/diagrams/active/compare/v0.2.0.3...v0.2.0.4)
+
+## [v0.2.0.3](https://github.com/diagrams/active/tree/v0.2.0.3) (2015-05-26)
+
+[Full Changelog](https://github.com/diagrams/active/compare/v0.2.0.2...v0.2.0.3)
+
+0.2.0.2 (30 April 2015)
+-----------------------
+
+- reinstate `toTime`, `fromTime`, `toDuration`, `fromDuration`
+  which got accidentally removed in 0.2
+
+0.2.0.1 (22 April 2015)
+-----------------------
+
+- allow `lens-4.9` and `QuickCheck-2.8` in test suite
+
+0.2.0.0 (19 April 2015)
+-----------------------
+
+- switch from `vector-space` to `linear`
+- allow `lens-4.9`
+- allow `base-4.8`
+
+0.1.0.18 (22 Feb 2015)
+----------------------
+
+- Allow `semigroupoids-4.3`
+- Allow `vector-space-0.9`
+
+0.1.0.17 (03 Dec 2014)
+----------------------
+
+- Allow `semigroups-0.16`
+
+0.1.0.16 (2 June 2014)
+----------------------
+
+  * correct version constraint problems with previous release
+
+0.1.0.15 (28 May 2014) (BROKEN)
+-------------------------------
+
+  * allow semigroups-0.15
+
+0.1.0.14 (15 May 2014)
+------------------------
+
+  * allow semigroups-0.14
+
+0.1.0.13 (20 April 2014)
+------------------------
+
+  * allow semigroups-0.13 in test suite too
+
+0.1.0.12 (10 April 2014)
+------------------------
+
+  * allow semigroups-0.13
+
+0.1.0.11 (9 April 2014)
+-----------------------
+
+  * allow QuickCheck-2.7
+
+0.1.0.10 (27 November 2013)
+---------------------------
+
+  * allow semigroups-0.12
+
+0.1.0.9 (2 November 2013)
+-------------------------
+
+  * allow array-0.5
+
+0.1.0.7 (27 September 2013)
+---------------------------
+
+  * allow semigroups-0.11
+
+0.1.0.6 (16 July 2013)
+----------------------
+
+  * bump upper bound to allow semigroupoids-3.1
+
+0.1.0.5 (16 July 2013)
+----------------------
+
+  * bump upper bound to allow base-4.7
+
+0.1.0.4 (19 March 2013)
+-----------------------
+
+  * bump upper bound to allow QuickCheck-2.6
+
+0.1.0.3
+
+  - bump semigroups upper bound to allow semigroups-0.9
+
+0.1.0.2
+
+  * Bump dependency upper bounds:
+    - semigroupoids < 3.1
+    - base < 4.7
+    - QuickCheck < 2.6
+  * Updates to .cabal file
+
+0.1.0.0: 9 March 2012
+
+  Initial release.

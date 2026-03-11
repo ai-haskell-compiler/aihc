@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<package
+   xmlns="http://www.idpf.org/2007/opf"
+   version="2.0"
+   unique-identifier="isbn">
+   <metadata
+      xmlns:dc="http://purl.org/dc/elements/1.1/"
+      xmlns:opf="http://www.idpf.org/2007/opf"
+      xmlns:xml="http://www.w3.org/XML/1998/namespace">
+      <dc:title>Title Of This Book</dc:title>
+      <dc:title xml:lang="fr">Titre De Ce Livre</dc:title>
+      <dc:creator opf:role="aut" opf:file-as="Wiggins, Josephine B.">Josephine B. Wiggins</dc:creator>
+      <dc:creator opf:file-as="Dicker, Joël" opf:role="aut">Joël Dicker</dc:creator>
+      <dc:creator opf:role="aut">Horatio Cromwell</dc:creator>
+      <dc:creator>Natalia Jenkins</dc:creator>
+      <dc:contributor opf:role="ill" opf:file-as="Knickerbocker, Reginald Q.">Reginald Q. Knickerbocker</dc:contributor>
+      <dc:contributor opf:role="edt">Beverly Abercrombie</dc:contributor>
+      <dc:description>This document is a stub used for unit testing. It is missing the rest of the tags that normally occur after metadata.</dc:description>
+      <dc:description>An additional description</dc:description>
+      <dc:identifier id="isbn" opf:scheme="ISBN">1-82057-821-9</dc:identifier>
+      <dc:date opf:event="original-publication">2010</dc:date>
+      <dc:date opf:event="publication">2010-05-07</dc:date>
+      <dc:date>2009</dc:date>
+      <dc:language>en-US</dc:language>
+      <dc:language>en-UK</dc:language>
+      <dc:publisher>Fictional Books Ltd.</dc:publisher>
+      <dc:publisher>An additional publisher</dc:publisher>
+      <dc:identifier id="other">1386506873266</dc:identifier>
+      <dc:subject>Fiction</dc:subject>
+      <dc:subject>Science Fiction</dc:subject>
+      <dc:type>test OPF Package Document</dc:type>
+      <dc:format>ePub publication</dc:format>
+      <dc:format>an additional format</dc:format>
+      <dc:source>document source</dc:source>
+      <dc:relation>document relation</dc:relation>
+      <dc:relation>an additional relation</dc:relation>
+      <dc:coverage>coverage information</dc:coverage>
+      <dc:coverage>an additional coverage</dc:coverage>
+      <dc:rights>Copyright: 2010 Dino Morelli, License: ISC</dc:rights>
+      <dc:rights>an additional rights</dc:rights>
+   </metadata>
+
+   <manifest>
+      <item id="ncx"
+         href="toc.ncx"
+         media-type="application/x-dtbncx+xml" />
+      <item id="titlePage"
+         href="content/titlePage.html"
+         media-type="application/xhtml+xml" />
+      <item id="someContent"
+         href="content/someContent.html"
+         media-type="application/xhtml+xml" />
+   </manifest>
+
+   <spine toc="ncx">
+      <itemref idref="titlePage" />
+      <itemref idref="someContent" />
+   </spine>
+
+   <guide>
+      <reference type="title-page" title="Title page"
+         href="content/titlePage.html" />
+      <reference type="text" title="Title Of This Book"
+         href="content/someContent.html" />
+   </guide>
+
+</package>

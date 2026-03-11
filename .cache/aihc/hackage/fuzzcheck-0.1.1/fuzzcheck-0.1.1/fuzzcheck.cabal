@@ -1,0 +1,44 @@
+Name:                 fuzzcheck
+Version:              0.1.1
+                      
+Synopsis:             A simple checker for stress testing monadic code
+Description:          A simple checker for stress testing monadic code
+                      
+Homepage:             https://github.com/fpco/fuzzcheck
+License:              BSD3
+License-file:         LICENSE
+Author:               John Wiegley
+Maintainer:           John Wiegley <johnw@fpcomplete.com>
+Category:             Testing
+Build-type:           Simple
+Cabal-version:        >= 1.10
+                      
+Extra-Source-Files:   README.md
+                      
+Source-repository head
+    Type:             git
+    Location:         git://github.com/fpco/fuzzcheck.git
+
+test-suite smoke
+    Type:             exitcode-stdio-1.0
+    Main-is:          Smoke.hs
+    Hs-source-dirs:   tests
+    Ghc-options:      -Wall
+    Default-language: Haskell2010
+    Build-depends:    base
+                    , hspec
+                    , hspec-expectations
+                    , QuickCheck
+                    , HUnit
+                    , fuzzcheck
+
+Library
+    Ghc-options:      -Wall
+    Default-language: Haskell2010
+    Exposed-modules:  Test.FuzzCheck
+    Build-depends:    base                     >= 4.3          && < 5
+                    , monad-control
+                    , lifted-base
+                    , transformers
+                    , random
+                    , QuickCheck

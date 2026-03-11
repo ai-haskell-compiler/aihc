@@ -1,0 +1,241 @@
+--- parse tree ---
+[ Code
+    "typ/layout/place-00.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/layout/place-00.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/layout/place-00.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Code
+    "typ/layout/place-00.typ"
+    ( line 2 , column 2 )
+    (Set
+       (Ident (Identifier "page")) [ NormalArg (Literal (String "a8")) ])
+, SoftBreak
+, Code
+    "typ/layout/place-00.typ"
+    ( line 3 , column 2 )
+    (FuncCall
+       (Ident (Identifier "place"))
+       [ NormalArg
+           (Plus (Ident (Identifier "bottom")) (Ident (Identifier "center")))
+       , BlockArg [ Text "\169" , Space , Text "Typst" ]
+       ])
+, ParBreak
+, Heading 1 [ Text "Placement" ]
+, Code
+    "typ/layout/place-00.typ"
+    ( line 6 , column 2 )
+    (FuncCall
+       (Ident (Identifier "place"))
+       [ NormalArg (Ident (Identifier "right"))
+       , NormalArg
+           (FuncCall
+              (Ident (Identifier "image"))
+              [ NormalArg (Literal (String "/assets/files/tiger.jpg"))
+              , KeyValArg (Identifier "width") (Literal (Numeric 1.8 Cm))
+              ])
+       ])
+, SoftBreak
+, Text "Hi"
+, Space
+, Text "there"
+, Text "."
+, Space
+, Text "This"
+, Space
+, Text "is"
+, Space
+, HardBreak
+, Text "a"
+, Space
+, Text "placed"
+, Space
+, Text "element"
+, Text "."
+, Space
+, HardBreak
+, Text "Unfortunately,"
+, Space
+, HardBreak
+, Text "the"
+, Space
+, Text "line"
+, Space
+, Text "breaks"
+, Space
+, Text "still"
+, Space
+, Text "had"
+, Space
+, Text "to"
+, Space
+, Text "be"
+, Space
+, Text "inserted"
+, Space
+, Text "manually"
+, Text "."
+, ParBreak
+, Code
+    "typ/layout/place-00.typ"
+    ( line 12 , column 2 )
+    (FuncCall
+       (Ident (Identifier "stack"))
+       [ NormalArg
+           (FuncCall
+              (Ident (Identifier "rect"))
+              [ KeyValArg (Identifier "fill") (Ident (Identifier "eastern"))
+              , KeyValArg (Identifier "height") (Literal (Numeric 10.0 Pt))
+              , KeyValArg (Identifier "width") (Literal (Numeric 100.0 Percent))
+              ])
+       , NormalArg
+           (FuncCall
+              (Ident (Identifier "place"))
+              [ NormalArg (Ident (Identifier "right"))
+              , KeyValArg (Identifier "dy") (Literal (Numeric 1.5 Pt))
+              , BlockArg [ Text "ABC" ]
+              ])
+       , NormalArg
+           (FuncCall
+              (Ident (Identifier "rect"))
+              [ KeyValArg (Identifier "fill") (Ident (Identifier "green"))
+              , KeyValArg (Identifier "height") (Literal (Numeric 10.0 Pt))
+              , KeyValArg (Identifier "width") (Literal (Numeric 80.0 Percent))
+              ])
+       , NormalArg
+           (FuncCall
+              (Ident (Identifier "rect"))
+              [ KeyValArg (Identifier "fill") (Ident (Identifier "red"))
+              , KeyValArg (Identifier "height") (Literal (Numeric 10.0 Pt))
+              , KeyValArg (Identifier "width") (Literal (Numeric 100.0 Percent))
+              ])
+       , NormalArg (Literal (Numeric 10.0 Pt))
+       , NormalArg
+           (FuncCall
+              (Ident (Identifier "block"))
+              [ BlockArg
+                  [ SoftBreak
+                  , Code
+                      "typ/layout/place-00.typ"
+                      ( line 19 , column 6 )
+                      (FuncCall
+                         (Ident (Identifier "place"))
+                         [ NormalArg (Ident (Identifier "center"))
+                         , KeyValArg (Identifier "dx") (Negated (Literal (Numeric 7.0 Pt)))
+                         , KeyValArg (Identifier "dy") (Negated (Literal (Numeric 5.0 Pt)))
+                         , BlockArg [ Text "Hello" ]
+                         ])
+                  , SoftBreak
+                  , Code
+                      "typ/layout/place-00.typ"
+                      ( line 20 , column 6 )
+                      (FuncCall
+                         (Ident (Identifier "place"))
+                         [ NormalArg (Ident (Identifier "center"))
+                         , KeyValArg (Identifier "dx") (Literal (Numeric 7.0 Pt))
+                         , KeyValArg (Identifier "dy") (Literal (Numeric 5.0 Pt))
+                         , BlockArg [ Text "Hello" ]
+                         ])
+                  , SoftBreak
+                  , Text "Hello"
+                  , Space
+                  , Code
+                      "typ/layout/place-00.typ"
+                      ( line 21 , column 12 )
+                      (FuncCall
+                         (Ident (Identifier "h")) [ NormalArg (Literal (Numeric 1.0 Fr)) ])
+                  , Space
+                  , Text "Hello"
+                  , ParBreak
+                  ]
+              ])
+       ])
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 text(body: [
+]), 
+                 place(alignment: Axes(center, bottom), 
+                       body: text(body: [© Typst])), 
+                 parbreak(), 
+                 heading(body: text(body: [Placement]), 
+                         level: 1), 
+                 place(alignment: right, 
+                       body: image(source: "/assets/files/tiger.jpg", 
+                                   width: 1.8cm)), 
+                 text(body: [
+Hi there. This is ]), 
+                 linebreak(), 
+                 text(body: [a placed element. ]), 
+                 linebreak(), 
+                 text(body: [Unfortunately, ]), 
+                 linebreak(), 
+                 text(body: [the line breaks still had to be inserted manually.]), 
+                 parbreak(), 
+                 stack(children: (rect(fill: rgb(13%,61%,67%,100%), 
+                                       height: 10.0pt, 
+                                       width: 100%), 
+                                  place(alignment: right, 
+                                        body: text(body: [ABC]), 
+                                        dy: 1.5pt), 
+                                  rect(fill: rgb(18%,80%,25%,100%), 
+                                       height: 10.0pt, 
+                                       width: 80%), 
+                                  rect(fill: rgb(100%,25%,21%,100%), 
+                                       height: 10.0pt, 
+                                       width: 100%), 
+                                  10.0pt, 
+                                  block(body: { text(body: [
+]), 
+                                                place(alignment: center, 
+                                                      body: text(body: [Hello]), 
+                                                      dx: -7.0pt, 
+                                                      dy: -5.0pt), 
+                                                text(body: [
+]), 
+                                                place(alignment: center, 
+                                                      body: text(body: [Hello]), 
+                                                      dx: 7.0pt, 
+                                                      dy: 5.0pt), 
+                                                text(body: [
+Hello ]), 
+                                                h(amount: 1.0fr), 
+                                                text(body: [ Hello]), 
+                                                parbreak() }))), 
+                 parbreak() })

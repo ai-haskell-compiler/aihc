@@ -1,0 +1,12 @@
+{
+          "created_at": "2012-07-21T07:30:54Z",
+          "updated_at": "2012-07-21T07:38:22Z",
+          "event_name": "project_create",
+                "name": "StoreCloud",
+         "owner_email": "eloisesmith@gmail.com",
+          "owner_name": "Smith, Eloïse",
+                "path": "storecloud",
+ "path_with_namespace": "eloisesmith/storecloud",
+          "project_id": 74,
+    "project_visibility": "private"
+}

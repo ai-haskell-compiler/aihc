@@ -1,0 +1,238 @@
+--- parse tree ---
+[ Code
+    "typ/compiler/modules/chap2.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/compiler/modules/chap2.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/compiler/modules/chap2.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Comment
+, SoftBreak
+, Code
+    "typ/compiler/modules/chap2.typ"
+    ( line 4 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "name"))) (Literal (String "Klaus")))
+, ParBreak
+, Heading 2 [ Text "Chapter" , Space , Text "2" ]
+, Text "Their"
+, Space
+, Text "motivations,"
+, Space
+, Text "however,"
+, Space
+, Text "were"
+, Space
+, Text "pretty"
+, Space
+, Text "descript,"
+, Space
+, Text "so"
+, Space
+, Text "to"
+, Space
+, Text "speak"
+, Text "."
+, Space
+, Code
+    "typ/compiler/modules/chap2.typ"
+    ( line 7 , column 65 )
+    (Ident (Identifier "name"))
+, Space
+, Text "had"
+, Space
+, Text "not"
+, Space
+, Text "yet"
+, SoftBreak
+, Text "conceptualized"
+, Space
+, Text "their"
+, Space
+, Text "consequences,"
+, Space
+, Text "but"
+, Space
+, Text "that"
+, Space
+, Text "should"
+, Space
+, Text "change"
+, Space
+, Text "pretty"
+, Space
+, Text "quickly"
+, Text "."
+, Space
+, Code
+    "typ/compiler/modules/chap2.typ"
+    ( line 8 , column 76 )
+    (Ident (Identifier "name"))
+, SoftBreak
+, Text "approached"
+, Space
+, Text "the"
+, Space
+, Text "center"
+, Space
+, Text "of"
+, Space
+, Text "the"
+, Space
+, Text "field"
+, Space
+, Text "and"
+, Space
+, Text "picked"
+, Space
+, Text "up"
+, Space
+, Text "a"
+, Space
+, Text "4"
+, Text "-"
+, Text "foot"
+, Space
+, Text "long"
+, Space
+, Text "disk"
+, Space
+, Text "made"
+, Space
+, Text "from"
+, SoftBreak
+, Text "what"
+, Space
+, Text "could"
+, Space
+, Text "only"
+, Space
+, Text "be"
+, Space
+, Text "cow"
+, Space
+, Text "manure"
+, Text "."
+, Space
+, Text "The"
+, Space
+, Text "hair"
+, Space
+, Text "on"
+, Space
+, Text "the"
+, Space
+, Text "back"
+, Space
+, Text "of"
+, Space
+, Code
+    "typ/compiler/modules/chap2.typ"
+    ( line 10 , column 57 )
+    (Ident (Identifier "name"))
+, Quote '\''
+, Space
+, Text "neck"
+, Space
+, Text "bristled"
+, Space
+, Text "as"
+, SoftBreak
+, Text "he"
+, Space
+, Text "stared"
+, Space
+, Text "at"
+, Space
+, Text "the"
+, Space
+, Text "unusual"
+, Space
+, Text "sight"
+, Text "."
+, Space
+, Text "After"
+, Space
+, Text "studying"
+, Space
+, Text "the"
+, Space
+, Text "object"
+, Space
+, Text "for"
+, Space
+, Text "a"
+, Space
+, Text "while,"
+, Space
+, Text "he"
+, SoftBreak
+, Text "promptly"
+, Space
+, Text "popped"
+, Space
+, Text "the"
+, Space
+, Text "question,"
+, Space
+, Quote '"'
+, Text "How"
+, Space
+, Text "much?"
+, Quote '"'
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 text(body: [
+]), 
+                 parbreak(), 
+                 heading(body: text(body: [Chapter 2]), 
+                         level: 2), 
+                 text(body: [Their motivations, however, were pretty descript, so to speak. ]), 
+                 text(body: [Klaus]), 
+                 text(body: [ had not yet
+conceptualized their consequences, but that should change pretty quickly. ]), 
+                 text(body: [Klaus]), 
+                 text(body: [
+approached the center of the field and picked up a 4-foot long disk made from
+what could only be cow manure. The hair on the back of ]), 
+                 text(body: [Klaus]), 
+                 text(body: [” neck bristled as
+he stared at the unusual sight. After studying the object for a while, he
+promptly popped the question, “How much?”]), 
+                 parbreak() })

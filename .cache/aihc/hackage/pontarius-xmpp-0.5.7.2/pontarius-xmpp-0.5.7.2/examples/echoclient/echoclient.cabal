@@ -1,0 +1,23 @@
+-- This directory defines a project that illustrates how to connect,
+-- authenticate, set a simple presence, receive message stanzas, and echo them
+-- back to whoever is sending them, using Pontarius XMPP. This file is in the
+-- public domain.
+
+Name:           echoclient
+Version:        0.0.0.0
+Cabal-Version:  >= 1.6
+Build-Type:     Simple
+License:        OtherLicense
+Copyright:      Mahdi Abdinejadi, Jon Kristensen, Philipp Balzarek
+Synopsis:       Echo client test program for Pontarius XMPP
+
+Executable echoclient
+  Build-Depends:  base
+                , data-default
+                , hslogger
+                , lens-family
+                , mtl
+                , pontarius-xmpp
+                , text
+                , tls
+  Main-Is:        Main.hs

@@ -1,0 +1,1 @@
+Right (NetRc {nrHosts = [], nrMacros = [NetRcMacDef {nrmName = "macro1", nrmBody = "line1\nline2\n#\nline3\nline4\n"}]})

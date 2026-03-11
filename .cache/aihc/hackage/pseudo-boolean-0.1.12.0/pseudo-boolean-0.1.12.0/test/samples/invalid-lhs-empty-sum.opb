@@ -1,0 +1,4 @@
+* #variable= 0 #constraint= 1
+* This is invalid according to the grammer of http://www.cril.univ-artois.fr/PB11/format.pdf ,
+* but we relax the grammar to allow it.
+>= 0;

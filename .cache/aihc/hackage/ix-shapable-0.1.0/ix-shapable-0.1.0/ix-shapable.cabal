@@ -1,0 +1,26 @@
+Name:                 ix-shapable
+Version:              0.1.0
+Synopsis:             Reshape multi-dimensional arrays.
+Description:          Reshape multi-dimensional arrays.
+                      .
+                      Provides the 'Shapable' class, respresenting those
+                      instances of 'Ix' that provide to arrays indexing 
+                      that is isomorphic to that of C-style
+                      multi-dimensional arrays.
+                      .
+                      Factored out of the 'carray' library with the kind
+                      permission of its author.
+
+Category:             Data
+License:              BSD3
+License-File:         LICENSE
+Author:               Jed Brown
+Maintainer:           Tracy Wadleigh <tracy.wadleigh@gmail.com>
+Stability:            Experimental
+Cabal-Version:        >= 1.2
+Build-Type:           Simple
+
+Library
+  Exposed-Modules:    Data.Ix.Shapable
+  Build-Depends:      base, array
+  Ghc-Options:        -Wall

@@ -1,0 +1,247 @@
+{
+    "$schema": "https://vega.github.io/schema/vega-lite/v4.json",
+    "config": {
+        "axis": {
+            "domain": false,
+            "grid": false,
+            "labels": false,
+            "ticks": false
+        },
+        "concat": {
+            "spacing": 10
+        },
+        "view": {
+            "stroke": null
+        }
+    },
+    "data": {
+        "url": "https://vega.github.io/vega-lite/data/cars.json"
+    },
+    "resolve": {
+        "scale": {
+            "x": "shared"
+        }
+    },
+    "transform": [
+        {
+            "aggregate": [
+                {
+                    "as": "count_*",
+                    "op": "count"
+                }
+            ],
+            "groupby": [
+                "Origin",
+                "Cylinders"
+            ]
+        },
+        {
+            "as": [
+                "stack_count_Origin1",
+                "stack_count_Origin2"
+            ],
+            "groupby": [],
+            "offset": "normalize",
+            "sort": [
+                {
+                    "field": "Origin",
+                    "order": "ascending"
+                }
+            ],
+            "stack": "count_*"
+        },
+        {
+            "frame": [
+                null,
+                null
+            ],
+            "groupby": [
+                "Origin"
+            ],
+            "sort": [
+                {
+                    "field": "Cylinders",
+                    "order": "ascending"
+                }
+            ],
+            "window": [
+                {
+                    "as": "x",
+                    "field": "stack_count_Origin1",
+                    "op": "min"
+                },
+                {
+                    "as": "x2",
+                    "field": "stack_count_Origin2",
+                    "op": "max"
+                },
+                {
+                    "as": "rank_Cylinders",
+                    "op": "dense_rank"
+                },
+                {
+                    "as": "distinct_Cylinders",
+                    "field": "Cylinders",
+                    "op": "distinct"
+                }
+            ]
+        },
+        {
+            "frame": [
+                null,
+                null
+            ],
+            "sort": [
+                {
+                    "field": "Origin",
+                    "order": "ascending"
+                }
+            ],
+            "window": [
+                {
+                    "as": "rank_Origin",
+                    "op": "dense_rank"
+                }
+            ]
+        },
+        {
+            "as": [
+                "y",
+                "y2"
+            ],
+            "groupby": [
+                "Origin"
+            ],
+            "offset": "normalize",
+            "sort": [
+                {
+                    "field": "Cylinders",
+                    "order": "ascending"
+                }
+            ],
+            "stack": "count_*"
+        },
+        {
+            "as": "ny",
+            "calculate": "datum.y + (datum.rank_Cylinders - 1) * datum.distinct_Cylinders * 0.01 / 3"
+        },
+        {
+            "as": "ny2",
+            "calculate": "datum.y2 + (datum.rank_Cylinders - 1) * datum.distinct_Cylinders * 0.01 / 3"
+        },
+        {
+            "as": "nx",
+            "calculate": "datum.x + (datum.rank_Origin - 1) * 0.01"
+        },
+        {
+            "as": "nx2",
+            "calculate": "datum.x2 + (datum.rank_Origin - 1) * 0.01"
+        },
+        {
+            "as": "xc",
+            "calculate": "(datum.nx+datum.nx2)/2"
+        },
+        {
+            "as": "yc",
+            "calculate": "(datum.ny+datum.ny2)/2"
+        }
+    ],
+    "vconcat": [
+        {
+            "encoding": {
+                "color": {
+                    "field": "Origin",
+                    "legend": null,
+                    "type": "nominal"
+                },
+                "text": {
+                    "field": "Origin",
+                    "type": "nominal"
+                },
+                "x": {
+                    "aggregate": "min",
+                    "axis": {
+                        "orient": "top"
+                    },
+                    "field": "xc",
+                    "title": "Origin",
+                    "type": "quantitative"
+                }
+            },
+            "mark": {
+                "align": "center",
+                "baseline": "middle",
+                "type": "text"
+            }
+        },
+        {
+            "layer": [
+                {
+                    "encoding": {
+                        "color": {
+                            "field": "Origin",
+                            "legend": null,
+                            "type": "nominal"
+                        },
+                        "opacity": {
+                            "field": "Cylinders",
+                            "legend": null,
+                            "type": "quantitative"
+                        },
+                        "tooltip": [
+                            {
+                                "field": "Origin",
+                                "type": "nominal"
+                            },
+                            {
+                                "field": "Cylinders",
+                                "type": "quantitative"
+                            }
+                        ],
+                        "x": {
+                            "axis": null,
+                            "field": "nx",
+                            "type": "quantitative"
+                        },
+                        "x2": {
+                            "field": "nx2"
+                        },
+                        "y": {
+                            "axis": null,
+                            "field": "ny",
+                            "type": "quantitative"
+                        },
+                        "y2": {
+                            "field": "ny2"
+                        }
+                    },
+                    "mark": "rect"
+                },
+                {
+                    "encoding": {
+                        "text": {
+                            "field": "Cylinders",
+                            "type": "nominal"
+                        },
+                        "x": {
+                            "axis": null,
+                            "field": "xc",
+                            "type": "quantitative"
+                        },
+                        "y": {
+                            "axis": {
+                                "title": "Cylinders"
+                            },
+                            "field": "yc",
+                            "type": "quantitative"
+                        }
+                    },
+                    "mark": {
+                        "baseline": "middle",
+                        "type": "text"
+                    }
+                }
+            ]
+        }
+    ]
+}

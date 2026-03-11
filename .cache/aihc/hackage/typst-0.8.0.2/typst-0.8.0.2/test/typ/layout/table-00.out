@@ -1,0 +1,141 @@
+--- parse tree ---
+[ Code
+    "typ/layout/table-00.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/layout/table-00.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/layout/table-00.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Code
+    "typ/layout/table-00.typ"
+    ( line 2 , column 2 )
+    (Set
+       (Ident (Identifier "page"))
+       [ KeyValArg (Identifier "height") (Literal (Numeric 70.0 Pt)) ])
+, SoftBreak
+, Code
+    "typ/layout/table-00.typ"
+    ( line 3 , column 2 )
+    (Set
+       (Ident (Identifier "table"))
+       [ KeyValArg
+           (Identifier "fill")
+           (FuncExpr
+              [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+              (If
+                 [ ( FuncCall
+                       (FieldAccess
+                          (Ident (Identifier "even")) (Ident (Identifier "calc")))
+                       [ NormalArg
+                           (Plus (Ident (Identifier "x")) (Ident (Identifier "y")))
+                       ]
+                   , Block
+                       (CodeBlock
+                          [ FuncCall
+                              (Ident (Identifier "rgb")) [ NormalArg (Literal (String "aaa")) ]
+                          ])
+                   )
+                 ]))
+       ])
+, ParBreak
+, Code
+    "typ/layout/table-00.typ"
+    ( line 5 , column 2 )
+    (FuncCall
+       (Ident (Identifier "table"))
+       [ KeyValArg
+           (Identifier "columns")
+           (Times
+              (Array [ Reg (Literal (Numeric 1.0 Fr)) ]) (Literal (Int 3)))
+       , KeyValArg
+           (Identifier "stroke")
+           (Plus
+              (Literal (Numeric 2.0 Pt))
+              (FuncCall
+                 (Ident (Identifier "rgb")) [ NormalArg (Literal (String "333")) ]))
+       , NormalArg (Block (Content [ Text "A" ]))
+       , NormalArg (Block (Content [ Text "B" ]))
+       , NormalArg (Block (Content [ Text "C" ]))
+       , NormalArg (Block (Content []))
+       , NormalArg (Block (Content []))
+       , NormalArg
+           (Block
+              (Content
+                 [ Text "D"
+                 , Space
+                 , HardBreak
+                 , Text "E"
+                 , Space
+                 , HardBreak
+                 , Text "F"
+                 , Space
+                 , HardBreak
+                 , HardBreak
+                 , HardBreak
+                 , Text "G"
+                 ]))
+       , NormalArg (Block (Content [ Text "H" ]))
+       ])
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 text(body: [
+]), 
+                 parbreak(), 
+                 table(children: (text(body: [A]), 
+                                  text(body: [B]), 
+                                  text(body: [C]), 
+                                  {  }, 
+                                  {  }, 
+                                  { text(body: [D ]), 
+                                    linebreak(), 
+                                    text(body: [E ]), 
+                                    linebreak(), 
+                                    text(body: [F ]), 
+                                    linebreak(), 
+                                    linebreak(), 
+                                    linebreak(), 
+                                    text(body: [G]) }, 
+                                  text(body: [H])), 
+                       columns: (1.0fr, 
+                                 1.0fr, 
+                                 1.0fr), 
+                       fill: , 
+                       stroke: (thickness: 2.0pt,
+                                color: rgb(1%,1%,1%,100%))), 
+                 parbreak() })

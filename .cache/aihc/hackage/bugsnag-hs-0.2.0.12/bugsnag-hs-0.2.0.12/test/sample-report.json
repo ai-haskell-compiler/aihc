@@ -1,0 +1,189 @@
+{
+  "apiKey": "YOUR-NOTIFIER-API-KEY",
+  "payloadVersion": "5",
+  "notifier": {
+    "name": "Bugsnag Ruby",
+    "version": "1.0.11",
+    "url": "https://github.com/bugsnag/bugsnag-ruby"
+  },
+  "events": [
+    {
+      "exceptions": [
+        {
+          "errorClass": "NoMethodError",
+          "message": "Unable to connect to database",
+          "stacktrace": [
+            {
+              "file": "controllers/auth/session_controller.rb",
+              "lineNumber": 1234,
+              "columnNumber": 123,
+              "method": "create",
+              "inProject": true,
+              "code": {
+                "1": "def a",
+                "2": "raise 'something went wrong' if problem?",
+                "3": "end"
+              }
+            }
+          ],
+          "type": "android"
+        }
+      ],
+      "breadcrumbs": [
+        {
+          "timestamp": "2016-07-19T12:17:27-0700",
+          "name": "Open menu",
+          "type": "navigation",
+          "metaData": {}
+        }
+      ],
+      "request": {
+        "clientIp": "192.168.44.0",
+        "headers": {},
+        "httpMethod": "PUT",
+        "url": "http://example.com/users/19/settings",
+        "referer": "http://example.com?q=awesome"
+      },
+      "threads": [
+        {
+          "id": "thread_id",
+          "name": "thread_name",
+          "errorReportingThread": true,
+          "stacktrace": [
+            {
+              "file": "controllers/auth/session_controller.rb",
+              "lineNumber": 1234,
+              "columnNumber": 123,
+              "method": "create",
+              "inProject": true,
+              "code": {
+                "1": "def a",
+                "2": "raise 'something went wrong' if problem?",
+                "3": "end"
+              }
+            }
+          ],
+          "type": "android"
+        }
+      ],
+      "context": "auth/session#create",
+      "groupingHash": "buggy_file.rb",
+      "unhandled": true,
+      "severity": "error",
+      "severityReason": {
+        "type": "unhandledError",
+        "attributes": {
+          "errorType": "E_ERROR",
+          "level": "Error",
+          "signalType": "SIGSEGV",
+          "violationType": "NetworkOnMainThread",
+          "errorClass": "ActiveRecord::RecordNotFound"
+        }
+      },
+      "user": {
+        "id": "19",
+        "name": "Robert Hawkins",
+        "email": "bob@example.com"
+      },
+      "app": {
+        "id": "com.bugsnag.android.example.debug",
+        "version": "1.1.3",
+        "versionCode": 12,
+        "bundleVersion": "1.0.2",
+        "codeBundleId": "1.0-1234",
+        "buildUUID": "BE5BA3D0-971C-4418-9ECF-E2D1ABCB66BE",
+        "releaseStage": "staging",
+        "type": "rails",
+        "dsymUUIDs": [
+          "e6173678256785afd940392abee"
+        ],
+        "duration": 1275,
+        "durationInForeground": 983,
+        "inForeground": true,
+        "binaryArch": "x86_64"
+      },
+      "device": {
+        "hostname": "web1.internal",
+        "id": "fd124e87760c4281aef",
+        "manufacturer": "LGE",
+        "model": "Nexus 6P",
+        "modelNumber": "600",
+        "osName": "android",
+        "osVersion": "8.0.1",
+        "freeMemory": 183879616,
+        "totalMemory": 201326592,
+        "freeDisk": 13478064128,
+        "browserName": "Chrome",
+        "browserVersion": "61.0.3163.100",
+        "jailbroken": false,
+        "orientation": "portrait",
+        "time": "2018-08-07T10:16:34.564Z",
+        "cpuAbi": [
+          "x86_64"
+        ],
+        "runtimeVersions": {
+          "androidApiLevel": "28",
+          "bottle": "0.12.8",
+          "celery": "4.2.0",
+          "clangVersion": "7.0.1",
+          "cocos2dx": "3.17.2",
+          "delayedJob": "4.1.8",
+          "django": "2.1.7",
+          "dotnet": ".NET Framework 4.7.3416.0",
+          "dotnetApiCompatibility": ".NET 2.0 Subset",
+          "dotnetClr": "4.0.30319.17379",
+          "dotnetScriptingRuntime": ".NET 3.5 equivalent",
+          "eventMachine": "1.2.7",
+          "expoApp": "2.10.0.105125",
+          "expoSdk": "32.0.0",
+          "flask": "1.0.2",
+          "gin": "1.3.0",
+          "go": "1.11.2",
+          "javaType": "Java(TM) SE Runtime Environment",
+          "javaVersion": "1.8.0_131-b11",
+          "jruby": "9.2.5.0",
+          "laravel": "5.7.22",
+          "lumen": "5.7",
+          "magento": "2.3.0",
+          "mailman": "0.8.0",
+          "martini": "1.0",
+          "negroni": "1.0.0",
+          "node": "10.14.1",
+          "osBuild": "16D57",
+          "php": "7.2.12",
+          "python": "3.7.1",
+          "que": "0.14.3",
+          "rack": "2.0.6",
+          "rails": "5.2.2",
+          "rake": "12.3.2",
+          "reactNative": "0.57.5",
+          "reactNativeJsEngine": "hermes",
+          "resque": "2.0.0",
+          "revel": "0.21.0",
+          "ruby": "2.5.3",
+          "shoryoken": "5.0.1",
+          "sidekiq": "5.1.3",
+          "silex": "2.1.0",
+          "sinatra": "2.0.3",
+          "springBoot": "1.5.13.RELEASE",
+          "springFramework": "4.2.13.RELEASE",
+          "swift": "4.2",
+          "symfony": "4.2.11",
+          "tornado": "5.1.1",
+          "unity": "2018.2.17",
+          "unityScriptingBackend": "Mono",
+          "wordpress": "5.1"
+        }
+      },
+      "session": {
+        "id": "9f65c975-8155-456f-91e5-c4c4b3db0555",
+        "startedAt": "2017-01-01T14:30:00.000Z",
+        "events": {
+          "handled": 1,
+          "unhandled": 1
+        }
+      },
+      "metaData": {}
+    }
+  ]
+}

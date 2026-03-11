@@ -1,0 +1,137 @@
+cmark 0.7 (08 Jul 2023)
+
+  * Update to cmark 0.30.3.
+  * Allow text 2.
+  * Remove benchmark suite.
+
+cmark 0.6 (08 Apr 2019)
+
+  * Update to cmark 0.29.0.
+  * Export optUnsafe.  Note that the default is now to suppress
+    potentially unsafe HTML; set optUnsafe to return to the old behavior.
+
+cmark 0.5.6.3 (13 Mar 2019)
+
+  * Use snoc instead of <> to add the null terminator.
+
+cmark 0.5.6.2 (13 Mar 2019)
+
+  * Ensure that withtext adds a null terminator (#14).
+    This fixes a regression due to PR #13, which caused
+    random content to appear in rendered TEXT nodes.
+
+cmark 0.5.6.1 (11 Mar 2019)
+
+  * Fix CString memory leaks (Anders Kaseorg).  The renderer functions return
+  a malloc’d string which the caller is expected to free.
+
+  * Fix use-after-free bugs (Anders Kaseorg).  `useAsCString` frees the
+    CString after the IO action finishes executing, so passing `return` as
+    that action can never be correct.  To make sure the CString gets freed
+    at the right time, we need a “with”-style abstraction, not just a
+    conversion function.  While we’re here replace this with
+    `withCStringLen`, which also makes fewer copies.
+
+  * Show node type on error for unknown node type.
+
+cmark 0.5.6 (02 Aug 2017)
+
+  * Update to cmark 0.28.0.
+
+cmark 0.5.5.1 (20 Mar 2017)
+
+  * Update version bound for HUnit.
+
+cmark 0.5.5 (31 Jan 2017)
+
+  * Update to cmark 0.27.1.
+  * Update version bounds for dependencies.
+
+cmark 0.5.4 (18 Nov 2016)
+
+  * Update to cmark 0.27.0.
+
+cmark 0.5.3.1 (16 Jul 2016)
+
+  * Remove unnecessary typedef that caused problems with the build
+    (patch from upstream).
+
+cmark 0.5.3 (15 Jul 2016)
+
+  * Update to cmark 0.26.0.
+  * Added appveyor CI.
+
+cmark 0.5.2.1 (22 May 2016)
+
+  * New .travis.yml - test with stack, cabal on many versions.
+  * Increase upper bound of base (Utku Demir).
+
+cmark 0.5.2 (26 Mar 2016)
+
+  * Add flag to allow building with an installed libcmark (Jens Petersen).
+  * Updated to libcmark 0.25.2.
+
+cmark 0.5.1 (21 Jan 2016)
+
+  * Updated to libcmark 0.24.1.
+
+cmark 0.5 (29 Dec 2015)
+
+  * Updated to libcmark 0.23.0.
+  * API changes:
+    + Added `OnEnter` and `OnExit` types.
+    + In `NodeType`, `HRULE` is now `THEMATIC_BREAK`,
+      `HTML` is `HTML_BLOCK`, `INLINE_HTML` is
+      `HTML_INLINE`, `HEADER` is `HEADING`.  New
+      constructors: `CUSTOM_INLINE`, `CUSTOM_BLOCK`.
+
+cmark 0.4.1 (23 Aug 2015)
+
+  * Updated to libcmark 0.22.0.
+  * Bumped version bounds for HUnit.
+
+cmark 0.4.0.1 (14 Jul 2015)
+
+  * API changes:
+    + Added `commonmarkToLaTeX`, `nodeToLaTeX`, `optSafe`.
+    + Changed type of `commonmarkToMan` and `nodeToMan`,
+      adding `Maybe Int` param for width.
+    + Changed type of `nodeToCommonMark`, changing the `Int` width
+      parameter to a `Maybe Int`.
+  * Updated to cmark 0.21 sources.
+
+cmark 0.3.4 (08 Jun 2015)
+
+  * Updated to libcmark 0.20.0.
+
+cmark 0.3.3.1 (28 May 2015)
+
+  * Changed name Bench.hs -> bench-cmark.hs.
+  * Benchmark:  don't benchmark pandoc (circular dependency).
+
+cmark 0.3.3 (26 May 2015)
+
+  * Added `nodeToHtml`, `nodeToMan`, `nodeToXml`.
+  * Added version bounds for text (Albert Krewinkel).
+
+cmark 0.3.2 (28 Apr 2015)
+
+  * Updated libcmark C sources to 0.19.0.
+  * Fixes to avoid warning for earlier ghc versions.
+  * Refactored, removing the `io` convenience function.
+  * Removed unnecessary `unsafePerformIO` on `fromtext`.
+  * `fromtext`: use `ByteString.useAsCString` + explicit `encodeUtf8`.
+
+cmark 0.3.1 (29 Mar 2015)
+
+  * Added nodeToCommonmark.
+  * Removed mtl from build-depends.
+  * Updated source info in README, cabal.
+  * Updated C sources.
+  * Put all the C functions in the IO monad, and ensure
+    that memory allocated by the C library is freed
+    at the right time.
+  * Added a rudimentary test suite.
+  * Properly free c-allocated resources.
+  * Removed bindings to nonexistent setters for source pos
+    attributes.

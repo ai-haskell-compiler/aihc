@@ -1,0 +1,23 @@
+map length (tiers :: [[ Float ]])  =  [1,1,1,1,1,1,1,1,1,1,1,1,...]
+
+length (list :: [ Float ])  =  Infinity
+
+allUnique (list :: [ Float ])  =  True
+
+ratioRepetitions (list :: [ Float ])  =  0 % 1
+
+tiers :: [Float]  =
+  [ [0.0]
+  , [1.0]
+  , [-1.0]
+  , [0.5]
+  , [-0.5]
+  , [2.0]
+  , [Infinity]
+  , [-Infinity]
+  , [-2.0]
+  , [0.33333334]
+  , [-0.33333334]
+  , [1.5]
+  , ...
+  ]

@@ -1,0 +1,120 @@
+--- parse tree ---
+[ Code
+    "typ/layout/clip-03.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/layout/clip-03.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/layout/clip-03.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Comment
+, SoftBreak
+, Code
+    "typ/layout/clip-03.typ"
+    ( line 4 , column 2 )
+    (Set
+       (Ident (Identifier "page"))
+       [ KeyValArg (Identifier "height") (Literal (Numeric 60.0 Pt)) ])
+, ParBreak
+, Text "First!"
+, ParBreak
+, Code
+    "typ/layout/clip-03.typ"
+    ( line 8 , column 2 )
+    (FuncCall
+       (Ident (Identifier "block"))
+       [ KeyValArg (Identifier "height") (Literal (Numeric 4.0 Em))
+       , KeyValArg (Identifier "clip") (Literal (Boolean True))
+       , KeyValArg
+           (Identifier "stroke")
+           (Plus (Literal (Numeric 1.0 Pt)) (Ident (Identifier "black")))
+       , BlockArg
+           [ SoftBreak
+           , Text "But,"
+           , Space
+           , Text "soft!"
+           , Space
+           , Text "what"
+           , Space
+           , Text "light"
+           , Space
+           , Text "through"
+           , Space
+           , Text "yonder"
+           , Space
+           , Text "window"
+           , Space
+           , Text "breaks?"
+           , Space
+           , Text "It"
+           , Space
+           , Text "is"
+           , Space
+           , Text "the"
+           , Space
+           , Text "east,"
+           , Space
+           , Text "and"
+           , Space
+           , Text "Juliet"
+           , SoftBreak
+           , Text "is"
+           , Space
+           , Text "the"
+           , Space
+           , Text "sun"
+           , Text "."
+           , ParBreak
+           ]
+       ])
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 text(body: [
+]), 
+                 parbreak(), 
+                 text(body: [First!]), 
+                 parbreak(), 
+                 block(body: { text(body: [
+But, soft! what light through yonder window breaks? It is the east, and Juliet
+is the sun.]), 
+                               parbreak() }, 
+                       clip: true, 
+                       height: 4.0em, 
+                       stroke: (thickness: 1.0pt,
+                                color: rgb(0%,0%,0%,100%))), 
+                 parbreak() })

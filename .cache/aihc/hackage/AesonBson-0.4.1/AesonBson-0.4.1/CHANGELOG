@@ -1,0 +1,14 @@
+# 0.4.1
+
+* Compatibility with current `aeson` 2.0
+  (https://github.com/nh2/aesonbson/pull/12)
+
+# 0.4.0
+
+* Compatibility with current `aeson`
+  (https://github.com/nh2/aesonbson/pull/11)
+
+# 0.2.1
+
+* Fixed BSON ObjIDs being converted incorrectly
+  (https://github.com/nh2/aesonbson/pull/2)

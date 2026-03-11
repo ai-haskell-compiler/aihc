@@ -1,0 +1,66 @@
+Header:   Class:      ELFCLASS64
+          Data:       ELFDATA2LSB
+          OSABI:      ELFOSABI_SYSV
+          ABIVersion: 0
+          Type:       ET_EXEC
+          Machine:    EM_X86_64
+          Entry:      0x00000000004000e0
+          PhOff:      0x0000000000000040
+          ShOff:      0x0000000000000100
+          Flags:      0x00000000
+          PhEntSize:  0x0038
+          PhNum:      2
+          ShEntSize:  0x0040
+          ShNum:      3
+          ShStrNdx:   ElfSectionIndex 2
+Sections: - N:         0
+            Name:      0
+            Type:      SHT_NULL
+            Flags:     0x0000000000000000
+            Addr:      0x0000000000000000
+            Offset:    0x0000000000000000
+            Size:      0x0000000000000000
+            Link:      0
+            Info:      0
+            AddrAlign: 0x0000000000000000
+            EntSize:   0x0000000000000000
+          - N:         1
+            Name:      11
+            Type:      SHT_PROGBITS
+            Flags:     0x0000000000000006
+            Addr:      0x00000000004000e0
+            Offset:    0x00000000000000e0
+            Size:      0x000000000000000c
+            Link:      0
+            Info:      0
+            AddrAlign: 0x0000000000000010
+            EntSize:   0x0000000000000000
+          - N:         2
+            Name:      1
+            Type:      SHT_STRTAB
+            Flags:     0x0000000000000000
+            Addr:      0x0000000000000000
+            Offset:    0x00000000000000ec
+            Size:      0x0000000000000011
+            Link:      0
+            Info:      0
+            AddrAlign: 0x0000000000000001
+            EntSize:   0x0000000000000000
+Segments: - N:        0
+            Type:     PT_LOAD
+            Flags:    [PF_X,PF_R]
+            Offset:   0x0000000000000000
+            VirtAddr: 0x0000000000400000
+            PhysAddr: 0x0000000000400000
+            FileSize: 0x00000000000000ec
+            MemSize:  0x00000000000000ec
+            Align:    0x0000000000200000
+          - N:        1
+            Type:     PT_NOTE
+            Flags:    [PF_R]
+            Offset:   0x0000000000000000
+            VirtAddr: 0x0000000000000000
+            PhysAddr: 0x0000000000000000
+            FileSize: 0x0000000000000000
+            MemSize:  0x0000000000000000
+            Align:    0x0000000000000008

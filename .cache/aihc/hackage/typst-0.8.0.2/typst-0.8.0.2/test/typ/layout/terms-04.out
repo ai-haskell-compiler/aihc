@@ -1,0 +1,104 @@
+--- parse tree ---
+[ Code
+    "typ/layout/terms-04.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/layout/terms-04.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/layout/terms-04.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Comment
+, Code
+    "typ/layout/terms-04.typ"
+    ( line 3 , column 2 )
+    (Show
+       (Just (Ident (Identifier "terms")))
+       (FuncExpr
+          [ NormalParam (Identifier "it") ]
+          (FuncCall
+             (Ident (Identifier "table"))
+             [ KeyValArg (Identifier "columns") (Literal (Int 2))
+             , KeyValArg (Identifier "inset") (Literal (Numeric 3.0 Pt))
+             , SpreadArg
+                 (FuncCall
+                    (FieldAccess
+                       (Ident (Identifier "flatten"))
+                       (FuncCall
+                          (FieldAccess
+                             (Ident (Identifier "map"))
+                             (FieldAccess
+                                (Ident (Identifier "children")) (Ident (Identifier "it"))))
+                          [ NormalArg
+                              (FuncExpr
+                                 [ NormalParam (Identifier "v") ]
+                                 (Array
+                                    [ Reg
+                                        (FuncCall
+                                           (Ident (Identifier "emph"))
+                                           [ NormalArg
+                                               (FieldAccess
+                                                  (Ident (Identifier "term"))
+                                                  (Ident (Identifier "v")))
+                                           ])
+                                    , Reg
+                                        (FieldAccess
+                                           (Ident (Identifier "description"))
+                                           (Ident (Identifier "v")))
+                                    ]))
+                          ]))
+                    [])
+             ])))
+, ParBreak
+, DescListItem [ Text "A" ] [ Text "One" , Space , Text "letter" ]
+, SoftBreak
+, DescListItem
+    [ Text "BB" ] [ Text "Two" , Space , Text "letters" ]
+, SoftBreak
+, DescListItem
+    [ Text "CCC" ] [ Text "Three" , Space , Text "letters" , ParBreak ]
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 parbreak(), 
+                 table(children: (emph(body: text(body: [A])), 
+                                  text(body: [One letter]), 
+                                  emph(body: text(body: [BB])), 
+                                  text(body: [Two letters]), 
+                                  emph(body: text(body: [CCC])), 
+                                  { text(body: [Three letters]), 
+                                    parbreak() }), 
+                       columns: 2, 
+                       inset: 3.0pt) })

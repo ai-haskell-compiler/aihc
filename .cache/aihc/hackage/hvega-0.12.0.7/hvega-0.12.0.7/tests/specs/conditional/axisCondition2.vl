@@ -1,0 +1,70 @@
+{
+    "$schema": "https://vega.github.io/schema/vega-lite/v4.json",
+    "data": {
+        "url": "https://vega.github.io/vega-lite/data/movies.json"
+    },
+    "encoding": {
+        "x": {
+            "axis": {
+                "labelPadding": {
+                    "condition": {
+                        "test": "(datum.value >= 1) && (datum.value <= 4)",
+                        "value": 20
+                    },
+                    "value": 5
+                },
+                "tickColor": {
+                    "condition": {
+                        "test": "datum.value <= 2",
+                        "value": "red"
+                    },
+                    "value": "blue"
+                },
+                "tickCount": 20,
+                "tickDash": {
+                    "condition": {
+                        "test": "(datum.value >= 5) && (datum.value <= 8)",
+                        "value": [
+                            2,
+                            2
+                        ]
+                    },
+                    "value": []
+                },
+                "tickOpacity": {
+                    "condition": {
+                        "test": "datum.value >=8",
+                        "value": 0.3
+                    },
+                    "value": 0.8
+                },
+                "tickSize": {
+                    "condition": {
+                        "test": "(datum.value > 0) && (datum.value < 3)",
+                        "value": 20
+                    },
+                    "value": 5
+                },
+                "tickWidth": {
+                    "condition": {
+                        "test": "datum.label =='4.0'",
+                        "value": 5
+                    },
+                    "value": 2
+                }
+            },
+            "field": "IMDB_Rating",
+            "type": "quantitative"
+        },
+        "y": {
+            "field": "Rotten_Tomatoes_Rating",
+            "type": "quantitative"
+        }
+    },
+    "height": 600,
+    "mark": {
+        "opacity": 0.1,
+        "type": "point"
+    },
+    "width": 600
+}

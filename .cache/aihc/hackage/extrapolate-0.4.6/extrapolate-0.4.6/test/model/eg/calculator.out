@@ -1,0 +1,20 @@
+*** Failed! Falsifiable (after 20 tests):
+Div (C 0) (Add (C 0) (C 0))
+
+Generalization:
+Div (C _) (Add (C 0) (C 0))
+
+Conditional Generalization:
+Div e1 (Add (C 0) (C 0))  when  noDiv0 e1
+
+*** Failed! Falsifiable (after 5 tests):
+Div (C 0) (C 0)
+
+Generalization:
+Div _ (C 0)
+
+Conditional Generalization:
+e1  when  not (noDiv0 e1)
+
+False
+True

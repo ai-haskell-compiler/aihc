@@ -1,0 +1,36 @@
+#!/bin/bash
+
+TOP=$(cd $(dirname ${BASH_SOURCE[0]})/.. > /dev/null && pwd -P)
+
+if [ -z "$HTF_TEST_STACK_ARGS" -a ! -z "$HTF_TEST_STACK_YAML" ]; then
+    HTF_TEST_STACK_ARGS="--stack-yaml $HTF_TEST_STACK_YAML"
+fi
+if [ -z "$HTF_TEST_STACK_ARGS" -a ! -z "$HTF_STACK_YAML" ]; then
+    HTF_TEST_STACK_ARGS="--stack-yaml $HTF_STACK_YAML"
+fi
+
+dist=$(stack $HTF_TEST_STACK_ARGS path --dist-dir 2> /dev/null)
+find=find
+if [ "$(uname)" == "Darwin" ]; then
+    find=gfind
+fi
+
+function find_bin()
+{
+    local d="$TOP/$dist"
+    if [ ! -d "$d" ]; then
+        d="$(dirname $d)"
+    fi
+    bin=$($find "$d" -name htfpp -type f -executable -printf "%T+\t%p\n" | sort -r | head -1 | cut -f 2)
+}
+
+find_bin
+
+if [ -z "$bin" ]; then
+    echo "TOP=$TOP" >&2
+    echo "dist=$dist" >&2
+    echo "bin=$bin" >&2
+    echo "No executable named htfpp found in $TOP/$dist. Aborting!" >&2
+    exit 1
+fi
+"$bin" "$@"

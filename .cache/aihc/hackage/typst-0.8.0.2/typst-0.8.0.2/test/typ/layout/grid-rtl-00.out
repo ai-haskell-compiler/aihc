@@ -1,0 +1,63 @@
+--- parse tree ---
+[ Code
+    "typ/layout/grid-rtl-00.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/layout/grid-rtl-00.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/layout/grid-rtl-00.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Code
+    "typ/layout/grid-rtl-00.typ"
+    ( line 2 , column 2 )
+    (Set
+       (Ident (Identifier "text"))
+       [ KeyValArg (Identifier "dir") (Ident (Identifier "rtl")) ])
+, SoftBreak
+, BulletListItem
+    [ Text "\1502\1497\1502\1497\1503"
+    , Space
+    , Text "\1500\1513\1502\1488\1500"
+    , ParBreak
+    ]
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 text(body: [
+], dir: rtl), 
+                 list(children: ({ text(body: [מימין לשמאל], 
+                                        dir: rtl), 
+                                   parbreak() })) })

@@ -1,0 +1,30 @@
+name:          parsec-numbers
+version:       0.1.0
+build-type:    Simple
+cabal-version: >= 1.6
+license:       BSD3
+license-file:  LICENSE
+author:        chr.maeder@web.de
+maintainer:    chr.maeder@web.de
+category:      Parsing
+synopsis:      Utilities for parsing numbers from strings
+description:
+    parsec-numbers provides the number parsers without the need to
+    use a large (and unportable) token parser
+extra-source-files: changes
+
+stability:   experimental
+
+flag parsec1
+    Description: Use parsec1
+    Default: False
+
+Library
+  exposed-modules:
+    Text.ParserCombinators.Parsec.Number
+  if flag(parsec1)
+      build-depends: parsec1
+  else
+      build-depends: parsec
+  build-depends: base < 5
+  ghc-options: -Wall

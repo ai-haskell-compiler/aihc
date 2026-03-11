@@ -1,0 +1,122 @@
+--- parse tree ---
+[ Code
+    "typ/compiler/include-00.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/compiler/include-00.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/compiler/include-00.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Code
+    "typ/compiler/include-00.typ"
+    ( line 2 , column 2 )
+    (Set
+       (Ident (Identifier "page"))
+       [ KeyValArg (Identifier "width") (Literal (Numeric 200.0 Pt)) ])
+, ParBreak
+, Heading 1 [ Text "Document" ]
+, Comment
+, Code
+    "typ/compiler/include-00.typ"
+    ( line 7 , column 2 )
+    (Include (Literal (String "modules/chap1.typ")))
+, ParBreak
+, Comment
+, Code
+    "typ/compiler/include-00.typ"
+    ( line 10 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "chap2")))
+       (Include
+          (Plus
+             (Plus (Literal (String "modu")) (Literal (String "les/chap")))
+             (Literal (String "2.typ")))))
+, ParBreak
+, EnDash
+, Space
+, Emph [ Text "Intermission" ]
+, Space
+, EnDash
+, SoftBreak
+, Code
+    "typ/compiler/include-00.typ"
+    ( line 13 , column 2 )
+    (Ident (Identifier "chap2"))
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 parbreak(), 
+                 heading(body: text(body: [Document]), 
+                         level: 1), 
+                 text(body: [
+]), 
+                 parbreak(), 
+                 heading(body: text(body: [Chapter 1]), 
+                         level: 2), 
+                 text(body: [Klaus]), 
+                 text(body: [ stood in a field of wheat. There was nothing of particular interest about
+the field ]), 
+                 text(body: [Klaus]), 
+                 text(body: [ just casually surveyed for any paths on which the corn would not
+totally ruin his semi-new outdorsy jacket but then again, most of us spend
+considerable time in non-descript environments.]), 
+                 parbreak(), 
+                 parbreak(), 
+                 parbreak(), 
+                 text(body: [– ]), 
+                 emph(body: text(body: [Intermission])), 
+                 text(body: [ –
+]), 
+                 text(body: [
+]), 
+                 parbreak(), 
+                 heading(body: text(body: [Chapter 2]), 
+                         level: 2), 
+                 text(body: [Their motivations, however, were pretty descript, so to speak. ]), 
+                 text(body: [Klaus]), 
+                 text(body: [ had not yet
+conceptualized their consequences, but that should change pretty quickly. ]), 
+                 text(body: [Klaus]), 
+                 text(body: [
+approached the center of the field and picked up a 4-foot long disk made from
+what could only be cow manure. The hair on the back of ]), 
+                 text(body: [Klaus]), 
+                 text(body: [” neck bristled as
+he stared at the unusual sight. After studying the object for a while, he
+promptly popped the question, “How much?”]), 
+                 parbreak(), 
+                 parbreak() })

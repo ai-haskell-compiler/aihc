@@ -1,0 +1,30 @@
+pow :: Int -> Int -> Int
+-- testing 5 combinations of argument values
+-- pruning with 14/30 rules
+-- 4 candidates of size 1
+-- 0 candidates of size 2
+-- 11 candidates of size 3
+-- 0 candidates of size 4
+-- 78 candidates of size 5
+-- 9 candidates of size 6
+-- 809 candidates of size 7
+-- 557 candidates of size 8
+-- tested 912 candidates
+pow x 0  =  1
+pow x y  =  x * pow x (y - 1)
+
+pow :: Int -> Int -> Int
+-- testing 5 combinations of argument values
+-- pruning with 49/71 rules
+-- 4 candidates of size 1
+-- 4 candidates of size 2
+-- 17 candidates of size 3
+-- 60 candidates of size 4
+-- 294 candidates of size 5
+-- 1386 candidates of size 6
+-- tested 1765 candidates
+pow  =  undefined  -- search exhausted
+-- could not find implementation using only
+-- 0, 1, square, (*), (-), halve, odd, and guarded equations
+-- consider increasing target/maxSize or refining the ingredients
+

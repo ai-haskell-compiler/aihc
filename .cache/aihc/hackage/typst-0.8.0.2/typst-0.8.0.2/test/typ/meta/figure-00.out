@@ -1,0 +1,223 @@
+--- parse tree ---
+[ Code
+    "typ/meta/figure-00.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/meta/figure-00.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/meta/figure-00.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Code
+    "typ/meta/figure-00.typ"
+    ( line 2 , column 2 )
+    (Set
+       (Ident (Identifier "page"))
+       [ KeyValArg (Identifier "width") (Literal (Numeric 150.0 Pt)) ])
+, SoftBreak
+, Code
+    "typ/meta/figure-00.typ"
+    ( line 3 , column 2 )
+    (Set
+       (Ident (Identifier "figure"))
+       [ KeyValArg (Identifier "numbering") (Literal (String "I")) ])
+, ParBreak
+, Text "We"
+, Space
+, Text "can"
+, Space
+, Text "clearly"
+, Space
+, Text "see"
+, Space
+, Text "that"
+, Space
+, Ref "fig-cylinder" (Literal Auto)
+, Space
+, Text "and"
+, SoftBreak
+, Ref "tab-complex" (Literal Auto)
+, Space
+, Text "are"
+, Space
+, Text "relevant"
+, Space
+, Text "in"
+, Space
+, Text "this"
+, Space
+, Text "context"
+, Text "."
+, ParBreak
+, Code
+    "typ/meta/figure-00.typ"
+    ( line 8 , column 2 )
+    (FuncCall
+       (Ident (Identifier "figure"))
+       [ NormalArg
+           (FuncCall
+              (Ident (Identifier "table"))
+              [ KeyValArg (Identifier "columns") (Literal (Int 2))
+              , BlockArg [ Text "a" ]
+              , BlockArg [ Text "b" ]
+              ])
+       , KeyValArg
+           (Identifier "caption")
+           (Block
+              (Content
+                 [ Text "The"
+                 , Space
+                 , Text "basic"
+                 , Space
+                 , Text "table"
+                 , Text "."
+                 ]))
+       ])
+, Space
+, Code
+    "typ/meta/figure-00.typ" ( line 11 , column 3 ) (Label "tab-basic")
+, ParBreak
+, Code
+    "typ/meta/figure-00.typ"
+    ( line 13 , column 2 )
+    (FuncCall
+       (Ident (Identifier "figure"))
+       [ NormalArg
+           (FuncCall
+              (Ident (Identifier "pad"))
+              [ KeyValArg (Identifier "y") (Negated (Literal (Numeric 6.0 Pt)))
+              , NormalArg
+                  (FuncCall
+                     (Ident (Identifier "image"))
+                     [ NormalArg (Literal (String "/assets/files/cylinder.svg"))
+                     , KeyValArg (Identifier "height") (Literal (Numeric 2.0 Cm))
+                     ])
+              ])
+       , KeyValArg
+           (Identifier "caption")
+           (Block
+              (Content
+                 [ Text "The"
+                 , Space
+                 , Text "basic"
+                 , Space
+                 , Text "shapes"
+                 , Text "."
+                 ]))
+       , KeyValArg (Identifier "numbering") (Literal (String "I"))
+       ])
+, Space
+, Code
+    "typ/meta/figure-00.typ"
+    ( line 17 , column 3 )
+    (Label "fig-cylinder")
+, ParBreak
+, Code
+    "typ/meta/figure-00.typ"
+    ( line 19 , column 2 )
+    (FuncCall
+       (Ident (Identifier "figure"))
+       [ NormalArg
+           (FuncCall
+              (Ident (Identifier "table"))
+              [ KeyValArg (Identifier "columns") (Literal (Int 3))
+              , BlockArg [ Text "a" ]
+              , BlockArg [ Text "b" ]
+              , BlockArg [ Text "c" ]
+              , BlockArg [ Text "d" ]
+              , BlockArg [ Text "e" ]
+              , BlockArg [ Text "f" ]
+              ])
+       , KeyValArg
+           (Identifier "caption")
+           (Block
+              (Content
+                 [ Text "The"
+                 , Space
+                 , Text "complex"
+                 , Space
+                 , Text "table"
+                 , Text "."
+                 ]))
+       ])
+, Space
+, Code
+    "typ/meta/figure-00.typ"
+    ( line 22 , column 3 )
+    (Label "tab-complex")
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 text(body: [
+]), 
+                 parbreak(), 
+                 text(body: [We can clearly see that ]), 
+                 ref(supplement: auto, 
+                     target: <fig-cylinder>), 
+                 text(body: [ and
+]), 
+                 ref(supplement: auto, 
+                     target: <tab-complex>), 
+                 text(body: [ are relevant in this context.]), 
+                 parbreak(), 
+                 figure(body: table(children: (text(body: [a]), 
+                                               text(body: [b])), 
+                                    columns: 2), 
+                        caption: text(body: [The basic table.]), 
+                        numbering: "I"), 
+                 text(body: [ ]), 
+                 <tab-basic>, 
+                 parbreak(), 
+                 figure(body: pad(body: image(height: 2.0cm, 
+                                              source: "/assets/files/cylinder.svg"), 
+                                  y: -6.0pt), 
+                        caption: text(body: [The basic shapes.]), 
+                        numbering: "I"), 
+                 text(body: [ ]), 
+                 <fig-cylinder>, 
+                 parbreak(), 
+                 figure(body: table(children: (text(body: [a]), 
+                                               text(body: [b]), 
+                                               text(body: [c]), 
+                                               text(body: [d]), 
+                                               text(body: [e]), 
+                                               text(body: [f])), 
+                                    columns: 3), 
+                        caption: text(body: [The complex table.]), 
+                        numbering: "I"), 
+                 text(body: [ ]), 
+                 <tab-complex>, 
+                 parbreak() })

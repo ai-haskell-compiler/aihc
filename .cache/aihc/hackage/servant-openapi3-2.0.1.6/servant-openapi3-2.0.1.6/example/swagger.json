@@ -1,0 +1,165 @@
+{
+    "openapi": "3.0.0",
+    "info": {
+        "version": "1.0",
+        "title": "Todo API",
+        "license": {
+            "url": "http://mit.com",
+            "name": "MIT"
+        },
+        "description": "This is an API that tests swagger integration"
+    },
+    "paths": {
+        "/todo": {
+            "get": {
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json;charset=utf-8": {
+                                "schema": {
+                                    "items": {
+                                        "$ref": "#/components/schemas/Todo"
+                                    },
+                                    "type": "array"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "post": {
+                "requestBody": {
+                    "content": {
+                        "application/json;charset=utf-8": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Todo"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "400": {
+                        "description": "Invalid `body`"
+                    },
+                    "200": {
+                        "content": {
+                            "application/json;charset=utf-8": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TodoId"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/todo/{id}": {
+            "get": {
+                "parameters": [
+                    {
+                        "required": true,
+                        "schema": {
+                            "maximum": 9223372036854775807,
+                            "minimum": -9223372036854775808,
+                            "type": "integer"
+                        },
+                        "in": "path",
+                        "name": "id"
+                    }
+                ],
+                "responses": {
+                    "404": {
+                        "description": "`id` not found"
+                    },
+                    "200": {
+                        "content": {
+                            "application/json;charset=utf-8": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Todo"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "put": {
+                "parameters": [
+                    {
+                        "required": true,
+                        "schema": {
+                            "maximum": 9223372036854775807,
+                            "minimum": -9223372036854775808,
+                            "type": "integer"
+                        },
+                        "in": "path",
+                        "name": "id"
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json;charset=utf-8": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Todo"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "404": {
+                        "description": "`id` not found"
+                    },
+                    "400": {
+                        "description": "Invalid `body`"
+                    },
+                    "200": {
+                        "content": {
+                            "application/json;charset=utf-8": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TodoId"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        }
+    },
+    "components": {
+        "schemas": {
+            "Todo": {
+                "example": {
+                    "summary": "get milk",
+                    "created": "2015-12-31T00:00:00Z"
+                },
+                "required": [
+                    "created",
+                    "summary"
+                ],
+                "type": "object",
+                "description": "This is some real Todo right here",
+                "properties": {
+                    "summary": {
+                        "type": "string"
+                    },
+                    "created": {
+                        "$ref": "#/components/schemas/UTCTime"
+                    }
+                }
+            },
+            "UTCTime": {
+                "example": "2016-07-22T00:00:00Z",
+                "format": "yyyy-mm-ddThh:MM:ssZ",
+                "type": "string"
+            },
+            "TodoId": {
+                "maximum": 9223372036854775807,
+                "minimum": -9223372036854775808,
+                "type": "integer"
+            }
+        }
+    }
+}

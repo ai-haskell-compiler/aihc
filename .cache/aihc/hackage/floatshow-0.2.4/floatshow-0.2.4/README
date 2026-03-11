@@ -1,0 +1,95 @@
+The Show instances for RealFloat types provided in base are very elegant,
+as they produce the shortest string which 'read' converts back to the
+original number. That, however, involves a check after each digit has been
+determined and arithmetic of usually fairly large Integers, which makes these
+Show instances rather slow.
+
+For cases where having the conversion fast is more important than having it
+produce elegant output, this package provides alternative conversions, which
+avoid the checks and reduce the occurrences of large Integers by just producing
+a sufficiently long output string.
+
+The speed gain can be substantial if the numbers have exponents of large
+absolute modulus, but for the more common case of numbers whose exponents
+have small absolute modulus, the difference is (although still significant
+for Double) too small in my opinion to seriously consider replacing the
+Show instances.
+
+Some benchmarks produced with criterion (http://hackage.haskell.org/package/criterion)
+show a considerable speedup, or example, converting 10,000 numbers to String
+and calculating the length produced:
+
+------------------------------------------------------------------
+benchmarking show @ Double
+collecting 100 samples, 1 iterations each, in estimated 46.89312 s
+mean: 358.0839 ms, lb 356.3200 ms, ub 364.6815 ms, ci 0.950
+std dev: 15.48404 ms, lb 3.952743 ms, ub 35.75519 ms, ci 0.950
+
+benchmarking fshow @ Double
+collecting 100 samples, 1 iterations each, in estimated 4.252911 s
+mean: 42.75838 ms, lb 42.62119 ms, ub 43.06433 ms, ci 0.950
+std dev: 996.1030 us, lb 550.6931 us, ub 1.925554 ms, ci 0.950
+
+benchmarking show @ Double7
+collecting 100 samples, 1 iterations each, in estimated 3.706884 s
+mean: 37.06166 ms, lb 36.94387 ms, ub 37.32157 ms, ci 0.950
+std dev: 861.9554 us, lb 445.2281 us, ub 1.401369 ms, ci 0.950
+
+benchmarking show @ Float
+collecting 100 samples, 1 iterations each, in estimated 11.79528 s
+mean: 133.0406 ms, lb 127.1293 ms, ub 141.4778 ms, ci 0.950
+std dev: 35.72864 ms, lb 27.26726 ms, ub 45.51660 ms, ci 0.950
+
+benchmarking fshow @ Float
+collecting 100 samples, 1 iterations each, in estimated 2.885604 s
+mean: 28.91291 ms, lb 28.77308 ms, ub 29.28824 ms, ci 0.950
+std dev: 1.091232 ms, lb 489.6288 us, ub 2.287669 ms, ci 0.950
+
+benchmarking show @ Float7
+collecting 100 samples, 1 iterations each, in estimated 2.264500 s
+mean: 22.70168 ms, lb 22.59001 ms, ub 22.97338 ms, ci 0.950
+std dev: 827.6377 us, lb 248.5136 us, ub 1.466120 ms, ci 0.950
+------------------------------------------------------------------
+
+The difference is far smaller however if we consider only numbers
+with exponents of small absolute modulus (numbers between 1e-8 and
+1e8 here):
+
+------------------------------------------------------------------
+benchmarking show @ Double
+collecting 100 samples, 1 iterations each, in estimated 18.12048 s
+mean: 183.0913 ms, lb 182.7177 ms, ub 183.6225 ms, ci 0.950
+std dev: 2.261846 ms, lb 1.735274 ms, ub 2.905363 ms, ci 0.950
+
+benchmarking fshow @ Double
+collecting 100 samples, 1 iterations each, in estimated 3.522301 s
+mean: 35.31092 ms, lb 35.19515 ms, ub 35.49955 ms, ci 0.950
+std dev: 745.9619 us, lb 519.2986 us, ub 1.078124 ms, ci 0.950
+
+benchmarking show @ Double7
+collecting 100 samples, 1 iterations each, in estimated 3.172088 s
+mean: 30.59535 ms, lb 29.79293 ms, ub 31.93459 ms, ci 0.950
+std dev: 5.227548 ms, lb 3.553355 ms, ub 7.501725 ms, ci 0.950
+
+benchmarking show @ Float
+collecting 100 samples, 1 iterations each, in estimated 2.982783 s
+mean: 32.53753 ms, lb 31.31817 ms, ub 34.15244 ms, ci 0.950
+std dev: 7.154208 ms, lb 5.749231 ms, ub 8.477582 ms, ci 0.950
+
+benchmarking fshow @ Float
+collecting 100 samples, 1 iterations each, in estimated 2.393794 s
+mean: 24.16462 ms, lb 24.06772 ms, ub 24.41152 ms, ci 0.950
+std dev: 735.0625 us, lb 348.1389 us, ub 1.499519 ms, ci 0.950
+
+benchmarking show @ Float7
+collecting 100 samples, 1 iterations each, in estimated 2.562690 s
+mean: 25.74102 ms, lb 25.67765 ms, ub 25.93221 ms, ci 0.950
+std dev: 509.0308 us, lb 199.9313 us, ub 1.099169 ms, ci 0.950
+------------------------------------------------------------------
+
+Another benchmark, calculating d*sin(d^2) for d = 1, ..., 200000
+and writing their string representations to a file, timed 'show'
+at 4.26s, 'fshow' at 1.08s and 'show' for the newtype wrapper
+Double7 (rounds to seven significant digits) around Double at 0.55s.
+A corresponding C programme ran in 0.26s with the default precision
+and in 0.32s with a precision of 17 digits.

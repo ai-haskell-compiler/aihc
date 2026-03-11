@@ -1,0 +1,31 @@
+#!/usr/bin/make -f
+
+DEB_SETUP_GHC_CONFIGURE_ARGS = -fbackups
+DEB_SETUP_BIN_NAME = cabal
+DEB_CABAL_PACKAGE = clckwrks-dot-com
+DEB_DEFAULT_COMPILER = ghc
+
+include /usr/share/cdbs/1/rules/debhelper.mk
+include /usr/share/cdbs/1/class/hlibrary.mk
+
+build/haskell-clckwrks-dot-com-utils:: build-ghc-stamp
+
+binary-fixup/clckwrks-dot-com-production::
+	echo -n 'haskell:Depends=' >> debian/clckwrks-dot-com-production.substvars
+	dpkg-query -W -f='haskell-clckwrks-theme-clckwrks-utils (=$${Version})' libghc-clckwrks-theme-clckwrks-dev >> debian/clckwrks-dot-com-production.substvars
+	echo -n ', ' >> debian/clckwrks-dot-com-production.substvars
+	dpkg-query -W -f='haskell-clckwrks-plugin-media-utils (=$${Version})' libghc-clckwrks-plugin-media-dev >> debian/clckwrks-dot-com-production.substvars
+	echo -n ', ' >> debian/clckwrks-dot-com-production.substvars
+	dpkg-query -W -f='haskell-clckwrks-plugin-bugs-utils (=$${Version})' libghc-clckwrks-plugin-bugs-dev >> debian/clckwrks-dot-com-production.substvars
+	echo -n ', ' >> debian/clckwrks-dot-com-production.substvars
+	dpkg-query -W -f='haskell-clckwrks-utils (=$${Version})' libghc-clckwrks-dev >> debian/clckwrks-dot-com-production.substvars
+	echo '' >> debian/clckwrks-dot-com-production.substvars
+	echo -n 'haskell:Conflicts=' >> debian/clckwrks-dot-com-production.substvars
+	dpkg-query -W -f='haskell-clckwrks-theme-clckwrks-utils (>>$${Version})' libghc-clckwrks-theme-clckwrks-dev >> debian/clckwrks-dot-com-production.substvars
+	echo -n ', ' >> debian/clckwrks-dot-com-production.substvars
+	dpkg-query -W -f='haskell-clckwrks-plugin-media-utils (>>$${Version})' libghc-clckwrks-plugin-media-dev >> debian/clckwrks-dot-com-production.substvars
+	echo -n ', ' >> debian/clckwrks-dot-com-production.substvars
+	dpkg-query -W -f='haskell-clckwrks-plugin-bugs-utils (>>$${Version})' libghc-clckwrks-plugin-bugs-dev >> debian/clckwrks-dot-com-production.substvars
+	echo -n ', ' >> debian/clckwrks-dot-com-production.substvars
+	dpkg-query -W -f='haskell-clckwrks-utils (>>$${Version})' libghc-clckwrks-dev >> debian/clckwrks-dot-com-production.substvars
+	echo '' >> debian/clckwrks-dot-com-production.substvars

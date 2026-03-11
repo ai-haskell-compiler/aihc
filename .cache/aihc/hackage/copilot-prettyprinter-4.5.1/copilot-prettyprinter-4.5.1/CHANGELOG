@@ -1,0 +1,64 @@
+2025-09-07
+        * Version bump (4.5.1). (#666)
+
+2025-07-07
+        * Version bump (4.5). (#642)
+
+2025-05-07
+        * Version bump (4.4). (#618)
+
+2025-03-07
+        * Version bump (4.3). (#604)
+        * Update pretty-printing to handle Props. (#254)
+
+2025-01-07
+        * Version bump (4.2). (#577)
+        * Remove uses of Copilot.Core.Expr.UExpr.uExprExpr. (#565)
+
+2024-11-07
+        * Version bump (4.1). (#561)
+
+2024-09-07
+        * Version bump (4.0). (#532)
+        * Add support for pretty-printing struct update expressions. (#526)
+        * Add support for pretty-printing array update expressions. (#36)
+
+2024-07-07
+        * Version bump (3.20). (#522)
+
+2024-05-07
+        * Version bump (3.19.1). (#512)
+
+2024-03-07
+        * Version bump (3.19). (#504)
+
+2024-01-07
+        * Version bump (3.18.1). (#493)
+
+2024-01-07
+        * Version bump (3.18). (#487)
+
+2023-11-07
+        * Version bump (3.17). (#466)
+
+2023-11-05
+        * Replace uses of deprecated functions. (#457)
+
+2023-09-07
+        * Version bump (3.16.1). (#455)
+
+2023-07-07
+        * Version bump (3.16). (#448)
+
+2023-05-07
+        * Version bump (3.15). (#438)
+
+2023-03-07
+        * Version bump (3.14). (#422)
+
+2023-01-07
+        * Version bump (3.13). (#406)
+
+2022-11-07
+        * Version bump (3.12). (#389)
+        * Create new library for pretty-printer. (#383)

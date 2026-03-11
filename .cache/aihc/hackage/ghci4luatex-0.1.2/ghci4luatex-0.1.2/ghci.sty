@@ -1,0 +1,142 @@
+\RequirePackage{luatex85}
+\RequirePackage{luacode}
+\ProvidesPackage{ghci}[2025/06/24 v0.1 GHCi code execution with TCP via Lua]
+
+\newif\ifghciready
+\ghcireadyfalse
+
+\newcommand{\ghciserverhost}{localhost}
+\newcommand{\ghciserverport}{54123}
+
+\directlua{
+  socket = require("socket")
+  json = require("dkjson")
+  client = socket.connect("\ghciserverhost", \ghciserverport)
+}
+
+\begin{luacode*}
+
+function newGhciSession(str)
+ local msg = {
+    tag = "ServerMsg",
+    contents = {
+      tag = "NewSession",
+      contents = str
+    }
+  }
+  if client then
+    client:send(json.encode(msg))
+  end
+end
+
+function continueGhciSession(str)
+ local msg = {
+    tag = "ServerMsg",
+    contents = {
+      tag = "ContinueSession",
+      contents = str
+    }
+  }
+  if client then
+    client:send(json.encode(msg))
+  end
+end
+
+newGhciSession("main")
+
+\end{luacode*}
+
+
+\begin{luacode*}
+function ghciCmd(code)
+  local msg = {
+    tag = "GhciMsg",
+    contents = code
+  }
+  return json.encode(msg)
+end
+
+
+
+function ghci_eval(code)
+  if client then
+    client:send(ghciCmd(code))
+    local response_str, err = client:receive("*l")
+    if response_str then
+      local response, _ , decode_err = json.decode(response_str)
+      if decode_err then
+        tex.error("Could not decode JSON from GHCi server : " .. decode_err)
+      else
+        if response.ghciErr and response.ghciErr ~= '' then
+            luatexbase.module_warning
+                ("ghci", response.ghciErr)
+        end
+        return (response.ghciOut:gsub("%s*$", ""))
+        -- remove trailing spaces
+      end
+    else
+      tex.error("Reception error from GHCi server : " .. err)
+    end
+    return response_str
+  else
+    luatexbase.module_warning("ghci" , "GHCi server is not running. Please start it before using ghci4luatex.")
+    return ""
+  end
+end
+\end{luacode*}
+
+\begin{luacode*}
+  local mybuf = ""
+  local current_end_marker = "\\end{ghci}"
+
+  function readbuf(buf)
+    if buf:match('%s*' .. current_end_marker) then
+        return buf
+    end
+    mybuf = mybuf .. buf .. "\n"
+    return ""
+  end
+
+  function startRecording(envname)
+    mybuf = ""
+    current_end_marker = "\\end{" .. envname .. "}"
+    luatexbase.add_to_callback('process_input_buffer', readbuf, 'readbuf')
+  end
+
+  function stopRecording(should_print)
+    luatexbase.remove_from_callback('process_input_buffer', 'readbuf')
+    local buf_without_end = mybuf:gsub(current_end_marker .. "\n", "")
+    local res = ghci_eval(buf_without_end)
+    if should_print then
+      tex.print(res)
+    end
+  end
+\end{luacode*}
+
+\newenvironment{ghci}
+  {\directlua{startRecording("ghci")}}
+  {\directlua{stopRecording(false)}}
+
+\newenvironment{printghci}
+  {\directlua{startRecording("printghci")}}
+  {\directlua{stopRecording(true)}}
+
+\newcommand{\hask}[1]{%
+  \directlua{
+    local result = ghci_eval([===[#1]===])
+    tex.print(result)
+  }%
+}
+
+\newcommand{\ghcisession}[1]{%
+  \directlua{
+    newGhciSession([===[#1]===])
+  }%
+}
+
+\newcommand{\ghcicontinue}[1]{%
+  \directlua{
+    continueGhciSession([===[#1]===])
+  }%
+}
+

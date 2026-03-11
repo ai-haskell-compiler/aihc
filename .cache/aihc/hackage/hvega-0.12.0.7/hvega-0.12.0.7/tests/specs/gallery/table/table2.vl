@@ -1,0 +1,45 @@
+{
+    "$schema": "https://vega.github.io/schema/vega-lite/v4.json",
+    "config": {
+        "axis": {
+            "domain": false
+        },
+        "view": {
+            "step": 13,
+            "strokeWidth": 0
+        }
+    },
+    "data": {
+        "url": "https://vega.github.io/vega-lite/data/seattle-temps.csv"
+    },
+    "description": "Annual weather 'heatmap'",
+    "encoding": {
+        "color": {
+            "aggregate": "max",
+            "field": "temp",
+            "legend": {
+                "title": null
+            },
+            "type": "quantitative"
+        },
+        "x": {
+            "axis": {
+                "format": "%e",
+                "labelAngle": 0,
+                "title": "Day"
+            },
+            "field": "date",
+            "timeUnit": "date",
+            "type": "ordinal"
+        },
+        "y": {
+            "axis": {
+                "title": "Month"
+            },
+            "field": "date",
+            "timeUnit": "month",
+            "type": "ordinal"
+        }
+    },
+    "mark": "rect"
+}

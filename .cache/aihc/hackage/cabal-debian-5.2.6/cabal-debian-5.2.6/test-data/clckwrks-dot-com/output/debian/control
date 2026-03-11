@@ -1,0 +1,84 @@
+Source: haskell-clckwrks-dot-com
+Maintainer: Jeremy Shaw <jeremy@n-heptane.com>
+Priority: optional
+Section: haskell
+Build-Depends: debhelper (>= 9)
+               , haskell-devscripts-minimal | haskell-devscripts (>= 0.13)
+               , cdbs
+               , ghc
+               , ghc-prof
+               , libghc-clckwrks-dev (>= 0.13)
+               , libghc-clckwrks-dev (<< 0.15)
+               , libghc-clckwrks-prof (>= 0.13)
+               , libghc-clckwrks-prof (<< 0.15)
+               , libghc-clckwrks-plugin-bugs-dev (>= 0.3)
+               , libghc-clckwrks-plugin-bugs-dev (<< 0.4)
+               , libghc-clckwrks-plugin-bugs-prof (>= 0.3)
+               , libghc-clckwrks-plugin-bugs-prof (<< 0.4)
+               , libghc-clckwrks-plugin-media-dev (>= 0.3)
+               , libghc-clckwrks-plugin-media-dev (<< 0.4)
+               , libghc-clckwrks-plugin-media-prof (>= 0.3)
+               , libghc-clckwrks-plugin-media-prof (<< 0.4)
+               , libghc-clckwrks-theme-clckwrks-dev (>= 0.2)
+               , libghc-clckwrks-theme-clckwrks-dev (<< 0.3)
+               , libghc-clckwrks-theme-clckwrks-prof (>= 0.2)
+               , libghc-clckwrks-theme-clckwrks-prof (<< 0.3)
+               , libghc-happstack-server-dev (>= 7.0)
+               , libghc-happstack-server-dev (<< 7.2)
+               , libghc-happstack-server-prof (>= 7.0)
+               , libghc-happstack-server-prof (<< 7.2)
+               , libghc-hsp-dev (>= 0.7)
+               , libghc-hsp-dev (<< 0.8)
+               , libghc-hsp-prof (>= 0.7)
+               , libghc-hsp-prof (<< 0.8)
+               , libghc-web-plugins-dev (>= 0.1)
+               , libghc-web-plugins-dev (<< 0.2)
+               , libghc-web-plugins-prof (>= 0.1)
+               , libghc-web-plugins-prof (<< 0.2)
+Standards-Version: 3.9.6
+Homepage: http://www.clckwrks.com/
+X-Description: clckwrks.com
+
+Package: clckwrks-dot-com-production
+Architecture: any
+Section: misc
+Depends: ${haskell:Depends},
+ ${misc:Depends}
+Recommends: ${haskell:Recommends}
+Suggests: ${haskell:Suggests}
+Conflicts: ${haskell:Conflicts}
+Provides: ${haskell:Provides}
+Description: ${haskell:ShortDescription}${haskell:ShortBlurb}
+ ${haskell:LongDescription}
+ .
+ ${haskell:Blurb}
+
+Package: clckwrks-dot-com-backups
+Architecture: any
+Section: misc
+Depends: ${haskell:Depends},
+ ${misc:Depends},
+ anacron
+Recommends: ${haskell:Recommends}
+Suggests: ${haskell:Suggests}
+Conflicts: ${haskell:Conflicts}
+Provides: ${haskell:Provides}
+Description: ${haskell:ShortDescription}${haskell:ShortBlurb}
+ ${haskell:LongDescription}
+ .
+ ${haskell:Blurb}
+
+Package: haskell-clckwrks-dot-com-utils
+Architecture: any
+Section: misc
+Depends: ${haskell:Depends},
+ ${misc:Depends},
+ ${shlibs:Depends},
+Recommends: ${haskell:Recommends},
+Suggests: ${haskell:Suggests},
+Conflicts: ${haskell:Conflicts},
+Provides: ${haskell:Provides},
+Description: ${haskell:ShortDescription}${haskell:ShortBlurb}
+ ${haskell:LongDescription}
+ .
+ ${haskell:Blurb}

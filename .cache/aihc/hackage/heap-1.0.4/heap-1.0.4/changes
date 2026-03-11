@@ -1,0 +1,16 @@
+Latest version: 1.0.4
+
+1.0.3 --> 1.0.4
+===============
+- declared needed Semigroup instance for HeapT's Monoid instance
+- adapted to QuickCheck 2.10
+
+1.0.1 --> 1.0.2
+===============
+- updated imports for GHC 7.10 (thanks to Michael Baikov for the patch)
+
+1.0.0 --> 1.0.1
+===============
+- set Data.Heap.Item to Trustworthy to enable usage of Data.Heap in Safe Haskell (trustworthy is required due to rewrite rules)
+- changed the INLINE pragma for splitF to INLINE[1] (GHC warned about the rule possible not firing)
+- fixed QuickCheck tests to work with QuickCheck > 2.2

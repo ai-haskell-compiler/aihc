@@ -1,0 +1,286 @@
+zip-archive 0.4.3.2
+
+  * readEntry: Fix computation of modification time (#67).
+    It should be a UNIX time (seconds since UNIX epoch), but
+    computed relative to the local time zone, not UTC.
+
+zip-archive 0.4.3.1
+
+  * Use streaming decompress to identify extent of compressed data (#66).
+    This fixes a problem that arises for local files with bit 3
+    of the general purpose bit flag set. In this case, we don't
+    get information up front about the size of the compressed
+    data.  So how do we know where the compressed data ends?
+    Previously, we tried to determine this by looking for the
+    signature of the data descriptor. But the data descriptor doesn't
+    always HAVE a signature, and it is also possible for signatures to
+    occur accidentally in the compressed data itself (#65).
+    Instead, we now use the streaming decompression interface from
+    zlib's Internal module to identify where the compressed data
+    ends. Fixes both #65 and #25.
+
+    zip-archive 0.4.3
+
+  * Improve code for retrieving compressed data of unknown length (#63).
+    Do not assume we'll have the signature 0x08074b50 that is
+    sometimes used for the data description, because it is not
+    in the spec and is not always used.
+  * Make some record fields strict.
+  * Require binary >= 0.7.2, remove some CPP
+
+zip-archive 0.4.2.2
+
+  * Use `command -v` before trying `which` in the test suite (#62).
+    `command` is a bash builtin, but for busybox we'll need `which`.
+
+zip-archive 0.4.2.1
+
+  * Fix Windows build regression (#61).
+
+zip-archive 0.4.2
+
+  * Fix problem with files with colon (#89).
+  * Remove build-tools.  This was used to indicate that the 'unzip'
+    executable was needed for testing, but it was never intended to be used
+    this way and now the field is deprecated.  The current test suite
+    simply skips the test using the unzip executable (with a warning) if
+    'unzip' is not in the path.
+  * Remove existing symlinks when extracting zip files with symlinks (#60,
+    Vikrem).  Previously, writeEntry would raise an error if it tried to
+    create a symlink and a symlink already existed at that path.  This
+    behavior was inconsistent with its behavior for regular files, which
+    it overwrote without comment.  This commit causes symlinks to be replaced
+    by writeEntry instead of an error being raised.
+  * Remove binary < 0.6 CPP.  It's no longer needed because we don't support
+    binary < 0.6.  Also use manySig instead of many, to get better error
+    messages.
+  * Add type annotation for printf.
+  * Better checking for unsafe paths (#55).  This method allows things like
+    `foo/bar/../../baz`.
+  * Require base >= 4.5 (#56)
+  * Add GitHub CI.
+
+zip-archive 0.4.1
+
+  * writEntry behavior change: Improve raising of UnsafePath error (#55).
+    Previously we raised this error spuriously when archives were unpacked
+    outside the working directory.  Now we raise it if eRelativePath contains
+    ".." as a path component, or eRelativePath path is an absolute path and
+    there is no separate destination directory.  (Note that `/foo/bar` is fine
+    as a path as long as a destination directory, e.g. `/usr/local`, is
+    specified.)
+
+zip-archive 0.4
+
+  * Implement read-only support for PKWARE encryption (Sergii Rudchenko).
+    The "traditional" PKWARE encryption is a symmetric encryption
+    algorithm described in zip format specification in section 6.1.
+    This change allows to extract basic "password-protected" entries from
+    ZIP files.  Note that the standard file extraction function
+    extractFilesFromArchive does not decrypt entries (it will raise
+    an exception if it encounters an encrypted entry). To handle
+    archives with encrypted entries, use the new function
+    fromEncryptedEntry.
+
+    API changes:
+
+    + Add eEncryptionMethod field to Entry.
+    + Add EncryptionMethod type.
+    + Add function isEncryptedEntry.
+    + Add function fromEncryptedEntry.
+    * Add CannotWriteEncryptedEntry constructor to ZipException.
+
+  * Add UnsafePath to ZipException (#50).
+  * writeEntry: raise UnsafePath exception for unsafe paths (#50).
+    This prevents malicious zip files from overwriting paths
+    above the working directory.
+  * Add Paths_zip_archive to autogen-modules.
+  * Clarify README and cabal description.
+  * Specify cabal-version: 2.0.  Otherwise we get an unknown build
+    tool error using `build-depends` without a custom Setup.hs.
+  * Change build-type to simple.  Retain 'build-tools: unzip' in
+    test stanza, though now it doesn't do anything except give a
+    hint to external tools.  If unzip is not found in the path,
+    the test suite prints a message and counts the test that
+    requires unzip as succeeding (see #51).
+
+zip-archive 0.3.3
+
+  * Remove dependency on old-time (typedrat).
+  * Drop splitBase flag and support for base versions < 3.
+
+zip-archive 0.3.2.5
+
+  * Move 'build-tools: unzip' from library stanza to test stanza.
+    unzip should only be required for testing, not for regular
+    builds of the library.
+
+zip-archive 0.3.2.4
+
+  * Make build-tools stanza conditional on non-windows. Closes #44.
+
+zip-archive 0.3.2.3
+
+  * Use custom-setup stanza and specify build-tools.  Closes #41.
+
+zip-archive 0.3.2.2
+
+  * Use createSymbolicLink instead of createFileLink in tests. This allows
+    us to lower the directory lower bound (#40).
+
+zip-archive 0.3.2.1
+
+  * Fixes for handling of symbolic links (#39, Tommaso Piazza).
+
+  * Fixes for symbolic link tests, and additional tests.
+
+zip-archive 0.3.2
+
+  * Add ZipOption to preserve symbolic links (#37, Tommaso Piazza).
+    Add OptPreserveSymbolicLinks constructor to ZipOption.  If this option
+    is set, symbolic links will be preserved.  Symbolic links are not
+    supported on Windows.
+
+  * Require binary >= 0.6 (#36).
+
+  * Improve exit handling in zip-archive program.
+
+zip-archive 0.3.1.1
+
+  * readEntry:  Read file as a strict ByteString.  This avoids
+    problems on Windows, where the file handle wasn't being closed.
+  * Added appveyor.yml to do continuous testing on Windows.
+  * Test suite: remove need for external zip program (#35).
+    Instead of creating an archive with zip, we now store
+    a small externally created zip archive to use for testing.
+
+zip-archive 0.3.1
+
+  * Don't use a custom build (#28).
+  * Renamed executable Zip -> zip-archive, added --debug option.
+    The --debug option prints the intermediate Haskell data structure.
+
+zip-archive 0.3.0.7
+
+  * Fix check for unix file attributes (#34).
+    Previously attributes would not always be preserved
+    for files in zip archives.
+
+zip-archive 0.3.0.6
+
+  * Bump bytestring lower bound so toStrict is guaranteed (Benjamin Landers).
+
+zip-archive 0.3.0.5
+
+  * Fix bug in `OptLocation` handling (EugeneN).  When using
+    `OptLocation folder False` (for adding files to an archive into a
+    folder without preserving full path hierarchy), original files'
+    names were ignored, resulting in all the files getting the same name.
+
+zip-archive 0.3.0.4
+
+  * Fix `toArchive` so it doesn't use too much memory when a data
+    data descriptor holds the size (Michael Stahl, #29).
+    The size fields in the local file headers may not contain valid values,
+    in which case the sizes are stored in a "data descriptor" that follows
+    the file data.  Previously handling this case required reading the
+    entire archive is a `[Word8]` list.  With this change, `getWordsTilSig`
+    iteratively reads chunks as strict ByteStrings and converts them to
+    a lazy ByteString at the end.
+
+zip-archive 0.3.0.3
+
+  * Test suite: use withTempDir to create temporary directory.
+    This should help fix problems some have encountered with the
+    test suite leaving a temporary directory behind.
+
+zip-archive 0.3.0.2
+
+  * Fix test suite so it runs on Windows.
+  * Zip executable: get version from cabal `Paths_zip_archive` (#27).
+
+zip-archive 0.3.0.1
+
+  * Set `eVersionMadeBy` to 0 (default) in `toEntry`, since we are
+    setting external attributes to 0.  See jgm/pandoc#2822.
+    Only to `eVersionMadeBy` to UNIX if we actually read file
+    attributes on a UNIX system.
+
+zip-archive 0.3
+
+  * Support preservation of file modes on Posix (Dan Aloni, #26).
+  * Add `eVersionMadeBy` field to `Entry` (API change).
+  * Export `ZipException` (API change).
+  * `fromEntry` no longer checks for CRC32 match.  Previously, it issued
+    `error` if the match failed.  CRC32 match is now checked in `writeEntry`
+    instead, and a `CRC32Exception` is raised if the checksum doesn't match.
+  * Test suite: return nonzero status if there are test failures.
+    Previously we mistakenly did this only on 'errors', not failures.
+  * Test suite: don't use -9 with zip as it isn't always available.
+  * Use .travis.yml that builds on both stack and cabal.
+
+zip-archive 0.2.3.7
+
+  * Declared test suite's dependency on 'zip' using custom Setup.lhs (#21,#22).
+
+zip-archive 0.2.3.6
+
+  * Removed hard-coded path to zip in test suite (#21).
+  * Removed misplaced build-depends in cabal file.
+
+zip-archive 0.2.3.5
+
+  * Allow compilation with binary >= 0.5.  Note that toArchiveOrFail
+    is not safe when compiled against binary < 0.7; it will never
+    return a Left value, and will raise an error if parsing fails,
+    just like toArchive.  This is documented in the haddocks.
+    This is ugly, but justified by the need to have a version
+    of zip-archive that compiles against older versions of binary.
+
+zip-archive 0.2.3.4
+
+  * Make sure all path comparisons compare normalized paths.
+    So, findEntryByPath "foo" will find something stored as "./foo"
+    in the zip container.
+
+zip-archive 0.2.3.3
+
+  * Better normalization of file paths:  "./foo/bar" and "foo/./bar"
+    are now treated the same, for example.  Note that we do not
+    yet treat "foo/../bar" and "bar" as the same.
+
+zip-archive 0.2.3.2
+
+  * Removed lower bound on directory (>= 1.2), which caused build
+    failures with GHC 7.4 and 7.6.
+  * Added travis script for automatic testing on 3 GHC versions.
+
+zip-archive 0.2.3.1
+
+  * Require binary >= 0.7 and directory >= 1.2.  The newer binary
+    is needed to provide toArchiveOrFail.  The other change is
+    mainly for convenience, to avoid lots of ugly conditional
+    compilation.
+
+zip-archive 0.2.3
+
+  * Export new function `toArchiveOrFail`.  Closes #17.
+  * Set general purpose bit flag to use UTF8 in local file header.
+    Otherwise we get a mismatch between the flag in the central
+    directory and the flag in the local file header, which causes some
+    programs not to be able to extract the files.  Closes #19.
+
+zip-archive 0.2.2.1
+
+  * Fix a stack overflow in getWordsTillSig (Tristan Ravitch).
+
+zip-archive 0.2.2
+
+  * Set bit 11 in the file header to ensure other programs
+    recognize UTF-8 encoded file names (Tobias Brandt).
+
+zip-archive 0.2.1
+
+  * Added OptLocation, to specify the path to which a file
+    is to be added when readEntry is used (Stephen McIntosh).
+

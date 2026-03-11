@@ -1,0 +1,76 @@
+{
+    "$schema": "https://vega.github.io/schema/vega-lite/v4.json",
+    "config": {
+        "axisX": {
+            "titleLimit": 150
+        },
+        "axisY": {
+            "minExtent": 40
+        },
+        "countTitle": "Count"
+    },
+    "data": {
+        "url": "https://vega.github.io/vega-lite/data/movies.json"
+    },
+    "description": "Nested concatenation aligned by setting axis minExtent",
+    "vconcat": [
+        {
+            "repeat": {
+                "column": [
+                    "Rotten_Tomatoes_Rating",
+                    "IMDB_Rating"
+                ]
+            },
+            "spec": {
+                "encoding": {
+                    "x": {
+                        "bin": {
+                            "maxbins": 20
+                        },
+                        "field": {
+                            "repeat": "column"
+                        },
+                        "type": "quantitative"
+                    },
+                    "y": {
+                        "aggregate": "count",
+                        "type": "quantitative"
+                    }
+                },
+                "height": 50,
+                "mark": "bar",
+                "width": 150
+            },
+            "title": "Ratings"
+        },
+        {
+            "repeat": {
+                "column": [
+                    "US_Gross",
+                    "Worldwide_Gross"
+                ]
+            },
+            "spec": {
+                "encoding": {
+                    "x": {
+                        "bin": {
+                            "maxbins": 20
+                        },
+                        "field": {
+                            "repeat": "column"
+                        },
+                        "type": "quantitative"
+                    },
+                    "y": {
+                        "aggregate": "count",
+                        "type": "quantitative"
+                    }
+                },
+                "height": 50,
+                "mark": "bar",
+                "width": 150
+            },
+            "title": "Gross"
+        }
+    ]
+}

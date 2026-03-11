@@ -1,0 +1,51 @@
+Singletons/T163.hs:0:0:: Splicing declarations
+    singletons [d| data a + b = L a | R b |]
+  ======>
+    data (+) a b = L a | R b
+    type LSym0 :: forall a b. (~>) a ((+) a b)
+    data LSym0 :: (~>) a ((+) a b)
+      where
+        LSym0KindInference :: SameKind (Apply LSym0 arg) (LSym1 arg) =>
+                              LSym0 a0123456789876543210
+    type instance Apply LSym0 a0123456789876543210 = L a0123456789876543210
+    instance SuppressUnusedWarnings LSym0 where
+      suppressUnusedWarnings = snd ((,) LSym0KindInference ())
+    type LSym1 :: forall a b. a -> (+) a b
+    type family LSym1 @a @b (a0123456789876543210 :: a) :: (+) a b where
+      LSym1 a0123456789876543210 = L a0123456789876543210
+    type RSym0 :: forall a b. (~>) b ((+) a b)
+    data RSym0 :: (~>) b ((+) a b)
+      where
+        RSym0KindInference :: SameKind (Apply RSym0 arg) (RSym1 arg) =>
+                              RSym0 a0123456789876543210
+    type instance Apply RSym0 a0123456789876543210 = R a0123456789876543210
+    instance SuppressUnusedWarnings RSym0 where
+      suppressUnusedWarnings = snd ((,) RSym0KindInference ())
+    type RSym1 :: forall a b. b -> (+) a b
+    type family RSym1 @a @b (a0123456789876543210 :: b) :: (+) a b where
+      RSym1 a0123456789876543210 = R a0123456789876543210
+    data (%+) :: forall a b. (+) a b -> Type
+      where
+        SL :: forall a b (n :: a). (Sing n) -> (%+) (L n :: (+) a b)
+        SR :: forall a b (n :: b). (Sing n) -> (%+) (R n :: (+) a b)
+    type instance Sing @((+) a b) = (%+)
+    instance (SingKind a, SingKind b) => SingKind ((+) a b) where
+      type Demote ((+) a b) = (+) (Demote a) (Demote b)
+      fromSing (SL b) = L (fromSing b)
+      fromSing (SR b) = R (fromSing b)
+      toSing (L (b :: Demote a))
+        = case toSing b :: SomeSing a of SomeSing c -> SomeSing (SL c)
+      toSing (R (b :: Demote b))
+        = case toSing b :: SomeSing b of SomeSing c -> SomeSing (SR c)
+    instance SingI n => SingI (L (n :: a)) where
+      sing = SL sing
+    instance SingI1 L where
+      liftSing = SL
+    instance SingI (LSym0 :: (~>) a ((+) a b)) where
+      sing = singFun1 @LSym0 SL
+    instance SingI n => SingI (R (n :: b)) where
+      sing = SR sing
+    instance SingI1 R where
+      liftSing = SR
+    instance SingI (RSym0 :: (~>) b ((+) a b)) where
+      sing = singFun1 @RSym0 SR

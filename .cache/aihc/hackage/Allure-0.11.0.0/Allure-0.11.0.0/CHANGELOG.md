@@ -1,0 +1,1320 @@
+## [v0.11.0.0](https://github.com/LambdaHack/LambdaHack/compare/v0.10.3.0...v0.11.0.0)
+
+- Partially work around regression in libsdl2 2.0.16 (https://github.com/LambdaHack/LambdaHack/issues/281); to also avoid deformed boxes around tiles on the game map, please switch to a different SDL2 version
+- Deduplicate UI code for exiting game, with extra style points
+- Create monadic test harness and use it for UI and other unit tests
+- Validate empty content and fix other soundness issues revealed by unit tests
+- Add extra hints in --more and similar lines when tutorial is on
+- Show full history at SPACE press and let second SPACE close it
+- Spawn insects in the swamp
+- Remove slot letter display in menus and instead display subtle bullets
+- Repurpose item slots to item roles
+- Redo display and control of main menu and its submenus
+- Make Teletype frontend a bit closer to playable
+- Switch right pane item description display from mono to prop font
+- Ensure score not zero if victory
+- Add a custom SDL cursor, working around a bug in SDL2 bindings
+- Gut out most content symbols; weren't used even in lore menus after all
+- Add a flag to disable the costly optimizations (that give 15-25% speedup)
+- Add faction kind content and redo game mode content to use it
+- Display seen faction lore
+- Simplify and fortify faction and client assignment code
+- Make a few unique items that were identified meta-game identifiable instead
+- Fix persistence of meta-game discoveries in save files
+- When assigning a faction, first try the group actor was picked from
+- When assigned faction is dead, don't spawn the actor
+- Don't use benign weapons on projectiles not to lose the fun
+- Make the unique harpoon worth saving for a unique foe
+- Spawn enemies closer and fix too random spawning location
+- Improve display of item's range
+- Warn when SDL game windows is resized not via config file
+- Ban or force sleep on levels
+- Protect against unset or primitive OS locale
+- Add temporary hearing aids
+- Disallow generating a door beside an opening in room's wall
+- Permit smaller caves and validate cave content more accurately
+- Try harder to generate escape from dungeon in a level corner
+- Avoid exit/escape confusion in content names and descriptions
+- Add Gauntlet game mode and Machinarium spaceship level
+- Don't require identification for cooked plants
+- Make Bob speak less often and explode more often
+- Make Bob's monologue less repetitive
+- Make oriels lit, until there is any game-play fun in having to go to them
+- Make loot in initial caves more consistent
+- Rule out giant octopus on initial levels to teach simple tactics better
+- Give player more time to hunt bees before they die
+- Fix raid heroes not having genetic flaws contrary to description
+- Many fixes, refactorings, tweaks and balancing changes
+
+## [v0.10.3.0](https://github.com/AllureOfTheStars/Allure/compare/v0.10.2.0...v0.10.3.0)
+
+- Work around regression https://gitlab.freedesktop.org/freetype/freetype/-/issues/1076 by making the scalable square font the default as the map font; the tiny map fonts, for which there is no such workaround, won't work for anybody with freetype 2.11.0
+- Enable display of details in right pane in many menus
+- Switch mouse wheel to move selection now that it changes right pane display
+- Make the line where messages wrap configurable in config file
+- Remove rarely used options from config file and code
+- Prepare client-server for delays when operating over the network
+- Reveal all map at game over and make it explorable
+- Don't run with -threaded, increasing speed by a couple dozen percent
+- Don't show messages during enemy turn (except when under AI control)
+- Spawn many actors at once with probability correlated to spawning at all
+- Gut out Ubuntu Font Family fonts
+- Add a few tutorial messages, reword some in-game texts
+- Move with CI from Travis to GitHub Actions (but GHA can't keep up as well)
+- Make place content directly define legends instead of overriding them
+- Add a warning that crosshair is out of flinging range
+- Add ANSI display to SDL2 frontend; remove vty, hcurses and GTK frontends
+- Make Teletype frontend more usable (input, speed, overlays)
+- Remove sight malus from light sources to avoid micromanagement
+- Keep convenience settings between new games
+- Add an option to mark FOV area with grey background
+- Refactor and clean up a lot of the code
+- Unhardwire various constants (hat tip to Jamie)
+- Fix a couple of bugs and improve documentation
+- Add whole new kinds of tests (even greater hat tip to Jamie)
+
+## [v0.10.2.0](https://github.com/AllureOfTheStars/Allure/compare/v0.9.5.0...v0.10.2.0)
+
+- Make GLASS_HAIL less deadly and less noisy visually
+- Advertise the C-Tab command instead of A-Tab
+- Tweak some wearables rarity
+- Make intruder's explosions less deadly
+- Disable testing ubuntu fonts, because they can't be distributed in Debian
+- Be more consistent about moving corrupted files aside
+- Make torches a bit more common
+- Help AI not to leave a scout guarding the stash
+- Ensure some gems in escape scenario
+- Prevent occasionally few gardening tools
+- Make explosions definitions small and symmetric again
+- Fix heroes starting on exit in escape scenario
+- Reword some scenario texts
+- Change organ symbols to avoid 'eat' when activating them
+- Make gardening tools less common, but keep metal pipes
+- Fix 'Letting Go' message, because it could get activated
+- Hack buckler definition once more
+- Hack shield definitions to help AI understand their value
+- Explain in Q&A why sometimes timeout weapons are never used
+- Fix backstories, because they can be manually triggered
+- Replace the special periodic activation handling with effect conditions
+- Fix the healing necklace better used from the backpack
+- Replace the special effect handling under ranged with effect condition
+- Reduce and describe the micromanagement of bucklers and shields
+- Fix Letting Go not identifying even at death
+- Fix typos in content texts
+- Update documentation files
+- Add a group for exlusively tools; unused ATM
+- Fix small oil explosions never getting anywhere
+- Reword initial scenario texts
+- Talk about the relevant lore command in manual
+- Signal that lore command is sometimes context-sensitive
+- Simplify desertedAirlock description
+- Reword a virtue description
+- Make embeds easier to recognize knowing their tiles
+- Don't end stairs with a path
+- Don't describe the goal tile when performing mouse goto
+- Declare the codebase lens-free
+- Explain why whiskey not drunk, but smashed only
+- Improve initial level descriptions
+- Reword backstoryNeutral3
+- Avoid distributing test.exe in Windows packages
+- Fix comments about easy stairs vs hard stairs
+- Fix intruders not exploding on death
+- Fix Heavy Eyes preventing reaching level 4
+- Remove savefiles if config file too old
+- Use lz-string.js externs for minification
+- Update LambdaHack.cabal.flattened
+- Make focused explosions more likely to hit nearby actors
+- Let one more common embed provide bad missiles
+- Hlint the codebase
+- Provide an excuse why the flask from fire cabinet is not identified
+- Make barrels less common in raid tutorial
+- Explain the flags of genetic flaw
+- Avoid 'you are less more tidy'
+- Help the raid scenario opponent survive a little longer
+- Prevent too many torches in raid, causing blindness
+- Use MinorAspects flag for backstories
+- Do not include the default config file that Windows users can't read anyway
+- Read config file in UTF8 mode even on Windows
+- Prevent premature identification of 'Letting Go'
+- Prevent premature identification of backstory items
+- Update the copyright year
+- Update manual wrt backstory items addition
+- Add a comment about geneticFlaw not in CONDITION group
+- Reorder actor and organ content
+- Give the new alien a unique and glaring colour
+- Shorten a backstory name to pass validation
+- Make sure the backstory descriptions are actually a backstory
+- Register the recently added backstory items
+- Add bravery virtue
+- Add alcoholist backstory item
+- Add three more backstories and unify names
+- Add two more vices
+- Use question marks in verb effects
+- Try to amass explosive monsters on arena levels
+- Add an alien with an explosive organ (fixes #108)
+- Add the explosive flotation bag organ
+- Make sure hero professions are not randomly changing
+- Hardwire the player team continuity token
+- Unify and shorter backstory group names
+- Flesh out initial backstory items
+- Change the symbol of backstory items
+- Use the flavours specialized for stories
+- For now, assign heroes a backstory from a mix of all categories
+- Mock up categories of backstory content items
+- Add the first backstory organ
+- Make sure heroes spawned in safari mode are properly numbered
+- Add a few more hero names
+- Mark the personal genetic flaws as meta game persistent, as they should be
+- Express variety of genetic flaws as multiple content items
+- Add team continuity across scenarios to content
+- Make buckler and shield attacks and messages not so spammy
+- Fix bucklers too powerful and shields too weak when UnderRanged activates
+- Describe the new challenges in the manual
+- Make shields more common and attractive to AI
+- Add UnderMelee and tweak the Old Gorget
+- Add a potion of melee deflection
+- Buff shields with ranged deflection
+- Add deflection temporary conditions
+- Explain the pointman/leader discrepancy
+- Write key names as on the keyboard, button names as in the button
+- Unify pluralization of skills and challenges
+- Mark some game modes as tutorials
+- Split a list in manual in many paragraphs for better in-game display
+- Keep the rest of the manual in content
+- Simplify an address in manual not to spill over 80 columns
+- Hint in config file to disable the special movement keys
+- Hint that stealth if possible and AI vs player symmetric
+- Limit mentions of 'playing' not to break immersion
+- Change 'scenario' to 'adventure' to be more immersive
+- Add a scenario lore menu
+- Mention that scale needs to be configured for high dpi displays
+- Add the fullscreen option to the UI config file
+- Don't configure the unused data directories when invoking cabal
+- When installing don't create the now empty GameDefinition/fonts/
+- Don't limit jobs to 1 now that cabal shows errors fine
+- Don't embed the fonts in the web frontend version
+- Get rid of datafiles from .cabal
+- Kill the font license files that are duplicated in COPYLEFT file
+- Get rid of the now unused fontDir option
+- Embed game-supplied font files
+- Version config file
+- Write the homepage address in full in Main Menu; fixes #98
+- Make historyMax divisible by screenful
+- Don't let ESC clear messages in aiming mode; was confusing
+- Add Discord and Matrix addresses to the manual
+- Add links to discord and matrix chat
+- Tweak unique entities in content, adding 'the' as needed
+- Add extra config options for messages
+- Customize messages more comfortably
+- Simplify restarting client
+- Adjust weapon colours slightly towards colour meaning table
+- Name the robot until somebody comes up with a better name
+- Semi-retire the Allure gitter
+- Reflect changes in highlighting in the manual
+- Avoid unfortunate line gluing in main menu text
+- Wrap messages after 53 columns
+- Lower cminStairDist for shallowRogue now that margins forbidden
+- Fix a missing mouse command description
+- Update documentation to the config changes
+- Add Debian desktop files, as per packaging policy
+- Fix screensavers broken by UI faction not being the first
+- Fix 'open main menu' command of Dashboard
+- Comment the config file some more
+- Gut out Ubuntu Family Fonts from Debian package, because non-free
+- Beautify CREDITS
+- Rank the fontsets differently
+- Make the fontset tests more random
+- Permit text usage in tests
+- Settile on 'auxiliary fonts' instead of 'long text'
+- Update config wrt engine changes
+- Molify Debian's lintian
+- Fix license name
+- Legalize all the long text fonts even more
+- Legalize all the long text fonts
+- Add the ubuntu font family set of long text fonts
+- Add another set of long text fonts
+- Add new long text fonts based Adobe Source
+- Remove old long text fonts
+- Explain the communication overhead concept
+- Fix Allure.cabal.flattened test component
+- Parse config at compile time
+- Let foes occupiy exit in escape scenario, etc.
+- Add missing cskip specifications
+- Bring back SPACE as clearning messages
+- Update the default config wrt changes to RET keybinding
+- Don't mention the spaceship in outdoor stairs description
+- Make the brawl scenario 2-level
+- Use the increased expressiveness of initial actor generation
+- Make long poles a bit more common and tweak content a bit
+- Don't confuse the player when trying to convey the actor is malfunctioning
+- Reword ESC description again
+- Add a random item to each hero starting inventory
+- Tweak details of the content a bit
+- Update command docs to command help changes
+- Let only ESC clear messages
+- Prevent AI-inaccessible areas inside shuttles
+- Make spacesuits and tools more common, but later on
+- Avoid 'jewelry case of gain jewelry'
+- Move SPACE to CmdAim category
+- Document that MMB and RMB cycle detail level
+- Bind SPACE to cycle detail level in aiming mode
+- Advise role-playing
+- Fix calling gameover an 'endgame'
+- Advise to replay initial scenarios
+- Let the Welded Robot speak periodically
+- Don't spoil the normal storyline in the hint about blowtorch
+- Add a comment that blowtorch is safe from item polymorphing
+- Add a hint about the puzzle to the manual
+- Make the torn spacesuit even more common
+- Name or prepare for naming all uniques
+- Give all uniques their last words
+- Add extra hints in the signboards on first level
+- Reorder consistenly mode kind component definitions in the file
+- Make hints about the first puzzle more obvious and more common
+- Make torn spacesuit more common again
+- Add a couple of late spawn-only actors
+- Mark some actors as common among late spawns
+- Factor out victoryOutcomes
+- Shorten a field name to avoid >80 length lines
+- Make terrain names harder to confuse with items
+- Properly in-game document the screensaver scenarios
+- Add missing scenario motivation blurbs
+- Make the tools slightly less abundant at the start
+- Tweak the scenario meta notes
+- Rework game rules desccription similarly as in LH
+- Add bulbousBullfrog to credits
+- Add a comment to the default config with an example for rebinding a key
+- Hint in-game about how stairs work
+- Encourage interaction with terrain in outermost level
+- Clarify that nominal values of burning and wounding are used
+- Drive the point home that spacesuits differ
+- Drive the point home that tools are used for crafting
+- Be more explicit in the crafting tip
+- Ensure the position of the boss is reported as worth visiting
+- Document crafting in-game and in the manual
+- Explain why octopus copes on land
+- Add cabal.project.local.testing for 'make fastCrawl'
+- Avoid building all exes
+- Add scenario rule notes to be displayed instead of full notes
+- Use hex character literals to simplify notation
+- Add make target to test minified JS for node
+- Make the safari easter egg less common as a screensaver
+- Disable compiling from source in brew-sdl2-osx travis build, due to OOM
+- Tone down and speed up animations of the deadliest explosions
+- Make space for vertical dormitory rooms
+- Make the dormitories more realistic given how tiny they are
+- Make all ignition blasts yellow
+- Hint in ambush description that somebody turned off power
+- Spread evenly the loot in ambush scenario
+- Make sure the initial entrance doesn't appear in ambush scenario
+- Make safari scenario harder now that aliens are buffed up
+- Improve module haddocks for content
+- Give the player more ammo in ambush scenario
+- Make zoo easier to create an ambush position in
+- Make sure burning bush eventually transforms to a dark floor tile
+- Make escape cave easier to put on fire
+- Hide unneeded content group name patterns
+- Add short-caves debug game mode
+- Bump too rare places
+- Use the JS splitmix optimization
+- Tweak CI link in README in case it matters
+- Make firefighting items more common outside of fire cabinets
+- Add a Q&A about autoexplore (only relevant to Allure)
+- Make sure all non-seeing actors are described so
+- Move ClientOptions.hs to adhere to the convention about module hierarchies
+- Meld LH and Allure content
+- Don't have noctovisor neavly guaranteed
+- Add items for detecting enemy stashes
+- Reflavour the stuck doors trap
+- Tone down spotlight
+- Explain the goofy handling of recharging in stash
+- Prevent exploiting deposit boxes ad infinitum
+- Make detection radiuses uniform, for ease of use
+- Make residential decks better connected
+- Add a couple more escape items
+- Adjust the SDL test to run without installing fonts, as Debian requires
+- Make the jewlery caches and deposit boxes much more lucrative
+- Make necklace explosions even less likely to block the way
+- Make octopus more common now that it's more interesting
+- Make jewlery cases less disappointing for experienced players
+- Let blasts destroy ice pillars
+- Fix a pair of fire projectiles first igniting, second dousing a tile
+- Add Q&A about hearing
+- Make military knife again likely to appear in crawl dungeon
+- Let stuck doors be forced, inducing flight
+- Shorten brawl scenario note to fit on the screen with square font
+- Remove the confusing damage from bomb's weight impact
+- Prevent exploit of getting cords from torches made out of rags
+- Move most tools to first 4 levels and laboratory
+- Fix crafting in water impossible when refrigeration coil equipped
+- Make hearing maluses less harsh
+- Make firefighting cabinets more common, particularly on outermost level
+- Fix too high melee armor of a spacesuit
+- Permit transformation of weld vis cold source, not only blowtorch
+- Enable crafting with water sources in fire tiles
+- Add some more tools and torn suits
+- Boil waste container to safely remove refrigeration coil
+- Differentiate the names of small fires and not the count
+- Don't create the same 2 spacesuit parts when dismating a torn suit
+- Make crawl loot number randomness much less wild
+- Make tools more common on first two levels
+- Add cord as a bonding tool and wick
+- Have more tools at outermost level
+- Make thornbush a bit rarer, because it doesn't exlode, so is boring
+- Make arena deck of double height, with trees
+- Avoid dark fences around lit interiors with no pillars in staircase defs
+- Shorten other item group names
+- Shorten hammer and shield group names
+- Use the DECON abbreviation to shorten messages
+- Fix patterns for hammers
+- Mention in hammer description that crafting replaces handles
+- Fit workshop crafting description into one screen
+- Don't risk crafting scrap from hammers and axes
+- Display cooking after crafting in embed description
+- Factor out extraWaterAssocs
+- Equip rags by default; newbies don't find them anyway
+- Mention in octopus description that it has high noctovision
+- Consistently create on the ground all items looted from terrain
+- Balance removing hunger via organ hits
+- Add random variety to crafted items to enable min-maxing
+- Move some item definitions and rebase them
+- Remove a trailing space in mode description
+- Don't get two rags out of a torch that took one to produce
+- Reflect keybindings change in the start scenario menu
+- Increase the timeout of jumping pole
+- Prevent AI from hasting twice in a row
+- Add recharging and discharging self to a couple of weapons
+- Get rid of DropBestWeapon
+- Adjust to engine changes to charging effects
+- Let the rhino charge via pushing
+- Let all drones charge via pushing
+- Fix a mixed up organ name
+- Prevent the new organs from being dropped
+- Differentiate dragon and alligator by removing the pushing from the former
+- Add jumping organs
+- Move ink sac to equipment so that it can be explicitly triggered
+- Make octopus's ink weaker but lasting longer
+- Add the ink sac octopus's organ
+- Permit meleeing with construction glove
+- Let burning oil explode even on direct hit on actor, not only on the floor
+- Re-classify a couple of weapons
+- Fix razorwire fence
+- Make killing thornbush even more optional than before
+- Move to-dam bonuses from organs to actor definitions
+- Increase timeouts of animal organs to at least approach human weapon timeouts
+- Prevent sharp harpoon from being generated often and shallowly
+- Make armadillo into a proper tank
+- Touch up aliens actors
+- Prevent razor from excluding other weapons
+- Move the defition of lip to the proper place
+- Give tentancle a cooldown
+- Make clawing horror an early but mostly harmless armorless tank
+- Reorder organs
+- Balance organs
+- Add two organs from LambdaHack
+- Remove cooldown from two weapon kinds
+- Sometimes generate tools in threes
+- Generate torn spacesuits in bunches
+- Generate less items, particularly at shallow levels
+- Reorder items inside several item groups
+- Overhaul noise caves
+- Let some tools appear together
+- Designate some scouts for slack tactics factions
+- Add comments explaining why dL dice positive or negative
+- Adjust to crafint depth-neutral and tweak content a bit otherwise
+- Make the max HP maluses not so easy to ignore
+- Rebalance armor bonuses
+- Rebalance to-hit bonuses
+- Fix hammer stats and tweak a few others
+- Make Smithhammer interesting
+- Make it easier to use permanent tools
+- Make it possible to undo weapon crafting
+- Make axe worse than pipe
+- Make item-modification scrolls and torn spacesuits more common
+- Make cooking fruits less tedius, remaining defs
+- Place much more oil spills on the exit deck
+- Make cooking fruits less tedius
+- Let the player see if enemies carry even special lights, etc.
+- Don't suggest that opening a deposit box destroys it
+- Improve name of a couple of item groups
+- Tweak frequency of detection items, etc.
+- Don't let the alien boss waste time unequipping gems
+- Sometimes add a lift staircase to laboratories
+- Make more rooms dark to help with stealth
+- Make Laboratory deck less annoying by decontaminating only upwards
+- Fix weapon order of Smithhammer
+- Make it more common for aliens to carry light
+- Make using and crafting harpoons more worthwhile
+- Add workshop to a couple more places
+- Make it more likely there is workshop in laboratory
+- Tone down poison
+- Make the outermost deck a little more hectic
+- Hint that shields require empty space behind enemies to push them
+- Make buckler a weapon
+- Make the fancy shield weaker but more common
+- Give a fair warning about the rhino boss
+- Reorder crafting recipes to make them yet a tad safer
+- Avoid lit or filled rooms (except barrels) in exit level
+- Balance arena cave and scroll of pushing
+- Move keybinding content definitions to match display order
+- Make signboards less common in arena cave and more in casino
+- Ensure small caves have one or few stairs to prevent bloating them
+- Adjust cave content specifications to the engine tweaks
+- Make empty flasks less common deeper down
+- Clean up comments in tile definitions
+- Try to make the terrain transformation specs more readable
+- Mark steel file with red, since it's double-purpose
+- Make blankets more common to help with light crafting
+- Start with some empty flasks, some of the time
+- Update the manual and keybindings printout
+- Explain why the farm is freshly abandoned
+- Reduce numbers of consumables now that some levels have more of them
+- Add extra items to crawl levels based on their name/description
+- Add ANY_FLASK group
+- Introduce vials via the brawl scenario
+- Customize the raid cave shape and places
+- Make sure tools are not needed and stimpack not obtainable in raid scenario
+- Introduce chips usage in the raid scenario
+- Fix a bushy patch that can block starting actors
+- Remove misleading comment about tiles being explorable
+- Comment why a tile is not explorable
+- Make impressing items easier to get
+- Fix missing terrain in TREE_SHADE_WALKABLE_DARK
+- Have lit bushes and dark floor in some dark places
+- Permit auto-generated tiles to be lit in dark groups
+- Comment tiles that are lit, dark or both
+- Add greenery to shallow levels and more rooms
+- Sometimes leave smoke after barrel explodes
+- Prevent the visual senser being misinterpreted as food
+- Prevent AI from wielding staves
+- Make gardening tools slighly more durable, but rarer
+- Set the main groups of items to equal weights and compensate
+- Let all actors chase enemies from a longer distance
+- Ensure few garden weapons in raid scenario and similar
+- Tweak assignment of items to the rare item groups
+- Rename or eliminate CURIOUS_ITEM
+- Generate less survival items in short scenarios
+- Add hints to crafting components' descriptions
+- Tweak weapons slightly, mostly ranged damage
+- Clean up throwing stats of items
+- Make edible bushes possible in one more room kind
+- Make permanent weapons less common initially due to clubs and torches
+- Add craftable clubs
+- Make torch a destructible melee weapon
+- Make torch and lamp even less common now that they are crafted
+- Craft flasks of water, etc.
+- Fix crafting in oil and fire
+- Add missing content group definitions
+- Craft torches and oil lamps
+- Make harpoons better in melee than ranged
+- Rebalance weak weapons
+- Slightly simplify organ definitions
+- Add variety to armor deducting rings
+- Make boots auto-equip less disastrous for newbies
+- Make the echolocator ping periodically
+- Change the order of ordinary items for better display in menus
+- Reassign colours and symbols to embedded items
+- Make some actors deal low damage but with high hurt
+- Add negative armor to one boss and some conditions
+- Let some rings weaken armor
+- Tone down items that grant armor
+- Mark in dashboard where to find crafting recipes
+- Make it harder to obtain long poles from loot
+- Let the net drop more kinds of armor-like equipment
+- Fix broken content validation
+- Don't confusingly refuse to display the pushing effect for shields
+- Balance piercing missiles
+- Make Rhino less of a pushover
+- Update manual wrt damage calculation changes
+- Avoid AI-unreachable spaces on the outermost level
+- Make it cheaper to dissect a torn spacesuit, for early game
+- Comment that transformations won't generate warnings due to their position
+- Make tools even more common
+- Undo partially scaling down special terrain features at outermost level
+- Craft torch in fire, not workshop
+- Tweak terrain and items on the outermost level
+- Make the order of caves slightly more random
+- Make edible plants less common since they appear on bushes now
+- Make the starting enemy groups larger to favour throwing flasks
+- Generate flasks in bunches even at lowest levels to make throwing more fun
+- Make sure throwing flasks, etc., have limited radius, for safety
+- Make icy floor less annoying and escape puzzles harder to hack
+- Avoid generating 2-stacks of early projectiles
+- Don't create equippable items in a stash
+- Make the crafted and doubly crafted weapons rarer
+- Fix lvl 2 description showing at game start instead of lvl 3
+- Prevent heroe's foes in crawl from camping stairs on lvl 2
+- Dedicate flasks to throwing and vials to medicine
+- Add fixed enemies at the start of crawl, but don't spawn often
+- Improve wording of a cave description
+- Reduce randomness of effects to make them exploitable
+- Prevent inability of taking off items that drain calm
+- Update wrt macro key changes in the engine
+- Disable brew audit that fails because line is too long
+- Vary the number of gardening tools in the bunches
+- Make craftable weapons less common
+- (Almost) guarantee a fire axe, but (almost) only one
+- Spawn friendlies and foes in deposit boxes
+- Make the airlock supplies more random
+- Create gardening tools in varied pairs
+- Convey more of the shuttle story via unique embedded item, not other content
+- Fix wrong game mode started due to only the first word inspected
+- Prevent meleeing electric fence forever
+- Port tests to tasty
+- Make weapons used for crafting less common later on
+- Prevent 'you are more foo' and immediately 'you are no longer foo'
+- Don't let faucents slow and flash themselves
+- Rename S_NITROGEN_MIST and S_FOCUSED_FLASH
+- Have less particles in large oil explosions
+- Make blindness less common, because it pervents player from seeing fun stuff
+- Let Welded Robot establish a stash to make sure heroes be the blowtorch
+- Use local gifsicle, with the assertion failure fixed
+- Ensure unidentified hammers are equipped
+- Tone down ranged damage of some durable items
+- Replace permanent weapons with crafting even at low levels
+- Make needles a bit less deadly
+- Fix some Burn and RefillHP weapons becoming overpowered at range
+- Simplify sharpeningAssocs
+- Fix inaccessible fenceless dormitories
+- Help AI replace the armor that decreases melee skill
+- make cleaver weaker but more common
+- Make billiard balls more common initially, less so later on
+- Permit melee with gloves and helm in addition to boots
+- Refactor and tweak garden weapons
+- Fix gardening tools not fracturing
+- Fix mixed up resistance conditions
+- Describe how colours correspond to tile properties
+- Prevent curing of genetic flaw via any condition removal
+- Recolour transparent walls; cyan means inert, apparently
+- Recolour barrels; not burning; no collision with trees
+- Make the power node place more varied
+- Fix AI not eating to remove hunger
+- Recolour armors
+- Ensure enough weak weapons at the start
+- Add dormitories to the residential area cave definition
+- Don't spam decent weapons at low leves now that weak weapons abound
+- Make projectiles more common so that shooter aliens are not overpowered
+- Craft torches out of staves
+- Add a rag tangle and obtain it from torn spacesuits
+- Give cleanerRobot excessive armor to make hammers useful
+- Clarify that chosen weapon needs not be optimal for a foe
+- Make hammers much different from all other weapons
+- Make a particular barrel yard place as common as others, not much more
+- Fix some terrain not alterable with projectiles
+- Mention that stats menu summarizes the organ menu
+- Add sample cabal.project.local files
+- Make the secret walls less boring
+- Use VerbMsgFail effect to ensure failed crafting doesn't change terrain
+- Don't report that an animal fondles its own meat
+- Add alterable floor to more rooms
+- Add alterable floor to more caves and trails
+- Rework frequency of immobile robots
+- Desynchronise vents a bit more
+- On outermost level let some faucets ignite fuel spread by other faucets
+- Make hammers a bit more common
+- Make frozen trail less common now that geysers produce floor ice
+- Make burning oil clear, as the symbol indicates
+- Adjust small fire description to match also burning oil
+- Adjust crafting embedded items to the new OnCombine semantics
+- Tweak timeouts of mostly harmless large sticks
+- Fix wrong use of AndEffect
+- Update crafting recipes to used tools and destroyed components
+- Safeguard some alien ammo and treasure against stash ransacking
+- Re-add perfumes; AI heroes were being slaughtered without them
+- Add a torn spacesuit for crafting
+- Make electric fences a less lucrative source of weapon upgrades
+- Make it more likely that armor and some other items appear before lvl 12
+- Generate more items now that a lot of crafting components appeared in the game
+- Make barrel stacks more varied and more frequent
+- Make barrel stack places more common
+- Recolour faucets to match the colour of terrain they create
+- Disable pathfinding through barrels and burning rubble
+- Give the same on-screen colour to items with similar function
+- Make the newly introduced items more common
+- Make the workshop terrain more common
+- Ensure item definitions are valid by having enough slots
+- Don't generate ready spacesuits and avoid hard to see BrBlack items
+- Make most weapons less common now that they can be crafted
+- Harvest long poles from dead electric fences
+- Add two useless tools to harvest long poles from
+- Require a tool to but the pipe diagonally before sharpening
+- Avoid the exploit of turning staffs into pipes via crafting
+- Improve some weapon descriptions and comments
+- Make each water a sharpening workshop to avoid scrolling recipes
+- Correct some item group patterns to be singletons
+- Clean up and redefine patterns from ItemKindEmbed.hs
+- Let hammers be sharpened and elongated
+- Require identification for all hammers
+- Comment why axes and hammers are not tools
+- Avoid the no-brainer of durable tool use
+- Rename POLE and LONG_POLE
+- Add fire axe and craft poll axe from it
+- Craft long polearms and flesh out related descriptions
+- Don't suggest that crowbar and cat's paw can be sharpened or blunted
+- Doubly sharpen pole cleavers to ox tongues
+- Doubly sharpen cleavers to get daggers
+- Rename the knife item definition to avoid confusion with the new dagger
+- Reorder Allure item definitions
+- Sharpen halberds
+- Sharpen rapiers
+- Sharpen shields
+- Get pipes from garden tools and sharpen them
+- Enable sharpening harpoons
+- Add sharpening tools
+- Resking honing steel to barebones exoskeleton
+- Foretell future levels accessible with spacesuits
+- Add some tools
+- Rename BONDING_SOURCE to BONDING_TOOL
+- Fix, partially, pluralization of spacesuit trousers group
+- Update to the unified tile transformation syntax
+- Fix redundant Equipable or Meleeable
+- Switch to the simplied ConsumeItems definition
+- Eliminate the exploit of throwing durable tools at the workshop
+- Define the spacestuit
+- Assemble full spacesuit from the set of all its parts
+- Add a spacesuit boot
+- Make Autozoom Contact Lens appear in a larger percentage of games
+- Let workshop work from an adjacent tile as well
+- Use the new parameter of CreateItem to dilute perfume and create rose water
+- Use the new parameter of CreateItem in workshop crafting engine
+- Add the first workshop item crafting recipe
+- Add a workshop terrain
+- Remove an obsolete way of putting oil tile on fire
+- Add Discharge effect to content
+- Open doors with concussion blast
+- Avoid renewing terrain embeds, to avoid slowdown with faucets
+- Make vents terrain transforming
+- Keep underbrush fluorescent also inside places
+- Clean up non-essential talter attributes
+- Create frozen and water tiles from damp floor
+- Let underbrush grow randomly inside some places
+- Let oil float over water, etc.
+- Add explosive barrels
+- Extend and move terrain transformation abilities within content
+- Use less stuck doors while AI remains stubborn
+- Don't create harpoons in bunches now that they are durable
+- Revert "Make better projectiles out of weapons now that they break"
+- Mark terrain transformations that are permitted with projectiles
+- Make better projectiles out of weapons now that they break
+- Make harpoon a weapon, but not auto-equipped
+- Fix signboards requiring extra keystroke to activate
+- Fix stuck doors often leaving AI helpless
+- Add stuck doors to be opened by tools
+- Fix unidentified embedded items impossible to trigger
+- Describe the less obvious tile-altering item properties
+- Add messages to dilluted OneOf effects
+- Make the new tools and weapons twice more common
+- Let strongest explosions breach stuff
+- Describe the properties of the tools to help the player connect the dots
+- Rename terrain patterns that denote possibly depleted resource
+- Add tool items for altering terrain and improvised combat
+- Make it possible to disarm jewelry traps
+- Make edible plants grow on bushes
+- Move extinguishers from walls to signboards to avoid uncovering all walls
+- Make looting rubble worthwhile if weapons urgently needed
+- Let actors trap down stairs with oil
+- Wipe oil with a cloth
+- Transform some tiles by pouring oil on them
+- Make it harder to quench burning oil
+- Separate singleton kind group names
+- Rename HideAs to PresentAs for item kinds
+- Switch texts to patterns for referring to content kind groups
+- Make plants slightly less common and cleavers slightly more
+- Make hunger twice as fast
+- Permit PatternSynonyms
+- Add a few sources of oil and fire
+- Let oil spill burn
+- Let signboards and pulpit burn
+- Make the area of nitrogen mist smaller, but dense
+- Let food thrown at lightly burning bushes get cooked
+- Make meat a less perfect projectile
+- Make the coil necklace not precious to freely use it
+- Make underbrush more common now that it has no embed
+- Get blakets and nitrogen out of walls
+- Make nitrogen flask a separate item now that its explosions freeze water
+- Quench fire with water and azbestos blanket
+- Bring back Alter skill requirement for weld to help AI open it
+- Make the spark necklace a source of cold
+- Reverse order of weld modification items to help newbies understand
+- Make weld durable to repeatedly depict sparking attempts to break the barrier
+- Let ice be transformed into water and back
+- Overcome weld with items instead of skill
+- Simplify igniting greenery
+- Update wrt addition of tiles altered by items
+- Make sword-class weapons and exotic hammers more common
+- Hint that the small fire is fine for cooking
+- Make burning trees and rubble even less common on the outermost level
+- Make it possible to cook plants
+- Add cooked plants
+- Update to binary AndEffect
+- Give player more hints to start cooking
+- Make burning bushes less common in crawl
+- Move underbrushBurning to the right section
+- Make it possible to also set bush and tree on fire
+- In crawl get torches from burning trees more often
+- Cook meat using a burning bush
+- Let burning bush turn into burning underbrush
+- Make it possible to set underbrush on fire and cook meat
+- Explain away only pointman moving
+- Bring hunger removal back in two places
+- Fix hunger removed by some melee weapons
+- Fix mercenaries using cutlery to fight
+- Explain lack of tools, food and maps in crawl scenario
+- Mention that all factions and actors are equal
+- Reverse stars and underscores in HP bar in HUD
+- Stress suvival in the game manual
+- Let animals drop chunks of raw meat, for player consumption
+- Mention clues and survival in backstory
+- Fix medbot fissure not marked as benign
+- Remove duplicated smell boost from walls (subtleFresco)
+- Add a hidden wall reminding about the need to find food upstairs
+- Pay for medbot healing with hunger
+- Add pumpkin and let other plants remove hunger, too
+- Add a hunger clock for humans and animals
+- Mention leap frog in game manual
+- Hint about leapfrog in brawl scenario note
+- Make it easier to understand trying to go below the bottommost level is futile
+- Handle the meta note about scenario separately
+- Make sure tutorial scenarios have enough melee weapons
+- Fix short scenario levels mistakenly thought to be relative to depth 15 not 10
+- Update wrt door closing changes in the engine
+- Reiterate win conditions in scenario descriptions
+- Improve the descriptions for the reaction fire rings
+- Mention in the manual that HP starts at half max
+- Reformat game peculiarities list in the manual
+- Overhaul the order and blurbs of game modes
+- Make raid scenario squad-based
+- Rework new game start menus
+- Fix a corruption of backstory text
+- Copy the list of distinguishing features from Allure homepage
+- Restructure chronologically the game manual with verbs as section titles
+- Get rid of 'x-hair'
+- Mark some text files as out of date
+- Add a couple more paragraph breaks in content descriptions
+- Reformat backstory for display in main menu
+- Remove text data files
+- Replace old OFL-licensed font with new ones
+- Re-indent the backstory
+- Comment about why animals rarely eat food
+- Rename tactics to doctrine
+- Get rid of the henchman notion
+- Rename leader to pointman
+- Update decontaminator now that personal inventories are gone
+- Mention the ! key whenever KP_* is mentioned
+- Fix countless typos
+- Start using cabal-plan
+- Fix and improve Makefile, cabal file and CI scripts
+- Improve and update game manual and help texts wrt game changes
+- Countless changes in the LambdaHack engine and the induced changes in Allure
+
+## [v0.9.5.0](https://github.com/AllureOfTheStars/Allure/compare/v0.9.4.0...v0.9.5.0)
+
+- Fix NumLock disabled in the browser
+- In screen reader frontend, highlight active menu line with the cursor
+- Fix commited debug value of rwriteSaveClips
+- Clone the main main menu commands as map mode commands
+- Add C-RMB and C-S-LMB as alternatives of MMB
+- Announce prominently MMB binding for describing map positions
+- Break the misleading alignment of movement key help paragraphs and pictures
+- Clean up the default config file, keeping compatibility
+- Make scenario names longer and slighlty more informative
+- Make Vi movement keys the default in addition to keypad and mouse
+- Fix a bug where death prompt when autoplaying was capturing a keypress
+- Let ESC from main menu return to insert coin mode, if applicable
+- Make various small UI tweaks, especially to main menu and its submenu
+- Let main menu lines have 35, not 30, characters
+- Make the main menu ASCII art less intrusive (and easier for screen readers)
+- Don't invalidate the score file due to game minor (only) version bump
+
+## [v0.9.4.0](https://github.com/AllureOfTheStars/Allure/compare/v0.9.3.0...v0.9.4.0)
+
+- Tweak razor organs
+- In vty frontend highlight actors more
+- Clean up actor highlighting
+- Add yell/yawn to minimal command set, remove swerving the aiming line
+- Invoke yell/yawn exclusively with '%', due tor Windows and terminal woes
+- Move C-c command to C, not to mask C-c on console frontends
+- Tweak and fix vty console frontends, for screen-readers
+- React specially at gameover under certain special circumstances
+- Simpliy assignSlot now that slots are auto-sorted
+- Get rid of explicit item sorting; let lore and menu slots agree
+- Make DetectExit non-modal
+- Mark in a game end confirmation message that more treasure can be found
+- Add a description to the escape embedded item
+- Reword gameover text for raid scenario
+- Be more verbose when confirming escape from the game
+- Don't claim to summon, when not possible on this level
+- Fix missing 'no longer poisoned' when applying antidote
+- Don't ask confirmation for neutral (e.g., not IDed) items
+- Fix 'you fall down; you stand on a sword'
+- Prevent selecting regions via mouse down in web frontend
+- Deselect item if player declines to apply or fling
+- Hand-hold the player, warning if flung item is beneficial
+- Hand-hold the player, warning if applied item is harmful
+- Rewrite the condition in UI applyItem check
+- Improve the lobable item skill failure message
+- Let mouse buttons describe tiles, etc.
+- Unblock S-MouseButton in SDL2 frontend
+- Always describe things under mouse button
+- Make the message when hitting dead foe more varied
+
+## [v0.9.3.0, aka 'Double of everything'](https://github.com/AllureOfTheStars/Allure/compare/v0.8.3.0...v0.9.3.0)
+
+- Make maximal level size twice higher
+- Extend the spaceship to 15 decks
+- Expand game content to fill the more numerous and often twice larger levels
+- Vary size and position of levels
+- Adjust help screens to twice higher display size
+- Introduce message classes with configurable behaviour
+- Create a new 16x16 font and use it everywhere; tweak smaller fonts
+- Lock some levels or otherwise make ascending tricky
+- Add cooldown to most melee weapons, display that in HUD, adjust AI
+- Add per-scenario and per-outcome gameover messages in content
+- Add duplicate and reroll item effects in preparation for crafting
+- Add actor and item analytics as a preparation for XP gain quests
+- Implement piercing projectiles that may share a tile with a big actor
+- Increase the spawn speed now that monsters sleep a lot
+- Introduce actors falling asleep and yelling
+- Allow any level size and position
+- Mention places when looking at tiles and add place lore menu
+- Expand all kinds of content and rebalance
+- Create and rework all item, cave and plot prose (Dan Keefe @Peritract)
+- Make explosives in cramped spaces twice weaker
+- Tweak player fling command
+- Tweak equipping when equipment overfull
+- Start cycling stores at equipment since that's the one mentioned in help
+- Overhaul CI scripts
+- Restructure and clean up codebase
+- Extend balance debugging tools, using item and actor analytics, places, etc.
+- Drop the gameplay option that first death means defeat
+- Avoid idle-GC between slow keystrokes
+- Put content data into a compact region to limit GC
+- Remove the border around web frontend game screen; seems unneeded now
+- Don't draw aiming line nor path in vty frontend
+- Highlight xhair by cursor in vty frontend
+- Highlight player by cursor in vty frontend
+- Switch the default FPS to 24 for tradition's sake
+- Highlight current high score
+- Remove most stopPlayBack, now spurious, because message classes used
+- Overhaul cabal file: define common options, split into internal libraries
+- Fix confusion of nub and uniq
+- Rename short wait to lurk and many lurks to heed
+- Show a red message when HP or Calm dip too low or when foe appears
+- Lose Calm and so alert AI even at weakest non-zero HP draining attacks
+- Enable screenshots while in menus
+- Rename config options related to fonts
+- Recolour aiming line not to clash with the red crosshair
+- Exchange the functions of yellow and red highlight
+- Tweak all colours, in particular to differentiate blues/cyans
+- Cap bright colours at 85 CIELAB Lightness at D65
+- Normalize dark colours to be between 42 and 57 CIELAB Lightness at D65
+- Get rid of colorIsBold option; KISS
+- Tint white in alternating lines with different hue for long text readability
+- Don't split lines at articles
+- Set xhair to currently meleed foe to see his HP
+- Display speed on HUD; tweak status lines in other ways
+- Don't show description of leader target in HUD; TMI
+- Help AI flee in a consistent direction over many turns
+- Expose the save backup command, for browser games
+- Don't display target info when item selected
+- Let AI actors spawn even quite far from the player
+- Auto-select all new team members, to help new players
+- Replace O by zero on the map display; make zero distinct from O in all fonts
+- Flesh out the initial ? prompt
+- Add 'I' alias for pack-related commands, unless laptop key-scheme used
+- Turn off movementLaptopKeys by default not to confuse new players
+- Make sure AI attacks bosses even if distant and fleeing or non-moving
+- Lower bonus HP at extreme difficulty
+- Add a separate frame for each projectiles start
+- Don't go modal at the frequent and weak hidden tile detection effect
+- Make AI pick closest stairs more often
+- Let apply-unskilled actors activate embedded items
+- Don't boost damage by speed unless actor is projectile
+- If everything else fails, let AI flee by opening doors
+- Help AI actor prevent being dominated
+- Make computing gameplay benefit to items more accurate
+- Rename, clone and fine-tune effect Temporary
+- Simplify code and content by getting rid of Recharging effect
+- Let applying periodic items only produce the first effect
+- Tweak item detection to help in skipping boring level portions and in stealth
+- Invoke and display embedded items in the order specified in tile definitions
+- Let lit trails illuminate colonnades
+- Prevent an exploit for avoiding self-invoked firecrackers
+- Don't let AI attempt summoning if not enough Calm
+- Improve item label bracket codes in menus
+- Pick randomly destination stairs if teleporting level
+- Display the number of items in store
+- Summarize value of player loot in shared stash menu's header
+- Start history menu at the close-up of the last message
+- Make fast-dying insects aggressive
+- Overhaul game score DSL and particular scoring definitions in content
+- Add and extend messages, e.g., tell if victim blocks and with what armor
+- Extend and rework menu manipulation keys
+- Remove specialized quaff, read and throw commands; KISS
+- Split walls of text into more paragraphs and/or make them narrower
+- Extend and update help and manual
+- Don't let AI waste time looting distant lone projectiles
+- Make Enum instances of Point and Vector contiguous, hackily
+- Make dominated actor drop all his items, for ID and in case he defects ASAP
+- Try to find a non-waiting action, if better AI leader can't be found
+- Prevent summoning OoD actors
+- Let animals eat food and add several foods
+- Make Domination effect harder to activate
+- Let only actors and items with SkOdor property leave smell and add perfumes
+- Let spawning rate level out after a few dozen spawns
+- Describe smell, if present in an inspected tile
+- Let pushed actor fly after crashing a door open
+- Show passing time and heard events even if no actors in the UI faction
+- When movement impossible, describe the tile with SHIFT-direction
+- Catch and steal projectiles when braced instead of when weaponless
+- Let actors that are pushed perform any action in addition to movement
+- Improve deduplication of messages
+- When describing actor on map, tell if it has loot
+- Represent being braced as having an organ; also add other pseudo-organs
+- Overhaul hearing to facilitate triangulation based on sound cues
+- Prefer to spawn aquatic actors on aquatic tiles
+- Add swimming and flying skills and shallow water tile features
+- Boost/drain skills via many new items
+- Rework and extend skills and their effects as a preparation for XP rewards
+- Enable specifying each side of outer cave fence separately
+- Make definition of caves of a scenario more precise
+- Specify more properties of levels in content
+- Extend content validation
+- Improve placement and fitting stairs and rooms on levels
+- Don't hardwire level size
+- Simplify game rules content
+- Change the format of game client content
+- Fix an arbitrary delay in killing dying actors
+- Fix arbitrary branch of a corridor chosen when running
+- Fix bush patches blocking off a level's corner
+- Fix config file ignored at game reinit
+- Fix running disturbed by flavours of walls
+- Fix splitting lines one character too early
+- Fix Calm drain from nearby foes occurring only every other turn
+- Fix some AI looping movement, in particular when fleeing
+- Fix running into own periodic explosions, e.g., from necklaces
+- Fix 'she painfullies collide'
+- Fix AI with vector targets unwilling to change them
+- Fix crash when attempting to fling at a target on remote level
+- Fix wrong timestamps in history
+- Fix, again, various kinds of frames intruding between fadeout and fadein
+- Fix wrong pluralization of some item names, compound and exceptions
+- Fix disabled items benefit recalculation after item kind learned
+- Fix in many ways too close initial faction and item positions
+- Fix performance in many ways and places, particularly for JS translation
+- Fix missing perception updates, causing missed AI actions concerning us
+- Fix uninitialized sarenas, which was probably causing resume to change state
+- Fix weak AI actors fleeing even if enemy can't melee
+- Fix and optimize sifting free tiles for spawn/summon location
+- Fix various cases of excessive summoning
+- Fix recording of item first seen level
+- Fix many problems with item descriptions and other messages
+- Fix reporting of reduction and elimination of actor conditions
+- Fix reading and interpreting old format config files
+- Fix synced initial item timeouts and actor times, leading to artificial feel
+- Fix actors erratically following their leader
+- Fix lifts continuing as stars and the other way around
+- Fix various 32bit overflows
+- Fix other errors, probably not present or not visible in previous version
+
+## [v0.8.3.0](https://github.com/AllureOfTheStars/Allure/compare/v0.8.1.2...v0.8.3.0)
+
+- Add a hack to run SDL2 on the main thread, fixing the OS X crash
+- Warn visually when impressed and Calm running low, risking domination
+- Display actor as red when low Calm and impressed or when low HP
+- Fix, complete and fine tune UI, AI and server skill and weapon checks
+- Fix a bug where item aspects look different to clients than to the server
+- Change the requirements for the main menu ASCII art
+- Tweak loot and terrain a tiny bit
+
+## [v0.8.1.2](https://github.com/AllureOfTheStars/Allure/compare/v0.8.1.1...v0.8.1.2)
+
+- Fix typos detected by lintian
+- Fix the code that runs in case of old async (bug introduced in v0.8.1.1)
+
+## [v0.8.1.1](https://github.com/AllureOfTheStars/Allure/v0.8.1.0...v0.8.1.1)
+
+- no player-visible changes
+- make it possible to compile with old async package
+- rewrite copyright information according to Debian format
+- make github display the correct main license
+
+## [v0.8.1.0](https://github.com/AllureOfTheStars/Allure/v0.8.0.0...v0.8.1.0)
+
+- no player-visible changes
+- significantly reduce RAM usage when compiling library
+- update and extend CI
+
+## [v0.8.0.0, aka 'Explosive dashboard'](https://github.com/AllureOfTheStars/Allure/compare/v0.7.1.0...v0.8.0.0)
+
+- display initial bits of backstory as a help screen and in-game
+- rework greying out menu items and permitting item application and projection
+- rework history collection; merge message repetitions more aggressively
+- display HP in red when below (configurable) warning threshold
+- tweak AI: actors remember they are fleeing; better leader choice, etc.
+- add to content specialized explosive projectiles; tune the effects
+- calculate loot score component based on fraction of dungeon loot collected
+- don't hardwire item price, but let it be specified in content
+- let all valuables glitter in the dark to avoid complete level exploration
+- teach AI to cure ailments and shake off impressions
+- rework detection effects; add detection of items embedded in tiles
+- automatically identify stolen items that only have minor effects
+- let projectiles hit each other if fragile and substantial enough
+- rework item kind identification code; change the way it's defined in content
+- make more item kinds (including some traps) secret
+- protect paralyzed actors with a stasis condition to avoid infinite paralysis
+- implement dumping screenshots in SDL2 and create animated GIFs in Makefile
+- generate most common consumables less often, but in depth-scaled bunches
+- make pushed actors alter tiles and trigger effects of embedded items
+- validate and cross-validate more content; reduce content creation boilerplate
+- make summoning more varied and prevent chain-summoning
+- add many ways to conditionally sequence effects
+- create large, merged rooms more often
+- generalize the terrain altering player command (C-c, mouse)
+- let RET, SPACE and ESC clear pending messages, if any
+- add dashboard with links to all menus and info screens
+- scale some organ and trap power with level depth
+- simplify level-scaled dice roll semantics
+- change scaled dice notation 'dl' to 'dL' for readability in-game
+- rebalance items and decrease dice variety to unclutter backpack
+- colour-code beneficial and harmful conditions in menu and in HUD
+- display item lore (also for organs, embedded items, explosions, etc.)
+- display embedded item descriptions as if they were tile descriptions
+- tweak blast visuals, lower particle counts, beautify their spread
+- tweak projectile visuals, e.g., display an extra frame when projectile dies
+- add intro screen and work on other ways to convey story
+- simplify a lot of code, including a bit of game rules
+- fix some bugs, tweak content, speed up some AI bottlenecks
+
+## [v0.7.1.0, aka 'Ancient troubles'](https://github.com/AllureOfTheStars/Allure/compare/v0.7.0.0...v0.7.1.0)
+
+- add amazing cave and item (actor, blast, organ) descriptions
+- package for Windows as an installer and also as zip archives
+- fix a crash from SDL frontend under some OpenGL drivers (no thread-safety)
+- add WWW address to the Main Menu, for other sites that may run our JS blob
+
+## [v0.7.0.0, aka 'The dice are cast'](https://github.com/AllureOfTheStars/Allure/compare/v0.6.2.0...v0.7.0.0)
+
+- decouple tile searching from tile alteration
+- refrain from identifying items that are not randomized
+- switch away from incapacitated leader to let others revive him
+- make rescue easier by not going into negative HP the first time
+- fix crowd of friends on another level slowing even actors that melee
+- fix missing report about items underneath an actor when changing levels
+- API breakage: change the syntax of dice in content
+- API addition: introduce cave descriptions
+- keep all client states in the server and optimize communication with clients
+- improve item choice for identification and item polymorphing
+- reset embedded items when altering tile
+- replace atomic command filtering with exception catching
+- reimplement dice as symbolic expressions inducing multiple RNG calls
+- switch to optparse-applicative and rewrite cli handling
+- add stack and cabal new-build project files
+- improve haddocks across the codebase
+
+## [v0.6.2.0, aka 'Zoom out'](https://github.com/AllureOfTheStars/Allure/compare/v0.6.1.0...v0.6.2.0)
+
+- make fireworks slower and so easier to spot
+- make rattlesnake deeper but more common
+- announce no effect of activation
+- describe original and current faction of an actor
+- highlight dominated actors
+- mark organs with comma instead of percent and gems with dollar
+- make the healing cave dangerous to prevent camping
+- slightly balance various content
+- by default move item the same as last time
+- often spawn between heroes and stairs going deeper
+- fix totalUsefulness computation for negative effects
+- fix abandoning distant enemy target despite no alternatives
+- fix slow pushing of actors
+- fix a crash when many actors run towards stairs
+- hotfix: Pass zoom keys through to the browser
+- help players find the info about changing the font size
+- depend on GHC >= 8.0 and new vector
+
+## [v0.6.1.0, aka 'Breaking one rule at a time'](https://github.com/AllureOfTheStars/Allure/compare/v0.6.0.0...v0.6.1.0)
+
+- major engine bugfix: fix redrawing after window minimized and restored
+- major engine bugfix: hack around vanishing texture on Windows
+- major engine bugfix: hack around SDL backends not thread-safe on Windows
+- update wrt the only breaking API change: specify font dir in game rules content
+- let the game use its own fonts, not fonts from the sample game in library
+- tweak some item creation to occur in character's pack, not on the ground
+- slightly balance various content
+- make sure the 'resolution' effect is not a drawback
+- make artifact weapon rarities more regular
+- avoid creating lit, open dungeon at the bottom, where foes have ranged weapons
+- number scenarios in user descriptions
+
+## [v0.6.0.0, aka 'Too much to tell'](https://github.com/AllureOfTheStars/Allure/compare/v0.5.0.0...v0.6.0.0)
+
+- add and modify a lot of content: items, tiles, embedded items, scenarios
+- improve AI: targeting, stealth, moving in groups, item use, fleeing, etc.
+- make monsters more aggressive than animals
+- tie scenarios into a loose, optional storyline
+- add more level generators and more variety to room placement
+- make stairs not walkable and use them by bumping
+- align stair position on the levels they pass through
+- introduce noctovision
+- increase human vision to 12 so that normal speed missiles can be sidestepped
+- tweak and document weapon damage calculation
+- derive projectile damage mostly from their speed
+- make heavy projectiles better vs armor but easier to sidestep
+- improve hearing of unseen actions, actors and missiles impacts
+- let some missiles lit up on impact
+- make torches reusable flares and add blankets for dousing dynamic light
+- add detection effects and use them in items and tiles
+- make it possible to catch missiles, if not using weapons
+- make it possible to wait 0.1 of a turn, at the cost of no bracing
+- improve pathfinding, prefer less unknown, alterable and dark tiles on paths
+- slow down actors when acting at the same time, for speed with large factions
+- don't halve Calm at serious damage any more
+- eliminate alternative FOV modes, for speed
+- stop actors blocking FOV, for speed
+- let actor move diagonally to and from doors, for speed
+- improve blast (explosion) shapes visually and gameplay-wise
+- add SDL2 frontend and deprecate GTK frontend
+- add specialized square bitmap fonts and hack a scalable font
+- use middle dot instead of period on the map (except in teletype frontend)
+- add a browser frontend based on DOM, using ghcjs
+- improve targeting UI, e.g., cycle among items on the map
+- show an animation when actor teleports
+- add character stats menu and stat description texts
+- add item lore and organ lore menus
+- add a command to sort item slots and perform the sort at startup
+- add a single item manipulation menu and let it mark an item for later
+- make history display a menu and improve display of individual messages
+- display highscore dates according to the local timezone
+- make the help screen a menu, execute actions directly from it
+- rework the Main Menu
+- rework special positions highlight in all frontends
+- mark leader's target on the map (grey highlight)
+- visually mark currently chosen menu item and grey out impossible items
+- define mouse commands based on UI mode and screen area
+- let the game be fully playable only with mouse, use mouse wheel
+- pick menu items with mouse and with arrow keys
+- add more sanity checks for content
+- reorganize content in files to make rebasing on changed content easier
+- rework keybinding definition machinery
+- let clients, not the server, start frontends
+- version savefiles and move them aside if versions don't match
+- lots of bug fixes internal improvements and minor visual and text tweaks
+
+## [v0.5.0.0, aka 'Halfway through space'](https://github.com/AllureOfTheStars/Allure/compare/v0.4.101.0...v0.5.0.0)
+
+- let AI put excess items in shared stash and use them out of shared stash
+- let UI multiple items pickup routine put items that don't fit into equipment into shared stash, if possible, not into inventory pack
+- re-enable the ability to hear close, invisible foes
+- add a few more AI and autonomous henchmen tactics (CTRL-T)
+- keep difficulty setting over session restart
+- change some game start keybindings
+- replace the Duel game mode with the Raid game mode
+- various bugfixes, minor improvements and balancing
+
+## [v0.4.101.1, aka 'Officially fun'](https://github.com/AllureOfTheStars/Allure/compare/v0.4.100.0...v0.4.101.1)
+
+- the game is now officially fun to play, with a seal of the Galactic Council
+- introduce unique boss monsters and unique artifact items
+- add robots that heal the player, in particular as a mid-game reset for HP
+- move spaceship airlock to level 10 and beef up spaceship crew
+- let AI gang up, attempt stealth and react to player aggressiveness
+- spawn actors fast, close to the enemy and in large numbers
+- spawn actors less and less often on a given level, but with growing depth
+- prefer weapons with effects, if recharged
+- make the bracing melee bonus additive, not multiplicative
+- let explosions buffet actors around
+- make braced actors immune to translocation effects
+- make actor domination yet less common and deadly
+- use mouse for movement, actor selection, aiming
+- don't run straight with selected actors, but go-to cross-hair with them
+- speed up default frame rate, slow down projectiles visually
+- rework item manipulation UI
+- you can pick up many items at once and it costs only one turn
+- allow actors to apply and project from the shared stash
+- reverse messages shown in player diary
+- display actor organs and stats
+- split highscore tables wrt game modes
+- move score calculation formula to content
+- don't keep the default/example config file commented out; was misleading
+- update vs the naughtily changed v0.5.0.0 of LambdaHack content API
+
+## [v0.4.100.0, aka 'The last interstellar thaw'](https://github.com/AllureOfTheStars/Allure/compare/v0.4.99.0...v0.4.100.0)
+
+- update vs the unexpectedly thawed v0.5.0.0 of LambdaHack content API
+- unexpectedly add items with timeouts and temporary effects
+- start campaign on level 3 and don't spawn aliens until level 4
+- rebalance campaign (probably still too hard)
+- tweak skills of some factions and actors
+- rename tablets to chips to make their vanishing easier to understand
+- make colorful characters bold (if it resizes your fonts, turn off via colorIsBold = False in config file or --noColorIsBold on commandline)
+- start the game with a screensaver safari mode
+- improve keyboard handling on Windows
+- add i386 Linux and Windows compilation targets to Makefile
+
+## [v0.4.99.0, aka 'Player escapes through airlock'](https://github.com/AllureOfTheStars/Allure/compare/v0.4.14...v0.4.99.0)
+
+- balance game content a bit (campaign still unbalanced)
+- fix a bug where doors can't be closed
+- assign AI tactics to players, in particular use follow-the-leader in safari
+- specify monster spawn rate per-cave
+- generally update content to the new v0.5.0.0 of LambdaHack content API
+
+## [v0.4.14, aka 'Out of cosmic balance'](https://github.com/AllureOfTheStars/Allure/compare/v0.4.12...v0.4.14)
+
+- add tons of new (unbalanced) items, actors and descriptions
+- add a simple cabal test in addition to make-test and travis-test
+- add items of Wonder and of Marvel
+- add game mechanics, items and places to enable stealthy tactics
+- add lots of shrapnel (explosions) and organs (body parts)
+- expose a bit of the plot via new game modes and their order
+
+## [v0.4.12](https://github.com/AllureOfTheStars/Allure/compare/v0.4.10...v0.4.12)
+
+- make walls lit by default to simplify exploration
+- improve and simplify dungeon generation
+- simplify running and permit multi-actor runs
+- let items explode and generate shrapnel projectiles
+- add game difficulty setting (initial HP scaling right now)
+- allow recording, playing back and looping commands
+- implement pathfinding via per-actor BFS over the whole level
+- extend setting targets for actors in UI tremendously
+- implement autoexplore, go-to-target, etc., as macros
+- let AI use pathfinding, switch leaders, pick levels to swarm to
+- force level/leader changes on spawners (even when played by humans)
+- extend and redesign UI bottom status lines
+
+## [v0.4.10](https://github.com/AllureOfTheStars/Allure/compare/v0.4.8...v0.4.10)
+
+- screensaver game modes (AI vs AI)
+- improved AI (can now climbs stairs, etc.)
+- multiple, multi-floor staircases
+- multiple savefiles
+- configurable framerate and combat animations
+
+## [v0.4.8](https://github.com/AllureOfTheStars/Allure/compare/v0.4.6.5...v0.4.8)
+
+- experimental multiplayer modes
+- a lot of gameplay changes induced by the engine overhaul and in particular the client-server rewrite
+
+## [v0.4.6.5](https://github.com/AllureOfTheStars/Allure/compare/v0.4.6...v0.4.6.5)
+
+- this is a minor release, primarily intended to fix the broken compilation on Hackage
+- changes since 0.4.6 are mostly unrelated to gameplay:
+    - strictly typed config files split into UI and rules
+    - a switch from Text to String throughout the codebase
+    - use of the external library miniutter for English sentence generation
+
+## [v0.4.6](https://github.com/AllureOfTheStars/Allure/compare/v0.4.4...v0.4.6)
+
+- the Main Menu
+- improved and configurable mode of squad combat
+
+## [v0.4.4](https://github.com/AllureOfTheStars/Allure/compare/v0.4.3...v0.4.4)
+
+- missiles flying for three turns (by an old kosmikus' idea)
+- visual feedback for targeting
+- animations of combat and individual monster moves
+
+## [v0.4.3](https://github.com/AllureOfTheStars/Allure/compare/v0.4.2...v0.4.3)
+
+- the Allure of the Stars game depends on the LambdaHack engine library

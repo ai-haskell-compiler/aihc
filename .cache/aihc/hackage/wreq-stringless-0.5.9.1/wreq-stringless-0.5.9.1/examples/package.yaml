@@ -1,0 +1,30 @@
+name:        wreq-stringless-examples
+version:     "0"
+synopsis:    examples for wreq-stringless
+author:      Juergen Keck
+maintainer:  Juergen Keck <jhyphenkeck@gmail.com>
+license:     MIT
+category:    Web
+
+dependencies:
+  - base >= 4.7 && < 5  
+  - wreq-stringless
+  - microlens
+  
+
+executables:
+  with-text:
+    main: WithText.hs
+    dependencies: text
+
+  with-bytestring:
+    main: WithByteString.hs
+    source-dirs: .
+    dependencies: bytestring
+
+  direct-comparison:
+    main: DirectComparison.hs
+    source-dirs: .
+    dependencies:
+      - text
+      - wreq

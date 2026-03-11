@@ -1,0 +1,14 @@
+{
+  "data": {
+    "city": {
+      "enumValues": [
+        { "description": null },
+        { "description": "city of warriors" },
+        { "description": null },
+        { "description": "city of oracle" },
+        { "description": "city of argonauts" }
+      ],
+      "name": "City"
+    }
+  }
+}

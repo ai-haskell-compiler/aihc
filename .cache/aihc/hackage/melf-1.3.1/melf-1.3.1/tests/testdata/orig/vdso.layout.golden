@@ -1,0 +1,46 @@
+┌── 0x00000000 P PT_LOAD [PF_X,PF_R]
+│ ┎ 0x00000000 H
+│ ┖ 0x0000003f
+│ ┎ 0x00000040 PT (4)
+│ ┖ 0x0000011f
+│ ╓ 0x00000120 S1 ".hash" SHT_HASH [SHF_ALLOC]
+│ ╙ 0x0000015b
+│ ╓ 0x00000160 S2 ".gnu.hash" ElfSectionType 1879048182 [SHF_ALLOC]
+│ ╙ 0x000001a7
+│ ╓ 0x000001a8 S3 ".dynsym" SHT_DYNSYM [SHF_ALLOC]
+│ ╙ 0x00000297
+│ ╓ 0x00000298 S4 ".dynstr" SHT_STRTAB [SHF_ALLOC]
+│ ╙ 0x000002f5
+│ ╓ 0x000002f6 S5 ".gnu.version" ElfSectionType 1879048191 [SHF_ALLOC]
+│ ╙ 0x00000309
+│ ╓ 0x00000310 S6 ".gnu.version_d" ElfSectionType 1879048189 [SHF_ALLOC]
+│ ╙ 0x00000347
+│┌─ 0x00000348 P PT_DYNAMIC [PF_R]
+││╓ 0x00000348 S7 ".dynamic" SHT_DYNAMIC [SHF_WRITE,SHF_ALLOC]
+││╙ 0x00000467
+│└─ 0x00000467
+│ ╓ 0x00000468 S8 ".rodata" SHT_PROGBITS [SHF_WRITE,SHF_ALLOC]
+│ ╙ 0x000007a7
+│┌─ 0x000007a8 P PT_NOTE [PF_R]
+││╓ 0x000007a8 S9 ".note" SHT_NOTE [SHF_ALLOC]
+││╙ 0x000007e3
+│└─ 0x000007e3
+│┌─ 0x000007e4 P ElfSegmentType 1685382480 [PF_R]
+││╓ 0x000007e4 S10 ".eh_frame_hdr" SHT_PROGBITS [SHF_ALLOC]
+││╙ 0x0000081f
+│└─ 0x0000081f
+│ ╓ 0x00000820 S11 ".eh_frame" SHT_PROGBITS [SHF_ALLOC]
+│ ╙ 0x00000967
+│ ╓ 0x00000970 S12 ".text" SHT_PROGBITS [SHF_ALLOC,SHF_EXECINSTR]
+│ ╙ 0x00000f59
+│ ╓ 0x00000f5a S13 ".altinstructions" SHT_PROGBITS [SHF_ALLOC]
+│ ╙ 0x00000fe8
+│ ╓ 0x00000fe9 S14 ".altinstr_replacement" SHT_PROGBITS [SHF_ALLOC,SHF_EXECINSTR]
+│ ╙ 0x0000100a
+└── 0x0000100a
+  ╓ 0x0000100b S15 ".comment" SHT_PROGBITS [ElfSectionFlag 16,ElfSectionFlag 32]
+  ╙ 0x0000102e
+  ╓ 0x0000102f S16 ".shstrtab" SHT_STRTAB []
+  ╙ 0x000010d4
+  ┎ 0x000010d8 ST (17)
+  ┖ 0x00001517

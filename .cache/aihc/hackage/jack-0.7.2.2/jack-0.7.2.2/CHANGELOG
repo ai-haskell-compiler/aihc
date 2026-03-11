@@ -1,0 +1,7 @@
+0.7.1:
+
+* JACK.quit, waitForBreakAndClose:
+  Deprecated and replaced Signal handler by getLine loop.
+
+  These functions are simple utility functions that are not related to JACK
+  and the Signal handler depends on the 'unix' package.

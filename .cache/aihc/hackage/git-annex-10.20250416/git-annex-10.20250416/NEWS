@@ -1,0 +1,232 @@
+git-annex (10.20230626) upstream; urgency=medium
+
+  Many commands now quote filenames that contain unusual characters the
+  same way that git does, to avoid exposing control characters to the
+  terminal. The core.quotePath config can be set to false to disable this
+  quoting.
+
+ -- Joey Hess <id@joeyh.name>  Mon, 26 Jun 2023 10:38:07 -0400
+
+git-annex (10.20220218) upstream; urgency=medium
+
+  Transition notice: Commands like `git-annex get foo*` have changed to error
+  out when some of files are not checked into the repository. To get back the
+  previous behavior of silently skipping unknown files, use git config
+  to set annex.skipunknown to true.
+
+ -- Joey Hess <id@joeyh.name>  Fri, 18 Feb 2022 13:12:21 -0400
+
+git-annex (8.20211028) upstream; urgency=medium
+
+  This version of git-annex removes support for communicating with git-annex
+  remotes that have version 6.20180312 or older installed.
+
+ -- Joey Hess <id@joeyh.name>  Wed, 05 Jan 2022 10:09:11 -0400
+
+git-annex (8.20200523) upstream; urgency=medium
+
+  Transition notice: Commands like `git-annex get foo*` silently skip over
+  files that are not checked into git. Since that can be surprising in many
+  cases, the behavior will change to erroring out when one of the listed
+  files is not checked into git. This change is planned for a git-annex
+  release in early 2022. If you would like to keep the current
+  behavior, use git config to set annex.skipunknown to true.
+
+ -- Joey Hess <id@joeyh.name>  Thu, 28 May 2020 13:23:40 -0400
+
+git-annex (8.20200226) upstream; urgency=medium
+  
+  This version of git-annex uses repository version 8 for all repositories.
+
+  Existing repositories will be automatically upgraded by default.
+  You can prevent this, by running: git config annex.autoupgraderepository false
+ 
+  The upgrade process involves regenerating some sqlite databases. There are a
+  couple consequences of the upgrade to keep in mind:
+
+  * Any incremental fscks that were started in v7 won't resume where
+    they left off in v8, but will instead begin again from the first file.
+  * An interrupted export that was started in v7 won't resume where it left
+    off after upgrade to v8; files will be re-uploaded to the export remote.
+  * After the upgrade, git-annex will in some situations have to do extra
+    work while it finishes populating its sqlite databases.
+
+  Also, there are some behavior changes around adding dotfiles. While before
+  git-annex add skipped adding dotfiles when operating on whole directories,
+  and added dotfiles that were explicitly listed to the annex, it now adds
+  dotfiles to git by default, unless annex.dotfiles is set to true.
+
+ -- Joey Hess <id@joeyh.name>  Wed, 26 Feb 2020 17:18:16 -0400
+
+git-annex (7.20200226) upstream; urgency=high
+
+  There was a serious regression in gcrypt and encrypted git-lfs remotes.
+  Since version 7.20200202.7, git-annex incorrectly stored content
+  on those remotes without encrypting it.
+
+  If your remotes are affected, you will want to make sure to delete
+  any content that git-annex has stored on them that is not encrypted!
+
+  One way to do so is, before upgrading to this version,
+  run git-annex move --from the affected remotes. It will move
+  only the content that was not encrypted.
+
+ -- Joey Hess <id@joeyh.name>  Wed, 26 Feb 2020 17:18:16 -0400
+
+git-annex (7.20191024) upstream; urgency=medium
+
+  When annex.largefiles is not configured, `git add` and `git commit -a`
+  add files to git, not to the annex. If you have gotten used to `git add`
+  adding all files to the annex, you can get that behavior back by running:
+  git config annex.largefiles anything
+
+ -- Joey Hess <id@joeyh.name>  Thu, 24 Oct 2019 13:46:52 -0400
+
+git-annex (7.20190912) upstream; urgency=medium
+
+  This version of git-annex uses repository version 7 for all repositories.
+
+  Existing v5 repositories will be automatically upgraded by default.
+  You can prevent this, by running: git config annex.autoupgraderepository false
+
+  A v7 repository can can have some files locked while other files are
+  unlocked, and all git and git-annex commands can be used on both locked and
+  unlocked files. It's a good idea to make sure that all users of the
+  repository have upgraded git-annex and upgraded their repositories
+  to the new version before starting to use that feature, since old
+  versions of git-annex will ignore the new unlocked files.
+
+  The behavior of some commands changes in an upgraded repository:
+  
+  * `git add` will add files to the annex, rather than adding them directly
+     to the git repository. To cause some files to be added directly
+     to git, you can configure `annex.largefiles`. For example:
+
+     git config annex.largefiles "largerthan=100kb and not (include=*.c or include=*.h)"
+
+  * `git annex unlock` and `git annex lock` change how the pointer to 
+    the annexed content is stored in git. If you commit the change,
+    that will impact all clones of the repository.
+
+ -- Joey Hess <id@joeyh.name>  Fri, 13 Sep 2019 12:19:55 -0400
+
+git-annex (7.20181031) upstream; urgency=medium
+
+  Repository version 7 is now available. v6 repositories will automatically
+  upgrade to v7. v5 repositories are still supported and will not be
+  automatically upgraded yet.
+
+  Direct mode is deprecated, and upgrading direct mode repositories to v7 is
+  encouraged, unless they need to remain usable by older versions of git-annex.
+  Just run `git annex upgrade`.
+
+  git-annex will no longer initialize new repositories on crippled filesystems
+  using direct mode, instead it uses v7.
+
+  The git-annex Android app is no longer being updated. Users of the app
+  should remove it and install using the new Termux based installation method.
+
+ -- Joey Hess <id@joeyh.name>  Wed, 31 Oct 2018 13:05:48 -0400
+
+git-annex (6.20180626) upstream; urgency=high
+
+  A security fix has changed git-annex to refuse to download content from
+  some special remotes when the content cannot be verified with a hash check.
+  In particular URL and WORM keys stored on such remotes won't be downloaded.
+  See the documentation of the annex.security.allow-unverified-downloads
+  configuration for how to deal with this if it affects your files.
+
+  A security fix has changed git-annex to only support http, https, and ftp
+  URL schemes by default. You can enable other URL schemes, at your own risk,
+  using annex.security.allowed-url-schemes.
+
+  A related security fix prevents git-annex from connecting to http
+  servers (and proxies) on localhost or private networks. This can
+  be overridden, at your own risk, using annex.security.allowed-http-addresses.
+  
+  Setting annex.web-options no longer is enough to make curl be used,
+  and youtube-dl is also no longer used by default. See the
+  documentation of annex.security.allowed-http-addresses for
+  details and how to enable them.
+
+  The annex.web-download-command configuration has been removed,
+  use annex.web-options instead.
+
+ -- Joey Hess <id@joeyh.name>  Fri, 15 Jun 2018 17:54:23 -0400
+
+git-annex (6.20180309) upstream; urgency=medium
+
+  Note that, due to not using rsync to transfer files over ssh
+  any longer, permissions and other file metadata of annexed files
+  will no longer be preserved when copying them to and from ssh remotes.
+  Other remotes never supported preserving that information, so
+  this is not considered a regression.
+
+ -- Joey Hess <id@joeyh.name>  Fri, 09 Mar 2018 13:22:47 -0400
+
+git-annex (6.20170228) upstream; urgency=medium
+
+  This version of git-annex has mitigations for SHA1 hash collision
+  problems.
+  
+  A new annex.securehashesonly configuration, when used in combination with
+  signed git commits, avoids potential hash collision problems in git-annex
+  repositories. For details, see this web page:
+  <https://git-annex.branchable.com/tips/using_signed_git_commits/>
+
+ -- Joey Hess <id@joeyh.name>  Tue, 28 Feb 2017 13:28:50 -0400
+
+git-annex (6.20170101) upstream; urgency=medium
+
+  XMPP support has been removed from the assistant in this release.
+
+  If your repositories used XMPP to keep in sync, that will no longer
+  work, and you should enable some other remote to keep them in sync.
+  A ssh server is one way, or use the new Tor pairing feature.
+
+ -- Joey Hess <id@joeyh.name>  Tue, 27 Dec 2016 16:37:46 -0400
+
+git-annex (4.20131002) upstream; urgency=low
+
+   The layout of gcrypt repositories has changed, and
+   if you created one you must manually upgrade it.
+   See /usr/share/doc/git-annex/html/upgrades/gcrypt.html
+
+ -- Joey Hess <joeyh@debian.org>  Tue, 24 Sep 2013 13:55:23 -0400
+
+git-annex (3.20120123) upstream; urgency=low
+
+  There was a bug in the handling of directory special remotes that
+  could cause partial file contents to be stored in them. If you use
+  a directory special remote, you should fsck it, to avoid potential
+  data loss.
+
+  Example: git annex fsck --from mydirectory
+
+ -- Joey Hess <joeyh@debian.org>  Thu, 19 Jan 2012 15:24:23 -0400
+
+git-annex (3.20110624) upstream; urgency=low
+
+  There has been another change to the git-annex data store.
+  Use `git annex upgrade` to migrate your repositories to the new
+  layout. See <http://git-annex.branchable.com/upgrades/> or
+  /usr/share/doc/git-annex/html/upgrades.html
+
+  The significant change this time is that the .git-annex/ directory
+  is gone; instead there is a git-annex branch that is automatically
+  maintained by git-annex, and encapsulates all its state nicely out
+  of your way.
+
+  You should make sure you include the git-annex branch when
+  git pushing and pulling.
+
+ -- Joey Hess <joeyh@debian.org>  Tue, 21 Jun 2011 20:18:00 -0400
+
+git-annex (0.20110316) upstream; urgency=low
+
+  This version reorganises the layout of git-annex's files in your repository.
+  There is an upgrade process to convert a repository from the old git-annex
+  to this version. See <http://git-annex.branchable.com/upgrades/> or
+  /usr/share/doc/git-annex/html/upgrades.html
+
+ -- Joey Hess <joeyh@debian.org>  Wed, 16 Mar 2011 15:49:15 -0400

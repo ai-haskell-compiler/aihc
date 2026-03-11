@@ -1,0 +1,56 @@
+Singletons/BoxUnBox.hs:(0,0)-(0,0): Splicing declarations
+    singletons
+      [d| unBox :: Box a -> a
+          unBox (FBox a) = a
+          
+          data Box a = FBox a |]
+  ======>
+    data Box a = FBox a
+    unBox :: Box a -> a
+    unBox (FBox a) = a
+    type FBoxSym0 :: forall a. (~>) a (Box a)
+    data FBoxSym0 :: (~>) a (Box a)
+      where
+        FBoxSym0KindInference :: SameKind (Apply FBoxSym0 arg) (FBoxSym1 arg) =>
+                                 FBoxSym0 a0123456789876543210
+    type instance Apply FBoxSym0 a0123456789876543210 = FBox a0123456789876543210
+    instance SuppressUnusedWarnings FBoxSym0 where
+      suppressUnusedWarnings = snd ((,) FBoxSym0KindInference ())
+    type FBoxSym1 :: forall a. a -> Box a
+    type family FBoxSym1 @a (a0123456789876543210 :: a) :: Box a where
+      FBoxSym1 a0123456789876543210 = FBox a0123456789876543210
+    type UnBoxSym0 :: (~>) (Box a) a
+    data UnBoxSym0 :: (~>) (Box a) a
+      where
+        UnBoxSym0KindInference :: SameKind (Apply UnBoxSym0 arg) (UnBoxSym1 arg) =>
+                                  UnBoxSym0 a0123456789876543210
+    type instance Apply UnBoxSym0 a0123456789876543210 = UnBox a0123456789876543210
+    instance SuppressUnusedWarnings UnBoxSym0 where
+      suppressUnusedWarnings = snd ((,) UnBoxSym0KindInference ())
+    type UnBoxSym1 :: Box a -> a
+    type family UnBoxSym1 @a (a0123456789876543210 :: Box a) :: a where
+      UnBoxSym1 a0123456789876543210 = UnBox a0123456789876543210
+    type UnBox :: Box a -> a
+    type family UnBox @a (a :: Box a) :: a where
+      UnBox (FBox a) = a
+    sUnBox ::
+      (forall (t :: Box a).
+       Sing t -> Sing (Apply UnBoxSym0 t :: a) :: Type)
+    sUnBox (SFBox (sA :: Sing a)) = sA
+    instance SingI (UnBoxSym0 :: (~>) (Box a) a) where
+      sing = singFun1 @UnBoxSym0 sUnBox
+    data SBox :: forall a. Box a -> Type
+      where
+        SFBox :: forall a (n :: a). (Sing n) -> SBox (FBox n :: Box a)
+    type instance Sing @(Box a) = SBox
+    instance SingKind a => SingKind (Box a) where
+      type Demote (Box a) = Box (Demote a)
+      fromSing (SFBox b) = FBox (fromSing b)
+      toSing (FBox (b :: Demote a))
+        = case toSing b :: SomeSing a of SomeSing c -> SomeSing (SFBox c)
+    instance SingI n => SingI (FBox (n :: a)) where
+      sing = SFBox sing
+    instance SingI1 FBox where
+      liftSing = SFBox
+    instance SingI (FBoxSym0 :: (~>) a (Box a)) where
+      sing = singFun1 @FBoxSym0 SFBox

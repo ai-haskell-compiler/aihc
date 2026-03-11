@@ -1,0 +1,49 @@
+name:                   array-memoize
+version:                0.6.0
+synopsis:               Memoization combinators using arrays for finite sub-domains of functions
+
+description:            Memoization combinators are great for providing high-performance Haskell programs,
+			but they can be even faster if memoization is performed on a finite, discrete domain
+			since an array can then be used to store results. 
+			.
+			This package provides various combinators for doing just this, including also 
+			combinators for quanitzing and discretizing Float/Double-valued functions.
+			.
+			Example:
+			.
+			@
+			  fib' :: (Int -> Int) -> Int -> Int
+			  fib' _ 0 = 1
+			  fib' _ 1 = 1
+			  fib' rec n = rec (n - 1) + rec (n - 2)
+
+			  -- Memoizes fib between 0 and 1000 (after that it is a run-time error)
+			  fib :: Int -> Int
+			  fib = arrayMemoFix (0, 1000) fib'
+			@
+
+license:                BSD3
+license-file:           LICENSE
+category:               Syntax,
+copyright:              Dominic Orchard, 2014
+author:                 Dominic Orchard
+maintainer:             Dominic Orchard
+stability:              experimental
+build-type:             Simple
+cabal-version:          >= 1.6
+tested-with:            GHC >= 7.6
+
+extra-source-files:     example.hs
+
+source-repository head
+  type: git
+  location: https://github.com/dorchard/array-memoize
+
+
+library
+  hs-source-dirs:       .
+
+  exposed-modules:      Data.Function.ArrayMemoize
+                        
+  build-depends:        base < 5,
+                        array >= 0.4

@@ -1,0 +1,31 @@
+paramtree
+  1 Int #1
+    False Bool/'a' Char
+      1337 Int #2:   OK
+      42 Int #2:     OK
+    True Bool
+      'a' Char
+        1337 Int #2: OK
+        42 Int #2:   OK
+      'x' Char
+        1337 Int #2: OK
+        42 Int #2:   OK
+      'y' Char
+        1337 Int #2: OK
+        42 Int #2:   OK
+  2 Int #1
+    False Bool/'a' Char
+      1337 Int #2:   OK
+      42 Int #2:     OK
+    True Bool
+      'a' Char
+        1337 Int #2: OK
+        42 Int #2:   OK
+      'x' Char
+        1337 Int #2: OK
+        42 Int #2:   OK
+      'y' Char
+        1337 Int #2: OK
+        42 Int #2:   OK
+
+All 16 tests passed

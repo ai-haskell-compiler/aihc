@@ -1,0 +1,75 @@
+Version 0.0.14.0 2024-02-16 by luispedro
+	* Data.Conduit.Lzma2: Incorporate Data.Conduit.Lzma2 (adapted from
+	lzma-conduit) instead of using the external lzma-conduit package as that
+	is no longer maintained.
+
+Version 0.0.13.0 2022-08-01 by luispedro
+	* Support non-default values for compression level in more compression
+	formats
+
+Version 0.0.12.0 2022-03-20 by luispedro
+	* Add dispatchC_ conduit
+	* Switch to fingertree package (for GHC 9)
+
+Version 0.0.11.0 2019-09-20 by luispedro
+	* Add dispatchC conduit
+	* Add deprecation warning for groupC
+
+Version 0.0.10.1 2019-05-31 by luispedro
+	* Accept .zst as extension for zstandard
+
+Version 0.0.10.0 2019-03-01 by luispedro
+	* Add withPossiblyCompressedFileOutput:
+
+Version 0.0.9.0 2019-01-09 by luispedro
+	* Add Zstandard compression
+	* Refactor internals to avoid code repetition
+
+Version 0.0.8.2 2018-09-27 by luispedro
+	* Add withPossiblyCompressedFile function for prompt resource deallocation
+
+Version 0.0.8.1 2018-05-29 by luispedro
+	* faster mergeC (use a priority queue instead of an ordered list)
+
+Version 0.0.8.0 2018-03-12 by luispedro
+	* Update for conduit 1.3 (issue #6)
+
+Version 0.0.7.3 2018-03-12 by luispedro
+	* Add xz support (patches by Renato Alves)
+	* Add bzip2 support on Windows (patches by Renato Alves)
+
+Version 0.0.7.2 2018-02-19 by luispedro
+	* Add handle information to error message to Handle in asyncGzipFrom
+
+Version 0.0.7.1 2018-01-18 by luispedro
+	* Fix testing in newer stack/cabal/hpack (issue #3)
+
+Version 0.0.7.0 2018-01-17 by luispedro
+	* Add unorderedAsyncMapC
+	* Add Data.Conduit.Algorithms.Async.ByteString module
+	* Add Data.Conduit.Algorithms.Storable
+
+Version 0.0.6.1 2017-11-01 by luispedro
+	* Remove Unix dependency (compile on Windows)
+
+Version 0.0.6.0 2017-10-09 by luispedro
+	* More efficient mergeC conduit
+
+Version 0.0.5.0 2017-10-03 by luispedro
+	* Add enumerateC conduit
+	* Better mergeC conduit (list case)
+
+Version 0.0.4.0 2017-09-12 by luispedro
+	* Fix bug in merge* conduits
+
+Version 0.0.3.0 2017-08-30 by luispedro
+	* Much improved mergeC2 function
+	* Add removeRepeatsC conduit
+
+Version 0.0.2.0 2017-08-08 by luispedro
+	* Fix haddock code generation.
+	* Export mergeC2 function.
+
+Version 0.0.1.0 2017-08-07 by luispedro
+	* First version. Generic code from NGLess and internal projects, extracted
+	for wider convenience

@@ -1,0 +1,225 @@
+2024-05-21 v1.10.0.0
+	* Make the Language.Haskell.GHC.ExactPrint.Transform API pure
+	* Remove EPOoptions fields that had no effect
+2024-05-16 v1.9.0.0
+	* Support GHC 9.10.1
+2022-12-19 v1.8.0.0
+	* Support GHC 9.8.1
+2022-12-19 v1.7.1.0
+	* Add CI for GHC 9.6.3
+	* Reinstate MonadTrans on TransFormT (via @Vekhir)
+2022-11-08 v1.7.0.1
+	* Add CI for GHC 9.6.2
+	* Correctly deal with comments when using GHC flag -haddock
+2022-11-08 v1.7
+	* Support GHC 9.6.1
+2022-11-08 v1.6.1
+	* Add GHC 9.4.4 to CI
+	* Add support for exact printing HsDocTy. #121
+2022-11-08 v1.6.1
+	* Support GHC 9.4.3
+2022-09-30 v1.6.0
+	* Support GHC 9.4.1 and GHC 9.4.2
+2022-02-01 v1.5.0
+	* Add private version of showAstData, to be able to render
+	AnchorOperation's hacked into SrcSpan's.
+	* Change the starting top level margin from 0 to 1. This means we
+	can use (DifferentLine n 0) everywhere with the same meaning, not
+	needing (DifferentLine n 1) at the top level. Hence 1.5 bump.
+2022-01-03 v1.4.1
+	* Fix delta-in of open/close parentheses in AnnContext (@pepeiborra)
+2022-01-03 v1.4.0.1
+	* Add haddock docs to makeDeltaAst
+2022-01-03 v1.4
+	* Fix handling of AnnContext (@pepeiborra)
+	* Fix crashy bogus instances (@pepeiborra)
+	* Remove head.hackage overlay from cabal project file
+2021-11-23 v1.3
+	* Update for GHC 9.2.1 as released
+	* Introduce makeDeltaAst command to convert all EpaSpan's to equivalent EpaDelta versions
+2021-08-23 v1.2
+	* Remove types and functions from previous version, now obsolete
+2021-08-23 v1.1
+	* Add support for GHC 9.2 rc1, and this version drops support for
+	prior GHC versions.
+2021-02-24 v0.6.4
+	* Add support for GHC 9.0.1
+2021-02-01 v0.6.3.4
+	* Use env var to get ghc libdir by @jneira
+2020-11-11 v0.6.3.3
+	* Sort comments properly, ignoring SrcSpan's file by @zliu41
+2020-07-16 v0.6.3.2
+	* Add support for GHC 8.8.4
+2020-06-13 v0.6.3.1
+	* Always print "=>" in ConDecl (for GHC >= 8.6) by @zliu41
+2020-03-26 v0.6.3
+        * Support GHC 8.8.1, 8.8.2, 8.8.3, 8.10.1
+2019-08-28 v0.6.2
+        * Support GHC 8.8.1 (release candidate)
+2019-05-27 v0.6.1
+        * Support GHC 8.8 (alpha1)
+2019-03-01 v0.6
+        * Remove orphan MonadFail Identity instance
+	* MonadFail TransformT instance is defined unconditionally
+	* Generalise HasTransform (TransformT Identity) to
+	Monad m => HasTransform (TransformT m)
+	* Add hoistTransform function
+  The 0.6 changes are all thanks to @phadej
+2018-10-27 v0.5.8.2
+	* Support GHC 8.4.4 by selecting correct source directory
+2018-09-23 v0.5.8.1
+	* Sort out MonadFail usage for GHC 8.6.1
+2018-09-12 v0.5.8.0
+	* Disable use of .ghc.env files when parsing. By @lspitzner
+2018-08-11 v0.5.7.0
+	* Include support for GHC 8.6.1 beta 1
+2018-07-11 v0.5.7.0
+	* Include support for GHC 8.6.1 alpha 1
+2018-03-11 v0.5.6.1
+	* Relax base constraints so tests can configure with GHC 8.4.1
+2018-01-27 v0.5.6.0
+	* Support GHC 8.4 alpha2
+	* Include test examples for GHC 8.2
+	* Fix parseModuleFromString to correctly handle the sheband case (@lspitzner)
+2017-07-23 v0.5.5.0
+	* Support GHC 8.2.1
+2017-05-17 v0.5.4.0
+	* Support GHC 8.2 (rc2)
+2017-05-05 v0.5.3.1
+	* Fix bug roundtripping optional semicolons on if statements.
+2017-02-07 v0.5.3.0
+	* Support GHC 8.0.2
+	* Correct the logic around RigidLayout to function as originally
+	intended.
+	* Introduce Pretty module to add default annotations to a bare AST
+	fragment, so that it can be printed correctly via exactprint. In
+	this case, "correct" is defined as generating the same AST if
+	parsed again, it may not be beautiful layout.
+	* Expose some additional internal parsing options (@lspitzner)
+
+2016-07-24 v0.5.2.1
+	* Remove additional files from release tarball
+
+2016-07-24 v0.5.2
+	* Move annotations from the `RdrName` to `HsVar` and `PatVar` for
+	consistency.
+
+2016-06-03 v0.5.1.1
+	* Fix haddocks for GHC 8.0 (@phadej)
+	* Add test files for ghc710-only to dist tarball (#41)
+2016-06-02 v0.5.1.0
+	* Support for GHC 8.0.1
+	* Add graftT to the Transform module, courtesy of @xich
+	* Add semi-pure parsing function, courtesy of @lspitzner
+2015-12-13 v0.5.0.1
+	* Fix a bug (#34) where quasiquote values would not roundtrip.
+
+2015-11-21 v0.5
+	* Add new options to enable "rigid" layout rules. This makes the
+	annotations more rigid in the sense that if you move AST fragments around
+	it is more likely that their internal components will remain in the same
+	position relative to each other.
+
+	* Fix a bug where files failed to parse if the file started with comments.
+
+	* Fix a bug where "[e||" was turned into "[||"
+
+
+2015-11-15 v0.4.2
+	* Fix round tripping of arrow notation using ">-" and ">>-".
+2015-09-28 v0.4.1
+	* Revert removing cast from markLocated until further inspection in HaRe.
+2015-09-28 v0.4.0.0
+	* Rework HasDecls so that there are only instances for which it is
+	idempotent. Provide functions for managing an LHsBind which is not
+	idempotent, and performing general transformations on an AST
+	including FunBinds.
+	* Manage LHsDecl instances so that the Annotation always attaches
+	to the wrapped item, so that they can be seamlessly used in a top
+	level (wrapped) or local (unwrapped) context.
+	* Tweak transformations based on HaRe integration.
+	* This release supports the HaRe 8.0 release, which finally works
+	with GHC 7.10.2
+	* Rename `exactPrintWithAnns` to `exactPrint`. This will possibly
+	break earlier client libraries, but is a simple rename.
+	* Bring in semanticPrintM which allows wrapper functions to be
+	provided for the generated output, for use when emitting e.g. HTML
+	marked up source.
+
+2015-08-13 v0.3.1.1
+	* Add missing test files to sdist, closes #23
+
+2015-08-02 v0.3.1
+
+	* Mark LHS at the beginning of HsCase and HsIf expressions
+	* Mark trailing semi colons on ANN pragmas
+	* Correctly mark trailing semi colons distinctly from internal semicolons
+	* setPrecedingLinesDecl applies the setting to both the Decl and
+	  the item wrapped in the Decl.
+
+
+2015-07-20 v0.3
+	Substantial rework to manage changes introduced in GHC 7.10.2 rc2
+	and beyond.
+
+	Simplification of the core Annotation data type coupled with
+	simplification of the various phases, by @mpickering.
+
+	Introduction of initial Transform functions, driven by the needs
+	of HaRe [1] and apply-refact [2] for applying hlint hints. Both of
+	these are currently works in progress, and this module is likely
+	to change substantially in future releases.
+
+	Support for processing files making use of CPP.
+
+	Links
+	[1] https://github.com/alanz/HaRe/tree/wip
+	[2] https://github.com/mpickering/apply-refact
+
+2015-03-24 v0.2
+	This release contains a major rewrite of all internal modules.
+
+	The external interface has also changed significantly. A description is
+	omitted.
+
+	# Top-level changes
+	The most notable change is that the common structor of the modules known as
+	`ExactPrint` and `Annotate` has been factored out into a common module
+	(`Annotate`). The aforementioned modules are now known as `Delta` and
+	`Print` and contain functions to interpret this common structure.
+
+	The top level module `ExactPrint` now just reexports a consistent interface
+	from the base modules.
+
+	Introduced a new module `Lookup` which contains a mapping from AnnKeywordId
+	to their String representation.
+
+	# Internal Changes
+
+	`Annotate` contains all the information about which annotations appear on
+	each AST element. This is achieved by building up a syntax tree (using a
+	free monad) which can then be interpreted by programs requiring access to
+	this information.
+
+	# Layout compensation
+
+	The method which compensates for layout rules has been clarified.
+
+		1. When the Layout Flag is activated in `Annotate`, we mark
+	the current column as the start of the layout block.
+
+		2. This is important when we move to a new line. We take the offset at
+		that current point to be the baseline and calculate the correct next
+		position based on this.
+
+		3. This method is very general as one can think of a entire source file as
+		obeying layout rules where the offset is equal to zero.
+
+
+2015-03-11 v0.1.1.0
+	Handles indentation when the AST is edited
+	Major rework of internal monads by @mpickering
+2015-01-28 v0.1.0.1
+	Update cabal to prevent building with GHC 7.70,thanks @peti
+2015-01-24 v0.1.0.0
+	Initial release, for GHC 7.10 RC 2

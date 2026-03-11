@@ -1,0 +1,6 @@
+* #variable= 0 #constraint= 2 #soft= 1 mincost= 1 maxcost= 1 sumcost= 1
+* This is invalid according to the grammer of http://www.cril.univ-artois.fr/PB11/format.pdf ,
+* but we relax the grammar to allow it.
+soft: ;
+[1] >= 1;
+>= 0;

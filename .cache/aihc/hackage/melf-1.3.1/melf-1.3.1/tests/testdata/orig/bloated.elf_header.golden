@@ -1,0 +1,15 @@
+Class:      ELFCLASS32
+Data:       ELFDATA2LSB
+OSABI:      ELFOSABI_SYSV
+ABIVersion: 0
+Type:       ET_EXEC
+Machine:    EM_386
+Entry:      0x08048610
+PhOff:      0x00000034
+ShOff:      0x000019f0
+Flags:      0x00000000
+PhEntSize:  0x0020
+PhNum:      9
+ShEntSize:  0x0028
+ShNum:      31
+ShStrNdx:   ElfSectionIndex 28

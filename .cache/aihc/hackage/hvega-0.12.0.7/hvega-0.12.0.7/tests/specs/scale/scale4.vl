@@ -1,0 +1,65 @@
+{
+    "$schema": "https://vega.github.io/schema/vega-lite/v4.json",
+    "data": {
+        "values": [
+            {
+                "b": 28
+            },
+            {
+                "b": 55
+            },
+            {
+                "b": 43
+            },
+            {
+                "b": 91
+            },
+            {
+                "b": 81
+            },
+            {
+                "b": 53
+            },
+            {
+                "b": 19
+            },
+            {
+                "b": 87
+            },
+            {
+                "b": 52
+            }
+        ]
+    },
+    "encoding": {
+        "color": {
+            "field": "b",
+            "legend": {
+                "title": "Quantize"
+            },
+            "scale": {
+                "type": "quantize",
+                "zero": true
+            },
+            "type": "quantitative"
+        },
+        "size": {
+            "field": "b",
+            "scale": {
+                "type": "quantize"
+            },
+            "type": "quantitative"
+        },
+        "y": {
+            "axis": {
+                "domain": false,
+                "ticks": false,
+                "title": null
+            },
+            "field": "b",
+            "sort": null,
+            "type": "nominal"
+        }
+    },
+    "mark": "circle"
+}

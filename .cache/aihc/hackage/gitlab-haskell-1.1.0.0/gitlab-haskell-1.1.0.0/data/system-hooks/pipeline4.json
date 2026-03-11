@@ -1,0 +1,87 @@
+{
+  "object_kind": "pipeline",
+  "object_attributes": {
+    "id": 36096,
+    "iid": 1,
+    "name": null,
+    "ref": "master",
+    "tag": false,
+    "sha": "abcde",
+    "before_sha": "edcba",
+    "source": "push",
+    "status": "pending",
+    "detailed_status": "pending",
+    "stages": [
+      "test"
+    ],
+    "created_at": "2024-11-08 21:26:15 UTC",
+    "finished_at": null,
+    "duration": null,
+    "queued_duration": null,
+    "variables": [],
+    "url": "https://example.com/joe/proj-name/-/pipelines/36096"
+  },
+  "merge_request": null,
+  "user": {
+    "id": 2659,
+    "name": "Lad, Krishan",
+    "username": "joe",
+    "avatar_url": "https://example.com/uploads/-/system/user/avatar/2659/avatar.png",
+    "email": "[REDACTED]"
+  },
+  "project": {
+    "id": 25415,
+    "name": "F28SG - Lab 7",
+    "description": null,
+    "web_url": "https://example.com/joe/proj-name",
+    "avatar_url": null,
+    "git_ssh_url": "git@example.com:joe/proj-name.git",
+    "git_http_url": "https://example.com/joe/proj-name.git",
+    "namespace": "Joe",
+    "visibility_level": 0,
+    "path_with_namespace": "joe/proj-name",
+    "default_branch": "master",
+    "ci_config_path": null
+  },
+  "commit": {
+    "id": "abcde",
+    "message": "commit message",
+    "title": "08 NOV 2024 @ 21:20",
+    "timestamp": "2024-11-08T21:26:13+00:00",
+    "url": "https://example.com/joe/proj-name/-/commit/abcde",
+    "author": {
+      "name": "Joe",
+      "email": "joe@gmail.com"
+    }
+  },
+  "builds": [
+    {
+      "id": 51146,
+      "stage": "test",
+      "name": "junit",
+      "status": "pending",
+      "created_at": "2024-11-08 21:26:15 UTC",
+      "started_at": null,
+      "finished_at": null,
+      "duration": null,
+      "queued_duration": 0.328087189,
+      "failure_reason": null,
+      "when": "on_success",
+      "manual": false,
+      "allow_failure": false,
+      "user": {
+        "id": 2659,
+        "name": "Joe",
+        "username": "joe",
+        "avatar_url": "https://example.com/uploads/-/system/user/avatar/2659/avatar.png",
+        "email": "[REDACTED]"
+      },
+      "runner": null,
+      "artifacts_file": {
+        "filename": null,
+        "size": null
+      },
+      "environment": null
+    }
+  ]
+}

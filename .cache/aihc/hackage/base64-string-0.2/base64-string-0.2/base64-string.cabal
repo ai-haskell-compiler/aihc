@@ -1,0 +1,26 @@
+Name:               base64-string
+Version:            0.2
+License:            OtherLicense
+License-File:       COPYING
+Copyright:          Ian Lynagh, 2005, 2007
+Author:             Ian Lynagh
+Maintainer:         igloo@earth.li
+Stability:          experimental
+Homepage:           http://urchin.earth.li/~ian/cabal/base64-string/
+Synopsis:           Base64 implementation for String's.
+Description:
+    This Base64 implementation uses the characters
+        A-Z a-z 0-9 + /
+    along with
+        =
+    to signal the number of characters mod 3.
+    It is compliant with both PEM (RFC 989 / RFC 1421) and MIME (RFC 2045).
+Category:           Codec
+Build-Type:         Simple
+Tested-With:        GHC==6.6
+Build-Depends:      base >= 3 && < 5
+Extra-source-files: "BSD3", "GPL-2", "Test.hs"
+Exposed-modules:
+    Codec.Binary.Base64.String
+GHC-Options: -Wall
+

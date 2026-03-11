@@ -1,0 +1,23 @@
+{
+  "data": {
+    "repository": {
+      "refs": {
+        "pageInfo": {
+          "endCursor": "test value 1",
+          "hasNextPage": false
+        },
+        "edges": [
+          {
+            "cursor": "test cursor",
+            "node": {
+              "name": "test name",
+              "target": {
+                "__typename": "GitObject"
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,182 @@
+#
+# spec file for package HTF
+#
+# Copyright (c) 2020 SUSE LLC
+#
+# All modifications and additions to the file contributed by third parties
+# remain the property of their copyright owners, unless otherwise agreed
+# upon. The license for this file, and modifications and additions to the
+# file, is the same license as for the pristine package itself (unless the
+# license for the pristine package is not an Open Source License, in which
+# case the license is the MIT License). An "Open Source License" is a
+# license that conforms to the Open Source Definition (Version 1.9)
+# published by the Open Source Initiative.
+
+# Please submit bugfixes or comments via https://bugs.opensuse.org/
+#
+
+
+%global pkg_name HTF
+%global pkgver %{pkg_name}-%{version}
+
+%bcond_with tests
+Name:           %{pkg_name}
+Version:        0.13.2.2
+Release:        0
+Summary:        The Haskell Test Framework
+License:        LGPL-2.0-or-later
+URL:            https://hackage.haskell.org/package/%{name}
+Source0:        https://hackage.haskell.org/package/%{name}-%{version}/%{name}-%{version}.tar.gz
+ExcludeArch:    %{ix86}
+BuildRequires:  chrpath
+BuildRequires:  ghc-Cabal-devel
+BuildRequires:  ghc-Diff-devel
+BuildRequires:  ghc-Diff-prof
+BuildRequires:  ghc-HUnit-devel
+BuildRequires:  ghc-HUnit-prof
+BuildRequires:  ghc-QuickCheck-devel
+BuildRequires:  ghc-QuickCheck-prof
+BuildRequires:  ghc-aeson-devel
+BuildRequires:  ghc-aeson-prof
+BuildRequires:  ghc-array-devel
+BuildRequires:  ghc-array-prof
+BuildRequires:  ghc-base-devel
+BuildRequires:  ghc-base-prof
+BuildRequires:  ghc-base64-bytestring-devel
+BuildRequires:  ghc-base64-bytestring-prof
+BuildRequires:  ghc-bytestring-devel
+BuildRequires:  ghc-bytestring-prof
+BuildRequires:  ghc-containers-devel
+BuildRequires:  ghc-containers-prof
+BuildRequires:  ghc-cpphs-devel
+BuildRequires:  ghc-cpphs-prof
+BuildRequires:  ghc-directory-devel
+BuildRequires:  ghc-directory-prof
+BuildRequires:  ghc-haskell-src-devel
+BuildRequires:  ghc-haskell-src-prof
+BuildRequires:  ghc-lifted-base-devel
+BuildRequires:  ghc-lifted-base-prof
+BuildRequires:  ghc-monad-control-devel
+BuildRequires:  ghc-monad-control-prof
+BuildRequires:  ghc-mtl-devel
+BuildRequires:  ghc-mtl-prof
+BuildRequires:  ghc-old-time-devel
+BuildRequires:  ghc-old-time-prof
+BuildRequires:  ghc-pretty-devel
+BuildRequires:  ghc-pretty-prof
+BuildRequires:  ghc-process-devel
+BuildRequires:  ghc-process-prof
+BuildRequires:  ghc-random-devel
+BuildRequires:  ghc-random-prof
+BuildRequires:  ghc-regex-compat-devel
+BuildRequires:  ghc-regex-compat-prof
+BuildRequires:  ghc-rpm-macros
+BuildRequires:  ghc-text-devel
+BuildRequires:  ghc-text-prof
+BuildRequires:  ghc-time-devel
+BuildRequires:  ghc-time-prof
+BuildRequires:  ghc-unix-devel
+BuildRequires:  ghc-unix-prof
+BuildRequires:  ghc-vector-devel
+BuildRequires:  ghc-vector-prof
+BuildRequires:  ghc-xmlgen-devel
+BuildRequires:  ghc-xmlgen-prof
+%if %{with tests}
+BuildRequires:  ghc-aeson-pretty-devel
+BuildRequires:  ghc-aeson-pretty-prof
+BuildRequires:  ghc-filepath-devel
+BuildRequires:  ghc-filepath-prof
+BuildRequires:  ghc-template-haskell-devel
+BuildRequires:  ghc-template-haskell-prof
+BuildRequires:  ghc-temporary-devel
+BuildRequires:  ghc-temporary-prof
+BuildRequires:  ghc-unordered-containers-devel
+BuildRequires:  ghc-unordered-containers-prof
+%endif
+
+%description
+The Haskell Test Framework (/HTF/ for short) lets you define unit tests
+(<http://hunit.sourceforge.net>), QuickCheck properties
+(<http://www.cs.chalmers.se/~rjmh/QuickCheck/>), and black box tests in an easy
+and convenient way. HTF uses a custom preprocessor that collects test
+definitions automatically. Furthermore, the preprocessor allows HTF to report
+failing test cases with exact file name and line number information.
+Additionally, HTF tries to produce highly readable output for failing tests:
+for example, it colors and pretty prints expected and actual results and
+provides a diff between the two values.
+
+The documentation of the "Test.Framework.Tutorial" module provides a tutorial
+for HTF. There is also a slightly out-dated blog article
+(<http://factisresearch.blogspot.de/2011/10/new-version-of-htf-with-diffs-colors.html>)
+demonstrating HTF's coloring, pretty-printing and diff functionality.
+
+%package -n ghc-%{name}
+Summary:        Haskell %{name} library
+
+%description -n ghc-%{name}
+This package provides the Haskell %{name} shared library.
+
+%package -n ghc-%{name}-devel
+Summary:        Haskell %{name} library development files
+Requires:       ghc-%{name} = %{version}-%{release}
+Requires:       ghc-compiler = %{ghc_version}
+Requires(post): ghc-compiler = %{ghc_version}
+Requires(postun): ghc-compiler = %{ghc_version}
+
+%description -n ghc-%{name}-devel
+This package provides the Haskell %{name} library development files.
+
+%package -n ghc-%{pkg_name}-doc
+Summary:        Haskell %{pkg_name} library documentation
+BuildArch:      noarch
+Requires:       ghc-filesystem
+
+%description -n ghc-%{pkg_name}-doc
+This package provides the Haskell %{pkg_name} library documentation.
+
+
+%package -n ghc-%{pkg_name}-prof
+Summary:        Haskell %{pkg_name} profiling library
+Requires:       ghc-%{pkg_name}-devel = %{version}-%{release}
+Supplements:    (ghc-%{pkg_name}-devel and ghc-prof)
+
+%description -n ghc-%{pkg_name}-prof
+This package provides the Haskell %{pkg_name} profiling library.
+
+
+%prep
+%autosetup
+
+%build
+%ghc_lib_build
+
+%install
+%ghc_lib_install
+%ghc_fix_rpath %{pkg_name}-%{version}
+
+%check
+%cabal_test
+
+%post -n ghc-%{name}-devel
+%ghc_pkg_recache
+
+%postun -n ghc-%{name}-devel
+%ghc_pkg_recache
+
+%files
+%license LICENSE
+%doc ChangeLog README.md TODO.org
+%{_bindir}/htfpp
+
+%files -n ghc-%{name} -f ghc-%{name}.files
+%license LICENSE
+
+%files -n ghc-%{name}-devel -f ghc-%{name}-devel.files
+%doc ChangeLog README.md TODO.org
+
+%files -n ghc-%{pkg_name}-doc -f ghc-%{pkg_name}-doc.files
+%license LICENSE
+
+%files -n ghc-%{pkg_name}-prof -f ghc-%{pkg_name}-prof.files
+
+%changelog

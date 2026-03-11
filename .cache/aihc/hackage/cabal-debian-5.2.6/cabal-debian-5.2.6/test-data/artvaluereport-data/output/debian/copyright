@@ -1,0 +1,12 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: artvaluereport-data
+Upstream-Contact: David Fox <dsf@seereason.com>
+Source: https://hackage.haskell.org/package/artvaluereport-data
+
+Files: *
+Copyright: (c) 2008-2011, SeeReason Partners LLC
+License: AllRightsReserved
+
+Files: debian/*
+Copyright: held by the contributors mentioned in debian/changelog
+License: AllRightsReserved

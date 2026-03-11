@@ -1,0 +1,256 @@
+-- This file was automatically generated.
+{-# LANGUAGE CPP, ScopedTypeVariables, PatternSynonyms #-}
+module Graphics.GL.Ext.OES.TessellationShader (
+  -- * Extension Support
+    gl_OES_tessellation_shader
+
+  -- * GL_OES_tessellation_shader
+  , glPatchParameteriOES
+  , pattern GL_CCW
+  , pattern GL_CW
+  , pattern GL_EQUAL
+  , pattern GL_FRACTIONAL_EVEN_OES
+  , pattern GL_FRACTIONAL_ODD_OES
+  , pattern GL_ISOLINES_OES
+  , pattern GL_IS_PER_PATCH_OES
+  , pattern GL_MAX_COMBINED_TESS_CONTROL_UNIFORM_COMPONENTS_OES
+  , pattern GL_MAX_COMBINED_TESS_EVALUATION_UNIFORM_COMPONENTS_OES
+  , pattern GL_MAX_PATCH_VERTICES_OES
+  , pattern GL_MAX_TESS_CONTROL_ATOMIC_COUNTERS_OES
+  , pattern GL_MAX_TESS_CONTROL_ATOMIC_COUNTER_BUFFERS_OES
+  , pattern GL_MAX_TESS_CONTROL_IMAGE_UNIFORMS_OES
+  , pattern GL_MAX_TESS_CONTROL_INPUT_COMPONENTS_OES
+  , pattern GL_MAX_TESS_CONTROL_OUTPUT_COMPONENTS_OES
+  , pattern GL_MAX_TESS_CONTROL_SHADER_STORAGE_BLOCKS_OES
+  , pattern GL_MAX_TESS_CONTROL_TEXTURE_IMAGE_UNITS_OES
+  , pattern GL_MAX_TESS_CONTROL_TOTAL_OUTPUT_COMPONENTS_OES
+  , pattern GL_MAX_TESS_CONTROL_UNIFORM_BLOCKS_OES
+  , pattern GL_MAX_TESS_CONTROL_UNIFORM_COMPONENTS_OES
+  , pattern GL_MAX_TESS_EVALUATION_ATOMIC_COUNTERS_OES
+  , pattern GL_MAX_TESS_EVALUATION_ATOMIC_COUNTER_BUFFERS_OES
+  , pattern GL_MAX_TESS_EVALUATION_IMAGE_UNIFORMS_OES
+  , pattern GL_MAX_TESS_EVALUATION_INPUT_COMPONENTS_OES
+  , pattern GL_MAX_TESS_EVALUATION_OUTPUT_COMPONENTS_OES
+  , pattern GL_MAX_TESS_EVALUATION_SHADER_STORAGE_BLOCKS_OES
+  , pattern GL_MAX_TESS_EVALUATION_TEXTURE_IMAGE_UNITS_OES
+  , pattern GL_MAX_TESS_EVALUATION_UNIFORM_BLOCKS_OES
+  , pattern GL_MAX_TESS_EVALUATION_UNIFORM_COMPONENTS_OES
+  , pattern GL_MAX_TESS_GEN_LEVEL_OES
+  , pattern GL_MAX_TESS_PATCH_COMPONENTS_OES
+  , pattern GL_PATCHES_OES
+  , pattern GL_PATCH_VERTICES_OES
+  , pattern GL_PRIMITIVE_RESTART_FOR_PATCHES_SUPPORTED_OES
+  , pattern GL_QUADS_OES
+  , pattern GL_REFERENCED_BY_TESS_CONTROL_SHADER_OES
+  , pattern GL_REFERENCED_BY_TESS_EVALUATION_SHADER_OES
+  , pattern GL_TESS_CONTROL_OUTPUT_VERTICES_OES
+  , pattern GL_TESS_CONTROL_SHADER_BIT_OES
+  , pattern GL_TESS_CONTROL_SHADER_OES
+  , pattern GL_TESS_EVALUATION_SHADER_BIT_OES
+  , pattern GL_TESS_EVALUATION_SHADER_OES
+  , pattern GL_TESS_GEN_MODE_OES
+  , pattern GL_TESS_GEN_POINT_MODE_OES
+  , pattern GL_TESS_GEN_SPACING_OES
+  , pattern GL_TESS_GEN_VERTEX_ORDER_OES
+  , pattern GL_TRIANGLES
+) where
+
+import Control.Monad.IO.Class
+import Data.Set
+import Foreign.Ptr
+import Graphics.GL.Internal.FFI
+import Graphics.GL.Internal.Proc
+import Graphics.GL.Internal.Shared
+import Graphics.GL.Types
+import System.IO.Unsafe
+
+-- | Checks that the <https://www.khronos.org/registry/gles/extensions/OES/OES_tessellation_shader.txt GL_OES_tessellation_shader> extension is available.
+
+gl_OES_tessellation_shader :: Bool
+gl_OES_tessellation_shader = member "GL_OES_tessellation_shader" extensions
+{-# NOINLINE gl_OES_tessellation_shader #-}
+
+-- | Usage: @'glPatchParameteriOES' pname value@
+--
+-- This command is an alias for 'Graphics.GL.Internal.Shared.glPatchParameteri'.
+
+
+glPatchParameteriOES :: MonadIO m => GLenum -> GLint -> m ()
+glPatchParameteriOES = ffienumintIOV glPatchParameteriOESFunPtr
+
+glPatchParameteriOESFunPtr :: FunPtr (GLenum -> GLint -> IO ())
+glPatchParameteriOESFunPtr = unsafePerformIO (getProcAddress "glPatchParameteriOES")
+
+{-# NOINLINE glPatchParameteriOESFunPtr #-}
+
+pattern GL_FRACTIONAL_EVEN_OES  :: (Eq a, Num a) => a
+
+pattern GL_FRACTIONAL_EVEN_OES = 0x8E7C
+
+pattern GL_FRACTIONAL_ODD_OES  :: (Eq a, Num a) => a
+
+pattern GL_FRACTIONAL_ODD_OES = 0x8E7B
+
+pattern GL_ISOLINES_OES  :: (Eq a, Num a) => a
+
+pattern GL_ISOLINES_OES = 0x8E7A
+
+pattern GL_IS_PER_PATCH_OES  :: (Eq a, Num a) => a
+
+pattern GL_IS_PER_PATCH_OES = 0x92E7
+
+pattern GL_MAX_COMBINED_TESS_CONTROL_UNIFORM_COMPONENTS_OES  :: (Eq a, Num a) => a
+
+pattern GL_MAX_COMBINED_TESS_CONTROL_UNIFORM_COMPONENTS_OES = 0x8E1E
+
+pattern GL_MAX_COMBINED_TESS_EVALUATION_UNIFORM_COMPONENTS_OES  :: (Eq a, Num a) => a
+
+pattern GL_MAX_COMBINED_TESS_EVALUATION_UNIFORM_COMPONENTS_OES = 0x8E1F
+
+pattern GL_MAX_PATCH_VERTICES_OES  :: (Eq a, Num a) => a
+
+pattern GL_MAX_PATCH_VERTICES_OES = 0x8E7D
+
+pattern GL_MAX_TESS_CONTROL_ATOMIC_COUNTERS_OES  :: (Eq a, Num a) => a
+
+pattern GL_MAX_TESS_CONTROL_ATOMIC_COUNTERS_OES = 0x92D3
+
+pattern GL_MAX_TESS_CONTROL_ATOMIC_COUNTER_BUFFERS_OES  :: (Eq a, Num a) => a
+
+pattern GL_MAX_TESS_CONTROL_ATOMIC_COUNTER_BUFFERS_OES = 0x92CD
+
+pattern GL_MAX_TESS_CONTROL_IMAGE_UNIFORMS_OES  :: (Eq a, Num a) => a
+
+pattern GL_MAX_TESS_CONTROL_IMAGE_UNIFORMS_OES = 0x90CB
+
+pattern GL_MAX_TESS_CONTROL_INPUT_COMPONENTS_OES  :: (Eq a, Num a) => a
+
+pattern GL_MAX_TESS_CONTROL_INPUT_COMPONENTS_OES = 0x886C
+
+pattern GL_MAX_TESS_CONTROL_OUTPUT_COMPONENTS_OES  :: (Eq a, Num a) => a
+
+pattern GL_MAX_TESS_CONTROL_OUTPUT_COMPONENTS_OES = 0x8E83
+
+pattern GL_MAX_TESS_CONTROL_SHADER_STORAGE_BLOCKS_OES  :: (Eq a, Num a) => a
+
+pattern GL_MAX_TESS_CONTROL_SHADER_STORAGE_BLOCKS_OES = 0x90D8
+
+pattern GL_MAX_TESS_CONTROL_TEXTURE_IMAGE_UNITS_OES  :: (Eq a, Num a) => a
+
+pattern GL_MAX_TESS_CONTROL_TEXTURE_IMAGE_UNITS_OES = 0x8E81
+
+pattern GL_MAX_TESS_CONTROL_TOTAL_OUTPUT_COMPONENTS_OES  :: (Eq a, Num a) => a
+
+pattern GL_MAX_TESS_CONTROL_TOTAL_OUTPUT_COMPONENTS_OES = 0x8E85
+
+pattern GL_MAX_TESS_CONTROL_UNIFORM_BLOCKS_OES  :: (Eq a, Num a) => a
+
+pattern GL_MAX_TESS_CONTROL_UNIFORM_BLOCKS_OES = 0x8E89
+
+pattern GL_MAX_TESS_CONTROL_UNIFORM_COMPONENTS_OES  :: (Eq a, Num a) => a
+
+pattern GL_MAX_TESS_CONTROL_UNIFORM_COMPONENTS_OES = 0x8E7F
+
+pattern GL_MAX_TESS_EVALUATION_ATOMIC_COUNTERS_OES  :: (Eq a, Num a) => a
+
+pattern GL_MAX_TESS_EVALUATION_ATOMIC_COUNTERS_OES = 0x92D4
+
+pattern GL_MAX_TESS_EVALUATION_ATOMIC_COUNTER_BUFFERS_OES  :: (Eq a, Num a) => a
+
+pattern GL_MAX_TESS_EVALUATION_ATOMIC_COUNTER_BUFFERS_OES = 0x92CE
+
+pattern GL_MAX_TESS_EVALUATION_IMAGE_UNIFORMS_OES  :: (Eq a, Num a) => a
+
+pattern GL_MAX_TESS_EVALUATION_IMAGE_UNIFORMS_OES = 0x90CC
+
+pattern GL_MAX_TESS_EVALUATION_INPUT_COMPONENTS_OES  :: (Eq a, Num a) => a
+
+pattern GL_MAX_TESS_EVALUATION_INPUT_COMPONENTS_OES = 0x886D
+
+pattern GL_MAX_TESS_EVALUATION_OUTPUT_COMPONENTS_OES  :: (Eq a, Num a) => a
+
+pattern GL_MAX_TESS_EVALUATION_OUTPUT_COMPONENTS_OES = 0x8E86
+
+pattern GL_MAX_TESS_EVALUATION_SHADER_STORAGE_BLOCKS_OES  :: (Eq a, Num a) => a
+
+pattern GL_MAX_TESS_EVALUATION_SHADER_STORAGE_BLOCKS_OES = 0x90D9
+
+pattern GL_MAX_TESS_EVALUATION_TEXTURE_IMAGE_UNITS_OES  :: (Eq a, Num a) => a
+
+pattern GL_MAX_TESS_EVALUATION_TEXTURE_IMAGE_UNITS_OES = 0x8E82
+
+pattern GL_MAX_TESS_EVALUATION_UNIFORM_BLOCKS_OES  :: (Eq a, Num a) => a
+
+pattern GL_MAX_TESS_EVALUATION_UNIFORM_BLOCKS_OES = 0x8E8A
+
+pattern GL_MAX_TESS_EVALUATION_UNIFORM_COMPONENTS_OES  :: (Eq a, Num a) => a
+
+pattern GL_MAX_TESS_EVALUATION_UNIFORM_COMPONENTS_OES = 0x8E80
+
+pattern GL_MAX_TESS_GEN_LEVEL_OES  :: (Eq a, Num a) => a
+
+pattern GL_MAX_TESS_GEN_LEVEL_OES = 0x8E7E
+
+pattern GL_MAX_TESS_PATCH_COMPONENTS_OES  :: (Eq a, Num a) => a
+
+pattern GL_MAX_TESS_PATCH_COMPONENTS_OES = 0x8E84
+
+pattern GL_PATCHES_OES  :: (Eq a, Num a) => a
+
+pattern GL_PATCHES_OES = 0x000E
+
+pattern GL_PATCH_VERTICES_OES  :: (Eq a, Num a) => a
+
+pattern GL_PATCH_VERTICES_OES = 0x8E72
+
+pattern GL_PRIMITIVE_RESTART_FOR_PATCHES_SUPPORTED_OES  :: (Eq a, Num a) => a
+
+pattern GL_PRIMITIVE_RESTART_FOR_PATCHES_SUPPORTED_OES = 0x8221
+
+pattern GL_QUADS_OES  :: (Eq a, Num a) => a
+
+pattern GL_QUADS_OES = 0x0007
+
+pattern GL_REFERENCED_BY_TESS_CONTROL_SHADER_OES  :: (Eq a, Num a) => a
+
+pattern GL_REFERENCED_BY_TESS_CONTROL_SHADER_OES = 0x9307
+
+pattern GL_REFERENCED_BY_TESS_EVALUATION_SHADER_OES  :: (Eq a, Num a) => a
+
+pattern GL_REFERENCED_BY_TESS_EVALUATION_SHADER_OES = 0x9308
+
+pattern GL_TESS_CONTROL_OUTPUT_VERTICES_OES  :: (Eq a, Num a) => a
+
+pattern GL_TESS_CONTROL_OUTPUT_VERTICES_OES = 0x8E75
+
+pattern GL_TESS_CONTROL_SHADER_BIT_OES  :: (Eq a, Num a) => a
+
+pattern GL_TESS_CONTROL_SHADER_BIT_OES = 0x00000008
+
+pattern GL_TESS_CONTROL_SHADER_OES  :: (Eq a, Num a) => a
+
+pattern GL_TESS_CONTROL_SHADER_OES = 0x8E88
+
+pattern GL_TESS_EVALUATION_SHADER_BIT_OES  :: (Eq a, Num a) => a
+
+pattern GL_TESS_EVALUATION_SHADER_BIT_OES = 0x00000010
+
+pattern GL_TESS_EVALUATION_SHADER_OES  :: (Eq a, Num a) => a
+
+pattern GL_TESS_EVALUATION_SHADER_OES = 0x8E87
+
+pattern GL_TESS_GEN_MODE_OES  :: (Eq a, Num a) => a
+
+pattern GL_TESS_GEN_MODE_OES = 0x8E76
+
+pattern GL_TESS_GEN_POINT_MODE_OES  :: (Eq a, Num a) => a
+
+pattern GL_TESS_GEN_POINT_MODE_OES = 0x8E79
+
+pattern GL_TESS_GEN_SPACING_OES  :: (Eq a, Num a) => a
+
+pattern GL_TESS_GEN_SPACING_OES = 0x8E77
+
+pattern GL_TESS_GEN_VERTEX_ORDER_OES  :: (Eq a, Num a) => a
+
+pattern GL_TESS_GEN_VERTEX_ORDER_OES = 0x8E78

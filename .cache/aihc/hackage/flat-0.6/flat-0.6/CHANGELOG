@@ -1,0 +1,54 @@
+Significant and compatibility-breaking changes.
+
+
+Version 0.6:
+    - [**breaking**] Renamed Repr to AsBin and SizeOf to AsSize
+    - Faster AsBin implementation 
+    - Fixed AsSize implementation (SizeOf worked only for types with custom size implementation and returned max size, not actual size)
+
+Version 0.5.2:
+    - Fixed https://github.com/Quid2/flat/issues/28 that could cause an undetected overflow when decoding out of range Int/Word values
+    - Added UTF16Text and Data.ByteString.Short support for ghcjs
+    - Improved speed and accuracy of encoded Text size calculation (for encoding)
+    - [**breaking**] Removed `textBytes` from Flat.Encoder.Size (breaking but insignificant)
+
+Version 0.5:
+    - Compatibility with ghc 9.0.2 & 9.2.4 & 9.4.2
+    - Compatibility with text-2.0 (GHC)
+    - Fixed https://github.com/Quid2/flat/issues/23 that could cause an encoding failure for non byte aligned Arrays 
+    - Fixed https://github.com/Quid2/flat/pull/26 that could cause the decoder to read beyond the end of the decoding buffer (causing a SEGFAULT on ghcjs)
+    - Merged https://github.com/Quid2/flat/pull/22 - fails correctly on invalid UTF-8 text 
+    - Added a few ways to partially or incrementally decode values, see Flat.Repr and Flat.Decoder.Run.listTDecoder
+    - Moved strictDecoder from Flat.Decoder.Types to Flat.Decoder
+    - Removed Flat instance for Semigroup.Option from Flat.Instances.Base
+    - Moved overlapping/specialised Flat instance for [Char] to Flat.Instances.Extra
+    - Added a few extra functions
+
+Version 0.4.4:
+	- Added instances for Identity, Monoid.Dual/All/Any/Sum/Product/Alt, Semigroup.Min/Max/First/Last/Option 
+
+Version 0.4.2:
+	- Fixed links in README.md
+	- Added multiple stack.yaml files for different LTS
+
+Version 0.4:
+    - Compatibility with ghc 8.8.3
+	- Data.Seq.Seq is serialised as a List (previously was serialised as an Array)
+	- Changed namespace from Data.Flat to Flat
+	- Addtional Flat Instances for some common packages: array, base, bytestring, containers, dlist, text, unordered-containers, vector
+	- Additional doctests, with a static version that can run without ghci and therefore also under ghcjs/eta (run it with stack test :doc-static)
+	- Many minor changes
+
+Version 0.3.4:
+	- Redisegned Generics-based instance generation (Data.Flat.Class) to reduce compilation time and improve encoding and decoding performance
+	- Fixed GHCJS Double bug and tested GHCJS with full test suite
+
+Version 0.3.2:
+	- Tested with ghc 8.2.1
+	- Dropped dependencies on the 'cpu', 'derive' and 'tasty' packages to make it compatible with the Eta compiler (https://github.com/typelead/eta)
+
+Version 0.3:
+	- Removed 'flatStrict' and 'unflatStrict' (use 'flat' and 'unflat' instead that also encode/decode strictly)
+	- `unflatWith` now takes a decoder for the unpadded value (previously it expected a padded decoder) and decodes the padded value
+	- Added some decoding primitives
+	- Added Data.ByteString.Convert

@@ -1,0 +1,149 @@
+#
+# spec file for package persistent-mysql-haskell
+#
+# Copyright (c) 2020 SUSE LLC
+#
+# All modifications and additions to the file contributed by third parties
+# remain the property of their copyright owners, unless otherwise agreed
+# upon. The license for this file, and modifications and additions to the
+# file, is the same license as for the pristine package itself (unless the
+# license for the pristine package is not an Open Source License, in which
+# case the license is the MIT License). An "Open Source License" is a
+# license that conforms to the Open Source Definition (Version 1.9)
+# published by the Open Source Initiative.
+
+# Please submit bugfixes or comments via https://bugs.opensuse.org/
+#
+
+
+%global pkg_name persistent-mysql-haskell
+%global pkgver %{pkg_name}-%{version}
+
+Name:           %{pkg_name}
+Version:        0.3.6
+Release:        0
+Summary:        A pure haskell backend for the persistent library using MySQL database server
+License:        MIT
+URL:            https://hackage.haskell.org/package/%{name}
+Source0:        https://hackage.haskell.org/package/%{name}-%{version}/%{name}-%{version}.tar.gz
+ExcludeArch:    %{ix86}
+BuildRequires:  chrpath
+BuildRequires:  ghc-Cabal-devel
+BuildRequires:  ghc-aeson-devel
+BuildRequires:  ghc-aeson-prof
+BuildRequires:  ghc-base-devel
+BuildRequires:  ghc-base-prof
+BuildRequires:  ghc-bytestring-devel
+BuildRequires:  ghc-bytestring-prof
+BuildRequires:  ghc-conduit-devel
+BuildRequires:  ghc-conduit-prof
+BuildRequires:  ghc-containers-devel
+BuildRequires:  ghc-containers-prof
+BuildRequires:  ghc-io-streams-devel
+BuildRequires:  ghc-io-streams-prof
+BuildRequires:  ghc-monad-control-devel
+BuildRequires:  ghc-monad-control-prof
+BuildRequires:  ghc-monad-logger-devel
+BuildRequires:  ghc-monad-logger-prof
+BuildRequires:  ghc-mysql-haskell-devel
+BuildRequires:  ghc-mysql-haskell-prof
+BuildRequires:  ghc-network-devel
+BuildRequires:  ghc-network-prof
+BuildRequires:  ghc-persistent-devel
+BuildRequires:  ghc-persistent-prof
+BuildRequires:  ghc-persistent-template-devel
+BuildRequires:  ghc-persistent-template-prof
+BuildRequires:  ghc-resource-pool-devel
+BuildRequires:  ghc-resource-pool-prof
+BuildRequires:  ghc-resourcet-devel
+BuildRequires:  ghc-resourcet-prof
+BuildRequires:  ghc-rpm-macros
+BuildRequires:  ghc-text-devel
+BuildRequires:  ghc-text-prof
+BuildRequires:  ghc-time-devel
+BuildRequires:  ghc-time-prof
+BuildRequires:  ghc-tls-devel
+BuildRequires:  ghc-tls-prof
+BuildRequires:  ghc-transformers-devel
+BuildRequires:  ghc-transformers-prof
+
+%description
+This package contains a backend for persistent using the MySQL database server.
+Internally it uses the 'mysql-haskell' package in order to access the database.
+See README.md for more.
+
+This package supports only MySQL 5.1 and above. However, it has been tested
+only on MySQL 5.5. Only the InnoDB storage engine is officially supported.
+
+Known problems:
+
+* This package does not support statements inside other statements.
+
+%package -n ghc-%{name}
+Summary:        Haskell %{name} library
+
+%description -n ghc-%{name}
+This package provides the Haskell %{name} shared library.
+
+%package -n ghc-%{name}-devel
+Summary:        Haskell %{name} library development files
+Requires:       ghc-%{name} = %{version}-%{release}
+Requires:       ghc-compiler = %{ghc_version}
+Requires(post): ghc-compiler = %{ghc_version}
+Requires(postun): ghc-compiler = %{ghc_version}
+
+%description -n ghc-%{name}-devel
+This package provides the Haskell %{name} library development
+files.
+
+%package -n ghc-%{pkg_name}-doc
+Summary:        Haskell %{pkg_name} library documentation
+BuildArch:      noarch
+Requires:       ghc-filesystem
+
+%description -n ghc-%{pkg_name}-doc
+This package provides the Haskell %{pkg_name} library documentation.
+
+
+%package -n ghc-%{pkg_name}-prof
+Summary:        Haskell %{pkg_name} profiling library
+Requires:       ghc-%{pkg_name}-devel = %{version}-%{release}
+Supplements:    (ghc-%{pkg_name}-devel and ghc-prof)
+
+%description -n ghc-%{pkg_name}-prof
+This package provides the Haskell %{pkg_name} profiling library.
+
+
+%prep
+%autosetup
+
+%build
+%ghc_lib_build
+
+%install
+%ghc_lib_install
+%ghc_fix_rpath %{pkg_name}-%{version}
+
+%post -n ghc-%{name}-devel
+%ghc_pkg_recache
+
+%postun -n ghc-%{name}-devel
+%ghc_pkg_recache
+
+%files
+%license LICENSE
+%doc ChangeLog.md README.md
+%{_bindir}/persistent-mysql-haskell-example
+
+%files -n ghc-%{name} -f ghc-%{name}.files
+%license LICENSE
+
+%files -n ghc-%{name}-devel -f ghc-%{name}-devel.files
+%doc ChangeLog.md README.md
+
+%files -n ghc-%{pkg_name}-doc -f ghc-%{pkg_name}-doc.files
+%license LICENSE
+
+%files -n ghc-%{pkg_name}-prof -f ghc-%{pkg_name}-prof.files
+
+%changelog

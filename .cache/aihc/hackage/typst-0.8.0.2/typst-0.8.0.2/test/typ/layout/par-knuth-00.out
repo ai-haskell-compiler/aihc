@@ -1,0 +1,518 @@
+--- parse tree ---
+[ Code
+    "typ/layout/par-knuth-00.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/layout/par-knuth-00.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/layout/par-knuth-00.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Code
+    "typ/layout/par-knuth-00.typ"
+    ( line 2 , column 2 )
+    (Set
+       (Ident (Identifier "page"))
+       [ KeyValArg (Identifier "width") (Literal Auto)
+       , KeyValArg (Identifier "height") (Literal Auto)
+       ])
+, SoftBreak
+, Code
+    "typ/layout/par-knuth-00.typ"
+    ( line 3 , column 2 )
+    (Set
+       (Ident (Identifier "par"))
+       [ KeyValArg (Identifier "leading") (Literal (Numeric 4.0 Pt))
+       , KeyValArg (Identifier "justify") (Literal (Boolean True))
+       ])
+, SoftBreak
+, Code
+    "typ/layout/par-knuth-00.typ"
+    ( line 4 , column 2 )
+    (Set
+       (Ident (Identifier "text"))
+       [ KeyValArg
+           (Identifier "font") (Literal (String "New Computer Modern"))
+       ])
+, ParBreak
+, Code
+    "typ/layout/par-knuth-00.typ"
+    ( line 6 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "story")))
+       (Block
+          (Content
+             [ SoftBreak
+             , Text "In"
+             , Space
+             , Text "olden"
+             , Space
+             , Text "times"
+             , Space
+             , Text "when"
+             , Space
+             , Text "wishing"
+             , Space
+             , Text "still"
+             , Space
+             , Text "helped"
+             , Space
+             , Text "one,"
+             , Space
+             , Text "there"
+             , Space
+             , Text "lived"
+             , Space
+             , Text "a"
+             , Space
+             , Text "king"
+             , Space
+             , Text "whose"
+             , SoftBreak
+             , Text "daughters"
+             , Space
+             , Text "were"
+             , Space
+             , Text "all"
+             , Space
+             , Text "beautiful;"
+             , Space
+             , Text "and"
+             , Space
+             , Text "the"
+             , Space
+             , Text "youngest"
+             , Space
+             , Text "was"
+             , Space
+             , Text "so"
+             , Space
+             , Text "beautiful"
+             , Space
+             , Text "that"
+             , Space
+             , Text "the"
+             , Space
+             , Text "sun"
+             , SoftBreak
+             , Text "itself,"
+             , Space
+             , Text "which"
+             , Space
+             , Text "has"
+             , Space
+             , Text "seen"
+             , Space
+             , Text "so"
+             , Space
+             , Text "much,"
+             , Space
+             , Text "was"
+             , Space
+             , Text "astonished"
+             , Space
+             , Text "whenever"
+             , Space
+             , Text "it"
+             , Space
+             , Text "shone"
+             , Space
+             , Text "in"
+             , Space
+             , Text "her"
+             , Space
+             , Text "face"
+             , Text "."
+             , SoftBreak
+             , Text "Close"
+             , Space
+             , Text "by"
+             , Space
+             , Text "the"
+             , Space
+             , Text "king\8217s"
+             , Space
+             , Text "castle"
+             , Space
+             , Text "lay"
+             , Space
+             , Text "a"
+             , Space
+             , Text "great"
+             , Space
+             , Text "dark"
+             , Space
+             , Text "red,"
+             , Space
+             , Text "and"
+             , Space
+             , Text "under"
+             , Space
+             , Text "an"
+             , Space
+             , Text "old"
+             , Space
+             , Text "lime"
+             , Text "-"
+             , Text "tree"
+             , SoftBreak
+             , Text "in"
+             , Space
+             , Text "the"
+             , Space
+             , Text "red"
+             , Space
+             , Text "was"
+             , Space
+             , Text "a"
+             , Space
+             , Text "well,"
+             , Space
+             , Text "and"
+             , Space
+             , Text "when"
+             , Space
+             , Text "the"
+             , Space
+             , Text "day"
+             , Space
+             , Text "was"
+             , Space
+             , Text "very"
+             , Space
+             , Text "warm,"
+             , Space
+             , Text "the"
+             , Space
+             , Text "king\8217s"
+             , Space
+             , Text "child"
+             , SoftBreak
+             , Text "went"
+             , Space
+             , Text "out"
+             , Space
+             , Text "into"
+             , Space
+             , Text "the"
+             , Space
+             , Text "red"
+             , Space
+             , Text "and"
+             , Space
+             , Text "sat"
+             , Space
+             , Text "down"
+             , Space
+             , Text "by"
+             , Space
+             , Text "the"
+             , Space
+             , Text "side"
+             , Space
+             , Text "of"
+             , Space
+             , Text "the"
+             , Space
+             , Text "cool"
+             , Space
+             , Text "fountain;"
+             , Space
+             , Text "and"
+             , SoftBreak
+             , Text "when"
+             , Space
+             , Text "she"
+             , Space
+             , Text "was"
+             , Space
+             , Text "bored"
+             , Space
+             , Text "she"
+             , Space
+             , Text "took"
+             , Space
+             , Text "a"
+             , Space
+             , Text "golden"
+             , Space
+             , Text "ball,"
+             , Space
+             , Text "and"
+             , Space
+             , Text "threw"
+             , Space
+             , Text "it"
+             , Space
+             , Text "up"
+             , Space
+             , Text "on"
+             , Space
+             , Text "high"
+             , Space
+             , Text "and"
+             , Space
+             , Text "caught"
+             , SoftBreak
+             , Text "it;"
+             , Space
+             , Text "and"
+             , Space
+             , Text "this"
+             , Space
+             , Text "ball"
+             , Space
+             , Text "was"
+             , Space
+             , Text "her"
+             , Space
+             , Text "favorite"
+             , Space
+             , Text "plaything"
+             , Text "."
+             , ParBreak
+             ])))
+, ParBreak
+, Code
+    "typ/layout/par-knuth-00.typ"
+    ( line 17 , column 2 )
+    (LetFunc
+       (Identifier "column")
+       [ NormalParam (Identifier "title")
+       , NormalParam (Identifier "linebreaks")
+       , NormalParam (Identifier "hyphenate")
+       ]
+       (Block
+          (CodeBlock
+             [ FuncCall
+                 (Ident (Identifier "rect"))
+                 [ KeyValArg (Identifier "inset") (Literal (Numeric 0.0 Pt))
+                 , KeyValArg (Identifier "width") (Literal (Numeric 132.0 Pt))
+                 , KeyValArg
+                     (Identifier "fill")
+                     (FuncCall
+                        (Ident (Identifier "rgb")) [ NormalArg (Literal (String "eee")) ])
+                 , BlockArg
+                     [ SoftBreak
+                     , Code
+                         "typ/layout/par-knuth-00.typ"
+                         ( line 19 , column 6 )
+                         (Set
+                            (Ident (Identifier "par"))
+                            [ KeyValArg
+                                (Identifier "linebreaks") (Ident (Identifier "linebreaks"))
+                            ])
+                     , SoftBreak
+                     , Code
+                         "typ/layout/par-knuth-00.typ"
+                         ( line 20 , column 6 )
+                         (Set
+                            (Ident (Identifier "text"))
+                            [ KeyValArg
+                                (Identifier "hyphenate") (Ident (Identifier "hyphenate"))
+                            ])
+                     , SoftBreak
+                     , Code
+                         "typ/layout/par-knuth-00.typ"
+                         ( line 21 , column 6 )
+                         (FuncCall
+                            (Ident (Identifier "strong"))
+                            [ NormalArg (Ident (Identifier "title")) ])
+                     , Space
+                     , HardBreak
+                     , Code
+                         "typ/layout/par-knuth-00.typ"
+                         ( line 21 , column 23 )
+                         (Ident (Identifier "story"))
+                     , ParBreak
+                     ]
+                 ]
+             ])))
+, ParBreak
+, Code
+    "typ/layout/par-knuth-00.typ"
+    ( line 25 , column 2 )
+    (FuncCall
+       (Ident (Identifier "grid"))
+       [ KeyValArg (Identifier "columns") (Literal (Int 3))
+       , KeyValArg (Identifier "gutter") (Literal (Numeric 10.0 Pt))
+       , NormalArg
+           (FuncCall
+              (Ident (Identifier "column"))
+              [ NormalArg
+                  (Block
+                     (Content
+                        [ Text "Simple"
+                        , Space
+                        , Text "without"
+                        , Space
+                        , Text "hyphens"
+                        ]))
+              , NormalArg (Literal (String "simple"))
+              , NormalArg (Literal (Boolean False))
+              ])
+       , NormalArg
+           (FuncCall
+              (Ident (Identifier "column"))
+              [ NormalArg
+                  (Block
+                     (Content
+                        [ Text "Simple" , Space , Text "with" , Space , Text "hyphens" ]))
+              , NormalArg (Literal (String "simple"))
+              , NormalArg (Literal (Boolean True))
+              ])
+       , NormalArg
+           (FuncCall
+              (Ident (Identifier "column"))
+              [ NormalArg
+                  (Block
+                     (Content
+                        [ Text "Optimized"
+                        , Space
+                        , Text "with"
+                        , Space
+                        , Text "hyphens"
+                        ]))
+              , NormalArg (Literal (String "optimized"))
+              , NormalArg (Literal (Boolean True))
+              ])
+       ])
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 text(body: [
+]), 
+                 text(body: [
+]), 
+                 parbreak(), 
+                 parbreak(), 
+                 parbreak(), 
+                 grid(children: (rect(body: { text(body: [
+], 
+                                                   font: "New Computer Modern"), 
+                                              text(body: [
+], 
+                                                   font: "New Computer Modern"), 
+                                              text(body: [
+], 
+                                                   font: "New Computer Modern", 
+                                                   hyphenate: false), 
+                                              strong(body: text(body: [Simple without hyphens], 
+                                                                font: "New Computer Modern")), 
+                                              text(body: [ ], 
+                                                   font: "New Computer Modern", 
+                                                   hyphenate: false), 
+                                              linebreak(), 
+                                              text(body: [
+In olden times when wishing still helped one, there lived a king whose
+daughters were all beautiful; and the youngest was so beautiful that the sun
+itself, which has seen so much, was astonished whenever it shone in her face.
+Close by the king’s castle lay a great dark red, and under an old lime-tree
+in the red was a well, and when the day was very warm, the king’s child
+went out into the red and sat down by the side of the cool fountain; and
+when she was bored she took a golden ball, and threw it up on high and caught
+it; and this ball was her favorite plaything.], 
+                                                   font: "New Computer Modern"), 
+                                              parbreak(), 
+                                              parbreak() }, 
+                                      fill: rgb(5%,5%,5%,100%), 
+                                      inset: 0.0pt, 
+                                      width: 132.0pt), 
+                                 rect(body: { text(body: [
+], 
+                                                   font: "New Computer Modern"), 
+                                              text(body: [
+], 
+                                                   font: "New Computer Modern"), 
+                                              text(body: [
+], 
+                                                   font: "New Computer Modern", 
+                                                   hyphenate: true), 
+                                              strong(body: text(body: [Simple with hyphens], 
+                                                                font: "New Computer Modern")), 
+                                              text(body: [ ], 
+                                                   font: "New Computer Modern", 
+                                                   hyphenate: true), 
+                                              linebreak(), 
+                                              text(body: [
+In olden times when wishing still helped one, there lived a king whose
+daughters were all beautiful; and the youngest was so beautiful that the sun
+itself, which has seen so much, was astonished whenever it shone in her face.
+Close by the king’s castle lay a great dark red, and under an old lime-tree
+in the red was a well, and when the day was very warm, the king’s child
+went out into the red and sat down by the side of the cool fountain; and
+when she was bored she took a golden ball, and threw it up on high and caught
+it; and this ball was her favorite plaything.], 
+                                                   font: "New Computer Modern"), 
+                                              parbreak(), 
+                                              parbreak() }, 
+                                      fill: rgb(5%,5%,5%,100%), 
+                                      inset: 0.0pt, 
+                                      width: 132.0pt), 
+                                 rect(body: { text(body: [
+], 
+                                                   font: "New Computer Modern"), 
+                                              text(body: [
+], 
+                                                   font: "New Computer Modern"), 
+                                              text(body: [
+], 
+                                                   font: "New Computer Modern", 
+                                                   hyphenate: true), 
+                                              strong(body: text(body: [Optimized with hyphens], 
+                                                                font: "New Computer Modern")), 
+                                              text(body: [ ], 
+                                                   font: "New Computer Modern", 
+                                                   hyphenate: true), 
+                                              linebreak(), 
+                                              text(body: [
+In olden times when wishing still helped one, there lived a king whose
+daughters were all beautiful; and the youngest was so beautiful that the sun
+itself, which has seen so much, was astonished whenever it shone in her face.
+Close by the king’s castle lay a great dark red, and under an old lime-tree
+in the red was a well, and when the day was very warm, the king’s child
+went out into the red and sat down by the side of the cool fountain; and
+when she was bored she took a golden ball, and threw it up on high and caught
+it; and this ball was her favorite plaything.], 
+                                                   font: "New Computer Modern"), 
+                                              parbreak(), 
+                                              parbreak() }, 
+                                      fill: rgb(5%,5%,5%,100%), 
+                                      inset: 0.0pt, 
+                                      width: 132.0pt)), 
+                      columns: 3, 
+                      gutter: 10.0pt), 
+                 parbreak() })

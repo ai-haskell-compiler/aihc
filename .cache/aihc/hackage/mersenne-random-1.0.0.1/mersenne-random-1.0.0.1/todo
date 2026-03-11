@@ -1,0 +1,28 @@
+
+-- support mulitple generators
+
+    Want to save the state, and later continue the generation.
+    In the case of mt19937ar.c, if one saves mt[N] (624 words) and the
+    counter mti (1 word), then one can continue the computation by loading
+    these values.
+
+    * too much copying...
+    * supporting multiple, impure generators is possible though.
+
+
+-- Also provide a RandomGen instance
+
+-- eager evaluation
+    -- fill arrays in chunks
+    -- possible api for this?
+
+-- support fast range bounds
+    -- too slow on haskell side currently.
+
+-- statistical correctness, DieHard suite.
+    -- too complex.
+
+-- coverage tests
+    -- fixed in head.
+
+-- move to .Unsafe

@@ -1,0 +1,15 @@
+<?xml version="1.0"?>
+<entry xmlns="http://www.w3.org/2005/Atom"
+  xmlns:media="http://search.yahoo.com/mrss/"
+  xmlns:yt="http://gdata.youtube.com/schemas/2007">
+  <media:group>
+    <media:title type="plain">TITLE</media:title>
+    <media:description type="plain">
+DESCRIPTION
+    </media:description>
+    <media:category
+      scheme="http://gdata.youtube.com/schemas/2007/categories.cat">CATEGORY
+    </media:category>
+    <media:keywords>TAGS</media:keywords>
+  </media:group>
+</entry>

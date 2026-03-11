@@ -1,0 +1,81 @@
+install: use YEAR/MONTH subdirs (but how to re-use later?)
+
+- build-times command a la buildlog-sizes
+
+- list rpms
+- download command
+
+- query option for (nth) previous build etc
+
+use koji --profile !
+
+'tasks' lists too many tasks for package
+- eg koji-tool tasks -l2 ghc9.2 -a x86_64 -m buildarch
+
+# hubs
+- hub configurations
+- determine urls for logs etc by parsing html
+
+# misc
+- api-version command
+- swap '-M' (--mine) and '-m' (--method) ?
+- support checkout.log
+
+# install
+- autodetect nvr
+- --nodeps
+- --deps
+- --srpm
+- --exclude vs --except
+- tags
+- exclude garbage collected builds
+- common special cases (with large number of subpackages)
+  - eg install ghc -x '*prof' -x '*doc' -x compiler-default -x hadrian
+    - or install ghc -p '*-devel' -p compiler -p ghc
+
+# Queries
+- TUI
+- --short option
+- --active or state filter
+
+# find
+- shell
+
+## tasks
+- determine username for non-Fedora
+- different hubs put builds in different locations
+- html output
+- --rootlog
+- maybe smaller number as buildid and larger as taskid
+
+## builds
+- --show-tags
+
+# buildlog-sizes/progress
+- combine
+- cache final sizes
+
+# progress
+- accept task or build url
+- cache and compare sizes with previous build(s)
+- estimate task/build ETA
+- newrepo tasks (createrepo.log)
+
+- show the build duration
+- support builds as well as tasks
+- option to order by log size
+- % of previous build (or finished tasks)
+- mbs urls?
+- average build times? (cache or separate tool?)
+
+- pick up user's new builds
+
+- screen mode inplace tui
+
+# install
+- put package lists into Set's
+
+# other
+- list binary packages (install does this, but not obvious)
+- diff build command
+- diff root.log

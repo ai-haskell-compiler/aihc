@@ -1,0 +1,19 @@
+- modules:
+  - {name: Restricted.Module, within: []}
+  - {name: Restricted.Module.Message, within: [], message: "Custom message"}
+  - {name: Restricted.Module.BadIdents, badidents: ['bad']}
+  - {name: Restricted.Module.OnlyIdents, only: ['good']}
+
+- functions:
+  - {name: restricted, within: []}
+  - {name: restrictedMessage, within: [], message: "Custom message"}
+
+- extensions:
+  - {name: DeriveFunctor, within: []}
+  - {name: DeriveTraversable, within: [], message: "Custom message"}
+
+
+# Test https://github.com/ndmitchell/hlint/issues/766
+- warn:
+    lhs: "[hamlet| |]"
+    rhs: "mempty"

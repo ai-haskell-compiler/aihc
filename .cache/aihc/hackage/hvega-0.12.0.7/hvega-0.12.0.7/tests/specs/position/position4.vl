@@ -1,0 +1,16 @@
+{
+    "$schema": "https://vega.github.io/schema/vega-lite/v4.json",
+    "data": {
+        "values": [
+            {
+                "empty": 0
+            }
+        ]
+    },
+    "mark": {
+        "type": "bar",
+        "x": 150,
+        "y": 150,
+        "y2": 200
+    }
+}

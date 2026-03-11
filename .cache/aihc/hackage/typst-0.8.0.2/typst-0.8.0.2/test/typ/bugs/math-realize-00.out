@@ -1,0 +1,240 @@
+--- parse tree ---
+[ Code
+    "typ/bugs/math-realize-00.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/bugs/math-realize-00.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/bugs/math-realize-00.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Code
+    "typ/bugs/math-realize-00.typ"
+    ( line 2 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "my")))
+       (Block
+          (Content
+             [ Equation
+                 False
+                 [ Code
+                     "typ/bugs/math-realize-00.typ"
+                     ( line 2 , column 12 )
+                     (Ident (Identifier "pi"))
+                 ]
+             ])))
+, SoftBreak
+, Code
+    "typ/bugs/math-realize-00.typ"
+    ( line 3 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "f1")))
+       (FuncCall
+          (Ident (Identifier "box"))
+          [ KeyValArg (Identifier "baseline") (Literal (Numeric 10.0 Pt))
+          , NormalArg (Block (Content [ Text "f" ]))
+          ]))
+, SoftBreak
+, Code
+    "typ/bugs/math-realize-00.typ"
+    ( line 4 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "f2")))
+       (FuncCall
+          (Ident (Identifier "style"))
+          [ NormalArg
+              (FuncExpr
+                 [ NormalParam (Identifier "sty") ] (Ident (Identifier "f1")))
+          ]))
+, SoftBreak
+, Code
+    "typ/bugs/math-realize-00.typ"
+    ( line 5 , column 2 )
+    (Show
+       (Just
+          (FieldAccess
+             (Ident (Identifier "vec")) (Ident (Identifier "math"))))
+       (Block (Content [ Text "nope" ])))
+, ParBreak
+, Equation
+    True
+    [ Code
+        "typ/bugs/math-realize-00.typ"
+        ( line 7 , column 3 )
+        (Ident (Identifier "pi"))
+    , Text "a"
+    ]
+, SoftBreak
+, Equation
+    True
+    [ Code
+        "typ/bugs/math-realize-00.typ"
+        ( line 8 , column 3 )
+        (Ident (Identifier "my"))
+    , Text "a"
+    ]
+, SoftBreak
+, Equation
+    True
+    [ Text "1"
+    , Text "+"
+    , Code
+        "typ/bugs/math-realize-00.typ"
+        ( line 9 , column 7 )
+        (FuncCall
+           (Ident (Identifier "sqrt"))
+           [ BlockArg [ MFrac (Text "x") (Text "2") ] ])
+    , Text "+"
+    , Code
+        "typ/bugs/math-realize-00.typ"
+        ( line 9 , column 19 )
+        (FuncCall
+           (Ident (Identifier "sqrt"))
+           [ NormalArg
+               (FuncCall
+                  (Ident (Identifier "hide"))
+                  [ NormalArg
+                      (Block
+                         (Content [ Equation False [ MFrac (Text "x") (Text "2") ] ]))
+                  ])
+           ])
+    ]
+, SoftBreak
+, Equation
+    True
+    [ Text "a"
+    , Text "x"
+    , Code
+        "typ/bugs/math-realize-00.typ"
+        ( line 10 , column 8 )
+        (FuncCall
+           (Ident (Identifier "link"))
+           [ NormalArg (Literal (String "url"))
+           , NormalArg
+               (Block (Content [ Equation False [ Text "+" , Text "b" ] ]))
+           ])
+    ]
+, SoftBreak
+, Equation
+    True
+    [ Text "f"
+    , Code
+        "typ/bugs/math-realize-00.typ"
+        ( line 11 , column 5 )
+        (Ident (Identifier "f1"))
+    , Code
+        "typ/bugs/math-realize-00.typ"
+        ( line 11 , column 8 )
+        (Ident (Identifier "f2"))
+    ]
+, SoftBreak
+, Equation
+    True
+    [ Code
+        "typ/bugs/math-realize-00.typ"
+        ( line 12 , column 3 )
+        (FuncCall
+           (Ident (Identifier "vec"))
+           [ BlockArg [ Text "1" ] , BlockArg [ Text "2" ] ])
+    , Code
+        "typ/bugs/math-realize-00.typ"
+        ( line 12 , column 12 )
+        (Ident (Identifier "convolve"))
+    , Text "2"
+    ]
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 text(body: [
+]), 
+                 text(body: [
+]), 
+                 text(body: [
+]), 
+                 parbreak(), 
+                 math.equation(block: true, 
+                               body: { text(body: [π]), 
+                                       text(body: [a]) }, 
+                               numbering: none), 
+                 text(body: [
+]), 
+                 math.equation(block: true, 
+                               body: { math.equation(block: false, 
+                                                     body: text(body: [π]), 
+                                                     numbering: none), 
+                                       text(body: [a]) }, 
+                               numbering: none), 
+                 text(body: [
+]), 
+                 math.equation(block: true, 
+                               body: { text(body: [1]), 
+                                       text(body: [+]), 
+                                       math.sqrt(radicand: math.frac(denom: text(body: [2]), 
+                                                                     num: text(body: [x]))), 
+                                       text(body: [+]), 
+                                       math.sqrt(radicand: hide(body: math.equation(block: false, 
+                                                                                    body: math.frac(denom: text(body: [2]), 
+                                                                                                    num: text(body: [x])), 
+                                                                                    numbering: none))) }, 
+                               numbering: none), 
+                 text(body: [
+]), 
+                 math.equation(block: true, 
+                               body: { text(body: [a]), 
+                                       text(body: [x]), 
+                                       link(body: math.equation(block: false, 
+                                                                body: { text(body: [+]), 
+                                                                        text(body: [b]) }, 
+                                                                numbering: none), 
+                                            dest: "url") }, 
+                               numbering: none), 
+                 text(body: [
+]), 
+                 math.equation(block: true, 
+                               body: { text(body: [f]), 
+                                       box(baseline: 10.0pt, 
+                                           body: text(body: [f])), 
+                                       box(baseline: 10.0pt, 
+                                           body: text(body: [f])) }, 
+                               numbering: none), 
+                 text(body: [
+]), 
+                 math.equation(block: true, 
+                               body: { text(body: [nope]), 
+                                       text(body: [∗]), 
+                                       text(body: [2]) }, 
+                               numbering: none), 
+                 parbreak() })

@@ -1,0 +1,47 @@
+map length (tiers :: [[ String ]])  =  [1,1,2,4,8,16,...]
+
+length (list :: [ String ])  =  Infinity
+
+allUnique (list :: [ String ])  =  True
+
+ratioRepetitions (list :: [ String ])  =  0 % 1
+
+tiers :: [String]  =
+  [ [""]
+  , ["a"]
+  , [ "aa"
+    , " "
+    ]
+  , [ "aaa"
+    , "a "
+    , " a"
+    , "b"
+    ]
+  , [ "aaaa"
+    , "aa "
+    , "a a"
+    , "ab"
+    , " aa"
+    , "  "
+    , "ba"
+    , "A"
+    ]
+  , [ "aaaaa"
+    , "aaa "
+    , "aa a"
+    , "aab"
+    , "a aa"
+    , "a  "
+    , "aba"
+    , "aA"
+    , " aaa"
+    , " a "
+    , "  a"
+    , " b"
+    , "baa"
+    , "b "
+    , "Aa"
+    , "c"
+    ]
+  , ...
+  ]

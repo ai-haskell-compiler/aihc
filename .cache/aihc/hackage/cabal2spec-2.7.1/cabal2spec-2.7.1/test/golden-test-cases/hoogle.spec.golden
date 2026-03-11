@@ -1,0 +1,197 @@
+#
+# spec file for package hoogle
+#
+# Copyright (c) 2020 SUSE LLC
+#
+# All modifications and additions to the file contributed by third parties
+# remain the property of their copyright owners, unless otherwise agreed
+# upon. The license for this file, and modifications and additions to the
+# file, is the same license as for the pristine package itself (unless the
+# license for the pristine package is not an Open Source License, in which
+# case the license is the MIT License). An "Open Source License" is a
+# license that conforms to the Open Source Definition (Version 1.9)
+# published by the Open Source Initiative.
+
+# Please submit bugfixes or comments via https://bugs.opensuse.org/
+#
+
+
+%global pkg_name hoogle
+%global pkgver %{pkg_name}-%{version}
+
+Name:           %{pkg_name}
+Version:        5.0.14
+Release:        0
+Summary:        Haskell API Search
+License:        BSD-3-Clause
+URL:            https://hackage.haskell.org/package/%{name}
+Source0:        https://hackage.haskell.org/package/%{name}-%{version}/%{name}-%{version}.tar.gz
+ExcludeArch:    %{ix86}
+BuildRequires:  chrpath
+BuildRequires:  ghc-Cabal-devel
+BuildRequires:  ghc-QuickCheck-devel
+BuildRequires:  ghc-QuickCheck-prof
+BuildRequires:  ghc-aeson-devel
+BuildRequires:  ghc-aeson-prof
+BuildRequires:  ghc-base-devel
+BuildRequires:  ghc-base-prof
+BuildRequires:  ghc-binary-devel
+BuildRequires:  ghc-binary-prof
+BuildRequires:  ghc-bytestring-devel
+BuildRequires:  ghc-bytestring-prof
+BuildRequires:  ghc-cmdargs-devel
+BuildRequires:  ghc-cmdargs-prof
+BuildRequires:  ghc-conduit-devel
+BuildRequires:  ghc-conduit-extra-devel
+BuildRequires:  ghc-conduit-extra-prof
+BuildRequires:  ghc-conduit-prof
+BuildRequires:  ghc-connection-devel
+BuildRequires:  ghc-connection-prof
+BuildRequires:  ghc-containers-devel
+BuildRequires:  ghc-containers-prof
+BuildRequires:  ghc-deepseq-devel
+BuildRequires:  ghc-deepseq-prof
+BuildRequires:  ghc-directory-devel
+BuildRequires:  ghc-directory-prof
+BuildRequires:  ghc-extra-devel
+BuildRequires:  ghc-extra-prof
+BuildRequires:  ghc-filepath-devel
+BuildRequires:  ghc-filepath-prof
+BuildRequires:  ghc-haskell-src-exts-devel
+BuildRequires:  ghc-haskell-src-exts-prof
+BuildRequires:  ghc-http-conduit-devel
+BuildRequires:  ghc-http-conduit-prof
+BuildRequires:  ghc-http-types-devel
+BuildRequires:  ghc-http-types-prof
+BuildRequires:  ghc-js-flot-devel
+BuildRequires:  ghc-js-flot-prof
+BuildRequires:  ghc-js-jquery-devel
+BuildRequires:  ghc-js-jquery-prof
+BuildRequires:  ghc-mmap-devel
+BuildRequires:  ghc-mmap-prof
+BuildRequires:  ghc-network-devel
+BuildRequires:  ghc-network-prof
+BuildRequires:  ghc-network-uri-devel
+BuildRequires:  ghc-network-uri-prof
+BuildRequires:  ghc-old-locale-devel
+BuildRequires:  ghc-old-locale-prof
+BuildRequires:  ghc-process-devel
+BuildRequires:  ghc-process-extras-devel
+BuildRequires:  ghc-process-extras-prof
+BuildRequires:  ghc-process-prof
+BuildRequires:  ghc-resourcet-devel
+BuildRequires:  ghc-resourcet-prof
+BuildRequires:  ghc-rpm-macros
+BuildRequires:  ghc-storable-tuple-devel
+BuildRequires:  ghc-storable-tuple-prof
+BuildRequires:  ghc-tar-devel
+BuildRequires:  ghc-tar-prof
+BuildRequires:  ghc-template-haskell-devel
+BuildRequires:  ghc-template-haskell-prof
+BuildRequires:  ghc-text-devel
+BuildRequires:  ghc-text-prof
+BuildRequires:  ghc-time-devel
+BuildRequires:  ghc-time-prof
+BuildRequires:  ghc-transformers-devel
+BuildRequires:  ghc-transformers-prof
+BuildRequires:  ghc-uniplate-devel
+BuildRequires:  ghc-uniplate-prof
+BuildRequires:  ghc-utf8-string-devel
+BuildRequires:  ghc-utf8-string-prof
+BuildRequires:  ghc-vector-devel
+BuildRequires:  ghc-vector-prof
+BuildRequires:  ghc-wai-devel
+BuildRequires:  ghc-wai-logger-devel
+BuildRequires:  ghc-wai-logger-prof
+BuildRequires:  ghc-wai-prof
+BuildRequires:  ghc-warp-devel
+BuildRequires:  ghc-warp-prof
+BuildRequires:  ghc-warp-tls-devel
+BuildRequires:  ghc-warp-tls-prof
+BuildRequires:  ghc-zlib-devel
+BuildRequires:  ghc-zlib-prof
+
+%description
+Hoogle is a Haskell API search engine, which allows you to search many standard
+Haskell libraries by either function name, or by approximate type signature.
+
+%package -n ghc-%{name}
+Summary:        Haskell %{name} library
+
+%description -n ghc-%{name}
+This package provides the Haskell %{name} shared library.
+
+%package -n ghc-%{name}-devel
+Summary:        Haskell %{name} library development files
+Requires:       ghc-%{name} = %{version}-%{release}
+Requires:       ghc-compiler = %{ghc_version}
+Requires(post): ghc-compiler = %{ghc_version}
+Requires(postun): ghc-compiler = %{ghc_version}
+
+%description -n ghc-%{name}-devel
+This package provides the Haskell %{name} library development files.
+
+%package -n ghc-%{pkg_name}-doc
+Summary:        Haskell %{pkg_name} library documentation
+BuildArch:      noarch
+Requires:       ghc-filesystem
+
+%description -n ghc-%{pkg_name}-doc
+This package provides the Haskell %{pkg_name} library documentation.
+
+
+%package -n ghc-%{pkg_name}-prof
+Summary:        Haskell %{pkg_name} profiling library
+Requires:       ghc-%{pkg_name}-devel = %{version}-%{release}
+Supplements:    (ghc-%{pkg_name}-devel and ghc-prof)
+
+%description -n ghc-%{pkg_name}-prof
+This package provides the Haskell %{pkg_name} profiling library.
+
+
+%prep
+%autosetup
+
+%build
+%ghc_lib_build
+
+%install
+%ghc_lib_install
+%ghc_fix_rpath %{pkg_name}-%{version}
+
+%post -n ghc-%{name}-devel
+%ghc_pkg_recache
+
+%postun -n ghc-%{name}-devel
+%ghc_pkg_recache
+
+%files
+%license LICENSE
+%doc CHANGES.txt README.md
+%{_bindir}/%{name}
+%dir %{_datadir}/%{name}-%{version}
+%dir %{_datadir}/%{name}-%{version}/html
+%dir %{_datadir}/%{name}-%{version}/html/plugin
+%dir %{_datadir}/%{name}-%{version}/misc
+%{_datadir}/%{name}-%{version}/html/*.css
+%{_datadir}/%{name}-%{version}/html/*.html
+%{_datadir}/%{name}-%{version}/html/*.js
+%{_datadir}/%{name}-%{version}/html/*.png
+%{_datadir}/%{name}-%{version}/html/*.xml
+%{_datadir}/%{name}-%{version}/html/plugin/*.css
+%{_datadir}/%{name}-%{version}/html/plugin/*.js
+%{_datadir}/%{name}-%{version}/html/plugin/*.png
+%{_datadir}/%{name}-%{version}/misc/settings.txt
+
+%files -n ghc-%{name} -f ghc-%{name}.files
+%license LICENSE
+
+%files -n ghc-%{name}-devel -f ghc-%{name}-devel.files
+%doc CHANGES.txt README.md
+
+%files -n ghc-%{pkg_name}-doc -f ghc-%{pkg_name}-doc.files
+%license LICENSE
+
+%files -n ghc-%{pkg_name}-prof -f ghc-%{pkg_name}-prof.files
+
+%changelog

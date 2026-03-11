@@ -1,0 +1,94 @@
+insert :: Int -> [Int] -> [Int]
+-- testing 4 combinations of argument values
+-- pruning with 4/4 rules
+-- 2 candidates of size 1
+-- 0 candidates of size 2
+-- 2 candidates of size 3
+-- 0 candidates of size 4
+-- 2 candidates of size 5
+-- 2 candidates of size 6
+-- 2 candidates of size 7
+-- 0 candidates of size 8
+-- 2 candidates of size 9
+-- 0 candidates of size 10
+-- 2 candidates of size 11
+-- 0 candidates of size 12
+-- 6 candidates of size 13
+-- 0 candidates of size 14
+-- 22 candidates of size 15
+-- 0 candidates of size 16
+-- 22 candidates of size 17
+-- tested 45 candidates
+insert x []  =  [x]
+insert x (y:xs)
+  | y <= x  =  y:insert x xs
+  | otherwise  =  x:y:xs
+
+sort :: [Int] -> [Int]
+-- testing 9 combinations of argument values
+-- pruning with 0/0 rules
+-- 2 candidates of size 1
+-- 0 candidates of size 2
+-- 0 candidates of size 3
+-- 0 candidates of size 4
+-- 1 candidates of size 5
+-- tested 3 candidates
+sort []  =  []
+sort (x:xs)  =  insert x (sort xs)
+
+sort :: [Int] -> [Int]
+-- testing 9 combinations of argument values
+-- pruning with 1/2 rules
+-- 2 candidates of size 1
+-- 0 candidates of size 2
+-- 0 candidates of size 3
+-- 2 candidates of size 4
+-- tested 4 candidates
+sort  =  foldr insert []
+
+merge :: [Int] -> [Int] -> [Int]
+-- testing 13 combinations of argument values
+-- pruning with 4/4 rules
+-- 3 candidates of size 1
+-- 0 candidates of size 2
+-- 0 candidates of size 3
+-- 10 candidates of size 4
+-- 0 candidates of size 5
+-- 6 candidates of size 6
+-- 26 candidates of size 7
+-- 6 candidates of size 8
+-- 67 candidates of size 9
+-- 38 candidates of size 10
+-- 152 candidates of size 11
+-- 158 candidates of size 12
+-- 296 candidates of size 13
+-- 718 candidates of size 14
+-- 560 candidates of size 15
+-- 3728 candidates of size 16
+-- tested 5768 candidates
+merge  =  undefined  -- search exhausted
+-- could not find implementation using only
+-- [], (:), (<=), and guarded equations
+-- consider increasing target/maxSize or refining the ingredients
+
+qsort :: [Int] -> [Int]
+-- testing 9 combinations of argument values
+-- pruning with 8/8 rules
+-- 2 candidates of size 1
+-- 0 candidates of size 2
+-- 1 candidates of size 3
+-- 0 candidates of size 4
+-- 2 candidates of size 5
+-- 3 candidates of size 6
+-- 4 candidates of size 7
+-- 10 candidates of size 8
+-- 18 candidates of size 9
+-- 39 candidates of size 10
+-- 87 candidates of size 11
+-- 165 candidates of size 12
+-- 409 candidates of size 13
+-- 809 candidates of size 14
+-- tested 1377 candidates
+qsort []  =  []
+qsort (x:xs)  =  filter (x >) (qsort xs) ++ (x:filter (x <=) (qsort xs))
+

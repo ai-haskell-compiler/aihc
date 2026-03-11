@@ -1,0 +1,24 @@
+name: tests
+version: 0
+build-type: Simple
+cabal-version: >= 1.6
+
+flag coverage
+  default: False
+  manual: True
+
+executable data-binary-ieee754-tests
+  main-is: Tests.hs
+  ghc-options: -Wall -fcontext-stack=50
+
+  if flag(coverage)
+    ghc-options: -fhpc
+
+  build-depends:
+      base >= 4.1 && < 5.0
+    , binary
+    , bytestring >= 0.9
+    , chell >= 0.3 && < 0.4
+    , chell-quickcheck >= 0.2 && < 0.3
+    , data-binary-ieee754
+    , QuickCheck

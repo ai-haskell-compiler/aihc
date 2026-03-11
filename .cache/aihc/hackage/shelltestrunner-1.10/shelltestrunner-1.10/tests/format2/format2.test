@@ -1,0 +1,55 @@
+# Test file format 2 - one or more test groups, which are input followed by one or more tests/
+#
+# See --help-format/shelltest.hs. Last copied 2015/3/16:
+#  "--------------------------------------"
+# ,"shelltestrunner test file format:"
+# ,""
+# ,"# COMMENTS OR BLANK LINES"
+# ,"<<<"
+# ,"INPUT"
+# ,"$$$ COMMAND LINE"
+# ,">>>"
+# ,"EXPECTED OUTPUT (OR >>> /REGEX/)"
+# ,">>>2"
+# ,"EXPECTED STDERR (OR >>>2 /REGEX/)"
+# ,">>>= EXPECTED EXIT STATUS (OR >>>= /REGEX/)"
+# ,"# COMMENTS OR BLANK LINES"
+# ,"ADDITIONAL TESTS FOR THIS INPUT"
+# ,"ADDITIONAL TEST GROUPS WITH DIFFERENT INPUT"
+# ,""
+# ,"All parts are optional except the command line."
+# ,"When unspecified, stdout/stderr/exit status are tested for emptiness."
+# ,""
+# ,"The <<< delimiter is optional for the first input in a file."
+# ,"Without it, input begins at the first non-blank/comment line."
+# ,"Input ends at the $$$ delimiter. You can't put a comment before the first $$$."
+# ,""
+# ,"The >>> delimiter is optional except when matching via regex."
+# ,"Expected output/stderr extends to the next >>>2 or >>>= if present,"
+# ,"or to the last non-blank/comment line before the next <<< or $$$ or file end."
+# ,""
+# ,"Two spaces between $$$ and the command protects it from -w/--with."
+# ,"!/REGEX/ negates a regular expression match."
+# ,""
+# ,"--------------------------------------"
+
+
+AA
+$$$  cat
+AA
+
+# test 2
+$$$  cat
+>>> /A/
+>>>2
+>>>= 0
+
+# test 3
+<<<
+A
+$$$  cat
+>>> /A/
+>>>2
+>>>=
+
+#

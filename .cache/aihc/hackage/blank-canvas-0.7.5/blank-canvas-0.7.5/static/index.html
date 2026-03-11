@@ -1,0 +1,194 @@
+<html>
+    <head>
+         <link rel="icon" type="image/png" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAABxUlEQVRYR+1WPU/CUBQ9r8ENIiNs1dlEGJmssxL5Hy46GN2Uf4KJBhMHSOQH6OYmJA5Otk7qJCQshvqur6YWXmnLayGwtGuTe887H/dehhV/bMX9kQJIGfAYeEfW0ICdSVNy2JdFvdmHljkCNPL+cd6DVW0vwsAegC8g/42cJYqujwvTfQHDXWx02sKuB1JDzsqw9rrzgpA88IlcTTyzJRflxwX9qgFtTQZH6MLcLy8UgFPsA1lBLZt8bZ8wKhf12xI05gNHdbxWL+YBMZWCZUsRGMNlShE6B+JKQTdnbXDtSUkOojqrPP9JFwogiRTUPK2BsfOZIFQAOEWSSEGPWyKabDsShCqAJKmg65MGkNGjWbAtVnlxYj17GwZ4YSBiWQqOpagoBhS1Di2McuEs/IzelABESsAyptA7P/VSd0BFSqEigWtCUzTwmhDooYihETiaJSRUj0yFCoCY1A/kHeJKEZaKWQBiUU/UA9lG0l0RNorVqf/fivpdLcmumAIQj3rfMkqwttXXsd/1DvVmtSR5T2/l40rhP0jiU+/PYUwppJNM1DLkenZjfJJN/OHiGIk6yTY74oQjeUaE3A3pVZwykDLwC4/VJDBDudEqAAAAAElFTkSuQmCC"/>
+         <title>Blank Canvas</title>
+        <script type="text/javascript" src="jquery.js"></script>
+        <script type="text/javascript" src="jquery-json.js"></script>
+        <script type="text/javascript" src="kansas-comet.js"></script>
+    </head>
+    <body style="padding: 0px; margin: 0px; border:0px">
+        <div id="canvas"></div>
+        <script type="text/javascript">
+            var session = 0; // global session number
+            var images = [];
+            var sounds = [];
+            var patterns = [];
+            var canvasbuffers = [];
+            var c = null;
+            var myDevicePixelRatio = 1; // "my" because this would nameclass with the window.* version
+
+            var urlQuery = {};
+            // From http://stackoverflow.com/questions/901115/how-can-i-get-query-string-values-in-javascript
+            location.search.substr(1).split("&").forEach(function(item) {
+                    urlQuery[item.split("=")[0]] = item.split("=")[1];
+            });
+
+            function reply(e) {
+                return function(u) { return $.kc.reply(u,e); }
+            }
+            function getContext() {
+                var canvas = document.getElementById("canvas");
+                if (canvas.getContext) {
+                    return canvas.getContext("2d");
+                }
+                alert("no canvas");
+            }
+            // These are the Queries
+
+            function Device(u,c) {
+                $.kc.reply(u,[c.canvas.width, c.canvas.height,myDevicePixelRatio]);
+            }
+            function Size(u,c) {
+                $.kc.reply(u,[c.canvas.width, c.canvas.height]);
+            }
+            function ToDataURL(u,c) {
+                $.kc.reply(u,c.canvas.toDataURL());
+
+            }
+            function NewImage(src) {
+                return function (u,c) {
+                    var img = new Image();
+                    var count = images.push(img);
+                    img.onload = function() {
+                           $.kc.reply(u,[count - 1,img.width,img.height]);
+                    };
+                    img.onerror = function() { alert("Image " + src + " not found.\nAdd as a static file to fix this."); };
+                    img.src = src;
+                }
+            }
+
+            function MeasureText(txt) {
+                return function (u,c) {
+	            // If we try return the object directly, via json, we
+                    // get different results on different browsers.
+	            // So we build an object explicity.
+                    $.kc.reply(u,{ width: c.measureText(txt).width });
+                }
+            }
+            function IsPointInPath(x,y) {
+                return function (u,c) {
+                    $.kc.reply(u,c.isPointInPath(x,y));
+                }
+            }
+
+            function NewCanvas(w,h) {
+                return function (u,c) {
+                    var canvas = document.createElement('canvas');
+                    canvas.width = w;
+                    canvas.height = h;
+                    var count = canvasbuffers.push(canvas.getContext("2d"));
+                    $.kc.reply(u,[count - 1,w,h]);
+                }
+            }
+
+            function GetImageData(sx,sy,sw,sh) {
+                return function (u,c) {
+                    var img = c.getImageData(sx,sy,sw,sh);
+                    var arr = [];
+                    for (var i = 0;i < img.data.length;i++) {
+                        arr[i] = img.data[i];
+                    }
+                    $.kc.reply(u,{ width: img.width
+                                 , height: img.height
+                                 , data: arr
+                                 });
+                }
+            }
+
+            function Cursor(cur) {
+                return function(u, c) {
+                    c.canvas.style.cursor = cur;
+                    $.kc.reply(u, []);
+                };
+            }
+
+            function Sync(u,c) {
+                $.kc.reply(u,[]);
+            }
+
+            function Trigger(e) {
+                var o = {};
+                o.metaKey = e.metaKey;
+                o.type    = e.type;
+                if (e.pageXY != undefined) {
+                    o.pageXY = e.pageXY;
+                }
+                if (e.pageX != undefined && e.pageY != undefined) {
+                    o.pageXY = [e.pageX,e.pageY];
+                }
+                if (e.which != undefined) {
+                    o.which = e.which;
+                }
+                $.kc.event(o);
+            }
+
+            function register(name) {
+                $(document).bind(name,Trigger);
+            }
+
+            function redraw() {
+                $.ajax({ url: "/canvas/" + session,
+                         type: "GET",
+                         dataType: "script",
+                         success: function success() {
+                                 redraw();
+                         }
+                         });
+             }
+
+             function ImageData(w,h,dat) {
+                var imgData = canvasbuffers[0].createImageData(w,h);
+                for(var i = 0;i < dat.length;i ++) {
+                   imgData.data[i] = dat[i];
+                }
+                return imgData;
+             }
+
+            function NewAudio(src) {
+                return function (u,c) {
+                    var audio = new Audio();
+                    var count = sounds.push(audio);
+                    // var dur   = audio.duration;
+                    //
+                    // I commented this out because there's a chance that the browser won't
+                    // know the audio duration until it's "loaded" (i.e., it can be played
+                    // through). Further testing might be wise.
+                    audio.oncanplaythrough = function () {
+                        $.kc.reply(u,[count - 1,audio.duration]);
+                    };
+                    audio.onerror = function() { alert("Audio " + src + " not found.\nAdd as a URL to fix this."); };
+                    audio.src = src;
+                }
+            }
+
+            $(document).ready(function() {
+                // Make the canvas the size of the window
+                var w = $(window).width();
+                var h = $(window).height();
+                var b = "0";
+                if (urlQuery.border && !isNaN(parseInt(urlQuery.border))) {
+                  b = parseInt(urlQuery.border);
+                  w -= b * 2;
+                  h -= b * 2;
+                }
+                if (urlQuery.width) {
+                  w = urlQuery.width;
+                }
+                if (urlQuery.height) {
+                  h = urlQuery.height;
+                }
+                if ('hd' in urlQuery && 'devicePixelRatio' in window) {
+                  myDevicePixelRatio = window.devicePixelRatio;
+                }
+                $("#canvas").replaceWith(
+                            '<canvas id="canvas" width="' + (w * myDevicePixelRatio) + '" height="' + (h * myDevicePixelRatio) +
+                            '" style="border: black solid ' + b + 'px; padding: 0px; margin: 0px"></canvas>');
+                $("#canvas").css("width",w + "px");
+                $("#canvas").css("height",h + "px");
+                c = getContext("2d");
+                canvasbuffers.push(c);
+                $.kc.connect("/blank");
+            });
+        </script>
+    </body>
+</html>

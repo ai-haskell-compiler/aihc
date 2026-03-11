@@ -1,0 +1,89 @@
+--- parse tree ---
+[ Code
+    "typ/math/content-03.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/math/content-03.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/math/content-03.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Comment
+, Code
+    "typ/math/content-03.typ"
+    ( line 3 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "here")))
+       (FuncCall
+          (FieldAccess
+             (Ident (Identifier "with")) (Ident (Identifier "text")))
+          [ KeyValArg (Identifier "font") (Literal (String "Noto Sans")) ]))
+, SoftBreak
+, Equation
+    False
+    [ Code
+        "typ/math/content-03.typ"
+        ( line 4 , column 3 )
+        (FuncCall (Ident (Identifier "here")) [ BlockArg [ Text "f" ] ])
+    , Code
+        "typ/math/content-03.typ"
+        ( line 4 , column 11 )
+        (FieldAccess
+           (Ident (Identifier "eq")) (Ident (Identifier "colon")))
+    , Code
+        "typ/math/content-03.typ"
+        ( line 4 , column 15 )
+        (FuncCall
+           (Ident (Identifier "here"))
+           [ BlockArg [ Text "Hi" , Space , Text "there" ] ])
+    ]
+, Text "."
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 text(body: [
+]), 
+                 math.equation(block: false, 
+                               body: { text(body: text(body: [f]), 
+                                            font: "Noto Sans"), 
+                                       text(body: [≔]), 
+                                       text(body: { text(body: [Hi]), 
+                                                    text(body: [ ]), 
+                                                    text(body: [there]) }, 
+                                            font: "Noto Sans") }, 
+                               numbering: none), 
+                 text(body: [.]), 
+                 parbreak() })

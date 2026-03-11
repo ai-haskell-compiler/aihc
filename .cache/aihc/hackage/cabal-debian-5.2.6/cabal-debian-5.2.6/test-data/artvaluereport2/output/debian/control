@@ -1,0 +1,137 @@
+Source: haskell-artvaluereport2
+Priority: optional
+Section: haskell
+Maintainer: Clifford Beshers <beshers@seereason.com>
+Build-Depends: debhelper (>= 9)
+               , haskell-devscripts-minimal | haskell-devscripts (>= 0.13)
+               , cdbs
+               , ghc
+               , ghc-prof
+               , libghc-extra-dev (>= 1.35)
+               , libghc-hjscript-dev
+               , libghc-hatex-dev
+               , libghc-quickcheck2-dev (>= 2)
+               , libghc-rjson-dev
+               , libghc-unixutils-dev
+               , libghc-acid-state-dev (>= 0.6)
+               , libghc-applicative-extras-dev (>= 0.1.5)
+               , libghc-archive-dev (>= 1.2.9)
+               , libghc-artvaluereport-data-dev (>= 1.66)
+               , libghc-authenticate-dev
+               , libghc-blaze-html-dev
+               , libghc-blaze-markup-dev
+               , libghc-cereal-dev
+               , libghc-data-accessor-dev
+               , libghc-debian-dev
+               , libghc-debian-packaging-dev (>= 0.8)
+               , libghc-digestive-functors-dev
+               , libghc-digestive-functors-happstack-dev
+               , libghc-directory-tree-dev
+               , libghc-fb-dev
+               , libghc-groom-dev
+               , libghc-happstack-dev
+               , libghc-happstack-authenticate-dev (>= 2) | libghc-happstack-authenticate-0-dev (<< 2),
+               , libghc-happstack-extra-dev
+               , libghc-happstack-hsp-dev
+               , libghc-happstack-scaffolding-dev (>= 0.23)
+               , libghc-happstack-server-dev
+               , libghc-happstack-util-dev
+               , libghc-harp-dev
+               , libghc-hslogger-dev
+               , libghc-hsp-dev (>= 0.4.4)
+               , libghc-hsx-dev
+               , libghc-html-dev
+               , libghc-html-entities-dev
+               , libghc-ixset-dev
+               , libghc-jmacro-dev (>= 0.6.2)
+               , libghc-json-dev
+               , libghc-language-css-dev
+               , libghc-lifted-base-dev
+               , libghc-mtl-dev
+               , libghc-network-dev (>= 2.4)
+               , libghc-old-locale-dev
+               , libghc-old-time-dev
+               , libghc-pandoc-dev
+	       , libghc-parsec3-dev
+               , libghc-process-extras-dev (>= 0.5)
+               , libghc-puremd5-dev
+               , libghc-random-dev
+               , libghc-regex-compat-dev
+               , libghc-revision-dev
+               , libghc-safe-dev
+               , libghc-safecopy-dev (>= 0.5.1)
+               , libghc-syb-dev
+               , libghc-syb-with-class-dev
+               , libghc-tagged-dev
+               , libghc-text-dev
+               , libghc-uniplate-dev
+               , libghc-utf8-string-dev
+               , libghc-web-routes-dev
+               , libghc-web-routes-happstack-dev
+               , libghc-web-routes-hsp-dev
+               , libghc-web-routes-th-dev
+Standards-Version: 3.9.6
+Homepage: http://appraisalreportonline.com
+X-Description: Haskell modules for fine art appraisal applications
+ Haskell modules for fine art appraisal applications
+
+Package: artvaluereport2-backups
+Architecture: any
+Section: misc
+Depends: ${haskell:Depends}, ${misc:Depends}, anacron
+Recommends: ${haskell:Recommends}
+Suggests: ${haskell:Suggests}
+Conflicts: ${haskell:Conflicts}
+Provides: ${haskell:Provides}
+Description: backup program for the appraisalreportonline.com site
+  Install this somewhere other than where the server is running get
+  automated backups of the database.
+
+Package: artvaluereport2-production
+Architecture: all
+Section: misc
+Depends: ${haskell:Depends}, ${misc:Depends}, apache2, libjpeg-progs, libjs-jcrop, libjs-jquery, libjs-jquery-ui, netpbm, texlive-fonts-extra, texlive-fonts-recommended, texlive-latex-extra, texlive-latex-recommended
+Recommends: ${haskell:Recommends}
+Suggests: ${haskell:Suggests}
+Conflicts: ${haskell:Conflicts}
+Provides: ${haskell:Provides}
+Description: ${haskell:ShortDescription}${haskell:ShortBlurb}
+ ${haskell:LongDescription}
+ .
+ ${haskell:Blurb}
+
+Package: artvaluereport2-development
+Architecture: all
+Section: misc
+Depends: ${haskell:Depends}, ${misc:Depends}, libjpeg-progs, libjs-jcrop, libjs-jquery, libjs-jquery-ui, netpbm, texlive-fonts-extra, texlive-fonts-recommended, texlive-latex-extra, texlive-latex-recommended
+Recommends: ${haskell:Recommends}
+Suggests: ${haskell:Suggests}
+Conflicts: ${haskell:Conflicts}
+Provides: ${haskell:Provides}
+Description: ${haskell:ShortDescription}${haskell:ShortBlurb}
+ ${haskell:LongDescription}
+ .
+ ${haskell:Blurb}
+
+Package: artvaluereport2-staging
+Architecture: all
+Section: misc
+Depends: ${haskell:Depends}, ${misc:Depends}, libjpeg-progs, libjs-jcrop, libjs-jquery, libjs-jquery-ui, netpbm, texlive-fonts-extra, texlive-fonts-recommended, texlive-latex-extra, texlive-latex-recommended
+Recommends: ${haskell:Recommends}
+Suggests: ${haskell:Suggests}
+Conflicts: ${haskell:Conflicts}
+Provides: ${haskell:Provides}
+Description: ${haskell:ShortDescription}${haskell:ShortBlurb}
+ ${haskell:LongDescription}
+ .
+ ${haskell:Blurb}
+
+Package: appraisalscope
+Architecture: any
+Section: misc
+Depends: ${haskell:Depends}, ${misc:Depends}
+Recommends: ${haskell:Recommends}
+Suggests: ${haskell:Suggests}
+Conflicts: ${haskell:Conflicts}
+Provides: ${haskell:Provides}
+Description: Offline manipulation of appraisal database

@@ -1,0 +1,94 @@
+{
+  "object_kind": "pipeline",
+  "object_attributes": {
+    "id": 38727,
+    "iid": 53,
+    "name": null,
+    "ref": "master",
+    "tag": false,
+    "sha": "abcde",
+    "before_sha": "edcba",
+    "source": "push",
+    "status": "success",
+    "detailed_status": "passed",
+    "stages": [
+      "deploy"
+    ],
+    "created_at": "2024-11-17 16:17:11 UTC",
+    "finished_at": "2024-11-17 16:17:15 UTC",
+    "duration": 2,
+    "queued_duration": 1,
+    "variables": [],
+    "url": "https://example.com/group-name/proj-name/-/pipelines/38727"
+  },
+  "merge_request": null,
+  "user": {
+    "id": 2638,
+    "name": "Joe Bloggs",
+    "username": "joe",
+    "avatar_url": "https://secure.gravatar.com/avatar/abc",
+    "email": "[REDACTED]"
+  },
+  "project": {
+    "id": 20385,
+    "name": "Cinema Website",
+    "description": null,
+    "web_url": "https://example.com/group-name/proj-name",
+    "avatar_url": null,
+    "git_ssh_url": "git@example.com:group-name/proj-name.git",
+    "git_http_url": "https://example.com/group-name/proj-name.git",
+    "namespace": "Group name",
+    "visibility_level": 0,
+    "path_with_namespace": "group-name/proj-name",
+    "default_branch": "master",
+    "ci_config_path": null
+  },
+  "commit": {
+    "id": "abcde",
+    "message": "the message",
+    "title": "the commit title",
+    "timestamp": "2024-11-17T16:17:13+00:00",
+    "url": "https://example.com/group-name/proj-name/-/commit/abcde",
+    "author": {
+      "name": "Joe",
+      "email": "joe@gmail.com"
+    }
+  },
+  "builds": [
+    {
+      "id": 54510,
+      "stage": "deploy",
+      "name": "pages",
+      "status": "success",
+      "created_at": "2024-11-17 16:17:11 UTC",
+      "started_at": "2024-11-17 16:17:12 UTC",
+      "finished_at": "2024-11-17 16:17:15 UTC",
+      "duration": 2.767007,
+      "queued_duration": 0.868802,
+      "failure_reason": null,
+      "when": "on_success",
+      "manual": false,
+      "allow_failure": false,
+      "user": {
+        "id": 2638,
+        "name": "Joe Bloggs",
+        "username": "joe",
+        "avatar_url": "https://secure.gravatar.com/avatar/abc",
+        "email": "[REDACTED]"
+      },
+      "runner": {
+        "id": 15,
+        "description": "",
+        "runner_type": "instance_type",
+        "active": true,
+        "is_shared": true,
+        "tags": []
+      },
+      "artifacts_file": {
+        "filename": "artifacts.zip",
+        "size": 8136559
+      },
+      "environment": null
+    }
+  ]
+}

@@ -1,0 +1,127 @@
+--- parse tree ---
+[ Code
+    "typ/visualize/stroke-02.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/visualize/stroke-02.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/visualize/stroke-02.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Comment
+, Code
+    "typ/visualize/stroke-02.typ"
+    ( line 3 , column 2 )
+    (FuncCall
+       (Ident (Identifier "rect"))
+       [ KeyValArg (Identifier "width") (Literal (Numeric 20.0 Pt))
+       , KeyValArg (Identifier "height") (Literal (Numeric 20.0 Pt))
+       , KeyValArg (Identifier "stroke") (Ident (Identifier "red"))
+       ])
+, SoftBreak
+, Code
+    "typ/visualize/stroke-02.typ"
+    ( line 4 , column 2 )
+    (FuncCall
+       (Ident (Identifier "v")) [ NormalArg (Literal (Numeric 3.0 Pt)) ])
+, SoftBreak
+, Code
+    "typ/visualize/stroke-02.typ"
+    ( line 5 , column 2 )
+    (FuncCall
+       (Ident (Identifier "rect"))
+       [ KeyValArg (Identifier "width") (Literal (Numeric 20.0 Pt))
+       , KeyValArg (Identifier "height") (Literal (Numeric 20.0 Pt))
+       , KeyValArg
+           (Identifier "stroke")
+           (Dict
+              [ Reg ( Ident (Identifier "rest") , Ident (Identifier "red") )
+              , Reg
+                  ( Ident (Identifier "top")
+                  , Dict
+                      [ Reg ( Ident (Identifier "paint") , Ident (Identifier "blue") )
+                      , Reg ( Ident (Identifier "dash") , Literal (String "dashed") )
+                      ]
+                  )
+              ])
+       ])
+, SoftBreak
+, Code
+    "typ/visualize/stroke-02.typ"
+    ( line 6 , column 2 )
+    (FuncCall
+       (Ident (Identifier "v")) [ NormalArg (Literal (Numeric 3.0 Pt)) ])
+, SoftBreak
+, Code
+    "typ/visualize/stroke-02.typ"
+    ( line 7 , column 2 )
+    (FuncCall
+       (Ident (Identifier "rect"))
+       [ KeyValArg (Identifier "width") (Literal (Numeric 20.0 Pt))
+       , KeyValArg (Identifier "height") (Literal (Numeric 20.0 Pt))
+       , KeyValArg
+           (Identifier "stroke")
+           (Dict
+              [ Reg ( Ident (Identifier "thickness") , Literal (Numeric 5.0 Pt) )
+              , Reg ( Ident (Identifier "join") , Literal (String "round") )
+              ])
+       ])
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 rect(height: 20.0pt, 
+                      stroke: rgb(100%,25%,21%,100%), 
+                      width: 20.0pt), 
+                 text(body: [
+]), 
+                 v(amount: 3.0pt), 
+                 text(body: [
+]), 
+                 rect(height: 20.0pt, 
+                      stroke: (rest: rgb(100%,25%,21%,100%),
+                               top: (paint: rgb(0%,45%,85%,100%),
+                                     dash: "dashed")), 
+                      width: 20.0pt), 
+                 text(body: [
+]), 
+                 v(amount: 3.0pt), 
+                 text(body: [
+]), 
+                 rect(height: 20.0pt, 
+                      stroke: (thickness: 5.0pt,
+                               join: "round"), 
+                      width: 20.0pt), 
+                 parbreak() })

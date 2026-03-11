@@ -1,0 +1,151 @@
+0.1:
+		* initial version
+0.1.1:
+		* add candle/whisker plots
+
+0.1.1.1:
+		* export MinMaxSeries
+
+0.1.1.2:
+		* fixed examples for Scale (Log/Linear)
+
+0.1.1.3:
+		* fixed bug (lack of stroke) with datasets larger than window
+		* hollow points fill with white
+
+0.1.1.4:
+		* remove Unicode dependency
+
+0.1.2:
+		* improve axis line joins
+		* annotations
+
+0.1.2.1:
+		* save/restore cairo annotation
+		* add setDataset documentation
+		* improve Dashes
+		* formattable grid lines
+
+0.1.2.2:
+		* FormattedSeries, not DecoratedSeries in setDataset documentation
+
+0.1.2.3:
+		* export withGridLine
+
+0.1.2.4:
+		* bumped gtk dependency
+		* changed 'State' constructor to 'state' function to reflect mtl > 2
+
+0.1.2.5:
+		* fixed bug in surface axis labels
+
+0.1.2.6:
+		* fixed treatment of 0 in log axes
+		* fixed reversed range values
+		  * thus reverting 0.1.2.5 non-bug
+		* export Data.Colour.Names
+
+0.1.3.0:
+		* change scaling so that miniscule linewidths don't occur
+
+0.1.3.1:
+		* fix error in scaling
+
+0.1.3.2:
+		* more fix treatment of 0 in log axes
+
+0.1.3.3:
+		* 
+
+0.1.3.4:
+		* switch to github
+
+0.1.3.5:
+		* fixed .cabal repository line
+
+0.1.4:
+		* fix finding min/max of MinMax series
+		* fix bar width for Candle/Whisker
+		* fix x coordinate of Whisker
+		* change bar width for Bar
+
+0.1.4.1:
+		* refactor renderSeries
+		* fixed error bars for non-points
+
+0.1.4.2:
+		* fixed bug in MinMax with error (logSeriesMinMax)
+
+0.1.5:
+		* changed Ticks datatype
+		* added linlog and loglin to Simple.hs
+		* fixed points with single error series (to under/over)
+                * fixed bug in location of `Value` axis
+                * added data labels to axes
+		* fix some warnings
+
+0.1.5.1:
+		* changed _data_label to _tick_label
+
+0.1.6:
+		* added TickValue renderer
+
+0.1.6.1:
+		* refactor tickPositions
+
+0.1.7:
+		* fix log labels
+
+0.1.7.1:
+		* small bug fix when setting ticks
+
+0.1.8:
+		* added `TickFormat` data type
+
+0.2:
+		* added `BarSetting` with `BarSpread` and `BarStack` 		
+
+0.2.1:
+		* don't use textPad when plot title is empty
+		* add background colours for figure and plot
+
+0.2.2:
+		* deprecate `withTickLabelFormat` for `withTickLabelsFormat`
+		* fix issue #5, interaction of setPointSize and Legends
+
+0.2.3:
+		* add sampleData action to a plot
+
+0.2.3.1:
+		* fix bugs (-y) in rendering annotations. Issue #7
+
+0.2.3.2:
+		* allow v0.13 of pango/cairo
+
+0.2.3.3:
+                * Update AMP Changes for ghc 7.10
+
+0.2.3.4:
+                * clean up warnings
+                * use transformers instead of MaybeT
+
+0.2.3.5:
+		* update for hmatrix 0.17
+
+0.2.3.7:
+		* implement vector functions thanks to alang9 on github
+
+0.2.3.8:
+		* resolve ambiguity in Upper and Lower types from HMatrix
+
+0.2.3.9:
+
+0.2.3.10:
+		* adapt to new MonadFail by vaibhavsagar
+0.2.3.11:
+		* enabled compilation on ghc 8.8.3, fixing Monad fail.
+		  (by hasufell)
+
+0.2.3.12:
+                * updated to be compatible with ghc 9.8
+

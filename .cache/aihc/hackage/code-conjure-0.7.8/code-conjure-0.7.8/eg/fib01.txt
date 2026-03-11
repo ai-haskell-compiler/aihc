@@ -1,0 +1,24 @@
+fib01 :: Int -> Int -> Int -> Int
+-- testing 8 combinations of argument values
+-- pruning with 6/10 rules
+-- 4 candidates of size 1
+-- 3 candidates of size 2
+-- 9 candidates of size 3
+-- 9 candidates of size 4
+-- 27 candidates of size 5
+-- tested 52 candidates
+fib01  =  undefined  -- search exhausted
+-- could not find implementation using only
+-- 0, dec, and (+)
+-- consider increasing target/maxSize or refining the ingredients
+
+fib01 :: Int -> Int -> Int -> Int
+-- testing 8 combinations of argument values
+-- pruning with 21/41 rules
+-- 4 candidates of size 1
+-- tested 4 candidates
+fib01  =  undefined  -- search exhausted
+-- could not find implementation using only
+-- 0, (+), dec, (<=), and if-expressions
+-- consider increasing target/maxSize or refining the ingredients
+

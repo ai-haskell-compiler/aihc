@@ -1,0 +1,14 @@
+<<< native
+[ EStyled
+    TextBoldItalic
+    [ EGrouped [ ENumber "2" , ESymbol Bin "+" , EIdentifier "x" ] ]
+]
+>>> mml
+<?xml version='1.0' ?>
+<math display="block" xmlns="http://www.w3.org/1998/Math/MathML">
+  <mrow>
+    <mn mathvariant="bold-italic">2</mn>
+    <mo mathvariant="bold-italic">+</mo>
+    <mi>𝒙</mi>
+  </mrow>
+</math>

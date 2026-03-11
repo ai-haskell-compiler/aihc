@@ -1,0 +1,11 @@
+resolver: lts-22.31
+pvp-bounds: both
+
+### Uncomment the next three lines to build the examples
+#flags:
+#  fits-parse:
+#    examples: true
+## A one liner `stack build --flag fits-parse:examples`
+
+packages:
+    - .

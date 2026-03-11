@@ -1,0 +1,27 @@
+##fileformat=VCFv4.2
+##FILTER=<ID=PASS,Description="All filters passed">
+##samtoolsVersion=1.3+htslib-1.3
+##samtoolsCommand=samtools mpileup -vI -f /projects1/Reference_Genomes/Human/hs37d5/hs37d5.fa -r 1:1-200000 12880A.bam 12881A.bam 12883A.bam 12884A.bam 12885A.bam
+##reference=file:///projects1/Reference_Genomes/Human/hs37d5/hs37d5.fa
+##contig=<ID=1,length=249250621>
+##contig=<ID=2,length=243199373>
+##contig=<ID=3,length=198022430>
+##contig=<ID=4,length=191154276>
+##contig=<ID=5,length=180915260>
+##contig=<ID=hs37d5,length=35477943>
+##ALT=<ID=*,Description="Represents allele(s) other than observed.">
+##INFO=<ID=INDEL,Number=0,Type=Flag,Description="Indicates that the variant is an INDEL.">
+##FORMAT=<ID=PL,Number=G,Type=Integer,Description="List of Phred-scaled genotype likelihoods">
+##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
+##INFO=<ID=AF1,Number=1,Type=Float,Description="Max-likelihood estimate of the first ALT allele frequency (assuming HWE)">
+##INFO=<ID=DP4,Number=4,Type=Integer,Description="Number of high-quality ref-forward , ref-reverse, alt-forward and alt-reverse bases">
+##bcftools_callVersion=1.3+htslib-1.3
+##bcftools_callCommand=call -c -v
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	12880A	12881A	12883A	12884A	12885A
+1	10492	testId	C	T	15.0302	.	DP=28;PV4=1,1,0.30985,1	GT:PL	0/0:0,3,37	0/0:0,6,67	0/1:51,0,28	0/0:0,54,255	0/0:0,9,83
+1	14907	.	A	G	146.092	.	DP=55.526787;AC1=5;DP4=19,16,8,12;PV4=0.403198,0.000983733,1,0.0348559	GT:PL	0/1:0,0,0	0/0:0,9,42	0/1:51,0,0	0/1:70,0,123	1/1:68,5,0
+1	14930	.	A	G	999	.	DP=61.545999;AC1=6;;FQ=999;PV4=0.602167,0.240103,1,1	GT:PL	0/1:0,3,20	0/1:22,0,47	0/1:70,0,26	0/1:188,0,121	1/1:80,12,0
+2	14933	.	G	A	51.2451	.	DP=60.215796;PV4=0.49427,1,1,1	GT:PL	0/0:0,6,39	0/1:25,0,48	0/0:0,18,118	0/1:69,0,163	0/0:0,12,80
+2	16495	.	G	C	7.29715	.	DP=47.27107;AC1=2;PV4=0.540781,0.244272,1,0.0352549	GT:PL	0/0:0,9,9	0/1:23,3,0	0/0:0,4,9	0/1:27,0,46	0/0:0,9,21
+2	20144	.	G	A	15.7039	.	DP=121;AC1=3;PV4=1,1,1,1	GT:PL	0/0:0,5,81	0/1:33,0,47	0/1:9,0,21	0/0:0,182,122	0/1:18,0,27
+2	30923	.	G	.	.	.	DP=5;FQ=-28.9619	GT:PL	1/1:0,0,0	1/1:0,0,0	1/1:40,6,0	1/1:105,9,0	1/1:0,0,0

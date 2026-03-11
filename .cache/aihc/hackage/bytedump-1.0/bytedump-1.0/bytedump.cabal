@@ -1,0 +1,40 @@
+Name:                bytedump
+Version:             1.0
+Description:
+    A set of helpers to dump bytes with lots of different output formats
+    easy to read for humans eyes.
+License:             BSD3
+License-file:        LICENSE
+Author:              Vincent Hanquez
+Copyright:           Vincent Hanquez <vincent@snarc.org>
+Author:              Vincent Hanquez <vincent@snarc.org>
+Maintainer:          Vincent Hanquez <vincent@snarc.org>
+Synopsis:            Flexible byte dump helpers for human readers.
+Build-Type:          Simple
+Category:            Debug
+Homepage:            http://github.com/vincenthz/hs-bytedump
+Cabal-Version:       >=1.6
+Data-Files:          README.md
+
+Flag executable
+  Description:       Build the executable
+  Default:           False
+
+Library
+  Build-Depends:     base >= 3 && < 5
+                   , bytestring
+  Exposed-modules:   Text.Bytedump
+  ghc-options:       -Wall
+
+Executable           Hexdump
+  Main-is:           Hexdump.hs
+  if flag(executable)
+    Buildable:       True
+    Build-Depends:   base >= 3 && < 5
+                   , bytestring
+  else
+    Buildable:       False
+
+source-repository head
+  type: git
+  location: git://github.com/vincenthz/hs-bytedump

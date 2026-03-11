@@ -1,0 +1,141 @@
+0.8:
+
+* relPath, absPath, filePath, dirPath deprecated in favor of
+  Path.rel, Path.abs, Path.absRel, Path.file, Path.dir
+  Same for the according type synonyms.
+
+* Deprecate extended path construction functions:
+  mkAbsPath, mkAbsPathFromCwd, mkPathAbsOrRel, mkPathFileOrDir
+  You better combine path constructors and further manipulations.
+
+* Deprecate functions based on path strings.
+  You should better use functions from the filepath package.
+
+* absRel -> withAbsRel, fileDir -> withFileDir
+  We do not need these functions very often
+  and instead we need Path.absRel as constructor name
+  that is consistent with Path.abs and Path.rel.
+
+* Split main module into multiple one,
+  in order to use a consistent name set for every aspect.
+
+  E.g. we have:
+  Path.Abs: an absolute path
+  Path.Part.Abs: absolute (drive) part of a path
+  Path.PartClass.Abs: class for an absolute part
+
+  Path.AbsRel: an absolute or relative path
+  Path.Part.AbsRel: initial part of an absolute or relative path
+  Path.PartClass.AbsRel: class for absolute or relative parts
+
+  Path.Abs -> Part.Abs
+  Path.AbsOrRel -> Part.AbsRel
+  Path.AbsOrRelClass -> PartClass.AbsRel
+  Path.FileOrDirClass -> PartClass.FileDir
+
+0.7:
+
+* Move absRel and fileDir out of their classes.
+  A problem would arise if someone writes
+    import System.Path (AbsRelClass(absRel))
+  He would have to replace it by
+    import System.Path (AbsRelClass, absRel)
+
+* Monoid instance for Path.RelDir
+  Requires helper classes IsRel, IsDir.
+  IsAbs and IsFile added for completeness.
+
+* Declare infix precedences of </>, <.> and <++> such that we can write:
+    dir0 </> dir1 </> dir2 </> base <++> "-foo" <++> "-bar" <.> "tar" <.> "gz"
+  This is similar to the fixities in the 'filepath' package,
+  but differs slightly
+  since in our package paths and extensions have different types.
+
+* Import packages 'transformers' and 'utility-ht'
+  that allow for some simplifications.
+
+* Deprecate asPath,
+    asRelFile, asRelDir, asAbsFile, asAbsDir,
+    asRelPath, asAbsPath, asFilePath, asDirPath
+
+* Recommended are now the checking constructors 'path', maybePath, parsePath,
+    relFile, relDir, absFile, absDir,
+    relPath, absPath, filePath, dirPath
+
+* replace IsString instance for OverloadedStrings
+  by an instance that cannot be implemented.
+
+* getDirectoryContents is no longer synonym to relDirectoryContents.
+  Instead it returns the list of all directory objects as RelFileOrDir.
+  This is closer to the getDirectoryContents function
+  from the 'directory' package.
+
+* clarify meaning of AbsRel and FileDir tags of a path
+
+* clarify meaning of drive-relative paths on Windows
+
+* clarify handling of file system links
+
+0.6:
+
+* joinPath: restrict to RelPath and atomic path components
+
+* Add type class constraints and restrict types
+  in order to make the functions work with the new datatype.
+  E.g. we need to fix the type to FilePath
+  wherever a function requires a non-empty path.
+
+* Add support for MS Windows paths with leading drive labels
+
+0.5.5:
+
+* AbsRelClass, FileDirClass: turn into closed-world classes.
+  Strict accordance to PVP would require to bump version to 0.6,
+  but since the user cannot write instances of this class,
+  we can hardly break code.
+
+* instance {Show, Read} Path now emit and parse valid Haskell expressions
+
+* IO.withFile restricted to FilePath
+  This changes API but it should only break buggy code.
+
+0.5.4.3:
+
+* Make test suite static part of the source code,
+  but maintain a program to update the test suite to changed tests.
+
+0.5.4.1:
+
+* Merge git back to darcs, continue on hub.darcs.net
+
+0.5.4:
+
+* Migrated from darcs to git (on GitHub)
+
+0.5.3:
+
+* Upgrades + changes for GHC 7.6.1 - by Ben Millwood
+
+0.5.0:
+
+* Added System.Path.Windows and System.Path.Posix modules. These are modelled on the System.FilePath approach to supporting the two styles of path.
+
+0.0.2:
+
+* Split System.Path.Directory into its own module
+* Implemented covers for all the remaining System.Directory functions
+* Renamed 'hasExtension' to 'hasAnExtension', and added new 'hasExtension' fn which checks for a given extension
+* Renamed the '...FileOrDir...' functions to be 'generic...' (thanks to Neil Mitchell for the suggestion!)
+* Added support for OverloadedStrings
+* Renamed the 'mk...' unchecked construction functions to 'as...' to better reflect what they do
+* Added: makeAbsolute, makeAbsoluteFromCwd, genericMakeAbsolute, genericMakeAbsoluteFromCwd
+* Added: mkAbsPath, mkAbsPathFromCwd
+* Added System.Path.IO to cover System.IO
+* Made the internal 'Path' type strict
+* Removed 'splitDirectories' as it serves no purpose not covered by 'splitPath'
+* Changed behaviour of 'getDirectoryContents' to return relative paths
+* Fixed the type of 'setCurrentDirectory'
+
+0.0.1:
+
+Initial Release

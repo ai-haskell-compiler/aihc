@@ -1,0 +1,681 @@
+{-# LANGUAGE NoImplicitPrelude #-}
+{-# OPTIONS_GHC -fno-warn-missing-import-lists #-}
+-- |
+-- Module:       $HEADER$
+-- Description:  Function combinator "between" and its variations.
+-- Copyright:    (c) 2013-2016, Peter Trško
+-- License:      BSD3
+--
+-- Maintainer:   peter.trsko@gmail.com
+-- Stability:    experimental
+-- Portability:  NoImplicitPrelude
+--
+-- During development it is common occurrence to modify deeply nested
+-- structures. One of the best known libraries for this purpose is
+-- <http://hackage.haskell.org/package/lens lens>, but it's quite
+-- overkill for some purposes.
+--
+-- This library describes simple and composable combinators that are built on
+-- top of few very basic concepts. First one is:
+--
+-- @\\h -> f . h . g@
+--
+-- Where @f@ and @g@ are fixed and @h@ is a free variable. It is possible to
+-- reduce it to just:
+--
+-- @(f .) . (. g)@
+--
+-- Which is one of the core pattern used by all related functions defined in
+-- this module.
+--
+-- Trying to generalize this pattern further ends as
+-- @(f 'Data.Functor.<$>') '.' ('Data.Functor.<$>' g)@, where
+-- @'Data.Functor.<$>' = 'Data.Functor.fmap'@. Other combinations of
+-- substituting 'Data.Function..' for 'Data.Functor.fmap' will end up less or
+-- equally generic. Type of such expression is:
+--
+-- @
+-- \\f g -> (f 'Data.Functor.<$>') 'Data.Function..' ('Data.Functor.<$>' g)
+--     :: 'Data.Functor.Functor' f => (b -> c) -> f a -> (a -> b) -> f c
+-- @
+--
+-- Which doesn't give us much more power. Instead of going for such
+-- generalization we kept the original @((f .) . (. g))@ which we named
+-- 'between' or '~@~' in its infix form. There are other possible
+-- generalizations possible, in example by using 'Control.Category..' from
+-- "Control.Category" or by using composition from @Semigroupoid@ class, but
+-- that requires dependency on
+-- <https://hackage.haskell.org/package/semigroups semigroupoids> package.
+--
+-- Second concept\/pattern exploited in this package is infix function
+-- application with two arguments:
+--
+-- @
+-- \\(<>) -> a <> b
+-- @
+--
+-- Where @a@ and @b@ are fixed and @<>@ is a free variable. This library
+-- defines 'inbetween' operator (also called '~$~', in its infix form) that
+-- embodies mentioned pattern:
+--
+-- @
+-- 'inbetween' :: a -> b -> (a -> b -> r) -> r
+-- 'inbetween' a b f = a ``f`` b
+-- @
+--
+-- @
+-- ('~$~') :: a -> b -> (a -> b -> r) -> r
+-- (a '~$~' b) (<>) = a <> b
+-- @
+module Data.Function.Between
+    (
+    -- | This module reexports "Data.Function.Between.Lazy" that uses standard
+    -- definition of ('Data.Function..') function as a basis of all
+    -- combinators. There is also module "Data.Function.Between.Strict", that
+    -- uses strict definition of function composition.
+      module Data.Function.Between.Lazy
+
+    -- * Composability
+    --
+    -- $composability
+
+    -- * Mapping Functions For Newtypes
+    --
+    -- $mappingFunctionsForNewtypes
+
+    -- * Constructing Lenses
+    --
+    -- $lenses
+
+    -- * Using With Lenses
+    --
+    -- $withLenses
+
+    -- * Precursors to Iso, Lens and Prism
+    --
+    -- $precursorsToIsoLensAndPrism
+
+    -- * Related Work
+    --
+    -- | There are other packages out there that provide similar combinators.
+
+    -- ** Package profunctors
+    --
+    -- $profunctors
+
+    -- ** Package pointless-fun
+    --
+    -- $pointless-fun
+    )
+  where
+
+import Data.Function.Between.Lazy
+
+
+-- $composability
+--
+-- @
+-- (f . h) '~@~' (i . g) === (f '~@~' g) . (h '~@~' i)
+-- @
+--
+-- This shows us that it is possible to define @(f ~\@~ g)@ and @(h ~\@~ i)@
+-- separately, for reusability, and then compose them.
+--
+-- The fun doesn't end on functions that take just one parameter, because '~@~'
+-- lets you build up things like:
+--
+-- @
+-- (f '~@~' funOnY) '~@~' funOnX
+--     === \g x y -> f (g (funOnX x) (funOnY y))
+-- @
+--
+-- As you can se above @g@ is a function that takes two parameters. Now we can
+-- define @(f ~\@~ funOnY)@ separately, then when ever we need we can extend
+-- it to higher arity function by appending @(~\@~ funOnX)@. Special case when
+-- @funOnY = funOnX@ is very interesting, in example function
+-- 'Data.Function.on' can be defined using 'between' as:
+--
+-- @
+-- on :: (b -> b -> c) -> (a -> b) -> a -> a -> c
+-- on f g = ('Data.Function.id' '~@~' g '~@~' g) f
+--     -- or: ((. g) ~@~ g) f
+-- @
+--
+-- We can also define function @on3@ that takes function with arity three as
+-- its first argument:
+--
+-- @
+-- on3 :: (b -> b -> b -> d) -> (a -> b) -> a -> a -> a -> d
+-- on3 f g = ('Data.Function.id' '~@~' g '~@~' g '~@~' g) f
+--     -- or: ((. g) '~@~' g '~@~' g) f
+-- @
+--
+-- If we once again consider generalizing above examples by using three
+-- different functions @g1 =\/= g2 =\/= g3@ instead of just one @g@ then we
+-- get:
+--
+-- @
+-- on' :: (b -> b1 -> c)
+--     -> (a2 -> b2)
+--     -> (a1 -> b1)
+--     -> a1 -> a2 -> c
+-- on' f g1 g2 = ('Data.Function.id' '~@~' g2 '~@~' g1) f
+--
+-- on3'
+--     :: (b1 -> b2 -> b3 -> c)
+--     -> (a3 -> b3)
+--     -> (a2 -> b2)
+--     -> (a1 -> b1)
+--     -> a1 -> a2 -> a3 -> c
+-- on3' f g1 g2 g3 = ('Data.Function.id' '~@~' g3 '~@~' g2 '~@~' g1) f
+-- @
+--
+-- Which allows us to interpret '~@~' in terms like \"apply this function to
+-- the n-th argument before passing it to the function @f@\". We just have to
+-- count the arguments backwards. In example if want to apply function @g@ to
+-- third argument, but no other, then we can use:
+--
+-- @
+-- \\g f -> ('Data.Function.id' '~@~' g '~@~' 'Data.Function.id' '~@~' 'Data.Function.id') f
+--     --   ^      ^     ^      ^- Applied to the first argument.
+--     --   |      |     '- Applied to the second argument.
+--     --   |      '- Applied to the third argument.
+--     --   '- Applied to the result.
+--     :: (a3 -> b3) -> (a1 -> a2 -> b3 -> c) -> a1 -> a2 -> a3 -> c
+-- @
+--
+-- Or we can use '~@@~', which is just flipped version of '~@~' and then it
+-- would be:
+--
+-- @
+-- \\g f -> ('Data.Function.id' '~@@~' 'Data.Function.id' '~@@~' g '~@@~' 'Data.Function.id') f
+--     --   ^       ^       ^      ^- Applied to the result.
+--     --   |       |       '- Applied to the third argument.
+--     --   |       '- Applied to the second argument.
+--     --   '- Applied to the first argument.
+--     :: (a3 -> b3) -> (a1 -> a2 -> b3 -> c) -> a1 -> a2 -> a3 -> c
+-- @
+--
+-- Another interesting situation is when @f@ and @g@ in @(f ~\@~ g)@ form an
+-- isomorphism. Then we can construct a mapping function that takes function
+-- operating on one type and transform it in to a function that operates on a
+-- different type. As we shown before it is also possible to map functions with
+-- higher arity then one.
+--
+-- Simplicity of how 'between' combinator can be used to define set of
+-- functions by reusing previous definitions makes it also very suitable for
+-- usage in TemplateHaskell and generic programming.
+
+-- $mappingFunctionsForNewtypes
+--
+-- When we use @(f ~\@~ g)@ where @f@ and @g@ form an isomorphism of two
+-- types, and if @f@ is a constructor and @g@ a selector of newtype, then
+-- @(f ~\@~ g)@ is a mapping function that allows us to manipulate value
+-- wrapped inside a newtype.
+--
+-- @
+-- newtype T t a = T {fromT :: a}
+--
+-- mapT
+--     :: (a -> b)
+--     -> T t a -> T t' b
+-- mapT = T '~@~' fromT
+-- @
+--
+-- Note that @mapT@ above is generalized version of 'Data.Functor.fmap' of
+-- obvious 'Data.Functor.Functor' instance for newtype @T@.
+--
+-- Interestingly, we can use 'between' to define higher order mapping functions
+-- by simple chaining:
+--
+-- @
+-- mapT2
+--     :: (a -> b -> c)
+--     -> T t1 a -> T t2 b -> T t3 c
+-- mapT2 = mapT '~@~' fromT
+--     -- or: T '~@~' fromT '~@~' fromT
+--     -- or: mapT `between2l` fromT
+--
+-- mapT3
+--     :: (a -> b -> c -> d)
+--     -> T t1 a -> T t2 b -> T t3 c -> T t4 d
+-- mapT3 = mapT2 '~@~' fromT
+--     -- or: T '~@~' fromT '~@~' fromT '~@~' fromT
+--     -- or: mapT `between3l` fromT
+-- @
+--
+-- Dually to definition of 'mapT' and 'mapT2' we can also define:
+--
+-- @
+-- comapT :: (T a -> T b) -> a -> b
+-- comapT = fromT '~@~' T
+--     -- or: T '~@@~' fromT
+--
+-- comapT2 :: (T a -> T b -> T c) -> a -> b -> c
+-- comapT2 = fromT '~@~' T '~@~' T
+--     -- or: comapT '~@~' T
+--     -- or: T '~@@~' T '~@@~' fromT
+--     -- or: T '~@@~' comapT
+--     -- or: fromT `between2l` T
+-- @
+--
+-- In code above we can read code like:
+--
+-- @
+-- fromT '~@~' T '~@~' T
+-- @
+--
+-- or
+--
+-- @
+-- T '~@@~' T '~@@~' fromT
+-- @
+--
+-- as \"Apply @T@ to first and second argument before passing it to a function
+-- and apply @fromT@ to its result.\"
+--
+-- Here is another example with a little more complex type wrapped inside a
+-- newtype:
+--
+-- @
+-- newtype T e a = T {fromT :: Either e a}
+--
+-- mapT
+--     :: (Either e a -> Either e' b)
+--     -> T e a -> T e' b
+-- mapT = T '~@~' fromT
+--
+-- mapT2
+--     :: (Either e1 a -> Either e2 b -> Either e3 c)
+--     -> T e1 a -> T e2 b -> T e3 c
+-- mapT2 = mapT '~@~' fromT
+-- @
+--
+-- This last example is typical for monad transformers:
+--
+-- @
+-- newtype ErrorT e m a = ErrorT {runErrorT :: m (Either e a)}
+--
+-- mapErrorT
+--     :: (m (Either e a) -> m' (Either e' b))
+--     -> ErrorT e m a -> ErrorT e' m' b
+-- mapErrorT = ErrorT '~@~' runErrorT
+--
+-- mapErrorT2
+--     :: (m1 (Either e1 a) -> m2 (Either e2 b) -> m3 (Either e3 c))
+--     -> ErrorT e1 m1 a -> ErrorT e2 m2 b -> ErrorT e3 m3 c
+-- mapErrorT2 = mapErrorT '~@~' runErrorT
+-- @
+
+-- $lenses
+--
+-- Library /lens/ is notorious for its huge list of (mostly transitive)
+-- dependencies. However it is easy to define a lot of things without the need
+-- to depend on /lens/ directly. This module defines few functions that will
+-- make it even easier.
+--
+-- Lens for a simple newtype:
+--
+-- @
+-- newtype T a = T {fromT :: a}
+--
+-- t :: 'Data.Functor.Functor' f => (a -> f b) -> T a -> f (T b)
+-- t = 'Data.Functor.fmap' T '~@~' fromT
+-- @
+--
+-- To simplify things we can use function '<~@~':
+--
+-- @
+-- t :: 'Data.Functor.Functor' f => (a -> f b) -> T a -> f (T b)
+-- t = T '<~@~' fromT
+-- @
+--
+-- Now, lets define lenses for generic data type, e.g. something like:
+--
+-- @
+-- data D a b = D {_x :: a, _y :: b}
+-- @
+--
+-- Their types in /lens/ terms would be:
+--
+-- @
+-- x :: Lens (D a c) (D b c) a b
+-- y :: Lens (D c a) (D c b) a b
+-- @
+--
+-- Here is how implementation can look like:
+--
+-- @
+-- x :: 'Data.Functor.Functor' f => (a -> f b) -> D a c -> f (D b c)
+-- x = _x '~@@^>' \s b -> s{_x = b}
+-- @
+--
+-- Alternative definitions:
+--
+-- @
+-- x = (\\s b -> s{_x = b}) '<^@~' _x
+-- x f s = (_x '~@@~>' \b -> s{_x = b}) f s
+-- x f s = ((\\b -> s{_x = b}) '<~@~' _x) f s
+-- x f s = ('Data.Function.const' _x '^@@^>' \\s' b -> s'{_x = b}) f s s
+-- x f s = ((\\s' b -> s'{_x = b}) '<^@^' 'Data.Function.const' _x) f s s
+-- @
+--
+-- And now for @y@ we do mostly the same:
+--
+-- @
+-- y :: 'Data.Functor.Functor' f => (a -> f b) -> D c a -> f (D c b)
+-- y = _y '~@@^>' \s b -> s{_y = b}
+-- @
+--
+-- Above example shows us that we are able to define function equivalent to
+-- @lens@ from /lens/ package as follows:
+--
+-- @
+-- lens
+--     :: (s -> a)
+--     -- ^ Selector function.
+--     -> (s -> b -> t)
+--     -- ^ Setter function.
+--     -> (forall f. 'Data.Functor.Functor' f => (a -> f b) -> s -> f t)
+--     -- ^ In \/lens\/ terms this is @Lens s t a b@
+-- lens = ('~@@^>')
+-- @
+--
+-- Alternative definitions:
+--
+-- @
+-- lens get set f s = ('Data.Function.const' get '^@@^>' set) f s s
+-- lens get set f s = (set '<^@^' 'Data.Function.const' get) f s s
+-- lens get set f s = (get '~@~>' set s) f s
+-- lens get set f s = (set s '<~@~' get) f s
+-- @
+--
+-- Some other functions from
+-- <http://hackage.haskell.org/package/lens lens package> can be defined using
+-- '~@~':
+--
+-- @
+-- set :: ((a -> Identity b) -> s -> Identity t) -> b -> s -> t
+-- set = (runIdentity .) '~@~' ('Data.Function.const' . Identity)
+-- @
+--
+-- @
+-- over :: ((a -> Identity b) -> s -> Identity t) -> (a -> b) -> s -> t
+-- over = (runIdentity .) '~@~' (Identity .)
+-- @
+--
+-- Data type @Identity@ is defined in
+-- <http://hackage.haskell.org/package/transformers transformers package> or
+-- in base >= 4.8.
+
+-- $withLenses
+--
+-- Leses are basically just functions with a nice trick to them. If you look
+-- at the core pattern used in <https://hackage.haskell.org/package/lens lens>
+-- library is:
+--
+-- @
+-- type Optical p q f s t a b = p a (f b) -> q s (f t)
+-- @
+--
+-- Which is just a function @c -> d@ where @c = p a (f b)@ and @d = q s (f t)@.
+-- In most common situations @p@ and @q@ are instantiated to be @->@ making
+-- the @Optical@ type colapse in to something more specific:
+--
+-- @
+-- type LensLike f s t a b = (a -> f b) -> s -> f t
+-- @
+--
+-- Where @f@ is some instance of 'Functor' and that is how we get @Lens@, which
+-- is just:
+--
+-- @
+-- type Lens s t a b = forall f. Functor f => (a -> f b) -> s -> f t
+-- @
+--
+-- These lenses are called /Laarhoven Lenses/, after /Twan van Laarhoven/ who
+-- introduced them in
+-- <http://www.twanvl.nl/blog/haskell/cps-functional-references CPS based functional references>
+-- article.
+--
+-- We can choose even stronger constraints then 'Functor', in example
+-- 'Control.Applicative.Applicative', then we get a @Traversal@, and, of
+-- course, it doesn't end with it, since there is a lot more to choose from.
+--
+-- What is important, in the above /lens/ pattern, is that it's a function that
+-- can be composed using function composition ('.') operator (remember that
+-- it's just a function @c -> d@). As a consequence 'between' can be used as
+-- well. Small example:
+--
+-- >>> (1, ((2, 3), (4, 5))) ^. (_2 ~@~ _2) _1
+-- 3
+-- >>> (1, ((2, 3), (4, 5))) ^. (_2 ~@~ _2) _2
+-- 5
+--
+-- This shows us that '~@~' can be used to compose two lenses, or other
+-- abstractions from that library, but with a hole in between, where another
+-- one can be injected.
+--
+-- Lets imagine following example:
+--
+-- @
+-- data MyData f a b = MyData
+--     { _foo :: f a
+--     , _bar :: f b
+--     }
+-- @
+--
+-- Lets have lenses for @MyData@:
+--
+-- @
+-- foo :: Lens (MyData h a b) (MyData h a' b) (h a) (h a')
+-- bar :: Lens (MyData h a b) (MyData h a b') (h b) (h b')
+-- @
+--
+-- Following instance of data type @MyData@ is what our example will be based
+-- upon:
+--
+-- @
+-- -- We use type proxy to instantiate \'h\' in to concrete functor.
+-- myData
+--     :: 'Control.Applicative.Applicative' h
+--     => proxy h
+--     -> MyData h (Int, Int) (String, String)
+-- myData _ = MyData
+--     { _foo = pure (1, 2)
+--     , _bar = pure ("hello", "world")
+--     }
+-- @
+--
+-- We don't know exactly what @h@ will be instantiated to, but we can already
+-- provide following lenses:
+--
+-- @
+-- foo1in
+--     :: (Field1 s t a1 b1, 'Functor' f)
+--     => LensLike f (h a) (h a') s t
+--     -> LensLike f (MyData h a b) (MyData h a' b) a1 b1
+-- foo1in = foo '~@~' _1
+--
+-- foo2in
+--     :: (Field2 s t a1 b1, 'Functor' f)
+--     => LensLike f (h a) (h a') s t
+--     -> LensLike f (MyData h a b) (MyData h a' b) a1 b1
+-- foo2in = foo '~@~' _2
+--
+-- bar1in
+--     :: (Field1 s t a1 b1, 'Functor' f)
+--     => LensLike f (h b) (h b') s t
+--     -> LensLike f (MyData h a b) (MyData h a b') a1 b1
+-- bar1in = bar '~@~' _1
+--
+-- bar2in
+--     :: (Field2 s t a1 b1, 'Functor' f)
+--     => LensLike f (h b) (h b') s t
+--     -> LensLike f (MyData h a b) (MyData h a b') a1 b1
+-- bar2in = bar '~@~' _2
+-- @
+--
+-- Don't get scared by the type signatures, just focus on the pattern here.
+--
+-- >>> myData (Proxy :: Proxy ((,) ())) ^. foo1in _2
+-- 1
+-- >>> myData (Proxy :: Proxy ((,) ())) ^. foo2in _2
+-- 2
+-- >>> myData (Proxy :: Proxy Maybe) ^. bar1in _Just
+-- "hello"
+-- >>> myData (Proxy :: Proxy Maybe) ^. bar2in _Just
+-- "world"
+
+-- $precursorsToIsoLensAndPrism
+--
+-- When it comes to standard data types, then at the hart of every @Iso@,
+-- @Lens@ and @Prism@, lies a simple trick. A hole is inserted between getter
+-- (i.e. destructor) function and setter (i.e. constructor) function.
+-- Difference between various constructs in e.g.
+-- <https://hackage.haskell.org/package/lens lens> library is the
+-- specialization of that hole, which in turn constraints type signature a
+-- little bit.
+--
+-- Example:
+--
+-- @
+-- data Coords2D = Coords2D {_x :: Int, _y :: Int}
+--
+-- x :: Lens' Coords2D Int
+-- x f s = setter s 'Data.Functor.<$>' f (getter s)
+--   where
+--     getter = _x
+--     setter s b = s{_x = b}
+-- @
+--
+-- As we can see, in the above example, there is a function function inserted
+-- in between @getter@ and @setter@ functions. That function contains an
+-- unknown function @f@.
+--
+-- If we gather all the code in between @getter@ and @setter@ functions and put
+-- in to one place, then we would get:
+--
+-- @
+-- x :: Lens' Coords2D Int
+-- x = setter \`f\` getter
+--   where
+--     getter = _x
+--     setter s b = s{_x = b}
+--     f set get h s = set s 'Data.Functor.<$>' h (get h)
+-- @
+--
+-- Now we can see that the original hole (function @f@) has moved little bit
+-- further down and is now called @h@. Function @f@ now is a /Lens/ smart
+-- constructor that takes getter and setter and creates a /Lens/. This leads us
+-- to a question. What would happen if we won't specialize @f@, at all, and
+-- leave it to a user to decide what it should be? This is what we would get:
+--
+-- @
+-- preX :: ((Coords2D -> Int) -> (Coords2D -> Int -> Coords2D) -> r) -> r
+-- preX f = _x \`f\` \\s b -> s{_x = b}
+-- @
+--
+-- Now we can move things arount a bit:
+--
+-- @
+-- preX :: ((Int -> Coords2D -> Coords2D) -> (Coords2D -> Int) -> r) -> r
+-- preX f = (\\b s -> s{_x = b}) \`f\` _x
+-- @
+--
+-- This can also be rewritten to use '~$~' combinator:
+--
+-- @
+-- preX :: ((Int -> Coords2D -> Coords2D) -> (Coords2D -> Int) -> r) -> r
+-- preX = (\\b s -> s{_x = b}) '~$~' _x
+-- @
+--
+-- Or even using its flipped variant '~$$~':
+--
+-- @
+-- preX :: ((Int -> Coords2D -> Coords2D) -> (Coords2D -> Int) -> r) -> r
+-- preX = _x '~$$~' \\b s -> s{_x = b}
+-- @
+--
+-- We call such function a 'PreLens', since it is actually a precursor to a
+-- 'Lens'.
+--
+-- @
+-- preX :: 'PreLens'' r Coords2D Int
+-- preX = _x '~$$~' \\b s -> s{_x = b}
+-- @
+--
+-- It is also function with the most generic type signature of a function that
+-- is capable of creating a lens from getter and setter, if @f@ is specialized
+-- appropriately:
+--
+-- @
+-- x :: Lens' Coords2D Int
+-- x = preX (('<^@~') . 'flip')
+-- @
+--
+-- Notice that @preX@, in the above code snipped, got specialized in to:
+--
+-- @
+-- preX :: 'PreLens'' (Lens' Coords2D Int) Coords2D Int
+-- @
+--
+-- Function @preX@ takes a /lens/ smart constructor, regardles of what /lens/
+-- kind that constructor produces. It can be /Laarhoven Lens/, /Store
+-- Comonad-coalgebra/ or any other representation. As a special case it can
+-- also take a function that gets either getter or setter, or even a function
+-- that combines those functions with others.
+--
+-- This trick of putting a hole between constructor (anamorphism) and
+-- destructor (catamorphism) is also the reason why Laarhoven's Lenses can be
+-- introduced as a generalization of <https://wiki.haskell.org/Zipper zipper>
+-- idiom. For more information see also:
+--
+-- * <https://www.fpcomplete.com/user/psygnisfive/from-zipper-to-lens From Zipper To Lens>
+--
+-- * <http://www.twanvl.nl/blog/haskell/cps-functional-references CPS based functional references>,
+--   introduction of Laarhoven's Lenses.
+
+-- $profunctors
+--
+-- You may have noticed similarity between:
+--
+-- @
+-- dimap :: Profunctor p => (a -> b) -> (c -> d) -> p b c -> p a d
+-- @
+--
+-- and
+--
+-- @
+-- between :: (c -> d) -> (a -> b) -> (b -> c) -> a -> d
+-- @
+--
+-- If you also consider that there is also @instance Profunctor (->)@, then
+-- 'between' becomes specialized flipped @dimap@ for @Profunctor (->)@.
+--
+-- Profunctors are a powerful abstraction and Edward Kmett's implementation
+-- also includes low level optimizations that use the coercible feature of GHC.
+-- For more details see its
+-- <https://hackage.haskell.org/package/profunctors package documentation>.
+
+-- $pointless-fun
+--
+-- Package <https://hackage.haskell.org/package/pointless-fun pointless-fun>
+-- provides few similar combinators, to 'between', in both strict and lazy
+-- variants:
+--
+-- @
+-- (~>) :: (a -> b) -> (c -> d) -> (b -> c) -> a -> d
+-- (!~>) :: (a -> b) -> (c -> d) -> (b -> c) -> a -> d
+-- @
+--
+-- Comare it with:
+--
+-- @
+-- 'between' :: (c -> d) -> (a -> b) -> (b -> c) -> a -> d
+-- @
+--
+-- And you see that @(~>)@ is flipped 'Data.Function.Between.Lazy.between' and
+-- @(!~>)@ is similar to (strict) 'Data.Function.Between.Strict.between', but
+-- our (strict) 'Data.Function.Between.Strict.between' is even less lazy in its
+-- implementation then @(!~>)@.

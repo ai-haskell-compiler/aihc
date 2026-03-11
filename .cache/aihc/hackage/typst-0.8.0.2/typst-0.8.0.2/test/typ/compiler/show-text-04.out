@@ -1,0 +1,157 @@
+--- parse tree ---
+[ Code
+    "typ/compiler/show-text-04.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/compiler/show-text-04.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/compiler/show-text-04.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Comment
+, Code
+    "typ/compiler/show-text-04.typ"
+    ( line 3 , column 2 )
+    (Set
+       (Ident (Identifier "par"))
+       [ KeyValArg (Identifier "justify") (Literal (Boolean True)) ])
+, SoftBreak
+, Code
+    "typ/compiler/show-text-04.typ"
+    ( line 4 , column 2 )
+    (Show
+       (Just
+          (FuncCall
+             (Ident (Identifier "regex"))
+             [ NormalArg (Literal (String "\\S")) ]))
+       (FuncExpr
+          [ NormalParam (Identifier "letter") ]
+          (FuncCall
+             (Ident (Identifier "box"))
+             [ KeyValArg (Identifier "stroke") (Literal (Numeric 1.0 Pt))
+             , KeyValArg (Identifier "inset") (Literal (Numeric 2.0 Pt))
+             , NormalArg
+                 (FuncCall
+                    (Ident (Identifier "upper"))
+                    [ NormalArg (Ident (Identifier "letter")) ])
+             ])))
+, SoftBreak
+, Code
+    "typ/compiler/show-text-04.typ"
+    ( line 5 , column 2 )
+    (FuncCall
+       (Ident (Identifier "lorem")) [ NormalArg (Literal (Int 5)) ])
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 text(body: [
+]), 
+                 text(body: [
+]), 
+                 box(body: upper(text: [L]), 
+                     inset: 2.0pt, 
+                     stroke: 1.0pt), 
+                 box(body: upper(text: [o]), 
+                     inset: 2.0pt, 
+                     stroke: 1.0pt), 
+                 box(body: upper(text: [r]), 
+                     inset: 2.0pt, 
+                     stroke: 1.0pt), 
+                 box(body: upper(text: [e]), 
+                     inset: 2.0pt, 
+                     stroke: 1.0pt), 
+                 box(body: upper(text: [m]), 
+                     inset: 2.0pt, 
+                     stroke: 1.0pt), 
+                 text(body: [ ]), 
+                 box(body: upper(text: [i]), 
+                     inset: 2.0pt, 
+                     stroke: 1.0pt), 
+                 box(body: upper(text: [p]), 
+                     inset: 2.0pt, 
+                     stroke: 1.0pt), 
+                 box(body: upper(text: [s]), 
+                     inset: 2.0pt, 
+                     stroke: 1.0pt), 
+                 box(body: upper(text: [u]), 
+                     inset: 2.0pt, 
+                     stroke: 1.0pt), 
+                 box(body: upper(text: [m]), 
+                     inset: 2.0pt, 
+                     stroke: 1.0pt), 
+                 text(body: [ ]), 
+                 box(body: upper(text: [d]), 
+                     inset: 2.0pt, 
+                     stroke: 1.0pt), 
+                 box(body: upper(text: [o]), 
+                     inset: 2.0pt, 
+                     stroke: 1.0pt), 
+                 box(body: upper(text: [l]), 
+                     inset: 2.0pt, 
+                     stroke: 1.0pt), 
+                 box(body: upper(text: [o]), 
+                     inset: 2.0pt, 
+                     stroke: 1.0pt), 
+                 box(body: upper(text: [r]), 
+                     inset: 2.0pt, 
+                     stroke: 1.0pt), 
+                 text(body: [ ]), 
+                 box(body: upper(text: [s]), 
+                     inset: 2.0pt, 
+                     stroke: 1.0pt), 
+                 box(body: upper(text: [i]), 
+                     inset: 2.0pt, 
+                     stroke: 1.0pt), 
+                 box(body: upper(text: [t]), 
+                     inset: 2.0pt, 
+                     stroke: 1.0pt), 
+                 text(body: [ ]), 
+                 box(body: upper(text: [a]), 
+                     inset: 2.0pt, 
+                     stroke: 1.0pt), 
+                 box(body: upper(text: [m]), 
+                     inset: 2.0pt, 
+                     stroke: 1.0pt), 
+                 box(body: upper(text: [e]), 
+                     inset: 2.0pt, 
+                     stroke: 1.0pt), 
+                 box(body: upper(text: [t]), 
+                     inset: 2.0pt, 
+                     stroke: 1.0pt), 
+                 box(body: upper(text: [,]), 
+                     inset: 2.0pt, 
+                     stroke: 1.0pt), 
+                 parbreak() })

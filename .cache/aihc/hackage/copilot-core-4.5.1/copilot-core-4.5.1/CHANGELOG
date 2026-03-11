@@ -1,0 +1,179 @@
+2025-09-07
+        * Version bump (4.5.1). (#666)
+
+2025-07-07
+        * Version bump (4.5). (#642)
+        * Remove deprecated fields of Copilot.Core.Expr.UExpr. (#636)
+
+2025-05-07
+        * Version bump (4.4). (#618)
+        * Remove deprecated Copilot.Core.Type.uTypeType. (#615)
+
+2025-03-07
+        * Version bump (4.3). (#604)
+        * Fix typo in documentation. (#587)
+        * Add a Show instance for Type. (#589)
+        * Add a Prop type to capture how a property is quantified. (#254)
+
+2025-01-07
+        * Version bump (4.2). (#577)
+        * Deprecate fields of Copilot.Core.Expr.UExpr. (#565)
+        * Increase test coverage. (#555)
+        * Define generic implementations of Struct and Typed methods. (#564)
+
+2024-11-07
+        * Version bump (4.1). (#561)
+        * Add Haddocks for updateField. (#525)
+        * Standardize changelog format. (#550)
+        * Deprecate Copilot.Core.Type.UType.uTypeType. (#484)
+
+2024-09-07
+        * Version bump (4.0). (#532)
+        * Update Op3, Array to support array updates. (#36)
+
+2024-07-07
+        * Version bump (3.20). (#522)
+        * Update Op2, Struct to support struct field updates. (#520)
+
+2024-05-07
+        * Version bump (3.19.1). (#512)
+
+2024-03-07
+        * Version bump (3.19). (#504)
+        * Remove deprecated functions in Copilot.Core.Type and
+          Copilot.Core.Type.Array. (#500)
+        * Increase test coverage. (#502)
+
+2024-01-07
+        * Version bump (3.18.1). (#493)
+
+2024-01-07
+        * Version bump (3.18). (#487)
+
+2023-11-07
+        * Version bump (3.17). (#466)
+        * Compliance with style guide. (#457)
+
+2023-09-07
+        * Version bump (3.16.1). (#455)
+
+2023-07-07
+        * Version bump (3.16). (#448)
+
+2023-05-07
+        * Version bump (3.15). (#438)
+        * Remove Copilot.Core.Type.Equality. (#427)
+        * Remove Copilot.Core.PrettyPrint. (#426)
+
+2023-03-07
+        * Version bump (3.14). (#422)
+        * Remove Copilot.Core.PrettyDot. (#409)
+        * Fix formatting error in CHANGELOG. (#414)
+        * Remove module space Copilot.Core.Interpret. (#410)
+        * Remove unused definitions from Copilot.Core.Type.Array. (#411)
+
+2023-01-07
+        * Version bump (3.13). (#406)
+        * Implement missing cases of type equality for arrays and structs.
+          (#400)
+        * Remove Copilot.Core.External. (#391)
+        * Fix bug in definition of simpleType for Int8. (#393)
+        * Hide module Copilot.Core.Type.Show. (#392)
+
+2022-11-07
+        * Version bump (3.12). (#389)
+        * Deprecate Copilot.Core.PrettyPrinter. (#383)
+        * Replace uses of Copilot.Core.Type.Equality with definitions from
+          base:Data.Type.Equality; deprecate Copilot.Core.Type.Equality. (#379)
+        * Compliance with style guide. (#332)
+
+2022-09-07
+        * Version bump (3.11). (#376)
+        * Deprecate Copilot.Core.PrettyDot. (#359)
+        * Remove Copilot.Core.Type.Dynamic. (#360)
+        * Split copilot-interpreter into separate library. (#361)
+        * Deprecate unused classes, functions from Array module. (#369)
+
+2022-07-07
+        * Version bump (3.10). (#356)
+        * Fix error in test case generation; enable CLI args in tests. (#337)
+        * Remove unnecessary dependencies from Cabal package. (#324)
+        * Deprecate Copilot.Core.External. (#322)
+        * Remove duplicated compiler option. (#328)
+        * Hide type Copilot.Core.Type.Show.ShowWit. (#348)
+        * Deprecate Copilot.Core.Type.Show. (#330)
+        * Update repo info in cabal file. (#333)
+
+2022-05-06
+        * Version bump (3.9). (#320)
+        * Compliance with style guide (partial). (#316)
+        * Hide module Copilot.Core.Interpret.Render. (#303)
+        * Remove Copilot.Core.Type.Dynamic.fromDynF,toDynF. (#301)
+        * Hide module Copilot.Core.Error. (#300)
+        * Remove Copilot.Core.Type.Uninitialized. (#302)
+        * Remove Copilot.Core.Expr.Tag. (#304)
+
+2022-03-07
+        * Version bump (3.8). (#298)
+        * Replaces uses of the internal Dynamic with base:Data.Dynamic. (#266)
+        * Mark package as uncurated to avoid modification. (#288)
+
+2022-01-07
+        * Version bump (3.7). (#287)
+        * Make imports explicit, reorganize imports. (#277)
+        * Remove Copilot.Core.Type.Read. (#286)
+        * Remove Copilot.Core.Type.Eq. (#285)
+        * Remove Copilot.Core.Locals. (#284)
+        * Deprecate Copilot.Core.Type.Show.ShowWit. (#283)
+        * Remove Copilot.Core.Type.Show.showWit. (#282)
+
+2021-11-07
+        * Version bump (3.6). (#264)
+        * Deprecate Copilot.Core.Type.Dynamic.toDynF and fromDynF. (#269)
+        * Deprecate copilot-core:Copilot.Core.Type.Uninitialized. (#270)
+        * Deprecate export of copilot-core:Copilot.Core.Interpret.Render. (#268)
+        * Replace uses of copilot-core's error reporting functions. (#267)
+        * Introduce new ops atan2, ceiling, floor. (#246)
+        * Add initial support for unit testing. (#256)
+        * Deprecate unused type. (#260)
+        * Remove deprecated module. (#250)
+        * Fix outdated/broken links. (#252)
+
+2021-08-19
+        * Version bump (3.5). (#247)
+        * Update travis domain in README. (#222)
+        * Remove commented code. (#15)
+        * Update official maintainer. (#236)
+        * Update source repo location. (#241)
+        * Add I. Perez to author list. (#243)
+
+2021-07-07
+        * Version bump (3.4). (#231)
+        * Deprecated `Copilot.Core.Locals`. (#141)
+        * Deprecated `Copilot.Core.Type.Read` module. (#144)
+        * Deprecated `showWit`. (#140)
+        * Deprecated `Copilot.Core.Type.Eq`. (#143)
+        * Remove unused module `Copilot.Core.StructMarshal`. (#139)
+
+2021-05-07
+        * Version bump (3.3). (#217)
+        * Fix URL in bug-reports field in cabal file. (#215)
+        * Deprecate unused module Copilot.Core.MakeTags. (#142)
+        * Deprecate unused functions in Copilot.Core.PrettyDot. (#137)
+
+2021-03-05
+        * Version bump (3.2.1). (#136)
+        * Completed the documentation. (#145)
+
+2020-12-06
+        * Version bump (3.2). (#65)
+        * Fixed implementation of tysize for n-dimensional arrays. (#147)
+        * Removed sorting of interpreter output. (#148)
+        * Minor documentation fixes. (#149, #151)
+        * Credits: @fdedden.
+
+2019-11-22
+        * Version bump (3.1). (#46)
+        * Eliminate random modules and generators. (#157)
+        * Updated contact information for 'impossible' error. (#154)
+        * Implement missing pretty printer for Index operator. (#155)

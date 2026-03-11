@@ -1,0 +1,136 @@
+--- parse tree ---
+[ Code
+    "typ/compiler/while-00.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/compiler/while-00.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/compiler/while-00.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Comment
+, Code
+    "typ/compiler/while-00.typ"
+    ( line 3 , column 2 )
+    (Let (BasicBind (Just (Identifier "i"))) (Literal (Int 0)))
+, SoftBreak
+, Code
+    "typ/compiler/while-00.typ"
+    ( line 4 , column 2 )
+    (While
+       (LessThan (Ident (Identifier "i")) (Literal (Int 10)))
+       (Block
+          (Content
+             [ SoftBreak
+             , Code
+                 "typ/compiler/while-00.typ"
+                 ( line 5 , column 4 )
+                 (Assign
+                    (Ident (Identifier "i"))
+                    (Plus (Ident (Identifier "i")) (Literal (Int 2))))
+             , SoftBreak
+             , Code
+                 "typ/compiler/while-00.typ"
+                 ( line 6 , column 4 )
+                 (Ident (Identifier "i"))
+             , ParBreak
+             ])))
+, ParBreak
+, Comment
+, Code
+    "typ/compiler/while-00.typ"
+    ( line 10 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "iter"))) (Literal (Boolean True)))
+, SoftBreak
+, Code
+    "typ/compiler/while-00.typ"
+    ( line 11 , column 2 )
+    (While
+       (Ident (Identifier "iter"))
+       (Block
+          (CodeBlock
+             [ Assign (Ident (Identifier "iter")) (Literal (Boolean False))
+             , Literal (String "Hi.")
+             ])))
+, ParBreak
+, Code
+    "typ/compiler/while-00.typ"
+    ( line 16 , column 2 )
+    (While
+       (Literal (Boolean False))
+       (Block (CodeBlock [ Ident (Identifier "dont-care") ])))
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 text(body: [
+]), 
+                 text(body: [
+]), 
+                 text(body: [
+]), 
+                 text(body: [2]), 
+                 parbreak(), 
+                 text(body: [
+]), 
+                 text(body: [
+]), 
+                 text(body: [4]), 
+                 parbreak(), 
+                 text(body: [
+]), 
+                 text(body: [
+]), 
+                 text(body: [6]), 
+                 parbreak(), 
+                 text(body: [
+]), 
+                 text(body: [
+]), 
+                 text(body: [8]), 
+                 parbreak(), 
+                 text(body: [
+]), 
+                 text(body: [
+]), 
+                 text(body: [10]), 
+                 parbreak(), 
+                 parbreak(), 
+                 text(body: [
+]), 
+                 text(body: [Hi.]), 
+                 parbreak(), 
+                 parbreak() })

@@ -1,0 +1,30 @@
+{
+    "$schema": "https://vega.github.io/schema/vega-lite/v4.json",
+    "data": {
+        "url": "https://vega.github.io/vega-lite/data/stocks.csv"
+    },
+    "description": "Area chart with overlaid lines and point markers",
+    "encoding": {
+        "x": {
+            "axis": {
+                "format": "%Y"
+            },
+            "field": "date",
+            "type": "temporal"
+        },
+        "y": {
+            "field": "price",
+            "type": "quantitative"
+        }
+    },
+    "mark": {
+        "line": true,
+        "point": true,
+        "type": "area"
+    },
+    "transform": [
+        {
+            "filter": "datum.symbol === 'GOOG'"
+        }
+    ]
+}

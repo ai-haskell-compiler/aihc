@@ -1,0 +1,252 @@
+-- This file was automatically generated.
+{-# LANGUAGE CPP, ScopedTypeVariables, PatternSynonyms #-}
+module Graphics.GL.Ext.EXT.TessellationShader (
+  -- * Extension Support
+    gl_EXT_tessellation_shader
+
+  -- * GL_EXT_tessellation_shader
+  , glPatchParameteriEXT
+  , pattern GL_CCW
+  , pattern GL_CW
+  , pattern GL_EQUAL
+  , pattern GL_FRACTIONAL_EVEN_EXT
+  , pattern GL_FRACTIONAL_ODD_EXT
+  , pattern GL_ISOLINES_EXT
+  , pattern GL_IS_PER_PATCH_EXT
+  , pattern GL_MAX_COMBINED_TESS_CONTROL_UNIFORM_COMPONENTS_EXT
+  , pattern GL_MAX_COMBINED_TESS_EVALUATION_UNIFORM_COMPONENTS_EXT
+  , pattern GL_MAX_PATCH_VERTICES_EXT
+  , pattern GL_MAX_TESS_CONTROL_ATOMIC_COUNTERS_EXT
+  , pattern GL_MAX_TESS_CONTROL_ATOMIC_COUNTER_BUFFERS_EXT
+  , pattern GL_MAX_TESS_CONTROL_IMAGE_UNIFORMS_EXT
+  , pattern GL_MAX_TESS_CONTROL_INPUT_COMPONENTS_EXT
+  , pattern GL_MAX_TESS_CONTROL_OUTPUT_COMPONENTS_EXT
+  , pattern GL_MAX_TESS_CONTROL_SHADER_STORAGE_BLOCKS_EXT
+  , pattern GL_MAX_TESS_CONTROL_TEXTURE_IMAGE_UNITS_EXT
+  , pattern GL_MAX_TESS_CONTROL_TOTAL_OUTPUT_COMPONENTS_EXT
+  , pattern GL_MAX_TESS_CONTROL_UNIFORM_BLOCKS_EXT
+  , pattern GL_MAX_TESS_CONTROL_UNIFORM_COMPONENTS_EXT
+  , pattern GL_MAX_TESS_EVALUATION_ATOMIC_COUNTERS_EXT
+  , pattern GL_MAX_TESS_EVALUATION_ATOMIC_COUNTER_BUFFERS_EXT
+  , pattern GL_MAX_TESS_EVALUATION_IMAGE_UNIFORMS_EXT
+  , pattern GL_MAX_TESS_EVALUATION_INPUT_COMPONENTS_EXT
+  , pattern GL_MAX_TESS_EVALUATION_OUTPUT_COMPONENTS_EXT
+  , pattern GL_MAX_TESS_EVALUATION_SHADER_STORAGE_BLOCKS_EXT
+  , pattern GL_MAX_TESS_EVALUATION_TEXTURE_IMAGE_UNITS_EXT
+  , pattern GL_MAX_TESS_EVALUATION_UNIFORM_BLOCKS_EXT
+  , pattern GL_MAX_TESS_EVALUATION_UNIFORM_COMPONENTS_EXT
+  , pattern GL_MAX_TESS_GEN_LEVEL_EXT
+  , pattern GL_MAX_TESS_PATCH_COMPONENTS_EXT
+  , pattern GL_PATCHES_EXT
+  , pattern GL_PATCH_VERTICES_EXT
+  , pattern GL_PRIMITIVE_RESTART_FOR_PATCHES_SUPPORTED
+  , pattern GL_QUADS_EXT
+  , pattern GL_REFERENCED_BY_TESS_CONTROL_SHADER_EXT
+  , pattern GL_REFERENCED_BY_TESS_EVALUATION_SHADER_EXT
+  , pattern GL_TESS_CONTROL_OUTPUT_VERTICES_EXT
+  , pattern GL_TESS_CONTROL_SHADER_BIT_EXT
+  , pattern GL_TESS_CONTROL_SHADER_EXT
+  , pattern GL_TESS_EVALUATION_SHADER_BIT_EXT
+  , pattern GL_TESS_EVALUATION_SHADER_EXT
+  , pattern GL_TESS_GEN_MODE_EXT
+  , pattern GL_TESS_GEN_POINT_MODE_EXT
+  , pattern GL_TESS_GEN_SPACING_EXT
+  , pattern GL_TESS_GEN_VERTEX_ORDER_EXT
+  , pattern GL_TRIANGLES
+) where
+
+import Control.Monad.IO.Class
+import Data.Set
+import Foreign.Ptr
+import Graphics.GL.Internal.FFI
+import Graphics.GL.Internal.Proc
+import Graphics.GL.Internal.Shared
+import Graphics.GL.Types
+import System.IO.Unsafe
+
+-- | Checks that the <https://www.khronos.org/registry/gles/extensions/EXT/EXT_tessellation_shader.txt GL_EXT_tessellation_shader> extension is available.
+
+gl_EXT_tessellation_shader :: Bool
+gl_EXT_tessellation_shader = member "GL_EXT_tessellation_shader" extensions
+{-# NOINLINE gl_EXT_tessellation_shader #-}
+
+-- | Usage: @'glPatchParameteriEXT' pname value@
+--
+-- This command is an alias for 'Graphics.GL.Internal.Shared.glPatchParameteri'.
+
+
+glPatchParameteriEXT :: MonadIO m => GLenum -> GLint -> m ()
+glPatchParameteriEXT = ffienumintIOV glPatchParameteriEXTFunPtr
+
+glPatchParameteriEXTFunPtr :: FunPtr (GLenum -> GLint -> IO ())
+glPatchParameteriEXTFunPtr = unsafePerformIO (getProcAddress "glPatchParameteriEXT")
+
+{-# NOINLINE glPatchParameteriEXTFunPtr #-}
+
+pattern GL_FRACTIONAL_EVEN_EXT  :: (Eq a, Num a) => a
+
+pattern GL_FRACTIONAL_EVEN_EXT = 0x8E7C
+
+pattern GL_FRACTIONAL_ODD_EXT  :: (Eq a, Num a) => a
+
+pattern GL_FRACTIONAL_ODD_EXT = 0x8E7B
+
+pattern GL_ISOLINES_EXT  :: (Eq a, Num a) => a
+
+pattern GL_ISOLINES_EXT = 0x8E7A
+
+pattern GL_IS_PER_PATCH_EXT  :: (Eq a, Num a) => a
+
+pattern GL_IS_PER_PATCH_EXT = 0x92E7
+
+pattern GL_MAX_COMBINED_TESS_CONTROL_UNIFORM_COMPONENTS_EXT  :: (Eq a, Num a) => a
+
+pattern GL_MAX_COMBINED_TESS_CONTROL_UNIFORM_COMPONENTS_EXT = 0x8E1E
+
+pattern GL_MAX_COMBINED_TESS_EVALUATION_UNIFORM_COMPONENTS_EXT  :: (Eq a, Num a) => a
+
+pattern GL_MAX_COMBINED_TESS_EVALUATION_UNIFORM_COMPONENTS_EXT = 0x8E1F
+
+pattern GL_MAX_PATCH_VERTICES_EXT  :: (Eq a, Num a) => a
+
+pattern GL_MAX_PATCH_VERTICES_EXT = 0x8E7D
+
+pattern GL_MAX_TESS_CONTROL_ATOMIC_COUNTERS_EXT  :: (Eq a, Num a) => a
+
+pattern GL_MAX_TESS_CONTROL_ATOMIC_COUNTERS_EXT = 0x92D3
+
+pattern GL_MAX_TESS_CONTROL_ATOMIC_COUNTER_BUFFERS_EXT  :: (Eq a, Num a) => a
+
+pattern GL_MAX_TESS_CONTROL_ATOMIC_COUNTER_BUFFERS_EXT = 0x92CD
+
+pattern GL_MAX_TESS_CONTROL_IMAGE_UNIFORMS_EXT  :: (Eq a, Num a) => a
+
+pattern GL_MAX_TESS_CONTROL_IMAGE_UNIFORMS_EXT = 0x90CB
+
+pattern GL_MAX_TESS_CONTROL_INPUT_COMPONENTS_EXT  :: (Eq a, Num a) => a
+
+pattern GL_MAX_TESS_CONTROL_INPUT_COMPONENTS_EXT = 0x886C
+
+pattern GL_MAX_TESS_CONTROL_OUTPUT_COMPONENTS_EXT  :: (Eq a, Num a) => a
+
+pattern GL_MAX_TESS_CONTROL_OUTPUT_COMPONENTS_EXT = 0x8E83
+
+pattern GL_MAX_TESS_CONTROL_SHADER_STORAGE_BLOCKS_EXT  :: (Eq a, Num a) => a
+
+pattern GL_MAX_TESS_CONTROL_SHADER_STORAGE_BLOCKS_EXT = 0x90D8
+
+pattern GL_MAX_TESS_CONTROL_TEXTURE_IMAGE_UNITS_EXT  :: (Eq a, Num a) => a
+
+pattern GL_MAX_TESS_CONTROL_TEXTURE_IMAGE_UNITS_EXT = 0x8E81
+
+pattern GL_MAX_TESS_CONTROL_TOTAL_OUTPUT_COMPONENTS_EXT  :: (Eq a, Num a) => a
+
+pattern GL_MAX_TESS_CONTROL_TOTAL_OUTPUT_COMPONENTS_EXT = 0x8E85
+
+pattern GL_MAX_TESS_CONTROL_UNIFORM_BLOCKS_EXT  :: (Eq a, Num a) => a
+
+pattern GL_MAX_TESS_CONTROL_UNIFORM_BLOCKS_EXT = 0x8E89
+
+pattern GL_MAX_TESS_CONTROL_UNIFORM_COMPONENTS_EXT  :: (Eq a, Num a) => a
+
+pattern GL_MAX_TESS_CONTROL_UNIFORM_COMPONENTS_EXT = 0x8E7F
+
+pattern GL_MAX_TESS_EVALUATION_ATOMIC_COUNTERS_EXT  :: (Eq a, Num a) => a
+
+pattern GL_MAX_TESS_EVALUATION_ATOMIC_COUNTERS_EXT = 0x92D4
+
+pattern GL_MAX_TESS_EVALUATION_ATOMIC_COUNTER_BUFFERS_EXT  :: (Eq a, Num a) => a
+
+pattern GL_MAX_TESS_EVALUATION_ATOMIC_COUNTER_BUFFERS_EXT = 0x92CE
+
+pattern GL_MAX_TESS_EVALUATION_IMAGE_UNIFORMS_EXT  :: (Eq a, Num a) => a
+
+pattern GL_MAX_TESS_EVALUATION_IMAGE_UNIFORMS_EXT = 0x90CC
+
+pattern GL_MAX_TESS_EVALUATION_INPUT_COMPONENTS_EXT  :: (Eq a, Num a) => a
+
+pattern GL_MAX_TESS_EVALUATION_INPUT_COMPONENTS_EXT = 0x886D
+
+pattern GL_MAX_TESS_EVALUATION_OUTPUT_COMPONENTS_EXT  :: (Eq a, Num a) => a
+
+pattern GL_MAX_TESS_EVALUATION_OUTPUT_COMPONENTS_EXT = 0x8E86
+
+pattern GL_MAX_TESS_EVALUATION_SHADER_STORAGE_BLOCKS_EXT  :: (Eq a, Num a) => a
+
+pattern GL_MAX_TESS_EVALUATION_SHADER_STORAGE_BLOCKS_EXT = 0x90D9
+
+pattern GL_MAX_TESS_EVALUATION_TEXTURE_IMAGE_UNITS_EXT  :: (Eq a, Num a) => a
+
+pattern GL_MAX_TESS_EVALUATION_TEXTURE_IMAGE_UNITS_EXT = 0x8E82
+
+pattern GL_MAX_TESS_EVALUATION_UNIFORM_BLOCKS_EXT  :: (Eq a, Num a) => a
+
+pattern GL_MAX_TESS_EVALUATION_UNIFORM_BLOCKS_EXT = 0x8E8A
+
+pattern GL_MAX_TESS_EVALUATION_UNIFORM_COMPONENTS_EXT  :: (Eq a, Num a) => a
+
+pattern GL_MAX_TESS_EVALUATION_UNIFORM_COMPONENTS_EXT = 0x8E80
+
+pattern GL_MAX_TESS_GEN_LEVEL_EXT  :: (Eq a, Num a) => a
+
+pattern GL_MAX_TESS_GEN_LEVEL_EXT = 0x8E7E
+
+pattern GL_MAX_TESS_PATCH_COMPONENTS_EXT  :: (Eq a, Num a) => a
+
+pattern GL_MAX_TESS_PATCH_COMPONENTS_EXT = 0x8E84
+
+pattern GL_PATCHES_EXT  :: (Eq a, Num a) => a
+
+pattern GL_PATCHES_EXT = 0x000E
+
+pattern GL_PATCH_VERTICES_EXT  :: (Eq a, Num a) => a
+
+pattern GL_PATCH_VERTICES_EXT = 0x8E72
+
+pattern GL_QUADS_EXT  :: (Eq a, Num a) => a
+
+pattern GL_QUADS_EXT = 0x0007
+
+pattern GL_REFERENCED_BY_TESS_CONTROL_SHADER_EXT  :: (Eq a, Num a) => a
+
+pattern GL_REFERENCED_BY_TESS_CONTROL_SHADER_EXT = 0x9307
+
+pattern GL_REFERENCED_BY_TESS_EVALUATION_SHADER_EXT  :: (Eq a, Num a) => a
+
+pattern GL_REFERENCED_BY_TESS_EVALUATION_SHADER_EXT = 0x9308
+
+pattern GL_TESS_CONTROL_OUTPUT_VERTICES_EXT  :: (Eq a, Num a) => a
+
+pattern GL_TESS_CONTROL_OUTPUT_VERTICES_EXT = 0x8E75
+
+pattern GL_TESS_CONTROL_SHADER_BIT_EXT  :: (Eq a, Num a) => a
+
+pattern GL_TESS_CONTROL_SHADER_BIT_EXT = 0x00000008
+
+pattern GL_TESS_CONTROL_SHADER_EXT  :: (Eq a, Num a) => a
+
+pattern GL_TESS_CONTROL_SHADER_EXT = 0x8E88
+
+pattern GL_TESS_EVALUATION_SHADER_BIT_EXT  :: (Eq a, Num a) => a
+
+pattern GL_TESS_EVALUATION_SHADER_BIT_EXT = 0x00000010
+
+pattern GL_TESS_EVALUATION_SHADER_EXT  :: (Eq a, Num a) => a
+
+pattern GL_TESS_EVALUATION_SHADER_EXT = 0x8E87
+
+pattern GL_TESS_GEN_MODE_EXT  :: (Eq a, Num a) => a
+
+pattern GL_TESS_GEN_MODE_EXT = 0x8E76
+
+pattern GL_TESS_GEN_POINT_MODE_EXT  :: (Eq a, Num a) => a
+
+pattern GL_TESS_GEN_POINT_MODE_EXT = 0x8E79
+
+pattern GL_TESS_GEN_SPACING_EXT  :: (Eq a, Num a) => a
+
+pattern GL_TESS_GEN_SPACING_EXT = 0x8E77
+
+pattern GL_TESS_GEN_VERTEX_ORDER_EXT  :: (Eq a, Num a) => a
+
+pattern GL_TESS_GEN_VERTEX_ORDER_EXT = 0x8E78

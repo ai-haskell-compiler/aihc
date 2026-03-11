@@ -1,0 +1,94 @@
+{
+  "object_kind": "pipeline",
+  "object_attributes": {
+    "id": 32617,
+    "iid": 4,
+    "name": null,
+    "ref": "master",
+    "tag": false,
+    "sha": "abcde",
+    "before_sha": "edcba",
+    "source": "push",
+    "status": "failed",
+    "detailed_status": "failed",
+    "stages": [
+      "test"
+    ],
+    "created_at": "2024-11-01 21:58:31 UTC",
+    "finished_at": "2024-11-01 21:58:35 UTC",
+    "duration": 3,
+    "queued_duration": null,
+    "variables": [],
+    "url": "https://example.com/joe/proj-name/-/pipelines/32617"
+  },
+  "merge_request": null,
+  "user": {
+    "id": 899,
+    "name": "Joe",
+    "username": "joe",
+    "avatar_url": "https://secure.gravatar.com/avatar/abc",
+    "email": "[REDACTED]"
+  },
+  "project": {
+    "id": 24472,
+    "name": "proj-name",
+    "description": null,
+    "web_url": "https://example.com/joe/proj-name",
+    "avatar_url": null,
+    "git_ssh_url": "git@example.com:joe/proj-name.git",
+    "git_http_url": "https://example.com/joe/proj-name.git",
+    "namespace": "Joe",
+    "visibility_level": 0,
+    "path_with_namespace": "joe/proj-name",
+    "default_branch": "master",
+    "ci_config_path": null
+  },
+  "commit": {
+    "id": "abcde",
+    "message": "the commit message",
+    "title": "the commit message",
+    "timestamp": "2024-11-01T21:58:31+00:00",
+    "url": "https://example.com/joe/proj-name/-/commit/abcde",
+    "author": {
+      "name": "Joe",
+      "email": "12345+Joe@users.noreply.github.com"
+    }
+  },
+  "builds": [
+    {
+      "id": 47429,
+      "stage": "test",
+      "name": "junit",
+      "status": "failed",
+      "created_at": "2024-11-01 21:58:31 UTC",
+      "started_at": "2024-11-01 21:58:31 UTC",
+      "finished_at": "2024-11-01 21:58:35 UTC",
+      "duration": 3.889573,
+      "queued_duration": 0.19131,
+      "failure_reason": "script_failure",
+      "when": "on_success",
+      "manual": false,
+      "allow_failure": false,
+      "user": {
+        "id": 899,
+        "name": "Joe",
+        "username": "joe",
+        "avatar_url": "https://secure.gravatar.com/avatar/abc",
+        "email": "[REDACTED]"
+      },
+      "runner": {
+        "id": 15,
+        "description": "",
+        "runner_type": "instance_type",
+        "active": true,
+        "is_shared": true,
+        "tags": []
+      },
+      "artifacts_file": {
+        "filename": null,
+        "size": null
+      },
+      "environment": null
+    }
+  ]
+}

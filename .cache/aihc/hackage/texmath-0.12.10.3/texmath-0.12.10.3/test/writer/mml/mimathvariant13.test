@@ -1,0 +1,161 @@
+<<< native
+[ EArray
+    [ AlignCenter
+    , AlignCenter
+    , AlignCenter
+    , AlignCenter
+    , AlignCenter
+    , AlignCenter
+    , AlignCenter
+    , AlignCenter
+    , AlignCenter
+    , AlignCenter
+    , AlignCenter
+    , AlignCenter
+    , AlignCenter
+    , AlignCenter
+    , AlignCenter
+    , AlignCenter
+    ]
+    [ [ [ EIdentifier "a" ]
+      , [ EIdentifier "a" ]
+      , [ EStyled TextBold [ EIdentifier "a" ] ]
+      , [ EStyled TextItalic [ EIdentifier "a" ] ]
+      , [ EStyled TextBoldItalic [ EIdentifier "a" ] ]
+      , [ EStyled TextDoubleStruck [ EIdentifier "a" ] ]
+      , [ EStyled TextBoldFraktur [ EIdentifier "a" ] ]
+      , [ EStyled TextScript [ EIdentifier "a" ] ]
+      , [ EStyled TextBoldScript [ EIdentifier "a" ] ]
+      , [ EStyled TextFraktur [ EIdentifier "a" ] ]
+      , [ EStyled TextSansSerif [ EIdentifier "a" ] ]
+      , [ EStyled TextSansSerifBold [ EIdentifier "a" ] ]
+      , [ EStyled TextSansSerifItalic [ EIdentifier "a" ] ]
+      , [ EStyled TextSansSerifBoldItalic [ EIdentifier "a" ] ]
+      , [ EStyled TextMonospace [ EIdentifier "a" ] ]
+      , [ EStyled TextBold [ EIdentifier "ab" ] ]
+      ]
+    , [ [ EIdentifier "A" ]
+      , [ EIdentifier "A" ]
+      , [ EStyled TextBold [ EIdentifier "A" ] ]
+      , [ EStyled TextItalic [ EIdentifier "A" ] ]
+      , [ EStyled TextBoldItalic [ EIdentifier "A" ] ]
+      , [ EStyled TextDoubleStruck [ EIdentifier "A" ] ]
+      , [ EStyled TextBoldFraktur [ EIdentifier "A" ] ]
+      , [ EStyled TextScript [ EIdentifier "A" ] ]
+      , [ EStyled TextBoldScript [ EIdentifier "A" ] ]
+      , [ EStyled TextFraktur [ EIdentifier "A" ] ]
+      , [ EStyled TextSansSerif [ EIdentifier "A" ] ]
+      , [ EStyled TextSansSerifBold [ EIdentifier "A" ] ]
+      , [ EStyled TextSansSerifItalic [ EIdentifier "A" ] ]
+      , [ EStyled TextSansSerifBoldItalic [ EIdentifier "A" ] ]
+      , [ EStyled TextMonospace [ EIdentifier "A" ] ]
+      , [ EStyled TextBold [ EIdentifier "\945" ] ]
+      ]
+    ]
+]
+>>> mml
+<?xml version='1.0' ?>
+<math display="block" xmlns="http://www.w3.org/1998/Math/MathML">
+  <mtable>
+    <mtr>
+      <mtd columnalign="center" style="text-align: center">
+        <mi>a</mi>
+      </mtd>
+      <mtd columnalign="center" style="text-align: center">
+        <mi>a</mi>
+      </mtd>
+      <mtd columnalign="center" style="text-align: center">
+        <mi>𝐚</mi>
+      </mtd>
+      <mtd columnalign="center" style="text-align: center">
+        <mi>𝑎</mi>
+      </mtd>
+      <mtd columnalign="center" style="text-align: center">
+        <mi>𝒂</mi>
+      </mtd>
+      <mtd columnalign="center" style="text-align: center">
+        <mi>𝕒</mi>
+      </mtd>
+      <mtd columnalign="center" style="text-align: center">
+        <mi>𝖆</mi>
+      </mtd>
+      <mtd columnalign="center" style="text-align: center">
+        <mi>𝒶</mi>
+      </mtd>
+      <mtd columnalign="center" style="text-align: center">
+        <mi>𝓪</mi>
+      </mtd>
+      <mtd columnalign="center" style="text-align: center">
+        <mi>𝔞</mi>
+      </mtd>
+      <mtd columnalign="center" style="text-align: center">
+        <mi>𝖺</mi>
+      </mtd>
+      <mtd columnalign="center" style="text-align: center">
+        <mi>𝗮</mi>
+      </mtd>
+      <mtd columnalign="center" style="text-align: center">
+        <mi>𝘢</mi>
+      </mtd>
+      <mtd columnalign="center" style="text-align: center">
+        <mi>𝙖</mi>
+      </mtd>
+      <mtd columnalign="center" style="text-align: center">
+        <mi>𝚊</mi>
+      </mtd>
+      <mtd columnalign="center" style="text-align: center">
+        <mi>𝐚𝐛</mi>
+      </mtd>
+    </mtr>
+    <mtr>
+      <mtd columnalign="center" style="text-align: center">
+        <mi>A</mi>
+      </mtd>
+      <mtd columnalign="center" style="text-align: center">
+        <mi>A</mi>
+      </mtd>
+      <mtd columnalign="center" style="text-align: center">
+        <mi>𝐀</mi>
+      </mtd>
+      <mtd columnalign="center" style="text-align: center">
+        <mi>𝐴</mi>
+      </mtd>
+      <mtd columnalign="center" style="text-align: center">
+        <mi>𝑨</mi>
+      </mtd>
+      <mtd columnalign="center" style="text-align: center">
+        <mi>𝔸</mi>
+      </mtd>
+      <mtd columnalign="center" style="text-align: center">
+        <mi>𝕬</mi>
+      </mtd>
+      <mtd columnalign="center" style="text-align: center">
+        <mi>𝒜</mi>
+      </mtd>
+      <mtd columnalign="center" style="text-align: center">
+        <mi>𝓐</mi>
+      </mtd>
+      <mtd columnalign="center" style="text-align: center">
+        <mi>𝔄</mi>
+      </mtd>
+      <mtd columnalign="center" style="text-align: center">
+        <mi>𝖠</mi>
+      </mtd>
+      <mtd columnalign="center" style="text-align: center">
+        <mi>𝗔</mi>
+      </mtd>
+      <mtd columnalign="center" style="text-align: center">
+        <mi>𝘈</mi>
+      </mtd>
+      <mtd columnalign="center" style="text-align: center">
+        <mi>𝘼</mi>
+      </mtd>
+      <mtd columnalign="center" style="text-align: center">
+        <mi>𝙰</mi>
+      </mtd>
+      <mtd columnalign="center" style="text-align: center">
+        <mi>𝛂</mi>
+      </mtd>
+    </mtr>
+  </mtable>
+</math>

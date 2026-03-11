@@ -1,0 +1,23 @@
+module RIO.Prelude.Lens
+  ( view
+  , preview
+  , Lens.Micro.ASetter
+  , Lens.Micro.ASetter'
+  , Lens.Micro.Getting
+  , Lens.Micro.Lens
+  , Lens.Micro.Lens'
+  , Lens.Micro.SimpleGetter
+  , Lens.Micro.lens
+  , Lens.Micro.over
+  , Lens.Micro.set
+  , Lens.Micro.sets
+  , Lens.Micro.to
+  , (Lens.Micro.^.)
+  , (Lens.Micro.^?)
+  , (Lens.Micro.^..)
+  , (Lens.Micro.%~)
+  , (Lens.Micro..~)
+  ) where
+
+import Lens.Micro
+import Lens.Micro.Mtl

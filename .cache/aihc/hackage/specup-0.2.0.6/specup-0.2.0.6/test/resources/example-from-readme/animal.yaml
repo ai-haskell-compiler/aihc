@@ -1,0 +1,4 @@
+- animal: Dog
+  class: mammal
+- animal: Crocodile
+  class: reptile

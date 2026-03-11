@@ -1,0 +1,167 @@
+---------------------------------------------------------------------
+RUN tests/cpp-full.hs
+FILE tests/cpp-full.hs
+/* this is a test */
+
+main = putStrLn $ show "Hello"
+OUTPUT
+tests/cpp-full.hs:3:8-30: Warning: Use print
+Found:
+  putStrLn $ show "Hello"
+Perhaps:
+  print "Hello"
+
+1 hint
+
+---------------------------------------------------------------------
+RUN -XNoCPP tests/cpp-none.hs
+FILE tests/cpp-none.hs
+#include "Any/File.h"
+
+main = print "Hello"
+EXIT 0
+OUTPUT
+No hints
+
+---------------------------------------------------------------------
+RUN -XNoCPP tests/cpp-must-not-run.hs
+FILE tests/cpp-must-not-run.hs
+{-
+#error Cpp has run
+-}
+main = undefined
+EXIT 0
+OUTPUT
+No hints
+
+---------------------------------------------------------------------
+RUN --cpp-define FOO tests/cpp-ext-enable.hs
+FILE tests/cpp-ext-enable.hs
+{-# LANGUAGE CPP #-}
+#if defined(FOO)
+{-# LANGUAGE Foo #-}
+#endif
+main = undefined
+EXIT 1
+OUTPUT
+tests/cpp-ext-enable.hs:1:1: Error: Parse error: tests/cpp-ext-enable.hs:3:14: error: [GHC-46537]
+    Unsupported extension: Foo
+Found:
+  {-# LANGUAGE CPP #-}
+
+  {-# LANGUAGE Foo #-}
+
+  main = undefined
+
+1 error
+
+---------------------------------------------------------------------
+RUN tests/cpp-ext-disable.hs
+FILE tests/cpp-ext-disable.hs
+{-# LANGUAGE CPP #-}
+#if defined(FOO)
+{-# LANGUAGE Foo #-}
+#endif
+main = undefined
+EXIT 1
+OUTPUT
+tests/cpp-ext-disable.hs:1:1-20: Warning: Avoid restricted extensions
+Found:
+  {-# LANGUAGE CPP #-}
+Note: may break the code
+
+1 hint
+
+---------------------------------------------------------------------
+RUN --cpp-simple tests/cpp-simple.hs
+FILE tests/cpp-simple.hs
+#include "Any/File.h"
+
+main = print "Hello"
+OUTPUT
+No hints
+
+---------------------------------------------------------------------
+RUN tests/cpp-file1.hs
+FILE tests/cpp-file1.hs
+import Network.Wai
+#if MIN_VERSION_wai(2, 0, 0)
+import Network.Wai.Internal
+#endif
+OUTPUT
+No hints
+
+---------------------------------------------------------------------
+RUN --cpp-file=tests/cabal_macros.h tests/cpp-file2.hs
+FILE tests/cabal_macros.h
+#define MIN_VERSION_wai(a,b,c) 1
+FILE tests/cpp-file2.hs
+import Network.Wai
+#if MIN_VERSION_wai(2, 0, 0)
+import Network.Wai.Internal
+#endif
+foo = map f . map g
+OUTPUT
+tests/cpp-file2.hs:5:7-19: Suggestion: Use map once
+Found:
+  map f . map g
+Perhaps:
+  map (f . g)
+
+1 hint
+
+---------------------------------------------------------------------
+RUN --cpp-simple tests/cpp-file3.hs
+FILE tests/cpp-file3.hs
+import Network.Wai
+#if MIN_VERSION_wai(2, 0, 0)
+import Network.Wai.Internal
+#endif
+OUTPUT
+No hints
+
+---------------------------------------------------------------------
+RUN --cpp-simple tests/cpp-file4.hs
+FILE tests/cpp-file4.hs
+import Network.Wai
+#if defined(MIN_VERSION_wai) && MIN_VERSION_wai(2, 0, 0)
+import Network.Wai.Internal
+#endif
+OUTPUT
+No hints
+
+---------------------------------------------------------------------
+RUN tests/cpp-file5.hs
+FILE tests/cpp-file5.hs
+{-# LANGUAGE CPP #-}
+main =
+#if __GLASGOW_HASKELL__ > 800
+  print __GLASGOW_HASKELL__
+#else
+  putStrLn $ show __GLASGOW_HASKELL__
+#endif
+OUTPUT
+tests/cpp-file5.hs:1:1-20: Warning: Avoid restricted extensions
+Found:
+  {-# LANGUAGE CPP #-}
+Note: may break the code
+
+1 hint
+
+---------------------------------------------------------------------
+RUN --cpp-define "__GLASGOW_HASKELL__=123" tests/cpp-file6.hs
+FILE tests/cpp-file6.hs
+{-# LANGUAGE CPP #-}
+main =
+#if __GLASGOW_HASKELL__ == 123
+  print __GLASGOW_HASKELL__
+#else
+  putStrLn $ show __GLASGOW_HASKELL__
+#endif
+OUTPUT
+tests/cpp-file6.hs:1:1-20: Warning: Avoid restricted extensions
+Found:
+  {-# LANGUAGE CPP #-}
+Note: may break the code
+
+1 hint

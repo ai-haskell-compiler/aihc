@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<package
+   xmlns="http://www.idpf.org/2007/opf"
+   version="2.0"
+   unique-identifier="isbn">
+   <metadata
+      xmlns:dc="http://purl.org/dc/elements/1.1/"
+      xmlns:opf="http://www.idpf.org/2007/opf"
+      xmlns:xml="http://www.w3.org/XML/1998/namespace">
+      <dc:title>Title Of This Book</dc:title>
+      <dc:identifier id="isbn" opf:scheme="ISBN">1-82057-821-9</dc:identifier>
+      <dc:language>en-us</dc:language>
+   </metadata>
+
+   <manifest>
+      <item id="ncx"
+         href="toc.ncx"
+         media-type="application/x-dtbncx+xml" />
+   </manifest>
+
+   <spine toc="ncx">
+   </spine>
+
+</package>

@@ -1,0 +1,8 @@
+0.1
+
+* System.IO.Lazy.T: remove MonadIO instance
+
+  liftIO did not satisfy MonadIO laws.
+  You must use the new function LazyIO.interleave instead.
+  A positive side-effect is that you do not need
+  to depend explicitly on 'transformers' anymore.

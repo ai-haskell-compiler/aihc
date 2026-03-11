@@ -1,0 +1,133 @@
+Version 4000.4.0: release 2022-02-22
+ * Restrict to GHC >=7.6 and associated cleanups (Andreas Abel)
+ * Drop deprecated instance Error (Andreas Abel)
+ * Preparation for mtl-2.3 (Andreas Abel)
+ * General tidying (Andreas Abel)
+ * Support GHC 9.2 (Bodigrim)
+
+Version 4000.3.16: release 2021-03-20
+ * Support GHC-9.0 (Oleg Genrus)
+ * Various dependency bumps (multiple people)
+ * Try all addresses returned by getAddrInfo (Fraser Tweedale)
+
+Version ?
+
+ * If the URI contains "user:pass@" part, use it for Basic Authorization
+ * Add a test harness.
+ * Don't leak a socket when getHostAddr throws an exception.
+ * Send cookies in request format, not response format.
+ * Moved BrowserAction to be a StateT IO, with instances for
+   Applicative, MonadIO, MonadState.
+ * Add method to control size of connection pool.
+ * Consider both host and port when reusing connections.
+ * Handle response code 304 "not modified" properly.
+ * Fix digest authentication by fixing md5 output string rep.
+ * Make the default user agent string follow the package version.
+ * Document lack of HTTPS support and fail when clients try
+   to use it instead of silently falling back to HTTP.
+ * Add helper to set the request type and body.
+
+Version 4000.1.2: release 2011-08-11
+ * Turn off buffering for the debug log.
+ * Update installation instructions.
+ * Bump base dependency to support GHC 7.2.
+
+Version 4000.1.1: release 2010-11-28
+ * Be tolerant of LF (instead of CRLF which is the spec) in responses.
+
+Version 4000.1.0: release 2010-11-09
+ * Retroactively fixed CHANGES to refer to 4000.x.x instead of
+   4004.x.x.
+ * Fix problem with close looping on certain URLs due to trying
+   to munch the rest of the stream even on EOF. Modified from
+   a fix by Daniel Wagner.
+    * This involves a new class member for HStream and is thus an
+      API change, but one that will only affect clients that
+      define their own payload type to replace String/ByteString.
+ * Applied patch by Antoine Latter to fix problem with 301 and 307
+   redirects.
+
+Version 4000.0.10: release 2010-10-29
+ * Bump base dependency to support GHC 7.0.
+ * Stop using 'fail' from the Either monad and instead build Left
+   values explicitly; the behaviour of fail is changing in GHC 7.0
+   and this avoids being sensitive to the change.
+
+Version 4000.0.9: release 2009-12-20
+
+ * Export headerMap from Network.HTTP.Headers
+   (suggested by David Leuschner.)
+ * Fix Network.TCP.{isTCPConnectedTo,isConnectedTo} to be useful.
+ * Always delay closing non-persistent connections until we reach EOF.
+   Delaying it until then is vital when reading the response out as a 
+   lazy ByteString; all of the I/O may not have happened by the time we
+   were returning the HTTP response. Bug manifested itself occasionally
+   with larger responses. Courtesy of Valery Vorotyntsev; both untiring bug
+   hunt and fix.
+ * drop unused type argument from Network.Browser.BrowserEvent; needlessly general.
+   (patch provided by Daniel Wagner.)
+
+Version 4000.0.8: release 2009-08-05
+
+ * Incorporated proxy setting lookup and parsing contribution
+   by Eric Kow; provided in Network.HTTP.Proxy
+ * Factor out HTTP Cookies and Auth handling into separate
+   modules Network.HTTP.Cookie, Network.HTTP.Auth
+ * new Network.Browser functionality for hooking up the
+   proxy detection code in Network.HTTP.Proxy:
+
+      setCheckForProxy :: Bool -> BrowserAction t ()
+      getCheckForProxy :: BrowserAction t Bool
+
+   If you do 'setCheckForProxy True' within a browser
+   session, the proxy-checking code will be called upon.
+   Use 'getCheckForProxy' to get the current setting for
+   this flag.
+
+ * Network.Browser: if HTTP Basic Auth is allowed and
+   server doesn't 401-challenge with an WWW-Authenticate:
+   header, simply assume / realm and proceed. Preferable
+   than failing, even if server is the wrong.
+
+Version 4000.0.7: release 2009-05-22
+
+ * Minor release.
+ * Added 
+     Network.TCP.openSocketStream :: (BufferType t)
+                                  => String {-host-}
+				  -> Socket
+				  -> IO (HandleStream t)
+
+   for interfacing to pre-existing @Socket@s. Contributed and
+   suggested by <http://trac.haskell.org/http/ticket/7>.
+
+Version 4000.0.6: release 2009-04-21; changes from 4000.0.5
+
+ * Network.Browser: use HTTP.HandleStream.sendHTTP_notify, not HTTP.sendHTTP_notify
+   when issuing requests. The latter runs the risk of undoing request normalization.
+ * Network.HTTP.Base.normalizeRequest: when normalizing proxy-bound requests,
+   insert a Host: header if none present. Set it to the destination server authority,
+   not the proxy.
+ * Network.Browser: don't fail on seeing invalid cookie values, but report them
+   as errors and continue.
+
+Version 4000.0.5: release 2009-03-30; changes from 4000.0.4
+
+ * Get serious about comments and Haddock documentation.
+ * Cleaned up normalization of requests, fixing bugs and bringing together
+   previous disparate attempts at handling this.
+ * RequestMethod now supports custom verbs; use the (Custom String) constructor
+ * Beef up Network.HTTP.Base's support for normalizing requests and URIs:
+ 
+    * added splitRequestURI which divides a URI into two; the Authority portion
+      (as a String) and the input URI sans the authority portion. Useful when
+      wanting to split up a request's URI into its Host: and abs_path pieces.
+    * added normalizeRequest :: Bool -> Request ty -> Request ty, which 
+      fixes up a requests URI path and Host: info depending on whether it is
+      destined for a proxy or not (controlled by the Bool.)
+    * moved defaultRequest, defaultRequest_, libUA from Network.Browser
+      to Network.HTTP.Base
+    * added mkRequest :: RequestMethod -> URI -> Bool -> Request ty
+      for constructing normalized&sane Request bases on top of which
+      you can add custom headers, body payload etc.
+

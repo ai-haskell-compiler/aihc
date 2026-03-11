@@ -1,0 +1,18 @@
+mountpoints (1.0.2) unstable; urgency=medium
+
+  * Fix build on Android.
+  * getMounts uses getProcMounts on Android.
+
+ -- Joey Hess <id@joeyh.name>  Tue, 15 Mar 2016 13:20:03 -0400
+
+mountpoints (1.0.1) unstable; urgency=medium
+
+  * Added full text of LGPL to package.
+
+ -- Joey Hess <id@joeyh.name>  Sun, 14 Feb 2016 21:25:23 -0400
+
+mountpoints (1.0.0) unstable; urgency=low
+
+  * Initial release, extracted from git-annex.
+
+ -- Joey Hess <id@joeyh.name>  Sun, 14 Feb 2016 20:39:23 -0400

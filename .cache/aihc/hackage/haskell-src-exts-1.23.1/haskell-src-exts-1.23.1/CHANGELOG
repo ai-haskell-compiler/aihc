@@ -1,0 +1,717 @@
+1.22.0 --> 1.23.0
+=================
+* Add support for BlockArguments (#444)
+  - Technically breaking change: KnownExtension gained a new constructor BlockArguments
+* Add support for Arrow Brackets (#445)
+  - Tecnically breaking change: Exp gained new constructor ArrOp
+
+1.21.1 --> 1.22.0
+=================
+* Support QuantifiedConstraints (#427)
+  - Breaking change: constructors for PAsst changed
+  - Technically breaking change: KnownExtention gained a new constructor QuantifiedConstraints
+* Support Template Haskell typed splices and quotations (#432)
+  - Breaking change: new constructors on Token data type
+* Fix unicode identifier parsing (#442)
+
+1.21.0 --> 1.21.1
+=================
+* GHC 8.8.1 compatibility (MonadFail)
+
+1.20.3 --> 1.21.0
+=================
+* DerivingVia (#420)
+* TypeInType  (#414)
+* Parse TH-quoted list constructor (#415)
+
+1.20.2 --> 1.20.3
+=================
+* GHC 8.6.1 compatability (MonadFail)
+* Remove cpphs dependency
+
+1.20.1 --> 1.20.2
+=================
+* Add fixity of (&)
+* GHC 8.4.1 compatability
+
+1.20.0 --> 1.20.1
+===================
+* Fix two test failures
+
+1.19.1 --> 1.20.0
+===================
+
+* GHC 8.2 updates
+* Add some missing Generics instances (#380)
+* Support Template Haskell pattern splices (#352)
+* Fix overloaded labels starting with _ (#362)
+* Relax MultiParamTypeClass check (#333)
+* DeriveAnyClass (#337)
+* Deriving Strategies (#387)
+* OVERLAPS/OVERLAPPING/OVERLAPPABLE pragmas
+* Unboxed Sums
+* Expression holes in infix expressions
+* Support multiple pattern synonyms per pattern synonym signature
+* COMPLETE pragmas
+* Fix #309, remove unnecessary semi-colon from pretty printer
+* Refine ExplicitNamespaces to properly export type operators
+
+1.19.0 --> 1.19.1
+===================
+
+* Revert making fields of `SrcLoc` strict. (#340)
+
+
+1.18.2 --> 1.19.0
+===================
+
+* Add JavaScriptFFI to known extensions (#335)
+* Remove space when pretty printing `SrcLoc`. (#307)
+* Don't reverse arguments in a context. (#328)
+* Add support for EmptyCase extension (#255)
+
+
+1.18.1 --> 1.18.2
+===================
+
+* Fix overzealous lexing of type applications
+
+1.18.0 --> 1.18.1
+===================
+
+* Fix overzealous lexing of overloaded labels.
+
+
+1.17.1 --> 1.18.0
+===================
+
+* Remove simplified AST
+* GHC 8.0 update: Overloaded labels, type applications, pattern synonym
+extensions, StrictData, injective type families
+
+AST changes:
+
+* Add TyQuasiQuote (#279).
+
+Other changes:
+
+* Only treat 'role' as a keyword in certain contexts (#286).
+* Prettyprint '!' in patterns correctly when BangPatterns are enabled (#287).
+* Parse magic hash with multiple trailing hashes (#300).
+* Apply fixities inside pattern synonym builders
+* Fix lexing of idents with multiple trailing #
+
+** 1.17.x
+
+1.17.0 --> 1.17.1
+=================
+
+Bug Fix:
+
+* Fix bug in parsing view patterns (#284)
+
+1.16.0.1 --> 1.17.0
+===================
+
+AST changes:
+
+* Replaced VarA with AppA in Asst (#168).
+* Promoted list/tuple members changed from Promoted to Type (#162).
+* Update PatBind, Match, and Alt from containing Binds to Maybe Binds to
+  distinguish between empty where clauses and where clauses with no
+  binds (#244).
+* Add RoleAnnotDecl and Role to support Role annotations (#215).
+* Move NameSpace field from EVar/IVar to EAbs/IAbs.
+
+Other changes:
+
+* Add standalone parsers for ImportDecl.
+* Fix pretty-printer bugs for HaRP (#160).
+* Insert parentheses when pretty-printing non-atomic bang types (#169).
+* Un-reverse confusion of left and right arrow (#175).
+* Prettyprint option pragmas like 1.15 (#172).
+* Conditionally insert lines when pretty-printing declarations (#171).
+* Distinguish deriving (Show) from deriving Show (#189).
+* Allow parsing of unicode subscript and superscript functions (#173).
+* Pretty print unboxed tuples with spaces (#193).
+* Improve performance when parsing long extension lists (#200).
+* Properly pretty print constructor and class operators (#204).
+* Read Haskell source files as UTF-8 (#223).
+* Fix ExplicitNamespaces parsing (#216).
+* PolyKinds implies KindSignatures (#220).
+* Preserve location information for infix binds (#205).
+* Preserve positional information in checkPattern (#231).
+* Maintain correct line numbers when parsing multiline GHC_OPTIONS (#218).
+* Correctly parse "*" with TypeOperators (#81).
+* Export the "pretty" method (#222).
+* Add javascript calling convention for foreign imports (#236).
+* Add non-greedy parsers for module heads (#191).
+* Add a flag to disable arity checking when parsing (#260).
+* Parse "-" in type signatures (#206).
+* Add support for type wildcards and expression holes (#252).
+* Add support for Pattern Synonyms (#197).
+* Bump the happy lower bound (#250).
+* Make test suite pass on GHC 7.12 (#224).
+* Support linking Haddock comments to AST nodes (#213).
+* Parse multiline LANGUAGE pragmas (#217).
+* Parse trailing where (#25).
+* Parse modules starting with pragmas and indented
+  "module" keyword (#122).
+* Use pretty-show to get human readable test outputs.
+* Respect fixity declarations inside where/let/class in
+  `applyFixities` (#212).
+* Correctly parse the combination of view patterns and bang patterns. (#276)
+
+** 1.16.x
+
+1.16.0 --> 1.16.0.1
+===================
+
+Include generated InternalParser.hs in the release tarball
+(See http://ro-che.info/articles/2014-03-08-happy-alex-ghc-7.8 for details)
+
+1.15.0.1 --> 1.16.0
+===================
+
+New language features:
+
+* DoRec
+* Closed type families
+* GADT records
+* ExplicitNamespaces
+* Type equality constraints
+* PolyKinds
+* DataKinds
+* Default associated types
+* Instance signatures
+* OVERLAP pragma
+* Parallel arrays
+* MINIMAL pragma
+* Default signatures
+* Safe Haskell
+* Binary literals
+* Qualified record puns
+* Type splices
+
+AST changes:
+
+* PatBind no longer contains the optional Maybe Type field. The type
+  signature is now represented as part of the pattern (PatTypeSig)
+* GuardedAlt and GuardedAlts types are replaced with the isomorphic
+  GuardedRhs and Rhs types
+* Move parentheses from the Context to Asst type
+* Change DeclHead and InstHead to make it possible to represent
+  various ways to put parentheses around parts of declarations. Introduce a new
+  type InstRule for the same purpose.
+* Change representation of negated patterns
+* Make strictness annotations on data type fields part of those fields' Type
+
+Notable bug fixes:
+
+* Allow statements, and not just expression, in MultiWayIf conditions
+* Allow equality constraints when GADTs are enabled
+* Fix parsing and printing of pragma modifiers, such as CONLIKE
+* Don't treat 'capi' or 'interruptible' as a keyword except after 'foreign'
+* Let ImpredicativeTypes imply ExplicitForAll
+* Let RecursiveDo enable 'rec' keyword
+* Fix pretty-printing of the unary minus sign
+* Do not require FlexibleContexts for things like Ord (i Int) => ...
+* Fix pretty-printing of deriving clauses
+* Parse "Constraint" as a kind with ConstraintKinds enabled
+* Support qualified quasi-quoters
+* Enable ScopedTypeVariables when parsing rules
+* Only permit record wildcards in last position
+* Allow n-parameter infix data declaration heads
+
+Other changes:
+
+* Expose showToken from Language.Haskell.Exts.Lexer
+* Show instance for SrcLoc and SrcSpan are changed (now they do not contain
+* field names)
+* Add DeriveGeneric to known extensions
+
+** 1.15.x
+
+1.15.0 --> 1.15.0.1
+===============
+
+* Eliminate inexhaustive patterns (and consequent bugs)
+* The test suite for 1.15.0 wouldn't build due to a missing file in the source
+  distribution. Fixed.
+
+1.14.0.1 --> 1.15.0
+===============
+
+* Add support for extensions:
+  - MultiWayIf
+  - LambdaCase
+  - DataKinds
+* Remove support for old (deprecated) Generics
+* Derive GHC's Generic instances for datatypes
+* Derive some missing Data and Typeable instances
+* Multiple bug fixes
+* Add missing Functor and Applicative instances for monads
+* Remove support for GHCs older than 7.4
+
+** 1.14.x
+
+1.14.0 --> 1.14.0.1
+===============
+
+Nothing has actually changed here (apart from the CHANGELOG). This release is
+done to include InternalParser.hs generated with happy 1.19 so that it compiles
+with GHC 7.8.
+
+1.13.6 --> 1.14.0
+===============
+
+* Modernize the Extension datatype in L.H.E.Extension, following the lead
+  of Cabal, to allow negative and positive extension modifiers (turning
+  features on and off). You need to worry about backwards-incompatible
+  changes if any of the following pertains to you:
+  1) If you use the Extension datatype programmatically - it has changed
+     significantly (see documentation).
+  2) The ParseMode record now has one more field
+     (baseLanguage :: Language), which might give you a type error.
+  3) The behavior of the (extensions :: [Extension]) field has changed,
+     which could bite you if you pass custom extensions in the ParseMode.
+     Previously, the ParseMode defaulted to the list of extensions accepted
+     by Haskell2010, and if you set the list explicitly you would override
+     this. Now, the defaults are { baseLanguage = Haskell2010, extensions = [] },
+     and explicitly setting a list of extensions will be interpreted on top of
+     Haskell2010. See further the documentation for L.H.E.Extension.
+
+* Add support for the 'capi' calling convention. It is enabled with the CApiFFI
+  extension. It's been included since GHC 7.4, and advertised since 7.6.
+
+* Add support for the 'interruptible' FFI safety annotation, enabled with
+  the InterruptibleFFI extension.
+
+* Give better error message when lexing newline fails. In particular, fix the bug
+  when the parser would crash if the file didn't end with a newline.
+
+* Support unboxed tuple expressions and patterns.
+
+* Fix bug in lexing of primitive integer literals in hex or octal notation.
+
+* Disallow negative primitive word literals
+  (such as W# (-0x8000000000000000##)).
+
+* Allow phase control for SPECIALIZE pragma.
+
+* Derive Foldable and Traversable instances for all annotated AST types.
+
+* Fix bug with pretty-printing WARNING and DEPRECATED pragmas.
+
+
+** 1.13.x
+
+1.13.5 --> 1.13.6
+===============
+
+* Allow 0-parameter type classes when MultiParamTypeClasses is on.
+
+* Add support for NondecreasingIndentation. Previously it was always on,
+  which is the default behavior in GHC. Now it is on only if enabled, or
+  when using the newly added ghcDefaults extension set (instead of haskell2010).
+
+
+1.13.4 --> 1.13.5
+===============
+
+* Expose Language.Haskell.Exts.Lexer, which implements
+  a standalone token stream lexer. The module is
+  re-exported both by Language.Haskell.Exts and by
+  Language.Haskell.Exts.Annotated.
+
+
+1.13.3 --> 1.13.4
+===============
+
+* Fix bug where operators starting with # written in
+  parentheses would not be parsed when UnboxedTuples is
+  turned on. Now works.
+
+* Allow 'family' and 'forall' as (non-type) varid's. This
+  adds one more shift/reduce conflict to the parser, and
+  its resolution means that '{-# RULES "name" forall = ... #-}'
+  is not allowed.
+
+* Complete the set of FFI calling conventions from the Haskell
+  2010 report (even if no compiler implements them). Also
+  include the 'js' calling convention, supported by UHC.
+
+
+1.13.2 --> 1.13.3
+===============
+
+* Fundep premises are now allowed to be empty.
+
+* Fix the bug where the lexer would crash on a LINE pragma
+  that did not include a line number.
+
+* Fix the bug where the lexer would require the # of a
+  MagicHash-style type constructor to be succeeded by at
+  least one character in the file.
+
+* Fix long-standing bug where the parser would crash with
+  an ugly "Internal error" error message if encountering
+  an extra }.
+
+* Report errors at the right place for function arity
+  mismatches. Earlier they were reported at end of file,
+  now they are reported where the function is declared.
+
+* Lexer now properly fails on line-breaks in string literals.
+
+* Lexer now handles character escapes up to 0x10FFFF (unicode).
+
+
+1.13.1 --> 1.13.2
+===============
+
+* Fix the bug with the precedence of unary prefix minus.
+  Previously it was resolved as binding more tightly
+  than any infix operator, now it is correctly treated
+  as having the same fixity as binary infix minus.
+
+
+1.13.0 --> 1.13.1
+===============
+
+* Allow an optional semi before the closing tag of
+  an element. This achieves a similar effect for
+  XmlSyntax in do blocks as DoAndIfThenElse does for
+  the if construct. No more need to indent the closing
+  tag one step further than the opening tag.
+
+* Add a dummy 'noLoc :: SrcLoc' to L.H.E.SrcLoc, to
+  use when generating code. It could definitely be
+  done more elegantly, but not without inducing another
+  major version bump, so later.
+
+* Fix a regression from 1.11.x where the parser would crash
+  upon encountering non-simple class/data declaration
+  heads, e.g. 'data A [a]'. Now fails with a parse error
+  as intended.
+
+
+1.12.0 --> 1.13.0
+===============
+
+* Add extensions DoAndIfThenElse and NPlusKPatterns to
+  Language.Haskell.Exts.Extensions.
+
+* DoAndIfThenElse is now supported, at long last,
+  making HSE compatible with Haskell2010
+
+* Introduce haskell98 and haskell2010 extension groups,
+  exported from Language.Haskell.Exts.Extensions.
+
+* Backwards-incompatible change: default parse mode
+  is now to use haskell2010, which means the following
+  features are recognized by default: DoAndIfThenElse,
+  PatternGuards, ForeignFunctionInterface, EmptyDataDecls.
+  NPlusKPatterns is no longer recognized by default.
+
+
+** 1.12.x
+
+1.11.1 --> 1.12.0
+===============
+
+* Move from old [$...| quasi-quote syntax to the new [...| one.
+  The old syntax is still recognized while parsing.
+
+* Allow symbols as variables when TypeOperators is enabled.
+
+* Rename ExplicitForall in ExplicitForAll, to be consistent
+  with GHC and the Haskell' process.
+
+
+** 1.11.x
+
+1.10.2 --> 1.11.1
+===============
+
+* API change: the fixities field in ParseMode is now of type
+  Maybe [Fixity].  If the field is Nothing the parsing will
+  not try to do any fixity resolution whatsoever, otherwise
+  it behaves as before.
+
+* API change, bug fix: The Fixity type contains a QName rather
+  than an Op to name the operator.  The operator must match
+  the given QName exactly (i.e., unqualified names only match
+  unqualified names, and qualified names only match qualified
+  names) for applyFixities to perform fixups.
+
+* Bug fix: End-of-file inside an OPTIONS pragma no longer loops.
+
+
+
+** 1.10.x
+
+1.10.1 --> 1.10.2
+===============
+
+* Fix a missing case in the Functor declaration for Decl. Thanks
+  to Malcolm Wallace for the patch!
+
+1.10.0 --> 1.10.1
+===============
+
+* Enable the unicode version of DoubleColon (x2237). Thanks
+  to Andr�s Sicard-Ram�rez for the patch!
+
+1.9.6 --> 1.10.0
+===============
+
+* Ensure that implied extensions are always picked up, not only
+  when using the parseFile* family of functions as previously.
+
+* Add the newly devised <%>...</%> syntax to the XmlSyntax support.
+  This causes changes to pretty much everything, including adding
+  a case to the AST which prompts the major version bump.
+
+
+** 1.9.x
+
+1.9.5 --> 1.9.6
+===============
+
+* Fix a bug (#203) where the lexer loops on malformed quasi-quoters.
+
+* Fix a bug with pretty-printing RULES pragmas.
+
+1.9.4 --> 1.9.5
+===============
+
+* Fix a bug where deriving clauses for GADT-style data declarations
+  were not properly indented.
+
+* Pretty-printing patterns is now more accurate in inserting (and not
+  inserting) parentheses when needed.
+
+1.9.3 --> 1.9.4
+===============
+
+* Pretty-printer now inserts parentheses in clever places when
+  printing kinds.
+
+* Pretty-printing expressions is now far more accurate in inserting
+  (and not inserting) parentheses when needed.
+
+* Pretty-printing negative expressions no longer inserts a superfluous
+  space between the - and the expression.
+
+1.9.2 --> 1.9.3
+===============
+
+* Constructors for newtype declarations must now have exactly one
+  argument. This is only when using the classic syntax, not with
+  GADT-style syntax.
+
+* Fix a bug where preceding commas in tuple sections were counted
+  one too few.
+
+1.9.1 --> 1.9.2
+===============
+
+* Fix a bug with pretty-printing lexer tokens.
+
+* Fix a bug where non-colon TypeOperators could not be used in
+  prefix mode.
+
+1.9.0 --> 1.9.1
+===============
+
+* Export parseFileContentsWithExts from .Exts.
+
+1.8.2 --> 1.9.0
+===============
+
+* OptionPragma is renamed to the more descriptive ModulePragma,
+  and adds a constructor AnnModulePragma for handling ANN pragmas
+  preceding module header.
+
+* Add instances for Eq/Ord/Data/Typeable for Fixity.
+
+* Add 'parseFileWithComments' and 'parseFileContentsWithComments'
+  to L.H.Exts .
+
+* More informative error messages when HSX tags are mismatched.
+
+
+
+** 1.8.x
+
+1.8.1 --> 1.8.2
+===============
+
+* Don't insert redundant parentheses around record constructions
+  and updates.
+
+1.8.0 --> 1.8.1
+===============
+
+* Fix three bugs with the handling of ANN. I must have been really
+  tired when implementing that support.
+
+1.7.2 --> 1.8.0
+===============
+
+* Add an instance Show Fixity (derived).
+
+* Support for the new ANN and INLINE_CONLIKE pragmas.
+
+* Export knownExtensions from .Extension.
+
+* Remove support for CFILES and INCLUDE pragmas. The support wasn't
+  correct anyway, as it assumed the pragmas appeared at the top of
+  files. As CFILES/INCLUDE pragmas can (and do) appear anywhere,
+  there's no hope to support them in the AST. Better to remove the
+  support altogether. Files with CFILES/INCLUDE pragmas can still
+  be parsed of course, but those pragmas will be handled as comments.
+
+* Parsing with ignoreLinePragmas = False now correctly updates the
+  file name.
+
+* Allow the whole SPECIALISE/INLINE family of pragmas in instance
+  declarations. The InsInline constructor is removed, and is now
+  represented by InsDecl (InlineSig ...).
+
+* Fix a bug with line numbering and quasi quotes, and a similar one
+  with line numbering and CDATA.
+
+* Fix a few minor bugs in the exactPrinter.
+
+* Fix the strange handling of so called strings in LINE pragmas.
+
+** 1.7.x
+
+1.7.1 --> 1.7.2
+===============
+
+* Fixes a bug in lexing LINE pragmas (used when ignoreLinePragmas
+  is set to False).
+
+1.7.0 --> 1.7.1
+===============
+
+* UnicodeSyntax now also enables the forall symbol (U+2200).
+
+1.6.1 --> 1.7.0
+===============
+
+* Operators defined on the form
+
+     (a `op` b) c = ...
+
+  could not be handled by the (annotated) AST, nor the parser. I had to
+  change the definition of the AST node for InfixMatch to allow a list
+  of right-hand subpatterns, i.e.
+
+     InfixMatch l (Pat l) (Name l) (Pat l) ...
+
+  has become
+
+     InfixMatch l (Pat l) (Name l) [Pat l] ...
+
+  I also had an epiphany and fixed the issue that would arise with
+  exact printing of prefix definitions including parentheses, so
+  that now works too!
+
+** 1.6.x
+
+1.6.0 --> 1.6.1
+===============
+
+* UnicodeSyntax now works not only for identifiers, but also for
+  ->, <- and =>, as well as Arrows arrows and kind stars.
+
+1.5.3 --> 1.6.0
+===============
+
+* (=~=) turns out to be too general at Functor (for intuitive and not
+  technical reasons), so is specialised to Annotated to closer mirror
+  the original intention.
+
+* applyFixities is hoisted to a monad, and now fails on ambiguous infix
+  expressions.
+
+** 1.5.x
+
+1.5.2 --> 1.5.3
+===============
+
+* Several small bug fixes in the exact printer, and fail more gracefully
+  if the number of srcInfoPoints doesn't match the needs of the node.
+
+1.5.1 --> 1.5.2
+===============
+
+* Fix a bug in the exact printer that made it always print the first token
+  at position (0,0).
+
+* In fixing the above, Annotated is now a superclass of ExactP. It was already
+  a superclass in spirit, and nothing can break from this since ExactP is only
+  exported abstractly.
+
+1.5.0 --> 1.5.1
+===============
+
+* The pretty printer now introduces parentheses for non-atomic arguments to
+  function application. Note that infix applications are left untouched, no
+  parentheses will be inserted there, as it is assumed that fixities are
+  already properly resolved.
+
+* Fix a bug in the pretty printer where view patterns and n+k patterns were
+  not properly parenthesised.
+
+1.4.0 --> 1.5.0
+===============
+
+* Add support for acting on LINE pragmas while parsing, i.e. updating the source
+  position according to info given in LINE pragmas. This is done conditionally
+  based on a new flag ignoreLinePragmas in the ParseMode, hence the need to
+  increase the major version.
+
+** 1.4.x
+
+1.3.5 --> 1.4.0
+===============
+
+* The AST node for Proc in the simple AST is changed to include a SrcLoc argument,
+  to make it consistent with similar nodes e.g. Lambda. This is specifically needed
+  for transformation of patterns in HSX.
+
+
+** 1.3.x
+
+1.3.4 --> 1.3.5
+===============
+
+* Added an entry point in the parser for statements, and an instance Parseable Stmt
+  to go with it.
+
+* Ensured that .Annotated exports all relevant parseXXX(WithYYY) functions.
+
+1.3.3 --> 1.3.4
+===============
+
+* Operator fixities are now resolved in patterns.
+
+1.3.2 --> 1.3.3
+===============
+
+* Fixes a bug where qualified keywords are rejected even if the extension that
+  enables the keyword in question is not turned on.
+
+
+1.3.0 --> 1.3.2
+===============
+
+(Let's forget 1.3.1 ever existed.)
+
+* Fix a bug where declarations of infix operators were not properly merged as FunBinds.
+

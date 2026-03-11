@@ -1,0 +1,21 @@
+Singletons/NegativeLiterals.hs:(0,0)-(0,0): Splicing declarations
+    singletons
+      [d| f :: Natural
+          f = -1 |]
+  ======>
+    f :: Natural
+    f = (-1)
+    type FSym0 :: Natural
+    type family FSym0 :: Natural where
+      FSym0 = F
+    type F :: Natural
+    type family F :: Natural where
+      F = Negate (FromInteger 1)
+    sF :: (Sing (FSym0 :: Natural) :: Type)
+    sF = sNegate (sFromInteger (sing :: Sing 1))
+
+Singletons/NegativeLiterals.hs:0:0: warning: [GHC-97441] [-Woverflowed-literals]
+    Literal -1 is negative but Natural only supports positive numbers
+  |
+8 | $(singletons [d|
+  |  ^^^^^^^^^^^^^^^...

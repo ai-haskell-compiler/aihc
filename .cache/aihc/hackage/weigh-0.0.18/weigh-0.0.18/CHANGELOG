@@ -1,0 +1,49 @@
+0.0.18:
+	* Fix compatibility with `mtl`, whenever different version from the one that is wired with ghc is used.
+
+0.0.17:
+	* Changes to make compatible for GHC 9.6
+
+0.0.16:
+	* Add MaxOS parameter to indicate memory in use by RTS
+	* Add haddock docmentation to the 'Column' type
+	* Fix bug in treating words as int, use only Word as reported by GHC.
+
+0.0.14:
+	* Use the correct data source for final live bytes total
+
+0.0.13:
+	* Forward arguments to the child process
+
+0.0.12:
+	* Fix bug in non-unique groupings
+
+0.0.10:
+	* Export Grouped
+
+0.0.9:
+	* Support markdown output
+
+0.0.8:
+	* Support grouping
+
+0.0.6:
+	* Support GHC 8.2
+	* Use more reliable calculations
+
+0.0.4:
+        * Added more system-independent word size calculation
+
+0.0.3:
+	* Added more docs to haddocks
+	* Export more internal combinators
+
+0.0.2:
+	* Remove magic numbers from weighing code, better accuracy
+	* Add additional `io` combinator
+
+0.0.1:
+	* Support GHC 8.
+
+0.0.0:
+	* First release.

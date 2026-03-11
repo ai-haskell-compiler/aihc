@@ -1,0 +1,5 @@
+flags: {}
+packages:
+- '.'
+# Match the version used in .gitlab-ci.yml
+resolver: lts-23.1

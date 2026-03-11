@@ -1,0 +1,7 @@
+resolver: lts-6.27
+
+packages:
+  - '.'
+  # add wreq-stringless from the parent directory as a dependency
+  - location: ../
+    extra-dep: true

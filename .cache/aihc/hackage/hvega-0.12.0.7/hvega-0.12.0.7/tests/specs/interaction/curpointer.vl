@@ -1,0 +1,45 @@
+{
+    "$schema": "https://vega.github.io/schema/vega-lite/v4.json",
+    "config": {
+        "view": {
+            "cursor": "text"
+        }
+    },
+    "data": {
+        "format": {
+            "parse": {
+                "date": "date"
+            },
+            "type": "csv"
+        },
+        "url": "https://vega.github.io/vega-lite/data/stocks.csv"
+    },
+    "encoding": {
+        "x": {
+            "field": "date",
+            "type": "temporal"
+        },
+        "y": {
+            "field": "price",
+            "type": "quantitative"
+        }
+    },
+    "mark": "line",
+    "selection": {
+        "myBrush": {
+            "encodings": [
+                "x"
+            ],
+            "mark": {
+                "cursor": "pointer"
+            },
+            "type": "interval"
+        }
+    },
+    "transform": [
+        {
+            "filter": "datum.symbol==='GOOG'"
+        }
+    ],
+    "width": 400
+}

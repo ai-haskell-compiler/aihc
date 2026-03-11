@@ -1,0 +1,294 @@
+Singletons/T271.hs:(0,0)-(0,0): Splicing declarations
+    singletons
+      [d| newtype Constant (a :: Type) (b :: Type)
+            = Constant a
+            deriving (Eq, Ord)
+          data Identity :: Type -> Type
+            where Identity :: a -> Identity a
+            deriving (Eq, Ord) |]
+  ======>
+    newtype Constant (a :: Type) (b :: Type)
+      = Constant a
+      deriving (Eq, Ord)
+    data Identity :: Type -> Type
+      where Identity :: a -> Identity a
+      deriving (Eq, Ord)
+    type ConstantSym0 :: forall (a :: Type)
+                                (b :: Type). (~>) a (Constant a b)
+    data ConstantSym0 :: (~>) a (Constant a b)
+      where
+        ConstantSym0KindInference :: SameKind (Apply ConstantSym0 arg) (ConstantSym1 arg) =>
+                                     ConstantSym0 a0123456789876543210
+    type instance Apply ConstantSym0 a0123456789876543210 = Constant a0123456789876543210
+    instance SuppressUnusedWarnings ConstantSym0 where
+      suppressUnusedWarnings = snd ((,) ConstantSym0KindInference ())
+    type ConstantSym1 :: forall (a :: Type) (b :: Type). a
+                                                         -> Constant a b
+    type family ConstantSym1 @(a :: Type) @(b :: Type) (a0123456789876543210 :: a) :: Constant a b where
+      ConstantSym1 a0123456789876543210 = Constant a0123456789876543210
+    type IdentitySym0 :: (~>) a (Identity a)
+    data IdentitySym0 :: (~>) a (Identity a)
+      where
+        IdentitySym0KindInference :: SameKind (Apply IdentitySym0 arg) (IdentitySym1 arg) =>
+                                     IdentitySym0 a0123456789876543210
+    type instance Apply IdentitySym0 a0123456789876543210 = Identity a0123456789876543210
+    instance SuppressUnusedWarnings IdentitySym0 where
+      suppressUnusedWarnings = snd ((,) IdentitySym0KindInference ())
+    type IdentitySym1 :: a -> Identity a
+    type family IdentitySym1 @a (a0123456789876543210 :: a) :: Identity a where
+      IdentitySym1 a0123456789876543210 = Identity a0123456789876543210
+    type TFHelper_0123456789876543210 :: Constant a b
+                                         -> Constant a b -> Bool
+    type family TFHelper_0123456789876543210 @a @b (a :: Constant a b) (a :: Constant a b) :: Bool where
+      TFHelper_0123456789876543210 (Constant a_0123456789876543210) (Constant b_0123456789876543210) = Apply (Apply (==@#@$) a_0123456789876543210) b_0123456789876543210
+    type TFHelper_0123456789876543210Sym0 :: (~>) (Constant a b) ((~>) (Constant a b) Bool)
+    data TFHelper_0123456789876543210Sym0 :: (~>) (Constant a b) ((~>) (Constant a b) Bool)
+      where
+        TFHelper_0123456789876543210Sym0KindInference :: SameKind (Apply TFHelper_0123456789876543210Sym0 arg) (TFHelper_0123456789876543210Sym1 arg) =>
+                                                         TFHelper_0123456789876543210Sym0 a0123456789876543210
+    type instance Apply TFHelper_0123456789876543210Sym0 a0123456789876543210 = TFHelper_0123456789876543210Sym1 a0123456789876543210
+    instance SuppressUnusedWarnings TFHelper_0123456789876543210Sym0 where
+      suppressUnusedWarnings
+        = snd ((,) TFHelper_0123456789876543210Sym0KindInference ())
+    type TFHelper_0123456789876543210Sym1 :: Constant a b
+                                             -> (~>) (Constant a b) Bool
+    data TFHelper_0123456789876543210Sym1 (a0123456789876543210 :: Constant a b) :: (~>) (Constant a b) Bool
+      where
+        TFHelper_0123456789876543210Sym1KindInference :: SameKind (Apply (TFHelper_0123456789876543210Sym1 a0123456789876543210) arg) (TFHelper_0123456789876543210Sym2 a0123456789876543210 arg) =>
+                                                         TFHelper_0123456789876543210Sym1 a0123456789876543210 a0123456789876543210
+    type instance Apply (TFHelper_0123456789876543210Sym1 a0123456789876543210) a0123456789876543210 = TFHelper_0123456789876543210 a0123456789876543210 a0123456789876543210
+    instance SuppressUnusedWarnings (TFHelper_0123456789876543210Sym1 a0123456789876543210) where
+      suppressUnusedWarnings
+        = snd ((,) TFHelper_0123456789876543210Sym1KindInference ())
+    type TFHelper_0123456789876543210Sym2 :: Constant a b
+                                             -> Constant a b -> Bool
+    type family TFHelper_0123456789876543210Sym2 @a @b (a0123456789876543210 :: Constant a b) (a0123456789876543210 :: Constant a b) :: Bool where
+      TFHelper_0123456789876543210Sym2 a0123456789876543210 a0123456789876543210 = TFHelper_0123456789876543210 a0123456789876543210 a0123456789876543210
+    instance PEq (Constant a b) where
+      type (==) a a = Apply (Apply TFHelper_0123456789876543210Sym0 a) a
+    type Compare_0123456789876543210 :: Constant a b
+                                        -> Constant a b -> Ordering
+    type family Compare_0123456789876543210 @a @b (a :: Constant a b) (a :: Constant a b) :: Ordering where
+      Compare_0123456789876543210 (Constant a_0123456789876543210) (Constant b_0123456789876543210) = Apply (Apply (Apply FoldlSym0 (<>@#@$)) EQSym0) (Apply (Apply (:@#@$) (Apply (Apply CompareSym0 a_0123456789876543210) b_0123456789876543210)) NilSym0)
+    type Compare_0123456789876543210Sym0 :: (~>) (Constant a b) ((~>) (Constant a b) Ordering)
+    data Compare_0123456789876543210Sym0 :: (~>) (Constant a b) ((~>) (Constant a b) Ordering)
+      where
+        Compare_0123456789876543210Sym0KindInference :: SameKind (Apply Compare_0123456789876543210Sym0 arg) (Compare_0123456789876543210Sym1 arg) =>
+                                                        Compare_0123456789876543210Sym0 a0123456789876543210
+    type instance Apply Compare_0123456789876543210Sym0 a0123456789876543210 = Compare_0123456789876543210Sym1 a0123456789876543210
+    instance SuppressUnusedWarnings Compare_0123456789876543210Sym0 where
+      suppressUnusedWarnings
+        = snd ((,) Compare_0123456789876543210Sym0KindInference ())
+    type Compare_0123456789876543210Sym1 :: Constant a b
+                                            -> (~>) (Constant a b) Ordering
+    data Compare_0123456789876543210Sym1 (a0123456789876543210 :: Constant a b) :: (~>) (Constant a b) Ordering
+      where
+        Compare_0123456789876543210Sym1KindInference :: SameKind (Apply (Compare_0123456789876543210Sym1 a0123456789876543210) arg) (Compare_0123456789876543210Sym2 a0123456789876543210 arg) =>
+                                                        Compare_0123456789876543210Sym1 a0123456789876543210 a0123456789876543210
+    type instance Apply (Compare_0123456789876543210Sym1 a0123456789876543210) a0123456789876543210 = Compare_0123456789876543210 a0123456789876543210 a0123456789876543210
+    instance SuppressUnusedWarnings (Compare_0123456789876543210Sym1 a0123456789876543210) where
+      suppressUnusedWarnings
+        = snd ((,) Compare_0123456789876543210Sym1KindInference ())
+    type Compare_0123456789876543210Sym2 :: Constant a b
+                                            -> Constant a b -> Ordering
+    type family Compare_0123456789876543210Sym2 @a @b (a0123456789876543210 :: Constant a b) (a0123456789876543210 :: Constant a b) :: Ordering where
+      Compare_0123456789876543210Sym2 a0123456789876543210 a0123456789876543210 = Compare_0123456789876543210 a0123456789876543210 a0123456789876543210
+    instance POrd (Constant a b) where
+      type Compare a a = Apply (Apply Compare_0123456789876543210Sym0 a) a
+    type TFHelper_0123456789876543210 :: Identity a
+                                         -> Identity a -> Bool
+    type family TFHelper_0123456789876543210 @a (a :: Identity a) (a :: Identity a) :: Bool where
+      TFHelper_0123456789876543210 (Identity a_0123456789876543210) (Identity b_0123456789876543210) = Apply (Apply (==@#@$) a_0123456789876543210) b_0123456789876543210
+    type TFHelper_0123456789876543210Sym0 :: (~>) (Identity a) ((~>) (Identity a) Bool)
+    data TFHelper_0123456789876543210Sym0 :: (~>) (Identity a) ((~>) (Identity a) Bool)
+      where
+        TFHelper_0123456789876543210Sym0KindInference :: SameKind (Apply TFHelper_0123456789876543210Sym0 arg) (TFHelper_0123456789876543210Sym1 arg) =>
+                                                         TFHelper_0123456789876543210Sym0 a0123456789876543210
+    type instance Apply TFHelper_0123456789876543210Sym0 a0123456789876543210 = TFHelper_0123456789876543210Sym1 a0123456789876543210
+    instance SuppressUnusedWarnings TFHelper_0123456789876543210Sym0 where
+      suppressUnusedWarnings
+        = snd ((,) TFHelper_0123456789876543210Sym0KindInference ())
+    type TFHelper_0123456789876543210Sym1 :: Identity a
+                                             -> (~>) (Identity a) Bool
+    data TFHelper_0123456789876543210Sym1 (a0123456789876543210 :: Identity a) :: (~>) (Identity a) Bool
+      where
+        TFHelper_0123456789876543210Sym1KindInference :: SameKind (Apply (TFHelper_0123456789876543210Sym1 a0123456789876543210) arg) (TFHelper_0123456789876543210Sym2 a0123456789876543210 arg) =>
+                                                         TFHelper_0123456789876543210Sym1 a0123456789876543210 a0123456789876543210
+    type instance Apply (TFHelper_0123456789876543210Sym1 a0123456789876543210) a0123456789876543210 = TFHelper_0123456789876543210 a0123456789876543210 a0123456789876543210
+    instance SuppressUnusedWarnings (TFHelper_0123456789876543210Sym1 a0123456789876543210) where
+      suppressUnusedWarnings
+        = snd ((,) TFHelper_0123456789876543210Sym1KindInference ())
+    type TFHelper_0123456789876543210Sym2 :: Identity a
+                                             -> Identity a -> Bool
+    type family TFHelper_0123456789876543210Sym2 @a (a0123456789876543210 :: Identity a) (a0123456789876543210 :: Identity a) :: Bool where
+      TFHelper_0123456789876543210Sym2 a0123456789876543210 a0123456789876543210 = TFHelper_0123456789876543210 a0123456789876543210 a0123456789876543210
+    instance PEq (Identity a) where
+      type (==) a a = Apply (Apply TFHelper_0123456789876543210Sym0 a) a
+    type Compare_0123456789876543210 :: Identity a
+                                        -> Identity a -> Ordering
+    type family Compare_0123456789876543210 @a (a :: Identity a) (a :: Identity a) :: Ordering where
+      Compare_0123456789876543210 (Identity a_0123456789876543210) (Identity b_0123456789876543210) = Apply (Apply (Apply FoldlSym0 (<>@#@$)) EQSym0) (Apply (Apply (:@#@$) (Apply (Apply CompareSym0 a_0123456789876543210) b_0123456789876543210)) NilSym0)
+    type Compare_0123456789876543210Sym0 :: (~>) (Identity a) ((~>) (Identity a) Ordering)
+    data Compare_0123456789876543210Sym0 :: (~>) (Identity a) ((~>) (Identity a) Ordering)
+      where
+        Compare_0123456789876543210Sym0KindInference :: SameKind (Apply Compare_0123456789876543210Sym0 arg) (Compare_0123456789876543210Sym1 arg) =>
+                                                        Compare_0123456789876543210Sym0 a0123456789876543210
+    type instance Apply Compare_0123456789876543210Sym0 a0123456789876543210 = Compare_0123456789876543210Sym1 a0123456789876543210
+    instance SuppressUnusedWarnings Compare_0123456789876543210Sym0 where
+      suppressUnusedWarnings
+        = snd ((,) Compare_0123456789876543210Sym0KindInference ())
+    type Compare_0123456789876543210Sym1 :: Identity a
+                                            -> (~>) (Identity a) Ordering
+    data Compare_0123456789876543210Sym1 (a0123456789876543210 :: Identity a) :: (~>) (Identity a) Ordering
+      where
+        Compare_0123456789876543210Sym1KindInference :: SameKind (Apply (Compare_0123456789876543210Sym1 a0123456789876543210) arg) (Compare_0123456789876543210Sym2 a0123456789876543210 arg) =>
+                                                        Compare_0123456789876543210Sym1 a0123456789876543210 a0123456789876543210
+    type instance Apply (Compare_0123456789876543210Sym1 a0123456789876543210) a0123456789876543210 = Compare_0123456789876543210 a0123456789876543210 a0123456789876543210
+    instance SuppressUnusedWarnings (Compare_0123456789876543210Sym1 a0123456789876543210) where
+      suppressUnusedWarnings
+        = snd ((,) Compare_0123456789876543210Sym1KindInference ())
+    type Compare_0123456789876543210Sym2 :: Identity a
+                                            -> Identity a -> Ordering
+    type family Compare_0123456789876543210Sym2 @a (a0123456789876543210 :: Identity a) (a0123456789876543210 :: Identity a) :: Ordering where
+      Compare_0123456789876543210Sym2 a0123456789876543210 a0123456789876543210 = Compare_0123456789876543210 a0123456789876543210 a0123456789876543210
+    instance POrd (Identity a) where
+      type Compare a a = Apply (Apply Compare_0123456789876543210Sym0 a) a
+    data SConstant :: forall (a :: Type) (b :: Type).
+                      Constant a b -> Type
+      where
+        SConstant :: forall (a :: Type) (b :: Type) (n :: a).
+                     (Sing n) -> SConstant (Constant n :: Constant a b)
+    type instance Sing @(Constant a b) = SConstant
+    instance (SingKind a, SingKind b) => SingKind (Constant a b) where
+      type Demote (Constant a b) = Constant (Demote a) (Demote b)
+      fromSing (SConstant b) = Constant (fromSing b)
+      toSing (Constant (b :: Demote a))
+        = case toSing b :: SomeSing a of
+            SomeSing c -> SomeSing (SConstant c)
+    data SIdentity :: forall (a :: Type). Identity a -> Type
+      where
+        SIdentity :: forall a (n :: a).
+                     (Sing n) -> SIdentity (Identity n :: Identity a)
+    type instance Sing @(Identity a) = SIdentity
+    instance SingKind a => SingKind (Identity a) where
+      type Demote (Identity a) = Identity (Demote a)
+      fromSing (SIdentity b) = Identity (fromSing b)
+      toSing (Identity (b :: Demote a))
+        = case toSing b :: SomeSing a of
+            SomeSing c -> SomeSing (SIdentity c)
+    instance SEq a => SEq (Constant a b) where
+      (%==) ::
+        forall (t1 :: Constant a b) (t2 :: Constant a b). Sing t1
+                                                          -> Sing t2
+                                                             -> Sing (Apply (Apply ((==@#@$) :: TyFun (Constant a b) ((~>) (Constant a b) Bool)
+                                                                                                -> Type) t1) t2)
+      (%==)
+        (SConstant (sA_0123456789876543210 :: Sing a_0123456789876543210))
+        (SConstant (sB_0123456789876543210 :: Sing b_0123456789876543210))
+        = applySing
+            (applySing (singFun2 @(==@#@$) (%==)) sA_0123456789876543210)
+            sB_0123456789876543210
+    instance SOrd a => SOrd (Constant a b) where
+      sCompare ::
+        forall (t1 :: Constant a b) (t2 :: Constant a b). Sing t1
+                                                          -> Sing t2
+                                                             -> Sing (Apply (Apply (CompareSym0 :: TyFun (Constant a b) ((~>) (Constant a b) Ordering)
+                                                                                                   -> Type) t1) t2)
+      sCompare
+        (SConstant (sA_0123456789876543210 :: Sing a_0123456789876543210))
+        (SConstant (sB_0123456789876543210 :: Sing b_0123456789876543210))
+        = applySing
+            (applySing
+               (applySing (singFun3 @FoldlSym0 sFoldl) (singFun2 @(<>@#@$) (%<>)))
+               SEQ)
+            (applySing
+               (applySing
+                  (singFun2 @(:@#@$) SCons)
+                  (applySing
+                     (applySing (singFun2 @CompareSym0 sCompare) sA_0123456789876543210)
+                     sB_0123456789876543210))
+               SNil)
+    instance SEq a => SEq (Identity a) where
+      (%==) ::
+        forall (t1 :: Identity a) (t2 :: Identity a). Sing t1
+                                                      -> Sing t2
+                                                         -> Sing (Apply (Apply ((==@#@$) :: TyFun (Identity a) ((~>) (Identity a) Bool)
+                                                                                            -> Type) t1) t2)
+      (%==)
+        (SIdentity (sA_0123456789876543210 :: Sing a_0123456789876543210))
+        (SIdentity (sB_0123456789876543210 :: Sing b_0123456789876543210))
+        = applySing
+            (applySing (singFun2 @(==@#@$) (%==)) sA_0123456789876543210)
+            sB_0123456789876543210
+    instance SOrd a => SOrd (Identity a) where
+      sCompare ::
+        forall (t1 :: Identity a) (t2 :: Identity a). Sing t1
+                                                      -> Sing t2
+                                                         -> Sing (Apply (Apply (CompareSym0 :: TyFun (Identity a) ((~>) (Identity a) Ordering)
+                                                                                               -> Type) t1) t2)
+      sCompare
+        (SIdentity (sA_0123456789876543210 :: Sing a_0123456789876543210))
+        (SIdentity (sB_0123456789876543210 :: Sing b_0123456789876543210))
+        = applySing
+            (applySing
+               (applySing (singFun3 @FoldlSym0 sFoldl) (singFun2 @(<>@#@$) (%<>)))
+               SEQ)
+            (applySing
+               (applySing
+                  (singFun2 @(:@#@$) SCons)
+                  (applySing
+                     (applySing (singFun2 @CompareSym0 sCompare) sA_0123456789876543210)
+                     sB_0123456789876543210))
+               SNil)
+    instance SDecide a => SDecide (Constant a b) where
+      (%~) (SConstant a) (SConstant b)
+        = case (%~) a b of
+            Proved Refl -> Proved Refl
+            Disproved contra
+              -> Disproved (\ refl -> case refl of Refl -> contra Refl)
+    instance Eq (SConstant (z :: Constant a b)) where
+      (==) _ _ = True
+    instance SDecide a =>
+             GHC.Internal.Data.Type.Equality.TestEquality (SConstant :: Constant a b
+                                                                        -> Type) where
+      GHC.Internal.Data.Type.Equality.testEquality
+        = Data.Singletons.Decide.decideEquality
+    instance SDecide a =>
+             GHC.Internal.Data.Type.Coercion.TestCoercion (SConstant :: Constant a b
+                                                                        -> Type) where
+      GHC.Internal.Data.Type.Coercion.testCoercion
+        = Data.Singletons.Decide.decideCoercion
+    instance SDecide a => SDecide (Identity a) where
+      (%~) (SIdentity a) (SIdentity b)
+        = case (%~) a b of
+            Proved Refl -> Proved Refl
+            Disproved contra
+              -> Disproved (\ refl -> case refl of Refl -> contra Refl)
+    instance Eq (SIdentity (z :: Identity a)) where
+      (==) _ _ = True
+    instance SDecide a =>
+             GHC.Internal.Data.Type.Equality.TestEquality (SIdentity :: Identity a
+                                                                        -> Type) where
+      GHC.Internal.Data.Type.Equality.testEquality
+        = Data.Singletons.Decide.decideEquality
+    instance SDecide a =>
+             GHC.Internal.Data.Type.Coercion.TestCoercion (SIdentity :: Identity a
+                                                                        -> Type) where
+      GHC.Internal.Data.Type.Coercion.testCoercion
+        = Data.Singletons.Decide.decideCoercion
+    instance Ord (SConstant (z :: Constant a b)) where
+      compare _ _ = EQ
+    instance Ord (SIdentity (z :: Identity a)) where
+      compare _ _ = EQ
+    instance SingI n => SingI (Constant (n :: a)) where
+      sing = SConstant sing
+    instance SingI1 Constant where
+      liftSing = SConstant
+    instance SingI (ConstantSym0 :: (~>) a (Constant a b)) where
+      sing = singFun1 @ConstantSym0 SConstant
+    instance SingI n => SingI (Identity (n :: a)) where
+      sing = SIdentity sing
+    instance SingI1 Identity where
+      liftSing = SIdentity
+    instance SingI (IdentitySym0 :: (~>) a (Identity a)) where
+      sing = singFun1 @IdentitySym0 SIdentity

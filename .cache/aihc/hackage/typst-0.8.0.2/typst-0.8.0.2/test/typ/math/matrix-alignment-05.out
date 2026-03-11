@@ -1,0 +1,223 @@
+--- parse tree ---
+[ Code
+    "typ/math/matrix-alignment-05.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/math/matrix-alignment-05.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/math/matrix-alignment-05.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Comment
+, Equation
+    True
+    [ Code
+        "typ/math/matrix-alignment-05.typ"
+        ( line 3 , column 3 )
+        (FuncCall
+           (Ident (Identifier "mat"))
+           [ ArrayArg
+               [ [ MGroup
+                     Nothing Nothing [ MAlignPoint , Text "a" , Text "+" , Text "b" ]
+                 , Text "c"
+                 ]
+               , [ MGroup Nothing Nothing [ MAlignPoint , Text "d" ] , Text "e" ]
+               ]
+           ])
+    ]
+, SoftBreak
+, Equation
+    True
+    [ Code
+        "typ/math/matrix-alignment-05.typ"
+        ( line 4 , column 3 )
+        (FuncCall
+           (Ident (Identifier "mat"))
+           [ ArrayArg
+               [ [ MGroup
+                     Nothing
+                     Nothing
+                     [ MAlignPoint , Text "a" , Text "+" , Text "b" , MAlignPoint ]
+                 , Text "c"
+                 ]
+               , [ MGroup Nothing Nothing [ MAlignPoint , Text "d" , MAlignPoint ]
+                 , Text "e"
+                 ]
+               ]
+           ])
+    ]
+, SoftBreak
+, Equation
+    True
+    [ Code
+        "typ/math/matrix-alignment-05.typ"
+        ( line 5 , column 3 )
+        (FuncCall
+           (Ident (Identifier "mat"))
+           [ ArrayArg
+               [ [ MGroup
+                     Nothing
+                     Nothing
+                     [ MAlignPoint
+                     , MAlignPoint
+                     , MAlignPoint
+                     , Text "a"
+                     , Text "+"
+                     , Text "b"
+                     ]
+                 , Text "c"
+                 ]
+               , [ MGroup
+                     Nothing
+                     Nothing
+                     [ MAlignPoint , MAlignPoint , MAlignPoint , Text "d" ]
+                 , Text "e"
+                 ]
+               ]
+           ])
+    ]
+, SoftBreak
+, Equation
+    True
+    [ Code
+        "typ/math/matrix-alignment-05.typ"
+        ( line 6 , column 3 )
+        (FuncCall
+           (Ident (Identifier "mat"))
+           [ ArrayArg
+               [ [ MGroup
+                     Nothing
+                     Nothing
+                     [ Text "."
+                     , MAlignPoint
+                     , Text "a"
+                     , Text "+"
+                     , Text "b"
+                     , MAlignPoint
+                     , Text "."
+                     ]
+                 , Text "c"
+                 ]
+               , [ MGroup
+                     Nothing
+                     Nothing
+                     [ Code
+                         "typ/math/matrix-alignment-05.typ"
+                         ( line 6 , column 17 )
+                         (FieldAccess (Ident (Identifier "h")) (Ident (Identifier "dots")))
+                     , Text "."
+                     , Text "."
+                     , MAlignPoint
+                     , Text "d"
+                     , MAlignPoint
+                     , Code
+                         "typ/math/matrix-alignment-05.typ"
+                         ( line 6 , column 25 )
+                         (FieldAccess (Ident (Identifier "h")) (Ident (Identifier "dots")))
+                     , Text "."
+                     , Text "."
+                     ]
+                 , Text "e"
+                 ]
+               ]
+           ])
+    ]
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 math.equation(block: true, 
+                               body: math.mat(rows: (({ math.alignpoint(), 
+                                                        text(body: [a]), 
+                                                        text(body: [+]), 
+                                                        text(body: [b]) }, 
+                                                      text(body: [c])), 
+                                                     ({ math.alignpoint(), 
+                                                        text(body: [d]) }, 
+                                                      text(body: [e])))), 
+                               numbering: none), 
+                 text(body: [
+]), 
+                 math.equation(block: true, 
+                               body: math.mat(rows: (({ math.alignpoint(), 
+                                                        text(body: [a]), 
+                                                        text(body: [+]), 
+                                                        text(body: [b]), 
+                                                        math.alignpoint() }, 
+                                                      text(body: [c])), 
+                                                     ({ math.alignpoint(), 
+                                                        text(body: [d]), 
+                                                        math.alignpoint() }, 
+                                                      text(body: [e])))), 
+                               numbering: none), 
+                 text(body: [
+]), 
+                 math.equation(block: true, 
+                               body: math.mat(rows: (({ math.alignpoint(), 
+                                                        math.alignpoint(), 
+                                                        math.alignpoint(), 
+                                                        text(body: [a]), 
+                                                        text(body: [+]), 
+                                                        text(body: [b]) }, 
+                                                      text(body: [c])), 
+                                                     ({ math.alignpoint(), 
+                                                        math.alignpoint(), 
+                                                        math.alignpoint(), 
+                                                        text(body: [d]) }, 
+                                                      text(body: [e])))), 
+                               numbering: none), 
+                 text(body: [
+]), 
+                 math.equation(block: true, 
+                               body: math.mat(rows: (({ text(body: [.]), 
+                                                        math.alignpoint(), 
+                                                        text(body: [a]), 
+                                                        text(body: [+]), 
+                                                        text(body: [b]), 
+                                                        math.alignpoint(), 
+                                                        text(body: [.]) }, 
+                                                      text(body: [c])), 
+                                                     ({ text(body: […]), 
+                                                        text(body: [.]), 
+                                                        text(body: [.]), 
+                                                        math.alignpoint(), 
+                                                        text(body: [d]), 
+                                                        math.alignpoint(), 
+                                                        text(body: […]), 
+                                                        text(body: [.]), 
+                                                        text(body: [.]) }, 
+                                                      text(body: [e])))), 
+                               numbering: none), 
+                 parbreak() })

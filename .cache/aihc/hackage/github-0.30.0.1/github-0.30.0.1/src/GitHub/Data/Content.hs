@@ -1,0 +1,213 @@
+{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE CPP #-}
+
+module GitHub.Data.Content where
+
+import GitHub.Data.GitData
+import GitHub.Data.URL
+import GitHub.Internal.Prelude
+import Prelude ()
+
+import Data.Aeson.Types (Pair)
+import qualified Data.Text as T
+
+#if MIN_VERSION_aeson(2,0,0)
+import Data.Aeson (Key)
+#endif
+
+data Content
+  = ContentFile !ContentFileData
+  | ContentDirectory !(Vector ContentItem)
+ deriving (Show, Data, Eq, Ord, Generic)
+
+instance NFData Content
+instance Binary Content
+
+data ContentFileData = ContentFileData {
+   contentFileInfo     :: !ContentInfo
+  ,contentFileEncoding :: !Text
+  ,contentFileSize     :: !Int
+  ,contentFileContent  :: !Text
+} deriving (Show, Data, Eq, Ord, Generic)
+
+instance NFData ContentFileData
+instance Binary ContentFileData
+
+-- | An item in a directory listing.
+data ContentItem = ContentItem {
+   contentItemType :: !ContentItemType
+  ,contentItemInfo :: !ContentInfo
+} deriving (Show, Data, Eq, Ord, Generic)
+
+instance NFData ContentItem
+instance Binary ContentItem
+
+data ContentItemType = ItemFile | ItemDir
+  deriving (Show, Data, Eq, Ord, Generic)
+
+instance NFData ContentItemType
+instance Binary ContentItemType
+
+-- | Information common to both kinds of Content: files and directories.
+data ContentInfo = ContentInfo {
+   contentName    :: !Text
+  ,contentPath    :: !Text
+  ,contentSha     :: !Text
+  ,contentUrl     :: !URL
+  ,contentGitUrl  :: !URL
+  ,contentHtmlUrl :: !URL
+} deriving (Show, Data, Eq, Ord, Generic)
+
+instance NFData ContentInfo
+instance Binary ContentInfo
+
+data ContentResultInfo = ContentResultInfo
+    { contentResultInfo :: !ContentInfo
+    , contentResultSize :: !Int
+    } deriving (Show, Data, Eq, Ord, Generic)
+
+instance NFData ContentResultInfo
+instance Binary ContentResultInfo
+
+data ContentResult = ContentResult
+    { contentResultContent  :: !ContentResultInfo
+    , contentResultCommit   :: !GitCommit
+    } deriving (Show, Data, Eq, Ord, Generic)
+
+instance NFData ContentResult
+instance Binary ContentResult
+
+data Author = Author
+    { authorName  :: !Text
+    , authorEmail :: !Text
+    }
+    deriving (Eq, Ord, Show, Data, Generic)
+
+instance NFData Author
+instance Binary Author
+
+data CreateFile = CreateFile
+    { createFilePath      :: !Text
+    , createFileMessage   :: !Text
+    , createFileContent   :: !Text
+    , createFileBranch    :: !(Maybe Text)
+    , createFileAuthor    :: !(Maybe Author)
+    , createFileCommitter :: !(Maybe Author)
+    }
+    deriving (Eq, Ord, Show, Data, Generic)
+
+instance NFData CreateFile
+instance Binary CreateFile
+
+data UpdateFile = UpdateFile
+    { updateFilePath      :: !Text
+    , updateFileMessage   :: !Text
+    , updateFileContent   :: !Text
+    , updateFileSHA       :: !Text
+    , updateFileBranch    :: !(Maybe Text)
+    , updateFileAuthor    :: !(Maybe Author)
+    , updateFileCommitter :: !(Maybe Author)
+    }
+    deriving (Eq, Ord, Show, Data, Generic)
+
+instance NFData UpdateFile
+instance Binary UpdateFile
+
+data DeleteFile = DeleteFile
+    { deleteFilePath      :: !Text
+    , deleteFileMessage   :: !Text
+    , deleteFileSHA       :: !Text
+    , deleteFileBranch    :: !(Maybe Text)
+    , deleteFileAuthor    :: !(Maybe Author)
+    , deleteFileCommitter :: !(Maybe Author)
+    }
+    deriving (Eq, Ord, Show, Data, Generic)
+
+instance NFData DeleteFile
+instance Binary DeleteFile
+
+instance FromJSON Content where
+  parseJSON o@(Object _) = ContentFile <$> parseJSON o
+  parseJSON (Array os) = ContentDirectory <$> traverse parseJSON os
+  parseJSON _ = fail "Could not build a Content"
+
+instance FromJSON ContentFileData where
+  parseJSON = withObject "ContentFileData" $ \o ->
+    ContentFileData <$> parseJSON (Object o)
+                    <*> o .: "encoding"
+                    <*> o .: "size"
+                    <*> o .: "content"
+
+instance FromJSON ContentItem where
+  parseJSON = withObject "ContentItem" $ \o ->
+    ContentItem <$> o .: "type"
+                <*> parseJSON (Object o)
+
+instance FromJSON ContentItemType where
+  parseJSON = withText "ContentItemType" $ \t -> case T.toLower t of
+    "file" -> pure ItemFile
+    "dir"  -> pure ItemDir
+    _      -> fail $ "Unknown ContentItemType: " <> T.unpack t
+
+instance FromJSON ContentInfo where
+  parseJSON = withObject "ContentInfo" $ \o ->
+    ContentInfo <$> o .: "name"
+                <*> o .: "path"
+                <*> o .: "sha"
+                <*> o .: "url"
+                <*> o .: "git_url"
+                <*> o .: "html_url"
+
+instance FromJSON ContentResultInfo where
+  parseJSON = withObject "ContentResultInfo" $ \o ->
+    ContentResultInfo <$> parseJSON (Object o)
+                  <*> o .: "size"
+
+instance FromJSON ContentResult where
+  parseJSON = withObject "ContentResult" $ \o ->
+    ContentResult <$> o .: "content"
+                  <*> o .: "commit"
+
+instance ToJSON Author where
+  toJSON Author {..} = object
+    [ "name"  .= authorName
+    , "email" .= authorEmail
+    ]
+
+instance ToJSON CreateFile where
+  toJSON CreateFile {..} = object $
+    [ "path"       .= createFilePath
+    , "message"    .= createFileMessage
+    , "content"    .= createFileContent
+    ]
+    ++ "branch"    .=? createFileBranch
+    ++ "author"    .=? createFileAuthor
+    ++ "committer" .=? createFileCommitter
+
+instance ToJSON UpdateFile where
+  toJSON UpdateFile {..} = object $
+    [ "path"       .= updateFilePath
+    , "message"    .= updateFileMessage
+    , "content"    .= updateFileContent
+    , "sha"        .= updateFileSHA
+    ]
+    ++ "branch"    .=? updateFileBranch
+    ++ "author"    .=? updateFileAuthor
+    ++ "committer" .=? updateFileCommitter
+
+instance ToJSON DeleteFile where
+  toJSON DeleteFile {..} = object $
+    [ "path"       .= deleteFilePath
+    , "message"    .= deleteFileMessage
+    , "sha"        .= deleteFileSHA
+    ]
+    ++ "branch"    .=? deleteFileBranch
+    ++ "author"    .=? deleteFileAuthor
+    ++ "committer" .=? deleteFileCommitter
+
+#if MIN_VERSION_aeson(2,0,0)
+(.=?) :: ToJSON v => Key -> Maybe v -> [Pair]
+#else
+(.=?) :: ToJSON v => Text -> Maybe v -> [Pair]
+#endif
+name .=? value = maybe [] (pure . (name .=)) value

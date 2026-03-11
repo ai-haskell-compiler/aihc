@@ -1,0 +1,94 @@
+-- | Vocabulary used throughout Multiarg.
+--
+-- Each time one of these words is used in the documentation, it is
+-- /italicized/ (or, if you are viewing the source code directly
+-- rather than through Haddock, it is /surrounded by slashes/).
+--
+-- [/word/] When you run your program from the Unix shell prompt, your
+-- shell is responsible for splitting the command line into
+-- /words/. Typically you separate /words/ with spaces, although
+-- quoting can affect this. multiarg parses lists of /words/. Each
+-- /word/ can consist of a single /long option/, a single /long option/
+-- and an accompanying /option argument/, a single /short option/,
+-- multiple /short options/, and even one or more /short options/
+-- with the last /short option/ being accompanied by an
+-- /option argument/.  Or, a word can be a /positional argument/ or a
+-- /stopper/. All these are described below.
+--
+-- [/option/] /Options/ allow a user to specify ways to tune the
+-- operation of a program. Typically /options/ are indeed optional,
+-- although some programs do sport \"required options\" (a bit of an
+-- oxymoron). /Options/ can be either /short options/ or /long options/.
+-- Also, /options/ can take /option arguments/.
+-- The option is specified on the command line with both the /flag/
+-- that specifies the option and of any /option arguments/ that are
+-- included with the /option/.  Therefore the /option/ might be
+-- specified on the command line using one /word/ or multiple /words/,
+-- and in the case of short /options/, multiple /options/ might be in
+-- one /word/.
+--
+-- [/short option/] An /option/ that is specified on the command line
+-- using a /flag/ whose /word/ begins with a hyphen, and with a single
+-- letter.  For example, for the program @tail(1)@, possible short
+-- options include @n@ and @v@. Multiarg will parse /words/ that
+-- contain mulitple /short options/.  For example, if a user wants to
+-- run @tail@ with two options, he might type @tail -v -f@ or he might
+-- type @tail -vf@.
+--
+-- [/flag/] A /flag/ uniquely specifies an /option/.  To specify an
+-- /option/ on the command line, the user must present both a /flag/
+-- and any /option arguments/.  In the case of a /long option/, the
+-- /flag/ consists of one or more characters (typically a mnemonic
+-- word), preceded by two hyphens.  In the case of a /short option/,
+-- the /flag/ consists of a single character, in a /word/ that begins
+-- with a single hyphen; the /word/ might contain more than one /flag/
+-- for multiple /short options/.
+--
+-- [/short option name/] A short option is specified on the command
+-- line using a /flag/ and any /option arguments/.  The /flag/
+-- contains the /short option name/, which is a single character.  A
+-- /short option name/ is never a single hyphen.
+--
+-- [/long option name/] A long option is specified on the command line
+-- using a /flag/ and any /option arguments/.  The /flag/ begins with
+-- two hyphens, followed by the /long option name/, which must be at
+-- least one letter but typically is a mnemonic word.
+--
+-- [/name/] Either a /short option name/ or /long option name/, as
+-- appropriate.
+--
+-- [/long option/] An option that is specified using two hyphens and
+-- what is usually a mnemonic word, though it could be as short as a
+-- single letter. For example, @tail(1)@ has long options including
+-- @follow@ and @verbose@. The user would specify these on the command
+-- line by typing @tail --follow --verbose@.  A long option is
+-- specified on the command line with a /flag/ and any /option arguments/.
+--
+-- [/option argument/] An /option/ may take anywhere from zero to
+-- three /option arguments/.  When using a /short option/, the first
+-- /option argument/ and the /flag/ may be contained in the same
+-- /word/ by appending the /option argument/ immediately after the
+-- /flag/ without an intervening space.  When using a /long option/,
+-- the first /option argument/ and the /flag/ may be contained in the
+-- same word by separating the /flag/ and the /option argument with an
+-- equal sign.  In any case in which an /option argument/ and a /flag/
+-- are in the same /word/, the /option argument/ must be the last
+-- thing to appear in the /word/.  When using either /short options/
+-- or /long options/, the first /option argument/ may appear in the
+-- same /word/ as the /flag/ or in the /word/ following the /flag/;
+-- the second and third /option arguments/ (if applicable) must each
+-- appear in its own /word/.
+--
+-- [/positional argument/] A /word/ on the command line that does not
+-- contain a /flag/, is not a /stopper/, and is not an /option argument/.
+-- For instance, with @tail(1)@, you specify the files you
+-- want to see by using /positional arguments/. In the command @tail -n 10 myfile@,
+-- @myfile@ is a /positional argument/.
+--
+-- [/stopper/] A  /word/ consisting solely of two hyphens,
+-- @--@. The user types this to indicate that all subsequent words
+-- on the command line are /positional arguments/, even if they begin
+-- with hyphens and therefore look like they might be /options/.
+
+module Multiarg.Vocabulary where
+

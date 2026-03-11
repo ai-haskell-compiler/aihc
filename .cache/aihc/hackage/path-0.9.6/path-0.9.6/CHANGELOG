@@ -1,0 +1,134 @@
+0.9.6
+  * Support for `ospath`
+
+0.9.5
+  * Add `splitDrive`, `takeDrive`, `dropDrive` and `isDrive`.
+
+  0.9.4 was an accidental release of the unreleased 0.9.3 without the appropriate changelog.
+
+0.9.2
+  * Data instances for Rel, Abs, File, and Dir.
+  * Bump hashable upper bound to <1.5.
+
+0.9.1
+  * Support for genvalidity >=1.0.0.0
+  * `mapSomeBase` and `prjSomeBase` for modifying or projecting SomeBase.
+
+0.9.0
+  * Fix inconsistencies on different platforms: [#166](https://github.com/commercialhaskell/path/issues/166)
+  * `replaceProperPrefix`
+  * Make it possible to use windows paths on posix and vice versa
+
+0.8.0
+  * Rerelease of 0.7.1 with better version number
+
+0.7.1:
+	* Test with GHC 8.8.2, 8.8.3, 8.10.1.
+	* Export SomeBase constructor.
+	* Fix Lift severe Lift instance bug
+
+0.7.0:
+	* BREAKING CHANGE: "fileExtension" now throws an exception if the file has no
+		extension. You can use the result as a "Maybe" in pure
+		code or handle the exception appropriately in any other monad.
+	* Old extension operations "addFileExtension" and "setFileExtension" have
+		been deprecated and replaced by "addExtension" and "replaceExtension"
+		respectively with new behavior.
+		ADAPTING YOUR CODE TO THIS CHANGE:
+		* Code that sets an extension not starting with a "." e.g.  "foo", must
+		  be changed such that it starts with a "." i.e. ".foo".
+		* Code that sets multiple extensions in one go e.g. ".tar.gz" must be
+		  changed to set them one at a time instead i.e. add ".tar" first and
+		  then add ".gz".
+		* Code that sets an extension starting with multiple dots e.g.
+		  "..foo" must be changed such as to make the extra dots part of the
+		  file name instead.
+		Details:
+		The new operations "addExtension" and "replaceExtension" accept only "valid"
+		extension forms which is exactly the same as what "fileExtension" returns.
+		A valid extension starts with a @.@ followed by one or more characters
+		not including @.@ followed by zero or more @.@s in trailing position.
+		This change allows extension operations to be principled following
+		these laws:
+		* flip addExtension file >=> fileExtension == return
+		* (fileExtension >=> flip replaceExtension file) file == return file
+	* Add splitExtension operation such that:
+		* uncurry addExtension . swap >=> splitExtension == return
+		* splitExtension >=> uncurry addExtension . swap == return
+		* fileExtension == (fmap snd) . splitExtension@
+	* Add 'Path.Posix' and 'Path.Windows' modules for manipulating
+		Windows or Posix style paths independently of the current platform.
+	* Add 'Lift' instance for 'Path'.
+	* `Path.Windows` normalizes path separators throughout path,
+		including immediately following drive letter.
+	* `Path.Windows` handles UNC (`\\host\share\`) and Unicode (`\\?\C:\`) path
+		without breaking the double-separator prefix.
+	* Remove support for old GHC version. The oldest supported version
+	is 8.2.
+
+0.6.1:
+	* Add 'addFileExtension' function and its operator form: (<.>).
+	* Derive 'Eq' instance for 'PathException'.
+
+0.6.0:
+
+	* Deprecate PathParseException and rename it to PathException
+	* Allow 'parent' to work on relative paths as well
+	* Deprecate isParentOf and stripDir and rename them to isProperPrefixOf and
+	  stripProperPrefix respectively.
+	* Allow "." as a valid relative dir path with the following rules:
+		* "./" </> "./" = "./"
+		* "./" </> "x/" = "x/"
+		* "x/" </> "./" = "x/"
+		* dirname "x" = "./"
+		* dirname "/" = "./"
+		* dirname "./" = "./"
+	* Make dirname return "." instead of "/" (fixes #18).
+	* Remove the 'validity' flag.
+	* Add synonym for setFileExtension in the form of an operator: (-<.>).
+
+0.5.13:
+	* Add QuasiQuoters absdir, reldir, absfile, relfile
+0.5.11:
+	* Add replaceExtension and fileExtension
+
+0.5.10:
+	* Disallow /. for absolute file
+	* Disallow foo/. for relative file
+
+0.5.9:
+	* Lifted ~ restriction from parser https://github.com/chrisdone/path/issues/19
+0.5.8
+	* Add Aeson instances.
+
+0.5.7:
+	* Fix haddock problem.
+0.5.6:
+	* Reject only .. and .
+0.5.5:
+	* Use filepath's isValid function for additional sanity checks
+0.5.4:
+	* Disable parsing of path consisting only of "."
+	* Add NFData instance for Path
+	* Some typo/docs improvements
+	* Add standard headers to modules
+0.5.3:
+	* Added conversion functions.
+
+0.2.0:
+
+	* Rename parentAbs to simply parent.
+	* Add dirname.
+
+0.3.0:
+	* Removed Generic instance.
+
+0.4.0:
+	* Implemented stricter parsing, disabling use of "..".
+	* Made stripDir generic over MonadThrow
+
+0.5.0:
+	* Fix stripDir p p /= Nothing bug.
+
+0.5.2:
+	* Removed unused DeriveGeneric.

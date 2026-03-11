@@ -1,0 +1,389 @@
+[1.23.1.1]
+
+  * Remove unused `ghc-prim` dependency (konsumlam).
+
+  * Bump bound for QuickCheck.
+
+  * Allow deepseq-1.5 (Bodigrim).
+
+  * Fix 'patter' typo in SimpleFigure haddock (Owen Shepherd).
+
+[1.23.1]
+
+  * Restore toJSONFilter instance for pure `a -> [a]`.
+    This went missing after my ill-considered revision to #105,
+    commit 183af9d9f1066be974ac55fd23a4c985999d3ce8 . See jgm/pandoc#8976.
+
+  * Generalize ToJSONFilter instance. Previously a pure function `a -> a`
+    could only be promoted to a filter in IO. Now we allow it to work with
+    any instance of MonadIO.  (This adds to #105.)
+
+  * Allow bytestring 0.12.
+
+[1.23.0.1]
+
+  * Allow aeson 2.2.
+
+  * Remove dependency on string-qq (recbecca skinner).
+
+[1.23]
+
+  * Remove Null constructor from Block (#91) [API change].
+
+  * ToJSONFilter: Add instance for MonadIO (#105, Willem Van Onsem)
+    [API change].
+
+  * Add `Figure` block constructor (Albert Krewinkel, Aner Lucero,
+    and Christian Despres) [API change]. The new Figure block represents
+    a figure with attributes, caption, and arbitrary block content.
+
+[1.22.2.1]
+
+  * Allow aeson 2.1.* and criterion 1.6.
+
+[1.22.2]
+
+  * Use StrictData in Text.Pandoc.Definition.
+
+  * Add Walkable Meta(Value) Pandoc instances (Travis Cardwell).
+
+[1.22.1]
+
+  * Text.Pandoc.Builder: add simpleFigure, simpleFigureWith,
+    and the SimpleFigure bidirectional pattern synonym
+    (Aner Lucero) [API change].
+
+  * Allow bytestring 0.11 (Alexander Batischev).
+
+  * Update stack resolver to lts-18.10
+
+  * Allow aeson 2+.  Tested with aeson 2.0.1.0.
+
+  * Allow transformers 0.6.
+
+  * Fix incorrect table ColWidth documentation (#85, Nils Carlson).
+    The documentation stated that the ColWidth represented the width
+    of the column as a fraction of the table width when in represents
+    a percentage of the text width.
+
+[1.22]
+
+  * Deprecate isNull from Builder:  null can serve just as well (#67).
+    Use null instead of isNull in Arbitrary (Christian Despres, #84).
+
+  * Use untagged JSON encoding for single-constructor types (#75, #76,
+    Christian Despres).  All of the single constructor types related
+    to Table are now represented in JSON either as arrays (for
+    multi-argument constructors) or as the representation of the
+    inner type (for single argument constructors). This behaviour
+    for newtype-defined and multi-argument non-record types is now
+    consistent across the entire JSON interface, with the exception
+    of Pandoc itself (which is represented as a JSON object with
+    additional metadata). Multi-argument records (of which Citation
+    is the only example) are still represented as objects with the
+    record accessors as keys.
+
+  * The Meta and Citation types now use derived JSON serialization (newtype
+    and generic, respectively). The format remains the same as before
+    (Christian Despres).
+
+  * New serialization tests now test that Meta and the Table types are
+    encoded properly in JSON (Christian Despres).
+
+  * Use TH To/FromJSON instances (Christian Despres).
+
+  * Remove unused Legacy modules (#80, Despres).
+    They are not exported, and are not used internally.
+
+  * Change the table builder to permit looser intermediate table heads (#77,
+    Christian Despres).
+
+    The table builder (and the normalizeTableBody function) now permit
+    cells in the intermediate head of a TableBody to extend past the
+    RowHeadColumns. This allows for intermediate tables to have
+    subheadings that extend across the entire table.
+
+    Formerly the table builder would treat the intermediate head like the
+    intermediate body, and clip or drop cells that extended past the row
+    head.
+
+  * Update QuickCheck lower bound.
+
+  * Fix redundant pattern match.
+
+[1.21]
+
+  * Add Underline constructor (#68, Vaibhav Sagar).
+
+  * Improve table types to allow col, rowspans and more (#65, Christian
+    Despres).  The additions include modification of the Block type, some
+    newtypes related to tables, and changes to the table builders.  The table
+    builder is now aware of the new Table constructor, and normalizes the
+    input table appropriately, so that when laid onto a grid the resulting
+    table has no empty spaces, overlapping cells, or cells that extend beyond
+    their section boundary.
+
+    Three properties of normalization are checked:
+
+    - Normalization is idempotent.
+    - Each row of a normalized table is an initial segment of the
+      corresponding row in the unnormalized table, modulo changed cell
+      dimensions, dropped cells, and padding with empty cells. This is only
+      checked for the first row of the TableBody, however, due to row head
+      difficulties.
+    - The sum of the cell lengths in the first row of every
+      normalized table section is always equal to the total table width.
+
+    `simpleTable` has been changed so that a null header list becomes a
+    TableHead with a null body, not a TableHead with a single empty row.
+
+  * Bump QuickCheck upper bound.
+
+  * Change lower bound for QuickCheck to 2.10 (needed for `liftShrink2`).
+
+  * Small code quality improvements (Joseph C. Sible, #69).
+
+  * Allow aeson 1.5 (#72, Felix Yan).
+
+  * Fixed documentation typo (Merlin Göttlinger).
+
+  * Add COMPLETE pragmas to the pattern definitions (Christian Despres).
+
+[1.20]
+
+  * Change all uses of String in type definitions to strict Text
+    (Christian Despres) [API change].  The MetaValue instances using String
+    have been kept, and parallel ones using Text were added.
+
+  * Remove the Arbitrary Text orphan instance (Christian Despres).
+    This instance should not have been in the Text.Pandoc.Arbitrary, since
+    it would have been exported with the rest of the instances in that
+    module. Instead, more shrink* functions were added to compensate for
+    the absence of this instance.
+
+  * Add Text.Pandoc.Legacy.Definition (Christian Despres).
+    To ease the transition to Text, this module provides an interface
+    compatible with the String one, so that any unqualified imports of
+    Text.Pandoc.Definition in other packages can be replaced by
+    Text.Pandoc.Legacy.Definition without other code changes. This is done
+    with PatternSynonyms.
+
+    Some of the constructors of the types Meta, MetaValue, Block, Inline,
+    Format, and Citation required PatternSynonym handling. The Attr and
+    Target types had to be redefined, and certain functions had to be
+    rewritten to handle String or the old Attr and Target types in this
+    module. This module otherwise exports the definitions in
+    Text.Pandoc.Definition unchanged.
+
+    This is not a perfect drop-in replacement, since some imports like
+    Inline(..) will no longer work. This may also cause incomplete pattern
+    warnings when used, since the coverage checker does not seem to be
+    aware of PatternSynonyms.
+
+  * Add Text.Pandoc.Legacy.Builder (Christian Despres).
+    Like Text.Pandoc.Legacy.Definition, this modules provides a
+    compatibility interface while the transition to Text takes
+    place. Unlike that module, this module only requires redefining the
+    ToMetaValue and HasMeta classes and a few functions so that they use
+    the old types. No PatternSynonyms are required.
+
+  * Change Semigroup/Monoid instance for Meta.
+    Previously `<>` was left-biased, so if meta1 and meta2 both
+    contained a field 'foo', the value from meta1 would be retained
+    in `meta1 <> meta2`, and the value from meta2 ignored.
+    This is counterintuitive and doesn't work well with pandoc;
+    for example, we want to be able to override a value in an
+    earlier `--metadata-file` with a later one on the command line.
+
+    It also makes the behavior of metadata more like other
+    things (such as reference links, where later definitions
+    take precedence over earlier ones).
+
+    Note that this change may break some current workflows,
+    if one is relying on metadata fields that occur later in
+    a document to be overridden by those occurring earlier.
+
+[1.17.6.1]
+
+  * Relax version bound for string-qq.
+
+[1.17.6]
+
+  * Walk: export walk and query helpers (Albert Krewinkel) [API change].
+    The `walk*M` and `query*` functions are helpful when defining new
+    `Walkable` instances.
+  * Allow QuickCheck 2.13.
+  * Document meaning of Int in ListAttributes (#45).
+  * Update copyright year spans to include 2019 (Albert Krewinkel).
+  * Remove CPP instructions for GHC versions < 7.10 (Albert Krewinkel).
+  *  update list of GHC versions used for testing (Albert Krewinkel).
+  * Fix compiler and hlint warnings (Pete Ryland).
+
+[1.17.5.4]
+
+  * Put NFData in scope for ghc < 7.10.
+  * Reduce deepseq lower bound for ghc < 7.10.
+
+[1.17.5.3]
+
+  * For ghc < 7.10, constrain deepseq-generics to >= 0.2, which no
+    longer exprots NFData from deepseq. Add deepseq dependency.
+
+[1.17.5.2]
+
+  * Bump upper bound for deepseq-generics, QuickCheck, criterion.
+  * Implement QuickCheck shrinking for Inlines and Blocks (Alexander Krotov).
+
+[1.17.5.1]
+
+  * Declare the ToMetaValue instance for String as OVERLAPPING (#46).
+
+[1.17.5]
+
+
+  * Bump upper bounds for aeson, base.
+  * Allow building on older ghc versions (George Wilson).
+  * Text.Pandoc.Arbitrary: generate SoftBreaks and LineBreaks
+    (Alexander Krotov).
+  * Pad table rows up to maximum row length, to guarantee that
+    all rows have the same number of columns
+    (see jgm/pandoc#4059, Francesco Occhipinti).
+  * Make String an instance of ToMetaValue (Alexander Krotov).
+
+[1.17.4.2]
+
+  * Fix compiler warnings.
+
+[1.17.4.1]
+
+  * Import Semigroups when needed rather than using CPP.
+  * Bump criterion upper bound.
+
+[1.17.4]
+
+  * Add Semigroup instances for Pandoc, Meta, Inlines, Blocks
+    (if base >= 4.9).  This is needed for the library to compile
+    with ghc 8.4.
+  * Bumped criterion upper bound.
+
+[1.17.3.1]
+
+  * Bumped upper bounds for criterion and QuickCheck.
+
+[1.17.3]
+
+  * Added Walkable instances for `[Inline] Inline` and `[Block] Block`.
+
+[1.17.2]
+
+  * Provide default implementation for walk (Albert Krewinkel).
+    The implementations for `walk` and `walkM` are very similar, so a
+    default method is provided which implements the former in terms of the
+    latter. This change should not affect performance, as the `Identity`
+    functor, which is used in the default definition, is a newtype that
+    should be eliminated at compile time.  (This requires a dependency
+    on transformers for ghc 7.8.x.)
+  * Force optimizations when compiling Walk module (Albert Krewinkel).
+  * Add `Applicative m` to the context of walkM (Albert Krewinkel).
+    The acceptance of AMP makes this a natural change.
+  * Add `Walkable [Block]` and `Walkable [Inline]` instances (Albert
+    Krewinkel).
+  * Factored out duplicate code in Walk.
+  * Added benchmark.
+  * Text.Pandoc.JSON: Use `walk` instead of `bottomUp` in the
+    `ToJSONFilter` instance for `a -> [a]`.  Note that behavior will be
+    slightly different, since bottomUp's treatment of a function `[a] -> [a]`
+    is to apply it to each sublist of a list, while walk applies it only to
+    maximal sublists.  Usually the latter behavior is what is wanted, and the
+    former can be simulated when needed.  But there may be existing filters
+    that need to be rewritten in light of the new behavior.
+
+[1.17.1]
+
+  * Better consistency in simpleTable and table (jgm/pandoc#3648).
+    If `headers` is empty, we populate it with empty cells, using the rows
+    to determine number of columns.  We also ensure that there are numcols
+    alignments and column widths.
+  * Make sure Div and Span occur in Arbitrary instances.
+  * Bump dependency upper bounds.
+  * Removed unused mapConst.
+
+[1.17.0.5]
+
+  * Allow aeson 1.1.
+  * Added tests for Walk (originally from pandoc).
+  * Renamed README -> README.md, fix link (Kolen Cheung).
+
+[1.17.0.4]
+
+  * Re-add Functor constraint to walkM, needed for ghc 7.8.
+  * Turn off redundant-constraints warning for Walk (for ghc 8.0.1+).
+  * Added necessary Data.Traversable import.
+  * Allow HUnit 1.5.
+
+[1.17.0.3]
+
+  * More ghc 7.8 compatibility imports.
+
+[1.17.0.2]
+
+  * Added a necessary import from Data.Monoid (for ghc 7.8).
+
+[1.17.0.1]
+
+  * Fix compiler warnings around Data.Monoid import on some platforms.
+
+[1.17]
+
+  * Remimplement json encoding of inlines manually (Jesse Rosenthal).
+    This is the first step to doing manual encoding and decoding of pandoc
+    JSON. This will replace the current generic deriving, which can be a
+    moving target.
+  * Move Arbitrary instances for types from pandoc (Jesse Rosenthal).
+  * Remove empty arrays for leaf elements (Jesse Rosenthal).
+    Elements with no children (Space, SoftBreak, LineBreak, HorizontalRule,
+    Null) previously had an empty array for their "c" value. We remove that
+    here.  This is a breaking change for the JSON format.
+  * New toplevel JSON format with api-version (Jesse Rosenthal). The version
+    number is the pandoc-types version.  The toplevel format was previously:
+
+        [{"unMeta": META}, [BLOCKS]]
+
+    It is now:
+
+        {
+         "pandoc-api-version" : [MAJ, MIN, REV],
+         "meta" : META,
+         "blocks": BLOCKS
+        }
+
+    Decoding fails if the major and minor version numbers don't match.
+  * Add simple quickcheck tests to verify that roundtrip works properly
+    (Jesse Rosenthal).
+  * Add a LineBlock block element (Albert Krewinkel).
+  * Add explicit unit tests for encoding and decoding (Jesse Rosenthal).
+  * Fixed warnings in Walk, Builder.
+  * Test with travis and appveyor.
+
+[1.16.1.1]
+
+  * Allow aeson 1.0.*.
+
+[1.16.1]
+
+  * Allow aeson 0.11.*.
+  * Export pandocTypesVersion from Text.Pandoc.Definition.
+
+[1.16.0.1]
+
+  * Use deepseq instead of deepseq-generics.  deepseq now allows deriving
+    generic NFData instances, so we don't need deepseq-generics.
+  * Removed unneeded instance, use OVERLAPPING pragma for ghc 7.10.
+  * Added CPP so that deepseq-generics is used for ghc < 7.10.
+  * Added tested-with, generate .travis.yml using make_travis_yml.hs
+  * Added stack.yaml
+
+[1.16]
+
+* Added Attr field to Image and Link.
+* Added SoftBreak constructor to Inline

@@ -1,0 +1,61 @@
+{
+    "$schema": "https://vega.github.io/schema/vega-lite/v4.json",
+    "config": {
+        "view": {
+            "stroke": null
+        }
+    },
+    "description": "Population per state, engineers per state, and hurricanes per state",
+    "repeat": {
+        "row": [
+            "population",
+            "engineers",
+            "hurricanes"
+        ]
+    },
+    "resolve": {
+        "scale": {
+            "color": "independent"
+        }
+    },
+    "spec": {
+        "data": {
+            "url": "https://vega.github.io/vega-lite/data/population_engineers_hurricanes.csv"
+        },
+        "encoding": {
+            "color": {
+                "field": {
+                    "repeat": "row"
+                },
+                "sort": "descending",
+                "type": "quantitative"
+            },
+            "shape": {
+                "field": "geo",
+                "type": "geojson"
+            }
+        },
+        "height": 300,
+        "mark": "geoshape",
+        "projection": {
+            "type": "albersUsa"
+        },
+        "transform": [
+            {
+                "as": "geo",
+                "from": {
+                    "data": {
+                        "format": {
+                            "feature": "states",
+                            "type": "topojson"
+                        },
+                        "url": "https://vega.github.io/vega-lite/data/us-10m.json"
+                    },
+                    "key": "id"
+                },
+                "lookup": "id"
+            }
+        ],
+        "width": 500
+    }
+}

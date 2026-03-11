@@ -1,0 +1,24 @@
+2023-04-07 Ivan Perez <ivan.perez@keera.co.uk>
+        * Version bump (0.2.1) (#24).
+        * Conform to style guide (#20).
+        * Enable tests only with GHC 8.4 (#21).
+        * Do not install alex or happy in CI job unless tests are enabled (#22).
+        * Update GHC versions in CI job (#23).
+
+2022-10-12 Ivan Perez <ivan.perez@keera.co.uk>
+        * Version bump (0.2) (#19).
+        * Move type constraints to default methods (#17).
+        * Enable compilation with GHC 8.6-9.0 (#18).
+
+2020-04-28 Ivan Perez <ivan.perez@keera.co.uk>
+        * Document combination with other vector libraries (#13), by @walseb.
+        * Remove unnecessary GHC extension (#10), by @turion.
+        * Version bump (0.1.1) (#12).
+
+2018-10-31 Ivan Perez <ivan.perez@keera.co.uk>
+        * Added basic travis setup.
+        * Added documentation (README), link to Yampa.
+        * Version imported from Yampa.
+
+Copyright (c) 2003, Henrik Nilsson, Antony Courtney and Yale University.
+All rights reserved.

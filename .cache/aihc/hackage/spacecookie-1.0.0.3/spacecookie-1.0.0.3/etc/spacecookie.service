@@ -1,0 +1,12 @@
+[Unit]
+Description=Spacecookie Gopher Daemon
+Requires=spacecookie.socket
+
+[Service]
+Type=notify
+ExecStart=/path/to/spacecookie /path/to/spacecookie.json
+FileDescriptorStoreMax=1
+DynamicUser=true
+
+[Install]
+WantedBy=multi-user.target

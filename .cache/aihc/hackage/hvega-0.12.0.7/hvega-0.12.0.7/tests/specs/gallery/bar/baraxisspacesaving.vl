@@ -1,0 +1,46 @@
+{
+    "$schema": "https://vega.github.io/schema/vega-lite/v4.json",
+    "data": {
+        "url": "https://vega.github.io/vega-lite/data/cars.json"
+    },
+    "description": "Bar Chart with a spacing-saving y-axis",
+    "encoding": {
+        "x": {
+            "aggregate": "count",
+            "axis": {
+                "grid": false
+            },
+            "type": "quantitative"
+        },
+        "y": {
+            "axis": {
+                "bandPosition": 0,
+                "domain": false,
+                "grid": true,
+                "labelAlign": "left",
+                "labelBaseline": "middle",
+                "labelOffset": -15,
+                "labelPadding": -5,
+                "ticks": false,
+                "titleAlign": "left",
+                "titleAngle": 0,
+                "titleX": 5,
+                "titleY": -5
+            },
+            "band": 0.5,
+            "field": "Origin",
+            "scale": {
+                "padding": 0
+            },
+            "type": "nominal"
+        }
+    },
+    "height": {
+        "step": 50
+    },
+    "mark": {
+        "cornerRadiusEnd": 2,
+        "type": "bar",
+        "yOffset": 5
+    }
+}

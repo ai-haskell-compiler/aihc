@@ -1,0 +1,40 @@
+name:            currency
+version:         0.2.0.0
+cabal-version:   >=1.8
+license:         OtherLicense
+license-file:     COPYING
+copyright:       © 2011-2012 Stephen Paul Weber
+category:        Data
+author:          Stephen Paul Weber <singpolyma@singpolyma.net>
+maintainer:      Stephen Paul Weber <singpolyma@singpolyma.net>
+stability:       experimental
+build-type:      Simple
+homepage:        https://github.com/singpolyma/currency-haskell
+bug-reports:     http://github.com/singpolyma/OpenPGP-Haskell/issues
+synopsis:        Types representing standard and non-standard currencies
+description:
+        This package provides two types for representing currencies, one that
+        can only represent ISO4217 currencies, and one that can also represent
+        nonstandard currencies.
+        .
+        An IsString instance is provided for convenience on the general type.
+        .
+        Instances of Eq, Ord, and, Hashable are provided for use as keys.
+        .
+        The Enum instance provides a mapping to/from ISO4217 numeric codes for
+        currencies that have such a code.
+
+library
+        exposed-modules:
+                Currency,
+                Currency.Rates
+
+        build-depends:
+                base == 4.*,
+                containers,
+                hashable,
+                iso3166-country-codes >= 0.20111111
+
+source-repository head
+        type:     git
+        location: git://github.com/singpolyma/currency-haskell.git

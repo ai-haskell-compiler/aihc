@@ -1,0 +1,34 @@
+{
+    "$schema": "https://vega.github.io/schema/vega-lite/v4.json",
+    "data": {
+        "url": "https://vega.github.io/vega-lite/data/movies.json"
+    },
+    "encoding": {
+        "color": {
+            "condition": {
+                "test": "datum.IMDB_Rating*10 > datum.Rotten_Tomatoes_Rating",
+                "value": "steelblue"
+            },
+            "value": "red"
+        },
+        "href": {
+            "condition": {
+                "test": "datum.IMDB_Rating*10 > datum.Rotten_Tomatoes_Rating",
+                "value": "http://www.imdb.com"
+            },
+            "value": "https://www.rottentomatoes.com"
+        },
+        "x": {
+            "field": "IMDB_Rating",
+            "type": "quantitative"
+        },
+        "y": {
+            "field": "Rotten_Tomatoes_Rating",
+            "type": "quantitative"
+        }
+    },
+    "mark": {
+        "cursor": "pointer",
+        "type": "point"
+    }
+}

@@ -1,0 +1,254 @@
+{-# LANGUAGE NoImplicitPrelude  #-}
+
+module GitHub.Data.Teams where
+
+import GitHub.Data.Definitions
+import GitHub.Data.Id          (Id)
+import GitHub.Data.Name        (Name)
+import GitHub.Data.Repos       (Repo)
+import GitHub.Data.URL         (URL)
+import GitHub.Internal.Prelude
+import Prelude ()
+
+import qualified Data.Text as T
+
+data Privacy
+    = PrivacyClosed
+    | PrivacySecret
+    deriving (Show, Data, Enum, Bounded, Eq, Ord, Generic)
+
+instance NFData Privacy
+instance Binary Privacy
+
+data Permission
+    = PermissionPull
+    | PermissionPush
+    | PermissionAdmin
+    deriving (Show, Data, Enum, Bounded, Eq, Ord, Generic)
+
+instance NFData Permission
+instance Binary Permission
+
+data AddTeamRepoPermission = AddTeamRepoPermission
+    { addTeamRepoPermission :: !Permission
+    }
+    deriving (Show, Data, Eq, Ord, Generic)
+
+instance NFData AddTeamRepoPermission
+instance Binary AddTeamRepoPermission
+
+data SimpleTeam = SimpleTeam
+    { simpleTeamId              :: !(Id Team)
+    , simpleTeamUrl             :: !URL
+    , simpleTeamName            :: !Text  -- TODO (0.15.0): unify this and 'simpleTeamSlug' as in 'Team'.
+    , simpleTeamSlug            :: !(Name Team)
+    , simpleTeamDescription     :: !(Maybe Text)
+    , simpleTeamPrivacy         :: !Privacy
+    , simpleTeamPermission      :: !Permission
+    , simpleTeamMembersUrl      :: !URL
+    , simpleTeamRepositoriesUrl :: !URL
+    }
+    deriving (Show, Data, Eq, Ord, Generic)
+
+instance NFData SimpleTeam
+instance Binary SimpleTeam
+
+data Team = Team
+    { teamId              :: !(Id Team)
+    , teamUrl             :: !URL
+    , teamName            :: !Text
+    , teamSlug            :: !(Name Team)
+    , teamDescription     :: !(Maybe Text)
+    , teamPrivacy         :: !Privacy
+    , teamPermission      :: !Permission
+    , teamMembersUrl      :: !URL
+    , teamRepositoriesUrl :: !URL
+    , teamMembersCount    :: !Int
+    , teamReposCount      :: !Int
+    , teamOrganization    :: !SimpleOrganization
+    }
+    deriving (Show, Data, Eq, Ord, Generic)
+
+instance NFData Team
+instance Binary Team
+
+data CreateTeam = CreateTeam
+    { createTeamName        :: !(Name Team)
+    , createTeamDescription :: !(Maybe Text)
+    , createTeamRepoNames   :: !(Vector (Name Repo))
+    , createTeamPrivacy     :: !Privacy
+    , createTeamPermission  :: !Permission
+    }
+    deriving (Show, Data, Eq, Ord, Generic)
+
+instance NFData CreateTeam
+instance Binary CreateTeam
+
+data EditTeam = EditTeam
+    { editTeamName        :: !(Name Team)
+    , editTeamDescription :: !(Maybe Text)
+    , editTeamPrivacy     :: !(Maybe Privacy)
+    , editTeamPermission  :: !(Maybe Permission)
+    }
+    deriving (Show, Data, Eq, Ord, Generic)
+
+instance NFData EditTeam
+instance Binary  EditTeam
+
+data Role
+    = RoleMaintainer
+    | RoleMember
+    deriving (Show, Data, Eq, Ord, Generic)
+
+instance NFData Role
+instance Binary Role
+
+data ReqState
+    = StatePending
+    | StateActive
+    deriving (Show, Data, Eq, Ord, Generic)
+
+instance NFData ReqState
+instance Binary ReqState
+
+data TeamMembership = TeamMembership
+    { teamMembershipUrl      :: !URL
+    , teamMembershipRole     :: !Role
+    , teamMembershipReqState :: !ReqState
+    }
+    deriving (Show, Data, Eq, Ord, Generic)
+
+instance NFData TeamMembership
+instance Binary TeamMembership
+
+data CreateTeamMembership = CreateTeamMembership {
+  createTeamMembershipRole :: !Role
+} deriving (Show, Data, Eq, Ord, Generic)
+
+instance NFData CreateTeamMembership
+instance Binary CreateTeamMembership
+
+-- JSON Instances
+
+instance FromJSON SimpleTeam where
+    parseJSON = withObject "SimpleTeam" $ \o -> SimpleTeam
+        <$> o .: "id"
+        <*> o .: "url"
+        <*> o .: "name"
+        <*> o .: "slug"
+        <*> o .:?"description" .!= Nothing
+        <*> o .: "privacy"
+        <*> o .: "permission"
+        <*> o .: "members_url"
+        <*> o .: "repositories_url"
+
+instance FromJSON Team where
+    parseJSON = withObject "Team" $ \o -> Team
+        <$> o .: "id"
+        <*> o .: "url"
+        <*> o .: "name"
+        <*> o .: "slug"
+        <*> o .:?"description" .!= Nothing
+        <*> o .: "privacy"
+        <*> o .: "permission"
+        <*> o .: "members_url"
+        <*> o .: "repositories_url"
+        <*> o .: "members_count"
+        <*> o .: "repos_count"
+        <*> o .: "organization"
+
+instance ToJSON CreateTeam where
+    toJSON (CreateTeam name desc repo_names privacy permission) =
+        object $ filter notNull
+            [ "name"        .= name
+            , "description" .= desc
+            , "repo_names"  .= repo_names
+            , "privacy"     .= privacy
+            , "permission"  .= permission
+            ]
+      where
+        notNull (_, Null) = False
+        notNull (_, _) = True
+
+instance ToJSON EditTeam where
+    toJSON (EditTeam name desc privacy permission) =
+        object $ filter notNull
+            [ "name"        .= name
+            , "description" .= desc
+            , "privacy"     .= privacy
+            , "permission"  .= permission
+            ]
+      where
+        notNull (_, Null) = False
+        notNull (_, _) = True
+
+instance FromJSON TeamMembership where
+    parseJSON = withObject "TeamMembership" $ \o -> TeamMembership
+        <$> o .: "url"
+        <*> o .: "role"
+        <*> o .: "state"
+
+instance FromJSON CreateTeamMembership where
+    parseJSON = withObject "CreateTeamMembership" $ \o -> CreateTeamMembership
+        <$> o .: "role"
+
+instance ToJSON CreateTeamMembership where
+    toJSON (CreateTeamMembership { createTeamMembershipRole = role }) =
+        object [ "role" .= role ]
+
+instance FromJSON AddTeamRepoPermission where
+    parseJSON = withObject "AddTeamRepoPermission" $ \o -> AddTeamRepoPermission
+        <$> o .: "permission"
+
+instance ToJSON AddTeamRepoPermission where
+    toJSON (AddTeamRepoPermission { addTeamRepoPermission = permission}) =
+        object [ "permission" .= permission ]
+
+instance FromJSON Role where
+    parseJSON = withText "Role" $ \t -> case T.toLower t of
+        "maintainer" -> pure RoleMaintainer
+        "member"     -> pure RoleMember
+        _            -> fail $ "Unknown Role: " <> T.unpack t
+
+instance ToJSON Role where
+    toJSON RoleMaintainer = String "maintainer"
+    toJSON RoleMember     = String "member"
+
+instance FromJSON Permission where
+    parseJSON = withText "Permission" $ \t -> case T.toLower t of
+        "pull"  -> pure PermissionPull
+        "push"  -> pure PermissionPush
+        "admin" -> pure PermissionAdmin
+        _       -> fail $ "Unknown Permission: " <> T.unpack t
+
+instance ToJSON Permission where
+    toJSON PermissionPull  = "pull"
+    toJSON PermissionPush  = "push"
+    toJSON PermissionAdmin = "admin"
+
+instance FromJSON Privacy where
+    parseJSON = withText "Privacy" $ \t -> case T.toLower t of
+        "secret" -> pure PrivacySecret
+        "closed" -> pure PrivacyClosed
+        _        -> fail $ "Unknown Privacy: " <> T.unpack t
+
+instance ToJSON Privacy where
+    toJSON PrivacySecret = String "secret"
+    toJSON PrivacyClosed = String "closed"
+
+instance FromJSON ReqState where
+    parseJSON = withText "ReqState" $ \t -> case T.toLower t of
+        "active"  -> pure StateActive
+        "pending" -> pure StatePending
+        _         -> fail $ "Unknown ReqState: " <> T.unpack t
+
+instance ToJSON ReqState where
+    toJSON StateActive  = String "active"
+    toJSON StatePending = String "pending"
+
+-- | Filters members returned by their role in the team.
+data TeamMemberRole
+    = TeamMemberRoleAll         -- ^ all members of the team.
+    | TeamMemberRoleMaintainer  -- ^ team maintainers
+    | TeamMemberRoleMember      -- ^ normal members of the team.
+    deriving (Show, Eq, Ord, Enum, Bounded, Data, Generic)

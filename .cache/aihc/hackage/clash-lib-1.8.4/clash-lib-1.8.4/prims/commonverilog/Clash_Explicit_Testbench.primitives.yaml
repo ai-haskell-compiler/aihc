@@ -1,0 +1,11 @@
+- BlackBox:
+    name: Clash.Explicit.Testbench.tbEnableGen
+    kind: Declaration
+    type: 'tbEnableGen ::
+      Enable dom'
+    template: assign ~RESULT = 1'b1;
+    workInfo: Always
+- BlackBox:
+    name: Clash.Explicit.Testbench.clockToDiffClock
+    kind: Expression
+    template: '{~ARG[1], ~ ~ARG[1]}'

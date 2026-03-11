@@ -1,0 +1,153 @@
+--- parse tree ---
+[ Code
+    "typ/math/op-02.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/math/op-02.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/math/op-02.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Comment
+, Code
+    "typ/math/op-02.typ"
+    ( line 3 , column 2 )
+    (Set
+       (Ident (Identifier "text"))
+       [ KeyValArg
+           (Identifier "font") (Literal (String "New Computer Modern"))
+       ])
+, SoftBreak
+, Text "Discuss"
+, Space
+, Equation
+    False
+    [ MAttach
+        (Just
+           (MGroup
+              Nothing
+              Nothing
+              [ Text "n"
+              , Code
+                  "typ/math/op-02.typ"
+                  ( line 4 , column 16 )
+                  (FieldAccess (Ident (Identifier "r")) (Ident (Identifier "arrow")))
+              , Code
+                  "typ/math/op-02.typ"
+                  ( line 4 , column 18 )
+                  (Ident (Identifier "oo"))
+              ]))
+        Nothing
+        (Code
+           "typ/math/op-02.typ"
+           ( line 4 , column 10 )
+           (Ident (Identifier "lim")))
+    , MFrac (Text "1") (Text "n")
+    ]
+, Space
+, Text "now"
+, Text "."
+, SoftBreak
+, Equation
+    True
+    [ MAttach
+        (Just
+           (MGroup
+              Nothing
+              Nothing
+              [ Text "n"
+              , Code
+                  "typ/math/op-02.typ"
+                  ( line 5 , column 9 )
+                  (FieldAccess (Ident (Identifier "r")) (Ident (Identifier "arrow")))
+              , Code
+                  "typ/math/op-02.typ"
+                  ( line 5 , column 11 )
+                  (Ident (Identifier "infinity"))
+              ]))
+        Nothing
+        (Code
+           "typ/math/op-02.typ"
+           ( line 5 , column 3 )
+           (Ident (Identifier "lim")))
+    , MFrac (Text "1") (Text "n")
+    , Text "="
+    , Text "0"
+    ]
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 text(body: [
+Discuss ], 
+                      font: "New Computer Modern"), 
+                 math.equation(block: false, 
+                               body: { math.attach(b: { text(body: [n], 
+                                                             font: "New Computer Modern"), 
+                                                        text(body: [→], 
+                                                             font: "New Computer Modern"), 
+                                                        text(body: [∞], 
+                                                             font: "New Computer Modern") }, 
+                                                   base: math.op(limits: true, 
+                                                                 text: "lim"), 
+                                                   t: none), 
+                                       math.frac(denom: text(body: [n], 
+                                                             font: "New Computer Modern"), 
+                                                 num: text(body: [1], 
+                                                           font: "New Computer Modern")) }, 
+                               numbering: none), 
+                 text(body: [ now.
+], 
+                      font: "New Computer Modern"), 
+                 math.equation(block: true, 
+                               body: { math.attach(b: { text(body: [n], 
+                                                             font: "New Computer Modern"), 
+                                                        text(body: [→], 
+                                                             font: "New Computer Modern"), 
+                                                        text(body: [∞], 
+                                                             font: "New Computer Modern") }, 
+                                                   base: math.op(limits: true, 
+                                                                 text: "lim"), 
+                                                   t: none), 
+                                       math.frac(denom: text(body: [n], 
+                                                             font: "New Computer Modern"), 
+                                                 num: text(body: [1], 
+                                                           font: "New Computer Modern")), 
+                                       text(body: [=], 
+                                            font: "New Computer Modern"), 
+                                       text(body: [0], 
+                                            font: "New Computer Modern") }, 
+                               numbering: none), 
+                 parbreak() })

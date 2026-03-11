@@ -1,0 +1,1 @@
+Right (NetRc {nrHosts = [NetRcHost {nrhName = "", nrhLogin = "anon", nrhPassword = "blah", nrhAccount = "", nrhMacros = [NetRcMacDef {nrmName = "macro2", nrmBody = "line3\nline4\n"}]}], nrMacros = [NetRcMacDef {nrmName = "macro1", nrmBody = "line1\nline2\n"}]})

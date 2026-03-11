@@ -1,0 +1,32 @@
+Name: attoparsec-binary
+Version: 0.2
+Author: Andrew Drake
+Copyright: (c) 2012 Andrew Drake
+Maintainer: adrake@adrake.org
+Synopsis: Binary processing extensions to Attoparsec.
+Stability: unstable
+
+License: BSD3
+License-file: LICENSE
+
+Description: This package adds a collection of helper functions to make
+ the task dealing with binary data of varying endianness from within an
+ Attoparsec parser easier.
+
+Category: Data
+Build-type: Simple
+
+Extra-source-files: README
+Cabal-version: >=1.6
+
+Source-Repository head
+  Type: git
+  Location: http://git.hax.so/pub/scm/attoparsec-binary.git
+
+Library
+  Exposed-modules: Data.Attoparsec.Binary
+  Build-depends:
+    attoparsec >= 0.8.5.0,
+    base >= 3 && < 5,
+    bytestring >= 0.9.1.10
+  GHC-Options: -Wall

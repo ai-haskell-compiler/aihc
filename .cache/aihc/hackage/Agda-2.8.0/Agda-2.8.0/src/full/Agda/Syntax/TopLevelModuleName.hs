@@ -1,0 +1,212 @@
+{-# OPTIONS_GHC -Wunused-imports #-}
+
+------------------------------------------------------------------------
+-- Top-level module names
+------------------------------------------------------------------------
+
+module Agda.Syntax.TopLevelModuleName
+  ( module Agda.Syntax.TopLevelModuleName
+  , module Agda.Syntax.TopLevelModuleName.Boot
+  ) where
+
+import Agda.Syntax.TopLevelModuleName.Boot
+import Agda.Syntax.Abstract.Name (isNoName)
+
+import Control.DeepSeq
+
+import Data.Function (on)
+import qualified Data.List as List
+import qualified Data.Text as T
+
+import GHC.Generics (Generic)
+
+import System.FilePath
+
+import qualified Agda.Syntax.Abstract.Name as A
+import qualified Agda.Syntax.Concrete as C
+import Agda.Syntax.Position
+
+import Agda.Utils.FileName
+import Agda.Utils.Hash
+import Agda.Utils.Impossible
+import Agda.Utils.Lens
+import qualified Agda.Utils.List1 as List1
+import Agda.Syntax.Common.Pretty
+import Agda.Utils.Singleton
+import Agda.Utils.Size
+
+------------------------------------------------------------------------
+-- Raw top-level module names
+
+-- | Raw top-level module names (with linear-time comparisons).
+
+data RawTopLevelModuleName = RawTopLevelModuleName
+  { rawModuleNameRange :: Range
+  , rawModuleNameParts :: TopLevelModuleNameParts
+  , rawModuleNameInferred :: !Bool
+      -- ^ Was this module name constructed from a file name
+      --   rather than declared in the file?
+  }
+  deriving (Show, Generic)
+
+instance Eq RawTopLevelModuleName where
+  (==) = (==) `on` rawModuleNameParts
+
+instance Ord RawTopLevelModuleName where
+  compare = compare `on` rawModuleNameParts
+
+instance Sized RawTopLevelModuleName where
+  size = size . rawModuleNameParts
+  natSize = natSize . rawModuleNameParts
+
+instance Pretty RawTopLevelModuleName where
+  pretty = text . rawTopLevelModuleNameToString
+
+instance HasRange RawTopLevelModuleName where
+  getRange = rawModuleNameRange
+
+instance SetRange RawTopLevelModuleName where
+  setRange r (RawTopLevelModuleName _ x z) = RawTopLevelModuleName r x z
+
+instance KillRange RawTopLevelModuleName where
+  killRange (RawTopLevelModuleName _ x z) =
+    RawTopLevelModuleName noRange x z
+
+instance C.IsNoName RawTopLevelModuleName where
+  isNoName m = rawModuleNameParts m == singleton "_"
+
+-- | The 'Range' is not forced.
+
+instance NFData RawTopLevelModuleName where
+  rnf (RawTopLevelModuleName _ x _) = rnf x
+
+-- | Turns a raw top-level module name into a string.
+
+rawTopLevelModuleNameToString :: RawTopLevelModuleName -> String
+rawTopLevelModuleNameToString =
+  List.intercalate "." .
+  map T.unpack . List1.toList . rawModuleNameParts
+
+-- | Hashes a raw top-level module name.
+
+hashRawTopLevelModuleName :: RawTopLevelModuleName -> ModuleNameHash
+hashRawTopLevelModuleName =
+  ModuleNameHash . hashString . rawTopLevelModuleNameToString
+
+-- | Turns a qualified name into a 'RawTopLevelModuleName'. The
+-- qualified name is assumed to represent a top-level module name.
+
+rawTopLevelModuleNameForQName :: C.QName -> RawTopLevelModuleName
+rawTopLevelModuleNameForQName q = RawTopLevelModuleName
+  { rawModuleNameRange = getRange q
+  , rawModuleNameParts =
+      fmap (T.pack . C.nameToRawName) $ C.qnameParts q
+  , rawModuleNameInferred = C.isNoName q
+  }
+
+-- | Computes the 'RawTopLevelModuleName' corresponding to the given
+-- module name, which is assumed to represent a top-level module name.
+--
+-- Precondition: The module name must be well-formed.
+
+rawTopLevelModuleNameForModuleName ::
+  A.ModuleName -> RawTopLevelModuleName
+rawTopLevelModuleNameForModuleName x@(A.MName ms) =
+  List1.ifNull ms __IMPOSSIBLE__ $ \ms ->
+  RawTopLevelModuleName
+    { rawModuleNameRange = getRange ms
+    , rawModuleNameParts =
+        fmap (T.pack . C.nameToRawName . A.nameConcrete) ms
+    , rawModuleNameInferred = isNoName x
+    }
+
+-- | Computes the top-level module name.
+--
+-- Precondition: The 'C.Module' has to be well-formed.
+-- This means that there are only allowed declarations before the
+-- first module declaration, typically import declarations.
+-- See 'spanAllowedBeforeModule'.
+
+rawTopLevelModuleNameForModule :: C.Module -> RawTopLevelModuleName
+rawTopLevelModuleNameForModule (C.Mod _ []) = __IMPOSSIBLE__
+rawTopLevelModuleNameForModule (C.Mod _ ds) =
+  case C.spanAllowedBeforeModule ds of
+    (_, C.Module _ _ n _ _ : _) -> rawTopLevelModuleNameForQName n
+    _                           -> __IMPOSSIBLE__
+
+------------------------------------------------------------------------
+-- Top-level module names
+
+-- | Top-level module names (with constant-time comparisons).
+
+type TopLevelModuleName = TopLevelModuleName' Range
+
+instance Sized TopLevelModuleName where
+  size = size . rawTopLevelModuleName
+  natSize = natSize . rawTopLevelModuleName
+
+instance Pretty TopLevelModuleName where
+  pretty = pretty . rawTopLevelModuleName
+
+-- | A lens focusing on the 'moduleNameParts'.
+
+lensTopLevelModuleNameParts ::
+  Lens' TopLevelModuleName TopLevelModuleNameParts
+lensTopLevelModuleNameParts f m =
+  f (moduleNameParts m) <&> \ xs -> m{ moduleNameParts = xs }
+
+-- | Converts a top-level module name to a raw top-level module name.
+
+rawTopLevelModuleName :: TopLevelModuleName -> RawTopLevelModuleName
+rawTopLevelModuleName m = RawTopLevelModuleName
+  { rawModuleNameRange = moduleNameRange m
+  , rawModuleNameParts = moduleNameParts m
+  , rawModuleNameInferred = moduleNameInferred m
+  }
+
+-- | Converts a raw top-level module name and a hash to a top-level
+-- module name.
+--
+-- This function does not ensure that there are no hash collisions,
+-- that is taken care of by
+-- 'Agda.TypeChecking.Monad.State.topLevelModuleName'.
+
+unsafeTopLevelModuleName ::
+  RawTopLevelModuleName -> ModuleNameHash -> TopLevelModuleName
+unsafeTopLevelModuleName m h = TopLevelModuleName
+  { moduleNameRange = rawModuleNameRange m
+  , moduleNameParts = rawModuleNameParts m
+  , moduleNameId    = h
+  , moduleNameInferred = rawModuleNameInferred m
+  }
+
+-- | A corresponding 'C.QName'. The range of each 'Name' part is the
+-- whole range of the 'TopLevelModuleName'.
+
+topLevelModuleNameToQName :: TopLevelModuleName -> C.QName
+topLevelModuleNameToQName m =
+  List1.foldr C.Qual C.QName $
+  fmap (C.Name (getRange m) C.NotInScope .
+        C.stringNameParts . T.unpack) $
+  moduleNameParts m
+
+-- | Turns a top-level module name into a file name with the given
+-- suffix.
+
+moduleNameToFileName :: TopLevelModuleName -> String -> FilePath
+moduleNameToFileName TopLevelModuleName{ moduleNameParts = ms } ext =
+  joinPath (map T.unpack $ List1.init ms) </>
+  T.unpack (List1.last ms) <.> ext
+
+-- | Finds the current project's \"root\" directory, given a project
+-- file and the corresponding top-level module name.
+--
+-- Example: If the module \"A.B.C\" is located in the file
+-- \"/foo/A/B/C.agda\", then the root is \"/foo/\".
+--
+-- Precondition: The module name must be well-formed.
+
+projectRoot :: AbsolutePath -> TopLevelModuleName -> AbsolutePath
+projectRoot file TopLevelModuleName{ moduleNameParts = m } =
+  mkAbsolute $
+    iterate takeDirectory (filePath file) !! length m

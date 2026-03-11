@@ -1,0 +1,67 @@
+Version 0.0.2
+-------------
+
+Fixed the infinite loop with infinite sets, at least as far as possible.
+Added lots more QuickCheck properties.
+Added subset predicates.
+Added infix operators.
+
+Version 0.0.3
+-------------
+
+Removed support for infinite sets.  They sometimes still work, but generally
+are more trouble than they are worth.  There is no simple set of rules for
+client applications to guarantee termination.
+
+Replaced the "deriving" clause for the Range type with instance declarations.
+Empty ranges created with different bounds will now test as equal.  All
+empty ranges now compare as less than all non-empty ranges.  "show" returns
+a string such as "3.5 < x <= 4.6", or "x < 23".
+
+Removed "maybeRange".
+
+Changed "rangeIntersection" to return a "Range" instead of a "Maybe Range".
+If the intersection is empty then it returns an empty range instead of
+Nothing.
+
+Renamed "rangeEmpty" to "rangeIsEmpty" for consistency with "rSetIsEmpty"
+
+Added "emptyRange" and "fullRange"
+
+
+
+Version 0.0.4
+-------------
+
+Added Monoid instances and singleton ranges, courtesy of Jean-Philippe
+Bernardy.
+
+Version 0.2.0
+-------------
+
+Reorganised and extended tests.
+Added "rangeIsFull" predicate.
+
+Version 0.2.1
+-------------
+Require QuickCheck < 2.
+
+Version 0.3.0
+-------------
+Require QuickCheck >= 2.4. This changes the API for the Arbitrary and CoArbitrary
+instances, so it gets a version number bump.
+
+Version 0.4.0
+-------------
+
+Added Semigroup instance.
+Enabled "cabal test".
+Master repository now on GitHub.
+
+Version 0.5.0
+-------------
+
+Added Ord instance.
+Added instances for DiscreteOrdered for Data.Int and Data.Word types.
+Made test dependencies optional.
+

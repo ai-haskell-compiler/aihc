@@ -1,0 +1,29 @@
+Name:                missing-foreign
+Version:             0.1.1
+Synopsis:            Convenience functions for FFI work
+Description:         Add several functions missing in the standard
+                     Foreign modules:
+                     .
+                     * copy and move based on Storable
+                     .
+                     * calloc
+License:             BSD3
+License-file:        LICENSE
+Author:              Jason Dagit
+Maintainer:          dagitj@gmail.com
+Category:            FFI
+Build-type:          Simple
+Cabal-version:       >=1.6
+
+Library
+  -- Modules exported by the library.
+  Exposed-modules:     Foreign.Marshal.MissingAlloc
+                       Foreign.Marshal.MissingUtils
+  
+  -- Packages needed in order to build this package.
+  Build-depends:       base >= 3 && < 5
+  GHC-options: -Wall
+
+source-repository head
+  type: git
+  location: git@github.com:dagit/missing-foreign.git

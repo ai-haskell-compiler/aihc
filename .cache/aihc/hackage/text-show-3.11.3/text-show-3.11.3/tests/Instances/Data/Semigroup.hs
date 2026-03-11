@@ -1,0 +1,23 @@
+{-# LANGUAGE CPP #-}
+{-# OPTIONS_GHC -Wno-orphans #-}
+
+{-|
+Module:      Instances.Data.Semigroup
+Copyright:   (C) 2014-2017 Ryan Scott
+License:     BSD-style (see the file LICENSE)
+Maintainer:  Ryan Scott
+Stability:   Provisional
+Portability: GHC
+
+'Arbitrary' instance for the 'Arg' datatype.
+-}
+module Instances.Data.Semigroup () where
+
+#if !MIN_VERSION_QuickCheck(2,17,0)
+import Data.Semigroup (Arg(..))
+import Instances.Utils.GenericArbitrary (genericArbitrary)
+import Test.QuickCheck (Arbitrary(..))
+
+instance (Arbitrary a, Arbitrary b) => Arbitrary (Arg a b) where
+    arbitrary = genericArbitrary
+#endif

@@ -1,0 +1,33 @@
+name:                hs-php-session
+version:             0.0.9.3
+synopsis:            PHP session and values serialization
+description:         
+    A library for encoding and decoding serialized PHP sessions in the format
+    used by the \"php\" setting for session.serialize_handler as well as
+    encoding and decoding serialized values.
+
+homepage:            https://github.com/elblake/hs-php-session
+license:             BSD3
+license-file:        LICENSE
+author:              Edward L. Blake
+maintainer:          edwardlblake@gmail.com
+copyright:           (c) 2013-2014 Edward L. Blake
+category:            Data
+build-type:          Simple
+cabal-version:       >=1.8
+
+extra-source-files:
+    README.md
+    Test/General.hs
+
+library
+  exposed-modules:
+    Data.PHPSession
+    Data.PHPSession.Types
+    Data.PHPSession.Conv
+    Data.PHPSession.ImplicitConv.ConvBool
+    Data.PHPSession.ImplicitConv.PHPTypeCoercion
+  -- other-modules:       
+  build-depends:       
+                       base == 4.*,
+                       bytestring >= 0.10.0.0

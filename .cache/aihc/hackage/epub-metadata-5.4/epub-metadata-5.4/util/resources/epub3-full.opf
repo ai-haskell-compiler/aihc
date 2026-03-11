@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<package
+   xmlns="http://www.idpf.org/2007/opf"
+   version="3.0"
+   unique-identifier="isbn">
+
+   <metadata
+      xmlns:dc="http://purl.org/dc/elements/1.1/"
+      xmlns:xml="http://www.w3.org/XML/1998/namespace">
+
+      <dc:identifier id="isbn">1-82057-821-9</dc:identifier>
+      <dc:identifier id="other">1386506873266</dc:identifier>
+      <meta refines="#other" property="identifier-type"
+         scheme="some-scheme">some-type</meta>
+
+      <dc:title id="t1">Title Of This Book</dc:title>
+      <meta refines="#t1" property="title-type">main</meta>
+      <meta refines="#t1" property="display-seq">1</meta>
+      <dc:title id="t2">The Subtitle</dc:title>
+      <meta refines="#t2" property="title-type">subtitle</meta>
+      <meta refines="#t2" property="display-seq">2</meta>
+      <dc:title xml:lang="fr">Titre De Ce Livre</dc:title>
+
+      <dc:language>en-US</dc:language>
+      <dc:language>en-UK</dc:language>
+
+      <dc:contributor id="contrib1">Reginald Q. Knickerbocker</dc:contributor>
+      <meta refines="#contrib1" property="role">ill</meta>
+      <meta refines="#contrib1" property="file-as">Knickerbocker, Reginald Q.</meta>
+      <dc:contributor id="contrib2">Beverly Abercrombie</dc:contributor>
+      <meta refines="#contrib2" property="role">edt</meta>
+
+      <dc:creator id="creator1">Josephine B. Wiggins</dc:creator>
+      <meta refines="#creator1" property="role">aut</meta>
+      <meta refines="#creator1" property="file-as">Wiggins, Josephine B.</meta>
+      <meta refines="#creator1" property="display-seq">2</meta>
+      <dc:creator id="creator2">Horatio Cromwell</dc:creator>
+      <meta refines="#creator2" property="role">aut</meta>
+      <meta refines="#creator2" property="display-seq">1</meta>
+      <dc:creator id="creator3">Natalia Jenkins</dc:creator>
+      <meta refines="#creator3" property="display-seq">3</meta>
+
+      <meta property="dcterms:issued">2011</meta>
+      <dc:date>2012</dc:date>
+      <meta property="dcterms:modified">2013-08-31T13:06:32Z</meta>
+
+      <dc:source>document source</dc:source>
+      <dc:source id="src2">another source</dc:source>
+      <meta refines="#src2" property="identifier-type" scheme="onix:codelist5">15</meta>
+      <meta refines="#src2" property="source-of">pagination</meta>
+
+      <dc:type>test OPF Package Document</dc:type>
+
+      <dc:coverage>coverage information</dc:coverage>
+      <dc:coverage>an additional coverage</dc:coverage>
+
+      <dc:description>This document is a stub used for unit testing. It is missing the rest of the tags that normally occur after metadata.</dc:description>
+      <dc:description>An additional description</dc:description>
+
+      <dc:format>ePub publication</dc:format>
+      <dc:format>an additional format</dc:format>
+
+      <dc:publisher>Fictional Books Ltd.</dc:publisher>
+      <dc:publisher>An additional publisher</dc:publisher>
+
+      <dc:relation>document relation</dc:relation>
+      <dc:relation>an additional relation</dc:relation>
+
+      <dc:subject>Fiction</dc:subject>
+      <dc:subject>Science Fiction</dc:subject>
+
+      <dc:rights>Copyright: 2010 Dino Morelli, License: ISC</dc:rights>
+      <dc:rights>an additional rights</dc:rights>
+   </metadata>
+
+   <manifest>
+      <item id="ncx"
+         href="toc.ncx"
+         media-type="application/x-dtbncx+xml" />
+      <item id="titlePage"
+         href="content/titlePage.html"
+         media-type="application/xhtml+xml" />
+      <item id="someContent"
+         href="content/someContent.html"
+         media-type="application/xhtml+xml" />
+   </manifest>
+
+   <spine toc="ncx">
+      <itemref idref="titlePage" />
+      <itemref idref="someContent" />
+   </spine>
+
+   <guide>
+      <reference type="title-page" title="Title page"
+         href="content/titlePage.html" />
+      <reference type="text" title="Title Of This Book"
+         href="content/someContent.html" />
+   </guide>
+
+</package>

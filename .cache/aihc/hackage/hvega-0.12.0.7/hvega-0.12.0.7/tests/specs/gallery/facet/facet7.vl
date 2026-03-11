@@ -1,0 +1,59 @@
+{
+    "$schema": "https://vega.github.io/schema/vega-lite/v4.json",
+    "config": {
+        "view": {
+            "stroke": null
+        }
+    },
+    "data": {
+        "url": "https://vega.github.io/vega-lite/data/stocks.csv"
+    },
+    "description": "Stock prices of five large companies as a small multiples of area charts",
+    "encoding": {
+        "color": {
+            "field": "symbol",
+            "legend": null,
+            "type": "nominal"
+        },
+        "row": {
+            "field": "symbol",
+            "header": {
+                "labelAlign": "left",
+                "labelAngle": 0,
+                "labelExpr": "'{' + datum.label + '}'",
+                "labelFontStyle": "italic",
+                "title": [
+                    "Stock",
+                    "price"
+                ],
+                "titleLineHeight": 20
+            },
+            "type": "nominal"
+        },
+        "x": {
+            "axis": {
+                "format": "%Y",
+                "grid": false,
+                "title": null
+            },
+            "field": "date",
+            "type": "temporal"
+        },
+        "y": {
+            "axis": {
+                "grid": false,
+                "title": null
+            },
+            "field": "price",
+            "type": "quantitative"
+        }
+    },
+    "height": 50,
+    "mark": "area",
+    "resolve": {
+        "scale": {
+            "y": "independent"
+        }
+    },
+    "width": 300
+}

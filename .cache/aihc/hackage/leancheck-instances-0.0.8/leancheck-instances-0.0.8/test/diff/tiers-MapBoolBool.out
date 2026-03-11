@@ -1,0 +1,21 @@
+map length (tiers :: [[ Map Bool Bool ]])  =  [1,4,4]
+
+length (list :: [ Map Bool Bool ])  =  9
+
+allUnique (list :: [ Map Bool Bool ])  =  True
+
+ratioRepetitions (list :: [ Map Bool Bool ])  =  0 % 1
+
+tiers :: [Map Bool Bool]  =
+  [ [fromList []]
+  , [ fromList [(False,False)]
+    , fromList [(False,True)]
+    , fromList [(True,False)]
+    , fromList [(True,True)]
+    ]
+  , [ fromList [(False,False),(True,False)]
+    , fromList [(False,False),(True,True)]
+    , fromList [(False,True),(True,False)]
+    , fromList [(False,True),(True,True)]
+    ]
+  ]

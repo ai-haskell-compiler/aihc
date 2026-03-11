@@ -1,0 +1,65 @@
+name:          trifecta-examples
+category:      Text, Parsing, Diagnostics, Pretty Printer, Logging
+version:       2
+license:       BSD3
+license-file:  LICENSE
+author:        Edward A. Kmett
+maintainer:    Edward A. Kmett <ekmett@gmail.com>
+stability:     experimental
+homepage:      http://github.com/ekmett/trifecta/
+bug-reports:   http://github.com/ekmett/trifecta/issues
+copyright:     Copyright (C) 2010-2019 Edward A. Kmett
+synopsis:      A modern parser combinator library with convenient diagnostics
+description:
+  A modern parser combinator library with slicing and Clang-style colored diagnostics
+cabal-version: >= 1.10
+build-type:    Simple
+tested-with:   GHC == 8.0.2
+             , GHC == 8.2.2
+             , GHC == 8.4.4
+             , GHC == 8.6.5
+             , GHC == 8.8.4
+             , GHC == 8.10.7
+             , GHC == 9.0.2
+             , GHC == 9.2.8
+             , GHC == 9.4.8
+             , GHC == 9.6.4
+             , GHC == 9.8.1
+extra-source-files: RFC2616.txt RFC2616-malformed.txt
+
+source-repository head
+  type:     git
+  location: https://github.com/ekmett/trifecta.git
+
+
+library
+  ghc-options:         -Wall
+  exposed-modules:     RFC2616
+  hs-source-dirs:      rfc2616
+  build-depends:       base >= 4.7 && <5,
+                       bytestring,
+                       charset,
+                       parsers,
+                       trifecta
+  default-language:    Haskell2010
+
+executable trifecta-examples-rfc2616
+  main-is:             Main.hs
+  ghc-options:         -Wall -threaded
+  hs-source-dirs:      .
+  default-language:    Haskell2010
+  build-depends:       base,
+                       trifecta-examples
+
+test-suite trifecta-examples-tests
+  type:                exitcode-stdio-1.0
+  main-is:             Spec.hs
+  ghc-options:         -Wall -threaded
+  hs-source-dirs:      .
+  default-language:    Haskell2010
+  build-depends:       base,
+                       hspec,
+                       parsers,
+                       transformers,
+                       trifecta,
+                       trifecta-examples

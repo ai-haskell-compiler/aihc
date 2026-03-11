@@ -1,0 +1,53 @@
+name: nfc
+synopsis: libnfc bindings
+version: '0.1.1'
+license: PublicDomain
+author: John Galt <jgalt@centromere.net>
+maintainer: John Galt <jgalt@centromere.net>
+category: Bindings
+description: nfc is a set of bindings to libnfc
+extra-source-files:
+  - CHANGELOG.md
+  - package.yaml
+  - README.md
+  - stack.yaml
+  - flake.lock
+  - flake.nix
+  - nix/nfc.nix
+ghc-options: -Wall
+github: centromere/nfc
+
+flags:
+  build-examples:
+    description: "Build examples"
+    default: False
+    manual: False
+
+library:
+  dependencies:
+    - base <5
+    - bytestring
+  source-dirs: src
+  build-tools: c2hs
+  exposed-modules:
+    - Bindings.NFC
+  pkg-config-dependencies:
+    - libnfc
+  c-sources: cbits/*
+
+executables:
+  print-mifare-uid-forever:
+    dependencies:
+      - base <5
+      - base16-bytestring
+      - bytestring
+      - nfc
+    ghc-options:
+      - -rtsopts
+      - -threaded
+      - -with-rtsopts=-N
+    main: print-mifare-uid-forever.hs
+    source-dirs: examples
+    when:
+      - condition: "!flag(build-examples)"
+        buildable: False

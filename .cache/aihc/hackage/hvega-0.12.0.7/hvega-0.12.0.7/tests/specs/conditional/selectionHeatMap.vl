@@ -1,0 +1,120 @@
+{
+    "$schema": "https://vega.github.io/schema/vega-lite/v4.json",
+    "config": {
+        "axis": {
+            "domain": false
+        },
+        "range": {
+            "ramp": {
+                "scheme": "yellowgreenblue"
+            }
+        },
+        "scale": {
+            "bandPaddingInner": 0,
+            "bandPaddingOuter": 0
+        },
+        "view": {
+            "step": 40
+        }
+    },
+    "data": {
+        "values": [
+            {
+                "actual": "A",
+                "count": 13,
+                "predicted": "A"
+            },
+            {
+                "actual": "A",
+                "count": 0,
+                "predicted": "B"
+            },
+            {
+                "actual": "A",
+                "count": 0,
+                "predicted": "C"
+            },
+            {
+                "actual": "B",
+                "count": 0,
+                "predicted": "A"
+            },
+            {
+                "actual": "B",
+                "count": 10,
+                "predicted": "B"
+            },
+            {
+                "actual": "B",
+                "count": 6,
+                "predicted": "C"
+            },
+            {
+                "actual": "C",
+                "count": 0,
+                "predicted": "A"
+            },
+            {
+                "actual": "C",
+                "count": 0,
+                "predicted": "B"
+            },
+            {
+                "actual": "C",
+                "count": 9,
+                "predicted": "C"
+            }
+        ]
+    },
+    "encoding": {
+        "fill": {
+            "field": "count",
+            "type": "quantitative"
+        },
+        "opacity": {
+            "condition": {
+                "selection": "highlight",
+                "value": 1
+            },
+            "value": 0.5
+        },
+        "order": {
+            "condition": {
+                "selection": "highlight",
+                "value": 1
+            },
+            "value": 0
+        },
+        "stroke": {
+            "condition": {
+                "test": {
+                    "and": [
+                        {
+                            "selection": "highlight"
+                        },
+                        "length(data(\"highlight_store\"))"
+                    ]
+                },
+                "value": "black"
+            },
+            "value": null
+        },
+        "x": {
+            "field": "predicted",
+            "type": "nominal"
+        },
+        "y": {
+            "field": "actual",
+            "type": "nominal"
+        }
+    },
+    "mark": {
+        "strokeWidth": 2,
+        "type": "rect"
+    },
+    "selection": {
+        "highlight": {
+            "type": "single"
+        }
+    }
+}

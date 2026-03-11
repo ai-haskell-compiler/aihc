@@ -1,0 +1,120 @@
+--- parse tree ---
+[ Code
+    "typ/meta/bibliography-04.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/meta/bibliography-04.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/meta/bibliography-04.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Code
+    "typ/meta/bibliography-04.typ"
+    ( line 2 , column 2 )
+    (Set
+       (Ident (Identifier "page"))
+       [ KeyValArg (Identifier "width") (Literal (Numeric 200.0 Pt)) ])
+, SoftBreak
+, Code
+    "typ/meta/bibliography-04.typ"
+    ( line 3 , column 2 )
+    (Set
+       (Ident (Identifier "heading"))
+       [ KeyValArg (Identifier "numbering") (Literal (String "1.")) ])
+, SoftBreak
+, Code
+    "typ/meta/bibliography-04.typ"
+    ( line 4 , column 2 )
+    (Show
+       (Just (Ident (Identifier "bibliography")))
+       (Set
+          (Ident (Identifier "heading"))
+          [ KeyValArg (Identifier "numbering") (Literal (String "1.")) ]))
+, ParBreak
+, Heading 1 [ Text "Multiple" , Space , Text "Bibs" ]
+, Text "Now"
+, Space
+, Text "we"
+, Space
+, Text "have"
+, Space
+, Text "multiple"
+, Space
+, Text "bibliographies"
+, Space
+, Text "containing"
+, Space
+, Code
+    "typ/meta/bibliography-04.typ"
+    ( line 7 , column 49 )
+    (FuncCall
+       (Ident (Identifier "cite")) [ NormalArg (Label "glacier-melt") ])
+, Code
+    "typ/meta/bibliography-04.typ"
+    ( line 7 , column 70 )
+    (FuncCall
+       (Ident (Identifier "cite")) [ NormalArg (Label "keshav2007read") ])
+, SoftBreak
+, Code
+    "typ/meta/bibliography-04.typ"
+    ( line 8 , column 2 )
+    (FuncCall
+       (Ident (Identifier "bibliography"))
+       [ NormalArg
+           (Array
+              [ Reg (Literal (String "/works.bib"))
+              , Reg (Literal (String "/works_too.bib"))
+              ])
+       ])
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 text(body: [
+]), 
+                 text(body: [
+]), 
+                 parbreak(), 
+                 heading(body: text(body: [Multiple Bibs]), 
+                         level: 1, 
+                         numbering: "1."), 
+                 text(body: [Now we have multiple bibliographies containing ]), 
+                 cite(key: <glacier-melt>), 
+                 cite(key: <keshav2007read>), 
+                 text(body: [
+]), 
+                 bibliography(source: ("/works.bib", 
+                                       "/works_too.bib")), 
+                 parbreak() })

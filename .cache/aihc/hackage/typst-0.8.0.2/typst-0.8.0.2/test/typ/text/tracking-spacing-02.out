@@ -1,0 +1,78 @@
+--- parse tree ---
+[ Code
+    "typ/text/tracking-spacing-02.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/text/tracking-spacing-02.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/text/tracking-spacing-02.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Comment
+, Code
+    "typ/text/tracking-spacing-02.typ"
+    ( line 3 , column 2 )
+    (Set
+       (Ident (Identifier "text"))
+       [ KeyValArg
+           (Identifier "font")
+           (Array
+              [ Reg (Literal (String "PT Sans"))
+              , Reg (Literal (String "Noto Serif Hebrew"))
+              ])
+       ])
+, SoftBreak
+, Code
+    "typ/text/tracking-spacing-02.typ"
+    ( line 4 , column 2 )
+    (Set
+       (Ident (Identifier "text"))
+       [ KeyValArg (Identifier "tracking") (Literal (Numeric 0.3 Em)) ])
+, SoftBreak
+, Text "\1496\1462\1511\1505\1496"
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 text(body: [
+], 
+                      font: ("PT Sans", 
+                             "Noto Serif Hebrew")), 
+                 text(body: [
+טֶקסט], 
+                      font: ("PT Sans", 
+                             "Noto Serif Hebrew"), 
+                      tracking: 0.3em), 
+                 parbreak() })

@@ -1,0 +1,60 @@
+{
+    "$schema": "https://vega.github.io/schema/vega-lite/v4.json",
+    "config": {
+        "axis": {
+            "domainWidth": 1
+        },
+        "view": {
+            "stroke": null
+        }
+    },
+    "data": {
+        "url": "https://vega.github.io/vega-lite/data/population.json"
+    },
+    "encoding": {
+        "color": {
+            "field": "gender",
+            "scale": {
+                "range": [
+                    "#675193",
+                    "#ca8861"
+                ]
+            },
+            "type": "nominal"
+        },
+        "column": {
+            "field": "age",
+            "spacing": 10,
+            "type": "ordinal"
+        },
+        "x": {
+            "axis": {
+                "title": null
+            },
+            "field": "gender",
+            "type": "nominal"
+        },
+        "y": {
+            "aggregate": "sum",
+            "axis": {
+                "grid": false,
+                "title": "Population"
+            },
+            "field": "people",
+            "type": "quantitative"
+        }
+    },
+    "mark": "bar",
+    "transform": [
+        {
+            "filter": "datum.year == 2000"
+        },
+        {
+            "as": "gender",
+            "calculate": "datum.sex == 2 ? 'Female' : 'Male'"
+        }
+    ],
+    "width": {
+        "step": 12
+    }
+}

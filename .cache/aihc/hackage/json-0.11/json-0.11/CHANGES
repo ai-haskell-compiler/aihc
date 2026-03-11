@@ -1,0 +1,51 @@
+Version 0.11
+  * Limit floating-point range to that of Double to avoid allocation
+    overflows when constructing Rationals
+
+Version 0.10
+  * Use MonadFail, so that it works with GHC 8.8
+
+Version 0.9.1
+  * Merge-in contributions from Neil Mitchell to support GHC 7.10
+
+Version 0.9
+  * Merge-in contributions from Neil Mitchell to accomodate working with HEAD.
+
+Version 0.8
+  * Add `Applicative` instance for `GetJSON`
+
+Version 0.4.4: released 2009-01-17; changes from 0.4.2
+
+  * Fixes handling of unterminated strings.
+
+Version 0.4.3: released 2009-01-17; changes from 0.4.2
+
+  * optimize some common cases..string and int literals.
+    Reduces parse times by > 2x on larger dict inputs containing
+    both kinds of lits.
+
+Version 0.4.2: released 2009-01-17; changes from 0.4.1
+
+  * fixed Cabal build issues with various versions of 'base' and Data.Generic
+  * fixed whitespace-handling bug in Parsec-based frontend.
+
+Version 0.4.1: released 2009-01-12; changes from 0.3.6
+
+  * Addition of extra JSON instances:
+       - IntMap, Set, Array, IntSet
+       
+  * Dropped initial letter case-lowering for constructors: 
+       - Maybe's constructors are mapped to "Nothing","Just".
+       - Either's constructors are mapped to "Left", "Right".
+
+  * Ordering's are represented by their constructor names (was
+    funky int-mapping.)
+
+  * JSON.Text.Result is now an instance of MonadError; contributed
+    by Andy Gimblett.
+
+  * Included Lennart Augustsson's contributed generic JSON encoder,
+    in Text.JSON.Generic
+
+  * Optional JSON dict-mapping for Data.Map and Data.IntMap
+

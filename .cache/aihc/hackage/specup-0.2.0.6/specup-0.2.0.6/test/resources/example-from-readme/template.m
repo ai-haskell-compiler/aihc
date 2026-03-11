@@ -1,0 +1,6 @@
+{{# . }}
+# {{{ animal }}}
+
+Animal class: {{{ class }}}
+
+{{/ . }}

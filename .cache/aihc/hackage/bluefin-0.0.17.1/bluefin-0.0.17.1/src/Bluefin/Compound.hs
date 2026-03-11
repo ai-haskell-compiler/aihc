@@ -1,0 +1,676 @@
+module Bluefin.Compound
+  ( -- * Creating your own effects
+
+    -- ** Wrap a single effect
+
+    -- | Because in Bluefin everything happens at the value level,
+    -- creating your own effects is equivalent to creating your own
+    -- data types.  We just use the techniques we know and love from
+    -- Haskell!  For example, if I want to make a "counter" effect
+    -- that allows me to increment a counter then I can wrap a 'Bluefin.State.State'
+    -- handle in a newtype:
+    --
+    -- @
+    -- newtype Counter1 e = MkCounter1 ('Bluefin.State.State' Int e)
+    --
+    -- incCounter1 :: (e :> es) => Counter1 e -> 'Bluefin.Eff.Eff' es ()
+    -- incCounter1 (MkCounter1 st) = 'Bluefin.State.modify' st (+ 1)
+    --
+    -- runCounter1 ::
+    --   (forall e. Counter1 e -> Eff (e :& es) r) ->
+    --   Eff es Int
+    -- runCounter1 k =
+    --   'Bluefin.State.evalState' 0 $ \\st -> do
+    --     _ <- k (MkCounter1 st)
+    --     'Bluefin.State.get' st
+    -- @
+    --
+    -- Running the handler tells me the number of times I incremented
+    -- the counter.
+    --
+    -- @
+    -- exampleCounter1 :: Int
+    -- exampleCounter1 = 'Bluefin.Eff.runPureEff' $ runCounter1 $ \\c ->
+    --   incCounter1 c
+    --   incCounter1 c
+    --   incCounter1 c
+    -- @
+    --
+    -- @
+    -- >>> exampleCounter1
+    -- 3
+    -- @
+
+    -- ** Wrap multiple effects, first attempt
+
+    -- | If we want to wrap multiple effects then we can use the
+    -- normal approach we use to wrap multiple values into a single
+    -- value: define a new data type with multiple fields.  There's a
+    -- caveat to this approach, but before we address the caveat let's
+    -- see the approach in action.  Here we define a new handle,
+    -- @Counter2@, that contains a 'Bluefin.State.State' and 'Bluefin.Exception.Exception' handle
+    -- within it.  That allows us to increment the counter and throw
+    -- an exception when we hit a limit.
+    --
+    -- @
+    -- data Counter2 e1 e2 = MkCounter2 ('Bluefin.State.State' Int e1) ('Bluefin.Exception.Exception' () e2)
+    --
+    -- incCounter2 :: (e1 :> es, e2 :> es) => Counter2 e1 e2 -> 'Bluefin.Eff.Eff' es ()
+    -- incCounter2 (MkCounter2 st ex) = do
+    --   count <- 'Bluefin.State.get' st
+    --   when (count >= 10) $
+    --     'Bluefin.Exception.throw' ex ()
+    --   'Bluefin.State.put' st (count + 1)
+    --
+    -- runCounter2 ::
+    --   (forall e1 e2. Counter2 e1 e2 -> Eff (e2 :& e1 :& es) r) ->
+    --   Eff es Int
+    -- runCounter2 k =
+    --   'Bluefin.State.evalState' 0 $ \\st -> do
+    --     _ \<- 'Bluefin.Exception.try' $ \\ex -> do
+    --       k (MkCounter2 st ex)
+    --     'Bluefin.State.get' st
+    -- @
+    --
+    -- We can see that attempting to increment the counter fovever
+    -- bails out when we reach the limit.
+    --
+    -- @
+    -- exampleCounter2 :: Int
+    -- exampleCounter2 = 'Bluefin.Eff.runPureEff' $ runCounter2 $ \\c ->
+    --   forever $
+    --     incCounter2 c
+    -- @
+    --
+    -- @
+    -- >>> exampleCounter2
+    -- 10
+    -- @
+    --
+    -- The flaw of this approach is that you expose one effect
+    -- parameter for each handle in the data type.  That's rather
+    -- cumbersome!  We can do better.
+
+    -- ** Wrap multiple effects, a better approach
+
+    -- | We can avoid exposing multiple effect parameters and just
+    -- expose a single one.  To make this work we have to define our
+    -- handler in a slightly different way.  Firstly we apply
+    -- 'useImplIn' to the effectful operation @k@ and secondly we
+    -- apply 'mapHandle' to each of the handles out of which we create
+    -- our compound handle.  Everything else remains the same.
+    --
+    -- @
+    -- data Counter3 e = MkCounter3 ('Bluefin.State.State' Int e) ('Bluefin.Exception.Exception' () e)
+    --
+    -- incCounter3 :: (e :> es) => Counter3 e -> Eff es ()
+    -- incCounter3 (MkCounter3 st ex) = do
+    --   count <- 'Bluefin.State.get' st
+    --   when (count >= 10) $
+    --     'Bluefin.Exception.throw' ex ()
+    --   'Bluefin.State.put' st (count + 1)
+    --
+    -- runCounter3 ::
+    --   (forall e. Counter3 e -> Eff (e :& es) r) ->
+    --   Eff es Int
+    -- runCounter3 k =
+    --   'Bluefin.State.evalState' 0 $ \\st -> do
+    --     _ \<- 'Bluefin.Exception.try' $ \\ex -> do
+    --       'useImplIn' k (MkCounter3 ('mapHandle' st) (mapHandle ex))
+    --     'Bluefin.State.get' st
+    -- @
+    --
+    -- The example works as before:
+    --
+    -- @
+    -- exampleCounter3 :: Int
+    -- exampleCounter3 = 'Bluefin.Eff.runPureEff' $ runCounter3 $ \\c ->
+    --   forever $
+    --     incCounter3 c
+    -- @
+    --
+    -- @
+    -- >>> exampleCounter3
+    -- 10
+    -- @
+
+    -- ** Wrap a single effect, don't handle it
+
+    -- | So far our handlers have handled all the effects that are
+    -- found within our compound effect. We don't have to do that
+    -- though: we can leave an effect unhandled to be handled by a
+    -- different handler at a higher level.  This must /always/ be the
+    -- case for 'Bluefin.IO.IOE', which can only be handled at the top
+    -- level by 'Bluefin.Eff.runEff_'.  Let's see what it looks like to
+    -- wrap @IOE@ and provide an API which allows a subset of @IO@
+    -- operations.
+    --
+    -- @
+    -- newtype Counter3B e = MkCounter3B ('Bluefin.IO.IOE' e)
+    --
+    -- incCounter3B :: (e :> es) => Counter3B e -> 'Bluefin.Eff.Eff' es ()
+    -- incCounter3B (MkCounter3B io) =
+    --   effIO io (putStrLn "You tried to increment the counter")
+    --
+    -- runCounter3B ::
+    --   (e1 :> es) =>
+    --   IOE e1 ->
+    --   (forall e. Counter3B e -> Eff (e :& es) r) ->
+    --   Eff es r
+    -- runCounter3B io k = 'useImplIn' k (MkCounter3B ('mapHandle' io))
+    -- @
+    --
+    -- @
+    -- exampleCounter3B :: IO ()
+    -- exampleCounter3B = 'Bluefin.Eff.runEff_' $ \\io -> runCounter3B io $ \\c -> do
+    --   incCounter3B c
+    --   incCounter3B c
+    --   incCounter3B c
+    -- @
+    --
+    -- This isn't a terribly useful counter!  It doesn't actually
+    -- increment anything, it just prints a message when we try, but
+    -- the example does demonstrate how to wrap @IOE@.
+    --
+    -- @
+    -- -- ghci> exampleCounter3B
+    -- -- You tried to increment the counter
+    -- -- You tried to increment the counter
+    -- -- You tried to increment the counter
+    -- @
+
+    -- ** Wrap multiple effects, don't handle them all
+
+    -- | We can wrap multiple effects, handle some of them and leave
+    -- the others to be handled later. Let's extend @Counter3@ with a
+    -- 'Bluefin.Stream.Stream' effect.  Whenever we ask to
+    -- increment the counter, and it is currently an even number, then
+    -- we yield a message about that.  Additionally, there's a new
+    -- operation @getCounter4@ which allows us to yield a message
+    -- whilst returning the value of the counter.
+    --
+    -- @
+    -- data Counter4 e
+    --   = MkCounter4 ('Bluefin.State.State' Int e) ('Bluefin.Exception.Exception' () e) ('Bluefin.Stream.Stream' String e)
+    --
+    -- incCounter4 :: (e :> es) => Counter4 e -> Eff es ()
+    -- incCounter4 (MkCounter4 st ex y) = do
+    --   count <- 'Bluefin.State.get' st
+    --
+    --   when (even count) $
+    --     'Bluefin.Stream.yield' y "Count was even"
+    --
+    --   when (count >= 10) $
+    --     'Bluefin.Exception.throw' ex ()
+    --
+    --   'Bluefin.State.put' st (count + 1)
+    --
+    -- getCounter4 :: (e :> es) => Counter4 e -> String -> Eff es Int
+    -- getCounter4 (MkCounter4 st _ y) msg = do
+    --   yield y msg
+    --   get st
+    --
+    -- runCounter4 ::
+    --   (e1 :> es) =>
+    --   Stream String e1 ->
+    --   (forall e. Counter4 e -> Eff (e :& es) r) ->
+    --   Eff es Int
+    -- runCounter4 y k =
+    --   evalState 0 $ \\st -> do
+    --     _ \<- try $ \\ex -> do
+    --       'useImplIn' k (MkCounter4 ('mapHandle' st) (mapHandle ex) (mapHandle y))
+    --     get st
+    -- @
+    --
+    -- @
+    -- exampleCounter4 :: ([String], Int)
+    -- exampleCounter4 = 'Bluefin.Eff.runPureEff' $ 'Bluefin.Stream.yieldToList' $ \\y -> do
+    --   runCounter4 y $ \\c -> do
+    --     incCounter4 c
+    --     incCounter4 c
+    --     n <- getCounter4 c "I'm getting the counter"
+    --     when (n == 2) $
+    --       yield y "n was 2, as expected"
+    -- @
+    --
+    -- @
+    -- >>> exampleCounter4
+    -- (["Count was even","I'm getting the counter","n was 2, as expected"],2)
+    -- @
+
+    -- ** Dynamic effects
+
+    -- | So far we've looked at "concrete" compound effects, that is,
+    -- new effects implemented in terms of specific other effects.  We
+    -- can also define dynamic effects, whose implementation is left
+    -- abstract, to be defined in the handler.  To do that we create a
+    -- handle that is a record of functions.  To run an effectful
+    -- operation we call one of the functions from the record.  We
+    -- define the record in the handler.  Here @incCounter5Impl@ and
+    -- @getCounter5Impl@ are exactly the same as @incCounter4@ and
+    -- @getCounter4@ were, they're just defined in the handler.  In
+    -- order to be used polymorphically, the actually effectful
+    -- functions we call, @incCounter5@ and @getCounter5@ are derived
+    -- from the record fields by applying 'makeOp'.
+    --
+    -- @
+    -- data Counter5 e = MkCounter5
+    --   { incCounter5Impl :: forall e'. 'Bluefin.Eff.Eff' (e' :& e) (),
+    --     getCounter5Impl :: forall e'. String -> Eff (e' :& e) Int
+    --   }
+    --
+    -- instance 'Handle' Counter5 where
+    --   mapHandle c =
+    --     MkCounter5
+    --       { incCounter5Impl = 'useImplUnder' (incCounter5Impl c),
+    --         getCounter5Impl = \\msg -> useImplUnder (getCounter5Impl c msg)
+    --       }
+    --
+    -- incCounter5 :: (e :> es) => Counter5 e -> Eff es ()
+    -- incCounter5 e = 'makeOp' (incCounter5Impl ('mapHandle' e))
+    --
+    -- getCounter5 :: (e :> es) => Counter5 e -> String -> Eff es Int
+    -- getCounter5 e msg = makeOp (getCounter5Impl (mapHandle e) msg)
+    --
+    -- runCounter5 ::
+    --   (e1 :> es) =>
+    --   Stream String e1 ->
+    --   (forall e. Counter5 e -> Eff (e :& es) r) ->
+    --   Eff es Int
+    -- runCounter5 y k =
+    --   'Bluefin.State.evalState' 0 $ \\st -> do
+    --     _ \<- 'Bluefin.Exception.try' $ \\ex -> do
+    --       'useImplIn'
+    --         k
+    --         ( MkCounter5
+    --             { incCounter5Impl = do
+    --                 count <- 'Bluefin.State.get' st
+    --
+    --                 when (even count) $
+    --                   'Bluefin.Stream.yield' y "Count was even"
+    --
+    --                 when (count >= 10) $
+    --                   'Bluefin.Exception.throw' ex ()
+    --
+    --                 'Bluefin.State.put' st (count + 1),
+    --               getCounter5Impl = \\msg -> do
+    --                 yield y msg
+    --                 get st
+    --             }
+    --         )
+    --     get st
+    -- @
+    --
+    -- The result is exactly the same as before
+    --
+    -- @
+    -- exampleCounter5 :: ([String], Int)
+    -- exampleCounter5 = 'Bluefin.Eff.runPureEff' $ 'Bluefin.Stream.yieldToList' $ \\y -> do
+    --   runCounter5 y $ \\c -> do
+    --     incCounter5 c
+    --     incCounter5 c
+    --     n <- getCounter5 c "I'm getting the counter"
+    --     when (n == 2) $
+    --       pyield y "n was 2, as expected"
+    -- @
+    --
+    -- @
+    -- >>> exampleCounter5
+    -- (["Count was even","I'm getting the counter","n was 2, as expected"],2)
+    -- @
+
+    -- ** Combining concrete and dynamic effects
+
+    -- | We can also freely combine concrete and dynamic effects.  In
+    -- the following example, the @incCounter6@ effect is left
+    -- dynamic, and defined in the handler, whilst @getCounter6@ is
+    -- implemented in terms of concrete 'Bluefin.State.State' and 'Bluefin.Stream.Stream' effects.
+    --
+    -- @
+    -- data Counter6 e = MkCounter6
+    --   { incCounter6Impl :: forall e'. 'Bluefin.Eff.Eff' (e' :& e) (),
+    --     counter6State :: 'Bluefin.State.State' Int e,
+    --     counter6Stream :: 'Bluefin.Stream.Stream' String e
+    --   }
+    --
+    -- instance 'Handle' Counter6 where
+    --   mapHandle c =
+    --     MkCounter6
+    --       { incCounter6Impl = 'useImplUnder' (incCounter6Impl c),
+    --         counter6State = 'mapHandle' (counter6State c),
+    --         counter6Stream = mapHandle (counter6Stream c)
+    --       }
+    --
+    -- incCounter6 :: (e :> es) => Counter6 e -> Eff es ()
+    -- incCounter6 e = 'makeOp' (incCounter6Impl (mapHandle e))
+    --
+    -- getCounter6 :: (e :> es) => Counter6 e -> String -> Eff es Int
+    -- getCounter6 (MkCounter6 _ st y) msg = do
+    --   yield y msg
+    --   get st
+    --
+    -- runCounter6 ::
+    --   (e1 :> es) =>
+    --   Stream String e1 ->
+    --   (forall e. Counter6 e -> Eff (e :& es) r) ->
+    --   Eff es Int
+    -- runCounter6 y k =
+    --   'Bluefin.State.evalState' 0 $ \\st -> do
+    --     _ \<- 'Bluefin.Exception.try' $ \\ex -> do
+    --       'useImplIn'
+    --         k
+    --         ( MkCounter6
+    --             { incCounter6Impl = do
+    --                 count <- 'Bluefin.State.get' st
+    --
+    --                 when (even count) $
+    --                   'Bluefin.Stream.yield' y "Count was even"
+    --
+    --                 when (count >= 10) $
+    --                   'Bluefin.Exception.throw' ex ()
+    --
+    --                 'Bluefin.State.put' st (count + 1),
+    --               counter6State = mapHandle st,
+    --               counter6Stream = mapHandle y
+    --             }
+    --         )
+    --     get st
+    -- @
+    --
+    -- Naturally, the result is the same.
+    --
+    -- @
+    -- exampleCounter6 :: ([String], Int)
+    -- exampleCounter6 = 'Bluefin.Eff.runPureEff' $ 'Bluefin.Stream.yieldToList' $ \\y -> do
+    --   runCounter6 y $ \\c -> do
+    --     incCounter6 c
+    --     incCounter6 c
+    --     n <- getCounter6 c "I'm getting the counter"
+    --     when (n == 2) $
+    --       yield y "n was 2, as expected"
+    -- @
+    --
+    -- @
+    -- >>> exampleCounter6
+    -- (["Count was even","I'm getting the counter","n was 2, as expected"],2)
+    -- @
+
+    -- ** Dynamic effects with handles as arguments
+
+    -- | We can implement dynamic effects that themselves take handles
+    -- as arguments, by giving all the handle arguments the effect tag
+    -- @e'@.
+    --
+    -- @
+    -- data Counter7 e = MkCounter7
+    --   { incCounter7Impl :: forall e'. 'Bluefin.Exception.Exception' () e' -> 'Bluefin.Eff.Eff' (e' :& e) (),
+    --     counter7State :: 'Bluefin.State.State' Int e,
+    --     counter7Stream :: 'Bluefin.Stream.Stream' String e
+    --   }
+    --
+    -- instance 'Handle' Counter7 where
+    --   mapHandle c =
+    --     MkCounter7
+    --       { incCounter7Impl = \\ex -> 'useImplUnder' (incCounter7Impl c ex),
+    --         counter7State = 'mapHandle' (counter7State c),
+    --         counter7Stream = mapHandle (counter7Stream c)
+    --       }
+    --
+    -- incCounter7 ::
+    --   (e :> es, e1 :> es) => Counter7 e -> Exception () e1 -> Eff es ()
+    -- incCounter7 e ex = 'makeOp' (incCounter7Impl ('mapHandle' e) (mapHandle ex))
+    --
+    -- getCounter7 :: (e :> es) => Counter7 e -> String -> Eff es Int
+    -- getCounter7 (MkCounter7 _ st y) msg = do
+    --   yield y msg
+    --   get st
+    --
+    -- runCounter7 ::
+    --   (e1 :> es) =>
+    --   Stream String e1 ->
+    --   (forall e. Counter7 e -> Eff (e :& es) r) ->
+    --   Eff es Int
+    -- runCounter7 y k =
+    --   'Bluefin.State.evalState' 0 $ \\st -> do
+    --     _ \<-
+    --       'useImplIn'
+    --         k
+    --         ( MkCounter7
+    --             { incCounter7Impl = \\ex -> do
+    --                 count \<- 'Bluefin.State.get' st
+    --
+    --                 when (even count) $
+    --                   'Bluefin.Stream.yield' y "Count was even"
+    --
+    --                 when (count >= 10) $
+    --                   'Bluefin.Exception.throw' ex ()
+    --
+    --                 'Bluefin.State.put' st (count + 1),
+    --               counter7State = mapHandle st,
+    --               counter7Stream = mapHandle y
+    --             }
+    --         )
+    --     get st
+    -- @
+    --
+    -- The result is the same as before ...
+    --
+    -- @
+    -- exampleCounter7A :: ([String], Int)
+    -- 'exampleCounter7A = 'Bluefin.Eff.runPureEff' $ 'Bluefin.Stream.yieldToList' $ \\y -> do
+    --   handle (\\() -> pure (-42)) $ \\ex ->
+    --     runCounter7 y $ \\c -> do
+    --       incCounter7 c ex
+    --       incCounter7 c ex
+    --       n \<- getCounter7 c "I'm getting the counter"
+    --       when (n == 2) $
+    --         yield y "n was 2, as expected"
+    --
+    -- -- > exampleCounter7A
+    -- -- (["Count was even","I'm getting the counter","n was 2, as expected"],2)
+    -- @
+    --
+    -- ... unless we run @incCounter@ too many times, in which case it
+    -- throws an exception.
+    --
+    -- @
+    -- exampleCounter7B :: ([String], Int)
+    -- exampleCounter7B = runPureEff $ yieldToList $ \\y -> do
+    --   handle (\\() -> pure (-42)) $ \\ex ->
+    --     runCounter7 y $ \\c -> do
+    --       forever (incCounter7 c ex)
+    --
+    -- -- > exampleCounter7B
+    -- -- (["Count was even","Count was even","Count was even","Count was even","Count was even","Count was even"],-42)
+    -- @
+
+    -- ** Dynamic effects with effectful operations as arguments
+
+    -- | We can also implement dynamic effects that themselves take
+    -- effectful operations as arguments, by giving the effectful
+    -- operation the effect tag @e'@.  Here's an example of a dynamic
+    -- reader effect, and one handler for the effect, which runs it in
+    -- terms of the existing 'Bluefin.Reader' effect.
+    --
+    -- @
+    -- data DynamicReader r e = DynamicReader
+    --   { askLRImpl :: forall e'. 'Bluefin.Eff.Eff' (e' :& e) r,
+    --     localLRImpl :: forall e' a. (r -> r) -> Eff e' a -> Eff (e' :& e) a
+    --   }
+    --
+    -- instance 'Handle' (DynamicReader r) where
+    --   mapHandle h =
+    --     DynamicReader
+    --       { askLRImpl = 'useImplUnder' (askLRImpl h),
+    --         localLRImpl = \\f k -> useImplUnder (localLRImpl h f k)
+    --       }
+    --
+    -- askLR ::
+    --   (e :> es) =>
+    --   DynamicReader r e ->
+    --   Eff es r
+    -- askLR c = 'makeOp' (askLRImpl ('mapHandle' c))
+    --
+    -- localLR ::
+    --   (e :> es) =>
+    --   DynamicReader r e ->
+    --   (r -> r) ->
+    --   Eff es a ->
+    --   Eff es a
+    -- localLR c f m = makeOp (localLRImpl (mapHandle c) f m)
+    --
+    -- runDynamicReader ::
+    --   r ->
+    --   (forall e. DynamicReader r e -> Eff (e :& es) a) ->
+    --   Eff es a
+    -- runDynamicReader r k =
+    --   runReader r $ \\h -> do
+    --     'useImplIn'
+    --       k
+    --       DynamicReader
+    --         { askLRImpl = 'Bluefin.Reader.ask' h,
+    --           localLRImpl = \\f k' -> makeOp ('Bluefin.Reader.local' h f ('useImpl' k'))
+    --         }
+    -- @
+
+    -- ** A dynamic file system effect
+
+    -- | The @effectful@ library has [an example of a dynamic effect
+    -- for basic file system
+    -- access](https://hackage.haskell.org/package/effectful-core-2.2.1.0/docs/Effectful-Dispatch-Dynamic.html#g:2).
+    -- This is what it looks like in Bluefin.  We start by defining a
+    -- record of effectful operations.
+    --
+    -- @
+    -- data FileSystem es = MkFileSystem
+    --   { readFileImpl :: forall e. FilePath -> 'Bluefin.Eff.Eff' (e :& es) String,
+    --     writeFileImpl :: forall e. FilePath -> String -> Eff (e :& es) ()
+    --   }
+    --
+    -- instance 'Handle' FileSystem where
+    --   mapHandle fs = MkFileSystem {
+    --     readFileImpl = \\fp -> 'useImplUnder' (readFileImpl fs fp),
+    --     writeFileImpl = \\fp s -> useImplUnder (writeFileImpl fs fp s)
+    --     }
+    --
+    -- readFile :: (e :> es) => FileSystem e -> FilePath -> Eff es String
+    -- readFile fs filepath = 'makeOp' (readFileImpl ('mapHandle' fs) filepath)
+    --
+    -- writeFile :: (e :> es) => FileSystem e -> FilePath -> String -> Eff es ()
+    -- writeFile fs filepath contents =
+    --   makeOp (writeFileImpl (mapHandle fs) filepath contents)
+    -- @
+    --
+    -- We can make a pure handler that simulates reading and writing
+    -- to a file system by storing file contents in an association
+    -- list.
+    --
+    -- @
+    -- runFileSystemPure ::
+    --   (e1 :> es) =>
+    --   Exception String e1 ->
+    --   [(FilePath, String)] ->
+    --   (forall e2. FileSystem e2 -> Eff (e2 :& es) r) ->
+    --   Eff es r
+    -- runFileSystemPure ex fs0 k =
+    --   'Bluefin.State.evalState' fs0 $ \\fs ->
+    --     'useImplIn'
+    --       k
+    --       MkFileSystem
+    --         { readFileImpl = \\filepath -> do
+    --             fs' <- 'Bluefin.State.get' fs
+    --             case lookup filepath fs' of
+    --               Nothing ->
+    --                 'Bluefin.Exception.throw' ex ("File not found: " <> filepath)
+    --               Just s -> pure s,
+    --           writeFileImpl = \\filepath contents ->
+    --             'Bluefin.State.modify' fs ((filepath, contents) :)
+    --         }
+    -- @
+    --
+    -- Or we can make a handler that actually performs IO operations
+    -- against a real file system.
+    --
+    -- @
+    -- runFileSystemIO ::
+    --   forall e1 e2 es r.
+    --   (e1 :> es, e2 :> es) =>
+    --   Exception String e1 ->
+    --   IOE e2 ->
+    --   (forall e. FileSystem e -> Eff (e :& es) r) ->
+    --   Eff es r
+    -- runFileSystemIO ex io k =
+    --   'useImplIn'
+    --     k
+    --     MkFileSystem
+    --       { readFileImpl =
+    --           adapt . Prelude.readFile,
+    --         writeFileImpl =
+    --           \\filepath -> adapt . Prelude.writeFile filepath
+    --       }
+    --   where
+    --     adapt :: (e1 :> ess, e2 :> ess) => IO a -> Eff ess a
+    --     adapt m =
+    --       effIO io (Control.Exception.try @IOException m) >>= \\case
+    --         Left e -> 'Bluefin.Exception.throw' ex (show e)
+    --         Right r -> pure r
+    -- @
+    --
+    -- We can use the @FileSystem@ effect to define an action which
+    -- does some file system operations.
+    --
+    -- @
+    -- action :: (e :> es) => FileSystem e -> Eff es String
+    -- action fs = do
+    --   file <- readFile fs "\/dev\/null"
+    --   when (length file == 0) $ do
+    --     writeFile fs "\/tmp\/bluefin" "Hello!"
+    --   readFile fs "\/tmp\/doesn't exist"
+    -- @
+    --
+    -- and we can run it purely, against a simulated file system
+    --
+    -- @
+    -- exampleRunFileSystemPure :: Either String String
+    -- exampleRunFileSystemPure = 'Bluefin.Eff.runPureEff' $ 'Bluefin.Exception.try' $ \\ex ->
+    --   runFileSystemPure ex [("\/dev\/null", "")] action
+    -- @
+    --
+    -- @
+    -- >>> exampleRunFileSystemPure
+    -- Left "File not found: \/tmp\/doesn't exist"
+    -- @
+    --
+    -- or against the real file system.
+    --
+    -- @
+    -- exampleRunFileSystemIO :: IO (Either String String)
+    -- exampleRunFileSystemIO = 'Bluefin.Eff.runEff_' $ \\io -> try $ \\ex ->
+    --   runFileSystemIO ex io action
+    -- @
+    --
+    -- @
+    -- >>> exampleRunFileSystemIO
+    -- Left "\/tmp\/doesn't exist: openFile: does not exist (No such file or directory)"
+    -- \$ cat \/tmp\/bluefin
+    -- Hello!
+    -- @
+
+    -- * Functions for making compound effects
+    Handle (mapHandle),
+    makeOp,
+    useImpl,
+    useImplUnder,
+    useImplIn,
+
+    -- * Deprecated
+
+    -- | Do not use.  Will be removed in a future version.
+    Compound,
+    runCompound,
+    withCompound,
+    useImplWithin,
+  )
+where
+
+import Bluefin.Internal

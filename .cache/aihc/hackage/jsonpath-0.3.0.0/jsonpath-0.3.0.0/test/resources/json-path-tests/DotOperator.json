@@ -1,0 +1,41 @@
+{
+    "title": "Dot Operator",
+    "data": {
+        "firstName": "John",
+        "lastName": "Doe",
+        "home": "987-654-3210",
+        "mobile": null
+    },
+    "tests": [{
+        "path": "$.firstName",
+        "result": [
+            "John"
+        ]
+    }, {
+        "path": "$.lastName",
+        "result": [
+            "Doe"
+        ]
+    }, {
+        "path": "$.home",
+        "result": [
+            "987-654-3210"
+        ]
+    }, {
+        "path": "$.mobile",
+        "result": [
+            null
+        ]
+    }, {
+        "path": "$.missingKey",
+        "result": []
+    }, {
+        "path": "$.*",
+        "result": [
+            "John",
+            "Doe",
+            "987-654-3210",
+            null
+        ]
+    }]
+}

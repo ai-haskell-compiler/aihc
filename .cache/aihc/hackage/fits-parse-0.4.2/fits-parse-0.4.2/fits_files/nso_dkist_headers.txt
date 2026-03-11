@@ -1,0 +1,360 @@
+XTENSION= 'BINTABLE'           / binary table extension                         
+BITPIX  =                    8 / array data type                                
+NAXIS   =                    2 / number of array dimensions                     
+NAXIS1  =                   32 / width of table in bytes                        
+NAXIS2  =                  998 / number of rows in table                        
+PCOUNT  =                95968 / number of group parameters                     
+GCOUNT  =                    1 / number of groups                               
+TFIELDS =                    4 / number of fields in each row                   
+TTYPE1  = 'COMPRESSED_DATA'    / label for field 1                              
+TFORM1  = '1PB(114)'           / data format of field: variable length array    
+TTYPE2  = 'GZIP_COMPRESSED_DATA' / label for field 2                            
+TFORM2  = '1PB(0)  '           / data format of field: variable length array    
+TTYPE3  = 'ZSCALE  '           / label for field 3                              
+TFORM3  = '1D      '           / data format of field: 8-byte DOUBLE            
+TTYPE4  = 'ZZERO   '           / label for field 4                              
+TFORM4  = '1D      '           / data format of field: 8-byte DOUBLE            
+ZIMAGE  =                    T / extension contains compressed image            
+ZTENSION= 'IMAGE   '                                                            
+ZBITPIX =                  -64                                                  
+ZNAXIS  =                    3                                                  
+ZNAXIS1 =                  100 / [pix]                                          
+ZNAXIS2 =                  998 / [pix]                                          
+ZNAXIS3 =                    1 / [pix]                                          
+ZPCOUNT =                    0                                                  
+ZGCOUNT =                    1                                                  
+ZTILE1  =                  100 / size of tiles to be compressed                 
+ZTILE2  =                    1 / size of tiles to be compressed                 
+ZTILE3  =                    1 / size of tiles to be compressed                 
+ZCMPTYPE= 'RICE_1  '           / compression algorithm                          
+ZNAME1  = 'BLOCKSIZE'          / compression block size                         
+ZVAL1   =                   32 / pixels per block                               
+ZNAME2  = 'BYTEPIX '           / bytes per pixel (1, 2, 4, or 8)                
+ZVAL2   =                    4 / bytes per pixel (1, 2, 4, or 8)                
+ZNAME3  = 'NOISEBIT'           / floating point quantization level              
+ZVAL3   =                 16.0 / floating point quantization level              
+ZQUANTIZ= 'NO_DITHER'          / No dithering during quantization               
+BUNIT   = 'ct      '                                                            
+DATE    = '2023-04-22T04:10:58.392'                                             
+DATE-BEG= '2022-06-03T18:34:29.559'                                             
+DATE-END= '2022-06-03T18:34:29.825'                                             
+TELAPSE =   0.2660001162439585 / [s]                                            
+DATE-AVG= '2022-06-03T18:34:29.692000'                                          
+ORIGIN  = 'National Solar Observatory'                                          
+TELESCOP= 'Daniel K. Inouye Solar Telescope'                                    
+OBSRVTRY= 'Haleakala High Altitude Observatory Site'                            
+NETWORK = 'NSF-DKIST'                                                           
+INSTRUME= 'VISP    '                                                            
+OBJECT  = 'unknown '                                                            
+CHECKSUM= '9kg8Akd53kd59kd5'   / HDU checksum updated 2023-04-22T04:10:59       
+DATASUM = '2081763389'         / data unit checksum updated 2023-04-22T04:10:59 
+                                                                                
+COMMENT ------------------------------ Telescope -------------------------------
+COMMENT  Keys describing the pointing and operation of the telescope. Including 
+COMMENT     the FITS WCS keys describing the world coordinates of the array.    
+COMMENT ------------------------------------------------------------------------
+WCSAXES =                    3                                                  
+WCSAXESA=                    3                                                  
+WCSNAME = 'Helioprojective-cartesian'                                           
+WCSNAMEA= 'Equatorial equinox J2000'                                            
+CRPIX1  =   -82.86774961586269 / [pix]                                          
+CRPIX2  =                499.0 / [pix]                                          
+CRPIX3  =    26.91207092114994 / [pix]                                          
+CRPIX1A =   -82.86778489684515 / [pix]                                          
+CRPIX2A =                499.0 / [pix]                                          
+CRPIX3A =    26.90673195834938 / [pix]                                          
+CRVAL1  =              854.231                                                  
+CRVAL2  =   -378.0016001773252                                                  
+CRVAL3  =   -310.0099922384685                                                  
+CRVAL1A =              854.231                                                  
+CRVAL2A =    22.25861366077565                                                  
+CRVAL3A =    71.54760640717045                                                  
+CDELT1  = 0.000999811469978602                                                  
+CDELT2  =   0.2134568481952311                                                  
+CDELT3  =   0.2134568481952311                                                  
+CDELT1A = 0.000999811469978602                                                  
+CDELT2A = 5.92935689431197E-05                                                  
+CDELT3A = 5.92935689431197E-05                                                  
+CUNIT1  = 'nm      '                                                            
+CUNIT2  = 'arcsec  '                                                            
+CUNIT3  = 'arcsec  '                                                            
+CUNIT1A = 'nm      '                                                            
+CUNIT2A = 'deg     '                                                            
+CUNIT3A = 'deg     '                                                            
+CTYPE1  = 'AWAV    '                                                            
+CTYPE2  = 'HPLT-TAN'                                                            
+CTYPE3  = 'HPLN-TAN'                                                            
+CTYPE1A = 'AWAV    '                                                            
+CTYPE2A = 'DEC--TAN'                                                            
+CTYPE3A = 'RA---TAN'                                                            
+PC1_1   =    7.607822604906501                                                  
+PC1_2   =                  0.0                                                  
+PC1_3   = -0.00036747296713833                                                  
+PC2_1   =  0.03258800664428634                                                  
+PC2_2   =                  0.0                                                  
+PC2_3   =  0.09119427316600115                                                  
+PC3_1   =                  0.0                                                  
+PC3_2   =    1000.188565571669                                                  
+PC3_3   =                  0.0                                                  
+PC1_1A  =   -7.376733469625965                                                  
+PC1_2A  =                  0.0                                                  
+PC1_3A  = -0.02244171841344273                                                  
+PC2_1A  =   -1.864093831036593                                                  
+PC2_2A  =                  0.0                                                  
+PC2_3A  =   0.0883351211080864                                                  
+PC3_1A  =                  0.0                                                  
+PC3_2A  =    1000.188565571669                                                  
+PC3_3A  =                  0.0                                                  
+LONPOLE =                180.0 / [deg]                                          
+LONPOLEA=                180.0 / [deg]                                          
+TAZIMUTH=    76.35481766529557 / [deg] RawTelescopeAzimuthAngle                 
+ELEV_ANG=    36.54532962098321 / [deg] RawTelescopeElevationAngle               
+TELTRACK= 'Standard Differential Rotation Tracking' / TelescopeTrackingMode     
+TTBLANGL=    197.0144008687807 / [deg] TelescopeCoudeTableAngle                 
+TTBLTRCK= 'Fixed coude table angle' / TelescopeCoudeTableTrackingMode           
+DATEREF = '2022-06-03T18:34:29.559'                                             
+OBSGEO-X=   -5466045.256954942 / [m]                                            
+OBSGEO-Y=   -2404388.737412784 / [m]                                            
+OBSGEO-Z=    2242133.887690042 / [m]                                            
+SPECSYS = 'TOPOCENT'                                                            
+VELOSYS =                  0.0                                                  
+OBS_VR  =   -94.64534176238249 / [m s-1]                                        
+WCSVALID=                    T / WCSValidityIndicator                           
+                                                                                
+COMMENT ------------------------------ Datacenter ------------------------------
+COMMENT      Keys generated by the DKIST data center to describe processing     
+COMMENT                 performed, archiving or extra metadata.                 
+COMMENT ------------------------------------------------------------------------
+DSETID  = 'BQKZZ   '                                                            
+POINT_ID= 'BQKZZ   '                                                            
+FRAMEVOL=     2.27700138092041 / [Mbyte]                                        
+PROCTYPE= 'L1      '                                                            
+RRUNID  =                  578                                                  
+RECIPEID=                    1                                                  
+RINSTID =                  350                                                  
+EXTNAME = 'observation'                                                         
+SOLARNET=                    1                                                  
+OBS_HDU =                    1                                                  
+FILENAME= 'VISP_2022_06_03T18_34_29_559_00854231_I_BQKZZ_L1.fits'               
+CADENCE =   0.3282829148595638 / [s]                                            
+CADMIN  =  0.02399992942810059 / [s]                                            
+CADMAX  =    3.071000099182129 / [s]                                            
+CADVAR  =    0.834011691783927 / [s]                                            
+LEVEL   =                    1                                                  
+HEADVERS= '3.5.0   '                                                            
+HEAD_URL= 'https://docs.dkist.nso.edu/projects/data-products/en/v3.5.0'         
+INFO_URL= 'https://docs.dkist.nso.edu'                                          
+CALVERS = '2.0.1   '                                                            
+CAL_URL = 'https://docs.dkist.nso.edu/projects/visp/en/v2.0.1/l0_to_l1_visp.ht&'
+CONTINUE  'ml'                                                                  
+IDSPARID=                  409                                                  
+IDSOBSID=                  444                                                  
+IDSCALID=                  434                                                  
+WKFLNAME= 'l0_to_l1_visp'                                                       
+WKFLVERS= '2.0.1   '                                                            
+                                                                                
+COMMENT ------------------------------- Dataset --------------------------------
+COMMENT     Keys describing the dataset that this FITS file forms a part of.    
+COMMENT ------------------------------------------------------------------------
+DNAXIS  =                    4                                                  
+DNAXIS1 =                 2538 / [pix]                                          
+DNAXIS2 =                  998 / [pix]                                          
+DNAXIS3 =                  490 / [pix]                                          
+DNAXIS4 =                    4 / [pix]                                          
+DTYPE1  = 'SPECTRAL'                                                            
+DTYPE2  = 'SPATIAL '                                                            
+DTYPE3  = 'SPATIAL '                                                            
+DTYPE4  = 'STOKES  '                                                            
+DPNAME1 = 'dispersion axis'                                                     
+DPNAME2 = 'spatial along slit'                                                  
+DPNAME3 = 'raster scan step number'                                             
+DPNAME4 = 'polarization state'                                                  
+DWNAME1 = 'wavelength'                                                          
+DWNAME2 = 'helioprojective latitude'                                            
+DWNAME3 = 'helioprojective longitude'                                           
+DWNAME4 = 'polarization state'                                                  
+DUNIT1  = 'nm      '                                                            
+DUNIT2  = 'arcsec  '                                                            
+DUNIT3  = 'arcsec  '                                                            
+DUNIT4  = ''                                                                    
+DAAXES  =                    2                                                  
+DEAXES  =                    2                                                  
+DINDEX3 =                  490 / [pix]                                          
+DINDEX4 =                    1 / [pix]                                          
+LINEWAV =              854.231                                                  
+WAVEBAND= 'Ca II (854.21 nm)'                                                   
+WAVEUNIT=                   -9                                                  
+WAVEREF = 'Air     '                                                            
+WAVEMIN =    854.3138521265572 / [nm]                                           
+WAVEMAX =    856.8513736373629 / [nm]                                           
+                                                                                
+COMMENT ------------------------------ Statistics ------------------------------
+COMMENT   Statistical information about the data array contained in this FITS   
+COMMENT                                  file.                                  
+COMMENT ------------------------------------------------------------------------
+DATAMIN =  0.05511225546976106                                                  
+DATAMAX =    1.069711649853424                                                  
+DATAMEAN=   0.7919474769881233                                                  
+DATAMEDN=   0.8430040919513452                                                  
+DATARMS =   0.8080610568147634                                                  
+DATAKURT=    2.335709959309551                                                  
+DATASKEW=   -1.477126138763325                                                  
+                                                                                
+COMMENT ------------------------------- DKIST ID -------------------------------
+COMMENT  Unique identifiers for this FITS file and the observation that created 
+COMMENT                                the data.                                
+COMMENT ------------------------------------------------------------------------
+FILE_ID = '94ba9c5fbadf4f26baef48809f9b2ff3' / FileID                           
+DKISTVER= 'Data Model (SPEC-0122) Revision E' / DKISTFITSHeaderVersion          
+OBSPR_ID= 'eid_1_118_opAvoqBr_R002.82591.14499687' / ObservingProgramExecutionID
+EXPER_ID= 'eid_1_118'          / ExperimentID                                   
+PROP_ID = 'pid_1_118'          / ProposalID                                     
+DSP_ID  = 'eid_1_118_opAvoqBr_R002_ipM6wwxZ_dspCtVjmC' / DataSetParametersID    
+IP_ID   = 'id.85572.341432'    / InstrumentProgramExecutionID                   
+HLSVERS = 'Alakai_5-1'         / DKISTSoftwareVersion                           
+NPROPOS =                    1                                                  
+PROPID01= 'pid_1_118'                                                           
+NEXPERS =                    1                                                  
+EXPRID01= 'eid_1_118'                                                           
+                                                                                
+COMMENT --------------------------- DKIST Operations ---------------------------
+COMMENT    Information about this configuration or operations of the facility   
+COMMENT                        when generating this data.                       
+COMMENT ------------------------------------------------------------------------
+OCS_CTRL= 'Auto    '           / OCSControl                                     
+FIDO_CFG= 'OUT_C-M1_C-BS555_C-BS950_C-W1_C-W3' / FIDOConfiguration              
+DSHEALTH= 'GOOD    '           / DataSourceHealthStatus                         
+DSPSREPS=                    1 / DSPSNumberOfRepeats                            
+DSPSNUM =                    1 / DSPSRepeatNumber                               
+LIGHTLVL=    448.6954002173126 / [adu] LightLevel                               
+                                                                                
+COMMENT -------------------------------- Camera --------------------------------
+COMMENT        Keys describing modes and operation of the camera(s) used.       
+COMMENT ------------------------------------------------------------------------
+CAM_ID  = '15:VSC-04533'       / CameraUniqueID                                 
+CAMERA  = 'AndorZyla.03'       / CameraName                                     
+BITDEPTH=                   16 / SensBitsPerPixel                               
+XPOSURE =    48.00811267605634 / [ms] FPAExposureTime                           
+TEXPOSUR=    4.000676056338028 / [ms] CamExposureTime                           
+CAM_FPS =    41.35716748837339 / [Hz] CamFrameRate                              
+CHIPDIM1=                 2560 / [pix] ChipDimensionX                           
+CHIPDIM2=                 2160 / [pix] ChipDimensionY                           
+HWBIN1  =                    1 / [pix] HardwareBinningX                         
+HWBIN2  =                    1 / [pix] HardwareBinningY                         
+SWBIN1  =                    1 / [pix] SoftwareBinningX                         
+SWBIN2  =                    1 / [pix] SoftwareBinningY                         
+NSUMEXP =                   12 / NumRawFramesinFPA                              
+SWNROI  =                    1 / NumOfSWROI                                     
+SWROI1OX=                    0 / [pix] SWROI1OriginX                            
+SWROI1OY=                    0 / [pix] SWROI1OriginY                            
+SWROI1SX=                 2560 / [pix] SWROI1SizeX                              
+SWROI1SY=                 2000 / [pix] SWROI1SizeY                              
+HWNROI  =                    2 / NumOfHWROI                                     
+HWROI1OX=                    0 / [pix] HWROI1OriginX                            
+HWROI1OY=                    0 / [pix] HWROI1OriginY                            
+HWROI1SX=                 2560 / [pix] HWROI1SizeX                              
+HWROI1SY=                 1000 / [pix] HWROI1SizeY                              
+HWROI2OX=                    0 / [pix] HWROI2OriginX                            
+HWROI2OY=                 1160 / [pix] HWROI2OriginY                            
+HWROI2SX=                 2560 / [pix] HWROI2SizeX                              
+HWROI2SY=                 1000 / [pix] HWROI2SizeY                              
+NBIN1   =                    1                                                  
+NBIN2   =                    1                                                  
+NBIN3   =                    1                                                  
+NBIN    =                    1                                                  
+FPABITPX=                   20 / FPABitsPerPixel                                
+                                                                                
+COMMENT ---------------- Polarization Analysis and Calibration -----------------
+COMMENT  Keys describing the configuration of the Gregorian Optical System (GOS)
+COMMENT                                                                         
+COMMENT ------------------------------------------------------------------------
+GOS_STAT= 'open    '           / Upper GOS shutter                              
+LVL3STAT= 'clear   '           / Level 3 (Lamp)                                 
+LAMPSTAT= 'none    '           / Lamp status                                    
+LVL2STAT= 'clear   '           / Level 2 (Polarizer)                            
+POLANGLE= 'none    '           / [deg] Polarizer Angle                          
+LVL1STAT= 'clear   '           / Level 1 (Retarder)                             
+RETANGLE= 'none    '           / [deg] Retarder angle                           
+LVL0STAT= 'FieldStop (2.8arcmin)' / Level 0 (Apeture)                           
+APERTURE= '2.8arcmin'          / [arcmin, arcsec, mm] Aperture Property         
+LGOSSTAT= 'open    '           / Lower GOS shutter                              
+GOS_TEMP=    16.70166015625001 / [C] Upper GOS optics temperature               
+                                                                                
+COMMENT --------------------------- Adaptive Optics ----------------------------
+COMMENT          Keys describing aspects of the adaptive optics system.         
+COMMENT ------------------------------------------------------------------------
+ATMOS_R0=   0.1116264892989071 / [m] HOAOFriedParameter                         
+AO_LOCK =                    T / HOAOLockStatus                                 
+AO_LOCKX=                  0.0 / [arcsec] HOAOLockOffPointingX                  
+AO_LOCKY=                  0.0 / [arcsec] HOAOLockOffPointingY                  
+WFSLOCKX=                  0.0 / [arcsec] LOWFSLockOffPointingX                 
+WFSLOCKY=                  0.0 / [arcsec] LOWFSLockOffPointingY                 
+LIMBRPOS=                  0.0 / [arcsec] LimbSensorRadialSetPos                
+LIMBRATE=               1000.0 / [Hz] LimbSensorRate                            
+                                                                                
+COMMENT --------------------------- Weather Station ----------------------------
+COMMENT    Keys describing information reported by the weather station at the   
+COMMENT                    facility during this observation.                    
+COMMENT ------------------------------------------------------------------------
+WSSOURCE= 'dkist   '           / WeathSource                                    
+WIND_SPD=    4.958944660448225 / [m s-1] WeathWindSpeed                         
+WIND_DIR=    219.0563882913457 / [deg] WeathWindDirection                       
+WS_TEMP =    11.95233890933754 / [C] WeathOutsideTemperature                    
+WS_HUMID=    14.39925363345676 / [10**-2] WeathRelativeHumidity                 
+WS_DEWPT=   -16.21179492029672 / [C] WeathDewPoint                              
+WS_PRESS=    710.0214144384906 / [hPa] WeathBarometricPressure                  
+SKYBRIGT=                 -1.0 / WeathSkyBrightness                             
+                                                                                
+COMMENT --------------------------- VISP Instrument ----------------------------
+COMMENT          Keys specific to the operation of the VISP instrument.         
+COMMENT ------------------------------------------------------------------------
+VSPARMID=                    3 / ArmID                                          
+VSPARMPS=             -20.0786 / [deg] ArmPosition                              
+VSPARMFC=               54.127 / [mm] ArmFocus                                  
+VSPFILT = 'FF01-857_30-25'     / FilterID                                       
+VSPFWVLN=              856.229 / [nm] FilterWavelength                          
+VSPPOLMD= 'observe_polarimetric' / PolarimeterMode                              
+VSPMODID= '0004    '           / ModulatorID                                    
+VSPMOD  = 'continuous'         / ModulationType                                 
+VSPEXPRT=        41.3571674884 / [Hz] ExposureRate                              
+VSPGRTID= 'Newport_316.0_63.40__M20160612_SN3' / GratingID                      
+VSPGRTCN=                316.0 / [mm-1] GratingConstant                         
+VSPGRTBA=                 63.4 / [deg] GratingBlazeAngle                        
+VSPGRTAN=   -65.36539999999999 / [deg] GratingAngle                             
+VSPWID  =               0.2142 / [arcsec] SlitWidth                             
+VSPSLTSS=       0.132675941182 / [mm] SlitSteppingSize                          
+VSPNSTP =                  490 / NumberofSpatialSteps                           
+VSPSTP  =                  489 / CurrentSpatialStep                             
+VSPTPOS =    82.81485000000001 / [mm] SlitTranslationPosition                   
+VSPMIRPS=              39.2904 / [mm] FoldMirrorPosition                        
+VSPSPOS =                12.15 / [mm] SlitSelectorPosition                      
+VSPNMAPS=                    1 / TotalMapScans                                  
+VSPMAP  =                    1 / CurrentMapScan                                 
+ZHECKSUM= 'UMSGaMQFVMQFaMQF'   / HDU checksum updated 2023-04-22T04:10:59       
+ZDATASUM= '550335088'          / data unit checksum updated 2023-04-22T04:10:59 
+END                                                                             
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                

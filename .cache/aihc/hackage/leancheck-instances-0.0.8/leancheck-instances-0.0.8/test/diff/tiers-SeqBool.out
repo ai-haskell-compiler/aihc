@@ -1,0 +1,15 @@
+map length (tiers :: [[ Seq Bool ]])  =  [1,2,1]
+
+length (list :: [ Seq Bool ])  =  4
+
+allUnique (list :: [ Seq Bool ])  =  True
+
+ratioRepetitions (list :: [ Seq Bool ])  =  0 % 1
+
+tiers :: [Seq Bool]  =
+  [ [fromList []]
+  , [ fromList [False]
+    , fromList [True]
+    ]
+  , [fromList [False,True]]
+  ]

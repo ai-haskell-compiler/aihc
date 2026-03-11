@@ -1,0 +1,33 @@
+n_max
+PhoneticRepresentationPLX_{1,n_max}
+PhoneticRepresentationPLX_{2,n_max}
+...
+.
+.
+.
+PhoneticRepresentationPLX_{k_n_max,n_max}
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+n_max - 1
+PhoneticRepresentationPLX_{1,n_max - 1}
+PhoneticRepresentationPLX_{2,n_max - 1}
+...
+.
+.
+.
+PhoneticRepresentationPLX_{m_n_max,n_max - 1}
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+...
+.
+.
+.
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+0
+PhoneticRepresentationPLX_{1,0}
+PhoneticRepresentationPLX_{2,0}
+...
+.
+.
+.
+PhoneticRepresentationPLX_{p_n_max,0}
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+

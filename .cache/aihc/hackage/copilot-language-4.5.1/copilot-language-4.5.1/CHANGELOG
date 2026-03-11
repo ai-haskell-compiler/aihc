@@ -1,0 +1,144 @@
+2025-09-07
+        * Version bump (4.5.1). (#666)
+
+2025-07-07
+        * Version bump (4.5). (#642)
+
+2025-05-07
+        * Version bump (4.4). (#618)
+
+2025-03-07
+        * Version bump (4.3). (#604)
+        * Fix typo in documentation. (#587)
+        * Record how a Property's underlying proposition is quantified. (#254)
+        * Remove deprecated function Copilot.Language.Operators.Array.(.!!).
+          (#599)
+
+2025-01-07
+        * Version bump (4.2). (#577)
+        * Bump upper version constraint on containers. (#570)
+
+2024-11-07
+        * Version bump (4.1). (#561)
+        * Reject duplicate externs in properties and theorems. (#536)
+        * Standardize changelog format. (#550)
+
+2024-09-07
+        * Version bump (4.0). (#532)
+        * Add support for array updates. (#36)
+
+2024-07-07
+        * Version bump (3.20). (#522)
+        * Remove deprecated function Copilot.Language.Spec.forall. (#518)
+        * Add support for struct field updates. (#520)
+
+2024-05-07
+        * Version bump (3.19.1). (#512)
+
+2024-03-07
+        * Version bump (3.19). (#504)
+
+2024-01-07
+        * Version bump (3.18.1). (#493)
+
+2024-01-07
+        * Version bump (3.18). (#487)
+        * Add type annotation to help type inference engine. (#469)
+        * Rename forall to forAll. (#470)
+
+2023-11-07
+        * Version bump (3.17). (#466)
+
+2023-09-07
+        * Version bump (3.16.1). (#455)
+
+2023-07-07
+        * Version bump (3.16). (#448)
+        * Move Copilot.Language.Stream.Arg to Copilot.Language.Spec. (#446)
+
+2023-05-07
+        * Version bump (3.15). (#438)
+        * Remove outdated comment about pretty-printer. (#428)
+
+2023-03-07
+        * Version bump (3.14). (#422)
+        * Remove function Copilot.Language.prettyPrint. (#412)
+        * Adjust to work with GHC 9.4. (#423)
+
+2023-01-07
+        * Version bump (3.13). (#406)
+
+2022-11-07
+        * Version bump (3.12). (#389)
+        * Use pretty-printer from copilot-prettyprinter. (#383)
+
+2022-09-07
+        * Version bump (3.11). (#376)
+        * Deprecate prettyPrint. (#362)
+        * Reimplement DynStableName without unsafeCoerce. (#262)
+        * Use interpreter from copilot-interpreter. (#361)
+        * Remove unnecessary type constraints. (#369)
+
+2022-07-07
+        * Version bump (3.10). (#356)
+        * Fix error in test case generation; enable CLI args in tests. (#337)
+        * Remove duplicated compiler option. (#328)
+        * Adjust imports due to deprecation. (#330)
+        * Fix typos in Copilot.Language.Interpret. (#331)
+        * Update repo info in cabal file. (#333)
+
+2022-05-06
+        * Version bump (3.9). (#320)
+        * Compliance with style guide (partial). (#316)
+
+2022-03-07
+        * Version bump (3.8). (#298)
+        * Introduce testing infrastructure. (#271)
+        * Remove deprecated module Copilot. (#291)
+        * Remove deprecated type StructArg. (#290)
+        * Mark package as uncurated to avoid modification. (#288)
+
+2022-01-07
+        * Version bump (3.7). (#287)
+        * Bring back externF. (#261)
+
+2021-11-07
+        * Version bump (3.6). (#264)
+        * Replace uses of copilot-core's error reporting functions. (#267)
+        * Introduce new ops atan2, ceiling, floor. (#246)
+        * Remove deprecated function. (#250)
+        * Fix outdated/broken links. (#252)
+
+2021-08-19
+        * Version bump (3.5). (#247)
+        * Update travis domain in README. (#222)
+        * Remove ghc-prim dependency from copilot-language. (#220)
+        * Remove commented code. (#15)
+        * Deprecate structArg. (#111)
+        * Update source repo location. (#241)
+        * Deprecate module Copilot. (#107)
+        * Add I. Perez to author list. (#243)
+
+2021-07-07
+        * Version bump (3.4). (#231)
+
+2021-05-07
+        * Version bump (3.3). (#217)
+        * Remove unused type. (#110)
+        * Deprecate funArg. (#109)
+        * Update contact details in error message. (#108)
+
+2021-03-07
+        * Version bump (3.2.1). (#106)
+        * Completed the documentation. (#112)
+
+2020-05-07
+        * Version bump (3.2). (#65)
+        * Fixed the reverse order of triggers. (#114)
+        * Update description, bug-reports, changelog fields in cabal file.
+          (#116)
+        * Bump ghc-prim version bounds. (#122)
+
+2019-11-22
+        * Version bump (3.1). (#46)
+        * Remove ExternFun. (#118)

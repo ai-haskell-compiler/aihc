@@ -1,0 +1,34 @@
+max expr size  =    7
+  |- on ineqs  =    6
+  |- on conds  =    6
+max  #-tests   =  500
+min  #-tests   =   25  (to consider p ==> q true)
+max  #-vars    =    3  (for inequational and conditional laws)
+
+_ :: Char
+_ :: Doc
+_ :: Int
+_ :: [Char]
+($$) :: Doc -> Doc -> Doc
+(<>) :: Doc -> Doc -> Doc
+nest :: Int -> Doc -> Doc
+(++) :: [Char] -> [Char] -> [Char]
+length :: [Char] -> Int
+
+            d1 <> nest x d2 == d1 <> d2
+           (d1 $$ d2) $$ d3 == d1 $$ (d2 $$ d3)
+           (d1 <> d2) <> d3 == d1 <> (d2 <> d3)
+         nest x (nest y d1) == nest y (nest x d1)
+           (d1 $$ d2) <> d3 == d1 $$ (d2 <> d3)
+          nest x (d1 <> d2) == nest x d1 <> d2
+    d1 <> (nest x d2 <> d3) == d1 <> (d2 <> d3)
+          nest x (d1 $$ d2) == nest x d1 $$ nest x d2
+nest (length (cs ++ ds)) d1 == nest (length cs) (nest (length ds) d1)
+
+      d1 <= d1 $$ d2
+      d1 <= d1 <> d2
+d1 $$ d2 <= d1 $$ (d2 $$ d3)
+d1 <> d2 <= d1 <> (d2 <> d3)
+d1 $$ d2 <= d1 $$ (d2 <> d3)
+d1 <> d2 <= d1 <> (d2 $$ d3)
+

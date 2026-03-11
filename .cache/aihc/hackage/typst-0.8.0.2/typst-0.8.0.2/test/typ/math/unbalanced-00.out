@@ -1,0 +1,128 @@
+--- parse tree ---
+[ Code
+    "typ/math/unbalanced-00.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/math/unbalanced-00.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/math/unbalanced-00.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Equation
+    True
+    [ MFrac
+        (Text "1")
+        (MGroup
+           (Just "(")
+           Nothing
+           [ Text "2" , MGroup (Just "(") (Just ")") [ Text "x" ] ])
+    ]
+, SoftBreak
+, Equation
+    True
+    [ MAttach
+        (Just
+           (MGroup
+              (Just "(")
+              Nothing
+              [ Text "2"
+              , Text "y"
+              , MGroup (Just "(") (Just ")") [ Text "x" ]
+              , MGroup (Just "(") (Just ")") []
+              ]))
+        Nothing
+        (Text "1")
+    ]
+, SoftBreak
+, Equation
+    True
+    [ MFrac
+        (Text "1")
+        (MGroup
+           (Just "(")
+           Nothing
+           [ Text "2"
+           , Text "y"
+           , MGroup (Just "(") (Just ")") [ Text "x" ]
+           , MGroup
+               (Just "(")
+               (Just ")")
+               [ Text "2" , MGroup (Just "(") (Just ")") [ Text "3" ] ]
+           ])
+    ]
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 math.equation(block: true, 
+                               body: math.frac(denom: { text(body: [(]), 
+                                                        text(body: [2]), 
+                                                        math.lr(body: ({ [(], 
+                                                                         text(body: [x]), 
+                                                                         [)] })) }, 
+                                               num: text(body: [1])), 
+                               numbering: none), 
+                 text(body: [
+]), 
+                 math.equation(block: true, 
+                               body: math.attach(b: { text(body: [(]), 
+                                                      text(body: [2]), 
+                                                      text(body: [y]), 
+                                                      math.lr(body: ({ [(], 
+                                                                       text(body: [x]), 
+                                                                       [)] })), 
+                                                      math.lr(body: ({ [(], 
+                                                                       [)] })) }, 
+                                                 base: text(body: [1]), 
+                                                 t: none), 
+                               numbering: none), 
+                 text(body: [
+]), 
+                 math.equation(block: true, 
+                               body: math.frac(denom: { text(body: [(]), 
+                                                        text(body: [2]), 
+                                                        text(body: [y]), 
+                                                        math.lr(body: ({ [(], 
+                                                                         text(body: [x]), 
+                                                                         [)] })), 
+                                                        math.lr(body: ({ [(], 
+                                                                         text(body: [2]), 
+                                                                         math.lr(body: ({ [(], 
+                                                                                          text(body: [3]), 
+                                                                                          [)] })), 
+                                                                         [)] })) }, 
+                                               num: text(body: [1])), 
+                               numbering: none), 
+                 parbreak() })

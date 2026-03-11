@@ -1,0 +1,2 @@
+{-# LANGUAGE UnicodeSyntax #-}
+lengthOP n (œ) = 0 œ n

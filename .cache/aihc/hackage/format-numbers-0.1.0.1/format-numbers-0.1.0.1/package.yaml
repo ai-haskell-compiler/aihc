@@ -1,0 +1,33 @@
+name:                format-numbers
+version:             0.1.0.1
+synopsis:            Various number formatting functions
+description:         Various number formatting functions
+homepage:            https://github.com/agrafix/format-numbers#readme
+license:             MIT
+author:              Alexander Thiemann
+maintainer:          mail@athiemann.net
+copyright:           2017-2020 Alexander Thiemann <mail@athiemann.net>
+category:            Web
+extra-source-files:
+  - README.md
+  - package.yaml
+  - stack.yaml
+
+dependencies:
+  - base >= 4.7 && < 5
+  - text
+
+library:
+  source-dirs: src
+  exposed-modules:
+    - Data.Text.Format.Numbers
+
+tests:
+  spec:
+    cpp-options: -DTEST
+    main: Test.hs
+    source-dirs:
+      - test
+      - src
+    dependencies:
+      - hspec

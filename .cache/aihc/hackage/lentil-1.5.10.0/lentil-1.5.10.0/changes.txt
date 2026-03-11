@@ -1,0 +1,568 @@
+1.5.10.0
+--------
+
+- Add Agda syntax (suggested by eldritchcookie).
+
+1.5.9.1
+-------
+
+- Added missing test file for scheme.
+
+1.5.9.0
+-------
+
+- Added support for Scheme (`.scm`, `.ss`) and Lisp (`.lisp`, `.lsp`,
+  `.l`, `.cl`, `.fasl`) languages (thanks to Christoph Breitkopf for
+  providing relevant documentation).
+
+1.5.8.0
+-------
+
+- Added support for Zig language (`.zig`) (by Dmitry Bogatov).
+
+1.5.7.0
+-------
+
+- Compiler output `-f comp` has been slightly tweaked to use screen
+  space more efficiently, mainly by removing newlines between issues.
+  Example before:
+     alpha.hs:4:
+        add prompt before getline, user might complain! [interface]
+
+     alpha.hs:11:
+        add a type signature to replace [lint]
+  Example after:
+     alpha.hs:4: add prompt before getline, user might complain! [interface]
+     alpha.hs:11: add a type signature to replace [lint]
+  (reported by Morgan Willcock)
+- Encodings are now strict.
+  Lentil will try to read files as utf-8 encoded, and failing that as
+  latin-1.
+  If you need support for more encodings, write to me.
+
+1.5.6.0
+-------
+
+- bump megaparsec and deepseq
+- switched from ansi-wl-pprint to prettyprinter,
+  if you notice anything off warn me.
+
+1.5.5.4
+-------
+
+- bump optparse-applicative
+- released mar 23 mag 2023, 13:59:10
+
+1.5.5.3
+-------
+
+- bump ansi-wl-pprint
+- released gio 18 mag 2023, 13:00:31
+
+1.5.5.2
+-------
+
+- bump hspec
+- dom 23 apr 2023, 19:23:44
+
+1.5.5.1
+-------
+
+- Moved repository to stagit
+- dom 19 mar 2023, 09:51:19
+
+1.5.5.0
+-------
+
+- More useful text for empty invocation (“Missing PATH...” plus
+  example usage.
+- lun 6 mar 2023, 17:12:06
+
+1.5.4.1
+-------
+
+- bump mtl, hspec, megaparsec
+- added build-tool-depends for easier testing
+- dom 27 nov 2022, 23:51:53
+
+1.5.4.0
+-------
+
+- released gio 24 mar 2022, 12:50:42
+- added support for `LaTeX` files (patch by Damien Couroussé, many thanks!)
+- bump text, optparse-applicative
+
+1.5.3.2
+-------
+
+- mar 16 nov 2021, 20:50:00
+- bump semigroups
+
+1.5.3.1
+-------
+
+- sab 13 nov 2021, 18:30:01
+- Bump hspec
+
+
+1.5.3.0
+-------
+
+- ven 22 ott 2021, 23:11:12
+- Bumped dependencies
+
+1.5.2.0
+-------
+
+- Fri 04 Jun 2021 18:04:53 CEST
+- Add YAML syntax (request by Дмитрий)
+
+1.5.1.0
+-------
+
+- Fri 05 Mar 2021 22:41:35 CET
+- Add Forth syntax
+
+1.5.0.0
+-------
+
+- Wed 13 Jan 2021 15:31:54 CET
+- Added `file` filelist export format (request by Henning Thielemann)
+
+1.4.1.0
+-------
+
+- Fri 13 Nov 2020 09:36:31 CET
+- Fixed bug in R (`) (syntactic backquotes)
+
+1.4.0.0
+-------
+
+- Released Fri 30 Oct 2020 23:53:16 CET
+- Fixed bug: now finds/recognises uppercase extensions (`.R`, `.Cpp`, etc.)
+
+1.3.2.0
+-------
+
+- Released Wed 24 Jun 2020 11:34:15 CEST
+- Added `R` language files
+
+1.3.1.0
+-------
+
+- Released Sun 29 Sep 2019 11:44:46 CEST
+- Bumped dependencies
+
+1.3.0.0
+-------
+
+- Released Thu 30 May 2019 11:35:50 CEST
+- Fixed memory explosion on big repos (reported by qptain nemo)
+
+1.2.3.0
+-------
+
+- Released Mon 13 May 2019 16:15:19 CEST
+- Added PureScript syntax (request by Adrian Sieber)
+
+1.2.2.0
+-------
+
+- Released Sat 11 May 2019 05:37:21 CEST
+- Fixed .rst slow parse.
+
+1.2.1.0
+-------
+
+- Released Sat 11 May 2019 04:54:36 CEST
+- Fixed mixed incipit (TODO/FIXME) bug.
+
+1.2.0.0
+-------
+
+- Released Fri 10 May 2019 23:23:25 CEST
+- switched to megaparsec, lentil is now 35% faster!
+
+1.1.2.0
+-------
+
+- Release Fri 29 Mar 2019 17:14:35 CET
+- Bumped copyright, dependencies.
+
+1.1.1.1
+-------
+
+- Released Tue 08 Jan 2019 17:02:01 CET
+- Added basic Markdown support (requested by Massimo Zaniboni)
+- Headless progress bar (requested by qptain nemo)
+
+1.1.0.0
+-------
+
+- Released Tue 30 Oct 2018 19:31:59 CET
+- Added org-mode support (Damien Couroussé), both for TODO and
+  list-like (checkboxes) items.
+
+1.0.11.4
+--------
+
+- Released Wed 24 Oct 2018 13:39:10 CEST
+- Fixed documentation (Eric Mertens).
+- Fixed stack build (Damien Couroussé).
+- Added contributing instructions.
+- Stackage support dropped. Thanks to Luke Murphy for maintaining it
+  for all this time.
+
+1.0.11.3
+--------
+
+- Released Thu 05 Apr 2018 23:09:55 CEST
+- Modified constraints to clearly indicate 7.8 support has been dropped.
+
+1.0.11.2
+--------
+
+- Released Thu 05 Apr 2018 22:56:52 CEST
+- Fixed GHC 8.2.2 support, for real.
+- Copyright bump.
+
+1.0.11.1
+--------
+
+- Released Thu 05 Apr 2018 22:01:51 CEST
+- Fixed GHC 8.2.2 support.
+
+1.0.11.0
+--------
+
+- Released Thu 05 Apr 2018 14:21:37 CEST
+- Added support for 8.4 (reported by Luke Murphy)
+- Dropped support for 7.8. If that is a problem, write a message to me
+  and I will set up conditional compilation.
+
+1.0.10.1
+--------
+
+- Released Wed 14 Mar 2018 14:27:13 CET
+- bumped hspec dependency.
+
+1.0.10.0
+--------
+
+- Released Tue 30 Jan 2018 15:49:41 CET
+- Fixed terminal progress bar dependency/bumping issue (reported
+  by Luke Murphy).
+
+1.0.9.1
+-------
+
+- Released Tue 12 Dec 2017 14:33:01 CET
+- Released constraints and updated stack.yaml (Luke Murphy)
+- Minor typos fix
+
+1.0.9.0
+-------
+
+- Released Tue 04 Apr 2017 08:53:46 CEST
+- Added support for rst/sphinx directives (patch by Ben Franksen)
+- Added support for .scala files (request by Utku Demir)
+- Added developer mode (on: -Werror -Wall)
+
+1.0.8.0
+-------
+
+- Released Tue 24 Jan 2017 16:15:53 CET
+- Bumped hspec dependency
+- Added online manual link in --help
+- tagged this version as stable
+
+1.0.7.0
+-------
+
+- Released Thu 29 Dec 2016 23:14:10 CET
+- Accepted 3 patched from Luke Murphy:
+    - fixing stack.yaml
+    - fixing a missing other-modules in lentil.cabal
+    - fixing a broken test
+- Bumped year for some tagged issues
+
+1.0.6.1
+-------
+
+- Released Wed 28 Dec 2016 22:17:49 CET
+- Fixed mispelled testfile name (reported by Stack curators and
+  Rodney Lorrimar).
+
+1.0.6.0
+-------
+
+- Released Tue 27 Dec 2016 23:21:58 CET
+- Further relaxed upper bounds to fix
+  https://github.com/fpco/stackage/pull/2159#issuecomment-269389638
+
+1.0.5.0
+-------
+
+- Released Tue 27 Dec 2016 14:22:12 CET
+- Modified boundaries for inclusion of lentil into Stackage,
+  (request and help provided by Luke Murphy)
+
+1.0.4.0
+-------
+
+- Released Fri 23 Dec 2016 00:49:04 CET
+- Fix hackage build.
+
+1.0.3.3
+-------
+
+- Released Thu 22 Dec 2016 20:43:08 CET
+- Added `transformer` not fix older base (<4.8) fail on
+  Data.Functor.Identity (reported and diagnosed by Henning Thielemann).
+
+1.0.3.2
+-------
+
+- Released Mon 12 Dec 2016 21:13:38 CET
+- Bumped pipes dep (so hackage build won't fail).
+- This release should fix a testfile error.
+
+1.0.3.1
+-------
+
+- Released on Wed 07 Sep 2016 07:52:56 CEST
+- Added semigroups dependency to fix build on GHC<8
+  (bug reported by YongJoon Joe).
+
+1.0.3.0
+-------
+
+- Released Tue 06 Sep 2016 19:49:32 CEST
+- Added Erlang (and YECC, Erlang LEEX), OCaml, Rust,
+  SML support (request by Tuncer Ayaz).
+- Added OpenGL Shading Language support (request by
+  qptain nemo).
+
+1.0.2.0
+-------
+
+- Released Sat 03 Sep 2016 01:40:42 CEST
+- User can now provide custom flagwords (with -w)
+  (following a request by Michał Antkiewi).
+
+1.0.1.0
+-------
+
+- Released Fri 02 Sep 2016 19:04:13 CEST
+- Removed "Feature" flagword (too many false positives on repos
+  like the Linux kernel).
+  I plan to readd it as an option.
+
+1.0.0.1
+-------
+
+- Released Fri 02 Sep 2016 17:39:11 CEST
+- Fixed stack.yaml
+
+1.0.0.0
+-------
+
+- Released Fri 02 Sep 2016 16:03:29 CEST
+- Fixed command-line documentation
+- Fixed "crash on wrong encoding" error
+- Added progress bar for big (>100 source files) projects
+
+0.2.0.1
+-------
+
+- Released Wed 31 Aug 2016 19:21:44 CEST
+- Relaxed base bounds
+
+0.2.0.0
+-------
+
+- Released Wed 31 Aug 2016 13:19:21 CEST
+- GHC 8.* compatible
+
+0.1.12.0
+--------
+
+- Released Fri 29 Apr 2016 22:48:14 CEST
+- removed LOptions Show instance (tip by Artyom Kazak)
+
+0.1.11.0
+--------
+
+- Released Wed 23 Mar 2016 17:50:52 CET
+- added new languages (Elm, CoffeeScript, TypeScript) (suggestion by
+  Anton Felix Lorenzen).
+
+0.1.10.0
+--------
+
+- Released Tue 23 Feb 2016 22:57:20 CET
+- added a new flag word "feature" (patch by Michał Antkiewi).
+- bumped up copyright year.
+
+0.1.9.0
+-------
+
+- Released Mon 25 Jan 2016 12:43:48 CET
+- by default, lentil will not recurse on dot folders (directories starting
+  with '.' and '_') (request by Artyom).
+
+0.1.8.0
+-------
+
+- Released Mon 23 Nov 2015 05:20:32 CET
+- Xml, html parsing (patch by Mats Rauhala).
+- Xml issue export (parch by Mats Rauhala).
+
+0.1.7.1
+-------
+
+- Released Sun 22 Nov 2015 22:19:58 CET
+- added missing testfile to repo/.cabal.
+
+0.1.7.0
+-------
+
+- Released Sun 22 Nov 2015 18:18:46 CET
+- Case insensitive extensions (patch by Mats Rauhala).
+
+0.1.6.2
+-------
+
+- Released Fri 02 Oct 2015 08:06:22 CEST
+- fixed broken test (missing file in extra-source-file).
+
+0.1.6.1
+-------
+
+- Released Thu 01 Oct 2015 11:50:44 CEST
+- added stack.yaml to extra-source-files.
+
+0.1.6.0
+-------
+
+- Released Thu 01 Oct 2015 10:54:10 CEST
+- Added support for Stack (patch by Francesco Mazzoli).
+- Added extension aliases (request by Henning Thielemann).
+
+0.1.5.0
+-------
+
+- Released Tue 29 Sep 2015 14:32:11 CEST
+- Tags are now allowed at the beginning of the issue, before the description,
+  too (request by qptain nemo).
+
+0.1.4.1
+-------
+
+- Released Wed 26 Aug 2015 22:11:33 CEST
+- Added ".cabal" ".chs" ".hsc" (request by Henning Thielemann).
+
+0.1.4.0
+-------
+
+- Released Wed 26 Aug 2015 19:42:05 CEST
+- Added SQL-like string parsing (requested by qptain nemo).
+
+0.1.3.1
+-------
+
+- Released Sat 01 Aug 2015 20:36:50 CEST
+- Added Nix syntax (.nix) (requested by Tomislav).
+- Added .pl and .sh test files to vcs.
+
+0.1.3.0
+-------
+
+- Released Fri 24 Jul 2015 15:25:39 CEST
+- Lentil searches for files outside $PWD (request+patch by Tomislav).
+- Lentil enumerates all files within $PWD (request+patch by Tomislav).
+
+0.1.2.7
+-------
+
+- Released Mon 20 Jul 2015 19:38:12 CEST
+- allowed naked todos (w/o desc) (requested by qptain nemo).
+
+0.1.2.6
+-------
+
+- Released Mon 13 Jul 2015 12:24:24 CEST
+- added shell script syntax (.sh) (requested by qptain nemo).
+
+0.1.2.5
+-------
+
+- Released Mon 13 Jul 2015 12:08:13 CEST
+- added perl syntax (requested by larsen).
+
+0.1.2.4
+-------
+
+- Released Wed 24 Jun 2015 07:48:28 CEST
+- Added missing test file.
+
+0.1.2.3
+-------
+
+- Released Wed 24 Jun 2015 06:49:42 CEST
+- Fixed ghc 7.8.3 build, hopefully for real.
+
+0.1.2.2
+-------
+
+- Released Wed 24 Jun 2015 06:24:33 CEST
+- Fixed ghc 7.8.3 build.
+
+0.1.2.1
+-------
+
+- Released Wed 24 Jun 2015 05:45:47 CEST
+- fixed bug: flagwords (todo, fixme, etc.) will be picked up as part of an
+  issue only when they come at the beginning of a line.
+
+0.1.2.0
+-------
+
+- Released Wed 24 Jun 2015 03:46:07 CEST
+- added ``-f compiler`` option to make output emacs parseable
+  (requested by Henning Thielemann).
+- fixed contiguous single-line/block-comment bug (reported by
+  Henning Thielemann).
+
+0.1.1.3
+-------
+
+- Released Mon 15 Jun 2015 23:29:49 CEST
+- fixmes and xxx issues now get a free [fixme]/[xxx] tag (requested
+  by qptain nemo).
+
+0.1.1.2
+-------
+
+- Released Fri 12 Jun 2015 21:21:11 CEST
+- fixed broken parse on empty file (reported by Simon Michael)
+
+0.1.1.1
+-------
+
+- Released Fri 12 Jun 2015 12:44:18 CEST
+- fixed a broken test (reported by Peter Simons)
+
+0.1.1.0
+-------
+
+- Released Fri 12 Jun 2015 01:38:26 CEST
+- make flagword syntax more liberal (-- todo something <-- is valid now)
+- more languages available (c++, java, javascript, python, ruby)
+- fixed end-of-file bug and double quote string literal
+
+0.1.0.2
+-------
+
+- Released Tue 09 Jun 2015 21:05:33 CEST
+- Added changes.txt as changelog

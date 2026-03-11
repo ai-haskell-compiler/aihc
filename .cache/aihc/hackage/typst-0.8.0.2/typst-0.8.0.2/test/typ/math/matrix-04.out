@@ -1,0 +1,258 @@
+--- parse tree ---
+[ Code
+    "typ/math/matrix-04.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/math/matrix-04.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/math/matrix-04.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Comment
+, Code
+    "typ/math/matrix-04.typ"
+    ( line 3 , column 2 )
+    (Set
+       (Ident (Identifier "align"))
+       [ NormalArg (Ident (Identifier "center")) ])
+, SoftBreak
+, Code
+    "typ/math/matrix-04.typ"
+    ( line 4 , column 2 )
+    (FuncCall
+       (Ident (Identifier "grid"))
+       [ KeyValArg (Identifier "columns") (Literal (Int 3))
+       , KeyValArg (Identifier "gutter") (Literal (Numeric 10.0 Pt))
+       , NormalArg
+           (Block
+              (Content
+                 [ Equation
+                     True
+                     [ Code
+                         "typ/math/matrix-04.typ"
+                         ( line 8 , column 5 )
+                         (FuncCall
+                            (Ident (Identifier "mat"))
+                            [ BlockArg [ Text "1" ]
+                            , BlockArg [ Text "2" ]
+                            , KeyValArg (Identifier "delim") (Block (Content [ Text "[" ]))
+                            ])
+                     ]
+                 ]))
+       , NormalArg
+           (Block
+              (Content
+                 [ Equation
+                     True
+                     [ Code
+                         "typ/math/matrix-04.typ"
+                         ( line 9 , column 5 )
+                         (FuncCall
+                            (Ident (Identifier "mat"))
+                            [ ArrayArg [ [ Text "1" , Text "2" ] ]
+                            , KeyValArg (Identifier "delim") (Block (Content [ Text "[" ]))
+                            ])
+                     ]
+                 ]))
+       , NormalArg
+           (Block
+              (Content
+                 [ Equation
+                     True
+                     [ Code
+                         "typ/math/matrix-04.typ"
+                         ( line 10 , column 5 )
+                         (FuncCall
+                            (Ident (Identifier "mat"))
+                            [ KeyValArg (Identifier "delim") (Block (Content [ Text "[" ]))
+                            , BlockArg [ Text "1" ]
+                            , BlockArg [ Text "2" ]
+                            ])
+                     ]
+                 ]))
+       , NormalArg
+           (Block
+              (Content
+                 [ Equation
+                     True
+                     [ Code
+                         "typ/math/matrix-04.typ"
+                         ( line 12 , column 5 )
+                         (FuncCall
+                            (Ident (Identifier "mat"))
+                            [ ArrayArg [ [ Text "1" ] , [ Text "2" ] ]
+                            , KeyValArg (Identifier "delim") (Block (Content [ Text "[" ]))
+                            ])
+                     ]
+                 ]))
+       , NormalArg
+           (Block
+              (Content
+                 [ Equation
+                     True
+                     [ Code
+                         "typ/math/matrix-04.typ"
+                         ( line 13 , column 5 )
+                         (FuncCall
+                            (Ident (Identifier "mat"))
+                            [ ArrayArg [ [ Text "1" ] ]
+                            , KeyValArg (Identifier "delim") (Block (Content [ Text "[" ]))
+                            , BlockArg [ Text "2" ]
+                            ])
+                     ]
+                 ]))
+       , NormalArg
+           (Block
+              (Content
+                 [ Equation
+                     True
+                     [ Code
+                         "typ/math/matrix-04.typ"
+                         ( line 14 , column 5 )
+                         (FuncCall
+                            (Ident (Identifier "mat"))
+                            [ KeyValArg (Identifier "delim") (Block (Content [ Text "[" ]))
+                            , ArrayArg [ [ Text "1" ] , [ Text "2" ] ]
+                            ])
+                     ]
+                 ]))
+       , NormalArg
+           (Block
+              (Content
+                 [ Equation
+                     True
+                     [ Code
+                         "typ/math/matrix-04.typ"
+                         ( line 16 , column 5 )
+                         (FuncCall
+                            (Ident (Identifier "mat"))
+                            [ ArrayArg [ [ Text "1" , Text "2" ] ]
+                            , KeyValArg (Identifier "delim") (Block (Content [ Text "[" ]))
+                            , BlockArg [ Text "3" ]
+                            , BlockArg [ Text "4" ]
+                            ])
+                     ]
+                 ]))
+       , NormalArg
+           (Block
+              (Content
+                 [ Equation
+                     True
+                     [ Code
+                         "typ/math/matrix-04.typ"
+                         ( line 17 , column 5 )
+                         (FuncCall
+                            (Ident (Identifier "mat"))
+                            [ KeyValArg (Identifier "delim") (Block (Content [ Text "[" ]))
+                            , ArrayArg [ [ Text "1" , Text "2" ] , [ Text "3" , Text "4" ] ]
+                            ])
+                     ]
+                 ]))
+       , NormalArg
+           (Block
+              (Content
+                 [ Equation
+                     True
+                     [ Code
+                         "typ/math/matrix-04.typ"
+                         ( line 18 , column 5 )
+                         (FuncCall
+                            (Ident (Identifier "mat"))
+                            [ ArrayArg [ [ Text "1" , Text "2" ] , [ Text "3" , Text "4" ] ]
+                            , KeyValArg (Identifier "delim") (Block (Content [ Text "[" ]))
+                            ])
+                     ]
+                 ]))
+       ])
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 text(body: [
+]), 
+                 grid(children: (math.equation(block: true, 
+                                               body: math.mat(delim: text(body: [[]), 
+                                                              rows: ((text(body: [1]), 
+                                                                      text(body: [2])))), 
+                                               numbering: none), 
+                                 math.equation(block: true, 
+                                               body: math.mat(delim: text(body: [[]), 
+                                                              rows: ((text(body: [1]), 
+                                                                      text(body: [2])))), 
+                                               numbering: none), 
+                                 math.equation(block: true, 
+                                               body: math.mat(delim: text(body: [[]), 
+                                                              rows: ((text(body: [1]), 
+                                                                      text(body: [2])))), 
+                                               numbering: none), 
+                                 math.equation(block: true, 
+                                               body: math.mat(delim: text(body: [[]), 
+                                                              rows: ((text(body: [1])), 
+                                                                     (text(body: [2])))), 
+                                               numbering: none), 
+                                 math.equation(block: true, 
+                                               body: math.mat(delim: text(body: [[]), 
+                                                              rows: ((text(body: [1])), 
+                                                                     (text(body: [2])))), 
+                                               numbering: none), 
+                                 math.equation(block: true, 
+                                               body: math.mat(delim: text(body: [[]), 
+                                                              rows: ((text(body: [1])), 
+                                                                     (text(body: [2])))), 
+                                               numbering: none), 
+                                 math.equation(block: true, 
+                                               body: math.mat(delim: text(body: [[]), 
+                                                              rows: ((text(body: [1]), 
+                                                                      text(body: [2])), 
+                                                                     (text(body: [3]), 
+                                                                      text(body: [4])))), 
+                                               numbering: none), 
+                                 math.equation(block: true, 
+                                               body: math.mat(delim: text(body: [[]), 
+                                                              rows: ((text(body: [1]), 
+                                                                      text(body: [2])), 
+                                                                     (text(body: [3]), 
+                                                                      text(body: [4])))), 
+                                               numbering: none), 
+                                 math.equation(block: true, 
+                                               body: math.mat(delim: text(body: [[]), 
+                                                              rows: ((text(body: [1]), 
+                                                                      text(body: [2])), 
+                                                                     (text(body: [3]), 
+                                                                      text(body: [4])))), 
+                                               numbering: none)), 
+                      columns: 3, 
+                      gutter: 10.0pt), 
+                 parbreak() })

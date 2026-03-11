@@ -1,0 +1,3 @@
+0.1.0 add changes file (bumped major version number for the changes in 0.0.6)
+0.0.6 added binFract and binFloat with the same exponent as hexFloat
+0.0.5 allow p and P (new) in hexFloat for the exponent

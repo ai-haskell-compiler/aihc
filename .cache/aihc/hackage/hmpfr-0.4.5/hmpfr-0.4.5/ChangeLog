@@ -1,0 +1,12 @@
+0.4.4: 15 Jan 2018: Fix compilation with mpfr-4.0.0.0
+0.4.3: 7 Aug 2017: expose all modules
+0.4.2.1: 28 Dec 2016: instance Generic MPFR
+0.4.2: 2nd Sep 2016: Added RealFloat instances
+0.4.1: 2nd Aug 2016: Added support for digamma
+0.4.: 11th Jul 2016: Compiles only with ghc 7.10 or newer
+0.3.3: 22 Dec 2011: Compiles with both integer-simple and integer-gmp (but mis-behaves with standard integer-gmp).
+0.3.2: 28 Feb 2011: Adapted to work with mpfr 3.0.0, now depends on integer-simple.
+0.3: 23 Sep 2009: Added mutable interface and removed some modules from the export list.
+0.2.2: 2 Sep 2009: Fixed a minor bug in internal handling.
+0.2.1: 25 Aug 2009: Fixed a serious bug in fromInteger conversion.
+0.2: 5 May 2009: Add support for functions new in mpfr 2.4.1

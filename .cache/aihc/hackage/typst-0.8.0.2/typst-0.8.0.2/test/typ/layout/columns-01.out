@@ -1,0 +1,152 @@
+--- parse tree ---
+[ Code
+    "typ/layout/columns-01.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/layout/columns-01.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/layout/columns-01.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Comment
+, Code
+    "typ/layout/columns-01.typ"
+    ( line 3 , column 2 )
+    (Set
+       (Ident (Identifier "page"))
+       [ KeyValArg (Identifier "width") (Literal Auto) ])
+, ParBreak
+, Code
+    "typ/layout/columns-01.typ"
+    ( line 5 , column 2 )
+    (FuncCall
+       (Ident (Identifier "rect"))
+       [ KeyValArg (Identifier "width") (Literal (Numeric 180.0 Pt))
+       , KeyValArg (Identifier "height") (Literal (Numeric 100.0 Pt))
+       , KeyValArg (Identifier "inset") (Literal (Numeric 8.0 Pt))
+       , NormalArg
+           (FuncCall
+              (Ident (Identifier "columns"))
+              [ NormalArg (Literal (Int 2))
+              , NormalArg
+                  (Block
+                     (Content
+                        [ SoftBreak
+                        , Text "A"
+                        , Space
+                        , Text "special"
+                        , Space
+                        , Text "plight"
+                        , Space
+                        , Text "has"
+                        , Space
+                        , Text "befallen"
+                        , Space
+                        , Text "our"
+                        , Space
+                        , Text "document"
+                        , Text "."
+                        , SoftBreak
+                        , Text "Columns"
+                        , Space
+                        , Text "in"
+                        , Space
+                        , Text "text"
+                        , Space
+                        , Text "boxes"
+                        , Space
+                        , Text "reigned"
+                        , Space
+                        , Text "down"
+                        , Space
+                        , Text "unto"
+                        , Space
+                        , Text "the"
+                        , Space
+                        , Text "soil"
+                        , SoftBreak
+                        , Text "to"
+                        , Space
+                        , Text "waste"
+                        , Space
+                        , Text "a"
+                        , Space
+                        , Text "year"
+                        , Quote '\''
+                        , Text "s"
+                        , Space
+                        , Text "crop"
+                        , Space
+                        , Text "of"
+                        , Space
+                        , Text "rich"
+                        , Space
+                        , Text "layouts"
+                        , Text "."
+                        , SoftBreak
+                        , Text "The"
+                        , Space
+                        , Text "columns"
+                        , Space
+                        , Text "at"
+                        , Space
+                        , Text "least"
+                        , Space
+                        , Text "were"
+                        , Space
+                        , Text "graciously"
+                        , Space
+                        , Text "balanced"
+                        , Text "."
+                        , ParBreak
+                        ]))
+              ])
+       ])
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 parbreak(), 
+                 rect(body: columns(body: { text(body: [
+A special plight has befallen our document.
+Columns in text boxes reigned down unto the soil
+to waste a year’s crop of rich layouts.
+The columns at least were graciously balanced.]), 
+                                            parbreak() }, 
+                                    count: 2), 
+                      height: 100.0pt, 
+                      inset: 8.0pt, 
+                      width: 180.0pt), 
+                 parbreak() })

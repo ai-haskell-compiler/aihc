@@ -1,0 +1,56 @@
+# cabal stuff
+**/dist
+dist-newstyle
+**/cabal.sandbox.config
+**/.cabal-sandbox
+.stack-work
+stack.yaml.lock
+mk/toplibs
+
+# vim stuff
+**.swp
+**.swo
+
+# ctags stuff
+**/TAGS
+**/tags
+
+# ghc object (when compiled directly)
+**/*.o
+**/*.hi
+**/*.dyn_o
+**/*.dyn_hi
+
+# benchmark binaries
+bench/avltrees
+bench/bools
+bench/heaps
+bench/mergeheaps
+bench/id
+bench/list
+bench/pretty
+bench/sets
+bench/setsofsets
+bench/sieve
+bench/sorting
+bench/spring
+bench/digraphs
+bench/haskell-src
+bench/haskell-src-exts
+eg/sorting
+eg/negation
+eg/alga
+
+# test binaries
+test/mutate
+test/showmutable
+test/derive
+test/utils
+
+# Haddock
+doc/**/*.html
+doc/**/*.css
+doc/**/*.js
+doc/**/*.png
+doc/**/*.gif
+doc/**/*.json

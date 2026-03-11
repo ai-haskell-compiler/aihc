@@ -1,0 +1,61 @@
+{
+    "$schema": "https://vega.github.io/schema/vega-lite/v4.json",
+    "data": {
+        "name": "myData1"
+    },
+    "datasets": {
+        "myData1": [
+            {
+                "cat": "a",
+                "val": 10
+            },
+            {
+                "cat": "b",
+                "val": 18
+            },
+            {
+                "cat": "c",
+                "val": 12
+            }
+        ],
+        "myData2": [
+            {
+                "cat": "a",
+                "val": 10
+            },
+            {
+                "cat": "b",
+                "val": 18
+            },
+            {
+                "cat": "c",
+                "val": 12
+            }
+        ],
+        "myData3": [
+            {
+                "cat": "a",
+                "val": 10
+            },
+            {
+                "cat": "b",
+                "val": 18
+            },
+            {
+                "cat": "c",
+                "val": 12
+            }
+        ]
+    },
+    "encoding": {
+        "x": {
+            "field": "cat",
+            "type": "nominal"
+        },
+        "y": {
+            "field": "val",
+            "type": "quantitative"
+        }
+    },
+    "mark": "bar"
+}

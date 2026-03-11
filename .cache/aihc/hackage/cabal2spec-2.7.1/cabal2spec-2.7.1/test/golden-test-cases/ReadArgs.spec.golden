@@ -1,0 +1,154 @@
+#
+# spec file for package ReadArgs
+#
+# Copyright (c) 2020 SUSE LLC
+#
+# All modifications and additions to the file contributed by third parties
+# remain the property of their copyright owners, unless otherwise agreed
+# upon. The license for this file, and modifications and additions to the
+# file, is the same license as for the pristine package itself (unless the
+# license for the pristine package is not an Open Source License, in which
+# case the license is the MIT License). An "Open Source License" is a
+# license that conforms to the Open Source Definition (Version 1.9)
+# published by the Open Source Initiative.
+
+# Please submit bugfixes or comments via https://bugs.opensuse.org/
+#
+
+
+%global pkg_name ReadArgs
+%global pkgver %{pkg_name}-%{version}
+
+%bcond_with tests
+Name:           %{pkg_name}
+Version:        1.2.3
+Release:        0
+Summary:        Simple command line argument parsing
+License:        BSD-3-Clause
+URL:            https://hackage.haskell.org/package/%{name}
+Source0:        https://hackage.haskell.org/package/%{name}-%{version}/%{name}-%{version}.tar.gz
+ExcludeArch:    %{ix86}
+BuildRequires:  ghc-Cabal-devel
+BuildRequires:  ghc-base-devel
+BuildRequires:  ghc-base-prof
+BuildRequires:  ghc-rpm-macros
+BuildRequires:  ghc-system-filepath-devel
+BuildRequires:  ghc-system-filepath-prof
+BuildRequires:  ghc-text-devel
+BuildRequires:  ghc-text-prof
+%if %{with tests}
+BuildRequires:  ghc-hspec-devel
+BuildRequires:  ghc-hspec-prof
+%endif
+
+%description
+ReadArgs provides the 'readArgs' IO action, which lets you tell the compiler to
+parse the command line arguments to fit the type signature you give.
+
+For example '(a :: Int, b :: String, c :: Float) <- readArgs' would parse the
+first runtime argument as an 'Int', the second as a 'String' (no quotes
+required) and the third as a 'Float'.
+
+If the runtime arguments are incompatible with the type signature, then a
+simple usage statement is given of the types needed.
+
+Continuing the previous example, if it was used in a program named 'Example',
+the error message for the above action would be:
+
+' usage: Example Int String Float '
+
+Any type that has both 'Typeable' and 'Read' instances can be used.
+'Char', 'String', and 'Text' are handled specially so that command line
+arguments for both do not require quotes (as their 'Read' instances do).
+A special instance is provided for 'FilePath' so that no constructor or quotes
+are required.
+
+'readArgs' also supports optional arguments and variadic arguments.
+Optional arguments are specified using 'Maybe', and variadic arguments using a
+list. '(a :: Int, b :: Maybe String, c :: [Float]) <- readArgs' would
+successfully parse any of the following sets of command line arguments:
+
+' Example 1 Example 1 2 3 4 Example 1 foo Example 1 foo 2 3 4 '
+
+But not
+
+' Example Example foo Example 1.0 '
+
+Usage statements for optional and variadic arguments use command-line parlance:
+
+' usage: Example Int [String] [Float..] '
+
+Note that both optional and variadic parsers are greedy by default (so 'Example
+1 2 3 4' was parsed as '(1, "2", [3.0,4.0])'. They may both be made non-greedy
+through use of the 'NonGreedy' constructor:
+
+' ( a :: Int , NonGreedy b :: NonGreedy Maybe String , NonGreedy c :: NonGreedy
+[] Float ) <- readArgs '.
+
+%package -n ghc-%{name}
+Summary:        Haskell %{name} library
+
+%description -n ghc-%{name}
+This package provides the Haskell %{name} shared library.
+
+%package -n ghc-%{name}-devel
+Summary:        Haskell %{name} library development files
+Requires:       ghc-%{name} = %{version}-%{release}
+Requires:       ghc-compiler = %{ghc_version}
+Requires(post): ghc-compiler = %{ghc_version}
+Requires(postun): ghc-compiler = %{ghc_version}
+
+%description -n ghc-%{name}-devel
+This package provides the Haskell %{name} library development files.
+
+%package -n ghc-%{pkg_name}-doc
+Summary:        Haskell %{pkg_name} library documentation
+BuildArch:      noarch
+Requires:       ghc-filesystem
+
+%description -n ghc-%{pkg_name}-doc
+This package provides the Haskell %{pkg_name} library documentation.
+
+
+%package -n ghc-%{pkg_name}-prof
+Summary:        Haskell %{pkg_name} profiling library
+Requires:       ghc-%{pkg_name}-devel = %{version}-%{release}
+Supplements:    (ghc-%{pkg_name}-devel and ghc-prof)
+
+%description -n ghc-%{pkg_name}-prof
+This package provides the Haskell %{pkg_name} profiling library.
+
+
+%prep
+%autosetup
+
+%build
+%ghc_lib_build
+
+%install
+%ghc_lib_install
+
+%check
+%cabal_test
+
+%post -n ghc-%{name}-devel
+%ghc_pkg_recache
+
+%postun -n ghc-%{name}-devel
+%ghc_pkg_recache
+
+%files
+%license LICENSE
+%{_bindir}/ReadArgsEx
+
+%files -n ghc-%{name} -f ghc-%{name}.files
+%license LICENSE
+
+%files -n ghc-%{name}-devel -f ghc-%{name}-devel.files
+
+%files -n ghc-%{pkg_name}-doc -f ghc-%{pkg_name}-doc.files
+%license LICENSE
+
+%files -n ghc-%{pkg_name}-prof -f ghc-%{pkg_name}-prof.files
+
+%changelog

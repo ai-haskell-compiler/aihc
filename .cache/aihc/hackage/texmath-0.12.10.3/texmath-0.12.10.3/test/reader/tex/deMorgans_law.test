@@ -1,0 +1,43 @@
+<<< tex
+  \neg(p\wedge q)\iff(\neg p)\vee(\neg q)
+  \overline{\bigcup_{i=1}^{n} A_{i}}=\bigcap_{i=1}^{n} \overline{A_{i}}
+
+>>> native
+[ ESymbol Op "\172"
+, ESymbol Open "("
+, EIdentifier "p"
+, ESymbol Bin "\8743"
+, EIdentifier "q"
+, ESymbol Close ")"
+, ESymbol Rel "\8660"
+, ESymbol Open "("
+, ESymbol Op "\172"
+, EIdentifier "p"
+, ESymbol Close ")"
+, ESymbol Bin "\8744"
+, ESymbol Open "("
+, ESymbol Op "\172"
+, EIdentifier "q"
+, ESymbol Close ")"
+, EOver
+    False
+    (EGrouped
+       [ EUnderover
+           True
+           (ESymbol Op "\8899")
+           (EGrouped [ EIdentifier "i" , ESymbol Rel "=" , ENumber "1" ])
+           (EIdentifier "n")
+       , ESub (EIdentifier "A") (EIdentifier "i")
+       ])
+    (ESymbol TOver "\175")
+, ESymbol Rel "="
+, EUnderover
+    True
+    (ESymbol Op "\8898")
+    (EGrouped [ EIdentifier "i" , ESymbol Rel "=" , ENumber "1" ])
+    (EIdentifier "n")
+, EOver
+    False
+    (ESub (EIdentifier "A") (EIdentifier "i"))
+    (ESymbol TOver "\175")
+]

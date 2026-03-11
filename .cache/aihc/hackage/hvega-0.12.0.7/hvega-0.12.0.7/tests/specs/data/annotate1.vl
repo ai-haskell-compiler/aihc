@@ -1,0 +1,49 @@
+{
+    "$schema": "https://vega.github.io/schema/vega-lite/v4.json",
+    "data": {
+        "values": [
+            {
+                "a": "A",
+                "b": 28
+            },
+            {
+                "a": "B",
+                "b": 55
+            },
+            {
+                "a": "C",
+                "b": 43
+            },
+            {
+                "a": "D",
+                "b": 91
+            },
+            {
+                "a": "E",
+                "b": 81
+            }
+        ]
+    },
+    "layer": [
+        {
+            "encoding": {
+                "x": {
+                    "field": "a",
+                    "type": "ordinal"
+                },
+                "y": {
+                    "field": "b",
+                    "type": "quantitative"
+                }
+            },
+            "mark": "bar"
+        },
+        {
+            "data": null,
+            "mark": {
+                "text": "Test",
+                "type": "text"
+            }
+        }
+    ]
+}

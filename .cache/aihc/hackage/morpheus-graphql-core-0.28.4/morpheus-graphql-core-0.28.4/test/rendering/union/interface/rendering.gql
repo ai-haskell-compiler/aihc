@@ -1,0 +1,9 @@
+query {
+  character {
+    name
+    ... on Hero {
+      name
+      hobby
+    }
+  }
+}

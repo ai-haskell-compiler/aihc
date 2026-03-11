@@ -1,0 +1,16 @@
+<>
+<.altinstr_replacement>
+<.altinstructions>
+<.comment>
+<.dynamic>
+<.dynstr>
+<.dynsym>
+<.eh_frame>
+<.eh_frame_hdr>
+<.gnu.hash>
+<.gnu.version>
+<.gnu.version_d>
+<.note>
+<.rodata>
+<.shstrtab>
+<.text>

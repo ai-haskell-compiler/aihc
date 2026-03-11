@@ -1,0 +1,73 @@
+--- parse tree ---
+[ Code
+    "typ/math/style-04.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/math/style-04.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/math/style-04.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Comment
+, Equation
+    False
+    [ Code
+        "typ/math/style-04.typ"
+        ( line 3 , column 2 )
+        (FuncCall
+           (Ident (Identifier "text"))
+           [ NormalArg (Ident (Identifier "red"))
+           , BlockArg [ MAttach Nothing (Just (Text "2")) (Text " time") ]
+           ])
+    , Text "+"
+    , Code
+        "typ/math/style-04.typ"
+        ( line 3 , column 25 )
+        (FuncCall
+           (Ident (Identifier "sqrt")) [ BlockArg [ Text "place" ] ])
+    ]
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 math.equation(block: false, 
+                               body: { text(body: math.attach(b: none, 
+                                                              base: text(body: [ time]), 
+                                                              t: text(body: [2])), 
+                                            color: rgb(100%,25%,21%,100%)), 
+                                       text(body: [+]), 
+                                       math.sqrt(radicand: text(body: [place])) }, 
+                               numbering: none), 
+                 parbreak() })

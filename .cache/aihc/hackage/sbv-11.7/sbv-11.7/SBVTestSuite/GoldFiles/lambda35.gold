@@ -1,0 +1,2 @@
+(lambda ((l1_s0 (_ BitVec 8)) (l1_s1 (_ BitVec 8)))
+  (bvadd l1_s0 l1_s1))

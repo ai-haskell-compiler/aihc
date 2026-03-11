@@ -1,0 +1,41 @@
+Singletons/OverloadedStrings.hs:(0,0)-(0,0): Splicing declarations
+    singletons
+      [d| symId :: Symbol -> Symbol
+          symId x = x
+          foo :: Symbol
+          foo = symId "foo" |]
+  ======>
+    symId :: Symbol -> Symbol
+    symId x = x
+    foo :: Symbol
+    foo = symId "foo"
+    type FooSym0 :: Symbol
+    type family FooSym0 :: Symbol where
+      FooSym0 = Foo
+    type SymIdSym0 :: (~>) Symbol Symbol
+    data SymIdSym0 :: (~>) Symbol Symbol
+      where
+        SymIdSym0KindInference :: SameKind (Apply SymIdSym0 arg) (SymIdSym1 arg) =>
+                                  SymIdSym0 a0123456789876543210
+    type instance Apply SymIdSym0 a0123456789876543210 = SymId a0123456789876543210
+    instance SuppressUnusedWarnings SymIdSym0 where
+      suppressUnusedWarnings = snd ((,) SymIdSym0KindInference ())
+    type SymIdSym1 :: Symbol -> Symbol
+    type family SymIdSym1 (a0123456789876543210 :: Symbol) :: Symbol where
+      SymIdSym1 a0123456789876543210 = SymId a0123456789876543210
+    type Foo :: Symbol
+    type family Foo :: Symbol where
+      Foo = Apply SymIdSym0 (FromString "foo")
+    type SymId :: Symbol -> Symbol
+    type family SymId (a :: Symbol) :: Symbol where
+      SymId x = x
+    sFoo :: (Sing (FooSym0 :: Symbol) :: Type)
+    sSymId ::
+      (forall (t :: Symbol).
+       Sing t -> Sing (Apply SymIdSym0 t :: Symbol) :: Type)
+    sFoo
+      = applySing
+          (singFun1 @SymIdSym0 sSymId) (sFromString (sing :: Sing "foo"))
+    sSymId (sX :: Sing x) = sX
+    instance SingI (SymIdSym0 :: (~>) Symbol Symbol) where
+      sing = singFun1 @SymIdSym0 sSymId

@@ -1,0 +1,74 @@
+name:          reinterpret-cast
+version:       0.1.0
+license:       MIT
+copyright:     2014 Niklas Hambüchen <mail@nh2.me>
+author:        Niklas Hambüchen <mail@nh2.me>
+maintainer:    Niklas Hambüchen <mail@nh2.me>
+category:      Data
+build-type:    Simple
+stability:     experimental
+tested-with:   GHC==7.6.3
+cabal-version: >= 1.8
+homepage:      https://github.com/nh2/reinterpret-cast
+bug-reports:   https://github.com/nh2/reinterpret-cast/issues
+synopsis:      Memory reinterpretation casts for Float/Double and Word32/Word64
+description:
+  Memory reinterpretation casts for Float\/Double and Word32\/Word64.
+  .
+  The implementations in the @.Internal@ package are different ways to tackle
+  the problem; the @array@ method (current default) is about 5 times faster
+  than the @FFI@ method.
+
+source-repository head
+  type:      git
+  location:  git://github.com/nh2/reinterpret-cast.git
+
+
+library
+  exposed-modules:
+    Data.ReinterpretCast
+    -- Internal
+    Data.ReinterpretCast.Internal.ImplArray
+    Data.ReinterpretCast.Internal.ImplFFI
+  hs-source-dirs:
+    src
+  build-depends:
+      base                >= 4 && < 5
+    , array               >= 0.4.0.1
+  ghc-options:
+    -- -O2 actually matters here:
+    --   * 10% performance difference for the 'array' method
+    --   * 20% performance difference for the 'FFI' method
+    -Wall -O2
+
+
+test-suite tests
+  type: exitcode-stdio-1.0
+  hs-source-dirs:
+    test
+  main-is:
+    Main.hs
+  build-depends:
+      base                >= 4 && < 5
+    , reinterpret-cast
+    , data-binary-ieee754 >= 0.4.4
+    , loop                >= 0.2.0
+    , hspec               >= 1.3.0.1
+  ghc-options:
+    -Wall -O2
+
+
+benchmark bench
+  type: exitcode-stdio-1.0
+  hs-source-dirs:
+    bench
+  main-is:
+    Bench.hs
+  build-depends:
+      base                >= 4 && < 5
+    , reinterpret-cast
+    , criterion           >= 0.6.0.0
+    , data-binary-ieee754 >= 0.4.4
+  ghc-options:
+    -- See notes in the 'library' section for use of -O2
+    -Wall -O2

@@ -1,0 +1,179 @@
+{-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE CPP #-}
+
+-- | Definitions of interest to those implement a new beam backend.
+--
+-- Steps to defining a beam backend:
+--
+--   1. Ensure the command syntax for your backend satisfies 'Sql92SaneDdlCommandSyntax'.
+--   2. Create a value of type 'BeamMigrationBackend'
+--
+-- This may sound trivial, but it's a bit more involved. In particular, in order
+-- to complete step 2, you will have to define several instances for some of
+-- your syntax pieces (for example, data types and constraints will need to be
+-- 'Hashable'). You will also need to provide a reasonable function to fetch
+-- predicates from your database, and a function to convert all these predicates
+-- to corresponding predicates in the Haskell syntax. If you have custom data
+-- types or predicates, you will need to supply 'BeamDeserializers' to
+-- deserialize them from JSON. Finally, if your backend has custom
+-- 'DatabasePredicate's you will have to provide appropriate 'ActionProvider's
+-- to discover potential actions for your backend. See the documentation for
+-- "Database.Beam.Migrate.Actions" for more information.
+--
+-- Tools may be interested in the 'SomeBeamMigrationBackend' data type which
+-- provides a monomorphic type to wrap the polymorphic 'BeamMigrationBackend'
+-- type.
+--
+-- For an example migrate backend, see "Database.Beam.Sqlite.Migrate"
+module Database.Beam.Migrate.Backend
+  ( BeamMigrationBackend(..), BeamMigrateConnection(..)
+  , DdlError
+
+  -- * Haskell predicate conversion
+  , HaskellPredicateConverter(..)
+  , sql92HsPredicateConverters
+  , hasColumnConverter
+  , trivialHsConverter, hsPredicateConverter
+  , withExtraPredicateParsers
+
+  -- * For tooling authors
+  , SomeBeamMigrationBackend(..), SomeCheckedDatabaseSettings(..) )
+where
+
+import           Database.Beam
+import           Database.Beam.Backend.SQL
+import           Database.Beam.Migrate.Actions
+import           Database.Beam.Migrate.Checks
+import           Database.Beam.Migrate.Serialization
+import           Database.Beam.Migrate.SQL
+import           Database.Beam.Migrate.Types
+  ( SomeDatabasePredicate(..), CheckedDatabaseSettings )
+
+import           Database.Beam.Haskell.Syntax
+
+import           Control.Applicative
+import qualified Control.Monad.Fail as Fail
+
+#if ! MIN_VERSION_base(4,11,0)
+import           Data.Semigroup
+#endif
+import           Data.Text (Text)
+import           Data.Time
+
+import           Data.Typeable
+
+-- | Type of errors that can be thrown by backends during DDL statement
+-- execution. Currently just a synonym for 'String'
+type DdlError = String
+
+-- | Backends should create a value of this type and export it in an exposed
+-- module under the name 'migrationBackend'. See the module documentation for
+-- more details.
+data BeamMigrationBackend be m where
+  BeamMigrationBackend ::
+    ( MonadBeam be m
+    , Fail.MonadFail m
+    , HasQBuilder be
+    , BeamMigrateSqlBackend be
+    , HasDataTypeCreatedCheck (BeamMigrateSqlBackendDataTypeSyntax be)
+    , BeamSqlBackendCanSerialize be LocalTime
+    , BeamSqlBackendCanSerialize be (Maybe LocalTime)
+    , BeamSqlBackendCanSerialize be Text
+    , BeamSqlBackendCanSerialize be SqlNull
+    , Sql92ReasonableMarshaller be ) =>
+    { backendName :: String
+    , backendConnStringExplanation :: String
+    , backendGetDbConstraints :: m [ SomeDatabasePredicate ]
+    , backendPredicateParsers :: BeamDeserializers be
+    , backendRenderSyntax :: BeamSqlBackendSyntax be -> String
+    , backendFileExtension :: String
+    , backendConvertToHaskell :: HaskellPredicateConverter
+    , backendActionProvider :: ActionProvider be
+    , backendRunSqlScript :: Text -> m ()
+    , backendWithTransaction :: forall a. m a -> m a
+    , backendConnect :: String -> IO (BeamMigrateConnection be m)
+    } -> BeamMigrationBackend be m
+
+withExtraPredicateParsers :: BeamMigrationBackend be m -> BeamDeserializers be -> BeamMigrationBackend be m
+withExtraPredicateParsers be ds = be { backendPredicateParsers = backendPredicateParsers be <> ds }
+
+data BeamMigrateConnection be m where
+    BeamMigrateConnection
+        :: { backendRun :: forall a. m a -> IO (Either DdlError a)
+           , backendClose :: IO () } -> BeamMigrateConnection be m
+
+-- | Monomorphic wrapper for use with plugin loaders that cannot handle
+-- polymorphism
+data SomeBeamMigrationBackend where
+  SomeBeamMigrationBackend :: Typeable be
+                           => BeamMigrationBackend be m
+                           -> SomeBeamMigrationBackend
+
+-- | Monomorphic wrapper to use when interpreting a module which
+-- exports a 'CheckedDatabaseSettings'.
+data SomeCheckedDatabaseSettings where
+  SomeCheckedDatabaseSettings :: Database be db => CheckedDatabaseSettings be db
+                              -> SomeCheckedDatabaseSettings
+
+-- | In order to support Haskell schema generation, backends need to provide a
+-- way to convert arbitrary 'DatabasePredicate's generated by the backend's
+-- 'backendGetDbConstraints' function into appropriate predicates in the Haskell
+-- syntax. Not all predicates have any meaning when translated to Haskell, so
+-- backends can choose to drop any predicate (simply return 'Nothing').
+newtype HaskellPredicateConverter
+  = HaskellPredicateConverter (SomeDatabasePredicate -> Maybe SomeDatabasePredicate)
+
+instance Semigroup HaskellPredicateConverter where
+  (HaskellPredicateConverter a) <> (HaskellPredicateConverter b) =
+    HaskellPredicateConverter $ \r -> a r <|> b r
+
+-- | 'HaskellPredicateConverter's can be combined monoidally.
+instance Monoid HaskellPredicateConverter where
+  mempty = HaskellPredicateConverter $ \_ -> Nothing
+
+-- | Converters for the 'SchemaExistsPredicate', 'TableExistsPredicate', 'TableHasPrimaryKey', and
+-- 'TableHasColumn' (when supplied with a function to convert a backend data
+-- type to a haskell one).
+sql92HsPredicateConverters :: forall fromBe
+                             . Typeable fromBe
+                            => (BeamMigrateSqlBackendDataTypeSyntax fromBe -> Maybe HsDataType)
+                            -> HaskellPredicateConverter
+sql92HsPredicateConverters convType =
+  trivialHsConverter @SchemaExistsPredicate <>
+  trivialHsConverter @TableExistsPredicate <>
+  trivialHsConverter @TableHasPrimaryKey   <>
+  hasColumnConverter @fromBe convType
+
+-- | Converter for 'TableHasColumn', when given a function to convert backend
+-- data type to a haskell one.
+hasColumnConverter :: forall fromBe
+                    . Typeable fromBe
+                   => (BeamMigrateSqlBackendDataTypeSyntax fromBe -> Maybe HsDataType)
+                   -> HaskellPredicateConverter
+hasColumnConverter convType =
+  hsPredicateConverter $
+  \(TableHasColumn tbl col ty :: TableHasColumn fromBe) ->
+    fmap SomeDatabasePredicate (TableHasColumn tbl col <$> convType ty :: Maybe (TableHasColumn HsMigrateBackend))
+
+-- | Some predicates have no dependence on a backend. For example, 'TableExistsPredicate' has no parameters that
+-- depend on the backend. It can be converted straightforwardly:
+--
+-- @
+-- trivialHsConverter @TableExistsPredicate
+-- @
+trivialHsConverter :: forall pred. Typeable pred => HaskellPredicateConverter
+trivialHsConverter =
+  HaskellPredicateConverter $ \orig@(SomeDatabasePredicate p') ->
+  case cast p' of
+    Nothing -> Nothing
+    Just (_ :: pred) -> Just orig
+
+-- | Utility function for converting a monomorphically typed predicate to a
+-- haskell one.
+hsPredicateConverter :: Typeable pred => (pred -> Maybe SomeDatabasePredicate) -> HaskellPredicateConverter
+hsPredicateConverter f =
+  HaskellPredicateConverter $ \(SomeDatabasePredicate p') ->
+  case cast p' of
+    Nothing -> Nothing
+    Just p'' -> f p''
+

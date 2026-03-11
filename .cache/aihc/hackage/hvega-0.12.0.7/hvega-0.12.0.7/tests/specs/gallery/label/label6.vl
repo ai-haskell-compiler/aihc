@@ -1,0 +1,40 @@
+{
+    "$schema": "https://vega.github.io/schema/vega-lite/v4.json",
+    "data": {
+        "url": "https://vega.github.io/vega-lite/data/movies.json"
+    },
+    "description": "Histogram with global mean overlay",
+    "layer": [
+        {
+            "encoding": {
+                "x": {
+                    "axis": null,
+                    "bin": true,
+                    "field": "IMDB_Rating",
+                    "type": "quantitative"
+                },
+                "y": {
+                    "aggregate": "count",
+                    "type": "quantitative"
+                }
+            },
+            "mark": "bar"
+        },
+        {
+            "encoding": {
+                "color": {
+                    "value": "red"
+                },
+                "size": {
+                    "value": 5
+                },
+                "x": {
+                    "aggregate": "mean",
+                    "field": "IMDB_Rating",
+                    "type": "quantitative"
+                }
+            },
+            "mark": "rule"
+        }
+    ]
+}

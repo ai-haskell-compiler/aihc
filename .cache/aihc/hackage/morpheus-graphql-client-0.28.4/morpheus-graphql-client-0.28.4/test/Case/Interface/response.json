@@ -1,0 +1,50 @@
+{
+  "data": {
+    "character": [
+      {
+        "__typename": "Deity",
+        "name": "Deity Name",
+        "power": "Deity Power"
+      },
+      {
+        "__typename": "Character",
+        "name": "Character Name"
+      },
+      {
+        "__typename": "Hero",
+        "name": "Hero Name",
+        "hobby": "Deity Power"
+      }
+    ],
+    "character2": [
+      {
+        "name1": "test name",
+        "name": "test name"
+      }
+    ],
+    "character3": [
+      {
+        "__typename": "Hero",
+        "hobby": "Hero Hobby",
+        "name2": "Hero name2"
+      },
+      {
+        "name2": "This should be a Deity!",
+        "power": "Power"
+      },
+      {
+        "__typename": "Character",
+        "name2": "Character name2"
+      }
+    ],
+    "character4": [
+      {},
+      {
+        "__typename": "Hero",
+        "hobby": "Hero Hobby",
+        "name2": "Hero name2"
+      },
+      { "__typename": "Deity" }
+    ]
+  }
+}

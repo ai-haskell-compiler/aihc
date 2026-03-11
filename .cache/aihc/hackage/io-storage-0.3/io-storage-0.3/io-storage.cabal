@@ -1,0 +1,30 @@
+name:          io-storage
+version:       0.3
+category:      Database, Data, System
+synopsis:      A key-value store in the IO monad.
+
+description:   This library allows an application to extend the 'global state'
+               hidden inside the IO monad with semi-arbitrary data. Data is
+               required to be 'Typeable'. The library provides an essentially
+               unbounded number of key-value stores indexed by strings, with
+               each key within the stores also being a string.
+
+homepage:      http://github.com/willdonnelly/io-storage
+bug-reports:   http://github.com/willdonnelly/io-storage/issues
+stability:     alpha
+author:        Will Donnelly
+maintainer:    Will Donnelly <will.donnelly@gmail.com>
+copyright:     (c) 2009 Will Donnelly
+license:       BSD3
+license-file:  LICENSE
+
+build-type:    Simple
+cabal-version: >= 1.6
+
+library
+  exposed-modules: System.IO.Storage
+  build-depends:   base >= 4 && < 5, containers
+
+source-repository head
+  type:      git
+  location:  git://github.com/willdonnelly/io-storage.git

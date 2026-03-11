@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title type="text">Example Feed</title>
+  <id>urn:uuid:60a76c80-d399-11d9-b91C-0003939e0af6</id>
+  <updated>2003-12-13T18:30:02Z</updated>
+  <link href="http://example.org/feed/" rel="self"/>
+  <link href="http://example.org/"/>
+  <subtitle type="text">A subtitle.</subtitle>
+  <entry>
+    <id>urn:uuid:1225c695-cfb8-4ebb-aaaa-80da344efa6a</id>
+    <title type="text">Atom-Powered Robots Run Amok</title>
+    <updated>2003-12-13T18:30:00Z</updated>
+    <author>
+      <name>John Doe</name>
+      <email>johndoe@example.com</email>
+    </author>
+    <content type="xhtml"><div xmlns="http://www.w3.org/1999/xhtml"><p>This is the entry content.</p></div></content>
+    <link href="http://example.org/2003/12/13/atom03"/>
+    <link href="http://example.org/2003/12/13/atom03.html" rel="alternate" type="text/html"/>
+    <link href="http://example.org/2003/12/13/atom03/edit" rel="edit"/>
+    <summary type="html">&lt;div&gt;&lt;p&gt;This is the entry content.&lt;/p&gt;&lt;/div&gt;</summary>
+  </entry>
+  <entry>
+    <id>urn:uuid:f5ae72c9-b02e-42bc-957e-bbfe60b2c4a9</id>
+    <title type="text">Robot-Powered Atoms Run Amok</title>
+    <updated>2003-12-13T19:00:00Z</updated>
+    <author>
+      <name>John Doe</name>
+      <email>johndoe@example.com</email>
+    </author>
+    <content type="html">&lt;div&gt;&lt;p&gt;This is the entry content.&lt;/p&gt;&lt;/div&gt;</content>
+    <link href="http://example.org/2003/12/13/atom04"/>
+    <summary type="xhtml"><div xmlns="http://www.w3.org/1999/xhtml"><p>This is the entry content.</p></div></summary>
+  </entry>
+</feed>

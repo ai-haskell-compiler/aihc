@@ -1,0 +1,2319 @@
+{-# OPTIONS_GHC -fno-warn-unused-imports #-}
+{-# LANGUAGE CPP #-}
+
+{-| Dhall is a programming language specialized for configuration files.  This
+    module contains a tutorial explaining how to author configuration files
+    using this language
+
+    You might also be interested in the
+    <https://docs.dhall-lang.org/tutorials/Language-Tour.html Language Tour>, a
+    Haskell-agnostic tour of Dhall's language features.
+-}
+module Dhall.Tutorial (
+    -- * Introduction
+    -- $introduction
+
+    -- * Types
+    -- $types
+
+    -- * Imports
+    -- $imports
+
+    -- * Lists
+    -- $lists
+
+    -- * Optional values
+    -- $optional0
+
+    -- * Records
+    -- $records
+
+    -- * Functions
+    -- $functions
+
+    -- * Compiler
+    -- $compiler
+
+    -- * Strings
+    -- $strings
+
+    -- * Combine
+    -- $combine
+
+    -- * Let expressions
+    -- $let
+
+    -- * Defaults
+    -- $defaults
+
+    -- * Unions
+    -- $unions
+
+    -- * Polymorphic functions
+    -- $polymorphic
+
+    -- * Total
+    -- $total
+
+    -- * Assertions
+    -- $assertions
+
+    -- * Headers
+    -- $headers
+
+    -- * Import integrity
+    -- $integrity
+
+    -- * Raw text
+    -- $rawText
+
+    -- * Formatting code
+    -- $format
+
+    -- * Built-in functions
+    -- $builtins
+
+    -- ** Caveats
+    -- $caveats
+
+    -- ** Extending the language
+    -- $extending
+
+    -- ** Substitutions
+    -- $substitutions
+
+    -- * Prelude
+    -- $prelude
+
+    -- * Limitations
+    -- $limitations
+
+    -- * Conclusion
+    -- $conclusion
+
+    -- * Frequently Asked Questions (FAQ)
+    -- $faq
+    ) where
+
+import Data.Vector (Vector)
+import Dhall
+
+-- $setup
+--
+-- >>> :set -XOverloadedStrings
+
+-- $introduction
+--
+-- The simplest way to use Dhall is to ignore the programming language features
+-- and use it as a strongly typed configuration format.  For example, suppose
+-- that you create the following configuration file:
+--
+-- > -- ./config.dhall
+-- > { foo = 1
+-- > , bar = [3.0, 4.0, 5.0]
+-- > }
+--
+-- You can read the above configuration file into Haskell using the following
+-- code:
+--
+-- > -- example.hs
+-- >
+-- > {-# LANGUAGE DeriveGeneric     #-}
+-- > {-# LANGUAGE OverloadedStrings #-}
+-- >
+-- > import Dhall
+-- >
+-- > data Example = Example { foo :: Natural, bar :: Vector Double }
+-- >     deriving (Generic, Show)
+-- >
+-- > instance FromDhall Example
+-- >
+-- > main :: IO ()
+-- > main = do
+-- >     x <- input auto "./config.dhall"
+-- >     print (x :: Example)
+--
+-- __WARNING__: You must not instantiate FromDhall with a recursive type. See [Limitations](#limitations).
+--
+-- If you compile and run the above example, the program prints the corresponding
+-- Haskell record:
+--
+-- > $ ./example
+-- > Example {foo = 1, bar = [3.0,4.0,5.0]}
+--
+-- You can also load some types directly into Haskell without having to define a
+-- record, like this:
+--
+-- >>> import Dhall
+-- >>> :set -XOverloadedStrings
+-- >>> input auto "True" :: IO Bool
+-- True
+--
+-- The `Dhall.input` function can decode any value if we specify the value's
+-- expected `Dhall.Type`:
+--
+-- > input
+-- >     :: Type a  -- Expected type
+-- >     -> Text    -- Dhall program
+-- >     -> IO a    -- Decoded expression
+--
+-- ... and we can either specify an explicit type like `bool`:
+--
+-- > bool :: Type Bool
+-- >
+-- > input bool :: Text -> IO Bool
+-- >
+-- > input bool "True" :: IO Bool
+--
+-- >>> input bool "True"
+-- True
+--
+-- ... or we can use `auto` to let the compiler infer what type to decode from
+-- the expected return type:
+--
+-- > auto :: FromDhall a => Type a
+-- >
+-- > input auto :: FromDhall a => Text -> IO a
+--
+-- >>> input auto "True" :: IO Bool
+-- True
+--
+-- You can see what types `auto` supports \"out-of-the-box\" by browsing the
+-- instances for the `FromDhall` class.  For example, the following instance
+-- says that we can directly decode any Dhall expression that evaluates to a
+-- @Bool@ into a Haskell `Prelude.Bool`:
+--
+-- > instance FromDhall Bool
+--
+-- ... which is why we could directly decode the string @\"True\"@ into the
+-- value `True`.
+--
+-- There is also another instance that says that if we can decode a value of
+-- type @a@, then we can also decode a @List@ of values as a `Vector` of @a@s:
+--
+-- > instance FromDhall a => FromDhall (Vector a)
+--
+-- Therefore, since we can decode a @Bool@, we must also be able to decode a
+-- @List@ of @Bool@s, like this:
+--
+-- >>> input auto "[True, False]" :: IO (Vector Bool)
+-- [True,False]
+--
+-- We could also specify what type to decode by providing an explicit
+-- `Dhall.Type` instead of using `auto` with a type annotation:
+--
+-- >>> input (vector bool) "[True, False]"
+-- [True,False]
+--
+-- __Exercise:__ Create a @./config.dhall@ file that the following program can
+-- decode:
+--
+-- > {-# LANGUAGE DeriveAnyClass    #-}
+-- > {-# LANGUAGE DeriveGeneric     #-}
+-- > {-# LANGUAGE OverloadedStrings #-}
+-- >
+-- > import Dhall
+-- >
+-- > data Person = Person { age :: Natural, name :: Text }
+-- >     deriving (Generic, FromDhall, Show)
+-- >
+-- > main :: IO ()
+-- > main = do
+-- >     x <- input auto "./config.dhall"
+-- >     print (x :: Person)
+--
+-- __Exercise:__ Create a @./config.dhall@ file that the following program can
+-- decode:
+--
+-- > {-# LANGUAGE OverloadedStrings #-}
+-- >
+-- > import Data.Functor.Identity
+-- > import Dhall
+-- >
+-- > instance FromDhall a => FromDhall (Identity a)
+-- >
+-- > main :: IO ()
+-- > main = do
+-- >     x <- input auto "./config.dhall"
+-- >     print (x :: Identity Double)
+
+-- $types
+--
+-- Suppose that we try to decode a value of the wrong type, like this:
+--
+-- >>> input auto "1" :: IO Bool
+-- *** Exception:
+-- ...Error...: Expression doesn't match annotation
+-- ...
+-- - Bool
+-- + Natural
+-- ...
+-- 1│ 1 : Bool
+-- ...
+-- (input):1:1
+-- ...
+--
+-- The interpreter complains because the string @\"1\"@ cannot be decoded into a
+-- Haskell value of type `Prelude.Bool`.  This part of the type error:
+--
+-- > - Bool
+-- > + Natural
+--
+-- ... means that the expected type was @Bool@ but the inferred type of the
+-- expression @1@ was @Natural@.
+--
+-- The code excerpt from the above error message has two components:
+--
+-- * the expression being type checked (i.e. @1@)
+-- * the expression's expected type (i.e. @Bool@)
+--
+-- > Expression
+-- > ⇩
+-- > 1 : Bool
+-- >     ⇧
+-- >     Expected type
+--
+-- The @(:)@ symbol is how Dhall annotates values with their expected types.
+-- This notation is equivalent to type annotations in Haskell using the @(::)@
+-- symbol.  Whenever you see:
+--
+-- > x : t
+--
+-- ... you should read that as \"we expect the expression @x@ to have type
+-- @t@\". However, we might be wrong and if our expected type does not match the
+-- expression's actual type then the type checker will complain.
+--
+-- In this case, the expression @1@ does not have type @Bool@ so type checking
+-- fails with an exception.
+--
+-- __Exercise:__ Load the Dhall library into @ghci@ and run these commands to get
+-- get a more detailed error message:
+--
+-- > >>> import Dhall
+-- > >>> :set -XOverloadedStrings
+-- > >>> detailed (input auto "1") :: IO Bool
+-- > ...
+--
+-- ... then read the entire error message
+--
+-- __Exercise:__ Fix the type error, either by changing the value to decode or
+-- changing the expected type
+
+-- $imports
+--
+-- You might wonder why in some cases we can decode a configuration file:
+--
+-- >>> writeFile "bool" "True"
+-- >>> input auto "./bool" :: IO Bool
+-- True
+--
+-- ... and in other cases we can decode a value directly:
+--
+-- >>> input auto "True" :: IO Bool
+-- True
+--
+-- This is because importing a configuration from a file is a special case of a
+-- more general language feature: Dhall expressions can reference other
+-- expressions by their file path.
+--
+-- To illustrate this, let's create three files:
+--
+-- > $ echo "True"  > bool1
+-- > $ echo "False" > bool2
+-- > $ echo "./bool1 && ./bool2" > both
+--
+-- ... and read in all three files in a single expression:
+--
+-- >>> input auto "[ ./bool1 , ./bool2 , ./both ]" :: IO (Vector Bool)
+-- [True,False,False]
+--
+-- Each file path is replaced with the Dhall expression contained within that
+-- file.  If that file contains references to other files then those references
+-- are transitively resolved.
+--
+-- In other words: configuration files can reference other configuration files,
+-- either by their relative or absolute paths.  This means that we can split a
+-- configuration file into multiple files, like this:
+--
+-- > -- ./config.dhall
+-- > { foo = 1
+-- > , bar = ./bar.dhall
+-- > }
+--
+-- > -- ./bar.dhall
+-- > [3.0, 4.0, 5.0]
+--
+-- ... which is equivalent to our original configuration:
+--
+-- > -- ./config.dhall
+-- > { foo = 1
+-- > , bar = [3.0, 4.0, 5.0]
+-- > }
+--
+-- However, the Dhall language will forbid cycles in these file references.  For
+-- example, if we create the following cycle:
+--
+-- > $ echo './file1' > file2
+-- > $ echo './file2' > file1
+--
+-- ... then the interpreter will reject the import:
+--
+-- >>> input auto "./file1" :: IO Natural
+-- *** Exception:
+-- ↳ ./file1
+--   ↳ ./file2
+-- ...
+-- Cyclic import: ./file1
+-- ...
+--
+-- You can also import expressions by URL.  For example, you can find a Dhall
+-- expression hosted at this GitHub URL:
+--
+-- <https://raw.githubusercontent.com/dhall-lang/dhall-haskell/18e4e9a18dc53271146df3ccf5b4177c3552236b/examples/True>
+--
+-- > $ curl https://raw.githubusercontent.com/dhall-lang/dhall-haskell/18e4e9a18dc53271146df3ccf5b4177c3552236b/examples/True
+-- > True
+--
+-- ... and you can reference that expression either directly:
+--
+#if defined(WITH_HTTP) && defined(USE_HTTP_CLIENT_TLS) && defined(NETWORK_TESTS)
+-- >>> input auto "https://raw.githubusercontent.com/dhall-lang/dhall-haskell/18e4e9a18dc53271146df3ccf5b4177c3552236b/examples/True" :: IO Bool
+-- True
+#else
+-- > >>> input auto "https://raw.githubusercontent.com/dhall-lang/dhall-haskell/18e4e9a18dc53271146df3ccf5b4177c3552236b/examples/True" :: IO Bool
+-- > True
+#endif
+--
+-- ... or inside of a larger expression:
+--
+#if defined(WITH_HTTP) && defined(USE_HTTP_CLIENT_TLS) && defined(NETWORK_TESTS)
+-- >>> input auto "False == https://raw.githubusercontent.com/dhall-lang/dhall-haskell/18e4e9a18dc53271146df3ccf5b4177c3552236b/examples/True" :: IO Bool
+-- False
+#else
+-- > >>> input auto "False == https://raw.githubusercontent.com/dhall-lang/dhall-haskell/18e4e9a18dc53271146df3ccf5b4177c3552236b/examples/True" :: IO Bool
+-- > False
+#endif
+--
+-- You're not limited to hosting Dhall expressions on GitHub.  You can host a
+-- Dhall expression anywhere that you can host UTF8-encoded text on the web,
+-- such as a pastebin, or your own web server.
+--
+-- You can also import Dhall expressions from environment variables, too:
+--
+-- >>> System.Environment.setEnv "FOO" "1"
+-- >>> input auto "env:FOO" :: IO Natural
+-- 1
+--
+-- You can import types, too.  For example, we can change our @./bar@ file to:
+--
+-- > -- ./bar.dhall
+-- > [3.0, 4.0, 5.0] : List ./type.dhall
+--
+-- ... then specify the type in a separate file:
+--
+-- > -- ./type.dhall
+-- > Double
+--
+-- ... and everything still type checks:
+--
+-- > $ ./example
+-- > Example {foo = 1, bar = [3.0,4.0,5.0]}
+--
+-- Note that imports should be terminated by whitespace or parentheses otherwise
+-- you will get either an import error or a parse error, like this:
+--
+-- >>> writeFile "baz" "2.0"
+-- >>> input auto "./baz: Double" :: IO Double
+-- *** Exception:
+-- ↳ ./baz:
+-- ...
+-- ...Error...: Missing file ...baz:
+-- ...
+--
+-- This is because the parser thinks that @./baz:@ is a single token due to
+-- the missing whitespace before the colon and tries to import a file named
+-- @./baz:@, which does not exist.  To fix the problem we have to add a space
+-- after @./baz@:
+--
+-- >>> input auto "./baz : Double" :: IO Double
+-- 2.0
+--
+-- __Exercise:__ There is a @not@ function hosted online here:
+--
+-- <https://prelude.dhall-lang.org/Bool/not>
+--
+-- Visit that link and read the documentation.  Then try to guess what this
+-- code returns:
+--
+-- > >>> input auto "https://prelude.dhall-lang.org/Bool/not https://raw.githubusercontent.com/dhall-lang/dhall-haskell/18e4e9a18dc53271146df3ccf5b4177c3552236b/examples/True" :: IO Bool
+-- > ???
+--
+-- Run the code to test your guess
+
+-- $lists
+--
+-- You can store 0 or more values of the same type in a list, like this:
+--
+-- > [1, 2, 3]
+--
+-- Every list can be followed by the type of the list.  The type annotation is
+-- required for empty lists but optional for non-empty lists.  You will get a
+-- parse error if you provide an empty list without a type annotation:
+--
+-- >>> input auto "[]" :: IO (Vector Natural)
+-- *** Exception:
+-- ...Error...: Invalid input
+-- ...
+-- (input):1:3:
+--   |
+-- 1 | []
+--   |   ^
+-- Empty list literal without annotation
+-- ...
+--
+-- Also, list elements must all have the same type.  You will get an error if
+-- you try to store elements of different types in a list:
+--
+-- >>> input auto "[1, True, 3]" :: IO (Vector Natural)
+-- *** Exception:
+-- ...Error...: List elements should all have the same type
+-- ...
+-- - Natural
+-- + Bool
+-- ...
+-- 1│     True
+-- ...
+-- (input):1:5
+-- ...
+--
+-- __Exercise:__ Replace the @\"???\"@ with an expression that successfully
+-- decodes to the specified type:
+--
+-- > >>> input auto "???" :: IO (Vector (Vector Natural))
+
+-- $optional0
+--
+-- @Optional@ values are either of the form @Some value@ or @None type@.
+--
+-- For example, these are valid @Optional@ values:
+--
+-- > Some 1
+-- >
+-- > None Natural
+--
+-- ... which both have type @Optional Natural@
+--
+-- An @Optional@ corresponds to Haskell's `Maybe` type for decoding purposes:
+--
+-- >>> input auto "Some 1" :: IO (Maybe Natural)
+-- Just 1
+-- >>> input auto "None Natural" :: IO (Maybe Natural)
+-- Nothing
+--
+-- __Exercise:__ Replace the @\"???\"@ with an expression that successfully
+-- decodes to the specified type:
+--
+-- > >>> input auto "???" :: IO (Maybe (Maybe (Maybe Natural)))
+
+-- $records
+--
+-- Record literals are delimited by curly braces and their fields are separated
+-- by commas.  For example, this is a valid record literal:
+--
+-- > { foo = True
+-- > , bar = 2
+-- > , baz = 4.2
+-- > }
+--
+-- A record type is like a record literal except instead of specifying each
+-- field's value we specify each field's type.  For example, the preceding
+-- record literal has the following record type:
+--
+-- > { foo : Bool
+-- > , bar : Natural
+-- > , baz : Double
+-- > }
+--
+-- If you want to specify an empty record literal, you must use @{=}@, which is
+-- special syntax reserved for empty records.  If you want to specify the empty
+-- record type, then you use @{}@.  If you forget which is which you can always
+-- ask the @dhall@ compiler to remind you of the type for each one:
+--
+-- > $ dhall type <<< '{=}'
+-- > {}
+--
+-- > $ dhall type <<< '{}'
+-- > Type
+--
+-- This is our first use of the @dhall@ command-line tool (provided by this
+-- package), which provides a @type@ subcommand for inferring an expression's
+-- type.  By default the tool reads the expression on standard input and outputs
+-- the type to standard output.
+--
+-- Note that @<<<@ is a feature specific to the Bash shell to feed a string to
+-- a command's standard input.  If you are using another shell, then you can
+-- instead do this:
+--
+-- > $ echo '{=}' | dhall type
+-- > {}
+--
+-- __Exercise__: Use the @dhall type@ command to infer the type of this record:
+--
+-- > -- ./nested.dhall
+-- > { foo = 1
+-- > , bar =
+-- >     { baz = 2.0
+-- >     , qux = True
+-- >     }
+-- > }
+--
+-- You can specify nested fields using dot-separated keys, like this:
+--
+-- > { foo = 1, bar.baz = 2.0, bar.qux = True }
+--
+-- ... which is equivalent to:
+--
+-- > { foo = 1, bar = { baz = 2.0, qux = True } }
+--
+-- You can also access a field of a record using the following syntax:
+--
+-- > record.fieldName
+--
+-- ... which means to access the value of the field named @fieldName@ from the
+-- @record@.  For example:
+--
+-- >>> input auto "{ foo = True, bar = 2, baz = 4.2 }.baz" :: IO Double
+-- 4.2
+--
+-- ... and you can project out multiple fields into a new record using this
+-- syntax:
+--
+-- > someRecord.{ field₀, field₁, … }
+--
+-- For example:
+--
+-- > $ dhall <<< '{ x = 1, y = True, z = "ABC" }.{ x, y }'
+-- > { x = 1, y = True }
+--
+-- This is our first example of using the @dhall@ command-line tool with no
+-- subcommand (like @type@), which evaluates the provided expression.  By
+-- default, this reads the expression on standard input and outputs the
+-- evaluated result on standard output.
+--
+-- __Exercise__: Save the above @./nested.dhall@ file and then try to access the
+-- value of the @baz@ field.  Test that this works by interpreting your code
+-- using the @dhall@ command.
+--
+-- You can convert a record to a list of key-value pairs (a.k.a. a \"Map\") by
+-- using the @toMap@ keyword.  For example:
+--
+-- > $ dhall <<< 'toMap { foo = 1, bar = 2 }'
+-- > [ { mapKey = "bar", mapValue = 2 }, { mapKey = "foo", mapValue = 1 } ]
+--
+-- This conversion only works if all field of the record have the same type.
+-- This comes in handy when you need to convert a Dhall record to the Dhall
+-- equivalent of a homogeneous map (i.e. Haskell's @"Data.Map"@).
+
+-- $functions
+--
+-- The Dhall programming language also supports user-defined anonymous
+-- functions.  For example, we can save the following anonymous function to a
+-- file:
+--
+-- > -- ./makeBools.dhall
+-- > \(n : Bool) ->
+-- >     [ n && True, n && False, n || True, n || False ]
+--
+-- ... or we can use Dhall's support for Unicode characters to use @λ@ (U+03BB)
+-- instead of @\\@ and @→@ (U+2192) instead of @->@ (for people who are into
+-- that sort of thing):
+--
+-- > $ -- ./makeBools.dhall
+-- > λ(n : Bool) →
+-- >     [ n && True, n && False, n || True, n || False ]
+-- > <Ctrl-D>
+--
+-- We'll be sticking to ASCII for the remainder of the tutorial, though, while
+-- still pointing out Unicode equivalents as we go.
+--
+-- You can read this as a function of one argument named @n@ that has type
+-- @Bool@.  This function returns a @List@ of @Bool@s.  Each element of the
+-- @List@ depends on the input argument named @n@.
+--
+-- The (ASCII) syntax for anonymous functions resembles the syntax for anonymous
+-- functions in Haskell.  The only difference is that Dhall requires you to
+-- annotate the type of the function's input.
+--
+-- You can import this function into Haskell, too:
+--
+-- >>> makeBools <- input auto "./makeBools.dhall" :: IO (Bool -> Vector Bool)
+-- >>> makeBools True
+-- [True,False,True,True]
+--
+-- The reason this works is that there is an `FromDhall` instance for simple
+-- functions:
+--
+-- > instance (ToDhall a, FromDhall b) => FromDhall (a -> b)
+--
+-- Thanks to currying, this instance works for functions of multiple simple
+-- arguments:
+--
+-- >>> dhallAnd <- input auto "\\(x : Bool) -> \\(y : Bool) -> x && y" :: IO (Bool -> Bool -> Bool)
+-- >>> dhallAnd True False
+-- False
+--
+-- However, you can't convert anything more complex than that (like a polymorphic
+-- or higher-order function).  You will need to apply those functions to their
+-- arguments within Dhall before converting their result to a Haskell value.
+--
+-- Just like `FromDhall`, you can derive `ToDhall` for user-defined data types:
+--
+-- > {-# LANGUAGE DeriveAnyClass    #-}
+-- > {-# LANGUAGE DeriveGeneric     #-}
+-- > {-# LANGUAGE OverloadedStrings #-}
+-- >
+-- > module Main where
+-- >
+-- > import Dhall
+-- >
+-- > data Example0 = Example0 { foo :: Bool, bar :: Bool }
+-- >     deriving (Generic, ToDhall)
+-- >
+-- > main = do
+-- >     f <- input auto "\\(r : { foo : Bool, bar : Bool }) -> r.foo && r.bar"
+-- >     print (f (Example0 { foo = True, bar = False }) :: Bool)
+-- >     print (f (Example0 { foo = True, bar = True  }) :: Bool)
+--
+-- The above program prints:
+--
+-- > False
+-- > True
+
+-- $compiler
+--
+-- We can also test our @makeBools@ function directly from the command line.
+-- This library comes with a command-line executable program named @dhall@ that
+-- you can use to both type-check files and convert them to a normal form.  Our
+-- compiler takes a program on standard input and then prints the program's type
+-- to standard error followed by the program's normal form to standard output:
+--
+-- > $ dhall --annotate <<< './makeBools.dhall'
+-- > (λ(n : Bool) → [ n, False, True, n ]) : ∀(n : Bool) → List Bool
+--
+-- The @dhall@ command emits Unicode output by default, but you can switch to
+-- ASCII output using the @--ascii@ flag:
+--
+-- > $ dhall --annotate --ascii <<< './makeBools.dhall'
+-- > (\(n : Bool) -> [ n, False, True, n ]) : forall (n : Bool) -> List Bool
+--
+-- The @--annotate@ flag adds a type signature to the output to let us know
+-- what type the interpreter inferred for our expression.  The type signature
+-- is @∀(n : Bool) → List Bool@ which says that @makeBools@ is a function of one
+-- argument named @n@ that has type @Bool@ and the function returns a @List@ of
+-- @Bool@s.  The @∀@ (U+2200) symbol is shorthand for the ASCII @forall@
+-- keyword:
+--
+-- > ∀(x : a) → b         -- This type ...
+-- >
+-- > forall (x : a) -> b  -- ... is the same as this type
+--
+-- ... and Dhall's @forall@ keyword behaves the same way as Haskell's @forall@
+-- keyword for input values that are @Type@s:
+--
+-- > forall (x : Type) -> b  -- This Dhall type ...
+--
+-- > forall x . b            -- ... is the same as this Haskell type
+--
+-- The part where Dhall differs from Haskell is that you can also use
+-- @∀@/@forall@ to give names to non-@Type@ arguments (such as the first
+-- argument to @makeBools@).
+--
+-- This expression is our program's normal form:
+--
+-- > λ(n : Bool) → [ n, False, True, n ]
+--
+-- ... and the interpreter was able to simplify our expression by noting that:
+--
+-- * @n && True  = n@
+-- * @n && False = False@
+-- * @n || True  = True@
+-- * @n || False = n@
+--
+-- To apply a function to an argument you separate the function and argument by
+-- whitespace (just like Haskell):
+--
+-- @f x@
+--
+-- You can read the above as \"apply the function @f@ to the argument @x@\".  This
+-- means that we can \"apply\" our @./makeBools@ function to a @Bool@ argument
+-- like this:
+--
+-- > $ dhall <<< './makeBools.dhall True'
+-- > [True, False, True, True]
+--
+-- Remember that file paths are synonymous with their contents, so the above
+-- code is exactly equivalent to:
+--
+-- > $ dhall <<< '(\(n : Bool) -> [n && True, n && False, n || True, n || False]) True'
+-- > [True, False, True, True]
+--
+-- When you apply an anonymous function to an argument, you substitute the
+-- \"bound variable" with the function's argument:
+--
+-- >    Bound variable
+-- >    ⇩
+-- > (\(n : Bool) -> ...) True
+-- >                      ⇧
+-- >                      Function argument
+--
+-- So in our above example, we would replace all occurrences of @n@ with @True@,
+-- like this:
+--
+-- > -- If we replace all of these `n`s with `True` ...
+-- > [n && True, n && False, n || True, n || False]
+-- >
+-- > -- ... then we get this:
+-- > [True && True, True && False, True || True, True || False]
+-- >
+-- > -- ... which reduces to the following normal form:
+-- > [True, False, True, True]
+--
+-- Now that we've verified that our function type checks and works, we can use
+-- the same function within Haskell:
+--
+-- >>> input auto "./makeBools.dhall True" :: IO (Vector Bool)
+-- [True,False,True,True]
+--
+-- __Exercise__: Create a file named @getFoo@ that is a function of the following
+-- type:
+--
+-- > forall (r : { foo : Bool, bar : Text }) -> Bool
+--
+-- This function should take a single input argument named @r@ that is a record
+-- with two fields.  The function should return the value of the @foo@ field.
+--
+-- __Exercise__: Use the @dhall@ command to infer the type of the function you
+-- just created and verify that your function has the correct type
+--
+-- __Exercise__: Use the @dhall@ command to apply your function to a sample
+-- record
+
+-- $strings
+-- Dhall supports ordinary string literals with Haskell-style escaping rules:
+--
+-- > $ dhall
+-- > "Hello, \"world\"!"
+-- > <Ctrl-D>
+-- > "Hello, \"world\"!"
+--
+-- ... and Dhall also supports Nix-style multi-line string literals:
+--
+-- > $ dhall
+-- > ''
+-- >     #!/bin/bash
+-- >
+-- >     echo "Hi!"
+-- > ''
+-- > <Ctrl-D>
+-- > "\n#!/bin/bash\n\necho \"Hi!\"\n"
+--
+-- These \"double single quote strings\" ignore all special characters, with one
+-- exception: if you want to include a @''@ in the string, you will need to
+-- escape it with a preceding @'@ (i.e. use @'''@ to insert @''@ into the final
+-- string).
+--
+-- These strings also strip leading whitespace using the same rules as Nix.
+-- Specifically: \"it strips from each line a number of spaces equal to the
+-- minimal indentation of the string as a whole (disregarding the indentation
+-- of empty lines).\"
+--
+-- You can also interpolate expressions into strings using @${...}@ syntax.  For
+-- example:
+--
+-- > $ dhall
+-- > let name = "John Doe"
+-- > let age  = 21
+-- > in  "My name is ${name} and my age is ${Natural/show age}"
+-- > <Ctrl-D>
+-- > "My name is John Doe and my age is 21"
+--
+-- Note that you can only interpolate expressions of type @Text@
+--
+-- If you need to insert a @"${"@ into a string without interpolation then use
+-- @"''${"@ (same as Nix)
+--
+-- > ''
+-- >     for file in *; do
+-- >       echo "Found ''${file}"
+-- >     done
+-- > ''
+
+-- $combine
+--
+-- You can combine two records, using either the @(//)@ operator or the
+-- @(/\\)@ operator.
+--
+-- The @(//)@ operator (or @(⫽)@ U+2AFD) combines the fields of both records,
+-- preferring fields from the right record if they share fields in common:
+--
+-- > $ dhall
+-- > { foo = 1, bar = "ABC" } // { baz = True }
+-- > <Ctrl-D>
+-- > { bar = "ABC", baz = True, foo = 1 }
+-- > $ dhall
+-- > { foo = 1, bar = "ABC" } ⫽ { bar = True }  -- Fancy unicode
+-- > <Ctrl-D>
+-- > { bar = True, foo = 1 }
+--
+-- Note that the order of record fields does not matter.  The compiler
+-- automatically sorts the fields.
+--
+-- If you need to set or add a deeply nested field you can use the @with@
+-- keyword, like this:
+--
+-- > $ dhall <<< '{ x.y = 1 } with x.z = True'
+-- > { x = { y = 1, z = True } }
+--
+-- > $ dhall <<< '{ x.y = 1 } with x.y = 2'
+-- > { x.y = 2 }
+--
+-- The @with@ keyword is syntactic sugar for the @//@ operator which follows
+-- these rules:
+--
+-- > -- Nested case
+-- > record with k.ks… = value  ⇒  record // { k = record.k with ks… = value }
+-- >
+-- > -- Base case
+-- > record with k = value      ⇒  record // { k = value }
+--
+-- The @(/\\)@ operator (or @(∧)@ U+2227) also lets you combine records, but
+-- behaves differently if the records share fields in common.  The operator
+-- combines shared fields recursively if they are both records:
+--
+-- > $ dhall
+-- > { foo = { bar = True }, baz = "ABC" } /\ { foo = { qux = 1.0 } }
+-- > <Ctrl-D>
+-- > { baz = "ABC", foo = { bar = True, qux = 1.0 } }
+--
+-- ... but fails with a type error if either shared field is not a record:
+--
+-- > $ dhall
+-- > { foo = 1, bar = "ABC" } /\ { foo = True }
+-- > <Ctrl-D>
+-- > Use "dhall --explain" for detailed errors
+-- >
+-- > Error: Field collision
+-- >
+-- > { foo = 1, bar = "ABC" } ∧ { foo = True }
+-- >
+-- > (input):1:1
+--
+-- __Exercise__: Combine any record with the empty record.  What do you expect
+-- to happen?
+--
+-- You can analogously combine record types using the @//\\\\@ operator (or @(⩓)@ U+2A53):
+--
+-- > $ dhall
+-- > { foo : Natural } //\\ { bar : Text }
+-- > <Ctrl-D>
+-- > { foo : Natural, bar : Text }
+--
+-- ... which behaves the exact same, except at the type level, meaning that the
+-- operator descends recursively into record types:
+--
+-- > $ dhall
+-- > { foo : { bar : Text } } //\\ { foo : { baz : Bool }, qux : Natural }
+-- > <Ctrl-D>
+-- > { foo : { bar : Text, baz : Bool }, qux : Natural }
+
+-- $let
+--
+-- Dhall also supports @let@ expressions, which you can use to define
+-- intermediate values in the course of a computation, like this:
+--
+-- > $ dhall
+-- > let x = "ha" in x ++ x
+-- > <Ctrl-D>
+-- > "haha"
+--
+-- You can also annotate the types of values defined within a @let@ expression,
+-- like this:
+--
+-- > $ dhall
+-- > let x : Text = "ha" in x ++ x
+-- > <Ctrl-D>
+-- > "haha"
+--
+-- You need to nest @let@ expressions if you want to define more than one value
+-- in this way:
+--
+-- > $ dhall
+-- > let x = "Hello, "
+-- > let y = "world!"
+-- > in  x ++ y
+-- > <Ctrl-D>
+-- > "Hello, world!"
+--
+-- Dhall is whitespace-insensitive, so feel free to format things over multiple
+-- lines or indent in any way that you please.
+--
+-- If you want to define a named function, just give a name to an anonymous
+-- function:
+--
+-- > $ dhall
+-- > let twice = \(x : Text) -> x ++ x in twice "ha"
+-- > <Ctrl-D>
+-- > "haha"
+--
+-- Unlike Haskell, Dhall does not support function arguments on the left-hand
+-- side of the equals sign, so this will not work:
+--
+-- > $ dhall
+-- > let twice (x : Text) = x ++ x in twice "ha"
+-- > <Ctrl-D>
+-- > Error: Invalid input
+-- >
+-- > (input):1:11:
+-- >   |
+-- > 1 | let twice (x : Text) = x ++ x in twice "ha"
+-- >   |           ^
+-- > unexpected '('
+-- > expecting ':', '=', or the rest of label
+--
+-- The error message says that Dhall expected either a @(:)@ (i.e. the beginning
+-- of a type annotation) or a @(=)@ (the beginning of the assignment) and not a
+-- function argument.
+--
+-- You can also use @let@ expressions to rename imports, like this:
+--
+-- > $ dhall
+-- > let not = https://prelude.dhall-lang.org/Bool/not
+-- > in  not True
+-- > <Ctrl-D>
+-- > False
+--
+-- ... or to define synonyms for types:
+--
+-- > $ dhall <<< 'let Name : Type = Text in [ "John", "Mary" ] : List Name'
+-- > List Text
+-- >
+-- > [ "John", "Mary" ]
+--
+-- __Exercise:__ What do you think the following code will normalize to?
+--
+-- > let x = 1
+-- > let x = 2
+-- > in  x
+--
+-- Test your guess using the @dhall@ compiler
+--
+-- __Exercise:__ Now try to guess what this code will normalize to:
+--
+-- > let x = "ha"
+-- > let x = x ++ "ha"
+-- > in  x
+--
+-- __Exercise:__ What about this code?
+--
+-- > let x = x ++ "ha"
+-- > in  x
+
+-- $defaults
+--
+-- For records with a large number of defaultable fields you can use the
+-- @::@ operator to auto-complete a record.  For example:
+--
+-- > let greet =
+-- >           \(args : { greeting : Text, name : Text })
+-- >       ->  "${args.greeting}, ${args.name}!"
+-- >
+-- > let Greeting =
+-- >       { Type = { greeting : Text, name : Text }
+-- >       , default = { greeting = "Hello", name = "John" }
+-- >       }
+-- >
+-- > in  ''
+-- >     ${greet Greeting::{=}}
+-- >     ${greet Greeting::{ greeting = "Hola" }}
+-- >     ${greet Greeting::{ name = "Jane" }}
+-- >     ${greet Greeting::{ greeting = "Hola", name = "Jane" }}
+-- >     ''
+--
+-- This operator is syntactic sugar.  Specifically an expression of the form:
+--
+-- > T::r
+--
+-- ... is equivalent to:
+--
+-- > (T.default // r) : T.Type
+--
+-- So, for example:
+--
+-- > Greeting::{ greeting = "Hola" }
+--
+-- ... is the same thing as:
+--
+-- > (Greeting.default // { greeting = "Hola" }) : Greeting.Type
+--
+-- ... which is the same thing as:
+--
+-- > ({ greeting = "Hello", name = "John" } // { greeting = "Hola" }) : { greeting : Text, name : Text }
+--
+-- ... which is the same thing as:
+--
+-- > { greeting = "Hola", name = "John" }
+
+-- $unions
+--
+-- A union is a value that can be one of many alternative types of values.  For
+-- example, the following union type:
+--
+-- > < Left : Natural | Right : Bool >
+--
+-- ... represents a value that can be either a @Natural@ or a @Bool@ value.  If
+-- you are familiar with Haskell these are exactly analogous to Haskell's
+-- \"sum types\" and the above type is equivalent to @Either Natural Bool@.
+--
+-- Each alternative is associated with a tag that distinguishes that alternative
+-- from other alternatives.  In the above example, the @Left@ tag is used for
+-- the @Natural@ alternative and the @Right@ tag is used for the @Bool@
+-- alternative.
+--
+-- You can specify the value of a union constructor like this:
+--
+-- > let Union = < Left : Natural | Right : Bool>
+-- >
+-- > in  [ Union.Left 0, Union.Right True ]
+--
+-- In other words, you can access a union constructor as a field of a union
+-- type and use that constructor to wrap a value of a type appropriate for
+-- that alternative.  In the above example, the @Left@ constructor can wrap
+-- a @Natural@ value and the @Right@ constructor can wrap a @Bool@ value.  We
+-- can also confirm that by inspecting their type:
+--
+-- > $ echo '< Left : Natural | Right : Bool>' > ./Union
+--
+-- > $ dhall --annotate <<< '(./Union).Left'
+-- >   < Left : Natural | Right : Bool >.Left
+-- > : ∀(Left : Natural) → < Left : Natural | Right : Bool >
+--
+-- > $ dhall --annotate <<< '(./Union).Right'
+-- >   < Left : Natural | Right : Bool >.Right
+-- > : ∀(Right : Bool) → < Left : Natural | Right : Bool >
+--
+-- In other words, the @Left@ constructor is a function from a @Natural@ to a
+-- value of our @Union@ type and the @Right@ constructor is a separate function
+-- from a @Bool@ to that same @Union@ type.
+--
+-- You can consume a union using the built-in @merge@ function.  For example,
+-- suppose we want to convert our union to a @Bool@ but we want to behave
+-- differently depending on whether or not the union is a @Natural@ wrapped in
+-- the @Left@ constructor or a @Bool@ wrapped in the @Right@ constructor .  We
+-- would write:
+--
+-- > $ cat > process <<EOF
+-- >   \(union : < Left : Natural | Right : Bool >) ->
+-- >     let handlers =
+-- >             { Left  = Natural/even  -- Natural/even is a built-in function
+-- >             , Right = \(b : Bool) -> b
+-- >             }
+-- > in  merge handlers union
+-- > EOF
+--
+-- Now our @./process@ function can handle both alternatives:
+--
+-- > $ dhall <<< './process ((./Union).Left 3)'
+-- > False
+--
+-- > $ dhall <<< './process ((./Union).Right True)'
+-- > True
+--
+-- Every @merge@ has the following form:
+--
+-- > merge handlers union [ : type ]
+--
+-- ... where:
+--
+-- * @union@ is the union you want to consume
+-- * @handlers@ is a record with one function per alternative of the union
+-- * @type@ is an optional declared result type of the @merge@
+--
+-- The @merge@ function selects which function to apply from the record based on
+-- which alternative the union selects:
+--
+-- > merge { Foo = f, ... } (< … >.Foo x) = f x
+--
+-- So, for example:
+--
+-- > merge { Left = Natural/even, Right = \(b : Bool) -> b } (< Left : Natural | Right : Bool >.Left 3)
+-- >     = Natural/even 3
+-- >     = False
+--
+-- ... and similarly:
+--
+-- > merge { Left = Natural/even, Right = \(b : Bool) -> b } (< Left : Natural | Right : Bool >.Right True)
+-- >     = (\(b : Bool) -> b) True
+-- >     = True
+--
+-- Notice that each handler has to return the same type of result (@Bool@ in
+-- this case).
+--
+-- You can also store more than one value within alternatives using Dhall's
+-- support for anonymous records.  You can nest an anonymous record within a
+-- union such as in this type:
+--
+-- > < Empty : {} | Person : { name : Text, age : Natural } >
+--
+-- You can even go a step further and omit the type of an alternative if it
+-- stores no data, like this:
+--
+-- > < Empty | Person : { name : Text, age : Natural } >
+--
+-- The above Dhall type resembles the following equivalent Haskell data type:
+--
+-- > data Example = Empty | Person { name :: Text, age :: Text }
+--
+-- Empty alternatives like @Empty@ require no argument:
+--
+-- > let Example = < Empty | Person : { name : Text, age : Natural } >
+-- >
+-- > in  [ Example.Empty  -- Note the absence of any argument to `Empty`
+-- >     , Example.Person { name = "John", age = 23 }
+-- >     , Example.Person { name = "Amy" , age = 25 }
+-- >     ]
+--
+-- ... and when you @merge@ an empty alternative the correspond handler takes no
+-- argument:
+--
+-- > \(x : < Empty | Person : { name : Text, age : Natural } >) ->
+-- >   merge
+-- >     { Empty = "Unknown"  -- Note the absence of an anonymous function
+-- >
+-- >     , Person =
+-- >         \(person : { name : Text, age : Natural }) ->
+-- >           "Name: ${person.name}, Age: ${Natural/show person.age}"
+-- >     }
+-- >     x
+--
+-- __Exercise__: Create a list of the following type with at least one element
+-- per alternative:
+--
+-- > List < Left : Natural | Right : Double >
+
+-- $polymorphic
+--
+-- The Dhall language supports defining polymorphic functions (a.k.a.
+-- \"generic\" functions) that work on more than one type of value.  However,
+-- Dhall differs from Haskell by not inferring the types of these polymorphic
+-- functions.  Instead, you must be explicit about what type of value the
+-- function is specialized to.
+--
+-- Take, for example, Haskell's identity function named @id@:
+--
+-- > id :: a -> a
+-- > id = \x -> x
+--
+-- The identity function is polymorphic, meaning that `id` works on values of
+-- different types:
+--
+-- >>> id 4
+-- 4
+-- >>> id True
+-- True
+--
+-- The equivalent function in Dhall is:
+--
+-- > \(a : Type) -> \(x : a) -> x
+--
+-- Notice how this function takes two arguments instead of one.  The first
+-- argument is the type of the second argument.
+--
+-- Let's illustrate how this works by actually using the above function:
+--
+-- > $ echo "\\(a : Type) -> \\(x : a) -> x" > id
+--
+-- Let's ask the interpreter for the type of this function:
+-- the first line:
+--
+-- > $ dhall type <<< './id'
+-- > ∀(a : Type) → ∀(x : a) → a
+--
+-- You can read the type @(∀(a : Type) → ∀(x : a) → a)@ as saying: \"This is the
+-- type of a function whose first argument is named @a@ and is a @Type@.  The
+-- second argument is named @x@ and has type @a@ (i.e. the value of the first
+-- argument).  The result also has type @a@.\"
+--
+-- This means that the type of the second argument changes depending on what
+-- type we provide for the first argument.  When we apply @./id@ to @Natural@,
+-- we create a function that expects an @Natural@ argument:
+--
+-- > $ dhall type <<< './id Natural'
+-- > ∀(x : Natural) → Natural
+--
+-- Similarly, when we apply @./id@ to @Bool@, we create a function that expects a
+-- @Bool@ argument:
+--
+-- > $ dhall type <<< './id Bool'
+-- > ∀(x : Bool) → Bool
+--
+-- We can then supply the final argument to each of those functions to show
+-- that they both work on their respective types:
+--
+-- > $ dhall <<< './id Natural 4'
+-- > 4
+--
+-- > $ dhall <<< './id Bool True'
+-- > True
+--
+-- Built-in functions can also be polymorphic, too.  For example, we can ask
+-- the compiler for the type of @List/reverse@, the function that reverses a
+-- list:
+--
+-- > $ dhall --annotate
+-- > List/reverse
+-- > <Ctrl-D>
+-- > List/reverse : ∀(a : Type) → List a → List a
+--
+-- The first argument to @List/reverse@ is the type of the list to reverse:
+--
+-- > $ dhall
+-- > List/reverse Bool
+-- > <Ctrl-D>
+-- > List/reverse Bool : List Bool → List Bool
+--
+-- ... and the second argument is the list to reverse:
+--
+-- > $ dhall
+-- > List/reverse Bool [True, False]
+-- > <Ctrl-D>
+-- > [False, True]
+--
+-- Note that the second argument has no name.  This type:
+--
+-- > ∀(a : Type) → List a → List a
+--
+-- ... is equivalent to this type:
+--
+-- > ∀(a : Type) → ∀(_ : List a) → List a
+--
+-- In other words, if you don't see the @∀@ symbol surrounding a function
+-- argument type then that means that the name of the argument is @"_"@.  This
+-- is true even for user-defined functions:
+--
+-- > $ dhall type <<< '\\(_ : Text) -> 1'
+-- > Text → Natural
+--
+-- The type @Text → Natural@ is the same as @∀(_ : Text) → Natural@
+--
+-- __Exercise__ : Translate Haskell's `flip` function to Dhall
+
+-- $total
+--
+-- Dhall is a total programming language, which means that Dhall is not
+-- Turing-complete and evaluation of every Dhall program is guaranteed to
+-- eventually halt.  There is no upper bound on how long the program might take
+-- to evaluate, but the program is guaranteed to terminate in a finite amount of
+-- time and not hang forever.
+--
+-- This guarantees that all Dhall programs can be safely reduced to a normal
+-- form where as many functions have been evaluated as possible.  In fact, Dhall
+-- expressions can be evaluated even if all function arguments haven't been fully
+-- applied.  For example, the following program is an anonymous function:
+--
+-- > $ dhall
+-- > \(n : Bool) -> 10 * 10
+-- > <Ctrl-D>
+-- > λ(n : Bool) → 100
+--
+-- ... and even though the function is still missing the first argument named
+-- @n@ the compiler is smart enough to evaluate the body of the anonymous
+-- function ahead of time before the function has even been invoked.
+--
+-- We can use the @map@ function from the Prelude to illustrate an even more
+-- complex example:
+--
+-- > $ dhall
+-- > let List/map = https://prelude.dhall-lang.org/List/map
+-- > in  \(f : Natural → Natural) -> List/map Natural Natural f [1, 2, 3]
+-- > <Ctrl-D>
+-- > λ(f : Natural → Natural) → [f 1, f 2, f 3]
+--
+-- Dhall can apply our function to each element of the list even before we specify
+-- which function to apply.
+--
+-- The language will also never crash or throw any exceptions.  Every
+-- computation will succeed and produce something, even if the result might be
+-- an @Optional@ value:
+--
+-- > $ dhall <<< 'List/head Natural ([] : List Natural)'
+-- > None Natural
+--
+-- __Exercise__: The Dhall Prelude provides a @replicate@ function which you can
+-- find here:
+--
+-- <https://prelude.dhall-lang.org/List/replicate>
+--
+-- Test what the following Dhall expression normalizes to:
+--
+-- > let replicate = https://prelude.dhall-lang.org/List/replicate
+-- > in  replicate 10
+--
+-- __Exercise__: If you have a lot of spare time, try to \"break the compiler\"
+-- by finding an input expression that crashes or loops forever (and file a bug
+-- report if you succeed).
+
+-- $assertions
+--
+-- You can add compile-time assertions which you can use to add tests to your
+-- code.  For example, we can add some tests to our @not@ function like this:
+--
+-- > let not
+-- >     : Bool -> Bool
+-- >     = \(b : Bool) -> b == False
+-- >
+-- > let example0 = assert : not False === True
+-- >
+-- > let example1 = assert : not True === False
+-- >
+-- > in  not
+--
+-- The expression @assert : not False == True@ is a type-checking assertion
+-- that two expressions have the same normal form.  If the two expressions differ
+-- then type-checking rejects the code.
+--
+-- For example, suppose that we change the example to add an incorrect assertion:
+--
+-- > -- ./test.dhall
+-- >
+-- > let not
+-- >     : Bool -> Bool
+-- >     = \(b : Bool) -> b == False
+-- >
+-- > let example0 = assert : not False === True
+-- >
+-- > let example1 = assert : not True === True  -- Oops!
+-- >
+-- > in  not
+--
+-- The type-checker then rejects the assertion with the following error message:
+--
+-- > $ dhall <<< './test.dhall'
+-- >
+-- > ↳ ./test.dhall
+-- >
+-- > Error: Assertion failed
+-- >
+-- > - False
+-- > + True
+-- >
+-- > 7│                assert : not True === True -- Oops!
+-- > 8│
+-- >
+-- > ./test.dhall:7:16
+-- >
+-- > 1│ ./test.dhall
+-- >
+-- > (input):1:1
+--
+-- You can compare expressions that contain variables, too, which is equivalent
+-- to symbolic reasoning:
+--
+-- > $ dhall <<< '\(n : Natural) -> assert : n === (n + 0)'
+-- > λ(n : Natural) → assert : n ≡ n
+--
+-- Dhall accepts this because the language has built-in support for normalizing
+-- @n + 0@ to @n@, so both sides of the comparison normalize to the same value:
+-- @n@.
+--
+-- Note that this sort of symbolic reasoning is limited and can only detect
+-- equality of normal forms.  Some equivalent expressions will be rejected
+-- if they don't share the same normal form, such as these:
+--
+-- > $ dhall <<< '\(n : Natural) -> assert : Natural/even (n + n) === True'
+-- >
+-- > Use "dhall --explain" for detailed errors
+-- >
+-- > n : Natural
+-- >
+-- > Error: Assertion failed
+-- >
+-- > - … …
+-- > + True
+-- >
+-- > 1│                   assert : Natural/even (n + n) === True
+-- >
+-- > (input):1:19
+--
+-- Here the interpreter is not smart enough to simplify @Natural/even (n + n)@
+-- to @True@ so the assertion fails.
+--
+-- If you prefer to use Unicode, then the Unicode equivalent of @===@ is @≡@
+-- (U+2261).
+
+-- $headers
+--
+-- Sometimes you would like to provide additional request headers when importing
+-- Dhall expressions from URLs.  For example, you might want to provide an
+-- authorization header or specify the expected content type.
+--
+-- Dhall URL imports let you add or modify request headers with the @using@
+-- keyword:
+--
+-- > https://example.com/example.dhall using ./headers
+--
+-- ... where you can replace @./headers@ with any import that points to a Dhall
+-- expression of the following type:
+--
+-- > List { header : Text, value : Text }
+--
+-- For example, if you needed to specify the content type correctly in order to
+-- download the file, then your @./headers@ file might look like this:
+--
+-- > $ cat headers
+-- > [ { header = "Accept", value = "application/dhall" } ]
+--
+-- ... or if you needed to provide an authorization token to access a private
+-- GitHub repository, then your headers could look like this:
+--
+-- > [ { header = "Authorization", value = "token ${env:GITHUB_TOKEN as Text}" } ]
+--
+-- This would read your GitHub API token from the @GITHUB_TOKEN@ environment
+-- variable and supply that token in the authorization header.
+--
+-- You cannot inline the headers within the same file as the URL.  You must
+-- provide them as a separate import.  That means that this is /not/ legal code:
+--
+-- > http://example.com/example.dhall using [ { header = "Accept", value = "application/dhall" } ]  -- NOT legal
+--
+-- Dhall will forward imports if you import an expression from a URL that
+-- contains a relative import.  For example, if you import an expression like
+-- this:
+--
+-- > http://example.com/example.dhall using ./headers
+--
+-- ... and @http:\/\/example.com/example.dhall@ contains a relative import of @./foo@
+-- then Dhall will import @http:\/\/example.com/foo@ using the same @./headers@ file.
+
+-- $integrity
+--
+-- Sometimes you want to use share code while still ensuring that the imported
+-- value never changes and can't be corrupted by a malicious attacker.  Dhall
+-- provides built-in support for hashing imported values to verify that their
+-- value never changes
+--
+-- For example, suppose you save the following two files:
+--
+-- > $ cat ./foo
+-- > ./bar sha256:d60d8415e36e86dae7f42933d3b0c4fe3ca238f057fba206c7e9fbf5d784fe15
+--
+-- > $ cat ./bar
+-- > ./baz
+--
+-- > $ cat ./baz
+-- > 1
+--
+-- The first file named @./foo@ contains an example of an integrity check.  You
+-- can add @sha256:XXX@ after any import (such as after @./bar@), where @XXX@ is
+-- an expected 64-character @sha256@ hash of the Dhall value.  To be precise,
+-- the hash represents a @sha256@ hash of the UTF-8 encoding of a canonical text
+-- representation of the fully resolved and normalized abstract syntax tree of
+-- the imported expression.
+--
+-- Dhall will verify that the expected hash matches the actual hash of the
+-- imported Dhall value and reject the import if there is a hash mismatch:
+--
+-- > $ dhall <<< './foo'
+-- > Natural
+-- >
+-- > 1
+--
+-- Any import protected by a semantic integrity check is automatically cached
+-- locally underneath either @~\/.cache\/dhall\/1220${HASH}@ or
+-- @${XDG_CACHE_HOME}\/dhall/1220${HASH}@ if you define the @XDG_CACHE_HOME@
+-- environment variable.
+--
+-- For example, after you import @./foo@ the contents of `./bar` are locally
+-- cached in a fully-evaluated and binary-encoded form which you can inspect by
+-- running:
+--
+-- > $ dhall decode < ~/.cache/dhall/1220d60d8415e36e86dae7f42933d3b0c4fe3ca238f057fba206c7e9fbf5d784fe15
+-- > 1
+--
+-- Subsequent attempts to resolve the same import will automatically retrieve
+-- the import from the cache.  This matters less for local imports, but comes in
+-- handy for remote imports to avoid redownloading them.
+--
+-- The local cache takes precedence when resolving imports, so changing the
+-- original import afterwards will have no affect until you update the hash.
+-- From Dhall's point of view, the hash is the true address and the file path
+-- is just a suggestion for how to obtain the import if it's not already cached.
+--
+-- You can disable the cache by setting @XDG_CACHE_HOME@ to `/var/empty` (an
+-- empty and unwritable directory), like this:
+--
+-- > $ XDG_CACHE_HOME=/var/empty dhall <<< './foo'
+-- > Natural
+-- >
+-- > 1
+--
+-- We'll use this trick to test changes to the protected import in the following
+-- examples.
+--
+-- Now, suppose you add a comment to the @./bar@ file:
+--
+-- > $ cat ./bar
+-- > -- This comment does not change the hash
+-- > ./baz
+--
+-- ... then @./foo@ will still successfully import @./bar@ because the hash
+-- only depends on the normalized value and does not depend on meaningless
+-- changes to whitespace or comments:
+--
+-- > $ XDG_CACHE_HOME=/var/empty dhall <<< './foo'  # This still succeeds
+-- > Natural
+-- >
+-- > 1
+--
+-- You can compute the Hash for any import by using the hash subcommand
+-- of this package.  For example:
+--
+-- > $ dhall hash <<< './bar'
+-- > sha256:d60d8415e36e86dae7f42933d3b0c4fe3ca238f057fba206c7e9fbf5d784fe15
+--
+-- Now suppose that you actually change the value of the @./baz@ file:
+--
+-- > $ cat ./baz
+-- > 2
+--
+-- ... then the @./foo@ file will fail to import @./bar@, even though the
+-- text of the @./bar@ file technically never changed:
+--
+-- > XDG_CACHE_HOME=/var/empty dhall <<< './foo'
+-- >
+-- > Error: Import integrity check failed
+-- >
+-- > Expected hash:
+-- >
+-- > ↳ d60d8415e36e86dae7f42933d3b0c4fe3ca238f057fba206c7e9fbf5d784fe15
+-- >
+-- > Actual hash:
+-- >
+-- > ↳ 4caf97e8c445d4d4b5c5b992973e098ed4ae88a355915f5a59db640a589bc9cb
+--
+-- This is because the @./bar@ file now represents a new value (@2@ instead of
+-- @1@), even though the text of the @./bar@ file is still the same.  Since the
+-- value changed the hash must change as well.  However, we could change @./baz@
+-- to:
+--
+-- > $ cat baz
+-- > if True then 1 else 2
+--
+-- ... and the import would now succeed again because the final result is @1@.
+--
+-- The integrity hash ensures that your import's final meaning can never change,
+-- so an attacker can never compromise an imported value protected by a hash
+-- unless they can break SHA-256 encryption.  The hash not only protects the
+-- file that you immediately import, but also protects every transitive import
+-- as well.
+--
+-- You can also safely refactor your imported dependencies knowing that the
+-- refactor will not change your hash so long as your refactor is
+-- behavior-preserving.  This provides an easy way to detect refactoring errors
+-- that you might accidentally introduce.  The hash not only protects you
+-- from attackers, but also protects against human error, too!
+--
+-- If you have a file which either doesn't already use hashed imports,
+-- or you changed some of the imports and want to update the hashes you can use the
+-- freeze command to either add or update hashes:
+--
+-- > $ cat foo.dhall
+-- > let replicate = https://prelude.dhall-lang.org/List/replicate
+-- > in  replicate 5
+-- > $
+-- > $ dhall freeze ./foo.dhall
+-- > $ cat ./foo.dhall
+-- > let replicate =
+-- >       https://prelude.dhall-lang.org/List/replicate sha256:d4250b45278f2d692302489ac3e78280acb238d27541c837ce46911ff3baa347
+-- >
+-- > in  replicate 5
+
+-- $rawText
+--
+-- Sometimes you want to import the contents of a raw text file as a Dhall
+-- value of type `Dhall.Syntax.Text`.  For example, one of the fields of a
+-- record might be the contents of a software license:
+--
+-- > { package = "dhall"
+-- > , author  = "Gabriella Gonzalez"
+-- > , license = ./LICENSE
+-- > }
+--
+-- Normally if you wanted to import a text file you would need to wrap the
+-- contents of the file in double single-quotes, like this:
+--
+-- > $ cat LICENSE
+-- > ''
+-- > Copyright (c) 2017 Gabriella Gonzalez
+-- > All rights reserved.
+-- >
+-- > ...
+-- > (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+-- > SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+-- > ''
+--
+-- ... which does not work well if you need to reuse the same text file for
+-- other programs
+--
+-- However, Dhall supports importing a raw text file by adding @as Text@ to the
+-- end of the import, like this:
+--
+-- > { package = "dhall"
+-- > , author  = "Gabriella Gonzalez"
+-- > , license = ./LICENSE as Text
+-- > }
+--
+-- ... and then you can use the original text file unmodified:
+--
+-- > $ cat LICENSE
+-- > Copyright (c) 2017 Gabriella Gonzalez
+-- > All rights reserved.
+-- >
+-- > ...
+-- > (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+-- > SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+-- $format
+--
+-- A format subcommand is also available that you can use to
+-- automatically format Dhall expressions.  For example, we can take the
+-- following unformatted Dhall expression:
+--
+-- > $ cat ./unformatted
+-- > λ(a : Type) → λ(kvss : List (List { index : Natural, value : a })) →
+-- > List/build { index : Natural, value : a } (λ(list : Type) → λ(cons : {
+-- > index : Natural, value : a } → list → list) → λ(nil : list) →
+-- > (List/fold (List { index : Natural, value : a }) kvss { count : Natural, diff :
+-- > Natural → list } (λ(kvs : List { index : Natural, value : a }) → λ(y : {
+-- > count : Natural, diff : Natural → list }) → { count = y.count + List/length
+-- > { index : Natural, value : a } kvs, diff = λ(n : Natural) → List/fold {
+-- > index : Natural, value : a } kvs list (λ(kvOld : { index : Natural, value : a
+-- > }) → λ(z : list) → cons { index = kvOld.index + n, value = kvOld.value }
+-- > z) (y.diff (n + List/length { index : Natural, value : a } kvs)) }) { count =
+-- > 0, diff = λ(_ : Natural) → nil }).diff 0)
+--
+-- ... and run the expression through the formatter:
+--
+-- > $ dhall format < ./unformatted
+-- > λ(a : Type) →
+-- > λ(kvss : List (List { index : Natural, value : a })) →
+-- >   List/build
+-- >     { index : Natural, value : a }
+-- >     ( λ(list : Type) →
+-- >       λ(cons : { index : Natural, value : a } → list → list) →
+-- >       λ(nil : list) →
+-- >         ( List/fold
+-- >             (List { index : Natural, value : a })
+-- >             kvss
+-- >             { count : Natural, diff : Natural → list }
+-- >             ( λ(kvs : List { index : Natural, value : a }) →
+-- >               λ(y : { count : Natural, diff : Natural → list }) →
+-- >                 { count =
+-- >                     y.count + List/length { index : Natural, value : a } kvs
+-- >                 , diff =
+-- >                     λ(n : Natural) →
+-- >                       List/fold
+-- >                         { index : Natural, value : a }
+-- >                         kvs
+-- >                         list
+-- >                         ( λ(kvOld : { index : Natural, value : a }) →
+-- >                           λ(z : list) →
+-- >                             cons
+-- >                               { index = kvOld.index + n, value = kvOld.value }
+-- >                               z
+-- >                         )
+-- >                         ( y.diff
+-- >                             (n + List/length { index : Natural, value : a } kvs)
+-- >                         )
+-- >                 }
+-- >             )
+-- >             { count = 0, diff = λ(_ : Natural) → nil }
+-- >         ).diff
+-- >           0
+-- >     )
+--
+-- The executable formats expressions without resolving, type-checking, or
+-- normalizing them:
+--
+-- > $ dhall format
+-- > let replicate = https://prelude.dhall-lang.org/List/replicate
+-- > in replicate 5 (List (List Natural)) (replicate 5 (List Natural) (replicate 5 Natural 1))
+-- > <Ctrl-D>
+-- > let replicate = https://prelude.dhall-lang.org/List/replicate
+-- >
+-- > in  replicate
+-- >       5
+-- >       (List (List Natural))
+-- >       (replicate 5 (List Natural) (replicate 5 Natural 1))
+--
+-- You can also use the formatter to modify files in place:
+--
+-- > $ dhall format ./unformatted
+--
+-- Carefully note that the code formatter does not preserve all comments.
+-- Currently, the formatter only preserves two types of comments:
+--
+-- * Leading comments at the beginning of the file
+-- * Comments within a @let@ binding
+--
+-- For example:
+--
+-- > $ dhall format
+-- > {- This comment will be preserved by the formatter -}
+-- > -- ... and this comment will be preserved, too
+-- > {- This comment will *NOT* be preserved -} 1
+-- > -- ... and this comment will also *NOT* be preserved
+-- > <Ctrl-D>
+-- > {- This comment will be preserved by the formatter -}
+-- > -- ... and this comment will be preserved, too
+-- > 1
+--
+-- Also:
+--
+-- > let {- This comment will be preserved -}
+-- >     x {- This comment will also be preserved-} =
+-- >     {- ... and this one will be preserved, too -}
+-- >       1
+-- >
+-- > in  x
+--
+-- Note that you do not need to format the output of the
+-- @dhall@ interpreter.  The interpreter already automatically formats
+-- multi-line expressions, too:
+--
+-- > $ dhall
+-- > let replicate = https://prelude.dhall-lang.org/List/replicate
+-- > in replicate 5 (List (List Natural)) (replicate 5 (List Natural) (replicate 5 Natural 1))
+-- > <Ctrl-D>
+-- > [ [ [ 1, 1, 1, 1, 1 ]
+-- >   , [ 1, 1, 1, 1, 1 ]
+-- >   , [ 1, 1, 1, 1, 1 ]
+-- >   , [ 1, 1, 1, 1, 1 ]
+-- >   , [ 1, 1, 1, 1, 1 ]
+-- >   ]
+-- > , [ [ 1, 1, 1, 1, 1 ]
+-- >   , [ 1, 1, 1, 1, 1 ]
+-- >   , [ 1, 1, 1, 1, 1 ]
+-- >   , [ 1, 1, 1, 1, 1 ]
+-- >   , [ 1, 1, 1, 1, 1 ]
+-- >   ]
+-- > , [ [ 1, 1, 1, 1, 1 ]
+-- >   , [ 1, 1, 1, 1, 1 ]
+-- >   , [ 1, 1, 1, 1, 1 ]
+-- >   , [ 1, 1, 1, 1, 1 ]
+-- >   , [ 1, 1, 1, 1, 1 ]
+-- >   ]
+-- > , [ [ 1, 1, 1, 1, 1 ]
+-- >   , [ 1, 1, 1, 1, 1 ]
+-- >   , [ 1, 1, 1, 1, 1 ]
+-- >   , [ 1, 1, 1, 1, 1 ]
+-- >   , [ 1, 1, 1, 1, 1 ]
+-- >   ]
+-- > , [ [ 1, 1, 1, 1, 1 ]
+-- >   , [ 1, 1, 1, 1, 1 ]
+-- >   , [ 1, 1, 1, 1, 1 ]
+-- >   , [ 1, 1, 1, 1, 1 ]
+-- >   , [ 1, 1, 1, 1, 1 ]
+-- >   ]
+-- > ]
+
+-- $builtins
+--
+-- Dhall is a restricted programming language that only supports simple built-in
+-- functions and operators.  If you want to do anything fancier you will need to
+-- load your data into Haskell for further processing
+--
+-- This section covers types, functions, and operators that are built into the
+-- language, meaning that you do not need to import any code to use them.
+-- Additionally, Dhall also comes with a Prelude (covered in the next section)
+-- hosted online that contains functions derived from these base utilities.  The
+-- Prelude also re-exports all built-in functions for people who prefer
+-- consistency.
+--
+-- The language provides built-in support for the following primitive types:
+--
+-- * @Bool@ values
+-- * @Natural@ values
+-- * @Integer@ values
+-- * @Double@ values
+-- * @Text@ values
+--
+-- ... as well as support for the following derived types:
+--
+-- * @List@s of values
+-- * @Optional@ values
+-- * Anonymous records
+-- * Anonymous unions
+--
+-- You can find an up-to-date list of available built-in functions and operators
+-- here:
+--
+-- <https://docs.dhall-lang.org/references/Built-in-types.html>
+
+-- $caveats
+--
+-- Dhall differs in a few important ways from other programming languages, so
+-- you should keep the following caveats in mind:
+--
+-- First, Dhall only supports addition and multiplication on @Natural@ numbers
+-- (i.e. non-negative integers), which are not the same type of number as
+-- @Integer@s (which can be negative).  An @Integer@ number is a number prefixed
+-- with either a @+@ or @-@ symbol whereas a @Natural@ number has no leading
+-- sign.  If you try to add or multiply two @Integer@s you will get a type
+-- error:
+--
+-- > $ dhall
+-- > +2 + +2
+-- > <Ctrl-D>
+-- > Use "dhall --explain" for detailed errors
+-- >
+-- > Error: ❰+❱ only works on ❰Natural❱s
+-- >
+-- > +2 + +2
+-- >
+-- > (input):1:1
+--
+-- There are no built-in functions for @Integer@ arithmetic; however, conversion
+-- to and from @Natural@s is possible usinng @Integer/clamp@, @Integer/negate@
+-- and @Natural/toInteger@.
+--
+-- For @Double@s the situation is even more extreme: there are no built-in
+-- functions other than @Double/show@. As far as the language is concerned they
+-- are opaque values that can only be shuffled around but not used in any
+-- meaningful way until they have been loaded into Haskell.
+--
+-- Second, the equality @(==)@ and inequality @(!=)@ operators only work on
+-- @Bool@s.  You cannot test any other types of values for equality.
+--
+-- However, you can extend the language with your own built-ins using the
+-- Haskell API, as described in the next section.
+
+-- $extending
+--
+-- You can use the Haskell API to extend the Dhall configuration language with
+-- new built-in functions.  This section contains a simple Haskell recipe to add
+-- a new @Natural/equal@ built-in function of type:
+--
+-- > Natural/equal : Natural -> Natural -> Bool
+--
+-- To do so, we:
+--
+-- * extend the type-checking context to include the type of @Natural/equal@
+-- * extend the normalizer to evaluate all occurrences of @Natural/equal@
+--
+-- ... like this:
+--
+-- > -- example.hs
+-- >
+-- > {-# LANGUAGE OverloadedStrings #-}
+-- >
+-- > module Main where
+-- >
+-- > import Dhall.Core (Expr(..), ReifiedNormalizer(..))
+-- >
+-- > import qualified Data.Text.IO
+-- > import qualified Dhall
+-- > import qualified Dhall.Context
+-- > import qualified Lens.Family   as Lens
+-- >
+-- > main :: IO ()
+-- > main = do
+-- >     text <- Data.Text.IO.getContents
+-- >
+-- >     let startingContext = transform Dhall.Context.empty
+-- >           where
+-- >             transform = Dhall.Context.insert "Natural/equal" naturalEqualType
+-- >
+-- >             naturalEqualType =
+-- >                 Pi "_" Natural (Pi "_" Natural Bool)
+-- >
+-- >     let normalizer (App (App (Var "Natural/equal") (NaturalLit x)) (NaturalLit y)) =
+-- >             Just (BoolLit (x == y))
+-- >         normalizer _ =
+-- >             Nothing
+-- >
+-- >     let inputSettings = transform Dhall.defaultInputSettings
+-- >           where
+-- >             transform =
+-- >                   Lens.set Dhall.normalizer      (Just (ReifiedNormalizer (pure . normalizer)))
+-- >                 . Lens.set Dhall.startingContext startingContext
+-- >
+-- >     x <- Dhall.inputWithSettings inputSettings Dhall.auto text
+-- >
+-- >     Data.Text.IO.putStrLn x
+--
+-- Here is an example use of the above program:
+--
+-- > $ ./example <<< 'if Natural/equal 2 (1 + 1) then "Equal" else "Not equal"'
+-- > Equal
+--
+-- Note that existing Dhall tools that type-check expressions will reject
+-- expressions containing unexpected free variable such as @Natural/equal@:
+--
+-- > $ dhall <<< 'Natural/equal 2 (1 + 1)'
+-- >
+-- > Use "dhall --explain" for detailed errors
+-- >
+-- > Error: Unbound variable
+-- >
+-- > Natural/equal
+-- >
+-- > (input):1:1
+--
+-- You will need to either:
+--
+-- * create your own parallel versions of these tools, or:
+-- * < https://github.com/dhall-lang/dhall-lang/blob/master/.github/CONTRIBUTING.md#how-do-i-change-the-language try to upstream your built-ins into the language>
+--
+-- The general guidelines for adding new built-ins to the language are:
+--
+-- * Keep built-ins easy to implement across language bindings
+-- * Prefer general purpose built-ins or built-ins appropriate for the task of program configuration
+-- * Design built-ins to catch errors as early as possible (i.e. when type-checking the configuration)
+
+-- $substitutions
+--
+-- Substitutions are another way to extend the language.
+--
+-- Suppose we have the following Haskell datatype:
+--
+-- > data Result = Failure Integer | Success String
+-- >     deriving (Eq, Generic, Show)
+-- >
+-- > instance FromDhall Result
+--
+-- We can use it in Dhall like that:
+--
+-- > -- example.dhall
+-- >
+-- > let Result = < Failure : Integer | Success : Text >
+-- > in Result.Failure +1
+--
+-- Right now it is quite easy to keep these two definitions (the one in Haskell source and the one in the Dhall file) synchronized:
+-- If we implement a new feature in the Haskell source we update the corresponding type in the Dhall file.
+-- But what happens if our application is growing and our Result type contains e.g. 10 unions with possible types embedded in it?
+--
+-- We can override the interpreter's @evaluateSettings@ with a custom set of
+-- substitutions, like this:
+--
+-- > {-# LANGUAGE OverloadedStrings #-}
+-- >
+-- > myexample :: IO Result
+-- > myexample = let
+-- >    evaluateSettings = Lens.over Dhall.substitutions (Dhall.Map.insert "Result" resultType) Dhall.defaultEvaluateSettings
+-- >    in Dhall.inputFileWithSettings evaluateSettings resultDecoder "example.dhall"
+--
+-- Substitutions are a simple 'Dhall.Map.Map' mapping variables to expressions. The application of these substitutions reflect the order of the insertions in the substitution map:
+--
+-- > {-# LANGUAGE OverloadedStrings #-}
+-- >
+-- > substitute (Dhall.Core.Var "Foo") (Dhall.Map.fromList [("Foo", Dhall.Core.Var "Bar"), ("Bar", Dhall.Core.BoolLit True)])
+--
+-- results in @Dhall.Core.Var \"Baz\"@ since we first substitute \"Foo\" with \"Bar\" and then the resulting \"Bar\" with the final @True@.
+--
+-- Notable differences to the other extensions of the builtin language:
+--
+--  * This approach works well with the inputFile/inputFileWithSettings functions while the let-wrapping will not.
+--
+--  * In contrast to the custom built-ins described above substitutions are made BEFORE the type-checking.
+
+-- $prelude
+--
+-- There is also a Prelude available at:
+--
+-- <https://prelude.dhall-lang.org>
+--
+-- If you visit the above link you can browse the Prelude, which has a few
+-- subdirectories.  For example, the @Bool@ subdirectory has a @not@ file, which
+-- you can reference using this URL:
+--
+-- <https://prelude.dhall-lang.org/Bool/not>
+--
+-- The @not@ function is just a UTF8-encoded text file hosted online with the
+-- following contents
+--
+-- > $ dhall <<< 'https://prelude.dhall-lang.org/Bool/not as Text'
+-- > ''
+-- > {-
+-- > Flip the value of a Bool
+-- > -}
+-- > let not : Bool → Bool = λ(b : Bool) → b == False
+-- >
+-- > let example0 = assert : not True ≡ False
+-- >
+-- > let example1 = assert : not False ≡ True
+-- >
+-- > in  not
+-- > ''
+--
+-- The file could have been much shorter, like this:
+--
+-- > λ(b : Bool) → b == False
+--
+-- ... but all the functions exported from the Prelude try to be as
+-- self-documenting as possible by including:
+--
+-- * the name of the function
+-- * the type of the function
+-- * documentation
+-- * tests
+--
+-- The performance penalty for adding these helpful features is negligible,
+-- especially if you protect the import with a semantic integrity check because
+-- then the import would be cached compactly as @λ(_ : Bool) → _ == False@.
+--
+-- You can use this @not@ function either directly:
+--
+-- > $ dhall
+-- > https://prelude.dhall-lang.org/Bool/not True
+-- > <Ctrl-D>
+-- > False
+--
+-- ... or assign the URL to a shorter name:
+--
+-- > $ dhall
+-- > let Bool/not = https://prelude.dhall-lang.org/Bool/not
+-- > in  Bool/not True
+-- > <Ctrl-D>
+-- > False
+--
+-- Some functions in the Prelude just re-export built-in functions for
+-- consistency and documentation, such as @Prelude\/Natural\/even@, which
+-- re-exports the built-in @Natural/even@ function:
+--
+-- > $ dhall <<< 'https://prelude.dhall-lang.org/Natural/even as Text'
+-- > ''
+-- > {-
+-- > Returns `True` if a number if even and returns `False` otherwise
+-- > -}
+-- > let even : Natural → Bool = Natural/even
+-- >
+-- > let example0 = assert : even 3 ≡ False
+-- >
+-- > let example1 = assert : even 0 ≡ True
+-- >
+-- > in  even
+-- > ''
+--
+-- You can also clone the Prelude locally to your filesystem if you prefer
+-- using `git clone`, like this:
+--
+-- > $ git clone https://github.com/dhall-lang/dhall-lang.git
+-- > $ tree dhall-lang/Prelude
+-- > dhall-lang/Prelude
+-- > ├── Bool
+-- > │   ├── and
+-- > │   ├── build
+-- > │   ├── even
+-- > │   ├── fold
+-- > │   ├── not
+-- > │   ├── odd
+-- > │   ├── or
+-- > │   ├── package.dhall
+-- > │   └── show
+-- > ├── Double
+-- > │   ├── package.dhall
+-- > │   └── show
+-- > ├── Function
+-- > │   ├── compose
+-- > │   └── package.dhall
+-- > ├── Integer
+-- > │   ├── package.dhall
+-- > │   ├── show
+-- > │   └── toDouble
+-- > ├── JSON
+-- > │   ├── Nesting
+-- > │   ├── Tagged
+-- > │   ├── Type
+-- > │   ├── array
+-- > │   ├── bool
+-- > │   ├── keyText
+-- > │   ├── keyValue
+-- > │   ├── null
+-- > │   ├── number
+-- > │   ├── object
+-- > │   ├── package.dhall
+-- > │   ├── render
+-- > │   └── string
+-- > ├── List
+-- > │   ├── all
+-- > │   ├── any
+-- > │   ├── build
+-- > │   ├── concat
+-- > │   ├── concatMap
+-- > │   ├── default
+-- > │   ├── empty
+-- > │   ├── filter
+-- > │   ├── fold
+-- > │   ├── generate
+-- > │   ├── head
+-- > │   ├── indexed
+-- > │   ├── iterate
+-- > │   ├── last
+-- > │   ├── length
+-- > │   ├── map
+-- > │   ├── null
+-- > │   ├── package.dhall
+-- > │   ├── replicate
+-- > │   ├── reverse
+-- > │   ├── shifted
+-- > │   └── unzip
+-- > ├── Location
+-- > │   ├── Type
+-- > │   └── package.dhall
+-- > ├── Map
+-- > │   ├── Entry
+-- > │   ├── Type
+-- > │   ├── empty
+-- > │   ├── keyText
+-- > │   ├── keyValue
+-- > │   ├── keys
+-- > │   ├── map
+-- > │   ├── package.dhall
+-- > │   └── values
+-- > ├── Monoid
+-- > ├── Natural
+-- > │   ├── build
+-- > │   ├── enumerate
+-- > │   ├── equal
+-- > │   ├── even
+-- > │   ├── fold
+-- > │   ├── greaterThan
+-- > │   ├── greaterThanEqual
+-- > │   ├── isZero
+-- > │   ├── lessThan
+-- > │   ├── lessThanEqual
+-- > │   ├── odd
+-- > │   ├── package.dhall
+-- > │   ├── product
+-- > │   ├── show
+-- > │   ├── subtract
+-- > │   ├── sum
+-- > │   ├── toDouble
+-- > │   └── toInteger
+-- > ├── Optional
+-- > │   ├── all
+-- > │   ├── any
+-- > │   ├── build
+-- > │   ├── concat
+-- > │   ├── default
+-- > │   ├── filter
+-- > │   ├── fold
+-- > │   ├── head
+-- > │   ├── last
+-- > │   ├── length
+-- > │   ├── map
+-- > │   ├── null
+-- > │   ├── package.dhall
+-- > │   ├── toList
+-- > │   └── unzip
+-- > ├── Text
+-- > │   ├── concat
+-- > │   ├── concatMap
+-- > │   ├── concatMapSep
+-- > │   ├── concatSep
+-- > │   ├── default
+-- > │   ├── defaultMap
+-- > │   ├── package.dhall
+-- > │   └── show
+-- > ├── XML
+-- > │   ├── Type
+-- > │   ├── attribute
+-- > │   ├── element
+-- > │   ├── emptyAttributes
+-- > │   ├── leaf
+-- > │   ├── package.dhall
+-- > │   ├── render
+-- > │   └── text
+-- > └── package.dhall
+--
+-- Browse the Prelude online to learn more by seeing what functions are
+-- available and reading their inline documentation:
+--
+-- <https://prelude.dhall-lang.org>
+--
+-- __Exercise__: Try to use a new Prelude function that has not been covered
+-- previously in this tutorial
+--
+-- You can also import the entire Prelude as a single large record for
+-- convenience:
+--
+-- > $ dhall
+-- > let Prelude = https://prelude.dhall-lang.org/package.dhall
+-- >
+-- > in  \(x : Text) ->
+-- >       Prelude.List.length Text (Prelude.List.replicate 10 Text x)
+-- > <Ctrl-D>
+-- > ∀(x : Text) → Natural
+-- >
+-- > λ(x : Text) → 10
+--
+-- The organization of the package mirrors the layout of the Prelude, meaning
+-- that every directory is stored as a record whose children are the fields of
+-- that record.
+--
+-- __Exercise__: Browse the Prelude by running:
+--
+-- > $ dhall <<< 'https://prelude.dhall-lang.org/package.dhall'
+
+-- $limitations
+-- #limitations#
+--
+-- `FromDhall` has a limitiation: It won't work for recursive types.
+-- If you instantiate these using their Generic instance you end up with one of
+-- the following two cases:
+--
+-- If the type appears in it's own definition like
+--
+-- > data Foo = Foo Foo
+-- >     deriving Generic
+-- >
+-- > instance FromDhall Foo
+--
+-- the resulting Decoder will throw an exception /ON USAGE/.
+-- However, if the recursion is indirect like
+--
+-- > data Foo = Foo Bar
+-- >     deriving Generic
+-- >
+-- > instance FromDhall Foo
+-- >
+-- > data Bar = Bar Foo
+-- >     deriving Generic
+-- >
+-- > instance FromDhall Bar
+--
+-- the resulting Decoder will __NOT TERMINATE__ /ON USAGE/.
+
+-- $conclusion
+--
+-- By this point you should be able to use the Dhall configuration language to
+-- author, import, and program configuration files.  If you run into any issues
+-- you can report them at:
+--
+-- <https://github.com/dhall-lang/dhall-haskell/issues>
+--
+-- Also, you might want to check out the
+-- <https://docs.dhall-lang.org/tutorials/Language-Tour.html Language Tour>, a
+-- more comprehensive tour of Dhall which may cover features missing from this
+-- Haskell tutorial.
+--
+-- You can also request features, support, or documentation improvements on the
+-- above issue tracker.
+--
+-- If you would like to contribute to the Dhall project you can try to port
+-- Dhall to languages that do not yet have Dhall integrations so that Dhall configuration files
+-- can be read into those languages, too.
+
+-- $faq
+--
+-- <https://docs.dhall-lang.org/howtos/FAQ.html>

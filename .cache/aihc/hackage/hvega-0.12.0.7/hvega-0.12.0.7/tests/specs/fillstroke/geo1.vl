@@ -1,0 +1,63 @@
+{
+    "$schema": "https://vega.github.io/schema/vega-lite/v4.json",
+    "data": {
+        "values": {
+            "features": [
+                {
+                    "geometry": {
+                        "coordinates": [
+                            [
+                                [
+                                    -2,
+                                    58
+                                ],
+                                [
+                                    3,
+                                    58
+                                ],
+                                [
+                                    3,
+                                    53
+                                ],
+                                [
+                                    -2,
+                                    53
+                                ],
+                                [
+                                    -2,
+                                    58
+                                ]
+                            ]
+                        ],
+                        "type": "Polygon"
+                    },
+                    "type": "Feature"
+                },
+                {
+                    "geometry": {
+                        "coordinates": [
+                            [
+                                4,
+                                52
+                            ],
+                            [
+                                4,
+                                59
+                            ],
+                            [
+                                -3,
+                                59
+                            ]
+                        ],
+                        "type": "LineString"
+                    },
+                    "type": "Feature"
+                }
+            ],
+            "type": "FeatureCollection"
+        }
+    },
+    "height": 300,
+    "mark": "geoshape",
+    "width": 300
+}

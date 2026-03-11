@@ -1,0 +1,98 @@
+{-# LANGUAGE CPP #-}
+{-# LANGUAGE Rank2Types #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+#ifdef TRUSTWORTHY
+{-# LANGUAGE Trustworthy #-}
+#endif
+-------------------------------------------------------------------------------
+-- |
+-- Module      :  Data.Vector.Lens
+-- Copyright   :  (C) 2012-16 Edward Kmett
+-- License     :  BSD-style (see the file LICENSE)
+-- Maintainer  :  Edward Kmett <ekmett@gmail.com>
+-- Stability   :  provisional
+-- Portability :  non-portable
+--
+-- This module provides lenses and traversals for working with generic
+-- vectors.
+-------------------------------------------------------------------------------
+module Data.Vector.Lens
+  ( toVectorOf
+  -- * Isomorphisms
+  , vector
+  , forced
+  -- * Lenses
+  , sliced
+  -- * Traversal of individual indices
+  , ordinals
+  ) where
+
+import Prelude ()
+
+import Control.Lens
+import Control.Lens.Internal.List (ordinalNub)
+import Control.Lens.Internal.Prelude
+import qualified Data.Vector as V
+import Data.Vector (Vector)
+
+-- $setup
+-- >>> import qualified Data.Vector as Vector
+-- >>> import Control.Lens
+
+-- | @sliced i n@ provides a t'Lens' that edits the @n@ elements starting
+-- at index @i@ from a t'Lens'.
+--
+-- This is only a valid t'Lens' if you do not change the length of the
+-- resulting 'Vector'.
+--
+-- Attempting to return a longer or shorter vector will result in
+-- violations of the t'Lens' laws.
+--
+-- >>> Vector.fromList [1..10] ^. sliced 2 5 == Vector.fromList [3,4,5,6,7]
+-- True
+--
+-- >>> (Vector.fromList [1..10] & sliced 2 5 . mapped .~ 0) == Vector.fromList [1,2,0,0,0,0,0,8,9,10]
+-- True
+sliced :: Int -- ^ @i@ starting index
+       -> Int -- ^ @n@ length
+       -> Lens' (Vector a) (Vector a)
+sliced i n f v = f (V.slice i n v) <&> \ v0 -> v V.// zip [i..i+n-1] (V.toList v0)
+{-# INLINE sliced #-}
+
+-- | Similar to 'toListOf', but returning a 'Vector'.
+--
+-- >>> toVectorOf both (8,15) == Vector.fromList [8,15]
+-- True
+toVectorOf :: Getting (Endo [a]) s a -> s -> Vector a
+toVectorOf l s = V.fromList (toListOf l s)
+{-# INLINE toVectorOf #-}
+
+-- | Convert a list to a 'Vector' (or back)
+--
+-- >>> [1,2,3] ^. vector == Vector.fromList [1,2,3]
+-- True
+--
+-- >>> [1,2,3] ^. vector . from vector
+-- [1,2,3]
+--
+-- >>> Vector.fromList [0,8,15] ^. from vector . vector == Vector.fromList [0,8,15]
+-- True
+vector :: Iso [a] [b] (Vector a) (Vector b)
+vector = iso V.fromList V.toList
+{-# INLINE vector #-}
+
+-- | Convert a 'Vector' to a version that doesn't retain any extra
+-- memory.
+forced :: Iso (Vector a) (Vector b) (Vector a) (Vector b)
+forced = iso V.force V.force
+{-# INLINE forced #-}
+
+-- | This t'Traversal' will ignore any duplicates in the supplied list
+-- of indices.
+--
+-- >>> toListOf (ordinals [1,3,2,5,9,10]) $ Vector.fromList [2,4..40]
+-- [4,8,6,12,20,22]
+ordinals :: [Int] -> IndexedTraversal' Int (Vector a) a
+ordinals is f v = fmap (v V.//) $ traverse (\i -> (,) i <$> indexed f i (v V.! i)) $ ordinalNub (length v) is
+{-# INLINE ordinals #-}

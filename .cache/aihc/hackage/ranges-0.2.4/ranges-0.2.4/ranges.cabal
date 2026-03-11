@@ -1,0 +1,17 @@
+Name: ranges
+Version: 0.2.4
+Description: Ranges and some functions allowing things like fast membership
+	lookup on ranges with holes in them and so on.
+Synopsis: Ranges and various functions on them.
+License: BSD3
+Author: George Pollard <porges@porg.es>
+Maintainer: George Pollard <porges@porg.es>
+Build-Type: Simple
+Cabal-Version: >=1.2
+License-file: LICENSE
+Category: data
+
+Library
+ Build-Depends: base>=2 && <5, containers>=0.2
+ Exposed-modules: Data.Ranges
+ ghc-options: -O2 -Wall

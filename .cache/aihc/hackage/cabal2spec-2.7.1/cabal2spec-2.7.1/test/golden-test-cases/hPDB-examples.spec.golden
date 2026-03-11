@@ -1,0 +1,102 @@
+#
+# spec file for package hPDB-examples
+#
+# Copyright (c) 2020 SUSE LLC
+#
+# All modifications and additions to the file contributed by third parties
+# remain the property of their copyright owners, unless otherwise agreed
+# upon. The license for this file, and modifications and additions to the
+# file, is the same license as for the pristine package itself (unless the
+# license for the pristine package is not an Open Source License, in which
+# case the license is the MIT License). An "Open Source License" is a
+# license that conforms to the Open Source Definition (Version 1.9)
+# published by the Open Source Initiative.
+
+# Please submit bugfixes or comments via https://bugs.opensuse.org/
+#
+
+
+%bcond_with tests
+Name:           hPDB-examples
+Version:        1.2.0.8
+Release:        0
+Summary:        Examples for hPDB library
+License:        BSD-3-Clause
+URL:            https://hackage.haskell.org/package/%{name}
+Source0:        https://hackage.haskell.org/package/%{name}-%{version}/%{name}-%{version}.tar.gz
+ExcludeArch:    %{ix86}
+BuildRequires:  ghc-AC-Vector-devel
+BuildRequires:  ghc-AC-Vector-prof
+BuildRequires:  ghc-Cabal-devel
+BuildRequires:  ghc-GLUT-devel
+BuildRequires:  ghc-GLUT-prof
+BuildRequires:  ghc-Octree-devel
+BuildRequires:  ghc-Octree-prof
+BuildRequires:  ghc-OpenGL-devel
+BuildRequires:  ghc-OpenGL-prof
+BuildRequires:  ghc-QuickCheck-devel
+BuildRequires:  ghc-QuickCheck-prof
+BuildRequires:  ghc-base-devel
+BuildRequires:  ghc-base-prof
+BuildRequires:  ghc-bytestring-devel
+BuildRequires:  ghc-bytestring-prof
+BuildRequires:  ghc-containers-devel
+BuildRequires:  ghc-containers-prof
+BuildRequires:  ghc-deepseq-devel
+BuildRequires:  ghc-deepseq-prof
+BuildRequires:  ghc-directory-devel
+BuildRequires:  ghc-directory-prof
+BuildRequires:  ghc-hPDB-devel
+BuildRequires:  ghc-hPDB-prof
+BuildRequires:  ghc-iterable-devel
+BuildRequires:  ghc-iterable-prof
+BuildRequires:  ghc-mtl-devel
+BuildRequires:  ghc-mtl-prof
+BuildRequires:  ghc-rpm-macros
+BuildRequires:  ghc-template-haskell-devel
+BuildRequires:  ghc-template-haskell-prof
+BuildRequires:  ghc-text-devel
+BuildRequires:  ghc-text-format-devel
+BuildRequires:  ghc-text-format-prof
+BuildRequires:  ghc-text-prof
+BuildRequires:  ghc-vector-devel
+BuildRequires:  ghc-vector-prof
+%if %{with tests}
+BuildRequires:  ghc-IfElse-devel
+BuildRequires:  ghc-IfElse-prof
+BuildRequires:  ghc-process-devel
+BuildRequires:  ghc-process-prof
+BuildRequires:  ghc-time-devel
+BuildRequires:  ghc-time-prof
+%endif
+
+%description
+Examples for handling Protein Data Bank file format.
+
+%prep
+%autosetup
+
+%build
+%ghc_bin_build
+
+%install
+%ghc_bin_install
+
+%check
+%cabal_test
+
+%files
+%license LICENSE
+%doc AUTHORS README.md
+%{_bindir}/CanonicalAxes
+%{_bindir}/CleanPDB
+%{_bindir}/PDB2Fasta
+%{_bindir}/PrintEvents
+%{_bindir}/PrintStructureObject
+%{_bindir}/Rg
+%{_bindir}/ShiftToCenter
+%{_bindir}/SplitModels
+%{_bindir}/StericClashCheck
+%{_bindir}/Viewer
+
+%changelog

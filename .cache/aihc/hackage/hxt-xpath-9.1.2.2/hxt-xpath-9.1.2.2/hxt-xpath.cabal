@@ -1,0 +1,66 @@
+-- arch-tag: Haskell XML Toolbox XPath Package
+Name:           hxt-xpath
+Version:        9.1.2.2
+Synopsis:       The XPath modules for HXT.
+Description:    The Haskell XML Toolbox XPath library.
+                .
+                Changes from 9.1.2: Bug in indexing result sets removed
+License:        OtherLicense
+License-file:   LICENSE
+Author:         Torben Kuseler
+Maintainer:     Uwe Schmidt <uwe@fh-wedel.de>
+Stability:      Stable
+Category:       XML
+Homepage:       https://github.com/UweSchmidt/hxt
+Copyright:      Copyright (c) 2005-2010 Torben Kuseler, Uwe Schmidt
+Build-type:     Simple
+Cabal-version:  >=1.6
+
+extra-source-files:
+ examples/hunit/HUnitExample.hs
+ examples/hunit/Makefile
+ examples/hunit/mini1.xml
+ examples/hunit/mini2.xml
+ examples/hxpath/example1.xml
+ examples/hxpath/HXPath.hs
+ examples/hxpath/Makefile
+ examples/hxpath/W3CTestData.hs
+ examples/hxpath/xhtml/xhtml1-frameset.dtd
+ examples/hxpath/xhtml/xhtml1-strict.dtd
+ examples/hxpath/xhtml/xhtml1-transitional.dtd
+ examples/hxpath/xhtml/xhtml-lat1.ent
+ examples/hxpath/xhtml/xhtml-special.ent
+ examples/hxpath/xhtml/xhtml-symbol.ent
+ examples/hxpath/xhtml/xhtml.xml
+ examples/hxpath/XPathShell.hs
+ examples/Makefile
+
+library
+ exposed-modules:
+  Text.XML.HXT.XPath,
+  Text.XML.HXT.XPath.Arrows,
+  Text.XML.HXT.XPath.NavTree,
+  Text.XML.HXT.XPath.XPathArithmetic,
+  Text.XML.HXT.XPath.XPathDataTypes,
+  Text.XML.HXT.XPath.XPathEval,
+  Text.XML.HXT.XPath.XPathFct,
+  Text.XML.HXT.XPath.XPathKeywords,
+  Text.XML.HXT.XPath.XPathParser,
+  Text.XML.HXT.XPath.XPathToNodeSet,
+  Text.XML.HXT.XPath.XPathToString
+
+ hs-source-dirs: src
+
+ ghc-options: -Wall
+ ghc-prof-options: -caf-all
+
+ build-depends: base       >= 4   && < 5,
+                containers >= 0.2 && < 1,
+                directory  >= 1   && < 2,
+                filepath   >= 1   && < 2,
+                parsec     >= 2.1 && < 4,
+                hxt        >= 9.1 && < 10
+
+Source-Repository head
+  Type:     git
+  Location: git://github.com/UweSchmidt/hxt.git

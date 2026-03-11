@@ -1,0 +1,151 @@
+--- parse tree ---
+[ Code
+    "typ/layout/columns-08.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/layout/columns-08.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/layout/columns-08.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Comment
+, Code
+    "typ/layout/columns-08.typ"
+    ( line 3 , column 2 )
+    (Set
+       (Ident (Identifier "page"))
+       [ KeyValArg (Identifier "width") (Literal (Numeric 7.05 Cm))
+       , KeyValArg (Identifier "columns") (Literal (Int 2))
+       ])
+, ParBreak
+, Text "There"
+, Space
+, Text "can"
+, Space
+, Text "be"
+, Space
+, Text "as"
+, Space
+, Text "much"
+, Space
+, Text "content"
+, Space
+, Text "as"
+, Space
+, Text "you"
+, Space
+, Text "want"
+, Space
+, Text "in"
+, Space
+, Text "the"
+, Space
+, Text "left"
+, Space
+, Text "column"
+, SoftBreak
+, Text "and"
+, Space
+, Text "the"
+, Space
+, Text "document"
+, Space
+, Text "will"
+, Space
+, Text "grow"
+, Space
+, Text "with"
+, Space
+, Text "it"
+, Text "."
+, ParBreak
+, Code
+    "typ/layout/columns-08.typ"
+    ( line 8 , column 2 )
+    (FuncCall
+       (Ident (Identifier "rect"))
+       [ KeyValArg (Identifier "fill") (Ident (Identifier "green"))
+       , KeyValArg (Identifier "width") (Literal (Numeric 100.0 Percent))
+       , KeyValArg (Identifier "height") (Literal (Numeric 30.0 Pt))
+       ])
+, ParBreak
+, Text "Only"
+, Space
+, Text "an"
+, Space
+, Text "explicit"
+, Space
+, Code
+    "typ/layout/columns-08.typ"
+    ( line 10 , column 19 )
+    (FuncCall (Ident (Identifier "colbreak")) [])
+, Space
+, RawInline "#colbreak()"
+, Space
+, Text "can"
+, Space
+, Text "put"
+, Space
+, Text "content"
+, Space
+, Text "in"
+, Space
+, Text "the"
+, SoftBreak
+, Text "second"
+, Space
+, Text "column"
+, Text "."
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 parbreak(), 
+                 text(body: [There can be as much content as you want in the left column
+and the document will grow with it.]), 
+                 parbreak(), 
+                 rect(fill: rgb(18%,80%,25%,100%), 
+                      height: 30.0pt, 
+                      width: 100%), 
+                 parbreak(), 
+                 text(body: [Only an explicit ]), 
+                 colbreak(), 
+                 text(body: [ ]), 
+                 raw(block: false, 
+                     lang: none, 
+                     text: "#colbreak()"), 
+                 text(body: [ can put content in the
+second column.]), 
+                 parbreak() })

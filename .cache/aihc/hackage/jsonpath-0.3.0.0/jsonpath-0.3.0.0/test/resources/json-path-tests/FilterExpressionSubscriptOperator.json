@@ -1,0 +1,326 @@
+{
+    "title" : "Filter Expression Subscript Operator",
+    "data" : {"arr" : [4,
+                       "string",
+                       false,
+                       null,
+                       [1, 2, 3], {
+                           "index" : 1,
+                           "name" : "John Doe",
+                           "occupation" : "Architect"
+                       }, {
+                           "index" : 2,
+                           "name" : "Jane Smith",
+                           "occupation" : "Architect",
+                           "color" : "blue"
+                       } , {
+                           "index" : 3,
+                           "name" : "John Smith",
+                           "occupation" : "Plumber"
+                       }, {
+                           "index" : 4,
+                           "name" : "Jane Doe",
+                           "occupation" : "Pilot"
+                       },
+                       { "val": 1 }, { "val": 2 }, { "val": 4 }, { "val": 3 },
+                       { "textval": "a" }, { "textval": "b" }, { "textval": "d" }, { "textval": "c" }
+                      ],
+              "obj": {"foo": 1, "bar": 2, "baz": {"qux": 3}, "bux": 4}
+             },
+    "tests" : [{
+            "path" : "$.arr[?(@.occupation == \"Architect\")]",
+            "result" : [{
+                "index" : 1,
+                "name" : "John Doe",
+                "occupation" : "Architect"
+            }, {
+                "index" : 2,
+                "name" : "Jane Smith",
+                "occupation" : "Architect",
+                "color" : "blue"
+            }]
+           }, {
+               "path" : "$.arr[?(@.occupation != \"Architect\")]",
+               "result" : [4,
+                           "string",
+                           false,
+                           null,
+                           [1, 2, 3], {
+                               "index" : 3,
+                               "name" : "John Smith",
+                               "occupation" : "Plumber"
+                           }, {
+                               "index" : 4,
+                               "name" : "Jane Doe",
+                               "occupation" : "Pilot"
+                           },
+                           { "val": 1 }, { "val": 2 }, { "val": 4 }, { "val": 3 },
+                           { "textval": "a" }, { "textval": "b" }, { "textval": "d" }, { "textval": "c" }]
+           }, {
+               "path" : "$.arr[?(@.name == \"John Smith\")]",
+               "result" : [{
+                   "index" : 3,
+                   "name" : "John Smith",
+                   "occupation" : "Plumber"
+               }]
+           }, {
+               "path" : "$.arr[?(@.name == 'John Smith')]",
+               "result" : [{
+                   "index" : 3,
+                   "name" : "John Smith",
+                   "occupation" : "Plumber"
+               }]
+           }, {
+               "path" : "$.arr[?(@.val > 3)]",
+               "result" : [{ "val" : 4 }]
+           }, {
+             "path" : "$.arr[?(3 < @.val)]",
+             "result" : [{ "val" : 4 }]
+           }, {
+               "path" : "$.arr[?@.val > 3]",
+               "result" : [{ "val" : 4 }]
+           }, {
+               "path" : "$.arr[? @.val > 3]",
+               "result" : [{ "val" : 4 }]
+           }, {
+               "path" : "$.arr[?(@.val >= 3)]",
+               "result" : [{ "val" : 4 }, { "val" : 3 }]
+           }, {
+               "path" : "$.arr[?(@.val < 3)]",
+               "result" : [{ "val" : 1 }, { "val" : 2 }]
+           }, {
+               "path" : "$.arr[?@.val]",
+               "result" : [{ "val": 1 }, { "val": 2 }, { "val": 4 }, { "val": 3 }]
+           }, {
+               "path" : "$.arr[?(@.val <= 3)]",
+               "result" : [{ "val" : 1 }, { "val" : 2 }, { "val" : 3 }]
+           }, {
+               "path" : "$.arr[?(@.val <= 1) || (@.val > 3)]",
+               "result" : [{ "val" : 1 }, { "val" : 4 }]
+           }, {
+               "path" : "$.arr[?(@.val <= 1) || (@.val > 1)]",
+               "result" : [{ "val": 1 }, { "val": 2 }, { "val": 4 }, { "val": 3 }]
+           }, {
+             "path" : "$.arr[?@.val <= 1 || @.val > 1]",
+             "result" : [{ "val": 1 }, { "val": 2 }, { "val": 4 }, { "val": 3 }]
+           }, {
+             "path" : "$.arr[?@.val > 1 && @.val < 4]",
+             "result" : [{ "val": 2 }, { "val": 3 }]
+           }, {
+             "path" : "$.arr[?@.val <= 1 && @.val > 4]",
+             "result" : []
+           }, {
+             "path" : "$.arr[?@.val <= 1 && @.val >= 4 || @.val < 3]",
+             "result" : [{ "val": 1 }, { "val": 2 }]
+           }, {
+             "path" : "$.arr[?(@.val <= 1 && @.val >= 4) || @.val < 3]",
+             "result" : [{ "val": 1 }, { "val": 2 }]
+           }, {
+             "path" : "$.arr[?@.val >= 4 || @.val < 3 && @.val <= 1]",
+             "result" : [{ "val": 1 }, { "val": 4 }]
+           }, {
+             "path" : "$.arr[?@.val >= 4 || (@.val < 3 && @.val <= 1)]",
+             "result" : [{ "val": 1 }, { "val": 4 }]
+           }, {
+             "path" : "$.arr[?@.val == 4 || @.val == 3 || @.val == 1]",
+             "result" : [{ "val": 1 }, { "val": 4 }, { "val": 3}]
+           }, {
+             "path" : "$.arr[?@.val <= 4 && @.val <= 3 && @.val <= 1]",
+             "result" : [{ "val": 1 }]
+           }, {
+             "path" : "$.arr[?@.val <= 4 && @.val <= 3 && @.val <= 1 || @.val > 1]",
+             "result" : [{ "val": 1 }, { "val": 2 }, { "val": 4 }, { "val": 3 }]
+           }, {
+             "path" : "$.arr[?!@.val]",
+             "result" : [4,
+                       "string",
+                       false,
+                       null,
+                       [1, 2, 3], {
+                           "index" : 1,
+                           "name" : "John Doe",
+                           "occupation" : "Architect"
+                       }, {
+                           "index" : 2,
+                           "name" : "Jane Smith",
+                           "occupation" : "Architect",
+                           "color" : "blue"
+                       } , {
+                           "index" : 3,
+                           "name" : "John Smith",
+                           "occupation" : "Plumber"
+                       }, {
+                           "index" : 4,
+                           "name" : "Jane Doe",
+                           "occupation" : "Pilot"
+                       },
+                       { "textval": "a" }, { "textval": "b" }, { "textval": "d" }, { "textval": "c" }
+                      ]
+           }, {
+             "path" : "$.arr[?!@.val == 1]",
+             "comment": "This is not allowed according to the IETF Draft.",
+             "result" : [4,
+                         "string",
+                         false,
+                         null,
+                         [1, 2, 3], {
+                           "index" : 1,
+                           "name" : "John Doe",
+                           "occupation" : "Architect"
+                         }, {
+                           "index" : 2,
+                           "name" : "Jane Smith",
+                           "occupation" : "Architect",
+                           "color" : "blue"
+                         } , {
+                           "index" : 3,
+                           "name" : "John Smith",
+                           "occupation" : "Plumber"
+                         }, {
+                           "index" : 4,
+                           "name" : "Jane Doe",
+                           "occupation" : "Pilot"
+                         },
+                         { "val": 2 }, { "val": 4 }, { "val": 3 },
+                         { "textval": "a" }, { "textval": "b" }, { "textval": "d" }, { "textval": "c" }
+                        ]
+           }, {
+             "path" : "$.arr[?!(@.val == 1)]",
+             "result" : [4,
+                         "string",
+                         false,
+                         null,
+                         [1, 2, 3], {
+                           "index" : 1,
+                           "name" : "John Doe",
+                           "occupation" : "Architect"
+                         }, {
+                           "index" : 2,
+                           "name" : "Jane Smith",
+                           "occupation" : "Architect",
+                           "color" : "blue"
+                         } , {
+                           "index" : 3,
+                           "name" : "John Smith",
+                           "occupation" : "Plumber"
+                         }, {
+                           "index" : 4,
+                           "name" : "Jane Doe",
+                           "occupation" : "Pilot"
+                         },
+                         { "val": 2 }, { "val": 4 }, { "val": 3 },
+                         { "textval": "a" }, { "textval": "b" }, { "textval": "d" }, { "textval": "c" }
+                        ]
+           }, {
+               "path" : "$.arr[?(@.textval > \"c\")]",
+               "result" : [{ "textval" : "d" }]
+           }, {
+               "path" : "$.arr[?(@.textval >= \"c\")]",
+               "result" : [{ "textval" : "d" }, { "textval" : "c" }]
+           }, {
+               "path" : "$.arr[?(@.textval < \"b\")]",
+               "result" : [{ "textval" : "a" }]
+           }, {
+               "path" : "$.arr[?(@.textval <= \"b\")]",
+               "result" : [{ "textval" : "a" }, { "textval" : "b" }]
+           }, {
+               "path" : "$.arr[?(@.textval <= 'b')]",
+               "result" : [{ "textval" : "a" }, { "textval" : "b" }]
+           }, {
+               "path" : "$.arr[?(@.val == \"1\")]",
+               "result" : []
+           }, {
+               "path": "$.obj[?@ > 1]",
+               "result": [2, 4]
+           }, {
+               "path": "$.obj[?(@.qux)]",
+               "result": [{"qux": 3}]
+           }, {
+             "path": "$[?@.foo < @.baz.qux]",
+             "result": [{"foo": 1, "bar": 2, "baz": {"qux": 3}, "bux": 4}]
+           }, {
+             "path": "$[?@.foo < @.baz.qux]",
+             "result": [{"foo": 1, "bar": 2, "baz": {"qux": 3}, "bux": 4}]
+           }, {
+             "path": "$[?@[0] == @[8].index]",
+             "comment": "Both arr and obj match this as 4 == 4 for arr and no_path == no_path for obj",
+             "result": [
+               [4,
+                "string",
+                false,
+                null,
+                [1, 2, 3], {
+                  "index" : 1,
+                  "name" : "John Doe",
+                  "occupation" : "Architect"
+                }, {
+                  "index" : 2,
+                  "name" : "Jane Smith",
+                  "occupation" : "Architect",
+                  "color" : "blue"
+                } , {
+                  "index" : 3,
+                  "name" : "John Smith",
+                  "occupation" : "Plumber"
+                }, {
+                  "index" : 4,
+                  "name" : "Jane Doe",
+                  "occupation" : "Pilot"
+                },
+                { "val": 1 }, { "val": 2 }, { "val": 4 }, { "val": 3 },
+                { "textval": "a" }, { "textval": "b" }, { "textval": "d" }, { "textval": "c" }
+               ],
+               {"foo": 1, "bar": 2, "baz": {"qux": 3}, "bux": 4}
+             ]
+           }, {
+             "path": "$[?@[0] && @[0] == @[8].index]",
+             "result": [
+               [4,
+                "string",
+                false,
+                null,
+                [1, 2, 3], {
+                  "index" : 1,
+                  "name" : "John Doe",
+                  "occupation" : "Architect"
+                }, {
+                  "index" : 2,
+                  "name" : "Jane Smith",
+                  "occupation" : "Architect",
+                  "color" : "blue"
+                } , {
+                  "index" : 3,
+                  "name" : "John Smith",
+                  "occupation" : "Plumber"
+                }, {
+                  "index" : 4,
+                  "name" : "Jane Doe",
+                  "occupation" : "Pilot"
+                },
+                { "val": 1 }, { "val": 2 }, { "val": 4 }, { "val": 3 },
+                { "textval": "a" }, { "textval": "b" }, { "textval": "d" }, { "textval": "c" }
+               ]
+             ]
+           }, {
+             "path": "$.arr[?@ > 3]",
+             "result": [4]
+           }, {
+             "path": "$.arr[?@ == null]",
+             "result": [null]
+           }, {
+             "path": "$.arr[?@ == false]",
+             "result": [false]
+           }, {
+             "path": "$.arr[?@ == true]",
+             "result": []
+           }, {
+             "path": "$.arr[?@.index == $.obj.bux]",
+             "result": [{
+               "index" : 4,
+               "name" : "Jane Doe",
+               "occupation" : "Pilot"
+             }]
+           }
+    ]
+
+}

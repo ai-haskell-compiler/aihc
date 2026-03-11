@@ -1,0 +1,72 @@
+--- parse tree ---
+[ Code
+    "typ/compiler/show-text-08.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/compiler/show-text-08.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/compiler/show-text-08.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Comment
+, SoftBreak
+, Code
+    "typ/compiler/show-text-08.typ"
+    ( line 4 , column 2 )
+    (Show
+       (Just (Literal (String "GRAPH")))
+       (FuncCall
+          (Ident (Identifier "image"))
+          [ NormalArg (Literal (String "/assets/files/graph.png")) ]))
+, ParBreak
+, Text "The"
+, Space
+, Text "GRAPH"
+, Space
+, Text "has"
+, Space
+, Text "nodes"
+, Text "."
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 text(body: [
+]), 
+                 parbreak(), 
+                 text(body: [The ]), 
+                 image(source: "/assets/files/graph.png"), 
+                 text(body: [ has nodes.]), 
+                 parbreak() })

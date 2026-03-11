@@ -1,0 +1,86 @@
+
+<div#spacer .col-xs-2.#{topShowsm}.#{topShowmd}>
+  <h1>
+    <button .visible-xs.btn.btn-default type="button" data-toggle="offcanvas">
+      <span .glyphicon.glyphicon-align-left.tgl-icon>
+
+<div#topbar .col-md-8 .col-sm-8 .col-xs-10>
+  <h1>#{takeFileName (journalFilePath j)}
+
+$if elem ViewPermission perms
+  <div#sidebar-menu .sidebar-offcanvas.#{sideShowmd}.#{sideShowsm}>
+    <table .main-menu .table>
+      ^{accounts}
+
+<div#main-content .col-xs-12.#{mainShowmd}.#{mainShowsm}>
+  $maybe m <- msg
+    <div #message .alert.alert-info>#{m}
+  $if elem ViewPermission perms
+    <form#searchform.input-group method=GET>
+      <input .form-control name=q value=#{qparam} placeholder="Search"
+        title="Enter hledger search patterns to filter the data below">
+      <div .input-group-btn>
+        $if not (T.null qparam)
+          <a href=@{here} .btn .btn-default title="Clear search terms">
+            <span .glyphicon .glyphicon-remove-circle>
+        <button .btn .btn-default type=submit title="Apply search terms">
+          <span .glyphicon .glyphicon-search>
+        $if elem EditPermission perms
+          <a href="@{ManageR}" .btn.btn-default title="Manage journal files">
+            <span .glyphicon .glyphicon-wrench>
+        <button .btn .btn-default type=button data-toggle="modal" data-target="#helpmodal"
+           title="Show search and general help">
+          <span .glyphicon .glyphicon-question-sign>
+  ^{widget}
+
+<div .modal.fade #helpmodal tabindex="-1" role="dialog" aria-labelledby="helpLabel" aria-hidden="true">
+  <div .modal-dialog .modal-lg>
+    <div .modal-content>
+      <div .modal-header>
+        <button type="button" .close data-dismiss="modal" aria-hidden="true">&times;
+        <span style="float:right; margin-right:4em;">#{progname} #{packageversion}
+        <h3 .modal-title #helpLabel>Help
+      <div .modal-body>
+        <div .row>
+          <div .col-xs-6>
+            <p>
+              <b>Keyboard shortcuts
+              <ul>
+                <li> <code>h</code> or maybe <code>?</code> - view this help (escape or click to exit)
+                <li> <code>j</code> - go to the Journal view (home)
+                <li> <code>a</code> - add a transaction (escape to cancel)
+                <li> <code>s</code> - toggle sidebar
+                <li> <code>f</code> - focus search form ("find")
+                <li> <code>e</code> - hide empty accounts in sidebar
+            <p>
+              <b>General
+              <ul>
+                <li> The Journal view shows general journal entries, representing zero-sum movements of money (or other commodity) between hierarchical accounts
+                <li> The sidebar shows the resulting accounts and their final balances
+                <li> Parent account balances include subaccount balances
+                <li> Multiple currencies in balances are displayed one above the other
+                <li> Click account name links to see transactions affecting that account, with running balance
+                <li> Click date links to see journal entries on that date
+          <div .col-xs-6>
+            <p>
+              <b>Search
+              <ul>
+                <li> Search patterns with spaces should be enclosed in quotes.
+                <li> <code>REGEX</code> - match account names
+                <li> <code>type:TYPE</code> - match account types
+                <li> <code>date:PERIODEXP</code> - match dates
+                <li> <code>status:*</code>, <code>status:!</code>, <code>status:</code> - match status
+                <li> <code>code:REGEX</code> - match transaction codes
+                <li> <code>desc:REGEX</code> - match transaction descriptions
+                <li> <code>payee:REGEX</code> - match payee part of descriptions
+                <li> <code>note:REGEX</code> - match note part of descriptions
+                <li> <code>amt:N</code>, <code>amt:&lt;N</code>, <code>amt:&gt;N</code> - match unsigned magnitudes, or with signed N, signed amounts. For single-commodity amounts only.
+                <li> <code>cur:REGEX</code> - match currencies/commodities. Must match the whole symbol/name. To match dollar sign, write <code>\$</code>
+                <li> <code>tag:NAME</code>, <code>tag:NAME=REGEX</code> - match tags, or tag and value
+                <li> <code>real:BOOL</code> - match postings' realness/virtualness
+                <li> <code>not:QTERM</code> - prepend not: to negate a search term
+                <li> <code>expr:'QEXPR'</code> - match with a boolean query (and, or, not, (..))
+                <li>  <code>any:'QEXPR'</code> - match transactions where any posting matches
+                <li>  <code>all:'QEXPR'</code> - match transactions where all postings match
+                <li style="margin-top:1em;"> <code>depth:N</code> - clip account names at this depth
+                $# <li> Description, account, status query terms are OR'ed, others are AND'ed.

@@ -1,0 +1,84 @@
+--- parse tree ---
+[ Code
+    "typ/text/emphasis-00.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/text/emphasis-00.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/text/emphasis-00.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Comment
+, Emph
+    [ Text "Emphasized"
+    , Space
+    , Text "and"
+    , Space
+    , Strong [ Text "strong" ]
+    , Space
+    , Text "words!"
+    ]
+, ParBreak
+, Comment
+, Text "hello_world"
+, Space
+, Text "Nutzer*innen"
+, ParBreak
+, Comment
+, Emph
+    [ Text "Still"
+    , Space
+    , Code
+        "typ/text/emphasis-00.typ"
+        ( line 9 , column 9 )
+        (Block (Content [ ParBreak ]))
+    , Space
+    , Text "emphasized"
+    , Text "."
+    ]
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 emph(body: { text(body: [Emphasized and ]), 
+                              strong(body: text(body: [strong])), 
+                              text(body: [ words!]) }), 
+                 parbreak(), 
+                 text(body: [hello_world Nutzer*innen]), 
+                 parbreak(), 
+                 emph(body: { text(body: [Still ]), 
+                              parbreak(), 
+                              text(body: [ emphasized.]) }), 
+                 parbreak() })

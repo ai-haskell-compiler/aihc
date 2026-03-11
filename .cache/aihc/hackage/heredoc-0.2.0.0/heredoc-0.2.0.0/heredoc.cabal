@@ -1,0 +1,23 @@
+name:                heredoc
+version:             0.2.0.0
+synopsis:            multi-line string / here document using QuasiQuotes
+description:         multi-line string / here document using QuasiQuotes
+
+license:             PublicDomain
+license-file:        LICENSE.txt
+
+author:              James H. Fisher
+maintainer:          jameshfisher@gmail.com
+homepage:            http://hackage.haskell.org/package/heredoc
+
+category:            Text
+
+build-type:          Simple
+cabal-version:       >=1.8
+
+library
+  exposed-modules:   Text.Heredoc
+  build-depends:
+    base >= 4 && < 5,
+    template-haskell >= 2.5
+  hs-source-dirs:    src

@@ -1,0 +1,109 @@
+{
+    "$schema": "https://vega.github.io/schema/vega-lite/v4.json",
+    "data": {
+        "format": {
+            "parse": {
+                "date": "date"
+            }
+        },
+        "url": "https://vega.github.io/vega-lite/data/stocks.csv"
+    },
+    "description": "Displays tooltips for all stock prices of the hovered time",
+    "height": 400,
+    "layer": [
+        {
+            "encoding": {
+                "color": {
+                    "field": "symbol",
+                    "type": "nominal"
+                },
+                "x": {
+                    "field": "date",
+                    "type": "temporal"
+                },
+                "y": {
+                    "field": "price",
+                    "type": "quantitative"
+                }
+            },
+            "layer": [
+                {
+                    "mark": "line"
+                },
+                {
+                    "encoding": {
+                        "opacity": {
+                            "condition": {
+                                "selection": "myTooltip",
+                                "value": 1
+                            },
+                            "value": 0
+                        }
+                    },
+                    "mark": "point",
+                    "selection": {
+                        "myTooltip": {
+                            "empty": "none",
+                            "encodings": [
+                                "x"
+                            ],
+                            "nearest": true,
+                            "on": "mouseover",
+                            "type": "single"
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            "layer": [
+                {
+                    "encoding": {
+                        "x": {
+                            "field": "date",
+                            "type": "temporal"
+                        }
+                    },
+                    "mark": {
+                        "color": "gray",
+                        "type": "rule"
+                    }
+                },
+                {
+                    "encoding": {
+                        "color": {
+                            "field": "symbol",
+                            "type": "nominal"
+                        },
+                        "text": {
+                            "field": "price",
+                            "type": "quantitative"
+                        },
+                        "x": {
+                            "field": "date",
+                            "type": "temporal"
+                        },
+                        "y": {
+                            "field": "price",
+                            "type": "quantitative"
+                        }
+                    },
+                    "mark": {
+                        "align": "left",
+                        "dx": 5,
+                        "dy": -5,
+                        "type": "text"
+                    }
+                }
+            ],
+            "transform": [
+                {
+                    "filter": {
+                        "selection": "myTooltip"
+                    }
+                }
+            ]
+        }
+    ],
+    "width": 800
+}

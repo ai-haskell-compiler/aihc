@@ -1,0 +1,9 @@
+timers-tick, discrete timers for games and other applications. See
+    https://hackage.haskell.org/package/timers-tick
+for examples.
+
+Contributing
+------------
+
+browse repo: http://www.ariis.it/static/repos/stagit/timers-tick
+Upload your modifications somewhere, send me an email (<fa-ml@ariis.it>).

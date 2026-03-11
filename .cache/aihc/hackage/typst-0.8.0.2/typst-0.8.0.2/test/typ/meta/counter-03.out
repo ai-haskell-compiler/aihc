@@ -1,0 +1,179 @@
+--- parse tree ---
+[ Code
+    "typ/meta/counter-03.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/meta/counter-03.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/meta/counter-03.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Comment
+, Code
+    "typ/meta/counter-03.typ"
+    ( line 3 , column 2 )
+    (FuncCall
+       (Ident (Identifier "figure"))
+       [ KeyValArg (Identifier "numbering") (Literal (String "A"))
+       , KeyValArg
+           (Identifier "caption")
+           (Block
+              (Content
+                 [ Text "Four"
+                 , Space
+                 , Quote '\''
+                 , Text "A"
+                 , Quote '\''
+                 , Text "s"
+                 ]))
+       , KeyValArg (Identifier "kind") (Ident (Identifier "image"))
+       , KeyValArg (Identifier "supplement") (Literal (String "Figure"))
+       , BlockArg [ Emph [ Text "AAAA!" ] ]
+       ])
+, SoftBreak
+, Code
+    "typ/meta/counter-03.typ"
+    ( line 4 , column 2 )
+    (FuncCall
+       (Ident (Identifier "figure"))
+       [ KeyValArg (Identifier "numbering") (Literal None)
+       , KeyValArg
+           (Identifier "caption")
+           (Block
+              (Content
+                 [ Text "Four"
+                 , Space
+                 , Quote '\''
+                 , Text "B"
+                 , Quote '\''
+                 , Text "s"
+                 ]))
+       , KeyValArg (Identifier "kind") (Ident (Identifier "image"))
+       , KeyValArg (Identifier "supplement") (Literal (String "Figure"))
+       , BlockArg [ Emph [ Text "BBBB!" ] ]
+       ])
+, SoftBreak
+, Code
+    "typ/meta/counter-03.typ"
+    ( line 5 , column 2 )
+    (FuncCall
+       (Ident (Identifier "figure"))
+       [ KeyValArg
+           (Identifier "caption")
+           (Block
+              (Content
+                 [ Text "Four"
+                 , Space
+                 , Quote '\''
+                 , Text "C"
+                 , Quote '\''
+                 , Text "s"
+                 ]))
+       , KeyValArg (Identifier "kind") (Ident (Identifier "image"))
+       , KeyValArg (Identifier "supplement") (Literal (String "Figure"))
+       , BlockArg [ Emph [ Text "CCCC!" ] ]
+       ])
+, SoftBreak
+, Code
+    "typ/meta/counter-03.typ"
+    ( line 6 , column 2 )
+    (FuncCall
+       (FieldAccess
+          (Ident (Identifier "update"))
+          (FuncCall
+             (Ident (Identifier "counter"))
+             [ NormalArg
+                 (FuncCall
+                    (FieldAccess
+                       (Ident (Identifier "where")) (Ident (Identifier "figure")))
+                    [ KeyValArg (Identifier "kind") (Ident (Identifier "image")) ])
+             ]))
+       [ NormalArg
+           (FuncExpr
+              [ NormalParam (Identifier "n") ]
+              (Plus (Ident (Identifier "n")) (Literal (Int 3))))
+       ])
+, SoftBreak
+, Code
+    "typ/meta/counter-03.typ"
+    ( line 7 , column 2 )
+    (FuncCall
+       (Ident (Identifier "figure"))
+       [ KeyValArg
+           (Identifier "caption")
+           (Block
+              (Content
+                 [ Text "Four"
+                 , Space
+                 , Quote '\''
+                 , Text "D"
+                 , Quote '\''
+                 , Text "s"
+                 ]))
+       , KeyValArg (Identifier "kind") (Ident (Identifier "image"))
+       , KeyValArg (Identifier "supplement") (Literal (String "Figure"))
+       , BlockArg [ Emph [ Text "DDDD!" ] ]
+       ])
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 figure(body: emph(body: text(body: [AAAA!])), 
+                        caption: text(body: [Four ‘A’s]), 
+                        kind: , 
+                        numbering: "A", 
+                        supplement: "Figure"), 
+                 text(body: [
+]), 
+                 figure(body: emph(body: text(body: [BBBB!])), 
+                        caption: text(body: [Four ‘B’s]), 
+                        kind: , 
+                        numbering: none, 
+                        supplement: "Figure"), 
+                 text(body: [
+]), 
+                 figure(body: emph(body: text(body: [CCCC!])), 
+                        caption: text(body: [Four ‘C’s]), 
+                        kind: , 
+                        supplement: "Figure"), 
+                 text(body: [
+]), 
+                 text(body: [
+]), 
+                 figure(body: emph(body: text(body: [DDDD!])), 
+                        caption: text(body: [Four ‘D’s]), 
+                        kind: , 
+                        supplement: "Figure"), 
+                 parbreak() })

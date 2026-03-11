@@ -1,0 +1,23 @@
+2025-02-04 Laurent P. René de Cotret <laurent.decotret@outlook.com> 0.5.42
+
+* Addressed some compilation warnings (#467)
+
+2024-09-03 Laurent P. René de Cotret <laurent.decotret@outlook.com> 0.5.41
+
+* Bumped dependency bounds to support GHC 8.10.7 - GHC 9.10.1
+* Updated links to point to Distributed Haskell monorepo
+
+0.5.4
+* Bump bounds in test suite.
+0.5.3
+* Bump bytestring bound to build with ghc-9.8.
+0.5.2
+* Introduce internal module.
+* Fixes dependency bounds.
+0.5.1
+* Fixed bug in cleanup procedure.
+0.5 
+* Complete reimplementation based on STM primitives.
+* Rename Network.Transport.Chan to Network.Transport.InMemory.
+* Disable multicast support until it is properly implemented.
+* Expose internals.

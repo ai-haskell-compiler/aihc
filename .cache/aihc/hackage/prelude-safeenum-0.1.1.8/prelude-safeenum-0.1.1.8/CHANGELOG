@@ -1,0 +1,28 @@
+0.1.1.8 (2026-02-28):
+    - Added `Tested-With: GHC == 9.12, 9.14` (didn't actually need to
+      nudge the upper bound on 'base', because it's already lenient)
+0.1.1.7 (2024-08-29):
+    - Added `Tested-With: GHC == 9.8, 9.10` (didn't actually need to
+      nudge the upper bound on 'base', because it's already lenient)
+0.1.1.6 (2023-03-19):
+    - Added `Tested-With: GHC == 9.6.1` (didn't actually need to
+      nudge the upper bound on 'base', because it's already lenient)
+0.1.1.5 (2022-08-28):
+    - Added `Tested-With: GHC == 9.4.1` (didn't actually need to
+      nudge the upper bound on 'base', because it's already lenient)
+0.1.1.4 (2021-11-02):
+    - Added `Tested-With: GHC == 9.2.1` (didn't actually need to
+      nudge the upper bound on 'base', because it's already lenient)
+0.1.1.3 (2021-10-17):
+    - Updated maintainer emails/urls
+    - General metadata cleanup
+    - Started using GithubActions for CI; no code changes.
+0.1.1.2 (2015-05-30):
+    - Moved VERSION to CHANGELOG
+0.1.1 (2013.03.07):
+    - Prelude.SafeEnum: corrected the Char instance for GHC 7.8
+0.1.0.1 (2013.06.01):
+    - Documentation changes.
+0.1.0 (2013.05.29):
+    - forked from the (unpublished) data-fin package.
+    - made things Trustworthy, and some other cleanup.

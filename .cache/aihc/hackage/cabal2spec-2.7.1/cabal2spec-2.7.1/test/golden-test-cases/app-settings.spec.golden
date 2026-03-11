@@ -1,0 +1,194 @@
+#
+# spec file for package app-settings
+#
+# Copyright (c) 2020 SUSE LLC
+#
+# All modifications and additions to the file contributed by third parties
+# remain the property of their copyright owners, unless otherwise agreed
+# upon. The license for this file, and modifications and additions to the
+# file, is the same license as for the pristine package itself (unless the
+# license for the pristine package is not an Open Source License, in which
+# case the license is the MIT License). An "Open Source License" is a
+# license that conforms to the Open Source Definition (Version 1.9)
+# published by the Open Source Initiative.
+
+# Please submit bugfixes or comments via https://bugs.opensuse.org/
+#
+
+
+%global pkg_name app-settings
+%global pkgver %{pkg_name}-%{version}
+
+%bcond_with tests
+Name:           %{pkg_name}
+Version:        0.2.0.11
+Release:        0
+Summary:        A library to manage application settings (INI file-like)
+License:        BSD-3-Clause
+URL:            https://hackage.haskell.org/package/%{name}
+Source0:        https://hackage.haskell.org/package/%{name}-%{version}/%{name}-%{version}.tar.gz
+ExcludeArch:    %{ix86}
+BuildRequires:  ghc-Cabal-devel
+BuildRequires:  ghc-base-devel
+BuildRequires:  ghc-base-prof
+BuildRequires:  ghc-containers-devel
+BuildRequires:  ghc-containers-prof
+BuildRequires:  ghc-directory-devel
+BuildRequires:  ghc-directory-prof
+BuildRequires:  ghc-mtl-devel
+BuildRequires:  ghc-mtl-prof
+BuildRequires:  ghc-parsec-devel
+BuildRequires:  ghc-parsec-prof
+BuildRequires:  ghc-rpm-macros
+BuildRequires:  ghc-text-devel
+BuildRequires:  ghc-text-prof
+%if %{with tests}
+BuildRequires:  ghc-HUnit-devel
+BuildRequires:  ghc-HUnit-prof
+BuildRequires:  ghc-hspec-devel
+BuildRequires:  ghc-hspec-prof
+%endif
+
+%description
+A library to deal with application settings.
+
+This library deals with read-write application settings. You will have to
+specify the settings that your application uses, their name, types and default
+values.
+
+Setting types must implement the 'Read' and 'Show' typeclasses.
+
+The settings are saved in a file in an INI-like key-value format (without
+sections).
+
+Reading and updating settings is done in pure code, the IO monad is only used
+to load settings and save them to disk. It is advised for the user to create a
+module in your project holding settings handling.
+
+You can then declare settings:
+
+> fontSize :: Setting Double > fontSize = Setting "fontSize" 14 > > dateFormat
+:: Setting String > dateFormat = Setting "dateFormat" "%x" > > backgroundColor
+:: Setting (Int, Int, Int) > backgroundColor = Setting "backcolor" (255, 0, 0)
+
+Optionally you can declare the list of all your settings, in that case the
+application will also save the default values in the configuration file, but
+commented out:
+
+> fontSize=16 > # dateFormat="%x" > # backcolor=(255,0,0)
+
+If you do not specify the list of settings, only the first line would be
+present in the configuration file.
+
+With an ordinary setting, one row in the configuration file means one setting.
+That setting may of course be a list for instance. This setup works very well
+for shorter lists like [1,2,3], however if you have a list of more complex
+items, you will get very long lines and a configuration file very difficult to
+edit by hand.
+
+For these special cases there is also the 'ListSetting' constructor:
+
+> testList :: Setting [String] > testList = ListSetting "testList" ["list1",
+"list2", "list3"]
+
+Now the configuration file looks like that:
+
+> testList_1="list1" > testList_2="list2" > testList_3="list3"
+
+Which is much more handy for big lists. An empty list is represented like so:
+
+> testList=
+
+There is also another technique that you can use if you have too long lines:
+you can put line breaks in the setting values if you start the following lines
+with a leading space, like so:
+
+> testList=["list1", > "list2", "list3"]
+
+In that case don't use the ListSetting option. Any character after the the
+leading space in the next lines will go in the setting value. Note that the
+library will automatically wrap setting values longer than 80 characters when
+saving.
+
+Once we declared the settings, we can read the configuration from disk (and
+your settings module should export your wrapper around the function offered by
+this library):
+
+> readResult <- try $ readSettings (AutoFromAppName "test") > case readResult
+of > Right (conf, GetSetting getSetting) -> do > let textSize = getSetting
+fontSize > saveSettings emptyDefaultConfig (AutoFromAppName "test") conf > Left
+(x :: SomeException) -> error "Error reading the config file!"
+
+'AutoFromAppName' specifies where to save the configuration file. And we've
+already covered the getSetting in this snippet, see the 'readSettings'
+documentation for further information.
+
+You can also look at the tests of the library on the github project for sample
+use.
+
+%package -n ghc-%{name}
+Summary:        Haskell %{name} library
+
+%description -n ghc-%{name}
+This package provides the Haskell %{name} shared library.
+
+%package -n ghc-%{name}-devel
+Summary:        Haskell %{name} library development files
+Requires:       ghc-%{name} = %{version}-%{release}
+Requires:       ghc-compiler = %{ghc_version}
+Requires(post): ghc-compiler = %{ghc_version}
+Requires(postun): ghc-compiler = %{ghc_version}
+
+%description -n ghc-%{name}-devel
+This package provides the Haskell %{name} library development files.
+
+%package -n ghc-%{pkg_name}-doc
+Summary:        Haskell %{pkg_name} library documentation
+BuildArch:      noarch
+Requires:       ghc-filesystem
+
+%description -n ghc-%{pkg_name}-doc
+This package provides the Haskell %{pkg_name} library documentation.
+
+
+%package -n ghc-%{pkg_name}-prof
+Summary:        Haskell %{pkg_name} profiling library
+Requires:       ghc-%{pkg_name}-devel = %{version}-%{release}
+Supplements:    (ghc-%{pkg_name}-devel and ghc-prof)
+
+%description -n ghc-%{pkg_name}-prof
+This package provides the Haskell %{pkg_name} profiling library.
+
+
+%prep
+%autosetup
+
+%build
+%ghc_lib_build
+
+%install
+%ghc_lib_install
+
+%check
+%cabal_test
+
+%post -n ghc-%{name}-devel
+%ghc_pkg_recache
+
+%postun -n ghc-%{name}-devel
+%ghc_pkg_recache
+
+%files
+%license LICENSE
+
+%files -n ghc-%{name} -f ghc-%{name}.files
+%license LICENSE
+
+%files -n ghc-%{name}-devel -f ghc-%{name}-devel.files
+
+%files -n ghc-%{pkg_name}-doc -f ghc-%{pkg_name}-doc.files
+%license LICENSE
+
+%files -n ghc-%{pkg_name}-prof -f ghc-%{pkg_name}-prof.files
+
+%changelog

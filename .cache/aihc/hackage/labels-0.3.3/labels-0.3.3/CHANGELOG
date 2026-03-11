@@ -1,0 +1,25 @@
+0.3.1:
+	* Export Labels class.
+
+0.3.1:
+	* Add Subset class.
+
+0.3.0:
+	* Put labels in its own class.
+	* Change type of labels to take a Proxy.
+
+0.2.0:
+	* Add "reflect" and "labels" functions.
+	* Drop support for GHC <8.
+
+0.1.2:
+	* Add docs for "project" function.
+
+0.1.1:
+	* Add "project" function.
+
+0.1.0:
+	* Drop the convenience accessor #foo. Must use get #foo
+
+0.0.0:
+	* First version

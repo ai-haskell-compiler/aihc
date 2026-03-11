@@ -1,0 +1,138 @@
+- write the complete spec file atomically
+  - with Writer monad to avoid writing empty spec
+- respect bounds when querying subpackages
+
+- 'install' in empty package dir fails (have to local or spec first)
+- 'install' in a source dir: "package not found for directory"
+  - maybe just run "cabal install" for executable?
+
+- subpackage data files(?): eg criterion
+
+- cblrpm local: Running repoquery for haskell-gi-overloading
+Unavailable dependencies: haskell-gi-overloading
+
+- generate deps for subpkgs tests or disable them? (eg optparse-simple)
+
+- spec: hardcode list of dummy packages (mtl-compat, etc)
+- spec: generate manpage from help
+
+- update prints package name twice (due to spec generation?)
+- in container/clean install: cblrpm local HsOpenSSL fails:
+cabal-rpm: HsOpenSSL-0.11.4.17: getDirectoryContents:openDirStream: does not exist (No such file or directory)
+
+- update: if package becomes meta add obsoletes for base/prof packages
+
+- choose use latest minor PVP release compatible with older lts stream?
+- missingdeps should warn about subpackaged deps
+- installmissing' only installs libs
+- cblrpm local gi-ibus fails looking for ghc-haskell-gi-overloading-prof
+  - need unified handling of deps
+- depsort subpkgs
+- check for cabal-install
+- read cabal-tweak-flag for correct deps
+- LTS per branch
+
+- spec --force does not work (file busy)
+- use tmp workspace for duration of executation to reference prep(are) etc
+- lts downgrades for older branches
+- support internal libs: eg dns-internal
+- fix lts package version check to ignore old snapshot results (eg old nightly)
+- diff misses flags in subpackages: eg skylighting-core
+- switch to v2 commands
+- subpackage deps for testsuite: eg QuickCheck's splitmix
+- if not revised then update .orig should not be revised
+- use .Cblrpm/ for refresh?
+- delete unrevised .cabal?
+- changelog for subpkg bumps
+- update --stream should add --stream to header
+- cleanup .Cblrpm
+- update/diff should remove dropped subpackages
+
+- --without-tests/--disable-tests/--no-tests (also for install etc)
+  - or default to no tests and explicitly enable with --tests
+  - can actually test for %bcond
+* static subpackage versions (except update)
+  - spec: don't upgrade subpackages
+  - refresh: avoid checking subpackaging versions
+  - spec: fixed/static subpackage versions (when checking for their deps)
+- spec: cdeps for subpackages (example package?)
+
+- for bin package --subpackage should add Prof deps for Devel deps
+  (testcase: git-annex subpackage needs base-prof etc)
+
+- local --stream: ignores stream
+
+* builddep repeats looking for versions of missing packages
+  https://github.com/juhp/cabal-rpm/issues/60
+
+* switch to Cabal 2 for better License handling
+
+* drop dummy deps like fail, bytestring-builder and mtl-compat
+
+- detect dropped subpkgs (eg here dropped in hledger-1.14.2)
+
+- add rpmlint command
+
+- support --without-prof and --without-haddock
+
+- merge refresh and update specs generation
+
+- spec --bounds
+- rework "BR: ghc-*-static" with %{?_isa}
+- check for cabal executable
+- revisions of subpackages
+- use Set for deps?
+
+## Misc
+? run "cabal update" if package-version not found
+- add individual command help pages
+- use shelly for easy tracing?
+
+# Commands
+- fetch
+- aliases for missingdeps
+- allow cmd abbreviations?
+
+## spec/packaging
+- filter or blockformat literate code in description ("> ...")
+? use repoquery for missing testdeps
+- support tarballs again
+- handle ghc-lzma -> lzma!
+- --releasever option (for repoquery)
+- --no-revision
+- add demo/ & example[s]/ to doc subpackage (gtk2hs)
+- replace --flag with --enable/disable?
+
+## version ranges
+- warn about missing dependencies/versions
+
+## standalone
+- packaging of lib stacks into one deployable rpm
+* support building standalone package including missing deps
+  - phase 2: embed src tarballs of missing deps?
+
+## local
+- --no-network
+- llvm flag
+- running "cabal-rpm local pkg-ver" in pkg/ with existing pkg.spec when newer pkg exists builds old pkg
+
+## update
+- warm about new missing deps
+- reverse deps and rebuilds
+- update subpkg sources
+
+## depends
+- dependency graphs or sorted recursive deps
+- reverse dependencies
+- use su -c when no sudo ??
+  - any way to know if user is sudoer?
+
+## koji/buildsys
+- support mock builds
+- copr support?
+- scratch builds
+
+## diff
+- ignore whitespace option
+- diff two versions
+- --ignore

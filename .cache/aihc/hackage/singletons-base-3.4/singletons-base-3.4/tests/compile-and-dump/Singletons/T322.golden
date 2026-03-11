@@ -1,0 +1,54 @@
+Singletons/T322.hs:(0,0)-(0,0): Splicing declarations
+    singletons
+      [d| infixr 2 !
+          
+          (!) :: Bool -> Bool -> Bool
+          (!) = (||) |]
+  ======>
+    (!) :: Bool -> Bool -> Bool
+    (!) = (||)
+    infixr 2 !
+    type (!@#@$) :: (~>) Bool ((~>) Bool Bool)
+    data (!@#@$) :: (~>) Bool ((~>) Bool Bool)
+      where
+        (:!@#@$###) :: SameKind (Apply (!@#@$) arg) ((!@#@$$) arg) =>
+                       (!@#@$) a0123456789876543210
+    type instance Apply (!@#@$) a0123456789876543210 = (!@#@$$) a0123456789876543210
+    instance SuppressUnusedWarnings (!@#@$) where
+      suppressUnusedWarnings = snd ((,) (:!@#@$###) ())
+    infixr 2 !@#@$
+    type (!@#@$$) :: Bool -> (~>) Bool Bool
+    data (!@#@$$) (a0123456789876543210 :: Bool) :: (~>) Bool Bool
+      where
+        (:!@#@$$###) :: SameKind (Apply ((!@#@$$) a0123456789876543210) arg) ((!@#@$$$) a0123456789876543210 arg) =>
+                        (!@#@$$) a0123456789876543210 a0123456789876543210
+    type instance Apply ((!@#@$$) a0123456789876543210) a0123456789876543210 = (!) a0123456789876543210 a0123456789876543210
+    instance SuppressUnusedWarnings ((!@#@$$) a0123456789876543210) where
+      suppressUnusedWarnings = snd ((,) (:!@#@$$###) ())
+    infixr 2 !@#@$$
+    type (!@#@$$$) :: Bool -> Bool -> Bool
+    type family (!@#@$$$) (a0123456789876543210 :: Bool) (a0123456789876543210 :: Bool) :: Bool where
+      (!@#@$$$) a0123456789876543210 a0123456789876543210 = (!) a0123456789876543210 a0123456789876543210
+    infixr 2 !@#@$$$
+    type (!) :: Bool -> Bool -> Bool
+    type family (!) (a :: Bool) (a :: Bool) :: Bool where
+      (!) a_0123456789876543210 a_0123456789876543210 = Apply (Apply (||@#@$) a_0123456789876543210) a_0123456789876543210
+    infixr 2 %!
+    (%!) ::
+      (forall (t :: Bool) (t :: Bool).
+       Sing t
+       -> Sing t -> Sing (Apply (Apply (!@#@$) t) t :: Bool) :: Type)
+    (%!)
+      (sA_0123456789876543210 :: Sing a_0123456789876543210)
+      (sA_0123456789876543210 :: Sing a_0123456789876543210)
+      = applySing
+          (applySing (singFun2 @(||@#@$) (%||)) sA_0123456789876543210)
+          sA_0123456789876543210
+    instance SingI ((!@#@$) :: (~>) Bool ((~>) Bool Bool)) where
+      sing = singFun2 @(!@#@$) (%!)
+    instance SingI d =>
+             SingI ((!@#@$$) (d :: Bool) :: (~>) Bool Bool) where
+      sing = singFun1 @((!@#@$$) (d :: Bool)) ((%!) (sing @d))
+    instance SingI1 ((!@#@$$) :: Bool -> (~>) Bool Bool) where
+      liftSing (s :: Sing (d :: Bool))
+        = singFun1 @((!@#@$$) (d :: Bool)) ((%!) s)

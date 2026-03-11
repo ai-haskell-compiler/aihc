@@ -1,0 +1,66 @@
+#
+# spec file for package profiterole
+#
+# Copyright (c) 2020 SUSE LLC
+#
+# All modifications and additions to the file contributed by third parties
+# remain the property of their copyright owners, unless otherwise agreed
+# upon. The license for this file, and modifications and additions to the
+# file, is the same license as for the pristine package itself (unless the
+# license for the pristine package is not an Open Source License, in which
+# case the license is the MIT License). An "Open Source License" is a
+# license that conforms to the Open Source Definition (Version 1.9)
+# published by the Open Source Initiative.
+
+# Please submit bugfixes or comments via https://bugs.opensuse.org/
+#
+
+
+Name:           profiterole
+Version:        0.1
+Release:        0
+Summary:        Restructure GHC profile reports
+License:        BSD-3-Clause
+URL:            https://hackage.haskell.org/package/%{name}
+Source0:        https://hackage.haskell.org/package/%{name}-%{version}/%{name}-%{version}.tar.gz
+ExcludeArch:    %{ix86}
+BuildRequires:  ghc-Cabal-devel
+BuildRequires:  ghc-base-devel
+BuildRequires:  ghc-base-prof
+BuildRequires:  ghc-containers-devel
+BuildRequires:  ghc-containers-prof
+BuildRequires:  ghc-directory-devel
+BuildRequires:  ghc-directory-prof
+BuildRequires:  ghc-extra-devel
+BuildRequires:  ghc-extra-prof
+BuildRequires:  ghc-filepath-devel
+BuildRequires:  ghc-filepath-prof
+BuildRequires:  ghc-ghc-prof-devel
+BuildRequires:  ghc-ghc-prof-prof
+BuildRequires:  ghc-hashable-devel
+BuildRequires:  ghc-hashable-prof
+BuildRequires:  ghc-rpm-macros
+BuildRequires:  ghc-scientific-devel
+BuildRequires:  ghc-scientific-prof
+BuildRequires:  ghc-text-devel
+BuildRequires:  ghc-text-prof
+
+%description
+Given a GHC profile output, this tool generates alternative views on the data,
+which are typically more concise and may reveal new insights.
+
+%prep
+%autosetup
+
+%build
+%ghc_bin_build
+
+%install
+%ghc_bin_install
+
+%files
+%license LICENSE
+%doc CHANGES.txt README.md
+%{_bindir}/%{name}
+
+%changelog

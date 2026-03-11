@@ -1,0 +1,30 @@
+# ValueSyncResponse
+# [32mone of[m
+[ [37mtype[m: # [31mrequired[m
+    in-sync
+  <object>
+, [37mtype[m: # [31mrequired[m
+    client-changed
+  [37mtime[m: # [31mrequired[m
+    # server time
+    # Server time
+    [33m<number>[m # between [32m0[m and [32m18446744073709551615[m
+, [37mtype[m: # [31mrequired[m
+    server-changed
+  [37mvalue[m: # [31mrequired[m
+    # timed value
+    [33m<number>[m # between [32m0[m and [32m255[m
+  [37mtime[m: # [31mrequired[m
+    # timed time
+    # Server time
+    [33m<number>[m # between [32m0[m and [32m18446744073709551615[m
+, [37mtype[m: # [31mrequired[m
+    conflict
+  [37mvalue[m: # [31mrequired[m
+    # timed value
+    [33m<number>[m # between [32m0[m and [32m255[m
+  [37mtime[m: # [31mrequired[m
+    # timed time
+    # Server time
+    [33m<number>[m # between [32m0[m and [32m18446744073709551615[m
+]

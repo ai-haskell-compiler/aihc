@@ -1,0 +1,11 @@
+{ mkDerivation, base, hspec, lib, vector }:
+mkDerivation {
+  pname = "stb-image-redux";
+  version = "0.2.1.2";
+  sha256 = "deadbeef";
+  libraryHaskellDepends = [ base vector ];
+  testHaskellDepends = [ base hspec vector ];
+  homepage = "https://github.com/typedrat/stb-image-redux#readme";
+  description = "Image loading and writing microlibrary";
+  license = lib.licenses.bsd3;
+}

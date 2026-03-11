@@ -1,0 +1,9 @@
+This is a message that will be clearsigned.
+
+From RFC4880, we know that some of these lines should be
+dash-escaped.
+
+-Lines starting with a minus-hyphen MUST be escaped.
+- Lines starting with "From" SHOULD be escaped.
+
+Other lines MAY be escaped.

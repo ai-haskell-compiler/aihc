@@ -1,0 +1,22 @@
+Cabal-Version: >= 1.6
+Name:          AC-Angle
+Version:       1.0
+Stability:     Experimental
+Synopsis:      Angles in degrees and radians.
+
+Description:
+
+  A simple little library for dealing with geometric angles.
+
+Category:      Data, Math, Numerical
+License:       BSD3
+License-file:  License.txt
+Author:        Andrew Coppin
+Maintainer:    MathematicalOrchid@hotmail.com
+Build-Type:    Simple
+Tested-With:   GHC == 6.10.3
+
+Library
+  Exposed-modules: Data.Angle
+  Build-Depends:   base >= 4 && < 5
+  HS-Source-Dirs:  .

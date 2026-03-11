@@ -1,0 +1,125 @@
+--- parse tree ---
+[ Code
+    "typ/math/accent-01.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/math/accent-01.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/math/accent-01.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Equation
+    True
+    [ Text "x"
+    , MAlignPoint
+    , Text "="
+    , Text "p"
+    , HardBreak
+    , Code
+        "typ/math/accent-01.typ"
+        ( line 2 , column 12 )
+        (FuncCall (Ident (Identifier "dot")) [ BlockArg [ Text "x" ] ])
+    , MAlignPoint
+    , Text "="
+    , Text "v"
+    , HardBreak
+    , Code
+        "typ/math/accent-01.typ"
+        ( line 2 , column 26 )
+        (FuncCall
+           (FieldAccess
+              (Ident (Identifier "double")) (Ident (Identifier "dot")))
+           [ BlockArg [ Text "x" ] ])
+    , MAlignPoint
+    , Text "="
+    , Text "a"
+    , HardBreak
+    , Code
+        "typ/math/accent-01.typ"
+        ( line 2 , column 47 )
+        (FuncCall
+           (FieldAccess
+              (Ident (Identifier "triple")) (Ident (Identifier "dot")))
+           [ BlockArg [ Text "x" ] ])
+    , MAlignPoint
+    , Text "="
+    , Text "j"
+    , HardBreak
+    , Code
+        "typ/math/accent-01.typ"
+        ( line 2 , column 68 )
+        (FuncCall
+           (FieldAccess
+              (Ident (Identifier "quad")) (Ident (Identifier "dot")))
+           [ BlockArg [ Text "x" ] ])
+    , MAlignPoint
+    , Text "="
+    , Text "s"
+    ]
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 math.equation(block: true, 
+                               body: { text(body: [x]), 
+                                       math.alignpoint(), 
+                                       text(body: [=]), 
+                                       text(body: [p]), 
+                                       linebreak(), 
+                                       math.accent(accent: ⋅, 
+                                                   base: text(body: [x])), 
+                                       math.alignpoint(), 
+                                       text(body: [=]), 
+                                       text(body: [v]), 
+                                       linebreak(), 
+                                       math.accent(accent: ¨, 
+                                                   base: text(body: [x])), 
+                                       math.alignpoint(), 
+                                       text(body: [=]), 
+                                       text(body: [a]), 
+                                       linebreak(), 
+                                       math.accent(accent: ⃛, 
+                                                   base: text(body: [x])), 
+                                       math.alignpoint(), 
+                                       text(body: [=]), 
+                                       text(body: [j]), 
+                                       linebreak(), 
+                                       math.accent(accent: ⃜, 
+                                                   base: text(body: [x])), 
+                                       math.alignpoint(), 
+                                       text(body: [=]), 
+                                       text(body: [s]) }, 
+                               numbering: none), 
+                 parbreak() })

@@ -1,0 +1,596 @@
+haskell-debian (3.95) unstable; urgency=medium
+
+  * Clean up error handling and monad transformers.
+  * Move source code into src subdirectory to avoid build problems on case
+    insensitive HFS partitions.
+  * Move Debian.Except module to Extra.Except in sr-extra package.
+
+ -- David Fox <dsf@seereason.com>  Tue, 12 Feb 2019 16:38:30 -0800
+
+haskell-debian (3.94) unstable; urgency=medium
+
+  * Additions to Debian.URI.
+
+ -- David Fox <dsf@seereason.com>  Sat, 02 Feb 2019 08:18:12 -0800
+
+haskell-debian (3.93.6) unstable; urgency=medium
+
+  * Throw a UserError when dirFromURI gets 404 Not Found
+
+ -- David Fox <dsf@seereason.com>  Fri, 25 Jan 2019 12:12:56 -0800
+
+haskell-debian (3.93.5) unstable; urgency=medium
+
+  * Restore import of <$> for older versions of base.
+
+ -- David Fox <dsf@x1>  Fri, 18 Jan 2019 19:04:40 -0800
+
+haskell-debian (3.93.4) unstable; urgency=medium
+
+  * Handle errors in the shell commands run by functions in Debian.URI
+
+ -- David Fox <dsf@seereason.com>  Fri, 18 Jan 2019 06:25:22 -0800
+
+haskell-debian (3.93.3) unstable; urgency=medium
+
+  * Changes for ghc-8.6
+
+ -- David Fox <dsf@seereason.com>  Tue, 01 Jan 2019 15:57:16 -0800
+
+haskell-debian (3.93.2) unstable; urgency=low
+
+  * Put SHA256 checksums into package info rather than obsolete md5
+
+ -- David Fox <dsf@foxthompson.net>  Thu, 13 Jul 2017 16:00:10 -0700
+
+haskell-debian (3.92.1) unstable; urgency=low
+
+  * Import mconcat for older base compatibility.
+
+ -- David Fox <dsf@foxthompson.net>  Wed, 12 Jul 2017 09:03:18 -0700
+
+haskell-debian (3.92) unstable; urgency=low
+
+  * Support parsing of the option list in sources.list lines - see
+    https://manpages.debian.org/stretch/apt/sources.list.5.en.html
+  * Move tests of sources.list pretty and parse into Debian.Sources
+  * Change sig of parseSourceLine' to return Either rather than Maybe
+
+ -- David Fox <dsf@foxthompson.net>  Wed, 12 Jul 2017 06:30:01 -0700
+
+haskell-debian (3.91.2) unstable; urgency=low
+
+  * Work around for https://ghc.haskell.org/trac/ghc/ticket/12130
+  * Add travis config for ghc-8.0
+  * fix test suite
+  * Make changelog a duplicate of debian/changelog
+  * eliminate error call in parseChangeLog
+
+ -- David Fox <dsf@foxthompson.net>  Fri, 11 Nov 2016 21:31:09 -0800
+
+haskell-debian (3.91) unstable; urgency=low
+
+  * Eliminate error call in parseChangeLog
+
+ -- David Fox <dsf@seereason.com>  Thu, 06 Oct 2016 09:42:06 -0700
+
+haskell-debian (3.89) unstable; urgency=low
+
+  * Change signature of parseDebianVersion to return Either ParseError DebianVerions.
+  * Provide the old signature as parseDebianVersion'.
+
+ -- David Fox <dsf@seereason.com>  Mon, 21 Sep 2015 15:23:32 -0700
+
+haskell-debian (3.88.1) unstable; urgency=low
+
+  * Make ghc-7.10.2 a required travis test
+  * Sort out the List/Map/Set imports in Debian.GenBuildDeps
+
+ -- David Fox <dsf@seereason.com>  Mon, 24 Aug 2015 10:29:00 -0700
+
+haskell-debian (3.88) unstable; urgency=low
+
+  * Improved handling of white space
+  * Speed up Debian.GenBuildDeps.buildable
+
+ -- David Fox <dsf@seereason.com>  Mon, 24 Aug 2015 06:29:29 -0700
+
+haskell-debian (3.87.2) unstable; urgency=low
+
+  * Functor, Applicative, and Alternative instances for ghc-7.10
+  * Fiddle with imports and ifdefs to fix build
+  * Switch from ansi-wl-pprint package to pretty
+
+ -- David Fox <dsf@seereason.com>  Sun, 22 Mar 2015 12:55:39 -0700
+
+haskell-debian (3.87.1) unstable; urgency=low
+
+  * Version bump to match cabal
+
+ -- David Fox <dsf@seereason.com>  Mon, 02 Mar 2015 13:13:00 -0800
+
+haskell-debian (3.86) unstable; urgency=low
+
+  * Avoid dependency on th-orphans
+  * Turn test program into a test-suite
+  * add DEB_ENABLE_TESTS = yes to debian/rules
+  * Support builds on older versions of GHC
+
+ -- David Fox <dsf@seereason.com>  Sun, 15 Feb 2015 07:32:42 -0800
+
+haskell-debian (3.85.3) unstable; urgency=low
+
+  * Handle new pretty-1.1.2 package, which supercedes prettyclass.
+  * Make a change to trigger a travis build.
+
+ -- David Fox <dsf@seereason.com>  Fri, 06 Feb 2015 10:18:30 -0800
+
+haskell-debian (3.85.2) unstable; urgency=low
+
+  * If any of the lines of a multi-line control file field are not
+    indented, indent all the lines by one space.
+  * When formatting multi-line control file fields, make sure empty
+    lines are replaced by a single (indented) '.'.
+
+ -- David Fox <dsf@seereason.com>  Wed, 04 Feb 2015 11:23:42 -0800
+
+haskell-debian (3.85.1) unstable; urgency=low
+
+  * Allow build with process-extras-0.2.0
+
+ -- David Fox <dsf@seereason.com>  Thu, 04 Dec 2014 06:23:38 -0800
+
+haskell-debian (3.85) unstable; urgency=low
+
+  * Fix some cases where the pretty printer output parsed to something
+    different from its input
+
+ -- David Fox <dsf@seereason.com>  Sat, 29 Nov 2014 09:27:42 -0800
+
+haskell-debian (3.84.1) unstable; urgency=low
+
+  * Remove a Show instance that overlaps the one derived in the Control
+    type declaration.
+
+ -- David Fox <dsf@seereason.com>  Sat, 29 Nov 2014 05:18:40 -0800
+
+haskell-debian (3.84) unstable; urgency=low
+
+  * Replace the Debian.Pretty module with a module copied from the
+    pretty-class package, Text.PrettyPrint.HughesPJClass.  This is almost
+    identical to the module in Lennart's prettyclass package, but has what
+    I believe to be a more correct pPrintList method for type Char.
+
+ -- David Fox <dsf@seereason.com>  Sun, 14 Sep 2014 12:37:57 -0700
+
+haskell-debian (3.83.4.2) unstable; urgency=low
+
+  * Require a better version of process-listlike.
+  * Trigger a new build on hackage to get documentation.
+
+ -- David Fox <dsf@seereason.com>  Tue, 02 Sep 2014 08:29:32 -0700
+
+haskell-debian (3.83.4.1) unstable; urgency=low
+
+  * Merge change from version 3.83.3.1 (which only went to hackage)
+    and 3.83.4 (whose version change didn't get checked into git.)
+  * Require ListLike >= 4.
+  * Fix repository type in the cabal file.
+
+ -- David Fox <dsf@seereason.com>  Tue, 02 Sep 2014 07:24:27 -0700
+
+haskell-debian (3.83.3) unstable; urgency=low
+
+  * Moved repository to https://github.com/ddssff/debian-haskell
+
+ -- David Fox <dsf@seereason.com>  Thu, 28 Aug 2014 08:36:16 -0700
+
+haskell-debian (3.83.2) unstable; urgency=low
+
+  * Add some Read, Show, Data, and Typeable instances.
+
+ -- David Fox <dsf@seereason.com>  Mon, 25 Aug 2014 03:47:38 -0700
+
+haskell-debian (3.83.1) unstable; urgency=low
+
+  * Support new network-uri package.
+
+ -- David Fox <dsf@seereason.com>  Sun, 24 Aug 2014 17:17:55 -0700
+
+haskell-debian (3.83) unstable; urgency=low
+
+  * Add a Loc value to the ControlFileError type, the template
+    haskell location where the exception was created.
+
+ -- David Fox <dsf@seereason.com>  Thu, 07 Aug 2014 13:54:27 -0700
+
+haskell-debian (3.82) unstable; urgency=low
+
+  * Add Debian.Control.Policy which has knowledge of specific fields, such
+    as Source and Package, which are expected to be present in a debian
+    control file.
+  * Replace a 3-tuple in Debian.GenBuildDeps with a record named
+    ReadyTargets.
+  * Add Debian.Pretty.display :: Pretty a => a -> String
+
+ -- David Fox <dsf@seereason.com>  Wed, 06 Aug 2014 06:13:15 -0700
+
+haskell-debian (3.81.3) unstable; urgency=low
+
+  * Remove spurious dependency on Cabal.
+
+ -- David Fox <dsf@seereason.com>  Tue, 15 Jul 2014 06:58:42 -0700
+
+haskell-debian (3.81.2) unstable; urgency=low
+
+  * Update debian build dependencies.
+
+ -- David Fox <dsf@seereason.com>  Sat, 05 Jul 2014 22:30:43 -0700
+
+haskell-debian (3.81.1) unstable; urgency=low
+
+  * Modernize cabal file.
+
+ -- David Fox <dsf@seereason.com>  Sat, 17 May 2014 06:36:43 -0700
+
+haskell-debian (3.81) unstable; urgency=low
+
+  * Replace library pretty and library ansi-wl-pprint with an ultra-simple
+    custom pretty printing library in Debian.Pretty.
+
+ -- David Fox <dsf@seereason.com>  Sun, 12 Jan 2014 07:34:21 -0800
+
+haskell-debian (3.80.2) unstable; urgency=low
+
+  * Neil Mayhew's patch to greatly speed parsing of control files.
+
+ -- David Fox <dsf@seereason.com>  Mon, 06 Jan 2014 04:36:37 -0800
+
+haskell-debian (3.80.1) unstable; urgency=low
+
+  * Fix for fakechanges from Neil Mayhew - don't reject all .deb files.
+
+ -- David Fox <dsf@seereason.com>  Mon, 30 Dec 2013 08:02:08 -0800
+
+haskell-debian (3.80) unstable; urgency=low
+
+  * Make the SliceName type an alias for ReleaseName.  Pretty sure
+    they are the same thing.
+
+ -- David Fox <dsf@seereason.com>  Thu, 19 Dec 2013 11:41:38 -0800
+
+haskell-debian (3.79.4) unstable; urgency=low
+
+  * Add changelog to list of extra source files so it is added to
+    the tarball.
+
+ -- David Fox <dsf@seereason.com>  Tue, 15 Oct 2013 07:36:41 -0700
+
+haskell-debian (3.79.3) unstable; urgency=low
+
+  * Make the changelog visible in hackage2.
+
+ -- David Fox <dsf@seereason.com>  Tue, 15 Oct 2013 07:33:02 -0700
+
+haskell-debian (3.79.2) unstable; urgency=low
+
+  * Allow package to build with either process-listlike or process-extra.
+
+ -- David Fox <dsf@seereason.com>  Fri, 04 Oct 2013 09:02:48 -0700
+
+haskell-debian (3.79.1) unstable; urgency=low
+
+  * Switch from using package process-extras to process-listlike.
+
+ -- David Fox <dsf@seereason.com>  Wed, 05 Jun 2013 06:22:26 -0700
+
+haskell-debian (3.79) unstable; urgency=low
+
+  * Efficiency fix for the Text instance of Debian.Control.
+  * Get rid of the Data.Text parser, instead parse the ByteString and
+    then decode the resulting control file.  Much faster I think.
+
+ -- David Fox <dsf@seereason.com>  Mon, 29 Apr 2013 21:33:55 -0700
+
+haskell-debian (3.78) unstable; urgency=low
+
+  * Change URI' to simplify its Read and Show instances, it is now just a
+    private constructor applied to a string for which parseURI was known
+    to succeed.
+  * Add changelog.pre-debian to the source file list
+
+ -- David Fox <dsf@seereason.com>  Sun, 28 Apr 2013 12:51:11 -0700
+
+haskell-debian (3.77) unstable; urgency=low
+
+  * Add a URI' type that is a wrapper around URI with working Read and
+    Show instances.
+
+ -- David Fox <dsf@seereason.com>  Fri, 26 Apr 2013 11:00:10 -0700
+
+haskell-debian (3.76) unstable; urgency=low
+
+  * Add Debian.UTF, with support for reading and decoding "almost-utf8" files
+
+ -- David Fox <dsf@seereason.com>  Thu, 25 Apr 2013 07:56:45 -0700
+
+haskell-debian (3.75) unstable; urgency=low
+
+  * If we get a UTF8 decoding error just insert the offending character
+    into the output stream.  There is an
+
+ -- David Fox <dsf@seereason.com>  Wed, 24 Apr 2013 15:30:30 -0700
+
+haskell-debian (3.74) unstable; urgency=low
+
+  * Add Debian.Relation.Text and Debian.Version.Text.
+
+ -- David Fox <dsf@seereason.com>  Tue, 23 Apr 2013 18:11:00 -0700
+
+haskell-debian (3.73) unstable; urgency=low
+
+  * Use Text instead of ByteString in the functions exported
+    by Debian.Control.
+
+ -- David Fox <dsf@seereason.com>  Tue, 23 Apr 2013 17:59:21 -0700
+
+haskell-debian (3.72) unstable; urgency=low
+
+  * Add Debian.Control.Text, Data.Text support for control files.
+
+ -- David Fox <dsf@seereason.com>  Tue, 23 Apr 2013 17:19:22 -0700
+
+haskell-debian (3.71) unstable; urgency=low
+
+  * Refine the ArchitectureReq type to parse things like !linux-any.
+
+ -- David Fox <dsf@seereason.com>  Sat, 13 Apr 2013 15:55:27 -0700
+
+haskell-debian (3.70.2) unstable; urgency=low
+
+  * Fix source repository location in cabal file.
+
+ -- David Fox <dsf@seereason.com>  Sat, 13 Apr 2013 11:11:45 -0700
+
+haskell-debian (3.70.1) unstable; urgency=low
+
+  * Add Show and Read instances for DebianVersion.
+
+ -- David Fox <dsf@seereason.com>  Tue, 09 Apr 2013 08:58:44 -0700
+
+haskell-debian (3.70) unstable; urgency=low
+
+  * Make Pretty instances for all the types in Debian.Relation:
+    Relation, Relations, BinPkgName, etc.  Don't export the individual
+    functions like prettyRelation, clients can just call pretty.
+
+ -- David Fox <dsf@seereason.com>  Thu, 27 Dec 2012 05:50:56 -0800
+
+haskell-debian (3.69.3) unstable; urgency=low
+
+  * Add a missing newline in the generated log entry comments.
+
+ -- David Fox <dsf@seereason.com>  Wed, 26 Dec 2012 16:42:41 -0800
+
+haskell-debian (3.69.2) unstable; urgency=low
+
+  * Fix formatting of pretty printed changelog entries - There were two
+    newlines before the signature and none after, there should be one and
+    one.
+
+ -- David Fox <dsf@seereason.com>  Wed, 26 Dec 2012 16:05:49 -0800
+
+haskell-debian (3.69.1) unstable; urgency=low
+
+  * Fix the darcs repo path.
+
+ -- David Fox <dsf@seereason.com>  Mon, 19 Nov 2012 16:35:37 -0800
+
+haskell-debian (3.69) unstable; urgency=low
+
+  * Fix changelog formatting by adding a newtype named ChangeLog with
+    a Pretty instance.
+  * Rename parseLog -> parseEntries, add a parseChangeLog function.
+
+ -- David Fox <dsf@seereason.com>  Mon, 19 Nov 2012 11:10:37 -0800
+
+haskell-debian (3.68) unstable; urgency=low
+
+  * Fix the formatting of changelog entries (an extra newline was being
+    appended) and replace the functions prettyChanges, prettyChangesFile,
+    and prettyEntry with instances of Pretty.
+
+ -- David Fox <dsf@seereason.com>  Sun, 18 Nov 2012 07:04:28 -0800
+
+haskell-debian (3.67) unstable; urgency=low
+
+  * Eliminate the PkgName type, instead make BinPkgName and SrcPkgName
+    instances of a class named PkgName.
+
+ -- David Fox <dsf@seereason.com>  Sat, 17 Nov 2012 06:11:06 -0800
+
+haskell-debian (3.66) unstable; urgency=low
+
+  * Eliminate the use of the tiny pretty-class package, use the Pretty
+    class from ansi-wl-pprint instead.
+  * Improve the pretty printing of control files in terms of terminating
+    newlines and the newlines between paragraphs.
+  * Add some control file unit tests.
+
+ -- David Fox <dsf@seereason.com>  Sun, 11 Nov 2012 08:21:07 -0800
+
+haskell-debian (3.65) unstable; urgency=low
+
+  * Replace the Show instances for control files with Pretty instances.
+
+ -- David Fox <dsf@seereason.com>  Thu, 18 Oct 2012 12:26:37 -0700
+
+haskell-debian (3.64.1) unstable; urgency=low
+
+  * Fix typo in maintainer name.
+
+ -- David Fox <dsf@seereason.com>  Mon, 01 Oct 2012 09:19:45 -0700
+
+haskell-debian (3.64) unstable; urgency=low
+
+  * Eliminate dependency on progress, eliminate most of the Unixutils
+    dependency.  We still need the ByteString versions of the functions
+    from System.Process, and a couple of other process functions.
+
+ -- David Fox <dsf@seereason.com>  Mon, 26 Mar 2012 17:25:17 -0700
+
+haskell-debian (3.63) unstable; urgency=low
+
+  * Use distinct types for Debian source package names and binary package
+    names everywhere, instead of strings.
+
+ -- David Fox <dsf@seereason.com>  Thu, 15 Mar 2012 12:33:05 -0700
+
+haskell-debian (3.62.2) unstable; urgency=low
+
+  * When parsing a list of package version relations, strip any lines
+    that begin with a '#' - they are comments.
+
+ -- David Fox <dsf@seereason.com>  Thu, 08 Mar 2012 10:22:13 -0800
+
+haskell-debian (3.62.1) unstable; urgency=low
+
+  * Export old relaxinfo functions and data structures for diagnosing
+    performance problems.
+
+ -- David Fox <dsf@seereason.com>  Thu, 01 Mar 2012 13:14:53 -0800
+
+haskell-debian (3.62) unstable; urgency=low
+
+  * New type for RelaxInfo, was RelaxInfo [(BinPkgName, Maybe SrcPkgName)]
+    now (SrcPkgName -> BinPkgName -> Bool).
+
+ -- David Fox <dsf@seereason.com>  Sat, 25 Feb 2012 18:07:16 -0800
+
+haskell-debian (3.61.1) unstable; urgency=low
+
+  * Add some Data and Typeable instances.
+
+ -- David Fox <dsf@seereason.com>  Thu, 12 Jan 2012 10:18:58 -0800
+
+haskell-debian (3.61) unstable; urgency=low
+
+  * Uploading to hackage.
+  * Remove crypto++ dependency (it was a mistake.)
+  * Add optimization flag to ghc-options
+  * Reference seereason darcs repo
+
+ -- David Fox <dsf@seereason.com>  Thu, 06 Oct 2011 09:04:38 -0700
+
+haskell-debian (3.60) unstable; urgency=low
+
+  * Replace bogus Show instances in Debian.Relation.Common with pretty
+    printing functions.
+  * Change cabal category from System to Debian (to join the dpkg package)
+  * Fix some of the compiler warnings.
+  * Change the Show instances in Debian.Version into pretty printing
+    functions too.
+
+ -- David Fox <dsf@seereason.com>  Sun, 25 Sep 2011 07:33:25 -0700
+
+haskell-debian (3.59) unstable; urgency=low
+
+  * Move the cabal-debian program into a separate pacakge.
+
+ -- David Fox <dsf@seereason.com>  Sun, 18 Sep 2011 06:43:36 -0700
+
+haskell-debian (3.58-0.2) unstable; urgency=low
+
+  * Remove the --deb-name option, all the package name special cases need
+    to be encoded in the Distribution.Package.Debian.Bundled.debianName function
+    so that we can fix both the names for the package we are building and
+    the names of its dependencies.
+
+ -- David Fox <dsf@seereason.com>  Thu, 25 Aug 2011 10:58:11 -0700
+
+haskell-debian (3.58-0.1) unstable; urgency=low
+
+  * Add --deb-name option, which sets the part of the package name between
+    the prefix libghc- and the suffix -dev.
+  * Add --epoch
+  * Add --deb-version
+
+ -- David Fox <dsf@seereason.com>  Wed, 24 Aug 2011 20:45:33 -0700
+
+haskell-debian (3.58) unstable; urgency=low
+
+  * Add a --ghc-version option to specify what the ghc version is in the
+    build environment, in case it is different from the one where the
+    autobuilder is being run.  This affects what packages cabal-debian
+    thinks are built into the compiler.  I have non-working code to actually
+    look in the environment for this information, but it depends on having
+    the compiler already installed there.
+  * Greatly sped-up cabal-debian.
+  * Add --build-dep to specify extra build dependencies.
+  * Generate a haskell-packagename-utils deb with all the executables, rather
+    than one deb per executable.
+
+ -- David Fox <dsf@seereason.com>  Fri, 19 Aug 2011 08:34:36 -0700
+
+haskell-debian (3.57) unstable; urgency=low
+
+  * Re-order generated dependencies so we are more likely to build
+    with newer packages installed.
+
+ -- David Fox <dsf@seereason.com>  Tue, 16 Aug 2011 19:04:29 -0700
+
+haskell-debian (3.56-1) unstable; urgency=low
+
+  * I created a new repository by importing the sid version of
+    haskell-debian-3.55 and then applying my patches.  This is because
+    I don't understand why Marco's repository is so different from the
+    code in sid.  At some point we will get this all sorted out.
+
+ -- David Fox <dsf@seereason.com>  Tue, 16 Aug 2011 13:00:15 -0700
+
+haskell-debian (3.55-2) unstable; urgency=low
+
+  * Build against parsec 3
+
+ -- Joachim Breitner <nomeata@debian.org>  Mon, 13 Jun 2011 18:13:10 +0200
+
+haskell-debian (3.55-1) unstable; urgency=low
+
+  * Use ghc instead of ghc6
+  * control: Standards-Version: Bump, no changes needed.
+  * control: haskell-debian-utils: Adds Recommends: apt-file.
+  * New upstream version.
+  * patches/dont-build-teste.patch: Update patch to new upstream
+    version.
+  * control: Update dependency on haxml to 1.20.*.
+  * control: Depends on utf8-string.
+
+ -- Marco Túlio Gontijo e Silva <marcot@debian.org>  Fri, 03 Jun 2011 22:49:23 -0300
+
+haskell-debian (3.47-3) unstable; urgency=low
+
+  * Re-add dont-build-tests.patch, lost in the previous upload 
+
+ -- Joachim Breitner <nomeata@debian.org>  Thu, 24 Jun 2010 19:33:30 +0200
+
+haskell-debian (3.47-2) unstable; urgency=low
+
+  [ Erik de Castro Lopo ]
+  * debian/control: Fix lintian warnings.
+  * Add man pages for apt-get-build-depends, cabal-debian, debian-report and
+    fakechanges.
+  * Add libghc6-debian-doc.doc-base.
+  * Move installation of binaries and man pages from rules file to new file
+    haskell-debian-utils.install.
+
+  [ Joachim Breitner ]
+  * Adjust copyright file per FTP master request. 
+  * Bump haskell-regex-tdfa dependency
+
+ -- Joachim Breitner <nomeata@debian.org>  Thu, 24 Jun 2010 09:47:55 +0200
+
+haskell-debian (3.47-1) unstable; urgency=low
+
+  * Initial release.
+
+ -- Joachim Breitner <nomeata@debian.org>  Sun, 09 May 2010 19:08:20 +0200

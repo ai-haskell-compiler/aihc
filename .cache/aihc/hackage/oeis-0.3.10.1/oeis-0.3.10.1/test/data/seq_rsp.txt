@@ -1,0 +1,561 @@
+# Greetings from The On-Line Encyclopedia of Integer Sequences! http://oeis.org/
+
+Search: seq:5,7,11,13,17
+Showing 1-10 of 511
+
+%I A000040 M0652 N0241
+%S A000040 2,3,5,7,11,13,17,19,23,29,31,37,41,43,47,53,59,61,67,71,73,79,83,89,
+%T A000040 97,101,103,107,109,113,127,131,137,139,149,151,157,163,167,173,179,
+%U A000040 181,191,193,197,199,211,223,227,229,233,239,241,251,257,263,269,271
+%N A000040 The prime numbers.
+%C A000040 A number n is prime if it is greater than 1 and has no positive divisors except 1 and n.
+%C A000040 A natural number is prime if and only if it has exactly two (positive) divisors.
+%C A000040 A prime has exactly one proper positive divisor, 1.
+%C A000040 The sum of an odd number > 1 (2i+1, i >= 1) of consecutive positive odd numbers centered on the j-th odd number >= 2i+1 (2j+1, j >= i) being (2i+1)*(2j+1) has 2 or more odd prime factors (odd semiprime iff 2i+1 and 2j+1 are primes). - _Daniel Forgues_, Jul 15 2009
+%C A000040 The paper by Kaoru Motose starts as follows: "Let q be a prime divisor of a Mersenne number 2^p-1 where p is prime. Then p is the order of 2 (mod q). Thus p is a divisor of q-1 and q>p. This shows that there exist infinitely many prime numbers." - Pieter Moree, Oct 14 2004
+%C A000040 1 is not a prime, for if the primes included 1, then the factorization of a natural number n into a product of primes would not be unique, since n = n*1.
+%C A000040 1 is the empty product (has 0 prime factors) whereas a prime has 1 prime factor (itself). - Daniel Forgues, Jul 23 2009
+%C A000040 Prime(n) and pi(n) are inverse functions: A000720(a(n)) = n and a(n) is the least number m such that a(A000720(m)) = a(n). a(A000720(n)) = n if (and only if) n is prime.
+%C A000040 Elementary primality test: If no prime =< sqrt(m) divides m, then m is prime (since a prime is its own exclusive multiple, apart from 1). - _Lekraj Beedassy_, Mar 31 2005
+%C A000040 Second sequence ever computed by electronic computer, on EDSAC, May 9 1949 (see Renwick link). - _Russ Cox_, Apr 20 2006
+%C A000040 Every prime p is a linear combination of previous primes p(n) with nonzero coefficients c(n) and |c(n)| < p(n). - Amarnath Murthy, Franklin T. Adams-Watters and Joshua Zucker, May 17 2006
+%C A000040 Odd primes can only be written as a sum of two consecutive integers. Powers of 2 do not have a representation as a sum of k consecutive integers (other than the trivial n=n, for k=1). See A111774. - _Jaap Spies_, Jan 04 2007
+%C A000040 There is a unique decomposition of the primes: provided the weight A117078(n) is > 0, we have prime(n) = weight * level + gap, or A000040(n) = A117078(n) * A117563(n) + A001223(n). - _Rémi Eismann_, Feb 16 2007
+%C A000040 Equals row sums of triangle A143350. [_Gary W. Adamson_, Aug 10 2008]
+%C A000040 APSO (Alternating partial sums of sequence) a-b+c-d+e-f+g... = (a+b+c+d+e+f+g...)-2*(b+d+f...): APSO(A000040) = A008347=A007504 - 2*(A077126 repeated) (A007504-A008347)/2 = A077131 alternated with A077126. - _Eric Desbiaux_, Oct 28 2008
+%C A000040 The Greek transliteration of 'Prime Number' is 'Proton Arithmon'. [_Daniel Forgues_, May 08 2009]
+%C A000040 It appears that, with the Bachet-Bezout theorem, A000040 = (2*A039701)+(3*A157966). - _Eric Desbiaux_, Nov 15 2009
+%C A000040 a(n) = A008864(n) - 1 = A052147(n) - 2 = A113395(n) - 3 = A175221(n) - 4 = A175222(n) - 5 = A139049(n) - 6 = A175223(n) - 7 = A175224(n) - 8 = A140353(n) - 9 = A175225(n) - 10. [From _Jaroslav Krizek_, Mar 06 2010]
+%C A000040 2 and 3 might be referred to as the two "forcibly prime numbers" since there are no integers greater than 1 and less than or equal to their respective square roots. Not a single trial division ever needs to be done for 2 or 3, so they are disqualified from the get go from any attempt to belong to the set of composite numbers. 2 and 3 are thus the only consecutive primes. Since any further prime needs to be coprime to both 2 and 3, they can only be congruent to 5 or 1 (mod 2*3) and thus must all be of the form (2*3)*k -/+ 1 with k >= 1. When both (2*3)*k - 1 and (2*3)*k + 1 are prime for a given k >= 1, they are referred to as twin primes. (3 and 5 being the only twin primes of the form (2*2)*k - 1 and (2*2)*k + 1). - _Daniel Forgues_, Mar 19 2010
+%C A000040 For prime n, the sum of divisors of n > product of divisors of n. Sigma(n)==1 (mod n). - _Juri-Stepan Gerasimov_, Mar 12 2011
+%C A000040 Conjecture: a(n) = (6*f(n)+(-1)^f(n)-3)/2, n>2, where f(n) = floor(ithprime(n)/3)+1. See A181709. - _Gary Detlefs_, Dec 12 2011
+%C A000040 Odd prime p divides some (2^k + 1) or (2^k - 1), (k>0, minimal, Cf. A003558) depending on the parity of A179480((p+1)/2) = r. This is a consequence of the Quasi-order theorem and corollaries, [Hilton and Pederson, pp. 260-264]: 2^k == (-1)^r mod b, b odd; and b divides 2^k - (-1)^r, where p is a subset of b. - _Gary W. Adamson_, Aug 26 2012
+%C A000040 A number n is prime if and only if it is different from zero and different from a unit and each multiple of n decomposes into factors such that n divides at least one of the factors. This definition has the advantage that it does not make an assertion on the number of divisors of n. It applies equally for the integers (where a prime has exactly four divisors) and the natural numbers (where a prime has exactly two divisors). - _Peter Luschny_, Oct 09 2012
+%C A000040 Motivated by his conjecture on representations of integers by alternating sums of consecutive primes, for any positive integer n, Zhi-Wei Sun conjectured that the polynomial P_n(x)= sum_{k=0}^n a(k+1)*x^k is irreducible over the field of rational numbers with the Galois group S_n, and moreover P_n(x) is irreducible mod a(m) for some m<=n(n+1)/2. It seems that no known criterion on irreduciblity of polynomials implies this conjecture. - _Zhi-Wei Sun_, Mar 23 2013
+%D A000040 M. Agrawal, N. Kayal and N. Saxena, PRIMES is in P, Ann. of Math. (2) 160 (2004), no. 2, 781-793.
+%D A000040 M. Aigner and G. M. Ziegler, Proofs from The Book, Springer-Verlag, Berlin, 2nd. ed., 2001; see p. 3.
+%D A000040 T. M. Apostol, Introduction to Analytic Number Theory, Springer-Verlag, 1976, page 2.
+%D A000040 E. Bach and __Jeffrey Shallit__, Algorithmic Number Theory, I, Chaps. 8, 9.
+%D A000040 P. T. Bateman and H. G. Diamond, A hundred years of prime numbers, Amer. Math. Monthly, Vol. 103 (1996) pp. 729-741.
+%D A000040 D. M. Bressoud, Factorization and Primality Testing, Springer-Verlag NY 1989.
+%D A000040 C. K. Caldwell and Y. Xiong, What is the smallest prime?, J. Integer Seq. 15 (2012), no. 9, Article 12.9.7, 14 pp.,  arXiv:1209.2007, 2012. - From _N. J. A. Sloane_, Dec 26 2012
+%D A000040 M. Cipolla, "La determinazione asintotica dell'n-mo numero primo.", Rend. d. R. Acc. di sc. fis. e mat. di Napoli, s. 3, VIII (1902), pp. 132-166.
+%D A000040 R. Crandall and C. Pomerance, Prime Numbers: A Computational Perspective, Springer, NY, 2001; see p. 1.
+%D A000040 J.-P. Delahaye, Merveilleux nombres premiers, Pour la Science-Belin Paris, 2000.
+%D A000040 J.-P. Delahaye, Savoir si un nombre est premier: facile, Pour La Science, 303(1) 2003, pp. 98-102.
+%D A000040 M. Dietzfelbinger, Primality Testing in Polynomial Time, Springer NY 2004.
+%D A000040 U. Dudley, Formulas for primes, Math. Mag., 56 (1983), 17-22.
+%D A000040 Pierre Dusart, Autour de la fonction qui compte le nombre de nombres premiers, Dissertation, Universite de Limoges (1998).
+%D A000040 Pierre Dusart, The k-th prime is greater than k(ln k + ln ln k-1) for k>=2, Mathematics of Computation 68: (1999), 411-415.
+%D A000040 J. Elie, "L'algorithme AKS", in 'Quadrature', No. 60, pp. 22-32, 2006 EDP-sciences, Les Ulis (France);
+%D A000040 Seymour. B. Elk, "Prime Number Assignment to a Hexagonal Tessellation of a Plane That Generates Canonical Names for Peri-Condensed Polybenzenes", J. Chem. Inf. Comput. Sci., vol. 34 (1994), pp. 942-946.
+%D A000040 W. & F. Ellison, Prime Numbers, Hermann Paris 1985
+%D A000040 T. Estermann, Introduction to Modern Prime Number Theory, Camb. Univ. Press, 1969.
+%D A000040 G. H. Hardy and E. M. Wright, An Introduction to the Theory of Numbers. 3rd ed., Oxford Univ. Press, 1954, p. 2.
+%D A000040 Peter Hilton and Jean Pedersen, A Mathematical Tapestry: Demonstrating the Beautiful Unity of Mathematics, Cambridge University Press, 2010, pp. (260-264).
+%D A000040 H. D. Huskey, Derrick Henry Lehmer [1905-1991]. IEEE Ann. Hist. Comput. 17 (1995), no. 2, 64-68. Math. Rev. 96b:01035
+%D A000040 M. N. Huxley, The Distribution of Prime Numbers, Oxford Univ. Press, 1972.
+%D A000040 D. S. Jandu, Prime Numbers And Factorization, Infinite Bandwidth Publishing, N. Hollywood CA 2007.
+%D A000040 E. Landau, Handbuch der Lehre von der Verteilung der Primzahlen, Chelsea, NY, 1974.
+%D A000040 D. H. Lehmer, The sieve problem for all-purpose computers. Math. Tables and Other Aids to Computation, Math. Tables and Other Aids to Computation, 7, (1953). 6-14. Math. Rev. 14:691e
+%D A000040 D. N. Lehmer, "List of Prime Numbers from 1 to 10,006,721", Carnegie Institute, Washington, D.C. 1909.
+%D A000040 W. J. LeVeque, Topics in Number Theory. Addison-Wesley, Reading, MA, 2 vols., 1956, Vol. 1, Chap. 6.
+%D A000040 H. Lifchitz, Table Des nombres Premiers de 0 a 20 millions (Tomes I & II), Albert Blanchard, Paris 1971.
+%D A000040 R. F. Lukes, C. D. Patterson and H. C. Williams, Numerical sieving devices: their history and some applications. Nieuw Arch. Wisk. (4) 13 (1995), no. 1, 113-139. Math. Rev. 96m:11082
+%D A000040 Kaoru Motose, On values of cyclotomic polynomials. II, Math. J. Okayama Univ. 37 (1995), 27-36.
+%D A000040 P. Ribenboim, The New Book of Prime Number Records, Springer-Verlag NY 1995.
+%D A000040 P. Ribenboim, The Little Book of Bigger Primes, Springer-Verlag NY 2004.
+%D A000040 H. Riesel, Prime Numbers and Computer Methods for Factorization, Birkhaeuser Boston, Cambridge MA 1994.
+%D A000040 B. Rittaud, "31415879. Ce nombre est-il premier?" ['Is this number prime?'], La Recherche, Vol. 361, pp. 70-73, Feb 15 2003, Paris.
+%D A000040 J. Barkley Rosser, Explicit Bounds for Some Functions of Prime Numbers, American Journal of Mathematics 63 (1941) 211-232.
+%D A000040 M. du Sautoy, The Music of the Primes, Fourth Estate / HarperCollins, 2003; see p. 5.
+%D A000040 D. Shanks, Solved and Unsolved Problems in Number Theory, 2nd. ed., Chelsea, 1978, Chap. 1.
+%D A000040 N. J. A. Sloane, A Handbook of Integer Sequences, Academic Press, 1973 (includes this sequence).
+%D A000040 N. J. A. Sloane and Simon Plouffe, The Encyclopedia of Integer Sequences, Academic Press, 1995 (includes this sequence).
+%D A000040 D. Wells, Prime Numbers:The Most Mysterious Figures In Math, J.Wiley NY 2005.
+%D A000040 H. C. Williams and __Jeffrey Shallit__, Factoring integers before computers. Mathematics of Computation 1943-1993: a half-century of computational mathematics (Vancouver, BC, 1993), 481-531, Proc. Sympos. Appl. Math., 48, AMS, Providence, RI, 1994. Math. Rev. 95m:11143
+%H A000040 N. J. A. Sloane, <a href="/A000040/b000040.txt">Table of n, prime(n) for n = 1..10000</a>
+%H A000040 N. J. A. Sloane, <a href="/A000040/a000040.txt">Table of n, prime(n) for n = 1..100000</a>
+%H A000040 M. Agrawal, N. Kayal & N. Saxena, <a href="http://annals.math.princeton.edu/2004/160-2/p12">PRIMES is in P</a>, Annals of Maths., 160:2 (2004), pp. 781-793. [<a href="http://www.cse.iitk.ac.in/users/manindra/algebra/primality_v6.pdf">alternate link</a>]
+%H A000040 M. Agrawal, <a href="http://www.cse.iitk.ac.in/users/manindra/presentations/GodelTalk.pdf ">A Short History of "PRIMES is in P"</a>
+%H A000040 P. Alfeld, <a href="http://www.math.utah.edu/~alfeld/math/prime.html">Notes and Literature on Prime Numbers</a>
+%H A000040 Anonymous, <a href="http://www.mathematical.com/primelist1to100kk.html">Prime Number Master Index (for primes up to 2*10^7)</a>
+%H A000040 Anonymous, <a href="http://everything2.net/index.pl?node_id=74889&amp;displaytype=printable&amp;lastnode_id=74889">prime number</a>
+%H A000040 D. J. Bernstein, <a href="http://cr.yp.to/papers/aks.pdf">Proving Primality After Agrawal-Kayal-Saxena</a>
+%H A000040 D. J. Bernstein, <a href="http://cr.yp.to/primetests.html">Distinguishing prime numbers from composite numbers</a>
+%H A000040 P. Berrizbeitia, <a href="http://arXiv.org/abs/math.NT/0211334">Sharpening "Primes is in P" for a large family of numbers</a>
+%H A000040 A. Booker, <a href="http://primes.utm.edu/nthprime">The Nth Prime Page</a>
+%H A000040 F. Bornemann, <a href="http://www.ams.org/notices/200305/fea-bornemann.pdf">PRIMES Is in P:A Breakthrough for "Everyman"</a>
+%H A000040 A. Bowyer, <a href="http://www.bath.ac.uk/~ensab/Primes">Formulae for Primes</a>
+%H A000040 B. M. Bredikhin, <a href="http://eom.springer.de/P/p074530.htm">Prime number</a>
+%H A000040 R. P. Brent, <a href="http://wwwmaths.anu.edu.au/~brent/pub/pub120.html">Primality testing and integer factorization</a>
+%H A000040 J. Britton, <a href="http://britton.disted.camosun.bc.ca/jbprimelist.htm">Prime Number List</a>
+%H A000040 D. Butler, <a href="http://www.tsm-resources.com/alists/prim.html">The first 2000 Prime Numbers</a>
+%H A000040 C. K. Caldwell, <a href="http://www.utm.edu/research/primes/">The Prime Pages</a>
+%H A000040 C. K. Caldwell, <a href="http://primes.utm.edu/glossary/page.php?sort=TablesOfPrimes">Tables of primes</a>
+%H A000040 C. K. Caldwell, <a href="http://www.utm.edu/research/primes/lists/small/10000.txt">The first 10000 primes</a>
+%H A000040 C. K. Caldwell, <a href="http://primes.utm.edu/curios/includes/file.php?file=primetest.html">A Primality Test</a>
+%H A000040 C. K. Caldwell and Y. Xiong, <a href="http://arxiv.org/abs/1209.2007">What is the smallest prime?</a>
+%H A000040 M. Chamness, <a href="http://www.alumni.caltech.edu/~chamness/prime.html">Prime number generator (Applet)</a>
+%H A000040 P. Cox, <a href="http://members.cox.net/mathmistakes/primes.htm">Primes is in P</a>
+%H A000040 P. J. Davis & R. Hersh, The Mathematical Experience, <a href="http://www.fortunecity.com/emachines/e11/86/mathex5.html">The Prime Number Theorem</a>
+%H A000040 J.-M. De Koninck, <a href="http://campmath.uqam.ca/infos2004/conf_double.pdf">Les nombres premiers: mysteres et consolation</a>
+%H A000040 J.-M. De Koninck, <a href="http://campmath.uqam.ca/2005/nbPremMysEnj.pdf">Nombres premiers: mysteres et enjeux</a>
+%H A000040 J.-P. Delahaye, <a href="http://www.cnrs.fr/Cnrspresse/math2000/html/math10.htm">Formules et nombres premiers</a>
+%H A000040 J. Elie, <a href="http://www.trigofacile.com/maths/curiosite/primarite/aks/pdf/algorithme-aks.pdf">L'algorithme AKS ou Les nombres premiers sont de classe P</a>
+%H A000040 L. Euler, <a href="http://arXiv.org/abs/math.HO/0501118">Observations on a theorem of Fermat and others on looking at prime numbers</a>
+%H A000040 W. Fendt, <a href="http://www.walter-fendt.de/m14e/primes.htm">Table of Primes from 1 to 1000000000000</a>
+%H A000040 P. Flajolet, S. Gerhold and B. Salvy, <a href="http://arxiv.org/abs/math/0501379">On the non-holonomic character of logarithms, powers and the n-th prime function</a>
+%H A000040 J. Flamant, <a href="http://jocelyn.smoofy.net/np/cache/index.html">Primes up to one million</a>
+%H A000040 K. Ford, Expositions of the <a href="http://www.math.uiuc.edu/~ford">PRIMES is in P</a> theorem.
+%H A000040 L. & Y. Gallot, <a href="http://perso.wanadoo.fr/yves.gallot/primes/chrrcds.html">The Chronology of Prime Number Records</a>
+%H A000040 P. Garrett, <a href="http://www.math.umn.edu/~garrett/crypto/overheads01.pdf">Big Primes, Factoring Big Integers</a>
+%H A000040 P. Garrett, <a href="http://www.math.umn.edu/~garrett/js/naive_prim_test.html">Naive Primality Test</a>
+%H A000040 P. Garrett, <a href="http://www.math.umn.edu/~garrett/js/list_pr.html">Listing Primes</a>
+%H A000040 N. Gast, <a href="http://web.archive.org/web/20070412005510/http://www.eleves.ens.fr/home/gast/misc/GastCrypto.pdf">PRIMES is in P: Manindra Agrawal, Neeraj Kayal and Nitin Saxena</a> (in French)
+%H A000040 D. A. Goldston, S. W. Graham, J. Pintz and C. Y. Yildirim, <a href="http://arXiv.org/abs/math.NT/0506067">Small gaps between primes and almost primes</a>
+%H A000040 A. Granville, <a href="http://www.ams.org/bull/2005-42-01/S0273-0979-04-01037-7/home.html">It is easy to determine whether a given integer is prime</a> [<a href="http://math.stanford.edu/~brubaker/granville.pdf">alternate link</a>]
+%H A000040 P. Hartmann, <a href="http://www.beweise.mathematic.de/">Prime number proofs</a> (in German)
+%H A000040 ICON Project, <a href="http://www.cs.arizona.edu/icon/oddsends/primes.htm">List of first 50000 primes grouped within ten columns</a>
+%H A000040 N. Kayal & N. Saxena, Resonance 11-2002, <a href="http://www.ias.ac.in/resonance/Nov2002/pdf/Nov2002ResearchNews.pdf">A polynomial time algorithm to test if a number is prime or not</a>
+%H A000040 E. Landau, Handbuch der Lehre von der Verteilung der Primzahlen, <a href="http://name.umdl.umich.edu/ABV2766.0001.001">vol. 1</a> and <a href="http://name.umdl.umich.edu/ABV2766.0002.001">vol. 2</a>, Leipzig, Berlin, B. G. Teubner, 1909.
+%H A000040 W. Liang & H. Yan, <a href="http://fr.arXiv.org/abs/math.NT/0603450">Pseudo Random test of prime numbers</a>
+%H A000040 J. Malkevitch, <a href="http://www.ams.org/featurecolumn/archive/primes1.html">Primes</a>
+%H A000040 Mathworld Headline News, <a href="http://mathworld.wolfram.com/news/2002-08-07/primetest/">Primality Testing is Easy</a>
+%H A000040 K. Matthews, <a href="http://www.numbertheory.org/php/prime_generator.html">Generating prime numbers</a>
+%H A000040 Y. Motohashi, <a href="http://arXiv.org/abs/math.HO/0512143">Prime numbers-your gems</a>
+%H A000040 J. Moyer, <a href="http://www.rsok.com/~jrm/printprimes.html">Some Prime Numbers</a>
+%H A000040 C. W. Neville, <a href="http://arXiv.org/abs/math.NT/0210282">New Results on Primes from an Old Proof of Euler's</a>
+%H A000040 L. C. Noll, <a href="http://www.isthe.com/chongo/tech/math/prime/">Prime numbers, Mersenne Primes, Perfect Numbers, etc.</a>
+%H A000040 J. J. O'Connor & E. F. Robertson, <a href="http://www-groups.dcs.st-and.ac.uk/~history/HistTopics/Prime_numbers.html">Prime Numbers</a>
+%H A000040 M. Ogihara & S. Radziszowski, <a href="http://www.cs.rit.edu/~spr/PUBL/primes.pdf">Agrawal-Kayal-Saxena Algorithm for Testing Primality in Polynomial Time</a>
+%H A000040 P. Papaphilippou, <a href="http://www.philippos.info/unit_c/primeg/">Plotter of prime numbers frequency graph (flash object)</a> [From Philippos Papaphilippou (philippos(AT)safe-mail.net), Jun 02 2010]
+%H A000040 J. M. Parganin, <a href="http://noe-education.org/D11102.php">Primes less than 50000</a>
+%H A000040 I. Peterson, <a href="http://www.fortunecity.com/emachines/e11/86/tourist2b.html">Prime Pursuits</a>
+%H A000040 O. E. Pol, <a href="http://www.polprimos.com">Numeros primos</a>
+%H A000040 O. E. Pol, <a href="http://www.polprimos.com/imagenespub/4.jpg">Illustration of initial terms</a>.
+%H A000040 Primefan, <a href="http://primefan.tripod.com/500Primes1.html">The First 500 Prime Numbers</a>
+%H A000040 Primefan, <a href="http://primefan.tripod.com/PrimeLister.html">Script to Calculate Prime Numbers</a>
+%H A000040 Project Gutenberg Etext, <a href="http://www.gutenberg.org/etext/65">First 100,000 Prime Numbers</a>
+%H A000040 C. D. Pruitt, <a href="http://www.mathematical.com/mathprimegen.html">Formulae for Generating All Prime Numbers</a>
+%H A000040 R. Ramachandran, Frontline 19 (17) 08-2000, <a href="http://www.flonnet.com/fl1917/19171290.htm">A Prime Solution</a>
+%H A000040 W. S. Renwick, <a href="http://www.cl.cam.ac.uk/Relics/elog.html">EDSAC log</a>.
+%H A000040 F. Richman, <a href="http://www.math.fau.edu/Richman/primes.htm">Generating primes by the sieve of Eratosthenes</a>
+%H A000040 J. Barkley Rosser and Lowell Schoenfeld, <a href="http://projecteuclid.org/euclid.ijm/1255631807"> Approximate formulas for some functions of prime numbers</a>
+%H A000040 S. M. Ruiz and J. Sondow, <a href="http://arXiv.org/abs/math.NT/0210312">Formulas for pi(n) and the n-th prime</a>.
+%H A000040 S. O. S. Math, <a href="http://www.sosmath.com/tables/prime/prime.html">First 1000 Prime Numbers</a>
+%H A000040 A. Schulman, <a href="http://www.sonic.net/~undoc/java/PrimeCalc.html">Prime Number Calculator</a>
+%H A000040 M. Slone, PlanetMath.Org, <a href="http://planetmath.org/encyclopedia/FirstThousandPositivePrimeNumbers.html">First thousand positive prime numbers</a>
+%H A000040 A. Stiglic, <a href="http://crypto.cs.mcgill.ca/~stiglic/PRIMES_P_FAQ.html">The PRIMES is in P little FAQ</a>
+%H A000040 Tomas Svoboda, <a href="http://www.svobodat.com/primes/PRIMES1T.TXT">List of primes up to 10^6</a> [Slow link]
+%H A000040 J. Teitelbaum, <a href="http://www.ams.org/bull/2002-39-03/S0273-0979-02-00947-3/S0273-0979-02-00947-3.pdf">Review of "Prime numbers:A computational perspective" by R.Crandall & C.Pomerance</a>
+%H A000040 J. Thonnard, <a href="http://www.proftnj.com/calcprem.htm">Les nombres premiers(Primality check; Closest next prime; Factorizer)</a>
+%H A000040 J. Tramu, <a href="http://www.echolalie.org/gbgraph/gb/index.htm">Movie of primes scrolling</a>
+%H A000040 A. Turpel, <a href="http://www2.vo.lu/homepages/armand/index.html">Aesthetics of the Prime Sequence</a>
+%H A000040 G. Villemin's Almanac of Numbers, <a href="http://villemin.gerard.free.fr/Wwwgvmm/Premier/DiMille.htm">Primes up to 10000</a>
+%H A000040 S. Wagon, <a href="http://www.americanscientist.org/bookshelf/pub/prime-time">Prime Time: Review of "Prime Numbers:A Computational Perspective" by R. Crandall & C. Pomerance</a>
+%H A000040 M. R. Watkins, <a href="http://www.maths.ex.ac.uk/~mwatkins/zeta/unusual.htm">unusual and physical methods for finding prime numbers</a>
+%H A000040 S. Wedeniwski, <a href="http://w210.Ub.uni-tuebingen.de/dbt/volltexte/2001/420/pdf/dissertation.pdf">Primality Tests on Commutator Curves</a>
+%H A000040 E. Wegrzynowski, <a href="http://www.lifl.fr/~wegrzyno/FormulPrem/FormulesPremiers23.html">Les formules simples qui donnent des nombres premiers en grande quantites</a>
+%H A000040 Eric Weisstein's World of Mathematics, <a href="http://mathworld.wolfram.com/PrimeNumber.html">Prime Number.</a>
+%H A000040 Eric Weisstein's World of Mathematics, <a href="http://mathworld.wolfram.com/PrimePower.html">Prime Power</a>
+%H A000040 Eric Weisstein's World of Mathematics, <a href="http://mathworld.wolfram.com/AlmostPrime.html">Almost Prime</a>
+%H A000040 Eric Weisstein's World of Mathematics, <a href="http://mathworld.wolfram.com/Prime-GeneratingPolynomial.html">Prime-Generating Polynomial</a>
+%H A000040 Eric Weisstein's World of Mathematics, <a href="http://mathworld.wolfram.com/PrimeSpiral.html">Prime Spiral</a>
+%H A000040 Wikipedia, <a href="http://www.wikipedia.org/wiki/Prime_number">Prime number</a>
+%H A000040 G. Xiao, Primes server, <a href="http://wims.unice.fr/~wims/en_tool~number~primes.html">Sequential Batches Primes Listing (up to orders not exceeding 10^308)</a>
+%H A000040 G. Xiao, Numerical Calculator, <a href="http://wims.unice.fr/wims/en_tool~number~calcnum.en.html">To display p(n) for n up to 41561, operate on "prime(n)"</a>
+%H A000040 Zhi-Wei Sun, <a href="http://dx.doi.org/10.1016/j.jnt.2013.02.003">On functions taking only prime values</a>, J. Number Theory 133(2013), no.8, 2794-2812.
+%H A000040 <a href="/index/Cor#core">Index entries for "core" sequences</a>
+%F A000040 The prime number theorem is the statement that a(n) ~ n * log n as n -> infinity (Hardy and Wright, page 10).
+%F A000040 For n >= 2, n*(log n + log log n - 3/2) < a(n); for n >= 20, a(n) < n*(log n + log log n - 1/2). [Rosser and Schoenfeld]
+%F A000040 For all n, a(n) > n log n. [Rosser]
+%F A000040 n log(n) + n (log log n - 1) < a(n) < n log n + n log log n for n >= 6 [Dusart, quoted in the Wikipedia article]
+%F A000040 a(n) = n log n + n log log n + (n/log n)*(log log n - log 2 - 2) + O( n (log log n)^2/ (log n)^2). [Cipoli, quoted in the Wikipedia article]
+%F A000040 a(n) = 2 + sum_{k=2..floor(2n*log(n)+2)} (1-floor(pi(k)/n)), for n>1, where the formula for pi(k) is given in A000720 (Ruiz and Sondow 2002) - _Jonathan Sondow_, Mar 06 2004
+%F A000040 I conjecture that Sum(1/(p(i)*log(p(i)))=Pi/2=1.570796327... Sum(1/(i=1..100000 p(i)*log(p(i)))=1.565585514... It converges very slowly. - _Miklos Kristof_, Feb 12 2007
+%F A000040 The last conjecture has been discussed by the math.research newsgroup recently. The sum, which is greater than pi/2, is shown in sequence A137245. [_T. D. Noe_, Jan 13 2009]
+%F A000040 A000005(a(n))=2; A002033(a(n+1))=1 [_Juri-Stepan Gerasimov_, Oct 17 2009]
+%F A000040 A001222(a(n))=1. [_Juri-Stepan Gerasimov_, Nov 10 2009]
+%F A000040 Contribution from _Gary Detlefs_, Sep 10 2010: (Start)
+%F A000040 Conjecture:
+%F A000040 a(n) ={n| n! mod n^2 = n(n-1)}, n<>4
+%F A000040 a(n) ={n| n!*h(n) mod n = n-1},n<>4, where h(n) = sum(1/k,k=1..n) (End)
+%F A000040 First 15 primes; a(n) = p + abs(p-3/2) + 1/2, where p = m + int((m-3)/2), and m = n + int((n-2)/8) + int((n-4)/8), 1<=n<=15. [From Timothy Hopper (timothyhopper(AT)hotmail.co.uk), Oct 23 2010]
+%p A000040 A000040 := n->ithprime(n); [ seq(ithprime(i),i=1..100) ];
+%t A000040 Table[ Prime[n], {n, 1, 60} ]
+%o A000040 (MAGMA) [ n : n in [2..500] | IsPrime(n) ];
+%o A000040 (MAGMA) a := func< n | NthPrime(n) >;
+%o A000040 (PARI) a(n)=if(n<1,0,prime(n))
+%o A000040 (SAGE) a = sloane.A000040; print a
+%o A000040 print a.list(58) # _Jaap Spies_, 2007
+%o A000040 (Sage) prime_range(1,300) # _Zerinvary Lajos_, May 27 2009
+%o A000040 (Maxima) A000040(n) := block(
+%o A000040     if n = 1 then return(2),
+%o A000040     return( next_prime(A000040(n-1)))
+%o A000040     )$ /* recursive, to be replaced if possible, R. J. Mathar, Feb 27 2012 */
+%Y A000040 Cf. A002808, A008578, A006879, A006880, A000720 ("pi"), A001223 (differences between primes).
+%Y A000040 Sequences listing r-almost primes; that is the n such that A001222(n) = r: this sequence (r = 1), A001358 (r = 2), A014612 (r = 3), A014613 (r = 4), A014614 (r = 5), A046306 (r = 6), A046308 (r = 7), A046310 (r = 8), A046312 (r = 9), A046314 (r = 10), A069272 (r = 11), A069273 (r = 12), A069274 (r = 13), A069275 (r = 14), A069276 (r = 15), A069277 (r = 16), A069278 (r = 17), A069279 (r = 18), A069280 (r = 19), A069281 (r = 20). - Jason Kimberley, Oct 02 2011
+%Y A000040 Cf. primes in lexicographic order: A210757, A210758, A210759, A210760, A210761.
+%Y A000040 Cf. A003558, A179480 (relating to the Quasi-order theorem of Hilton and Pedersen).
+%K A000040 core,nonn,nice,easy
+%O A000040 1,1
+%A A000040 _N. J. A. Sloane_.
+%E A000040 Additional links contributed by _Lekraj Beedassy_, Dec 23 2003
+%E A000040 Additional comments from _Jonathan Sondow_, Dec 27 2004
+
+%I A008578
+%S A008578 1,2,3,5,7,11,13,17,19,23,29,31,37,41,43,47,53,59,61,67,71,73,79,83,
+%T A008578 89,97,101,103,107,109,113,127,131,137,139,149,151,157,163,167,173,
+%U A008578 179,181,191,193,197,199,211,223,227,229,233,239,241,251,257,263,269,271
+%N A008578 Prime numbers at the beginning of the 20th century (today 1 is no longer regarded as a prime).
+%C A008578 The noncomposite numbers.
+%C A008578 Also smallest sequence with the property that the product of 2 or more elements with different indices is never a square. - Ulrich Schimke (ulrschimke(AT)aol.com), Dec 12 2001
+%C A008578 Numbers n such that their largest divisor <= sqrt(n) equals 1. (See also A161344, A161345, A161424). [From Omar E. Pol, Jul 05 2009]
+%C A008578 Or numbers n with only perfect partition; also numbers such that 1=number of perfect partitions of n; or, unit together with the prime numbers A000040. [From _Juri-Stepan Gerasimov_, Sep 27 2009]
+%C A008578 Numbers n such that d(n) < 3. [From _Juri-Stepan Gerasimov_, Oct 17 2009]
+%C A008578 Also first column of array in A163280. Also first row of array in A163990. - Omar E. Pol, Oct 24 2009
+%C A008578 a(n) = possible values of A136548(m) in increasing order, where A136548(m) = the largest numbers h such that A000203(h) <= k (k = 1,2,3,..), where A000203(h) = sum of divisors of h. [From _Jaroslav Krizek_, Mar 01 2010]
+%C A008578 Where record values of A022404 occur: A086332(n)=A022404(a(n)). [From _Reinhard Zumkeller_, Jun 21 2010]
+%C A008578 a(n) = A181363((2*n-1)*2^k), k >= 0. [From _Reinhard Zumkeller_, Oct 16 2010]
+%C A008578 1 together with the prime numbers. - Omar E. Pol, Mar 04 2011
+%C A008578 A060448(a(n)) = 1. [_Reinhard Zumkeller_, Apr 05 2012]
+%C A008578 Positive integers that have no divisors other than 1 and itself (the old definition of prime numbers). - _Omar E. Pol_, Aug 10 2012
+%C A008578 A086971(a(n)) = 0. - _Reinhard Zumkeller_, Dec 14 2012
+%C A008578 Conjecture: the sequence contains exactly those n such that sigma(n) > n*BigOmega(n). - _Irina Gerasimova_, Jun 08 2013
+%C A008578 Note on the Gerasimova conjecture: all members in the sequence obviously satisfy the inequality, because sigma(p) = 1+p and BigOmega(p) = 1 for primes p, so 1+p > p*1. For composites, the (opposite) inequality is heuristically correct at least up to n <= 4400000. The general proof requires to show that BigOmega(n) is an upper limit of the abundancy sigma(n)/n for composite n. This proof is easy for semiprimes n=p1*p2 in general, where sigma(n)=1+p1+p2+p1*p2 and BigOmega(n)=2 and p1, p2 <= 2. - _R. J. Mathar_, Jun 12 2013
+%D A008578 M. Abramowitz and I. A. Stegun, eds., Handbook of Mathematical Functions, National Bureau of Standards Applied Math. Series 55, 1964 (and various reprintings), p. 870.
+%D A008578 C. K. Caldwell and Y. Xiong, What is the smallest prime?, arXiv preprint arXiv:1209.2007, 2012. - From _N. J. A. Sloane_, Dec 26 2012
+%D A008578 G. Chrystal, Algebra: An Elementary Textbook. Chelsea Publishing Company, 7th edition, (1964), chap. III.7, p. 38.
+%D A008578 G. H. Hardy and E. M. Wright, An Introduction to the Theory of Numbers. 3rd ed., Oxford Univ. Press, 1954, p. 11.
+%D A008578 H. D. Huskey, Derrick Henry Lehmer [1905-1991]. IEEE Ann. Hist. Comput. 17 (1995), no. 2, 64-68. Math. Rev. 96b:01035
+%D A008578 D. H. Lehmer, The sieve problem for all-purpose computers. Math. Tables and Other Aids to Computation, Math. Tables and Other Aids to Computation, 7, (1953). 6-14. Math. Rev. 14:691e
+%D A008578 D. N. Lehmer, "List of Prime Numbers from 1 to 10,006,721", Carnegie Institute, Washington, D.C. 1909.
+%D A008578 R. F. Lukes, C. D. Patterson and H. C. Williams, Numerical sieving devices: their history and some applications. Nieuw Arch. Wisk. (4) 13 (1995), no. 1, 113-139. Math. Rev. 96m:11082
+%D A008578 A. Reddick and Y. Xiong, The search for one as a prime number: from ancient Greece to modern times, Electronic Journal of Undergraduate Mathematics, Volume 16, 1 { 13, 2012. - From _N. J. A. Sloane_, Feb 03 2013
+%D A008578 Williams, H. C.; Shallit, J. O. Factoring integers before computers. Mathematics of Computation 1943-1993: a half-century of computational mathematics (Vancouver, BC, 1993), 481-531, Proc. Sympos. Appl. Math., 48, AMS, Providence, RI, 1994. Math. Rev. 95m:11143
+%H A008578 Charles R Greathouse IV, <a href="/A008578/b008578.txt">Table of n, a(n) for n = 1..10000</a>
+%H A008578 M. Abramowitz and I. A. Stegun, eds., <a href="http://www.nrbook.com/abramowitz_and_stegun/">Handbook of Mathematical Functions</a>, National Bureau of Standards, Applied Math. Series 55, Tenth Printing, 1972 [alternative scanned copy]
+%H A008578 G. P. Michon, <a href="http://www.numericana.com/answer/numbers.htm#one">Is 1 a prime number?</a>
+%H A008578 O. E. Pol, <a href="http://www.polprimos.com/imagenespub/poldiv07.jpg">Illustration of initial terms</a>
+%H A008578 O. E. Pol, <a href="http://www.polprimos.com/imagenespub/poldiv06.jpg">Illustration of initial terms of A008578, A161344, A161345, A161424</a>
+%H A008578 PrimeFan, <a href="http://primefan.tripod.com/Prime1ProCon.html">Arguments for and against the primality of 1</a>
+%H A008578 J. Todd, <a href="http://www.jstor.org/stable/2001950">Review of Lehmer's tables, Mathematical Tables and Other Aids..,  Vol. 11, No. 60, (1957)</a> (on JSTOR.org).
+%H A008578 Wikipedia, <a href="http://en.wikipedia.org/wiki/Dirichlet_convolution">Dirichlet convolution</a>
+%F A008578 m is in the sequence iff sigma(m)+phi(m)=2m. - _Farideh Firoozbakht_, Jan 27 2005
+%F A008578 a(n) = A158611(n+1) for n >= 1. [From _Jaroslav Krizek_, Jun 19 2009]
+%F A008578 In the following formulas (based on emails from Jaroslav Krizek and R. J. Mathar), the star denotes a Dirichlet convolution between two sequences, and "This" is A008578.
+%F A008578 This = A030014 * A008683. (Dirichlet convolution using offset 1 with A030014)
+%F A008578 This = A030013 * A000012. (Dirichlet convolution using offset 1 with A030013)
+%F A008578 This = A034773 * A007427. (Dirichlet convolution)
+%F A008578 This = A034760 * A023900. (Dirichlet convolution)
+%F A008578 This = A034762 * A046692. (Dirichlet convolution)
+%F A008578 This * A000012 = A030014. (Dirichlet convolution using offset 1 with A030014)
+%F A008578 This * A008683 = A030013. (Dirichlet convolution using offset 1 with A030013)
+%F A008578 This * A000005 = A034773. (Dirichlet convolution)
+%F A008578 This * A000010 = A034760. (Dirichlet convolution)
+%F A008578 This * A000203 = A034762. (Dirichlet convolution)
+%F A008578 A002033(a(n))=1. [From _Juri-Stepan Gerasimov_, Sep 27 2009]
+%F A008578 A033273(a(n))=1 [From Juri-Stepan(AT)rambler.ru (2stepan(AT)rambler.ru), Dec 07 2009]
+%F A008578 a(n) = A001747(n)/2. - Omar E. Pol, Jan 30 2012
+%p A008578 A008578 := n->if n=1 then 1 else ithprime(n-1); fi :
+%t A008578 Join[ {1}, Table[ Prime[n], {n, 1, 60} ] ]
+%o A008578 (PARI) is(n)=isprime(n)||n==1
+%o A008578 (MAGMA) [1] cat [n: n in PrimesUpTo(271)];  // Bruno Berselli, Mar 05 2011
+%o A008578 (Haskell)
+%o A008578 a008578 n = a008578_list !! (n-1)
+%o A008578 a008578_list = 1 : a000040_list
+%o A008578 -- _Reinhard Zumkeller_, Nov 09 2011
+%Y A008578 Main entry for this sequence is A000040. The complement of A002808.
+%K A008578 nonn,easy,nice
+%O A008578 1,2
+%A A008578 _N. J. A. Sloane_.
+
+%I A001097
+%S A001097 3,5,7,11,13,17,19,29,31,41,43,59,61,71,73,101,103,107,109,137,139,
+%T A001097 149,151,179,181,191,193,197,199,227,229,239,241,269,271,281,283,311,
+%U A001097 313,347,349,419,421,431,433,461,463,521,523,569,571,599,601,617,619,641,643
+%N A001097 Twin primes.
+%C A001097 Union of A001359 and A006512.
+%C A001097 The only twin primes that are Fibonacci numbers are 3, 5 and 13 [MacKinnon]. - Emeric Deutsch, Apr 24 2005
+%C A001097 (p, p+2) are twin primes if and only if p + 2 can be represented as the sum of two primes. Brun (1919): Even if there are infinitely many twin primes, the series of all twin prime reciprocals does converges against Brun's constant (A065421). Clement (1949): (n, n+2) are twin primes if and only if (4*(n-1)!+n+4) mod n(n+2) = 0. - _Stefan Steinerberger_, Dec 04 2005
+%C A001097 A164292(a(n)) = 1. [From _Reinhard Zumkeller_, Mar 29 2010]
+%C A001097 The 100355-digit numbers, 65516468355 · 2^333333 +/- 1, are currently the largest known twin primes. They were discovered by Twin Prime Search and Primegrid in August 2009. - Paul Muljadi, Mar 07 2011
+%D A001097 Harvey Dubner, Twin Prime Statistics, Journal of Integer Sequences, Vol. 8 (2005), Article 05.4.2.
+%D A001097 N. MacKinnon, Problem 10844, Amer. Math. Monthly 109, (2002), p. 78.
+%D A001097 P. Ribenboim, The New Book of Prime Number Records, Springer-Verlag, p. 259-265.
+%H A001097 T. D. Noe, <a href="/A001097/b001097.txt">Table of n, a(n) for n = 1..10000</a>
+%H A001097 M. Abramowitz and I. A. Stegun, eds., <a href="http://www.nrbook.com/abramowitz_and_stegun/">Handbook of Mathematical Functions</a>, National Bureau of Standards, Applied Math. Series 55, Tenth Printing, 1972, p. 870.
+%H A001097 J. P. Delahaye, <a href="http://tr.voila.fr/ano?anolg=65544&amp;anourl=http://www.pour-la-science.com/numeros/pls-260/logique.htm">Twin Primes:Enemy Brothers?</a>
+%H A001097 Eric Weisstein's World of Mathematics, <a href="http://mathworld.wolfram.com/TwinPrimes.html">Twin Primes</a>
+%H A001097 <a href="/index/Pri#gaps">Index entries for primes, gaps between</a>
+%H A001097 O. E. Pol, <a href="http://www.polprimos.com">Determinacion geometrica de los numeros primos y perfectos</a>.
+%t A001097 Select[ Prime[ Range[120]], PrimeQ[ # - 2] || PrimeQ[ # + 2] &] (* _Robert G. Wilson v_, Jun 09 2005 *)
+%o A001097 (PARI) isA001097(n) = (isprime(n) & (isprime(n+2) | isprime(n-2))) \\ _Michael B. Porter_, Oct 29 2009
+%o A001097 (PARI) a(n)=if(n==1,return(3));my(p);forprime(q=3,default(primelimit), if(q-p==2 && (n-=2)<0, return(if(n==-1,q,p)));p=q) \\ _Charles R Greathouse IV_, Aug 22 2012
+%o A001097 (Haskell)
+%o A001097 a001097 n = a001097_list !! (n-1)
+%o A001097 a001097_list = head a077800_list : drop 2 a077800_list
+%o A001097 -- _Reinhard Zumkeller_, Nov 27 2011
+%Y A001097 Cf. A070076. See A077800 for another version.
+%K A001097 nonn,core
+%O A001097 1,1
+%A A001097 _N. J. A. Sloane_.
+%E A001097 More terms from _James A. Sellers_, Sep 19 2000
+
+%I A007310
+%S A007310 1,5,7,11,13,17,19,23,25,29,31,35,37,41,43,47,49,53,55,59,61,65,67,71,
+%T A007310 73,77,79,83,85,89,91,95,97,101,103,107,109,113,115,119,121,125,127,
+%U A007310 131,133,137,139,143,145,149
+%N A007310 Numbers congruent to 1 or 5 mod 6.
+%C A007310 Or, numbers relatively prime to 2 and 3.
+%C A007310 Apart from initial term(s), dimension of the space of weight 2n cuspidal newforms for Gamma_0( 38 ).
+%C A007310 Numbers k such that k mod 2 = 1 and (k+1) mod 3 <> 1. - _Klaus Brockhaus_, Jun 15 2004
+%C A007310 Also numbers n such that the sum of the squares of the first n integers is divisible by n, or A000330(n) = n(n+1)(2n+1)/6 is divisible by n. - _Alexander Adamchuk_, Jan 04 2007
+%C A007310 Or, except for the first term, numbers the least prime factor of which is >=5. - _Zak Seidov_, Apr 26 2007
+%C A007310 A126759(a(n)) = n+1. - _Reinhard Zumkeller_, Jun 16 2008
+%C A007310 Terms of this sequence (starting from the second term) are equal to the result of the expression sqrt(4!*(k+1) + 1) - but only when this expression yields integral values (that is when the parameter k takes values, which are terms of A144065) [From _Alexander R. Povolotsky_, Sep 09 2008]
+%C A007310 For n>1: a(n) is prime iff A075743(n-2) = 1; a(2*n-1)=A016969(n-1), a(2*n)=A016921(n-1). [From _Reinhard Zumkeller_, Oct 02 2008]
+%C A007310 A156543 is a subsequence. [From _Reinhard Zumkeller_, Feb 10 2009]
+%C A007310 Also the 5-rough numbers: positive integers that have no prime factors less than 5 [From _Michael B. Porter_, Oct 09 2009]
+%C A007310 Numbers n such that ChebyshevT[x, x/2] is not an integer (is integer/2). [From _Artur Jasinski_, Feb 13 2010]
+%C A007310 If 12k+1 is a perfect square..(0,2,4,10,14,24,30,44...) then the square root of 12k+1 = a(n) [From _Gary Detlefs_, Feb 22 2010]
+%C A007310 A089128(a(n)) = 1. Complement of A047229(n+1) for n>=1. See A164576 for corresponding values A175485(a(n)). [From _Jaroslav Krizek_, May 28 2010]
+%C A007310 Cf. property described by G. Detlefs in A113801 and in Comment: more generally, these numbers are of the form (2*h*n+(h-4)*(-1)^n-h)/4 (h, n natural numbers), therefore ((2*h*n+(h-4)*(-1)^n-h)/4)^2-1==0 (mod h); in this case, a(n)^2-1==0 (mod 6). Also a(n)^2-1==0 (mod 12). [_Bruno Berselli_, Nov 05 2010 - Nov 17 2010]
+%C A007310 Numbers n such that sum(k^14,k=1..n) mod n = 0. (Conjectured) [From Gary Detlefs, Dec 27, 2011]
+%C A007310 A126759(a(n)) = n and A126759(m) < n for m < a(n). - _Reinhard Zumkeller_, May 23 2013
+%C A007310 (a(n)^2 -1)/24 = A001318(n), the Generalized Pentagonal Numbers. _Richard R. Forberg_ May 30, 2013
+%D A007310 L. B. W. Jolley, "Summation of Series", Dover Publications, 1961.
+%H A007310 _Reinhard Zumkeller_, <a href="/A007310/b007310.txt">Table of n, a(n) for n = 1..10000</a>
+%H A007310 R. J. Cano, <a href="/A007310/a007310_1.c.txt">b-file generator written in C.</a>
+%H A007310 William A. Stein, <a href="http://modular.fas.harvard.edu/Tables/dimskg0new.gp">Dimensions of the spaces S_k^{new}(Gamma_0(N))</a>
+%H A007310 William A. Stein, <a href="http://modular.fas.harvard.edu/Tables/">The modular forms database</a>
+%H A007310 Eric Weisstein's World of Mathematics, <a href="http://mathworld.wolfram.com/RoughNumber.html">Rough Number</a>
+%H A007310 Eric Weisstein, <a href="http://mathworld.wolfram.com/PiFormulas.html">Pi Formulas</a> [From _Jaume Oliver Lafont_, Oct 23 2009]
+%H A007310 <a href="/index/Sk#smooth">Index entries for sequences related to smooth numbers</a> [From _Michael B. Porter_, Oct 09 2009]
+%H A007310 <a href="/index/Rea#recLCC">Index entries for sequences related to linear recurrences with constant coefficients</a>, signature (1,1,-1).
+%F A007310 a(n) = (6n + (-1)^n - 3)/2. - Antonio Esposito (antonio.b.esposito(AT)italtel.it), Jan 18 2002
+%F A007310 n such that phi(4n) = phi(3n). - _Benoit Cloitre_, Aug 06 2003
+%F A007310 a(n) = a(n-1) + a(n-2) - a(n-3), n>=4. - _Roger Bagula_
+%F A007310 a(n) = 3n-1-(n mod 2), n=1, 2, ... - Zak Seidov, Jan 18 2006
+%F A007310 a(1) = 1 then alternatively add 4 and 2. a(1)=1, a(n)=a(n-1)+3+(-1)^n. - _Zak Seidov_, Mar 25 2006
+%F A007310 1 + 1/5^2 + 1/7^2 + 1/11^2 + ...= Pi^2/9 [Jolley] - _Gary W. Adamson_, Dec 20 2006
+%F A007310 For n>=3 a(n) = a(n-2)+6. - _Zak Seidov_, Apr 18 2007
+%F A007310 Expand (x+x^5)/(1-x^6) = x +x^5 +x^7 +x^11 +x^13+... O.g.f.: x(1+4x+x^2)/((1+x)(1-x)^2). - _R. J. Mathar_, May 23 2008
+%F A007310 a(n) = 6*floor(n/2) - 1 + 2*(n mod 2). - _Reinhard Zumkeller_, Oct 02 2008
+%F A007310 1 + 1/5 - 1/7 - 1/11 + + - - ... = Pi/3 = A019670 [Jolley eq (315)]. - _Jaume Oliver Lafont_, Oct 23 2009
+%F A007310 A169611(a(n)) = 0. - _Juri-Stepan Gerasimov_, Dec 03 2009
+%F A007310 a(n) = ( 6*A062717(n)+1 )^(1/2). - _Gary Detlefs_, Feb 22 2010
+%F A007310 a(n) = 6*A000217(n-1)+1 - 2*sum(a(i), i=1..n-1) (n>1). [From _Bruno Berselli_, Nov 05 2010]
+%F A007310 a(n) = 6*n-a(n-1)-6 (with a(1)=1). - Vincenzo Librandi, Nov 18 2010
+%F A007310 Sum_{n>=1} (-1)^(n+1)/a(n) = A093766 [Jolley eq (84)]. - R. J. Mathar, Mar 24 2011
+%F A007310 a(n) = 6*floor(n/2)+(-1)^(n+1). - Gary Detlefs, Dec 29 2011
+%F A007310 a(n) = 3*n + ((n+1) mod 2) - 2. - Gary Detlefs, Jan 08 2012
+%F A007310 a(n) = 2*n+1 + 2*floor((n-2)/2) = 2*n-1 + 2*floor(n/2), leading to the o.g.f. given by R. J. Mathar above. - Wolfdieter Lang, Jan 20 2012
+%F A007310 1 - 1/5 + 1/7 - 1/11 + - ... = Pi*sqrt(3)/6 (L. Euler) - _Philippe Deléham_, Mar 09 2013
+%F A007310 1 - 1/5^3 + 1/7^3 - 1/11^3 + - ... = Pi^3*sqrt(3)/54 (L. Euler) - _Philippe Deléham_, Mar 09 2013
+%p A007310 P:=(j,n)-> sum(k^j,k=1..n): for n from 1 to 149 do if (P(14,n) mod n = 0) then print(n) fi od; [From Gary Detlefs, Dec 27 2011]
+%t A007310 aa = {}; Do[If[IntegerQ[ChebyshevT[x, x/2]], , AppendTo[aa, x]], {x, 0, 150}]; aa (*Artur Jasinski*) [From _Artur Jasinski_, Feb 13 2010]
+%o A007310 (PARI) The following PARI program applies to generate all terms besides first one: j=[];for(n=0, 1000,if((floor(sqrt(4!*(n+1) + 1))) == ceil(sqrt(4!*(n+1) + 1)), j=concat(j,floor(sqrt(4!*(n+1) + 1))))); j [From _Alexander R. Povolotsky_, Sep 09 2008]
+%o A007310 (PARI) isA007310(n) = gcd(n,6)==1 [From _Michael B. Porter_, Oct 09 2009]
+%o A007310 (Sage) [i for i in range(150) if gcd(6,i) == 1] [From Zerinvary Lajos (zerinvarylajos(AT)yahoo.com), Apr 21 2009]
+%o A007310 (Haskell)
+%o A007310 a007310 n = a007310_list !! (n-1)
+%o A007310 a007310_list = 1 : 5 : map (+ 6) a007310_list
+%o A007310 -- _Reinhard Zumkeller_, Jan 07 2012
+%o A007310 (C) See Cano Link.
+%Y A007310 Subsequence of A186422. Union of A016921 and A016969. Essentially the same as A038179.
+%Y A007310 Cf. A000330, A144065, A047209, A047336, A047522, A056020, A090771, A091998, A175885-A175887, A032528 (partial sums), A047229 (complement), A038509 (subsequence of composites).
+%Y A007310 For k-rough numbers with other values of k, see A000027, A005408, A007310, A007775, A008364-A008366, A166061, A166063.
+%K A007310 nonn,easy
+%O A007310 1,2
+%A A007310 C. Christofferson (Magpie56(AT)aol.com)
+
+%I A065091
+%S A065091 3,5,7,11,13,17,19,23,29,31,37,41,43,47,53,59,61,67,71,73,79,83,89,97,
+%T A065091 101,103,107,109,113,127,131,137,139,149,151,157,163,167,173,179,181,
+%U A065091 191,193,197,199,211,223,227,229,233,239,241,251,257,263,269,271,277
+%N A065091 Odd primes.
+%C A065091 Rayes et al. prove that the a(n)-th Chebyshev-T polynomial, divided by x, is irreducible over the integers.
+%C A065091 Intersection of A005408 and A000040. [From _Reinhard Zumkeller_, Oct 14 2008]
+%C A065091 Smallest prime>n-th prime. [From _Juri-Stepan Gerasimov_, Oct 29 2009]
+%C A065091 Primes which are the sum of two consecutive numbers. [From _Juri-Stepan Gerasimov_, Nov 07 2009]
+%C A065091 Primes==-+1 mod 4. [From _Juri-Stepan Gerasimov_, Apr 27 2010]
+%C A065091 a(n) = A053670(A179675(n)) and a(n) <> A053670(m) for m < A179675(n). [From _Reinhard Zumkeller_, Jul 23 2010]
+%C A065091 Triads of the form <2*a(n+1), a(n+1), 3*a(n+1)>  like <6,3,9>, <10,5,15>, <14,7,21> appear in the EKG sequence A064413, see Theorem (3) there. - Paul Curtz, Feb 13 2011.
+%C A065091 Complement of A065090; abs(A151763(a(n))) = 1. [_Reinhard Zumkeller_, Oct 06 2011]
+%C A065091 Right edge of the triangle in A065305. [_Reinhard Zumkeller_, Jan 30 2012]
+%C A065091 Numbers with two odd divisors. - Omar E. Pol, Mar 24 2012
+%H A065091 Harry J. Smith, <a href="/A065091/b065091.txt">Table of n, a(n) for n = 1..1000</a>
+%H A065091 M. O. Rayes, V. Trevisan and P. S. Wang, <a href="http://icm.mcs.kent.edu/reports/1998/ICM-199802-0001.pdf">Factorization of Chebyshev Polynomials</a>
+%H A065091 Eric Weisstein's World of Mathematics, <a href="http://mathworld.wolfram.com/PrimeNumber.html">Prime Number</a>.
+%p A065091 A065091 := proc(n) RETURN(ithprime(n+1)) end:
+%t A065091 Prime[Range[2, 33]] [From _Vladimir Joseph Stephan Orlovsky_, Aug 22 2008]
+%o A065091 (PARI) { for (n=1, 1000, write("b065091.txt", n, " ", prime(n + 1)) ) } [From _Harry J. Smith_, Oct 06 2009]
+%o A065091 (PARI) The program below is supposedly valid for generating primes for n>=3; it is based on the comment in A075888: "For n>=3, prime(n+1)^2-prime(n)^2 is always divisible by 24" j=[];for(n=0, 500, if((floor(sqrt(4!*(n+1) + 1))) == ceil(sqrt(4!*(n+1) + 1)), if(isprime(floor(sqrt(4!*(n+1) + 1))),j=concat(j,floor(sqrt(4!*(n+1) + 1))))));j [From _Alexander R. Povolotsky_, Sep 16 2008]
+%o A065091 (Haskell)
+%o A065091 a065091 n = a065091_list !! (n-1)
+%o A065091 a065091_list = tail a000040_list  -- _Reinhard Zumkeller_, Jan 30 2012
+%Y A065091 Cf. A000040, A033270.
+%K A065091 nonn,easy
+%O A065091 1,1
+%A A065091 Labos E. (labos(AT)ana.sote.hu), Nov 12 2001
+%E A065091 More terms from Francisco Salinas (franciscodesalinas(AT)hotmail.com), Jan 05 2002
+
+%I A001605 M2309 N0911
+%S A001605 3,4,5,7,11,13,17,23,29,43,47,83,131,137,359,431,433,449,509,569,571,
+%T A001605 2971,4723,5387,9311,9677,14431,25561,30757,35999,37511,50833,81839,
+%U A001605 104911,130021,148091,201107,397379,433781,590041,593689,604711,931517,1049897,1285607,1636007,1803059,1968721
+%N A001605 Indices of prime Fibonacci numbers.
+%C A001605 Some of the larger entries may only correspond to probable primes.
+%C A001605 Since F[n] divides F[mn] (cf. A001578, A086597), all terms of this sequence are primes except for a(2)=4 (=2*2 but F[2]=1). - _M. F. Hasler_, Dec 12 2007
+%C A001605 What is the next larger twin prime after F(4)=3, F(5)=5, F(7)=11? It seems to be >= F(104911) (greater of a pair?) or even >= F(397379) (lesser of a pair?). - _M. F. Hasler_, Jan 30 2013
+%D A001605 J. Brillhart, P. L. Montgomery and R. D. Silverman, Tables of Fibonacci and Lucas factorizations, Math. Comp. 50 (1988), 251-260.
+%D A001605 H. Dubner and W. Keller, New Fibonacci and Lucas Primes, Math. Comp. 68 (1999) 417-427.
+%D A001605 C. Pickover, Mazes for the Mind, St. Martin's Press, NY, 1992, p. 350.
+%D A001605 Clifford A. Pickover, A Passion for Mathematics, Wiley, 2005; see p. 54.
+%D A001605 P. Ribenboim, The Little Book of Big Primes, Springer-Verlag, NY, 1991, p. 178.
+%D A001605 N. J. A. Sloane, A Handbook of Integer Sequences, Academic Press, 1973 (includes this sequence).
+%D A001605 N. J. A. Sloane and Simon Plouffe, The Encyclopedia of Integer Sequences, Academic Press, 1995 (includes this sequence).
+%H A001605 David Broadhurst, <a href="http://groups.yahoo.com/group/primeform/files/LucasFib/">Fibonacci Numbers</a>
+%H A001605 David Broadhurst, <a href="http://listserv.nodak.edu/scripts/wa.exe?A2=ind0104&amp;L=nmbrthry&amp;P=R1807&amp;D=0">Proof that F(81839) is prime</a>, NMBRTHRY maillist, 22 April 2001
+%H A001605 C. K. Caldwell, The Prime Glossary, <a href="http://primes.utm.edu/glossary/page.php?sort=FibonacciPrime">Fibonacci prime</a>
+%H A001605 Dudley Fox, <a href="http://www.gristle.to/markup/primes/ppfibs.html">Search for Possible Fibonacci Primes</a>
+%H A001605 R. Knott, <a href="http://www.mcs.surrey.ac.uk/Personal/R.Knott/Fibonacci/fibmaths.html">Mathematics of the Fibonacci Series</a>
+%H A001605 Henri & Renaud Lifchitz, <a href="http://www.primenumbers.net/prptop/searchform.php?form=F%28n%29">PRP Records.</a>
+%H A001605 Tony D. Noe and Jonathan Vos Post, <a href="http://www.cs.uwaterloo.ca/journals/JIS/VOL8/Noe/noe5.html">Primes in Fibonacci n-step and Lucas n-step Sequences,</a> J. of Integer Sequences, Vol. 8 (2005), Article 05.4.4
+%H A001605 R. Ondrejka, <a href="http://www.utm.edu/research/primes/lists/top_ten/">The Top Ten: a Catalogue of Primal Configurations</a>
+%H A001605 Eric Weisstein's World of Mathematics, <a href="http://mathworld.wolfram.com/FibonacciPrime.html">Fibonacci Prime.</a>
+%H A001605 Eric Weisstein's World of Mathematics, <a href="http://mathworld.wolfram.com/IntegerSequencePrimes.html">Integer Sequence Primes.</a>
+%F A001605 Prime(i) = a(n) for some n <=> A080345(i) <= 1. - _M. F. Hasler_, Dec 12 2007
+%t A001605 lst={};Do[f=Fibonacci[n];If[PrimeQ[f], AppendTo[lst, n]], {n, 1, 10^4}];lst [From _Vladimir Joseph Stephan Orlovsky_, Aug 14 2008]
+%t A001605 Select[Range[2000000],PrimeQ[Fibonacci[#]]&] (* _Harvey P. Dale_, Nov 20 2012 *)
+%o A001605 (PARI) v=[3,4]; forprime(p=5,1e5, if(ispseudoprime(fibonacci(p)), v=concat(v,p))); v \\ _Charles R Greathouse IV_, Feb 14 2011
+%o A001605 (PARI) is_A001605(n)={n==4 || isprime(n) & ispseudoprime(fibonacci(n))}  \\ - _M. F. Hasler_, Sep 29 2012
+%Y A001605 Cf. A005478, A000045, A001578, A086597, A080345.
+%K A001605 nonn,hard,nice
+%O A001605 1,1
+%A A001605 _N. J. A. Sloane_.
+%E A001605 Additional comments from _Robert G. Wilson v_, Aug 18 2000. More terms from David Broadhurst, Nov 08 2001. Two more terms (148091 and 201107) from _T. D. Noe_, Feb 12 2003 and Mar 04 2003.
+%E A001605 397379 from _T. D. Noe_, Aug 18 2003
+%E A001605 433781, 590041, 593689 from Henri Lifchitz submitted by _Ray Chandler_, Feb 11 2005
+%E A001605 604711 from Henri Lifchitz communicated by _Eric W. Weisstein_, Nov 29 2005
+%E A001605 931517, 1049897, 1285607 found by Henri Lifchitz circa Nov 01 2008 and submitted by _Alexander Adamchuk_, Nov 28 2008
+%E A001605 1636007 from Henri Lifchitz 03/2009, communicated by _Eric W. Weisstein_, Apr 24 2009
+%E A001605 1803059 and 1968721 from Henri Lifchitz 11/2009, submitted by _Alex Ratushnyak_, Aug 08 2012
+
+%I A023201
+%S A023201 5,7,11,13,17,23,31,37,41,47,53,61,67,73,83,97,101,103,107,131,151,
+%T A023201 157,167,173,191,193,223,227,233,251,257,263,271,277,307,311,331,347,
+%U A023201 353,367,373,383,433,443,457,461,503,541,557,563,571,587,593,601,607,613,641,647
+%N A023201 Numbers n such that n and n + 6 both prime.
+%H A023201 T. D. Noe, <a href="/A023201/b023201.txt">Table of n, a(n) for n = 1..10000</a>
+%H A023201 Eric Weisstein's World of Mathematics, <a href="http://mathworld.wolfram.com/SexyPrimes.html">Sexy Primes</a>.
+%H A023201 Eric Weisstein's World of Mathematics, <a href="http://mathworld.wolfram.com/TwinPrimes.html">Twin Primes</a>
+%p A023201 A023201 := proc(n)
+%p A023201     option remember;
+%p A023201     if n = 1 then
+%p A023201         5;
+%p A023201     else
+%p A023201         for a from procname(n-1)+2 by 2 do
+%p A023201             if isprime(a) and isprime(a+6) then
+%p A023201                 return a;
+%p A023201             end if;
+%p A023201         end do:
+%p A023201     end if;
+%p A023201 end proc: # _R. J. Mathar_, May 28 2013
+%t A023201 Select[Range[10^2], PrimeQ[ # ]&&PrimeQ[ #+6] &] (from _Vladimir Joseph Stephan Orlovsky_, Apr 29 2008)
+%o A023201 (MAGMA) [n: n in [0..40000] | IsPrime(n) and IsPrime(n+6)] [From _Vincenzo Librandi_, Aug 04 2010]
+%o A023201 (Haskell)
+%o A023201 a023201 n = a023201_list !! (n-1)
+%o A023201 a023201_list = filter ((== 1) . a010051 . (+ 6)) a000040_list
+%o A023201 -- _Reinhard Zumkeller_, Feb 25 2013
+%o A023201 (PARI) is(n)=isprime(n+6)&&isprime(n) \\ _Charles R Greathouse IV_, Mar 20 2013
+%Y A023201 A031924 and A007529 together give A023201.
+%Y A023201 Cf. A046117, A098428, A000040, A010051, A006489 (subsequence).
+%K A023201 nonn,easy
+%O A023201 1,1
+%A A023201 _David W. Wilson_
+
+%I A109611
+%S A109611 2,3,5,7,11,13,17,19,23,29,31,37,41,47,53,59,67,71,83,89,101,107,109,
+%T A109611 113,127,131,137,139,149,157,167,179,181,191,197,199,211,227,233,239,
+%U A109611 251,257,263,269,281,293,307,311,317,337,347,353,359,379,389,401,409
+%N A109611 Chen primes: primes p such that p + 2 is either a prime or a semiprime.
+%C A109611 43 is the first prime which is not a member (see A102540).
+%C A109611 Contains A001359 = lesser of twin primes.
+%C A109611 A063637 is a subsequence. [From _Reinhard Zumkeller_, Mar 22 2010]
+%D A109611 B. Green and T. Tao, Restriction theory of the Selberg sieve, with applications, 2005, pp. 5, 14, 18 - 19, 21
+%H A109611 R. J. Mathar, <a href="/A109611/b109611.txt">Table of n, a(n) for n = 1..34076</a>
+%H A109611 B. Green and T. Tao, <a href="http://arXiv.org/abs/math/0405581">Restriction theory of the Selberg sieve, with applications</a>, arXiv:math/0405581 [math.NT]
+%H A109611 Eric Weisstein's World of Mathematics, <a href="http://mathworld.wolfram.com/ChensTheorem.html">Chen's Theorem</a>
+%H A109611 Eric Weisstein's World of Mathematics, <a href="http://mathworld.wolfram.com/ChenPrime.html">Chen Prime</a>
+%H A109611 Wikipedia, <a href="http://en.wikipedia.org/wiki/Chen_prime">Chen prime</a>
+%F A109611 a(n)+2 = A139690(n).
+%e A109611 a(4) = 7 because 7 + 2 = 9 and 9 is a semiprime.
+%e A109611 a(5) = 11 because 11 + 2 = 13, a prime.
+%p A109611 A109611 := proc(n)
+%p A109611     option remember;
+%p A109611     if n =1 then
+%p A109611         2;
+%p A109611     else
+%p A109611         a := nextprime(procname(n-1)) ;
+%p A109611         while true do
+%p A109611             if isprime(a+2) or numtheory[bigomega](a+2) = 2 then
+%p A109611                 return a;
+%p A109611             end if;
+%p A109611             a := nextprime(a) ;
+%p A109611         end do:
+%p A109611     end if;
+%p A109611 end proc: # _R. J. Mathar_, Apr 26 2013
+%t A109611 semiPrimeQ[x_] := TrueQ[Plus @@ Last /@ FactorInteger[ x ] == 2]; Select[Prime[Range[100]], PrimeQ[ # + 2] || semiPrimeQ[ # + 2] &] (* _Alonso del Arte_, Aug 08 2005 *)
+%o A109611 (PARI) isA001358(n)={ if( bigomega(n)==2, return(1), return(0) ); } isA109611(n)={ if( ! isprime(n), return(0), if( isprime(n+2), return(1), return( isA001358(n+2)) ); ); } { n=1; for(i=1,90000, p=prime(i); if( isA109611(p), print(n," ",p); n++; ); ); } /*  _R. J. Mathar_, Aug 20 2006*/
+%Y A109611 Cf. A001358.
+%Y A109611 Cf. A112021, A112022, A139689.
+%K A109611 nonn
+%O A109611 1,1
+%A A109611 _Paul Muljadi_, Jul 31 2005
+%E A109611 Corrected by _Alonso del Arte_, Aug 08 2005
+
+%I A007500 M0657
+%S A007500 2,3,5,7,11,13,17,31,37,71,73,79,97,101,107,113,131,149,151,157,167,
+%T A007500 179,181,191,199,311,313,337,347,353,359,373,383,389,701,709,727,733,
+%U A007500 739,743,751,757,761,769,787,797,907,919,929,937,941,953,967,971,983,991,1009,1021
+%N A007500 Primes whose reversal in base 10 is also prime (called "palindromic primes" by D. Wells, although that name usually refers to A002385). Also called reversible primes.
+%C A007500 The numbers themselves need not be palindromes.
+%C A007500 The range is a subset of the range of A071786. [From _Reinhard Zumkeller_, Jul 06 2009]
+%D A007500 Roozbeh Hazrat, Mathematica: A Problem-Centered Approach, Springer 2010, pp. 39, 131-132
+%D A007500 N. J. A. Sloane and Simon Plouffe, The Encyclopedia of Integer Sequences, Academic Press, 1995 (includes this sequence).
+%D A007500 D. Wells, The Penguin Dictionary of Curious and Interesting Numbers. Penguin Books, NY, 1986, 134.
+%H A007500 T. D. Noe, <a href="/A007500/b007500.txt">Table of n, a(n) for n=1..10000</a>
+%t A007500 Select[ Prime[ Range[ 168 ] ], PrimeQ[ FromDigits[ Reverse[ IntegerDigits[ # ] ] ] ]& ] (from Zak Seidov, corrected by T. D. Noe)
+%o A007500 (MAGMA) [ p: p in PrimesUpTo(1030) | IsPrime(Seqint(Reverse(Intseq(p)))) ];  // Bruno Berselli, Jul 08 2011
+%o A007500 (Haskell)
+%o A007500 a007500 n = a007500_list !! (n-1)
+%o A007500 a007500_list = filter ((== 1) . a010051 . a004086) a000040_list
+%o A007500 -- _Reinhard Zumkeller_, Oct 14 2011
+%o A007500 (PARI) is_A007500(n)={ isprime(n) & is_A095179(n)} \\ - M. F. Hasler, Jan 13 2012
+%Y A007500 Cf. A006567, A007628.
+%Y A007500 Cf. A002385 (primes that are palindromes in base 10)
+%Y A007500 Equals A002385 union A006567.
+%Y A007500 Complement of A076056 with respect to A000040. [From _Reinhard Zumkeller_, Jul 06 2009]
+%Y A007500 Cf. A004086, A010051, A000040.
+%K A007500 base,nonn,nice
+%O A007500 1,1
+%A A007500 _N. J. A. Sloane_, _Robert G. Wilson v_
+%E A007500 More terms from Larry Reeves (larryr(AT)acm.org), Oct 31 2000
+%E A007500 Added further terms to the sequence Avik Roy (avik_3.1416(AT)yahoo.co.in), Jan 16 2009. Checked by _N. J. A. Sloane_, Jan 20 2009.
+%E A007500 Third reference added by Harvey P. Dale, Oct 17 2011
+
+%I A171057
+%S A171057 2,3,5,7,11,13,17,18,23,28,31,37,41,43,47,53,58,61,67,71,73,78,93,98,
+%T A171057 87,101,103,107,108,113,127,131,137,138,148,151,157,163,167,173,178,
+%U A171057 191,181,183,187,188,211,223,227,228,233,238,241,251,257,263
+%N A171057 In the sequence of prime numbers, replace all the P digits by Q's and vice versa, where P and Q are 9 and 8.
+%H A171057 Vincenzo Librandi, <a href="/A171057/b171057.txt">Table of n, a(n) for n = 1..10000</a>
+%t A171057 FromDigits[IntegerDigits[#] /. {9 -> p, 8 -> q} /. {p -> 8, q -> 9}] & /@ Prime[Range[60]] (* _Vincenzo Librandi_, Mar 01 2013, after _Harvey P. Dale_ in similar sequences *)
+%K A171057 nonn,base
+%O A171057 1,1
+%A A171057 _N. J. A. Sloane_ and _Vincenzo Librandi_, Sep 04 2010.
+
+# Content is available under The OEIS End-User License Agreement: http://oeis.org/LICENSE

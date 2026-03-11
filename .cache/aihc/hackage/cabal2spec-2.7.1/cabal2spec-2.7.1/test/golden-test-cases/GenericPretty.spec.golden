@@ -1,0 +1,133 @@
+#
+# spec file for package GenericPretty
+#
+# Copyright (c) 2020 SUSE LLC
+#
+# All modifications and additions to the file contributed by third parties
+# remain the property of their copyright owners, unless otherwise agreed
+# upon. The license for this file, and modifications and additions to the
+# file, is the same license as for the pristine package itself (unless the
+# license for the pristine package is not an Open Source License, in which
+# case the license is the MIT License). An "Open Source License" is a
+# license that conforms to the Open Source Definition (Version 1.9)
+# published by the Open Source Initiative.
+
+# Please submit bugfixes or comments via https://bugs.opensuse.org/
+#
+
+
+%global pkg_name GenericPretty
+%global pkgver %{pkg_name}-%{version}
+
+Name:           %{pkg_name}
+Version:        1.2.1
+Release:        0
+Summary:        A generic, derivable, haskell pretty printer
+License:        BSD-3-Clause
+URL:            https://hackage.haskell.org/package/%{name}
+Source0:        https://hackage.haskell.org/package/%{name}-%{version}/%{name}-%{version}.tar.gz
+ExcludeArch:    %{ix86}
+BuildRequires:  ghc-Cabal-devel
+BuildRequires:  ghc-base-devel
+BuildRequires:  ghc-base-prof
+BuildRequires:  ghc-pretty-devel
+BuildRequires:  ghc-pretty-prof
+BuildRequires:  ghc-rpm-macros
+
+%description
+GenericPretty is a Haskell library that supports automatic derivation of pretty
+printing functions on user defined data types.
+
+The form of generics used is based on that introduced in the paper: Magalhaes,
+Dijkstra, Jeuring, and Loh, A Generic Deriving Mechanism for Haskell, 3'rd ACM
+Symposium on Haskell, pp. 37-48, September 2010,
+<http://dx.doi.org/10.1145/1863523.1863529>. Changes from the original paper in
+the GHC implementation are described here:
+<http://www.haskell.org/haskellwiki/GHC.Generics#Changes_from_the_paper>.
+
+This package requires the use of the new GHC.Generics features
+<http://www.haskell.org/haskellwiki/GHC.Generics>, present from GHC 7.2.
+Use of these features is indicated by the DeriveGeneric pragma or the flag
+-XDeriveGeneric.
+
+Pretty printing produces values of type Text.PrettyPrint.Doc, using the
+Text.PrettyPrint library
+<http://www.haskell.org/ghc/docs/latest/html/libraries/pretty-1.1.1.0/Text-PrettyPrint.html>.
+
+The output provided is a pretty printed version of that provided by
+Prelude.show. That is, rendering the document provided by this pretty printer
+yields an output identical to that of Prelude.show, except for extra
+whitespace.
+
+For information about the functions exported by the package please see the API
+linked further down this page. For examples of usage, both basic and more
+complex see the README file and the haskell source code files in the TestSuite
+folder, both included in the package. Finally for installation instructions
+also see the README file or this page:
+<http://www.haskell.org/haskellwiki/Cabal/How_to_install_a_Cabal_package>.
+
+%package -n ghc-%{name}
+Summary:        Haskell %{name} library
+
+%description -n ghc-%{name}
+This package provides the Haskell %{name} shared library.
+
+%package -n ghc-%{name}-devel
+Summary:        Haskell %{name} library development files
+Requires:       ghc-%{name} = %{version}-%{release}
+Requires:       ghc-compiler = %{ghc_version}
+Requires(post): ghc-compiler = %{ghc_version}
+Requires(postun): ghc-compiler = %{ghc_version}
+
+%description -n ghc-%{name}-devel
+This package provides the Haskell %{name} library development files.
+
+%package -n ghc-%{pkg_name}-doc
+Summary:        Haskell %{pkg_name} library documentation
+BuildArch:      noarch
+Requires:       ghc-filesystem
+
+%description -n ghc-%{pkg_name}-doc
+This package provides the Haskell %{pkg_name} library documentation.
+
+
+%package -n ghc-%{pkg_name}-prof
+Summary:        Haskell %{pkg_name} profiling library
+Requires:       ghc-%{pkg_name}-devel = %{version}-%{release}
+Supplements:    (ghc-%{pkg_name}-devel and ghc-prof)
+
+%description -n ghc-%{pkg_name}-prof
+This package provides the Haskell %{pkg_name} profiling library.
+
+
+%prep
+%autosetup
+
+%build
+%ghc_lib_build
+
+%install
+%ghc_lib_install
+
+%post -n ghc-%{name}-devel
+%ghc_pkg_recache
+
+%postun -n ghc-%{name}-devel
+%ghc_pkg_recache
+
+%files
+%license LICENSE
+%doc README
+
+%files -n ghc-%{name} -f ghc-%{name}.files
+%license LICENSE
+
+%files -n ghc-%{name}-devel -f ghc-%{name}-devel.files
+%doc README
+
+%files -n ghc-%{pkg_name}-doc -f ghc-%{pkg_name}-doc.files
+%license LICENSE
+
+%files -n ghc-%{pkg_name}-prof -f ghc-%{pkg_name}-prof.files
+
+%changelog

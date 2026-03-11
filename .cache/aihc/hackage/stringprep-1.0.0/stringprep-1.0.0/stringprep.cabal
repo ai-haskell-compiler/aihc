@@ -1,0 +1,45 @@
+Name: stringprep
+Version: 1.0.0
+Description: Implements the "StringPrep" algorithm
+Synopsis: Implements the "StringPrep" algorithm
+License: BSD3
+Author: George Pollard <porges@porg.es>
+Maintainer: George Pollard <porges@porg.es>
+Build-Type: Simple
+Cabal-Version: >=1.8
+License-file: LICENSE
+Category: data
+extra-source-files: Text/*.hs
+
+source-repository head
+    type: git
+    location: https://github.com/Porges/stringprep-hs.git
+
+source-repository this
+    type: git
+    location: https://github.com/Porges/stringprep-hs.git
+    tag: v1.0.0
+
+Library
+ Build-Depends: base          >=3 &&    < 5
+              , containers    >=0.2
+              , text-icu      >=0.6
+              , text          >=0.9
+ Exposed-modules: Text.StringPrep
+                , Text.StringPrep.Profiles
+                , Text.CharRanges
+ ghc-options: -O2 -Wall -fno-warn-name-shadowing
+
+test-suite tests
+ Build-Depends: base
+              , QuickCheck
+              , containers
+              , text
+              , text-icu
+              , tasty
+              , tasty-quickcheck
+              , tasty-th
+ type:         exitcode-stdio-1.0
+ main-is:     Tests.hs
+ Other-modules: Ranges
+ hs-source-dirs: tests .

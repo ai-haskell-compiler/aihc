@@ -1,0 +1,17 @@
+# 0.3.0.1
+
+* Fix documentation
+
+# 0.3
+
+* Added `Import` to `RType`.
+* Added an rtype field to `Delete`.
+
+# 0.2
+
+* Changed representation of SrcSpan as suggested by #1.
+* Added Data and Typeable instances.
+
+# 0.1
+
+* Initial Release

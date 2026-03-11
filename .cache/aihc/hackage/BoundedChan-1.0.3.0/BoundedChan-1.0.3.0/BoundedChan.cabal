@@ -1,0 +1,27 @@
+name:          BoundedChan
+category:      Concurrency
+version:       1.0.3.0
+license:       BSD3
+license-file:  LICENSE
+author:        Adam Wick <awick@galois.com>, Chris Kuklewicz <haskell@list.mightyreason.com>, Paul Hendry
+maintainer:    Adam Wick <awick@galois.com>
+stability:     stable
+build-type:    Simple
+cabal-version: >= 1.6
+tested-with:   GHC == 6.10
+synopsis:      Implementation of bounded channels.
+description:   This library introduces BoundedChan. BoundedChans differ from
+               Chans in that they are guaranteed to contain no more than a
+               certain number of elements.
+
+library
+  build-depends: base >= 3 && < 5, 
+                 array >= 0.2 && < 0.8
+  exposed-modules: Control.Concurrent.BoundedChan
+  ghc-options: -O2 -Wall -funbox-strict-fields
+  if impl(ghc >= 6.8)
+    ghc-options: -fwarn-tabs
+
+source-repository head
+  type:     git
+  location: git://github.com/GaloisInc/BoundedChan.git

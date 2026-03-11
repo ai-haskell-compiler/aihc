@@ -1,0 +1,113 @@
+#
+# spec file for package mole
+#
+# Copyright (c) 2020 SUSE LLC
+#
+# All modifications and additions to the file contributed by third parties
+# remain the property of their copyright owners, unless otherwise agreed
+# upon. The license for this file, and modifications and additions to the
+# file, is the same license as for the pristine package itself (unless the
+# license for the pristine package is not an Open Source License, in which
+# case the license is the MIT License). An "Open Source License" is a
+# license that conforms to the Open Source Definition (Version 1.9)
+# published by the Open Source Initiative.
+
+# Please submit bugfixes or comments via https://bugs.opensuse.org/
+#
+
+
+%bcond_with tests
+Name:           mole
+Version:        0.0.6
+Release:        0
+Summary:        A glorified string replacement tool
+License:        MIT
+URL:            https://hackage.haskell.org/package/%{name}
+Source0:        https://hackage.haskell.org/package/%{name}-%{version}/%{name}-%{version}.tar.gz
+ExcludeArch:    %{ix86}
+BuildRequires:  ghc-Cabal-devel
+BuildRequires:  ghc-attoparsec-devel
+BuildRequires:  ghc-attoparsec-prof
+BuildRequires:  ghc-base-devel
+BuildRequires:  ghc-base-prof
+BuildRequires:  ghc-base64-bytestring-devel
+BuildRequires:  ghc-base64-bytestring-prof
+BuildRequires:  ghc-bytestring-devel
+BuildRequires:  ghc-bytestring-prof
+BuildRequires:  ghc-containers-devel
+BuildRequires:  ghc-containers-prof
+BuildRequires:  ghc-cryptohash-devel
+BuildRequires:  ghc-cryptohash-prof
+BuildRequires:  ghc-css-syntax-devel
+BuildRequires:  ghc-css-syntax-prof
+BuildRequires:  ghc-directory-devel
+BuildRequires:  ghc-directory-prof
+BuildRequires:  ghc-filemanip-devel
+BuildRequires:  ghc-filemanip-prof
+BuildRequires:  ghc-filepath-devel
+BuildRequires:  ghc-filepath-prof
+BuildRequires:  ghc-fsnotify-devel
+BuildRequires:  ghc-fsnotify-prof
+BuildRequires:  ghc-kraken-devel
+BuildRequires:  ghc-kraken-prof
+BuildRequires:  ghc-mtl-devel
+BuildRequires:  ghc-mtl-prof
+BuildRequires:  ghc-network-uri-devel
+BuildRequires:  ghc-network-uri-prof
+BuildRequires:  ghc-optparse-applicative-devel
+BuildRequires:  ghc-optparse-applicative-prof
+BuildRequires:  ghc-process-devel
+BuildRequires:  ghc-process-prof
+BuildRequires:  ghc-rpm-macros
+BuildRequires:  ghc-snap-core-devel
+BuildRequires:  ghc-snap-core-prof
+BuildRequires:  ghc-snap-server-devel
+BuildRequires:  ghc-snap-server-prof
+BuildRequires:  ghc-stm-devel
+BuildRequires:  ghc-stm-prof
+BuildRequires:  ghc-tagsoup-devel
+BuildRequires:  ghc-tagsoup-prof
+BuildRequires:  ghc-text-devel
+BuildRequires:  ghc-text-prof
+BuildRequires:  ghc-time-devel
+BuildRequires:  ghc-time-prof
+BuildRequires:  ghc-transformers-devel
+BuildRequires:  ghc-transformers-prof
+BuildRequires:  ghc-unix-devel
+BuildRequires:  ghc-unix-prof
+%if %{with tests}
+BuildRequires:  ghc-hspec-devel
+BuildRequires:  ghc-hspec-prof
+BuildRequires:  ghc-hspec-smallcheck-devel
+BuildRequires:  ghc-hspec-smallcheck-prof
+BuildRequires:  ghc-smallcheck-devel
+BuildRequires:  ghc-smallcheck-prof
+BuildRequires:  ghc-unordered-containers-devel
+BuildRequires:  ghc-unordered-containers-prof
+BuildRequires:  ghc-vector-devel
+BuildRequires:  ghc-vector-prof
+%endif
+
+%description
+A glorified string replacement tool. For a very specific purpose. That purpose
+being to compile and optimize a static website (or a single-page application).
+Mole inspects source, builds a complete dependency tree, minifies and
+compresses the files, adds fingerprints and writes the result to a directory.
+
+%prep
+%autosetup
+
+%build
+%ghc_bin_build
+
+%install
+%ghc_bin_install
+
+%check
+%cabal_test
+
+%files
+%license LICENSE
+%{_bindir}/%{name}
+
+%changelog

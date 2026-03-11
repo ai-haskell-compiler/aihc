@@ -1,0 +1,71 @@
+max expr size  =    5
+  |- on ineqs  =    4
+  |- on conds  =    4
+max  #-tests   =  500
+min  #-tests   =   25  (to consider p ==> q true)
+max  #-vars    =    2  (for inequational and conditional laws)
+
+_ :: Bool
+_ :: Int
+_ :: [Int]
+False :: Bool
+True :: Bool
+[] :: [Int]
+(:) :: Int -> [Int] -> [Int]
+(++) :: [Int] -> [Int] -> [Int]
+elem :: Int -> [Int] -> Bool
+ordered :: [Int] -> Bool
+all :: (Int -> Bool) -> [Int] -> Bool
+insert :: Int -> [Int] -> [Int]
+sort :: [Int] -> [Int]
+(==) :: Int -> Int -> Bool
+(<=) :: Int -> Int -> Bool
+(<) :: Int -> Int -> Bool
+(==) :: Bool -> Bool -> Bool
+(==) :: [Int] -> [Int] -> Bool
+
+      ordered (sort xs) == True
+  ordered (insert x xs) == ordered xs
+    (xs == insert x xs) == False
+    ([] == insert x xs) == False
+        (xs == sort xs) == ordered xs
+       elem x (sort xs) == elem x xs
+        (sort xs == []) == (xs == [])
+   all (x ==) (sort xs) == all (x ==) xs
+    all (x <) (sort xs) == all (x <) xs
+          all (x <=) xs == ordered (x:sort xs)
+ordered (xs ++ sort xs) == ordered (xs ++ xs)
+ordered (sort xs ++ xs) == ordered (xs ++ xs)
+   elem x (insert y xs) == elem x (y:xs)
+         sort (sort xs) == sort xs
+            insert x [] == [x]
+        sort (xs ++ ys) == sort (ys ++ xs)
+     sort (insert x xs) == insert x (sort xs)
+            sort (x:xs) == insert x (sort xs)
+   sort (xs ++ sort ys) == sort (xs ++ ys)
+ insert x (insert y xs) == insert y (insert x xs)
+        insert x (x:xs) == x:x:xs
+           insert x [y] == insert y [x]
+
+  xs == sort ys ==> ordered xs
+        sort xs <=  xs
+    insert x xs <=  x:xs
+      x:sort xs <=  x:xs
+  xs ++ sort ys <=  xs ++ ys
+  sort xs ++ ys <=  xs ++ ys
+    sort (x:xs) <=  insert x xs
+sort (xs ++ ys) <=  xs ++ sort ys
+sort (xs ++ ys) <=  sort xs ++ ys
+  sort xs ++ xs <=  xs ++ sort xs
+
+     all (x <=) xs ==>         insert x xs == x:xs
+ordered (ys ++ xs) ==>       ys ++ sort xs == sort (xs ++ ys)
+ordered (ys ++ xs) ==>       sort ys ++ xs == sort (xs ++ ys)
+     all (x <=) xs ==>           x:sort xs == sort (x:xs)
+         elem x xs ==> insert x (xs ++ ys) == insert x xs ++ ys
+            x <= y ==>     insert x (y:xs) == x:y:xs
+             x < y ==>     insert y (x:xs) == x:insert y xs
+ordered (ys ++ xs) ==>  sort ys ++ sort xs == sort (xs ++ ys)
+     all (x <=) xs ==>     insert y (x:xs) == insert x (insert y xs)
+     all (x <=) ys ==> insert x (xs ++ ys) == insert x xs ++ ys
+

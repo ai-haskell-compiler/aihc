@@ -1,0 +1,23 @@
+{-# LANGUAGE CPP #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE StandaloneDeriving         #-}
+{-# OPTIONS_GHC -Wno-orphans #-}
+
+{-|
+Module:      Instances.Data.Ord
+Copyright:   (C) 2014-2017 Ryan Scott
+License:     BSD-style (see the file LICENSE)
+Maintainer:  Ryan Scott
+Stability:   Provisional
+Portability: GHC
+
+'Arbitrary' instance for 'Down'.
+-}
+module Instances.Data.Ord () where
+
+#if !MIN_VERSION_QuickCheck(2,17,0)
+import GHC.Exts (Down(..))
+import Test.QuickCheck (Arbitrary)
+
+deriving instance Arbitrary a => Arbitrary (Down a)
+#endif

@@ -1,0 +1,321 @@
+--- parse tree ---
+[ Code
+    "typ/compiler/array-33.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/compiler/array-33.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/compiler/array-33.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Comment
+, Code
+    "typ/compiler/array-33.typ"
+    ( line 3 , column 2 )
+    (FuncCall
+       (Ident (Identifier "test"))
+       [ NormalArg
+           (FuncCall
+              (FieldAccess (Ident (Identifier "sorted")) (Array [])) [])
+       , NormalArg (Array [])
+       ])
+, SoftBreak
+, Code
+    "typ/compiler/array-33.typ"
+    ( line 4 , column 2 )
+    (FuncCall
+       (Ident (Identifier "test"))
+       [ NormalArg
+           (FuncCall
+              (FieldAccess (Ident (Identifier "sorted")) (Array []))
+              [ KeyValArg
+                  (Identifier "key")
+                  (FuncExpr
+                     [ NormalParam (Identifier "x") ] (Ident (Identifier "x")))
+              ])
+       , NormalArg (Array [])
+       ])
+, SoftBreak
+, Code
+    "typ/compiler/array-33.typ"
+    ( line 5 , column 2 )
+    (FuncCall
+       (Ident (Identifier "test"))
+       [ NormalArg
+           (FuncCall
+              (FieldAccess
+                 (Ident (Identifier "sorted"))
+                 (Times
+                    (Array
+                       [ Reg (Literal (Boolean True)) , Reg (Literal (Boolean False)) ])
+                    (Literal (Int 10))))
+              [])
+       , NormalArg
+           (Plus
+              (Times
+                 (Array [ Reg (Literal (Boolean False)) ]) (Literal (Int 10)))
+              (Times
+                 (Array [ Reg (Literal (Boolean True)) ]) (Literal (Int 10))))
+       ])
+, SoftBreak
+, Code
+    "typ/compiler/array-33.typ"
+    ( line 6 , column 2 )
+    (FuncCall
+       (Ident (Identifier "test"))
+       [ NormalArg
+           (FuncCall
+              (FieldAccess
+                 (Ident (Identifier "sorted"))
+                 (Array
+                    [ Reg (Literal (String "it"))
+                    , Reg (Literal (String "the"))
+                    , Reg (Literal (String "hi"))
+                    , Reg (Literal (String "text"))
+                    ]))
+              [])
+       , NormalArg
+           (Array
+              [ Reg (Literal (String "hi"))
+              , Reg (Literal (String "it"))
+              , Reg (Literal (String "text"))
+              , Reg (Literal (String "the"))
+              ])
+       ])
+, SoftBreak
+, Code
+    "typ/compiler/array-33.typ"
+    ( line 7 , column 2 )
+    (FuncCall
+       (Ident (Identifier "test"))
+       [ NormalArg
+           (FuncCall
+              (FieldAccess
+                 (Ident (Identifier "sorted"))
+                 (Array
+                    [ Reg (Literal (String "I"))
+                    , Reg (Literal (String "the"))
+                    , Reg (Literal (String "hi"))
+                    , Reg (Literal (String "text"))
+                    ]))
+              [ KeyValArg
+                  (Identifier "key")
+                  (FuncExpr
+                     [ NormalParam (Identifier "x") ] (Ident (Identifier "x")))
+              ])
+       , NormalArg
+           (Array
+              [ Reg (Literal (String "I"))
+              , Reg (Literal (String "hi"))
+              , Reg (Literal (String "text"))
+              , Reg (Literal (String "the"))
+              ])
+       ])
+, SoftBreak
+, Code
+    "typ/compiler/array-33.typ"
+    ( line 8 , column 2 )
+    (FuncCall
+       (Ident (Identifier "test"))
+       [ NormalArg
+           (FuncCall
+              (FieldAccess
+                 (Ident (Identifier "sorted"))
+                 (Array
+                    [ Reg (Literal (String "I"))
+                    , Reg (Literal (String "the"))
+                    , Reg (Literal (String "hi"))
+                    , Reg (Literal (String "text"))
+                    ]))
+              [ KeyValArg
+                  (Identifier "key")
+                  (FuncExpr
+                     [ NormalParam (Identifier "x") ]
+                     (FuncCall
+                        (FieldAccess (Ident (Identifier "len")) (Ident (Identifier "x")))
+                        []))
+              ])
+       , NormalArg
+           (Array
+              [ Reg (Literal (String "I"))
+              , Reg (Literal (String "hi"))
+              , Reg (Literal (String "the"))
+              , Reg (Literal (String "text"))
+              ])
+       ])
+, SoftBreak
+, Code
+    "typ/compiler/array-33.typ"
+    ( line 9 , column 2 )
+    (FuncCall
+       (Ident (Identifier "test"))
+       [ NormalArg
+           (FuncCall
+              (FieldAccess
+                 (Ident (Identifier "sorted"))
+                 (Array
+                    [ Reg (Literal (Int 2))
+                    , Reg (Literal (Int 1))
+                    , Reg (Literal (Int 3))
+                    , Reg (Literal (Int 10))
+                    , Reg (Literal (Int 5))
+                    , Reg (Literal (Int 8))
+                    , Reg (Literal (Int 6))
+                    , Reg (Negated (Literal (Int 7)))
+                    , Reg (Literal (Int 2))
+                    ]))
+              [])
+       , NormalArg
+           (Array
+              [ Reg (Negated (Literal (Int 7)))
+              , Reg (Literal (Int 1))
+              , Reg (Literal (Int 2))
+              , Reg (Literal (Int 2))
+              , Reg (Literal (Int 3))
+              , Reg (Literal (Int 5))
+              , Reg (Literal (Int 6))
+              , Reg (Literal (Int 8))
+              , Reg (Literal (Int 10))
+              ])
+       ])
+, SoftBreak
+, Code
+    "typ/compiler/array-33.typ"
+    ( line 10 , column 2 )
+    (FuncCall
+       (Ident (Identifier "test"))
+       [ NormalArg
+           (FuncCall
+              (FieldAccess
+                 (Ident (Identifier "sorted"))
+                 (Array
+                    [ Reg (Literal (Int 2))
+                    , Reg (Literal (Int 1))
+                    , Reg (Literal (Int 3))
+                    , Reg (Negated (Literal (Int 10)))
+                    , Reg (Negated (Literal (Int 5)))
+                    , Reg (Literal (Int 8))
+                    , Reg (Literal (Int 6))
+                    , Reg (Negated (Literal (Int 7)))
+                    , Reg (Literal (Int 2))
+                    ]))
+              [ KeyValArg
+                  (Identifier "key")
+                  (FuncExpr
+                     [ NormalParam (Identifier "x") ] (Ident (Identifier "x")))
+              ])
+       , NormalArg
+           (Array
+              [ Reg (Negated (Literal (Int 10)))
+              , Reg (Negated (Literal (Int 7)))
+              , Reg (Negated (Literal (Int 5)))
+              , Reg (Literal (Int 1))
+              , Reg (Literal (Int 2))
+              , Reg (Literal (Int 2))
+              , Reg (Literal (Int 3))
+              , Reg (Literal (Int 6))
+              , Reg (Literal (Int 8))
+              ])
+       ])
+, SoftBreak
+, Code
+    "typ/compiler/array-33.typ"
+    ( line 11 , column 2 )
+    (FuncCall
+       (Ident (Identifier "test"))
+       [ NormalArg
+           (FuncCall
+              (FieldAccess
+                 (Ident (Identifier "sorted"))
+                 (Array
+                    [ Reg (Literal (Int 2))
+                    , Reg (Literal (Int 1))
+                    , Reg (Literal (Int 3))
+                    , Reg (Negated (Literal (Int 10)))
+                    , Reg (Negated (Literal (Int 5)))
+                    , Reg (Literal (Int 8))
+                    , Reg (Literal (Int 6))
+                    , Reg (Negated (Literal (Int 7)))
+                    , Reg (Literal (Int 2))
+                    ]))
+              [ KeyValArg
+                  (Identifier "key")
+                  (FuncExpr
+                     [ NormalParam (Identifier "x") ]
+                     (Times (Ident (Identifier "x")) (Ident (Identifier "x"))))
+              ])
+       , NormalArg
+           (Array
+              [ Reg (Literal (Int 1))
+              , Reg (Literal (Int 2))
+              , Reg (Literal (Int 2))
+              , Reg (Literal (Int 3))
+              , Reg (Negated (Literal (Int 5)))
+              , Reg (Literal (Int 6))
+              , Reg (Negated (Literal (Int 7)))
+              , Reg (Literal (Int 8))
+              , Reg (Negated (Literal (Int 10)))
+              ])
+       ])
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 text(body: [✅]), 
+                 text(body: [
+]), 
+                 text(body: [✅]), 
+                 text(body: [
+]), 
+                 text(body: [✅]), 
+                 text(body: [
+]), 
+                 text(body: [✅]), 
+                 text(body: [
+]), 
+                 text(body: [✅]), 
+                 text(body: [
+]), 
+                 text(body: [✅]), 
+                 text(body: [
+]), 
+                 text(body: [✅]), 
+                 text(body: [
+]), 
+                 text(body: [✅]), 
+                 text(body: [
+]), 
+                 text(body: [✅]), 
+                 parbreak() })

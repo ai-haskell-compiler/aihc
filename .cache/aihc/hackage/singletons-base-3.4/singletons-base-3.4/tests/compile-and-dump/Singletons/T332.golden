@@ -1,0 +1,67 @@
+Singletons/T332.hs:(0,0)-(0,0): Splicing declarations
+    promote
+      [d| f :: Foo -> ()
+          f MkFoo {} = ()
+          
+          data Foo = MkFoo |]
+  ======>
+    data Foo = MkFoo
+    f :: Foo -> ()
+    f MkFoo {} = ()
+    type MkFooSym0 :: Foo
+    type family MkFooSym0 :: Foo where
+      MkFooSym0 = MkFoo
+    type FSym0 :: (~>) Foo ()
+    data FSym0 :: (~>) Foo ()
+      where
+        FSym0KindInference :: SameKind (Apply FSym0 arg) (FSym1 arg) =>
+                              FSym0 a0123456789876543210
+    type instance Apply FSym0 a0123456789876543210 = F a0123456789876543210
+    instance SuppressUnusedWarnings FSym0 where
+      suppressUnusedWarnings = snd ((,) FSym0KindInference ())
+    type FSym1 :: Foo -> ()
+    type family FSym1 (a0123456789876543210 :: Foo) :: () where
+      FSym1 a0123456789876543210 = F a0123456789876543210
+    type F :: Foo -> ()
+    type family F (a :: Foo) :: () where
+      F MkFoo = Tuple0Sym0
+Singletons/T332.hs:(0,0)-(0,0): Splicing declarations
+    singletons
+      [d| b :: Bar -> ()
+          b MkBar {} = ()
+          
+          data Bar = MkBar |]
+  ======>
+    data Bar = MkBar
+    b :: Bar -> ()
+    b MkBar {} = ()
+    type MkBarSym0 :: Bar
+    type family MkBarSym0 :: Bar where
+      MkBarSym0 = MkBar
+    type BSym0 :: (~>) Bar ()
+    data BSym0 :: (~>) Bar ()
+      where
+        BSym0KindInference :: SameKind (Apply BSym0 arg) (BSym1 arg) =>
+                              BSym0 a0123456789876543210
+    type instance Apply BSym0 a0123456789876543210 = B a0123456789876543210
+    instance SuppressUnusedWarnings BSym0 where
+      suppressUnusedWarnings = snd ((,) BSym0KindInference ())
+    type BSym1 :: Bar -> ()
+    type family BSym1 (a0123456789876543210 :: Bar) :: () where
+      BSym1 a0123456789876543210 = B a0123456789876543210
+    type B :: Bar -> ()
+    type family B (a :: Bar) :: () where
+      B MkBar = Tuple0Sym0
+    sB ::
+      (forall (t :: Bar). Sing t -> Sing (Apply BSym0 t :: ()) :: Type)
+    sB SMkBar = STuple0
+    instance SingI (BSym0 :: (~>) Bar ()) where
+      sing = singFun1 @BSym0 sB
+    data SBar :: Bar -> Type where SMkBar :: SBar (MkBar :: Bar)
+    type instance Sing @Bar = SBar
+    instance SingKind Bar where
+      type Demote Bar = Bar
+      fromSing SMkBar = MkBar
+      toSing MkBar = SomeSing SMkBar
+    instance SingI MkBar where
+      sing = SMkBar

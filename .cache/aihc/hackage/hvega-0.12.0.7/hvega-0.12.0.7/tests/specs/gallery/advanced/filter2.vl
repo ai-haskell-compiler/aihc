@@ -1,0 +1,58 @@
+{
+    "$schema": "https://vega.github.io/schema/vega-lite/v4.json",
+    "data": {
+        "url": "https://vega.github.io/vega-lite/data/movies.json"
+    },
+    "description": "Top-k items with 'others'",
+    "encoding": {
+        "x": {
+            "aggregate": "mean",
+            "field": "aggregateGross",
+            "title": null,
+            "type": "quantitative"
+        },
+        "y": {
+            "field": "rankedDirector",
+            "sort": {
+                "encoding": "x",
+                "order": "descending"
+            },
+            "title": null,
+            "type": "ordinal"
+        }
+    },
+    "mark": "bar",
+    "title": "Top Directors by Average Worldwide Gross",
+    "transform": [
+        {
+            "aggregate": [
+                {
+                    "as": "aggregateGross",
+                    "field": "Worldwide_Gross",
+                    "op": "mean"
+                }
+            ],
+            "groupby": [
+                "Director"
+            ]
+        },
+        {
+            "sort": [
+                {
+                    "field": "aggregateGross",
+                    "order": "descending"
+                }
+            ],
+            "window": [
+                {
+                    "as": "rank",
+                    "op": "row_number"
+                }
+            ]
+        },
+        {
+            "as": "rankedDirector",
+            "calculate": "datum.rank < 10 ? datum.Director : 'All Others'"
+        }
+    ]
+}

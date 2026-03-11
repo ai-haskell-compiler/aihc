@@ -1,0 +1,20 @@
+name:			Plural
+version:		0.0.2
+Cabal-Version:	>= 1.6
+license:		GPL-3
+license-file:	LICENSE
+copyright:		(c) 2009 Andy Stewart
+synopsis:		Pluralize English words
+description:    Pluralize English words
+author:			Andy Stewart
+maintainer:		lazycat.manatee@gmail.com
+stability:		provisional
+category:		Language
+
+tested-with:	GHC==6.10.4
+build-type:		Simple
+
+Library
+  Exposed-Modules:
+     Language.English.Plural		  
+  Build-depends: containers >= 0.2.0.1, regex-tdfa >= 1.1.2, base >= 4 && < 5

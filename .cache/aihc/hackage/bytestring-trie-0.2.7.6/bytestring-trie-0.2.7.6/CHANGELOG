@@ -1,0 +1,104 @@
+0.2.7.6 (2025-02-11):
+  * Technical Debt:
+    - Relaxed upper-bounds for GHC 9.12
+    - Silencing some warnings on GHC 9.10
+0.2.7.5 (2024-08-29):
+  * Technical Debt:
+    - Relaxed upper-bounds for the test suite
+0.2.7.4 (2024-08-29):
+  * Technical Debt:
+    - Relaxed upper-bounds for GHC 9.10
+    - Tightened lower-bounds to match only what CI still verifies.
+0.2.7.3 (2024-04-05):
+  * Technical Debt:
+    - Updated for GHC 9.8
+0.2.7.2 (2023-03-19):
+  * Technical Debt:
+    - Updated for GHC 9.6
+0.2.7.1 (2022-08-28):
+  * Technical Debt:
+    - Updated for GHC 9.4
+0.2.7 (2022-03-14):
+  * Added:
+    - Instances: Eq1, Ord, Ord1, IsList, Show1, Read, Read1, NFData.
+    - Methods:   Semigroup(stimes), Foldable(fold,foldMap')
+    - Functions: Data.Trie.Internal.{filter,filterA,wither}
+  * Performance Improvements:
+    - Significantly sped up `size`
+    - Misc other changes to the Foldable instance.
+    - Reordered data constructors, for better branch-prediction.
+    - Fixed quadratic slowdown for priority-queue functions.
+    - Reduced quadratic slowdown for functions that reconstruct keys;
+      however, it's still asymptotically quadratic:
+      <https://github.com/wrengr/bytestring-trie/issues/25>
+  * Breakage:
+    - Changed the type of Data.Trie.Internal.lookupBy_
+  * Technical Debt:
+    - Updated the *.cabal file to use Cabal-2.2 format/features.
+    - Greatly increased code-coverage of the test suite
+    - Added a bunch of benchmarks, including for regression testing.
+    - Added Safe/Trustworthy annotations.
+    - Cleaning up OPTIONS_GHC and imports.
+    - Cleaning up Haddock and adding more @since annotations.
+0.2.6 (2021-11-22):
+  * Added:
+    - Data.Trie.minMatch
+    - Data.Trie.Internal.{cata,cata_}
+    - intersection functions (HT: Kevin Brubeck Unhammer)
+    - Data.Trie.deleteSubmap (HT: YongJoon Joe)
+  * Fixed:
+    - Adjusting the Applicative, Monad, and Monoid instances to
+      avoid warnings from GHC 9.2.1 regarding:
+      <https://gitlab.haskell.org/ghc/ghc/-/wikis/proposal/monad-of-no-return>
+      <https://gitlab.haskell.org/ghc/ghc/-/wikis/proposal/semigroup-monoid>
+    - Fixed a bug in mergeBy
+  * Documentation:
+    - Documented the order of results for `matches`/`matches_`
+  * Technical Debt:
+    - Numerous minor tweaks with smart-constructors
+    - Greatly increased code-coverage of the test suite
+0.2.5.3 (2021-11-02):
+  * Fixed:
+    - Increasing upper bounds for GHC 9.2.1
+0.2.5.2 (2021-10-16):
+  * Fixed:
+    - Increasing upper bounds to Hackage latest, instead of just GHC 9.0.1
+0.2.5.1 (2021-10-16):
+  * Fixed:
+    - Fixing things to compile under GHC 9.0.1
+0.2.5.0 (2019-02-25):
+  * Added:
+    - Instance: Semigroup
+  * Fixed:
+    - Fixing things to compile under GHC 8.4 and 8.6.
+  * Technical Debt:
+    - Removed the obsolete/unused "useCinternal" Cabal flag
+0.2.4.3 (2019-02-24):
+  * Technical Debt:
+    - Moved VERSION to CHANGELOG
+  * Fixed:
+    - Fixing things to compile under GHC 8.0 and 8.2.  N.B., still
+      doesn't compile under 8.4 or 8.6, due to the version limit on `base`.
+0.2.4.1 (2015-04-04):
+  * Fixed:
+    - Data.Trie.Internal: adjusted imports to compile under GHC 7.10.1
+0.2.4 (2014-10-09):
+  * Added:
+    - Data.Trie.Internal.{match_,matches_}, Data.Trie.{match,matches}
+0.2.3 (2010-02-12):
+  * Added:
+    - Data.Trie.Internal.alterBy_
+    - Data.Trie.Internal.{contextualMap, contextualMap', contextualFilterMap, contextualMapBy}
+    - Data.Trie.Convenience.{fromListWith', fromListWithL, fromListWithL'} as suggested by Ian Taylor
+    - Data.Trie.Convenience.{insertWith', insertWithKey', unionWith'}
+  * Performance:
+    - converted fmap, foldMap, traverse, and filterMap to worker/wrapper
+0.2.2 (2010-06-10):
+  * Fixed:
+    - Corrected a major bug in mergeBy, reported by Gregory Crosswhite
+0.2.1.1 (2009-12-20):
+    - Added a VERSION file
+0.2.1 (2009-02-13):
+    - Most recent release before adding a VERSION file
+0.1.4 (2009-01-11):
+    - The only previous tag

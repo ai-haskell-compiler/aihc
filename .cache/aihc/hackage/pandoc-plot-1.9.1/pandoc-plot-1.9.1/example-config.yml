@@ -1,0 +1,152 @@
+
+# This is an example configuration. Everything in this file is optional.
+# Please refer to the documentation to know about the parameters herein.
+#
+# The `executable` parameter for all toolkits can be either the
+# executable name (if it is present on the PATH), or
+# the full path to the executable.
+# E.g.:
+#  executable: python3
+#  executable: "C:\Python37\Scripts\python.exe"
+
+# The following parameters affect all toolkits
+# Directory where to save the plots. The path can be relative to pandoc-plot's
+# current working directory, or absolute.
+directory: plots/
+
+# Whether or not to include a link to the source script in the caption. 
+# Particularly useful for HTML output.
+source: false
+
+# When `strict: false`, pandoc-plot will leave code blocks untouched if a plot
+# could not be generated. This could happen if, for example, a toolkit is not
+# installed. If you want pandoc-plot to fail instead, use `strict: true`.
+strict: false
+
+# Text label for links to source code.
+# You can change this label if you are writing a document in a non-English language. 
+# This only matters if `source` is set to `true`.
+source_label: Source code
+
+# Default density of figures in dots per inches (DPI). 
+# This can be changed in the document specifically as well.
+dpi: 80
+
+# Default format in which to save the figures. This can be specified 
+# individually as well.
+format: PNG
+
+# Default files/directories on which all figures depend. If any of these files/directories
+# changes, all figures will be re-rendered.
+# Dependencies specified in code blocks will be appended to this list.
+dependencies:
+  - file1.txt
+  - file2.txt
+
+# Text format for the captions. Unfortunately, there is no way to detect
+# this automatically. You can use the same notation as Pandoc's --from 
+# parameter, specified here: 
+#     https://pandoc.org/MANUAL.html#option--from
+# Example: markdown, rst+raw_tex
+caption_format: markdown+tex_math_dollars
+
+
+# Logging configuration
+logging:
+  # Possible verbosity values: debug, error, warning, info, silent
+  verbosity: warning
+  # If the filepath below is not present, then pandoc-plot will log to stderr
+  # Otherwise, log messages will be appended to the filepath.
+  # filepath: path/to/file.txt
+
+# The possible parameters for the Matplotlib toolkit
+matplotlib:
+  # preamble: matplotlib.py
+  tight_bbox: false
+  transparent: false
+  executable: python
+  command_line_arguments:
+
+# The possible parameters for the MATLAB toolkit
+matlabplot:
+  # preamble: matlab.m
+  executable: matlab
+  command_line_arguments:
+
+# The possible parameters for the Plotly/Python toolkit
+plotly_python:
+  # preamble: plotly-python.py
+  executable: python
+  command_line_arguments:
+
+# The possible parameters for the Plotly/R toolkit
+plotly_r:
+  # preamble: plotly-r.r
+  executable: Rscript
+  command_line_arguments:
+
+# The possible parameters for the Mathematica toolkit
+mathplot:
+  # preamble: mathematica.m
+  executable: math
+  command_line_arguments:
+
+# The possible parameters for the GNU Octave toolkit
+octaveplot:
+  # preamble: octave.m
+  executable: octave
+  command_line_arguments:
+
+# The possible parameters for the ggplot2 toolkit
+ggplot2:
+  # preamble: ggplot2.r
+  executable: Rscript
+  command_line_arguments:
+
+# The possible parameters for the gnuplot toolkit
+gnuplot:
+  # preamble: gnuplot.gp
+  executable: gnuplot
+  command_line_arguments:
+
+# The possible parameters for the graphviz toolkit
+graphviz:
+  # preamble: graphviz.dot
+  executable: dot
+  command_line_arguments:
+
+# The possible parameters for the Bokeh toolkit using Python
+bokeh:
+  # preamble: bokeh.py
+  executable: python
+  command_line_arguments:
+
+# The possible parameters for the Plots.jl toolkit using Julia
+plotsjl:
+  # preamble: plotsjl.jl
+  executable: julia
+  command_line_arguments:
+
+# The possible parameters for the PlantUML toolkit
+plantuml:
+  # preamble: plantuml.txt
+  executable: java
+  command_line_arguments: -jar plantuml.jar
+  # On Linux, if you have `plantuml.jar` as an executable, you can also
+  # use the following configuration instead:
+  # plantuml:
+  #   executable: plantuml
+  #   command_line_arguments:
+
+sageplot:
+  # preamble: sageplot.sage
+  executable: sage
+  command_line_arguments:
+
+d2:
+  executable: d2
+  command_line_arguments:
+
+mermaid:
+  executable: mmdc
+  command_line_arguments:

@@ -1,0 +1,1008 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<shapes>
+  <shape shapeType="polyLine" id="0" ADD_L_DIR="-1" ADD_L_MAX="17" ADD_L_MIN="3" ADD_L_TYPE="O" ADD_R_DIR="-1" ADD_R_MAX="26" ADD_R_MIN="6" ADD_R_TYPE="E" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Auckland City" FULL_NAME="WAIMEA LANE" ID="64" ISLAND="North Island" NAME="WAIMEA LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="4" RD_SEG_LNK="64414" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Remuera" TOWN="Auckland" TURNRESLNK="ak66" URBANRURAL="U" ID1="1">
+    <vertices>
+      <vertex X="174.800917" Y="-36.874316"/>
+      <vertex X="174.800705" Y="-36.874296"/>
+      <vertex X="174.798671" Y="-36.874107"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="1" ADD_L_DIR="1" ADD_L_MAX="25" ADD_L_MIN="1" ADD_L_TYPE="O" ADD_R_DIR="0" ADD_R_MAX="0" ADD_R_MIN="0" ADD_R_TYPE="" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Waitakere City" FULL_NAME="DENARIUS LANE" ID="65" ISLAND="North Island" NAME="DENARIUS LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="5" RD_SEG_LNK="64413" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Glendene" TOWN="Waitakere" TURNRESLNK="ak67" URBANRURAL="U" ID1="2">
+    <vertices>
+      <vertex X="174.657551" Y="-36.889236"/>
+      <vertex X="174.656120" Y="-36.888354"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="2" ADD_L_DIR="1" ADD_L_MAX="46" ADD_L_MIN="1" ADD_L_TYPE="M" ADD_R_DIR="0" ADD_R_MAX="0" ADD_R_MIN="0" ADD_R_TYPE="" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Auckland City" FULL_NAME="BOARDMAN LANE" ID="66" ISLAND="North Island" NAME="BOARDMAN LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="5" RD_SEG_LNK="64412" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Auckland City Centre" TOWN="Auckland" TURNRESLNK="ak92" URBANRURAL="U" ID1="3">
+    <vertices>
+      <vertex X="174.757249" Y="-36.857860"/>
+      <vertex X="174.757058" Y="-36.857463"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="3" ADD_L_DIR="1" ADD_L_MAX="20" ADD_L_MIN="2" ADD_L_TYPE="E" ADD_R_DIR="1" ADD_R_MAX="13" ADD_R_MIN="1" ADD_R_TYPE="O" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="North Shore City" FULL_NAME="GARDEN LANE" ID="35" ISLAND="North Island" NAME="GARDEN LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="5" RD_SEG_LNK="64411" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Northcross" TOWN="North Shore" TURNRESLNK="ak35" URBANRURAL="U" ID1="4">
+    <vertices>
+      <vertex X="174.735888" Y="-36.707362"/>
+      <vertex X="174.736360" Y="-36.707260"/>
+      <vertex X="174.736581" Y="-36.707229"/>
+      <vertex X="174.737098" Y="-36.707092"/>
+      <vertex X="174.737294" Y="-36.706989"/>
+      <vertex X="174.737303" Y="-36.706958"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="4" ADD_L_DIR="1" ADD_L_MAX="10" ADD_L_MIN="2" ADD_L_TYPE="M" ADD_R_DIR="1" ADD_R_MAX="3" ADD_R_MIN="3" ADD_R_TYPE="O" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="North Shore City" FULL_NAME="EMILY LANE" ID="36" ISLAND="North Island" NAME="EMILY LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="4" RD_SEG_LNK="64409" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Cuthill" TOWN="North Shore" TURNRESLNK="ak36" URBANRURAL="U" ID1="5">
+    <vertices>
+      <vertex X="174.704080" Y="-36.764450"/>
+      <vertex X="174.703525" Y="-36.764050"/>
+      <vertex X="174.703360" Y="-36.763845"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="5" ADD_L_DIR="1" ADD_L_MAX="22" ADD_L_MIN="2" ADD_L_TYPE="E" ADD_R_DIR="1" ADD_R_MAX="15" ADD_R_MIN="5" ADD_R_TYPE="O" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="North Shore City" FULL_NAME="DENE COURT LANE" ID="37" ISLAND="North Island" NAME="DENE COURT LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="4" RD_SEG_LNK="64408" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Cuthill" TOWN="North Shore" TURNRESLNK="ak37" URBANRURAL="U" ID1="6">
+    <vertices>
+      <vertex X="174.706178" Y="-36.762460"/>
+      <vertex X="174.707042" Y="-36.763011"/>
+      <vertex X="174.707911" Y="-36.763718"/>
+      <vertex X="174.708126" Y="-36.764282"/>
+      <vertex X="174.708057" Y="-36.764526"/>
+      <vertex X="174.707982" Y="-36.764789"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="6" ADD_L_DIR="1" ADD_L_MAX="22" ADD_L_MIN="2" ADD_L_TYPE="E" ADD_R_DIR="1" ADD_R_MAX="23" ADD_R_MIN="1" ADD_R_TYPE="O" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="North Shore City" FULL_NAME="REDFERN LANE" ID="38" ISLAND="North Island" NAME="REDFERN LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="4" RD_SEG_LNK="64407" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Glenfield" TOWN="North Shore" TURNRESLNK="ak38" URBANRURAL="U" ID1="7">
+    <vertices>
+      <vertex X="174.708554" Y="-36.786916"/>
+      <vertex X="174.709059" Y="-36.786575"/>
+      <vertex X="174.709234" Y="-36.786400"/>
+      <vertex X="174.709373" Y="-36.786128"/>
+      <vertex X="174.709438" Y="-36.785949"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="7" ADD_L_DIR="-1" ADD_L_MAX="15" ADD_L_MIN="1" ADD_L_TYPE="O" ADD_R_DIR="-1" ADD_R_MAX="14" ADD_R_MIN="4" ADD_R_TYPE="E" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Waitakere City" FULL_NAME="GLADFIELD LANE" ID="39" ISLAND="North Island" NAME="GLADFIELD LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="5" RD_SEG_LNK="64405" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Te Atatu Peninsula" TOWN="Waitakere" TURNRESLNK="ak39" URBANRURAL="U" ID1="8">
+    <vertices>
+      <vertex X="174.649093" Y="-36.835993"/>
+      <vertex X="174.648993" Y="-36.836069"/>
+      <vertex X="174.648946" Y="-36.836104"/>
+      <vertex X="174.648276" Y="-36.836606"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="8" ADD_L_DIR="-1" ADD_L_MAX="9" ADD_L_MIN="1" ADD_L_TYPE="O" ADD_R_DIR="-1" ADD_R_MAX="10" ADD_R_MIN="2" ADD_R_TYPE="E" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Waitakere City" FULL_NAME="GLENFORD LANE" ID="40" ISLAND="North Island" NAME="GLENFORD LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="5" RD_SEG_LNK="64404" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Te Atatu Peninsula" TOWN="Waitakere" TURNRESLNK="ak40" URBANRURAL="U" ID1="9">
+    <vertices>
+      <vertex X="174.646092" Y="-36.834602"/>
+      <vertex X="174.645978" Y="-36.834622"/>
+      <vertex X="174.645450" Y="-36.834975"/>
+      <vertex X="174.645188" Y="-36.835258"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="9" ADD_L_DIR="-1" ADD_L_MAX="5" ADD_L_MIN="1" ADD_L_TYPE="O" ADD_R_DIR="-1" ADD_R_MAX="6" ADD_R_MIN="2" ADD_R_TYPE="E" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Waitakere City" FULL_NAME="BRAEBANK LANE" ID="41" ISLAND="North Island" NAME="BRAEBANK LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="5" RD_SEG_LNK="64403" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Te Atatu South" TOWN="Waitakere" TURNRESLNK="ak41" URBANRURAL="U" ID1="10">
+    <vertices>
+      <vertex X="174.654567" Y="-36.860195"/>
+      <vertex X="174.654041" Y="-36.861186"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="10" ADD_L_DIR="-1" ADD_L_MAX="8" ADD_L_MIN="4" ADD_L_TYPE="E" ADD_R_DIR="-1" ADD_R_MAX="7" ADD_R_MIN="1" ADD_R_TYPE="O" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Waitakere City" FULL_NAME="SUNRISE LANE" ID="42" ISLAND="North Island" NAME="SUNRISE LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="5" RD_SEG_LNK="64402" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Te Atatu South" TOWN="Waitakere" TURNRESLNK="ak42" URBANRURAL="U" ID1="11">
+    <vertices>
+      <vertex X="174.651493" Y="-36.861550"/>
+      <vertex X="174.650956" Y="-36.862099"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="11" ADD_L_DIR="-1" ADD_L_MAX="11" ADD_L_MIN="3" ADD_L_TYPE="O" ADD_R_DIR="-1" ADD_R_MAX="10" ADD_R_MIN="2" ADD_R_TYPE="E" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Waitakere City" FULL_NAME="GANE LANE" ID="43" ISLAND="North Island" NAME="GANE LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="5" RD_SEG_LNK="64399" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Te Atatu Peninsula" TOWN="Waitakere" TURNRESLNK="ak45" URBANRURAL="U" ID1="12">
+    <vertices>
+      <vertex X="174.648910" Y="-36.846895"/>
+      <vertex X="174.648532" Y="-36.847487"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="12" ADD_L_DIR="-1" ADD_L_MAX="7" ADD_L_MIN="1" ADD_L_TYPE="O" ADD_R_DIR="-1" ADD_R_MAX="6" ADD_R_MIN="2" ADD_R_TYPE="E" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Waitakere City" FULL_NAME="GLENVIL LANE" ID="44" ISLAND="North Island" NAME="GLENVIL LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="5" RD_SEG_LNK="64398" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Te Atatu Peninsula" TOWN="Waitakere" TURNRESLNK="ak46" URBANRURAL="U" ID1="13">
+    <vertices>
+      <vertex X="174.648767" Y="-36.849879"/>
+      <vertex X="174.648673" Y="-36.849839"/>
+      <vertex X="174.648157" Y="-36.849209"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="13" ADD_L_DIR="-1" ADD_L_MAX="11" ADD_L_MIN="1" ADD_L_TYPE="O" ADD_R_DIR="-1" ADD_R_MAX="16" ADD_R_MIN="2" ADD_R_TYPE="E" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Waitakere City" FULL_NAME="SPRINGBANK LANE" ID="45" ISLAND="North Island" NAME="SPRINGBANK LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="5" RD_SEG_LNK="64397" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Te Atatu Peninsula" TOWN="Waitakere" TURNRESLNK="ak47" URBANRURAL="U" ID1="14">
+    <vertices>
+      <vertex X="174.644889" Y="-36.843879"/>
+      <vertex X="174.646215" Y="-36.843489"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="14" ADD_L_DIR="-1" ADD_L_MAX="11" ADD_L_MIN="3" ADD_L_TYPE="O" ADD_R_DIR="-1" ADD_R_MAX="14" ADD_R_MIN="2" ADD_R_TYPE="E" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Waitakere City" FULL_NAME="SHAMROCK LANE" ID="46" ISLAND="North Island" NAME="SHAMROCK LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="5" RD_SEG_LNK="64396" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Te Atatu Peninsula" TOWN="Waitakere" TURNRESLNK="ak48" URBANRURAL="U" ID1="15">
+    <vertices>
+      <vertex X="174.649589" Y="-36.838069"/>
+      <vertex X="174.649551" Y="-36.838033"/>
+      <vertex X="174.648642" Y="-36.837629"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="15" ADD_L_DIR="-1" ADD_L_MAX="9" ADD_L_MIN="3" ADD_L_TYPE="O" ADD_R_DIR="-1" ADD_R_MAX="10" ADD_R_MIN="2" ADD_R_TYPE="E" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Waitakere City" FULL_NAME="BEAUFIELD LANE" ID="47" ISLAND="North Island" NAME="BEAUFIELD LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="5" RD_SEG_LNK="64395" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Te Atatu Peninsula" TOWN="Waitakere" TURNRESLNK="ak49" URBANRURAL="U" ID1="16">
+    <vertices>
+      <vertex X="174.647448" Y="-36.837864"/>
+      <vertex X="174.648140" Y="-36.838223"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="16" ADD_L_DIR="1" ADD_L_MAX="22" ADD_L_MIN="4" ADD_L_TYPE="E" ADD_R_DIR="1" ADD_R_MAX="25" ADD_R_MIN="3" ADD_R_TYPE="O" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Waitakere City" FULL_NAME="ELISA LANE" ID="48" ISLAND="North Island" NAME="ELISA LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="5" RD_SEG_LNK="64394" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Ranui" TOWN="Waitakere" TURNRESLNK="ak50" URBANRURAL="U" ID1="17">
+    <vertices>
+      <vertex X="174.602145" Y="-36.861159"/>
+      <vertex X="174.602659" Y="-36.861093"/>
+      <vertex X="174.603003" Y="-36.861153"/>
+      <vertex X="174.603023" Y="-36.861149"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="17" ADD_L_DIR="-1" ADD_L_MAX="23" ADD_L_MIN="1" ADD_L_TYPE="O" ADD_R_DIR="-1" ADD_R_MAX="6" ADD_R_MIN="2" ADD_R_TYPE="E" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Waitakere City" FULL_NAME="CONSTABLE LANE" ID="49" ISLAND="North Island" NAME="CONSTABLE LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="4" RD_SEG_LNK="64393" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="West Harbour" TOWN="Waitakere" TURNRESLNK="ak51" URBANRURAL="U" ID1="18">
+    <vertices>
+      <vertex X="174.642384" Y="-36.818826"/>
+      <vertex X="174.642240" Y="-36.818688"/>
+      <vertex X="174.642098" Y="-36.818540"/>
+      <vertex X="174.642057" Y="-36.818473"/>
+      <vertex X="174.642042" Y="-36.818390"/>
+      <vertex X="174.642085" Y="-36.818272"/>
+      <vertex X="174.642163" Y="-36.818113"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="18" ADD_L_DIR="-1" ADD_L_MAX="9" ADD_L_MIN="1" ADD_L_TYPE="O" ADD_R_DIR="-1" ADD_R_MAX="8" ADD_R_MIN="2" ADD_R_TYPE="E" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Waitakere City" FULL_NAME="STAFSON LANE" ID="50" ISLAND="North Island" NAME="STAFSON LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="5" RD_SEG_LNK="64392" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Te Atatu Peninsula" TOWN="Waitakere" TURNRESLNK="ak52" URBANRURAL="U" ID1="19">
+    <vertices>
+      <vertex X="174.645498" Y="-36.829736"/>
+      <vertex X="174.645394" Y="-36.829932"/>
+      <vertex X="174.644814" Y="-36.830599"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="19" ADD_L_DIR="-1" ADD_L_MAX="3" ADD_L_MIN="1" ADD_L_TYPE="O" ADD_R_DIR="1" ADD_R_MAX="2" ADD_R_MIN="2" ADD_R_TYPE="E" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Auckland City" FULL_NAME="SPROSTON AVENUE" ID="83" ISLAND="North Island" NAME="SPROSTON AVE" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="5" RD_SEG_LNK="64391" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Ellerslie" TOWN="Auckland" TURNRESLNK="ak109" URBANRURAL="U" ID1="20">
+    <vertices>
+      <vertex X="174.804846" Y="-36.893312"/>
+      <vertex X="174.805949" Y="-36.893695"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="20" ADD_L_DIR="0" ADD_L_MAX="0" ADD_L_MIN="0" ADD_L_TYPE="" ADD_R_DIR="0" ADD_R_MAX="0" ADD_R_MIN="0" ADD_R_TYPE="" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Auckland City" FULL_NAME="SHELLY BEACH ROAD" ID="84" ISLAND="North Island" NAME="SHELLY BEACH RD" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="4" RD_SEG_LNK="64388" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Saint Marys Bay" TOWN="Auckland" TURNRESLNK="ak110" URBANRURAL="U" ID1="21">
+    <vertices>
+      <vertex X="174.742966" Y="-36.835312"/>
+      <vertex X="174.742938" Y="-36.835373"/>
+      <vertex X="174.742907" Y="-36.835428"/>
+      <vertex X="174.742885" Y="-36.835464"/>
+      <vertex X="174.742868" Y="-36.835504"/>
+      <vertex X="174.742830" Y="-36.835629"/>
+      <vertex X="174.742809" Y="-36.835687"/>
+      <vertex X="174.742779" Y="-36.835746"/>
+      <vertex X="174.742666" Y="-36.835944"/>
+      <vertex X="174.742452" Y="-36.836289"/>
+      <vertex X="174.742391" Y="-36.836391"/>
+      <vertex X="174.742328" Y="-36.836503"/>
+      <vertex X="174.742293" Y="-36.836577"/>
+      <vertex X="174.742261" Y="-36.836648"/>
+      <vertex X="174.742233" Y="-36.836717"/>
+      <vertex X="174.742211" Y="-36.836777"/>
+      <vertex X="174.742183" Y="-36.836868"/>
+      <vertex X="174.742153" Y="-36.836985"/>
+      <vertex X="174.742136" Y="-36.837071"/>
+      <vertex X="174.742106" Y="-36.837292"/>
+      <vertex X="174.742080" Y="-36.837419"/>
+      <vertex X="174.742054" Y="-36.837504"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="21" ADD_L_DIR="1" ADD_L_MAX="20" ADD_L_MIN="8" ADD_L_TYPE="E" ADD_R_DIR="1" ADD_R_MAX="30" ADD_R_MIN="30" ADD_R_TYPE="E" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Auckland City" FULL_NAME="WHITAKER PLACE" ID="85" ISLAND="North Island" NAME="WHITAKER PL" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="5" RD_SEG_LNK="64386" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Auckland City Centre" TOWN="Auckland" TURNRESLNK="ak111" URBANRURAL="U" ID1="22">
+    <vertices>
+      <vertex X="174.766871" Y="-36.856923"/>
+      <vertex X="174.766970" Y="-36.856946"/>
+      <vertex X="174.767088" Y="-36.856905"/>
+      <vertex X="174.767243" Y="-36.856747"/>
+      <vertex X="174.767260" Y="-36.856668"/>
+      <vertex X="174.766999" Y="-36.856464"/>
+      <vertex X="174.767445" Y="-36.856063"/>
+      <vertex X="174.767785" Y="-36.855951"/>
+      <vertex X="174.768032" Y="-36.855830"/>
+      <vertex X="174.768469" Y="-36.855183"/>
+      <vertex X="174.768525" Y="-36.854709"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="22" ADD_L_DIR="0" ADD_L_MAX="0" ADD_L_MIN="0" ADD_L_TYPE="" ADD_R_DIR="0" ADD_R_MAX="0" ADD_R_MIN="0" ADD_R_TYPE="" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Auckland City" FULL_NAME="DOMAIN DRIVE" ID="86" ISLAND="North Island" NAME="DOMAIN DR" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="4" RD_SEG_LNK="64385" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Grafton" TOWN="Auckland" TURNRESLNK="ak112" URBANRURAL="U" ID1="23">
+    <vertices>
+      <vertex X="174.774820" Y="-36.858931"/>
+      <vertex X="174.774130" Y="-36.858981"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="23" ADD_L_DIR="-1" ADD_L_MAX="14" ADD_L_MIN="7" ADD_L_TYPE="M" ADD_R_DIR="1" ADD_R_MAX="6" ADD_R_MIN="1" ADD_R_TYPE="M" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Waitakere City" FULL_NAME="DAVERN LANE" ID="90" ISLAND="North Island" NAME="DAVERN LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="5" RD_SEG_LNK="64383" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="New Lynn" TOWN="Waitakere" TURNRESLNK="ak71" URBANRURAL="U" ID1="24">
+    <vertices>
+      <vertex X="174.673713" Y="-36.920832"/>
+      <vertex X="174.672945" Y="-36.920079"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="24" ADD_L_DIR="0" ADD_L_MAX="0" ADD_L_MIN="0" ADD_L_TYPE="" ADD_R_DIR="0" ADD_R_MAX="0" ADD_R_MIN="0" ADD_R_TYPE="" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="North Shore City" FULL_NAME="CLUB LANE" ID="1" ISLAND="North Island" NAME="CLUB LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="5" RD_SEG_LNK="64382" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Takapuna Beach" TOWN="North Shore" TURNRESLNK="ak91" URBANRURAL="U" ID1="25">
+    <vertices>
+      <vertex X="174.773774" Y="-36.790392"/>
+      <vertex X="174.773267" Y="-36.789750"/>
+      <vertex X="174.773144" Y="-36.789551"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="25" ADD_L_DIR="0" ADD_L_MAX="0" ADD_L_MIN="0" ADD_L_TYPE="" ADD_R_DIR="0" ADD_R_MAX="0" ADD_R_MIN="0" ADD_R_TYPE="" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Auckland City" FULL_NAME="CENOTAPH ROAD" ID="2" ISLAND="North Island" NAME="CENOTAPH RD" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="5" RD_SEG_LNK="64380" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Grafton" TOWN="Auckland" TURNRESLNK="ak1" URBANRURAL="U" ID1="26">
+    <vertices>
+      <vertex X="174.776349" Y="-36.859527"/>
+      <vertex X="174.777016" Y="-36.859524"/>
+      <vertex X="174.777847" Y="-36.859529"/>
+      <vertex X="174.778229" Y="-36.859538"/>
+      <vertex X="174.778380" Y="-36.859585"/>
+      <vertex X="174.778588" Y="-36.859740"/>
+      <vertex X="174.778668" Y="-36.859853"/>
+      <vertex X="174.778713" Y="-36.859979"/>
+      <vertex X="174.778710" Y="-36.860295"/>
+      <vertex X="174.778704" Y="-36.860951"/>
+      <vertex X="174.778656" Y="-36.861033"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="26" ADD_L_DIR="0" ADD_L_MAX="0" ADD_L_MIN="0" ADD_L_TYPE="" ADD_R_DIR="0" ADD_R_MAX="0" ADD_R_MIN="0" ADD_R_TYPE="" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Auckland City" FULL_NAME="MUSEUM CIRCUIT" ID="3" ISLAND="North Island" NAME="MUSEUM CIRCUIT" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="5" RD_SEG_LNK="64379" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Grafton" TOWN="Auckland" TURNRESLNK="ak2" URBANRURAL="U" ID1="27">
+    <vertices>
+      <vertex X="174.777198" Y="-36.860080"/>
+      <vertex X="174.776455" Y="-36.860071"/>
+      <vertex X="174.776317" Y="-36.860009"/>
+      <vertex X="174.776212" Y="-36.859899"/>
+      <vertex X="174.776200" Y="-36.859756"/>
+      <vertex X="174.776239" Y="-36.859658"/>
+      <vertex X="174.776291" Y="-36.859564"/>
+      <vertex X="174.776349" Y="-36.859527"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="27" ADD_L_DIR="0" ADD_L_MAX="0" ADD_L_MIN="0" ADD_L_TYPE="" ADD_R_DIR="0" ADD_R_MAX="0" ADD_R_MIN="0" ADD_R_TYPE="" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Auckland City" FULL_NAME="KIOSK ROAD" ID="5" ISLAND="North Island" NAME="KIOSK RD" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="5" RD_SEG_LNK="64378" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Grafton" TOWN="Auckland" TURNRESLNK="ak4" URBANRURAL="U" ID1="28">
+    <vertices>
+      <vertex X="174.774677" Y="-36.859587"/>
+      <vertex X="174.774392" Y="-36.859701"/>
+      <vertex X="174.774214" Y="-36.859776"/>
+      <vertex X="174.773644" Y="-36.860015"/>
+      <vertex X="174.773341" Y="-36.860152"/>
+      <vertex X="174.773183" Y="-36.860250"/>
+      <vertex X="174.773065" Y="-36.860346"/>
+      <vertex X="174.772994" Y="-36.860449"/>
+      <vertex X="174.772941" Y="-36.860568"/>
+      <vertex X="174.772880" Y="-36.860701"/>
+      <vertex X="174.772806" Y="-36.860780"/>
+      <vertex X="174.772722" Y="-36.860833"/>
+      <vertex X="174.772635" Y="-36.860870"/>
+      <vertex X="174.772509" Y="-36.860898"/>
+      <vertex X="174.771892" Y="-36.860896"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="28" ADD_L_DIR="0" ADD_L_MAX="0" ADD_L_MIN="0" ADD_L_TYPE="" ADD_R_DIR="0" ADD_R_MAX="0" ADD_R_MIN="0" ADD_R_TYPE="" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Auckland City" FULL_NAME="THE CRESCENT" ID="6" ISLAND="North Island" NAME="THE CRESCENT" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="5" RD_SEG_LNK="64376" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Grafton" TOWN="Auckland" TURNRESLNK="ak5" URBANRURAL="U" ID1="29">
+    <vertices>
+      <vertex X="174.775859" Y="-36.859622"/>
+      <vertex X="174.775569" Y="-36.859700"/>
+      <vertex X="174.775344" Y="-36.859728"/>
+      <vertex X="174.775129" Y="-36.859719"/>
+      <vertex X="174.774952" Y="-36.859688"/>
+      <vertex X="174.774677" Y="-36.859587"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="29" ADD_L_DIR="1" ADD_L_MAX="2" ADD_L_MIN="2" ADD_L_TYPE="E" ADD_R_DIR="1" ADD_R_MAX="13" ADD_R_MIN="3" ADD_R_TYPE="O" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Auckland City" FULL_NAME="MERCURY LANE" ID="7" ISLAND="North Island" NAME="MERCURY LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="3" RD_SEG_LNK="63668" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Newton" TOWN="Auckland" TURNRESLNK="ak6" URBANRURAL="U" ID1="30">
+    <vertices>
+      <vertex X="174.759046" Y="-36.857703"/>
+      <vertex X="174.759010" Y="-36.858434"/>
+      <vertex X="174.759055" Y="-36.858534"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="30" ADD_L_DIR="0" ADD_L_MAX="0" ADD_L_MIN="0" ADD_L_TYPE="" ADD_R_DIR="1" ADD_R_MAX="2" ADD_R_MIN="2" ADD_R_TYPE="E" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Auckland City" FULL_NAME="FREYBERG PLACE" ID="13" ISLAND="North Island" NAME="FREYBERG PL" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="5" RD_SEG_LNK="63666" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Auckland City Centre" TOWN="Auckland" TURNRESLNK="ak12" URBANRURAL="U" ID1="31">
+    <vertices>
+      <vertex X="174.766620" Y="-36.847670"/>
+      <vertex X="174.767098" Y="-36.847748"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="31" ADD_L_DIR="0" ADD_L_MAX="0" ADD_L_MIN="0" ADD_L_TYPE="" ADD_R_DIR="0" ADD_R_MAX="0" ADD_R_MIN="0" ADD_R_TYPE="" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Auckland City" FULL_NAME="SAINT JAMES STREET" ID="14" ISLAND="North Island" NAME="ST JAMES ST" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="5" RD_SEG_LNK="63662" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Auckland City Centre" TOWN="Auckland" TURNRESLNK="ak13" URBANRURAL="U" ID1="32">
+    <vertices>
+      <vertex X="174.757675" Y="-36.856022"/>
+      <vertex X="174.757645" Y="-36.855944"/>
+      <vertex X="174.757642" Y="-36.855650"/>
+      <vertex X="174.757668" Y="-36.855191"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="32" ADD_L_DIR="0" ADD_L_MAX="0" ADD_L_MIN="0" ADD_L_TYPE="" ADD_R_DIR="0" ADD_R_MAX="0" ADD_R_MIN="0" ADD_R_TYPE="" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Auckland City" FULL_NAME="DOMAIN DRIVE" ID="15" ISLAND="North Island" NAME="DOMAIN DR" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="5" RD_SEG_LNK="64385" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Grafton" TOWN="Auckland" TURNRESLNK="ak14" URBANRURAL="U" ID1="33">
+    <vertices>
+      <vertex X="174.771892" Y="-36.860896"/>
+      <vertex X="174.771686" Y="-36.860869"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="33" ADD_L_DIR="0" ADD_L_MAX="0" ADD_L_MIN="0" ADD_L_TYPE="" ADD_R_DIR="0" ADD_R_MAX="0" ADD_R_MIN="0" ADD_R_TYPE="" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Auckland City" FULL_NAME="DOMAIN DRIVE" ID="16" ISLAND="North Island" NAME="DOMAIN DR" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="4" RD_SEG_LNK="64385" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Grafton" TOWN="Auckland" TURNRESLNK="ak15" URBANRURAL="U" ID1="34">
+    <vertices>
+      <vertex X="174.770486" Y="-36.862104"/>
+      <vertex X="174.771000" Y="-36.861930"/>
+      <vertex X="174.771237" Y="-36.861723"/>
+      <vertex X="174.771503" Y="-36.861320"/>
+      <vertex X="174.771660" Y="-36.860995"/>
+      <vertex X="174.771686" Y="-36.860869"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="34" ADD_L_DIR="0" ADD_L_MAX="0" ADD_L_MIN="0" ADD_L_TYPE="" ADD_R_DIR="0" ADD_R_MAX="0" ADD_R_MIN="0" ADD_R_TYPE="" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Auckland City" FULL_NAME="DOMAIN DRIVE" ID="17" ISLAND="North Island" NAME="DOMAIN DR" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="4" RD_SEG_LNK="64385" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Grafton" TOWN="Auckland" TURNRESLNK="ak16" URBANRURAL="U" ID1="35">
+    <vertices>
+      <vertex X="174.771686" Y="-36.860869"/>
+      <vertex X="174.771735" Y="-36.860556"/>
+      <vertex X="174.771747" Y="-36.860486"/>
+      <vertex X="174.771949" Y="-36.860006"/>
+      <vertex X="174.771972" Y="-36.859972"/>
+      <vertex X="174.772085" Y="-36.859815"/>
+      <vertex X="174.772274" Y="-36.859625"/>
+      <vertex X="174.772397" Y="-36.859522"/>
+      <vertex X="174.772529" Y="-36.859425"/>
+      <vertex X="174.772670" Y="-36.859344"/>
+      <vertex X="174.773031" Y="-36.859209"/>
+      <vertex X="174.773325" Y="-36.859123"/>
+      <vertex X="174.773592" Y="-36.859043"/>
+      <vertex X="174.773705" Y="-36.859018"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="35" ADD_L_DIR="1" ADD_L_MAX="76" ADD_L_MIN="70" ADD_L_TYPE="E" ADD_R_DIR="0" ADD_R_MAX="0" ADD_R_MIN="0" ADD_R_TYPE="" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Auckland City" FULL_NAME="SALE STREET" ID="19" ISLAND="North Island" NAME="SALE ST" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="4" RD_SEG_LNK="63657" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Freemans Bay" TOWN="Auckland" TURNRESLNK="ak18" URBANRURAL="U" ID1="36">
+    <vertices>
+      <vertex X="174.755025" Y="-36.849591"/>
+      <vertex X="174.754814" Y="-36.849627"/>
+      <vertex X="174.754580" Y="-36.849690"/>
+      <vertex X="174.754515" Y="-36.849738"/>
+      <vertex X="174.754489" Y="-36.849789"/>
+      <vertex X="174.754489" Y="-36.849846"/>
+      <vertex X="174.754505" Y="-36.849907"/>
+      <vertex X="174.754562" Y="-36.849995"/>
+      <vertex X="174.754712" Y="-36.850189"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="36" ADD_L_DIR="-1" ADD_L_MAX="47" ADD_L_MIN="31" ADD_L_TYPE="O" ADD_R_DIR="0" ADD_R_MAX="0" ADD_R_MIN="0" ADD_R_TYPE="" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Auckland City" FULL_NAME="SALE STREET" ID="20" ISLAND="North Island" NAME="SALE ST" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="4" RD_SEG_LNK="63657" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Freemans Bay" TOWN="Auckland" TURNRESLNK="ak19" URBANRURAL="U" ID1="37">
+    <vertices>
+      <vertex X="174.753766" Y="-36.849635"/>
+      <vertex X="174.753836" Y="-36.849684"/>
+      <vertex X="174.753920" Y="-36.849716"/>
+      <vertex X="174.753985" Y="-36.849723"/>
+      <vertex X="174.755015" Y="-36.849549"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="37" ADD_L_DIR="0" ADD_L_MAX="0" ADD_L_MIN="0" ADD_L_TYPE="" ADD_R_DIR="1" ADD_R_MAX="22" ADD_R_MIN="22" ADD_R_TYPE="E" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Auckland City" FULL_NAME="DUNLOP LANE" ID="21" ISLAND="North Island" NAME="DUNLOP LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="5" RD_SEG_LNK="63651" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Panmure" TOWN="Auckland" TURNRESLNK="ak20" URBANRURAL="U" ID1="38">
+    <vertices>
+      <vertex X="174.851563" Y="-36.898649"/>
+      <vertex X="174.851600" Y="-36.898659"/>
+      <vertex X="174.854052" Y="-36.899122"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="38" ADD_L_DIR="0" ADD_L_MAX="0" ADD_L_MIN="0" ADD_L_TYPE="" ADD_R_DIR="0" ADD_R_MAX="0" ADD_R_MIN="0" ADD_R_TYPE="" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Auckland City" FULL_NAME="KORMA LANE" ID="22" ISLAND="North Island" NAME="KORMA LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="5" RD_SEG_LNK="63650" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Panmure" TOWN="Auckland" TURNRESLNK="ak21" URBANRURAL="U" ID1="39">
+    <vertices>
+      <vertex X="174.853639" Y="-36.899839"/>
+      <vertex X="174.853685" Y="-36.899839"/>
+      <vertex X="174.853737" Y="-36.899847"/>
+      <vertex X="174.854524" Y="-36.900038"/>
+      <vertex X="174.854544" Y="-36.900065"/>
+      <vertex X="174.854302" Y="-36.900260"/>
+      <vertex X="174.854560" Y="-36.900441"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="39" ADD_L_DIR="-1" ADD_L_MAX="15" ADD_L_MIN="1" ADD_L_TYPE="O" ADD_R_DIR="0" ADD_R_MAX="0" ADD_R_MIN="0" ADD_R_TYPE="" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Manukau City" FULL_NAME="FULTON CRESCENT" ID="23" ISLAND="North Island" NAME="FULTON CRES" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="5" RD_SEG_LNK="63649" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Otara" TOWN="Manukau" TURNRESLNK="ak22" URBANRURAL="U" ID1="40">
+    <vertices>
+      <vertex X="174.873543" Y="-36.962569"/>
+      <vertex X="174.873564" Y="-36.962848"/>
+      <vertex X="174.873522" Y="-36.962913"/>
+      <vertex X="174.873430" Y="-36.962932"/>
+      <vertex X="174.872717" Y="-36.962731"/>
+      <vertex X="174.872602" Y="-36.962681"/>
+      <vertex X="174.872539" Y="-36.962627"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="40" ADD_L_DIR="0" ADD_L_MAX="0" ADD_L_MIN="0" ADD_L_TYPE="" ADD_R_DIR="0" ADD_R_MAX="0" ADD_R_MIN="0" ADD_R_TYPE="" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Auckland City" FULL_NAME="BOLLARD AVENUE" ID="24" ISLAND="North Island" NAME="BOLLARD AVE" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="0" OWNERSHIP="0" RC="6" RD_SEG_LNK="63647" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="2" SUBURB="One Tree Hill" TOWN="Auckland" TURNRESLNK="ak23" URBANRURAL="U" ID1="41">
+    <vertices>
+      <vertex X="174.787861" Y="-36.902871"/>
+      <vertex X="174.788213" Y="-36.903178"/>
+      <vertex X="174.788414" Y="-36.903353"/>
+      <vertex X="174.788708" Y="-36.903665"/>
+      <vertex X="174.788835" Y="-36.903807"/>
+      <vertex X="174.788923" Y="-36.903984"/>
+      <vertex X="174.788965" Y="-36.904094"/>
+      <vertex X="174.788972" Y="-36.904131"/>
+      <vertex X="174.789040" Y="-36.904486"/>
+      <vertex X="174.789094" Y="-36.904569"/>
+      <vertex X="174.789159" Y="-36.904644"/>
+      <vertex X="174.789621" Y="-36.904889"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="41" ADD_L_DIR="0" ADD_L_MAX="0" ADD_L_MIN="0" ADD_L_TYPE="" ADD_R_DIR="0" ADD_R_MAX="0" ADD_R_MIN="0" ADD_R_TYPE="" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Auckland City" FULL_NAME="BOLLARD AVENUE" ID="25" ISLAND="North Island" NAME="BOLLARD AVE" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="6" RD_SEG_LNK="63647" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="One Tree Hill" TOWN="Auckland" TURNRESLNK="ak24" URBANRURAL="U" ID1="42">
+    <vertices>
+      <vertex X="174.786526" Y="-36.902359"/>
+      <vertex X="174.786637" Y="-36.902407"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="42" ADD_L_DIR="1" ADD_L_MAX="34" ADD_L_MIN="2" ADD_L_TYPE="E" ADD_R_DIR="1" ADD_R_MAX="41" ADD_R_MIN="1" ADD_R_TYPE="O" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="North Shore City" FULL_NAME="HONEYSUCKLE LANE" ID="26" ISLAND="North Island" NAME="HONEYSUCKLE LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="4" RD_SEG_LNK="63646" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Mairangi Bay" TOWN="North Shore" TURNRESLNK="ak25" URBANRURAL="U" ID1="43">
+    <vertices>
+      <vertex X="174.741128" Y="-36.736259"/>
+      <vertex X="174.741358" Y="-36.736481"/>
+      <vertex X="174.741422" Y="-36.736503"/>
+      <vertex X="174.741459" Y="-36.736506"/>
+      <vertex X="174.742485" Y="-36.736318"/>
+      <vertex X="174.742653" Y="-36.736325"/>
+      <vertex X="174.744429" Y="-36.736584"/>
+      <vertex X="174.744678" Y="-36.736644"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="43" ADD_L_DIR="1" ADD_L_MAX="47" ADD_L_MIN="1" ADD_L_TYPE="M" ADD_R_DIR="1" ADD_R_MAX="42" ADD_R_MIN="2" ADD_R_TYPE="E" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="North Shore City" FULL_NAME="PALLISER LANE" ID="27" ISLAND="North Island" NAME="PALLISER LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="4" RD_SEG_LNK="63643" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Browns Bay" TOWN="North Shore" TURNRESLNK="ak26" URBANRURAL="U" ID1="44">
+    <vertices>
+      <vertex X="174.728908" Y="-36.723964"/>
+      <vertex X="174.728860" Y="-36.724225"/>
+      <vertex X="174.728827" Y="-36.724343"/>
+      <vertex X="174.728794" Y="-36.724425"/>
+      <vertex X="174.728743" Y="-36.724477"/>
+      <vertex X="174.728285" Y="-36.724653"/>
+      <vertex X="174.727985" Y="-36.724765"/>
+      <vertex X="174.727794" Y="-36.724862"/>
+      <vertex X="174.727023" Y="-36.725360"/>
+      <vertex X="174.726975" Y="-36.725391"/>
+      <vertex X="174.726550" Y="-36.725542"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="44" ADD_L_DIR="1" ADD_L_MAX="43" ADD_L_MIN="33" ADD_L_TYPE="O" ADD_R_DIR="1" ADD_R_MAX="44" ADD_R_MIN="36" ADD_R_TYPE="E" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Rodney" FULL_NAME="BERENICE LANE" ID="67" ISLAND="North Island" NAME="BERENICE LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="5" RD_SEG_LNK="63642" REGION="Auckland" ROUTE="" SH_NO="" SPEED="100" SR="0" SUBURB="Coatesville" TOWN="" TURNRESLNK="ak93" URBANRURAL="R" ID1="45">
+    <vertices>
+      <vertex X="174.609999" Y="-36.735115"/>
+      <vertex X="174.610605" Y="-36.734742"/>
+      <vertex X="174.613196" Y="-36.734630"/>
+      <vertex X="174.613911" Y="-36.734341"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="45" ADD_L_DIR="1" ADD_L_MAX="22" ADD_L_MIN="2" ADD_L_TYPE="E" ADD_R_DIR="1" ADD_R_MAX="27" ADD_R_MIN="1" ADD_R_TYPE="O" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Waitakere City" FULL_NAME="MARTIN JUGUM LANE" ID="68" ISLAND="North Island" NAME="MARTIN JUGUM LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="5" RD_SEG_LNK="63641" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Ranui" TOWN="Waitakere" TURNRESLNK="ak94" URBANRURAL="U" ID1="46">
+    <vertices>
+      <vertex X="174.607807" Y="-36.866540"/>
+      <vertex X="174.607892" Y="-36.866638"/>
+      <vertex X="174.608251" Y="-36.866944"/>
+      <vertex X="174.608487" Y="-36.867111"/>
+      <vertex X="174.608763" Y="-36.867248"/>
+      <vertex X="174.609359" Y="-36.867418"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="46" ADD_L_DIR="1" ADD_L_MAX="10" ADD_L_MIN="2" ADD_L_TYPE="E" ADD_R_DIR="1" ADD_R_MAX="19" ADD_R_MIN="3" ADD_R_TYPE="M" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="North Shore City" FULL_NAME="SUMMERFIELD LANE" ID="69" ISLAND="North Island" NAME="SUMMERFIELD LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="4" RD_SEG_LNK="63640" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Albany" TOWN="North Shore" TURNRESLNK="ak95" URBANRURAL="U" ID1="47">
+    <vertices>
+      <vertex X="174.691313" Y="-36.734866"/>
+      <vertex X="174.690747" Y="-36.734736"/>
+      <vertex X="174.689931" Y="-36.734486"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="47" ADD_L_DIR="1" ADD_L_MAX="45" ADD_L_MIN="1" ADD_L_TYPE="O" ADD_R_DIR="1" ADD_R_MAX="48" ADD_R_MIN="4" ADD_R_TYPE="E" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Rodney" FULL_NAME="DYSART LANE" ID="70" ISLAND="North Island" NAME="DYSART LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="5" RD_SEG_LNK="63638" REGION="Auckland" ROUTE="" SH_NO="" SPEED="100" SR="0" SUBURB="Kumeu" TOWN="" TURNRESLNK="ak96" URBANRURAL="R" ID1="48">
+    <vertices>
+      <vertex X="174.540356" Y="-36.798417"/>
+      <vertex X="174.542820" Y="-36.794720"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="48" ADD_L_DIR="0" ADD_L_MAX="0" ADD_L_MIN="0" ADD_L_TYPE="" ADD_R_DIR="1" ADD_R_MAX="69" ADD_R_MIN="69" ADD_R_TYPE="O" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Rodney" FULL_NAME="CHERRY BLOSSOM LANE" ID="71" ISLAND="North Island" NAME="CHERRY BLOSSOM LN" NAMED_AREA="" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="5" RD_SEG_LNK="63637" REGION="Auckland" ROUTE="" SH_NO="" SPEED="100" SR="0" SUBURB="Te Pua" TOWN="" TURNRESLNK="ak97" URBANRURAL="R" ID1="49">
+    <vertices>
+      <vertex X="174.408949" Y="-36.683874"/>
+      <vertex X="174.408647" Y="-36.684589"/>
+      <vertex X="174.408495" Y="-36.684653"/>
+      <vertex X="174.408054" Y="-36.684705"/>
+      <vertex X="174.407883" Y="-36.684785"/>
+      <vertex X="174.407781" Y="-36.684957"/>
+      <vertex X="174.407799" Y="-36.685343"/>
+      <vertex X="174.409682" Y="-36.689106"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="49" ADD_L_DIR="1" ADD_L_MAX="51" ADD_L_MIN="23" ADD_L_TYPE="O" ADD_R_DIR="1" ADD_R_MAX="61" ADD_R_MIN="34" ADD_R_TYPE="M" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Rodney" FULL_NAME="PIONEER LANE" ID="72" ISLAND="North Island" NAME="PIONEER LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="5" RD_SEG_LNK="63636" REGION="Auckland" ROUTE="" SH_NO="" SPEED="100" SR="0" SUBURB="Taupaki" TOWN="" TURNRESLNK="ak98" URBANRURAL="R" ID1="50">
+    <vertices>
+      <vertex X="174.521642" Y="-36.811908"/>
+      <vertex X="174.520775" Y="-36.812576"/>
+      <vertex X="174.519719" Y="-36.812978"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="50" ADD_L_DIR="1" ADD_L_MAX="81" ADD_L_MIN="45" ADD_L_TYPE="O" ADD_R_DIR="1" ADD_R_MAX="82" ADD_R_MIN="50" ADD_R_TYPE="E" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Rodney" FULL_NAME="ROSS LANE" ID="73" ISLAND="North Island" NAME="ROSS LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="5" RD_SEG_LNK="63634" REGION="Auckland" ROUTE="" SH_NO="" SPEED="100" SR="0" SUBURB="Huapai" TOWN="" TURNRESLNK="ak99" URBANRURAL="R" ID1="51">
+    <vertices>
+      <vertex X="174.513874" Y="-36.792036"/>
+      <vertex X="174.509156" Y="-36.793528"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="51" ADD_L_DIR="1" ADD_L_MAX="25" ADD_L_MIN="1" ADD_L_TYPE="O" ADD_R_DIR="1" ADD_R_MAX="41" ADD_R_MIN="2" ADD_R_TYPE="M" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Rodney" FULL_NAME="SARAH TODD LANE" ID="74" ISLAND="North Island" NAME="SARAH TODD LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="4" RD_SEG_LNK="63632" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Waimauku" TOWN="" TURNRESLNK="ak100" URBANRURAL="R" ID1="52">
+    <vertices>
+      <vertex X="174.491722" Y="-36.769882"/>
+      <vertex X="174.492339" Y="-36.770018"/>
+      <vertex X="174.492473" Y="-36.770058"/>
+      <vertex X="174.492585" Y="-36.770108"/>
+      <vertex X="174.492673" Y="-36.770145"/>
+      <vertex X="174.492751" Y="-36.770176"/>
+      <vertex X="174.492872" Y="-36.770220"/>
+      <vertex X="174.492974" Y="-36.770252"/>
+      <vertex X="174.493106" Y="-36.770287"/>
+      <vertex X="174.493237" Y="-36.770311"/>
+      <vertex X="174.493256" Y="-36.770314"/>
+      <vertex X="174.493276" Y="-36.770317"/>
+      <vertex X="174.493376" Y="-36.770323"/>
+      <vertex X="174.493492" Y="-36.770329"/>
+      <vertex X="174.493583" Y="-36.770329"/>
+      <vertex X="174.493612" Y="-36.770329"/>
+      <vertex X="174.493742" Y="-36.770330"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="52" ADD_L_DIR="0" ADD_L_MAX="0" ADD_L_MIN="0" ADD_L_TYPE="" ADD_R_DIR="1" ADD_R_MAX="44" ADD_R_MIN="6" ADD_R_TYPE="E" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Rodney" FULL_NAME="POYNTER LANE" ID="75" ISLAND="North Island" NAME="POYNTER LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="5" RD_SEG_LNK="63631" REGION="Auckland" ROUTE="" SH_NO="" SPEED="100" SR="0" SUBURB="Pine Valley" TOWN="" TURNRESLNK="ak101" URBANRURAL="R" ID1="53">
+    <vertices>
+      <vertex X="174.626114" Y="-36.630809"/>
+      <vertex X="174.625650" Y="-36.630147"/>
+      <vertex X="174.624725" Y="-36.628828"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="53" ADD_L_DIR="1" ADD_L_MAX="40" ADD_L_MIN="14" ADD_L_TYPE="E" ADD_R_DIR="1" ADD_R_MAX="22" ADD_R_MIN="22" ADD_R_TYPE="E" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Rodney" FULL_NAME="PETERS LANE" ID="76" ISLAND="North Island" NAME="PETERS LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="5" RD_SEG_LNK="63630" REGION="Auckland" ROUTE="" SH_NO="" SPEED="100" SR="0" SUBURB="Taupaki" TOWN="" TURNRESLNK="ak102" URBANRURAL="R" ID1="54">
+    <vertices>
+      <vertex X="174.536625" Y="-36.824937"/>
+      <vertex X="174.536109" Y="-36.823184"/>
+      <vertex X="174.534002" Y="-36.822798"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="54" ADD_L_DIR="1" ADD_L_MAX="10" ADD_L_MIN="1" ADD_L_TYPE="M" ADD_R_DIR="-1" ADD_R_MAX="15" ADD_R_MIN="11" ADD_R_TYPE="M" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Auckland City" FULL_NAME="SIMMONDS LANE" ID="77" ISLAND="North Island" NAME="SIMMONDS LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="5" RD_SEG_LNK="63628" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Mount Wellington" TOWN="Auckland" TURNRESLNK="ak103" URBANRURAL="U" ID1="55">
+    <vertices>
+      <vertex X="174.837888" Y="-36.905740"/>
+      <vertex X="174.837440" Y="-36.905565"/>
+      <vertex X="174.837366" Y="-36.905529"/>
+      <vertex X="174.837323" Y="-36.905485"/>
+      <vertex X="174.837285" Y="-36.905432"/>
+      <vertex X="174.837190" Y="-36.905230"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="55" ADD_L_DIR="1" ADD_L_MAX="19" ADD_L_MIN="8" ADD_L_TYPE="M" ADD_R_DIR="-1" ADD_R_MAX="7" ADD_R_MIN="1" ADD_R_TYPE="M" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Auckland City" FULL_NAME="MARINE LANE" ID="78" ISLAND="North Island" NAME="MARINE LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="4" RD_SEG_LNK="63627" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Panmure" TOWN="Auckland" TURNRESLNK="ak104" URBANRURAL="U" ID1="56">
+    <vertices>
+      <vertex X="174.851022" Y="-36.908243"/>
+      <vertex X="174.851100" Y="-36.908210"/>
+      <vertex X="174.851197" Y="-36.908185"/>
+      <vertex X="174.851424" Y="-36.908187"/>
+      <vertex X="174.851546" Y="-36.908196"/>
+      <vertex X="174.851632" Y="-36.908223"/>
+      <vertex X="174.851696" Y="-36.908275"/>
+      <vertex X="174.851731" Y="-36.908333"/>
+      <vertex X="174.851739" Y="-36.908399"/>
+      <vertex X="174.851736" Y="-36.908488"/>
+      <vertex X="174.851734" Y="-36.908601"/>
+      <vertex X="174.851747" Y="-36.908698"/>
+      <vertex X="174.851787" Y="-36.908818"/>
+      <vertex X="174.851886" Y="-36.909043"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="56" ADD_L_DIR="1" ADD_L_MAX="8" ADD_L_MIN="2" ADD_L_TYPE="E" ADD_R_DIR="-1" ADD_R_MAX="12" ADD_R_MIN="10" ADD_R_TYPE="E" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Auckland City" FULL_NAME="CONVAMORE LANE" ID="79" ISLAND="North Island" NAME="CONVAMORE LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="0" OWNERSHIP="1" RC="6" RD_SEG_LNK="63626" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Mount Wellington" TOWN="Auckland" TURNRESLNK="ak105" URBANRURAL="U" ID1="57">
+    <vertices>
+      <vertex X="174.850544" Y="-36.909363"/>
+      <vertex X="174.850607" Y="-36.908479"/>
+      <vertex X="174.850588" Y="-36.908421"/>
+      <vertex X="174.850526" Y="-36.908385"/>
+      <vertex X="174.850149" Y="-36.908363"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="57" ADD_L_DIR="-1" ADD_L_MAX="53" ADD_L_MIN="1" ADD_L_TYPE="O" ADD_R_DIR="-1" ADD_R_MAX="24" ADD_R_MIN="2" ADD_R_TYPE="E" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Auckland City" FULL_NAME="CONVOY LANE" ID="80" ISLAND="North Island" NAME="CONVOY LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="4" RD_SEG_LNK="63625" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Otahuhu" TOWN="Auckland" TURNRESLNK="ak106" URBANRURAL="U" ID1="58">
+    <vertices>
+      <vertex X="174.854789" Y="-36.932748"/>
+      <vertex X="174.854754" Y="-36.933246"/>
+      <vertex X="174.854574" Y="-36.935832"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="58" ADD_L_DIR="-1" ADD_L_MAX="6" ADD_L_MIN="2" ADD_L_TYPE="E" ADD_R_DIR="-1" ADD_R_MAX="11" ADD_R_MIN="1" ADD_R_TYPE="M" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Auckland City" FULL_NAME="MELODY LANE" ID="81" ISLAND="North Island" NAME="MELODY LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="5" RD_SEG_LNK="63624" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Otahuhu" TOWN="Auckland" TURNRESLNK="ak107" URBANRURAL="U" ID1="59">
+    <vertices>
+      <vertex X="174.853044" Y="-36.945118"/>
+      <vertex X="174.853225" Y="-36.945157"/>
+      <vertex X="174.853855" Y="-36.945035"/>
+      <vertex X="174.853956" Y="-36.944992"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="59" ADD_L_DIR="1" ADD_L_MAX="4" ADD_L_MIN="1" ADD_L_TYPE="M" ADD_R_DIR="-1" ADD_R_MAX="8" ADD_R_MIN="5" ADD_R_TYPE="M" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Auckland City" FULL_NAME="DEBORAH HATTON LANE" ID="82" ISLAND="North Island" NAME="DEBORAH HATTON LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="0" OWNERSHIP="1" RC="6" RD_SEG_LNK="63616" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Otahuhu" TOWN="Auckland" TURNRESLNK="ak108" URBANRURAL="U" ID1="60">
+    <vertices>
+      <vertex X="174.849189" Y="-36.930396"/>
+      <vertex X="174.849748" Y="-36.930387"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="60" ADD_L_DIR="-1" ADD_L_MAX="71" ADD_L_MIN="69" ADD_L_TYPE="O" ADD_R_DIR="-1" ADD_R_MAX="78" ADD_R_MIN="70" ADD_R_TYPE="E" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Auckland City" FULL_NAME="WOLVERTON STREET" ID="124" ISLAND="North Island" NAME="WOLVERTON ST" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="2" RD_SEG_LNK="63615" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Avondale" TOWN="Auckland" TURNRESLNK="ak254" URBANRURAL="U" ID1="61">
+    <vertices>
+      <vertex X="174.695523" Y="-36.909057"/>
+      <vertex X="174.696334" Y="-36.908654"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="61" ADD_L_DIR="1" ADD_L_MAX="13" ADD_L_MIN="1" ADD_L_TYPE="M" ADD_R_DIR="-1" ADD_R_MAX="33" ADD_R_MIN="17" ADD_R_TYPE="M" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Auckland City" FULL_NAME="COTSWOLD LANE" ID="51" ISLAND="North Island" NAME="COTSWOLD LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="4" RD_SEG_LNK="63614" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Mount Wellington" TOWN="Auckland" TURNRESLNK="ak53" URBANRURAL="U" ID1="62">
+    <vertices>
+      <vertex X="174.823371" Y="-36.911283"/>
+      <vertex X="174.823512" Y="-36.911226"/>
+      <vertex X="174.824201" Y="-36.911003"/>
+      <vertex X="174.824304" Y="-36.910974"/>
+      <vertex X="174.824402" Y="-36.910955"/>
+      <vertex X="174.824497" Y="-36.910945"/>
+      <vertex X="174.824604" Y="-36.910939"/>
+      <vertex X="174.824727" Y="-36.910939"/>
+      <vertex X="174.824982" Y="-36.910949"/>
+      <vertex X="174.825108" Y="-36.910949"/>
+      <vertex X="174.825223" Y="-36.910943"/>
+      <vertex X="174.825305" Y="-36.910933"/>
+      <vertex X="174.825411" Y="-36.910905"/>
+      <vertex X="174.825519" Y="-36.910858"/>
+      <vertex X="174.825621" Y="-36.910806"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="62" ADD_L_DIR="1" ADD_L_MAX="14" ADD_L_MIN="4" ADD_L_TYPE="E" ADD_R_DIR="1" ADD_R_MAX="13" ADD_R_MIN="1" ADD_R_TYPE="O" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Auckland City" FULL_NAME="LEASIDE LANE" ID="52" ISLAND="North Island" NAME="LEASIDE LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="5" RD_SEG_LNK="63613" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Glen Innes" TOWN="Auckland" TURNRESLNK="ak54" URBANRURAL="U" ID1="63">
+    <vertices>
+      <vertex X="174.866100" Y="-36.874944"/>
+      <vertex X="174.864949" Y="-36.874544"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="63" ADD_L_DIR="0" ADD_L_MAX="0" ADD_L_MIN="0" ADD_L_TYPE="" ADD_R_DIR="-1" ADD_R_MAX="4" ADD_R_MIN="2" ADD_R_TYPE="E" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Auckland City" FULL_NAME="HORNES LANE" ID="53" ISLAND="North Island" NAME="HORNES LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="5" RD_SEG_LNK="63612" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Onehunga" TOWN="Auckland" TURNRESLNK="ak55" URBANRURAL="U" ID1="64">
+    <vertices>
+      <vertex X="174.776373" Y="-36.922343"/>
+      <vertex X="174.776316" Y="-36.922307"/>
+      <vertex X="174.775964" Y="-36.922240"/>
+      <vertex X="174.775859" Y="-36.922257"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="64" ADD_L_DIR="1" ADD_L_MAX="1" ADD_L_MIN="1" ADD_L_TYPE="O" ADD_R_DIR="0" ADD_R_MAX="0" ADD_R_MIN="0" ADD_R_TYPE="" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Auckland City" FULL_NAME="LOWER MUNICIPAL PLACE" ID="54" ISLAND="North Island" NAME="LOWER MUNICIPAL PL" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="5" RD_SEG_LNK="63611" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Onehunga" TOWN="Auckland" TURNRESLNK="ak56" URBANRURAL="U" ID1="65">
+    <vertices>
+      <vertex X="174.783876" Y="-36.923053"/>
+      <vertex X="174.784036" Y="-36.924250"/>
+      <vertex X="174.784055" Y="-36.924297"/>
+      <vertex X="174.784084" Y="-36.924341"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="65" ADD_L_DIR="-1" ADD_L_MAX="11" ADD_L_MIN="3" ADD_L_TYPE="O" ADD_R_DIR="-1" ADD_R_MAX="10" ADD_R_MIN="2" ADD_R_TYPE="E" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Auckland City" FULL_NAME="TYNOR PLACE" ID="55" ISLAND="North Island" NAME="TYNOR PL" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="5" RD_SEG_LNK="63610" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Hillsborough" TOWN="Auckland" TURNRESLNK="ak57" URBANRURAL="U" ID1="66">
+    <vertices>
+      <vertex X="174.760577" Y="-36.923815"/>
+      <vertex X="174.760323" Y="-36.923977"/>
+      <vertex X="174.759957" Y="-36.924341"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="66" ADD_L_DIR="0" ADD_L_MAX="0" ADD_L_MIN="0" ADD_L_TYPE="" ADD_R_DIR="0" ADD_R_MAX="0" ADD_R_MIN="0" ADD_R_TYPE="" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Auckland City" FULL_NAME="UPPER MUNICIPAL PLACE" ID="56" ISLAND="North Island" NAME="UPPER MUNICIPAL PL" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="5" RD_SEG_LNK="63609" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Onehunga" TOWN="Auckland" TURNRESLNK="ak58" URBANRURAL="U" ID1="67">
+    <vertices>
+      <vertex X="174.784562" Y="-36.922991"/>
+      <vertex X="174.784745" Y="-36.924290"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="67" ADD_L_DIR="1" ADD_L_MAX="18" ADD_L_MIN="2" ADD_L_TYPE="E" ADD_R_DIR="1" ADD_R_MAX="11" ADD_R_MIN="1" ADD_R_TYPE="O" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Auckland City" FULL_NAME="GEORGE LAURENSON LANE" ID="57" ISLAND="North Island" NAME="GEORGE LAURENSON LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="4" RD_SEG_LNK="63608" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Waikowhai" TOWN="Auckland" TURNRESLNK="ak59" URBANRURAL="U" ID1="68">
+    <vertices>
+      <vertex X="174.732340" Y="-36.932485"/>
+      <vertex X="174.732194" Y="-36.932424"/>
+      <vertex X="174.732039" Y="-36.932357"/>
+      <vertex X="174.731943" Y="-36.932310"/>
+      <vertex X="174.731750" Y="-36.932199"/>
+      <vertex X="174.731692" Y="-36.932171"/>
+      <vertex X="174.731617" Y="-36.932139"/>
+      <vertex X="174.731547" Y="-36.932113"/>
+      <vertex X="174.731478" Y="-36.932081"/>
+      <vertex X="174.731427" Y="-36.932047"/>
+      <vertex X="174.731401" Y="-36.932005"/>
+      <vertex X="174.731383" Y="-36.931948"/>
+      <vertex X="174.731360" Y="-36.931834"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="68" ADD_L_DIR="-1" ADD_L_MAX="41" ADD_L_MIN="1" ADD_L_TYPE="O" ADD_R_DIR="-1" ADD_R_MAX="43" ADD_R_MIN="2" ADD_R_TYPE="M" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Waitakere City" FULL_NAME="DANUBE LANE" ID="58" ISLAND="North Island" NAME="DANUBE LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="5" RD_SEG_LNK="63607" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Glen Eden" TOWN="Waitakere" TURNRESLNK="ak60" URBANRURAL="U" ID1="69">
+    <vertices>
+      <vertex X="174.631432" Y="-36.918479"/>
+      <vertex X="174.631385" Y="-36.918487"/>
+      <vertex X="174.630877" Y="-36.918290"/>
+      <vertex X="174.629824" Y="-36.917887"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="69" ADD_L_DIR="0" ADD_L_MAX="0" ADD_L_MIN="0" ADD_L_TYPE="" ADD_R_DIR="0" ADD_R_MAX="0" ADD_R_MIN="0" ADD_R_TYPE="" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Waitakere City" FULL_NAME="BAKERS LANE" ID="59" ISLAND="North Island" NAME="BAKERS LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="5" RD_SEG_LNK="63606" REGION="Auckland" ROUTE="" SH_NO="" SPEED="100" SR="0" SUBURB="Whenuapai" TOWN="" TURNRESLNK="ak61" URBANRURAL="R" ID1="70">
+    <vertices>
+      <vertex X="174.602054" Y="-36.822786"/>
+      <vertex X="174.604625" Y="-36.820273"/>
+      <vertex X="174.604716" Y="-36.820154"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="70" ADD_L_DIR="1" ADD_L_MAX="8" ADD_L_MIN="2" ADD_L_TYPE="E" ADD_R_DIR="1" ADD_R_MAX="11" ADD_R_MIN="1" ADD_R_TYPE="O" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Waitakere City" FULL_NAME="RUBENS LANE" ID="60" ISLAND="North Island" NAME="RUBENS LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="5" RD_SEG_LNK="63605" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="West Harbour" TOWN="Waitakere" TURNRESLNK="ak62" URBANRURAL="U" ID1="71">
+    <vertices>
+      <vertex X="174.635083" Y="-36.821030"/>
+      <vertex X="174.634745" Y="-36.820963"/>
+      <vertex X="174.634522" Y="-36.821011"/>
+      <vertex X="174.634200" Y="-36.821064"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="71" ADD_L_DIR="1" ADD_L_MAX="4" ADD_L_MIN="2" ADD_L_TYPE="E" ADD_R_DIR="1" ADD_R_MAX="3" ADD_R_MIN="3" ADD_R_TYPE="O" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Waitakere City" FULL_NAME="SWAN LANE" ID="61" ISLAND="North Island" NAME="SWAN LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="4" RD_SEG_LNK="63604" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Henderson" TOWN="Waitakere" TURNRESLNK="ak63" URBANRURAL="U" ID1="72">
+    <vertices>
+      <vertex X="174.637982" Y="-36.870826"/>
+      <vertex X="174.637337" Y="-36.871554"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="72" ADD_L_DIR="-1" ADD_L_MAX="9" ADD_L_MIN="1" ADD_L_TYPE="O" ADD_R_DIR="-1" ADD_R_MAX="8" ADD_R_MIN="2" ADD_R_TYPE="E" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Auckland City" FULL_NAME="BASIN VIEW LANE" ID="62" ISLAND="North Island" NAME="BASIN VIEW LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="4" RD_SEG_LNK="63602" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Panmure" TOWN="Auckland" TURNRESLNK="ak64" URBANRURAL="U" ID1="73">
+    <vertices>
+      <vertex X="174.854626" Y="-36.900384"/>
+      <vertex X="174.855122" Y="-36.899952"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="73" ADD_L_DIR="-1" ADD_L_MAX="15" ADD_L_MIN="1" ADD_L_TYPE="O" ADD_R_DIR="-1" ADD_R_MAX="16" ADD_R_MIN="2" ADD_R_TYPE="E" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Auckland City" FULL_NAME="GLENTIES LANE" ID="63" ISLAND="North Island" NAME="GLENTIES LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="4" RD_SEG_LNK="63601" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Ellerslie" TOWN="Auckland" TURNRESLNK="ak65" URBANRURAL="U" ID1="74">
+    <vertices>
+      <vertex X="174.823038" Y="-36.889889"/>
+      <vertex X="174.823083" Y="-36.889757"/>
+      <vertex X="174.823292" Y="-36.889157"/>
+      <vertex X="174.823300" Y="-36.889114"/>
+      <vertex X="174.823301" Y="-36.889071"/>
+      <vertex X="174.823295" Y="-36.889021"/>
+      <vertex X="174.823238" Y="-36.888703"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="74" ADD_L_DIR="1" ADD_L_MAX="24" ADD_L_MIN="24" ADD_L_TYPE="E" ADD_R_DIR="0" ADD_R_MAX="0" ADD_R_MIN="0" ADD_R_TYPE="" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Auckland City" FULL_NAME="MERCURY LANE" ID="8" ISLAND="North Island" NAME="MERCURY LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="3" RD_SEG_LNK="63668" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Newton" TOWN="Auckland" TURNRESLNK="ak7" URBANRURAL="U" ID1="75">
+    <vertices>
+      <vertex X="174.759225" Y="-36.858848"/>
+      <vertex X="174.759338" Y="-36.859103"/>
+      <vertex X="174.759415" Y="-36.859210"/>
+      <vertex X="174.759542" Y="-36.859290"/>
+      <vertex X="174.759672" Y="-36.859371"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="75" ADD_L_DIR="1" ADD_L_MAX="1" ADD_L_MIN="1" ADD_L_TYPE="O" ADD_R_DIR="-1" ADD_R_MAX="12" ADD_R_MIN="2" ADD_R_TYPE="E" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Auckland City" FULL_NAME="SAINT MARTINS LANE" ID="9" ISLAND="North Island" NAME="ST MARTINS LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="5" RD_SEG_LNK="63600" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Auckland City Centre" TOWN="Auckland" TURNRESLNK="ak8" URBANRURAL="U" ID1="76">
+    <vertices>
+      <vertex X="174.764743" Y="-36.857990"/>
+      <vertex X="174.765292" Y="-36.857534"/>
+      <vertex X="174.764862" Y="-36.857203"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="76" ADD_L_DIR="0" ADD_L_MAX="0" ADD_L_MIN="0" ADD_L_TYPE="" ADD_R_DIR="0" ADD_R_MAX="0" ADD_R_MIN="0" ADD_R_TYPE="" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Auckland City" FULL_NAME="MARKET LANE" ID="10" ISLAND="North Island" NAME="MARKET LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="5" RD_SEG_LNK="63599" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Auckland City Centre" TOWN="Auckland" TURNRESLNK="ak9" URBANRURAL="U" ID1="77">
+    <vertices>
+      <vertex X="174.762109" Y="-36.844683"/>
+      <vertex X="174.762082" Y="-36.844587"/>
+      <vertex X="174.762074" Y="-36.844527"/>
+      <vertex X="174.762076" Y="-36.844486"/>
+      <vertex X="174.762089" Y="-36.844443"/>
+      <vertex X="174.762166" Y="-36.844249"/>
+      <vertex X="174.762278" Y="-36.843958"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="77" ADD_L_DIR="0" ADD_L_MAX="0" ADD_L_MIN="0" ADD_L_TYPE="" ADD_R_DIR="0" ADD_R_MAX="0" ADD_R_MIN="0" ADD_R_TYPE="" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Auckland City" FULL_NAME="MARKET LANE" ID="11" ISLAND="North Island" NAME="MARKET LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="5" RD_SEG_LNK="63599" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Auckland City Centre" TOWN="Auckland" TURNRESLNK="ak10" URBANRURAL="U" ID1="78">
+    <vertices>
+      <vertex X="174.762278" Y="-36.843958"/>
+      <vertex X="174.762447" Y="-36.843521"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="78" ADD_L_DIR="0" ADD_L_MAX="0" ADD_L_MIN="0" ADD_L_TYPE="" ADD_R_DIR="0" ADD_R_MAX="0" ADD_R_MIN="0" ADD_R_TYPE="" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Auckland City" FULL_NAME="BRADNOR LANE" ID="12" ISLAND="North Island" NAME="BRADNOR LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="5" RD_SEG_LNK="63598" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Auckland City Centre" TOWN="Auckland" TURNRESLNK="ak11" URBANRURAL="U" ID1="79">
+    <vertices>
+      <vertex X="174.761602" Y="-36.845360"/>
+      <vertex X="174.761611" Y="-36.845392"/>
+      <vertex X="174.761629" Y="-36.845423"/>
+      <vertex X="174.761650" Y="-36.845446"/>
+      <vertex X="174.761692" Y="-36.845467"/>
+      <vertex X="174.762667" Y="-36.845767"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="79" ADD_L_DIR="1" ADD_L_MAX="14" ADD_L_MIN="4" ADD_L_TYPE="E" ADD_R_DIR="1" ADD_R_MAX="15" ADD_R_MIN="1" ADD_R_TYPE="O" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="North Shore City" FULL_NAME="SAINT THOMAS MORE LANE" ID="163" ISLAND="North Island" NAME="ST THOMAS MORE LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="5" RD_SEG_LNK="63597" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Glenfield" TOWN="North Shore" TURNRESLNK="ak146" URBANRURAL="U" ID1="80">
+    <vertices>
+      <vertex X="174.721762" Y="-36.770566"/>
+      <vertex X="174.722295" Y="-36.770628"/>
+      <vertex X="174.722843" Y="-36.771146"/>
+      <vertex X="174.722944" Y="-36.771241"/>
+      <vertex X="174.723064" Y="-36.771246"/>
+      <vertex X="174.723102" Y="-36.771201"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="80" ADD_L_DIR="1" ADD_L_MAX="28" ADD_L_MIN="2" ADD_L_TYPE="E" ADD_R_DIR="1" ADD_R_MAX="11" ADD_R_MIN="1" ADD_R_TYPE="O" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="North Shore City" FULL_NAME="TYBURN LANE" ID="164" ISLAND="North Island" NAME="TYBURN LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="4" RD_SEG_LNK="63596" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Unsworth Heights" TOWN="North Shore" TURNRESLNK="ak147" URBANRURAL="U" ID1="81">
+    <vertices>
+      <vertex X="174.713292" Y="-36.759233"/>
+      <vertex X="174.713272" Y="-36.759544"/>
+      <vertex X="174.712937" Y="-36.759900"/>
+      <vertex X="174.712843" Y="-36.759922"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="81" ADD_L_DIR="0" ADD_L_MAX="0" ADD_L_MIN="0" ADD_L_TYPE="" ADD_R_DIR="0" ADD_R_MAX="0" ADD_R_MIN="0" ADD_R_TYPE="" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="North Shore City" FULL_NAME="ROSEBERRY LANE" ID="165" ISLAND="North Island" NAME="ROSEBERRY LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="4" RD_SEG_LNK="63594" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Birkenhead" TOWN="North Shore" TURNRESLNK="ak148" URBANRURAL="U" ID1="82">
+    <vertices>
+      <vertex X="174.714800" Y="-36.809357"/>
+      <vertex X="174.715762" Y="-36.809337"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="82" ADD_L_DIR="1" ADD_L_MAX="14" ADD_L_MIN="2" ADD_L_TYPE="E" ADD_R_DIR="1" ADD_R_MAX="11" ADD_R_MIN="1" ADD_R_TYPE="O" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="North Shore City" FULL_NAME="PELICAN LANE" ID="166" ISLAND="North Island" NAME="PELICAN LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="4" RD_SEG_LNK="63593" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="The Palms" TOWN="North Shore" TURNRESLNK="ak149" URBANRURAL="U" ID1="83">
+    <vertices>
+      <vertex X="174.716272" Y="-36.760730"/>
+      <vertex X="174.716504" Y="-36.760433"/>
+      <vertex X="174.716575" Y="-36.760095"/>
+      <vertex X="174.716642" Y="-36.760028"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="83" ADD_L_DIR="1" ADD_L_MAX="89" ADD_L_MIN="21" ADD_L_TYPE="O" ADD_R_DIR="1" ADD_R_MAX="86" ADD_R_MIN="6" ADD_R_TYPE="E" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Rodney" FULL_NAME="CROFT LANE" ID="167" ISLAND="North Island" NAME="CROFT LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="5" RD_SEG_LNK="63592" REGION="Auckland" ROUTE="" SH_NO="" SPEED="100" SR="0" SUBURB="Coatesville" TOWN="" TURNRESLNK="ak150" URBANRURAL="R" ID1="84">
+    <vertices>
+      <vertex X="174.608952" Y="-36.730269"/>
+      <vertex X="174.608998" Y="-36.728435"/>
+      <vertex X="174.611995" Y="-36.727512"/>
+      <vertex X="174.614542" Y="-36.727276"/>
+      <vertex X="174.616560" Y="-36.726837"/>
+      <vertex X="174.616910" Y="-36.726860"/>
+      <vertex X="174.617176" Y="-36.726997"/>
+      <vertex X="174.617228" Y="-36.727194"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="84" ADD_L_DIR="-1" ADD_L_MAX="7" ADD_L_MIN="5" ADD_L_TYPE="M" ADD_R_DIR="-1" ADD_R_MAX="4" ADD_R_MIN="1" ADD_R_TYPE="M" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Rodney" FULL_NAME="LOGAN LANE" ID="168" ISLAND="North Island" NAME="LOGAN LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="HIBISCUS COAST" NAMED_ARE2="WHANGAPARAOA PENINSULA" OPEN_TO_PU="1" OWNERSHIP="0" RC="5" RD_SEG_LNK="63591" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Stanmore Bay" TOWN="Whangaparaoa" TURNRESLNK="ak151" URBANRURAL="U" ID1="85">
+    <vertices>
+      <vertex X="174.721974" Y="-36.620861"/>
+      <vertex X="174.722470" Y="-36.620454"/>
+      <vertex X="174.722548" Y="-36.620444"/>
+      <vertex X="174.722624" Y="-36.620466"/>
+      <vertex X="174.722668" Y="-36.620511"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="85" ADD_L_DIR="-1" ADD_L_MAX="18" ADD_L_MIN="2" ADD_L_TYPE="E" ADD_R_DIR="-1" ADD_R_MAX="37" ADD_R_MIN="1" ADD_R_TYPE="O" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Rodney" FULL_NAME="BAKEHOUSE LANE" ID="169" ISLAND="North Island" NAME="BAKEHOUSE LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="HIBISCUS COAST" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="5" RD_SEG_LNK="63589" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Orewa" TOWN="Orewa" TURNRESLNK="ak152" URBANRURAL="U" ID1="86">
+    <vertices>
+      <vertex X="174.695998" Y="-36.587363"/>
+      <vertex X="174.695576" Y="-36.586401"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="86" ADD_L_DIR="1" ADD_L_MAX="81" ADD_L_MIN="31" ADD_L_TYPE="O" ADD_R_DIR="1" ADD_R_MAX="88" ADD_R_MIN="44" ADD_R_TYPE="E" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Rodney" FULL_NAME="BURNS LANE" ID="170" ISLAND="North Island" NAME="BURNS LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="0" OWNERSHIP="1" RC="6" RD_SEG_LNK="63588" REGION="Auckland" ROUTE="" SH_NO="" SPEED="100" SR="0" SUBURB="Kumeu" TOWN="" TURNRESLNK="ak153" URBANRURAL="R" ID1="87">
+    <vertices>
+      <vertex X="174.556592" Y="-36.765629"/>
+      <vertex X="174.556029" Y="-36.765517"/>
+      <vertex X="174.555933" Y="-36.765481"/>
+      <vertex X="174.555869" Y="-36.765424"/>
+      <vertex X="174.551561" Y="-36.761151"/>
+      <vertex X="174.551470" Y="-36.761049"/>
+      <vertex X="174.551412" Y="-36.760920"/>
+      <vertex X="174.551402" Y="-36.760817"/>
+      <vertex X="174.551403" Y="-36.760670"/>
+      <vertex X="174.551464" Y="-36.760087"/>
+      <vertex X="174.551439" Y="-36.759710"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="87" ADD_L_DIR="1" ADD_L_MAX="60" ADD_L_MIN="15" ADD_L_TYPE="M" ADD_R_DIR="0" ADD_R_MAX="0" ADD_R_MIN="0" ADD_R_TYPE="" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Rodney" FULL_NAME="GOLDFLATS LANE" ID="171" ISLAND="North Island" NAME="GOLDFLATS LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="5" RD_SEG_LNK="63587" REGION="Auckland" ROUTE="" SH_NO="" SPEED="100" SR="0" SUBURB="Coatesville" TOWN="" TURNRESLNK="ak154" URBANRURAL="R" ID1="88">
+    <vertices>
+      <vertex X="174.623641" Y="-36.733450"/>
+      <vertex X="174.625973" Y="-36.736026"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="88" ADD_L_DIR="1" ADD_L_MAX="14" ADD_L_MIN="2" ADD_L_TYPE="E" ADD_R_DIR="1" ADD_R_MAX="9" ADD_R_MIN="1" ADD_R_TYPE="O" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="North Shore City" FULL_NAME="FALSTONE LANE" ID="172" ISLAND="North Island" NAME="FALSTONE LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="4" RD_SEG_LNK="63586" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Browns Bay" TOWN="North Shore" TURNRESLNK="ak155" URBANRURAL="U" ID1="89">
+    <vertices>
+      <vertex X="174.726189" Y="-36.721564"/>
+      <vertex X="174.725102" Y="-36.721261"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="89" ADD_L_DIR="0" ADD_L_MAX="0" ADD_L_MIN="0" ADD_L_TYPE="" ADD_R_DIR="1" ADD_R_MAX="53" ADD_R_MIN="53" ADD_R_TYPE="O" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Auckland City" FULL_NAME="PENCARROW AVENUE" ID="132" ISLAND="North Island" NAME="PENCARROW AVE" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="5" RD_SEG_LNK="63585" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Epsom" TOWN="Auckland" TURNRESLNK="ak115" URBANRURAL="U" ID1="90">
+    <vertices>
+      <vertex X="174.766126" Y="-36.889163"/>
+      <vertex X="174.766231" Y="-36.889204"/>
+      <vertex X="174.766327" Y="-36.889264"/>
+      <vertex X="174.766614" Y="-36.889485"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="90" ADD_L_DIR="0" ADD_L_MAX="0" ADD_L_MIN="0" ADD_L_TYPE="" ADD_R_DIR="1" ADD_R_MAX="17" ADD_R_MIN="1" ADD_R_TYPE="O" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Auckland City" FULL_NAME="SELBY SQUARE" ID="133" ISLAND="North Island" NAME="SELBY SQ" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="5" RD_SEG_LNK="63583" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Saint Marys Bay" TOWN="Auckland" TURNRESLNK="ak116" URBANRURAL="U" ID1="91">
+    <vertices>
+      <vertex X="174.743485" Y="-36.845338"/>
+      <vertex X="174.743746" Y="-36.845500"/>
+      <vertex X="174.743776" Y="-36.845513"/>
+      <vertex X="174.743803" Y="-36.845518"/>
+      <vertex X="174.743826" Y="-36.845516"/>
+      <vertex X="174.743846" Y="-36.845512"/>
+      <vertex X="174.743862" Y="-36.845501"/>
+      <vertex X="174.743880" Y="-36.845484"/>
+      <vertex X="174.744105" Y="-36.845225"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="91" ADD_L_DIR="0" ADD_L_MAX="0" ADD_L_MIN="0" ADD_L_TYPE="" ADD_R_DIR="0" ADD_R_MAX="0" ADD_R_MIN="0" ADD_R_TYPE="" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Auckland City" FULL_NAME="UNION STREET" ID="134" ISLAND="North Island" NAME="UNION ST" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="4" RD_SEG_LNK="63565" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Freemans Bay" TOWN="Auckland" TURNRESLNK="ak117" URBANRURAL="U" ID1="92">
+    <vertices>
+      <vertex X="174.754498" Y="-36.850543"/>
+      <vertex X="174.754557" Y="-36.850419"/>
+      <vertex X="174.754610" Y="-36.850378"/>
+      <vertex X="174.754695" Y="-36.850346"/>
+      <vertex X="174.754819" Y="-36.850324"/>
+      <vertex X="174.754952" Y="-36.850328"/>
+      <vertex X="174.755257" Y="-36.850394"/>
+      <vertex X="174.755372" Y="-36.850419"/>
+      <vertex X="174.755711" Y="-36.850433"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="92" ADD_L_DIR="1" ADD_L_MAX="10" ADD_L_MIN="6" ADD_L_TYPE="E" ADD_R_DIR="1" ADD_R_MAX="9" ADD_R_MIN="1" ADD_R_TYPE="O" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Auckland City" FULL_NAME="YARBOROUGH STREET" ID="136" ISLAND="North Island" NAME="YARBOROUGH ST" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="4" RD_SEG_LNK="63562" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Saint Marys Bay" TOWN="Auckland" TURNRESLNK="ak119" URBANRURAL="U" ID1="93">
+    <vertices>
+      <vertex X="174.745114" Y="-36.845546"/>
+      <vertex X="174.744105" Y="-36.845225"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="93" ADD_L_DIR="0" ADD_L_MAX="0" ADD_L_MIN="0" ADD_L_TYPE="" ADD_R_DIR="0" ADD_R_MAX="0" ADD_R_MIN="0" ADD_R_TYPE="" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Auckland City" FULL_NAME="SULTAN LANE" ID="87" ISLAND="North Island" NAME="SULTAN LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="5" RD_SEG_LNK="63561" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Ellerslie" TOWN="Auckland" TURNRESLNK="ak68" URBANRURAL="U" ID1="94">
+    <vertices>
+      <vertex X="174.807469" Y="-36.898926"/>
+      <vertex X="174.807974" Y="-36.898539"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="94" ADD_L_DIR="0" ADD_L_MAX="0" ADD_L_MIN="0" ADD_L_TYPE="" ADD_R_DIR="-1" ADD_R_MAX="250" ADD_R_MIN="240" ADD_R_TYPE="E" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Auckland City" FULL_NAME="TANIWHA STREET" ID="88" ISLAND="North Island" NAME="TANIWHA ST" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="5" RD_SEG_LNK="63555" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Glen Innes" TOWN="Auckland" TURNRESLNK="ak69" URBANRURAL="U" ID1="95">
+    <vertices>
+      <vertex X="174.854332" Y="-36.878091"/>
+      <vertex X="174.854497" Y="-36.878020"/>
+      <vertex X="174.854715" Y="-36.877982"/>
+      <vertex X="174.854783" Y="-36.877963"/>
+      <vertex X="174.854823" Y="-36.877941"/>
+      <vertex X="174.854855" Y="-36.877909"/>
+      <vertex X="174.854876" Y="-36.877874"/>
+      <vertex X="174.854887" Y="-36.877834"/>
+      <vertex X="174.854889" Y="-36.877777"/>
+      <vertex X="174.854877" Y="-36.877733"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="95" ADD_L_DIR="0" ADD_L_MAX="0" ADD_L_MIN="0" ADD_L_TYPE="" ADD_R_DIR="0" ADD_R_MAX="0" ADD_R_MIN="0" ADD_R_TYPE="" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Auckland City" FULL_NAME="STRATTON LANE" ID="89" ISLAND="North Island" NAME="STRATTON LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="5" RD_SEG_LNK="63554" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Glen Innes" TOWN="Auckland" TURNRESLNK="ak70" URBANRURAL="U" ID1="96">
+    <vertices>
+      <vertex X="174.855619" Y="-36.879355"/>
+      <vertex X="174.855667" Y="-36.879556"/>
+      <vertex X="174.855826" Y="-36.879538"/>
+      <vertex X="174.856320" Y="-36.879634"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="96" ADD_L_DIR="1" ADD_L_MAX="13" ADD_L_MIN="1" ADD_L_TYPE="O" ADD_R_DIR="1" ADD_R_MAX="12" ADD_R_MIN="2" ADD_R_TYPE="M" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Auckland City" FULL_NAME="TOSCA LANE" ID="143" ISLAND="North Island" NAME="TOSCA LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="5" RD_SEG_LNK="63553" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Point England" TOWN="Auckland" TURNRESLNK="ak126" URBANRURAL="U" ID1="97">
+    <vertices>
+      <vertex X="174.860267" Y="-36.879043"/>
+      <vertex X="174.860411" Y="-36.879063"/>
+      <vertex X="174.861071" Y="-36.879128"/>
+      <vertex X="174.861522" Y="-36.879087"/>
+      <vertex X="174.861436" Y="-36.878624"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="97" ADD_L_DIR="0" ADD_L_MAX="0" ADD_L_MIN="0" ADD_L_TYPE="" ADD_R_DIR="1" ADD_R_MAX="655" ADD_R_MIN="649" ADD_R_TYPE="O" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Auckland City" FULL_NAME="MANUKAU ROAD" ID="110" ISLAND="North Island" NAME="MANUKAU RD" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="2" RD_SEG_LNK="63549" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Royal Oak" TOWN="Auckland" TURNRESLNK="ak239" URBANRURAL="U" ID1="98">
+    <vertices>
+      <vertex X="174.774915" Y="-36.906935"/>
+      <vertex X="174.775106" Y="-36.907725"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="98" ADD_L_DIR="1" ADD_L_MAX="104" ADD_L_MIN="96" ADD_L_TYPE="E" ADD_R_DIR="1" ADD_R_MAX="119" ADD_R_MIN="115" ADD_R_TYPE="O" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Auckland City" FULL_NAME="NEWTON ROAD" ID="111" ISLAND="North Island" NAME="NEWTON RD" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="2" RD_SEG_LNK="63548" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Newton" TOWN="Auckland" TURNRESLNK="ak240" URBANRURAL="U" ID1="99">
+    <vertices>
+      <vertex X="174.757389" Y="-36.862992"/>
+      <vertex X="174.757958" Y="-36.863119"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="99" ADD_L_DIR="-1" ADD_L_MAX="579" ADD_L_MIN="573" ADD_L_TYPE="O" ADD_R_DIR="-1" ADD_R_MAX="522" ADD_R_MIN="504" ADD_R_TYPE="E" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Auckland City" FULL_NAME="HILLSBOROUGH ROAD" ID="112" ISLAND="North Island" NAME="HILLSBOROUGH RD" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="1" RD_SEG_LNK="63535" REGION="Auckland" ROUTE="Urban Route 15" SH_NO="" SPEED="50" SR="0" SUBURB="Lynfield" TOWN="Auckland" TURNRESLNK="ak241" URBANRURAL="U" ID1="100">
+    <vertices>
+      <vertex X="174.724347" Y="-36.925631"/>
+      <vertex X="174.724459" Y="-36.925724"/>
+      <vertex X="174.724634" Y="-36.925874"/>
+      <vertex X="174.724825" Y="-36.926035"/>
+      <vertex X="174.725776" Y="-36.926815"/>
+      <vertex X="174.725870" Y="-36.926887"/>
+      <vertex X="174.725942" Y="-36.926940"/>
+      <vertex X="174.726110" Y="-36.927055"/>
+      <vertex X="174.726393" Y="-36.927246"/>
+      <vertex X="174.726496" Y="-36.927315"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="100" ADD_L_DIR="-1" ADD_L_MAX="7" ADD_L_MIN="1" ADD_L_TYPE="O" ADD_R_DIR="-1" ADD_R_MAX="12" ADD_R_MIN="2" ADD_R_TYPE="E" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="North Shore City" FULL_NAME="TRISTRAM AVENUE" ID="113" ISLAND="North Island" NAME="TRISTRAM AVE" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="1" RD_SEG_LNK="63534" REGION="Auckland" ROUTE="Urban Route 21" SH_NO="" SPEED="50" SR="0" SUBURB="Forrest Hill" TOWN="North Shore" TURNRESLNK="ak243" URBANRURAL="U" ID1="101">
+    <vertices>
+      <vertex X="174.747826" Y="-36.770445"/>
+      <vertex X="174.749219" Y="-36.770040"/>
+      <vertex X="174.749250" Y="-36.770034"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="101" ADD_L_DIR="0" ADD_L_MAX="0" ADD_L_MIN="0" ADD_L_TYPE="" ADD_R_DIR="1" ADD_R_MAX="659" ADD_R_MIN="657" ADD_R_TYPE="O" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Auckland City" FULL_NAME="MANUKAU ROAD" ID="114" ISLAND="North Island" NAME="MANUKAU RD" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="2" RD_SEG_LNK="63549" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Royal Oak" TOWN="Auckland" TURNRESLNK="ak244" URBANRURAL="U" ID1="102">
+    <vertices>
+      <vertex X="174.775106" Y="-36.907725"/>
+      <vertex X="174.775199" Y="-36.908106"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="102" ADD_L_DIR="1" ADD_L_MAX="118" ADD_L_MIN="108" ADD_L_TYPE="E" ADD_R_DIR="1" ADD_R_MAX="127" ADD_R_MIN="121" ADD_R_TYPE="O" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Auckland City" FULL_NAME="NEWTON ROAD" ID="115" ISLAND="North Island" NAME="NEWTON RD" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="2" RD_SEG_LNK="63548" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Newton" TOWN="Auckland" TURNRESLNK="ak245" URBANRURAL="U" ID1="103">
+    <vertices>
+      <vertex X="174.757958" Y="-36.863119"/>
+      <vertex X="174.758606" Y="-36.863259"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="103" ADD_L_DIR="-1" ADD_L_MAX="8" ADD_L_MIN="1" ADD_L_TYPE="M" ADD_R_DIR="-1" ADD_R_MAX="11" ADD_R_MIN="9" ADD_R_TYPE="O" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="North Shore City" FULL_NAME="CHERRY LANE" ID="33" ISLAND="North Island" NAME="CHERRY LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="0" OWNERSHIP="1" RC="6" RD_SEG_LNK="63533" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Glenfield" TOWN="North Shore" TURNRESLNK="ak33" URBANRURAL="U" ID1="104">
+    <vertices>
+      <vertex X="174.745740" Y="-36.780780"/>
+      <vertex X="174.744841" Y="-36.779979"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="104" ADD_L_DIR="1" ADD_L_MAX="14" ADD_L_MIN="5" ADD_L_TYPE="M" ADD_R_DIR="-1" ADD_R_MAX="4" ADD_R_MIN="1" ADD_R_TYPE="M" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="North Shore City" FULL_NAME="ELDERWOOD LANE" ID="34" ISLAND="North Island" NAME="ELDERWOOD LN" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="4" RD_SEG_LNK="63526" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Belmont" TOWN="North Shore" TURNRESLNK="ak34" URBANRURAL="U" ID1="105">
+    <vertices>
+      <vertex X="174.785128" Y="-36.803494"/>
+      <vertex X="174.784406" Y="-36.803101"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="105" ADD_L_DIR="0" ADD_L_MAX="0" ADD_L_MIN="0" ADD_L_TYPE="" ADD_R_DIR="0" ADD_R_MAX="0" ADD_R_MIN="0" ADD_R_TYPE="" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Manukau City" FULL_NAME="WATFORD STREET" ID="229" ISLAND="North Island" NAME="WATFORD ST" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="5" RD_SEG_LNK="63522" REGION="Auckland" ROUTE="" SH_NO="" SPEED="50" SR="0" SUBURB="Otara" TOWN="Manukau" TURNRESLNK="ak210" URBANRURAL="U" ID1="106">
+    <vertices>
+      <vertex X="174.872745" Y="-36.960379"/>
+      <vertex X="174.872738" Y="-36.960413"/>
+      <vertex X="174.872731" Y="-36.960486"/>
+      <vertex X="174.872746" Y="-36.960670"/>
+    </vertices>
+  </shape>
+  <shape shapeType="polyLine" id="106" ADD_L_DIR="1" ADD_L_MAX="484" ADD_L_MIN="140" ADD_L_TYPE="E" ADD_R_DIR="1" ADD_R_MAX="411" ADD_R_MIN="75" ADD_R_TYPE="M" ALTERNATE_="" BRIDGE_NAM="" DISTRICT="Papakura" FULL_NAME="HUNUA ROAD" ID="230" ISLAND="North Island" NAME="HUNUA RD" NAMED_AREA="GREATER AUCKLAND" NAMED_ARE1="" NAMED_ARE2="" OPEN_TO_PU="1" OWNERSHIP="0" RC="3" RD_SEG_LNK="63521" REGION="Auckland" ROUTE="" SH_NO="" SPEED="100" SR="0" SUBURB="Red Hill" TOWN="Papakura" TURNRESLNK="ak211" URBANRURAL="R" ID1="107">
+    <vertices>
+      <vertex X="174.975798" Y="-37.075472"/>
+      <vertex X="174.976585" Y="-37.075457"/>
+      <vertex X="174.976789" Y="-37.075536"/>
+      <vertex X="174.976827" Y="-37.075551"/>
+      <vertex X="174.977052" Y="-37.075638"/>
+      <vertex X="174.977470" Y="-37.075721"/>
+      <vertex X="174.978963" Y="-37.075603"/>
+      <vertex X="174.980279" Y="-37.075201"/>
+      <vertex X="174.980735" Y="-37.075021"/>
+      <vertex X="174.981142" Y="-37.074698"/>
+      <vertex X="174.981180" Y="-37.074427"/>
+      <vertex X="174.980887" Y="-37.073648"/>
+      <vertex X="174.980700" Y="-37.073390"/>
+      <vertex X="174.980648" Y="-37.073139"/>
+      <vertex X="174.980690" Y="-37.073039"/>
+      <vertex X="174.980847" Y="-37.073000"/>
+      <vertex X="174.981197" Y="-37.073075"/>
+      <vertex X="174.981701" Y="-37.072985"/>
+      <vertex X="174.981914" Y="-37.072972"/>
+      <vertex X="174.982619" Y="-37.072418"/>
+      <vertex X="174.982929" Y="-37.072250"/>
+      <vertex X="174.983356" Y="-37.072233"/>
+      <vertex X="174.983724" Y="-37.072524"/>
+      <vertex X="174.983981" Y="-37.072844"/>
+      <vertex X="174.984317" Y="-37.073586"/>
+      <vertex X="174.984488" Y="-37.073673"/>
+      <vertex X="174.985129" Y="-37.073679"/>
+      <vertex X="174.985819" Y="-37.073811"/>
+      <vertex X="174.987735" Y="-37.074740"/>
+      <vertex X="174.987897" Y="-37.074872"/>
+      <vertex X="174.988529" Y="-37.075753"/>
+      <vertex X="174.989204" Y="-37.076525"/>
+      <vertex X="174.989827" Y="-37.076685"/>
+      <vertex X="174.990158" Y="-37.076850"/>
+      <vertex X="174.990654" Y="-37.077283"/>
+      <vertex X="174.990747" Y="-37.077398"/>
+      <vertex X="174.990887" Y="-37.077558"/>
+      <vertex X="174.991457" Y="-37.077836"/>
+      <vertex X="174.991798" Y="-37.077938"/>
+      <vertex X="174.992227" Y="-37.078022"/>
+    </vertices>
+  </shape>
+</shapes>

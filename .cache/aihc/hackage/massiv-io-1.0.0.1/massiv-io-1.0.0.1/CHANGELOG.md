@@ -1,0 +1,92 @@
+# 1.0.0
+
+* Update to support `massiv-1.0`
+
+# 0.4.1
+
+* Reexport `Default` class.
+* Add support for massiv-0.6
+* Expose `Encode` and `Decode` cosntructors
+* Add `encodeAdhocM` and `decodeAdhocM`
+* Add `writableAdhoc` and `readableAdhoc`
+* Add `displayImageUsingAdhoc`
+* Add `coerceBinaryImage`
+* Add instance for writing binary images: `Image S X Bit` without conversions.
+* Add `selectFileFormat`
+
+# 0.4.0
+
+* Adjust insatnces to account for changes in `Color-0.3.0`, namely improvements to Luma
+  (`Y'`) and `Y'CBCr` color spaces.
+
+# 0.3.0
+
+* Support for `Color-0.2.0`, in particular addition of `Linearity` kind to `RGB` color
+  spaces. Pixels are re-exported from `massiv-io`, hence it is a breaking change.
+
+# 0.2.1
+
+* Move the package into it's own repository: [lehins/massiv-io](https://github.com/lehins/massiv-io)
+* Addition of instances for `GIF` sequences in `RGB` with `Alpha` and instanced with
+  `GifDisposalMethod`
+* Addition of conversion functions: `demoteLumaImage`, `promoteLumaImage`,
+  `demoteLumaAlphaImage`, `promoteLumaAlphaImage`
+* Instances for reading and writing images in Luma: `Y'` and `Y'A`
+
+# 0.2.0
+
+* Switch to `MonadIO`
+* Write files with durability and atomicity guarantees
+* Switch to `encodeM` and `decodeM`, as well as corresponding `encodeImageM` and `decodeImageM`
+* Addition of `decodeWithMetadataM`
+* Addition of `ConvertError`, `DecodeError` and `EncodeError`.
+* Got rid of `ReadOptions`
+* Switch to `Color` package for pixels and color space coversion
+
+# 0.1.9
+
+* Fix `HDR` decoding, i.e. `.hdr` and `.pic` file reading.
+
+# 0.1.8
+
+* Fix reading images that have more than 8bit per channel:
+  [#85](https://github.com/lehins/massiv/issues/85)
+
+# 0.1.7
+
+* Fix compatibility with `JuicyPixels >= 3.3.0`
+* Add `Traversable` instances for all `Pixel` types.
+* Derive a few more instances for `X` and `Y` pixels.
+* Drop dependency on `data-default` in favor of `data-default-class`
+
+# 0.1.6
+
+* Made it compatible with new `massiv >= 0.3` as well as the old ones.
+
+# 0.1.5
+
+* All decoded images will be read in sequentially, but will have default computation set to `Par`.
+
+# 0.1.4
+
+* Fixed wrongful export of `Bit` constructor.
+* Added export of `fromDynamicImage` and `fromAnyDynamicImage`
+
+# 0.1.3
+
+* Fixed #22 - Invalid guard against image size
+* Made sure format is inferred from all supported file extensions for auto decoding.
+
+# 0.1.2
+
+* Exposed `Elevator` internal functions.
+* Deprecate ColorSpace specific functions (`liftPx`, `foldlPx`, etc.) in favor of Functor,
+  Applicative and Foldable.
+
+# 0.1.1
+
+* Addition of `Ord` instances to Pixels.
+
+# 0.1.0
+
+* Initial Release

@@ -1,0 +1,31 @@
+-- | These modules provide examples.  Since they are live code, cabal
+-- compiles them, which ensures that the examples actually compile.
+-- In addition, the examples are used as fodder for the test cases;
+-- this provides assurance not only that the library is tested but
+-- also that the examples work as they should.
+--
+-- "Multiarg.Examples.Telly" provides an example parser for a command
+-- that does not have modes; this is the sort of parser you build with
+-- "Multiarg".  "Multiarg.Examples.Grover" provides an example of a
+-- parser for multiple modes; you build this sort of parser using
+-- "Multiarg.Mode".
+--
+-- To see these examples in action, compile the library using the
+-- "programs" flag, like so:
+--
+-- > cabal configure -fprograms
+-- > cabal build
+--
+-- This will create two programs, @telly@ and @grover@.  You simply
+-- pass /words/ to these programs just like an ordinary user would,
+-- and the programs will print the results of what they parse.  If you
+-- entered /words/ that parse correctly, you will see this result; if
+-- there are any errors, you will see that instead.  For example:
+--
+-- >>> dist/build/telly/telly --uno testarg filename
+-- [Uno "testarg",PosArg "filename"]
+--
+-- >>> dist/build/grover/grover --verbose 2 int --double 5 2
+-- Right (ModeResult [Right (Verbose 2)] (Right (Ints [Right (Double 5 2)])))
+
+module Multiarg.Examples where

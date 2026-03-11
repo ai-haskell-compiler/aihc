@@ -1,0 +1,37 @@
+{
+    "$schema": "https://vega.github.io/schema/vega-lite/v4.json",
+    "data": {
+        "url": "https://vega.github.io/vega-lite/data/cars.json"
+    },
+    "encoding": {
+        "color": {
+            "condition": {
+                "aggregate": "count",
+                "field": "*",
+                "selection": "mySelection",
+                "type": "quantitative"
+            },
+            "value": "gray"
+        },
+        "x": {
+            "field": "Cylinders",
+            "type": "ordinal"
+        },
+        "y": {
+            "field": "Origin",
+            "type": "ordinal"
+        }
+    },
+    "mark": {
+        "cursor": "grab",
+        "type": "rect"
+    },
+    "selection": {
+        "mySelection": {
+            "clear": false,
+            "on": "[mousedown[!event.shiftKey], mouseup] > mousemove",
+            "translate": "[mousedown[!event.shiftKey], mouseup] > mousemove",
+            "type": "interval"
+        }
+    }
+}

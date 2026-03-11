@@ -1,0 +1,226 @@
+--- parse tree ---
+[ Code
+    "typ/math/frac-06.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/math/frac-06.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/math/frac-06.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Comment
+, Equation
+    True
+    [ MFrac
+        (MAttach (Just (Text "1")) Nothing (Text "a"))
+        (MAttach (Just (Text "2")) Nothing (Text "b"))
+    , Text ","
+    , MFrac
+        (Text "1")
+        (MGroup
+           Nothing
+           Nothing
+           [ Text "f" , MGroup (Just "(") (Just ")") [ Text "x" ] ])
+    , Text ","
+    , MFrac
+        (Code
+           "typ/math/frac-06.typ"
+           ( line 3 , column 20 )
+           (FuncCall (Ident (Identifier "zeta")) [ BlockArg [ Text "x" ] ]))
+        (Text "2")
+    , Text ","
+    , Text " foo"
+    , Code
+        "typ/math/frac-06.typ"
+        ( line 3 , column 36 )
+        (FieldAccess
+           (Ident (Identifier "l"))
+           (FieldAccess
+              (Ident (Identifier "double")) (Ident (Identifier "bracket"))))
+    , Text "x"
+    , MFrac
+        (Code
+           "typ/math/frac-06.typ"
+           ( line 3 , column 39 )
+           (FieldAccess
+              (Ident (Identifier "r"))
+              (FieldAccess
+                 (Ident (Identifier "double")) (Ident (Identifier "bracket")))))
+        (Text "2")
+    , HardBreak
+    , MFrac (Text "1.2") (Text "3.7")
+    , Text ","
+    , MAttach Nothing (Just (Text "3.4")) (Text "2.3")
+    , HardBreak
+    , Text "\127987"
+    , Text "\65039"
+    , Text "\8205"
+    , Text "\127752"
+    , MFrac (MGroup (Just "[") (Just "]") [ Text "x" ]) (Text "2")
+    , Text ","
+    , Text "f"
+    , MFrac (MGroup (Just "[") (Just "]") [ Text "x" ]) (Text "2")
+    , Text ","
+    , Code
+        "typ/math/frac-06.typ"
+        ( line 5 , column 23 )
+        (Ident (Identifier "phi"))
+    , MFrac (MGroup (Just "[") (Just "]") [ Text "x" ]) (Text "2")
+    , Text ","
+    , Text "\127987"
+    , Text "\65039"
+    , Text "\8205"
+    , Text "\127752"
+    , MFrac (MGroup (Just "[") (Just "]") [ Text "x" ]) (Text "2")
+    , HardBreak
+    , Text "+"
+    , MFrac (MGroup (Just "[") (Just "]") [ Text "x" ]) (Text "2")
+    , Text ","
+    , Text "1"
+    , MFrac (MGroup (Just "(") (Just ")") [ Text "x" ]) (Text "2")
+    , Text ","
+    , Text "2"
+    , MFrac (MGroup (Just "[") (Just "]") [ Text "x" ]) (Text "2")
+    , MGroup
+        Nothing
+        Nothing
+        [ HardBreak , MGroup (Just "(") (Just ")") [ Text "a" ] ]
+    , MFrac (Text "b") (Text "2")
+    , Text ","
+    , MGroup
+        Nothing
+        Nothing
+        [ Text "b" , MGroup (Just "(") (Just ")") [ Text "a" ] ]
+    , MFrac (MGroup (Just "[") (Just "]") [ Text "b" ]) (Text "2")
+    ]
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 math.equation(block: true, 
+                               body: { math.frac(denom: math.attach(b: text(body: [2]), 
+                                                                    base: text(body: [b]), 
+                                                                    t: none), 
+                                                 num: math.attach(b: text(body: [1]), 
+                                                                  base: text(body: [a]), 
+                                                                  t: none)), 
+                                       text(body: [,]), 
+                                       math.frac(denom: { text(body: [f]), 
+                                                          math.lr(body: ({ [(], 
+                                                                           text(body: [x]), 
+                                                                           [)] })) }, 
+                                                 num: text(body: [1])), 
+                                       text(body: [,]), 
+                                       math.frac(denom: text(body: [2]), 
+                                                 num: { text(body: [ζ]), 
+                                                        text(body: [(]), 
+                                                        text(body: [x]), 
+                                                        text(body: [)]) }), 
+                                       text(body: [,]), 
+                                       text(body: [ foo]), 
+                                       text(body: [⟦]), 
+                                       text(body: [x]), 
+                                       math.frac(denom: text(body: [2]), 
+                                                 num: text(body: [⟧])), 
+                                       linebreak(), 
+                                       math.frac(denom: text(body: [3.7]), 
+                                                 num: text(body: [1.2])), 
+                                       text(body: [,]), 
+                                       math.attach(b: none, 
+                                                   base: text(body: [2.3]), 
+                                                   t: text(body: [3.4])), 
+                                       linebreak(), 
+                                       text(body: [🏳]), 
+                                       text(body: [️]), 
+                                       text(body: [‍]), 
+                                       text(body: [🌈]), 
+                                       math.frac(denom: text(body: [2]), 
+                                                 num: math.lr(body: ({ [[], 
+                                                                       text(body: [x]), 
+                                                                       []] }))), 
+                                       text(body: [,]), 
+                                       text(body: [f]), 
+                                       math.frac(denom: text(body: [2]), 
+                                                 num: math.lr(body: ({ [[], 
+                                                                       text(body: [x]), 
+                                                                       []] }))), 
+                                       text(body: [,]), 
+                                       text(body: [φ]), 
+                                       math.frac(denom: text(body: [2]), 
+                                                 num: math.lr(body: ({ [[], 
+                                                                       text(body: [x]), 
+                                                                       []] }))), 
+                                       text(body: [,]), 
+                                       text(body: [🏳]), 
+                                       text(body: [️]), 
+                                       text(body: [‍]), 
+                                       text(body: [🌈]), 
+                                       math.frac(denom: text(body: [2]), 
+                                                 num: math.lr(body: ({ [[], 
+                                                                       text(body: [x]), 
+                                                                       []] }))), 
+                                       linebreak(), 
+                                       text(body: [+]), 
+                                       math.frac(denom: text(body: [2]), 
+                                                 num: math.lr(body: ({ [[], 
+                                                                       text(body: [x]), 
+                                                                       []] }))), 
+                                       text(body: [,]), 
+                                       text(body: [1]), 
+                                       math.frac(denom: text(body: [2]), 
+                                                 num: text(body: [x])), 
+                                       text(body: [,]), 
+                                       text(body: [2]), 
+                                       math.frac(denom: text(body: [2]), 
+                                                 num: math.lr(body: ({ [[], 
+                                                                       text(body: [x]), 
+                                                                       []] }))), 
+                                       linebreak(), 
+                                       math.lr(body: ({ [(], 
+                                                        text(body: [a]), 
+                                                        [)] })), 
+                                       math.frac(denom: text(body: [2]), 
+                                                 num: text(body: [b])), 
+                                       text(body: [,]), 
+                                       text(body: [b]), 
+                                       math.lr(body: ({ [(], 
+                                                        text(body: [a]), 
+                                                        [)] })), 
+                                       math.frac(denom: text(body: [2]), 
+                                                 num: math.lr(body: ({ [[], 
+                                                                       text(body: [b]), 
+                                                                       []] }))) }, 
+                               numbering: none), 
+                 parbreak() })

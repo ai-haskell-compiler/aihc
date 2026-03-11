@@ -1,0 +1,16 @@
+cradle:
+  multi:
+    - path: "appA"
+      config:
+        cradle:
+          cabal:
+            - path: appA/src
+              component: appA:lib
+              cabalProject: cabal.project.extra
+    - path: "appB"
+      config:
+        cradle:
+          cabal:
+            - path: appB/src
+              component: appB:lib
+              cabalProject: cabal.project.extra

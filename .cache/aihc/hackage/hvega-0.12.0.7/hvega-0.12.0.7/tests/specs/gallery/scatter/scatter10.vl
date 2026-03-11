@@ -1,0 +1,54 @@
+{
+    "$schema": "https://vega.github.io/schema/vega-lite/v4.json",
+    "data": {
+        "url": "https://vega.github.io/vega-lite/data/disasters.csv"
+    },
+    "description": "Visualization of global deaths from natural disasters. Copy of chart from https://ourworldindata.org/natural-catastrophes",
+    "encoding": {
+        "color": {
+            "field": "Entity",
+            "legend": null,
+            "type": "nominal"
+        },
+        "size": {
+            "field": "Deaths",
+            "legend": {
+                "title": "Annual Global Deaths"
+            },
+            "scale": {
+                "range": [
+                    0,
+                    5000
+                ]
+            },
+            "type": "quantitative"
+        },
+        "x": {
+            "axis": {
+                "labelAngle": 0
+            },
+            "field": "Year",
+            "type": "ordinal"
+        },
+        "y": {
+            "axis": {
+                "title": null
+            },
+            "field": "Entity",
+            "type": "nominal"
+        }
+    },
+    "height": 400,
+    "mark": {
+        "opacity": 0.8,
+        "stroke": "black",
+        "strokeWidth": 1,
+        "type": "circle"
+    },
+    "transform": [
+        {
+            "filter": "datum.Entity !== 'All natural disasters'"
+        }
+    ],
+    "width": 600
+}

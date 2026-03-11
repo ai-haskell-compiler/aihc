@@ -1,0 +1,125 @@
+--- parse tree ---
+[ Code
+    "typ/math/cancel-02.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/math/cancel-02.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/math/cancel-02.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Comment
+, Equation
+    False
+    [ Text "a"
+    , Text "+"
+    , Code
+        "typ/math/cancel-02.typ"
+        ( line 3 , column 6 )
+        (FuncCall
+           (Ident (Identifier "cancel"))
+           [ BlockArg [ Text "x" ]
+           , KeyValArg (Identifier "inverted") (Literal (Boolean True))
+           ])
+    , Code
+        "typ/math/cancel-02.typ"
+        ( line 3 , column 33 )
+        (Ident (Identifier "minus"))
+    , Code
+        "typ/math/cancel-02.typ"
+        ( line 3 , column 35 )
+        (FuncCall
+           (Ident (Identifier "cancel"))
+           [ BlockArg [ Text "x" ]
+           , KeyValArg (Identifier "inverted") (Literal (Boolean True))
+           ])
+    , Text "+"
+    , Text "10"
+    , Text "+"
+    , Code
+        "typ/math/cancel-02.typ"
+        ( line 3 , column 69 )
+        (FuncCall (Ident (Identifier "cancel")) [ BlockArg [ Text "y" ] ])
+    , Code
+        "typ/math/cancel-02.typ"
+        ( line 3 , column 79 )
+        (Ident (Identifier "minus"))
+    , Code
+        "typ/math/cancel-02.typ"
+        ( line 3 , column 81 )
+        (FuncCall (Ident (Identifier "cancel")) [ BlockArg [ Text "y" ] ])
+    ]
+, SoftBreak
+, Equation
+    True
+    [ Text "x"
+    , Text "+"
+    , Code
+        "typ/math/cancel-02.typ"
+        ( line 4 , column 7 )
+        (FuncCall
+           (Ident (Identifier "cancel"))
+           [ BlockArg [ Text "abcdefg" ]
+           , KeyValArg (Identifier "inverted") (Literal (Boolean True))
+           ])
+    ]
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 math.equation(block: false, 
+                               body: { text(body: [a]), 
+                                       text(body: [+]), 
+                                       math.cancel(body: text(body: [x]), 
+                                                   inverted: true), 
+                                       text(body: [−]), 
+                                       math.cancel(body: text(body: [x]), 
+                                                   inverted: true), 
+                                       text(body: [+]), 
+                                       text(body: [10]), 
+                                       text(body: [+]), 
+                                       math.cancel(body: text(body: [y])), 
+                                       text(body: [−]), 
+                                       math.cancel(body: text(body: [y])) }, 
+                               numbering: none), 
+                 text(body: [
+]), 
+                 math.equation(block: true, 
+                               body: { text(body: [x]), 
+                                       text(body: [+]), 
+                                       math.cancel(body: text(body: [abcdefg]), 
+                                                   inverted: true) }, 
+                               numbering: none), 
+                 parbreak() })

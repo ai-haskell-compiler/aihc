@@ -1,0 +1,235 @@
+{
+    "$schema": "https://vega.github.io/schema/vega-lite/v4.json",
+    "config": {
+        "style": {
+            "arrow-label": {
+                "dy": 12,
+                "fontSize": 9.5
+            },
+            "arrow-label2": {
+                "dy": 24,
+                "fontSize": 9.5
+            }
+        },
+        "title": {
+            "fontSize": 12
+        },
+        "view": {
+            "stroke": "transparent"
+        }
+    },
+    "data": {
+        "values": [
+            {
+                "hi": 2.37,
+                "lo": 1.255,
+                "mean": 1.813,
+                "measure": "Open Exploration",
+                "study": "PoleStar vs Voyager"
+            },
+            {
+                "hi": -1.05,
+                "lo": -2.325,
+                "mean": -1.688,
+                "measure": "Focused Question Answering",
+                "study": "PoleStar vs Voyager"
+            },
+            {
+                "hi": 2.71,
+                "lo": 1.665,
+                "mean": 2.1875,
+                "measure": "Open Exploration",
+                "study": "PoleStar vs Voyager 2"
+            },
+            {
+                "hi": 0.349,
+                "lo": -0.474,
+                "mean": -6.25e-2,
+                "measure": "Focused Question Answering",
+                "study": "PoleStar vs Voyager 2"
+            }
+        ]
+    },
+    "spacing": 10,
+    "vconcat": [
+        {
+            "encoding": {
+                "y": {
+                    "axis": {
+                        "domain": false,
+                        "grid": false,
+                        "labelPadding": 5,
+                        "ticks": false,
+                        "title": null
+                    },
+                    "field": "study",
+                    "type": "nominal"
+                }
+            },
+            "layer": [
+                {
+                    "encoding": {
+                        "x": {
+                            "axis": {
+                                "gridColor": {
+                                    "condition": {
+                                        "test": "datum.value === 0",
+                                        "value": "#666"
+                                    },
+                                    "value": "#CCC"
+                                },
+                                "gridDash": [
+                                    3,
+                                    3
+                                ],
+                                "title": ""
+                            },
+                            "field": "lo",
+                            "scale": {
+                                "domain": [
+                                    -3,
+                                    3
+                                ]
+                            },
+                            "type": "quantitative"
+                        },
+                        "x2": {
+                            "field": "hi"
+                        }
+                    },
+                    "mark": "rule"
+                },
+                {
+                    "encoding": {
+                        "color": {
+                            "field": "measure",
+                            "legend": null,
+                            "scale": {
+                                "range": [
+                                    "black",
+                                    "white"
+                                ]
+                            },
+                            "type": "nominal"
+                        },
+                        "x": {
+                            "field": "mean",
+                            "type": "quantitative"
+                        }
+                    },
+                    "mark": {
+                        "opacity": 1,
+                        "stroke": "black",
+                        "type": "circle"
+                    }
+                }
+            ],
+            "title": {
+                "frame": "bounds",
+                "text": "Mean of Subject Ratings (95% CIs)"
+            }
+        },
+        {
+            "data": {
+                "values": [
+                    {
+                        "from": -0.25,
+                        "label": "PoleStar",
+                        "to": -2.9
+                    },
+                    {
+                        "from": 0.25,
+                        "label": "Voyager / Voyager 2",
+                        "to": 2.9
+                    }
+                ]
+            },
+            "layer": [
+                {
+                    "encoding": {
+                        "x": {
+                            "axis": null,
+                            "field": "from",
+                            "scale": {
+                                "zero": false
+                            },
+                            "type": "quantitative"
+                        },
+                        "x2": {
+                            "field": "to"
+                        }
+                    },
+                    "mark": "rule"
+                },
+                {
+                    "encoding": {
+                        "shape": {
+                            "condition": {
+                                "test": "datum.to > 0",
+                                "value": "triangle-right"
+                            },
+                            "value": "triangle-left"
+                        },
+                        "x": {
+                            "axis": null,
+                            "field": "to",
+                            "type": "quantitative"
+                        }
+                    },
+                    "mark": {
+                        "fill": "black",
+                        "filled": true,
+                        "size": 60,
+                        "type": "point"
+                    }
+                },
+                {
+                    "encoding": {
+                        "x": {
+                            "axis": null,
+                            "field": "from",
+                            "type": "quantitative"
+                        }
+                    },
+                    "mark": {
+                        "align": "right",
+                        "style": "arrow-label",
+                        "text": [
+                            "Polestar",
+                            "More Valuable"
+                        ],
+                        "type": "text"
+                    },
+                    "transform": [
+                        {
+                            "filter": "datum.label === 'PoleStar'"
+                        }
+                    ]
+                },
+                {
+                    "encoding": {
+                        "x": {
+                            "axis": null,
+                            "field": "from",
+                            "type": "quantitative"
+                        }
+                    },
+                    "mark": {
+                        "align": "left",
+                        "style": "arrow-label",
+                        "text": [
+                            "Voyager / Voyager 2",
+                            "More Valuable"
+                        ],
+                        "type": "text"
+                    },
+                    "transform": [
+                        {
+                            "filter": "datum.label !== 'PoleStar'"
+                        }
+                    ]
+                }
+            ]
+        }
+    ]
+}

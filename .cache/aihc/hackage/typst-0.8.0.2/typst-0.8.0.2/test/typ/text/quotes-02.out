@@ -1,0 +1,99 @@
+--- parse tree ---
+[ Code
+    "typ/text/quotes-02.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/text/quotes-02.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/text/quotes-02.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Comment
+, Text "The"
+, Space
+, Text "5"
+, Quote '\''
+, Text "11"
+, Quote '"'
+, Space
+, Quote '\''
+, Text "quick"
+, Quote '\''
+, Space
+, Text "brown"
+, Space
+, Text "fox"
+, Space
+, Text "jumps"
+, Space
+, Text "over"
+, Space
+, Text "the"
+, Space
+, Quote '"'
+, Text "lazy"
+, Quote '"'
+, Space
+, Text "dog"
+, Quote '\''
+, Text "s"
+, Space
+, Text "ear"
+, Text "."
+, ParBreak
+, Text "He"
+, Space
+, Text "said"
+, Space
+, Quote '"'
+, Text "I"
+, Quote '\''
+, Text "m"
+, Space
+, Text "a"
+, Space
+, Text "big"
+, Space
+, Text "fella"
+, Text "."
+, Quote '"'
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 text(body: [The 5’11” ‘quick” brown fox jumps over the “lazy” dog’s ear.]), 
+                 parbreak(), 
+                 text(body: [He said “I’m a big fella.”]), 
+                 parbreak() })

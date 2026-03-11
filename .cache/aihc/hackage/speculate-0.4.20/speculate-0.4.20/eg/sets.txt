@@ -1,0 +1,81 @@
+max expr size  =    5
+  |- on ineqs  =    4
+  |- on conds  =    4
+max  #-tests   =  500
+min  #-tests   =   25  (to consider p ==> q true)
+max  #-vars    =    2  (for inequational and conditional laws)
+
+_ :: Bool
+_ :: Int
+_ :: Set Int
+emptyS :: Set Int
+singleS :: Int -> Set Int
+insertS :: Int -> Set Int -> Set Int
+deleteS :: Int -> Set Int -> Set Int
+sizeS :: Set Int -> Int
+(<~) :: Int -> Set Int -> Bool
+(\/) :: Set Int -> Set Int -> Set Int
+(/\) :: Set Int -> Set Int -> Set Int
+False :: Bool
+True :: Bool
+(==) :: Bool -> Bool -> Bool
+(==) :: Int -> Int -> Bool
+(==) :: Set Int -> Set Int -> Bool
+
+                  x <~ emptyS == False
+               x <~ singleS x == True
+        (emptyS == singleS x) == False
+             x <~ insertS x s == True
+             x <~ deleteS x s == False
+      (emptyS == insertS x s) == False
+                     (x == y) == x <~ singleS y
+           (s == insertS x s) == x <~ s
+               x <~ singleS y == y <~ singleS x
+     (singleS x == singleS y) == x <~ singleS y
+                (s /\ t == s) == (t == s \/ t)
+           (s == deleteS x s) == (False == x <~ s)
+            sizeS (singleS x) == sizeS (singleS y)
+sizeS (deleteS x (singleS y)) == sizeS (deleteS y (singleS x))
+                       s \/ s == s
+                       s /\ s == s
+                  s \/ emptyS == s
+             deleteS x emptyS == emptyS
+                  s /\ emptyS == emptyS
+             insertS x emptyS == singleS x
+        deleteS x (singleS x) == emptyS
+                       s \/ t == t \/ s
+                       s /\ t == t /\ s
+             s \/ deleteS x s == s
+                s \/ (s /\ t) == s
+             s /\ insertS x s == s
+                s /\ (s \/ t) == s
+        insertS x (singleS x) == singleS x
+               s \/ singleS x == insertS x s
+      insertS x (insertS x s) == insertS x s
+      deleteS x (deleteS x s) == deleteS x s
+      insertS x (deleteS x s) == insertS x s
+      deleteS x (insertS x s) == deleteS x s
+        insertS x (singleS y) == insertS y (singleS x)
+      insertS x (insertS y s) == insertS y (insertS x s)
+      deleteS x (deleteS y s) == deleteS y (deleteS x s)
+                (s \/ t) \/ u == s \/ (t \/ u)
+                (s /\ t) /\ u == s /\ (t /\ u)
+             s \/ insertS x t == insertS x (s \/ t)
+             s /\ deleteS x t == deleteS x (s /\ t)
+
+          s == singleS x ==> x <~ s
+            sizeS emptyS <=  sizeS s
+                 sizeS s <=  sizeS (insertS x s)
+                 sizeS s <=  sizeS (s \/ t)
+     sizeS (deleteS x s) <=  sizeS s
+          sizeS (s /\ t) <=  sizeS s
+       sizeS (singleS x) <=  sizeS (insertS y s)
+     sizeS (deleteS x s) <=  sizeS (t \/ s)
+                  emptyS <=  s
+   deleteS x (singleS y) <=  singleS y
+          s /\ singleS x <=  singleS x
+  singleS (sizeS emptyS) <=  singleS (sizeS s)
+insertS (sizeS emptyS) s <=  singleS (sizeS s)
+insertS (sizeS emptyS) s <=  singleS (sizeS (singleS x))
+
+

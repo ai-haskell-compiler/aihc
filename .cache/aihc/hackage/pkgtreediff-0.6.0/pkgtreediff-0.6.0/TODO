@@ -1,0 +1,14 @@
+- keep subdir prefices
+
+- compare buildsys list-tagged packages...
+- compare with installed packages (--installed?)
+- deb trees?
+- compare container images, ostrees
+- --ignore-disttag
+- massage fedora mirror urls
+- support epochs in file package list
+- diff isos
+- "--query-format"
+- more tests
+
+- diff via repoquery

@@ -1,0 +1,12 @@
+Haskell bidirectional arrows, bijective functions, and invariant functors
+
+Representations and operations for bidirectional arrows (total isomorphisms: an
+arrow paired with its inverse).  Classes for invariant functors and monoidal
+functors.  Includes a number of useful bijections and operations, as well as
+interoperability with related packages.
+
+See also: semigroupoids, TypeCompose, lens, semi-iso, partial-isomorphisms, and
+Piso packages.
+
+Artem Alimarine, et al. There and Back Again: Arrows for Invertible
+  Programming. Haskell '05.

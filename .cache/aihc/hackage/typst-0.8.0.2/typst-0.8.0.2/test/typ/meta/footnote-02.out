@@ -1,0 +1,114 @@
+--- parse tree ---
+[ Code
+    "typ/meta/footnote-02.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/meta/footnote-02.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/meta/footnote-02.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Comment
+, Text "First"
+, Space
+, HardBreak
+, Text "Second"
+, Space
+, Code
+    "typ/meta/footnote-02.typ"
+    ( line 4 , column 9 )
+    (FuncCall
+       (Ident (Identifier "footnote"))
+       [ BlockArg
+           [ Text "A,"
+           , Space
+           , Code
+               "typ/meta/footnote-02.typ"
+               ( line 4 , column 22 )
+               (FuncCall
+                  (Ident (Identifier "footnote"))
+                  [ BlockArg
+                      [ Text "B,"
+                      , Space
+                      , Code
+                          "typ/meta/footnote-02.typ"
+                          ( line 4 , column 35 )
+                          (FuncCall
+                             (Ident (Identifier "footnote")) [ BlockArg [ Text "C" ] ])
+                      ]
+                  ])
+           ]
+       ])
+, Space
+, HardBreak
+, Text "Third"
+, Space
+, Code
+    "typ/meta/footnote-02.typ"
+    ( line 5 , column 8 )
+    (FuncCall
+       (Ident (Identifier "footnote"))
+       [ BlockArg
+           [ Text "D,"
+           , Space
+           , Code
+               "typ/meta/footnote-02.typ"
+               ( line 5 , column 21 )
+               (FuncCall
+                  (Ident (Identifier "footnote")) [ BlockArg [ Text "E" ] ])
+           ]
+       ])
+, Space
+, HardBreak
+, Text "Fourth"
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 text(body: [First ]), 
+                 linebreak(), 
+                 text(body: [Second ]), 
+                 footnote(body: { text(body: [A, ]), 
+                                  footnote(body: { text(body: [B, ]), 
+                                                   footnote(body: text(body: [C])) }) }), 
+                 text(body: [ ]), 
+                 linebreak(), 
+                 text(body: [Third ]), 
+                 footnote(body: { text(body: [D, ]), 
+                                  footnote(body: text(body: [E])) }), 
+                 text(body: [ ]), 
+                 linebreak(), 
+                 text(body: [Fourth]), 
+                 parbreak() })

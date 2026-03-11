@@ -1,0 +1,263 @@
+0.10.2, 2021-11-10:
+	Relaxed transformers-compat version bound.
+
+	Supported Win32 2.12.0.0 or higher.
+
+0.10.1, 2020-07-19:
+	Updated code and dependencies to support dlist-1.0.
+
+	Cabal-Version minimum bumped to 1.10 as Hackage now rejects older minima.
+
+0.10.0, 2018-12-19:
+	Bug fix: "**/" matched hidden directories in some scenarios even when
+	         matchDotsImplicitly was set to False.
+	         Thanks to Travis Sunderland for the report as well as the fix.
+
+0.9.3, 2018-09-22:
+	Updated dependencies to allow containers-0.7 (GHC 8.6). Thanks to
+	chessai for the merge request.
+
+	Updated tests to compile with GHC 8.6.
+
+0.9.2, 2018-02-26:
+	Updated dependencies to allow transformers-compat-0.6.
+
+0.9.1, 2017-11-04:
+	Made Tests.Utils use Ints instead of Floats to avoid spurious failures
+	that aren't of any concern.
+
+	Updated test dependencies to allow HUnit-1.6.
+
+0.9.0, 2017-10-01:
+	Thanks to Harry Garrood for many contributions to this release.
+
+	New functions, data types, and constants:
+		System.FilePath.Glob.isLiteral :: Pattern -> Bool
+			Tells whether a Pattern is a literal file path.
+
+			Thanks to Simon Hengel and Harry Garrood for the
+			feature request.
+
+		System.FilePath.Glob.GlobOptions
+			Options for the glob* family of IO functions.
+
+		System.FilePath.Glob.globDefault :: GlobOptions
+			Use matchDefault and don't return unmatched files.
+
+
+	Changed function types:
+		System.FilePath.Glob.globDir :: [Pattern] -> FilePath -> IO [[FilePath]]
+			No longer returns unmatched paths, like globDir1.
+
+		System.FilePath.Glob.globDirWith :: GlobOptions -> [Pattern] -> FilePath -> IO ([[FilePath]], Maybe [FilePath])
+			Takes GlobOptions instead of MatchOptions, and returns
+			unmatched paths in a Maybe corresponding to whether they
+			were requested in the options or not.
+
+			This is a significant performance boost for all glob*
+			functions when unmatched file paths are not desired.
+
+	Optimization: when unmatched file paths are not requested, glob and
+	              globDir1 use commonDirectory to avoid extra
+	              getDirectoryContents calls at the start.
+	Optimization: character ranges containing . or / are simplified more
+	              than before, especially when they make the entire pattern
+	              incapable of matching anything.
+	Optimization: extension separator matching where the extension is
+	              surrounded by other literals (e.g. "*.txt" or "foo.*" or
+	              simply "foo.txt") should be quicker in general, and the
+	              Patterns should be smaller. (This adds to the number of
+	              places where the code assumes that the extension separator
+	              is the '.' character.)
+
+	Bug fix: commonDirectory should no longer add extra directory separators
+	         to the Pattern.
+	Bug fix: the glob* functions should now place slashes correctly when
+	         using recursively matching patterns with extra slashes, such as
+	         "**//foo".
+	Bug fix: number ranges are no longer optimized to single characters, so
+	         that leading zeroes are handled correctly: e.g. "<0-9>" didn't
+	         match "007".
+	Bug fix: "//" did not match itself.
+	Bug fix: ".//" did not match itself.
+	Bug fix: "x" did not match ".//x" (with ignoreDotSlash enabled).
+	Bug fix: "<-><->" matched single digit numbers.
+	Bug fix: "<0-0><1-1>" didn't match "01".
+
+0.8.0, 2017-05-27:
+        Added instance IsString Pattern, thanks to Mitsutoshi Aoe.
+
+0.7.14, 2016-12-29:
+	Update dependencies to allow directory-1.3.
+
+0.7.13, 2016-11-25:
+	Update test dependencies to allow HUnit-1.5.
+
+0.7.12, 2016-10-07:
+	Update test dependencies to allow HUnit-1.4.
+
+0.7.11, 2016-08-08:
+	Got rid of tests/Utils.hs to fix test compilation on case-insensitive
+	filesystems (tests/Utils.hs vs tests/Tests/Utils.hs).
+
+0.7.10, 2016-07-18:
+	Update dependencies to allow dlist-0.8.
+
+0.7.9, 2016-07-02:
+	Add missing Utils module to test suite, so that the tests provided with
+	the sdist tarball actually run.
+
+0.7.8, 2016-07-01:
+	Add dependency on transformers-compat to allow using
+	Control.Monad.Trans.Except also with older library versions.
+
+0.7.7, 2016-06-28:
+	Update test dependencies to allow HUnit-1.3.
+
+0.7.6, 2016-06-28:
+	Update dependencies to allow filepath-1.4.
+
+	Added Cabal Source-Repository metadata, pointing to GitHub.
+
+	Integrated tests with Cabal so that they can be run with "cabal test".
+
+	Got rid of deprecation warnings by using Control.Monad.Trans.Except
+	instead of Control.Monad.Trans.Error.
+
+	Added Semigroup instance, bringing in a new dependency on semigroups on
+	pre-8.0 GHC versions.
+
+0.7.5, 2014-05-08:
+	Update dependencies to allow transformers-0.4.
+
+0.7.4, 2014-03-18:
+	Update dependencies to allow dlist-0.7.
+
+0.7.3, 2013-12-01:
+	Update dependencies to allow dlist-0.6.
+
+0.7.2, 2012-10-18:
+	Update dependencies to allow directory-1.2.
+
+0.7.1, 2012-07-03:
+	Update dependencies to allow transformers-0.3, and generally tighten
+	them according to the policy.
+
+0.7, 2012-01-03:
+	Changed function types:
+		System.FilePath.Glob.glob :: String -> IO [FilePath]
+			Now takes a String to be compiled instead of an already-compiled
+			Pattern.
+
+	Added a README and more basic usage documentation.
+
+0.6.1, 2011-09-14:
+	Bug fix: globDir should now ignore the given directory when given an
+	         absolute path on Windows.
+
+	Doc fix: noted that globDir doesn't actually fully ignore the given
+	         directory if the Pattern starts with a path separator.
+
+0.6, 2011-09-12:
+	New functions:
+		System.FilePath.Glob.glob :: Pattern -> IO [FilePath]
+
+	Change: globDir, given a Pattern starting with a path separator, now ignores
+			  the given directory. Thus e.g. globDir (compile "/*") d gives the
+			  contents of "/" regardless of the value of d.
+
+			  Thanks to Max Bolingbroke for the feature request.
+
+	Changed dependency on mtl to transformers.
+
+0.5.1, 2010-11-23:
+	Update dependencies to allow for mtl 2.0.
+
+0.5, 2009-12-01:
+	New functions:
+		System.FilePath.Glob.globDir :: Pattern -> FilePath -> IO [FilePath]
+
+0.4, 2009-01-31:
+	New functions:
+		System.FilePath.Glob.commonDirectory :: Pattern -> (FilePath, Pattern)
+
+		System.FilePath.Glob.simplify  :: Pattern -> Pattern
+		System.FilePath.Glob.decompile :: Pattern -> String
+
+		System.FilePath.Glob.tryCompileWith :: CompOptions -> String -> Either String Pattern
+		System.FilePath.Glob.compileWith    :: CompOptions -> String -> Pattern
+		System.FilePath.Glob.compDefault    :: CompOptions
+		System.FilePath.Glob.compPosix      :: CompOptions
+
+		System.FilePath.Glob.matchWith     :: MatchOptions -> Pattern -> FilePath -> Bool
+		System.FilePath.Glob.globDirWith   :: MatchOptions -> [Pattern] -> FilePath -> IO ([[FilePath]], [FilePath])
+		System.FilePath.Glob.matchDefault  :: MatchOptions
+		System.FilePath.Glob.matchPosix    :: MatchOptions
+
+		System.FilePath.Glob.Primitives.literal           :: String -> Pattern
+		System.FilePath.Glob.Primitives.singleWildcard    :: Pattern
+		System.FilePath.Glob.Primitives.wildcard          :: Pattern
+		System.FilePath.Glob.Primitives.recursiveWildcard :: Pattern
+		System.FilePath.Glob.Primitives.charRange         :: Bool -> [Either Char (Char,Char)] -> Pattern
+		System.FilePath.Glob.Primitives.numberRange       :: Maybe Integer -> Maybe Integer -> Pattern
+
+	Removed functions:
+		System.FilePath.Glob.tryCompile (no longer needed / superceded by tryCompileWith)
+
+	New instances:
+		Monoid Pattern
+		Read Pattern
+
+	Change: ".." can now be matched, by patterns such as ".*".
+	Change: globDir, given "" as the directory, uses getCurrentDirectory.
+	Change: globDir now keeps track of the number of path separators, thus
+	        "a//*" will return "a//b" instead of "a/b" as a match result.
+	Change: if character ranges begin with ! or ^, these characters are now
+	        considered the start of the range: [^-~] is the range ^ through ~,
+	        not the inverse of [-~].
+
+	Regression fix: handle directories without read permissions even more
+	                properly.
+
+	Bug fix: globDir doesn't convert patterns like "a./b" to "ab".
+	Bug fix: the Show instance used to show "[?]" as the very different "?" (and
+	         a few similar cases).
+	Bug fix: "//./" wasn't getting optimized properly.
+	Bug fix: ".//a" matched "/a" and not "a" or "./a".
+	Bug fix: "f**/a" didn't match "foo/a".
+	Bug fix: ".**/a" didn't match ".foo/a".
+	Bug fix: ".**/a" matched "../a".
+	Bug fixes: globDir and match, in general, handled patterns starting with
+	           ".*" or ".**/" quite differently.
+	Bug fix: globDir never matched "foo/" to the directory "foo".
+	Bug fix: globDir never matched "foo**/" to the directory "foo".
+	Bug fix: show (compile "[a!b]") resulted in "[!ab]".
+
+0.3.2, 2008-12-20:
+	Regression fix: handle directories without read permissions properly.
+
+	Convenience for developers: -XTemplateHaskell no longer barfs on
+	Compile.hs.
+
+0.3.1, 2008-10-31:
+	Corrected the Cabal-Version field.
+
+0.3, 2008-10-19:
+	Further performance improvements to globDir.
+	Bug fix: handle empty pattern lists correctly in globDir.
+	Added dependency: Win32, for Windows OSs.
+
+0.2, 2008-10-18:
+	Performance improvements to globDir, no functionality changes.
+	Added dependency: dlist.
+
+0.1, 2008-10-17:
+	Initial release.
+
+	Functions:
+		System.FilePath.Glob.tryCompile :: String -> Either String Pattern
+		System.FilePath.Glob.compile    :: String -> Pattern
+		System.FilePath.Glob.match      :: Pattern -> FilePath -> Bool
+		System.FilePath.Glob.globDir    :: [Pattern] -> FilePath -> IO ([[FilePath]], [FilePath])
+
+	Dependencies: base, containers, directory, filepath, mtl.

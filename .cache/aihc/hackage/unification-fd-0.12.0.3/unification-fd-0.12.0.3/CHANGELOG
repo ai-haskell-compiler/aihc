@@ -1,0 +1,91 @@
+0.12.0.3 (2026-02-26):
+    - Updated version upper-bounds for GHC 9.14
+0.12.0.2 (2025-02-11):
+    - Updated version upper-bounds for GHC 9.12
+0.12.0.1 (2024-11-26):
+    - Nudged the version upper bound for logict
+0.12.0 (2024-08-30):
+    - Switched to using data-fix, which causes several breaking changes.
+      * The oldest supported GHC is now 8.6.1 (September 2018).
+      * Several functions exported from "Data.Functor.Fixedpoint" are now deprecated, with error messages indicating the data-fix function to use instead.
+      * The "Data.Functor.Fixedpoint" module used to have several rewrite rules for fusing various functions (to avoid redundant traversal of data structures); but all of these are no longer active.  If this introduces any performance regressions for you, please let the maintainer know.
+
+0.11.2.3 (2024-08-29):
+    - Updated version lower-bounds, to fix https://github.com/wrengr/unification-fd/issues/71
+0.11.2.2 (2024-08-28):
+    - Updated version upper-bounds for GHC 9.10, and logict-0.8.1
+0.11.2.1 (2022-08-28):
+    - Updated verion bounds for GHC 9.4
+0.11.2 (2022-05-25):
+    - Adjusted Applicative/Monad instances to avoid warnings on GHC 9.2
+      due to <https://gitlab.haskell.org/ghc/ghc/-/wikis/proposal/monad-of-no-return>
+    - Adjusted Alternative/MonadPlus similarly, though not strictly required.
+    - Adjusted the CPP version guard for importing Data.Monoid.(<>)
+      in Control.Unification.Types, to remove an unused-imports warning
+      on GHC 8.8
+    - Relaxed upper bound on logict
+      <https://github.com/commercialhaskell/stackage/issues/6569>
+0.11.1.1 (2021-11-02):
+    - Added `Tested-With: GHC == 9.2.1` (didn't actually need to
+      nudge the upper bound on 'base', because it's already lenient)
+0.11.1 (2021-02-24):
+    - Migrating from TravisCI to GithubActions
+    - Properly fixed the logict-0.7.1 issue.
+0.11.0 (2021-02-23):
+    - Made Unifiable derivable whenever we have a Generic1 instance.
+      (h/t/ Roman Cheplyaka)
+    - Removed the Alternative/MonadPlus instances for UTerm, because
+      they're unlawful.
+    - Added NOINLINE for Fix's Eq and Ord instances, to avoid an
+      inliner bug affecting GHC 8.0.1 and 8.0.2 (fixed in 8.0.3)
+      <https://ghc.haskell.org/trac/ghc/ticket/13081>
+    - HOTFIX: added logict < 0.7.1 upper bound to avoid breakage.
+      Will add a proper fix in the future. For more details see,
+      <https://github.com/Bodigrim/logict/issues/20#issuecomment-774528439>
+0.10.0.1 (2015-05-30):
+    - Moved VERSION to CHANGELOG
+0.10.0 (2015-03-29):
+    - Cleaned up things to compile cleanly for GHC 7.10
+    - Cleaned up deprecation warnings re Control.Monad.Error
+    - Control.Monad.EitherK: liberalized Monad restriction to
+      Applicative where possible.
+    - Control.Monad.MaybeK: liberalized Monad restriction to
+      Applicative where possible.
+    - Control.Unification.Types: Completely revamped the old
+      UnificationFailure data type as the new UFailure data type
+      and Fallible type class.
+0.9.0 (2014-06-03):
+    - Control.Unification.Types: changed the fundeps on BindingMonad
+      and RankedBindingMonad so that things compile under GHC 7.8.2
+    - Data.Functor.Fixedpoint: eta-expanded RULES to avoid GHC >=
+      7.8 warnings about them potentially not firing due to (.)
+      being inlined first.
+0.8.1 (2014-05-27):
+    - Control.Unification.Types: added Functor, Foldable, and
+      Traversable instances for UnificationFailure. (h/t Graham Rogers)
+0.8.0 (2012-07-11):
+    - Control.Unification.Types: Changed the type of Unifiable.zipMatch
+0.7.0 (2012-03-19):
+    - Renamed MutTerm to UTerm (and MutVar to UVar)
+    - Replaced the Variable.eqVar method by plain old Eq.(==)
+    - Control.Unification: added getFreeVarsAll, applyBindingsAll,
+      freshenAll
+    - Swapped type argument order for MutTerm, so that it can be a
+      functor etc. Also changed BindingMonad, UnificationFailure,
+      Rank, and RankedBindingMonad for consistency.
+0.6.0 (2012-02-17):
+    - Removed the phantom type argument for Variables.
+0.5.0 (2011-07-12):
+    - Moved UnificationFailure to Control.Unification.Types
+    - Renamed NonUnifiable to TermMismatch
+    - Control.Unification: exposed fullprune, semiprune, occursIn
+    - Control.Unification: added unifyOccurs, subsumes
+    - Control.Unification: (re)added symbolic names for binary operators
+0.4.0 (2011-07-07):
+    - Removed heterogeneous unification, and rewrote practically everything.
+    - Added semipruning instead of full pruning.
+    - Added visited-sets instead of occurs-checks.
+    - Added weightedness to path compression (a la union--find).
+    - This is the version emailed for the 2011-07-07 talk at McMaster.
+0.3.6 (2011-06-18):
+    - Forked from the Dyna2 project.

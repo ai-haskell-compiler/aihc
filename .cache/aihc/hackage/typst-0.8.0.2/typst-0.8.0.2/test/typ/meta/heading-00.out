@@ -1,0 +1,62 @@
+--- parse tree ---
+[ Code
+    "typ/meta/heading-00.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/meta/heading-00.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/meta/heading-00.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Comment
+, SoftBreak
+, Heading 1 [ Text "Level" , Space , Text "1" ]
+, Heading 2 [ Text "Level" , Space , Text "2" ]
+, Heading 3 [ Text "Level" , Space , Text "3" ]
+, Comment
+, Heading 11 [ Text "Level" , Space , Text "11" ]
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 text(body: [
+]), 
+                 heading(body: text(body: [Level 1]), 
+                         level: 1), 
+                 heading(body: text(body: [Level 2]), 
+                         level: 2), 
+                 heading(body: text(body: [Level 3]), 
+                         level: 3), 
+                 heading(body: text(body: [Level 11]), 
+                         level: 11) })

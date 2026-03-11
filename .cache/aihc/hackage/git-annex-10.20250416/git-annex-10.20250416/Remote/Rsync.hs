@@ -1,0 +1,416 @@
+{- A remote that is only accessible by rsync.
+ -
+ - Copyright 2011-2020 Joey Hess <id@joeyh.name>
+ -
+ - Licensed under the GNU AGPL version 3 or higher.
+ -}
+
+{-# LANGUAGE CPP, OverloadedStrings #-}
+
+module Remote.Rsync (
+	remote,
+	store,
+	retrieve,
+	remove,
+	checkKey,
+	withRsyncScratchDir,
+	rsyncRemoteConfigs,
+	genRsyncOpts,
+	RsyncOpts,
+	probeRsyncProtectsArgs,
+) where
+
+import Annex.Common
+import Types.Remote
+import qualified Git
+import Config
+import Config.Cost
+import Annex.Content
+import Annex.UUID
+import Annex.Ssh
+import Annex.Perms
+import Remote.Helper.Special
+import Remote.Helper.ExportImport
+import Remote.Helper.Path
+import Types.Export
+import Types.ProposedAccepted
+import Remote.Rsync.RsyncUrl
+import Crypto
+import Utility.Rsync
+import Utility.CopyFile
+import Utility.Process.Transcript
+import Messages.Progress
+import Utility.Metered
+import Types.Transfer
+import Types.Creds
+import Annex.DirHashes
+import Utility.Tmp.Dir
+import Utility.SshHost
+import Annex.SpecialRemote.Config
+import Annex.Verify
+import qualified Utility.RawFilePath as R
+
+import qualified Data.Map as M
+import qualified Data.List.NonEmpty as NE
+
+remote :: RemoteType
+remote = specialRemoteType $ RemoteType
+	{ typename = "rsync"
+	, enumerate = const (findSpecialRemotes "rsyncurl")
+	, generate = gen
+	, configParser = mkRemoteConfigParser $ rsyncRemoteConfigs ++
+		[ optionalStringParser rsyncUrlField
+			(FieldDesc "(required) url or hostname:/directory for rsync to use")
+		]
+	, setup = rsyncSetup
+	, exportSupported = exportIsSupported
+	, importSupported = importUnsupported
+	, thirdPartyPopulated = False
+	}
+
+shellEscapeField :: RemoteConfigField
+shellEscapeField = Accepted "shellescape"
+
+rsyncUrlField :: RemoteConfigField
+rsyncUrlField = Accepted "rsyncurl"
+
+gen :: Git.Repo -> UUID -> RemoteConfig -> RemoteGitConfig -> RemoteStateHandle -> Annex (Maybe Remote)
+gen r u rc gc rs = do
+	c <- parsedRemoteConfig remote rc
+	cst <- remoteCost gc c expensiveRemoteCost
+	(transport, url) <- rsyncTransport gc $
+		fromMaybe (giveup "missing rsyncurl") $ remoteAnnexRsyncUrl gc
+	protectsargs <- liftIO probeRsyncProtectsArgs
+	let o = genRsyncOpts protectsargs c gc transport url
+	let islocal = rsyncUrlIsPath $ rsyncUrl o
+	return $ Just $ specialRemote c
+		(fileStorer $ store o)
+		(fileRetriever $ retrieve o)
+		(remove o)
+		(checkKey o)
+		Remote
+			{ uuid = u
+			, cost = cst
+			, name = Git.repoDescribe r
+			, storeKey = storeKeyDummy
+			, retrieveKeyFile = retrieveKeyFileDummy
+			, retrieveKeyFileInOrder = pure True
+			, retrieveKeyFileCheap = Just (retrieveCheap o)
+			, retrievalSecurityPolicy = RetrievalAllKeysSecure
+			, removeKey = removeKeyDummy
+			, lockContent = Nothing
+			, checkPresent = checkPresentDummy
+			, checkPresentCheap = False
+			, exportActions = ExportActions
+				{ storeExport = storeExportM o
+				, retrieveExport = retrieveExportM o
+				, removeExport = removeExportM o
+				, checkPresentExport = checkPresentExportM o
+				, removeExportDirectory = Just (removeExportDirectoryM o)
+				, renameExport = Just $ renameExportM o
+				}
+			, importActions = importUnsupported
+			, whereisKey = Nothing
+			, remoteFsck = Nothing
+			, repairRepo = Nothing
+			, config = c
+			, getRepo = return r
+			, gitconfig = gc
+			, localpath = if islocal
+				then Just $ toOsPath $ rsyncUrl o
+				else Nothing
+			, readonly = False
+			, appendonly = False
+			, untrustworthy = False
+			, availability = checkPathAvailability islocal
+				(toOsPath (rsyncUrl o))
+			, remotetype = remote
+			, mkUnavailable = return Nothing
+			, getInfo = return [("url", url)]
+			, claimUrl = Nothing
+			, checkUrl = Nothing
+			, remoteStateHandle = rs
+			}
+
+-- | Since 3.2.4, rsync protects filenames from being exposed to the shell.
+newtype RsyncProtectsArgs = RsyncProtectsArgs Bool
+
+probeRsyncProtectsArgs :: IO RsyncProtectsArgs
+probeRsyncProtectsArgs = do
+	(helpoutput, _) <- processTranscript "rsync" ["--help"] Nothing
+	-- The --old-args option was added to disable the new arg
+	-- protection, so use it to detect when that feature is supported
+	-- by rsync, rather than parsing versions.
+	return (RsyncProtectsArgs $ "--old-args" `isInfixOf` helpoutput)
+
+
+-- Things used by genRsyncOpts
+rsyncRemoteConfigs :: [RemoteConfigFieldParser]
+rsyncRemoteConfigs = 
+	[ yesNoParser shellEscapeField (Just True)
+		(FieldDesc "set to no to avoid usual shell escaping (not recommended)")
+	]
+
+genRsyncOpts :: RsyncProtectsArgs -> ParsedRemoteConfig -> RemoteGitConfig -> Annex [CommandParam] -> RsyncUrl -> RsyncOpts
+genRsyncOpts (RsyncProtectsArgs protectsargs) c gc transport url = RsyncOpts
+	{ rsyncUrl = url
+	, rsyncOptions = appendtransport $ opts []
+	, rsyncUploadOptions = appendtransport $
+		opts (remoteAnnexRsyncUploadOptions gc)
+	, rsyncDownloadOptions = appendtransport $
+		opts (remoteAnnexRsyncDownloadOptions gc)
+	, rsyncShellEscape = if protectsargs
+		then False
+		else fromMaybe True (getRemoteConfigValue shellEscapeField c)
+	}
+  where
+	appendtransport l = (++ l) <$> transport
+	opts specificopts = map Param $ filter safe $
+		remoteAnnexRsyncOptions gc ++ specificopts
+	safe opt
+		-- Don't allow user to pass --delete to rsync;
+		-- that could cause it to delete other keys
+		-- in the same hash bucket as a key it sends.
+		| opt == "--delete" = False
+		| opt == "--delete-excluded" = False
+		| otherwise = True
+
+rsyncTransport :: RemoteGitConfig -> RsyncUrl -> Annex (Annex [CommandParam], RsyncUrl)
+rsyncTransport gc url
+	| rsyncUrlIsShell url =
+		(\transport -> return (rsyncShell <$> transport, url)) =<<
+		case fromNull ["ssh"] (remoteAnnexRsyncTransport gc) of
+			"ssh":sshopts -> do
+				let (port, sshopts') = sshReadPort sshopts
+				    userhost = either giveup id $ mkSshHost $ 
+				    	takeWhile (/= ':') url
+				return $ (Param "ssh":) <$> sshOptions ConsumeStdin
+					(userhost, port) gc
+					(map Param $ loginopt ++ sshopts')
+			"rsh":rshopts -> return $ pure $ map Param $ "rsh" :
+				loginopt ++ rshopts
+			rsh -> giveup $ "Unknown Rsync transport: "
+				++ unwords rsh
+	| otherwise = return (pure [], url)
+  where
+	login = case separate (=='@') url of
+		(_h, "") -> Nothing
+		(l, _)  -> Just l
+	loginopt = maybe [] (\l -> ["-l",l]) login
+	fromNull as xs = if null xs then as else xs
+
+rsyncSetup :: SetupStage -> Maybe UUID -> Maybe CredPair -> RemoteConfig -> RemoteGitConfig -> Annex (RemoteConfig, UUID)
+rsyncSetup _ mu _ c gc = do
+	u <- maybe (liftIO genUUID) return mu
+	-- verify configuration is sane
+	let url = maybe (giveup "Specify rsyncurl=") fromProposedAccepted $
+		M.lookup rsyncUrlField c
+	(c', _encsetup) <- encryptionSetup c gc
+
+	-- The rsyncurl is stored in git config, not only in this remote's
+	-- persistent state, so it can vary between hosts.
+	gitConfigSpecialRemote u c' [("rsyncurl", url)]
+	return (c', u)
+
+{- To send a single key is slightly tricky; need to build up a temporary
+ - directory structure to pass to rsync so it can create the hash
+ - directories.
+ -
+ - This would not be necessary if the hash directory structure used locally
+ - was always the same as that used on the rsync remote. So if that's ever
+ - unified, this gets nicer.
+ - (When we have the right hash directory structure, we can just
+ - pass --include=X --include=X/Y --include=X/Y/file --exclude=*)
+ -}
+store :: RsyncOpts -> Key -> OsPath -> MeterUpdate -> Annex ()
+store o k src meterupdate = storeGeneric o meterupdate basedest populatedest
+  where
+	basedest = NE.head (keyPaths k)
+	populatedest dest = liftIO $ if canrename
+		then do
+			R.rename (fromOsPath src) (fromOsPath dest)
+			return True
+		else createLinkOrCopy src dest
+	{- If the key being sent is encrypted or chunked, the file
+	 - containing its content is a temp file, and so can be
+	 - renamed into place. Otherwise, the file is the annexed
+	 - object file, and has to be copied or hard linked into place. -}
+	canrename = isEncKey k || isChunkKey k
+
+storeGeneric :: RsyncOpts -> MeterUpdate -> OsPath -> (OsPath -> Annex Bool) -> Annex ()
+storeGeneric o meterupdate basedest populatedest = 
+	unlessM (storeGeneric' o meterupdate basedest populatedest) $
+		giveup "failed to rsync content"
+
+storeGeneric' :: RsyncOpts -> MeterUpdate -> OsPath -> (OsPath -> Annex Bool) -> Annex Bool
+storeGeneric' o meterupdate basedest populatedest = withRsyncScratchDir $ \tmp -> do
+	let dest = tmp </> basedest
+	createAnnexDirectory (parentDir dest)
+	ok <- populatedest dest
+	ps <- sendParams
+	if ok
+		then showResumable $ rsyncRemote Upload o (Just meterupdate) $ ps ++
+			Param "--recursive" : partialParams ++
+			-- tmp/ to send contents of tmp dir
+			[ File $ fromOsPath $ addTrailingPathSeparator tmp
+			, Param $ rsyncUrl o
+			]
+		else return False
+
+retrieve :: RsyncOpts -> OsPath -> Key -> MeterUpdate -> Annex ()
+retrieve o f k p = rsyncRetrieveKey o k f (Just p)
+
+retrieveCheap :: RsyncOpts -> Key -> AssociatedFile -> OsPath -> Annex ()
+retrieveCheap o k _af f = ifM (preseedTmp k f)
+	( rsyncRetrieveKey o k f Nothing
+	, giveup "cannot preseed rsync with existing content"
+	)
+
+remove :: RsyncOpts -> Remover
+remove o _proof k = removeGeneric o includes
+  where
+	includes = concatMap use dirHashes
+	use h = let dir = h def k in
+		[ fromOsPath (parentDir dir)
+		, fromOsPath dir
+		-- match content directory and anything in it
+		, fromOsPath $ dir </> keyFile k </> literalOsPath "***"
+		]
+
+{- An empty directory is rsynced to make it delete. Everything is excluded,
+ - except for the specified includes. Due to the way rsync traverses
+ - directories, the includes must match both the file to be deleted, and
+ - its parent directories, but not their other contents. -}
+removeGeneric :: RsyncOpts -> [String] -> Annex ()
+removeGeneric o includes = do
+	ps <- sendParams
+	opts <- rsyncOptions o
+	ok <- withRsyncScratchDir $ \tmp -> liftIO $ do
+		{- Send an empty directory to rsync to make it delete. -}
+		rsync $ opts ++ ps ++
+			map (\s -> Param $ "--include=" ++ s) includes ++
+			[ Param "--exclude=*" -- exclude everything else
+			, Param "--quiet", Param "--delete", Param "--recursive"
+			] ++ partialParams ++ 
+			[ Param $ fromOsPath $ addTrailingPathSeparator tmp
+			, Param $ rsyncUrl o
+			]
+	unless ok $
+		giveup "rsync failed"
+
+checkKey :: RsyncOpts -> CheckPresent
+checkKey o k = checkPresentGeneric o (rsyncUrls o k)
+
+checkPresentGeneric :: RsyncOpts -> [RsyncUrl] -> Annex Bool
+checkPresentGeneric o rsyncurls = do
+	opts <- rsyncOptions o
+	-- note: Does not currently differentiate between rsync failing
+	-- to connect, and the file not being present.
+	untilTrue rsyncurls $ \u -> 
+		liftIO $ catchBoolIO $ withNullHandle $ \nullh ->
+			let p = (proc "rsync" $ toCommand $ opts ++ [Param u])
+				{ std_out = UseHandle nullh
+				, std_err = UseHandle nullh
+				}
+			in withCreateProcess p $ \_ _ _ -> checkSuccessProcess
+
+storeExportM :: RsyncOpts -> OsPath -> Key -> ExportLocation -> MeterUpdate -> Annex ()
+storeExportM o src _k loc meterupdate =
+	storeGeneric o meterupdate basedest populatedest
+  where
+	basedest = fromExportLocation loc
+	populatedest = liftIO . createLinkOrCopy src
+
+retrieveExportM :: RsyncOpts -> Key -> ExportLocation -> OsPath -> MeterUpdate -> Annex Verification
+retrieveExportM o k loc dest p =
+	verifyKeyContentIncrementally AlwaysVerify k $ \iv ->
+		tailVerify iv dest $
+			rsyncRetrieve o [rsyncurl] dest (Just p)
+  where
+	rsyncurl = mkRsyncUrl o (fromOsPath (fromExportLocation loc))
+
+checkPresentExportM :: RsyncOpts -> Key -> ExportLocation -> Annex Bool
+checkPresentExportM o _k loc = checkPresentGeneric o [rsyncurl]
+  where
+	rsyncurl = mkRsyncUrl o (fromOsPath (fromExportLocation loc))
+
+removeExportM :: RsyncOpts -> Key -> ExportLocation -> Annex ()
+removeExportM o _k loc =
+	removeGeneric o $ map fromOsPath $ includes $ fromExportLocation loc
+  where
+	includes f = f : case upFrom f of
+		Nothing -> []
+		Just f' -> includes f'
+
+removeExportDirectoryM :: RsyncOpts -> ExportDirectory -> Annex ()
+removeExportDirectoryM o ed = removeGeneric o $
+	map fromOsPath (allbelow d : includes d)
+  where
+	d = fromExportDirectory ed
+	allbelow f = f </> literalOsPath "***"
+	includes f = f : case upFrom f of
+		Nothing -> []
+		Just f' -> includes f'
+
+renameExportM :: RsyncOpts -> Key -> ExportLocation -> ExportLocation -> Annex (Maybe ())
+renameExportM _ _ _ _ = return Nothing
+
+{- Rsync params to enable resumes of sending files safely,
+ - ensure that files are only moved into place once complete
+ -}
+partialParams :: [CommandParam]
+partialParams = [Param "--partial", Param "--partial-dir=.rsync-partial"]
+
+{- When sending files from crippled filesystems, the permissions can be all
+ - messed up, and it's better to use the default permissions on the
+ - destination. -}
+sendParams :: Annex [CommandParam]
+sendParams = ifM crippledFileSystem
+	( return [rsyncUseDestinationPermissions]
+	, return []
+	)
+
+{- Runs an action in an empty scratch directory that can be used to build
+ - up trees for rsync. -}
+withRsyncScratchDir :: (OsPath -> Annex a) -> Annex a
+withRsyncScratchDir a = do
+	t <- fromRepo gitAnnexTmpObjectDir
+	withTmpDirIn t (literalOsPath "rsynctmp") a
+
+rsyncRetrieve :: RsyncOpts -> [RsyncUrl] -> OsPath -> Maybe MeterUpdate -> Annex ()
+rsyncRetrieve o rsyncurls dest meterupdate = 
+	unlessM go $
+		giveup "rsync failed"
+  where
+	go = showResumable $ untilTrue rsyncurls $ \u -> rsyncRemote Download o meterupdate
+		-- use inplace when retrieving to support resuming
+		[ Param "--inplace"
+		, Param u
+		, File (fromOsPath dest)
+		]
+
+rsyncRetrieveKey :: RsyncOpts -> Key -> OsPath -> Maybe MeterUpdate -> Annex ()
+rsyncRetrieveKey o k dest meterupdate =
+	rsyncRetrieve o (rsyncUrls o k) dest meterupdate
+
+showResumable :: Annex Bool -> Annex Bool
+showResumable a = ifM a
+	( return True
+	, do
+		showLongNote "rsync failed -- run git annex again to resume file transfer"
+		return False
+	)
+
+rsyncRemote :: Direction -> RsyncOpts -> Maybe MeterUpdate -> [CommandParam] -> Annex Bool
+rsyncRemote direction o m params = do
+	opts <- mkopts
+	let ps = opts ++ Param "--progress" : params
+	case m of
+		Nothing -> liftIO $ rsync ps
+		Just meter -> do
+			oh <- mkOutputHandlerQuiet
+			liftIO $ rsyncProgress oh meter ps
+  where
+	mkopts
+		| direction == Download = rsyncDownloadOptions o
+		| otherwise = rsyncUploadOptions o

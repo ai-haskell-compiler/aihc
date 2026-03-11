@@ -1,0 +1,198 @@
+{
+    "$schema": "https://vega.github.io/schema/vega-lite/v4.json",
+    "config": {
+        "axisX": {
+            "domain": false,
+            "labelAngle": 0,
+            "tickColor": "#ccc"
+        },
+        "style": {
+            "label": {
+                "align": "right",
+                "baseline": "middle",
+                "dx": -5,
+                "tooltip": null
+            },
+            "tick": {
+                "orient": "horizontal",
+                "tooltip": null
+            }
+        },
+        "view": {
+            "stroke": null
+        }
+    },
+    "data": {
+        "url": "https://vega.github.io/vega-lite/data/iris.json"
+    },
+    "description": "Parallel coordinates plot with manual generation of parallel axes",
+    "height": 300,
+    "layer": [
+        {
+            "encoding": {
+                "color": {
+                    "field": "species",
+                    "type": "nominal"
+                },
+                "detail": {
+                    "field": "index",
+                    "type": "nominal"
+                },
+                "tooltip": [
+                    {
+                        "field": "petalLength",
+                        "type": "quantitative"
+                    },
+                    {
+                        "field": "petalWidth",
+                        "type": "quantitative"
+                    },
+                    {
+                        "field": "sepalLength",
+                        "type": "quantitative"
+                    },
+                    {
+                        "field": "sepalWidth",
+                        "type": "quantitative"
+                    }
+                ],
+                "x": {
+                    "field": "key",
+                    "type": "nominal"
+                },
+                "y": {
+                    "axis": null,
+                    "field": "normVal",
+                    "type": "quantitative"
+                }
+            },
+            "mark": {
+                "opacity": 0.3,
+                "type": "line"
+            }
+        },
+        {
+            "encoding": {
+                "detail": {
+                    "aggregate": "count",
+                    "type": "quantitative"
+                },
+                "x": {
+                    "axis": {
+                        "title": null
+                    },
+                    "field": "key",
+                    "type": "nominal"
+                }
+            },
+            "mark": {
+                "color": "#ccc",
+                "type": "rule"
+            }
+        },
+        {
+            "encoding": {
+                "text": {
+                    "aggregate": "max",
+                    "field": "max",
+                    "type": "quantitative"
+                },
+                "x": {
+                    "field": "key",
+                    "type": "nominal"
+                },
+                "y": {
+                    "value": 0
+                }
+            },
+            "mark": {
+                "style": "label",
+                "type": "text"
+            }
+        },
+        {
+            "encoding": {
+                "text": {
+                    "aggregate": "min",
+                    "field": "mid",
+                    "type": "quantitative"
+                },
+                "x": {
+                    "field": "key",
+                    "type": "nominal"
+                },
+                "y": {
+                    "value": 150
+                }
+            },
+            "mark": {
+                "style": "label",
+                "type": "text"
+            }
+        },
+        {
+            "encoding": {
+                "text": {
+                    "aggregate": "min",
+                    "field": "min",
+                    "type": "quantitative"
+                },
+                "x": {
+                    "field": "key",
+                    "type": "nominal"
+                },
+                "y": {
+                    "value": "height"
+                }
+            },
+            "mark": {
+                "style": "label",
+                "type": "text"
+            }
+        }
+    ],
+    "transform": [
+        {
+            "window": [
+                {
+                    "as": "index",
+                    "op": "count"
+                }
+            ]
+        },
+        {
+            "fold": [
+                "petalLength",
+                "petalWidth",
+                "sepalLength",
+                "sepalWidth"
+            ]
+        },
+        {
+            "groupby": [
+                "key"
+            ],
+            "joinaggregate": [
+                {
+                    "as": "min",
+                    "field": "value",
+                    "op": "min"
+                },
+                {
+                    "as": "max",
+                    "field": "value",
+                    "op": "max"
+                }
+            ]
+        },
+        {
+            "as": "normVal",
+            "calculate": "(datum.value - datum.min) / (datum.max-datum.min)"
+        },
+        {
+            "as": "mid",
+            "calculate": "(datum.min + datum.max) / 2"
+        }
+    ],
+    "width": 600
+}

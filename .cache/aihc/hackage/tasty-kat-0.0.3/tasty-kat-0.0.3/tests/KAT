@@ -1,0 +1,35 @@
+# comment
+
+# another comment
+
+[add]
+
+a = 123
+b = 3
+r = 126
+
+a = 12
+b = 24
+r = 36
+
+[sub]
+
+# a comment
+a = 123
+b = 3
+r = 120
+
+# a similar group
+[add]
+
+a = 10
+b = 12
+r = 22
+
+[base64]
+
+a = YWJj
+r = abc
+
+a = YWJjZA==
+r = abcd

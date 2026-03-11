@@ -1,0 +1,104 @@
+--- parse tree ---
+[ Code
+    "typ/compiler/show-text-05.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/compiler/show-text-05.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/compiler/show-text-05.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Comment
+, Code
+    "typ/compiler/show-text-05.typ"
+    ( line 3 , column 2 )
+    (Show
+       (Just
+          (FuncCall
+             (Ident (Identifier "regex"))
+             [ NormalArg (Literal (String "(?i)rust")) ]))
+       (FuncExpr
+          [ NormalParam (Identifier "it") ]
+          (Block
+             (Content
+                [ Code
+                    "typ/compiler/show-text-05.typ"
+                    ( line 3 , column 34 )
+                    (Ident (Identifier "it"))
+                , Space
+                , Text "("
+                , Text "\128640)"
+                ]))))
+, SoftBreak
+, Text "Rust"
+, Space
+, Text "is"
+, Space
+, Text "memory"
+, Text "-"
+, Text "safe"
+, Space
+, Text "and"
+, Space
+, Text "blazingly"
+, Space
+, Text "fast"
+, Text "."
+, Space
+, Text "Let"
+, Quote '\''
+, Text "s"
+, Space
+, Text "rewrite"
+, Space
+, Text "everything"
+, Space
+, Text "in"
+, Space
+, Text "rust"
+, Text "."
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 text(body: [
+]), 
+                 text(body: [Rust]), 
+                 text(body: [ (🚀)]), 
+                 text(body: [ is memory-safe and blazingly fast. Let’s rewrite everything in ]), 
+                 text(body: [rust]), 
+                 text(body: [ (🚀)]), 
+                 text(body: [.]), 
+                 parbreak() })

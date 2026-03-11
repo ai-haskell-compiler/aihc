@@ -1,0 +1,139 @@
+IDPSSODescriptor
+  { entityID = "https://accounts.google.com/o/saml2?idpid=C01aa60hc"
+  , x509Certificate =
+      SignedExact
+        { getSigned =
+            Signed
+              { signedObject =
+                  Certificate
+                    { certVersion = 2
+                    , certSerial = 1658395081277
+                    , certSignatureAlg = SignatureALG HashSHA256 PubKeyALG_RSA
+                    , certIssuerDN =
+                        DistinguishedName
+                          { getDistinguishedElements =
+                              [ ( [ 2 , 5 , 4 , 10 ]
+                                , ASN1CharacterString
+                                    { characterEncoding = Printable
+                                    , getCharacterStringRawData = "Google Inc."
+                                    }
+                                )
+                              , ( [ 2 , 5 , 4 , 7 ]
+                                , ASN1CharacterString
+                                    { characterEncoding = Printable
+                                    , getCharacterStringRawData = "Mountain View"
+                                    }
+                                )
+                              , ( [ 2 , 5 , 4 , 3 ]
+                                , ASN1CharacterString
+                                    { characterEncoding = Printable
+                                    , getCharacterStringRawData = "Google"
+                                    }
+                                )
+                              , ( [ 2 , 5 , 4 , 11 ]
+                                , ASN1CharacterString
+                                    { characterEncoding = Printable
+                                    , getCharacterStringRawData = "Google For Work"
+                                    }
+                                )
+                              , ( [ 2 , 5 , 4 , 6 ]
+                                , ASN1CharacterString
+                                    { characterEncoding = Printable
+                                    , getCharacterStringRawData = "US"
+                                    }
+                                )
+                              , ( [ 2 , 5 , 4 , 8 ]
+                                , ASN1CharacterString
+                                    { characterEncoding = Printable
+                                    , getCharacterStringRawData = "California"
+                                    }
+                                )
+                              ]
+                          }
+                    , certValidity =
+                        ( DateTime
+                            { dtDate =
+                                Date { dateYear = 2022 , dateMonth = July , dateDay = 21 }
+                            , dtTime =
+                                TimeOfDay
+                                  { todHour = 9 h , todMin = 18 m , todSec = 0 s , todNSec = 0 ns }
+                            }
+                        , DateTime
+                            { dtDate =
+                                Date { dateYear = 2027 , dateMonth = July , dateDay = 20 }
+                            , dtTime =
+                                TimeOfDay
+                                  { todHour = 9 h , todMin = 18 m , todSec = 0 s , todNSec = 0 ns }
+                            }
+                        )
+                    , certSubjectDN =
+                        DistinguishedName
+                          { getDistinguishedElements =
+                              [ ( [ 2 , 5 , 4 , 10 ]
+                                , ASN1CharacterString
+                                    { characterEncoding = Printable
+                                    , getCharacterStringRawData = "Google Inc."
+                                    }
+                                )
+                              , ( [ 2 , 5 , 4 , 7 ]
+                                , ASN1CharacterString
+                                    { characterEncoding = Printable
+                                    , getCharacterStringRawData = "Mountain View"
+                                    }
+                                )
+                              , ( [ 2 , 5 , 4 , 3 ]
+                                , ASN1CharacterString
+                                    { characterEncoding = Printable
+                                    , getCharacterStringRawData = "Google"
+                                    }
+                                )
+                              , ( [ 2 , 5 , 4 , 11 ]
+                                , ASN1CharacterString
+                                    { characterEncoding = Printable
+                                    , getCharacterStringRawData = "Google For Work"
+                                    }
+                                )
+                              , ( [ 2 , 5 , 4 , 6 ]
+                                , ASN1CharacterString
+                                    { characterEncoding = Printable
+                                    , getCharacterStringRawData = "US"
+                                    }
+                                )
+                              , ( [ 2 , 5 , 4 , 8 ]
+                                , ASN1CharacterString
+                                    { characterEncoding = Printable
+                                    , getCharacterStringRawData = "California"
+                                    }
+                                )
+                              ]
+                          }
+                    , certPubKey =
+                        PubKeyRSA
+                          PublicKey
+                            { public_size = 256
+                            , public_n =
+                                30883043751460212091009024715988672157201981026347726370499687818828606623610036063558065564910721575436562697595833895389078194628597753679300253553943785088191301337694287320462812204176082900979493095532403911400962461718281343090255859587662209446117641661982570706673532506066365285856542563187402675519172527708567282278848705855498817485769832020293045021199187525818891914876547302505893509597998904610940749090045911784327818251262543295743496580502018384973717126996683932142133838721711519234780192895538524052074852409104614561380839223725538723547399956034683375536115322508017066877882514789596315962019
+                            , public_e = 65537
+                            }
+                    , certExtensions = Extensions Nothing
+                    }
+              , signedAlg = SignatureALG HashSHA256 PubKeyALG_RSA
+              , signedSignature =
+                  "\238\"\216Z\168\132\232\159\187\183i\152;\208\219\173\v\158\EOT\177\SO\141-\245\172o\b\SUBt\230\161o\145-\SUBpd(\RS\219j*\231M \f\180~0.sc\ACK\184\&1\179\t\241U\222Cv\185\170\166\234\CAN\248\249\247\132\ENQ\216\EOT!p\152\f\196\DC1\140&~F[MV\187\SOH\196\250o\SO\167:\161\235~v.\154\159K\133L1#\135U\225\138\246bB\203\239\174\194y#\v\191\159\ACK\ACKQ@\171\DC3\250\220uLkPI\STX\SYNa\141\169\170\189&\DLE\b\150X\156\DC1\187\&6\236\182zN\152\230A\208\&3\255\v\210\RS\167\131\GSI\191I\207\188\242>\244\217VFE!\f\223\227BL\241)\198'\b\217S\253\184\183\197\143\144\140U\131\227?\208\199h}\134\188Y\180\180mr\186zZ\165&\165xZv\173I\178d\155_\EOTc\225;\187!Vx\181\138\158c\249\142$f\US\241\250\249\135\244<\EM\DLE\157"
+              }
+        , exactObjectRaw =
+            "0\130\STX\\\160\ETX\STX\SOH\STX\STX\ACK\SOH\130 \f\186=0\r\ACK\t*\134H\134\247\r\SOH\SOH\v\ENQ\NUL0{1\DC40\DC2\ACK\ETXU\EOT\n\DC3\vGoogle Inc.1\SYN0\DC4\ACK\ETXU\EOT\a\DC3\rMountain View1\SI0\r\ACK\ETXU\EOT\ETX\DC3\ACKGoogle1\CAN0\SYN\ACK\ETXU\EOT\v\DC3\SIGoogle For Work1\v0\t\ACK\ETXU\EOT\ACK\DC3\STXUS1\DC30\DC1\ACK\ETXU\EOT\b\DC3\nCalifornia0\RS\ETB\r220721091800Z\ETB\r270720091800Z0{1\DC40\DC2\ACK\ETXU\EOT\n\DC3\vGoogle Inc.1\SYN0\DC4\ACK\ETXU\EOT\a\DC3\rMountain View1\SI0\r\ACK\ETXU\EOT\ETX\DC3\ACKGoogle1\CAN0\SYN\ACK\ETXU\EOT\v\DC3\SIGoogle For Work1\v0\t\ACK\ETXU\EOT\ACK\DC3\STXUS1\DC30\DC1\ACK\ETXU\EOT\b\DC3\nCalifornia0\130\SOH\"0\r\ACK\t*\134H\134\247\r\SOH\SOH\SOH\ENQ\NUL\ETX\130\SOH\SI\NUL0\130\SOH\n\STX\130\SOH\SOH\NUL\244\164\ru\139\141\238\131\212\176\157R+b\249\241\232\SOH\DLE\182\bZ\190\\E\223O^\229u\147[6\135;v\188\202\SIKY{\243\207\191\133V\248\n\214By\166\217\fV\US4\198\210\218\137[\132m:\SYN\180\189\250\155f\218\146\174qz\132\167\226\140\244Z3\152\175\234\159\191\160y\t{\184w\\OLQ\169\245J\227\165\171D\RS\DC2\241W[+\213\136+jk\n\241\200>\237N\245\225\254\155\216>\ESCV5\215\164H\168\162\134|f\236Y\216r5\142;\248\183\&1_4\225\129\215\226\224\DC3\240p\US\226+\245\255\139\138\141\141\238\ENQ,z\192%\SO\210\233\180bMs\242\191\186\189\&1\223zGT\253\133wE\ETX\219\"[\218\230\172\144\160\252}6\217:\234\199\a-\148\137\DLE\140\241\163\202\201\ENQ\222\240\156\194\226#\228\207\SI\184\253\251\147\160.\136\SYN]W\189\224\ESC\203|J\n\f\RS\DC1%Y\"\202\163\STX\ETX\SOH\NUL\SOH"
+        , encodeSignedObject =
+            "0\130\ETXt0\130\STX\\\160\ETX\STX\SOH\STX\STX\ACK\SOH\130 \f\186=0\r\ACK\t*\134H\134\247\r\SOH\SOH\v\ENQ\NUL0{1\DC40\DC2\ACK\ETXU\EOT\n\DC3\vGoogle Inc.1\SYN0\DC4\ACK\ETXU\EOT\a\DC3\rMountain View1\SI0\r\ACK\ETXU\EOT\ETX\DC3\ACKGoogle1\CAN0\SYN\ACK\ETXU\EOT\v\DC3\SIGoogle For Work1\v0\t\ACK\ETXU\EOT\ACK\DC3\STXUS1\DC30\DC1\ACK\ETXU\EOT\b\DC3\nCalifornia0\RS\ETB\r220721091800Z\ETB\r270720091800Z0{1\DC40\DC2\ACK\ETXU\EOT\n\DC3\vGoogle Inc.1\SYN0\DC4\ACK\ETXU\EOT\a\DC3\rMountain View1\SI0\r\ACK\ETXU\EOT\ETX\DC3\ACKGoogle1\CAN0\SYN\ACK\ETXU\EOT\v\DC3\SIGoogle For Work1\v0\t\ACK\ETXU\EOT\ACK\DC3\STXUS1\DC30\DC1\ACK\ETXU\EOT\b\DC3\nCalifornia0\130\SOH\"0\r\ACK\t*\134H\134\247\r\SOH\SOH\SOH\ENQ\NUL\ETX\130\SOH\SI\NUL0\130\SOH\n\STX\130\SOH\SOH\NUL\244\164\ru\139\141\238\131\212\176\157R+b\249\241\232\SOH\DLE\182\bZ\190\\E\223O^\229u\147[6\135;v\188\202\SIKY{\243\207\191\133V\248\n\214By\166\217\fV\US4\198\210\218\137[\132m:\SYN\180\189\250\155f\218\146\174qz\132\167\226\140\244Z3\152\175\234\159\191\160y\t{\184w\\OLQ\169\245J\227\165\171D\RS\DC2\241W[+\213\136+jk\n\241\200>\237N\245\225\254\155\216>\ESCV5\215\164H\168\162\134|f\236Y\216r5\142;\248\183\&1_4\225\129\215\226\224\DC3\240p\US\226+\245\255\139\138\141\141\238\ENQ,z\192%\SO\210\233\180bMs\242\191\186\189\&1\223zGT\253\133wE\ETX\219\"[\218\230\172\144\160\252}6\217:\234\199\a-\148\137\DLE\140\241\163\202\201\ENQ\222\240\156\194\226#\228\207\SI\184\253\251\147\160.\136\SYN]W\189\224\ESC\203|J\n\f\RS\DC1%Y\"\202\163\STX\ETX\SOH\NUL\SOH0\r\ACK\t*\134H\134\247\r\SOH\SOH\v\ENQ\NUL\ETX\130\SOH\SOH\NUL\238\"\216Z\168\132\232\159\187\183i\152;\208\219\173\v\158\EOT\177\SO\141-\245\172o\b\SUBt\230\161o\145-\SUBpd(\RS\219j*\231M \f\180~0.sc\ACK\184\&1\179\t\241U\222Cv\185\170\166\234\CAN\248\249\247\132\ENQ\216\EOT!p\152\f\196\DC1\140&~F[MV\187\SOH\196\250o\SO\167:\161\235~v.\154\159K\133L1#\135U\225\138\246bB\203\239\174\194y#\v\191\159\ACK\ACKQ@\171\DC3\250\220uLkPI\STX\SYNa\141\169\170\189&\DLE\b\150X\156\DC1\187\&6\236\182zN\152\230A\208\&3\255\v\210\RS\167\131\GSI\191I\207\188\242>\244\217VFE!\f\223\227BL\241)\198'\b\217S\253\184\183\197\143\144\140U\131\227?\208\199h}\134\188Y\180\180mr\186zZ\165&\165xZv\173I\178d\155_\EOTc\225;\187!Vx\181\138\158c\249\142$f\US\241\250\249\135\244<\EM\DLE\157"
+        }
+  , nameIDFormats =
+      [ "urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress" ]
+  , singleSignOnServices =
+      [ ( HTTPRedirect
+        , "https://accounts.google.com/o/saml2/idp?idpid=C01aa60hc"
+        )
+      , ( HTTPPost
+        , "https://accounts.google.com/o/saml2/idp?idpid=C01aa60hc"
+        )
+      ]
+  }

@@ -1,0 +1,67 @@
+{ "type" : "record",
+  "name" : "Unions",
+  "namespace" : "haskell.avro.example",
+  "fields" : [
+    { "name" : "scalars",
+      "type" : ["string", "long"],
+      "default" : "foo"
+    },
+    { "name" : "nullable",
+      "type" : ["null", "int"],
+      "default" : null
+    },
+    { "name" : "records",
+      "type" : [
+        { "type" : "record",
+          "name" : "Foo",
+          "fields" : [
+            { "name" : "stuff",
+              "type" : "string"
+            }
+          ]
+        },
+        { "type" : "record",
+          "name" : "Bar",
+          "fields" : [
+            { "name" : "stuff",
+              "type" : "string"
+            },
+            { "name" : "things",
+              "type" : "Foo"
+            }
+          ]
+        }
+      ]
+    },
+    { "name" : "sameFields",
+      "type" : [
+        "Foo",
+        { "type" : "record",
+          "name" : "NotFoo",
+          "fields" : [
+            { "name" : "stuff", "type" : "string" }
+          ]
+        }
+      ]
+    },
+    { "name" : "arrayAndMap",
+      "type" : [
+        { "type" : "array",
+          "items" : "string"
+        },
+        { "type" : "map",
+          "values" : "long"
+        }
+      ]
+    },
+    { "name" : "one", "type" : ["int"] },
+    { "name" : "three", "type" : ["int", "string", "long"] },
+    { "name" : "four", "type" : ["int", "string", "long", "Foo"] },
+    { "name" : "five", "type" : ["int", "string", "long", "Foo", "NotFoo"] },
+    { "name" : "six", "type" : ["int", "string", "long", "Foo", "NotFoo", "float"] },
+    { "name" : "seven", "type" : ["int", "string", "long", "Foo", "NotFoo", "float", "boolean"] },
+    { "name" : "eight", "type" : ["int", "string", "long", "Foo", "NotFoo", "float", "boolean", "double"] },
+    { "name" : "nine", "type" : ["int", "string", "long", "Foo", "NotFoo", "float", "boolean", "double", "bytes"] },
+    { "name" : "ten", "type" : ["int", "string", "long", "Foo", "NotFoo", "float", "boolean", "double", "bytes", "Bar"] }
+  ]
+}

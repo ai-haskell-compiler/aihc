@@ -1,0 +1,430 @@
+gps1 :: [Int] -> Maybe Int
+-- testing 4 combinations of argument values
+-- pruning with 11/21 rules
+-- 1 candidates of size 1
+-- 0 candidates of size 2
+-- 0 candidates of size 3
+-- 1 candidates of size 4
+-- 0 candidates of size 5
+-- 0 candidates of size 6
+-- 1 candidates of size 7
+-- 0 candidates of size 8
+-- 1 candidates of size 9
+-- 3 candidates of size 10
+-- tested 5 candidates
+gps1 xs  =  findIndex (0 >) (map (foldr (+) 0) (tail (inits xs)))
+
+gps1 :: [Int] -> Maybe Int
+-- testing 4 combinations of argument values
+-- pruning with 11/21 rules
+-- 1 candidates of size 1
+-- 0 candidates of size 2
+-- 0 candidates of size 3
+-- 1 candidates of size 4
+-- 1 candidates of size 5
+-- 0 candidates of size 6
+-- 1 candidates of size 7
+-- 4 candidates of size 8
+-- tested 5 candidates
+gps1 xs  =  findIndex (0 >) (map sum (tail (inits xs)))
+
+gps1 :: Int -> [Int] -> Int
+-- testing 6 combinations of argument values
+-- pruning with 8/9 rules
+-- 4 candidates of size 1
+-- 0 candidates of size 2
+-- 3 candidates of size 3
+-- 5 candidates of size 4
+-- tested 12 candidates
+gps1  =  undefined  -- search exhausted
+-- could not find implementation using only
+-- 0, 1, (+), (<), guarded equations, and undefined
+-- consider increasing target/maxSize or refining the ingredients
+
+gps2 :: Double -> Double -> Int -> Double
+-- testing 5 combinations of argument values
+-- pruning with 2/6 rules
+-- 2 candidates of size 1
+-- 0 candidates of size 2
+-- 16 candidates of size 3
+-- 0 candidates of size 4
+-- 252 candidates of size 5
+-- 0 candidates of size 6
+-- tested 270 candidates
+gps2  =  undefined  -- search exhausted
+-- could not find implementation using only
+-- 0, 1, (*), (/), (+), and (-)
+-- consider increasing target/maxSize or refining the ingredients
+
+gps3 :: [Char] -> Int
+gps3  =  error "could not reify specification, suggestion: conjureFromSpec"
+
+gps4 :: [Char] -> [Char]
+-- pruning with 13/21 rules
+-- 2 candidates of size 1
+-- 3 candidates of size 2
+-- 8 candidates of size 3
+-- 20 candidates of size 4
+-- 51 candidates of size 5
+-- 119 candidates of size 6
+-- tested 203 candidates
+gps4  =  undefined  -- search exhausted
+-- could not find implementation using only
+-- '-', "", (:), (==), head, tail, if-expressions, if-expressions, and toUpper
+-- consider increasing target/maxSize or refining the ingredients
+
+gps5 :: Int -> [Int]
+-- testing 6 combinations of argument values
+-- pruning with 0/0 rules
+-- 1 candidates of size 1
+-- tested 1 candidates
+gps5  =  undefined  -- search exhausted
+-- could not find implementation using only
+-- nothing
+-- consider increasing target/maxSize or refining the ingredients
+
+tell :: [Int] -> Int -> [Int]
+-- pruning with 0/0 rules
+-- 2 candidates of size 1
+-- 1 candidates of size 2
+-- 2 candidates of size 3
+-- 6 candidates of size 4
+-- 6 candidates of size 5
+-- 39 candidates of size 6
+-- 26 candidates of size 7
+-- 328 candidates of size 8
+-- 134 candidates of size 9
+-- 3229 candidates of size 10
+-- tested 3476 candidates
+tell [] x  =  []
+tell (x:xs) y  =  y `div` x:tell xs (y `mod` x)
+
+gps5 :: Int -> [Int]
+-- testing 6 combinations of argument values
+-- pruning with 0/0 rules
+-- 1 candidates of size 1
+-- 0 candidates of size 2
+-- 1 candidates of size 3
+-- tested 2 candidates
+gps5  =  tell [25,10,5,1]
+
+gps5 :: Int -> [Int]
+-- testing 6 combinations of argument values
+-- pruning with 12/12 rules
+-- 1 candidates of size 1
+-- 0 candidates of size 2
+-- 5 candidates of size 3
+-- 0 candidates of size 4
+-- 35 candidates of size 5
+-- 0 candidates of size 6
+-- 350 candidates of size 7
+-- 0 candidates of size 8
+-- 3500 candidates of size 9
+-- 0 candidates of size 10
+-- 35000 candidates of size 11
+-- tested 21147 candidates
+gps5  =  tell [25,10,5,1]
+
+gps6 :: [Int] -> Int
+-- testing 360 combinations of argument values
+-- pruning with 0/0 rules
+-- 1 candidates of size 1
+-- 0 candidates of size 2
+-- tested 1 candidates
+gps6  =  undefined  -- search exhausted
+-- could not find implementation using only
+-- nothing
+-- consider increasing target/maxSize or refining the ingredients
+
+gps7 :: Integer -> Integer -> Ratio Integer
+-- testing 6 combinations of argument values
+-- pruning with 0/0 rules
+-- 1 candidates of size 1
+-- tested 1 candidates
+gps7  =  undefined  -- search exhausted
+-- could not find implementation using only
+-- nothing
+-- consider increasing target/maxSize or refining the ingredients
+
+gps8 :: Int -> [Int] -> (Int,Int)
+-- testing 3 combinations of argument values
+-- pruning with 0/0 rules
+-- 1 candidates of size 1
+-- 0 candidates of size 2
+-- tested 1 candidates
+gps8  =  undefined  -- search exhausted
+-- could not find implementation using only
+-- nothing
+-- consider increasing target/maxSize or refining the ingredients
+
+gps9 :: Int -> [Char]
+-- testing 7 combinations of argument values
+-- pruning with 18/25 rules
+-- 3 candidates of size 1
+-- 4 candidates of size 2
+-- 0 candidates of size 3
+-- 0 candidates of size 4
+-- 0 candidates of size 5
+-- 48 candidates of size 6
+-- 192 candidates of size 7
+-- 96 candidates of size 8
+-- 0 candidates of size 9
+-- 168 candidates of size 10
+-- 2976 candidates of size 11
+-- tested 3487 candidates
+gps9  =  undefined  -- search exhausted
+-- could not find implementation using only
+-- "Fizz", "Buzz", "FizzBuzz", 0, 3, 5, False, True, divBy, (&&), show, and if-expressions
+-- consider increasing target/maxSize or refining the ingredients
+
+gps10 :: [Int] -> Int
+-- testing 7 combinations of argument values
+-- pruning with 67/100 rules
+-- 4 candidates of size 1
+-- 0 candidates of size 2
+-- 0 candidates of size 3
+-- 0 candidates of size 4
+-- 80 candidates of size 5
+-- 8 candidates of size 6
+-- 1428 candidates of size 7
+-- 432 candidates of size 8
+-- 30712 candidates of size 9
+-- tested 4552 candidates
+gps10 []  =  0
+gps10 (x:xs)  =  (x `div` 3 - 2) + gps10 xs
+
+gcd :: Int -> Int -> Int
+-- testing 11 combinations of argument values
+-- pruning with 0/0 rules
+-- 3 candidates of size 1
+-- 0 candidates of size 2
+-- 8 candidates of size 3
+-- 0 candidates of size 4
+-- 48 candidates of size 5
+-- 28 candidates of size 6
+-- tested 63 candidates
+gcd x 0  =  x
+gcd x y  =  gcd y (x `mod` y)
+
+gps12 :: [Char] -> [Char] -> [Int]
+-- testing 5 combinations of argument values
+-- pruning with 1/2 rules
+-- 1 candidates of size 1
+-- 0 candidates of size 2
+-- 0 candidates of size 3
+-- 0 candidates of size 4
+-- 4 candidates of size 5
+-- tested 4 candidates
+gps12 cs ds  =  findIndices (ds `isPrefixOf`) (tails cs)
+
+gps13_leaders :: [Int] -> [Int]
+-- testing 4 combinations of argument values
+-- pruning with 9/9 rules
+-- 2 candidates of size 1
+-- 0 candidates of size 2
+-- 0 candidates of size 3
+-- 0 candidates of size 4
+-- 0 candidates of size 5
+-- 0 candidates of size 6
+-- 0 candidates of size 7
+-- 0 candidates of size 8
+-- 11 candidates of size 9
+-- 16 candidates of size 10
+-- 53 candidates of size 11
+-- 48 candidates of size 12
+-- tested 101 candidates
+gps13_leaders []  =  []
+gps13_leaders (x:xs)
+  | all (x >) xs  =  x:gps13_leaders xs
+  | otherwise  =  gps13_leaders xs
+
+gps14_luhn :: [Int] -> Int
+gps14_luhn  =  error "could not reify specification, suggestion: conjureFromSpec"
+
+gps15_mastermind :: () -> ()
+gps15_mastermind  =  error "could not reify specification, suggestion: conjureFromSpec"
+
+gps16_middle :: [Char] -> [Char]
+-- testing 11 combinations of argument values
+-- pruning with 10/11 rules
+-- 2 candidates of size 1
+-- 2 candidates of size 2
+-- 2 candidates of size 3
+-- 3 candidates of size 4
+-- 5 candidates of size 5
+-- 8 candidates of size 6
+-- 17 candidates of size 7
+-- 50 candidates of size 8
+-- 145 candidates of size 9
+-- 391 candidates of size 10
+-- 993 candidates of size 11
+-- 2480 candidates of size 12
+-- tested 3719 candidates
+gps16_middle ""  =  ""
+gps16_middle (c:cs)  =  if length cs <= 1
+                        then c:cs
+                        else gps16_middle (init cs)
+
+gps17_pds :: [Int] -> Int
+-- testing 9 combinations of argument values
+-- pruning with 29/40 rules
+-- 1 candidates of size 1
+-- 1 candidates of size 2
+-- 0 candidates of size 3
+-- 0 candidates of size 4
+-- 2 candidates of size 5
+-- 4 candidates of size 6
+-- tested 8 candidates
+gps17_pds  =  undefined  -- search exhausted
+-- could not find implementation using only
+-- 0, guarded equations, not, null, (==), head, (+), and (&&)
+-- consider increasing target/maxSize or refining the ingredients
+
+gps17_pds :: [Int] -> Int
+-- testing 9 combinations of argument values
+-- pruning with 13/19 rules
+-- 1 candidates of size 1
+-- 0 candidates of size 2
+-- 0 candidates of size 3
+-- 1 candidates of size 4
+-- 4 candidates of size 5
+-- 8 candidates of size 6
+-- tested 14 candidates
+gps17_pds  =  undefined  -- search exhausted
+-- could not find implementation using only
+-- 0, guarded equations, (==), and (+)
+-- consider increasing target/maxSize or refining the ingredients
+
+gps18_price :: [Double] -> [Double] -> Double
+-- testing 4 combinations of argument values
+-- pruning with 26/35 rules
+-- 2 candidates of size 1
+-- 0 candidates of size 2
+-- 2 candidates of size 3
+-- 0 candidates of size 4
+-- 33 candidates of size 5
+-- 176 candidates of size 6
+-- tested 213 candidates
+gps18_price  =  undefined  -- search exhausted
+-- could not find implementation using only
+-- 0.0, 1.0, (+), (*), and (-)
+-- consider increasing target/maxSize or refining the ingredients
+
+gps19_snowday :: Int -> Double -> Double -> Double -> Double
+-- testing 7 combinations of argument values
+-- pruning with 6/19 rules
+-- 3 candidates of size 1
+-- 0 candidates of size 2
+-- 21 candidates of size 3
+-- 0 candidates of size 4
+-- 309 candidates of size 5
+-- 0 candidates of size 6
+-- tested 333 candidates
+gps19_snowday  =  undefined  -- search exhausted
+-- could not find implementation using only
+-- 0, 1, max, (+), and (-)
+-- consider increasing target/maxSize or refining the ingredients
+
+gps20 :: [Char] -> Bool
+gps20  =  error "could not reify specification, suggestion: conjureFromSpec"
+
+spin :: [Char] -> [Char]
+-- pruning with 6/6 rules
+-- reasoning produced 1 incorrect properties, please re-run with more tests for faster results
+-- 1 candidates of size 1
+-- 2 candidates of size 2
+-- 1 candidates of size 3
+-- 1 candidates of size 4
+-- 0 candidates of size 5
+-- 0 candidates of size 6
+-- 0 candidates of size 7
+-- 4 candidates of size 8
+-- tested 9 candidates
+spin cs
+  | length cs >= 5  =  reverse cs
+  | otherwise  =  cs
+
+gps21_spinwords :: [Char] -> [Char]
+-- pruning with 16/16 rules
+-- reasoning produced 2 incorrect properties, please re-run with more tests for faster results
+-- 1 candidates of size 1
+-- 3 candidates of size 2
+-- 4 candidates of size 3
+-- 7 candidates of size 4
+-- 10 candidates of size 5
+-- tested 19 candidates
+gps21_spinwords cs  =  unwords (map spin (words cs))
+
+gps22 :: Int -> [Char]
+-- testing 7 combinations of argument values
+-- pruning with 13/17 rules
+-- 1 candidates of size 1
+-- 2 candidates of size 2
+-- 2 candidates of size 3
+-- 3 candidates of size 4
+-- 10 candidates of size 5
+-- 20 candidates of size 6
+-- 45 candidates of size 7
+-- 117 candidates of size 8
+-- 273 candidates of size 9
+-- 645 candidates of size 10
+-- 1567 candidates of size 11
+-- tested 2609 candidates
+gps22 0  =  ""
+gps22 x  =  gps22 (div10 x) ++ show (mod10 x * mod10 x)
+
+gps23 :: [Char] -> [Char] -> [Char] -> [Char]
+-- pruning with 0/0 rules
+-- 3 candidates of size 1
+-- 12 candidates of size 2
+-- 33 candidates of size 3
+-- 42 candidates of size 4
+-- 140 candidates of size 5
+-- 523 candidates of size 6
+-- 897 candidates of size 7
+-- 1127 candidates of size 8
+-- 1144 candidates of size 9
+-- 2959 candidates of size 10
+-- 6272 candidates of size 11
+-- tested 13152 candidates
+gps23  =  undefined  -- search exhausted
+-- could not find implementation using only
+-- nothing
+-- consider increasing target/maxSize or refining the ingredients
+
+gps24 :: [Char] -> Twitter
+-- pruning with 4/8 rules
+-- reasoning produced 4 incorrect properties, please re-run with more tests for faster results
+-- 2 candidates of size 1
+-- 3 candidates of size 2
+-- 6 candidates of size 3
+-- 6 candidates of size 4
+-- 3 candidates of size 5
+-- 5 candidates of size 6
+-- 10 candidates of size 7
+-- 48 candidates of size 8
+-- 134 candidates of size 9
+-- 216 candidates of size 10
+-- 308 candidates of size 11
+-- 466 candidates of size 12
+-- tested 803 candidates
+gps24 ""  =  Empty
+gps24 (c:cs)
+  | 140 > length cs  =  Tweet (length (c:cs))
+  | otherwise  =  TooMany
+
+gps25 :: [Double] -> [Double] -> Double
+-- testing 6 combinations of argument values
+-- pruning with 31/59 rules
+-- 2 candidates of size 1
+-- 1 candidates of size 2
+-- 5 candidates of size 3
+-- 10 candidates of size 4
+-- 76 candidates of size 5
+-- 438 candidates of size 6
+-- tested 532 candidates
+gps25  =  undefined  -- search exhausted
+-- could not find implementation using only
+-- 0.0, 2.0, (+), (-), (**), zipWith, map, and sqrt
+-- consider increasing target/maxSize or refining the ingredients
+

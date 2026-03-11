@@ -1,0 +1,74 @@
+max expr size  =    5
+  |- on ineqs  =    4
+  |- on conds  =    4
+max  #-tests   =  500
+min  #-tests   =   25  (to consider p ==> q true)
+max  #-vars    =    2  (for inequational and conditional laws)
+
+_ :: Char
+_ :: [Char]
+_ :: [[Char]]
+"" :: [Char]
+" " :: [Char]
+"\n" :: [Char]
+lines :: [Char] -> [[Char]]
+words :: [Char] -> [[Char]]
+unlines :: [[Char]] -> [Char]
+unwords :: [[Char]] -> [Char]
+(++) :: [Char] -> [Char] -> [Char]
+
+                            cs ++ "" == cs
+                            "" ++ cs == cs
+       unlines (lines (unlines css)) == unlines css
+unwords (lines (unwords (lines cs))) == unwords (lines cs)
+unwords (lines (unwords (words cs))) == unwords (words cs)
+        unlines (lines (cs ++ "\n")) == cs ++ "\n"
+                    (cs ++ ds) ++ es == cs ++ (ds ++ es)
+            cs ++ unlines (lines cs) == unlines (lines (cs ++ cs))
+           cs ++ unlines (lines " ") == unlines (lines (cs ++ " "))
+           " " ++ unwords (lines cs) == unwords (lines (" " ++ cs))
+          "\n" ++ unlines (lines cs) == unlines (lines ("\n" ++ cs))
+           unlines (lines " ") ++ cs == " " ++ ("\n" ++ cs)
+          lines (unlines (lines cs)) == lines cs
+          words (unlines (words cs)) == words cs
+          lines (unlines (words cs)) == words cs
+          words (unlines (lines cs)) == words cs
+                 words (unwords css) == words (unlines css)
+                   words (cs ++ " ") == words cs
+                  words (cs ++ "\n") == words cs
+                   words (" " ++ cs) == words cs
+                  words ("\n" ++ cs) == words cs
+           words (cs ++ unwords css) == words (cs ++ unlines css)
+
+                           "" <= cs
+                           cs <= cs ++ ds
+                           cs <= unlines (lines cs)
+                         "\n" <= cs ++ "\n"
+                         "\n" <= cs ++ " "
+                   "\n" ++ cs <= " "
+           unwords (lines cs) <= cs ++ ds
+                   "\n" ++ cs <= ds ++ " "
+           unlines (lines cs) <= cs ++ cs
+unwords (lines (unwords css)) <= unwords css
+                   "\n" ++ cs <= cs ++ "\n"
+                  unwords css <= unwords (lines (unlines css))
+                   cs ++ "\n" <= cs ++ " "
+                  unlines css <= unwords css ++ " "
+                  unlines css <= unwords css ++ "\n"
+           unlines (lines cs) <= cs ++ " "
+           unlines (lines cs) <= cs ++ "\n"
+unwords (lines (unlines css)) <= unwords css ++ cs
+           unlines css ++ " " <= unwords css ++ " "
+                     lines "" <= css
+          lines (unlines css) <= css
+                     lines cs <= lines (cs ++ ds)
+                     words cs <= words (cs ++ ds)
+                     words cs <= lines (unwords (words cs))
+                   lines "\n" <= lines (cs ++ "\n")
+                   lines "\n" <= lines (cs ++ " ")
+           lines ("\n" ++ cs) <= lines " "
+   lines (unwords (lines cs)) <= lines (cs ++ ds)
+           lines ("\n" ++ cs) <= lines (ds ++ " ")
+           lines ("\n" ++ cs) <= lines (cs ++ "\n")
+           lines (cs ++ "\n") <= lines (cs ++ " ")
+

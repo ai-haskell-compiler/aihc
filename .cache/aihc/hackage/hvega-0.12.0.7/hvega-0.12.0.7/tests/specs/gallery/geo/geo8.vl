@@ -1,0 +1,49 @@
+{
+    "$schema": "https://vega.github.io/schema/vega-lite/v4.json",
+    "config": {
+        "view": {
+            "stroke": null
+        }
+    },
+    "data": {
+        "url": "https://vega.github.io/vega-lite/data/income.json"
+    },
+    "description": "Income in the U.S. by state, faceted over income brackets",
+    "encoding": {
+        "color": {
+            "field": "pct",
+            "sort": "descending",
+            "type": "quantitative"
+        },
+        "row": {
+            "field": "group",
+            "type": "nominal"
+        },
+        "shape": {
+            "field": "geo",
+            "type": "geojson"
+        }
+    },
+    "height": 300,
+    "mark": "geoshape",
+    "projection": {
+        "type": "albersUsa"
+    },
+    "transform": [
+        {
+            "as": "geo",
+            "from": {
+                "data": {
+                    "format": {
+                        "feature": "states",
+                        "type": "topojson"
+                    },
+                    "url": "https://vega.github.io/vega-lite/data/us-10m.json"
+                },
+                "key": "id"
+            },
+            "lookup": "id"
+        }
+    ],
+    "width": 500
+}

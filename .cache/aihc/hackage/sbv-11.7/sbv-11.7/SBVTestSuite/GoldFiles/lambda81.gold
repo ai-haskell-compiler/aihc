@@ -1,0 +1,10 @@
+CAUGHT EXCEPTION
+
+
+*** Data.SBV.Lambda: Detected nested lambda-definitions.
+***
+*** SBV uses firstification to deal-with lambdas, and SMTLib's first-order nature does not allow
+*** for easy translation of nested lambdas. As SMTLib gets higher-order features, SBV will eventually
+*** relax this restriction. In the mean-time, please rewrite your program without using nested-lambdas
+*** if possible. If this workaround isn't applicable, please report this as a use-case for further
+*** possible enhancements.

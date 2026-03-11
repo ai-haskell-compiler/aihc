@@ -1,0 +1,192 @@
+--- parse tree ---
+[ Code
+    "typ/meta/query-header-00.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/meta/query-header-00.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/meta/query-header-00.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Code
+    "typ/meta/query-header-00.typ"
+    ( line 2 , column 2 )
+    (Set
+       (Ident (Identifier "page"))
+       [ KeyValArg (Identifier "paper") (Literal (String "a7"))
+       , KeyValArg
+           (Identifier "margin")
+           (Dict
+              [ Reg ( Ident (Identifier "y") , Literal (Numeric 1.0 Cm) )
+              , Reg ( Ident (Identifier "x") , Literal (Numeric 0.5 Cm) )
+              ])
+       , KeyValArg
+           (Identifier "header")
+           (Block
+              (CodeBlock
+                 [ FuncCall
+                     (Ident (Identifier "smallcaps"))
+                     [ BlockArg [ Text "Typst" , Space , Text "Academy" ] ]
+                 , FuncCall
+                     (Ident (Identifier "h")) [ NormalArg (Literal (Numeric 1.0 Fr)) ]
+                 , FuncCall
+                     (Ident (Identifier "locate"))
+                     [ NormalArg
+                         (FuncExpr
+                            [ NormalParam (Identifier "it") ]
+                            (Block
+                               (CodeBlock
+                                  [ Let
+                                      (BasicBind (Just (Identifier "after")))
+                                      (FuncCall
+                                         (Ident (Identifier "query"))
+                                         [ NormalArg
+                                             (FuncCall
+                                                (FieldAccess
+                                                   (Ident (Identifier "after"))
+                                                   (FuncCall
+                                                      (Ident (Identifier "selector"))
+                                                      [ NormalArg (Ident (Identifier "heading")) ]))
+                                                [ NormalArg (Ident (Identifier "it")) ])
+                                         , NormalArg (Ident (Identifier "it"))
+                                         ])
+                                  , Let
+                                      (BasicBind (Just (Identifier "before")))
+                                      (FuncCall
+                                         (Ident (Identifier "query"))
+                                         [ NormalArg
+                                             (FuncCall
+                                                (FieldAccess
+                                                   (Ident (Identifier "before"))
+                                                   (FuncCall
+                                                      (Ident (Identifier "selector"))
+                                                      [ NormalArg (Ident (Identifier "heading")) ]))
+                                                [ NormalArg (Ident (Identifier "it")) ])
+                                         , NormalArg (Ident (Identifier "it"))
+                                         ])
+                                  , Let
+                                      (BasicBind (Just (Identifier "elem")))
+                                      (If
+                                         [ ( Not
+                                               (Equals
+                                                  (FuncCall
+                                                     (FieldAccess
+                                                        (Ident (Identifier "len"))
+                                                        (Ident (Identifier "before")))
+                                                     [])
+                                                  (Literal (Int 0)))
+                                           , Block
+                                               (CodeBlock
+                                                  [ FuncCall
+                                                      (FieldAccess
+                                                         (Ident (Identifier "last"))
+                                                         (Ident (Identifier "before")))
+                                                      []
+                                                  ])
+                                           )
+                                         , ( Not
+                                               (Equals
+                                                  (FuncCall
+                                                     (FieldAccess
+                                                        (Ident (Identifier "len"))
+                                                        (Ident (Identifier "after")))
+                                                     [])
+                                                  (Literal (Int 0)))
+                                           , Block
+                                               (CodeBlock
+                                                  [ FuncCall
+                                                      (FieldAccess
+                                                         (Ident (Identifier "first"))
+                                                         (Ident (Identifier "after")))
+                                                      []
+                                                  ])
+                                           )
+                                         ])
+                                  , FuncCall
+                                      (Ident (Identifier "emph"))
+                                      [ NormalArg
+                                          (FieldAccess
+                                             (Ident (Identifier "body"))
+                                             (Ident (Identifier "elem")))
+                                      ]
+                                  ])))
+                     ]
+                 ]))
+       ])
+, ParBreak
+, Code
+    "typ/meta/query-header-00.typ"
+    ( line 21 , column 2 )
+    (FuncCall (Ident (Identifier "outline")) [])
+, ParBreak
+, Heading 1 [ Text "Introduction" ]
+, Code
+    "typ/meta/query-header-00.typ"
+    ( line 24 , column 2 )
+    (FuncCall
+       (Ident (Identifier "lorem")) [ NormalArg (Literal (Int 35)) ])
+, ParBreak
+, Heading 1 [ Text "Background" ]
+, Code
+    "typ/meta/query-header-00.typ"
+    ( line 27 , column 2 )
+    (FuncCall
+       (Ident (Identifier "lorem")) [ NormalArg (Literal (Int 35)) ])
+, ParBreak
+, Heading 1 [ Text "Approach" ]
+, Code
+    "typ/meta/query-header-00.typ"
+    ( line 30 , column 2 )
+    (FuncCall
+       (Ident (Identifier "lorem")) [ NormalArg (Literal (Int 60)) ])
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 parbreak(), 
+                 outline(), 
+                 parbreak(), 
+                 heading(body: text(body: [Introduction]), 
+                         level: 1), 
+                 text(body: [Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo]), 
+                 parbreak(), 
+                 heading(body: text(body: [Background]), 
+                         level: 1), 
+                 text(body: [Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo]), 
+                 parbreak(), 
+                 heading(body: text(body: [Approach]), 
+                         level: 1), 
+                 text(body: [Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in]), 
+                 parbreak() })

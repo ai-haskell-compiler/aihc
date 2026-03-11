@@ -1,0 +1,455 @@
+--- parse tree ---
+[ Code
+    "typ/bugs/math-realize-02.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/bugs/math-realize-02.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/bugs/math-realize-02.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Comment
+, Code
+    "typ/bugs/math-realize-02.typ"
+    ( line 3 , column 2 )
+    (LetFunc
+       (Identifier "foo")
+       [ NormalParam (Identifier "v1") , NormalParam (Identifier "v2") ]
+       (Block
+          (CodeBlock
+             [ Block
+                 (Content
+                    [ Equation
+                        False
+                        [ Code
+                            "typ/bugs/math-realize-02.typ"
+                            ( line 6 , column 4 )
+                            (Ident (Identifier "v1"))
+                        , MAttach
+                            Nothing
+                            (Just (Text "2"))
+                            (Code
+                               "typ/bugs/math-realize-02.typ"
+                               ( line 6 , column 7 )
+                               (Ident (Identifier "v2")))
+                        ]
+                    ])
+             ])))
+, SoftBreak
+, Code
+    "typ/bugs/math-realize-02.typ"
+    ( line 8 , column 2 )
+    (LetFunc
+       (Identifier "bar")
+       [ NormalParam (Identifier "v1") , NormalParam (Identifier "v2") ]
+       (Block
+          (CodeBlock
+             [ Block
+                 (Content
+                    [ Equation
+                        True
+                        [ Code
+                            "typ/bugs/math-realize-02.typ"
+                            ( line 11 , column 5 )
+                            (Ident (Identifier "v1"))
+                        , MAttach
+                            Nothing
+                            (Just (Text "2"))
+                            (Code
+                               "typ/bugs/math-realize-02.typ"
+                               ( line 11 , column 8 )
+                               (Ident (Identifier "v2")))
+                        ]
+                    ])
+             ])))
+, SoftBreak
+, Code
+    "typ/bugs/math-realize-02.typ"
+    ( line 13 , column 2 )
+    (LetFunc
+       (Identifier "baz")
+       [ SinkParam (Just (Identifier "sink")) ]
+       (Block
+          (CodeBlock
+             [ FuncCall
+                 (FieldAccess
+                    (Ident (Identifier "join"))
+                    (FuncCall
+                       (FieldAccess
+                          (Ident (Identifier "map"))
+                          (FuncCall
+                             (FieldAccess
+                                (Ident (Identifier "pos")) (Ident (Identifier "sink")))
+                             []))
+                       [ NormalArg
+                           (FuncExpr
+                              [ NormalParam (Identifier "x") ]
+                              (Block
+                                 (Content
+                                    [ Equation
+                                        False
+                                        [ Code
+                                            "typ/bugs/math-realize-02.typ"
+                                            ( line 15 , column 24 )
+                                            (FuncCall
+                                               (Ident (Identifier "hat"))
+                                               [ NormalArg (Ident (Identifier "x")) ])
+                                        ]
+                                    ])))
+                       ]))
+                 [ NormalArg
+                     (FieldAccess (Ident (Identifier "and")) (Ident (Identifier "sym")))
+                 ]
+             ])))
+, ParBreak
+, Text "Inline"
+, Space
+, Equation
+    False
+    [ Text "2"
+    , Code
+        "typ/bugs/math-realize-02.typ"
+        ( line 18 , column 11 )
+        (FuncCall
+           (Ident (Identifier "foo"))
+           [ BlockArg
+               [ Code
+                   "typ/bugs/math-realize-02.typ"
+                   ( line 18 , column 15 )
+                   (Ident (Identifier "alpha"))
+               ]
+           , BlockArg
+               [ MGroup
+                   (Just "(")
+                   (Just ")")
+                   [ Text "M"
+                   , Text "+"
+                   , Code
+                       "typ/bugs/math-realize-02.typ"
+                       ( line 18 , column 25 )
+                       (FuncCall
+                          (Ident (Identifier "foo"))
+                          [ BlockArg [ Text "a" ] , BlockArg [ Text "b" ] ])
+                   ]
+               ]
+           ])
+    ]
+, Text "."
+, ParBreak
+, Text "Inline"
+, Space
+, Equation
+    False
+    [ Text "2"
+    , Code
+        "typ/bugs/math-realize-02.typ"
+        ( line 20 , column 11 )
+        (FuncCall
+           (Ident (Identifier "bar"))
+           [ BlockArg
+               [ Code
+                   "typ/bugs/math-realize-02.typ"
+                   ( line 20 , column 15 )
+                   (Ident (Identifier "alpha"))
+               ]
+           , BlockArg
+               [ MGroup
+                   (Just "(")
+                   (Just ")")
+                   [ Text "M"
+                   , Text "+"
+                   , Code
+                       "typ/bugs/math-realize-02.typ"
+                       ( line 20 , column 25 )
+                       (FuncCall
+                          (Ident (Identifier "foo"))
+                          [ BlockArg [ Text "a" ] , BlockArg [ Text "b" ] ])
+                   ]
+               ]
+           ])
+    ]
+, Text "."
+, ParBreak
+, Text "Inline"
+, Space
+, Equation
+    False
+    [ Text "2"
+    , Code
+        "typ/bugs/math-realize-02.typ"
+        ( line 22 , column 11 )
+        (FuncCall
+           (Ident (Identifier "baz"))
+           [ BlockArg [ Text "x" ]
+           , BlockArg [ Text "y" ]
+           , BlockArg
+               [ Code
+                   "typ/bugs/math-realize-02.typ"
+                   ( line 22 , column 19 )
+                   (FuncCall
+                      (Ident (Identifier "baz"))
+                      [ BlockArg [ Text "u" ] , BlockArg [ Text "v" ] ])
+               ]
+           ])
+    ]
+, Text "."
+, ParBreak
+, Equation
+    True
+    [ Text "2"
+    , Code
+        "typ/bugs/math-realize-02.typ"
+        ( line 24 , column 5 )
+        (FuncCall
+           (Ident (Identifier "foo"))
+           [ BlockArg
+               [ Code
+                   "typ/bugs/math-realize-02.typ"
+                   ( line 24 , column 9 )
+                   (Ident (Identifier "alpha"))
+               ]
+           , BlockArg
+               [ MGroup
+                   (Just "(")
+                   (Just ")")
+                   [ Text "M"
+                   , Text "+"
+                   , Code
+                       "typ/bugs/math-realize-02.typ"
+                       ( line 24 , column 19 )
+                       (FuncCall
+                          (Ident (Identifier "foo"))
+                          [ BlockArg [ Text "a" ] , BlockArg [ Text "b" ] ])
+                   ]
+               ]
+           ])
+    ]
+, SoftBreak
+, Equation
+    True
+    [ Text "2"
+    , Code
+        "typ/bugs/math-realize-02.typ"
+        ( line 25 , column 5 )
+        (FuncCall
+           (Ident (Identifier "bar"))
+           [ BlockArg
+               [ Code
+                   "typ/bugs/math-realize-02.typ"
+                   ( line 25 , column 9 )
+                   (Ident (Identifier "alpha"))
+               ]
+           , BlockArg
+               [ MGroup
+                   (Just "(")
+                   (Just ")")
+                   [ Text "M"
+                   , Text "+"
+                   , Code
+                       "typ/bugs/math-realize-02.typ"
+                       ( line 25 , column 19 )
+                       (FuncCall
+                          (Ident (Identifier "foo"))
+                          [ BlockArg [ Text "a" ] , BlockArg [ Text "b" ] ])
+                   ]
+               ]
+           ])
+    ]
+, SoftBreak
+, Equation
+    True
+    [ Text "2"
+    , Code
+        "typ/bugs/math-realize-02.typ"
+        ( line 26 , column 5 )
+        (FuncCall
+           (Ident (Identifier "baz"))
+           [ BlockArg [ Text "x" ]
+           , BlockArg [ Text "y" ]
+           , BlockArg
+               [ Code
+                   "typ/bugs/math-realize-02.typ"
+                   ( line 26 , column 13 )
+                   (FuncCall
+                      (Ident (Identifier "baz"))
+                      [ BlockArg [ Text "u" ] , BlockArg [ Text "v" ] ])
+               ]
+           ])
+    ]
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 text(body: [
+]), 
+                 text(body: [
+]), 
+                 parbreak(), 
+                 text(body: [Inline ]), 
+                 math.equation(block: false, 
+                               body: { text(body: [2]), 
+                                       math.equation(block: false, 
+                                                     body: { text(body: [α]), 
+                                                             math.attach(b: none, 
+                                                                         base: math.lr(body: ({ [(], 
+                                                                                                text(body: [M]), 
+                                                                                                text(body: [+]), 
+                                                                                                math.equation(block: false, 
+                                                                                                              body: { text(body: [a]), 
+                                                                                                                      math.attach(b: none, 
+                                                                                                                                  base: text(body: [b]), 
+                                                                                                                                  t: text(body: [2])) }, 
+                                                                                                              numbering: none), 
+                                                                                                [)] })), 
+                                                                         t: text(body: [2])) }, 
+                                                     numbering: none) }, 
+                               numbering: none), 
+                 text(body: [.]), 
+                 parbreak(), 
+                 text(body: [Inline ]), 
+                 math.equation(block: false, 
+                               body: { text(body: [2]), 
+                                       math.equation(block: true, 
+                                                     body: { text(body: [α]), 
+                                                             math.attach(b: none, 
+                                                                         base: math.lr(body: ({ [(], 
+                                                                                                text(body: [M]), 
+                                                                                                text(body: [+]), 
+                                                                                                math.equation(block: false, 
+                                                                                                              body: { text(body: [a]), 
+                                                                                                                      math.attach(b: none, 
+                                                                                                                                  base: text(body: [b]), 
+                                                                                                                                  t: text(body: [2])) }, 
+                                                                                                              numbering: none), 
+                                                                                                [)] })), 
+                                                                         t: text(body: [2])) }, 
+                                                     numbering: none) }, 
+                               numbering: none), 
+                 text(body: [.]), 
+                 parbreak(), 
+                 text(body: [Inline ]), 
+                 math.equation(block: false, 
+                               body: { text(body: [2]), 
+                                       math.equation(block: false, 
+                                                     body: math.accent(accent: ^, 
+                                                                       base: text(body: [x])), 
+                                                     numbering: none), 
+                                       text(body: [∧]), 
+                                       math.equation(block: false, 
+                                                     body: math.accent(accent: ^, 
+                                                                       base: text(body: [y])), 
+                                                     numbering: none), 
+                                       text(body: [∧]), 
+                                       math.equation(block: false, 
+                                                     body: math.accent(accent: ^, 
+                                                                       base: { math.equation(block: false, 
+                                                                                             body: math.accent(accent: ^, 
+                                                                                                               base: text(body: [u])), 
+                                                                                             numbering: none), 
+                                                                               text(body: [∧]), 
+                                                                               math.equation(block: false, 
+                                                                                             body: math.accent(accent: ^, 
+                                                                                                               base: text(body: [v])), 
+                                                                                             numbering: none) }), 
+                                                     numbering: none) }, 
+                               numbering: none), 
+                 text(body: [.]), 
+                 parbreak(), 
+                 math.equation(block: true, 
+                               body: { text(body: [2]), 
+                                       math.equation(block: false, 
+                                                     body: { text(body: [α]), 
+                                                             math.attach(b: none, 
+                                                                         base: math.lr(body: ({ [(], 
+                                                                                                text(body: [M]), 
+                                                                                                text(body: [+]), 
+                                                                                                math.equation(block: false, 
+                                                                                                              body: { text(body: [a]), 
+                                                                                                                      math.attach(b: none, 
+                                                                                                                                  base: text(body: [b]), 
+                                                                                                                                  t: text(body: [2])) }, 
+                                                                                                              numbering: none), 
+                                                                                                [)] })), 
+                                                                         t: text(body: [2])) }, 
+                                                     numbering: none) }, 
+                               numbering: none), 
+                 text(body: [
+]), 
+                 math.equation(block: true, 
+                               body: { text(body: [2]), 
+                                       math.equation(block: true, 
+                                                     body: { text(body: [α]), 
+                                                             math.attach(b: none, 
+                                                                         base: math.lr(body: ({ [(], 
+                                                                                                text(body: [M]), 
+                                                                                                text(body: [+]), 
+                                                                                                math.equation(block: false, 
+                                                                                                              body: { text(body: [a]), 
+                                                                                                                      math.attach(b: none, 
+                                                                                                                                  base: text(body: [b]), 
+                                                                                                                                  t: text(body: [2])) }, 
+                                                                                                              numbering: none), 
+                                                                                                [)] })), 
+                                                                         t: text(body: [2])) }, 
+                                                     numbering: none) }, 
+                               numbering: none), 
+                 text(body: [
+]), 
+                 math.equation(block: true, 
+                               body: { text(body: [2]), 
+                                       math.equation(block: false, 
+                                                     body: math.accent(accent: ^, 
+                                                                       base: text(body: [x])), 
+                                                     numbering: none), 
+                                       text(body: [∧]), 
+                                       math.equation(block: false, 
+                                                     body: math.accent(accent: ^, 
+                                                                       base: text(body: [y])), 
+                                                     numbering: none), 
+                                       text(body: [∧]), 
+                                       math.equation(block: false, 
+                                                     body: math.accent(accent: ^, 
+                                                                       base: { math.equation(block: false, 
+                                                                                             body: math.accent(accent: ^, 
+                                                                                                               base: text(body: [u])), 
+                                                                                             numbering: none), 
+                                                                               text(body: [∧]), 
+                                                                               math.equation(block: false, 
+                                                                                             body: math.accent(accent: ^, 
+                                                                                                               base: text(body: [v])), 
+                                                                                             numbering: none) }), 
+                                                     numbering: none) }, 
+                               numbering: none), 
+                 parbreak() })

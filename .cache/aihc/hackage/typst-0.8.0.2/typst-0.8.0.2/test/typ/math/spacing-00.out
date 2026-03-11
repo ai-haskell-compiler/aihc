@@ -1,0 +1,306 @@
+--- parse tree ---
+[ Code
+    "typ/math/spacing-00.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/math/spacing-00.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/math/spacing-00.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Comment
+, Equation
+    False
+    [ Text "\228"
+    , Text ","
+    , Text "+"
+    , Text ","
+    , Text "c"
+    , Text ","
+    , MGroup (Just "(") (Just ")") [ Text "," ]
+    ]
+, Space
+, HardBreak
+, Equation
+    False
+    [ Text "="
+    , Text ")"
+    , Text ","
+    , MGroup (Just "(") (Just ")") [ Text "+" ]
+    , Text ","
+    , MGroup
+        (Just "{")
+        (Just "}")
+        [ Code
+            "typ/math/spacing-00.typ"
+            ( line 4 , column 12 )
+            (Ident (Identifier "times"))
+        ]
+    ]
+, SoftBreak
+, Equation
+    False
+    [ Text "\10215"
+    , Text "<"
+    , Text "\10214"
+    , Text ","
+    , Text "|"
+    , Code
+        "typ/math/spacing-00.typ"
+        ( line 5 , column 8 )
+        (Ident (Identifier "minus"))
+    , Text "|"
+    , Text ","
+    , MGroup (Just "[") Nothing [ Text "=" ]
+    ]
+, Space
+, HardBreak
+, Equation
+    False
+    [ Text "a"
+    , Text "="
+    , Text "b"
+    , Text ","
+    , Text "a"
+    , Text "="
+    , Text "="
+    , Text "b"
+    ]
+, Space
+, HardBreak
+, Equation
+    False
+    [ Code
+        "typ/math/spacing-00.typ"
+        ( line 7 , column 2 )
+        (Ident (Identifier "minus"))
+    , Text "a"
+    , Text ","
+    , Text "+"
+    , Text "a"
+    ]
+, Space
+, HardBreak
+, Equation
+    False
+    [ Text "a"
+    , Code
+        "typ/math/spacing-00.typ"
+        ( line 8 , column 4 )
+        (Ident (Identifier "not"))
+    , Text "b"
+    ]
+, Space
+, HardBreak
+, Equation
+    False
+    [ Text "a"
+    , Text "+"
+    , Text "b"
+    , Text ","
+    , Text "a"
+    , Code
+        "typ/math/spacing-00.typ"
+        ( line 9 , column 8 )
+        (Ident (Identifier "convolve"))
+    , Text "b"
+    ]
+, Space
+, HardBreak
+, Equation
+    False
+    [ Code
+        "typ/math/spacing-00.typ"
+        ( line 10 , column 2 )
+        (Ident (Identifier "sum"))
+    , Text "x"
+    , Text ","
+    , Code
+        "typ/math/spacing-00.typ"
+        ( line 10 , column 9 )
+        (FuncCall (Ident (Identifier "sum")) [ BlockArg [ Text "x" ] ])
+    ]
+, Space
+, HardBreak
+, Equation
+    False
+    [ Code
+        "typ/math/spacing-00.typ"
+        ( line 11 , column 2 )
+        (Ident (Identifier "sum"))
+    , Code
+        "typ/math/spacing-00.typ"
+        ( line 11 , column 6 )
+        (Ident (Identifier "product"))
+    , Text "x"
+    ]
+, Space
+, HardBreak
+, Equation
+    False
+    [ MGroup
+        Nothing
+        Nothing
+        [ Text "f" , MGroup (Just "(") (Just ")") [ Text "x" ] ]
+    , Text ","
+    , Code
+        "typ/math/spacing-00.typ"
+        ( line 12 , column 8 )
+        (FuncCall (Ident (Identifier "zeta")) [ BlockArg [ Text "x" ] ])
+    , Text ","
+    , MGroup
+        Nothing
+        Nothing
+        [ Text " frac" , MGroup (Just "(") (Just ")") [ Text "x" ] ]
+    ]
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 math.equation(block: false, 
+                               body: { text(body: [ä]), 
+                                       text(body: [,]), 
+                                       text(body: [+]), 
+                                       text(body: [,]), 
+                                       text(body: [c]), 
+                                       text(body: [,]), 
+                                       math.lr(body: ({ [(], 
+                                                        text(body: [,]), 
+                                                        [)] })) }, 
+                               numbering: none), 
+                 text(body: [ ]), 
+                 linebreak(), 
+                 math.equation(block: false, 
+                               body: { text(body: [=]), 
+                                       text(body: [)]), 
+                                       text(body: [,]), 
+                                       math.lr(body: ({ [(], 
+                                                        text(body: [+]), 
+                                                        [)] })), 
+                                       text(body: [,]), 
+                                       math.lr(body: ({ [{], 
+                                                        text(body: [×]), 
+                                                        [}] })) }, 
+                               numbering: none), 
+                 text(body: [
+]), 
+                 math.equation(block: false, 
+                               body: { text(body: [⟧]), 
+                                       text(body: [<]), 
+                                       text(body: [⟦]), 
+                                       text(body: [,]), 
+                                       text(body: [|]), 
+                                       text(body: [−]), 
+                                       text(body: [|]), 
+                                       text(body: [,]), 
+                                       text(body: [[]), 
+                                       text(body: [=]) }, 
+                               numbering: none), 
+                 text(body: [ ]), 
+                 linebreak(), 
+                 math.equation(block: false, 
+                               body: { text(body: [a]), 
+                                       text(body: [=]), 
+                                       text(body: [b]), 
+                                       text(body: [,]), 
+                                       text(body: [a]), 
+                                       text(body: [=]), 
+                                       text(body: [=]), 
+                                       text(body: [b]) }, 
+                               numbering: none), 
+                 text(body: [ ]), 
+                 linebreak(), 
+                 math.equation(block: false, 
+                               body: { text(body: [−]), 
+                                       text(body: [a]), 
+                                       text(body: [,]), 
+                                       text(body: [+]), 
+                                       text(body: [a]) }, 
+                               numbering: none), 
+                 text(body: [ ]), 
+                 linebreak(), 
+                 math.equation(block: false, 
+                               body: { text(body: [a]), 
+                                       text(body: [¬]), 
+                                       text(body: [b]) }, 
+                               numbering: none), 
+                 text(body: [ ]), 
+                 linebreak(), 
+                 math.equation(block: false, 
+                               body: { text(body: [a]), 
+                                       text(body: [+]), 
+                                       text(body: [b]), 
+                                       text(body: [,]), 
+                                       text(body: [a]), 
+                                       text(body: [∗]), 
+                                       text(body: [b]) }, 
+                               numbering: none), 
+                 text(body: [ ]), 
+                 linebreak(), 
+                 math.equation(block: false, 
+                               body: { text(body: [∑]), 
+                                       text(body: [x]), 
+                                       text(body: [,]), 
+                                       text(body: [∑]), 
+                                       text(body: [(]), 
+                                       text(body: [x]), 
+                                       text(body: [)]) }, 
+                               numbering: none), 
+                 text(body: [ ]), 
+                 linebreak(), 
+                 math.equation(block: false, 
+                               body: { text(body: [∑]), 
+                                       text(body: [∏]), 
+                                       text(body: [x]) }, 
+                               numbering: none), 
+                 text(body: [ ]), 
+                 linebreak(), 
+                 math.equation(block: false, 
+                               body: { text(body: [f]), 
+                                       math.lr(body: ({ [(], 
+                                                        text(body: [x]), 
+                                                        [)] })), 
+                                       text(body: [,]), 
+                                       text(body: [ζ]), 
+                                       text(body: [(]), 
+                                       text(body: [x]), 
+                                       text(body: [)]), 
+                                       text(body: [,]), 
+                                       text(body: [ frac]), 
+                                       math.lr(body: ({ [(], 
+                                                        text(body: [x]), 
+                                                        [)] })) }, 
+                               numbering: none), 
+                 parbreak() })

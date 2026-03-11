@@ -1,0 +1,25 @@
+---------------------------------------------------------------------
+RUN tests/cross.hs1 tests/cross.hs2 --cross
+FILE tests/cross.hs1
+
+module B(bar) where
+
+
+bar = 1
+    where
+        a = 1
+        b = 2
+        c = 3
+
+FILE tests/cross.hs2
+
+module A(foo) where
+
+foo = 1
+    where
+        a = 1
+        b = 2
+        c = 3
+
+OUTPUT
+No hints

@@ -1,0 +1,56 @@
+{
+    "$schema": "https://vega.github.io/schema/vega-lite/v4.json",
+    "data": {
+        "url": "https://vega.github.io/vega-lite/data/movies.json"
+    },
+    "encoding": {
+        "y": {
+            "axis": null,
+            "field": "Major_Genre",
+            "type": "nominal"
+        }
+    },
+    "height": {
+        "step": 16
+    },
+    "layer": [
+        {
+            "encoding": {
+                "x": {
+                    "aggregate": "mean",
+                    "field": "IMDB_Rating",
+                    "scale": {
+                        "domain": [
+                            0,
+                            10
+                        ]
+                    },
+                    "title": "Mean IMDB Ratings",
+                    "type": "quantitative"
+                }
+            },
+            "mark": {
+                "color": "#ddd",
+                "type": "bar"
+            }
+        },
+        {
+            "encoding": {
+                "detail": {
+                    "aggregate": "count",
+                    "type": "quantitative"
+                },
+                "text": {
+                    "field": "Major_Genre",
+                    "type": "nominal"
+                }
+            },
+            "mark": {
+                "align": "left",
+                "type": "text",
+                "x": 5
+            }
+        }
+    ],
+    "width": 200
+}

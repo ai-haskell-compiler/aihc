@@ -1,0 +1,136 @@
+#
+# spec file for package amazonka-kms
+#
+# Copyright (c) 2020 SUSE LLC
+#
+# All modifications and additions to the file contributed by third parties
+# remain the property of their copyright owners, unless otherwise agreed
+# upon. The license for this file, and modifications and additions to the
+# file, is the same license as for the pristine package itself (unless the
+# license for the pristine package is not an Open Source License, in which
+# case the license is the MIT License). An "Open Source License" is a
+# license that conforms to the Open Source Definition (Version 1.9)
+# published by the Open Source Initiative.
+
+# Please submit bugfixes or comments via https://bugs.opensuse.org/
+#
+
+
+%global pkg_name amazonka-kms
+%global pkgver %{pkg_name}-%{version}
+
+%bcond_with tests
+Name:           %{pkg_name}
+Version:        1.5.0
+Release:        0
+Summary:        Amazon Key Management Service SDK
+License:        MPL-2.0
+URL:            https://hackage.haskell.org/package/%{name}
+Source0:        https://hackage.haskell.org/package/%{name}-%{version}/%{name}-%{version}.tar.gz
+ExcludeArch:    %{ix86}
+BuildRequires:  ghc-Cabal-devel
+BuildRequires:  ghc-amazonka-core-devel
+BuildRequires:  ghc-amazonka-core-prof
+BuildRequires:  ghc-base-devel
+BuildRequires:  ghc-base-prof
+BuildRequires:  ghc-rpm-macros
+%if %{with tests}
+BuildRequires:  ghc-amazonka-test-devel
+BuildRequires:  ghc-amazonka-test-prof
+BuildRequires:  ghc-bytestring-devel
+BuildRequires:  ghc-bytestring-prof
+BuildRequires:  ghc-tasty-devel
+BuildRequires:  ghc-tasty-hunit-devel
+BuildRequires:  ghc-tasty-hunit-prof
+BuildRequires:  ghc-tasty-prof
+BuildRequires:  ghc-text-devel
+BuildRequires:  ghc-text-prof
+BuildRequires:  ghc-time-devel
+BuildRequires:  ghc-time-prof
+BuildRequires:  ghc-unordered-containers-devel
+BuildRequires:  ghc-unordered-containers-prof
+%endif
+
+%description
+The types from this library are intended to be used with
+<http://hackage.haskell.org/package/amazonka amazonka>, which provides
+mechanisms for specifying AuthN/AuthZ information, sending requests, and
+receiving responses.
+
+Lenses are used for constructing and manipulating types, due to the depth of
+nesting of AWS types and transparency regarding de/serialisation into more
+palatable Haskell values. The provided lenses should be compatible with any of
+the major lens libraries such as <http://hackage.haskell.org/package/lens lens>
+or <http://hackage.haskell.org/package/lens-family-core lens-family-core>.
+
+See "Network.AWS.KMS" or <https://aws.amazon.com/documentation/ the AWS
+documentation> to get started.
+
+%package -n ghc-%{name}
+Summary:        Haskell %{name} library
+
+%description -n ghc-%{name}
+This package provides the Haskell %{name} shared library.
+
+%package -n ghc-%{name}-devel
+Summary:        Haskell %{name} library development files
+Requires:       ghc-%{name} = %{version}-%{release}
+Requires:       ghc-compiler = %{ghc_version}
+Requires(post): ghc-compiler = %{ghc_version}
+Requires(postun): ghc-compiler = %{ghc_version}
+
+%description -n ghc-%{name}-devel
+This package provides the Haskell %{name} library development files.
+
+%package -n ghc-%{pkg_name}-doc
+Summary:        Haskell %{pkg_name} library documentation
+BuildArch:      noarch
+Requires:       ghc-filesystem
+
+%description -n ghc-%{pkg_name}-doc
+This package provides the Haskell %{pkg_name} library documentation.
+
+
+%package -n ghc-%{pkg_name}-prof
+Summary:        Haskell %{pkg_name} profiling library
+Requires:       ghc-%{pkg_name}-devel = %{version}-%{release}
+Supplements:    (ghc-%{pkg_name}-devel and ghc-prof)
+
+%description -n ghc-%{pkg_name}-prof
+This package provides the Haskell %{pkg_name} profiling library.
+
+
+%prep
+%autosetup
+
+%build
+%ghc_lib_build
+
+%install
+%ghc_lib_install
+
+%check
+%cabal_test
+
+%post -n ghc-%{name}-devel
+%ghc_pkg_recache
+
+%postun -n ghc-%{name}-devel
+%ghc_pkg_recache
+
+%files
+%license LICENSE
+%doc README.md
+
+%files -n ghc-%{name} -f ghc-%{name}.files
+%license LICENSE
+
+%files -n ghc-%{name}-devel -f ghc-%{name}-devel.files
+%doc README.md
+
+%files -n ghc-%{pkg_name}-doc -f ghc-%{pkg_name}-doc.files
+%license LICENSE
+
+%files -n ghc-%{pkg_name}-prof -f ghc-%{pkg_name}-prof.files
+
+%changelog

@@ -1,0 +1,139 @@
+Singletons/Operators.hs:(0,0)-(0,0): Splicing declarations
+    singletons
+      [d| child :: Foo -> Foo
+          child FLeaf = FLeaf
+          child (a :+: _) = a
+          (+) :: Nat -> Nat -> Nat
+          Zero + m = m
+          (Succ n) + m = Succ (n + m)
+          
+          data Foo
+            where
+              FLeaf :: Foo
+              (:+:) :: Foo -> Foo -> Foo |]
+  ======>
+    data Foo
+      where
+        FLeaf :: Foo
+        (:+:) :: Foo -> Foo -> Foo
+    child :: Foo -> Foo
+    child FLeaf = FLeaf
+    child (a :+: _) = a
+    (+) :: Nat -> Nat -> Nat
+    (+) Zero m = m
+    (+) (Succ n) m = Succ (n + m)
+    type FLeafSym0 :: Foo
+    type family FLeafSym0 :: Foo where
+      FLeafSym0 = FLeaf
+    type (:+:@#@$) :: (~>) Foo ((~>) Foo Foo)
+    data (:+:@#@$) :: (~>) Foo ((~>) Foo Foo)
+      where
+        (::+:@#@$###) :: SameKind (Apply (:+:@#@$) arg) ((:+:@#@$$) arg) =>
+                         (:+:@#@$) a0123456789876543210
+    type instance Apply (:+:@#@$) a0123456789876543210 = (:+:@#@$$) a0123456789876543210
+    instance SuppressUnusedWarnings (:+:@#@$) where
+      suppressUnusedWarnings = snd ((,) (::+:@#@$###) ())
+    type (:+:@#@$$) :: Foo -> (~>) Foo Foo
+    data (:+:@#@$$) (a0123456789876543210 :: Foo) :: (~>) Foo Foo
+      where
+        (::+:@#@$$###) :: SameKind (Apply ((:+:@#@$$) a0123456789876543210) arg) ((:+:@#@$$$) a0123456789876543210 arg) =>
+                          (:+:@#@$$) a0123456789876543210 a0123456789876543210
+    type instance Apply ((:+:@#@$$) a0123456789876543210) a0123456789876543210 = (:+:) a0123456789876543210 a0123456789876543210
+    instance SuppressUnusedWarnings ((:+:@#@$$) a0123456789876543210) where
+      suppressUnusedWarnings = snd ((,) (::+:@#@$$###) ())
+    type (:+:@#@$$$) :: Foo -> Foo -> Foo
+    type family (:+:@#@$$$) (a0123456789876543210 :: Foo) (a0123456789876543210 :: Foo) :: Foo where
+      (:+:@#@$$$) a0123456789876543210 a0123456789876543210 = (:+:) a0123456789876543210 a0123456789876543210
+    type (+@#@$) :: (~>) Nat ((~>) Nat Nat)
+    data (+@#@$) :: (~>) Nat ((~>) Nat Nat)
+      where
+        (:+@#@$###) :: SameKind (Apply (+@#@$) arg) ((+@#@$$) arg) =>
+                       (+@#@$) a0123456789876543210
+    type instance Apply (+@#@$) a0123456789876543210 = (+@#@$$) a0123456789876543210
+    instance SuppressUnusedWarnings (+@#@$) where
+      suppressUnusedWarnings = snd ((,) (:+@#@$###) ())
+    type (+@#@$$) :: Nat -> (~>) Nat Nat
+    data (+@#@$$) (a0123456789876543210 :: Nat) :: (~>) Nat Nat
+      where
+        (:+@#@$$###) :: SameKind (Apply ((+@#@$$) a0123456789876543210) arg) ((+@#@$$$) a0123456789876543210 arg) =>
+                        (+@#@$$) a0123456789876543210 a0123456789876543210
+    type instance Apply ((+@#@$$) a0123456789876543210) a0123456789876543210 = (+) a0123456789876543210 a0123456789876543210
+    instance SuppressUnusedWarnings ((+@#@$$) a0123456789876543210) where
+      suppressUnusedWarnings = snd ((,) (:+@#@$$###) ())
+    type (+@#@$$$) :: Nat -> Nat -> Nat
+    type family (+@#@$$$) (a0123456789876543210 :: Nat) (a0123456789876543210 :: Nat) :: Nat where
+      (+@#@$$$) a0123456789876543210 a0123456789876543210 = (+) a0123456789876543210 a0123456789876543210
+    type ChildSym0 :: (~>) Foo Foo
+    data ChildSym0 :: (~>) Foo Foo
+      where
+        ChildSym0KindInference :: SameKind (Apply ChildSym0 arg) (ChildSym1 arg) =>
+                                  ChildSym0 a0123456789876543210
+    type instance Apply ChildSym0 a0123456789876543210 = Child a0123456789876543210
+    instance SuppressUnusedWarnings ChildSym0 where
+      suppressUnusedWarnings = snd ((,) ChildSym0KindInference ())
+    type ChildSym1 :: Foo -> Foo
+    type family ChildSym1 (a0123456789876543210 :: Foo) :: Foo where
+      ChildSym1 a0123456789876543210 = Child a0123456789876543210
+    type (+) :: Nat -> Nat -> Nat
+    type family (+) (a :: Nat) (a :: Nat) :: Nat where
+      (+) 'Zero m = m
+      (+) ('Succ n) m = Apply SuccSym0 (Apply (Apply (+@#@$) n) m)
+    type Child :: Foo -> Foo
+    type family Child (a :: Foo) :: Foo where
+      Child FLeaf = FLeafSym0
+      Child ((:+:) a _) = a
+    (%+) ::
+      (forall (t :: Nat) (t :: Nat).
+       Sing t
+       -> Sing t -> Sing (Apply (Apply (+@#@$) t) t :: Nat) :: Type)
+    sChild ::
+      (forall (t :: Foo).
+       Sing t -> Sing (Apply ChildSym0 t :: Foo) :: Type)
+    (%+) SZero (sM :: Sing m) = sM
+    (%+) (SSucc (sN :: Sing n)) (sM :: Sing m)
+      = applySing
+          (singFun1 @SuccSym0 SSucc)
+          (applySing (applySing (singFun2 @(+@#@$) (%+)) sN) sM)
+    sChild SFLeaf = SFLeaf
+    sChild ((:%+:) (sA :: Sing a) _) = sA
+    instance SingI ((+@#@$) :: (~>) Nat ((~>) Nat Nat)) where
+      sing = singFun2 @(+@#@$) (%+)
+    instance SingI d =>
+             SingI ((+@#@$$) (d :: Nat) :: (~>) Nat Nat) where
+      sing = singFun1 @((+@#@$$) (d :: Nat)) ((%+) (sing @d))
+    instance SingI1 ((+@#@$$) :: Nat -> (~>) Nat Nat) where
+      liftSing (s :: Sing (d :: Nat))
+        = singFun1 @((+@#@$$) (d :: Nat)) ((%+) s)
+    instance SingI (ChildSym0 :: (~>) Foo Foo) where
+      sing = singFun1 @ChildSym0 sChild
+    data SFoo :: Foo -> Type
+      where
+        SFLeaf :: SFoo (FLeaf :: Foo)
+        (:%+:) :: forall (n :: Foo) (n :: Foo).
+                  (Sing n) -> (Sing n) -> SFoo ((:+:) n n :: Foo)
+    type instance Sing @Foo = SFoo
+    instance SingKind Foo where
+      type Demote Foo = Foo
+      fromSing SFLeaf = FLeaf
+      fromSing ((:%+:) b b) = (:+:) (fromSing b) (fromSing b)
+      toSing FLeaf = SomeSing SFLeaf
+      toSing ((:+:) (b :: Demote Foo) (b :: Demote Foo))
+        = case (,) (toSing b :: SomeSing Foo) (toSing b :: SomeSing Foo) of
+            (,) (SomeSing c) (SomeSing c) -> SomeSing ((:%+:) c c)
+    instance SingI FLeaf where
+      sing = SFLeaf
+    instance (SingI n, SingI n) =>
+             SingI ((:+:) (n :: Foo) (n :: Foo)) where
+      sing = (:%+:) sing sing
+    instance SingI n => SingI1 ((:+:) (n :: Foo)) where
+      liftSing = (:%+:) sing
+    instance SingI2 (:+:) where
+      liftSing2 = (:%+:)
+    instance SingI ((:+:@#@$) :: (~>) Foo ((~>) Foo Foo)) where
+      sing = singFun2 @(:+:@#@$) (:%+:)
+    instance SingI d =>
+             SingI ((:+:@#@$$) (d :: Foo) :: (~>) Foo Foo) where
+      sing = singFun1 @((:+:@#@$$) (d :: Foo)) ((:%+:) (sing @d))
+    instance SingI1 ((:+:@#@$$) :: Foo -> (~>) Foo Foo) where
+      liftSing (s :: Sing (d :: Foo))
+        = singFun1 @((:+:@#@$$) (d :: Foo)) ((:%+:) s)

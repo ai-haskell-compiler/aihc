@@ -1,0 +1,66 @@
+# ItemSyncResponse
+# [32mone of[m
+[ [37mtype[m: # [31mrequired[m
+    in-sync-empty
+  <object>
+, [37mtype[m: # [31mrequired[m
+    in-sync-full
+  <object>
+, [37mtype[m: # [31mrequired[m
+    client-added
+  [37mtime[m: # [31mrequired[m
+    # server's confirmation of the addition
+    # Server time
+    [33m<number>[m # between [32m0[m and [32m18446744073709551615[m
+, [37mtype[m: # [31mrequired[m
+    client-changed
+  [37mtime[m: # [31mrequired[m
+    # server's confirmation of the addition
+    # Server time
+    [33m<number>[m # between [32m0[m and [32m18446744073709551615[m
+, [37mtype[m: # [31mrequired[m
+    client-deleted
+  <object>
+, [37mtype[m: # [31mrequired[m
+    server-added
+  [37mvalue[m: # [31mrequired[m
+    # timed value
+    [33m<number>[m # between [32m0[m and [32m255[m
+  [37mtime[m: # [31mrequired[m
+    # timed time
+    # Server time
+    [33m<number>[m # between [32m0[m and [32m18446744073709551615[m
+, [37mtype[m: # [31mrequired[m
+    server-changed
+  [37mvalue[m: # [31mrequired[m
+    # timed value
+    [33m<number>[m # between [32m0[m and [32m255[m
+  [37mtime[m: # [31mrequired[m
+    # timed time
+    # Server time
+    [33m<number>[m # between [32m0[m and [32m18446744073709551615[m
+, [37mtype[m: # [31mrequired[m
+    server-deleted
+  <object>
+, [37mtype[m: # [31mrequired[m
+    conflict
+  [37mvalue[m: # [31mrequired[m
+    # timed value
+    [33m<number>[m # between [32m0[m and [32m255[m
+  [37mtime[m: # [31mrequired[m
+    # timed time
+    # Server time
+    [33m<number>[m # between [32m0[m and [32m18446744073709551615[m
+, [37mtype[m: # [31mrequired[m
+    conflict-client-deleted
+  [37mvalue[m: # [31mrequired[m
+    # timed value
+    [33m<number>[m # between [32m0[m and [32m255[m
+  [37mtime[m: # [31mrequired[m
+    # timed time
+    # Server time
+    [33m<number>[m # between [32m0[m and [32m18446744073709551615[m
+, [37mtype[m: # [31mrequired[m
+    conflict-server-deleted
+  <object>
+]

@@ -1,0 +1,24 @@
+<!doctype html>
+<html>
+  <head>
+    <title>Demonstrating circle-packing</title>
+    <script language="javascript" src="ghcjs-demo.jsexe/rts.js"></script>
+    <script language="javascript" src="ghcjs-demo.jsexe/lib.js"></script>
+    <script language="javascript" src="ghcjs-demo.jsexe/out.js"></script>
+
+  </head>
+  <body id="body" style="margin:0;padding:0">
+  <div align="center">
+    <canvas width="800" height="500" id="can"></canvas><br/>
+    <input style="width: 800px" id="input" value="50 32 30 30 40 35 5 20 43 18 12"/><br/>
+    <p style="width: 800px; text-align:justify; font-family:sans; font-size:80%">
+
+    This is a small live demonstration of the Haskell library <a href="http://hackage.haskell.org/package/circle-packing"><tt>circle-packing</tt></a> by <a href="http://www.joachim-breitner.de/">Joachim Breitner</a>:<br/> 
+    Given a number of circles with their radii, this packags tries to arrange them tightly, without overlap and forming a large circle.<br/>
+Finding the optimal solution is NP hard, so only heuristics are feasible. This particular implementation is neither very good nor very fast, compared to the state of the art in research. Nevertheless it is simple to use and gives visually acceptable results.<br/>
+    This particular demonstration uses <a href="https://github.com/ghcjs/ghcjs">GHC-JS</a> (from June 2015, using GHC-7.8.4) to generate JavaScript code from <a href="../Optimisation/CirclePacking.hs">the original Haskell code</a> and some <a href="ghcjs-demo.hs">code to address the HTML5 canvas</a>, so although it runs in your browser, this <em>is</em> the Haskell code at work. There is an analougous <a href="../fay/fay-demo.html">demo based the Fay compiler</a>, and one  <a href="../haste/haste-demo.html">using haste</a>.
+    </p>
+  </div>
+  <script language="javascript" defer>h$main(h$mainZCMainzimain);</script>
+  </body>
+</html>

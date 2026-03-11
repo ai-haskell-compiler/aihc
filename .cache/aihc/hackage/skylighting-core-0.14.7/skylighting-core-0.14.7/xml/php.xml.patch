@@ -1,0 +1,14 @@
+diff --git a/skylighting-core/xml/php.xml b/skylighting-core/xml/php.xml
+index 063bb96..87a1fdd 100644
+--- a/skylighting-core/xml/php.xml
++++ b/skylighting-core/xml/php.xml
+@@ -10911,7 +10911,8 @@
+     </list>
+ 
+     <contexts>
+-      <context name="start" lineEndContext="#stay" attribute="Normal Text">
++      <!-- JGM:  Added fallthrough so it will handle snippets that don't begin with <?php -->
++       <context name="start" lineEndContext="#stay" attribute="Normal Text" fallthrough="true" fallthroughContext="phpsource">
+         <StringDetect context="phpsource" attribute="Keyword" String="&lt;?php" insensitive="true" />
+         <Detect2Chars context="phpsource" attribute="Keyword" char="&lt;" char1="?" />
+         <Detect2Chars attribute="Keyword" context="#pop" char="?" char1="&gt;" />

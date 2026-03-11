@@ -1,0 +1,7 @@
+resolver: lts-24.7
+compiler: ghc-9.10.2
+compiler-check: match-exact
+
+flags:
+  HsOpenSSL:
+    use-pkg-config: true

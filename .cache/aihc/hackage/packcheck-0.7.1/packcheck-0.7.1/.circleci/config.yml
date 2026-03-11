@@ -1,0 +1,225 @@
+# packcheck-0.7.1
+# You can use any of the options supported by packcheck as environment
+# variables here.  See https://github.com/composewell/packcheck for all
+# options and their explanation.
+
+version: 2
+
+#-----------------------------------------------------------------------------
+# Packcheck global environment variables
+#-----------------------------------------------------------------------------
+
+env: &env
+    environment:
+      # ------------------------------------------------------------------------
+      # Common options
+      # ------------------------------------------------------------------------
+      # GHC_OPTIONS: "-Werror"
+      # For updating see: https://downloads.haskell.org/~ghcup/
+      GHCUP_VERSION: 0.1.40.0
+      CABAL_REINIT_CONFIG: "y"
+      LC_ALL: "C.UTF-8"
+
+      # ------------------------------------------------------------------------
+      # What to build
+      # ------------------------------------------------------------------------
+      # DISABLE_TEST: "y"
+      # DISABLE_BENCH: "y"
+      # DISABLE_DOCS: "y"
+      # DISABLE_SDIST_BUILD: "y"
+      # DISABLE_SDIST_GIT_CHECK: "y"
+      # DISABLE_DIST_CHECKS: "y"
+
+      # ------------------------------------------------------------------------
+      # stack options
+      # ------------------------------------------------------------------------
+      # Note requiring a specific version of stack using STACKVER may fail due to
+      # github API limit while checking and upgrading/downgrading to the specific
+      # version.
+      #STACKVER: "1.6.5"
+      #STACK_UPGRADE: "y"
+      #RESOLVER: "lts-23"
+      STACK_YAML: "stack.yaml"
+
+      # ------------------------------------------------------------------------
+      # cabal options
+      # ------------------------------------------------------------------------
+      CABAL_CHECK_RELAX: "y"
+      CABAL_HACKAGE_MIRROR: "hackage.haskell.org:http://hackage.fpcomplete.com"
+      CABAL_PROJECT: "cabal.project"
+
+      # ------------------------------------------------------------------------
+      # Where to find the required tools
+      # ------------------------------------------------------------------------
+      PATH: /opt/ghc/bin:/sbin:/usr/sbin:/bin:/usr/bin
+      #TOOLS_DIR: /opt
+
+      # ------------------------------------------------------------------------
+      # Location of packcheck.sh (the shell script invoked to perform CI tests ).
+      # ------------------------------------------------------------------------
+      # You can either commit the packcheck.sh script at this path in your repo or
+      # you can use it by specifying the PACKCHECK_REPO_URL option below in which
+      # case it will be automatically copied from the packcheck repo to this path
+      # during CI tests. In any case it is finally invoked from this path.
+      PACKCHECK: "./packcheck.sh"
+      # If you have not committed packcheck.sh in your repo at PACKCHECK
+      # then it is automatically pulled from this URL.
+      PACKCHECK_GITHUB_URL: "https://raw.githubusercontent.com/composewell/packcheck"
+      PACKCHECK_GITHUB_COMMIT: "v0.7.1"
+
+    # ubuntu seems to have better support than debian on CI systems
+    docker:
+      - image: ubuntu:latest
+
+#-----------------------------------------------------------------------------
+# Common utility stuff, not to be modified usually
+#-----------------------------------------------------------------------------
+
+preinstall: &preinstall
+  run: |
+        apt-get update
+        # required for https/cache save and restore
+        apt-get install -y ca-certificates
+
+        # Alternative way of installing ghc and cabal, directly from
+        # haskell.org instead of using ghcup. NOTE: this is for Debian
+        # only and is debian release specific.
+        # gnupg is required for apt-key to work
+        #apt-get install -y gnupg
+        #apt-key adv --keyserver keyserver.ubuntu.com  --recv-keys BA3CBA3FFE22B574
+        #echo "deb http://downloads.haskell.org/debian buster main" >> /etc/apt/sources.list
+        #apt-get update
+        #apt-get install -y ghc-8.10.4
+        #apt-get install -y cabal-install-3.4
+
+        # required for outbound https for stack and for stack setup
+        apt-get install -y netbase xz-utils make
+        apt-get install -y zlib1g-dev
+
+        # For ghcup to install ghc
+        if test -n "$GHCUP_VERSION"
+        then
+          apt-get install -y gcc
+          apt-get install -y g++
+        fi
+
+        # libgmp required by ghc for linking
+        apt-get install -y libgmp-dev
+        apt-get install -y libtinfo-dev
+
+        # Required by cabal when git URL is specified in project file
+        apt-get install -y git
+
+        # Required for and by packcheck
+        apt-get install -y curl
+
+        # Get packcheck if needed
+        if test ! -e "$PACKCHECK"
+        then
+          if test -z "$PACKCHECK_GITHUB_COMMIT"
+          then
+              die "PACKCHECK_GITHUB_COMMIT is not specified."
+          fi
+          PACKCHECK_URL=${PACKCHECK_GITHUB_URL}/${PACKCHECK_GITHUB_COMMIT}/packcheck.sh
+          curl --fail -sL -o "$PACKCHECK" $PACKCHECK_URL || exit 1
+          chmod +x $PACKCHECK
+        elif test ! -x "$PACKCHECK"
+        then
+            chmod +x $PACKCHECK
+        fi
+
+restore: &restore
+  # Needs to happen after installing ca-certificates
+  restore_cache:
+    key: v1-{{ .Environment.CIRCLE_JOB }}-{{ .Branch }}
+
+save: &save
+  save_cache:
+      key: v1-{{ .Environment.CIRCLE_JOB }}-{{ .Branch }}
+      paths:
+        - ~/.local
+        - ~/.cabal
+        - ~/.stack
+        - ~/.ghcup
+
+#-----------------------------------------------------------------------------
+# Build matrix
+#-----------------------------------------------------------------------------
+
+jobs:
+  cabal-ghc-9-8-4:
+      <<: *env
+      steps:
+        - checkout
+        - *restore
+        - *preinstall
+        - run: |
+              bash -c "$PACKCHECK cabal GHCVER=9.8.4"
+        - *save
+  cabal-ghc-9-6-6:
+      <<: *env
+      steps:
+        - checkout
+        - *restore
+        - *preinstall
+        - run: |
+              bash -c "$PACKCHECK cabal GHCVER=9.6.6"
+        - *save
+  cabal-ghc-9-4-8:
+      <<: *env
+      steps:
+        - checkout
+        - *restore
+        - *preinstall
+        - run: |
+              bash -c "$PACKCHECK cabal GHCVER=9.4.8"
+        - *save
+  cabal-ghc-9-2-8:
+      <<: *env
+      steps:
+        - checkout
+        - *restore
+        - *preinstall
+        - run: |
+              bash -c "$PACKCHECK cabal GHCVER=9.2.8"
+        - *save
+  cabal-ghc-9-0-1:
+      <<: *env
+      steps:
+        - checkout
+        - *restore
+        - *preinstall
+        - run: |
+              bash -c "$PACKCHECK cabal GHCVER=9.0.1"
+        - *save
+  cabal-ghc-8-10-7:
+      <<: *env
+      steps:
+        - checkout
+        - *restore
+        - *preinstall
+        - run: |
+              bash -c "$PACKCHECK cabal-v2 GHCVER=8.10.7"
+        - *save
+  stack-lts-23:
+      <<: *env
+      steps:
+        - checkout
+        - *restore
+        - *preinstall
+        - run: |
+            bash -c "$PACKCHECK stack RESOLVER=lts-23"
+        - *save
+
+workflows:
+  version: 2
+  build:
+    jobs:
+      # Uncomment the configs that you want to enable
+      - cabal-ghc-9-8-4
+      - cabal-ghc-9-6-6
+      - cabal-ghc-9-4-8
+      - cabal-ghc-9-2-8
+      - cabal-ghc-9-0-1
+      - cabal-ghc-8-10-7
+      - stack-lts-23

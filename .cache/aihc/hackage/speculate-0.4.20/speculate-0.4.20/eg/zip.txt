@@ -1,0 +1,27 @@
+max expr size  =    5
+max  #-tests   =  500
+min  #-tests   =   25  (to consider p ==> q true)
+max  #-vars    =    3  (for inequational and conditional laws)
+
+_ :: Bool
+_ :: Int
+_ :: [Int]
+_ :: [(Int,Int)]
+_ :: (Int,Int)
+(++) :: [Int] -> [Int] -> [Int]
+(==) :: Int -> Int -> Bool
+length :: [Int] -> Int
+zip :: [Int] -> [Int] -> [(Int,Int)]
+True :: Bool
+False :: Bool
+(==) :: Bool -> Bool -> Bool
+(==) :: [Int] -> [Int] -> Bool
+(==) :: [(Int,Int)] -> [(Int,Int)] -> Bool
+(==) :: (Int,Int) -> (Int,Int) -> Bool
+
+zip xs (xs ++ ys) == zip xs xs
+zip (xs ++ ys) xs == zip xs xs
+
+length xs == length ys ==> zip xs (ys ++ zs) == zip xs ys
+length xs == length ys ==> zip (xs ++ zs) ys == zip xs ys
+

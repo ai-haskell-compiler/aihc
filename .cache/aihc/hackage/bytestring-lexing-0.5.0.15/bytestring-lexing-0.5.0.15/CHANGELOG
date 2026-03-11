@@ -1,0 +1,56 @@
+0.5.0.15 (2025-02-11):
+    - Updated version bounds for GHC 9.12
+0.5.0.14 (2024-08-29):
+    - Updating version bounds for the test suite, and factoring out
+      the `Common library-build-depends` stanza.
+0.5.0.13 (2024-08-29):
+    - Updated version bounds for GHC 9.10
+0.5.0.11 (2023-11-15):
+    - Updated version bounds for base-4.19, bytestring-0.12, tasty-1.5
+0.5.0.10 (2023-03-19):
+    - Updated version bounds for GHC 9.6
+0.5.0.9 (2021-08-28):
+    - Updated version bounds for GHC 9.4
+0.5.0.8 (2021-11-02):
+    - Updated version bounds for GHC 9.2.1
+0.5.0.7 (2021-10-16):
+    - Switching from TravisCI to GithubActions
+	- Linting Haddock warnings
+	- Remove some trailing whitespaces
+0.5.0.6 (2019-04-13):
+    - Nudging everything to the correct urls, emails, etc
+0.5.0.2 (2015-05-06):
+    - Fixed the benchmarking url
+0.5.0.1 (2015-05-06):
+    - Cleaned up the README file
+0.5.0 (2015-05-06):
+    - Corrected the License field in the .cabal file to say BSD2 (instead of BSD3)
+    - Data.ByteString.Lex.{Double,.Lazy.Double}: removed
+    - Data.ByteString.Lex.Fractional: added based on the inefficiency of the old Alex-based parsers, as demonstrated by Hirotomo Moriwaki's bytestring-read (v0.3.0).
+
+0.4.3.3 (2015-05-30):
+    - Moved VERSION to CHANGELOG
+0.4.3.1 (2014-03-07):
+    - Updated the .cabal file to require newer alex for newer ghc.
+0.4.3 (2013-03-21):
+    - Data.ByteString.Lex.Integral: Corrected a segmentation fault in packDecimal.
+0.4.2 (2013-03-20):
+    - Data.ByteString.Lex.Integral: Improved packDecimal.
+0.4.1 (2012-00-00):
+    - Data.ByteString.Lex.Integral: Added buffer overflow check for asHexadecimal
+0.4.0 (2012-02-03):
+    - Data.ByteString.Lex.Integral: added readDecimal_
+
+0.3.0 (2012-01-28):
+    - Added Data.ByteString.Lex.Integral
+    - Converted repo to Darcs-2 hashed format.
+    - wren ng thornton took over maintainership.
+
+0.2.1 (2010-02-14):
+0.2 (2008-10-15):
+    - Add support for lexing lazy bytestrings.
+
+0.1.2 (2008-07-23):
+0.1.0.2 (2008-07-23):
+0.1.0.1 (2008-07-19):
+0.1.0 (2008-07-19):

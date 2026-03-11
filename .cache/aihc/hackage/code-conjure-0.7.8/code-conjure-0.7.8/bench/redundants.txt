@@ -1,0 +1,958 @@
+Redundant candidates for: foo :: Int -> Int
+  pruning with 27/65 rules
+  [3,3,9,10,32,39] candidates
+  86/96 unique candidates
+  10/96 redundant candidates
+
+rules:
+x - x == 0
+x * 0 == 0
+x * 1 == x
+0 * x == 0
+1 * x == x
+x + 0 == x
+0 + x == x
+x - 0 == x
+(x * y) * z == x * (y * z)
+(x * y) * z == y * (x * z)
+(x + y) + z == x + (y + z)
+(x + y) + z == y + (x + z)
+x - (y - z) == z + (x - y)
+(x - y) - z == x - (y + z)
+(x - y) - z == x - (z + y)
+(x + y) - z == x + (y - z)
+(x + y) - z == y + (x - z)
+(x + x) * y == x * (y + y)
+x + (y - x) == y
+(x - y) + y == x
+x * y - x == x * (y - 1)
+x * y - y == y * (x - 1)
+x * (y + 1) == x + x * y
+x * (y + 1) == x * y + x
+(x + 1) * y == y + x * y
+0 - x * y == x * (0 - y)
+0 - x * y == y * (0 - x)
+equations:
+y * x == x * y
+y + x == x + y
+y * (x * z) == x * (y * z)
+z * (x * y) == x * (y * z)
+z * (y * x) == x * (y * z)
+y + (x + z) == x + (y + z)
+z + (x + y) == x + (y + z)
+z + (y + x) == x + (y + z)
+(z + y) * x == x * (y + z)
+y + (x - z) == x + (y - z)
+z * y + x == x + y * z
+(x - z) + y == x + (y - z)
+(z - y) + x == (x - y) + z
+y * (x + x) == x * (y + y)
+y - (x + y) == 0 - x
+y - (y + x) == 0 - x
+z - (y + z) == x - (x + y)
+z - (y + z) == x - (y + x)
+z - (z + y) == x - (x + y)
+z - (z + y) == x - (y + x)
+x * (1 - y) == x - x * y
+x * (1 - y) == x - y * x
+y * (0 - x) == x * (0 - y)
+(0 - x) * y == x * (0 - y)
+(0 - y) * x == (0 - x) * y
+(1 - y) * x == x - x * y
+(1 - y) * x == x - y * x
+x + (0 - y) == x - y
+(0 - y) + x == x - y
+x - (x + 1) == 0 - 1
+x - (1 + x) == 0 - 1
+y - (y + 1) == x - (x + 1)
+y - (y + 1) == x - (1 + x)
+y - (1 + y) == x - (1 + x)
+x * (0 - 1) == 0 - x
+(0 - 1) * x == 0 - x
+(0 - 1) * y == x - (x + y)
+(0 - 1) * y == x - (y + x)
+
+class of 3 equivalent candidates:
+
+    foo x  =  0 - x
+
+    foo x  =  x - (x + x)
+
+    foo x  =  1 - (x + 1)
+
+
+class of 2 equivalent candidates:
+
+    foo x  =  1 - x
+
+    foo x  =  1 + (0 - x)
+
+
+class of 2 equivalent candidates:
+
+    foo 0  =  0
+    foo x  =  1 - x
+
+    foo 0  =  0
+    foo x  =  1 + (0 - x)
+
+
+class of 3 equivalent candidates:
+
+    foo 0  =  1
+    foo x  =  0 - x
+
+    foo 0  =  1
+    foo x  =  x - (x + x)
+
+    foo 0  =  1
+    foo x  =  1 - (x + 1)
+
+
+class of 2 equivalent candidates:
+
+    foo x  =  x + (x + 1)
+
+    foo x  =  1 + (x + x)
+
+
+class of 2 equivalent candidates:
+
+    foo x  =  x * (1 - x)
+
+    foo x  =  x - x * x
+
+
+class of 2 equivalent candidates:
+
+    foo 0  =  0
+    foo x  =  x + (x + 1)
+
+    foo 0  =  0
+    foo x  =  1 + (x + x)
+
+
+class of 2 equivalent candidates:
+
+    foo 0  =  1
+    foo x  =  x * (1 - x)
+
+    foo 0  =  1
+    foo x  =  x - x * x
+
+
+
+Redundant candidates for: ? :: Int -> Int -> Int
+  pruning with 13/34 rules
+  [3,8,25,71,205] candidates
+  294/312 unique candidates
+  18/312 redundant candidates
+
+rules:
+x * 0 == 0
+0 * x == 0
+x + 0 == x
+0 + x == x
+dec (x + y) == x + dec y
+dec (x + y) == y + dec x
+dec (x + y) == dec x + y
+dec (x + y) == dec y + x
+(x * y) * z == x * (y * z)
+(x * y) * z == y * (x * z)
+(x + y) + z == x + (y + z)
+(x + y) + z == y + (x + z)
+(x + x) * y == x * (y + y)
+equations:
+y * x == x * y
+y + x == x + y
+y + dec x == x + dec y
+dec x + y == x + dec y
+dec y + x == dec x + y
+x + dec 0 == dec x
+dec 0 + x == dec x
+y * (x * z) == x * (y * z)
+z * (x * y) == x * (y * z)
+z * (y * x) == x * (y * z)
+y + (x + z) == x + (y + z)
+z + (x + y) == x + (y + z)
+z + (y + x) == x + (y + z)
+(z + y) * x == x * (y + z)
+z * y + x == x + y * z
+y * (x + x) == x * (y + y)
+y + dec (dec x) == x + dec (dec y)
+dec (dec x) + y == x + dec (dec y)
+dec (dec y) + x == dec (dec x) + y
+x + dec (dec 0) == dec (dec x)
+dec (dec 0) + x == dec (dec x)
+
+class of 2 equivalent candidates:
+
+    x ? y  =  x
+
+    x ? 0  =  x
+    x ? y  =  x ? dec y
+
+
+class of 2 equivalent candidates:
+
+    x ? y  =  y
+
+    0 ? x  =  x
+    x ? y  =  dec x ? y
+
+
+class of 2 equivalent candidates:
+
+    x ? 0  =  x
+    x ? y  =  0
+
+    x ? 0  =  x
+    x ? y  =  0 ? dec y
+
+
+class of 2 equivalent candidates:
+
+    0 ? x  =  x
+    x ? y  =  0
+
+    0 ? x  =  x
+    x ? y  =  dec x ? 0
+
+
+class of 2 equivalent candidates:
+
+    x ? y  =  x + dec y
+
+    x ? y  =  y + dec x
+
+
+class of 2 equivalent candidates:
+
+    x ? y  =  x + dec (dec x)
+
+    x ? y  =  dec x + dec x
+
+
+class of 3 equivalent candidates:
+
+    x ? y  =  x + dec (dec y)
+
+    x ? y  =  y + dec (dec x)
+
+    x ? y  =  dec x + dec y
+
+
+class of 2 equivalent candidates:
+
+    x ? y  =  x + (x + y)
+
+    x ? y  =  y + (x + x)
+
+
+class of 2 equivalent candidates:
+
+    x ? y  =  x + (y + y)
+
+    x ? y  =  y + (x + y)
+
+
+class of 2 equivalent candidates:
+
+    x ? y  =  y + dec (dec y)
+
+    x ? y  =  dec y + dec y
+
+
+class of 2 equivalent candidates:
+
+    x ? y  =  x * (y + y)
+
+    x ? y  =  y * (x + x)
+
+
+class of 2 equivalent candidates:
+
+    x ? y  =  x * (x * y)
+
+    x ? y  =  y * (x * x)
+
+
+class of 2 equivalent candidates:
+
+    x ? y  =  x * (y * y)
+
+    x ? y  =  y * (x * y)
+
+
+class of 2 equivalent candidates:
+
+    x ? 0  =  x
+    x ? y  =  x + dec y
+
+    x ? 0  =  x
+    x ? y  =  y + dec x
+
+
+class of 2 equivalent candidates:
+
+    x ? 0  =  0
+    x ? y  =  x + dec y
+
+    x ? 0  =  0
+    x ? y  =  y + dec x
+
+
+class of 2 equivalent candidates:
+
+    0 ? x  =  x
+    x ? y  =  x + dec y
+
+    0 ? x  =  x
+    x ? y  =  y + dec x
+
+
+class of 2 equivalent candidates:
+
+    0 ? x  =  0
+    x ? y  =  x + dec y
+
+    0 ? x  =  0
+    x ? y  =  y + dec x
+
+
+
+Redundant candidates for: goo :: [Int] -> [Int]
+  pruning with 4/4 rules
+  [2,1,1,2,4,7] candidates
+  15/17 unique candidates
+  2/17 redundant candidates
+
+rules:
+xs ++ [] == xs
+[] ++ xs == xs
+(xs ++ ys) ++ zs == xs ++ (ys ++ zs)
+(x:xs) ++ ys == x:(xs ++ ys)
+
+class of 2 equivalent candidates:
+
+    goo xs  =  xs
+
+    goo []  =  []
+    goo (x:xs)  =  x:goo xs
+
+
+class of 2 equivalent candidates:
+
+    goo xs  =  []
+
+    goo []  =  []
+    goo (x:xs)  =  goo xs ++ goo xs
+
+
+
+Redundant candidates for: ?? :: [Int] -> [Int] -> [Int]
+  pruning with 4/4 rules
+  [3,8,15,43,122] candidates
+  150/191 unique candidates
+  41/191 redundant candidates
+
+rules:
+xs ++ [] == xs
+[] ++ xs == xs
+(xs ++ ys) ++ zs == xs ++ (ys ++ zs)
+(x:xs) ++ ys == x:(xs ++ ys)
+
+class of 2 equivalent candidates:
+
+    xs ?? ys  =  xs
+
+    xs ?? []  =  xs
+    xs ?? (x:ys)  =  xs ?? ys
+
+
+class of 2 equivalent candidates:
+
+    xs ?? ys  =  ys
+
+    [] ?? xs  =  xs
+    (x:xs) ?? ys  =  xs ?? ys
+
+
+class of 5 equivalent candidates:
+
+    xs ?? []  =  xs
+    xs ?? (x:ys)  =  []
+
+    xs ?? []  =  xs
+    xs ?? (x:ys)  =  ys ?? ys
+
+    xs ?? []  =  xs
+    xs ?? (x:ys)  =  [] ?? xs
+
+    xs ?? []  =  xs
+    xs ?? (x:ys)  =  [] ?? ys
+
+    [] ?? xs  =  []
+    (x:xs) ?? []  =  x:xs
+    (x:xs) ?? (y:ys)  =  []
+
+
+class of 2 equivalent candidates:
+
+    xs ?? []  =  []
+    xs ?? (x:ys)  =  xs
+
+    [] ?? xs  =  []
+    (x:xs) ?? []  =  []
+    (x:xs) ?? (y:ys)  =  x:xs
+
+
+class of 3 equivalent candidates:
+
+    xs ?? []  =  []
+    xs ?? (x:ys)  =  ys
+
+    [] ?? []  =  []
+    [] ?? (x:xs)  =  xs
+    (x:xs) ?? ys  =  xs ?? ys
+
+    [] ?? []  =  []
+    [] ?? (x:xs)  =  xs
+    (x:xs) ?? ys  =  [] ?? ys
+
+
+class of 10 equivalent candidates:
+
+    [] ?? xs  =  xs
+    (x:xs) ?? ys  =  []
+
+    [] ?? xs  =  xs
+    (x:xs) ?? ys  =  xs ?? xs
+
+    [] ?? xs  =  xs
+    (x:xs) ?? ys  =  xs ?? []
+
+    [] ?? xs  =  xs
+    (x:xs) ?? ys  =  ys ?? []
+
+    [] ?? xs  =  xs
+    (x:xs) ?? []  =  xs ?? xs
+    (x:xs) ?? (y:ys)  =  []
+
+    [] ?? xs  =  xs
+    (x:xs) ?? []  =  xs ?? []
+    (x:xs) ?? (y:ys)  =  []
+
+    [] ?? xs  =  xs
+    (x:xs) ?? []  =  []
+    (x:xs) ?? (y:ys)  =  xs ?? xs
+
+    [] ?? xs  =  xs
+    (x:xs) ?? []  =  []
+    (x:xs) ?? (y:ys)  =  xs ?? []
+
+    [] ?? xs  =  xs
+    (x:xs) ?? []  =  []
+    (x:xs) ?? (y:ys)  =  ys ?? ys
+
+    [] ?? xs  =  xs
+    (x:xs) ?? []  =  []
+    (x:xs) ?? (y:ys)  =  ys ?? []
+
+
+class of 2 equivalent candidates:
+
+    [] ?? xs  =  []
+    (x:xs) ?? ys  =  xs
+
+    [] ?? []  =  []
+    [] ?? (x:xs)  =  [] ?? xs
+    (x:xs) ?? ys  =  xs
+
+
+class of 3 equivalent candidates:
+
+    [] ?? xs  =  []
+    (x:xs) ?? ys  =  ys
+
+    [] ?? []  =  []
+    [] ?? (x:xs)  =  xs ?? []
+    (x:xs) ?? ys  =  ys
+
+    [] ?? []  =  []
+    [] ?? (x:xs)  =  [] ?? xs
+    (x:xs) ?? ys  =  ys
+
+
+class of 3 equivalent candidates:
+
+    [] ?? xs  =  xs
+    (x:xs) ?? []  =  xs
+    (x:xs) ?? (y:ys)  =  []
+
+    [] ?? xs  =  xs
+    (x:xs) ?? []  =  xs
+    (x:xs) ?? (y:ys)  =  xs ?? xs
+
+    [] ?? xs  =  xs
+    (x:xs) ?? []  =  xs
+    (x:xs) ?? (y:ys)  =  ys ?? ys
+
+
+class of 2 equivalent candidates:
+
+    [] ?? xs  =  xs
+    (x:xs) ?? []  =  []
+    (x:xs) ?? (y:ys)  =  xs
+
+    [] ?? xs  =  xs
+    (x:xs) ?? []  =  xs ?? []
+    (x:xs) ?? (y:ys)  =  xs
+
+
+class of 2 equivalent candidates:
+
+    [] ?? xs  =  xs
+    (x:xs) ?? []  =  []
+    (x:xs) ?? (y:ys)  =  ys
+
+    [] ?? xs  =  xs
+    (x:xs) ?? []  =  xs ?? []
+    (x:xs) ?? (y:ys)  =  ys
+
+
+class of 3 equivalent candidates:
+
+    [] ?? xs  =  []
+    (x:xs) ?? []  =  xs
+    (x:xs) ?? (y:ys)  =  []
+
+    [] ?? xs  =  []
+    (x:xs) ?? []  =  xs
+    (x:xs) ?? (y:ys)  =  xs ?? xs
+
+    [] ?? xs  =  []
+    (x:xs) ?? []  =  xs
+    (x:xs) ?? (y:ys)  =  ys ?? ys
+
+
+class of 2 equivalent candidates:
+
+    [] ?? xs  =  []
+    (x:xs) ?? []  =  []
+    (x:xs) ?? (y:ys)  =  xs
+
+    [] ?? xs  =  []
+    (x:xs) ?? []  =  xs ?? []
+    (x:xs) ?? (y:ys)  =  xs
+
+
+class of 2 equivalent candidates:
+
+    [] ?? xs  =  []
+    (x:xs) ?? []  =  []
+    (x:xs) ?? (y:ys)  =  ys
+
+    [] ?? xs  =  []
+    (x:xs) ?? []  =  xs ?? []
+    (x:xs) ?? (y:ys)  =  ys
+
+
+class of 2 equivalent candidates:
+
+    [] ?? []  =  []
+    [] ?? (x:xs)  =  xs
+    (x:xs) ?? ys  =  ys
+
+    [] ?? []  =  []
+    [] ?? (x:xs)  =  xs ?? xs
+    (x:xs) ?? ys  =  ys
+
+
+class of 4 equivalent candidates:
+
+    [] ?? []  =  []
+    [] ?? (x:xs)  =  xs
+    (x:xs) ?? ys  =  []
+
+    [] ?? []  =  []
+    [] ?? (x:xs)  =  xs
+    (x:xs) ?? ys  =  xs ?? xs
+
+    [] ?? []  =  []
+    [] ?? (x:xs)  =  xs
+    (x:xs) ?? ys  =  xs ?? []
+
+    [] ?? []  =  []
+    [] ?? (x:xs)  =  xs
+    (x:xs) ?? ys  =  ys ?? []
+
+
+class of 2 equivalent candidates:
+
+    [] ?? xs  =  xs
+    (x:xs) ?? ys  =  ys ?? xs
+
+    [] ?? xs  =  xs
+    (x:xs) ?? []  =  xs
+    (x:xs) ?? (y:ys)  =  xs ?? ys
+
+
+class of 2 equivalent candidates:
+
+    [] ?? xs  =  xs
+    (x:xs) ?? []  =  xs
+    (x:xs) ?? (y:ys)  =  xs ++ ys
+
+    [] ?? xs  =  xs
+    (x:xs) ?? []  =  xs
+    (x:xs) ?? (y:ys)  =  ys ++ xs
+
+
+class of 2 equivalent candidates:
+
+    [] ?? xs  =  xs
+    (x:xs) ?? []  =  []
+    (x:xs) ?? (y:ys)  =  xs ++ ys
+
+    [] ?? xs  =  xs
+    (x:xs) ?? []  =  []
+    (x:xs) ?? (y:ys)  =  ys ++ xs
+
+
+class of 2 equivalent candidates:
+
+    [] ?? xs  =  []
+    (x:xs) ?? []  =  xs
+    (x:xs) ?? (y:ys)  =  xs ++ ys
+
+    [] ?? xs  =  []
+    (x:xs) ?? []  =  xs
+    (x:xs) ?? (y:ys)  =  ys ++ xs
+
+
+class of 2 equivalent candidates:
+
+    [] ?? xs  =  []
+    (x:xs) ?? []  =  []
+    (x:xs) ?? (y:ys)  =  xs ++ ys
+
+    [] ?? xs  =  []
+    (x:xs) ?? []  =  []
+    (x:xs) ?? (y:ys)  =  ys ++ xs
+
+
+class of 2 equivalent candidates:
+
+    [] ?? xs  =  []
+    (x:xs) ?? []  =  xs
+    (x:xs) ?? (y:ys)  =  xs ?? ys
+
+    [] ?? xs  =  []
+    (x:xs) ?? []  =  xs
+    (x:xs) ?? (y:ys)  =  xs ?? []
+
+
+class of 2 equivalent candidates:
+
+    [] ?? xs  =  []
+    (x:xs) ?? []  =  xs
+    (x:xs) ?? (y:ys)  =  ys ?? xs
+
+    [] ?? xs  =  []
+    (x:xs) ?? []  =  xs
+    (x:xs) ?? (y:ys)  =  ys ?? []
+
+
+class of 2 equivalent candidates:
+
+    [] ?? []  =  []
+    [] ?? (x:xs)  =  xs ?? xs
+    (x:xs) ?? ys  =  xs
+
+    [] ?? []  =  []
+    [] ?? (x:xs)  =  xs ?? []
+    (x:xs) ?? ys  =  xs
+
+
+
+Redundant candidates for: ton :: Bool -> Bool
+  pruning with 39/49 rules
+  [3,2,0,0,0,0] candidates
+  4/5 unique candidates
+  1/5 redundant candidates
+
+rules:
+not False == True
+not True == False
+p && p == p
+p || p == p
+not (not p) == p
+p && False == False
+p && True == p
+False && p == False
+True && p == p
+p || False == p
+p || True == True
+False || p == p
+True || p == True
+not (p && q) == not p || not q
+not (p && q) == not q || not p
+not (p || q) == not p && not q
+not (p || q) == not q && not p
+p && not p == False
+not p && p == False
+p || not p == True
+not p || p == True
+(p && q) && r == p && (q && r)
+(p && q) && r == q && (p && r)
+(p || q) || r == p || (q || r)
+(p || q) || r == q || (p || r)
+p && (p && q) == p && q
+p && (q && p) == p && q
+p && (q && p) == q && p
+p || (p || q) == p || q
+p || (q || p) == p || q
+p || (q || p) == q || p
+p && (p || q) == p
+p && (q || p) == p
+(p || q) && p == p
+(p || q) && q == q
+p || p && q == p
+p || q && p == p
+p && q || p == p
+p && q || q == q
+equations:
+q && p == p && q
+q || p == p || q
+q && (p && r) == p && (q && r)
+r && (p && q) == p && (q && r)
+r && (q && p) == p && (q && r)
+q || (p || r) == p || (q || r)
+r || (p || q) == p || (q || r)
+r || (q || p) == p || (q || r)
+(r || q) && p == p && (q || r)
+r && q || p == p || q && r
+
+class of 2 equivalent candidates:
+
+    ton p  =  not p
+
+    ton False  =  True
+    ton True  =  False
+
+
+
+Redundant candidates for: &| :: Bool -> Bool -> Bool
+  pruning with 39/49 rules
+  [4,12,20,6,2] candidates
+  16/44 unique candidates
+  28/44 redundant candidates
+
+rules:
+not False == True
+not True == False
+p && p == p
+p || p == p
+not (not p) == p
+p && False == False
+p && True == p
+False && p == False
+True && p == p
+p || False == p
+p || True == True
+False || p == p
+True || p == True
+not (p && q) == not p || not q
+not (p && q) == not q || not p
+not (p || q) == not p && not q
+not (p || q) == not q && not p
+p && not p == False
+not p && p == False
+p || not p == True
+not p || p == True
+(p && q) && r == p && (q && r)
+(p && q) && r == q && (p && r)
+(p || q) || r == p || (q || r)
+(p || q) || r == q || (p || r)
+p && (p && q) == p && q
+p && (q && p) == p && q
+p && (q && p) == q && p
+p || (p || q) == p || q
+p || (q || p) == p || q
+p || (q || p) == q || p
+p && (p || q) == p
+p && (q || p) == p
+(p || q) && p == p
+(p || q) && q == q
+p || p && q == p
+p || q && p == p
+p && q || p == p
+p && q || q == q
+equations:
+q && p == p && q
+q || p == p || q
+q && (p && r) == p && (q && r)
+r && (p && q) == p && (q && r)
+r && (q && p) == p && (q && r)
+q || (p || r) == p || (q || r)
+r || (p || q) == p || (q || r)
+r || (q || p) == p || (q || r)
+(r || q) && p == p && (q || r)
+r && q || p == p || q && r
+
+class of 2 equivalent candidates:
+
+    p &| q  =  not p
+
+    False &| p  =  True
+    True &| p  =  False
+
+
+class of 4 equivalent candidates:
+
+    p &| q  =  not q
+
+    p &| False  =  True
+    p &| True  =  False
+
+    False &| p  =  not p
+    True &| False  =  True
+    True &| True  =  False
+
+    False &| False  =  True
+    False &| True  =  False
+    True &| p  =  not p
+
+
+class of 4 equivalent candidates:
+
+    p &| False  =  p
+    p &| True  =  False
+
+    False &| p  =  False
+    True &| p  =  not p
+
+    False &| p  =  False
+    True &| False  =  True
+    True &| True  =  False
+
+    p &| q  =  p && not q
+
+
+class of 3 equivalent candidates:
+
+    p &| False  =  p
+    p &| True  =  True
+
+    False &| p  =  p
+    True &| p  =  True
+
+    p &| q  =  p || q
+
+
+class of 3 equivalent candidates:
+
+    p &| False  =  False
+    p &| True  =  p
+
+    False &| p  =  False
+    True &| p  =  p
+
+    p &| q  =  p && q
+
+
+class of 4 equivalent candidates:
+
+    p &| False  =  True
+    p &| True  =  p
+
+    False &| p  =  not p
+    True &| p  =  True
+
+    False &| False  =  True
+    False &| True  =  False
+    True &| p  =  True
+
+    p &| q  =  p || not q
+
+
+class of 3 equivalent candidates:
+
+    False &| p  =  p
+    True &| p  =  False
+
+    p &| False  =  False
+    p &| True  =  not p
+
+    p &| q  =  q && not p
+
+
+class of 3 equivalent candidates:
+
+    False &| p  =  True
+    True &| p  =  p
+
+    p &| False  =  not p
+    p &| True  =  True
+
+    p &| q  =  q || not p
+
+
+class of 3 equivalent candidates:
+
+    p &| False  =  p
+    p &| True  =  not p
+
+    False &| p  =  p
+    True &| p  =  not p
+
+    False &| p  =  p
+    True &| False  =  True
+    True &| True  =  False
+
+
+class of 4 equivalent candidates:
+
+    p &| False  =  True
+    p &| True  =  not p
+
+    False &| p  =  True
+    True &| p  =  not p
+
+    False &| p  =  True
+    True &| False  =  True
+    True &| True  =  False
+
+    p &| q  =  not p || not q
+
+
+class of 3 equivalent candidates:
+
+    p &| False  =  not p
+    p &| True  =  p
+
+    False &| p  =  not p
+    True &| p  =  p
+
+    False &| False  =  True
+    False &| True  =  False
+    True &| p  =  p
+
+
+class of 4 equivalent candidates:
+
+    p &| False  =  not p
+    p &| True  =  False
+
+    False &| p  =  not p
+    True &| p  =  False
+
+    False &| False  =  True
+    False &| True  =  False
+    True &| p  =  False
+
+    p &| q  =  not p && not q
+
+
+

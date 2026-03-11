@@ -1,0 +1,173 @@
+--- parse tree ---
+[ Code
+    "typ/compiler/modules/chap1.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/compiler/modules/chap1.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/compiler/modules/chap1.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Comment
+, SoftBreak
+, Code
+    "typ/compiler/modules/chap1.typ"
+    ( line 4 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "name"))) (Literal (String "Klaus")))
+, ParBreak
+, Heading 2 [ Text "Chapter" , Space , Text "1" ]
+, Code
+    "typ/compiler/modules/chap1.typ"
+    ( line 7 , column 2 )
+    (Ident (Identifier "name"))
+, Space
+, Text "stood"
+, Space
+, Text "in"
+, Space
+, Text "a"
+, Space
+, Text "field"
+, Space
+, Text "of"
+, Space
+, Text "wheat"
+, Text "."
+, Space
+, Text "There"
+, Space
+, Text "was"
+, Space
+, Text "nothing"
+, Space
+, Text "of"
+, Space
+, Text "particular"
+, Space
+, Text "interest"
+, Space
+, Text "about"
+, SoftBreak
+, Text "the"
+, Space
+, Text "field"
+, Space
+, Code
+    "typ/compiler/modules/chap1.typ"
+    ( line 8 , column 12 )
+    (Ident (Identifier "name"))
+, Space
+, Text "just"
+, Space
+, Text "casually"
+, Space
+, Text "surveyed"
+, Space
+, Text "for"
+, Space
+, Text "any"
+, Space
+, Text "paths"
+, Space
+, Text "on"
+, Space
+, Text "which"
+, Space
+, Text "the"
+, Space
+, Text "corn"
+, Space
+, Text "would"
+, Space
+, Text "not"
+, SoftBreak
+, Text "totally"
+, Space
+, Text "ruin"
+, Space
+, Text "his"
+, Space
+, Text "semi"
+, Text "-"
+, Text "new"
+, Space
+, Text "outdorsy"
+, Space
+, Text "jacket"
+, Space
+, Text "but"
+, Space
+, Text "then"
+, Space
+, Text "again,"
+, Space
+, Text "most"
+, Space
+, Text "of"
+, Space
+, Text "us"
+, Space
+, Text "spend"
+, SoftBreak
+, Text "considerable"
+, Space
+, Text "time"
+, Space
+, Text "in"
+, Space
+, Text "non"
+, Text "-"
+, Text "descript"
+, Space
+, Text "environments"
+, Text "."
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 text(body: [
+]), 
+                 parbreak(), 
+                 heading(body: text(body: [Chapter 1]), 
+                         level: 2), 
+                 text(body: [Klaus]), 
+                 text(body: [ stood in a field of wheat. There was nothing of particular interest about
+the field ]), 
+                 text(body: [Klaus]), 
+                 text(body: [ just casually surveyed for any paths on which the corn would not
+totally ruin his semi-new outdorsy jacket but then again, most of us spend
+considerable time in non-descript environments.]), 
+                 parbreak() })

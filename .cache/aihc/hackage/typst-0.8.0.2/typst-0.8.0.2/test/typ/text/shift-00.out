@@ -1,0 +1,163 @@
+--- parse tree ---
+[ Code
+    "typ/text/shift-00.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/text/shift-00.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/text/shift-00.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Code
+    "typ/text/shift-00.typ"
+    ( line 2 , column 2 )
+    (FuncCall
+       (Ident (Identifier "table"))
+       [ KeyValArg (Identifier "columns") (Literal (Int 3))
+       , NormalArg (Block (Content [ Text "Typo" , Text "." ]))
+       , NormalArg (Block (Content [ Text "Fallb" , Text "." ]))
+       , NormalArg (Block (Content [ Text "Synth" ]))
+       , NormalArg
+           (Block
+              (Content
+                 [ Text "x"
+                 , Code
+                     "typ/text/shift-00.typ"
+                     ( line 5 , column 6 )
+                     (FuncCall (Ident (Identifier "super")) [ BlockArg [ Text "1" ] ])
+                 ]))
+       , NormalArg
+           (Block
+              (Content
+                 [ Text "x"
+                 , Code
+                     "typ/text/shift-00.typ"
+                     ( line 5 , column 20 )
+                     (FuncCall (Ident (Identifier "super")) [ BlockArg [ Text "5n" ] ])
+                 ]))
+       , NormalArg
+           (Block
+              (Content
+                 [ Text "x"
+                 , Code
+                     "typ/text/shift-00.typ"
+                     ( line 5 , column 35 )
+                     (FuncCall
+                        (Ident (Identifier "super"))
+                        [ BlockArg
+                            [ Text "2"
+                            , Space
+                            , Code
+                                "typ/text/shift-00.typ"
+                                ( line 5 , column 44 )
+                                (FuncCall
+                                   (Ident (Identifier "box"))
+                                   [ NormalArg
+                                       (FuncCall
+                                          (Ident (Identifier "square"))
+                                          [ KeyValArg (Identifier "size") (Literal (Numeric 6.0 Pt))
+                                          ])
+                                   ])
+                            ]
+                        ])
+                 ]))
+       , NormalArg
+           (Block
+              (Content
+                 [ Text "x"
+                 , Code
+                     "typ/text/shift-00.typ"
+                     ( line 6 , column 6 )
+                     (FuncCall (Ident (Identifier "sub")) [ BlockArg [ Text "1" ] ])
+                 ]))
+       , NormalArg
+           (Block
+              (Content
+                 [ Text "x"
+                 , Code
+                     "typ/text/shift-00.typ"
+                     ( line 6 , column 18 )
+                     (FuncCall (Ident (Identifier "sub")) [ BlockArg [ Text "5n" ] ])
+                 ]))
+       , NormalArg
+           (Block
+              (Content
+                 [ Text "x"
+                 , Code
+                     "typ/text/shift-00.typ"
+                     ( line 6 , column 31 )
+                     (FuncCall
+                        (Ident (Identifier "sub"))
+                        [ BlockArg
+                            [ Text "2"
+                            , Space
+                            , Code
+                                "typ/text/shift-00.typ"
+                                ( line 6 , column 38 )
+                                (FuncCall
+                                   (Ident (Identifier "box"))
+                                   [ NormalArg
+                                       (FuncCall
+                                          (Ident (Identifier "square"))
+                                          [ KeyValArg (Identifier "size") (Literal (Numeric 6.0 Pt))
+                                          ])
+                                   ])
+                            ]
+                        ])
+                 ]))
+       ])
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 table(children: (text(body: [Typo.]), 
+                                  text(body: [Fallb.]), 
+                                  text(body: [Synth]), 
+                                  { text(body: [x]), 
+                                    super(body: text(body: [1])) }, 
+                                  { text(body: [x]), 
+                                    super(body: text(body: [5n])) }, 
+                                  { text(body: [x]), 
+                                    super(body: { text(body: [2 ]), 
+                                                  box(body: square(size: 6.0pt)) }) }, 
+                                  { text(body: [x]), 
+                                    sub(body: text(body: [1])) }, 
+                                  { text(body: [x]), 
+                                    sub(body: text(body: [5n])) }, 
+                                  { text(body: [x]), 
+                                    sub(body: { text(body: [2 ]), 
+                                                box(body: square(size: 6.0pt)) }) }), 
+                       columns: 3), 
+                 parbreak() })

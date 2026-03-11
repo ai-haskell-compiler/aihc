@@ -1,0 +1,10 @@
+- tui bug browser
+- --json output
+- cc=me, reporter=me
+- config file: for defining "my team" etc
+- --count bugs (no such api though)
+- query aliases
+- abbrev for Fedora Container Images
+- component regexp/glob?
+- map nobody to nobody@fedoraproject.org
+- list users?

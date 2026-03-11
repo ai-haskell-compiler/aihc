@@ -1,0 +1,13 @@
+{
+  deity {
+    ... on Supernatural {
+      power
+    }
+  }
+  character {
+    __typename
+    ... on Character {
+      name
+    }
+  }
+}

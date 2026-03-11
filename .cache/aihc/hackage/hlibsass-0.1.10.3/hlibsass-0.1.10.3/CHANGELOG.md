@@ -1,0 +1,127 @@
+# Change Log
+All notable changes to this project will be documented in this file.
+
+## [0.1.10.3] - 2025-12-13
+### Fixed
+- Added support for Cabal >= 3.14
+
+### Changed
+- The package is tested on more Stackage releases
+
+## [0.1.10.1] - 2020-06-17
+### Fixed
+- The package contains correct `libsass/VERSION` file
+- Always generate `libsass/VERSION` file
+
+## [0.1.10.0] - 2020-06-10
+### Changed
+- Update to LibSass 3.6.4
+- Simplify build on Windows
+
+## [0.1.9.0] - 2020-03-26
+### Changed
+- Update to LibSass 3.6.3
+
+## [0.1.8.1] - 2020-02-21
+### Changed
+- Support Cabal 3
+
+## [0.1.8.0] - 2018-11-25
+### Changed
+- Update to Libsass 3.5.5
+- Use `gmake` instead of `make` if available
+
+## [0.1.7.0] - 2018-03-24
+### Changed
+- Update to Libsass 3.5.2
+
+## [0.1.6.1] - 2017-08-06
+### Fixed
+- Build process (`Stack.hs`) works with Cabal 1.X and Cabal 2.X
+
+## [0.1.6.0] - 2017-03-25
+### Fixed
+- `tools/libpath.sh` recognizes `stack`
+
+### Changed
+- Update to Libsass 3.4.3
+
+## [0.1.5.2] - 2017-03-19
+### Fixed
+- Build process for dependant libraries works with Cabal 1.24 & Stack 1.4
+
+## [0.1.5.0] - 2015-12-19
+### Added
+- Bindings to `sass_value_op`, `sass_import_get_imp_path` and
+  `sass_import_get_abs_path`
+
+### Changed
+- Uses Libsass 3.3.2
+- `sass_import_get_path` and `sass_import_get_base` have been removed from
+  Libsass
+
+## [0.1.4.0] - 2015-07-10
+### Fixed
+- Setup copies `libsass.a` even when Cabal-1.18 is used.
+
+## [0.1.3.0] - 2015-06-08
+### Added
+- Ability to link to existing version of libsass.
+- Support for building (and linking to) shared version of libsass.
+
+### Fixed
+- hlibsass may be used in ghci when linked with shared version of libsass.
+
+## [0.1.2.1] - 2015-06-02
+### Changed
+- `libsass/VERSION` file is generated during sdist phase.
+
+### Fixed
+- all tests pass (libsass reports correct version).
+
+## [0.1.2.0] - 2015-06-01
+### Added
+- Bindings to `sass_string_is_quoted`, `sass_string_set_quoted` and
+  `sass_make_qstring`.
+
+### Changed
+- libsass @ 3672661 is used.
+
+### Fixed
+- Link to compare in this changelog.
+
+## [0.1.1.1] - 2015-04-12
+### Added
+- This CHANGELOG file.
+- `.editorconfig` file.
+- Tests for Libsass version.
+
+### Fixed
+- libsass is not specified twice in extra libraries.
+
+## [0.1.1.0] - 2015-04-11
+### Fixed
+- Build process - `cabal install` now works correctly
+
+## 0.1.0.0 - 2015-04-11
+### Added
+- Bindings to Libsass C API
+- Basic tests
+
+[0.1.10.3]: https://github.com/jakubfijalkowski/hlibsass/compare/v0.1.10.1...v0.1.10.3
+[0.1.10.1]: https://github.com/jakubfijalkowski/hlibsass/compare/v0.1.10.0...v0.1.10.1
+[0.1.10.0]: https://github.com/jakubfijalkowski/hlibsass/compare/v0.1.9.0...v0.1.10.0
+[0.1.9.0]: https://github.com/jakubfijalkowski/hlibsass/compare/v0.1.8.1...v0.1.9.0
+[0.1.8.1]: https://github.com/jakubfijalkowski/hlibsass/compare/v0.1.8.0...v0.1.8.1
+[0.1.8.0]: https://github.com/jakubfijalkowski/hlibsass/compare/v0.1.7.0...v0.1.8.0
+[0.1.7.0]: https://github.com/jakubfijalkowski/hlibsass/compare/v0.1.6.1...v0.1.7.0
+[0.1.6.1]: https://github.com/jakubfijalkowski/hlibsass/compare/v0.1.6.0...v0.1.6.1
+[0.1.6.0]: https://github.com/jakubfijalkowski/hlibsass/compare/v0.1.5.2...v0.1.6.0
+[0.1.5.2]: https://github.com/jakubfijalkowski/hlibsass/compare/v0.1.5.0...v0.1.5.2
+[0.1.5.0]: https://github.com/jakubfijalkowski/hlibsass/compare/v0.1.4.0...v0.1.5.0
+[0.1.4.0]: https://github.com/jakubfijalkowski/hlibsass/compare/v0.1.3.0...v0.1.4.0
+[0.1.3.0]: https://github.com/jakubfijalkowski/hlibsass/compare/v0.1.2.1...v0.1.3.0
+[0.1.2.1]: https://github.com/jakubfijalkowski/hlibsass/compare/v0.1.2.0...v0.1.2.1
+[0.1.2.0]: https://github.com/jakubfijalkowski/hlibsass/compare/v0.1.1.1...v0.1.2.0
+[0.1.1.1]: https://github.com/jakubfijalkowski/hlibsass/compare/v0.1.1.0...v0.1.1.1
+[0.1.1.0]: https://github.com/jakubfijalkowski/hlibsass/compare/v0.1.0.0...v0.1.1.0

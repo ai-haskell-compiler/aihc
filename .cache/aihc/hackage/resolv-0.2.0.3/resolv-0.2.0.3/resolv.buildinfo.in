@@ -1,0 +1,2 @@
+extra-libraries: @EXTRA_LIBS@
+cpp-options: @CPP_OPTIONS@

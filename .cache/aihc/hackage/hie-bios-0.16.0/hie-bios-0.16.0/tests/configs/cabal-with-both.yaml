@@ -1,0 +1,4 @@
+cradle:
+  cabal:
+    cabalProject: "cabal.project.extra"
+    component: "hie-bios:hie"

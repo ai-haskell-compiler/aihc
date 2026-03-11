@@ -1,0 +1,20 @@
+Name:                maximal-cliques
+Version:             0.1.1
+Synopsis:            Enumerate all maximal cliques of a graph.
+Description:         Enumerate all maximal cliques of a graph. A clique is a set of nodes such that there is an edge between every node and every other node in the set. A maximal clique is a clique such that no node may be added while preserving the clique property.
+License:             BSD3
+License-file:        LICENSE
+Author:              Gershom Bazerman
+Maintainer:          gershomb@gmail.com
+Category:            Algorithms
+Build-type:          Simple
+Cabal-version:       >=1.6
+
+Library
+  Exposed-modules: Data.Algorithm.MaximalCliques
+  Build-depends:   base > 3, base < 6, containers, vector
+  ghc-options:     -Wall
+
+source-repository head
+  type:      darcs
+  location:  http://hub.darcs.net/gershomb/maximal-cliques

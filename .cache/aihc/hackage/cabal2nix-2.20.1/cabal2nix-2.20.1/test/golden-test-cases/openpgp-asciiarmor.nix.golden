@@ -1,0 +1,18 @@
+{ mkDerivation, attoparsec, base, base64-bytestring, bytestring
+, cereal, HUnit, lib, test-framework, test-framework-hunit
+}:
+mkDerivation {
+  pname = "openpgp-asciiarmor";
+  version = "0.1";
+  sha256 = "deadbeef";
+  libraryHaskellDepends = [
+    attoparsec base base64-bytestring bytestring cereal
+  ];
+  testHaskellDepends = [
+    attoparsec base base64-bytestring bytestring cereal HUnit
+    test-framework test-framework-hunit
+  ];
+  homepage = "http://floss.scru.org/openpgp-asciiarmor";
+  description = "OpenPGP (RFC4880) ASCII Armor codec";
+  license = "unknown";
+}

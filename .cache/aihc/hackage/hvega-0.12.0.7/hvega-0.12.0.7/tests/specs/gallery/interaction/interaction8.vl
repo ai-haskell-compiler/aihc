@@ -1,0 +1,59 @@
+{
+    "$schema": "https://vega.github.io/schema/vega-lite/v4.json",
+    "data": {
+        "url": "https://vega.github.io/vega-lite/data/seattle-weather.csv"
+    },
+    "encoding": {
+        "y": {
+            "aggregate": "mean",
+            "field": "precipitation",
+            "type": "quantitative"
+        }
+    },
+    "layer": [
+        {
+            "encoding": {
+                "opacity": {
+                    "condition": {
+                        "selection": "myBrush",
+                        "value": 1
+                    },
+                    "value": 0.7
+                },
+                "x": {
+                    "field": "date",
+                    "timeUnit": "month",
+                    "type": "ordinal"
+                }
+            },
+            "mark": "bar",
+            "selection": {
+                "myBrush": {
+                    "encodings": [
+                        "x"
+                    ],
+                    "type": "interval"
+                }
+            }
+        },
+        {
+            "description": "Drag over bars to update selection average",
+            "encoding": {
+                "color": {
+                    "value": "firebrick"
+                },
+                "size": {
+                    "value": 3
+                }
+            },
+            "mark": "rule",
+            "transform": [
+                {
+                    "filter": {
+                        "selection": "myBrush"
+                    }
+                }
+            ]
+        }
+    ]
+}

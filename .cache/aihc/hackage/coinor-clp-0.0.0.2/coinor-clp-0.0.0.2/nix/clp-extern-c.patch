@@ -1,0 +1,23 @@
+diff --git a/src/Clp_C_Interface.h b/src/Clp_C_Interface.h
+index 567a8e28..005401db 100644
+--- a/src/Clp_C_Interface.h
++++ b/src/Clp_C_Interface.h
+@@ -18,8 +18,18 @@
+ #define CLP_LINKAGE_CB
+ #endif
+ 
++/** User does not need to see structure of model but C++ code does */
++#if defined(CLP_EXTERN_C)
++/* Real typedef for structure */
++class CMessageHandler;
++typedef struct {
++  ClpSimplex *model_;
++  CMessageHandler *handler_;
++} Clp_Simplex;
++#else
+ struct Clp_Simplex_s;
+ typedef struct Clp_Simplex_s Clp_Simplex;
++#endif
+ 
+ struct Clp_Solve_s;
+ typedef struct Clp_Solve_s Clp_Solve;

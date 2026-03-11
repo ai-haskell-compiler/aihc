@@ -1,0 +1,97 @@
+Singletons/T187.hs:(0,0)-(0,0): Splicing declarations
+    singletons
+      [d| data Empty
+          
+          deriving instance Ord Empty
+          deriving instance Eq Empty |]
+  ======>
+    data Empty
+    deriving instance Eq Empty
+    deriving instance Ord Empty
+    type TFHelper_0123456789876543210 :: Empty -> Empty -> Bool
+    type family TFHelper_0123456789876543210 (a :: Empty) (a :: Empty) :: Bool where
+      TFHelper_0123456789876543210 _ _ = TrueSym0
+    type TFHelper_0123456789876543210Sym0 :: (~>) Empty ((~>) Empty Bool)
+    data TFHelper_0123456789876543210Sym0 :: (~>) Empty ((~>) Empty Bool)
+      where
+        TFHelper_0123456789876543210Sym0KindInference :: SameKind (Apply TFHelper_0123456789876543210Sym0 arg) (TFHelper_0123456789876543210Sym1 arg) =>
+                                                         TFHelper_0123456789876543210Sym0 a0123456789876543210
+    type instance Apply TFHelper_0123456789876543210Sym0 a0123456789876543210 = TFHelper_0123456789876543210Sym1 a0123456789876543210
+    instance SuppressUnusedWarnings TFHelper_0123456789876543210Sym0 where
+      suppressUnusedWarnings
+        = snd ((,) TFHelper_0123456789876543210Sym0KindInference ())
+    type TFHelper_0123456789876543210Sym1 :: Empty -> (~>) Empty Bool
+    data TFHelper_0123456789876543210Sym1 (a0123456789876543210 :: Empty) :: (~>) Empty Bool
+      where
+        TFHelper_0123456789876543210Sym1KindInference :: SameKind (Apply (TFHelper_0123456789876543210Sym1 a0123456789876543210) arg) (TFHelper_0123456789876543210Sym2 a0123456789876543210 arg) =>
+                                                         TFHelper_0123456789876543210Sym1 a0123456789876543210 a0123456789876543210
+    type instance Apply (TFHelper_0123456789876543210Sym1 a0123456789876543210) a0123456789876543210 = TFHelper_0123456789876543210 a0123456789876543210 a0123456789876543210
+    instance SuppressUnusedWarnings (TFHelper_0123456789876543210Sym1 a0123456789876543210) where
+      suppressUnusedWarnings
+        = snd ((,) TFHelper_0123456789876543210Sym1KindInference ())
+    type TFHelper_0123456789876543210Sym2 :: Empty -> Empty -> Bool
+    type family TFHelper_0123456789876543210Sym2 (a0123456789876543210 :: Empty) (a0123456789876543210 :: Empty) :: Bool where
+      TFHelper_0123456789876543210Sym2 a0123456789876543210 a0123456789876543210 = TFHelper_0123456789876543210 a0123456789876543210 a0123456789876543210
+    instance PEq Empty where
+      type (==) a a = Apply (Apply TFHelper_0123456789876543210Sym0 a) a
+    type Compare_0123456789876543210 :: Empty -> Empty -> Ordering
+    type family Compare_0123456789876543210 (a :: Empty) (a :: Empty) :: Ordering where
+      Compare_0123456789876543210 _ _ = EQSym0
+    type Compare_0123456789876543210Sym0 :: (~>) Empty ((~>) Empty Ordering)
+    data Compare_0123456789876543210Sym0 :: (~>) Empty ((~>) Empty Ordering)
+      where
+        Compare_0123456789876543210Sym0KindInference :: SameKind (Apply Compare_0123456789876543210Sym0 arg) (Compare_0123456789876543210Sym1 arg) =>
+                                                        Compare_0123456789876543210Sym0 a0123456789876543210
+    type instance Apply Compare_0123456789876543210Sym0 a0123456789876543210 = Compare_0123456789876543210Sym1 a0123456789876543210
+    instance SuppressUnusedWarnings Compare_0123456789876543210Sym0 where
+      suppressUnusedWarnings
+        = snd ((,) Compare_0123456789876543210Sym0KindInference ())
+    type Compare_0123456789876543210Sym1 :: Empty
+                                            -> (~>) Empty Ordering
+    data Compare_0123456789876543210Sym1 (a0123456789876543210 :: Empty) :: (~>) Empty Ordering
+      where
+        Compare_0123456789876543210Sym1KindInference :: SameKind (Apply (Compare_0123456789876543210Sym1 a0123456789876543210) arg) (Compare_0123456789876543210Sym2 a0123456789876543210 arg) =>
+                                                        Compare_0123456789876543210Sym1 a0123456789876543210 a0123456789876543210
+    type instance Apply (Compare_0123456789876543210Sym1 a0123456789876543210) a0123456789876543210 = Compare_0123456789876543210 a0123456789876543210 a0123456789876543210
+    instance SuppressUnusedWarnings (Compare_0123456789876543210Sym1 a0123456789876543210) where
+      suppressUnusedWarnings
+        = snd ((,) Compare_0123456789876543210Sym1KindInference ())
+    type Compare_0123456789876543210Sym2 :: Empty -> Empty -> Ordering
+    type family Compare_0123456789876543210Sym2 (a0123456789876543210 :: Empty) (a0123456789876543210 :: Empty) :: Ordering where
+      Compare_0123456789876543210Sym2 a0123456789876543210 a0123456789876543210 = Compare_0123456789876543210 a0123456789876543210 a0123456789876543210
+    instance POrd Empty where
+      type Compare a a = Apply (Apply Compare_0123456789876543210Sym0 a) a
+    data SEmpty :: Empty -> Type
+    type instance Sing @Empty = SEmpty
+    instance SingKind Empty where
+      type Demote Empty = Empty
+      fromSing x = case x of {}
+      toSing x = SomeSing (case x of {})
+    instance SEq Empty where
+      (%==) ::
+        forall (t1 :: Empty) (t2 :: Empty). Sing t1
+                                            -> Sing t2
+                                               -> Sing (Apply (Apply ((==@#@$) :: TyFun Empty ((~>) Empty Bool)
+                                                                                  -> Type) t1) t2)
+      (%==) _ _ = STrue
+    instance SOrd Empty where
+      sCompare ::
+        forall (t1 :: Empty) (t2 :: Empty). Sing t1
+                                            -> Sing t2
+                                               -> Sing (Apply (Apply (CompareSym0 :: TyFun Empty ((~>) Empty Ordering)
+                                                                                     -> Type) t1) t2)
+      sCompare _ _ = SEQ
+    instance SDecide Empty where
+      (%~) x _ = Proved (case x of {})
+    instance Eq (SEmpty (z :: Empty)) where
+      (==) _ _ = True
+    instance GHC.Internal.Data.Type.Equality.TestEquality (SEmpty :: Empty
+                                                                     -> Type) where
+      GHC.Internal.Data.Type.Equality.testEquality
+        = Data.Singletons.Decide.decideEquality
+    instance GHC.Internal.Data.Type.Coercion.TestCoercion (SEmpty :: Empty
+                                                                     -> Type) where
+      GHC.Internal.Data.Type.Coercion.testCoercion
+        = Data.Singletons.Decide.decideCoercion
+    instance Ord (SEmpty (z :: Empty)) where
+      compare _ _ = EQ

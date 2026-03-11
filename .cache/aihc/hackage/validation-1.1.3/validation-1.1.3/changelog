@@ -1,0 +1,114 @@
+1.1.3
+
+* Fix CI for older GHC
+
+1.1.2
+
+* Drop support for GHC-7.8.*, GHC-7.6.*, GHC-7.4.*, and GHC-7.2.*
+* Adjust lower bounds of most dependencies to be inline with the lowest supported GHC version of 7.10.3
+
+1.1.1
+
+* Add `Data.Bifunctor.Swap.Swap` instance from `swap`
+* Support `lens ^>= 5`
+
+1.1
+
+* Generalise types of `validate` and `ensure` functions to use `Maybe` instead of `Bool`
+
+1
+
+* Rename `AccValidation` to `Validation`
+
+0.6.3
+
+* Add `Generic` and `NFData` instances
+* Make AccValidation Apply and Applicative lazier
+
+0.6.2
+
+* Add `bindValidation` and `validationed`
+
+0.6.1
+
+* Add validate, validationnel, fromEither, liftError, validation, toEither, orElse, valueOr, ensure, codiagonal, revalidate
+
+0.6.0
+
+* Delete `Validation`, `ValidationB`, `ValidationT`, `Validation'`
+* Remove `_Validation` member from `Validate` class
+
+0.5.5
+
+* Raise upper bounds on base.
+* Include nix build.
+
+0.5.4
+
+* remove redundant constraints.
+* add instance `Validate` for `ValidationB Identity`.
+
+0.5.3
+
+* Update `transformers` dependency to work with GHC8.
+
+0.5.2
+
+* Remove LANGUAGE Safe because won't build against lens-4.13 or higher otherwise.
+
+0.5.1
+
+* Update documentation
+
+0.5.0
+
+* Export the `ValidationB` (formerly `ValidationTB`) data type.
+* Renamed `ValidationTB` to `ValidationB`.
+* Add upper-bounds on some dependencies.
+* Move repository to https://github.com/NICTA/validation.
+* Add README.
+* Update copyright notice for 2015.
+
+0.4.3
+
+* Rename `ValidationT` to `ValidationTB`
+* Introduce `ValidationT` with `MonadTrans` instance
+
+0.4.2
+
+* Export constructors on `AccValidation` and `Validation`.
+
+0.4.1
+
+* Remove `Alternative` instances. They are obscene.
+* INLINE pragmas
+
+0.4.0
+
+* Change the premise of the `Validate` type-class to more strongly reflect the isomorphism to Either.
+* The `_Failure` and `_Success` prisms are now derived.
+* Lots more examples
+
+0.3.0
+
+A restructuring of 0.2.x where:
+
+* Tests updated to use doctest
+* Update API to use Prism and Iso (Control.Lens)
+* Rename package Validation (deprecated) to validation
+
+0.3.1
+
+Use Safe Haskell pragma
+
+0.3.2
+
+Implement Validate on Either
+
+0.3.3
+
+Provide Isos between (ValidationT Identity) and other data types.
+
+0.3.4
+
+Loosen the type of the Isos for polymorphic update.

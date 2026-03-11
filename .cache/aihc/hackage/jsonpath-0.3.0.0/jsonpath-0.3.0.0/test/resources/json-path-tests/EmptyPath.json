@@ -1,0 +1,50 @@
+{
+    "title" : "Chained Elements",
+    "data" : {
+        "firstName" : "John",
+        "lastName" : "Doe",
+        "eyes" : "blue",
+        "children" : [{
+            "firstName" : "Sally",
+            "lastName" : "Doe",
+            "favoriteGames" : ["Halo", "Minecraft", "Lego: Star Wars"]
+        }, {
+            "firstName" : "Mike",
+            "lastName" : "Doe",
+            "eyes" : "green"
+        }]
+    },
+    "tests" : [{
+        "path" : "",
+        "result" : [{
+            "firstName" : "John",
+            "lastName" : "Doe",
+            "eyes" : "blue",
+            "children" : [{
+                "firstName" : "Sally",
+                "lastName" : "Doe",
+                "favoriteGames" : ["Halo", "Minecraft", "Lego: Star Wars"]
+            }, {
+                "firstName" : "Mike",
+                "lastName" : "Doe",
+                "eyes" : "green"
+            }]
+        }]
+    }, {
+        "path" : "$",
+        "result" : [{
+            "firstName" : "John",
+            "lastName" : "Doe",
+            "eyes" : "blue",
+            "children" : [{
+                "firstName" : "Sally",
+                "lastName" : "Doe",
+                "favoriteGames" : ["Halo", "Minecraft", "Lego: Star Wars"]
+            }, {
+                "firstName" : "Mike",
+                "lastName" : "Doe",
+                "eyes" : "green"
+            }]
+        }]
+    }]
+}

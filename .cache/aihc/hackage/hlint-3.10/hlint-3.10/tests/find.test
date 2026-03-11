@@ -1,0 +1,42 @@
+---------------------------------------------------------------------
+RUN --find=tests/find.hs
+FILE tests/find.hs
+{-# LANGUAGE CPP, ExistentialQuantification, Rank2Types #-}
+
+module Util where
+
+import Control.Arrow
+import Control.Monad.Trans.State
+import Data.Char
+import Data.Function
+
+infixr 4 %^&, `wheeeee`
+
+instance Foo a where
+    bar = baz + qux
+
+listM' :: Monad m => [a] -> m [a]
+listM' x = length x `seq` return x
+
+notNull = not . null
+
+headDef :: a -> [a] -> a
+headDef x [] = x
+headDef x (y:ys) = y
+
+isLeft Left{} = True; isLeft _ = False
+isRight = not . isLeft
+
+swap :: (a,b) -> (b,a)
+swap (a,b) = (b,a)
+
+defaultExtensions = knownExtensions \\ badExtensions
+OUTPUT
+# hints found in tests/find.hs
+- fixity: "infixr 4 %^&"
+- fixity: "infixr 4 `wheeeee`"
+- warn: {lhs: "baz + qux", rhs: "bar"}
+- warn: {lhs: "length a `seq` return a", rhs: "listM' a"}
+- warn: {lhs: "not (null a)", rhs: "notNull a"}
+- warn: {lhs: "not (isLeft a)", rhs: "isRight a"}
+- warn: {lhs: "knownExtensions \\\\ badExtensions", rhs: "defaultExtensions"}

@@ -1,0 +1,227 @@
+V query := "mycelium"
+V number := 100
+V var := "value"                                  
+V hello := "Hello World!"                           
+E {var} value
+E {hello} Hello%20World%21
+V var := "value"                                  
+V hello := "Hello World!"                           
+V path := "/foo/bar"                               
+E {+var} value
+E {+hello} Hello%20World!
+E {+path}/here /foo/bar/here
+E here?ref={+path} here?ref=/foo/bar
+E X{#var} X#value
+E X{#hello} X#Hello%20World!
+V var := "value"                                  
+V hello := "Hello World!"                           
+V empty := ""                                       
+V path := "/foo/bar"                               
+V x := "1024"                                   
+V y := "768"                                    
+E map?{x,y} map?1024,768
+E {x,hello,y} 1024,Hello%20World%21,768
+E {+x,hello,y} 1024,Hello%20World!,768
+E {+path,x}/here /foo/bar,1024/here
+E {#x,hello,y} #1024,Hello%20World!,768
+E {#path,x}/here #/foo/bar,1024/here
+E X{.var} X.value
+E X{.x,y} X.1024.768
+E {/var} /value
+E {/var,x}/here /value/1024/here
+E {;x,y} ;x=1024;y=768
+E {;x,y,empty} ;x=1024;y=768;empty
+E {?x,y} ?x=1024&y=768
+E {?x,y,empty} ?x=1024&y=768&empty=
+E ?fixed=yes{&x} ?fixed=yes&x=1024
+E {&x,y,empty} &x=1024&y=768&empty=
+V var := "value"                                  
+V hello := "Hello World!"                           
+V path := "/foo/bar"                               
+V list := ("red", "green", "blue")                 
+V keys := [("semi",";"),("dot","."),("comma",",")] 
+E {var:3} val
+E {var:30} value
+E {list} red,green,blue
+E {list*} red,green,blue
+E {keys} semi,%3B,dot,.,comma,%2C
+E {keys*} semi=%3B,dot=.,comma=%2C
+E {+path:6}/here /foo/b/here
+E {+list} red,green,blue
+E {+list*} red,green,blue
+E {+keys} semi,;,dot,.,comma,,
+E {+keys*} semi=;,dot=.,comma=,
+E {#path:6}/here #/foo/b/here
+E {#list} #red,green,blue
+E {#list*} #red,green,blue
+E {#keys} #semi,;,dot,.,comma,,
+E {#keys*} #semi=;,dot=.,comma=,
+E X{.var:3} X.val
+E X{.list} X.red,green,blue
+E X{.list*} X.red.green.blue
+E X{.keys} X.semi,%3B,dot,.,comma,%2C
+E X{.keys*} X.semi=%3B.dot=..comma=%2C
+E {/var:1,var} /v/value
+E {/list} /red,green,blue
+E {/list*} /red/green/blue
+E {/list*,path:4} /red/green/blue/%2Ffoo
+E {/keys} /semi,%3B,dot,.,comma,%2C
+E {/keys*} /semi=%3B/dot=./comma=%2C
+E {;hello:5} ;hello=Hello
+E {;list} ;list=red,green,blue
+E {;list*} ;list=red;list=green;list=blue
+E {;keys} ;keys=semi,%3B,dot,.,comma,%2C
+E {;keys*} ;semi=%3B;dot=.;comma=%2C
+E {?var:3} ?var=val
+E {?list} ?list=red,green,blue
+E {?list*} ?list=red&list=green&list=blue
+E {?keys} ?keys=semi,%3B,dot,.,comma,%2C
+E {?keys*} ?semi=%3B&dot=.&comma=%2C
+E {&var:3} &var=val
+E {&list} &list=red,green,blue
+E {&list*} &list=red&list=green&list=blue
+E {&keys} &keys=semi,%3B,dot,.,comma,%2C
+E {&keys*} &semi=%3B&dot=.&comma=%2C
+V var := "value"
+V semi := ";"
+E {var} value
+E {var:20} value
+E {var:3} val
+E {semi} %3B
+E {semi:2} %3B
+V year := ("1965", "2000", "2012")
+V dom := ("example", "com")
+E find{?year*} find?year=1965&year=2000&year=2012
+E www{.dom*} www.example.com
+V count := ("one", "two", "three")
+V dom := ("example", "com")
+V dub := "me/too"
+V hello := "Hello World!"
+V half := "50%"
+V var := "value"
+V who := "fred"
+V base := "http://example.com/home/"
+V path := "/foo/bar"
+V list := ("red", "green", "blue")
+V keys := [("semi",";"),("dot","."),("comma",",")]
+V v := "6"
+V x := "1024"
+V y := "768"
+V empty := ""
+V empty_keys := []
+V undef := null
+E {count} one,two,three
+E {count*} one,two,three
+E {/count} /one,two,three
+E {/count*} /one/two/three
+E {;count} ;count=one,two,three
+E {;count*} ;count=one;count=two;count=three
+E {?count} ?count=one,two,three
+E {?count*} ?count=one&count=two&count=three
+E {&count*} &count=one&count=two&count=three
+E {var} value
+E {hello} Hello%20World%21
+E {half} 50%25
+E O{empty}X OX
+E O{undef}X OX
+E {x,y} 1024,768
+E {x,hello,y} 1024,Hello%20World%21,768
+E ?{x,empty} ?1024,
+E ?{x,undef} ?1024
+E ?{undef,y} ?768
+E {var:3} val
+E {var:30} value
+E {list} red,green,blue
+E {list*} red,green,blue
+E {keys} semi,%3B,dot,.,comma,%2C
+E {keys*} semi=%3B,dot=.,comma=%2C
+E {+var} value
+E {+hello} Hello%20World!
+E {+half} 50%25
+E {base}index http%3A%2F%2Fexample.com%2Fhome%2Findex
+E {+base}index http://example.com/home/index
+E O{+empty}X OX
+E O{+undef}X OX
+E {+path}/here /foo/bar/here
+E here?ref={+path} here?ref=/foo/bar
+E up{+path}{var}/here up/foo/barvalue/here
+E {+x,hello,y} 1024,Hello%20World!,768
+E {+path,x}/here /foo/bar,1024/here
+E {+path:6}/here /foo/b/here
+E {+list} red,green,blue
+E {+list*} red,green,blue
+E {+keys} semi,;,dot,.,comma,,
+E {+keys*} semi=;,dot=.,comma=,
+E {#var} #value
+E {#hello} #Hello%20World!
+E {#half} #50%25
+E foo{#empty} foo#
+E foo{#undef} foo
+E {#x,hello,y} #1024,Hello%20World!,768
+E {#path,x}/here #/foo/bar,1024/here
+E {#path:6}/here #/foo/b/here
+E {#list} #red,green,blue
+E {#list*} #red,green,blue
+E {#keys} #semi,;,dot,.,comma,,
+E {#keys*} #semi=;,dot=.,comma=,
+E {.who} .fred
+E {.who,who} .fred.fred
+E {.half,who} .50%25.fred
+E www{.dom*} www.example.com
+E X{.var} X.value
+E X{.empty} X.
+E X{.undef} X
+E X{.var:3} X.val
+E X{.list} X.red,green,blue
+E X{.list*} X.red.green.blue
+E X{.keys} X.semi,%3B,dot,.,comma,%2C
+E X{.keys*} X.semi=%3B.dot=..comma=%2C
+E X{.empty_keys} X
+E X{.empty_keys*} X
+E {/who} /fred
+E {/who,who} /fred/fred
+E {/half,who} /50%25/fred
+E {/who,dub} /fred/me%2Ftoo
+E {/var} /value
+E {/var,empty} /value/
+E {/var,undef} /value
+E {/var,x}/here /value/1024/here
+E {/var:1,var} /v/value
+E {/list} /red,green,blue
+E {/list*} /red/green/blue
+E {/list*,path:4} /red/green/blue/%2Ffoo
+E {/keys} /semi,%3B,dot,.,comma,%2C
+E {/keys*} /semi=%3B/dot=./comma=%2C
+E {;who} ;who=fred
+E {;half} ;half=50%25
+E {;empty} ;empty
+E {;v,empty,who} ;v=6;empty;who=fred
+E {;v,bar,who} ;v=6;who=fred
+E {;x,y} ;x=1024;y=768
+E {;x,y,empty} ;x=1024;y=768;empty
+E {;x,y,undef} ;x=1024;y=768
+E {;hello:5} ;hello=Hello
+E {;list} ;list=red,green,blue
+E {;list*} ;list=red;list=green;list=blue
+E {;keys} ;keys=semi,%3B,dot,.,comma,%2C
+E {;keys*} ;semi=%3B;dot=.;comma=%2C
+E {?who} ?who=fred
+E {?half} ?half=50%25
+E {?x,y} ?x=1024&y=768
+E {?x,y,empty} ?x=1024&y=768&empty=
+E {?x,y,undef} ?x=1024&y=768
+E {?var:3} ?var=val
+E {?list} ?list=red,green,blue
+E {?list*} ?list=red&list=green&list=blue
+E {?keys} ?keys=semi,%3B,dot,.,comma,%2C
+E {?keys*} ?semi=%3B&dot=.&comma=%2C
+E {&who} &who=fred
+E {&half} &half=50%25
+E ?fixed=yes{&x} ?fixed=yes&x=1024
+E {&x,y,empty} &x=1024&y=768&empty=
+E {&x,y,undef} &x=1024&y=768
+E {&var:3} &var=val
+E {&list} &list=red,green,blue
+E {&list*} &list=red&list=green&list=blue
+E {&keys} &keys=semi,%3B,dot,.,comma,%2C
+E {&keys*} &semi=%3B&dot=.&comma=%2C

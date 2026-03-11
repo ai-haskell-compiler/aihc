@@ -1,0 +1,26 @@
+{
+    "$schema": "https://vega.github.io/schema/vega-lite/v4.json",
+    "config": {
+        "view": {
+            "continuousHeight": 300,
+            "continuousWidth": 500
+        }
+    },
+    "data": {
+        "format": {
+            "feature": "counties",
+            "type": "topojson"
+        },
+        "url": "https://vega.github.io/vega-lite/data/us-10m.json"
+    },
+    "description": "Default map size with view width and height specified in config.",
+    "encoding": {
+        "color": {
+            "value": "black"
+        }
+    },
+    "mark": "geoshape",
+    "projection": {
+        "type": "albersUsa"
+    }
+}

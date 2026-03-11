@@ -1,0 +1,25 @@
+Name:           nicify-lib
+Version:        1.0.1
+Synopsis:       Pretty print the standard output of default `Show` instances.
+Description:    Pretty print the standard output of `show` for algebraic datatypes
+                
+License:        MIT
+License-File:   LICENSE
+Author:         Julian Fleischer
+Maintainer:     julian@scravy.de
+Build-Type:     Simple
+Cabal-Version:  >= 1.10
+Category:       Text, Tools, Utilities
+Stability:      stable
+
+Source-Repository head
+    type: git
+    location: https://github.com/scravy/nicify-lib
+
+Library
+    Exposed-Modules:    Text.Nicify
+    Build-Depends:      base ==4.*
+                        , parsec ==3.*
+                        , transformers >= 0.3
+    Hs-Source-Dirs:     src
+    Default-Language:   Haskell2010

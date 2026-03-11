@@ -1,0 +1,4 @@
+- arguments: [-XCPP, --cpp-define=HLINT, --cpp-ansi]
+
+- ignore: {name: Use camelCase}
+- ignore: {name: Missing NOINLINE pragma}

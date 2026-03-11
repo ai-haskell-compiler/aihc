@@ -1,0 +1,67 @@
+{
+    "$schema": "https://vega.github.io/schema/vega-lite/v4.json",
+    "height": 400,
+    "layer": [
+        {
+            "data": {
+                "format": {
+                    "feature": "boroughs",
+                    "type": "topojson"
+                },
+                "url": "https://gicentre.github.io/data/geoTutorials/londonBoroughs.json"
+            },
+            "mark": {
+                "fill": "lightgrey",
+                "stroke": "white",
+                "type": "geoshape"
+            }
+        },
+        {
+            "data": {
+                "url": "https://gicentre.github.io/data/geoTutorials/londonCentroids.csv"
+            },
+            "encoding": {
+                "latitude": {
+                    "field": "cy",
+                    "type": "quantitative"
+                },
+                "longitude": {
+                    "field": "cx",
+                    "type": "quantitative"
+                }
+            },
+            "mark": "circle"
+        },
+        {
+            "data": {
+                "url": "https://gicentre.github.io/data/geoTutorials/londonCentroids.csv"
+            },
+            "encoding": {
+                "latitude": {
+                    "value": 51.28
+                },
+                "longitude": {
+                    "field": "cx",
+                    "type": "quantitative"
+                }
+            },
+            "mark": "circle"
+        },
+        {
+            "data": {
+                "url": "https://gicentre.github.io/data/geoTutorials/londonCentroids.csv"
+            },
+            "encoding": {
+                "latitude": {
+                    "field": "cy",
+                    "type": "quantitative"
+                },
+                "longitude": {
+                    "value": -0.52
+                }
+            },
+            "mark": "circle"
+        }
+    ],
+    "width": 500
+}

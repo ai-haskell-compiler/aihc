@@ -1,0 +1,94 @@
+--- parse tree ---
+[ Code
+    "typ/meta/link-07.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/meta/link-07.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/meta/link-07.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Comment
+, Code
+    "typ/meta/link-07.typ"
+    ( line 3 , column 2 )
+    (FuncCall
+       (Ident (Identifier "link"))
+       [ NormalArg (Literal (String "https://example.com/"))
+       , NormalArg
+           (FuncCall
+              (Ident (Identifier "block"))
+              [ BlockArg
+                  [ SoftBreak
+                  , Text "My"
+                  , Space
+                  , Text "cool"
+                  , Space
+                  , Text "rhino"
+                  , SoftBreak
+                  , Code
+                      "typ/meta/link-07.typ"
+                      ( line 5 , column 4 )
+                      (FuncCall
+                         (Ident (Identifier "box"))
+                         [ NormalArg
+                             (FuncCall
+                                (Ident (Identifier "move"))
+                                [ KeyValArg (Identifier "dx") (Literal (Numeric 10.0 Pt))
+                                , NormalArg
+                                    (FuncCall
+                                       (Ident (Identifier "image"))
+                                       [ NormalArg (Literal (String "/assets/files/rhino.png"))
+                                       , KeyValArg (Identifier "width") (Literal (Numeric 1.0 Cm))
+                                       ])
+                                ])
+                         ])
+                  , ParBreak
+                  ]
+              ])
+       ])
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 link(body: block(body: { text(body: [
+My cool rhino
+]), 
+                                          box(body: move(body: image(source: "/assets/files/rhino.png", 
+                                                                     width: 1.0cm), 
+                                                         dx: 10.0pt)), 
+                                          parbreak() }), 
+                      dest: "https://example.com/"), 
+                 parbreak() })

@@ -1,0 +1,10 @@
+query {
+  mortal {
+    ... on Animal {
+      weight
+    }
+    ... on Human {
+      name
+    }
+  }
+}

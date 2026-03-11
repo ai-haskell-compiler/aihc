@@ -1,0 +1,30 @@
+{
+  "scalars": {
+    "string": "blarg"
+  },
+  "nullable": null,
+  "records": {
+    "haskell.avro.example.Foo": {
+      "stuff": "stuff"
+    }
+  },
+  "sameFields": {
+    "haskell.avro.example.Foo": {
+      "stuff": "foo stuff"
+    }
+  },
+  "arrayAndMap" : {
+    "array" : ["foo"]
+  },
+  "one": { "int": 42 },
+  "three": { "int": 37 },
+  "four": { "string": "foo" },
+  "five": {
+    "haskell.avro.example.Foo": { "stuff": "foo stuff" }
+  },
+  "six": { "string": "foo" },
+  "seven": { "float": 6.28 },
+  "eight": { "long": 37 },
+  "nine": { "int": 37 },
+  "ten": { "bytes": "FOOBAR" }
+}

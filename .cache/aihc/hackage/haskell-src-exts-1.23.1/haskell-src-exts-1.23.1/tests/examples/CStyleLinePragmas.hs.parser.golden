@@ -1,0 +1,2 @@
+ParseFailed
+  (SrcLoc "tests/examples/CStyleLinePragmas.hs" 1 1) "Parse error: #"

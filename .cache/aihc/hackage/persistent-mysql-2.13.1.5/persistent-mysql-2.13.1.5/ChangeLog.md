@@ -1,0 +1,183 @@
+# Changelog for persistent-mysql
+
+##  2.13.1.5
+
+* [#1526](https://github.com/yesodweb/persistent/pull/1526)
+    * Parse `tinyint` column as `SqlOther "tinyint"` rather than `SqlBool`, fixing breakage in legitimate non-Boolean uses of `tinyint` on MySQL 8.0
+
+##  2.13.1.4
+
+* [#1459](https://github.com/yesodweb/persistent/pull/1459)
+    * Make use of `CautiousMigration` type alias for clarity.
+
+##  2.13.1.3
+
+* [#1372](https://github.com/yesodweb/persistent/pull/1372)
+    * Fix migrations which add a new column in `persistent-mysql` ([#1373](https://github.com/yesodweb/persistent/issues/1373))
+    * Include MigrationTest in `persistent-mysql` tests
+
+##  2.13.1.2
+
+* [#1367](https://github.com/yesodweb/persistent/pull/1367),
+  [#1366](https://github.com/yesodweb/persistent/pull/1367),
+  [#1338](https://github.com/yesodweb/persistent/pull/1338),
+  [#1335](https://github.com/yesodweb/persistent/pull/1335)
+    * Support GHC 9.2
+
+## 2.13.1.1
+
+* [#1360](https://github.com/yesodweb/persistent/pull/1360)
+    * Fix anomalies in migration of integer columns in MySQL 8
+
+## 2.13.1.0
+
+* [#1341](https://github.com/yesodweb/persistent/pull/1341)
+    * Add `SqlBackendHooks` to allow for instrumentation of queries.
+* [#1327](https://github.com/yesodweb/persistent/pull/1327)
+    * Update backend to support new `StatementCache` interface
+
+## 2.13.0.4
+
+* No longer errors on `json` columns. [#1333](https://github.com/yesodweb/persistent/pull/1333)
+
+## 2.13.0.3
+
+* Bugfix: Omit `REFERENCES` in `CREATe TABLE` statements. These are ignored by
+  MySQL, but are a syntax error for MariaDB.
+  [#1355](https://github.com/yesodweb/persistent/pull/1355), a continuation of
+  [#1283](https://github.com/yesodweb/persistent/pull/1283)
+
+## 2.13.0.2
+
+* Bugfix: prevent fetching constraint info from other databases during migrations [#1301](https://github.com/yesodweb/persistent/pull/1301)
+
+## 2.13.0.1
+
+* [#1275](https://github.com/yesodweb/persistent/pull/1275)
+    * Fix `SafeToRemove`
+
+## 2.13.0.0
+
+* [#1225](https://github.com/yesodweb/persistent/pull/1225)
+    * Support `persistent-2.13` changes for SqlBackend being made internal.
+    * Remove the deprecated `SomeField` type and pattern.
+
+## 2.12.1.0
+
+* Expose `openMySQLConn` for explicit reference to opened connection. [#1248](https://github.com/yesodweb/persistent/pull/1248)
+  * Makes it convenient to use with `mysql-simple`.
+
+## 2.12.0.0
+
+* Decomposed `HaskellName` into `ConstraintNameHS`, `EntityNameHS`, `FieldNameHS`. Decomposed `DBName` into `ConstraintNameDB`, `EntityNameDB`, `FieldNameDB` respectively. [#1174](https://github.com/yesodweb/persistent/pull/1174)
+
+## 2.10.3.1
+* Fix foreign key migrations [#1167] https://github.com/yesodweb/persistent/pull/1167
+  * Fix a bug where a foreign key of a field to its table was ignored.
+
+## 2.10.3
+
+* Compatibility with latest persistent
+
+## 2.10.2.3
+
+* Fix issue with multiple foreign keys on single column. [#1025](https://github.com/yesodweb/persistent/pull/1025)
+
+## 2.10.2.2
+
+* Compatibility with latest persistent-template for test suite [#1002](https://github.com/yesodweb/persistent/pull/1002/files)
+
+## 2.10.2.1
+
+* Changed persistent-mysql to use 'utf8mb4' instead of 'utf8' in migrations [#980](https://github.com/yesodweb/persistent/pull/980) @charukiewicz
+
+## 2.10.2
+
+* Added support for GHC 8.8 [#977](https://github.com/yesodweb/persistent/pull/977)
+
+## 2.10.1
+
+* Added `constraint=` attribute to allow users to specify foreign reference constraint names.
+
+## 2.10.0
+
+* Remove deprecated `SomeField` type and pattern synonym. Use `HandleUpdateCollision` type instead and the `copyField` function instead of `SomeField` constructor/pattern. [#894](https://github.com/yesodweb/persistent/pull/894)
+
+## 2.9.0
+
+* Added support for SQL isolation levels to via SqlBackend. [#812]
+* Fix [832](https://github.com/yesodweb/persistent/issues/832): `repsertMany` now matches `mapM_ (uncurry repsert)` and is atomic.
+
+## 2.8.1
+
+* Implemented `connPutManySql` to utilize batched `putMany`. [#770](https://github.com/yesodweb/persistent/pull/770)
+
+## 2.8.0
+
+* Switch from `MonadBaseControl` to `MonadUnliftIO`
+* Fix duplicate migrations when using `mediumtext`, `longtext`, `mediumblob`, `longblob`, and `double`s using a custom precision. [#754](https://github.com/yesodweb/persistent/pull/754)
+
+-- This can be released as a minor change on the next update. Currently persistent-mysql can't be released because 2.6.2.2 depends on persistent-2.7.2 being released.
+
+* The `SomeField` type was renamed to `HandleUpdateCollision` and deprecated. Please migrate to using `HandleUpdateCollision`.
+* The `SomeField` constructor was deprecated, and a temporary pattern synonym introduced. Please migrate to using `copyField`.
+
+## 2.6.2.2 [UNRELEASED ON HACKAGE]
+
+-- This version depends on persistent 2.7.2, which introduced breaking changes and is deprecated on hackage.
+
+* Fix ambiguous type errors introduced by `persistent-2.7.2` [#723](https://github.com/yesodweb/persistent/pull/723)
+
+## 2.6.2.1
+
+* Fix haddock documentation [#725](https://github.com/yesodweb/persistent/pull/725)
+
+## 2.6.2
+
+* Extend the `SomeField` type to allow `insertManyOnDuplicateKeyUpdate` to conditionally copy values.
+* Depend on `mysql-simple >= 0.4.3` to fix encoding and decoding of date/time values with fractional seconds (when a column is specified using something like `sqltype=TIME(6)`).  See also [#705](https://github.com/yesodweb/persistent/issues/705)
+* Fix behavior of `insertManyOnDuplicateKeyUpdate` to ignore duplicate key exceptions when no updates specified.
+
+## 2.6.1
+
+* Add functions `insertOnDuplicateKeyUpdate`, `insertManyOnDuplicateKeyUpdate` to `Database.Persist.MySQL` module.
+
+## 2.6.0.2
+
+Prevent spurious no-op migrations when `default=NULL` is specified - revised version [#672](https://github.com/yesodweb/persistent/pull/672) (which fixes bug [#671](https://github.com/yesodweb/persistent/issues/671) introduced by the earlier attempt [#641](https://github.com/yesodweb/persistent/pull/641))
+
+## 2.6
+
+Compatibility for backend-specific upsert functionality.
+A lucky contributor could add upsert to the MySQL backend now, i.e.:
+INSERT ... ON DUPICATE ...
+
+## 2.5
+
+* changes for read/write typeclass split
+
+## 2.3.0.1
+
+Support usign default= for changing the id field type
+
+## 2.3
+
+* Distinguish between binary and non-binary strings in MySQL [#451](https://github.com/yesodweb/persistent/pull/451)
+	* Previously all string columns (VARCHAR, TEXT, etc.) were being returned from Persistent as `PersistByteString`s (i.e. as binary data). Persistent now checks character set information to determine if the value should be returned as `PersistText` or `PersistByteString`.
+	* This is a **breaking change** if your code is relying on a `PersistByteString` being returned for string-like MySQL values; persistent-mysql itself had several runtime errors that needed to be fixed because of this patch. High-level code dealing purely with `PersistEntities` should be unaffected.
+
+## 2.2
+
+* Update to persistent 2.2
+
+## 2.1.3
+
+* Added a `Show` instance for `MySQLConf`.
+
+## 2.1.2.1
+
+Documentation typo fix
+
+## 2.1.2
+
+Provide a `FromJSON` instance for `MySQLConf`.

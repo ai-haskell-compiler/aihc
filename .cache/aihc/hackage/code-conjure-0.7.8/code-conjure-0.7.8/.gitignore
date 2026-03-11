@@ -1,0 +1,91 @@
+# gitignore for Conjure
+#
+# Part of Conjure, Copyright 2021-2025  Rudy Matela,
+# distribued under the 3-clause BSD license.
+
+# temporary files
+*~
+*.swp
+mk/toplibs
+
+# Haskell stuff
+*.hi
+*.o
+dist-newstyle
+dist
+
+# Haskell docs
+doc/*.html
+doc/*.js
+doc/*.json
+doc/*.css
+doc/*.png
+doc/src
+
+# Tag files
+tags
+TAGS
+
+**.runtimes
+
+# text output with runtimes
+.*.txt
+
+# benches, prototypes and test programs
+eg/arith
+eg/bools
+eg/count
+eg/dupos
+eg/either
+eg/factorial
+eg/fibonacci
+eg/fib01
+eg/higher
+eg/id
+eg/ints
+eg/gcd
+eg/list
+eg/maybe
+eg/oddeven
+eg/pow
+eg/tapps
+eg/tree
+eg/bst
+eg/replicate
+eg/setelem
+eg/take-drop
+eg/sort
+eg/subset
+eg/spec
+eg/colin/*Funs
+eg/tri
+eg/bits
+eg/digits
+eg/peano
+eg/these
+eg/tuple
+eg/conditionals
+bench/carry-on
+bench/strategies
+bench/self
+bench/longshot
+bench/ill-hit
+bench/i12
+bench/i30
+bench/candidates
+bench/redundants
+bench/erroneous
+bench/gps
+bench/psb2
+bench/lowtests
+bench/terpret
+bench/weird
+bench/unique
+proto/u-conjure
+test/expr
+test/conjurable
+test/utils
+test/defn
+test/derive
+test/red
+test/factorial

@@ -1,0 +1,47 @@
+Name:                hs-GeoIP
+Version:             0.3
+Synopsis:            Haskell bindings to the MaxMind GeoIPCity database via the C library
+License:             BSD3
+License-file:        LICENSE
+Author:              Ozgun Ataman
+Maintainer:          ozataman@gmail.com
+Homepage:            http://github.com/ozataman/hs-GeoIP
+Category:            Data
+Build-type:          Simple
+Description:
+
+  This library provides fast, idiomatic Haskell bindings to MaxMind's
+  GeoIPCity IP-based geolocation C API.
+
+  .
+
+  Make sure you have the MaxMind C API installed before installing
+  this library, as it depends on the C API.
+
+  .
+
+  MaxMind GeoIP City database allows geo-location lookups from IP addresses.
+
+  .
+  
+  To get started, you can download the latest binary database
+  distribution from: <http://www.maxmind.com/app/geolitecity>
+
+Cabal-version:       >=1.6
+extra-source-files:
+
+
+Library
+  extra-libraries: GeoIP 
+  hs-source-dirs: src
+  
+  build-tools: hsc2hs
+  ghc-options: -Wall
+  build-depends:
+      base >= 4 && < 5
+    , bytestring >= 0.9
+    , deepseq
+
+  Exposed-modules:
+    Data.Geolocation.GeoIP
+

@@ -1,0 +1,207 @@
+#
+# spec file for package nvim-hs
+#
+# Copyright (c) 2020 SUSE LLC
+#
+# All modifications and additions to the file contributed by third parties
+# remain the property of their copyright owners, unless otherwise agreed
+# upon. The license for this file, and modifications and additions to the
+# file, is the same license as for the pristine package itself (unless the
+# license for the pristine package is not an Open Source License, in which
+# case the license is the MIT License). An "Open Source License" is a
+# license that conforms to the Open Source Definition (Version 1.9)
+# published by the Open Source Initiative.
+
+# Please submit bugfixes or comments via https://bugs.opensuse.org/
+#
+
+
+%global pkg_name nvim-hs
+%global pkgver %{pkg_name}-%{version}
+
+%bcond_with tests
+Name:           %{pkg_name}
+Version:        0.2.5
+Release:        0
+Summary:        Haskell plugin backend for neovim
+License:        Apache-2.0
+URL:            https://hackage.haskell.org/package/%{name}
+Source0:        https://hackage.haskell.org/package/%{name}-%{version}/%{name}-%{version}.tar.gz
+ExcludeArch:    %{ix86}
+BuildRequires:  chrpath
+BuildRequires:  ghc-Cabal-devel
+BuildRequires:  ghc-ansi-wl-pprint-devel
+BuildRequires:  ghc-ansi-wl-pprint-prof
+BuildRequires:  ghc-base-devel
+BuildRequires:  ghc-base-prof
+BuildRequires:  ghc-bytestring-devel
+BuildRequires:  ghc-bytestring-prof
+BuildRequires:  ghc-cereal-conduit-devel
+BuildRequires:  ghc-cereal-conduit-prof
+BuildRequires:  ghc-cereal-devel
+BuildRequires:  ghc-cereal-prof
+BuildRequires:  ghc-conduit-devel
+BuildRequires:  ghc-conduit-extra-devel
+BuildRequires:  ghc-conduit-extra-prof
+BuildRequires:  ghc-conduit-prof
+BuildRequires:  ghc-containers-devel
+BuildRequires:  ghc-containers-prof
+BuildRequires:  ghc-data-default-devel
+BuildRequires:  ghc-data-default-prof
+BuildRequires:  ghc-deepseq-devel
+BuildRequires:  ghc-deepseq-prof
+BuildRequires:  ghc-directory-devel
+BuildRequires:  ghc-directory-prof
+BuildRequires:  ghc-dyre-devel
+BuildRequires:  ghc-dyre-prof
+BuildRequires:  ghc-exceptions-devel
+BuildRequires:  ghc-exceptions-prof
+BuildRequires:  ghc-filepath-devel
+BuildRequires:  ghc-filepath-prof
+BuildRequires:  ghc-foreign-store-devel
+BuildRequires:  ghc-foreign-store-prof
+BuildRequires:  ghc-hslogger-devel
+BuildRequires:  ghc-hslogger-prof
+BuildRequires:  ghc-lifted-base-devel
+BuildRequires:  ghc-lifted-base-prof
+BuildRequires:  ghc-megaparsec-devel
+BuildRequires:  ghc-megaparsec-prof
+BuildRequires:  ghc-messagepack-devel
+BuildRequires:  ghc-messagepack-prof
+BuildRequires:  ghc-monad-control-devel
+BuildRequires:  ghc-monad-control-prof
+BuildRequires:  ghc-mtl-devel
+BuildRequires:  ghc-mtl-prof
+BuildRequires:  ghc-network-devel
+BuildRequires:  ghc-network-prof
+BuildRequires:  ghc-optparse-applicative-devel
+BuildRequires:  ghc-optparse-applicative-prof
+BuildRequires:  ghc-process-devel
+BuildRequires:  ghc-process-prof
+BuildRequires:  ghc-resourcet-devel
+BuildRequires:  ghc-resourcet-prof
+BuildRequires:  ghc-rpm-macros
+BuildRequires:  ghc-setenv-devel
+BuildRequires:  ghc-setenv-prof
+BuildRequires:  ghc-stm-devel
+BuildRequires:  ghc-stm-prof
+BuildRequires:  ghc-streaming-commons-devel
+BuildRequires:  ghc-streaming-commons-prof
+BuildRequires:  ghc-template-haskell-devel
+BuildRequires:  ghc-template-haskell-prof
+BuildRequires:  ghc-text-devel
+BuildRequires:  ghc-text-prof
+BuildRequires:  ghc-time-devel
+BuildRequires:  ghc-time-locale-compat-devel
+BuildRequires:  ghc-time-locale-compat-prof
+BuildRequires:  ghc-time-prof
+BuildRequires:  ghc-transformers-base-devel
+BuildRequires:  ghc-transformers-base-prof
+BuildRequires:  ghc-transformers-devel
+BuildRequires:  ghc-transformers-prof
+BuildRequires:  ghc-utf8-string-devel
+BuildRequires:  ghc-utf8-string-prof
+BuildRequires:  ghc-void-devel
+BuildRequires:  ghc-void-prof
+%if %{with tests}
+BuildRequires:  ghc-HUnit-devel
+BuildRequires:  ghc-HUnit-prof
+BuildRequires:  ghc-QuickCheck-devel
+BuildRequires:  ghc-QuickCheck-prof
+BuildRequires:  ghc-hspec-devel
+BuildRequires:  ghc-hspec-discover-devel
+BuildRequires:  ghc-hspec-discover-prof
+BuildRequires:  ghc-hspec-prof
+%endif
+
+%description
+This package provides a plugin provider for neovim. It allows you to write
+plugins for one of the great editors of our time in the best programming
+language of our time! ;-)
+
+You should find all the documentation you need inside the "Neovim" module.
+Most other modules are considered internal, so don't be annoyed if using things
+from there may break your code!
+
+The following modules may also be of interest and they should not change their
+API: "Neovim.Quickfix"
+
+If you want to write unit tests that interact with neovim, "Neovim.Test"
+provides some useful functions for that.
+
+If you are keen to debug /nvim-hs/ or a module you are writing, take a look at
+the "Neovim.Debug" module.
+
+If you spot any errors or if you have great ideas, feel free to open an issue
+on github.
+
+%package -n ghc-%{name}
+Summary:        Haskell %{name} library
+
+%description -n ghc-%{name}
+This package provides the Haskell %{name} shared library.
+
+%package -n ghc-%{name}-devel
+Summary:        Haskell %{name} library development files
+Requires:       ghc-%{name} = %{version}-%{release}
+Requires:       ghc-compiler = %{ghc_version}
+Requires(post): ghc-compiler = %{ghc_version}
+Requires(postun): ghc-compiler = %{ghc_version}
+
+%description -n ghc-%{name}-devel
+This package provides the Haskell %{name} library development files.
+
+%package -n ghc-%{pkg_name}-doc
+Summary:        Haskell %{pkg_name} library documentation
+BuildArch:      noarch
+Requires:       ghc-filesystem
+
+%description -n ghc-%{pkg_name}-doc
+This package provides the Haskell %{pkg_name} library documentation.
+
+
+%package -n ghc-%{pkg_name}-prof
+Summary:        Haskell %{pkg_name} profiling library
+Requires:       ghc-%{pkg_name}-devel = %{version}-%{release}
+Supplements:    (ghc-%{pkg_name}-devel and ghc-prof)
+
+%description -n ghc-%{pkg_name}-prof
+This package provides the Haskell %{pkg_name} profiling library.
+
+
+%prep
+%autosetup
+
+%build
+%ghc_lib_build
+
+%install
+%ghc_lib_install
+%ghc_fix_rpath %{pkg_name}-%{version}
+
+%check
+%cabal_test
+
+%post -n ghc-%{name}-devel
+%ghc_pkg_recache
+
+%postun -n ghc-%{name}-devel
+%ghc_pkg_recache
+
+%files
+%license LICENSE
+%doc CHANGELOG.md README.md
+%{_bindir}/%{name}
+
+%files -n ghc-%{name} -f ghc-%{name}.files
+%license LICENSE
+
+%files -n ghc-%{name}-devel -f ghc-%{name}-devel.files
+%doc CHANGELOG.md README.md
+
+%files -n ghc-%{pkg_name}-doc -f ghc-%{pkg_name}-doc.files
+%license LICENSE
+
+%files -n ghc-%{pkg_name}-prof -f ghc-%{pkg_name}-prof.files
+
+%changelog

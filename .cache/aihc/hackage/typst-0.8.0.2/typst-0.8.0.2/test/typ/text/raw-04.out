@@ -1,0 +1,121 @@
+--- parse tree ---
+[ Code
+    "typ/text/raw-04.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/text/raw-04.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/text/raw-04.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Comment
+, SoftBreak
+, Comment
+, Text "The"
+, Space
+, Text "keyword"
+, Space
+, RawBlock "rust" "let"
+, Text "."
+, ParBreak
+, Comment
+, Text "("
+, RawInline ""
+, Text ")"
+, Space
+, HardBreak
+, Text "("
+, RawInline " untrimmed "
+, Text ")"
+, Space
+, HardBreak
+, Text "("
+, RawBlock "" "trimmed` "
+, Text ")"
+, Space
+, HardBreak
+, Text "("
+, RawBlock "" "trimmed "
+, Text ")"
+, Space
+, HardBreak
+, Text "("
+, RawBlock "" "trimmed"
+, Text ")"
+, Space
+, HardBreak
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 text(body: [
+]), 
+                 text(body: [The keyword ]), 
+                 raw(block: true, 
+                     lang: "rust", 
+                     text: "let"), 
+                 text(body: [.]), 
+                 parbreak(), 
+                 text(body: [(]), 
+                 raw(block: false, 
+                     lang: none, 
+                     text: ""), 
+                 text(body: [) ]), 
+                 linebreak(), 
+                 text(body: [(]), 
+                 raw(block: false, 
+                     lang: none, 
+                     text: " untrimmed "), 
+                 text(body: [) ]), 
+                 linebreak(), 
+                 text(body: [(]), 
+                 raw(block: true, 
+                     lang: none, 
+                     text: "trimmed` "), 
+                 text(body: [) ]), 
+                 linebreak(), 
+                 text(body: [(]), 
+                 raw(block: true, 
+                     lang: none, 
+                     text: "trimmed "), 
+                 text(body: [) ]), 
+                 linebreak(), 
+                 text(body: [(]), 
+                 raw(block: true, 
+                     lang: none, 
+                     text: "trimmed"), 
+                 text(body: [) ]), 
+                 linebreak(), 
+                 parbreak() })

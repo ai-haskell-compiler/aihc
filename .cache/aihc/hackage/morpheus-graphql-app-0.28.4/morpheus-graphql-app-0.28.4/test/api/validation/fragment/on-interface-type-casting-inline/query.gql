@@ -1,0 +1,14 @@
+{
+  character {
+    __typename
+    ... on Character {
+      name
+    }
+    ... on Deity {
+      power
+    }
+    ... on Hero {
+      nickname
+    }
+  }
+}

@@ -1,0 +1,105 @@
+--- parse tree ---
+[ Code
+    "typ/meta/bibliography-01.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/meta/bibliography-01.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/meta/bibliography-01.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Code
+    "typ/meta/bibliography-01.typ"
+    ( line 2 , column 2 )
+    (Set
+       (Ident (Identifier "page"))
+       [ KeyValArg (Identifier "width") (Literal (Numeric 200.0 Pt)) ])
+, SoftBreak
+, Heading 1 [ Text "Details" ]
+, Text "See"
+, Space
+, Text "also"
+, Space
+, Code
+    "typ/meta/bibliography-01.typ"
+    ( line 4 , column 11 )
+    (FuncCall
+       (Ident (Identifier "cite"))
+       [ NormalArg (Label "distress")
+       , KeyValArg
+           (Identifier "supplement")
+           (Block (Content [ Text "p" , Text "." , Space , Text "22" ]))
+       ])
+, Text ","
+, Space
+, Ref
+    "arrgh"
+    (Block (Content [ Text "p" , Text "." , Space , Text "4" ]))
+, Text ","
+, Space
+, Text "and"
+, Space
+, Ref
+    "distress"
+    (Block (Content [ Text "p" , Text "." , Space , Text "5" ]))
+, Text "."
+, SoftBreak
+, Code
+    "typ/meta/bibliography-01.typ"
+    ( line 5 , column 2 )
+    (FuncCall
+       (Ident (Identifier "bibliography"))
+       [ NormalArg (Literal (String "/works.bib")) ])
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 text(body: [
+]), 
+                 heading(body: text(body: [Details]), 
+                         level: 1), 
+                 text(body: [See also ]), 
+                 cite(key: <distress>, 
+                      supplement: text(body: [p. 22])), 
+                 text(body: [, ]), 
+                 ref(supplement: text(body: [p. 4]), 
+                     target: <arrgh>), 
+                 text(body: [, and ]), 
+                 ref(supplement: text(body: [p. 5]), 
+                     target: <distress>), 
+                 text(body: [.
+]), 
+                 bibliography(source: "/works.bib"), 
+                 parbreak() })

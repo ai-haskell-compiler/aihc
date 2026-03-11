@@ -1,0 +1,124 @@
+{
+  "object_kind": "issue",
+  "event_type": "issue",
+  "user": {
+    "id": 2052,
+    "name": "Joe",
+    "username": "ma2305",
+    "avatar_url": "https://secure.gravatar.com/avatar/abcde",
+    "email": "[REDACTED]"
+  },
+  "project": {
+    "id": 19102,
+    "name": "proj-name",
+    "description": "",
+    "web_url": "https://example.com/joe123/proj-name",
+    "avatar_url": null,
+    "git_ssh_url": "git@example.com:joe123/proj-name.git",
+    "git_http_url": "https://example.com/joe123/proj-name.git",
+    "namespace": "Joe",
+    "visibility_level": 0,
+    "path_with_namespace": "joe123/proj-name",
+    "default_branch": "master",
+    "ci_config_path": null,
+    "homepage": "https://example.com/joe123/proj-name",
+    "url": "git@example.com:joe123/proj-name.git",
+    "ssh_url": "git@example.com:joe123/proj-name.git",
+    "http_url": "https://example.com/joe123/proj-name.git"
+  },
+  "object_attributes": {
+    "author_id": 2052,
+    "closed_at": "2024-11-02 19:47:16 UTC",
+    "confidential": false,
+    "created_at": "2024-11-02 05:45:09 UTC",
+    "description": "",
+    "discussion_locked": null,
+    "due_date": null,
+    "id": 2183,
+    "iid": 40,
+    "last_edited_at": null,
+    "last_edited_by_id": null,
+    "milestone_id": null,
+    "moved_to_id": null,
+    "duplicated_to_id": null,
+    "project_id": 19102,
+    "relative_position": 20520,
+    "state_id": 2,
+    "time_estimate": 0,
+    "title": "Issue title",
+    "updated_at": "2024-11-02 19:47:17 UTC",
+    "updated_by_id": null,
+    "type": "Issue",
+    "url": "https://example.com/joe123/proj-name/-/issues/40",
+    "total_time_spent": 0,
+    "time_change": 0,
+    "human_total_time_spent": null,
+    "human_time_change": null,
+    "human_time_estimate": null,
+    "assignee_ids": [
+      2052
+    ],
+    "assignee_id": 2052,
+    "labels": [
+      {
+        "id": 385,
+        "title": "Stage 3",
+        "color": "#cd5b45",
+        "project_id": 19102,
+        "created_at": "2024-11-02 05:42:30 UTC",
+        "updated_at": "2024-11-02 05:42:30 UTC",
+        "template": false,
+        "description": null,
+        "type": "ProjectLabel",
+        "group_id": null
+      }
+    ],
+    "state": "closed",
+    "severity": "unknown",
+    "customer_relations_contacts": [],
+    "action": "close"
+  },
+  "labels": [
+    {
+      "id": 385,
+      "title": "Stage 3",
+      "color": "#cd5b45",
+      "project_id": 19102,
+      "created_at": "2024-11-02 05:42:30 UTC",
+      "updated_at": "2024-11-02 05:42:30 UTC",
+      "template": false,
+      "description": null,
+      "type": "ProjectLabel",
+      "group_id": null
+    }
+  ],
+  "changes": {
+    "closed_at": {
+      "previous": null,
+      "current": "2024-11-02 19:47:16 UTC"
+    },
+    "state_id": {
+      "previous": 1,
+      "current": 2
+    },
+    "updated_at": {
+      "previous": "2024-11-02 05:45:09 UTC",
+      "current": "2024-11-02 19:47:17 UTC"
+    }
+  },
+  "repository": {
+    "name": "proj-name",
+    "url": "git@example.com:joe123/proj-name.git",
+    "description": "",
+    "homepage": "https://example.com/joe123/proj-name"
+  },
+  "assignees": [
+    {
+      "id": 2052,
+      "name": "Joe",
+      "username": "joe123",
+      "avatar_url": "https://secure.gravatar.com/avatar/abcde",
+      "email": "[REDACTED]"
+    }
+  ]
+}

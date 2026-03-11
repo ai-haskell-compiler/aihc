@@ -1,0 +1,193 @@
+--- parse tree ---
+[ Code
+    "typ/compute/construct-00.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/compute/construct-00.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/compute/construct-00.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Comment
+, Code
+    "typ/compute/construct-00.typ"
+    ( line 3 , column 2 )
+    (FuncCall
+       (Ident (Identifier "test"))
+       [ NormalArg
+           (FuncCall
+              (Ident (Identifier "rgb"))
+              [ NormalArg (Literal (Numeric 0.0 Percent))
+              , NormalArg (Literal (Numeric 30.0 Percent))
+              , NormalArg (Literal (Numeric 70.0 Percent))
+              ])
+       , NormalArg
+           (FuncCall
+              (Ident (Identifier "rgb"))
+              [ NormalArg (Literal (String "004db3")) ])
+       ])
+, ParBreak
+, Comment
+, Code
+    "typ/compute/construct-00.typ"
+    ( line 6 , column 2 )
+    (FuncCall
+       (Ident (Identifier "test"))
+       [ NormalArg
+           (FuncCall
+              (Ident (Identifier "rgb"))
+              [ NormalArg (Literal (Int 255))
+              , NormalArg (Literal (Int 0))
+              , NormalArg (Literal (Int 0))
+              , NormalArg (Literal (Numeric 50.0 Percent))
+              ])
+       , NormalArg
+           (FuncCall
+              (Ident (Identifier "rgb"))
+              [ NormalArg (Literal (String "ff000080")) ])
+       ])
+, ParBreak
+, Comment
+, Code
+    "typ/compute/construct-00.typ"
+    ( line 9 , column 2 )
+    (FuncCall
+       (Ident (Identifier "test"))
+       [ NormalArg
+           (FuncCall
+              (FieldAccess
+                 (Ident (Identifier "lighten"))
+                 (FuncCall
+                    (Ident (Identifier "rgb"))
+                    [ NormalArg (Literal (Int 25))
+                    , NormalArg (Literal (Int 35))
+                    , NormalArg (Literal (Int 45))
+                    ]))
+              [ NormalArg (Literal (Numeric 10.0 Percent)) ])
+       , NormalArg
+           (FuncCall
+              (Ident (Identifier "rgb"))
+              [ NormalArg (Literal (Int 48))
+              , NormalArg (Literal (Int 57))
+              , NormalArg (Literal (Int 66))
+              ])
+       ])
+, SoftBreak
+, Code
+    "typ/compute/construct-00.typ"
+    ( line 10 , column 2 )
+    (FuncCall
+       (Ident (Identifier "test"))
+       [ NormalArg
+           (FuncCall
+              (FieldAccess
+                 (Ident (Identifier "darken"))
+                 (FuncCall
+                    (Ident (Identifier "rgb"))
+                    [ NormalArg (Literal (Int 40))
+                    , NormalArg (Literal (Int 30))
+                    , NormalArg (Literal (Int 20))
+                    ]))
+              [ NormalArg (Literal (Numeric 10.0 Percent)) ])
+       , NormalArg
+           (FuncCall
+              (Ident (Identifier "rgb"))
+              [ NormalArg (Literal (Int 36))
+              , NormalArg (Literal (Int 27))
+              , NormalArg (Literal (Int 18))
+              ])
+       ])
+, SoftBreak
+, Code
+    "typ/compute/construct-00.typ"
+    ( line 11 , column 2 )
+    (FuncCall
+       (Ident (Identifier "test"))
+       [ NormalArg
+           (FuncCall
+              (FieldAccess
+                 (Ident (Identifier "negate"))
+                 (FuncCall
+                    (Ident (Identifier "rgb"))
+                    [ NormalArg (Literal (String "#133337")) ]))
+              [])
+       , NormalArg
+           (FuncCall
+              (Ident (Identifier "rgb"))
+              [ NormalArg (Literal (Int 236))
+              , NormalArg (Literal (Int 204))
+              , NormalArg (Literal (Int 200))
+              ])
+       ])
+, SoftBreak
+, Code
+    "typ/compute/construct-00.typ"
+    ( line 12 , column 2 )
+    (FuncCall
+       (Ident (Identifier "test"))
+       [ NormalArg
+           (FuncCall
+              (FieldAccess
+                 (Ident (Identifier "lighten")) (Ident (Identifier "white")))
+              [ NormalArg (Literal (Numeric 100.0 Percent)) ])
+       , NormalArg (Ident (Identifier "white"))
+       ])
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 text(body: [❌(]), 
+                 text(body: [rgb(0%,30%,70%,100%)]), 
+                 text(body: [ /= ]), 
+                 text(body: [rgb(0%,30%,70%,100%)]), 
+                 text(body: [)]), 
+                 parbreak(), 
+                 text(body: [❌(]), 
+                 text(body: [rgb(100%,0%,0%,50%)]), 
+                 text(body: [ /= ]), 
+                 text(body: [rgb(100%,0%,0%,50%)]), 
+                 text(body: [)]), 
+                 parbreak(), 
+                 text(body: [✅]), 
+                 text(body: [
+]), 
+                 text(body: [✅]), 
+                 text(body: [
+]), 
+                 text(body: [✅]), 
+                 text(body: [
+]), 
+                 text(body: [✅]), 
+                 parbreak() })

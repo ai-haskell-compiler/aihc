@@ -1,0 +1,28 @@
+{
+    "$schema": "https://vega.github.io/schema/vega-lite/v4.json",
+    "data": {
+        "url": "https://vega.github.io/vega-lite/data/movies.json"
+    },
+    "description": "A binned scatterplot comparing IMDB and Rotten Tomatoes rating with marks sized by number of reviews.",
+    "encoding": {
+        "size": {
+            "aggregate": "count",
+            "type": "quantitative"
+        },
+        "x": {
+            "bin": {
+                "maxbins": 10
+            },
+            "field": "IMDB_Rating",
+            "type": "quantitative"
+        },
+        "y": {
+            "bin": {
+                "maxbins": 10
+            },
+            "field": "Rotten_Tomatoes_Rating",
+            "type": "quantitative"
+        }
+    },
+    "mark": "circle"
+}

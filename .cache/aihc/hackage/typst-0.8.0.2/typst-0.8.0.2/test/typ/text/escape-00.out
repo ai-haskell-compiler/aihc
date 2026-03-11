@@ -1,0 +1,187 @@
+--- parse tree ---
+[ Code
+    "typ/text/escape-00.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/text/escape-00.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/text/escape-00.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Comment
+, Text "\\"
+, Space
+, Text "/"
+, Space
+, Text "["
+, Space
+, Text "]"
+, Space
+, Text "{"
+, Space
+, Text "}"
+, Space
+, Text "#"
+, Space
+, Text "*"
+, Space
+, Text "_"
+, Space
+, Text "+"
+, Space
+, Text "="
+, Space
+, Text "~"
+, Space
+, HardBreak
+, Text "`"
+, Space
+, Text "$"
+, Space
+, Text "\""
+, Space
+, Text "'"
+, Space
+, Text "<"
+, Space
+, Text ">"
+, Space
+, Text "@"
+, Space
+, Text "("
+, Space
+, Text ")"
+, Space
+, Text "A"
+, ParBreak
+, Comment
+, Text "("
+, Space
+, Text ")"
+, Space
+, Text ";"
+, ParBreak
+, Comment
+, Text "/"
+, Text "/"
+, SoftBreak
+, Text "/"
+, Text "*"
+, Space
+, Text "*"
+, Text "/"
+, SoftBreak
+, Text "/"
+, Strong [ Space , Text "*" , Text "/" , Space ]
+, ParBreak
+, Comment
+, Text "\127957"
+, Space
+, Text "="
+, Text "="
+, Space
+, Text "\127957"
+, ParBreak
+, Comment
+, Text "A"
+, Space
+, Text "vs"
+, Text "."
+, Space
+, Text "\\"
+, Text "u"
+, Text "{"
+, Text "41"
+, Text "}"
+, ParBreak
+, Comment
+, Text "let"
+, Space
+, Text "f"
+, Text "("
+, Text ")"
+, Space
+, Text ","
+, Space
+, Text ";"
+, Space
+, Text ":"
+, Space
+, Text "|"
+, Space
+, Text "+"
+, Space
+, Text "-"
+, Space
+, Text "/"
+, Text "="
+, Space
+, Text "="
+, Text "="
+, Space
+, Text "12"
+, Space
+, Quote '"'
+, Text "string"
+, Quote '"'
+, ParBreak
+, Comment
+, Text "10"
+, Text "."
+, Space
+, Text "May"
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 text(body: [\ / [ ] { } # * _ + = ~ ]), 
+                 linebreak(), 
+                 text(body: [` $ " ' < > @ ( ) A]), 
+                 parbreak(), 
+                 text(body: [( ) ;]), 
+                 parbreak(), 
+                 text(body: [//
+/* */
+/]), 
+                 strong(body: text(body: [ */ ])), 
+                 parbreak(), 
+                 text(body: [🏕 == 🏕]), 
+                 parbreak(), 
+                 text(body: [A vs. \u{41}]), 
+                 parbreak(), 
+                 text(body: [let f() , ; : | + - /= == 12 “string”]), 
+                 parbreak(), 
+                 text(body: [10. May]), 
+                 parbreak() })

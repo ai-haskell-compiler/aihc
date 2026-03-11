@@ -1,0 +1,137 @@
+--- parse tree ---
+[ Code
+    "typ/compute/data-12.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/compute/data-12.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/compute/data-12.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Comment
+, Code
+    "typ/compute/data-12.typ"
+    ( line 3 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "data")))
+       (FuncCall
+          (Ident (Identifier "xml"))
+          [ NormalArg (Literal (String "/assets/files/data.xml")) ]))
+, SoftBreak
+, Code
+    "typ/compute/data-12.typ"
+    ( line 4 , column 2 )
+    (FuncCall
+       (Ident (Identifier "test"))
+       [ NormalArg (Ident (Identifier "data"))
+       , NormalArg
+           (Array
+              [ Reg
+                  (Dict
+                     [ Reg ( Ident (Identifier "tag") , Literal (String "data") )
+                     , Reg ( Ident (Identifier "attrs") , Dict [] )
+                     , Reg
+                         ( Ident (Identifier "children")
+                         , Array
+                             [ Reg (Literal (String "\n  "))
+                             , Reg
+                                 (Dict
+                                    [ Reg ( Ident (Identifier "tag") , Literal (String "hello") )
+                                    , Reg
+                                        ( Ident (Identifier "attrs")
+                                        , Dict
+                                            [ Reg
+                                                ( Ident (Identifier "name")
+                                                , Literal (String "hi")
+                                                )
+                                            ]
+                                        )
+                                    , Reg
+                                        ( Ident (Identifier "children")
+                                        , Array [ Reg (Literal (String "1")) ]
+                                        )
+                                    ])
+                             , Reg (Literal (String "\n  "))
+                             , Reg
+                                 (Dict
+                                    [ Reg ( Ident (Identifier "tag") , Literal (String "data") )
+                                    , Reg ( Ident (Identifier "attrs") , Dict [] )
+                                    , Reg
+                                        ( Ident (Identifier "children")
+                                        , Array
+                                            [ Reg (Literal (String "\n    "))
+                                            , Reg
+                                                (Dict
+                                                   [ Reg
+                                                       ( Ident (Identifier "tag")
+                                                       , Literal (String "hello")
+                                                       )
+                                                   , Reg ( Ident (Identifier "attrs") , Dict [] )
+                                                   , Reg
+                                                       ( Ident (Identifier "children")
+                                                       , Array [ Reg (Literal (String "World")) ]
+                                                       )
+                                                   ])
+                                            , Reg (Literal (String "\n    "))
+                                            , Reg
+                                                (Dict
+                                                   [ Reg
+                                                       ( Ident (Identifier "tag")
+                                                       , Literal (String "hello")
+                                                       )
+                                                   , Reg ( Ident (Identifier "attrs") , Dict [] )
+                                                   , Reg
+                                                       ( Ident (Identifier "children")
+                                                       , Array [ Reg (Literal (String "World")) ]
+                                                       )
+                                                   ])
+                                            , Reg (Literal (String "\n  "))
+                                            ]
+                                        )
+                                    ])
+                             , Reg (Literal (String "\n"))
+                             ]
+                         )
+                     ])
+              ])
+       ])
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 text(body: [
+]), 
+                 text(body: [✅]), 
+                 parbreak() })

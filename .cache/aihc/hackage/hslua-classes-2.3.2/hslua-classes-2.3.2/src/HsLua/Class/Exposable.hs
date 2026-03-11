@@ -1,0 +1,87 @@
+{-# LANGUAGE FlexibleInstances     #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE OverloadedStrings     #-}
+{-# LANGUAGE ScopedTypeVariables   #-}
+{-|
+Module      : HsLua.Class.Exposable
+Copyright   : © 2007–2012 Gracjan Polak,
+                2012–2016 Ömer Sinan Ağacan,
+                2017-2026 Albert Krewinkel
+License     : MIT
+Maintainer  : Albert Krewinkel <tarleb@hslua.org>
+
+Call Haskell functions from Lua.
+-}
+module HsLua.Class.Exposable
+  ( Exposable (..)
+  , toHaskellFunction
+  , pushAsHaskellFunction
+  , registerHaskellFunction
+  ) where
+
+import Data.String (fromString)
+import HsLua.Core as Lua
+import HsLua.Marshalling (Peek, forcePeek, liftLua, retrieving, withContext)
+import HsLua.Class.Peekable (Peekable (safepeek))
+import HsLua.Class.Pushable (Pushable (push))
+
+-- | Operations and functions that can be pushed to the Lua stack. This
+-- is a helper function not intended to be used directly. Use the
+-- @'toHaskellFunction'@ wrapper instead.
+class LuaError e => Exposable e a where
+  -- | Helper function, called by @'toHaskellFunction'@. Should do a
+  -- partial application of the argument at the given index to the
+  -- underlying function. Recurses if necessary, causing further partial
+  -- applications until the operation is a easily exposable to Lua.
+  partialApply :: StackIndex -> a -> Peek e NumResults
+
+instance {-# OVERLAPPING #-} LuaError e =>
+         Exposable e (HaskellFunction e) where
+  partialApply _ = liftLua
+
+instance (LuaError e, Pushable a) => Exposable e (LuaE e a) where
+  partialApply _narg x = 1 <$ liftLua (x >>= push)
+
+instance (LuaError e, Pushable a) => Exposable e (Peek e a) where
+  partialApply _narg x = 1 <$ (x >>= liftLua . push)
+
+instance (Peekable a, Exposable e b) => Exposable e (a -> b) where
+  partialApply narg f = getArg >>= partialApply (narg + 1) . f
+    where
+      getArg = retrieving (fromString errorPrefix) (safepeek narg)
+      errorPrefix = "argument " ++ show (fromStackIndex narg)
+
+-- | Convert a Haskell function to a function type directly exposable to
+-- Lua. Any Haskell function can be converted provided that:
+--
+--   * all arguments are instances of @'Peekable'@
+--   * return type is @LuaE e a@, where @a@ is an instance of
+--     @'Pushable'@
+--
+-- Any exception of type @e@ will be caught.
+--
+-- /Important/: this does __not__ catch exceptions other than @e@;
+-- exception handling must be done by the Haskell function. Failure to
+-- do so will cause the program to crash.
+--
+-- E.g., the following code could be used to handle an Exception
+-- of type FooException, if that type is an instance of
+-- 'Control.Monad.Catch.MonadCatch' and 'Pushable':
+--
+-- > toHaskellFunction (myFun `catchM` (\e -> raiseError (e :: FooException)))
+toHaskellFunction :: forall e a. Exposable e a => a -> HaskellFunction e
+toHaskellFunction a = forcePeek $ do
+  withContext "executing function call" $ partialApply 1 a
+
+-- | Pushes the given value as a function to the Lua stack.
+--
+-- See 'toHaskellFunction' for details.
+pushAsHaskellFunction :: forall e a. Exposable e a => a -> LuaE e ()
+pushAsHaskellFunction = pushHaskellFunction . toHaskellFunction
+
+-- | Imports a Haskell function and registers it at global name.
+registerHaskellFunction :: Exposable e a
+                        => Name -> a -> LuaE e ()
+registerHaskellFunction n f = do
+  pushAsHaskellFunction f
+  setglobal n

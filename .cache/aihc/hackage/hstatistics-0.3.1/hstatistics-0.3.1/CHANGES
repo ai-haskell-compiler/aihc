@@ -1,0 +1,118 @@
+0.1.0.1:	
+		first version
+
+0.1.0.2:
+		fixed configure.hs to work for local install
+		updated to reflect exportation of check from Data.Packed.Development
+		   in hmatrix-0.9.3.0
+
+0.1.0.3:		
+		added Numeric.GSL.Fitting.Linear
+		attempt to fix problem on hackage with configure (localBuild "dist")
+
+0.1.0.4:
+		fixed argument types in Numeric.GSL.Fitting.Linear
+		removed redundant imports
+		attempt to fix problem on hackage with configure (printCurrentDirectory)
+
+0.1.0.5:
+		added multifit to Numeric.GSL.Fitting.Linear
+		attempt to fix problem on hackage with configure (removed printCurrentDirectory)
+
+0.2.0.1:
+		moved GSL.* to hmatrix-gsl-stats
+		added Numeric.Statistics.Shannon
+
+0.2.0.3:
+		added mutual_information to Numeric.Statistics.Shannon
+
+0.2.0.4:
+		fixed definition of mutual_information
+
+0.2.0.5:
+		added Histogram
+
+0.2.0.6:
+		added PCA
+		added ICA
+
+0.2.0.7:
+		removed hard-coded sigmoid from ICA algorithm internals
+		was not using seed passed to ica
+		minor fixes to remove warnings
+
+0.2.0.8:
+
+		error in decorrelation fixed
+
+0.2.1.1:
+		added PDF.hs
+		modified Information to take in PDF addition
+		added Surrogate.hs
+
+0.2.2.1:
+		improved ICA decorrelation step
+
+0.2.2.2:
+		reflected changes in hmatrix exports
+
+0.2.2.3:
+		reflected changes in hmatrix exports
+
+0.2.2.4:
+		added mean/variance for lists/vectors/matrices
+
+0.2.2.5:
+		hmatrix 0.10.0.0 release
+
+0.2.2.6:
+		changed base to >= 4
+		fixed Setup.lhs (as there is no configure.hs) 
+ 		  pointed out by dons
+
+0.2.2.8:
+		fixed definition of mutual information to be non-negative
+
+0.2.2.9:
+		divide mutual information/entropy by sample size
+
+0.2.2.10:
+		remove previous change
+
+0.2.2.11:
+		fixed bug in surrogate data sampling
+
+0.2.3:
+		added functions to Numeric.Statistics
+
+0.2.4:
+		moved to github
+
+0.2.4.1:
+		fixed .cabal repository line
+
+0.2.4.2:
+		Conrad Parker pointed out that hmatrix defaults to 
+		  Data.Vector.Storable
+
+0.2.5:
+		Added pcaN as requested by Marcel Ruegenberg
+
+0.2.5.1:
+		added pcaReduceN to PCA
+
+0.2.5.2:
+		exposed pcaReduceN as requested by Tom Nielsen
+
+0.2.5.3:
+		updated for hmatrix 0.17
+
+0.2.5.4:
+		updated for hmatrix 0.18
+
+0.3:
+		changed PCA to use SVD as suggested by Pavol Klacansky 
+		(issue #3)
+
+0.3.1:
+		minor version tweaks and fix issue #5

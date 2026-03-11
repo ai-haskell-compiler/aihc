@@ -1,0 +1,10 @@
+{ mkDerivation, base, lib, semigroupoids }:
+mkDerivation {
+  pname = "monad-products";
+  version = "4.0.1";
+  sha256 = "deadbeef";
+  libraryHaskellDepends = [ base semigroupoids ];
+  homepage = "http://github.com/ekmett/monad-products";
+  description = "Monad products";
+  license = lib.licenses.bsd3;
+}

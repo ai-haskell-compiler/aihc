@@ -1,0 +1,17 @@
+Name:                uglymemo
+Version:             0.1.0.1
+Synopsis:            A simple (but internally ugly) memoization function.
+Description:         A simple (but internally ugly) memoization function.
+                     .
+                     * New in 0.1.0.1: Make it exception safe.
+License:             PublicDomain
+Author:              Lennart Augustsson
+Maintainer:          lennart@augustsson.net
+Category:            Data
+Build-type:          Simple
+Cabal-version:       >=1.2
+
+
+Library
+  Exposed-modules:     Data.MemoUgly
+  Build-depends:       base < 10, containers

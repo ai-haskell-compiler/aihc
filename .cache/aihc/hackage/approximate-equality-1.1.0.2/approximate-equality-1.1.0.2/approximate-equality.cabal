@@ -1,0 +1,31 @@
+Name:                approximate-equality
+Version:             1.1.0.2
+License:             BSD3
+License-file:        LICENSE
+Author:              Gregory Crosswhite
+Maintainer:          Gregory Crosswhite <gcrosswhite@gmail.com>
+Stability:           Provisional
+Homepage:            http://github.com/gcross/approximate-equality
+Synopsis:            Newtype wrappers for approximate equality
+Description:         The purpose of this module is to provide newtype wrappers that allow one to effectively override the equality operator of a value so that it is /approximate/ rather than /exact/.  The wrappers use type annotations to specify the tolerance; the 'Digits' type constructor has been provided for specifying the tolerance using type-level natural numbers.  Instances for all of the classes in the numerical hierarchy have been provided for the wrappers, so the wrapped values can mostly be used in the same way as the original values. (In fact, most of the time one doesn't even have to wrap the starting values, since expressions such as @(1+sqrt 2/3)@ are automatically wrapped thanks to the 'fromIntegral' method of the 'Num' typeclass.) 
+
+                     See the documentation for Data.Eq.Approximate for more detailed information on how to use this package.
+
+                     New in version 1.1:  Added explicit Show constraints to the Show instances, as the Num class in the newest version of GHC (wisely) no longer includes Show as a constraint.
+Cabal-version:       >= 1.6
+Build-type:          Simple
+Category:	          Data
+
+Library
+    Build-depends:   base >= 3 && < 5,
+                     type-level-natural-number >= 1.0 && < 2.1
+    Exposed-modules: Data.Eq.Approximate
+
+Source-repository head
+  Type:                git
+  Location:            git://github.com/gcross/approximate-equality.git
+
+Source-repository this
+  Type:                git
+  Location:            git://github.com/gcross/approximate-equality.git
+  Tag:                 1.1.0.2

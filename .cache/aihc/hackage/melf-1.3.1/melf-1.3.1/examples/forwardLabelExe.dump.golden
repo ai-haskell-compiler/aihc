@@ -1,0 +1,27 @@
+segment {
+    Type:       PT_LOAD
+    Flags:      [PF_X,PF_R]
+    VirtAddr:   0x0000000000400000
+    PhysAddr:   0x0000000000400000
+    AddMemSize: 0x0000000000000000
+    Align:      0x0000000000010000
+    Data:       
+        header {
+            Class:      ELFCLASS64
+            Data:       ELFDATA2LSB
+            OSABI:      ELFOSABI_SYSV
+            ABIVersion: 0
+            Type:       ET_EXEC
+            Machine:    EM_AARCH64
+            Entry:      0x0000000000400040
+            Flags:      0x00000000
+        }
+        raw data {
+            Data: 20 00 80 d2 61 01 00 10 62 00 80 d2 03 00 00 14 #  ...a...b.......
+                  01 01 00 70 82 00 80 d2 08 08 80 d2 01 00 00 d4 # ...p............
+                  ...
+                  d2 01 00 00 d4 00 00 00 00 6f 6b 0a 62 61 64 0a # .........ok.bad.
+                  total: 55
+        }
+}
+segment table

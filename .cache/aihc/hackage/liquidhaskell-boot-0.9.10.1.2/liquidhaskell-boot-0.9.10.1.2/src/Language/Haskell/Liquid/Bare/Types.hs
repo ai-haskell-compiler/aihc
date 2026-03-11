@@ -1,0 +1,199 @@
+-- | This module has the code that uses the GHC definitions to:
+--   1. MAKE a name-resolution environment,
+--   2. USE the environment to translate plain symbols into Var, TyCon, etc. 
+
+module Language.Haskell.Liquid.Bare.Types 
+  ( -- * Name resolution environment 
+    Env (..)
+  , GHCTyLookupEnv (..)
+  , TyThingMap 
+  , ModSpecs
+  , LocalVars(..)
+  , LocalVarDetails (..)
+
+    -- * Tycon and Datacon processing environment
+  , TycEnv (..) 
+  , DataConMap
+  , RT.TyConMap
+
+    -- * Signature processing environment 
+  , SigEnv (..)
+
+    -- * Measure related environment 
+  , MeasEnv (..)
+
+    -- * Misc 
+  , PlugTV (..)
+  , plugSrc
+  , varRSort 
+  , varSortedReft
+  , failMaybe
+  ) where 
+
+import qualified Text.PrettyPrint.HughesPJ             as PJ 
+import qualified Data.HashSet                          as S
+import qualified Data.HashMap.Strict                   as M
+import qualified Language.Fixpoint.Types               as F 
+import qualified Language.Haskell.Liquid.Measure       as Ms
+import           Language.Haskell.Liquid.Types.DataDecl
+import           Language.Haskell.Liquid.Types.Names
+import qualified Language.Haskell.Liquid.Types.RefType as RT 
+import           Language.Haskell.Liquid.Types.RType
+import           Language.Haskell.Liquid.Types.Types
+import           Language.Haskell.Liquid.Types.Specs   hiding (BareSpec)
+import           Liquid.GHC.API       as Ghc hiding (Located, Env)
+import           Language.Haskell.Liquid.GHC.Types     (StableName)
+import           Language.Haskell.Liquid.UX.Config
+
+
+type ModSpecs = M.HashMap ModName Ms.BareSpec
+
+-------------------------------------------------------------------------------
+-- | See [NOTE: Plug-Holes-TyVars] for a rationale for @PlugTV@ 
+-------------------------------------------------------------------------------
+
+data PlugTV v 
+  = HsTV v  -- ^ Use tyvars from GHC specification (in the `v`) 
+  | LqTV v  -- ^ Use tyvars from Liquid specification
+  | GenTV   -- ^ Generalize ty-vars 
+  | RawTV   -- ^ Do NOT generalize ty-vars (e.g. for type-aliases)
+  deriving (Show)
+
+
+instance (Show v, F.PPrint v) => F.PPrint (PlugTV v) where 
+  pprintTidy _ = PJ.text . show 
+   
+plugSrc ::  PlugTV v -> Maybe v 
+plugSrc (HsTV v) = Just v 
+plugSrc (LqTV v) = Just v 
+plugSrc _        = Nothing
+
+-------------------------------------------------------------------------------
+-- | Name resolution environment 
+-------------------------------------------------------------------------------
+data Env = RE 
+  { reTyLookupEnv :: GHCTyLookupEnv
+  , reTcGblEnv  :: Ghc.TcGblEnv
+  , reInstEnvs  :: Ghc.InstEnvs
+  , reUsedExternals :: Ghc.NameSet
+  , reLMap      :: LogicMap
+  , reDataConIds :: [Ghc.Id]                -- ^ Data constructors used in the current module
+  , reCfg       :: Config
+  , reLocalVars :: LocalVars                -- ^ lines at which local variables are defined.
+  , reGlobSyms  :: S.HashSet F.Symbol       -- ^ global symbols, typically unlifted measures like 'len', 'fromJust'
+  , reSrc       :: GhcSrc                   -- ^ all source info
+  }
+
+data GHCTyLookupEnv = GHCTyLookupEnv
+       { gtleSession :: Ghc.Session
+       , gtleTypeEnv :: Ghc.TypeEnv
+       }
+
+instance HasConfig Env where 
+  getConfig = reCfg 
+
+data LocalVars = LocalVars
+  { -- | A map from names to lists of pairs of @Ghc.Var@ and
+    --   the lines at which they were defined.
+    lvSymbols :: M.HashMap F.Symbol [LocalVarDetails]
+    -- | A map from names to its details
+  , lvNames :: NameEnv LocalVarDetails
+  }
+
+data LocalVarDetails = LocalVarDetails
+  { lvdSourcePos :: F.SourcePos
+  , lvdVar :: Ghc.Var
+  , lvdLclEnv :: [Ghc.Var]
+  , lvdIsRec :: Bool  -- ^ Is the variable defined in a letrec?
+  } deriving Show
+
+-------------------------------------------------------------------------------
+-- | A @TyThingMap@ is used to resolve symbols into GHC @TyThing@ and, 
+--   from there into Var, TyCon, DataCon, etc.
+-------------------------------------------------------------------------------
+type TyThingMap = M.HashMap F.Symbol [(F.Symbol, Ghc.TyThing)]
+
+-------------------------------------------------------------------------------
+-- | A @SigEnv@ contains the needed to process type signatures 
+-------------------------------------------------------------------------------
+data SigEnv = SigEnv 
+  { sigEmbs       :: !(F.TCEmb Ghc.TyCon) 
+  , sigTyRTyMap   :: !RT.TyConMap 
+  , sigExports    :: !(S.HashSet StableName)
+  , sigRTEnv      :: !BareRTEnv
+  }
+
+-------------------------------------------------------------------------------
+-- | A @TycEnv@ contains the information needed to process Type- and Data- Constructors 
+-------------------------------------------------------------------------------
+data TycEnv = TycEnv 
+  { tcTyCons      :: ![TyConP]
+  , tcDataCons    :: ![DataConP]
+  , tcSelMeasures :: ![Measure SpecType Ghc.DataCon]
+  , tcSelVars     :: ![(Ghc.Var, LocSpecType)]
+  , tcTyConMap    :: !RT.TyConMap 
+  , tcAdts        :: ![F.DataDecl]
+  , tcDataConMap  :: !DataConMap 
+  , tcEmbs        :: !(F.TCEmb Ghc.TyCon)
+  , tcName        :: !ModName
+  }
+
+type DataConMap = M.HashMap (F.Symbol, Int) F.Symbol
+
+-------------------------------------------------------------------------------
+-- | Intermediate representation for Measure information 
+-------------------------------------------------------------------------------
+-- REBARE: used to be output of makeGhcSpecCHOP2
+data MeasEnv = MeasEnv 
+  { meMeasureSpec :: !(MSpec SpecType Ghc.DataCon)          
+  , meClassSyms   :: ![(F.Symbol, Located (RRType F.Reft))] 
+  , meSyms        :: ![(F.Symbol, Located (RRType F.Reft))]
+  , meDataCons    :: ![(Ghc.Var,  LocSpecType)]           
+  , meClasses     :: ![DataConP]                           
+  , meMethods     :: ![(ModName, Ghc.Var, LocSpecType)]  
+  , meOpaqueRefl  :: ![(Ghc.Var, Measure (Located BareType) (F.Located LHName))] -- the opaque-reflected symbols and the corresponding measures
+  }
+
+instance Semigroup MeasEnv where
+  a <> b = MeasEnv
+    { meMeasureSpec = meMeasureSpec a <> meMeasureSpec b
+    , meClassSyms   = meClassSyms a <> meClassSyms b
+    , meSyms        = meSyms a <> meSyms b
+    , meDataCons    = meDataCons a <> meDataCons b  
+    , meClasses     = meClasses a <> meClasses b                       
+    , meMethods     = meMethods a <> meMethods b
+    , meOpaqueRefl  = meOpaqueRefl a <> meOpaqueRefl b
+    }
+instance Monoid MeasEnv where
+  mempty = MeasEnv
+    {
+      meMeasureSpec = mempty
+    , meClassSyms   = mempty
+    , meSyms        = mempty
+    , meDataCons    = mempty
+    , meClasses     = mempty
+    , meMethods     = mempty
+    , meOpaqueRefl  = mempty
+    }
+
+-------------------------------------------------------------------------------
+-- | Converting @Var@ to @Sort@
+-------------------------------------------------------------------------------
+varSortedReft :: F.TCEmb Ghc.TyCon -> Ghc.Var -> F.SortedReft 
+varSortedReft emb = RT.rTypeSortedReft emb . varRSort 
+
+varRSort  :: Ghc.Var -> RSort
+varRSort  = RT.ofType . Ghc.varType
+
+-------------------------------------------------------------------------------
+-- | Handling failed resolution 
+-------------------------------------------------------------------------------
+failMaybe :: Env -> ModName -> Either e r -> Either e (Maybe r)
+failMaybe env name res = case res of 
+  Right r -> Right (Just r) 
+  Left  e -> if isTargetModName env name 
+              then Left e
+              else Right Nothing 
+
+isTargetModName :: Env -> ModName -> Bool 
+isTargetModName env name = name == _giTargetMod (reSrc env) 

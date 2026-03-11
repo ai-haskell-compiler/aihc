@@ -1,0 +1,60 @@
+{-# LANGUAGE DeriveLift #-}
+{-# LANGUAGE NoImplicitPrelude #-}
+
+module Data.Morpheus.Types.Internal.AST.DirectiveLocation
+  ( DirectiveLocation (..),
+  )
+where
+
+import Data.Morpheus.Rendering.RenderGQL (RenderGQL (..), fromShow)
+import Data.Morpheus.Types.Internal.AST.Error (Msg (..))
+import Language.Haskell.TH.Syntax (Lift)
+import Relude hiding (Show, show)
+import Prelude (Show (..))
+
+data DirectiveLocation
+  = LOCATION_QUERY
+  | LOCATION_MUTATION
+  | LOCATION_SUBSCRIPTION
+  | LOCATION_FIELD
+  | LOCATION_FRAGMENT_DEFINITION
+  | LOCATION_FRAGMENT_SPREAD
+  | LOCATION_INLINE_FRAGMENT
+  | LOCATION_SCHEMA
+  | LOCATION_SCALAR
+  | LOCATION_OBJECT
+  | LOCATION_FIELD_DEFINITION
+  | LOCATION_ARGUMENT_DEFINITION
+  | LOCATION_INTERFACE
+  | LOCATION_UNION
+  | LOCATION_ENUM
+  | LOCATION_ENUM_VALUE
+  | LOCATION_INPUT_OBJECT
+  | LOCATION_INPUT_FIELD_DEFINITION
+  deriving (Eq, Lift)
+
+instance Show DirectiveLocation where
+  show LOCATION_QUERY = "QUERY"
+  show LOCATION_MUTATION = "MUTATION"
+  show LOCATION_SUBSCRIPTION = "SUBSCRIPTION"
+  show LOCATION_FIELD = "FIELD"
+  show LOCATION_FRAGMENT_DEFINITION = "FRAGMENT_DEFINITION"
+  show LOCATION_FRAGMENT_SPREAD = "FRAGMENT_SPREAD"
+  show LOCATION_INLINE_FRAGMENT = "INLINE_FRAGMENT"
+  show LOCATION_SCHEMA = "SCHEMA"
+  show LOCATION_SCALAR = "SCALAR"
+  show LOCATION_OBJECT = "OBJECT"
+  show LOCATION_FIELD_DEFINITION = "FIELD_DEFINITION"
+  show LOCATION_ARGUMENT_DEFINITION = "ARGUMENT_DEFINITION"
+  show LOCATION_INTERFACE = "INTERFACE"
+  show LOCATION_UNION = "UNION"
+  show LOCATION_ENUM = "ENUM"
+  show LOCATION_ENUM_VALUE = "ENUM_VALUE"
+  show LOCATION_INPUT_OBJECT = "INPUT_OBJECT"
+  show LOCATION_INPUT_FIELD_DEFINITION = "INPUT_FIELD_DEFINITION"
+
+instance Msg DirectiveLocation where
+  msg = msg . show
+
+instance RenderGQL DirectiveLocation where
+  renderGQL = fromShow

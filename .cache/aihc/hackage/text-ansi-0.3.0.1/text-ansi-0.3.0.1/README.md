@@ -1,0 +1,5 @@
+[![GitHub CI](https://github.com/awkward-squad/text-ansi/workflows/Haskell-CI/badge.svg)](https://github.com/awkward-squad/text-ansi/actions)
+[![Hackage](https://img.shields.io/hackage/v/text-ansi.svg)](https://hackage.haskell.org/package/text-ansi)
+[![Stackage LTS](https://stackage.org/package/text-ansi/badge/lts)](https://www.stackage.org/lts/package/text-ansi)
+[![Stackage Nightly](https://stackage.org/package/text-ansi/badge/nightly)](https://www.stackage.org/nightly/package/text-ansi)
+[![Dependencies](https://img.shields.io/hackage-deps/v/text-ansi)](https://packdeps.haskellers.com/reverse/text-ansi)

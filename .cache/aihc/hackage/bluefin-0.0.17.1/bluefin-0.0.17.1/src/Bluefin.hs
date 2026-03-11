@@ -1,0 +1,926 @@
+module Bluefin
+  ( -- * In brief
+
+    -- | Bluefin is an effect system which allows you to freely mix a
+    -- variety of effects, including
+    --
+    --  * "Bluefin.EarlyReturn", for early return
+    --  * "Bluefin.Exception", for exceptions
+    --  * "Bluefin.IO", for I/O
+    --  * "Bluefin.State", for mutable state
+    --  * "Bluefin.Stream", for streams
+    --
+    -- and to create your own effects in terms of existing ones
+    -- ("Bluefin.Compound").
+    -- Bluefin effects are accessed explicitly through
+    -- value-level handles.
+
+    -- * Why even use an effect system?
+
+    -- ** Referential transparency
+
+    -- |
+    --
+    -- Haskell is a "referentially transparent" language. Without
+    -- going deeply into technical details, a consequence of
+    -- referential transparency is that one can freely inline @let@
+    -- bindings. For example, if we start with the following program:
+    --
+    -- @
+    -- let x = a + b
+    -- in (x + 1, x / 2)
+    -- @
+    --
+    -- we can "inline" @x@, that is, replace occurrences of @x@ with
+    -- the right hand side of its binding, @a + b@, obtaining an
+    -- equivalent program:
+    --
+    -- @
+    -- (a + b + 1, (a + b) / 2)
+    -- @
+    --
+    -- This is not true for most languages!  For example consider this
+    -- Python code
+    --
+    -- @
+    -- first_name = input("First name> ")
+    -- second_name = input("Second name> ")
+    --
+    -- greeting =
+    --   first_name \\
+    --   + ", your full name is " \\
+    --   + first_name \\
+    --   + " " \\
+    --   + second_name
+    -- @
+    --
+    -- When you run it, something like this happens:
+    --
+    -- @
+    -- First name> /Simon/
+    -- Second name> /Peyton Jones/
+    -- @
+    --
+    -- and then @greeting@ is a string equal to @"Simon, your full
+    -- name is Simon Peyton Jones"@.  If we inline @first_name@ we
+    -- get this program:
+    --
+    -- @
+    -- second_name = input("Second name> ")
+    --
+    -- greeting =
+    --   input("First name> ") \\
+    --   + ", your full name is " \\
+    --   + input("First name> ") \\
+    --   + " " \\
+    --   + second_name
+    -- @
+    --
+    -- That won't do the same thing as the original program.  Instead,
+    -- the user will be asked for their first name twice, /after/
+    -- being asked for their second name, something like this:
+    --
+    -- @
+    -- Second name> /Peyton Jones/
+    -- First name> /Simon/
+    -- First name> /Umm, it's still Simon/
+    -- @
+    --
+    -- and then @greeting@ will be a string equal to @"Simon, your
+    -- full name is Umm, it's still Simon Peyton Jones"@.
+    --
+    -- The invariance of program behavior to inlining of @let@
+    -- bindings is a wonderful property of Haskell, and contributes to
+    -- its well-deserved reputation for supporting "fearless
+    -- refactoring": one can often rewrite part of a program to a
+    -- clearer form just by inlining bindings, or the reverse,
+    -- extracting bindings, whilst being confident that program
+    -- behavior has not changed as a result.  The invariance property
+    -- means that in a sense let bindings do not interact with
+    -- effects – like modifying state and throwing and catching
+    -- exceptions, reading input (as in the Python example above),
+    -- writing output and generally interacting with the environment.
+
+    -- ** Monads for effects
+
+    -- | However, referential transparency also raises an awkward
+    -- question: if @let@ bindings don't interact with effects,
+    -- because we can inline them freely, then how /can/ we perform
+    -- effects in Haskell, and maintain control over the order in
+    -- which various operations occur?  For a hour-long answer,
+    -- concluding with an explanation of the development of effect
+    -- systems, you can watch "[A History of Effect
+    -- systems](https://www.youtube.com/watch?v=RsTuy1jXQ6Y)" by Tom
+    -- Ellis (recorded at Zurihac 2025).
+    --
+    -- The short answer is: 'Control.Monad.Monad's.  @Monad@ is a
+    -- general interface that permits ordering of operations.
+    -- Instances of @Monad@ from early in the development of Haskell
+    -- include 'Prelude.IO', 'Control.Monad.Trans.State.State',
+    -- 'Prelude.Either' and 'Control.Monad.Trans.State.Writer', all of
+    -- which are still in use today.  For example, to manipulate
+    -- mutable state we can't use @let@ bindings in the following way:
+    --
+    -- @
+    -- let ref = newRef "Initial value"
+    --     r = f ref args
+    --     v = getRef ref
+    -- in "Final value: " ++ v
+    -- @
+    --
+    -- because referential transparency means this program would mean
+    -- the same thing after inlining @ref@:
+    --
+    -- @
+    -- let r = f (newRef "Initial value") args
+    --     v = getRef (newRef "Initial value")
+    -- in "Final value: " ++ v
+    -- @
+    --
+    -- which is not what we want at all: the final value would just be
+    -- @"Initial value"@. An approach that /does/ work is to simulate
+    -- mutable state using an ad hoc "state passing" pattern:
+    --
+    -- @
+    -- let s1 = "Initial value"
+    --     (r, s2) = f s1 args
+    --     v = s2
+    -- in "Final value: " ++ v
+    -- @
+    --
+    -- Moreover, we can define a 'Control.Monad.Trans.State.State'
+    -- monad which casts the ad hoc state passing pattern as a general
+    -- pattern known as "monad":
+    --
+    -- @
+    -- newtype State s a = State (s -> (a, s))
+    -- @
+    --
+    -- with a @Monad@ instance and operations like
+    -- 'Control.Monad.Trans.State.evalState' and
+    -- 'Control.Monad.Trans.State.get', and then use @do@ notation to
+    -- write:
+    --
+    -- @
+    -- f1 :: String
+    -- f1 = flip evalState "Initial value" $ do
+    --     r <- f args
+    --     v <- get
+    --     pure ("Final value: " ++ v)
+    -- @
+
+    -- ** Monad transformers for multiple effects
+
+    -- | The @State s@ monad allows manipulation a state of type @s@,
+    -- only, and the @Either e@ monad allows throwing and catching an
+    -- exception of type @e@, only.  This property of supporting a
+    -- limited set of effects is very nice, because it allows us
+    -- "fine-grained" control over what a component of our program may
+    -- do.  Inevitably, however, one wants to write components that
+    -- /combine/ effects, for example to write a function that allows
+    -- manipulation of a state of type @Int@ /and/ to throw an
+    -- "exception" of type @String@.
+    --
+    -- That need was first satisfied in Haskell by "monad
+    -- transformers" and "MTL style", as provided by the
+    -- [@transformers@](https://hackage.haskell.org/package/transformers)
+    -- and [@mtl@](https://hackage.haskell.org/package/mtl) libraries.
+    -- The transformer extensions of @State@ and @Either@ are
+    -- 'Control.Monad.Trans.State.StateT' and
+    -- 'Control.Monad.Trans.State.ExceptT', and the @Mt@ extensions
+    -- are 'Control.Monad.State.MonadState' and
+    -- 'Control.Monad.Error.MonadError'.  We won't go into more detail
+    -- here because this documentation isn't a transformers or MTL
+    -- tutorial, but here is an example of an MTL-style function that
+    -- uses those two effects, and no others:
+    --
+    -- @
+    -- exampleMTL ::
+    --   (MonadState Int m, MonadError String m) =>
+    --   /-- Name/
+    --   String ->
+    --   /-- Output message/
+    --   m String
+    -- exampleMTL name = do
+    --   -- /Get the current maximum length/
+    --   maximum <- get
+    --   let l = length name
+    --   -- /Check it's not too long/
+    --   if l > maximum
+    --     then
+    --       throwError "Name was too long"
+    --     else do
+    --       -- /Put the new maximum/
+    --       put l
+    --       -- /Return the result/
+    --       pure (putStrLn ("Your name was length " ++ show l))
+    -- @
+
+    -- ** Encapsulation
+
+    -- | Not only does the approach that we have seen so far allow us
+    -- to achieve "fine-grained effects", it also allows us to achieve
+    -- "encapsulation": that is, we can handle effects and remove them
+    -- from the set of possible behaviors.  For example, @exampleMTL@
+    -- above has the type:
+    --
+    -- @
+    -- exampleMTL ::
+    --   (MonadState Int m, MonadError String m) =>
+    --   String ->
+    --   m String
+    -- @
+    --
+    -- We can handle the @MonadState@ effect (for example, using
+    -- @evalState@) and remove it from the type signature, and thereby
+    -- from the set of possible behaviors:
+    --
+    -- @
+    -- exampleMTLStateHandled ::
+    --   -- /MonadState no longer appears in the type./
+    --   -- /exampleMTLStateHandled cannot manipulate any state./
+    --   (MonadError String m) =>
+    --   String ->
+    --   m String
+    -- exampleMTLStateHandled name =
+    --   'Prelude.flip' 'Control.Monad.Trans.State.evalStateT' 1000 (exampleMTL name)
+    -- @
+
+    -- ** \"Synthetic\" effect systems provide fine-grained effects and encapsulation
+    --
+    -- | The approach of building effects from smaller pieces by
+    -- combining algebraic data types, and then interpreting those
+    -- pieces to "handle" some of the effects can be called the
+    -- "synthetic" approach to effects.  As described above, the
+    -- synthetic approach is the one taken by @transformers@ and
+    -- @mtl@. It is also the approach taken by many effect systems,
+    -- including @fused-effects@ and @polysemy@.
+    --
+    -- To summarize, the synthetic approach has two notable benefits:
+    -- "fine-grained effects" and "encapsulation".  "Fine-grained
+    -- effects" means that we can specify in its type the individual
+    -- effects that an operation may perform.  \"Encapsulation\" takes
+    -- that a property step further: we can /remove/ from the set of
+    -- possible effects by handling an effect.
+
+    -- *** The downside of synthetic effects
+    --
+    -- | Unfortunately, synthetic effects have two notable downsides:
+    -- firstly they have unpredictable performance, and secondly they
+    -- make it hard to achieve resource safety.  The first point –
+    -- that good performance of synthetic effects relies critically on
+    -- fragile inlining optimizations – is described in detail by
+    -- Alexis King in the talk "[Effects for
+    -- Less](https://www.youtube.com/watch?v=0jI-AlWEwYI)" (at Zurihac
+    -- 2020).
+    --
+    -- Resource safety means that you don't hold on to a resource (for
+    -- example a file handle or network socket) too long after you've
+    -- finished using it.  Resource safety can be achieved easily in
+    -- @IO@ as demonstrated by the following definition of
+    -- 'System.IO.withFile', which ensures the file handle that it
+    -- opens is closed after the completion of the callback @body@:
+    --
+    -- @
+    -- withFile ::
+    --   FilePath ->
+    --   Mode ->
+    --   (Handle -> IO r) ->
+    --   IO r
+    -- withFile path mode body = do
+    --   'Control.Exception.bracket'
+    --     (openFile path mode)
+    --     closeFile
+    --     body
+    -- @
+    --
+    -- This kind of operation, limiting the scope of a resource to a
+    -- particular block, is called "bracketing" and the
+    -- 'Control.Exception.bracket' is a general function that
+    -- implements bracketing in @IO@.  The problem is that bracketing
+    -- doesn't combine well with synthetic effect systems.  Michael
+    -- Snoyman has written about this at length, for example at "[The
+    -- Tale of Two
+    -- Brackets](https://academy.fpblock.com/blog/2017/06/tale-of-two-brackets/)".
+
+    -- ** @IO@-wrapper effect systems
+    --
+    -- |
+    --
+    -- An alternative to synthetic effects that does allows
+    -- predictable performance and bracketing is simply to use @IO@.
+    -- @IO@ supports state via @IORef@s and exceptions via @throw@ and
+    -- @catch@.  To see, for example, how to translate @State@-based
+    -- code to @IORef@ based code consider this function:
+    --
+    -- @
+    -- /-- > exampleState/
+    -- /-- 55/
+    -- exampleState :: Int
+    -- exampleState = flip evalState 0 $ do
+    --   for_ [1..10] $ \\i -> do
+    --      modify (+ i)
+    --   get
+    -- @
+    --
+    -- We can write an equivalent using an an @IORef@ like this:
+    --
+    -- @
+    -- /-- > exampleIO/
+    -- /-- 55/
+    -- exampleIO :: IO Int
+    -- exampleIO = do
+    --   ref <- newIORef 0
+    --   for_ [1..10] $ \\i -> do
+    --     modifyIORef ref (+ i)
+    --   readIORef ref
+    -- @
+    --
+    -- (@exampleState@ is small enough that GHC's inlining will kick
+    -- in and optimize it to very fast code, so it's not a good
+    -- example for demonstrating the /poor performance/ of synthetic
+    -- effects.  Good examples are those where inlining doesn't kick
+    -- in, for example because they require cross module inlining.
+    -- See Alexis King's talk mentioned above for more details.)
+    --
+    -- An extension of this style has been described as "[The
+    -- @ReaderT@ design
+    -- pattern](https://academy.fpblock.com/blog/2017/06/readert-design-pattern/)"
+    -- by Michael Snoyman and has proved to work well in practice.
+    -- However, the downside is that once you are in @IO@ you are now
+    -- trapped inside @IO@.  The function @exampleIO@ above does not
+    -- have any externally-observable effects.  It always returns the
+    -- same value each time it is run, but its type does not reflect
+    -- that. There is no /encapsulation/.  To achieve encapsulation we
+    -- can use @ST@. For example we can write
+    --
+    -- @
+    -- /-- > exampleST/
+    -- /-- 55/
+    -- exampleST :: Int
+    -- exampleST = runST $ do
+    --   ref <- newSTRef 0
+    --   for_ [1..10] $ \\i -> do
+    --     modifySTRef ref (+ i)
+    --   readSTRef ref
+    -- @
+    --
+    -- which has exactly the same structure as @exampleIO@ but,
+    -- crucially, @ST@ allows us to handle the state effects within it
+    -- using @runST@, so we end up with an @Int@ that, we can see from
+    -- the type system, does not depend on any @IO@ operations.  But
+    -- @ST@ has a downside too: it /only/ allows state effects, no
+    -- exceptions, no I/O. We can hardly call it "resource safe"
+    -- because it can't manage resources at all, let alone safely.
+
+    -- *** \"Analytic\" effect systems
+
+    -- | We can have the best of both worlds using \"analytic\" effect
+    -- systems. Analytic effect systems are those whose effects take
+    -- place in a monad that is a lightweight wrapper around @IO@,
+    -- with a type parameter to track effects.  For example, Bluefin's
+    -- @Eff@ is defined as:
+    --
+    -- @
+    -- newtype 'Bluefin.Eff.Eff' es a = UnsafeMkEff (IO a)
+    -- @
+    --
+    -- Because analytic effect systems use a wrapper around @IO@ they
+    -- inherit the desirable properties of @IO@: predictable
+    -- performance and resource safety.  Because they use a type
+    -- parameter to track effects they also provide fine-grained
+    -- effects and encapsulation.  Here are examples of encapsulation
+    -- in Bluefin and effectful – two analytic effect systems:
+    --
+    -- @
+    -- /-- > exampleBluefin/
+    -- /-- 55/
+    -- exampleBluefin :: Int
+    -- exampleBluefin = runPureEff $ evalState 0 $ \\st -> do
+    --   for_ [1..10] $ \\i -> do
+    --      modify st (+ i)
+    --   get st
+    -- @
+    --
+    -- @
+    -- /-- > exampleEffectful/
+    -- /-- 55/
+    -- exampleEffectful :: Int
+    -- exampleEffectful = runPureEff $ evalState 0 $ do
+    --   for_ [1..10] $ \\i -> do
+    --      modify (+ i)
+    --   get
+    -- @
+
+    -- *** Multishot continuations
+
+    -- |
+    --
+    -- If we get the best of both worlds with analytic effect systems,
+    -- is there a downside?  Yes, the downside is that analytic effect
+    -- systems do not support multishot continuations, like
+    -- 'Control.Monad.Logic.LogicT' implements.  Here's an example of
+    -- using multishot continuations to calculate all sums of paths
+    -- from root to leaf in a tree.  In the @Branch@ alternative,
+    -- @allSums t@ is a "multishot" continuation because it is run
+    -- twice, once for @t = t1@ and once for @t = t2@.
+    --
+    -- @
+    -- data Tree = Branch Int Tree Tree | Leaf Int
+    --
+    -- aTree :: Tree
+    -- aTree = Branch 1 (Leaf 2) (Branch 3 (Leaf 4) (Leaf 5))
+    --
+    -- -- > flip evalStateT 0 (allSums aTree)
+    -- -- [3,8,9]
+    -- allSums :: Tree -> StateT Int [] Int
+    -- allSums t = case t of
+    --   Leaf n -> do
+    --     modify (+ n)
+    --     get
+    --   Branch n t1 t2 -> do
+    --     modify (+ n)
+    --     t <- pure t1 \<|\> pure t2
+    --     allSums t
+    -- @
+    --
+    -- Analytic effect systems do not support multishot continuations
+    -- because @IO@ doesn't either, at least safely.  GHC does have
+    -- delimited continuation primitives which could in theory be used
+    -- to implement multishot continuations in analytic effect
+    -- systems, but so for that has not been achieved safely.  See the
+    -- talk "[Unresolved challenges of scoped
+    -- effects](https://www.twitch.tv/videos/1163853841)" by Alexis
+    -- King for more details.
+
+    -- * A Comparison of effect systems at a glance
+
+    -- ** Mixing effects
+
+    -- |
+    -- - ✅ __IO__: I\/O, state via @IORef@, exceptions via @throw@/@catch@
+    -- - ❌ __ST__: State only
+    -- - ✅ __MTL__\/__fused-effects__\/__Polysemy__
+    -- - ✅ __Bluefin__\/__effectful__
+
+    -- ** Fine-grained Effects
+
+    -- |
+    -- - ❌ __IO__: No distinction between different effects (state, exceptions, I/O, etc.)
+    -- - ✅ __ST__: But state only
+    -- - ✅ __MTL__\/__fused-effects__\/__Polysemy__: Individual effects are represented at the type level
+    -- - ✅ __Bluefin__\/__effectful__: Individual effects are represented at the type level
+
+    -- ** Encapsulation
+
+    -- |
+    --
+    -- - ❌ __IO__: Can handle exceptions, but doing so is not
+    --   reflected in the type
+    --
+    -- - ❌ __ST__: State only
+    --
+    -- - ✅ __MTL__\/__fused-effects__\/__Polysemy__: Exceptions,
+    --   state and other effects handled in the body of an operation
+    --   are not present in the operation's type signature
+    --
+    -- - ✅ __Bluefin__\/__effectful__: Exceptions, state and other
+    --   effects handled in the body of an operation are not present
+    --   in the operation's type signature
+
+    -- ** Resource Safety
+
+    -- |
+    -- - ✅ __IO__: Operations can be bracketed (see
+    --   @Control.Exception.'Control.Exception.bracket'@)
+    --
+    -- - ❌ __ST__: State only
+    --
+    -- - ❌ __MTL__\/__fused-effects__\/__Polysemy__: Difficult to
+    --   achieve resource safety for arbitrary effects
+    --
+    -- - ✅ __Bluefin__\/__effectful__: Operations can be bracketed
+    --   (see e.g. @Bluefin.Eff.'Bluefin.Eff.bracket'@) because these
+    --   effect systems wrap @IO@
+
+    -- ** Predictable Performance
+
+    -- |
+    -- - ✅ __IO__: Predictable performance
+    -- - ✅ __ST__: Predictable performance
+    --
+    -- - ❌ __MTL__\/__fused-effects__\/__Polysemy__: Good performance
+    --   depends critically on GHC optimization
+    --
+    -- - ✅ __Bluefin__\/__effectful__: Predictable performance
+    --   because these effect systems wrap @IO@
+
+    -- ** Multishot continuations
+
+    -- |
+    -- - ❌ __IO__
+    -- - ❌ __ST__
+    -- - ✅ __MTL__\/__fused-effects__\/__Polysemy__
+    -- - ❌ __Bluefin__\/__effectful__
+
+    -- * Introduction to Bluefin
+
+    -- | Bluefin is a Haskell effect system with a new style of API.
+    -- It is distinct from prior effect systems because effects are
+    -- accessed explicitly through value-level handles which occur as
+    -- arguments to effectful operations. Handles (such as
+    -- 'Bluefin.State.State' handles, which allow access to mutable
+    -- state) are introduced by handlers (such as
+    -- 'Bluefin.State.evalState', which sets the initial state).
+    -- Here's an example where a mutable state effect handle, @sn@, is
+    -- introduced by its handler, 'Bluefin.State.evalState'.
+    --
+    -- @
+    -- -- If @n < 10@ then add 10 to it, otherwise
+    -- -- return it unchanged
+    -- example1 :: Int -> Int
+    -- example1 n = 'Bluefin.Eff.runPureEff' $
+    --   -- Create a new state handle, sn, and
+    --   -- initialize the value of the state to n
+    --   'Bluefin.State.evalState' n $ \\sn -> do
+    --     n' <- 'Bluefin.State.get' sn
+    --     when (n' < 10) $
+    --       'Bluefin.State.modify' sn (+ 10)
+    --     get sn
+    -- @
+    --
+    -- @
+    -- >>> example1 5
+    -- 15
+    -- >>> example1 12
+    -- 12
+    -- @
+    --
+    -- The handle @sn@ is used in much the same way as an
+    -- 'Data.STRef.STRef' or 'Data.IORef.IORef'.
+
+    -- ** Multiple effects of the same type
+
+    -- | A benefit of value-level effect handles is that it's simple
+    -- to have multiple effects of the same type in scope at the same
+    -- time.  It is simple to disambiguate them, because they are
+    -- distinct values!  By contrast, existing effect systems require
+    -- the disambiguation to occur at the type level, which imposes
+    -- challenges.
+    --
+    -- Here is a Bluefin example with two mutable @Int@ state effects
+    -- in scope.
+    --
+    -- @
+    -- -- Compare two values and add 10
+    -- -- to the smaller
+    -- example2 :: (Int, Int) -> (Int, Int)
+    -- example2 (m, n) = 'Bluefin.Eff.runPureEff' $
+    --   'Bluefin.State.evalState' m $ \\sm -> do
+    --     evalState n $ \\sn -> do
+    --       do
+    --         n' <- 'Bluefin.State.get' sn
+    --         m' <- get sm
+    --
+    --         if n' < m'
+    --           then 'Bluefin.State.modify' sn (+ 10)
+    --           else modify sm (+ 10)
+    --
+    --       n' <- get sn
+    --       m' <- get sm
+    --
+    --       pure (n', m')
+    -- @
+    --
+    -- @
+    -- >>> example2 (5, 10)
+    -- (15, 10)
+    -- >>> example2 (30, 3)
+    -- (30, 13)
+    -- @
+
+    -- ** Exception handles
+
+    -- | Bluefin exceptions are accessed through
+    -- 'Bluefin.Exception.Exception' handles.  An @Exception@ handle
+    -- is introduced by a handler, such as 'Bluefin.Exception.try',
+    -- and that handler is where the exception, if thrown, will be
+    -- handled.  This arrangement differs from normal Haskell
+    -- exceptions in two ways.  Firstly, every Bluefin exception will
+    -- be handled – it is not possible to have an unhandled Bluefin
+    -- exception.  Secondly, a Bluefin exception can be handled in
+    -- only one place – normal Haskell exceptions can be handled in a
+    -- variety of places, and the closest handler of matching type on
+    -- the stack will be the one that will be chosen upon
+    -- 'Control.Exception.throw'.
+    --
+    -- @example3@ shows how to use Bluefin to calculate the sum of
+    -- numbers from 1 to @n@, but stop if the sum becomes bigger than
+    -- 20.  The exception handle, @ex@, which has type @Exception
+    -- String e@, cannot escape the scope of its handler, @try@.  If
+    -- thrown it will be handled at that @try@, and nowhere else.
+    --
+    -- @
+    -- example3 :: Int -> Either String Int
+    -- example3 n = 'Bluefin.Eff.runPureEff' $
+    --   'Bluefin.Exception.try' $ \\ex -> do
+    --     'Bluefin.State.evalState' 0 $ \\total -> do
+    --       for_ [1..n] $ \\i -> do
+    --          soFar <- 'Bluefin.State.get' total
+    --          when (soFar > 20) $ do
+    --            'Bluefin.Exception.throw' ex ("Became too big: " ++ show soFar)
+    --          'Bluefin.State.put' total (soFar + i)
+    --
+    --       'Bluefin.State.get' total
+    -- @
+    --
+    -- @
+    -- >>> example3 4
+    -- Right 10
+    -- >>> example3 10
+    -- Left "Became too big: 21"
+    -- @
+
+    -- ** Effect scoping
+
+    -- | Bluefin's use of the type system is very similar to
+    -- "Control.Monad.ST": it ensures that a handle can never escape
+    -- the scope of its handler.  That is, once the handler has
+    -- finished running there is no way you can use the handle
+    -- anymore. For an example of a correctly-scoped function see
+    -- @correctlyScoped@ below.  It uses Bluefin’s @State@ handle to
+    -- compute the sum of the numbers 1 to 10, before multiplying the
+    -- result by 20. In @correctlyScoped@ the @State@ handle is scoped
+    -- to its handler, @evalState@, and everything works as expected:
+    --
+    -- @
+    -- -- /Result: 1100/
+    -- correctlyScoped :: Eff es Integer
+    -- correctlyScoped = do
+    --   -- /Initial state 0/
+    --   r \<- 'Bluefin.State.evalState' 0 $ \\st -> do
+    --     -- The 'Bluefin.State.State' handle "st" is scoped to the
+    --     -- handler that introduced it, evalState,
+    --     -- and therefore it can only be used within
+    --     -- this do block.
+    --
+    --     -- /Add up the numbers 1 to 10/
+    --     for_ [1..10] $ \\i -> do
+    --       'Bluefin.State.modify' st (+ i)
+    --
+    --     -- /Get the result/
+    --     'Bluefin.State.get' st
+    --
+    --   pure (r * 20)
+    -- @
+    --
+    -- Now let's look at an incorrectly-scoped example,
+    -- @incorrectlyScoped@. It attempts to pass the state handle @st@
+    -- out of the scope of @evalState@:
+    --
+    -- @
+    -- incorrectlyScoped :: Eff es Integer
+    -- incorrectlyScoped = do
+    --   -- /Initial state 0/
+    --   (total, st) \<- 'Bluefin.State.evalState' 0 $ \\st -> do
+    --     -- /Add up the numbers 1 to 10/
+    --     for_ [1..10] $ \\i -> do
+    --       'Bluefin.State.modify' st (+ i)
+    --
+    --     -- /Get the result/
+    --     r <- 'Bluefin.State.get' st
+    --
+    --     -- /Pass out the result, and try to pass the/
+    --     -- /'Bluefin.State.State' handle outside its scope, i.e. this/
+    --     -- /do block introduced by evalState/
+    --     pure (r, st)
+    --
+    --   modify st (* 20)
+    --   get st
+    -- @
+    --
+    -- The type system prevents us from passing the @State@ handle out
+    -- of its scope, giving this error message:
+    --
+    -- @
+    -- • Couldn't match type ‘e0’ with ‘e’
+    --   Expected: (Integer, State Integer e0)
+    --     Actual: (Integer, State Integer e)
+    --     because type variable ‘e’ would escape its scope
+    -- @
+
+    -- ** Type signatures
+
+    -- | The type signatures of Bluefin functions follow a common
+    -- pattern which looks like
+    --
+    -- @
+    -- (e1 :> es, ...) -> \<Handle\> e1 -> ... -> Eff es r
+    -- @
+    --
+    -- Here @\<Handle\>@ could be, for example, @State Int@,
+    -- @Exception String@ or @IOE@.  Consider the function below,
+    -- @incrementReadLine@. It reads integers from standard input,
+    -- accumulates them into a state; it returns when it reads the
+    -- input integer @0@ and it throws an exception if it encounters
+    -- an input line it cannot parse.
+    --
+    -- Firstly, let's look at the arguments, which are all handles to
+    -- Bluefin effects.  There is a state handle, an exception handle,
+    -- and an IO handle, which allow modification of an @Int@ state,
+    -- throwing a @String@ exception, and performing @IO@ operations
+    -- respectively.  They are each tagged with a different effect
+    -- type, @e1@, @e2@ and @e3@ respectively, which are always kept
+    -- polymorphic.
+    --
+    -- Secondly, let's look at the return value, @Eff es ()@.  This
+    -- means the computation is performed in the t'Bluefin.Eff.Eff'
+    -- monad and the resulting value produced is of type @()@.  @Eff@
+    -- is tagged with the effect type @es@, which is also always kept
+    -- polymorphic.
+    --
+    -- Finally, let's look at the constraints.  They are what tie
+    -- together the effect tags of the arguments to the effect tag of
+    -- the result.  For every argument effect tag @en@ we have a
+    -- constraint @en :> es@.  That tells us the that effect handle
+    -- with tag @en@ is allowed to be used within the effectful
+    -- computation.  If we didn't have the @e1 :> es@ constraint, for
+    -- example, that would tell us that the @State Int e1@ isn't
+    -- actually used anywhere in the computation.
+    --
+    -- GHC and editor tools like HLS do a good job of inferring these
+    -- type signatures.
+    --
+    -- @
+    -- incrementReadLine ::
+    --   (e1 :> es, e2 :> es, e3 :> es) =>
+    --   State Int e1  ->
+    --   Exception String e2  ->
+    --   IOE e3 ->
+    --   Eff es ()
+    -- incrementReadLine state exception io = do
+    --   'Bluefin.Jump.withJump' $ \\break -> 'Control.Monad.forever' $ do
+    --     line <- 'Bluefin.IO.effIO' io getLine
+    --     i <- case 'Text.Read.readMaybe' line of
+    --       Nothing ->
+    --         'Bluefin.Exception.throw' exception ("Couldn't read: " ++ line)
+    --       Just i ->
+    --         pure i
+    --
+    --     when (i == 0) $
+    --       'Bluefin.Jump.jumpTo' break
+    --
+    --     'Bluefin.State.modify' state (+ i)
+    -- @
+    --
+    -- Now let's look at how we can run such a function.  Each effect
+    -- must be handled by a corresponding handler, for example
+    -- 'Bluefin.State.runState' for the state effect,
+    -- 'Bluefin.Exception.try' for the exception effect and
+    -- 'Bluefin.Eff.runEff_' for the @IO@ effect.  The type signatures
+    -- of handlers also follow a common pattern, which looks like
+    --
+    -- @
+    -- (forall e. \<Handle\> e -> Eff (e :& es) a) -> Eff es r
+    -- @
+    --
+    -- This means that the effect @e@, corresponding to the handle
+    -- @\<Handle\> e@, has been handled and removed from the set of
+    -- remaining effects, @es@.  (The signatures for
+    -- 'Bluefin.Eff.runEff_' and 'Bluefin.Eff.runPureEff' are slightly
+    -- different because they remove @Eff@ itself.)  Here, then, is
+    -- how we can run @incrementReadLine@:
+    --
+    -- @
+    -- runIncrementReadLine :: IO (Either String Int)
+    -- runIncrementReadLine = 'Bluefin.Eff.runEff_' $ \\io -> do
+    --   'Bluefin.Exception.try' $ \\exception -> do
+    --     ((), r) \<- 'Bluefin.State.runState' 0 $ \\state -> do
+    --       incrementReadLine state exception io
+    --     pure r
+    --
+    -- >>> runIncrementReadLine
+    -- 1
+    -- 2
+    -- 3
+    -- 0
+    -- Right 6
+    -- >>>> runIncrementReadLine
+    -- 1
+    -- 2
+    -- 3
+    -- Hello
+    -- Left "Couldn't read: Hello"
+    -- @
+
+    -- * Comparison to other effect systems
+
+    -- ** Everything except @effectful@
+
+    -- | The design of Bluefin is strongly inspired by and based on
+    -- @effectful@.  All the points in [@effectful@'s comparison of itself
+    -- to other effect
+    -- systems](https://github.com/haskell-effectful/effectful?tab=readme-ov-file#motivation)
+    -- apply to Bluefin too.
+
+    -- ** @effectful@
+
+    -- | The major difference between Bluefin and @effectful@ is that in
+    -- Bluefin effects are represented as value-level handles whereas
+    -- in @effectful@ they are represented only at the type level.
+    -- @effectful@ could be described as "a well-typed implementation of
+    -- the @ReaderT@ @IO@ pattern", and Bluefin could be described as
+    -- a well-typed implementation of something even simpler: the
+    -- [Handle
+    -- pattern](https://jaspervdj.be/posts/2018-03-08-handle-pattern.html).
+    -- The aim of the Bluefin style of value-level effect tracking is
+    -- to make it even easier to mix effects, especially effects of
+    -- the same type. Only time will tell which approach is preferable
+    -- in practice.
+
+    -- Haddock seems to have trouble with italic sections spanning
+    -- lines :(
+
+    -- | "/Why not just implement Bluefin as an alternative API on/
+    -- /top of @effectful@?/"
+    --
+    -- It would be great to share code between the two projects!  But
+    --  I don't know to implement Bluefin's "Bluefin.Compound" effects
+    --  in @effectful@.
+
+    -- * Implementation
+
+    -- | Bluefin has a similar implementation style to @effectful@.
+    -- t'Bluefin.Eff.Eff' is an opaque wrapper around 'IO',
+    -- t'Bluefin.State.State' is an opaque wrapper around
+    -- 'Data.IORef.IORef', and 'Bluefin.Exception.throw' throws an
+    -- actual @IO@ exception.  t'Bluefin.Coroutine.Coroutine' is
+    -- implemented simply as a function.
+    --
+    -- @
+    -- newtype t'Bluefin.Eff.Eff' (es :: 'Bluefin.Eff.Effects') a = 'Bluefin.Internal.UnsafeMkEff' (IO a)
+    -- newtype t'Bluefin.State.State' s (st :: Effects) = 'Bluefin.Internal.UnsafeMkState' (IORef s)
+    -- newtype t'Bluefin.Coroutine.Coroutine' a b (s :: Effects) = 'Bluefin.Internal.UnsafeMkCoroutine' (a -> IO b)
+    -- @
+    --
+    -- The type parameters of kind t'Bluefin.Eff.Effects' are phantom
+    -- type parameters which track which effects can be used in an
+    -- operation. Bluefin uses them to ensure that effects cannot
+    -- escape the scope of their handler, in the same way that the
+    -- type parameter to the 'Control.Monad.ST.ST' monad ensures that
+    -- mutable state references cannot escape
+    -- 'Control.Monad.ST.runST'.  When the type system indicates that
+    -- there are no unhandled effects it is safe to run the underlying
+    -- @IO@ action using 'System.IO.Unsafe.unsafePerformIO', which is
+    -- the approach taken to implement 'Bluefin.Eff.runPureEff'.
+    -- Consequently, it is impossible for a pure value retured from
+    -- `runPureEff` to access any Bluefin internal state or throw a
+    -- Bluefin internal exception.
+
+    -- * Tips
+
+    -- | * Use @NoMonoLocalBinds@ and @NoMonomorphismRestriction@ for
+    -- better type inference.  (You can always change back to the
+    -- default after adding inferred type signatures.)
+    --
+    -- * Writing a handler often requires an explicit type signature.
+
+    -- * Creating your own effects
+
+    -- | See "Bluefin.Compound".
+
+    -- * Example
+
+    -- |
+    -- @
+    -- countPositivesNegatives :: [Int] -> String
+    -- countPositivesNegatives is = 'Bluefin.Eff.runPureEff' $
+    --   'Bluefin.State.evalState' (0 :: Int) $ \\positives -> do
+    --       r \<- 'Bluefin.Exception.try' $ \\ex ->
+    --           evalState (0 :: Int) $ \\negatives -> do
+    --               for_ is $ \\i -> do
+    --                   case compare i 0 of
+    --                       GT -> 'Bluefin.State.modify' positives (+ 1)
+    --                       EQ -> throw ex ()
+    --                       LT -> modify negatives (+ 1)
+    --
+    --               p <- 'Bluefin.State.get' positives
+    --               n <- get negatives
+    --
+    --               pure $
+    --                 "Positives: "
+    --                   ++ show p
+    --                   ++ ", negatives "
+    --                   ++ show n
+    --
+    --       case r of
+    --           Right r' -> pure r'
+    --           Left () -> do
+    --               p <- get positives
+    --               pure $
+    --                 "We saw a zero, but before that there were "
+    --                   ++ show p
+    --                   ++ " positives"
+    -- @
+  )
+where

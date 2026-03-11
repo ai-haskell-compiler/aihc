@@ -1,0 +1,27 @@
+- BlackBox:
+    name: Clash.Prelude.ROM.asyncRom#
+    kind: Declaration
+    type: |-
+      asyncRom#
+        :: ( KnownNat n  -- ARG[0]
+           , NFDataX a)  -- ARG[1]
+        => Vec n a       -- ARG[2]
+        -> Int           -- ARG[3]
+        -> a
+    template: |-
+      -- asyncRom begin
+      ~GENSYM[asyncRom][0] : block
+        signal ~GENSYM[ROM][1] : ~TYP[2];
+        signal ~GENSYM[rd][2] : integer range 0 to ~LIT[0]-1;
+      begin
+        ~SYM[1] <= ~CONST[2];
+
+        ~SYM[2] <= to_integer(~VAR[rdI][3](31 downto 0))
+        -- pragma translate_off
+                            mod ~LIT[0]
+        -- pragma translate_on
+                            ;~IF ~VIVADO ~THEN
+        ~RESULT <= ~FROMBV[~SYM[1](~SYM[2])][~TYPO];~ELSE
+        ~RESULT <= ~SYM[1](~SYM[2]);~FI
+      end block;
+      -- asyncRom end

@@ -1,0 +1,179 @@
+-*-change-log-*-
+
+1.1.0.2 Igor Ranieri Elland 2022-05-20
+* fix for [#171](https://github.com/iconnect/regex/issues/171)
+
+1.1.0.1 Chris Dornan <chris.dornan@irisconnect.co.uk> 2018-12-19
+  * fix for base-4.16.0.0/GHC 9.2.1
+  * eliminate http-conduit dependency (currently stymied by cryptonite)
+
+1.1.0.0 Chris Dornan <chris.dornan@irisconnect.co.uk> 2018-12-19
+  * drop support for GHC 8.0 and below
+  * adapt for base 4.13 (MonadFail)
+
+1.0.2.0 Chris Dornan <chris.dornan@irisconnect.co.uk> 2018-12-19
+  * cabal-install build with 8.0 and 8.2 failing (#163)
+  * Switch to GHC-8.6.3/nightly-2018-12-19 (#164)
+  * Switch from Default-Extensions to Other-Extensions (#165)
+
+1.0.1.5 Chris Dornan <chris.dornan@irisconnect.co.uk> 2018-12-18
+  * TDFA quasi quoters not dealing with newlines (#157)
+
+1.0.1.4 Chris Dornan <chris.dornan@irisconnect.co.uk> 2018-12-14
+  * GHC-8.4.4, GHC-8.6.2 (#160)
+
+1.0.1.3 Chris Dornan <chris.dornan@irisconnect.co.uk> 2017-06-05
+  * Suspending UTF-8 tests for Windows/PCRE (#144)
+
+1.0.1.2 Chris Dornan <chris.dornan@irisconnect.co.uk> 2017-06-05
+  * Permit utf8-string-1 (#142)
+
+1.0.1.1 Chris Dornan <chris.dornan@irisconnect.co.uk> 2017-06-04
+  * regex-pcre not working properly with UTF-8 text (#141)
+  * ZeInternals/SearchReplace (#140)
+
+1.0.1.0 Chris Dornan <chris.dornan@irisconnect.co.uk> 2017-06-03
+  * Text.RE.PCRE.Text[.Lazy] (#58)
+  * Update LSTHaskell versions (#136)
+  * Add re-top example (#137)
+  * Regex library to conform with strict PVP (#138)
+
+1.0.0.0 Chris Dornan <chris.dornan@irisconnect.co.uk> 2017-04-10
+  * Rewrite tutorials (#113)
+  * Add Text.RE.Tools.IsRegex (#122)
+  * Include Macro Parsers in Core API (#123)
+  * Adjust type of lookupCaptureID and friends (#124)
+  * re-prep to handle cast example expressions (#125)
+  * Rename compileSearchReplaceWithOptions (#126)
+  * Hide ZeInternals, Evacuate Text.RE (#127)
+  * Proper Haddocks for the quasi quoters (#128)
+  * ed_ quasi quoters are being restricted to SimpleREOptions (#129)
+  * regex dependeny on pcre-builtin (#130)
+
+0.14.0.0 Chris Dornan <chris.dornan@irisconnect.co.uk> 2017-04-05
+  * Move IsOption into the back ends (#115)
+  * Rename Find functions (#116)
+  * re-gen-cabals: 'sdist' to prepare final commit message (#117)
+  * re-prep: 'blog-badge' to update the blog badge (#118)
+  * re-prep: include_code_pp for all .lhs files (#119)
+  * re-gen-cabals: do 'gen' after 'bump-version' (#120)
+
+0.13.0.0 Chris Dornan <chris.dornan@irisconnect.co.uk> 2017-04-03
+  * Add a Find Tool (#106)
+  * TestBench to export Text.RE (#107)
+  * Consolidate cabal templates (#108)
+  * Add special tutorials (#109)
+  * Add sort-imports example (#110)
+  * Generalise Grep (#111)
+  * Tighten up findCaptureID (#112)
+
+0.12.0.0 Chris Dornan <chris.dornan@irisconnect.co.uk> 2017-03-31
+  * Add Text.RE.REOptions to RE.Summa (#103)
+  * Move IsRegex into Text.RE (#104)
+
+0.11.1.0 Chris Dornan <chris.dornan@irisconnect.co.uk> 2017-03-30
+  * Cannot hide Text.RE.ZeInternals.SearchReaplace modules (#101)
+
+0.11.0.0 Chris Dornan <chris.dornan@irisconnect.co.uk> 2017-03-29
+  * Simplify API (#97)
+  * Rename Location to RELocation (#98)
+  * Rename the MacrosDescriptor Fields #99
+
+0.10.0.3 Chris Dornan <chris.dornan@irisconnect.co.uk> 2017-03-28
+  * Update to LTS-8.6 (#95)
+  * Improve Haddocks for Text.RE.{TDFA,PCRE} (#94)
+
+0.10.0.2 Chris Dornan <chris.dornan@irisconnect.co.uk> 2017-03-27
+  * Constrain the types of the template quasi quoters (#86)
+  * Add escape methods to IsRegex (#87)
+  * Better Haddock Commentary (#90)
+  * Better release-testing scripts (#91)
+  * Make travis stack-release tests advisory (#92)
+
+0.10.0.1 Chris Dornan <chris.dornan@irisconnect.co.uk> 2017-03-26
+  Withdrawn
+
+0.10.0.0 Chris Dornan <chris.dornan@irisconnect.co.uk> 2017-03-25
+  Withdrawn
+
+0.9.0.0 Chris Dornan <chris.dornan@irisconnect.co.uk> 2017-03-23
+  * Flip the order of the arguments to replace (#78)
+  * Add type-safe replacement templates (#60)
+  * Finish tidying up the API (#80)
+  * Make `regex` compatible w/ TH-less GHCs (#70)
+  * Declare extensions the compiler must support (#83)
+  * Fix curl for AppVeyor build (#79)
+  * Fix AppVeyor badge (#81)
+  * Remove QQ from code coverage stats (#82)
+  * Rename Options, Context and Replace methods (#84)
+
+0.8.0.0 Chris Dornan <chris.dornan@irisconnect.co.uk> 2017-03-16
+  * Tidy up the API after recent reorganization (#76)
+
+0.7.0.0 Chris Dornan <chris.dornan@irisconnect.co.uk> 2017-03-15
+  * Fix and extend Replace class (#74)
+  * Better package organisation (#73)
+  * Generalise sed' in progress (#72)
+  * compileRegex to take just a string (#68)
+  * Fix comment reference in Text.RE.PCRE in progress (#66)
+
+0.6.0.1 Chris Dornan <chris.dornan@irisconnect.co.uk> 2017-03-13
+  * Fix .travis.yml release-stack script (#67)
+
+0.6.0.0 Chris Dornan <chris.dornan@irisconnect.co.uk> 2017-03-13
+  * Split out regex-with-pcre package (#65)
+
+0.5.0.0 Chris Dornan <chris.dornan@irisconnect.co.uk> 2017-03-05
+  * Fix inter-operation of =~ & =~~ and named captures (#55)
+  * Add escaping functions (#37)
+  * Test Hackage release tarballs on Travis CI (#51)
+  * Fix up template replace ordinals (#52)
+  * Complete the web site (#39)
+  * Complete the Tutorial, Tests and Examples (#38)
+  * Complete narrative in literate modules (#8)
+
+0.3.0.0 Chris Dornan <chris.dornan@irisconnect.co.uk> 2017-02-26
+  * Clean up API to use camelCase conventions
+  * Use -Werror in development and testing, -Warn for Hackage
+  * Integrate the regex blog
+  * Better presentation of ghci tryouts in the Tutorial
+  * Various minor README upgrades and fixes
+
+0.2.0.4 Chris Dornan <chris.dornan@irisconnect.co.uk> 2017-02-22
+  * Repair re-gen-modules-test for Windows
+
+0.2.0.3 Chris Dornan <chris.dornan@irisconnect.co.uk> 2017-02-21
+  * README/index layout tweak
+
+0.2.0.2 Chris Dornan <chris.dornan@irisconnect.co.uk> 2017-02-21
+  * Fix re-gen-modules-test for Hackage (#45)
+  * Minor style tweks to README/index
+
+0.2.0.1 Chris Dornan <chris.dornan@irisconnect.co.uk> 2017-02-20
+  * remove library from regex-examples (#43)
+
+0.2.0.0 Chris Dornan <chris.dornan@irisconnect.co.uk> 2017-02-19
+  * Split off the tutorial tests and examples into regex-examples,
+    leaving just the library in regex
+
+0.1.0.0 Chris Dornan <chris.dornan@irisconnect.co.uk> 2017-02-18
+  * Cabal file generated from a DRY template
+  * Library dependencies minimised, test depndencies moved into
+    examples/re-tests
+  * A proper static website generated by 're-prep all'
+  * README/sidebar Badges are a static record of current release
+    with links to a live build-status reporting on HEAD
+  * Added !$, !$?, !$$ and !$$? alternatives for looking up captures
+    in a Match
+  * Text.RE.Parsers now generate Text where they were generating String
+  * %nat, %int, %frac and %hex get their new names
+
+0.0.0.2 Chris Dornan <chris.dornan@irisconnect.co.uk> 2017-01-30
+  * Fix for Windows
+  * Remove hsyslog dependency
+  * Establish Travis CI, AppVeyor and coveralls.io integrations
+  * Fix time parser to use Fixed arithmetic
+  * Miscelaneous minor adjustments
+
+0.0.0.1 Chris Dornan <chris.dornan@irisconnect.co.uk> 2017-01-26
+	* First public release

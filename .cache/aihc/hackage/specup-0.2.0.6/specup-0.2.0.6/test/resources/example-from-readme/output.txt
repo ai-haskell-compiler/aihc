@@ -1,0 +1,9 @@
+# Dog
+
+Animal class: mammal
+
+# Crocodile
+
+Animal class: reptile
+
+

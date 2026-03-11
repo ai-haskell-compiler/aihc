@@ -1,0 +1,82 @@
+{-# LANGUAGE CPP #-}
+
+-- | Pretty printing failure reasons
+
+module Test.Sandwich.Formatters.Print.FailureReason (
+  printFailureReason
+  ) where
+
+import UnliftIO.Exception
+import Control.Monad.Reader
+import qualified Data.List as L
+import Data.String.Interpolate
+import System.IO
+import Test.Sandwich.Formatters.Print.Color
+import Test.Sandwich.Formatters.Print.PrintPretty
+import Test.Sandwich.Formatters.Print.Printing as P
+import Test.Sandwich.Formatters.Print.Types
+import Test.Sandwich.Formatters.Print.Util
+import Test.Sandwich.Types.Spec
+import Text.Show.Pretty as P
+
+#if MIN_VERSION_mtl(2,3,0)
+import Control.Monad
+#endif
+
+
+printFailureReason :: FailureReason -> ReaderT (PrintFormatter, Int, Handle) IO ()
+printFailureReason (Reason _ s) = do
+  printShowBoxPrettyWithTitleString "Reason: " s
+printFailureReason (RawImage _ fallback _image) = do
+  forM_ (L.lines fallback) pin
+printFailureReason (ChildrenFailed _ n) = do
+  picn midWhite ([i|#{n} #{if n == 1 then ("child" :: String) else "children"} failed|] :: String)
+printFailureReason (ExpectedButGot _ seb1 seb2) = do
+  printShowBoxPrettyWithTitle "Expected: " seb1
+  printShowBoxPrettyWithTitle "But got: " seb2
+printFailureReason (DidNotExpectButGot _ seb) = do
+  printShowBoxPrettyWithTitle "Did not expect: " seb
+printFailureReason (GotException _ maybeMessage e@(SomeExceptionWithEq baseException)) =
+  case fromException baseException of
+    Just (fr :: FailureReason) -> do
+      picn midWhite "Got exception:"
+      printFailureReason fr
+    _ -> case maybeMessage of
+      Nothing -> printShowBoxPrettyWithTitle "Got exception: " (SEB e)
+      Just s -> printShowBoxPrettyWithTitle [i|Got exception (#{s})|] (SEB e)
+printFailureReason (Pending _ maybeMessage) = case maybeMessage of
+  Nothing -> return () -- Just allow the yellow heading to show the pending state
+  Just s -> printShowBoxPrettyWithTitle "Pending reason: " (SEB s)
+printFailureReason (GetContextException _ e@(SomeExceptionWithEq baseException)) = do
+  case fromException baseException of
+    Just (fr :: FailureReason) -> do
+      picn midWhite "Context exception:"
+      printFailureReason fr
+    _ -> printShowBoxPrettyWithTitle "Context exception: " (SEB e)
+printFailureReason (GotAsyncException _ maybeMessage e) = case maybeMessage of
+  Nothing -> printShowBoxPrettyWithTitle "Async exception" (SEB e)
+  Just s -> printShowBoxPrettyWithTitle [i|Async exception (#{e}) |] (SEB s)
+
+-- * Pretty printing
+
+printShowBoxPrettyWithTitle :: String -> ShowEqBox -> ReaderT (PrintFormatter, Int, Handle) IO ()
+printShowBoxPrettyWithTitle title (SEB v) = case P.reify v of
+  Nothing -> do
+    picn midWhite title
+    withBumpIndent $ do
+      forM_ (L.lines $ show v) pin
+    p "\n"
+  Just x
+    | isSingleLine x -> do
+        pic midWhite title
+        printPretty False x >> p "\n"
+    | otherwise -> do
+        picn midWhite title
+        printPretty True x >> p "\n"
+
+printShowBoxPrettyWithTitleString :: String -> String -> ReaderT (PrintFormatter, Int, Handle) IO ()
+printShowBoxPrettyWithTitleString title s = do
+  picn midWhite title
+  withBumpIndent $ do
+    forM_ (L.lines s) pin
+  p "\n"

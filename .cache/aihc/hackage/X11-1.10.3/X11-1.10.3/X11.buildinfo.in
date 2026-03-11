@@ -1,0 +1,8 @@
+-- @configure_input@
+-- System-dependent values used by Distribution.Simple.defaultUserHooks
+--
+buildable: @BUILD_PACKAGE_BOOL@
+cc-options: @X_CFLAGS@ @CPPFLAGS@
+ld-options: @X_LIBS@ @LDFLAGS@
+extra-libraries: @EXTRA_LIBRARIES@
+extra-lib-dirs: @X_LIBRARIES@

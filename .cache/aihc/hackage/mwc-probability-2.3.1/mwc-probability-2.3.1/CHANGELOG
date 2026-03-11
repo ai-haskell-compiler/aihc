@@ -1,0 +1,39 @@
+# Changelog
+
+- 2.3.1 (2020-07-31)
+  * Relaxes the upper bound on mwc-random.
+
+- 2.3.0 (2020-05-02)
+  * Adds the discrete distribution (like categorical, but with supplied
+    support).
+
+- 2.2.0 (2020-01-29)
+  * Adds the Chinese Restaurant Process (crp).
+
+- 2.1.0 (2019-07-23)
+  * Generalises 'categorical' and 'multinomial' to take things proportional to
+    probabilities, rather than probabilities proper.
+
+- 2.0.4 (2018-06-30)
+  * Clean up docs and add some additional usage information.
+  * Split the existing Student t distribution into 'student' and its
+    generalised variant, 'gstudent'.
+
+- 2.0.3 (2018-05-09)
+  * Add inverse Gaussian (Wald) distribution
+
+- 2.0.2 (2018-01-30)
+  * Add negative binomial distribution
+
+- 2.0.1 (2018-01-30)
+  * Add Normal-Gamma and Pareto distributions
+
+- 2.0.0 (2018-01-29)
+  * Add Laplace and Zipf-Mandelbrot distribution
+  * Rename `isoGauss` to `isoNormal` and `standard` to `standardNormal` to
+    uniform naming scheme.
+  * Divide Haddock in sections
+
+- 1.3.0 (2016-12-04)
+  * Generalize a couple of samplers to use Traversable rather than lists.
+

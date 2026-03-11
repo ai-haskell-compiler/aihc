@@ -1,0 +1,19 @@
+name:                oo-prototypes
+version:             0.1.0.0
+synopsis:            Support for OO-like prototypes
+description:         Support for OO-like prototypes
+homepage:            https://github.com/yi-editor/oo-prototypes
+license:             GPL-2
+license-file:        LICENSE
+author:              Mateusz Kowalczyk
+maintainer:          yi-devel@googlegroups.com
+category:            Data
+build-type:          Simple
+extra-source-files:  README.md
+cabal-version:       >=1.10
+
+library
+  exposed-modules:     Data.Prototype
+  build-depends:       base >=4.5 && <5
+  hs-source-dirs:      src
+  default-language:    Haskell2010

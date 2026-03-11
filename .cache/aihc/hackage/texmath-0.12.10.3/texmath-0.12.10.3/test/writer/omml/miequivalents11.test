@@ -1,0 +1,429 @@
+<<< native
+[ EArray
+    [ AlignCenter ]
+    [ [ [ EGrouped
+            [ EIdentifier "A" , ESymbol Rel "=" , EIdentifier "A" ]
+        ]
+      ]
+    , [ [ EGrouped
+            [ EIdentifier "\119808"
+            , ESymbol Rel "="
+            , EStyled TextBold [ EIdentifier "A" ]
+            ]
+        ]
+      ]
+    , [ [ EGrouped
+            [ EIdentifier "\119860"
+            , ESymbol Rel "="
+            , EStyled TextItalic [ EIdentifier "A" ]
+            ]
+        ]
+      ]
+    , [ [ EGrouped
+            [ EIdentifier "\119912"
+            , ESymbol Rel "="
+            , EStyled TextBoldItalic [ EIdentifier "A" ]
+            ]
+        ]
+      ]
+    , [ [ EGrouped
+            [ EIdentifier "\120120"
+            , ESymbol Rel "="
+            , EStyled TextDoubleStruck [ EIdentifier "A" ]
+            , ESymbol Rel "="
+            , EIdentifier "\120120"
+            ]
+        ]
+      ]
+    , [ [ EGrouped
+            [ EIdentifier "\119964"
+            , ESymbol Rel "="
+            , EStyled TextScript [ EIdentifier "A" ]
+            , ESymbol Rel "="
+            , EIdentifier "\119964"
+            ]
+        ]
+      ]
+    , [ [ EGrouped
+            [ EIdentifier "\120016"
+            , ESymbol Rel "="
+            , EStyled TextBoldScript [ EIdentifier "A" ]
+            ]
+        ]
+      ]
+    , [ [ EGrouped
+            [ EIdentifier "\120068"
+            , ESymbol Rel "="
+            , EStyled TextFraktur [ EIdentifier "A" ]
+            , ESymbol Rel "="
+            , EIdentifier "\120068"
+            ]
+        ]
+      ]
+    , [ [ EGrouped
+            [ EIdentifier "\120172"
+            , ESymbol Rel "="
+            , EStyled TextBoldFraktur [ EIdentifier "A" ]
+            ]
+        ]
+      ]
+    , [ [ EGrouped
+            [ EIdentifier "\120224"
+            , ESymbol Rel "="
+            , EStyled TextSansSerif [ EIdentifier "A" ]
+            ]
+        ]
+      ]
+    , [ [ EGrouped
+            [ EIdentifier "\120276"
+            , ESymbol Rel "="
+            , EStyled TextSansSerifBold [ EIdentifier "A" ]
+            ]
+        ]
+      ]
+    , [ [ EGrouped
+            [ EIdentifier "\120328"
+            , ESymbol Rel "="
+            , EStyled TextSansSerifItalic [ EIdentifier "A" ]
+            ]
+        ]
+      ]
+    , [ [ EGrouped
+            [ EIdentifier "\120380"
+            , ESymbol Rel "="
+            , EStyled TextSansSerifBoldItalic [ EIdentifier "A" ]
+            ]
+        ]
+      ]
+    , [ [ EGrouped
+            [ EIdentifier "\120432"
+            , ESymbol Rel "="
+            , EStyled TextMonospace [ EIdentifier "A" ]
+            ]
+        ]
+      ]
+    ]
+]
+>>> omml
+<?xml version='1.0' ?>
+<m:oMathPara>
+  <m:oMathParaPr>
+    <m:jc m:val="center" />
+  </m:oMathParaPr>
+  <m:oMath>
+    <m:m>
+      <m:mPr>
+        <m:baseJc m:val="center" />
+        <m:plcHide m:val="on" />
+        <m:mcs>
+          <m:mc>
+            <m:mcPr>
+              <m:mcJc m:val="center" />
+              <m:count m:val="1" />
+            </m:mcPr>
+          </m:mc>
+        </m:mcs>
+      </m:mPr>
+      <m:mr>
+        <m:e>
+          <m:r>
+            <m:t>A</m:t>
+          </m:r>
+          <m:r>
+            <m:rPr>
+              <m:sty m:val="p" />
+            </m:rPr>
+            <m:t>=</m:t>
+          </m:r>
+          <m:r>
+            <m:t>A</m:t>
+          </m:r>
+        </m:e>
+      </m:mr>
+      <m:mr>
+        <m:e>
+          <m:r>
+            <m:t>𝐀</m:t>
+          </m:r>
+          <m:r>
+            <m:rPr>
+              <m:sty m:val="p" />
+            </m:rPr>
+            <m:t>=</m:t>
+          </m:r>
+          <m:r>
+            <m:rPr>
+              <m:sty m:val="b" />
+            </m:rPr>
+            <m:t>A</m:t>
+          </m:r>
+        </m:e>
+      </m:mr>
+      <m:mr>
+        <m:e>
+          <m:r>
+            <m:t>𝐴</m:t>
+          </m:r>
+          <m:r>
+            <m:rPr>
+              <m:sty m:val="p" />
+            </m:rPr>
+            <m:t>=</m:t>
+          </m:r>
+          <m:r>
+            <m:rPr>
+              <m:sty m:val="i" />
+            </m:rPr>
+            <m:t>A</m:t>
+          </m:r>
+        </m:e>
+      </m:mr>
+      <m:mr>
+        <m:e>
+          <m:r>
+            <m:t>𝑨</m:t>
+          </m:r>
+          <m:r>
+            <m:rPr>
+              <m:sty m:val="p" />
+            </m:rPr>
+            <m:t>=</m:t>
+          </m:r>
+          <m:r>
+            <m:rPr>
+              <m:sty m:val="bi" />
+            </m:rPr>
+            <m:t>A</m:t>
+          </m:r>
+        </m:e>
+      </m:mr>
+      <m:mr>
+        <m:e>
+          <m:r>
+            <m:t>𝔸</m:t>
+          </m:r>
+          <m:r>
+            <m:rPr>
+              <m:sty m:val="p" />
+            </m:rPr>
+            <m:t>=</m:t>
+          </m:r>
+          <m:r>
+            <m:rPr>
+              <m:scr m:val="double-struck" />
+              <m:sty m:val="p" />
+            </m:rPr>
+            <m:t>A</m:t>
+          </m:r>
+          <m:r>
+            <m:rPr>
+              <m:sty m:val="p" />
+            </m:rPr>
+            <m:t>=</m:t>
+          </m:r>
+          <m:r>
+            <m:t>𝔸</m:t>
+          </m:r>
+        </m:e>
+      </m:mr>
+      <m:mr>
+        <m:e>
+          <m:r>
+            <m:t>𝒜</m:t>
+          </m:r>
+          <m:r>
+            <m:rPr>
+              <m:sty m:val="p" />
+            </m:rPr>
+            <m:t>=</m:t>
+          </m:r>
+          <m:r>
+            <m:rPr>
+              <m:scr m:val="script" />
+              <m:sty m:val="p" />
+            </m:rPr>
+            <m:t>A</m:t>
+          </m:r>
+          <m:r>
+            <m:rPr>
+              <m:sty m:val="p" />
+            </m:rPr>
+            <m:t>=</m:t>
+          </m:r>
+          <m:r>
+            <m:t>𝒜</m:t>
+          </m:r>
+        </m:e>
+      </m:mr>
+      <m:mr>
+        <m:e>
+          <m:r>
+            <m:t>𝓐</m:t>
+          </m:r>
+          <m:r>
+            <m:rPr>
+              <m:sty m:val="p" />
+            </m:rPr>
+            <m:t>=</m:t>
+          </m:r>
+          <m:r>
+            <m:rPr>
+              <m:scr m:val="script" />
+              <m:sty m:val="b" />
+            </m:rPr>
+            <m:t>A</m:t>
+          </m:r>
+        </m:e>
+      </m:mr>
+      <m:mr>
+        <m:e>
+          <m:r>
+            <m:t>𝔄</m:t>
+          </m:r>
+          <m:r>
+            <m:rPr>
+              <m:sty m:val="p" />
+            </m:rPr>
+            <m:t>=</m:t>
+          </m:r>
+          <m:r>
+            <m:rPr>
+              <m:scr m:val="fraktur" />
+              <m:sty m:val="p" />
+            </m:rPr>
+            <m:t>A</m:t>
+          </m:r>
+          <m:r>
+            <m:rPr>
+              <m:sty m:val="p" />
+            </m:rPr>
+            <m:t>=</m:t>
+          </m:r>
+          <m:r>
+            <m:t>𝔄</m:t>
+          </m:r>
+        </m:e>
+      </m:mr>
+      <m:mr>
+        <m:e>
+          <m:r>
+            <m:t>𝕬</m:t>
+          </m:r>
+          <m:r>
+            <m:rPr>
+              <m:sty m:val="p" />
+            </m:rPr>
+            <m:t>=</m:t>
+          </m:r>
+          <m:r>
+            <m:rPr>
+              <m:scr m:val="fraktur" />
+              <m:sty m:val="b" />
+            </m:rPr>
+            <m:t>A</m:t>
+          </m:r>
+        </m:e>
+      </m:mr>
+      <m:mr>
+        <m:e>
+          <m:r>
+            <m:t>𝖠</m:t>
+          </m:r>
+          <m:r>
+            <m:rPr>
+              <m:sty m:val="p" />
+            </m:rPr>
+            <m:t>=</m:t>
+          </m:r>
+          <m:r>
+            <m:rPr>
+              <m:scr m:val="sans-serif" />
+              <m:sty m:val="p" />
+            </m:rPr>
+            <m:t>A</m:t>
+          </m:r>
+        </m:e>
+      </m:mr>
+      <m:mr>
+        <m:e>
+          <m:r>
+            <m:t>𝗔</m:t>
+          </m:r>
+          <m:r>
+            <m:rPr>
+              <m:sty m:val="p" />
+            </m:rPr>
+            <m:t>=</m:t>
+          </m:r>
+          <m:r>
+            <m:rPr>
+              <m:scr m:val="sans-serif" />
+              <m:sty m:val="b" />
+            </m:rPr>
+            <m:t>A</m:t>
+          </m:r>
+        </m:e>
+      </m:mr>
+      <m:mr>
+        <m:e>
+          <m:r>
+            <m:t>𝘈</m:t>
+          </m:r>
+          <m:r>
+            <m:rPr>
+              <m:sty m:val="p" />
+            </m:rPr>
+            <m:t>=</m:t>
+          </m:r>
+          <m:r>
+            <m:rPr>
+              <m:scr m:val="sans-serif" />
+              <m:sty m:val="i" />
+            </m:rPr>
+            <m:t>A</m:t>
+          </m:r>
+        </m:e>
+      </m:mr>
+      <m:mr>
+        <m:e>
+          <m:r>
+            <m:t>𝘼</m:t>
+          </m:r>
+          <m:r>
+            <m:rPr>
+              <m:sty m:val="p" />
+            </m:rPr>
+            <m:t>=</m:t>
+          </m:r>
+          <m:r>
+            <m:rPr>
+              <m:scr m:val="sans-serif" />
+              <m:sty m:val="bi" />
+            </m:rPr>
+            <m:t>A</m:t>
+          </m:r>
+        </m:e>
+      </m:mr>
+      <m:mr>
+        <m:e>
+          <m:r>
+            <m:t>𝙰</m:t>
+          </m:r>
+          <m:r>
+            <m:rPr>
+              <m:sty m:val="p" />
+            </m:rPr>
+            <m:t>=</m:t>
+          </m:r>
+          <m:r>
+            <m:rPr>
+              <m:scr m:val="monospace" />
+              <m:sty m:val="p" />
+            </m:rPr>
+            <m:t>A</m:t>
+          </m:r>
+        </m:e>
+      </m:mr>
+    </m:m>
+  </m:oMath>
+</m:oMathPara>

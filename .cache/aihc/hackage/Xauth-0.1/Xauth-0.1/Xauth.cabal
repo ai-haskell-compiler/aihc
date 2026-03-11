@@ -1,0 +1,15 @@
+name:           Xauth
+version:        0.1
+license:        BSD3
+license-file:   LICENSE
+copyright:      Spencer Janssen <spencerjanssen@gmail.com>
+maintainer:     Spencer Janssen <spencerjanssen@gmail.com>
+category:       Graphics
+synopsis:       A binding to the X11 authentication library
+description:    A Haskell binding to the X11 authentication library.
+exposed-modules:
+    Graphics.X11.Xauth
+extensions:     ForeignFunctionInterface, CPP
+build-depends:  base
+build-type:     Simple
+pkgconfig-depends: xau

@@ -1,0 +1,26 @@
+name:           ParsecTools
+version:        0.0.2.0
+author:         Christian Hoener zu Siederdissen
+maintainer:     choener@tbi.univie.ac.at
+copyright:      Christian Hoener zu Siederdissen, 2010
+category:       Parsing
+synopsis:       Parsec combinators for more complex objects.
+license:        GPL-3
+license-file:   LICENSE
+build-type:     Simple
+stability:      experimental
+cabal-version:  >= 1.4.0
+description:
+                Combined parsers for complex objects: floating point, and
+                integral numbers.
+
+library
+  build-depends:
+    base>=4 && <5,
+    parsec>=3
+
+  exposed-modules:
+    Text.Parsec.Numbers
+
+  ghc-options:
+    -O2

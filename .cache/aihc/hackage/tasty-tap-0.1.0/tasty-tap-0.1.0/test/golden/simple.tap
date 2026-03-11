@@ -1,0 +1,6 @@
+TAP version 13
+1..2
+ok 1 - some example tests.passes
+not ok 2 - some example tests.fails
+# test/Main.hs:56:
+# this was doomed

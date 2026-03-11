@@ -1,0 +1,20 @@
+name: overhang
+version: '1.0.0'
+github: "jship/overhang"
+license: MIT
+author: "Jason Shipman"
+maintainer: "Jason Shipman"
+synopsis: Hang loose with your lambdas!
+description: Combinators for clean, "hanging" lambdas.
+category: Combinators, Functions, Utility
+extra-source-files:
+- CHANGELOG.md
+- LICENSE.md
+- package.yaml
+- README.md
+- stack.yaml
+ghc-options: -Wall
+library:
+  dependencies:
+  - base >= 4.10 && < 5
+  source-dirs: library

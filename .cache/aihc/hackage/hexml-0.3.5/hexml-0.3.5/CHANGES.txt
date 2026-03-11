@@ -1,0 +1,21 @@
+Changelog for Hexml
+
+0.3.5, released 2024-08-25
+    #1, add support for <![CDATA[ ... ]]>
+0.3.4, released 2018-09-10
+    #15, licensed under BSD-3-Clause OR Apache-2.0
+0.3.3, released 2017-10-27
+    #13, allow the . character in tags and attributes
+0.3.2, released 2017-05-22
+    #10, mark the small fast FFI calls as "unsafe" (up to 10x faster)
+0.3.1, released 2016-12-27
+    #9, don't walk off the end of the character table
+0.3, released 2016-12-22
+    #8, Mac compatibility
+    Fix a bug when parsing closing comments
+    #7, prefix all the C functions with hexml_
+0.2, released 2016-12-14
+    #6, remove buffer overruns
+    #5, add lower bounds
+0.1, released 2016-12-04
+    Initial version

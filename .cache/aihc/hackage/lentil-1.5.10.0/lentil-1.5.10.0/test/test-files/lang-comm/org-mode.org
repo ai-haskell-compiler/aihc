@@ -1,0 +1,9 @@
+* TODO single comment
+
+** TODO single2
+
+let someOther = "  (*  "
+let myChar = "\n" (* toast *)
+
+- [ ] block1
+4) [ ] block2 [tog]

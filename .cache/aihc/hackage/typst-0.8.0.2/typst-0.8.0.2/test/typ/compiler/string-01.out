@@ -1,0 +1,123 @@
+--- parse tree ---
+[ Code
+    "typ/compiler/string-01.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/compiler/string-01.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/compiler/string-01.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Comment
+, Code
+    "typ/compiler/string-01.typ"
+    ( line 3 , column 2 )
+    (FuncCall
+       (Ident (Identifier "test"))
+       [ NormalArg
+           (FuncCall
+              (FieldAccess
+                 (Ident (Identifier "first")) (Literal (String "Hello")))
+              [])
+       , NormalArg (Literal (String "H"))
+       ])
+, SoftBreak
+, Code
+    "typ/compiler/string-01.typ"
+    ( line 4 , column 2 )
+    (FuncCall
+       (Ident (Identifier "test"))
+       [ NormalArg
+           (FuncCall
+              (FieldAccess
+                 (Ident (Identifier "last")) (Literal (String "Hello")))
+              [])
+       , NormalArg (Literal (String "o"))
+       ])
+, SoftBreak
+, Code
+    "typ/compiler/string-01.typ"
+    ( line 5 , column 2 )
+    (FuncCall
+       (Ident (Identifier "test"))
+       [ NormalArg
+           (FuncCall
+              (FieldAccess
+                 (Ident (Identifier "first"))
+                 (Literal
+                    (String
+                       "\127987\65039\8205\127752A\127987\65039\8205\9895\65039")))
+              [])
+       , NormalArg (Literal (String "\127987\65039\8205\127752"))
+       ])
+, SoftBreak
+, Code
+    "typ/compiler/string-01.typ"
+    ( line 6 , column 2 )
+    (FuncCall
+       (Ident (Identifier "test"))
+       [ NormalArg
+           (FuncCall
+              (FieldAccess
+                 (Ident (Identifier "last"))
+                 (Literal
+                    (String
+                       "\127987\65039\8205\127752A\127987\65039\8205\9895\65039")))
+              [])
+       , NormalArg (Literal (String "\127987\65039\8205\9895\65039"))
+       ])
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 text(body: [✅]), 
+                 text(body: [
+]), 
+                 text(body: [✅]), 
+                 text(body: [
+]), 
+                 text(body: [❌(]), 
+                 text(body: ["🏳"]), 
+                 text(body: [ /= ]), 
+                 text(body: ["🏳️‍🌈"]), 
+                 text(body: [)]), 
+                 text(body: [
+]), 
+                 text(body: [❌(]), 
+                 text(body: ["️"]), 
+                 text(body: [ /= ]), 
+                 text(body: ["🏳️‍⚧️"]), 
+                 text(body: [)]), 
+                 parbreak() })

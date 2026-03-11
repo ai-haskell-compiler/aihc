@@ -1,0 +1,226 @@
+* 0.15.0.1
+  - Fix build for mtl-2.3 #118
+
+* 0.15.0.0
+  - Remove macros for assertions, location information is now provided
+    via HasCallStack. For most users, this change should be backwards compatible.
+    However, if you imported Test.Framework qualified, then all assert macros
+    where previously in scope unqualified, through macros. In this case, you need to
+    import Test.Framework unqualified or qualify all uses of assert macros.
+  - The modules Test.Framework.CmdlineOptions, Test.Framework.Colors,
+    and Test.Framework.TestReporter are no longer exposed. I don't think that
+    anyone depends on these internal modules. Let me know I am wrong.
+
+* 0.14.0.7 (2022-03-03)
+  - several upper bounds for packages
+  - minor improvements
+
+* 0.14.0.5 (2021-01-26)
+  - make sure htfpp is available before running the tests
+
+* 0.14.0.4 (2021-01-26)
+  - fix #99
+  - hopefully fix #97
+
+* 0.14.0.2 (2019-11-27)
+  - use haskell-src from hackage
+
+* 0.14.0.1 (2019-11-27)
+  - find cpphs
+
+* 0.14.0.0 (2019-11-26)
+  - support for GHC 8.8
+  - fix for performance problem with long strings
+    https://github.com/skogsbaer/HTF/issues/85
+
+* 0.13.2.5 (2018-11-06)
+  - fix build problem with quickcheck:
+        https://github.com/skogsbaer/HTF/issues/70
+  - fix some compiler warnings
+  - support for GHC 8.6
+
+* 0.13.2.4 (2018-03-31)
+  - fix build for ghc 8.4
+
+* 0.13.2.{0,1,2} (2017-08-06)
+  - various build and documentation fixes and improvements
+
+* 0.13.1.0 (2015-08-21)
+  - resolved compile error with HUnit == 1.3.0.0
+
+* 0.13.0.0 (2015-08-21)
+  - use cpphs for lexing (fixes many bugs related to lexing)
+
+* 0.12.2.4 (2015-03-22)
+  - fixed bug that caused double quoted strings to appear in the output
+    of error messages produced by assertEqual and co.
+
+* 0.12.2.3 (2014-10-27)
+  - fixed another lexing bug (issue #45)
+
+* 0.12.2.2 (2014-10-22)
+  - fixed lexing bug (some source files were not parsed properly)
+  - fixed bug where wrong module name was generated
+  - fixed source distribution (not all files were included)
+
+* 0.12.2.1 (2014-10-19)
+  - fixed compile error with QuickCheck == 2.6
+
+* 0.12.2.0 (2014-10-18)
+  - drop dependency on haskell-src-exts (took too long to compile)
+  - only color error counts if they are > 0 (thanks to Matthias Fischmann)
+
+* 0.12.1.0 (2014-09-16)
+  - support for haskell-src-exts version 1.16
+  - Functor and Applicative instances for AssertBool
+
+* 0.12.0.0 (2014-07-14)
+  - support for several new commandline options:
+      --history=FILE              Path to the history file. Default: ./.HTF/<ProgramName>.history
+      --fail-fast                 Fail and abort test run as soon as the first test fails.
+      --sort-by-prev-time         Sort tests ascending by their execution of the previous test run (if available). Default: false
+      --max-prev-ms=MILLISECONDS  Do not try to execute tests that had a execution time greater than MILLISECONDS in a previous test run.
+      --max-cur-ms=MILLISECONDS   Abort a test that runs more than MILLISECONDS.
+      --prev-factor=DOUBLE        Abort a test that runs more than DOUBLE times slower than in a previous run.
+      --timeout-is-success        Do not regard a test timeout as an error.
+  - potential backward incompatibility: JSON output format changed,
+    several new keys were introduced.
+
+* 0.11.3.4 (2014-04-10)
+  - completed changelog
+
+* 0.11.3.2 (2014-04-10)
+  - fix compile error (issue #34)
+
+* 0.11.3.1 (2014-04-09)
+  - fix compile error under GHC 7.4 (fixes #33)
+
+* 0.11.3.0 (2014-04-08)
+  - support for generic assertions
+  - fixed setDefaultArgs und withQCArgs for quickcheck tests (fixes #30)
+  - added assertElem assertion (fixes #27)
+  - don't output warning if fallback parsers kick (fixes #32)
+
+* 0.11.2.1 (2014-02-10)
+  - fixed compile error under ghc 7.4
+
+* 0.11.2 (2014-02-07)
+  - fall-back to poor men's parser if parsing with haskell-src-exts fails
+
+* 0.11.1.0 (2014-01-22)
+  - htfpp now lexes input files as text, not as haskell src. This allows
+    proper treatment of TH single quotes (fix for #26)
+  - more general type for subAssert
+
+* 0.11.0.1 (2013-09-03)
+  - support for containers-0.4.* (thanks to M. Snoyman)
+
+* 0.11.0.0 (2013-08-31)
+  - fallback to pure Haskell diff if no diff binary found (thanks JP Moresmau)
+  - use cabal test feature (thanks Tom Brow)
+  - parallel execution of tests
+  - bugfix: enable DoAndIfThenElse
+  - bugfix: use default fixities for all operators
+  - two new assertions for dealing with exceptions: assertThrowsM and assertThrowsSomeM
+
+* 0.10.0.7 (2012-12-07)
+  - fixed problem building against Diff 0.1.3
+
+* 0.10.0.6 (2012-12-06)
+  - support for Diff 0.2.
+
+* 0.10.0.0 (2012-12-06)
+  - machine-readable output: the --json option provides a way for getting
+    machine-readable output in a simple JSON-based format
+  - support for subAssert (allows abstraction over assertions but keeps error locations)
+  - don't depend on unix under Windows
+  - added timing information to the output
+  - possibility to list all tests
+  - several bugfixes, especially related to location information in presence
+    of an extra cpp invocation
+  - HTF itself now has a test suite
+  - removed upper bounds from .cabal files
+  - backwards incompatibilities:
+    + Test.Framework now longer exports all of Test.Framework.TestManager and
+      Test.Framework.BlackBoxTest. For modules that only define tests, no changes
+      should be necessary. However, you likely need to adjust your test runner
+      module by importing Test.Framework.TestManager and possibly Test.Framework.BlackBoxTest.
+    + Some reorganization in Test.Framework.TestManager and related modules, introduction
+      of Test.Framework.TestTypes. Usually, your code should not be affected
+      by these changes.
+
+* 0.9.0.0 (2012-09-26)
+  NOTE: this version is NOT backwards compatible with 0.8.*. The documentation on
+  hackage describes what you need to do in order to upgrade.
+
+  - Totally reworked how tests are collected
+  - Greatly improved documentation (fixes issue #2)
+  - Added assertThrowsIO and similar functions (fixes issue #6)
+  - Added htfMain function
+
+* 0.8.2.0 (2012-01-30)
+  - Assertions can be run via runTest
+  - Support for assertNotEqual
+  - Bugfixes
+
+* 0.8.1.1 (2011-11-07)
+  - Bugfixes
+
+* 0.8.1.0 (2011-11-07)
+  - fixed build dependencies to include process 1.1.*
+
+* 0.8.1.0 (2011-10-01)
+  - multi-line diff with pretty-printing
+  - bugfixes
+  - build support for GHC 7.2.1
+
+* 0.8.0.0 (2011-09-20)
+  - support for `--quiet' option to report failures only
+  - color support
+  - diff support: if an equality assertions fails, HTF shows a diff of
+    the expected and the given value
+  - more uniform output
+  - tests to execute are now given by a regular expression,
+    tests to ignored are prefixed with `--not'
+
+* 0.7.1.0 (2011-07-08)
+  - support for pending tests and quick check properties
+  - support for ignoring certain tests in the argument list of
+    Test.Framework.TestManager.runTestWithArgs (simply prefix the
+    test names with a '-')
+
+* 0.7.0.1 (2011-05-21)
+  - minor fix for the tutorial (thanks to Marnix)
+
+* 0.7.0.0 (2011-01-25)
+  - htfpp parses extension from pragmas
+  - runTest, runTestWithArgs, runTestWithFilter return an appropriate exit
+    code
+
+* 0.6.0.1 (2010-12-05)
+  - support for GHC 7, QuickCheck 2.3, containers 0.4 and directory 1.1
+    (thanks to David Leuschner)
+
+* 0.6.0.0 (2010-11-12)
+  - generalized mtl dependency to accept version 1.1* and 2.0.*.
+
+* 0.5.0.1 (2010-10-11)
+  - preprocessor now parses bang patterns
+
+* 0.5.0.0 (2010-10-05)
+  - added `--hunit' flag to htfpp. (The `--hunit' flag causes assert-like
+    macros to be expanded in a way that is backwards-compatible with the
+    corresponding functions of the HUnit library.)
+  - Some functions in Test.Framework.HUnitWrapper were renamed in a
+    non-backwards compatible way. The assert*P functions are now called
+    assert*Pretty, and the function assertSetEqual is now called
+    assertListsEqualAsSet
+
+* 0.4.0.0 (2010-09-02)
+  - More specific version constraints in .cabal file
+
+* 0.3.5.0 (2010-08-30)
+  - Testable instance for lists
+
+* 0.3.4.0 (2010-08-30)
+  - htfpp now accepts code subject to preprocessing with cpp

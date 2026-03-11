@@ -1,0 +1,10 @@
+{ mkDerivation, base, gogol-core, lib }:
+mkDerivation {
+  pname = "gogol-youtube";
+  version = "0.3.0";
+  sha256 = "deadbeef";
+  libraryHaskellDepends = [ base gogol-core ];
+  homepage = "https://github.com/brendanhay/gogol";
+  description = "Google YouTube Data SDK";
+  license = "unknown";
+}

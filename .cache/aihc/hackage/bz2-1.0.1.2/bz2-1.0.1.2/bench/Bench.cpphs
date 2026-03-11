@@ -1,0 +1,43 @@
+{-# LANGUAGE PackageImports #-}
+
+module Main (main) where
+
+import           BZip.Dump
+import qualified "bz2" Codec.Compression.BZip   as BZ2
+#ifdef WITH_BZLIB
+import qualified "bzlib" Codec.Compression.BZip as BZlib
+#endif
+import           Criterion.Main
+import qualified Data.ByteString.Lazy           as BSL
+
+decompressFile :: FilePath -> IO BSL.ByteString
+decompressFile = fmap BZ2.decompress . BSL.readFile
+
+compressFile :: FilePath -> IO BSL.ByteString
+compressFile = fmap BZ2.compress . BSL.readFile
+
+main :: IO ()
+main =
+    defaultMain [ bgroup "decompressDump"
+                      [ bench "decompress + write to file (bz2)" $ nfIO (decompressDump BZ2.decompress)
+#ifdef WITH_BZLIB
+                      , bench "decompress + write to file (bzlib)" $ nfIO (decompressDump BZlib.decompress)
+#endif
+                      ]
+                , bgroup "compressDump"
+                      [ bench "compress + write to file (bz2)" $ nfIO (compressDump BZ2.compress)
+#ifdef WITH_BZLIB
+                      , bench "compress + write to file (bzlib)" $ nfIO (compressDump BZlib.compress)
+#endif
+                      ]
+                , bgroup "decompress"
+                      [ bench "decompress file" $ nfIO (decompressFile "test/data/sample1.bz2")
+                      , bench "decompress file" $ nfIO (decompressFile "test/data/sample2.bz2")
+                      , bench "decompress file" $ nfIO (decompressFile "test/data/sample3.bz2")
+                      ]
+                , bgroup "compress"
+                      [ bench "compress file" $ nfIO (compressFile "test/data/sample1.ref")
+                      , bench "compress file" $ nfIO (compressFile "test/data/sample2.ref")
+                      , bench "compress file" $ nfIO (compressFile "test/data/sample3.ref")
+                      ]
+                ]

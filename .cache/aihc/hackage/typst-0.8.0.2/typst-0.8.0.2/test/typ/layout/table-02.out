@@ -1,0 +1,116 @@
+--- parse tree ---
+[ Code
+    "typ/layout/table-02.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/layout/table-02.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/layout/table-02.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Comment
+, Code
+    "typ/layout/table-02.typ"
+    ( line 3 , column 2 )
+    (FuncCall
+       (Ident (Identifier "table"))
+       [ KeyValArg
+           (Identifier "columns")
+           (Array
+              [ Reg (Literal (Numeric 1.0 Fr))
+              , Reg (Literal (Numeric 1.0 Fr))
+              , Reg (Literal (Numeric 1.0 Fr))
+              ])
+       , KeyValArg
+           (Identifier "align")
+           (Array
+              [ Reg (Ident (Identifier "left"))
+              , Reg (Ident (Identifier "center"))
+              , Reg (Ident (Identifier "right"))
+              ])
+       , NormalArg (Block (Content [ Text "A" ]))
+       , NormalArg (Block (Content [ Text "B" ]))
+       , NormalArg (Block (Content [ Text "C" ]))
+       ])
+, ParBreak
+, Comment
+, Code
+    "typ/layout/table-02.typ"
+    ( line 10 , column 2 )
+    (Set
+       (Ident (Identifier "align"))
+       [ NormalArg (Ident (Identifier "center")) ])
+, SoftBreak
+, Code
+    "typ/layout/table-02.typ"
+    ( line 11 , column 2 )
+    (FuncCall
+       (Ident (Identifier "table"))
+       [ KeyValArg
+           (Identifier "columns")
+           (Array
+              [ Reg (Literal (Numeric 1.0 Fr))
+              , Reg (Literal (Numeric 1.0 Fr))
+              , Reg (Literal (Numeric 1.0 Fr))
+              ])
+       , KeyValArg (Identifier "align") (Array [])
+       , NormalArg (Block (Content [ Text "A" ]))
+       , NormalArg (Block (Content [ Text "B" ]))
+       , NormalArg (Block (Content [ Text "C" ]))
+       ])
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 table(align: (left, 
+                               center, 
+                               right), 
+                       children: (text(body: [A]), 
+                                  text(body: [B]), 
+                                  text(body: [C])), 
+                       columns: (1.0fr, 
+                                 1.0fr, 
+                                 1.0fr)), 
+                 parbreak(), 
+                 text(body: [
+]), 
+                 table(align: (), 
+                       children: (text(body: [A]), 
+                                  text(body: [B]), 
+                                  text(body: [C])), 
+                       columns: (1.0fr, 
+                                 1.0fr, 
+                                 1.0fr)), 
+                 parbreak() })

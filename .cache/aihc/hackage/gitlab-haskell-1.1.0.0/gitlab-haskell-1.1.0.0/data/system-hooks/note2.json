@@ -1,0 +1,75 @@
+{
+  "object_kind": "note",
+  "event_type": "note",
+  "user": {
+    "id": 2477,
+    "name": "Joe",
+    "username": "joe",
+    "avatar_url": "https://example.com/uploads/-/system/user/avatar/2477/avatar.png",
+    "email": "[REDACTED]"
+  },
+  "project_id": 19102,
+  "project": {
+    "id": 19102,
+    "name": "proj-name",
+    "description": "",
+    "web_url": "https://example.com/joe/proj-name",
+    "avatar_url": null,
+    "git_ssh_url": "git@example.com:joe/proj-name.git",
+    "git_http_url": "https://example.com/joe/proj-name.git",
+    "namespace": "Joe",
+    "visibility_level": 0,
+    "path_with_namespace": "joe/proj-name",
+    "default_branch": "master",
+    "ci_config_path": null,
+    "homepage": "https://example.com/joe/proj-name",
+    "url": "git@example.com:joe/proj-name.git",
+    "ssh_url": "git@example.com:joe/proj-name.git",
+    "http_url": "https://example.com/joe/proj-name.git"
+  },
+  "object_attributes": {
+    "attachment": null,
+    "author_id": 2477,
+    "change_position": null,
+    "commit_id": "8dd4c91c0efac607bf6d164ea7e5fd92e6fbe7c6",
+    "created_at": "2024-11-20 05:48:59 UTC",
+    "discussion_id": "163e23673e00ebb477a030944824cf25109bdf3e",
+    "id": 17030,
+    "line_code": null,
+    "note": "The note.",
+    "noteable_id": null,
+    "noteable_type": "Commit",
+    "original_position": null,
+    "position": null,
+    "project_id": 19102,
+    "resolved_at": null,
+    "resolved_by_id": null,
+    "resolved_by_push": null,
+    "st_diff": null,
+    "system": false,
+    "type": null,
+    "updated_at": "2024-11-20 05:48:59 UTC",
+    "updated_by_id": null,
+    "description": "The note.",
+    "url": "https://example.com/joe/proj-name/-/commit/abcde#note_17030",
+    "action": "create"
+  },
+  "repository": {
+    "name": "proj-name",
+    "url": "git@example.com:joe/proj-name.git",
+    "description": "",
+    "homepage": "https://example.com/joe/proj-name"
+  },
+  "commit": {
+    "id": "abcde",
+    "message": "commit message",
+    "title": "commit title",
+    "timestamp": "2024-11-16T20:32:21+04:00",
+    "url": "https://example.com/joe/proj-name/-/commit/abcde",
+    "author": {
+      "name": "Joe",
+      "email": "joe@gmail.com"
+    }
+  }
+}
+

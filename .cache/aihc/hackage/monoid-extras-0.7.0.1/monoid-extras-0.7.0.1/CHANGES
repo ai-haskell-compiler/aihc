@@ -1,0 +1,228 @@
+* 0.7.0.1: 29 January 2026
+
+  - Add some cautionary comments to `Regular` and `Semi`.  In
+    particular, `Regular` cannot be used to create a lawful semidirect
+    product of a monoid/semigroup with itself. ([#63](https://github.com/diagrams/monoid-extras/issues/63))
+
+* 0.7: 12 May 2025
+
+  - Updates to `Data.Monoid.Coproduct`:
+    - Fix `Eq` instance for monoid coproducts to take `mempty` into account
+    - `cop` implements coproduct universal map
+    - `untangleSemi`, like `untangle` but as a monoid homomorphism to semidirect product
+    - `toReducedAltList`, like `toAltList` but also gets rid of `mempty`
+  - New module `Data.Semigroup.Coproduct` with semigroup coproducts
+  - Remove `Data.Monoid.Coproduct.Strict`
+
+  Thanks to Sonat Süer (@sonatsuer) for the updates!
+
+* 0.6.5: 22 February 2025
+
+- New instance `Eq (m :+: n)` ([#59](https://github.com/diagrams/monoid-extras/issues/59))
+- New function `toAltList :: (m :+: n) -> [Either m n]`
+
+* 0.6.4: 10 February 2025
+
+- New instance `Action m a => Action [m] a` (thanks to Manuel Bärenz for the suggestion)
+
+* 0.6.3: 8 August 2024
+
+- New instances (thanks to Clinton Mead):
+  - `Action (First a) a`
+  - `Action Void a`
+  - `Action m a => Action (Identity m) a`
+
+- r1 (27 Jan 2025):
+  - Allow `base-4.21` and test on GHC 9.12.
+
+* 0.6.2: 20 Dec 2022
+
+- New class and newtypes in `Data.Monoid.Action` (thanks to Manuel Bärenz):
+    - `Torsor` class for transitive group actions
+    - `Regular` and `Conjugate` newtypes for groups acting on themselves
+
+- r1 (27 March 2023):
+  - allow `semigroupoids-6.0`
+  - allow `base-4.18` and test on GHC 9.6.
+
+- r2 (17 Oct 2023):
+  - allow `base-4.19` and test on GHC 9.8.
+
+- r3 (15 May 2024):
+  - allow `base-4.20` and test on GHC 9.10.
+
+* 0.6.1: 16 Nov 2021
+
+- Add more efficient `stimes` implementations for several `Semigroup`
+  instances.  Thanks to BlackCapCoder for the patch!
+- Allow `base-4.16` and test on GHC 9.2.1.
+
+- r1: allow `base-4.16` in benchmarks
+- r2 (15 August 2022): allow `base-4.17` and test with GHC 9.4.
+
+* 0.6: 8 May 2021
+
+- Updates for GHC 8.10 and 9.0.
+- Drop support for GHC 8.2 or older.
+- Replace deprecated `Option` type with `Maybe`.
+
+* 0.5.1: 19 Oct 2019
+
+- New module Data.Monoid.Coproduct.Strict for a more efficient coproduct in
+  some use cases.
+- Update for GHC 8.8.
+- Drop support for GHC 7.8.
+
+* 0.5: 14 May 2018
+
+- Modernize Data.Monoid.WithSemigroup
+
+  It used to export a type class Monoid' with no methods and a single
+  instance, for use as a "poor man's constraint synonym" for the
+  combination of Monoid and Semigroup.  Now Monoid':
+
+    - Is a real constraint synonym, using ConstraintKinds.
+    - Is simply a synonym for Monoid under base-4.11 and later, in
+      which case Semigroup is already a superclass of Monoid.
+
+  This technically necessitates a major version bump but should not
+  cause any issues for packages that depend on monoid-extras, other
+  than potentially requiring the addition of a ConstraintKinds pragma
+  under GHC 7.8.
+
+* 0.4.4: 8 April 2018
+
+- Fix build on older (< 7.10) GHCs (thanks to George Wilson for the fix)
+
+* 0.4.3: 3 April 2018
+
+- Allow base-4.11
+- Fix compilation on GHC 8.4
+- Add more instances for Inf
+
+* 0.4.2: 16 July 2016
+
+- Additions to Data.Monoid.SemiDirectProduct (unSemi, tag, untag)
+
+- Hackage revision 1: allow semigroupoids-5.2
+- Hackage revision 2: allow base-4.10
+
+* 0.4.1.2: 16 June 2016
+
+- allow semigroupoids-5.1
+
+* 0.4.1: 8 June 2016
+
+- new modules Data.Monoid.SemiDirectProduct[.Strict].
+
+* 0.4.0.4: 14 February 2016
+
+- allow base-4.9 for GHC-8
+
+* 0.4.0.3: 10 November 2015
+
+- allow semigroups-0.18
+
+* 0.4.0.2: 16 September 2015
+
+- allow semigroups-0.17
+
+* v0.4.0.1
+
+- allow semigroupoids-5.0
+
+* 0.4: 19 April 2015
+
+  - add derived instances where possible:
+    Typeable, Data, Read, Eq, Ord, Functor, Foldable, Traversable
+  - allow base-4.8
+
+* 0.3.3.5: 03 Dec 2014
+
+  - allow semigroups-0.15
+
+* 0.3.3.4: 28 May 2014
+
+  - allow semigroups-0.15
+
+* 0.3.3.3: 15 May 2014
+
+  - allow semigroups-0.14
+
+* 0.3.3.2: 10 April 2014
+
+  - allow semigroups-0.13
+
+* 0.3.3.1: 9 March 2014
+
+  - drop dependency on deprecated `groupoids` package
+
+* 0.3.3: 4 March 2014
+
+  - export Pos and Neg types, to improve Haddock documentation
+
+* 0.3.2.4: 27 November 2013
+
+  - allow semigroups-0.12
+
+* 0.3.2.3: 19 October 2013
+
+  - Allow groupoids-4 and semigroupoids-4
+
+* 0.3.2.2: 26 September 2013
+
+  - allow semigroups-0.11
+
+* 0.3.2.1: 25 September 2013
+
+  - allow groups-0.4
+
+* 0.3.2: 30 August 2013
+
+  - new Group instance for Endomorphism
+
+* 0.3.1: 20 August 2013
+
+  - new module Data.Monoid.Endomorphism
+  - add derived Functor, Foldable, and Traversable instances for Data.Monoid.Inf.Inf
+
+* 0.3: 2 May 2013
+
+  - generalize PosInf to Inf, which supports making monoids out of
+    semigroups under both min and max
+
+* 0.2.2.3: 28 March 2013
+
+  - bump upper bound to allow base-4.7
+
+* 0.2.2.2: 7 January 2013
+
+  - bump upper bound to allow semigroups-0.9
+
+* 0.2.2.1: 11 December 2012
+
+  - Small fix to allow building under older GHCs
+
+* 0.2.2.0: 10 December 2012
+
+  - Add new module Data.Monoid.Recommend
+
+* 0.2.1.0: 28 September 2012
+
+  - Add new module Data.Monoid.Cut
+  - Documentation improvements
+  - Add Show instance for Split
+
+* 0.2.0.0: 3 September 2012
+
+  - Remove instances for actions on pairs and triples, and add some
+    commentary explaining why adding them was a bad idea in the first
+    place.
+
+* 0.1.1.0
+
+  - Add instances for actions on pairs and triples
+
+* 0.1.0.0
+
+  - initial release

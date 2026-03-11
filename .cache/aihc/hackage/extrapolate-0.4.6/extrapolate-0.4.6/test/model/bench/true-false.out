@@ -1,0 +1,439 @@
+checks :: ()
+
++++ OK, passed 1 tests (exhausted).
+
+*** Failed! Falsifiable (after 1 tests):
+()
+
+Generalization:
+_
+
++++ OK, passed 1 tests (exhausted).
+
+*** Failed! Falsifiable (after 1 tests):
+() ()
+
+Generalization:
+_ _
+
+
+checks :: Bool
+
++++ OK, passed 2 tests (exhausted).
+
+*** Failed! Falsifiable (after 1 tests):
+False
+
+Generalization:
+_
+
+*** Failed! Falsifiable (after 2 tests):
+False True
+
+*** Failed! Falsifiable (after 1 tests):
+False False
+
+Generalization:
+p p
+
+
+checks :: Int
+
++++ OK, passed 360 tests.
+
+*** Failed! Falsifiable (after 1 tests):
+0
+
+Generalization:
+_
+
+*** Failed! Falsifiable (after 2 tests):
+0 1
+
+Conditional Generalization:
+x y  when  x /= y
+
+*** Failed! Falsifiable (after 1 tests):
+0 0
+
+Generalization:
+x x
+
+
+checks :: Integer
+
++++ OK, passed 360 tests.
+
+*** Failed! Falsifiable (after 1 tests):
+0
+
+Generalization:
+_
+
+*** Failed! Falsifiable (after 2 tests):
+0 1
+
+Conditional Generalization:
+x y  when  x /= y
+
+*** Failed! Falsifiable (after 1 tests):
+0 0
+
+Generalization:
+x x
+
+
+checks :: Char
+
++++ OK, passed 97 tests (exhausted).
+
+*** Failed! Falsifiable (after 1 tests):
+'a'
+
+Generalization:
+_
+
+*** Failed! Falsifiable (after 2 tests):
+'a' ' '
+
+Conditional Generalization:
+c d  when  c /= d
+
+*** Failed! Falsifiable (after 1 tests):
+'a' 'a'
+
+Generalization:
+c c
+
+
+checks :: Ordering
+
++++ OK, passed 3 tests (exhausted).
+
+*** Failed! Falsifiable (after 1 tests):
+LT
+
+Generalization:
+_
+
+*** Failed! Falsifiable (after 2 tests):
+LT EQ
+
+*** Failed! Falsifiable (after 1 tests):
+LT LT
+
+Generalization:
+o o
+
+
+checks :: [()]
+
++++ OK, passed 360 tests.
+
+*** Failed! Falsifiable (after 1 tests):
+[]
+
+Generalization:
+_
+
+*** Failed! Falsifiable (after 2 tests):
+[] [()]
+
+Generalization:
+us (_:us)
+
+*** Failed! Falsifiable (after 1 tests):
+[] []
+
+Generalization:
+us us
+
+
+checks :: [Bool]
+
++++ OK, passed 360 tests.
+
+*** Failed! Falsifiable (after 1 tests):
+[]
+
+Generalization:
+_
+
+*** Failed! Falsifiable (after 2 tests):
+[] [False]
+
+Generalization:
+ps (_:ps)
+
+*** Failed! Falsifiable (after 1 tests):
+[] []
+
+Generalization:
+ps ps
+
+
+checks :: [Int]
+
++++ OK, passed 360 tests.
+
+*** Failed! Falsifiable (after 1 tests):
+[]
+
+Generalization:
+_
+
+*** Failed! Falsifiable (after 2 tests):
+[] [0]
+
+Generalization:
+xs (_:xs)
+
+Conditional Generalization:
+xs ys  when  length xs /= length ys
+
+*** Failed! Falsifiable (after 1 tests):
+[] []
+
+Generalization:
+xs xs
+
+
+checks :: [Integer]
+
++++ OK, passed 360 tests.
+
+*** Failed! Falsifiable (after 1 tests):
+[]
+
+Generalization:
+_
+
+*** Failed! Falsifiable (after 2 tests):
+[] [0]
+
+Generalization:
+xs (_:xs)
+
+*** Failed! Falsifiable (after 1 tests):
+[] []
+
+Generalization:
+xs xs
+
+
+checks :: [Char]
+
++++ OK, passed 360 tests.
+
+*** Failed! Falsifiable (after 1 tests):
+""
+
+Generalization:
+_
+
+*** Failed! Falsifiable (after 2 tests):
+"" "a"
+
+Generalization:
+cs (_:cs)
+
+*** Failed! Falsifiable (after 1 tests):
+"" ""
+
+Generalization:
+cs cs
+
+
+checks :: [Ordering]
+
++++ OK, passed 360 tests.
+
+*** Failed! Falsifiable (after 1 tests):
+[]
+
+Generalization:
+_
+
+*** Failed! Falsifiable (after 2 tests):
+[] [LT]
+
+Generalization:
+os (_:os)
+
+*** Failed! Falsifiable (after 1 tests):
+[] []
+
+Generalization:
+os os
+
+
+checks :: ((),Int)
+
++++ OK, passed 360 tests.
+
+*** Failed! Falsifiable (after 1 tests):
+((),0)
+
+Generalization:
+_
+
+*** Failed! Falsifiable (after 2 tests):
+((),0) ((),1)
+
+Generalization:
+(_,0) (_,1)
+
+Conditional Generalization:
+(_,x) (_,y)  when  x /= y
+
+*** Failed! Falsifiable (after 1 tests):
+((),0) ((),0)
+
+Generalization:
+ux ux
+
+
+checks :: (Bool,Char)
+
++++ OK, passed 194 tests (exhausted).
+
+*** Failed! Falsifiable (after 1 tests):
+(False,'a')
+
+Generalization:
+_
+
+*** Failed! Falsifiable (after 2 tests):
+(False,'a') (True,'a')
+
+Generalization:
+(False,_) (True,_)
+
+Conditional Generalization:
+(_,c) (_,d)  when  c /= d
+
+*** Failed! Falsifiable (after 1 tests):
+(False,'a') (False,'a')
+
+Generalization:
+pc pc
+
+
+checks :: (Int,(),Bool)
+
++++ OK, passed 360 tests.
+
+*** Failed! Falsifiable (after 1 tests):
+(0,(),False)
+
+Generalization:
+_
+
+*** Failed! Falsifiable (after 2 tests):
+(0,(),False) (0,(),True)
+
+Generalization:
+(_,_,False) (_,_,True)
+
+Conditional Generalization:
+(x,_,_) (y,_,_)  when  x /= y
+
+*** Failed! Falsifiable (after 1 tests):
+(0,(),False) (0,(),False)
+
+Generalization:
+xup xup
+
+
+checks :: Maybe ()
+
++++ OK, passed 2 tests (exhausted).
+
+*** Failed! Falsifiable (after 1 tests):
+Nothing
+
+Generalization:
+_
+
+*** Failed! Falsifiable (after 2 tests):
+Nothing (Just ())
+
+Generalization:
+Nothing (Just _)
+
+*** Failed! Falsifiable (after 1 tests):
+Nothing Nothing
+
+Generalization:
+mu mu
+
+
+checks :: Maybe Int
+
++++ OK, passed 360 tests.
+
+*** Failed! Falsifiable (after 1 tests):
+Nothing
+
+Generalization:
+_
+
+*** Failed! Falsifiable (after 2 tests):
+Nothing (Just 0)
+
+Generalization:
+Nothing (Just _)
+
+*** Failed! Falsifiable (after 1 tests):
+Nothing Nothing
+
+Generalization:
+mx mx
+
+
+checks :: Either () Bool
+
++++ OK, passed 3 tests (exhausted).
+
+*** Failed! Falsifiable (after 1 tests):
+Left ()
+
+Generalization:
+_
+
+*** Failed! Falsifiable (after 2 tests):
+(Left ()) (Right False)
+
+Generalization:
+(Left _) (Right _)
+
+*** Failed! Falsifiable (after 1 tests):
+(Left ()) (Left ())
+
+Generalization:
+eup eup
+
+
+checks :: Either Int Char
+
++++ OK, passed 360 tests.
+
+*** Failed! Falsifiable (after 1 tests):
+Left 0
+
+Generalization:
+_
+
+*** Failed! Falsifiable (after 2 tests):
+(Left 0) (Right 'a')
+
+Generalization:
+(Left _) (Right _)
+
+*** Failed! Falsifiable (after 1 tests):
+(Left 0) (Left 0)
+
+Generalization:
+exc exc
+
+

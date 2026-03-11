@@ -1,0 +1,37 @@
+Probabilistic Functional Programming in Haskell
+
+Contact:
+Martin Erwig, Oregon State University, erwig@eecs.oregonstate.edu
+
+
+These files have been tested with GHC 6.4
+
+Core Library files:
+
+Show.hs		Pretty Printing
+ListUtils.hs	
+PrintList.hs	
+Probability.hs	Core probabilistic module
+Visualize.hs	Visualization system for use with R
+
+Examples:
+
+Barber.hs		An example of the queueing system
+BayesianNetwork.hs	Implementing Bayesian networks
+Boys.hs			A statistical examples
+NBoys.hs		A generalized version of the previous
+Collection.hs		Collections and two examples:
+			Marbles and cards
+Dice.hs			Rolling dice
+MontyHall.hs		The "Monty Hall" Game (statistical)
+Predator.hs		Non-probabilistic, demonstrates visualization
+TreeGrowth.hs		A simple tree growth example
+
+
+
+Visualize output is placed in the file FuSE.R which can be loaded into the 
+R statistical program to see visualizations.
+
+Randomized values can be displayed to the console using the printR 
+function, which shows the value from a IO monad function.
+

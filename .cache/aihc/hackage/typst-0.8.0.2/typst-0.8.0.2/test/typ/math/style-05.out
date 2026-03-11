@@ -1,0 +1,114 @@
+--- parse tree ---
+[ Code
+    "typ/math/style-05.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/math/style-05.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/math/style-05.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Comment
+, Code
+    "typ/math/style-05.typ"
+    ( line 3 , column 2 )
+    (Show
+       (Just
+          (FieldAccess
+             (Ident (Identifier "equation")) (Ident (Identifier "math"))))
+       (Set
+          (Ident (Identifier "text"))
+          [ KeyValArg (Identifier "font") (Literal (String "Fira Math")) ]))
+, SoftBreak
+, Equation
+    True
+    [ Text "v"
+    , Code
+        "typ/math/style-05.typ"
+        ( line 4 , column 5 )
+        (FieldAccess
+           (Ident (Identifier "eq")) (Ident (Identifier "colon")))
+    , Code
+        "typ/math/style-05.typ"
+        ( line 4 , column 8 )
+        (FuncCall
+           (Ident (Identifier "vec"))
+           [ BlockArg [ Text "1" , Text "+" , Text "2" ]
+           , BlockArg
+               [ Text "2"
+               , Code
+                   "typ/math/style-05.typ"
+                   ( line 4 , column 21 )
+                   (Ident (Identifier "minus"))
+               , Text "4"
+               ]
+           , BlockArg
+               [ Code
+                   "typ/math/style-05.typ"
+                   ( line 4 , column 26 )
+                   (FuncCall (Ident (Identifier "sqrt")) [ BlockArg [ Text "3" ] ])
+               ]
+           , BlockArg
+               [ Code
+                   "typ/math/style-05.typ"
+                   ( line 4 , column 35 )
+                   (FuncCall (Ident (Identifier "arrow")) [ BlockArg [ Text "x" ] ])
+               ]
+           ])
+    , Text "+"
+    , Text "1"
+    ]
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 text(body: [
+]), 
+                 math.equation(block: true, 
+                               body: { text(body: [v]), 
+                                       text(body: [≔]), 
+                                       math.vec(children: ({ text(body: [1]), 
+                                                             text(body: [+]), 
+                                                             text(body: [2]) }, 
+                                                           { text(body: [2]), 
+                                                             text(body: [−]), 
+                                                             text(body: [4]) }, 
+                                                           math.sqrt(radicand: text(body: [3])), 
+                                                           math.accent(accent: →, 
+                                                                       base: text(body: [x])))), 
+                                       text(body: [+]), 
+                                       text(body: [1]) }, 
+                               numbering: none), 
+                 parbreak() })

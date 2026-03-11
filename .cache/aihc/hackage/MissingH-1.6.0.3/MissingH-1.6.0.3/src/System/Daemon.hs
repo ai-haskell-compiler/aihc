@@ -1,0 +1,98 @@
+{-# LANGUAGE CPP #-}
+{-# LANGUAGE Trustworthy #-}
+
+{-
+Copyright (c) 2005-2011 John Goerzen <jgoerzen@complete.org>
+
+All rights reserved.
+
+For license and copyright information, see the file LICENSE
+-}
+
+{- |
+   Module     : System.Daemon
+   Copyright  : Copyright (C) 2005-2011 John Goerzen
+   SPDX-License-Identifier: BSD-3-Clause
+
+   Stability  : stable
+   Portability: portable to platforms with POSIX process\/signal tools
+
+Tools for writing daemons\/server processes
+
+Written by John Goerzen, jgoerzen\@complete.org
+
+Messages from this module are logged under @System.Daemon@.  See
+'System.Log.Logger' for details.
+
+This module is not available on Windows.
+-}
+
+module System.Daemon (
+
+#if !(defined(mingw32_HOST_OS) || defined(mingw32_TARGET_OS) || defined(__MINGW32__))
+        detachDaemon
+#endif
+                   )
+                       where
+#if !(defined(mingw32_HOST_OS) || defined(mingw32_TARGET_OS) || defined(__MINGW32__))
+
+import System.Directory ( setCurrentDirectory )
+import System.Exit ( ExitCode(ExitSuccess) )
+import System.Log.Logger ( traplogging, Priority(ERROR) )
+import System.Posix.IO
+    ( openFd,
+      closeFd,
+      defaultFileFlags,
+      dupTo,
+      stdError,
+      stdInput,
+      stdOutput,
+      OpenMode(ReadWrite) )
+import System.Posix.Process
+    ( createSession, exitImmediately, forkProcess )
+
+
+trap :: IO a -> IO a
+trap = traplogging "System.Daemon" ERROR "detachDaemon"
+
+{- | Detach the process from a controlling terminal and run it in the
+background, handling it with standard Unix deamon semantics.
+
+After running this, please note the following side-effects:
+
+ * The PID of the running process will change
+
+ * stdin, stdout, and stderr will not work (they'll be set to
+   \/dev\/null)
+
+ * CWD will be changed to \/
+
+I /highly/ suggest running this function before starting any threads.
+
+Note that this is not intended for a daemon invoked from inetd(1).
+-}
+detachDaemon :: IO ()
+detachDaemon = trap $
+               do _ <- forkProcess child1
+                  exitImmediately ExitSuccess
+
+child1 :: IO ()
+child1 = trap $
+    do _ <- createSession
+       _ <- forkProcess child2
+       exitImmediately ExitSuccess
+
+child2 :: IO ()
+child2 = trap $
+    do setCurrentDirectory "/"
+       mapM_ closeFd [stdInput, stdOutput, stdError]
+       nullFd <- openFd
+         "/dev/null"
+         ReadWrite
+#if !MIN_VERSION_unix(2,8,0)
+         Nothing
+#endif
+         defaultFileFlags
+       mapM_ (dupTo nullFd) [stdInput, stdOutput, stdError]
+       closeFd nullFd
+#endif

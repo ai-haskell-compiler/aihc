@@ -1,0 +1,18 @@
+- BlackBox:
+    name: GHC.Err.error
+    kind: Expression
+    type: 'error :: forall r a . HasCallStack => [Char] -> a'
+    template: ~ERRORO
+    workInfo: Constant
+- BlackBox:
+    name: GHC.Err.errorWithoutStackTrace
+    kind: Expression
+    type: 'errorWithoutStackTrace :: forall r a . [Char] -> a'
+    template: ~ERRORO
+    workInfo: Constant
+- BlackBox:
+    name: GHC.Err.undefined
+    kind: Expression
+    type: 'undefined :: forall r a . HasCallStack => a'
+    template: ~ERRORO
+    workInfo: Constant

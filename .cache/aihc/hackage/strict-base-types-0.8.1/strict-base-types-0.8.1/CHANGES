@@ -1,0 +1,54 @@
+* 0.8.1
+  - Support GHC-8.6.5...9.10.1
+
+* 0.8
+  - Release adopting to strict-0.5
+
+* 0.7
+  - `strict-base-types` contents have been migrated to
+      - `strict >=0.4`
+      - `quickcheck-instances >=0.3.24`
+      - `aeson >=1.5.3.0`
+      - or `strict-lens >=0.4`
+
+    This version has similar exposed API as 0.6.1,
+    but we recommend to start using them directly (by specifying lower bounds).
+
+* 0.6.1
+  - Add contributions by Oleg Grenrus (@phadej)
+    - Make 'Semigroup' instances available on all `base` versions.
+    - Add 'Semigroup (Pair a b)' instance
+
+* 0.6.0
+  - Add contribution by Bas van Dijk (@basvandijk)
+    - Add 'Semigroup' instance for base-4.9.0.0
+
+* 0.5.0
+  - Change the implementation of the 'Monoid Maybe' instance such that it is
+    the same as the one for the lazy 'Maybe'; i.e., we now use
+
+      Nothing `mappend` m       = m
+      m       `mappend` Nothing = m
+      Just x1 `mappend` Just x2 = Just (x1 `mappend` x2)
+
+    instead of
+
+      Nothing `mappend` _       = Nothing
+      _       `mappend` Nothing = Nothing
+      Just x1 `mappend` Just x2 = Just (x1 `mappend` x2)
+
+* 0.4.0
+  - Add contributions by Oleg Grenrus (@phadej)
+    - Add 'Functor', 'Foldable', 'Traversable' for 'Pair'
+    - bifunctors-5.1 compatibility
+    - GHC 7.10.x -Wall cleaning
+    - Add 'Hashable' instances for 'Pair', 'Maybe', and 'Either'.
+
+* 0.3.0
+  - Add 'Foldable', and 'Traversable' instances (thanks @jaspervdj)
+
+* 0.2.3
+  - started changelog
+  - Make compatible with GHC 7.8 RC1
+
+

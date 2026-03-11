@@ -1,0 +1,5 @@
+resolver: lts-21.25
+
+extra-deps:
+- snap-1.1.3.3
+- snap-server-1.1.2.1

@@ -1,0 +1,143 @@
+--- parse tree ---
+[ Code
+    "typ/math/attach-01.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/math/attach-01.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/math/attach-01.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Comment
+, Comment
+, Equation
+    True
+    [ Code
+        "typ/math/attach-01.typ"
+        ( line 5 , column 1 )
+        (FuncCall
+           (Ident (Identifier "attach"))
+           [ BlockArg
+               [ Code
+                   "typ/math/attach-01.typ"
+                   ( line 5 , column 8 )
+                   (FuncCall (Ident (Identifier "upright")) [ BlockArg [ Text "O" ] ])
+               ]
+           , KeyValArg (Identifier "bl") (Block (Content [ Text "8" ]))
+           , KeyValArg (Identifier "tl") (Block (Content [ Text "16" ]))
+           , KeyValArg (Identifier "br") (Block (Content [ Text "2" ]))
+           , KeyValArg
+               (Identifier "tr")
+               (Block
+                  (Content
+                     [ Text "2"
+                     , Code
+                         "typ/math/attach-01.typ"
+                         ( line 5 , column 47 )
+                         (Ident (Identifier "minus"))
+                     ]))
+           ])
+    , Text ","
+    , Code
+        "typ/math/attach-01.typ"
+        ( line 6 , column 1 )
+        (FuncCall
+           (Ident (Identifier "attach"))
+           [ BlockArg [ Text "Pb" ]
+           , KeyValArg (Identifier "bl") (Block (Content [ Text "82" ]))
+           , KeyValArg (Identifier "tl") (Block (Content [ Text "207" ]))
+           ])
+    , Text "+"
+    , Code
+        "typ/math/attach-01.typ"
+        ( line 6 , column 33 )
+        (FuncCall
+           (Ident (Identifier "attach"))
+           [ BlockArg
+               [ Code
+                   "typ/math/attach-01.typ"
+                   ( line 6 , column 40 )
+                   (FuncCall (Ident (Identifier "upright")) [ BlockArg [ Text "e" ] ])
+               ]
+           , KeyValArg
+               (Identifier "bl")
+               (Block
+                  (Content
+                     [ Code
+                         "typ/math/attach-01.typ"
+                         ( line 6 , column 56 )
+                         (Ident (Identifier "minus"))
+                     , Text "1"
+                     ]))
+           , KeyValArg (Identifier "tl") (Block (Content [ Text "0" ]))
+           ])
+    , Text "+"
+    , MAttach
+        (Just (Text "e"))
+        Nothing
+        (Code
+           "typ/math/attach-01.typ"
+           ( line 6 , column 69 )
+           (FuncCall (Ident (Identifier "macron")) [ BlockArg [ Text "v" ] ]))
+    , HardBreak
+    ]
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 math.equation(block: true, 
+                               body: { math.attach(base: math.upright(body: text(body: [O])), 
+                                                   bl: text(body: [8]), 
+                                                   br: text(body: [2]), 
+                                                   tl: text(body: [16]), 
+                                                   tr: { text(body: [2]), 
+                                                         text(body: [−]) }), 
+                                       text(body: [,]), 
+                                       math.attach(base: text(body: [Pb]), 
+                                                   bl: text(body: [82]), 
+                                                   tl: text(body: [207])), 
+                                       text(body: [+]), 
+                                       math.attach(base: math.upright(body: text(body: [e])), 
+                                                   bl: { text(body: [−]), 
+                                                         text(body: [1]) }, 
+                                                   tl: text(body: [0])), 
+                                       text(body: [+]), 
+                                       math.attach(b: text(body: [e]), 
+                                                   base: math.accent(accent: ¯, 
+                                                                     base: text(body: [v])), 
+                                                   t: none), 
+                                       linebreak() }, 
+                               numbering: none), 
+                 parbreak() })

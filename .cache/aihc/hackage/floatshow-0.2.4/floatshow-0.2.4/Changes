@@ -1,0 +1,10 @@
+0.2.4:  Adjust to base-4.7, type of comparison primops changed
+0.2.3:  Adjust to base-4.6, location of quotRemInt changed
+0.2.2:  Full precision showing types
+0.2.1:  Typos in haddocks corrected
+0.2.0:  Raw interface for non-RealFloat types
+        Back to the old integerToDigits because we may now deal with
+        larger Integers, the performance loss for Double/Float is
+        small enough to accept.
+0.1.1:  Leaner integerToDigits
+0.1:    First release

@@ -1,0 +1,14 @@
+Name:                Imlib
+Version:             0.1.2
+Description:         Haskell binding for Imlib 2
+Category:            Graphics
+License:             BSD3
+License-file:        LICENSE
+Author:              Cale Gibbard
+Maintainer:          Andreas Raster <lazor@affenbande.org>
+Build-Depends:       base, array, X11
+Build-Type:          Simple
+Exposed-Modules:     Graphics.Imlib
+Extra-Libraries:     Imlib2
+Extra-Source-Files:  examples/value2alpha.hs examples/circle-inversion.hs
+ghc-prof-options:    -prof -auto-all

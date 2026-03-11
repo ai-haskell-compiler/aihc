@@ -1,0 +1,8 @@
+- Primitive:
+    name: _CO_
+    primType: Constructor
+    workInfo: Constant
+- Primitive:
+    name: _TY_
+    primType: Constructor
+    workInfo: Constant

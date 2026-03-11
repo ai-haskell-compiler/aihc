@@ -1,0 +1,59 @@
+{
+    "$schema": "https://vega.github.io/schema/vega-lite/v4.json",
+    "data": {
+        "url": "https://vega.github.io/vega-lite/data/movies.json"
+    },
+    "description": "How can we 'smooth' data?",
+    "encoding": {
+        "x": {
+            "field": "Rotten_Tomatoes_Rating",
+            "type": "quantitative"
+        },
+        "y": {
+            "field": "IMDB_Rating",
+            "type": "quantitative"
+        }
+    },
+    "height": 300,
+    "layer": [
+        {
+            "mark": {
+                "filled": true,
+                "opacity": 0.3,
+                "type": "point"
+            }
+        },
+        {
+            "mark": {
+                "color": "firebrick",
+                "type": "line"
+            },
+            "transform": [
+                {
+                    "bandwidth": 0.1,
+                    "loess": "IMDB_Rating",
+                    "on": "Rotten_Tomatoes_Rating"
+                }
+            ]
+        },
+        {
+            "mark": {
+                "color": "orange",
+                "type": "line"
+            },
+            "transform": [
+                {
+                    "extent": [
+                        10,
+                        90
+                    ],
+                    "method": "poly",
+                    "on": "Rotten_Tomatoes_Rating",
+                    "order": 3,
+                    "regression": "IMDB_Rating"
+                }
+            ]
+        }
+    ],
+    "width": 300
+}

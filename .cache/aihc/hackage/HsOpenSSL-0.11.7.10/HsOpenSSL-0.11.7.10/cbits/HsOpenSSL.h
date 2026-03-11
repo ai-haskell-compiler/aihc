@@ -1,0 +1,111 @@
+#ifndef HSOPENSSL_H_INCLUDED
+#define HSOPENSSL_H_INCLUDED
+#include <openssl/asn1.h>
+#include <openssl/bio.h>
+#include <openssl/bn.h>
+#include <openssl/dh.h>
+#include <openssl/err.h>
+#include <openssl/evp.h>
+#include <openssl/hmac.h>
+#include <openssl/rand.h>
+#include <openssl/objects.h>
+#include <openssl/opensslconf.h>
+#include <openssl/opensslv.h>
+#include <openssl/pem.h>
+#include <openssl/pkcs7.h>
+#include <openssl/ssl.h>
+#include <openssl/stack.h>
+#include <openssl/x509.h>
+#include <openssl/x509_vfy.h>
+#include <openssl/x509v3.h>
+#include <openssl/dsa.h>
+
+/* LibreSSL *******************************************************************/
+#if (defined LIBRESSL_VERSION_NUMBER && OPENSSL_VERSION_NUMBER == 0x20000000L)
+#undef OPENSSL_VERSION_NUMBER
+#define OPENSSL_VERSION_NUMBER 0x1000107fL
+#endif
+
+/* OpenSSL 3.0 ****************************************************************/
+
+#ifndef OPENSSL_VERSION_PREREQ
+#define OPENSSL_VERSION_PREREQ(maj,min) 0
+#endif
+
+
+/* OpenSSL ********************************************************************/
+void HsOpenSSL_init();
+void HsOpenSSL_OPENSSL_free(void* ptr);
+
+/* BIO ************************************************************************/
+void HsOpenSSL_BIO_set_flags(BIO* bio, int flags);
+int HsOpenSSL_BIO_flush(BIO* bio);
+int HsOpenSSL_BIO_reset(BIO* bio);
+int HsOpenSSL_BIO_eof(BIO* bio);
+int HsOpenSSL_BIO_set_md(BIO* bio, EVP_MD* md);
+int HsOpenSSL_BIO_set_buffer_size(BIO* bio, int bufSize);
+int HsOpenSSL_BIO_should_retry(BIO* bio);
+int HsOpenSSL_BIO_FLAGS_BASE64_NO_NL();
+
+/* DH *************************************************************************/
+DH* HsOpenSSL_DHparams_dup(DH* dh);
+const BIGNUM *HsOpenSSL_DH_get_pub_key(DH *dh);
+int HsOpenSSL_DH_length(DH *dh);
+
+/* EVP ************************************************************************/
+int HsOpenSSL_EVP_MD_size(EVP_MD* md);
+int HsOpenSSL_EVP_CIPHER_CTX_block_size(EVP_CIPHER_CTX* ctx);
+int HsOpenSSL_EVP_CIPHER_iv_length(EVP_CIPHER* cipher);
+
+/* EVP HMAC *******************************************************************/
+HMAC_CTX *HsOpenSSL_HMAC_CTX_new(void);
+void HsOpenSSL_HMAC_CTX_free(HMAC_CTX *ctx);
+
+/* X509 ***********************************************************************/
+long HsOpenSSL_X509_get_version(X509* x509);
+ASN1_TIME* HsOpenSSL_X509_get_notBefore(X509* x509);
+ASN1_TIME* HsOpenSSL_X509_get_notAfter(X509* x509);
+
+long HsOpenSSL_X509_REQ_get_version(X509_REQ* req);
+X509_NAME* HsOpenSSL_X509_REQ_get_subject_name(X509_REQ* req);
+
+long HsOpenSSL_X509_CRL_get_version(X509_CRL* crl);
+const ASN1_TIME* HsOpenSSL_X509_CRL_get_lastUpdate(const X509_CRL* crl);
+const ASN1_TIME* HsOpenSSL_X509_CRL_get_nextUpdate(const X509_CRL* crl);
+X509_NAME* HsOpenSSL_X509_CRL_get_issuer(X509_CRL* crl);
+STACK_OF(X509_REVOKED)* HsOpenSSL_X509_CRL_get_REVOKED(X509_CRL* crl);
+void HsOpenSSL_X509_ref(X509* x509);
+void HsOpenSSL_X509_CRL_ref(X509_CRL* crl);
+X509* HsOpenSSL_X509_STORE_CTX_get0_current_issuer(X509_STORE_CTX *ctx);
+X509_CRL* HsOpenSSL_X509_STORE_CTX_get0_current_crl(X509_STORE_CTX *ctx);
+
+/* PKCS#7 *********************************************************************/
+long HsOpenSSL_PKCS7_is_detached(PKCS7* pkcs7);
+
+/* ASN1 ***********************************************************************/
+ASN1_INTEGER* HsOpenSSL_M_ASN1_INTEGER_new();
+void HsOpenSSL_M_ASN1_INTEGER_free(ASN1_INTEGER* intPtr);
+ASN1_INTEGER* HsOpenSSL_M_ASN1_TIME_new();
+void HsOpenSSL_M_ASN1_TIME_free(ASN1_TIME* timePtr);
+
+/* Threads ********************************************************************/
+void HsOpenSSL_setupMutex();
+
+/* DSA ************************************************************************/
+int HsOpenSSL_dsa_sign(DSA *dsa, const unsigned char *ddata, int len,
+                       const BIGNUM **r, const BIGNUM **s);
+int HsOpenSSL_dsa_verify(DSA *dsa, const unsigned char *ddata, int len,
+                         const BIGNUM *r, const BIGNUM *s);
+DSA* HsOpenSSL_DSAPublicKey_dup(const DSA* dsa);
+DSA* HsOpenSSL_DSAPrivateKey_dup(const DSA* dsa);
+
+/* SSL ************************************************************************/
+long HsOpenSSL_SSL_CTX_set_options(SSL_CTX* ctx, long options);
+long HsOpenSSL_SSL_CTX_clear_options(SSL_CTX* ctx, long options);
+long HsOpenSSL_SSL_set_options(SSL* ssl, long options);
+long HsOpenSSL_SSL_clear_options(SSL* ssl, long options);
+long HsOpenSSL_SSL_set_tlsext_host_name(SSL* ssl, char* host_name);
+
+int HsOpenSSL_enable_hostname_validation(SSL* ssl, char* host_name, size_t host_len);
+
+#endif

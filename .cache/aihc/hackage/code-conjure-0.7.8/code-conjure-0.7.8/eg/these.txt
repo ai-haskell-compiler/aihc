@@ -1,0 +1,145 @@
+fromThese :: A -> B -> These A B -> (A,B)
+-- testing 4 combinations of argument values
+-- pruning with 0/0 rules
+-- 1 candidates of size 1
+-- 0 candidates of size 2
+-- 1 candidates of size 3
+-- 0 candidates of size 4
+-- 0 candidates of size 5
+-- 0 candidates of size 6
+-- 0 candidates of size 7
+-- 0 candidates of size 8
+-- 0 candidates of size 9
+-- 1 candidates of size 10
+-- tested 3 candidates
+fromThese x y Neither  =  (x,y)
+fromThese x y (This z)  =  (z,y)
+fromThese x y (That z)  =  (x,z)
+fromThese x y (These z x')  =  (z,x')
+
+listhese :: These A A -> [A]
+-- testing 3 combinations of argument values
+-- pruning with 0/0 rules
+-- 1 candidates of size 1
+-- 0 candidates of size 2
+-- 0 candidates of size 3
+-- 0 candidates of size 4
+-- 0 candidates of size 5
+-- 0 candidates of size 6
+-- 0 candidates of size 7
+-- 0 candidates of size 8
+-- 0 candidates of size 9
+-- 1 candidates of size 10
+-- tested 2 candidates
+listhese Neither  =  []
+listhese (That x)  =  [x]
+listhese (This x)  =  [x]
+listhese (These x y)  =  [x,y]
+
+cathis :: [These A B] -> [A]
+-- testing 8 combinations of argument values
+-- pruning with 3/3 rules
+-- 1 candidates of size 1
+-- 0 candidates of size 2
+-- 0 candidates of size 3
+-- 0 candidates of size 4
+-- 0 candidates of size 5
+-- 0 candidates of size 6
+-- 0 candidates of size 7
+-- 0 candidates of size 8
+-- 0 candidates of size 9
+-- 0 candidates of size 10
+-- 1 candidates of size 11
+-- tested 2 candidates
+cathis []  =  []
+cathis (t:ts)
+  | isThis t  =  fromThis t:cathis ts
+  | otherwise  =  cathis ts
+
+cathat :: [These A B] -> [B]
+-- testing 6 combinations of argument values
+-- pruning with 3/3 rules
+-- 1 candidates of size 1
+-- 0 candidates of size 2
+-- 0 candidates of size 3
+-- 0 candidates of size 4
+-- 0 candidates of size 5
+-- 0 candidates of size 6
+-- 0 candidates of size 7
+-- 0 candidates of size 8
+-- 0 candidates of size 9
+-- 0 candidates of size 10
+-- 1 candidates of size 11
+-- tested 2 candidates
+cathat []  =  []
+cathat (t:ts)
+  | isThat t  =  fromThat t:cathat ts
+  | otherwise  =  cathat ts
+
+cathis :: [These A B] -> [A]
+-- testing 8 combinations of argument values
+-- pruning with 0/0 rules
+-- 1 candidates of size 1
+-- 0 candidates of size 2
+-- 0 candidates of size 3
+-- 0 candidates of size 4
+-- 0 candidates of size 5
+-- 0 candidates of size 6
+-- 0 candidates of size 7
+-- 2 candidates of size 8
+-- 6 candidates of size 9
+-- 5 candidates of size 10
+-- 9 candidates of size 11
+-- tested 23 candidates
+cathis []  =  []
+cathis (Neither:ts)  =  cathis ts
+cathis (This x:ts)  =  x:cathis ts
+cathis (That x:ts)  =  cathis ts
+cathis (These x y:ts)  =  x:cathis ts
+
+cathat :: [These A B] -> [B]
+-- testing 6 combinations of argument values
+-- pruning with 0/0 rules
+-- 1 candidates of size 1
+-- 0 candidates of size 2
+-- 0 candidates of size 3
+-- 0 candidates of size 4
+-- 0 candidates of size 5
+-- 0 candidates of size 6
+-- 0 candidates of size 7
+-- 0 candidates of size 8
+-- 2 candidates of size 9
+-- 4 candidates of size 10
+-- 1 candidates of size 11
+-- tested 8 candidates
+cathat []  =  []
+cathat (Neither:ts)  =  cathat ts
+cathat (This x:ts)  =  cathat ts
+cathat (That x:ts)  =  x:cathat ts
+cathat (These x y:ts)  =  y:cathat ts
+
+cathese :: [These A A] -> [A]
+-- testing 7 combinations of argument values
+-- pruning with 0/0 rules
+-- 1 candidates of size 1
+-- 0 candidates of size 2
+-- 0 candidates of size 3
+-- 0 candidates of size 4
+-- 0 candidates of size 5
+-- 0 candidates of size 6
+-- 0 candidates of size 7
+-- 0 candidates of size 8
+-- 3 candidates of size 9
+-- 7 candidates of size 10
+-- 4 candidates of size 11
+-- 27 candidates of size 12
+-- 3 candidates of size 13
+-- 78 candidates of size 14
+-- 1 candidates of size 15
+-- tested 124 candidates
+cathese []  =  []
+cathese (Neither:ts)  =  cathese ts
+cathese (That x:ts)  =  x:cathese ts
+cathese (This x:ts)  =  x:cathese ts
+cathese (These x y:ts)  =  x:y:cathese ts
+

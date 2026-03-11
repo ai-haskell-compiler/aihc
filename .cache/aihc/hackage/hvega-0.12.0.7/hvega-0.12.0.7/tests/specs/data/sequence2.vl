@@ -1,0 +1,28 @@
+{
+    "$schema": "https://vega.github.io/schema/vega-lite/v4.json",
+    "data": {
+        "sequence": {
+            "as": "u",
+            "start": 0,
+            "step": 0.1,
+            "stop": 12.7
+        }
+    },
+    "encoding": {
+        "x": {
+            "field": "u",
+            "type": "quantitative"
+        },
+        "y": {
+            "field": "v",
+            "type": "quantitative"
+        }
+    },
+    "mark": "line",
+    "transform": [
+        {
+            "as": "v",
+            "calculate": "sin(datum.u)"
+        }
+    ]
+}

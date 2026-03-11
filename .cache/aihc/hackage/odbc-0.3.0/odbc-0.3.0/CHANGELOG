@@ -1,0 +1,36 @@
+0.3.0:
+	* Add support for DATETIMEOFFSET
+	* Add support for text-2.0
+0.2.6:
+	* Add support for SQLSTATE
+	* Fix copying issues for error messages
+	* Add support for GHC 9.0
+0.2.5:
+	* Add binding of parameters for text/binary
+	* Fix null uniqueidentifier returning non-null value
+	* Include column names in output
+	* Support WCHAR
+
+0.2.2:
+	* Accept smaller int/floats in bigger types
+
+0.2.1:
+	* Expose rawUnescapedText
+
+0.2.0:
+	* Drop Maybes, use NullValue.
+
+0.1.1:
+	* Fix Smalldatetime ToSql instance to set seconds to 0.
+	* Add support for numeric.
+
+0.1.0:
+	* Removed instance of ToSql for LocalTime, added two new
+	newtypes: Datetime2 and Smalldatetime.
+
+0.0.4:
+	* Improved non-Unicode field support: varchar/text treated as
+	actual binary, not "characters" in the SQL server sense.
+
+0.0.3:
+	* Handle multiple statements in exec call.

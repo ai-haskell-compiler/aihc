@@ -1,0 +1,4 @@
+Optimal model:
+  x        = 4.0 :: Real
+  y        = 5.0 :: Real
+  x_plus_y = 9.0 :: Real

@@ -1,0 +1,75 @@
+{
+    "$schema": "https://vega.github.io/schema/vega-lite/v4.json",
+    "data": {
+        "url": "https://vega.github.io/vega-lite/data/barley.json"
+    },
+    "description": "Error bars showing standard deviations",
+    "encoding": {
+        "y": {
+            "field": "variety",
+            "type": "ordinal"
+        }
+    },
+    "layer": [
+        {
+            "encoding": {
+                "color": {
+                    "value": "black"
+                },
+                "x": {
+                    "axis": {
+                        "title": "Barley Yield"
+                    },
+                    "field": "mean",
+                    "scale": {
+                        "zero": false
+                    },
+                    "type": "quantitative"
+                }
+            },
+            "mark": {
+                "filled": true,
+                "type": "point"
+            }
+        },
+        {
+            "encoding": {
+                "x": {
+                    "field": "upper",
+                    "type": "quantitative"
+                },
+                "x2": {
+                    "field": "lower"
+                }
+            },
+            "mark": "rule"
+        }
+    ],
+    "transform": [
+        {
+            "aggregate": [
+                {
+                    "as": "mean",
+                    "field": "yield",
+                    "op": "mean"
+                },
+                {
+                    "as": "stdev",
+                    "field": "yield",
+                    "op": "stdev"
+                }
+            ],
+            "groupby": [
+                "variety"
+            ]
+        },
+        {
+            "as": "lower",
+            "calculate": "datum.mean-datum.stdev"
+        },
+        {
+            "as": "upper",
+            "calculate": "datum.mean+datum.stdev"
+        }
+    ]
+}

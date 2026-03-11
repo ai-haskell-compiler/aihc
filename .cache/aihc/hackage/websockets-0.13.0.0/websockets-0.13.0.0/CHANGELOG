@@ -1,0 +1,214 @@
+# CHANGELOG
+
+- 0.13.0.0 (2023-12-30)
+    * **BREAKING**: Remove `serverRequirePong` option in favor of the new
+      implementation.
+    * **BREAKING**: Client: Rejecting request raises
+      `RequestRejected RequestHead ResponseHead`
+    * Timeout initial socket connection after 30s.
+    * If the socket is closed unexpectedly, raise `ConnectionClosed`.
+    * Added a way to manually send a Pong message.
+    * `runServer` now cleans up threads correctly.
+    * Remove redundant bytestring-builder dependency.
+    * Introduce `Network.WebSockets.Connection.PingPong` to
+      handle ping pong for any Connection, be it Client or Server.
+    * Bump `text `dependency upper bound to 2.2
+    * Bump `random `dependency lower bound to 1.0.1
+
+- 0.12.7.3 (2021-10-26)
+    * Bump `attoparsec` dependency upper bound to 0.15
+
+- 0.12.7.2 (2020-12-07)
+    * Bump `QuickCheck` dependency upper bound to 2.15
+    * Bump `base64-bytestring` dependency upper bound to 1.3
+    * Bump `bytestring` dependency upper bound to 0.12
+    * Bump `random` dependency upper bound to 1.3
+
+- 0.12.7.1 (2020-05-03)
+    * Bump `base64-bytestring` dependency upper bound to 1.2
+
+- 0.12.7.0 (2019-12-31)
+    * Bump `base` lower bound to 4.8, this drops support for GHC 7.6 and 7.8
+    * Add a new `runServerWithOptions` that can be extended in a more
+      future-compatible way
+    * Add a connection killer setting in `runServerWithOptions`
+    * Fix an unsafe read issue in `decodeResponseHead`
+
+- 0.12.6.1 (2019-10-29)
+    * Bump `network` dependency to 3.1
+
+- 0.12.6.0 (2019-10-28)
+    * Expose a lower-level API to construct client connections (by Philipp
+      Balzarek)
+    * Close underlying stream only on synchronous exceptions, not asynchronous
+      exceptions (by kamoii)
+    * Add a `withPingThread` and lower-level `pingThread` to replace
+      `forkPingThread`
+    * Bump `QuickCheck` dependency to 2.13
+
+- 0.12.5.3 (2019-01-31)
+    * Bump `network` dependency to 3.0
+
+- 0.12.5.2 (2018-09-25)
+    * Bump `containers` dependency to 0.6
+    * Bump `network` dependency to 2.8
+    * Bump `QuickCheck` dependency to 2.12
+    * Bump `binary` dependency to 0.10
+
+- 0.12.5.1 (2018-06-12)
+    * Fix build with GHC 7.6 and 7.8
+
+- 0.12.5.0 (2018-06-01)
+    * Add `newClientConnection` (by Renzo Carbonara)
+
+- 0.12.4.1 (2018-05-11)
+    * Bump `network` dependency to 2.7
+
+- 0.12.4.0 (2018-03-13)
+    * Remove `blaze-builder` dependency
+    * Bump `streaming-commons` dependency to 0.2
+    * Bump `QuickCheck` dependency to 2.11
+    * Fix compatibility with old GHC versions
+    * Re-export more functions from `Network.WebSockets`
+        - `sendDataMessages`
+        - `sendBinaryDatas`
+        - `sendCloseCode`
+    * Don't crash when sending the empty list of messages
+    * Add `SemiGroup` instance for `SizeLimit`
+
+- 0.12.3.1 (2018-01-10)
+    * Bump CHANGELOG with IPv6 warning
+    * Run all autobahn tests during CI
+
+- 0.12.3.0 (2018-01-02)
+    * Fix error thrown from runClient functions
+    * Bump `QuickCheck` dependency to 2.10
+    * Bump `entropy` dependency to 0.4
+    * Bump `binary` dependency to 0.10
+
+- 0.12.2.0 (2017-07-28)
+    * Don't use LambdaCase, we want to support older GHC versions
+
+- 0.12.1.0 (2017-07-22)
+    * Fix Monoid import on older base versions
+    * Increase lower bound on `binary` to 0.8.1 (by Jonathan Daugherty)
+
+- 0.12.0.0
+    * Add limit options for frame and message size to prevent against (D)DoS
+      attacks
+    * Fix space leak in encodeMessages (by Roman Borschel)
+    * Stricter frame/encoding decoding for ping/close frames (by Lars Petersen)
+
+- 0.11.2.0
+    * Fix 0-width reason phrase parsing
+    * Change receive buffer from 1024 to 8192 bytes (by Ondrej Palkovsky)
+    * Implement fast masking in C (by Ondrej Palkovsky and myself)
+    * Some haddock improvements
+    * Bump `HUnit` dependency to 1.6
+
+- 0.11.1.0
+    * Fix compilation issue with GHC-7.8
+
+- 0.11.0.0
+    * Support for IPv6 in the built-in server, client and tests (by agentm).
+      This can cause issues on backends that do not enable IPv6.  For more
+      information and a workaround, see this issue:
+      <https://github.com/jaspervdj/websockets/issues/140#issuecomment-296732964>.
+    * Faster masking (by Dmitry Ivanov)
+    * Support for `permessage-deflate` extension (by Marcin Tolysz)
+    * Strict unicode checking and proper extension mechanism
+
+- 0.10.0.0
+    * Fix client specifying empty path
+    * Allow sending collections of messages (by David Turner)
+    * Allow sending extra headers when accepting request (by James Deery)
+
+- 0.9.8.2
+    * Bump `HUnit` dependency to 1.5
+
+- 0.9.8.1
+    * Restore state of the package to version `0.9.7.0`
+
+- 0.9.8.0
+    * This release contained a feature which broke backwards-compatibility.
+      Hence, it was marked as broken a new release containing the changes will
+      be uploaded as `0.10.0.0`.
+
+- 0.9.7.0
+    * Fix issue trying to kill builtin server
+    * Bump `QuickCheck` dependency to 2.9
+
+- 0.9.6.2
+    * Bump `binary` dependency for GHC 8.0 compatibility
+
+- 0.9.6.1
+    * Fix issue with fragmentation test
+
+- 0.9.6.0
+    * Optionally include example server in the cabal file
+    * Send correct port from client
+    * Set `TCP_NO_DELAY` in builtin server
+    * Bump `HUnit` dependency
+    * Drop dependency on `mtl`
+    * Fix `QuickCheck` dependency lower bound
+
+- 0.9.5.0
+    * Bugfixes wrt closing sockets and streams
+
+- 0.9.4.0
+    * Add `makePendingConnectionFromStream` function
+    * Bump `attoparsec` dependency
+
+- 0.9.3.1
+    * Bump `QuickCheck` dependency
+
+- 0.9.3.0
+    * Use a shared closed state for connection input/output stream
+    * Make sure `runServer` doesn't leak any sockets
+    * Bump `blaze-builder` dependency
+
+- 0.9.2.2
+    * Bump `random` dependency
+
+- 0.9.2.1
+    * Fix exception handling issues
+
+- 0.9.2.0
+    * Make sending and receiving messages thread-safe by default
+    * Export `forkPingThread`
+    * Fix Windows `withSocketsDo` issue
+
+- 0.9.1.0
+    * Don't use Network.ByteString.Lazy.sendAll on Windows
+
+- 0.9.0.1
+    * Allow compilation with older bytestring versions
+    * Bump text dependency
+
+- 0.9.0.0
+    * Bump various dependencies
+    * Remove io-streams dependency
+    * New close mechanism
+    * More flexible API interface
+
+- 0.8.2.6
+    * Bump QuickCheck dependency
+
+- 0.8.2.5
+    * Bump attoparsec dependency
+
+- 0.8.2.4
+    * Bump entropy dependency
+
+- 0.8.2.3
+    * Bump mtl dependency
+
+- 0.8.2.2
+    * Bump network dependency
+
+- 0.8.2.1
+    * Add benchmark with many open connections
+    * Update example to use gender-neutral language
+
+- 0.8.2.0
+    * Fix possible leaking of client sockets when connection times out

@@ -1,0 +1,202 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+    <title>BC_MINISAT_ALL: A Blocking AllSAT Solver</title>
+    <link rel="stylesheet" href="http://www.sd.is.uec.ac.jp/toda/css/default.css" type="text/css" />
+    <meta name="generator" content="DocBook XSL-NS Stylesheets V1.75.2" />
+  </head>
+  <body>
+    <div xml:lang="en" class="article" title="BC_MINISAT_ALL: A Blocking AllSAT Solver" lang="en">
+      <div class="titlepage">
+        <div>
+          <div>
+            <h2 class="title"><a id="idp192"></a>BC_MINISAT_ALL: A Blocking AllSAT Solver</h2>
+          </div>
+          <div>
+            <div class="author">
+              <h3 class="author">
+                <span class="firstname">Takahisa</span>
+                <span class="surname">Toda</span>
+              </h3>
+              <div class="affiliation">
+                <div class="address">
+                  <p><br />
+	  <code class="email">&lt;<a class="email" href="mailto:toda.takahisa(at)gmail.com">toda.takahisa(at)gmail.com</a>&gt;</code><br />
+	</p>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div>
+<p><a href="http://www.sd.is.uec.ac.jp/toda/index.html" style="float:right;">Back to Top Page.</a></p>            <p class="pubdate">
+      Last update: 2015-9-30
+    </p>
+          </div>
+        </div>
+        <hr />
+      </div>
+      <div class="sect1" title="1. Description">
+        <div class="titlepage">
+          <div>
+            <div>
+              <h2 class="title" style="clear: both"><a id="definition"></a>1. Description</h2>
+            </div>
+          </div>
+        </div>
+        <p>
+        A blocking clause-based AllSAT solver (a blocking solver for short), implemented on top of  MiniSat-C v1.14.1, is presented.
+    </p>
+      </div>
+      <div class="sect1" title="2. DOWNLOAD">
+        <div class="titlepage">
+          <div>
+            <div>
+              <h2 class="title" style="clear: both"><a id="download"></a>2. DOWNLOAD</h2>
+            </div>
+          </div>
+        </div>
+        <div class="itemizedlist">
+          <ul class="itemizedlist" type="disc">
+            <li class="listitem">
+	        Latest version: <a class="ulink" href="bc_minisat_all-1.1.0.tar.gz" target="_top">bc_minisat_all version 1.1.0</a>, released on 30th Sep., 2015.
+	        </li>
+            <li class="listitem">
+	        Old versions: <a class="ulink" href="bc_minisat_all-1.0.0.tar.gz" target="_top">bc_minisat_all version 1.0.0</a>, <a class="ulink" href="minisat_all-2.0.1.tar.gz" target="_top">v.2.0.1</a>, <a class="ulink" href="minisat_all-2.0.0.tar.gz" target="_top">v.2.0.0</a>, <a class="ulink" href="minisat_all-1.0.0.tar.gz" target="_top">v.1.0.0</a>.
+	        </li>
+          </ul>
+        </div>
+      </div>
+      <div class="sect1" title="3. FILE FORMAT">
+        <div class="titlepage">
+          <div>
+            <div>
+              <h2 class="title" style="clear: both"><a id="format"></a>3. FILE FORMAT</h2>
+            </div>
+          </div>
+        </div>
+        <p>
+      Input boolean formula should be in DIMACS CNF format.
+      For details of DIMACS CNF format and benchmark problems, see <a class="ulink" href="http://www.cs.ubc.ca/~hoos/SATLIB/benchm.html" target="_top">SATLIB</a>.
+    </p>
+      </div>
+      <div class="sect1" title="4. HOW TO COMPILE">
+        <div class="titlepage">
+          <div>
+            <div>
+              <h2 class="title" style="clear: both"><a id="compile"></a>4. HOW TO COMPILE</h2>
+            </div>
+          </div>
+        </div>
+        <p>If no option is given, standard mode is selected.</p>
+        <pre class="screen">
+
+$ tar zxvf bc_minisat_all-1.0.0.tar.gz
+$ cd bc_minisat_all-1.0.0
+$ make [options] 
+list of options
+s   standard: debug information used by debugger is generated at compilation time, and detailed solver status is reported at runtime.
+p   profile: in addition to standard setting, profile information used by gprof is generated at compilation time and several tests are performed at runtime.
+d   debug: in addition to standard setting, several tests are performed at runtime and no optimization is applied.
+r   release: release version, compiled with dynamic link
+rs  static: release version, compiled with static link
+clean   executable files, object files, etc are removed.
+
+      </pre>
+      </div>
+      <div class="sect1" title="5. MACRO"><div class="titlepage"><div><div><h2 class="title" style="clear: both"><a id="macro"></a>5. MACRO</h2></div></div></div>
+    
+    Program behavior can be controlled by defining or not defining the following macros in <code class="filename">Makefile</code>.
+    <div class="itemizedlist"><ul class="itemizedlist" type="disc"><li class="listitem">
+        SIMPLIFY:     Simplification of assignments is enabled. If this is not defined, simplification is not performed, and blocking clauses consisting of decision literals are used instead.
+      </li><li class="listitem">
+        NONDISJOINT:        Nondisjoint partial assignments are computed (see Yu et al. 2014). If this is not defined, computed partial assignments are pairwise disjoint: in other words, different partial assignments do not share common total assignments. This macro makes sense only when SIMPLIFICATION is defined too.
+      </li><li class="listitem">
+        CONTINUE:       Search is continued at the point where a solutions is found. If this is not defined, solver starts from scratch.
+      </li><li class="listitem">
+        FIXEDORDER:        Variable selection heuristic is disabled and variables are selected in increasing order of variable indices. If this is not defined, variable selection heuristic is used. This functionality is added to evaluate efficiency of variable selection heuristics.
+      </li><li class="listitem">
+        GMP:                GNU MP bignum library is used to count solutions.
+      </li></ul></div>
+  </div>
+      <div class="sect1" title="6. USAGE">
+        <div class="titlepage">
+          <div>
+            <div>
+              <h2 class="title" style="clear: both"><a id="usage"></a>6. USAGE</h2>
+            </div>
+          </div>
+        </div>
+        <p>
+    If an output file is specified, all satisfying assignments to a CNF are generated in DIMACS CNF format without problem line. 
+    <span class="emphasis"><em>Notice: there may be as many number of assignments as can not be stored in a disk space.</em></span>
+    If simplification is performed, computed assingments are partial, which means some variables may not appear.
+    </p>
+        <pre class="screen">
+
+Usage:  ./bc_minisat_all [options] input-file [output-file]
+
+    </pre>
+        <p>
+    </p>
+      </div>
+      <div class="sect1" title="7. LICENSE">
+        <div class="titlepage">
+          <div>
+            <div>
+              <h2 class="title" style="clear: both"><a id="license"></a>7. LICENSE</h2>
+            </div>
+          </div>
+        </div>
+        <p>bc_minisat_all is implemented by modifying MiniSat-C_v1.14.1. Please confirm the license file included in this software.</p>
+      </div>
+      <div class="sect1" title="8. NOTICE">
+        <div class="titlepage">
+          <div>
+            <div>
+              <h2 class="title" style="clear: both"><a id="notice"></a>8. NOTICE</h2>
+            </div>
+          </div>
+        </div>
+        <p>
+    A huge number of assignments may be generated and <span class="emphasis"><em>disk space may be exhausted</em></span>. To avoid disk overflow, take measure such as using <span class="command"><strong>ulimit</strong></span> command.
+    </p>
+      </div>
+      <div class="sect1" title="9. REFERENCES">
+        <div class="titlepage">
+          <div>
+            <div>
+              <h2 class="title" style="clear: both"><a id="references"></a>9. REFERENCES</h2>
+            </div>
+          </div>
+        </div>
+        <div class="itemizedlist">
+          <ul class="itemizedlist" type="disc">
+            <li class="listitem">
+	  N. Eén, N. Sörensson : <a class="ulink" href="http://minisat.se/" target="_top">MiniSat Page</a>: MiniSat-C_v1.14.1, accessed on 15 Dec. 2014.
+	</li>
+            <li class="listitem">
+	  N. Eén, N. Sörensson : <a class="ulink" href="http://dx.doi.org/10.1007/978-3-540-24605-3_37" target="_top">An Extensible SAT-solver</a>, In Proceedings of the 6th international conference of Theory and Applications of Satisfiability Testing, pages 502--518, 2004.
+	</li>
+            <li class="listitem">
+Morgado, A. and Marques-Silva, J.: <a class="ulink" href="http://dx.doi.org/10.1109/ICTAI.2005.69" target="_top">Good learning and implicit model enumeration</a>, In Proceedings of  17th IEEE International Conference on Tools with Artificial Intelligence, 2005. ICTAI 05.
+	</li>
+            <li class="listitem">
+Yinlei Yu and Subramanyan, P. and Tsiskaridze, N. and Malik, S.: <a class="ulink" href="http://dx.doi.org/10.1109/VLSID.2014.22" target="_top">All-SAT Using Minimal Blocking Clauses</a>, In Proceedings of 27th International Conference on VLSI Design and 2014 13th International Conference on Embedded Systems, 2014, pp.86-91.
+	</li>
+            <li class="listitem">
+McMillan, KenL.: <a class="ulink" href="http://dx.doi.org/10.1007/3-540-45657-0_19" target="_top">Applying SAT Methods in Unbounded Symbolic Model Checking</a>, Computer Aided Verification, LNCS Vol.2404, pp.250-264. 2002.
+	</li>
+            <li class="listitem">
+Jin, HoonSang and Han, HyoJung and Somenzi, Fabio: <a class="ulink" href="http://dx.doi.org/10.1007/978-3-540-31980-1_19" target="_top">Efficient Conflict Analysis for Finding All Satisfying Assignments of a Boolean Circuit</a>, Tools and Algorithms for the Construction and Analysis of Systems, LNCS Vol.3440, pp.287-300, 2005.
+	</li>
+            <li class="listitem">
+Weinan Zhao and Weimin Wu: <a class="ulink" href="http://dx.doi.org/10.1109/CADCG.2009.5246850" target="_top">ASIG: An all-solution SAT solver for CNF formulas</a>, In Proceedings of 11th IEEE International Conference on Computer-Aided Design and Computer Graphics, 2009. CAD/Graphics '09, pp. 508-513, 2009.
+	</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

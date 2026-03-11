@@ -1,0 +1,62 @@
+{
+    "$schema": "https://vega.github.io/schema/vega-lite/v4.json",
+    "data": {
+        "values": [
+            {
+                "label": "Vega",
+                "url": "https://vega.github.io/vega"
+            },
+            {
+                "label": "Vega-Lite",
+                "url": "https://vega.github.io/vega-lite"
+            }
+        ]
+    },
+    "layer": [
+        {
+            "encoding": {
+                "color": {
+                    "field": "label",
+                    "legend": null,
+                    "type": "nominal"
+                },
+                "href": {
+                    "field": "url",
+                    "type": "nominal"
+                },
+                "size": {
+                    "value": 8000
+                },
+                "x": {
+                    "axis": null,
+                    "field": "label",
+                    "type": "nominal"
+                }
+            },
+            "mark": {
+                "cursor": "pointer",
+                "type": "circle"
+            }
+        },
+        {
+            "encoding": {
+                "color": {
+                    "value": "white"
+                },
+                "size": {
+                    "value": 16
+                },
+                "text": {
+                    "field": "label",
+                    "type": "nominal"
+                },
+                "x": {
+                    "axis": null,
+                    "field": "label",
+                    "type": "nominal"
+                }
+            },
+            "mark": "text"
+        }
+    ]
+}

@@ -1,0 +1,49 @@
++++ OK, passed 500 tests.
+
+*** Failed! Falsifiable (after 4 tests):
+[] [0,0]
+
+Generalization:
+xs (x:x:xs)
+
+Generalization:
+[] (x:x:_)
+
+Conditional Generalization:
+xs (_:xs)  when  xs /= []
+
+*** Failed! Falsifiable (after 6 tests):
+[0,1]
+
+Conditional Generalization:
+[x,y]  when  x /= y
+
+*** Failed! Falsifiable (after 3 tests):
+[0,0]
+
+Generalization:
+x:x:_
+
+Conditional Generalization:
+x:xs  when  elem x xs
+
+*** Failed! Falsifiable (after 2 tests):
+[0]
+
+Generalization:
+_:_
+
+Conditional Generalization:
+xs  when  xs /= []
+
+*** Failed! Falsifiable (after 2 tests):
+[] [0]
+
+Generalization:
+_ (_:_)
+
+Conditional Generalization:
+_ xs  when  xs /= []
+
++++ OK, passed 500 tests.
+

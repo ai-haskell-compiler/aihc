@@ -1,0 +1,153 @@
+--- parse tree ---
+[ Code
+    "typ/math/cases-00.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/math/cases-00.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/math/cases-00.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Equation
+    True
+    [ MGroup
+        Nothing
+        Nothing
+        [ Text "f"
+        , MGroup (Just "(") (Just ")") [ Text "x" , Text "," , Text "y" ]
+        ]
+    , Code
+        "typ/math/cases-00.typ"
+        ( line 2 , column 11 )
+        (FieldAccess
+           (Ident (Identifier "eq")) (Ident (Identifier "colon")))
+    , Code
+        "typ/math/cases-00.typ"
+        ( line 2 , column 14 )
+        (FuncCall
+           (Ident (Identifier "cases"))
+           [ BlockArg
+               [ Text "1"
+               , Code
+                   "typ/math/cases-00.typ"
+                   ( line 3 , column 5 )
+                   (Ident (Identifier "quad"))
+               , MAlignPoint
+               , Text "if "
+               , MFrac
+                   (MGroup
+                      (Just "(")
+                      (Just ")")
+                      [ Text "x"
+                      , Code
+                          "typ/math/cases-00.typ"
+                          ( line 3 , column 19 )
+                          (Ident (Identifier "dot"))
+                      , Text "y"
+                      ])
+                   (Text "2")
+               , Code
+                   "typ/math/cases-00.typ"
+                   ( line 3 , column 28 )
+                   (FieldAccess (Ident (Identifier "eq")) (Ident (Identifier "lt")))
+               , Text "0"
+               ]
+           , BlockArg
+               [ Text "2"
+               , MAlignPoint
+               , Text "if "
+               , Text "x"
+               , Code
+                   "typ/math/cases-00.typ"
+                   ( line 4 , column 13 )
+                   (Ident (Identifier "divides"))
+               , Text "2"
+               ]
+           , BlockArg
+               [ Text "3"
+               , MAlignPoint
+               , Text "if "
+               , Text "x"
+               , Code
+                   "typ/math/cases-00.typ"
+                   ( line 5 , column 13 )
+                   (Ident (Identifier "in"))
+               , Code
+                   "typ/math/cases-00.typ"
+                   ( line 5 , column 16 )
+                   (Ident (Identifier "NN"))
+               ]
+           , BlockArg [ Text "4" , MAlignPoint , Text "else" ]
+           ])
+    ]
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 math.equation(block: true, 
+                               body: { text(body: [f]), 
+                                       math.lr(body: ({ [(], 
+                                                        text(body: [x]), 
+                                                        text(body: [,]), 
+                                                        text(body: [y]), 
+                                                        [)] })), 
+                                       text(body: [≔]), 
+                                       math.cases(children: ({ text(body: [1]), 
+                                                               text(body: [ ]), 
+                                                               math.alignpoint(), 
+                                                               text(body: [if ]), 
+                                                               math.frac(denom: text(body: [2]), 
+                                                                         num: { text(body: [x]), 
+                                                                                text(body: [⋅]), 
+                                                                                text(body: [y]) }), 
+                                                               text(body: [≤]), 
+                                                               text(body: [0]) }, 
+                                                             { text(body: [2]), 
+                                                               math.alignpoint(), 
+                                                               text(body: [if ]), 
+                                                               text(body: [x]), 
+                                                               text(body: [∣]), 
+                                                               text(body: [2]) }, 
+                                                             { text(body: [3]), 
+                                                               math.alignpoint(), 
+                                                               text(body: [if ]), 
+                                                               text(body: [x]), 
+                                                               text(body: [∈]), 
+                                                               text(body: [ℕ]) }, 
+                                                             { text(body: [4]), 
+                                                               math.alignpoint(), 
+                                                               text(body: [else]) })) }, 
+                               numbering: none), 
+                 parbreak() })

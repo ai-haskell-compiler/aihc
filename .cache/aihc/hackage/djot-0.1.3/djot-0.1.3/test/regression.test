@@ -1,0 +1,257 @@
+Issue #104:
+
+```
+{1--}
+
+{1-}
+.
+<p>{1--}</p>
+<p>{1-}</p>
+```
+
+Issue #106:
+
+```
+
+|`|
+.
+<p>|<code>|</code></p>
+```
+
+```
+
+|`|x
+.
+<p>|<code>|x</code></p>
+```
+
+Issue #127:
+
+```
+\$$`a`
+.
+<p>$<span class="math inline">\(a\)</span></p>
+```
+
+```
+{
+ .`
+.
+<p>{
+.<code></code></p>
+```
+
+Issue #57:
+
+```
+| 1 | 2 |
+
+ ^ cap1
+
+ ^ cap2
+.
+<table>
+<caption>cap2</caption>
+<tr>
+<td>1</td>
+<td>2</td>
+</tr>
+</table>
+```
+
+Section start after list:
+
+```
+: term
+
+  def
+
+# New heading
+.
+<dl>
+<dt>term</dt>
+<dd>
+def
+</dd>
+</dl>
+<section id="New-heading">
+<h1>New heading</h1>
+</section>
+```
+
+Block quotes with markers unaligned:
+
+```
+> foo
+ > bar
+.
+<blockquote>
+<p>foo
+bar</p>
+</blockquote>
+```
+
+```
+{#convertibilità}
+# Convertibilità
+.
+<section id="convertibilità">
+<h1>Convertibilità</h1>
+</section>
+```
+
+Issue #4
+
+```
+1. one
+2. two
+
+ok
+.
+<ol>
+<li>
+one
+</li>
+<li>
+two
+</li>
+</ol>
+<p>ok</p>
+```
+
+```
+1. one
+2. two
+
+|three|four|
+
+five
+.
+<ol>
+<li>
+one
+</li>
+<li>
+two
+</li>
+</ol>
+<table>
+<tr>
+<td>three</td>
+<td>four</td>
+</tr>
+</table>
+<p>five</p>
+```
+
+```
+|one|two|three|
+
+|four|five|six|
+.
+<table>
+<tr>
+<td>one</td>
+<td>two</td>
+<td>three</td>
+</tr>
+</table>
+<table>
+<tr>
+<td>four</td>
+<td>five</td>
+<td>six</td>
+</tr>
+</table>
+```
+
+Issue jgm/djoths#10:
+
+```
+1. Hello
+
+   ::: hi
+   inside list?
+   :::
+
+   ::: hi
+   inside list?
+   :::
+.
+<ol>
+<li>
+<p>Hello</p>
+<div class="hi">
+<p>inside list?</p>
+</div>
+<div class="hi">
+<p>inside list?</p>
+</div>
+</li>
+</ol>
+```
+
+Issue #11:
+
+```
+> ```js
+> {
+>   "A": 1
+> }
+> ```
+.
+<blockquote>
+<pre><code class="language-js">{
+  "A": 1
+}
+</code></pre>
+</blockquote>
+```
+
+Issue #12:
+
+```
+I like the Lemon Jelly album titled '}64–'}95.
+.
+<p>I like the Lemon Jelly album titled ’64–’95.</p>
+```
+
+https://github.com/jgm/djot.js/issues/118
+
+```
+{#ident
+  .class}
+
+Para
+.
+<p>Para</p>
+```
+
+Issue jgm/djoths#14 - nested sections with list-only content:
+
+```
+## Section 1
+
+- item
+
+## Section 2
+
+- item
+.
+<section id="Section-1">
+<h2>Section 1</h2>
+<ul>
+<li>
+item
+</li>
+</ul>
+</section>
+<section id="Section-2">
+<h2>Section 2</h2>
+<ul>
+<li>
+item
+</li>
+</ul>
+</section>
+```

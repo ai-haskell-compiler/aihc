@@ -1,0 +1,136 @@
+name:          criterion-examples
+version:       0
+synopsis:      Examples for the criterion benchmarking system
+description:   Examples for the criterion benchmarking system.
+homepage:      https://github.com/haskell/criterion
+license:       BSD3
+license-file:  LICENSE
+author:        Bryan O'Sullivan <bos@serpentine.com>
+maintainer:    Bryan O'Sullivan <bos@serpentine.com>
+category:      Benchmarks
+build-type:    Simple
+cabal-version: >=1.10
+tested-with:
+  GHC==8.0.2,
+  GHC==8.2.2,
+  GHC==8.4.4,
+  GHC==8.6.5,
+  GHC==8.8.4,
+  GHC==8.10.7,
+  GHC==9.0.2,
+  GHC==9.2.8,
+  GHC==9.4.8,
+  GHC==9.6.6,
+  GHC==9.8.2,
+  GHC==9.10.1
+
+flag conduit-vs-pipes
+  default: True
+
+flag maps
+  default: True
+
+executable fibber
+  main-is: Fibber.hs
+
+  default-language: Haskell2010
+  ghc-options: -Wall -rtsopts
+  build-depends:
+    base >= 4.9 && < 5,
+    criterion
+
+executable conduit-vs-pipes
+  if !flag(conduit-vs-pipes)
+    buildable: False
+
+  main-is: ConduitVsPipes.hs
+
+  default-language: Haskell2010
+  ghc-options: -Wall -rtsopts
+  build-depends:
+    base >= 4.9 && < 5,
+    conduit >= 1.2.13.1,
+    criterion,
+    pipes >= 4.3.5,
+    transformers
+
+executable maps
+  if !flag(maps)
+    buildable: False
+
+  main-is: Maps.hs
+
+  default-language: Haskell2010
+  ghc-options: -Wall -rtsopts
+  build-depends:
+    base >= 4.9 && < 5,
+    bytestring,
+    containers,
+    criterion,
+    deepseq,
+    hashable,
+    mwc-random >= 0.13.1,
+    unordered-containers,
+    vector,
+    vector-algorithms
+
+executable overhead
+  main-is: Overhead.hs
+
+  default-language: Haskell2010
+  ghc-options: -Wall -rtsopts
+  build-depends:
+    base >= 4.9 && < 5,
+    criterion,
+    criterion-measurement
+
+executable bad-read-file
+  main-is: BadReadFile.hs
+
+  default-language: Haskell2010
+  ghc-options: -Wall -rtsopts
+  build-depends:
+    base >= 4.9 && < 5,
+    criterion
+
+executable good-read-file
+  main-is: GoodReadFile.hs
+
+  default-language: Haskell2010
+  ghc-options: -Wall -rtsopts
+  build-depends:
+    base >= 4.9 && < 5,
+    criterion
+
+executable extensible-cli
+  main-is: ExtensibleCLI.hs
+
+  default-language: Haskell2010
+  ghc-options: -Wall -rtsopts
+  build-depends:
+    base >= 4.9 && < 5,
+    base-compat-batteries,
+    criterion,
+    optparse-applicative
+
+executable quotes
+  main-is: Quotes.hs
+
+  default-language: Haskell2010
+  ghc-options: -Wall -rtsopts
+  build-depends:
+    base >= 4.9 && < 5,
+    criterion
+
+-- Cannot uncomment due to https://github.com/haskell/cabal/issues/1725
+--
+-- executable judy
+--   main-is: Judy.hs
+--
+--   buildable: False
+--   default-language: Haskell2010
+--   ghc-options: -Wall -rtsopts
+--   build-depends:
+--     base >= 4.9 && < 5,
+--     criterion,
+--     judy

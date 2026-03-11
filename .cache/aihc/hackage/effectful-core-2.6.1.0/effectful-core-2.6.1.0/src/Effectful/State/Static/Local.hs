@@ -1,0 +1,139 @@
+-- | Support for access to a mutable value of a particular type.
+--
+-- The value is thread local. If you want it to be shared between threads, use
+-- "Effectful.State.Static.Shared".
+--
+-- /Note:/ unlike the 'Control.Monad.Trans.State.StateT' monad transformer from
+-- the @transformers@ library, the 'State' effect doesn't discard state updates
+-- when an exception is received:
+--
+-- >>> import Control.Exception (ErrorCall)
+-- >>> import Control.Monad.Catch
+-- >>> import Control.Monad.Trans.State.Strict qualified as S
+--
+-- >>> :{
+--   (`S.execStateT` "Hi") . handle (\(_::ErrorCall) -> pure ()) $ do
+--     S.modify (++ " there!")
+--     error "oops"
+-- :}
+-- "Hi"
+--
+-- >>> :{
+--   runEff . execState "Hi" . handle (\(_::ErrorCall) -> pure ()) $ do
+--     modify (++ " there!")
+--     error "oops"
+-- :}
+-- "Hi there!"
+module Effectful.State.Static.Local
+  ( -- * Effect
+    State
+
+    -- ** Handlers
+  , runState
+  , evalState
+  , execState
+
+    -- ** Operations
+  , get
+  , gets
+  , put
+  , state
+  , modify
+  , stateM
+  , modifyM
+  ) where
+
+import Data.Kind
+
+import Effectful
+import Effectful.Dispatch.Static
+
+-- | Provide access to a strict (WHNF), thread local, mutable value of type @s@.
+data State (s :: Type) :: Effect
+
+type instance DispatchOf (State s) = Static NoSideEffects
+newtype instance StaticRep (State s) = State s
+
+-- | Run the 'State' effect with the given initial state and return the final
+-- value along with the final state.
+runState
+  :: HasCallStack
+  => s -- ^ The initial state.
+  -> Eff (State s : es) a
+  -> Eff es (a, s)
+runState s0 m = do
+  (a, State s) <- runStaticRep (State s0) m
+  pure (a, s)
+
+-- | Run the 'State' effect with the given initial state and return the final
+-- value, discarding the final state.
+evalState
+  :: HasCallStack
+  => s -- ^ The initial state.
+  -> Eff (State s : es) a
+  -> Eff es a
+evalState s = evalStaticRep (State s)
+
+-- | Run the 'State' effect with the given initial state and return the final
+-- state, discarding the final value.
+execState
+  :: HasCallStack
+  => s -- ^ The initial state.
+  -> Eff (State s : es) a
+  -> Eff es s
+execState s0 m = do
+  State s <- execStaticRep (State s0) m
+  pure s
+
+-- | Fetch the current value of the state.
+get :: (HasCallStack, State s :> es) => Eff es s
+get = do
+  State s <- getStaticRep
+  pure s
+
+-- | Get a function of the current state.
+--
+-- @'gets' f ≡ f '<$>' 'get'@
+gets
+  :: (HasCallStack, State s :> es)
+  => (s -> a) -- ^ The function to apply to the state.
+  -> Eff es a
+gets f = f <$> get
+
+-- | Set the current state to the given value.
+put :: (HasCallStack, State s :> es) => s -> Eff es ()
+put s = putStaticRep (State s)
+
+-- | Apply the function to the current state and return a value.
+state
+  :: (HasCallStack, State s :> es)
+  => (s -> (a, s)) -- ^ The function to modify the state.
+  -> Eff es a
+state f = stateStaticRep $ \(State s0) -> let (a, s) = f s0 in (a, State s)
+
+-- | Apply the function to the current state.
+--
+-- @'modify' f ≡ 'state' (\\s -> ((), f s))@
+modify
+  :: (HasCallStack, State s :> es)
+  => (s -> s) -- ^ The function to modify the state.
+  -> Eff es ()
+modify f = state $ \s -> ((), f s)
+
+-- | Apply the monadic function to the current state and return a value.
+stateM
+  :: (HasCallStack, State s :> es)
+  => (s -> Eff es (a, s)) -- ^ The function to modify the state.
+  -> Eff es a
+stateM f = stateStaticRepM $ \(State s0) -> do
+  (a, s) <- f s0
+  pure (a, State s)
+
+-- | Apply the monadic function to the current state.
+--
+-- @'modifyM' f ≡ 'stateM' (\\s -> ((), ) '<$>' f s)@
+modifyM
+  :: (HasCallStack, State s :> es)
+  => (s -> Eff es s) -- ^ The monadic function to modify the state.
+  -> Eff es ()
+modifyM f = stateM (\s -> ((), ) <$> f s)

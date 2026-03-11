@@ -1,0 +1,356 @@
+[The latest version of this document is on GitHub.](https://github.com/haskell-servant/servant/blob/master/servant-client-core/CHANGELOG.md)
+[Changelog for `servant` package contains significant entries for all core packages.](https://github.com/haskell-servant/servant/blob/master/servant/CHANGELOG.md)
+
+Package versions follow the [Package Versioning Policy](https://pvp.haskell.org/): in A.B.C, bumps to either A or B represent major versions.
+
+0.20.3.0
+--------
+
+- Server-sent events (SSE) for client-side [#1811](https://github.com/haskell-servant/servant/issues/1811)
+
+  Implement Server-sent events (SSE) for the Servant client using a new
+  combinator "ServerSentEvents". The raw event messages, accumulated events and
+  JSON-processed events can be exposed.
+
+- Integrate MultiVerb [#1766](https://github.com/haskell-servant/servant/pull/1766) [#1804](https://github.com/haskell-servant/servant/pull/1804)
+
+  Expose MultiVerb, a more ergonomic way of defining endpoints that return
+  many kinds of responses. Read the cookbook https://docs.servant.dev/en/master/cookbook/multiverb/MultiVerb.html
+
+- Add public re-export of renderCurlBasePath lens [#1706](https://github.com/haskell-servant/servant/pull/1706)
+- Remove GHC <= 8.10.7 from the support window [#1778](https://github.com/haskell-servant/servant/pull/1778)
+- Add Servant.API.Range type [#1805](https://github.com/haskell-servant/servant/pull/1805)
+- Add missing HasLink instance for DeepQuery [#1784](https://github.com/haskell-servant/servant/issues/1784)
+- Add Host API combinator [#1800](https://github.com/haskell-servant/servant/pull/1800)
+
+  Adding a Host combinator allows servant users to select APIs according
+  to the Host header provided by clients.
+
+0.20.2
+----
+
+- Full query string helpers [#1604](https://github.com/haskell-servant/servant/pull/1604)
+  This involves exporting `setQueryString` from Servant.Client.Core.Request.
+
+0.20
+----
+
+- Escape special chars in QueryParams. [#1584](https://github.com/haskell-servant/servant/issues/1584) [#1597](https://github.com/haskell-servant/servant/pull/1597)
+
+  Escape special chars in QueryParam (`:@&=+$`) in servant-client. Note that this
+  mean binary data will not work as is, and so reverts the functionality in
+  [#1432](https://github.com/haskell-servant/servant/pull/1432).
+
+- Handle Cookies correctly for RunStreamingClient [#1605](https://github.com/haskell-servant/servant/issues/1605) [#1606](https://github.com/haskell-servant/servant/pull/1606)
+
+  Makes `performWithStreamingRequest` take into consideration the
+  CookieJar, which it previously didn't.
+
+- Fix the handling of multiple headers with the same name. [#1666](https://github.com/haskell-servant/servant/pull/1666)
+
+  servant-client no longer concatenates the values of response headers with the same name.
+  This fixes an issue with parsing multiple `Set-Cookie` headers.
+
+0.19
+----
+
+### Significant changes
+
+- Drop support for GHC < 8.6.
+- Support GHC 9.0 (GHC 9.2 should work as well, but isn't fully tested yet).
+- Support Aeson 2 ([#1475](https://github.com/haskell-servant/servant/pull/1475)),
+  which fixes a [DOS vulnerability](https://github.com/haskell/aeson/issues/864)
+  related to hash collisions.
+- Add `NamedRoutes` combinator, making support for records first-class in Servant
+  ([#1388](https://github.com/haskell-servant/servant/pull/1388)).
+- Add custom type errors for partially applied combinators
+  ([#1289](https://github.com/haskell-servant/servant/pull/1289),
+  [#1486](https://github.com/haskell-servant/servant/pull/1486)).
+- *servant-client* / *servant-client-core* / *servant-http-streams*: Fix
+  erroneous behavior, where only 2XX status codes would be considered
+  successful, irrelevant of the status parameter specified by the verb
+  combinator. ([#1469](https://github.com/haskell-servant/servant/pull/1469))
+- *servant-client* / *servant-client-core*: Fix `Show` instance for
+  `Servant.Client.Core.Request`.
+- *servant-client* /  *servant-client-core*: Allow passing arbitrary binary data
+  in Query parameters.
+  ([#1432](https://github.com/haskell-servant/servant/pull/1432)).
+
+### Other changes
+
+- Various version bumps.
+
+0.18.3
+------
+
+### Significant changes
+
+- Add response header support to UVerb (#1420)
+
+### Other changes
+
+- Support GHC-9.0.1.
+- Bump `bytestring`, `hspec`, `base64-bytestring` and `QuickCheck` dependencies.
+
+0.18.2
+------
+
+### Significant changes
+
+- Support `Fragment` combinator.
+
+0.18.1
+------
+
+### Significant changes
+
+- Union verbs
+
+### Other changes
+
+- Bump "tested-with" ghc versions
+- Loosen bound on base16-bytestring
+
+0.18
+----
+
+### Significant changes
+
+- Support for ghc8.8 (#1318, #1326, #1327)
+
+
+0.17
+----
+
+### Significant changes
+
+- Add NoContentVerb [#1028](https://github.com/haskell-servant/servant/issues/1028) [#1219](https://github.com/haskell-servant/servant/pull/1219) [#1228](https://github.com/haskell-servant/servant/pull/1228)
+
+  The `NoContent` API endpoints should now use `NoContentVerb` combinator.
+  The API type changes are usually of the kind
+
+  ```diff
+  - :<|> PostNoContent '[JSON] NoContent
+  + :<|> PostNoContent
+  ```
+
+  i.e. one doesn't need to specify the content-type anymore. There is no content.
+
+- `Capture` can be `Lenient` [#1155](https://github.com/haskell-servant/servant/issues/1155) [#1156](https://github.com/haskell-servant/servant/pull/1156)
+
+  You can specify a lenient capture as
+
+  ```haskell
+  :<|> "capture-lenient"  :> Capture' '[Lenient] "foo" Int :> GET
+  ```
+
+  which will make the capture always succeed. Handlers will be of the
+  type `Either String CapturedType`, where `Left err` represents
+  the possible parse failure.
+
+### Other changes
+
+- *servant-client* *servant-client-core* *servant-http-streams* Fix Verb with headers checking content type differently [#1200](https://github.com/haskell-servant/servant/issues/1200) [#1204](https://github.com/haskell-servant/servant/pull/1204)
+
+  For `Verb`s with response `Headers`, the implementation didn't check
+  for the content-type of the response. Now it does.
+
+- *servant-client* *servant-http-streams* `HasClient` instance for `Stream` with `Headers` [#1170](https://github.com/haskell-servant/servant/issues/1170) [#1197](https://github.com/haskell-servant/servant/pull/1197)
+- *servant-client* Redact the authorization header in Show and exceptions [#1238](https://github.com/haskell-servant/servant/pull/1238)
+
+0.16
+----
+
+- Rename `ServantError` to `ClientError`, `ServantErr` to `ServerError`
+  [#1131](https://github.com/haskell-servant/servant/pull/1131)
+
+- *servant-client-core* Rearrange modules. No more `Internal` modules, whole
+  API is versioned.
+  [#1130](https://github.com/haskell-servant/servant/pull/1130)
+
+- *servant-client-core* `RequestBody` is now
+
+    ```haskell
+    = RequestBodyLBS LBS.ByteString
+    | RequestBodyBS BS.ByteString
+    | RequestBodySource (SourceIO LBS.ByteString)
+    ```
+
+  i.e. no more replicates `http-client`s API.
+  [#1117](https://github.com/haskell-servant/servant/pull/1117)
+
+- *servant-client-core* Keep structured exceptions in `ConnectionError`
+  constructor of `ClientError`
+  [#1115](https://github.com/haskell-servant/servant/pull/1115)
+
+    ```diff
+    -| ConnectionError Text
+    +| ConnectionError SomeException
+    ```
+
+- *servant-client-core* Preserve failing request in `FailureResponse`
+  constructor of `ClientError`
+  [#1114](https://github.com/haskell-servant/servant/pull/1114)
+
+    ```diff
+    -FailureResponse Response
+    +-- | The server returned an error response including the
+    +-- failing request. 'requestPath' includes the 'BaseUrl' and the
+    +-- path of the request.
+    +FailureResponse (RequestF () (BaseUrl, BS.ByteString)) Response
+    ```
+
+- *servant-client* Fix (implement) `StreamBody` instance
+  [#1110](https://github.com/haskell-servant/servant/pull/1110)
+
+- *servant-client* Update CookieJar with intermediate request/responses (redirects)
+  [#1104](https://github.com/haskell-servant/servant/pull/1104)
+
+0.15
+----
+
+- Streaming refactoring.
+  [#991](https://github.com/haskell-servant/servant/pull/991)
+  [#1076](https://github.com/haskell-servant/servant/pull/1076)
+  [#1077](https://github.com/haskell-servant/servant/pull/1077)
+
+  The streaming functionality (`Servant.API.Stream`) is refactored to use
+  `servant`'s own `SourceIO` type (see `Servant.Types.SourceT` documentation),
+  which replaces both `StreamGenerator` and `ResultStream` types.
+
+  New conversion type-classes are `ToSourceIO` and `FromSourceIO`
+  (replacing `ToStreamGenerator` and `BuildFromStream`).
+  There are instances for *conduit*, *pipes* and *machines* in new packages:
+  [servant-conduit](https://hackage.haskell.org/package/servant-conduit)
+  [servant-pipes](https://hackage.haskell.org/package/servant-pipes) and
+  [servant-machines](https://hackage.haskell.org/package/servant-machines)
+  respectively.
+
+  Writing new framing strategies is simpler. Check existing strategies for examples.
+
+  This change shouldn't affect you, if you don't use streaming endpoints.
+
+- *servant-client* Separate streaming client.
+  [#1066](https://github.com/haskell-servant/servant/pull/1066)
+
+  We now have two `http-client` based clients,
+  in `Servant.Client` and `Servant.Client.Streaming`.
+
+  Their API is the same, except for
+  - `Servant.Client` **cannot** request `Stream` endpoints.
+  - `Servant.Client` is *run* by direct
+    `runClientM :: ClientM a -> ClientEnv -> IO (Either ServantError a)`
+  - `Servant.Client.Streaming` **can** request `Stream` endpoints.
+  - `Servant.Client.Streaming` is *used* by CPSised
+    `withClientM :: ClientM a -> ClientEnv -> (Either ServantError a -> IO b) -> IO b`
+
+  To access `Stream` endpoints use `Servant.Client.Streaming` with
+  `withClientM`; otherwise you can continue using `Servant.Client` with `runClientM`.
+  You can use both too, `ClientEnv` and `BaseUrl` types are same for both.
+
+  **Note:** `Servant.Client.Streaming` doesn't *stream* non-`Stream` endpoints.
+  Requesting ordinary `Verb` endpoints (e.g. `Get`) will block until
+  the whole response is received.
+
+  There is `Servant.Client.Streaming.runClientM` function, but it has
+  restricted type. `NFData a` constraint prevents using it with
+  `SourceT`, `Conduit` etc. response types.
+
+  ```haskell
+  runClientM :: NFData a => ClientM a -> ClientEnv -> IO (Either ServantError a)
+  ```
+
+  This change shouldn't affect you, if you don't use streaming endpoints.
+
+- *servant-client-core* Related to the previous:
+  `streamingResponse` is removed from `RunClient`.
+  We have a new type-class:
+
+  ```haskell
+  class RunClient m =>  RunStreamingClient m where
+      withStreamingRequest :: Request -> (StreamingResponse -> IO a) ->  m a
+  ```
+
+- Drop support for GHC older than 8.0
+  [#1008](https://github.com/haskell-servant/servant/pull/1008)
+  [#1009](https://github.com/haskell-servant/servant/pull/1009)
+
+- *servant-client-core* Add `NFData (GenResponse a)` and `NFData ServantError` instances.
+  [#1076](https://github.com/haskell-servant/servant/pull/1076)
+
+- *servant-client-core* Add `aeson` and `Lift BaseUrl` instances
+  [#1037](https://github.com/haskell-servant/servant/pull/1037)
+
+0.14.1
+------
+
+- Merge in `servant-generic` (by [Patrick Chilton](https://github.com/chpatrick))
+  into `servant` (`Servant.API.Generic`),
+  `servant-client-code` (`Servant.Client.Generic`)
+  and `servant-server` (`Servant.Server.Generic`).
+
+0.14
+----
+
+- `Stream` takes a status code argument
+
+  ```diff
+  -Stream method        framing ctype a
+  +Stream method status framing ctype a
+  ```
+
+  ([#966](https://github.com/haskell-servant/servant/pull/966)
+   [#972](https://github.com/haskell-servant/servant/pull/972))
+
+- `ToStreamGenerator` definition changed, so it's possible to write an instance
+  for conduits.
+
+  ```diff
+  -class ToStreamGenerator f a where
+  -   toStreamGenerator :: f a -> StreamGenerator a
+  +class ToStreamGenerator a b | a -> b where
+  +   toStreamGenerator :: a -> StreamGenerator b
+  ```
+
+  ([#959](https://github.com/haskell-servant/servant/pull/959))
+
+- Added `NoFraming` streaming strategy
+  ([#959](https://github.com/haskell-servant/servant/pull/959))
+
+- *servant-client-core* Free `Client` implementation.
+  Useful for testing `HasClient` instances.
+  ([#920](https://github.com/haskell-servant/servant/pull/920))
+
+- *servant-client-core* Add `hoistClient` to `HasClient`.
+  Just like `hoistServer` allows us to change the monad in which request handlers
+  of a web application live, we also have `hoistClient` for changing the monad
+  in which *client functions* live.
+  Read [tutorial section for more information](https://docs.servant.dev/en/release-0.14/tutorial/Client.html#changing-the-monad-the-client-functions-live-in).
+  ([#936](https://github.com/haskell-servant/servant/pull/936))
+
+  iF you have own combinators, you'll need to define a new method of
+  `HasClient` class, for example:
+
+  ```haskell
+  type Client m (MyCombinator :> api) = MyValue :> Client m api
+  hoistClientMonad pm _ nt cl = hoistClientMonad pm (Proxy :: Proxy api) nt . cl
+  ```
+
+0.13.0.1
+--------
+
+- Support `base-compat-0.10`
+
+0.13
+----
+
+- Streaming endpoint support.
+  ([#836](https://github.com/haskell-servant/servant/pull/836))
+- *servant* Add `Servant.API.Modifiers`
+  ([#873](https://github.com/haskell-servant/servant/pull/873))
+
+0.12
+----
+
+- First version. Factored out of `servant-client` all the functionality that was
+  independent of the `http-client` backend.

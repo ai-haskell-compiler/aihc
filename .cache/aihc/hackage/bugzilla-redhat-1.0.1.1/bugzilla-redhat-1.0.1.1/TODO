@@ -1,0 +1,5 @@
+- support getting bug's requested fields
+
+- instance Monoid SearchExpression?
+
+* use http-query

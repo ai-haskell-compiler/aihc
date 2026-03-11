@@ -1,0 +1,14 @@
+1.1.0.4:
+- bump hspec
+- released dom 23 apr 2023, 19:26:50
+
+1.1.0.3:
+- bump hspec
+- add readme w/ contributing instructions
+- switch to stagit
+
+1.1.0.1:
+- Bump hspec
+
+1.1.0.0:
+- Reexport language hyphenators

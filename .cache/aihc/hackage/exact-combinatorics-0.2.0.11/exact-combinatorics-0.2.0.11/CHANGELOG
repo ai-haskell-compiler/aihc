@@ -1,0 +1,21 @@
+0.2.0.11 (2021-11-02):
+    - Added `Tested-With: GHC == 9.2.1` (didn't actually need to
+      nudge the upper bound on 'base', because it's already lenient)
+0.2.0.10 (2021-10-16):
+    - Changed from TravisCI to GithubActions
+0.2.0.9 (2019-04-13):
+    - Changed cabal to use Simple build type, to support cabal's new-build.
+    - Removed the CPP hack for Haddock documentation, as part
+      of switching to the Simple build type.
+    - Using BangPatterns in lieu of the old seq-undefined-guard trick.
+    - Added TravisCI integration
+0.2.0.8 (2015-05-30):
+    - Moved VERSION to CHANGELOG
+0.2.0.4 (2012-09-26):
+    - Math.Combinatorics.Exact.Binomial: added OEIS link
+0.2.0 (2012-02-02):
+    - renamed to exact-combinatorics.
+    - moved Math.Combinatorics.* to Math.Combinatorics.Exact.*
+
+0.1.0 (2011-12-04):
+    - init.

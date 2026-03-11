@@ -1,0 +1,23 @@
+
+    MultipletCombiner
+    =================
+
+A Haskell implementation for combining SU(n) multiplets according
+to the algorithm described in the particle data book (2021) section 48, see
+
+    https://pdg.lbl.gov/2022/reviews/rpp2022-rev-young-diagrams.pdf
+.
+
+See LICENSE.
+
+Description:
+    https://github.com/mdrslmr/MultipletCombiner/blob/main/multiplets.pdf
+
+Subdirectories:
+
+src:
+    The Haskell source code of the algorithm to be used e.g. within ghci.
+
+tests:
+    Some tests using HUnit.
+

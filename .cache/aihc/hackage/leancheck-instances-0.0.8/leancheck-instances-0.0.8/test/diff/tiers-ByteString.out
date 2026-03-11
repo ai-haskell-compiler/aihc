@@ -1,0 +1,47 @@
+map length (tiers :: [[ ByteString ]])  =  [1,1,2,4,8,16,...]
+
+length (list :: [ ByteString ])  =  Infinity
+
+allUnique (list :: [ ByteString ])  =  True
+
+ratioRepetitions (list :: [ ByteString ])  =  0 % 1
+
+tiers :: [ByteString]  =
+  [ [""]
+  , ["\NUL"]
+  , [ "\NUL\NUL"
+    , "\255"
+    ]
+  , [ "\NUL\NUL\NUL"
+    , "\NUL\255"
+    , "\255\NUL"
+    , "\SOH"
+    ]
+  , [ "\NUL\NUL\NUL\NUL"
+    , "\NUL\NUL\255"
+    , "\NUL\255\NUL"
+    , "\NUL\SOH"
+    , "\255\NUL\NUL"
+    , "\255\255"
+    , "\SOH\NUL"
+    , "\254"
+    ]
+  , [ "\NUL\NUL\NUL\NUL\NUL"
+    , "\NUL\NUL\NUL\255"
+    , "\NUL\NUL\255\NUL"
+    , "\NUL\NUL\SOH"
+    , "\NUL\255\NUL\NUL"
+    , "\NUL\255\255"
+    , "\NUL\SOH\NUL"
+    , "\NUL\254"
+    , "\255\NUL\NUL\NUL"
+    , "\255\NUL\255"
+    , "\255\255\NUL"
+    , "\255\SOH"
+    , "\SOH\NUL\NUL"
+    , "\SOH\255"
+    , "\254\NUL"
+    , "\STX"
+    ]
+  , ...
+  ]

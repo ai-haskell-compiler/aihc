@@ -1,0 +1,18 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="2.0" unique-identifier="uuid_id">
+  <opf:metadata xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:opf="http://www.idpf.org/2007/opf" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:calibre="http://calibre.kovidgoyal.net/2009/metadata" xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:language>en</dc:language>
+    <dc:title>Foo Bar Baz</dc:title>
+    <dc:identifier id="uuid_id" opf:scheme="uuid">1122334455</dc:identifier>
+  </opf:metadata>
+
+   <manifest>
+      <item id="ncx"
+         href="toc.ncx"
+         media-type="application/x-dtbncx+xml" />
+   </manifest>
+
+   <spine toc="ncx">
+   </spine>
+
+</package>

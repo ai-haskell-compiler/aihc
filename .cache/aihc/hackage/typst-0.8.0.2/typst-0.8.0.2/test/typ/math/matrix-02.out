@@ -1,0 +1,104 @@
+--- parse tree ---
+[ Code
+    "typ/math/matrix-02.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/math/matrix-02.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/math/matrix-02.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Comment
+, Equation
+    True
+    [ Code
+        "typ/math/matrix-02.typ"
+        ( line 3 , column 3 )
+        (FuncCall
+           (Ident (Identifier "mat"))
+           [ ArrayArg
+               [ [ Text "a" , MAttach Nothing (Just (Text "2")) (Text "b") ]
+               , [ MGroup
+                     Nothing
+                     Nothing
+                     [ MAttach
+                         (Just (MGroup Nothing Nothing [ Text "x" , HardBreak , Text "y" ]))
+                         Nothing
+                         (Code
+                            "typ/math/matrix-02.typ"
+                            ( line 5 , column 3 )
+                            (Ident (Identifier "sum")))
+                     , Text "x"
+                     ]
+                 , MAttach
+                     Nothing
+                     (Just (MGroup Nothing Nothing [ MFrac (Text "1") (Text "2") ]))
+                     (Text "a")
+                 ]
+               , [ Code
+                     "typ/math/matrix-02.typ"
+                     ( line 6 , column 3 )
+                     (Ident (Identifier "zeta"))
+                 , Code
+                     "typ/math/matrix-02.typ"
+                     ( line 6 , column 9 )
+                     (Ident (Identifier "alpha"))
+                 ]
+               ]
+           ])
+    ]
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 math.equation(block: true, 
+                               body: math.mat(rows: ((text(body: [a]), 
+                                                      math.attach(b: none, 
+                                                                  base: text(body: [b]), 
+                                                                  t: text(body: [2]))), 
+                                                     ({ math.attach(b: { text(body: [x]), 
+                                                                         linebreak(), 
+                                                                         text(body: [y]) }, 
+                                                                    base: text(body: [∑]), 
+                                                                    t: none), 
+                                                        text(body: [x]) }, 
+                                                      math.attach(b: none, 
+                                                                  base: text(body: [a]), 
+                                                                  t: math.frac(denom: text(body: [2]), 
+                                                                               num: text(body: [1])))), 
+                                                     (text(body: [ζ]), 
+                                                      text(body: [α])))), 
+                               numbering: none), 
+                 parbreak() })

@@ -1,0 +1,168 @@
+-- | Core functionality of the package. Import from either "System.Console.Ansigraph" or
+--   "System.Console.Ansigraph.Core".
+module System.Console.Ansigraph.Internal.Core where
+
+import System.Console.ANSI
+import System.IO (hFlush, stdout)
+import Control.Monad.IO.Class (MonadIO, liftIO)
+-- for GHC <= 7.8
+import Control.Applicative
+
+---- Basics ----
+
+-- | ANSI colors are characterized by a 'Color' and a 'ColorIntensity'.
+data AnsiColor = AnsiColor {
+    intensity :: ColorIntensity
+  , color     :: Color
+  } deriving Show
+
+-- | Record that holds graphing options.
+data GraphSettings = GraphSettings {
+
+      -- | Foreground color for real number component.
+      realColor :: AnsiColor
+      -- | Foreground color for imaginary number component.
+    , imagColor :: AnsiColor
+      -- | Foreground color for negative real values. For matrix graphs only.
+    , realNegColor :: AnsiColor
+      -- | Foreground color for negative imaginary values. For matrix graphs only.
+    , imagNegColor :: AnsiColor
+      -- | Background color for real number component.
+    , realBG :: AnsiColor
+      -- | Background color for imaginary number component.
+    , imagBG :: AnsiColor
+    -- | Framerate in FPS.
+    , framerate :: Int
+
+    }
+
+
+-- | 'Vivid' 'Blue' – used as the default real foreground color.
+blue  = AnsiColor Vivid Blue
+
+-- | 'Vivid' 'Magenta' – used as the default foreground color for imaginary
+--   graph component.
+pink  = AnsiColor Vivid Magenta
+
+-- | 'Vivid' 'White' – used as the default graph background color
+--   for both real and imaginary graph components.
+white = AnsiColor Vivid White
+
+-- | 'Vivid' 'Red' – used as the default foreground color for negative real component.
+red   = AnsiColor Vivid Red
+
+-- | 'Dull' 'Green' – used as the default foreground color for negative imaginary component.
+green = AnsiColor Dull Green
+
+-- | 'Dull' 'Black'.
+black  = AnsiColor Dull Blue
+
+-- | 'Vivid' 'Yellow'.
+yellow  = AnsiColor Vivid Yellow
+
+-- | 'Vivid' 'Magenta'.
+magenta  = AnsiColor Vivid Magenta
+
+-- | 'Vivid' 'Cyan'.
+cyan  = AnsiColor Vivid Cyan
+
+
+-- | Default graph settings.
+graphDefaults = GraphSettings blue pink red green white white 15
+
+-- | Holds two 'Maybe' 'AnsiColor's representing foreground and background colors for display via ANSI.
+--   'Nothing' means use the default terminal color.
+data Coloring = Coloring { foreground :: Maybe AnsiColor,
+                           background :: Maybe AnsiColor } deriving Show
+
+-- | A 'Coloring' representing default terminal colors, i.e. two 'Nothing's.
+noColoring = Coloring Nothing Nothing
+
+-- | Helper constructor function for 'Coloring' that takes straight 'AnsiColor's without 'Maybe'.
+mkColoring :: AnsiColor -> AnsiColor -> Coloring
+mkColoring c1 c2 = Coloring (Just c1) (Just c2)
+
+-- | Projection retrieving foreground and background colors
+--   for real number graphs in the form of a 'Coloring'.
+realColors :: GraphSettings -> Coloring
+realColors s = mkColoring (realColor s) (realBG s)
+
+-- | Projection retrieving foreground and background colors
+--   for imaginary component of complex number graphs in the form of a 'Coloring'.
+imagColors :: GraphSettings -> Coloring
+imagColors s = mkColoring (imagColor s) (imagBG s)
+
+-- | Retrieves a pair of 'Coloring's for real and imaginary graph components respectively.
+colorSets :: GraphSettings -> (Coloring,Coloring)
+colorSets s = (realColors s, imagColors s)
+
+-- | Swaps foreground and background colors within a 'Coloring'.
+invert :: Coloring -> Coloring
+invert (Coloring fg bg) = Coloring bg fg
+
+-- | Easily create a 'Coloring' by specifying the background 'AnsiColor' and no custom foreground.
+fromBG :: AnsiColor -> Coloring
+fromBG c = Coloring Nothing (Just c)
+
+-- | Easily create a 'Coloring' by specifying the foreground 'AnsiColor' and no custom background.
+fromFG :: AnsiColor -> Coloring
+fromFG c = Coloring (Just c) Nothing
+
+-- | The SGR command corresponding to a particular 'ConsoleLayer' and 'AnsiColor'.
+interpAnsiColor :: ConsoleLayer -> AnsiColor -> SGR
+interpAnsiColor l (AnsiColor i c) = SetColor l i c
+
+-- | Produce a (possibly empty) list of 'SGR' commands from a 'ConsoleLayer' and 'AnsiColor'.
+--   An empty 'SGR' list is equivalent to 'Reset'.
+sgrList :: ConsoleLayer -> Maybe AnsiColor -> [SGR]
+sgrList l = fmap (interpAnsiColor l) . maybe [] pure
+
+-- | Set the given 'AnsiColor' on the given 'ConsoleLayer'.
+setColor :: MonadIO m => ConsoleLayer -> AnsiColor -> m ()
+setColor l c = liftIO $ setSGR [interpAnsiColor l c]
+
+-- | Apply both foreground and background color contained in a 'Coloring'.
+applyColoring :: MonadIO m => Coloring -> m ()
+applyColoring (Coloring fg bg) = liftIO $ do
+  setSGR [Reset]
+  setSGR $ sgrList Foreground fg ++ sgrList Background bg
+
+-- | Clear any SGR settings and then flush stdout.
+clear :: MonadIO m => m ()
+clear = liftIO $ setSGR [Reset] >> hFlush stdout
+
+putStrLn', putStr' :: MonadIO m => String -> m ()
+putStrLn' = liftIO . putStrLn
+putStr' = liftIO . putStr
+
+-- | Clear any SGR settings, flush stdout and print a new line.
+clearLn :: MonadIO m => m ()
+clearLn = clear >> putStrLn' ""
+
+-- | Use a particular ANSI 'Coloring' to print a string at the terminal (without a new line),
+--   then clear all ANSI SGR codes and flush stdout.
+colorStr :: MonadIO m => Coloring -> String -> m ()
+colorStr c s = do
+  applyColoring c
+  putStr' s
+  clear
+
+-- | Use a particular ANSI 'Coloring' to print a string at the terminal,
+--   then clear all ANSI SGR codes, flush stdout and print a new line.
+colorStrLn :: MonadIO m => Coloring -> String -> m ()
+colorStrLn c s = do
+  applyColoring c
+  putStr' s
+  clearLn
+
+-- | Like 'colorStr' but prints bold text.
+boldStr :: MonadIO m => Coloring -> String -> m ()
+boldStr c s = do
+  applyColoring c
+  liftIO $ setSGR [SetConsoleIntensity BoldIntensity]
+  putStr' s
+  clear
+
+-- | Like 'colorStrLn' but prints bold text.
+boldStrLn :: MonadIO m => Coloring -> String -> m ()
+boldStrLn c s = boldStr c s >> putStrLn' ""

@@ -1,0 +1,144 @@
+Source: haskell-cabal-debian
+Maintainer: Debian Haskell Group <pkg-haskell-maintainers@lists.alioth.debian.org>
+Priority: optional
+Section: haskell
+Build-Depends: debhelper (>= 9),
+ haskell-devscripts-minimal | haskell-devscripts (>= 0.8),
+ cdbs,
+ ghc,
+ ghc-prof,
+ libghc-cabal-dev (>= 1.18) | ghc,
+ libghc-cabal-prof (>= 1.18) | ghc-prof,
+ libghc-diff-dev (>= 0.3.1),
+ libghc-diff-prof (>= 0.3.1),
+ libghc-hunit-dev,
+ libghc-hunit-prof,
+ libghc-unixutils-dev (>= 1.53),
+ libghc-unixutils-prof (>= 1.53),
+ libghc-ansi-wl-pprint-dev (>= 0.6),
+ libghc-ansi-wl-pprint-dev (<< 0.7),
+ libghc-ansi-wl-pprint-prof (>= 0.6),
+ libghc-ansi-wl-pprint-prof (<< 0.7),
+ libghc-bifunctors-dev,
+ libghc-bifunctors-prof,
+ libghc-data-default-dev,
+ libghc-data-default-prof,
+ libghc-debian-dev (>= 3.91),
+ libghc-debian-prof (>= 3.91),
+ libghc-exceptions-dev,
+ libghc-exceptions-prof,
+ libghc-hsemail-dev,
+ libghc-hsemail-prof,
+ libghc-lens-dev,
+ libghc-lens-prof,
+ libghc-memoize-dev (>= 0.7),
+ libghc-memoize-prof (>= 0.7),
+ libghc-network-uri-dev,
+ libghc-network-uri-prof,
+ libghc-newtype-generics-dev (>= 0.4),
+ libghc-newtype-generics-prof (>= 0.4),
+ libghc-optparse-applicative-dev (>= 0.11),
+ libghc-optparse-applicative-prof (>= 0.11),
+ libghc-puremd5-dev,
+ libghc-puremd5-prof,
+ libghc-regex-tdfa-dev,
+ libghc-regex-tdfa-prof,
+ libghc-set-extra-dev,
+ libghc-set-extra-prof,
+ libghc-syb-dev,
+ libghc-syb-prof,
+ libghc-utf8-string-dev,
+ libghc-utf8-string-prof,
+ libghc-cabal-dev (>= 1.16) | ghc,
+ libghc-cabal-prof (>= 1.16) | ghc-prof,
+Build-Depends-Indep: ghc-doc,
+ libghc-cabal-doc | ghc-doc,
+ libghc-diff-doc,
+ libghc-hunit-doc,
+ libghc-unixutils-doc,
+ libghc-ansi-wl-pprint-doc,
+ libghc-bifunctors-doc,
+ libghc-data-default-doc,
+ libghc-debian-doc,
+ libghc-exceptions-doc,
+ libghc-hsemail-doc,
+ libghc-lens-doc,
+ libghc-memoize-doc,
+ libghc-network-uri-doc,
+ libghc-newtype-generics-doc,
+ libghc-optparse-applicative-doc,
+ libghc-puremd5-doc,
+ libghc-regex-tdfa-doc,
+ libghc-set-extra-doc,
+ libghc-syb-doc,
+ libghc-utf8-string-doc,
+Standards-Version: 3.9.6
+Homepage: https://tracker.debian.org/pkg/cabal-debian
+Vcs-Browser: https://github.com/clinty/cabal-debian
+Vcs-Git: https://github.com/clinty/cabal-debian.git
+X-Description: Create a Debianization for a Cabal package
+ This package supports the generation of a package Debianization (i.e.
+ the files in the @debian@ subdirectory) for a cabal package,
+ either through a library API or using the cabal-debian executable.
+ For documentation of the executable, run
+ @cabal-debian --help@, for documentation of the library API follow
+ the link to the @Debian.Debianize@ module below.
+
+Package: cabal-debian
+Architecture: any
+Section: misc
+Depends: ${haskell:Depends},
+ ${misc:Depends},
+ apt-file,
+ debian-policy,
+ debhelper,
+ haskell-devscripts (>= 0.8.19),
+Recommends: ${haskell:Recommends},
+Suggests: ${haskell:Suggests},
+Conflicts: ${haskell:Conflicts},
+Provides: ${haskell:Provides},
+Description: ${haskell:ShortDescription}${haskell:ShortBlurb}
+ ${haskell:LongDescription}
+ .
+ ${haskell:Blurb}
+
+Package: libghc-cabal-debian-dev
+Architecture: any
+Depends: ${haskell:Depends},
+ ${misc:Depends},
+ ${shlibs:Depends},
+ debian-policy,
+Recommends: ${haskell:Recommends},
+Suggests: ${haskell:Suggests},
+Conflicts: ${haskell:Conflicts},
+Provides: ${haskell:Provides},
+Description: ${haskell:ShortDescription}${haskell:ShortBlurb}
+ ${haskell:LongDescription}
+ .
+ ${haskell:Blurb}
+
+Package: libghc-cabal-debian-prof
+Architecture: any
+Depends: ${haskell:Depends},
+ ${misc:Depends},
+Recommends: ${haskell:Recommends},
+Suggests: ${haskell:Suggests},
+Conflicts: ${haskell:Conflicts},
+Provides: ${haskell:Provides},
+Description: ${haskell:ShortDescription}${haskell:ShortBlurb}
+ ${haskell:LongDescription}
+ .
+ ${haskell:Blurb}
+
+Package: libghc-cabal-debian-doc
+Architecture: all
+Section: doc
+Depends: ${haskell:Depends},
+ ${misc:Depends},
+Recommends: ${haskell:Recommends},
+Suggests: ${haskell:Suggests},
+Conflicts: ${haskell:Conflicts},
+Description: ${haskell:ShortDescription}${haskell:ShortBlurb}
+ ${haskell:LongDescription}
+ .
+ ${haskell:Blurb}

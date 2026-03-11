@@ -1,0 +1,18 @@
+enum City {
+  Athens
+  Sparta
+  Corinth
+  # test lowercase enum
+  delphi
+  argos
+}
+
+enum Planet {
+  Earth
+}
+
+type Query {
+  city(city: City!): City!
+  cities: [City!]!
+  planets: [Planet!]!
+}

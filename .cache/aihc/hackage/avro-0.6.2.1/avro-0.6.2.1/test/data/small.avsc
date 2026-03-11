@@ -1,0 +1,30 @@
+{
+  "type": "record",
+  "name": "Endpoint",
+  "fields": [
+    {
+      "name": "opaque",
+      "type": { "name": "Opaque", "type": "fixed", "size": 16 }
+    },
+    { "name": "correlation", "type": "Opaque" },
+    { "name": "tag", "type": ["int", {"type": "string"}] },
+    {
+      "name": "ips",
+      "type": { "type": "array", "items": "string" }
+    },
+    {
+      "name": "ports",
+      "type": {
+        "type": "array",
+        "items": {
+          "type": "record",
+          "name": "PortRange",
+          "fields": [
+            { "name": "start", "type": "int" },
+            { "name": "end", "type": "int" }
+          ]
+        }
+      }
+    }
+  ]
+}

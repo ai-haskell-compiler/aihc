@@ -1,0 +1,10 @@
+{
+  "single": "lorem",
+  "pad": 12
+}
+---
+{{ single | justifyLeft(25) }}
+{{ single | justifyRight(15) }}
+{{ single | center(9) }}
+{{ single | justifyLeft(pad) }}
+{{ single | justifyRight(pad) }}

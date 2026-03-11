@@ -1,0 +1,349 @@
+concurrent-output (1.10.21) unstable; urgency=medium
+
+  * Allow ansi-terminal-1.1
+
+ -- Joey Hess <id@joeyh.name>  Mon, 29 Apr 2024 10:15:55 -0400
+
+concurrent-output (1.10.20) unstable; urgency=medium
+
+  * Allow text-2.1.
+
+ -- Joey Hess <id@joeyh.name>  Thu, 12 Oct 2023 15:46:36 -0400
+
+concurrent-output (1.10.19) unstable; urgency=medium
+
+  * Support building for WASM.
+
+ -- Joey Hess <id@joeyh.name>  Wed, 30 Aug 2023 16:03:03 -0400
+
+concurrent-output (1.10.18) unstable; urgency=medium
+
+  * Avoid some build warnings on Windows.
+  * Allow ansi-terminal-1.0
+
+ -- Joey Hess <id@joeyh.name>  Mon, 15 May 2023 16:32:50 -0400
+
+concurrent-output (1.10.17) unstable; urgency=medium
+
+  * Fix ansi-terminal dependency to only include >= 0.6.2,
+    which is needed for hSupportsANSI.
+
+ -- Joey Hess <id@joeyh.name>  Tue, 10 Jan 2023 15:40:11 -0400
+
+concurrent-output (1.10.16) unstable; urgency=medium
+
+  * Allow transformers-0.6
+    (Thanks, Janus Troelsen)
+
+ -- Joey Hess <id@joeyh.name>  Fri, 20 May 2022 19:31:56 -0400
+
+concurrent-output (1.10.15) unstable; urgency=medium
+
+  * Allow text-2.0
+
+ -- Joey Hess <id@joeyh.name>  Fri, 04 Feb 2022 15:32:58 -0400
+
+concurrent-output (1.10.14) unstable; urgency=medium
+
+  * Allow ansi-terminal-0.11.1.
+
+ -- Joey Hess <id@joeyh.name>  Wed, 24 Nov 2021 09:18:20 -0400
+
+concurrent-output (1.10.13) unstable; urgency=medium
+
+  * outputConcurrent and errorConcurrent are now safe to call from a thread
+    that receives async exceptions.
+  * Fix compilation with GHC head.
+    (Thanks, Ellie Hermaszewska)
+
+ -- Joey Hess <id@joeyh.name>  Mon, 22 Nov 2021 11:19:21 -0400
+
+concurrent-output (1.10.12) unstable; urgency=medium
+
+  * Bugfix: createProcessConcurrent would sometimes send the process's
+    output to the console when it was supposed to be piped to a handle.
+    (1.7.5 introduced this bug)
+  * System.Console.Regions should be safe to use in a thread that
+    receives async exceptions; displayConsoleRegions and withConsoleRegion
+    have been made async exception safe.
+    (However, System.Console.Concurrent is not async exception safe.)
+  * Improve documentation about when withConcurrentOutput should be used.
+  * Remove some unused code.
+  * Allow building with older ansi-terminal versions, not only 0.9+.
+
+ -- Joey Hess <id@joeyh.name>  Wed, 10 Jun 2020 17:22:39 -0400
+
+concurrent-output (1.10.11) unstable; urgency=medium
+
+  * Improve documentation of how to use ANSI color codes.
+  * Allow ansi-terminal-0.10.
+
+ -- Joey Hess <id@joeyh.name>  Sun, 06 Oct 2019 15:14:42 -0400
+
+concurrent-output (1.10.10) unstable; urgency=medium
+
+  * Allow ansi-terminal-0.9.
+  * Fix a build warning.
+
+ -- Joey Hess <id@joeyh.name>  Sun, 12 May 2019 16:29:18 -0400
+
+concurrent-output (1.10.9) unstable; urgency=medium
+
+  * waitDisplayChange would deadlock if the STM action passed to it did not
+    cause any changes to the display. That is now safe to do.
+
+ -- Joey Hess <id@joeyh.name>  Mon, 19 Nov 2018 18:40:55 -0400
+
+concurrent-output (1.10.8) unstable; urgency=medium
+
+  * Fix bug in waitDisplayChange that could result in an STM deadlock
+    exception.
+
+ -- Joey Hess <id@joeyh.name>  Mon, 19 Nov 2018 17:01:12 -0400
+
+concurrent-output (1.10.7) unstable; urgency=medium
+
+  * Allow stm-2.5.
+
+ -- Joey Hess <id@joeyh.name>  Sat, 22 Sep 2018 17:14:59 -0400
+
+concurrent-output (1.10.6) unstable; urgency=medium
+
+  * Relax unix bound for ghc 8.6.
+
+ -- Joey Hess <id@joeyh.name>  Mon, 02 Jul 2018 10:58:59 -0400
+
+concurrent-output (1.10.5) unstable; urgency=medium
+
+  * Allow exceptions-0.10.
+
+ -- Joey Hess <id@joeyh.name>  Tue, 13 Mar 2018 11:50:39 -0400
+
+concurrent-output (1.10.4) unstable; urgency=medium
+
+  * Allow exceptions-0.9.
+
+ -- Joey Hess <id@joeyh.name>  Mon, 26 Feb 2018 11:45:08 -0400
+
+concurrent-output (1.10.3) unstable; urgency=medium
+
+  * Allow async-2.2.
+
+ -- Joey Hess <id@joeyh.name>  Mon, 05 Feb 2018 11:07:27 -0400
+
+concurrent-output (1.10.2) unstable; urgency=medium
+
+  * Allow ansi-terminal-0.8.
+
+ -- Joey Hess <id@joeyh.name>  Thu, 25 Jan 2018 11:51:43 -0400
+
+concurrent-output (1.10.1) unstable; urgency=medium
+
+  * Allow ansi-terminal-0.7.
+
+ -- Joey Hess <id@joeyh.name>  Sat, 25 Nov 2017 17:11:50 -0400
+
+concurrent-output (1.10.0) unstable; urgency=medium
+
+  * Simplified by removing workaround for waitForProcess race
+    condition (https://github.com/haskell/process/issues/46).
+  * Depends on process-1.6.0.0 which fixed that race.
+  * ConcurrentProcessHandle is now a type alias for ProcessHandle,
+    and waitForProcessConcurrent simply calls waitForProcess.
+    These are now only provided to avoid breaking backwards
+    compatability.
+
+ -- Joey Hess <id@joeyh.name>  Fri, 19 May 2017 11:54:49 -0400
+
+concurrent-output (1.9.2) unstable; urgency=medium
+
+  * Allow process-1.6.0.0.
+
+ -- Joey Hess <id@joeyh.name>  Fri, 19 May 2017 11:36:35 -0400
+
+concurrent-output (1.9.1) unstable; urgency=medium
+
+  * Documentation fix: createProcessConcurrent has been available on
+    Windows since 1.7.5 but the docs said not.
+  * When all regions are closed, flush stdout so that the display gets
+    updated, which didn't happen before.
+
+ -- Joey Hess <id@joeyh.name>  Tue, 16 May 2017 16:49:43 -0400
+
+concurrent-output (1.9.0) unstable; urgency=medium
+
+  * Replaced displayUpdateNotifier with a simpler and safer
+    waitDisplayChange interface.
+
+ -- Joey Hess <id@joeyh.name>  Fri, 12 May 2017 17:17:09 -0400
+
+concurrent-output (1.8.0) unstable; urgency=medium
+
+  * Added displayUpdateNotifier, which can be used to wait for
+    changes to console regions to be displayed.
+    (stmdemo has an example of using that to temporarily shut down the
+    region based display to run a bash prompt, and restore the region
+    display later.)
+
+ -- Joey Hess <id@joeyh.name>  Fri, 12 May 2017 16:27:41 -0400
+
+concurrent-output (1.7.9) unstable; urgency=medium
+
+  * Allow lazy text to be used as an Outputable value, and as
+    the content of a Region.
+
+ -- Joey Hess <id@joeyh.name>  Sun, 12 Feb 2017 18:13:47 -0400
+
+concurrent-output (1.7.8) unstable; urgency=medium
+
+  * Update directory dep to allow 1.3.
+
+ -- Joey Hess <id@joeyh.name>  Tue, 20 Dec 2016 15:17:55 -0400
+
+concurrent-output (1.7.7) unstable; urgency=medium
+
+  * Fix build on Windows.
+
+ -- Joey Hess <id@joeyh.name>  Tue, 06 Sep 2016 13:41:46 -0400
+
+concurrent-output (1.7.6) unstable; urgency=medium
+
+  * Update transformers dep to allow 0.5.
+
+ -- Joey Hess <id@joeyh.name>  Mon, 02 May 2016 08:01:20 -0400
+
+concurrent-output (1.7.5) unstable; urgency=medium
+
+  * createProcessConcurrent and System.Process.Concurrent are
+    now available on Windows.
+
+ -- Joey Hess <id@joeyh.name>  Sun, 01 May 2016 19:40:38 -0400
+
+concurrent-output (1.7.4) unstable; urgency=medium
+
+  * Update process dep to allow 1.4.
+
+ -- Joey Hess <id@joeyh.name>  Sat, 12 Mar 2016 13:17:59 -0400
+
+concurrent-output (1.7.3) unstable; urgency=medium
+
+  * Update async dep to allow 2.1.
+
+ -- Joey Hess <id@joeyh.name>  Tue, 05 Jan 2016 14:07:43 -0400
+
+concurrent-output (1.7.2) unstable; urgency=medium
+
+  * Running a process within displayConsoleRegions caused a small
+    resource leak, due to a thread that stalled until the
+    displayConsoleRegions action finished. This is fixed.
+  * Clean build with ghc 7.10.
+
+ -- Joey Hess <id@joeyh.name>  Sat, 19 Dec 2015 16:47:08 -0400
+
+concurrent-output (1.7.1) unstable; urgency=medium
+
+  * Simplify code.
+  * Improve package description.
+  * Relax lower bounds of process, text, exceptions.
+
+ -- Joey Hess <id@joeyh.name>  Mon, 16 Nov 2015 12:06:11 -0400
+
+concurrent-output (1.7.0) unstable; urgency=medium
+
+  * Simplified the RegionContent type; a region's content is now internally
+    always an STM action.
+  * This simplification fixed a bug that had prevented sometimes displaying
+    changes to InLine regions with STM actions for content. Now any changes
+    to TVars etc accessed by such STM actions will be noticed when waiting
+    on the parent region's content changing.
+  * Fix bug that caused double display of children of regions in some
+    circumstances.
+
+ -- Joey Hess <id@joeyh.name>  Mon, 09 Nov 2015 16:13:19 -0400
+
+concurrent-output (1.6.1) unstable; urgency=medium
+
+  * Avoid cursorUpLine, which is not as portable as cursorUp.
+    This fixes display on such systems as MS-DOS with ANSI.SYS, and OSX.
+
+ -- Joey Hess <id@joeyh.name>  Sun, 08 Nov 2015 17:56:43 -0400
+
+concurrent-output (1.6.0) unstable; urgency=medium
+
+  * Generalized newConsoleRegion. 
+  * Better efficiency when there are more regions than will fit on the
+    screen.
+  * Fixed consoleHeight (was returning width)
+  * Fix outputBufferWaiterSTM which never returned any buffered stderr,
+    and fix regional display of buffered error messages.
+  * Ported to Windows, although createProcessConcurrent is omitted due to
+    needing support for pipe(), and consoleSize is not updated by resize.
+  * Stopped exporting consoleSize; use consoleWidth and consoleHeight
+    instead.
+
+ -- Joey Hess <id@joeyh.name>  Thu, 05 Nov 2015 15:35:16 -0400
+
+concurrent-output (1.5.0) unstable; urgency=medium
+
+  * Added errorConcurrent.
+  * Added getRegionContent.
+
+ -- Joey Hess <id@joeyh.name>  Wed, 04 Nov 2015 17:20:44 -0400
+
+concurrent-output (1.4.0) unstable; urgency=medium
+
+  * Renamed many of the functions and types.
+  * Added tuneDisplay, which makes it easy to size-limit regions,
+    right-justify regions, or otherwise transform how their values are
+    displayed.
+
+ -- Joey Hess <id@joeyh.name>  Wed, 04 Nov 2015 00:32:38 -0400
+
+concurrent-output (1.3.0) unstable; urgency=medium
+
+  * The contents of a Region can now be set to a STM Text
+    transaction. Their display will be automatically updated whenever the
+    transaction's value changes.
+  * Removed updateRegionListSTM, and export regionList instead, which is
+    more general-purpose.
+  * Other improvements to STM interface.
+
+ -- Joey Hess <id@joeyh.name>  Tue, 03 Nov 2015 15:50:47 -0400
+
+concurrent-output (1.2.0) unstable; urgency=medium
+
+  * Avoid crash when not all of a program's output is consumed, as
+    happens when eg, piping to head(1).
+  * Use text, and not bytestring internally.
+  * Added createProcessForeground, useful for running commands like vim.
+  * Fix race that sometimes caused processes to run in background mode
+    even though no other foreground process was still running.
+  * Concurrent process functions now use ConcurrentProcessHandle
+    instead of ProcessHandle.
+  * Multi-line regions now supported.
+  * Optimize region update, avoiding outputting characters already on-screen.
+
+ -- Joey Hess <id@joeyh.name>  Mon, 02 Nov 2015 23:25:40 -0400
+
+concurrent-output (1.1.0) unstable; urgency=medium
+
+  * Renamed module.
+  * Incorporated console region support, based on Joachim Breitner's
+    concurrentoutput library.
+  * Fix race that sometimes prevented a concurrent processes's output from
+    being displayed as program shut down.
+
+ -- Joey Hess <id@joeyh.name>  Fri, 30 Oct 2015 21:27:41 -0400
+
+concurrent-output (1.0.1) unstable; urgency=medium
+
+  * Generalize what can be output.
+  * Dropped dependency on MissingH; added dependency on text.
+
+ -- Joey Hess <id@joeyh.name>  Thu, 29 Oct 2015 00:47:12 -0400
+
+concurrent-output (1.0.0) unstable; urgency=medium
+
+  * First release.
+
+ -- Joey Hess <id@joeyh.name>  Wed, 28 Oct 2015 21:01:23 -0400

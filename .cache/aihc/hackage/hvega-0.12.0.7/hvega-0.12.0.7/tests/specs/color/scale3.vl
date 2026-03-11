@@ -1,0 +1,41 @@
+{
+    "$schema": "https://vega.github.io/schema/vega-lite/v4.json",
+    "data": {
+        "url": "https://vega.github.io/vega-lite/data/cars.json"
+    },
+    "description": "Power colour scale with default (1) exponent.",
+    "encoding": {
+        "color": {
+            "field": "Acceleration",
+            "scale": {
+                "range": [
+                    "yellow",
+                    "red"
+                ],
+                "type": "pow"
+            },
+            "type": "quantitative"
+        },
+        "opacity": {
+            "value": 1
+        },
+        "size": {
+            "value": 60
+        },
+        "x": {
+            "field": "Horsepower",
+            "type": "quantitative"
+        },
+        "y": {
+            "field": "Miles_per_Gallon",
+            "type": "quantitative"
+        }
+    },
+    "mark": "circle",
+    "transform": [
+        {
+            "as": "accelerationZScore",
+            "calculate": "(datum.Acceleration - 15.52)/2.80"
+        }
+    ]
+}

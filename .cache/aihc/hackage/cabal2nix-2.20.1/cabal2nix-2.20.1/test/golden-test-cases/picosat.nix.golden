@@ -1,0 +1,12 @@
+{ mkDerivation, base, containers, lib, random, rdtsc, transformers
+}:
+mkDerivation {
+  pname = "picosat";
+  version = "0.1.4";
+  sha256 = "deadbeef";
+  libraryHaskellDepends = [ base containers transformers ];
+  testHaskellDepends = [ base containers random rdtsc transformers ];
+  homepage = "https://github.com/sdiehl/haskell-picosat";
+  description = "Bindings to the PicoSAT solver";
+  license = lib.licenses.mit;
+}

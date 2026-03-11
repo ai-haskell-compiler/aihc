@@ -1,0 +1,58 @@
+header {
+    Class:      ELFCLASS64
+    Data:       ELFDATA2LSB
+    OSABI:      ELFOSABI_SYSV
+    ABIVersion: 0
+    Type:       ET_REL
+    Machine:    EM_AARCH64
+    Entry:      0x0000000000000000
+    Flags:      0x00000000
+}
+section 1 ".text" {
+    Type:      SHT_PROGBITS
+    Flags:     [SHF_ALLOC,SHF_EXECINSTR]
+    Addr:      0x0000000000000000
+    AddrAlign: 0x0000000000000008
+    EntSize:   0x0000000000000000
+    Info:      0x00000000
+    Link:      0x00000000
+    Data:      20 00 80 d2 e1 00 00 10 a2 01 80 d2 08 08 80 d2 #  ...............
+               01 00 00 d4 00 00 80 d2 a8 0b 80 d2 01 00 00 d4 # ................
+               48 65 6c 6c 6f 20 57 6f 72 6c 64 21 0a          # Hello World!.
+}
+string table section 2 ".shstrtab"
+symbol table section 4 ".symtab" {
+    Type:      SHT_SYMTAB
+    Flags:     []
+    Addr:      0x0000000000000000
+    AddrAlign: 0x0000000000000008
+    EntSize:   0x0000000000000018
+    Info:      0x00000001
+    Link:      0x00000003
+    Data:      
+        symbol "" {
+            Bind:  STB_Local
+            Type:  STT_NoType
+            ShNdx: SHN_Undef
+            Value: 0x0000000000000000
+            Size:  0x0000000000000000
+        }
+        symbol "_start" {
+            Bind:  STB_Global
+            Type:  STT_NoType
+            ShNdx: ElfSectionIndex 1
+            Value: 0x0000000000000000
+            Size:  0x0000000000000000
+        }
+}
+section 3 ".strtab" {
+    Type:      SHT_STRTAB
+    Flags:     []
+    Addr:      0x0000000000000000
+    AddrAlign: 0x0000000000000001
+    EntSize:   0x0000000000000000
+    Info:      0x00000000
+    Link:      0x00000000
+    Data:      00 5f 73 74 61 72 74 00                         # ._start.
+}
+section table

@@ -1,0 +1,286 @@
+2025-02-27 Ivan Perez <ivan.perez@keera.co.uk>
+    * Version bump (0.15) (#322).
+    * Deprecate FRP.Yampa.Arrow.arr3,arr4,arr5 (#313).
+
+2024-12-07 Ivan Perez <ivan.perez@keera.co.uk>
+    * Version bump (0.14.12) (#319).
+    * Re-export missing definitions (#318).
+
+2024-10-07 Ivan Perez <ivan.perez@keera.co.uk>
+    * Version bump (0.14.11) (#310).
+    * Add new publications by Schmidli et al. (#306).
+    * Add new publication by Klinge et al. (#308).
+    * Bump version bounds of dependencies (#309).
+    * Thanks to @seliane.
+
+2024-08-07 Ivan Perez <ivan.perez@keera.co.uk>
+    * Version bump (0.14.10) (#302).
+    * Implement integral using trapezoid rule (#263).
+
+2024-06-08 Ivan Perez <ivan.perez@keera.co.uk>
+    * Version bump (0.14.9) (#299).
+    * Document FRP.Yampa.Random.streamToSF (#296).
+    * Document FRP.Yampa.Switches.safeZip (#297).
+    * Simplify FRP.Yampa.Switches.safeZip (#298).
+    * Fix date in CHANGELOG (#300).
+
+2024-04-07 Ivan Perez <ivan.perez@keera.co.uk>
+    * Version bump (0.14.8) (#294).
+
+2024-02-09 Ivan Perez <ivan.perez@keera.co.uk>
+    * Version bump (0.14.7) (#289).
+    * Remove postgresql repo before installation in CI script (#284).
+    * Simplify definition of FRP.Yampa.Event.joinE (#285).
+    * Simplify definition of FRP.Yampa.EventS.isJustEdge (#286).
+    * Simplify definition of FRP.Yampa.Task.isEdge (#287).
+    * Remove redundant imports from examples (#288).
+
+2023-12-07 Ivan Perez <ivan.perez@keera.co.uk>
+    * Version bump (0.14.6) (#282).
+    * Document HTML + WebAssembly backend in README (#34).
+    * Relax version bounds on deepseq (#280).
+    * Update and improve documentation of Diagrams example (#281).
+    * Thanks to @AntanasKal.
+
+2023-10-07 Ivan Perez <ivan.perez@keera.co.uk>
+    * Version bump (0.14.5) (#278).
+    * Define Yampa.FRP.Task.return in terms of pure (#276).
+    * Add link to new publication (#277).
+    * Make FRP.Yampa.Event.maybeToEvent public (#267).
+
+2023-08-07 Ivan Perez <ivan.perez@keera.co.uk>
+    * Version bump (0.14.4) (#274).
+    * Introduce benchmark (#167).
+    * Add version bounds to dependencies (#273).
+
+2023-06-07 Ivan Perez <ivan.perez@keera.co.uk>
+    * Version bump (0.14.3) (#269).
+    * Improve readability of CHANGELOGs (#261).
+    * Conformance with style guide (#266).
+    * Reflect new contribution process in README (#265).
+
+2023-04-07 Ivan Perez <ivan.perez@keera.co.uk>
+    * Version bump (0.14.2) (#259).
+    * Conformance with style guide (#255).
+    * Move example to yampa-test library (#257).
+    * Add game to list of games and apps in README (#254).
+
+2023-02-07 Ivan Perez <ivan.perez@keera.co.uk>
+    * Version bump (0.14.1) (#251).
+    * Replace broken links (#253).
+    * Fix typo (#252).
+
+2022-12-07 Ivan Perez <ivan.perez@keera.co.uk>
+    * Version bump (0.14) (#242).
+    * Adjust to work with simple-affine-space-0.2 (#241).
+
+2022-10-07 Ivan Perez <ivan.perez@keera.co.uk>
+    * Version bump (0.13.7) (#238).
+    * Add version bounds to dependencies (#233).
+    * Update years, copyright holders (#235).
+    * Update distribution to bionic (#236).
+
+2022-08-07 Ivan Perez <ivan.perez@haskell.sexy>
+    * Version bump (0.13.6) (#232).
+    * Fix typos in documentation (#224).
+    * Replace AFRP with Yampa (#223).
+    * Simplify implementation of mapFilterE (#221).
+    * Re-structure README, add content, TOC (#227).
+    * Fix typo (#230).
+    * Replace funding link (#231).
+    * Thanks to @architsinghal-mriirs.
+
+2022-06-07 Ivan Perez <ivan.perez@haskell.sexy>
+    * Version bump (0.13.5) (#220).
+    * Remove vim modeline settings (#209).
+    * Remove unnecessary comments from module export lists (#210).
+    * Style consistency of separators (#211).
+    * Adjust format of export lists (#212).
+    * Align lists, tuples, records by leading comma (#213).
+    * Compress multiple empty lines (#214).
+    * Adjust indentation to two spaces (#215).
+    * Make arrows less prominent in descriptions (#183).
+    * Remove unnecessary import (#222).
+    * Replace tabs with spaces (#205).
+    * Format module header to conform to style guide (#207).
+
+2022-04-07 Ivan Perez <ivan.perez@haskell.sexy>
+    * Version bump (0.13.4) (#203).
+    * Syntax rules (#196).
+    * Remove regression tests (#201).
+    * Remove unused extensions (#199).
+    * Syntax rules (#200).
+    * Remove commented code and notes (#202).
+    * Rename tests (#195).
+    * Add new game (#197).
+
+2021-10-07 Ivan Perez <ivan.perez@haskell.sexy>
+    * Version bump (0.13.3) (#193).
+    * Add modules missing from other-modules in Cabal file (#181).
+    * Limit line length to 80 characters (#190).
+    * Standardize pragma style (#191).
+    * Correct module/copyright info in haddock documentation (#192).
+    * Restructure documentation in README (#184).
+    * Fix installation instructions in README (#186).
+    * Mention new games in README (#188).
+    * Remove note from README (#189).
+
+2021-09-15 Ivan Perez <ivan.perez@haskell.sexy>
+    * Version bump (0.13.2), change cabal-version, add default language (#180).
+    * Update links in Haddock (#179).
+    * Update installation instructions in README (#177).
+    * Update links in README (#178).
+    * Update pointers to other projects in README (#162)
+    * Update pointers to other projects in README (#160)
+    * Update pointers to other projects in README (#153)
+    * Enable testing haddock documentation in CI (#72).
+    * Minor haddock documentation fixes (#175).
+
+2019-10-15 Ivan Perez <ivan.perez@keera.co.uk>
+    * Version bump (0.13.1).
+    * Introduce examples as executables in Cabal file.
+    * Add Peoplemon to README.
+    * Fix errors in examples due to module reorg.
+    * Change testing extension to use tasty.
+    * Compile with GHC8.8 in CI.
+    * Support MonadFail proposal and GHC 8.8.
+    * Thanks to @sigrlami, @RyanGlScott and @CraigTreptow.
+
+2018-11-02 Ivan Perez <ivan.perez@keera.co.uk>
+    * Version bump (0.13).
+    * Document related projects.
+    * Clean API, remove deprecated constructs, move vector and point into
+      separate library, hide Core.
+    * Eliminate Forceable and MergeableRecord.
+    * Add documentation.
+    * Add Diagrams example.
+    * Compile with GHC8.6 in CI (allowing failures).
+
+2018-10-21 Ivan Perez <ivan.perez@keera.co.uk>
+    * Version bump (0.12).
+    * Document testing in README.
+    * Introduce FutureSF, needed for testing.
+    * Introduce testing library.
+    * Thanks to @chriz-keera.
+
+2018-08-11 Ivan Perez <ivan.perez@keera.co.uk>
+    * Version bump (0.11.1).
+    * Document papers in README.
+    * Fix leak.
+    * Thanks to @tresormuta, @chriz-keera.
+
+2018-04-05 Ivan Perez <ivan.perez@keera.co.uk>
+    * Version bump (0.11).
+    * Add documentation; makes type synonym a newtype.
+    * Remove deprecated import in tests.
+    * Test on travis with GHC 7.6 to 8.4.
+    * Thanks to @ptvirgo, @thalerjonathan, @turion.
+
+2017-12-17 Ivan Perez <ivan.perez@keera.co.uk>
+    * Version bump (0.10.7).
+    * Add flag to cabal file to expose core.
+    * Add flag to descriptions.
+    * Fix missing modules in cabal file.
+    * Add images to descriptions in README.
+    * New HCAR entry including iOS release.
+    * Expose new function.
+    * Remove unused extensions.
+    * Simplify code.
+    * Add documentation.
+    * Fix multiple bugs.
+    * Fix nix setup.
+    * Adapt tests to new API.
+    * Adapt examples to new API.
+    * Thanks to @chriz-keera, @suzumiyasmith, @meimisaki, @RyanGlScott,
+      @madjestic, @mgttlinger, @eapcochran, @jonmouchou.
+
+2017-08-28 Ivan Perez <ivan.perez@keera.co.uk>
+    * Version bump (0.10.6.2).
+    * Fix issue with dependencies in Cabal file.
+    * Include minimal stack configuration.
+
+2017-08-17 Ivan Perez <ivan.perez@keera.co.uk>
+    * Version bump (0.10.6.1).
+    * New examples, using wiimote.
+    * Minor improvements to documentation.
+
+2017-05-05 Ivan Perez <ivan.perez@keera.co.uk>
+    * Version bump (0.10.6).
+    * Do not warn if tests contain tabs.
+    * Include combinators to deal with collections.
+    * Include combinators to iterate over time (for custom/discrete
+      integration).
+    * Implement ArrowChoice.
+
+2017-04-26 Ivan Perez <ivan.perez@keera.co.uk>
+    * Version bump (0.10.5.1).
+    * Instruct TravisCI upload package to hackage.
+
+2016-05-23 Ivan Perez <ivan.perez@keera.co.uk>
+    * Version bump (0.10.5).
+    * Add new -:> combinator.
+
+2015-11-14 Ivan Perez <ivan.perez@keera.co.uk>
+    * Version bump (0.10.4).
+    * Include haddock in tests.
+    * Regression tests now exit with proper exit code.
+    * Include more documentation.
+    * Include haddock and regression test suites.
+
+2015-10-02 Ivan Perez <ivan.perez@keera.co.uk>
+    * Version bump (0.10.3).
+    * Event instances of Applicative and Alternative.
+
+2015-06-19 Ivan Perez <ivan.perez@keera.co.uk>
+    * Version bump (0.10.2).
+    * Instances of DeepSeq (#5).
+
+2015-05-06 Ivan Perez <ivan.perez@keera.co.uk>
+    * Version bump (0.10.1.1).
+    * Disable tests by default in Cabal file.
+
+2015-05-05 Ivan Perez <ivan.perez@keera.co.uk>
+    * Version bump (0.10.1).
+    * Expose internal modules for documentation purposes.
+
+2015-05-05 Ivan Perez <ivan.perez@keera.co.uk>
+    * Version bump (0.10.0).
+    * Reorder code.
+    * Mark modules as deprecated.
+    * Remove useless functions.
+
+2015-05-05 Ivan Perez <ivan.perez@keera.co.uk>
+    * Version bump (0.9.7).
+    * Documentation added to FRP.Yampa.
+    * Remove tabs from FRP.Yampa.
+    * Link to games, related projects, documentation in README.
+
+2015-03-30 Ivan Perez <ivan.perez@keera.co.uk>
+    * Version bump (0.9.6.1).
+    * Add Functor and Applicative instances for Tasks for compatibility with
+      base >= 4.8 (#7).
+    * Thanks to Ryan Scott.
+
+2015-03-04 Ivan Perez <ivan.perez@keera.co.uk>
+    * Coding style improvements.
+
+2014-08-29 Ivan Perez <ivan.perez@keera.co.uk>
+    * Version bump (0.9.6).
+    * Add a substantial amount of documentation.
+    * Add a new pause combinator.
+
+2014-06-04 Ivan Perez <ivan.perez@keera.co.uk>
+    * Add project to hudson-backed continuous integration server.
+
+2014-04-26 Ivan Perez <ivan.perez@keera.es>
+    * Version bump (0.9.5).
+    * Add CHANGELOG to cabal file.
+
+2014-04-07 Ivan Perez <ivan.perez@keera.es>
+    * Version bump (0.9.4).
+    * New maintainer.
+    * Documentation is exposed so that Haddock can process it.
+    * No interface changes.
+
+Copyright (c) 2003, Henrik Nilsson, Antony Courtney and Yale University.
+All rights reserved.

@@ -1,0 +1,126 @@
+[ [ ( DataTypeTok , "<!DOCTYPE" )
+  , ( NormalTok , " HTML" )
+  , ( DataTypeTok , ">" )
+  ]
+, [ ( DataTypeTok , "<" )
+  , ( KeywordTok , "html" )
+  , ( DataTypeTok , ">" )
+  ]
+, [ ( DataTypeTok , "<" )
+  , ( KeywordTok , "head" )
+  , ( DataTypeTok , ">" )
+  ]
+, []
+, [ ( NormalTok , "  " )
+  , ( DataTypeTok , "<" )
+  , ( KeywordTok , "script" )
+  , ( OtherTok , " type=" )
+  , ( StringTok , "\"text/javascript\"" )
+  , ( DataTypeTok , ">" )
+  ]
+, [ ( NormalTok , "    " )
+  , ( KeywordTok , "function" )
+  , ( NormalTok , " " )
+  , ( FunctionTok , "makeHeaders" )
+  , ( NormalTok , "(colnames) {" )
+  ]
+, [ ( NormalTok , "      " )
+  , ( KeywordTok , "var" )
+  , ( NormalTok , " str " )
+  , ( OperatorTok , "=" )
+  , ( NormalTok , " " )
+  , ( StringTok , "\"\"" )
+  , ( OperatorTok , ";" )
+  ]
+, [ ( NormalTok , "      " )
+  , ( ControlFlowTok , "for" )
+  , ( NormalTok , " (" )
+  , ( KeywordTok , "var" )
+  , ( NormalTok , " i " )
+  , ( OperatorTok , "=" )
+  , ( NormalTok , " " )
+  , ( DecValTok , "0" )
+  , ( OperatorTok , ";" )
+  , ( NormalTok , " i " )
+  , ( OperatorTok , "<" )
+  , ( NormalTok , " colnames" )
+  , ( OperatorTok , "." )
+  , ( AttributeTok , "length" )
+  , ( OperatorTok , ";" )
+  , ( NormalTok , " i" )
+  , ( OperatorTok , "++" )
+  , ( NormalTok , ") {" )
+  ]
+, [ ( NormalTok , "        str " )
+  , ( OperatorTok , "+=" )
+  , ( NormalTok , " " )
+  , ( StringTok , "\"<th>\"" )
+  , ( NormalTok , " " )
+  , ( OperatorTok , "+" )
+  , ( NormalTok , " colnames[i] " )
+  , ( OperatorTok , "+" )
+  , ( NormalTok , " " )
+  , ( StringTok , "\"</th>\"" )
+  , ( OperatorTok , ";" )
+  ]
+, [ ( NormalTok , "      }" ) ]
+, [ ( NormalTok , "      " )
+  , ( ControlFlowTok , "return" )
+  , ( NormalTok , " (str)" )
+  , ( OperatorTok , ";" )
+  ]
+, [ ( NormalTok , "    }" ) ]
+, [ ( NormalTok , "  " )
+  , ( DataTypeTok , "</" )
+  , ( KeywordTok , "script" )
+  , ( DataTypeTok , ">" )
+  ]
+, []
+, [ ( NormalTok , "  " )
+  , ( DataTypeTok , "<" )
+  , ( KeywordTok , "script" )
+  , ( DataTypeTok , ">" )
+  ]
+, [ ( NormalTok , "    " )
+  , ( FunctionTok , "$" )
+  , ( NormalTok , "(" )
+  , ( BuiltInTok , "document" )
+  , ( NormalTok , ")" )
+  , ( OperatorTok , "." )
+  , ( FunctionTok , "ready" )
+  , ( NormalTok , "(" )
+  , ( KeywordTok , "function" )
+  , ( NormalTok , "() {" )
+  ]
+, [ ( NormalTok , "      alert" )
+  , ( StringTok , "\"hello\"" )
+  , ( NormalTok , ")" )
+  , ( OperatorTok , ";" )
+  ]
+, [ ( NormalTok , "    })" ) , ( OperatorTok , ";" ) ]
+, [ ( NormalTok , "  " )
+  , ( DataTypeTok , "</" )
+  , ( KeywordTok , "script" )
+  , ( DataTypeTok , ">" )
+  ]
+, []
+, [ ( DataTypeTok , "</" )
+  , ( KeywordTok , "head" )
+  , ( DataTypeTok , ">" )
+  ]
+, []
+, [ ( DataTypeTok , "<" )
+  , ( KeywordTok , "body" )
+  , ( DataTypeTok , ">" )
+  ]
+, []
+, [ ( DataTypeTok , "</" )
+  , ( KeywordTok , "body" )
+  , ( DataTypeTok , ">" )
+  ]
+, []
+, [ ( DataTypeTok , "</" )
+  , ( KeywordTok , "html" )
+  , ( DataTypeTok , ">" )
+  ]
+]

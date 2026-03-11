@@ -1,0 +1,11 @@
+# haskell-src-meta has not documented the 0.8.0.3 release
+
+$$$ rm -rf _tmp
+$$$ cabal -v0 unpack -d _tmp haskell-src-meta-0.8.0.2
+$$$ cabal -v0 unpack -d _tmp haskell-src-meta-0.8.0.3
+$$$ diff _tmp/haskell-src-meta-0.8.0.2/ChangeLog _tmp/haskell-src-meta-0.8.0.3/ChangeLog
+
+$$$ cabal -v0 new-run guess-changelog -- _tmp/haskell-src-meta-0.8.0.2 _tmp/haskell-src-meta-0.8.0.3
+>>>2
+file ChangeLog has not changed between releases
+>>>= 0

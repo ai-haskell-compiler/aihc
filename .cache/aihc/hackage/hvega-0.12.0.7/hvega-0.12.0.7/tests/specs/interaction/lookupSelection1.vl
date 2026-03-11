@@ -1,0 +1,124 @@
+{
+    "$schema": "https://vega.github.io/schema/vega-lite/v4.json",
+    "data": {
+        "format": {
+            "parse": {
+                "date": "date"
+            },
+            "type": "csv"
+        },
+        "url": "https://vega.github.io/vega-lite/data/stocks.csv"
+    },
+    "height": 300,
+    "layer": [
+        {
+            "encoding": {
+                "opacity": {
+                    "value": 0
+                },
+                "x": {
+                    "axis": null,
+                    "field": "date",
+                    "type": "temporal"
+                }
+            },
+            "mark": "point",
+            "selection": {
+                "index": {
+                    "encodings": [
+                        "x"
+                    ],
+                    "init": {
+                        "x": {
+                            "date": 1,
+                            "month": 1,
+                            "year": 2005
+                        }
+                    },
+                    "nearest": true,
+                    "on": "mouseover",
+                    "type": "single"
+                }
+            }
+        },
+        {
+            "encoding": {
+                "color": {
+                    "field": "symbol",
+                    "type": "nominal"
+                },
+                "x": {
+                    "axis": null,
+                    "field": "date",
+                    "type": "temporal"
+                },
+                "y": {
+                    "axis": {
+                        "format": "%"
+                    },
+                    "field": "indexed_price",
+                    "type": "quantitative"
+                }
+            },
+            "mark": "line",
+            "transform": [
+                {
+                    "from": {
+                        "key": "symbol",
+                        "selection": "index"
+                    },
+                    "lookup": "symbol"
+                },
+                {
+                    "as": "indexed_price",
+                    "calculate": "datum.index && datum.index.price > 0 ? (datum.price - datum.index.price)/datum.index.price : 0"
+                }
+            ]
+        },
+        {
+            "encoding": {
+                "color": {
+                    "value": "firebrick"
+                },
+                "x": {
+                    "axis": null,
+                    "field": "date",
+                    "type": "temporal"
+                }
+            },
+            "layer": [
+                {
+                    "mark": {
+                        "strokeWidth": 0.5,
+                        "type": "rule"
+                    }
+                },
+                {
+                    "encoding": {
+                        "text": {
+                            "field": "date",
+                            "timeUnit": "yearmonth",
+                            "type": "temporal"
+                        },
+                        "y": {
+                            "value": 310
+                        }
+                    },
+                    "mark": {
+                        "align": "center",
+                        "fontWeight": 100,
+                        "type": "text"
+                    }
+                }
+            ],
+            "transform": [
+                {
+                    "filter": {
+                        "selection": "index"
+                    }
+                }
+            ]
+        }
+    ],
+    "width": 650
+}

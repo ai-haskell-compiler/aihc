@@ -1,0 +1,120 @@
+--- parse tree ---
+[ Code
+    "typ/layout/par-bidi-02.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/layout/par-bidi-02.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/layout/par-bidi-02.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Comment
+, Comment
+, Code
+    "typ/layout/par-bidi-02.typ"
+    ( line 4 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "content")))
+       (FuncCall
+          (Ident (Identifier "par"))
+          [ BlockArg
+              [ Text "A\1490\1462"
+              , Code
+                  "typ/layout/par-bidi-02.typ"
+                  ( line 4 , column 24 )
+                  (FuncCall
+                     (Ident (Identifier "strong"))
+                     [ BlockArg [ Text "\1513\1473\1462" ] ])
+              , Text "\1501B"
+              ]
+          ]))
+, SoftBreak
+, Code
+    "typ/layout/par-bidi-02.typ"
+    ( line 5 , column 2 )
+    (Set
+       (Ident (Identifier "text"))
+       [ KeyValArg
+           (Identifier "font")
+           (Array
+              [ Reg (Literal (String "Linux Libertine"))
+              , Reg (Literal (String "Noto Serif Hebrew"))
+              ])
+       ])
+, SoftBreak
+, Code
+    "typ/layout/par-bidi-02.typ"
+    ( line 6 , column 2 )
+    (FuncCall
+       (Ident (Identifier "text"))
+       [ KeyValArg (Identifier "lang") (Literal (String "he"))
+       , NormalArg (Ident (Identifier "content"))
+       ])
+, SoftBreak
+, Code
+    "typ/layout/par-bidi-02.typ"
+    ( line 7 , column 2 )
+    (FuncCall
+       (Ident (Identifier "text"))
+       [ KeyValArg (Identifier "lang") (Literal (String "de"))
+       , NormalArg (Ident (Identifier "content"))
+       ])
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 text(body: [
+]), 
+                 text(body: [
+], 
+                      font: ("Linux Libertine", 
+                             "Noto Serif Hebrew")), 
+                 text(body: par(body: { text(body: [Aגֶ]), 
+                                        strong(body: text(body: [שֶׁ])), 
+                                        text(body: [םB]) }), 
+                      font: ("Linux Libertine", 
+                             "Noto Serif Hebrew"), 
+                      lang: "he"), 
+                 text(body: [
+], 
+                      font: ("Linux Libertine", 
+                             "Noto Serif Hebrew")), 
+                 text(body: par(body: { text(body: [Aגֶ]), 
+                                        strong(body: text(body: [שֶׁ])), 
+                                        text(body: [םB]) }), 
+                      font: ("Linux Libertine", 
+                             "Noto Serif Hebrew"), 
+                      lang: "de"), 
+                 parbreak() })

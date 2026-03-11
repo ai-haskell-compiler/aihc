@@ -1,0 +1,51 @@
+Name: elm-core-sources
+Version: 1.0.0
+Synopsis:       Source files for the Elm runtime and standard libraries
+Description:     
+    Embeds the  standard libraries and runtime files of the Elm language as Haskell strings,
+    so that they can be used for compilation and served in a Haskell web server.
+    For more information on the Elm language, see http://elm-lang.org.
+Homepage: http://github.com/JoeyEremondi/elm-build-lib
+
+License: BSD3
+License-file: LICENSE
+
+cabal-version:  >=1.6
+build-type:     Simple
+author:         Evan Czaplicki
+Maintainer:     joey@eremondi.com
+Copyright:      Copyright: (c) 2014 Evan Czaplicki
+
+Category: Compiler, Language
+
+Extra-source-files: src/*.elm
+    
+    ,src/Json/*.elm
+
+    ,src/Graphics/*.elm
+     
+    ,src/Graphics/Input/*.elm
+    
+    ,src/Graphics/Input/*.elm
+    
+    src/Native/*.js
+    
+    ,src/Native/Graphics/*.js
+         
+source-repository head
+  type: git
+  location: git://github.com/JoeyEremondi/elm-build-lib
+
+
+
+library
+  exposed-modules: Language.Elm.CoreSources
+  hs-source-dirs:  haskell
+
+  build-depends:   base >=4.2 && <5
+                   , containers
+                   , template-haskell
+                   , file-embed
+                   , bytestring
+  ghc-options:     -Wall
+

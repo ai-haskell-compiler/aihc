@@ -1,0 +1,67 @@
+{ "foo": 1,
+  "baz": ["a", "b"],
+  "bim": { "zub": "sim" },
+  "sup": "a multiline\nstring"
+}
+.
+    $sup$
+   $sup$
+
+   $^$$sup$
+
+$bim.zub$ $^$$sup$
+
+$bim.zub$ $^$$foo$
+          bar $sup$
+
+$for(baz)$
+1. $^$Hello
+   $if(it)$
+     $it$
+   $endif$
+$endfor$
+
+  $^$hey $sup$
+  hey $sup$
+
+  hey $sup$
+
+  hey
+  $if(foo)$
+
+  $foo$
+  $endif$
+  hey
+.
+    a multiline
+    string
+   a multiline
+   string
+
+   a multiline
+   string
+
+sim a multiline
+    string
+
+sim 1
+    bar a multiline
+    string
+
+1. Hello
+     a
+1. Hello
+     b
+
+  hey a multiline
+  string
+  hey a multiline
+  string
+
+  hey a multiline
+  string
+
+  hey
+
+  1
+  hey

@@ -1,0 +1,22 @@
+name:           spoon
+version:        0.3.1
+license:        BSD3
+license-file:   LICENSE
+author:         Matt Morrow, Dan Peebles, Liyang HU
+maintainer:     Liyang HU <spoon@liyang.hu>
+stability:      experimental
+category:       Error handling
+synopsis:       Catch errors thrown from pure computations.
+copyright:      2009 Matt Morrow & Dan Peebles, 2013 Liyang HU
+description:    Takes an error-throwing expression and puts it back in the Maybe it belongs in.
+build-type:     Simple
+cabal-version:  >= 1.2
+
+library
+  build-depends:
+    base >= 4 && < 5,
+    deepseq >= 1
+  exposed-modules:
+    Control.Spoon
+  ghc-options: -Wall
+

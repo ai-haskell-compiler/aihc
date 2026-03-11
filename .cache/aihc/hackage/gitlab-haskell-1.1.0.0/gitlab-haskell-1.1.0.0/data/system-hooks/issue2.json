@@ -1,0 +1,144 @@
+{
+  "object_kind": "issue",
+  "event_type": "issue",
+  "user": {
+    "id": 2617,
+    "name": "Joe",
+    "username": "joe",
+    "avatar_url": "https://secure.gravatar.com/avatar/abc",
+    "email": "[REDACTED]"
+  },
+  "project": {
+    "id": 20125,
+    "name": "proj-name",
+    "description": "the description",
+    "web_url": "https://example.com/joe/proj-name",
+    "avatar_url": null,
+    "git_ssh_url": "git@example.com:joe/proj-name.git",
+    "git_http_url": "https://example.com/joe/proj-name.git",
+    "namespace": "Joe",
+    "visibility_level": 0,
+    "path_with_namespace": "joe/proj-name",
+    "default_branch": "master",
+    "ci_config_path": null,
+    "homepage": "https://example.com/joe/proj-name",
+    "url": "git@example.com:joe/proj-name.git",
+    "ssh_url": "git@example.com:joe/proj-name.git",
+    "http_url": "https://example.com/joe/proj-name.git"
+  },
+  "object_attributes": {
+    "author_id": 2617,
+    "closed_at": null,
+    "confidential": false,
+    "created_at": "2024-11-09 00:44:06 UTC",
+    "description": "issue description",
+    "discussion_locked": null,
+    "due_date": null,
+    "id": 2286,
+    "iid": 25,
+    "last_edited_at": null,
+    "last_edited_by_id": null,
+    "milestone_id": null,
+    "moved_to_id": null,
+    "duplicated_to_id": null,
+    "project_id": 20125,
+    "relative_position": null,
+    "state_id": 1,
+    "time_estimate": 0,
+    "title": "Class Diagram - stage 3",
+    "updated_at": "2024-11-09 00:44:06 UTC",
+    "updated_by_id": null,
+    "type": "Issue",
+    "url": "https://example.com/joe/proj-name/-/issues/25",
+    "total_time_spent": 0,
+    "time_change": 0,
+    "human_total_time_spent": null,
+    "human_time_change": null,
+    "human_time_estimate": null,
+    "assignee_ids": [
+      2617
+    ],
+    "assignee_id": 2617,
+    "labels": [
+      {
+        "id": 380,
+        "title": "the label title",
+        "color": "#9400d3",
+        "project_id": 20125,
+        "created_at": "2024-10-30 16:25:49 UTC",
+        "updated_at": "2024-10-30 16:25:49 UTC",
+        "template": false,
+        "description": null,
+        "type": "ProjectLabel",
+        "group_id": null
+      }
+    ],
+    "state": "opened",
+    "severity": "unknown",
+    "customer_relations_contacts": [],
+    "action": "open"
+  },
+  "labels": [
+    {
+      "id": 380,
+      "title": "the label title",
+      "color": "#9400d3",
+      "project_id": 20125,
+      "created_at": "2024-10-30 16:25:49 UTC",
+      "updated_at": "2024-10-30 16:25:49 UTC",
+      "template": false,
+      "description": null,
+      "type": "ProjectLabel",
+      "group_id": null
+    }
+  ],
+  "changes": {
+    "author_id": {
+      "previous": null,
+      "current": 2617
+    },
+    "created_at": {
+      "previous": null,
+      "current": "2024-11-09 00:44:06 UTC"
+    },
+    "description": {
+      "previous": null,
+      "current": "issue description"
+    },
+    "id": {
+      "previous": null,
+      "current": 2286
+    },
+    "iid": {
+      "previous": null,
+      "current": 25
+    },
+    "project_id": {
+      "previous": null,
+      "current": 20125
+    },
+    "title": {
+      "previous": null,
+      "current": "new issue title"
+    },
+    "updated_at": {
+      "previous": null,
+      "current": "2024-11-09 00:44:06 UTC"
+    }
+  },
+  "repository": {
+    "name": "proj-name",
+    "url": "git@example.com:joe/proj-name.git",
+    "description": "the description",
+    "homepage": "https://example.com/joe/proj-name"
+  },
+  "assignees": [
+    {
+      "id": 2617,
+      "name": "Joe",
+      "username": "joe",
+      "avatar_url": "https://secure.gravatar.com/avatar/abc",
+      "email": "[REDACTED]"
+    }
+  ]
+}

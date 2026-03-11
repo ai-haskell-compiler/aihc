@@ -1,0 +1,39 @@
+(?) :: Int -> Int -> Int
+-- testing 360 combinations of argument values
+-- pruning with 0/0 rules
+-- 4 candidates of size 1
+-- 0 candidates of size 2
+-- 24 candidates of size 3
+-- tested 6 candidates
+x ? y  =  x + y
+
+(?) :: Int -> Int -> Int
+-- testing 360 combinations of argument values
+-- pruning with 0/0 rules
+-- 4 candidates of size 1
+-- 0 candidates of size 2
+-- 24 candidates of size 3
+-- tested 18 candidates
+x ? y  =  x * y
+
+i :: Int -> Int
+-- testing 360 combinations of argument values
+-- pruning with 0/0 rules
+-- 3 candidates of size 1
+-- 0 candidates of size 2
+-- 10 candidates of size 3
+-- tested 6 candidates
+i x  =  x + 1
+
+d :: Int -> Int
+-- testing 360 combinations of argument values
+-- pruning with 0/0 rules
+-- 3 candidates of size 1
+-- 0 candidates of size 2
+-- 10 candidates of size 3
+-- tested 13 candidates
+d  =  undefined  -- search exhausted
+-- could not find implementation using only
+-- 0, 1, (+), and (*)
+-- consider increasing target/maxSize or refining the ingredients
+

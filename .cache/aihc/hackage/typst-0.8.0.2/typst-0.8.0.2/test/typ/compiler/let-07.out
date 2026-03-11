@@ -1,0 +1,108 @@
+--- parse tree ---
+[ Code
+    "typ/compiler/let-07.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/compiler/let-07.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/compiler/let-07.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Comment
+, Comment
+, Code
+    "typ/compiler/let-07.typ"
+    ( line 4 , column 2 )
+    (Let
+       (DestructuringBind
+          [ Simple (Just (Identifier "a"))
+          , Sink (Just (Identifier "b"))
+          , Simple (Just (Identifier "c"))
+          ])
+       (Array
+          [ Reg (Literal (Int 1))
+          , Reg (Literal (Int 2))
+          , Reg (Literal (Int 3))
+          , Reg (Literal (Int 4))
+          , Reg (Literal (Int 5))
+          , Reg (Literal (Int 6))
+          ]))
+, SoftBreak
+, Code
+    "typ/compiler/let-07.typ"
+    ( line 5 , column 2 )
+    (FuncCall
+       (Ident (Identifier "test"))
+       [ NormalArg (Ident (Identifier "a"))
+       , NormalArg (Literal (Int 1))
+       ])
+, SoftBreak
+, Code
+    "typ/compiler/let-07.typ"
+    ( line 6 , column 2 )
+    (FuncCall
+       (Ident (Identifier "test"))
+       [ NormalArg (Ident (Identifier "b"))
+       , NormalArg
+           (Array
+              [ Reg (Literal (Int 2))
+              , Reg (Literal (Int 3))
+              , Reg (Literal (Int 4))
+              , Reg (Literal (Int 5))
+              ])
+       ])
+, SoftBreak
+, Code
+    "typ/compiler/let-07.typ"
+    ( line 7 , column 2 )
+    (FuncCall
+       (Ident (Identifier "test"))
+       [ NormalArg (Ident (Identifier "c"))
+       , NormalArg (Literal (Int 6))
+       ])
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 text(body: [
+]), 
+                 text(body: [✅]), 
+                 text(body: [
+]), 
+                 text(body: [✅]), 
+                 text(body: [
+]), 
+                 text(body: [✅]), 
+                 parbreak() })

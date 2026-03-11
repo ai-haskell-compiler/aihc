@@ -1,0 +1,824 @@
+0.10.11.0:
+
+  Allow building with base version 4.22 (GHC 9.14), containers
+  0.8, and time 1.15.
+
+0.10.10.0:
+
+  Allow building with base version 4.21 (GHC 9.12).
+
+  The -v flag for Swish now includes the GHC version and
+  platform information.
+
+  Removed a number of old stack files for testing out older
+  versions, as I do not have the time to support them, and
+  some were known to fail due to changes in the Haskell
+  ecosystem.
+
+0.10.9.0:
+
+  Allow building with hashable version 1.5.
+
+0.10.8.0:
+
+  Allow building with GHC 9.10.1 (base 4.20) and (hopefully)
+  avoid warnings about foldl' for all the supported GHC
+  versions.
+
+  Avoid -Wx-partial warning messages when compiling (although
+  the code is not any safer with these changes, it is more
+  obvious when these assumptions are being made). This is only
+  for the src/ directory; the tests/ have not been updated.
+
+  Allow building with filepath 1.5.x and time 1.15 (although
+  not fully tested at this time as not all dependencies have
+  been updated).
+
+0.10.7.0:
+
+  Allow building with GHC 9.8.1 (base 4.19).
+
+0.10.6.0:
+
+  Allow building with containers version 0.7.
+
+0.10.5.0:
+
+  Allow building with text version 2.1.
+
+0.10.4.0:
+
+  Allow compilation with GHC 9.6.1 (base 4.18).
+
+0.10.3.0:
+
+  We can now compile with GHC 9.4.4, so support for base 4.17
+  has been added. Swish will not build with earlier versions of
+  GHC 9.4, but I don't know how best to mark these as "do not
+  install". Added autogen-modules fields for Paths_swish to
+  appease Stack's sdist check.
+
+0.10.2.0:
+
+  Check we can build with stack lts-19 (GHC 9.0) and spaces
+  around operators to please GHC 9.2. Dropped support for
+  time < 1.5 as it hasn't been tested for a long while.
+
+0.10.1.0:
+
+  Support building with GHC 9.2. The Swish.Datatype module
+  complains about non-exhaustive matches but it's in an
+  irrefutable match so I'm not sure how to avoid this.
+
+0.10.0.9:
+
+  Support the semigroups 0.20 and initial support of the text 2.0
+  release (not all dependencies have been updated yet).
+
+0.10.0.8:
+
+  Support hashable 1.4 release.
+
+0.10.0.7:
+
+  Support time 1.13 release.
+
+0.10.0.6:
+
+  Support recent time, network-uri, and semigroups releases.
+  Bumped the minimum base version to 4.8 (GHC 7.10).
+
+0.10.0.5:
+
+  Support for base from ghc 9.0.
+
+0.10.0.4:
+
+  Support for base from ghc 8.10. Switched tested version to 8.8.3
+  in swish.cabal.
+
+0.10.0.3:
+
+  No change to 0.10.0.3 other than a polyparse constraint (changed
+  '<= 1.13' to '< 1.14'), moved to GHC 8.8 as the build version, and
+  updated the copyright year.
+
+  Removed the GHC 7.8 stack YAML file as it won't work with
+  recent stack versions.
+
+0.10.0.2:
+
+  Switched hosting from bitbucket to gitlab (and mercurial to
+  git). The new "home" location is https://gitlab.com/dburke/swish
+
+  Bumped base to a maximum of 4.14 to support GHC 8.8, and
+  bumped hashable to support version 1.3. Add conditional rules
+  to avoid warnings when building with GHC 8.8.
+
+0.10.0.1:
+
+  Bump to support polyparse and its GHC 8.6 compatibility.
+
+0.10.0.0:
+
+  Updated packages to support building with ghc 8.6 (increase base
+  and containers limit).
+
+  The reason for the version bump is that there has been some
+  internal build cleanup and removal of un-needed imports (thanks to
+  weeder), which was done a while ago and I now forget whether there
+  were any changes due to imported instances, so it is safer to
+  increase the minor version number. There has been *no* change to
+  functionality.
+
+  Default stack.yaml file is now ghc 8.4, and added a ghc 8.2 version.
+
+0.9.2.1:
+
+  Updated the minimum base package to 4.5.0.0 (GHC 7.4.1), and removed
+  some old code for supporting older GHC/package versions. There are
+  some warnings when compiling with GHC pre version 8 (redudant imports)
+  which I am currently too lazy to fix, but patches are welcome. Support
+  for building with older versions of GHC is on a best-effort basis.
+  Applied some HLint suggestions. Updated to allow time-1.9.1 (but not
+  time-1.9.0). Updated to lts 11.1 in stack.yaml.
+
+0.9.2.0:
+
+  Initial support for ghc 8.4. Updated to lts 10.8 in stack.yaml so
+  was able to drop extra intern dependency version. Now builds with
+  -Wcompat if ghc 8.0 or later is used.
+
+0.9.1.10:
+
+  Updated the upper bound on time to work with ghc 8.2.1. Updated
+  stack.yaml to use lts 9.1.
+
+0.9.1.9:
+
+  Updated the upper bound on HUnit. This only affects the tests.
+  Finally added a stack.yaml file (partly addressing issue #27).
+
+0.9.1.8:
+
+  Updated the upper bound on polyparse and directory. Fixed build
+  failure of RDFGraphTest with time >= 1.6. Updated the copyright
+  years in README.md.
+
+0.9.1.7:
+
+  Turns out one of the constraints is needed by GHC 7.6.
+
+0.9.1.6:
+
+  Updated dependencies to support GHC 8.0 (RC1) and updated the code to
+  remove the un-needed constraints pointed out to me by the new compiler.
+
+0.9.1.5:
+
+  Removed the developer flag as it causes problems with 'cabal upload'
+  and added 2015 to the copyright statement in the cabal file. There
+  are no code changes compared to 0.9.1.3.
+
+0.9.1.4:
+
+  Updated the upper bound on the semigroups and HUnit dependencies.
+  This never got released on hackage due to a disagreement between
+  myself and Cabal.
+
+0.9.1.3:
+
+  Updated ghc 7.10 support.
+
+0.9.1.2:
+
+  Updated the upper bound on the polyparse dependency and fixed an
+  error in the Swish.RDF.Query documentation (issue #25). Initial
+  support for ghc 7.10.
+
+  The list of changes has been removed from the cabal file since it
+  is in the CHANGELOG.
+
+0.9.1.1:
+
+  Updated the upper bound on the semigroups and polyparse dependencies.
+
+0.9.1.0:
+
+  The network-uri flag has been added, which uses the network-uri
+  package to provide Network.URI. This has lead to the minimum version
+  of the network package being bumped to 2.4.0.0 to avoid some CPP
+  issues during building. The Network.URI.Ord module now really does
+  nothing.
+
+  Updated the upper bound on the text dependency (requires an
+  update to intern to use).
+
+  Updated the upper bound on the time dependency to 1.5 (at this time
+  the test suite will not build due to a failing dependency, so
+  it is untested).
+
+0.9.0.15:
+
+  Updated the upper bound on the semigroups dependency.
+  Renamed README to README.md
+
+0.9.0.14:
+
+  Updated the upper bound on the network dependency.
+
+0.9.0.13:
+
+  Updated the upper bound on the semigroups dependency (Issue #20).
+
+0.9.0.12:
+
+  Updated the upper bound on the text dependency to include version
+  1.1 (requires an update to semigroups to use).
+
+0.9.0.11:
+
+  Hackage has a better chance of finding the CHANGELOG file if it is
+  included in the distribution! There are no changes to the library or
+  examples.
+
+0.9.0.10:
+
+  Renamed CHANGES to CHANGELOG in the hope it will get picked up by
+  Hackage. There are no changes to the library or examples.
+
+0.9.0.9:
+
+  Updated the upper bound on the semigroups dependency (thanks to Leif
+  Warner).
+
+  Updated the upper bound on the text dependency (however, requires
+  changes to intern and semigroups to use).
+
+0.9.0.8:
+
+  Updated the upper bound on the semigroups dependency (thanks to Leif
+  Warner).
+
+  Display library version when running the runw3ctests executable and
+  ensure there is a space between file name and test result in the
+  screen output.
+
+0.9.0.7
+
+  Minor documentation fix for Swish.RDF.Graph.quote.
+
+0.9.0.6:
+
+  Turtle/N3 output: \f characters in literals are converted to
+  \u000C to work around some interoperability issues.
+
+  Changed the test handling to use test-framework.
+
+0.9.0.5:
+
+  Turtle/N3 output: more changes for string literals containing
+  double-quote characters.
+
+  N3 Parser: parsing of string literals within three quote marks has
+  been updated to match the Turtle parser.
+
+  Turtle Parser: a few more error messages have been added.
+  
+0.9.0.4:
+
+  Turtle parser: updated to the Candidate Recommendation (19 February
+  2013) specification; added minor improvements to error messages when
+  given invalid syntax. As part of the upgrade, there is no longer a
+  default namespace set up for the empty prefix and numeric literals
+  are no-longer converted into a 'canonical' form.
+
+  Turtle/N3 output: improved string formatting (better handling of
+  string literals with three or more consecutive " characters); blank
+  node handling has been improved but the output may not be as elegant.
+
+  NTriples parser: now accepts upper-case language tags such as
+  en-UK (case is preserved).
+
+  Swish.QName.LName names can now contain #, : and / characters.
+
+  Added tests for the Turtle parser and formatter.
+
+  The new w3ctests flag will build the runw3ctests executable,
+  which will run the W3C Turtle tests (if downloaded from
+  http://www.w3.org/2013/TurtleTests/).
+
+  Minor fixes and additions to the documentation.
+
+0.9.0.3:
+
+  Fix minor Haddock issue with Swish.RDF.Parser.Utils.appendURIs.
+
+0.9.0.2:
+
+  Updated the upper bound on the polyparse dependency.
+
+0.9.0.1:
+
+  Updated the upper bound on the semigroups dependency (thanks to Leif
+  Warner).
+
+0.9.0.0:
+
+  The module now builds against version 1.2 or 1.1 of the hashable
+  package; as there have been significant changes to hashable in the
+  1.2 release I have decided to bump up the version number to 0.9
+  as a precaution.
+
+  Fix failing test on 64-bit GHC (no library change).
+
+  Very minor hlint changes.
+
+0.8.0.3:
+
+  Remove hashtable restriction (rewrite tests), remove binary constraint
+  as it was apparently unneeded.
+
+  Updates to support network version 2.4.0.0: the package now provides
+  an Ord instance for Network.URI so Network.URI.Ord is now a no-op if
+  network >= 2.4.0.0 is installed; fix up code to handle change to
+  the API of relativeTo.
+
+0.8.0.2:
+
+  Restrict hashable to < 1.1.2.4 to try and avoid test
+  failures - see
+  http://travis-ci.org/#!/DougBurke/swish/builds/2360859
+  This is a hack and the tests should be updated.
+
+  Updated directory constraint to allow 1.2 on ghc 7.6.
+
+0.8.0.1:
+
+  Internal changes to Turtle/N3 formatting. No user-visible changes.
+
+0.8.0.0:
+
+  The LDGraph class now uses Set (Arc lb), rather than [Arc lb], for
+  setArcs, getArcs, and update. Several data types - e.g. NSGraph -
+  now use sets rather than lists. There are a number of API tweaks -
+  e.g. the addition of Ord constraints and the removal of Functor,
+  Foldable, and Traversable instances. Not all list of Arcs have been
+  converted since a review is needed to see where it makes sense and
+  where it does not. This definitely speeds up some operations but
+  a full analysis has not been attempted.
+
+  Replaced used of Data.LookupMap with Data.Map.Map. This has led to
+  the removal of a number of language extensions from some modules.
+
+  Added Network.URI.Ord to provide an ordering for URIs.
+
+  A few other minor changes have been made: the removal of subset and
+  equiv from Swish.Utils.ListHelpers; the ordering used for RDFLabel
+  values has changed; added a Monoid instance for VarBinding; added
+  Ord instances for a number of containers; removed some un-needed
+  constraints; added Network.URI.Ord.
+
+  The containers upper limit has been increased to support version 0.5.
+
+0.7.0.2:
+
+  Swish.QName.LName now requires all characters to be ASCII. This
+  avoids downstream later when trying to convert a QName to a URI.
+
+0.7.0.1:
+
+  URI parsing has changed slightly. The only user-visible change is that
+  error messages will be slightly different, in particular when
+  given an IRI in Turtle or NTriples format. Unfortunately IRIs are
+  still not supported.
+
+0.7.0.0:
+
+  For code that uses the Swish script language, the main change is to
+  import Swish rather than Swish.RDF.SwishMain, and to note that the
+  other Swish.RDF.Swish* modules are now called Swish.*.
+
+  For code that uses the graph library, the main changes are that
+  Swish.RDF.RDFGraph is now called Swish.RDF.Graph, the Lit
+  constructor of the RDFLabel has been split into three (Lit, LangLit,
+  and TypedLit) and a new LanguageTag type introduced, local names now
+  use the LName type (previously they were just Text values), and the
+  parsers and formatters have renamed to Swish.RDF.Parser.* and
+  Swish.RDF.Formatter.*.
+
+  - Moved a number of modules around: generic code directly into Swish
+    and the Swish.RDF.RDF* forms renamed to Swish.RDF.*. Some modules
+    have been moved out of the Swish.Utils.* namespace. Generic modules
+    have been placed into the Data.* namespace. The Swish.RDF.Swish
+    modules have been moved to Swish.* and Swish.RDF.SwishMain has
+    been removed; use Swish instead.
+
+  - Parsing modules are now in the Swish.RDF.Parser hierarchy and
+    Swish.RDF.RDFParser has been renamed to Swish.RDF.Parser.Utils.
+
+  - Formatting modules are now in the Swish.RDF.Formatter hierarchy.
+
+  - RDF literals are now stored using the Lit, LangLit, or TypedLit
+    constructors (from RDFLabel) rather than using just Lit. Language
+    codes are now represented by Swish.RDF.Vocabulary.LanguageTag
+    rather than as a ScopedName.
+
+  - Local names are now represented by the Swish.QName.LName type
+    rather than as a Text value. A few routines now return a Maybe value
+    rather than error-ing out on invalid input.
+
+  - Make use of Data.List.NonEmpty in a few cases.
+
+  - Removed mkTypedLit from Swish.RDF.RDFParser; use
+    Swish.RDF.RDFDatatype.makeDataTypedLiteral instead.
+
+  - Removed asubj, apred and aobj from Swish.RDF.GraphClass and
+    Swish.RDF.RDFGraph; use arcSubj, arcPred or arcObj instead.
+    
+  - Clarified that Swish.RDF.RDFDatatypeXsdDecimal is for xsd:decimal
+    rather than xsd:double.
+
+  - Removed the containedIn element of the LDGraph type class as it
+    was un-used. The arguments to setArcs have been flipped,
+    replaceArcs removed, add renamed to addGraphs, and emptyGraph
+    added.
+
+  - Removed various exported symbols from a range of modules as they were
+    un-used.
+
+  - Use Word32 rather than Int for label indexes
+    (Swish.GraphMatch.LabelIndex) and in the bnode counts when formatting
+    to N3/Turtle.
+
+  - Minor clean up of the LookupMap module: mergeReplaceOrAdd and mergeReplace
+    are now combined into mergeReplace; mapSelect, mapApplytoAll, and
+    mapTranslate* have been removed; documentation slightly improved; and a
+    few minor internal clean ups.
+
+  - Removed the Swish.Utils.MiscHelpers module and moved single-use
+    functionality out of Swish.Utils.ListHelpers.
+
+  - Removed partCompareOrd, partCompareMaybe, partCompareListOrd and 
+    partCompareListPartOrd from Swish.Utils.PartOrderedCollection.
+
+  - Do not define swap if using GHC >= 7.0.1.
+
+  - Bump the upper constraint on the containers package to include
+    version 0.5.
+
+  - Support version 0.9 of intern using conditional compilation in
+    Data.Interned.URI (for ghc 7.4)
+
+  - Switch to Control.Exception.try from System.IO.Error.try to avoid
+    complaints from ghc 7.4.2
+
+0.6.5.3:
+
+  - Updated cabal file so that tests depend on the library rather
+    than individual modules.
+
+  - fix intern to 0.8 for ghc < 7.4 and 0.8.* for greater
+
+0.6.5.2:
+
+  - Upgrade polyparse upper limit to include version 1.8.
+
+0.6.5.1:
+
+  - Haddock fixes.
+
+0.6.5.0:
+
+  - Dependency updates (updated filepath and removed array).
+
+0.6.4.0:
+
+  - Added support for xsd:decimal with Swish.RDF.RDFDatatypeXsdDecimal
+    and Swish.RDF.MapXsdDecimal thanks to William Waites
+    (<https://bitbucket.org/ww>).
+
+0.6.3.0:
+
+  - Added Swish.RDF.Vocabulary.SIOC.
+
+0.6.2.1:
+
+  - hackage build fixes only
+
+0.6.2.0:
+
+  - Split out vocabularies into Swish.RDF.Vocabulary.DublinCore,
+    Swish.RDF.Vocabulary.FOAF, Swish.RDF.Vocabulary.Geo,
+    Swish.RDF.Vocabulary.OWL, Swish.RDF.Vocabulary.RDF, and
+    Swish.RDF.Vocabulary.XSD (some of these are new and additional
+    terms added to the pre-existing vocabularies). A few have also
+    been added to Swish.RDF.RDFGraph.
+
+  - Minimum Cabal version has been updated to 1.9.2 as the tests have
+    been converted to take advantage of the support now in Cabal; this
+    means that the tests flag has been replaced by the --enable-tests
+    option.
+
+  - Change to the internal labelling of the RDFS container-property
+    axioms in Swish.RDF.RDFProofContext.
+
+  - Moved src/ to app/, and took advantage of the emptiness to move
+    the library code into src/.
+
+0.6.1.2:
+
+  - corrected mtl constraint from >= 1 to >= 2 as the code does not
+    build with mtl=1 and increased the upper limit on time to 1.4.
+
+0.6.1.1:
+
+  - minor improvements to error message when parsing Turtle, N3 or
+    Ntriples format; a fragment of the remaining text to be parsed is
+    included to provide some context for the user (it is still not as
+    useful as the error message provided when parsec was being used).
+
+0.6.1.0:
+
+  - add support for reading and writing Turtle format and the
+    Swish.RDF.TurtleFormatter and Swish.RDF.TurtleParser modules.  No
+    tests are provided at this time, although the parser handles most
+    of the W3C test files; the issues include Network.URI not
+    recognizing some IRI's and issues with equating XSD decimal and
+    double values due to canonicalization.
+
+0.6.0.1:
+
+  - use the hashing interface provided by Data.Hashable rather than
+    Swish.Utils.MiscHelpers.
+
+0.6.0.0:
+
+  - use the intern package to create Data.Interned.URI and use
+    this within QName to speed up the equality check.
+
+0.5.0.3:
+
+  - Missed a FlexibleInstances pragma for ghc 7.2.
+
+0.5.0.2:
+
+  - Removed random and bytesttring package constraints and moved HUnit
+    constraint to only apply if the tests flag is used. Added
+    FlexibleInstances pragma for ghc 7.2 compatability.
+
+0.5.0.1:
+
+  - updated package constraints in cabal file to try and support
+    building with ghc 7.2. No code change.
+
+0.5.0.0:
+
+  - The constructors for ScopedName and QName have been removed in
+    order to allow a simple experimental optimisation (partly added in
+    0.4.0.0). A similar change has been added for Namespace (but no
+    optimisation).
+
+0.4.0.0:
+
+  - Use polyparse rather than parsec-2 for parsing. As part of this,
+    the parsing is done using Text rather than String values, where
+    sensible.  Some parsing should be faster now, but that is more due
+    to a better use of parser combinators than differences in the
+    parsing library used. No serious attempt at optimisation has been
+    attempted.
+
+    Unfortunately the error messages created on invalid input are
+    significantly less helpfull than in the previous version.
+
+  - removed Swish.Utils.DateTime and Swish.Utils.TraceHelpers
+
+  - removed the following exported symbols from Swish.Utils.LookupMap:
+        mapSortByKey, mapSortByVal
+
+  - removed the following exported symbols from Swish.Utils.ListHelpers:
+        allf, anyf, combinations, ffold, hasPartitions,
+        mapset, pairsUngroup, powerSequences, powerSequences_inf
+
+  - removed the following exported symbols from Swish.Utils.MiscHelpers:
+        assert, stricmp, lower, quote
+
+  - removed _ from exported symbols; the conversion is mainly to camel
+    case but some may retain lower case parts (e.g. xxx_1_1_inv to
+    xxx11inv).
+
+  - Namespace now uses Maybe Text to store the optional prefix rather
+    than an ad-hoc ""/"?" solution and URI rather than String for the
+    URI.  The local part of ScopedName is now Text.  QName also uses
+    URIs and no longer exports the constructor so newQName or related
+    should be used to create QNames.
+
+    We have currently lost N3 formatting of the default prefix (any
+    default prefix elements end up getting written out fully
+    qualified). The output is still valid N3 but perhaps not what
+    you'd expect.
+
+0.3.2.1:
+
+  - use foldl' rather than foldl in some modules
+
+  - Swish.Utils.*:
+
+    - marked routines as deprecated
+
+0.3.2.0:
+
+  - Swish.RDF.N3Parser:
+
+    - the parser no longer has a set of pre-defined namespaces with
+      the aim of reducing un-needed statements on output.
+
+  There is no API change worthy of a bump of the minor version but
+  the behavioural change is large enough to make it worth while.
+
+0.3.1.2:
+
+  - Swish.RDF.RDFGraph:
+
+    - toRDFGraph now uses the supplied labels to set up the namespace
+      rather than using an empty namespace map.
+
+    - minor documentation improvements.
+
+0.3.1.1:
+
+  - N3 I/O: 
+
+    - strings ending in a double-quote character are now written out
+      correctly.
+
+    - xsd:double values are not written using XSD canonical
+      form/capital E but with using a lower-case exponent.
+
+    - in input, xsd:double literals are converted to XSD canonical
+      form (as stored in 'RDFLabel'), which can make simple textual
+      comparison of literals fail.
+
+  - RDFLabel:
+
+    - the Eq instance now ignores the case of the language tag for
+      literals
+
+    - the Show instance uses the XSD canonical form for xsd:boolean,
+      xsd:integer, xsd:decimal and xsd:double literals. 
+
+  - The ToRDFLable and FromRDFLabel classes replicate
+    existing functionality in Swish.RDF.RDFDatatype; this should
+    be cleaned up.
+
+0.3.1.0:
+
+  - NSGraph:
+
+    - added Monoid instance with a Label constraint.
+
+  - RDFLabel:
+
+    - added IsString instance.
+
+    - added ToRDFLabel and FromRDFLabel type classes for converting to
+      and from RDFLabel along with instances for some standard Haskell
+      types.
+
+  - RDFTriple:
+
+    - added toRDFTriple and fromRDFTriple functions that take advantage
+      of the To/FromRDFLabel typeclasses to ease conversion from/to Arcs.
+
+  - QName and ScopedName:
+
+    - added IsString instance.
+
+  - UTCTime support (To/FromRDFLabel) has required adding old-locale
+    and time to the package constraints.
+
+  - added xsd_dateTime export to Swish.RDF.Vocabulary.
+
+  - added Swish and Swish.RDF modules for documentation purposes.
+
+  - marked Swish.Utils.DateTime as deprecated.
+
+  - the N3 formatter now writes true, 1, 1.2, 1.2e34 rather than
+    "true"^^xsd:boolean, "1"^^xsd:integer, "1.2"^^xsd:decimal
+    and "1.2e34"^^xsd:double.
+
+  - improved test coverage.
+
+0.3.0.3:
+
+  - changed scripts/SwishExample.ss script so that the proof succeeds.
+
+  - minor documentation improvements, including the addition of the
+    Swish script format in Swish.RDF.SwishScript.
+
+  - minor changes to behavior of Swish in several edge cases.
+
+0.3.0.2:
+
+  - bugfix: stop losing triples with a bnode subject when using the
+    N3 Formatter which also makes the scripts/SwishTest.ss script run
+    successfully.
+
+  - several commands in Swish scripts now create screen
+    output as an aid to debugging.
+
+  - added the developer flag.
+
+0.3.0.1:
+
+  - updated the Swish script parser to work with the changes in
+    0.3.0.0 (reported by Rick Murphy).
+
+  - several example scripts are installed in the scripts/ directory,
+    although only VehicleCapacity.ss works with this release.
+
+0.2.1 to 0.3.0.0:
+
+  - Renamed module hierarchy from
+
+      Swish.HaskellRDF.*
+      Swish.HaskellUtils.*
+
+    to
+
+      Swish.RDF.*
+      Swish.Utils.*
+
+  - removed modules, either because un-needed or replaced
+    by other libraries:
+
+    *) replaced with Data.Traversable instances
+
+      Swish.HaskellUtils.FunctorM
+
+    *) replaced with routines from Network.URI
+
+      Swish.HaskellRDF.ProcessURI
+      Swish.HaskellRDF.ParseURI
+
+    *) copy of a Parsec module
+
+      Swish.HaskellRDF.ParsecLanguage
+
+    *) Replaced with Data.List.sort as only used the 
+       stableQuickSort routine
+
+      Swish.HaskellRDF.Sort.*
+
+    *) Replaced use with simple parsec parser
+
+      Swish.HaskellRDF.Dfa.Dfa
+
+    *) Replaced with 'Either String'
+
+      Swish.HaskellUtils.ErrorM
+
+    *) Un-needed 
+
+      Swish.HaskellRDF.Parse
+      Swish.HaskelUtils.AccumulateM
+      Swish.HaskellUtils.TestHelpers
+
+  - removed Either String instance from ErrorM
+
+  - should now compile with mtl-2
+
+  - added upper and lower bounds to package dependencies
+
+  - a number of Test executables have been removed, either
+    because of a removed module or missing data files.
+
+  - updated Haddock documentation to build
+
+  - added the following flags
+
+      tests   - compile tests or not?
+      hpc     - compile tests with -hpc?
+
+  - support for the NTriples format has been added (e.g. the -nt
+    flag in Swish)
+
+  - the N3 parser and formatter have been re-written to better
+    match the latest specification. Some previously valid N3 files
+    will likely no-linger parse since support for constructs like
+    'this' and ':-' have been removed.
+
+    The N3 parser does not handle @forAll statements and ignores any
+    @forSome statements. It is also slower than the original parser.
+
+    The formatter has been updated to make better use of the '[]', 
+    '()' and '{}' syntactic short cuts.
+
+    Strings containing "unexpected" escape combinations - such as \a -
+    may not be handled correctluy.
+
+  - change in behavior of Swish command-line tool when given
+    invalid arguments as it now errors out if given an invalid
+    argument before processing any input.
+
+

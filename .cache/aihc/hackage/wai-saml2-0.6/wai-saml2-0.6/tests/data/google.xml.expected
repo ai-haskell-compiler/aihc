@@ -1,0 +1,77 @@
+Response
+  { responseDestination =
+      "https://herp.loopback.ja-sore.de/auth/page/saml2/login"
+  , responseInResponseTo =
+      Just
+        "1WKzv/yHPExwtkwhgObMyn/GVaTIIZAc+DqEfqe1YuYyjmw4YitoSHGhI/xufWqEHUhrSPtrzzyi5938vebpVg=="
+  , responseId = "_b9917f3478ff3f776cb351547379d0bc"
+  , responseIssueInstant = 2022-09-20 10:30:41.151 UTC
+  , responseVersion = "2.0"
+  , responseIssuer =
+      "https://accounts.google.com/o/saml2?idpid=C01aa60hc"
+  , responseStatusCode =
+      MkStatusCode
+        { statusCodeValue = Success , statusCodeSubordinate = Nothing }
+  , responseSignature =
+      Signature
+        { signatureInfo =
+            SignedInfo
+              { signedInfoCanonicalisationMethod = C14N_EXC_1_0
+              , signedInfoSignatureMethod = RSA_SHA256
+              , signedInfoReference =
+                  Reference
+                    { referenceURI = "_b9917f3478ff3f776cb351547379d0bc"
+                    , referenceDigestMethod = DigestSHA256
+                    , referenceDigestValue =
+                        "z3YXe+aIiyAYbSGqxRiYPwTO38JNZad2WBgqinjiX8g="
+                    }
+              }
+        , signatureValue =
+            "S6IAb+4yYyNVIfnqM7ZIrFSKbzi0RgVqk6qNL0ehzFZhcaArqN/8S0oCDrrc+0B2ygCkpbDKt03/\nvNIxq862VYa1Y39n8w0/eIKc+m3beNS6e+n316o3LCtSTPvgC2kE96Jh44MOUX9z/KIYxXiPGgdi\nnnlxK6L1dZGrMKKBxEFiBJMhFI42gWADyrUz311PDImM+rVhINJT9NyD1i1G++PILLer/BlGwg5n\nwNQHmjt4pV3m+8zMMIrfLjZT/YX8s7+1Xn1Y3bMzo6PnsbvS7OX1YGuN4cPn9f4MLu5Vcn9lWo/r\n+zuZay/pS0mEqTmeOOMGk4BOseiU/hAra5NDgQ=="
+        }
+  , responseAssertion =
+      Just
+        Assertion
+          { assertionId = "_e7e8860fa89585efa9c8013a0f8116a2"
+          , assertionIssued = 2022-09-20 10:30:41.151 UTC
+          , assertionIssuer =
+              "https://accounts.google.com/o/saml2?idpid=C01aa60hc"
+          , assertionSubject =
+              Subject
+                { subjectConfirmations =
+                    [ SubjectConfirmation
+                        { subjectConfirmationMethod = Bearer
+                        , subjectConfirmationAddress = ""
+                        , subjectConfirmationNotOnOrAfter = 2022-09-20 10:35:41.151 UTC
+                        , subjectConfirmationRecipient =
+                            "https://herp.loopback.ja-sore.de/auth/page/saml2/login"
+                        }
+                    ]
+                , subjectNameID =
+                    NameID
+                      { nameIDQualifier = Nothing
+                      , nameIDSPNameQualifier = Nothing
+                      , nameIDSPProvidedID = Nothing
+                      , nameIDFormat = Just EmailAddress
+                      , nameIDValue = "sdlc-standard@herp.chat"
+                      }
+                }
+          , assertionConditions =
+              Conditions
+                { conditionsNotBefore = 2022-09-20 10:25:41.151 UTC
+                , conditionsNotOnOrAfter = 2022-09-20 10:35:41.151 UTC
+                , conditionsAudienceRestrictions =
+                    [ AudienceRestriction
+                        { audienceRestrictionAudience = [ "https://v1.herp.cloud/" ] }
+                    ]
+                }
+          , assertionAuthnStatement =
+              AuthnStatement
+                { authnStatementInstant = 2022-09-20 09:33:25 UTC
+                , authnStatementSessionIndex = "_e7e8860fa89585efa9c8013a0f8116a2"
+                , authnStatementLocality = ""
+                }
+          , assertionAttributeStatement = []
+          }
+  , responseEncryptedAssertion = Nothing
+  }

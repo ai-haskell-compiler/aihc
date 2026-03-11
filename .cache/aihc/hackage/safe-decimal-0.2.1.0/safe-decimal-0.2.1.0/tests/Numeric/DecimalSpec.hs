@@ -1,0 +1,457 @@
+{-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
+module Numeric.DecimalSpec (spec) where
+
+import Control.DeepSeq
+import Control.Exception hiding (assert)
+import Control.Monad
+import Data.Either
+import Data.Int
+import Data.Proxy
+import Data.Ratio
+import Data.Scientific
+import Data.Typeable
+import Data.Word
+import GHC.TypeLits
+import Numeric.Decimal
+import Numeric.Natural
+import Test.Hspec
+import Test.Hspec.QuickCheck
+import Test.QuickCheck
+import Test.QuickCheck.Monadic
+
+-- | Values generated will usually be somewhere close to the bounds.
+newtype Extremum a = Extremum a deriving Show
+
+instance (Arbitrary a, Bounded a, Integral a) => Arbitrary (Extremum a) where
+  arbitrary = do
+    NonNegative x <- arbitrary
+    frequency
+      [ (f, pure (Extremum v))
+      | (f, v) <- [(40, minBound + x), (40, maxBound - x), (20, x)]
+      ]
+
+instance (Arbitrary p) => Arbitrary (Decimal r s p) where
+  arbitrary = fmap pure arbitrary
+
+showType :: forall t . Typeable t => Proxy t -> String
+showType _ = showsTypeRep (typeRep (Proxy :: Proxy t)) ""
+
+prop_absBounded ::
+     (Show a, Integral a)
+  => [ArithException] -- ^ Exceptions to expect
+  -> Extremum a
+  -> Property
+prop_absBounded excs (Extremum x) =
+  classify (not noOverflow) "Outside of Bounds" $
+  if noOverflow
+    then Right res === resBounded
+    else disjoin (fmap ((resBounded ===) . Left) excs)
+  where
+    res = abs x
+    noOverflow = abs (toInteger x) == toInteger res
+    resBounded = toArithException $ absBounded x
+
+prop_plusBounded ::
+     (Show a, Integral a, Bounded a)
+  => [ArithException] -- ^ Exceptions to expect
+  -> Extremum a
+  -> Extremum a
+  -> Property
+prop_plusBounded excs (Extremum x) (Extremum y) =
+  classify (not withinBounds) "Outside of Bounds" $
+  if withinBounds
+    then Right res === resBounded
+    else disjoin (fmap ((resBounded ===) . Left) excs)
+  where
+    res = x + y
+    withinBounds = toInteger res == toInteger x + toInteger y
+    resBounded = toArithException $ plusBounded x y
+
+
+prop_minusBounded ::
+     (Show a, Integral a, Bounded a)
+  => [ArithException] -- ^ Exceptions to expect
+  -> Extremum a
+  -> Extremum a
+  -> Property
+prop_minusBounded excs (Extremum x) (Extremum y) =
+  classify (not withinBounds) "Outside of Bounds" $
+  if withinBounds
+    then Right res === resBounded
+    else disjoin (fmap ((resBounded ===) . Left) excs)
+  where
+    res = x - y
+    withinBounds = toInteger res == toInteger x - toInteger y
+    resBounded = toArithException $ minusBounded x y
+
+prop_timesBounded ::
+     (Show a, Integral a, Bounded a)
+  => [ArithException] -- ^ Exceptions to expect
+  -> Extremum a
+  -> Extremum a
+  -> Property
+prop_timesBounded excs (Extremum x) (Extremum y) =
+  classify (not withinBounds) "Outside of Bounds" $
+  if withinBounds
+    then Right res === resBounded
+    else disjoin (fmap ((resBounded ===) . Left) excs)
+  where
+    res = x * y
+    withinBounds = toInteger res == toInteger x * toInteger y
+    resBounded = toArithException $ timesBounded x y
+
+prop_fromIntegerBounded ::
+  forall a . (Show a, Integral a, Bounded a)
+  => [ArithException] -- ^ Exceptions to expect
+  -> Int -- ^ This is used for scaling
+  -> Extremum a
+  -> Property
+prop_fromIntegerBounded excs n (Extremum x) =
+  classify (not withinBounds) "Outside of Bounds" $
+  if withinBounds
+    then Right (fromInteger x') === resBounded
+    else disjoin (fmap ((resBounded ===) . Left) excs)
+  where
+    multiplier = (n `mod` 3) + 1
+    x' = toInteger x * toInteger multiplier -- Try to go overboard 66% of the time
+    withinBounds = x' == toInteger (x * fromIntegral multiplier)
+    resBounded :: Either ArithException a
+    resBounded = toArithException $ fromIntegerBounded x'
+
+-- | Throw all exceptions except the ArithException
+toArithException :: Either SomeException a -> Either ArithException a
+toArithException eRes =
+  case eRes of
+    Left exc
+      | Just arithExc <- fromException exc -> Left arithExc
+    Left exc -> throw exc
+    Right res -> Right res
+
+prop_divBounded ::
+     (Show a, Integral a, Bounded a, NFData a)
+  => Extremum a
+  -> Extremum a
+  -> Property
+prop_divBounded (Extremum x) (Extremum y) =
+  classify (isLeft resBounded) "Received Exception" $
+  case resBounded of
+    Left exc  -> assertException (==exc) (x `div` y)
+    Right res -> res === x `div` y
+  where
+    resBounded = toArithException $ divBounded x y
+
+prop_quotBounded ::
+     (Show a, Integral a, Bounded a, NFData a)
+  => Extremum a
+  -> Extremum a
+  -> Property
+prop_quotBounded (Extremum x) (Extremum y) =
+  classify (isLeft resBounded) "Received Exception" $
+  case resBounded of
+    Left exc  -> assertException (==exc) (x `quot` y)
+    Right res -> res === x `quot` y
+  where
+    resBounded = toArithException $ quotBounded x y
+
+
+specBouned ::
+     forall a.
+     ( Typeable a
+     , Arbitrary a
+     , Show a
+     , Integral a
+     , Bounded a
+     , NFData a
+     , Round RoundHalfUp a
+     , Round RoundHalfDown a
+     , Round RoundHalfEven a
+     , Round RoundHalfToZero a
+     , Round RoundHalfFromZero a
+     , Round RoundDown a
+     , Round RoundToZero a
+     )
+  => Proxy a
+  -> Spec
+specBouned px = do
+  let typeName = showsTypeRep (typeRep px) ""
+  describe ("Bounded: " ++ typeName) $ do
+    let excs = [Overflow, Underflow]
+        plusExcs =
+          if (minBound :: a) >= 0
+            then [Overflow]
+            else excs
+    it "plusBounded" $
+      property
+        (prop_plusBounded plusExcs :: Extremum a -> Extremum a -> Property)
+    it "minusBounded" $
+      property (prop_minusBounded excs :: Extremum a -> Extremum a -> Property)
+    it "timesBounded" $
+      property (prop_timesBounded excs :: Extremum a -> Extremum a -> Property)
+    it "absBounded" $
+      property (prop_absBounded [Overflow] :: Extremum a -> Property)
+    it "fromIntegerBounded" $
+      property (prop_fromIntegerBounded excs :: Int -> Extremum a -> Property)
+    it "divBounded" $
+      property (prop_divBounded :: Extremum a -> Extremum a -> Property)
+    it "quotBounded" $
+      property (prop_quotBounded :: Extremum a -> Extremum a -> Property)
+  specBoundedDecimal (Proxy :: Proxy RoundHalfUp) (Proxy :: Proxy 0) px
+  specBoundedDecimal (Proxy :: Proxy RoundHalfUp) (Proxy :: Proxy 1) px
+  specBoundedDecimal (Proxy :: Proxy RoundHalfUp) (Proxy :: Proxy 2) px
+  specRounding @0 @0 @a
+  specRounding @1 @0 @a
+  specRounding @1 @1 @a
+  specRounding @2 @0 @a
+  let maxLen = length (show (maxBound :: a))
+  when (maxLen >= 3) $ do
+    specBoundedDecimal (Proxy :: Proxy RoundHalfUp) (Proxy :: Proxy 3) px
+    specRounding @2 @1 @a
+    specRounding @3 @0 @a
+  when (maxLen >= 4) $ do
+    specRounding @2 @2 @a
+    specRounding @3 @1 @a
+    specRounding @4 @0 @a
+    specBoundedDecimal (Proxy :: Proxy RoundHalfUp) (Proxy :: Proxy 4) px
+  when (maxLen >= 5) $ do
+    specRounding @3 @2 @a
+    specRounding @4 @1 @a
+    specRounding @5 @0 @a
+    specBoundedDecimal (Proxy :: Proxy RoundHalfUp) (Proxy :: Proxy 5) px
+  when (maxLen >= 19) $
+    specBoundedDecimal (Proxy :: Proxy RoundHalfUp) (Proxy :: Proxy 19) px
+
+specRounding ::
+     forall s k p.
+     ( KnownNat s
+     , KnownNat k
+     , KnownNat (s + k)
+     , Typeable p
+     , Arbitrary p
+     , Round RoundHalfUp p
+     , Round RoundHalfDown p
+     , Round RoundHalfEven p
+     , Round RoundHalfToZero p
+     , Round RoundHalfFromZero p
+     , Round RoundDown p
+     , Round RoundToZero p
+     )
+  => Spec
+specRounding = do
+  prop (propNamePrefix . showsDecimalType @RoundHalfUp @(s + k) @p $ "") $
+    prop_Rounding @RoundHalfUp @s @k @p
+    (roundHalfUpTo (fromIntegral (natVal (Proxy :: Proxy s))))
+  prop (propNamePrefix . showsDecimalType @RoundHalfDown @(s + k) @p $ "") $
+    prop_Rounding @RoundHalfDown @s @k @p
+    (roundHalfDownTo (fromIntegral (natVal (Proxy :: Proxy s))))
+  prop (propNamePrefix . showsDecimalType @RoundHalfEven @(s + k) @p $ "") $
+    prop_Rounding @RoundHalfEven @s @k @p
+    (roundHalfEvenTo (fromIntegral (natVal (Proxy :: Proxy s))))
+  prop (propNamePrefix . showsDecimalType @RoundHalfToZero @(s + k) @p $ "") $
+    prop_Rounding @RoundHalfToZero @s @k @p
+    (roundHalfToZeroTo (fromIntegral (natVal (Proxy :: Proxy s))))
+  prop (propNamePrefix . showsDecimalType @RoundHalfFromZero @(s + k) @p $ "") $
+    prop_Rounding @RoundHalfFromZero @s @k @p
+    (roundHalfFromZeroTo (fromIntegral (natVal (Proxy :: Proxy s))))
+  prop (propNamePrefix . showsDecimalType @RoundToZero @(s + k) @p $ "") $
+    prop_Rounding @RoundToZero @s @k @p
+    (roundToZeroTo (fromIntegral (natVal (Proxy :: Proxy s))))
+  prop (propNamePrefix . showsDecimalType @RoundDown @(s + k) @p $ "") $
+    prop_Rounding @RoundDown @s @k @p
+    (roundFloorTo (fromIntegral (natVal (Proxy :: Proxy s))))
+  where
+    propNamePrefix =
+      ("Rounding to " ++) . showsTypeRep (typeRep (Proxy :: Proxy s)) . (" places " ++)
+
+prop_Rounding ::
+     forall r s k a.
+     ( KnownNat s
+     , KnownNat k
+     , KnownNat (s + k)
+     , Round r a
+     )
+  => (Rational -> Rational)
+  -> Decimal r (s + k) a
+  -> Property
+prop_Rounding roundTo d =
+  let r = toRationalDecimal d
+   in fmap toInteger (roundDecimal d :: Decimal r s a) ===
+      throwDecimal (fromRationalDecimalWithoutLoss (roundTo r))
+
+showsDecimalType ::
+     forall r (s :: Nat) p. (Typeable r, KnownNat s, Typeable p)
+  => ShowS
+showsDecimalType = ("(Decimal " ++)
+                   . showsType @r . (' ':)
+                   . showsTypeRep (typeRep (Proxy :: Proxy s))
+                   . (' ':)
+                   . showsType @p
+                   . (')':)
+
+showsType :: forall t . Typeable t => ShowS
+showsType = showsTypeRep (typeRep (Proxy :: Proxy t))
+
+throwDecimal :: Either SomeException (Decimal r s p) -> Decimal r s p
+throwDecimal = either throw id
+
+specBoundedDecimal ::
+     forall r s p. (Typeable r, Typeable p, KnownNat s, Show p, Integral p, Bounded p, Arbitrary p)
+  => Proxy r
+  -> Proxy s
+  -> Proxy p
+  -> Spec
+specBoundedDecimal pr ps pp =
+  describe
+    ("Decimal " ++ showType (Proxy :: Proxy r) ++ " " ++ show (natVal ps) ++ " " ++
+     showType (Proxy :: Proxy p)) $ do
+    it "toFromScientific" $ property $ prop_toFromScientific pr ps pp
+    it "toFromScientificBounded" $ property $ prop_toFromScientificBounded pr ps pp
+    it "showParseBounded" $ property $ prop_showParseBouded pr ps pp
+    -- TODO: x times integral / integral == x
+
+prop_toFromScientific ::
+     (Integral p, KnownNat s)
+  => Proxy r
+  -> Proxy s
+  -> Proxy p
+  -> Decimal r s p
+  -> Property
+prop_toFromScientific _ _ _ d =
+  (Right d ===
+   toArithException
+     (fmap fromInteger <$> fromScientificDecimal (toScientificDecimal d))) .&&.
+  (Right d ===
+   toArithException
+     (fmap fromInteger <$>
+      fromScientificDecimal (normalize (toScientificDecimal d))))
+
+prop_toFromScientificBounded ::
+     (Integral p, Bounded p, KnownNat s)
+  => Proxy r
+  -> Proxy s
+  -> Proxy p
+  -> Decimal r s p
+  -> Property
+prop_toFromScientificBounded _ _ _ d =
+  (Right d ===
+   toArithException (fromScientificDecimalBounded (toScientificDecimal d))) .&&.
+  (Right d ===
+   toArithException
+     (fromScientificDecimalBounded (normalize (toScientificDecimal d))))
+
+prop_showParseBouded ::
+     (Show p, Integral p, Bounded p, KnownNat s)
+  => Proxy r
+  -> Proxy s
+  -> Proxy p
+  -> Decimal r s p
+  -> Property
+prop_showParseBouded _ _ _ d@(Decimal x) =
+  case parseDecimalBounded False (show d) of
+    Left err              -> error err
+    Right d'@(Decimal x') -> x === x' .&&. d === d'
+
+spec :: Spec
+spec = do
+  describe "Int" $ do
+    specBouned (Proxy :: Proxy Int)
+    specBouned (Proxy :: Proxy Int8)
+    specBouned (Proxy :: Proxy Int16)
+    specBouned (Proxy :: Proxy Int32)
+    specBouned (Proxy :: Proxy Int64)
+  describe "Word" $ do
+    specBouned (Proxy :: Proxy Word)
+    specBouned (Proxy :: Proxy Word8)
+    specBouned (Proxy :: Proxy Word16)
+    specBouned (Proxy :: Proxy Word32)
+    specBouned (Proxy :: Proxy Word64)
+  describe "Integer" $ do
+    specRounding @0 @0 @Integer
+    specRounding @1 @0 @Integer
+    specRounding @1 @1 @Integer
+    specRounding @2 @0 @Integer
+    specRounding @2 @1 @Integer
+    specRounding @2 @2 @Integer
+    specRounding @3 @0 @Integer
+    specRounding @3 @1 @Integer
+    specRounding @3 @2 @Integer
+    specRounding @3 @3 @Integer
+    specRounding @4 @0 @Integer
+    specRounding @4 @1 @Integer
+    specRounding @4 @2 @Integer
+    specRounding @4 @3 @Integer
+    specRounding @4 @4 @Integer
+
+
+
+
+assertException :: (NFData a, Exception exc) =>
+                   (exc -> Bool) -- ^ Return True if that is the exception that was expected
+                -> a -- ^ Value that should throw an exception, when fully evaluated
+                -> Property
+assertException isExc action = assertExceptionIO isExc (return action)
+
+
+assertExceptionIO :: (NFData a, Exception exc) =>
+                     (exc -> Bool) -- ^ Return True if that is the exception that was expected
+                  -> IO a -- ^ IO Action that should throw an exception
+                  -> Property
+assertExceptionIO isExc action =
+  monadicIO $ do
+    hasFailed <-
+      run
+        (catch
+           (do res <- action
+               res `deepseq` return False) $ \exc ->
+           show exc `deepseq` return (isExc exc))
+    assert hasFailed
+
+roundHalfUpTo :: Natural -> Rational -> Rational
+roundHalfUpTo to rational =
+  floor ((rational * ((s10 * 10) % 1) + 5) * (1 % 10)) % s10
+  where
+    s10 = 10 ^ to :: Integer
+
+roundHalfDownTo :: Natural -> Rational -> Rational
+roundHalfDownTo to rational =
+  ceiling ((rational * ((s10 * 10) % 1) - 5) * (1 % 10)) % s10
+  where
+    s10 = 10 ^ to :: Integer
+
+roundHalfEvenTo :: Natural -> Rational -> Rational
+roundHalfEvenTo to rational =
+  fromInteger (round $ rational * (10 ^ to)) / 10 ^ to
+
+roundFloorTo :: Natural -> Rational -> Rational
+roundFloorTo to rational = (floor (rational * (s10 % 1)) :: Integer) % s10
+  where
+    s10 = 10 ^ to :: Integer
+
+roundToZeroTo :: Natural -> Rational -> Rational
+roundToZeroTo to rational = (truncate (rational * (s10 % 1)) :: Integer) % s10
+  where
+    s10 = 10 ^ to :: Integer
+
+roundHalfToZeroTo :: Natural -> Rational -> Rational
+roundHalfToZeroTo to rational
+  | rational < 0 = negate (roundHalfDownTo to (negate rational))
+  | otherwise = roundHalfDownTo to rational
+
+roundHalfFromZeroTo :: Natural -> Rational -> Rational
+roundHalfFromZeroTo to rational
+  | rational < 0 = negate (roundPositive (negate rational))
+  | otherwise = roundPositive rational
+  where
+    s10 = 10 ^ to :: Integer
+    roundPositive positiveRational =
+      let (q, r) = quotRem (truncate (positiveRational * (s10 * 10 % 1)) :: Integer) 10
+       in (if r >= 5
+             then q + 1
+             else q) %
+          s10

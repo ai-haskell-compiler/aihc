@@ -1,0 +1,9 @@
+TAP version 13
+1..5
+ok 1 - some example tests/trivial pass
+not ok 2 - some example tests/first failure
+# expected: False
+#  but got: True
+not ok 3 - some example tests/another pass
+not ok 4 - some example tests/second failure
+not ok 5 - some example tests/yet another pass

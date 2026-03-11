@@ -1,0 +1,56 @@
+# hpack package description.
+# See
+# https://github.com/sol/hpack
+name: rainbox
+synopsis: Two-dimensional box pretty printing, with colors
+description: Please see README.md
+version: 0.26.0.0
+license: BSD3
+license-file: LICENSE
+copyright: Copyright 2014-2020 Omari Norman
+author: Omari Norman
+maintainer: omari@smileystation.com
+stability: Experimental
+homepage: https://www.github.com/massysett/rainbox
+bug-reports: https://www.github.com/massysett/rainbox/issues
+category: System
+extra-source-files:
+  - README.md
+  - package.yaml
+  - stack.yaml
+  - changelog
+verbatim:
+  x-curation: uncurated
+
+dependencies:
+  - base >= 4.11 && < 5
+  - text
+  - bytestring
+  - containers
+  - rainbow
+  - text
+  - lens
+
+ghc-options: -Wall
+other-extensions: TemplateHaskell
+source-dirs: lib
+github: massysett/rainbox
+
+library: {}
+
+tests:
+  rainbox-properties:
+    main: rainbox-properties.hs
+    source-dirs: test
+    dependencies:
+      - QuickCheck
+      - tasty
+      - tasty-quickcheck
+  rainbox-visual:
+    main: rainbox-visual.hs
+    source-dirs: test
+    dependencies:
+      - QuickCheck
+      - tasty
+      - tasty-quickcheck
+

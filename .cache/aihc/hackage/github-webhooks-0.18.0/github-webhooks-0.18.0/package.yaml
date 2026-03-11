@@ -1,0 +1,72 @@
+name: github-webhooks
+version: 0.18.0
+
+category: GitHub
+license: MIT
+extra-source-files:
+  - package.yaml
+  - stack.yaml
+  - stack-*.yaml
+  - CHANGELOG.md
+  - fixtures/*.json
+synopsis: Aeson instances for GitHub webhook payloads.
+copyright: (c) 2017-2025 CUEDO CONTROLS P/L
+author:
+  - Kyle Van Berendonck <kyle.vanberendonck@cuedo.com.au>
+  - Christian Sakai <christianmsakai@gmail.com>
+  - Thomas DuBuisson <thomas.dubuisson@gmail.com>
+  - Rob Berry
+  - Domen Kozar <domen@dev.si>
+  - Alistair Burrowes
+  - Matthew Bauer
+  - Julien Debon
+  - Robert Hensing
+  - Jean-François Roche
+maintainer: Kyle Van Berendonck <foss@cuedo.com.au>
+github: cuedo/github-webhooks
+description:
+    Complete instances for decoding GitHub Webhook payloads (using @aeson@).
+    See the README at <https://github.com/cuedo/github-webhooks#readme> for examples.
+    Sponsored by <https://cuedo.com.au>.
+flags:
+  ci:
+    description: A stricter build designed for continuous integration.
+    default: false
+    manual: true
+
+
+when:
+  - condition: flag(ci)
+    ghc-options: -Wall -fwarn-incomplete-uni-patterns -fwarn-incomplete-record-updates -ddump-to-file -ddump-hi
+
+default-extensions:
+  - DeriveDataTypeable
+  - DeriveGeneric
+  - OverloadedStrings
+
+dependencies:
+ - base == 4.*
+ - aeson
+ - bytestring
+ - text
+ - vector
+
+library:
+  source-dirs: src
+  dependencies:
+    - base16-bytestring
+    - cryptonite
+    - deepseq
+    - deepseq-generics
+    - memory
+    - time
+
+tests:
+  spec:
+    source-dirs: spec
+    main: Spec.hs
+    dependencies:
+      - github-webhooks
+      - hspec == 2.*
+    default-extensions:
+      - ScopedTypeVariables

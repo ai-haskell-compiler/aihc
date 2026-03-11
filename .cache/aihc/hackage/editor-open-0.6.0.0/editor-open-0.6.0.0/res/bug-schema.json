@@ -1,0 +1,43 @@
+{
+  "name": "bug",
+  "type": "object",
+  "properties": {
+    "bug-creation-date": {
+      "required": true,
+      "type": "string",
+      "description": "The ISO 8601 date at which the bug was created."
+    },
+    "bug-comments": {
+      "items": {
+        "type": "object"
+      },
+      "type": "array",
+      "description": "Comments on the bug. Each item should fit the comment schema."
+    },
+    "bug-id": {
+      "required": true,
+      "type": "string",
+      "description": "Unique identifier for this bug. Should be a whirlpool hash of the title concat the time at which it was created."
+    },
+    "bug-description": {
+      "required": false,
+      "type": "string",
+      "description": "An optional description of the bug."
+    },
+    "bug-open": {
+      "required": true,
+      "type": "boolean",
+      "description": "Whether or not the bug is open"
+    },
+    "bug-reporter": {
+      "required": false,
+      "type": "object",
+      "description": "The person who reported the bug. Object should fit the person schema."
+    },
+    "bug-title": {
+      "required": true,
+      "type": "string",
+      "description": "The title of the bug."
+    }
+  }
+}

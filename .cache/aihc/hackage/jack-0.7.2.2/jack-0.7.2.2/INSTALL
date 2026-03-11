@@ -1,0 +1,10 @@
+
+Installation:
+
+runhaskell Setup configure
+runhaskell Setup build
+runhaskell Setup install
+
+More information:
+
+runhaskell Setup help

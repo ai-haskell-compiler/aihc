@@ -1,0 +1,25 @@
+not . not === id
++++ OK, passed 2 tests (exhausted).
+(&&) commutes
++++ OK, passed 4 tests (exhausted).
+(||) commutes
++++ OK, passed 4 tests (exhausted).
+
+All boolean operators are commutative (wrong).
+*** Failed! Falsifiable (after 10 tests):
+\x y -> case (x,y) of
+        (True,False) -> True
+        _ -> False
+False
+True
+
+
+All boolean operators are associative (wrong).
+*** Failed! Falsifiable (after 22 tests):
+\x y -> case (x,y) of
+        (True,False) -> True
+        _ -> False
+True
+False
+True
+

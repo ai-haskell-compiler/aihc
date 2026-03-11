@@ -1,0 +1,163 @@
+--- parse tree ---
+[ Code
+    "typ/meta/numbering-00.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/meta/numbering-00.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/meta/numbering-00.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Code
+    "typ/meta/numbering-00.typ"
+    ( line 2 , column 2 )
+    (For
+       (BasicBind (Just (Identifier "i")))
+       (FuncCall
+          (Ident (Identifier "range"))
+          [ NormalArg (Literal (Int 0)) , NormalArg (Literal (Int 9)) ])
+       (Block
+          (CodeBlock
+             [ FuncCall
+                 (Ident (Identifier "numbering"))
+                 [ NormalArg (Literal (String "*"))
+                 , NormalArg (Ident (Identifier "i"))
+                 ]
+             , Block (Content [ Space , Text "and" , Space ])
+             , FuncCall
+                 (Ident (Identifier "numbering"))
+                 [ NormalArg (Literal (String "I.a"))
+                 , NormalArg (Ident (Identifier "i"))
+                 , NormalArg (Ident (Identifier "i"))
+                 ]
+             , Block
+                 (Content
+                    [ Space
+                    , Text "for"
+                    , Space
+                    , Code
+                        "typ/meta/numbering-00.typ"
+                        ( line 6 , column 10 )
+                        (Ident (Identifier "i"))
+                    , Space
+                    , HardBreak
+                    ])
+             ])))
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 numbering(numbering: "*", 
+                           numbers: (0)), 
+                 text(body: [ and ]), 
+                 numbering(numbering: "I.a", 
+                           numbers: (0, 0)), 
+                 text(body: [ for ]), 
+                 text(body: [0]), 
+                 text(body: [ ]), 
+                 linebreak(), 
+                 numbering(numbering: "*", 
+                           numbers: (1)), 
+                 text(body: [ and ]), 
+                 numbering(numbering: "I.a", 
+                           numbers: (1, 1)), 
+                 text(body: [ for ]), 
+                 text(body: [1]), 
+                 text(body: [ ]), 
+                 linebreak(), 
+                 numbering(numbering: "*", 
+                           numbers: (2)), 
+                 text(body: [ and ]), 
+                 numbering(numbering: "I.a", 
+                           numbers: (2, 2)), 
+                 text(body: [ for ]), 
+                 text(body: [2]), 
+                 text(body: [ ]), 
+                 linebreak(), 
+                 numbering(numbering: "*", 
+                           numbers: (3)), 
+                 text(body: [ and ]), 
+                 numbering(numbering: "I.a", 
+                           numbers: (3, 3)), 
+                 text(body: [ for ]), 
+                 text(body: [3]), 
+                 text(body: [ ]), 
+                 linebreak(), 
+                 numbering(numbering: "*", 
+                           numbers: (4)), 
+                 text(body: [ and ]), 
+                 numbering(numbering: "I.a", 
+                           numbers: (4, 4)), 
+                 text(body: [ for ]), 
+                 text(body: [4]), 
+                 text(body: [ ]), 
+                 linebreak(), 
+                 numbering(numbering: "*", 
+                           numbers: (5)), 
+                 text(body: [ and ]), 
+                 numbering(numbering: "I.a", 
+                           numbers: (5, 5)), 
+                 text(body: [ for ]), 
+                 text(body: [5]), 
+                 text(body: [ ]), 
+                 linebreak(), 
+                 numbering(numbering: "*", 
+                           numbers: (6)), 
+                 text(body: [ and ]), 
+                 numbering(numbering: "I.a", 
+                           numbers: (6, 6)), 
+                 text(body: [ for ]), 
+                 text(body: [6]), 
+                 text(body: [ ]), 
+                 linebreak(), 
+                 numbering(numbering: "*", 
+                           numbers: (7)), 
+                 text(body: [ and ]), 
+                 numbering(numbering: "I.a", 
+                           numbers: (7, 7)), 
+                 text(body: [ for ]), 
+                 text(body: [7]), 
+                 text(body: [ ]), 
+                 linebreak(), 
+                 numbering(numbering: "*", 
+                           numbers: (8)), 
+                 text(body: [ and ]), 
+                 numbering(numbering: "I.a", 
+                           numbers: (8, 8)), 
+                 text(body: [ for ]), 
+                 text(body: [8]), 
+                 text(body: [ ]), 
+                 linebreak(), 
+                 parbreak() })

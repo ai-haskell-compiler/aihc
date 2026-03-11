@@ -1,0 +1,36 @@
+Name:		tuple
+Version:	0.3.0.2
+Synopsis:	Various functions on tuples
+Description:	Various useful functions on tuples, overloaded on tuple size.
+Bug-reports:    https://github.com/haskell/augustss/tuple/issues
+License:	BSD3
+License-File:   LICENSE
+Author:		Lennart Augustsson
+Maintainer:	Lennart Augustsson
+Copyright:      2014 Lennart Augustsson
+Category:	Data
+Build-type:	Simple
+Cabal-Version:  >= 1.8
+Stability:      stable
+Extra-source-files:
+  Makefile
+  Tools/MkTuple.hs
+
+source-repository head
+  type:     git
+  location: https://github.com/augustss/tuple
+
+library
+  Build-Depends:
+    base < 10,
+    OneTuple < 10
+
+  Exposed-modules:
+    Data.Tuple.All
+    Data.Tuple.Curry
+    Data.Tuple.Select
+    Data.Tuple.Sequence
+    Data.Tuple.Update
+
+  Hs-Source-Dirs:
+    src

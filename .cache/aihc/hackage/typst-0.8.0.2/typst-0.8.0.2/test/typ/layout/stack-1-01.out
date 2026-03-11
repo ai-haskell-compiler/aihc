@@ -1,0 +1,136 @@
+--- parse tree ---
+[ Code
+    "typ/layout/stack-1-01.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/layout/stack-1-01.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/layout/stack-1-01.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Comment
+, Code
+    "typ/layout/stack-1-01.typ"
+    ( line 3 , column 2 )
+    (Set
+       (Ident (Identifier "page"))
+       [ KeyValArg (Identifier "width") (Literal (Numeric 50.0 Pt))
+       , KeyValArg (Identifier "margin") (Literal (Numeric 0.0 Pt))
+       ])
+, ParBreak
+, Code
+    "typ/layout/stack-1-01.typ"
+    ( line 5 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "x")))
+       (FuncCall
+          (Ident (Identifier "square"))
+          [ KeyValArg (Identifier "size") (Literal (Numeric 10.0 Pt))
+          , KeyValArg (Identifier "fill") (Ident (Identifier "eastern"))
+          ]))
+, SoftBreak
+, Code
+    "typ/layout/stack-1-01.typ"
+    ( line 6 , column 2 )
+    (FuncCall
+       (Ident (Identifier "stack"))
+       [ KeyValArg (Identifier "spacing") (Literal (Numeric 5.0 Pt))
+       , NormalArg
+           (FuncCall
+              (Ident (Identifier "stack"))
+              [ KeyValArg (Identifier "dir") (Ident (Identifier "rtl"))
+              , KeyValArg (Identifier "spacing") (Literal (Numeric 5.0 Pt))
+              , NormalArg (Ident (Identifier "x"))
+              , NormalArg (Ident (Identifier "x"))
+              , NormalArg (Ident (Identifier "x"))
+              ])
+       , NormalArg
+           (FuncCall
+              (Ident (Identifier "stack"))
+              [ KeyValArg (Identifier "dir") (Ident (Identifier "ltr"))
+              , NormalArg (Ident (Identifier "x"))
+              , NormalArg (Literal (Numeric 20.0 Percent))
+              , NormalArg (Ident (Identifier "x"))
+              , NormalArg (Literal (Numeric 20.0 Percent))
+              , NormalArg (Ident (Identifier "x"))
+              ])
+       , NormalArg
+           (FuncCall
+              (Ident (Identifier "stack"))
+              [ KeyValArg (Identifier "dir") (Ident (Identifier "ltr"))
+              , KeyValArg (Identifier "spacing") (Literal (Numeric 5.0 Pt))
+              , NormalArg (Ident (Identifier "x"))
+              , NormalArg (Ident (Identifier "x"))
+              , NormalArg (Literal (Numeric 7.0 Pt))
+              , NormalArg (Literal (Numeric 3.0 Pt))
+              , NormalArg (Ident (Identifier "x"))
+              ])
+       ])
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 parbreak(), 
+                 text(body: [
+]), 
+                 stack(children: (stack(children: (square(fill: rgb(13%,61%,67%,100%), 
+                                                          size: 10.0pt), 
+                                                   square(fill: rgb(13%,61%,67%,100%), 
+                                                          size: 10.0pt), 
+                                                   square(fill: rgb(13%,61%,67%,100%), 
+                                                          size: 10.0pt)), 
+                                        dir: rtl, 
+                                        spacing: 5.0pt), 
+                                  stack(children: (square(fill: rgb(13%,61%,67%,100%), 
+                                                          size: 10.0pt), 
+                                                   20%, 
+                                                   square(fill: rgb(13%,61%,67%,100%), 
+                                                          size: 10.0pt), 
+                                                   20%, 
+                                                   square(fill: rgb(13%,61%,67%,100%), 
+                                                          size: 10.0pt)), 
+                                        dir: ltr), 
+                                  stack(children: (square(fill: rgb(13%,61%,67%,100%), 
+                                                          size: 10.0pt), 
+                                                   square(fill: rgb(13%,61%,67%,100%), 
+                                                          size: 10.0pt), 
+                                                   7.0pt, 
+                                                   3.0pt, 
+                                                   square(fill: rgb(13%,61%,67%,100%), 
+                                                          size: 10.0pt)), 
+                                        dir: ltr, 
+                                        spacing: 5.0pt)), 
+                       spacing: 5.0pt), 
+                 parbreak() })

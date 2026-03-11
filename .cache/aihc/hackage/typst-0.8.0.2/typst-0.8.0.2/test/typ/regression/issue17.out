@@ -1,0 +1,223 @@
+--- parse tree ---
+[ Code
+    "typ/regression/issue17.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/regression/issue17.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/regression/issue17.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Equation
+    False
+    [ MAttach
+        Nothing
+        (Just (MGroup Nothing Nothing [ Text "b" ]))
+        (MGroup
+           Nothing
+           Nothing
+           [ Text "n" , MGroup (Just "(") (Just ")") [ Text "a" ] ])
+    ]
+, ParBreak
+, Equation
+    False
+    [ MAttach (Just (Text "1")) Nothing (Text "a")
+    , MGroup (Just "(") (Just ")") [ Text "x" ]
+    ]
+, ParBreak
+, Equation
+    False
+    [ MAttach
+        (Just
+           (MGroup
+              Nothing
+              Nothing
+              [ Text "f" , MGroup (Just "(") (Just ")") [ Text "x" ] ]))
+        Nothing
+        (Text "a")
+    ]
+, ParBreak
+, Equation
+    False
+    [ MAttach
+        (Just (MGroup Nothing Nothing [ Text "j" , Text "=" , Text "0" ]))
+        (Just (Text "3"))
+        (Code
+           "typ/regression/issue17.typ"
+           ( line 8 , column 2 )
+           (Ident (Identifier "sum")))
+    ]
+, ParBreak
+, Equation
+    False
+    [ MAttach
+        (Just (MGroup Nothing Nothing [ Text "j" , Text "=" , Text "0" ]))
+        (Just (Text "3"))
+        (Code
+           "typ/regression/issue17.typ"
+           ( line 10 , column 2 )
+           (Ident (Identifier "sum")))
+    ]
+, ParBreak
+, Equation
+    False
+    [ MAttach
+        (Just (Text "3"))
+        (Just (MGroup Nothing Nothing [ Text "j" , Text "=" , Text "0" ]))
+        (Code
+           "typ/regression/issue17.typ"
+           ( line 12 , column 2 )
+           (Ident (Identifier "sum")))
+    ]
+, ParBreak
+, Equation
+    False
+    [ MAttach
+        (Just (Text "3"))
+        (Just (MGroup Nothing Nothing [ Text "j" , Text "=" , Text "0" ]))
+        (Code
+           "typ/regression/issue17.typ"
+           ( line 14 , column 2 )
+           (Ident (Identifier "sum")))
+    ]
+, ParBreak
+, Equation
+    False
+    [ MAttach
+        (Just (MGroup Nothing Nothing [ Text "j" , Text "=" , Text "0" ]))
+        (Just
+           (Code
+              "typ/regression/issue17.typ"
+              ( line 16 , column 12 )
+              (Ident (Identifier "pi"))))
+        (Code
+           "typ/regression/issue17.typ"
+           ( line 16 , column 2 )
+           (Ident (Identifier "sum")))
+    ]
+, ParBreak
+, Equation
+    False
+    [ MAttach
+        (Just (MGroup Nothing Nothing [ Text "j" , Text "=" , Text "0" ]))
+        (Just
+           (Code
+              "typ/regression/issue17.typ"
+              ( line 18 , column 6 )
+              (Ident (Identifier "pi"))))
+        (Code
+           "typ/regression/issue17.typ"
+           ( line 18 , column 2 )
+           (Ident (Identifier "sum")))
+    ]
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 math.equation(block: false, 
+                               body: math.attach(b: none, 
+                                                 base: { text(body: [n]), 
+                                                         math.lr(body: ({ [(], 
+                                                                          text(body: [a]), 
+                                                                          [)] })) }, 
+                                                 t: text(body: [b])), 
+                               numbering: none), 
+                 parbreak(), 
+                 math.equation(block: false, 
+                               body: { math.attach(b: text(body: [1]), 
+                                                   base: text(body: [a]), 
+                                                   t: none), 
+                                       math.lr(body: ({ [(], 
+                                                        text(body: [x]), 
+                                                        [)] })) }, 
+                               numbering: none), 
+                 parbreak(), 
+                 math.equation(block: false, 
+                               body: math.attach(b: { text(body: [f]), 
+                                                      math.lr(body: ({ [(], 
+                                                                       text(body: [x]), 
+                                                                       [)] })) }, 
+                                                 base: text(body: [a]), 
+                                                 t: none), 
+                               numbering: none), 
+                 parbreak(), 
+                 math.equation(block: false, 
+                               body: math.attach(b: { text(body: [j]), 
+                                                      text(body: [=]), 
+                                                      text(body: [0]) }, 
+                                                 base: text(body: [∑]), 
+                                                 t: text(body: [3])), 
+                               numbering: none), 
+                 parbreak(), 
+                 math.equation(block: false, 
+                               body: math.attach(b: { text(body: [j]), 
+                                                      text(body: [=]), 
+                                                      text(body: [0]) }, 
+                                                 base: text(body: [∑]), 
+                                                 t: text(body: [3])), 
+                               numbering: none), 
+                 parbreak(), 
+                 math.equation(block: false, 
+                               body: math.attach(b: text(body: [3]), 
+                                                 base: text(body: [∑]), 
+                                                 t: { text(body: [j]), 
+                                                      text(body: [=]), 
+                                                      text(body: [0]) }), 
+                               numbering: none), 
+                 parbreak(), 
+                 math.equation(block: false, 
+                               body: math.attach(b: text(body: [3]), 
+                                                 base: text(body: [∑]), 
+                                                 t: { text(body: [j]), 
+                                                      text(body: [=]), 
+                                                      text(body: [0]) }), 
+                               numbering: none), 
+                 parbreak(), 
+                 math.equation(block: false, 
+                               body: math.attach(b: { text(body: [j]), 
+                                                      text(body: [=]), 
+                                                      text(body: [0]) }, 
+                                                 base: text(body: [∑]), 
+                                                 t: text(body: [π])), 
+                               numbering: none), 
+                 parbreak(), 
+                 math.equation(block: false, 
+                               body: math.attach(b: { text(body: [j]), 
+                                                      text(body: [=]), 
+                                                      text(body: [0]) }, 
+                                                 base: text(body: [∑]), 
+                                                 t: text(body: [π])), 
+                               numbering: none), 
+                 parbreak() })

@@ -1,0 +1,26 @@
+name:         action-permutations
+version:      0.0.0.1
+license:      BSD3
+license-file: LICENSE
+author:       Ross Paterson <ross@soi.city.ac.uk>
+maintainer:   Ross Paterson <ross@soi.city.ac.uk>
+category:     Control
+synopsis:     Execute a set of actions (e.g. parsers) in each possible order
+description:
+    Sequence a set of Alternative actions in each possible order,
+    based on \"Parsing Permutation Phrases\", by Arthur Baars,
+    Andres Loeh and S. Doaitse Swierstra, /Haskell Workshop 2001/.
+    This is particularly useful for constructing a parser for
+    permutations of elements.
+    This version has a slightly different interface from the paper.
+build-type: Simple
+cabal-version: >= 1.6
+
+source-repository head
+  type: darcs
+  location: http://code.haskell.org/~ross/action-permutations
+
+library
+  build-depends: base >= 2 && < 5
+  exposed-modules: Control.Applicative.Permutation
+  extensions: ExistentialQuantification

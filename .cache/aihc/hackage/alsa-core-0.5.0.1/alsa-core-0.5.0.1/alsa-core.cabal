@@ -1,0 +1,48 @@
+Name:          alsa-core
+Version:       0.5.0.1
+Copyright:     Bjorn Bringert, Iavor S. Diatchki, Henning Thielemann
+Maintainer:    Henning Thielemann <alsa@henning-thielemann.de>
+Author:        Henning Thielemann <alsa@henning-thielemann.de>, Bjorn Bringert <bjorn@bringert.net>, Iavor S. Diatchki <iavor.diatchki@gmail.com>
+Category:      Sound, Music
+License:       BSD3
+License-file:  LICENSE
+Homepage:      http://www.haskell.org/haskellwiki/ALSA
+Stability:     Experimental
+Build-Type:    Simple
+Cabal-Version: >= 1.8
+
+Synopsis: Binding to the ALSA Library API (Exceptions).
+Description:
+  This package provides access to ALSA infrastructure,
+  that is needed by both alsa-seq and alsa-pcm.
+
+Source-Repository head
+  type:     darcs
+  location: http://code.haskell.org/alsa/core/
+
+Source-Repository this
+  type:     darcs
+  location: http://code.haskell.org/alsa/core/
+  tag:      0.5.0.1
+
+Flag pkgConfig
+  Description: use pkg-config if it works
+  -- http://hackage.haskell.org/trac/hackage/ticket/170
+  Default: True
+
+Library
+  Build-depends:
+    extensible-exceptions >=0.1.1 && <0.2,
+    base >= 3 && <5
+
+  Hs-Source-Dirs: src
+
+  Exposed-Modules:
+    Sound.ALSA.Exception
+
+  GHC-Options: -Wall
+  If flag(pkgConfig)
+    PkgConfig-depends: alsa >= 1.0.14
+  Else
+    Includes: alsa/asoundlib.h
+    Extra-Libraries: asound

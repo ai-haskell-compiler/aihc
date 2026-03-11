@@ -1,0 +1,15 @@
+ghc --make -O2 -i../ -i../../ TestCatch.hs
+ghc --make -O2 -i../ -i../../ TestCountdown1.hs
+ghc --make -O2 -i../ -i../../ TestCountdown2.hs
+ghc --make -O2 -i../ -i../../ TestHuffman1.hs
+ghc --make -O2 -i../ -i../../ TestHuffman2.hs
+ghc --make -O2 -i../ -i../../ TestListSet1.hs
+ghc --make -O2 -i../ -i../../ TestMate.hs
+ghc --make -O2 -i../ -i../../ TestMux1.hs
+ghc --make -O2 -i../ -i../../ TestMux2.hs
+ghc --make -O2 -i../ -i../../ TestMux3.hs
+ghc --make -O2 -i../ -i../../ TestRedBlack.hs
+ghc --make -O2 -i../ -i../../ TestRegExp.hs
+ghc --make -O2 -i../ -i../../ TestSad.hs
+ghc --make -O2 -i../ -i../../ TestSumPuz.hs
+ghc --make -O2 -i../ -i../../ TestTurner.hs

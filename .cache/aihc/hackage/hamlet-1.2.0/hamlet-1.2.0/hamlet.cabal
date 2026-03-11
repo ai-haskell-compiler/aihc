@@ -1,0 +1,37 @@
+name:            hamlet
+version:         1.2.0
+license:         MIT
+license-file:    LICENSE
+author:          Michael Snoyman <michael@snoyman.com>
+maintainer:      Michael Snoyman <michael@snoyman.com>
+synopsis:        Haml-like template files that are compile-time checked (deprecated)
+description:
+    Hamlet gives you a type-safe tool for generating HTML code. It works via Quasi-Quoting, and generating extremely efficient output code. The syntax is white-space sensitive, and it helps you avoid cross-site scripting issues and 404 errors. Please see the documentation at <http://www.yesodweb.com/book/shakespearean-templates> for more details.
+    .
+    Here is a quick overview of hamlet html. Due to haddock escaping issues, we can't properly show variable insertion, but we are still going to show some conditionals. Please see <http://www.yesodweb.com/book/shakespearean-templates> for a thorough description
+    .
+    > !!!
+    > <html>
+    >     <head>
+    >         <title>Hamlet Demo
+    >     <body>
+    >         <h1>Information on John Doe
+    >         <h2>
+    >             $if isMarried person
+    >                 Married
+    >             $else
+    >                 Not married
+category:        Web, Yesod
+stability:       Stable
+cabal-version:   >= 1.8
+build-type:      Simple
+homepage:        http://www.yesodweb.com/book/shakespearean-templates
+
+library
+    build-depends:   base             >= 4       && < 5
+                 ,   shakespeare >= 2.0
+
+
+source-repository head
+  type:     git
+  location: git://github.com/yesodweb/shakespeare.git

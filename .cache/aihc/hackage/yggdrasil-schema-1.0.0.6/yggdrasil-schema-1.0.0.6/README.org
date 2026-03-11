@@ -1,0 +1,70 @@
+* Yggdrasil Schema
+
+#+begin_html
+<div>
+<img src="https://img.shields.io/badge/Haskell-5D4F85?logo=haskell&logoColor=fff&style=plastic" alt="Haskell"/>
+<img src="https://img.shields.io/badge/SQLite-4169E1?logo=sqlite&logoColor=fff&style=plastic" alt="SQLite"/>
+<img src="https://img.shields.io/badge/Nix-5277C3?logo=nixos&logoColor=fff&style=plastic" alt="Nix"/>
+</div>
+#+end_html
+
+Yggdrasil Schema is a Haskell-based tool for managing database migrations.
+Inspired by tools like Flyway, or Liquibase, it automates the process of applying migrations, keeping track of which migrations have been executed, and ensuring they only run once.
+
+Yggdrasil Schema is designed to be simple, extensible, and adaptable to various storage engines.
+
+Initially, it supports SQLite, but its architecture is open for future extensions to support additional storage engines.
+As of now available as library only, in the future also as CLI standalone tool (with optparse-applicative).
+
+#+begin_html
+<div>
+<img src="./resources/img/yggdrasil.webp"/>
+</div>
+#+end_html
+
+** Features
+
+- Automatically applies missing migrations to your database
+- Tracks migration history to ensure each migration is run exactly once
+- Written in Haskell with a focus on functional programming principles
+- Supports SQLite out of the box, other storage engines should be easy to add, and we are open for contributions
+
+** Usage
+
+Once installed, you can use Yggdrasil to apply migrations to your database.
+
+Take a look at the tests for Yggdrasil itself to familiarize yourself with what it can do, as library:
+[[./test/Yggdrasil/Test/Yggdrasil.hs][./test/Yggdrasil/Test/Yggdrasil.hs]]
+
+By default, Yggdrasil SQLite branch looks for migration files in the ~./resources/migrations/sqlite/~ directory.
+
+*NOTE* : Keep in mind this slash ( / ) at the end is very important.
+
+All you need is a directory with migration files.
+The only requirement in naming the files is that they start with a number and a dash, so that the order can be determined.
+
+Examples of valid files: ~0-init-my-database.sql~ , ~100-another migration with spaces.txt~
+
+To get things working properly, please ensure that your first migration, called something like ~0-yggdrasil.sql~ contains the following:
+#+begin_src sql
+CREATE TABLE yggdrasil (
+  identifier TEXT NOT NULL PRIMARY KEY,
+  order_value INTEGER NOT NULl,
+  file_name TEXT NOT NULL,
+  ran_at TEXT NOT NULL
+);
+
+#+end_src
+
+** Extending Yggdrasil
+
+Yggdrasil is built with extension in mind. You can easily add support for other databases by implementing a new storage engine backend. 
+
+** Contributing
+
+We welcome contributions from the community. Whether it's bug fixes, new features, or documentation improvements, feel free to open a pull request or an issue.
+
+** License
+
+This project is licensed under the GNU Lesser GPL License v3. See the COPYING file for more details.
+

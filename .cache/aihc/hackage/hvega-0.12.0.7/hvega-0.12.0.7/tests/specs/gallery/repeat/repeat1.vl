@@ -1,0 +1,68 @@
+{
+    "$schema": "https://vega.github.io/schema/vega-lite/v4.json",
+    "data": {
+        "url": "https://vega.github.io/vega-lite/data/weather.csv"
+    },
+    "description": "Monthly weather information for individual years and overall average for Seatle and New York",
+    "repeat": {
+        "column": [
+            "temp_max",
+            "precipitation",
+            "wind"
+        ]
+    },
+    "spec": {
+        "layer": [
+            {
+                "encoding": {
+                    "color": {
+                        "field": "location",
+                        "type": "nominal"
+                    },
+                    "detail": {
+                        "field": "date",
+                        "timeUnit": "year",
+                        "type": "temporal"
+                    },
+                    "opacity": {
+                        "value": 0.2
+                    },
+                    "x": {
+                        "field": "date",
+                        "timeUnit": "month",
+                        "type": "ordinal"
+                    },
+                    "y": {
+                        "aggregate": "mean",
+                        "field": {
+                            "repeat": "column"
+                        },
+                        "type": "quantitative"
+                    }
+                },
+                "mark": "line"
+            },
+            {
+                "encoding": {
+                    "color": {
+                        "field": "location",
+                        "type": "nominal"
+                    },
+                    "x": {
+                        "field": "date",
+                        "timeUnit": "month",
+                        "type": "ordinal"
+                    },
+                    "y": {
+                        "aggregate": "mean",
+                        "field": {
+                            "repeat": "column"
+                        },
+                        "type": "quantitative"
+                    }
+                },
+                "mark": "line"
+            }
+        ]
+    }
+}

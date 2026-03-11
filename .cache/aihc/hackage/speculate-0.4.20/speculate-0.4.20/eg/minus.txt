@@ -1,0 +1,27 @@
+max expr size  =    5
+  |- on ineqs  =    4
+  |- on conds  =    4
+max  #-tests   =  500
+min  #-tests   =   25  (to consider p ==> q true)
+max  #-vars    =    2  (for inequational and conditional laws)
+
+_ :: Int
+0 :: Int
+1 :: Int
+id :: Int -> Int
+(+) :: Int -> Int -> Int
+negate :: Int -> Int
+(-) :: Int -> Int -> Int
+
+             id x == x
+negate (negate x) == x
+            x + 0 == x
+     x + negate x == 0
+            x + y == y + x
+            x - y == x + negate y
+   negate (x + y) == negate x + negate y
+      (x + y) + z == x + (y + z)
+
+    x <= x + 1
+x - 1 <= x
+

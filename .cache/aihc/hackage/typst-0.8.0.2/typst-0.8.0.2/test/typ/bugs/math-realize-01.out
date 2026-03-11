@@ -1,0 +1,152 @@
+--- parse tree ---
+[ Code
+    "typ/bugs/math-realize-01.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/bugs/math-realize-01.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/bugs/math-realize-01.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Equation
+    True
+    [ MAttach Nothing (Just (Text "2")) (Text "x")
+    , Code
+        "typ/bugs/math-realize-01.typ"
+        ( line 2 , column 8 )
+        (FuncCall
+           (Ident (Identifier "hide"))
+           [ BlockArg
+               [ Equation
+                   False
+                   [ MGroup
+                       (Just "(")
+                       (Just ")")
+                       [ Code
+                           "typ/bugs/math-realize-01.typ"
+                           ( line 2 , column 15 )
+                           (FieldAccess (Ident (Identifier "eq")) (Ident (Identifier "gt")))
+                       , Code
+                           "typ/bugs/math-realize-01.typ"
+                           ( line 2 , column 18 )
+                           (FieldAccess (Ident (Identifier "alt")) (Ident (Identifier "phi")))
+                       ]
+                   , Code
+                       "typ/bugs/math-realize-01.typ"
+                       ( line 2 , column 27 )
+                       (Ident (Identifier "union"))
+                   , MAttach Nothing (Just (Text "2")) (Text "y")
+                   , Text "0"
+                   ]
+               ]
+           ])
+    , MAttach Nothing (Just (Text "2")) (Text "z")
+    ]
+, SoftBreak
+, Text "Hello"
+, Space
+, Code
+    "typ/bugs/math-realize-01.typ"
+    ( line 3 , column 8 )
+    (FuncCall
+       (Ident (Identifier "hide"))
+       [ BlockArg [ Text "there" , Space , Equation False [ Text "x" ] ]
+       ])
+, SoftBreak
+, Text "and"
+, Space
+, Code
+    "typ/bugs/math-realize-01.typ"
+    ( line 4 , column 6 )
+    (FuncCall
+       (Ident (Identifier "hide"))
+       [ BlockArg
+           [ Equation
+               True
+               [ MGroup
+                   Nothing
+                   Nothing
+                   [ Text "f" , MGroup (Just "(") (Just ")") [ Text "x" ] ]
+               , Code
+                   "typ/bugs/math-realize-01.typ"
+                   ( line 4 , column 18 )
+                   (FieldAccess
+                      (Ident (Identifier "eq")) (Ident (Identifier "colon")))
+               , MAttach Nothing (Just (Text "2")) (Text "x")
+               ]
+           ]
+       ])
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 math.equation(block: true, 
+                               body: { math.attach(b: none, 
+                                                   base: text(body: [x]), 
+                                                   t: text(body: [2])), 
+                                       hide(body: math.equation(block: false, 
+                                                                body: { math.lr(body: ({ [(], 
+                                                                                         text(body: [≥]), 
+                                                                                         text(body: [ϕ]), 
+                                                                                         [)] })), 
+                                                                        text(body: [∪]), 
+                                                                        math.attach(b: none, 
+                                                                                    base: text(body: [y]), 
+                                                                                    t: text(body: [2])), 
+                                                                        text(body: [0]) }, 
+                                                                numbering: none)), 
+                                       math.attach(b: none, 
+                                                   base: text(body: [z]), 
+                                                   t: text(body: [2])) }, 
+                               numbering: none), 
+                 text(body: [
+Hello ]), 
+                 hide(body: { text(body: [there ]), 
+                              math.equation(block: false, 
+                                            body: text(body: [x]), 
+                                            numbering: none) }), 
+                 text(body: [
+and ]), 
+                 hide(body: math.equation(block: true, 
+                                          body: { text(body: [f]), 
+                                                  math.lr(body: ({ [(], 
+                                                                   text(body: [x]), 
+                                                                   [)] })), 
+                                                  text(body: [≔]), 
+                                                  math.attach(b: none, 
+                                                              base: text(body: [x]), 
+                                                              t: text(body: [2])) }, 
+                                          numbering: none)), 
+                 parbreak() })

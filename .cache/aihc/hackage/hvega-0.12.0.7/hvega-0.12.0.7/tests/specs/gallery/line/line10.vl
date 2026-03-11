@@ -1,0 +1,157 @@
+{
+    "$schema": "https://vega.github.io/schema/vega-lite/v4.json",
+    "config": {
+        "view": {
+            "stroke": null
+        }
+    },
+    "data": {
+        "format": {
+            "parse": {
+                "Date": "utc:'%Y-%m-%d'"
+            }
+        },
+        "url": "https://vega.github.io/vega-lite/data/co2-concentration.csv"
+    },
+    "description": "Carbon dioxide in the atmosphere.",
+    "encoding": {
+        "x": {
+            "axis": {
+                "tickCount": 10,
+                "title": "Year into decade",
+                "values": [
+                    1,
+                    2,
+                    3,
+                    4,
+                    5,
+                    6,
+                    7,
+                    8,
+                    9
+                ]
+            },
+            "field": "scaled_date",
+            "type": "quantitative"
+        },
+        "y": {
+            "axis": {
+                "title": "CO2 concentration in ppm"
+            },
+            "field": "CO2",
+            "scale": {
+                "zero": false
+            },
+            "type": "quantitative"
+        }
+    },
+    "height": 500,
+    "layer": [
+        {
+            "encoding": {
+                "color": {
+                    "field": "decade",
+                    "legend": null,
+                    "type": "nominal"
+                }
+            },
+            "mark": {
+                "orient": "vertical",
+                "type": "line"
+            }
+        },
+        {
+            "encoding": {
+                "text": {
+                    "field": "aggregated.year",
+                    "type": "nominal"
+                }
+            },
+            "mark": {
+                "align": "left",
+                "baseline": "top",
+                "dx": 3,
+                "dy": 1,
+                "type": "text"
+            },
+            "transform": [
+                {
+                    "aggregate": [
+                        {
+                            "as": "aggregated",
+                            "field": "scaled_date",
+                            "op": "argmin"
+                        }
+                    ],
+                    "groupby": [
+                        "decade"
+                    ]
+                },
+                {
+                    "as": "scaled_date",
+                    "calculate": "datum.aggregated.scaled_date"
+                },
+                {
+                    "as": "CO2",
+                    "calculate": "datum.aggregated.CO2"
+                }
+            ]
+        },
+        {
+            "encoding": {
+                "text": {
+                    "field": "aggregated.year",
+                    "type": "nominal"
+                }
+            },
+            "mark": {
+                "align": "left",
+                "baseline": "bottom",
+                "dx": 3,
+                "dy": 1,
+                "type": "text"
+            },
+            "transform": [
+                {
+                    "aggregate": [
+                        {
+                            "as": "aggregated",
+                            "field": "scaled_date",
+                            "op": "argmax"
+                        }
+                    ],
+                    "groupby": [
+                        "decade"
+                    ]
+                },
+                {
+                    "as": "scaled_date",
+                    "calculate": "datum.aggregated.scaled_date"
+                },
+                {
+                    "as": "CO2",
+                    "calculate": "datum.aggregated.CO2"
+                }
+            ]
+        }
+    ],
+    "transform": [
+        {
+            "as": "year",
+            "calculate": "year(datum.Date)"
+        },
+        {
+            "as": "month",
+            "calculate": "month(datum.Date)"
+        },
+        {
+            "as": "decade",
+            "calculate": "floor(datum.year / 10)"
+        },
+        {
+            "as": "scaled_date",
+            "calculate": "(datum.year % 10) + (datum.month / 12)"
+        }
+    ],
+    "width": 800
+}

@@ -1,0 +1,15 @@
+map length (tiers :: [[ Set Bool ]])  =  [1,2,1]
+
+length (list :: [ Set Bool ])  =  4
+
+allUnique (list :: [ Set Bool ])  =  True
+
+ratioRepetitions (list :: [ Set Bool ])  =  0 % 1
+
+tiers :: [Set Bool]  =
+  [ [fromList []]
+  , [ fromList [False]
+    , fromList [True]
+    ]
+  , [fromList [False,True]]
+  ]

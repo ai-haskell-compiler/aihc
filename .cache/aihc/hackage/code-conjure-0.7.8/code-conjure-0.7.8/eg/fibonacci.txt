@@ -1,0 +1,20 @@
+fibonacci :: Int -> Int
+-- testing 7 combinations of argument values
+-- pruning with 21/44 rules
+-- 4 candidates of size 1
+-- 0 candidates of size 2
+-- 7 candidates of size 3
+-- 0 candidates of size 4
+-- 18 candidates of size 5
+-- 0 candidates of size 6
+-- 94 candidates of size 7
+-- 20 candidates of size 8
+-- 466 candidates of size 9
+-- 92 candidates of size 10
+-- 2298 candidates of size 11
+-- 542 candidates of size 12
+-- tested 3531 candidates
+fibonacci 0  =  1
+fibonacci 1  =  1
+fibonacci x  =  fibonacci (x - 1) + fibonacci (x - 2)
+

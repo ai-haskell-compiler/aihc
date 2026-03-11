@@ -1,0 +1,178 @@
+--- parse tree ---
+[ Code
+    "typ/math/syntax-01.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/math/syntax-01.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/math/syntax-01.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Comment
+, Equation
+    True
+    [ Code
+        "typ/math/syntax-01.typ"
+        ( line 3 , column 3 )
+        (FuncCall
+           (Ident (Identifier "underline"))
+           [ BlockArg
+               [ Text "f"
+               , Text "'"
+               , Text ":"
+               , Code
+                   "typ/math/syntax-01.typ"
+                   ( line 3 , column 18 )
+                   (Ident (Identifier "NN"))
+               , Code
+                   "typ/math/syntax-01.typ"
+                   ( line 3 , column 21 )
+                   (FieldAccess (Ident (Identifier "r")) (Ident (Identifier "arrow")))
+               , Code
+                   "typ/math/syntax-01.typ"
+                   ( line 3 , column 24 )
+                   (Ident (Identifier "RR"))
+               ]
+           ])
+    , HardBreak
+    , Text "n"
+    , Code
+        "typ/math/syntax-01.typ"
+        ( line 4 , column 5 )
+        (Ident (Identifier "mapsto"))
+    , Code
+        "typ/math/syntax-01.typ"
+        ( line 4 , column 9 )
+        (FuncCall
+           (Ident (Identifier "cases"))
+           [ BlockArg
+               [ Code
+                   "typ/math/syntax-01.typ"
+                   ( line 5 , column 5 )
+                   (FieldAccess
+                      (Ident (Identifier "l"))
+                      (FieldAccess
+                         (Ident (Identifier "double")) (Ident (Identifier "bracket"))))
+               , Text "1"
+               , Code
+                   "typ/math/syntax-01.typ"
+                   ( line 5 , column 8 )
+                   (FieldAccess
+                      (Ident (Identifier "r"))
+                      (FieldAccess
+                         (Ident (Identifier "double")) (Ident (Identifier "bracket"))))
+               , MAlignPoint
+               , Text "if "
+               , Text "n"
+               , Code
+                   "typ/math/syntax-01.typ"
+                   ( line 5 , column 19 )
+                   (FieldAccess
+                      (Ident (Identifier "triple")) (Ident (Identifier "gt")))
+               , Text "10"
+               ]
+           , BlockArg
+               [ Text "2"
+               , Code
+                   "typ/math/syntax-01.typ"
+                   ( line 6 , column 7 )
+                   (Ident (Identifier "convolve"))
+               , Text "3"
+               , MAlignPoint
+               , Text "if "
+               , Text "n"
+               , Code
+                   "typ/math/syntax-01.typ"
+                   ( line 6 , column 19 )
+                   (FieldAccess (Ident (Identifier "not")) (Ident (Identifier "eq")))
+               , Text "5"
+               ]
+           , BlockArg
+               [ Text "1"
+               , Code
+                   "typ/math/syntax-01.typ"
+                   ( line 7 , column 7 )
+                   (Ident (Identifier "minus"))
+               , Text "0"
+               , Code
+                   "typ/math/syntax-01.typ"
+                   ( line 7 , column 11 )
+                   (Ident (Identifier "thick"))
+               , MAlignPoint
+               , Code
+                   "typ/math/syntax-01.typ"
+                   ( line 7 , column 18 )
+                   (FieldAccess (Ident (Identifier "h")) (Ident (Identifier "dots")))
+               ]
+           ])
+    ]
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 math.equation(block: true, 
+                               body: { math.underline(body: { text(body: [f]), 
+                                                              text(body: [']), 
+                                                              text(body: [:]), 
+                                                              text(body: [ℕ]), 
+                                                              text(body: [→]), 
+                                                              text(body: [ℝ]) }), 
+                                       linebreak(), 
+                                       text(body: [n]), 
+                                       text(body: [↦]), 
+                                       math.cases(children: ({ text(body: [⟦]), 
+                                                               text(body: [1]), 
+                                                               text(body: [⟧]), 
+                                                               math.alignpoint(), 
+                                                               text(body: [if ]), 
+                                                               text(body: [n]), 
+                                                               text(body: [⋙]), 
+                                                               text(body: [10]) }, 
+                                                             { text(body: [2]), 
+                                                               text(body: [∗]), 
+                                                               text(body: [3]), 
+                                                               math.alignpoint(), 
+                                                               text(body: [if ]), 
+                                                               text(body: [n]), 
+                                                               text(body: [≠]), 
+                                                               text(body: [5]) }, 
+                                                             { text(body: [1]), 
+                                                               text(body: [−]), 
+                                                               text(body: [0]), 
+                                                               text(body: [ ]), 
+                                                               math.alignpoint(), 
+                                                               text(body: […]) })) }, 
+                               numbering: none), 
+                 parbreak() })

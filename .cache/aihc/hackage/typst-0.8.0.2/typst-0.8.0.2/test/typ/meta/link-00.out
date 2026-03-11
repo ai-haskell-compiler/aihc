@@ -1,0 +1,141 @@
+--- parse tree ---
+[ Code
+    "typ/meta/link-00.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/meta/link-00.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/meta/link-00.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Comment
+, Url "https://example.com/"
+, ParBreak
+, Comment
+, Code
+    "typ/meta/link-00.typ"
+    ( line 6 , column 2 )
+    (FuncCall
+       (Ident (Identifier "link"))
+       [ NormalArg (Literal (String "https://typst.org/"))
+       , BlockArg
+           [ Text "Some"
+           , Space
+           , Text "text"
+           , Space
+           , Text "text"
+           , Space
+           , Text "text"
+           ]
+       ])
+, ParBreak
+, Comment
+, Text "This"
+, Space
+, Text "link"
+, Space
+, Text "appears"
+, Space
+, Code
+    "typ/meta/link-00.typ"
+    ( line 9 , column 20 )
+    (FuncCall
+       (Ident (Identifier "link"))
+       [ NormalArg (Literal (String "https://google.com/"))
+       , BlockArg
+           [ Text "in"
+           , Space
+           , Text "the"
+           , Space
+           , Text "middle"
+           , Space
+           , Text "of"
+           ]
+       ])
+, Space
+, Text "a"
+, Space
+, Text "paragraph"
+, Text "."
+, ParBreak
+, Comment
+, Text "Contact"
+, Space
+, Code
+    "typ/meta/link-00.typ"
+    ( line 12 , column 10 )
+    (FuncCall
+       (Ident (Identifier "link"))
+       [ NormalArg (Literal (String "mailto:hi@typst.app")) ])
+, Space
+, Text "or"
+, SoftBreak
+, Text "call"
+, Space
+, Code
+    "typ/meta/link-00.typ"
+    ( line 13 , column 7 )
+    (FuncCall
+       (Ident (Identifier "link"))
+       [ NormalArg (Literal (String "tel:123")) ])
+, Space
+, Text "for"
+, Space
+, Text "more"
+, Space
+, Text "information"
+, Text "."
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 link(body: [https://example.com/], 
+                      dest: "https://example.com/"), 
+                 parbreak(), 
+                 link(body: text(body: [Some text text text]), 
+                      dest: "https://typst.org/"), 
+                 parbreak(), 
+                 text(body: [This link appears ]), 
+                 link(body: text(body: [in the middle of]), 
+                      dest: "https://google.com/"), 
+                 text(body: [ a paragraph.]), 
+                 parbreak(), 
+                 text(body: [Contact ]), 
+                 link(dest: "mailto:hi@typst.app"), 
+                 text(body: [ or
+call ]), 
+                 link(dest: "tel:123"), 
+                 text(body: [ for more information.]), 
+                 parbreak() })

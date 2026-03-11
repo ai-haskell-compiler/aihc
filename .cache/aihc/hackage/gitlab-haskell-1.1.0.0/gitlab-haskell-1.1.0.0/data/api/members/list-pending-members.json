@@ -1,0 +1,26 @@
+[
+  {
+    "id": 168,
+    "name": "Alex Garcia",
+    "username": "alex_garcia",
+    "email": "alex@example.com",
+    "avatar_url": "http://example.com/uploads/user/avatar/1/cd8.jpeg",
+    "web_url": "http://example.com/alex_garcia",
+    "approved": false,
+    "invited": false
+  },
+  {
+    "id": 169,
+    "email": "sidney@example.com",
+    "avatar_url": "http://gravatar.com/../e346561cd8.jpeg",
+    "approved": false,
+    "invited": true
+  },
+  {
+    "id": 170,
+    "email": "zhang@example.com",
+    "avatar_url": "http://gravatar.com/../e32131cd8.jpeg",
+    "approved": true,
+    "invited": true
+  }
+]

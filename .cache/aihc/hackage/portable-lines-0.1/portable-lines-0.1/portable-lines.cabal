@@ -1,0 +1,43 @@
+name:                portable-lines
+version:             0.1
+synopsis:            Alternative 'lines' implementation that understands CR-LF and CR
+description:
+    Provides an alternative implementation of the 'Prelude.lines' function that
+    treats the following sequences as newline characters:
+    .
+    * @\"\\r\\n\"@ (Windows style)
+    .
+    * @\"\\r\"@ (Macintosh style, before OS X)
+    .
+    * @\"\\n\"@ (Unix style)
+    .
+    Haskell's IO system supports both platform-specific line ending conversion
+    (by opening the file in \"text mode\"), and explicit setting of the newline
+    mode for input and output (see 'System.IO.hSetNewlineMode').  However:
+    .
+    * If you don't know the line ending format in advance, you would have to
+      open the file and detect the newline format manually.
+    .
+    * ByteString currently honors neither of these; see
+      <http://stackoverflow.com/questions/6837628>.
+
+license:             BSD3
+license-file:        LICENSE
+author:              Joey Adams
+maintainer:          joeyadams3.14159@gmail.com
+copyright:           Copyright (c) Joseph Adams 2011
+category:            Text
+build-type:          Simple
+cabal-version:       >=1.8
+
+source-repository head
+    type:       git
+    location:   git://github.com/joeyadams/haskell-portable-lines.git
+
+library
+    exposed-modules: Text.PortableLines
+                   , Text.PortableLines.ByteString
+                   , Text.PortableLines.ByteString.Lazy
+    build-depends: base == 4.*
+                 , bytestring
+    ghc-options: -Wall -O2

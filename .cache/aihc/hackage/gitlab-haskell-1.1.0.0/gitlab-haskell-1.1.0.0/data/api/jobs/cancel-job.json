@@ -1,0 +1,28 @@
+{
+  "commit": {
+    "author_email": "admin@example.com",
+    "author_name": "Administrator",
+    "created_at": "2015-12-24T16:51:14.000+01:00",
+    "id": "0ff3ae198f8601a285adcf5c0fff204ee6fba5fd",
+    "message": "Test the CI integration.",
+    "short_id": "0ff3ae19",
+    "title": "Test the CI integration."
+  },
+  "coverage": null,
+  "allow_failure": false,
+  "created_at": "2016-01-11T10:13:33.506Z",
+  "started_at": "2016-01-11T10:14:09.526Z",
+  "finished_at": null,
+  "duration": 8,
+  "queued_duration": 0.010,
+  "id": 42,
+  "name": "rubocop",
+  "ref": "main",
+  "artifacts": [],
+  "runner": null,
+  "stage": "test",
+  "status": "canceled",
+  "tag": false,
+  "web_url": "https://example.com/foo/bar/-/jobs/42",
+  "user": null
+}

@@ -1,0 +1,12 @@
+module Data.Tuple.All(
+    module Data.Tuple.Curry,
+    module Data.Tuple.OneTuple,
+    module Data.Tuple.Select,
+    module Data.Tuple.Sequence,
+    module Data.Tuple.Update,
+    ) where
+import Data.Tuple.Curry
+import Data.Tuple.OneTuple
+import Data.Tuple.Select
+import Data.Tuple.Sequence
+import Data.Tuple.Update

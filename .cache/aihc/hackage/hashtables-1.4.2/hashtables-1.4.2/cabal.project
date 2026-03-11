@@ -1,0 +1,8 @@
+packages: .
+
+tests: True
+
+test-show-details: direct
+
+allow-newer:
+  , *:base

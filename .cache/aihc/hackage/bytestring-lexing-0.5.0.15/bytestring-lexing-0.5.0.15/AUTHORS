@@ -1,0 +1,18 @@
+=== Haskell bytestring-lexing package AUTHORS/THANKS file ===
+
+The bytestring-lexing package was originally written by Don Stewart
+and released under the terms in the LICENSE file. In January 2012
+maintainership was taken over by wren gayle romano. I would also
+like to give thanks to the following contributers:
+
+Bryan O'Sullivan --- For adding support for parsing Doubles from
+    lazy bytestrings back during Don's maintainership. Also for
+    inspiring the improved (v0.4.2) packDecimal implementation.
+
+Erik de Castro Lopo, Vincent Hanquez, and Christoph Breitkopf ---
+    for excessive tweaking and benchmarking of the readDecimal
+    function.
+
+Hirotomo Moriwaki --- for highlighting the inefficiency of the old
+    Alex-based parser by publishing bytestring-read. And for the
+    idea behind the new (v0.5.0) limited-precision parsers.

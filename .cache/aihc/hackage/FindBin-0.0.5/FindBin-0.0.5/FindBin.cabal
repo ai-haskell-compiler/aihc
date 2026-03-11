@@ -1,0 +1,23 @@
+name:               FindBin
+version:            0.0.5
+copyright:          2008-2011 Audrey Tang
+homepage:           https://github.com/audreyt/findbin
+license:            BSD3
+license-file:       LICENSE
+author:             Audrey Tang <audreyt@audreyt.org>
+maintainer:         Audrey Tang <audreyt@audreyt.org>
+synopsis:           Locate directory of original program
+description:        This module locates the full directory to the running program,
+                    to allow the use of paths relative to it.
+                    FindBin supports invocation of Haskell programs via "ghci",
+                    via "runhaskell/runghc", as well as compiled as an executable.
+stability:          Stable
+build-type:         Simple
+extensions:         ForeignFunctionInterface
+exposed-modules:    System.Environment.FindBin
+build-depends:      base < 5, directory, filepath
+extra-source-files: README
+hs-source-dirs:     src
+category:           System
+tested-with:        GHC==6.8.2, GHC==6.8.3, GHC==6.10.1, GHC==7.0.1, GHC==7.0.2
+ghc-options:        -Wall

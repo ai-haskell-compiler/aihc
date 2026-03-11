@@ -1,0 +1,21 @@
+{
+  "requestId" : "41d2e28a-20a4-4ab0-b379-d810dede3786",
+  "status" : {
+    "message" : "",
+    "code" : 200,
+    "attributes" : { }
+  },
+  "result" : {
+    "data" : [ {
+      "@type" : "g:Vertex",
+      "@value" : {
+        "id" : {
+          "@type" : "g:Int32",
+          "@value" : 1
+        },
+        "label" : "person"
+      }
+    } ],
+    "meta" : { }
+  }
+}

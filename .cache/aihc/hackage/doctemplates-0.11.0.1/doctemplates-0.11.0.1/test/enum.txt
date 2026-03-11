@@ -1,0 +1,2 @@
+$it.key/alpha/uppercase$.  $^$$it.value$
+

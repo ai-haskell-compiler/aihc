@@ -1,0 +1,94 @@
+#
+# spec file for package intero
+#
+# Copyright (c) 2020 SUSE LLC
+#
+# All modifications and additions to the file contributed by third parties
+# remain the property of their copyright owners, unless otherwise agreed
+# upon. The license for this file, and modifications and additions to the
+# file, is the same license as for the pristine package itself (unless the
+# license for the pristine package is not an Open Source License, in which
+# case the license is the MIT License). An "Open Source License" is a
+# license that conforms to the Open Source Definition (Version 1.9)
+# published by the Open Source Initiative.
+
+# Please submit bugfixes or comments via https://bugs.opensuse.org/
+#
+
+
+%bcond_with tests
+Name:           intero
+Version:        0.1.24
+Release:        0
+Summary:        Complete interactive development program for Haskell
+License:        BSD-3-Clause
+URL:            https://hackage.haskell.org/package/%{name}
+Source0:        https://hackage.haskell.org/package/%{name}-%{version}/%{name}-%{version}.tar.gz
+ExcludeArch:    %{ix86}
+BuildRequires:  ghc-Cabal-devel
+BuildRequires:  ghc-array-devel
+BuildRequires:  ghc-array-prof
+BuildRequires:  ghc-base-devel
+BuildRequires:  ghc-base-prof
+BuildRequires:  ghc-bytestring-devel
+BuildRequires:  ghc-bytestring-prof
+BuildRequires:  ghc-containers-devel
+BuildRequires:  ghc-containers-prof
+BuildRequires:  ghc-directory-devel
+BuildRequires:  ghc-directory-prof
+BuildRequires:  ghc-filepath-devel
+BuildRequires:  ghc-filepath-prof
+BuildRequires:  ghc-ghc-boot-th-devel
+BuildRequires:  ghc-ghc-boot-th-prof
+BuildRequires:  ghc-ghc-devel
+BuildRequires:  ghc-ghc-paths-devel
+BuildRequires:  ghc-ghc-paths-prof
+BuildRequires:  ghc-ghc-prof
+BuildRequires:  ghc-ghci-devel
+BuildRequires:  ghc-ghci-prof
+BuildRequires:  ghc-haskeline-devel
+BuildRequires:  ghc-haskeline-prof
+BuildRequires:  ghc-process-devel
+BuildRequires:  ghc-process-prof
+BuildRequires:  ghc-rpm-macros
+BuildRequires:  ghc-syb-devel
+BuildRequires:  ghc-syb-prof
+BuildRequires:  ghc-time-devel
+BuildRequires:  ghc-time-prof
+BuildRequires:  ghc-transformers-devel
+BuildRequires:  ghc-transformers-prof
+BuildRequires:  ghc-unix-devel
+BuildRequires:  ghc-unix-prof
+%if %{with tests}
+BuildRequires:  ghc-hspec-devel
+BuildRequires:  ghc-hspec-prof
+BuildRequires:  ghc-regex-compat-devel
+BuildRequires:  ghc-regex-compat-prof
+BuildRequires:  ghc-temporary-devel
+BuildRequires:  ghc-temporary-prof
+%endif
+
+%description
+Complete interactive development program for Haskell.
+
+%prep
+%autosetup
+
+%build
+%ghc_bin_build
+
+%install
+%ghc_bin_install
+
+%check
+%cabal_test
+
+%files
+%license LICENSE
+%doc CHANGELOG README.md
+%{_bindir}/%{name}
+%dir %{_datadir}/%{name}-%{version}
+%dir %{_datadir}/%{name}-%{version}/elisp
+%{_datadir}/%{name}-%{version}/elisp/*.el
+
+%changelog

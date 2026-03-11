@@ -1,0 +1,252 @@
+0.3.33
+
+* Add instances for strict vectors
+
+0.3.32
+
+* Add instances for primitive vectors
+
+0.3.31
+
+* Support GHC-8.6.5...GHC-9.10.1
+
+0.3.30
+
+* Improve Arbitrary UUID instance
+
+  Previously "small" UUIDs were generated, e.g.
+
+  ```
+  00000001-0000-0001-0000-000000000001
+  00000002-0000-0000-0000-000200000002
+  00000004-0000-0004-0000-000400000001
+  00000005-0000-0000-0000-000500000007
+  00000001-0000-000d-0000-00050000000e
+  ```
+
+  but now they are uniformly random
+
+  ```
+  c4683284-bfe3-224b-29a6-1e7f11ceef65
+  7bf6564d-5dcf-3e37-b13d-867085f54dae
+  5b006243-0a70-9321-6594-20dde3d72112
+  2d8ed56e-ed20-7258-7c1f-b46fa9b87946
+  f1503184-9d3c-aacd-e9a7-36c655b70f41
+  ```
+
+0.3.29.1
+
+* Support `OneTuple-0.4`
+
+0.3.29
+
+* Support `primitive-0.8`
+* Use `data-array-byte` shim package for instances for `Data.Array.Byte.ByteArray`
+
+0.3.28
+
+* Add instances for `Data.Array.Byte.ByteArray` (`base-4.17`)
+* Add instances for `Data.Primitive.ByteArray` (`primitive`)
+
+0.3.27
+
+* Add instances for `Backwards`, `Reverse` and `Lift` from `transformers`
+
+0.3.26.1
+
+* Support `hashable-1.4`
+
+0.3.26
+
+* Support base-4.16 / GHC-9.2
+* Add instances for `text-short`'s `ShortText` type
+* Add instances for `Solo`
+* Fix bug in `CoArbitrary (Hashed a)` instance
+
+0.3.25.2
+
+* Fix bug in QuarterOfYear instance
+
+0.3.25.1
+
+* Support `QuickCheck-2.14.2`
+* Support `bytestring-0.11`
+
+0.3.25
+
+* Add types from `time-1.11` / `time-compat-1.9.4`: `Month`, `Quarter`, `QuarterOfYear`
+
+0.3.24
+
+* Add `strict` instances.
+* Add `data-fix` instances.
+* Improve 'Arbitrary Tree' instance and add `Function Tree` instance.
+* Require `QuickCheck-2.14.1`
+* Drop `base-compat` dependency
+
+0.3.23
+
+* Add `these` instances.
+
+0.3.22
+
+* Add `Void` instances.
+
+0.3.21
+
+* Use time-compat
+* Add `Function` instances for vector, unordered-containers, scientific, nats
+
+0.3.20
+
+* Support QuickCheck-2.13
+* Faster ByteString `arbitrary`
+
+0.3.19
+
+* Instances for `MaybeT`
+
+0.3.18
+
+* `ShortByteString` instances for all supported `bytestring`
+
+0.3.17
+
+* Support GHC-8.4.1
+* Split package into per-package modules
+* Add instances for `ShortByteString`
+* Add Function `ByteString` and `ShortByteString` instances (bytestring >= 0.10.4)
+* Enable PolyKinds for `Tagged` instances (GHC >= 7.6)
+
+0.3.16.1
+
+* Support QuickCheck-2.11
+* Bump lower bounds on boot-library dependencies to the versions distributed with GHC-7.4.2
+* Bump lower bound on some other dependencies, as cannot test previous lower bound (no install-plans).
+
+0.3.16
+
+* Instances for `Semigroup` newtypes: `Min`, `Max`, `First`, `Last`, `Option` and `WrappedMonoid`.
+
+0.3.15
+
+* `QuickCheck-2.10` support.
+* `Arbitrary1/2` instances.
+
+0.3.14
+
+* Fix `Tree` bug.
+* Add `UUID` instances.
+
+0.3.13
+
+Author: Oleg Grenrus <oleg.grenrus@iki.fi>
+
+* Add case-insensitive instances
+
+0.3.12
+
+Author: Oleg Grenrus <oleg.grenrus@iki.fi>
+
+* Add vector and scientific instances
+
+Author: RyanGlScott <ryan.gl.scott@gmail.com>
+
+* Fix build with GHC 8.0.1, QuickCheck-2.8.2
+
+0.3.11
+
+Author: Timo von Holtz <tvh@anchor.com.au>
+
+* Add some Instances for Function
+
+Author: Antoine Latter <aslatter@gmail.com>
+
+* Allow building against QuickCheck 2.8.
+
+0.3.10
+
+Author: Antoine Latter <aslatter@gmail.com>
+
+* Allow building against newer versions of the time package.
+
+0.3.9
+
+Author: RyanGlScott <ryan.gl.scott@ku.edu>
+
+* Bump text upper version bounds
+
+0.3.8
+
+Author: Antoine Latter <aslatter@gmail.com>
+
+* Allow building against QuickCheck version 2.7
+
+0.3.7
+
+Author: Antoine Latter <aslatter@gmail.com>
+
+* Update list of covered libraries.
+* Allow newer version of "text" as a dependency.
+
+0.3.6
+
+Author: Joao Cristovao <jcristovao@gmail.com>
+
+* Added unordered-containers.
+
+0.3.5
+
+Author: Antoine Latter <aslatter@gmail.com>
+
+* No change - bumping version to re-upload to hackage, due to bugs in
+the 0.3.4 tarball.
+
+0.3.4
+
+Author: Antoine Latter <aslatter@gmail.com>
+
+* Allow newer versions of "text" and "array" as dependencies.
+
+0.3.3
+
+Author: Kyle Raftogianis <kylerafto@gmail.com>
+
+* Generate UTC time offsets from -12:00 to +14:00
+
+0.3.2
+
+Author: Antoine Latter <aslatter@gmail.com>
+
+* Allow building against newer QuickCheck
+
+0.3.1
+
+Author: Antoine Latter <aslatter@gmail.com>
+
+* Allow building against newer bytestring
+
+0.3.0
+
+Author: Antoine Latter <aslatter@gmail.com>
+
+*  Update for QuickCheck-2.5.0
+*  Update instances for Ordering and RealFrac based on
+   instances provided in QuickCheck-2.5.0
+*  Allow building against newer containers packages
+
+0.2.0
+
+Author: Antoine Latter <aslatter@gmail.com>
+
+*   Add support for older versions of QuickCheck.
+
+Author: PHO <pho@cielonegro.org>
+
+*   Provide 'CoArbitrary' instances for types.
+
+*   Provide 'shrink' for more instances of 'Arbitrary'.
+
+0.1.0
+
+* Initial release

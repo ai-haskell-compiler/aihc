@@ -1,0 +1,87 @@
+Singletons/T296.hs:(0,0)-(0,0): Splicing declarations
+    singletons
+      [d| f :: forall a. MyProxy a -> MyProxy a
+          f MyProxy
+            = let
+                x = let
+                      z :: MyProxy a
+                      z = MyProxy
+                    in z
+              in x
+          
+          data MyProxy (a :: Type) = MyProxy |]
+  ======>
+    data MyProxy (a :: Type) = MyProxy
+    f :: forall a. MyProxy a -> MyProxy a
+    f MyProxy
+      = let
+          x = let
+                z :: MyProxy a
+                z = MyProxy
+              in z
+        in x
+    type MyProxySym0 :: forall (a :: Type). MyProxy a
+    type family MyProxySym0 @(a :: Type) :: MyProxy a where
+      MyProxySym0 = MyProxy
+    data Let0123456789876543210ZSym0 a0123456789876543210
+      where
+        Let0123456789876543210ZSym0KindInference :: SameKind (Apply Let0123456789876543210ZSym0 arg) (Let0123456789876543210ZSym1 arg) =>
+                                                    Let0123456789876543210ZSym0 a0123456789876543210
+    type instance Apply Let0123456789876543210ZSym0 a0123456789876543210 = Let0123456789876543210Z a0123456789876543210
+    instance SuppressUnusedWarnings Let0123456789876543210ZSym0 where
+      suppressUnusedWarnings
+        = snd ((,) Let0123456789876543210ZSym0KindInference ())
+    type family Let0123456789876543210ZSym1 a0123456789876543210 :: MyProxy a0123456789876543210 where
+      Let0123456789876543210ZSym1 a0123456789876543210 = Let0123456789876543210Z a0123456789876543210
+    type family Let0123456789876543210Z a0123456789876543210 :: MyProxy a0123456789876543210 where
+      Let0123456789876543210Z a = MyProxySym0
+    data Let0123456789876543210XSym0 a0123456789876543210
+      where
+        Let0123456789876543210XSym0KindInference :: SameKind (Apply Let0123456789876543210XSym0 arg) (Let0123456789876543210XSym1 arg) =>
+                                                    Let0123456789876543210XSym0 a0123456789876543210
+    type instance Apply Let0123456789876543210XSym0 a0123456789876543210 = Let0123456789876543210X a0123456789876543210
+    instance SuppressUnusedWarnings Let0123456789876543210XSym0 where
+      suppressUnusedWarnings
+        = snd ((,) Let0123456789876543210XSym0KindInference ())
+    type family Let0123456789876543210XSym1 a0123456789876543210 where
+      Let0123456789876543210XSym1 a0123456789876543210 = Let0123456789876543210X a0123456789876543210
+    type family Let0123456789876543210X a0123456789876543210 where
+      Let0123456789876543210X a = Let0123456789876543210ZSym1 a
+    type FSym0 :: forall a. (~>) (MyProxy a) (MyProxy a)
+    data FSym0 :: (~>) (MyProxy a) (MyProxy a)
+      where
+        FSym0KindInference :: SameKind (Apply FSym0 arg) (FSym1 arg) =>
+                              FSym0 a0123456789876543210
+    type instance Apply FSym0 a0123456789876543210 = F a0123456789876543210
+    instance SuppressUnusedWarnings FSym0 where
+      suppressUnusedWarnings = snd ((,) FSym0KindInference ())
+    type FSym1 :: forall a. MyProxy a -> MyProxy a
+    type family FSym1 @a (a0123456789876543210 :: MyProxy a) :: MyProxy a where
+      FSym1 a0123456789876543210 = F a0123456789876543210
+    type F :: forall a. MyProxy a -> MyProxy a
+    type family F @a (a :: MyProxy a) :: MyProxy a where
+      F @a (MyProxy :: MyProxy a) = Let0123456789876543210XSym1 a
+    sF ::
+      forall a (t :: MyProxy a). Sing t
+                                 -> Sing (Apply FSym0 t :: MyProxy a)
+    sF SMyProxy
+      = let
+          sX :: Sing @_ (Let0123456789876543210XSym1 a)
+          sX
+            = let
+                sZ :: (Sing (Let0123456789876543210ZSym1 a :: MyProxy a) :: Type)
+                sZ = SMyProxy
+              in sZ
+        in sX
+    instance SingI (FSym0 :: (~>) (MyProxy a) (MyProxy a)) where
+      sing = singFun1 @FSym0 sF
+    data SMyProxy :: forall (a :: Type). MyProxy a -> Type
+      where
+        SMyProxy :: forall (a :: Type). SMyProxy (MyProxy :: MyProxy a)
+    type instance Sing @(MyProxy a) = SMyProxy
+    instance SingKind a => SingKind (MyProxy a) where
+      type Demote (MyProxy a) = MyProxy (Demote a)
+      fromSing SMyProxy = MyProxy
+      toSing MyProxy = SomeSing SMyProxy
+    instance SingI MyProxy where
+      sing = SMyProxy

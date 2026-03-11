@@ -1,0 +1,19 @@
+Version 0.0.6.0 2023-06-27 by luispedro
+	* Add compatibility code for unix-2.8 (which changed the signature of
+	openFd)
+
+Version 0.0.5.0 2018-01-18 by luispedro
+	* Deprecate safeSinkFile
+	* Add fake Windows support
+
+Version 0.0.4.0 2017-09-07 by luispedro
+	* Add atomicConduitUseFile
+
+Version 0.0.3.0 2017-07-29 by luispedro
+	* Fix issue with creating files in separate directories
+
+Version 0.0.2.0 2017-05-30 by luispedro
+	* Add conduit version
+
+Version 0.0.1.0 2017-05-29 by luispedro
+	* First version

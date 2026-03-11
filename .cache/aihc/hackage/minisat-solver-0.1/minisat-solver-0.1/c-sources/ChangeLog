@@ -1,0 +1,70 @@
+Cabal package minisat-solver 0.1 Released Oct. 24nd 2016
+========================================
+* Modified by Peter Selinger to export the solutions via API, rather than
+  printing them to stdout.
+* Modified by Peter Selinger for coding style and removed some dead code.
+
+bc_minisat_all v1.1.0 Released Sep. 30th 2015
+========================================
+* Supported solution counting with GMP library.
+* Supported interruption signal handling and deleted timelimit-related functionality instead.
+* Changed names of some macros.
+* Added functionality for continuing search by simulating the previous decisions after backtracking to the root level.
+
+bc_minisat_all v1.0.0 Released Jul. 27th 2015
+========================================
+* Generalization is now renamed to simplification, and several bugs are fixed in the simplification part.
+* Furthermore, the following change was made:
+** The former part of simplification is implemented by traversing implication graph, which is more efficient than scanning the whole CNF.
+** The latter part is organized and some bugs are corrected.
+* Added functionality for setting timelimit and periodically reporting progress.
+* Added functionality for including GNU MP bignum library so that a huge number of solutions can be precisely counted.
+* Fixed the bug of not handling the case that blocking clases happen to be empty in solver_search().
+* Deleted solver_generalize_naive() because it is useless.
+
+minisat_all v2.0.1 Released Jun. 23rd 2015
+========================================
+* Added a license description (LICENSE.minisat_all).
+
+minisat_all v2.0.0 Released April 30th 2015
+========================================
+* Fixed the bug of inserting a problem line by wrongly calling fseek in solver_solve().
+**  Problem line is no longer inserted.
+* Improved a blocking clause computation according to the following paper:
+**  Y. Yu, P. Subramanyan, N. Tsiskaridze, S. Malik: "All-SAT using Minimal Blocking Clauses", in Proc. of the 27th International Conference on VLSI Design and the 13th International Conference on Embedded Systems, pp.86-91, 2014.
+
+minisat_all v1.0.0 Released April 16th 2015
+========================================
+* This software computes the following problem , which is called ALLSAT.
+  INPUT:  a CNF (given in DIMACS CNF format) of a Boolean function f
+  OUTPUT: all satisying assignments to the CNF.
+* Installation
+  Executing make in the top directory.
+* Usage
+  $ minisat_all in.dat (out.dat)
+* If you just want to obtain a list of all satisfying assignments, specify output file as above.
+  Then all assignments are written in DIMACS CNF format.
+* This software is a common implementation of ALLSAT solver using SAT solver
+* Two generalization methods of found solutions are implemented: see the two functions solver_generalize_faster and solver_generalize_naive in solver.c.
+* They can be switched by defining macro in Makefile
+* Also, another method without generalization is implemented, which is just to avoid rediscovery of found solutions.
+* Contact
+  Takahisa Toda <toda.takahisa(at)gmail.com>
+  Graduate School of Information Systems, the University of Electro-Communications
+  1-5-1 Chofugaoka, Chofu, Tokyo 182-8585, Japan
+
+MiniSat-C v1.14.1
+========================================
+
+* Fixed some serious bugs. 
+* Tweaked to be Visual Studio friendly (by Alan Mishchenko).
+  This disabled reading of gzipped DIMACS files and signal handling, but none
+  of these features are essential (and easy to re-enable, if wanted).
+
+MiniSat-C v1.14
+========================================
+
+Ok, we get it. You hate C++. You hate templates. We agree; C++ is a
+seriously messed up language. Although we are more pragmatic about the
+quirks and maldesigns in C++, we sympathize with you. So here is a
+pure C version of MiniSat, put together by Niklas Sörensson.

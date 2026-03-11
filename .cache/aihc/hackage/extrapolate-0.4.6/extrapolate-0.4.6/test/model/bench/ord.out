@@ -1,0 +1,508 @@
+checks :: ()
+
+*** Failed! Falsifiable (after 1 tests):
+() ()
+
+Generalization:
+_ _
+
+*** Failed! Falsifiable (after 1 tests):
+() ()
+
+Generalization:
+_ _
+
++++ OK, passed 1 tests (exhausted).
+
++++ OK, passed 1 tests (exhausted).
+
+
+checks :: Bool
+
+*** Failed! Falsifiable (after 1 tests):
+False False
+
+Generalization:
+p p
+
+Generalization:
+_ False
+
+*** Failed! Falsifiable (after 1 tests):
+False False
+
+Generalization:
+p p
+
+Generalization:
+False _
+
+*** Failed! Falsifiable (after 3 tests):
+True False
+
+*** Failed! Falsifiable (after 2 tests):
+False True
+
+
+checks :: Int
+
+*** Failed! Falsifiable (after 1 tests):
+0 0
+
+Generalization:
+x x
+
+Conditional Generalization:
+x y  when  y <= x
+
+*** Failed! Falsifiable (after 1 tests):
+0 0
+
+Generalization:
+x x
+
+Conditional Generalization:
+x y  when  x <= y
+
+*** Failed! Falsifiable (after 3 tests):
+1 0
+
+Conditional Generalization:
+x y  when  y < x
+
+*** Failed! Falsifiable (after 2 tests):
+0 1
+
+Conditional Generalization:
+x y  when  x < y
+
+
+checks :: Integer
+
+*** Failed! Falsifiable (after 1 tests):
+0 0
+
+Generalization:
+x x
+
+Conditional Generalization:
+x y  when  y <= x
+
+*** Failed! Falsifiable (after 1 tests):
+0 0
+
+Generalization:
+x x
+
+Conditional Generalization:
+x y  when  x <= y
+
+*** Failed! Falsifiable (after 3 tests):
+1 0
+
+Conditional Generalization:
+x y  when  y < x
+
+*** Failed! Falsifiable (after 2 tests):
+0 1
+
+Conditional Generalization:
+x y  when  x < y
+
+
+checks :: Char
+
+*** Failed! Falsifiable (after 1 tests):
+'a' 'a'
+
+Generalization:
+c c
+
+Conditional Generalization:
+c d  when  d <= c
+
+*** Failed! Falsifiable (after 1 tests):
+'a' 'a'
+
+Generalization:
+c c
+
+Conditional Generalization:
+c d  when  c <= d
+
+*** Failed! Falsifiable (after 2 tests):
+'a' ' '
+
+Conditional Generalization:
+c d  when  d < c
+
+*** Failed! Falsifiable (after 3 tests):
+' ' 'a'
+
+Conditional Generalization:
+c d  when  c < d
+
+
+checks :: Ordering
+
+*** Failed! Falsifiable (after 1 tests):
+LT LT
+
+Generalization:
+o o
+
+Generalization:
+_ LT
+
+Conditional Generalization:
+o p  when  p <= o
+
+*** Failed! Falsifiable (after 1 tests):
+LT LT
+
+Generalization:
+o o
+
+Generalization:
+LT _
+
+Conditional Generalization:
+o p  when  o <= p
+
+*** Failed! Falsifiable (after 4 tests):
+EQ LT
+
+Conditional Generalization:
+o p  when  p < o
+
+*** Failed! Falsifiable (after 2 tests):
+LT EQ
+
+Conditional Generalization:
+o p  when  o < p
+
+
+checks :: [Bool]
+
+*** Failed! Falsifiable (after 1 tests):
+[] []
+
+Generalization:
+ps ps
+
+Generalization:
+_ []
+
+*** Failed! Falsifiable (after 1 tests):
+[] []
+
+Generalization:
+ps ps
+
+Generalization:
+[] _
+
+*** Failed! Falsifiable (after 4 tests):
+[False] []
+
+Generalization:
+(_:_) []
+
+Conditional Generalization:
+ps []  when  ps /= []
+
+*** Failed! Falsifiable (after 2 tests):
+[] [False]
+
+Generalization:
+[] (_:_)
+
+Conditional Generalization:
+[] ps  when  ps /= []
+
+
+checks :: [Integer]
+
+*** Failed! Falsifiable (after 1 tests):
+[] []
+
+Generalization:
+xs xs
+
+Generalization:
+_ []
+
+Conditional Generalization:
+xs ys  when  ys <= xs
+
+*** Failed! Falsifiable (after 1 tests):
+[] []
+
+Generalization:
+xs xs
+
+Generalization:
+[] _
+
+Conditional Generalization:
+xs ys  when  xs <= ys
+
+*** Failed! Falsifiable (after 3 tests):
+[0] []
+
+Generalization:
+(_:_) []
+
+Conditional Generalization:
+xs ys  when  ys < xs
+
+*** Failed! Falsifiable (after 2 tests):
+[] [0]
+
+Generalization:
+[] (_:_)
+
+Conditional Generalization:
+xs ys  when  xs < ys
+
+
+checks :: (Bool,Char)
+
+*** Failed! Falsifiable (after 1 tests):
+(False,'a') (False,'a')
+
+Generalization:
+pc pc
+
+Generalization:
+(_,c) (False,c)
+
+Conditional Generalization:
+(p,c) (p,d)  when  d <= c
+
+*** Failed! Falsifiable (after 1 tests):
+(False,'a') (False,'a')
+
+Generalization:
+pc pc
+
+Generalization:
+(False,c) (_,c)
+
+Conditional Generalization:
+(p,c) (p,d)  when  c <= d
+
+*** Failed! Falsifiable (after 3 tests):
+(True,'a') (False,'a')
+
+Generalization:
+(True,_) (False,_)
+
+Conditional Generalization:
+(p,c) (p,d)  when  d < c
+
+*** Failed! Falsifiable (after 2 tests):
+(False,'a') (True,'a')
+
+Generalization:
+(False,_) (True,_)
+
+Conditional Generalization:
+(p,c) (p,d)  when  c < d
+
+
+checks :: (Ordering,Char,Integer)
+
+*** Failed! Falsifiable (after 1 tests):
+(LT,'a',0) (LT,'a',0)
+
+Generalization:
+ocx ocx
+
+Generalization:
+(_,c,x) (LT,c,x)
+
+Conditional Generalization:
+ocx ocx'  when  ocx' <= ocx
+
+*** Failed! Falsifiable (after 1 tests):
+(LT,'a',0) (LT,'a',0)
+
+Generalization:
+ocx ocx
+
+Generalization:
+(LT,c,x) (_,c,x)
+
+Conditional Generalization:
+ocx ocx'  when  ocx <= ocx'
+
+*** Failed! Falsifiable (after 4 tests):
+(EQ,'a',0) (LT,'a',0)
+
+Generalization:
+(EQ,_,_) (LT,_,_)
+
+Conditional Generalization:
+ocx ocx'  when  ocx' < ocx
+
+*** Failed! Falsifiable (after 2 tests):
+(LT,'a',0) (EQ,'a',0)
+
+Generalization:
+(LT,_,_) (EQ,_,_)
+
+Conditional Generalization:
+ocx ocx'  when  ocx < ocx'
+
+
+checks :: Maybe ()
+
+*** Failed! Falsifiable (after 1 tests):
+Nothing Nothing
+
+Generalization:
+mu mu
+
+Generalization:
+_ Nothing
+
+*** Failed! Falsifiable (after 1 tests):
+Nothing Nothing
+
+Generalization:
+mu mu
+
+Generalization:
+Nothing _
+
+*** Failed! Falsifiable (after 3 tests):
+(Just ()) Nothing
+
+Generalization:
+(Just _) Nothing
+
+*** Failed! Falsifiable (after 2 tests):
+Nothing (Just ())
+
+Generalization:
+Nothing (Just _)
+
+
+checks :: Maybe Int
+
+*** Failed! Falsifiable (after 1 tests):
+Nothing Nothing
+
+Generalization:
+mx mx
+
+Generalization:
+_ Nothing
+
+Conditional Generalization:
+mx mx'  when  mx' <= mx
+
+*** Failed! Falsifiable (after 1 tests):
+Nothing Nothing
+
+Generalization:
+mx mx
+
+Generalization:
+Nothing _
+
+Conditional Generalization:
+mx mx'  when  mx <= mx'
+
+*** Failed! Falsifiable (after 3 tests):
+(Just 0) Nothing
+
+Generalization:
+(Just _) Nothing
+
+Conditional Generalization:
+mx mx'  when  mx' < mx
+
+*** Failed! Falsifiable (after 2 tests):
+Nothing (Just 0)
+
+Generalization:
+Nothing (Just _)
+
+Conditional Generalization:
+mx mx'  when  mx < mx'
+
+
+checks :: Either () Bool
+
+*** Failed! Falsifiable (after 1 tests):
+(Left ()) (Left ())
+
+Generalization:
+eup eup
+
+Generalization:
+_ (Left _)
+
+*** Failed! Falsifiable (after 1 tests):
+(Left ()) (Left ())
+
+Generalization:
+eup eup
+
+Generalization:
+(Left _) _
+
+*** Failed! Falsifiable (after 4 tests):
+(Right False) (Left ())
+
+Generalization:
+(Right _) (Left _)
+
+*** Failed! Falsifiable (after 2 tests):
+(Left ()) (Right False)
+
+Generalization:
+(Left _) (Right _)
+
+
+checks :: Either Int Char
+
+*** Failed! Falsifiable (after 1 tests):
+(Left 0) (Left 0)
+
+Generalization:
+exc exc
+
+Conditional Generalization:
+exc exc'  when  exc' <= exc
+
+*** Failed! Falsifiable (after 1 tests):
+(Left 0) (Left 0)
+
+Generalization:
+exc exc
+
+Conditional Generalization:
+exc exc'  when  exc <= exc'
+
+*** Failed! Falsifiable (after 3 tests):
+(Right 'a') (Left 0)
+
+Generalization:
+(Right _) (Left _)
+
+Conditional Generalization:
+exc exc'  when  exc' < exc
+
+*** Failed! Falsifiable (after 2 tests):
+(Left 0) (Right 'a')
+
+Generalization:
+(Left _) (Right _)
+
+Conditional Generalization:
+exc exc'  when  exc < exc'
+
+

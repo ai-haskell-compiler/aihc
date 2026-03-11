@@ -1,0 +1,14 @@
+Name:           numeric-limits
+Cabal-Version:  >= 1.2
+Version:        0.1.0.0
+License:        BSD3
+Author:         Lennart Augustsson
+Maintainer:     Lennart Augustsson
+Category:       Numerical
+Synopsis:       Various floating point limit related constants.
+Stability:      experimental
+Build-type:     Simple
+Description:    Various floating point limit related constants.
+Library
+  Build-Depends: base >= 3 && < 6
+  Exposed-modules:      Numeric.Limits

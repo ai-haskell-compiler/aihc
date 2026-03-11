@@ -1,0 +1,60 @@
+Name:             unsafe
+Version:          0.0
+License:          BSD3
+License-File:     LICENSE
+Author:           Henning Thielemann <haskell@henning-thielemann.de>
+Maintainer:       Henning Thielemann <haskell@henning-thielemann.de>
+Homepage:         http://code.haskell.org/~thielema/unsafe/
+Category:         Control
+Synopsis:         Unified interface to unsafe functions
+Description:
+  SafeHaskell introduced the notion of safe and unsafe modules.
+  In order to make as many as possible modules \"safe\",
+  the well-known unsafe functions were moved to distinguished modules.
+  This makes it hard to write packages that work
+  with both old and new versions of GHC.
+  This package provides a single module @System.Unsafe@
+  that exports the unsafe functions from the base package.
+  It provides them in a style ready for qualification,
+  that is, you should import them by
+  .
+  > import qualified System.Unsafe as Unsafe
+  .
+  The package also contains a script called @rename-unsafe.sh@.
+  It replaces all occurrences of the original identifiers
+  with the qualified identifiers from this package.
+  You still have to adapt the import commands.
+  It uses the @darcs-replace-rec@ script from the @darcs-scripts@ package.
+
+Tested-With:      GHC==7.0.4, GHC==7.2.2, GHC==7.4.1
+Cabal-Version:    >=1.6
+Build-Type:       Simple
+
+Data-Files:
+  rename-unsafe.sh
+
+Extra-Source-Files:
+  src-old/System/Unsafe.hs
+  src-new/System/Unsafe.hs
+
+Source-Repository this
+  Tag:         0.0
+  Type:        darcs
+  Location:    http://code.haskell.org/~thielema/unsafe/
+
+Source-Repository head
+  Type:        darcs
+  Location:    http://code.haskell.org/~thielema/unsafe/
+
+Library
+  Build-Depends: base >= 4 && < 5
+
+  GHC-Options:   -Wall
+
+  If impl(ghc >= 7.2)
+    Hs-Source-Dirs: src-new
+  Else
+    Hs-Source-Dirs: src-old
+
+  Exposed-Modules:
+    System.Unsafe

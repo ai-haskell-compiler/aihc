@@ -1,0 +1,41 @@
+{-# LANGUAGE OverloadedStrings #-}
+
+{- |
+Module      : Network.MPD.Commands.Output
+Copyright   : (c) Ben Sinclair 2005-2009, Joachim Fasting 2012
+License     : MIT (see LICENSE)
+
+Maintainer  : joachifm@fastmail.fm
+Stability   : stable
+Portability : unportable
+
+Audio output devices.
+-}
+
+module Network.MPD.Commands.Output
+    ( disableOutput
+    , enableOutput
+    , toggleOutput
+    , outputs
+    ) where
+
+import qualified Network.MPD.Applicative.Internal as A
+import qualified Network.MPD.Applicative.Output as A
+import           Network.MPD.Core
+import           Network.MPD.Commands.Types
+
+-- | Turn off an output device.
+disableOutput :: MonadMPD m => Int -> m ()
+disableOutput = A.runCommand . A.disableOutput
+
+-- | Turn on an output device.
+enableOutput :: MonadMPD m => Int -> m ()
+enableOutput = A.runCommand . A.enableOutput
+
+-- | Toggle output device.
+toggleOutput :: MonadMPD m => Int -> m ()
+toggleOutput = A.runCommand . A.toggleOutput
+
+-- | Retrieve information for all output devices.
+outputs :: MonadMPD m => m [Device]
+outputs = A.runCommand A.outputs

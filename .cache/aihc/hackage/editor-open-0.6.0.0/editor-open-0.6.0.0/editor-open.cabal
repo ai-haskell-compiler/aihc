@@ -1,0 +1,90 @@
+name:                editor-open
+version:             0.6.0.0
+synopsis:            Open the user's $VISUAL or $EDITOR for text input.
+description:
+  You know when you run @git commit@, and an editor pops open so you can enter a
+  commit message? This is a Haskell library that does that.
+  .
+  This library isn't very portable. It relies on the @$EDITOR@ environment
+  variable. The concept only exists on *nix systems.
+  .
+  CHANGES
+  .
+  [0.6.0.0] Support less common @$VISUAL@. @vi@ is the fallback editor now
+            instead of @nano@.
+  .
+  [0.5.0.0] Now use conduits on the backend. Support @base\<4.8@
+homepage:            https://github.com/pharpend/editor-open
+license:             Apache-2.0
+license-file:        LICENSE
+author:              Peter Harpending
+maintainer:          peter@harpending.org
+copyright:           Copyright 2015 Peter Harpending
+category:            Text
+build-type:          Simple
+cabal-version:       >=1.10
+bug-reports:         https://github.com/pharpend/editor-open/issues/new
+extra-source-files:  
+  LICENSE
+  README
+data-files:
+  res/*.json
+  res/*.yaml
+
+library
+  -- other-modules:       
+  -- other-extensions:    
+  hs-source-dirs:      src
+  default-language:    Haskell2010
+  default-extensions:
+    LambdaCase
+    MultiWayIf
+    OverloadedStrings
+    RankNTypes
+  build-depends:
+     base ==4.*
+   , bytestring
+   , conduit >=1.2.3
+   , conduit-extra
+   , directory
+   , process >=1.2
+   , resourcet
+   , temporary
+   , transformers
+   , unix
+  exposed-modules:     
+    Text.Editor
+
+executable editor-open-test_yaml_file
+  hs-source-dirs:      tests/
+  default-language:    Haskell2010
+  build-depends:
+     base
+   , bytestring
+   , editor-open
+  main-is:             test_yaml_file.hs
+  -- other-modules:       
+  -- other-extensions:    
+
+executable editor-open-test_yaml_file_conduit
+   hs-source-dirs:      tests/
+   default-language:    Haskell2010
+   build-depends:
+      base
+    , bytestring
+    , conduit >=1.2.3
+    , conduit-extra
+    , editor-open
+    , resourcet
+   main-is:             test_yaml_file_conduit.hs
+   -- other-modules:       
+   -- other-extensions:    
+
+source-repository head 
+  type: git
+  location: https://github.com/pharpend/editor-open.git
+
+source-repository this
+  type: git
+  location: https://github.com/pharpend/editor-open.git
+  tag: 0.6.0.0

@@ -1,0 +1,23 @@
+map length (tiers :: [[ Int ]])  =  [1,1,1,1,1,1,1,1,1,1,1,1,...]
+
+length (list :: [ Int ])  =  Infinity
+
+allUnique (list :: [ Int ])  =  True
+
+ratioRepetitions (list :: [ Int ])  =  0 % 1
+
+tiers :: [Int]  =
+  [ [0]
+  , [1]
+  , [-1]
+  , [2]
+  , [-2]
+  , [3]
+  , [-3]
+  , [4]
+  , [-4]
+  , [5]
+  , [-5]
+  , [6]
+  , ...
+  ]

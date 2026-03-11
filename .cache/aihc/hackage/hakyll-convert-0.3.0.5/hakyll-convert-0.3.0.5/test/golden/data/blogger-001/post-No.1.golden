@@ -1,0 +1,1 @@
+DistilledPost {dpUri = "https://testinghakyllconvert.blogspot.com/2017/09/my-first-testing-post.html", dpBody = "This is the first ever post on this blog.\n\n<h3 id='hakyll-convert-comments-title'>Comments</h3>\n", dpTitle = Just "My first testing post", dpTags = [], dpCategories = [], dpDate = 2017-09-02 21:41:00.001 UTC}

@@ -1,0 +1,24 @@
+- Primitive:
+    name: Clash.Magic.prefixName
+    primType: Function
+- Primitive:
+    name: Clash.Magic.suffixName
+    primType: Function
+- Primitive:
+    name: Clash.Magic.suffixNameFromNat
+    primType: Function
+- Primitive:
+    name: Clash.Magic.suffixNameP
+    primType: Function
+- Primitive:
+    name: Clash.Magic.suffixNameFromNatP
+    primType: Function
+- Primitive:
+    name: Clash.Magic.setName
+    primType: Function
+- BlackBox:
+    name: Clash.Magic.SimOnly
+    kind: Expression
+    type: 'SimOnly :: a -> SimOnly a'
+    template: ~ERRORO
+    workInfo: Constant

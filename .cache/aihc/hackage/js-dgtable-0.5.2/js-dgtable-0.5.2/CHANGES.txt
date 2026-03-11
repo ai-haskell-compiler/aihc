@@ -1,0 +1,4 @@
+Changelog for js-jquery
+
+0.5.2, released 2019-03-15
+    Initial version

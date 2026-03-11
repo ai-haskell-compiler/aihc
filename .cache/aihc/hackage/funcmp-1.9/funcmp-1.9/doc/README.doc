@@ -1,0 +1,67 @@
+Functional MetaPost Documentation
+=================================
+
+If you feel like regenerating the English documentation
+(Tutorial_eng.lhs and Manual_eng.lhs; the Thesis is still
+an ongoing work):
+
+- Install Ralf Hinze's lhs2TeX
+  In TeXParser.lhs change the line
+            maxLine = 80 * 100
+  to
+            maxLine = 80 * 500
+  Otherwise, lhs2TeX chokes on the large pixel image included in
+  Tutorial.lhs
+
+- Install the fmp fonts in your tex system. In my TeX installation
+  (teTeX) metapost is not able to initiate automatic font generation,
+  so I did a mktextfm fmp{1,8,24} to produce the .tfm files.
+
+- Change %options in the *.lhs file. Hugs needs the enlarged stack
+  (-h1m).  The path after -P: must also be set appropriately.
+
+- Look at your .FuncMP file. The size of the documentclass should be
+  the same as for the main document.  Besides that the MPINPUTS
+  varable must also be set appropriately.
+
+- Generate all the pictures:
+  lhs2TeX -math -i lhs2TeX.fmt -lrecalc=True Manual_eng.lhs > /dev/null
+
+  This step may result in lots of "readline: warning:
+  rl_prep_terminal: cannot get terminal settings" messages, which are
+  harmless.
+
+- Generate the LaTeX file:
+  lhs2TeX -math	-i lhs2TeX.fmt -lrecalc=False Manual_eng.lhs > Manual_eng.tex
+
+- latex, latex, dvips
+  (xdvi previewing needs "prologues:=2" in the first line of .FuncMP)
+
+
+COPYING
+-------
+This licensing information is valid for the following list of files:
+
+  README.doc
+  fmp.ini
+  lhs2TeX.fmt
+
+Copyright (c) 2003-2010 Peter Simons
+Copyright (c) 2002-2003 Ferenc Wágner
+Copyright (c) 2002-2003 Meik Hellmund
+Copyright (c) 1998-2002 Ralf Hinze
+Copyright (c) 1998-2002 Joachim Korittky
+Copyright (c) 1998-2002 Marco Kuhlmann
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <http://www.gnu.org/licenses/>.

@@ -1,0 +1,620 @@
+# 2.3.0 (2025-02-23)
+- refactor all head/tail usage to safe functions (headMay and tailSafe)
+- spec: explicit url
+- spec: html entity decoding of description
+- spec: simplify name and binlib logic
+- spec: use %bcond to enable tests rather than %bcond_without
+- spec: use -w for cabal update
+- spec: use available source manpages
+- Dependencies: add rts to excludedPkgs
+- Dependencies: filter excludedTools from testToolDeps
+- readStream replaces Read Stream for better error
+- initial testsuite
+
+# 2.2.1 (2024-08-02)
+- getBuildDir: handle new rpm-4.20 BUILD/n-v-build dir
+- spec: --stream should be used first when determining stream
+- spec: also output %haskell_setup when subpackaging
+- spec: only autorelease if not subpackaging
+- spec: change --tests to --no-tests to force disabling testsuite
+- spec: don't reverse order independent subpkgs
+- spec: only put --stream nightly or hackage into spec header line
+- spec: set PATH in %check
+- spec --standalone: drop cabal-install BR version and use %defined
+- spec: simplify generated bash-completion and manpage
+- spec: use %bash_completions_dir in filelist
+- update: now checks .cabal revision number explicitly whether changed
+- update: use fkinit instead of kinit
+- repoquerying with dnf5: use --whatprovides and repoquery must be --quiet
+- Dependencies: resolveLib now warns with name of missing library
+- PackageUtils findDocsLicenses: ignore Haskell source files
+- .cabal: add ghc-options (from hkgr) and drop redundant build-depends
+- .cabal: need simple-cmd-args 0.1.7 to drop direct optparse-applicative dep
+- .cabal: drop the old-time flag (for time < 1.5)
+
+# 2.2.0 (2024-03-27)
+- Dependencies excludedPkgs: add system-cxx-std-lib
+- Dependencies: withGhcProfLibType to respect %with_ghc_prof for builddeps
+- PackageUtils dependencySortCabals: do nothing if empty
+- Snapshots: update stackage snapshots.json url
+- Spec: usesOptparse, maybeGenerateBashCompletion, maybeGenerateManpage
+- spec: add %{?haskell_setup}
+- spec: define and use %ghc_major for --with-compiler
+- spec: do not BR ghcX.Y-prof for standalone
+
+# 2.1.5 (2023-11-10)
+- bugfix: --flags should be optional!
+- PackageUtils pkgSpecPkgData: error displaying an unparsable pkgid
+
+# 2.1.4 (2023-11-03)
+- spec --standalone should not create subpkgs (regression in 2.1.3)
+- spec: when subpackaging include prof for main exec deps
+- fix --flags parsing to actually work!
+- PackageUtils bringTarball: create SOURCES/ earlier for new user
+
+# 2.1.3 (2023-09-27)
+- spec: implement recursive missing deps fully; use cabal-sort if available
+- spec: also get the license of subpkgs now
+- spec: optparse-simple also supports bash completions
+- spec: simplify standalone %ghc_set_gcc_flags conditional
+- Stackage: prefer stack list if available: should be faster
+- Stackage: cache latest snapshots versions with code from stack-all
+- update: be more careful about adding new revised .cabal
+
+# 2.1.2 (2023-07-27, F39)
+- PackageUtils checkForPkgCabalFile: check within BUILD dir
+- PackageUtils patchSpec: drop problem code for showing patch -.rej
+- Stackage: bump default to lts-21
+- allow Cabal-3.10
+- https for COPYING urls
+- spec: add %autopatch if Patch's and no %patch
+- spec: exclude missing deps from missing testsuite deps
+- spec: revert from %autosetup to %setup
+- spec: standalone should not use prof
+- update: --old-stream option for subpackages
+- update: invert gitBool check for local changes
+- update: use wasrevised to control revision of old reference spec
+
+# 2.1.1 (2023-03-27)
+- spec: use %autosetup
+- PackageUtils patchSpec: adding newline to stdin hangs patch
+
+# 2.1.0 (2023-02-15)
+- spec: list out ghc-*-prof BRs separately from ghc-*-devel
+- spec: output SPDX license tags
+- spec: for standalone f36+ cabal-install needs %ghc_set_gcc_flags
+- spec: handle '.' paragraph separator lines in description
+- spec: initial support for --with-ghc version to build with ghcX.Y
+- spec: check if deps of missing deps available
+- spec: for --standalone define %cabal_install for cabal
+- Stackage: default to latest lts-20 stream
+- refresh: build cabal-rpm in tempdir
+- PackageUtils rpmbuild: no longer override _builddir, _rpmdir, _srcrpmdir
+- PackageUtils tryUnpack: now into %_builddir
+- PackageUtils patchSpec: show .rej if patch fails
+- PackageUtils: handle tools like ghc-tags which are not a library
+- always assume revised .cabal is wanted/used
+- remove all the keep logic for tmpdir processing
+- allow Cabal-3.8
+- GH action: add 9.4 and bump actions versions
+- Diff: use extra withTempDir
+- simplify withTempDirectory with withCurrentDirectory
+
+# 2.0.11.1 (2022-03-28)
+- support building with Cabal 3.6
+
+# 2.0.11 (2022-03-13)
+- take build-tool-depends into account
+- 'spec','update': detect %autorelease and preserve %autochangelog
+- 'spec --standalone': strip executable
+- support %_builddir
+
+# 2.0.10 (2021-08-14)
+- pkgSpecPkgData: try allowing versioned dir
+- update: only output old version if upgrading
+- stack: use final lts17
+- Stackage: bump to LTS 18
+- Spec: drop %ghc_fix_rpath for subpkgs
+
+# 2.0.9 (2021-06-08)
+- spec: doc requires ghc-filesystem
+- spec: make %cabal_test conditional explicit
+- refresh: fix installation of cabal-rpm-version with cabal install
+- spec: tweak conditions for standalone sandbox (ie rhel8)
+
+# 2.0.8 (2021-03-27)
+- update: make sure krb ticket exists before uploading source
+- spec: executable doc files now handled by ghc-rpm-macros
+- move dos2unix for revised DOS .cabal from download to spec build time
+- spec: do not enable testsuite for standalone package
+- spec: also bash-completion for simple-cmd-args
+- spec: for bash-completions use default not filenames
+- Stackage: use lts-17
+- pkgInstallMissing: also install ghc-rpm-macros
+
+# 2.0.7 (2020-10-07)
+- spec: setup bash completions for optparse-applicative
+- spec: --ignore-missing to ignore deps not yet in hackage
+- update: only commit revised if actual changes
+- show rpmbuild mode
+- spec --standalone updated for cabal-install 3 (f33+)
+
+# 2.0.6 (2020-06-28) Fedora 33
+- spec: use packager's name in %changelog
+- spec: default package versions to Stackage LTS 16
+- spec now also leaves newly prepped source tree around
+- spec: handle testsuite tool deps separately
+- spec, refresh, update: more care about whether to revise or not
+- diff: ignore release field
+- prep: be quiet
+- spec: add a comment for missing testsuite deps
+- only allow specifying major Stackage LTS versions (not minor):
+  for more progressive updating logic (lts-n -> lts-(n+1) -> nightly -> Hackage)
+- spec: don't warn "spec exists" explicitly
+- spec: take specified stream into account for subpackaging
+- update: finally run prep to check update okay
+- prep/srpm --verbose and local --quiet options
+- spec: move chmod for docs to %prep
+- spec: check existing .spec file for detecting dropped deps and executable deps
+- update: also commit revised .cabal file when no update
+- fix copying of cached tarballs (longstanding defect)
+
+# 2.0.5.1 (2020-06-11)
+- spec: fix grep breakage in 2.0.5 release
+- refresh and update now leave newly prepped source tree around
+- spec: dropped deprecated %post and %postun scriptlets
+
+# 2.0.5 (2020-06-10)
+- spec --tests flag to force enabling testsuite
+- spec: fix permissions of extra-source-files
+- update url for Fedora Haskell Packaging Guidelines (TristanCacqueray)
+- make cabal update silent and check for 01-index
+- support Cabal-3.2 ShortText (hekkaidekapus)
+- use simple-cmd-args 0.1.6 for working subcommand help
+- improve handling of update --stream for subpackaging
+- bump latest Stackage to LTS 15
+- spec: exclude deps dropped with cabal-tweak-drop-dep
+
+# 2.0.4 (2020-02-27) Fedora 32
+- update: also unbreak patching
+
+# 2.0.3 (2020-02-24)
+- refresh: unbreak to patch spec file
+- spec: detect local revised .cabal file
+
+# 2.0.2 (2020-02-20)
+- drop %_devel compat macro
+- default stream is now lts-14
+- sort deps of subpackages
+- metapkgs don't have prof or doc
+- fix generation of subpackages for a new package
+- update: logic reworked to reduce redundant downloads
+
+# 2.0.1 (2020-02-06)
+- quote macros in commented fields
+- read --subpackage from spec header
+- generate BRs for subpackages
+
+# 2.0.0 (2020-01-16)
+- major refactor to handle stream/pkgid more precisely and correctly
+  (hence major version bump due to behavior changes)
+  - eg can no longer specify both stream and pkg-ver
+- check for package first in default LTS, then latest LTS, and Nightly,
+  before Hackage
+- respect and read/write --standalone and --stream in spec header consistently
+  (note default LTS stream is not written to header)
+- fix infinite loop for 'install'
+- optionally use libcurl binding instead of former stackage-query fallback
+
+# 1.0.3 (2019-12-31)
+- define %_devel for f30 packaging compatibility
+- missingdeps and builddep fixes
+- --standalone: add BRs for deps of missing deps
+
+# 1.0.2 (2019-12-09)
+- allow newer time for ghc-8.8
+- more type refactoring: PackageIdentifier, LibPkgType, RpmPackage
+  and some associated bugfixes
+
+# 1.0.1 (2019-09-29)
+- doc and prof subpackages for libraries
+- reworked to use optparse-applicative (simple-cmd-args)
+- default to Stackage LTS 13
+- F31+ uses triggers for ghc-pkg recache
+- wait 10^4s (< 3 hours) between cabal update's
+- refactor using simple-cabal, PackageName and LibPkgType
+- handle setup-depends
+- diff: autodetect subpackaging
+- diff (experimental): trim %changelog with bawolk/hsp if available
+- drop pre-built manpage: use Makefile to build it
+
+# 0.13.3 (2019-05-10)
+- default stream to lts-12
+- repoquery for missing deps' package .conf file to avoid modular ghc conflicts
+- only --assumeyes for dnf install when not tty
+- give up if more than one spec file
+- fix handling unversioned update
+- map cabal build-tool to cabal-install
+- use tmpdir for tmp spec files and building missing deps
+- finalPackageDescription for debugging Cabal
+- use simple-cmd-0.1.3.1 for sudo fixes
+
+# 0.13.2 (2019-04-09)
+- include ANNOUNCE in docs
+- if dependency parallel directory exists, don't check if installed
+- fix buildDepends on Cabal-2.4
+- new --standalone option for private packages built with cabal-install
+- print --{missing,standalone,subpackage} options on spec file header line
+
+# 0.13.1 (2019-02-27)
+- update: fix rw git dir detection
+- fix tarball downloading and copying of revised .cabal file
+- show output (errors) when prepping source and prep in working dir
+- include BUGS and CONTRIBUTING as docs
+- need chrpath for subpackages
+- move license dir to any common subpackage
+
+# 0.13 (2019-02-18)
+- improve license and doc filtering
+- backup revised .cabal files
+- fallback to spectool for source downloading
+- drop selfdep
+- common subpackage for binlib data files
+- section dividers for sources, setup, build, install, and files
+- only run "cabal update" if more than 10min old
+- drop support for ghc-7.4.2
+
+# 0.12.6 (2018-10-20)
+- update: remove old revised .cabal
+- convert revised .cabal file to unix format
+- spec: support haskell-gi libraries
+- most of SysCmd moved to simple-cmd library (new dep)
+- can now download multiple source files
+- use line-buffering for stdout
+- always do cabal update
+- support ghc_without_dynamic for static executables
+- build with Cabal-2.4 (ghc-8.6)
+
+# 0.12.5 (2018-07-29)
+- update: more careful now with fuzz 1
+-- handle revised to non-revised
+-- improved for subpackaging
+- improvements to revising of .cabal files
+-- place after any subpackages
+-- use revision when prep'ing and building
+- use "fedpkg sources" to fetch current Fedora sources
+- refresh: handle subpackages
+- missing: better output for missing sub-deps
+- do not put doc* in docs
+
+# 0.12.4 (2018-05-31)
+- now uses Hackage revisions of packages (using wget)
+- spec --stream STREAM replaces --hackage
+- disable https for ghc < 7.10
+
+# 0.12.3 (2018-05-14)
+- build: remove erroneous tarball check
+- refresh: use cblrpm for old cabal-rpm
+
+# 0.12.2 (2018-03-29)
+- diff now supports CBLRPM_DIFF envvar to override "diff -u"
+- try to build even when missing rpms deps not available
+- package now builds with Cabal-2.2
+
+# 0.12.1 (2018-02-20)
+- new option --missing: comments out missing dependencies
+- put license files in lib subpackage
+- no longer append %_isa to C BuildRequires (#54)
+- no longer leave leftover tmpdirs (#26)
+- change 'cblrpm' to 'cabal-rpm' in documentation
+- drop support for SCM snapshot releases
+
+# 0.12 (2017-11-17)
+- default to querying stackage.org directly via https
+- fix stackage-query usage and suggest installing if missing
+- run cabal update before cabal commands
+- devel packages now provide doc subpackage for forward compatibility
+- new --hackage option to get package version from Hackage not Stackage
+- do not add .cabal files containing "doc" to docs
+- silence mock rpmbuild -bs warnings about undefined %ghc_version
+- allow building with ghc-8.2 and Cabal-2.0
+
+# 0.11.2 (2017-07-31)
+- fix cabal-rpm update --subpackage
+- fix rpm installation when no sudo (#49)
+- fix handling of no exposed modules (#50)
+- fix license handling for selfdep binlib (#51)
+
+# 0.11.1 (2017-03-13)
+- support building meta (compat) packages
+- invocation of optional stackage-query to update to LTS now works
+- initial --subpackage support for %{subpkgs} of missing deps:
+  including downloading, but update is not properly implemented yet
+- new %{pkgver} macro
+- (+-+) absorbs extra space
+- update no longer resets release for %{subpkgs}
+
+# 0.11 (2017-01-27)
+- refresh command now reads the cabal-rpm version header in the spec file and
+  installs that version of cabal-rpm under ~/.cblrpm/ and uses it to make patch
+- diff and update now follow package-version args
+- update tries to use stackage-query to check latest Stackage version
+  before falling back to latest Hackage
+- update from Hackage now follows "Default available version"
+- sync some changes from opensuse-haskell/cabal-rpm
+- rename Setup to Options
+- silence <$> import warnings
+
+# 0.10.1 (2016-11-29)
+- no longer need to remove License file by hand
+- use new %ghc_fix_rpath
+- include Contributors in docs
+- warn about duplicate docs in datadir and remove them
+
+# 0.10.0 (2016-07-27)
+- rename executable and manpage back to 'cabal-rpm': more predictable
+- explicit error for unknown command
+- sort docs and include upstream changelogs and news
+- add cabal-rpm version header line to spec files
+- new highly experimental command to refresh spec files
+- only add "ExclusiveArch: %{ghc_arches_with_ghci}" for RHEL/EPEL
+- use revised Hackage .cabal files on SUSE (@peti)
+- on SUSE add explicit requires for pkgconfig
+- new --compiler option (@peti)
+- new --distro option (@peti)
+- new --strict option which fails when unresolved cdeps (@peti),
+  otherwise a warning is output
+- update now shows diff
+- use %cabal_test (@mimi1vx)
+- no longer duplicate docs in datadir
+- package datadir better
+- for SUSE libs executables now go in the base package
+
+# 0.9.11 (2016-05-06)
+- build with Cabal-1.24
+
+# 0.9.10 (2016-03-24)
+- bugfixes
+  - update no longer tries to grep non-existent .git
+  - fix duplicate clibs
+- fix build with ghc-8.0 (Cabal-1.23 and time-1.6)
+- SuSE improvements: no disttag or rpmdev-bumpspec
+
+# 0.9.9 (2016-01-25)
+- couple of minor improvements for SUSE packaging
+
+# 0.9.8 (2015-10-08)
+- better %license logic
+- fix handling of versions without '.'
+- no duplicate test deps
+
+# 0.9.7 (2015-08-28)
+- only list buildable executables in spec file
+- bring back 'build' as an alias for 'local'
+- use %license macro
+- do not warn about missing optional system programs
+
+# 0.9.6 (2015-05-21)
+- make "cabal list" quiet
+- filter missing packages from repoquery
+
+# 0.9.5.1 (2015-05-01)
+- add old-locale Cabal flag to fix build on ghc-7.10
+
+# 0.9.5 (2015-04-20)
+- fix for dnf repoquery
+- create SOURCES/ for tarball
+- fixes for Cabal-1.22
+- nogpgcheck for Fedora 22+
+- warn about hidden backup spec files
+
+# 0.9.4 (2015-02-17)
+- use dnf if installed instead of yum for install and repoquery
+- update now only commits changes and new source if git origin is ssh
+- allow Cabal-1.22
+
+# 0.9.3 (2015-02-05)
+- make sure tarball destdir exists before copying
+- improve output for listing missing packages
+- update improvements: new-sources first, continue if patch fails, git commit changes
+- spec: sort executables and use %pkg_name in %ghc_fix_dynamic_rpath
+- drop the debuginfo handling for C files
+- ignore emacs temp ".#pkgname.spec" files
+
+# 0.9.2 (2014-12-18)
+- lots of bug fixes
+- improved missingdeps output
+- use https for hackage URLs (codeblock)
+- no longer override %_sourcedir, %_rpmdir, and %_srcrpmdir, unless git dir
+- new "update" command to update spec to latest version
+- use 'rpm --eval "%{?dist}"' to determine OS type
+- fix build and warnings for Cabal 1.20
+- use TMPDIR
+
+# 0.9.1 (2014-08-26)
+- missingdeps now lists missing dependencies recursively and outputs Hackage
+  package names rather than ghc-*-devel package names
+- do not assume package order when testing if dependencies installed
+- check  ~/.cabal/packages/ exists before looking for tarballs
+- pass actual exeNames to %ghc_fix_dynamic_rpath
+
+# 0.9 (2014-07-17)
+- reworked initial logic to make better use of existing spec files,
+  and prep source tree properly
+- default to Library packaging instead of BinLib:
+  override with --binary which replaces --library
+- prep src for version in existing spec file when building
+- 'install' command now does local recursive rpmbuilding
+- try "rpm -qf" and then rpmquery to resolve clib devel depends
+- support SUSE packaging (thanks Jan Matějka)
+- support RHEL5 packaging
+- support Cabal-1.20
+- improve output for 'depends' command
+- no duplicate clibs deps
+- include "cblrpm" in tempdir names
+- use current dir name as a last guess of package name
+
+# 0.8.11 (2014-05-17)
+- build command renamed again from "rpm" to "local" (like fedpkg)
+- use .spec file to determine pkg-ver when no .cabal file around
+- automatically generate bcond for %check and add testsuite BRs
+  when testsuites available
+- disable debuginfo explicitly when no c-sources in preparation for
+  ghc-rpm-macros no longer disabling debuginfo
+- reset filemode of downloaded hackage tarballs to 0644:
+  workaround for cabal-install setting 0600
+- include release again in initial changelog
+- also pull in Cabal and ghc-rpm-macros when yum installing deps
+- no longer depends on regex-compat
+- some refactorings
+
+# 0.8.10 (2014-03-03)
+- diff command replaces cblrpm-diff script
+- new missingdeps command
+- replace use of rpmspec: no "rpmspec --srpm" on RHEL 5 and 6
+
+# 0.8.9 (2014-02-10)
+- bugfix for error handling dir with spec file
+- cblrpm-diff arg is now optional
+
+# 0.8.8 (2014-02-09)
+- updated GPLv3 license headers
+- use .spec file to determine package if no .cabal file (works with
+  or without arg)
+- bugfix: install command now works even if some dependencies not packaged
+- bugfix: do not re-copy cached tarball each time
+- use new shorter hackage2 URL for packages
+- capitalize start of summary and description
+- filter @ and \ quotes in descriptions
+- new prep command (like "rpmbuild -bp" or "fedpkg prep")
+- new depends and requires commands list package depends or buildrequires
+- new builddep command (like yum-buildep, but allows missing packages)
+- notice for overwriting existing spec file with force option
+
+# 0.8.7 (2013-12-31)
+- new "install" command wrapping "cabal install"
+- "build" command renamed to "rpm"
+- sort devel Requires
+- cblrpm-diff: allow package arg
+- support copying tarball fetched from another remote-repo (Ricky Elrod)
+- hlint cleanup
+- support AGPL license in Cabal-1.18
+
+# 0.8.6 (2013-10-04)
+- check for _darcs or .git dir in package topdir not pwd
+
+# 0.8.5 (2013-09-29)
+- fix repoquery when a package update exists for C lib
+- make cblrpm-diff quieter
+
+# 0.8.4 (2013-09-28)
+- use repoquery to determine extra C library dependencies
+- quote "pkgconfig(foo)" for rpm query and yum install
+- show sudo command before sudo password prompt appears
+- exclude hsc2hs from build tool deps
+- devel provides ghc-<pkg>-static
+- drop release from initial changelog entry for packager to add an entry
+- do not try to fetch tarball for a darcs or git source dir
+
+# 0.8.3 (2013-07-12)
+- only try to install missing dependencies
+- for executables depending on own lib add BR chrpath and %ghc_fix_dynamic_rpath
+- word-wrap generic descriptions
+- map ffi to libffi
+- move modules to toplevel
+- Rpm module split into Spec and Build in Commands/
+
+# 0.8.2 (2013-07-02)
+- handle pkg-ver arg, and check cabal list is non-empty
+- sort all generated deps
+- use yum-builddep again to install deps
+- copy tarball into cwd for rpmbuild
+- warn about long synopsis rather than multiline
+- wrap after end of sentence near end of line
+- use _isa in requires ghc-<pkg>
+- --version now outputs to stdout
+- new --force flag to overwrite existing .spec file
+
+# 0.8.1 (2013-06-14)
+- word wrapping of descriptions
+- use generic description for shared subpackage
+- simplify logic for summary and description processing
+
+# 0.8.0 (2013-05-31)
+- new simplier revision to Fedora Packaging
+  - drop %common_summary and %common_description
+  - drop %ghc_package, %ghc_description, %ghc_devel_package,
+    %ghc_devel_description, %ghc_devel_post_postun, %ghc_files,
+    and %ghc_devel_requires
+- check external programs available before use
+- tweaks for ghc-7.6.3 and Cabal-1.16
+
+# 0.7.1 (2013-03-22)
+- add final full-stop to description if missing
+- add ver-rel to initial changelog entry
+- fix use of cblrpm-diff force lib option
+- output warning when .spec already exists
+- fix handling of package names that end in a digit
+- output when trying a path
+- map curl C dep to libcurl
+
+# 0.7.0 (2013-01-22)
+- cabal-rpm command renamed to cblrpm, and cabal-rpm-diff to cblrpm-diff
+- cblrpm now has commands for spec, srpm, and build
+- cblrpm will try to install packaged uninstalled depends with sudo yum install
+- add %ghc_arches_with_ghci for hamlet dep
+- cblrpm-diff supports -l
+- cblrpm --version
+- sort extralibs depends
+- cleanup of unused options and help output
+
+# 0.6.6 (2012-11-21)
+- generate BRs and Req's for C libraries (extra-libraries)
+- initial map for some C libs: libglut, libiw, libz, libX*
+- generate BRs and Req's for pkgconfig-depends
+- generate BRs for build-tools
+- initial map for build-tools: gtk2hs-buildtools
+- map LGPL-2.1 license to LGPLv2+ tag
+- backup suffix changed from .cabal-rpm to .cblrpm
+- don't mistake non-existent file in cwd for a package
+
+# 0.6.5 (2012-11-01)
+- drop hscolour BuildRequires
+- simplify generated BuildRequires: drop version ranges for now,
+  exclude pkg self, base libs, and Cabal
+- use ExclusiveArch ghc_arches_with_ghci for template-haskell dep
+- replace --name option with --library to force Lib
+
+# 0.6.4 (2012-09-25)
+- add cabal-rpm-diff
+- fix manpage generation
+
+# 0.6.3 (2012-09-24)
+- support tarball path argument
+- use a temporary working dir for opening tarball or cabal unpack
+- add a manpage
+
+# 0.6.2 (2012-09-10)
+- fix output of L/GPL version
+
+# 0.6.1 (2012-07-25)
+bugfixes:
+- fix "cabal-rpm pkg" when other *pkg* packages exist in hackage
+- always generate the extra docs list from the pkg src dir!
+- now no backslash at end of common_description
+
+# 0.6.0 (2012-07-24)
+- updated to work with Cabal >= 1.10 and current cabal2spec style packaging
+  using currently actively used ghc-rpm-macros
+- should generate haskell dependencies correctly and also summary and
+  description text
+- some of the generic compiler supported was dropped for simplicity
+- rpmbuild support will be re-introduced in a future version
+
+# 0.5.1 and earlier (2007-2008) released by Bryan O'Sullivan
+- should work with ghc-6.8
+
+
+# Local Variables:
+# mode: text
+# End:

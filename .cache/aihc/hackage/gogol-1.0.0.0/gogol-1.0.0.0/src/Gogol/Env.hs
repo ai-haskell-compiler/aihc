@@ -1,0 +1,156 @@
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FunctionalDependencies #-}
+{-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+
+-- |
+-- Module      : Gogol.Env
+-- Copyright   : (c) 2015-2022 Brendan Hay
+-- License     : Mozilla Public License, v. 2.0.
+-- Maintainer  : Brendan Hay <brendan.g.hay@gmail.com>
+-- Stability   : provisional
+-- Portability : non-portable (GHC extensions)
+--
+-- Environment and Google specific configuration for the "Gogol" monad.
+module Gogol.Env where
+
+import Control.Lens (Lens', lens, (<>~), (?~))
+import Control.Monad.Catch (MonadCatch)
+import Control.Monad.IO.Class (MonadIO (..))
+import Control.Monad.Reader (MonadReader (local))
+import Data.Function (on)
+import Data.Monoid (Dual (..), Endo (..))
+import Data.Proxy (Proxy (..))
+import GHC.TypeLits (Symbol)
+import Gogol.Auth
+import Gogol.Internal.Logger (Logger)
+import Gogol.Types
+import Network.HTTP.Conduit (Manager, newManager, tlsManagerSettings)
+
+-- | The environment containing the parameters required to make Google requests.
+data Env (scopes :: [Symbol]) = Env
+  { _envOverride :: !(Dual (Endo ServiceConfig)),
+    _envLogger :: !Logger,
+    _envManager :: !Manager,
+    _envStore :: !(Store scopes)
+  }
+
+-- Note: The strictness annotations aobe are applied to ensure
+-- total field initialisation.
+
+class HasEnv scopes a | a -> scopes where
+  environment :: Lens' a (Env scopes)
+  {-# MINIMAL environment #-}
+
+  -- | The currently applied overrides to all 'Service' configuration.
+  envOverride :: Lens' a (Dual (Endo ServiceConfig))
+
+  -- | The function used to output log messages.
+  envLogger :: Lens' a Logger
+
+  -- | The 'Manager' used to create and manage open HTTP connections.
+  envManager :: Lens' a Manager
+
+  -- | The credential store used to sign requests for authentication with Google.
+  envStore :: Lens' a (Store scopes)
+
+  -- | The authorised OAuth2 scopes.
+  --
+  -- /See:/ 'allow', '!', and the related scopes available for each service.
+  envScopes :: Lens' a (Proxy scopes)
+
+  envOverride = environment . lens _envOverride (\s a -> s {_envOverride = a})
+  envLogger = environment . lens _envLogger (\s a -> s {_envLogger = a})
+  envManager = environment . lens _envManager (\s a -> s {_envManager = a})
+  envStore = environment . lens _envStore (\s a -> s {_envStore = a})
+  envScopes = environment . lens (\_ -> Proxy :: Proxy scopes) (flip allow)
+
+instance HasEnv scopes (Env scopes) where
+  environment = id
+
+-- | Provide a function which will be added to the stack
+-- of overrides, which are applied to all service configurations.
+-- This provides a way to configure any request that is sent using the
+-- modified 'Env'.
+--
+-- /See:/ 'override'.
+configure :: (HasEnv scopes a) => (ServiceConfig -> ServiceConfig) -> a -> a
+configure f = envOverride <>~ Dual (Endo f)
+
+-- | Override a specific 'ServiceConfig'. All requests belonging to the
+-- supplied service will use this configuration instead of the default.
+--
+-- Typically you would override a modified version of the default 'ServiceConfig'
+-- for the desired service:
+--
+-- > override (gmailService & serviceHost .~ "localhost") env
+--
+-- Or when using "Gogol" with "Control.Monad.Reader" or "Control.Lens.Zoom"
+-- and the 'ServiceConfig' lenses:
+--
+-- > local (override (computeService & serviceHost .~ "localhost")) $ do
+-- >    ...
+--
+-- /See:/ 'configure'.
+override :: (HasEnv scopes a) => ServiceConfig -> a -> a
+override s = configure f
+  where
+    f x
+      | on (==) _svcId s x = s
+      | otherwise = x
+
+-- | Scope an action such that any HTTP response will use this timeout value.
+--
+-- Default timeouts are chosen by considering:
+--
+-- * This 'timeout', if set.
+--
+-- * The related 'Service' timeout for the sent request if set. (Default 70s)
+--
+-- * The 'envManager' timeout, if set.
+--
+-- * The 'ClientRequest' timeout. (Default 30s)
+timeout :: (MonadReader r m, HasEnv scopes r) => Seconds -> m a -> m a
+timeout s = local (configure (serviceTimeout ?~ s))
+
+-- | Creates a new environment with a newly initialized 'Manager', without logging.
+-- and Credentials that are determined by calling 'getApplicationDefault'.
+-- Use 'newEnvWith' to supply custom credentials such as an 'OAuthClient'
+-- and 'OAuthCode'.
+--
+-- The 'Allow'ed 'OAuthScope's are used to authorize any @service_account@ that is
+-- found with the appropriate scopes. See the top-level module of each individual
+-- @gogol-*@ library for a list of available scopes, such as
+-- @Gogol.Compute.authComputeScope@.
+-- Lenses from 'HasEnv' can be used to further configure the resulting 'Env'.
+--
+-- /See:/ 'newEnvWith', 'getApplicationDefault'.
+newEnv ::
+  forall scopes m.
+  ( MonadIO m,
+    MonadCatch m,
+    KnownScopes scopes
+  ) =>
+  m (Env scopes)
+newEnv = do
+  m <- liftIO (newManager tlsManagerSettings)
+  c <- getApplicationDefault m
+  newEnvWith c (\_ _ -> pure ()) m
+
+-- | Create a new environment.
+--
+-- /See:/ 'newEnv'.
+newEnvWith ::
+  forall scopes m.
+  ( MonadIO m,
+    MonadCatch m,
+    KnownScopes scopes
+  ) =>
+  Credentials scopes ->
+  Logger ->
+  Manager ->
+  m (Env scopes)
+newEnvWith c l m =
+  Env mempty l m <$> initStore c l m

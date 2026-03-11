@@ -1,0 +1,133 @@
+filepath-bytestring (1.5.2.0.3) unstable; urgency=medium
+
+  * Relax bounds to allow QuickCheck-2.15
+  * Allow base and filepath bundled with GHC 9.12
+
+ -- Joey Hess <id@joeyh.name>  Mon, 04 Aug 2025 10:35:01 -0400
+
+filepath-bytestring (1.5.2.0.2) unstable; urgency=medium
+
+  * Relax bounds to allow base-4.20 (ghc 9.10.1).
+
+ -- Joey Hess <id@joeyh.name>  Mon, 20 Jan 2025 19:42:24 -0400
+
+filepath-bytestring (1.5.2.0.1) unstable; urgency=medium
+
+  * Relax bounds on filepath to all versions for which test suite passes.
+
+ -- Joey Hess <id@joeyh.name>  Mon, 20 Jan 2025 14:06:54 -0400
+
+filepath-bytestring (1.5.2.0.0) unstable; urgency=medium
+
+  * Update to correspond to filepath-1.5.2.0, which fixes a bug
+    introduced in filepath-1.4.100.2.
+  * normalise C:\\\\ to C:\
+
+ -- Joey Hess <id@joeyh.name>  Tue, 06 Feb 2024 10:33:31 -0400
+
+filepath-bytestring (1.4.2.1.13) unstable; urgency=medium
+
+  * Relax bounds to allow base-4.18 and filepath-1.4.100.3 (ghc 9.6).
+    (Note that this version did not replicate a bug introduced in
+    filepath-1.4.100.2. So the test suite would sometimes fail.)
+
+ -- Joey Hess <id@joeyh.name>  Tue, 20 Jun 2023 12:22:31 -0400
+
+filepath-bytestring (1.4.2.1.12) unstable; urgency=medium
+
+  * Relax bounds to allow base 4.17 (ghc 9.4).
+
+ -- Joey Hess <id@joeyh.name>  Thu, 20 Oct 2022 13:25:40 -0400
+
+filepath-bytestring (1.4.2.1.11) unstable; urgency=medium
+
+  * Deprecated this library, since filepath has added OsPath that
+    is based on a bytestring.
+
+ -- Joey Hess <id@joeyh.name>  Sat, 23 Jul 2022 12:41:53 -0400
+
+filepath-bytestring (1.4.2.1.10) unstable; urgency=medium
+
+  * Depend on bytestring-0.11.2.0, and use it to implement encodeFilePath
+    and decodeFilePath, whose code was previously copied from it.
+
+ -- Joey Hess <id@joeyh.name>  Wed, 08 Dec 2021 18:55:24 -0400
+
+filepath-bytestring (1.4.2.1.9) unstable; urgency=medium
+
+  * Relax bounds to allow base 4.16 (ghc 9.2).
+
+ -- Joey Hess <id@joeyh.name>  Fri, 03 Dec 2021 11:49:58 -0400
+
+filepath-bytestring (1.4.2.1.8) unstable; urgency=medium
+
+  * Faster implementations of encodeFilePath and decodeFilePath.
+    They are approximately 2x and 3x as fast, respectively.
+  * encodeFilePath and decodeFilePath used to truncate at the first
+    NUL. The new implementations do not do this. Since unix filepaths
+    cannot contain NUL, this behavior change is can't cause any problems,
+    unless the functions are used for values that are not actually
+    valid filepaths.
+  * Support cabal bench to benchmark the library.
+
+ -- Joey Hess <id@joeyh.name>  Wed, 11 Aug 2021 12:17:15 -0400
+
+filepath-bytestring (1.4.2.1.7) unstable; urgency=medium
+
+  * Relax QuickCheck bounds to allow 2.14.
+  * Relax base bounds so it will build with ghc 9.0.1.
+
+ -- Joey Hess <id@joeyh.name>  Wed, 17 Mar 2021 08:11:27 -0400
+
+filepath-bytestring (1.4.2.1.6) unstable; urgency=medium
+
+  * Added makeValid. All functions from filepath are now implemented.
+
+ -- Joey Hess <id@joeyh.name>  Thu, 02 Jan 2020 16:05:49 -0400
+
+filepath-bytestring (1.4.2.1.5) unstable; urgency=medium
+
+  * Allow building with filepath-1.4.2 as well as 1.4.2.1;
+    there are no behavior or API differences between the two versions.
+
+ -- Joey Hess <id@joeyh.name>  Wed, 01 Jan 2020 14:24:18 -0400
+
+filepath-bytestring (1.4.2.1.4) unstable; urgency=medium
+
+  * Added splitSearchPath and getSearchPath.
+  * Fix bug in makeRelative, caught by test suite.
+  * Added quickcheck tests for equalFilePath and makeRelative.
+
+ -- Joey Hess <id@joeyh.name>  Wed, 01 Jan 2020 11:58:31 -0400
+
+filepath-bytestring (1.4.2.1.3) unstable; urgency=medium
+
+  * Added equalFilePath.
+  * Added makeRelative.
+
+ -- Joey Hess <id@joeyh.name>  Mon, 30 Dec 2019 13:07:31 -0400
+
+filepath-bytestring (1.4.2.1.2) unstable; urgency=medium
+
+  * Fix build with ghc 8.0 (pre-Semigroup Monoid transition)
+
+ -- Joey Hess <id@joeyh.name>  Mon, 30 Dec 2019 12:18:15 -0400
+
+filepath-bytestring (1.4.2.1.1) unstable; urgency=medium
+
+  * When running on Windows, RawFilePath is assumed to be encoded with
+    UTF-8, rather than the windows default of UTF-16. This lets the user
+    use OverloadedStrings for RawFilePaths embedded in their code.
+  * Added two conversion functions, encodeFilePath and decodeFilePath.
+  * Added normalise.
+  * Optimise with -O2, a benchmark shows that improves the speed
+    of </> by around 7%.
+  * Inline </>, which speeds it up by around 3%.
+
+ -- Joey Hess <id@joeyh.name>  Wed, 18 Dec 2019 13:42:16 -0400
+
+filepath-bytestring (1.4.2.1.0) unstable; urgency=medium
+
+  * Initial release, based on filepath 1.4.2.1.
+
+ -- Joey Hess <id@joeyh.name>  Tue, 10 Dec 2019 15:21:14 -0400

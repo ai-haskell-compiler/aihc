@@ -1,0 +1,14 @@
+{
+  "id": 4,
+  "name": "Twitter",
+  "path": "twitter",
+  "description": "Aliquid qui quis dignissimos distinctio ut commodi voluptas est.",
+  "visibility": "public",
+  "avatar_url": null,
+  "web_url": "https://gitlab.example.com/groups/twitter",
+  "request_access_enabled": false,
+  "full_name": "Twitter",
+  "full_path": "twitter",
+  "file_template_project_id": 1,
+  "parent_id": null
+}

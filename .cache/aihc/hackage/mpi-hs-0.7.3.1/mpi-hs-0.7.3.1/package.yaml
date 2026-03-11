@@ -1,0 +1,146 @@
+name: mpi-hs
+version: '0.7.3.1'
+github: "eschnett/mpi-hs"
+license: Apache-2.0
+author: "Erik Schnetter <schnetter@gmail.com>"
+maintainer: "Erik Schnetter <schnetter@gmail.com>, Phillip Seeber <phillip.seeber@googlemail.com>"
+copyright: "2018, 2019, 2020, 2023, 2024 Erik Schnetter <schnetter@gmail.com>, 2024 Phillip Seeber Phillip Seeber <phillip.seeber@googlemail.com>"
+category: Distributed Computing
+synopsis: MPI bindings for Haskell
+description: |
+  MPI (the [Message Passinag Interface](https://www.mpi-forum.org)) is
+  a widely used standard for distributed-memory programming on HPC
+  (High Performance Computing) systems. MPI allows exchanging data
+  (_messages_) between programs running in parallel. There are several
+  high-quality open source MPI implementations (e.g. MPICH, MVAPICH,
+  OpenMPI) as well as a variety of closed-source implementations.
+  These libraries can typically make use of high-bandwidth low-latency
+  communication hardware such as InfiniBand.
+  
+  This library @mpi-hs@ provides Haskell bindings for MPI. It is based
+  on ideas taken from
+  [haskell-mpi](https://github.com/bjpop/haskell-mpi),
+  [Boost.MPI](https://www.boost.org/doc/libs/1_64_0/doc/html/mpi.html)
+  for C++, and [MPI for
+  Python](https://mpi4py.readthedocs.io/en/stable/).
+  
+  @mpi-hs@ provides two API levels: A low-level API gives rather
+  direct access to the actual MPI API, apart from certain "reasonable"
+  mappings from C to Haskell (e.g. output arguments that are in C
+  stored via a pointer are in Haskell regular return values). A
+  high-level API simplifies exchanging arbitrary values that can be
+  serialized.
+
+  Note that the automated builds on
+  [Hackage](http://hackage.haskell.org) will currently always fail
+  since no system MPI library is present there. However, builds on
+  [Stackage](https://www.stackage.org) should succeed -- if not, there
+  is an error in this package.
+
+flags:
+  mpich:
+    description: Use MPICH
+    manual: true
+    default: false
+  mvapich:
+    description: Use MVAPICH2
+    manual: true
+    default: false
+  openmpi:
+    description: Use OpenMPI
+    manual: true
+    default: true
+
+extra-source-files:
+  - LICENSE
+  - README.md
+  - package.yaml
+  - stack.yaml
+  - stack.yaml.lock
+  - c/include/mpihs.h
+  - c/src/mpihs.c
+
+ghc-options:
+  - -Wall
+
+library:
+  dependencies:
+    - base >=4 && <5            # tested with 4.11, 4.12, 4.13
+    - bytestring
+    - monad-loops
+  build-tools:
+    - c2hs
+  source-dirs: lib
+  c-sources:
+    - c/src/mpihs.c
+  include-dirs:
+    - c/include
+
+when:
+  - condition: "flag(mpich)"
+    pkg-config-dependencies:
+      - mpich
+  - condition: "flag(openmpi)"
+    pkg-config-dependencies:
+      - ompi
+  - condition: "flag(mvapich)"
+    pkg-config-dependencies:
+      - mvapich2
+  - condition: "!flag(mvapich) && !flag(mpich) && !flag(openmpi)"
+    extra-libraries:
+      - mpi
+
+executables:
+  version:
+    source-dirs: src
+    main: version.hs
+    dependencies:
+      - base
+      - mpi-hs
+    ghc-options:
+      - -rtsopts
+      - -threaded
+      - -with-rtsopts=-N
+  example1:
+    source-dirs: src
+    main: example1.hs
+    dependencies:
+      - base
+      - mpi-hs
+    ghc-options:
+      - -rtsopts
+      - -threaded
+      - -with-rtsopts=-N
+  example2:
+    source-dirs: src
+    main: example2.hs
+    dependencies:
+      - base
+      - mpi-hs
+    ghc-options:
+      - -rtsopts
+      - -threaded
+      - -with-rtsopts=-N
+
+tests:
+  mpi-test:
+    source-dirs: tests/mpi
+    main: Main.hs
+    dependencies:
+      - base
+      - monad-loops
+      - mpi-hs
+    ghc-options:
+      - -rtsopts
+      - -threaded
+      - -with-rtsopts=-N
+  mpi-test-storable:
+    source-dirs: tests/storable
+    main: Main.hs
+    dependencies:
+      - base
+      - mpi-hs
+    ghc-options:
+      - -rtsopts
+      - -threaded
+      - -with-rtsopts=-N

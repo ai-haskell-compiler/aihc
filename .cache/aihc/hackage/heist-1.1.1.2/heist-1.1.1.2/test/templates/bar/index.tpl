@@ -1,0 +1,1 @@
+<root>/bar/index</root>

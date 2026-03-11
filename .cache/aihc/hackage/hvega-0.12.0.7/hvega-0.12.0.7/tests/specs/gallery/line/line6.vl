@@ -1,0 +1,29 @@
+{
+    "$schema": "https://vega.github.io/schema/vega-lite/v4.json",
+    "data": {
+        "url": "https://vega.github.io/vega-lite/data/stocks.csv"
+    },
+    "description": "Google's stock price over time (smoothed with monotonic interpolation).",
+    "encoding": {
+        "x": {
+            "axis": {
+                "format": "%Y"
+            },
+            "field": "date",
+            "type": "temporal"
+        },
+        "y": {
+            "field": "price",
+            "type": "quantitative"
+        }
+    },
+    "mark": {
+        "interpolate": "monotone",
+        "type": "line"
+    },
+    "transform": [
+        {
+            "filter": "datum.symbol === 'GOOG'"
+        }
+    ]
+}

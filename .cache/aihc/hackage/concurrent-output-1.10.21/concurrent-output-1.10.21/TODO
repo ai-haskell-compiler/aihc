@@ -1,0 +1,53 @@
+* System.Console.Regions handling of outputConcurrent and errorConcurrent
+  when the output lacks a newline is surprising. The output may never be
+  displayed. A better approach:
+
+  When output arrives that lacks a newline, allocate a region for it
+  and buffer it in that region, so it displays immediately and more
+  output will go to the same region. When a newline arrives, close the
+  region and scroll up the completed line the same way any completed region
+  is displayed.
+
+* Parts of System.Console.Concurrent may not be async exception safe.
+
+  If a thread is running an action from that module and an async exception
+  is sent to it, it may result in a deadlock or other problem.
+
+  (System.Console.Regions has been made safe,
+  also outputConcurrent and errorConcurrent.)
+
+  Particularly problematic is takeOutputLock', which takes the lock
+  and then outputs buffers to the console. If the emitOutputBuffer
+  calls are interrupted by async exception, it will be left locked
+  and the buffered output is also lost. But masking them is not good
+  because emitOutputBuffer could run for a long time in some situations.
+
+  fgProcess and bgProcess also do stuff with registerOutputThread/unregisterOutputThread
+  that may not be async exception safe. 
+
+  And createProcessForeground uses takeOutputLock but then calls fgProcess,
+  which could be interrupted (during its call to registerOutputThread)
+  before it starts the async thread that drops the lock.
+
+  One approach to all this might be to fork off a worker thread,
+  which will thus be immune to any async exception directed at the calling
+  thread.
+
+* Calling setConsoleRegion with something that throws an error
+  will cause no further display updates to happen.
+  
+  The exception in the thunk will crash the displayThread,
+  and that is not waited on until the action passed to displayConsoleRegions
+  finishes, so the exception is deferred to that point. Of course if the
+  action never finishes, that hides the exception.
+
+  It does seem this should be improved, by catching the crashing
+  displayThread and ideally propigating the exception immediately.
+  But displayConsoleRegions would need to use a different class than
+  the current MonadIO to be able to do that. Eg, MonadBaseControl
+  so lifted-async can be used, or a class that lets the action be
+  canceled.
+
+  Or it could be dealt with by having setConsoleRegion force the thunk
+  before passing it over to the displayThread. But the instance
+  ToRegionContent (STM Text) seems to prevent doing that.

@@ -1,0 +1,129 @@
+---------------------------------------------------------------------
+RUN tests/importStyle-1.hs --hint=data/import_style.yaml
+FILE tests/importStyle-1.hs
+import HypotheticalModule1
+import HypotheticalModule2
+import HypotheticalModule3
+import qualified HypotheticalModule3.SomeModule
+import HypotheticalModule3.SomeModule qualified
+import qualified HypotheticalModule3.OtherSubModule
+OUTPUT
+tests/importStyle-1.hs:1:1-26: Warning: Avoid restricted alias
+Found:
+  import HypotheticalModule1
+Perhaps:
+  import HypotheticalModule1 as HM1
+Note: may break the code
+
+tests/importStyle-1.hs:2:1-26: Warning: HypotheticalModule2 should be imported qualified or with an explicit import list
+Found:
+  import HypotheticalModule2
+Perhaps:
+  import qualified HypotheticalModule2
+Note: may break the code
+
+tests/importStyle-1.hs:3:1-26: Warning: HypotheticalModule3 should be imported qualified
+Found:
+  import HypotheticalModule3
+Perhaps:
+  import qualified HypotheticalModule3
+Note: may break the code
+
+tests/importStyle-1.hs:4:1-47: Warning: HypotheticalModule3.SomeModule should be imported unqualified
+Found:
+  import qualified HypotheticalModule3.SomeModule
+Perhaps:
+  import HypotheticalModule3.SomeModule
+Note: may break the code
+
+tests/importStyle-1.hs:5:1-47: Warning: HypotheticalModule3.SomeModule should be imported unqualified
+Found:
+  import HypotheticalModule3.SomeModule qualified
+Perhaps:
+  import HypotheticalModule3.SomeModule
+Note: may break the code
+
+tests/importStyle-1.hs:6:1-51: Warning: HypotheticalModule3.OtherSubModule should be imported post-qualified or unqualified
+Found:
+  import qualified HypotheticalModule3.OtherSubModule
+Perhaps:
+  import HypotheticalModule3.OtherSubModule qualified
+Note: may break the code
+
+6 hints
+
+---------------------------------------------------------------------
+RUN tests/importStyle-2.hs --hint=data/import_style.yaml
+FILE tests/importStyle-2.hs
+import HypotheticalModule1 as HM1
+import qualified HypotheticalModule2
+import HypotheticalModule2 (a, b, c, d)
+import qualified HypotheticalModule3
+import HypotheticalModule3.SomeModule
+import HypotheticalModule3.OtherSubModule qualified
+import HypotheticalModule3.OtherSubModule
+OUTPUT
+No hints
+
+---------------------------------------------------------------------
+RUN tests/importStyle-postqual-pos.hs --hint=data/import_style.yaml -XImportQualifiedPost
+FILE tests/importStyle-postqual-pos.hs
+import HypotheticalModule1 qualified as HM1
+import HypotheticalModule2 qualified
+import HypotheticalModule2 qualified as Arbitrary
+import HypotheticalModule3 qualified
+import HypotheticalModule3 qualified as Arbitrary
+import HypotheticalModule4 qualified as HM4
+import HypotheticalModule5 qualified
+import HypotheticalModule5 qualified as HM5
+OUTPUT
+No hints
+
+---------------------------------------------------------------------
+RUN tests/importStyle-postqual-neg.hs --hint=data/import_style.yaml -XImportQualifiedPost
+FILE tests/importStyle-postqual-neg.hs
+import HypotheticalModule1 qualified
+import qualified HypotheticalModule4
+import qualified HypotheticalModule4 as Verbotten
+import qualified HypotheticalModule4 as HM4
+import HypotheticalModule5 as HM5
+import qualified HypotheticalModule5
+
+OUTPUT
+tests/importStyle-postqual-neg.hs:1:1-36: Warning: Avoid restricted alias
+Found:
+  import HypotheticalModule1 qualified
+Perhaps:
+  import HypotheticalModule1 qualified as HM1
+Note: may break the code
+
+tests/importStyle-postqual-neg.hs:2:1-36: Warning: Avoid restricted alias
+Found:
+  import qualified HypotheticalModule4
+Perhaps:
+  import qualified HypotheticalModule4 as HM4
+Note: may break the code
+
+tests/importStyle-postqual-neg.hs:3:1-49: Warning: Avoid restricted alias
+Found:
+  import qualified HypotheticalModule4 as Verbotten
+Perhaps:
+  import qualified HypotheticalModule4 as HM4
+Note: may break the code
+
+tests/importStyle-postqual-neg.hs:5:1-33: Warning: HypotheticalModule5 should be imported post-qualified
+Found:
+  import HypotheticalModule5 as HM5
+Perhaps:
+  import HypotheticalModule5 qualified as HM5
+Note: may break the code
+
+tests/importStyle-postqual-neg.hs:6:1-36: Warning: HypotheticalModule5 should be imported post-qualified
+Found:
+  import qualified HypotheticalModule5
+Perhaps:
+  import HypotheticalModule5 qualified
+Note: may break the code
+
+5 hints
+---------------------------------------------------------------------

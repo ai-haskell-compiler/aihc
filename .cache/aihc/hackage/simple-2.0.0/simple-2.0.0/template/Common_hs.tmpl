@@ -1,0 +1,29 @@
+$if(include_templates)${-# LANGUAGE MultiParamTypeClasses #-}$endif$
+module $module$.Common where
+
+import Control.Applicative
+import Web.Simple
+$if(include_templates)$import Web.Simple.Templates$endif$
+$if(include_sessions)$import Web.Simple.Session$endif$
+$if(include_postgresql)$import Web.Simple.PostgreSQL$endif$
+
+data AppSettings = AppSettings { $if(include_postgresql)$appDB :: PostgreSQLConn$if(include_sessions)$
+                               , appSession :: Maybe Session$endif$$else$$if(include_sessions)$appSession :: Maybe Session$endif$$endif$ }
+
+newAppSettings :: IO AppSettings
+newAppSettings = do
+  $if(include_postgresql)$db <- createPostgreSQLConn$endif$
+  return $$ AppSettings$if(include_postgresql)$ db$endif$$if(include_sessions)$ Nothing$endif$
+$if(include_postgresql)$
+instance HasPostgreSQL AppSettings where
+  postgreSQLConn = appDB
+$endif$$if(include_sessions)$
+instance HasSession AppSettings where
+  getSession = appSession
+  setSession sess = do
+    cs <- controllerState
+    putState $$ cs { appSession = Just sess }
+$endif$$if(include_templates)$
+instance HasTemplates IO AppSettings where
+  defaultLayout = Just <$$> getTemplate "layouts/main.html"
+$endif$

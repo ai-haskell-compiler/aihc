@@ -1,0 +1,10 @@
+{
+  characters {
+    __typename
+    name
+    age
+    ... on Deity {
+      power
+    }
+  }
+}

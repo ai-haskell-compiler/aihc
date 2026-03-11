@@ -1,0 +1,11 @@
+strict: true
+
+logging:
+  verbosity: debug
+
+matplotlib:
+  executable: "python"
+  command_line_arguments: -Wa
+
+plotsjl:
+  command_line_arguments: --optimize=0

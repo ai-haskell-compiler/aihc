@@ -1,0 +1,104 @@
+--- parse tree ---
+[ Code
+    "typ/compiler/show-recursive-03.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/compiler/show-recursive-03.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/compiler/show-recursive-03.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Comment
+, Comment
+, Comment
+, Comment
+, Code
+    "typ/compiler/show-recursive-03.typ"
+    ( line 6 , column 2 )
+    (Set
+       (Ident (Identifier "rect"))
+       [ KeyValArg (Identifier "inset") (Literal (Numeric 3.0 Pt)) ])
+, SoftBreak
+, Code
+    "typ/compiler/show-recursive-03.typ"
+    ( line 7 , column 2 )
+    (Show
+       (Just (Ident (Identifier "list")))
+       (FuncCall
+          (FieldAccess
+             (Ident (Identifier "with")) (Ident (Identifier "rect")))
+          [ KeyValArg (Identifier "stroke") (Ident (Identifier "blue")) ]))
+, SoftBreak
+, Code
+    "typ/compiler/show-recursive-03.typ"
+    ( line 8 , column 2 )
+    (Show
+       (Just (Ident (Identifier "list")))
+       (FuncCall
+          (FieldAccess
+             (Ident (Identifier "with")) (Ident (Identifier "rect")))
+          [ KeyValArg (Identifier "stroke") (Ident (Identifier "red")) ]))
+, SoftBreak
+, Code
+    "typ/compiler/show-recursive-03.typ"
+    ( line 9 , column 2 )
+    (Show
+       (Just (Ident (Identifier "list"))) (Ident (Identifier "block")))
+, ParBreak
+, BulletListItem
+    [ Text "List"
+    , SoftBreak
+    , BulletListItem [ Text "Nested" ]
+    , SoftBreak
+    , BulletListItem [ Text "List" ]
+    ]
+, SoftBreak
+, BulletListItem [ Text "Recursive!" , ParBreak ]
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 text(body: [
+]), 
+                 text(body: [
+]), 
+                 text(body: [
+]), 
+                 parbreak(), 
+                 block(body: list(children: ({ text(body: [List
+]), 
+                                               block(body: list(children: (text(body: [Nested]), 
+                                                                           text(body: [List])))) }, 
+                                             { text(body: [Recursive!]), 
+                                               parbreak() }))) })

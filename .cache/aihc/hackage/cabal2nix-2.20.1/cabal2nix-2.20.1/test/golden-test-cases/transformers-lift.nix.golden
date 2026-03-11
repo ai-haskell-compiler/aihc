@@ -1,0 +1,11 @@
+{ mkDerivation, base, lib, transformers, writer-cps-transformers }:
+mkDerivation {
+  pname = "transformers-lift";
+  version = "0.2.0.1";
+  sha256 = "deadbeef";
+  libraryHaskellDepends = [
+    base transformers writer-cps-transformers
+  ];
+  description = "Ad-hoc type classes for lifting";
+  license = lib.licenses.bsd3;
+}

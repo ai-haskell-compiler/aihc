@@ -1,0 +1,67 @@
+{-# LANGUAGE CPP                #-}
+{-# LANGUAGE DeriveGeneric      #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# OPTIONS_GHC -Wno-orphans #-}
+
+{-|
+Module:      Instances.System.IO
+Copyright:   (C) 2014-2017 Ryan Scott
+License:     BSD-style (see the file LICENSE)
+Maintainer:  Ryan Scott
+Stability:   Provisional
+Portability: GHC
+
+'Arbitrary' instances for data types in the "System.IO" module.
+-}
+module Instances.System.IO () where
+
+import GHC.Generics (Generic)
+import GHC.IO.Encoding.Failure (CodingFailureMode(..))
+import GHC.IO.Encoding.Types (CodingProgress(..))
+import GHC.IO.Handle (HandlePosn(..))
+
+import Instances.Utils.GenericArbitrary (genericArbitrary)
+
+import Prelude ()
+import Prelude.Compat
+
+import System.IO (BufferMode(..), IOMode(..), SeekMode(..), Handle,
+                  stdin, stdout, stderr)
+
+import Test.QuickCheck (Arbitrary(..), arbitraryBoundedEnum, oneof)
+
+instance Arbitrary Handle where
+    arbitrary = oneof $ map pure [stdin, stdout, stderr]
+
+instance Arbitrary HandlePosn where
+    arbitrary = genericArbitrary
+
+deriving instance Bounded IOMode
+#if !MIN_VERSION_QuickCheck(2,17,0)
+instance Arbitrary IOMode where
+    arbitrary = arbitraryBoundedEnum
+#endif
+
+#if !MIN_VERSION_QuickCheck(2,17,0)
+instance Arbitrary BufferMode where
+    arbitrary = genericArbitrary
+#endif
+
+deriving instance Bounded SeekMode
+#if !MIN_VERSION_QuickCheck(2,17,0)
+instance Arbitrary SeekMode where
+    arbitrary = arbitraryBoundedEnum
+#endif
+
+deriving instance Bounded CodingProgress
+deriving instance Enum CodingProgress
+instance Arbitrary CodingProgress where
+    arbitrary = arbitraryBoundedEnum
+
+deriving instance Bounded CodingFailureMode
+deriving instance Enum CodingFailureMode
+instance Arbitrary CodingFailureMode where
+    arbitrary = arbitraryBoundedEnum
+
+deriving instance Generic HandlePosn
+deriving instance Generic BufferMode

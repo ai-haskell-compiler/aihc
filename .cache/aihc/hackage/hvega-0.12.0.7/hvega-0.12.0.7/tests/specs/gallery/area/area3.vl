@@ -1,0 +1,30 @@
+{
+    "$schema": "https://vega.github.io/schema/vega-lite/v4.json",
+    "data": {
+        "url": "https://vega.github.io/vega-lite/data/unemployment-across-industries.json"
+    },
+    "description": "Unemployment across industries as a stacked area chart.",
+    "encoding": {
+        "color": {
+            "field": "series",
+            "scale": {
+                "scheme": "category20b"
+            },
+            "type": "nominal"
+        },
+        "x": {
+            "axis": {
+                "format": "%Y"
+            },
+            "field": "date",
+            "timeUnit": "yearmonth",
+            "type": "temporal"
+        },
+        "y": {
+            "aggregate": "sum",
+            "field": "count",
+            "type": "quantitative"
+        }
+    },
+    "mark": "area"
+}

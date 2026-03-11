@@ -1,0 +1,142 @@
+--- parse tree ---
+[ Code
+    "typ/layout/stack-2-00.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/layout/stack-2-00.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/layout/stack-2-00.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Code
+    "typ/layout/stack-2-00.typ"
+    ( line 2 , column 2 )
+    (Set
+       (Ident (Identifier "page"))
+       [ KeyValArg (Identifier "height") (Literal (Numeric 3.5 Cm)) ])
+, SoftBreak
+, Code
+    "typ/layout/stack-2-00.typ"
+    ( line 3 , column 2 )
+    (FuncCall
+       (Ident (Identifier "stack"))
+       [ KeyValArg (Identifier "dir") (Ident (Identifier "ltr"))
+       , KeyValArg (Identifier "spacing") (Literal (Numeric 1.0 Fr))
+       , SpreadArg
+           (For
+              (BasicBind (Just (Identifier "c")))
+              (Literal (String "ABCDEFGHI"))
+              (Block
+                 (CodeBlock
+                    [ Array
+                        [ Reg
+                            (Block
+                               (Content
+                                  [ Code
+                                      "typ/layout/stack-2-00.typ"
+                                      ( line 6 , column 30 )
+                                      (Ident (Identifier "c"))
+                                  ]))
+                        ]
+                    ])))
+       ])
+, ParBreak
+, Text "Hello"
+, SoftBreak
+, Code
+    "typ/layout/stack-2-00.typ"
+    ( line 10 , column 2 )
+    (FuncCall
+       (Ident (Identifier "v")) [ NormalArg (Literal (Numeric 2.0 Fr)) ])
+, SoftBreak
+, Text "from"
+, Space
+, Code
+    "typ/layout/stack-2-00.typ"
+    ( line 11 , column 7 )
+    (FuncCall
+       (Ident (Identifier "h")) [ NormalArg (Literal (Numeric 1.0 Fr)) ])
+, Space
+, Text "the"
+, Space
+, Code
+    "typ/layout/stack-2-00.typ"
+    ( line 11 , column 19 )
+    (FuncCall
+       (Ident (Identifier "h")) [ NormalArg (Literal (Numeric 1.0 Fr)) ])
+, Space
+, Text "wonderful"
+, SoftBreak
+, Code
+    "typ/layout/stack-2-00.typ"
+    ( line 12 , column 2 )
+    (FuncCall
+       (Ident (Identifier "v")) [ NormalArg (Literal (Numeric 1.0 Fr)) ])
+, SoftBreak
+, Text "World!"
+, Space
+, Text "\127757"
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 text(body: [
+]), 
+                 stack(children: (text(body: [A]), 
+                                  text(body: [B]), 
+                                  text(body: [C]), 
+                                  text(body: [D]), 
+                                  text(body: [E]), 
+                                  text(body: [F]), 
+                                  text(body: [G]), 
+                                  text(body: [H]), 
+                                  text(body: [I])), 
+                       dir: ltr, 
+                       spacing: 1.0fr), 
+                 parbreak(), 
+                 text(body: [Hello
+]), 
+                 v(amount: 2.0fr), 
+                 text(body: [
+from ]), 
+                 h(amount: 1.0fr), 
+                 text(body: [ the ]), 
+                 h(amount: 1.0fr), 
+                 text(body: [ wonderful
+]), 
+                 v(amount: 1.0fr), 
+                 text(body: [
+World! 🌍]), 
+                 parbreak() })

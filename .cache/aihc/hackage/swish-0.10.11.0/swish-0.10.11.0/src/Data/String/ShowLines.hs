@@ -1,0 +1,73 @@
+--------------------------------------------------------------------------------
+--  See end of this file for licence information.
+--------------------------------------------------------------------------------
+-- |
+--  Module      :  ShowLines
+--  Copyright   :  (c) 2003, Graham Klyne, 2009 Vasili I Galchin, 2011, 2012 Douglas Burke
+--  License     :  GPL V2
+--
+--  Maintainer  :  Douglas Burke
+--  Stability   :  experimental
+--  Portability :  H98
+--
+--  This module defines an extension of the 'Show' class for displaying
+--  multi-line values.  It serves the following purposes:
+--
+--  (1) provides a method with greater layout control of multiline values,
+--
+--  (2) provides a possibility to override the default 'Show' behaviour
+--      for programs that use the extended 'ShowLines' interface, and
+--
+--  (3) uses a 'ShowS' intermediate value to avoid unnecessary
+--      concatenation of long strings.
+--
+--------------------------------------------------------------------------------
+
+module Data.String.ShowLines (ShowLines(..)) where
+
+-- |ShowLines is a type class for values that may be formatted in
+--  multi-line displays.
+class (Show sh) => ShowLines sh where
+    -- |Multi-line value display method
+    --
+    --  Create a multiline displayable form of a value, returned
+    --  as a 'ShowS' value.  The default implementation behaves just
+    --  like a normal instance of 'Show'.
+    --
+    --  This function is intended to allow the calling function some control
+    --  of multiline displays by providing:
+    --
+    --  (1) the first line of the value is not preceded by any text, so
+    --      it may be appended to some preceding text on the same line,
+    --
+    --  (2) the supplied line break string is used to separate lines of the
+    --      formatted text, and may include any desired indentation, and
+    --
+    --  (3) no newline is output following the final line of text.
+    showls :: String -> sh -> ShowS
+    showls _ = shows
+
+--------------------------------------------------------------------------------
+--
+--  Copyright (c) 2003, Graham Klyne, 2009 Vasili I Galchin,
+--    2011, 2012 Douglas Burke
+--  All rights reserved.
+--
+--  This file is part of Swish.
+--
+--  Swish is free software; you can redistribute it and/or modify
+--  it under the terms of the GNU General Public License as published by
+--  the Free Software Foundation; either version 2 of the License, or
+--  (at your option) any later version.
+--
+--  Swish is distributed in the hope that it will be useful,
+--  but WITHOUT ANY WARRANTY; without even the implied warranty of
+--  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+--  GNU General Public License for more details.
+--
+--  You should have received a copy of the GNU General Public License
+--  along with Swish; if not, write to:
+--    The Free Software Foundation, Inc.,
+--    59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+--
+--------------------------------------------------------------------------------

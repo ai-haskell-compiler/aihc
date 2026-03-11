@@ -1,0 +1,426 @@
+--- parse tree ---
+[ Code
+    "typ/math/attach-07.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/math/attach-07.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/math/attach-07.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Code
+    "typ/math/attach-07.typ"
+    ( line 2 , column 2 )
+    (Set
+       (Ident (Identifier "text"))
+       [ KeyValArg (Identifier "size") (Literal (Numeric 8.0 Pt)) ])
+, ParBreak
+, Comment
+, Equation
+    True
+    [ MAttach (Just (Text "1")) Nothing (Text "x")
+    , MAttach (Just (Text "1")) Nothing (Text "p")
+    , MAttach
+        (Just (Text "1"))
+        Nothing
+        (Code
+           "typ/math/attach-07.typ"
+           ( line 5 , column 11 )
+           (FuncCall (Ident (Identifier "frak")) [ BlockArg [ Text "p" ] ]))
+    , MAttach (Just (Text "1")) Nothing (Text "2")
+    , MAttach
+        (Just (Text "1"))
+        Nothing
+        (Code
+           "typ/math/attach-07.typ"
+           ( line 5 , column 25 )
+           (Ident (Identifier "dot")))
+    , MAttach
+        (Just (Text "1"))
+        Nothing
+        (Code
+           "typ/math/attach-07.typ"
+           ( line 5 , column 31 )
+           (Ident (Identifier "lg")))
+    , MAttach (Just (Text "1")) Nothing (Text "!")
+    , MAttach (Just (Text "1")) Nothing (Text "\\")
+    , MAttach (Just (Text "1")) Nothing (Text "]")
+    , MAttach (Just (Text "1")) Nothing (Text " ip")
+    , MAttach
+        (Just (Text "1"))
+        Nothing
+        (Code
+           "typ/math/attach-07.typ"
+           ( line 5 , column 56 )
+           (FuncCall (Ident (Identifier "op")) [ BlockArg [ Text "iq" ] ]))
+    , HardBreak
+    , MAttach Nothing (Just (Text "1")) (Text "x")
+    , MAttach Nothing (Just (Text "1")) (Text "b")
+    , MAttach
+        Nothing
+        (Just (Text "1"))
+        (Code
+           "typ/math/attach-07.typ"
+           ( line 6 , column 11 )
+           (FuncCall (Ident (Identifier "frak")) [ BlockArg [ Text "b" ] ]))
+    , MAttach Nothing (Just (Text "1")) (Text "2")
+    , MAttach
+        Nothing
+        (Just (Text "1"))
+        (Code
+           "typ/math/attach-07.typ"
+           ( line 6 , column 25 )
+           (Ident (Identifier "dot")))
+    , MAttach
+        Nothing
+        (Just (Text "1"))
+        (Code
+           "typ/math/attach-07.typ"
+           ( line 6 , column 31 )
+           (Ident (Identifier "lg")))
+    , MAttach Nothing (Just (Text "1")) (Text "!")
+    , MAttach Nothing (Just (Text "1")) (Text "\\")
+    , MAttach Nothing (Just (Text "1")) (Text "]")
+    , MAttach Nothing (Just (Text "1")) (Text " ib")
+    , MAttach
+        Nothing
+        (Just (Text "1"))
+        (Code
+           "typ/math/attach-07.typ"
+           ( line 6 , column 56 )
+           (FuncCall (Ident (Identifier "op")) [ BlockArg [ Text "id" ] ]))
+    , HardBreak
+    , MAttach (Just (Text "1")) Nothing (Text "x")
+    , MAttach (Just (Text "1")) Nothing (Text "y")
+    , MAttach (Just (Text "1")) Nothing (Text " _")
+    , MAttach Nothing (Just (Text "1")) (Text "x")
+    , MAttach Nothing (Just (Text "1")) (Text "l")
+    , MAttach Nothing (Just (Text "1")) (Text " `")
+    , Code
+        "typ/math/attach-07.typ"
+        ( line 7 , column 31 )
+        (FuncCall
+           (Ident (Identifier "attach"))
+           [ BlockArg [ Text "I" ]
+           , KeyValArg (Identifier "tl") (Block (Content [ Text "1" ]))
+           , KeyValArg (Identifier "bl") (Block (Content [ Text "1" ]))
+           , KeyValArg (Identifier "tr") (Block (Content [ Text "1" ]))
+           , KeyValArg (Identifier "br") (Block (Content [ Text "1" ]))
+           ])
+    , MAttach
+        (Just (Text "1"))
+        (Just (Text "1"))
+        (Code
+           "typ/math/attach-07.typ"
+           ( line 8 , column 3 )
+           (FuncCall
+              (Ident (Identifier "scripts"))
+              [ BlockArg
+                  [ Code
+                      "typ/math/attach-07.typ"
+                      ( line 8 , column 11 )
+                      (Ident (Identifier "sum"))
+                  ]
+              ]))
+    , MAttach
+        (Just (Text "1"))
+        (Just (Text "1"))
+        (Code
+           "typ/math/attach-07.typ"
+           ( line 8 , column 20 )
+           (Ident (Identifier "integral")))
+    , Text "|"
+    , MFrac (Text "1") (Text "2")
+    , MAttach (Just (Text "1")) (Just (Text "1")) (Text "|")
+    , HardBreak
+    , MAttach (Just (Text "1")) (Just (Text "1")) (Text "x")
+    , Text ","
+    , Text " ("
+    , Text "b"
+    , Text "y"
+    , MAttach (Just (Text "1")) (Just (Text "1")) (Text ")")
+    , Code
+        "typ/math/attach-07.typ"
+        ( line 9 , column 24 )
+        (FieldAccess (Ident (Identifier "not")) (Ident (Identifier "eq")))
+    , MAttach
+        (Just (Text "1"))
+        (Just (Text "1"))
+        (MGroup (Just "(") (Just ")") [ Text "b" , Text "y" ])
+    , Text ","
+    , MAttach (Just (Text "1")) Nothing (Text " [\8747]")
+    , MAttach
+        (Just (Text "1"))
+        Nothing
+        (MGroup
+           (Just "[")
+           (Just "]")
+           [ Code
+               "typ/math/attach-07.typ"
+               ( line 9 , column 47 )
+               (Ident (Identifier "integral"))
+           ])
+    ]
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 parbreak(), 
+                 math.equation(block: true, 
+                               body: { math.attach(b: text(body: [1], 
+                                                           size: 8.0pt), 
+                                                   base: text(body: [x], 
+                                                              size: 8.0pt), 
+                                                   t: none), 
+                                       math.attach(b: text(body: [1], 
+                                                           size: 8.0pt), 
+                                                   base: text(body: [p], 
+                                                              size: 8.0pt), 
+                                                   t: none), 
+                                       math.attach(b: text(body: [1], 
+                                                           size: 8.0pt), 
+                                                   base: math.frak(body: text(body: [p], 
+                                                                              size: 8.0pt)), 
+                                                   t: none), 
+                                       math.attach(b: text(body: [1], 
+                                                           size: 8.0pt), 
+                                                   base: text(body: [2], 
+                                                              size: 8.0pt), 
+                                                   t: none), 
+                                       math.attach(b: text(body: [1], 
+                                                           size: 8.0pt), 
+                                                   base: text(body: [⋅], 
+                                                              size: 8.0pt), 
+                                                   t: none), 
+                                       math.attach(b: text(body: [1], 
+                                                           size: 8.0pt), 
+                                                   base: math.op(limits: false, 
+                                                                 text: "lg"), 
+                                                   t: none), 
+                                       math.attach(b: text(body: [1], 
+                                                           size: 8.0pt), 
+                                                   base: text(body: [!], 
+                                                              size: 8.0pt), 
+                                                   t: none), 
+                                       math.attach(b: text(body: [1], 
+                                                           size: 8.0pt), 
+                                                   base: text(body: [\], 
+                                                              size: 8.0pt), 
+                                                   t: none), 
+                                       math.attach(b: text(body: [1], 
+                                                           size: 8.0pt), 
+                                                   base: text(body: []], 
+                                                              size: 8.0pt), 
+                                                   t: none), 
+                                       math.attach(b: text(body: [1], 
+                                                           size: 8.0pt), 
+                                                   base: text(body: [ ip], 
+                                                              size: 8.0pt), 
+                                                   t: none), 
+                                       math.attach(b: text(body: [1], 
+                                                           size: 8.0pt), 
+                                                   base: math.op(text: text(body: [iq], 
+                                                                            size: 8.0pt)), 
+                                                   t: none), 
+                                       linebreak(), 
+                                       math.attach(b: none, 
+                                                   base: text(body: [x], 
+                                                              size: 8.0pt), 
+                                                   t: text(body: [1], 
+                                                           size: 8.0pt)), 
+                                       math.attach(b: none, 
+                                                   base: text(body: [b], 
+                                                              size: 8.0pt), 
+                                                   t: text(body: [1], 
+                                                           size: 8.0pt)), 
+                                       math.attach(b: none, 
+                                                   base: math.frak(body: text(body: [b], 
+                                                                              size: 8.0pt)), 
+                                                   t: text(body: [1], 
+                                                           size: 8.0pt)), 
+                                       math.attach(b: none, 
+                                                   base: text(body: [2], 
+                                                              size: 8.0pt), 
+                                                   t: text(body: [1], 
+                                                           size: 8.0pt)), 
+                                       math.attach(b: none, 
+                                                   base: text(body: [⋅], 
+                                                              size: 8.0pt), 
+                                                   t: text(body: [1], 
+                                                           size: 8.0pt)), 
+                                       math.attach(b: none, 
+                                                   base: math.op(limits: false, 
+                                                                 text: "lg"), 
+                                                   t: text(body: [1], 
+                                                           size: 8.0pt)), 
+                                       math.attach(b: none, 
+                                                   base: text(body: [!], 
+                                                              size: 8.0pt), 
+                                                   t: text(body: [1], 
+                                                           size: 8.0pt)), 
+                                       math.attach(b: none, 
+                                                   base: text(body: [\], 
+                                                              size: 8.0pt), 
+                                                   t: text(body: [1], 
+                                                           size: 8.0pt)), 
+                                       math.attach(b: none, 
+                                                   base: text(body: []], 
+                                                              size: 8.0pt), 
+                                                   t: text(body: [1], 
+                                                           size: 8.0pt)), 
+                                       math.attach(b: none, 
+                                                   base: text(body: [ ib], 
+                                                              size: 8.0pt), 
+                                                   t: text(body: [1], 
+                                                           size: 8.0pt)), 
+                                       math.attach(b: none, 
+                                                   base: math.op(text: text(body: [id], 
+                                                                            size: 8.0pt)), 
+                                                   t: text(body: [1], 
+                                                           size: 8.0pt)), 
+                                       linebreak(), 
+                                       math.attach(b: text(body: [1], 
+                                                           size: 8.0pt), 
+                                                   base: text(body: [x], 
+                                                              size: 8.0pt), 
+                                                   t: none), 
+                                       math.attach(b: text(body: [1], 
+                                                           size: 8.0pt), 
+                                                   base: text(body: [y], 
+                                                              size: 8.0pt), 
+                                                   t: none), 
+                                       math.attach(b: text(body: [1], 
+                                                           size: 8.0pt), 
+                                                   base: text(body: [ _], 
+                                                              size: 8.0pt), 
+                                                   t: none), 
+                                       math.attach(b: none, 
+                                                   base: text(body: [x], 
+                                                              size: 8.0pt), 
+                                                   t: text(body: [1], 
+                                                           size: 8.0pt)), 
+                                       math.attach(b: none, 
+                                                   base: text(body: [l], 
+                                                              size: 8.0pt), 
+                                                   t: text(body: [1], 
+                                                           size: 8.0pt)), 
+                                       math.attach(b: none, 
+                                                   base: text(body: [ `], 
+                                                              size: 8.0pt), 
+                                                   t: text(body: [1], 
+                                                           size: 8.0pt)), 
+                                       math.attach(base: text(body: [I], 
+                                                              size: 8.0pt), 
+                                                   bl: text(body: [1], 
+                                                            size: 8.0pt), 
+                                                   br: text(body: [1], 
+                                                            size: 8.0pt), 
+                                                   tl: text(body: [1], 
+                                                            size: 8.0pt), 
+                                                   tr: text(body: [1], 
+                                                            size: 8.0pt)), 
+                                       math.attach(b: text(body: [1], 
+                                                           size: 8.0pt), 
+                                                   base: math.scripts(body: text(body: [∑], 
+                                                                                 size: 8.0pt)), 
+                                                   t: text(body: [1], 
+                                                           size: 8.0pt)), 
+                                       math.attach(b: text(body: [1], 
+                                                           size: 8.0pt), 
+                                                   base: text(body: [∫], 
+                                                              size: 8.0pt), 
+                                                   t: text(body: [1], 
+                                                           size: 8.0pt)), 
+                                       text(body: [|], 
+                                            size: 8.0pt), 
+                                       math.frac(denom: text(body: [2], 
+                                                             size: 8.0pt), 
+                                                 num: text(body: [1], 
+                                                           size: 8.0pt)), 
+                                       math.attach(b: text(body: [1], 
+                                                           size: 8.0pt), 
+                                                   base: text(body: [|], 
+                                                              size: 8.0pt), 
+                                                   t: text(body: [1], 
+                                                           size: 8.0pt)), 
+                                       linebreak(), 
+                                       math.attach(b: text(body: [1], 
+                                                           size: 8.0pt), 
+                                                   base: text(body: [x], 
+                                                              size: 8.0pt), 
+                                                   t: text(body: [1], 
+                                                           size: 8.0pt)), 
+                                       text(body: [,], 
+                                            size: 8.0pt), 
+                                       text(body: [ (], 
+                                            size: 8.0pt), 
+                                       text(body: [b], 
+                                            size: 8.0pt), 
+                                       text(body: [y], 
+                                            size: 8.0pt), 
+                                       math.attach(b: text(body: [1], 
+                                                           size: 8.0pt), 
+                                                   base: text(body: [)], 
+                                                              size: 8.0pt), 
+                                                   t: text(body: [1], 
+                                                           size: 8.0pt)), 
+                                       text(body: [≠], 
+                                            size: 8.0pt), 
+                                       math.attach(b: text(body: [1], 
+                                                           size: 8.0pt), 
+                                                   base: math.lr(body: ({ [(], 
+                                                                          text(body: [b], 
+                                                                               size: 8.0pt), 
+                                                                          text(body: [y], 
+                                                                               size: 8.0pt), 
+                                                                          [)] })), 
+                                                   t: text(body: [1], 
+                                                           size: 8.0pt)), 
+                                       text(body: [,], 
+                                            size: 8.0pt), 
+                                       math.attach(b: text(body: [1], 
+                                                           size: 8.0pt), 
+                                                   base: text(body: [ [∫]], 
+                                                              size: 8.0pt), 
+                                                   t: none), 
+                                       math.attach(b: text(body: [1], 
+                                                           size: 8.0pt), 
+                                                   base: math.lr(body: ({ [[], 
+                                                                          text(body: [∫], 
+                                                                               size: 8.0pt), 
+                                                                          []] })), 
+                                                   t: none) }, 
+                               numbering: none), 
+                 parbreak() })

@@ -1,0 +1,35 @@
+*** Failed! Falsifiable (after 4 tests):
+" "
+
+Generalization:
+' ':_
+
+Conditional Generalization:
+c:_  when  c <= ' '
+
+*** Failed! Falsifiable (after 4 tests):
+" "
+
+Generalization:
+' ':_
+
+Conditional Generalization:
+c:_  when  isSpace c
+
+*** Failed! Falsifiable (after 43 tests):
+"a  a"
+
+Conditional Generalization:
+c:' ':' ':c:""  when  not (isSpace c)
+
+*** Failed! Falsifiable (after 4 tests):
+" "
+
+Generalization:
+' ':_
+
+Conditional Generalization:
+cs  when  "  " `isInfixOf` cs
+
++++ OK, passed 500 tests.
+

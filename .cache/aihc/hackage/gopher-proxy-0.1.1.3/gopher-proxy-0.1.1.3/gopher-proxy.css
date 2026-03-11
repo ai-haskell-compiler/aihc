@@ -1,0 +1,24 @@
+body {
+  font-family: monospace;
+  font-size: 100%;
+  white-space: pre-wrap;
+}
+
+a:link, a:visited {
+  color: blue;
+}
+
+.error {
+  color: red;
+}
+
+ul {
+  padding:0;
+  margin:0;
+  list-style:none;
+}
+
+li {
+  line-height:1em;
+  min-height:1em;
+}

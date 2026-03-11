@@ -1,0 +1,14 @@
+{ mkDerivation, array, base, bytestring, containers, lib, microlens
+, transformers
+}:
+mkDerivation {
+  pname = "microlens-ghc";
+  version = "0.4.8.0";
+  sha256 = "deadbeef";
+  libraryHaskellDepends = [
+    array base bytestring containers microlens transformers
+  ];
+  homepage = "http://github.com/aelve/microlens";
+  description = "microlens + array, bytestring, containers, transformers";
+  license = lib.licenses.bsd3;
+}

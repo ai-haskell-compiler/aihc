@@ -1,0 +1,23 @@
+lentil, frugal issue tracker
+----------------------------
+
+A simple issure tracker for the rest of us who love to write TODO and
+FIXME comments.
+
+
+
+Manual, installation info can be found in:
+
+    ./doc/usr/
+
+or at:
+
+    http://www.ariis.it/static/articles/lentil/page.html
+
+
+For feedback or bug reports or issue requests contact me at:
+
+    http://ariis.it/static/articles/mail/page.html
+
+See CONTRIBUTING for build instructions.
+

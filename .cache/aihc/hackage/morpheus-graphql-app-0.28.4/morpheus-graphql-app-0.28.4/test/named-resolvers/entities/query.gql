@@ -1,0 +1,23 @@
+query {
+  entities {
+    ... on Realm {
+      __typename
+      name
+      owner {
+        name
+        power
+        realm {
+          name
+          owner {
+            name
+          }
+        }
+      }
+    }
+    ... on Deity {
+      __typename
+      name
+      power
+    }
+  }
+}

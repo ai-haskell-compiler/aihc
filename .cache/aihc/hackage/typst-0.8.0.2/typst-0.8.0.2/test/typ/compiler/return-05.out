@@ -1,0 +1,97 @@
+--- parse tree ---
+[ Code
+    "typ/compiler/return-05.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/compiler/return-05.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/compiler/return-05.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Comment
+, Code
+    "typ/compiler/return-05.typ"
+    ( line 3 , column 2 )
+    (Let (BasicBind (Just (Identifier "x"))) (Literal (Int 3)))
+, SoftBreak
+, Code
+    "typ/compiler/return-05.typ"
+    ( line 4 , column 2 )
+    (LetFunc
+       (Identifier "f")
+       []
+       (Block
+          (Content
+             [ SoftBreak
+             , Text "Hello"
+             , Space
+             , Text "\128512"
+             , SoftBreak
+             , Code
+                 "typ/compiler/return-05.typ"
+                 ( line 6 , column 4 )
+                 (Return (Just (Literal (String "nope"))))
+             , SoftBreak
+             , Text "World"
+             , ParBreak
+             ])))
+, ParBreak
+, Code
+    "typ/compiler/return-05.typ"
+    ( line 10 , column 2 )
+    (FuncCall
+       (Ident (Identifier "test"))
+       [ NormalArg (FuncCall (Ident (Identifier "f")) [])
+       , NormalArg (Literal (String "nope"))
+       ])
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 text(body: [
+]), 
+                 parbreak(), 
+                 text(body: [❌(]), 
+                 text(body: [{ text(body: [
+Hello 😀
+]), 
+  text(body: [nope]), 
+  text(body: [
+World]), 
+  parbreak() }]), 
+                 text(body: [ /= ]), 
+                 text(body: ["nope"]), 
+                 text(body: [)]), 
+                 parbreak() })

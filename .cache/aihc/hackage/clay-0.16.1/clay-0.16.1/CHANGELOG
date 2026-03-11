@@ -1,0 +1,163 @@
+CHANGELOG
+
+  0.16.1:
+    - Add support for overscroll-behaviour
+    Thanks to Sylvain Henry
+
+  0.16.0:
+    - Add grid size and location support.
+    - Derive `Stretch` for justified content
+    - Add `AspectRatio`
+    - Promote `not` to a type class
+    - Render CSS refinements
+    - Bugfixes & improved test suite
+    Thanks to Leonard Monnier, Yoo Chung, Skyfold, qwbarch, David Fox
+
+  0.15.0:
+    - Add `all` media type.
+    - Support `prefers-color-scheme` media feature.
+    - Use `matrix` rather than `matrix3d`
+    - Add media type `all`
+    - Add some relative units
+    - Add CSS properties related to hyphenation
+    - Use `Number` type instead of `Double` as an argument type in many places
+    - Fix rendering of `Number` type
+    Thanks to Yoo Chung, Charles Bayley and David Fox
+
+  0.14.0:
+    - Drop support for GHC 8.2
+    - Added `text-align-last`
+    - Fix typo in `stepsStart`
+    - Added clay-examples
+    - Fix `cubicBezier` and other issues
+    Thanks to Vasiliy Yorkin, Florian Grignon, Nick Saunders, David Fox, Ben Sima, Murakami Kennzo, Owen Shepherd, Anton Gushcha, Temur Saidkhodjaev, Rob Bassi, Alex Sayers, and further contributors.
+
+  0.13.3:
+    - Improve README
+    - Relax types for `sym2` and `sym3` combinators
+    - Add new cursors
+    Thanks to Sridhar Ratnakumar, Brad Ediger and Alexandre Esteves.
+
+  0.13.2:
+    - Bump hspec versions
+    Thanks to Julien Dehos and Sean Parsons.
+
+  0.13.1:
+    - 'Clay.Size': Add 'sticky: Position'.
+    - Adhere to Semigroup-Monoid-Hierarchy
+    - 'Clay.Transition': Add 'stepEnd: TimingFunction'
+    Thanks to Sean Parsons, Elliot Cameron, Simon Jakobi and Olivier Sohn.
+
+  0.13.0:
+    - Added commenting to append comment to a property.
+    - Comments are displayed by default in pretty but not compact mode.
+    - Rewrite boxShadow functionality with BoxShadow newtype for arguments.
+    - Added 'important' to append !important to values.
+    - Update eachLine and hanging to work as spec (for textIndent).
+    - Rename (internal) intersperse function to intercalate.
+    - Not pseudo takes selector.
+    Thanks to dbaynard and sebastiaanvisser.
+
+  0.10 -> 0.10.1
+    - Expose a render function for single selectors.
+    - Added super for vertical-align.
+    - Added support for border-collapse.
+    - Allow initial for the content property.
+    - Added support for CSS import.
+    Thanks to Heather, Collin J. Doering, Fraser Murray and Jonathan Fischoff.
+
+  0.9 -> 0.10
+    - Bumped up text requirement.
+    - Added cursor property.
+    - Added vertical-align property.
+    - Removed Abs constraint from Geometry functions.
+    - Added support for rem dimensions.
+    - Added support for ListStyle.
+    Thanks to Lorenzo Bolla, Fraser Murray, Heather and Sergey!
+
+  0.9 -> 0.9.0.1
+    - Fixed bug in easing properties.
+
+  0.8 -> 0.9
+    - Added list-style-type property.
+    - Added some CSS3 selectors and pseudo-classes.
+    - Added some missing HTML5 elements.
+    - Added keyframes support.
+    - Fixed bug in linear in transition.
+    - Added Initial and Unset type classes.
+    - Added animation related styling rules.
+    - Restored old renderer.
+    - Fixed bunch of warnings.
+    - Added :last-child pseudo selector.
+    - Stub test suite
+    Thanks to Sergei Trofimovich, Levi Ad, Ian D. Bollinger, Ben Gamari and Oly Mi!
+
+  0.8 -> 0.8.0.1
+    - Widened dependency on text.
+    Thanks to bgamari.
+
+  0.7 -> 0.8
+    - Print prettier doubles.
+    - Loosen type of sym functions.
+    - Added some missing multi-side properties.
+    - Added content URL support.
+    - Added inset box shadows.
+    Thanks Deck and James Fisher.
+
+  0.6 -> 0.7
+    - Stop printing banner in compact mode.
+    - Generic font family as datatype.
+    - Only drop final semicolon if doing compact printing.
+
+  0.5.1 -> 0.6
+    - Simplified implementation of size rendering.
+    - Implemented @font-face construct. By James Fisher.
+    - Make hsl(a) colors actually print percentage values.
+    - Changed the renderer to haul @font-face to the top level.
+
+  0.5 -> 0.5.1
+    - Fixed bug in fontFamily renderer.
+
+  0.4 -> 0.5
+    - Generalized the borderRadius function.
+    - Fixed some small issues in Dynamic.
+
+  0.3 -> 0.4
+    - Added dynamic presentation. (thanks to chrisdone)
+    - Float now has its own value, don't incorrectly share side. (thanks to chrisdone)
+    - Added nil size constructor.
+    - Slightly improved the gradient syntax.
+    - Expose the Propery module by default.
+    - Introduced shared 'all' value.
+
+  0.2 -> 0.3
+    - Fixed value grammar of radial gradients.
+    - Added mask related properties.
+    - Allow multiple box-shadows.
+    - Added filter property.
+    - Also render value prefix when both key and value are prefixed.
+
+  0.1.1 -> 0.2
+    - Rotate takes only one argument.
+    - Added opacity property.
+    - Print Clay banner in CSS comments by default.
+    - Fixed bug in font-family rendering (Firefox only).
+    - Added outline related properties.
+    - Fixed bug in monospace font family.
+
+  0.1 -> 0.1.1
+    - Fixed bug in visibility property.
+    Thanks to Conrad Indiono for the pull request.
+
+  0.0.1 -> 0.1
+
+    - Fixed bug in combined selector rendering.
+    - Fixed bug in font familty fallback category rendering.
+    - Added maxWidth and maxHeight.
+    - Fixed example code.
+    - Fixed overflowX/overflowY bug.
+    - Added some show instance for debugging purposes.
+    - Don't print the star (*) selector in the case of refinements.
+    - Refinements applied to the top level magically introduce star selector.
+    Thanks to listx, bergmark, Cynede, chrisdone, Primigenus, Sigrlami for the
+    pull requests and bug reports.

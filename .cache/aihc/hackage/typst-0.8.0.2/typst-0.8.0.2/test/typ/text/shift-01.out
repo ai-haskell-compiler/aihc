@@ -1,0 +1,92 @@
+--- parse tree ---
+[ Code
+    "typ/text/shift-01.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/text/shift-01.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/text/shift-01.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Code
+    "typ/text/shift-01.typ"
+    ( line 2 , column 2 )
+    (Set
+       (Ident (Identifier "super"))
+       [ KeyValArg (Identifier "typographic") (Literal (Boolean False))
+       , KeyValArg
+           (Identifier "baseline") (Negated (Literal (Numeric 0.25 Em)))
+       , KeyValArg (Identifier "size") (Literal (Numeric 0.7 Em))
+       ])
+, SoftBreak
+, Text "n"
+, Code
+    "typ/text/shift-01.typ"
+    ( line 3 , column 3 )
+    (FuncCall (Ident (Identifier "super")) [ BlockArg [ Text "1" ] ])
+, Text ","
+, Space
+, Text "n"
+, Code
+    "typ/text/shift-01.typ"
+    ( line 3 , column 15 )
+    (FuncCall (Ident (Identifier "sub")) [ BlockArg [ Text "2" ] ])
+, Text ","
+, Space
+, Ellipsis
+, Space
+, Text "n"
+, Code
+    "typ/text/shift-01.typ"
+    ( line 3 , column 29 )
+    (FuncCall (Ident (Identifier "super")) [ BlockArg [ Text "N" ] ])
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 text(body: [
+n]), 
+                 super(baseline: -0.25em, 
+                       body: text(body: [1]), 
+                       size: 0.7em, 
+                       typographic: false), 
+                 text(body: [, n]), 
+                 sub(body: text(body: [2])), 
+                 text(body: [, … n]), 
+                 super(baseline: -0.25em, 
+                       body: text(body: [N]), 
+                       size: 0.7em, 
+                       typographic: false), 
+                 parbreak() })

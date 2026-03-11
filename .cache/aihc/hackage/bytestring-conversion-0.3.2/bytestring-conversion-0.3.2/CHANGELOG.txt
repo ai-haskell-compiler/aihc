@@ -1,0 +1,7 @@
+0.3.2
+------
+- GHC and `bytestring` version compatibility updates.
+
+0.3.1
+------
+- Use `blaze-textual` on Windows instead of `double-conversion`

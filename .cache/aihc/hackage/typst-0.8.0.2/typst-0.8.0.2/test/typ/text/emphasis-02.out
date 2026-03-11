@@ -1,0 +1,91 @@
+--- parse tree ---
+[ Code
+    "typ/text/emphasis-02.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/text/emphasis-02.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/text/emphasis-02.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Comment
+, Text "Normal"
+, ParBreak
+, Code
+    "typ/text/emphasis-02.typ"
+    ( line 5 , column 2 )
+    (Set
+       (Ident (Identifier "strong"))
+       [ KeyValArg (Identifier "delta") (Literal (Int 300)) ])
+, SoftBreak
+, Strong [ Text "Bold" ]
+, ParBreak
+, Code
+    "typ/text/emphasis-02.typ"
+    ( line 8 , column 2 )
+    (Set
+       (Ident (Identifier "strong"))
+       [ KeyValArg (Identifier "delta") (Literal (Int 150)) ])
+, SoftBreak
+, Strong [ Text "Medium" ]
+, Space
+, Text "and"
+, Space
+, Strong
+    [ Code
+        "typ/text/emphasis-02.typ"
+        ( line 9 , column 16 )
+        (Block (Content [ Strong [ Text "Bold" ] ]))
+    ]
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 text(body: [Normal]), 
+                 parbreak(), 
+                 text(body: [
+]), 
+                 strong(body: text(body: [Bold]), 
+                        delta: 300), 
+                 parbreak(), 
+                 text(body: [
+]), 
+                 strong(body: text(body: [Medium]), 
+                        delta: 150), 
+                 text(body: [ and ]), 
+                 strong(body: strong(body: text(body: [Bold]), 
+                                     delta: 150), 
+                        delta: 150), 
+                 parbreak() })

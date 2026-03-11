@@ -1,0 +1,17 @@
+<h3>
+  <a href="@{AddRsyncNetR}">
+    <span .glyphicon .glyphicon-plus-sign>
+    \ Rsync.net
+<p>
+  Works very well with git-annex for data storage.
+  <br>
+  Offers a discounted rate for git-annex users.
+
+<h3>
+  <a href="@{AddS3R}">
+    <span .glyphicon .glyphicon-plus-sign>
+    \ Amazon S3
+<p>
+  Good choice for professional quality storage.
+
+^{makeSshRepository}

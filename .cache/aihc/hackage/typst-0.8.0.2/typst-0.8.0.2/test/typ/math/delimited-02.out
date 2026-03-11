@@ -1,0 +1,146 @@
+--- parse tree ---
+[ Code
+    "typ/math/delimited-02.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/math/delimited-02.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/math/delimited-02.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Comment
+, Equation
+    True
+    [ Code
+        "typ/math/delimited-02.typ"
+        ( line 3 , column 3 )
+        (FieldAccess
+           (Ident (Identifier "l"))
+           (FieldAccess
+              (Ident (Identifier "double")) (Ident (Identifier "bracket"))))
+    , MFrac (Text "a") (Text "b")
+    , Code
+        "typ/math/delimited-02.typ"
+        ( line 3 , column 8 )
+        (FieldAccess
+           (Ident (Identifier "r"))
+           (FieldAccess
+              (Ident (Identifier "double")) (Ident (Identifier "bracket"))))
+    , Code
+        "typ/math/delimited-02.typ"
+        ( line 3 , column 11 )
+        (FieldAccess (Ident (Identifier "not")) (Ident (Identifier "eq")))
+    , Code
+        "typ/math/delimited-02.typ"
+        ( line 3 , column 14 )
+        (FuncCall
+           (Ident (Identifier "lr"))
+           [ BlockArg
+               [ Code
+                   "typ/math/delimited-02.typ"
+                   ( line 3 , column 17 )
+                   (FieldAccess
+                      (Ident (Identifier "r"))
+                      (FieldAccess
+                         (Ident (Identifier "double")) (Ident (Identifier "bracket"))))
+               , MFrac (Text "a") (Text "b")
+               , Code
+                   "typ/math/delimited-02.typ"
+                   ( line 3 , column 22 )
+                   (FieldAccess
+                      (Ident (Identifier "r"))
+                      (FieldAccess
+                         (Ident (Identifier "double")) (Ident (Identifier "bracket"))))
+               ]
+           ])
+    , Code
+        "typ/math/delimited-02.typ"
+        ( line 3 , column 26 )
+        (FieldAccess (Ident (Identifier "not")) (Ident (Identifier "eq")))
+    , MGroup
+        (Just "[") Nothing [ MFrac (Text "a") (Text "b") , Text ")" ]
+    ]
+, SoftBreak
+, Equation
+    True
+    [ Code
+        "typ/math/delimited-02.typ"
+        ( line 4 , column 3 )
+        (FuncCall
+           (Ident (Identifier "lr"))
+           [ BlockArg [ Text "|" , Text "]" , Text "1" ]
+           , BlockArg
+               [ Text "2"
+               , Text "["
+               , Text "+"
+               , MFrac (Text "1") (Text "2")
+               , Text "|"
+               ]
+           ])
+    ]
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 math.equation(block: true, 
+                               body: { text(body: [⟦]), 
+                                       math.frac(denom: text(body: [b]), 
+                                                 num: text(body: [a])), 
+                                       text(body: [⟧]), 
+                                       text(body: [≠]), 
+                                       math.lr(body: ({ text(body: [⟧]), 
+                                                        math.frac(denom: text(body: [b]), 
+                                                                  num: text(body: [a])), 
+                                                        text(body: [⟧]) })), 
+                                       text(body: [≠]), 
+                                       text(body: [[]), 
+                                       math.frac(denom: text(body: [b]), 
+                                                 num: text(body: [a])), 
+                                       text(body: [)]) }, 
+                               numbering: none), 
+                 text(body: [
+]), 
+                 math.equation(block: true, 
+                               body: math.lr(body: ({ text(body: [|]), 
+                                                      text(body: []]), 
+                                                      text(body: [1]) }, 
+                                                    { text(body: [2]), 
+                                                      text(body: [[]), 
+                                                      text(body: [+]), 
+                                                      math.frac(denom: text(body: [2]), 
+                                                                num: text(body: [1])), 
+                                                      text(body: [|]) })), 
+                               numbering: none), 
+                 parbreak() })

@@ -1,0 +1,39 @@
+Name:                boolsimplifier
+Version:             0.1.8
+Synopsis:            Simplification tools for simple propositional formulas.
+
+Description:         Normal form representation for boolean expressions. Typically simplifies such expressions, but is not guaranteed to produce the absolute simplest form.
+
+License:             BSD3
+License-file:        LICENSE
+Author:              Gershom Bazerman, Jeff Polakow
+Maintainer:          gershomb@gmail.com
+
+Copyright:           Gershom Bazerman, Jeff Polakow 2011
+
+Category:            Math, Language
+
+Build-type:          Simple
+
+-- Constraint on the version of Cabal needed to build this package.
+Cabal-version:       >=1.6
+
+
+Library
+  -- Modules exported by the library.
+  Exposed-modules:     Data.BoolSimplifier
+
+  -- Packages needed in order to build this package.
+  Build-depends: base >= 4, base < 7, containers >= 0.4
+
+  ghc-options: -Wall
+
+  -- Modules not exported by this package.
+  -- Other-modules:
+
+  -- Extra tools (e.g. alex, hsc2hs, ...) needed to build the source.
+  -- Build-tools:
+
+source-repository head
+  type:      darcs
+  location:  http://hub.darcs.net/gershomb/boolsimplifier

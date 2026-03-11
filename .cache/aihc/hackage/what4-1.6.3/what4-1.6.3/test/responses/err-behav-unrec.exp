@@ -1,0 +1,4 @@
+Left Unrecognized response from solver:
+  bad :error-behavior value
+in response to command:
+  (get-info :error-behavior)

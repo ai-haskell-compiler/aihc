@@ -1,0 +1,100 @@
+--- parse tree ---
+[ Code
+    "typ/layout/terms-01.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/layout/terms-01.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/layout/terms-01.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Comment
+, Code
+    "typ/layout/terms-01.typ"
+    ( line 3 , column 2 )
+    (For
+       (BasicBind (Just (Identifier "word")))
+       (FuncCall
+          (FieldAccess
+             (Ident (Identifier "map"))
+             (FuncCall
+                (FieldAccess
+                   (Ident (Identifier "split"))
+                   (FuncCall
+                      (Ident (Identifier "lorem")) [ NormalArg (Literal (Int 4)) ]))
+                []))
+          [ NormalArg
+              (FuncExpr
+                 [ NormalParam (Identifier "s") ]
+                 (FuncCall
+                    (FieldAccess (Ident (Identifier "trim")) (Ident (Identifier "s")))
+                    [ NormalArg (Literal (String ".")) ]))
+          ])
+       (Block
+          (Content
+             [ SoftBreak
+             , DescListItem
+                 [ Code
+                     "typ/layout/terms-01.typ"
+                     ( line 4 , column 6 )
+                     (Ident (Identifier "word"))
+                 ]
+                 [ Text "Latin" , Space , Text "stuff" , Text "." , ParBreak ]
+             ])))
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 text(body: [
+]), 
+                 terms(children: ((text(body: [Lorem]), 
+                                   { text(body: [Latin stuff.]), 
+                                     parbreak() }))), 
+                 text(body: [
+]), 
+                 terms(children: ((text(body: [ipsum]), 
+                                   { text(body: [Latin stuff.]), 
+                                     parbreak() }))), 
+                 text(body: [
+]), 
+                 terms(children: ((text(body: [dolor]), 
+                                   { text(body: [Latin stuff.]), 
+                                     parbreak() }))), 
+                 text(body: [
+]), 
+                 terms(children: ((text(body: [sit]), 
+                                   { text(body: [Latin stuff.]), 
+                                     parbreak() }))), 
+                 parbreak() })

@@ -1,0 +1,76 @@
+{
+    "$schema": "https://vega.github.io/schema/vega-lite/v4.json",
+    "data": {
+        "values": [
+            {
+                "x": 5,
+                "y": 5
+            }
+        ]
+    },
+    "layer": [
+        {
+            "encoding": {
+                "url": {
+                    "value": "https://gicentre.github.io/data/images/LillyTarn.jpg"
+                },
+                "x": {
+                    "field": "x",
+                    "scale": {
+                        "domain": [
+                            0,
+                            10
+                        ]
+                    },
+                    "type": "quantitative"
+                },
+                "y": {
+                    "field": "y",
+                    "scale": {
+                        "domain": [
+                            0,
+                            10
+                        ]
+                    },
+                    "type": "quantitative"
+                }
+            },
+            "mark": {
+                "align": "left",
+                "height": 61,
+                "type": "image",
+                "width": 100
+            }
+        },
+        {
+            "encoding": {
+                "x": {
+                    "field": "x",
+                    "scale": {
+                        "domain": [
+                            0,
+                            10
+                        ]
+                    },
+                    "type": "quantitative"
+                },
+                "y": {
+                    "field": "y",
+                    "scale": {
+                        "domain": [
+                            0,
+                            10
+                        ]
+                    },
+                    "type": "quantitative"
+                }
+            },
+            "mark": {
+                "color": "red",
+                "opacity": 0.5,
+                "size": 100,
+                "type": "circle"
+            }
+        }
+    ]
+}

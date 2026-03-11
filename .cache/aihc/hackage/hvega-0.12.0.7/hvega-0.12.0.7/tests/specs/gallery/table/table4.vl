@@ -1,0 +1,25 @@
+{
+    "$schema": "https://vega.github.io/schema/vega-lite/v4.json",
+    "data": {
+        "url": "https://vega.github.io/vega-lite/data/github.csv"
+    },
+    "description": "Table bubble plot in the style of a Github punched card.",
+    "encoding": {
+        "size": {
+            "aggregate": "sum",
+            "field": "count",
+            "type": "quantitative"
+        },
+        "x": {
+            "field": "time",
+            "timeUnit": "hours",
+            "type": "ordinal"
+        },
+        "y": {
+            "field": "time",
+            "timeUnit": "day",
+            "type": "ordinal"
+        }
+    },
+    "mark": "circle"
+}

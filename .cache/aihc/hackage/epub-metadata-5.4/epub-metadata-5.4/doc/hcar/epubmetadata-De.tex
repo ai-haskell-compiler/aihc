@@ -1,0 +1,29 @@
+% epubmetadata-De.tex
+\begin{hcarentry}{epub-metadata}
+\label{epub-metadata}
+\report{Dino Morelli}%11/13
+\status{experimental, actively developed}
+\makeheader
+
+Library for parsing and manipulating epub OPF package data. Now with epub3 support.
+
+\begin{itemize}
+\item Added support for epub3 documents. This was done using a single set of datatypes, not specific to either epub2 or epub3.
+\item Redesigned the book file querying API to be an edsl. Actions are to be combined together based on what the developer needs from the document.
+\item Data structures to contain epub metadata ``sections'' were redesigned to no longer be nested. Part of this change includes a typeclass-based pretty-print API for displaying this data.
+\item Documentation rewrites and additions, including a working code example in the API docs.
+\end{itemize}
+
+epub-metadata is available from Hackage and the Darcs repository below.
+
+See also epub-tools \cref{epubtools}.
+
+\FurtherReading
+\begin{compactitem}
+\item Project page:
+\url{http://ui3.info/d/proj/epub-metadata.html}
+
+\item Source repository:
+\texttt{darcs get} \url{http://ui3.info/darcs/epub-metadata}
+\end{compactitem}
+\end{hcarentry}

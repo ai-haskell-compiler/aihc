@@ -1,0 +1,17 @@
+Poor man's Template Haskell -
+Here are Regular expression for replacement in NEdit:
+Write data declaration like
+
+data T =
+   Cons {
+      fieldA_ :: String,
+      fieldB_ :: Int
+   }
+
+Copy the body of the 'data' declaration to where you want to define accessors.
+Remove comments at the end of each field.
+Use the first line as the pattern to find
+and the second line for the pattern to replace by.
+
+^\s*(\w+)_( *):: (.+?),?\n
+\1 :: Accessor.T T \3\n\1 =\n   Accessor.fromSetGet (\\x c -> c{\1_ = x}) \1_\n\n

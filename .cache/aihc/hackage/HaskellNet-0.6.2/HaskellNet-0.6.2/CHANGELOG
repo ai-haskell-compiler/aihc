@@ -1,0 +1,195 @@
+0.7 (2025-06-08)
+  - updated to the lastest GHC, tested with 8.10.7 — 9.12.2 (PR #103)
+    Thanks to @thomasjm
+  - various improvements in IMAP protocol (#94, #97, #99)
+    Thanks to @mpscholten
+
+0.6.1.0 (2023-06-27)
+  - fixed bug with wrong IMAP header decoding ([Issue 89](https://github.com/qnikst/HaskellNet/issues/89))
+    Thanks to William Arteroi (@wwmoraes) and Nathan Collins (@ntc2)
+  - added support for OAuth2 authorization
+    Thanks to @paumr.
+
+0.6.0.1 (2022-05-17)
+  - GHC 9.0+ support
+
+0.6 (2020-12-27)
+----------------
+  - sendMail API was simplified (see Updating.md for details)
+  - Functions for graceful close were introduced.
+  - Use Text type instead of String internally.
+  - Use mime-mail.Address type instead of String for representing
+    addresses. (Issues #78, #59)
+  - Introduce SMTP exceptions family and move to using that
+    from fail method.
+  - Fixes possible double handle close in case of exceptions (Issue #76)
+  - SMTP: Fix issue with extra flushes. Now there are twice
+    as few messages during communication and that largely improves
+    communication speed.
+  - Module HaskellNet.SMTP.Internal was introduced. It contains
+    internal functions that may be useful when implementing primitives.
+    There is no API stability guarantees on the module.
+  - SMTP documentation largely improved
+  - Package moved from base64-string to base64 package (Issue #61)
+
+0.5.3 (2020-12-22)
+------------------
+
+  - Allow 0 spaces or more than 1 space in separator (thanks Daniel Smith <danielspencersmith@gmail.com>)
+  - Use cryptohash-md5 instead of cryptohash (thanks to amesgen <amesgen@amesgen.de>)
+  - Fix long passwords encoding (thanks to Victor Nawothnig <Victor.Nawothnig@gmail.com>)
+
+0.5.2 (2020-03-19)
+------------------
+
+ - Improved Monad failure messages from sendCommmand (thanks Scott
+   Fleischman)
+ - Fixed IMAP append (thanks Keijo Kapp)
+ - Added support for GHC 8.8.1 (thanks Oleg Grenrus)
+ - Added support for network-3 (thanks Oleg Grenrus)
+ - Increased upper bound on mime-mail to include 0.5 (thanks Marek
+   Suchánek)
+ - Improved failure message for AUTH failures (thanks Tom McLaughlin)
+ - Avoided unsafe use of unsafe bytestring length functions in
+   getResponse (thanks Javran Cheng)
+ - Added support for UNSEEN in STATUS commands (thanks Dominik Xaver
+   Hörl)
+
+0.5.1 (2016-05-05)
+------------------
+
+ - SMTP: Strip carriage returns from the on lines before sending
+
+0.5 (2015-11-5)
+---------------
+
+ - No longer render Bcc field when rendering messages (thanks Dan Aloni
+   <alonid@gmail.com>)
+ - Implemented IDLE command (thanks Alexander Inyukhin
+   <shurick@sectorb.msk.ru>)
+ - Added stream wait function (bsWaitForInput field of type BSStream)
+   (thanks Alexander Inyukhin <shurick@sectorb.msk.ru>)
+ - SMTP: RCPT also includes Cc and Bcc lists rather than just To list
+   (thanks Author: Dan Aloni <alonid@gmail.com>)
+
+0.4.4 -> 0.4.5 (2015-06-18)
+---------------------------
+
+ - IMAP: select command must quote the mailbox name
+   (see https://github.com/jtdaugherty/HaskellNet/issues/35)
+
+0.4.3 -> 0.4.4 (2015-04-11)
+---------------------------
+
+ - Fix a bug in IMAP Parser for listing Mboxes
+   (see https://github.com/jtdaugherty/HaskellNet/issues/34)
+ - Protocols modules re-exports AuthType
+   (see https://github.com/dpwright/HaskellNet-SSL/issues/10)
+
+0.4.2 -> 0.4.3 (2015-04-06)
+---------------------------
+
+ - Parser for IMAP LIST to return mailbox names unquoted
+   (see https://github.com/jtdaugherty/HaskellNet/issues/34)
+ - Update to build with GHC 7.10.1
+
+0.4.1 -> 0.4.2
+--------------
+
+ - Add sendMimeMail' to send mime mails with in-memory attachments
+
+0.4 -> 0.4.1
+------------
+
+ - login function for IMAP must escape the password
+   Due to the possibility of the password contain special characters
+   (See https://github.com/jtdaugherty/HaskellNet/issues/31)
+ - Improved documentation for SMTP
+ - Merge pull request #29 from lemol/master:
+   Update on SMTP example
+ - Merge pull request #26 from lemol/master:
+   * Fix a bug when parsing the response of fetch in IMAP
+     (See https://github.com/jtdaugherty/HaskellNet/issues/27)
+   * Add a function for sending plain text email
+ - Merge pull request #25 from lemol/master:
+   Add a function for authentication in SMTP
+ - Merge pull request #24 from lemol/master:
+   Bug fix on PLAIN authentication encode
+
+0.3 -> 0.4
+----------
+
+ - Merge pull request #22 from dpwright/parse-fix:
+   Fix parser error when passing parameters to FETCH
+   (See http://stackoverflow.com/questions/26183675/error-when-fetching-subject-from-email-using-haskellnets-imap)
+ - Merge pull request #20 from vincenthz/master:
+   Replace Crypto by the much faster cryptohash
+ - Merge pull request #19 from fegu/patch-1
+   remove closeSMTP at end of sendMimeMail
+   (sendMail and sendMimeMail should have the same behaviour towards the
+   connection given to the function. In addition, Office365 causes the
+   closeSMTP of sendMimeMail to raise an exception of already closed. Thus,
+   removed.)
+ - Merge pull request #18 from michaelbeaumont/issue17
+   Stopped the POP3 module from removing whitespace before response lines
+   except for the initial line with the POP3 status. Retrieved messages can now
+   be correctly parsed.
+ - Merge pull request #16 from fegu/master
+   Fix store command to enable Office365 support (Adding a space between UID
+   and flags in STORE command. This should have been there all the time, but
+   while some IMAP servers (notably Gmail) accepts that it is missing, others
+   (notably Office365) requires it.)
+ - Merge pull request #10 from ppetr/master
+   Improve `tryCommand` so that it includes the failed server response.
+ - Improve a bad piece of code in `sendMail`.
+   It used pattern matching and then catching the exception using `handle`,
+   which is very non-idiomatic and error prone. Also the code seemed to catch
+   the failure only to rethrow it.
+ - Merge pull request #8 from ppetr/master
+   Upgrade to mime-mail >= 0.4.
+ - Merge pull request #5 from sordina/master
+   Adding show constraint to show6 in Network/HaskellNet/IMAP.hs for
+   compatibility with GHC 7.4.1
+ - Merge pull request #4 from nh2/ghc-7.2
+   Fix compilation with GHC 7.0 and 7.2 (fixes Char and List imports)
+
+0.2.5 -> 0.3
+------------
+
+Package changes:
+ * Constrained dependency on mime-mail to avoid API-breaking changes
+   in 0.4
+ * Removed unused dependencies on parsec, time, containers, and
+   old-locale
+ * Removed unused modules:
+   - Data.Record
+   - Text.URI
+   - Text.MIME
+   - Atom test module
+   - Moved stream debugging module from test/ to
+     Network.HaskellNet.Debug
+ * Moved modules into src/
+
+Other changes:
+ * Got rid of stale module portability / maintainer / stability
+   annotations in source; moved copyright annotation into Cabal file
+ * Removed some stale compiler pragmas
+ * Resolved compiler warnings in all modules
+ * Moved to using <$> more
+ * Removed a lot of stale commented-out code
+ * Shortened a lot of long lines
+
+API changes:
+ * Split up IMAP module into
+   Network.HaskellNet.IMAP (core functionality)
+   Network.HaskellNet.Types (data types)
+   Network.HaskellNet.Connection (IMAP connection functions)
+ * Moved Text.IMAPParsers to Network.HaskellNet.Parsers
+ * Renamed IMAP 'Mailbox' type to 'MailboxName'
+ * Split up POP3 module into
+   Network.HaskellNet.POP3 (core functionality)
+   Network.HaskellNet.Types (data types)
+   Network.HaskellNet.Connection (POP connection functions)
+ * IMAP.Parsers:
+   - removed unused Either handling functions
+   - constraind exports (originally exported everything)commit 682edece1bf5fb5923ea5bd04309819c630ff33d

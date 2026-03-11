@@ -1,0 +1,10 @@
+CHANGELOG
+
+1.1.1.1
+  - Documentation
+
+1.1.1
+  - Added TH to generate standalone deriving clauses
+
+1.0
+  - Extracted generic-constraints from Sjoerd Visscher's & Xia Li-yao's one-liner library, as advised by Sjoerd

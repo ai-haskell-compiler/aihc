@@ -1,0 +1,108 @@
+--- parse tree ---
+[ Code
+    "typ/bugs/place-base-00.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/bugs/place-base-00.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/bugs/place-base-00.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Code
+    "typ/bugs/place-base-00.typ"
+    ( line 2 , column 2 )
+    (Set
+       (Ident (Identifier "page"))
+       [ KeyValArg (Identifier "height") (Literal (Numeric 80.0 Pt))
+       , KeyValArg (Identifier "margin") (Literal (Numeric 0.0 Pt))
+       ])
+, SoftBreak
+, Code
+    "typ/bugs/place-base-00.typ"
+    ( line 3 , column 2 )
+    (FuncCall
+       (Ident (Identifier "place"))
+       [ NormalArg (Ident (Identifier "right"))
+       , KeyValArg
+           (Identifier "dx") (Negated (Literal (Numeric 70.0 Percent)))
+       , KeyValArg (Identifier "dy") (Literal (Numeric 20.0 Percent))
+       , NormalArg (Block (Content [ Text "First" ]))
+       ])
+, SoftBreak
+, Code
+    "typ/bugs/place-base-00.typ"
+    ( line 4 , column 2 )
+    (FuncCall
+       (Ident (Identifier "place"))
+       [ NormalArg (Ident (Identifier "left"))
+       , KeyValArg (Identifier "dx") (Literal (Numeric 20.0 Percent))
+       , KeyValArg (Identifier "dy") (Literal (Numeric 60.0 Percent))
+       , NormalArg (Block (Content [ Text "Second" ]))
+       ])
+, SoftBreak
+, Code
+    "typ/bugs/place-base-00.typ"
+    ( line 5 , column 2 )
+    (FuncCall
+       (Ident (Identifier "place"))
+       [ NormalArg
+           (Plus (Ident (Identifier "center")) (Ident (Identifier "horizon")))
+       , KeyValArg (Identifier "dx") (Literal (Numeric 25.0 Percent))
+       , KeyValArg (Identifier "dy") (Literal (Numeric 25.0 Percent))
+       , NormalArg (Block (Content [ Text "Third" ]))
+       ])
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 text(body: [
+]), 
+                 place(alignment: right, 
+                       body: text(body: [First]), 
+                       dx: -70%, 
+                       dy: 20%), 
+                 text(body: [
+]), 
+                 place(alignment: left, 
+                       body: text(body: [Second]), 
+                       dx: 20%, 
+                       dy: 60%), 
+                 text(body: [
+]), 
+                 place(alignment: Axes(center, horizon), 
+                       body: text(body: [Third]), 
+                       dx: 25%, 
+                       dy: 25%), 
+                 parbreak() })

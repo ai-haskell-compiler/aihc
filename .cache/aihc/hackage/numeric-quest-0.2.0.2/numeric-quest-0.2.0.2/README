@@ -1,0 +1,8 @@
+http://web.archive.org/web/20010520121707/www.numeric-quest.com/haskell/
+
+The Literate Haskell files are actually HTML files.
+To make your browser happy, you can start 'make html'
+in order to make links *.html links to *.lhs files.
+
+Haskell-Cafe 08 Dec 2007 on "Literate HTML":
+   ghc --make -x lhs index.html

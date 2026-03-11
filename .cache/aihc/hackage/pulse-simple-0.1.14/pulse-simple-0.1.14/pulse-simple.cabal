@@ -1,0 +1,22 @@
+Name:            pulse-simple
+Cabal-Version:   >=1.2
+Version:         0.1.14
+Author:          Daiki Handa
+Maintainer:      xanxys@gmail.com
+Synopsis:        binding to Simple API of pulseaudio
+Build-Type:      Simple
+License:         BSD3
+License-File:    LICENSE
+Category:        Sound
+Description:
+  Binding to simple version of client API for the pulseaudio soundserver.
+  Although it does not provide advanced features and some not-so-adavanced features like
+  volume control, it should be enough for simple applications.
+  Confirmed to work on linux(32 bit and 64 bit) with ghc 6.8, 6.10, 7.0.4.
+
+Library
+    Extensions: ForeignFunctionInterface
+    Extra-Libraries: pulse-simple
+    Build-depends:   base>=3 && <5, bytestring
+    Exposed-Modules: Sound.Pulse.Simple
+

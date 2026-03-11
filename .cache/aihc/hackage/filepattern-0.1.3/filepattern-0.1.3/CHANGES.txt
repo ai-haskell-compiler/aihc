@@ -1,0 +1,14 @@
+Changelog for filepattern
+
+0.1.3, released 2022-08-21
+    #5, remove invalid optimisation in the presence of symlinks
+0.1.2, released 2020-02-26
+    Optimise matchMany for empty lists
+    Remove support for GHC 7.4 to 7.8
+    Make Directory module reexport FilePattern
+0.1.1, released 2019-02-12
+    Switch to https://github.com/ndmitchell/filepattern
+0.1, released 2019-02-12
+    Substantial (almost total) rewrite
+    Remove // patterns
+    Split from shake-0.16

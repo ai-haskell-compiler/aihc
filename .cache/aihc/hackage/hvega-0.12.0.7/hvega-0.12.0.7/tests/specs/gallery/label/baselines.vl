@@ -1,0 +1,286 @@
+{
+    "$schema": "https://vega.github.io/schema/vega-lite/v4.json",
+    "columns": 2,
+    "concat": [
+        {
+            "encoding": {
+                "text": {
+                    "value": [
+                        "Xxgq",
+                        "qTpP"
+                    ]
+                },
+                "x": {
+                    "axis": {
+                        "title": null
+                    },
+                    "field": "x",
+                    "scale": {
+                        "domain": [
+                            -10,
+                            40
+                        ],
+                        "nice": false
+                    },
+                    "type": "quantitative"
+                },
+                "y": {
+                    "axis": {
+                        "title": null
+                    },
+                    "field": "y",
+                    "scale": {
+                        "domain": [
+                            -10,
+                            40
+                        ],
+                        "nice": false
+                    },
+                    "type": "quantitative"
+                }
+            },
+            "mark": {
+                "baseline": "top",
+                "type": "text"
+            },
+            "title": "top"
+        },
+        {
+            "encoding": {
+                "text": {
+                    "value": [
+                        "Xxgq",
+                        "qTpP"
+                    ]
+                },
+                "x": {
+                    "axis": {
+                        "title": null
+                    },
+                    "field": "x",
+                    "scale": {
+                        "domain": [
+                            -10,
+                            40
+                        ],
+                        "nice": false
+                    },
+                    "type": "quantitative"
+                },
+                "y": {
+                    "axis": {
+                        "title": null
+                    },
+                    "field": "y",
+                    "scale": {
+                        "domain": [
+                            -10,
+                            40
+                        ],
+                        "nice": false
+                    },
+                    "type": "quantitative"
+                }
+            },
+            "mark": {
+                "baseline": "line-top",
+                "type": "text"
+            },
+            "title": "line-top"
+        },
+        {
+            "encoding": {
+                "text": {
+                    "value": [
+                        "Xxgq",
+                        "qTpP"
+                    ]
+                },
+                "x": {
+                    "axis": {
+                        "title": null
+                    },
+                    "field": "x",
+                    "scale": {
+                        "domain": [
+                            -10,
+                            40
+                        ],
+                        "nice": false
+                    },
+                    "type": "quantitative"
+                },
+                "y": {
+                    "axis": {
+                        "title": null
+                    },
+                    "field": "y",
+                    "scale": {
+                        "domain": [
+                            -10,
+                            40
+                        ],
+                        "nice": false
+                    },
+                    "type": "quantitative"
+                }
+            },
+            "mark": {
+                "baseline": "middle",
+                "type": "text"
+            },
+            "title": "middle"
+        },
+        {
+            "encoding": {
+                "text": {
+                    "value": [
+                        "Xxgq",
+                        "qTpP"
+                    ]
+                },
+                "x": {
+                    "axis": {
+                        "title": null
+                    },
+                    "field": "x",
+                    "scale": {
+                        "domain": [
+                            -10,
+                            40
+                        ],
+                        "nice": false
+                    },
+                    "type": "quantitative"
+                },
+                "y": {
+                    "axis": {
+                        "title": null
+                    },
+                    "field": "y",
+                    "scale": {
+                        "domain": [
+                            -10,
+                            40
+                        ],
+                        "nice": false
+                    },
+                    "type": "quantitative"
+                }
+            },
+            "mark": {
+                "baseline": "alphabetic",
+                "type": "text"
+            },
+            "title": "baseline"
+        },
+        {
+            "encoding": {
+                "text": {
+                    "value": [
+                        "Xxgq",
+                        "qTpP"
+                    ]
+                },
+                "x": {
+                    "axis": {
+                        "title": null
+                    },
+                    "field": "x",
+                    "scale": {
+                        "domain": [
+                            -10,
+                            40
+                        ],
+                        "nice": false
+                    },
+                    "type": "quantitative"
+                },
+                "y": {
+                    "axis": {
+                        "title": null
+                    },
+                    "field": "y",
+                    "scale": {
+                        "domain": [
+                            -10,
+                            40
+                        ],
+                        "nice": false
+                    },
+                    "type": "quantitative"
+                }
+            },
+            "mark": {
+                "baseline": "bottom",
+                "type": "text"
+            },
+            "title": "bottom"
+        },
+        {
+            "encoding": {
+                "text": {
+                    "value": [
+                        "Xxgq",
+                        "qTpP"
+                    ]
+                },
+                "x": {
+                    "axis": {
+                        "title": null
+                    },
+                    "field": "x",
+                    "scale": {
+                        "domain": [
+                            -10,
+                            40
+                        ],
+                        "nice": false
+                    },
+                    "type": "quantitative"
+                },
+                "y": {
+                    "axis": {
+                        "title": null
+                    },
+                    "field": "y",
+                    "scale": {
+                        "domain": [
+                            -10,
+                            40
+                        ],
+                        "nice": false
+                    },
+                    "type": "quantitative"
+                }
+            },
+            "mark": {
+                "baseline": "line-bottom",
+                "type": "text"
+            },
+            "title": "line-bottom"
+        }
+    ],
+    "config": {
+        "mark": {
+            "fontSize": 20,
+            "fontStyle": "italic",
+            "lineHeight": 30
+        },
+        "title": {
+            "font": "Comic Sans MS"
+        }
+    },
+    "data": {
+        "values": [
+            {
+                "x": 5,
+                "y": 5
+            },
+            {
+                "x": 30,
+                "y": 30
+            }
+        ]
+    }
+}

@@ -1,0 +1,6 @@
+resolver: lts-14.27
+flags: {}
+packages:
+- '.'
+extra-deps:
+- haskell-src-1.0.3.0

@@ -1,0 +1,272 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+<head>
+<title>
+  lazy-csv: fast, space-efficient, CSV parsing
+</title>
+</head>
+
+<body bgcolor='#ffffff'>
+
+<center>
+<h1>lazy-csv</h1>
+<table><tr><td width=200 align=center>
+<a href="#what">What is lazy-csv?</a><br>
+<a href="#tool">Cmdline tool: csvSelect</a><br>
+<a href="#download">Downloads</a><br>
+</td><td width=200 align=center>
+<a href="#news">Recent news</a><br>
+<a href="#who">Contacts</a><br>
+<a href="#related">Related Work</a><br>
+</td></tr></table>
+</center>
+
+<hr>
+<center><h3><a name="what">What is lazy-csv?</a></h3></center>
+<p>
+<b>lazy-csv</b> is a library in Haskell, for reading CSV
+(comma-separated value) data.  It is lazier, faster, more
+space-efficient, and more flexible in its treatment of errors, than any
+other extant Haskell CSV library on Hackage.
+
+<p>
+<a href="haddock/index.html">Detailed documentation of the lazy-csv API</a>
+is generated automatically by Haddock directly from the source code.
+
+<p>
+You can choose between String and ByteString variants of the API, just
+by picking the appropriate import.  The API is identical modulo the
+type.  Here is an example program:
+
+<pre style="font-family:Consolas, Monaco, Monospace;"><span style="color: #00ff00;text-decoration: underline;">module</span><span style=""> </span><span style="">Main</span><span style=""> </span><span style="color: #00ff00;text-decoration: underline;">where</span><span style="">
+</span><span style="">
+</span><span style="color: #00ff00;text-decoration: underline;">import</span><span style=""> </span><span style="">Text</span><span style="color: #00ffff;">.</span><span style="">CSV</span><span style="color: #00ffff;">.</span><span style="">Lazy</span><span style="color: #00ffff;">.</span><span style="">String</span><span style="">
+</span><span style="color: #00ff00;text-decoration: underline;">import</span><span style=""> </span><span style="">System</span><span style="">
+</span><span style="">
+</span><span style="color: #0000ff;font-style: italic;">-- read a CSV file, select the 3rd column, and print it out again.</span><span style="">
+</span><span style="">
+</span><span style="color: #0000ff;">main</span><span style=""> </span><span style="color: #ff0000;">=</span><span style=""> </span><span style="color: #00ff00;text-decoration: underline;">do</span><span style="">
+</span><span style="">  </span><span style="color: #ff0000;">[</span><span style="">file</span><span style="color: #ff0000;">]</span><span style="">  </span><span style="color: #ff0000;">&lt;-</span><span style=""> </span><span style="">getArgs</span><span style="">
+</span><span style="">  </span><span style="">content</span><span style=""> </span><span style="color: #ff0000;">&lt;-</span><span style=""> </span><span style="">readFile</span><span style=""> </span><span style="">file</span><span style="">
+</span><span style="">  </span><span style="color: #00ff00;text-decoration: underline;">let</span><span style=""> </span><span style="">csv</span><span style=""> </span><span style="color: #ff0000;">=</span><span style=""> </span><span style="">parseCSV</span><span style=""> </span><span style="">content</span><span style="">
+</span><span style="">  </span><span style="color: #00ff00;text-decoration: underline;">case</span><span style=""> </span><span style="">csvErrors</span><span style=""> </span><span style="">csv</span><span style=""> </span><span style="color: #00ff00;text-decoration: underline;">of</span><span style="">
+</span><span style="">    </span><span style="">errs</span><span style="color: #ff0000;">@</span><span style="color: #00ffff;">(</span><span style="color: #00ff00;text-decoration: underline;">_</span><span style="color: #ff0000;font-weight: bold;">:</span><span style="color: #00ff00;text-decoration: underline;">_</span><span style="color: #00ffff;">)</span><span style="">  </span><span style="color: #ff0000;">-&gt;</span><span style=""> </span><span style="">print</span><span style=""> </span><span style="color: #00ffff;">(</span><span style="">unlines</span><span style=""> </span><span style="color: #00ffff;">(</span><span style="">map</span><span style=""> </span><span style="">ppCSVError</span><span style=""> </span><span style="">errs</span><span style="color: #00ffff;">)</span><span style="color: #00ffff;">)</span><span style="">
+</span><span style="">    </span><span style="">[]</span><span style="">          </span><span style="color: #ff0000;">-&gt;</span><span style=""> </span><span style="color: #00ff00;text-decoration: underline;">do</span><span style=""> </span><span style="">content</span><span style=""> </span><span style="color: #ff0000;">&lt;-</span><span style=""> </span><span style="">readFile</span><span style=""> </span><span style="">file</span><span style="">
+</span><span style="">                      </span><span style="color: #00ff00;text-decoration: underline;">let</span><span style=""> </span><span style="">selection</span><span style=""> </span><span style="color: #ff0000;">=</span><span style=""> </span><span style="">map</span><span style=""> </span><span style="color: #00ffff;">(</span><span style="">take</span><span style=""> </span><span style="color: #ff00ff;">1</span><span style=""> </span><span style="color: #00ffff;">.</span><span style=""> </span><span style="">drop</span><span style=""> </span><span style="color: #ff00ff;">2</span><span style="color: #00ffff;">)</span><span style="">
+</span><span style="">                                          </span><span style="color: #00ffff;">(</span><span style="">csvTable</span><span style=""> </span><span style="color: #00ffff;">(</span><span style="">parseCSV</span><span style=""> </span><span style="">content</span><span style="color: #00ffff;">)</span><span style="color: #00ffff;">)</span><span style="">
+</span><span style="">                      </span><span style="">putStrLn</span><span style=""> </span><span style="color: #00ffff;">$</span><span style=""> </span><span style="">ppCSVTable</span><span style=""> </span><span style="">selection</span><span style="">
+</span></pre>
+
+<p>
+There are two useful things to note about the API, arising out of this
+example.  First, <tt>parseCSV</tt> does not directly give you the value
+of the CSV table, but rather gives a <tt>CSVResult</tt>.  You must
+project out either the errors (with <tt>csvErrors</tt>) or the values
+(with <tt>csvTable</tt>).  Secondly, because the result of
+<tt>parseCSV</tt> is lazy, it is in fact more space-efficient (and also
+faster) to get hold of the valid table contents by <em>reopening and
+reparsing</em> the file after checking for errors.  This also means, of
+course, that you can simply omit the step of checking for errors and
+ignore them if you wish.
+
+<p>
+To illustrate the performance of lazy-csv, here is a micro-benchmark.
+We compare the same program (the example above) recoded
+with all of the CSV libraries available on Hackage.  The libraries are:
+
+<center>
+<table border=1 cellspacing=0 cellpadding=2>
+<tr><td><em>library</em></td><td><em>string type</em></td><td><em>parsing/lexing</em></td><td><em>results</em></td><td><em>error-reporting</em></td></tr>
+<tr><td>csv</td><td>String</td><td>Parsec</td><td>strict</td><td>first error</td></tr>
+<tr><td>bytestring-csv</td><td>ByteString</td><td>Alex</td><td>strict</td><td>Nothing (Maybe)</td></tr>
+<tr><td>spreadsheet</td><td>String</td><td>custom parser</td><td>lazy</td><td>first error</td></tr>
+<tr><td>lazy-csv</td><td>String</td><td>custom lexer</td><td>lazy</td><td>all errors</td></tr>
+<tr><td>lazy-csv</td><td>ByteString</td><td>custom lexer</td><td>lazy</td><td>all errors</td></tr>
+<tr><td>lazy-csv</td><td>ByteString</td><td>custom lexer</td><td>lazy</td><td>discarding errors</td></tr>
+</table>
+</center>
+
+<p>
+The main differences are shown in the table.  As far as error-reporting
+goes, The Parsec-based CSV parser will report only the first error
+encountered.  The Alex-based bytestring-csv will stop at the first
+error, but not give you any information about it.  The Spreadsheet library
+has a lazy parser, allowing you to retrieve the initial portion of valid
+data, as far as the first error.  The lazy-csv library will notify all
+errors in the input in addition to returning all the well-formed data it
+can find.  Many of the possible CSV formatting errors are easily
+recoverable, such as incorrect number of fields in a row, bad quoting, etc.
+Thus, with the lazy-csv library one can choose to halt on errors, or display
+them as warnings whilst continuing with good data, or ignore the errors
+completely, continuing to process the retrievable data.
+
+<p>
+The choice of lazy vs strict input is extremely important when it comes
+to large file sizes.
+Here are some indicative performance figures, using as input a series
+of files of increasing size: 1Mb, 10Mb, 100Mb, 1Gb.  For the purposes of
+comparison, I include three sets of numbers for the lazy library - two
+with error-reporting using each of String and ByteString types, the
+third for ByteString but ignoring errors.  In all cases the good data
+is processed anyway, but the difference in reporting leads to
+significant performance differences.
+
+<p>
+Finally, the nearest non-Haskell comparison I could think of is to use
+the Unix tool 'cut'.  Of course, 'cut' (with comma as delimiter) is not
+a correct CSV-parser, but it does have the benefit of simplicity, and
+most closely resembles the lazy-csv library in terms of ignoring errors
+and continuing with good data.  It also has lazy streaming behaviour on
+very large files.
+
+<center>
+<table border=1 cellspacing=0 cellpadding=2>
+<tr><td><em>library</em></td><td><em>1Mb</em></td><td><em>10Mb</em></td><td><em>100Mb</em></td><td><em>1Gb</em></td></tr>
+<tr><td>spreadsheet</td><td>runtime failure</td><td>runtime failure</td><td>runtime failure</td><td>runtime failure</td></tr>
+<tr><td>csv</td><td>0.542</td><td>20.483</td><td>stack overflow</td><td>stack overflow</td></tr>
+<tr><td>bytestring-csv</td><td>0.273</td><td>2.656</td><td>27.187</td><td>out of memory</td></tr>
+<tr><td>lazy-csv (String)</td><td>0.196</td><td>1.890</td><td>18.845</td><td>189.978</td></tr>
+<tr><td>lazy-csv (ByteString)</td><td>0.148</td><td>1.399</td><td>13.936</td><td>139.379</td></tr>
+<tr><td>lazy-csv (ByteString, discard errors)</td><td>0.087</td><td>0.817</td><td>8.102</td><td>80.835</td></tr>
+<tr><td>cut -d',' -f3</td><td>0.052</td><td>0.462</td><td>4.576</td><td>45.726</td></tr>
+</table>
+</center>
+
+<p>
+All timings are in seconds, measured best-of-3 with the unix time
+command, on a 2.26Gz Intel Core 2 Duo MacBook with 4Gb RAM, compiled
+with ghc-6.10.4 using -O optimisation.
+
+<p>
+How much maximum live heap do these implementations use, for different
+input sizes?  (All measured from ghc heap profiles.)
+
+<center>
+<table border=1 cellspacing=0 cellpadding=2>
+<tr><td><em>library</em></td><td><em>1Mb</em></td><td><em>10Mb</em></td><td><em>100Mb</em></td><td><em>1Gb</em></td></tr>
+<tr><td>csv</td><td>8Mb</td><td>120Mb</td><td>stack overflow</td><td>stack overflow</td></tr>
+<tr><td>bytestring-csv</td><td>empty profile</td><td>52Mb</td><td>700Mb</td><td>out of memory</td></tr>
+<tr><td>lazy-csv (String)</td><td>12kb</td><td>12kb</td><td>12kb</td><td>12kb</td></tr>
+<tr><td>lazy-csv (ByteString)</td><td>3kb</td><td>3kb</td><td>3kb</td><td>3kb</td></tr>
+</table>
+</center>
+
+<p>
+My conclusions are these:
+<ul>
+<li>If you want good performance that scales across very large inputs, make
+    sure you use lazy I/O.
+<li>Lazy Strings can be faster, and scale better, than strict ByteStrings.
+<li>This is mainly because a hand-written lexer can be significantly
+    faster than machine-generated lexers.
+<li>Lazy ByteStrings perform best of all (in Haskell).
+<li>A correct CSV parser need not be much slower than a fast incorrect
+    one (like unix cut).
+<li>Good error-handling is not in any way detrimental to performance.
+</ul>
+
+<hr>
+<center><h3><a name="tool">Cmdline tool: csvSelect</a></h3></center>
+<p>
+The package distribution contains a command-line tool called
+<em>csvSelect</em>.  It is a fuller and more useful version of the demo
+program used to illustrate performance above.  <em>csvSelect</em>
+chooses and re-arranges the columns of a CSV file as specified by its
+command-line arguments.  Columns can be chosen by number (counting from
+1) or by name (as in the header row of the input).  Columns appear in
+the output in the same order as the arguments.  A different delimiter
+than comma can be specified.  If input or output files are not
+specified, then stdin/stdout are used.
+
+<pre>
+Usage: csvSelect [OPTION...] (num|fieldname)...
+    select numbered/named columns from a CSV file
+  -v, -V   --version      show version number
+  -o FILE  --output=FILE  output FILE
+  -i FILE  --input=FILE   input FILE
+  -u       --unchecked    ignore CSV format errors
+  -d @     --delimiter=@  delimiter char is @
+</pre>
+
+
+<hr>
+<center><h3><a name="download">Downloads</a></h3></center>
+<p>
+<b>Development version:</b><br>
+<br><tt><a href="http://darcs.net/">darcs</a> get
+    http://code.haskell.org/lazy-csv</tt>
+
+<p>
+<b>Current released version:</b><br>
+lazy-csv-0.5, release date 2013.05.24 -
+<a href="http://hackage.haskell.org/package/lazy-csv">on Hackage</a>
+<br>
+
+<ul>
+<li> Or just <tt>cabal install lazy-csv</tt>
+</ul>
+
+<p>
+<b>Older versions:</b><br>
+lazy-csv-0.5, release date 2013.05.24 - Fifth release, public.<br>
+lazy-csv-0.4, release date 2013.02.25 - Fourth release, first public.<br>
+lazy-csv-0.3, release date 2011.12.12 - Third (non-public) release.<br>
+lazy-csv-0.2, release date 2011.10.11 - Second (non-public) release.<br>
+lazy-csv-0.1, release date 2009.11.20 - First (non-public) release.<br>
+
+
+<hr>
+<center><h3><a name="news">Recent news</a></h3></center>
+<p>
+Version 0.5 fixes a bug when handling (rare) CR-only line-endings.
+<p>
+Version 0.4 is the first public release.
+<p>
+Version 0.3 adds duplicate-header detection and repair.
+<p>
+Version 0.2 adds repairing of blank lines and short rows.
+<p>
+Version 0.1 is the first (but non-public) release of lazy-csv.
+
+<br>
+<a href="changelog.html">Complete Changelog</a><br>
+
+<hr>
+<center><h3><a name="who">Contacts</a></h3></center>
+<p>
+<ul>
+<li>    <a href="mailto:Malcolm.Wallace@me.com">
+        Malcolm.Wallace@me.com</a>
+</ul>
+
+<p>
+
+<p><b>Licence:</b> The library is Free and Open Source Software,
+i.e., copyright to us, but freely licensed
+for your use, modification, and re-distribution.
+The lazy-csv library is distributed
+under a BSD-like 3-clause Licence - see file
+<a href="LICENCE-BSD3">LICENCE-BSD3</a> for more details.
+
+<hr>
+<p>
+<center><h3><a name="related">Related work</a></h3></center>
+<ul>
+<li>
+<a href="http://hackage.haskell.org/packages/csv">
+A CSV library</a>
+
+<li>
+<a href="http://hackage.haskell.org/packages/bytestring-csv">
+A Bytestring CSV library</a>
+
+<li>
+<a href="http://hackage.haskell.org/packages/spreadsheet">
+A SpreadSheet CSV library</a>
+
+</ul>
+
+<hr>
+
+</body>
+</html>

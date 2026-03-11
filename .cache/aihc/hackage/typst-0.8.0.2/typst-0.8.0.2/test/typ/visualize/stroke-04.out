@@ -1,0 +1,228 @@
+--- parse tree ---
+[ Code
+    "typ/visualize/stroke-04.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/visualize/stroke-04.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/visualize/stroke-04.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Comment
+, Code
+    "typ/visualize/stroke-04.typ"
+    ( line 3 , column 2 )
+    (FuncCall
+       (Ident (Identifier "stack"))
+       [ KeyValArg (Identifier "dir") (Ident (Identifier "ltr"))
+       , KeyValArg (Identifier "spacing") (Literal (Numeric 1.0 Em))
+       , NormalArg
+           (FuncCall
+              (Ident (Identifier "polygon"))
+              [ KeyValArg
+                  (Identifier "stroke")
+                  (Dict
+                     [ Reg ( Ident (Identifier "thickness") , Literal (Numeric 4.0 Pt) )
+                     , Reg ( Ident (Identifier "paint") , Ident (Identifier "blue") )
+                     , Reg ( Ident (Identifier "join") , Literal (String "round") )
+                     ])
+              , NormalArg
+                  (Array
+                     [ Reg (Literal (Numeric 0.0 Pt))
+                     , Reg (Literal (Numeric 20.0 Pt))
+                     ])
+              , NormalArg
+                  (Array
+                     [ Reg (Literal (Numeric 15.0 Pt))
+                     , Reg (Literal (Numeric 0.0 Pt))
+                     ])
+              , NormalArg
+                  (Array
+                     [ Reg (Literal (Numeric 0.0 Pt))
+                     , Reg (Literal (Numeric 40.0 Pt))
+                     ])
+              , NormalArg
+                  (Array
+                     [ Reg (Literal (Numeric 15.0 Pt))
+                     , Reg (Literal (Numeric 45.0 Pt))
+                     ])
+              ])
+       , NormalArg
+           (FuncCall
+              (Ident (Identifier "polygon"))
+              [ KeyValArg
+                  (Identifier "stroke")
+                  (Dict
+                     [ Reg ( Ident (Identifier "thickness") , Literal (Numeric 4.0 Pt) )
+                     , Reg ( Ident (Identifier "paint") , Ident (Identifier "blue") )
+                     , Reg ( Ident (Identifier "join") , Literal (String "bevel") )
+                     ])
+              , NormalArg
+                  (Array
+                     [ Reg (Literal (Numeric 0.0 Pt))
+                     , Reg (Literal (Numeric 20.0 Pt))
+                     ])
+              , NormalArg
+                  (Array
+                     [ Reg (Literal (Numeric 15.0 Pt))
+                     , Reg (Literal (Numeric 0.0 Pt))
+                     ])
+              , NormalArg
+                  (Array
+                     [ Reg (Literal (Numeric 0.0 Pt))
+                     , Reg (Literal (Numeric 40.0 Pt))
+                     ])
+              , NormalArg
+                  (Array
+                     [ Reg (Literal (Numeric 15.0 Pt))
+                     , Reg (Literal (Numeric 45.0 Pt))
+                     ])
+              ])
+       , NormalArg
+           (FuncCall
+              (Ident (Identifier "polygon"))
+              [ KeyValArg
+                  (Identifier "stroke")
+                  (Dict
+                     [ Reg ( Ident (Identifier "thickness") , Literal (Numeric 4.0 Pt) )
+                     , Reg ( Ident (Identifier "paint") , Ident (Identifier "blue") )
+                     , Reg ( Ident (Identifier "join") , Literal (String "miter") )
+                     ])
+              , NormalArg
+                  (Array
+                     [ Reg (Literal (Numeric 0.0 Pt))
+                     , Reg (Literal (Numeric 20.0 Pt))
+                     ])
+              , NormalArg
+                  (Array
+                     [ Reg (Literal (Numeric 15.0 Pt))
+                     , Reg (Literal (Numeric 0.0 Pt))
+                     ])
+              , NormalArg
+                  (Array
+                     [ Reg (Literal (Numeric 0.0 Pt))
+                     , Reg (Literal (Numeric 40.0 Pt))
+                     ])
+              , NormalArg
+                  (Array
+                     [ Reg (Literal (Numeric 15.0 Pt))
+                     , Reg (Literal (Numeric 45.0 Pt))
+                     ])
+              ])
+       , NormalArg
+           (FuncCall
+              (Ident (Identifier "polygon"))
+              [ KeyValArg
+                  (Identifier "stroke")
+                  (Dict
+                     [ Reg ( Ident (Identifier "thickness") , Literal (Numeric 4.0 Pt) )
+                     , Reg ( Ident (Identifier "paint") , Ident (Identifier "blue") )
+                     , Reg ( Ident (Identifier "join") , Literal (String "miter") )
+                     , Reg ( Ident (Identifier "miter-limit") , Literal (Float 20.0) )
+                     ])
+              , NormalArg
+                  (Array
+                     [ Reg (Literal (Numeric 0.0 Pt))
+                     , Reg (Literal (Numeric 20.0 Pt))
+                     ])
+              , NormalArg
+                  (Array
+                     [ Reg (Literal (Numeric 15.0 Pt))
+                     , Reg (Literal (Numeric 0.0 Pt))
+                     ])
+              , NormalArg
+                  (Array
+                     [ Reg (Literal (Numeric 0.0 Pt))
+                     , Reg (Literal (Numeric 40.0 Pt))
+                     ])
+              , NormalArg
+                  (Array
+                     [ Reg (Literal (Numeric 15.0 Pt))
+                     , Reg (Literal (Numeric 45.0 Pt))
+                     ])
+              ])
+       ])
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 stack(children: (polygon(stroke: (thickness: 4.0pt,
+                                                   paint: rgb(0%,45%,85%,100%),
+                                                   join: "round"), 
+                                          vertices: ((0.0pt, 
+                                                      20.0pt), 
+                                                     (15.0pt, 
+                                                      0.0pt), 
+                                                     (0.0pt, 
+                                                      40.0pt), 
+                                                     (15.0pt, 
+                                                      45.0pt))), 
+                                  polygon(stroke: (thickness: 4.0pt,
+                                                   paint: rgb(0%,45%,85%,100%),
+                                                   join: "bevel"), 
+                                          vertices: ((0.0pt, 
+                                                      20.0pt), 
+                                                     (15.0pt, 
+                                                      0.0pt), 
+                                                     (0.0pt, 
+                                                      40.0pt), 
+                                                     (15.0pt, 
+                                                      45.0pt))), 
+                                  polygon(stroke: (thickness: 4.0pt,
+                                                   paint: rgb(0%,45%,85%,100%),
+                                                   join: "miter"), 
+                                          vertices: ((0.0pt, 
+                                                      20.0pt), 
+                                                     (15.0pt, 
+                                                      0.0pt), 
+                                                     (0.0pt, 
+                                                      40.0pt), 
+                                                     (15.0pt, 
+                                                      45.0pt))), 
+                                  polygon(stroke: (thickness: 4.0pt,
+                                                   paint: rgb(0%,45%,85%,100%),
+                                                   join: "miter",
+                                                   miter-limit: 20.0), 
+                                          vertices: ((0.0pt, 
+                                                      20.0pt), 
+                                                     (15.0pt, 
+                                                      0.0pt), 
+                                                     (0.0pt, 
+                                                      40.0pt), 
+                                                     (15.0pt, 
+                                                      45.0pt)))), 
+                       dir: ltr, 
+                       spacing: 1.0em), 
+                 parbreak() })

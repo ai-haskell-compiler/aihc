@@ -1,0 +1,58 @@
+{-|
+Module:      Spec.FromStringTextShowSpec
+Copyright:   (C) 2014-2017 Ryan Scott
+License:     BSD-style (see the file LICENSE)
+Maintainer:  Ryan Scott
+Stability:   Provisional
+Portability: GHC
+
+@hspec@ tests for 'FromStringShow' and 'FromTextShow'.
+-}
+module Spec.FromStringTextShowSpec (main, spec) where
+
+import Data.Proxy (Proxy(..))
+import Instances.FromStringTextShow ()
+import Spec.Utils (matchesTextShowSpec, matchesTextShow1Spec,
+                   matchesTextShow2Spec)
+import Test.Hspec (Spec, describe, hspec, parallel)
+import TextShow (FromStringShow(..), FromTextShow(..),
+                 FromStringShow1(..), FromStringShow2(..),
+                 FromTextShow1(..), FromTextShow2(..))
+
+main :: IO ()
+main = hspec spec
+
+spec :: Spec
+spec = parallel $ do
+    describe "FromStringShow Int" $ do
+        let p :: Proxy (FromStringShow Int)
+            p = Proxy
+        matchesTextShowSpec  p
+    describe "FromStringShow String" $ do
+        let p :: Proxy (FromStringShow String)
+            p = Proxy
+        matchesTextShowSpec  p
+    describe "FromTextShow Int" $ do
+        let p :: Proxy (FromTextShow Int)
+            p = Proxy
+        matchesTextShowSpec  p
+    describe "FromTextShow String" $ do
+        let p :: Proxy (FromTextShow String)
+            p = Proxy
+        matchesTextShowSpec  p
+    describe "FromStringShow1 Maybe Int" $ do
+        let p :: Proxy (FromStringShow1 Maybe Int)
+            p = Proxy
+        matchesTextShow1Spec p
+    describe "FromTextShow1 Maybe Int" $ do
+        let p :: Proxy (FromTextShow1 Maybe Int)
+            p = Proxy
+        matchesTextShow1Spec p
+    describe "FromStringShow2 Either Char Int" $ do
+        let p :: Proxy (FromStringShow2 Either Char Int)
+            p = Proxy
+        matchesTextShow2Spec p
+    describe "FromTextShow2 Either Char Int" $ do
+        let p :: Proxy (FromTextShow2 Either Char Int)
+            p = Proxy
+        matchesTextShow2Spec p

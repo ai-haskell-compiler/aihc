@@ -1,0 +1,65 @@
+\documentclass[a4paper]{article}
+
+\usepackage{times}
+
+\usepackage{color}
+\definecolor{dark-green}{rgb}{0.0,0.5,0.0}
+
+\usepackage[colorlinks,citecolor=dark-green]{hyperref}
+
+
+\renewcommand{\familydefault}{\sfdefault}
+
+
+\usepackage{multibib}
+
+\newcites{reviewedjournal}{Reviewed Journals}
+\newcites{reviewedconference}{Reviewed Conferences}
+\newcites{techreport}{Technical Reports}
+\newcites{journal}{Other Journals}
+\newcites{conference}{Other Conferences}
+\newcites{thesis}{Theses}
+\newcites{program}{Programming Projects}
+\newcites{popular}{Popular Scientific Articles}
+
+
+\sloppy
+
+
+\begin{document}
+
+\input{publications-cite}
+
+\bibliographystylereviewedjournal{plain}
+\bibliographyreviewedjournal{publications}
+
+
+\bibliographystylereviewedconference{plain}
+\bibliographyreviewedconference{publications}
+
+
+\bibliographystyletechreport{plain}
+\bibliographytechreport{publications}
+
+
+\bibliographystylejournal{plain}
+\bibliographyjournal{publications}
+
+
+\bibliographystyleconference{plain}
+\bibliographyconference{publications}
+
+
+\bibliographystylethesis{plain}
+\bibliographythesis{publications}
+
+
+\bibliographystyleprogram{plain}
+\bibliographyprogram{publications}
+
+
+\bibliographystylepopular{plain}
+\bibliographypopular{publications}
+
+
+\end{document}

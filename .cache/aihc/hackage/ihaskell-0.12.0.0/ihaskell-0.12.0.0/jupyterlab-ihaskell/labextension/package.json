@@ -1,0 +1,52 @@
+{
+  "name": "jupyterlab-ihaskell",
+  "version": "0.0.14",
+  "description": "adds ihaskell syntax highlighting to jupyterlab",
+  "keywords": [
+    "jupyter",
+    "jupyterlab",
+    "ihaskell",
+    "jupyterlab-extension"
+  ],
+  "homepage": "https://github.com/gibiansky/IHaskell/",
+  "bugs": {
+    "url": "https://github.com/gibiansky/IHaskell/issues"
+  },
+  "license": "BSD-3-Clause",
+  "author": "MMesch",
+  "files": [
+    "lib/**/*.{d.ts,js,js.map,json}"
+  ],
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "repository": {
+    "type": "git",
+    "url": "git@github.com:gibiansky/IHaskell.git"
+  },
+  "scripts": {
+    "build": "tsc",
+    "clean": "rimraf lib",
+    "watch": "tsc -w"
+  },
+  "dependencies": {
+    "@jupyterlab/application": ">=4.0.0",
+    "@jupyterlab/codemirror": ">=4.0.0",
+    "@jupyterlab/apputils": ">=4.0.0",
+    "@jupyterlab/notebook": ">=4.0.0"
+  },
+  "devDependencies": {
+    "rimraf": "^3.0.0",
+    "typescript": "~5.0.4",
+    "@types/codemirror": ">=0.0.0",
+    "@jupyterlab/builder": ">=4.0.0"
+  },
+  "jupyterlab": {
+    "extension": true,
+    "outputDir": "labextension",
+    "webpackConfig": "./webpack.config.js",
+    "_build": {
+      "load": "static/remoteEntry-33e79930ce2a88033aa3.js",
+      "extension": "./extension"
+    }
+  }
+}

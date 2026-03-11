@@ -1,0 +1,21 @@
+{
+    "$schema": "https://vega.github.io/schema/vega-lite/v4.json",
+    "data": {
+        "format": {
+            "delimiter": ",",
+            "type": "dsv"
+        },
+        "url": "data/dataTest.csv"
+    },
+    "encoding": {
+        "x": {
+            "field": "cat",
+            "type": "nominal"
+        },
+        "y": {
+            "field": "val",
+            "type": "quantitative"
+        }
+    },
+    "mark": "bar"
+}

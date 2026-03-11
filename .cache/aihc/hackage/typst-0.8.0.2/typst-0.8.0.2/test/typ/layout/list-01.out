@@ -1,0 +1,115 @@
+--- parse tree ---
+[ Code
+    "typ/layout/list-01.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/layout/list-01.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/layout/list-01.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, BulletListItem
+    [ Text "First"
+    , Space
+    , Text "level"
+    , Text "."
+    , ParBreak
+    , BulletListItem
+        [ Text "Second"
+        , Space
+        , Text "level"
+        , Text "."
+        , SoftBreak
+        , Text "There"
+        , Space
+        , Text "are"
+        , Space
+        , Text "multiple"
+        , Space
+        , Text "paragraphs"
+        , Text "."
+        , ParBreak
+        , BulletListItem
+            [ Text "Third" , Space , Text "level" , Text "." , SoftBreak ]
+        , SoftBreak
+        , Text "Still"
+        , Space
+        , Text "the"
+        , Space
+        , Text "same"
+        , Space
+        , Text "bullet"
+        , Space
+        , Text "point"
+        , Text "."
+        , SoftBreak
+        ]
+    , SoftBreak
+    , BulletListItem
+        [ Text "Still"
+        , Space
+        , Text "level"
+        , Space
+        , Text "2"
+        , Text "."
+        , SoftBreak
+        ]
+    ]
+, SoftBreak
+, BulletListItem
+    [ Text "At"
+    , Space
+    , Text "the"
+    , Space
+    , Text "top"
+    , Text "."
+    , ParBreak
+    ]
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 list(children: ({ text(body: [First level.]), 
+                                   parbreak(), 
+                                   list(children: ({ text(body: [Second level.
+There are multiple paragraphs.]), 
+                                                     parbreak(), 
+                                                     list(children: (text(body: [Third level.
+]))), 
+                                                     text(body: [Still the same bullet point.
+]) }, 
+                                                   text(body: [Still level 2.
+]))) }, 
+                                 { text(body: [At the top.]), 
+                                   parbreak() })) })

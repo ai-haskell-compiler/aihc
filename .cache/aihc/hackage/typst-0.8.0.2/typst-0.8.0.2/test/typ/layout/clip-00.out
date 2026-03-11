@@ -1,0 +1,125 @@
+--- parse tree ---
+[ Code
+    "typ/layout/clip-00.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/layout/clip-00.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/layout/clip-00.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Comment
+, Text "Hello"
+, Space
+, Code
+    "typ/layout/clip-00.typ"
+    ( line 3 , column 8 )
+    (FuncCall
+       (Ident (Identifier "box"))
+       [ KeyValArg (Identifier "width") (Literal (Numeric 1.0 Em))
+       , KeyValArg (Identifier "height") (Literal (Numeric 1.0 Em))
+       , KeyValArg (Identifier "clip") (Literal (Boolean False))
+       , BlockArg
+           [ Code
+               "typ/layout/clip-00.typ"
+               ( line 3 , column 51 )
+               (FuncCall
+                  (Ident (Identifier "rect"))
+                  [ KeyValArg (Identifier "width") (Literal (Numeric 3.0 Em))
+                  , KeyValArg (Identifier "height") (Literal (Numeric 3.0 Em))
+                  , KeyValArg (Identifier "fill") (Ident (Identifier "red"))
+                  ])
+           ]
+       ])
+, SoftBreak
+, Text "world"
+, Space
+, Text "1"
+, ParBreak
+, Text "Space"
+, ParBreak
+, Text "Hello"
+, Space
+, Code
+    "typ/layout/clip-00.typ"
+    ( line 8 , column 8 )
+    (FuncCall
+       (Ident (Identifier "box"))
+       [ KeyValArg (Identifier "width") (Literal (Numeric 1.0 Em))
+       , KeyValArg (Identifier "height") (Literal (Numeric 1.0 Em))
+       , KeyValArg (Identifier "clip") (Literal (Boolean True))
+       , BlockArg
+           [ Code
+               "typ/layout/clip-00.typ"
+               ( line 8 , column 50 )
+               (FuncCall
+                  (Ident (Identifier "rect"))
+                  [ KeyValArg (Identifier "width") (Literal (Numeric 3.0 Em))
+                  , KeyValArg (Identifier "height") (Literal (Numeric 3.0 Em))
+                  , KeyValArg (Identifier "fill") (Ident (Identifier "red"))
+                  ])
+           ]
+       ])
+, Space
+, SoftBreak
+, Text "world"
+, Space
+, Text "2"
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 text(body: [Hello ]), 
+                 box(body: rect(fill: rgb(100%,25%,21%,100%), 
+                                height: 3.0em, 
+                                width: 3.0em), 
+                     clip: false, 
+                     height: 1.0em, 
+                     width: 1.0em), 
+                 text(body: [
+world 1]), 
+                 parbreak(), 
+                 text(body: [Space]), 
+                 parbreak(), 
+                 text(body: [Hello ]), 
+                 box(body: rect(fill: rgb(100%,25%,21%,100%), 
+                                height: 3.0em, 
+                                width: 3.0em), 
+                     clip: true, 
+                     height: 1.0em, 
+                     width: 1.0em), 
+                 text(body: [ 
+world 2]), 
+                 parbreak() })

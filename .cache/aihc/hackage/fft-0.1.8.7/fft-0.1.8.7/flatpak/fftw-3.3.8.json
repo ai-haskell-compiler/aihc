@@ -1,0 +1,26 @@
+{
+    "cleanup": [
+        "/bin",
+        "/include",
+        "/lib/cmake",
+        "/lib/libfftw3.la",
+        "/lib/pkgconfig",
+        "/share"
+    ],
+    "config-opts": [
+        "--enable-shared",
+        "--disable-static",
+        "--disable-doc",
+        "--disable-fortran"
+    ],
+    "sources": [
+        {
+            "url": "http://fftw.org/fftw-3.3.8.tar.gz",
+            "type": "archive",
+            "sha256": "6113262f6e92c5bd474f2875fa1b01054c4ad5040f6b0da7c03c98821d9ae303"
+        }
+    ],
+    "name": "fftw-3.3.8-double",
+    "buildsystem": "autotools",
+    "builddir": false
+}

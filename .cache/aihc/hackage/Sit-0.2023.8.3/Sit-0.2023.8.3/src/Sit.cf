@@ -1,0 +1,82 @@
+-- Type theory with sized natural numbers and a irrelevant
+-- size quantifier.
+
+-- Types:   T ::= Nat a | Set a | (x : T) -> T | T -> T | forall Bs -> T
+-- Binding: B ::= (x : T) | .i | ..i
+
+-- Terms:   t ::= x | t t | \ xs -> t | zero | suc t | fix l T t n | case n return T of \{ zero -> tz; suc x -> ts }
+--
+-- Sizes:   a ::= Integer | x | x + Integer | w
+
+-- SizeVar.   SizeExp ::= Ident;
+-- SizeInf.   SizeExp ::= "oo";
+-- SizeConst. SizeExp ::= Integer;
+-- SizeInc.   SizeExp1 ::= Ident "+" Integer;
+--
+-- coercions Exp 1;
+
+Prg.    Prg  ::= [Decl];
+
+-- Declarations.
+
+Sig.    Decl ::= Ident ":" Exp;
+Def.    Decl ::= Ident "=" Exp;
+Open.   Decl ::= "open" "import" QualId;
+Blank.  Decl ::= ;
+
+Sg.     QualId ::= Ident;
+Cons.   QualId ::= QualId "." Ident;
+
+separator nonempty Decl "--;" ;
+
+-- Identifier which can be _
+
+Id.     IdU ::= Ident;
+Under.  IdU ::= "_";
+
+-- Binder:
+
+BIrrel. Bind ::= "." Ident;
+BRel.   Bind ::= ".." Ident;
+BAnn.   Bind ::= "(" [Ident] ":" Exp ")";
+
+terminator nonempty Bind "";
+terminator nonempty Ident "";
+terminator nonempty IdU   "";
+
+-- Atoms:
+
+Var.   Exp2 ::= IdU;
+Int.   Exp2 ::= Integer;
+Infty. Exp2 ::= "oo";
+Nat.   Exp2 ::= "Nat";
+Set.   Exp2 ::= "Set";
+Set1.  Exp2 ::= "Set1";
+Set2.  Exp2 ::= "Set2";
+Zero.  Exp2 ::= "zero";
+Suc.   Exp2 ::= "suc";
+Fix.   Exp2 ::= "fix";
+LZero. Exp2 ::= "lzero";
+LSuc.  Exp2 ::= "lsuc";
+
+internal
+Size. Exp ::= "Size";
+
+-- Applications:
+
+App.  Exp1 ::= Exp1 Exp2;
+
+-- Abstraction etc.
+
+Lam.    Exp ::= "\\" [IdU] "->" Exp;
+Forall. Exp ::= "forall" [Bind] "->" Exp;
+Pi.     Exp ::= "(" Exp ":" Exp ")" "->" Exp;  -- The first Exp should be [IdU], but this conflicts
+Arrow.  Exp ::= Exp1 "->" Exp;
+Case.   Exp ::= "case" Exp "return" Exp "of" Exp;
+Plus.   Exp ::= Exp1 "+" Integer;
+ELam.   Exp ::= "\\" "{" "(" "zero" "_" ")" "->" Exp ";" "(" "suc" "_" IdU ")" "->" Exp "}";
+
+coercions Exp 2;
+
+comment "---";
+comment "{-" "-}";

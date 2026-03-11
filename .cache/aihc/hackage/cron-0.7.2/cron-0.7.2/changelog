@@ -1,0 +1,46 @@
+# 0.7.2
+* Replace data-default-class with data-default, Michael Xavier (@MichaelXavier)
+# 0.7.1
+* expose fork job, Jappie Klooster (@jappeace)
+# 0.7.0
+* Fix time parsing error (#41), Julien Debon (@Sir4ur0n)
+# 0.6.2
+* Updates to allow GHC 8.8
+# 0.6.1
+* Add support for day and month literals, Ahti Katiska (@HariGyogu).
+# 0.6.0
+* Use Text instead of String in Cron.Schedule
+# 0.5.0
+* Add System.Cron.Describe which describes cron schedules in words (English only for now). Big thanks to Joe Canero for this feature!
+# 0.4.2
+* Drop dependency on derive in tests.
+* Add some Generic and Typeable instances.
+# 0.4.1.1
+* Bug fix for checking nextMatch where either the day of month or day of week fields were a singleton list of star.
+# 0.4.1.1
+* Fix test suite for Stackage.
+# 0.4.1
+* Compatibility release to get cron building with GHC < 7.10 again.
+# 0.4.0
+* Various type changes to make it impossible to construct invalid cron schedules.
+* Add nextMatch function for non-polling based schedulers.
+# 0.3.2
+* Add test files to dist
+# 0.3.1
+* Fix bug that caused some range schedules to not fire at the correct time. See https://github.com/MichaelXavier/cron/issues/18
+# 0.3.0
+* MTL compatibility updates.
+# 0.2.6
+* Package test files
+# 0.2.5
+* GHC 7.10 support
+# 0.2.4
+* Bugfixes for new task runner feature
+# 0.2.3
+* Add new in-process task runner feature. Credit to @AndrewRademacher
+# 0.2.2
+* Fix edge case when day of month and day of week are both specified. Credit to @joelwilliamson
+# 0.2.1
+* Fix day of week bug. Credit to @meteogrid
+# 0.1.2
+* Relax dependency on text to allow 1.0

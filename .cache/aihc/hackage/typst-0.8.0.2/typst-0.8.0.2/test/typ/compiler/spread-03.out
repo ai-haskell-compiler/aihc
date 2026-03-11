@@ -1,0 +1,131 @@
+--- parse tree ---
+[ Code
+    "typ/compiler/spread-03.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/compiler/spread-03.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/compiler/spread-03.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Comment
+, Code
+    "typ/compiler/spread-03.typ"
+    ( line 3 , column 2 )
+    (Block
+       (CodeBlock
+          [ Let
+              (BasicBind (Just (Identifier "more")))
+              (Array
+                 [ Reg (Literal (Int 3))
+                 , Reg (Negated (Literal (Int 3)))
+                 , Reg (Literal (Int 6))
+                 , Reg (Literal (Int 10))
+                 ])
+          , FuncCall
+              (Ident (Identifier "test"))
+              [ NormalArg
+                  (FuncCall
+                     (FieldAccess
+                        (Ident (Identifier "min")) (Ident (Identifier "calc")))
+                     [ NormalArg (Literal (Int 1))
+                     , NormalArg (Literal (Int 2))
+                     , SpreadArg (Ident (Identifier "more"))
+                     ])
+              , NormalArg (Negated (Literal (Int 3)))
+              ]
+          , FuncCall
+              (Ident (Identifier "test"))
+              [ NormalArg
+                  (FuncCall
+                     (FieldAccess
+                        (Ident (Identifier "max")) (Ident (Identifier "calc")))
+                     [ SpreadArg (Ident (Identifier "more"))
+                     , NormalArg (Literal (Int 9))
+                     ])
+              , NormalArg (Literal (Int 10))
+              ]
+          , FuncCall
+              (Ident (Identifier "test"))
+              [ NormalArg
+                  (FuncCall
+                     (FieldAccess
+                        (Ident (Identifier "max")) (Ident (Identifier "calc")))
+                     [ SpreadArg (Ident (Identifier "more"))
+                     , NormalArg (Literal (Int 11))
+                     ])
+              , NormalArg (Literal (Int 11))
+              ]
+          ]))
+, ParBreak
+, Code
+    "typ/compiler/spread-03.typ"
+    ( line 10 , column 2 )
+    (Block
+       (CodeBlock
+          [ Let
+              (BasicBind (Just (Identifier "more")))
+              (Dict
+                 [ Reg ( Ident (Identifier "c") , Literal (Int 3) )
+                 , Reg ( Ident (Identifier "d") , Literal (Int 4) )
+                 ])
+          , LetFunc
+              (Identifier "tostr")
+              [ SinkParam (Just (Identifier "args")) ]
+              (FuncCall
+                 (Ident (Identifier "repr"))
+                 [ NormalArg (Ident (Identifier "args")) ])
+          , FuncCall
+              (Ident (Identifier "test"))
+              [ NormalArg
+                  (FuncCall
+                     (Ident (Identifier "tostr"))
+                     [ KeyValArg (Identifier "a") (Literal (Int 1))
+                     , SpreadArg (Ident (Identifier "more"))
+                     , KeyValArg (Identifier "b") (Literal (Int 2))
+                     ])
+              , NormalArg (Literal (String "(a: 1, c: 3, d: 4, b: 2)"))
+              ]
+          ]))
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 text(body: [✅]), 
+                 text(body: [✅]), 
+                 text(body: [✅]), 
+                 parbreak(), 
+                 text(body: [✅]), 
+                 parbreak() })

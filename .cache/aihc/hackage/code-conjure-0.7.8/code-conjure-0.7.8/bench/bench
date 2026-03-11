@@ -1,0 +1,26 @@
+#!/bin/bash
+#
+# A more elaborate benchmark for p12 and p30
+#
+# Copyright (C) 2021-2025 Rudy Matela
+# Distributed under the 3-Clause BSD licence (see the file LICENSE).
+
+run1() {
+	echo -n "$@" ""
+	/usr/bin/time -f%e "$@" 2>&1 >/dev/null
+}
+
+run6() {
+	run1 "$@"
+	run1 "$@"
+	run1 "$@"
+	run1 "$@"
+	run1 "$@"
+	run1 "$@"
+}
+
+for fun in factorial sum product length count
+do
+	run6 $1 "$fun"
+	run6 $1 "$fun" t
+done

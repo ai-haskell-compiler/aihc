@@ -1,0 +1,32 @@
+{
+    "$schema": "https://vega.github.io/schema/vega-lite/v4.json",
+    "data": {
+        "url": "https://vega.github.io/vega-lite/data/cars.json"
+    },
+    "description": "A scatterplot showing horsepower and miles per gallon with country of origin double encoded by colour and text symbol.",
+    "encoding": {
+        "color": {
+            "field": "Origin",
+            "type": "nominal"
+        },
+        "text": {
+            "field": "OriginInitial",
+            "type": "nominal"
+        },
+        "x": {
+            "field": "Horsepower",
+            "type": "quantitative"
+        },
+        "y": {
+            "field": "Miles_per_Gallon",
+            "type": "quantitative"
+        }
+    },
+    "mark": "text",
+    "transform": [
+        {
+            "as": "OriginInitial",
+            "calculate": "datum.Origin[0]"
+        }
+    ]
+}

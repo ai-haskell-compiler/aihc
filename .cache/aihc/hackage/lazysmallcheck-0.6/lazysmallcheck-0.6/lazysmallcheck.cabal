@@ -1,0 +1,51 @@
+Name:               lazysmallcheck
+Version:            0.6
+Maintainer:         Matthew Naylor <mfn@cs.york.ac.uk>
+Homepage:           http://www.cs.york.ac.uk/~mfn/lazysmallcheck/
+Build-Depends:      base < 5
+License:            BSD3
+License-File:       LICENSE
+Author:             Matthew Naylor and Fredrik Lindblad
+Synopsis:           A library for demand-driven testing of Haskell programs
+Description:
+  Lazy SmallCheck is a library for exhaustive, demand-driven testing of
+  Haskell programs.  It is based on the idea that if a property holds
+  for a partially-defined input then it must also hold for all
+  fully-defined refinements of the that input.  Compared to ``eager'' 
+  input generation as in SmallCheck, Lazy SmallCheck may require
+  significantly fewer test-cases to verify a property for all inputs up 
+  to a given depth.
+Category:           Testing
+Build-Type:         Simple
+Extra-Source-Files:
+  examples/Catch.hs
+  examples/Mate.hs
+  examples/Sad.hs
+  examples/Countdown.hs
+  examples/Mux.hs
+  examples/SumPuz.hs
+  examples/Huffman.hs
+  examples/RedBlack.hs
+  examples/Turner.hs
+  examples/ListSet.hs
+  examples/RegExp.hs
+  examples/test/TestCatch.hs
+  examples/test/TestMux2.hs
+  examples/test/TestCountdown1.hs
+  examples/test/TestMux3.hs
+  examples/test/TestCountdown2.hs
+  examples/test/TestRedBlack.hs
+  examples/test/TestHuffman1.hs
+  examples/test/TestRegExp.hs
+  examples/test/TestHuffman2.hs
+  examples/test/TestSad.hs
+  examples/test/TestListSet1.hs
+  examples/test/TestSumPuz.hs
+  examples/test/TestMate.hs
+  examples/test/TestTurner.hs
+  examples/test/TestMux1.hs
+  examples/test/make.sh
+  Test/LazySmallCheck/Generic.hs
+
+Exposed-modules:
+  Test.LazySmallCheck

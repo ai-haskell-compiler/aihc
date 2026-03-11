@@ -1,0 +1,4 @@
+resolver: lts-21.25 # or ghc-9.4.8
+
+packages:
+- .

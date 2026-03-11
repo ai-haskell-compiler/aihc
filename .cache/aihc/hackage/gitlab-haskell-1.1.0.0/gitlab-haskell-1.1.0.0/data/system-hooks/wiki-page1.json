@@ -1,0 +1,45 @@
+{
+  "object_kind": "wiki_page",
+  "user": {
+    "id": 2908,
+    "name": "Joe",
+    "username": "joe",
+    "avatar_url": "https://secure.gravatar.com/avatar/abc",
+    "email": "[REDACTED]"
+  },
+  "project": {
+    "id": 25827,
+    "name": "the name",
+    "description": "",
+    "web_url": "https://example.com/joe/proj-name",
+    "avatar_url": null,
+    "git_ssh_url": "git@example.com:joe/proj-name.git",
+    "git_http_url": "https://example.com/joe/proj-name.git",
+    "namespace": "Joe",
+    "visibility_level": 0,
+    "path_with_namespace": "joe/proj-name",
+    "default_branch": "main",
+    "ci_config_path": "",
+    "homepage": "https://example.com/joe/proj-name",
+    "url": "git@example.com:joe/proj-name.git",
+    "ssh_url": "git@example.com:joe/proj-name.git",
+    "http_url": "https://example.com/joe/proj-name.git"
+  },
+  "wiki": {
+    "web_url": "https://example.com/joe/proj-name/-/wikis/home",
+    "git_ssh_url": "git@example.com:joe/proj-name.wiki.git",
+    "git_http_url": "https://example.com/joe/proj-name.wiki.git",
+    "path_with_namespace": "joe/proj-name.wiki",
+    "default_branch": "main"
+  },
+  "object_attributes": {
+    "slug": "home",
+    "title": "home",
+    "format": "markdown",
+    "message": "The wiki message",
+    "version_id": "99c9ea1617756edfb6187ab82e663afb834cd306",
+    "url": "https://example.com/joe/proj-name/-/wikis/home",
+    "action": "update",
+    "diff_url": "https://example.com/joe/proj-name/-/wikis/home/diff?version_id=99c9ea1617756edfb6187ab82e663afb834cd306"
+  }
+}

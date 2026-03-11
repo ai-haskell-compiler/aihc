@@ -1,0 +1,33 @@
+Object -> Experiment?
+
+Object
+   avoid functional dependencies or type class, at all
+
+Examples:
+   Election and prognoses
+
+generalize fixed Dist to (Distribution prob) whereever possible
+
+Use pretty printer in PrintList? Which one?
+   current pretty function is nice for single Dist values,
+   but not for (Dist a, Dist b) et.al.
+
+
+Collection.draw using StateT
+
+QuickCheck properties
+
+use a non-empty list structure for the distribution
+
+
+generalize ToFloat class to Num
+   Need for multi-parameter type classes?
+
+
+create export list
+
+new data type for continuous distributions:
+
+  C (Float -> Float)
+
+prove correctness of >>=?   (What did Martin mean with this comment?)

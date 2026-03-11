@@ -1,0 +1,23 @@
+name:                MonadPrompt
+version:             1.0.0.5
+cabal-version:       >= 1.2
+build-type:          Simple
+
+license:             BSD3
+license-file:        LICENSE
+copyright:           (c) 2008 Ryan Ingram & Bertram Felgenhauer & Cale Gibbard
+author:              Ryan Ingram
+maintainer:          ryani.spam@gmail.com
+stability:           experimental
+synopsis:            MonadPrompt, implementation & examples
+category:            Control
+-- tested-with:         ghc-6.8.2
+extra-source-files:  PromptExamples.hs
+description:         \"Prompting\" monad that allows splitting the description
+                     of a computation from the implementation of the effects
+		     used in that computation.
+		     <http://www.haskell.org/pipermail/haskell-cafe/2008-January/038301.html>
+
+library
+  exposed-modules:   Control.Monad.Prompt
+  build-depends:     base<=5, mtl

@@ -1,0 +1,166 @@
+* {
+  /* Bare minimum reset */
+  margin: 0;
+  padding: 0;
+  border: 0;
+  box-sizing: border-box;
+}
+
+html {
+  --border: 1px solid var(--border-col);
+
+  --left-space: 0.7rem;
+  --n-left-space: calc(0rem - var(--left-space));
+  --padding: 0.5rem;
+  --y-line-offset: 0.5rem;
+  --y-space: 0.5rem;
+
+  --border-col: #aaa;
+  --fail-col: #b23;
+  --pass-col: #0a2;
+  --fade: rgb(51, 51, 51, 0.8);
+  --highlight: rgb(0, 0, 0, 0.15);
+  --slight-highlight: rgb(0, 0, 0, 0.05);
+  --color: #333;
+
+  color: var(--color);
+  background: #fff;
+
+  font-family: Sans, sans-serif, Tahoma, Arial;
+}
+
+@media (prefers-color-scheme: dark) {
+  html {
+    --color: #ddd;
+    background: #1c1822;
+
+    --border-col: #555;
+    --fail-col: #f77;
+    --pass-col: #9fb;
+    --fade: rgb(221, 221, 221, 0.8);
+    --highlight: rgb(255, 255, 255, 0.15);
+    --slight-highlight: rgb(255, 255, 255, 0.05);
+  }
+}
+
+h1, #status-banner {
+  margin-bottom: 1.5rem;
+}
+
+#status-banner.pass {
+  color: var(--pass-col);
+}
+
+body {
+  padding: 1rem;
+}
+
+body > ul > li:first-child > .group::before {
+  border-left: none;
+}
+
+/* We have a root element. This is a tree, not a forest.
+ * This might always be the case with tasty?
+ */
+body > ul > li:first-child:last-child > .group::before {
+  border: 0;
+}
+
+body > ul > li:first-child:last-child {
+  margin: 0;
+}
+
+li {
+  list-style: none;
+  position: relative;
+  margin-left: calc(var(--left-space) * 2);
+  margin-top: var(--y-space);
+}
+
+.group:hover {
+  background: var(--highlight);
+}
+
+.group:hover + ul .group {
+  background: var(--slight-highlight);
+}
+
+.group {
+  cursor: pointer;
+  display: block;
+  border: var(--border);
+  padding: var(--left-space);
+}
+
+.group::before, .group::after, .item::before {
+  position: absolute;
+  content: "";
+  left: var(--n-left-space);
+  border-left: var(--border);
+  width: var(--left-space);
+}
+
+.item::before {
+  height: calc(100% + var(--y-space));
+  top: calc(0px - var(--y-space));
+}
+
+.item {
+  display: flex;
+  align-items: center;
+}
+
+.item > .mark {
+  padding: 0 var(--left-space);
+}
+
+#status-banner.fail,
+.item.fail {
+  color: var(--fail-col);
+}
+
+.group::before {
+  --height: calc(var(--y-line-offset) + var(--y-space));
+  top: calc(var(--y-line-offset) - var(--height));
+  border-bottom: var(--border);
+  height: var(--height);
+}
+
+.group::after {
+  position: absolute;
+  height: 100%;
+  top: var(--y-line-offset);
+}
+
+.ellipsis {
+  padding-left: var(--left-space);
+}
+
+.group.rollup + ul,
+li:last-child > .group::after,
+.group:not(.rollup) > .expand,
+.group:not(.rollup) ~ .ellipsis {
+  display: none;
+}
+
+button {
+  padding: var(--padding);
+  background: var(--slight-highlight);
+  color: var(--color);
+  border: var(--border);
+  cursor: pointer;
+}
+
+button:hover {
+  background: var(--highlight);
+}
+
+button:disabled {
+  background: rgb(0,0,0,0);
+  color: var(--fade);
+  cursor: not-allowed;
+}
+
+#expand-all {
+  margin-bottom: 1rem;
+}

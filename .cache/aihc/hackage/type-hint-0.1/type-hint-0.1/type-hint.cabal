@@ -1,0 +1,37 @@
+Name: type-hint
+Version: 0.1
+Category: Phantom Types
+Stability: experimental
+Synopsis: Guide type inference with proxy values
+Description:
+  This package provides 'Proxy' values for various types from the @base@
+  library and functions to use these values as hints for type inference.
+
+Homepage: https://github.com/mvv/type-hint
+Bug-Reports: https://github.com/mvv/type-hint/issues
+
+Author: Mikhail Vorozhtsov <mikhail.vorozhtsov@gmail.com>
+Maintainer: Mikhail Vorozhtsov <mikhail.vorozhtsov@gmail.com>
+Copyright: 2014 Mikhail Vorozhtsov <mikhail.vorozhtsov@gmail.com>
+License: BSD3
+License-File: LICENSE
+
+Extra-Source-Files:
+  README.md
+
+Cabal-Version: >= 1.10.0
+Build-Type: Simple
+
+Source-Repository head
+  Type: git
+  Location: https://github.com/mvv/type-hint.git
+
+Library
+  Default-Language: Haskell2010
+  Build-Depends: base >= 4 && < 5
+  Hs-Source-Dirs: src
+  GHC-Options: -Wall
+  Exposed-Modules:
+    Type.Hint
+  if !impl(ghc>=7.7)
+    Build-Depends: tagged >= 0.5

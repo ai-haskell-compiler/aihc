@@ -1,0 +1,36 @@
+#!/bin/bash
+#
+# test/mk: tests the makefile of Conjure itself
+#
+# This tests that the makefile is thorough and actually
+# runs all tests scripts and benchmarks when asked to do so.
+#
+# Copyright (c) 2024-2025 Rudy Matela.
+# Distributed under the 3-Clause BSD licence.
+
+set -xe
+
+export LC_ALL=C  # consistent sort
+diff="diff --color -rud"
+
+tmp=`mktemp -d /tmp/test-mk-XXXXXXXXXX`
+[ -d "$tmp" ] || exit 1
+
+rmhs() { sed -e 's/.hs$//'; }
+rmtarget() { sed -e 's/:.*//'; }
+flt() {
+	rmhs |     # excludes extensions from the result of find
+	rmtarget | # exclude Makefile target indicators
+	grep -v '^bench/avgs$' | # not an actual benchmark
+	grep -v '^eg/colin/*' | # not run by the makefile
+	grep -v '^.*/[A-Z].*$' # test/benchmark/example scripts begin with lowercase
+}
+
+make -s ls-eg ls-test                                   | sort >$tmp/ls-mk
+find eg bench proto test -maxdepth 1 -name '*.hs' | flt | sort >$tmp/ls-find
+grep -E "^[^/]*/[^.]*:" mk/depend.mk              | flt | sort >$tmp/ls-depend
+grep -E "(eg|bench|proto|test)/" .gitignore       | flt | sort >$tmp/ls-gitignore
+$diff $tmp/ls-{mk,find}      # compares make variables with actual directory
+$diff $tmp/ls-{mk,depend}    # compares make variables with mk/depend.mk
+$diff $tmp/ls-{mk,gitignore} # compare make variables with .gitignore
+rm -r $tmp

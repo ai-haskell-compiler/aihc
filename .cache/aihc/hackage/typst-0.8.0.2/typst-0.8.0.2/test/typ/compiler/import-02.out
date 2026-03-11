@@ -1,0 +1,108 @@
+--- parse tree ---
+[ Code
+    "typ/compiler/import-02.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/compiler/import-02.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/compiler/import-02.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Comment
+, Comment
+, SoftBreak
+, Code
+    "typ/compiler/import-02.typ"
+    ( line 5 , column 2 )
+    (Import
+       (Ident (Identifier "enum"))
+       (SomeIdentifiers [ ( Identifier "item" , Nothing ) ]))
+, SoftBreak
+, Code
+    "typ/compiler/import-02.typ"
+    ( line 6 , column 2 )
+    (Import
+       (FuncCall
+          (FieldAccess
+             (Ident (Identifier "with")) (Ident (Identifier "assert")))
+          [ NormalArg (Literal (Boolean True)) ])
+       AllIdentifiers)
+, ParBreak
+, Code
+    "typ/compiler/import-02.typ"
+    ( line 8 , column 2 )
+    (FuncCall
+       (Ident (Identifier "enum"))
+       [ NormalArg
+           (FuncCall
+              (Ident (Identifier "item"))
+              [ NormalArg (Literal (Int 1)) , BlockArg [ Text "First" ] ])
+       , NormalArg
+           (FuncCall
+              (Ident (Identifier "item"))
+              [ NormalArg (Literal (Int 5)) , BlockArg [ Text "Fifth" ] ])
+       ])
+, SoftBreak
+, Code
+    "typ/compiler/import-02.typ"
+    ( line 12 , column 2 )
+    (FuncCall
+       (Ident (Identifier "eq"))
+       [ NormalArg (Literal (Int 10)) , NormalArg (Literal (Int 10)) ])
+, SoftBreak
+, Code
+    "typ/compiler/import-02.typ"
+    ( line 13 , column 2 )
+    (FuncCall
+       (Ident (Identifier "ne"))
+       [ NormalArg (Literal (Int 5)) , NormalArg (Literal (Int 6)) ])
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 text(body: [
+]), 
+                 text(body: [
+]), 
+                 parbreak(), 
+                 enum(children: (enum.item(body: text(body: [First]), 
+                                           number: 1), 
+                                 enum.item(body: text(body: [Fifth]), 
+                                           number: 5))), 
+                 text(body: [
+]), 
+                 text(body: [
+]), 
+                 parbreak() })

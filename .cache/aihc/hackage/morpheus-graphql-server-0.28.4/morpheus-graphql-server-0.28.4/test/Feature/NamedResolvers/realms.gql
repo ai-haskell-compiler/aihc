@@ -1,0 +1,16 @@
+scalar Markdown
+
+type Realm {
+  name: String!
+  owner: Deity!
+  description: Markdown!
+}
+
+type Deity {
+  realm: Realm!
+}
+
+type Query {
+  realms: [Realm!]!
+  realm(id: ID!): Realm
+}

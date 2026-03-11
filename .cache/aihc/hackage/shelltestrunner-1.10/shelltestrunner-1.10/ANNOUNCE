@@ -1,0 +1,42 @@
+I'm pleased to announce shelltestrunner 1.10 !
+
+shelltestrunner (executable: `shelltest`) is a portable, GPLv3+
+command-line tool for testing command-line programs or shell commands.
+It reads simple test specifications defining a command to run, some
+input, and the expected output, stderr, and exit status.
+It can run tests in parallel, selectively, with a timeout, in color, etc.
+
+The last release was 1.9, in 2018. The 1.10 release has been overdue;
+it brings some useful improvements, notably --print mode (with which
+you can convert old format 1 tests to the cleaner, recommended format 3),
+and precise line number reporting (to quickly locate the failing test).
+
+User-visible changes in 1.10 (2023-09-12):
+
+* GHC 9.6 compatibility (Andreas Abel)
+* Add --print for printing tests and/or converting file format (#24, Jakob Schöttl)
+* Add --shell option to select shell (#17, FC Stegerman)
+* Fix format1's handling of angle brackets in test data (#16)
+* Print test line number on failure (#14, Taavi Väljaots)
+* Add -p short flag for --precise
+* -h means --help, not --hide-successes
+* Clarify 300 char regex limit message
+
+Other changes:
+
+* Set up CI testing (#18 FC Stegerman, Simon Michael)
+* Improve bash-related tests (#20, FC Stegerman, Simon Michael)
+* Improved tests
+
+Thanks to release contributors:
+Jakob Schöttl, Taavi Väljaots, Felix C. Stegerman, and Andreas Abel.
+
+Install: 
+
+$ stack install shelltestrunner-1.10
+
+or:
+
+$ cabal update && cabal install shelltestrunner-1.10
+
+Home: https://github.com/simonmichael/shelltestrunner

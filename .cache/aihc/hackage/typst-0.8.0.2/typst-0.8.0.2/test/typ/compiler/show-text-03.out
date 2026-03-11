@@ -1,0 +1,80 @@
+--- parse tree ---
+[ Code
+    "typ/compiler/show-text-03.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/compiler/show-text-03.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/compiler/show-text-03.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Comment
+, Code
+    "typ/compiler/show-text-03.typ"
+    ( line 3 , column 2 )
+    (Show
+       (Just
+          (FuncCall
+             (Ident (Identifier "regex"))
+             [ NormalArg (Literal (String "(?i)\\bworld\\b")) ]))
+       (Block (Content [ Text "\127757" ])))
+, ParBreak
+, Text "Treeworld,"
+, Space
+, Text "the"
+, Space
+, Text "World"
+, Space
+, Text "of"
+, Space
+, Text "worlds,"
+, Space
+, Text "is"
+, Space
+, Text "a"
+, Space
+, Text "world"
+, Text "."
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 parbreak(), 
+                 text(body: [Treeworld, the ]), 
+                 text(body: [🌍]), 
+                 text(body: [ of worlds, is a ]), 
+                 text(body: [🌍]), 
+                 text(body: [.]), 
+                 parbreak() })

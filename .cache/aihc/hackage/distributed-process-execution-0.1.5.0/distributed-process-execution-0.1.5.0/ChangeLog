@@ -1,0 +1,31 @@
+2025-02-04 Laurent P. René de Cotret <laurent.decotret@outlook.com> 0.1.5.0
+
+* Ported test suite to use `tasty` rather than `test-framework`.
+
+2024-10-30  David Simmons-Duffin <dsd@caltech.edu> 0.1.4.1
+
+* Bump dependency bound for ansi-terminal
+
+2024-10-30 Laurent P. René de Cotret <laurent.decotret@outlook.com> 0.1.4.0
+
+* Removed dependency on `rematch` (#459)
+
+2024-09-03 Laurent P. René de Cotret <laurent.decotret@outlook.com> 0.1.3.0
+
+* Bumped dependency bounds to support GHC 8.10.7 - GHC 9.10.1
+* Updated links to point to Distributed Haskell monorepo
+
+2015-06-15 Facundo Domínguez <facundo.dominguez@tweag.io> 0.1.2
+
+* Add compatibility with ghc-7.10.
+* Fix dependency bounds.
+* Reuse test modules from distributed-proces-tests.
+
+# HEAD
+
+* Added initial GenServer module
+* Added Timer Module
+* Moved time functions into Time.hs
+* Added Async API
+* Added GenProcess API (subsumes lower level GenServer API)
+

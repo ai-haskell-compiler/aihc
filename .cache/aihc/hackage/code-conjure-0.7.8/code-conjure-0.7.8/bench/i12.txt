@@ -1,0 +1,13 @@
+running with 13 ingredients
+factorial :: Int -> Int
+-- testing 6 combinations of argument values
+-- pruning with 67/101 rules
+-- 3 candidates of size 1
+-- 1 candidates of size 2
+-- 4 candidates of size 3
+-- 8 candidates of size 4
+-- 28 candidates of size 5
+-- 109 candidates of size 6
+-- tested 146 candidates
+factorial x  =  foldr (*) 1 [1..x]
+

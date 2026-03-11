@@ -1,0 +1,124 @@
+{
+    "$schema": "https://vega.github.io/schema/vega-lite/v4.json",
+    "config": {
+        "view": {
+            "stroke": null
+        }
+    },
+    "hconcat": [
+        {
+            "height": 300,
+            "layer": [
+                {
+                    "data": {
+                        "format": {
+                            "feature": "graticule",
+                            "type": "topojson"
+                        },
+                        "url": "https://vega.github.io/vega-lite/data/graticule.json"
+                    },
+                    "mark": {
+                        "filled": false,
+                        "stroke": "#411",
+                        "strokeWidth": 0.1,
+                        "type": "geoshape"
+                    }
+                },
+                {
+                    "data": {
+                        "format": {
+                            "feature": "land",
+                            "type": "topojson"
+                        },
+                        "url": "https://vega.github.io/vega-lite/data/world-110m.json"
+                    },
+                    "mark": {
+                        "fill": "black",
+                        "fillOpacity": 0.7,
+                        "type": "geoshape"
+                    }
+                }
+            ],
+            "projection": {
+                "type": "orthographic"
+            },
+            "width": 300
+        },
+        {
+            "height": 300,
+            "layer": [
+                {
+                    "data": {
+                        "format": {
+                            "feature": "graticule",
+                            "type": "topojson"
+                        },
+                        "url": "https://vega.github.io/vega-lite/data/graticule.json"
+                    },
+                    "mark": {
+                        "filled": false,
+                        "stroke": "#411",
+                        "strokeWidth": 0.1,
+                        "type": "geoshape"
+                    }
+                },
+                {
+                    "data": {
+                        "format": {
+                            "feature": "land",
+                            "type": "topojson"
+                        },
+                        "url": "https://vega.github.io/vega-lite/data/world-110m.json"
+                    },
+                    "mark": {
+                        "fill": "black",
+                        "fillOpacity": 0.7,
+                        "type": "geoshape"
+                    }
+                }
+            ],
+            "projection": {
+                "type": "orthographic"
+            },
+            "width": 300
+        },
+        {
+            "height": 300,
+            "layer": [
+                {
+                    "data": {
+                        "format": {
+                            "feature": "graticule",
+                            "type": "topojson"
+                        },
+                        "url": "https://vega.github.io/vega-lite/data/graticule.json"
+                    },
+                    "mark": {
+                        "filled": false,
+                        "stroke": "#411",
+                        "strokeWidth": 0.1,
+                        "type": "geoshape"
+                    }
+                },
+                {
+                    "data": {
+                        "format": {
+                            "feature": "land",
+                            "type": "topojson"
+                        },
+                        "url": "https://vega.github.io/vega-lite/data/world-110m.json"
+                    },
+                    "mark": {
+                        "fill": "black",
+                        "fillOpacity": 0.7,
+                        "type": "geoshape"
+                    }
+                }
+            ],
+            "projection": {
+                "type": "orthographic"
+            },
+            "width": 300
+        }
+    ]
+}

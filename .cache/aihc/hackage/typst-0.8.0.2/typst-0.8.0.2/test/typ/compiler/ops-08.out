@@ -1,0 +1,327 @@
+--- parse tree ---
+[ Code
+    "typ/compiler/ops-08.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/compiler/ops-08.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/compiler/ops-08.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Comment
+, SoftBreak
+, Comment
+, Code
+    "typ/compiler/ops-08.typ"
+    ( line 5 , column 2 )
+    (FuncCall
+       (Ident (Identifier "test"))
+       [ NormalArg (Equals (Literal (Int 1)) (Literal (String "hi")))
+       , NormalArg (Literal (Boolean False))
+       ])
+, SoftBreak
+, Code
+    "typ/compiler/ops-08.typ"
+    ( line 6 , column 2 )
+    (FuncCall
+       (Ident (Identifier "test"))
+       [ NormalArg (Equals (Literal (Int 1)) (Literal (Float 1.0)))
+       , NormalArg (Literal (Boolean True))
+       ])
+, SoftBreak
+, Code
+    "typ/compiler/ops-08.typ"
+    ( line 7 , column 2 )
+    (FuncCall
+       (Ident (Identifier "test"))
+       [ NormalArg
+           (Equals
+              (Literal (Numeric 30.0 Percent))
+              (Plus (Literal (Numeric 30.0 Percent)) (Literal (Numeric 0.0 Cm))))
+       , NormalArg (Literal (Boolean True))
+       ])
+, SoftBreak
+, Code
+    "typ/compiler/ops-08.typ"
+    ( line 8 , column 2 )
+    (FuncCall
+       (Ident (Identifier "test"))
+       [ NormalArg
+           (Equals
+              (Literal (Numeric 1.0 In))
+              (Plus (Literal (Numeric 0.0 Percent)) (Literal (Numeric 72.0 Pt))))
+       , NormalArg (Literal (Boolean True))
+       ])
+, SoftBreak
+, Code
+    "typ/compiler/ops-08.typ"
+    ( line 9 , column 2 )
+    (FuncCall
+       (Ident (Identifier "test"))
+       [ NormalArg
+           (Equals
+              (Literal (Numeric 30.0 Percent))
+              (Plus (Literal (Numeric 30.0 Percent)) (Literal (Numeric 1.0 Cm))))
+       , NormalArg (Literal (Boolean False))
+       ])
+, SoftBreak
+, Code
+    "typ/compiler/ops-08.typ"
+    ( line 10 , column 2 )
+    (FuncCall
+       (Ident (Identifier "test"))
+       [ NormalArg
+           (Equals
+              (Literal (String "ab"))
+              (Plus (Literal (String "a")) (Literal (String "b"))))
+       , NormalArg (Literal (Boolean True))
+       ])
+, SoftBreak
+, Code
+    "typ/compiler/ops-08.typ"
+    ( line 11 , column 2 )
+    (FuncCall
+       (Ident (Identifier "test"))
+       [ NormalArg (Equals (Array []) (Array [ Reg (Literal (Int 1)) ]))
+       , NormalArg (Literal (Boolean False))
+       ])
+, SoftBreak
+, Code
+    "typ/compiler/ops-08.typ"
+    ( line 12 , column 2 )
+    (FuncCall
+       (Ident (Identifier "test"))
+       [ NormalArg
+           (Equals
+              (Array
+                 [ Reg (Literal (Int 1))
+                 , Reg (Literal (Int 2))
+                 , Reg (Literal (Int 3))
+                 ])
+              (Plus
+                 (Array [ Reg (Literal (Int 1)) , Reg (Literal (Float 2.0)) ])
+                 (Array [ Reg (Literal (Int 3)) ])))
+       , NormalArg (Literal (Boolean True))
+       ])
+, SoftBreak
+, Code
+    "typ/compiler/ops-08.typ"
+    ( line 13 , column 2 )
+    (FuncCall
+       (Ident (Identifier "test"))
+       [ NormalArg
+           (Equals
+              (Dict [])
+              (Dict [ Reg ( Ident (Identifier "a") , Literal (Int 1) ) ]))
+       , NormalArg (Literal (Boolean False))
+       ])
+, SoftBreak
+, Code
+    "typ/compiler/ops-08.typ"
+    ( line 14 , column 2 )
+    (FuncCall
+       (Ident (Identifier "test"))
+       [ NormalArg
+           (Equals
+              (Dict
+                 [ Reg
+                     ( Ident (Identifier "a")
+                     , Minus (Literal (Int 2)) (Literal (Float 1.0))
+                     )
+                 , Reg ( Ident (Identifier "b") , Literal (Int 2) )
+                 ])
+              (Dict
+                 [ Reg ( Ident (Identifier "b") , Literal (Int 2) )
+                 , Reg ( Ident (Identifier "a") , Literal (Int 1) )
+                 ]))
+       , NormalArg (Literal (Boolean True))
+       ])
+, SoftBreak
+, Code
+    "typ/compiler/ops-08.typ"
+    ( line 15 , column 2 )
+    (FuncCall
+       (Ident (Identifier "test"))
+       [ NormalArg
+           (Not (Equals (Literal (String "a")) (Literal (String "a"))))
+       , NormalArg (Literal (Boolean False))
+       ])
+, ParBreak
+, Comment
+, Code
+    "typ/compiler/ops-08.typ"
+    ( line 18 , column 2 )
+    (FuncCall
+       (Ident (Identifier "test"))
+       [ NormalArg
+           (Equals (Ident (Identifier "test")) (Ident (Identifier "test")))
+       , NormalArg (Literal (Boolean True))
+       ])
+, SoftBreak
+, Code
+    "typ/compiler/ops-08.typ"
+    ( line 19 , column 2 )
+    (FuncCall
+       (Ident (Identifier "test"))
+       [ NormalArg
+           (Equals
+              (FuncExpr [] (Block (CodeBlock [])))
+              (FuncExpr [] (Block (CodeBlock []))))
+       , NormalArg (Literal (Boolean False))
+       ])
+, ParBreak
+, Comment
+, Code
+    "typ/compiler/ops-08.typ"
+    ( line 22 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "t"))) (Block (Content [ Text "a" ])))
+, SoftBreak
+, Code
+    "typ/compiler/ops-08.typ"
+    ( line 23 , column 2 )
+    (FuncCall
+       (Ident (Identifier "test"))
+       [ NormalArg
+           (Equals (Ident (Identifier "t")) (Ident (Identifier "t")))
+       , NormalArg (Literal (Boolean True))
+       ])
+, SoftBreak
+, Code
+    "typ/compiler/ops-08.typ"
+    ( line 24 , column 2 )
+    (FuncCall
+       (Ident (Identifier "test"))
+       [ NormalArg (Equals (Block (Content [])) (Block (Content [])))
+       , NormalArg (Literal (Boolean True))
+       ])
+, SoftBreak
+, Code
+    "typ/compiler/ops-08.typ"
+    ( line 25 , column 2 )
+    (FuncCall
+       (Ident (Identifier "test"))
+       [ NormalArg
+           (Equals
+              (Block (Content [ Text "a" ])) (Block (Content [ Text "a" ])))
+       , NormalArg (Literal (Boolean True))
+       ])
+, SoftBreak
+, Code
+    "typ/compiler/ops-08.typ"
+    ( line 26 , column 2 )
+    (FuncCall
+       (Ident (Identifier "test"))
+       [ NormalArg
+           (Equals
+              (FuncCall (Ident (Identifier "grid")) [ BlockArg [ Text "a" ] ])
+              (FuncCall (Ident (Identifier "grid")) [ BlockArg [ Text "a" ] ]))
+       , NormalArg (Literal (Boolean True))
+       ])
+, SoftBreak
+, Code
+    "typ/compiler/ops-08.typ"
+    ( line 27 , column 2 )
+    (FuncCall
+       (Ident (Identifier "test"))
+       [ NormalArg
+           (Equals
+              (FuncCall (Ident (Identifier "grid")) [ BlockArg [ Text "a" ] ])
+              (FuncCall (Ident (Identifier "grid")) [ BlockArg [ Text "b" ] ]))
+       , NormalArg (Literal (Boolean False))
+       ])
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 text(body: [
+]), 
+                 text(body: [✅]), 
+                 text(body: [
+]), 
+                 text(body: [✅]), 
+                 text(body: [
+]), 
+                 text(body: [✅]), 
+                 text(body: [
+]), 
+                 text(body: [✅]), 
+                 text(body: [
+]), 
+                 text(body: [✅]), 
+                 text(body: [
+]), 
+                 text(body: [✅]), 
+                 text(body: [
+]), 
+                 text(body: [✅]), 
+                 text(body: [
+]), 
+                 text(body: [✅]), 
+                 text(body: [
+]), 
+                 text(body: [✅]), 
+                 text(body: [
+]), 
+                 text(body: [✅]), 
+                 text(body: [
+]), 
+                 text(body: [✅]), 
+                 parbreak(), 
+                 text(body: [❌(]), 
+                 text(body: [false]), 
+                 text(body: [ /= ]), 
+                 text(body: [true]), 
+                 text(body: [)]), 
+                 text(body: [
+]), 
+                 text(body: [✅]), 
+                 parbreak(), 
+                 text(body: [
+]), 
+                 text(body: [✅]), 
+                 text(body: [
+]), 
+                 text(body: [✅]), 
+                 text(body: [
+]), 
+                 text(body: [✅]), 
+                 text(body: [
+]), 
+                 text(body: [✅]), 
+                 text(body: [
+]), 
+                 text(body: [✅]), 
+                 parbreak() })

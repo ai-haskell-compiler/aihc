@@ -1,0 +1,8 @@
+cradle:
+  cabal:
+    cabalProject: "cabal.project.extra"
+    components:
+      - path: "./src"
+        component: "lib:hie-bios"
+      - path: "./vendor"
+        component: "parser-tests"

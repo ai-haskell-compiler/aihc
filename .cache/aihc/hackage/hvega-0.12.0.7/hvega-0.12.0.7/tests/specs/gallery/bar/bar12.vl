@@ -1,0 +1,56 @@
+{
+    "$schema": "https://vega.github.io/schema/vega-lite/v4.json",
+    "config": {
+        "style": {
+            "label": {
+                "align": "left",
+                "baseline": "middle",
+                "dx": 3
+            }
+        }
+    },
+    "data": {
+        "values": [
+            {
+                "a": "A",
+                "b": 28
+            },
+            {
+                "a": "B",
+                "b": 55
+            },
+            {
+                "a": "C",
+                "b": 43
+            }
+        ]
+    },
+    "description": "A simple bar chart with embedded data labels.",
+    "encoding": {
+        "x": {
+            "field": "b",
+            "type": "quantitative"
+        },
+        "y": {
+            "field": "a",
+            "type": "ordinal"
+        }
+    },
+    "layer": [
+        {
+            "mark": "bar"
+        },
+        {
+            "encoding": {
+                "text": {
+                    "field": "b",
+                    "type": "quantitative"
+                }
+            },
+            "mark": {
+                "style": "label",
+                "type": "text"
+            }
+        }
+    ]
+}

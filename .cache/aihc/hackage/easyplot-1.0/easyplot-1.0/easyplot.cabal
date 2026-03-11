@@ -1,0 +1,54 @@
+Name:           easyplot
+Version:        1.0
+Synopsis:       A tiny plotting library, utilizes gnuplot for plotting.
+Description:    A tiny plotting library for Haskell, using gnuplot for rendering.
+                .
+                Developed and tested using Mac OS X 10.7.3 with gnuplot 4.4 (via MacPorts).
+                Compiles using GHC 7.0.4
+                .
+                Make sure gnuplot is in your path and everything should work.
+                .
+                Some sample plots:
+                .
+                > plot X11 $ Data2D [Title "Sample Data"] [] [(1, 2), (2, 4), ...]
+                . 
+                > plot X11 $ Function2D [Title "Sine and Cosine"] [] (\x -> sin x * cos x)
+                .
+                > plot X11 sin
+                .
+                > plot (PNG "plot.png") (sin . cos)
+                .
+                > plot X11 $ Gnuplot2D [Color Blue] [] "2**cos(x)"
+                .
+                > plot X11 [ Data2D [Title "Graph 1", Color Red] [] [(x, x ** 3) | x <- [-4,-3.9..4]]
+                >          , Function2D [Title "Function 2", Color Blue] [] (\x -> negate $ x ** 2) ]
+                .
+                > plot' [Interactive] X11 $ Gnuplot3D [Color Magenta] [] "x ** 2 + y ** 3"
+
+License:        MIT
+License-File:   LICENSE
+Author:         Julian Fleischer <julian.fleischer@fu-berlin.de>
+Maintainer:     Julian Fleischer <julian.fleischer@fu-berlin.de>
+Build-Type:     Simple
+Cabal-Version:  >= 1.6
+Category:       Graphics, Math, Plotting
+Stability:      provisional
+Homepage:       http://hub.darcs.net/scravy/easyplot
+
+Source-Repository head
+    type: darcs
+    location: hub.darcs.net:easyplot
+
+Source-Repository this
+    type: darcs
+    location: hub.darcs.net:easyplot
+    tag: v1.0
+
+Library
+    Exposed-Modules:    Graphics.EasyPlot
+                        
+    Build-Depends:      base >= 4 && < 5,
+                        process
+    Hs-Source-Dirs:     src
+
+

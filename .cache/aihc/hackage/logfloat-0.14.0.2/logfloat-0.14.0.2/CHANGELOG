@@ -1,0 +1,113 @@
+0.14.0.2 (2026-02-28):
+    - Nudged version bounds for GHC 9.14 (didn't actually need to
+      change the upper bounds on 'base' and 'array', because they
+      were already lenient)
+    - Silenced GHC >= 9.10 warnings about importing 'Data.List'
+0.14.0.1 (2024-08-29):
+    - Nudged version bounds for ghc 9.10
+0.14.0 (2021-03-19):
+	- Separating out "Data.Number.LogFloat.Raw"
+    - Added `Tested-With: GHC == 9.2.4, 9.4.4, 9.6.1` (didn't actually need to
+      nudge the upper bound on 'base', because it's already lenient)
+    - Silencing warnings about rewrite rules, as a hack for working around:
+      <https://gitlab.haskell.org/ghc/ghc/-/issues/10595>
+0.13.4 (2017-06-18):
+    - Added Read LogFloat instance. (h/t Rob Zinkov)
+    - Corrected a bug where `product` returns NaN on `logFloat 0`.
+0.13.3.3 (2015-10-02):
+    - ???
+0.13.3.2 (2015-08-06):
+    - Fixed the buggy Show LogFloat instance
+0.13.3.1 (2015-05-30):
+    - Moved VERSION to CHANGELOG
+0.13.3 (2015-03-29):
+    - Got clean compile on GHC 7.10.1
+0.13.2 (2015-03-23):
+    - Preliminary fixes for dealing with type-roles in GHC 7.10
+0.13.1 (2015-03-10):
+    - Fixed a major bug in sum
+0.13 (2015-02-17):
+    - monomorphized logFloat, logToLogFloat, fromLogFloat, logFromLogFloat
+    - added sum, product, pow
+    - cleaned up some extraneous rewrite rules
+    - removed support for older versions of GHC, in order to clean things up
+
+0.12.1 (2010-03-19):
+    - Fixed some NaN injection bugs in the Num instance. These would
+      only have been triggered by non-probabilistic uses of LogFloat
+      (i.e., if you used @logFloat infinity@)
+0.12.0.3 (2009-04-03):
+    - Added notes to INSTALL about Windows compatibility
+0.12.0.2 (2009-04-03):
+    - Updated TODO and VERSION
+0.12.0.1 (2009-03-25):
+    - Disabled -fvia-C so the FFI can be used in GHC 6.10
+0.12 (2009-03-10):
+    - Added log1p.
+    - Added Storable instance (for GHC only)
+    - removed orphaned toRational/fromRational rules. The
+      RealToFrac module obviates those optimizations.
+    - Adjusted Real LogFloat instance to throw errors on transfinite values
+
+0.11.2 (2009-03-09):
+    - Moved log/exp rules from LogFloat into Transfinite
+0.11.1.1 (2009-03-09):
+    - Documentation updates
+0.11.1 (2009-03-08):
+    - Added IArray UArray LogFloat instance (thanks to Felipe Lessa).
+0.11 (2009-01-29):
+    - Moved the RealToFrac class from Data.Number.Transfinite to
+      Data.Number.RealToFrac. This breaks backwards compatibility if
+      you depended directly on that module for the class. If you
+      imported the class from Data.Number.LogFloat then you're still
+      fine.
+    - Cabal build fail due to missing new module (Fixed in 0.11.0.1).
+
+0.10 (2009-01-29):
+    - Hugs' Prelude definitions of isInfinite and isNaN for Float
+      and Double are buggy. The new Hugs.RealFloat module provides
+      correct implementations (defaulting to the Prelude definition
+      for non-Hugs compilers).
+    - The PartialOrd and Transfinite instances for Double and Float
+      have been updated to use these corrected functions.
+    - Added maxPO and minPO to PartialOrd and added comparingPO to
+      Data.Number.PartialOrd.
+    - Minor changes to circumvent bugs in Hackage's new version of
+      Haddock. You should be able to see all the documentation now.
+
+0.9.1 (2008-08-30):
+    - Fixed some PartialOrd stuff and sanitized documentation
+    - Build fail on GHC 6.10 due to GHC.Prim (Fixed in 0.9.1.1).
+0.9.0 (2008-08-30):
+    - s/toFractional/realToFrac/g.
+    - Also moved realToFrac and log to Transfinite
+    - Build fail on GHC 6.10 due to GHC.Prim
+
+0.8.6 (2008-08-17):
+    - Removed buggy RULES
+    - Build fail on GHC 6.10 due to -Werror and removal of -fno-warn-orphans
+0.8.5 (2008-08-17):
+    - Gave up and converted from lhs to hs so Hackage docs work
+0.8.4 (2008-08-17):
+    - Broke out Transfinite
+0.8.3 (2008-08-16):
+    - Documentation updates
+0.8.2 (2008-08-14):
+    - Announced release
+0.8:
+    - Did a bunch of tweaking. Things should be decent now
+
+0.7:
+    - Haddockified
+0.6:
+    - Fixed monomorphism of LogFloat constructors/destructors.
+0.5:
+    - Added optimization rules.
+0.4:
+    - Translated from Perl to Haskell at revision 2007.12.20.
+0.3:
+    - Converted extensive comments to POD format.
+0.2:
+    - Did a bunch of profiling, optimizing, and debugging.
+0.1:
+    - Initial version (in Perl) created for hw5 for NLP with Jason Eisner.

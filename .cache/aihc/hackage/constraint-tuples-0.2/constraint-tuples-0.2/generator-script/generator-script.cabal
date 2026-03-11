@@ -1,0 +1,44 @@
+cabal-version:       >=1.10
+name:                generator-script
+version:             0.1
+synopsis:            Generate constraint-tuples' source code
+description:         The script that generates the source code for
+                     "Data.Tuple.Constraint" and
+                     "Data.Tuple.Constraint.ClassNewtype". See the
+                     @GenCTuple.sh@ script for how to invoke this.
+homepage:            https://github.com/RyanGlScott/constraint-tuples
+bug-reports:         https://github.com/RyanGlScott/constraint-tuples/issues
+license:             BSD3
+license-file:        LICENSE
+author:              Ryan Scott
+maintainer:          ryan.gl.scott@gmail.com
+stability:           Stable
+copyright:           (C) 2018-2019 Ryan Scott
+category:            Data
+build-type:          Simple
+tested-with:         GHC == 8.0.2
+                   , GHC == 8.2.2
+                   , GHC == 8.4.4
+                   , GHC == 8.6.5
+                   , GHC == 8.8.4
+                   , GHC == 8.10.7
+                   , GHC == 9.0.2
+                   , GHC == 9.2.8
+                   , GHC == 9.4.8
+                   , GHC == 9.6.5
+                   , GHC == 9.8.2
+                   , GHC == 9.10.1
+
+source-repository head
+  type:                git
+  location:            https://github.com/RyanGlScott/constraint-tuples
+  subdir:              generator-script
+
+executable generator-script
+  main-is:             GeneratorScript.hs
+  build-depends:       base                  >= 4.9  && < 5
+                     , base-compat-batteries >= 0.10 && < 0.15
+                     , optparse-applicative  >= 0.13 && < 0.19
+  hs-source-dirs:      exe
+  default-language:    Haskell2010
+  ghc-options:         -Wall -threaded -rtsopts

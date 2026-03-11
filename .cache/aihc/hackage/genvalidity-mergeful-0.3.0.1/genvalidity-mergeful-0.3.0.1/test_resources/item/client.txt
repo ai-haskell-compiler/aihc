@@ -1,0 +1,35 @@
+# ClientItem
+# [32mone of[m
+[ [37mtype[m: # [31mrequired[m
+    empty
+  <object>
+, [37mtype[m: # [31mrequired[m
+    added
+  [37mvalue[m: # [31mrequired[m
+    # item that was added, client-side
+    [33m<number>[m # between [32m0[m and [32m255[m
+, [37mtype[m: # [31mrequired[m
+    synced
+  [37mvalue[m: # [31mrequired[m
+    # timed value
+    [33m<number>[m # between [32m0[m and [32m255[m
+  [37mtime[m: # [31mrequired[m
+    # timed time
+    # Server time
+    [33m<number>[m # between [32m0[m and [32m18446744073709551615[m
+, [37mtype[m: # [31mrequired[m
+    changed
+  [37mvalue[m: # [31mrequired[m
+    # timed value
+    [33m<number>[m # between [32m0[m and [32m255[m
+  [37mtime[m: # [31mrequired[m
+    # timed time
+    # Server time
+    [33m<number>[m # between [32m0[m and [32m18446744073709551615[m
+, [37mtype[m: # [31mrequired[m
+    deleted
+  [37mtime[m: # [31mrequired[m
+    # last time the server confirmed a change, from the client's perspective
+    # Server time
+    [33m<number>[m # between [32m0[m and [32m18446744073709551615[m
+]

@@ -1,0 +1,111 @@
+1.1.1
+-----
+- Compatibility with `network >= 3`.
+
+1.1.0
+-----
+- Improve configuration of retry settings and refactor exceptions
+  (https://gitlab.com/twittner/cql-io/issues/13).
+- Document and export the 'getResult' function alongside the low-level
+  query API.
+- Replace monad-control with unliftio.
+- Remove dependency on tinylog, introducing a minimal logging interface that can
+  be hooked up to any logging library. Tinylog integration has moved to
+  the new cql-io-tinylog library.
+
+1.0.1.1
+-------
+- Add more documentation on queries.
+
+1.0.1
+------
+- Address an issue whereby Cassandra 'Error' responses might be mistakenly
+  thrown by the (internal) withRetries function, possibly leading to
+  problems with the automatic (re-)preparation of prepared queries upon
+  'Unprepared' server responses.
+
+1.0.0
+------
+- Add support for CQL V4 binary protocol.
+- Remove support for CQL V2 binary protocol.
+- Add support for SASL-based authentication handlers.
+- Bugfix: Retries for error responses were not handled correctly.
+- Update and extend test suite.
+- Require `cql >= 4.0`
+
+0.16.0
+------
+- Update Cabal settings to allow `cql` >= 3.1
+
+0.15.2
+------
+- Update `async` dependency
+
+0.15.1
+------
+- Use `retry >= 0.7` instead of internal module
+
+0.15.0
+------
+- Add experimental TLS support
+
+0.14.5
+------
+- Add `trans` to execute "lightweight transactions"
+
+0.14.4
+------
+- Update dependencies
+
+0.14.3
+------
+- Bugfixes
+
+0.14.2
+------
+- Export `PrepareStrategy` from `Database.CQL.IO`
+
+0.14.1
+------
+- Support for prepared queries
+- Bugfixes
+- `Control.Retry` module update to match version 0.6
+
+0.13.2
+------
+- Retry on `IOException`
+- Update dependencies
+
+0.13.1
+------
+- Support `monad-control` 1.*
+
+0.13.0
+------
+- Add `setMaxRecvBuffer` option
+
+0.12.2
+------
+- Update dependencies
+
+0.12.1
+------
+- Update dependencies
+
+0.12.0
+------
+- Remove wait-queue
+- Add more type-class instances
+
+0.10.0
+------
+- Add `MonadClient` type-class
+- Add retry settings
+
+0.9.7
+-----
+- Bugfix release
+
+0.9.6
+-----
+- Initial release

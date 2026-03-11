@@ -1,0 +1,24 @@
+query {
+  zeus: entity(id: "zeus") {
+    ... on Deity {
+      __typename
+      name
+      power
+    }
+  }
+  olympus: entity(id: "olympus") {
+    ... on Realm {
+      name
+      owner {
+        name
+        power
+        realm {
+          name
+          owner {
+            name
+          }
+        }
+      }
+    }
+  }
+}

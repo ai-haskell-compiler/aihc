@@ -1,0 +1,77 @@
+{
+    "$schema": "https://vega.github.io/schema/vega-lite/v4.json",
+    "data": {
+        "format": {
+            "parse": {
+                "Release_Date": "date:'%b %d %Y'"
+            }
+        },
+        "url": "https://vega.github.io/vega-lite/data/movies.json"
+    },
+    "layer": [
+        {
+            "encoding": {
+                "x": {
+                    "axis": {
+                        "title": "IMDB Rating"
+                    },
+                    "field": "IMDB_Rating",
+                    "type": "quantitative"
+                },
+                "y": {
+                    "field": "Title",
+                    "type": "ordinal"
+                }
+            },
+            "mark": {
+                "clip": true,
+                "type": "bar"
+            }
+        },
+        {
+            "encoding": {
+                "color": {
+                    "value": "red"
+                },
+                "x": {
+                    "field": "AverageYearRating",
+                    "type": "quantitative"
+                },
+                "y": {
+                    "field": "Title",
+                    "type": "ordinal"
+                }
+            },
+            "mark": "tick"
+        }
+    ],
+    "transform": [
+        {
+            "filter": "datum.IMDB_Rating != null"
+        },
+        {
+            "as": "year",
+            "field": "Release_Date",
+            "timeUnit": "year"
+        },
+        {
+            "frame": [
+                null,
+                null
+            ],
+            "groupby": [
+                "year"
+            ],
+            "window": [
+                {
+                    "as": "AverageYearRating",
+                    "field": "IMDB_Rating",
+                    "op": "mean"
+                }
+            ]
+        },
+        {
+            "filter": "(datum.IMDB_Rating - datum.AverageYearRating) > 2.5"
+        }
+    ]
+}

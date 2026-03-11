@@ -1,0 +1,77 @@
+1.5.2
+
+* [Add support for `OsPath`](https://github.com/Gabriella439/optparse-generic/pull/111)
+
+1.5.1
+
+* [Add `Eq` instances for `(<?>)`, `(<!>)`, and `(<#>)`](https://github.com/Gabriella439/optparse-generic/pull/109)
+
+1.5.0
+
+* BREAKING CHANGE: [Drop support for `system-filepath`](https://github.com/Gabriella439/optparse-generic/pull/106)
+* [Add support for more `Data.Time` types](https://github.com/Gabriella439/optparse-generic/pull/102)
+
+1.4.9
+
+* [Add `Data` instance for `Unwrapped`](https://github.com/Gabriella439/optparse-generic/pull/100)
+
+1.4.8
+
+* [Improve handling of `NonEmpty`](https://github.com/Gabriella439/optparse-generic/pull/98)
+* [Add `getWithHelpWith`](https://github.com/Gabriella439/Haskell-Optparse-Generic-Library/pull/94)
+* [Build against `optparse-applicative-0.17`](https://github.com/Gabriella439/Haskell-Optparse-Generic-Library/pull/92)
+* [Build against `text-2.0`](https://github.com/Gabriella439/optparse-generic/pull/91)
+
+1.4.7
+
+* [Derive `Data` instances for exported types](https://github.com/Gabriel439/Haskell-Optparse-Generic-Library/pull/89)
+
+1.4.6
+
+* Use `readField` in default implementation of `parseField`
+
+1.4.5
+
+* [Add ability to set the short name in the type](https://github.com/Gabriel439/Haskell-Optparse-Generic-Library/pull/84)
+* [Display default values in `--help` output](https://github.com/Gabriel439/Haskell-Optparse-Generic-Library/pull/83)
+
+1.4.4
+
+* `readIntegralBounded`: use `metavar` in error message
+
+1.4.3
+
+* Export internal `readIntegralBounded` utility
+* Build against `optparse-applicative-0.16.0.0`
+
+1.4.2
+
+* New `unwrap` function
+    * This is the underlying utility that powers
+      `unwrap{Record,RecordPure,WithHelp}`
+
+1.4.1
+
+* Fix broken haddocks
+
+1.4.0
+
+* BREAKING CHANGE: Add support for type-level default values
+    * This is a breaking change because the various `parse*` typeclass methods
+      now take an additional argument to support this feature
+
+1.3.1
+
+* Export `GenericParseRecord` and `getRecord{,PureWith}`
+
+1.3.0
+
+* BREAKING CHANGE: New `metavar` method for `ParseField` class
+    * This field simplifies customizing `ParseField` instances
+        * Now you usually only need to override `metavar` now or possibly also
+          `readField`, whereas the default behavior for `parseField` should work
+          more often
+    * This is only a breaking change for data types that use the default
+      implementation of `ParseField` but do not derive `Typeable`
+    * You can migrate existing code that doesn't compile by just explicitly
+      specifying what the `metavar` field should be

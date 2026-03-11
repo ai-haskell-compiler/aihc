@@ -1,0 +1,157 @@
+--- parse tree ---
+[ Code
+    "typ/meta/footnote-container-00.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/meta/footnote-container-00.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/meta/footnote-container-00.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Comment
+, Text "Read"
+, Space
+, Text "the"
+, Space
+, Text "docs"
+, Space
+, Code
+    "typ/meta/footnote-container-00.typ"
+    ( line 3 , column 16 )
+    (FuncCall
+       (Ident (Identifier "footnote"))
+       [ BlockArg [ Url "https://typst.app/docs" ] ])
+, Text "!"
+, SoftBreak
+, Code
+    "typ/meta/footnote-container-00.typ"
+    ( line 4 , column 2 )
+    (FuncCall
+       (Ident (Identifier "figure"))
+       [ NormalArg
+           (FuncCall
+              (Ident (Identifier "image"))
+              [ NormalArg (Literal (String "/assets/files/graph.png"))
+              , KeyValArg (Identifier "width") (Literal (Numeric 70.0 Percent))
+              ])
+       , KeyValArg
+           (Identifier "caption")
+           (Block
+              (Content
+                 [ SoftBreak
+                 , Text "A"
+                 , Space
+                 , Text "graph"
+                 , Space
+                 , Code
+                     "typ/meta/footnote-container-00.typ"
+                     ( line 7 , column 14 )
+                     (FuncCall
+                        (Ident (Identifier "footnote"))
+                        [ BlockArg
+                            [ Text "A"
+                            , Space
+                            , Emph [ Text "graph" ]
+                            , Space
+                            , Text "is"
+                            , Space
+                            , Text "a"
+                            , Space
+                            , Text "structure"
+                            , Space
+                            , Text "with"
+                            , Space
+                            , Text "nodes"
+                            , Space
+                            , Text "and"
+                            , Space
+                            , Text "edges"
+                            , Text "."
+                            ]
+                        ])
+                 , ParBreak
+                 ]))
+       ])
+, SoftBreak
+, Text "More"
+, Space
+, Code
+    "typ/meta/footnote-container-00.typ"
+    ( line 10 , column 7 )
+    (FuncCall
+       (Ident (Identifier "footnote"))
+       [ BlockArg [ Text "just" , Space , Text "for" , Space , Ellipsis ]
+       ])
+, Space
+, Text "footnotes"
+, Space
+, Code
+    "typ/meta/footnote-container-00.typ"
+    ( line 10 , column 41 )
+    (FuncCall
+       (Ident (Identifier "footnote"))
+       [ BlockArg
+           [ Ellipsis
+           , Space
+           , Text "testing"
+           , Text "."
+           , Space
+           , Text ":"
+           , Text ")"
+           ]
+       ])
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 text(body: [Read the docs ]), 
+                 footnote(body: link(body: [https://typst.app/docs], 
+                                     dest: "https://typst.app/docs")), 
+                 text(body: [!
+]), 
+                 figure(body: image(source: "/assets/files/graph.png", 
+                                    width: 70%), 
+                        caption: { text(body: [
+A graph ]), 
+                                   footnote(body: { text(body: [A ]), 
+                                                    emph(body: text(body: [graph])), 
+                                                    text(body: [ is a structure with nodes and edges.]) }), 
+                                   parbreak() }), 
+                 text(body: [
+More ]), 
+                 footnote(body: text(body: [just for …])), 
+                 text(body: [ footnotes ]), 
+                 footnote(body: text(body: [… testing. :)])), 
+                 parbreak() })

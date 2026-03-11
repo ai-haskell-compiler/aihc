@@ -1,0 +1,11 @@
+:set -XOverloadedStrings
+:set -XCPP
+:set -i.:../src
+
+:set -package HUnit
+:set -package QuickCheck
+:set -package test-framework
+:set -package test-framework-hunit
+:set -package test-framework-quickcheck2
+
+:load Test.hs

@@ -1,0 +1,159 @@
+2025-09-07
+        * Version bump (4.5.1). (#666)
+        * Add hello world example for FPGA. (#657)
+
+2025-07-07
+        * Version bump (4.5). (#642)
+
+2025-05-07
+        * Version bump (4.4). (#618)
+        * Update build status badge URL. (#612)
+
+2025-03-07
+        * Version bump (4.3). (#604)
+        * Include missing dependencies in installation instructions. (#591)
+        * Update version of GHC in README. (#590)
+        * Add example of how to use proveWithCounterExample. (#589)
+        * List all Copilot packages in installation command in README. (#597)
+
+2025-01-07
+        * Version bump (4.2). (#577)
+        * Bump upper version constraint on filepath. (#570)
+        * Update struct examples to use generic method implementations. (#564)
+
+2024-11-07
+        * Version bump (4.1). (#561)
+        * Update contribution guidelines. (#476)
+        * Update README with missing publications. (#544)
+        * Make the what4-propositional example's comments match results. (#535)
+        * Add example describing how to implement updateField. (#525)
+        * Standardize changelog format. (#550)
+        * Add installation instructions for Fedora 40 and up. (#542)
+
+2024-09-07
+        * Version bump (4.0). (#532)
+        * Update example to demonstrate struct update support. (#524)
+        * Update example to demonstrate array update support. (#36)
+
+2024-07-07
+        * Version bump (3.20). (#522)
+        * Update README to reflect support for GHC 9.8. (#518)
+
+2024-05-07
+        * Version bump (3.19.1). (#512)
+
+2024-03-07
+        * Version bump (3.19). (#504)
+
+2024-01-07
+        * Version bump (3.18.1). (#493)
+        * Update README to reflect support for GHC 9.6. (#491)
+
+2024-01-07
+        * Version bump (3.18). (#487)
+        * Enable tests for copilot-theorem in CI script. (#474)
+        * Enable tests for copilot-libraries in CI script. (#475)
+        * Replace uses of forall with forAll. (#470)
+        * Update CI job to check for MISRA compliance with cppcheck. (#472)
+        * Relax version constraint on optparse-applicative. (#488)
+
+2023-11-07
+        * Version bump (3.17). (#466)
+        * Replace uses of deprecated functions. (#457)
+
+2023-11-03
+        * Fix typo in README. (#459)
+
+2023-09-07
+        * Version bump (3.16.1). (#455)
+
+2023-07-07
+        * Version bump (3.16). (#448)
+
+2023-05-07
+        * Version bump (3.15). (#438)
+
+2023-03-07
+        * Version bump (3.14). (#422)
+        * Replace import of Copilot.Language.prettyPrint. (#412)
+        * Re-structure README. (#415)
+        * Update README to reflect support for GHC 9.4. (#423)
+
+2023-01-07
+        * Version bump (3.13). (#406)
+
+2022-11-07
+        * Version bump (3.12). (#389)
+
+2022-09-07
+        * Version bump (3.11). (#376)
+
+2022-07-07
+        * Version bump (3.10). (#356)
+        * Run tests in CI. (#329)
+        * Remove duplicated compiler option. (#328)
+        * Fix typos in README and Heater example. (#352)
+        * Relax version bounds of dependencies. (#335)
+        * Update repo info in cabal file. (#333)
+
+2022-05-06
+        * Version bump (3.9). (#320)
+        * Compliance with style guide (partial). (#316)
+        * Add support for GHC 9.0. (#294)
+
+2022-03-07
+        * Version bump (3.8). (#298)
+        * Mark package as uncurated to avoid modification. (#288)
+
+2022-01-07
+        * Version bump (3.7). (#287)
+        * Add example with nested structs. (#275)
+
+2021-11-07
+        * Version bump (3.6). (#264)
+        * Fix missing dependency in example executable. (#252)
+        * Fix outdated/broken links. (#252)
+        * Update installation instructions in README to
+          match new repo structure. (#248)
+
+2021-08-19
+        * Version bump (3.5). (#247)
+        * Update travis domain in README. (#222)
+        * Remove commented code. (#15)
+        * Update official maintainer. (#236)
+        * Fix typo in description. (#240)
+        * Fix reset in counter example. (#54)
+        * Remove unnecessary files from repo. (#244)
+        * Add I. Perez to author list. (#243)
+
+2021-07-07
+        * Version bump (3.4). (#231)
+
+2021-05-07
+        * Version bump (3.3). (#217)
+        * Document installation process without git submodules. (#214)
+        * Bump upper constraint on what4 version number. (#90)
+        * Remove support for GHC <= 8.4 from CI. (#89)
+
+2021-03-07
+        * Version bump (3.2.1). (#85)
+        * Renamed Examples directory to examples. (#44)
+        * Remove version bounds for copilot package in examples. (#86)
+        * Remove unnecessary duplicates from field in cabal file. (#87)
+        * Added how to run examples to README. (#48)
+        * Added flag to prevent examples from being built by default. (#48)
+        * Fix typo in README. (#49)
+        * Completed the documentation. (#67)
+        * Merged and updated examples from
+          benjaminselfridge:feature/what4-updates. (#63)
+
+2020-12-06
+        * Update optparse-applicative dependency version for newer base
+          versions. (#61)
+        * Add Ivan Perez as co-maintainer. (#51)
+        * Update description in cabal file to match copilot-core. (#50)
+
+2019-11-22
+        * Version bump (3.1). (#46)
+        * Update multiple examples. (#41)
+        * Update instructions to match new repositry name. (#45)

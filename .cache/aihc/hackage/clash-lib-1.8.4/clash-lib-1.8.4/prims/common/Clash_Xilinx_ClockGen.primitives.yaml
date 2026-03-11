@@ -1,0 +1,22 @@
+- BlackBox:
+    name: Clash.Xilinx.ClockGen.unsafeClockWizard
+    kind: Declaration
+    format: Haskell
+    templateFunction: Clash.Primitives.Xilinx.ClockGen.clockWizardTF
+    includes:
+      - name: clk_wiz
+        extension: clash.tcl
+        format: Haskell
+        templateFunction: Clash.Primitives.Xilinx.ClockGen.clockWizardTclTF
+    workInfo: Always
+- BlackBox:
+    name: Clash.Xilinx.ClockGen.unsafeClockWizardDifferential
+    kind: Declaration
+    format: Haskell
+    templateFunction: Clash.Primitives.Xilinx.ClockGen.clockWizardDifferentialTF
+    includes:
+      - name: clk_wiz
+        extension: clash.tcl
+        format: Haskell
+        templateFunction: Clash.Primitives.Xilinx.ClockGen.clockWizardDifferentialTclTF
+    workInfo: Always

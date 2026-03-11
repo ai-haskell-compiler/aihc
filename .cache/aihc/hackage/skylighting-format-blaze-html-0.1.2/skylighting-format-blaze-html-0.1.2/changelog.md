@@ -1,0 +1,28 @@
+# Changelog for skylighting-format-blaze-html
+
+## 0.1.2
+
+  * Include container classes on inline code. In block code,
+    these are put on the pre, but in inline code there is only a
+    code element; they should not just be dropped. See jgm/pandoc#11423.
+
+## 0.1.1.3
+
+  * Use `-webkit-text-size-adjust` instead of unsetting
+    inline-block (#202, Jacke Zimmerman).
+
+## 0.1.1.2
+
+* Re-add `display: inline-block` to code line spans, but only
+  for print media. See jgm/pandoc#9520.
+
+## 0.1.1.1
+
+* Remove `display: inline-block` from the code line spans.  This
+  caused odd size changes in iOS.  Closes jgm/pandoc#7248.
+
+## 0.1.1
+
+* Export `formatHtml4Block`, which should be used instead of
+  `formatHtmlBlock` if HTML4 compliance is required.
+

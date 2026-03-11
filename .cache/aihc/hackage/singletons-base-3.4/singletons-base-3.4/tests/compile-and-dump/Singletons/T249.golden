@@ -1,0 +1,90 @@
+Singletons/T249.hs:(0,0)-(0,0): Splicing declarations
+    singletons
+      [d| data Foo1 a = MkFoo1 a
+          data Foo2 a where MkFoo2 :: x -> Foo2 x
+          data Foo3 a where MkFoo3 :: forall x. x -> Foo3 x |]
+  ======>
+    data Foo1 a = MkFoo1 a
+    data Foo2 a where MkFoo2 :: x -> Foo2 x
+    data Foo3 a where MkFoo3 :: forall x. x -> Foo3 x
+    type MkFoo1Sym0 :: forall a. (~>) a (Foo1 a)
+    data MkFoo1Sym0 :: (~>) a (Foo1 a)
+      where
+        MkFoo1Sym0KindInference :: SameKind (Apply MkFoo1Sym0 arg) (MkFoo1Sym1 arg) =>
+                                   MkFoo1Sym0 a0123456789876543210
+    type instance Apply MkFoo1Sym0 a0123456789876543210 = MkFoo1 a0123456789876543210
+    instance SuppressUnusedWarnings MkFoo1Sym0 where
+      suppressUnusedWarnings = snd ((,) MkFoo1Sym0KindInference ())
+    type MkFoo1Sym1 :: forall a. a -> Foo1 a
+    type family MkFoo1Sym1 @a (a0123456789876543210 :: a) :: Foo1 a where
+      MkFoo1Sym1 a0123456789876543210 = MkFoo1 a0123456789876543210
+    type MkFoo2Sym0 :: (~>) x (Foo2 x)
+    data MkFoo2Sym0 :: (~>) x (Foo2 x)
+      where
+        MkFoo2Sym0KindInference :: SameKind (Apply MkFoo2Sym0 arg) (MkFoo2Sym1 arg) =>
+                                   MkFoo2Sym0 a0123456789876543210
+    type instance Apply MkFoo2Sym0 a0123456789876543210 = MkFoo2 a0123456789876543210
+    instance SuppressUnusedWarnings MkFoo2Sym0 where
+      suppressUnusedWarnings = snd ((,) MkFoo2Sym0KindInference ())
+    type MkFoo2Sym1 :: x -> Foo2 x
+    type family MkFoo2Sym1 @x (a0123456789876543210 :: x) :: Foo2 x where
+      MkFoo2Sym1 a0123456789876543210 = MkFoo2 a0123456789876543210
+    type MkFoo3Sym0 :: forall x. (~>) x (Foo3 x)
+    data MkFoo3Sym0 :: (~>) x (Foo3 x)
+      where
+        MkFoo3Sym0KindInference :: SameKind (Apply MkFoo3Sym0 arg) (MkFoo3Sym1 arg) =>
+                                   MkFoo3Sym0 a0123456789876543210
+    type instance Apply MkFoo3Sym0 a0123456789876543210 = MkFoo3 a0123456789876543210
+    instance SuppressUnusedWarnings MkFoo3Sym0 where
+      suppressUnusedWarnings = snd ((,) MkFoo3Sym0KindInference ())
+    type MkFoo3Sym1 :: forall x. x -> Foo3 x
+    type family MkFoo3Sym1 @x (a0123456789876543210 :: x) :: Foo3 x where
+      MkFoo3Sym1 a0123456789876543210 = MkFoo3 a0123456789876543210
+    data SFoo1 :: forall a. Foo1 a -> Type
+      where
+        SMkFoo1 :: forall a (n :: a).
+                   (Sing n) -> SFoo1 (MkFoo1 n :: Foo1 a)
+    type instance Sing @(Foo1 a) = SFoo1
+    instance SingKind a => SingKind (Foo1 a) where
+      type Demote (Foo1 a) = Foo1 (Demote a)
+      fromSing (SMkFoo1 b) = MkFoo1 (fromSing b)
+      toSing (MkFoo1 (b :: Demote a))
+        = case toSing b :: SomeSing a of SomeSing c -> SomeSing (SMkFoo1 c)
+    data SFoo2 :: forall a. Foo2 a -> Type
+      where
+        SMkFoo2 :: forall x (n :: x).
+                   (Sing n) -> SFoo2 (MkFoo2 n :: Foo2 x)
+    type instance Sing @(Foo2 a) = SFoo2
+    instance SingKind a => SingKind (Foo2 a) where
+      type Demote (Foo2 a) = Foo2 (Demote a)
+      fromSing (SMkFoo2 b) = MkFoo2 (fromSing b)
+      toSing (MkFoo2 (b :: Demote x))
+        = case toSing b :: SomeSing x of SomeSing c -> SomeSing (SMkFoo2 c)
+    data SFoo3 :: forall a. Foo3 a -> Type
+      where
+        SMkFoo3 :: forall x (n :: x).
+                   (Sing n) -> SFoo3 (MkFoo3 n :: Foo3 x)
+    type instance Sing @(Foo3 a) = SFoo3
+    instance SingKind a => SingKind (Foo3 a) where
+      type Demote (Foo3 a) = Foo3 (Demote a)
+      fromSing (SMkFoo3 b) = MkFoo3 (fromSing b)
+      toSing (MkFoo3 (b :: Demote x))
+        = case toSing b :: SomeSing x of SomeSing c -> SomeSing (SMkFoo3 c)
+    instance SingI n => SingI (MkFoo1 (n :: a)) where
+      sing = SMkFoo1 sing
+    instance SingI1 MkFoo1 where
+      liftSing = SMkFoo1
+    instance SingI (MkFoo1Sym0 :: (~>) a (Foo1 a)) where
+      sing = singFun1 @MkFoo1Sym0 SMkFoo1
+    instance SingI n => SingI (MkFoo2 (n :: x)) where
+      sing = SMkFoo2 sing
+    instance SingI1 MkFoo2 where
+      liftSing = SMkFoo2
+    instance SingI (MkFoo2Sym0 :: (~>) x (Foo2 x)) where
+      sing = singFun1 @MkFoo2Sym0 SMkFoo2
+    instance SingI n => SingI (MkFoo3 (n :: x)) where
+      sing = SMkFoo3 sing
+    instance SingI1 MkFoo3 where
+      liftSing = SMkFoo3
+    instance SingI (MkFoo3Sym0 :: (~>) x (Foo3 x)) where
+      sing = singFun1 @MkFoo3Sym0 SMkFoo3

@@ -1,0 +1,181 @@
+Changes from 0.10 to 0.10.2
+---------------------------
+
+* Allow ghc-prim-0.13.
+* Allow Cabal-3.14.
+
+Changes from 0.10 to 0.10.1
+---------------------------
+
+* Allow ghc-prim-0.12.
+
+Changes from 0.9 to 0.10
+---------------------------
+
+* Provide the getSystemEncoding function always, improving portability (#26).
+  - The `getSystemEncoding` function is now present on all platforms.
+  - *Breaking change*: It now returns `Nothing` if there is an error, or if running on Windows. The result type, therefore, is `Maybe DynEncoding`.
+  - The `systemEncoding` flag has been dropped.
+
+Changes from 0.8.10 to 0.9
+---------------------------
+
+* Change build-type from Custom to Simple.
+* Describe encoding generation process (as a background process).
+
+Changes from 0.8.9 to 0.8.10
+---------------------------
+
+* Support Cabal-3.12.
+* Support containers-0.7.
+
+Changes from 0.8.8 to 0.8.9
+---------------------------
+
+* Support GHC 9.6 and 9.8.
+
+Changes from 0.8.7 to 0.8.8
+---------------------------
+
+* Added support GHC 9.4, Cabal 3.8
+
+Changes from 0.8.6 to 0.8.7
+---------------------------
+
+* Fixed build with stack and its resolver LTS 19.
+
+Changes from 0.8.5 to 0.8.6
+---------------------------
+
+* Fixed arithmetic underflow during GHC >=8.8 build.
+* Added support GHC 9.0.
+
+Changes from 0.8.4 to 0.8.5
+---------------------------
+
+* Fixed sdist for both v1 and v2 approaches.
+* Fixed build package as dependency via `v2` commands.
+
+Changes from 0.8.3 to 0.8.4
+---------------------------
+
+* Fixed builds with GHC 8.2, 8.4
+* Adopted to upgraded Hackage (Cabal 3.0)
+
+Changes from 0.8.2 to 0.8.3
+---------------------------
+
+* Added support Cabal 2.0
+
+Changes from 0.8 to 0.8.2
+-------------------------
+
+* Deprecated support for very old GHCs
+* Updated cabal file to differentiate between build dependencies and setup dependencies
+* Add upper and lower bounds to build dependencies
+* Stack compatibility
+
+Changes from 0.8 to 0.8.1
+-------------------------
+
+* Added the ShiftJIS and CP932 encodings
+
+Changes from 0.7.0.2 to 0.8
+---------------------------
+
+* GHC-7.10/AMP compatibility
+
+Changes from 0.7.0.1 to 0.7.0.2
+-------------------------------
+
+* Flesh out the MacOSRoman encoding, which was missing 33 code points
+
+Changes from 0.7 to 0.7.0.1
+---------------------------
+
+* GHC-7.8 compatibility
+
+Changes from 0.6.7 to 0.7
+-------------------------
+
+* the type of ByteSource's fetchAhead method changed to accomodate updates to the binary package
+
+Changes from 0.6.5 to 0.6.7
+---------------------------
+
+* Skipped version 0.6.6 due to rogue upload on Hackage
+* GHC-7 and HaXml-1.22 compatibility
+* add -systemEncoding flag for Windows builds
+
+Changes from 0.6.4 to 0.6.5
+---------------------------
+
+* Make package work with >=base-4.3.0.0 and mtl-2
+
+Changes from 0.6.3 to 0.6.4
+---------------------------
+
+* Throw an error when encoding non-ascii chars with ascii
+* Fix compilation with mtl-2
+
+Changes from 0.6.2 to 0.6.3
+---------------------------
+
+* Use new QuickCheck version 2 for tests
+* Fixed UTF16 encoding range
+
+Changes from 0.6.0 to 0.6.1
+---------------------------
+
+* Support for many MSDOS codepages
+* Show instance for DynEncoding
+* More IO functions
+* Fancy translation tables for the documentation of auto-generated modules
+
+Changes from 0.5.2 to 0.6.0
+---------------------------
+
+* Moved from TemplateHaskell to a custom pre-processor for code-generation.
+  This is necessary because:
+  - TemplateHaskell is really slow for large data structures
+  - TemplateHaskell doesn't yet support the MagicHash extension that is useful for the library
+* Use efficient, static data structures for encoding/decoding
+* Fixed bug in UTF-8 that could call 'chr' with bad arguments
+
+Changes from 0.5 to 0.5.2
+-------------------------
+
+* Export function encodingFromStringExplicit
+
+Changes from 0.4 to 0.5
+-----------------------
+
+* Complete rewrite of the Encoding class to allow for
+  - On-the-fly changing of the encoding while en-/decoding
+  - Ability to en-/decode from/to any data structure
+* A general module to help specify encodings based on ISO 2022
+* New encodings:
+  - JIS X 0201
+  - JIS X 0208
+  - ISO 2022-JP
+* More test cases
+
+Changes from 0.3 to 0.4
+-----------------------
+
+* A new, strict UTF-8 decoder
+* Minor bugs fixed in UTF-16 and BootString
+* Test cases for UTF-8, UTF-16 and BootString
+* Added KOI8U encoding
+
+Changes from 0.2 to 0.3
+-----------------------
+
+* Converted to new cabal interface
+* Support for GHC 6.8
+* Support for new bytestring interface
+
+Changes from 0.1 to 0.2
+-----------------------
+
+* Implemented GB18030 encoding

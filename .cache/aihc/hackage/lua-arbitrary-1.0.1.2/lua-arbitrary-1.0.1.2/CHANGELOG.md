@@ -1,0 +1,34 @@
+# Changelog
+
+`lua-arbitrary` uses [PVP Versioning][].
+
+## lua-arbitrary-1.0.1.2
+
+Released 2026-01-08.
+
+-   Cabal cleanups, update list of tested GHC versions.
+
+## lua-arbitrary-1.0.1.1
+
+Released 2023-03-13.
+
+-   Allow lua-2.3.*.
+
+## lua-arbitrary-1.0.1
+
+Released 2022-02-19.
+
+-   Allow lua-2.2.0 (includes Lua 5.4).
+
+-   Implemented `shrink` for Lua integers and numbers.
+
+-   Explicitly disable shrinking for TypeCode, StatusCode, and
+    OPCode.
+
+## lua-arbitrary-1.0.0
+
+Released 29-01-2022.
+
+Extracted from hslua-1.3.0.
+
+  [PVP Versioning]: https://pvp.haskell.org

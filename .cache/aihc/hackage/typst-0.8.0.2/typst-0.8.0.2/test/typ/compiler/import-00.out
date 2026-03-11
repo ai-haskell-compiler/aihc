@@ -1,0 +1,106 @@
+--- parse tree ---
+[ Code
+    "typ/compiler/import-00.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/compiler/import-00.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/compiler/import-00.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Comment
+, Comment
+, SoftBreak
+, Comment
+, Code
+    "typ/compiler/import-00.typ"
+    ( line 6 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "value")))
+       (Block (Content [ Text "foo" ])))
+, ParBreak
+, Comment
+, Code
+    "typ/compiler/import-00.typ"
+    ( line 9 , column 2 )
+    (Import
+       (Literal (String "module.typ"))
+       (SomeIdentifiers
+          [ ( Identifier "fn" , Nothing )
+          , ( Identifier "value" , Nothing )
+          ]))
+, SoftBreak
+, Code
+    "typ/compiler/import-00.typ"
+    ( line 10 , column 2 )
+    (FuncCall
+       (Ident (Identifier "fn"))
+       [ BlockArg
+           [ Text "Like" , Space , Text "and" , Space , Text "Subscribe!" ]
+       ])
+, SoftBreak
+, Code
+    "typ/compiler/import-00.typ"
+    ( line 11 , column 2 )
+    (Ident (Identifier "value"))
+, ParBreak
+, Comment
+, Comment
+, Code
+    "typ/compiler/import-00.typ"
+    ( line 15 , column 2 )
+    (Import
+       (Literal (String "module.typ"))
+       (SomeIdentifiers
+          [ ( Identifier "a" , Nothing ) , ( Identifier "c" , Nothing ) ]))
+, Text "bye"
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 text(body: [
+]), 
+                 parbreak(), 
+                 text(body: [
+]), 
+                 rect(body: text(body: [Like and Subscribe!]), 
+                      fill: rgb(18%,80%,25%,100%), 
+                      inset: 5.0pt), 
+                 text(body: [
+]), 
+                 text(body: [hi]), 
+                 parbreak(), 
+                 text(body: [bye]), 
+                 parbreak() })

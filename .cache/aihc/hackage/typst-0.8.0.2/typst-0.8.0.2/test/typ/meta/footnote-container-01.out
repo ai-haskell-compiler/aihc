@@ -1,0 +1,202 @@
+--- parse tree ---
+[ Code
+    "typ/meta/footnote-container-01.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/meta/footnote-container-01.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/meta/footnote-container-01.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Comment
+, Code
+    "typ/meta/footnote-container-01.typ"
+    ( line 3 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "lang")))
+       (FuncCall
+          (Ident (Identifier "footnote"))
+          [ BlockArg [ Text "Languages" , Text "." ] ]))
+, SoftBreak
+, Code
+    "typ/meta/footnote-container-01.typ"
+    ( line 4 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "nums")))
+       (FuncCall
+          (Ident (Identifier "footnote"))
+          [ BlockArg [ Text "Numbers" , Text "." ] ]))
+, ParBreak
+, DescListItem
+    [ Quote '"' , Text "Hello" , Quote '"' ]
+    [ Text "A"
+    , Space
+    , Text "word"
+    , Space
+    , Code
+        "typ/meta/footnote-container-01.typ"
+        ( line 6 , column 20 )
+        (Ident (Identifier "lang"))
+    ]
+, SoftBreak
+, DescListItem
+    [ Quote '"' , Text "123" , Quote '"' ]
+    [ Text "A"
+    , Space
+    , Text "number"
+    , Space
+    , Code
+        "typ/meta/footnote-container-01.typ"
+        ( line 7 , column 20 )
+        (Ident (Identifier "nums"))
+    , SoftBreak
+    ]
+, SoftBreak
+, BulletListItem
+    [ Quote '"'
+    , Text "Hello"
+    , Quote '"'
+    , Space
+    , Code
+        "typ/meta/footnote-container-01.typ"
+        ( line 9 , column 12 )
+        (Ident (Identifier "lang"))
+    ]
+, SoftBreak
+, BulletListItem
+    [ Quote '"'
+    , Text "123"
+    , Quote '"'
+    , Space
+    , Code
+        "typ/meta/footnote-container-01.typ"
+        ( line 10 , column 10 )
+        (Ident (Identifier "nums"))
+    , SoftBreak
+    ]
+, SoftBreak
+, EnumListItem
+    Nothing
+    [ Quote '"'
+    , Text "Hello"
+    , Quote '"'
+    , Space
+    , Code
+        "typ/meta/footnote-container-01.typ"
+        ( line 12 , column 12 )
+        (Ident (Identifier "lang"))
+    ]
+, SoftBreak
+, EnumListItem
+    Nothing
+    [ Quote '"'
+    , Text "123"
+    , Quote '"'
+    , Space
+    , Code
+        "typ/meta/footnote-container-01.typ"
+        ( line 13 , column 10 )
+        (Ident (Identifier "nums"))
+    , SoftBreak
+    ]
+, SoftBreak
+, Code
+    "typ/meta/footnote-container-01.typ"
+    ( line 15 , column 2 )
+    (FuncCall
+       (Ident (Identifier "table"))
+       [ KeyValArg (Identifier "columns") (Literal (Int 2))
+       , NormalArg (Block (Content [ Text "Hello" ]))
+       , NormalArg
+           (Block
+              (Content
+                 [ Text "A"
+                 , Space
+                 , Text "word"
+                 , Space
+                 , Code
+                     "typ/meta/footnote-container-01.typ"
+                     ( line 17 , column 21 )
+                     (Ident (Identifier "lang"))
+                 ]))
+       , NormalArg (Block (Content [ Text "123" ]))
+       , NormalArg
+           (Block
+              (Content
+                 [ Text "A"
+                 , Space
+                 , Text "number"
+                 , Space
+                 , Code
+                     "typ/meta/footnote-container-01.typ"
+                     ( line 18 , column 21 )
+                     (Ident (Identifier "nums"))
+                 ]))
+       ])
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 text(body: [
+]), 
+                 parbreak(), 
+                 terms(children: ((text(body: [“Hello”]), 
+                                   { text(body: [A word ]), 
+                                     footnote(body: text(body: [Languages.])) }), 
+                                  (text(body: [“123”]), 
+                                   { text(body: [A number ]), 
+                                     footnote(body: text(body: [Numbers.])), 
+                                     text(body: [
+]) }))), 
+                 list(children: ({ text(body: [“Hello” ]), 
+                                   footnote(body: text(body: [Languages.])) }, 
+                                 { text(body: [“123” ]), 
+                                   footnote(body: text(body: [Numbers.])), 
+                                   text(body: [
+]) })), 
+                 enum(children: ({ text(body: [“Hello” ]), 
+                                   footnote(body: text(body: [Languages.])) }, 
+                                 { text(body: [“123” ]), 
+                                   footnote(body: text(body: [Numbers.])), 
+                                   text(body: [
+]) })), 
+                 table(children: (text(body: [Hello]), 
+                                  { text(body: [A word ]), 
+                                    footnote(body: text(body: [Languages.])) }, 
+                                  text(body: [123]), 
+                                  { text(body: [A number ]), 
+                                    footnote(body: text(body: [Numbers.])) }), 
+                       columns: 2), 
+                 parbreak() })

@@ -1,0 +1,6 @@
+- source headers
+- examples
+
+# 0.3+
+- add cmdLog_ (api break)
+- use Proc for pipes

@@ -1,0 +1,9 @@
+Version 0.0.2.0 2020-05-21 by luispedro
+	* Do not stop if an empty bytestring is present in the stream (PR #1 by
+	Kamil Dworakowski)
+
+Version 0.0.1.1 2018-09-23 by luispedro
+	* Update to newer conduit API
+
+Version 0.0.1 2018-02-12 by luispedro
+	* First version

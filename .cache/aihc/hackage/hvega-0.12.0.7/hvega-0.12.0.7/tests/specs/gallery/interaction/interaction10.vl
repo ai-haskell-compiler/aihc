@@ -1,0 +1,80 @@
+{
+    "$schema": "https://vega.github.io/schema/vega-lite/v4.json",
+    "config": {
+        "axisY": {
+            "minExtent": 30
+        }
+    },
+    "data": {
+        "url": "https://vega.github.io/vega-lite/data/seattle-weather.csv"
+    },
+    "description": "Multi Series Line Chart with Tooltip",
+    "encoding": {
+        "tooltip": [
+            {
+                "field": "date",
+                "timeUnit": "yearmonthdate",
+                "type": "temporal"
+            },
+            {
+                "field": "temp_max",
+                "type": "quantitative"
+            },
+            {
+                "field": "temp_min",
+                "type": "quantitative"
+            }
+        ],
+        "x": {
+            "field": "date",
+            "timeUnit": "yearmonthdate",
+            "type": "temporal"
+        }
+    },
+    "layer": [
+        {
+            "encoding": {
+                "y": {
+                    "field": "temp_max",
+                    "type": "quantitative"
+                }
+            },
+            "mark": {
+                "color": "orange",
+                "type": "line"
+            }
+        },
+        {
+            "encoding": {
+                "y": {
+                    "field": "temp_min",
+                    "type": "quantitative"
+                }
+            },
+            "mark": {
+                "color": "red",
+                "type": "line"
+            }
+        },
+        {
+            "encoding": {
+                "color": {
+                    "condition": {
+                        "selection": {
+                            "not": "hover"
+                        },
+                        "value": "transparent"
+                    }
+                }
+            },
+            "mark": "rule",
+            "selection": {
+                "hover": {
+                    "empty": "none",
+                    "on": "mouseover",
+                    "type": "single"
+                }
+            }
+        }
+    ]
+}

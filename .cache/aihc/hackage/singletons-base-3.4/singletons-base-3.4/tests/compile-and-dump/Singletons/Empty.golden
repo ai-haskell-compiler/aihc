@@ -1,0 +1,10 @@
+Singletons/Empty.hs:(0,0)-(0,0): Splicing declarations
+    singletons [d| data Empty |]
+  ======>
+    data Empty
+    data SEmpty :: Empty -> Type
+    type instance Sing @Empty = SEmpty
+    instance SingKind Empty where
+      type Demote Empty = Empty
+      fromSing x = case x of {}
+      toSing x = SomeSing (case x of {})

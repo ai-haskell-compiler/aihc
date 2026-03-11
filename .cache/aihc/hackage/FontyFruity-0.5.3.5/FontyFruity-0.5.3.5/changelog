@@ -1,0 +1,77 @@
+-*-change-log-*-
+
+v0.5.3.5 Septermeber 2019
+ * Fix: GHC 8.8.1 compat
+	 how regular
+
+v0.5.3.4 September 2018
+ * Fix: GHC 8.6.1 compat
+
+v0.5.3.3 June 2017
+ * Fix: Composite glyph positionning (patch from hsyl20)
+ * Fix: glyph lookup (patch from hsyl20)
+
+v0.5.3.2 May 2016
+ * Fix: Bumping base bounds
+
+v0.5.3(.1) February 2016
+ * Fix: bug when trying to scan a directory
+ * Addition: exposing descriptorOf function
+ * Enhancement: Made FontDescriptor strictier.
+
+v0.5.2 August 2015
+ * Fix: GHC 7.4 compilation
+
+v0.5.1.1 April 2015
+ * Fix: compilation on older compilers
+
+v0.5.1 April 2015
+ * Fix: Fixing the bounding box returned by stringBoundingBox 
+ * Fix: All warning of GHC 7.10 final
+
+v0.5 January 2015
+ * BREAKING CHANGE: the point size is now Float!
+
+ ---- Non breaking change:
+ * Adding: lower level access to the structure, without
+   guaranteed stability.
+ * Adding: an helper function to retrieve the distance from
+   the top of the string bounding box to the baseline.
+
+v0.4.1 January 2015
+ * Fixing: Warnings under GHC 7.1O
+
+v0.4
+ * Adding: function to get back unplaced glyph.
+ * Adding: Binary instance for Font cache.
+ * Fixing: font cache.
+
+v0.3 June 2014
+ * Adding: a font finding function
+ * Adding: a font cache type to speed-up frequent font
+   finding.
+
+v0.2.1 April 2014
+ * Fixing: some character map loading problem (again)
+ * Fixing: font loading with out of order tables
+
+v0.2 March 2014
+ * Fixing: character map loading when identical table
+   offset are used.
+ * Adding: bounding box extraction for test snippet.
+
+v0.1.0.4 February 2014
+ * Fixing: hackage's haddock generation
+
+v0.1.0.3 February 2014
+ * Dropping base upper bound.
+
+v0.1.0.2 February 2014
+ * Fixing: compilation with old version of binary.
+
+v0.1.0.1 February 2014
+ * Fixing: some missing information in the cabal file.
+
+v0.1 February 2014
+ * Initial version.
+

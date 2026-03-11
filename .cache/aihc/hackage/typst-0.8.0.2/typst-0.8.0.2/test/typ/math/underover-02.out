@@ -1,0 +1,105 @@
+--- parse tree ---
+[ Code
+    "typ/math/underover-02.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/math/underover-02.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/math/underover-02.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Comment
+, Equation
+    True
+    [ Code
+        "typ/math/underover-02.typ"
+        ( line 3 , column 3 )
+        (FuncCall
+           (Ident (Identifier "underbracket"))
+           [ BlockArg
+               [ MGroup
+                   (Just "[")
+                   (Just "]")
+                   [ Text "1" , Text "," , MFrac (Text "2") (Text "3") ]
+               ]
+           , BlockArg [ Text " relevant stuff" ]
+           ])
+    , Code
+        "typ/math/underover-02.typ"
+        ( line 4 , column 11 )
+        (FieldAccess
+           (Ident (Identifier "long"))
+           (FieldAccess
+              (Ident (Identifier "double"))
+              (FieldAccess
+                 (Ident (Identifier "r"))
+                 (FieldAccess
+                    (Ident (Identifier "l")) (Ident (Identifier "arrow"))))))
+    , Code
+        "typ/math/underover-02.typ"
+        ( line 5 , column 3 )
+        (FuncCall
+           (Ident (Identifier "overbracket"))
+           [ BlockArg
+               [ MGroup
+                   (Just "[")
+                   (Just "]")
+                   [ MFrac (Text "4") (Text "5") , Text "," , Text "6" ]
+               ]
+           , BlockArg [ Text " irrelevant stuff" ]
+           ])
+    ]
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 math.equation(block: true, 
+                               body: { math.underbracket(annotation: text(body: [ relevant stuff]), 
+                                                         body: math.lr(body: ({ [[], 
+                                                                                text(body: [1]), 
+                                                                                text(body: [,]), 
+                                                                                math.frac(denom: text(body: [3]), 
+                                                                                          num: text(body: [2])), 
+                                                                                []] }))), 
+                                       text(body: [⟺]), 
+                                       math.overbracket(annotation: text(body: [ irrelevant stuff]), 
+                                                        body: math.lr(body: ({ [[], 
+                                                                               math.frac(denom: text(body: [5]), 
+                                                                                         num: text(body: [4])), 
+                                                                               text(body: [,]), 
+                                                                               text(body: [6]), 
+                                                                               []] }))) }, 
+                               numbering: none), 
+                 parbreak() })

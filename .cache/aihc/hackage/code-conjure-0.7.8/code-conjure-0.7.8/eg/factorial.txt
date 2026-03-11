@@ -1,0 +1,26 @@
+factorial :: Int -> Int
+-- testing 4 combinations of argument values
+-- pruning with 27/65 rules
+-- 3 candidates of size 1
+-- 0 candidates of size 2
+-- 6 candidates of size 3
+-- 0 candidates of size 4
+-- 23 candidates of size 5
+-- 0 candidates of size 6
+-- 147 candidates of size 7
+-- tested 173 candidates
+factorial 0  =  1
+factorial x  =  x * factorial (x - 1)
+
+factorial :: Int -> Int
+-- testing 4 combinations of argument values
+-- pruning with 32/72 rules
+-- 3 candidates of size 1
+-- 0 candidates of size 2
+-- 6 candidates of size 3
+-- 0 candidates of size 4
+-- 23 candidates of size 5
+-- 40 candidates of size 6
+-- tested 57 candidates
+factorial x  =  foldr (*) 1 [1..x]
+

@@ -1,0 +1,109 @@
+{ "foo": 1,
+  "bar": null,
+  "baz": ["a", "b"],
+  "bim": { "Zub": "Sim" },
+  "sup": [ { "biz": "qux" },
+           { "sax": 2 } ],
+  "items": [ "one with\na line break",
+            "two",
+            "three with\na line break" ],
+  "hasblanks": "hello\n\n",
+  "hasblanksmap": { "a": "hello\n\n",
+                    "b": "there\n\n" },
+  "digits": [1, 5, 20]
+}
+.
+$bar/length$
+$baz/length$
+$bim.Zub/length$
+$bim/length$
+$sup/length$
+
+$baz/uppercase[, ]$
+
+$for(baz)$
+$it$
+$it/uppercase$
+$baz$
+$baz/uppercase$
+$endfor$
+
+$for(bim/pairs)$
+$it.key$: $it.value$
+$bim.key$: $bim.value/lowercase$
+$endfor$
+
+$for(baz/pairs)$
+$it.key/roman/uppercase/right 4$. $it.value$
+$endfor$
+
+$items/pairs/reverse:enum()$
+
+($hasblanks/chomp$)
+
+$for(hasblanksmap/chomp/pairs/uppercase)$
+$it.key$ ($it.value$)
+$endfor$
+
+$digits/roman[ ]$
+
+$for(bim/uppercase)$
+$it.Zub$
+$endfor$
+
+$digits/first$
+$digits/last$
+$for(digits/rest)$
+$it$
+$endfor$
+$for(digits/allbutlast)$
+$it$
+$endfor$
+$foo/first$
+.
+0
+2
+3
+1
+2
+
+A, B
+
+a
+A
+a
+A
+b
+B
+b
+B
+
+Zub: Sim
+Zub: sim
+
+   I. a
+  II. b
+
+C.  three with
+    a line break
+B.  two
+A.  one with
+    a line break
+
+
+(hello)
+
+A (HELLO)
+B (THERE)
+
+i v xx
+
+SIM
+
+1
+20
+5
+20
+1
+5
+1

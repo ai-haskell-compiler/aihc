@@ -1,0 +1,135 @@
+-- strategy: unique candidates
+factorial :: Int -> Int
+-- testing 4 combinations of argument values
+-- pruning with 27/65 rules
+-- 3 candidates of size 1
+-- 0 candidates of size 2
+-- 6 candidates of size 3
+-- 0 candidates of size 4
+-- 18 candidates of size 5
+-- 0 candidates of size 6
+-- 67 candidates of size 7
+-- tested 88 candidates
+factorial 0  =  1
+factorial x  =  x * factorial (x - 1)
+
+-- strategy: default
+factorial :: Int -> Int
+-- testing 4 combinations of argument values
+-- pruning with 27/65 rules
+-- 3 candidates of size 1
+-- 0 candidates of size 2
+-- 6 candidates of size 3
+-- 0 candidates of size 4
+-- 23 candidates of size 5
+-- 0 candidates of size 6
+-- 147 candidates of size 7
+-- tested 173 candidates
+factorial 0  =  1
+factorial x  =  x * factorial (x - 1)
+
+-- strategy: without reasoning
+factorial :: Int -> Int
+-- testing 4 combinations of argument values
+-- pruning with 27/65 rules
+-- 3 candidates of size 1
+-- 0 candidates of size 2
+-- 15 candidates of size 3
+-- 0 candidates of size 4
+-- 270 candidates of size 5
+-- 0 candidates of size 6
+-- 5572 candidates of size 7
+-- tested 5848 candidates
+factorial 0  =  1
+factorial x  =  x * factorial (x - 1)
+
+-- strategy: without descent
+factorial :: Int -> Int
+-- testing 4 combinations of argument values
+-- pruning with 27/65 rules
+-- 3 candidates of size 1
+-- 0 candidates of size 2
+-- 6 candidates of size 3
+-- 0 candidates of size 4
+-- 23 candidates of size 5
+-- 0 candidates of size 6
+-- 232 candidates of size 7
+-- tested 226 candidates
+factorial 0  =  1
+factorial x  =  x * factorial (x - 1)
+
+-- strategy: without assorted
+factorial :: Int -> Int
+-- testing 4 combinations of argument values
+-- pruning with 27/65 rules
+-- 3 candidates of size 1
+-- 0 candidates of size 2
+-- 6 candidates of size 3
+-- 0 candidates of size 4
+-- 25 candidates of size 5
+-- 1 candidates of size 6
+-- 148 candidates of size 7
+-- tested 176 candidates
+factorial 0  =  1
+factorial x  =  x * factorial (x - 1)
+
+-- strategy: only reasoning
+factorial :: Int -> Int
+-- testing 4 combinations of argument values
+-- pruning with 27/65 rules
+-- 3 candidates of size 1
+-- 0 candidates of size 2
+-- 6 candidates of size 3
+-- 0 candidates of size 4
+-- 35 candidates of size 5
+-- 6 candidates of size 6
+-- 284 candidates of size 7
+-- tested 244 candidates
+factorial 0  =  1
+factorial x  =  x * factorial (x - 1)
+
+-- strategy: only descent
+factorial :: Int -> Int
+-- testing 4 combinations of argument values
+-- pruning with 27/65 rules
+-- 3 candidates of size 1
+-- 0 candidates of size 2
+-- 15 candidates of size 3
+-- 0 candidates of size 4
+-- 272 candidates of size 5
+-- 1 candidates of size 6
+-- 5573 candidates of size 7
+-- tested 5851 candidates
+factorial 0  =  1
+factorial x  =  x * factorial (x - 1)
+
+-- strategy: only assorted
+factorial :: Int -> Int
+-- testing 4 combinations of argument values
+-- pruning with 27/65 rules
+-- 3 candidates of size 1
+-- 0 candidates of size 2
+-- 15 candidates of size 3
+-- 0 candidates of size 4
+-- 270 candidates of size 5
+-- 0 candidates of size 6
+-- 6090 candidates of size 7
+-- tested 6196 candidates
+factorial 0  =  1
+factorial x  =  x * factorial (x - 1)
+
+-- strategy: only typed
+factorial :: Int -> Int
+-- testing 4 combinations of argument values
+-- pruning with 27/65 rules
+-- 3 candidates of size 1
+-- 0 candidates of size 2
+-- 15 candidates of size 3
+-- 0 candidates of size 4
+-- 300 candidates of size 5
+-- 15 candidates of size 6
+-- 6645 candidates of size 7
+-- tested 6241 candidates
+factorial 0  =  1
+factorial x  =  x * factorial (x - 1)
+

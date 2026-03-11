@@ -1,0 +1,96 @@
+{
+    "$schema": "https://vega.github.io/schema/vega-lite/v4.json",
+    "bounds": "flush",
+    "config": {
+        "range": {
+            "heatmap": {
+                "scheme": "greenblue"
+            }
+        },
+        "view": {
+            "stroke": null
+        }
+    },
+    "data": {
+        "url": "https://vega.github.io/vega-lite/data/movies.json"
+    },
+    "description": "Marginal histograms show the counts along the x and y dimension",
+    "spacing": 15,
+    "vconcat": [
+        {
+            "encoding": {
+                "x": {
+                    "axis": null,
+                    "bin": true,
+                    "field": "IMDB_Rating",
+                    "type": "quantitative"
+                },
+                "y": {
+                    "aggregate": "count",
+                    "axis": {
+                        "title": null
+                    },
+                    "scale": {
+                        "domain": [
+                            0,
+                            1000
+                        ]
+                    },
+                    "type": "quantitative"
+                }
+            },
+            "height": 60,
+            "mark": "bar"
+        },
+        {
+            "bounds": "flush",
+            "hconcat": [
+                {
+                    "encoding": {
+                        "color": {
+                            "aggregate": "count",
+                            "type": "quantitative"
+                        },
+                        "x": {
+                            "bin": true,
+                            "field": "IMDB_Rating",
+                            "type": "quantitative"
+                        },
+                        "y": {
+                            "bin": true,
+                            "field": "Rotten_Tomatoes_Rating",
+                            "type": "quantitative"
+                        }
+                    },
+                    "mark": "rect"
+                },
+                {
+                    "encoding": {
+                        "x": {
+                            "aggregate": "count",
+                            "axis": {
+                                "title": null
+                            },
+                            "scale": {
+                                "domain": [
+                                    0,
+                                    1000
+                                ]
+                            },
+                            "type": "quantitative"
+                        },
+                        "y": {
+                            "axis": null,
+                            "bin": true,
+                            "field": "Rotten_Tomatoes_Rating",
+                            "type": "quantitative"
+                        }
+                    },
+                    "mark": "bar",
+                    "width": 60
+                }
+            ],
+            "spacing": 15
+        }
+    ]
+}

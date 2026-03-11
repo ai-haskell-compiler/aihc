@@ -1,0 +1,13 @@
+┌─ 0x00000000 P PT_LOAD [PF_X,PF_R]
+│- 0x00000000 P PT_NOTE [PF_R]
+│┎ 0x00000000 H
+│┖ 0x0000003f
+│┎ 0x00000040 PT (2)
+│┖ 0x000000af
+│╓ 0x000000e0 S1 ".text" SHT_PROGBITS [SHF_ALLOC,SHF_EXECINSTR]
+│╙ 0x000000eb
+└─ 0x000000eb
+ ╓ 0x000000ec S2 ".shstrtab" SHT_STRTAB []
+ ╙ 0x000000fc
+ ┎ 0x00000100 ST (3)
+ ┖ 0x000001bf

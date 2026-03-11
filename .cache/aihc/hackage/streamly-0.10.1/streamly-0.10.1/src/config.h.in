@@ -1,0 +1,43 @@
+/* src/config.h.in.  Generated from configure.ac by autoheader.  */
+
+/* Define to 1 if you have the declaration of `IN_EXCL_UNLINK', and to 0 if
+   you don't. */
+#undef HAVE_DECL_IN_EXCL_UNLINK
+
+/* Define to 1 if you have the declaration of `IN_MASK_CREATE', and to 0 if
+   you don't. */
+#undef HAVE_DECL_IN_MASK_CREATE
+
+/* Define to 1 if you have the declaration of
+   `kFSEventStreamCreateFlagFileEvents', and to 0 if you don't. */
+#undef HAVE_DECL_KFSEVENTSTREAMCREATEFLAGFILEEVENTS
+
+/* Define to 1 if you have the declaration of
+   `kFSEventStreamCreateFlagFullHistory', and to 0 if you don't. */
+#undef HAVE_DECL_KFSEVENTSTREAMCREATEFLAGFULLHISTORY
+
+/* Define to 1 if you have the declaration of
+   `kFSEventStreamEventFlagItemCloned', and to 0 if you don't. */
+#undef HAVE_DECL_KFSEVENTSTREAMEVENTFLAGITEMCLONED
+
+/* Define to 1 if you have the declaration of
+   `kFSEventStreamEventFlagItemIsHardlink', and to 0 if you don't. */
+#undef HAVE_DECL_KFSEVENTSTREAMEVENTFLAGITEMISHARDLINK
+
+/* Define to the address where bug reports for this package should be sent. */
+#undef PACKAGE_BUGREPORT
+
+/* Define to the full name of this package. */
+#undef PACKAGE_NAME
+
+/* Define to the full name and version of this package. */
+#undef PACKAGE_STRING
+
+/* Define to the one symbol short name of this package. */
+#undef PACKAGE_TARNAME
+
+/* Define to the home page for this package. */
+#undef PACKAGE_URL
+
+/* Define to the version of this package. */
+#undef PACKAGE_VERSION

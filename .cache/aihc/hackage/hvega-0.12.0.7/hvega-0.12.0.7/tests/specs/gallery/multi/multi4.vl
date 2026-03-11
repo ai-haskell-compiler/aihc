@@ -1,0 +1,111 @@
+{
+    "$schema": "https://vega.github.io/schema/vega-lite/v4.json",
+    "config": {
+        "range": {
+            "heatmap": {
+                "scheme": "greenblue"
+            }
+        }
+    },
+    "data": {
+        "url": "https://vega.github.io/vega-lite/data/movies.json"
+    },
+    "description": "A dashboard with cross-highlighting",
+    "resolve": {
+        "legend": {
+            "color": "independent",
+            "size": "independent"
+        }
+    },
+    "vconcat": [
+        {
+            "encoding": {
+                "x": {
+                    "bin": {
+                        "maxbins": 10
+                    },
+                    "field": "IMDB_Rating",
+                    "type": "quantitative"
+                },
+                "y": {
+                    "bin": {
+                        "maxbins": 10
+                    },
+                    "field": "Rotten_Tomatoes_Rating",
+                    "type": "quantitative"
+                }
+            },
+            "layer": [
+                {
+                    "encoding": {
+                        "color": {
+                            "aggregate": "count",
+                            "legend": {
+                                "direction": "horizontal",
+                                "gradientLength": 120,
+                                "title": "All Movies"
+                            },
+                            "type": "quantitative"
+                        }
+                    },
+                    "mark": "rect"
+                },
+                {
+                    "encoding": {
+                        "color": {
+                            "value": "#666"
+                        },
+                        "size": {
+                            "aggregate": "count",
+                            "legend": {
+                                "title": "In Selected Category"
+                            },
+                            "type": "quantitative"
+                        }
+                    },
+                    "mark": "point",
+                    "transform": [
+                        {
+                            "filter": {
+                                "selection": "myPts"
+                            }
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "encoding": {
+                "color": {
+                    "condition": {
+                        "selection": "myPts",
+                        "value": "steelblue"
+                    },
+                    "value": "grey"
+                },
+                "x": {
+                    "axis": {
+                        "labelAngle": -40
+                    },
+                    "field": "Major_Genre",
+                    "type": "nominal"
+                },
+                "y": {
+                    "aggregate": "count",
+                    "type": "quantitative"
+                }
+            },
+            "height": 120,
+            "mark": "bar",
+            "selection": {
+                "myPts": {
+                    "encodings": [
+                        "x"
+                    ],
+                    "type": "single"
+                }
+            },
+            "width": 330
+        }
+    ]
+}

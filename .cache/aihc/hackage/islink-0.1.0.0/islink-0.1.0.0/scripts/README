@@ -1,0 +1,3 @@
+Run the script all.sh from within the scripts/ directory to generate a list
+of tag name & attribute combinations that correspond to external link
+attributes.

@@ -1,0 +1,31 @@
++++ OK, passed 500 tests.
+
+*** Failed! Falsifiable (after 4 tests):
+0 [0,0]
+
+Generalization:
+x (x:x:_)
+
+Conditional Generalization:
+x xs  when  count x xs > 1
+
+*** Failed! Falsifiable (after 4 tests):
+0 [0,0]
+
+Generalization:
+x (x:x:_)
+
+Conditional Generalization:
+x (x:xs)  when  elem x xs
+
++++ OK, passed 99 tests.
+
+*** Failed! Falsifiable (after 7 tests):
+False [False,False]
+
+Generalization:
+p (p:p:_)
+
+Conditional Generalization:
+p (p:ps)  when  elem p ps
+

@@ -1,0 +1,189 @@
+checks :: ()
+
+*** Failed! Falsifiable (after 1 tests):
+()
+
+Generalization:
+_
+
+*** Failed! Falsifiable (after 1 tests):
+() ()
+
+Generalization:
+_ _
+
+*** Failed! Falsifiable (after 1 tests):
+() () ()
+
+Generalization:
+_ _ _
+
+
+checks :: Bool
+
+*** Failed! Falsifiable (after 1 tests):
+False
+
+Generalization:
+_
+
+*** Failed! Falsifiable (after 1 tests):
+False False
+
+Generalization:
+_ _
+
+*** Failed! Falsifiable (after 1 tests):
+False False False
+
+Generalization:
+_ _ _
+
+
+checks :: Int
+
+*** Failed! Falsifiable (after 1 tests):
+0
+
+Generalization:
+_
+
+*** Failed! Falsifiable (after 1 tests):
+0 0
+
+Generalization:
+_ _
+
+*** Failed! Falsifiable (after 1 tests):
+0 0 0
+
+Generalization:
+_ _ _
+
+
+checks :: Integer
+
+*** Failed! Falsifiable (after 1 tests):
+0
+
+Generalization:
+_
+
+*** Failed! Falsifiable (after 1 tests):
+0 0
+
+Generalization:
+_ _
+
+*** Failed! Falsifiable (after 1 tests):
+0 0 0
+
+Generalization:
+_ _ _
+
+
+checks :: Char
+
+*** Failed! Falsifiable (after 1 tests):
+'a'
+
+Generalization:
+_
+
+*** Failed! Falsifiable (after 1 tests):
+'a' 'a'
+
+Generalization:
+_ _
+
+*** Failed! Falsifiable (after 1 tests):
+'a' 'a' 'a'
+
+Generalization:
+_ _ _
+
+
+checks :: Ordering
+
+*** Failed! Falsifiable (after 1 tests):
+LT
+
+Generalization:
+_
+
+*** Failed! Falsifiable (after 1 tests):
+LT LT
+
+Generalization:
+_ _
+
+*** Failed! Falsifiable (after 1 tests):
+LT LT LT
+
+Generalization:
+_ _ _
+
+
+checks :: [Integer]
+
+*** Failed! Falsifiable (after 1 tests):
+[]
+
+Generalization:
+_
+
+*** Failed! Falsifiable (after 1 tests):
+[] []
+
+Generalization:
+_ _
+
+*** Failed! Falsifiable (after 1 tests):
+[] [] []
+
+Generalization:
+_ _ _
+
+
+checks :: Maybe Int
+
+*** Failed! Falsifiable (after 1 tests):
+Nothing
+
+Generalization:
+_
+
+*** Failed! Falsifiable (after 1 tests):
+Nothing Nothing
+
+Generalization:
+_ _
+
+*** Failed! Falsifiable (after 1 tests):
+Nothing Nothing Nothing
+
+Generalization:
+_ _ _
+
+
+checks :: Either Int Char
+
+*** Failed! Falsifiable (after 1 tests):
+Left 0
+
+Generalization:
+_
+
+*** Failed! Falsifiable (after 1 tests):
+(Left 0) (Left 0)
+
+Generalization:
+_ _
+
+*** Failed! Falsifiable (after 1 tests):
+(Left 0) (Left 0) (Left 0)
+
+Generalization:
+_ _ _
+
+

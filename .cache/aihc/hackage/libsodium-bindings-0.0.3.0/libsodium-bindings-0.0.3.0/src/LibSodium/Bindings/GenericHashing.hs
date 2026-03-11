@@ -1,0 +1,247 @@
+{-# LANGUAGE CApiFFI #-}
+{-# LANGUAGE Trustworthy #-}
+
+-- |
+--
+-- Module: LibSodium.Bindings.GenericHashing
+-- Description: Direct bindings to the Blake2 hashing primitives of Libsodium.
+-- Copyright: (C) Hécate Moonlight 2022
+-- License: BSD-3-Clause
+-- Maintainer: The Haskell Cryptography Group
+-- Stability: Stable
+-- Portability: GHC only
+module LibSodium.Bindings.GenericHashing
+  ( -- * Introduction
+    -- $introduction
+
+    -- * Operations
+    CryptoGenericHashState
+  , cryptoGenericHash
+  , cryptoGenericHashKeyGen
+  , withGenericHashState
+  , withGenericHashStateOfSize
+  , cryptoGenericHashInit
+  , cryptoGenericHashUpdate
+  , cryptoGenericHashFinal
+
+    -- * Constants
+  , cryptoGenericHashBytes
+  , cryptoGenericHashBytesMin
+  , cryptoGenericHashBytesMax
+  , cryptoGenericHashKeyBytes
+  , cryptoGenericHashKeyBytesMin
+  , cryptoGenericHashKeyBytesMax
+  , cryptoGenericHashStateBytes
+  )
+where
+
+import Foreign (Ptr, allocaBytes)
+import Foreign.C (CInt (CInt), CSize (CSize), CUChar, CULLong (CULLong))
+
+-- $introduction
+-- This API computes a fixed-length fingerprint for an arbitrarily long message.
+-- It is backed by the [BLAKE2b](https://blake2.net) algorithm.
+--
+-- Sample use cases:
+--
+--   * File integrity checking
+--   * Creating unique identifiers to index arbitrarily long data
+--
+-- ⚠️ Do not use this API module to hash passwords!
+--
+-- Whenever there is a @'Ptr' 'CryptoGenericHashState'@, it must point to enough memory
+-- to hold the hash state.
+-- This is at least 'cryptoGenericHashBytesMin', at most
+-- 'cryptoGenericHashBytesMax', and should typically be 'cryptoGenericHashBytes'.
+-- It is the caller's responsibility to ensure that this holds.
+
+-- | Opaque tag representing the hash state struct @crypto_generichash_state@ used by the C API.
+--
+-- To use a 'CryptoGenericHashState', use 'withGenericHashState'.
+--
+-- @since 0.0.1.0
+data CryptoGenericHashState
+
+-- | This function allocates a 'CryptoGenericHashState' of size 'cryptoGenericHashBytes'.
+-- If you want more control over the size of the hash state, use 'withGenericHashStateOfSize'.
+--
+-- ⚠️ Do not leak the 'CryptoGenericHashState' outside of the lambda,
+-- otherwise you will point at deallocated memory!
+--
+-- @since 0.0.1.0
+withGenericHashState :: (Ptr CryptoGenericHashState -> IO a) -> IO a
+withGenericHashState action = withGenericHashStateOfSize cryptoGenericHashBytes action
+
+-- | This function allocates a 'CryptoGenericHashState' of the desired size.
+--
+-- Use the following constants as parameter to this function:
+--
+--   * 'cryptoGenericHashBytesMin' (16U)
+--   * 'cryptoGenericHashBytes' (32U)
+--   * 'cryptoGenericHashBytesMax' (64U)
+--
+-- @since 0.0.1.0
+withGenericHashStateOfSize :: CSize -> (Ptr CryptoGenericHashState -> IO a) -> IO a
+withGenericHashStateOfSize size action = allocaBytes (fromIntegral size) action
+
+-- | Put a fingerprint of the message (the @in@ parameter) of length @inlen@ into
+-- the @out@ buffer.
+-- The minimum recommended output size (@outlen@) is 'cryptoGenericHashBytes'.
+-- However, for specific use cases, the size can be any value between 'cryptoGenericHashBytesMin' (included)
+-- and 'cryptoGenericHashBytesMax' (included).
+--
+-- The @key@ parameter can be 'Foreign.nullPtr' and keylen can be 0. In this case, a message will always have the same fingerprint
+-- But a key can also be specified. A message will always have the same fingerprint for a given key, but different
+-- keys used to hash the same message are very likely to produce distinct fingerprints.
+-- In particular, the key can be used to make sure that different applications generate different fingerprints even
+-- if they process the same data.
+--
+-- The recommended key size is 'cryptoGenericHashKeyBytes' bytes.
+--
+-- However, the key size can be any value between 0 (included) and 'cryptoGenericHashKeyBytesMax' (included).
+-- If the key is meant to be secret, the recommended minimum length is 'cryptoGenericHashKeyBytesMin'.
+--
+-- /See:/ [crypto_generichash()](https://doc.libsodium.org/hashing/generic_hashing#usage)
+--
+-- @since 0.0.1.0
+foreign import capi "sodium.h crypto_generichash"
+  cryptoGenericHash
+    :: Ptr CUChar
+    -- ^ @out@ parameter.
+    -> CSize
+    -- ^ @outlen@ parameter.
+    -> Ptr CUChar
+    -- ^ @in@ parameter.
+    -> CULLong
+    -- ^ @inlen@ parameter.
+    -> Ptr CUChar
+    -- ^ @key@ parameter.
+    -> CSize
+    -- ^ @keylen@ parameter.
+    -> IO CInt
+    -- ^ Returns 0 on success, -1 on error.
+
+-- | Initialise a hash state with a key of a specified length, and
+-- produce an output with the specified length in bytes.
+--
+-- The @'Ptr' 'CUChar'@ argument must point to enough memory to hold a key,
+-- which must also be initialised.
+-- This is at least 'cryptoGenericHashKeyBytesMin', at most
+-- 'cryptoGenericHashKeyBytesMax', and should typically be 'cryptoGenericHashKeyBytes'.
+-- It is the caller's responsibility to ensure that these hold.
+--
+-- /See:/ [crypto_generichash_init()](https://doc.libsodium.org/hashing/generic_hashing#usage)
+--
+-- @since 0.0.1.0
+foreign import capi "sodium.h crypto_generichash_init"
+  cryptoGenericHashInit
+    :: Ptr CryptoGenericHashState
+    -- ^ Pointer to the hash state
+    -> Ptr CUChar
+    -- ^ Pointer to a key
+    -> CSize
+    -- ^ Length of the key
+    -> CSize
+    -- ^ Length of the result
+    -> IO CInt
+    -- ^ Returns 0 on success, -1 on error.
+
+-- | If you process a message in chunks, you can sequentially process each chunk by calling 'cryptoGenericHashUpdate'
+-- by providing a pointer to the previously initialised state, a pointer to the input chunk,
+-- and the length of the chunk in bytes.
+--
+-- /See:/ [crypto_generichash_update()](https://doc.libsodium.org/hashing/generic_hashing#usage)
+--
+-- @since 0.0.1.0
+foreign import capi "sodium.h crypto_generichash_update"
+  cryptoGenericHashUpdate
+    :: Ptr CryptoGenericHashState
+    -- ^ Pointer to the hash state
+    -> Ptr CUChar
+    -- ^ Pointer to a chunk to be processed
+    -> CULLong
+    -- ^ Length of the chunk in bytes
+    -> IO CInt
+    -- ^ Returns 0 on success, -1 on error.
+
+-- | After processing everything you need with 'cryptoGenericHashUpdate', you can finalise the operation
+-- with 'cryptoGenericHashFinal'.
+--
+-- /See:/ [crypto_generichash_final()](https://doc.libsodium.org/hashing/generic_hashing#usage)
+--
+-- @since 0.0.1.0
+foreign import capi "sodium.h crypto_generichash_final"
+  cryptoGenericHashFinal
+    :: Ptr CryptoGenericHashState
+    -- ^ The hash state used throughout the previous hashing operations.
+    -> Ptr CUChar
+    -- ^ The pointer to the resulting fingerprint.
+    -> CSize
+    -- ^ Size of the hash.
+    -> IO CInt
+    -- ^ Returns 0 on success, -1 if called twice.
+
+-- | This function creates a key of the recommended length 'cryptoGenericHashKeyBytes'.
+--
+-- /See:/ [crypto_generichash_keygen()](https://doc.libsodium.org/hashing/generic_hashing#usage)
+--
+-- @since 0.0.1.0
+foreign import capi "sodium.h crypto_generichash_keygen"
+  cryptoGenericHashKeyGen
+    :: Ptr CUChar
+    -- ^ A pointer to the key
+    -> IO ()
+
+-- | Size of the generated hash.
+--
+-- /See:/ [crypto_generichash_BYTES](https://doc.libsodium.org/hashing/generic_hashing#constants)
+--
+-- @since 0.0.1.0
+foreign import capi "sodium.h value crypto_generichash_BYTES"
+  cryptoGenericHashBytes :: CSize
+
+-- | Minimum size of a generated hash
+--
+-- /See:/ [crypto_generichash_BYTES_MIN](https://doc.libsodium.org/hashing/generic_hashing#constants)
+--
+-- @since 0.0.1.0
+foreign import capi "sodium.h value crypto_generichash_BYTES_MIN"
+  cryptoGenericHashBytesMin :: CSize
+
+-- | Maximum size of a generated hash
+--
+-- /See:/ [crypto_generichash_BYTES_MAX](https://doc.libsodium.org/hashing/generic_hashing#constants)
+--
+-- @since 0.0.1.0
+foreign import capi "sodium.h value crypto_generichash_BYTES_MAX"
+  cryptoGenericHashBytesMax :: CSize
+
+-- | Size of a generated key
+--
+-- /See:/ [crypto_generichash_KEYBYTES](https://doc.libsodium.org/hashing/generic_hashing#constants)
+--
+-- @since 0.0.1.0
+foreign import capi "sodium.h value crypto_generichash_KEYBYTES"
+  cryptoGenericHashKeyBytes :: CSize
+
+-- | Minimum size of a generated key
+--
+-- /See:/ [crypto_generichash_KEYBYTES_MIN](https://doc.libsodium.org/hashing/generic_hashing#constants)
+--
+-- @since 0.0.1.0
+foreign import capi "sodium.h value crypto_generichash_KEYBYTES_MIN"
+  cryptoGenericHashKeyBytesMin :: CSize
+
+-- | Maximum size of a generated key
+--
+-- /See:/ [crypto_generichash_KEYBYTES_MAX](https://doc.libsodium.org/hashing/generic_hashing#constants)
+--
+-- @since 0.0.1.0
+foreign import capi "sodium.h value crypto_generichash_KEYBYTES_MAX"
+  cryptoGenericHashKeyBytesMax :: CSize
+
+-- | Size of a 'CryptoGenericHashState'
+--
+-- @since 0.0.1.0
+foreign import capi "sodium.h crypto_generichash_blake2b_statebytes"
+  cryptoGenericHashStateBytes :: CSize

@@ -1,0 +1,1 @@
+ParseFailed (SrcLoc "tests/examples/BadStringLineBreak.hs" 3 27) "Improperly terminated string"

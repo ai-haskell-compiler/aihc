@@ -1,0 +1,78 @@
+{
+    "$schema": "https://vega.github.io/schema/vega-lite/v4.json",
+    "data": {
+        "format": {
+            "parse": {
+                "Release_Date": "date:'%d-%b-%y'"
+            }
+        },
+        "url": "https://vega.github.io/vega-lite/data/movies.json"
+    },
+    "description": "Calculation of difference from annual average",
+    "layer": [
+        {
+            "encoding": {
+                "x": {
+                    "axis": {
+                        "title": "IMDB Rating"
+                    },
+                    "field": "IMDB_Rating",
+                    "type": "quantitative"
+                },
+                "y": {
+                    "field": "Title",
+                    "type": "ordinal"
+                }
+            },
+            "mark": {
+                "clip": true,
+                "type": "bar"
+            }
+        },
+        {
+            "encoding": {
+                "color": {
+                    "value": "red"
+                },
+                "x": {
+                    "field": "AverageYearRating",
+                    "type": "quantitative"
+                },
+                "y": {
+                    "field": "Title",
+                    "type": "ordinal"
+                }
+            },
+            "mark": "tick"
+        }
+    ],
+    "transform": [
+        {
+            "filter": "isValid(datum.IMDB_Rating)"
+        },
+        {
+            "as": "year",
+            "field": "Release_Date",
+            "timeUnit": "year"
+        },
+        {
+            "frame": [
+                null,
+                null
+            ],
+            "groupby": [
+                "year"
+            ],
+            "window": [
+                {
+                    "as": "AverageYearRating",
+                    "field": "IMDB_Rating",
+                    "op": "mean"
+                }
+            ]
+        },
+        {
+            "filter": "(datum.IMDB_Rating - datum.AverageYearRating) > 2.5"
+        }
+    ]
+}

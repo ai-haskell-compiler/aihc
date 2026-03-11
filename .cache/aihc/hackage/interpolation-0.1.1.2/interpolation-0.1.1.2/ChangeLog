@@ -1,0 +1,13 @@
+0.1.1.2:
+
+* add testsuite based on doctest comments and doctest-extract
+
+0.1:
+
+* Hermite1 interpolation: different order of coefficients
+
+  Interleave node values and derivatives
+  in order to get a narrow banded Gramian matrix
+  from a sampled interpolation basis.
+
+  Rename from 'cubic' to 'hermite1'.

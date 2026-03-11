@@ -1,0 +1,38 @@
+{
+    "title" : "Search Operator",
+    "data" : {
+        "firstName" : "John",
+        "lastName" : "Doe",
+        "eyes" : "blue",
+        "children" : [{
+                "firstName" : "Sally",
+                "lastName" : "Doe",
+                "favoriteGames" : ["Halo", "Minecraft", "Lego: Star Wars"]
+            }, {
+                "firstName" : "Mike",
+                "lastName" : "Doe",
+                "eyes" : "green"
+            }
+        ]
+    },
+    "tests" : [{
+        "path" : "$..firstName",
+        "result" : ["John", "Sally", "Mike"]
+    }, {
+        "path" : "$..lastName",
+        "result" : ["Doe", "Doe", "Doe"]
+    }, {
+        "path" : "$..eyes",
+        "result" : ["blue", "green"]
+    }, {
+        "path" : "$..missingKey",
+        "result" : []
+    }, {
+        "path" : "$..[1]",
+        "result" : [{
+            "firstName" : "Mike",
+            "lastName" : "Doe",
+            "eyes" : "green"
+        }, "Minecraft"]
+    }]
+}

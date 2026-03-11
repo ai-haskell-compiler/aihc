@@ -1,0 +1,164 @@
+* Scenario
+
+In this example, a fancy library for processing text files has been
+developed.  The library will read text files and perform various
+modifications to those files, then output them in one of various
+forms.
+
+The library is implemented by the [[NiftyText.hs]] source file in this
+directory.  The functionality provided by the library is pretty basic
+at this stage:
+
+#+BEGIN_EXAMPLE
+$ ghci -isrc NiftyText.hs
+GHCi, version 8.8.3: https://www.haskell.org/ghc/  :? for help
+[1 of 1] Compiling NiftyText        ( NiftyText.hs, interpreted )
+Ok, one module loaded.
+
+*NiftyText> processText "passthru" "ascii" "This is the TEXT I will process."
+"This is the TEXT I will process.\n"
+
+*NiftyText> processText "upper" "ascii" "This is the TEXT I will process."
+"THIS IS THE TEXT I WILL PROCESS.\n"
+
+*NiftyText> processText "lower" "ascii" "This is the TEXT I will process."
+"this is the text i will process.\n"
+
+*NiftyText> processText "lower" "octets" "This is the TEXT I will process."
+"116 104 105 115  105 115  116 104 101  116 101 120 116  105  119 105 108 108  112 114 111 99 101 115 115 46\n"
+
+*NiftyText> putStrLn $ processText "passthru" "sizes" "This is the\n TEXT\n I will process."
+3: 4 2 3
+1: 4
+3: 1 4 8
+
+*NiftyText>
+#+END_EXAMPLE
+
+The first parameter to the `processText` specifies the transformation
+and the second parameter specifies the output form.  In order to test
+this library, a set of tests should be defined that will verify
+different combinations of the transformation and the output form for
+multiple different inputs.
+
+* Testing
+
+As a simple beginning, a test can be developed for the "passthru" and
+"ascii" parameters, with simple pairings of sample input files and
+expected output files.
+
+Sample input files:
+
+#+BEGIN_EXAMPLE
+$ ls testdata
+hello_inp
+hello_inp.exp
+counting
+counting.exp
+
+$ cat testdata/hello_inp
+Hello, world.
+
+$ cat testdata/counting
+1
+Number 2
+The number three
+This is # 4
+Fifth line: here's number five.
+#+END_EXAMPLE
+
+For each one of these, the ~passthru ascii~ configuration should
+result in no change to the input, so the expected results files are
+identical to the input files:
+
+#+BEGIN_EXAMPLE
+$ cat testdata/hello_inp.exp
+Hello, world.
+
+$ cat testdata/counting.exp
+1
+Number 2
+The number three
+This is # 4
+Fifth line: here's number five.
+#+END_EXAMPLE
+
+The ~tasty-sugar~ module can be used to identify the proper pairings
+of these files to use for running tests.  A "cube" is setup that
+defines the file configurations:
+
+#+BEGIN_EXAMPLE
+$ ghci NiftyText.hs ../../src/Test/Tasty/Sugar.hs
+GHCi, version 8.8.3: https://www.haskell.org/ghc/  :? for help
+[1 of 2] Compiling NiftyText        ( NiftyText.hs, interpreted )
+[2 of 2] Compiling Test.Tasty.Sugar ( ../../src/Test/Tasty/Sugar.hs, interpreted )
+Ok, two modules loaded.
+*NiftyText>
+*NiftyText> :module Test.Tasty.Sugar
+Prelude Test.Tasty.Sugar> cube = mkCUBE { inputDir = "testdata" }
+Prelude Test.Tasty.Sugar>
+Prelude Test.Tasty.Sugar> findSugar cube
+[Sweets
+    {inputName = "counting",
+     sourceFile = "testdata/counting",
+     cubeParams = [],
+     expected =
+         [Expectation
+             {expectedFile = "testdata/counting.exp",
+              expParamsMatch = [],
+              associated = []}]},
+ Sweets
+    {inputName = "hello_inp",
+     sourceFile = "testdata/hello_inp",
+     cubeParams = [],
+     expected =
+         [Expectation
+             {expectedFile = "testdata/hello_inp.exp",
+              expParamsMatch = [],
+              associated = []}]}
+]
+Prelude Test.Tasty.Sugar>
+#+END_EXAMPLE
+
+The output above was reformatted for readability, but it's clear that
+~tasty-sugar~ found both input files and the corresponding expected
+output file.
+
+The [[test-passthru-ascii.hs]] file shows how the above information is
+used for operating actual tests.  The test is passed a single ~Sweets~
+object like the one returned from ~findSugar~ above, and also a
+specific ~Expectation~ array entry for that ~Sweets~.  The ~Sweets~
+has a list of *all* the ~Expectation~ entries, but the test expects to
+explicitly be given a single ~Expectation~ to validate.
+
+It is worth noting at this point that ~tasty-sweet~ doesn't provide or
+impose any specific testing mechanisms on the testing process; the
+main facility provided by ~tasty-sweet~ is to scan the ~inputDir~
+specified by the ~CUBE~ and find all pairings of inputs and outputs.
+Although an explicit comparison was done above, other types of testing
+could be performed, including using ~tasty-golden~ to perform the
+comparison to the expected output file.
+
+* Results
+
+Running the tests shows the two expected outputs being verified:
+
+#+BEGIN_EXAMPLE
+$ cabal v2-run test:test-passthru-ascii
+passthru ascii tests
+  counting
+    checking examples/example1/testdata/counting.exp:  OK
+  hello_inp
+    checking examples/example1/testdata/hello_inp.exp: OK
+
+All 2 tests passed (0.00s)
+#+END_EXAMPLE
+
+_Excellent!_ This has now used ~tasty-sweet~ to help verify that the
+~NiftyText~ library does the right thing when used in ~passthru~
+~ascii~ mode for a couple of different inputs.  At this point however,
+the test scenario is simple and ~tasty-golden~ could just as easily
+have been used instead of ~tasty-sweet~.  The advantage of using
+~tasty-sweet~ starts to become apparent when testing is expanded to
+other modes besides ~passthru~ and ~ascii~, as demonstrated in
+[[../example2/README.org]].

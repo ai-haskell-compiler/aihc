@@ -1,0 +1,2027 @@
+%% 
+%% FMP Manual (English)
+%% Copyright (C) 1998 Joachim Korittky
+%% Copyright (C) 2002 Meik Hellmund
+%% 
+%% This file is part of Functional MetaPost.
+%% 
+%% Functional MetaPost is free software; you can redistribute it
+%% and/or modify it under the terms of the GNU General Public License
+%% as published by the Free Software Foundation; either version 2 of
+%% the License, or (at your option) any later version.
+%% 
+%% Functional MetaPost is distributed in the hope that it will be
+%% useful, but WITHOUT ANY WARRANTY; without even the implied warranty
+%% of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+%% GNU General Public License for more details.
+%% 
+%% You should have received a copy of the GNU General Public License
+%% along with Functional MetaPost; if not, write to the
+%% Free Software Foundation, Inc., 59 Temple Place, Suite 330,
+%% Boston, MA 02111-1307 USA
+%% 
+
+\documentclass[fleqn]{article}
+
+%options hugs -h1m -P:/home/wferi/FuncMP-1.2
+%align 33
+
+\usepackage{a4wide}
+\usepackage{latexsym}
+\usepackage{mflogo}
+\usepackage{color}
+\usepackage{float}
+\usepackage{wrapfig}
+\usepackage{mflogo}
+\usepackage{floatflt}
+\makeatletter
+\usepackage{amstext}
+\usepackage{amssymb}
+\usepackage{epsfig}
+\usepackage{ulem}\normalem
+\usepackage{fancyheadings}
+
+\pagestyle{fancyplain}
+\lhead[\fancyplain{}{\bfseries\thepage}]
+      {\fancyplain{}{\itshape\rightmark}}
+\rhead[\fancyplain{}{\itshape\leftmark}]
+      {\fancyplain{}{\bfseries\thepage}}
+\cfoot{}
+\setlength{\headheight}{13pt}
+
+\DeclareFontFamily{OT1}{cmtex}{}
+\DeclareFontShape{OT1}{cmtex}{m}{n}
+  {<5><6><7><8>cmtex8
+   <9>cmtex9
+   <10><10.95><12><14.4><17.28><20.74><24.88>cmtex10}{}
+\DeclareFontShape{OT1}{cmtex}{m}{it}
+  {<-> ssub * cmtt/m/it}{}
+\newcommand{\texfamily}{\fontfamily{cmtex}\selectfont}
+\DeclareFontShape{OT1}{cmtt}{bx}{n}
+  {<5><6><7><8>cmtt8
+   <9>cmbtt9
+   <10><10.95><12><14.4><17.28><20.74><24.88>cmbtt10}{}
+\DeclareFontShape{OT1}{cmtex}{bx}{n}
+  {<-> ssub * cmtt/bx/n}{}
+\newcommand{\tex}[1]{\text{\texfamily#1}}       % NEU
+%\newfont{\Pretty}{pretty10}
+
+\newcommand{\Sp}{\hskip.33334em\relax}
+\usepackage{times}\renewcommand{\ttdefault}{cmtt}
+\SetMathAlphabet{\mathrm}{normal}{OT1}{ptm}{m}{n}
+
+\SetMathAlphabet{\mathbf}{normal}{OT1}{ptm}{bx}{n}
+\SetMathAlphabet{\mathit}{normal}{OT1}{ptm}{m}{it}
+
+\newlength{\lwidht}\setlength{\lwidht}{4.5cm}
+\newlength{\cwidth}\setlength{\cwidth}{8mm} % 3mm
+
+\newcommand{\Conid}[1]{\mathit{#1}}
+\newcommand{\Varid}[1]{\mathit{#1}}
+
+\newcommand{\anonymous}{\kern0.06em \vbox{\hrule\@@width.5em}}
+\newcommand{\plus}{\mathbin{+\!\!\!+}}
+\newcommand{\bind}{\mathbin{>\!\!\!>\mkern-6.7mu=}}
+\newcommand{\sequ}{\mathbin{>\!\!\!>}}
+\renewcommand{\leq}{\leqslant}
+\renewcommand{\geq}{\geqslant}
+\newcommand{\NB}{\textbf{NB~}}
+\newcommand{\Todo}[1]{$\langle$\textbf{To do:}~#1$\rangle$}
+\newcommand{\Key}[1]{\uline{#1}}
+
+\newcommand{\FMP}{\textrm{\textit{functional}} \MP }
+\newcommand{\Registered}{\Pisymbol{psy}{210}}
+\newcommand{\beside}[2]{\parbox[c]{#1\linewidth}{\begin{center}#2\end{center}}}
+\newcommand{\HRule}{\rule{\linewidth}{0.5pt}\vspace{10pt}}
+\newcommand{\VRule}[1]{\hspace{10pt}\beside{0.01}{\rule{0.5pt}{#1}}}
+
+\definecolor{lightGrey}{gray}{.9}
+
+\newfloat{tabelle}{tbhp}{lop}[subsection]
+\floatname{tabelle}{Table}
+\floatplacement{tabelle}{H}
+\newcommand{\Tabelle}[2]{\begin{tabelle}\caption{#1}\begin{center}
+\label{#1}
+\colorbox{lightGrey}{#2}\end{center}\end{tabelle}}
+
+\newfloat{abbildung}{tbhp}{lop}[subsection]
+\floatname{abbildung}{Figure}
+\floatplacement{abbildung}{H}
+\newcommand{\Abbildung}[2]{\begin{abbildung}\caption{#1}\begin{center}
+\label{#1}
+\setlength{\fboxsep}{16pt}
+\fbox{#2}\end{center}\end{abbildung}}
+
+
+\newfloat{beispiel}{tbhp}{lop}[subsection]
+\floatname{beispiel}{Example}
+\floatplacement{beispiel}{H}
+\newcommand{\Beispiel}[2]{\begin{beispiel}\caption{#1}\begin{center}
+\label{#1}
+\setlength{\fboxsep}{16pt}
+\fbox{\small #2}\end{center}\end{beispiel}}
+
+\newcommand{\BeispielWrap}[2]{%
+\begin{floatingfigure}[r]{#1}
+    \setlength{\fboxsep}{0pt}
+    \fbox{\small #2}
+\end{floatingfigure}}
+
+
+\newcommand{\POver}{||\!\!-\!\!||}
+\newcommand{\PSOver}{||\!\!=\!\!||}
+\newcommand{\PBeside}{||||||}
+\newcommand{\PSBeside}{||||||||}
+
+\newenvironment{inline}{\begin{minipage}[t]{0cm}\def\qquad{}}{\end{minipage}}
+
+
+%\newcommand{\addtoprog}[2]{\newcommand{#1}{\protect #2}\addcontentsline{prg}{program}{\protect#1}}
+%\newcommand{\l@@program}[2]{\par\noindent#1 {\itshape #2}}
+%\newcommand{\listofprog}{\@@starttoc{prg}}
+
+
+\begin{document}
+
+\makeatother
+\title{\texttt{\FMP} \\
+       User's manual}
+\author{Joachim Korittky}
+
+
+
+%if False
+
+> module Main where
+> import FMPTurtle
+> import FMPTree
+> import FMPCanvas
+> import FMPMatrix
+> import FMPFrames
+
+> import FMPMpsyntax
+> import FMPFile
+> import System
+
+%endif
+
+\maketitle
+
+\tableofcontents
+\newpage
+
+%%%%%%%%%format \       = "$\setminus$"
+
+\section{Introduction}
+
+
+
+\section{Basic functions}
+
+\subsection{Text}
+
+Text is a basic element of \FMP\ and is generated by the function
+|text :: String -> Picture|. This defines a picture with a bounding box 
+and nine associated points    |C,| |N,| |NE,| |E,| |SE,| |S,| |SW,| |W,| |NW|,
+as demonstrated in Fig.~\ref{Bounding box of a text with reference points}.
+
+
+\Abbildung{Bounding box of a text with reference points}{
+%if recalc
+\perform{ generate "bound" 1 textBounding1 }
+%else
+\epsfig{file=bound.1}
+%endif
+}
+
+
+But |text :: String -> Picture| is only useful for single words or numbers.
+The function
+|tex :: String -> Picture| implements the full functionality of
+\TeX\rlap.\footnote{ \MP\ has to start \TeX\ for every  |tex| command in order to
+  calculate the bounding box. Therefore, |text| is much faster.}
+
+The  backslash $\backslash$ has a  special meaning, therefore  |tex "\large A"|
+must be written as |tex "\\large A"|.
+A similar function is  |math :: String -> Picture|, which adds |$|
+%$
+ symbols at the start and the end of the string, switching to  \TeX\ math mode.  
+
+The |bullet| can also be useful, which, too, owns all the reference points 
+|C|, |N|\dots
+
+The minimal picture is  |nullPic|, which has no extension and no visible content.
+
+\Tabelle{Basic functions}{
+\begin{tabular}{||ll||l||}
+\hline
+\multicolumn{2}{||l||}{Function}&generates\\
+\hline\hline
+|text|          &|:: String -> Picture|&single words\\
+|tex|           &|:: String -> Picture|&full  \TeX\\
+|math|          &|:: String -> Picture|&\TeX\ math mode\\
+|dot,bullet|    &|:: Picture          |&fat point\\
+|nullPic|       &|:: Picture          |&empty picture\\
+|trueBox|       &|:: Picture -> Picture|        &generates the picture with minimal\\
+                &                               &all-including bounding box.\\
+\hline
+\end{tabular}
+}
+
+This are the basic elements, which, together with lines, paths and area fillings, allow
+the construction of more complex graphics.
+
+\begin{hide}
+
+> primitives = matrix [
+>       [tex "text \"text\"", tex "yields", text "text"],
+>       [tex "text \"text with spaces\"", tex "yields", text "text with spaces"],
+>       [tex "tex \"text with spaces\"", tex "yields", tex "text with spaces"],
+>       [tex "math \"$\\backslash\\backslash$frac\\{1\\}\\{$\\backslash\\backslash$sqrt\\{x$^\\land$2-1\\}\\}\"", tex "yields", math "\\frac{1}{\\sqrt {x^2-1}}"],
+>       [tex "dot", tex "yields", toPicture dot]
+>       ]
+
+\end{hide}
+
+
+\Abbildung{Examples}{
+%if recalc
+\perform{ generate "primitives" 1 primitives }
+%else
+\epsfig{file=primitives.1}
+%endif
+}
+
+\subsection{Attributes}
+
+Attributes control the look and  placement of objects. They allow e.g.\ 
+to change colors and distances. 
+
+Different objects may have the same attributes. The attribute functions are
+therefore organized in  type classes.
+
+
+
+\Tabelle{Overview of attributes}{
+{\small
+\begin{tabular}{||l||l||l||l||l||l||l||||l||l||l||}
+\hline
+Attribute        &Class         &Picture        &Frame  &Path   &PathElemDescr  &Area   &Tree   &Edge&Turtle\\
+\hline\hline
+setName         &HasName        &X              &       &       &               &       &       &       &\\
+getNames        &HasName        &X              &       &       &               &       &       &       &\\
+\hline
+setDX           &HasDXY         &               &X      &       &               &       &       &       &\\
+getDX           &HasDXY         &               &X      &       &               &       &       &       &\\
+setDY           &HasDXY         &               &X      &       &               &       &       &       &\\
+getDY           &HasDXY         &               &X      &       &               &       &       &       &\\
+\hline
+setWidth        &HasExtent      &               &X      &       &               &       &       &       &\\
+removeWidth     &HasExtent      &               &X      &       &               &       &       &       &\\
+getWidth        &HasExtent      &               &X      &       &               &       &       &       &\\
+setHeight       &HasExtent      &               &X      &       &               &       &       &       &\\
+removeHeight    &HasExtent      &               &X      &       &               &       &       &       &\\
+getHeight       &HasExtent      &               &X      &       &               &       &       &       &\\
+\hline
+setColor        &HasColor       &X              &X      &X      &X              &X      &       &X      &X\\
+getColor        &HasColor       &X              &X      &X      &X              &X      &       &X      &X\\
+\hline
+setBGColor      &HasBGColor     &X              &X      &       &               &       &       &       &\\
+getBGColor      &HasBGColor     &X              &X      &       &               &       &       &       &\\
+\hline
+setLabel        &HasLabel       &               &       &X      &X              &       &       &X      &\\
+removeLabel     &HasLabel       &               &       &X      &X              &       &       &X      &\\
+\hline
+setPattern      &HasPattern     &               &X      &X      &X              &       &       &X      &\\
+removePattern   &HasPattern     &               &X      &X      &X              &       &       &X      &\\
+getPattern      &HasPattern     &               &X      &X      &X              &       &       &X      &\\
+\hline
+setPen          &HasPen         &               &X      &X      &X              &X      &       &X      &X\\
+setDefaultPen   &HasPen         &               &X      &X      &X              &X      &       &X      &X\\
+getPen          &HasPen         &               &X      &X      &X              &X      &       &X      &X\\
+\hline
+setArrowHead    &HasArrowHead   &               &       &X      &X              &       &       &X      &\\
+removeArrowHead &HasArrowHead   &               &       &X      &X              &       &       &X      &\\
+getArrowHead    &HasArrowHead   &               &       &X      &X              &       &       &X      &\\
+setStartArrowHead&HasArrowHead  &               &       &X      &X              &       &       &X      &\\
+removeStartArrowHead&HasArrowHead&              &       &X      &X              &       &       &X      &\\
+getStartArrowHead&HasArrowHead  &               &       &X      &X              &       &       &X      &\\
+\hline
+setStartCut     &HasStartEndCut &               &       &X      &X              &       &       &X      &\\
+removeStartCut  &HasStartEndCut &               &       &X      &X              &       &       &X      &\\
+setEndCut       &HasStartEndCut &               &       &X      &X              &       &       &X      &\\
+removeEndCut    &HasStartEndCut &               &       &X      &X              &       &       &X      &\\
+\hline
+setStartAngle   &HasStartEndDir&                &       &X      &X              &       &       &X      &\\
+setStartCurl    &HasStartEndDir&                &       &X      &X              &       &       &X      &\\
+setStartVector  &HasStartEndDir&                &       &X      &X              &       &       &X      &\\
+removeStartDir  &HasStartEndDir&                &       &X      &X              &       &       &X      &\\
+setEndAngle     &HasStartEndDir&                &       &X      &X              &       &       &X      &\\
+setEndCurl      &HasStartEndDir&                &       &X      &X              &       &       &X      &\\
+setEndVector    &HasStartEndDir&                &       &X      &X              &       &       &X      &\\
+removeEndDir    &HasStartEndDir&                &       &X      &X              &       &       &X      &\\
+\hline
+setJoin         &HasJoin        &               &       &X      &X              &       &       &       &\\
+getJoin         &HasJoin        &               &       &X      &X              &       &       &       &\\
+\hline
+setShadow       &HasShadow      &               &X      &       &               &       &       &       &\\
+clearShadow     &HasShadow      &               &X      &       &               &       &       &       &\\
+\hline
+setBack         &HasLayer       &               &       &       &               &X      &       &       &\\
+setFront        &HasLayer       &               &       &       &               &X      &       &       &\\
+\hline
+setAlign        &HasAlign       &               &       &       &               &       &X      &       &\\
+\hline
+hide            &IsHideable     &               &X      &X      &               &       &       &X      &X\\
+\hline
+\end{tabular}
+}}
+
+
+\subsection{Frames}
+
+The function |box| adds a frame to a picture.
+
+\begin{hide}
+
+> bsp1 = textBox box
+> bsp2 = circBox circle
+> bsp3 = triBox triangle
+> bsp4 = textBox oval
+> bsp0 = t bsp1 |||| t bsp4 |=| t bsp3 |||| t bsp2
+>       where t = TrueBox
+
+\end{hide}
+
+%if recalc
+
+\Abbildung{Frame distances}{
+\perform{ generate "text" 1 bsp0 }
+}
+%else
+\Abbildung{Frame distances}{
+\epsfig{file=text.1}
+}
+%endif
+
+
+
+\Tabelle{Frame types}{
+\begin{tabular}{||ll||l||}
+\hline
+\multicolumn{2}{||l||}{Function}&generates\\
+\hline\hline
+|box|           &|:: IsPicture a => a -> Frame|         &|box p|\\
+                &                                       &| = frame (box' Nothing Nothing p)|\\
+|circle|        &|:: IsPicture a => a -> Picture|       &|circle p|\\
+                &                                       &| = frame (circle' Nothing p)|\\
+|oval|          &|:: IsPicture a => a -> Picture|       &|oval p|\\
+                &                                       &| = frame (oval' Nothing Nothing p)|\\
+|triangle|      &|:: IsPicture a => a -> Picture|       &|triangle p|\\
+                &                                       &| = frame (triangle' Nothing Nothing Nothing p)|\\
+|frame,|&&\\
+|toPicture|&|:: Frame -> Picture|                       &\\
+\hline
+|(##)|          &\begin{inline}
+
+< :: Picture -> (Frame -> Frame)
+< -> Picture
+
+\end{inline}&\begin{inline}
+
+< (Frame a) ## f = frame (f a)
+<	  a ## _ = a
+
+\end{inline}\\
+|dot,bullet|    &|:: Picture|   &\begin{inline}
+
+< dot = circle nullPic
+<       ## setBGColor black
+<       ## setDX 1
+
+\end{inline}\\
+\hline
+\end{tabular}
+}
+
+
+
+\subsubsection{Shadows}
+
+\Tabelle{Shadows}{
+\begin{tabular}{||ll||l||}
+\hline
+\multicolumn{2}{||l||}{Function}&generates\\
+\hline\hline
+|setShadow|     &|:: (Double, Double) -> Picture -> Picture|&Shadow\\
+\hline
+\end{tabular}
+}
+
+\subsection{Colors}
+
+Pictures, paths, path segments, filled areas, turtle graphics  and other
+objects may have color attributes. Pictures also have a background color, but
+it is only used for boxes (where the foreground color is used for the border).   
+
+Colors are coded as RGB values:  |color 1 0 0| is red, 
+ |color 0 1 0| is green and  |color 0 0 1| gives blue.\\
+Some colors are predefined:
+
+\Tabelle{Predefined colors}{
+\begin{tabular}{||l||l||}
+\hline
+Name&Value\\
+\hline\hline
+ white          & color 1 1 1\\
+ black          & color 0 0 0\\
+ red            & color 1 0 0\\
+ green          & color 0 1 0\\
+ blue           & color 0 0 1\\
+ yellow         & color 1 1 0\\
+ cyan           & color 0 1 1\\
+ magenta        & color 1 0 1\\
+\hline
+\end{tabular}
+}
+
+It is possible to add, subtract, multiply and divide colors. The latter allows
+to dim or brighten up. Values of type |Int| or |Integer| are converted to grayscales:
+ |0.5*green| is a light green. WHAT?
+
+Color gradients are also available. They come in three sorts 
+(Low, Med, High) with different  numbers of intermediate colors\rlap.\footnote{The
+function 
+|graduate :: Color -> Color -> Angle -> Quality -> Color| is even more
+flexible.}
+|graduateMed red blue 10| defines a color gradient with $64$ steps from 
+red to blue along an axis rotated by $10$
+degrees\rlap.\footnote{The parameter of |graduate..| can again  be a  color gradient, as in
+   |graduateMed red (graduateMed blue black 0) 10|.
+Then the color of the parameter is determined by the first color.  In
+this example we get a gradient from  |red| to |blue|.}
+
+
+\begin{hide}
+
+\Beispiel{Color gradients}{
+\beside{0.75}{
+
+> bild3 = box (tex "Color gradient" 
+>               # setColor (graduateLow red blue 10)
+>               )
+>               # setDX 10
+>               # setDY 10
+>               # setBGColor (graduateLow white 0.4   10)
+>               # setColor   (graduateMed 0.9   black 90)
+>               # setPen 3
+
+}
+%if recalc
+\beside{0.24}{
+\perform{generate "text" 3 bild3}
+}
+%else
+\beside{0.24}{
+\epsfig{file=text.3}
+}
+%endif
+}
+
+> colors = matrix [
+>       [tex "\\parbox{250pt}{tex \"text\"\\\\ \\# setColor green}",
+>       tex "yields", tex "text" # setColor green],
+>       [tex "\\parbox{250pt}{tex \"text\"\\\\ \\# setColor white\\\\ \\# setBGColor black}",
+>       tex "yields", tex "text" # setColor white # setBGColor black],
+>       [tex "\\parbox{250pt}{tex \"text\"\\\\ \\# setColor (graduateLow white black 0)\\\\ \\# setBGColor (graduateLow white black 90)}",
+>       tex "yields", tex "text" # setColor (graduateLow white black 0) # setBGColor (graduateLow white black 90)],
+>       [tex "\\parbox{250pt}{scale 2 (dot \\# setColor (graduateLow white black (-30)))}",
+>       tex "yields", scale 2 (dot # setColor (graduateLow white black (-30)))],
+>       [tex "\\parbox{250pt}{box \"text\"\\\\ \\# setColor (graduateLow white black (-30))}",
+>       tex "yields", toPicture (box "text" # setColor (graduateLow white black (-30)))]
+>       ]
+
+\end{hide}
+
+\Abbildung{Color attributes and color gradients}{
+%if recalc
+\perform{ generate "colors" 1 colors }
+%else
+\epsfig{file=colors.1}
+%endif
+}
+
+
+
+\BeispielWrap{0.49\textwidth}{
+\beside{0.42}{
+
+> from0 = line (ref W - vec (50,0)) (ref C)
+>       # setArrowHead arrowHeadBig
+>       # setPen 2
+>       # setColor (graduateMed white black 0)
+
+}
+}
+A color gradient stretches automatically over connected path segments, as long
+as they have the same color. 
+
+A warning may be in place: use this feature economically. It blows up the PostScript files
+and especially dotted paths with gradients can exhaust the memory of \MP. 
+
+Nethertheless, a slowly emerging
+%if recalc
+\perform{ generate "text" 4 from0 }%
+%else
+\epsfig{file=text.4}%
+%endif
+arrow may make a nice effect.
+
+\subsection{Points and Numbers}
+
+\Beispiel{Definitions of points}{
+\beside{0.65}{
+
+> punkte= markPoint p6 "p6" 
+>       (markPoint p2 "p2" 
+>       (markPoint p3 "p3"
+>       (markPoint p4 "p4" 
+>       (markPoint p5 "p5"
+>       (markPoint p1 "p1"
+>               (toPicture (box (tex "box"
+>                       # setColor 0.7 
+>               )) # setName "box"))))))
+>
+>       where 
+>       p1      = ref ("box" <+ C)
+>       p2      = ref ("box" <+ NW)
+>       p3      = ref ("box" <+ NW) + vec(-width "box", 0)
+>       p4      = ref ("box" <+ SE) + dist p1 p2 .* dir (-45)
+>       p5      = xy p3 p4
+>       p6      = med 0.333 p5 p4
+>       script l= tex ("\\scriptsize "++l)
+>       markPoint p l
+>               = constraint p C
+>                       (dot # label N (script l))
+>       constraint p d l p'
+>               = Overlay [ p .= ref (0 <* d) ] (Just 1) [l, p']
+
+}
+\VRule{250pt}
+%if recalc
+\beside{0.24}{
+\perform{ generate "punkte" 1 punkte }%
+}
+%else
+\beside{0.24}{
+\epsfig{file=punkte.1}%
+}
+%endif
+}
+
+
+
+\Tabelle{Names of objects}{
+\begin{tabular}{||l||l||}
+\hline
+Expression&is the name of\\
+\hline\hline
+|ref C|                 &center of the current picture\\
+|ref ("a" <+ N)|                &point |N| of picture |a|\\
+|ref ("a" <+ (1::Int) <+ N)|    &point |N| of subpicture 1\\
+                                &of picture |a|\\
+                                &(The numbers are automatically allocated \\
+                                &by the |overlay| function.)\\
+|var C|                         &numerical variable of name  |C|\\
+|var ((1::Int) <+ (0::Int))|    &numerical variable |0| in picture |1|\\
+\hline
+\end{tabular}
+}
+
+
+\Tabelle{Definition of  Numerics}{
+\begin{tabular}{||ll||l||}
+\hline
+\multicolumn{2}{||l||}{Expression}&Meaning\\
+\hline\hline
+|var|           &|:: IsName a => a -> Numeric|  &numerical variable\\
+|xpart|         &|:: Point -> Numeric|          &$x$ coordinate of a point\\
+|ypart|         &|:: Point -> Numeric|          &$y$ coordinate of a point\\
+|width|         &|:: IsName a => a -> Numeric|  &|width s|\\
+                &                               &| = xpart (ref (toName s <+ E))|\\
+                &                               &| - xpart (ref (toName s <+ W))|\\
+|height|        &|:: IsName a => a -> Numeric|  &|height s|\\
+                &                               &| = ypart (ref (toName s <+ N))|\\
+                &                               &| - ypart (ref (toName s <+ S))|\\
+|dist|          &|:: Point -> Point -> Numeric| &distance between points\\
+|xdist|         &|:: Point -> Point -> Numeric| &difference of $x$ coordinates\\
+|ydist|         &|:: Point -> Point -> Numeric| &difference of $y$ coordinates\\
+|med|           &|:: Numeric -> Numeric|        &\\
+                &| -> Numeric -> Numeric|&\\
+|maximum'|      &|:: [Numeric] -> Numeric|&\\
+|minimum'|      &|:: [Numeric] -> Numeric|&\\
+|(+), (-), (*),|&&\\
+|(/),(**)|      &|:: Numeric -> Numeric -> Numeric|&as usual\\
+\multicolumn{2}{||l||}{|negate, abs, signum,|}  &\\
+\multicolumn{2}{||l||}{|recip, exp, log, sqrt,|}&\\
+|sin,cos,tan|   &|:: Numeric -> Numeric|        &\\
+|fromInteger|   &|:: Integer -> Numeric|        &\\
+|fromInt|       &|:: Int -> Numeric|            &\\
+|fromRational|  &|:: Rational -> Numeric|       &\\
+|pi|            &|:: Numeric|                   &\\
+\hline
+\end{tabular}
+}
+
+
+\newpage
+
+\Tabelle{Definition of points}{
+\begin{tabular}{||ll||l||}
+\hline
+\multicolumn{2}{||l||}{Expression}&defines\\
+\hline\hline
+|ref|           &|:: IsName a => a -> Point|    &point variable\\
+|dir|           &|:: Numeric -> Point|          &|dir a|\\
+                &                               &| = vec (cos a, sin a)|\\
+|vec|           &|:: (Numeric, Numeric) -> Point|&generate vector\\
+|xy|            &|:: Point -> Point -> Point|   &|xy p1 p2|\\
+                &                               &| = vec (xpart p1, ypart p2)|\\
+|med|           &|:: Numeric -> Point -> Point| &\\
+                &| -> Point|                    &\\
+|(+), (-), (*), (/)|&|:: Point -> Point -> Point|&componentwise\\
+|(.*)|          &|:: Numeric -> Point -> Point| &multiplication with scalar\\
+\multicolumn{2}{||l||}{|negate, abs, signum,|}  &\\
+|recip, exp, log, sqrt,|&|:: Point -> Point|    &\\
+|fromInteger|   &|:: Integer -> Point|&$i\leadsto(i, i)$\\
+|fromInt|       &|:: Int -> Point|              &\\
+|fromRational|  &|:: Rational -> Point|         &\\
+\hline
+\end{tabular}
+}
+
+
+\subsection{Placements}
+
+There are many different ways to combine pictures and objects to more complex pictures.
+
+\Tabelle{Placements}{
+\begin{tabular}{||ll||l||}
+\hline
+\multicolumn{2}{||l||}{Command}&combines pictures\\
+\hline\hline
+|(||-||)|       &|:: (IsPicture a, IsPicture b) => a|   &|p1 ||-|| p2|\\
+                &| -> b -> Picture|                     &|  = column [toPicture p1, toPicture p2]|\\
+|(||=||)|       &|:: (IsPicture a, IsPicture b) => a|   &|p1 ||=|| p2|\\
+                &| -> b -> Picture|                     &| = columnSepBy 8 [toPicture p1, toPicture p2]|\\
+|(||||||)|      &|:: (IsPicture a, IsPicture b) => a|   &|p1 |||||| p2|\\
+                &| -> b -> Picture|                     &| = row  [toPicture p1, toPicture p2]|\\
+|(||||||||)|    &|:: (IsPicture a, IsPicture b) => a|   &|p1 |||||||| p2|\\
+                &| -> b -> Picture|                     &| = rowSepBy 8 [toPicture p1, toPicture p2]|\\
+|row|           &|:: IsPicture a => [a] -> Picture|     &|row = rowSepBy 0|\\
+|column|        &|:: IsPicture a => [a] -> Picture|     &|column = columnSepBy 0|\\
+|rowSepBy|      &\begin{inline}
+
+< :: IsPicture a => Numeric -> [a]
+< -> Picture
+
+\end{inline}&\begin{inline}
+
+< rowSepBy hSep ps
+<     = overlay [ ref (i <+ E) + vec(hSep,0)
+<	  .= ref ((i+1) <+ W)
+<	  | i <- [0..length ps - 2 ]] ps
+
+\end{inline}\\
+|columnSepBy|   &\begin{inline}
+
+< :: IsPicture a => Numeric -> [a]
+< -> Picture
+
+\end{inline}&\begin{inline}
+
+< columnSepBy vSep ps
+<     = overlay [ ref (i <+ S) - vec(0, vSep)
+<	  .= ref ((i+1) <+ N)
+<	  | i <- [0..length ps - 2 ]] ps
+
+\end{inline}\\
+|label|         &|:: Dir -> Picture -> Picture| &\\
+                &| -> Picture|                  &Label alongside picture\\
+|overlay|       &|:: IsPicture a => [Equation] -> [a]|  &|overlay eqs ps =|\\
+                &| -> Picture|                          &| overlay' eqs Nothing ps|\\
+|overlay'|      &|:: IsPicture a => [Equation]| &\\
+                &| -> Maybe Index -> [a] -> Picture|    &Equations define relations\\
+                &                               &between pictures, pictures\\
+                &                               &in the list have names  ``0'',``1''\ldots\\
+                &                               &Index makes the new bounding \\
+                &                &box equal to the bounding box\\
+                & &of the n-th picture, ``Nothing'' \\
+                &                               &gives the minimal enclosing box.\\
+\hline
+\end{tabular}
+}
+
+
+\Beispiel{Finite state machine (first part)}{
+\beside{0.9}{
+
+> automat1 = constraint (ref ("B" <+ N) + vec(0,30)) S 
+>               ((toPicture $ circle (math "C\\atop b^*"))              # setName "C")
+>               (rowSepBy 16 [(toPicture $ oval "Start")                # setName "start",
+>               (toPicture $ circle (math "{B\\atop (a||b)^*a}"))       # setName "B",
+>               (toPicture $ circle (math "{D\\atop (a||b)^*ab}"))      # setName "D",
+>               (toPicture $ oval "Stop")                               # setName "stop"
+>               ])
+>       where
+>       constraint p d l p'
+>               = overlay' [ p .= ref ((0::Int) <+ d) ] (Just 1) [l, p']
+
+> automat3 = matrixSepBy 30 20 
+>       [[empty, toPicture (circle (math "C\\atop b^*")) # setName "C"],
+>        [toPicture (oval "Start") # setName "start",
+>         toPicture (circle (math "{B\\atop (a||b)^*a}"))       # setName "B",
+>         toPicture (circle (math "{D\\atop (a||b)^*ab}"))      # setName "D",
+>         toPicture (oval "Stop")                               # setName "stop"
+>               ]]
+
+%$
+\rule{\linewidth}{0.5pt}
+\vspace{10pt}
+
+%if recalc
+\perform{ generate "automat" 1 automat1 }%
+%else
+\epsfig{file=automat.1}%
+%endif
+
+}
+}
+
+\subsubsection{Overlays}
+
+\Tabelle{Equations}{
+\begin{tabular}{||ll||l||}
+\hline
+\multicolumn{2}{||l||}{Expression}&Meaning\\
+\hline\hline
+|.=|                    &|:: Numeric -> Numeric -> Equation|&equality of numbers\\
+|equal|                  &|:: [Numeric] -> Equation|&equality of several numbers\\
+|.=|                    &|:: Point -> Point -> Equation|&equality of points\\
+|equal|                  &|:: [Point] -> Equation|&equality of several points\\
+|cond b t e|       &|:: Boolean -> Equation -> Equation|&\\
+&| -> Equation|&conditional equality\\
+\hline
+\end{tabular}
+}
+
+\Tabelle{Boolean expressions}{
+\begin{tabular}{||ll||l||}
+\hline
+\multicolumn{2}{||l||}{Expression}&Meaning\\
+\hline\hline
+|(.==)|         &|:: Numeric -> Numeric -> Boolean|&\\
+|(./=)|         &|:: Numeric -> Numeric -> Boolean|&\\
+|(.<)|          &|:: Numeric -> Numeric -> Boolean|&\\
+|(.<=)|         &|:: Numeric -> Numeric -> Boolean|&\\
+|(.==)|         &|:: Point -> Point -> Boolean|&\\
+|(./=)|         &|:: Point -> Point -> Boolean|&\\
+|(.<)|          &|:: Point -> Point -> Boolean|&\\
+|(.<=)|         &|:: Point -> Point -> Boolean|&\\
+|boolean|       &|:: Bool -> Boolean|&\\
+|(+), (-), (*)| &|:: Boolean -> Boolean -> Boolean|&$a\lor b, a\land\lnot b, a\land b$\\
+|negate, abs, signum|&|:: Boolean -> Boolean|   &$\lnot a, \text{True}, \text{id}$\\
+|fromInteger|   &|:: Integer -> Boolean|        &$i>0$\\
+|fromInt|       &|:: Int -> Boolean|            &$i>0$\\
+\hline
+\end{tabular}
+}
+
+
+
+\Beispiel{Circle with  overlay}{
+\beside{0.6}{
+
+> kreis         :: (IsPicture a) => Numeric -> [a] -> Picture
+> kreis r ps    = overlay
+>               [ ref (j <* C) - r .* dir (d*fromInt j)
+>               .= ref (j+1 <* C)
+>                       - r .* dir (d*(fromInt j+1)) 
+>               |j <- [0..l-2]]
+>               ps
+>               where 
+>               l       = length ps
+>               d       = 360 / fromInt l
+> kreis7        :: Picture
+> kreis7        = kreis 40
+>               [ draw  [ line (ref C)
+>                          (ref (mod (i+j) 7 <* C))
+>                          # setArrowHead (default' 
+>                                       # setArrowHeadStyle ahLine)
+>                       | j <-[1..6::Int]]
+>                       ((toPicture) i # setName i)
+>               | i <- [0..6::Int]]
+
+}
+\VRule{200pt}
+%if recalc
+\beside{0.22}{
+\perform{ generate "kreis" 1 kreis7 }%
+}
+%else
+\beside{0.22}{
+\epsfig{file=kreis.1}%
+}
+%endif
+}
+
+
+
+\Beispiel{Intersection point with overlay}{
+\beside{0.7}{
+
+> drei = overlay [      
+>       ref (1 <* C)    .= ref (0 <* C) + vec(40,0),
+>       ref (2 <* C)    .= ref (0 <* C) + whatever * dir (-45),
+>       ref (1 <* C)    .= ref (2 <* C) + whatever * dir 50,
+>       ref (2 <* C)    .= ref (3 <* C) + ref (0::Int),
+>       ref (3 <* C)    .= ref (0 <* C) + ref (0::Int) ]
+>       [text "0", text "1", text "2", toPicture bullet]
+
+}
+\VRule{90pt}
+%if recalc
+\beside{0.15}{
+\perform{ generate "drei" 1 drei }%
+}
+%else
+\beside{0.15}{\epsfig{file=drei.1}}
+%endif
+}
+
+\Beispiel{Coil}{
+\beside{0.5}{
+
+> spirale 
+>  = overlay [  ref (0 <* C) .= ref (1 <* C),
+>               ref (0 <* C) .= vec (0,0)]
+>       [draw [foldl (...) (toPath (vec (0,0))) punkte] 
+>               (circle empty
+>               # setDX (12*r)),
+>       zz]
+>  where
+>  r        = 2
+>  zz       = kreis (12*r)
+>               (take 10 (cycle [bullet]))
+>  punkte   = [(i*r*pi) .* dir (i*(180/12))
+>             | i <- [0..12]]
+
+}
+\VRule{140pt}
+%if recalc
+\beside{0.3}{
+\perform{ generate "spiral" 1 spirale }%
+}
+%else
+\beside{0.3}{
+\epsfig{file=spiral.1}%
+}
+%endif
+}
+        
+\Beispiel{Brackets with  overlay}{
+\beside{0.95}{
+
+> brack = setTrueBoundingBox brack1 |||| setTrueBoundingBox brack2
+>       where
+>       brack1  = [bracket x (vec(0,   x*5), vec(x*5, x*5)) | x <- ws]
+>               ++[bracket x (vec(x*5, x*5), vec(x*5, 0)) | x <- ws]
+>               where
+>               ws = [1, 3] ++ [5, 10 .. 20]
+>       brack2  = [bracket x (5 .* dir x, 60 .* dir x) | x <- ws]
+>               where
+>               ws = [0, 45 .. 360-45]
+
+> bracket :: IsPicture a => a -> (Point, Point) -> Path
+> bracket l (pl, pr)
+>       = define [
+>       ref "start"     .= pl,
+>       ref "end"       .= pr,
+>       var "ang"       .= angle (ref "start"-ref "end"),
+>       var "d"         .= cond (dist (ref "start") (ref "end") .< 20)
+>                               (dist (ref "start") (ref "end")/4)
+>                               5,
+>       ref "vecl"      .= var "d" .* dir (var "ang"-135),
+>       ref "vecr"      .= var "d" .* dir (var "ang"-45),
+>       ref "start2"    .= ref "start" + ref "vecl",
+>       ref "end2"      .= ref "end" + ref "vecr",
+>       ref "mid"       .= med 0.5 (ref "start") (ref "end")
+>                               + (1.41 * var "d")
+>                               .* dir (var "ang"-90),
+>       ref "midl"      .= ref "mid" - ref "vecl",
+>       ref "midr"      .= ref "mid" - ref "vecr" ]
+>                 (pl .... ref "start2" .--. ref "midl" .... ref "mid"
+>              .&. ref "mid" .... ref "midr" .--. ref "end2" .... pr
+>                  # setPen (penCircle (0.001, var "d"/5) (var "ang"))
+>                  # setLabel 0.5 C lab)
+>       where 
+>       lab     = overlay'
+>                       [var "ang"      .= angle (pl-pr),
+>                       ref (0 <* C) .= cond (var "ang" .< (-175.5) 
+>                                                + 175.5 .< var "ang")
+>                                                       (ref (1 <* S))
+>                       (cond (var "ang" .< (-112.5))   (ref (1 <* SE))
+>                         (cond (var "ang" .< (-67.5))  (ref (1 <* E))
+>                          (cond (var "ang" .< (-22.5)) (ref (1 <* NE))
+>                           (cond (var "ang" .< 22.5)   (ref (1 <* N))
+>                            (cond (var "ang" .< 67.5)  (ref (1 <* NW))
+>                             (cond (var "ang" .< 112.5)(ref (1 <* W))
+>                                                       (ref (1 <* SW))
+>                        ))))))]  (Just 0)
+>               [empty, toPicture l]
+
+
+\HRule
+
+%if recalc
+\perform{ generate "bracket" 1 brack }
+%else
+\epsfig{file=bracket.1}
+%endif
+}}
+
+\subsection{Transformations}
+
+\Tabelle{Predefined Transformations}{
+\begin{tabular}{||ll||l||}
+\hline
+\multicolumn{2}{||l||}{Expression}&generates\\
+\hline\hline
+|scale|         &|:: Angle -> Picture -> Picture|&|scale n p = transform (scaled n) p|\\
+|rotate|        &|:: Angle -> Picture -> Picture|&|rotate a p|\\
+                &                               &| = transform (rotated a) p|\\
+|transform|     &|:: Transformation -> Picture| &\\
+                &| -> Picture|                  &apply transform to picture\\
+\hline
+|rotated|       &|:: Angle -> Transformation|           &generate rotation\\
+|reflectedX|    &|:: Transformation|                    &|reflectedX = affine ( 1, 0, 0, -1)|\\
+|reflectedY|    &|:: Transformation|                    &|reflectedY = affine (-1, 0, 0, 1)|\\
+|scaled|        &|:: Double -> Transformation|          &|scaled a   = affine ( a, 0, 0, a)|\\
+|scaledX|       &|:: Double -> Transformation|          &|scaledX a  = affine ( a, 0, 0, 1)|\\
+|scaledY|       &|:: Double -> Transformation|          &|scaledY a  = affine (1, 0, 0, a)|\\
+|affine|        &|:: (Double,Double,Double,Double)|&\\
+                &| -> Transformation|                   &transformation matrix\\
+|(&)|           &|:: Transformation|&\\
+                &| -> Transformation|&\\
+                &| -> Transformation|                   &sequence of transformations\\
+\hline
+\end{tabular}
+}
+
+
+\subsection{Paths}
+
+\Tabelle{Paths}{
+\begin{tabular}{||ll||l||}
+\hline
+\multicolumn{2}{||l||}{Expression}&Meaning\\
+\hline\hline
+|(&)|           &|:: Path -> Path -> Path|      &concatenate paths\\
+|(...)|         &|:: Path -> Path -> Path|      &connect paths (B{\'e}zier)\\
+|(.-.)|         &|:: Path -> Path -> Path|      &connect paths (line)\\
+|(....)|        &|:: Path -> Path -> Path|      &connect paths (B{\'e}zier, smooth)\\
+|(.--.)|        &|:: Path -> Path -> Path|      &connect paths (line, smooth)\\
+|cycle'|        &|:: Path|                      &generate closed cycle\\
+|line|          &|:: Point -> Point -> Path|    &|line p1 p2|\\
+                &                               &| = p1 .-. p2|\\
+|curve|         &|:: Point -> Point -> Path|    &|curve p1 p2|\\
+                &                               &| = p1 ... p2|\\
+\hline
+|pathLength|    &|:: Num a => Path -> a|&\\
+|forEachPath|   &\multicolumn{2}{l||}{|:: (PathElemDescr -> PathElemDescr)|}\\
+                &| -> Path -> Path|             &\\
+|pathSetEnd|    &\multicolumn{2}{l||}{|:: (PathElemDescr -> PathElemDescr)|}\\
+                &| -> Path -> Path|             &\\
+|pathGetEnd|    &|:: (PathElemDescr -> a)|      &\\
+                &| -> Path -> a|                &\\
+|pathGetStart|  &|:: (PathElemDescr -> a)|      &\\
+                &| -> Path -> a|                &\\
+|pathSetStart|  &\multicolumn{2}{l||}{|:: (PathElemDescr -> PathElemDescr)|}\\
+                &| -> Path -> Path|             &\\
+\hline
+|cutPic|        &|:: Name -> CutPic|            &name of a picture which is\\
+                &                               &used to cut a line\\
+|hier|          &|:: Name -> CutPic -> CutPic|  &hierachical name\\
+|setStartCut|   &|:: CutPic -> Path -> Path|    &cut path after bounding box\\
+|removeStartCut|&|:: Path -> Path|              &do not cut start of path\\
+|setEndCut|     &|:: CutPic -> Path -> Path|    &cut path before bbox\\
+|removeEndCut|  &|:: Path -> Path|              &do not cut end of path\\
+\hline
+|draw|          &|:: [Path] -> Picture|         &draw paths in picture\\
+                &| -> Picture|&\\
+\hline
+\end{tabular}
+}
+
+
+
+
+
+\Beispiel{Finite state machine,  complete}{
+\beside{0.9}{
+
+> automat2 = draw [
+>               loopN "C"               # setLabel 0.5 S (math "b"),
+>               loopSW "B"              # setLabel 0.5 N (math "a"),
+>               to "start" "B" "a" S,
+>               to "C"     "B" "a" W,
+>               to "B" "D" "b" S,
+>               to "D" "stop" "b" S,
+>               to "start" "C" "b" SE   # setStartAngle 55,
+>               to "stop" "C" "b" SW    # setStartAngle 135,
+>               to "stop" "B" "a" N     # setStartAngle (-125),
+>               to "D"    "B" "a" N     # setStartAngle (-145)
+>               ]
+>               automat1
+>       where
+>       to a b l d      = curve (ref (a <+ C)) (ref (b <+ C))
+>                       # setArrowHead default'
+>                       # setLabel 0.5 d (math l)
+>       loopN s         = ref (s <+ NE)
+>                       ... ref (s <+ N) + vec(0, 0.5*width s)
+>                       ... ref (s <+ NW)
+>                       # setArrowHead default'
+>       loopSW s        = ref (s <+ SW)
+>                       ... ref (s <+ S) + vec(-0.353*width s, 
+>                                                    -0.353*width s)
+>                       ... ref (s <+ S)
+>                       # setArrowHead default'
+
+\rule{\linewidth}{0.5pt}
+\vspace{10pt}
+
+%if recalc
+\perform{ generate "automat" 2 automat2 }%
+%else
+\epsfig{file=automat.2}%
+%endif
+
+}
+}
+
+\subsubsection{Arrows}
+
+\Beispiel{Different arrow types}{
+\beside{0.55}{
+
+> pfeil = cdraws [f (line       (vec (0,-fromInt y*16))
+>                               (vec (40,-fromInt y*16))) 
+>                | (y, f) <- zip [0..] fs ]
+>     |=| (box (cdraw (curve    (vec (0,0))
+>                               (vec (40,0))
+>                      # setEndAngle 60
+>                      # setStartAngle 60
+>                      # setArrowHead (arrowHeadSize 10 40) 
+>                      # setStartArrowHead (arrowHeadSize 10 40 # ahToLine)
+>                       ))
+>          # setBGColor white
+>          # setShadow (5,-5))
+>       where
+>       doubleAr ar     = setArrowHead ar 
+>                       . setStartArrowHead ar
+>       ahToLine        = setArrowHeadStyle AHLine
+>       fs              = [     id, 
+>                               doubleAr default',
+>                               doubleAr (arrowHeadSize 10 20),
+>                               doubleAr (arrowHeadSize 5 250),
+>                               doubleAr (default' # ahToLine),
+>                               doubleAr (arrowHeadSize 10 20  # ahToLine),
+>                               doubleAr (arrowHeadSize 5 180  # ahToLine),
+>                               doubleAr (arrowHeadSize 5 250  # ahToLine)
+>                       ]
+
+}
+\VRule{250pt}
+\beside{0.15}{
+%if recalc
+\perform{ generate "arrow" 1 pfeil }
+%else
+\epsfig{file=arrow.1}
+%endif
+}}
+
+
+\Tabelle{Arrows}{
+\begin{tabular}{||ll||l||}
+\hline
+\multicolumn{2}{||l||}{Expression}&Meaning\\
+\hline\hline
+|arrowHead|             &|:: PathArrowHead|&normal arrow head\\
+|arrowHeadBig|  &|:: PathArrowHead|&fat arrow head\\
+|arrowHeadSize| &|:: Double -> Double -> PathArrowHead|&arrow head with
+length, angle\\
+|oarrowHead|    &|:: PathArrowHead|&normal arrow head, contoured\\
+|oarrowHeadBig| &|:: PathArrowHead|&fat arrow head, contoured\\
+|oarrowHeadSize|&|:: Double -> Double -> PathArrowHead|&arrow head with
+length, angle, contoured\\
+\hline
+\end{tabular}
+}
+
+\subsection{Areas}
+
+\Tabelle{Areas}{
+\begin{tabular}{||ll||l||}
+\hline
+\multicolumn{2}{||l||}{Expression}&Meaning\\
+\hline\hline
+|area|          &|:: [Point] -> Area|   &construct area object\\
+&&(straight edges)\\
+|toArea|        &|:: Path -> Area|      &convert path to area object\\
+|setColor|      &|:: Color -> Area -> Area|&set color\\
+|getColor|      &|:: Area -> Color|     &get color\\
+|setPen|        &|:: Pen -> Area -> Area|&set pencil\\
+|getPen|        &|:: Area -> Pen|       &get pencil\\
+|setBack|       &|:: Area -> Area|      &area is behind picture\\
+|setFront|      &|:: Area -> Area|      &area covers picture\\
+\hline
+|fill|          &|:: [Area] -> Picture -> Picture|&\\
+\hline
+\end{tabular}
+}
+
+
+\subsection{Clipping}
+
+\Tabelle{Clipping}{
+\begin{tabular}{||ll||l||}
+\hline
+\multicolumn{2}{||l||}{Expression}&Meaning\\
+\hline\hline
+|clip|&|:: Path -> Picture -> Picture|&Clip picture outside the path\\
+\hline
+\end{tabular}
+}
+
+
+\Beispiel{Clipping}{
+\beside{0.6}{
+
+> clipping = column [   a, vspace (-5), math "\\oplus", vspace (-5),
+>                       b, math "\\downarrow", on [a, b]]
+>       where
+>       on ps = overlay [ ref (i <* C) .= ref ((i+1) <* C) 
+>                       | i <- [0..length ps-2]] ps
+>       t = box "clip" 
+>       a = clip (ref NW .-. ref NE
+>               .-. ref SW .-. cycle') 
+>               (t # setBGColor 0.8)
+>       b = clip (ref SW .-. ref NE
+>               .-. ref SE .-. cycle') 
+>               (t # setColor white
+>                  # setBGColor black)
+
+}
+\VRule{70pt}
+%if recalc
+\beside{0.15}{
+\perform{ generate "clip" 1 clipping }%
+}
+%else
+\beside{0.15}{
+\epsfig{file=clip.1}%
+}
+%endif
+}
+
+\Beispiel{Pac Man}{
+
+\beside{0.7}{
+
+> pac = clip    (   ref SE + vec(0,15)
+>               .-. ref C
+>               .-. ref NE - vec(0,15)
+>               ... ref W
+>               ... cycle')
+>               (matrixSepBy 0 0 (take 10 (
+>                       repeat (take 5 (
+>                               repeat "pac")))))
+
+}
+\VRule{60pt}%
+\beside{0.25}{
+%if recalc
+\perform{ generate "pacman" 1 pac }
+%else
+\epsfig{file=pacman.1}
+%endif
+}}
+
+
+\subsection{Dash patterns}
+
+\Tabelle{Dash patterns}{
+\begin{tabular}{||ll||l||}
+\hline
+\multicolumn{2}{||l||}{Expression}&Meaning\\
+\hline\hline
+|dashed|        &|:: Pattern|&dashed |[3, 3]|\\
+|dotted|        &|:: Pattern|&dotted |[-1, 2.5, 0, 2.5]|\\
+|dashPattern|   &|:: [Double] -> Pattern|& list of lengths for end,start,end,start,end,..\\
+&&if first arg  = -1, then start,stop,start,..\\
+\hline
+\end{tabular}
+}
+
+\subsection{Pencils}
+
+\Tabelle{Pencils}{
+\begin{tabular}{||ll||l||}
+\hline
+\multicolumn{2}{||l||}{Expression}&Meaning\\
+\hline\hline
+|penCircle|     &|:: Double -> Pen|&circular pen of radius\\
+|penCalli|      &|:: (Double,Double) -> Double -> Pen|&oval pen with rotation\\
+|(+), (-), (*), (/)|&|:: Pen -> Pen -> Pen|&acts on circular pens\\
+\multicolumn{2}{||l||}{|negate, abs, signum,|}&\\
+|recip, exp, log, sqrt,|&|:: Pen -> Pen|&acts on circular pens\\
+|fromInteger|   &|:: Integer -> Pen|    &generates circular pen\\
+|fromInt|       &|:: Int -> Pen|        &generates circular pen\\
+|fromRational|  &|:: Rational -> Pen|   &generates circular pen\\
+\hline
+\end{tabular}
+}
+
+
+\section{Applications}
+
+\subsection{Trees}
+
+
+\Beispiel{Alignment}{
+\begin{tabular}{c}
+\beside{0.6}{
+
+> tree1 = node dot [    edge (node dot [enode dot []]
+>                             # setAlign AlignRightSon),
+>                       edge (node dot [enode dot []] 
+>                             # setAlign AlignLeftSon)
+>                       ]
+
+
+}
+\VRule{60pt}
+%if recalc
+\beside{0.20}{
+\perform{ generate "tree" 1 tree1 }%
+}
+%else
+\beside{0.20}{
+\epsfig{file=tree.1}%
+}
+%endif
+\\
+
+
+\beside{0.6}{
+
+> tree2 = node2 [ edge2 (node2
+>                       [ edge2s (node2 
+>                               [upToRoot
+>                                # setPattern dashed
+>                                # setEndAngle 0
+>                                # setStartAngle 130]),
+>                         edge2s (node2 []),
+>                         edge2s (node2 [])] 
+>                        # setAlign alignRight),
+>                 edge2 (node2  
+>                       [ edge2 (node2 []),
+>                         edge2 (node2 [upToRoot])]
+>                        # setAlign alignLeft)
+>                       ]
+>       where
+>       node2   = node dot
+>       edge2   = edge' (line (ref (This <+ C)) (ref (Parent <+ C)))
+>       edge2s  = edge' (stair (ref (This <+ C)) (ref (Parent <+ C)))
+>       upToRoot= cross' (curve (ref (This <+ C)) (ref (Up 1 <+ C))
+>                        # setStartAngle (90)
+>                        # setArrowHead default')
+
+}
+\VRule{80pt}
+%if recalc
+\beside{0.2}{
+\perform{ generate "tree" 2 tree2 }%
+}
+%else
+\beside{0.2}{
+\epsfig{file=tree.2}%
+}
+%endif
+\\
+
+
+\beside{0.6}{
+
+> tree3 = tree2
+>       # setDistH 30
+
+}
+\VRule{40pt}
+%if recalc
+\beside{0.20}{
+\perform{ generate "tree" 3 tree3 }%
+}
+%else
+\beside{0.20}{
+\epsfig{file=tree.3}%
+}
+%endif
+\\
+
+\beside{0.6}{
+
+> tree4 = forEachNode
+>               (setDistH 10)
+>               tree2
+
+}
+\VRule{40pt}
+%if recalc
+\beside{0.20}{
+\perform{generate "tree" 4 tree4}%
+}
+%else
+\beside{0.20}{
+\epsfig{file=tree.4}%
+}
+%endif
+\end{tabular}
+}
+
+
+\Tabelle{Trees}{
+\begin{tabular}{||ll||l||}
+\hline
+\multicolumn{2}{||l||}{Expression}&Meaning\\
+\hline\hline
+|edge|          &|:: Tree -> Edge|&|edge t|\\
+                &               &| = edge' (line (ref This)|\\
+                &               &|               (ref Parent)) t|\\
+|edge'|         &|:: Path -> Tree -> Edge|&special edge\\
+|cross|         &|:: Point -> Edge|&|cross p|\\
+                &               &| = cross' (line (ref This) p)|\\
+|cross'|        &|:: Path -> Edge|&crossing edge\\
+|enode|         &|:: Picture -> [Edge]| &|enode p ts|\\
+                &| -> Edge|             &| = edge (node p ts)|\\
+|node|          &|:: Picture -> [Edge] -> Tree|&normal node\\
+|toPicture|     &|:: Tree -> Picture|&convert\\
+\hline
+|stair|         &|:: Point -> Point -> Path|    &|stair p1 p2|\\
+                &                               &|  = z' p1|\\
+                &                               &|.-. z' (p1 + vec (0, 0.5*distY p2 p1))|\\
+                &                               &|.-. z' (p2 - vec (0, 0.5*distY p2 p1))|\\
+                &                               &|.-. z' p2|\\
+                &                               &stairs, useful for trees\\
+\hline
+\end{tabular}
+}
+
+
+
+\Tabelle{Placement of child nodes}{
+\begin{tabular}{||ll||l||}
+\hline
+\multicolumn{2}{||l||}{Expression}&Meaning\\
+\hline\hline
+|DefaultAlign|          &|:: AlignSons| &childs as dense as possible\\
+|AlignLeft|             &|:: AlignSons| &if child, then branch left,\\
+                        &&else |DefaultAlign|\\
+|AlignRight|            &|:: AlignSons| &analogous  \\
+|AlignLeftSon|          &|:: AlignSons| &parent above left child\\
+|AlignRightSon|         &|:: AlignSons| &analogous\\
+|AlignOverN|            &|:: Int -> AlignSons|  &parent above $n$th child\\
+                        &                       &($0=$ left)\\
+|AlignAngles|           &|:: [Double] -> AlignSons|&list of angles. If more childs\\
+                        &                       &than angles, pack remaining dense\\
+|AlignConst|            &|:: Double -> AlignSons|&constant distance between childs;\\
+                        &                       &may generate overlaps\\
+|AlignFunction|         &|:: (NodeDescr -> [Extent] -> Int|&\\
+                        &| -> [Numeric]) -> AlignSons|&\\
+\hline
+\end{tabular}
+}
+
+
+\Tabelle{Special attributes of trees}{
+\begin{tabular}{||ll||l||}
+\hline
+\multicolumn{2}{||l||}{Expression}&Meaning\\
+\hline\hline
+|setDistH|      &|:: Separation -> Tree -> Tree|&horiz. distance between childs\\
+|getDistH|      &|:: Tree -> Separation|&\\
+|setDistV|      &|:: Separation -> Tree -> Tree|&vert. distance to parent\\
+|getDistV|      &|:: Tree -> Separation|&\\
+|setAlign|      &|:: AlignSons -> Tree -> Tree|&placement of childs\\
+|getAlign|      &|:: Tree -> AlignSons|&\\
+\hline
+\end{tabular}
+}
+
+
+\Tabelle{Node distances}{
+\begin{tabular}{||ll||l||}
+\hline
+\multicolumn{2}{||l||}{Expression}&Meaning\\
+\hline\hline
+|sepBorder|     &|:: Numeric -> Separation|&dist. between bounding boxes\\
+|sepCenter|     &|:: Numeric -> Separation|&dist. between centers\\
+|(+), (-), (*)| &|:: Separation -> Separation|&\\
+                &| -> Separation|&\\
+|negate, abs, signum|&|:: Separation -> Separation|&\\
+|fromInteger|   &|:: Integer -> Separation|     &$i \leadsto $|sepBorder |$i$\\
+|fromInt|       &|:: Int -> Separation|         &$i \leadsto $|sepBorder |$i$\\
+\hline
+\end{tabular}
+}
+
+
+\Tabelle{Placeholder for special nodes}{
+\begin{tabular}{||l||l||}
+\hline
+Name&Meaning\\
+\hline\hline
+|Parent|                &current parent node\\
+|This|          &current node\\
+|Root|          &root\\
+|Up 1, Up 2, ..|        &nodes on path to root\\
+|Son 0, Son 1, ..|      &children from left to right\\
+\hline
+\multicolumn{2}{||l||}{
+\parbox{0.8\linewidth}{|line (ref This) (ref Parent)| denotes an edge from the
+  current node to the parent node.
+|line (ref This) (ref Root)| is an edge to the root.
+Edges may be arbitrary paths.}}\\
+\hline
+\end{tabular}
+}
+
+
+\Tabelle{Auxilliary functions}{
+\begin{tabular}{||ll||l||}
+\hline
+\multicolumn{2}{||l||}{Expression}&Meaning\\
+\hline\hline
+|forEachNode|           &| :: (Tree -> Tree) -> Tree -> Tree|   &apply fct to each\\
+                        &                                       &node.\\
+|forEachLevelNode|      &| :: (Tree -> Tree) -> Int -> Tree -> Tree|&apply fct to each\\
+                        &                                       &node of a given\\
+                        &                                       &depth  ($0=$ root)\\
+|forEachPic|            &| :: (Picture -> Picture) -> Tree -> Tree|&apply fct to all\\
+                        &                                       &pictures.\\
+|forEachEdge|           &| :: (Path -> Path) -> Tree -> Tree|   &apply fct to all\\
+                        &                                       &edges.\\
+\hline
+\end{tabular}
+}
+
+\Abbildung{A big tree}{
+%if recalc
+\perform{ generate "complex" 1 bsp10 }
+%else
+\epsfig{file=complex.1}
+%endif
+}
+
+\subsection{Turtle graphics}
+
+
+\Beispiel{C curve of order 10}{
+\beside{0.70}{
+
+> turtle1       = box (cKurve 10 2)
+>                       # setBGColor white
+>                       # setDX 10
+>                       # setDY 10
+>                       # setShadow (2,-2)
+> cKurve 0 l    = forward l
+> cKurve g l    = toleft  & cKurve (g-1) l 
+>               & toright & cKurve (g-1) l
+
+}%
+\VRule{150pt}%
+%if recalc
+\beside{0.29}{
+\perform{ generate "turtle" 1 turtle1 }%
+}
+%else
+\beside{0.29}{
+\epsfig{file=turtle.1}%
+}
+%endif
+}
+
+
+\Beispiel{Colors and pencils in turtle graphics}{
+\beside{0.55}{
+
+> turtle2 = ( haus rot 20 
+>               & home & pu & fw 40 & pd
+>               & haus (setColor blue.(haus dach)) 15 
+>       ) # setPen (penCircle (1,4) 45)
+>         
+>       where
+>       haus d l= (fw l # setPen 5) & toleft & fw l & toleft 
+>               & fw l & turn 180
+>               & d l
+>               & turn (-45) & fw (l*sqrt(2)) 
+>               & turn (-135) & fw l 
+>               & turn (-135) & fw (l*sqrt(2)) 
+>               & turn (-45)
+>       rot l   = dach l 
+>               # setColor (graduateMed red 0.9 10)
+>       dach l  = turn 45 & fw (0.5*l*sqrt(2))
+>               & toright & fw (0.5*l*sqrt(2)) 
+>               & turn (-45)
+>       fw      = forward
+>       pu      = penUp
+>       pd      = penDown
+
+}%
+\VRule{250pt}%
+%if recalc
+\beside{0.2}{
+\perform{ generate "turtle" 2 turtle2 }%
+}
+%else
+\beside{0.2}{
+\epsfig{file=turtle.2}%
+}
+%endif
+}
+
+\Tabelle{Commands for turtle graphics}{
+\begin{tabular}{||ll||l||}
+\hline
+\multicolumn{2}{||l||}{Command}&generates\\
+\hline\hline
+|turtle, toPicture|&|:: Turtle -> Picture|              &picture from turtle path\\
+|home|          &|:: Turtle|                    &jump to $(0,0)$, look to the right\\
+|relax|         &|:: Turtle|                    &do nothing\\
+|left|          &|:: Turtle|                    &rotate 90 degree to the left\\
+|right|         &|:: Turtle|                    &rotate 90 degree to the right\\
+|turn|          &|:: Orientation -> Turtle|     &rotate (positive = to the left)\\
+|turnl|         &|:: Orientation -> Turtle|     &rotate to the left\\
+|turnr|         &|:: Orientation -> Turtle|     &rotate to the right\\
+|forward|       &|:: Double -> Turtle|          &step in current direction\\
+|backwards|     &|:: Double -> Turtle|          &backstep in current direction\\
+|penUp|         &|:: Turtle|                    &lift pen\\
+|penDown|       &|:: Turtle|                    &lower pen\\
+|(&)|           &|:: Turtle -> Turtle -> Turtle|&concatenate two turtle paths\\
+|plot|          &|:: [Turtle] -> Turtle|        &concatenate several turtle paths\\
+
+\hline
+\end{tabular}
+}
+
+
+\subsection{Canvas}
+
+\Tabelle{Commands  for  canvas drawings}{
+\begin{tabular}{||ll||l||}
+\hline
+\multicolumn{2}{||l||}{Command}&generates\\
+\hline\hline
+|relax| &|:: Paint|                     &draw nothing\\
+|(&)|   &|:: Paint -> Paint -> Paint|   &draw consecutively\\
+|toPicture|&|:: Paint -> Picture|       &\\
+|cdrop| &|:: (Numeric,Numeric) -> Picture|&draw a picture at\\
+        &| -> Paint|                    &given position\\
+|cdraw| &|:: Path -> Paint|             &|cdraw p = cdraws [p]|\\
+|cdraws|&|:: [Path] -> Paint|           &draw paths\\
+|cfill| &|:: Area -> Paint|             &|cfill a = cfills [a]|\\
+|cfills|&|:: [Area] -> Paint|           &fill areas\\
+|cclip| &|:: Path -> Paint|             &clip everything inside path\\
+\hline
+\end{tabular}
+}
+
+\Beispiel{Color circle}{
+\beside{0.6}{
+
+> colorcirc     = transform (affine (0.5, 0, 0.1, 0.425, 0, 0))
+>               (color 60 
+>               (bw 50 
+>               (color 41.7 
+>               (bw 34.7 
+>               (color 28.9
+>               (bw 24.1
+>               (color 20.1
+>               (bw 16.7
+>               (color 13.95
+>               (bw 11.63 empty))))))))))
+>       where
+>       color r p= fill (areas r
+>                       (\i->hsv2rgb (i,1,1))) p
+>       bw r p  = fill (areas r
+>                       (\i->grey (abs(i-180)/180))) p
+>       areas r c= [ toArea [   r.*dir (Numeric i),
+>                               r.*dir (2+Numeric i),
+>                               (1.15*r).*dir (2+Numeric i),
+>                               (1.15*r).*dir (Numeric i)]
+>                       # setPen 0.01 
+>                       # setColor (c i)
+>                       # setFront
+>                          | i<-[0, 4..356]]
+
+}
+\VRule{140pt}
+%if recalc
+\beside{0.15}{
+\perform{ generate "colorcirc" 1 colorcirc }%
+}
+%else
+\beside{0.15}{
+\epsfig{file=colorcirc.1}%
+}
+%endif
+}
+
+
+
+
+\Beispiel{Election results}{
+\beside{0.8}{
+
+> barchart = chart [ (35,0.5), (40,0.3+red), (6,green), (3,red-0.3), (6,yellow) ]
+
+> chart bs      = cfills floor
+>               & cdraws (grid 10) 
+>               & cfills (bars 0 bs)
+>               & labels 0 bs
+>       where
+>       hSize           = hSep * fromInt (length bs)
+>       hSep            = 35
+>       width           = 20
+>       floor           = [ toArea [    vec (-5, 3), vec(-18, -10),
+>                                       vec (hSize-13, -10), vec(hSize, 3)] 
+>                               # setColor 0.7 
+>                               # setPen 1]
+>       grid (-1)       = []
+>       grid n          = line (vec(-5, n*5+3)) (vec(hSize, n*5+3)):grid (n-1)
+>       bars _ []       = []
+>       bars n (bc:bs)= bar n bc : top  n bc : side n bc : bars (n+1) bs
+>       bar n (b,c) = toArea [vec(n*hSep,0),vec(n*hSep+width,0),
+>                       vec(n*hSep+width,b),vec(n*hSep,b)]
+>                       # setPen 1
+>                       # setFront
+>                       # setColor (c*graduateMed 0.8 0.3 45)
+>       top n (b,c) = toArea [vec(n*hSep+width,b),vec(n*hSep,b),
+>                       vec(n*hSep+3,b+3),vec(n*hSep+width+3,b+3)]
+>                       # setPen 1
+>                       # setFront
+>                       # setColor (c*graduateMed 0.3 0.8 (-45))
+>       side n (b,c) = toArea [vec(n*hSep+width,0),vec(n*hSep+width,b),
+>                       vec(n*hSep+width+3,b+3),vec(n*hSep+width+3,3)]
+>                       # setPen 1
+>                       # setFront
+>                       # setColor (c*graduateMed 0.6 0.2 0)
+>       labels _ []     = relax
+>       labels n ((b,_):bs)
+>                       = cdrop (n*hSep+width/2+3,b+10) 
+>                               (tex (num2String b) 
+>                                # setBGColor white)
+>                       & labels (n+1) bs
+>                       where
+>                       num2String (Numeric n)  = "\\tiny "++(show n)++"\\%"
+>                       num2String _            = ""
+
+\rule{\linewidth}{0.5pt}\\[1em]
+%if recalc
+\perform{ generate "barchart" 1 barchart }
+%else
+\epsfig{file=barchart.1}
+%endif
+}}
+
+
+\begin{hide}
+
+
+> roundNode s ns = enode (n s) ns
+> n a            = circle ("\\tiny "++a)
+>                  # setDX 0
+>                  # setDY 0
+
+
+> e=node (n "A")
+>       [roundNode "B" [e21,e22], roundNode "F" [e23,e24],
+>       roundNode "G" [e25,e26]]
+> e21=roundNode "C" [roundNode "E" [roundNode "F" [roundNode "D" []],
+>       roundNode "G" [e52], roundNode "L" [e53,e54]]]
+> e22=roundNode "D" [roundNode "F" [roundNode "E" [roundNode "C" [],e56,e57]]]
+> e23=roundNode "D" [roundNode "B" [roundNode "C" [roundNode "E" [e56,e57]]]]
+> e24=roundNode "E" [roundNode "C" [roundNode "B" [roundNode "D" []]],e56,e57]
+> e25=roundNode "E" [e37, e38, roundNode "L" [e412,e413]]
+> e26=roundNode "H" [roundNode "I" [roundNode "K" [roundNode "J" [e617, e618]]]]
+> e52=roundNode "H" [roundNode "I" [roundNode "K" [roundNode "J" 
+>       [roundNode "L" [roundNode "M" []],roundNode "M" [roundNode "L" []]]]]]
+> e53=roundNode "J" [roundNode "K" [roundNode "I" [roundNode "H" 
+>       [roundNode "G" []]]],roundNode "M" []]
+> e54=roundNode "M" [roundNode "J" [roundNode "K" [roundNode "I" 
+>       [roundNode "H" [roundNode "G" []]]]]]
+> e56=roundNode "G" [e52]
+> e57=roundNode "L" [e53,e54]
+> e37=roundNode "C" [roundNode "B" [roundNode "D" [roundNode "F" []]]]
+> e38=roundNode "F" [roundNode "D" [roundNode "B" [roundNode "C" []]]]
+> e412=roundNode "J" [roundNode "K" [roundNode "I" [roundNode "H" []]],
+>       roundNode "M" []]
+> e413=roundNode "M" [roundNode "J" [roundNode "K" [roundNode "I" 
+>       [roundNode "H" []]]]]
+> e617=roundNode "L" [roundNode "E" [e37,e38],roundNode "M" []]
+> e618=roundNode "M" [roundNode "L" [roundNode "E" [e37,e38]]]
+
+
+> bsp10 = scale 0.5 (forEachNode (setDistH (DistCenter (0.5*cm))) e)
+
+
+> bound = (tex "This is a Text" 
+>                       # setColor 0.7 
+>               )
+>               # label C  (tex "C")  
+>               # label N  (tex "N")  
+>               # label NE (tex "NE") 
+>               # label E  (tex "E")  
+>               # label SE (tex "SE") 
+>               # label S  (tex "S")  
+>               # label SW (tex "SW") 
+>               # label W  (tex "W")  
+>               # label NW (tex "NW") 
+>               # at C  dot
+>               # at N  dot
+>               # at NE dot
+>               # at E  dot
+>               # at SE dot
+>               # at S  dot
+>               # at SW dot
+>               # at W  dot
+>               # at NW dot
+> textBounding1 = box bound 
+>               # setDX 0 
+>               # setDY 0
+
+
+
+> textBox a     = draw  [line' N "dy" W, line' S "dy" W,
+>                       line' W "dx" S, line' E "dx" S] (freeBox a)
+>               where
+>               line' d l dl = line (ref d) (ref ("text" <+ d))
+>                                       # setLabel 0.5 dl (tex l) 
+>                                       # setArrowHead default'
+>                                       # setStartArrowHead default'
+
+> triBox a      = draw [line' SW "dx" S, line' SE "dx" S] (freeBox a)
+>               where
+>               line' d l dl = line (ref d) (xy (ref ("text" <+ d)) (ref d))
+>                                       # setLabel 0.5 dl (tex l) 
+>                                       # setArrowHead default'
+>                                       # setStartArrowHead default'
+
+> circBox a     = draw [line' W "dx" S, line' E "dx" S] (freeBox a)
+>               where
+>               line' d l dl = line (ref d) (ref ("text" <+ d)) 
+>                                       # setLabel 0.5 dl (tex l) 
+>                                       # setArrowHead default'
+>                                       # setStartArrowHead default'
+
+> freeBox a     = toPicture (a (tex "This is a text"
+>                                       # setColor 0.8
+>                                       # setName "text")
+>                                       # setDX 20
+>                                       # setDY 20)
+>                                               # label C  (tex "C")
+>                                               # label N  (tex "N")
+>                                               # label NE (tex "NE")
+>                                               # label E  (tex "E")
+>                                               # label SE (tex "SE")
+>                                               # label S  (tex "S")
+>                                               # label SW (tex "SW")
+>                                               # label W  (tex "W")
+>                                               # label NW (tex "NW")
+>                                               # at C  dot
+>                                               # at N  dot
+>                                               # at NE dot
+>                                               # at E  dot
+>                                               # at SE dot
+>                                               # at S  dot
+>                                               # at SW dot
+>                                               # at W  dot
+>                                               # at NW dot
+>                                               # setColor 0.6
+>               where
+>               line' d l dl = line (ref d) (ref ("text" <+ d))
+>                                       # setLabel 0.5 dl (tex l) 
+>                                       # setArrowHead default'
+>                                       # setStartArrowHead default'
+
+
+
+> bsp9 = Draw [line (ref ((0::Int) <+ SE)) (ref ((1::Int) <+ C))]
+>               ((row [tex "1", tex "2", tex "3", tex "4"]
+>               # setName "a") |-| tex "1")
+
+> brack0 = draw [bracket "1" (xy (ref ("tre" <+ W)) (ref ("tre" <+ 1 <* C)),
+>                       xy (ref ("tre" <+ W)) (ref ("tre" <+ 0 <* C))),
+>                bracket "1" (  xy (ref ("tre" <+ W)) (ref ("tre" <+ 2 <* C)),
+>                       xy (ref ("tre" <+ W)) (ref ("tre" <+ 1 <* C)))]
+>       (toPicture (forEachLevelNode 1 (setDistV 30) tree2) # setName "tre") 
+
+
+\end{hide}
+
+\Beispiel{Chip}{
+\beside{0.9}{
+
+> chip  = scale 0.72 (  boxRek (boxRek box1' (setPattern dashed)) (setPattern dotted))
+>       where
+>       circ    = toPicture (circle empty # setDX 4)
+>       tree    = toPicture (node circ [enode circ [enode circ [],enode circ []],
+>                       enode circ [enode circ [], enode circ []]])
+>                       # setName (0::Int)
+>       pin n p = p .-. vec (xpart p, ypart (ref N))
+>               # setLabel 1 S (toPicture (dot # setDX 2) # setName n)
+>       box1    = box (overlay [ref (0 <* N) 
+>                               .= ref (1 <* N) - vec(0.5*width (0::Int), 0)]
+>                               [tree, circ # setName "circ"])
+>               # setDX 10
+>               # setDY 10
+>       box1'   = draw [        ref ("circ" <+ SW) .-. ref ("circ" <+ C) + vec(-8,-4),
+>                               ref ("circ" <+ SE) .-. ref ("circ" <+ C) + vec( 8,-4),
+>                               pin "a" (ref (0 <* 0 <* C)),
+>                               pin "b" (ref ("circ" <+ C) + vec(-8,-4)),
+>                               pin "d" (ref ("circ" <+ C) + vec( 8,-4)),
+>                               pin "c" (ref ("circ" <+ C))]
+>                     box1
+>       boxRek b f
+>               = draw  [       pin "d" (ref (1 <* "d" <+ C)),
+>                               pin "a" (ref (0 <* "c" <+ C)),
+>                               pin "b" (ref (1 <* "b" <+ C)),
+>                               pin "c" (ref (1 <* "c" <+ C))]
+>               (box (setTrueBoundingBox (
+>                       draw [  curve (ref (0 <* "a" <+ C)) (ref (0 <* "b" <+ C)) 
+>                               # setStartAngle 25,
+>                               curve (ref (0 <* "d" <+ C)) (ref (1 <* "a" <+ C)) 
+>                               # setStartAngle 25]
+>                           ((b # setName (0::Int)) |||| (b # setName (1::Int)))))
+>               # setDX 10
+>               # setDY 10
+>               # f)
+
+
+\rule{\linewidth}{0.5pt}\\[1em]
+%if recalc
+\perform{ generate "chip" 1 chip }%
+%else 
+\epsfig{file=chip.1}%
+%endif
+}}
+
+\Beispiel{Complex analytic maps}{
+\beside{0.9}{
+
+> kompl = matrix [[grid, pow2], [pow3, func]]
+>       where
+>       grid            = scale 7    (plane zId)
+>       pow2            = scale 0.4  (plane zPow2)
+>       pow3            = scale 0.05 (plane zPow3)
+>       func            = scale 0.05 (plane zFunc)
+>       z a             = PathPoint (vec a)
+>       zId   x y       = z (x, y)
+>       zPow2 x y       = z (2*x*y, x*x-y*y)
+>       zPow3 x y       = z (x*(x*x-3*y*y), y*(3*x*x-y*y))
+>       zFunc x y       = z (2*x*x*y+x*x*x-y*y*x, 2*x*y*y+x*x*y-y*y*y)
+>       plane f         = toPicture (
+>                               cdraws (map toPath (horiz f))
+>                             & cdraws (map toPath (vert f)))
+>                       where
+>                       horiz f = [[f (fromInt x) (fromInt y) 
+>                                 | x <- [-9..9]] | y <- [-9..9]]
+>                       vert f  = [[f (fromInt x) (fromInt y) 
+>                                 | y <- [-9..9]] | x <- [-9..9]]
+>       toPath ps       = (foldl1 (...) ps) # setPen 0.001
+
+
+\rule{\linewidth}{0.5pt}\\[1em]
+%if recalc
+\perform{ generate "kompl" 1 kompl }%
+%else
+\epsfig{file=kompl.1}%
+%endif
+}}
+
+
+\section{Matrix}
+
+\Beispiel{Alignement in tables}{
+\beside{0.9}{
+
+> matrBsp = matrixAlign
+>                [  [   cell' C (math "\\setminus"),
+>                       cell' W "left adjusted",
+>                       cell' W "centered",
+>                       cell' W "right adjusted"],
+>                     [ cell' W ("vertical" |-| "on top"),
+>                       cell' NW "NW",
+>                       cell' N "N",
+>                       cell' NE "NE"],
+>                     [ cell' W ("vertical" |-| "centered"),
+>                       cell' W "W",
+>                       cell' C "C",
+>                       cell' E "E"],
+>                     [ cell' W ("vertical" |-| "on bottom"), 
+>                       cell' SW "SW",
+>                       cell' S "S",
+>                       cell' SE "SE"] ]
+
+\rule{\linewidth}{0.5pt}\\[1em]
+%if recalc
+\perform{ generate "matrix" 1 matrBsp }%
+%else
+\epsfig{file=matrix.1}%
+%endif
+}}
+
+\section{Parameters}
+
+\Tabelle{Parameters in the  .FuncMP file}{
+\begin{tabular}{||l||l||}
+\hline
+Parameter       &\\
+\hline\hline
+|prolog|        &included at beginning of \MP\ file.\\
+|epilog|        &included at end of \MP\ file.\\
+|funcmp_rts|    &options for the binary |funcmp_bin|.\\
+|funcmp_bin|    &name of the binary.\\
+|mp_bin|        &name of \MP.\\
+\hline
+\end{tabular}
+}
+
+
+\Beispiel{the file .FuncMP}{
+\beside{0.9}{
+\begin{verbatim}
+prolog          = "verbatimtex\n\
+                   \\\documentclass[10pt,oneside,a4paper,fleqn,leqno]{report}\n\
+                   \\\usepackage{mflogo}\n\
+                   \\\begin{document}\n\
+                   \etex\n\n\
+                   \input boxes\n\
+                   \input FuncMP"
+epilog          = "\n\n\\end"
+
+defaultDX       = 3
+defaultDY       = 3
+textDX          = 2
+textDY          = 2
+
+funcmp_rts      = "+RTS -H24m -K1M -RTS"
+funcmp_bin      = "./FuncMP"
+
+mp_bin          = "virmp "
+\end{verbatim}
+}}
+
+\end{document}
+
+
+
+> main = do
+>       generate "bound" 1 textBounding1
+>       generate "primitives" 1 primitives
+>       generate "text" 1 bsp0
+>       generate "text" 3 bild3
+>       generate "colors" 1 colors
+>       generate "text" 4 from0
+>       generate "punkte" 1 punkte
+>       generate "automat" 1 automat1
+>       generate "kreis" 1 kreis7
+>       generate "drei" 1 drei
+>       generate "spiral" 1 spirale
+>       generate "bracket" 1 brack
+>       generate "automat" 2 automat2
+>       generate "arrow" 1 pfeil
+>       generate "clip" 1 clipping
+>       generate "pacman" 1 pac
+>       generate "tree" 1 tree1
+>       generate "tree" 2 tree2
+>       generate "tree" 3 tree3
+>       generate "tree" 4 tree4
+>       generate "complex" 1 bsp10
+>       generate "turtle" 1 turtle1
+>       generate "turtle" 2 turtle2
+>       generate "colorcirc" 1 colorcirc
+>       generate "barchart" 1 barchart
+>       generate "chip" 1 chip
+>       generate "kompl" 1 kompl
+>       generate "matrix" 1 matrBsp

@@ -1,0 +1,156 @@
+leftmost :: Tree -> Int
+-- testing 360 combinations of argument values
+-- pruning with 3/3 rules
+-- 1 candidates of size 1
+-- 0 candidates of size 2
+-- 0 candidates of size 3
+-- 0 candidates of size 4
+-- 0 candidates of size 5
+-- 0 candidates of size 6
+-- 8 candidates of size 7
+-- tested 2 candidates
+leftmost (Node t1 x t2)
+  | nil t1  =  x
+  | otherwise  =  leftmost t1
+
+rightmost :: Tree -> Int
+-- testing 360 combinations of argument values
+-- pruning with 3/3 rules
+-- 1 candidates of size 1
+-- 0 candidates of size 2
+-- 0 candidates of size 3
+-- 0 candidates of size 4
+-- 0 candidates of size 5
+-- 0 candidates of size 6
+-- 8 candidates of size 7
+-- tested 7 candidates
+rightmost (Node t1 x t2)
+  | nil t2  =  x
+  | otherwise  =  rightmost t2
+
+size :: Tree -> Int
+-- testing 360 combinations of argument values
+-- pruning with 4/8 rules
+-- 2 candidates of size 1
+-- 0 candidates of size 2
+-- 0 candidates of size 3
+-- 0 candidates of size 4
+-- 4 candidates of size 5
+-- 4 candidates of size 6
+-- 12 candidates of size 7
+-- 16 candidates of size 8
+-- tested 32 candidates
+size Leaf  =  0
+size (Node t1 x t2)  =  size t1 + (1 + size t2)
+
+height :: Tree -> Int
+-- testing 360 combinations of argument values
+-- pruning with 49/65 rules
+-- 3 candidates of size 1
+-- 0 candidates of size 2
+-- 0 candidates of size 3
+-- 0 candidates of size 4
+-- 14 candidates of size 5
+-- 6 candidates of size 6
+-- 98 candidates of size 7
+-- 86 candidates of size 8
+-- tested 160 candidates
+height Leaf  =  -1
+height (Node t1 x t2)  =  1 + max (height t1) (height t2)
+
+mem :: Int -> Tree -> Bool
+-- testing 360 combinations of argument values
+-- pruning with 11/17 rules
+-- 1 candidates of size 1
+-- 0 candidates of size 2
+-- 0 candidates of size 3
+-- 0 candidates of size 4
+-- 0 candidates of size 5
+-- 0 candidates of size 6
+-- 0 candidates of size 7
+-- 16 candidates of size 8
+-- 0 candidates of size 9
+-- 0 candidates of size 10
+-- 0 candidates of size 11
+-- 36 candidates of size 12
+-- tested 18 candidates
+mem x Leaf  =  False
+mem x (Node t1 y t2)  =  mem x t1 || (x == y || mem x t2)
+
+ordered :: Tree -> Bool
+-- testing 360 combinations of argument values
+-- pruning with 29/39 rules
+-- 2 candidates of size 1
+-- 1 candidates of size 2
+-- 0 candidates of size 3
+-- 0 candidates of size 4
+-- 2 candidates of size 5
+-- 12 candidates of size 6
+-- 0 candidates of size 7
+-- 36 candidates of size 8
+-- 72 candidates of size 9
+-- 0 candidates of size 10
+-- 290 candidates of size 11
+-- 712 candidates of size 12
+-- tested 1127 candidates
+ordered  =  undefined  -- search exhausted
+-- could not find implementation using only
+-- True, False, (&&), (||), (<), rightmost, leftmost, and nil
+-- consider increasing target/maxSize or refining the ingredients
+
+ordered :: Tree -> Bool
+-- testing 360 combinations of argument values
+-- pruning with 0/0 rules
+-- 1 candidates of size 1
+-- 0 candidates of size 2
+-- 1 candidates of size 3
+-- tested 2 candidates
+ordered t1  =  strictlyOrdered (inorder t1)
+
+preorder :: Tree -> [Int]
+-- testing 360 combinations of argument values
+-- pruning with 4/4 rules
+-- 1 candidates of size 1
+-- 0 candidates of size 2
+-- 0 candidates of size 3
+-- 0 candidates of size 4
+-- 2 candidates of size 5
+-- 4 candidates of size 6
+-- 2 candidates of size 7
+-- 8 candidates of size 8
+-- tested 11 candidates
+preorder Leaf  =  []
+preorder (Node t1 x t2)  =  x:(preorder t1 ++ preorder t2)
+
+inorder :: Tree -> [Int]
+-- testing 360 combinations of argument values
+-- pruning with 4/4 rules
+-- 1 candidates of size 1
+-- 0 candidates of size 2
+-- 0 candidates of size 3
+-- 0 candidates of size 4
+-- 0 candidates of size 5
+-- 4 candidates of size 6
+-- 2 candidates of size 7
+-- 4 candidates of size 8
+-- tested 9 candidates
+inorder Leaf  =  []
+inorder (Node t1 x t2)  =  inorder t1 ++ (x:inorder t2)
+
+posorder :: Tree -> [Int]
+-- testing 360 combinations of argument values
+-- pruning with 4/4 rules
+-- 1 candidates of size 1
+-- 0 candidates of size 2
+-- 0 candidates of size 3
+-- 0 candidates of size 4
+-- 0 candidates of size 5
+-- 4 candidates of size 6
+-- 2 candidates of size 7
+-- 4 candidates of size 8
+-- 10 candidates of size 9
+-- 8 candidates of size 10
+-- tested 27 candidates
+posorder Leaf  =  []
+posorder (Node t1 x t2)  =  posorder t1 ++ (posorder t2 ++ [x])
+

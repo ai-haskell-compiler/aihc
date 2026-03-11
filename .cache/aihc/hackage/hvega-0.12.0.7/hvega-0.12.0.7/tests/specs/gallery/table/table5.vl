@@ -1,0 +1,51 @@
+{
+    "$schema": "https://vega.github.io/schema/vega-lite/v4.json",
+    "config": {
+        "scale": {
+            "bandPaddingInner": 0,
+            "bandPaddingOuter": 0
+        },
+        "text": {
+            "baseline": "middle"
+        }
+    },
+    "data": {
+        "url": "https://vega.github.io/vega-lite/data/cars.json"
+    },
+    "description": "Layering text over 'heatmap'.",
+    "encoding": {
+        "x": {
+            "field": "Cylinders",
+            "type": "ordinal"
+        },
+        "y": {
+            "field": "Origin",
+            "type": "ordinal"
+        }
+    },
+    "layer": [
+        {
+            "encoding": {
+                "color": {
+                    "aggregate": "count",
+                    "field": "*",
+                    "type": "quantitative"
+                }
+            },
+            "mark": "rect"
+        },
+        {
+            "encoding": {
+                "color": {
+                    "value": "white"
+                },
+                "text": {
+                    "aggregate": "count",
+                    "field": "*",
+                    "type": "quantitative"
+                }
+            },
+            "mark": "text"
+        }
+    ]
+}

@@ -1,0 +1,56 @@
+[ [ ( KeywordTok , "function" )
+  , ( NormalTok , " abc (str, list)" )
+  ]
+, [ ( NormalTok , "  " )
+  , ( FunctionTok , "isempty" )
+  , ( NormalTok , "(str) " )
+  , ( OperatorTok , "&&" )
+  , ( NormalTok , " " )
+  , ( ControlFlowTok , "return" )
+  , ( NormalTok , " " )
+  , ( ConstantTok , "true" )
+  ]
+, [ ( NormalTok , "  " )
+  , ( ControlFlowTok , "for" )
+  , ( NormalTok , " i " )
+  , ( OperatorTok , "=" )
+  , ( NormalTok , " " )
+  , ( FloatTok , "1" )
+  , ( OperatorTok , ":" )
+  , ( FunctionTok , "length" )
+  , ( NormalTok , "(list)" )
+  ]
+, [ ( NormalTok , "    str[" )
+  , ( KeywordTok , "end" )
+  , ( NormalTok , "] " )
+  , ( KeywordTok , "in" )
+  , ( NormalTok , " list[i] " )
+  , ( OperatorTok , "&&" )
+  , ( NormalTok , " " )
+  ]
+, [ ( NormalTok , "    " )
+  , ( FunctionTok , "any" )
+  , ( NormalTok , "([" )
+  , ( FunctionTok , "abc" )
+  , ( NormalTok , "(str[" )
+  , ( FloatTok , "1" )
+  , ( OperatorTok , ":" )
+  , ( KeywordTok , "end" )
+  , ( OperatorTok , "-" )
+  , ( FloatTok , "1" )
+  , ( NormalTok , "], " )
+  , ( FunctionTok , "deleteat!" )
+  , ( NormalTok , "(" )
+  , ( FunctionTok , "copy" )
+  , ( NormalTok , "(list), i))]) " )
+  , ( OperatorTok , "&&" )
+  ]
+, [ ( NormalTok , "    " )
+  , ( ControlFlowTok , "return" )
+  , ( NormalTok , " " )
+  , ( ConstantTok , "true" )
+  ]
+, [ ( NormalTok , "  " ) , ( ControlFlowTok , "end" ) ]
+, [ ( NormalTok , "  " ) , ( ConstantTok , "false" ) ]
+, [ ( KeywordTok , "end" ) ]
+]

@@ -1,0 +1,26 @@
+{
+  "id": 4,
+  "name": "Twitter",
+  "path": "twitter",
+  "description": "Aliquid qui quis dignissimos distinctio ut commodi voluptas est.",
+  "visibility": "public",
+  "avatar_url": null,
+  "web_url": "https://gitlab.example.com/groups/twitter",
+  "request_access_enabled": false,
+  "full_name": "Twitter",
+  "full_path": "twitter",
+  "runners_token": "ba324ca7b1c77fc20bb9",
+  "file_template_project_id": 1,
+  "parent_id": null,
+  "created_at": "2020-01-15T12:36:29.59Z",
+  "shared_with_groups": [
+    {
+      "group_id": 28,
+      "group_name": "H5bp",
+      "group_full_path": "h5bp",
+      "group_access_level": 20,
+      "expires_at": null
+    }
+  ],
+  "prevent_sharing_groups_outside_hierarchy": false
+}

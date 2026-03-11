@@ -1,0 +1,90 @@
+--- parse tree ---
+[ Code
+    "typ/compiler/construct-01.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/compiler/construct-01.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/compiler/construct-01.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Comment
+, Comment
+, Comment
+, Code
+    "typ/compiler/construct-01.typ"
+    ( line 5 , column 2 )
+    (Set
+       (Ident (Identifier "list"))
+       [ KeyValArg (Identifier "marker") (Block (Content [ Text ">" ])) ])
+, SoftBreak
+, Code
+    "typ/compiler/construct-01.typ"
+    ( line 6 , column 2 )
+    (FuncCall
+       (Ident (Identifier "list"))
+       [ KeyValArg (Identifier "marker") (Block (Content [ EnDash ]))
+       , BlockArg
+           [ SoftBreak
+           , Code
+               "typ/compiler/construct-01.typ"
+               ( line 7 , column 4 )
+               (FuncCall
+                  (Ident (Identifier "rect"))
+                  [ KeyValArg (Identifier "width") (Literal (Numeric 2.0 Cm))
+                  , KeyValArg (Identifier "fill") (Ident (Identifier "green"))
+                  , KeyValArg (Identifier "inset") (Literal (Numeric 4.0 Pt))
+                  , NormalArg
+                      (FuncCall (Ident (Identifier "list")) [ BlockArg [ Text "A" ] ])
+                  ])
+           , ParBreak
+           ]
+       ])
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 text(body: [
+]), 
+                 list(children: ({ text(body: [
+]), 
+                                   rect(body: list(children: (text(body: [A])), 
+                                                   marker: text(body: [>])), 
+                                        fill: rgb(18%,80%,25%,100%), 
+                                        inset: 4.0pt, 
+                                        width: 2.0cm), 
+                                   parbreak() }), 
+                      marker: text(body: [–])), 
+                 parbreak() })

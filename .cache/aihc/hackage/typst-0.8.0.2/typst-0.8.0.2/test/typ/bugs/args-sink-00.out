@@ -1,0 +1,79 @@
+--- parse tree ---
+[ Code
+    "typ/bugs/args-sink-00.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/bugs/args-sink-00.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/bugs/args-sink-00.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Code
+    "typ/bugs/args-sink-00.typ"
+    ( line 2 , column 2 )
+    (LetFunc
+       (Identifier "foo")
+       [ SinkParam (Just (Identifier "body")) ]
+       (FuncCall
+          (Ident (Identifier "repr"))
+          [ NormalArg
+              (FuncCall
+                 (FieldAccess
+                    (Ident (Identifier "pos")) (Ident (Identifier "body")))
+                 [])
+          ]))
+, SoftBreak
+, Code
+    "typ/bugs/args-sink-00.typ"
+    ( line 3 , column 2 )
+    (FuncCall
+       (Ident (Identifier "foo"))
+       [ KeyValArg (Identifier "a") (Literal (String "1"))
+       , KeyValArg (Identifier "b") (Literal (String "2"))
+       , NormalArg (Literal (Int 1))
+       , NormalArg (Literal (Int 2))
+       , NormalArg (Literal (Int 3))
+       , NormalArg (Literal (Int 4))
+       , NormalArg (Literal (Int 5))
+       , NormalArg (Literal (Int 6))
+       ])
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 text(body: [
+]), 
+                 text(body: [(1, 2, 3, 4, 5, 6)]), 
+                 parbreak() })

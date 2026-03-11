@@ -1,0 +1,5 @@
+To build with sse2 support (core2 and other intels)
+
+    $ runhaskell Setup.lhs -f use_sse2
+
+Similar flags for altivec on the mac

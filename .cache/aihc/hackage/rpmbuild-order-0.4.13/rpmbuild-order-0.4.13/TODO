@@ -1,0 +1,11 @@
+- --quiet to silence rpmspec warnings
+- use record to set createGraph options
+
+- try topograph or agl
+- use Data.Set
+* warn about uninstalled (specific?) macros packages
+- handle duplicate packages?
+- (r)deps: optimize using actual deps
+- option to somehow display subpackage deps for cycles
+
+- runtime order system packages (using rpmquery)

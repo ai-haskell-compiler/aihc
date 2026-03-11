@@ -1,0 +1,100 @@
+{
+    "$schema": "https://vega.github.io/schema/vega-lite/v4.json",
+    "config": {
+        "view": {
+            "stroke": null
+        }
+    },
+    "data": {
+        "format": {
+            "property": "features",
+            "type": "json"
+        },
+        "values": {
+            "features": [
+                {
+                    "geometry": {
+                        "coordinates": [
+                            [
+                                [
+                                    -3,
+                                    52
+                                ],
+                                [
+                                    4,
+                                    52
+                                ],
+                                [
+                                    4,
+                                    45
+                                ],
+                                [
+                                    -3,
+                                    45
+                                ],
+                                [
+                                    -3,
+                                    52
+                                ]
+                            ]
+                        ],
+                        "type": "Polygon"
+                    },
+                    "properties": {
+                        "Region": "Southsville"
+                    },
+                    "type": "Feature"
+                },
+                {
+                    "geometry": {
+                        "coordinates": [
+                            [
+                                [
+                                    -3,
+                                    59
+                                ],
+                                [
+                                    4,
+                                    59
+                                ],
+                                [
+                                    4,
+                                    52
+                                ],
+                                [
+                                    -3,
+                                    52
+                                ],
+                                [
+                                    -3,
+                                    59
+                                ]
+                            ]
+                        ],
+                        "type": "Polygon"
+                    },
+                    "properties": {
+                        "Region": "Northerton"
+                    },
+                    "type": "Feature"
+                }
+            ],
+            "type": "FeatureCollection"
+        }
+    },
+    "encoding": {
+        "color": {
+            "field": "properties.Region",
+            "legend": {
+                "title": null
+            },
+            "type": "nominal"
+        }
+    },
+    "height": 400,
+    "mark": "geoshape",
+    "projection": {
+        "type": "orthographic"
+    },
+    "width": 300
+}

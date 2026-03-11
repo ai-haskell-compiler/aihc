@@ -1,0 +1,6 @@
+[Unit]
+Description=Socket for the Spacecookie Gopher Daemon
+
+[Socket]
+BindIPv6Only=both
+ListenStream=[::]:70

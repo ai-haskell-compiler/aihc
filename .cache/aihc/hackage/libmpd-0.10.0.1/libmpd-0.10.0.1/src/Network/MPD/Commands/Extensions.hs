@@ -1,0 +1,91 @@
+{-# LANGUAGE OverloadedStrings #-}
+
+{- |
+Module      : Network.MPD.Commands.Extensions
+Copyright   : (c) Joachim Fasting 2012
+License     : MIT
+
+Maintainer  : Joachim Fasting <joachifm@fastmail.fm>
+Stability   : unstable
+Portability : unportable
+
+Extensions and shortcuts to the standard MPD command set.
+-}
+
+module Network.MPD.Commands.Extensions where
+
+import           Network.MPD.Core
+import           Network.MPD.Commands
+import qualified Network.MPD.Applicative.Internal as A
+import qualified Network.MPD.Applicative.CurrentPlaylist as A
+import qualified Network.MPD.Applicative.StoredPlaylists as A
+
+import           Control.Monad (liftM)
+import           Data.Traversable (for)
+import           Data.Foldable (for_)
+
+-- | Add a list of songs\/folders to a playlist.
+-- Should be more efficient than running 'add' many times.
+addMany :: MonadMPD m => PlaylistName -> [Path] -> m ()
+addMany plname xs = A.runCommand (for_ xs cmd)
+    where cmd | plname == "" = A.add
+              | otherwise    = A.playlistAdd plname
+
+-- | Recursive 'addId'. For directories, it will use the given position
+-- for the first file in the directory and use the successor for the remaining
+-- files. It returns a list of playlist ids for the songs added.
+addIdMany :: MonadMPD m => Path -> Maybe Position -> m [Id]
+addIdMany x (Just p) = do
+    fs <- listAll x
+    let fs' = map (\(a, b) -> (a, Just b)) $ zip fs [p ..]
+    A.runCommand $ for fs' (uncurry A.addId)
+addIdMany x Nothing = do
+    fs <- listAll x
+    A.runCommand $ for fs (`A.addId` Nothing)
+
+{-
+-- | Returns all songs and directories that match the given partial
+-- path name.
+complete :: MonadMPD m => String -> m [Either Path Song]
+complete path = do
+    xs <- liftM matches . lsInfo $ dropFileName path
+    case xs of
+        [Left dir] -> complete $ dir ++ "/"
+        _          -> return xs
+    where
+        matches = filter (isPrefixOf path . takePath)
+        takePath = either id sgFilePath
+-}
+
+-- | List the artists in the database.
+listArtists :: MonadMPD m => m [Artist]
+listArtists = list Artist mempty
+
+-- | List the albums in the database, optionally matching a given
+-- artist.
+listAlbums :: MonadMPD m => Maybe Artist -> m [Album]
+listAlbums ma = list Album (case ma of
+                              Nothing -> mempty
+                              Just a -> Artist =? a)
+
+-- | List the songs in an album of some artist.
+listAlbum :: MonadMPD m => Artist -> Album -> m [Song]
+listAlbum artist album = find (Artist =? artist <> Album =? album)
+
+-- | Retrieve the current playlist.
+-- Equivalent to @playlistinfo Nothing@.
+getPlaylist :: MonadMPD m => m [Song]
+getPlaylist = playlistInfo Nothing
+
+-- | Increase or decrease volume by a given percent, e.g.
+-- 'volume 10' will increase the volume by 10 percent, while
+-- 'volume (-10)' will decrease it by the same amount.
+volume :: MonadMPD m => Int -> m ()
+volume n = do
+    cur <- stVolume `liftM` status
+    case cur of
+        Nothing -> return ()
+        Just v  -> setVolume (adjust v)
+    where
+        adjust x = round $ (fromIntegral n / (100 :: Double)) * x' + x'
+          where x' = fromIntegral x

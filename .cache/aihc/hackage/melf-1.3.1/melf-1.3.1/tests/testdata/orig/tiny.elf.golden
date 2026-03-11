@@ -1,0 +1,45 @@
+segment {
+    Type:       PT_LOAD
+    Flags:      [PF_X,PF_R]
+    VirtAddr:   0x0000000000400000
+    PhysAddr:   0x0000000000400000
+    AddMemSize: 0x0000000000000000
+    Align:      0x0000000000200000
+    Data:       
+        segment {
+            Type:       PT_NOTE
+            Flags:      [PF_R]
+            VirtAddr:   0x0000000000000000
+            PhysAddr:   0x0000000000000000
+            AddMemSize: 0x0000000000000000
+            Align:      0x0000000000000008
+            Data:       
+        }
+        header {
+            Class:      ELFCLASS64
+            Data:       ELFDATA2LSB
+            OSABI:      ELFOSABI_SYSV
+            ABIVersion: 0
+            Type:       ET_EXEC
+            Machine:    EM_X86_64
+            Entry:      0x00000000004000e0
+            Flags:      0x00000000
+        }
+        segment table
+        raw align {
+            Offset: 0x00000000000000e0
+            Align:  0x0000000000200000
+        }
+        section 1 ".text" {
+            Type:      SHT_PROGBITS
+            Flags:     [SHF_ALLOC,SHF_EXECINSTR]
+            Addr:      0x00000000004000e0
+            AddrAlign: 0x0000000000000010
+            EntSize:   0x0000000000000000
+            Info:      0x00000000
+            Link:      0x00000000
+            Data:      bb 00 00 00 00 b8 01 00 00 00 cd 80             # ............
+        }
+}
+string table section 2 ".shstrtab"
+section table

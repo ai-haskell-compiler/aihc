@@ -1,0 +1,554 @@
+* Positional: test suite
+
+Test against 'compensated' package.
+
+* Positional and zero
+
+Represent zero with empty mantissa?
+Or better have NonZero type with non-empty mantissa
+and a full number type with optional zero?
+Or something where we can have negative numbers and zero as option?
+Problem is, that we allow negative digits
+and thus even a Positive number type can represent zero and negative numbers.
+
+We might at least define a NonEmptyMantissa type for interim computations,
+like in 'divide'.
+
+* Positional.Fixed
+
+We could derive the base from digit type, e.g.
+   Int32 -> 1000
+   Int64 -> 1000000
+   newtype Integer -> anything
+
+* Algebra.Module
+
+I think it should be a type family rather than a multi-parameter type class.
+My main motivation for multi-paramter type class
+was to allow complex numbers to be a vector space over both real and complex numbers.
+This does not worked well and even more type inference often fails.
+We should just have two different types of complex numbers:
+One complex number type being a vector space over reals
+and another complex type being a vector space over complex numbers.
+
+* zipWithChecked
+
+We could make the second operand lazy,
+and this way we would get a version of 'zipWith'
+that can be used for some tying-the-knot applications
+(as in unique-logic and BurrowsWheeler).
+
+* Algebra.Complex
+
+conjugate method that works both on real and complex numbers.
+This is need in ScalarProduct implementations,
+as in Synthesizer.Test.Fourier.
+
+* multiply vs. mul
+
+Make identifiers consistent.
+I think Gaussian.multiply can be dropped when (*) is removed from Ring.
+
+* better support for Show instances in NumericPrelude.Text
+
+Appearance of all objects with prefix constructor should be consistent.
+
+* Show for infix operators
+
+Verify Show instances of (%) and (+:).
+E.g. Show (Complex Rational)
+When a number has negative sign,
+the result of 'show' is sometimes no valid Haskell expression.
+
+* infix operator (*:) for Complex.scale
+
+This would be nice to have in Gaussian.Bell and Gaussian.Polynomial.
+
+* explicit export lists
+
+* AdditiveSemiGroup, AdditiveMonoid, AdditiveGroup
+
+Matrices with dynamic dimension have no 'zero' (because of unknown dimension)
+   (that is, they have a commutative AdditiveSemiGroup and MultiplicativeSemiGroup)
+NonNegative has no (-)
+
+* MultiplicativeSemiGroup, MultiplicativeMonoid, MultiplicativeGroup
+
+Gaussian function, Root, ComplexSquareRoot have no AdditiveGroup operations
+
+* Decision class should be thrown out again
+
+They do not scale well.
+They should be divided into 'if' and 'select' parts.
+
+* Eq superclass for Absolute?
+
+If we have Absolute we can always define
+
+  a == b   ===   isZero (a-b)
+
+Maybe this reasoning is no longer valid,
+when superclasses of Ring are finer grained.
+
+* Ratios of polynomials
+
+Q(pi) can be represented by Ratio (Polynomial Integer),
+however the standard cancelling algorithm
+using the GCD and Euclidean algorithm would not work,
+because the GCD is a too strict notion here.
+Thus currently Q(pi) must be represented by Ratio (Polynomial Rational),
+which is redundant.
+How can this be overcome?
+
+Are there polynomials p and q over Z
+such that p and q are relatively prime,
+but for an integer multiple k·p and k·q they have a non-trivial common divisor?
+
+* optimizations
+
+http://www.haskell.org/pipermail/libraries/2010-September/014434.html
+
+ #4101: constant folding for (**)
+ #3676: realToFrac conversions
+ #3744: comparisons against minBound and maxBound are not optimised away
+ #3065: quot is sub-optimal
+ #2269: Word type to Double or Float conversions
+ #2271: floor, ceiling, round :: Double -> Int are awesomely slow
+ #1434: slow conversion Double to Int
+
+All are accessible as http://hackage.haskell.org/trac/ghc/ticket/4101, etc.
+All need love.
+
+* sum (and mconcat)
+
+How to provide a 'sum' function that works optimal for the strict and lazy types?
+It must sum strict types from the left and lazy types from the right,
+and pairs of both kind of types must be added in a mixed manner.
+This seems to be impossible to achieve with a Haskell 98 type class or optimizer rules.
+
+http://projects.haskell.org/pipermail/numeric-prelude/2010-July/000016.html
+
+Shall we leave left-biased sum as the default
+and provide an advanced type class for unbounded summation?
+It could be used to define a generic 'List.length' function.
+
+* non-negative
+
+NonNegative could require ZeroTestable
+because Eq provides (==) and Additive provides zero
+and thus ZeroTestable can be implemented for all these instances.
+
+NonNegative class on top of Additive is the wrong way around
+since non-negative types like Peano
+do not provide full subtraction.
+There should be AdditiveMonoid and Additive on top of this,
+and NonNegative should be a distinct sub-class of AdditiveMonoid.
+
+Unfortunately we often have a type which provides also negative numbers
+(Integer, Int, Float, Double)
+without a counterpart type for non-negative numbers.
+That's the reason why the wrapper Number.NonNegative exists.
+But it is clearly the wrong way around.
+There should be a multi-parameter type class with functional dependency
+for the relation of a full additive/subtractive with its non-negative counterpart
+in order to write algorithms that work with
+say Card and Int, Peano and signed Peano.
+
+
+* Proper place of abs and signum
+After reflection, perhaps  'abs' and 'signum' should be names for
+canonically multiplying an element by a unit, and need not necessarily
+refer to ordered fields.  There should also be another function
+'signuminv'.  They should satisfy
+
+  abs x * signum x == x
+  signum x * signuminv x == one
+  abs (k*x) == abs k * abs x
+
+(For Real)
+
+  abs x > 0
+
+(For Integral)
+
+  1 `mod` x = 0 ==> signum x = x
+  
+
+The current situation causes minor problems in the definition of the
+'PID' class, which uses abs and signum to canonicalize elements.
+
+Currently 'signum' is used some places where 'signuminv' should be
+used; e.g., in the definition of 'x % y'.
+
+This factorization seems useful in somewhat surprising generality.
+However, there are useful spaces where it's not defined,
+e.g. computable reals.
+@abs x@ is computable, but @signum x@ is not continuous so not computable.
+
+Also note, that @abs@ can be defined within @Additive@ and @Ord@
+(namely with the methods @negate@ and @max@)
+whereas @signum@ needs a @one@ or another unit
+which requires at least @Ring@ capabilities.
+
+* GHC bugs
+-fno-implicit-prelude is happy to use locally defined 'fromInteger',
+but not a locally defined 'fromRational'.
+
+
+* RealFloat
+Defines the properties of a Floating type,
+thus should be named 'Floating'.
+Whereas the Haskell98 'Floating' should be better named 'Transcendental'.
+'atan2' is candidate for 'Transcendental' rather than 'Floating'.
+The value 'eps' is missing.
+Since the functions 'floatRadix', 'floatDigits', 'floatRange'
+only need the type of the argument, but not its value -
+isn't it better to have a record containing the properties?
+This record can be requested by a method
+  properties :: a -> FloatingProperties
+
+
+* divMod
+The order of the return values of 'divMod' is very sensible:
+a) The function (`divMod` n) has type a -> (b,a)
+   and thus fits to the State data type.
+   This could simplify a division algorithm.
+b) The order of type a is isomorphic to the order of (b,a)
+   where (`divMod` n) is the isomorphism.
+
+However for base conversions the order of the result would be better swapped.
+See for instance Number.Positional.
+
+It shall be noted, that 'div', 'mod', 'divMod' have a parameter order,
+which is unfortunate for partial application.
+Maybe we should turn 'div', 'mod', 'divMod' into helper functions
+as needed for infix usage,
+and declare different class methods of different names and swapped parameters,
+say 'divide', 'modulo', 'divideModulo'.
+
+* safeDiv
+For resultant and discriminant computation,
+as well as for the Newton-Girard formula
+we need a division in a ring, where we know a priori,
+that the division can be performed.
+Is it sound to put fields like Rational, Double and so on,
+into the IntegralDomain class in order to allow one implementation for all types?
+Is it better to put all integral types into field class,
+thus with a partial (/) function?
+See also: PowerSeries
+
+
+* (**)
+In contrast to (^) and (^^)
+it should be restricted to positive bases,
+because it is ugly to do an integer test
+and it will fail for floating point numbers in some cases:
+
+Prelude> (-1)**2.000000000000001
+NaN
+Prelude> (-1)**2.0000000000000001
+1.0
+Prelude> (-1)**1e18
+1.0
+Prelude> (-1)**1e19
+NaN
+Prelude> (-1)^(10^19)
+1
+
+People are encouraged to check if they can always assert
+that the exponent is an integer.
+If this is the case they should use explicitly an integer type.
+If they can't assert that (I assume that will only rarely be the case),
+they must do this check by themselve.
+
+* Numeric type classes for EDSLs
+
+It is very common to define instances of Numeric type classes
+for wrapping operations of a foreign programming language.
+Examples: CSound, SuperCollider, functionalMetaPost.
+E.g. the Haskell expression '1+2'
+is literally mapped to the CSound expression '1+2' instead of '3'.
+This has causes several problems:
+ - the so defined numeric type instances do not preserve any mathematical laws,
+   e.g. Haskell's 'a+b' is mapped to CSound's "a+b",
+   and 'b+a' is mapped to "b+a",
+   so this (+) instance is obviously not commutative.
+ - It is not possible to fully define Eq and Ord (only max and min) instances
+   for such wrapper types.
+   People started custom type classes which provide methods like
+      (==*) :: CSndExp -> CSndExp -> CSndBool
+      ifGT  :: CSndExp -> CSndExp -> CSndExp -> CSndExp -> CSndExp
+ - You can only define expressions with a constant amount of operations.
+   The computational effort must not depend on interim results.
+   Algorithms like the Euclidean algorithm cannot be run on wrapper types.
+Thus we should consider custom type classes as well for Additive and Ring.
+Unfortunately, this seems to be necessary also for approximate arithmetic
+(floating and fixed point numbers).
+Even more, the type classes for numerical wrapper types
+and those for approximate arithmetic cannot be merged.
+Algorithms like the Euclidean algorithm _can_ be implemented for Float and Double.
+Eq and Ord can also be implemented,
+although usage of Eq is discouraged, and Ord is of restricted use.
+(For similar values,
+the rounding errors might be greater than the difference of the values.)
+
+The EDSL classes also have its use for CPU vectors
+   EqualityDecision: (==)
+   OrderDecision: compare
+   Choice: ifThenElse
+   Share: Verallgemeinerung von 'let'
+
+And there could be more classes for vector computing:
+   Shift
+   Access: insert, extract
+
+Using this class we could write synthesizer:Wave functions
+or vectorised frequency filters,
+such that we can test it with exact arithmetic
+and run it with LLVM on CPU vectors.
+
+* Implicit configuration
+
+Since there are no local type class instances available
+we could provide special type classes which return their results in a Reader monad.
+Say
+
+(+#) :: MonadReader m => a -> a -> m a
+
+
+* PowerSeries
+
+The transcendental power series functions can only be applied
+if the coefficient type supports transcendent operations.
+E.g. the logarithm of the series [1,2..]::[Rational]
+could be computed without problems since (log 1 == 0).
+But it fails, because Rational is no Transcendental type.
+Actually, for all rational numbers different from 1,
+the logarithm is not rational,
+thus defining
+   log x = if x==1 then 0 else error "logarithm undefined for that argument"
+seems to be unnecessary in general,
+but makes sense for further usage in power series.
+
+* Sample arguments
+
+'zero' and 'one' are undefined for some types.
+This indicates that the problem of implicit contextes is still not solved.
+For some types, phantom types are perfectly ok for describing the context,
+e.g. for positional numbers and fixed point numbers.
+But they are inconvenient for residue classes and matrices.
+One way out would be to provide a sample parameter,
+that is, turn the functions into
+  zero :: a -> a
+  one  :: a -> a
+and construct zeros and ones that are compliant to the sample parameter.
+However, this way we propose the "sample element" approach
+as the general way to go.
+But the problem applies really only to some types.
+
+
+* Affine spaces:
+ http://comments.gmane.org/gmane.comp.lang.haskell.libraries/3407
+  (Ashley Yakeley: RFC: Time Library 0.1)
+ http://www.haskell.org/pipermail/libraries/2005-May/003865.html
+  (Ashley Yakeley: Difference Argument Order)
+ http://math.ucr.edu/home/baez/torsors.html
+  (Is "torsor" closer to what we want to describe?)
+
+
+* Vector type constructors:
+
+Currently we model vector spaces with a multi-parameter type class.
+It has the advantage, that it can be used very flexible for existing types.
+E.g. any nesting of tuples types is automatically a vector type
+if the tuple type is a VectorSpace instance.
+But it has several disadvantages:
+ - Type inference works badly.
+   If in a chain of vector operations,
+   there is some undetermined type,
+   the type checker will confront you type error messages
+   containing type variables that you never wrote down somewhere.
+ - It is not possible to make a complex number
+   a scalar type with respect to some vector type,
+   because Complex is a composed type.
+ - You have to declare Module instances for all atomic types,
+   which essentially copy the Ring instances.
+   You may find it useful to implement certain functions
+   both for Modules and for Scalars.
+   E.g. the polynomial evaluation is sensible and useful
+   for vector valued coefficients (e.g. Matrix series),
+   but more often polynomials with scalar coefficients are needed.
+     hornerScalar :: Ring a          => [a] -> a -> a
+     hornerVector :: VectorSpace a v => [v] -> a -> v
+   You might try to unify both versions by making
+   (VectorSpace a a) a requirement of (Ring a).
+   However as said above, Complex can't be made an instance of VectorSpace
+   (more precisely VectorSpace (Complex a) (Complex a) is not possible.)
+   I also hesitate to let the single parameter type class Ring
+   depend on the multi-parameter type class VectorSpace.
+
+There is a way out: A Vector type constructor class.
+
+class Vector v where
+   scale :: Additive.C a => a -> v a -> v a
+
+
+In contrast to multi-parameter VectorSpace,
+we cannot force that 'v a' is also a member of Additive.
+
+We cannot restrict the vector element types by a class constraint,
+but the routines acting on Vector containers can have these restrictions.
+That is, the List type constructor is generally a Vector constructor,
+although the particular String type is not a vector.
+Since the multi-parameter approach sometimes requires
+two versions of a function, the type constructor approach is not worse.
+     hornerScalar :: Ring a             => [a]   -> a -> a
+     hornerVector :: (Ring a, Vector v) => [v a] -> a -> v a
+
+Actually we could again setup a multi-parameter type class
+  VectorSpace v a
+where 'v' is not a type but a type constructor
+much like in the MArray class.
+
+
+Advantages:
+ - scale :: (Complex Double) -> [Complex Double] -> [Complex Double]
+     is possible
+ - type inference works well
+Disadvantanges:
+ - The same type cannot be both scalar and vector.
+   In order to achieve this,
+   one part has to be turned into a singleton vector.
+   Is this really a disadvantage or just a kind of more type safety?
+ - The methods from Additive ((+), zero)
+   must be added to the Vector class.
+   A vectorial function cannot assert by its signature
+   that the particular vector type is Additive.
+ - The vector methods must live with the constraints on the scalar type
+   as given in the Vector class declaration.
+   Say, e.g. a Vector implementation based on Data.Map
+   may want to remove zero elements.
+   This requires a test against zero, that is a Eq or ZeroTestable instance.
+   You cannot add these constraints.
+
+Interestingly, this is the approach, I started on, in the end of 2004-03.
+
+
+
+* Function type class
+
+Useful for all function representations like Polynomials, Gaussian functions.
+However polynomials can only be applied to Ring types,
+and Gaussian functions can only be applied to Transcendental types.
+This it would require the usual type tricks
+for type constructor class with restricted type arguments.
+
+
+* Complex numbers
+
+The module looks horrible because auxiliary type classes are introduced
+in order to allow optimized version for floating point numbers.
+Should we better split the module into an algebraic Complex type
+and a floating point Complex type?
+
+
+* ToDo:
+
+   - check licences
+   - ZeroTestable.isZero -> Zero.query
+   - Units.isUnit        -> Unit.query
+   - TeX output class (configuration of operator precedences)
+
+* ToDo: Classes
+
+   - HilbertSpace (scalar product)
+   - AffineSpace (affine combination  a*>x + (1-a)*>y) as superclass of module,
+     contains ConvexSpace
+
+* ToDo: Types
+
+   - Partial Fractions:
+      - introduce Indexable type class for allowing partial fractions of polynomials
+      - example decomposition (e.g. implemented in test suite)
+          (n-2)·(n+2)/((n-4)·n·(n+4))
+   - Hypercomplex numbers: Octonions
+   - matrices, vectors
+      - conversion of complex and quaternions to real matrices
+   - peano numbers, cardinals
+   - continued fractions and approximations of fractions
+   - Vector type constructor class,
+     with Singleton, Pair, Triple, Quadruple, (->), [] as instances
+
+
+
+
+Henning's notes:
+  (mod a 0)   should be undefined,
+     because the remainder should satisfy
+     (y >=0  ==>  0 <= mod x y && mod x y < y)
+  splitFraction replaces properFraction
+     It does now round towards minus infinity,
+     I can't remember that I needed the behavior of Prelude.properFraction,
+     namely rounding towards zero, in the past, at all.
+     I would even vote for removing 'quot' and 'rem'
+     because people tend to use them in many cases where 'div' and 'mod'
+     are the better choice.
+  A remainder class type like the one modulo (2*pi)
+     would solve ambiguities in inverse trigonometric functions,
+     problem: complex trigonometric and exponential function.
+     Alternatively 'log' could return a list of possible solutions.
+  Powers are still problematic.
+     There should be several types of powers,
+     each of which should be unique or choose some natural result.
+     Powers of two complex number are rarely needed
+     and often lead to unexpected results, e.g. discontinuous functions.
+     (E.g. the Cauchy wavelet.)
+     Interesting types of powers and suggested power notation:
+        anything ^ cardinal
+        fractional ^- integer
+        algebraic ^/ rational (list of powers)
+        positive real (transcendent) ^? anything (via exponential series)
+  In my opinion it's important to put not too much meanings in one symbol,
+     e.g. (*) can already be redefined in quite exotic ways,
+     but the equal type of the operands should be the minimum.
+     So I find it good to have a different operator (*>)
+     for the multiplication of scalar and vector,
+     and very similar an add operation
+     for durations and absolute times (say  Minutes 12 +> Time 12 04 53) or
+     temperature differences and absolute temperatures (Kelvin 10 +> DegreeCelcius 43) or
+     tone intervals and absolute pitches (say  3 +> Pitch C 1)
+  Haskell should distinguish between numeric machine constants (say 2#)
+     and polymorphic constants (say 2 = fromMachineInt 2#),
+     this would avoid cycles
+  Module is named Algebra.Module
+     since there might be many people
+     who want to define some type named Module.
+  the properties in Algebra.Laws could be rewritten as simplification rules for GHC,
+     though they should be disabled by default,
+     because the rules doesn't always apply
+     due to overflows and rounding.
+  How can one handle errors in a computation?
+     On the one hand there are errors
+     that can be avoided by respecting restrictions for function arguments.
+     E.g. vectors dimension mismatch, unit mismatch, index out of array, division by zero.
+     These should be prevented by proper types
+     and if that is not possible then by 'undefined' values.
+     There is no need to recover from them
+     or handle them otherwise because they can be avoided by proper call of the functions,
+     and in several cases are fulfilled automatically.
+     However there might be some support for detecting programming errors
+     e.g. by reporting
+     "the values 1m and 2s can't be added:
+     expression 1m+2s, sub-expression of ..."
+     instad of just "unit mismatch".
+
+     On the other hand there are errors
+     that cannot be avoided easily, e.g. overflow.
+     Overflow can be considered as using the wrong type,
+     e.g. Int instead of Integer.
+     But in more complicated cases you should return a Maybe.
+  Examples for implicit configuration
+     residue classes: modulus
+     matrix computation: matrix size
+     positional numbers: base
+     fixed point numbers: position of the dot, i.e. denominator

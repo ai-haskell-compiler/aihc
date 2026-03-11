@@ -1,0 +1,135 @@
+2025-09-07
+        * Version bump (4.5.1). (#666)
+        * Remove unused function Copilot.Theorem.Misc.SExpr.parseSExpr. (#661)
+
+2025-07-07
+        * Version bump (4.5). (#642)
+        * Removed unused pragmas. (#613)
+        * Relax version constraint on what4. (#611)
+
+2025-05-07
+        * Version bump (4.4). (#618)
+        * Translate quantifiers correctly in Kind2 backend. (#594)
+
+2025-03-07
+        * Version bump (4.3). (#604)
+        * Fix multiple typos in README. (#560)
+        * Fix typo in documentation. (#587)
+        * Add function to produce counterexamples for invalid properties. (#589)
+        * Reject existentially quantified properties in What4 backend. (#254)
+
+2025-01-07
+        * Version bump (4.2). (#577)
+        * Remove uses of Copilot.Core.Expr.UExpr.uExprType,uExprExpr. (#565)
+        * Bump upper constraint on containers, data-default. (#570)
+
+2024-11-07
+        * Version bump (4.1). (#561)
+        * Standardize changelog format. (#550)
+
+2024-09-07
+        * Version bump (4.0). (#532)
+        * Add support for struct updates in Copilot.Theorem.What4. (#524)
+        * Add support for array updates in Copilot.Theorem.What4. (#36)
+
+2024-07-07
+        * Version bump (3.20). (#522)
+        * What4 upper-bound dependency version bump. (#514)
+
+2024-05-07
+        * Version bump (3.19.1). (#512)
+        * Fix handling of unsatisfiable properties with Kind2. (#495)
+        * Remove outdated details from README. (#452)
+
+2024-03-07
+        * Version bump (3.19). (#504)
+
+2024-01-07
+        * Version bump (3.18.1). (#493)
+        * Adjust to work with GHC 9.6. (#491)
+
+2024-01-07
+        * Version bump (3.18). (#487)
+        * Introduce testing infrastructure for Copilot.Theorem.What4. (#474)
+        * Replace uses of forall with forAll. (#470)
+
+2023-11-07
+        * Version bump (3.17). (#466)
+        * Relax version constraint on what4. (#461)
+        * Replace uses of deprecated functions. (#457)
+
+2023-09-07
+        * Version bump (3.16.1). (#455)
+
+2023-07-07
+        * Version bump (3.16). (#448)
+
+2023-05-07
+        * Version bump (3.15). (#438)
+
+2023-03-07
+        * Version bump (3.14). (#422)
+        * Adjust contraints on version of what4. (#423)
+
+2023-01-07
+        * Version bump (3.13). (#406)
+
+2022-11-07
+        * Version bump (3.12). (#389)
+        * Add functionality for bisimulation proofs of Copilot specifications. (#363)
+        * Use pretty-printer from copilot-prettyprinter. (#383)
+        * Replace uses of Copilot.Core.Type.Equality with definitions from
+          base:Data.Type.Equality. (#379)
+
+2022-09-07
+        * Version bump (3.11). (#376)
+
+2022-07-07
+        * Version bump (3.10). (#356)
+        * Remove comment from cabal file. (#325)
+        * Remove unnecessary dependencies from Cabal package. (#326)
+        * Remove duplicated compiler option. (#328)
+        * Relax version bounds of dependencies. (#335)
+        * Include repo info in cabal file. (#333)
+
+2022-05-06
+        * Version bump (3.9). (#320)
+        * Compliance with style guide (partial). (#316)
+
+2022-03-07
+        * Version bump (3.8). (#298)
+        * Mark package as uncurated to avoid modification. (#288)
+
+2022-01-07
+        * Version bump (3.7). (#287)
+        * Relax version contraints on what4. (#277)
+
+2021-11-07
+        * Version bump (3.6). (#264)
+        * Fix outdated/broken links. (#252)
+
+2021-08-19
+        * Version bump (3.5). (#247)
+        * Update travis domain in README. (#222)
+        * Remove unused type U2. (#91)
+        * Update official maintainer. (#236, #245)
+
+2021-07-07
+        * Version bump (3.4). (#231)
+
+2021-05-07
+        * Version bump (3.3). (#217)
+        * Adjust contraints on version of what4. (#90)
+
+2021-03-07
+        * Version bump (3.2.1). (#92)
+        * Completed the documentation. (#95, #93)
+
+2020-12-06
+        * Version bump (3.2). (#65)
+        * Update description, bug-reports and homepage field in cabal file.
+          (#97)
+
+2019-11-22
+        * Version bump (3.1). (#46)
+        * Remove ExternFun. (#99)

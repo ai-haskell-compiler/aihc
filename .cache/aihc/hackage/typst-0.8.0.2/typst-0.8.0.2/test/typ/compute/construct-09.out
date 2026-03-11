@@ -1,0 +1,94 @@
+--- parse tree ---
+[ Code
+    "typ/compute/construct-09.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/compute/construct-09.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/compute/construct-09.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Comment
+, Code
+    "typ/compute/construct-09.typ"
+    ( line 3 , column 2 )
+    (FuncCall
+       (Ident (Identifier "test"))
+       [ NormalArg
+           (FuncCall
+              (Ident (Identifier "str")) [ NormalArg (Literal (Int 123)) ])
+       , NormalArg (Literal (String "123"))
+       ])
+, SoftBreak
+, Code
+    "typ/compute/construct-09.typ"
+    ( line 4 , column 2 )
+    (FuncCall
+       (Ident (Identifier "test"))
+       [ NormalArg
+           (FuncCall
+              (Ident (Identifier "str")) [ NormalArg (Literal (Float 50.14)) ])
+       , NormalArg (Literal (String "50.14"))
+       ])
+, SoftBreak
+, Code
+    "typ/compute/construct-09.typ"
+    ( line 5 , column 2 )
+    (FuncCall
+       (Ident (Identifier "test"))
+       [ NormalArg
+           (GreaterThan
+              (FuncCall
+                 (FieldAccess
+                    (Ident (Identifier "len"))
+                    (FuncCall
+                       (Ident (Identifier "str"))
+                       [ NormalArg (Divided (Literal (Int 10)) (Literal (Int 3))) ]))
+                 [])
+              (Literal (Int 10)))
+       , NormalArg (Literal (Boolean True))
+       ])
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 text(body: [✅]), 
+                 text(body: [
+]), 
+                 text(body: [✅]), 
+                 text(body: [
+]), 
+                 text(body: [✅]), 
+                 parbreak() })

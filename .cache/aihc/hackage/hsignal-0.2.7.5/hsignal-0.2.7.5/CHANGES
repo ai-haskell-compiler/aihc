@@ -1,0 +1,147 @@
+0.1.0.1:	
+		first version
+
+0.1.0.2:
+		updated to reflect hmatrix 0.9.3.0
+
+0.1.0.3:
+		added Numeric.Signal.Multichannel
+
+0.1.0.4:
+		added Numeric.Signal.EEG
+
+0.1.0.5:
+		fixed stack overflow in loadBDF by making [Double] -> Vector Double step strict
+
+0.1.1.1:
+		updated to reflect change from using hstatistics to hmatrix-gsl-stats
+		added detrend/filter/slice to Multichannel
+		changed mapConcurrently argument order
+		changed getChannels to return array
+		added mapArrayConcurrently
+		improved performance of BDF readData
+		changed BDF to store data as Floats, not Double
+
+0.1.2.1:
+		fixed mapConcurrently to wait for all threads
+		fixed Signal.detrend window sizes 
+		fixed Signal.detrend mathematics
+		fixed broadband_filter to call the correct filter (Numeric.Signal)
+		fixed signal-aux.c filter scaling error
+		fixed hilbert
+		changed Multichannel.fromList to createMultichannel to avoid name conflicts
+
+0.1.2.2:
+		changed Multichannel read/write type signature to reflect hmatrix change
+		removed haskell98 dependency
+		added resample/resize/deriv
+		removed attempt to compare against sampling of histPDF (requires random number calls -> seed/IO)
+		added Multichannel.toMatrix
+		fixed scale in pwelch
+		reflected changes in hmatrix exports
+
+0.1.2.3:
+		changes to reflect new hmatrix interface		
+
+0.1.2.4:
+		changes to reflect new hmatrix interface
+
+0.1.2.5:
+		hmatrix 0.10.0.0 release
+
+0.1.3:
+		Add Float versions of some functions
+
+0.1.3.1:
+		change base to >= 4
+
+0.1.3.2:
+		remove unicode symbols
+
+0.1.3.3:
+		updated to reflect change in mtl > 2
+
+0.1.3.4:
+		renamed unwrap to unwrap_double
+		added unwrap_float
+
+0.1.3.5:
+		renamed vector_deriv to vector_diff_double
+		added vector_diff_float
+
+0.1.3.6:
+		cleaned up mi_phase
+		generate H(X;X) for reference value
+
+0.2.0.0:
+		added instances to store complex values
+		Multichannel must now be [Complex] Float/Double
+		Multichannel Double is now stored to greater accuracy
+                   breaks file compatability - can be loaded as Multichannel Float
+		added histograms to Multichannel
+
+0.2.0.1:
+		added Filterable instance for Complex Float
+
+0.2.1.0:
+		added Noise.hs: pinkNoise, spatialNoise, powerNoise
+		fixed bug in detrend that occurs if a zero window occurs at end
+
+0.2.2:
+		added entropy_phase
+
+0.2.2.1:
+		fixed unwrap
+
+0.2.3:
+		added cross covariance and friends
+
+0.2.3.1:
+		added cross spectrum
+		added cum_sum
+
+0.2.3.2:
+		copied Config.hs from hmatrix
+
+0.2.3.3:
+		updated for ghc 7.2
+		
+0.2.4:
+		move to github
+
+0.2.4.1:
+		fixed .cabal repository line
+
+0.2.4.2:
+		removed Warning about Foreign CInt
+		switch to System.IO.Unsafe.unsafePerformIO
+
+0.2.4.3:
+		removed reference to '-fvector' in .cabal
+
+0.2.5:
+		added hmatrix-gsl dependency for new hmatrix 0.16
+
+0.2.6:
+		added BDF(..) export and loadBDFRaw to EEG.BDF
+
+0.2.6.1:
+		added warning about data conversion to loadBDFRaw
+
+0.2.7:
+		Update build configuration : copied from hmatrix		
+
+0.2.7.1:
+		added gsl dependencies to cabal file
+
+0.2.7.2:
+		update for hmatrix 0.17
+
+0.2.7.3:
+		removed Config.hs
+
+0.2.7.4:
+		Reduce Setup.lhs
+
+0.2.7.5:
+		update for hmatrix 0.18

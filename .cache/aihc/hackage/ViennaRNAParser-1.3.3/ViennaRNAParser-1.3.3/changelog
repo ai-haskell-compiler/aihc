@@ -1,0 +1,40 @@
+-*-change-log-*-
+1.3.3 Florian Eggenhofer <egg@informatik.uni-freiburg.de> 18. October 2017
+        * Added parsing for RNA maximum expected accuracy fold output
+1.3.2 Florian Eggenhofer <egg@informatik.uni-freiburg.de> 20. January 2017
+        * Fix for RNAalifold systemcall function
+1.3.1 Florian Eggenhofer <egg@informatik.uni-freiburg.de> 23. October 2016
+        * Improvements to RNAcode parser,
+	* Improvements to travis testing
+1.3.0 Florian Eggenhofer <egg@informatik.uni-freiburg.de> 6. September 2016
+        * Added support for new prefilter fields in RNAplex output 
+1.2.8 Florian Eggenhofer <florian.eggenhofer@univie.ac.at> 11. February 2016
+        * Fixed special character parsing of identifiers in RNAcode 
+1.2.7 Florian Eggenhofer <florian.eggenhofer@univie.ac.at> 4. January 2016
+	* Added RNAcode parser
+	* Added stackage yaml file
+1.2.6 Florian Eggenhofer <florian.eggenhofer@univie.ac.at> 7. September 2015
+	* Added options to RNAz syscall function
+1.2.5 Florian Eggenhofer <florian.eggenhofer@univie.ac.at> 9. July 2015
+        * Fixed parsing of multiple warning fields and optional whitespaces in
+	RNAz consensus energy
+1.2.4 Florian Eggenhofer <florian.eggenhofer@univie.ac.at> 8. July 2015
+        * Fixed surplus whitespace in RNAz parsing function
+1.2.3 Florian Eggenhofer <florian.eggenhofer@univie.ac.at> 7. July 2015
+	* Added lower case letters to allowed sequence characters
+1.2.2 Florian Eggenhofer <florian.eggenhofer@univie.ac.at> 4. July 2015
+        * Added a new module for shared functions between modules
+	* Sequence and alignment entry parsing is now in line with IUPAC
+	letter code
+1.2.1 Florian Eggenhofer <florian.eggenhofer@univie.ac.at> 3. July 2015
+        * Included parsing of warning field in RNAz output
+1.2.0 Florian Eggenhofer <florian.eggenhofer@univie.ac.at> 1. July 2015
+	* Added Hspec test-suite
+	* Added RNAcofold parser
+1.1.0 Florian Eggenhofer <florian.eggenhofer@univie.ac.at> 2. June 2015
+	* Exposed submodules for imports, added systemcalls for RNAalifold,
+	RNAfold, RNAz
+1.0.1 Florian Eggenhofer <florian.eggenhofer@univie.ac.at> 1. March 2015
+	* Added Travis CI support
+	* Added -Wall and -O2 compiler options
+	* Added RNAfold, RNAalifold, RNAdistance, RNAup parsers

@@ -1,0 +1,74 @@
+<<< native
+[ EStyled
+    TextBoldItalic
+    [ EArray
+        [ AlignLeft ]
+        [ [ [ EText TextNormal "!\"#$%&'()*+,-./0123456789:;<=>?" ] ]
+        , [ [ EText TextNormal "@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_" ] ]
+        , [ [ EText TextNormal "`abcdefghijklmnopqrstuvwxyz{|}~" ] ]
+        , [ [ EText TextNormal "\305\567" ] ]
+        , [ [ EText
+                TextNormal
+                "\913\914\915\916\917\918\919\920\921\922\923\924\925\926\927\928\929\1012\931\932\933\934\935\936\937\8711"
+            ]
+          ]
+        , [ [ EText
+                TextNormal
+                "\945\946\947\948\949\950\951\952\953\954\955\956\957\958\959\960\961\962\963\964\965\966\967\968\969\8706"
+            ]
+          ]
+        , [ [ EText TextNormal "\1013\977\1008\981\1009\982\988\989" ] ]
+        , [ [ EText
+                TextNormal
+                "\177\183\215\247\8216\8217\8220\8221\8226\8722\8723\8725\8727\8729\8800\8804\8805\8901"
+            ]
+          ]
+        ]
+    ]
+]
+>>> mml
+<?xml version='1.0' ?>
+<math display="block" xmlns="http://www.w3.org/1998/Math/MathML">
+  <mtable>
+    <mtr>
+      <mtd columnalign="left" style="text-align: left">
+        <mtext mathvariant="bold-italic">!&quot;#$%&amp;&#39;()*+,-./0123456789:;&lt;=&gt;?</mtext>
+      </mtd>
+    </mtr>
+    <mtr>
+      <mtd columnalign="left" style="text-align: left">
+        <mtext mathvariant="bold-italic">@𝑨𝑩𝑪𝑫𝑬𝑭𝑮𝑯𝑰𝑱𝑲𝑳𝑴𝑵𝑶𝑷𝑸𝑹𝑺𝑻𝑼𝑽𝑾𝑿𝒀𝒁[\]^_</mtext>
+      </mtd>
+    </mtr>
+    <mtr>
+      <mtd columnalign="left" style="text-align: left">
+        <mtext mathvariant="bold-italic">`𝒂𝒃𝒄𝒅𝒆𝒇𝒈𝒉𝒊𝒋𝒌𝒍𝒎𝒏𝒐𝒑𝒒𝒓𝒔𝒕𝒖𝒗𝒘𝒙𝒚𝒛{|}~</mtext>
+      </mtd>
+    </mtr>
+    <mtr>
+      <mtd columnalign="left" style="text-align: left">
+        <mtext mathvariant="bold-italic">ıȷ</mtext>
+      </mtd>
+    </mtr>
+    <mtr>
+      <mtd columnalign="left" style="text-align: left">
+        <mtext mathvariant="bold-italic">𝜜𝜝𝜞𝜟𝜠𝜡𝜢𝜣𝜤𝜥𝜦𝜧𝜨𝜩𝜪𝜫𝜬𝜭𝜮𝜯𝜰𝜱𝜲𝜳𝜴𝜵</mtext>
+      </mtd>
+    </mtr>
+    <mtr>
+      <mtd columnalign="left" style="text-align: left">
+        <mtext mathvariant="bold-italic">𝜶𝜷𝜸𝜹𝜺𝜻𝜼𝜽𝜾𝜿𝝀𝝁𝝂𝝃𝝄𝝅𝝆𝝇𝝈𝝉𝝊𝝋𝝌𝝍𝝎𝝏</mtext>
+      </mtd>
+    </mtr>
+    <mtr>
+      <mtd columnalign="left" style="text-align: left">
+        <mtext mathvariant="bold-italic">𝝐𝝑𝝒𝝓𝝔𝝕Ϝϝ</mtext>
+      </mtd>
+    </mtr>
+    <mtr>
+      <mtd columnalign="left" style="text-align: left">
+        <mtext mathvariant="bold-italic">±·×÷‘’“”•−∓∕∗∙≠≤≥⋅</mtext>
+      </mtd>
+    </mtr>
+  </mtable>
+</math>

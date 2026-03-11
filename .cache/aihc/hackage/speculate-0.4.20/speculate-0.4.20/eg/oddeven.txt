@@ -1,0 +1,52 @@
+max expr size  =    5
+  |- on ineqs  =    4
+  |- on conds  =    4
+max  #-tests   =  500
+min  #-tests   =   25  (to consider p ==> q true)
+max  #-vars    =    2  (for inequational and conditional laws)
+
+_ :: Bool
+_ :: Int
+0 :: Int
+1 :: Int
+2 :: Int
+False :: Bool
+True :: Bool
+odd :: Int -> Bool
+even :: Int -> Bool
+mod :: Int -> Int -> Int
+(==) :: Int -> Int -> Bool
+(==) :: Bool -> Bool -> Bool
+
+           (x == x) == True
+           (p == p) == True
+        (p == True) == p
+           (x == y) == (y == x)
+    odd (x `mod` 2) == odd x
+   even (x `mod` 2) == even x
+   (False == odd x) == even x
+  (False == even x) == odd x
+  (odd x == even x) == False
+   (2 == x `mod` 2) == False
+   (0 == x `mod` 2) == even x
+   (1 == x `mod` 2) == odd x
+  (even x == odd y) == (odd x == even y)
+ (even x == even y) == (odd x == odd y)
+          x `mod` 1 == 0
+(x `mod` 2) `mod` 2 == x `mod` 2
+
+        p ==> True
+    False ==> p
+   x == 0 ==> even x
+   x == 1 ==> odd x
+   x == 2 ==> even x
+x `mod` 2 <=  2
+        0 <=  x `mod` 2
+x `mod` 2 <=  1
+
+ odd x ==>           x `mod` x == 0
+ odd x ==>           0 `mod` x == 0
+ odd x ==>           x `mod` 2 == 1
+even x ==>           x `mod` 2 == 0
+ odd y ==> (x `mod` y) `mod` y == x `mod` y
+

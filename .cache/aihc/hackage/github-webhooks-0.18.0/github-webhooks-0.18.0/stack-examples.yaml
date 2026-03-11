@@ -1,0 +1,11 @@
+resolver: lts-18.12
+packages:
+- .
+- examples/scotty
+- examples/servant
+- examples/servant-simple
+extra-deps:
+# Needed for servant examples
+- servant-github-webhook-0.4.2.0
+- github-0.27
+- binary-instances-1.0.2

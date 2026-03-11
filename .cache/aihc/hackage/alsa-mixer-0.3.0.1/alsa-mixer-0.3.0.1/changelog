@@ -1,0 +1,20 @@
+0.3.0.1 Thomas Tuegel <ttuegel@mailbox.org> 2023-12-09
+    * Add +cross flag to .cabal file (#8)
+    * Avoid returning [nullPtr] if mixer elements are empty (#13)
+
+0.3.0 Thomas Tuegel <ttuegel@mailbox.org> 2018-12-09
+    * Use C types in exported interface (#6)
+
+0.2.0.3 Thomas Tuegel <ttuegel@gmail.com> 2016-01-06
+    * Use capture channel to get capture volume (#4)
+
+0.2.0.2 Thomas Tuegel <ttuegel@gmail.com> 2014-04-15
+    * Relax version constraint on `unix' dependency
+
+0.2.0.1 Thomas Tuegel <ttuegel@gmail.com> 2014-03-08
+    * Correct documentation
+
+0.2.0 Thomas Tuegel <ttuegel@gmail.com> 2014-03-02
+    * Only release mixer from creating process
+    * Use 'withMixer' to manage resource usage
+    * Remove old TemplateHaskell definitions

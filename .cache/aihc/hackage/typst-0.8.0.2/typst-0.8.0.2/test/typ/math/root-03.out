@@ -1,0 +1,216 @@
+--- parse tree ---
+[ Code
+    "typ/math/root-03.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/math/root-03.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/math/root-03.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Comment
+, Equation
+    True
+    [ Code
+        "typ/math/root-03.typ"
+        ( line 3 , column 3 )
+        (FuncCall
+           (Ident (Identifier "sqrt"))
+           [ BlockArg
+               [ Code
+                   "typ/math/root-03.typ"
+                   ( line 3 , column 8 )
+                   (FieldAccess
+                      (Ident (Identifier "l"))
+                      (FieldAccess
+                         (Ident (Identifier "double")) (Ident (Identifier "bracket"))))
+               , Text "x"
+               , MAttach
+                   Nothing
+                   (Just (Text "2"))
+                   (Code
+                      "typ/math/root-03.typ"
+                      ( line 3 , column 11 )
+                      (FieldAccess
+                         (Ident (Identifier "r"))
+                         (FieldAccess
+                            (Ident (Identifier "double")) (Ident (Identifier "bracket")))))
+               , Text "+"
+               , Code
+                   "typ/math/root-03.typ"
+                   ( line 3 , column 18 )
+                   (FieldAccess
+                      (Ident (Identifier "l"))
+                      (FieldAccess
+                         (Ident (Identifier "double")) (Ident (Identifier "bracket"))))
+               , Text "y"
+               , MAttach
+                   Nothing
+                   (Just (Text "2"))
+                   (Code
+                      "typ/math/root-03.typ"
+                      ( line 3 , column 21 )
+                      (FieldAccess
+                         (Ident (Identifier "r"))
+                         (FieldAccess
+                            (Ident (Identifier "double")) (Ident (Identifier "bracket")))))
+               ]
+           ])
+    , Text "<"
+    , Code
+        "typ/math/root-03.typ"
+        ( line 3 , column 29 )
+        (FieldAccess
+           (Ident (Identifier "l"))
+           (FieldAccess
+              (Ident (Identifier "double")) (Ident (Identifier "bracket"))))
+    , Text "z"
+    , Code
+        "typ/math/root-03.typ"
+        ( line 3 , column 32 )
+        (FieldAccess
+           (Ident (Identifier "r"))
+           (FieldAccess
+              (Ident (Identifier "double")) (Ident (Identifier "bracket"))))
+    ]
+, SoftBreak
+, Equation
+    True
+    [ Text "v"
+    , Text "="
+    , Code
+        "typ/math/root-03.typ"
+        ( line 4 , column 7 )
+        (FuncCall
+           (Ident (Identifier "sqrt"))
+           [ BlockArg
+               [ MFrac
+                   (MGroup (Just "(") (Just ")") [ MFrac (Text "1") (Text "2") ])
+                   (MGroup Nothing Nothing [ MFrac (Text "4") (Text "5") ])
+               ]
+           ])
+    , Text "="
+    , Code
+        "typ/math/root-03.typ"
+        ( line 5 , column 6 )
+        (FuncCall
+           (Ident (Identifier "root"))
+           [ BlockArg [ Text "3" ]
+           , BlockArg
+               [ MFrac
+                   (MGroup
+                      (Just "(")
+                      (Just ")")
+                      [ MFrac (MFrac (Text "1") (Text "2")) (Text "3") ])
+                   (MGroup
+                      Nothing Nothing [ MFrac (MFrac (Text "4") (Text "5")) (Text "6") ])
+               ]
+           ])
+    , Text "="
+    , Code
+        "typ/math/root-03.typ"
+        ( line 6 , column 6 )
+        (FuncCall
+           (Ident (Identifier "root"))
+           [ BlockArg [ Text "4" ]
+           , BlockArg
+               [ MFrac
+                   (MGroup
+                      (Just "(")
+                      (Just ")")
+                      [ MFrac
+                          (MGroup (Just "(") (Just ")") [ MFrac (Text "1") (Text "2") ])
+                          (MGroup Nothing Nothing [ MFrac (Text "3") (Text "4") ])
+                      ])
+                   (MGroup
+                      Nothing
+                      Nothing
+                      [ MFrac
+                          (MGroup (Just "(") (Just ")") [ MFrac (Text "1") (Text "2") ])
+                          (MGroup Nothing Nothing [ MFrac (Text "3") (Text "4") ])
+                      ])
+               ]
+           ])
+    ]
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 math.equation(block: true, 
+                               body: { math.sqrt(radicand: { text(body: [⟦]), 
+                                                             text(body: [x]), 
+                                                             math.attach(b: none, 
+                                                                         base: text(body: [⟧]), 
+                                                                         t: text(body: [2])), 
+                                                             text(body: [+]), 
+                                                             text(body: [⟦]), 
+                                                             text(body: [y]), 
+                                                             math.attach(b: none, 
+                                                                         base: text(body: [⟧]), 
+                                                                         t: text(body: [2])) }), 
+                                       text(body: [<]), 
+                                       text(body: [⟦]), 
+                                       text(body: [z]), 
+                                       text(body: [⟧]) }, 
+                               numbering: none), 
+                 text(body: [
+]), 
+                 math.equation(block: true, 
+                               body: { text(body: [v]), 
+                                       text(body: [=]), 
+                                       math.sqrt(radicand: math.frac(denom: math.frac(denom: text(body: [5]), 
+                                                                                      num: text(body: [4])), 
+                                                                     num: math.frac(denom: text(body: [2]), 
+                                                                                    num: text(body: [1])))), 
+                                       text(body: [=]), 
+                                       math.root(index: text(body: [3]), 
+                                                 radicand: math.frac(denom: math.frac(denom: text(body: [6]), 
+                                                                                      num: math.frac(denom: text(body: [5]), 
+                                                                                                     num: text(body: [4]))), 
+                                                                     num: math.frac(denom: text(body: [3]), 
+                                                                                    num: math.frac(denom: text(body: [2]), 
+                                                                                                   num: text(body: [1]))))), 
+                                       text(body: [=]), 
+                                       math.root(index: text(body: [4]), 
+                                                 radicand: math.frac(denom: math.frac(denom: math.frac(denom: text(body: [4]), 
+                                                                                                       num: text(body: [3])), 
+                                                                                      num: math.frac(denom: text(body: [2]), 
+                                                                                                     num: text(body: [1]))), 
+                                                                     num: math.frac(denom: math.frac(denom: text(body: [4]), 
+                                                                                                     num: text(body: [3])), 
+                                                                                    num: math.frac(denom: text(body: [2]), 
+                                                                                                   num: text(body: [1]))))) }, 
+                               numbering: none), 
+                 parbreak() })

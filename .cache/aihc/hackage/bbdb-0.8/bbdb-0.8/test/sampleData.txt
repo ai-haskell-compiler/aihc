@@ -1,0 +1,4 @@
+;; -*-coding: utf-8-emacs;-*-
+;;; file-format: 9
+["Henry" "Laxen" nil ("Henry, Enrique") ("Elegant Solutions") (["home" "+52 (376) 765-3181"]) (["home" ("Villa Alta #6" "Gaviotas #10") "Chapala" "Jalisco" "45900" "Mexico"] ["mailing" ("10580 N. McCarran Blvd." "#115-396") "Reno" "Nevada" "89503" "USA"]) ("nadine.and.henry@pobox.com") ((notes . "Always split aces and eights") (birthday . "6/15") (tennis . "chapala") (mail-alias . "ldm, ldma, ldmb") (spouse . "Nadine")) "169cc701-8754-45f5-aba8-c89c2dc60a49" "2010-09-03" "2017-11-06 13:58:33 +0000" nil]
+["first" "lastname" nil nil ("organization1" "organization2") (["cell" "+1 (111) 111-1111"] ["home" "52 (111) 111-1111"]) (["home" ("street line 1" "street line 2" "street line 3" "street line 4") "City" "State Country" "11111" "Mexico"]) ("email1" "email2") ((notes . "notes here")) "4b16fe92-080b-4090-bb5f-e2141ce4e661" "2015-08-10 01:50:36 +0000" "2016-04-12 03:45:51 +0000" nil]

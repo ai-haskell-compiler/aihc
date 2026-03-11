@@ -1,0 +1,28 @@
+1.2.3
+* Support GHC-9.6.5..9.10.1
+
+1.2.2
+* Add Solo instances
+
+1.2.1
+* Explicitly mark modules as Safe or Trustworthy
+
+1.2
+* Use universe-some-1.2, which uses a Some-type from the some-package.
+
+1.1.1
+* Add `Predicate` and `Op` instances
+
+1.1
+* Add `cardinality :: Tagged a Natural` to Finite
+* Re-arrange packages, ghc boot instances are in `universe-base`
+* Rearranged the elements in `universe :: [Rational]` to reduce allocation and increase speed.
+* Add `Data.Universe.Generic`
+* New package `universe-dependent-sum`
+
+1.0
+* split package into small pieces:
+* six packages, all dependencies of a top-level "universe" package
+* a base installation requires many fewer dependencies
+* moved Data.Universe.Instances to D.U.I.Base for consistency
+* modules export the classes that they export instances of

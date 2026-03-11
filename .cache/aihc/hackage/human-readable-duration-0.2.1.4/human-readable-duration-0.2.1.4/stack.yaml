@@ -1,0 +1,9 @@
+flags: {}
+packages:
+- '.'
+extra-deps: []
+resolver: lts-13.0
+extra-lib-dirs:
+  - /usr/lib
+  - /usr/local/lib
+  - /usr/local/opt/libiconv/lib

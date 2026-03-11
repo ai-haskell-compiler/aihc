@@ -1,0 +1,7 @@
+resolver: lts-17.9 # or ghc-8.10.4
+
+packages:
+- .
+
+extra-deps:
+- leancheck-0.9.6

@@ -1,0 +1,58 @@
+Name:             midi-alsa
+Version:          0.2.1
+License:          BSD3
+License-File:     LICENSE
+Author:           Henning Thielemann <haskell@henning-thielemann.de>
+Maintainer:       Henning Thielemann <haskell@henning-thielemann.de>
+Homepage:         http://www.haskell.org/haskellwiki/MIDI
+Category:         Sound, Music
+Build-Type:       Simple
+Synopsis:         Convert between datatypes of the midi and the alsa packages
+Description:
+  MIDI is the Musical Instrument Digital Interface,
+  ALSA is the Advanced Linux Sound Architecture.
+  This package provides accessors to data structures
+  of the ALSA sequencer interface
+  via the more specific types from the @midi@ package.
+  The package also contains a orphan instances
+  for the @alsa-seq:Event@ type
+  of the @midi:Message.Class.Check@ and @midi:Message.Class.Query@ classes.
+Tested-With:      GHC==6.10.4, GHC==6.12.3, GHC==7.4.1
+Cabal-Version:    >=1.6
+Build-Type:       Simple
+Source-Repository this
+  Tag:         0.2.1
+  Type:        darcs
+  Location:    http://code.haskell.org/alsa/midi/
+
+Source-Repository head
+  Type:        darcs
+  Location:    http://code.haskell.org/alsa/midi/
+
+Flag splitBase
+  description: Choose the new smaller, split-up base package.
+
+Flag buildExamples
+  description: Build example executables
+  default:     False
+
+Library
+  Build-Depends:
+    midi >=0.2.1 && <0.3,
+    alsa-seq >=0.6 && <0.7,
+    data-accessor >=0.2.1 && <0.3,
+    utility-ht >=0.0.5 && <0.1
+  If flag(splitBase)
+    Build-Depends:
+      base >= 2 && <6
+  Else
+    Build-Depends:
+      base >= 1.0 && < 2
+
+  GHC-Options:      -Wall
+  Hs-Source-Dirs:   src
+  Exposed-Modules:
+    Sound.MIDI.ALSA
+    Sound.MIDI.ALSA.Check
+    Sound.MIDI.ALSA.Query
+    Sound.MIDI.ALSA.Construct

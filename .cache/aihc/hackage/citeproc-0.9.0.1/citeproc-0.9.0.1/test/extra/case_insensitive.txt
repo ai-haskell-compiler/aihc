@@ -1,0 +1,63 @@
+Zotero does a case-insensitive sort, so we will too.
+
+>>===== MODE =====>>
+bibliography
+<<===== MODE =====<<
+
+
+
+>>===== RESULT =====>>
+<div class="csl-bib-body">
+  <div class="csl-entry">The Civil Law</div>
+  <div class="csl-entry">The civil life</div>
+</div>
+<<===== RESULT =====<<
+
+
+>>===== CSL =====>>
+<style 
+      xmlns="http://purl.org/net/xbiblio/csl"
+      class="note"
+      version="1.0">
+  <info>
+    <id />
+    <title />
+    <updated>2009-08-10T04:49:00+09:00</updated>
+  </info>
+  <citation>
+    <layout>
+      <text value="dummy"/>
+    </layout>
+  </citation>
+  <bibliography>
+    <sort>
+      <text variable="title"/>
+    </sort>
+    <layout>
+      <text variable="title"/>
+    </layout>
+  </bibliography>
+</style>
+<<===== CSL =====<<
+
+
+>>===== INPUT =====>>
+[
+    {
+        "title": "The Civil Law",
+        "id": "ITEM-1",
+        "type": "book"
+    },
+    {
+        "title": "The civil life",
+        "id": "ITEM-2",
+        "type": "book"
+    }
+]
+<<===== INPUT =====<<
+
+
+>>===== VERSION =====>>
+1.0
+<<===== VERSION =====<<
+

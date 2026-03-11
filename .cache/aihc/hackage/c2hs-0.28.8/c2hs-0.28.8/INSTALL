@@ -1,0 +1,72 @@
+                     C->Haskell Installation Instructions            -*-text-*-
+                     ------------------------------------
+
+Prerequisites
+~~~~~~~~~~~~~
+
+You need GHC, the Haskell compiler. Currently, this has to be GHC 6.8 upwards,
+which you can get from
+
+  http://haskell.org/ghc
+
+
+Simple install procedure
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+  % tar -xzf <package>.tar.gz           # unpack the sources
+  % cd <package>                        # change to the toplevel directory
+  % runghc Setup.hs configure           # configure the build system
+  % runghc Setup.hs build               # build everything
+  [ Become root if necessary ]
+  % runghc Setup.hs install             # install c2hs
+
+
+The Nitty-Gritty
+~~~~~~~~~~~~~~~~
+
+The './Setup.hs configure' command understands the following options:
+
+*  --prefix=PREFIX         install architecture-independent files in PREFIX
+                           [ Defaults to /usr/local ]
+
+*  --with-compiler=HC      use Haskell compiler HC
+
+This needs to be the full path to the compiler executable.
+
+*  --with-happy=HAPPY      ditto for parser generator Happy
+
+*  --with-alex=ALEX        ditto for lexer generator Alex
+
+*  --user                  allow the use of packages from user database
+
+*  --global                only allow packages from the global database
+
+
+Documentation
+~~~~~~~~~~~~~
+Documentation can be formatted with
+
+  $ make -C doc
+
+Currently there is no support for installing the documentation. That step
+has to be done manually.
+
+The generated html pages for the user guide live in:
+
+  docs/user_guide/*
+
+The man page is:
+
+  docs/man1/c2hs.1
+
+Supported Systems and Porting
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Tested with GHC version 6.8.2 and 6.10.1.
+
+In principle it should work with any 6.x version since 6.4.2 however the
+current releases of the language-c package only work with ghc-6.8 and later.
+
+The actual c2hs sources might also compile with nhc98, but Cabal doesn't fully
+support nhc98 yet.
+

@@ -1,0 +1,16 @@
+{
+  "requestId" : "41d2e28a-20a4-4ab0-b379-d810dede3786",
+  "status" : {
+    "message" : "",
+    "code" : 200,
+    "attributes" : { }
+  },
+  "result" : {
+    "data" : [ {
+      "id" : 1,
+      "label" : "person",
+      "type" : "vertex"
+    } ],
+    "meta" : { }
+  }
+}

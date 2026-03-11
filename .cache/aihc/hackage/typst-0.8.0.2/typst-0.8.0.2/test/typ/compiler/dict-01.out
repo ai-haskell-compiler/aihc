@@ -1,0 +1,130 @@
+--- parse tree ---
+[ Code
+    "typ/compiler/dict-01.typ"
+    ( line 1 , column 2 )
+    (Let
+       (BasicBind (Just (Identifier "test")))
+       (FuncExpr
+          [ NormalParam (Identifier "x") , NormalParam (Identifier "y") ]
+          (Block
+             (CodeBlock
+                [ If
+                    [ ( Equals (Ident (Identifier "x")) (Ident (Identifier "y"))
+                      , Block (Content [ Text "\9989" ])
+                      )
+                    , ( Literal (Boolean True)
+                      , Block
+                          (Content
+                             [ Text "\10060"
+                             , Text "("
+                             , Code
+                                 "typ/compiler/dict-01.typ"
+                                 ( line 1 , column 47 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "x")) ])
+                             , Space
+                             , Text "/"
+                             , Text "="
+                             , Space
+                             , Code
+                                 "typ/compiler/dict-01.typ"
+                                 ( line 1 , column 59 )
+                                 (FuncCall
+                                    (Ident (Identifier "repr"))
+                                    [ NormalArg (Ident (Identifier "y")) ])
+                             , Text ")"
+                             ])
+                      )
+                    ]
+                ]))))
+, SoftBreak
+, Comment
+, Code
+    "typ/compiler/dict-01.typ"
+    ( line 3 , column 2 )
+    (Block
+       (CodeBlock
+          [ Let
+              (BasicBind (Just (Identifier "dict")))
+              (Dict
+                 [ Reg ( Ident (Identifier "a") , Literal (Int 1) )
+                 , Reg ( Literal (String "b b") , Literal (Int 1) )
+                 ])
+          , Assign
+              (FuncCall
+                 (FieldAccess (Ident (Identifier "at")) (Ident (Identifier "dict")))
+                 [ NormalArg (Literal (String "b b")) ])
+              (Plus
+                 (FuncCall
+                    (FieldAccess (Ident (Identifier "at")) (Ident (Identifier "dict")))
+                    [ NormalArg (Literal (String "b b")) ])
+                 (Literal (Int 1)))
+          , Assign
+              (FieldAccess
+                 (Ident (Identifier "state")) (Ident (Identifier "dict")))
+              (Dict
+                 [ Reg ( Ident (Identifier "ok") , Literal (Boolean True) )
+                 , Reg ( Ident (Identifier "err") , Literal (Boolean False) )
+                 ])
+          , FuncCall
+              (Ident (Identifier "test"))
+              [ NormalArg (Ident (Identifier "dict"))
+              , NormalArg
+                  (Dict
+                     [ Reg ( Ident (Identifier "a") , Literal (Int 1) )
+                     , Reg ( Literal (String "b b") , Literal (Int 2) )
+                     , Reg
+                         ( Ident (Identifier "state")
+                         , Dict
+                             [ Reg ( Ident (Identifier "ok") , Literal (Boolean True) )
+                             , Reg ( Ident (Identifier "err") , Literal (Boolean False) )
+                             ]
+                         )
+                     ])
+              ]
+          , FuncCall
+              (Ident (Identifier "test"))
+              [ NormalArg
+                  (FieldAccess
+                     (Ident (Identifier "ok"))
+                     (FieldAccess
+                        (Ident (Identifier "state")) (Ident (Identifier "dict"))))
+              , NormalArg (Literal (Boolean True))
+              ]
+          , Assign
+              (FieldAccess
+                 (Ident (Identifier "ok"))
+                 (FuncCall
+                    (FieldAccess (Ident (Identifier "at")) (Ident (Identifier "dict")))
+                    [ NormalArg (Literal (String "state")) ]))
+              (Literal (Boolean False))
+          , FuncCall
+              (Ident (Identifier "test"))
+              [ NormalArg
+                  (FieldAccess
+                     (Ident (Identifier "ok"))
+                     (FieldAccess
+                        (Ident (Identifier "state")) (Ident (Identifier "dict"))))
+              , NormalArg (Literal (Boolean False))
+              ]
+          , FuncCall
+              (Ident (Identifier "test"))
+              [ NormalArg
+                  (FieldAccess
+                     (Ident (Identifier "err"))
+                     (FieldAccess
+                        (Ident (Identifier "state")) (Ident (Identifier "dict"))))
+              , NormalArg (Literal (Boolean False))
+              ]
+          ]))
+, ParBreak
+]
+--- evaluated ---
+document(body: { text(body: [
+]), 
+                 text(body: [✅]), 
+                 text(body: [✅]), 
+                 text(body: [✅]), 
+                 text(body: [✅]), 
+                 parbreak() })
