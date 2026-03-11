@@ -19,6 +19,7 @@ import Parser.Ast
     DataConDecl (..),
     DataDecl (..),
     Decl (..),
+    DoStmt (..),
     Expr (..),
     ForeignDecl (..),
     ForeignDirection (..),
@@ -42,7 +43,7 @@ import Text.Megaparsec.Pos (SourcePos (..))
 type TokParser = Parsec Void TokStream
 
 exprParser :: TokParser Expr
-exprParser = ifExprParser <|> infixExprParser
+exprParser = doExprParser <|> ifExprParser <|> infixExprParser
 
 moduleParser :: TokParser Module
 moduleParser = withSpan $ do
@@ -243,6 +244,36 @@ ifExprParser = withSpan $ do
   keywordTok TkKeywordElse
   no <- exprParser
   pure (\span' -> EIf span' cond yes no)
+
+doExprParser :: TokParser Expr
+doExprParser = withSpan $ do
+  keywordTok TkKeywordDo
+  stmts <- bracedStmtListParser doStmtParser
+  pure (`EDo` stmts)
+
+bracedStmtListParser :: TokParser a -> TokParser [a]
+bracedStmtListParser stmtParser = do
+  symbolLikeTok "{"
+  _ <- MP.many (symbolLikeTok ";")
+  stmts <- stmtParser `MP.sepBy` symbolLikeTok ";"
+  _ <- MP.many (symbolLikeTok ";")
+  symbolLikeTok "}"
+  pure stmts
+
+doStmtParser :: TokParser DoStmt
+doStmtParser = MP.try doBindStmtParser <|> doExprStmtParser
+
+doBindStmtParser :: TokParser DoStmt
+doBindStmtParser = withSpan $ do
+  pat <- simplePatternParser
+  operatorLikeTok "<-"
+  expr <- exprParser
+  pure (\span' -> DoBind span' pat expr)
+
+doExprStmtParser :: TokParser DoStmt
+doExprStmtParser = withSpan $ do
+  expr <- exprParser
+  pure (`DoExpr` expr)
 
 infixExprParser :: TokParser Expr
 infixExprParser = do

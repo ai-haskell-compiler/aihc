@@ -124,7 +124,7 @@ expr-let-in	expressions	expressions/let-in.hs	xfail	parser intentionally disable
 expr-lambda	expressions	expressions/lambda.hs	xfail	parser intentionally disabled
 expr-list-tuple	expressions	expressions/list-tuple.hs	xfail	list and tuple expressions unsupported
 expr-sections	expressions	expressions/sections.hs	xfail	parser intentionally disabled
-expr-do-notation	expressions	expressions/do-notation.hs	xfail	parser intentionally disabled
+expr-do-notation	expressions	expressions/do-notation.hs	pass	parser now handles do-notation with layout and explicit braces
 expr-where-clause	expressions	expressions/where-clause.hs	xfail	parser intentionally disabled
 expr-list-comprehension	expressions	expressions/list-comprehension.hs	xfail	parser intentionally disabled
 expr-arithmetic-seq	expressions	expressions/arithmetic-seq.hs	xfail	parser intentionally disabled
@@ -179,10 +179,10 @@ expr-s3-let-basic	expressions	expressions/let-basic.hs	xfail	parser intentionall
 expr-s3-let-multiple-decls	expressions	expressions/let-multiple-decls.hs	xfail	parser intentionally disabled
 expr-s3-case-basic	expressions	expressions/case-basic.hs	xfail	parser intentionally disabled
 expr-s3-case-guarded-alts	expressions	expressions/case-guarded-alts.hs	xfail	parser intentionally disabled
-expr-s3-do-single-expression	expressions	expressions/do-single-expression.hs	xfail	parser intentionally disabled
-expr-s3-do-bind-stmt	expressions	expressions/do-bind-stmt.hs	xfail	parser intentionally disabled
+expr-s3-do-single-expression	expressions	expressions/do-single-expression.hs	pass	parser now supports single-expression do blocks
+expr-s3-do-bind-stmt	expressions	expressions/do-bind-stmt.hs	pass	parser now supports do bind statements
 expr-s3-do-let-stmt	expressions	expressions/do-let-stmt.hs	xfail	parser intentionally disabled
-expr-s3-do-sequence-stmts	expressions	expressions/do-sequence-stmts.hs	xfail	parser intentionally disabled
+expr-s3-do-sequence-stmts	expressions	expressions/do-sequence-stmts.hs	pass	parser now supports do statement sequencing
 expr-s3-record-field-selection	expressions	expressions/record-field-selection.hs	xfail	parser intentionally disabled
 expr-s3-record-construction-empty	expressions	expressions/record-construction-empty.hs	xfail	parser intentionally disabled
 expr-s3-record-construction-fields	expressions	expressions/record-construction-fields.hs	xfail	parser intentionally disabled
