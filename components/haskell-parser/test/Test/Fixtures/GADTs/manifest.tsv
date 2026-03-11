@@ -1,0 +1,3 @@
+gadts-basic	declarations	gadts-basic.hs	xfail	parser support pending
+gadts-record	declarations	gadts-record.hs	xfail	parser support pending
+gadts-pattern-match	expressions	gadts-pattern-match.hs	xfail	parser support pending
