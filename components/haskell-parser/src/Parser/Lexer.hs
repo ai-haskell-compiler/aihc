@@ -36,6 +36,7 @@ import Text.Megaparsec.Pos (unPos)
 data LexTokenKind
   = TkKeywordModule
   | TkKeywordWhere
+  | TkKeywordDo
   | TkKeywordData
   | TkKeywordImport
   | TkKeywordQualified
@@ -70,8 +71,146 @@ type LParser = Parsec Void Text
 lexTokens :: Text -> [LexToken]
 lexTokens input =
   case runParser (triviaConsumer *> many (lexTokenParser <* triviaConsumer) <* eof) "<lexer>" input of
-    Right toks -> toks
+    Right toks -> applyLayoutTokens toks
     Left _ -> []
+
+data LayoutContext
+  = LayoutExplicit
+  | LayoutImplicit !Int
+  deriving (Eq, Show)
+
+data LayoutState = LayoutState
+  { layoutContexts :: [LayoutContext],
+    layoutPendingDo :: !Bool,
+    layoutPrevLine :: !(Maybe Int)
+  }
+  deriving (Eq, Show)
+
+applyLayoutTokens :: [LexToken] -> [LexToken]
+applyLayoutTokens toks =
+  go initialState toks
+    <> closeAllImplicit (layoutContexts finalState) eofAnchor
+  where
+    initialState = LayoutState [] False Nothing
+    finalState = foldl stepState initialState toks
+    eofAnchor = eofAnchorSpan toks
+
+    go _ [] = []
+    go st (tok : rest) =
+      let (pendingInserted, stAfterPending, skipBOL) = openPendingDo st tok
+          (bolInserted, stAfterBOL) = if skipBOL then ([], stAfterPending) else bolLayout stAfterPending tok
+          stAfterToken = stepTokenContext stAfterBOL tok
+          stNext = stAfterToken {layoutPrevLine = Just (tokenStartLine tok)}
+       in pendingInserted <> bolInserted <> (tok : go stNext rest)
+
+    stepState st tok =
+      let (_, stAfterPending, skipBOL) = openPendingDo st tok
+          (_, stAfterBOL) = if skipBOL then ([], stAfterPending) else bolLayout stAfterPending tok
+          stAfterToken = stepTokenContext stAfterBOL tok
+       in stAfterToken {layoutPrevLine = Just (tokenStartLine tok)}
+
+openPendingDo :: LayoutState -> LexToken -> ([LexToken], LayoutState, Bool)
+openPendingDo st tok
+  | not (layoutPendingDo st) = ([], st, False)
+  | otherwise =
+      case lexTokenKind tok of
+        TkSymbol "{" -> ([], st {layoutPendingDo = False}, False)
+        _ ->
+          let col = tokenStartCol tok
+              parentIndent = currentLayoutIndent (layoutContexts st)
+              openTok = virtualSymbolToken "{" (lexTokenSpan tok)
+              closeTok = virtualSymbolToken "}" (lexTokenSpan tok)
+           in if col <= parentIndent
+                then ([openTok, closeTok], st {layoutPendingDo = False}, False)
+                else
+                  ( [openTok],
+                    st
+                      { layoutPendingDo = False,
+                        layoutContexts = LayoutImplicit col : layoutContexts st
+                      },
+                    True
+                  )
+
+bolLayout :: LayoutState -> LexToken -> ([LexToken], LayoutState)
+bolLayout st tok
+  | not (isBOL st tok) = ([], st)
+  | otherwise =
+      let col = tokenStartCol tok
+          (inserted, contexts') = closeForDedent col (lexTokenSpan tok) (layoutContexts st)
+          eqSemi =
+            case contexts' of
+              LayoutImplicit indent : _ | col == indent -> [virtualSymbolToken ";" (lexTokenSpan tok)]
+              _ -> []
+       in (inserted <> eqSemi, st {layoutContexts = contexts'})
+
+closeForDedent :: Int -> SourceSpan -> [LayoutContext] -> ([LexToken], [LayoutContext])
+closeForDedent col anchor = go []
+  where
+    go acc contexts =
+      case contexts of
+        LayoutImplicit indent : rest
+          | col < indent -> go (virtualSymbolToken "}" anchor : acc) rest
+          | otherwise -> (reverse acc, contexts)
+        _ -> (reverse acc, contexts)
+
+closeAllImplicit :: [LayoutContext] -> SourceSpan -> [LexToken]
+closeAllImplicit contexts anchor =
+  [virtualSymbolToken "}" anchor | LayoutImplicit _ <- contexts]
+
+stepTokenContext :: LayoutState -> LexToken -> LayoutState
+stepTokenContext st tok =
+  case lexTokenKind tok of
+    TkKeywordDo -> st {layoutPendingDo = True}
+    TkSymbol "{" -> st {layoutContexts = LayoutExplicit : layoutContexts st}
+    TkSymbol "}" -> st {layoutContexts = popOneContext (layoutContexts st)}
+    _ -> st
+
+popOneContext :: [LayoutContext] -> [LayoutContext]
+popOneContext contexts =
+  case contexts of
+    _ : rest -> rest
+    [] -> []
+
+currentLayoutIndent :: [LayoutContext] -> Int
+currentLayoutIndent contexts =
+  case contexts of
+    LayoutImplicit indent : _ -> indent
+    _ -> 0
+
+isBOL :: LayoutState -> LexToken -> Bool
+isBOL st tok =
+  case layoutPrevLine st of
+    Just prevLine -> tokenStartLine tok > prevLine
+    Nothing -> False
+
+tokenStartLine :: LexToken -> Int
+tokenStartLine tok =
+  case lexTokenSpan tok of
+    SourceSpan line _ _ _ -> line
+    NoSourceSpan -> 1
+
+tokenStartCol :: LexToken -> Int
+tokenStartCol tok =
+  case lexTokenSpan tok of
+    SourceSpan _ col _ _ -> col
+    NoSourceSpan -> 1
+
+eofAnchorSpan :: [LexToken] -> SourceSpan
+eofAnchorSpan toks =
+  case reverse toks of
+    tok : _ ->
+      case lexTokenSpan tok of
+        SourceSpan _ _ endLine endCol -> SourceSpan endLine endCol endLine endCol
+        NoSourceSpan -> NoSourceSpan
+    [] -> NoSourceSpan
+
+virtualSymbolToken :: Text -> SourceSpan -> LexToken
+virtualSymbolToken sym span' =
+  LexToken
+    { lexTokenKind = TkSymbol sym,
+      lexTokenText = sym,
+      lexTokenSpan = span'
+    }
 
 triviaConsumer :: LParser ()
 triviaConsumer = MP.skipMany (void C.spaceChar <|> lineCommentConsumer <|> try blockCommentConsumer)
@@ -314,6 +453,7 @@ keywordTokenKind :: Text -> Maybe LexTokenKind
 keywordTokenKind txt = case txt of
   "module" -> Just TkKeywordModule
   "where" -> Just TkKeywordWhere
+  "do" -> Just TkKeywordDo
   "data" -> Just TkKeywordData
   "import" -> Just TkKeywordImport
   "qualified" -> Just TkKeywordQualified
