@@ -1,0 +1,3 @@
+empty-case-basic	expressions	empty-case-basic.hs	xfail	parser support pending
+empty-case-where	expressions	empty-case-where.hs	xfail	parser support pending
+empty-case-let	expressions	empty-case-let.hs	xfail	parser support pending

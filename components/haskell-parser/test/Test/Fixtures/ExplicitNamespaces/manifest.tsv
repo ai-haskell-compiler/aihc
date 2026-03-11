@@ -1,0 +1,3 @@
+explicit-namespaces-export-type	modules	explicit-namespaces-export-type.hs	xfail	parser support pending
+explicit-namespaces-import-type	modules	explicit-namespaces-import-type.hs	xfail	parser support pending
+explicit-namespaces-import-list	modules	explicit-namespaces-import-list.hs	xfail	parser support pending
