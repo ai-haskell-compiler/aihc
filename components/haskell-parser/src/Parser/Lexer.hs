@@ -44,6 +44,8 @@ data LexTokenKind
   | TkKeywordHiding
   | TkKeywordCase
   | TkKeywordOf
+  | TkKeywordLet
+  | TkKeywordIn
   | TkKeywordIf
   | TkKeywordThen
   | TkKeywordElse
@@ -461,6 +463,8 @@ keywordTokenKind txt = case txt of
   "hiding" -> Just TkKeywordHiding
   "case" -> Just TkKeywordCase
   "of" -> Just TkKeywordOf
+  "let" -> Just TkKeywordLet
+  "in" -> Just TkKeywordIn
   "if" -> Just TkKeywordIf
   "then" -> Just TkKeywordThen
   "else" -> Just TkKeywordElse
