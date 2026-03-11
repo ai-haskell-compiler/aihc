@@ -10,7 +10,7 @@ import Cpp (Severity (..), diagSeverity, resultDiagnostics, resultOutput)
 import CppSupport (preprocessForParser)
 import Data.Char (isSpace)
 import Data.Either (lefts)
-import Data.List (intercalate, isPrefixOf, nub)
+import Data.List (isPrefixOf, nub)
 import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -33,7 +33,7 @@ import GHC.Types.Error (NoDiagnosticOpts (NoDiagnosticOpts))
 import GHC.Types.SrcLoc (mkRealSrcLoc, unLoc)
 import GHC.Utils.Error (emptyDiagOpts, pprMessages)
 import GHC.Utils.Outputable (ppr, showSDocUnsafe)
-import HackageSupport (diagToText, downloadPackage, findTargetFilesFromCabal, prefixCppErrors, resolveIncludeBestEffort)
+import HackageSupport (diagToText, downloadPackageQuiet, findTargetFilesFromCabal, prefixCppErrors, resolveIncludeBestEffort)
 import qualified Parser
 import Parser.Ast
 import Parser.Pretty (prettyModule)
@@ -78,7 +78,6 @@ main = do
         exitFailure
       Right parsed -> pure parsed
 
-  putStrLn ("Loading Stackage snapshot " ++ optSnapshot opts ++ "...")
   snapshotResult <- loadStackageSnapshot (optSnapshot opts)
   packages <-
     case snapshotResult of
@@ -89,17 +88,10 @@ main = do
 
   let total = length packages
   jobs <- maybe getNumProcessors pure (optJobs opts)
-  putStrLn ("Packages: " ++ show total)
-  putStrLn ("Checks: " ++ renderChecks (optChecks opts))
-  putStrLn ("Jobs: " ++ show jobs)
-
-  results <- mapConcurrentlyChunks jobs (runPackage opts) packages
+  putProgressLine (ProgressState 0 0 total)
+  results <- mapConcurrentlyChunksWithProgress jobs (runPackage opts) packages total
   let successN = length [() | result <- results, packageOk result]
-      failureN = total - successN
-
   putStrLn ""
-  putStrLn ("Result: " ++ show successN ++ "/" ++ show total)
-  putStrLn ("Failed: " ++ show failureN)
 
   if successN == total then exitSuccess else exitFailure
 
@@ -146,16 +138,6 @@ parseCheck raw =
     "roundtrip-ghc" -> Right CheckRoundtripGhc
     "source-span" -> Right CheckSourceSpan
     other -> Left ("Unknown check: " ++ other)
-
-renderChecks :: [Check] -> String
-renderChecks checks = intercalate "," (map renderCheck checks)
-
-renderCheck :: Check -> String
-renderCheck check =
-  case check of
-    CheckParse -> "parse"
-    CheckRoundtripGhc -> "roundtrip-ghc"
-    CheckSourceSpan -> "source-span"
 
 splitComma :: String -> [String]
 splitComma s =
@@ -257,7 +239,7 @@ runPackageOrThrow opts spec = do
             packageReason = "installed package has no downloadable snapshot version"
           }
     else do
-      srcDir <- downloadPackage (pkgName spec) (pkgVersion spec)
+      srcDir <- downloadPackageQuiet (pkgName spec) (pkgVersion spec)
       files <- findTargetFilesFromCabal srcDir
       if null files
         then
@@ -830,13 +812,41 @@ stripArithSeq seqExpr =
     ArithSeqFromTo _ a b -> ArithSeqFromTo noSourceSpan (stripExpr a) (stripExpr b)
     ArithSeqFromThenTo _ a b c -> ArithSeqFromThenTo noSourceSpan (stripExpr a) (stripExpr b) (stripExpr c)
 
-mapConcurrentlyChunks :: Int -> (a -> IO b) -> [a] -> IO [b]
-mapConcurrentlyChunks n action items
-  | n <= 0 = mapM action items
-  | otherwise = fmap concat (mapM (mapConcurrently action) (chunksOf n items))
+mapConcurrentlyChunksWithProgress :: Int -> (a -> IO PackageResult) -> [a] -> Int -> IO [PackageResult]
+mapConcurrentlyChunksWithProgress n action items total =
+  go 0 0 [] (chunksOf chunkSize items)
+  where
+    chunkSize = if n <= 0 then 1 else n
+    go _ _ acc [] = pure (concat (reverse acc))
+    go done success acc (chunk : rest) = do
+      batch <- mapConcurrently action chunk
+      let done' = done + length batch
+          success' = success + length [() | result <- batch, packageOk result]
+      putProgressLine (ProgressState done' success' total)
+      go done' success' (batch : acc) rest
 
 chunksOf :: Int -> [a] -> [[a]]
 chunksOf _ [] = []
 chunksOf n xs =
   let (chunk, rest) = splitAt n xs
    in chunk : chunksOf n rest
+
+data ProgressState = ProgressState
+  { progressDone :: Int,
+    progressSuccess :: Int,
+    progressTotal :: Int
+  }
+
+putProgressLine :: ProgressState -> IO ()
+putProgressLine p =
+  putStr
+    ( "\r"
+        ++ show (progressSuccess p)
+        ++ "/"
+        ++ show (progressTotal p)
+        ++ " ("
+        ++ show (progressDone p)
+        ++ "/"
+        ++ show (progressTotal p)
+        ++ " processed)"
+    )

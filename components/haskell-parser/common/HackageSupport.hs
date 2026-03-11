@@ -2,6 +2,7 @@
 
 module HackageSupport
   ( downloadPackage,
+    downloadPackageQuiet,
     findTargetFilesFromCabal,
     resolveIncludeBestEffort,
     diagToText,
@@ -60,18 +61,24 @@ import System.FilePath (isAbsolute, makeRelative, normalise, splitDirectories, t
 import System.Process (callCommand)
 
 downloadPackage :: String -> String -> IO FilePath
-downloadPackage packageName version = do
+downloadPackage = downloadPackageWithLogs True
+
+downloadPackageQuiet :: String -> String -> IO FilePath
+downloadPackageQuiet = downloadPackageWithLogs False
+
+downloadPackageWithLogs :: Bool -> String -> String -> IO FilePath
+downloadPackageWithLogs withLogs packageName version = do
   cacheDir <- getCacheDir
   let pkgDir = cacheDir </> packageName ++ "-" ++ version
       markerFile = pkgDir </> ".complete"
   markerExists <- doesFileExist markerFile
   if markerExists
     then do
-      putStrLn ("Cache hit: " ++ packageName ++ "-" ++ version)
+      when withLogs $ putStrLn ("Cache hit: " ++ packageName ++ "-" ++ version)
       pure pkgDir
     else do
       createDirectoryIfMissing True cacheDir
-      putStrLn ("Downloading " ++ packageName ++ "-" ++ version ++ " from Hackage...")
+      when withLogs $ putStrLn ("Downloading " ++ packageName ++ "-" ++ version ++ " from Hackage...")
       let url = "https://hackage.haskell.org/package/" ++ packageName ++ "-" ++ version ++ "/" ++ packageName ++ "-" ++ version ++ ".tar.gz"
       let tarball = cacheDir </> packageName ++ "-" ++ version ++ ".tar.gz"
       let tempDir = cacheDir </> packageName ++ "-" ++ version ++ ".tmp"
