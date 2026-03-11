@@ -318,7 +318,8 @@ caseExprParser = withSpan $ do
     plainAlts = MP.some (caseAltParser <* MP.many (symbolLikeTok ";"))
     bracedAlts = do
       symbolLikeTok "{"
-      parsed <- plainAlts
+      _ <- MP.many (symbolLikeTok ";")
+      parsed <- caseAltParser `MP.sepEndBy` symbolLikeTok ";"
       symbolLikeTok "}"
       pure parsed
 
