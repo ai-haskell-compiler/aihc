@@ -3,6 +3,7 @@
 module HackageSupport
   ( downloadPackage,
     downloadPackageQuiet,
+    downloadPackageQuietWithNetwork,
     findTargetFilesFromCabal,
     resolveIncludeBestEffort,
     diagToText,
@@ -66,8 +67,14 @@ downloadPackage = downloadPackageWithLogs True
 downloadPackageQuiet :: String -> String -> IO FilePath
 downloadPackageQuiet = downloadPackageWithLogs False
 
+downloadPackageQuietWithNetwork :: Bool -> String -> String -> IO FilePath
+downloadPackageQuietWithNetwork = downloadPackageWithMode False
+
 downloadPackageWithLogs :: Bool -> String -> String -> IO FilePath
-downloadPackageWithLogs withLogs packageName version = do
+downloadPackageWithLogs withLogs = downloadPackageWithMode withLogs True
+
+downloadPackageWithMode :: Bool -> Bool -> String -> String -> IO FilePath
+downloadPackageWithMode withLogs allowNetwork packageName version = do
   cacheDir <- getCacheDir
   let pkgDir = cacheDir </> packageName ++ "-" ++ version
       markerFile = pkgDir </> ".complete"
@@ -76,20 +83,23 @@ downloadPackageWithLogs withLogs packageName version = do
     then do
       when withLogs $ putStrLn ("Cache hit: " ++ packageName ++ "-" ++ version)
       pure pkgDir
-    else do
-      createDirectoryIfMissing True cacheDir
-      when withLogs $ putStrLn ("Downloading " ++ packageName ++ "-" ++ version ++ " from Hackage...")
-      let url = "https://hackage.haskell.org/package/" ++ packageName ++ "-" ++ version ++ "/" ++ packageName ++ "-" ++ version ++ ".tar.gz"
-      let tarball = cacheDir </> packageName ++ "-" ++ version ++ ".tar.gz"
-      let tempDir = cacheDir </> packageName ++ "-" ++ version ++ ".tmp"
-      downloadFile url tarball
-      extractTarball tarball tempDir
-      removeFile tarball
-      dirExists <- doesDirectoryExist pkgDir
-      when dirExists $ removeDirectoryRecursive pkgDir
-      renameDirectory tempDir pkgDir
-      writeFile markerFile ""
-      pure pkgDir
+    else
+      if not allowNetwork
+        then ioError (userError ("Package missing from cache in offline mode: " ++ packageName ++ "-" ++ version))
+        else do
+          createDirectoryIfMissing True cacheDir
+          when withLogs $ putStrLn ("Downloading " ++ packageName ++ "-" ++ version ++ " from Hackage...")
+          let url = "https://hackage.haskell.org/package/" ++ packageName ++ "-" ++ version ++ "/" ++ packageName ++ "-" ++ version ++ ".tar.gz"
+          let tarball = cacheDir </> packageName ++ "-" ++ version ++ ".tar.gz"
+          let tempDir = cacheDir </> packageName ++ "-" ++ version ++ ".tmp"
+          downloadFile url tarball
+          extractTarball tarball tempDir
+          removeFile tarball
+          dirExists <- doesDirectoryExist pkgDir
+          when dirExists $ removeDirectoryRecursive pkgDir
+          renameDirectory tempDir pkgDir
+          writeFile markerFile ""
+          pure pkgDir
 
 downloadFile :: String -> FilePath -> IO ()
 downloadFile url dest =

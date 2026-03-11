@@ -33,7 +33,7 @@ import GHC.Types.Error (NoDiagnosticOpts (NoDiagnosticOpts))
 import GHC.Types.SrcLoc (mkRealSrcLoc, unLoc)
 import GHC.Utils.Error (emptyDiagOpts, pprMessages)
 import GHC.Utils.Outputable (ppr, showSDocUnsafe)
-import HackageSupport (diagToText, downloadPackageQuiet, findTargetFilesFromCabal, prefixCppErrors, resolveIncludeBestEffort)
+import HackageSupport (diagToText, downloadPackageQuietWithNetwork, findTargetFilesFromCabal, prefixCppErrors, resolveIncludeBestEffort)
 import qualified Parser
 import Parser.Ast
 import Parser.Pretty (prettyModule)
@@ -54,7 +54,8 @@ data Check
 data Options = Options
   { optSnapshot :: String,
     optChecks :: [Check],
-    optJobs :: Maybe Int
+    optJobs :: Maybe Int,
+    optOffline :: Bool
   }
 
 data PackageSpec = PackageSpec
@@ -80,7 +81,7 @@ main = do
         exitFailure
       Right parsed -> pure parsed
 
-  snapshotResult <- loadStackageSnapshot (optSnapshot opts)
+  snapshotResult <- loadStackageSnapshotWithMode (optSnapshot opts) (optOffline opts)
   packages <-
     case snapshotResult of
       Left err -> do
@@ -100,16 +101,17 @@ main = do
 usage :: String
 usage =
   unlines
-    [ "Usage: cabal run stackage-progress -- [--snapshot lts-24.33] [--checks parse,roundtrip-ghc,source-span] [--jobs N]",
+    [ "Usage: cabal run stackage-progress -- [--snapshot lts-24.33] [--checks parse,roundtrip-ghc,source-span] [--jobs N] [--offline]",
       "",
       "Defaults:",
       "  --snapshot lts-24.33",
       "  --checks parse",
-      "  --jobs <num processors>"
+      "  --jobs <num processors>",
+      "  --offline false"
     ]
 
 parseOptions :: [String] -> Either String Options
-parseOptions = go (Options "lts-24.33" [CheckParse] Nothing)
+parseOptions = go (Options "lts-24.33" [CheckParse] Nothing False)
   where
     go opts [] = Right opts
     go opts ("--snapshot" : value : rest)
@@ -122,6 +124,8 @@ parseOptions = go (Options "lts-24.33" [CheckParse] Nothing)
       case reads value of
         [(n, "")] | n > 0 -> go opts {optJobs = Just n} rest
         _ -> Left "--jobs must be a positive integer"
+    go opts ("--offline" : rest) =
+      go opts {optOffline = True} rest
     go _ ("--help" : _) = Left ""
     go _ (arg : _) = Left ("Unknown argument: " ++ arg)
 
@@ -153,25 +157,28 @@ trim = dropWhileEnd isSpace . dropWhile isSpace
 dropWhileEnd :: (a -> Bool) -> [a] -> [a]
 dropWhileEnd p = reverse . dropWhile p . reverse
 
-loadStackageSnapshot :: String -> IO (Either String [PackageSpec])
-loadStackageSnapshot snapshot = do
+loadStackageSnapshotWithMode :: String -> Bool -> IO (Either String [PackageSpec])
+loadStackageSnapshotWithMode snapshot offline = do
   cacheFile <- snapshotCacheFile snapshot
   hasCache <- doesFileExist cacheFile
   if hasCache
     then do
       cachedBody <- readFile cacheFile
       pure (parseSnapshotConstraints cachedBody)
-    else do
-      let url = "https://www.stackage.org/" ++ snapshot ++ "/cabal.config"
-      fetched <- try (readProcess "curl" ["-s", "-f", url] "")
-      case fetched of
-        Left err -> pure (Left (displayException (err :: SomeException)))
-        Right body ->
-          case parseSnapshotConstraints body of
-            Left parseErr -> pure (Left parseErr)
-            Right specs -> do
-              writeFile cacheFile body
-              pure (Right specs)
+    else
+      if offline
+        then pure (Left ("Snapshot missing from cache in offline mode: " ++ snapshot))
+        else do
+          let url = "https://www.stackage.org/" ++ snapshot ++ "/cabal.config"
+          fetched <- try (readProcess "curl" ["-s", "-f", url] "")
+          case fetched of
+            Left err -> pure (Left (displayException (err :: SomeException)))
+            Right body ->
+              case parseSnapshotConstraints body of
+                Left parseErr -> pure (Left parseErr)
+                Right specs -> do
+                  writeFile cacheFile body
+                  pure (Right specs)
 
 snapshotCacheFile :: String -> IO FilePath
 snapshotCacheFile snapshot = do
@@ -268,7 +275,7 @@ runPackageOrThrow opts spec = do
             packageReason = "installed package has no downloadable snapshot version"
           }
     else do
-      srcDir <- downloadPackageQuiet (pkgName spec) (pkgVersion spec)
+      srcDir <- downloadPackageQuietWithNetwork (not (optOffline opts)) (pkgName spec) (pkgVersion spec)
       files <- findTargetFilesFromCabal srcDir
       if null files
         then
