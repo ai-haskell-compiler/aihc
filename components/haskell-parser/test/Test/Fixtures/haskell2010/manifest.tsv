@@ -152,8 +152,8 @@ expr-s3-lambda-multi-apat	expressions	expressions/lambda-multi-apat.hs	pass	pars
 expr-s3-lambda-pattern-apat	expressions	expressions/lambda-pattern-apat.hs	pass	parser now supports non-trivial lambda patterns
 expr-s3-infix-qvarop	expressions	expressions/infix-qvarop.hs	pass	parser now supports infix qualified variable operators
 expr-s3-infix-qconop	expressions	expressions/infix-qconop.hs	pass	parser now supports infix qualified constructor operators
-expr-s3-prefix-negation	expressions	expressions/prefix-negation.hs	xfail	parser intentionally disabled
-expr-s3-minus-with-parenthesized-negation	expressions	expressions/minus-with-parenthesized-negation.hs	xfail	parser intentionally disabled
+expr-s3-prefix-negation	expressions	expressions/prefix-negation.hs	pass	parser now supports prefix negation expressions
+expr-s3-minus-with-parenthesized-negation	expressions	expressions/minus-with-parenthesized-negation.hs	pass	parser now supports parenthesized prefix-negation forms
 expr-s3-section-left	expressions	expressions/section-left.hs	xfail	parser intentionally disabled
 expr-s3-section-right	expressions	expressions/section-right.hs	xfail	parser intentionally disabled
 expr-s3-section-backtick-left	expressions	expressions/section-backtick-left.hs	xfail	parser intentionally disabled

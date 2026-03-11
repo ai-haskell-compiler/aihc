@@ -57,7 +57,7 @@ data LexTokenKind
   | TkOperator Text
   | TkInteger Integer
   | TkIntegerBase Integer Text
-  | TkFloat Double
+  | TkFloat Double Text
   | TkChar Char
   | TkString Text
   | TkSymbol Text
@@ -293,6 +293,7 @@ lexTokenParser =
   lexWithSpan $
     try languagePragmaToken
       <|> try quasiQuoteToken
+      <|> try hexFloatToken
       <|> try floatToken
       <|> try intBaseToken
       <|> try intToken
@@ -419,7 +420,30 @@ floatToken = do
         pure (lhsRaw <> expo)
   let txt = T.pack repr
       normalized = filter (/= '_') repr
-  pure (txt, TkFloat (read normalized))
+  pure (txt, TkFloat (read normalized) txt)
+
+hexFloatToken :: LParser (Text, LexTokenKind)
+hexFloatToken = do
+  _ <- C.char '0'
+  x <- C.char 'x' <|> C.char 'X'
+  intDigits <- some (satisfy isHexDigit)
+  mFracDigits <- MP.optional (C.char '.' *> many (satisfy isHexDigit))
+  expo <- hexExponentPart
+  let fracDigits = fromMaybe "" mFracDigits
+      dotAndFrac =
+        case mFracDigits of
+          Just ds -> '.' : ds
+          Nothing -> ""
+      repr = '0' : x : intDigits <> dotAndFrac <> expo
+      value = parseHexFloatLiteral intDigits fracDigits expo
+  pure (T.pack repr, TkFloat value (T.pack repr))
+
+hexExponentPart :: LParser String
+hexExponentPart = do
+  marker <- C.char 'p' <|> C.char 'P'
+  sign <- MP.optional (C.char '+' <|> C.char '-')
+  ds <- some C.digitChar
+  pure (marker : maybe [] pure sign <> ds)
 
 exponentPart :: LParser String
 exponentPart = do
@@ -516,6 +540,25 @@ readBinLiteral :: Text -> Integer
 readBinLiteral txt =
   case readInt 2 (`elem` ("01" :: String)) digitToInt (T.unpack (T.filter (/= '_') (T.drop 2 txt))) of
     [(n, "")] -> n
+    _ -> 0
+
+parseHexFloatLiteral :: String -> String -> String -> Double
+parseHexFloatLiteral intDigits fracDigits expo =
+  (parseHexDigits intDigits + parseHexFraction fracDigits) * (2 ^^ exponentValue expo)
+
+parseHexDigits :: String -> Double
+parseHexDigits = foldl (\acc d -> acc * 16 + fromIntegral (digitToInt d)) 0
+
+parseHexFraction :: String -> Double
+parseHexFraction ds =
+  sum [fromIntegral (digitToInt d) / (16 ^^ i) | (d, i) <- zip ds [1 :: Int ..]]
+
+exponentValue :: String -> Int
+exponentValue expo =
+  case expo of
+    _ : '-' : ds -> negate (read ds)
+    _ : '+' : ds -> read ds
+    _ : ds -> read ds
     _ -> 0
 
 isSymbolicOpChar :: Char -> Bool

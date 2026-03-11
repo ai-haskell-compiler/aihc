@@ -1,3 +1,3 @@
-hex-float-literals-basic	literals	hex-float-literals-basic.hs	xfail	parser support pending
-hex-float-literals-fraction	literals	hex-float-literals-fraction.hs	xfail	parser support pending
-hex-float-literals-list	literals	hex-float-literals-list.hs	xfail	parser support pending
+hex-float-literals-basic	literals	hex-float-literals-basic.hs	pass	parser now supports hexadecimal floating-point literals with binary exponent
+hex-float-literals-fraction	literals	hex-float-literals-fraction.hs	pass	parser now supports hexadecimal floating-point literals with fractional mantissas
+hex-float-literals-list	literals	hex-float-literals-list.hs	pass	parser now supports hexadecimal floating-point literals in list expressions
