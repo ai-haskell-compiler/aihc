@@ -8,6 +8,7 @@ module Parser.Internal.Decl
   )
 where
 
+import Control.Monad (when)
 import Data.Char (isUpper)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
@@ -82,15 +83,21 @@ isTypeName txt =
 importDeclParser :: TokParser ImportDecl
 importDeclParser = withSpan $ do
   keywordTok TkKeywordImport
-  isQualified <-
+  preQualified <-
     MP.option False (keywordTok TkKeywordQualified >> pure True)
   importedModule <- moduleNameParser
+  postQualified <-
+    MP.option False (keywordTok TkKeywordQualified >> pure True)
+  when (preQualified && postQualified) $
+    fail "import declaration cannot contain 'qualified' both before and after the module name"
   importAlias <- MP.optional (keywordTok TkKeywordAs *> moduleNameParser)
   importSpec <- MP.optional importSpecParser
+  let isQualified = preQualified || postQualified
   pure $ \span' ->
     ImportDecl
       { importDeclSpan = span',
         importDeclQualified = isQualified,
+        importDeclQualifiedPost = postQualified,
         importDeclModule = importedModule,
         importDeclAs = importAlias,
         importDeclSpec = importSpec
