@@ -22,7 +22,11 @@ moduleParser :: TokParser Module
 moduleParser = withSpan $ do
   languagePragmas <- MP.many (languagePragmaParser <* MP.many (symbolLikeTok ";"))
   mHeader <- MP.optional (moduleHeaderParser <* MP.many (symbolLikeTok ";"))
-  (imports, decls) <- moduleBodyParser
+  atEnd <- MP.atEnd
+  (imports, decls) <-
+    if atEnd
+      then pure ([], [])
+      else moduleBodyParser
   let (mName, mExports) =
         case mHeader of
           Nothing -> (Nothing, Nothing)
