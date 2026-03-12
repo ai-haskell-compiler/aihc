@@ -8,7 +8,6 @@ where
 import Data.List (intercalate)
 import Language.Haskell.Exts qualified as HSE
 import Language.Haskell.Exts.Build qualified as HSEB
-import ParserFuzz.Arbitrary.Helpers (eThingWith, moduleNameNode, noNamespace, noWildcard)
 import ParserFuzz.Types (Candidate (..))
 import Test.QuickCheck
 import Test.QuickCheck.Gen (unGen)
@@ -32,7 +31,7 @@ instance Arbitrary GenModuleHead where
         do
           moduName <- genModuleName
           exports <- genMaybeExportSpecList
-          let header = HSE.ModuleHead () (moduleNameNode moduName) Nothing exports
+          let header = HSE.ModuleHead () (HSE.ModuleName () moduName) Nothing exports
           pure (GenModuleHead (Just header))
       ]
 
@@ -128,7 +127,7 @@ genExportSpec :: Gen (HSE.ExportSpec ())
 genExportSpec =
   frequency
     [ (4, HSE.EVar () <$> genVarQName),
-      (3, HSE.EAbs () noNamespace <$> genTypeQName),
+      (3, HSE.EAbs () (HSE.NoNamespace ()) <$> genTypeQName),
       (3, genEThingWith),
       (2, HSE.EModuleContents () <$> genModuleNameNode)
     ]
@@ -138,7 +137,7 @@ genEThingWith = do
   qtycon <- genTypeQName
   n <- chooseInt (0, 3)
   cnames <- vectorOf n genCName
-  pure (eThingWith noWildcard qtycon cnames)
+  pure (HSE.EThingWith () (HSE.NoWildcard ()) qtycon cnames)
 
 genVarQName :: Gen (HSE.QName ())
 genVarQName =
@@ -170,7 +169,7 @@ genCName =
     ]
 
 genModuleNameNode :: Gen (HSE.ModuleName ())
-genModuleNameNode = moduleNameNode <$> genModuleName
+genModuleNameNode = HSE.ModuleName () <$> genModuleName
 
 genVarIdent :: Gen String
 genVarIdent = do
