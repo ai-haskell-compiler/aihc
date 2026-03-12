@@ -36,15 +36,16 @@
           stackageProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser "stackage-progress";
           nameResolutionProgressExe =
             pkgs.lib.getExe' hsPkgs.aihc-name-resolution "name-resolution-progress";
-          mkApp = name: text: {
+          mkAppWithInputs = name: runtimeInputs: text: {
             type = "app";
             program = "${pkgs.writeShellApplication {
               inherit name;
-              runtimeInputs = [ pkgs.bash pkgs.cabal-install pkgs.ghc ];
+              inherit runtimeInputs;
               inherit text;
             }}/bin/${name}";
             meta.description = "aihc app: ${name}";
           };
+          mkApp = name: text: mkAppWithInputs name [ pkgs.bash pkgs.cabal-install pkgs.ghc ] text;
           mkReportsApp = name: text: {
             type = "app";
             program = "${pkgs.writeShellApplication {
@@ -82,7 +83,6 @@
 
           hackage-tester = mkApp "hackage-tester" ''
             set -euo pipefail
-            cabal update 2>/dev/null || true
             ${hackageTesterExe} "$@"
           '';
 
@@ -111,14 +111,24 @@
             cabal test --test-show-details=direct
           '';
 
-          cpp-progress = mkApp "cpp-progress" ''
+          cpp-progress = mkAppWithInputs "cpp-progress" [
+            pkgs.bash
+            pkgs.cabal-install
+            pkgs.ghc
+            pkgs.haskellPackages.cpphs
+          ] ''
             set -euo pipefail
-            CPPHS_BIN='${pkgs.lib.getExe pkgs.haskellPackages.cpphs}' ${cppProgressExe}
+            ${cppProgressExe}
           '';
 
-          cpp-progress-strict = mkApp "cpp-progress-strict" ''
+          cpp-progress-strict = mkAppWithInputs "cpp-progress-strict" [
+            pkgs.bash
+            pkgs.cabal-install
+            pkgs.ghc
+            pkgs.haskellPackages.cpphs
+          ] ''
             set -euo pipefail
-            CPPHS_BIN='${pkgs.lib.getExe pkgs.haskellPackages.cpphs}' ${cppProgressExe} --strict
+            ${cppProgressExe} --strict
           '';
 
           name-resolution-test = mkApp "name-resolution-test" ''
@@ -224,7 +234,7 @@
             nativeBuildInputs = [ hsPkgs.aihc-cpp pkgs.haskellPackages.cpphs ];
           } ''
             cd "$src/components/haskell-cpp"
-            CPPHS_BIN='${pkgs.lib.getExe pkgs.haskellPackages.cpphs}' cpp-progress --strict
+            cpp-progress --strict
             touch "$out"
           '';
           nameResolutionProgressStrict = pkgs.runCommand "aihc-name-resolution-progress-strict" {
