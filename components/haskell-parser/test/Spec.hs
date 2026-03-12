@@ -32,12 +32,14 @@ buildTests = do
   exprErr <- goldenGroup "golden/expr/err" expectExprErr
   moduleOk <- goldenGroup "golden/module/ok" expectModuleOk
   moduleErr <- goldenGroup "golden/module/err" expectModuleErr
+  fuzzerModuleErr <- goldenGroup "fuzzer/module/err" expectModuleErr
   h2010 <- h2010Tests
   extensions <- extensionTests
   pure $
     testGroup
       "aihc-parser"
       [ testGroup "golden" [exprOk, exprErr, moduleOk, moduleErr],
+        testGroup "fuzzer" [fuzzerModuleErr],
         testGroup
           "parser"
           [testCase "module parses declaration list" test_moduleParsesDecls],
