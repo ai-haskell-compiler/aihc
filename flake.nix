@@ -67,21 +67,11 @@
 
           parser-progress = mkApp "parser-progress" ''
             set -euo pipefail
-            test -d components/haskell-parser || {
-              echo "Run this app from the repository root." >&2
-              exit 1
-            }
-            cd components/haskell-parser
             ${parserProgressExe}
           '';
 
           parser-extension-progress = mkApp "parser-extension-progress" ''
             set -euo pipefail
-            test -d components/haskell-parser || {
-              echo "Run this app from the repository root." >&2
-              exit 1
-            }
-            cd components/haskell-parser
             ${extensionProgressExe} "$@"
           '';
 
@@ -92,41 +82,22 @@
 
           hackage-tester = mkApp "hackage-tester" ''
             set -euo pipefail
-            test -d components/haskell-parser || {
-              echo "Run this app from the repository root." >&2
-              exit 1
-            }
-            cd components/haskell-parser
             cabal update 2>/dev/null || true
             ${hackageTesterExe} "$@"
           '';
 
           stackage-progress = mkApp "stackage-progress" ''
             set -euo pipefail
-            test -d components/haskell-parser || {
-              echo "Run this app from the repository root." >&2
-              exit 1
-            }
             ${stackageProgressExe} "$@"
           '';
 
           parser-progress-strict = mkApp "parser-progress-strict" ''
             set -euo pipefail
-            test -d components/haskell-parser || {
-              echo "Run this app from the repository root." >&2
-              exit 1
-            }
-            cd components/haskell-parser
             ${parserProgressExe} --strict
           '';
 
           parser-extension-progress-strict = mkApp "parser-extension-progress-strict" ''
             set -euo pipefail
-            test -d components/haskell-parser || {
-              echo "Run this app from the repository root." >&2
-              exit 1
-            }
-            cd components/haskell-parser
             ${extensionProgressExe} --strict "$@"
           '';
 
@@ -142,21 +113,11 @@
 
           cpp-progress = mkApp "cpp-progress" ''
             set -euo pipefail
-            test -d components/haskell-cpp || {
-              echo "Run this app from the repository root." >&2
-              exit 1
-            }
-            cd components/haskell-cpp
             CPPHS_BIN='${pkgs.lib.getExe pkgs.haskellPackages.cpphs}' ${cppProgressExe}
           '';
 
           cpp-progress-strict = mkApp "cpp-progress-strict" ''
             set -euo pipefail
-            test -d components/haskell-cpp || {
-              echo "Run this app from the repository root." >&2
-              exit 1
-            }
-            cd components/haskell-cpp
             CPPHS_BIN='${pkgs.lib.getExe pkgs.haskellPackages.cpphs}' ${cppProgressExe} --strict
           '';
 
@@ -172,21 +133,11 @@
 
           name-resolution-progress = mkApp "name-resolution-progress" ''
             set -euo pipefail
-            test -d components/haskell-name-resolution || {
-              echo "Run this app from the repository root." >&2
-              exit 1
-            }
-            cd components/haskell-name-resolution
             ${nameResolutionProgressExe}
           '';
 
           name-resolution-progress-strict = mkApp "name-resolution-progress-strict" ''
             set -euo pipefail
-            test -d components/haskell-name-resolution || {
-              echo "Run this app from the repository root." >&2
-              exit 1
-            }
-            cd components/haskell-name-resolution
             ${nameResolutionProgressExe} --strict
           '';
 
