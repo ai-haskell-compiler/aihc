@@ -172,6 +172,7 @@ data Type
   = TVar SourceSpan Text
   | TCon SourceSpan Text
   | TQuasiQuote SourceSpan Text Text
+  | TForall SourceSpan [Text] Type
   | TApp SourceSpan Type Type
   | TFun SourceSpan Type Type
   | TTuple SourceSpan [Type]

@@ -8,7 +8,7 @@ module Parser.Internal.Decl
   )
 where
 
-import Control.Monad (when)
+import Control.Monad (guard, when)
 import Data.Char (isUpper)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
@@ -135,6 +135,7 @@ declParser :: TokParser Decl
 declParser =
   MP.try foreignDeclParser
     <|> MP.try typeSigDeclParser
+    <|> MP.try classDeclParser
     <|> dataDeclParser
     <|> valueDeclParser
 
@@ -144,6 +145,62 @@ typeSigDeclParser = withSpan $ do
   operatorLikeTok "::"
   ty <- typeParser
   pure (\span' -> DeclTypeSig span' names ty)
+
+classDeclParser :: TokParser Decl
+classDeclParser = withSpan $ do
+  identifierExact "class"
+  className <- identifierTextParser
+  classParam <- identifierTextParser
+  keywordTok TkKeywordWhere
+  items <- classItemsBracedParser <|> classItemsPlainParser
+  pure $ \span' ->
+    DeclClass
+      span'
+      ClassDecl
+        { classDeclSpan = span',
+          classDeclContext = [],
+          classDeclName = className,
+          classDeclParam = classParam,
+          classDeclItems = items
+        }
+
+classItemsPlainParser :: TokParser [ClassDeclItem]
+classItemsPlainParser = MP.some (classDeclItemParser <* MP.many (symbolLikeTok ";"))
+
+classItemsBracedParser :: TokParser [ClassDeclItem]
+classItemsBracedParser = do
+  symbolLikeTok "{"
+  _ <- MP.many (symbolLikeTok ";")
+  items <- classDeclItemParser `MP.sepBy1` symbolLikeTok ";"
+  _ <- MP.many (symbolLikeTok ";")
+  symbolLikeTok "}"
+  pure items
+
+classDeclItemParser :: TokParser ClassDeclItem
+classDeclItemParser = classTypeSigItemParser
+
+classTypeSigItemParser :: TokParser ClassDeclItem
+classTypeSigItemParser = withSpan $ do
+  names <- identifierTextParser `MP.sepBy1` symbolLikeTok ","
+  operatorLikeTok "::"
+  ty <- typeParser
+  guard (hasExplicitForall ty)
+  pure (\span' -> ClassItemTypeSig span' names ty)
+
+hasExplicitForall :: Type -> Bool
+hasExplicitForall ty =
+  case ty of
+    TForall {} -> True
+    TApp _ f x -> hasExplicitForall f || hasExplicitForall x
+    TFun _ a b -> hasExplicitForall a || hasExplicitForall b
+    TTuple _ elems -> any hasExplicitForall elems
+    TList _ inner -> hasExplicitForall inner
+    TParen _ inner -> hasExplicitForall inner
+    TContext _ constraints inner -> any constraintHasForall constraints || hasExplicitForall inner
+    _ -> False
+
+constraintHasForall :: Constraint -> Bool
+constraintHasForall constraint = any hasExplicitForall (constraintArgs constraint)
 
 foreignDeclParser :: TokParser Decl
 foreignDeclParser = withSpan $ do

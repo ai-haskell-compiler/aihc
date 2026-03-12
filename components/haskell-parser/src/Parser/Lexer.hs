@@ -343,7 +343,7 @@ identifierToken :: LParser (Text, LexTokenKind)
 identifierToken = do
   first <- C.letterChar <|> C.char '_'
   rest <- many identTailChar
-  more <- many (C.char '.' *> ((:) <$> C.letterChar <*> many identTailChar))
+  more <- many (try (C.char '.' *> ((:) <$> C.letterChar <*> many identTailChar)))
   let base = first : rest
       chunks = base : more
       ident = T.intercalate "." (map T.pack chunks)
