@@ -716,6 +716,7 @@ stripType ty =
     TVar _ n -> TVar noSourceSpan n
     TCon _ n -> TCon noSourceSpan n
     TQuasiQuote _ q body -> TQuasiQuote noSourceSpan q body
+    TForall _ binders inner -> TForall noSourceSpan binders (stripType inner)
     TApp _ a b -> TApp noSourceSpan (stripType a) (stripType b)
     TFun _ a b -> TFun noSourceSpan (stripType a) (stripType b)
     TTuple _ tys -> TTuple noSourceSpan (map stripType tys)

@@ -182,6 +182,8 @@ prettyType ty =
     TVar _ name -> pretty name
     TCon _ name -> pretty name
     TQuasiQuote _ quoter body -> prettyQuasiQuote quoter body
+    TForall _ binders inner ->
+      "forall" <+> hsep (map pretty binders) <> "." <+> prettyType inner
     TApp _ f x -> parenthesizeTypeApp f <+> parenthesizeTypeArg x
     TFun _ a b -> parenthesizeTypeFunLeft a <+> "->" <+> prettyType b
     TTuple _ elems -> parens (hsep (punctuate comma (map prettyType elems)))
@@ -193,6 +195,7 @@ prettyType ty =
 parenthesizeTypeFunLeft :: Type -> Doc ann
 parenthesizeTypeFunLeft ty =
   case ty of
+    TForall {} -> parens (prettyType ty)
     TFun {} -> parens (prettyType ty)
     TContext {} -> parens (prettyType ty)
     _ -> prettyType ty
@@ -201,6 +204,7 @@ parenthesizeTypeApp :: Type -> Doc ann
 parenthesizeTypeApp ty =
   case ty of
     TQuasiQuote {} -> prettyType ty
+    TForall {} -> parens (prettyType ty)
     TFun {} -> parens (prettyType ty)
     TContext {} -> parens (prettyType ty)
     _ -> prettyType ty
@@ -210,6 +214,7 @@ parenthesizeTypeArg ty =
   case ty of
     TQuasiQuote {} -> prettyType ty
     TApp {} -> parens (prettyType ty)
+    TForall {} -> parens (prettyType ty)
     TFun {} -> parens (prettyType ty)
     TContext {} -> parens (prettyType ty)
     _ -> prettyType ty
@@ -377,6 +382,7 @@ prettyBangType bt
 prettyBangTypeAtom :: BangType -> Doc ann
 prettyBangTypeAtom bt =
   case bangType bt of
+    TForall {} -> parens (prettyBangType bt)
     TFun {} -> parens (prettyBangType bt)
     TContext {} -> parens (prettyBangType bt)
     _ -> prettyBangType bt
