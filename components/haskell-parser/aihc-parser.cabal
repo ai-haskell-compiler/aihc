@@ -154,8 +154,7 @@ executable parser-fuzz
     , aihc-parser
     , haskell-src-exts
     , QuickCheck
-    , deepseq
-    , random
+    , optparse-applicative
     , text
     , time
   ghc-options:        -Wall -Werror

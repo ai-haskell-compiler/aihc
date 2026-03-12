@@ -1,28 +1,18 @@
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module Main (main) where
 
-import Control.DeepSeq (force)
-import Control.Exception (SomeException, evaluate, try)
 import Data.Char (isAlphaNum, isSpace, isUpper)
 import Data.List (intercalate)
 import qualified Data.Text as T
 import Data.Time.Clock.POSIX (getPOSIXTime)
 import qualified Language.Haskell.Exts as HSE
+import qualified Options.Applicative as OA
 import Parser (defaultConfig, parseModule)
 import Parser.Types (ParseResult (..))
-import System.Environment (getArgs)
-import System.Exit (exitFailure, exitSuccess)
-import System.IO (hPutStrLn, stderr)
 import Test.QuickCheck
 import Test.QuickCheck.Gen (unGen)
 import Test.QuickCheck.Random (QCGen, mkQCGen)
-#if MIN_VERSION_random(1,3,0)
-import System.Random (splitGen)
-#else
-import System.Random (split)
-#endif
 
 data Options = Options
   { optSeed :: Maybe Int,
@@ -32,16 +22,6 @@ data Options = Options
     optOutput :: Maybe FilePath
   }
 
-defaultOptions :: Options
-defaultOptions =
-  Options
-    { optSeed = Nothing,
-      optMaxTests = 10000,
-      optSize = 10,
-      optMaxShrinkPasses = 1000,
-      optOutput = Nothing
-    }
-
 data SearchResult = SearchResult
   { srTestsTried :: Int,
     srCandidate :: Candidate
@@ -49,7 +29,6 @@ data SearchResult = SearchResult
 
 data Candidate = Candidate
   { candAst :: HSE.Module HSE.SrcSpanInfo,
-    candComments :: [HSE.Comment],
     candSource :: String
   }
 
@@ -71,31 +50,71 @@ instance Arbitrary GenModule where
 
 main :: IO ()
 main = do
-  args <- getArgs
-  case parseArgs defaultOptions args of
-    Left err -> do
-      hPutStrLn stderr err
-      hPutStrLn stderr ""
-      hPutStrLn stderr usage
-      exitFailure
-    Right (opts, showHelp)
-      | showHelp -> do
-          putStrLn usage
-          exitSuccess
-      | otherwise -> runWithOptions opts
+  opts <- OA.execParser parserInfo
+  runWithOptions opts
+
+parserInfo :: OA.ParserInfo Options
+parserInfo =
+  OA.info
+    (optionsParser OA.<**> OA.helper)
+    ( OA.fullDesc
+        <> OA.progDesc "Generate HSE modules, find parser failures, and shrink with exactPrint"
+        <> OA.header "parser-fuzz"
+    )
+
+optionsParser :: OA.Parser Options
+optionsParser =
+  Options
+    <$> OA.optional
+      ( OA.option
+          OA.auto
+          ( OA.long "seed"
+              <> OA.metavar "N"
+              <> OA.help "Deterministic random seed (default: current POSIX time)"
+          )
+      )
+    <*> OA.option
+      OA.auto
+      ( OA.long "max-tests"
+          <> OA.metavar "N"
+          <> OA.value 10000
+          <> OA.showDefault
+          <> OA.help "Number of generated modules to try"
+      )
+    <*> OA.option
+      OA.auto
+      ( OA.long "size"
+          <> OA.metavar "N"
+          <> OA.value 10
+          <> OA.showDefault
+          <> OA.help "QuickCheck generation size"
+      )
+    <*> OA.option
+      OA.auto
+      ( OA.long "max-shrink-passes"
+          <> OA.metavar "N"
+          <> OA.value 1000
+          <> OA.showDefault
+          <> OA.help "Maximum accepted shrink steps"
+      )
+    <*> OA.optional
+      ( OA.strOption
+          ( OA.long "output"
+              <> OA.metavar "PATH"
+              <> OA.help "Write minimized source to PATH"
+          )
+      )
 
 runWithOptions :: Options -> IO ()
 runWithOptions opts = do
   seed <- resolveSeed (optSeed opts)
-  mResult <- findFirstFailure opts seed
-  case mResult of
+  case findFirstFailure opts seed of
     Nothing -> do
       putStrLn ("Seed: " <> show seed)
       putStrLn ("Tests tried: " <> show (optMaxTests opts))
       putStrLn "No failing module found."
-      exitSuccess
     Just found -> do
-      (minimized, shrinksAccepted) <- shrinkCandidate opts (srCandidate found)
+      let (minimized, shrinksAccepted) = shrinkCandidate opts (srCandidate found)
       putStrLn ("Seed: " <> show seed)
       putStrLn ("Tests tried: " <> show (srTestsTried found))
       putStrLn ("Shrink passes accepted: " <> show shrinksAccepted)
@@ -113,71 +132,62 @@ resolveSeed :: Maybe Int -> IO Int
 resolveSeed (Just seed) = pure seed
 resolveSeed Nothing = floor <$> getPOSIXTime
 
-findFirstFailure :: Options -> Int -> IO (Maybe SearchResult)
-findFirstFailure opts seed = go 1 (qcGenStream (mkQCGen seed))
+findFirstFailure :: Options -> Int -> Maybe SearchResult
+findFirstFailure opts seed = go 1 (qcGenStream seed)
   where
-    go :: Int -> [QCGen] -> IO (Maybe SearchResult)
-    go _ [] = pure Nothing
+    go :: Int -> [QCGen] -> Maybe SearchResult
+    go _ [] = Nothing
     go idx (g : gs)
-      | idx > optMaxTests opts = pure Nothing
-      | otherwise = do
+      | idx > optMaxTests opts = Nothing
+      | otherwise =
           let generated = unGen (arbitrary :: Gen GenModule) g (optSize opts)
-          mCandidate <- materializeCandidate generated
-          case mCandidate of
-            Just candidate
-              | oursFails (candSource candidate) ->
-                  pure (Just (SearchResult idx candidate))
-            _ -> go (idx + 1) gs
+              mCandidate = materializeCandidate generated
+           in case mCandidate of
+                Just candidate
+                  | oursFails (candSource candidate) ->
+                      Just (SearchResult idx candidate)
+                _ -> go (idx + 1) gs
 
-materializeCandidate :: GenModule -> IO (Maybe Candidate)
-materializeCandidate (GenModule modu0) = do
+materializeCandidate :: GenModule -> Maybe Candidate
+materializeCandidate (GenModule modu0) =
   let source0 = HSE.prettyPrint modu0
       mode = hseParseMode
-  case HSE.parseFileContentsWithComments mode source0 of
-    HSE.ParseFailed _ _ -> pure Nothing
-    HSE.ParseOk (modu1, comments) -> do
-      mSource <- safeExactPrint modu1 comments
-      pure $ do
-        source <- mSource
-        pure
-          Candidate
-            { candAst = modu1,
-              candComments = comments,
-              candSource = source
-            }
+   in case HSE.parseFileContentsWithMode mode source0 of
+        HSE.ParseFailed _ _ -> Nothing
+        HSE.ParseOk modu1 ->
+          let source1 = HSE.exactPrint modu1 []
+           in Just
+                Candidate
+                  { candAst = modu1,
+                    candSource = source1
+                  }
 
-shrinkCandidate :: Options -> Candidate -> IO (Candidate, Int)
+shrinkCandidate :: Options -> Candidate -> (Candidate, Int)
 shrinkCandidate opts = go 0
   where
-    go :: Int -> Candidate -> IO (Candidate, Int)
+    go :: Int -> Candidate -> (Candidate, Int)
     go accepted candidate
-      | accepted >= optMaxShrinkPasses opts = pure (candidate, accepted)
-      | otherwise = do
-          mNext <- firstSuccessfulShrink candidate
-          case mNext of
-            Nothing -> pure (candidate, accepted)
+      | accepted >= optMaxShrinkPasses opts = (candidate, accepted)
+      | otherwise =
+          case firstSuccessfulShrink candidate of
+            Nothing -> (candidate, accepted)
             Just nextCandidate -> go (accepted + 1) nextCandidate
 
-firstSuccessfulShrink :: Candidate -> IO (Maybe Candidate)
+firstSuccessfulShrink :: Candidate -> Maybe Candidate
 firstSuccessfulShrink candidate = tryCandidates (candidateTransforms candidate)
   where
-    tryCandidates :: [HSE.Module HSE.SrcSpanInfo] -> IO (Maybe Candidate)
-    tryCandidates [] = pure Nothing
-    tryCandidates (ast' : rest) = do
-      mSource <- safeExactPrint ast' (candComments candidate)
-      case mSource of
-        Nothing -> tryCandidates rest
-        Just source'
-          | isMeaningfulSource source' && oursFails source' ->
-              pure
-                ( Just
-                    Candidate
-                      { candAst = ast',
-                        candComments = candComments candidate,
-                        candSource = source'
-                      }
-                )
-          | otherwise -> tryCandidates rest
+    tryCandidates :: [HSE.Module HSE.SrcSpanInfo] -> Maybe Candidate
+    tryCandidates [] = Nothing
+    tryCandidates (ast' : rest) =
+      let source' = HSE.exactPrint ast' []
+       in if isMeaningfulSource source' && oursFails source'
+            then
+              Just
+                Candidate
+                  { candAst = ast',
+                    candSource = source'
+                  }
+            else tryCandidates rest
 
 isMeaningfulSource :: String -> Bool
 isMeaningfulSource = not . all isSpace
@@ -264,13 +274,6 @@ unique = foldr keep []
       | x `elem` acc = acc
       | otherwise = x : acc
 
-safeExactPrint :: HSE.Module HSE.SrcSpanInfo -> [HSE.Comment] -> IO (Maybe String)
-safeExactPrint ast comments = do
-  result <- try (evaluate (force (HSE.exactPrint ast comments))) :: IO (Either SomeException String)
-  case result of
-    Left _ -> pure Nothing
-    Right rendered -> pure (Just rendered)
-
 oursFails :: String -> Bool
 oursFails source =
   case parseModule defaultConfig (T.pack source) of
@@ -324,70 +327,5 @@ isValidModuleSegment segment =
 isSegmentRestChar :: Char -> Bool
 isSegmentRestChar ch = isAlphaNum ch || ch == '\''
 
-qcGenStream :: QCGen -> [QCGen]
-qcGenStream seed =
-  let (g1, g2) = splitQcGen seed
-   in g1 : qcGenStream g2
-
-splitQcGen :: QCGen -> (QCGen, QCGen)
-#if MIN_VERSION_random(1,3,0)
-splitQcGen = splitGen
-#else
-splitQcGen = split
-#endif
-
-parseArgs :: Options -> [String] -> Either String (Options, Bool)
-parseArgs opts = go opts False
-  where
-    go :: Options -> Bool -> [String] -> Either String (Options, Bool)
-    go current showHelp rest =
-      case rest of
-        [] -> Right (current, showHelp)
-        "--help" : xs -> go current True xs
-        "--seed" : value : xs -> do
-          seed <- readIntFlag "--seed" value
-          go current {optSeed = Just seed} showHelp xs
-        "--max-tests" : value : xs -> do
-          n <- readPositiveIntFlag "--max-tests" value
-          go current {optMaxTests = n} showHelp xs
-        "--size" : value : xs -> do
-          n <- readPositiveIntFlag "--size" value
-          go current {optSize = n} showHelp xs
-        "--max-shrink-passes" : value : xs -> do
-          n <- readPositiveIntFlag "--max-shrink-passes" value
-          go current {optMaxShrinkPasses = n} showHelp xs
-        "--output" : value : xs ->
-          go current {optOutput = Just value} showHelp xs
-        flag : _
-          | flag `elem` ["--seed", "--max-tests", "--size", "--max-shrink-passes", "--output"] ->
-              Left ("Missing value for " <> flag)
-          | otherwise -> Left ("Unknown flag: " <> flag)
-
-readIntFlag :: String -> String -> Either String Int
-readIntFlag flag raw =
-  case reads raw of
-    [(n, "")] -> Right n
-    _ -> Left ("Invalid integer for " <> flag <> ": " <> raw)
-
-readPositiveIntFlag :: String -> String -> Either String Int
-readPositiveIntFlag flag raw = do
-  n <- readIntFlag flag raw
-  if n > 0
-    then Right n
-    else Left ("Expected a positive integer for " <> flag <> ", got: " <> raw)
-
-usage :: String
-usage =
-  unlines
-    [ "Usage: parser-fuzz [--seed N] [--max-tests N] [--size N] [--max-shrink-passes N] [--output PATH] [--help]",
-      "",
-      "Generate HSE modules, find a source that fails aihc-parser, and minimize it with exactPrint.",
-      "",
-      "Flags:",
-      "  --seed N                Deterministic random seed (default: current POSIX time)",
-      "  --max-tests N           Number of generated modules to try (default: 10000)",
-      "  --size N                QuickCheck generation size (default: 10)",
-      "  --max-shrink-passes N   Maximum accepted shrink steps (default: 1000)",
-      "  --output PATH           Write minimized source to PATH",
-      "  --help                  Show this help"
-    ]
+qcGenStream :: Int -> [QCGen]
+qcGenStream seed = map mkQCGen [seed ..]
