@@ -5,7 +5,7 @@ module Test.Lexer.Suite
   )
 where
 
-import Control.Monad (when)
+import Control.Monad (unless, when)
 import qualified Data.Text as T
 import qualified LexerGolden as LG
 import System.FilePath (takeExtension)
@@ -87,26 +87,26 @@ fixtureValidationTests :: TestTree
 fixtureValidationTests =
   testGroup
     "fixture-parse"
-    [ testCase "rejects missing sections" $
-        case LG.parseLexerCaseText "missing.lexer" "[extensions]\n[]" of
+    [ testCase "rejects missing required keys" $
+        case LG.parseLexerCaseText "missing.yaml" "extensions: []\n" of
           Left _ -> pure ()
-          Right _ -> assertFailure "expected parse failure for missing sections",
+          Right _ -> assertFailure "expected parse failure for missing required YAML keys",
       testCase "requires reason for xfail" $
-        case LG.parseLexerCaseText "xfail.lexer" validXFailMissingReason of
+        case LG.parseLexerCaseText "xfail.yaml" validXFailMissingReason of
           Left _ -> pure ()
           Right _ -> assertFailure "expected parse failure when xfail reason is missing",
       testCase "accepts xpass with reason" $
-        case LG.parseLexerCaseText "xpass.lexer" validXPassFixture of
+        case LG.parseLexerCaseText "xpass.yaml" validXPassFixture of
           Left err -> assertFailure ("expected parse success, got: " <> err)
           Right parsed ->
             if LG.caseStatus parsed == LG.StatusXPass
               then pure ()
               else assertFailure "expected xpass status",
-      testCase "only .lexer fixtures are loaded" $ do
+      testCase "only YAML fixtures are loaded" $ do
         cases <- LG.loadLexerCases
         mapM_
           ( \meta ->
-              when (takeExtension (LG.casePath meta) /= ".lexer") $
+              unless (takeExtension (LG.casePath meta) `elem` [".yaml", ".yml"]) $
                 assertFailure ("unexpected non-lexer fixture loaded: " <> LG.casePath meta)
           )
           cases
@@ -115,27 +115,21 @@ fixtureValidationTests =
 validXFailMissingReason :: T.Text
 validXFailMissingReason =
   T.unlines
-    [ "[extensions]",
-      "[]",
-      "[input]",
-      "bad",
-      "[tokens]",
-      "[TkIdentifier \"bad\"]",
-      "[status]",
-      "xfail"
+    [ "extensions: []",
+      "input: bad",
+      "tokens:",
+      "  - 'TkIdentifier \"bad\"'",
+      "status: xfail"
     ]
 
 validXPassFixture :: T.Text
 validXPassFixture =
   T.unlines
-    [ "[extensions]",
-      "[]",
-      "[input]",
-      "-10",
-      "[tokens]",
-      "[TkOperator \"-\", TkInteger 10]",
-      "[status]",
-      "xpass",
-      "[reason]",
-      "known bug"
+    [ "extensions: []",
+      "input: \"-10\"",
+      "tokens:",
+      "  - 'TkOperator \"-\"'",
+      "  - 'TkInteger 10'",
+      "status: xpass",
+      "reason: known bug"
     ]

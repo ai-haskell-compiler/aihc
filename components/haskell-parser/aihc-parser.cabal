@@ -59,6 +59,8 @@ test-suite spec
     , tasty-quickcheck
     , QuickCheck
     , ghc-lib-parser
+    , aeson
+    , yaml
   ghc-options:        -O2 -Wall -Werror -threaded -rtsopts -with-rtsopts=-N
   default-language: Haskell2010
 
@@ -97,6 +99,8 @@ executable lexer-progress
     , containers
     , directory
     , filepath
+    , aeson
+    , yaml
   ghc-options:        -Wall -Werror
   default-language: Haskell2010
 

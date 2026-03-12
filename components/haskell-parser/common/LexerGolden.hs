@@ -12,12 +12,15 @@ module LexerGolden
   )
 where
 
+import Data.Aeson ((.!=), (.:), (.:?))
+import Data.Aeson.Types (parseEither, withObject)
 import Data.Char (isSpace, toLower)
 import Data.List (dropWhileEnd, sort)
-import qualified Data.Map.Strict as M
 import Data.Text (Text)
 import qualified Data.Text as T
+import Data.Text.Encoding (encodeUtf8)
 import qualified Data.Text.IO as TIO
+import qualified Data.Yaml as Y
 import Parser
   ( LexToken (..),
     LexTokenKind,
@@ -75,16 +78,15 @@ loadLexerCase path = do
 
 parseLexerCaseText :: FilePath -> Text -> Either String LexerCase
 parseLexerCaseText path source = do
-  sections <- parseSections path source
-  extensionsText <- requiredSection path "extensions" sections
-  inputText <- requiredSection path "input" sections
-  tokensText <- requiredSection path "tokens" sections
-  statusText <- requiredSection path "status" sections
-  let reasonText = maybe "" T.unpack (M.lookup "reason" sections)
-  exts <- parseExtensions path extensionsText
-  toks <- parseReadSection path "tokens" tokensText
+  value <-
+    case Y.decodeEither' (encodeUtf8 source) of
+      Left err -> Left ("Invalid YAML fixture " <> path <> ": " <> Y.prettyPrintParseException err)
+      Right parsed -> Right parsed
+  (extNames, inputText, tokenTexts, statusText, reasonText) <- parseYamlFixture path value
+  exts <- mapM (parseExtensionName path) extNames
+  toks <- mapM (parseTokenKind path) tokenTexts
   status <- parseStatus path statusText
-  reason <- validateReason path status reasonText
+  reason <- validateReason path status (T.unpack reasonText)
   let relPath = dropRootPrefix path
       category = categoryFromPath relPath
   pure
@@ -98,6 +100,21 @@ parseLexerCaseText path source = do
         caseStatus = status,
         caseReason = reason
       }
+
+parseYamlFixture :: FilePath -> Y.Value -> Either String ([Text], Text, [Text], Text, Text)
+parseYamlFixture path value =
+  case parseEither
+    ( withObject "lexer fixture" $ \obj -> do
+        exts <- obj .: "extensions"
+        inputText <- obj .: "input"
+        tokenTexts <- obj .: "tokens"
+        statusText <- obj .: "status"
+        reasonText <- obj .:? "reason" .!= ""
+        pure (exts, inputText, tokenTexts, statusText, reasonText)
+    )
+    value of
+    Left err -> Left ("Invalid lexer fixture schema in " <> path <> ": " <> err)
+    Right parsed -> Right parsed
 
 evaluateLexerCase :: LexerCase -> (Outcome, String)
 evaluateLexerCase meta =
@@ -155,85 +172,23 @@ listFixtureFiles dir = do
           if isDir
             then listFixtureFiles path
             else
-              if takeExtension path == ".lexer"
+              if takeExtension path `elem` [".yaml", ".yml"]
                 then pure [path]
                 else pure []
       )
       entries
-
-parseSections :: FilePath -> Text -> Either String (M.Map String Text)
-parseSections path source =
-  go (T.lines source) Nothing [] M.empty
-  where
-    go remaining currentHeader currentLines acc =
-      case remaining of
-        [] ->
-          case currentHeader of
-            Nothing ->
-              Left ("Fixture has no sections: " <> path)
-            Just name ->
-              Right (M.insert name (renderSection currentLines) acc)
-        line : rest ->
-          case parseHeaderLine line of
-            Just header ->
-              case currentHeader of
-                Nothing -> go rest (Just header) [] acc
-                Just name ->
-                  let acc' = M.insert name (renderSection currentLines) acc
-                   in go rest (Just header) [] acc'
-            Nothing ->
-              case currentHeader of
-                Nothing -> Left ("Fixture content appears before first section header in " <> path)
-                Just _ -> go rest currentHeader (currentLines <> [line]) acc
-
-parseHeaderLine :: Text -> Maybe String
-parseHeaderLine line =
-  let trimmed = T.strip line
-   in case (T.uncons trimmed, T.unsnoc trimmed) of
-        (Just ('[', _), Just (_, ']'))
-          | T.length trimmed >= 2 ->
-              let inner =
-                    T.unpack
-                      (T.strip (T.drop 1 (T.take (T.length trimmed - 1) trimmed)))
-                  normalized = map toLower inner
-               in if normalized `elem` ["extensions", "input", "tokens", "status", "reason"]
-                    then Just normalized
-                    else Nothing
-        _ -> Nothing
-
-renderSection :: [Text] -> Text
-renderSection rows = T.dropWhileEnd isSpaceText (T.unlines rows)
-  where
-    isSpaceText ch = ch == '\n' || isSpace ch
-
-requiredSection :: FilePath -> String -> M.Map String Text -> Either String Text
-requiredSection path name sections =
-  case M.lookup name sections of
-    Just value -> Right value
-    Nothing -> Left ("Missing [" <> name <> "] section in " <> path)
-
-parseReadSection :: (Read a) => FilePath -> String -> Text -> Either String a
-parseReadSection path sectionName raw =
-  case readMaybe (T.unpack (T.strip raw)) of
-    Just parsed -> Right parsed
-    Nothing -> Left ("Invalid [" <> sectionName <> "] section in " <> path)
-
-parseExtensions :: FilePath -> Text -> Either String [LexerExtension]
-parseExtensions path raw =
-  let trimmed = T.strip raw
-   in if trimmed == "[]"
-        then Right []
-        else case T.stripPrefix "[" trimmed >>= T.stripSuffix "]" of
-          Just body -> do
-            let names = map T.strip (T.splitOn "," body)
-            mapM (parseExtensionName path) (filter (not . T.null) names)
-          _ -> Left ("Invalid [extensions] section in " <> path)
 
 parseExtensionName :: FilePath -> Text -> Either String LexerExtension
 parseExtensionName path name =
   case T.unpack name of
     "NegativeLiterals" -> Right NegativeLiterals
     other -> Left ("Unknown lexer extension in " <> path <> ": " <> other)
+
+parseTokenKind :: FilePath -> Text -> Either String LexTokenKind
+parseTokenKind path raw =
+  case readMaybe (T.unpack (T.strip raw)) of
+    Just parsed -> Right parsed
+    Nothing -> Left ("Invalid token constructor in " <> path <> ": " <> T.unpack raw)
 
 parseStatus :: FilePath -> Text -> Either String ExpectedStatus
 parseStatus path raw =
