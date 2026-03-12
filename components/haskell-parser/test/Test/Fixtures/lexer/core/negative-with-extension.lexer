@@ -1,0 +1,11 @@
+[extensions]
+[NegativeLiterals]
+
+[input]
+-10
+
+[tokens]
+[TkInteger (-10)]
+
+[status]
+pass

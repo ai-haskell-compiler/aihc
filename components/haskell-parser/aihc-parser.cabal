@@ -40,10 +40,12 @@ test-suite spec
       CppSupport
     , ExtensionSupport
     , GhcOracle
+    , LexerGolden
     , OracleExtensions
     , Test.Oracle
     , Test.H2010.Suite
     , Test.Extensions.Suite
+    , Test.Lexer.Suite
   build-depends:
       base >=4.16 && <5
     , aihc-parser
@@ -78,6 +80,23 @@ executable parser-progress
     , directory
     , filepath
     , ghc-lib-parser
+  ghc-options:        -Wall -Werror
+  default-language: Haskell2010
+
+executable lexer-progress
+  hs-source-dirs:
+      app/lexer-progress
+    , common
+  main-is:          Main.hs
+  other-modules:
+      LexerGolden
+  build-depends:
+      base >=4.16 && <5
+    , aihc-parser
+    , text
+    , containers
+    , directory
+    , filepath
   ghc-options:        -Wall -Werror
   default-language: Haskell2010
 
