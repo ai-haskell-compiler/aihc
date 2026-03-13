@@ -1,13 +1,12 @@
 module ParserFuzz.Testing (runWithOptions) where
 
-import Data.Char (isAlphaNum, isUpper)
-import Data.List (intercalate)
 import Data.Text qualified as T
 import Language.Haskell.Exts qualified as HSE
-import ParserFuzz.Arbitrary (generateCandidate, normalizeCandidateAst, qcGenStream)
+import ParserFuzz.Arbitrary (generateCandidate, normalizeCandidateAst, qcGenStream, shrinkGeneratedModule)
 import ParserFuzz.CLI (Options (..))
 import ParserFuzz.Types (Candidate (..), SearchResult (..))
 import ParserValidation (validateParser)
+import ShrinkUtils (candidateTransformsWith)
 import System.Random (randomIO)
 import Test.QuickCheck (shrink)
 import Test.QuickCheck.Random (QCGen)
@@ -95,138 +94,15 @@ firstSuccessfulShrink candidate = tryCandidates (candidateTransforms candidate)
 
 candidateTransforms :: Candidate -> [HSE.Module HSE.SrcSpanInfo]
 candidateTransforms candidate =
-  removeModuleHead (candAst candidate)
-    <> shrinkModuleHeadName (candAst candidate)
-    <> removeModuleHeadExports (candAst candidate)
-    <> shrinkModuleHeadExports (candAst candidate)
+  candidateTransformsWith shrink (candAst candidate)
+    <> shrinkGeneratedModule (candAst candidate)
     <> []
 
 -- TODO: Add leaf-pruning transforms for exports, imports, and decl lists.
 -- TODO: Add recursive subtree-pruning transforms across declaration/expr/type AST nodes.
-
-removeModuleHead :: HSE.Module HSE.SrcSpanInfo -> [HSE.Module HSE.SrcSpanInfo]
-removeModuleHead modu =
-  case modu of
-    HSE.Module loc (Just _) pragmas imports decls ->
-      [HSE.Module loc Nothing pragmas imports decls]
-    _ -> []
-
-shrinkModuleHeadName :: HSE.Module HSE.SrcSpanInfo -> [HSE.Module HSE.SrcSpanInfo]
-shrinkModuleHeadName modu =
-  case modu of
-    HSE.Module loc (Just (HSE.ModuleHead hLoc (HSE.ModuleName nLoc name) warning exports)) pragmas imports decls ->
-      [ HSE.Module
-          loc
-          (Just (HSE.ModuleHead hLoc (HSE.ModuleName nLoc name') warning exports))
-          pragmas
-          imports
-          decls
-      | name' <- shrinkModuleName name
-      ]
-    _ -> []
-
-removeModuleHeadExports :: HSE.Module HSE.SrcSpanInfo -> [HSE.Module HSE.SrcSpanInfo]
-removeModuleHeadExports modu =
-  case modu of
-    HSE.Module loc (Just (HSE.ModuleHead hLoc modName warning (Just _))) pragmas imports decls ->
-      [HSE.Module loc (Just (HSE.ModuleHead hLoc modName warning Nothing)) pragmas imports decls]
-    _ -> []
-
-shrinkModuleHeadExports :: HSE.Module HSE.SrcSpanInfo -> [HSE.Module HSE.SrcSpanInfo]
-shrinkModuleHeadExports modu =
-  case modu of
-    HSE.Module loc (Just (HSE.ModuleHead hLoc modName warning (Just (HSE.ExportSpecList eLoc specs)))) pragmas imports decls ->
-      let removeAt idx = take idx specs <> drop (idx + 1) specs
-          shrunkLists = [removeAt idx | idx <- [0 .. length specs - 1]] <> [[], specs]
-       in [ HSE.Module
-              loc
-              (Just (HSE.ModuleHead hLoc modName warning (Just (HSE.ExportSpecList eLoc specs'))))
-              pragmas
-              imports
-              decls
-          | specs' <- unique shrunkLists,
-            specs' /= specs
-          ]
-    _ -> []
-
-shrinkModuleName :: String -> [String]
-shrinkModuleName name =
-  let parts = splitModuleName name
-      joinedShrinks =
-        [ intercalate "." parts'
-        | parts' <- shrinkModuleNameParts parts,
-          isValidModuleName parts'
-        ]
-      rawShrinks =
-        [ raw
-        | raw <- shrink name,
-          isValidModuleName (splitModuleName raw)
-        ]
-   in unique (joinedShrinks <> rawShrinks)
-
-shrinkModuleNameParts :: [String] -> [[String]]
-shrinkModuleNameParts parts =
-  dropSegmentShrinks parts <> shrinkSegmentShrinks parts
-
--- Remove one segment at a time (if at least one segment remains).
-dropSegmentShrinks :: [String] -> [[String]]
-dropSegmentShrinks parts =
-  [ before <> after
-  | idx <- [0 .. length parts - 1],
-    let (before, rest) = splitAt idx parts,
-    (_ : after) <- [rest],
-    not (null (before <> after))
-  ]
-
--- Shrink each segment independently.
-shrinkSegmentShrinks :: [String] -> [[String]]
-shrinkSegmentShrinks parts =
-  [ replaceAt idx segment' parts
-  | (idx, segment) <- zip [0 ..] parts,
-    segment' <- shrink segment,
-    isValidModuleSegment segment'
-  ]
-
-replaceAt :: Int -> a -> [a] -> [a]
-replaceAt idx value xs =
-  let (before, rest) = splitAt idx xs
-   in case rest of
-        [] -> xs
-        (_ : after) -> before <> (value : after)
-
-unique :: (Eq a) => [a] -> [a]
-unique = foldr keep []
-  where
-    keep x acc
-      | x `elem` acc = acc
-      | otherwise = x : acc
 
 oursFails :: String -> Bool
 oursFails source =
   case validateParser (T.pack source) of
     Nothing -> False
     Just _ -> True
-
-splitModuleName :: String -> [String]
-splitModuleName raw =
-  case raw of
-    "" -> []
-    _ -> splitOnDot raw
-
-splitOnDot :: String -> [String]
-splitOnDot s =
-  case break (== '.') s of
-    (prefix, []) -> [prefix]
-    (prefix, _ : rest) -> prefix : splitOnDot rest
-
-isValidModuleName :: [String] -> Bool
-isValidModuleName segments = not (null segments) && all isValidModuleSegment segments
-
-isValidModuleSegment :: String -> Bool
-isValidModuleSegment segment =
-  case segment of
-    first : rest -> isUpper first && all isSegmentRestChar rest
-    [] -> False
-
-isSegmentRestChar :: Char -> Bool
-isSegmentRestChar ch = isAlphaNum ch || ch == '\''

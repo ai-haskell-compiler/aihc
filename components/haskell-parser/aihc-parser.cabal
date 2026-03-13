@@ -42,6 +42,7 @@ test-suite spec
     , GhcOracle
     , OracleExtensions
     , ParserValidation
+    , ShrinkUtils
     , Test.Oracle
     , Test.H2010.Suite
     , Test.Extensions.Suite
@@ -113,6 +114,7 @@ executable hackage-tester
     , GhcOracle
     , HackageSupport
     , ParserValidation
+    , ShrinkUtils
   build-depends:
       base >=4.16 && <5
     , aihc-parser
@@ -138,6 +140,7 @@ executable stackage-progress
     , GhcOracle
     , HackageSupport
     , ParserValidation
+    , ShrinkUtils
   build-depends:
       base >=4.16 && <5
     , aihc-parser
@@ -162,6 +165,7 @@ executable parser-fuzz
   other-modules:
       GhcOracle
     , ParserValidation
+    , ShrinkUtils
     , ParserFuzz.CLI
     , ParserFuzz.Testing
     , ParserFuzz.Types

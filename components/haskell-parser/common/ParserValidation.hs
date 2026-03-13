@@ -10,7 +10,6 @@ module ParserValidation
   )
 where
 
-import Data.Char (isAlphaNum, isUpper)
 import Data.Text (Text)
 import qualified Data.Text as T
 import GHC.LanguageExtensions.Type (Extension)
@@ -19,6 +18,7 @@ import qualified Language.Haskell.Exts as HSE
 import Parser (defaultConfig, parseModule)
 import Parser.Pretty (prettyModule)
 import Parser.Types (ParseResult (..))
+import ShrinkUtils (candidateTransformsWith, unique)
 
 data ValidationErrorKind
   = ValidationParseError
@@ -158,7 +158,13 @@ commonPrefixLen = go 0
     go n _ _ = n
 
 commonSuffixLen :: (Eq a) => [a] -> [a] -> Int
-commonSuffixLen xs ys = commonPrefixLen (reverse xs) (reverse ys)
+commonSuffixLen xs ys =
+  let lenXs = length xs
+      lenYs = length ys
+      minLen = min lenXs lenYs
+      alignedXs = drop (lenXs - minLen) xs
+      alignedYs = drop (lenYs - minLen) ys
+   in foldr (\isEq n -> if isEq then n + 1 else 0) 0 (zipWith (==) alignedXs alignedYs)
 
 optionalShrunkDiagnostic :: [Extension] -> Text -> String
 optionalShrunkDiagnostic exts source =
@@ -212,6 +218,9 @@ shrinkFailingModule fails source
               | fails (candSource candidate') -> Just candidate'
               | otherwise -> tryCandidates rest
 
+candidateTransforms :: ShrinkCandidate -> [HSE.Module HSE.SrcSpanInfo]
+candidateTransforms candidate = candidateTransformsWith trimSegment (candAst candidate)
+
 hseParseMode :: HSE.ParseMode
 hseParseMode =
   HSE.defaultParseMode
@@ -246,94 +255,6 @@ normalizeCandidateAst modu0 =
                         candSource = T.pack (HSE.exactPrint modu2 [])
                       }
 
-candidateTransforms :: ShrinkCandidate -> [HSE.Module HSE.SrcSpanInfo]
-candidateTransforms candidate =
-  removeModuleHead (candAst candidate)
-    <> shrinkModuleHeadName (candAst candidate)
-    <> removeModuleHeadExports (candAst candidate)
-    <> shrinkModuleHeadExports (candAst candidate)
-
-removeModuleHead :: HSE.Module HSE.SrcSpanInfo -> [HSE.Module HSE.SrcSpanInfo]
-removeModuleHead modu =
-  case modu of
-    HSE.Module loc (Just _) pragmas imports decls ->
-      [HSE.Module loc Nothing pragmas imports decls]
-    _ -> []
-
-shrinkModuleHeadName :: HSE.Module HSE.SrcSpanInfo -> [HSE.Module HSE.SrcSpanInfo]
-shrinkModuleHeadName modu =
-  case modu of
-    HSE.Module loc (Just (HSE.ModuleHead hLoc (HSE.ModuleName nLoc name) warning exports)) pragmas imports decls ->
-      [ HSE.Module
-          loc
-          (Just (HSE.ModuleHead hLoc (HSE.ModuleName nLoc name') warning exports))
-          pragmas
-          imports
-          decls
-      | name' <- shrinkModuleName name
-      ]
-    _ -> []
-
-removeModuleHeadExports :: HSE.Module HSE.SrcSpanInfo -> [HSE.Module HSE.SrcSpanInfo]
-removeModuleHeadExports modu =
-  case modu of
-    HSE.Module loc (Just (HSE.ModuleHead hLoc modName warning (Just _))) pragmas imports decls ->
-      [HSE.Module loc (Just (HSE.ModuleHead hLoc modName warning Nothing)) pragmas imports decls]
-    _ -> []
-
-shrinkModuleHeadExports :: HSE.Module HSE.SrcSpanInfo -> [HSE.Module HSE.SrcSpanInfo]
-shrinkModuleHeadExports modu =
-  case modu of
-    HSE.Module loc (Just (HSE.ModuleHead hLoc modName warning (Just (HSE.ExportSpecList eLoc specs)))) pragmas imports decls ->
-      let removeAt idx = take idx specs <> drop (idx + 1) specs
-          shrunkLists = [removeAt idx | idx <- [0 .. length specs - 1]] <> [[]]
-       in [ HSE.Module
-              loc
-              (Just (HSE.ModuleHead hLoc modName warning (Just (HSE.ExportSpecList eLoc specs'))))
-              pragmas
-              imports
-              decls
-          | specs' <- unique shrunkLists,
-            specs' /= specs
-          ]
-    _ -> []
-
-shrinkModuleName :: String -> [String]
-shrinkModuleName name =
-  let parts = splitModuleName name
-      dropped = [joinModuleName parts' | parts' <- dropSegmentShrinks parts, isValidModuleName parts']
-      trimmed = [joinModuleName parts' | parts' <- trimSegmentShrinks parts, isValidModuleName parts']
-   in unique (dropped <> trimmed)
-
-splitModuleName :: String -> [String]
-splitModuleName raw =
-  case raw of
-    "" -> []
-    _ -> splitOnDot raw
-
-splitOnDot :: String -> [String]
-splitOnDot s =
-  case break (== '.') s of
-    (prefix, []) -> [prefix]
-    (prefix, _ : rest) -> prefix : splitOnDot rest
-
-joinModuleName :: [String] -> String
-joinModuleName = foldr1 join
-  where
-    join a b = a <> "." <> b
-
-dropSegmentShrinks :: [String] -> [[String]]
-dropSegmentShrinks parts =
-  [before <> after | idx <- [0 .. length parts - 1], let (before, rest) = splitAt idx parts, (_ : after) <- [rest], not (null (before <> after))]
-
-trimSegmentShrinks :: [String] -> [[String]]
-trimSegmentShrinks parts =
-  [ replaceAt idx segment' parts
-  | (idx, segment) <- zip [0 ..] parts,
-    segment' <- trimSegment segment,
-    isValidModuleSegment segment'
-  ]
-
 trimSegment :: String -> [String]
 trimSegment segment =
   unique
@@ -342,29 +263,3 @@ trimSegment segment =
       let candidate = take n segment,
       not (null candidate)
     ]
-
-replaceAt :: Int -> a -> [a] -> [a]
-replaceAt idx value xs =
-  let (before, rest) = splitAt idx xs
-   in case rest of
-        [] -> xs
-        (_ : after) -> before <> (value : after)
-
-unique :: (Eq a) => [a] -> [a]
-unique = foldr keep []
-  where
-    keep x acc
-      | x `elem` acc = acc
-      | otherwise = x : acc
-
-isValidModuleName :: [String] -> Bool
-isValidModuleName segments = not (null segments) && all isValidModuleSegment segments
-
-isValidModuleSegment :: String -> Bool
-isValidModuleSegment segment =
-  case segment of
-    first : rest -> isUpper first && all isSegmentRestChar rest
-    [] -> False
-
-isSegmentRestChar :: Char -> Bool
-isSegmentRestChar ch = isAlphaNum ch || ch == '\''
