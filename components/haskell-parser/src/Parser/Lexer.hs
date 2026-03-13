@@ -409,9 +409,20 @@ pragmaWarningToken = do
   _ <- many C.spaceChar
   _ <- C.string "WARNING"
   _ <- many C.spaceChar
-  body <- manyTillText "#-}"
-  let msg = T.strip (T.pack body)
-      raw = "{-# WARNING " <> msg <> " #-}"
+  (msg, rawMsg) <-
+    try
+      ( do
+          (rawStr, TkString decoded) <- stringToken
+          pure (decoded, rawStr)
+      )
+      <|> ( do
+              body <- manyTillText "#-}"
+              let txt = T.strip (T.pack body)
+              pure (txt, txt)
+          )
+  _ <- many C.spaceChar
+  _ <- try (void (C.string "#-}")) <|> pure ()
+  let raw = "{-# WARNING " <> rawMsg <> " #-}"
   pure (raw, TkPragmaWarning msg)
 
 pragmaDeprecatedToken :: LParser (Text, LexTokenKind)
@@ -420,9 +431,20 @@ pragmaDeprecatedToken = do
   _ <- many C.spaceChar
   _ <- C.string "DEPRECATED"
   _ <- many C.spaceChar
-  body <- manyTillText "#-}"
-  let msg = T.strip (T.pack body)
-      raw = "{-# DEPRECATED " <> msg <> " #-}"
+  (msg, rawMsg) <-
+    try
+      ( do
+          (rawStr, TkString decoded) <- stringToken
+          pure (decoded, rawStr)
+      )
+      <|> ( do
+              body <- manyTillText "#-}"
+              let txt = T.strip (T.pack body)
+              pure (txt, txt)
+          )
+  _ <- many C.spaceChar
+  _ <- try (void (C.string "#-}")) <|> pure ()
+  let raw = "{-# DEPRECATED " <> rawMsg <> " #-}"
   pure (raw, TkPragmaDeprecated msg)
 
 lexWithSpan :: LParser (Text, LexTokenKind) -> LParser LexToken
