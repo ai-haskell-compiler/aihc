@@ -402,7 +402,7 @@ renderDataDecl dat =
     <> ", constructors = "
     <> showListWith renderDataConDecl (dataDeclConstructors dat)
     <> ", deriving = "
-    <> renderMaybe renderDerivingClause (dataDeclDeriving dat)
+    <> showListWith renderDerivingClause (dataDeclDeriving dat)
     <> "}"
 
 renderNewtypeDecl :: NewtypeDecl -> String
@@ -416,7 +416,7 @@ renderNewtypeDecl dat =
     <> ", constructor = "
     <> renderMaybe renderDataConDecl (newtypeDeclConstructor dat)
     <> ", deriving = "
-    <> renderMaybe renderDerivingClause (newtypeDeclDeriving dat)
+    <> showListWith renderDerivingClause (newtypeDeclDeriving dat)
     <> "}"
 
 renderDataConDecl :: DataConDecl -> String
@@ -435,8 +435,19 @@ renderFieldDecl fd =
   "FieldDecl {names = " <> show (fieldNames fd) <> ", type = " <> renderBangType (fieldType fd) <> "}"
 
 renderDerivingClause :: DerivingClause -> String
-renderDerivingClause (DerivingClause classes) =
-  "DerivingClause " <> show classes
+renderDerivingClause (DerivingClause strategy classes) =
+  "DerivingClause {strategy = "
+    <> renderMaybe renderDerivingStrategy strategy
+    <> ", classes = "
+    <> show classes
+    <> "}"
+
+renderDerivingStrategy :: DerivingStrategy -> String
+renderDerivingStrategy strategy =
+  case strategy of
+    DerivingStock -> "stock"
+    DerivingNewtype -> "newtype"
+    DerivingAnyclass -> "anyclass"
 
 renderClassDecl :: ClassDecl -> String
 renderClassDecl decl =
