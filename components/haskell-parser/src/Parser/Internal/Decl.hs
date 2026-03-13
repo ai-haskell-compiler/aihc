@@ -15,7 +15,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Parser.Ast
 import Parser.Internal.Common
-import Parser.Internal.Expr (exprParser, simplePatternParser, typeParser)
+import Parser.Internal.Expr (exprParser, simplePatternParser, typeAtomParser, typeParser)
 import Parser.Lexer (LexTokenKind (..), lexTokenKind)
 import Text.Megaparsec ((<|>))
 import qualified Text.Megaparsec as MP
@@ -27,13 +27,23 @@ languagePragmaParser =
       TkPragmaLanguage names -> Just names
       _ -> Nothing
 
-moduleHeaderParser :: TokParser (Text, Maybe [ExportSpec])
+moduleHeaderParser :: TokParser (Text, Maybe WarningText, Maybe [ExportSpec])
 moduleHeaderParser = do
   keywordTok TkKeywordModule
   name <- moduleNameParser
+  mWarning <- MP.optional warningTextParser
   exports <- MP.optional exportSpecListParser
   keywordTok TkKeywordWhere
-  pure (name, exports)
+  pure (name, mWarning, exports)
+
+warningTextParser :: TokParser WarningText
+warningTextParser =
+  withSpan $
+    tokenSatisfy $ \tok ->
+      case lexTokenKind tok of
+        TkPragmaWarning msg -> Just (`WarnText` msg)
+        TkPragmaDeprecated msg -> Just (`DeprText` msg)
+        _ -> Nothing
 
 exportSpecListParser :: TokParser [ExportSpec]
 exportSpecListParser = do
@@ -85,6 +95,7 @@ importDeclParser = withSpan $ do
   keywordTok TkKeywordImport
   preQualified <-
     MP.option False (keywordTok TkKeywordQualified >> pure True)
+  importedLevel <- MP.optional importLevelParser
   importedPackage <- MP.optional packageNameParser
   importedModule <- moduleNameParser
   postQualified <-
@@ -97,6 +108,7 @@ importDeclParser = withSpan $ do
   pure $ \span' ->
     ImportDecl
       { importDeclSpan = span',
+        importDeclLevel = importedLevel,
         importDeclPackage = importedPackage,
         importDeclQualified = isQualified,
         importDeclQualifiedPost = postQualified,
@@ -104,6 +116,11 @@ importDeclParser = withSpan $ do
         importDeclAs = importAlias,
         importDeclSpec = importSpec
       }
+
+importLevelParser :: TokParser ImportLevel
+importLevelParser =
+  (identifierExact "quote" >> pure ImportLevelQuote)
+    <|> (identifierExact "splice" >> pure ImportLevelSplice)
 
 packageNameParser :: TokParser Text
 packageNameParser =
@@ -319,7 +336,7 @@ dataDeclParser = withSpan $ do
       _ -> Nothing
   typeParams <- MP.many typeParamParser
   constructors <- MP.optional (operatorLikeTok "=" *> dataConDeclParser `MP.sepBy1` operatorLikeTok "|")
-  derivingClause <- MP.optional derivingClauseParser
+  derivingClauses <- MP.many derivingClauseParser
   pure $ \span' ->
     DeclData
       span'
@@ -329,7 +346,7 @@ dataDeclParser = withSpan $ do
           dataDeclName = typeName,
           dataDeclParams = typeParams,
           dataDeclConstructors = fromMaybe [] constructors,
-          dataDeclDeriving = derivingClause
+          dataDeclDeriving = derivingClauses
         }
 
 newtypeDeclParser :: TokParser Decl
@@ -342,7 +359,7 @@ newtypeDeclParser = withSpan $ do
       _ -> Nothing
   typeParams <- MP.many typeParamParser
   constructor <- MP.optional (operatorLikeTok "=" *> newtypeConDeclParser)
-  derivingClause <- MP.optional derivingClauseParser
+  derivingClauses <- MP.many derivingClauseParser
   pure $ \span' ->
     DeclNewtype
       span'
@@ -352,7 +369,7 @@ newtypeDeclParser = withSpan $ do
           newtypeDeclName = typeName,
           newtypeDeclParams = typeParams,
           newtypeDeclConstructor = constructor,
-          newtypeDeclDeriving = derivingClause
+          newtypeDeclDeriving = derivingClauses
         }
 
 declContextParser :: TokParser [Constraint]
@@ -398,8 +415,9 @@ typeParamParser =
 derivingClauseParser :: TokParser DerivingClause
 derivingClauseParser = do
   identifierExact "deriving"
+  strategy <- MP.optional derivingStrategyParser
   classes <- parenClasses <|> singleClass
-  pure (DerivingClause classes)
+  pure (DerivingClause strategy classes)
   where
     singleClass = (: []) <$> identifierTextParser
     parenClasses = do
@@ -408,14 +426,21 @@ derivingClauseParser = do
       symbolLikeTok ")"
       pure classes
 
+derivingStrategyParser :: TokParser DerivingStrategy
+derivingStrategyParser =
+  (identifierExact "stock" >> pure DerivingStock)
+    <|> (identifierExact "newtype" >> pure DerivingNewtype)
+    <|> (identifierExact "anyclass" >> pure DerivingAnyclass)
+
 dataConDeclParser :: TokParser DataConDecl
 dataConDeclParser = withSpan $ do
   name <- constructorNameParser
+  fields <- MP.many constructorArgParser
   mRecordFields <- MP.optional (symbolLikeTok "{" *> symbolLikeTok "}")
   pure $ \span' ->
     case mRecordFields of
       Just () -> RecordCon span' name []
-      Nothing -> PrefixCon span' name []
+      Nothing -> PrefixCon span' name fields
 
 newtypeConDeclParser :: TokParser DataConDecl
 newtypeConDeclParser = newtypePrefixConDeclParser
@@ -442,7 +467,7 @@ derivingKeywordParser =
 bangTypeParser :: TokParser BangType
 bangTypeParser = withSpan $ do
   strict <- MP.option False (operatorLikeTok "!" >> pure True)
-  ty <- typeParser
+  ty <- typeAtomParser
   pure $ \span' ->
     BangType
       { bangSpan = span',

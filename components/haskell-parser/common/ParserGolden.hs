@@ -232,12 +232,19 @@ renderExprAst expr =
     ETypeApp _ fn ty -> "ETypeApp " <> par (renderExprAst fn) <> " " <> par (renderType ty)
     EApp _ fn arg -> "EApp " <> par (renderExprAst fn) <> " " <> par (renderExprAst arg)
 
+renderWarningText :: WarningText -> String
+renderWarningText wt =
+  case wt of
+    DeprText _ msg -> "DeprText " <> show msg
+    WarnText _ msg -> "WarnText " <> show msg
+
 renderModuleAst :: Module -> String
 renderModuleAst modu =
   "Module {name = "
     <> show (moduleName modu)
     <> ", languagePragmas = "
     <> show (moduleLanguagePragmas modu)
+    <> maybe "" (\wt -> ", warningText = Just (" <> renderWarningText wt <> ")") (moduleWarningText modu)
     <> ", exports = "
     <> renderMaybe (showListWith renderExportSpec) (moduleExports modu)
     <> ", imports = "
@@ -257,7 +264,9 @@ renderExportSpec spec =
 
 renderImportDecl :: ImportDecl -> String
 renderImportDecl decl =
-  "ImportDecl {package = "
+  "ImportDecl {level = "
+    <> renderMaybe renderImportLevel (importDeclLevel decl)
+    <> ", package = "
     <> show (importDeclPackage decl)
     <> ", qualified = "
     <> show (importDeclQualified decl)
@@ -270,6 +279,12 @@ renderImportDecl decl =
     <> ", spec = "
     <> renderMaybe renderImportSpec (importDeclSpec decl)
     <> "}"
+
+renderImportLevel :: ImportLevel -> String
+renderImportLevel level =
+  case level of
+    ImportLevelQuote -> "ImportLevelQuote"
+    ImportLevelSplice -> "ImportLevelSplice"
 
 renderImportSpec :: ImportSpec -> String
 renderImportSpec spec =
@@ -402,7 +417,7 @@ renderDataDecl dat =
     <> ", constructors = "
     <> showListWith renderDataConDecl (dataDeclConstructors dat)
     <> ", deriving = "
-    <> renderMaybe renderDerivingClause (dataDeclDeriving dat)
+    <> showListWith renderDerivingClause (dataDeclDeriving dat)
     <> "}"
 
 renderNewtypeDecl :: NewtypeDecl -> String
@@ -416,7 +431,7 @@ renderNewtypeDecl dat =
     <> ", constructor = "
     <> renderMaybe renderDataConDecl (newtypeDeclConstructor dat)
     <> ", deriving = "
-    <> renderMaybe renderDerivingClause (newtypeDeclDeriving dat)
+    <> showListWith renderDerivingClause (newtypeDeclDeriving dat)
     <> "}"
 
 renderDataConDecl :: DataConDecl -> String
@@ -435,8 +450,19 @@ renderFieldDecl fd =
   "FieldDecl {names = " <> show (fieldNames fd) <> ", type = " <> renderBangType (fieldType fd) <> "}"
 
 renderDerivingClause :: DerivingClause -> String
-renderDerivingClause (DerivingClause classes) =
-  "DerivingClause " <> show classes
+renderDerivingClause (DerivingClause strategy classes) =
+  "DerivingClause {strategy = "
+    <> renderMaybe renderDerivingStrategy strategy
+    <> ", classes = "
+    <> show classes
+    <> "}"
+
+renderDerivingStrategy :: DerivingStrategy -> String
+renderDerivingStrategy strategy =
+  case strategy of
+    DerivingStock -> "stock"
+    DerivingNewtype -> "newtype"
+    DerivingAnyclass -> "anyclass"
 
 renderClassDecl :: ClassDecl -> String
 renderClassDecl decl =
