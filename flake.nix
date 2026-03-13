@@ -111,14 +111,11 @@
             cabal test --test-show-details=direct
           '';
 
-          cpp-progress = mkAppWithInputs "cpp-progress" [
-            pkgs.bash
-            pkgs.cabal-install
-            pkgs.ghc
-          ] ''
-            set -euo pipefail
-            ${cppProgressExe}
-          '';
+          cpp-progress = {
+            type = "app";
+            program = cppProgressExe;
+            meta.description = "aihc app: cpp-progress";
+          };
 
           cpp-progress-strict = mkAppWithInputs "cpp-progress-strict" [
             pkgs.bash
