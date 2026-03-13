@@ -405,7 +405,9 @@ parseLanguagePragmaNames body =
 
 pragmaWarningToken :: LParser (Text, LexTokenKind)
 pragmaWarningToken = do
-  _ <- C.string "{-# WARNING"
+  _ <- C.string "{-#"
+  _ <- many C.spaceChar
+  _ <- C.string "WARNING"
   _ <- many C.spaceChar
   body <- manyTillText "#-}"
   let msg = T.strip (T.pack body)
@@ -414,7 +416,9 @@ pragmaWarningToken = do
 
 pragmaDeprecatedToken :: LParser (Text, LexTokenKind)
 pragmaDeprecatedToken = do
-  _ <- C.string "{-# DEPRECATED"
+  _ <- C.string "{-#"
+  _ <- many C.spaceChar
+  _ <- C.string "DEPRECATED"
   _ <- many C.spaceChar
   body <- manyTillText "#-}"
   let msg = T.strip (T.pack body)

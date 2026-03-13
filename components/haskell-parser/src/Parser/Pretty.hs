@@ -49,8 +49,8 @@ prettyModule modu =
               )
           ]
         Nothing -> []
-    prettyWarningText (DeprText _ msg) = ["{-# DEPRECATED", pretty msg, "#-}"]
-    prettyWarningText (WarnText _ msg) = ["{-# WARNING", pretty msg, "#-}"]
+    prettyWarningText (DeprText _ msg) = ["{-# DEPRECATED", pretty (show msg), "#-}"]
+    prettyWarningText (WarnText _ msg) = ["{-# WARNING", pretty (show msg), "#-}"]
     importLines = map prettyImportDecl (moduleImports modu)
     declLines = concatMap prettyDeclLines (moduleDecls modu)
 
