@@ -247,7 +247,7 @@ data ClassDecl = ClassDecl
   { classDeclSpan :: SourceSpan,
     classDeclContext :: [Constraint],
     classDeclName :: Text,
-    classDeclParam :: Text,
+    classDeclParams :: [Text],
     classDeclItems :: [ClassDeclItem]
   }
   deriving (Eq, Show)
