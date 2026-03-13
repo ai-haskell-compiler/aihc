@@ -29,6 +29,7 @@
         let
           hsPkgs = mkHsPkgs pkgs;
           parserProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser "parser-progress";
+          lexerProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser "lexer-progress";
           extensionProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser "extension-progress";
           parserFuzzExe = pkgs.lib.getExe' hsPkgs.aihc-parser "parser-fuzz";
           cppProgressExe = pkgs.lib.getExe' hsPkgs.aihc-cpp "cpp-progress";
@@ -71,6 +72,16 @@
             ${parserProgressExe}
           '';
 
+          lexer-progress = mkApp "lexer-progress" ''
+            set -euo pipefail
+            test -d components/haskell-parser || {
+              echo "Run this app from the repository root." >&2
+              exit 1
+            }
+            cd components/haskell-parser
+            ${lexerProgressExe}
+          '';
+
           parser-extension-progress = mkApp "parser-extension-progress" ''
             set -euo pipefail
             ${extensionProgressExe} "$@"
@@ -96,6 +107,16 @@
             ${parserProgressExe} --strict
           '';
 
+          lexer-progress-strict = mkApp "lexer-progress-strict" ''
+            set -euo pipefail
+            test -d components/haskell-parser || {
+              echo "Run this app from the repository root." >&2
+              exit 1
+            }
+            cd components/haskell-parser
+            ${lexerProgressExe} --strict
+          '';
+
           parser-extension-progress-strict = mkApp "parser-extension-progress-strict" ''
             set -euo pipefail
             ${extensionProgressExe} --strict "$@"
@@ -111,25 +132,19 @@
             cabal test --test-show-details=direct
           '';
 
-          cpp-progress = mkAppWithInputs "cpp-progress" [
-            pkgs.bash
-            pkgs.cabal-install
-            pkgs.ghc
-            pkgs.haskellPackages.cpphs
-          ] ''
-            set -euo pipefail
-            ${cppProgressExe}
-          '';
+          cpp-progress = {
+            type = "app";
+            program = cppProgressExe;
+            meta.description = "aihc app: cpp-progress";
+          };
 
-          cpp-progress-strict = mkAppWithInputs "cpp-progress-strict" [
-            pkgs.bash
-            pkgs.cabal-install
-            pkgs.ghc
-            pkgs.haskellPackages.cpphs
-          ] ''
-            set -euo pipefail
-            ${cppProgressExe} --strict
-          '';
+          cpp-progress-strict = {
+            type = "app";
+            program = "${pkgs.writeShellScript "cpp-progress-strict" ''
+              exec ${cppProgressExe} --strict "$@"
+            ''}";
+            meta.description = "aihc app: cpp-progress-strict";
+          };
 
           name-resolution-test = mkApp "name-resolution-test" ''
             set -euo pipefail
@@ -221,6 +236,14 @@
             parser-progress --strict
             touch "$out"
           '';
+          lexerProgressStrict = pkgs.runCommand "aihc-lexer-progress-strict" {
+            src = ./.;
+            nativeBuildInputs = [ hsPkgs.aihc-parser ];
+          } ''
+            cd "$src/components/haskell-parser"
+            lexer-progress --strict
+            touch "$out"
+          '';
           parserExtensionProgressStrict = pkgs.runCommand "aihc-parser-extension-progress-strict" {
             src = ./.;
             nativeBuildInputs = [ hsPkgs.aihc-parser ];
@@ -231,7 +254,7 @@
           '';
           cppProgressStrict = pkgs.runCommand "aihc-cpp-progress-strict" {
             src = ./.;
-            nativeBuildInputs = [ hsPkgs.aihc-cpp pkgs.haskellPackages.cpphs ];
+            nativeBuildInputs = [ hsPkgs.aihc-cpp ];
           } ''
             cd "$src/components/haskell-cpp"
             cpp-progress --strict
@@ -250,6 +273,7 @@
           cpp-tests = cppTests;
           name-resolution-tests = nameResolutionTests;
           parser-progress-strict = parserProgressStrict;
+          lexer-progress-strict = lexerProgressStrict;
           parser-extension-progress-strict = parserExtensionProgressStrict;
           cpp-progress-strict = cppProgressStrict;
           name-resolution-progress-strict = nameResolutionProgressStrict;
@@ -262,6 +286,7 @@
                 { name = "cpp-tests"; path = cppTests; }
                 { name = "name-resolution-tests"; path = nameResolutionTests; }
                 { name = "parser-progress-strict"; path = parserProgressStrict; }
+                { name = "lexer-progress-strict"; path = lexerProgressStrict; }
                 { name = "parser-extension-progress-strict"; path = parserExtensionProgressStrict; }
                 { name = "cpp-progress-strict"; path = cppProgressStrict; }
                 { name = "name-resolution-progress-strict"; path = nameResolutionProgressStrict; }
