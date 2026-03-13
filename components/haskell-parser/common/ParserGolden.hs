@@ -257,7 +257,9 @@ renderExportSpec spec =
 
 renderImportDecl :: ImportDecl -> String
 renderImportDecl decl =
-  "ImportDecl {package = "
+  "ImportDecl {level = "
+    <> renderMaybe renderImportLevel (importDeclLevel decl)
+    <> ", package = "
     <> show (importDeclPackage decl)
     <> ", qualified = "
     <> show (importDeclQualified decl)
@@ -270,6 +272,12 @@ renderImportDecl decl =
     <> ", spec = "
     <> renderMaybe renderImportSpec (importDeclSpec decl)
     <> "}"
+
+renderImportLevel :: ImportLevel -> String
+renderImportLevel level =
+  case level of
+    ImportLevelQuote -> "ImportLevelQuote"
+    ImportLevelSplice -> "ImportLevelSplice"
 
 renderImportSpec :: ImportSpec -> String
 renderImportSpec spec =

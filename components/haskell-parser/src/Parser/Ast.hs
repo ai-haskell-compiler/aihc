@@ -23,6 +23,7 @@ module Parser.Ast
     ForeignSafety (..),
     GuardedRhs (..),
     ImportDecl (..),
+    ImportLevel (..),
     ImportItem (..),
     ImportSpec (..),
     InstanceDecl (..),
@@ -83,6 +84,7 @@ data ExportSpec
 
 data ImportDecl = ImportDecl
   { importDeclSpan :: SourceSpan,
+    importDeclLevel :: Maybe ImportLevel,
     importDeclPackage :: Maybe Text,
     importDeclQualified :: Bool,
     importDeclQualifiedPost :: Bool,
@@ -90,6 +92,11 @@ data ImportDecl = ImportDecl
     importDeclAs :: Maybe Text,
     importDeclSpec :: Maybe ImportSpec
   }
+  deriving (Eq, Show)
+
+data ImportLevel
+  = ImportLevelQuote
+  | ImportLevelSplice
   deriving (Eq, Show)
 
 data ImportSpec = ImportSpec

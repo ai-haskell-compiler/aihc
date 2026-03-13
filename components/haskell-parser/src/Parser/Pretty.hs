@@ -73,12 +73,19 @@ prettyImportDecl decl =
    in hsep
         ( ["import"]
             <> ["qualified" | importDeclQualified decl && not renderPostQualified]
+            <> maybe [] (\level -> [prettyImportLevel level]) (importDeclLevel decl)
             <> maybe [] (\pkg -> [prettyQuotedText pkg]) (importDeclPackage decl)
             <> [pretty (importDeclModule decl)]
             <> ["qualified" | importDeclQualified decl && renderPostQualified]
             <> maybe [] (\alias -> ["as", pretty alias]) (importDeclAs decl)
             <> maybe [] (\spec -> [prettyImportSpec spec]) (importDeclSpec decl)
         )
+
+prettyImportLevel :: ImportLevel -> Doc ann
+prettyImportLevel level =
+  case level of
+    ImportLevelQuote -> "quote"
+    ImportLevelSplice -> "splice"
 
 prettyQuotedText :: Text -> Doc ann
 prettyQuotedText txt = "\"" <> pretty txt <> "\""
