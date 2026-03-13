@@ -95,6 +95,7 @@ importDeclParser = withSpan $ do
   keywordTok TkKeywordImport
   preQualified <-
     MP.option False (keywordTok TkKeywordQualified >> pure True)
+  importedLevel <- MP.optional importLevelParser
   importedPackage <- MP.optional packageNameParser
   importedModule <- moduleNameParser
   postQualified <-
@@ -107,6 +108,7 @@ importDeclParser = withSpan $ do
   pure $ \span' ->
     ImportDecl
       { importDeclSpan = span',
+        importDeclLevel = importedLevel,
         importDeclPackage = importedPackage,
         importDeclQualified = isQualified,
         importDeclQualifiedPost = postQualified,
@@ -114,6 +116,11 @@ importDeclParser = withSpan $ do
         importDeclAs = importAlias,
         importDeclSpec = importSpec
       }
+
+importLevelParser :: TokParser ImportLevel
+importLevelParser =
+  (identifierExact "quote" >> pure ImportLevelQuote)
+    <|> (identifierExact "splice" >> pure ImportLevelSplice)
 
 packageNameParser :: TokParser Text
 packageNameParser =
