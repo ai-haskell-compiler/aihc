@@ -164,7 +164,8 @@ commonSuffixLen xs ys =
       minLen = min lenXs lenYs
       alignedXs = drop (lenXs - minLen) xs
       alignedYs = drop (lenYs - minLen) ys
-   in foldr (\isEq n -> if isEq then n + 1 else 0) 0 (zipWith (==) alignedXs alignedYs)
+      suffixEqs = zipWith (==) (reverse alignedXs) (reverse alignedYs)
+   in length (takeWhile id suffixEqs)
 
 optionalShrunkDiagnostic :: [Extension] -> Text -> String
 optionalShrunkDiagnostic exts source =

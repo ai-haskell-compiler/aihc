@@ -146,4 +146,4 @@ isValidModuleSegment segment =
     [] -> False
 
 isSegmentRestChar :: Char -> Bool
-isSegmentRestChar ch = isAlphaNum ch || ch == '\''
+isSegmentRestChar ch = isAlphaNum ch || ch == '\'' || ch == '_'
