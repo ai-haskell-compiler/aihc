@@ -383,9 +383,10 @@ binary next ops ts =
   let (v1, ts1) = next ts
    in go v1 ts1
   where
-    go v1 (TOp op : ts2) | op `elem` ops =
-      let (v2, ts3) = next ts2
-       in go (apply op v1 v2) ts3
+    go v1 (TOp op : ts2)
+      | op `elem` ops =
+          let (v2, ts3) = next ts2
+           in go (apply op v1 v2) ts3
     go v1 ts2 = (v1, ts2)
 
     apply "||" a b = if a /= 0 || b /= 0 then 1 else 0
