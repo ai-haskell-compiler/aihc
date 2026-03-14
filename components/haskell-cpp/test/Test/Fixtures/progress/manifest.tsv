@@ -24,3 +24,5 @@ stringify-order	macro	stringify-order.hs	xfail	function-like macro expansion ord
 token-concat-declare-struct-type	macro	token-concat-declare-struct-type.hs	xfail	token concatenation (##) in function-like macros is not implemented
 token-concat-cat-xcat-call	macro	token-concat-cat-xcat-call.hs	xfail	complex CAT/XCAT/CALL token concatenation semantics are not implemented
 function-macro-basic	macro	function-macro-basic.hs	xfail	function-like macros are not implemented
+line-directive-file-and-number	diagnostics	line-directive-file-and-number.hs	xfail	line directive does not update __LINE__/__FILE__ state
+line-directive-number-only	diagnostics	line-directive-number-only.hs	xfail	line directive does not update __LINE__/__FILE__ state
