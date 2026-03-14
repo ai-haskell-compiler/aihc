@@ -69,12 +69,11 @@ preprocess cfg input =
             if T.null out
               then out
               else out <> "\n"
-       in
-      Done
-        Result
-          { resultOutput = outWithTrailingNewline,
-            resultDiagnostics = reverse (stDiagnosticsRev st)
-          }
+       in Done
+            Result
+              { resultOutput = outWithTrailingNewline,
+                resultDiagnostics = reverse (stDiagnosticsRev st)
+              }
 
 joinMultiline :: Int -> [Text] -> [(Int, Int, Text)]
 joinMultiline _ [] = []
@@ -135,7 +134,11 @@ processFile filePath ((lineNo, lineSpan, line) : restLines) stack st k =
         case parseDirective line of
           Just DirEndIf ->
             continue
-              ( addDiag Warning "unmatched #endif" filePath lineNo
+              ( addDiag
+                  Warning
+                  "unmatched #endif"
+                  filePath
+                  lineNo
                   (st {stSkippingDanglingElse = False})
               )
           Just _ ->
@@ -252,14 +255,13 @@ processFile filePath ((lineNo, lineSpan, line) : restLines) stack st k =
               else continue (emitDirectiveBlank st)
    in if stSkippingDanglingElse st
         then recoverDanglingElse
-        else
-          case parseDirective line of
-            Nothing ->
-              if active
-                then continue (emitLine (expandMacros (stMacros st) line) st)
-                else continue (emitBlankLines lineSpan st)
-            Just directive ->
-              handleDirective directive
+        else case parseDirective line of
+          Nothing ->
+            if active
+              then continue (emitLine (expandMacros (stMacros st) line) st)
+              else continue (emitBlankLines lineSpan st)
+          Just directive ->
+            handleDirective directive
 
 mkFrame :: Bool -> Bool -> CondFrame
 mkFrame outer cond =

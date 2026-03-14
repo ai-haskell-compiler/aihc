@@ -13,6 +13,7 @@ import qualified Control.Exception as E
 import Cpp (Config (..), Diagnostic (..), IncludeRequest (..), Result (..), Severity (..), Step (..), preprocess)
 import Data.Char (isDigit, isSpace)
 import Data.List (dropWhileEnd)
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
@@ -91,8 +92,9 @@ compareLocatedOutput oursOut oracleOut =
   firstDifference (toLocatedLines oursOut) (toLocatedLines oracleOut)
 
 firstDifference :: [LocatedLine] -> [LocatedLine] -> Maybe String
-firstDifference oursLines oracleLines = go (1 :: Int) oursLines oracleLines
+firstDifference = go (1 :: Int)
   where
+    go :: Int -> [LocatedLine] -> [LocatedLine] -> Maybe String
     go _ [] [] = Nothing
     go n (o : os) (r : rs)
       | o == r = go (n + 1) os rs
@@ -131,7 +133,7 @@ toLocatedLines = go 1 "<unknown>" . T.lines
     go lineNo filePath (line : rest) =
       case parseLinePragma line of
         Just (nextLineNo, mFilePath) ->
-          let filePath' = maybe filePath id mFilePath
+          let filePath' = fromMaybe filePath mFilePath
            in go nextLineNo filePath' rest
         Nothing ->
           LocatedLine lineNo filePath line : go (lineNo + 1) filePath rest
@@ -146,21 +148,19 @@ parseLinePragma raw =
               (lineNoTxt, rest2) = T.span isDigit rest1
            in if T.null lineNoTxt
                 then Nothing
-                else
-                  case reads (T.unpack lineNoTxt) of
-                    [(lineNo, "")] ->
-                      let rest3 = T.stripStart rest2
-                       in if T.null rest3
-                            then Just (lineNo, Nothing)
-                            else
-                              case T.uncons rest3 of
-                                Just ('"', quoted) ->
-                                  let (filePath, suffix) = T.breakOn "\"" quoted
-                                   in if T.null suffix
-                                        then Nothing
-                                        else Just (lineNo, Just (T.unpack filePath))
-                                _ -> Nothing
-                    _ -> Nothing
+                else case reads (T.unpack lineNoTxt) of
+                  [(lineNo, "")] ->
+                    let rest3 = T.stripStart rest2
+                     in if T.null rest3
+                          then Just (lineNo, Nothing)
+                          else case T.uncons rest3 of
+                            Just ('"', quoted) ->
+                              let (filePath, suffix) = T.breakOn "\"" quoted
+                               in if T.null suffix
+                                    then Nothing
+                                    else Just (lineNo, Just (T.unpack filePath))
+                            _ -> Nothing
+                  _ -> Nothing
 
 runOurs :: FilePath -> Text -> IO (Either String Text)
 runOurs sourcePath source = do
