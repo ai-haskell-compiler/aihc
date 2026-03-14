@@ -2,10 +2,16 @@
 
 module Main (main) where
 
-import Control.Monad (forM)
+import Control.Concurrent.Async (mapConcurrently)
+import Control.Concurrent.MVar (MVar, modifyMVar, newMVar)
+import Control.Exception (SomeException, displayException, try)
+import Control.Monad (unless, when)
 import Cpp (Severity (..), diagSeverity, resultDiagnostics, resultOutput)
 import CppSupport (preprocessForParser)
-import qualified Data.ByteString.Char8 as BS
+import qualified Data.Aeson as Aeson
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Lazy as LBS
+import qualified Data.ByteString.Lazy.Char8 as LBS8
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
@@ -13,71 +19,122 @@ import Distribution.Package (packageId, pkgVersion)
 import Distribution.PackageDescription (GenericPackageDescription (..))
 import Distribution.PackageDescription.Parsec (parseGenericPackageDescription, runParseResult)
 import Distribution.Pretty (prettyShow)
+import GHC.Conc (getNumProcessors)
 import qualified GhcOracle
-import HackageSupport (FileInfo (..), diagToText, downloadPackage, findTargetFilesFromCabal, prefixCppErrors, resolveIncludeBestEffort)
+import HackageSupport (FileInfo (..), diagToText, downloadPackage, findTargetFilesFromCabal, resolveIncludeBestEffort)
+import HackageTester.CLI (Options (..), parseOptionsIO)
+import HackageTester.Model (FileResult (..), Outcome (..), Summary (..), failureLabel, shouldFailSummary, summarizeResults)
+import Network.HTTP.Client (HttpException, Manager, Request (responseTimeout), httpLbs, newManager, parseRequest, responseBody, responseTimeoutMicro)
+import Network.HTTP.Client.TLS (tlsManagerSettings)
 import ParserValidation (ValidationError (..), ValidationErrorKind (..), validateParserDetailed)
-import System.Environment (getArgs)
 import System.Exit (exitFailure, exitSuccess)
-import System.Process (readProcess)
+import System.IO (hFlush, hPutStrLn, stderr, stdout)
+
+data RunInfo = RunInfo
+  { runPackageName :: String,
+    runVersion :: String,
+    runSummary :: Summary
+  }
 
 main :: IO ()
 main = do
-  args <- getArgs
-  case args of
-    [packageName] -> testPackage packageName
-    _ -> do
-      putStrLn "Usage: cabal run hackage-tester -- <package-name>"
-      putStrLn "Example: cabal run hackage-tester -- transformers"
+  opts <- parseOptionsIO
+  runResult <- try (runTester opts)
+  case runResult of
+    Left err -> do
+      hPutStrLn stderr ("hackage-tester failed: " ++ displayException (err :: SomeException))
       exitFailure
+    Right ok -> if ok then exitSuccess else exitFailure
 
-testPackage :: String -> IO ()
-testPackage packageName = do
-  putStrLn ("Testing package: " ++ packageName)
-  version <- getLatestVersion packageName
-  case version of
-    Nothing -> do
-      putStrLn ("Failed to resolve version for: " ++ packageName)
-      exitFailure
-    Just ver -> do
-      srcDir <- downloadPackage packageName ver
-      files <- findTargetFilesFromCabal srcDir
-      putStrLn ("Found " ++ show (length files) ++ " Haskell source files")
-      results <- processFiles srcDir files
-      printSummary results
-      let failed = filter (\r -> ghcError r || parseError r || roundtripFail r) results
-      if null failed then exitSuccess else exitFailure
+runTester :: Options -> IO Bool
+runTester opts = do
+  putStrLn ("Testing package: " ++ optPackage opts)
 
-getLatestVersion :: String -> IO (Maybe String)
+  version <-
+    case optVersion opts of
+      Just forced -> pure forced
+      Nothing -> do
+        versionResult <- getLatestVersion (optPackage opts)
+        case versionResult of
+          Left err -> do
+            hPutStrLn stderr (T.unpack err)
+            exitFailure
+          Right resolved -> pure resolved
+
+  srcDir <- downloadPackage (optPackage opts) version
+  files <- findTargetFilesFromCabal srcDir
+
+  when (null files) $ do
+    hPutStrLn stderr "No target source files found in package components"
+    let summary = summarizeResults []
+    emitSummary opts (RunInfo (optPackage opts) version summary)
+    exitFailure
+
+  putStrLn ("Found " ++ show (length files) ++ " Haskell source files")
+
+  jobs <- maybe getNumProcessors pure (optJobs opts)
+  results <- processFiles jobs srcDir files
+
+  unless (optJson opts) (printFailureDetails results)
+
+  let summary = summarizeResults results
+  emitSummary opts (RunInfo (optPackage opts) version summary)
+  pure (not (shouldFailSummary summary))
+
+getLatestVersion :: String -> IO (Either Text String)
 getLatestVersion packageName = do
+  manager <- newManager tlsManagerSettings
   let url = "https://hackage.haskell.org/package/" ++ packageName ++ "/" ++ packageName ++ ".cabal"
-  result <- readProcess "curl" ["-s", "-f", url] ""
-  case runParseResult (parseGenericPackageDescription (BS.pack result)) of
-    (_, Left _) -> pure Nothing
-    (_, Right gpd) ->
-      let ver = pkgVersion (packageId (packageDescription gpd))
-       in pure (Just (prettyShow ver))
+  requestResult <- try (parseRequest url)
+  case requestResult of
+    Left err -> pure (Left ("Failed to build Hackage request: " <> T.pack (displayException (err :: HttpException))))
+    Right request -> do
+      fetchResult <- try (fetchCabalFile manager request)
+      case fetchResult of
+        Left err -> pure (Left ("Failed to fetch package metadata from Hackage: " <> T.pack (displayException (err :: HttpException))))
+        Right cabalBytes ->
+          case runParseResult (parseGenericPackageDescription (LBS.toStrict cabalBytes :: BS.ByteString)) of
+            (_, Left (_, errs)) -> pure (Left ("Failed to parse Hackage cabal file: " <> T.pack (show errs)))
+            (_, Right gpd) ->
+              let ver = pkgVersion (packageId (packageDescription gpd))
+               in pure (Right (prettyShow ver))
 
-data FileResult = FileResult
-  { filePath :: FilePath,
-    ghcError :: Bool,
-    parseError :: Bool,
-    roundtripFail :: Bool,
-    ghcErrorMsg :: Maybe Text,
-    parseErrorMsg :: Maybe Text,
-    roundtripErrorMsg :: Maybe Text
-  }
+fetchCabalFile :: Manager -> Request -> IO LBS.ByteString
+fetchCabalFile manager request = do
+  let request' = request {responseTimeout = responseTimeoutMicro (30 * 1000 * 1000)}
+  response <- httpLbs request' manager
+  pure (responseBody response)
 
-processFiles :: FilePath -> [FileInfo] -> IO [FileResult]
-processFiles packageRoot files =
-  forM files $ \info -> do
-    let file = fileInfoPath info
-    result <- processFile packageRoot info
-    case (ghcError result, parseError result, roundtripFail result) of
-      (True, _, _) -> putStrLn ("GHC_ERROR:     " ++ file)
-      (_, True, _) -> putStrLn ("PARSE_ERROR:   " ++ file)
-      (_, _, True) -> putStrLn ("ROUNDTRIP_FAIL: " ++ file)
-      _ -> pure ()
-    pure result
+processFiles :: Int -> FilePath -> [FileInfo] -> IO [FileResult]
+processFiles jobs packageRoot files = do
+  counter <- newMVar 0
+  let total = length files
+      worker info = do
+        result <- processFile packageRoot info
+        printProgress counter total
+        pure result
+
+  batches <- mapConcurrently (mapM worker) (chunksOf jobs files)
+  putStrLn ""
+  pure (concat batches)
+
+printProgress :: MVar Int -> Int -> IO ()
+printProgress counter total = do
+  done <- modifyMVar counter $ \n ->
+    let n' = n + 1
+     in pure (n', n')
+  putStr ("\rProcessed " ++ show done ++ "/" ++ show total)
+  hFlush stdout
+
+chunksOf :: Int -> [a] -> [[a]]
+chunksOf n xs
+  | n <= 0 = [xs]
+  | otherwise = go xs
+  where
+    go [] = []
+    go ys =
+      let (chunk, rest) = splitAt n ys
+       in chunk : go rest
 
 processFile :: FilePath -> FileInfo -> IO FileResult
 processFile packageRoot info = do
@@ -85,24 +142,17 @@ processFile packageRoot info = do
   source <- TIO.readFile file
   preprocessed <- preprocessForParser file (resolveIncludeBestEffort packageRoot file) source
   let source' = resultOutput preprocessed
-      cppErrors = [diagToText diag | diag <- resultDiagnostics preprocessed, diagSeverity diag == Error]
-      cppErrorMsg =
-        if null cppErrors
-          then Nothing
-          else Just (T.intercalate "\n" cppErrors)
+      cppErrs = [diagToText diag | diag <- resultDiagnostics preprocessed, diagSeverity diag == Error]
+      ghcResult = GhcOracle.oracleDetailedParsesModuleWithNamesAt file (fileInfoExtensions info) (fileInfoLanguage info) source'
 
-  let ghcResult = GhcOracle.oracleDetailedParsesModuleWithNamesAt file (fileInfoExtensions info) (fileInfoLanguage info) source'
   case ghcResult of
     Left err ->
       pure
         FileResult
           { filePath = file,
-            ghcError = True,
-            parseError = False,
-            roundtripFail = False,
-            ghcErrorMsg = Just (prefixCppErrors cppErrorMsg err),
-            parseErrorMsg = Nothing,
-            roundtripErrorMsg = Nothing
+            outcome = OutcomeGhcError,
+            cppDiagnostics = cppErrs,
+            outcomeDetail = Just err
           }
     Right () ->
       case validateParserDetailed source' of
@@ -110,12 +160,9 @@ processFile packageRoot info = do
           pure
             FileResult
               { filePath = file,
-                ghcError = False,
-                parseError = False,
-                roundtripFail = False,
-                ghcErrorMsg = Nothing,
-                parseErrorMsg = cppErrorMsg,
-                roundtripErrorMsg = Nothing
+                outcome = OutcomeSuccess,
+                cppDiagnostics = cppErrs,
+                outcomeDetail = Nothing
               }
         Just err ->
           case validationErrorKind err of
@@ -123,39 +170,77 @@ processFile packageRoot info = do
               pure
                 FileResult
                   { filePath = file,
-                    ghcError = False,
-                    parseError = True,
-                    roundtripFail = False,
-                    ghcErrorMsg = Nothing,
-                    parseErrorMsg = Just (prefixCppErrors cppErrorMsg (T.pack (validationErrorMessage err))),
-                    roundtripErrorMsg = Nothing
+                    outcome = OutcomeParseError,
+                    cppDiagnostics = cppErrs,
+                    outcomeDetail = Just (T.pack (validationErrorMessage err))
                   }
             ValidationRoundtripError ->
               pure
                 FileResult
                   { filePath = file,
-                    ghcError = False,
-                    parseError = False,
-                    roundtripFail = True,
-                    ghcErrorMsg = Nothing,
-                    parseErrorMsg = cppErrorMsg,
-                    roundtripErrorMsg = Just (prefixCppErrors cppErrorMsg (T.pack (validationErrorMessage err)))
+                    outcome = OutcomeRoundtripFail,
+                    cppDiagnostics = cppErrs,
+                    outcomeDetail = Just (T.pack (validationErrorMessage err))
                   }
 
-printSummary :: [FileResult] -> IO ()
-printSummary results = do
-  let total = length results
-      ghcErrs = length (filter ghcError results)
-      parseErrs = length (filter parseError results)
-      roundtripFails = length (filter roundtripFail results)
-      successCount = total - ghcErrs - parseErrs - roundtripFails
-      successRate :: Double
-      successRate = if total > 0 then fromIntegral successCount * 100.0 / fromIntegral total else 0.0
+printFailureDetails :: [FileResult] -> IO ()
+printFailureDetails results = do
+  mapM_
+    ( \result ->
+        case failureLabel (outcome result) of
+          Nothing -> pure ()
+          Just label -> do
+            let detailLine = maybe "(no details)" (T.unpack . firstLine) (outcomeDetail result)
+            putStrLn (label ++ ": " ++ filePath result ++ " :: " ++ detailLine)
+            unless (null (cppDiagnostics result)) $ do
+              putStrLn "  cpp diagnostics:"
+              mapM_ (TIO.putStrLn . ("    " <>)) (cppDiagnostics result)
+            case outcomeDetail result of
+              Nothing -> pure ()
+              Just fullDetail -> do
+                putStrLn "  details:"
+                mapM_ (TIO.putStrLn . ("    " <>)) (T.lines fullDetail)
+    )
+    results
 
+firstLine :: Text -> Text
+firstLine msg =
+  case T.lines msg of
+    [] -> ""
+    x : _ -> x
+
+emitSummary :: Options -> RunInfo -> IO ()
+emitSummary opts info =
+  if optJson opts
+    then printJsonSummary info
+    else printHumanSummary (runSummary info)
+
+printHumanSummary :: Summary -> IO ()
+printHumanSummary summary = do
   putStrLn ""
   putStrLn "Summary:"
-  putStrLn ("  Total files:     " ++ show total)
-  putStrLn ("  GHC errors:      " ++ show ghcErrs)
-  putStrLn ("  Parse errors:    " ++ show parseErrs)
-  putStrLn ("  Roundtrip fails: " ++ show roundtripFails)
-  putStrLn ("  Success rate:    " ++ show (round successRate :: Int) ++ "%")
+  putStrLn ("  Total files:     " ++ show (totalFiles summary))
+  putStrLn ("  GHC errors:      " ++ show (ghcErrors summary))
+  putStrLn ("  Parse errors:    " ++ show (parseErrors summary))
+  putStrLn ("  Roundtrip fails: " ++ show (roundtripFails summary))
+  putStrLn ("  Success rate:    " ++ show (round (successRate summary) :: Int) ++ "%")
+
+printJsonSummary :: RunInfo -> IO ()
+printJsonSummary info = do
+  let summary = runSummary info
+      status :: String
+      status = if shouldFailSummary summary then "fail" else "pass"
+      payload =
+        Aeson.object
+          [ "package" Aeson..= runPackageName info,
+            "version" Aeson..= runVersion info,
+            "status" Aeson..= status,
+            "total_files" Aeson..= totalFiles summary,
+            "ghc_errors" Aeson..= ghcErrors summary,
+            "parse_errors" Aeson..= parseErrors summary,
+            "roundtrip_fails" Aeson..= roundtripFails summary,
+            "success_count" Aeson..= successCount summary,
+            "failure_count" Aeson..= failureCount summary,
+            "success_rate" Aeson..= successRate summary
+          ]
+  LBS8.putStrLn (Aeson.encode payload)
