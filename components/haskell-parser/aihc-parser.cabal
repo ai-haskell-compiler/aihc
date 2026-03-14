@@ -40,6 +40,8 @@ test-suite spec
       CppSupport
     , ExtensionSupport
     , GhcOracle
+    , HackageTester.CLI
+    , HackageTester.Model
     , LexerGolden
     , ParserGolden
     , OracleExtensions
@@ -48,6 +50,7 @@ test-suite spec
     , Test.Oracle
     , Test.H2010.Suite
     , Test.Extensions.Suite
+    , Test.HackageTester.Suite
     , Test.Lexer.Suite
     , Test.Parser.Suite
   build-depends:
@@ -67,6 +70,7 @@ test-suite spec
     , haskell-src-exts
     , aeson
     , yaml
+    , optparse-applicative
   ghc-options:        -O2 -Wall -Werror -threaded -rtsopts -with-rtsopts=-N
   default-language: Haskell2010
 
@@ -141,6 +145,8 @@ executable hackage-tester
       CppSupport
     , GhcOracle
     , HackageSupport
+    , HackageTester.CLI
+    , HackageTester.Model
     , ParserValidation
     , ShrinkUtils
   build-depends:
@@ -155,6 +161,11 @@ executable hackage-tester
     , Cabal-syntax
     , bytestring
     , process
+    , async
+    , aeson
+    , http-client
+    , http-client-tls
+    , optparse-applicative
     , haskell-src-exts
   ghc-options:        -O2 -Wall -Werror -threaded -rtsopts -with-rtsopts=-N
   default-language: Haskell2010
@@ -212,4 +223,3 @@ executable parser-fuzz
     , Cabal-syntax
   ghc-options:        -Wall -Werror
   default-language: GHC2021
-
