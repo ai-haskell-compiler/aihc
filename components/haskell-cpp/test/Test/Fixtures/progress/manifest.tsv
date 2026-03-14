@@ -18,6 +18,7 @@ multiline-define	macro	multiline-define.hs	pass
 multiline-define-long	macro	multiline-define-long.hs	pass
 if-defined-paren	conditionals	if-defined-paren.hs	pass
 if-defined-bare	conditionals	if-defined-bare.hs	pass
+nested-if-blocks	conditionals	nested-if-blocks.hs	pass
 predefined-line-file	macro	predefined-line-file.hs	xfail	predefined macros (__LINE__/__FILE__) are not implemented
 stringification-newline	macro	stringification-newline.hs	xfail	function-like macro stringification (#) is not implemented
 stringify-order	macro	stringify-order.hs	xfail	function-like macro expansion order is not implemented
