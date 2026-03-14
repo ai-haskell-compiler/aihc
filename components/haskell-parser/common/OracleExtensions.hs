@@ -14,6 +14,7 @@ import GHC.LanguageExtensions.Type
         EmptyDataDecls,
         ExistentialQuantification,
         ExplicitForAll,
+        ExplicitLevelImports,
         ExplicitNamespaces,
         FunctionalDependencies,
         GADTs,
@@ -62,6 +63,7 @@ resolveOracleExtensions spec =
     "EmptyDataDecls" -> pure [EmptyDataDecls]
     "ExistentialQuantification" -> pure [ExistentialQuantification]
     "ExplicitForAll" -> pure [ExplicitForAll]
+    "ExplicitLevelImports" -> pure [ExplicitLevelImports]
     "FunctionalDependencies" -> pure [FunctionalDependencies, MultiParamTypeClasses]
     "InstanceSigs" -> pure [InstanceSigs]
     "KindSignatures" -> pure [KindSignatures]
