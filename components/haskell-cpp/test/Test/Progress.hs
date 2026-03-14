@@ -11,14 +11,14 @@ where
 
 import qualified Control.Exception as E
 import Cpp (Config (..), Diagnostic (..), IncludeRequest (..), Result (..), Severity (..), Step (..), preprocess)
-import Data.Char (isSpace)
+import Data.Char (isDigit, isSpace)
 import Data.List (dropWhileEnd)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import Language.Preprocessor.Cpphs (defaultCpphsOptions, runCpphs)
 import System.Directory (doesFileExist)
-import System.FilePath (takeDirectory, takeFileName, (</>))
+import System.FilePath (takeDirectory, (</>))
 
 data Expected = ExpectPass | ExpectXFail deriving (Eq, Show)
 
@@ -63,23 +63,108 @@ classify expected ours oracle =
   case expected of
     ExpectPass ->
       case (ours, oracle) of
-        (Right oursOut, Right oracleOut)
-          | oursOut == oracleOut -> (OutcomePass, "")
-          | otherwise -> (OutcomeFail, "preprocessed output differs from cpphs oracle")
+        (Right oursOut, Right oracleOut) ->
+          case compareLocatedOutput oursOut oracleOut of
+            Nothing -> (OutcomePass, "")
+            Just details -> (OutcomeFail, "preprocessed output differs from cpphs oracle: " <> details)
         (Left _, Left _) -> (OutcomePass, "")
         (Left oursErr, _) -> (OutcomeFail, "ours failed: " <> oursErr)
         (_, Left oracleErr) -> (OutcomeFail, "oracle failed: " <> oracleErr)
     ExpectXFail ->
       case (ours, oracle) of
-        (Right oursOut, Right oracleOut)
-          | oursOut == oracleOut -> (OutcomeXPass, "expected xfail but now matches cpphs")
-          | otherwise -> (OutcomeXFail, "")
+        (Right oursOut, Right oracleOut) ->
+          case compareLocatedOutput oursOut oracleOut of
+            Nothing -> (OutcomeXPass, "expected xfail but now matches cpphs")
+            Just _ -> (OutcomeXFail, "")
         (Left _, Left _) -> (OutcomeXPass, "expected xfail but now matches cpphs")
         _ -> (OutcomeXFail, "")
 
+data LocatedLine = LocatedLine
+  { locatedLineNo :: !Int,
+    locatedFile :: !FilePath,
+    locatedText :: !Text
+  }
+  deriving (Eq, Show)
+
+compareLocatedOutput :: Text -> Text -> Maybe String
+compareLocatedOutput oursOut oracleOut =
+  firstDifference (toLocatedLines oursOut) (toLocatedLines oracleOut)
+
+firstDifference :: [LocatedLine] -> [LocatedLine] -> Maybe String
+firstDifference oursLines oracleLines = go (1 :: Int) oursLines oracleLines
+  where
+    go _ [] [] = Nothing
+    go n (o : os) (r : rs)
+      | o == r = go (n + 1) os rs
+      | otherwise =
+          Just
+            ( "first mismatch at output record "
+                <> show n
+                <> ": ours="
+                <> showLocated o
+                <> ", oracle="
+                <> showLocated r
+            )
+    go n [] (r : _) =
+      Just
+        ( "ours ended early at output record "
+            <> show n
+            <> ", oracle has "
+            <> showLocated r
+        )
+    go n (o : _) [] =
+      Just
+        ( "oracle ended early at output record "
+            <> show n
+            <> ", ours has "
+            <> showLocated o
+        )
+
+showLocated :: LocatedLine -> String
+showLocated (LocatedLine ln fp txt) =
+  "(" <> show ln <> ", " <> show fp <> ", " <> show (T.unpack txt) <> ")"
+
+toLocatedLines :: Text -> [LocatedLine]
+toLocatedLines = go 1 "<unknown>" . T.lines
+  where
+    go _ _ [] = []
+    go lineNo filePath (line : rest) =
+      case parseLinePragma line of
+        Just (nextLineNo, mFilePath) ->
+          let filePath' = maybe filePath id mFilePath
+           in go nextLineNo filePath' rest
+        Nothing ->
+          LocatedLine lineNo filePath line : go (lineNo + 1) filePath rest
+
+parseLinePragma :: Text -> Maybe (Int, Maybe FilePath)
+parseLinePragma raw =
+  let line = T.strip raw
+   in case T.stripPrefix "#line" line of
+        Nothing -> Nothing
+        Just rest0 ->
+          let rest1 = T.stripStart rest0
+              (lineNoTxt, rest2) = T.span isDigit rest1
+           in if T.null lineNoTxt
+                then Nothing
+                else
+                  case reads (T.unpack lineNoTxt) of
+                    [(lineNo, "")] ->
+                      let rest3 = T.stripStart rest2
+                       in if T.null rest3
+                            then Just (lineNo, Nothing)
+                            else
+                              case T.uncons rest3 of
+                                Just ('"', quoted) ->
+                                  let (filePath, suffix) = T.breakOn "\"" quoted
+                                   in if T.null suffix
+                                        then Nothing
+                                        else Just (lineNo, Just (T.unpack filePath))
+                                _ -> Nothing
+                    _ -> Nothing
+
 runOurs :: FilePath -> Text -> IO (Either String Text)
 runOurs sourcePath source = do
-  result <- drive (preprocess Config {configInputFile = takeFileName sourcePath} source)
+  result <- drive (preprocess Config {configInputFile = sourcePath} source)
   let errors = [diagMessage d | d <- resultDiagnostics result, diagSeverity d == Error]
   case errors of
     [] -> pure (Right (resultOutput result))
@@ -94,7 +179,13 @@ runOurs sourcePath source = do
 
 resolveIncludePath :: FilePath -> IncludeRequest -> FilePath
 resolveIncludePath rootPath req =
-  takeDirectory rootPath </> takeDirectory (includeFrom req) </> includePath req
+  includeBaseDir </> includePath req
+  where
+    includeFromDir = takeDirectory (includeFrom req)
+    includeBaseDir =
+      if null includeFromDir
+        then takeDirectory rootPath
+        else includeFromDir
 
 runOracle :: FilePath -> IO (Either String Text)
 runOracle sourcePath = do

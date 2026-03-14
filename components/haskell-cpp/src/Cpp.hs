@@ -59,22 +59,31 @@ data Step
 
 preprocess :: Config -> Text -> Step
 preprocess cfg input =
-  processFile (configInputFile cfg) (joinMultiline 1 (T.lines input)) [] emptyState finish
+  processFile (configInputFile cfg) (joinMultiline 1 (T.lines input)) [] initialState finish
   where
+    initialState =
+      emitLine (linePragma 1 (configInputFile cfg)) emptyState
     finish st =
+      let out = T.intercalate "\n" (reverse (stOutputRev st))
+          outWithTrailingNewline =
+            if T.null out
+              then out
+              else out <> "\n"
+       in
       Done
         Result
-          { resultOutput = T.intercalate "\n" (reverse (stOutputRev st)),
+          { resultOutput = outWithTrailingNewline,
             resultDiagnostics = reverse (stDiagnosticsRev st)
           }
 
-joinMultiline :: Int -> [Text] -> [(Int, Text)]
+joinMultiline :: Int -> [Text] -> [(Int, Int, Text)]
 joinMultiline _ [] = []
 joinMultiline n (l : ls)
   | "\\" `T.isSuffixOf` l =
-      let (content, rest, count) = pull (T.init l) ls
-       in (n, content) : joinMultiline (n + count + 1) rest
-  | otherwise = (n, l) : joinMultiline (n + 1) ls
+      let (content, rest, extraLines) = pull (T.init l) ls
+          spanLen = extraLines + 1
+       in (n, spanLen, content) : joinMultiline (n + spanLen) rest
+  | otherwise = (n, 1, l) : joinMultiline (n + 1) ls
   where
     pull acc [] = (acc, [], 0)
     pull acc (x : xs)
@@ -86,7 +95,8 @@ joinMultiline n (l : ls)
 data EngineState = EngineState
   { stMacros :: !(Map Text Text),
     stOutputRev :: ![Text],
-    stDiagnosticsRev :: ![Diagnostic]
+    stDiagnosticsRev :: ![Diagnostic],
+    stSkippingDanglingElse :: !Bool
   }
 
 emptyState :: EngineState
@@ -94,7 +104,8 @@ emptyState =
   EngineState
     { stMacros = M.empty,
       stOutputRev = [],
-      stDiagnosticsRev = []
+      stDiagnosticsRev = [],
+      stSkippingDanglingElse = False
     }
 
 data CondFrame = CondFrame
@@ -110,25 +121,37 @@ currentActive (f : _) = frameCurrentActive f
 
 type Continuation = EngineState -> Step
 
-processFile :: FilePath -> [(Int, Text)] -> [CondFrame] -> EngineState -> Continuation -> Step
+processFile :: FilePath -> [(Int, Int, Text)] -> [CondFrame] -> EngineState -> Continuation -> Step
 processFile _ [] _ st k = k st
-processFile filePath ((lineNo, line) : restLines) stack st k =
+processFile filePath ((lineNo, lineSpan, line) : restLines) stack st k =
   let active = currentActive stack
       nextLineNo = case restLines of
-        (n, _) : _ -> n
-        [] -> lineNo + 1
+        (n, _, _) : _ -> n
+        [] -> lineNo + lineSpan
+      emitDirectiveBlank = emitBlankLines lineSpan
       continue st' = processFile filePath restLines stack st' k
       continueWith stack' st' = processFile filePath restLines stack' st' k
+      recoverDanglingElse =
+        case parseDirective line of
+          Just DirEndIf ->
+            continue
+              ( addDiag Warning "unmatched #endif" filePath lineNo
+                  (st {stSkippingDanglingElse = False})
+              )
+          Just _ ->
+            continue st
+          Nothing ->
+            continue (emitBlankLines lineSpan st)
       handleDirective directive =
         case directive of
           DirDefine name value ->
             if currentActive stack
-              then continue (st {stMacros = M.insert name value (stMacros st)})
-              else continue st
+              then continue (emitDirectiveBlank (st {stMacros = M.insert name value (stMacros st)}))
+              else continue (emitDirectiveBlank st)
           DirUndef name ->
             if currentActive stack
-              then continue (st {stMacros = M.delete name (stMacros st)})
-              else continue st
+              then continue (emitDirectiveBlank (st {stMacros = M.delete name (stMacros st)}))
+              else continue (emitDirectiveBlank st)
           DirInclude kind includeTarget ->
             if currentActive stack
               then
@@ -155,32 +178,32 @@ processFile filePath ((lineNo, line) : restLines) stack st k =
                                   k
                            in processFile includeTarget (joinMultiline 1 (T.lines includeText)) [] stWithIncludePragma resumeParent
                  in NeedInclude req nextStep
-              else continue st
+              else continue (emitDirectiveBlank st)
           DirIf expr ->
             let outer = currentActive stack
                 cond = evalCondition (stMacros st) expr
                 frame = mkFrame outer cond
-             in continueWith (frame : stack) st
+             in continueWith (frame : stack) (emitDirectiveBlank st)
           DirIfDef name ->
             let outer = currentActive stack
                 cond = M.member name (stMacros st)
                 frame = mkFrame outer cond
-             in continueWith (frame : stack) st
+             in continueWith (frame : stack) (emitDirectiveBlank st)
           DirIfNDef name ->
             let outer = currentActive stack
                 cond = not (M.member name (stMacros st))
                 frame = mkFrame outer cond
-             in continueWith (frame : stack) st
+             in continueWith (frame : stack) (emitDirectiveBlank st)
           DirElif expr ->
             case stack of
               [] ->
                 continue
-                  (addDiag Error "#elif without matching #if" filePath lineNo st)
+                  (emitDirectiveBlank (addDiag Error "#elif without matching #if" filePath lineNo st))
               f : rest ->
                 if frameInElse f
                   then
                     continue
-                      (addDiag Error "#elif after #else" filePath lineNo st)
+                      (emitDirectiveBlank (addDiag Error "#elif after #else" filePath lineNo st))
                   else
                     let anyTaken = frameConditionTrue f
                         newCond = not anyTaken && evalCondition (stMacros st) expr
@@ -189,17 +212,16 @@ processFile filePath ((lineNo, line) : restLines) stack st k =
                             { frameConditionTrue = anyTaken || newCond,
                               frameCurrentActive = frameOuterActive f && newCond
                             }
-                     in continueWith (f' : rest) st
+                     in continueWith (f' : rest) (emitDirectiveBlank st)
           DirElse ->
             case stack of
               [] ->
-                continue
-                  (addDiag Error "#else without matching conditional" filePath lineNo st)
+                continue (st {stSkippingDanglingElse = True})
               f : rest ->
                 if frameInElse f
                   then
                     continue
-                      (addDiag Error "duplicate #else in conditional block" filePath lineNo st)
+                      (emitDirectiveBlank (addDiag Error "duplicate #else in conditional block" filePath lineNo st))
                   else
                     let newCurrent = frameOuterActive f && not (frameConditionTrue f)
                         f' =
@@ -207,34 +229,37 @@ processFile filePath ((lineNo, line) : restLines) stack st k =
                             { frameInElse = True,
                               frameCurrentActive = newCurrent
                             }
-                     in continueWith (f' : rest) st
+                     in continueWith (f' : rest) (emitDirectiveBlank st)
           DirEndIf ->
             case stack of
               [] ->
                 continue
-                  (addDiag Error "#endif without matching conditional" filePath lineNo st)
-              _ : rest -> continueWith rest st
+                  (addDiag Warning "unmatched #endif" filePath lineNo st)
+              _ : rest -> continueWith rest (emitDirectiveBlank st)
           DirWarning msg ->
             if currentActive stack
-              then continue (addDiag Warning msg filePath lineNo st)
-              else continue st
+              then continue (emitDirectiveBlank (addDiag Warning msg filePath lineNo st))
+              else continue (emitDirectiveBlank st)
           DirError msg ->
             if currentActive stack
-              then k (addDiag Error msg filePath lineNo st)
-              else continue st
+              then k (emitDirectiveBlank (addDiag Error msg filePath lineNo st))
+              else continue (emitDirectiveBlank st)
           DirUnsupported name ->
             if currentActive stack
               then
                 continue
-                  (addDiag Warning ("unsupported directive: " <> name) filePath lineNo st)
-              else continue st
-   in case parseDirective line of
-        Nothing ->
-          if active
-            then continue (emitLine (expandMacros (stMacros st) line) st)
-            else continue st
-        Just directive ->
-          handleDirective directive
+                  (emitDirectiveBlank (addDiag Warning ("unsupported directive: " <> name) filePath lineNo st))
+              else continue (emitDirectiveBlank st)
+   in if stSkippingDanglingElse st
+        then recoverDanglingElse
+        else
+          case parseDirective line of
+            Nothing ->
+              if active
+                then continue (emitLine (expandMacros (stMacros st) line) st)
+                else continue (emitBlankLines lineSpan st)
+            Just directive ->
+              handleDirective directive
 
 mkFrame :: Bool -> Bool -> CondFrame
 mkFrame outer cond =
@@ -247,6 +272,11 @@ mkFrame outer cond =
 
 emitLine :: Text -> EngineState -> EngineState
 emitLine line st = st {stOutputRev = line : stOutputRev st}
+
+emitBlankLines :: Int -> EngineState -> EngineState
+emitBlankLines n st
+  | n <= 0 = st
+  | otherwise = st {stOutputRev = replicate n "" <> stOutputRev st}
 
 addDiag :: Severity -> Text -> FilePath -> Int -> EngineState -> EngineState
 addDiag sev msg filePath lineNo st =
@@ -296,7 +326,7 @@ parseDirectiveBody body =
         "if" -> Just (DirIf rest)
         "ifdef" -> DirIfDef <$> parseIdentifier rest
         "ifndef" -> DirIfNDef <$> parseIdentifier rest
-        "isndef" -> DirIfNDef <$> parseIdentifier rest
+        "isndef" -> Just (DirUnsupported "isndef")
         "elif" -> Just (DirElif rest)
         "elseif" -> Just (DirElif rest)
         "else" -> Just DirElse
