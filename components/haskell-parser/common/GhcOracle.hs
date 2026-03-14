@@ -21,7 +21,7 @@ import GHC.Data.FastString (mkFastString)
 import GHC.Data.StringBuffer (stringToStringBuffer)
 import GHC.Hs (GhcPs, HsModule)
 import GHC.LanguageExtensions.Type (Extension (..))
-import GHC.Parser (parseHeader, parseModule)
+import GHC.Parser (parseModule)
 import GHC.Parser.Header (getOptions)
 import GHC.Parser.Lexer
   ( ParseResult (..),
@@ -74,7 +74,6 @@ parseWithGhcWithExtensions sourceTag extraExts input =
 extractLanguagePragmas :: String -> [Extension] -> Text -> [Text]
 extractLanguagePragmas sourceTag baseExts input =
   let buffer = stringToStringBuffer (T.unpack input)
-      start = mkRealSrcLoc (mkFastString sourceTag) 1 1
       baseOpts =
         mkParserOpts
           (EnumSet.fromList baseExts :: EnumSet.EnumSet Extension)
@@ -84,19 +83,7 @@ extractLanguagePragmas sourceTag baseExts input =
           False
           False
       (_warns, rawOptions) = getOptions baseOpts supportedLanguagePragmas buffer sourceTag
-      languagePragmas = mapMaybe optionToLanguagePragma rawOptions
-      pragmaExts = mapMaybe (parseExtension . T.unpack) languagePragmas
-      headerOpts =
-        mkParserOpts
-          (EnumSet.fromList (nub (baseExts <> pragmaExts)) :: EnumSet.EnumSet Extension)
-          emptyDiagOpts
-          False
-          False
-          False
-          False
-   in case unP parseHeader (initParserState headerOpts buffer start) of
-        PFailed _ -> []
-        POk _ _ -> languagePragmas
+   in mapMaybe optionToLanguagePragma rawOptions
   where
     supportedLanguagePragmas = "CPP" : map show ([minBound .. maxBound] :: [Extension])
 
