@@ -49,12 +49,12 @@ getLatestVersion packageName = do
   result <- readProcess "curl" ["-s", "-f", url] ""
   let cabalContent = T.pack result
       lines' = T.lines cabalContent
-      versionLines = filter (T.isPrefixOf "version:") lines'
+      versionLines = filter (\l -> T.isPrefixOf "version:" (T.toLower (T.strip l))) lines'
   pure $ case versionLines of
     [] -> Nothing
     (vline : _) ->
-      let ver = T.strip (T.drop (T.length "version:") vline)
-       in Just (T.unpack ver)
+      let (_, val) = T.break (== ':') vline
+       in Just (T.unpack (T.strip (T.drop 1 val)))
 
 data FileResult = FileResult
   { filePath :: FilePath,
