@@ -22,7 +22,7 @@ import qualified Parser
 import Parser.Ast
 import Parser.Types (ParseResult (..))
 import ParserValidation (ValidationError (..), ValidationErrorKind (..), validateParserDetailed)
-import System.Directory (XdgDirectory (XdgCache), createDirectoryIfMissing, doesFileExist, getXdgDirectory)
+import System.Directory (XdgDirectory (XdgCache), createDirectoryIfMissing, doesFileExist, getHomeDirectory, getXdgDirectory)
 import System.Environment (getArgs)
 import System.Exit (exitFailure, exitSuccess)
 import System.FilePath ((</>))
@@ -104,7 +104,9 @@ main = do
   case optGhcErrorsFile opts of
     Nothing -> pure ()
     Just path -> do
-      let ghcErrors = take (optGhcErrorsLimit opts) [(pkgName (package r), e) | r <- results, Just e <- [packageGhcError r]]
+      home <- getHomeDirectory
+      let sanitize = T.unpack . T.replace (T.pack home) "$HOME" . T.pack
+          ghcErrors = take (optGhcErrorsLimit opts) [(pkgName (package r), sanitize e) | r <- results, Just e <- [packageGhcError r]]
       writeFile path $ unlines ["=== " ++ pkg ++ " ===\n" ++ err ++ "\n" | (pkg, err) <- ghcErrors]
       putStrLn $ "GHC errors written to " ++ path
 
