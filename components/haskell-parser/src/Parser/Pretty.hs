@@ -37,7 +37,7 @@ prettyModule modu =
   where
     pragmaLines =
       map
-        (\ext -> "{-# LANGUAGE" <+> pretty ext <+> "#-}")
+        (\ext -> "{-# LANGUAGE" <+> pretty (extensionSettingName ext) <+> "#-}")
         (moduleLanguagePragmas modu)
     headerLines =
       case moduleName modu of
@@ -412,7 +412,8 @@ prettyClassDecl decl =
         hsep
           ( ["class"]
               <> contextPrefix (classDeclContext decl)
-              <> [pretty (classDeclName decl), pretty (classDeclParam decl)]
+              <> [pretty (classDeclName decl)]
+              <> map pretty (classDeclParams decl)
           )
    in case classDeclItems decl of
         [] -> headDoc

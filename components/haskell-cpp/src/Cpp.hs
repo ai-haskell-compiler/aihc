@@ -13,7 +13,8 @@ module Cpp
   )
 where
 
-import Data.Char (isAlphaNum, isLetter)
+import Data.Char (isAlphaNum, isDigit, isLetter, isSpace)
+import Data.List (isPrefixOf)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
@@ -58,19 +59,43 @@ data Step
 
 preprocess :: Config -> Text -> Step
 preprocess cfg input =
-  processFile (configInputFile cfg) (T.lines input) 1 [] emptyState finish
+  processFile (configInputFile cfg) (joinMultiline 1 (T.lines input)) [] initialState finish
   where
+    initialState =
+      emitLine (linePragma 1 (configInputFile cfg)) emptyState
     finish st =
-      Done
-        Result
-          { resultOutput = T.intercalate "\n" (reverse (stOutputRev st)),
-            resultDiagnostics = reverse (stDiagnosticsRev st)
-          }
+      let out = T.intercalate "\n" (reverse (stOutputRev st))
+          outWithTrailingNewline =
+            if T.null out
+              then out
+              else out <> "\n"
+       in Done
+            Result
+              { resultOutput = outWithTrailingNewline,
+                resultDiagnostics = reverse (stDiagnosticsRev st)
+              }
+
+joinMultiline :: Int -> [Text] -> [(Int, Int, Text)]
+joinMultiline _ [] = []
+joinMultiline n (l : ls)
+  | "\\" `T.isSuffixOf` l =
+      let (content, rest, extraLines) = pull (T.init l) ls
+          spanLen = extraLines + 1
+       in (n, spanLen, content) : joinMultiline (n + spanLen) rest
+  | otherwise = (n, 1, l) : joinMultiline (n + 1) ls
+  where
+    pull acc [] = (acc, [], 0)
+    pull acc (x : xs)
+      | "\\" `T.isSuffixOf` x =
+          let (res, r, c) = pull (acc <> T.init x) xs
+           in (res, r, c + 1)
+      | otherwise = (acc <> x, xs, 1)
 
 data EngineState = EngineState
   { stMacros :: !(Map Text Text),
     stOutputRev :: ![Text],
-    stDiagnosticsRev :: ![Diagnostic]
+    stDiagnosticsRev :: ![Diagnostic],
+    stSkippingDanglingElse :: !Bool
   }
 
 emptyState :: EngineState
@@ -78,7 +103,8 @@ emptyState =
   EngineState
     { stMacros = M.empty,
       stOutputRev = [],
-      stDiagnosticsRev = []
+      stDiagnosticsRev = [],
+      stSkippingDanglingElse = False
     }
 
 data CondFrame = CondFrame
@@ -94,22 +120,41 @@ currentActive (f : _) = frameCurrentActive f
 
 type Continuation = EngineState -> Step
 
-processFile :: FilePath -> [Text] -> Int -> [CondFrame] -> EngineState -> Continuation -> Step
-processFile _ [] _ _ st k = k st
-processFile filePath (line : restLines) lineNo stack st k =
+processFile :: FilePath -> [(Int, Int, Text)] -> [CondFrame] -> EngineState -> Continuation -> Step
+processFile _ [] _ st k = k st
+processFile filePath ((lineNo, lineSpan, line) : restLines) stack st k =
   let active = currentActive stack
-      continue st' = processFile filePath restLines (lineNo + 1) stack st' k
-      continueWith stack' st' = processFile filePath restLines (lineNo + 1) stack' st' k
+      nextLineNo = case restLines of
+        (n, _, _) : _ -> n
+        [] -> lineNo + lineSpan
+      emitDirectiveBlank = emitBlankLines lineSpan
+      continue st' = processFile filePath restLines stack st' k
+      continueWith stack' st' = processFile filePath restLines stack' st' k
+      recoverDanglingElse =
+        case parseDirective line of
+          Just DirEndIf ->
+            continue
+              ( addDiag
+                  Warning
+                  "unmatched #endif"
+                  filePath
+                  lineNo
+                  (st {stSkippingDanglingElse = False})
+              )
+          Just _ ->
+            continue st
+          Nothing ->
+            continue (emitBlankLines lineSpan st)
       handleDirective directive =
         case directive of
           DirDefine name value ->
             if currentActive stack
-              then continue (st {stMacros = M.insert name value (stMacros st)})
-              else continue st
+              then continue (emitDirectiveBlank (st {stMacros = M.insert name value (stMacros st)}))
+              else continue (emitDirectiveBlank st)
           DirUndef name ->
             if currentActive stack
-              then continue (st {stMacros = M.delete name (stMacros st)})
-              else continue st
+              then continue (emitDirectiveBlank (st {stMacros = M.delete name (stMacros st)}))
+              else continue (emitDirectiveBlank st)
           DirInclude kind includeTarget ->
             if currentActive stack
               then
@@ -131,33 +176,55 @@ processFile filePath (line : restLines) lineNo stack st k =
                                 processFile
                                   filePath
                                   restLines
-                                  (lineNo + 1)
                                   stack
-                                  (emitLine (linePragma (lineNo + 1) filePath) stAfterInclude)
+                                  (emitLine (linePragma nextLineNo filePath) stAfterInclude)
                                   k
-                           in processFile includeTarget (T.lines includeText) 1 [] stWithIncludePragma resumeParent
+                           in processFile includeTarget (joinMultiline 1 (T.lines includeText)) [] stWithIncludePragma resumeParent
                  in NeedInclude req nextStep
-              else continue st
+              else continue (emitDirectiveBlank st)
+          DirIf expr ->
+            let outer = currentActive stack
+                cond = evalCondition (stMacros st) expr
+                frame = mkFrame outer cond
+             in continueWith (frame : stack) (emitDirectiveBlank st)
           DirIfDef name ->
             let outer = currentActive stack
                 cond = M.member name (stMacros st)
                 frame = mkFrame outer cond
-             in continueWith (frame : stack) st
+             in continueWith (frame : stack) (emitDirectiveBlank st)
           DirIfNDef name ->
             let outer = currentActive stack
                 cond = not (M.member name (stMacros st))
                 frame = mkFrame outer cond
-             in continueWith (frame : stack) st
-          DirElse ->
+             in continueWith (frame : stack) (emitDirectiveBlank st)
+          DirElif expr ->
             case stack of
               [] ->
                 continue
-                  (addDiag Error "#else without matching conditional" filePath lineNo st)
+                  (emitDirectiveBlank (addDiag Error "#elif without matching #if" filePath lineNo st))
               f : rest ->
                 if frameInElse f
                   then
                     continue
-                      (addDiag Error "duplicate #else in conditional block" filePath lineNo st)
+                      (emitDirectiveBlank (addDiag Error "#elif after #else" filePath lineNo st))
+                  else
+                    let anyTaken = frameConditionTrue f
+                        newCond = not anyTaken && evalCondition (stMacros st) expr
+                        f' =
+                          f
+                            { frameConditionTrue = anyTaken || newCond,
+                              frameCurrentActive = frameOuterActive f && newCond
+                            }
+                     in continueWith (f' : rest) (emitDirectiveBlank st)
+          DirElse ->
+            case stack of
+              [] ->
+                continue (st {stSkippingDanglingElse = True})
+              f : rest ->
+                if frameInElse f
+                  then
+                    continue
+                      (emitDirectiveBlank (addDiag Error "duplicate #else in conditional block" filePath lineNo st))
                   else
                     let newCurrent = frameOuterActive f && not (frameConditionTrue f)
                         f' =
@@ -165,34 +232,36 @@ processFile filePath (line : restLines) lineNo stack st k =
                             { frameInElse = True,
                               frameCurrentActive = newCurrent
                             }
-                     in continueWith (f' : rest) st
+                     in continueWith (f' : rest) (emitDirectiveBlank st)
           DirEndIf ->
             case stack of
               [] ->
                 continue
-                  (addDiag Error "#endif without matching conditional" filePath lineNo st)
-              _ : rest -> continueWith rest st
+                  (addDiag Warning "unmatched #endif" filePath lineNo st)
+              _ : rest -> continueWith rest (emitDirectiveBlank st)
           DirWarning msg ->
             if currentActive stack
-              then continue (addDiag Warning msg filePath lineNo st)
-              else continue st
+              then continue (emitDirectiveBlank (addDiag Warning msg filePath lineNo st))
+              else continue (emitDirectiveBlank st)
           DirError msg ->
             if currentActive stack
-              then continue (addDiag Error msg filePath lineNo st)
-              else continue st
+              then k (emitDirectiveBlank (addDiag Error msg filePath lineNo st))
+              else continue (emitDirectiveBlank st)
           DirUnsupported name ->
             if currentActive stack
               then
                 continue
-                  (addDiag Warning ("unsupported directive: " <> name) filePath lineNo st)
-              else continue st
-   in case parseDirective line of
-        Nothing ->
-          if active
-            then continue (emitLine (expandMacros (stMacros st) line) st)
-            else continue st
-        Just directive ->
-          handleDirective directive
+                  (emitDirectiveBlank (addDiag Warning ("unsupported directive: " <> name) filePath lineNo st))
+              else continue (emitDirectiveBlank st)
+   in if stSkippingDanglingElse st
+        then recoverDanglingElse
+        else case parseDirective line of
+          Nothing ->
+            if active
+              then continue (emitLine (expandMacros (stMacros st) line) st)
+              else continue (emitBlankLines lineSpan st)
+          Just directive ->
+            handleDirective directive
 
 mkFrame :: Bool -> Bool -> CondFrame
 mkFrame outer cond =
@@ -205,6 +274,11 @@ mkFrame outer cond =
 
 emitLine :: Text -> EngineState -> EngineState
 emitLine line st = st {stOutputRev = line : stOutputRev st}
+
+emitBlankLines :: Int -> EngineState -> EngineState
+emitBlankLines n st
+  | n <= 0 = st
+  | otherwise = st {stOutputRev = replicate n "" <> stOutputRev st}
 
 addDiag :: Severity -> Text -> FilePath -> Int -> EngineState -> EngineState
 addDiag sev msg filePath lineNo st =
@@ -226,8 +300,10 @@ data Directive
   = DirDefine !Text !Text
   | DirUndef !Text
   | DirInclude !IncludeKind !FilePath
+  | DirIf !Text
   | DirIfDef !Text
   | DirIfNDef !Text
+  | DirElif !Text
   | DirElse
   | DirEndIf
   | DirWarning !Text
@@ -249,16 +325,16 @@ parseDirectiveBody body =
         "define" -> parseDefine rest
         "undef" -> DirUndef <$> parseIdentifier rest
         "include" -> parseInclude rest
+        "if" -> Just (DirIf rest)
         "ifdef" -> DirIfDef <$> parseIdentifier rest
         "ifndef" -> DirIfNDef <$> parseIdentifier rest
-        "isndef" -> DirIfNDef <$> parseIdentifier rest
+        "isndef" -> Just (DirUnsupported "isndef")
+        "elif" -> Just (DirElif rest)
+        "elseif" -> Just (DirElif rest)
         "else" -> Just DirElse
         "endif" -> Just DirEndIf
         "warning" -> Just (DirWarning rest)
         "error" -> Just (DirError rest)
-        "if" -> Just (DirUnsupported "if")
-        "elif" -> Just (DirUnsupported "elif")
-        "elseif" -> Just (DirUnsupported "elseif")
         _ -> Just (DirUnsupported name)
 
 parseDefine :: Text -> Maybe Directive
@@ -311,3 +387,124 @@ isIdentStart c = c == '_' || isLetter c
 
 isIdentChar :: Char -> Bool
 isIdentChar c = c == '_' || isAlphaNum c
+
+--------------------------------------------------------------------------------
+-- Expression Evaluation
+--------------------------------------------------------------------------------
+
+evalCondition :: Map Text Text -> Text -> Bool
+evalCondition macros expr = eval expr /= 0
+  where
+    eval = evalNumeric . replaceRemainingWithZero . expandMacros macros . replaceDefined macros
+
+evalNumeric :: Text -> Integer
+evalNumeric input =
+  let tokens = tokenize (T.unpack input)
+   in case parseExpr tokens of
+        (val, _) -> val
+
+data Token = TOp Text | TNum Integer | TIdent Text | TOpenParen | TCloseParen deriving (Show)
+
+tokenize :: String -> [Token]
+tokenize [] = []
+tokenize (c : cs)
+  | isSpace c = tokenize cs
+  | isDigit c =
+      let (num, rest) = span isDigit (c : cs)
+       in TNum (read num) : tokenize rest
+  | isIdentStart c =
+      let (ident, rest) = span isIdentChar (c : cs)
+       in TIdent (T.pack ident) : tokenize rest
+  | c == '(' = TOpenParen : tokenize cs
+  | c == ')' = TCloseParen : tokenize cs
+  | otherwise =
+      let (op, rest) = span isOpChar (c : cs)
+       in if null op then tokenize (drop 1 cs) else TOp (T.pack op) : tokenize rest
+
+isOpChar :: Char -> Bool
+isOpChar c = c `elem` ("+-*/%&|!=<>!" :: String)
+
+parseExpr :: [Token] -> (Integer, [Token])
+parseExpr = parseOr
+
+binary :: ([Token] -> (Integer, [Token])) -> [Text] -> [Token] -> (Integer, [Token])
+binary next ops ts =
+  let (v1, ts1) = next ts
+   in go v1 ts1
+  where
+    go v1 (TOp op : ts2)
+      | op `elem` ops =
+          let (v2, ts3) = next ts2
+           in go (apply op v1 v2) ts3
+    go v1 ts2 = (v1, ts2)
+
+    apply "||" a b = if a /= 0 || b /= 0 then 1 else 0
+    apply "&&" a b = if a /= 0 && b /= 0 then 1 else 0
+    apply "==" a b = if a == b then 1 else 0
+    apply "!=" a b = if a /= b then 1 else 0
+    apply "<" a b = if a < b then 1 else 0
+    apply ">" a b = if a > b then 1 else 0
+    apply "<=" a b = if a <= b then 1 else 0
+    apply ">=" a b = if a >= b then 1 else 0
+    apply "+" a b = a + b
+    apply "-" a b = a - b
+    apply "*" a b = a * b
+    apply "/" a b = if b == 0 then 0 else a `div` b
+    apply "%" a b = if b == 0 then 0 else a `mod` b
+    apply _ a _ = a
+
+parseOr, parseAnd, parseEq, parseRel, parseAdd, parseMul :: [Token] -> (Integer, [Token])
+parseOr = binary parseAnd ["||"]
+parseAnd = binary parseEq ["&&"]
+parseEq = binary parseRel ["==", "!="]
+parseRel = binary parseAdd ["<", ">", "<=", ">="]
+parseAdd = binary parseMul ["+", "-"]
+parseMul = binary parseUnary ["*", "/", "%"]
+
+parseUnary :: [Token] -> (Integer, [Token])
+parseUnary (TOp "!" : ts) = let (v, ts') = parseUnary ts in (if v == 0 then 1 else 0, ts')
+parseUnary (TOp "-" : ts) = let (v, ts') = parseUnary ts in (-v, ts')
+parseUnary ts = parseAtom ts
+
+parseAtom :: [Token] -> (Integer, [Token])
+parseAtom (TNum n : ts) = (n, ts)
+parseAtom (TIdent _ : ts) = (0, ts)
+parseAtom (TOpenParen : ts) =
+  let (v, ts1) = parseExpr ts
+   in case ts1 of
+        TCloseParen : ts2 -> (v, ts2)
+        _ -> (v, ts1)
+parseAtom ts = (0, ts)
+
+replaceDefined :: Map Text Text -> Text -> Text
+replaceDefined macros = T.pack . go . T.unpack
+  where
+    go [] = []
+    go cs@(c : rest_cs)
+      | "defined" `isPrefixOf` cs && not (isIdentChar (safeHead (drop 7 cs))) =
+          let rest = dropWhile isSpace (drop 7 cs)
+           in case rest of
+                '(' : rest1 ->
+                  let name = takeWhile isIdentChar (dropWhile isSpace rest1)
+                      rest2 = dropWhile isSpace (drop (length name) (dropWhile isSpace rest1))
+                   in case rest2 of
+                        ')' : rest3 -> (if M.member (T.pack name) macros then " 1 " else " 0 ") ++ go rest3
+                        _ -> " 0 " ++ go rest2
+                _ ->
+                  let name = takeWhile isIdentChar rest
+                   in if null name
+                        then " 0 " ++ go rest
+                        else (if M.member (T.pack name) macros then " 1 " else " 0 ") ++ go (drop (length name) rest)
+      | otherwise = c : go rest_cs
+    safeHead [] = ' '
+    safeHead (x : _) = x
+
+replaceRemainingWithZero :: Text -> Text
+replaceRemainingWithZero = T.pack . go . T.unpack
+  where
+    go [] = []
+    go (c : cs)
+      | isIdentStart c =
+          let (_, rest) = span isIdentChar (c : cs)
+           in " 0 " ++ go rest
+      | otherwise = c : go cs
