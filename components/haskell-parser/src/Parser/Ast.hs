@@ -15,6 +15,8 @@ module Parser.Ast
     DerivingStrategy (..),
     DoStmt (..),
     Expr (..),
+    Extension (..),
+    ExtensionSetting (..),
     ExportSpec (..),
     FieldDecl (..),
     FixityAssoc (..),
@@ -42,12 +44,135 @@ module Parser.Ast
     TypeSynDecl (..),
     ValueDecl (..),
     declValueBinderNames,
+    allKnownExtensions,
+    extensionName,
+    extensionSettingName,
     noSourceSpan,
+    parseExtensionName,
+    parseExtensionSettingName,
     valueDeclBinderName,
   )
 where
 
+import Control.Applicative ((<|>))
 import Data.Text (Text)
+import qualified Data.Text as T
+import Text.Read (readMaybe)
+
+data Extension
+  = BangPatterns
+  | BinaryLiterals
+  | CApiFFI
+  | CPP
+  | ConstrainedClassMethods
+  | ConstraintKinds
+  | DataKinds
+  | DeriveDataTypeable
+  | DeriveFoldable
+  | DeriveFunctor
+  | DeriveGeneric
+  | DeriveLift
+  | DeriveTraversable
+  | DerivingStrategies
+  | DisambiguateRecordFields
+  | DoAndIfThenElse
+  | EmptyCase
+  | EmptyDataDecls
+  | EmptyDataDeriving
+  | ExistentialQuantification
+  | ExplicitForAll
+  | ExplicitLevelImports
+  | ExplicitNamespaces
+  | FieldSelectors
+  | FlexibleContexts
+  | FlexibleInstances
+  | ForeignFunctionInterface
+  | GADTs
+  | GADTSyntax
+  | GeneralizedNewtypeDeriving
+  | HexFloatLiterals
+  | ImplicitPrelude
+  | ImplicitStagePersistence
+  | ImportQualifiedPost
+  | InstanceSigs
+  | KindSignatures
+  | LambdaCase
+  | MagicHash
+  | MonoLocalBinds
+  | MonomorphismRestriction
+  | MultiParamTypeClasses
+  | MultiWayIf
+  | NamedFieldPuns
+  | NamedWildCards
+  | NegativeLiterals
+  | NumericUnderscores
+  | OverloadedStrings
+  | PackageImports
+  | ParallelListComp
+  | PatternGuards
+  | PatternSynonyms
+  | PolyKinds
+  | PostfixOperators
+  | QuasiQuotes
+  | RankNTypes
+  | RelaxedPolyRec
+  | RoleAnnotations
+  | ScopedTypeVariables
+  | StandaloneDeriving
+  | StandaloneKindSignatures
+  | StarIsType
+  | TemplateHaskell
+  | TemplateHaskellQuotes
+  | TraditionalRecordSyntax
+  | TupleSections
+  | TypeApplications
+  | TypeFamilies
+  | TypeOperators
+  | TypeSynonymInstances
+  | UnboxedSums
+  | UnboxedTuples
+  | UndecidableInstances
+  | UnicodeSyntax
+  | UnliftedFFITypes
+  | ViewPatterns
+  deriving (Eq, Ord, Show, Read, Enum, Bounded)
+
+data ExtensionSetting
+  = EnableExtension Extension
+  | DisableExtension Extension
+  deriving (Eq, Ord, Show, Read)
+
+allKnownExtensions :: [Extension]
+allKnownExtensions = [minBound .. maxBound]
+
+extensionName :: Extension -> Text
+extensionName = T.pack . show
+
+extensionSettingName :: ExtensionSetting -> Text
+extensionSettingName setting =
+  case setting of
+    EnableExtension ext -> extensionName ext
+    DisableExtension ext -> T.pack "No" <> extensionName ext
+
+parseExtensionName :: Text -> Maybe Extension
+parseExtensionName raw =
+  readMaybe (T.unpack trimmed) <|> lookup (T.unpack trimmed) aliases
+  where
+    trimmed = T.strip raw
+    aliases =
+      [ ("Cpp", CPP),
+        ("GeneralisedNewtypeDeriving", GeneralizedNewtypeDeriving)
+      ]
+
+parseExtensionSettingName :: Text -> Maybe ExtensionSetting
+parseExtensionSettingName raw =
+  case T.stripPrefix (T.pack "No") trimmed of
+    Just rest
+      | not (T.null rest) ->
+          DisableExtension <$> parseExtensionName rest
+    _ -> EnableExtension <$> parseExtensionName trimmed
+  where
+    trimmed = T.strip raw
 
 data SourceSpan
   = NoSourceSpan
@@ -74,7 +199,7 @@ data WarningText
 data Module = Module
   { moduleSpan :: SourceSpan,
     moduleName :: Maybe Text,
-    moduleLanguagePragmas :: [Text],
+    moduleLanguagePragmas :: [ExtensionSetting],
     moduleWarningText :: Maybe WarningText,
     moduleExports :: Maybe [ExportSpec],
     moduleImports :: [ImportDecl],
