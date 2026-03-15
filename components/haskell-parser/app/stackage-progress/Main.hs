@@ -26,7 +26,7 @@ import System.Directory (XdgDirectory (XdgCache), createDirectoryIfMissing, does
 import System.Environment (getArgs)
 import System.Exit (exitFailure, exitSuccess)
 import System.FilePath ((</>))
-import System.IO (hFlush, hPutStrLn, stderr, stdout)
+import System.IO (hFlush, hIsTerminalDevice, hPutStrLn, stderr, stdout)
 import System.Process (readProcess)
 
 data Check
@@ -84,12 +84,13 @@ main = do
 
   let total = length packages
   jobs <- maybe getNumProcessors pure (optJobs opts)
-  putProgressLine (ProgressState 0 0 total)
-  results <- mapConcurrentlyChunksWithProgress jobs (runPackage opts) packages total
+  showProgress <- hIsTerminalDevice stdout
+  when showProgress (putProgressLine (ProgressState 0 0 total))
+  results <- mapConcurrentlyChunksWithProgress jobs (runPackage opts) packages total showProgress
   let successOursN = length [() | result <- results, packageOursOk result]
       successHseN = length [() | result <- results, packageHseOk result]
       successGhcN = length [() | result <- results, packageGhcOk result]
-  putStrLn ""
+  when showProgress (putStrLn "")
 
   when (optPrintSucceeded opts) $ do
     mapM_ putStrLn [formatPackage (package result) | result <- results, packageOursOk result]
@@ -942,8 +943,8 @@ stripArithSeq seqExpr =
     ArithSeqFromTo _ a b -> ArithSeqFromTo noSourceSpan (stripExpr a) (stripExpr b)
     ArithSeqFromThenTo _ a b c -> ArithSeqFromThenTo noSourceSpan (stripExpr a) (stripExpr b) (stripExpr c)
 
-mapConcurrentlyChunksWithProgress :: Int -> (a -> IO PackageResult) -> [a] -> Int -> IO [PackageResult]
-mapConcurrentlyChunksWithProgress n action items total =
+mapConcurrentlyChunksWithProgress :: Int -> (a -> IO PackageResult) -> [a] -> Int -> Bool -> IO [PackageResult]
+mapConcurrentlyChunksWithProgress n action items total showProgress =
   go 0 0 [] (chunksOf chunkSize items)
   where
     chunkSize = if n <= 0 then 1 else n
@@ -952,7 +953,7 @@ mapConcurrentlyChunksWithProgress n action items total =
       batch <- mapConcurrently action chunk
       let done' = done + length batch
           success' = success + length [() | result <- batch, packageOursOk result]
-      putProgressLine (ProgressState done' success' total)
+      when showProgress (putProgressLine (ProgressState done' success' total))
       go done' success' (batch : acc) rest
 
 chunksOf :: Int -> [a] -> [[a]]
