@@ -139,7 +139,7 @@ expr-s3-errors-undefined	expressions	expressions/errors-undefined.hs	pass	parser
 expr-s3-atoms-qvar	expressions	expressions/atoms-qvar.hs	pass	parser now handles qualified-variable atom case
 expr-s3-atoms-gcon-unit	expressions	expressions/atoms-gcon-unit.hs	pass	parser now supports unit constructor expressions
 expr-s3-atoms-gcon-listcon	expressions	expressions/atoms-gcon-listcon.hs	pass	parser supports list constructor expression
-expr-s3-atoms-gcon-tuplecon	expressions	expressions/atoms-gcon-tuplecon.hs	xfail	parser intentionally disabled
+expr-s3-atoms-gcon-tuplecon	expressions	expressions/atoms-gcon-tuplecon.hs	pass	parser now supports tuple constructor atoms
 expr-s3-atoms-qcon	expressions	expressions/atoms-qcon.hs	pass
 expr-s3-atoms-literal-int	expressions	expressions/atoms-literal-int.hs	pass	parser now handles integer literal atom case
 expr-s3-atoms-literal-float	expressions	expressions/atoms-literal-float.hs	pass	parser now handles floating literal atom case
