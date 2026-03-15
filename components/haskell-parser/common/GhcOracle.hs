@@ -114,10 +114,10 @@ extractLanguagePragmas sourceTag baseExts input =
           False
           False
    in case catchPureExceptionText
-         ( let (_warns, rawOptions) = getOptions baseOpts supportedLanguagePragmas buffer sourceTag
-               optionPragmas = mapMaybe optionToLanguagePragma rawOptions
-               pragmas = nub (headerPragmas <> optionPragmas)
-             in length pragmas `seq` pragmas
+        ( let (_warns, rawOptions) = getOptions baseOpts supportedLanguagePragmas buffer sourceTag
+              optionPragmas = mapMaybe optionToLanguagePragma rawOptions
+              pragmas = nub (headerPragmas <> optionPragmas)
+           in length pragmas `seq` pragmas
          ) of
         Left err -> Left (withInput input ("GHC option parsing exception: " <> err))
         Right pragmas -> Right pragmas
