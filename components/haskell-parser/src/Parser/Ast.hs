@@ -24,6 +24,7 @@ module Parser.Ast
     ForeignDirection (..),
     ForeignEntitySpec (..),
     ForeignSafety (..),
+    GuardQualifier (..),
     GuardedRhs (..),
     ImportDecl (..),
     ImportLevel (..),
@@ -367,9 +368,15 @@ data Rhs
 
 data GuardedRhs = GuardedRhs
   { guardedRhsSpan :: SourceSpan,
-    guardedRhsGuards :: [Expr],
+    guardedRhsGuards :: [GuardQualifier],
     guardedRhsBody :: Expr
   }
+  deriving (Eq, Show)
+
+data GuardQualifier
+  = GuardExpr SourceSpan Expr
+  | GuardPat SourceSpan Pattern Expr
+  | GuardLet SourceSpan [Decl]
   deriving (Eq, Show)
 
 data Literal
