@@ -8,6 +8,8 @@ module Parser
     LexToken (..),
     LexTokenKind (..),
     Extension (..),
+    ExtensionSetting (..),
+    readModuleHeaderExtensions,
     lexTokens,
     lexModuleTokens,
     lexTokensWithExtensions,
@@ -16,7 +18,7 @@ module Parser
 where
 
 import Data.Text (Text)
-import Parser.Ast (Decl, Expr, Extension (..), ImportDecl, Module (..))
+import Parser.Ast (Decl, Expr, Extension (..), ExtensionSetting (..), ImportDecl, Module (..))
 import Parser.Internal.Common (TokParser, symbolLikeTok, withSpan)
 import Parser.Internal.Decl (declParser, importDeclParser, languagePragmaParser, moduleHeaderParser)
 import Parser.Internal.Expr (exprParser)
@@ -27,6 +29,7 @@ import Parser.Lexer
     lexModuleTokensWithExtensions,
     lexTokens,
     lexTokensWithExtensions,
+    readModuleHeaderExtensions,
   )
 import Parser.Types
 import Text.Megaparsec (runParser)

@@ -124,12 +124,14 @@ executable extension-progress
     , common
   main-is:          Main.hs
   other-modules:
-      ExtensionSupport
+      CppSupport
+    , ExtensionSupport
     , GhcOracle
     , OracleExtensions
   build-depends:
       base >=4.16 && <5
     , aihc-parser
+    , aihc-cpp
     , text
     , directory
     , filepath
@@ -208,7 +210,8 @@ executable parser-fuzz
     , common
   main-is:          Main.hs
   other-modules:
-      GhcOracle
+      CppSupport
+    , GhcOracle
     , HseExtensions
     , ParserValidation
     , ShrinkUtils
@@ -219,6 +222,7 @@ executable parser-fuzz
   build-depends:
       base >=4.16 && <5
     , aihc-parser
+    , aihc-cpp
     , haskell-src-exts
     , QuickCheck
     , optparse-applicative

@@ -6,7 +6,7 @@ import Control.Concurrent.Async (mapConcurrently)
 import Control.Exception (SomeException, displayException, try)
 import Control.Monad (forM, when)
 import Cpp (Severity (..), diagSeverity, resultDiagnostics, resultOutput)
-import CppSupport (preprocessForParser)
+import CppSupport (preprocessForParserIfEnabled)
 import Data.Char (isAlphaNum, isSpace)
 import Data.List (isPrefixOf, nub)
 import Data.Maybe (fromMaybe, mapMaybe)
@@ -377,7 +377,7 @@ checkFile :: Options -> FilePath -> FileInfo -> IO FileResult
 checkFile opts packageRoot info = do
   let file = fileInfoPath info
   source <- TIO.readFile file
-  preprocessed <- preprocessForParser file (resolveIncludeBestEffort packageRoot file) source
+  preprocessed <- preprocessForParserIfEnabled (fileInfoExtensions info) file (resolveIncludeBestEffort packageRoot file) source
   let source' = resultOutput preprocessed
       cppErrors = [diagToText diag | diag <- resultDiagnostics preprocessed, diagSeverity diag == Error]
       cppErrorMsg =

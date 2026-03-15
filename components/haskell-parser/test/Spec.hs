@@ -39,7 +39,9 @@ buildTests = do
         lexer,
         testGroup
           "parser"
-          [testCase "module parses declaration list" test_moduleParsesDecls],
+          [ testCase "module parses declaration list" test_moduleParsesDecls,
+            testCase "reads header LANGUAGE pragmas" test_readsHeaderLanguagePragmas
+          ],
         testGroup
           "properties"
           [ QC.testProperty "generated expr AST pretty-printer round-trip" prop_exprPrettyRoundTrip,
@@ -63,6 +65,13 @@ test_moduleParsesDecls =
             pure ()
         other ->
           assertFailure ("unexpected parsed declarations: " <> show other)
+
+test_readsHeaderLanguagePragmas :: Assertion
+test_readsHeaderLanguagePragmas = do
+  let source = T.unlines ["{-# LANGUAGE CPP #-}", "{-# LANGUAGE NoCPP #-}", "module M where", "x = 1"]
+      exts = readModuleHeaderExtensions source
+      expected = [EnableExtension CPP, DisableExtension CPP]
+  assertEqual "reads expected module header LANGUAGE settings" expected exts
 
 prop_exprPrettyRoundTrip :: GenExpr -> Property
 prop_exprPrettyRoundTrip generated =

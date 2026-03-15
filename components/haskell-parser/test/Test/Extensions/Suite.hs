@@ -7,7 +7,7 @@ where
 
 import Control.Monad (when)
 import Cpp (resultOutput)
-import CppSupport (preprocessForParserWithoutIncludes)
+import CppSupport (preprocessForParserWithoutIncludesIfEnabled)
 import Data.Maybe (isNothing)
 import Data.Text (Text)
 import qualified Data.Text.IO as TIO
@@ -97,7 +97,7 @@ evaluateCaseFromFile spec exts meta = do
 
 evaluateCase :: ExtensionSpec -> [Extension] -> CaseMeta -> Text -> IO (CaseMeta, Outcome, String)
 evaluateCase _spec exts meta source = do
-  let source' = resultOutput (preprocessForParserWithoutIncludes (casePath meta) source)
+  let source' = resultOutput (preprocessForParserWithoutIncludesIfEnabled (map show exts) (casePath meta) source)
       oracleOk = oracleParsesModuleWithExtensions exts source'
       validationOk = isNothing (validateParserWithExtensions exts source')
       roundtripOk = oracleOk && validationOk

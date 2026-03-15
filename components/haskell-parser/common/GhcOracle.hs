@@ -16,6 +16,8 @@ module GhcOracle
 where
 
 import Control.Exception (catch, displayException, evaluate)
+import Cpp (resultOutput)
+import CppSupport (moduleHeaderExtensionSettings, preprocessForParserWithoutIncludes)
 import Data.List (nub)
 import qualified Data.List as List
 import Data.Maybe (mapMaybe)
@@ -37,7 +39,7 @@ import GHC.Parser.Lexer
   )
 import GHC.Types.Error (NoDiagnosticOpts (NoDiagnosticOpts))
 import GHC.Types.SourceError (SourceError)
-import GHC.Types.SrcLoc (mkRealSrcLoc, unLoc)
+import GHC.Types.SrcLoc (GenLocated, mkRealSrcLoc, unLoc)
 import GHC.Utils.Error (emptyDiagOpts, pprMessages)
 import GHC.Utils.Outputable (ppr, showSDocUnsafe)
 import qualified Parser.Ast as Ast
@@ -71,8 +73,12 @@ parseWithGhcWithExtensions sourceTag extraExts input =
    in do
         languagePragmas <- extractLanguagePragmas sourceTag baseExts input
         let parseExts = List.foldl' applyExtensionSetting (EnumSet.fromList baseExts :: EnumSet.EnumSet GHC.Extension) languagePragmas
+            inputForParse =
+              if EnumSet.member GHC.Cpp parseExts
+                then resultOutput (preprocessForParserWithoutIncludes sourceTag input)
+                else input
             opts = mkParserOpts parseExts emptyDiagOpts False False False False
-            buffer = stringToStringBuffer (T.unpack input)
+            buffer = stringToStringBuffer (T.unpack inputForParse)
             start = mkRealSrcLoc (mkFastString sourceTag) 1 1
         case catchPureExceptionText $ case unP parseModule (initParserState opts buffer start) of
           POk _ modu -> Right (languagePragmas, unLoc modu)
@@ -92,7 +98,13 @@ applyExtensionSetting exts setting =
 
 extractLanguagePragmas :: String -> [GHC.Extension] -> Text -> Either Text [Ast.ExtensionSetting]
 extractLanguagePragmas sourceTag baseExts input =
-  let buffer = stringToStringBuffer (T.unpack input)
+  let headerPragmas = moduleHeaderExtensionSettings input
+      headerExts = List.foldl' applyExtensionSetting (EnumSet.fromList baseExts :: EnumSet.EnumSet GHC.Extension) headerPragmas
+      inputForOptions =
+        if EnumSet.member GHC.Cpp headerExts
+          then resultOutput (preprocessForParserWithoutIncludes sourceTag input)
+          else input
+      buffer = stringToStringBuffer (T.unpack inputForOptions)
       baseOpts =
         mkParserOpts
           (EnumSet.fromList baseExts :: EnumSet.EnumSet GHC.Extension)
@@ -103,25 +115,28 @@ extractLanguagePragmas sourceTag baseExts input =
           False
    in case catchPureExceptionText
         ( let (_warns, rawOptions) = getOptions baseOpts supportedLanguagePragmas buffer sourceTag
-              pragmas = mapMaybe optionToLanguagePragma rawOptions
+              optionPragmas = mapMaybe optionToLanguagePragma rawOptions
+              pragmas = nub (headerPragmas <> optionPragmas)
            in length pragmas `seq` pragmas
         ) of
         Left err -> Left (withInput input ("GHC option parsing exception: " <> err))
         Right pragmas -> Right pragmas
-  where
-    supportedLanguagePragmas =
-      "CPP" : "Safe" : "Trustworthy" : "Unsafe" : "Rank2Types" : "PolymorphicComponents" : concatMap (includeNegative . show) ([minBound .. maxBound] :: [GHC.Extension])
 
+optionToLanguagePragma :: GenLocated l String -> Maybe Ast.ExtensionSetting
+optionToLanguagePragma locatedOpt =
+  let opt = T.pack (unLoc locatedOpt)
+   in case T.stripPrefix "-X" opt of
+        Just pragmaName | not (T.null pragmaName) -> Ast.parseExtensionSettingName pragmaName
+        _ -> Nothing
+
+supportedLanguagePragmas :: [String]
+supportedLanguagePragmas =
+  "CPP" : "Safe" : "Trustworthy" : "Unsafe" : "Rank2Types" : "PolymorphicComponents" : concatMap (includeNegative . show) ([minBound .. maxBound] :: [GHC.Extension])
+  where
     includeNegative extName =
       case extName of
         "Cpp" -> [extName, "NoCPP", "NoCpp"]
         _ -> [extName, "No" <> extName]
-
-    optionToLanguagePragma locatedOpt =
-      let opt = T.pack (unLoc locatedOpt)
-       in case T.stripPrefix "-X" opt of
-            Just pragmaName | not (T.null pragmaName) -> Ast.parseExtensionSettingName pragmaName
-            _ -> Nothing
 
 catchPureExceptionText :: a -> Either Text a
 catchPureExceptionText value =
