@@ -1,0 +1,11 @@
+extensions: []
+input: |
+  {-# LANGUAGE
+      DataKinds
+    , DeriveGeneric
+    , DeriveDataTypeable
+    , OverloadedStrings
+    #-}
+tokens:
+  - 'TkPragmaLanguage [EnableExtension DataKinds, EnableExtension DeriveGeneric, EnableExtension DeriveDataTypeable, EnableExtension OverloadedStrings]'
+status: pass

@@ -1,0 +1,9 @@
+extensions: []
+input: |
+  {-# LANGUAGE 
+        BangPatterns,
+        GADTs 
+  #-}
+tokens:
+  - 'TkPragmaLanguage [EnableExtension BangPatterns, EnableExtension GADTs]'
+status: pass
