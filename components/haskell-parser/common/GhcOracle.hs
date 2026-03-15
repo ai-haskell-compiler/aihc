@@ -15,6 +15,8 @@ module GhcOracle
 where
 
 import Data.List (nub)
+import qualified Data.List as List
+import Prelude hiding (foldl')
 import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -63,7 +65,7 @@ parseWithGhcWithExtensions :: String -> [GHC.Extension] -> Text -> Either Text (
 parseWithGhcWithExtensions sourceTag extraExts input =
   let baseExts = nub extraExts
       languagePragmas = extractLanguagePragmas sourceTag baseExts input
-      parseExts = foldl' applyExtensionSetting (EnumSet.fromList baseExts :: EnumSet.EnumSet GHC.Extension) languagePragmas
+      parseExts = List.foldl' applyExtensionSetting (EnumSet.fromList baseExts :: EnumSet.EnumSet GHC.Extension) languagePragmas
       opts = mkParserOpts parseExts emptyDiagOpts False False False False
       buffer = stringToStringBuffer (T.unpack input)
       start = mkRealSrcLoc (mkFastString sourceTag) 1 1
@@ -96,7 +98,7 @@ extractLanguagePragmas sourceTag baseExts input =
    in mapMaybe optionToLanguagePragma rawOptions
   where
     supportedLanguagePragmas =
-      "CPP" : concatMap (includeNegative . show) ([minBound .. maxBound] :: [GHC.Extension])
+      "CPP" : "Safe" : "Trustworthy" : "Unsafe" : "Rank2Types" : "PolymorphicComponents" : concatMap (includeNegative . show) ([minBound .. maxBound] :: [GHC.Extension])
 
     includeNegative extName =
       case extName of
@@ -125,7 +127,7 @@ oracleDetailedParsesModuleWithNamesAt :: String -> [String] -> Maybe String -> T
 oracleDetailedParsesModuleWithNamesAt sourceTag extNames langName input =
   let extSettings = mapMaybe (Ast.parseExtensionSettingName . T.pack) extNames
       langExts = maybe [] languageExtensions langName
-      allExts = EnumSet.toList (foldl' applyExtensionSetting (EnumSet.fromList langExts) extSettings)
+      allExts = EnumSet.toList (List.foldl' applyExtensionSetting (EnumSet.fromList langExts) extSettings)
    in case parseWithGhcWithExtensions sourceTag allExts input of
         Left err ->
           let extList = T.pack (show extNames)
@@ -139,6 +141,11 @@ toGhcExtension ext =
   where
     toGhcExtensionName Ast.CPP = "Cpp"
     toGhcExtensionName Ast.GeneralizedNewtypeDeriving = "GeneralisedNewtypeDeriving"
+    toGhcExtensionName Ast.SafeHaskell = "Safe"
+    toGhcExtensionName Ast.Trustworthy = "Trustworthy"
+    toGhcExtensionName Ast.UnsafeHaskell = "Unsafe"
+    toGhcExtensionName Ast.Rank2Types = "RankNTypes"
+    toGhcExtensionName Ast.PolymorphicComponents = "RankNTypes"
     toGhcExtensionName other = T.unpack (Ast.extensionName other)
 
 fromGhcExtension :: GHC.Extension -> Maybe Ast.Extension
