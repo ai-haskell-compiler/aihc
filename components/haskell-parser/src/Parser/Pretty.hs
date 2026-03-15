@@ -37,7 +37,7 @@ prettyModule modu =
   where
     pragmaLines =
       map
-        (\ext -> "{-# LANGUAGE" <+> pretty (extensionSettingName ext) <+> "#-}")
+        (\(raw, _exts) -> pretty raw)
         (moduleLanguagePragmas modu)
     headerLines =
       case moduleName modu of

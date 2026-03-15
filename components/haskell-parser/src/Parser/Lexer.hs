@@ -520,14 +520,49 @@ lexTokenParser =
 -- canonical comma-separated representation.
 languagePragmaToken :: LParser (Text, LexTokenKind)
 languagePragmaToken = do
-  _ <- C.string "{-#"
-  _ <- many C.spaceChar
-  _ <- C.string "LANGUAGE"
-  _ <- many C.spaceChar
-  body <- manyTillText "#-}"
+  (raw, body) <- MP.match $ do
+    _ <- C.string "{-#"
+    _ <- many C.spaceChar
+    _ <- C.string "LANGUAGE"
+    manyTillTextPragma "#-}"
   let names = parseLanguagePragmaNames (T.pack body)
-      raw = "{-# LANGUAGE " <> T.intercalate ", " (map extensionSettingName names) <> " #-}"
   pure (raw, TkPragmaLanguage names)
+
+-- | Consume characters until @end@ text marker (excluding terminator from result).
+--
+-- This version handles nested block comments specifically for pragmas,
+-- which GHC supports.
+manyTillTextPragma :: Text -> LParser String
+manyTillTextPragma end = go []
+  where
+    go acc =
+      (try (C.string end) >> pure (reverse acc))
+        <|> do
+          ch <- anySingle
+          case ch of
+            '{' -> do
+              mHash <- MP.optional (C.char '#')
+              case mHash of
+                Just _ -> go ('#' : '{' : acc)
+                Nothing -> do
+                  mDash <- MP.optional (C.char '-')
+                  case mDash of
+                    Just _ -> do
+                      innerBody <- skipNestedBlockCommentBodyPragma 1
+                      go (reverse innerBody ++ "-{" ++ acc)
+                    Nothing -> go ('{' : acc)
+            _ -> go (ch : acc)
+
+-- | Skip the remaining body of a nested block comment and return it.
+skipNestedBlockCommentBodyPragma :: Int -> LParser String
+skipNestedBlockCommentBodyPragma depth
+  | depth <= 0 = pure ""
+  | otherwise = do
+      res <-
+        try (C.string "{-" >> (("{-" ++) <$> skipNestedBlockCommentBodyPragma (depth + 1)))
+          <|> try (C.string "-}" >> (("-}" ++) <$> skipNestedBlockCommentBodyPragma (depth - 1)))
+          <|> ((\c -> [c]) <$> anySingle >>= \c -> (c ++) <$> skipNestedBlockCommentBodyPragma depth)
+      pure res
 
 -- | Parse extension names from the body of a LANGUAGE pragma.
 parseLanguagePragmaNames :: Text -> [ExtensionSetting]

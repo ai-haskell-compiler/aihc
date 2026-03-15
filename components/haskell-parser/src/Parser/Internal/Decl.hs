@@ -16,15 +16,15 @@ import qualified Data.Text as T
 import Parser.Ast
 import Parser.Internal.Common
 import Parser.Internal.Expr (equationRhsParser, exprParser, simplePatternParser, typeAtomParser, typeParser)
-import Parser.Lexer (LexTokenKind (..), lexTokenKind)
+import Parser.Lexer (LexToken (..), LexTokenKind (..))
 import Text.Megaparsec ((<|>))
 import qualified Text.Megaparsec as MP
 
-languagePragmaParser :: TokParser [ExtensionSetting]
+languagePragmaParser :: TokParser (Text, [ExtensionSetting])
 languagePragmaParser =
   tokenSatisfy $ \tok ->
     case lexTokenKind tok of
-      TkPragmaLanguage names -> Just names
+      TkPragmaLanguage names -> Just (lexTokenText tok, names)
       _ -> Nothing
 
 moduleHeaderParser :: TokParser (Text, Maybe WarningText, Maybe [ExportSpec])

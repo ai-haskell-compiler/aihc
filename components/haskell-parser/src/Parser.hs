@@ -45,7 +45,7 @@ moduleParser = withSpan $ do
     Module
       { moduleSpan = span',
         moduleName = mName,
-        moduleLanguagePragmas = concat languagePragmas,
+        moduleLanguagePragmas = languagePragmas,
         moduleWarningText = mWarning,
         moduleExports = mExports,
         moduleImports = imports,

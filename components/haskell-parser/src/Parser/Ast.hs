@@ -289,7 +289,7 @@ data WarningText
 data Module = Module
   { moduleSpan :: SourceSpan,
     moduleName :: Maybe Text,
-    moduleLanguagePragmas :: [ExtensionSetting],
+    moduleLanguagePragmas :: [(Text, [ExtensionSetting])],
     moduleWarningText :: Maybe WarningText,
     moduleExports :: Maybe [ExportSpec],
     moduleImports :: [ImportDecl],
