@@ -71,9 +71,7 @@ test_readsHeaderLanguagePragmas = do
   let source = T.unlines ["{-# LANGUAGE CPP #-}", "{-# LANGUAGE NoCPP #-}", "module M where", "x = 1"]
       exts = readModuleHeaderExtensions source
       expected = [EnableExtension CPP, DisableExtension CPP]
-  if exts == expected
-    then pure ()
-    else assertFailure ("unexpected module header extensions: " <> show exts)
+  assertEqual "reads expected module header LANGUAGE settings" expected exts
 
 prop_exprPrettyRoundTrip :: GenExpr -> Property
 prop_exprPrettyRoundTrip generated =

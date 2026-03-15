@@ -55,13 +55,7 @@ moduleHeaderExtensionSettings :: Text -> [ExtensionSetting]
 moduleHeaderExtensionSettings = P.readModuleHeaderExtensions
 
 cppEnabledInSource :: Text -> Bool
-cppEnabledInSource = foldl apply False . moduleHeaderExtensionSettings
-  where
-    apply enabled setting =
-      case setting of
-        EnableExtension CPP -> True
-        DisableExtension CPP -> False
-        _ -> enabled
+cppEnabledInSource = cppEnabledInSettings . moduleHeaderExtensionSettings
 
 cppEnabledInSourceWithGlobals :: [String] -> Text -> Bool
 cppEnabledInSourceWithGlobals globalExtensionNames source =
@@ -79,6 +73,7 @@ cppEnabledInSettings = foldl apply False
         EnableExtension CPP -> True
         DisableExtension CPP -> False
         _ -> enabled
+
 stripLinePragmas :: Text -> Text
 stripLinePragmas =
   T.unlines

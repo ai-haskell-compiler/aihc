@@ -43,8 +43,8 @@ import GHC.Types.SrcLoc (GenLocated, mkRealSrcLoc, unLoc)
 import GHC.Utils.Error (emptyDiagOpts, pprMessages)
 import GHC.Utils.Outputable (ppr, showSDocUnsafe)
 import qualified Parser.Ast as Ast
-import Prelude hiding (foldl')
 import System.IO.Unsafe (unsafePerformIO)
+import Prelude hiding (foldl')
 
 oracleParsesModuleWithExtensions :: [GHC.Extension] -> Text -> Bool
 oracleParsesModuleWithExtensions = oracleParsesModuleWithExtensionsAt "oracle"
@@ -118,7 +118,7 @@ extractLanguagePragmas sourceTag baseExts input =
               optionPragmas = mapMaybe optionToLanguagePragma rawOptions
               pragmas = nub (headerPragmas <> optionPragmas)
            in length pragmas `seq` pragmas
-         ) of
+        ) of
         Left err -> Left (withInput input ("GHC option parsing exception: " <> err))
         Right pragmas -> Right pragmas
 
@@ -149,6 +149,7 @@ catchPureExceptionText value =
 withInput :: Text -> Text -> Text
 withInput input err =
   err <> "\n\nInput:\n---8<---\n" <> input <> "\n--->8---"
+
 oracleParsesModuleWithNames :: [String] -> Maybe String -> Text -> Bool
 oracleParsesModuleWithNames = oracleParsesModuleWithNamesAt "oracle"
 

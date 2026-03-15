@@ -56,6 +56,7 @@ import Control.Monad (void)
 import Data.Char (digitToInt, isAlphaNum, isDigit, isHexDigit, isOctDigit)
 import qualified Data.IntSet as IntSet
 import Data.List (find)
+import qualified Data.List as List
 import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -171,7 +172,7 @@ moduleHeaderExtensionsParser =
       [] <$ (void pragmaWarningToken <|> void pragmaDeprecatedToken)
 
 enabledExtensionsFromSettings :: [ExtensionSetting] -> [Extension]
-enabledExtensionsFromSettings = foldl apply []
+enabledExtensionsFromSettings = List.foldl' apply []
   where
     apply exts setting =
       case setting of
