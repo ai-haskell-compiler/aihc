@@ -61,8 +61,11 @@ import Text.Read (readMaybe)
 
 data Extension
   = AllowAmbiguousTypes
+  | AlternativeLayoutRule
+  | AlternativeLayoutRuleTransitional
   | ApplicativeDo
   | Arrows
+  | AutoDeriveTypeable
   | BangPatterns
   | BinaryLiterals
   | BlockArguments
@@ -86,6 +89,7 @@ data Extension
   | DerivingVia
   | DisambiguateRecordFields
   | DoAndIfThenElse
+  | DoRec
   | DuplicateRecordFields
   | EmptyCase
   | EmptyDataDecls
@@ -94,6 +98,7 @@ data Extension
   | ExplicitForAll
   | ExplicitLevelImports
   | ExplicitNamespaces
+  | ExtensibleRecords
   | ExtendedDefaultRules
   | ExtendedLiterals
   | FieldSelectors
@@ -103,12 +108,14 @@ data Extension
   | FunctionalDependencies
   | GADTs
   | GADTSyntax
+  | Generics
   | GeneralizedNewtypeDeriving
   | GHC2021
   | GHC2024
   | GHCForeignImportPrim
   | Haskell2010
   | Haskell98
+  | HereDocuments
   | HexFloatLiterals
   | ImplicitParams
   | ImplicitPrelude
@@ -118,6 +125,7 @@ data Extension
   | IncoherentInstances
   | InstanceSigs
   | InterruptibleFFI
+  | JavaScriptFFI
   | KindSignatures
   | LambdaCase
   | LexicalNegation
@@ -126,7 +134,9 @@ data Extension
   | ListTuplePuns
   | MagicHash
   | MonadComprehensions
+  | MonadFailDesugaring
   | MonoLocalBinds
+  | MonoPatBinds
   | MonomorphismRestriction
   | MultilineStrings
   | MultiParamTypeClasses
@@ -134,6 +144,7 @@ data Extension
   | NamedDefaults
   | NamedFieldPuns
   | NamedWildCards
+  | NewQualifiedOperators
   | NegativeLiterals
   | NondecreasingIndentation
   | NPlusKPatterns
@@ -148,10 +159,13 @@ data Extension
   | OverloadedRecordUpdate
   | OverloadedStrings
   | PackageImports
+  | ParallelArrays
   | ParallelListComp
   | PartialTypeSignatures
+  | PatternSignatures
   | PatternGuards
   | PatternSynonyms
+  | PolymorphicComponents
   | PolyKinds
   | PostfixOperators
   | QualifiedDo
@@ -161,11 +175,16 @@ data Extension
   | Rank2Types
   | RankNTypes
   | RebindableSyntax
+  | RecordPuns
   | RecordWildCards
   | RecursiveDo
+  | RegularPatterns
+  | RelaxedLayout
   | RelaxedPolyRec
+  | RestrictedTypeSynonyms
   | RequiredTypeArguments
   | RoleAnnotations
+  | SafeImports
   | SafeHaskell
   | ScopedTypeVariables
   | StandaloneDeriving
@@ -198,6 +217,7 @@ data Extension
   | UnliftedNewtypes
   | UnsafeHaskell
   | ViewPatterns
+  | XmlSyntax
   deriving (Eq, Ord, Show, Read, Enum, Bounded)
 
 data ExtensionSetting
