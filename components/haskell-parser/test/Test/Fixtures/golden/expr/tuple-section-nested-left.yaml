@@ -1,0 +1,5 @@
+extensions: []
+input: |
+  ((,a),)
+ast: ETupleSection [Just (ETupleSection [Nothing, Just (EVar "a")]), Nothing]
+status: pass
