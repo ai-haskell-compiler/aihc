@@ -44,6 +44,7 @@
 module Parser.Lexer
   ( LexToken (..),
     LexTokenKind (..),
+    readModuleHeaderExtensions,
     lexTokensWithExtensions,
     lexModuleTokensWithExtensions,
     lexTokens,
@@ -134,9 +135,50 @@ lexTokens input =
 -- Returns @[]@ on lexing errors.
 lexModuleTokens :: Text -> [LexToken]
 lexModuleTokens input =
-  case lexModuleTokensWithExtensions [] input of
+  case lexModuleTokensWithExtensions (enabledExtensionsFromSettings (readModuleHeaderExtensions input)) input of
     Right toks -> toks
     Left _ -> []
+
+-- | Read leading module-header pragmas and return parsed LANGUAGE settings.
+--
+-- This scans only the pragma/header prefix (allowing whitespace and comments)
+-- and stops at the first non-pragma token.
+readModuleHeaderExtensions :: Text -> [ExtensionSetting]
+readModuleHeaderExtensions input =
+  case runParser moduleHeaderExtensionsParser "<module-header>" input of
+    Right exts -> exts
+    Left _ -> []
+
+moduleHeaderExtensionsParser :: LParser [ExtensionSetting]
+moduleHeaderExtensionsParser =
+  concat
+    <$> many
+      ( try
+          (triviaConsumer *> headerPragmaSettings <* triviaConsumer)
+      )
+  where
+    headerPragmaSettings =
+      languagePragmaSettings
+        <|> ignorableHeaderPragma
+
+    languagePragmaSettings = do
+      (_, kind) <- languagePragmaToken
+      case kind of
+        TkPragmaLanguage names -> pure names
+        _ -> pure []
+
+    ignorableHeaderPragma =
+      [] <$ (void pragmaWarningToken <|> void pragmaDeprecatedToken)
+
+enabledExtensionsFromSettings :: [ExtensionSetting] -> [Extension]
+enabledExtensionsFromSettings = foldl apply []
+  where
+    apply exts setting =
+      case setting of
+        EnableExtension ext
+          | ext `elem` exts -> exts
+          | otherwise -> exts <> [ext]
+        DisableExtension ext -> filter (/= ext) exts
 
 -- | Lex source text using explicit lexer extensions.
 --
