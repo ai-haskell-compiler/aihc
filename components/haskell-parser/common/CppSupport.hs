@@ -11,6 +11,7 @@ import Cpp
     IncludeRequest,
     Result (..),
     Step (..),
+    defaultConfig,
     preprocess,
   )
 import Data.Functor.Identity (Identity (..), runIdentity)
@@ -19,7 +20,11 @@ import qualified Data.Text as T
 
 preprocessForParser :: (Monad m) => FilePath -> (IncludeRequest -> m (Maybe Text)) -> Text -> m Result
 preprocessForParser inputFile resolveInclude source = do
-  result <- drive (preprocess Config {configInputFile = inputFile} source)
+  let cfg =
+        defaultConfig
+          { configInputFile = inputFile
+          }
+  result <- drive (preprocess cfg source)
   pure result {resultOutput = stripLinePragmas (resultOutput result)}
   where
     drive (Done result) = pure result

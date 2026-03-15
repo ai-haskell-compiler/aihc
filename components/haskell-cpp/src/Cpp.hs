@@ -20,12 +20,13 @@ import qualified Data.Map.Strict as M
 import Data.Text (Text)
 import qualified Data.Text as T
 
-newtype Config = Config
-  { configInputFile :: FilePath
+data Config = Config
+  { configInputFile :: FilePath,
+    configDateTime :: !(Text, Text)
   }
 
 defaultConfig :: Config
-defaultConfig = Config {configInputFile = "<input>"}
+defaultConfig = Config {configInputFile = "<input>", configDateTime = ("Jan  1 1970", "00:00:00")}
 
 data IncludeKind = IncludeLocal | IncludeSystem deriving (Eq, Show)
 
@@ -62,7 +63,14 @@ preprocess cfg input =
   processFile (configInputFile cfg) (joinMultiline 1 (T.lines input)) [] initialState finish
   where
     initialState =
-      emitLine (linePragma 1 (configInputFile cfg)) emptyState
+      let st0 = emitLine (linePragma 1 (configInputFile cfg)) emptyState
+          (date, time) = configDateTime cfg
+       in st0
+            { stMacros =
+                M.insert "__DATE__" ("\"" <> date <> "\"") $
+                  M.insert "__TIME__" ("\"" <> time <> "\"") $
+                    stMacros st0
+            }
     finish st =
       let out = T.intercalate "\n" (reverse (stOutputRev st))
           outWithTrailingNewline =

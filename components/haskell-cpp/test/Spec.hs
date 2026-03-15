@@ -2,7 +2,7 @@
 
 module Main (main) where
 
-import Cpp (Config (..), Result (..), Step (..), preprocess)
+import Cpp (Config (..), Result (..), Step (..), defaultConfig, preprocess)
 import qualified Data.Text as T
 import Test.Progress (CaseMeta (..), Outcome (..), evaluateCase, loadManifest)
 import Test.Tasty (TestTree, defaultMain, testGroup)
@@ -12,7 +12,33 @@ main :: IO ()
 main = do
   cases <- loadManifest
   checks <- mapM mkCase cases
-  defaultMain (testGroup "cpp-oracle" (checks <> [linePragmaTest]))
+  defaultMain (testGroup "cpp-oracle" (checks <> [linePragmaTest, dateTimeTest]))
+
+dateTimeTest :: TestTree
+dateTimeTest =
+  testGroup
+    "__DATE__ and __TIME__"
+    [ testCase "expands to provided values" $ do
+        let cfg = defaultConfig {configDateTime = ("Mar 15 2026", "12:00:00")}
+            input = "__DATE__ __TIME__"
+        case preprocess cfg input of
+          Done result ->
+            resultOutput result @?= "#line 1 \"<input>\"\n\"Mar 15 2026\" \"12:00:00\"\n"
+          _ -> assertFailure "expected Done",
+      testCase "defaults to unix epoch" $ do
+        let cfg = defaultConfig
+            input = "__DATE__ __TIME__"
+        case preprocess cfg input of
+          Done result ->
+            resultOutput result @?= "#line 1 \"<input>\"\n\"Jan  1 1970\" \"00:00:00\"\n"
+          _ -> assertFailure "expected Done"
+    ]
+
+(@?=) :: (Eq a, Show a) => a -> a -> Assertion
+actual @?= expected =
+  if actual == expected
+    then pure ()
+    else assertFailure ("expected: " <> show expected <> "\n but got: " <> show actual)
 
 mkCase :: CaseMeta -> IO TestTree
 mkCase meta =
@@ -36,7 +62,7 @@ assertCase meta = do
 linePragmaTest :: TestTree
 linePragmaTest =
   testCase "include emits line pragmas" $
-    case preprocess Config {configInputFile = "root.hs"} "before\n#include \"nested.inc\"\nafter" of
+    case preprocess defaultConfig {configInputFile = "root.hs"} "before\n#include \"nested.inc\"\nafter" of
       NeedInclude _ k ->
         case k (Just "inside") of
           Done result -> do

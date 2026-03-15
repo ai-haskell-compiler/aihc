@@ -10,7 +10,7 @@ module Test.Progress
 where
 
 import qualified Control.Exception as E
-import Cpp (Config (..), Diagnostic (..), IncludeRequest (..), Result (..), Severity (..), Step (..), preprocess)
+import Cpp (Config (..), Diagnostic (..), IncludeRequest (..), Result (..), Severity (..), Step (..), defaultConfig, preprocess)
 import Data.Char (isDigit, isSpace)
 import Data.List (dropWhileEnd)
 import Data.Maybe (fromMaybe)
@@ -164,7 +164,7 @@ parseLinePragma raw =
 
 runOurs :: FilePath -> Text -> IO (Either String Text)
 runOurs sourcePath source = do
-  result <- drive (preprocess Config {configInputFile = sourcePath} source)
+  result <- drive (preprocess defaultConfig {configInputFile = sourcePath} source)
   let errors = [diagMessage d | d <- resultDiagnostics result, diagSeverity d == Error]
   case errors of
     [] -> pure (Right (resultOutput result))
