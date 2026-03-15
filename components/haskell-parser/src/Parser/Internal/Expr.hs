@@ -362,7 +362,7 @@ guardedRhsParser arrow = withSpan $ do
       }
 
 guardQualifierParser :: Text -> TokParser GuardQualifier
-guardQualifierParser arrow = MP.try guardPatParser <|> MP.try guardLetParser <|> guardExprParser
+guardQualifierParser _arrow = MP.try guardPatParser <|> MP.try guardLetParser <|> guardExprParser
   where
     guardPatParser = withSpan $ do
       pat <- patternParser
@@ -373,7 +373,7 @@ guardQualifierParser arrow = MP.try guardPatParser <|> MP.try guardLetParser <|>
     guardLetParser = withSpan $ do
       keywordTok TkKeywordLet
       decls <- bracedDeclsParser <|> plainDeclsParser
-      guardLetTerminator arrow
+      MP.notFollowedBy (keywordTok TkKeywordIn)
       pure (`GuardLet` decls)
       where
         plainDeclsParser = MP.some (localDeclParser <* MP.many (symbolLikeTok ";"))
@@ -382,13 +382,6 @@ guardQualifierParser arrow = MP.try guardPatParser <|> MP.try guardLetParser <|>
           parsed <- plainDeclsParser
           symbolLikeTok "}"
           pure parsed
-
-    guardLetTerminator expectedArrow = do
-      nextTok <- lookAhead anySingle
-      case lexTokenKind nextTok of
-        TkSymbol "," -> pure ()
-        TkOperator op | op == expectedArrow -> pure ()
-        _ -> fail "guard let must be followed by ',' or RHS arrow"
 
     guardExprParser = withSpan $ do
       expr <- exprParser
