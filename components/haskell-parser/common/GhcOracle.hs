@@ -16,7 +16,6 @@ where
 
 import Data.List (nub)
 import qualified Data.List as List
-import Prelude hiding (foldl')
 import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -39,6 +38,7 @@ import GHC.Types.SrcLoc (mkRealSrcLoc, unLoc)
 import GHC.Utils.Error (emptyDiagOpts, pprMessages)
 import GHC.Utils.Outputable (ppr, showSDocUnsafe)
 import qualified Parser.Ast as Ast
+import Prelude hiding (foldl')
 
 oracleParsesModuleWithExtensions :: [GHC.Extension] -> Text -> Bool
 oracleParsesModuleWithExtensions = oracleParsesModuleWithExtensionsAt "oracle"
