@@ -100,9 +100,13 @@ extractLanguagePragmas sourceTag baseExts input =
           False
           False
           False
-   in case catchPureExceptionText (getOptions baseOpts supportedLanguagePragmas buffer sourceTag) of
+   in case catchPureExceptionText
+        ( let (_warns, rawOptions) = getOptions baseOpts supportedLanguagePragmas buffer sourceTag
+              pragmas = mapMaybe optionToLanguagePragma rawOptions
+           in length pragmas `seq` pragmas
+        ) of
         Left err -> Left (withInput input ("GHC option parsing exception: " <> err))
-        Right (_warns, rawOptions) -> Right (mapMaybe optionToLanguagePragma rawOptions)
+        Right pragmas -> Right pragmas
   where
     supportedLanguagePragmas =
       "CPP" : "Safe" : "Trustworthy" : "Unsafe" : "Rank2Types" : "PolymorphicComponents" : concatMap (includeNegative . show) ([minBound .. maxBound] :: [GHC.Extension])
@@ -126,6 +130,7 @@ catchPureExceptionText value =
       case result of
         Left (err :: SomeException) -> Left (T.pack (displayException err))
         Right ok -> Right ok
+{-# NOINLINE catchPureExceptionText #-}
 
 withInput :: Text -> Text -> Text
 withInput input err =
