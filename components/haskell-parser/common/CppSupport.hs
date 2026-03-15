@@ -19,10 +19,11 @@ import Cpp
     preprocess,
   )
 import Data.Functor.Identity (Identity (..), runIdentity)
+import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Parser as P
-import Parser.Ast (Extension (CPP), ExtensionSetting (..))
+import Parser.Ast (Extension (CPP), ExtensionSetting (..), parseExtensionSettingName)
 
 preprocessForParser :: (Monad m) => FilePath -> (IncludeRequest -> m (Maybe Text)) -> Text -> m Result
 preprocessForParser inputFile resolveInclude source = do
@@ -40,21 +41,38 @@ preprocessForParserWithoutIncludes :: FilePath -> Text -> Result
 preprocessForParserWithoutIncludes inputFile source =
   runIdentity (preprocessForParser inputFile (\_ -> Identity Nothing) source)
 
-preprocessForParserIfEnabled :: (Monad m) => FilePath -> (IncludeRequest -> m (Maybe Text)) -> Text -> m Result
-preprocessForParserIfEnabled inputFile resolveInclude source =
-  if cppEnabledInSource source
+preprocessForParserIfEnabled :: (Monad m) => [String] -> FilePath -> (IncludeRequest -> m (Maybe Text)) -> Text -> m Result
+preprocessForParserIfEnabled globalExtensionNames inputFile resolveInclude source =
+  if cppEnabledInSourceWithGlobals globalExtensionNames source
     then preprocessForParser inputFile resolveInclude source
     else pure Result {resultOutput = source, resultDiagnostics = []}
 
-preprocessForParserWithoutIncludesIfEnabled :: FilePath -> Text -> Result
-preprocessForParserWithoutIncludesIfEnabled inputFile source =
-  runIdentity (preprocessForParserIfEnabled inputFile (\_ -> Identity Nothing) source)
+preprocessForParserWithoutIncludesIfEnabled :: [String] -> FilePath -> Text -> Result
+preprocessForParserWithoutIncludesIfEnabled globalExtensionNames inputFile source =
+  runIdentity (preprocessForParserIfEnabled globalExtensionNames inputFile (\_ -> Identity Nothing) source)
 
 moduleHeaderExtensionSettings :: Text -> [ExtensionSetting]
 moduleHeaderExtensionSettings = P.readModuleHeaderExtensions
 
 cppEnabledInSource :: Text -> Bool
 cppEnabledInSource = foldl apply False . moduleHeaderExtensionSettings
+  where
+    apply enabled setting =
+      case setting of
+        EnableExtension CPP -> True
+        DisableExtension CPP -> False
+        _ -> enabled
+
+cppEnabledInSourceWithGlobals :: [String] -> Text -> Bool
+cppEnabledInSourceWithGlobals globalExtensionNames source =
+  cppEnabledInSettings (settingsFromExtensionNames globalExtensionNames)
+    || cppEnabledInSettings (moduleHeaderExtensionSettings source)
+
+settingsFromExtensionNames :: [String] -> [ExtensionSetting]
+settingsFromExtensionNames = mapMaybe (parseExtensionSettingName . T.pack)
+
+cppEnabledInSettings :: [ExtensionSetting] -> Bool
+cppEnabledInSettings = foldl apply False
   where
     apply enabled setting =
       case setting of
