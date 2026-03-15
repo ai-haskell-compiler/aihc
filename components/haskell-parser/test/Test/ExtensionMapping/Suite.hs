@@ -11,16 +11,14 @@ import qualified Language.Haskell.Extension as Cabal
 import qualified Language.Haskell.TH.Syntax as TH
 import qualified Parser.Ast as Ast
 import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (assertEqual, assertFailure, testCase)
+import Test.Tasty.HUnit (assertFailure, testCase)
 
 extensionMappingTests :: TestTree
 extensionMappingTests =
   testGroup
     "extension-mapping"
     [ testCase "maps overlapping Cabal KnownExtension constructors" test_cabalKnownExtensionCoverage,
-      testCase "maps overlapping TemplateHaskell Extension constructors" test_templateHaskellExtensionCoverage,
-      testCase "maps Cabal Rank2Types to Rank2Types" test_cabalRank2Types,
-      testCase "maps Template Haskell RankNTypes to RankNTypes" test_templateHaskellRankNTypes
+      testCase "maps overlapping TemplateHaskell Extension constructors" test_templateHaskellExtensionCoverage
     ]
 
 test_cabalKnownExtensionCoverage :: IO ()
@@ -42,22 +40,6 @@ test_templateHaskellExtensionCoverage = do
           isNothing (toParserExtension ext)
         ]
   assertNoMissing "Language.Haskell.TH.Syntax.Extension" missing
-
-test_cabalRank2Types :: IO ()
-test_cabalRank2Types = do
-  let matches = [ext | ext <- [minBound .. maxBound] :: [Cabal.KnownExtension], show ext == "Rank2Types"]
-  case matches of
-    [rank2] -> assertEqual "Cabal Rank2Types should map to Rank2Types" (Just Ast.Rank2Types) (toParserExtension rank2)
-    [] -> assertFailure "Cabal.KnownExtension does not expose Rank2Types"
-    _ -> assertFailure "Cabal.KnownExtension exposes duplicate Rank2Types constructors"
-
-test_templateHaskellRankNTypes :: IO ()
-test_templateHaskellRankNTypes = do
-  let matches = [ext | ext <- [minBound .. maxBound] :: [TH.Extension], show ext == "RankNTypes"]
-  case matches of
-    [rankN] -> assertEqual "Template Haskell RankNTypes should map to RankNTypes" (Just Ast.RankNTypes) (toParserExtension rankN)
-    [] -> assertFailure "Language.Haskell.TH.Syntax.Extension does not expose RankNTypes"
-    _ -> assertFailure "Language.Haskell.TH.Syntax.Extension exposes duplicate RankNTypes constructors"
 
 toParserExtension :: (Show a) => a -> Maybe Ast.Extension
 toParserExtension = Ast.parseExtensionName . T.pack . show

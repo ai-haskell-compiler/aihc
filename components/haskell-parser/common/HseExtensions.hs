@@ -50,5 +50,4 @@ hseKnownNameCandidates ext =
   case ext of
     Ast.CPP -> ["CPP", "Cpp"]
     Ast.GeneralizedNewtypeDeriving -> ["GeneralizedNewtypeDeriving", "GeneralisedNewtypeDeriving"]
-    Ast.Rank2Types -> ["Rank2Types", "RankNTypes"]
     _ -> [T.unpack (Ast.extensionName ext)]
