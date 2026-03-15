@@ -15,7 +15,7 @@ module GhcOracle
   )
 where
 
-import Control.Exception (SomeException, displayException, evaluate, try)
+import Control.Exception (catch, displayException, evaluate)
 import Data.List (nub)
 import qualified Data.List as List
 import Data.Maybe (mapMaybe)
@@ -36,6 +36,7 @@ import GHC.Parser.Lexer
     unP,
   )
 import GHC.Types.Error (NoDiagnosticOpts (NoDiagnosticOpts))
+import GHC.Types.SourceError (SourceError)
 import GHC.Types.SrcLoc (mkRealSrcLoc, unLoc)
 import GHC.Utils.Error (emptyDiagOpts, pprMessages)
 import GHC.Utils.Outputable (ppr, showSDocUnsafe)
@@ -125,11 +126,9 @@ extractLanguagePragmas sourceTag baseExts input =
 catchPureExceptionText :: a -> Either Text a
 catchPureExceptionText value =
   unsafePerformIO $ do
-    result <- try (evaluate value)
-    pure $
-      case result of
-        Left (err :: SomeException) -> Left (T.pack (displayException err))
-        Right ok -> Right ok
+    (Right <$> evaluate value)
+      `catch` \(err :: SourceError) ->
+        pure (Left (T.pack (displayException err)))
 {-# NOINLINE catchPureExceptionText #-}
 
 withInput :: Text -> Text -> Text
