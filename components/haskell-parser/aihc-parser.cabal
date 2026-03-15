@@ -74,7 +74,6 @@ test-suite spec
     , yaml
     , optparse-applicative
     , template-haskell
-    , time
   ghc-options:        -O2 -Wall -Werror -threaded -rtsopts -with-rtsopts=-N
   default-language: Haskell2010
 
@@ -97,7 +96,6 @@ executable parser-progress
     , filepath
     , ghc-lib-parser
     , Cabal-syntax
-    , time
   ghc-options:        -Wall -Werror
   default-language: Haskell2010
 
@@ -137,7 +135,6 @@ executable extension-progress
     , filepath
     , ghc-lib-parser
     , Cabal-syntax
-    , time
   ghc-options:        -Wall -Werror
   default-language: Haskell2010
 
@@ -173,7 +170,6 @@ executable hackage-tester
     , http-client-tls
     , optparse-applicative
     , haskell-src-exts
-    , time
   ghc-options:        -O2 -Wall -Werror -threaded -rtsopts -with-rtsopts=-N
   default-language: Haskell2010
 
@@ -203,7 +199,6 @@ executable stackage-progress
     , Cabal-syntax
     , bytestring
     , haskell-src-exts
-    , time
   ghc-options:        -O2 -Wall -Werror -threaded -rtsopts -with-rtsopts=-N
   default-language: Haskell2010
 
