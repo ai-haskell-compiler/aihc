@@ -79,7 +79,6 @@ cppEnabledInSettings = foldl apply False
         EnableExtension CPP -> True
         DisableExtension CPP -> False
         _ -> enabled
-
 stripLinePragmas :: Text -> Text
 stripLinePragmas =
   T.unlines
