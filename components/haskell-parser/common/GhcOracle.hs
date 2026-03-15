@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module GhcOracle
   ( oracleParsesModuleWithExtensions,
@@ -14,6 +15,7 @@ module GhcOracle
   )
 where
 
+import Control.Exception (catch, displayException, evaluate)
 import Data.List (nub)
 import qualified Data.List as List
 import Data.Maybe (mapMaybe)
@@ -34,10 +36,12 @@ import GHC.Parser.Lexer
     unP,
   )
 import GHC.Types.Error (NoDiagnosticOpts (NoDiagnosticOpts))
+import GHC.Types.SourceError (SourceError)
 import GHC.Types.SrcLoc (mkRealSrcLoc, unLoc)
 import GHC.Utils.Error (emptyDiagOpts, pprMessages)
 import GHC.Utils.Outputable (ppr, showSDocUnsafe)
 import qualified Parser.Ast as Ast
+import System.IO.Unsafe (unsafePerformIO)
 import Prelude hiding (foldl')
 
 oracleParsesModuleWithExtensions :: [GHC.Extension] -> Text -> Bool
@@ -64,16 +68,19 @@ oracleModuleAstFingerprintWithExtensionsAt sourceTag exts input = do
 parseWithGhcWithExtensions :: String -> [GHC.Extension] -> Text -> Either Text ([Ast.ExtensionSetting], HsModule GhcPs)
 parseWithGhcWithExtensions sourceTag extraExts input =
   let baseExts = nub extraExts
-      languagePragmas = extractLanguagePragmas sourceTag baseExts input
-      parseExts = List.foldl' applyExtensionSetting (EnumSet.fromList baseExts :: EnumSet.EnumSet GHC.Extension) languagePragmas
-      opts = mkParserOpts parseExts emptyDiagOpts False False False False
-      buffer = stringToStringBuffer (T.unpack input)
-      start = mkRealSrcLoc (mkFastString sourceTag) 1 1
-   in case unP parseModule (initParserState opts buffer start) of
-        POk _ modu -> Right (languagePragmas, unLoc modu)
-        PFailed st ->
-          let rendered = showSDocUnsafe (pprMessages NoDiagnosticOpts (getPsErrorMessages st))
-           in Left (T.pack rendered)
+   in do
+        languagePragmas <- extractLanguagePragmas sourceTag baseExts input
+        let parseExts = List.foldl' applyExtensionSetting (EnumSet.fromList baseExts :: EnumSet.EnumSet GHC.Extension) languagePragmas
+            opts = mkParserOpts parseExts emptyDiagOpts False False False False
+            buffer = stringToStringBuffer (T.unpack input)
+            start = mkRealSrcLoc (mkFastString sourceTag) 1 1
+        case catchPureExceptionText $ case unP parseModule (initParserState opts buffer start) of
+          POk _ modu -> Right (languagePragmas, unLoc modu)
+          PFailed st ->
+            let rendered = showSDocUnsafe (pprMessages NoDiagnosticOpts (getPsErrorMessages st))
+             in Left (withInput input (T.pack rendered)) of
+          Left err -> Left (withInput input ("GHC parser exception: " <> err))
+          Right result -> result
 
 applyExtensionSetting :: EnumSet.EnumSet GHC.Extension -> Ast.ExtensionSetting -> EnumSet.EnumSet GHC.Extension
 applyExtensionSetting exts setting =
@@ -83,7 +90,7 @@ applyExtensionSetting exts setting =
     Ast.DisableExtension ext ->
       maybe exts (`EnumSet.delete` exts) (toGhcExtension ext)
 
-extractLanguagePragmas :: String -> [GHC.Extension] -> Text -> [Ast.ExtensionSetting]
+extractLanguagePragmas :: String -> [GHC.Extension] -> Text -> Either Text [Ast.ExtensionSetting]
 extractLanguagePragmas sourceTag baseExts input =
   let buffer = stringToStringBuffer (T.unpack input)
       baseOpts =
@@ -94,8 +101,13 @@ extractLanguagePragmas sourceTag baseExts input =
           False
           False
           False
-      (_warns, rawOptions) = getOptions baseOpts supportedLanguagePragmas buffer sourceTag
-   in mapMaybe optionToLanguagePragma rawOptions
+   in case catchPureExceptionText
+        ( let (_warns, rawOptions) = getOptions baseOpts supportedLanguagePragmas buffer sourceTag
+              pragmas = mapMaybe optionToLanguagePragma rawOptions
+           in length pragmas `seq` pragmas
+        ) of
+        Left err -> Left (withInput input ("GHC option parsing exception: " <> err))
+        Right pragmas -> Right pragmas
   where
     supportedLanguagePragmas =
       "CPP" : "Safe" : "Trustworthy" : "Unsafe" : "Rank2Types" : "PolymorphicComponents" : concatMap (includeNegative . show) ([minBound .. maxBound] :: [GHC.Extension])
@@ -110,6 +122,18 @@ extractLanguagePragmas sourceTag baseExts input =
        in case T.stripPrefix "-X" opt of
             Just pragmaName | not (T.null pragmaName) -> Ast.parseExtensionSettingName pragmaName
             _ -> Nothing
+
+catchPureExceptionText :: a -> Either Text a
+catchPureExceptionText value =
+  unsafePerformIO $ do
+    (Right <$> evaluate value)
+      `catch` \(err :: SourceError) ->
+        pure (Left (T.pack (displayException err)))
+{-# NOINLINE catchPureExceptionText #-}
+
+withInput :: Text -> Text -> Text
+withInput input err =
+  err <> "\n\nInput:\n---8<---\n" <> input <> "\n--->8---"
 
 oracleParsesModuleWithNames :: [String] -> Maybe String -> Text -> Bool
 oracleParsesModuleWithNames = oracleParsesModuleWithNamesAt "oracle"
