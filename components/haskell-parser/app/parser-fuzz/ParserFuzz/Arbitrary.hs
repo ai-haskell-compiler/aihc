@@ -353,9 +353,11 @@ genTypeField size =
     [ (4, HSE.TyVar () <$> genVarNameNode),
       (3, HSE.TyCon () . HSE.UnQual () <$> genConNameNode),
       ( 2,
-        do
-          innerSize <- chooseInt (0, size - 1)
-          HSE.TyList () <$> genTypeField innerSize
+        if size > 0
+          then do
+            innerSize <- chooseInt (0, size - 1)
+            HSE.TyList () <$> genTypeField innerSize
+          else HSE.TyVar () <$> genVarNameNode
       ),
       ( 2,
         if size > 1
@@ -371,7 +373,7 @@ genTypeField size =
             rhsSize <- chooseInt (0, size - 1)
             lhs <- genTypeField lhsSize
             rhs <- genTypeField rhsSize
-            pure (HSE.TyApp () (HSE.TyApp () (HSE.TyCon () (HSE.UnQual () (HSE.Ident () "->"))) lhs) rhs)
+            pure (HSE.TyFun () lhs rhs)
           else HSE.TyVar () <$> genVarNameNode
       ),
       ( 1,
