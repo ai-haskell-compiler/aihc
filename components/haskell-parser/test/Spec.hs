@@ -8,6 +8,7 @@ import Parser
 import Parser.Ast
 import Parser.Pretty (prettyExpr, prettyModule)
 import Parser.Types (ParseResult (..))
+import Test.ExtensionMapping.Suite (extensionMappingTests)
 import Test.Extensions.Suite (extensionTests)
 import Test.H2010.Suite (h2010Tests)
 import Test.HackageTester.Suite (hackageTesterTests)
@@ -46,6 +47,7 @@ buildTests = do
           ],
         h2010,
         extensions,
+        extensionMappingTests,
         hackageTester
       ]
 
