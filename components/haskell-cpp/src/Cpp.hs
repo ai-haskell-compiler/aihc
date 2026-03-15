@@ -63,7 +63,7 @@ preprocess cfg input =
   processFile (configInputFile cfg) (joinMultiline 1 (T.lines input)) [] initialState finish
   where
     initialState =
-      let st0 = emitLine (linePragma 1 (configInputFile cfg)) emptyState
+      let st0 = emitLine (linePragma 1 (configInputFile cfg)) (emptyState (configInputFile cfg))
           (date, time) = configDateTime cfg
        in st0
             { stMacros =
@@ -103,16 +103,20 @@ data EngineState = EngineState
   { stMacros :: !(Map Text Text),
     stOutputRev :: ![Text],
     stDiagnosticsRev :: ![Diagnostic],
-    stSkippingDanglingElse :: !Bool
+    stSkippingDanglingElse :: !Bool,
+    stCurrentFile :: !FilePath,
+    stCurrentLine :: !Int
   }
 
-emptyState :: EngineState
-emptyState =
+emptyState :: FilePath -> EngineState
+emptyState filePath =
   EngineState
     { stMacros = M.empty,
       stOutputRev = [],
       stDiagnosticsRev = [],
-      stSkippingDanglingElse = False
+      stSkippingDanglingElse = False,
+      stCurrentFile = filePath,
+      stCurrentLine = 1
     }
 
 data CondFrame = CondFrame
@@ -136,8 +140,8 @@ processFile filePath ((lineNo, lineSpan, line) : restLines) stack st k =
         (n, _, _) : _ -> n
         [] -> lineNo + lineSpan
       emitDirectiveBlank = emitBlankLines lineSpan
-      continue st' = processFile filePath restLines stack st' k
-      continueWith stack' st' = processFile filePath restLines stack' st' k
+      continue st' = processFile filePath restLines stack (st' {stCurrentLine = nextLineNo}) k
+      continueWith stack' st' = processFile filePath restLines stack' (st' {stCurrentLine = nextLineNo}) k
       recoverDanglingElse =
         case parseDirective line of
           Just DirEndIf ->
@@ -179,20 +183,20 @@ processFile filePath ((lineNo, lineSpan, line) : restLines) stack st k =
                           continue
                             (addDiag Error ("missing include: " <> T.pack includeTarget) filePath lineNo st)
                         Just includeText ->
-                          let stWithIncludePragma = emitLine (linePragma 1 includeTarget) st
+                          let stWithIncludePragma = emitLine (linePragma 1 includeTarget) (st {stCurrentFile = includeTarget, stCurrentLine = 1})
                               resumeParent stAfterInclude =
                                 processFile
                                   filePath
                                   restLines
                                   stack
-                                  (emitLine (linePragma nextLineNo filePath) stAfterInclude)
+                                  (emitLine (linePragma nextLineNo filePath) (stAfterInclude {stCurrentFile = filePath, stCurrentLine = nextLineNo}))
                                   k
                            in processFile includeTarget (joinMultiline 1 (T.lines includeText)) [] stWithIncludePragma resumeParent
                  in NeedInclude req nextStep
               else continue (emitDirectiveBlank st)
           DirIf expr ->
             let outer = currentActive stack
-                cond = evalCondition (stMacros st) expr
+                cond = evalCondition st expr
                 frame = mkFrame outer cond
              in continueWith (frame : stack) (emitDirectiveBlank st)
           DirIfDef name ->
@@ -217,7 +221,7 @@ processFile filePath ((lineNo, lineSpan, line) : restLines) stack st k =
                       (emitDirectiveBlank (addDiag Error "#elif after #else" filePath lineNo st))
                   else
                     let anyTaken = frameConditionTrue f
-                        newCond = not anyTaken && evalCondition (stMacros st) expr
+                        newCond = not anyTaken && evalCondition st expr
                         f' =
                           f
                             { frameConditionTrue = anyTaken || newCond,
@@ -255,6 +259,15 @@ processFile filePath ((lineNo, lineSpan, line) : restLines) stack st k =
             if currentActive stack
               then k (emitDirectiveBlank (addDiag Error msg filePath lineNo st))
               else continue (emitDirectiveBlank st)
+          DirLine n mPath ->
+            if currentActive stack
+              then
+                let st'' = case mPath of
+                      Just p -> st {stCurrentFile = p}
+                      Nothing -> st
+                    st''' = emitLine (linePragma n (stCurrentFile st'')) (st'' {stCurrentLine = n})
+                 in processFile filePath restLines stack (st''' {stCurrentLine = n}) k
+              else continue (emitDirectiveBlank st)
           DirUnsupported name ->
             if currentActive stack
               then
@@ -266,7 +279,7 @@ processFile filePath ((lineNo, lineSpan, line) : restLines) stack st k =
         else case parseDirective line of
           Nothing ->
             if active
-              then continue (emitLine (expandMacros (stMacros st) line) st)
+              then continue (emitLine (expandMacros st line) st)
               else continue (emitBlankLines lineSpan st)
           Just directive ->
             handleDirective directive
@@ -314,6 +327,7 @@ data Directive
   | DirElif !Text
   | DirElse
   | DirEndIf
+  | DirLine !Int !(Maybe FilePath)
   | DirWarning !Text
   | DirError !Text
   | DirUnsupported !Text
@@ -341,9 +355,28 @@ parseDirectiveBody body =
         "elseif" -> Just (DirElif rest)
         "else" -> Just DirElse
         "endif" -> Just DirEndIf
+        "line" -> parseLineDirective rest
         "warning" -> Just (DirWarning rest)
         "error" -> Just (DirError rest)
-        _ -> Just (DirUnsupported name)
+        _ -> case T.uncons body of
+          Just (c, _) | isDigit c -> parseLineDirective body
+          _ -> Just (DirUnsupported name)
+
+parseLineDirective :: Text -> Maybe Directive
+parseLineDirective body =
+  let (nStr, rest0) = T.span isDigit body
+      rest = T.stripStart rest0
+   in if T.null nStr
+        then Nothing
+        else
+          let n = read (T.unpack nStr)
+           in case T.uncons rest of
+                Just ('"', rest1) ->
+                  let (path, suffix) = T.breakOn "\"" rest1
+                   in if T.null suffix
+                        then Just (DirLine n Nothing)
+                        else Just (DirLine n (Just (T.unpack path)))
+                _ -> Just (DirLine n Nothing)
 
 parseDefine :: Text -> Maybe Directive
 parseDefine rest = do
@@ -371,23 +404,27 @@ parseInclude txt =
        in if T.null suffix then Nothing else Just (DirInclude IncludeSystem (T.unpack path))
     _ -> Nothing
 
-expandMacros :: Map Text Text -> Text -> Text
-expandMacros macros = applyDepth (32 :: Int)
+expandMacros :: EngineState -> Text -> Text
+expandMacros st = applyDepth (32 :: Int)
   where
     applyDepth 0 t = t
     applyDepth n t =
-      let next = expandOnce macros t
+      let next = expandOnce st t
        in if next == t then t else applyDepth (n - 1) next
 
-expandOnce :: Map Text Text -> Text -> Text
-expandOnce macros input = T.pack (go (T.unpack input))
+expandOnce :: EngineState -> Text -> Text
+expandOnce st input = T.pack (go (T.unpack input))
   where
+    macros = stMacros st
     go [] = []
     go (c : cs)
       | isIdentStart c =
           let (ident, rest) = span isIdentChar (c : cs)
               identTxt = T.pack ident
-           in T.unpack (M.findWithDefault identTxt identTxt macros) ++ go rest
+           in case identTxt of
+                "__LINE__" -> show (stCurrentLine st) ++ go rest
+                "__FILE__" -> "\"" ++ stCurrentFile st ++ "\"" ++ go rest
+                _ -> T.unpack (M.findWithDefault identTxt identTxt macros) ++ go rest
       | otherwise = c : go cs
 
 isIdentStart :: Char -> Bool
@@ -400,10 +437,11 @@ isIdentChar c = c == '_' || isAlphaNum c
 -- Expression Evaluation
 --------------------------------------------------------------------------------
 
-evalCondition :: Map Text Text -> Text -> Bool
-evalCondition macros expr = eval expr /= 0
+evalCondition :: EngineState -> Text -> Bool
+evalCondition st expr = eval expr /= 0
   where
-    eval = evalNumeric . replaceRemainingWithZero . expandMacros macros . replaceDefined macros
+    macros = stMacros st
+    eval = evalNumeric . replaceRemainingWithZero . expandMacros st . replaceDefined macros
 
 evalNumeric :: Text -> Integer
 evalNumeric input =
