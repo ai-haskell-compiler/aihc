@@ -369,10 +369,11 @@ genTypeField size =
       ( 1,
         if size > 1
           then do
-            lhsSize <- chooseInt (0, size - 1)
-            rhsSize <- chooseInt (0, size - 1)
-            lhs <- genTypeField lhsSize
-            rhs <- genTypeField rhsSize
+            let remaining = max 0 (size - 1)
+            lhsBudget <- chooseInt (0, remaining)
+            let rhsBudget = remaining - lhsBudget
+            lhs <- genTypeField lhsBudget
+            rhs <- genTypeField rhsBudget
             pure (HSE.TyFun () lhs rhs)
           else HSE.TyVar () <$> genVarNameNode
       ),
@@ -380,21 +381,32 @@ genTypeField size =
         if size > 1
           then do
             n <- chooseInt (2, min 5 (size + 1))
-            tupleElems <- vectorOf n (genTypeField (size `div` 2))
+            let remaining = max 0 (size - 1)
+            budgets <- genTypeBudgetPartition remaining n
+            tupleElems <- mapM genTypeField budgets
             pure (HSE.TyTuple () HSE.Boxed tupleElems)
           else HSE.TyCon () . HSE.UnQual () <$> genConNameNode
       ),
       ( 1,
         if size > 1
           then do
-            funcSize <- chooseInt (0, size - 1)
-            argSize <- chooseInt (0, size - 1)
-            func <- genTypeField funcSize
-            arg <- genTypeField argSize
+            let remaining = max 0 (size - 1)
+            funcBudget <- chooseInt (0, remaining)
+            let argBudget = remaining - funcBudget
+            func <- genTypeField funcBudget
+            arg <- genTypeField argBudget
             pure (HSE.TyApp () func arg)
           else HSE.TyVar () <$> genVarNameNode
       )
     ]
+
+genTypeBudgetPartition :: Int -> Int -> Gen [Int]
+genTypeBudgetPartition budget parts
+  | parts <= 1 = pure [max 0 budget]
+  | otherwise = do
+      current <- chooseInt (0, budget)
+      rest <- genTypeBudgetPartition (budget - current) (parts - 1)
+      pure (current : rest)
 
 isValidNewtypeConstructor :: HSE.QualConDecl () -> Bool
 isValidNewtypeConstructor qualConDecl =
