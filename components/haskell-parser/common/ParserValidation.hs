@@ -18,7 +18,7 @@ import GHC.LanguageExtensions.Type (Extension)
 import qualified GhcOracle
 import HseExtensions (toHseExtension)
 import qualified Language.Haskell.Exts as HSE
-import Parser (defaultConfig, parseModule)
+import Parser (defaultConfig, errorBundlePretty, parseModule)
 import Parser.Pretty (prettyModule)
 import Parser.Types (ParseResult (..))
 import ShrinkUtils (candidateTransformsWith, unique)
@@ -61,7 +61,7 @@ validateParserDetailedCore exts source =
       Just
         ValidationError
           { validationErrorKind = ValidationParseError,
-            validationErrorMessage = "Parse failed: " <> show err
+            validationErrorMessage = "Parse failed:\n" <> errorBundlePretty err
           }
     ParseOk parsed ->
       let rendered = prettyModule parsed

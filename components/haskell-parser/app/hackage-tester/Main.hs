@@ -209,16 +209,18 @@ printFailureDetails results = do
         case failureLabel (outcome result) of
           Nothing -> pure ()
           Just label -> do
-            let detailLine = maybe "(no details)" (T.unpack . firstLine) (outcomeDetail result)
-            putStrLn (label ++ ": " ++ filePath result ++ " :: " ++ detailLine)
+            let detailLineText = maybe "(no details)" firstLine (outcomeDetail result)
+            putStrLn (label ++ ": " ++ filePath result ++ " :: " ++ T.unpack detailLineText)
             unless (null (cppDiagnostics result)) $ do
               putStrLn "  cpp diagnostics:"
               mapM_ (TIO.putStrLn . ("    " <>)) (cppDiagnostics result)
             case outcomeDetail result of
               Nothing -> pure ()
               Just fullDetail -> do
-                putStrLn "  details:"
-                mapM_ (TIO.putStrLn . ("    " <>)) (T.lines fullDetail)
+                let detailLines = detailLinesWithoutSummary fullDetail detailLineText
+                unless (null detailLines) $ do
+                  putStrLn "  details:"
+                  mapM_ (TIO.putStrLn . ("    " <>)) detailLines
     )
     results
 
@@ -227,6 +229,14 @@ firstLine msg =
   case T.lines msg of
     [] -> ""
     x : _ -> x
+
+detailLinesWithoutSummary :: Text -> Text -> [Text]
+detailLinesWithoutSummary fullDetail summaryLine =
+  case T.lines fullDetail of
+    [] -> []
+    x : xs
+      | x == summaryLine -> xs
+      | otherwise -> x : xs
 
 emitSummary :: Options -> RunInfo -> IO ()
 emitSummary opts info =
