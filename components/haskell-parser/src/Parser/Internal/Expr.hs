@@ -393,25 +393,14 @@ parseTupleSection :: TokParser [Maybe Expr]
 parseTupleSection = do
   first <- MP.optional exprParser
   _ <- symbolLikeTok ","
-  rest <- parseTupleSectionTail
-  MP.try $
-    do
-      symbolLikeTok ")"
-      let vals = first : rest
-      let hasMissing = any isNothing vals
-      if hasMissing && length vals > 1
-        then pure vals
-        else fail "not a tuple section"
-
-parseTupleSectionTail :: TokParser [Maybe Expr]
-parseTupleSectionTail = do
-  mComma <- MP.optional (symbolLikeTok ",")
-  case mComma of
-    Nothing -> pure []
-    Just () -> do
-      mExpr <- MP.optional exprParser
-      rest <- parseTupleSectionTail
-      pure (mExpr : rest)
+  middle <- MP.many (MP.try (MP.optional exprParser <* symbolLikeTok ","))
+  lastSlot <- MP.optional exprParser
+  symbolLikeTok ")"
+  let vals = first : middle <> [lastSlot]
+  let hasMissing = any isNothing vals
+  if hasMissing && length vals > 1
+    then pure vals
+    else fail "not a tuple section"
 
 isNothing :: Maybe a -> Bool
 isNothing Nothing = True
