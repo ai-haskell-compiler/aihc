@@ -50,6 +50,7 @@ test-suite spec
     , ShrinkUtils
     , Test.Oracle
     , Test.H2010.Suite
+    , Test.ExtensionMapping.Suite
     , Test.Extensions.Suite
     , Test.HackageTester.Suite
     , Test.Lexer.Suite
@@ -72,6 +73,7 @@ test-suite spec
     , aeson
     , yaml
     , optparse-applicative
+    , template-haskell
   ghc-options:        -O2 -Wall -Werror -threaded -rtsopts -with-rtsopts=-N
   default-language: Haskell2010
 
