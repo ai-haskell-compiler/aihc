@@ -23,3 +23,4 @@ predefined-line-file	macro	predefined-line-file.hs	pass
 function-macro-basic	macro	function-macro-basic.hs	xfail	function-like macros are not implemented
 line-directive-file-and-number	diagnostics	line-directive-file-and-number.hs	pass
 line-directive-number-only	diagnostics	line-directive-number-only.hs	pass
+language-pragma-closing-line	lexing	language-pragma-closing-line.hs	xfail	lines starting with '#-}' should be preserved; currently treated as unsupported CPP directive
