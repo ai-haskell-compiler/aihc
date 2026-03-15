@@ -375,13 +375,6 @@ guardQualifierParser _arrow = MP.try guardPatParser <|> MP.try guardLetParser <|
       decls <- bracedDeclsParser <|> plainDeclsParser
       MP.notFollowedBy (keywordTok TkKeywordIn)
       pure (`GuardLet` decls)
-      where
-        plainDeclsParser = MP.some (localDeclParser <* MP.many (symbolLikeTok ";"))
-        bracedDeclsParser = do
-          symbolLikeTok "{"
-          parsed <- plainDeclsParser
-          symbolLikeTok "}"
-          pure parsed
 
     guardExprParser = withSpan $ do
       expr <- exprParser
@@ -537,25 +530,21 @@ letExprParser = withSpan $ do
   keywordTok TkKeywordIn
   body <- exprParser
   pure (\span' -> ELetDecls span' decls body)
-  where
-    plainDeclsParser = MP.some (localDeclParser <* MP.many (symbolLikeTok ";"))
-    bracedDeclsParser = do
-      symbolLikeTok "{"
-      parsed <- plainDeclsParser
-      symbolLikeTok "}"
-      pure parsed
 
 whereClauseParser :: TokParser [Decl]
 whereClauseParser = do
   keywordTok TkKeywordWhere
   bracedDeclsParser <|> plainDeclsParser
-  where
-    plainDeclsParser = MP.some (localDeclParser <* MP.many (symbolLikeTok ";"))
-    bracedDeclsParser = do
-      symbolLikeTok "{"
-      parsed <- plainDeclsParser
-      symbolLikeTok "}"
-      pure parsed
+
+plainDeclsParser :: TokParser [Decl]
+plainDeclsParser = MP.some (localDeclParser <* MP.many (symbolLikeTok ";"))
+
+bracedDeclsParser :: TokParser [Decl]
+bracedDeclsParser = do
+  symbolLikeTok "{"
+  parsed <- plainDeclsParser
+  symbolLikeTok "}"
+  pure parsed
 
 localDeclParser :: TokParser Decl
 localDeclParser = MP.try localTypeSigDeclParser <|> MP.try localFunctionDeclParser <|> localPatternDeclParser
