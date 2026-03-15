@@ -139,6 +139,7 @@ toGhcExtension ext =
   where
     toGhcExtensionName Ast.CPP = "Cpp"
     toGhcExtensionName Ast.GeneralizedNewtypeDeriving = "GeneralisedNewtypeDeriving"
+    toGhcExtensionName Ast.Rank2Types = "RankNTypes"
     toGhcExtensionName other = T.unpack (Ast.extensionName other)
 
 fromGhcExtension :: GHC.Extension -> Maybe Ast.Extension

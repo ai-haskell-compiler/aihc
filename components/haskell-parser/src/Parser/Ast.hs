@@ -158,6 +158,7 @@ data Extension
   | QualifiedStrings
   | QuantifiedConstraints
   | QuasiQuotes
+  | Rank2Types
   | RankNTypes
   | RebindableSyntax
   | RecordWildCards
@@ -228,7 +229,6 @@ parseExtensionName raw =
     aliases =
       [ ("Cpp", CPP),
         ("GeneralisedNewtypeDeriving", GeneralizedNewtypeDeriving),
-        ("Rank2Types", RankNTypes),
         ("Safe", SafeHaskell),
         ("Unsafe", UnsafeHaskell)
       ]

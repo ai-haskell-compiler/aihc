@@ -19,7 +19,7 @@ extensionMappingTests =
     "extension-mapping"
     [ testCase "maps overlapping Cabal KnownExtension constructors" test_cabalKnownExtensionCoverage,
       testCase "maps overlapping TemplateHaskell Extension constructors" test_templateHaskellExtensionCoverage,
-      testCase "maps Cabal Rank2Types to RankNTypes" test_cabalRank2TypesAlias,
+      testCase "maps Cabal Rank2Types to Rank2Types" test_cabalRank2Types,
       testCase "maps Template Haskell RankNTypes to RankNTypes" test_templateHaskellRankNTypes
     ]
 
@@ -43,11 +43,11 @@ test_templateHaskellExtensionCoverage = do
         ]
   assertNoMissing "Language.Haskell.TH.Syntax.Extension" missing
 
-test_cabalRank2TypesAlias :: IO ()
-test_cabalRank2TypesAlias = do
+test_cabalRank2Types :: IO ()
+test_cabalRank2Types = do
   let matches = [ext | ext <- [minBound .. maxBound] :: [Cabal.KnownExtension], show ext == "Rank2Types"]
   case matches of
-    [rank2] -> assertEqual "Cabal Rank2Types should map to RankNTypes" (Just Ast.RankNTypes) (toParserExtension rank2)
+    [rank2] -> assertEqual "Cabal Rank2Types should map to Rank2Types" (Just Ast.Rank2Types) (toParserExtension rank2)
     [] -> assertFailure "Cabal.KnownExtension does not expose Rank2Types"
     _ -> assertFailure "Cabal.KnownExtension exposes duplicate Rank2Types constructors"
 
