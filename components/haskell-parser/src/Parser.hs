@@ -91,4 +91,4 @@ parseModule _cfg input =
     Right m -> ParseOk m
 
 errorBundlePretty :: ParseErrorBundle -> String
-errorBundlePretty = show
+errorBundlePretty = MP.errorBundlePretty
