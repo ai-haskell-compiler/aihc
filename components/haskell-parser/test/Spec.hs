@@ -10,6 +10,7 @@ import Parser.Pretty (prettyExpr, prettyModule)
 import Parser.Types (ParseResult (..))
 import Test.Extensions.Suite (extensionTests)
 import Test.H2010.Suite (h2010Tests)
+import Test.HackageTester.Suite (hackageTesterTests)
 import Test.Lexer.Suite (lexerTests)
 import Test.Parser.Suite (parserGoldenTests)
 import Test.QuickCheck
@@ -29,6 +30,7 @@ buildTests = do
   h2010 <- h2010Tests
   extensions <- extensionTests
   lexer <- lexerTests
+  let hackageTester = hackageTesterTests
   pure $
     testGroup
       "aihc-parser"
@@ -43,7 +45,8 @@ buildTests = do
             QC.testProperty "generated module AST pretty-printer round-trip" prop_modulePrettyRoundTrip
           ],
         h2010,
-        extensions
+        extensions,
+        hackageTester
       ]
 
 test_moduleParsesDecls :: Assertion
@@ -198,6 +201,7 @@ toModule (GenModule decls) =
     { moduleSpan = span0,
       moduleName = Just "Generated",
       moduleLanguagePragmas = [],
+      moduleWarningText = Nothing,
       moduleExports = Nothing,
       moduleImports = [],
       moduleDecls =

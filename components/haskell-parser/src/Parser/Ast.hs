@@ -12,8 +12,11 @@ module Parser.Ast
     DataDecl (..),
     Decl (..),
     DerivingClause (..),
+    DerivingStrategy (..),
     DoStmt (..),
     Expr (..),
+    Extension (..),
+    ExtensionSetting (..),
     ExportSpec (..),
     FieldDecl (..),
     FixityAssoc (..),
@@ -24,6 +27,7 @@ module Parser.Ast
     GuardQualifier (..),
     GuardedRhs (..),
     ImportDecl (..),
+    ImportLevel (..),
     ImportItem (..),
     ImportSpec (..),
     InstanceDecl (..),
@@ -31,6 +35,7 @@ module Parser.Ast
     Literal (..),
     Match (..),
     Module (..),
+    WarningText (..),
     NewtypeDecl (..),
     OperatorName,
     Pattern (..),
@@ -40,12 +45,204 @@ module Parser.Ast
     TypeSynDecl (..),
     ValueDecl (..),
     declValueBinderNames,
+    allKnownExtensions,
+    extensionName,
+    extensionSettingName,
     noSourceSpan,
+    parseExtensionName,
+    parseExtensionSettingName,
     valueDeclBinderName,
   )
 where
 
+import Control.Applicative ((<|>))
 import Data.Text (Text)
+import qualified Data.Text as T
+import Text.Read (readMaybe)
+
+data Extension
+  = AllowAmbiguousTypes
+  | ApplicativeDo
+  | Arrows
+  | BangPatterns
+  | BinaryLiterals
+  | BlockArguments
+  | CApiFFI
+  | ConstrainedClassMethods
+  | ConstraintKinds
+  | CPP
+  | CUSKs
+  | DataKinds
+  | DatatypeContexts
+  | DeepSubsumption
+  | DefaultSignatures
+  | DeriveAnyClass
+  | DeriveDataTypeable
+  | DeriveFoldable
+  | DeriveFunctor
+  | DeriveGeneric
+  | DeriveLift
+  | DeriveTraversable
+  | DerivingStrategies
+  | DerivingVia
+  | DisambiguateRecordFields
+  | DoAndIfThenElse
+  | DuplicateRecordFields
+  | EmptyCase
+  | EmptyDataDecls
+  | EmptyDataDeriving
+  | ExistentialQuantification
+  | ExplicitForAll
+  | ExplicitLevelImports
+  | ExplicitNamespaces
+  | ExtendedDefaultRules
+  | ExtendedLiterals
+  | FieldSelectors
+  | FlexibleContexts
+  | FlexibleInstances
+  | ForeignFunctionInterface
+  | FunctionalDependencies
+  | GADTs
+  | GADTSyntax
+  | GeneralizedNewtypeDeriving
+  | GHC2021
+  | GHC2024
+  | GHCForeignImportPrim
+  | Haskell2010
+  | Haskell98
+  | HexFloatLiterals
+  | ImplicitParams
+  | ImplicitPrelude
+  | ImplicitStagePersistence
+  | ImportQualifiedPost
+  | ImpredicativeTypes
+  | IncoherentInstances
+  | InstanceSigs
+  | InterruptibleFFI
+  | KindSignatures
+  | LambdaCase
+  | LexicalNegation
+  | LiberalTypeSynonyms
+  | LinearTypes
+  | ListTuplePuns
+  | MagicHash
+  | MonadComprehensions
+  | MonoLocalBinds
+  | MonomorphismRestriction
+  | MultilineStrings
+  | MultiParamTypeClasses
+  | MultiWayIf
+  | NamedDefaults
+  | NamedFieldPuns
+  | NamedWildCards
+  | NegativeLiterals
+  | NondecreasingIndentation
+  | NPlusKPatterns
+  | NullaryTypeClasses
+  | NumDecimals
+  | NumericUnderscores
+  | OrPatterns
+  | OverlappingInstances
+  | OverloadedLabels
+  | OverloadedLists
+  | OverloadedRecordDot
+  | OverloadedRecordUpdate
+  | OverloadedStrings
+  | PackageImports
+  | ParallelListComp
+  | PartialTypeSignatures
+  | PatternGuards
+  | PatternSynonyms
+  | PolyKinds
+  | PostfixOperators
+  | QualifiedDo
+  | QualifiedStrings
+  | QuantifiedConstraints
+  | QuasiQuotes
+  | RankNTypes
+  | RebindableSyntax
+  | RecordWildCards
+  | RecursiveDo
+  | RelaxedPolyRec
+  | RequiredTypeArguments
+  | RoleAnnotations
+  | SafeHaskell
+  | ScopedTypeVariables
+  | StandaloneDeriving
+  | StandaloneKindSignatures
+  | StarIsType
+  | StaticPointers
+  | Strict
+  | StrictData
+  | TemplateHaskell
+  | TemplateHaskellQuotes
+  | TraditionalRecordSyntax
+  | TransformListComp
+  | Trustworthy
+  | TupleSections
+  | TypeAbstractions
+  | TypeApplications
+  | TypeData
+  | TypeFamilies
+  | TypeFamilyDependencies
+  | TypeInType
+  | TypeOperators
+  | TypeSynonymInstances
+  | UnboxedSums
+  | UnboxedTuples
+  | UndecidableInstances
+  | UndecidableSuperClasses
+  | UnicodeSyntax
+  | UnliftedDatatypes
+  | UnliftedFFITypes
+  | UnliftedNewtypes
+  | UnsafeHaskell
+  | ViewPatterns
+  deriving (Eq, Ord, Show, Read, Enum, Bounded)
+
+data ExtensionSetting
+  = EnableExtension Extension
+  | DisableExtension Extension
+  deriving (Eq, Ord, Show, Read)
+
+allKnownExtensions :: [Extension]
+allKnownExtensions = [minBound .. maxBound]
+
+extensionName :: Extension -> Text
+extensionName ext =
+  case ext of
+    SafeHaskell -> T.pack "Safe"
+    UnsafeHaskell -> T.pack "Unsafe"
+    _ -> T.pack (show ext)
+
+extensionSettingName :: ExtensionSetting -> Text
+extensionSettingName setting =
+  case setting of
+    EnableExtension ext -> extensionName ext
+    DisableExtension ext -> T.pack "No" <> extensionName ext
+
+parseExtensionName :: Text -> Maybe Extension
+parseExtensionName raw =
+  readMaybe (T.unpack trimmed) <|> lookup (T.unpack trimmed) aliases
+  where
+    trimmed = T.strip raw
+    aliases =
+      [ ("Cpp", CPP),
+        ("GeneralisedNewtypeDeriving", GeneralizedNewtypeDeriving),
+        ("Rank2Types", RankNTypes),
+        ("Safe", SafeHaskell),
+        ("Unsafe", UnsafeHaskell)
+      ]
+
+parseExtensionSettingName :: Text -> Maybe ExtensionSetting
+parseExtensionSettingName raw =
+  case T.stripPrefix (T.pack "No") trimmed of
+    Just rest
+      | not (T.null rest) ->
+          DisableExtension <$> parseExtensionName rest
+    _ -> EnableExtension <$> parseExtensionName trimmed
+  where
+    trimmed = T.strip raw
 
 data SourceSpan
   = NoSourceSpan
@@ -64,10 +261,16 @@ type BinderName = Text
 
 type OperatorName = Text
 
+data WarningText
+  = DeprText SourceSpan Text
+  | WarnText SourceSpan Text
+  deriving (Eq, Show)
+
 data Module = Module
   { moduleSpan :: SourceSpan,
     moduleName :: Maybe Text,
-    moduleLanguagePragmas :: [Text],
+    moduleLanguagePragmas :: [ExtensionSetting],
+    moduleWarningText :: Maybe WarningText,
     moduleExports :: Maybe [ExportSpec],
     moduleImports :: [ImportDecl],
     moduleDecls :: [Decl]
@@ -84,6 +287,7 @@ data ExportSpec
 
 data ImportDecl = ImportDecl
   { importDeclSpan :: SourceSpan,
+    importDeclLevel :: Maybe ImportLevel,
     importDeclPackage :: Maybe Text,
     importDeclQualified :: Bool,
     importDeclQualifiedPost :: Bool,
@@ -91,6 +295,11 @@ data ImportDecl = ImportDecl
     importDeclAs :: Maybe Text,
     importDeclSpec :: Maybe ImportSpec
   }
+  deriving (Eq, Show)
+
+data ImportLevel
+  = ImportLevelQuote
+  | ImportLevelSplice
   deriving (Eq, Show)
 
 data ImportSpec = ImportSpec
@@ -211,7 +420,7 @@ data DataDecl = DataDecl
     dataDeclName :: Text,
     dataDeclParams :: [Text],
     dataDeclConstructors :: [DataConDecl],
-    dataDeclDeriving :: Maybe DerivingClause
+    dataDeclDeriving :: [DerivingClause]
   }
   deriving (Eq, Show)
 
@@ -221,7 +430,7 @@ data NewtypeDecl = NewtypeDecl
     newtypeDeclName :: Text,
     newtypeDeclParams :: [Text],
     newtypeDeclConstructor :: Maybe DataConDecl,
-    newtypeDeclDeriving :: Maybe DerivingClause
+    newtypeDeclDeriving :: [DerivingClause]
   }
   deriving (Eq, Show)
 
@@ -245,16 +454,23 @@ data FieldDecl = FieldDecl
   }
   deriving (Eq, Show)
 
-newtype DerivingClause = DerivingClause
-  { derivingClasses :: [Text]
+data DerivingClause = DerivingClause
+  { derivingStrategy :: Maybe DerivingStrategy,
+    derivingClasses :: [Text]
   }
+  deriving (Eq, Show)
+
+data DerivingStrategy
+  = DerivingStock
+  | DerivingNewtype
+  | DerivingAnyclass
   deriving (Eq, Show)
 
 data ClassDecl = ClassDecl
   { classDeclSpan :: SourceSpan,
     classDeclContext :: [Constraint],
     classDeclName :: Text,
-    classDeclParam :: Text,
+    classDeclParams :: [Text],
     classDeclItems :: [ClassDeclItem]
   }
   deriving (Eq, Show)

@@ -36,18 +36,21 @@ prettyModule modu =
   where
     pragmaLines =
       map
-        (\ext -> "{-# LANGUAGE" <+> pretty ext <+> "#-}")
+        (\ext -> "{-# LANGUAGE" <+> pretty (extensionSettingName ext) <+> "#-}")
         (moduleLanguagePragmas modu)
     headerLines =
       case moduleName modu of
         Just name ->
           [ hsep
               ( ["module", pretty name]
+                  <> maybe [] prettyWarningText (moduleWarningText modu)
                   <> maybe [] (\specs -> [prettyExportSpecList specs]) (moduleExports modu)
                   <> ["where"]
               )
           ]
         Nothing -> []
+    prettyWarningText (DeprText _ msg) = ["{-# DEPRECATED", pretty (show msg), "#-}"]
+    prettyWarningText (WarnText _ msg) = ["{-# WARNING", pretty (show msg), "#-}"]
     importLines = map prettyImportDecl (moduleImports modu)
     declLines = concatMap prettyDeclLines (moduleDecls modu)
 
@@ -73,12 +76,19 @@ prettyImportDecl decl =
    in hsep
         ( ["import"]
             <> ["qualified" | importDeclQualified decl && not renderPostQualified]
+            <> maybe [] (\level -> [prettyImportLevel level]) (importDeclLevel decl)
             <> maybe [] (\pkg -> [prettyQuotedText pkg]) (importDeclPackage decl)
             <> [pretty (importDeclModule decl)]
             <> ["qualified" | importDeclQualified decl && renderPostQualified]
             <> maybe [] (\alias -> ["as", pretty alias]) (importDeclAs decl)
             <> maybe [] (\spec -> [prettyImportSpec spec]) (importDeclSpec decl)
         )
+
+prettyImportLevel :: ImportLevel -> Doc ann
+prettyImportLevel level =
+  case level of
+    ImportLevelQuote -> "quote"
+    ImportLevelSplice -> "splice"
 
 prettyQuotedText :: Text -> Doc ann
 prettyQuotedText txt = "\"" <> pretty txt <> "\""
@@ -303,7 +313,7 @@ prettyDataDecl decl =
         prettyDeclHead (dataDeclContext decl) (dataDeclName decl) (dataDeclParams decl)
       ]
         <> ctorPart
-        <> derivingPart (dataDeclDeriving decl)
+        <> derivingParts (dataDeclDeriving decl)
     )
   where
     ctorPart =
@@ -318,7 +328,7 @@ prettyNewtypeDecl decl =
         prettyDeclHead (newtypeDeclContext decl) (newtypeDeclName decl) (newtypeDeclParams decl)
       ]
         <> ctorPart
-        <> derivingPart (newtypeDeclDeriving decl)
+        <> derivingParts (newtypeDeclDeriving decl)
     )
   where
     ctorPart =
@@ -326,15 +336,23 @@ prettyNewtypeDecl decl =
         Nothing -> []
         Just ctor -> ["=", prettyDataCon ctor]
 
-derivingPart :: Maybe DerivingClause -> [Doc ann]
-derivingPart mClause =
-  case mClause of
-    Nothing -> []
-    Just (DerivingClause classes) ->
-      case classes of
-        [] -> ["deriving", "()"]
-        [single] -> ["deriving", pretty single]
-        _ -> ["deriving", parens (hsep (punctuate comma (map pretty classes)))]
+derivingParts :: [DerivingClause] -> [Doc ann]
+derivingParts = concatMap derivingPart
+
+derivingPart :: DerivingClause -> [Doc ann]
+derivingPart (DerivingClause strategy classes) =
+  ["deriving"] <> strategyPart strategy <> classesPart classes
+  where
+    strategyPart Nothing = []
+    strategyPart (Just DerivingStock) = ["stock"]
+    strategyPart (Just DerivingNewtype) = ["newtype"]
+    strategyPart (Just DerivingAnyclass) = ["anyclass"]
+
+    classesPart [] = ["()"]
+    classesPart [single]
+      | Just DerivingStock <- strategy = [parens (pretty single)]
+      | otherwise = [pretty single]
+    classesPart _ = [parens (hsep (punctuate comma (map pretty classes)))]
 
 prettyDeclHead :: [Constraint] -> Text -> [Text] -> Doc ann
 prettyDeclHead constraints name params =
@@ -390,7 +408,8 @@ prettyClassDecl decl =
         hsep
           ( ["class"]
               <> contextPrefix (classDeclContext decl)
-              <> [pretty (classDeclName decl), pretty (classDeclParam decl)]
+              <> [pretty (classDeclName decl)]
+              <> map pretty (classDeclParams decl)
           )
    in case classDeclItems decl of
         [] -> headDoc

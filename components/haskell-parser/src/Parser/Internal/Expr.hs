@@ -6,6 +6,7 @@ module Parser.Internal.Expr
     simplePatternParser,
     patternParser,
     typeParser,
+    typeAtomParser,
   )
 where
 
@@ -729,7 +730,7 @@ simplePatternParser =
     <|> patternAtomParser
 
 typeParser :: TokParser Type
-typeParser = MP.try forallTypeParser <|> typeFunParser
+typeParser = MP.try forallTypeParser <|> MP.try contextTypeParser <|> typeFunParser
 
 forallTypeParser :: TokParser Type
 forallTypeParser = withSpan $ do
