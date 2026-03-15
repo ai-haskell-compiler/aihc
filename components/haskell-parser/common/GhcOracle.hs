@@ -60,8 +60,8 @@ parseWithGhcWithExtensions :: String -> [Extension] -> Text -> Either Text ([Tex
 parseWithGhcWithExtensions sourceTag extraExts input =
   let baseExts = nub extraExts
       languagePragmas = extractLanguagePragmas sourceTag baseExts input
-      pragmaExts = mapMaybe (parseExtension . T.unpack) languagePragmas
-      parseExts = EnumSet.fromList (nub (baseExts <> pragmaExts)) :: EnumSet.EnumSet Extension
+      pragmaSettings = mapMaybe (parseExtensionSetting . T.unpack) languagePragmas
+      parseExts = foldl' applyExtensionSetting (EnumSet.fromList baseExts :: EnumSet.EnumSet Extension) pragmaSettings
       opts = mkParserOpts parseExts emptyDiagOpts False False False False
       buffer = stringToStringBuffer (T.unpack input)
       start = mkRealSrcLoc (mkFastString sourceTag) 1 1
@@ -85,7 +85,13 @@ extractLanguagePragmas sourceTag baseExts input =
       (_warns, rawOptions) = getOptions baseOpts supportedLanguagePragmas buffer sourceTag
    in mapMaybe optionToLanguagePragma rawOptions
   where
-    supportedLanguagePragmas = "CPP" : map show ([minBound .. maxBound] :: [Extension])
+    supportedLanguagePragmas =
+      "CPP" : concatMap (includeNegative . show) ([minBound .. maxBound] :: [Extension])
+
+    includeNegative extName =
+      case extName of
+        "Cpp" -> [extName, "NoCPP", "NoCpp"]
+        _ -> [extName, "No" <> extName]
 
     optionToLanguagePragma locatedOpt =
       let opt = T.pack (unLoc locatedOpt)
@@ -107,15 +113,34 @@ oracleDetailedParsesModuleWithNames = oracleDetailedParsesModuleWithNamesAt "ora
 
 oracleDetailedParsesModuleWithNamesAt :: String -> [String] -> Maybe String -> Text -> Either Text ()
 oracleDetailedParsesModuleWithNamesAt sourceTag extNames langName input =
-  let exts = mapMaybe parseExtension extNames
+  let extSettings = mapMaybe parseExtensionSetting extNames
       langExts = maybe [] languageExtensions langName
-      allExts = nub (exts <> langExts)
+      allExts = EnumSet.toList (foldl' applyExtensionSetting (EnumSet.fromList langExts) extSettings)
    in case parseWithGhcWithExtensions sourceTag allExts input of
         Left err ->
           let extList = T.pack (show extNames)
               langInfo = maybe "" (\l -> " Language: " <> T.pack l) langName
            in Left (err <> "\n(Extensions: " <> extList <> langInfo <> ")")
         Right _ -> Right ()
+
+data ExtensionSetting
+  = Enable Extension
+  | Disable Extension
+
+applyExtensionSetting :: EnumSet.EnumSet Extension -> ExtensionSetting -> EnumSet.EnumSet Extension
+applyExtensionSetting exts setting =
+  case setting of
+    Enable ext -> EnumSet.insert ext exts
+    Disable ext -> EnumSet.delete ext exts
+
+parseExtensionSetting :: String -> Maybe ExtensionSetting
+parseExtensionSetting name =
+  case stripNoPrefix name of
+    Just enabledName -> Disable <$> parseExtension enabledName
+    Nothing -> Enable <$> parseExtension name
+  where
+    stripNoPrefix ('N' : 'o' : rest) | not (null rest) = Just rest
+    stripNoPrefix _ = Nothing
 
 parseExtension :: String -> Maybe Extension
 parseExtension name =
