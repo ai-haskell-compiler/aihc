@@ -178,13 +178,12 @@ optionalShrunkDiagnostic exts source =
       if T.strip shrunk == T.strip source
         then ""
         else
-          unlines
-            [ "",
-              "HSE minimized reproducer:",
-              "---8<---",
-              T.unpack shrunk,
-              "--->8---"
-            ]
+          let shrunkLineCount = length (T.lines shrunk)
+              bodyLines =
+                if shrunkLineCount <= 5
+                  then ["---8<---", T.unpack shrunk, "--->8---"]
+                  else ["HSE minimized reproducer omitted (>5 lines)."]
+           in unlines (["", "HSE minimized reproducer:"] <> bodyLines)
 
 stillFails :: [Extension] -> Text -> Bool
 stillFails exts source =

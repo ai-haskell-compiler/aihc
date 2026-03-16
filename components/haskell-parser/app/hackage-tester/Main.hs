@@ -79,7 +79,7 @@ runTesterWithVersion opts version = do
       putStrLn ("Found " ++ show (length files) ++ " Haskell source files")
 
       jobs <- maybe getNumProcessors pure (optJobs opts)
-      results <- processFiles jobs srcDir files
+      results <- processFiles opts jobs srcDir files
 
       unless (optJson opts) (printFailureDetails results)
 
@@ -111,13 +111,13 @@ fetchCabalFile manager request = do
   response <- httpLbs request' manager
   pure (responseBody response)
 
-processFiles :: Int -> FilePath -> [FileInfo] -> IO [FileResult]
-processFiles jobs packageRoot files = do
+processFiles :: Options -> Int -> FilePath -> [FileInfo] -> IO [FileResult]
+processFiles opts jobs packageRoot files = do
   counter <- newMVar 0
   showProgress <- hIsTerminalDevice stdout
   let total = length files
       worker info = do
-        result <- processFile packageRoot info
+        result <- processFile opts packageRoot info
         when showProgress (printProgress counter total)
         pure result
 
@@ -155,8 +155,8 @@ mapConcurrentlyBounded jobs action items = do
           modifyMVar_ results (\acc -> pure ((idx, value) : acc))
           workerLoop queue results
 
-processFile :: FilePath -> FileInfo -> IO FileResult
-processFile packageRoot info = do
+processFile :: Options -> FilePath -> FileInfo -> IO FileResult
+processFile opts packageRoot info = do
   let file = fileInfoPath info
   source <- TIO.readFile file
   preprocessed <- preprocessForParserIfEnabled (fileInfoExtensions info) file (resolveIncludeBestEffort packageRoot file) source
@@ -174,8 +174,8 @@ processFile packageRoot info = do
             outcomeDetail = Just err
           }
     Right () ->
-      case validateParserDetailed source' of
-        Nothing ->
+      if optOnlyGhcErrors opts
+        then
           pure
             FileResult
               { filePath = file,
@@ -183,24 +183,33 @@ processFile packageRoot info = do
                 cppDiagnostics = cppErrs,
                 outcomeDetail = Nothing
               }
-        Just err ->
-          case validationErrorKind err of
-            ValidationParseError ->
-              pure
-                FileResult
-                  { filePath = file,
-                    outcome = OutcomeParseError,
-                    cppDiagnostics = cppErrs,
-                    outcomeDetail = Just (T.pack (validationErrorMessage err))
-                  }
-            ValidationRoundtripError ->
-              pure
-                FileResult
-                  { filePath = file,
-                    outcome = OutcomeRoundtripFail,
-                    cppDiagnostics = cppErrs,
-                    outcomeDetail = Just (T.pack (validationErrorMessage err))
-                  }
+        else case validateParserDetailed source' of
+          Nothing ->
+            pure
+              FileResult
+                { filePath = file,
+                  outcome = OutcomeSuccess,
+                  cppDiagnostics = cppErrs,
+                  outcomeDetail = Nothing
+                }
+          Just err ->
+            case validationErrorKind err of
+              ValidationParseError ->
+                pure
+                  FileResult
+                    { filePath = file,
+                      outcome = OutcomeParseError,
+                      cppDiagnostics = cppErrs,
+                      outcomeDetail = Just (T.pack (validationErrorMessage err))
+                    }
+              ValidationRoundtripError ->
+                pure
+                  FileResult
+                    { filePath = file,
+                      outcome = OutcomeRoundtripFail,
+                      cppDiagnostics = cppErrs,
+                      outcomeDetail = Just (T.pack (validationErrorMessage err))
+                    }
 
 printFailureDetails :: [FileResult] -> IO ()
 printFailureDetails results = do

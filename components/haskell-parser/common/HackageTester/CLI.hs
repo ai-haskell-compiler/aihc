@@ -11,7 +11,8 @@ data Options = Options
   { optPackage :: String,
     optVersion :: Maybe String,
     optJobs :: Maybe Int,
-    optJson :: Bool
+    optJson :: Bool,
+    optOnlyGhcErrors :: Bool
   }
   deriving (Eq, Show)
 
@@ -62,6 +63,10 @@ optionsParser =
     <*> OA.switch
       ( OA.long "json"
           <> OA.help "Print final summary as JSON"
+      )
+    <*> OA.switch
+      ( OA.long "only-ghc-errors"
+          <> OA.help "Ignore parser/roundtrip errors and report only GHC parse failures"
       )
 
 positiveIntReader :: OA.ReadM Int

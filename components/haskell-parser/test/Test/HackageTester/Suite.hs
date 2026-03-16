@@ -38,15 +38,15 @@ test_cliParsesPackage :: Assertion
 test_cliParsesPackage =
   assertEqual
     "expected defaults with required package"
-    (Right (Options "transformers" Nothing Nothing False))
+    (Right (Options "transformers" Nothing Nothing False False))
     (parseOptionsPure ["transformers"])
 
 test_cliParsesOptionalFlags :: Assertion
 test_cliParsesOptionalFlags =
   assertEqual
     "expected all optional flags to parse"
-    (Right (Options "text" (Just "2.0.2") (Just 4) True))
-    (parseOptionsPure ["text", "--version", "2.0.2", "--jobs", "4", "--json"])
+    (Right (Options "text" (Just "2.0.2") (Just 4) True True))
+    (parseOptionsPure ["text", "--version", "2.0.2", "--jobs", "4", "--json", "--only-ghc-errors"])
 
 test_cliRejectsMissingPackage :: Assertion
 test_cliRejectsMissingPackage =
