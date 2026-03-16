@@ -845,9 +845,9 @@ stripNewtypeDecl d =
 stripDataConDecl :: DataConDecl -> DataConDecl
 stripDataConDecl con =
   case con of
-    PrefixCon _ name args -> PrefixCon noSourceSpan name (map stripBangType args)
-    InfixCon _ left op right -> InfixCon noSourceSpan (stripBangType left) op (stripBangType right)
-    RecordCon _ name fields -> RecordCon noSourceSpan name (map stripFieldDecl fields)
+    PrefixCon _ forallVars context name args -> PrefixCon noSourceSpan forallVars (map stripConstraint context) name (map stripBangType args)
+    InfixCon _ forallVars context left op right -> InfixCon noSourceSpan forallVars (map stripConstraint context) (stripBangType left) op (stripBangType right)
+    RecordCon _ forallVars context name fields -> RecordCon noSourceSpan forallVars (map stripConstraint context) name (map stripFieldDecl fields)
 
 stripBangType :: BangType -> BangType
 stripBangType b =
