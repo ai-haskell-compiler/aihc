@@ -104,6 +104,7 @@ data EngineState = EngineState
     stOutputRev :: ![Text],
     stDiagnosticsRev :: ![Diagnostic],
     stSkippingDanglingElse :: !Bool,
+    stBlockCommentDepth :: !Int,
     stCurrentFile :: !FilePath,
     stCurrentLine :: !Int
   }
@@ -115,6 +116,7 @@ emptyState filePath =
       stOutputRev = [],
       stDiagnosticsRev = [],
       stSkippingDanglingElse = False,
+      stBlockCommentDepth = 0,
       stCurrentFile = filePath,
       stCurrentLine = 1
     }
@@ -136,12 +138,26 @@ processFile :: FilePath -> [(Int, Int, Text)] -> [CondFrame] -> EngineState -> C
 processFile _ [] _ st k = k st
 processFile filePath ((lineNo, lineSpan, line) : restLines) stack st k =
   let active = currentActive stack
+      inBlockComment = stBlockCommentDepth st > 0
+      nextBlockCommentDepth = advanceBlockCommentDepth (stBlockCommentDepth st) line
       nextLineNo = case restLines of
         (n, _, _) : _ -> n
         [] -> lineNo + lineSpan
       emitDirectiveBlank = emitBlankLines lineSpan
-      continue st' = processFile filePath restLines stack (st' {stCurrentLine = nextLineNo}) k
-      continueWith stack' st' = processFile filePath restLines stack' (st' {stCurrentLine = nextLineNo}) k
+      continue st' =
+        processFile
+          filePath
+          restLines
+          stack
+          (st' {stCurrentLine = nextLineNo, stBlockCommentDepth = nextBlockCommentDepth})
+          k
+      continueWith stack' st' =
+        processFile
+          filePath
+          restLines
+          stack'
+          (st' {stCurrentLine = nextLineNo, stBlockCommentDepth = nextBlockCommentDepth})
+          k
       recoverDanglingElse =
         case parseDirective line of
           Just DirEndIf ->
@@ -276,13 +292,19 @@ processFile filePath ((lineNo, lineSpan, line) : restLines) stack st k =
               else continue (emitDirectiveBlank st)
    in if stSkippingDanglingElse st
         then recoverDanglingElse
-        else case parseDirective line of
-          Nothing ->
-            if active
-              then continue (emitLine (expandMacros st line) st)
-              else continue (emitBlankLines lineSpan st)
-          Just directive ->
-            handleDirective directive
+        else
+          if inBlockComment
+            then
+              if active
+                then continue (emitLine line st)
+                else continue (emitBlankLines lineSpan st)
+            else case parseDirective line of
+              Nothing ->
+                if active
+                  then continue (emitLine (expandMacros st line) st)
+                  else continue (emitBlankLines lineSpan st)
+              Just directive ->
+                handleDirective directive
 
 mkFrame :: Bool -> Bool -> CondFrame
 mkFrame outer cond =
@@ -317,6 +339,19 @@ addDiag sev msg filePath lineNo st =
 linePragma :: Int -> FilePath -> Text
 linePragma n path = "#line " <> T.pack (show n) <> " \"" <> T.pack path <> "\""
 
+advanceBlockCommentDepth :: Int -> Text -> Int
+advanceBlockCommentDepth depth0 = go depth0 . T.unpack
+  where
+    go depth [] = depth
+    go depth [_] = depth
+    go depth (a : b : rest)
+      | a == '{' && b == '-' = go (depth + 1) rest
+      | a == '-' && b == '}' =
+          if depth > 0
+            then go (depth - 1) rest
+            else go depth rest
+      | otherwise = go depth (b : rest)
+
 data Directive
   = DirDefine !Text !Text
   | DirUndef !Text
@@ -338,9 +373,9 @@ parseDirective raw =
    in if "#" `T.isPrefixOf` trimmed
         then
           let body = T.stripStart (T.drop 1 trimmed)
-           in if "-}" `T.isPrefixOf` body
-                then Nothing
-                else parseDirectiveBody body
+           in case T.uncons body of
+                Just (c, _) | isLetter c || isDigit c -> parseDirectiveBody body
+                _ -> Nothing
         else Nothing
 
 parseDirectiveBody :: Text -> Maybe Directive
