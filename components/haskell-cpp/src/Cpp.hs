@@ -138,12 +138,18 @@ processFile :: FilePath -> [(Int, Int, Text)] -> [CondFrame] -> EngineState -> C
 processFile _ [] _ st k = k st
 processFile filePath ((lineNo, lineSpan, line) : restLines) stack st k =
   let active = currentActive stack
-      inBlockComment = stBlockCommentDepth st > 0
+      lineScan = scanLine (stBlockCommentDepth st) line
+      startsInBlockComment = stBlockCommentDepth st > 0
       nextBlockCommentDepth = advanceBlockCommentDepth (stBlockCommentDepth st) line
+      parsedDirective =
+        if startsInBlockComment
+          then Nothing
+          else parseDirective line
       nextLineNo = case restLines of
         (n, _, _) : _ -> n
         [] -> lineNo + lineSpan
       emitDirectiveBlank = emitBlankLines lineSpan
+      emitExpandedLine st' = emitLine (expandLineBySpan st' (lineScanSpans lineScan)) st'
       continue st' =
         processFile
           filePath
@@ -159,7 +165,7 @@ processFile filePath ((lineNo, lineSpan, line) : restLines) stack st k =
           (st' {stCurrentLine = nextLineNo, stBlockCommentDepth = nextBlockCommentDepth})
           k
       recoverDanglingElse =
-        case parseDirective line of
+        case parsedDirective of
           Just DirEndIf ->
             continue
               ( addDiag
@@ -292,19 +298,13 @@ processFile filePath ((lineNo, lineSpan, line) : restLines) stack st k =
               else continue (emitDirectiveBlank st)
    in if stSkippingDanglingElse st
         then recoverDanglingElse
-        else
-          if inBlockComment
-            then
-              if active
-                then continue (emitLine line st)
-                else continue (emitBlankLines lineSpan st)
-            else case parseDirective line of
-              Nothing ->
-                if active
-                  then continue (emitLine (expandMacros st line) st)
-                  else continue (emitBlankLines lineSpan st)
-              Just directive ->
-                handleDirective directive
+        else case parsedDirective of
+          Nothing ->
+            if active
+              then continue (emitExpandedLine st)
+              else continue (emitBlankLines lineSpan st)
+          Just directive ->
+            handleDirective directive
 
 mkFrame :: Bool -> Bool -> CondFrame
 mkFrame outer cond =
@@ -340,17 +340,93 @@ linePragma :: Int -> FilePath -> Text
 linePragma n path = "#line " <> T.pack (show n) <> " \"" <> T.pack path <> "\""
 
 advanceBlockCommentDepth :: Int -> Text -> Int
-advanceBlockCommentDepth depth0 = go depth0 . T.unpack
+advanceBlockCommentDepth depth0 = lineScanFinalDepth . scanLine depth0
+
+data LineSpan = LineSpan
+  { lineSpanInBlockComment :: !Bool,
+    lineSpanText :: !Text
+  }
+
+data LineScan = LineScan
+  { lineScanSpans :: ![LineSpan],
+    lineScanFinalDepth :: !Int
+  }
+
+expandLineBySpan :: EngineState -> [LineSpan] -> Text
+expandLineBySpan st =
+  T.concat . map expandSpan
   where
-    go depth [] = depth
-    go depth [_] = depth
-    go depth (a : b : rest)
-      | a == '{' && b == '-' = go (depth + 1) rest
-      | a == '-' && b == '}' =
-          if depth > 0
-            then go (depth - 1) rest
-            else go depth rest
-      | otherwise = go depth (b : rest)
+    expandSpan lineChunk
+      | lineSpanInBlockComment lineChunk = lineSpanText lineChunk
+      | otherwise = expandMacros st (lineSpanText lineChunk)
+
+scanLine :: Int -> Text -> LineScan
+scanLine depth0 input =
+  let (spansRev, currentRev, currentInComment, finalDepth) =
+        go depth0 False False [] [] (depth0 > 0) (T.unpack input)
+      spans = reverse (flushSpan spansRev currentRev currentInComment)
+   in LineScan {lineScanSpans = spans, lineScanFinalDepth = finalDepth}
+  where
+    flushSpan :: [LineSpan] -> [Char] -> Bool -> [LineSpan]
+    flushSpan spansRev currentRev inComment =
+      if null currentRev
+        then spansRev
+        else LineSpan {lineSpanInBlockComment = inComment, lineSpanText = T.pack (reverse currentRev)} : spansRev
+
+    appendWithMode :: [LineSpan] -> [Char] -> Bool -> Bool -> [Char] -> ([LineSpan], [Char], Bool)
+    appendWithMode spansRev currentRev currentInComment newInComment chars =
+      if currentInComment == newInComment
+        then (spansRev, reverse chars <> currentRev, currentInComment)
+        else
+          let spansRev' = flushSpan spansRev currentRev currentInComment
+           in (spansRev', reverse chars, newInComment)
+
+    go :: Int -> Bool -> Bool -> [LineSpan] -> [Char] -> Bool -> [Char] -> ([LineSpan], [Char], Bool, Int)
+    go depth inString escaped spansRev currentRev currentInComment chars =
+      case chars of
+        [] -> (spansRev, currentRev, currentInComment, depth)
+        [c] ->
+          let (spansRev', currentRev', currentInComment') =
+                appendWithMode spansRev currentRev currentInComment (depth > 0) [c]
+           in (spansRev', currentRev', currentInComment', depth)
+        c1 : c2 : rest ->
+          if not inString && depth == 0 && c1 == '-' && c2 == '-'
+            then
+              let remaining = c1 : c2 : rest
+                  (spansRev', currentRev', currentInComment') =
+                    appendWithMode spansRev currentRev currentInComment False remaining
+               in (spansRev', currentRev', currentInComment', depth)
+            else
+              if inString
+                then
+                  let escaped' = not escaped && c1 == '\\'
+                      inString' = escaped || c1 /= '"'
+                      (spansRev', currentRev', currentInComment') =
+                        appendWithMode spansRev currentRev currentInComment (depth > 0) [c1]
+                   in go depth inString' escaped' spansRev' currentRev' currentInComment' (c2 : rest)
+                else
+                  if c1 == '"'
+                    then
+                      let (spansRev', currentRev', currentInComment') =
+                            appendWithMode spansRev currentRev currentInComment (depth > 0) [c1]
+                       in go depth True False spansRev' currentRev' currentInComment' (c2 : rest)
+                    else
+                      if c1 == '{' && c2 == '-'
+                        then
+                          let (spansRev', currentRev', currentInComment') =
+                                appendWithMode spansRev currentRev currentInComment True [c1, c2]
+                           in go (depth + 1) False False spansRev' currentRev' currentInComment' rest
+                        else
+                          if depth > 0 && c1 == '-' && c2 == '}'
+                            then
+                              let (spansRev', currentRev', currentInComment') =
+                                    appendWithMode spansRev currentRev currentInComment True [c1, c2]
+                                  depth' = depth - 1
+                               in go depth' False False spansRev' currentRev' currentInComment' rest
+                            else
+                              let (spansRev', currentRev', currentInComment') =
+                                    appendWithMode spansRev currentRev currentInComment (depth > 0) [c1]
+                               in go depth False False spansRev' currentRev' currentInComment' (c2 : rest)
 
 data Directive
   = DirDefine !Text !Text
