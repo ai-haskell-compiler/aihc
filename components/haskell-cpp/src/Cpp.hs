@@ -19,6 +19,8 @@ import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.Lazy as TL
+import qualified Data.Text.Lazy.Builder as TB
 
 data Config = Config
   { configInputFile :: FilePath,
@@ -140,7 +142,7 @@ processFile filePath ((lineNo, lineSpan, line) : restLines) stack st k =
   let active = currentActive stack
       lineScan = scanLine (stBlockCommentDepth st) line
       startsInBlockComment = stBlockCommentDepth st > 0
-      nextBlockCommentDepth = advanceBlockCommentDepth (stBlockCommentDepth st) line
+      nextBlockCommentDepth = lineScanFinalDepth lineScan
       parsedDirective =
         if startsInBlockComment
           then Nothing
@@ -339,9 +341,6 @@ addDiag sev msg filePath lineNo st =
 linePragma :: Int -> FilePath -> Text
 linePragma n path = "#line " <> T.pack (show n) <> " \"" <> T.pack path <> "\""
 
-advanceBlockCommentDepth :: Int -> Text -> Int
-advanceBlockCommentDepth depth0 = lineScanFinalDepth . scanLine depth0
-
 data LineSpan = LineSpan
   { lineSpanInBlockComment :: !Bool,
     lineSpanText :: !Text
@@ -362,71 +361,93 @@ expandLineBySpan st =
 
 scanLine :: Int -> Text -> LineScan
 scanLine depth0 input =
-  let (spansRev, currentRev, currentInComment, finalDepth) =
-        go depth0 False False [] [] (depth0 > 0) (T.unpack input)
-      spans = reverse (flushSpan spansRev currentRev currentInComment)
+  let (spansRev, currentBuilder, hasCurrent, currentInComment, finalDepth) =
+        go depth0 False False [] mempty False (depth0 > 0) input
+      spans = reverse (flushSpan spansRev currentBuilder hasCurrent currentInComment)
    in LineScan {lineScanSpans = spans, lineScanFinalDepth = finalDepth}
   where
-    flushSpan :: [LineSpan] -> [Char] -> Bool -> [LineSpan]
-    flushSpan spansRev currentRev inComment =
-      if null currentRev
+    builderToText :: TB.Builder -> Text
+    builderToText = TL.toStrict . TB.toLazyText
+
+    flushSpan :: [LineSpan] -> TB.Builder -> Bool -> Bool -> [LineSpan]
+    flushSpan spansRev currentBuilder hasCurrent inComment =
+      if not hasCurrent
         then spansRev
-        else LineSpan {lineSpanInBlockComment = inComment, lineSpanText = T.pack (reverse currentRev)} : spansRev
+        else LineSpan {lineSpanInBlockComment = inComment, lineSpanText = builderToText currentBuilder} : spansRev
 
-    appendWithMode :: [LineSpan] -> [Char] -> Bool -> Bool -> [Char] -> ([LineSpan], [Char], Bool)
-    appendWithMode spansRev currentRev currentInComment newInComment chars =
-      if currentInComment == newInComment
-        then (spansRev, reverse chars <> currentRev, currentInComment)
-        else
-          let spansRev' = flushSpan spansRev currentRev currentInComment
-           in (spansRev', reverse chars, newInComment)
+    appendWithMode ::
+      [LineSpan] ->
+      TB.Builder ->
+      Bool ->
+      Bool ->
+      Bool ->
+      Text ->
+      ([LineSpan], TB.Builder, Bool, Bool)
+    appendWithMode spansRev currentBuilder hasCurrent currentInComment newInComment chunk
+      | T.null chunk = (spansRev, currentBuilder, hasCurrent, currentInComment)
+      | not hasCurrent = (spansRev, TB.fromText chunk, True, newInComment)
+      | currentInComment == newInComment = (spansRev, currentBuilder <> TB.fromText chunk, True, currentInComment)
+      | otherwise =
+          let spansRev' = flushSpan spansRev currentBuilder hasCurrent currentInComment
+           in (spansRev', TB.fromText chunk, True, newInComment)
 
-    go :: Int -> Bool -> Bool -> [LineSpan] -> [Char] -> Bool -> [Char] -> ([LineSpan], [Char], Bool, Int)
-    go depth inString escaped spansRev currentRev currentInComment chars =
-      case chars of
-        [] -> (spansRev, currentRev, currentInComment, depth)
-        [c] ->
-          let (spansRev', currentRev', currentInComment') =
-                appendWithMode spansRev currentRev currentInComment (depth > 0) [c]
-           in (spansRev', currentRev', currentInComment', depth)
-        c1 : c2 : rest ->
-          if not inString && depth == 0 && c1 == '-' && c2 == '-'
-            then
-              let remaining = c1 : c2 : rest
-                  (spansRev', currentRev', currentInComment') =
-                    appendWithMode spansRev currentRev currentInComment False remaining
-               in (spansRev', currentRev', currentInComment', depth)
-            else
-              if inString
+    go ::
+      Int ->
+      Bool ->
+      Bool ->
+      [LineSpan] ->
+      TB.Builder ->
+      Bool ->
+      Bool ->
+      Text ->
+      ([LineSpan], TB.Builder, Bool, Bool, Int)
+    go depth inString escaped spansRev currentBuilder hasCurrent currentInComment remaining =
+      case T.uncons remaining of
+        Nothing -> (spansRev, currentBuilder, hasCurrent, currentInComment, depth)
+        Just (c1, rest1) ->
+          case T.uncons rest1 of
+            Nothing ->
+              let (spansRev', currentBuilder', hasCurrent', currentInComment') =
+                    appendWithMode spansRev currentBuilder hasCurrent currentInComment (depth > 0) (T.singleton c1)
+               in (spansRev', currentBuilder', hasCurrent', currentInComment', depth)
+            Just (c2, rest2) ->
+              if not inString && depth == 0 && c1 == '-' && c2 == '-'
                 then
-                  let escaped' = not escaped && c1 == '\\'
-                      inString' = escaped || c1 /= '"'
-                      (spansRev', currentRev', currentInComment') =
-                        appendWithMode spansRev currentRev currentInComment (depth > 0) [c1]
-                   in go depth inString' escaped' spansRev' currentRev' currentInComment' (c2 : rest)
+                  let lineTail = T.cons c1 (T.cons c2 rest2)
+                      (spansRev', currentBuilder', hasCurrent', currentInComment') =
+                        appendWithMode spansRev currentBuilder hasCurrent currentInComment False lineTail
+                   in (spansRev', currentBuilder', hasCurrent', currentInComment', depth)
                 else
-                  if c1 == '"'
+                  if inString
                     then
-                      let (spansRev', currentRev', currentInComment') =
-                            appendWithMode spansRev currentRev currentInComment (depth > 0) [c1]
-                       in go depth True False spansRev' currentRev' currentInComment' (c2 : rest)
+                      let escaped' = not escaped && c1 == '\\'
+                          inString' = escaped || c1 /= '"'
+                          (spansRev', currentBuilder', hasCurrent', currentInComment') =
+                            appendWithMode spansRev currentBuilder hasCurrent currentInComment (depth > 0) (T.singleton c1)
+                       in go depth inString' escaped' spansRev' currentBuilder' hasCurrent' currentInComment' (T.cons c2 rest2)
                     else
-                      if c1 == '{' && c2 == '-'
+                      if c1 == '"'
                         then
-                          let (spansRev', currentRev', currentInComment') =
-                                appendWithMode spansRev currentRev currentInComment True [c1, c2]
-                           in go (depth + 1) False False spansRev' currentRev' currentInComment' rest
+                          let (spansRev', currentBuilder', hasCurrent', currentInComment') =
+                                appendWithMode spansRev currentBuilder hasCurrent currentInComment (depth > 0) (T.singleton c1)
+                           in go depth True False spansRev' currentBuilder' hasCurrent' currentInComment' (T.cons c2 rest2)
                         else
-                          if depth > 0 && c1 == '-' && c2 == '}'
+                          if c1 == '{' && c2 == '-'
                             then
-                              let (spansRev', currentRev', currentInComment') =
-                                    appendWithMode spansRev currentRev currentInComment True [c1, c2]
-                                  depth' = depth - 1
-                               in go depth' False False spansRev' currentRev' currentInComment' rest
+                              let (spansRev', currentBuilder', hasCurrent', currentInComment') =
+                                    appendWithMode spansRev currentBuilder hasCurrent currentInComment True "{-"
+                               in go (depth + 1) False False spansRev' currentBuilder' hasCurrent' currentInComment' rest2
                             else
-                              let (spansRev', currentRev', currentInComment') =
-                                    appendWithMode spansRev currentRev currentInComment (depth > 0) [c1]
-                               in go depth False False spansRev' currentRev' currentInComment' (c2 : rest)
+                              if depth > 0 && c1 == '-' && c2 == '}'
+                                then
+                                  let (spansRev', currentBuilder', hasCurrent', currentInComment') =
+                                        appendWithMode spansRev currentBuilder hasCurrent currentInComment True "-}"
+                                      depth' = depth - 1
+                                   in go depth' False False spansRev' currentBuilder' hasCurrent' currentInComment' rest2
+                                else
+                                  let (spansRev', currentBuilder', hasCurrent', currentInComment') =
+                                        appendWithMode spansRev currentBuilder hasCurrent currentInComment (depth > 0) (T.singleton c1)
+                                   in go depth False False spansRev' currentBuilder' hasCurrent' currentInComment' (T.cons c2 rest2)
 
 data Directive
   = DirDefine !Text !Text
