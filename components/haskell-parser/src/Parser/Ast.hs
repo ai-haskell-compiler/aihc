@@ -455,9 +455,9 @@ data NewtypeDecl = NewtypeDecl
   deriving (Eq, Show)
 
 data DataConDecl
-  = PrefixCon SourceSpan Text [BangType]
-  | InfixCon SourceSpan BangType Text BangType
-  | RecordCon SourceSpan Text [FieldDecl]
+  = PrefixCon SourceSpan [Text] [Constraint] Text [BangType]
+  | InfixCon SourceSpan [Text] [Constraint] BangType Text BangType
+  | RecordCon SourceSpan [Text] [Constraint] Text [FieldDecl]
   deriving (Eq, Show)
 
 data BangType = BangType
