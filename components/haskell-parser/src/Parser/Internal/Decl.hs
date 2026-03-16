@@ -451,13 +451,8 @@ derivingStrategyParser =
 
 dataConDeclParser :: TokParser DataConDecl
 dataConDeclParser = withSpan $ do
-  name <- constructorNameParser
-  fields <- MP.many constructorArgParser
-  mRecordFields <- MP.optional (symbolLikeTok "{" *> symbolLikeTok "}")
-  pure $ \span' ->
-    case mRecordFields of
-      Just () -> RecordCon span' name []
-      Nothing -> PrefixCon span' name fields
+  (forallVars, context) <- dataConQualifiersParser
+  MP.try (dataConRecordOrPrefixParser forallVars context) <|> dataConInfixParser forallVars context
 
 newtypeConDeclParser :: TokParser DataConDecl
 newtypeConDeclParser = newtypePrefixConDeclParser
@@ -466,7 +461,56 @@ newtypePrefixConDeclParser :: TokParser DataConDecl
 newtypePrefixConDeclParser = withSpan $ do
   name <- constructorNameParser
   fields <- MP.many constructorArgParser
-  pure (\span' -> PrefixCon span' name fields)
+  pure (\span' -> PrefixCon span' [] [] name fields)
+
+dataConQualifiersParser :: TokParser ([Text], [Constraint])
+dataConQualifiersParser = do
+  mForall <- MP.optional (MP.try forallBindersParser)
+  mContext <- MP.optional (MP.try (declContextParser <* operatorLikeTok "=>"))
+  pure (fromMaybe [] mForall, fromMaybe [] mContext)
+
+forallBindersParser :: TokParser [Text]
+forallBindersParser = do
+  identifierExact "forall"
+  binders <- MP.some typeParamParser
+  operatorLikeTok "."
+  pure binders
+
+dataConRecordOrPrefixParser :: [Text] -> [Constraint] -> TokParser (SourceSpan -> DataConDecl)
+dataConRecordOrPrefixParser forallVars context = do
+  name <- constructorNameParser
+  mRecordFields <- MP.optional recordFieldsParser
+  case mRecordFields of
+    Just fields -> pure (\span' -> RecordCon span' forallVars context name fields)
+    Nothing -> do
+      args <- MP.many constructorArgParser
+      pure (\span' -> PrefixCon span' forallVars context name args)
+
+dataConInfixParser :: [Text] -> [Constraint] -> TokParser (SourceSpan -> DataConDecl)
+dataConInfixParser forallVars context = do
+  lhs <- constructorArgParser
+  op <- constructorOperatorParser
+  rhs <- constructorArgParser
+  pure (\span' -> InfixCon span' forallVars context lhs op rhs)
+
+recordFieldsParser :: TokParser [FieldDecl]
+recordFieldsParser = do
+  symbolLikeTok "{"
+  fields <- recordFieldDeclParser `MP.sepBy` symbolLikeTok ","
+  symbolLikeTok "}"
+  pure fields
+
+recordFieldDeclParser :: TokParser FieldDecl
+recordFieldDeclParser = withSpan $ do
+  names <- identifierTextParser `MP.sepBy1` symbolLikeTok ","
+  operatorLikeTok "::"
+  fieldTy <- bangTypeParser
+  pure $ \span' ->
+    FieldDecl
+      { fieldSpan = span',
+        fieldNames = names,
+        fieldType = fieldTy
+      }
 
 constructorArgParser :: TokParser BangType
 constructorArgParser = MP.try $ do
@@ -496,7 +540,16 @@ constructorNameParser :: TokParser Text
 constructorNameParser =
   tokenSatisfy $ \tok ->
     case lexTokenKind tok of
-      TkIdentifier ident -> Just ident
+      TkIdentifier ident
+        | isTypeName ident -> Just ident
+      _ -> Nothing
+
+constructorOperatorParser :: TokParser Text
+constructorOperatorParser =
+  tokenSatisfy $ \tok ->
+    case lexTokenKind tok of
+      TkOperator op
+        | T.isPrefixOf ":" op -> Just op
       _ -> Nothing
 
 valueDeclParser :: TokParser Decl

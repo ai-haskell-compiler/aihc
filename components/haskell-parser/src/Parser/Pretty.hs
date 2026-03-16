@@ -378,10 +378,15 @@ contextPrefix constraints =
 prettyDataCon :: DataConDecl -> Doc ann
 prettyDataCon ctor =
   case ctor of
-    PrefixCon _ name fields -> hsep (prettyConstructorName name : map prettyBangType fields)
-    InfixCon _ lhs op rhs -> prettyBangTypeAtom lhs <+> pretty op <+> prettyBangTypeAtom rhs
-    RecordCon _ name fields ->
-      prettyConstructorName name
+    PrefixCon _ forallVars constraints name fields ->
+      hsep (dataConQualifierPrefix forallVars constraints <> [prettyConstructorName name] <> map prettyBangType fields)
+    InfixCon _ forallVars constraints lhs op rhs ->
+      hsep
+        ( dataConQualifierPrefix forallVars constraints
+            <> [prettyBangTypeAtom lhs, pretty op, prettyBangTypeAtom rhs]
+        )
+    RecordCon _ forallVars constraints name fields ->
+      hsep (dataConQualifierPrefix forallVars constraints <> [prettyConstructorName name])
         <+> braces
           ( hsep
               ( punctuate
@@ -395,6 +400,12 @@ prettyDataCon ctor =
                   ]
               )
           )
+
+dataConQualifierPrefix :: [Text] -> [Constraint] -> [Doc ann]
+dataConQualifierPrefix forallVars constraints = forallPrefix forallVars <> contextPrefix constraints
+  where
+    forallPrefix [] = []
+    forallPrefix binders = ["forall", hsep (map pretty binders) <> "."]
 
 prettyBangType :: BangType -> Doc ann
 prettyBangType bt

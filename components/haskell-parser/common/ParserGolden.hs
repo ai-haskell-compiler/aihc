@@ -448,9 +448,35 @@ renderNewtypeDecl dat =
 renderDataConDecl :: DataConDecl -> String
 renderDataConDecl con =
   case con of
-    PrefixCon _ name tys -> "PrefixCon " <> show name <> " " <> showListWith renderBangType tys
-    InfixCon _ lhs name rhs -> "InfixCon " <> renderBangType lhs <> " " <> show name <> " " <> renderBangType rhs
-    RecordCon _ name fields -> "RecordCon " <> show name <> " " <> showListWith renderFieldDecl fields
+    PrefixCon _ forallVars context name tys ->
+      "PrefixCon "
+        <> show forallVars
+        <> " "
+        <> showListWith renderConstraint context
+        <> " "
+        <> show name
+        <> " "
+        <> showListWith renderBangType tys
+    InfixCon _ forallVars context lhs name rhs ->
+      "InfixCon "
+        <> show forallVars
+        <> " "
+        <> showListWith renderConstraint context
+        <> " "
+        <> renderBangType lhs
+        <> " "
+        <> show name
+        <> " "
+        <> renderBangType rhs
+    RecordCon _ forallVars context name fields ->
+      "RecordCon "
+        <> show forallVars
+        <> " "
+        <> showListWith renderConstraint context
+        <> " "
+        <> show name
+        <> " "
+        <> showListWith renderFieldDecl fields
 
 renderBangType :: BangType -> String
 renderBangType bt =
