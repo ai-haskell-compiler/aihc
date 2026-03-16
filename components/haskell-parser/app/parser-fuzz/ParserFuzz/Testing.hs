@@ -22,14 +22,19 @@ runWithOptions opts = do
       putStrLn "No failing module found."
     Just result -> do
       let (minimized, shrinksAccepted) = shrinkCandidate opts (srCandidate result)
+          minimizedSource = candSource minimized
       putStrLn ("Seed: " <> show seed)
       putStrLn ("Tests tried: " <> show (srTestsTried result))
       putStrLn ("Shrink passes accepted: " <> show shrinksAccepted)
-      putStrLn "Minimized source:"
-      putStrLn "---8<---"
-      putStrLn (candSource minimized)
-      putStrLn "--->8---"
-      case validateParser (T.pack (candSource minimized)) of
+      if lineCount minimizedSource <= 5
+        then do
+          putStrLn "Minimized source:"
+          putStrLn "---8<---"
+          putStrLn minimizedSource
+          putStrLn "--->8---"
+        else
+          putStrLn "Minimized source omitted (>5 lines)."
+      case validateParser (T.pack minimizedSource) of
         Nothing -> pure ()
         Just err -> do
           putStrLn "Validation failure:"
@@ -37,7 +42,7 @@ runWithOptions opts = do
       case optOutput opts of
         Nothing -> pure ()
         Just path -> do
-          writeFile path (candSource minimized)
+          writeFile path minimizedSource
           putStrLn ("Wrote minimized source to " <> path)
 
 resolveSeed :: Maybe Int -> IO Int
@@ -106,3 +111,6 @@ oursFails source =
   case validateParser (T.pack source) of
     Nothing -> False
     Just _ -> True
+
+lineCount :: String -> Int
+lineCount = length . lines
