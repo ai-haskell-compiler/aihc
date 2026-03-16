@@ -415,7 +415,7 @@ scanLine depth0 input =
                 then
                   let lineTail = T.cons c1 (T.cons c2 rest2)
                       (spansRev', currentBuilder', hasCurrent', currentInComment') =
-                        appendWithMode spansRev currentBuilder hasCurrent currentInComment False lineTail
+                        appendWithMode spansRev currentBuilder hasCurrent currentInComment True lineTail
                    in (spansRev', currentBuilder', hasCurrent', currentInComment', depth)
                 else
                   if inString
