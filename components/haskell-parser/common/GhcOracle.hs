@@ -84,8 +84,8 @@ parseWithGhcWithExtensions sourceTag extraExts input =
           POk _ modu -> Right (languagePragmas, unLoc modu)
           PFailed st ->
             let rendered = showSDocUnsafe (pprMessages NoDiagnosticOpts (getPsErrorMessages st))
-             in Left (withInput input (T.pack rendered)) of
-          Left err -> Left (withInput input ("GHC parser exception: " <> err))
+             in Left (T.pack rendered) of
+          Left err -> Left ("GHC parser exception: " <> err)
           Right result -> result
 
 applyExtensionSetting :: EnumSet.EnumSet GHC.Extension -> Ast.ExtensionSetting -> EnumSet.EnumSet GHC.Extension
@@ -119,7 +119,7 @@ extractLanguagePragmas sourceTag baseExts input =
               pragmas = nub (headerPragmas <> optionPragmas)
            in length pragmas `seq` pragmas
         ) of
-        Left err -> Left (withInput input ("GHC option parsing exception: " <> err))
+        Left err -> Left ("GHC option parsing exception: " <> err)
         Right pragmas -> Right pragmas
 
 optionToLanguagePragma :: GenLocated l String -> Maybe Ast.ExtensionSetting
@@ -145,10 +145,6 @@ catchPureExceptionText value =
       `catch` \(err :: SourceError) ->
         pure (Left (T.pack (displayException err)))
 {-# NOINLINE catchPureExceptionText #-}
-
-withInput :: Text -> Text -> Text
-withInput input err =
-  err <> "\n\nInput:\n---8<---\n" <> input <> "\n--->8---"
 
 oracleParsesModuleWithNames :: [String] -> Maybe String -> Text -> Bool
 oracleParsesModuleWithNames = oracleParsesModuleWithNamesAt "oracle"
