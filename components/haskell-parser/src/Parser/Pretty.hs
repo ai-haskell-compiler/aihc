@@ -63,11 +63,11 @@ prettyExportSpec :: ExportSpec -> Doc ann
 prettyExportSpec spec =
   case spec of
     ExportModule _ modName -> "module" <+> pretty modName
-    ExportVar _ name -> prettyBinderName name
-    ExportAbs _ name -> pretty name
-    ExportAll _ name -> pretty name <> "(..)"
-    ExportWith _ name members ->
-      pretty name <> parens (hsep (punctuate comma (map prettyBinderName members)))
+    ExportVar _ namespace name -> prettyNamespacePrefix namespace <> prettyBinderName name
+    ExportAbs _ namespace name -> prettyNamespacePrefix namespace <> pretty name
+    ExportAll _ namespace name -> prettyNamespacePrefix namespace <> pretty name <> "(..)"
+    ExportWith _ namespace name members ->
+      prettyNamespacePrefix namespace <> pretty name <> parens (hsep (punctuate comma (map prettyBinderName members)))
 
 prettyImportDecl :: ImportDecl -> Doc ann
 prettyImportDecl decl =
@@ -104,11 +104,17 @@ prettyImportSpec spec =
 prettyImportItem :: ImportItem -> Doc ann
 prettyImportItem item =
   case item of
-    ImportItemVar _ name -> prettyBinderName name
-    ImportItemAbs _ name -> pretty name
-    ImportItemAll _ name -> pretty name <> "(..)"
-    ImportItemWith _ name members ->
-      pretty name <> parens (hsep (punctuate comma (map prettyBinderName members)))
+    ImportItemVar _ namespace name -> prettyNamespacePrefix namespace <> prettyBinderName name
+    ImportItemAbs _ namespace name -> prettyNamespacePrefix namespace <> pretty name
+    ImportItemAll _ namespace name -> prettyNamespacePrefix namespace <> pretty name <> "(..)"
+    ImportItemWith _ namespace name members ->
+      prettyNamespacePrefix namespace <> pretty name <> parens (hsep (punctuate comma (map prettyBinderName members)))
+
+prettyNamespacePrefix :: Maybe Text -> Doc ann
+prettyNamespacePrefix namespace =
+  case namespace of
+    Just ns -> pretty ns <> " "
+    Nothing -> mempty
 
 prettyDeclLines :: Decl -> [Doc ann]
 prettyDeclLines decl =

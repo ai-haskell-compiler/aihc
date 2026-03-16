@@ -65,15 +65,16 @@ exportModuleParser = do
 
 exportNameParser :: TokParser (SourceSpan -> ExportSpec)
 exportNameParser = do
+  namespace <- MP.optional exportImportNamespaceParser
   name <- identifierTextParser
   members <- MP.optional exportMembersParser
   pure $ \span' ->
     case members of
-      Just Nothing -> ExportAll span' name
-      Just (Just names) -> ExportWith span' name names
+      Just Nothing -> ExportAll span' namespace name
+      Just (Just names) -> ExportWith span' namespace name names
       Nothing
-        | isTypeName name -> ExportAbs span' name
-        | otherwise -> ExportVar span' name
+        | namespace == Just "type" || isTypeName name -> ExportAbs span' namespace name
+        | otherwise -> ExportVar span' namespace name
 
 exportMembersParser :: TokParser (Maybe [Text])
 exportMembersParser = do
@@ -145,8 +146,24 @@ importSpecParser = withSpan $ do
 
 importItemParser :: TokParser ImportItem
 importItemParser = withSpan $ do
+  namespace <- MP.optional exportImportNamespaceParser
   itemName <- identifierTextParser
-  pure (`ImportItemVar` itemName)
+  case namespace of
+    Nothing ->
+      pure (\span' -> ImportItemVar span' Nothing itemName)
+    Just ns -> do
+      members <- MP.optional exportMembersParser
+      pure $ \span' ->
+        case members of
+          Just Nothing -> ImportItemAll span' (Just ns) itemName
+          Just (Just names) -> ImportItemWith span' (Just ns) itemName names
+          Nothing
+            | ns == "type" || isTypeName itemName -> ImportItemAbs span' (Just ns) itemName
+            | otherwise -> ImportItemVar span' (Just ns) itemName
+
+exportImportNamespaceParser :: TokParser Text
+exportImportNamespaceParser =
+  identifierExact "type" >> pure "type"
 
 declParser :: TokParser Decl
 declParser =
