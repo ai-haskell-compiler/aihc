@@ -24,10 +24,10 @@ import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified GHC.Data.EnumSet as EnumSet
-import qualified GHC.Driver.DynFlags as DynFlags
-import GHC.Driver.Session (impliedXFlags)
 import GHC.Data.FastString (mkFastString)
 import GHC.Data.StringBuffer (stringToStringBuffer)
+import qualified GHC.Driver.DynFlags as DynFlags
+import GHC.Driver.Session (impliedXFlags)
 import GHC.Hs (GhcPs, HsModule)
 import qualified GHC.LanguageExtensions.Type as GHC
 import GHC.Parser (parseModule)
@@ -136,7 +136,7 @@ optionToLanguagePragma locatedOpt =
         _ -> Nothing
 
 applyImpliedExtensions :: EnumSet.EnumSet GHC.Extension -> EnumSet.EnumSet GHC.Extension
-applyImpliedExtensions start = go start
+applyImpliedExtensions = go
   where
     go exts =
       let next = List.foldl' apply exts impliedXFlags

@@ -27,10 +27,10 @@ import Distribution.PackageDescription
     Library,
     autogenModules,
     buildInfo,
-    cppOptions,
     condExecutables,
     condLibrary,
     condSubLibraries,
+    cppOptions,
     defaultExtensions,
     defaultLanguage,
     exeModules,
@@ -38,8 +38,8 @@ import Distribution.PackageDescription
     hsSourceDirs,
     libBuildInfo,
     modulePath,
-    otherModules,
     oldExtensions,
+    otherModules,
   )
 import Distribution.PackageDescription.Parsec (parseGenericPackageDescription, runParseResult)
 import Distribution.Pretty (prettyShow)
@@ -220,7 +220,7 @@ collectCondTreeData tree =
       collectCondTreeData thenTree
         <> maybe [] collectCondTreeData elseTree
 
-collectMergedBuildInfo :: Monoid b => (a -> b) -> CondTree v c a -> b
+collectMergedBuildInfo :: (Monoid b) => (a -> b) -> CondTree v c a -> b
 collectMergedBuildInfo toBuildInfo =
   mconcat . map toBuildInfo . collectCondTreeData
 

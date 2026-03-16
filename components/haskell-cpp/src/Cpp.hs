@@ -345,27 +345,25 @@ parseDirectiveBody body =
   let (name, rest0) = T.span isIdentChar body
       rest = T.stripStart rest0
    in if T.null name
-        then
-          case T.uncons body of
-            Just (c, _) | isDigit c -> parseLineDirective body
-            _ -> Nothing
-        else
-          case name of
-            "define" -> parseDefine rest
-            "undef" -> DirUndef <$> parseIdentifier rest
-            "include" -> parseInclude rest
-            "if" -> Just (DirIf rest)
-            "ifdef" -> DirIfDef <$> parseIdentifier rest
-            "ifndef" -> DirIfNDef <$> parseIdentifier rest
-            "isndef" -> Just (DirUnsupported "isndef")
-            "elif" -> Just (DirElif rest)
-            "elseif" -> Just (DirElif rest)
-            "else" -> Just DirElse
-            "endif" -> Just DirEndIf
-            "line" -> parseLineDirective rest
-            "warning" -> Just (DirWarning rest)
-            "error" -> Just (DirError rest)
-            _ -> Just (DirUnsupported name)
+        then case T.uncons body of
+          Just (c, _) | isDigit c -> parseLineDirective body
+          _ -> Nothing
+        else case name of
+          "define" -> parseDefine rest
+          "undef" -> DirUndef <$> parseIdentifier rest
+          "include" -> parseInclude rest
+          "if" -> Just (DirIf rest)
+          "ifdef" -> DirIfDef <$> parseIdentifier rest
+          "ifndef" -> DirIfNDef <$> parseIdentifier rest
+          "isndef" -> Just (DirUnsupported "isndef")
+          "elif" -> Just (DirElif rest)
+          "elseif" -> Just (DirElif rest)
+          "else" -> Just DirElse
+          "endif" -> Just DirEndIf
+          "line" -> parseLineDirective rest
+          "warning" -> Just (DirWarning rest)
+          "error" -> Just (DirError rest)
+          _ -> Just (DirUnsupported name)
 
 parseLineDirective :: Text -> Maybe Directive
 parseLineDirective body =

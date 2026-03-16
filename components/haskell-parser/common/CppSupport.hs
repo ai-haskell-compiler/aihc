@@ -19,9 +19,9 @@ import Cpp
     preprocess,
   )
 import Data.Char (toLower)
-import qualified Data.Map.Strict as M
 import Data.Functor.Identity (Identity (..), runIdentity)
-import Data.Maybe (mapMaybe)
+import qualified Data.Map.Strict as M
+import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Parser as P
@@ -150,9 +150,7 @@ normalizeSourceForParser inputFile =
 
 stripLeadingBom :: Text -> Text
 stripLeadingBom txt =
-  case T.stripPrefix "\xfeff" txt of
-    Just rest -> rest
-    Nothing -> txt
+  fromMaybe txt (T.stripPrefix "\xfeff" txt)
 
 unliterateIfNeeded :: FilePath -> Text -> Text
 unliterateIfNeeded inputFile source
@@ -165,7 +163,7 @@ unliterateIfNeeded inputFile source
   where
     unlitBirdLine line =
       case T.stripPrefix ">" line of
-        Just rest -> T.stripPrefix " " rest `orElse` rest
+        Just rest -> fromMaybe rest (T.stripPrefix " " rest)
         Nothing -> ""
 
     unlitLatex _ [] = []
@@ -174,9 +172,3 @@ unliterateIfNeeded inputFile source
       | T.strip line == "\\end{code}" = "" : unlitLatex False rest
       | inCode = line : unlitLatex inCode rest
       | otherwise = "" : unlitLatex inCode rest
-
-orElse :: Maybe a -> a -> a
-orElse maybeValue fallback =
-  case maybeValue of
-    Just value -> value
-    Nothing -> fallback
