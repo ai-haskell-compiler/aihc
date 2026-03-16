@@ -336,7 +336,11 @@ parseDirective :: Text -> Maybe Directive
 parseDirective raw =
   let trimmed = T.stripStart raw
    in if "#" `T.isPrefixOf` trimmed
-        then parseDirectiveBody (T.stripStart (T.drop 1 trimmed))
+        then
+          let body = T.stripStart (T.drop 1 trimmed)
+           in if "-}" `T.isPrefixOf` body
+                then Nothing
+                else parseDirectiveBody body
         else Nothing
 
 parseDirectiveBody :: Text -> Maybe Directive
