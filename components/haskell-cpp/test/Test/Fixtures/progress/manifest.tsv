@@ -34,3 +34,4 @@ comment-stripping-c89	lexing	comment-stripping-c89.hs	pass
 predefined-in-string	macro	predefined-in-string.hs	xfail	__FILE__/__LINE__ should not expand inside string literals
 macro-name-in-string	macro	macro-name-in-string.hs	xfail	object-like macros should not expand inside string literals
 macro-expansion-not-in-string	macro	macro-expansion-not-in-string.hs	xfail	macro tokens in string literals are expanded unexpectedly
+rules-pragma-cpp-branch	lexing	rules-pragma-cpp-branch.hs	xfail	conditional directive inside open RULES pragma should be consumed like cpphs
