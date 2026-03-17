@@ -258,10 +258,10 @@ renderExportSpec :: ExportSpec -> String
 renderExportSpec spec =
   case spec of
     ExportModule _ name -> "ExportModule " <> show name
-    ExportVar _ name -> "ExportVar " <> show name
-    ExportAbs _ name -> "ExportAbs " <> show name
-    ExportAll _ name -> "ExportAll " <> show name
-    ExportWith _ name names -> "ExportWith " <> show name <> " " <> show names
+    ExportVar _ namespace name -> "ExportVar " <> renderNamespace namespace <> show name
+    ExportAbs _ namespace name -> "ExportAbs " <> renderNamespace namespace <> show name
+    ExportAll _ namespace name -> "ExportAll " <> renderNamespace namespace <> show name
+    ExportWith _ namespace name names -> "ExportWith " <> renderNamespace namespace <> show name <> " " <> show names
 
 renderImportDecl :: ImportDecl -> String
 renderImportDecl decl =
@@ -298,10 +298,13 @@ renderImportSpec spec =
 renderImportItem :: ImportItem -> String
 renderImportItem item =
   case item of
-    ImportItemVar _ name -> "ImportItemVar " <> show name
-    ImportItemAbs _ name -> "ImportItemAbs " <> show name
-    ImportItemAll _ name -> "ImportItemAll " <> show name
-    ImportItemWith _ name names -> "ImportItemWith " <> show name <> " " <> show names
+    ImportItemVar _ namespace name -> "ImportItemVar " <> renderNamespace namespace <> show name
+    ImportItemAbs _ namespace name -> "ImportItemAbs " <> renderNamespace namespace <> show name
+    ImportItemAll _ namespace name -> "ImportItemAll " <> renderNamespace namespace <> show name
+    ImportItemWith _ namespace name names -> "ImportItemWith " <> renderNamespace namespace <> show name <> " " <> show names
+
+renderNamespace :: Maybe Text -> String
+renderNamespace namespace = renderMaybe show namespace <> " "
 
 renderDecl :: Decl -> String
 renderDecl decl =
@@ -445,9 +448,35 @@ renderNewtypeDecl dat =
 renderDataConDecl :: DataConDecl -> String
 renderDataConDecl con =
   case con of
-    PrefixCon _ name tys -> "PrefixCon " <> show name <> " " <> showListWith renderBangType tys
-    InfixCon _ lhs name rhs -> "InfixCon " <> renderBangType lhs <> " " <> show name <> " " <> renderBangType rhs
-    RecordCon _ name fields -> "RecordCon " <> show name <> " " <> showListWith renderFieldDecl fields
+    PrefixCon _ forallVars context name tys ->
+      "PrefixCon "
+        <> show forallVars
+        <> " "
+        <> showListWith renderConstraint context
+        <> " "
+        <> show name
+        <> " "
+        <> showListWith renderBangType tys
+    InfixCon _ forallVars context lhs name rhs ->
+      "InfixCon "
+        <> show forallVars
+        <> " "
+        <> showListWith renderConstraint context
+        <> " "
+        <> renderBangType lhs
+        <> " "
+        <> show name
+        <> " "
+        <> renderBangType rhs
+    RecordCon _ forallVars context name fields ->
+      "RecordCon "
+        <> show forallVars
+        <> " "
+        <> showListWith renderConstraint context
+        <> " "
+        <> show name
+        <> " "
+        <> showListWith renderFieldDecl fields
 
 renderBangType :: BangType -> String
 renderBangType bt =
