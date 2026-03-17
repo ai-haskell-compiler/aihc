@@ -396,7 +396,7 @@ expandLineBySpan st =
 scanLine :: Int -> Int -> Text -> LineScan
 scanLine hsDepth0 cDepth0 input =
   let (spansRev, currentBuilder, hasCurrent, currentInComment, finalHsDepth, finalCDepth) =
-        go hsDepth0 cDepth0 False False [] mempty False (hsDepth0 > 0 || cDepth0 > 0) input
+        go hsDepth0 cDepth0 False False False [] mempty False (hsDepth0 > 0 || cDepth0 > 0) input
       spans = reverse (flushSpan spansRev currentBuilder hasCurrent currentInComment)
    in LineScan
         { lineScanSpans = spans,
@@ -434,13 +434,14 @@ scanLine hsDepth0 cDepth0 input =
       Int ->
       Bool ->
       Bool ->
+      Bool ->
       [LineSpan] ->
       TB.Builder ->
       Bool ->
       Bool ->
       Text ->
       ([LineSpan], TB.Builder, Bool, Bool, Int, Int)
-    go hsDepth cDepth inString escaped spansRev currentBuilder hasCurrent currentInComment remaining =
+    go hsDepth cDepth inString inChar escaped spansRev currentBuilder hasCurrent currentInComment remaining =
       case T.uncons remaining of
         Nothing -> (spansRev, currentBuilder, hasCurrent, currentInComment, hsDepth, cDepth)
         Just (c1, rest1) ->
@@ -458,13 +459,13 @@ scanLine hsDepth0 cDepth0 input =
                     then
                       let (spansRev', currentBuilder', hasCurrent', currentInComment') =
                             appendWithMode spansRev currentBuilder hasCurrent currentInComment True "  "
-                       in go hsDepth 0 False False spansRev' currentBuilder' hasCurrent' currentInComment' rest2
+                       in go hsDepth 0 False False False spansRev' currentBuilder' hasCurrent' currentInComment' rest2
                     else
                       let (spansRev', currentBuilder', hasCurrent', currentInComment') =
                             appendWithMode spansRev currentBuilder hasCurrent currentInComment True " "
-                       in go hsDepth cDepth False False spansRev' currentBuilder' hasCurrent' currentInComment' (T.cons c2 rest2)
+                       in go hsDepth cDepth False False False spansRev' currentBuilder' hasCurrent' currentInComment' (T.cons c2 rest2)
                 else
-                  if not inString && hsDepth == 0 && c1 == '-' && c2 == '-'
+                  if not inString && not inChar && hsDepth == 0 && c1 == '-' && c2 == '-'
                     then
                       let lineTail = T.cons c1 (T.cons c2 rest2)
                           (spansRev', currentBuilder', hasCurrent', currentInComment') =
@@ -477,36 +478,50 @@ scanLine hsDepth0 cDepth0 input =
                               inString' = escaped || c1 /= '"'
                               (spansRev', currentBuilder', hasCurrent', currentInComment') =
                                 appendWithMode spansRev currentBuilder hasCurrent currentInComment (hsDepth > 0) (T.singleton c1)
-                           in go hsDepth cDepth inString' escaped' spansRev' currentBuilder' hasCurrent' currentInComment' (T.cons c2 rest2)
+                           in go hsDepth cDepth inString' False escaped' spansRev' currentBuilder' hasCurrent' currentInComment' (T.cons c2 rest2)
                         else
-                          if hsDepth == 0 && c1 == '"'
+                          if inChar
                             then
-                              let (spansRev', currentBuilder', hasCurrent', currentInComment') =
-                                    appendWithMode spansRev currentBuilder hasCurrent currentInComment False (T.singleton c1)
-                               in go hsDepth cDepth True False spansRev' currentBuilder' hasCurrent' currentInComment' (T.cons c2 rest2)
+                              let escaped' = not escaped && c1 == '\\'
+                                  inChar' = escaped || c1 /= '\''
+                                  (spansRev', currentBuilder', hasCurrent', currentInComment') =
+                                    appendWithMode spansRev currentBuilder hasCurrent currentInComment (hsDepth > 0) (T.singleton c1)
+                               in go hsDepth cDepth False inChar' escaped' spansRev' currentBuilder' hasCurrent' currentInComment' (T.cons c2 rest2)
                             else
-                              if hsDepth > 0 && c1 == '-' && c2 == '}'
+                              if hsDepth == 0 && c1 == '"'
                                 then
                                   let (spansRev', currentBuilder', hasCurrent', currentInComment') =
-                                        appendWithMode spansRev currentBuilder hasCurrent currentInComment True "-}"
-                                      hsDepth' = hsDepth - 1
-                                   in go hsDepth' cDepth False False spansRev' currentBuilder' hasCurrent' currentInComment' rest2
+                                        appendWithMode spansRev currentBuilder hasCurrent currentInComment False (T.singleton c1)
+                                   in go hsDepth cDepth True False False spansRev' currentBuilder' hasCurrent' currentInComment' (T.cons c2 rest2)
                                 else
-                                  if c1 == '{' && c2 == '-'
+                                  if hsDepth == 0 && c1 == '\''
                                     then
                                       let (spansRev', currentBuilder', hasCurrent', currentInComment') =
-                                            appendWithMode spansRev currentBuilder hasCurrent currentInComment True "{-"
-                                       in go (hsDepth + 1) cDepth False False spansRev' currentBuilder' hasCurrent' currentInComment' rest2
+                                            appendWithMode spansRev currentBuilder hasCurrent currentInComment False (T.singleton c1)
+                                       in go hsDepth cDepth False True False spansRev' currentBuilder' hasCurrent' currentInComment' (T.cons c2 rest2)
                                     else
-                                      if hsDepth == 0 && c1 == '/' && c2 == '*'
+                                      if hsDepth > 0 && c1 == '-' && c2 == '}'
                                         then
                                           let (spansRev', currentBuilder', hasCurrent', currentInComment') =
-                                                appendWithMode spansRev currentBuilder hasCurrent currentInComment True "  "
-                                           in go hsDepth 1 False False spansRev' currentBuilder' hasCurrent' currentInComment' rest2
+                                                appendWithMode spansRev currentBuilder hasCurrent currentInComment True "-}"
+                                              hsDepth' = hsDepth - 1
+                                           in go hsDepth' cDepth False False False spansRev' currentBuilder' hasCurrent' currentInComment' rest2
                                         else
-                                          let (spansRev', currentBuilder', hasCurrent', currentInComment') =
-                                                appendWithMode spansRev currentBuilder hasCurrent currentInComment (hsDepth > 0) (T.singleton c1)
-                                           in go hsDepth cDepth False False spansRev' currentBuilder' hasCurrent' currentInComment' (T.cons c2 rest2)
+                                          if c1 == '{' && c2 == '-'
+                                            then
+                                              let (spansRev', currentBuilder', hasCurrent', currentInComment') =
+                                                    appendWithMode spansRev currentBuilder hasCurrent currentInComment True "{-"
+                                               in go (hsDepth + 1) cDepth False False False spansRev' currentBuilder' hasCurrent' currentInComment' rest2
+                                            else
+                                              if hsDepth == 0 && c1 == '/' && c2 == '*'
+                                                then
+                                                  let (spansRev', currentBuilder', hasCurrent', currentInComment') =
+                                                        appendWithMode spansRev currentBuilder hasCurrent currentInComment True "  "
+                                                   in go hsDepth 1 False False False spansRev' currentBuilder' hasCurrent' currentInComment' rest2
+                                                else
+                                                  let (spansRev', currentBuilder', hasCurrent', currentInComment') =
+                                                        appendWithMode spansRev currentBuilder hasCurrent currentInComment (hsDepth > 0) (T.singleton c1)
+                                                   in go hsDepth cDepth False False False spansRev' currentBuilder' hasCurrent' currentInComment' (T.cons c2 rest2)
 
 data Directive
   = DirDefineObject !Text !Text
@@ -629,23 +644,34 @@ expandMacros st = applyDepth (32 :: Int)
        in if next == t then t else applyDepth (n - 1) next
 
 expandOnce :: EngineState -> Text -> Text
-expandOnce st input = T.pack (go (T.unpack input))
+expandOnce st input = T.pack (go False False False (T.unpack input))
   where
     macros = stMacros st
-    go [] = []
-    go (c : cs)
+    go :: Bool -> Bool -> Bool -> String -> String
+    go _ _ _ [] = []
+    go inString inChar escaped (c : cs)
+      | inString =
+          let escaped' = c == '\\' && not escaped
+              inString' = not (c == '"' && not escaped)
+           in c : go inString' False escaped' cs
+      | inChar =
+          let escaped' = c == '\\' && not escaped
+              inChar' = not (c == '\'' && not escaped)
+           in c : go False inChar' escaped' cs
+      | c == '"' = c : go True False False cs
+      | c == '\'' = c : go False True False cs
       | isIdentStart c =
           let (ident, rest) = span isIdentChar (c : cs)
               identTxt = T.pack ident
            in case identTxt of
-                "__LINE__" -> show (stCurrentLine st) ++ go rest
-                "__FILE__" -> "\"" ++ stCurrentFile st ++ "\"" ++ go rest
+                "__LINE__" -> show (stCurrentLine st) ++ go False False False rest
+                "__FILE__" -> "\"" ++ stCurrentFile st ++ "\"" ++ go False False False rest
                 _ ->
                   case M.lookup identTxt macros of
-                    Just (ObjectMacro repl) -> T.unpack repl ++ go rest
+                    Just (ObjectMacro repl) -> T.unpack repl ++ go False False False rest
                     Just (FunctionMacro params body) ->
                       case parseCallArgs rest of
-                        Nothing -> ident ++ go rest
+                        Nothing -> ident ++ go False False False rest
                         Just (args, restAfter) ->
                           if length args == length params
                             then
@@ -653,10 +679,10 @@ expandOnce st input = T.pack (go (T.unpack input))
                                     substituteParams
                                       (M.fromList (zip params (map T.pack args)))
                                       body
-                               in T.unpack body' ++ go restAfter
-                            else ident ++ go rest
-                    Nothing -> ident ++ go rest
-      | otherwise = c : go cs
+                               in T.unpack body' ++ go False False False restAfter
+                            else ident ++ go False False False rest
+                    Nothing -> ident ++ go False False False rest
+      | otherwise = c : go False False False cs
 
     parseCallArgs :: String -> Maybe ([String], String)
     parseCallArgs ('(' : xs) = parseArgs 0 [] [] xs
