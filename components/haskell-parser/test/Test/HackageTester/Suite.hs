@@ -32,7 +32,8 @@ hackageTesterTests =
         "oracle"
         [ testCase "accepts No-prefixed LANGUAGE pragmas" test_oracleAcceptsNoPrefixedLanguagePragma,
           testCase "applies implied extensions" test_oracleAppliesImpliedExtensions,
-          testCase "uses Haskell2010 language defaults" test_oracleUsesHaskell2010Defaults
+          testCase "uses Haskell2010 language defaults" test_oracleUsesHaskell2010Defaults,
+          testCase "handles CPP-defined LANGUAGE pragmas" test_oracleHandlesCppDefinedLanguagePragmas
         ]
     ]
 
@@ -124,6 +125,25 @@ test_oracleUsesHaskell2010Defaults =
       T.unlines
         [ "module A where",
           "data R = R { field :: Int }"
+        ]
+
+test_oracleHandlesCppDefinedLanguagePragmas :: Assertion
+test_oracleHandlesCppDefinedLanguagePragmas =
+  case oracleDetailedParsesModuleWithNamesAt "hackage-tester" [] Nothing source of
+    Left err ->
+      assertBool
+        ("expected oracle to honor CPP-defined LANGUAGE pragmas, got: " <> T.unpack err)
+        False
+    Right () -> pure ()
+  where
+    source =
+      T.unlines
+        [ "{-# LANGUAGE CPP #-}",
+          "#if 1",
+          "{-# LANGUAGE LambdaCase #-}",
+          "#endif",
+          "module Test where",
+          "x = \\case _ -> ()"
         ]
 
 assertLeftContaining :: String -> Either String a -> Assertion
