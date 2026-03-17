@@ -2,7 +2,7 @@
 
 - Tools: `gh`, `nix` (others via `nix`)
 - Run tests: `nix flake check`
-- Include changes to progress counts in PR descriptions. Do not update the READMEs, though. THey are updated by a cron workflow.
+- Include changes to progress counts in PR descriptions. Do not update the READMEs, though. They are updated by a cron workflow.
 - Commands:
   - Parser: `nix run .#parser-progress`
   - Extensions: `nix run .#parser-extension-progress`
@@ -14,7 +14,7 @@
 
 ## Testing (TDD)
 
-aihc is developed test-first. Run the full suite with `nix flake check`.
+aihc is developed test-first. Run the full suite with `nix flake check`. When working on new features, always include tests that cover expected use plus a few corner cases. When fixing bugs, always include regression tests.
 
 - **Common status model**
   - Outcomes: `PASS`, `XFAIL`, `FAIL`, `XPASS`.
