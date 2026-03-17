@@ -67,7 +67,8 @@ linePragmaTest =
         case k (Just "inside") of
           Done result -> do
             let out = T.lines (resultOutput result)
-            if "#line 1 \"nested.inc\"" `elem` out && "#line 3 \"root.hs\"" `elem` out
+                hasIncludePragma = any (T.isSuffixOf "nested.inc\"") out
+            if hasIncludePragma && "#line 3 \"root.hs\"" `elem` out
               then pure ()
               else assertFailure "expected include line pragmas in output"
           NeedInclude {} -> assertFailure "unexpected nested include in line pragma test"

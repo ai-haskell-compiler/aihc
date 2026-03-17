@@ -14,19 +14,25 @@ module Cpp
 where
 
 import Data.Char (isAlphaNum, isDigit, isLetter, isSpace)
-import Data.List (isPrefixOf)
+import Data.List (dropWhileEnd, isPrefixOf)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Lazy.Builder as TB
+import System.FilePath (takeDirectory, (</>))
 
 data Config = Config
   { configInputFile :: FilePath,
     configDateTime :: !(Text, Text),
     configMacros :: !(Map Text Text)
   }
+
+data MacroDef
+  = ObjectMacro !Text
+  | FunctionMacro ![Text] !Text
+  deriving (Eq, Show)
 
 defaultConfig :: Config
 defaultConfig = Config {configInputFile = "<input>", configDateTime = ("Jan  1 1970", "00:00:00"), configMacros = M.empty}
@@ -70,9 +76,9 @@ preprocess cfg input =
           (date, time) = configDateTime cfg
        in st0
             { stMacros =
-                M.insert "__DATE__" ("\"" <> date <> "\"") $
-                  M.insert "__TIME__" ("\"" <> time <> "\"") $
-                    configMacros cfg
+                M.insert "__DATE__" (ObjectMacro ("\"" <> date <> "\"")) $
+                  M.insert "__TIME__" (ObjectMacro ("\"" <> time <> "\"")) $
+                    M.map ObjectMacro (configMacros cfg)
             }
     finish st =
       let out = T.intercalate "\n" (reverse (stOutputRev st))
@@ -102,12 +108,18 @@ joinMultiline n (l : ls)
            in (res, r, c + 1)
       | otherwise = (acc <> x, xs, 1)
 
+splitLines :: Text -> [Text]
+splitLines txt
+  | T.null txt = []
+  | otherwise = T.splitOn "\n" txt
+
 data EngineState = EngineState
-  { stMacros :: !(Map Text Text),
+  { stMacros :: !(Map Text MacroDef),
     stOutputRev :: ![Text],
     stDiagnosticsRev :: ![Diagnostic],
     stSkippingDanglingElse :: !Bool,
-    stBlockCommentDepth :: !Int,
+    stHsBlockCommentDepth :: !Int,
+    stCBlockCommentDepth :: !Int,
     stCurrentFile :: !FilePath,
     stCurrentLine :: !Int
   }
@@ -119,7 +131,8 @@ emptyState filePath =
       stOutputRev = [],
       stDiagnosticsRev = [],
       stSkippingDanglingElse = False,
-      stBlockCommentDepth = 0,
+      stHsBlockCommentDepth = 0,
+      stCBlockCommentDepth = 0,
       stCurrentFile = filePath,
       stCurrentLine = 1
     }
@@ -141,9 +154,10 @@ processFile :: FilePath -> [(Int, Int, Text)] -> [CondFrame] -> EngineState -> C
 processFile _ [] _ st k = k st
 processFile filePath ((lineNo, lineSpan, line) : restLines) stack st k =
   let active = currentActive stack
-      lineScan = scanLine (stBlockCommentDepth st) line
-      startsInBlockComment = stBlockCommentDepth st > 0
-      nextBlockCommentDepth = lineScanFinalDepth lineScan
+      lineScan = scanLine (stHsBlockCommentDepth st) (stCBlockCommentDepth st) line
+      startsInBlockComment = stHsBlockCommentDepth st > 0 || stCBlockCommentDepth st > 0
+      nextHsBlockCommentDepth = lineScanFinalHsDepth lineScan
+      nextCBlockCommentDepth = lineScanFinalCDepth lineScan
       parsedDirective =
         if startsInBlockComment
           then Nothing
@@ -158,14 +172,24 @@ processFile filePath ((lineNo, lineSpan, line) : restLines) stack st k =
           filePath
           restLines
           stack
-          (st' {stCurrentLine = nextLineNo, stBlockCommentDepth = nextBlockCommentDepth})
+          ( st'
+              { stCurrentLine = nextLineNo,
+                stHsBlockCommentDepth = nextHsBlockCommentDepth,
+                stCBlockCommentDepth = nextCBlockCommentDepth
+              }
+          )
           k
       continueWith stack' st' =
         processFile
           filePath
           restLines
           stack'
-          (st' {stCurrentLine = nextLineNo, stBlockCommentDepth = nextBlockCommentDepth})
+          ( st'
+              { stCurrentLine = nextLineNo,
+                stHsBlockCommentDepth = nextHsBlockCommentDepth,
+                stCBlockCommentDepth = nextCBlockCommentDepth
+              }
+          )
           k
       recoverDanglingElse =
         case parsedDirective of
@@ -184,9 +208,13 @@ processFile filePath ((lineNo, lineSpan, line) : restLines) stack st k =
             continue (emitBlankLines lineSpan st)
       handleDirective directive =
         case directive of
-          DirDefine name value ->
+          DirDefineObject name value ->
             if currentActive stack
-              then continue (emitDirectiveBlank (st {stMacros = M.insert name value (stMacros st)}))
+              then continue (emitDirectiveBlank (st {stMacros = M.insert name (ObjectMacro value) (stMacros st)}))
+              else continue (emitDirectiveBlank st)
+          DirDefineFunction name params body ->
+            if currentActive stack
+              then continue (emitDirectiveBlank (st {stMacros = M.insert name (FunctionMacro params body) (stMacros st)}))
               else continue (emitDirectiveBlank st)
           DirUndef name ->
             if currentActive stack
@@ -208,7 +236,11 @@ processFile filePath ((lineNo, lineSpan, line) : restLines) stack st k =
                           continue
                             (addDiag Error ("missing include: " <> T.pack includeTarget) filePath lineNo st)
                         Just includeText ->
-                          let stWithIncludePragma = emitLine (linePragma 1 includeTarget) (st {stCurrentFile = includeTarget, stCurrentLine = 1})
+                          let includeFilePath =
+                                case kind of
+                                  IncludeLocal -> takeDirectory filePath </> includeTarget
+                                  IncludeSystem -> includeTarget
+                              stWithIncludePragma = emitLine (linePragma 1 includeFilePath) (st {stCurrentFile = includeFilePath, stCurrentLine = 1})
                               resumeParent stAfterInclude =
                                 processFile
                                   filePath
@@ -216,7 +248,7 @@ processFile filePath ((lineNo, lineSpan, line) : restLines) stack st k =
                                   stack
                                   (emitLine (linePragma nextLineNo filePath) (stAfterInclude {stCurrentFile = filePath, stCurrentLine = nextLineNo}))
                                   k
-                           in processFile includeTarget (joinMultiline 1 (T.lines includeText)) [] stWithIncludePragma resumeParent
+                           in processFile includeFilePath (joinMultiline 1 (splitLines includeText)) [] stWithIncludePragma resumeParent
                  in NeedInclude req nextStep
               else continue (emitDirectiveBlank st)
           DirIf expr ->
@@ -349,7 +381,8 @@ data LineSpan = LineSpan
 
 data LineScan = LineScan
   { lineScanSpans :: ![LineSpan],
-    lineScanFinalDepth :: !Int
+    lineScanFinalHsDepth :: !Int,
+    lineScanFinalCDepth :: !Int
   }
 
 expandLineBySpan :: EngineState -> [LineSpan] -> Text
@@ -360,12 +393,16 @@ expandLineBySpan st =
       | lineSpanInBlockComment lineChunk = lineSpanText lineChunk
       | otherwise = expandMacros st (lineSpanText lineChunk)
 
-scanLine :: Int -> Text -> LineScan
-scanLine depth0 input =
-  let (spansRev, currentBuilder, hasCurrent, currentInComment, finalDepth) =
-        go depth0 False False [] mempty False (depth0 > 0) input
+scanLine :: Int -> Int -> Text -> LineScan
+scanLine hsDepth0 cDepth0 input =
+  let (spansRev, currentBuilder, hasCurrent, currentInComment, finalHsDepth, finalCDepth) =
+        go hsDepth0 cDepth0 False False [] mempty False (hsDepth0 > 0 || cDepth0 > 0) input
       spans = reverse (flushSpan spansRev currentBuilder hasCurrent currentInComment)
-   in LineScan {lineScanSpans = spans, lineScanFinalDepth = finalDepth}
+   in LineScan
+        { lineScanSpans = spans,
+          lineScanFinalHsDepth = finalHsDepth,
+          lineScanFinalCDepth = finalCDepth
+        }
   where
     builderToText :: TB.Builder -> Text
     builderToText = TL.toStrict . TB.toLazyText
@@ -394,6 +431,7 @@ scanLine depth0 input =
 
     go ::
       Int ->
+      Int ->
       Bool ->
       Bool ->
       [LineSpan] ->
@@ -401,57 +439,78 @@ scanLine depth0 input =
       Bool ->
       Bool ->
       Text ->
-      ([LineSpan], TB.Builder, Bool, Bool, Int)
-    go depth inString escaped spansRev currentBuilder hasCurrent currentInComment remaining =
+      ([LineSpan], TB.Builder, Bool, Bool, Int, Int)
+    go hsDepth cDepth inString escaped spansRev currentBuilder hasCurrent currentInComment remaining =
       case T.uncons remaining of
-        Nothing -> (spansRev, currentBuilder, hasCurrent, currentInComment, depth)
+        Nothing -> (spansRev, currentBuilder, hasCurrent, currentInComment, hsDepth, cDepth)
         Just (c1, rest1) ->
           case T.uncons rest1 of
             Nothing ->
-              let (spansRev', currentBuilder', hasCurrent', currentInComment') =
-                    appendWithMode spansRev currentBuilder hasCurrent currentInComment (depth > 0) (T.singleton c1)
-               in (spansRev', currentBuilder', hasCurrent', currentInComment', depth)
+              let outChar = if cDepth > 0 then " " else T.singleton c1
+                  inCommentNow = hsDepth > 0 || cDepth > 0
+                  (spansRev', currentBuilder', hasCurrent', currentInComment') =
+                    appendWithMode spansRev currentBuilder hasCurrent currentInComment inCommentNow outChar
+               in (spansRev', currentBuilder', hasCurrent', currentInComment', hsDepth, cDepth)
             Just (c2, rest2) ->
-              if not inString && depth == 0 && c1 == '-' && c2 == '-'
+              if cDepth > 0
                 then
-                  let lineTail = T.cons c1 (T.cons c2 rest2)
-                      (spansRev', currentBuilder', hasCurrent', currentInComment') =
-                        appendWithMode spansRev currentBuilder hasCurrent currentInComment True lineTail
-                   in (spansRev', currentBuilder', hasCurrent', currentInComment', depth)
-                else
-                  if inString
+                  if c1 == '*' && c2 == '/'
                     then
-                      let escaped' = not escaped && c1 == '\\'
-                          inString' = escaped || c1 /= '"'
-                          (spansRev', currentBuilder', hasCurrent', currentInComment') =
-                            appendWithMode spansRev currentBuilder hasCurrent currentInComment (depth > 0) (T.singleton c1)
-                       in go depth inString' escaped' spansRev' currentBuilder' hasCurrent' currentInComment' (T.cons c2 rest2)
+                      let (spansRev', currentBuilder', hasCurrent', currentInComment') =
+                            appendWithMode spansRev currentBuilder hasCurrent currentInComment True "  "
+                       in go hsDepth 0 False False spansRev' currentBuilder' hasCurrent' currentInComment' rest2
                     else
-                      if depth == 0 && c1 == '"'
+                      let (spansRev', currentBuilder', hasCurrent', currentInComment') =
+                            appendWithMode spansRev currentBuilder hasCurrent currentInComment True " "
+                       in go hsDepth cDepth False False spansRev' currentBuilder' hasCurrent' currentInComment' (T.cons c2 rest2)
+                else
+                  if not inString && hsDepth == 0 && c1 == '-' && c2 == '-'
+                    then
+                      let lineTail = T.cons c1 (T.cons c2 rest2)
+                          (spansRev', currentBuilder', hasCurrent', currentInComment') =
+                            appendWithMode spansRev currentBuilder hasCurrent currentInComment True lineTail
+                       in (spansRev', currentBuilder', hasCurrent', currentInComment', hsDepth, cDepth)
+                    else
+                      if inString
                         then
-                          let (spansRev', currentBuilder', hasCurrent', currentInComment') =
-                                appendWithMode spansRev currentBuilder hasCurrent currentInComment (depth > 0) (T.singleton c1)
-                           in go depth True False spansRev' currentBuilder' hasCurrent' currentInComment' (T.cons c2 rest2)
+                          let escaped' = not escaped && c1 == '\\'
+                              inString' = escaped || c1 /= '"'
+                              (spansRev', currentBuilder', hasCurrent', currentInComment') =
+                                appendWithMode spansRev currentBuilder hasCurrent currentInComment (hsDepth > 0) (T.singleton c1)
+                           in go hsDepth cDepth inString' escaped' spansRev' currentBuilder' hasCurrent' currentInComment' (T.cons c2 rest2)
                         else
-                          if c1 == '{' && c2 == '-'
+                          if hsDepth == 0 && c1 == '"'
                             then
                               let (spansRev', currentBuilder', hasCurrent', currentInComment') =
-                                    appendWithMode spansRev currentBuilder hasCurrent currentInComment True "{-"
-                               in go (depth + 1) False False spansRev' currentBuilder' hasCurrent' currentInComment' rest2
+                                    appendWithMode spansRev currentBuilder hasCurrent currentInComment False (T.singleton c1)
+                               in go hsDepth cDepth True False spansRev' currentBuilder' hasCurrent' currentInComment' (T.cons c2 rest2)
                             else
-                              if depth > 0 && c1 == '-' && c2 == '}'
+                              if hsDepth > 0 && c1 == '-' && c2 == '}'
                                 then
                                   let (spansRev', currentBuilder', hasCurrent', currentInComment') =
                                         appendWithMode spansRev currentBuilder hasCurrent currentInComment True "-}"
-                                      depth' = depth - 1
-                                   in go depth' False False spansRev' currentBuilder' hasCurrent' currentInComment' rest2
+                                      hsDepth' = hsDepth - 1
+                                   in go hsDepth' cDepth False False spansRev' currentBuilder' hasCurrent' currentInComment' rest2
                                 else
-                                  let (spansRev', currentBuilder', hasCurrent', currentInComment') =
-                                        appendWithMode spansRev currentBuilder hasCurrent currentInComment (depth > 0) (T.singleton c1)
-                                   in go depth False False spansRev' currentBuilder' hasCurrent' currentInComment' (T.cons c2 rest2)
+                                  if c1 == '{' && c2 == '-'
+                                    then
+                                      let (spansRev', currentBuilder', hasCurrent', currentInComment') =
+                                            appendWithMode spansRev currentBuilder hasCurrent currentInComment True "{-"
+                                       in go (hsDepth + 1) cDepth False False spansRev' currentBuilder' hasCurrent' currentInComment' rest2
+                                    else
+                                      if hsDepth == 0 && c1 == '/' && c2 == '*'
+                                        then
+                                          let (spansRev', currentBuilder', hasCurrent', currentInComment') =
+                                                appendWithMode spansRev currentBuilder hasCurrent currentInComment True "  "
+                                           in go hsDepth 1 False False spansRev' currentBuilder' hasCurrent' currentInComment' rest2
+                                        else
+                                          let (spansRev', currentBuilder', hasCurrent', currentInComment') =
+                                                appendWithMode spansRev currentBuilder hasCurrent currentInComment (hsDepth > 0) (T.singleton c1)
+                                           in go hsDepth cDepth False False spansRev' currentBuilder' hasCurrent' currentInComment' (T.cons c2 rest2)
 
 data Directive
-  = DirDefine !Text !Text
+  = DirDefineObject !Text !Text
+  | DirDefineFunction !Text ![Text] !Text
   | DirUndef !Text
   | DirInclude !IncludeKind !FilePath
   | DirIf !Text
@@ -522,10 +581,28 @@ parseDefine rest = do
   let (name, rest0) = T.span isIdentChar rest
   if T.null name
     then Nothing
-    else
-      if "(" `T.isPrefixOf` T.stripStart rest0
-        then Just (DirUnsupported "define-function-macro")
-        else Just (DirDefine name (T.stripStart rest0))
+    else case T.uncons rest0 of
+      Just ('(', afterOpen) ->
+        let (params, restAfterParams) = parseDefineParams afterOpen
+         in case params of
+              Nothing -> Just (DirUnsupported "define-function-macro")
+              Just names -> Just (DirDefineFunction name names (T.stripStart restAfterParams))
+      _ -> Just (DirDefineObject name (T.stripStart rest0))
+
+parseDefineParams :: Text -> (Maybe [Text], Text)
+parseDefineParams input =
+  let (inside, suffix) = T.breakOn ")" input
+   in if T.null suffix
+        then (Nothing, "")
+        else
+          let rawParams = T.splitOn "," inside
+              params = map (T.takeWhile isIdentChar . T.strip) rawParams
+           in if T.null (T.strip inside)
+                then (Just [], T.drop 1 suffix)
+                else
+                  if any T.null params
+                    then (Nothing, T.drop 1 suffix)
+                    else (Just params, T.drop 1 suffix)
 
 parseIdentifier :: Text -> Maybe Text
 parseIdentifier txt =
@@ -563,7 +640,60 @@ expandOnce st input = T.pack (go (T.unpack input))
            in case identTxt of
                 "__LINE__" -> show (stCurrentLine st) ++ go rest
                 "__FILE__" -> "\"" ++ stCurrentFile st ++ "\"" ++ go rest
-                _ -> T.unpack (M.findWithDefault identTxt identTxt macros) ++ go rest
+                _ ->
+                  case M.lookup identTxt macros of
+                    Just (ObjectMacro repl) -> T.unpack repl ++ go rest
+                    Just (FunctionMacro params body) ->
+                      case parseCallArgs rest of
+                        Nothing -> ident ++ go rest
+                        Just (args, restAfter) ->
+                          if length args == length params
+                            then
+                              let body' =
+                                    substituteParams
+                                      (M.fromList (zip params (map T.pack args)))
+                                      body
+                               in T.unpack body' ++ go restAfter
+                            else ident ++ go rest
+                    Nothing -> ident ++ go rest
+      | otherwise = c : go cs
+
+    parseCallArgs :: String -> Maybe ([String], String)
+    parseCallArgs ('(' : xs) = parseArgs 0 [] [] xs
+    parseCallArgs _ = Nothing
+
+    parseArgs :: Int -> [String] -> String -> String -> Maybe ([String], String)
+    parseArgs _ acc current [] =
+      let current' = trimSpaces (reverse current)
+       in if null current' && null acc
+            then Just ([], [])
+            else Nothing
+    parseArgs depth acc current (ch : rest)
+      | ch == '(' = parseArgs (depth + 1) acc (ch : current) rest
+      | ch == ')' && depth > 0 = parseArgs (depth - 1) acc (ch : current) rest
+      | ch == ')' && depth == 0 =
+          let arg = reverse current
+              arg' = trimSpaces arg
+              args = if null arg' && null acc then acc else acc ++ [arg']
+           in Just (args, rest)
+      | ch == ',' && depth == 0 =
+          let arg = reverse current
+              arg' = trimSpaces arg
+           in parseArgs depth (acc ++ [arg']) [] rest
+      | otherwise = parseArgs depth acc (ch : current) rest
+
+    trimSpaces :: String -> String
+    trimSpaces = dropWhileEnd isSpace . dropWhile isSpace
+
+substituteParams :: Map Text Text -> Text -> Text
+substituteParams subs = T.pack . go . T.unpack
+  where
+    go [] = []
+    go (c : cs)
+      | isIdentStart c =
+          let (ident, rest) = span isIdentChar (c : cs)
+              identTxt = T.pack ident
+           in T.unpack (M.findWithDefault identTxt identTxt subs) ++ go rest
       | otherwise = c : go cs
 
 isIdentStart :: Char -> Bool
@@ -661,7 +791,7 @@ parseAtom (TOpenParen : ts) =
         _ -> (v, ts1)
 parseAtom ts = (0, ts)
 
-replaceDefined :: Map Text Text -> Text -> Text
+replaceDefined :: Map Text MacroDef -> Text -> Text
 replaceDefined macros = T.pack . go . T.unpack
   where
     go [] = []
