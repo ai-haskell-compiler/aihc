@@ -34,6 +34,7 @@ hackageTesterTests =
           testCase "accepts LANGUAGE Haskell2010 pragmas" test_oracleAcceptsHaskell2010LanguagePragma,
           testCase "applies implied extensions" test_oracleAppliesImpliedExtensions,
           testCase "uses Haskell2010 language defaults" test_oracleUsesHaskell2010Defaults,
+          testCase "uses Haskell98 fallback defaults" test_oracleUsesHaskell98FallbackDefaults,
           testCase "handles CPP-defined LANGUAGE pragmas" test_oracleHandlesCppDefinedLanguagePragmas
         ]
     ]
@@ -142,6 +143,24 @@ test_oracleUsesHaskell2010Defaults =
       T.unlines
         [ "module A where",
           "data R = R { field :: Int }"
+        ]
+
+test_oracleUsesHaskell98FallbackDefaults :: Assertion
+test_oracleUsesHaskell98FallbackDefaults =
+  case oracleDetailedParsesModuleWithNamesAt "hackage-tester" [] (Just "Haskell98") source of
+    Left err ->
+      assertBool
+        ("expected Haskell98 fallback defaults to allow nondecreasing indentation, got: " <> T.unpack err)
+        False
+    Right () -> pure ()
+  where
+    source =
+      T.unlines
+        [ "module A where",
+          "foo bs = do",
+          "  let fn offset x = id $ \\(a, b) -> do",
+          "      pure (offset + b)",
+          "  pure bs"
         ]
 
 test_oracleHandlesCppDefinedLanguagePragmas :: Assertion

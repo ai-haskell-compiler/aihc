@@ -210,7 +210,7 @@ extractLanguage :: BuildInfo -> Maybe String
 extractLanguage bi =
   case defaultLanguage bi of
     Just lang -> Just (prettyShow lang)
-    Nothing -> Just "Haskell2010"
+    Nothing -> Just "Haskell98"
 
 collectCondTreeData :: CondTree v c a -> [a]
 collectCondTreeData tree =

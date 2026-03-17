@@ -146,20 +146,24 @@ lexModuleTokens input =
 -- and stops at the first non-pragma token.
 readModuleHeaderExtensions :: Text -> [ExtensionSetting]
 readModuleHeaderExtensions input =
-  case runParser (triviaConsumer *> many (lexTokenParser <* triviaConsumer) <* eof) "<module-header>" input of
-    Right toks ->
-      concatMap languageSettings (takeWhile isHeaderPragma toks)
+  case runParser parser "<module-header>" input of
+    Right settings -> settings
     Left _ -> []
   where
-    isHeaderPragma tok =
-      case lexTokenKind tok of
-        TkPragmaLanguage _ -> True
-        TkPragmaWarning _ -> True
-        TkPragmaDeprecated _ -> True
-        _ -> False
+    parser = triviaConsumer *> gather []
 
-    languageSettings tok =
-      case lexTokenKind tok of
+    gather acc =
+      do
+        next <- MP.optional (try headerPragmaSettings)
+        case next of
+          Nothing -> pure (reverse acc)
+          Just settings -> do
+            triviaConsumer
+            gather (reverse settings <> acc)
+
+    headerPragmaSettings = do
+      tok <- lexWithSpan (try languagePragmaToken <|> try pragmaWarningToken <|> try pragmaDeprecatedToken)
+      pure $ case lexTokenKind tok of
         TkPragmaLanguage names -> names
         _ -> []
 
