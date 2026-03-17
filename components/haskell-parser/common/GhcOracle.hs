@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections #-}
 
 module GhcOracle
   ( oracleParsesModuleWithExtensions,
@@ -18,6 +19,7 @@ where
 import Control.Exception (catch, displayException, evaluate)
 import Cpp (resultOutput)
 import CppSupport (moduleHeaderExtensionSettings, preprocessForParserWithoutIncludes)
+import Data.Bifunctor (first)
 import Data.List (nub)
 import qualified Data.List as List
 import Data.Maybe (mapMaybe)
@@ -71,12 +73,18 @@ oracleModuleAstFingerprintWithExtensionsAt sourceTag exts input = do
 
 parseWithGhcWithExtensions :: String -> [GHC.Extension] -> Text -> Either Text ([Ast.ExtensionSetting], HsModule GhcPs)
 parseWithGhcWithExtensions sourceTag extraExts input =
+  first fst (parseWithGhcWithExtensionsDetailed sourceTag extraExts input)
+
+parseWithGhcWithExtensionsDetailed :: String -> [GHC.Extension] -> Text -> Either (Text, EnumSet.EnumSet GHC.Extension) ([Ast.ExtensionSetting], HsModule GhcPs)
+parseWithGhcWithExtensionsDetailed sourceTag extraExts input =
   let baseExts = nub extraExts
+      baseExtSet = EnumSet.fromList baseExts :: EnumSet.EnumSet GHC.Extension
+      baseParseExts = applyImpliedExtensions baseExtSet
    in do
-        initialLanguagePragmas <- extractLanguagePragmas sourceTag baseExts input
+        initialLanguagePragmas <- first (,baseParseExts) (extractLanguagePragmas sourceTag baseExts input)
         let initialParseExts =
               applyImpliedExtensions
-                (List.foldl' applyExtensionSetting (EnumSet.fromList baseExts :: EnumSet.EnumSet GHC.Extension) initialLanguagePragmas)
+                (List.foldl' applyExtensionSetting baseExtSet initialLanguagePragmas)
             inputForParse =
               if EnumSet.member GHC.Cpp initialParseExts
                 then resultOutput (preprocessForParserWithoutIncludes sourceTag input)
@@ -87,7 +95,7 @@ parseWithGhcWithExtensions sourceTag extraExts input =
                 else initialLanguagePragmas
             parseExts =
               applyImpliedExtensions
-                (List.foldl' applyExtensionSetting (EnumSet.fromList baseExts :: EnumSet.EnumSet GHC.Extension) languagePragmas)
+                (List.foldl' applyExtensionSetting baseExtSet languagePragmas)
             opts = mkParserOpts parseExts emptyDiagOpts False False False True
             buffer = stringToStringBuffer (T.unpack inputForParse)
             start = mkRealSrcLoc (mkFastString sourceTag) 1 1
@@ -95,8 +103,8 @@ parseWithGhcWithExtensions sourceTag extraExts input =
           POk _ modu -> Right (languagePragmas, unLoc modu)
           PFailed st ->
             let rendered = showSDocUnsafe (pprMessages NoDiagnosticOpts (getPsErrorMessages st))
-             in Left (T.pack rendered) of
-          Left err -> Left ("GHC parser exception: " <> err)
+             in Left (T.pack rendered, parseExts) of
+          Left err -> Left ("GHC parser exception: " <> err, parseExts)
           Right result -> result
 
 applyExtensionSetting :: EnumSet.EnumSet GHC.Extension -> Ast.ExtensionSetting -> EnumSet.EnumSet GHC.Extension
@@ -203,11 +211,12 @@ oracleDetailedParsesModuleWithNamesAt sourceTag extNames langName input =
   let extSettings = mapMaybe (Ast.parseExtensionSettingName . T.pack) extNames
       langExts = maybe [] languageExtensions langName
       allExts = EnumSet.toList (List.foldl' applyExtensionSetting (EnumSet.fromList langExts) extSettings)
-   in case parseWithGhcWithExtensions sourceTag allExts input of
-        Left err ->
+   in case parseWithGhcWithExtensionsDetailed sourceTag allExts input of
+        Left (err, parseExts) ->
           let extList = T.pack (show extNames)
+              parseExtList = T.pack (show (EnumSet.toList parseExts))
               langInfo = maybe "" (\l -> " Language: " <> T.pack l) langName
-           in Left (err <> "\n(Extensions: " <> extList <> langInfo <> ")")
+           in Left (err <> "\n(Extensions: " <> extList <> langInfo <> " Effective parse extensions: " <> parseExtList <> ")")
         Right _ -> Right ()
 
 toGhcExtension :: Ast.Extension -> Maybe GHC.Extension
