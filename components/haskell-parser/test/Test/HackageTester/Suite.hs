@@ -32,6 +32,7 @@ hackageTesterTests =
         "oracle"
         [ testCase "accepts No-prefixed LANGUAGE pragmas" test_oracleAcceptsNoPrefixedLanguagePragma,
           testCase "accepts LANGUAGE Haskell2010 pragmas" test_oracleAcceptsHaskell2010LanguagePragma,
+          testCase "accepts NondecreasingIndentation pragmas" test_oracleAcceptsNondecreasingIndentationPragma,
           testCase "applies implied extensions" test_oracleAppliesImpliedExtensions,
           testCase "uses Haskell2010 language defaults" test_oracleUsesHaskell2010Defaults,
           testCase "uses Haskell98 fallback defaults" test_oracleUsesHaskell98FallbackDefaults,
@@ -111,6 +112,25 @@ test_oracleAcceptsHaskell2010LanguagePragma =
         [ "{-# LANGUAGE Haskell2010 #-}",
           "module A where",
           "x = 1"
+        ]
+
+test_oracleAcceptsNondecreasingIndentationPragma :: Assertion
+test_oracleAcceptsNondecreasingIndentationPragma =
+  case oracleDetailedParsesModuleWithNamesAt "hackage-tester" [] Nothing source of
+    Left err ->
+      assertBool
+        ("expected NondecreasingIndentation pragma to be accepted, got: " <> T.unpack err)
+        False
+    Right () -> pure ()
+  where
+    source =
+      T.unlines
+        [ "{-# LANGUAGE NondecreasingIndentation #-}",
+          "module A where",
+          "foo = case True of",
+          "  True -> do",
+          "  x <- pure ()",
+          "  pure x"
         ]
 
 test_oracleAppliesImpliedExtensions :: Assertion

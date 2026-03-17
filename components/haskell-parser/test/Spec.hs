@@ -41,6 +41,7 @@ buildTests = do
           "parser"
           [ testCase "module parses declaration list" test_moduleParsesDecls,
             testCase "reads header LANGUAGE pragmas" test_readsHeaderLanguagePragmas,
+            testCase "reads header LANGUAGE pragmas starting with No" test_readsHeaderLanguagePragmasStartingWithNo,
             testCase "ignores unknown header pragmas" test_ignoresUnknownHeaderPragmas,
             testCase "ignores LANGUAGE pragmas inside comments" test_ignoresLanguagePragmasInsideComments,
             testCase "stops header scan at first module token" test_stopsHeaderScanAtFirstModuleToken
@@ -75,6 +76,18 @@ test_readsHeaderLanguagePragmas = do
       exts = readModuleHeaderExtensions source
       expected = [EnableExtension CPP, DisableExtension CPP]
   assertEqual "reads expected module header LANGUAGE settings" expected exts
+
+test_readsHeaderLanguagePragmasStartingWithNo :: Assertion
+test_readsHeaderLanguagePragmasStartingWithNo = do
+  let source =
+        T.unlines
+          [ "{-# LANGUAGE NondecreasingIndentation #-}",
+            "module M where",
+            "x = 1"
+          ]
+      exts = readModuleHeaderExtensions source
+      expected = [EnableExtension NondecreasingIndentation]
+  assertEqual "reads LANGUAGE pragmas whose extension name starts with 'No'" expected exts
 
 test_ignoresUnknownHeaderPragmas :: Assertion
 test_ignoresUnknownHeaderPragmas = do

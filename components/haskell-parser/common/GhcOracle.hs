@@ -212,8 +212,19 @@ oracleDetailedParsesModuleWithNamesAt sourceTag extNames langName input =
 
 toGhcExtension :: Ast.Extension -> Maybe GHC.Extension
 toGhcExtension ext =
-  lookup (toGhcExtensionName ext) [(show ghcExt, ghcExt) | ghcExt <- [minBound .. maxBound]]
+  case ext of
+    Ast.NondecreasingIndentation ->
+      lookupAny ["NondecreasingIndentation", "AlternativeLayoutRule", "AlternativeLayoutRuleTransitional", "RelaxedLayout"]
+    _ ->
+      lookupAny [toGhcExtensionName ext]
   where
+    ghcExtensions = [(show ghcExt, ghcExt) | ghcExt <- [minBound .. maxBound]]
+    lookupAny [] = Nothing
+    lookupAny (name : names) =
+      case lookup name ghcExtensions of
+        Just ghcExt -> Just ghcExt
+        Nothing -> lookupAny names
+
     toGhcExtensionName Ast.CPP = "Cpp"
     toGhcExtensionName Ast.GeneralizedNewtypeDeriving = "GeneralisedNewtypeDeriving"
     toGhcExtensionName Ast.SafeHaskell = "Safe"
