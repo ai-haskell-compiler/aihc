@@ -42,7 +42,8 @@ hackageTesterTests =
           testCase "applies implied extensions" test_oracleAppliesImpliedExtensions,
           testCase "uses Haskell2010 language defaults" test_oracleUsesHaskell2010Defaults,
           testCase "uses Haskell98 fallback defaults" test_oracleUsesHaskell98FallbackDefaults,
-          testCase "handles CPP-defined LANGUAGE pragmas" test_oracleHandlesCppDefinedLanguagePragmas
+          testCase "handles CPP-defined LANGUAGE pragmas" test_oracleHandlesCppDefinedLanguagePragmas,
+          testCase "handles CPP with multiline string gaps" test_oracleHandlesCppMultilineStringGaps
         ],
       testGroup
         "package-selection"
@@ -210,6 +211,27 @@ test_oracleHandlesCppDefinedLanguagePragmas =
           "#endif",
           "module Test where",
           "x = \\case _ -> ()"
+        ]
+
+test_oracleHandlesCppMultilineStringGaps :: Assertion
+test_oracleHandlesCppMultilineStringGaps =
+  case oracleDetailedParsesModuleWithNamesAt "hackage-tester" [] (Just "Haskell2010") source of
+    Left err ->
+      assertBool
+        ("expected CPP-preprocessed multiline string gaps to parse, got: " <> T.unpack err)
+        False
+    Right () -> pure ()
+  where
+    source =
+      T.unlines
+        [ "{-# LANGUAGE CPP #-}",
+          "#if 1",
+          "module Test where",
+          "message = \"line one\\n\\\\",
+          "  \\line two\\n\\\\",
+          "  \\line three\\n\\\\",
+          "  \\\"",
+          "#endif"
         ]
 
 test_skipsNonBuildableComponents :: Assertion

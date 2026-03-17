@@ -18,7 +18,7 @@ import Cpp
     defaultConfig,
     preprocess,
   )
-import Data.Char (toLower)
+import Data.Char (isSpace, toLower)
 import Data.Functor.Identity (Identity (..), runIdentity)
 import qualified Data.Map.Strict as M
 import Data.Maybe (fromMaybe, mapMaybe)
@@ -40,7 +40,7 @@ preprocessForParserWithCppOptions cppOptions inputFile resolveInclude source = d
             configMacros = cppMacrosFromOptions cppOptions
           }
   result <- drive (preprocess cfg source)
-  pure result {resultOutput = stripLinePragmas (resultOutput result)}
+  pure result {resultOutput = stripLinePragmas (spliceLineContinuations (resultOutput result))}
   where
     drive (Done result) = pure result
     drive (NeedInclude req k) = resolveInclude req >>= drive . k
@@ -101,6 +101,24 @@ stripLinePragmas =
        in "#line " `T.isPrefixOf` stripped
             || "{-# LINE " `T.isPrefixOf` stripped
             || "{-# COLUMN " `T.isPrefixOf` stripped
+
+spliceLineContinuations :: Text -> Text
+spliceLineContinuations =
+  T.unlines . go . T.lines
+  where
+    go [] = []
+    go [line] = [line]
+    go (line : next : rest)
+      | shouldSplice line next = go ((T.init line <> next) : rest)
+      | otherwise = line : go (next : rest)
+
+    shouldSplice line next =
+      "\\\\" `T.isSuffixOf` line && isGapContinuation next
+
+    isGapContinuation txt =
+      case T.uncons (T.dropWhile isSpace txt) of
+        Just ('\\', _) -> True
+        _ -> False
 
 cppMacrosFromOptions :: [String] -> M.Map Text Text
 cppMacrosFromOptions cppOptions =

@@ -93,9 +93,12 @@ parseWithGhcWithExtensionsDetailed sourceTag extraExts input =
               if EnumSet.member GHC.Cpp initialParseExts
                 then nub (initialLanguagePragmas <> moduleHeaderExtensionSettings inputForParse)
                 else initialLanguagePragmas
-            parseExts =
+            parseExtsWithCpp =
               applyImpliedExtensions
                 (List.foldl' applyExtensionSetting baseExtSet languagePragmas)
+            -- `Cpp` is handled before parsing; keep parser options aligned with
+            -- the post-preprocessed source.
+            parseExts = EnumSet.delete GHC.Cpp parseExtsWithCpp
             opts = mkParserOpts parseExts emptyDiagOpts False False False True
             buffer = stringToStringBuffer (T.unpack inputForParse)
             start = mkRealSrcLoc (mkFastString sourceTag) 1 1
