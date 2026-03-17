@@ -42,7 +42,8 @@ buildTests = do
           [ testCase "module parses declaration list" test_moduleParsesDecls,
             testCase "reads header LANGUAGE pragmas" test_readsHeaderLanguagePragmas,
             testCase "ignores unknown header pragmas" test_ignoresUnknownHeaderPragmas,
-            testCase "ignores LANGUAGE pragmas inside comments" test_ignoresLanguagePragmasInsideComments
+            testCase "ignores LANGUAGE pragmas inside comments" test_ignoresLanguagePragmasInsideComments,
+            testCase "stops header scan at first module token" test_stopsHeaderScanAtFirstModuleToken
           ],
         testGroup
           "properties"
@@ -98,6 +99,17 @@ test_ignoresLanguagePragmasInsideComments = do
       exts = readModuleHeaderExtensions source
       expected = [EnableExtension CPP]
   assertEqual "ignores LANGUAGE pragmas in comments" expected exts
+
+test_stopsHeaderScanAtFirstModuleToken :: Assertion
+test_stopsHeaderScanAtFirstModuleToken = do
+  let source =
+        T.unlines
+          [ "module M where",
+            "{-# LANGUAGE CPP #-}",
+            "x = 1"
+          ]
+      exts = readModuleHeaderExtensions source
+  assertEqual "stops before body pragmas" [] exts
 
 prop_exprPrettyRoundTrip :: GenExpr -> Property
 prop_exprPrettyRoundTrip generated =
