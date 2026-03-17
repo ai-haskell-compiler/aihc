@@ -19,6 +19,8 @@ import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.Lazy as TL
+import qualified Data.Text.Lazy.Builder as TB
 
 data Config = Config
   { configInputFile :: FilePath,
@@ -105,6 +107,7 @@ data EngineState = EngineState
     stOutputRev :: ![Text],
     stDiagnosticsRev :: ![Diagnostic],
     stSkippingDanglingElse :: !Bool,
+    stBlockCommentDepth :: !Int,
     stCurrentFile :: !FilePath,
     stCurrentLine :: !Int
   }
@@ -116,6 +119,7 @@ emptyState filePath =
       stOutputRev = [],
       stDiagnosticsRev = [],
       stSkippingDanglingElse = False,
+      stBlockCommentDepth = 0,
       stCurrentFile = filePath,
       stCurrentLine = 1
     }
@@ -137,14 +141,34 @@ processFile :: FilePath -> [(Int, Int, Text)] -> [CondFrame] -> EngineState -> C
 processFile _ [] _ st k = k st
 processFile filePath ((lineNo, lineSpan, line) : restLines) stack st k =
   let active = currentActive stack
+      lineScan = scanLine (stBlockCommentDepth st) line
+      startsInBlockComment = stBlockCommentDepth st > 0
+      nextBlockCommentDepth = lineScanFinalDepth lineScan
+      parsedDirective =
+        if startsInBlockComment
+          then Nothing
+          else parseDirective line
       nextLineNo = case restLines of
         (n, _, _) : _ -> n
         [] -> lineNo + lineSpan
       emitDirectiveBlank = emitBlankLines lineSpan
-      continue st' = processFile filePath restLines stack (st' {stCurrentLine = nextLineNo}) k
-      continueWith stack' st' = processFile filePath restLines stack' (st' {stCurrentLine = nextLineNo}) k
+      emitExpandedLine st' = emitLine (expandLineBySpan st' (lineScanSpans lineScan)) st'
+      continue st' =
+        processFile
+          filePath
+          restLines
+          stack
+          (st' {stCurrentLine = nextLineNo, stBlockCommentDepth = nextBlockCommentDepth})
+          k
+      continueWith stack' st' =
+        processFile
+          filePath
+          restLines
+          stack'
+          (st' {stCurrentLine = nextLineNo, stBlockCommentDepth = nextBlockCommentDepth})
+          k
       recoverDanglingElse =
-        case parseDirective line of
+        case parsedDirective of
           Just DirEndIf ->
             continue
               ( addDiag
@@ -277,10 +301,10 @@ processFile filePath ((lineNo, lineSpan, line) : restLines) stack st k =
               else continue (emitDirectiveBlank st)
    in if stSkippingDanglingElse st
         then recoverDanglingElse
-        else case parseDirective line of
+        else case parsedDirective of
           Nothing ->
             if active
-              then continue (emitLine (expandMacros st line) st)
+              then continue (emitExpandedLine st)
               else continue (emitBlankLines lineSpan st)
           Just directive ->
             handleDirective directive
@@ -318,6 +342,114 @@ addDiag sev msg filePath lineNo st =
 linePragma :: Int -> FilePath -> Text
 linePragma n path = "#line " <> T.pack (show n) <> " \"" <> T.pack path <> "\""
 
+data LineSpan = LineSpan
+  { lineSpanInBlockComment :: !Bool,
+    lineSpanText :: !Text
+  }
+
+data LineScan = LineScan
+  { lineScanSpans :: ![LineSpan],
+    lineScanFinalDepth :: !Int
+  }
+
+expandLineBySpan :: EngineState -> [LineSpan] -> Text
+expandLineBySpan st =
+  T.concat . map expandSpan
+  where
+    expandSpan lineChunk
+      | lineSpanInBlockComment lineChunk = lineSpanText lineChunk
+      | otherwise = expandMacros st (lineSpanText lineChunk)
+
+scanLine :: Int -> Text -> LineScan
+scanLine depth0 input =
+  let (spansRev, currentBuilder, hasCurrent, currentInComment, finalDepth) =
+        go depth0 False False [] mempty False (depth0 > 0) input
+      spans = reverse (flushSpan spansRev currentBuilder hasCurrent currentInComment)
+   in LineScan {lineScanSpans = spans, lineScanFinalDepth = finalDepth}
+  where
+    builderToText :: TB.Builder -> Text
+    builderToText = TL.toStrict . TB.toLazyText
+
+    flushSpan :: [LineSpan] -> TB.Builder -> Bool -> Bool -> [LineSpan]
+    flushSpan spansRev currentBuilder hasCurrent inComment =
+      if not hasCurrent
+        then spansRev
+        else LineSpan {lineSpanInBlockComment = inComment, lineSpanText = builderToText currentBuilder} : spansRev
+
+    appendWithMode ::
+      [LineSpan] ->
+      TB.Builder ->
+      Bool ->
+      Bool ->
+      Bool ->
+      Text ->
+      ([LineSpan], TB.Builder, Bool, Bool)
+    appendWithMode spansRev currentBuilder hasCurrent currentInComment newInComment chunk
+      | T.null chunk = (spansRev, currentBuilder, hasCurrent, currentInComment)
+      | not hasCurrent = (spansRev, TB.fromText chunk, True, newInComment)
+      | currentInComment == newInComment = (spansRev, currentBuilder <> TB.fromText chunk, True, currentInComment)
+      | otherwise =
+          let spansRev' = flushSpan spansRev currentBuilder hasCurrent currentInComment
+           in (spansRev', TB.fromText chunk, True, newInComment)
+
+    go ::
+      Int ->
+      Bool ->
+      Bool ->
+      [LineSpan] ->
+      TB.Builder ->
+      Bool ->
+      Bool ->
+      Text ->
+      ([LineSpan], TB.Builder, Bool, Bool, Int)
+    go depth inString escaped spansRev currentBuilder hasCurrent currentInComment remaining =
+      case T.uncons remaining of
+        Nothing -> (spansRev, currentBuilder, hasCurrent, currentInComment, depth)
+        Just (c1, rest1) ->
+          case T.uncons rest1 of
+            Nothing ->
+              let (spansRev', currentBuilder', hasCurrent', currentInComment') =
+                    appendWithMode spansRev currentBuilder hasCurrent currentInComment (depth > 0) (T.singleton c1)
+               in (spansRev', currentBuilder', hasCurrent', currentInComment', depth)
+            Just (c2, rest2) ->
+              if not inString && depth == 0 && c1 == '-' && c2 == '-'
+                then
+                  let lineTail = T.cons c1 (T.cons c2 rest2)
+                      (spansRev', currentBuilder', hasCurrent', currentInComment') =
+                        appendWithMode spansRev currentBuilder hasCurrent currentInComment True lineTail
+                   in (spansRev', currentBuilder', hasCurrent', currentInComment', depth)
+                else
+                  if inString
+                    then
+                      let escaped' = not escaped && c1 == '\\'
+                          inString' = escaped || c1 /= '"'
+                          (spansRev', currentBuilder', hasCurrent', currentInComment') =
+                            appendWithMode spansRev currentBuilder hasCurrent currentInComment (depth > 0) (T.singleton c1)
+                       in go depth inString' escaped' spansRev' currentBuilder' hasCurrent' currentInComment' (T.cons c2 rest2)
+                    else
+                      if depth == 0 && c1 == '"'
+                        then
+                          let (spansRev', currentBuilder', hasCurrent', currentInComment') =
+                                appendWithMode spansRev currentBuilder hasCurrent currentInComment (depth > 0) (T.singleton c1)
+                           in go depth True False spansRev' currentBuilder' hasCurrent' currentInComment' (T.cons c2 rest2)
+                        else
+                          if c1 == '{' && c2 == '-'
+                            then
+                              let (spansRev', currentBuilder', hasCurrent', currentInComment') =
+                                    appendWithMode spansRev currentBuilder hasCurrent currentInComment True "{-"
+                               in go (depth + 1) False False spansRev' currentBuilder' hasCurrent' currentInComment' rest2
+                            else
+                              if depth > 0 && c1 == '-' && c2 == '}'
+                                then
+                                  let (spansRev', currentBuilder', hasCurrent', currentInComment') =
+                                        appendWithMode spansRev currentBuilder hasCurrent currentInComment True "-}"
+                                      depth' = depth - 1
+                                   in go depth' False False spansRev' currentBuilder' hasCurrent' currentInComment' rest2
+                                else
+                                  let (spansRev', currentBuilder', hasCurrent', currentInComment') =
+                                        appendWithMode spansRev currentBuilder hasCurrent currentInComment (depth > 0) (T.singleton c1)
+                                   in go depth False False spansRev' currentBuilder' hasCurrent' currentInComment' (T.cons c2 rest2)
+
 data Directive
   = DirDefine !Text !Text
   | DirUndef !Text
@@ -337,7 +469,11 @@ parseDirective :: Text -> Maybe Directive
 parseDirective raw =
   let trimmed = T.stripStart raw
    in if "#" `T.isPrefixOf` trimmed
-        then parseDirectiveBody (T.stripStart (T.drop 1 trimmed))
+        then
+          let body = T.stripStart (T.drop 1 trimmed)
+           in case T.uncons body of
+                Just (c, _) | isLetter c || isDigit c -> parseDirectiveBody body
+                _ -> Nothing
         else Nothing
 
 parseDirectiveBody :: Text -> Maybe Directive

@@ -299,10 +299,10 @@ data Module = Module
 
 data ExportSpec
   = ExportModule SourceSpan Text
-  | ExportVar SourceSpan Text
-  | ExportAbs SourceSpan Text
-  | ExportAll SourceSpan Text
-  | ExportWith SourceSpan Text [Text]
+  | ExportVar SourceSpan (Maybe Text) Text
+  | ExportAbs SourceSpan (Maybe Text) Text
+  | ExportAll SourceSpan (Maybe Text) Text
+  | ExportWith SourceSpan (Maybe Text) Text [Text]
   deriving (Eq, Show)
 
 data ImportDecl = ImportDecl
@@ -330,10 +330,10 @@ data ImportSpec = ImportSpec
   deriving (Eq, Show)
 
 data ImportItem
-  = ImportItemVar SourceSpan Text
-  | ImportItemAbs SourceSpan Text
-  | ImportItemAll SourceSpan Text
-  | ImportItemWith SourceSpan Text [Text]
+  = ImportItemVar SourceSpan (Maybe Text) Text
+  | ImportItemAbs SourceSpan (Maybe Text) Text
+  | ImportItemAll SourceSpan (Maybe Text) Text
+  | ImportItemWith SourceSpan (Maybe Text) Text [Text]
   deriving (Eq, Show)
 
 data Decl
@@ -455,9 +455,9 @@ data NewtypeDecl = NewtypeDecl
   deriving (Eq, Show)
 
 data DataConDecl
-  = PrefixCon SourceSpan Text [BangType]
-  | InfixCon SourceSpan BangType Text BangType
-  | RecordCon SourceSpan Text [FieldDecl]
+  = PrefixCon SourceSpan [Text] [Constraint] Text [BangType]
+  | InfixCon SourceSpan [Text] [Constraint] BangType Text BangType
+  | RecordCon SourceSpan [Text] [Constraint] Text [FieldDecl]
   deriving (Eq, Show)
 
 data BangType = BangType
