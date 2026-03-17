@@ -259,7 +259,9 @@ parseExtensionSettingName raw =
   case T.stripPrefix (T.pack "No") trimmed of
     Just rest
       | not (T.null rest) ->
-          DisableExtension <$> parseExtensionName rest
+          case parseExtensionName rest of
+            Just ext -> Just (DisableExtension ext)
+            Nothing -> EnableExtension <$> parseExtensionName trimmed
     _ -> EnableExtension <$> parseExtensionName trimmed
   where
     trimmed = T.strip raw
