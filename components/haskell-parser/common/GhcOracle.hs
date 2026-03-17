@@ -73,14 +73,21 @@ parseWithGhcWithExtensions :: String -> [GHC.Extension] -> Text -> Either Text (
 parseWithGhcWithExtensions sourceTag extraExts input =
   let baseExts = nub extraExts
    in do
-        languagePragmas <- extractLanguagePragmas sourceTag baseExts input
-        let parseExts =
+        initialLanguagePragmas <- extractLanguagePragmas sourceTag baseExts input
+        let initialParseExts =
               applyImpliedExtensions
-                (List.foldl' applyExtensionSetting (EnumSet.fromList baseExts :: EnumSet.EnumSet GHC.Extension) languagePragmas)
+                (List.foldl' applyExtensionSetting (EnumSet.fromList baseExts :: EnumSet.EnumSet GHC.Extension) initialLanguagePragmas)
             inputForParse =
-              if EnumSet.member GHC.Cpp parseExts
+              if EnumSet.member GHC.Cpp initialParseExts
                 then resultOutput (preprocessForParserWithoutIncludes sourceTag input)
                 else input
+            languagePragmas =
+              if EnumSet.member GHC.Cpp initialParseExts
+                then nub (initialLanguagePragmas <> moduleHeaderExtensionSettings inputForParse)
+                else initialLanguagePragmas
+            parseExts =
+              applyImpliedExtensions
+                (List.foldl' applyExtensionSetting (EnumSet.fromList baseExts :: EnumSet.EnumSet GHC.Extension) languagePragmas)
             opts = mkParserOpts parseExts emptyDiagOpts False False False True
             buffer = stringToStringBuffer (T.unpack inputForParse)
             start = mkRealSrcLoc (mkFastString sourceTag) 1 1
