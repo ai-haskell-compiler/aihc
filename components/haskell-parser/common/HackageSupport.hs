@@ -193,24 +193,22 @@ dedupeFiles (f : fs) = f : dedupeFiles (filter (\x -> fileInfoPath x /= fileInfo
 libraryFilesFor :: (Condition ConfVar -> Bool) -> FilePath -> CondTree ConfVar c Library -> IO [FileInfo]
 libraryFilesFor evalCond packageRoot tree = do
   let library = condTreeData tree
-      rootBuild = libBuildInfo library
       build = collectMergedBuildInfo evalCond libBuildInfo tree
-      moduleNames = exposedModules library <> otherModules rootBuild <> autogenModules rootBuild
+      moduleNames = exposedModules library <> otherModules build <> autogenModules build
       exts = extractExtensions build
       cppOpts = cppOptions build
       lang = extractLanguage build
   if not (buildable build)
     then pure []
     else do
-      paths <- moduleFilesForBuildInfo packageRoot rootBuild moduleNames
+      paths <- moduleFilesForBuildInfo packageRoot build moduleNames
       pure [FileInfo path exts cppOpts lang | path <- paths]
 
 executableFilesFor :: (Condition ConfVar -> Bool) -> FilePath -> CondTree ConfVar c Executable -> IO [FileInfo]
 executableFilesFor evalCond packageRoot tree = do
   let executable = condTreeData tree
-      rootBuild = buildInfo executable
       build = collectMergedBuildInfo evalCond buildInfo tree
-      moduleNames = otherModules rootBuild <> exeModules executable <> autogenModules rootBuild
+      moduleNames = otherModules build <> exeModules executable <> autogenModules build
       mainPath = modulePath executable
       exts = extractExtensions build
       cppOpts = cppOptions build
@@ -218,8 +216,8 @@ executableFilesFor evalCond packageRoot tree = do
   if not (buildable build)
     then pure []
     else do
-      moduleFiles <- moduleFilesForBuildInfo packageRoot rootBuild moduleNames
-      mainFiles <- existingPaths [dir </> mainPath | dir <- sourceDirs packageRoot rootBuild]
+      moduleFiles <- moduleFilesForBuildInfo packageRoot build moduleNames
+      mainFiles <- existingPaths [dir </> mainPath | dir <- sourceDirs packageRoot build]
       pure [FileInfo path exts cppOpts lang | path <- moduleFiles <> mainFiles]
 
 extractExtensions :: BuildInfo -> [String]
