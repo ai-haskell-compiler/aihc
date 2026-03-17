@@ -35,4 +35,4 @@ predefined-in-string	macro	predefined-in-string.hs	pass
 macro-name-in-string	macro	macro-name-in-string.hs	pass
 macro-expansion-not-in-string	macro	macro-expansion-not-in-string.hs	pass
 hpp-file-macro-string-pattern	macro	hpp-file-macro-string-pattern.hs	pass
-rules-pragma-cpp-branch	lexing	rules-pragma-cpp-branch.hs	xfail	conditional directive inside open RULES pragma should be consumed like cpphs
+rules-pragma-cpp-branch	lexing	rules-pragma-cpp-branch.hs	pass
