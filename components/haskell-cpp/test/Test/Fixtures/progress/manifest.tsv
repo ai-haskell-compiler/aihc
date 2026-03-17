@@ -27,3 +27,5 @@ language-pragma-closing-line	lexing	language-pragma-closing-line.hs	pass
 macro-in-comment	lexing	macro-in-comment.hs	pass
 macro-in-inline-block-comment	lexing	macro-in-inline-block-comment.hs	pass
 macro-in-line-comment	lexing	macro-in-line-comment.hs	pass
+macro-in-comment-with-line-comment-marker	lexing	macro-in-comment-with-line-comment-marker.hs	pass
+unterminated-string-in-comment	lexing	unterminated-string-in-comment.hs	pass

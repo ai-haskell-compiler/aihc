@@ -426,7 +426,7 @@ scanLine depth0 input =
                             appendWithMode spansRev currentBuilder hasCurrent currentInComment (depth > 0) (T.singleton c1)
                        in go depth inString' escaped' spansRev' currentBuilder' hasCurrent' currentInComment' (T.cons c2 rest2)
                     else
-                      if c1 == '"'
+                      if depth == 0 && c1 == '"'
                         then
                           let (spansRev', currentBuilder', hasCurrent', currentInComment') =
                                 appendWithMode spansRev currentBuilder hasCurrent currentInComment (depth > 0) (T.singleton c1)
