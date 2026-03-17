@@ -29,3 +29,4 @@ macro-in-inline-block-comment	lexing	macro-in-inline-block-comment.hs	pass
 macro-in-line-comment	lexing	macro-in-line-comment.hs	pass
 macro-in-comment-with-line-comment-marker	lexing	macro-in-comment-with-line-comment-marker.hs	pass
 unterminated-string-in-comment	lexing	unterminated-string-in-comment.hs	pass
+comment-stripping-c89	lexing	comment-stripping-c89.hs	xfail	C89 block comment stripping parity with cpphs is not implemented

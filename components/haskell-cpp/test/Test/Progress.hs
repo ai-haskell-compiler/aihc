@@ -17,7 +17,7 @@ import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
-import Language.Preprocessor.Cpphs (defaultCpphsOptions, runCpphs)
+import Language.Preprocessor.Cpphs (BoolOptions (..), CpphsOptions (..), defaultCpphsOptions, runCpphs)
 import System.Directory (doesFileExist)
 import System.FilePath (takeDirectory, (</>))
 
@@ -190,8 +190,9 @@ resolveIncludePath rootPath req =
 runOracle :: FilePath -> IO (Either String Text)
 runOracle sourcePath = do
   source <- TIO.readFile sourcePath
+  let cpphsOptions = defaultCpphsOptions {boolopts = (boolopts defaultCpphsOptions) {stripC89 = True}}
   oracleOut <-
-    (E.try (runCpphs defaultCpphsOptions sourcePath (T.unpack source)) :: IO (Either E.SomeException String))
+    (E.try (runCpphs cpphsOptions sourcePath (T.unpack source)) :: IO (Either E.SomeException String))
   pure $
     case oracleOut of
       Right out -> Right (T.pack out)
