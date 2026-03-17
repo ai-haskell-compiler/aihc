@@ -26,7 +26,8 @@ import System.FilePath (takeDirectory, (</>))
 data Config = Config
   { configInputFile :: FilePath,
     configDateTime :: !(Text, Text),
-    configMacros :: !(Map Text Text)
+    configMacros :: !(Map Text Text),
+    configSpliceStringGapContinuations :: !Bool
   }
 
 data MacroDef
@@ -35,7 +36,13 @@ data MacroDef
   deriving (Eq, Show)
 
 defaultConfig :: Config
-defaultConfig = Config {configInputFile = "<input>", configDateTime = ("Jan  1 1970", "00:00:00"), configMacros = M.empty}
+defaultConfig =
+  Config
+    { configInputFile = "<input>",
+      configDateTime = ("Jan  1 1970", "00:00:00"),
+      configMacros = M.empty,
+      configSpliceStringGapContinuations = False
+    }
 
 data IncludeKind = IncludeLocal | IncludeSystem deriving (Eq, Show)
 
@@ -86,11 +93,33 @@ preprocess cfg input =
             if T.null out
               then out
               else out <> "\n"
+          output =
+            if configSpliceStringGapContinuations cfg
+              then spliceStringGapContinuations outWithTrailingNewline
+              else outWithTrailingNewline
        in Done
             Result
-              { resultOutput = outWithTrailingNewline,
+              { resultOutput = output,
                 resultDiagnostics = reverse (stDiagnosticsRev st)
               }
+
+spliceStringGapContinuations :: Text -> Text
+spliceStringGapContinuations =
+  T.unlines . go . T.lines
+  where
+    go [] = []
+    go [line] = [line]
+    go (line : next : rest)
+      | shouldSplice line next = go ((T.init line <> next) : rest)
+      | otherwise = line : go (next : rest)
+
+    shouldSplice line next =
+      "\\\\" `T.isSuffixOf` line && isGapContinuation next
+
+    isGapContinuation txt =
+      case T.uncons (T.dropWhile isSpace txt) of
+        Just ('\\', _) -> True
+        _ -> False
 
 joinMultiline :: Int -> [Text] -> [(Int, Int, Text)]
 joinMultiline _ [] = []

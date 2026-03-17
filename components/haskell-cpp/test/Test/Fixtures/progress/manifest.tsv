@@ -31,6 +31,8 @@ macro-in-line-comment	lexing	macro-in-line-comment.hs	pass
 macro-in-comment-with-line-comment-marker	lexing	macro-in-comment-with-line-comment-marker.hs	pass
 unterminated-string-in-comment	lexing	unterminated-string-in-comment.hs	pass
 comment-stripping-c89	lexing	comment-stripping-c89.hs	pass
+line-splice-string-gap-basic	lexing	line-splice-string-gap-basic.hs	pass
+line-splice-string-gap-cpp-branch	lexing	line-splice-string-gap-cpp-branch.hs	pass
 predefined-in-string	macro	predefined-in-string.hs	xfail	__FILE__/__LINE__ should not expand inside string literals
 macro-name-in-string	macro	macro-name-in-string.hs	xfail	object-like macros should not expand inside string literals
 macro-expansion-not-in-string	macro	macro-expansion-not-in-string.hs	xfail	macro tokens in string literals are expanded unexpectedly

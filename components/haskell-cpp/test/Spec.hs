@@ -2,6 +2,7 @@
 
 module Main (main) where
 
+import Control.Monad (when)
 import Cpp (Config (..), Result (..), Step (..), defaultConfig, preprocess)
 import qualified Data.Text as T
 import Test.Progress (CaseMeta (..), Outcome (..), evaluateCase, loadManifest)
@@ -12,7 +13,7 @@ main :: IO ()
 main = do
   cases <- loadManifest
   checks <- mapM mkCase cases
-  defaultMain (testGroup "cpp-oracle" (checks <> [linePragmaTest, dateTimeTest]))
+  defaultMain (testGroup "cpp-oracle" (checks <> [linePragmaTest, dateTimeTest, spliceModeTest]))
 
 dateTimeTest :: TestTree
 dateTimeTest =
@@ -73,3 +74,38 @@ linePragmaTest =
               else assertFailure "expected include line pragmas in output"
           NeedInclude {} -> assertFailure "unexpected nested include in line pragma test"
       Done _ -> assertFailure "expected include continuation step"
+
+spliceModeTest :: TestTree
+spliceModeTest =
+  testGroup
+    "string-gap splice mode"
+    [ testCase "disabled by default" $ do
+        let input =
+              T.unlines
+                [ "message =",
+                  "  \"one\\n\\\\",
+                  "  \\two\\n\\\\",
+                  "  \\\""
+                ]
+        case preprocess defaultConfig input of
+          Done result ->
+            if "  \\two\\n\\\\" `T.isInfixOf` resultOutput result
+              then pure ()
+              else assertFailure "expected continuation line to remain when splice mode is disabled"
+          _ -> assertFailure "expected Done",
+      testCase "enabled for parser compatibility" $ do
+        let cfg = defaultConfig {configSpliceStringGapContinuations = True}
+            input =
+              T.unlines
+                [ "message =",
+                  "  \"one\\n\\\\",
+                  "  \\two\\n\\\\",
+                  "  \\\""
+                ]
+        case preprocess cfg input of
+          Done result ->
+            when
+              ("  \\two\\n\\\\" `T.isInfixOf` resultOutput result)
+              (assertFailure "expected continuation line to be spliced when mode is enabled")
+          _ -> assertFailure "expected Done"
+    ]
