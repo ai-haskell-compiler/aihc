@@ -492,7 +492,7 @@ scanLine hsDepth0 cDepth0 input =
                                       hsDepth' = hsDepth - 1
                                    in go hsDepth' cDepth False False spansRev' currentBuilder' hasCurrent' currentInComment' rest2
                                 else
-                                  if c1 == '{' && c2 == '-'
+                                  if c1 == '{' && c2 == '-' && not ("#" `T.isPrefixOf` rest2)
                                     then
                                       let (spansRev', currentBuilder', hasCurrent', currentInComment') =
                                             appendWithMode spansRev currentBuilder hasCurrent currentInComment True "{-"
@@ -629,23 +629,36 @@ expandMacros st = applyDepth (32 :: Int)
        in if next == t then t else applyDepth (n - 1) next
 
 expandOnce :: EngineState -> Text -> Text
-expandOnce st input = T.pack (go (T.unpack input))
+expandOnce st input = T.pack (go False False (T.unpack input))
   where
     macros = stMacros st
-    go [] = []
-    go (c : cs)
+    go _ _ [] = []
+    go True escaped (c : cs) =
+      c
+        : case c of
+          '\\' ->
+            if escaped
+              then go True False cs
+              else go True True cs
+          '"' ->
+            if escaped
+              then go True False cs
+              else go False False cs
+          _ -> go True False cs
+    go False _ (c : cs)
+      | c == '"' = c : go True False cs
       | isIdentStart c =
           let (ident, rest) = span isIdentChar (c : cs)
               identTxt = T.pack ident
            in case identTxt of
-                "__LINE__" -> show (stCurrentLine st) ++ go rest
-                "__FILE__" -> "\"" ++ stCurrentFile st ++ "\"" ++ go rest
+                "__LINE__" -> show (stCurrentLine st) ++ go False False rest
+                "__FILE__" -> "\"" ++ stCurrentFile st ++ "\"" ++ go False False rest
                 _ ->
                   case M.lookup identTxt macros of
-                    Just (ObjectMacro repl) -> T.unpack repl ++ go rest
+                    Just (ObjectMacro repl) -> T.unpack repl ++ go False False rest
                     Just (FunctionMacro params body) ->
                       case parseCallArgs rest of
-                        Nothing -> ident ++ go rest
+                        Nothing -> ident ++ go False False rest
                         Just (args, restAfter) ->
                           if length args == length params
                             then
@@ -653,10 +666,10 @@ expandOnce st input = T.pack (go (T.unpack input))
                                     substituteParams
                                       (M.fromList (zip params (map T.pack args)))
                                       body
-                               in T.unpack body' ++ go restAfter
-                            else ident ++ go rest
-                    Nothing -> ident ++ go rest
-      | otherwise = c : go cs
+                               in T.unpack body' ++ go False False restAfter
+                            else ident ++ go False False rest
+                    Nothing -> ident ++ go False False rest
+      | otherwise = c : go False False cs
 
     parseCallArgs :: String -> Maybe ([String], String)
     parseCallArgs ('(' : xs) = parseArgs 0 [] [] xs
