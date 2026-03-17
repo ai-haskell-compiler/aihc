@@ -652,7 +652,7 @@ expandOnce st input = T.pack (go False False (T.unpack input))
               identTxt = T.pack ident
            in case identTxt of
                 "__LINE__" -> show (stCurrentLine st) ++ go False False rest
-                "__FILE__" -> "\"" ++ stCurrentFile st ++ "\"" ++ go False False rest
+                "__FILE__" -> show (stCurrentFile st) ++ go False False rest
                 _ ->
                   case M.lookup identTxt macros of
                     Just (ObjectMacro repl) -> T.unpack repl ++ go False False rest
@@ -699,15 +699,41 @@ expandOnce st input = T.pack (go False False (T.unpack input))
     trimSpaces = dropWhileEnd isSpace . dropWhile isSpace
 
 substituteParams :: Map Text Text -> Text -> Text
-substituteParams subs = T.pack . go . T.unpack
+substituteParams subs = T.pack . go False False False . T.unpack
   where
-    go [] = []
-    go (c : cs)
+    go _ _ _ [] = []
+    go True inSingle escaped (c : cs) =
+      c
+        : case c of
+          '\\' ->
+            if escaped
+              then go True inSingle False cs
+              else go True inSingle True cs
+          '"' ->
+            if escaped
+              then go True inSingle False cs
+              else go False inSingle False cs
+          _ -> go True inSingle False cs
+    go inDouble True escaped (c : cs) =
+      c
+        : case c of
+          '\\' ->
+            if escaped
+              then go inDouble True False cs
+              else go inDouble True True cs
+          '\'' ->
+            if escaped
+              then go inDouble True False cs
+              else go inDouble False False cs
+          _ -> go inDouble True False cs
+    go False False _ (c : cs)
+      | c == '"' = c : go True False False cs
+      | c == '\'' = c : go False True False cs
       | isIdentStart c =
           let (ident, rest) = span isIdentChar (c : cs)
               identTxt = T.pack ident
-           in T.unpack (M.findWithDefault identTxt identTxt subs) ++ go rest
-      | otherwise = c : go cs
+           in T.unpack (M.findWithDefault identTxt identTxt subs) ++ go False False False rest
+      | otherwise = c : go False False False cs
 
 isIdentStart :: Char -> Bool
 isIdentStart c = c == '_' || isLetter c
