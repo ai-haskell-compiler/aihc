@@ -159,8 +159,9 @@ moduleHeaderExtensionsParser =
       )
   where
     headerPragmaSettings =
-      languagePragmaSettings
-        <|> ignorableHeaderPragma
+      try languagePragmaSettings
+        <|> try ignorableHeaderPragma
+        <|> unknownHeaderPragma
 
     languagePragmaSettings = do
       (_, kind) <- languagePragmaToken
@@ -170,6 +171,11 @@ moduleHeaderExtensionsParser =
 
     ignorableHeaderPragma =
       [] <$ (void pragmaWarningToken <|> void pragmaDeprecatedToken)
+
+    unknownHeaderPragma = do
+      _ <- C.string "{-#"
+      _ <- manyTillText "#-}"
+      pure []
 
 enabledExtensionsFromSettings :: [ExtensionSetting] -> [Extension]
 enabledExtensionsFromSettings = List.foldl' apply []

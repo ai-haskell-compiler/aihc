@@ -40,7 +40,9 @@ buildTests = do
         testGroup
           "parser"
           [ testCase "module parses declaration list" test_moduleParsesDecls,
-            testCase "reads header LANGUAGE pragmas" test_readsHeaderLanguagePragmas
+            testCase "reads header LANGUAGE pragmas" test_readsHeaderLanguagePragmas,
+            testCase "ignores unknown header pragmas" test_ignoresUnknownHeaderPragmas,
+            testCase "ignores LANGUAGE pragmas inside comments" test_ignoresLanguagePragmasInsideComments
           ],
         testGroup
           "properties"
@@ -72,6 +74,30 @@ test_readsHeaderLanguagePragmas = do
       exts = readModuleHeaderExtensions source
       expected = [EnableExtension CPP, DisableExtension CPP]
   assertEqual "reads expected module header LANGUAGE settings" expected exts
+
+test_ignoresUnknownHeaderPragmas :: Assertion
+test_ignoresUnknownHeaderPragmas = do
+  let source =
+        T.unlines
+          [ "{-# OPTIONS_GHC -Wall -fwarn-tabs -fno-warn-name-shadowing #-}",
+            "{-# OPTIONS_HADDOCK hide #-}",
+            "{-# LANGUAGE CPP #-}"
+          ]
+      exts = readModuleHeaderExtensions source
+      expected = [EnableExtension CPP]
+  assertEqual "ignores unknown header pragmas and reads LANGUAGE" expected exts
+
+test_ignoresLanguagePragmasInsideComments :: Assertion
+test_ignoresLanguagePragmasInsideComments = do
+  let source =
+        T.unlines
+          [ "-- line comment {-# LANGUAGE MagicHash #-}",
+            "{- block comment {-# LANGUAGE EmptyCase #-} -}",
+            "{-# LANGUAGE CPP #-}"
+          ]
+      exts = readModuleHeaderExtensions source
+      expected = [EnableExtension CPP]
+  assertEqual "ignores LANGUAGE pragmas in comments" expected exts
 
 prop_exprPrettyRoundTrip :: GenExpr -> Property
 prop_exprPrettyRoundTrip generated =
