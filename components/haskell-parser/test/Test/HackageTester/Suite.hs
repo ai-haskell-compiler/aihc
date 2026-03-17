@@ -31,6 +31,7 @@ hackageTesterTests =
       testGroup
         "oracle"
         [ testCase "accepts No-prefixed LANGUAGE pragmas" test_oracleAcceptsNoPrefixedLanguagePragma,
+          testCase "accepts LANGUAGE Haskell2010 pragmas" test_oracleAcceptsHaskell2010LanguagePragma,
           testCase "applies implied extensions" test_oracleAppliesImpliedExtensions,
           testCase "uses Haskell2010 language defaults" test_oracleUsesHaskell2010Defaults,
           testCase "handles CPP-defined LANGUAGE pragmas" test_oracleHandlesCppDefinedLanguagePragmas
@@ -91,6 +92,22 @@ test_oracleAcceptsNoPrefixedLanguagePragma =
     source =
       T.unlines
         [ "{-# LANGUAGE NoMonomorphismRestriction #-}",
+          "module A where",
+          "x = 1"
+        ]
+
+test_oracleAcceptsHaskell2010LanguagePragma :: Assertion
+test_oracleAcceptsHaskell2010LanguagePragma =
+  case oracleDetailedParsesModuleWithNamesAt "hackage-tester" [] Nothing source of
+    Left err ->
+      assertBool
+        ("expected Haskell2010 language pragma to be accepted, got: " <> T.unpack err)
+        False
+    Right () -> pure ()
+  where
+    source =
+      T.unlines
+        [ "{-# LANGUAGE Haskell2010 #-}",
           "module A where",
           "x = 1"
         ]
