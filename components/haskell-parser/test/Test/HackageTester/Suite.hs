@@ -30,7 +30,9 @@ hackageTesterTests =
         ],
       testGroup
         "oracle"
-        [ testCase "accepts No-prefixed LANGUAGE pragmas" test_oracleAcceptsNoPrefixedLanguagePragma
+        [ testCase "accepts No-prefixed LANGUAGE pragmas" test_oracleAcceptsNoPrefixedLanguagePragma,
+          testCase "applies implied extensions" test_oracleAppliesImpliedExtensions,
+          testCase "uses Haskell2010 language defaults" test_oracleUsesHaskell2010Defaults
         ]
     ]
 
@@ -90,6 +92,38 @@ test_oracleAcceptsNoPrefixedLanguagePragma =
         [ "{-# LANGUAGE NoMonomorphismRestriction #-}",
           "module A where",
           "x = 1"
+        ]
+
+test_oracleAppliesImpliedExtensions :: Assertion
+test_oracleAppliesImpliedExtensions =
+  case oracleDetailedParsesModuleWithNamesAt "hackage-tester" [] Nothing source of
+    Left err ->
+      assertBool
+        ("expected ScopedTypeVariables to imply ExplicitForAll, got: " <> T.unpack err)
+        False
+    Right () -> pure ()
+  where
+    source =
+      T.unlines
+        [ "{-# LANGUAGE ScopedTypeVariables #-}",
+          "module A where",
+          "f :: forall a. a -> a",
+          "f x = x"
+        ]
+
+test_oracleUsesHaskell2010Defaults :: Assertion
+test_oracleUsesHaskell2010Defaults =
+  case oracleDetailedParsesModuleWithNamesAt "hackage-tester" [] (Just "Haskell2010") source of
+    Left err ->
+      assertBool
+        ("expected Haskell2010 defaults to enable traditional record syntax, got: " <> T.unpack err)
+        False
+    Right () -> pure ()
+  where
+    source =
+      T.unlines
+        [ "module A where",
+          "data R = R { field :: Int }"
         ]
 
 assertLeftContaining :: String -> Either String a -> Assertion

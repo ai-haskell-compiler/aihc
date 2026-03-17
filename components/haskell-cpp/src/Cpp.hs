@@ -24,11 +24,12 @@ import qualified Data.Text.Lazy.Builder as TB
 
 data Config = Config
   { configInputFile :: FilePath,
-    configDateTime :: !(Text, Text)
+    configDateTime :: !(Text, Text),
+    configMacros :: !(Map Text Text)
   }
 
 defaultConfig :: Config
-defaultConfig = Config {configInputFile = "<input>", configDateTime = ("Jan  1 1970", "00:00:00")}
+defaultConfig = Config {configInputFile = "<input>", configDateTime = ("Jan  1 1970", "00:00:00"), configMacros = M.empty}
 
 data IncludeKind = IncludeLocal | IncludeSystem deriving (Eq, Show)
 
@@ -71,7 +72,7 @@ preprocess cfg input =
             { stMacros =
                 M.insert "__DATE__" ("\"" <> date <> "\"") $
                   M.insert "__TIME__" ("\"" <> time <> "\"") $
-                    stMacros st0
+                    configMacros cfg
             }
     finish st =
       let out = T.intercalate "\n" (reverse (stOutputRev st))
@@ -88,7 +89,7 @@ preprocess cfg input =
 joinMultiline :: Int -> [Text] -> [(Int, Int, Text)]
 joinMultiline _ [] = []
 joinMultiline n (l : ls)
-  | "\\" `T.isSuffixOf` l =
+  | "\\" `T.isSuffixOf` l && "#" `T.isPrefixOf` T.stripStart l =
       let (content, rest, extraLines) = pull (T.init l) ls
           spanLen = extraLines + 1
        in (n, spanLen, content) : joinMultiline (n + spanLen) rest
@@ -479,23 +480,25 @@ parseDirectiveBody :: Text -> Maybe Directive
 parseDirectiveBody body =
   let (name, rest0) = T.span isIdentChar body
       rest = T.stripStart rest0
-   in case name of
-        "define" -> parseDefine rest
-        "undef" -> DirUndef <$> parseIdentifier rest
-        "include" -> parseInclude rest
-        "if" -> Just (DirIf rest)
-        "ifdef" -> DirIfDef <$> parseIdentifier rest
-        "ifndef" -> DirIfNDef <$> parseIdentifier rest
-        "isndef" -> Just (DirUnsupported "isndef")
-        "elif" -> Just (DirElif rest)
-        "elseif" -> Just (DirElif rest)
-        "else" -> Just DirElse
-        "endif" -> Just DirEndIf
-        "line" -> parseLineDirective rest
-        "warning" -> Just (DirWarning rest)
-        "error" -> Just (DirError rest)
-        _ -> case T.uncons body of
+   in if T.null name
+        then case T.uncons body of
           Just (c, _) | isDigit c -> parseLineDirective body
+          _ -> Nothing
+        else case name of
+          "define" -> parseDefine rest
+          "undef" -> DirUndef <$> parseIdentifier rest
+          "include" -> parseInclude rest
+          "if" -> Just (DirIf rest)
+          "ifdef" -> DirIfDef <$> parseIdentifier rest
+          "ifndef" -> DirIfNDef <$> parseIdentifier rest
+          "isndef" -> Just (DirUnsupported "isndef")
+          "elif" -> Just (DirElif rest)
+          "elseif" -> Just (DirElif rest)
+          "else" -> Just DirElse
+          "endif" -> Just DirEndIf
+          "line" -> parseLineDirective rest
+          "warning" -> Just (DirWarning rest)
+          "error" -> Just (DirError rest)
           _ -> Just (DirUnsupported name)
 
 parseLineDirective :: Text -> Maybe Directive

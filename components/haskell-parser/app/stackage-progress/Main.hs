@@ -378,7 +378,7 @@ checkFile :: Options -> FilePath -> FileInfo -> IO FileResult
 checkFile opts packageRoot info = do
   let file = fileInfoPath info
   source <- TIO.readFile file
-  preprocessed <- preprocessForParserIfEnabled (fileInfoExtensions info) file (resolveIncludeBestEffort packageRoot file) source
+  preprocessed <- preprocessForParserIfEnabled (fileInfoExtensions info) (fileInfoCppOptions info) file (resolveIncludeBestEffort packageRoot file) source
   let source' = resultOutput preprocessed
       cppErrors = [diagToText diag | diag <- resultDiagnostics preprocessed, diagSeverity diag == Error]
       cppErrorMsg =

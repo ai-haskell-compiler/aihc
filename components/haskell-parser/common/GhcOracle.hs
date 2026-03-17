@@ -26,6 +26,8 @@ import qualified Data.Text as T
 import qualified GHC.Data.EnumSet as EnumSet
 import GHC.Data.FastString (mkFastString)
 import GHC.Data.StringBuffer (stringToStringBuffer)
+import qualified GHC.Driver.DynFlags as DynFlags
+import GHC.Driver.Session (impliedXFlags)
 import GHC.Hs (GhcPs, HsModule)
 import qualified GHC.LanguageExtensions.Type as GHC
 import GHC.Parser (parseModule)
@@ -72,12 +74,14 @@ parseWithGhcWithExtensions sourceTag extraExts input =
   let baseExts = nub extraExts
    in do
         languagePragmas <- extractLanguagePragmas sourceTag baseExts input
-        let parseExts = List.foldl' applyExtensionSetting (EnumSet.fromList baseExts :: EnumSet.EnumSet GHC.Extension) languagePragmas
+        let parseExts =
+              applyImpliedExtensions
+                (List.foldl' applyExtensionSetting (EnumSet.fromList baseExts :: EnumSet.EnumSet GHC.Extension) languagePragmas)
             inputForParse =
               if EnumSet.member GHC.Cpp parseExts
                 then resultOutput (preprocessForParserWithoutIncludes sourceTag input)
                 else input
-            opts = mkParserOpts parseExts emptyDiagOpts False False False False
+            opts = mkParserOpts parseExts emptyDiagOpts False False False True
             buffer = stringToStringBuffer (T.unpack inputForParse)
             start = mkRealSrcLoc (mkFastString sourceTag) 1 1
         case catchPureExceptionText $ case unP parseModule (initParserState opts buffer start) of
@@ -99,7 +103,9 @@ applyExtensionSetting exts setting =
 extractLanguagePragmas :: String -> [GHC.Extension] -> Text -> Either Text [Ast.ExtensionSetting]
 extractLanguagePragmas sourceTag baseExts input =
   let headerPragmas = moduleHeaderExtensionSettings input
-      headerExts = List.foldl' applyExtensionSetting (EnumSet.fromList baseExts :: EnumSet.EnumSet GHC.Extension) headerPragmas
+      headerExts =
+        applyImpliedExtensions
+          (List.foldl' applyExtensionSetting (EnumSet.fromList baseExts :: EnumSet.EnumSet GHC.Extension) headerPragmas)
       inputForOptions =
         if EnumSet.member GHC.Cpp headerExts
           then resultOutput (preprocessForParserWithoutIncludes sourceTag input)
@@ -112,7 +118,7 @@ extractLanguagePragmas sourceTag baseExts input =
           False
           False
           False
-          False
+          True
    in case catchPureExceptionText
         ( let (_warns, rawOptions) = getOptions baseOpts supportedLanguagePragmas buffer sourceTag
               optionPragmas = mapMaybe optionToLanguagePragma rawOptions
@@ -129,9 +135,32 @@ optionToLanguagePragma locatedOpt =
         Just pragmaName | not (T.null pragmaName) -> Ast.parseExtensionSettingName pragmaName
         _ -> Nothing
 
+applyImpliedExtensions :: EnumSet.EnumSet GHC.Extension -> EnumSet.EnumSet GHC.Extension
+applyImpliedExtensions = go
+  where
+    go exts =
+      let next = List.foldl' apply exts impliedXFlags
+       in if EnumSet.toList next == EnumSet.toList exts then exts else go next
+
+    apply exts (enabled, implied)
+      | EnumSet.member enabled exts =
+          case implied of
+            DynFlags.On ext -> EnumSet.insert ext exts
+            DynFlags.Off ext -> EnumSet.delete ext exts
+      | otherwise = exts
+
 supportedLanguagePragmas :: [String]
 supportedLanguagePragmas =
-  "CPP" : "Safe" : "Trustworthy" : "Unsafe" : "Rank2Types" : "PolymorphicComponents" : concatMap (includeNegative . show) ([minBound .. maxBound] :: [GHC.Extension])
+  [ "CPP",
+    "Safe",
+    "Trustworthy",
+    "Unsafe",
+    "Rank2Types",
+    "PolymorphicComponents",
+    "GeneralisedNewtypeDeriving",
+    "NoGeneralisedNewtypeDeriving"
+  ]
+    <> concatMap (includeNegative . show) ([minBound .. maxBound] :: [GHC.Extension])
   where
     includeNegative extName =
       case extName of
@@ -188,7 +217,15 @@ fromGhcExtension ghcExt = Ast.parseExtensionName (T.pack (show ghcExt))
 
 languageExtensions :: String -> [GHC.Extension]
 languageExtensions lang =
+  case parseLanguage lang of
+    Just ghcLanguage -> DynFlags.languageExtensions (Just ghcLanguage)
+    Nothing -> []
+
+parseLanguage :: String -> Maybe DynFlags.Language
+parseLanguage lang =
   case lang of
-    "Haskell98" -> []
-    "Haskell2010" -> [] -- GHC uses some by default anyway
-    _ -> []
+    "Haskell98" -> Just DynFlags.Haskell98
+    "Haskell2010" -> Just DynFlags.Haskell2010
+    "GHC2021" -> Just DynFlags.GHC2021
+    "GHC2024" -> Just DynFlags.GHC2024
+    _ -> Nothing

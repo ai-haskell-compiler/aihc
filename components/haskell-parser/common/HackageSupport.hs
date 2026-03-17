@@ -30,6 +30,7 @@ import Distribution.PackageDescription
     condExecutables,
     condLibrary,
     condSubLibraries,
+    cppOptions,
     defaultExtensions,
     defaultLanguage,
     exeModules,
@@ -37,12 +38,14 @@ import Distribution.PackageDescription
     hsSourceDirs,
     libBuildInfo,
     modulePath,
-    otherExtensions,
+    oldExtensions,
     otherModules,
   )
 import Distribution.PackageDescription.Parsec (parseGenericPackageDescription, runParseResult)
+import Distribution.Pretty (prettyShow)
 import Distribution.Types.CondTree
-  ( CondTree (condTreeData),
+  ( CondBranch (CondBranch),
+    CondTree (condTreeComponents, condTreeData),
   )
 import Distribution.Types.GenericPackageDescription (GenericPackageDescription)
 import Distribution.Utils.Path (getSymbolicPath)
@@ -117,6 +120,7 @@ getCacheDir = do
 data FileInfo = FileInfo
   { fileInfoPath :: FilePath,
     fileInfoExtensions :: [String],
+    fileInfoCppOptions :: [String],
     fileInfoLanguage :: Maybe String
   }
   deriving (Show)
@@ -176,33 +180,49 @@ dedupeFiles (f : fs) = f : dedupeFiles (filter (\x -> fileInfoPath x /= fileInfo
 libraryFilesFor :: FilePath -> CondTree v c Library -> IO [FileInfo]
 libraryFilesFor packageRoot tree = do
   let library = condTreeData tree
-      build = libBuildInfo library
-      moduleNames = exposedModules library <> otherModules build <> autogenModules build
+      rootBuild = libBuildInfo library
+      build = collectMergedBuildInfo libBuildInfo tree
+      moduleNames = exposedModules library <> otherModules rootBuild <> autogenModules rootBuild
       exts = extractExtensions build
+      cppOpts = cppOptions build
       lang = extractLanguage build
-  paths <- moduleFilesForBuildInfo packageRoot build moduleNames
-  pure [FileInfo path exts lang | path <- paths]
+  paths <- moduleFilesForBuildInfo packageRoot rootBuild moduleNames
+  pure [FileInfo path exts cppOpts lang | path <- paths]
 
 executableFilesFor :: FilePath -> CondTree v c Executable -> IO [FileInfo]
 executableFilesFor packageRoot tree = do
   let executable = condTreeData tree
-      build = buildInfo executable
-      moduleNames = otherModules build <> exeModules executable <> autogenModules build
+      rootBuild = buildInfo executable
+      build = collectMergedBuildInfo buildInfo tree
+      moduleNames = otherModules rootBuild <> exeModules executable <> autogenModules rootBuild
       mainPath = modulePath executable
       exts = extractExtensions build
+      cppOpts = cppOptions build
       lang = extractLanguage build
-  moduleFiles <- moduleFilesForBuildInfo packageRoot build moduleNames
-  mainFiles <- existingPaths [dir </> mainPath | dir <- sourceDirs packageRoot build]
-  pure [FileInfo path exts lang | path <- moduleFiles <> mainFiles]
+  moduleFiles <- moduleFilesForBuildInfo packageRoot rootBuild moduleNames
+  mainFiles <- existingPaths [dir </> mainPath | dir <- sourceDirs packageRoot rootBuild]
+  pure [FileInfo path exts cppOpts lang | path <- moduleFiles <> mainFiles]
 
 extractExtensions :: BuildInfo -> [String]
-extractExtensions bi = nub (map show (defaultExtensions bi <> otherExtensions bi))
+extractExtensions bi = nub (map prettyShow (defaultExtensions bi <> oldExtensions bi))
 
 extractLanguage :: BuildInfo -> Maybe String
 extractLanguage bi =
   case defaultLanguage bi of
-    Just lang -> Just (show lang)
-    Nothing -> Nothing
+    Just lang -> Just (prettyShow lang)
+    Nothing -> Just "Haskell2010"
+
+collectCondTreeData :: CondTree v c a -> [a]
+collectCondTreeData tree =
+  condTreeData tree : concatMap collectBranch (condTreeComponents tree)
+  where
+    collectBranch (CondBranch _ thenTree elseTree) =
+      collectCondTreeData thenTree
+        <> maybe [] collectCondTreeData elseTree
+
+collectMergedBuildInfo :: (Monoid b) => (a -> b) -> CondTree v c a -> b
+collectMergedBuildInfo toBuildInfo =
+  mconcat . map toBuildInfo . collectCondTreeData
 
 moduleFilesForBuildInfo :: FilePath -> BuildInfo -> [ModuleName] -> IO [FilePath]
 moduleFilesForBuildInfo packageRoot build modules = do

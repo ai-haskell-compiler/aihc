@@ -92,6 +92,7 @@ executable parser-progress
     , aihc-parser
     , aihc-cpp
     , text
+    , containers
     , directory
     , filepath
     , ghc-lib-parser
@@ -133,6 +134,7 @@ executable extension-progress
     , aihc-parser
     , aihc-cpp
     , text
+    , containers
     , directory
     , filepath
     , ghc-lib-parser
@@ -159,6 +161,7 @@ executable hackage-tester
     , aihc-parser
     , aihc-cpp
     , text
+    , containers
     , directory
     , filepath
     , ghc-lib-parser
@@ -192,6 +195,7 @@ executable stackage-progress
     , aihc-parser
     , aihc-cpp
     , text
+    , containers
     , directory
     , filepath
     , ghc-lib-parser
@@ -228,6 +232,8 @@ executable parser-fuzz
     , optparse-applicative
     , random
     , text
+    , containers
+    , filepath
     , ghc-lib-parser
     , Cabal-syntax
   ghc-options:        -Wall -Werror
