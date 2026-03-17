@@ -2,7 +2,7 @@
 define-basic	macro	define-basic.hs	pass
 undef-basic	macro	undef-basic.hs	pass
 macro-expansion	macro	macro-expansion.hs	pass
-include-basic	include	include-basic.hs	xfail	exact cpphs output parity (including #line pragmas) is not implemented
+include-basic	include	include-basic.hs	pass
 ifdef-true	conditionals	ifdef-true.hs	pass
 ifndef-true	conditionals	ifndef-true.hs	pass
 if-boolean-and	conditionals	if-boolean-and.hs	pass
@@ -20,8 +20,8 @@ if-defined-paren	conditionals	if-defined-paren.hs	pass
 if-defined-bare	conditionals	if-defined-bare.hs	pass
 nested-if-blocks	conditionals	nested-if-blocks.hs	pass
 predefined-line-file	macro	predefined-line-file.hs	pass
-function-macro-basic	macro	function-macro-basic.hs	xfail	function-like macros are not implemented
-function-macro-guard-patterns	macro	function-macro-guard-patterns.hs	xfail	function-like macros are not implemented
+function-macro-basic	macro	function-macro-basic.hs	pass
+function-macro-guard-patterns	macro	function-macro-guard-patterns.hs	pass
 line-directive-file-and-number	diagnostics	line-directive-file-and-number.hs	pass
 line-directive-number-only	diagnostics	line-directive-number-only.hs	pass
 language-pragma-closing-line	lexing	language-pragma-closing-line.hs	pass
@@ -30,4 +30,4 @@ macro-in-inline-block-comment	lexing	macro-in-inline-block-comment.hs	pass
 macro-in-line-comment	lexing	macro-in-line-comment.hs	pass
 macro-in-comment-with-line-comment-marker	lexing	macro-in-comment-with-line-comment-marker.hs	pass
 unterminated-string-in-comment	lexing	unterminated-string-in-comment.hs	pass
-comment-stripping-c89	lexing	comment-stripping-c89.hs	xfail	C89 block comment stripping parity with cpphs is not implemented
+comment-stripping-c89	lexing	comment-stripping-c89.hs	pass
