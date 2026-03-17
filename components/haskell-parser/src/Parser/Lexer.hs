@@ -146,30 +146,22 @@ lexModuleTokens input =
 -- and stops at the first non-pragma token.
 readModuleHeaderExtensions :: Text -> [ExtensionSetting]
 readModuleHeaderExtensions input =
-  case runParser moduleHeaderExtensionsParser "<module-header>" input of
-    Right exts -> exts
+  case runParser (triviaConsumer *> many (lexTokenParser <* triviaConsumer) <* eof) "<module-header>" input of
+    Right toks ->
+      concatMap languageSettings (takeWhile isHeaderPragma toks)
     Left _ -> []
-
-moduleHeaderExtensionsParser :: LParser [ExtensionSetting]
-moduleHeaderExtensionsParser =
-  concat
-    <$> many
-      ( try
-          (triviaConsumer *> headerPragmaSettings <* triviaConsumer)
-      )
   where
-    headerPragmaSettings =
-      languagePragmaSettings
-        <|> ignorableHeaderPragma
+    isHeaderPragma tok =
+      case lexTokenKind tok of
+        TkPragmaLanguage _ -> True
+        TkPragmaWarning _ -> True
+        TkPragmaDeprecated _ -> True
+        _ -> False
 
-    languagePragmaSettings = do
-      (_, kind) <- languagePragmaToken
-      case kind of
-        TkPragmaLanguage names -> pure names
-        _ -> pure []
-
-    ignorableHeaderPragma =
-      [] <$ (void pragmaWarningToken <|> void pragmaDeprecatedToken)
+    languageSettings tok =
+      case lexTokenKind tok of
+        TkPragmaLanguage names -> names
+        _ -> []
 
 enabledExtensionsFromSettings :: [ExtensionSetting] -> [Extension]
 enabledExtensionsFromSettings = List.foldl' apply []
@@ -513,11 +505,21 @@ virtualSymbolToken sym span' =
 --
 -- Pragmas are lexed as tokens, so @{-# ... #-}@ must not be consumed here.
 triviaConsumer :: LParser ()
-triviaConsumer = MP.skipMany (void C.spaceChar <|> lineCommentConsumer <|> try blockCommentConsumer)
+triviaConsumer = MP.skipMany (void C.spaceChar <|> lineCommentConsumer <|> try blockCommentConsumer <|> try unknownPragmaConsumer)
 
 -- | Consume a line comment introduced by @--@.
 lineCommentConsumer :: LParser ()
 lineCommentConsumer = L.skipLineComment "--"
+
+-- | Consume unsupported pragmas as ignorable header/comment trivia.
+unknownPragmaConsumer :: LParser ()
+unknownPragmaConsumer = do
+  _ <- C.string "{-#"
+  _ <- many C.spaceChar
+  notFollowedBy (C.string "LANGUAGE")
+  notFollowedBy (C.string "WARNING")
+  notFollowedBy (C.string "DEPRECATED")
+  void (manyTillText "#-}")
 
 -- | Consume a non-pragma nested block comment.
 --
