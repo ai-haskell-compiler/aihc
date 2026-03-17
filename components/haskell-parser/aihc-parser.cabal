@@ -40,6 +40,7 @@ test-suite spec
       CppSupport
     , ExtensionSupport
     , GhcOracle
+    , HackageSupport
     , HackageTester.CLI
     , HackageTester.Model
     , HseExtensions
@@ -71,6 +72,8 @@ test-suite spec
     , Cabal-syntax
     , haskell-src-exts
     , aeson
+    , bytestring
+    , process
     , yaml
     , optparse-applicative
     , template-haskell

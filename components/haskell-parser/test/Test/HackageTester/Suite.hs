@@ -5,10 +5,16 @@ module Test.HackageTester.Suite
   )
 where
 
+import Control.Exception (bracket)
+import Data.List (isSuffixOf)
 import qualified Data.Text as T
 import GhcOracle (oracleDetailedParsesModuleWithNamesAt)
+import HackageSupport (fileInfoPath, findTargetFilesFromCabal)
 import HackageTester.CLI (Options (..), parseOptionsPure)
 import HackageTester.Model (FileResult (..), Outcome (..), Summary (..), shouldFailSummary, summarizeResults)
+import System.Directory (createDirectory, getTemporaryDirectory, removeDirectoryRecursive, removeFile)
+import System.FilePath ((</>))
+import System.IO (hClose, openTempFile)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, testCase)
 
@@ -36,6 +42,10 @@ hackageTesterTests =
           testCase "uses Haskell2010 language defaults" test_oracleUsesHaskell2010Defaults,
           testCase "uses Haskell98 fallback defaults" test_oracleUsesHaskell98FallbackDefaults,
           testCase "handles CPP-defined LANGUAGE pragmas" test_oracleHandlesCppDefinedLanguagePragmas
+        ],
+      testGroup
+        "package-selection"
+        [ testCase "skips files from non-buildable components by default flags" test_skipsNonBuildableComponents
         ]
     ]
 
@@ -181,6 +191,61 @@ test_oracleHandlesCppDefinedLanguagePragmas =
           "module Test where",
           "x = \\case _ -> ()"
         ]
+
+test_skipsNonBuildableComponents :: Assertion
+test_skipsNonBuildableComponents =
+  withTempDir "hackage-tester" $ \root -> do
+    let cabalFile = root </> "demo.cabal"
+        readmeFile = root </> "README.lhs"
+        srcDir = root </> "src"
+        mainFile = srcDir </> "Main.hs"
+
+    createDirectory srcDir
+    writeFile readmeFile "This is not buildable by default.\n"
+    writeFile mainFile "main :: IO ()\nmain = pure ()\n"
+    writeFile cabalFile sampleCabal
+
+    files <- findTargetFilesFromCabal root
+    let selected = map fileInfoPath files
+    assertBool "expected Main.hs to be selected" (any ("src/Main.hs" `isSuffixOf`) selected)
+    assertBool "expected README.lhs from disabled component to be skipped" (not (any ("README.lhs" `isSuffixOf`) selected))
+
+sampleCabal :: String
+sampleCabal =
+  unlines
+    [ "cabal-version: 2.4",
+      "name: demo",
+      "version: 0.1.0.0",
+      "",
+      "flag build-readme",
+      "  default: False",
+      "  manual: True",
+      "",
+      "executable readme",
+      "  if !flag(build-readme)",
+      "    buildable: False",
+      "  main-is: README.lhs",
+      "  build-depends: base",
+      "  default-language: Haskell2010",
+      "",
+      "executable cli",
+      "  main-is: Main.hs",
+      "  hs-source-dirs: src",
+      "  build-depends: base",
+      "  default-language: Haskell2010"
+    ]
+
+withTempDir :: String -> (FilePath -> IO a) -> IO a
+withTempDir prefix action = do
+  tempRoot <- getTemporaryDirectory
+  (tempFile, tempHandle) <- openTempFile tempRoot (prefix ++ "-XXXXXX")
+  hClose tempHandle
+  removeFile tempFile
+  createDirectory tempFile
+  bracket
+    (pure tempFile)
+    removeDirectoryRecursive
+    action
 
 assertLeftContaining :: String -> Either String a -> Assertion
 assertLeftContaining needle result =

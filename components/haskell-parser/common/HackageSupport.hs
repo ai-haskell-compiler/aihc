@@ -16,17 +16,22 @@ import Control.Monad (forM, when)
 import Cpp (Diagnostic (..), IncludeKind (..), IncludeRequest (..), Severity (..))
 import qualified Data.ByteString as BS
 import Data.List (isPrefixOf, isSuffixOf, nub)
+import qualified Data.Map.Strict as Map
 import Data.Maybe (catMaybes)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
+import qualified Data.Version as DV
+import Distribution.Compiler (CompilerFlavor (..))
 import Distribution.ModuleName (ModuleName, toFilePath)
 import Distribution.PackageDescription
   ( BuildInfo,
     Executable,
+    FlagName,
     Library,
     autogenModules,
     buildInfo,
+    buildable,
     condExecutables,
     condLibrary,
     condSubLibraries,
@@ -35,6 +40,8 @@ import Distribution.PackageDescription
     defaultLanguage,
     exeModules,
     exposedModules,
+    flagDefault,
+    flagName,
     hsSourceDirs,
     libBuildInfo,
     modulePath,
@@ -43,12 +50,16 @@ import Distribution.PackageDescription
   )
 import Distribution.PackageDescription.Parsec (parseGenericPackageDescription, runParseResult)
 import Distribution.Pretty (prettyShow)
+import Distribution.System (buildArch, buildOS)
 import Distribution.Types.CondTree
   ( CondBranch (CondBranch),
     CondTree (condTreeComponents, condTreeData),
   )
-import Distribution.Types.GenericPackageDescription (GenericPackageDescription)
+import Distribution.Types.Condition (Condition (..))
+import Distribution.Types.ConfVar (ConfVar (..))
+import Distribution.Types.GenericPackageDescription (GenericPackageDescription, genPackageFlags)
 import Distribution.Utils.Path (getSymbolicPath)
+import Distribution.Version (mkVersion, withinRange)
 import System.Directory
   ( XdgDirectory (XdgCache),
     createDirectoryIfMissing,
@@ -61,6 +72,7 @@ import System.Directory
     renameDirectory,
   )
 import System.FilePath (isAbsolute, makeRelative, normalise, splitDirectories, takeDirectory, (<.>), (</>))
+import System.Info (compilerName, compilerVersion)
 import System.Process (callCommand)
 
 downloadPackage :: String -> String -> IO FilePath
@@ -156,6 +168,7 @@ findTargetFilesFromCabal extractedRoot = do
 collectComponentFiles :: GenericPackageDescription -> FilePath -> IO [FileInfo]
 collectComponentFiles gpd cabalFile = do
   let packageRoot = takeDirectory cabalFile
+      evalCond = conditionEvaluator gpd
       -- We flatten the GPD to get a fixed set of components. This isn't perfect
       -- as it might pick branches that aren't usually active, but it's better
       -- than trying to resolve conditions without a proper environment.
@@ -166,8 +179,8 @@ collectComponentFiles gpd cabalFile = do
   -- easily map back to the files. Let's try to extract info from the CondTree
   -- but also carry the BuildInfo.
 
-  libraryFiles <- fmap concat (forM libraryTrees (libraryFilesFor packageRoot))
-  executableFiles <- fmap concat (forM executableTrees (executableFilesFor packageRoot))
+  libraryFiles <- fmap concat (forM libraryTrees (libraryFilesFor evalCond packageRoot))
+  executableFiles <- fmap concat (forM executableTrees (executableFilesFor evalCond packageRoot))
 
   -- Dedupe by checking the path
   let allFiles = libraryFiles <> executableFiles
@@ -177,31 +190,37 @@ dedupeFiles :: [FileInfo] -> [FileInfo]
 dedupeFiles [] = []
 dedupeFiles (f : fs) = f : dedupeFiles (filter (\x -> fileInfoPath x /= fileInfoPath f) fs)
 
-libraryFilesFor :: FilePath -> CondTree v c Library -> IO [FileInfo]
-libraryFilesFor packageRoot tree = do
+libraryFilesFor :: (Condition ConfVar -> Bool) -> FilePath -> CondTree ConfVar c Library -> IO [FileInfo]
+libraryFilesFor evalCond packageRoot tree = do
   let library = condTreeData tree
       rootBuild = libBuildInfo library
-      build = collectMergedBuildInfo libBuildInfo tree
+      build = collectMergedBuildInfo evalCond libBuildInfo tree
       moduleNames = exposedModules library <> otherModules rootBuild <> autogenModules rootBuild
       exts = extractExtensions build
       cppOpts = cppOptions build
       lang = extractLanguage build
-  paths <- moduleFilesForBuildInfo packageRoot rootBuild moduleNames
-  pure [FileInfo path exts cppOpts lang | path <- paths]
+  if not (buildable build)
+    then pure []
+    else do
+      paths <- moduleFilesForBuildInfo packageRoot rootBuild moduleNames
+      pure [FileInfo path exts cppOpts lang | path <- paths]
 
-executableFilesFor :: FilePath -> CondTree v c Executable -> IO [FileInfo]
-executableFilesFor packageRoot tree = do
+executableFilesFor :: (Condition ConfVar -> Bool) -> FilePath -> CondTree ConfVar c Executable -> IO [FileInfo]
+executableFilesFor evalCond packageRoot tree = do
   let executable = condTreeData tree
       rootBuild = buildInfo executable
-      build = collectMergedBuildInfo buildInfo tree
+      build = collectMergedBuildInfo evalCond buildInfo tree
       moduleNames = otherModules rootBuild <> exeModules executable <> autogenModules rootBuild
       mainPath = modulePath executable
       exts = extractExtensions build
       cppOpts = cppOptions build
       lang = extractLanguage build
-  moduleFiles <- moduleFilesForBuildInfo packageRoot rootBuild moduleNames
-  mainFiles <- existingPaths [dir </> mainPath | dir <- sourceDirs packageRoot rootBuild]
-  pure [FileInfo path exts cppOpts lang | path <- moduleFiles <> mainFiles]
+  if not (buildable build)
+    then pure []
+    else do
+      moduleFiles <- moduleFilesForBuildInfo packageRoot rootBuild moduleNames
+      mainFiles <- existingPaths [dir </> mainPath | dir <- sourceDirs packageRoot rootBuild]
+      pure [FileInfo path exts cppOpts lang | path <- moduleFiles <> mainFiles]
 
 extractExtensions :: BuildInfo -> [String]
 extractExtensions bi = nub (map prettyShow (defaultExtensions bi <> oldExtensions bi))
@@ -212,17 +231,45 @@ extractLanguage bi =
     Just lang -> Just (prettyShow lang)
     Nothing -> Just "Haskell98"
 
-collectCondTreeData :: CondTree v c a -> [a]
-collectCondTreeData tree =
+collectCondTreeData :: (Condition v -> Bool) -> CondTree v c a -> [a]
+collectCondTreeData evalCond tree =
   condTreeData tree : concatMap collectBranch (condTreeComponents tree)
   where
-    collectBranch (CondBranch _ thenTree elseTree) =
-      collectCondTreeData thenTree
-        <> maybe [] collectCondTreeData elseTree
+    collectBranch (CondBranch cond thenTree elseTree) =
+      if evalCond cond
+        then collectCondTreeData evalCond thenTree
+        else maybe [] (collectCondTreeData evalCond) elseTree
 
-collectMergedBuildInfo :: (Monoid b) => (a -> b) -> CondTree v c a -> b
-collectMergedBuildInfo toBuildInfo =
-  mconcat . map toBuildInfo . collectCondTreeData
+collectMergedBuildInfo :: (Monoid b) => (Condition v -> Bool) -> (a -> b) -> CondTree v c a -> b
+collectMergedBuildInfo evalCond toBuildInfo =
+  mconcat . map toBuildInfo . collectCondTreeData evalCond
+
+conditionEvaluator :: GenericPackageDescription -> Condition ConfVar -> Bool
+conditionEvaluator gpd = eval
+  where
+    defaultFlags :: Map.Map FlagName Bool
+    defaultFlags =
+      Map.fromList [(flagName flag, flagDefault flag) | flag <- genPackageFlags gpd]
+
+    compilerFlavor :: CompilerFlavor
+    compilerFlavor =
+      case compilerName of
+        "ghc" -> GHC
+        "ghcjs" -> GHCJS
+        other -> OtherCompiler other
+
+    compilerVer = mkVersion (DV.versionBranch compilerVersion)
+
+    eval (Var confVar) =
+      case confVar of
+        OS os -> os == buildOS
+        Arch arch -> arch == buildArch
+        PackageFlag flag -> Map.findWithDefault False flag defaultFlags
+        Impl flavor range -> flavor == compilerFlavor && withinRange compilerVer range
+    eval (Lit b) = b
+    eval (CNot c) = not (eval c)
+    eval (COr a b) = eval a || eval b
+    eval (CAnd a b) = eval a && eval b
 
 moduleFilesForBuildInfo :: FilePath -> BuildInfo -> [ModuleName] -> IO [FilePath]
 moduleFilesForBuildInfo packageRoot build modules = do
