@@ -14,13 +14,13 @@ module Cpp
 where
 
 import Data.Char (isAlphaNum, isDigit, isLetter, isSpace)
-import Data.List (dropWhileEnd, isPrefixOf)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Lazy.Builder as TB
+import qualified Data.Text.Read as TR
 import System.FilePath (takeDirectory, (</>))
 
 data Config = Config
@@ -150,14 +150,23 @@ currentActive (f : _) = frameCurrentActive f
 
 type Continuation = EngineState -> Step
 
+data LineContext = LineContext
+  { lcFilePath :: !FilePath,
+    lcLineNo :: !Int,
+    lcLineSpan :: !Int,
+    lcNextLineNo :: !Int,
+    lcRestLines :: ![(Int, Int, Text)],
+    lcStack :: ![CondFrame],
+    lcContinue :: EngineState -> Step,
+    lcContinueWith :: [CondFrame] -> EngineState -> Step,
+    lcDone :: Continuation
+  }
+
 processFile :: FilePath -> [(Int, Int, Text)] -> [CondFrame] -> EngineState -> Continuation -> Step
 processFile _ [] _ st k = k st
 processFile filePath ((lineNo, lineSpan, line) : restLines) stack st k =
-  let active = currentActive stack
-      lineScan = scanLine (stHsBlockCommentDepth st) (stCBlockCommentDepth st) line
+  let lineScan = scanLine (stHsBlockCommentDepth st) (stCBlockCommentDepth st) line
       startsInBlockComment = stHsBlockCommentDepth st > 0 || stCBlockCommentDepth st > 0
-      nextHsBlockCommentDepth = lineScanFinalHsDepth lineScan
-      nextCBlockCommentDepth = lineScanFinalCDepth lineScan
       parsedDirective =
         if startsInBlockComment
           then Nothing
@@ -165,181 +174,220 @@ processFile filePath ((lineNo, lineSpan, line) : restLines) stack st k =
       nextLineNo = case restLines of
         (n, _, _) : _ -> n
         [] -> lineNo + lineSpan
-      emitDirectiveBlank = emitBlankLines lineSpan
-      emitExpandedLine st' = emitLine (expandLineBySpan st' (lineScanSpans lineScan)) st'
-      continue st' =
-        processFile
-          filePath
-          restLines
-          stack
-          ( st'
-              { stCurrentLine = nextLineNo,
-                stHsBlockCommentDepth = nextHsBlockCommentDepth,
-                stCBlockCommentDepth = nextCBlockCommentDepth
-              }
-          )
-          k
-      continueWith stack' st' =
-        processFile
-          filePath
-          restLines
-          stack'
-          ( st'
-              { stCurrentLine = nextLineNo,
-                stHsBlockCommentDepth = nextHsBlockCommentDepth,
-                stCBlockCommentDepth = nextCBlockCommentDepth
-              }
-          )
-          k
-      recoverDanglingElse =
-        case parsedDirective of
-          Just DirEndIf ->
-            continue
-              ( addDiag
-                  Warning
-                  "unmatched #endif"
-                  filePath
-                  lineNo
-                  (st {stSkippingDanglingElse = False})
-              )
-          Just _ ->
-            continue st
-          Nothing ->
-            continue (emitBlankLines lineSpan st)
-      handleDirective directive =
-        case directive of
-          DirDefineObject name value ->
-            if currentActive stack
-              then continue (emitDirectiveBlank (st {stMacros = M.insert name (ObjectMacro value) (stMacros st)}))
-              else continue (emitDirectiveBlank st)
-          DirDefineFunction name params body ->
-            if currentActive stack
-              then continue (emitDirectiveBlank (st {stMacros = M.insert name (FunctionMacro params body) (stMacros st)}))
-              else continue (emitDirectiveBlank st)
-          DirUndef name ->
-            if currentActive stack
-              then continue (emitDirectiveBlank (st {stMacros = M.delete name (stMacros st)}))
-              else continue (emitDirectiveBlank st)
-          DirInclude kind includeTarget ->
-            if currentActive stack
-              then
-                let req =
-                      IncludeRequest
-                        { includePath = includeTarget,
-                          includeKind = kind,
-                          includeFrom = filePath,
-                          includeLine = lineNo
-                        }
-                    nextStep mContent =
-                      case mContent of
-                        Nothing ->
-                          continue
-                            (addDiag Error ("missing include: " <> T.pack includeTarget) filePath lineNo st)
-                        Just includeText ->
-                          let includeFilePath =
-                                case kind of
-                                  IncludeLocal -> takeDirectory filePath </> includeTarget
-                                  IncludeSystem -> includeTarget
-                              stWithIncludePragma = emitLine (linePragma 1 includeFilePath) (st {stCurrentFile = includeFilePath, stCurrentLine = 1})
-                              resumeParent stAfterInclude =
-                                processFile
-                                  filePath
-                                  restLines
-                                  stack
-                                  (emitLine (linePragma nextLineNo filePath) (stAfterInclude {stCurrentFile = filePath, stCurrentLine = nextLineNo}))
-                                  k
-                           in processFile includeFilePath (joinMultiline 1 (splitLines includeText)) [] stWithIncludePragma resumeParent
-                 in NeedInclude req nextStep
-              else continue (emitDirectiveBlank st)
-          DirIf expr ->
-            let outer = currentActive stack
-                cond = evalCondition st expr
-                frame = mkFrame outer cond
-             in continueWith (frame : stack) (emitDirectiveBlank st)
-          DirIfDef name ->
-            let outer = currentActive stack
-                cond = M.member name (stMacros st)
-                frame = mkFrame outer cond
-             in continueWith (frame : stack) (emitDirectiveBlank st)
-          DirIfNDef name ->
-            let outer = currentActive stack
-                cond = not (M.member name (stMacros st))
-                frame = mkFrame outer cond
-             in continueWith (frame : stack) (emitDirectiveBlank st)
-          DirElif expr ->
-            case stack of
-              [] ->
-                continue
-                  (emitDirectiveBlank (addDiag Error "#elif without matching #if" filePath lineNo st))
-              f : rest ->
-                if frameInElse f
-                  then
-                    continue
-                      (emitDirectiveBlank (addDiag Error "#elif after #else" filePath lineNo st))
-                  else
-                    let anyTaken = frameConditionTrue f
-                        newCond = not anyTaken && evalCondition st expr
-                        f' =
-                          f
-                            { frameConditionTrue = anyTaken || newCond,
-                              frameCurrentActive = frameOuterActive f && newCond
-                            }
-                     in continueWith (f' : rest) (emitDirectiveBlank st)
-          DirElse ->
-            case stack of
-              [] ->
-                continue (st {stSkippingDanglingElse = True})
-              f : rest ->
-                if frameInElse f
-                  then
-                    continue
-                      (emitDirectiveBlank (addDiag Error "duplicate #else in conditional block" filePath lineNo st))
-                  else
-                    let newCurrent = frameOuterActive f && not (frameConditionTrue f)
-                        f' =
-                          f
-                            { frameInElse = True,
-                              frameCurrentActive = newCurrent
-                            }
-                     in continueWith (f' : rest) (emitDirectiveBlank st)
-          DirEndIf ->
-            case stack of
-              [] ->
-                continue
-                  (addDiag Warning "unmatched #endif" filePath lineNo st)
-              _ : rest -> continueWith rest (emitDirectiveBlank st)
-          DirWarning msg ->
-            if currentActive stack
-              then continue (emitDirectiveBlank (addDiag Warning msg filePath lineNo st))
-              else continue (emitDirectiveBlank st)
-          DirError msg ->
-            if currentActive stack
-              then k (emitDirectiveBlank (addDiag Error msg filePath lineNo st))
-              else continue (emitDirectiveBlank st)
-          DirLine n mPath ->
-            if currentActive stack
-              then
-                let st'' = case mPath of
-                      Just p -> st {stCurrentFile = p}
-                      Nothing -> st
-                    st''' = emitLine (linePragma n (stCurrentFile st'')) (st'' {stCurrentLine = n})
-                 in processFile filePath restLines stack (st''' {stCurrentLine = n}) k
-              else continue (emitDirectiveBlank st)
-          DirUnsupported name ->
-            if currentActive stack
-              then
-                continue
-                  (emitDirectiveBlank (addDiag Warning ("unsupported directive: " <> name) filePath lineNo st))
-              else continue (emitDirectiveBlank st)
+      advanceLineState st' =
+        st'
+          { stCurrentLine = nextLineNo,
+            stHsBlockCommentDepth = lineScanFinalHsDepth lineScan,
+            stCBlockCommentDepth = lineScanFinalCDepth lineScan
+          }
+      continue st' = processFile filePath restLines stack (advanceLineState st') k
+      continueWith stack' st' = processFile filePath restLines stack' (advanceLineState st') k
+      ctx =
+        LineContext
+          { lcFilePath = filePath,
+            lcLineNo = lineNo,
+            lcLineSpan = lineSpan,
+            lcNextLineNo = nextLineNo,
+            lcRestLines = restLines,
+            lcStack = stack,
+            lcContinue = continue,
+            lcContinueWith = continueWith,
+            lcDone = k
+          }
    in if stSkippingDanglingElse st
-        then recoverDanglingElse
+        then recoverDanglingElse ctx parsedDirective st
         else case parsedDirective of
           Nothing ->
-            if active
-              then continue (emitExpandedLine st)
+            if currentActive stack
+              then continue (emitLine (expandLineBySpan st (lineScanSpans lineScan)) st)
               else continue (emitBlankLines lineSpan st)
           Just directive ->
-            handleDirective directive
+            handleDirective ctx st directive
+
+recoverDanglingElse :: LineContext -> Maybe Directive -> EngineState -> Step
+recoverDanglingElse ctx parsedDirective st =
+  case parsedDirective of
+    Just DirEndIf ->
+      lcContinue
+        ctx
+        ( addDiag
+            Warning
+            "unmatched #endif"
+            (lcFilePath ctx)
+            (lcLineNo ctx)
+            (st {stSkippingDanglingElse = False})
+        )
+    Just _ ->
+      lcContinue ctx st
+    Nothing ->
+      lcContinue ctx (emitDirectiveBlank ctx st)
+
+handleDirective :: LineContext -> EngineState -> Directive -> Step
+handleDirective ctx st directive =
+  case directive of
+    DirDefineObject name value ->
+      mutateMacrosWhenActive ctx st (M.insert name (ObjectMacro value))
+    DirDefineFunction name params body ->
+      mutateMacrosWhenActive ctx st (M.insert name (FunctionMacro params body))
+    DirUndef name ->
+      mutateMacrosWhenActive ctx st (M.delete name)
+    DirInclude kind includeTarget ->
+      handleIncludeDirective ctx st kind includeTarget
+    DirIf expr ->
+      pushConditionalFrame ctx st (evalCondition st expr)
+    DirIfDef name ->
+      pushConditionalFrame ctx st (M.member name (stMacros st))
+    DirIfNDef name ->
+      pushConditionalFrame ctx st (not (M.member name (stMacros st)))
+    DirElif expr ->
+      handleElifDirective ctx st expr
+    DirElse ->
+      handleElseDirective ctx st
+    DirEndIf ->
+      case lcStack ctx of
+        [] ->
+          lcContinue
+            ctx
+            (addDiag Warning "unmatched #endif" (lcFilePath ctx) (lcLineNo ctx) st)
+        _ : rest ->
+          continueBlankWithStack ctx rest st
+    DirWarning msg ->
+      addDiagnosticWhenActive ctx Warning msg st
+    DirError msg ->
+      if currentActive (lcStack ctx)
+        then
+          lcDone
+            ctx
+            (emitDirectiveBlank ctx (addDiag Error msg (lcFilePath ctx) (lcLineNo ctx) st))
+        else continueBlank ctx st
+    DirLine n mPath ->
+      handleLineDirective ctx st n mPath
+    DirUnsupported name ->
+      addDiagnosticWhenActive ctx Warning ("unsupported directive: " <> name) st
+
+emitDirectiveBlank :: LineContext -> EngineState -> EngineState
+emitDirectiveBlank ctx = emitBlankLines (lcLineSpan ctx)
+
+continueBlank :: LineContext -> EngineState -> Step
+continueBlank ctx st = lcContinue ctx (emitDirectiveBlank ctx st)
+
+continueBlankWithStack :: LineContext -> [CondFrame] -> EngineState -> Step
+continueBlankWithStack ctx stack st = lcContinueWith ctx stack (emitDirectiveBlank ctx st)
+
+mutateMacrosWhenActive :: LineContext -> EngineState -> (Map Text MacroDef -> Map Text MacroDef) -> Step
+mutateMacrosWhenActive ctx st mutate =
+  if currentActive (lcStack ctx)
+    then continueBlank ctx (st {stMacros = mutate (stMacros st)})
+    else continueBlank ctx st
+
+addDiagnosticWhenActive :: LineContext -> Severity -> Text -> EngineState -> Step
+addDiagnosticWhenActive ctx severity message st =
+  if currentActive (lcStack ctx)
+    then continueBlank ctx (addDiag severity message (lcFilePath ctx) (lcLineNo ctx) st)
+    else continueBlank ctx st
+
+pushConditionalFrame :: LineContext -> EngineState -> Bool -> Step
+pushConditionalFrame ctx st cond =
+  let frame = mkFrame (currentActive (lcStack ctx)) cond
+   in continueBlankWithStack ctx (frame : lcStack ctx) st
+
+handleElifDirective :: LineContext -> EngineState -> Text -> Step
+handleElifDirective ctx st expr =
+  case lcStack ctx of
+    [] ->
+      continueBlank
+        ctx
+        (addDiag Error "#elif without matching #if" (lcFilePath ctx) (lcLineNo ctx) st)
+    f : rest ->
+      if frameInElse f
+        then
+          continueBlank
+            ctx
+            (addDiag Error "#elif after #else" (lcFilePath ctx) (lcLineNo ctx) st)
+        else
+          let anyTaken = frameConditionTrue f
+              newCond = not anyTaken && evalCondition st expr
+              f' =
+                f
+                  { frameConditionTrue = anyTaken || newCond,
+                    frameCurrentActive = frameOuterActive f && newCond
+                  }
+           in continueBlankWithStack ctx (f' : rest) st
+
+handleElseDirective :: LineContext -> EngineState -> Step
+handleElseDirective ctx st =
+  case lcStack ctx of
+    [] ->
+      lcContinue ctx (st {stSkippingDanglingElse = True})
+    f : rest ->
+      if frameInElse f
+        then
+          continueBlank
+            ctx
+            (addDiag Error "duplicate #else in conditional block" (lcFilePath ctx) (lcLineNo ctx) st)
+        else
+          let newCurrent = frameOuterActive f && not (frameConditionTrue f)
+              f' =
+                f
+                  { frameInElse = True,
+                    frameCurrentActive = newCurrent
+                  }
+           in continueBlankWithStack ctx (f' : rest) st
+
+handleIncludeDirective :: LineContext -> EngineState -> IncludeKind -> Text -> Step
+handleIncludeDirective ctx st kind includeTarget
+  | not (currentActive (lcStack ctx)) = continueBlank ctx st
+  | otherwise = NeedInclude includeReq nextStep
+  where
+    includePathText = T.unpack includeTarget
+    includeReq =
+      IncludeRequest
+        { includePath = includePathText,
+          includeKind = kind,
+          includeFrom = lcFilePath ctx,
+          includeLine = lcLineNo ctx
+        }
+    nextStep Nothing =
+      lcContinue
+        ctx
+        (addDiag Error ("missing include: " <> includeTarget) (lcFilePath ctx) (lcLineNo ctx) st)
+    nextStep (Just includeText) =
+      let includeFilePath =
+            case kind of
+              IncludeLocal -> takeDirectory (lcFilePath ctx) </> includePathText
+              IncludeSystem -> includePathText
+          stWithIncludePragma =
+            emitLine (linePragma 1 includeFilePath) (st {stCurrentFile = includeFilePath, stCurrentLine = 1})
+          resumeParent stAfterInclude =
+            processFile
+              (lcFilePath ctx)
+              (lcRestLines ctx)
+              (lcStack ctx)
+              ( emitLine
+                  (linePragma (lcNextLineNo ctx) (lcFilePath ctx))
+                  (stAfterInclude {stCurrentFile = lcFilePath ctx, stCurrentLine = lcNextLineNo ctx})
+              )
+              (lcDone ctx)
+       in processFile includeFilePath (joinMultiline 1 (splitLines includeText)) [] stWithIncludePragma resumeParent
+
+handleLineDirective :: LineContext -> EngineState -> Int -> Maybe FilePath -> Step
+handleLineDirective ctx st lineNumber maybePath
+  | not (currentActive (lcStack ctx)) = continueBlank ctx st
+  | otherwise =
+      let stWithFile =
+            case maybePath of
+              Just path -> st {stCurrentFile = path}
+              Nothing -> st
+          stWithLinePragma =
+            emitLine
+              (linePragma lineNumber (stCurrentFile stWithFile))
+              (stWithFile {stCurrentLine = lineNumber})
+       in processFile
+            (lcFilePath ctx)
+            (lcRestLines ctx)
+            (lcStack ctx)
+            (stWithLinePragma {stCurrentLine = lineNumber})
+            (lcDone ctx)
 
 mkFrame :: Bool -> Bool -> CondFrame
 mkFrame outer cond =
@@ -374,6 +422,12 @@ addDiag sev msg filePath lineNo st =
 linePragma :: Int -> FilePath -> Text
 linePragma n path = "#line " <> T.pack (show n) <> " \"" <> T.pack path <> "\""
 
+builderToText :: TB.Builder -> Text
+builderToText = TL.toStrict . TB.toLazyText
+
+trimSpacesText :: Text -> Text
+trimSpacesText = T.dropWhileEnd isSpace . T.dropWhile isSpace
+
 data LineSpan = LineSpan
   { lineSpanInBlockComment :: !Bool,
     lineSpanText :: !Text
@@ -404,9 +458,6 @@ scanLine hsDepth0 cDepth0 input =
           lineScanFinalCDepth = finalCDepth
         }
   where
-    builderToText :: TB.Builder -> Text
-    builderToText = TL.toStrict . TB.toLazyText
-
     flushSpan :: [LineSpan] -> TB.Builder -> Bool -> Bool -> [LineSpan]
     flushSpan spansRev currentBuilder hasCurrent inComment =
       if not hasCurrent
@@ -527,7 +578,7 @@ data Directive
   = DirDefineObject !Text !Text
   | DirDefineFunction !Text ![Text] !Text
   | DirUndef !Text
-  | DirInclude !IncludeKind !FilePath
+  | DirInclude !IncludeKind !Text
   | DirIf !Text
   | DirIfDef !Text
   | DirIfNDef !Text
@@ -577,19 +628,13 @@ parseDirectiveBody body =
 
 parseLineDirective :: Text -> Maybe Directive
 parseLineDirective body =
-  let (nStr, rest0) = T.span isDigit body
-      rest = T.stripStart rest0
-   in if T.null nStr
-        then Nothing
-        else
-          let n = read (T.unpack nStr)
-           in case T.uncons rest of
-                Just ('"', rest1) ->
-                  let (path, suffix) = T.breakOn "\"" rest1
-                   in if T.null suffix
-                        then Just (DirLine n Nothing)
-                        else Just (DirLine n (Just (T.unpack path)))
-                _ -> Just (DirLine n Nothing)
+  case TR.decimal body of
+    Left _ -> Nothing
+    Right (lineNumber, rest0) ->
+      let rest = T.stripStart rest0
+       in case parseQuotedText rest of
+            Nothing -> Just (DirLine lineNumber Nothing)
+            Just path -> Just (DirLine lineNumber (Just (T.unpack path)))
 
 parseDefine :: Text -> Maybe Directive
 parseDefine rest = do
@@ -629,11 +674,17 @@ parseInclude txt =
   case T.uncons (T.stripStart txt) of
     Just ('"', rest) ->
       let (path, suffix) = T.breakOn "\"" rest
-       in if T.null suffix then Nothing else Just (DirInclude IncludeLocal (T.unpack path))
+       in if T.null suffix then Nothing else Just (DirInclude IncludeLocal path)
     Just ('<', rest) ->
       let (path, suffix) = T.breakOn ">" rest
-       in if T.null suffix then Nothing else Just (DirInclude IncludeSystem (T.unpack path))
+       in if T.null suffix then Nothing else Just (DirInclude IncludeSystem path)
     _ -> Nothing
+
+parseQuotedText :: Text -> Maybe Text
+parseQuotedText txt = do
+  ('"', rest) <- T.uncons txt
+  let (path, suffix) = T.breakOn "\"" rest
+  if T.null suffix then Nothing else Just path
 
 expandMacros :: EngineState -> Text -> Text
 expandMacros st = applyDepth (32 :: Int)
@@ -644,109 +695,123 @@ expandMacros st = applyDepth (32 :: Int)
        in if next == t then t else applyDepth (n - 1) next
 
 expandOnce :: EngineState -> Text -> Text
-expandOnce st input = T.pack (go False False False (T.unpack input))
+expandOnce st = go False False False
   where
     macros = stMacros st
-    go :: Bool -> Bool -> Bool -> String -> String
-    go _ _ _ [] = []
-    go inString inChar escaped (c : cs)
-      | inString =
-          let escaped' = c == '\\' && not escaped
-              inString' = not (c == '"' && not escaped)
-           in c : go inString' False escaped' cs
-      | inChar =
-          let escaped' = c == '\\' && not escaped
-              inChar' = not (c == '\'' && not escaped)
-           in c : go False inChar' escaped' cs
-      | c == '"' = c : go True False False cs
-      | c == '\'' = c : go False True False cs
-      | isIdentStart c =
-          let (ident, rest) = span isIdentChar (c : cs)
-              identTxt = T.pack ident
-           in case identTxt of
-                "__LINE__" -> show (stCurrentLine st) ++ go False False False rest
-                "__FILE__" -> show (stCurrentFile st) ++ go False False False rest
-                _ ->
-                  case M.lookup identTxt macros of
-                    Just (ObjectMacro repl) -> T.unpack repl ++ go False False False rest
-                    Just (FunctionMacro params body) ->
-                      case parseCallArgs rest of
-                        Nothing -> ident ++ go False False False rest
-                        Just (args, restAfter) ->
-                          if length args == length params
-                            then
-                              let body' =
-                                    substituteParams
-                                      (M.fromList (zip params (map T.pack args)))
-                                      body
-                               in T.unpack body' ++ go False False False restAfter
-                            else ident ++ go False False False rest
-                    Nothing -> ident ++ go False False False rest
-      | otherwise = c : go False False False cs
+    go :: Bool -> Bool -> Bool -> Text -> Text
+    go _ _ _ txt
+      | T.null txt = ""
+    go inString inChar escaped txt =
+      case T.uncons txt of
+        Nothing -> ""
+        Just (c, rest)
+          | inString ->
+              let escaped' = c == '\\' && not escaped
+                  inString' = not (c == '"' && not escaped)
+               in T.cons c (go inString' False escaped' rest)
+          | inChar ->
+              let escaped' = c == '\\' && not escaped
+                  inChar' = not (c == '\'' && not escaped)
+               in T.cons c (go False inChar' escaped' rest)
+          | c == '"' ->
+              T.cons c (go True False False rest)
+          | c == '\'' ->
+              T.cons c (go False True False rest)
+          | isIdentStart c ->
+              expandIdentifier txt
+          | otherwise ->
+              T.cons c (go False False False rest)
 
-    parseCallArgs :: String -> Maybe ([String], String)
-    parseCallArgs ('(' : xs) = parseArgs 0 [] [] xs
-    parseCallArgs _ = Nothing
+    expandIdentifier :: Text -> Text
+    expandIdentifier input =
+      let (ident, rest) = T.span isIdentChar input
+       in case ident of
+            "__LINE__" -> T.pack (show (stCurrentLine st)) <> go False False False rest
+            "__FILE__" -> T.pack (show (stCurrentFile st)) <> go False False False rest
+            _ ->
+              case M.lookup ident macros of
+                Just (ObjectMacro replacement) ->
+                  replacement <> go False False False rest
+                Just (FunctionMacro params body) ->
+                  case parseCallArgs rest of
+                    Nothing -> ident <> go False False False rest
+                    Just (args, restAfter)
+                      | length args == length params ->
+                          let body' = substituteParams (M.fromList (zip params args)) body
+                           in body' <> go False False False restAfter
+                      | otherwise -> ident <> go False False False rest
+                Nothing -> ident <> go False False False rest
 
-    parseArgs :: Int -> [String] -> String -> String -> Maybe ([String], String)
-    parseArgs _ acc current [] =
-      let current' = trimSpaces (reverse current)
-       in if null current' && null acc
-            then Just ([], [])
-            else Nothing
-    parseArgs depth acc current (ch : rest)
-      | ch == '(' = parseArgs (depth + 1) acc (ch : current) rest
-      | ch == ')' && depth > 0 = parseArgs (depth - 1) acc (ch : current) rest
-      | ch == ')' && depth == 0 =
-          let arg = reverse current
-              arg' = trimSpaces arg
-              args = if null arg' && null acc then acc else acc ++ [arg']
-           in Just (args, rest)
-      | ch == ',' && depth == 0 =
-          let arg = reverse current
-              arg' = trimSpaces arg
-           in parseArgs depth (acc ++ [arg']) [] rest
-      | otherwise = parseArgs depth acc (ch : current) rest
+    parseCallArgs :: Text -> Maybe ([Text], Text)
+    parseCallArgs input = do
+      ('(', rest) <- T.uncons input
+      parseArgs 0 [] mempty rest
 
-    trimSpaces :: String -> String
-    trimSpaces = dropWhileEnd isSpace . dropWhile isSpace
+    parseArgs :: Int -> [Text] -> TB.Builder -> Text -> Maybe ([Text], Text)
+    parseArgs depth argsRev current remaining =
+      case T.uncons remaining of
+        Nothing -> Nothing
+        Just (ch, rest)
+          | ch == '(' ->
+              parseArgs (depth + 1) argsRev (current <> TB.singleton ch) rest
+          | ch == ')' && depth > 0 ->
+              parseArgs (depth - 1) argsRev (current <> TB.singleton ch) rest
+          | ch == ')' && depth == 0 ->
+              let arg = trimSpacesText (builderToText current)
+                  argsRev' =
+                    if T.null arg && null argsRev
+                      then argsRev
+                      else arg : argsRev
+               in Just (reverse argsRev', rest)
+          | ch == ',' && depth == 0 ->
+              let arg = trimSpacesText (builderToText current)
+               in parseArgs depth (arg : argsRev) mempty rest
+          | otherwise ->
+              parseArgs depth argsRev (current <> TB.singleton ch) rest
 
 substituteParams :: Map Text Text -> Text -> Text
-substituteParams subs = T.pack . go False False False . T.unpack
+substituteParams subs = go False False False
   where
-    go _ _ _ [] = []
-    go True inSingle escaped (c : cs) =
-      c
-        : case c of
-          '\\' ->
-            if escaped
-              then go True inSingle False cs
-              else go True inSingle True cs
-          '"' ->
-            if escaped
-              then go True inSingle False cs
-              else go False inSingle False cs
-          _ -> go True inSingle False cs
-    go inDouble True escaped (c : cs) =
-      c
-        : case c of
-          '\\' ->
-            if escaped
-              then go inDouble True False cs
-              else go inDouble True True cs
-          '\'' ->
-            if escaped
-              then go inDouble True False cs
-              else go inDouble False False cs
-          _ -> go inDouble True False cs
-    go False False _ (c : cs)
-      | c == '"' = c : go True False False cs
-      | c == '\'' = c : go False True False cs
-      | isIdentStart c =
-          let (ident, rest) = span isIdentChar (c : cs)
-              identTxt = T.pack ident
-           in T.unpack (M.findWithDefault identTxt identTxt subs) ++ go False False False rest
-      | otherwise = c : go False False False cs
+    go :: Bool -> Bool -> Bool -> Text -> Text
+    go _ _ _ txt
+      | T.null txt = ""
+    go inDouble inSingle escaped txt =
+      case T.uncons txt of
+        Nothing -> ""
+        Just (c, rest)
+          | inDouble ->
+              T.cons c $
+                case c of
+                  '\\' ->
+                    if escaped
+                      then go True inSingle False rest
+                      else go True inSingle True rest
+                  '"' ->
+                    if escaped
+                      then go True inSingle False rest
+                      else go False inSingle False rest
+                  _ -> go True inSingle False rest
+          | inSingle ->
+              T.cons c $
+                case c of
+                  '\\' ->
+                    if escaped
+                      then go inDouble True False rest
+                      else go inDouble True True rest
+                  '\'' ->
+                    if escaped
+                      then go inDouble True False rest
+                      else go inDouble False False rest
+                  _ -> go inDouble True False rest
+          | c == '"' ->
+              T.cons c (go True False False rest)
+          | c == '\'' ->
+              T.cons c (go False True False rest)
+          | isIdentStart c ->
+              let (ident, rest') = T.span isIdentChar txt
+               in M.findWithDefault ident ident subs <> go False False False rest'
+          | otherwise ->
+              T.cons c (go False False False rest)
 
 isIdentStart :: Char -> Bool
 isIdentStart c = c == '_' || isLetter c
@@ -766,30 +831,50 @@ evalCondition st expr = eval expr /= 0
 
 evalNumeric :: Text -> Integer
 evalNumeric input =
-  let tokens = tokenize (T.unpack input)
+  let tokens = tokenize input
    in case parseExpr tokens of
         (val, _) -> val
 
 data Token = TOp Text | TNum Integer | TIdent Text | TOpenParen | TCloseParen deriving (Show)
 
-tokenize :: String -> [Token]
-tokenize [] = []
-tokenize (c : cs)
-  | isSpace c = tokenize cs
-  | isDigit c =
-      let (num, rest) = span isDigit (c : cs)
-       in TNum (read num) : tokenize rest
-  | isIdentStart c =
-      let (ident, rest) = span isIdentChar (c : cs)
-       in TIdent (T.pack ident) : tokenize rest
-  | c == '(' = TOpenParen : tokenize cs
-  | c == ')' = TCloseParen : tokenize cs
-  | otherwise =
-      let (op, rest) = span isOpChar (c : cs)
-       in if null op then tokenize (drop 1 cs) else TOp (T.pack op) : tokenize rest
+tokenize :: Text -> [Token]
+tokenize input =
+  case T.uncons input of
+    Nothing -> []
+    Just (c, rest)
+      | isSpace c ->
+          tokenize (T.dropWhile isSpace rest)
+      | isDigit c ->
+          let (num, remaining) = T.span isDigit input
+           in case TR.decimal num of
+                Right (value, _) -> TNum value : tokenize remaining
+                Left _ -> tokenize remaining
+      | isIdentStart c ->
+          let (ident, remaining) = T.span isIdentChar input
+           in TIdent ident : tokenize remaining
+      | c == '(' ->
+          TOpenParen : tokenize rest
+      | c == ')' ->
+          TCloseParen : tokenize rest
+      | otherwise ->
+          let (op, remaining) = T.span isOpChar input
+           in if T.null op
+                then tokenize rest
+                else TOp op : tokenize remaining
 
 isOpChar :: Char -> Bool
-isOpChar c = c `elem` ("+-*/%&|!=<>!" :: String)
+isOpChar c =
+  c == '+'
+    || c == '-'
+    || c == '*'
+    || c == '/'
+    || c == '%'
+    || c == '&'
+    || c == '|'
+    || c == '!'
+    || c == '='
+    || c == '<'
+    || c == '>'
 
 parseExpr :: [Token] -> (Integer, [Token])
 parseExpr = parseOr
@@ -844,34 +929,51 @@ parseAtom (TOpenParen : ts) =
 parseAtom ts = (0, ts)
 
 replaceDefined :: Map Text MacroDef -> Text -> Text
-replaceDefined macros = T.pack . go . T.unpack
+replaceDefined macros = go
   where
-    go [] = []
-    go cs@(c : rest_cs)
-      | "defined" `isPrefixOf` cs && not (isIdentChar (safeHead (drop 7 cs))) =
-          let rest = dropWhile isSpace (drop 7 cs)
-           in case rest of
-                '(' : rest1 ->
-                  let name = takeWhile isIdentChar (dropWhile isSpace rest1)
-                      rest2 = dropWhile isSpace (drop (length name) (dropWhile isSpace rest1))
-                   in case rest2 of
-                        ')' : rest3 -> (if M.member (T.pack name) macros then " 1 " else " 0 ") ++ go rest3
-                        _ -> " 0 " ++ go rest2
+    go txt =
+      case T.uncons txt of
+        Nothing -> ""
+        Just (c, rest)
+          | "defined" `T.isPrefixOf` txt && not (nextCharIsIdent (T.drop 7 txt)) ->
+              expandDefined (T.dropWhile isSpace (T.drop 7 txt))
+          | otherwise ->
+              T.cons c (go rest)
+
+    expandDefined rest =
+      case T.uncons rest of
+        Just ('(', restAfterOpen) ->
+          let rest' = T.dropWhile isSpace restAfterOpen
+              (name, restAfterName0) = T.span isIdentChar rest'
+              restAfterName = T.dropWhile isSpace restAfterName0
+           in case T.uncons restAfterName of
+                Just (')', restAfterClose) ->
+                  boolLiteral (M.member name macros) <> go restAfterClose
                 _ ->
-                  let name = takeWhile isIdentChar rest
-                   in if null name
-                        then " 0 " ++ go rest
-                        else (if M.member (T.pack name) macros then " 1 " else " 0 ") ++ go (drop (length name) rest)
-      | otherwise = c : go rest_cs
-    safeHead [] = ' '
-    safeHead (x : _) = x
+                  boolLiteral False <> go restAfterName
+        _ ->
+          let (name, restAfterName) = T.span isIdentChar rest
+           in if T.null name
+                then boolLiteral False <> go rest
+                else boolLiteral (M.member name macros) <> go restAfterName
+
+    boolLiteral True = " 1 "
+    boolLiteral False = " 0 "
+
+    nextCharIsIdent remaining =
+      case T.uncons remaining of
+        Just (c, _) -> isIdentChar c
+        Nothing -> False
 
 replaceRemainingWithZero :: Text -> Text
-replaceRemainingWithZero = T.pack . go . T.unpack
+replaceRemainingWithZero = go
   where
-    go [] = []
-    go (c : cs)
-      | isIdentStart c =
-          let (_, rest) = span isIdentChar (c : cs)
-           in " 0 " ++ go rest
-      | otherwise = c : go cs
+    go txt =
+      case T.uncons txt of
+        Nothing -> ""
+        Just (c, rest)
+          | isIdentStart c ->
+              let (_, remaining) = T.span isIdentChar txt
+               in " 0 " <> go remaining
+          | otherwise ->
+              T.cons c (go rest)
