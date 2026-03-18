@@ -52,12 +52,15 @@ module Parser.Lexer
   )
 where
 
-import Control.Monad (void)
-import Data.Char (digitToInt, isAlphaNum, isDigit, isHexDigit, isOctDigit)
+import Control.Applicative (optional)
+import Control.Monad (guard, void, when)
+import Control.Monad.Trans.Class (lift)
+import Control.Monad.Trans.State.Strict (StateT, evalStateT, get, put)
+import Data.Char (digitToInt, isAlphaNum, isDigit, isHexDigit, isOctDigit, isSpace)
 import qualified Data.IntSet as IntSet
 import Data.List (find)
 import qualified Data.List as List
-import Data.Maybe (fromMaybe, mapMaybe)
+import Data.Maybe (fromMaybe, mapMaybe, isJust)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Void (Void)
@@ -80,7 +83,8 @@ import Text.Megaparsec
 import qualified Text.Megaparsec as MP
 import qualified Text.Megaparsec.Char as C
 import qualified Text.Megaparsec.Char.Lexer as L
-import Text.Megaparsec.Pos (unPos)
+import Text.Megaparsec.Pos (SourcePos (..), mkPos, unPos, sourceColumn, sourceLine, sourceName)
+import qualified Text.Megaparsec.State as MPState
 
 data LexTokenKind
   = TkKeywordModule
@@ -120,7 +124,21 @@ data LexToken = LexToken
   }
   deriving (Eq, Ord, Show)
 
-type LParser = Parsec Void Text
+-- | State for LINE/COLUMN and #line pragmas: next line/column to report for following tokens.
+data LineColumnState = LineColumnState
+  { pendingLine :: !(Maybe (Int, Maybe String)),
+    pendingCol :: !(Maybe Int)
+  }
+  deriving (Eq, Show)
+
+initialLineColumnState :: LineColumnState
+initialLineColumnState = LineColumnState {pendingLine = Nothing, pendingCol = Nothing}
+
+type LParser = StateT LineColumnState (Parsec Void Text)
+
+-- | Lift inner Parsec action into LParser.
+p :: Parsec Void Text a -> LParser a
+p = lift
 
 -- | Convenience lexer entrypoint: no extensions, parse as expression/declaration stream.
 --
@@ -146,7 +164,7 @@ lexModuleTokens input =
 -- and stops at the first non-pragma token.
 readModuleHeaderExtensions :: Text -> [ExtensionSetting]
 readModuleHeaderExtensions input =
-  case runParser parser "<module-header>" input of
+  case runParser (evalStateT parser initialLineColumnState) "<module-header>" input of
     Right settings -> settings
     Left _ -> []
   where
@@ -154,7 +172,7 @@ readModuleHeaderExtensions input =
 
     gather acc =
       do
-        next <- MP.optional (try headerPragmaSettings)
+        next <- optional (try headerPragmaSettings)
         case next of
           Nothing -> pure (reverse acc)
           Just settings -> do
@@ -183,7 +201,7 @@ enabledExtensionsFromSettings = List.foldl' apply []
 -- Module-top layout is /not/ enabled here.
 lexTokensWithExtensions :: [Extension] -> Text -> Either String [LexToken]
 lexTokensWithExtensions exts input =
-  case runParser (triviaConsumer *> many (lexTokenParser <* triviaConsumer) <* eof) "<lexer>" input of
+  case runParser (evalStateT (triviaConsumer *> many (lexTokenParser <* triviaConsumer) <* p eof) initialLineColumnState) "<lexer>" input of
     Right toks -> Right (applyLayoutTokens False (applyExtensions exts toks))
     Left err -> Left (MP.errorBundlePretty err)
 
@@ -194,7 +212,7 @@ lexTokensWithExtensions exts input =
 -- after @module ... where@ (or from the first non-pragma token in module-less files).
 lexModuleTokensWithExtensions :: [Extension] -> Text -> Either String [LexToken]
 lexModuleTokensWithExtensions exts input =
-  case runParser (triviaConsumer *> many (lexTokenParser <* triviaConsumer) <* eof) "<lexer>" input of
+  case runParser (evalStateT (triviaConsumer *> many (lexTokenParser <* triviaConsumer) <* p eof) initialLineColumnState) "<lexer>" input of
     Right toks -> Right (applyLayoutTokens True (applyExtensions exts toks))
     Left err -> Left (MP.errorBundlePretty err)
 
@@ -508,21 +526,100 @@ virtualSymbolToken sym span' =
 -- | Skip whitespace and non-pragma comments between tokens.
 --
 -- Pragmas are lexed as tokens, so @{-# ... #-}@ must not be consumed here.
+-- LINE, COLUMN and #line are consumed here and update source position for subsequent tokens.
 triviaConsumer :: LParser ()
-triviaConsumer = MP.skipMany (void C.spaceChar <|> lineCommentConsumer <|> try blockCommentConsumer <|> try unknownPragmaConsumer)
+triviaConsumer =
+  many
+    ( try newlineWithLineUpdate
+        <|> void (p C.spaceChar)
+        <|> lineCommentConsumer
+        <|> try blockCommentConsumer
+        <|> try linePragmaConsumer
+        <|> try columnPragmaConsumer
+        <|> try cppLineConsumer
+        <|> try unknownPragmaConsumer
+    )
+    *> pure ()
+
+-- | Consume @{-# LINE <n> [\"file\"] #-}@ and set next line (and optional file) for the following line.
+linePragmaConsumer :: LParser ()
+linePragmaConsumer = do
+  _ <- p (C.string "{-#")
+  _ <- p (many C.spaceChar)
+  _ <- p (C.string "LINE")
+  _ <- p (many C.spaceChar)
+  n <- p L.decimal
+  mfile <- p (many C.spaceChar) *> optional linePragmaFileName
+  _ <- p (many C.spaceChar)
+  void (p (C.string "#-}"))
+  s <- get
+  put s {pendingLine = Just (n, mfile)}
+
+linePragmaFileName :: LParser String
+linePragmaFileName = do
+  _ <- p (C.char '"')
+  s <- T.unpack . T.pack <$> p (many (satisfy (/= '"')))
+  _ <- p (C.char '"')
+  pure s
+
+-- | Consume @{-# COLUMN <n> #-}@ and set column for the next token.
+columnPragmaConsumer :: LParser ()
+columnPragmaConsumer = do
+  _ <- p (C.string "{-#")
+  _ <- p (many C.spaceChar)
+  _ <- p (C.string "COLUMN")
+  _ <- p (many C.spaceChar)
+  n <- p L.decimal
+  _ <- p (many C.spaceChar)
+  void (p (C.string "#-}"))
+  s <- get
+  put s {pendingCol = Just n}
+
+-- | Consume @#line <n> [\"file\"]@ or @# <n> <file>@ at beginning of line (CPP-style).
+cppLineConsumer :: LParser ()
+cppLineConsumer = do
+  pos <- p getSourcePos
+  guard (unPos (sourceColumn pos) == 1)
+  _ <- p (C.char '#')
+  n <- (p (C.string "line") *> p (many C.spaceChar) *> p L.decimal) <|> (p (some C.spaceChar) *> p L.decimal)
+  mfile <- p (many C.spaceChar) *> optional cppLineFileName
+  s <- get
+  put s {pendingLine = Just (n, mfile)}
+  where
+    cppLineFileName =
+      (p (C.char '"') *> (T.unpack . T.pack <$> p (many (satisfy (/= '"')))) <* p (C.char '"'))
+        <|> (T.unpack . T.strip . T.pack <$> p (some (satisfy (\c -> c /= '\n' && not (isSpace c)))))
+
+-- | Consume a newline; if we had a pending LINE pragma, set position for the next line.
+newlineWithLineUpdate :: LParser ()
+newlineWithLineUpdate = do
+  void (p (C.char '\n'))
+  s <- get
+  when (isJust (pendingLine s)) $ do
+    (line, mfile) <- case pendingLine s of
+      Just x -> pure x
+      Nothing -> error "newlineWithLineUpdate: pendingLine"
+    pos <- p getSourcePos
+    let newPos = SourcePos (fromMaybe (sourceName pos) mfile) (mkPos line) (mkPos 1)
+    p $ MP.updateParserState $ \st ->
+      let ps = MPState.statePosState st
+       in st {MPState.statePosState = ps {MPState.pstateSourcePos = newPos}}
+    put s {pendingLine = Nothing}
 
 -- | Consume a line comment introduced by @--@.
 lineCommentConsumer :: LParser ()
-lineCommentConsumer = L.skipLineComment "--"
+lineCommentConsumer = p (L.skipLineComment "--")
 
 -- | Consume unsupported pragmas as ignorable header/comment trivia.
 unknownPragmaConsumer :: LParser ()
 unknownPragmaConsumer = do
-  _ <- C.string "{-#"
-  _ <- many C.spaceChar
-  notFollowedBy (C.string "LANGUAGE")
-  notFollowedBy (C.string "WARNING")
-  notFollowedBy (C.string "DEPRECATED")
+  _ <- p (C.string "{-#")
+  _ <- p (many C.spaceChar)
+  notFollowedBy (p (C.string "LANGUAGE"))
+  notFollowedBy (p (C.string "WARNING"))
+  notFollowedBy (p (C.string "DEPRECATED"))
+  notFollowedBy (p (C.string "LINE"))
+  notFollowedBy (p (C.string "COLUMN"))
   void (manyTillText "#-}")
 
 -- | Consume a non-pragma nested block comment.
@@ -530,8 +627,8 @@ unknownPragmaConsumer = do
 -- The initial @{-@ has been read, and @{-# ... #-}@ is excluded by caller.
 blockCommentConsumer :: LParser ()
 blockCommentConsumer = do
-  _ <- C.string "{-"
-  notFollowedBy (C.char '#')
+  _ <- p (C.string "{-")
+  notFollowedBy (p (C.char '#'))
   skipNestedBlockCommentBody 1
 
 -- | Skip the remaining body of a nested block comment.
@@ -539,9 +636,9 @@ skipNestedBlockCommentBody :: Int -> LParser ()
 skipNestedBlockCommentBody depth
   | depth <= 0 = pure ()
   | otherwise =
-      try (C.string "{-" *> skipNestedBlockCommentBody (depth + 1))
-        <|> try (C.string "-}" *> skipNestedBlockCommentBody (depth - 1))
-        <|> (anySingle *> skipNestedBlockCommentBody depth)
+      try (p (C.string "{-") *> skipNestedBlockCommentBody (depth + 1))
+        <|> try (p (C.string "-}") *> skipNestedBlockCommentBody (depth - 1))
+        <|> (p anySingle *> skipNestedBlockCommentBody depth)
 
 -- | Parse one lexical token and attach its source span.
 --
@@ -569,10 +666,10 @@ lexTokenParser =
 -- canonical comma-separated representation.
 languagePragmaToken :: LParser (Text, LexTokenKind)
 languagePragmaToken = do
-  _ <- C.string "{-#"
-  _ <- many C.spaceChar
-  _ <- C.string "LANGUAGE"
-  _ <- many C.spaceChar
+  _ <- p (C.string "{-#")
+  _ <- p (many C.spaceChar)
+  _ <- p (C.string "LANGUAGE")
+  _ <- p (many C.spaceChar)
   body <- manyTillText "#-}"
   let names = parseLanguagePragmaNames (T.pack body)
       raw = "{-# LANGUAGE " <> T.intercalate ", " (map extensionSettingName names) <> " #-}"
@@ -588,10 +685,10 @@ parseLanguagePragmaNames body =
 -- Accepts both string-literal and raw-text message forms.
 pragmaWarningToken :: LParser (Text, LexTokenKind)
 pragmaWarningToken = do
-  _ <- C.string "{-#"
-  _ <- many C.spaceChar
-  _ <- C.string "WARNING"
-  _ <- many C.spaceChar
+  _ <- p (C.string "{-#")
+  _ <- p (many C.spaceChar)
+  _ <- p (C.string "WARNING")
+  _ <- p (many C.spaceChar)
   (msg, rawMsg) <-
     try
       ( do
@@ -599,12 +696,12 @@ pragmaWarningToken = do
           pure (decoded, rawStr)
       )
       <|> ( do
-              body <- MP.manyTill anySingle (try (lookAhead (C.string "#-}")))
+              body <- p (MP.manyTill anySingle (try (lookAhead (C.string "#-}"))))
               let txt = T.strip (T.pack body)
               pure (txt, txt)
           )
-  _ <- many C.spaceChar
-  void (C.string "#-}")
+  _ <- p (many C.spaceChar)
+  void (p (C.string "#-}"))
   let raw = "{-# WARNING " <> rawMsg <> " #-}"
   pure (raw, TkPragmaWarning msg)
 
@@ -613,10 +710,10 @@ pragmaWarningToken = do
 -- Accepts both string-literal and raw-text message forms.
 pragmaDeprecatedToken :: LParser (Text, LexTokenKind)
 pragmaDeprecatedToken = do
-  _ <- C.string "{-#"
-  _ <- many C.spaceChar
-  _ <- C.string "DEPRECATED"
-  _ <- many C.spaceChar
+  _ <- p (C.string "{-#")
+  _ <- p (many C.spaceChar)
+  _ <- p (C.string "DEPRECATED")
+  _ <- p (many C.spaceChar)
   (msg, rawMsg) <-
     try
       ( do
@@ -624,26 +721,41 @@ pragmaDeprecatedToken = do
           pure (decoded, rawStr)
       )
       <|> ( do
-              body <- MP.manyTill anySingle (try (lookAhead (C.string "#-}")))
+              body <- p (MP.manyTill anySingle (try (lookAhead (C.string "#-}"))))
               let txt = T.strip (T.pack body)
               pure (txt, txt)
           )
-  _ <- many C.spaceChar
-  void (C.string "#-}")
+  _ <- p (many C.spaceChar)
+  void (p (C.string "#-}"))
   let raw = "{-# DEPRECATED " <> rawMsg <> " #-}"
   pure (raw, TkPragmaDeprecated msg)
 
 -- | Run a token parser while capturing start/end positions.
 lexWithSpan :: LParser (Text, LexTokenKind) -> LParser LexToken
 lexWithSpan parser = do
-  start <- getSourcePos
+  start <- p getSourcePos
+  s <- get
+  let start' = case pendingCol s of
+        Nothing -> start
+        Just c -> SourcePos (sourceName start) (sourceLine start) (mkPos c)
+      hadPendingCol = isJust (pendingCol s)
+  put s {pendingCol = Nothing}
   (tokTxt, kind) <- parser
-  end <- getSourcePos
+  end <- p getSourcePos
+  -- When we overrode start with pendingCol, end is still physical; use start' + token length.
+  let end' =
+        if hadPendingCol
+          then
+            SourcePos
+              (sourceName start')
+              (sourceLine start')
+              (mkPos (unPos (sourceColumn start') + fromIntegral (T.length tokTxt)))
+          else end
   pure
     LexToken
       { lexTokenKind = kind,
         lexTokenText = tokTxt,
-        lexTokenSpan = mkSpan start end
+        lexTokenSpan = mkSpan start' end'
       }
 
 -- | Convert Megaparsec source positions into project 'SourceSpan'.

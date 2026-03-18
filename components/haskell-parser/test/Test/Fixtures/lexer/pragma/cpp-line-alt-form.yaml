@@ -1,0 +1,10 @@
+# # <line> <file> form (CPP-style, space after #)
+extensions: []
+input: |
+  # 7 "Other.hs"
+  z
+tokens:
+  - 'TkIdentifier "z"'
+token_spans:
+  - "7:1-7:2"
+status: pass

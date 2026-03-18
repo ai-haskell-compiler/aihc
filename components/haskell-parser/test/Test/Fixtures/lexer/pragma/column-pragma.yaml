@@ -1,0 +1,7 @@
+extensions: []
+input: "{-# COLUMN 5 #-}x"
+tokens:
+  - 'TkIdentifier "x"'
+token_spans:
+  - "1:5-1:6"
+status: pass

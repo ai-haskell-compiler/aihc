@@ -1,0 +1,9 @@
+extensions: []
+input: |
+  {-# LINE 10 #-}
+  x
+tokens:
+  - 'TkIdentifier "x"'
+token_spans:
+  - "10:1-10:2"
+status: pass

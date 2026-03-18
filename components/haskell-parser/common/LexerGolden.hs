@@ -4,6 +4,7 @@ module LexerGolden
   ( ExpectedStatus (..),
     Outcome (..),
     LexerCase (..),
+    TokenSpan,
     fixtureRoot,
     loadLexerCases,
     parseLexerCaseText,
@@ -27,7 +28,7 @@ import Parser
     LexTokenKind,
     lexTokensWithExtensions,
   )
-import Parser.Ast (parseExtensionName)
+import Parser.Ast (SourceSpan (..), parseExtensionName)
 import System.Directory (doesDirectoryExist, listDirectory)
 import System.FilePath (takeDirectory, takeExtension, (</>))
 import Text.Read (readMaybe)
@@ -46,6 +47,10 @@ data Outcome
   | OutcomeFail
   deriving (Eq, Show)
 
+-- | Optional expected source spans per token: list of (startLine, startCol, endLine, endCol).
+-- When present, golden test also checks that token spans match (e.g. for LINE/COLUMN/#line).
+type TokenSpan = (Int, Int, Int, Int)
+
 data LexerCase = LexerCase
   { caseId :: !String,
     caseCategory :: !String,
@@ -53,6 +58,7 @@ data LexerCase = LexerCase
     caseExtensions :: ![Extension],
     caseInput :: !Text,
     caseTokens :: ![LexTokenKind],
+    caseTokenSpans :: !(Maybe [TokenSpan]),
     caseStatus :: !ExpectedStatus,
     caseReason :: !String
   }
@@ -83,9 +89,10 @@ parseLexerCaseText path source = do
     case Y.decodeEither' (encodeUtf8 source) of
       Left err -> Left ("Invalid YAML fixture " <> path <> ": " <> Y.prettyPrintParseException err)
       Right parsed -> Right parsed
-  (extNames, inputText, tokenTexts, statusText, reasonText) <- parseYamlFixture path value
+  (extNames, inputText, tokenTexts, spanTexts, statusText, reasonText) <- parseYamlFixture path value
   exts <- mapM (parseFixtureExtensionName path) extNames
   toks <- mapM (parseTokenKind path) tokenTexts
+  spans <- parseTokenSpan path spanTexts
   status <- parseStatus path statusText
   reason <- validateReason path status (T.unpack reasonText)
   let relPath = dropRootPrefix path
@@ -98,40 +105,76 @@ parseLexerCaseText path source = do
         caseExtensions = exts,
         caseInput = inputText,
         caseTokens = toks,
+        caseTokenSpans = spans,
         caseStatus = status,
         caseReason = reason
       }
 
-parseYamlFixture :: FilePath -> Y.Value -> Either String ([Text], Text, [Text], Text, Text)
+parseYamlFixture :: FilePath -> Y.Value -> Either String ([Text], Text, [Text], Maybe [Text], Text, Text)
 parseYamlFixture path value =
   case parseEither
     ( withObject "lexer fixture" $ \obj -> do
         exts <- obj .: "extensions"
         inputText <- obj .: "input"
         tokenTexts <- obj .: "tokens"
+        spanTexts <- obj .:? "token_spans"
         statusText <- obj .: "status"
         reasonText <- obj .:? "reason" .!= ""
-        pure (exts, inputText, tokenTexts, statusText, reasonText)
+        pure (exts, inputText, tokenTexts, spanTexts, statusText, reasonText)
     )
     value of
     Left err -> Left ("Invalid lexer fixture schema in " <> path <> ": " <> err)
     Right parsed -> Right parsed
 
+-- | Parse optional token_spans: list of "sl:sc-el:ec" strings.
+parseTokenSpan :: FilePath -> Maybe [Text] -> Either String (Maybe [TokenSpan])
+parseTokenSpan _path Nothing = Right Nothing
+parseTokenSpan path (Just spanTexts) =
+  Just <$> mapM (parseOneSpan path) spanTexts
+
+parseOneSpan :: FilePath -> Text -> Either String TokenSpan
+parseOneSpan path raw =
+  case T.splitOn "-" (T.strip raw) of
+    [start, end] ->
+      case (parseLineCol start, parseLineCol end) of
+        (Just (sl, sc), Just (el, ec)) -> Right (sl, sc, el, ec)
+        _ -> Left ("Invalid token_spans entry in " <> path <> ": " <> T.unpack raw)
+    _ -> Left ("Invalid token_spans entry (expected 'line:col-line:col') in " <> path <> ": " <> T.unpack raw)
+  where
+    parseLineCol t =
+      case T.splitOn ":" (T.strip t) of
+        [l, c] -> (,) <$> readMaybe (T.unpack l) <*> readMaybe (T.unpack c)
+        _ -> Nothing
+
 evaluateLexerCase :: LexerCase -> (Outcome, String)
 evaluateLexerCase meta =
   let expectedKinds = caseTokens meta
+      expectedSpans = caseTokenSpans meta
       actual = lexTokensWithExtensions (caseExtensions meta) (caseInput meta)
+      actualToks = either (const []) id actual
       actualKinds = fmap (map lexTokenKind) actual
+      actualSpanList = map spanToTuple actualToks
       lexOk = either (const False) (const True) actual
       tokenMatch = actualKinds == Right expectedKinds
+      spanMatch = case expectedSpans of
+        Nothing -> True
+        Just es -> actualSpanList == es
       lexFail = either (const True) (const False) actual
    in case caseStatus meta of
         StatusPass
-          | tokenMatch -> (OutcomePass, "")
-          | otherwise ->
+          | tokenMatch && spanMatch -> (OutcomePass, "")
+          | not tokenMatch ->
               ( OutcomeFail,
                 "expected successful lex with matching token kinds"
                   <> detailsSuffix actualKinds expectedKinds
+              )
+          | otherwise ->
+              ( OutcomeFail,
+                "token kinds matched but token_spans did not (expected="
+                  <> show expectedSpans
+                  <> ", actual="
+                  <> show actualSpanList
+                  <> ")"
               )
         StatusFail
           | lexFail -> (OutcomePass, "")
@@ -140,8 +183,14 @@ evaluateLexerCase meta =
           | lexFail -> (OutcomeXFail, "")
           | otherwise -> (OutcomeFail, "expected xfail (known failing bug), but lexing succeeded")
         StatusXPass
-          | lexOk && tokenMatch -> (OutcomeXPass, "known bug still passes unexpectedly")
+          | lexOk && tokenMatch && spanMatch -> (OutcomeXPass, "known bug still passes unexpectedly")
           | otherwise -> (OutcomeFail, "expected xpass (known passing bug), but case no longer matches xpass expectation")
+
+spanToTuple :: LexToken -> TokenSpan
+spanToTuple tok =
+  case lexTokenSpan tok of
+    SourceSpan sl sc el ec -> (sl, sc, el, ec)
+    NoSourceSpan -> (0, 0, 0, 0)
 
 progressSummary :: [(LexerCase, Outcome, String)] -> (Int, Int, Int, Int)
 progressSummary outcomes =

@@ -27,6 +27,7 @@ library
     , containers
     , megaparsec
     , prettyprinter
+    , transformers
   ghc-options:        -Wall -Werror
   default-language: Haskell2010
 

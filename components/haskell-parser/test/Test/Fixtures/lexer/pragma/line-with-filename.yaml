@@ -1,0 +1,9 @@
+extensions: []
+input: |
+  {-# LINE 42 "Bar.hs" #-}
+  foo
+tokens:
+  - 'TkIdentifier "foo"'
+token_spans:
+  - "42:1-42:4"
+status: pass
