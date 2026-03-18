@@ -3,6 +3,8 @@
 
 module Main (main) where
 
+import Data.Data (dataTypeConstrs, dataTypeOf, showConstr, toConstr)
+import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as T
 import Parser
@@ -166,48 +168,31 @@ prop_typePrettyRoundTrip ty =
 
 typeCtorCoverage :: Type -> [Property -> Property]
 typeCtorCoverage ty =
-  [ cover 1 (containsTypeCtor isTVar ty) "TVar",
-    cover 1 (containsTypeCtor isTCon ty) "TCon",
-    cover 1 (containsTypeCtor isTQuasiQuote ty) "TQuasiQuote",
-    cover 1 (containsTypeCtor isTForall ty) "TForall",
-    cover 1 (containsTypeCtor isTApp ty) "TApp",
-    cover 1 (containsTypeCtor isTFun ty) "TFun",
-    cover 1 (containsTypeCtor isTTuple ty) "TTuple",
-    cover 1 (containsTypeCtor isTList ty) "TList",
-    cover 1 (containsTypeCtor isTParen ty) "TParen",
-    cover 1 (containsTypeCtor isTContext ty) "TContext"
-  ]
+  let allCtors = map showConstr (dataTypeConstrs (dataTypeOf (undefined :: Type)))
+      seenCtors = typeCtorNames ty
+   in [cover 1 (ctor `Set.member` seenCtors) ctor | ctor <- allCtors]
 
 applyCoverage :: [Property -> Property] -> Property -> Property
 applyCoverage wrappers prop = foldr (\wrap acc -> wrap acc) prop wrappers
 
-containsTypeCtor :: (Type -> Bool) -> Type -> Bool
-containsTypeCtor matches ty
-  | matches ty = True
-  | otherwise =
-      case ty of
-        TForall _ _ inner -> containsTypeCtor matches inner
-        TApp _ f x -> containsTypeCtor matches f || containsTypeCtor matches x
-        TFun _ a b -> containsTypeCtor matches a || containsTypeCtor matches b
-        TTuple _ elems -> any (containsTypeCtor matches) elems
-        TList _ inner -> containsTypeCtor matches inner
-        TParen _ inner -> containsTypeCtor matches inner
+typeCtorNames :: Type -> Set.Set String
+typeCtorNames ty =
+  let here = Set.singleton (showConstr (toConstr ty))
+   in case ty of
+        TVar {} -> here
+        TCon {} -> here
+        TQuasiQuote {} -> here
+        TForall _ _ inner -> here <> typeCtorNames inner
+        TApp _ f x -> here <> typeCtorNames f <> typeCtorNames x
+        TFun _ a b -> here <> typeCtorNames a <> typeCtorNames b
+        TTuple _ elems -> here <> mconcat (map typeCtorNames elems)
+        TList _ inner -> here <> typeCtorNames inner
+        TParen _ inner -> here <> typeCtorNames inner
         TContext _ constraints inner ->
-          any (any (containsTypeCtor matches) . constraintArgs) constraints
-            || containsTypeCtor matches inner
-        _ -> False
+          here <> mconcat (map constraintTypeCtorNames constraints) <> typeCtorNames inner
 
-isTVar, isTCon, isTQuasiQuote, isTForall, isTApp, isTFun, isTTuple, isTList, isTParen, isTContext :: Type -> Bool
-isTVar ty = case ty of TVar {} -> True; _ -> False
-isTCon ty = case ty of TCon {} -> True; _ -> False
-isTQuasiQuote ty = case ty of TQuasiQuote {} -> True; _ -> False
-isTForall ty = case ty of TForall {} -> True; _ -> False
-isTApp ty = case ty of TApp {} -> True; _ -> False
-isTFun ty = case ty of TFun {} -> True; _ -> False
-isTTuple ty = case ty of TTuple {} -> True; _ -> False
-isTList ty = case ty of TList {} -> True; _ -> False
-isTParen ty = case ty of TParen {} -> True; _ -> False
-isTContext ty = case ty of TContext {} -> True; _ -> False
+constraintTypeCtorNames :: Constraint -> Set.Set String
+constraintTypeCtorNames constraint = mconcat (map typeCtorNames (constraintArgs constraint))
 
 instance Arbitrary Type where
   arbitrary = sized (genType . min 6)
