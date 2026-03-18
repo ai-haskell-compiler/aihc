@@ -270,10 +270,7 @@ shrinkTupleElems elems =
   ]
 
 shrinkConstraints :: [Constraint] -> [[Constraint]]
-shrinkConstraints constraints =
-  [ shrunk
-  | shrunk <- shrinkList shrinkConstraint constraints
-  ]
+shrinkConstraints = shrinkList shrinkConstraint
 
 shrinkConstraint :: Constraint -> [Constraint]
 shrinkConstraint constraint =
