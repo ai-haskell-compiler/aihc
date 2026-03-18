@@ -6,6 +6,7 @@ module HackageSupport
     downloadPackageQuietWithNetwork,
     findTargetFilesFromCabal,
     FileInfo (..),
+    readTextFileLenient,
     resolveIncludeBestEffort,
     diagToText,
     prefixCppErrors,
@@ -15,12 +16,14 @@ where
 import Control.Monad (forM, when)
 import Cpp (Diagnostic (..), IncludeKind (..), IncludeRequest (..), Severity (..))
 import qualified Data.ByteString as BS
-import Data.List (isPrefixOf, isSuffixOf, nub)
+import Data.Char (toLower)
+import Data.List (isPrefixOf, isSuffixOf, nub, sortOn)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (catMaybes)
 import Data.Text (Text)
 import qualified Data.Text as T
-import qualified Data.Text.IO as TIO
+import Data.Text.Encoding (decodeUtf8With)
+import Data.Text.Encoding.Error (lenientDecode)
 import qualified Data.Version as DV
 import Distribution.Compiler (CompilerFlavor (..))
 import Distribution.ModuleName (ModuleName, toFilePath)
@@ -71,7 +74,7 @@ import System.Directory
     removeFile,
     renameDirectory,
   )
-import System.FilePath (isAbsolute, makeRelative, normalise, splitDirectories, takeDirectory, (<.>), (</>))
+import System.FilePath (isAbsolute, makeRelative, normalise, splitDirectories, takeDirectory, takeFileName, (<.>), (</>))
 import System.Info (compilerName, compilerVersion)
 import System.Process (callCommand)
 
@@ -148,11 +151,7 @@ findTargetFilesFromCabal extractedRoot = do
           ( userError
               ("No .cabal file found under extracted package root: " ++ extractedRoot)
           )
-      _ ->
-        ioError
-          ( userError
-              ("Multiple .cabal files found under extracted package root: " ++ show cabalFiles)
-          )
+      files -> pure (chooseBestCabalFile extractedRoot files)
   cabalBytes <- BS.readFile cabalFile
   let (_, parseResult) = runParseResult (parseGenericPackageDescription cabalBytes)
   gpd <-
@@ -314,12 +313,52 @@ existingPaths candidates = do
 dedupeExistingFiles :: [FilePath] -> IO [FilePath]
 dedupeExistingFiles files = fmap nub (existingPaths files)
 
+chooseBestCabalFile :: FilePath -> [FilePath] -> FilePath
+chooseBestCabalFile extractedRoot files =
+  case sortOn rank files of
+    best : _ -> best
+    [] -> error ("chooseBestCabalFile: no .cabal files found under " ++ extractedRoot)
+  where
+    rank file =
+      let rel = splitDirectories (makeRelative extractedRoot file)
+          dirParts = case reverse rel of
+            _fileName : restRev -> reverse restRev
+            [] -> []
+          lowerDirParts = map (map toLower) dirParts
+          isLikelyFixtureDir = any (`elem` fixtureDirNames) lowerDirParts
+       in ( if isLikelyFixtureDir then (1 :: Int) else 0,
+            length rel,
+            length dirParts,
+            scoreByFileName (map toLower (takeFileName file)),
+            file
+          )
+
+    scoreByFileName fileNameLower
+      | "test-" `isPrefixOf` fileNameLower = 1 :: Int
+      | "example-" `isPrefixOf` fileNameLower = 1
+      | otherwise = 0
+
+    fixtureDirNames =
+      [ "test",
+        "tests",
+        "testing",
+        "example",
+        "examples",
+        "benchmark",
+        "benchmarks"
+      ]
+
+readTextFileLenient :: FilePath -> IO Text
+readTextFileLenient filePath = do
+  bytes <- BS.readFile filePath
+  pure (decodeUtf8With lenientDecode bytes)
+
 resolveIncludeBestEffort :: FilePath -> FilePath -> IncludeRequest -> IO (Maybe Text)
 resolveIncludeBestEffort packageRoot currentFile req = do
   firstExisting <- firstExistingPath (includeCandidates packageRoot currentFile req)
   case firstExisting of
     Nothing -> pure Nothing
-    Just includeFile -> Just <$> TIO.readFile includeFile
+    Just includeFile -> Just <$> readTextFileLenient includeFile
 
 includeCandidates :: FilePath -> FilePath -> IncludeRequest -> [FilePath]
 includeCandidates packageRoot currentFile req =
