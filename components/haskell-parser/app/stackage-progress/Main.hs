@@ -135,8 +135,10 @@ main = do
       putStrLn $ "GHC errors written to " ++ path
 
   when (optPrintFailedTable opts) $ do
-    let failed = sortBy (\a b -> compare (packageSourceSize a, formatPackage (package a)) (packageSourceSize b, formatPackage (package b)))
-          [r | r <- results, not (packageOursOk r)]
+    let failed =
+          sortBy
+            (\a b -> compare (packageSourceSize a, formatPackage (package a)) (packageSourceSize b, formatPackage (package b)))
+            [r | r <- results, not (packageOursOk r)]
         col1 = "Package"
         col2 = "Size (bytes)"
         pkgWidth = max (length col1) $ case failed of
@@ -210,12 +212,12 @@ formatPackage :: PackageSpec -> String
 formatPackage spec = pkgName spec ++ "-" ++ pkgVersion spec
 
 totalSourceSize :: [FileInfo] -> IO Integer
-totalSourceSize infos = sum <$> mapM safeFileSize (map fileInfoPath infos)
+totalSourceSize infos = sum <$> mapM (safeFileSize . fileInfoPath) infos
   where
     safeFileSize path = do
-      r <- try (getFileSize path)
+      r <- try (getFileSize path) :: IO (Either SomeException Integer)
       pure $ case r of
-        Left (_ :: SomeException) -> 0
+        Left _ -> 0
         Right n -> n
 
 parseChecks :: String -> Either String [Check]
