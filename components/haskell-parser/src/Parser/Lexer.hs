@@ -162,7 +162,7 @@ readModuleHeaderExtensions input =
             gather (reverse settings <> acc)
 
     headerPragmaSettings = do
-      tok <- lexWithSpan (try languagePragmaToken <|> try pragmaWarningToken <|> try pragmaDeprecatedToken)
+      tok <- lexWithSpan (try languagePragmaToken <|> try optionsPragmaToken <|> try pragmaWarningToken <|> try pragmaDeprecatedToken)
       pure $ case lexTokenKind tok of
         TkPragmaLanguage names -> names
         _ -> []
@@ -521,6 +521,8 @@ unknownPragmaConsumer = do
   _ <- C.string "{-#"
   _ <- many C.spaceChar
   notFollowedBy (C.string "LANGUAGE")
+  notFollowedBy (C.string "OPTIONS")
+  notFollowedBy (C.string "OPTIONS_GHC")
   notFollowedBy (C.string "WARNING")
   notFollowedBy (C.string "DEPRECATED")
   void (manyTillText "#-}")
@@ -550,6 +552,7 @@ lexTokenParser :: LParser LexToken
 lexTokenParser =
   lexWithSpan $
     try languagePragmaToken
+      <|> try optionsPragmaToken
       <|> try pragmaWarningToken
       <|> try pragmaDeprecatedToken
       <|> try quasiQuoteToken
@@ -582,6 +585,113 @@ languagePragmaToken = do
 parseLanguagePragmaNames :: Text -> [ExtensionSetting]
 parseLanguagePragmaNames body =
   mapMaybe (parseExtensionSettingName . T.strip . T.takeWhile (/= '#')) (T.splitOn "," body)
+
+-- | Parse @OPTIONS@/@OPTIONS_GHC@ pragmas and best-effort map known flags to LANGUAGE settings.
+--
+-- Recognized flags:
+--
+-- * @-XExtension@
+-- * @-cpp@ (maps to @CPP@)
+-- * @-fffi@ (maps to @ForeignFunctionInterface@)
+-- * @-fglasgow-exts@ (maps to the legacy extension bundle)
+optionsPragmaToken :: LParser (Text, LexTokenKind)
+optionsPragmaToken = do
+  _ <- C.string "{-#"
+  _ <- many C.spaceChar
+  pragmaName <- C.string "OPTIONS_GHC" <|> C.string "OPTIONS"
+  _ <- many C.spaceChar
+  body <- manyTillText "#-}"
+  let settings = parseOptionsPragmaSettings (T.pack body)
+      raw = "{-# " <> pragmaName <> " " <> T.strip (T.pack body) <> " #-}"
+  pure (raw, TkPragmaLanguage settings)
+
+parseOptionsPragmaSettings :: Text -> [ExtensionSetting]
+parseOptionsPragmaSettings body = go (pragmaWords body)
+  where
+    go ws =
+      case ws of
+        [] -> []
+        "-cpp" : rest -> EnableExtension CPP : go rest
+        "-fffi" : rest -> EnableExtension ForeignFunctionInterface : go rest
+        "-fglasgow-exts" : rest -> glasgowExtsSettings <> go rest
+        opt : rest
+          | Just ext <- T.stripPrefix "-X" opt,
+            not (T.null ext) ->
+              case parseExtensionSettingName ext of
+                Just setting -> setting : go rest
+                Nothing -> go rest
+        _ : rest -> go rest
+
+glasgowExtsSettings :: [ExtensionSetting]
+glasgowExtsSettings =
+  map
+    EnableExtension
+    [ ConstrainedClassMethods,
+      DeriveDataTypeable,
+      DeriveFoldable,
+      DeriveFunctor,
+      DeriveGeneric,
+      DeriveTraversable,
+      EmptyDataDecls,
+      ExistentialQuantification,
+      ExplicitNamespaces,
+      FlexibleContexts,
+      FlexibleInstances,
+      ForeignFunctionInterface,
+      FunctionalDependencies,
+      GeneralizedNewtypeDeriving,
+      ImplicitParams,
+      InterruptibleFFI,
+      KindSignatures,
+      LiberalTypeSynonyms,
+      MagicHash,
+      MultiParamTypeClasses,
+      ParallelListComp,
+      PatternGuards,
+      PostfixOperators,
+      RankNTypes,
+      RecursiveDo,
+      ScopedTypeVariables,
+      StandaloneDeriving,
+      TypeOperators,
+      TypeSynonymInstances,
+      UnboxedTuples,
+      UnicodeSyntax,
+      UnliftedFFITypes
+    ]
+
+pragmaWords :: Text -> [Text]
+pragmaWords txt = go [] [] Nothing (T.unpack txt)
+  where
+    go acc current quote chars =
+      case chars of
+        [] ->
+          let acc' = pushCurrent acc current
+           in reverse acc'
+        c : rest ->
+          case quote of
+            Just q
+              | c == q -> go acc current Nothing rest
+              | c == '\\' ->
+                  case rest of
+                    escaped : rest' -> go acc (escaped : current) quote rest'
+                    [] -> go acc current quote []
+              | otherwise -> go acc (c : current) quote rest
+            Nothing
+              | c == '"' || c == '\'' -> go acc current (Just c) rest
+              | c == '\\' ->
+                  case rest of
+                    escaped : rest' -> go acc (escaped : current) Nothing rest'
+                    [] -> go acc current Nothing []
+              | c `elem` [' ', '\n', '\r', '\t'] ->
+                  let acc' = pushCurrent acc current
+                   in go acc' [] Nothing rest
+              | otherwise -> go acc (c : current) Nothing rest
+
+    pushCurrent acc current =
+      case reverse current of
+        [] -> acc
+        token -> T.pack token : acc
 
 -- | Parse a @WARNING@ pragma token.
 --
