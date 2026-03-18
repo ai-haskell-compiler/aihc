@@ -196,7 +196,90 @@ constraintTypeCtorNames constraint = mconcat (map typeCtorNames (constraintArgs 
 
 instance Arbitrary Type where
   arbitrary = sized (genType . min 6)
-  shrink _ = []
+  shrink = shrinkType
+
+shrinkType :: Type -> [Type]
+shrinkType ty =
+  case ty of
+    TVar _ name ->
+      [TVar span0 shrunk | shrunk <- shrinkIdent name]
+    TCon _ name ->
+      [TCon span0 shrunk | shrunk <- shrinkTypeConName name]
+    TQuasiQuote _ quoter body ->
+      [TQuasiQuote span0 q body | q <- shrinkIdent quoter]
+        <> [TQuasiQuote span0 quoter b | b <- map T.pack (shrink (T.unpack body))]
+    TForall _ binders inner ->
+      [canonicalForallInner inner]
+        <> [TForall span0 binders' (canonicalForallInner inner) | binders' <- shrinkTypeBinders binders]
+        <> [TForall span0 binders (canonicalForallInner inner') | inner' <- shrinkType inner]
+    TApp _ fn arg ->
+      [canonicalAppHead fn, canonicalAppArg arg]
+        <> [TApp span0 (canonicalAppHead fn') (canonicalAppArg arg) | fn' <- shrinkType fn]
+        <> [TApp span0 (canonicalAppHead fn) (canonicalAppArg arg') | arg' <- shrinkType arg]
+    TFun _ lhs rhs ->
+      [canonicalFunLeft lhs, rhs]
+        <> [TFun span0 (canonicalFunLeft lhs') rhs | lhs' <- shrinkType lhs]
+        <> [TFun span0 (canonicalFunLeft lhs) rhs' | rhs' <- shrinkType rhs]
+    TTuple _ elems ->
+      shrinkTupleElems elems
+    TList _ inner ->
+      [inner] <> [TList span0 inner' | inner' <- shrinkType inner]
+    TParen _ inner ->
+      [inner] <> [TParen span0 inner' | inner' <- shrinkType inner]
+    TContext _ constraints inner ->
+      [inner]
+        <> [TContext span0 constraints' inner | constraints' <- shrinkConstraints constraints]
+        <> [TContext span0 constraints inner' | inner' <- shrinkType inner]
+
+canonicalForallInner :: Type -> Type
+canonicalForallInner ty =
+  case ty of
+    TForall {} -> TParen span0 ty
+    _ -> ty
+
+shrinkTypeBinders :: [Text] -> [[Text]]
+shrinkTypeBinders binders =
+  [ shrunk
+  | shrunk <- shrinkList shrinkIdent binders,
+    not (null shrunk)
+  ]
+
+shrinkTypeConName :: Text -> [Text]
+shrinkTypeConName name =
+  [ candidate
+  | candidate <- map T.pack (shrink (T.unpack name)),
+    isValidTypeConName candidate
+  ]
+
+isValidTypeConName :: Text -> Bool
+isValidTypeConName ident =
+  case T.uncons ident of
+    Just (first, rest) ->
+      (first `elem` ['A' .. 'Z'])
+        && T.all (`elem` (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> "_'")) rest
+    Nothing -> False
+
+shrinkTupleElems :: [Type] -> [Type]
+shrinkTupleElems elems =
+  [ candidate
+  | shrunk <- shrinkList shrinkType elems,
+    candidate <- case shrunk of
+      [] -> [TTuple span0 []]
+      [_] -> []
+      _ -> [TTuple span0 shrunk]
+  ]
+
+shrinkConstraints :: [Constraint] -> [[Constraint]]
+shrinkConstraints constraints =
+  [ shrunk
+  | shrunk <- shrinkList shrinkConstraint constraints
+  ]
+
+shrinkConstraint :: Constraint -> [Constraint]
+shrinkConstraint constraint =
+  [ constraint {constraintArgs = shrunk}
+  | shrunk <- shrinkList shrinkType (constraintArgs constraint)
+  ]
 
 genType :: Int -> Gen Type
 genType depth
@@ -433,6 +516,7 @@ reservedWords =
     "else",
     "export",
     "foreign",
+    "forall",
     "if",
     "import",
     "in",
