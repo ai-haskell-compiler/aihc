@@ -12,7 +12,11 @@ main :: IO ()
 main = do
   cases <- loadManifest
   checks <- mapM mkCase cases
-  defaultMain (testGroup "cpp-oracle" (checks <> [linePragmaTest, dateTimeTest]))
+  defaultMain
+    ( testGroup
+        "cpp-oracle"
+        (checks <> [linePragmaTest, dateTimeTest, functionMacroArgumentTest, functionMacroUnclosedCallTest, definedConditionSpacingTest])
+    )
 
 dateTimeTest :: TestTree
 dateTimeTest =
@@ -73,3 +77,29 @@ linePragmaTest =
               else assertFailure "expected include line pragmas in output"
           NeedInclude {} -> assertFailure "unexpected nested include in line pragma test"
       Done _ -> assertFailure "expected include continuation step"
+
+functionMacroArgumentTest :: TestTree
+functionMacroArgumentTest =
+  testCase "function-like macro keeps nested argument text" $
+    case preprocess defaultConfig "#define PAIR(x,y) x + y\nPAIR((1 + 2), 3)" of
+      Done result ->
+        resultOutput result @?= "#line 1 \"<input>\"\n\n(1 + 2) + 3\n"
+      _ -> assertFailure "expected Done"
+
+functionMacroUnclosedCallTest :: TestTree
+functionMacroUnclosedCallTest =
+  testCase "unterminated function-like call does not expand macro" $
+    case preprocess defaultConfig "#define ID() replaced\nID(" of
+      Done result ->
+        resultOutput result @?= "#line 1 \"<input>\"\n\nID(\n"
+      _ -> assertFailure "expected Done"
+
+definedConditionSpacingTest :: TestTree
+definedConditionSpacingTest =
+  testCase "defined handles whitespace around parenthesized name" $
+    case preprocess defaultConfig "#define FLAG 1\n#if defined   ( FLAG )\nok\n#else\nbad\n#endif" of
+      Done result ->
+        if "ok\n" `T.isInfixOf` resultOutput result && not ("bad\n" `T.isInfixOf` resultOutput result)
+          then pure ()
+          else assertFailure ("expected ok branch to be active, output was: " <> show (resultOutput result))
+      _ -> assertFailure "expected Done"
