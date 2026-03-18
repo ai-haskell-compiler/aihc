@@ -821,7 +821,6 @@ quasiQuoteToken = do
   quoter <- takeQuoter
   _ <- C.char '|'
   body <- manyTillText "|]"
-  _ <- C.string "|]"
   let raw = "[" <> quoter <> "|" <> body <> "|]"
       q = T.pack quoter
       b = T.pack body

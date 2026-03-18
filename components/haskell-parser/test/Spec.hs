@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# OPTIONS_GHC -Wno-orphans #-}
 
 module Main (main) where
 
@@ -6,7 +7,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Parser
 import Parser.Ast
-import Parser.Pretty (prettyExpr, prettyModule)
+import Parser.Pretty (prettyExpr, prettyModule, prettyTypeText)
 import Parser.Types (ParseResult (..))
 import Test.ExtensionMapping.Suite (extensionMappingTests)
 import Test.Extensions.Suite (extensionTests)
@@ -49,7 +50,8 @@ buildTests = do
         testGroup
           "properties"
           [ QC.testProperty "generated expr AST pretty-printer round-trip" prop_exprPrettyRoundTrip,
-            QC.testProperty "generated module AST pretty-printer round-trip" prop_modulePrettyRoundTrip
+            QC.testProperty "generated module AST pretty-printer round-trip" prop_modulePrettyRoundTrip,
+            QC.testProperty "generated type AST pretty-printer round-trip" prop_typePrettyRoundTrip
           ],
         h2010,
         extensions,
@@ -147,6 +149,268 @@ prop_modulePrettyRoundTrip generated =
           ParseOk reparsed ->
             counterexample ("unexpected successful parse shape: " <> show reparsed) (property shouldParse)
           ParseErr _ -> property True
+
+prop_typePrettyRoundTrip :: Type -> Property
+prop_typePrettyRoundTrip ty =
+  let source = prettyTypeText ty
+      moduleSource =
+        T.unlines
+          [ "{-# LANGUAGE QuasiQuotes #-}",
+            "module Generated where",
+            "x :: " <> source,
+            "x = undefined"
+          ]
+   in checkCoverage $
+        cover 1 (containsTypeCtor isTVar ty) "TVar" $
+          cover 1 (containsTypeCtor isTCon ty) "TCon" $
+            cover 1 (containsTypeCtor isTQuasiQuote ty) "TQuasiQuote" $
+              cover 1 (containsTypeCtor isTForall ty) "TForall" $
+                cover 1 (containsTypeCtor isTApp ty) "TApp" $
+                  cover 1 (containsTypeCtor isTFun ty) "TFun" $
+                    cover 1 (containsTypeCtor isTTuple ty) "TTuple" $
+                      cover 1 (containsTypeCtor isTList ty) "TList" $
+                        cover 1 (containsTypeCtor isTParen ty) "TParen" $
+                          cover 1 (containsTypeCtor isTContext ty) "TContext" $
+                            counterexample (T.unpack moduleSource) $
+                              case parseModule defaultConfig moduleSource of
+                                ParseErr err ->
+                                  counterexample (errorBundlePretty err) False
+                                ParseOk parsedModule ->
+                                  case parsedTypeFromModule parsedModule of
+                                    Nothing ->
+                                      counterexample ("type signature not found in: " <> show parsedModule) False
+                                    Just parsed ->
+                                      let expected = normalizeType ty
+                                          actual = normalizeType parsed
+                                       in counterexample ("expected: " <> show expected <> "\nactual: " <> show actual) (expected == actual)
+
+parsedTypeFromModule :: Module -> Maybe Type
+parsedTypeFromModule modu =
+  case moduleDecls modu of
+    DeclTypeSig _ _ ty : _ -> Just ty
+    _ -> Nothing
+
+containsTypeCtor :: (Type -> Bool) -> Type -> Bool
+containsTypeCtor matches ty
+  | matches ty = True
+  | otherwise =
+      case ty of
+        TForall _ _ inner -> containsTypeCtor matches inner
+        TApp _ f x -> containsTypeCtor matches f || containsTypeCtor matches x
+        TFun _ a b -> containsTypeCtor matches a || containsTypeCtor matches b
+        TTuple _ elems -> any (containsTypeCtor matches) elems
+        TList _ inner -> containsTypeCtor matches inner
+        TParen _ inner -> containsTypeCtor matches inner
+        TContext _ constraints inner ->
+          any (any (containsTypeCtor matches) . constraintArgs) constraints
+            || containsTypeCtor matches inner
+        _ -> False
+
+isTVar, isTCon, isTQuasiQuote, isTForall, isTApp, isTFun, isTTuple, isTList, isTParen, isTContext :: Type -> Bool
+isTVar ty = case ty of TVar {} -> True; _ -> False
+isTCon ty = case ty of TCon {} -> True; _ -> False
+isTQuasiQuote ty = case ty of TQuasiQuote {} -> True; _ -> False
+isTForall ty = case ty of TForall {} -> True; _ -> False
+isTApp ty = case ty of TApp {} -> True; _ -> False
+isTFun ty = case ty of TFun {} -> True; _ -> False
+isTTuple ty = case ty of TTuple {} -> True; _ -> False
+isTList ty = case ty of TList {} -> True; _ -> False
+isTParen ty = case ty of TParen {} -> True; _ -> False
+isTContext ty = case ty of TContext {} -> True; _ -> False
+
+instance Arbitrary Type where
+  arbitrary = sized (genType . min 6)
+  shrink _ = []
+
+genType :: Int -> Gen Type
+genType depth
+  | depth <= 0 =
+      oneof
+        [ TVar span0 <$> genTypeVarName,
+          TCon span0 <$> genTypeConName,
+          TQuasiQuote span0 <$> genQuoterName <*> genQuasiBody,
+          TTuple span0 <$> elements [[], [TVar span0 "a", TCon span0 "B"]],
+          TList span0 <$> genTypeAtom 0,
+          TParen span0 <$> genTypeAtom 0
+        ]
+  | otherwise =
+      frequency
+        [ (3, TVar span0 <$> genTypeVarName),
+          (3, TCon span0 <$> genTypeConName),
+          (2, TQuasiQuote span0 <$> genQuoterName <*> genQuasiBody),
+          (2, TForall span0 <$> genTypeBinders <*> genForallInner (depth - 1)),
+          (4, genTypeApp depth),
+          (4, genTypeFun depth),
+          (3, TTuple span0 <$> genTypeTupleElems (depth - 1)),
+          (3, TList span0 <$> genType (depth - 1)),
+          (3, TParen span0 <$> genType (depth - 1)),
+          (3, TContext span0 <$> genConstraints (depth - 1) <*> genContextInner (depth - 1))
+        ]
+
+genTypeApp :: Int -> Gen Type
+genTypeApp depth = do
+  fn <- genType (depth - 1)
+  arg <- genType (depth - 1)
+  pure (TApp span0 (canonicalAppHead fn) (canonicalAppArg arg))
+
+genTypeFun :: Int -> Gen Type
+genTypeFun depth = do
+  lhs <- genType (depth - 1)
+  rhs <- genType (depth - 1)
+  pure (TFun span0 (canonicalFunLeft lhs) rhs)
+
+genForallInner :: Int -> Gen Type
+genForallInner depth = do
+  inner <- genType depth
+  pure $
+    case inner of
+      TForall {} -> TParen span0 inner
+      _ -> inner
+
+genContextInner :: Int -> Gen Type
+genContextInner depth = do
+  inner <- genType depth
+  pure $
+    case inner of
+      TContext {} -> TParen span0 inner
+      _ -> inner
+
+genTypeTupleElems :: Int -> Gen [Type]
+genTypeTupleElems depth = do
+  isUnit <- arbitrary
+  if isUnit
+    then pure []
+    else do
+      n <- chooseInt (2, 4)
+      vectorOf n (genType depth)
+
+genTypeAtom :: Int -> Gen Type
+genTypeAtom depth =
+  oneof
+    [ TVar span0 <$> genTypeVarName,
+      TCon span0 <$> genTypeConName,
+      TQuasiQuote span0 <$> genQuoterName <*> genQuasiBody,
+      TTuple span0 <$> genTypeTupleElems depth,
+      TList span0 <$> genType depth,
+      TParen span0 <$> genType depth
+    ]
+
+genConstraints :: Int -> Gen [Constraint]
+genConstraints depth = do
+  n <- chooseInt (1, 3)
+  vectorOf n (genConstraint depth)
+
+genConstraint :: Int -> Gen Constraint
+genConstraint depth = do
+  cls <- genTypeConName
+  argCount <- chooseInt (0, 2)
+  args <- vectorOf argCount (genConstraintArg depth)
+  pure $
+    Constraint
+      { constraintSpan = span0,
+        constraintClass = cls,
+        constraintArgs = args,
+        constraintParen = False
+      }
+
+genConstraintArg :: Int -> Gen Type
+genConstraintArg depth = do
+  arg <- genType depth
+  pure (canonicalConstraintArg arg)
+
+canonicalFunLeft :: Type -> Type
+canonicalFunLeft ty =
+  case ty of
+    TForall {} -> TParen span0 ty
+    TFun {} -> TParen span0 ty
+    TContext {} -> TParen span0 ty
+    _ -> ty
+
+canonicalAppHead :: Type -> Type
+canonicalAppHead ty =
+  case ty of
+    TForall {} -> TParen span0 ty
+    TFun {} -> TParen span0 ty
+    TContext {} -> TParen span0 ty
+    _ -> ty
+
+canonicalAppArg :: Type -> Type
+canonicalAppArg ty =
+  case ty of
+    TApp {} -> TParen span0 ty
+    TForall {} -> TParen span0 ty
+    TFun {} -> TParen span0 ty
+    TContext {} -> TParen span0 ty
+    _ -> ty
+
+canonicalConstraintArg :: Type -> Type
+canonicalConstraintArg ty =
+  case ty of
+    TVar {} -> ty
+    TCon {} -> ty
+    TQuasiQuote {} -> ty
+    TList {} -> ty
+    TTuple {} -> ty
+    TParen {} -> ty
+    _ -> TParen span0 ty
+
+genTypeBinders :: Gen [Text]
+genTypeBinders = do
+  n <- chooseInt (1, 3)
+  vectorOf n genTypeVarName
+
+genTypeVarName :: Gen Text
+genTypeVarName = do
+  first <- elements (['a' .. 'z'] <> ['_'])
+  restLen <- chooseInt (0, 5)
+  rest <- vectorOf restLen (elements (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> "_'"))
+  let candidate = T.pack (first : rest)
+  if candidate `elem` reservedWords
+    then genTypeVarName
+    else pure candidate
+
+genTypeConName :: Gen Text
+genTypeConName = do
+  first <- elements ['A' .. 'Z']
+  restLen <- chooseInt (0, 5)
+  rest <- vectorOf restLen (elements (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> "_'"))
+  pure (T.pack (first : rest))
+
+genQuoterName :: Gen Text
+genQuoterName = do
+  first <- elements (['a' .. 'z'] <> ['_'])
+  restLen <- chooseInt (0, 4)
+  rest <- vectorOf restLen (elements (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> "_'"))
+  pure (T.pack (first : rest))
+
+genQuasiBody :: Gen Text
+genQuasiBody = do
+  len <- chooseInt (0, 12)
+  chars <- vectorOf len (elements (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> " +-*/_()"))
+  pure (T.pack chars)
+
+normalizeType :: Type -> Type
+normalizeType ty =
+  case ty of
+    TVar _ name -> TVar span0 name
+    TCon _ name -> TCon span0 name
+    TQuasiQuote _ quoter body -> TQuasiQuote span0 quoter body
+    TForall _ binders inner -> TForall span0 binders (normalizeType inner)
+    TApp _ f x -> TApp span0 (normalizeType f) (normalizeType x)
+    TFun _ a b -> TFun span0 (normalizeType a) (normalizeType b)
+    TTuple _ elems -> TTuple span0 (map normalizeType elems)
+    TList _ inner -> TList span0 (normalizeType inner)
+    TParen _ inner -> TParen span0 (normalizeType inner)
+    TContext _ constraints inner -> TContext span0 (map normalizeConstraint constraints) (normalizeType inner)
+
+normalizeConstraint :: Constraint -> Constraint
+normalizeConstraint constraint =
+  Constraint
+    { constraintSpan = span0,
+      constraintClass = constraintClass constraint,
+      constraintArgs = map normalizeType (constraintArgs constraint),
+      constraintParen = False
+    }
 
 moduleOnlyUsesSupportedExprs :: GenModule -> Bool
 moduleOnlyUsesSupportedExprs (GenModule decls) = all (isModuleSupportedExpr . snd) decls
