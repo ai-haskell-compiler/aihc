@@ -58,7 +58,8 @@ hackageTesterTests =
           testCase "MIN_VERSION_ghc branch is taken" test_cppMinVersionGhcTrue,
           testCase "negated MIN_VERSION_ghc branch is not taken" test_cppNegatedMinVersionGhcFalse,
           testCase "MIN_VERSION_GLASGOW_HASKELL branch is taken" test_cppMinVersionGlasgowHaskellTrue,
-          testCase "unknown MIN_VERSION package in include branch is taken" test_cppUnknownMinVersionFromIncludeTrue
+          testCase "unknown MIN_VERSION package in include branch is taken" test_cppUnknownMinVersionFromIncludeTrue,
+          testCase "cpp-options macros do not enable preprocessing without CPP extension" test_cppOptionsWithoutCppExtensionDoNotPreprocess
         ],
       testGroup
         "io"
@@ -364,6 +365,22 @@ test_cppUnknownMinVersionFromIncludeTrue = do
     includes =
       [ ("defs.h", T.unlines ["#if MIN_VERSION_custompkg(1,2,3)", "hit", "#else", "miss", "#endif"])
       ]
+
+test_cppOptionsWithoutCppExtensionDoNotPreprocess :: Assertion
+test_cppOptionsWithoutCppExtensionDoNotPreprocess = do
+  Result {resultOutput = out} <-
+    preprocessForParserIfEnabled [] ["-DTEST=1"] "A.hs" (\_ -> pure Nothing) source
+  assertEqual "expected source to remain unchanged when CPP extension is not enabled" source out
+  where
+    source =
+      T.unlines
+        [ "module A where",
+          "#if TEST",
+          "x = 1",
+          "#else",
+          "x = 2",
+          "#endif"
+        ]
 
 preprocessWithIncludes :: FilePath -> [(FilePath, T.Text)] -> T.Text -> IO T.Text
 preprocessWithIncludes inputFile includeFiles source = do

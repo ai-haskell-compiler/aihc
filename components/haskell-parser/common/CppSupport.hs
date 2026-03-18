@@ -59,7 +59,8 @@ preprocessForParserWithoutIncludes inputFile source =
 preprocessForParserIfEnabled :: (Monad m) => [String] -> [String] -> FilePath -> (IncludeRequest -> m (Maybe Text)) -> Text -> m Result
 preprocessForParserIfEnabled globalExtensionNames cppOptions inputFile resolveInclude source =
   let normalizedSource = normalizeSourceForParser inputFile source
-   in if cppEnabledInSourceWithGlobals globalExtensionNames normalizedSource || hasCppOptionMacros cppOptions
+      shouldPreprocess = cppEnabledInSourceWithGlobals globalExtensionNames normalizedSource
+   in if shouldPreprocess
         then preprocessForParserWithCppOptions cppOptions inputFile resolveInclude normalizedSource
         else pure Result {resultOutput = normalizedSource, resultDiagnostics = []}
 
@@ -80,13 +81,6 @@ cppEnabledInSourceWithGlobals globalExtensionNames source =
 
 settingsFromExtensionNames :: [String] -> [ExtensionSetting]
 settingsFromExtensionNames = mapMaybe (parseExtensionSettingName . T.pack)
-
-hasCppOptionMacros :: [String] -> Bool
-hasCppOptionMacros = any isCppMacroOption
-  where
-    isCppMacroOption opt =
-      case T.strip (stripWrappingQuotes (T.pack opt)) of
-        x -> "-D" `T.isPrefixOf` x || "-U" `T.isPrefixOf` x
 
 cppEnabledInSettings :: [ExtensionSetting] -> Bool
 cppEnabledInSettings = foldl apply False
