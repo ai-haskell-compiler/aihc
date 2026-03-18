@@ -3,7 +3,7 @@
 module Main (main) where
 
 import Control.Concurrent.Async (mapConcurrently)
-import Control.Exception (SomeException, displayException, try)
+import Control.Exception (IOException, SomeException, displayException, try)
 import Control.Monad (forM, when)
 import Cpp (Severity (..), diagSeverity, resultDiagnostics, resultOutput)
 import CppSupport (preprocessForParserIfEnabled)
@@ -138,7 +138,7 @@ main = do
     let failed =
           sortBy
             (\a b -> compare (packageSourceSize a, formatPackage (package a)) (packageSourceSize b, formatPackage (package b)))
-            [r | r <- results, not (packageOursOk r)]
+            [r | r <- results, packageParserFailed r]
         col1 = "Package"
         col2 = "Size (bytes)"
         pkgWidth = max (length col1) $ case failed of
@@ -211,11 +211,14 @@ parseOptions = go (Options "lts-24.33" [CheckParse] Nothing False False False Fa
 formatPackage :: PackageSpec -> String
 formatPackage spec = pkgName spec ++ "-" ++ pkgVersion spec
 
+packageParserFailed :: PackageResult -> Bool
+packageParserFailed r = not (packageOursOk r) && packageSourceSize r > 0
+
 totalSourceSize :: [FileInfo] -> IO Integer
 totalSourceSize infos = sum <$> mapM (safeFileSize . fileInfoPath) infos
   where
     safeFileSize path = do
-      r <- try (getFileSize path) :: IO (Either SomeException Integer)
+      r <- try (getFileSize path) :: IO (Either IOException Integer)
       pure $ case r of
         Left _ -> 0
         Right n -> n
@@ -378,7 +381,7 @@ runPackageOrThrow opts spec = do
     else do
       srcDir <- downloadPackageQuietWithNetwork (not (optOffline opts)) (pkgName spec) (pkgVersion spec)
       files <- findTargetFilesFromCabal srcDir
-      totalSize <- totalSourceSize files
+      totalSize <- if optPrintFailedTable opts then totalSourceSize files else pure 0
       if null files
         then
           pure
