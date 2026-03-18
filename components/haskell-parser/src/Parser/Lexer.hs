@@ -57,10 +57,11 @@ import Control.Monad (guard, void, when)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (StateT, evalStateT, get, put)
 import Data.Char (digitToInt, isAlphaNum, isDigit, isHexDigit, isOctDigit, isSpace)
+import Data.Functor (($>))
 import qualified Data.IntSet as IntSet
 import Data.List (find)
 import qualified Data.List as List
-import Data.Maybe (fromMaybe, mapMaybe, isJust)
+import Data.Maybe (fromMaybe, isJust, mapMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Void (Void)
@@ -83,7 +84,7 @@ import Text.Megaparsec
 import qualified Text.Megaparsec as MP
 import qualified Text.Megaparsec.Char as C
 import qualified Text.Megaparsec.Char.Lexer as L
-import Text.Megaparsec.Pos (SourcePos (..), mkPos, unPos, sourceColumn, sourceLine, sourceName)
+import Text.Megaparsec.Pos (SourcePos (..), mkPos, sourceColumn, sourceLine, sourceName, unPos)
 import qualified Text.Megaparsec.State as MPState
 
 data LexTokenKind
@@ -539,7 +540,7 @@ triviaConsumer =
         <|> try cppLineConsumer
         <|> try unknownPragmaConsumer
     )
-    *> pure ()
+    $> ()
 
 -- | Consume @{-# LINE <n> [\"file\"] #-}@ and set next line (and optional file) for the following line.
 linePragmaConsumer :: LParser ()

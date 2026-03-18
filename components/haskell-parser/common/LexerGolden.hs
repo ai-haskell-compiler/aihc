@@ -16,6 +16,7 @@ where
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withObject)
 import Data.Char (isSpace, toLower)
+import Data.Either (fromRight)
 import Data.List (dropWhileEnd, sort)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -151,7 +152,7 @@ evaluateLexerCase meta =
   let expectedKinds = caseTokens meta
       expectedSpans = caseTokenSpans meta
       actual = lexTokensWithExtensions (caseExtensions meta) (caseInput meta)
-      actualToks = either (const []) id actual
+      actualToks = fromRight [] actual
       actualKinds = fmap (map lexTokenKind) actual
       actualSpanList = map spanToTuple actualToks
       lexOk = either (const False) (const True) actual
