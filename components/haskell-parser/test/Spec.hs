@@ -43,8 +43,11 @@ buildTests = do
             testCase "reads header LANGUAGE pragmas" test_readsHeaderLanguagePragmas,
             testCase "reads header LANGUAGE pragmas starting with No" test_readsHeaderLanguagePragmasStartingWithNo,
             testCase "reads OPTIONS -X extension flag as LANGUAGE setting" test_readsOptionsPragmaXExtension,
+            testCase "ignores invalid split OPTIONS -X ExtensionName form" test_ignoresSplitOptionsPragmaXExtension,
             testCase "reads OPTIONS -cpp flag as CPP extension" test_readsOptionsPragmaCpp,
+            testCase "reads OPTIONS -fffi flag as ForeignFunctionInterface extension" test_readsOptionsPragmaFffi,
             testCase "reads OPTIONS_GHC -cpp among other flags" test_readsOptionsGhcPragmaCpp,
+            testCase "reads OPTIONS -fglasgow-exts as legacy extension bundle" test_readsOptionsPragmaGlasgowExts,
             testCase "ignores unknown header pragmas" test_ignoresUnknownHeaderPragmas,
             testCase "ignores LANGUAGE pragmas inside comments" test_ignoresLanguagePragmasInsideComments,
             testCase "stops header scan at first module token" test_stopsHeaderScanAtFirstModuleToken
@@ -104,6 +107,17 @@ test_readsOptionsPragmaXExtension = do
       expected = [EnableExtension MagicHash]
   assertEqual "maps OPTIONS -XMagicHash to LANGUAGE MagicHash" expected exts
 
+test_ignoresSplitOptionsPragmaXExtension :: Assertion
+test_ignoresSplitOptionsPragmaXExtension = do
+  let source =
+        T.unlines
+          [ "{-# OPTIONS -X MagicHash #-}",
+            "module M where",
+            "x = 1"
+          ]
+      exts = readModuleHeaderExtensions source
+  assertEqual "ignores invalid split OPTIONS -X Extension form" [] exts
+
 test_readsOptionsPragmaCpp :: Assertion
 test_readsOptionsPragmaCpp = do
   let source =
@@ -116,6 +130,18 @@ test_readsOptionsPragmaCpp = do
       expected = [EnableExtension CPP]
   assertEqual "maps OPTIONS -cpp to LANGUAGE CPP" expected exts
 
+test_readsOptionsPragmaFffi :: Assertion
+test_readsOptionsPragmaFffi = do
+  let source =
+        T.unlines
+          [ "{-# OPTIONS -fffi #-}",
+            "module M where",
+            "x = 1"
+          ]
+      exts = readModuleHeaderExtensions source
+      expected = [EnableExtension ForeignFunctionInterface]
+  assertEqual "maps OPTIONS -fffi to LANGUAGE ForeignFunctionInterface" expected exts
+
 test_readsOptionsGhcPragmaCpp :: Assertion
 test_readsOptionsGhcPragmaCpp = do
   let source =
@@ -127,6 +153,53 @@ test_readsOptionsGhcPragmaCpp = do
       exts = readModuleHeaderExtensions source
       expected = [EnableExtension CPP]
   assertEqual "maps OPTIONS_GHC -cpp while ignoring other options" expected exts
+
+test_readsOptionsPragmaGlasgowExts :: Assertion
+test_readsOptionsPragmaGlasgowExts = do
+  let source =
+        T.unlines
+          [ "{-# OPTIONS -fglasgow-exts #-}",
+            "module M where",
+            "x = 1"
+          ]
+      exts = readModuleHeaderExtensions source
+      expected =
+        map
+          EnableExtension
+          [ ConstrainedClassMethods,
+            DeriveDataTypeable,
+            DeriveFoldable,
+            DeriveFunctor,
+            DeriveGeneric,
+            DeriveTraversable,
+            EmptyDataDecls,
+            ExistentialQuantification,
+            ExplicitNamespaces,
+            FlexibleContexts,
+            FlexibleInstances,
+            ForeignFunctionInterface,
+            FunctionalDependencies,
+            GeneralizedNewtypeDeriving,
+            ImplicitParams,
+            InterruptibleFFI,
+            KindSignatures,
+            LiberalTypeSynonyms,
+            MagicHash,
+            MultiParamTypeClasses,
+            ParallelListComp,
+            PatternGuards,
+            PostfixOperators,
+            RankNTypes,
+            RecursiveDo,
+            ScopedTypeVariables,
+            StandaloneDeriving,
+            TypeOperators,
+            TypeSynonymInstances,
+            UnboxedTuples,
+            UnicodeSyntax,
+            UnliftedFFITypes
+          ]
+  assertEqual "maps OPTIONS -fglasgow-exts to legacy LANGUAGE bundle" expected exts
 
 test_ignoresUnknownHeaderPragmas :: Assertion
 test_ignoresUnknownHeaderPragmas = do

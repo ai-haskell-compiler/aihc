@@ -590,8 +590,10 @@ parseLanguagePragmaNames body =
 --
 -- Recognized flags:
 --
--- * @-XExtension@ and @-X Extension@
+-- * @-XExtension@
 -- * @-cpp@ (maps to @CPP@)
+-- * @-fffi@ (maps to @ForeignFunctionInterface@)
+-- * @-fglasgow-exts@ (maps to the legacy extension bundle)
 optionsPragmaToken :: LParser (Text, LexTokenKind)
 optionsPragmaToken = do
   _ <- C.string "{-#"
@@ -610,10 +612,8 @@ parseOptionsPragmaSettings body = go (pragmaWords body)
       case ws of
         [] -> []
         "-cpp" : rest -> EnableExtension CPP : go rest
-        "-X" : ext : rest ->
-          case parseExtensionSettingName ext of
-            Just setting -> setting : go rest
-            Nothing -> go rest
+        "-fffi" : rest -> EnableExtension ForeignFunctionInterface : go rest
+        "-fglasgow-exts" : rest -> glasgowExtsSettings <> go rest
         opt : rest
           | Just ext <- T.stripPrefix "-X" opt,
             not (T.null ext) ->
@@ -621,6 +621,44 @@ parseOptionsPragmaSettings body = go (pragmaWords body)
                 Just setting -> setting : go rest
                 Nothing -> go rest
         _ : rest -> go rest
+
+glasgowExtsSettings :: [ExtensionSetting]
+glasgowExtsSettings =
+  map
+    EnableExtension
+    [ ConstrainedClassMethods,
+      DeriveDataTypeable,
+      DeriveFoldable,
+      DeriveFunctor,
+      DeriveGeneric,
+      DeriveTraversable,
+      EmptyDataDecls,
+      ExistentialQuantification,
+      ExplicitNamespaces,
+      FlexibleContexts,
+      FlexibleInstances,
+      ForeignFunctionInterface,
+      FunctionalDependencies,
+      GeneralizedNewtypeDeriving,
+      ImplicitParams,
+      InterruptibleFFI,
+      KindSignatures,
+      LiberalTypeSynonyms,
+      MagicHash,
+      MultiParamTypeClasses,
+      ParallelListComp,
+      PatternGuards,
+      PostfixOperators,
+      RankNTypes,
+      RecursiveDo,
+      ScopedTypeVariables,
+      StandaloneDeriving,
+      TypeOperators,
+      TypeSynonymInstances,
+      UnboxedTuples,
+      UnicodeSyntax,
+      UnliftedFFITypes
+    ]
 
 pragmaWords :: Text -> [Text]
 pragmaWords txt = go [] [] Nothing (T.unpack txt)
