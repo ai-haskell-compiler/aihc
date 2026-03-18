@@ -106,11 +106,20 @@ buildInfix lhs (op, rhs) =
 
 infixOperatorParserExcept :: [Text] -> TokParser Text
 infixOperatorParserExcept forbidden =
-  tokenSatisfy $ \tok ->
-    case lexTokenKind tok of
-      TkOperator op
-        | op /= "=" && op /= "::" && op /= "->" && op `notElem` forbidden -> Just op
-      _ -> Nothing
+  symbolicOperatorParser <|> backtickIdentifierOperatorParser
+  where
+    symbolicOperatorParser =
+      tokenSatisfy $ \tok ->
+        case lexTokenKind tok of
+          TkOperator op
+            | op /= "=" && op /= "::" && op /= "->" && op `notElem` forbidden -> Just op
+          _ -> Nothing
+
+    backtickIdentifierOperatorParser = do
+      symbolLikeTok "`"
+      op <- identifierTextParser
+      symbolLikeTok "`"
+      if op `elem` forbidden then fail "forbidden infix operator" else pure op
 
 intExprParser :: TokParser Expr
 intExprParser = withSpan $ do

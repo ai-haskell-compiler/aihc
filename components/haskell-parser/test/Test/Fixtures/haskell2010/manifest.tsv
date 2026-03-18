@@ -147,9 +147,9 @@ expr-s3-atoms-literal-char	expressions	expressions/atoms-literal-char.hs	pass	pa
 expr-s3-atoms-literal-string	expressions	expressions/atoms-literal-string.hs	pass	parser now handles string literal atom case
 expr-s3-atoms-literal-all	expressions	expressions/atoms-literal-all.hs	pass	parser now handles all haskell2010 literal atom categories
 expr-s3-operators-varsym-paren	expressions	expressions/operators-varsym-paren.hs	pass	parser now supports parenthesized symbolic operators as expressions
-expr-s3-operators-backtick-varid	expressions	expressions/operators-backtick-varid.hs	xfail	parser intentionally disabled
+expr-s3-operators-backtick-varid	expressions	expressions/operators-backtick-varid.hs	pass	parser now supports backtick variable operators
 expr-s3-operators-conop-colon	expressions	expressions/operators-conop-colon.hs	pass	parser now supports infix constructor operators in expressions
-expr-s3-operators-backtick-conid	expressions	expressions/operators-backtick-conid.hs	xfail	parser intentionally disabled
+expr-s3-operators-backtick-conid	expressions	expressions/operators-backtick-conid.hs	pass	parser now supports backtick constructor operators
 expr-s3-application-left-assoc	expressions	expressions/application-left-assoc.hs	pass	parser now supports left-associative application
 expr-s3-application-constructor-partial	expressions	expressions/application-constructor-partial.hs	pass
 expr-s3-lambda-single-apat	expressions	expressions/lambda-single-apat.hs	pass	parser now supports single-pattern lambda forms
@@ -243,10 +243,10 @@ layout-where	layout	layout/where-layout.hs	pass	parser now supports where layout
 lexical-block-comments	lexical	lexical/block-comments.hs	pass	lexer now handles block comments
 lexical-strings-chars	lexical	lexical/strings-chars.hs	pass	parser now handles string and char literals
 lexical-strings-escape-sequences	lexical	lexical/strings-escape-sequences.hs	pass	parser now handles escaped string literal forms
-lexical-strings-multiline	lexical	lexical/strings-multiline.hs	xfail	parser multiline string gap handling pending
-lexical-chars-escape-sequences	lexical	lexical/chars-escape-sequences.hs	xfail	parser escape-sequence handling pending
+lexical-strings-multiline	lexical	lexical/strings-multiline.hs	pass	parser now handles multiline string gaps
+lexical-chars-escape-sequences	lexical	lexical/chars-escape-sequences.hs	pass	parser now handles char escape sequences
 lexical-numeric-literals	lexical	lexical/numeric-literals.hs	pass	parser now handles numeric literals in lexical suite
-lexical-operators	lexical	lexical/operators.hs	xfail	parser intentionally disabled
+lexical-operators	lexical	lexical/operators.hs	pass	parser now handles lexical operator forms
 
 hashable-xxh3-cpp-include	corpus	corpus/hashable/hashable-xxh3-cpp-include.hs	pass	from hashable/src/Data/Hashable/XXH3.hs; covered by parser-test CPP preprocessing
 hashable-generic-instances-kind-arrow	corpus	corpus/hashable/hashable-generic-instances-kind-arrow.hs	pass	from hashable/src/Data/Hashable/Generic/Instances.hs; parser now accepts multiline LANGUAGE pragma lists
