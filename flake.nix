@@ -57,6 +57,39 @@
             meta.description = "aihc app: ${name}";
           };
         in {
+          line-counts = mkAppWithInputs "line-counts" [ pkgs.tokei pkgs.jq pkgs.bash ] ''
+            set -euo pipefail
+
+            # Output header
+            printf "| %-30s | %10s | %10s | %10s |\n" "Component" "Code" "Tests" "Total"
+            printf "| :%-30s | %10s: | %10s: | %10s: |\n" "------------------------------" "----------" "----------" "----------"
+
+            total_code=0
+            total_tests=0
+
+            for comp_path in components/*; do
+              [ -d "$comp_path" ] || continue
+              comp=$(basename "$comp_path")
+
+              comp_all_lines=$(tokei "$comp_path" --output json | jq '[.[] | .code] | add // 0')
+              test_lines=0
+              if [ -d "$comp_path/test" ]; then
+                test_lines=$(tokei "$comp_path/test" --output json | jq '[.[] | .code] | add // 0')
+              fi
+              code_lines=$((comp_all_lines - test_lines))
+              if [ $code_lines -lt 0 ]; then code_lines=0; fi
+
+              comp_total=$comp_all_lines
+              printf "| %-30s | %10d | %10d | %10d |\n" "$comp" "$code_lines" "$test_lines" "$comp_total"
+
+              total_code=$((total_code + code_lines))
+              total_tests=$((total_tests + test_lines))
+            done
+
+            total_all=$((total_code + total_tests))
+            printf "| %-30s | %10d | %10d | %10d |\n" "**Total**" "$total_code" "$total_tests" "$total_all"
+          '';
+
           parser-test = mkApp "parser-test" ''
             set -euo pipefail
             test -d components/haskell-parser || {
