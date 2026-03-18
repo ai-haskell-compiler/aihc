@@ -205,8 +205,8 @@ renderExprAst expr =
     EInt _ value _raw -> "EInt " <> show value
     EIntBase _ value raw -> "EIntBase " <> show value <> " " <> show raw
     EFloat _ value raw -> "EFloat " <> show value <> " " <> show raw
-    EChar _ value -> "EChar " <> show value
-    EString _ value -> "EString " <> show value
+    EChar _ value repr -> "EChar " <> show value <> " " <> show repr
+    EString _ value repr -> "EString " <> show value <> " " <> show repr
     EQuasiQuote _ quoter body -> "EQuasiQuote " <> show quoter <> " " <> show body
     EIf _ cond yes no -> "EIf " <> par (renderExprAst cond) <> " " <> par (renderExprAst yes) <> " " <> par (renderExprAst no)
     ELambdaPats _ pats body -> "ELambdaPats " <> showListWith renderPattern pats <> " " <> par (renderExprAst body)
@@ -361,8 +361,8 @@ renderLiteral lit =
     LitInt _ value _raw -> "LitInt " <> show value
     LitIntBase _ value raw -> "LitIntBase " <> show value <> " " <> show raw
     LitFloat _ value raw -> "LitFloat " <> show value <> " " <> show raw
-    LitChar _ value -> "LitChar " <> show value
-    LitString _ value -> "LitString " <> show value
+    LitChar _ value repr -> "LitChar " <> show value <> " " <> show repr
+    LitString _ value repr -> "LitString " <> show value <> " " <> show repr
 
 renderPattern :: Pattern -> String
 renderPattern pat =
