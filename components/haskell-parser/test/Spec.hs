@@ -42,6 +42,9 @@ buildTests = do
           [ testCase "module parses declaration list" test_moduleParsesDecls,
             testCase "reads header LANGUAGE pragmas" test_readsHeaderLanguagePragmas,
             testCase "reads header LANGUAGE pragmas starting with No" test_readsHeaderLanguagePragmasStartingWithNo,
+            testCase "reads OPTIONS -X extension flag as LANGUAGE setting" test_readsOptionsPragmaXExtension,
+            testCase "reads OPTIONS -cpp flag as CPP extension" test_readsOptionsPragmaCpp,
+            testCase "reads OPTIONS_GHC -cpp among other flags" test_readsOptionsGhcPragmaCpp,
             testCase "ignores unknown header pragmas" test_ignoresUnknownHeaderPragmas,
             testCase "ignores LANGUAGE pragmas inside comments" test_ignoresLanguagePragmasInsideComments,
             testCase "stops header scan at first module token" test_stopsHeaderScanAtFirstModuleToken
@@ -88,6 +91,42 @@ test_readsHeaderLanguagePragmasStartingWithNo = do
       exts = readModuleHeaderExtensions source
       expected = [EnableExtension NondecreasingIndentation]
   assertEqual "reads LANGUAGE pragmas whose extension name starts with 'No'" expected exts
+
+test_readsOptionsPragmaXExtension :: Assertion
+test_readsOptionsPragmaXExtension = do
+  let source =
+        T.unlines
+          [ "{-# OPTIONS -XMagicHash #-}",
+            "module M where",
+            "x = 1"
+          ]
+      exts = readModuleHeaderExtensions source
+      expected = [EnableExtension MagicHash]
+  assertEqual "maps OPTIONS -XMagicHash to LANGUAGE MagicHash" expected exts
+
+test_readsOptionsPragmaCpp :: Assertion
+test_readsOptionsPragmaCpp = do
+  let source =
+        T.unlines
+          [ "{-# OPTIONS -cpp #-}",
+            "module M where",
+            "x = 1"
+          ]
+      exts = readModuleHeaderExtensions source
+      expected = [EnableExtension CPP]
+  assertEqual "maps OPTIONS -cpp to LANGUAGE CPP" expected exts
+
+test_readsOptionsGhcPragmaCpp :: Assertion
+test_readsOptionsGhcPragmaCpp = do
+  let source =
+        T.unlines
+          [ "{-# OPTIONS_GHC -cpp -pgmP \"cpphs --layout --hashes --cpp\" #-}",
+            "module M where",
+            "x = 1"
+          ]
+      exts = readModuleHeaderExtensions source
+      expected = [EnableExtension CPP]
+  assertEqual "maps OPTIONS_GHC -cpp while ignoring other options" expected exts
 
 test_ignoresUnknownHeaderPragmas :: Assertion
 test_ignoresUnknownHeaderPragmas = do
