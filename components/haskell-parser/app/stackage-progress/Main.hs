@@ -546,8 +546,8 @@ exprSpan expr =
     EInt span' _ _ -> span'
     EIntBase span' _ _ -> span'
     EFloat span' _ _ -> span'
-    EChar span' _ _ -> span'
-    EString span' _ _ -> span'
+    EChar span' _ -> span'
+    EString span' _ -> span'
     EQuasiQuote span' _ _ -> span'
     EIf span' _ _ _ -> span'
     ELambdaPats span' _ _ -> span'
@@ -706,8 +706,8 @@ stripExpr expr =
     EInt _ n repr -> EInt noSourceSpan n repr
     EIntBase _ n txt -> EIntBase noSourceSpan n txt
     EFloat _ d repr -> EFloat noSourceSpan d repr
-    EChar _ c repr -> EChar noSourceSpan c repr
-    EString _ s repr -> EString noSourceSpan s repr
+    EChar _ c -> EChar noSourceSpan c
+    EString _ s -> EString noSourceSpan s
     EQuasiQuote _ q body -> EQuasiQuote noSourceSpan q body
     EIf _ a b c -> EIf noSourceSpan (stripExpr a) (stripExpr b) (stripExpr c)
     ELambdaPats _ pats e -> ELambdaPats noSourceSpan (map stripPattern pats) (stripExpr e)

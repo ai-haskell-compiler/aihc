@@ -562,8 +562,8 @@ prettyExprPrec prec expr =
     EInt _ _ repr -> pretty repr
     EIntBase _ _ repr -> pretty repr
     EFloat _ _ repr -> pretty repr
-    EChar _ _ repr -> pretty repr
-    EString _ _ repr -> pretty repr
+    EChar _ value -> pretty (show value)
+    EString _ value -> pretty (show value)
     EQuasiQuote _ quoter body -> prettyQuasiQuote quoter body
     EIf _ cond yes no ->
       parenthesize
