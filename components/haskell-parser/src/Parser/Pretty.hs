@@ -310,8 +310,8 @@ prettyLiteral lit =
     LitInt _ _ repr -> pretty repr
     LitIntBase _ _ repr -> pretty repr
     LitFloat _ _ repr -> pretty repr
-    LitChar _ c -> pretty (show c)
-    LitString _ s -> pretty (show (T.unpack s))
+    LitChar _ _ repr -> pretty repr
+    LitString _ _ repr -> pretty repr
 
 prettyDataDecl :: DataDecl -> Doc ann
 prettyDataDecl decl =
@@ -562,8 +562,8 @@ prettyExprPrec prec expr =
     EInt _ _ repr -> pretty repr
     EIntBase _ _ repr -> pretty repr
     EFloat _ _ repr -> pretty repr
-    EChar _ value -> pretty (show value)
-    EString _ value -> pretty (show value)
+    EChar _ _ repr -> pretty repr
+    EString _ _ repr -> pretty repr
     EQuasiQuote _ quoter body -> prettyQuasiQuote quoter body
     EIf _ cond yes no ->
       parenthesize

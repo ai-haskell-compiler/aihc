@@ -385,8 +385,8 @@ data Literal
   = LitInt SourceSpan Integer Text
   | LitIntBase SourceSpan Integer Text
   | LitFloat SourceSpan Double Text
-  | LitChar SourceSpan Char
-  | LitString SourceSpan Text
+  | LitChar SourceSpan Char Text
+  | LitString SourceSpan Text Text
   deriving (Eq, Show)
 
 data Pattern
@@ -564,8 +564,8 @@ data Expr
   | EInt SourceSpan Integer Text
   | EIntBase SourceSpan Integer Text
   | EFloat SourceSpan Double Text
-  | EChar SourceSpan Char
-  | EString SourceSpan Text
+  | EChar SourceSpan Char Text
+  | EString SourceSpan Text Text
   | EQuasiQuote SourceSpan Text Text
   | EIf SourceSpan Expr Expr Expr
   | ELambdaPats SourceSpan [Pattern] Expr

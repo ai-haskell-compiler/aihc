@@ -690,6 +690,7 @@ symbolToken :: LParser (Text, LexTokenKind)
 symbolToken =
   choice2
     [ ("..", TkSymbol ".."),
+      ("`", TkSymbol "`"),
       ("(", TkSymbol "("),
       (")", TkSymbol ")"),
       ("[", TkSymbol "["),
