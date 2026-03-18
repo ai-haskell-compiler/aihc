@@ -6,10 +6,13 @@ module Test.HackageTester.Suite
 where
 
 import Control.Exception (bracket)
+import Cpp (IncludeKind (..), IncludeRequest (..), Result (..))
+import CppSupport (preprocessForParserIfEnabled)
+import qualified Data.ByteString as BS
 import Data.List (isSuffixOf)
 import qualified Data.Text as T
 import GhcOracle (oracleDetailedParsesModuleWithNamesAt)
-import HackageSupport (fileInfoPath, findTargetFilesFromCabal)
+import HackageSupport (fileInfoPath, findTargetFilesFromCabal, resolveIncludeBestEffort)
 import HackageTester.CLI (Options (..), parseOptionsPure)
 import HackageTester.Model (FileResult (..), Outcome (..), Summary (..), shouldFailSummary, summarizeResults)
 import System.Directory (createDirectory, getTemporaryDirectory, removeDirectoryRecursive, removeFile)
@@ -46,7 +49,20 @@ hackageTesterTests =
         ],
       testGroup
         "package-selection"
-        [ testCase "skips files from non-buildable components by default flags" test_skipsNonBuildableComponents
+        [ testCase "skips files from non-buildable components by default flags" test_skipsNonBuildableComponents,
+          testCase "prefers top-level cabal when multiple cabal files exist" test_prefersTopLevelCabalWhenMultipleExist
+        ],
+      testGroup
+        "cpp-macros"
+        [ testCase "MIN_VERSION_base branch is taken" test_cppMinVersionBaseTrue,
+          testCase "MIN_VERSION_ghc branch is taken" test_cppMinVersionGhcTrue,
+          testCase "negated MIN_VERSION_ghc branch is not taken" test_cppNegatedMinVersionGhcFalse,
+          testCase "MIN_VERSION_GLASGOW_HASKELL branch is taken" test_cppMinVersionGlasgowHaskellTrue,
+          testCase "unknown MIN_VERSION package in include branch is taken" test_cppUnknownMinVersionFromIncludeTrue
+        ],
+      testGroup
+        "io"
+        [ testCase "include resolution decodes invalid utf8 leniently" test_resolveIncludeLenientDecode
         ]
     ]
 
@@ -230,6 +246,133 @@ test_skipsNonBuildableComponents =
     assertBool "expected Main.hs to be selected" (any ("src/Main.hs" `isSuffixOf`) selected)
     assertBool "expected README.lhs from disabled component to be skipped" (not (any ("README.lhs" `isSuffixOf`) selected))
 
+test_prefersTopLevelCabalWhenMultipleExist :: Assertion
+test_prefersTopLevelCabalWhenMultipleExist =
+  withTempDir "hackage-tester" $ \root -> do
+    let rootCabal = root </> "demo.cabal"
+        nestedDir = root </> "testdata"
+        nestedCabal = nestedDir </> "fixture.cabal"
+        srcDir = root </> "src"
+        mainFile = srcDir </> "Main.hs"
+
+    createDirectory nestedDir
+    createDirectory srcDir
+    writeFile mainFile "module Main where\nmain :: IO ()\nmain = pure ()\n"
+    writeFile rootCabal sampleCabal
+    writeFile nestedCabal nestedFixtureCabal
+
+    files <- findTargetFilesFromCabal root
+    let selected = map fileInfoPath files
+    assertBool "expected Main.hs from top-level package to be selected" (any ("src/Main.hs" `isSuffixOf`) selected)
+
+test_resolveIncludeLenientDecode :: Assertion
+test_resolveIncludeLenientDecode =
+  withTempDir "hackage-tester" $ \root -> do
+    let srcDir = root </> "src"
+        incDir = root </> "include"
+        current = srcDir </> "Main.hs"
+        includeFile = incDir </> "bad.inc"
+    createDirectory srcDir
+    createDirectory incDir
+    writeFile current "module Main where\n"
+    BS.writeFile includeFile (BS.pack [65, 10, 255, 66, 10]) -- A\n<invalid>B\n
+    mText <-
+      resolveIncludeBestEffort
+        root
+        current
+        IncludeRequest
+          { includePath = "bad.inc",
+            includeKind = IncludeSystem,
+            includeFrom = current,
+            includeLine = 1
+          }
+    case mText of
+      Nothing -> assertBool "expected include text to resolve" False
+      Just txt ->
+        assertBool "expected replacement character in decoded text" ("\xFFFD" `T.isInfixOf` txt)
+
+test_cppMinVersionBaseTrue :: Assertion
+test_cppMinVersionBaseTrue = do
+  out <- preprocessWithIncludes "A.hs" mempty source
+  assertBool "expected true branch for MIN_VERSION_base" ("hit\n" `T.isInfixOf` out)
+  where
+    source =
+      T.unlines
+        [ "{-# LANGUAGE CPP #-}",
+          "#if MIN_VERSION_base(4,12,0)",
+          "hit",
+          "#else",
+          "miss",
+          "#endif"
+        ]
+
+test_cppMinVersionGhcTrue :: Assertion
+test_cppMinVersionGhcTrue = do
+  out <- preprocessWithIncludes "A.hs" mempty source
+  assertBool "expected true branch for MIN_VERSION_ghc" ("hit\n" `T.isInfixOf` out)
+  where
+    source =
+      T.unlines
+        [ "{-# LANGUAGE CPP #-}",
+          "#if MIN_VERSION_ghc(8,6,0)",
+          "hit",
+          "#else",
+          "miss",
+          "#endif"
+        ]
+
+test_cppNegatedMinVersionGhcFalse :: Assertion
+test_cppNegatedMinVersionGhcFalse = do
+  out <- preprocessWithIncludes "A.hs" mempty source
+  assertBool "expected negated branch to be false for MIN_VERSION_ghc" ("miss\n" `T.isInfixOf` out)
+  where
+    source =
+      T.unlines
+        [ "{-# LANGUAGE CPP #-}",
+          "#if !MIN_VERSION_ghc(8,8,0)",
+          "hit",
+          "#else",
+          "miss",
+          "#endif"
+        ]
+
+test_cppMinVersionGlasgowHaskellTrue :: Assertion
+test_cppMinVersionGlasgowHaskellTrue = do
+  out <- preprocessWithIncludes "A.hs" mempty source
+  assertBool "expected true branch for MIN_VERSION_GLASGOW_HASKELL" ("hit\n" `T.isInfixOf` out)
+  where
+    source =
+      T.unlines
+        [ "{-# LANGUAGE CPP #-}",
+          "#if MIN_VERSION_GLASGOW_HASKELL(8,6,1,0)",
+          "hit",
+          "#else",
+          "miss",
+          "#endif"
+        ]
+
+test_cppUnknownMinVersionFromIncludeTrue :: Assertion
+test_cppUnknownMinVersionFromIncludeTrue = do
+  out <- preprocessWithIncludes "A.hs" includes source
+  assertBool "expected true branch for unknown MIN_VERSION in include" ("hit\n" `T.isInfixOf` out)
+  where
+    source =
+      T.unlines
+        [ "{-# LANGUAGE CPP #-}",
+          "#include \"defs.h\""
+        ]
+    includes =
+      [ ("defs.h", T.unlines ["#if MIN_VERSION_custompkg(1,2,3)", "hit", "#else", "miss", "#endif"])
+      ]
+
+preprocessWithIncludes :: FilePath -> [(FilePath, T.Text)] -> T.Text -> IO T.Text
+preprocessWithIncludes inputFile includeFiles source = do
+  Result {resultOutput = out} <-
+    preprocessForParserIfEnabled [] [] inputFile resolve source
+  pure out
+  where
+    resolve req = pure (lookup (includePath req) includeFiles)
+
 sampleCabal :: String
 sampleCabal =
   unlines
@@ -251,6 +394,18 @@ sampleCabal =
       "executable cli",
       "  main-is: Main.hs",
       "  hs-source-dirs: src",
+      "  build-depends: base",
+      "  default-language: Haskell2010"
+    ]
+
+nestedFixtureCabal :: String
+nestedFixtureCabal =
+  unlines
+    [ "cabal-version: 2.4",
+      "name: fixture",
+      "version: 0.1.0.0",
+      "executable fixture",
+      "  main-is: Fixture.hs",
       "  build-depends: base",
       "  default-language: Haskell2010"
     ]

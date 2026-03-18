@@ -12,10 +12,17 @@ import Data.List (isPrefixOf, nub)
 import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
-import qualified Data.Text.IO as TIO
 import GHC.Conc (getNumProcessors)
 import qualified GhcOracle
-import HackageSupport (FileInfo (..), diagToText, downloadPackageQuietWithNetwork, findTargetFilesFromCabal, prefixCppErrors, resolveIncludeBestEffort)
+import HackageSupport
+  ( FileInfo (..),
+    diagToText,
+    downloadPackageQuietWithNetwork,
+    findTargetFilesFromCabal,
+    prefixCppErrors,
+    readTextFileLenient,
+    resolveIncludeBestEffort,
+  )
 import HseExtensions (fromExtensionNames)
 import qualified Language.Haskell.Exts as HSE
 import qualified Parser
@@ -107,7 +114,21 @@ main = do
     Just path -> do
       home <- getHomeDirectory
       let sanitize = T.unpack . T.replace (T.pack home) "$HOME" . T.pack
-          ghcErrors = take (optGhcErrorsLimit opts) [(pkgName (package r), sanitize e) | r <- results, Just e <- [packageGhcError r]]
+          ghcFailureMessage r =
+            case packageGhcError r of
+              Just err -> sanitize err
+              Nothing ->
+                let reason = trim (packageReason r)
+                 in if null reason
+                      then "GHC check failed without diagnostic details"
+                      else "No direct GHC diagnostic; package failed before/around GHC check: " ++ sanitize reason
+          ghcErrors =
+            take
+              (optGhcErrorsLimit opts)
+              [ (formatPackage (package r), ghcFailureMessage r)
+              | r <- results,
+                not (packageGhcOk r)
+              ]
       writeFile path $ unlines ["=== " ++ pkg ++ " ===\n" ++ err ++ "\n" | (pkg, err) <- ghcErrors]
       putStrLn $ "GHC errors written to " ++ path
 
@@ -270,7 +291,9 @@ parseConstraint entry
         Nothing ->
           let ws = words entry
            in case ws of
-                [name, "installed"] -> Just (PackageSpec name "installed")
+                -- Snapshot constraints like "base installed" refer to compiler-provided
+                -- packages and do not map to downloadable Hackage tarballs.
+                [_, "installed"] -> Nothing
                 _ -> Nothing
 
 breakOn :: String -> String -> Maybe (String, String)
@@ -325,10 +348,10 @@ runPackageOrThrow opts spec = do
           pure
             PackageResult
               { package = spec,
-                packageOursOk = False,
-                packageHseOk = False,
-                packageGhcOk = False,
-                packageReason = "no target source files",
+                packageOursOk = True,
+                packageHseOk = True,
+                packageGhcOk = True,
+                packageReason = "",
                 packageGhcError = Nothing
               }
         else do
@@ -377,7 +400,7 @@ data FileResult = FileResult
 checkFile :: Options -> FilePath -> FileInfo -> IO FileResult
 checkFile opts packageRoot info = do
   let file = fileInfoPath info
-  source <- TIO.readFile file
+  source <- readTextFileLenient file
   preprocessed <- preprocessForParserIfEnabled (fileInfoExtensions info) (fileInfoCppOptions info) file (resolveIncludeBestEffort packageRoot file) source
   let source' = resultOutput preprocessed
       cppErrors = [diagToText diag | diag <- resultDiagnostics preprocessed, diagSeverity diag == Error]

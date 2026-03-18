@@ -23,7 +23,14 @@ import Distribution.PackageDescription.Parsec (parseGenericPackageDescription, r
 import Distribution.Pretty (prettyShow)
 import GHC.Conc (getNumProcessors)
 import qualified GhcOracle
-import HackageSupport (FileInfo (..), diagToText, downloadPackage, findTargetFilesFromCabal, resolveIncludeBestEffort)
+import HackageSupport
+  ( FileInfo (..),
+    diagToText,
+    downloadPackage,
+    findTargetFilesFromCabal,
+    readTextFileLenient,
+    resolveIncludeBestEffort,
+  )
 import HackageTester.CLI (Options (..), parseOptionsIO)
 import HackageTester.Model (FileResult (..), Outcome (..), Summary (..), failureLabel, shouldFailSummary, summarizeResults)
 import Network.HTTP.Client (HttpException, Manager, Request (responseTimeout), httpLbs, newManager, parseRequest, responseBody, responseTimeoutMicro)
@@ -158,7 +165,7 @@ mapConcurrentlyBounded jobs action items = do
 processFile :: Options -> FilePath -> FileInfo -> IO FileResult
 processFile opts packageRoot info = do
   let file = fileInfoPath info
-  source <- TIO.readFile file
+  source <- readTextFileLenient file
   preprocessed <- preprocessForParserIfEnabled (fileInfoExtensions info) (fileInfoCppOptions info) file (resolveIncludeBestEffort packageRoot file) source
   let source' = resultOutput preprocessed
       cppErrs = [diagToText diag | diag <- resultDiagnostics preprocessed, diagSeverity diag == Error]

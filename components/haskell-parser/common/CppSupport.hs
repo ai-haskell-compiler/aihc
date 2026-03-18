@@ -12,21 +12,26 @@ where
 
 import Cpp
   ( Config (..),
-    IncludeRequest,
+    IncludeKind (..),
+    IncludeRequest (..),
     Result (..),
     Step (..),
     defaultConfig,
+    includeFrom,
+    includeKind,
+    includePath,
     preprocess,
   )
-import Data.Char (toLower)
+import Data.Char (isAsciiLower, isAsciiUpper, isDigit, toLower)
 import Data.Functor.Identity (Identity (..), runIdentity)
 import qualified Data.Map.Strict as M
 import Data.Maybe (fromMaybe, mapMaybe)
+import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Parser as P
 import Parser.Ast (Extension (CPP), ExtensionSetting (..), parseExtensionSettingName)
-import System.FilePath (takeExtension)
+import System.FilePath (takeDirectory, takeExtension, (</>))
 
 preprocessForParser :: (Monad m) => FilePath -> (IncludeRequest -> m (Maybe Text)) -> Text -> m Result
 preprocessForParser inputFile resolveInclude source =
@@ -34,12 +39,14 @@ preprocessForParser inputFile resolveInclude source =
 
 preprocessForParserWithCppOptions :: (Monad m) => [String] -> FilePath -> (IncludeRequest -> m (Maybe Text)) -> Text -> m Result
 preprocessForParserWithCppOptions cppOptions inputFile resolveInclude source = do
+  minVersionMacros <- discoverMinVersionMacros inputFile resolveInclude source
+  let injected = injectSyntheticCppMacros cppOptions minVersionMacros source
   let cfg =
         defaultConfig
           { configInputFile = inputFile,
             configMacros = cppMacrosFromOptions cppOptions
           }
-  result <- drive (preprocess cfg source)
+  result <- drive (preprocess cfg injected)
   pure result {resultOutput = stripLinePragmas (resultOutput result)}
   where
     drive (Done result) = pure result
@@ -114,7 +121,10 @@ cppMacrosFromOptions cppOptions =
 builtinCppMacros :: M.Map Text Text
 builtinCppMacros =
   M.fromList
-    [ ("__GLASGOW_HASKELL__", "910")
+    [ ("__GLASGOW_HASKELL__", "906"),
+      ("__GLASGOW_HASKELL_FULL_VERSION__", "\"9.6.7\""),
+      ("__GLASGOW_HASKELL_PATCHLEVEL1__", "7"),
+      ("__GLASGOW_HASKELL_PATCHLEVEL2__", "0")
     ]
 
 data CppMacroOption
@@ -172,3 +182,126 @@ unliterateIfNeeded inputFile source
       | T.strip line == "\\end{code}" = "" : unlitLatex False rest
       | inCode = line : unlitLatex inCode rest
       | otherwise = "" : unlitLatex inCode rest
+
+discoverMinVersionMacros :: (Monad m) => FilePath -> (IncludeRequest -> m (Maybe Text)) -> Text -> m (S.Set Text)
+discoverMinVersionMacros inputFile resolveInclude =
+  go S.empty S.empty inputFile
+  where
+    go seenFiles seenMacros filePath txt
+      | filePath `S.member` seenFiles = pure seenMacros
+      | otherwise = do
+          let seenFiles' = S.insert filePath seenFiles
+              found = extractMinVersionMacroNames txt
+              includeReqs = extractIncludeRequests filePath txt
+              seenMacros' = S.union seenMacros found
+          foldl
+            (\acc req -> acc >>= \curr -> collectInclude seenFiles' curr req)
+            (pure seenMacros')
+            includeReqs
+
+    collectInclude seenFiles seenMacros req = do
+      content <- resolveInclude req
+      case content of
+        Nothing -> pure seenMacros
+        Just includeText ->
+          let includeFilePath =
+                case includeKind req of
+                  IncludeLocal -> takeDirectory (includeFrom req) </> includePath req
+                  IncludeSystem -> includePath req
+           in go seenFiles seenMacros includeFilePath includeText
+
+injectSyntheticCppMacros :: [String] -> S.Set Text -> Text -> Text
+injectSyntheticCppMacros cppOptions minVersionMacroNames source =
+  let existingFromOptions = cppDefinedOrUndefinedFromOptions cppOptions
+      reservedCompilerMinVersionNames = S.fromList ["MIN_VERSION_ghc", "MIN_VERSION_GLASGOW_HASKELL"]
+      shouldDefine name = not (name `S.member` existingFromOptions)
+      compilerMacroLines =
+        [ "#define MIN_VERSION_ghc(major1,major2,minor) 1"
+        | shouldDefine "MIN_VERSION_ghc"
+        ]
+          ++ [ "#define MIN_VERSION_GLASGOW_HASKELL(ma,mi,pl1,pl2) 1"
+             | shouldDefine "MIN_VERSION_GLASGOW_HASKELL"
+             ]
+      dynamicLines =
+        [ "#define " <> name <> "(major1,major2,minor) 1"
+        | name <- S.toAscList minVersionMacroNames,
+          not (name `S.member` reservedCompilerMinVersionNames),
+          shouldDefine name
+        ]
+      header =
+        if null (compilerMacroLines ++ dynamicLines)
+          then ""
+          else T.unlines (compilerMacroLines ++ dynamicLines)
+   in if T.null header then source else header <> source
+
+cppDefinedOrUndefinedFromOptions :: [String] -> S.Set Text
+cppDefinedOrUndefinedFromOptions =
+  foldl addName S.empty . mapMaybe parseCppMacroOption
+  where
+    addName acc option =
+      case option of
+        CppDefine name _ -> S.insert name acc
+        CppUndef name -> S.insert name acc
+
+extractMinVersionMacroNames :: Text -> S.Set Text
+extractMinVersionMacroNames = go S.empty
+  where
+    prefix = "MIN_VERSION_"
+    go acc txt =
+      case T.breakOn prefix txt of
+        (_, "") -> acc
+        (_, rest) ->
+          let candidateWithPrefix = T.takeWhile isMinVersionIdentChar rest
+              suffix = T.drop (T.length candidateWithPrefix) rest
+              acc' =
+                if T.length candidateWithPrefix > T.length prefix
+                  && case T.uncons suffix of
+                    Just ('(', _) -> True
+                    _ -> False
+                  then S.insert candidateWithPrefix acc
+                  else acc
+              nextTxt =
+                if T.null rest
+                  then ""
+                  else T.drop 1 rest
+           in go acc' nextTxt
+
+    isMinVersionIdentChar c = c == '_' || isAsciiAlphaNum c
+    isAsciiAlphaNum c = isAsciiLower c || isAsciiUpper c || isDigit c
+
+extractIncludeRequests :: FilePath -> Text -> [IncludeRequest]
+extractIncludeRequests filePath =
+  mapMaybe parseIncludeLine . T.lines
+  where
+    parseIncludeLine raw =
+      let line = T.stripStart raw
+       in case T.stripPrefix "#include" line of
+            Nothing -> Nothing
+            Just rest ->
+              let stripped = T.stripStart rest
+               in case T.uncons stripped of
+                    Just ('"', t1) ->
+                      let (path, t2) = T.breakOn "\"" t1
+                       in if T.null path || T.null t2
+                            then Nothing
+                            else
+                              Just
+                                IncludeRequest
+                                  { includePath = T.unpack path,
+                                    includeKind = IncludeLocal,
+                                    includeFrom = filePath,
+                                    includeLine = 1
+                                  }
+                    Just ('<', t1) ->
+                      let (path, t2) = T.breakOn ">" t1
+                       in if T.null path || T.null t2
+                            then Nothing
+                            else
+                              Just
+                                IncludeRequest
+                                  { includePath = T.unpack path,
+                                    includeKind = IncludeSystem,
+                                    includeFrom = filePath,
+                                    includeLine = 1
+                                  }
+                    _ -> Nothing
