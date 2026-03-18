@@ -153,42 +153,33 @@ prop_modulePrettyRoundTrip generated =
 prop_typePrettyRoundTrip :: Type -> Property
 prop_typePrettyRoundTrip ty =
   let source = prettyTypeText ty
-      moduleSource =
-        T.unlines
-          [ "{-# LANGUAGE QuasiQuotes #-}",
-            "module Generated where",
-            "x :: " <> source,
-            "x = undefined"
-          ]
+      expected = normalizeType ty
    in checkCoverage $
-        cover 1 (containsTypeCtor isTVar ty) "TVar" $
-          cover 1 (containsTypeCtor isTCon ty) "TCon" $
-            cover 1 (containsTypeCtor isTQuasiQuote ty) "TQuasiQuote" $
-              cover 1 (containsTypeCtor isTForall ty) "TForall" $
-                cover 1 (containsTypeCtor isTApp ty) "TApp" $
-                  cover 1 (containsTypeCtor isTFun ty) "TFun" $
-                    cover 1 (containsTypeCtor isTTuple ty) "TTuple" $
-                      cover 1 (containsTypeCtor isTList ty) "TList" $
-                        cover 1 (containsTypeCtor isTParen ty) "TParen" $
-                          cover 1 (containsTypeCtor isTContext ty) "TContext" $
-                            counterexample (T.unpack moduleSource) $
-                              case parseModule defaultConfig moduleSource of
-                                ParseErr err ->
-                                  counterexample (errorBundlePretty err) False
-                                ParseOk parsedModule ->
-                                  case parsedTypeFromModule parsedModule of
-                                    Nothing ->
-                                      counterexample ("type signature not found in: " <> show parsedModule) False
-                                    Just parsed ->
-                                      let expected = normalizeType ty
-                                          actual = normalizeType parsed
-                                       in counterexample ("expected: " <> show expected <> "\nactual: " <> show actual) (expected == actual)
+        applyCoverage (typeCtorCoverage ty) $
+          counterexample (T.unpack source) $
+            case parseType defaultConfig source of
+              ParseErr err ->
+                counterexample (errorBundlePretty err) False
+              ParseOk parsed ->
+                let actual = normalizeType parsed
+                 in counterexample ("expected: " <> show expected <> "\nactual: " <> show actual) (expected == actual)
 
-parsedTypeFromModule :: Module -> Maybe Type
-parsedTypeFromModule modu =
-  case moduleDecls modu of
-    DeclTypeSig _ _ ty : _ -> Just ty
-    _ -> Nothing
+typeCtorCoverage :: Type -> [Property -> Property]
+typeCtorCoverage ty =
+  [ cover 1 (containsTypeCtor isTVar ty) "TVar",
+    cover 1 (containsTypeCtor isTCon ty) "TCon",
+    cover 1 (containsTypeCtor isTQuasiQuote ty) "TQuasiQuote",
+    cover 1 (containsTypeCtor isTForall ty) "TForall",
+    cover 1 (containsTypeCtor isTApp ty) "TApp",
+    cover 1 (containsTypeCtor isTFun ty) "TFun",
+    cover 1 (containsTypeCtor isTTuple ty) "TTuple",
+    cover 1 (containsTypeCtor isTList ty) "TList",
+    cover 1 (containsTypeCtor isTParen ty) "TParen",
+    cover 1 (containsTypeCtor isTContext ty) "TContext"
+  ]
+
+applyCoverage :: [Property -> Property] -> Property -> Property
+applyCoverage wrappers prop = foldr (\wrap acc -> wrap acc) prop wrappers
 
 containsTypeCtor :: (Type -> Bool) -> Type -> Bool
 containsTypeCtor matches ty
