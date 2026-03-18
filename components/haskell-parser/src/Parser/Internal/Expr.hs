@@ -147,19 +147,19 @@ floatExprParser = withSpan $ do
 
 charExprParser :: TokParser Expr
 charExprParser = withSpan $ do
-  c <- tokenSatisfy $ \tok ->
+  (c, repr) <- tokenSatisfy $ \tok ->
     case lexTokenKind tok of
-      TkChar x -> Just x
+      TkChar x -> Just (x, lexTokenText tok)
       _ -> Nothing
-  pure (`EChar` c)
+  pure (\span' -> EChar span' c repr)
 
 stringExprParser :: TokParser Expr
 stringExprParser = withSpan $ do
-  s <- tokenSatisfy $ \tok ->
+  (s, repr) <- tokenSatisfy $ \tok ->
     case lexTokenKind tok of
-      TkString x -> Just x
+      TkString x -> Just (x, lexTokenText tok)
       _ -> Nothing
-  pure (`EString` s)
+  pure (\span' -> EString span' s repr)
 
 appExprParser :: TokParser Expr
 appExprParser = withSpan $ do

@@ -564,8 +564,8 @@ data Expr
   | EInt SourceSpan Integer Text
   | EIntBase SourceSpan Integer Text
   | EFloat SourceSpan Double Text
-  | EChar SourceSpan Char
-  | EString SourceSpan Text
+  | EChar SourceSpan Char Text
+  | EString SourceSpan Text Text
   | EQuasiQuote SourceSpan Text Text
   | EIf SourceSpan Expr Expr Expr
   | ELambdaPats SourceSpan [Pattern] Expr
