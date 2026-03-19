@@ -2,7 +2,6 @@
 
 module Test.Properties.PatternRoundTrip
   ( prop_patternPrettyRoundTrip,
-    prop_patternConstructorSamplesCoverAll,
   )
 where
 
@@ -27,39 +26,24 @@ prop_patternPrettyRoundTrip :: GenPattern -> Property
 prop_patternPrettyRoundTrip (GenPattern pat) =
   let source = prettyPatternText pat
       expected = normalizePattern pat
-   in counterexample (T.unpack source) $
-        case parsePattern defaultConfig source of
-          ParseErr err ->
-            counterexample (errorBundlePretty err) False
-          ParseOk parsed ->
-            let actual = normalizePattern parsed
-             in counterexample ("expected: " <> show expected <> "\nactual: " <> show actual) (expected == actual)
+   in checkCoverage $
+        applyCoverage (patternCtorCoverage pat) $
+          counterexample (T.unpack source) $
+            case parsePattern defaultConfig source of
+              ParseErr err ->
+                counterexample (errorBundlePretty err) False
+              ParseOk parsed ->
+                let actual = normalizePattern parsed
+                 in counterexample ("expected: " <> show expected <> "\nactual: " <> show actual) (expected == actual)
 
-prop_patternConstructorSamplesCoverAll :: Property
-prop_patternConstructorSamplesCoverAll =
-  let allCtors = Set.fromList (map showConstr (dataTypeConstrs (dataTypeOf (undefined :: Pattern))))
-      seenCtors = mconcat (map patternCtorNames patternConstructorSamples)
-      missing = Set.toList (allCtors Set.\\ seenCtors)
-   in counterexample ("missing constructors: " <> show missing) (null missing)
+patternCtorCoverage :: Pattern -> [Property -> Property]
+patternCtorCoverage pat =
+  let allCtors = map showConstr (dataTypeConstrs (dataTypeOf (undefined :: Pattern)))
+      seenCtors = patternCtorNames pat
+   in [cover 1 (ctor `Set.member` seenCtors) ctor | ctor <- allCtors]
 
-patternConstructorSamples :: [Pattern]
-patternConstructorSamples =
-  [ PVar span0 "x",
-    PWildcard span0,
-    PLit span0 (mkIntLiteral 1),
-    PQuasiQuote span0 "qq" "body",
-    PTuple span0 [PVar span0 "x", PWildcard span0],
-    PList span0 [PVar span0 "x"],
-    PCon span0 "C" [PVar span0 "x"],
-    PInfix span0 (PVar span0 "x") ":+" (PVar span0 "y"),
-    PView span0 (EVar span0 "view") (PVar span0 "x"),
-    PAs span0 "x" (PVar span0 "y"),
-    PStrict span0 (PVar span0 "x"),
-    PIrrefutable span0 (PVar span0 "x"),
-    PNegLit span0 (mkIntLiteral 1),
-    PParen span0 (PVar span0 "x"),
-    PRecord span0 "R" [("field", PVar span0 "x")]
-  ]
+applyCoverage :: [Property -> Property] -> Property -> Property
+applyCoverage wrappers prop = foldr (\wrap acc -> wrap acc) prop wrappers
 
 patternCtorNames :: Pattern -> Set.Set String
 patternCtorNames pat =
