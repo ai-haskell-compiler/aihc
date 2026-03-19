@@ -210,7 +210,7 @@ asPatternParser =
   MP.try
     ( withSpan $ do
         name <- identifierTextParser
-        operatorLikeTok "@"
+        symbolLikeTok "@"
         inner <- patternAtomParser
         pure (\span' -> PAs span' name inner)
     )
@@ -260,6 +260,7 @@ patternAtomParser =
   MP.try strictPatternParser
     <|> MP.try irrefutablePatternParser
     <|> MP.try negativeLiteralPatternParser
+    <|> quasiQuotePatternParser
     <|> wildcardPatternParser
     <|> literalPatternParser
     <|> listPatternParser
@@ -293,6 +294,14 @@ literalPatternParser :: TokParser Pattern
 literalPatternParser = withSpan $ do
   lit <- literalParser
   pure (`PLit` lit)
+
+quasiQuotePatternParser :: TokParser Pattern
+quasiQuotePatternParser = withSpan $ do
+  (quoter, body) <- tokenSatisfy $ \tok ->
+    case lexTokenKind tok of
+      TkQuasiQuote q b -> Just (q, b)
+      _ -> Nothing
+  pure (\span' -> PQuasiQuote span' quoter body)
 
 literalParser :: TokParser Literal
 literalParser = intLiteralParser <|> intBaseLiteralParser <|> floatLiteralParser <|> charLiteralParser <|> stringLiteralParser
@@ -657,17 +666,31 @@ listPatternParser = withSpan $ do
 parenOrTuplePatternParser :: TokParser Pattern
 parenOrTuplePatternParser = withSpan $ do
   symbolLikeTok "("
-  first <- patternParser
-  mComma <- MP.optional (symbolLikeTok ",")
-  case mComma of
-    Nothing -> do
+  MP.try unitPatternParser <|> MP.try viewPatternParser <|> tupleOrParenPatternParser
+  where
+    unitPatternParser = do
       symbolLikeTok ")"
-      pure (`PParen` first)
-    Just () -> do
-      second <- patternParser
-      more <- MP.many (symbolLikeTok "," *> patternParser)
+      pure (`PTuple` [])
+
+    viewPatternParser = do
+      viewExpr <- exprParser
+      operatorLikeTok "->"
+      inner <- patternParser
       symbolLikeTok ")"
-      pure (`PTuple` (first : second : more))
+      pure (\span' -> PView span' viewExpr inner)
+
+    tupleOrParenPatternParser = do
+      first <- patternParser
+      mComma <- MP.optional (symbolLikeTok ",")
+      case mComma of
+        Nothing -> do
+          symbolLikeTok ")"
+          pure (`PParen` first)
+        Just () -> do
+          second <- patternParser
+          more <- MP.many (symbolLikeTok "," *> patternParser)
+          symbolLikeTok ")"
+          pure (`PTuple` (first : second : more))
 
 sameLinePatternAtomParser :: Int -> TokParser Pattern
 sameLinePatternAtomParser expectedLine = do
@@ -743,7 +766,7 @@ simplePatternParser =
   MP.try
     ( withSpan $ do
         name <- identifierTextParser
-        operatorLikeTok "@"
+        symbolLikeTok "@"
         inner <- patternAtomParser
         pure (\span' -> PAs span' name inner)
     )

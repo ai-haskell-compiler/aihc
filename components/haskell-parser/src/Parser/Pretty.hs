@@ -3,6 +3,7 @@
 
 module Parser.Pretty
   ( prettyExpr,
+    prettyPatternText,
     prettyType,
     prettyTypeText,
     prettyModule,
@@ -32,6 +33,9 @@ import Prettyprinter.Render.Text (renderStrict)
 
 prettyExpr :: Expr -> Text
 prettyExpr = renderDoc . prettyExprPrec 0
+
+prettyPatternText :: Pattern -> Text
+prettyPatternText = renderDoc . prettyPattern
 
 prettyTypeText :: Type -> Text
 prettyTypeText = renderDoc . prettyType
@@ -277,9 +281,9 @@ prettyPattern pat =
     PCon _ con args -> hsep (pretty con : map prettyPatternAtom args)
     PInfix _ lhs op rhs -> prettyPatternAtom lhs <+> pretty op <+> prettyPatternAtom rhs
     PView _ viewExpr inner -> parens (prettyExprPrec 0 viewExpr <+> "->" <+> prettyPattern inner)
-    PAs _ name inner -> pretty name <> "@" <> prettyPatternAtom inner
-    PStrict _ inner -> "!" <> prettyPatternAtom inner
-    PIrrefutable _ inner -> "~" <> prettyPatternAtom inner
+    PAs _ name inner -> pretty name <+> "@" <+> prettyPatternAtom inner
+    PStrict _ inner -> "!" <> prettyUnaryPattern inner
+    PIrrefutable _ inner -> "~" <> prettyUnaryPattern inner
     PNegLit _ lit -> "-" <> prettyLiteral lit
     PParen _ inner -> parens (prettyPattern inner)
     PRecord _ con fields ->
@@ -308,6 +312,14 @@ prettyPatternAtom pat =
     PStrict _ _ -> prettyPattern pat
     PView {} -> prettyPattern pat
     _ -> parens (prettyPattern pat)
+
+prettyUnaryPattern :: Pattern -> Doc ann
+prettyUnaryPattern pat =
+  case pat of
+    PNegLit {} -> parens (prettyPattern pat)
+    PStrict {} -> parens (prettyPattern pat)
+    PIrrefutable {} -> parens (prettyPattern pat)
+    _ -> prettyPatternAtom pat
 
 prettyLiteral :: Literal -> Doc ann
 prettyLiteral lit =

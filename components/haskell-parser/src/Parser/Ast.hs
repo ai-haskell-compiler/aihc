@@ -390,7 +390,7 @@ data Literal
   | LitFloat SourceSpan Double Text
   | LitChar SourceSpan Char Text
   | LitString SourceSpan Text Text
-  deriving (Eq, Show)
+  deriving (Data, Eq, Show)
 
 data Pattern
   = PVar SourceSpan Text
@@ -408,7 +408,7 @@ data Pattern
   | PNegLit SourceSpan Literal
   | PParen SourceSpan Pattern
   | PRecord SourceSpan Text [(Text, Pattern)]
-  deriving (Eq, Show)
+  deriving (Data, Eq, Show)
 
 data Type
   = TVar SourceSpan Text
@@ -594,7 +594,7 @@ data Expr
   | ETupleCon SourceSpan Int
   | ETypeApp SourceSpan Expr Type
   | EApp SourceSpan Expr Expr
-  deriving (Eq, Show)
+  deriving (Data, Eq, Show)
 
 data CaseAlt = CaseAlt
   { caseAltSpan :: SourceSpan,

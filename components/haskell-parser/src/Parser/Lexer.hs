@@ -801,6 +801,7 @@ symbolToken =
   choice2
     [ ("..", TkSymbol ".."),
       ("`", TkSymbol "`"),
+      ("@", TkSymbol "@"),
       ("(", TkSymbol "("),
       (")", TkSymbol ")"),
       ("[", TkSymbol "["),

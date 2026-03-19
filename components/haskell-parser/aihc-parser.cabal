@@ -58,6 +58,7 @@ test-suite spec
     , Test.Lexer.Suite
     , Test.Properties.ExprModuleRoundTrip
     , Test.Properties.Identifiers
+    , Test.Properties.PatternRoundTrip
     , Test.Properties.TypeRoundTrip
     , Test.Parser.Suite
     , Test.StackageProgress.Summary

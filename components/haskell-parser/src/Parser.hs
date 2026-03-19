@@ -2,6 +2,7 @@
 
 module Parser
   ( parseExpr,
+    parsePattern,
     parseType,
     parseModule,
     defaultConfig,
@@ -19,10 +20,10 @@ module Parser
 where
 
 import Data.Text (Text)
-import Parser.Ast (Decl, Expr, Extension (..), ExtensionSetting (..), ImportDecl, Module (..), Type)
+import Parser.Ast (Decl, Expr, Extension (..), ExtensionSetting (..), ImportDecl, Module (..), Pattern, Type)
 import Parser.Internal.Common (TokParser, symbolLikeTok, withSpan)
 import Parser.Internal.Decl (declParser, importDeclParser, languagePragmaParser, moduleHeaderParser)
-import Parser.Internal.Expr (exprParser, typeParser)
+import Parser.Internal.Expr (exprParser, patternParser, typeParser)
 import Parser.Lexer
   ( LexToken (..),
     LexTokenKind (..),
@@ -84,6 +85,12 @@ parseExpr _cfg input =
   case runParser (exprParser <* MP.eof) "" (TokStream (lexTokens input)) of
     Left bundle -> ParseErr bundle
     Right expr -> ParseOk expr
+
+parsePattern :: ParserConfig -> Text -> ParseResult Pattern
+parsePattern _cfg input =
+  case runParser (patternParser <* MP.eof) "" (TokStream (lexTokens input)) of
+    Left bundle -> ParseErr bundle
+    Right pat -> ParseOk pat
 
 parseType :: ParserConfig -> Text -> ParseResult Type
 parseType _cfg input =
