@@ -3,12 +3,12 @@
 module Main (main) where
 
 import Control.Concurrent.Async (mapConcurrently)
-import Control.Exception (SomeException, displayException, try)
+import Control.Exception (IOException, SomeException, displayException, try)
 import Control.Monad (forM, when)
 import Cpp (Severity (..), diagSeverity, resultDiagnostics, resultOutput)
 import CppSupport (preprocessForParserIfEnabled)
 import Data.Char (isAlphaNum, isSpace)
-import Data.List (isPrefixOf, nub)
+import Data.List (isPrefixOf, nub, sortBy)
 import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -29,7 +29,7 @@ import qualified Parser
 import Parser.Ast
 import Parser.Types (ParseResult (..))
 import ParserValidation (ValidationError (..), ValidationErrorKind (..), validateParserDetailed)
-import System.Directory (XdgDirectory (XdgCache), createDirectoryIfMissing, doesFileExist, getHomeDirectory, getXdgDirectory)
+import System.Directory (XdgDirectory (XdgCache), createDirectoryIfMissing, doesFileExist, getFileSize, getHomeDirectory, getXdgDirectory)
 import System.Environment (getArgs)
 import System.Exit (exitFailure, exitSuccess)
 import System.FilePath ((</>))
@@ -50,6 +50,7 @@ data Options = Options
     optJobs :: Maybe Int,
     optOffline :: Bool,
     optPrintSucceeded :: Bool,
+    optPrintFailedTable :: Bool,
     optSanityCheck :: Bool,
     optGhcErrorsFile :: Maybe FilePath,
     optGhcErrorsLimit :: Int
@@ -67,7 +68,8 @@ data PackageResult = PackageResult
     packageHseOk :: Bool,
     packageGhcOk :: Bool,
     packageReason :: String,
-    packageGhcError :: Maybe String
+    packageGhcError :: Maybe String,
+    packageSourceSize :: Integer
   }
 
 main :: IO ()
@@ -132,12 +134,31 @@ main = do
       writeFile path $ unlines ["=== " ++ pkg ++ " ===\n" ++ err ++ "\n" | (pkg, err) <- ghcErrors]
       putStrLn $ "GHC errors written to " ++ path
 
+  when (optPrintFailedTable opts) $ do
+    let failed =
+          sortBy
+            (\a b -> compare (packageSourceSize a, formatPackage (package a)) (packageSourceSize b, formatPackage (package b)))
+            [r | r <- results, packageParserFailed r]
+        col1 = "Package"
+        col2 = "Size (bytes)"
+        pkgWidth = max (length col1) $ case failed of
+          [] -> 0
+          rs -> maximum (map (length . formatPackage . package) rs)
+        sizeWidth = max (length col2) $ case failed of
+          [] -> 0
+          rs -> maximum (map (length . show . packageSourceSize) rs)
+        padL n s = s ++ replicate (n - length s) ' '
+        padR n s = replicate (n - length s) ' ' ++ s
+    putStrLn (padL pkgWidth col1 ++ "  " ++ padR sizeWidth col2)
+    putStrLn (replicate (pkgWidth + 2 + sizeWidth) '-')
+    mapM_ (\r -> putStrLn (padL pkgWidth (formatPackage (package r)) ++ "  " ++ padR sizeWidth (show (packageSourceSize r)))) failed
+
   if successOursN == total then exitSuccess else exitFailure
 
 usage :: String
 usage =
   unlines
-    [ "Usage: cabal run stackage-progress -- [--snapshot lts-24.33] [--checks parse,roundtrip-ghc,source-span] [--jobs N] [--offline] [--print-succeeded] [--sanity-check]",
+    [ "Usage: cabal run stackage-progress -- [--snapshot lts-24.33] [--checks parse,roundtrip-ghc,source-span] [--jobs N] [--offline] [--print-succeeded] [--print-failed-table] [--sanity-check]",
       "",
       "Defaults:",
       "  --snapshot lts-24.33",
@@ -145,13 +166,14 @@ usage =
       "  --jobs <num processors>",
       "  --offline false",
       "  --print-succeeded false",
+      "  --print-failed-table false",
       "  --sanity-check false",
       "  --ghc-errors-file <path>",
       "  --ghc-errors-limit 100"
     ]
 
 parseOptions :: [String] -> Either String Options
-parseOptions = go (Options "lts-24.33" [CheckParse] Nothing False False False Nothing 100)
+parseOptions = go (Options "lts-24.33" [CheckParse] Nothing False False False False Nothing 100)
   where
     go opts [] =
       let opts' =
@@ -173,6 +195,8 @@ parseOptions = go (Options "lts-24.33" [CheckParse] Nothing False False False No
       go opts {optOffline = True} rest
     go opts ("--print-succeeded" : rest) =
       go opts {optPrintSucceeded = True} rest
+    go opts ("--print-failed-table" : rest) =
+      go opts {optPrintFailedTable = True} rest
     go opts ("--sanity-check" : rest) =
       go opts {optSanityCheck = True} rest
     go opts ("--ghc-errors-file" : path : rest) =
@@ -186,6 +210,18 @@ parseOptions = go (Options "lts-24.33" [CheckParse] Nothing False False False No
 
 formatPackage :: PackageSpec -> String
 formatPackage spec = pkgName spec ++ "-" ++ pkgVersion spec
+
+packageParserFailed :: PackageResult -> Bool
+packageParserFailed r = not (packageOursOk r) && packageSourceSize r > 0
+
+totalSourceSize :: [FileInfo] -> IO Integer
+totalSourceSize infos = sum <$> mapM (safeFileSize . fileInfoPath) infos
+  where
+    safeFileSize path = do
+      r <- try (getFileSize path) :: IO (Either IOException Integer)
+      pure $ case r of
+        Left _ -> 0
+        Right n -> n
 
 parseChecks :: String -> Either String [Check]
 parseChecks raw = do
@@ -323,7 +359,8 @@ runPackage opts spec = do
           packageHseOk = False,
           packageGhcOk = False,
           packageReason = displayException (err :: SomeException),
-          packageGhcError = Nothing
+          packageGhcError = Nothing,
+          packageSourceSize = 0
         }
     Right pkgResult -> pkgResult
 
@@ -338,11 +375,13 @@ runPackageOrThrow opts spec = do
             packageHseOk = False,
             packageGhcOk = False,
             packageReason = "installed package has no downloadable snapshot version",
-            packageGhcError = Nothing
+            packageGhcError = Nothing,
+            packageSourceSize = 0
           }
     else do
       srcDir <- downloadPackageQuietWithNetwork (not (optOffline opts)) (pkgName spec) (pkgVersion spec)
       files <- findTargetFilesFromCabal srcDir
+      totalSize <- if optPrintFailedTable opts then totalSourceSize files else pure 0
       if null files
         then
           pure
@@ -352,7 +391,8 @@ runPackageOrThrow opts spec = do
                 packageHseOk = True,
                 packageGhcOk = True,
                 packageReason = "",
-                packageGhcError = Nothing
+                packageGhcError = Nothing,
+                packageSourceSize = totalSize
               }
         else do
           fileResults <- forM files (checkFile opts srcDir)
@@ -372,7 +412,8 @@ runPackageOrThrow opts spec = do
                     packageHseOk = hseOk,
                     packageGhcOk = ghcOk,
                     packageReason = "",
-                    packageGhcError = ghcError
+                    packageGhcError = ghcError,
+                    packageSourceSize = totalSize
                   }
             else
               let firstFailure =
@@ -386,7 +427,8 @@ runPackageOrThrow opts spec = do
                         packageHseOk = hseOk,
                         packageGhcOk = ghcOk,
                         packageReason = firstFailure,
-                        packageGhcError = ghcError
+                        packageGhcError = ghcError,
+                        packageSourceSize = totalSize
                       }
 
 data FileResult = FileResult
