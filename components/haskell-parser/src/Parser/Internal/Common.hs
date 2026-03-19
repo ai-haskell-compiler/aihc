@@ -14,6 +14,7 @@ module Parser.Internal.Common
     exprSourceSpan,
     typeSourceSpan,
     mergeSourceSpans,
+    parens,
   )
 where
 
@@ -144,3 +145,10 @@ mergeSourceSpans left right =
     (SourceSpan l1 c1 _ _, SourceSpan _ _ l2 c2) -> SourceSpan l1 c1 l2 c2
     (NoSourceSpan, span') -> span'
     (span', NoSourceSpan) -> span'
+
+parens :: TokParser a -> TokParser a
+parens parser = do
+  symbolLikeTok "("
+  res <- parser
+  symbolLikeTok ")"
+  pure res

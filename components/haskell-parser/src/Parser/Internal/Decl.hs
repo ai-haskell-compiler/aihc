@@ -46,11 +46,7 @@ warningTextParser =
         _ -> Nothing
 
 exportSpecListParser :: TokParser [ExportSpec]
-exportSpecListParser = do
-  symbolLikeTok "("
-  specs <- exportSpecParser `MP.sepBy` symbolLikeTok ","
-  symbolLikeTok ")"
-  pure specs
+exportSpecListParser = parens $ exportSpecParser `MP.sepBy` symbolLikeTok ","
 
 exportSpecParser :: TokParser ExportSpec
 exportSpecParser =
@@ -77,13 +73,10 @@ exportNameParser = do
         | otherwise -> ExportVar span' namespace name
 
 exportMembersParser :: TokParser (Maybe [Text])
-exportMembersParser = do
-  symbolLikeTok "("
-  members <-
+exportMembersParser =
+  parens $
     (symbolLikeTok ".." >> pure Nothing)
       <|> (Just <$> (identifierTextParser `MP.sepBy` symbolLikeTok ","))
-  symbolLikeTok ")"
-  pure members
 
 isTypeName :: Text -> Bool
 isTypeName txt =
@@ -134,9 +127,7 @@ importSpecParser :: TokParser ImportSpec
 importSpecParser = withSpan $ do
   isHiding <-
     MP.option False (keywordTok TkKeywordHiding >> pure True)
-  symbolLikeTok "("
-  items <- importItemParser `MP.sepBy` symbolLikeTok ","
-  symbolLikeTok ")"
+  items <- parens $ importItemParser `MP.sepBy` symbolLikeTok ","
   pure $ \span' ->
     ImportSpec
       { importSpecSpan = span',
@@ -147,7 +138,7 @@ importSpecParser = withSpan $ do
 importItemParser :: TokParser ImportItem
 importItemParser = withSpan $ do
   namespace <- MP.optional exportImportNamespaceParser
-  itemName <- identifierTextParser <|> (symbolLikeTok "(" *> constructorOperatorParser <* symbolLikeTok ")")
+  itemName <- identifierTextParser <|> parens constructorOperatorParser
   case namespace of
     Nothing ->
       pure (\span' -> ImportItemVar span' Nothing itemName)
@@ -403,11 +394,7 @@ declContextParser =
   MP.try parenContextParser <|> ((: []) <$> constraintParser)
 
 parenContextParser :: TokParser [Constraint]
-parenContextParser = do
-  symbolLikeTok "("
-  constraints <- constraintParser `MP.sepBy` symbolLikeTok ","
-  symbolLikeTok ")"
-  pure constraints
+parenContextParser = parens $ constraintParser `MP.sepBy` symbolLikeTok ","
 
 constraintParser :: TokParser Constraint
 constraintParser = withSpan $ do
@@ -446,11 +433,7 @@ derivingClauseParser = do
   pure (DerivingClause strategy classes)
   where
     singleClass = (: []) <$> identifierTextParser
-    parenClasses = do
-      symbolLikeTok "("
-      classes <- identifierTextParser `MP.sepBy` symbolLikeTok ","
-      symbolLikeTok ")"
-      pure classes
+    parenClasses = parens $ identifierTextParser `MP.sepBy` symbolLikeTok ","
 
 derivingStrategyParser :: TokParser DerivingStrategy
 derivingStrategyParser =
