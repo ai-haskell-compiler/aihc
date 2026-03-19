@@ -591,6 +591,7 @@ lexSymbol st =
   firstJust
     [ ("..", TkSymbol ".."),
       ("`", TkSymbol "`"),
+      ("@", TkSymbol "@"),
       ("(", TkSymbol "("),
       (")", TkSymbol ")"),
       ("[", TkSymbol "["),
@@ -1076,40 +1077,6 @@ mkSpan start end =
       sourceSpanEndLine = lexerLine end,
       sourceSpanEndCol = lexerCol end
     }
-
--- | Identifier tail character after the first character.
-identTailChar :: LParser Char
-identTailChar =
-  C.alphaNumChar
-    <|> C.char '_'
-    <|> C.char '\''
-
--- | Parse symbolic operators such as @->@, @::@, or @+@.
-operatorToken :: LParser (Text, LexTokenKind)
-operatorToken = do
-  op <- some (satisfy isSymbolicOpChar)
-  let txt = T.pack op
-  pure (txt, TkOperator txt)
-
--- | Parse punctuation symbols handled as standalone tokens.
-symbolToken :: LParser (Text, LexTokenKind)
-symbolToken =
-  choice2
-    [ ("..", TkSymbol ".."),
-      ("`", TkSymbol "`"),
-      ("@", TkSymbol "@"),
-      ("(", TkSymbol "("),
-      (")", TkSymbol ")"),
-      ("[", TkSymbol "["),
-      ("]", TkSymbol "]"),
-      ("{", TkSymbol "{"),
-      ("}", TkSymbol "}"),
-      (",", TkSymbol ","),
-      (";", TkSymbol ";")
-    ]
-  where
-    choice2 xs =
-      foldr1 (<|>) [try (C.string t >> pure (t, k)) | (t, k) <- xs]
 
 advanceChars :: String -> LexerState -> LexerState
 advanceChars chars st = foldl advanceOne st chars

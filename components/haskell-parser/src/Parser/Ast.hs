@@ -352,37 +352,37 @@ data Decl
   | DeclInstance SourceSpan InstanceDecl
   | DeclDefault SourceSpan [Type]
   | DeclForeign SourceSpan ForeignDecl
-  deriving (Eq, Show)
+  deriving (Data, Eq, Show)
 
 data ValueDecl
   = FunctionBind SourceSpan BinderName [Match]
   | PatternBind SourceSpan Pattern Rhs
-  deriving (Eq, Show)
+  deriving (Data, Eq, Show)
 
 data Match = Match
   { matchSpan :: SourceSpan,
     matchPats :: [Pattern],
     matchRhs :: Rhs
   }
-  deriving (Eq, Show)
+  deriving (Data, Eq, Show)
 
 data Rhs
   = UnguardedRhs SourceSpan Expr
   | GuardedRhss SourceSpan [GuardedRhs]
-  deriving (Eq, Show)
+  deriving (Data, Eq, Show)
 
 data GuardedRhs = GuardedRhs
   { guardedRhsSpan :: SourceSpan,
     guardedRhsGuards :: [GuardQualifier],
     guardedRhsBody :: Expr
   }
-  deriving (Eq, Show)
+  deriving (Data, Eq, Show)
 
 data GuardQualifier
   = GuardExpr SourceSpan Expr
   | GuardPat SourceSpan Pattern Expr
   | GuardLet SourceSpan [Decl]
-  deriving (Eq, Show)
+  deriving (Data, Eq, Show)
 
 data Literal
   = LitInt SourceSpan Integer Text
@@ -437,7 +437,7 @@ data TypeSynDecl = TypeSynDecl
     typeSynParams :: [Text],
     typeSynBody :: Type
   }
-  deriving (Eq, Show)
+  deriving (Data, Eq, Show)
 
 data DataDecl = DataDecl
   { dataDeclSpan :: SourceSpan,
@@ -447,7 +447,7 @@ data DataDecl = DataDecl
     dataDeclConstructors :: [DataConDecl],
     dataDeclDeriving :: [DerivingClause]
   }
-  deriving (Eq, Show)
+  deriving (Data, Eq, Show)
 
 data NewtypeDecl = NewtypeDecl
   { newtypeDeclSpan :: SourceSpan,
@@ -457,39 +457,39 @@ data NewtypeDecl = NewtypeDecl
     newtypeDeclConstructor :: Maybe DataConDecl,
     newtypeDeclDeriving :: [DerivingClause]
   }
-  deriving (Eq, Show)
+  deriving (Data, Eq, Show)
 
 data DataConDecl
   = PrefixCon SourceSpan [Text] [Constraint] Text [BangType]
   | InfixCon SourceSpan [Text] [Constraint] BangType Text BangType
   | RecordCon SourceSpan [Text] [Constraint] Text [FieldDecl]
-  deriving (Eq, Show)
+  deriving (Data, Eq, Show)
 
 data BangType = BangType
   { bangSpan :: SourceSpan,
     bangStrict :: Bool,
     bangType :: Type
   }
-  deriving (Eq, Show)
+  deriving (Data, Eq, Show)
 
 data FieldDecl = FieldDecl
   { fieldSpan :: SourceSpan,
     fieldNames :: [Text],
     fieldType :: BangType
   }
-  deriving (Eq, Show)
+  deriving (Data, Eq, Show)
 
 data DerivingClause = DerivingClause
   { derivingStrategy :: Maybe DerivingStrategy,
     derivingClasses :: [Text]
   }
-  deriving (Eq, Show)
+  deriving (Data, Eq, Show)
 
 data DerivingStrategy
   = DerivingStock
   | DerivingNewtype
   | DerivingAnyclass
-  deriving (Eq, Show)
+  deriving (Data, Eq, Show)
 
 data ClassDecl = ClassDecl
   { classDeclSpan :: SourceSpan,
@@ -498,13 +498,13 @@ data ClassDecl = ClassDecl
     classDeclParams :: [Text],
     classDeclItems :: [ClassDeclItem]
   }
-  deriving (Eq, Show)
+  deriving (Data, Eq, Show)
 
 data ClassDeclItem
   = ClassItemTypeSig SourceSpan [BinderName] Type
   | ClassItemFixity SourceSpan FixityAssoc (Maybe Int) [OperatorName]
   | ClassItemDefault SourceSpan ValueDecl
-  deriving (Eq, Show)
+  deriving (Data, Eq, Show)
 
 data InstanceDecl = InstanceDecl
   { instanceDeclSpan :: SourceSpan,
@@ -513,19 +513,19 @@ data InstanceDecl = InstanceDecl
     instanceDeclTypes :: [Type],
     instanceDeclItems :: [InstanceDeclItem]
   }
-  deriving (Eq, Show)
+  deriving (Data, Eq, Show)
 
 data InstanceDeclItem
   = InstanceItemBind SourceSpan ValueDecl
   | InstanceItemTypeSig SourceSpan [BinderName] Type
   | InstanceItemFixity SourceSpan FixityAssoc (Maybe Int) [OperatorName]
-  deriving (Eq, Show)
+  deriving (Data, Eq, Show)
 
 data FixityAssoc
   = Infix
   | InfixL
   | InfixR
-  deriving (Eq, Show)
+  deriving (Data, Eq, Show)
 
 data ForeignDecl = ForeignDecl
   { foreignDeclSpan :: SourceSpan,
@@ -536,7 +536,7 @@ data ForeignDecl = ForeignDecl
     foreignName :: Text,
     foreignType :: Type
   }
-  deriving (Eq, Show)
+  deriving (Data, Eq, Show)
 
 data ForeignEntitySpec
   = ForeignEntityDynamic
@@ -545,22 +545,22 @@ data ForeignEntitySpec
   | ForeignEntityAddress (Maybe Text)
   | ForeignEntityNamed Text
   | ForeignEntityOmitted
-  deriving (Eq, Show)
+  deriving (Data, Eq, Show)
 
 data ForeignDirection
   = ForeignImport
   | ForeignExport
-  deriving (Eq, Show)
+  deriving (Data, Eq, Show)
 
 data CallConv
   = CCall
   | StdCall
-  deriving (Eq, Show)
+  deriving (Data, Eq, Show)
 
 data ForeignSafety
   = Safe
   | Unsafe
-  deriving (Eq, Show)
+  deriving (Data, Eq, Show)
 
 data Expr
   = EVar SourceSpan Text
@@ -601,28 +601,28 @@ data CaseAlt = CaseAlt
     caseAltPattern :: Pattern,
     caseAltRhs :: Rhs
   }
-  deriving (Eq, Show)
+  deriving (Data, Eq, Show)
 
 data DoStmt
   = DoBind SourceSpan Pattern Expr
   | DoLet SourceSpan [(Text, Expr)]
   | DoLetDecls SourceSpan [Decl]
   | DoExpr SourceSpan Expr
-  deriving (Eq, Show)
+  deriving (Data, Eq, Show)
 
 data CompStmt
   = CompGen SourceSpan Pattern Expr
   | CompGuard SourceSpan Expr
   | CompLet SourceSpan [(Text, Expr)]
   | CompLetDecls SourceSpan [Decl]
-  deriving (Eq, Show)
+  deriving (Data, Eq, Show)
 
 data ArithSeq
   = ArithSeqFrom SourceSpan Expr
   | ArithSeqFromThen SourceSpan Expr Expr
   | ArithSeqFromTo SourceSpan Expr Expr
   | ArithSeqFromThenTo SourceSpan Expr Expr Expr
-  deriving (Eq, Show)
+  deriving (Data, Eq, Show)
 
 valueDeclBinderName :: ValueDecl -> Maybe Text
 valueDeclBinderName vdecl =

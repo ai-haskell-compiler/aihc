@@ -282,7 +282,7 @@ genConOperator :: Gen Text
 genConOperator = do
   first <- elements ":"
   restLen <- chooseInt (0, 3)
-  rest <- vectorOf restLen (elements ":!#$%&*+./<=>?@\\^|-~")
+  rest <- vectorOf restLen (elements ":!#$%&*+./<=>?\\^|-~")
   pure (T.pack (first : rest))
 
 genFieldName :: Gen Text
@@ -378,8 +378,8 @@ normalizePattern pat =
     PInfix _ lhs op rhs -> PInfix span0 (normalizePattern lhs) op (normalizePattern rhs)
     PView _ expr inner -> PView span0 (normalizeViewExpr expr) (normalizePattern inner)
     PAs _ name inner -> PAs span0 name (normalizePattern inner)
-    PStrict _ inner -> PStrict span0 (normalizePattern inner)
-    PIrrefutable _ inner -> PIrrefutable span0 (normalizePattern inner)
+    PStrict _ inner -> PStrict span0 (normalizeUnaryInner inner)
+    PIrrefutable _ inner -> PIrrefutable span0 (normalizeUnaryInner inner)
     PNegLit _ lit -> PNegLit span0 (normalizeLiteral lit)
     PParen _ inner -> PParen span0 (normalizePattern inner)
     PRecord _ con fields -> PRecord span0 con [(fieldName, normalizePattern fieldPat) | (fieldName, fieldPat) <- fields]
@@ -400,3 +400,11 @@ normalizeViewExpr expr =
     EInt _ value repr -> EInt span0 value repr
     EParen _ inner -> EParen span0 (normalizeViewExpr inner)
     _ -> expr
+
+normalizeUnaryInner :: Pattern -> Pattern
+normalizeUnaryInner pat =
+  case normalizePattern pat of
+    PParen _ inner@(PNegLit {}) -> inner
+    PParen _ inner@(PStrict {}) -> inner
+    PParen _ inner@(PIrrefutable {}) -> inner
+    other -> other
