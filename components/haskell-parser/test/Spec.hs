@@ -17,6 +17,7 @@ import Test.Properties.ExprModuleRoundTrip
     prop_modulePrettyRoundTrip,
   )
 import Test.Properties.TypeRoundTrip (prop_typePrettyRoundTrip)
+import Test.StackageProgress.Summary (stackageProgressSummaryTests)
 import Test.Tasty
 import Test.Tasty.HUnit
 import qualified Test.Tasty.QuickCheck as QC
@@ -60,7 +61,8 @@ buildTests = do
         h2010,
         extensions,
         extensionMappingTests,
-        hackageTester
+        hackageTester,
+        stackageProgressSummaryTests
       ]
 
 test_moduleParsesDecls :: Assertion
