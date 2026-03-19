@@ -9,6 +9,7 @@ module StackageProgress.Summary
     addPackageResults,
     emptySummary,
     finalizeSummary,
+    forceString,
     formatPackage,
     packageParserFailed,
     summaryFailedPackages,
@@ -21,7 +22,7 @@ module StackageProgress.Summary
 where
 
 import Data.Char (isSpace)
-import Data.List (dropWhileEnd)
+import qualified Data.List as List
 
 data PackageSpec = PackageSpec
   { pkgName :: String,
@@ -55,9 +56,9 @@ data RunSummary = RunSummary
   { summarySuccessOursN :: !Int,
     summarySuccessHseN :: !Int,
     summarySuccessGhcN :: !Int,
-    summarySucceededPackagesRev :: [String],
-    summaryFailedPackagesRev :: [FailedPackage],
-    summaryGhcErrorsRev :: [(String, String)],
+    summarySucceededPackagesAcc :: [String],
+    summaryFailedPackagesAcc :: [FailedPackage],
+    summaryGhcErrorsAcc :: [(String, String)],
     summaryGhcErrorsStored :: !Int
   }
 
@@ -67,14 +68,14 @@ emptySummary =
     { summarySuccessOursN = 0,
       summarySuccessHseN = 0,
       summarySuccessGhcN = 0,
-      summarySucceededPackagesRev = [],
-      summaryFailedPackagesRev = [],
-      summaryGhcErrorsRev = [],
+      summarySucceededPackagesAcc = [],
+      summaryFailedPackagesAcc = [],
+      summaryGhcErrorsAcc = [],
       summaryGhcErrorsStored = 0
     }
 
 addPackageResults :: SummaryOptions -> [PackageResult] -> RunSummary -> RunSummary
-addPackageResults opts results summary0 = foldl' (addPackageResult opts) summary0 results
+addPackageResults opts results summary0 = List.foldl' (addPackageResult opts) summary0 results
   where
     addPackageResult :: SummaryOptions -> RunSummary -> PackageResult -> RunSummary
     addPackageResult summaryOpts summary result =
@@ -84,47 +85,47 @@ addPackageResults opts results summary0 = foldl' (addPackageResult opts) summary
           !pkgLabel = forceString (formatPackage (package result))
           succeededRev =
             if summaryKeepSucceeded summaryOpts && packageOursOk result
-              then pkgLabel : summarySucceededPackagesRev summary
-              else summarySucceededPackagesRev summary
+              then pkgLabel : summarySucceededPackagesAcc summary
+              else summarySucceededPackagesAcc summary
           failedRev =
             if summaryKeepFailedPackages summaryOpts && packageParserFailed result
-              then FailedPackage pkgLabel (packageSourceSize result) : summaryFailedPackagesRev summary
-              else summaryFailedPackagesRev summary
+              then FailedPackage pkgLabel (packageSourceSize result) : summaryFailedPackagesAcc summary
+              else summaryFailedPackagesAcc summary
           (!ghcStored, ghcErrorsRev) = addGhcErrorIfNeeded summaryOpts summary result pkgLabel
        in RunSummary
             { summarySuccessOursN = oursN,
               summarySuccessHseN = hseN,
               summarySuccessGhcN = ghcN,
-              summarySucceededPackagesRev = succeededRev,
-              summaryFailedPackagesRev = failedRev,
-              summaryGhcErrorsRev = ghcErrorsRev,
+              summarySucceededPackagesAcc = succeededRev,
+              summaryFailedPackagesAcc = failedRev,
+              summaryGhcErrorsAcc = ghcErrorsRev,
               summaryGhcErrorsStored = ghcStored
             }
 
     addGhcErrorIfNeeded :: SummaryOptions -> RunSummary -> PackageResult -> String -> (Int, [(String, String)])
     addGhcErrorIfNeeded summaryOpts summary result pkgLabel
-      | packageGhcOk result = (summaryGhcErrorsStored summary, summaryGhcErrorsRev summary)
-      | summaryGhcErrorsStored summary >= summaryGhcErrorLimit summaryOpts = (summaryGhcErrorsStored summary, summaryGhcErrorsRev summary)
+      | packageGhcOk result = (summaryGhcErrorsStored summary, summaryGhcErrorsAcc summary)
+      | summaryGhcErrorsStored summary >= summaryGhcErrorLimit summaryOpts = (summaryGhcErrorsStored summary, summaryGhcErrorsAcc summary)
       | otherwise =
           let !message = forceString (ghcFailureMessage result)
-           in (summaryGhcErrorsStored summary + 1, (pkgLabel, message) : summaryGhcErrorsRev summary)
+           in (summaryGhcErrorsStored summary + 1, (pkgLabel, message) : summaryGhcErrorsAcc summary)
 
 finalizeSummary :: RunSummary -> RunSummary
 finalizeSummary summary =
   summary
-    { summarySucceededPackagesRev = reverse (summarySucceededPackagesRev summary),
-      summaryFailedPackagesRev = reverse (summaryFailedPackagesRev summary),
-      summaryGhcErrorsRev = reverse (summaryGhcErrorsRev summary)
+    { summarySucceededPackagesAcc = reverse (summarySucceededPackagesAcc summary),
+      summaryFailedPackagesAcc = reverse (summaryFailedPackagesAcc summary),
+      summaryGhcErrorsAcc = reverse (summaryGhcErrorsAcc summary)
     }
 
 summarySucceededPackages :: RunSummary -> [String]
-summarySucceededPackages = summarySucceededPackagesRev
+summarySucceededPackages = summarySucceededPackagesAcc
 
 summaryFailedPackages :: RunSummary -> [FailedPackage]
-summaryFailedPackages = summaryFailedPackagesRev
+summaryFailedPackages = summaryFailedPackagesAcc
 
 summaryGhcErrors :: RunSummary -> [(String, String)]
-summaryGhcErrors = summaryGhcErrorsRev
+summaryGhcErrors = summaryGhcErrorsAcc
 
 formatPackage :: PackageSpec -> String
 formatPackage spec = pkgName spec ++ "-" ++ pkgVersion spec
@@ -143,7 +144,7 @@ ghcFailureMessage result =
             else "No direct GHC diagnostic; package failed before/around GHC check: " ++ forceString reason
 
 trim :: String -> String
-trim = dropWhileEnd isSpace . dropWhile isSpace
+trim = List.dropWhileEnd isSpace . dropWhile isSpace
 
 boolToInt :: Bool -> Int
 boolToInt True = 1

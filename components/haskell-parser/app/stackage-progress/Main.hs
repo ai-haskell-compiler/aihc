@@ -39,6 +39,7 @@ import StackageProgress.Summary
     addPackageResults,
     emptySummary,
     finalizeSummary,
+    forceString,
     summaryFailedPackages,
     summaryGhcErrors,
     summarySucceededPackages,
@@ -1115,6 +1116,3 @@ summaryOptions opts =
           Just _ -> optGhcErrorsLimit opts
           Nothing -> 0
     }
-
-forceString :: String -> String
-forceString value = length value `seq` value

@@ -56,6 +56,9 @@ test-suite spec
     , Test.Extensions.Suite
     , Test.HackageTester.Suite
     , Test.Lexer.Suite
+    , Test.Properties.ExprModuleRoundTrip
+    , Test.Properties.Identifiers
+    , Test.Properties.TypeRoundTrip
     , Test.Parser.Suite
     , Test.StackageProgress.Summary
   build-depends:

@@ -1,3 +1,5 @@
+{-# LANGUAGE DeriveDataTypeable #-}
+
 module Parser.Ast
   ( ArithSeq (..),
     BangType (..),
@@ -56,6 +58,7 @@ module Parser.Ast
 where
 
 import Control.Applicative ((<|>))
+import Data.Data (Data)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Text.Read (readMaybe)
@@ -274,7 +277,7 @@ data SourceSpan
         sourceSpanEndLine :: !Int,
         sourceSpanEndCol :: !Int
       }
-  deriving (Eq, Ord, Show)
+  deriving (Data, Eq, Ord, Show)
 
 noSourceSpan :: SourceSpan
 noSourceSpan = NoSourceSpan
@@ -418,7 +421,7 @@ data Type
   | TList SourceSpan Type
   | TParen SourceSpan Type
   | TContext SourceSpan [Constraint] Type
-  deriving (Eq, Show)
+  deriving (Data, Eq, Show)
 
 data Constraint = Constraint
   { constraintSpan :: SourceSpan,
@@ -426,7 +429,7 @@ data Constraint = Constraint
     constraintArgs :: [Type],
     constraintParen :: Bool
   }
-  deriving (Eq, Show)
+  deriving (Data, Eq, Show)
 
 data TypeSynDecl = TypeSynDecl
   { typeSynSpan :: SourceSpan,
