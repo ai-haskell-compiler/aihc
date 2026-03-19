@@ -50,7 +50,12 @@ buildTests = do
             testCase "reads OPTIONS -fglasgow-exts as legacy extension bundle" test_readsOptionsPragmaGlasgowExts,
             testCase "ignores unknown header pragmas" test_ignoresUnknownHeaderPragmas,
             testCase "ignores LANGUAGE pragmas inside comments" test_ignoresLanguagePragmasInsideComments,
-            testCase "stops header scan at first module token" test_stopsHeaderScanAtFirstModuleToken
+            testCase "stops header scan at first module token" test_stopsHeaderScanAtFirstModuleToken,
+            testCase "emits lexer error token for unterminated strings" test_unterminatedStringProducesErrorToken,
+            testCase "applies hash line directives to subsequent tokens" test_hashLineDirectiveUpdatesSpan,
+            testCase "applies LINE pragmas to subsequent tokens" test_linePragmaUpdatesSpan,
+            testCase "applies COLUMN pragmas to subsequent tokens" test_columnPragmaUpdatesSpan,
+            testCase "can lex lazily from chunks" test_lexerChunkLaziness
           ],
         testGroup
           "properties"
@@ -235,6 +240,38 @@ test_stopsHeaderScanAtFirstModuleToken = do
           ]
       exts = readModuleHeaderExtensions source
   assertEqual "stops before body pragmas" [] exts
+
+test_unterminatedStringProducesErrorToken :: Assertion
+test_unterminatedStringProducesErrorToken =
+  case lexTokens "\"unterminated" of
+    [LexToken {lexTokenKind = TkError _}] -> pure ()
+    other -> assertFailure ("expected single TkError token, got: " <> show other)
+
+test_hashLineDirectiveUpdatesSpan :: Assertion
+test_hashLineDirectiveUpdatesSpan =
+  case lexTokens "#line 42\nx" of
+    [LexToken {lexTokenKind = TkIdentifier "x", lexTokenSpan = SourceSpan 42 1 42 2}] -> pure ()
+    other -> assertFailure ("expected identifier at line 42, got: " <> show other)
+
+test_linePragmaUpdatesSpan :: Assertion
+test_linePragmaUpdatesSpan =
+  case lexTokens "{-# LINE 17 #-}\nx" of
+    [LexToken {lexTokenKind = TkIdentifier "x", lexTokenSpan = SourceSpan 17 1 17 2}] -> pure ()
+    other -> assertFailure ("expected identifier at line 17, got: " <> show other)
+
+test_columnPragmaUpdatesSpan :: Assertion
+test_columnPragmaUpdatesSpan =
+  case lexTokens "x\n{-# COLUMN 7 #-}y" of
+    [ LexToken {lexTokenKind = TkIdentifier "x"},
+      LexToken {lexTokenKind = TkIdentifier "y", lexTokenSpan = SourceSpan 2 7 2 8}
+      ] -> pure ()
+    other -> assertFailure ("expected second identifier at column 7, got: " <> show other)
+
+test_lexerChunkLaziness :: Assertion
+test_lexerChunkLaziness =
+  case take 1 (lexTokensFromChunks ["x ", error "forced tail"]) of
+    [LexToken {lexTokenKind = TkIdentifier "x"}] -> pure ()
+    other -> assertFailure ("expected lazy first token from chunks, got: " <> show other)
 
 prop_exprPrettyRoundTrip :: GenExpr -> Property
 prop_exprPrettyRoundTrip generated =
