@@ -52,6 +52,7 @@ buildTests = do
             testCase "ignores LANGUAGE pragmas inside comments" test_ignoresLanguagePragmasInsideComments,
             testCase "stops header scan at first module token" test_stopsHeaderScanAtFirstModuleToken,
             testCase "emits lexer error token for unterminated strings" test_unterminatedStringProducesErrorToken,
+            testCase "emits lexer error token for unterminated block comments" test_unterminatedBlockCommentProducesErrorToken,
             testCase "applies hash line directives to subsequent tokens" test_hashLineDirectiveUpdatesSpan,
             testCase "applies LINE pragmas to subsequent tokens" test_linePragmaUpdatesSpan,
             testCase "applies COLUMN pragmas to subsequent tokens" test_columnPragmaUpdatesSpan,
@@ -255,6 +256,12 @@ test_stopsHeaderScanAtFirstModuleToken = do
 test_unterminatedStringProducesErrorToken :: Assertion
 test_unterminatedStringProducesErrorToken =
   case lexTokens "\"unterminated" of
+    [LexToken {lexTokenKind = TkError _}] -> pure ()
+    other -> assertFailure ("expected single TkError token, got: " <> show other)
+
+test_unterminatedBlockCommentProducesErrorToken :: Assertion
+test_unterminatedBlockCommentProducesErrorToken =
+  case lexTokens "{-" of
     [LexToken {lexTokenKind = TkError _}] -> pure ()
     other -> assertFailure ("expected single TkError token, got: " <> show other)
 

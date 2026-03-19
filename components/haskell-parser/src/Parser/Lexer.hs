@@ -257,12 +257,14 @@ scanTokens st0 =
   case lexerPending st0 of
     tok : rest -> tok : scanTokens st0 {lexerPending = rest}
     [] ->
-      case skipTrivia st0 of
-        st
-          | null (lexerInput st) -> []
-          | otherwise ->
-              let (tok, st') = nextToken st
-               in tok : scanTokens st'
+      let st = skipTrivia st0
+       in case lexerPending st of
+            tok : rest -> tok : scanTokens st {lexerPending = rest}
+            []
+              | null (lexerInput st) -> []
+              | otherwise ->
+                  let (tok, st') = nextToken st
+                   in tok : scanTokens st'
 
 -- | Skip ignorable trivia until the next token boundary.
 --
@@ -291,7 +293,7 @@ consumeTrivia st
                 Nothing ->
                   consumeUnknownPragma st
         '{' : '-' : _ ->
-          consumeBlockComment st
+          Just (consumeBlockCommentOrError st)
         _ ->
           case tryConsumeLineDirective st of
             Just (Nothing, st') -> Just st'
@@ -840,6 +842,16 @@ consumeBlockComment st =
   case scanNestedBlockComment 1 (drop 2 (lexerInput st)) of
     Just consumedTail -> Just (advanceChars ("{-" <> consumedTail) st)
     Nothing -> Nothing
+
+consumeBlockCommentOrError :: LexerState -> LexerState
+consumeBlockCommentOrError st =
+  case consumeBlockComment st of
+    Just st' -> st'
+    Nothing ->
+      let consumed = lexerInput st
+          st' = advanceChars consumed st
+          tok = mkToken st st' (T.pack consumed) (TkError "unterminated block comment")
+       in st' {lexerPending = lexerPending st' <> [tok]}
 
 scanNestedBlockComment :: Int -> String -> Maybe String
 scanNestedBlockComment depth chars
