@@ -1,0 +1,37 @@
+extensions:
+  - TypeOperators
+input: |
+  import Data.Type.Equality ((:~~:)(..))
+status: pass
+ast: |
+  Module
+    { moduleSpan = SourceSpan 1 1 1 43
+    , moduleHeader = Nothing
+    , modulePragmas = []
+    , moduleImports =
+        [ ImportDecl
+            { importDeclSpan = SourceSpan 1 1 1 43
+            , importDeclLevel = Nothing
+            , importDeclPackage = Nothing
+            , importDeclQualified = False
+            , importDeclQualifiedPost = False
+            , importDeclModule = "Data.Type.Equality"
+            , importDeclAs = Nothing
+            , importDeclSpec =
+                Just
+                  ( ImportSpec
+                      { importSpecSpan = SourceSpan 1 27 1 43
+                      , importSpecHiding = False
+                      , importSpecItems =
+                          [ ImportItemAll
+                              { importItemSpan = SourceSpan 1 28 1 42
+                              , importItemNamespace = Nothing
+                              , importItemName = ":~~:"
+                              }
+                          ]
+                      }
+                  )
+            }
+        ]
+    , moduleDecls = []
+    }

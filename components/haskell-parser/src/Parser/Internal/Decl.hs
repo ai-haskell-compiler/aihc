@@ -147,7 +147,7 @@ importSpecParser = withSpan $ do
 importItemParser :: TokParser ImportItem
 importItemParser = withSpan $ do
   namespace <- MP.optional exportImportNamespaceParser
-  itemName <- identifierTextParser
+  itemName <- identifierTextParser <|> (symbolLikeTok "(" *> constructorOperatorParser <* symbolLikeTok ")")
   case namespace of
     Nothing ->
       pure (\span' -> ImportItemVar span' Nothing itemName)
