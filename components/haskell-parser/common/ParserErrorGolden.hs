@@ -1,8 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module ParserErrorGolden
-  ( ExpectedStatus (..),
-    Outcome (..),
+  ( Outcome (..),
     ErrorMessageCase (..),
     fixtureRoot,
     loadErrorMessageCases,
@@ -12,10 +11,12 @@ module ParserErrorGolden
   )
 where
 
-import Data.Aeson ((.!=), (.:), (.:?))
+import Data.Aeson ((.:))
+import qualified Data.Aeson.Key as Key
+import qualified Data.Aeson.KeyMap as KeyMap
 import Data.Aeson.Types (parseEither, withObject)
-import Data.Char (isSpace, toLower)
-import Data.List (dropWhileEnd, sort)
+import Data.Char (toLower)
+import Data.List (sort)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Text.Encoding (encodeUtf8)
@@ -27,17 +28,8 @@ import Parser.Types (ParseResult (..))
 import System.Directory (doesDirectoryExist, listDirectory)
 import System.FilePath (makeRelative, takeDirectory, takeExtension, (</>))
 
-data ExpectedStatus
-  = StatusPass
-  | StatusFail
-  | StatusXPass
-  | StatusXFail
-  deriving (Eq, Show)
-
 data Outcome
   = OutcomePass
-  | OutcomeXFail
-  | OutcomeXPass
   | OutcomeFail
   deriving (Eq, Show)
 
@@ -47,9 +39,7 @@ data ErrorMessageCase = ErrorMessageCase
     casePath :: !FilePath,
     caseSource :: !Text,
     caseExpectedGhc :: !Text,
-    caseExpectedAihc :: !Text,
-    caseStatus :: !ExpectedStatus,
-    caseReason :: !String
+    caseExpectedAihc :: !Text
   }
   deriving (Eq, Show)
 
@@ -78,9 +68,7 @@ parseErrorMessageCaseText path source = do
     case Y.decodeEither' (encodeUtf8 source) of
       Left err -> Left ("Invalid YAML fixture " <> path <> ": " <> Y.prettyPrintParseException err)
       Right parsed -> Right parsed
-  (inputText, ghcText, aihcText, statusText, reasonText) <- parseYamlFixture path value
-  status <- parseStatus path statusText
-  reason <- validateReason path status (T.unpack reasonText)
+  (inputText, ghcText, aihcText) <- parseYamlFixture path value
   let relPath = dropRootPrefix path
       category = categoryFromPath relPath
   pure
@@ -90,21 +78,20 @@ parseErrorMessageCaseText path source = do
         casePath = relPath,
         caseSource = inputText,
         caseExpectedGhc = normalizeText ghcText,
-        caseExpectedAihc = normalizeText aihcText,
-        caseStatus = status,
-        caseReason = reason
+        caseExpectedAihc = normalizeText aihcText
       }
 
-parseYamlFixture :: FilePath -> Y.Value -> Either String (Text, Text, Text, Text, Text)
+parseYamlFixture :: FilePath -> Y.Value -> Either String (Text, Text, Text)
 parseYamlFixture path value =
   case parseEither
     ( withObject "parser error fixture" $ \obj -> do
+        case validateAllowedKeys path obj ["src", "ghc", "aihc"] of
+          Left err -> fail err
+          Right () -> pure ()
         inputText <- obj .: "src"
         ghcText <- obj .: "ghc"
         aihcText <- obj .: "aihc"
-        statusText <- obj .: "status"
-        reasonText <- obj .:? "reason" .!= ""
-        pure (inputText, ghcText, aihcText, statusText, reasonText)
+        pure (inputText, ghcText, aihcText)
     )
     value of
     Left err -> Left ("Invalid parser error fixture schema in " <> path <> ": " <> err)
@@ -114,7 +101,18 @@ evaluateErrorMessageCase :: ErrorMessageCase -> (Outcome, String)
 evaluateErrorMessageCase meta =
   case ghcMismatch meta of
     Just details -> (OutcomeFail, details)
-    Nothing -> classifyAihcResult meta (renderAihcMessage meta)
+    Nothing ->
+      case renderAihcMessage meta of
+        Left details -> (OutcomeFail, details)
+        Right actual
+          | actual == caseExpectedAihc meta -> (OutcomePass, "")
+          | otherwise ->
+              ( OutcomeFail,
+                "aihc error mismatch. expected="
+                  <> show (T.unpack (caseExpectedAihc meta))
+                  <> " actual="
+                  <> show (T.unpack actual)
+              )
 
 ghcMismatch :: ErrorMessageCase -> Maybe String
 ghcMismatch meta =
@@ -137,39 +135,9 @@ renderAihcMessage meta =
     ParseErr bundle -> Right (normalizeText (T.pack (errorBundlePretty bundle)))
     ParseOk _ -> Left "aihc parser accepted the input"
 
-classifyAihcResult :: ErrorMessageCase -> Either String Text -> (Outcome, String)
-classifyAihcResult meta actualResult =
-  let matchesExpected =
-        case actualResult of
-          Right actual -> actual == caseExpectedAihc meta
-          Left _ -> False
-      renderDetails =
-        case actualResult of
-          Left msg -> msg
-          Right actual ->
-            "aihc error mismatch. expected="
-              <> show (T.unpack (caseExpectedAihc meta))
-              <> " actual="
-              <> show (T.unpack actual)
-   in case caseStatus meta of
-        StatusPass
-          | matchesExpected -> (OutcomePass, "")
-          | otherwise -> (OutcomeFail, renderDetails)
-        StatusFail
-          | matchesExpected -> (OutcomeFail, "expected fixture mismatch, but aihc matched expected output")
-          | otherwise -> (OutcomePass, "")
-        StatusXFail
-          | matchesExpected -> (OutcomeFail, "expected xfail (known error-message mismatch), but aihc matched expected output")
-          | otherwise -> (OutcomeXFail, "")
-        StatusXPass
-          | matchesExpected -> (OutcomeXPass, "known error-message bug still passes unexpectedly")
-          | otherwise -> (OutcomeFail, renderDetails)
-
-progressSummary :: [(ErrorMessageCase, Outcome, String)] -> (Int, Int, Int, Int)
+progressSummary :: [(ErrorMessageCase, Outcome, String)] -> (Int, Int)
 progressSummary outcomes =
   ( count OutcomePass,
-    count OutcomeXFail,
-    count OutcomeXPass,
     count OutcomeFail
   )
   where
@@ -189,23 +157,6 @@ dropTrailingNewlines = T.dropWhileEnd (`elem` ['\n', '\r'])
 
 normalizeLines :: Text -> Text
 normalizeLines = T.intercalate "\n" . map T.stripEnd . T.lines
-
-parseStatus :: FilePath -> Text -> Either String ExpectedStatus
-parseStatus path rawStatus =
-  case map toLower (T.unpack (T.strip rawStatus)) of
-    "pass" -> Right StatusPass
-    "fail" -> Right StatusFail
-    "xfail" -> Right StatusXFail
-    "xpass" -> Right StatusXPass
-    other -> Left ("Unknown [status] " <> show other <> " in " <> path)
-
-validateReason :: FilePath -> ExpectedStatus -> String -> Either String String
-validateReason path status rawReason =
-  let trimmed = trim rawReason
-   in case status of
-        StatusXFail | null trimmed -> Left ("[reason] is required for xfail status in " <> path)
-        StatusXPass | null trimmed -> Left ("[reason] is required for xpass status in " <> path)
-        _ -> Right trimmed
 
 listFixtureFiles :: FilePath -> IO [FilePath]
 listFixtureFiles root = do
@@ -240,5 +191,15 @@ isHidden :: FilePath -> Bool
 isHidden [] = False
 isHidden (c : _) = c == '.'
 
-trim :: String -> String
-trim = dropWhile isSpace . dropWhileEnd isSpace
+validateAllowedKeys :: FilePath -> KeyMap.KeyMap v -> [Text] -> Either String ()
+validateAllowedKeys path obj allowed =
+  let allowedSet = sort allowed
+      extras =
+        sort
+          [ Key.toText key
+          | key <- KeyMap.keys obj,
+            Key.toText key `notElem` allowedSet
+          ]
+   in case extras of
+        [] -> Right ()
+        _ -> Left ("Unexpected keys " <> show extras <> " in " <> path)

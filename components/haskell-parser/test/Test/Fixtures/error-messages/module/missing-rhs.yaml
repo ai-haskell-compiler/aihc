@@ -4,7 +4,6 @@ ghc: |
   test.hs:2:1: error: [GHC-58481]
       parse error (possibly incorrect indentation or mismatched brackets)
 aihc: |
-  Parse error!
-  Expected an expression after `=`.
-status: xfail
-reason: current parser errors do not explain missing right-hand sides
+  test.hs:1:1:
+  unexpected {
+  expecting end of input

@@ -36,19 +36,6 @@ assertCase meta =
             <> PEG.caseId meta
             <> " ("
             <> PEG.caseCategory meta
-            <> ") expected "
-            <> show (PEG.caseStatus meta)
-            <> " reason="
-            <> PEG.caseReason meta
-            <> " details="
-            <> details
-        )
-    (PEG.OutcomeXPass, details) ->
-      assertFailure
-        ( "Unexpected pass in xpass parser error case "
-            <> PEG.caseId meta
-            <> " reason="
-            <> PEG.caseReason meta
             <> " details="
             <> details
         )
@@ -56,18 +43,14 @@ assertCase meta =
 
 assertNoRegressions :: [(PEG.ErrorMessageCase, PEG.Outcome, String)] -> Assertion
 assertNoRegressions outcomes = do
-  let (passN, xfailN, xpassN, failN) = PEG.progressSummary outcomes
-      totalN = passN + xfailN + xpassN + failN
+  let (passN, failN) = PEG.progressSummary outcomes
+      totalN = passN + failN
       completion = pct passN totalN
-  when (failN > 0 || xpassN > 0) $
+  when (failN > 0) $
     assertFailure
       ( "parser error regressions found. "
           <> "pass="
           <> show passN
-          <> " xfail="
-          <> show xfailN
-          <> " xpass="
-          <> show xpassN
           <> " fail="
           <> show failN
           <> " completion="
@@ -90,20 +73,17 @@ fixtureValidationTests =
   testGroup
     "fixture-parse"
     [ testCase "rejects missing required keys" $
-        case PEG.parseErrorMessageCaseText "missing.yaml" "status: pass\n" of
+        case PEG.parseErrorMessageCaseText "missing.yaml" "ghc: bad\n" of
           Left _ -> pure ()
           Right _ -> assertFailure "expected parse failure for missing required YAML keys",
-      testCase "requires reason for xfail" $
-        case PEG.parseErrorMessageCaseText "xfail.yaml" validXFailMissingReason of
+      testCase "rejects unexpected status field" $
+        case PEG.parseErrorMessageCaseText "status.yaml" invalidStatusFixture of
           Left _ -> pure ()
-          Right _ -> assertFailure "expected parse failure when xfail reason is missing",
-      testCase "accepts pass fixtures" $
+          Right _ -> assertFailure "expected parse failure when status field is present",
+      testCase "accepts basic fixtures" $
         case PEG.parseErrorMessageCaseText "pass.yaml" validPassFixture of
           Left err -> assertFailure ("expected parse success, got: " <> err)
-          Right parsed ->
-            if PEG.caseStatus parsed == PEG.StatusPass
-              then pure ()
-              else assertFailure "expected pass status",
+          Right _ -> pure (),
       testCase "only YAML fixtures are loaded" $ do
         cases <- PEG.loadErrorMessageCases
         mapM_
@@ -114,13 +94,13 @@ fixtureValidationTests =
           cases
     ]
 
-validXFailMissingReason :: T.Text
-validXFailMissingReason =
+invalidStatusFixture :: T.Text
+invalidStatusFixture =
   T.unlines
     [ "src: bad",
       "ghc: bad",
       "aihc: bad",
-      "status: xfail"
+      "status: pass"
     ]
 
 validPassFixture :: T.Text
@@ -128,6 +108,5 @@ validPassFixture =
   T.unlines
     [ "src: bad",
       "ghc: bad",
-      "aihc: bad",
-      "status: pass"
+      "aihc: bad"
     ]
