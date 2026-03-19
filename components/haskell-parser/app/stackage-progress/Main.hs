@@ -1,10 +1,11 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Main (main) where
 
 import Control.Concurrent.Async (mapConcurrently)
 import Control.Exception (IOException, SomeException, displayException, try)
-import Control.Monad (forM, when)
+import Control.Monad (when)
 import Cpp (Severity (..), diagSeverity, resultDiagnostics, resultOutput)
 import CppSupport (preprocessForParserIfEnabled)
 import Data.Char (isAlphaNum, isSpace)
@@ -29,6 +30,22 @@ import qualified Parser
 import Parser.Ast
 import Parser.Types (ParseResult (..))
 import ParserValidation (ValidationError (..), ValidationErrorKind (..), validateParserDetailed)
+import StackageProgress.Summary
+  ( FailedPackage (..),
+    PackageResult (..),
+    PackageSpec (..),
+    RunSummary,
+    SummaryOptions (..),
+    addPackageResults,
+    emptySummary,
+    finalizeSummary,
+    summaryFailedPackages,
+    summaryGhcErrors,
+    summarySucceededPackages,
+    summarySuccessGhcN,
+    summarySuccessHseN,
+    summarySuccessOursN,
+  )
 import System.Directory (XdgDirectory (XdgCache), createDirectoryIfMissing, doesFileExist, getFileSize, getHomeDirectory, getXdgDirectory)
 import System.Environment (getArgs)
 import System.Exit (exitFailure, exitSuccess)
@@ -56,22 +73,6 @@ data Options = Options
     optGhcErrorsLimit :: Int
   }
 
-data PackageSpec = PackageSpec
-  { pkgName :: String,
-    pkgVersion :: String
-  }
-  deriving (Eq, Show)
-
-data PackageResult = PackageResult
-  { package :: PackageSpec,
-    packageOursOk :: Bool,
-    packageHseOk :: Bool,
-    packageGhcOk :: Bool,
-    packageReason :: String,
-    packageGhcError :: Maybe String,
-    packageSourceSize :: Integer
-  }
-
 main :: IO ()
 main = do
   args <- getArgs
@@ -95,14 +96,21 @@ main = do
   jobs <- maybe getNumProcessors pure (optJobs opts)
   showProgress <- hIsTerminalDevice stdout
   when showProgress (putProgressLine (ProgressState 0 0 total))
-  results <- mapConcurrentlyChunksWithProgress jobs (runPackage opts) packages total showProgress
-  let successOursN = length [() | result <- results, packageOursOk result]
-      successHseN = length [() | result <- results, packageHseOk result]
-      successGhcN = length [() | result <- results, packageGhcOk result]
+  summary <-
+    foldConcurrentlyChunksWithProgress
+      jobs
+      (runPackage opts)
+      packages
+      total
+      showProgress
+      (summaryOptions opts)
+  let successOursN = summarySuccessOursN summary
+      successHseN = summarySuccessHseN summary
+      successGhcN = summarySuccessGhcN summary
   when showProgress (putStrLn "")
 
   when (optPrintSucceeded opts) $ do
-    mapM_ putStrLn [formatPackage (package result) | result <- results, packageOursOk result]
+    mapM_ putStrLn (summarySucceededPackages summary)
     putStrLn ""
 
   putStrLn "Parsing success rates:"
@@ -116,42 +124,31 @@ main = do
     Just path -> do
       home <- getHomeDirectory
       let sanitize = T.unpack . T.replace (T.pack home) "$HOME" . T.pack
-          ghcFailureMessage r =
-            case packageGhcError r of
-              Just err -> sanitize err
-              Nothing ->
-                let reason = trim (packageReason r)
-                 in if null reason
-                      then "GHC check failed without diagnostic details"
-                      else "No direct GHC diagnostic; package failed before/around GHC check: " ++ sanitize reason
           ghcErrors =
             take
               (optGhcErrorsLimit opts)
-              [ (formatPackage (package r), ghcFailureMessage r)
-              | r <- results,
-                not (packageGhcOk r)
-              ]
+              [(pkg, sanitize err) | (pkg, err) <- summaryGhcErrors summary]
       writeFile path $ unlines ["=== " ++ pkg ++ " ===\n" ++ err ++ "\n" | (pkg, err) <- ghcErrors]
       putStrLn $ "GHC errors written to " ++ path
 
   when (optPrintFailedTable opts) $ do
     let failed =
           sortBy
-            (\a b -> compare (packageSourceSize a, formatPackage (package a)) (packageSourceSize b, formatPackage (package b)))
-            [r | r <- results, packageParserFailed r]
+            (\a b -> compare (failedPackageSourceSize a, failedPackageName a) (failedPackageSourceSize b, failedPackageName b))
+            (summaryFailedPackages summary)
         col1 = "Package"
         col2 = "Size (bytes)"
         pkgWidth = max (length col1) $ case failed of
           [] -> 0
-          rs -> maximum (map (length . formatPackage . package) rs)
+          rs -> maximum (map (length . failedPackageName) rs)
         sizeWidth = max (length col2) $ case failed of
           [] -> 0
-          rs -> maximum (map (length . show . packageSourceSize) rs)
+          rs -> maximum (map (length . show . failedPackageSourceSize) rs)
         padL n s = s ++ replicate (n - length s) ' '
         padR n s = replicate (n - length s) ' ' ++ s
     putStrLn (padL pkgWidth col1 ++ "  " ++ padR sizeWidth col2)
     putStrLn (replicate (pkgWidth + 2 + sizeWidth) '-')
-    mapM_ (\r -> putStrLn (padL pkgWidth (formatPackage (package r)) ++ "  " ++ padR sizeWidth (show (packageSourceSize r)))) failed
+    mapM_ (\r -> putStrLn (padL pkgWidth (failedPackageName r) ++ "  " ++ padR sizeWidth (show (failedPackageSourceSize r)))) failed
 
   if successOursN == total then exitSuccess else exitFailure
 
@@ -207,12 +204,6 @@ parseOptions = go (Options "lts-24.33" [CheckParse] Nothing False False False Fa
         _ -> Left "--ghc-errors-limit must be a non-negative integer"
     go _ ("--help" : _) = Left ""
     go _ (arg : _) = Left ("Unknown argument: " ++ arg)
-
-formatPackage :: PackageSpec -> String
-formatPackage spec = pkgName spec ++ "-" ++ pkgVersion spec
-
-packageParserFailed :: PackageResult -> Bool
-packageParserFailed r = not (packageOursOk r) && packageSourceSize r > 0
 
 totalSourceSize :: [FileInfo] -> IO Integer
 totalSourceSize infos = sum <$> mapM (safeFileSize . fileInfoPath) infos
@@ -395,14 +386,11 @@ runPackageOrThrow opts spec = do
                 packageSourceSize = totalSize
               }
         else do
-          fileResults <- forM files (checkFile opts srcDir)
-          let oursFailures = [fromMaybe "ours failed" (fileError fr) | fr <- fileResults, not (fileOursOk fr)]
-              hseOk = all fileHseOk fileResults
-              ghcOk = all fileGhcOk fileResults
-              ghcError = case [e | fr <- fileResults, Just e <- [fileGhcError fr]] of
-                e : _ -> Just e
-                [] -> Nothing
-              oursOk = null oursFailures
+          fileSummary <- foldFilesForPackage opts srcDir emptyFileSummary files
+          let hseOk = packageFileHseOk fileSummary
+              ghcOk = packageFileGhcOk fileSummary
+              ghcError = packageFileGhcError fileSummary
+              oursOk = packageFileOursOk fileSummary
           if oursOk
             then
               pure
@@ -416,20 +404,16 @@ runPackageOrThrow opts spec = do
                     packageSourceSize = totalSize
                   }
             else
-              let firstFailure =
-                    case oursFailures of
-                      f : _ -> f
-                      [] -> "unknown failure"
-               in pure
-                    PackageResult
-                      { package = spec,
-                        packageOursOk = False,
-                        packageHseOk = hseOk,
-                        packageGhcOk = ghcOk,
-                        packageReason = firstFailure,
-                        packageGhcError = ghcError,
-                        packageSourceSize = totalSize
-                      }
+              pure
+                PackageResult
+                  { package = spec,
+                    packageOursOk = False,
+                    packageHseOk = hseOk,
+                    packageGhcOk = ghcOk,
+                    packageReason = firstFailureMessage fileSummary,
+                    packageGhcError = ghcError,
+                    packageSourceSize = totalSize
+                  }
 
 data FileResult = FileResult
   { fileOursOk :: Bool,
@@ -438,6 +422,73 @@ data FileResult = FileResult
     fileError :: Maybe String,
     fileGhcError :: Maybe String
   }
+
+data PackageFileSummary = PackageFileSummary
+  { packageFileOursOk :: !Bool,
+    packageFileHseOk :: !Bool,
+    packageFileGhcOk :: !Bool,
+    packageFileFirstFailure :: Maybe String,
+    packageFileGhcError :: Maybe String
+  }
+
+emptyFileSummary :: PackageFileSummary
+emptyFileSummary =
+  PackageFileSummary
+    { packageFileOursOk = True,
+      packageFileHseOk = True,
+      packageFileGhcOk = True,
+      packageFileFirstFailure = Nothing,
+      packageFileGhcError = Nothing
+    }
+
+checkAndAccumulateFile :: Options -> FilePath -> PackageFileSummary -> FileInfo -> IO PackageFileSummary
+checkAndAccumulateFile opts packageRoot summary info = do
+  result <- checkFile opts packageRoot info
+  let !oursOk = packageFileOursOk summary && fileOursOk result
+      !hseOk = packageFileHseOk summary && fileHseOk result
+      !ghcOk = packageFileGhcOk summary && fileGhcOk result
+      firstFailure =
+        case packageFileFirstFailure summary of
+          Just err -> Just err
+          Nothing ->
+            case fileError result of
+              Just err -> Just (forceString err)
+              Nothing ->
+                if fileOursOk result
+                  then Nothing
+                  else Just "ours failed"
+      ghcError =
+        case packageFileGhcError summary of
+          Just err -> Just err
+          Nothing -> fmap forceString (fileGhcError result)
+  pure
+    PackageFileSummary
+      { packageFileOursOk = oursOk,
+        packageFileHseOk = hseOk,
+        packageFileGhcOk = ghcOk,
+        packageFileFirstFailure = firstFailure,
+        packageFileGhcError = ghcError
+      }
+
+firstFailureMessage :: PackageFileSummary -> String
+firstFailureMessage summary =
+  fromMaybe "unknown failure" (packageFileFirstFailure summary)
+
+foldFilesForPackage :: Options -> FilePath -> PackageFileSummary -> [FileInfo] -> IO PackageFileSummary
+foldFilesForPackage _ _ summary [] = pure summary
+foldFilesForPackage opts packageRoot summary (info : rest)
+  | shouldStopAfterFailure opts summary = pure summary
+  | otherwise = do
+      summary' <- checkAndAccumulateFile opts packageRoot summary info
+      foldFilesForPackage opts packageRoot summary' rest
+
+shouldStopAfterFailure :: Options -> PackageFileSummary -> Bool
+shouldStopAfterFailure opts summary =
+  not (packageFileOursOk summary) && not (needsFullPackageScan opts)
+
+needsFullPackageScan :: Options -> Bool
+needsFullPackageScan opts =
+  CheckHse `elem` optChecks opts || CheckGhc `elem` optChecks opts
 
 checkFile :: Options -> FilePath -> FileInfo -> IO FileResult
 checkFile opts packageRoot info = do
@@ -1008,18 +1059,19 @@ stripArithSeq seqExpr =
     ArithSeqFromTo _ a b -> ArithSeqFromTo noSourceSpan (stripExpr a) (stripExpr b)
     ArithSeqFromThenTo _ a b c -> ArithSeqFromThenTo noSourceSpan (stripExpr a) (stripExpr b) (stripExpr c)
 
-mapConcurrentlyChunksWithProgress :: Int -> (a -> IO PackageResult) -> [a] -> Int -> Bool -> IO [PackageResult]
-mapConcurrentlyChunksWithProgress n action items total showProgress =
-  go 0 0 [] (chunksOf chunkSize items)
+foldConcurrentlyChunksWithProgress :: Int -> (a -> IO PackageResult) -> [a] -> Int -> Bool -> SummaryOptions -> IO RunSummary
+foldConcurrentlyChunksWithProgress n action items total showProgress opts =
+  go 0 0 emptySummary (chunksOf chunkSize items)
   where
     chunkSize = if n <= 0 then 1 else n
-    go _ _ acc [] = pure (concat (reverse acc))
-    go done success acc (chunk : rest) = do
+    go _ _ summary [] = pure (finalizeSummary summary)
+    go done success summary (chunk : rest) = do
       batch <- mapConcurrently action chunk
       let done' = done + length batch
           success' = success + length [() | result <- batch, packageOursOk result]
+          !summary' = addPackageResults opts batch summary
       when showProgress (putProgressLine (ProgressState done' success' total))
-      go done' success' (batch : acc) rest
+      go done' success' summary' rest
 
 chunksOf :: Int -> [a] -> [[a]]
 chunksOf _ [] = []
@@ -1052,3 +1104,17 @@ putProgressLine p =
 pct :: Int -> Int -> Int
 pct _ 0 = 100
 pct n total = (n * 100) `div` total
+
+summaryOptions :: Options -> SummaryOptions
+summaryOptions opts =
+  SummaryOptions
+    { summaryKeepSucceeded = optPrintSucceeded opts,
+      summaryKeepFailedPackages = optPrintFailedTable opts,
+      summaryGhcErrorLimit =
+        case optGhcErrorsFile opts of
+          Just _ -> optGhcErrorsLimit opts
+          Nothing -> 0
+    }
+
+forceString :: String -> String
+forceString value = length value `seq` value

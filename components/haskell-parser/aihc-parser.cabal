@@ -49,6 +49,7 @@ test-suite spec
     , OracleExtensions
     , ParserValidation
     , ShrinkUtils
+    , StackageProgress.Summary
     , Test.Oracle
     , Test.H2010.Suite
     , Test.ExtensionMapping.Suite
@@ -56,6 +57,7 @@ test-suite spec
     , Test.HackageTester.Suite
     , Test.Lexer.Suite
     , Test.Parser.Suite
+    , Test.StackageProgress.Summary
   build-depends:
       base >=4.16 && <5
     , aihc-parser
@@ -193,6 +195,7 @@ executable stackage-progress
     , HseExtensions
     , ParserValidation
     , ShrinkUtils
+    , StackageProgress.Summary
   build-depends:
       base >=4.16 && <5
     , aihc-parser
