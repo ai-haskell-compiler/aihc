@@ -15,6 +15,7 @@ import GhcOracle (oracleDetailedParsesModuleWithNamesAt)
 import HackageSupport (fileInfoPath, findTargetFilesFromCabal, resolveIncludeBestEffort)
 import HackageTester.CLI (Options (..), parseOptionsPure)
 import HackageTester.Model (FileResult (..), Outcome (..), Summary (..), shouldFailSummary, summarizeResults)
+import qualified Language.Haskell.Exts as HSE
 import ParserValidation (ValidationError (..), validateParserDetailed)
 import System.Directory (createDirectory, getTemporaryDirectory, removeDirectoryRecursive, removeFile)
 import System.FilePath ((</>))
@@ -303,9 +304,21 @@ test_shrinksUnsafeParseFailure =
     Nothing ->
       assertBool "expected unsafe source to fail parsing" False
     Just err ->
-      assertBool
-        ("expected minimized reproducer to shrink to a single import, got: " <> validationErrorMessage err)
-        ("import Foreign.Ptr (Ptr, )" `T.isInfixOf` T.pack (validationErrorMessage err))
+      case extractShrunkSource (T.pack (validationErrorMessage err)) of
+        Nothing ->
+          assertBool "expected minimized reproducer block" False
+        Just shrunk ->
+          case HSE.parseFileContentsWithMode HSE.defaultParseMode (T.unpack shrunk) of
+            HSE.ParseFailed _ parseErr ->
+              assertBool ("expected minimized reproducer to parse under HSE, got: " <> parseErr) False
+            HSE.ParseOk modu ->
+              case modu of
+                HSE.Module _ _ _ imports decls ->
+                  assertBool
+                    ("expected a single-import AST, got: " <> show modu)
+                    (length imports == 1 && null decls)
+                other ->
+                  assertBool ("expected a normal module AST, got: " <> show other) False
   where
     unsafeSource =
       T.unlines
@@ -343,6 +356,19 @@ test_shrinksUnsafeParseFailure =
           "coerce :: a -> b",
           "coerce = unsafeCoerce"
         ]
+
+extractShrunkSource :: T.Text -> Maybe T.Text
+extractShrunkSource msg =
+  case T.breakOn marker msg of
+    (_, rest)
+      | T.null rest -> Nothing
+      | otherwise ->
+          let afterStart = T.drop (T.length marker) rest
+              (body, tailPart) = T.breakOn endMarker afterStart
+           in if T.null tailPart then Nothing else Just body
+  where
+    marker = "HSE minimized reproducer:\n---8<---\n"
+    endMarker = "\n--->8---"
 
 test_cppMinVersionBaseTrue :: Assertion
 test_cppMinVersionBaseTrue = do

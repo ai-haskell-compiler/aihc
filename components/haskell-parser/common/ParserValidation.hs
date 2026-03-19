@@ -178,11 +178,8 @@ optionalShrunkDiagnostic exts source =
       if T.strip shrunk == T.strip source
         then ""
         else
-          let shrunkLineCount = length (T.lines shrunk)
-              bodyLines =
-                if shrunkLineCount <= 5
-                  then ["---8<---", T.unpack shrunk, "--->8---"]
-                  else ["HSE minimized reproducer omitted (>5 lines)."]
+          let compactShrunk = T.unlines (filter (not . T.null) (T.lines shrunk))
+              bodyLines = ["---8<---", T.unpack compactShrunk, "--->8---"]
            in unlines (["", "HSE minimized reproducer:"] <> bodyLines)
 
 stillFails :: [Extension] -> Text -> Bool
@@ -197,10 +194,7 @@ shrinkFailingModule exts fails source
   | otherwise =
       case parseCandidate exts source of
         Nothing -> Nothing
-        Just candidate0 ->
-          let astShrunk = shrinkByLines fails (runShrinks candidate0)
-              rawShrunk = shrinkByLines fails source
-           in Just (shorterText astShrunk rawShrunk)
+        Just candidate0 -> Just (runShrinks candidate0)
   where
     runShrinks candidate0 =
       let steps = iterateShrink 0 candidate0
@@ -224,51 +218,6 @@ shrinkFailingModule exts fails source
               | fails (candSource candidate') -> Just candidate'
               | otherwise -> tryCandidates rest
 
-    shorterText left right
-      | length (T.lines right) < length (T.lines left) = right
-      | otherwise = left
-
-shrinkByLines :: (Text -> Bool) -> Text -> Text
-shrinkByLines fails source0
-  | not (fails source0) = source0
-  | otherwise = go (T.lines source0) 2
-  where
-    go current n
-      | length current < 2 = T.unlines current
-      | otherwise =
-          case firstChunkDeletion current n of
-            Just smaller -> go smaller 2
-            Nothing
-              | n >= length current -> T.unlines current
-              | otherwise -> go current (min (length current) (n * 2))
-
-    firstChunkDeletion current n =
-      firstJust
-        [ deleteChunk current idx n
-        | idx <- [0 .. length (chunksOf current n) - 1]
-        ]
-
-    deleteChunk current idx n =
-      case splitAt idx (chunksOf current n) of
-        (before, _ : after) ->
-          let candidate = concat before <> concat after
-           in if fails (T.unlines candidate) then Just candidate else Nothing
-        _ -> Nothing
-
-    chunksOf xs n =
-      let chunkSize = max 1 ((length xs + n - 1) `div` n)
-       in chunkBySize chunkSize xs
-
-    chunkBySize _ [] = []
-    chunkBySize size xs =
-      let (chunk, rest) = splitAt size xs
-       in chunk : chunkBySize size rest
-
-    firstJust [] = Nothing
-    firstJust (x : xs) = case x of
-      Nothing -> firstJust xs
-      Just _ -> x
-
 candidateTransforms :: ShrinkCandidate -> [HSE.Module HSE.SrcSpanInfo]
 candidateTransforms candidate = candidateTransformsWith trimSegment (candAst candidate)
 
@@ -291,20 +240,12 @@ parseCandidate exts source0 =
     HSE.ParseOk modu0 -> normalizeCandidateAst exts modu0
 
 normalizeCandidateAst :: [Extension] -> HSE.Module HSE.SrcSpanInfo -> Maybe ShrinkCandidate
-normalizeCandidateAst exts modu0 =
-  let source0 = HSE.prettyPrint modu0
-   in case HSE.parseFileContentsWithMode (hseParseModeFor exts) source0 of
-        HSE.ParseFailed _ _ -> Nothing
-        HSE.ParseOk modu1 ->
-          let source1 = HSE.exactPrint modu1 []
-           in case HSE.parseFileContentsWithMode (hseParseModeFor exts) source1 of
-                HSE.ParseFailed _ _ -> Nothing
-                HSE.ParseOk modu2 ->
-                  Just
-                    ShrinkCandidate
-                      { candAst = modu2,
-                        candSource = T.pack (HSE.exactPrint modu2 [])
-                      }
+normalizeCandidateAst _ modu0 =
+  Just
+    ShrinkCandidate
+      { candAst = modu0,
+        candSource = T.pack (HSE.exactPrint modu0 [])
+      }
 
 trimSegment :: String -> [String]
 trimSegment segment =
