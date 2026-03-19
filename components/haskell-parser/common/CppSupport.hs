@@ -46,8 +46,7 @@ preprocessForParserWithCppOptions cppOptions inputFile resolveInclude source = d
           { configInputFile = inputFile,
             configMacros = cppMacrosFromOptions cppOptions
           }
-  result <- drive (preprocess cfg injected)
-  pure result
+  drive (preprocess cfg injected)
   where
     drive (Done result) = pure result
     drive (NeedInclude req k) = resolveInclude req >>= drive . k
