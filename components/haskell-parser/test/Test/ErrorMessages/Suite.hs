@@ -36,6 +36,7 @@ assertCase meta =
             <> PEG.caseId meta
             <> " ("
             <> PEG.caseCategory meta
+            <> ")"
             <> " details="
             <> details
         )
