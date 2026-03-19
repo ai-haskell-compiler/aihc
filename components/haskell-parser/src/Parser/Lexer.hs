@@ -1,5 +1,54 @@
 {-# LANGUAGE OverloadedStrings #-}
 
+-- |
+-- Module      : Parser.Lexer
+-- Description : Lex Haskell source into span-annotated tokens, then apply extensions and layout.
+--
+-- This module performs the pre-parse tokenization step for Haskell source code.
+-- It turns raw text into 'LexToken's that preserve:
+--
+-- * a semantic token classification ('LexTokenKind')
+-- * the original token text ('lexTokenText')
+-- * source location information ('lexTokenSpan')
+--
+-- The lexer runs in three phases:
+--
+-- 1. /Raw tokenization/ with a custom incremental scanner that consumes one or more
+--    input chunks and emits tokens lazily.
+-- 2. /Extension rewrites/ ('applyExtensions'), for example @NegativeLiterals@ which
+--    folds @-@ plus an adjacent numeric literal into one literal token.
+-- 3. /Layout insertion/ ('applyLayoutTokens') that inserts virtual @{@, @;@ and @}@
+--    according to indentation (the offside rule), so the parser can treat implicit
+--    layout like explicit braces and semicolons.
+--
+-- Unlike the previous Megaparsec-based lexer, scanning is incremental and
+-- error-tolerant:
+--
+-- * token production starts as soon as enough input is available
+-- * malformed lexemes produce 'TkError' tokens instead of aborting lexing
+-- * @# ...@, @#line ...@, @{-# LINE #-}@ and @{-# COLUMN #-}@ are handled in-band by
+--   the lexer and update subsequent token spans without being exposed as normal tokens
+--
+-- Layout-sensitive syntax is the tricky part. The implementation tracks a stack of
+-- layout contexts and mirrors the @haskell-src-exts@ model summarized in
+-- @docs/hse-indentation-layout.md@:
+--
+-- * after layout-introducing keywords (currently @do@ and @of@, plus optional module
+--   body layout), mark a pending implicit block
+-- * if the next token is an explicit @{@, disable implicit insertion for that block
+-- * otherwise, open an implicit layout context at the next token column
+-- * at beginning-of-line tokens, dedent emits virtual @}@, equal-indent emits virtual
+--   @;@ (with a small suppression rule for @then@/@else@)
+--
+-- Keyword classification is intentionally lexical and exact. 'lexIdentifier'
+-- produces a keyword token /only/ when the full identifier text exactly matches a
+-- reserved word in 'keywordTokenKind'. That means:
+--
+-- * @where@ becomes 'TkKeywordWhere'
+-- * @where'@, @_where@, and @M.where@ remain identifiers
+--
+-- In other words, use keyword tokens only for exact reserved lexemes; contextual
+-- validity is left to the parser.
 module Parser.Lexer
   ( LexToken (..),
     LexTokenKind (..),
@@ -94,30 +143,66 @@ data DirectiveUpdate = DirectiveUpdate
   }
   deriving (Eq, Show)
 
+-- | Convenience lexer entrypoint: no extensions, parse as expression/declaration stream.
+--
+-- This variant consumes a single strict 'Text' chunk and returns a lazy list of
+-- tokens. Lexing errors are preserved as 'TkError' tokens instead of causing
+-- lexing to fail.
 lexTokens :: Text -> [LexToken]
 lexTokens = lexTokensFromChunks . (: [])
 
+-- | Convenience lexer entrypoint for full modules: no explicit extension list.
+--
+-- Leading header pragmas are scanned first so module-enabled extensions can be
+-- applied before token rewrites and top-level layout insertion.
 lexModuleTokens :: Text -> [LexToken]
 lexModuleTokens input =
   lexModuleTokensFromChunks
     (enabledExtensionsFromSettings (readModuleHeaderExtensions input))
     [input]
 
+-- | Lex an expression/declaration stream from one or more input chunks.
+--
+-- Tokens are produced lazily, so downstream consumers can begin parsing before
+-- the full source has been scanned.
 lexTokensFromChunks :: [Text] -> [LexToken]
 lexTokensFromChunks = lexTokensFromChunksWithExtensions []
 
+-- | Lex a full module from one or more input chunks with explicit extensions.
+--
+-- This variant enables module-body layout insertion in addition to the normal
+-- token scan and extension rewrites.
 lexModuleTokensFromChunks :: [Extension] -> [Text] -> [LexToken]
 lexModuleTokensFromChunks = lexChunksWithExtensions True
 
+-- | Lex source text using explicit lexer extensions.
+--
+-- This runs raw tokenization, extension rewrites, and implicit-layout insertion.
+-- Module-top layout is /not/ enabled here. The result currently cannot fail:
+-- malformed lexemes become 'TkError' tokens in the token stream.
 lexTokensWithExtensions :: [Extension] -> Text -> Either String [LexToken]
 lexTokensWithExtensions exts input = Right (lexTokensFromChunksWithExtensions exts [input])
 
+-- | Lex module source text using explicit lexer extensions.
+--
+-- Like 'lexTokensWithExtensions', but also enables top-level module-body layout:
+-- when the source omits explicit braces, virtual layout tokens are inserted
+-- after @module ... where@ (or from the first non-pragma token in module-less files).
 lexModuleTokensWithExtensions :: [Extension] -> Text -> Either String [LexToken]
 lexModuleTokensWithExtensions exts input = Right (lexModuleTokensFromChunks exts [input])
 
+-- | Internal chunked lexer entrypoint for non-module inputs.
+--
+-- This exists so callers can stream input through the same scanner while still
+-- selecting extension-driven token rewrites.
 lexTokensFromChunksWithExtensions :: [Extension] -> [Text] -> [LexToken]
 lexTokensFromChunksWithExtensions = lexChunksWithExtensions False
 
+-- | Run the full lexer pipeline over chunked input.
+--
+-- The scanner operates over the concatenated chunk stream, then the resulting token
+-- stream is rewritten for enabled extensions and finally passed through the layout
+-- insertion step.
 lexChunksWithExtensions :: Bool -> [Extension] -> [Text] -> [LexToken]
 lexChunksWithExtensions enableModuleLayout exts chunks =
   applyLayoutTokens enableModuleLayout (applyExtensions exts (scanTokens initialLexerState))
@@ -131,6 +216,10 @@ lexChunksWithExtensions enableModuleLayout exts chunks =
           lexerPending = []
         }
 
+-- | Read leading module-header pragmas and return parsed LANGUAGE settings.
+--
+-- This scans only the pragma/header prefix (allowing whitespace and comments)
+-- and stops at the first non-pragma token or lexer error token.
 readModuleHeaderExtensions :: Text -> [ExtensionSetting]
 readModuleHeaderExtensions input = go (lexTokens input)
   where
@@ -152,6 +241,10 @@ enabledExtensionsFromSettings = List.foldl' apply []
           | otherwise -> exts <> [ext]
         DisableExtension ext -> filter (/= ext) exts
 
+-- | Produce the lazy stream of raw lexical tokens.
+--
+-- Pending synthetic tokens are emitted first, then trivia is skipped, and finally
+-- the next real token is scanned from the remaining input.
 scanTokens :: LexerState -> [LexToken]
 scanTokens st0 =
   case lexerPending st0 of
@@ -164,6 +257,11 @@ scanTokens st0 =
               let (tok, st') = nextToken st
                in tok : scanTokens st'
 
+-- | Skip ignorable trivia until the next token boundary.
+--
+-- Control directives are treated specially: valid directives update lexer position
+-- state without emitting a token, while malformed directives enqueue 'TkError'
+-- tokens for later emission.
 skipTrivia :: LexerState -> LexerState
 skipTrivia st = maybe st skipTrivia (consumeTrivia st)
 
@@ -217,11 +315,16 @@ nextToken st =
         Just out -> Just out
         Nothing -> firstJust rest
 
+-- | Apply all extension-driven post-lexing rewrites in a deterministic order.
 applyExtensions :: [Extension] -> [LexToken] -> [LexToken]
 applyExtensions exts toks
   | NegativeLiterals `elem` exts = applyNegativeLiterals toks
   | otherwise = toks
 
+-- | Implement @NegativeLiterals@ by merging @-@ and immediately adjacent numerics.
+--
+-- The merge only happens when there is no intervening whitespace/comments, and only
+-- for integer/base-integer/float tokens.
 applyNegativeLiterals :: [LexToken] -> [LexToken]
 applyNegativeLiterals toks =
   case toks of
@@ -239,6 +342,7 @@ applyNegativeLiterals toks =
     tok : rest -> tok : applyNegativeLiterals rest
     [] -> []
 
+-- | True when the second token starts exactly where the first one ends.
 tokensAdjacent :: LexToken -> LexToken -> Bool
 tokensAdjacent first second =
   case (lexTokenSpan first, lexTokenSpan second) of
@@ -246,6 +350,7 @@ tokensAdjacent first second =
       firstEndLine == secondStartLine && firstEndCol == secondStartCol
     _ -> False
 
+-- | Build a negative decimal integer token from @-@ and a positive literal token.
 negativeIntegerToken :: LexToken -> LexToken -> Integer -> LexToken
 negativeIntegerToken minusTok numTok n =
   LexToken
@@ -254,6 +359,7 @@ negativeIntegerToken minusTok numTok n =
       lexTokenSpan = combinedSpan minusTok numTok
     }
 
+-- | Build a negative non-decimal integer token from @-@ and a positive literal token.
 negativeIntegerBaseToken :: LexToken -> LexToken -> Integer -> Text -> LexToken
 negativeIntegerBaseToken minusTok numTok n repr =
   LexToken
@@ -262,6 +368,7 @@ negativeIntegerBaseToken minusTok numTok n repr =
       lexTokenSpan = combinedSpan minusTok numTok
     }
 
+-- | Build a negative float token from @-@ and a positive literal token.
 negativeFloatToken :: LexToken -> LexToken -> Double -> Text -> LexToken
 negativeFloatToken minusTok numTok n repr =
   LexToken
@@ -270,6 +377,7 @@ negativeFloatToken minusTok numTok n repr =
       lexTokenSpan = combinedSpan minusTok numTok
     }
 
+-- | Span that starts at the first token and ends at the second token.
 combinedSpan :: LexToken -> LexToken -> SourceSpan
 combinedSpan first second =
   case (lexTokenSpan first, lexTokenSpan second) of
