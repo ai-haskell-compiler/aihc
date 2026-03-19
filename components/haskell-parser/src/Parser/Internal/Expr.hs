@@ -764,7 +764,7 @@ contextTypeParser :: TokParser Type
 contextTypeParser = do
   constraints <- constraintsParser
   operatorLikeTok "=>"
-  inner <- typeFunParser
+  inner <- typeParser
   pure (TContext (mergeSourceSpans (constraintSpanHead constraints) (typeSourceSpan inner)) constraints inner)
 
 constraintSpanHead :: [Constraint] -> SourceSpan
@@ -799,7 +799,7 @@ constraintParser = withSpan $ do
 typeFunParser :: TokParser Type
 typeFunParser = do
   lhs <- typeAppParser
-  mRhs <- MP.optional (operatorLikeTok "->" *> typeFunParser)
+  mRhs <- MP.optional (operatorLikeTok "->" *> typeParser)
   pure $
     case mRhs of
       Just rhs -> TFun (mergeSourceSpans (typeSourceSpan lhs) (typeSourceSpan rhs)) lhs rhs
@@ -821,9 +821,17 @@ buildTypeApp lhs rhs =
 
 typeAtomParser :: TokParser Type
 typeAtomParser =
-  typeListParser
+  typeQuasiQuoteParser
+    <|> typeListParser
     <|> typeParenOrTupleParser
     <|> typeIdentifierParser
+
+typeQuasiQuoteParser :: TokParser Type
+typeQuasiQuoteParser =
+  tokenSatisfy $ \tok ->
+    case lexTokenKind tok of
+      TkQuasiQuote quoter body -> Just (TQuasiQuote (lexTokenSpan tok) quoter body)
+      _ -> Nothing
 
 typeIdentifierParser :: TokParser Type
 typeIdentifierParser = withSpan $ do
