@@ -3,6 +3,8 @@
 
 module Parser.Pretty
   ( prettyExpr,
+    prettyType,
+    prettyTypeText,
     prettyModule,
   )
 where
@@ -30,6 +32,9 @@ import Prettyprinter.Render.Text (renderStrict)
 
 prettyExpr :: Expr -> Text
 prettyExpr = renderDoc . prettyExprPrec 0
+
+prettyTypeText :: Type -> Text
+prettyTypeText = renderDoc . prettyType
 
 prettyModule :: Module -> Text
 prettyModule modu =
