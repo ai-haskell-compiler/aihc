@@ -41,6 +41,7 @@ buildTests = do
           "parser"
           [ testCase "module parses declaration list" test_moduleParsesDecls,
             testCase "reads header LANGUAGE pragmas" test_readsHeaderLanguagePragmas,
+            testCase "reads chunked header LANGUAGE pragmas" test_readsChunkedHeaderLanguagePragmas,
             testCase "reads header LANGUAGE pragmas starting with No" test_readsHeaderLanguagePragmasStartingWithNo,
             testCase "reads OPTIONS -X extension flag as LANGUAGE setting" test_readsOptionsPragmaXExtension,
             testCase "ignores invalid split OPTIONS -X ExtensionName form" test_ignoresSplitOptionsPragmaXExtension,
@@ -50,7 +51,15 @@ buildTests = do
             testCase "reads OPTIONS -fglasgow-exts as legacy extension bundle" test_readsOptionsPragmaGlasgowExts,
             testCase "ignores unknown header pragmas" test_ignoresUnknownHeaderPragmas,
             testCase "ignores LANGUAGE pragmas inside comments" test_ignoresLanguagePragmasInsideComments,
-            testCase "stops header scan at first module token" test_stopsHeaderScanAtFirstModuleToken
+            testCase "stops header scan at first module token" test_stopsHeaderScanAtFirstModuleToken,
+            testCase "emits lexer error token for unterminated strings" test_unterminatedStringProducesErrorToken,
+            testCase "emits lexer error token for unterminated block comments" test_unterminatedBlockCommentProducesErrorToken,
+            testCase "applies hash line directives to subsequent tokens" test_hashLineDirectiveUpdatesSpan,
+            testCase "applies gcc-style hash line directives to subsequent tokens" test_gccHashLineDirectiveUpdatesSpan,
+            testCase "applies LINE pragmas to subsequent tokens" test_linePragmaUpdatesSpan,
+            testCase "applies COLUMN pragmas to subsequent tokens" test_columnPragmaUpdatesSpan,
+            testCase "applies COLUMN pragmas in the middle of a line" test_inlineColumnPragmaUpdatesSpan,
+            testCase "can lex lazily from chunks" test_lexerChunkLaziness
           ],
         testGroup
           "properties"
@@ -84,6 +93,16 @@ test_readsHeaderLanguagePragmas = do
       exts = readModuleHeaderExtensions source
       expected = [EnableExtension CPP, DisableExtension CPP]
   assertEqual "reads expected module header LANGUAGE settings" expected exts
+
+test_readsChunkedHeaderLanguagePragmas :: Assertion
+test_readsChunkedHeaderLanguagePragmas = do
+  let chunks =
+        [ "{-# LANG",
+          "UAGE CPP #-}\n{-# LANGUAGE NoCPP #-}\nmodule M where\nx = 1"
+        ]
+      exts = readModuleHeaderExtensionsFromChunks chunks
+      expected = [EnableExtension CPP, DisableExtension CPP]
+  assertEqual "reads expected module header LANGUAGE settings across chunks" expected exts
 
 test_readsHeaderLanguagePragmasStartingWithNo :: Assertion
 test_readsHeaderLanguagePragmasStartingWithNo = do
@@ -237,3 +256,55 @@ test_stopsHeaderScanAtFirstModuleToken = do
           ]
       exts = readModuleHeaderExtensions source
   assertEqual "stops before body pragmas" [] exts
+
+test_unterminatedStringProducesErrorToken :: Assertion
+test_unterminatedStringProducesErrorToken =
+  case lexTokens "\"unterminated" of
+    [LexToken {lexTokenKind = TkError _}] -> pure ()
+    other -> assertFailure ("expected single TkError token, got: " <> show other)
+
+test_unterminatedBlockCommentProducesErrorToken :: Assertion
+test_unterminatedBlockCommentProducesErrorToken =
+  case lexTokens "{-" of
+    [LexToken {lexTokenKind = TkError _}] -> pure ()
+    other -> assertFailure ("expected single TkError token, got: " <> show other)
+
+test_hashLineDirectiveUpdatesSpan :: Assertion
+test_hashLineDirectiveUpdatesSpan =
+  case lexTokens "#line 42\nx" of
+    [LexToken {lexTokenKind = TkIdentifier "x", lexTokenSpan = SourceSpan 42 1 42 2}] -> pure ()
+    other -> assertFailure ("expected identifier at line 42, got: " <> show other)
+
+test_gccHashLineDirectiveUpdatesSpan :: Assertion
+test_gccHashLineDirectiveUpdatesSpan =
+  case lexTokens "# 42 \"generated.h\"\nx" of
+    [LexToken {lexTokenKind = TkIdentifier "x", lexTokenSpan = SourceSpan 42 1 42 2}] -> pure ()
+    other -> assertFailure ("expected identifier at line 42 from gcc-style directive, got: " <> show other)
+
+test_linePragmaUpdatesSpan :: Assertion
+test_linePragmaUpdatesSpan =
+  case lexTokens "{-# LINE 17 #-}\nx" of
+    [LexToken {lexTokenKind = TkIdentifier "x", lexTokenSpan = SourceSpan 17 1 17 2}] -> pure ()
+    other -> assertFailure ("expected identifier at line 17, got: " <> show other)
+
+test_columnPragmaUpdatesSpan :: Assertion
+test_columnPragmaUpdatesSpan =
+  case lexTokens "x\n{-# COLUMN 7 #-}y" of
+    [ LexToken {lexTokenKind = TkIdentifier "x"},
+      LexToken {lexTokenKind = TkIdentifier "y", lexTokenSpan = SourceSpan 2 7 2 8}
+      ] -> pure ()
+    other -> assertFailure ("expected second identifier at column 7, got: " <> show other)
+
+test_inlineColumnPragmaUpdatesSpan :: Assertion
+test_inlineColumnPragmaUpdatesSpan =
+  case lexTokens "x{-# COLUMN 7 #-}y" of
+    [ LexToken {lexTokenKind = TkIdentifier "x", lexTokenSpan = SourceSpan 1 1 1 2},
+      LexToken {lexTokenKind = TkIdentifier "y", lexTokenSpan = SourceSpan 1 7 1 8}
+      ] -> pure ()
+    other -> assertFailure ("expected inline COLUMN pragma to update same-line column, got: " <> show other)
+
+test_lexerChunkLaziness :: Assertion
+test_lexerChunkLaziness =
+  case take 1 (lexTokensFromChunks ["x ", error "forced tail"]) of
+    [LexToken {lexTokenKind = TkIdentifier "x"}] -> pure ()
+    other -> assertFailure ("expected lazy first token from chunks, got: " <> show other)

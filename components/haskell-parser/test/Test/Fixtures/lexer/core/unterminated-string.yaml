@@ -1,4 +1,5 @@
 extensions: []
 input: '"unterminated'
-tokens: []
-status: fail
+tokens:
+  - 'TkError "unterminated string literal"'
+status: pass
