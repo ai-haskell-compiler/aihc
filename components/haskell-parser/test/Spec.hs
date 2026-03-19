@@ -40,6 +40,7 @@ buildTests = do
           "parser"
           [ testCase "module parses declaration list" test_moduleParsesDecls,
             testCase "reads header LANGUAGE pragmas" test_readsHeaderLanguagePragmas,
+            testCase "reads chunked header LANGUAGE pragmas" test_readsChunkedHeaderLanguagePragmas,
             testCase "reads header LANGUAGE pragmas starting with No" test_readsHeaderLanguagePragmasStartingWithNo,
             testCase "reads OPTIONS -X extension flag as LANGUAGE setting" test_readsOptionsPragmaXExtension,
             testCase "ignores invalid split OPTIONS -X ExtensionName form" test_ignoresSplitOptionsPragmaXExtension,
@@ -87,6 +88,16 @@ test_readsHeaderLanguagePragmas = do
       exts = readModuleHeaderExtensions source
       expected = [EnableExtension CPP, DisableExtension CPP]
   assertEqual "reads expected module header LANGUAGE settings" expected exts
+
+test_readsChunkedHeaderLanguagePragmas :: Assertion
+test_readsChunkedHeaderLanguagePragmas = do
+  let chunks =
+        [ "{-# LANG",
+          "UAGE CPP #-}\n{-# LANGUAGE NoCPP #-}\nmodule M where\nx = 1"
+        ]
+      exts = readModuleHeaderExtensionsFromChunks chunks
+      expected = [EnableExtension CPP, DisableExtension CPP]
+  assertEqual "reads expected module header LANGUAGE settings across chunks" expected exts
 
 test_readsHeaderLanguagePragmasStartingWithNo :: Assertion
 test_readsHeaderLanguagePragmasStartingWithNo = do

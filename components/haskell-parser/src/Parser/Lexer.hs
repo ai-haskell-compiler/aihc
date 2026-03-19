@@ -21,8 +21,7 @@
 --    according to indentation (the offside rule), so the parser can treat implicit
 --    layout like explicit braces and semicolons.
 --
--- Unlike the previous Megaparsec-based lexer, scanning is incremental and
--- error-tolerant:
+-- Scanning is incremental and error-tolerant:
 --
 -- * token production starts as soon as enough input is available
 -- * malformed lexemes produce 'TkError' tokens instead of aborting lexing
@@ -53,6 +52,7 @@ module Parser.Lexer
   ( LexToken (..),
     LexTokenKind (..),
     readModuleHeaderExtensions,
+    readModuleHeaderExtensionsFromChunks,
     lexTokensFromChunks,
     lexModuleTokensFromChunks,
     lexTokensWithExtensions,
@@ -158,7 +158,7 @@ lexTokens = lexTokensFromChunks . (: [])
 lexModuleTokens :: Text -> [LexToken]
 lexModuleTokens input =
   lexModuleTokensFromChunks
-    (enabledExtensionsFromSettings (readModuleHeaderExtensions input))
+    (enabledExtensionsFromSettings (readModuleHeaderExtensionsFromChunks [input]))
     [input]
 
 -- | Lex an expression/declaration stream from one or more input chunks.
@@ -221,7 +221,14 @@ lexChunksWithExtensions enableModuleLayout exts chunks =
 -- This scans only the pragma/header prefix (allowing whitespace and comments)
 -- and stops at the first non-pragma token or lexer error token.
 readModuleHeaderExtensions :: Text -> [ExtensionSetting]
-readModuleHeaderExtensions input = go (lexTokens input)
+readModuleHeaderExtensions input = readModuleHeaderExtensionsFromChunks [input]
+
+-- | Read leading module-header pragmas from one or more input chunks.
+--
+-- This scans only the pragma/header prefix (allowing whitespace and comments)
+-- and stops at the first non-pragma token or lexer error token.
+readModuleHeaderExtensionsFromChunks :: [Text] -> [ExtensionSetting]
+readModuleHeaderExtensionsFromChunks chunks = go (lexTokensFromChunks chunks)
   where
     go toks =
       case toks of

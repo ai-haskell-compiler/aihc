@@ -11,6 +11,7 @@ module Parser
     Extension (..),
     ExtensionSetting (..),
     readModuleHeaderExtensions,
+    readModuleHeaderExtensionsFromChunks,
     lexTokensFromChunks,
     lexModuleTokensFromChunks,
     lexTokens,
@@ -35,6 +36,7 @@ import Parser.Lexer
     lexTokensFromChunks,
     lexTokensWithExtensions,
     readModuleHeaderExtensions,
+    readModuleHeaderExtensionsFromChunks,
   )
 import Parser.Types
 import Text.Megaparsec (runParser)
