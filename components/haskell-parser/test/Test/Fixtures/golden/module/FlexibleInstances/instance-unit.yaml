@@ -1,0 +1,7 @@
+extensions: []
+input: |
+  class Unit x
+  instance Unit a
+status: pass
+ast: |
+  Module {name = Nothing, languagePragmas = [], exports = Nothing, imports = [], decls = [DeclClass (ClassDecl {context = [], name = "Unit", params = ["x"], items = []}), DeclInstance (InstanceDecl {context = [], class = "Unit", types = [TVar "a"], items = []})]}

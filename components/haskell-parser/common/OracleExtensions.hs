@@ -16,6 +16,7 @@ resolveOracleExtensions spec =
     "Haskell98" -> pure []
     "FunctionalDependencies" -> resolveMany ["FunctionalDependencies", "MultiParamTypeClasses"]
     "PatternSynonyms" -> resolveMany ["PatternSynonyms", "ExplicitNamespaces"]
+    "FlexibleInstances" -> resolveMany ["FlexibleInstances", "KindSignatures", "MultiParamTypeClasses", "FlexibleContexts", "ConstrainedClassMethods", "TypeSynonymInstances"]
     name -> resolveMany [name]
   where
     resolveMany = fmap concat . mapM resolveOne
