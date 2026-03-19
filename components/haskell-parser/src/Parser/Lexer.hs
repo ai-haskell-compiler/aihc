@@ -13,13 +13,20 @@
 --
 -- The lexer runs in three phases:
 --
--- 1. /Raw tokenization/ with Megaparsec ('lexTokenParser') while skipping trivia
---    ('triviaConsumer').
+-- 1. /Raw tokenization/ with a custom incremental scanner that consumes one or more
+--    input chunks and emits tokens lazily.
 -- 2. /Extension rewrites/ ('applyExtensions'), for example @NegativeLiterals@ which
 --    folds @-@ plus an adjacent numeric literal into one literal token.
 -- 3. /Layout insertion/ ('applyLayoutTokens') that inserts virtual @{@, @;@ and @}@
 --    according to indentation (the offside rule), so the parser can treat implicit
 --    layout like explicit braces and semicolons.
+--
+-- Scanning is incremental and error-tolerant:
+--
+-- * token production starts as soon as enough input is available
+-- * malformed lexemes produce 'TkError' tokens instead of aborting lexing
+-- * @# ...@, @#line ...@, @{-# LINE #-}@ and @{-# COLUMN #-}@ are handled in-band by
+--   the lexer and update subsequent token spans without being exposed as normal tokens
 --
 -- Layout-sensitive syntax is the tricky part. The implementation tracks a stack of
 -- layout contexts and mirrors the @haskell-src-exts@ model summarized in
@@ -32,7 +39,7 @@
 -- * at beginning-of-line tokens, dedent emits virtual @}@, equal-indent emits virtual
 --   @;@ (with a small suppression rule for @then@/@else@)
 --
--- Keyword classification is intentionally lexical and exact. 'identifierToken'
+-- Keyword classification is intentionally lexical and exact. 'lexIdentifier'
 -- produces a keyword token /only/ when the full identifier text exactly matches a
 -- reserved word in 'keywordTokenKind'. That means:
 --
@@ -45,6 +52,9 @@ module Parser.Lexer
   ( LexToken (..),
     LexTokenKind (..),
     readModuleHeaderExtensions,
+    readModuleHeaderExtensionsFromChunks,
+    lexTokensFromChunks,
+    lexModuleTokensFromChunks,
     lexTokensWithExtensions,
     lexModuleTokensWithExtensions,
     lexTokens,
@@ -52,35 +62,13 @@ module Parser.Lexer
   )
 where
 
-import Control.Monad (void)
-import Data.Char (digitToInt, isAlphaNum, isDigit, isHexDigit, isOctDigit)
-import qualified Data.IntSet as IntSet
-import Data.List (find)
+import Data.Char (digitToInt, isAlphaNum, isAsciiLower, isAsciiUpper, isDigit, isHexDigit, isOctDigit, isSpace)
 import qualified Data.List as List
 import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
-import Data.Void (Void)
 import Numeric (readHex, readInt, readOct)
 import Parser.Ast
-import Text.Megaparsec
-  ( Parsec,
-    anySingle,
-    eof,
-    getSourcePos,
-    lookAhead,
-    many,
-    notFollowedBy,
-    runParser,
-    satisfy,
-    some,
-    try,
-    (<|>),
-  )
-import qualified Text.Megaparsec as MP
-import qualified Text.Megaparsec.Char as C
-import qualified Text.Megaparsec.Char.Lexer as L
-import Text.Megaparsec.Pos (unPos)
 
 data LexTokenKind
   = TkKeywordModule
@@ -110,9 +98,9 @@ data LexTokenKind
   | TkString Text
   | TkSymbol Text
   | TkQuasiQuote Text Text
+  | TkError Text
   deriving (Eq, Ord, Show, Read)
 
--- | A token with both lexical meaning and precise source span.
 data LexToken = LexToken
   { lexTokenKind :: !LexTokenKind,
     lexTokenText :: !Text,
@@ -120,51 +108,134 @@ data LexToken = LexToken
   }
   deriving (Eq, Ord, Show)
 
-type LParser = Parsec Void Text
+data LexerState = LexerState
+  { lexerInput :: String,
+    lexerLine :: !Int,
+    lexerCol :: !Int,
+    lexerAtLineStart :: !Bool,
+    lexerPending :: [LexToken]
+  }
+  deriving (Eq, Show)
+
+data LayoutContext
+  = LayoutExplicit
+  | LayoutImplicit !Int
+  deriving (Eq, Show)
+
+data ModuleLayoutMode
+  = ModuleLayoutOff
+  | ModuleLayoutSeekStart
+  | ModuleLayoutAwaitWhere
+  | ModuleLayoutDone
+  deriving (Eq, Show)
+
+data LayoutState = LayoutState
+  { layoutContexts :: [LayoutContext],
+    layoutPendingLayout :: !Bool,
+    layoutPrevLine :: !(Maybe Int),
+    layoutModuleMode :: !ModuleLayoutMode
+  }
+  deriving (Eq, Show)
+
+data DirectiveUpdate = DirectiveUpdate
+  { directiveLine :: !(Maybe Int),
+    directiveCol :: !(Maybe Int)
+  }
+  deriving (Eq, Show)
 
 -- | Convenience lexer entrypoint: no extensions, parse as expression/declaration stream.
 --
--- Returns @[]@ on lexing errors.
+-- This variant consumes a single strict 'Text' chunk and returns a lazy list of
+-- tokens. Lexing errors are preserved as 'TkError' tokens instead of causing
+-- lexing to fail.
 lexTokens :: Text -> [LexToken]
-lexTokens input =
-  case lexTokensWithExtensions [] input of
-    Right toks -> toks
-    Left _ -> []
+lexTokens = lexTokensFromChunks . (: [])
 
--- | Convenience lexer entrypoint for full modules: no extensions, with module layout enabled.
+-- | Convenience lexer entrypoint for full modules: no explicit extension list.
 --
--- Returns @[]@ on lexing errors.
+-- Leading header pragmas are scanned first so module-enabled extensions can be
+-- applied before token rewrites and top-level layout insertion.
 lexModuleTokens :: Text -> [LexToken]
 lexModuleTokens input =
-  case lexModuleTokensWithExtensions (enabledExtensionsFromSettings (readModuleHeaderExtensions input)) input of
-    Right toks -> toks
-    Left _ -> []
+  lexModuleTokensFromChunks
+    (enabledExtensionsFromSettings (readModuleHeaderExtensionsFromChunks [input]))
+    [input]
+
+-- | Lex an expression/declaration stream from one or more input chunks.
+--
+-- Tokens are produced lazily, so downstream consumers can begin parsing before
+-- the full source has been scanned.
+lexTokensFromChunks :: [Text] -> [LexToken]
+lexTokensFromChunks = lexTokensFromChunksWithExtensions []
+
+-- | Lex a full module from one or more input chunks with explicit extensions.
+--
+-- This variant enables module-body layout insertion in addition to the normal
+-- token scan and extension rewrites.
+lexModuleTokensFromChunks :: [Extension] -> [Text] -> [LexToken]
+lexModuleTokensFromChunks = lexChunksWithExtensions True
+
+-- | Lex source text using explicit lexer extensions.
+--
+-- This runs raw tokenization, extension rewrites, and implicit-layout insertion.
+-- Module-top layout is /not/ enabled here. The result currently cannot fail:
+-- malformed lexemes become 'TkError' tokens in the token stream.
+lexTokensWithExtensions :: [Extension] -> Text -> Either String [LexToken]
+lexTokensWithExtensions exts input = Right (lexTokensFromChunksWithExtensions exts [input])
+
+-- | Lex module source text using explicit lexer extensions.
+--
+-- Like 'lexTokensWithExtensions', but also enables top-level module-body layout:
+-- when the source omits explicit braces, virtual layout tokens are inserted
+-- after @module ... where@ (or from the first non-pragma token in module-less files).
+lexModuleTokensWithExtensions :: [Extension] -> Text -> Either String [LexToken]
+lexModuleTokensWithExtensions exts input = Right (lexModuleTokensFromChunks exts [input])
+
+-- | Internal chunked lexer entrypoint for non-module inputs.
+--
+-- This exists so callers can stream input through the same scanner while still
+-- selecting extension-driven token rewrites.
+lexTokensFromChunksWithExtensions :: [Extension] -> [Text] -> [LexToken]
+lexTokensFromChunksWithExtensions = lexChunksWithExtensions False
+
+-- | Run the full lexer pipeline over chunked input.
+--
+-- The scanner operates over the concatenated chunk stream, then the resulting token
+-- stream is rewritten for enabled extensions and finally passed through the layout
+-- insertion step.
+lexChunksWithExtensions :: Bool -> [Extension] -> [Text] -> [LexToken]
+lexChunksWithExtensions enableModuleLayout exts chunks =
+  applyLayoutTokens enableModuleLayout (applyExtensions exts (scanTokens initialLexerState))
+  where
+    initialLexerState =
+      LexerState
+        { lexerInput = concatMap T.unpack chunks,
+          lexerLine = 1,
+          lexerCol = 1,
+          lexerAtLineStart = True,
+          lexerPending = []
+        }
 
 -- | Read leading module-header pragmas and return parsed LANGUAGE settings.
 --
 -- This scans only the pragma/header prefix (allowing whitespace and comments)
--- and stops at the first non-pragma token.
+-- and stops at the first non-pragma token or lexer error token.
 readModuleHeaderExtensions :: Text -> [ExtensionSetting]
-readModuleHeaderExtensions input =
-  case runParser parser "<module-header>" input of
-    Right settings -> settings
-    Left _ -> []
+readModuleHeaderExtensions input = readModuleHeaderExtensionsFromChunks [input]
+
+-- | Read leading module-header pragmas from one or more input chunks.
+--
+-- This scans only the pragma/header prefix (allowing whitespace and comments)
+-- and stops at the first non-pragma token or lexer error token.
+readModuleHeaderExtensionsFromChunks :: [Text] -> [ExtensionSetting]
+readModuleHeaderExtensionsFromChunks chunks = go (lexTokensFromChunks chunks)
   where
-    parser = triviaConsumer *> gather []
-
-    gather acc =
-      do
-        next <- MP.optional (try headerPragmaSettings)
-        case next of
-          Nothing -> pure (reverse acc)
-          Just settings -> do
-            triviaConsumer
-            gather (reverse settings <> acc)
-
-    headerPragmaSettings = do
-      tok <- lexWithSpan (try languagePragmaToken <|> try optionsPragmaToken <|> try pragmaWarningToken <|> try pragmaDeprecatedToken)
-      pure $ case lexTokenKind tok of
-        TkPragmaLanguage names -> names
+    go toks =
+      case toks of
+        LexToken {lexTokenKind = TkPragmaLanguage settings} : rest -> settings <> go rest
+        LexToken {lexTokenKind = TkPragmaWarning _} : rest -> go rest
+        LexToken {lexTokenKind = TkPragmaDeprecated _} : rest -> go rest
+        LexToken {lexTokenKind = TkError _} : _ -> []
         _ -> []
 
 enabledExtensionsFromSettings :: [ExtensionSetting] -> [Extension]
@@ -177,26 +248,81 @@ enabledExtensionsFromSettings = List.foldl' apply []
           | otherwise -> exts <> [ext]
         DisableExtension ext -> filter (/= ext) exts
 
--- | Lex source text using explicit lexer extensions.
+-- | Produce the lazy stream of raw lexical tokens.
 --
--- This runs raw tokenization, extension rewrites, and implicit-layout insertion.
--- Module-top layout is /not/ enabled here.
-lexTokensWithExtensions :: [Extension] -> Text -> Either String [LexToken]
-lexTokensWithExtensions exts input =
-  case runParser (triviaConsumer *> many (lexTokenParser <* triviaConsumer) <* eof) "<lexer>" input of
-    Right toks -> Right (applyLayoutTokens False (applyExtensions exts toks))
-    Left err -> Left (MP.errorBundlePretty err)
+-- Pending synthetic tokens are emitted first, then trivia is skipped, and finally
+-- the next real token is scanned from the remaining input.
+scanTokens :: LexerState -> [LexToken]
+scanTokens st0 =
+  case lexerPending st0 of
+    tok : rest -> tok : scanTokens st0 {lexerPending = rest}
+    [] ->
+      let st = skipTrivia st0
+       in case lexerPending st of
+            tok : rest -> tok : scanTokens st {lexerPending = rest}
+            []
+              | null (lexerInput st) -> []
+              | otherwise ->
+                  let (tok, st') = nextToken st
+                   in tok : scanTokens st'
 
--- | Lex module source text using explicit lexer extensions.
+-- | Skip ignorable trivia until the next token boundary.
 --
--- Like 'lexTokensWithExtensions', but also enables top-level module-body layout:
--- when the source omits explicit braces, virtual layout tokens are inserted
--- after @module ... where@ (or from the first non-pragma token in module-less files).
-lexModuleTokensWithExtensions :: [Extension] -> Text -> Either String [LexToken]
-lexModuleTokensWithExtensions exts input =
-  case runParser (triviaConsumer *> many (lexTokenParser <* triviaConsumer) <* eof) "<lexer>" input of
-    Right toks -> Right (applyLayoutTokens True (applyExtensions exts toks))
-    Left err -> Left (MP.errorBundlePretty err)
+-- Control directives are treated specially: valid directives update lexer position
+-- state without emitting a token, while malformed directives enqueue 'TkError'
+-- tokens for later emission.
+skipTrivia :: LexerState -> LexerState
+skipTrivia st = maybe st skipTrivia (consumeTrivia st)
+
+consumeTrivia :: LexerState -> Maybe LexerState
+consumeTrivia st
+  | null (lexerInput st) = Nothing
+  | otherwise =
+      case lexerInput st of
+        c : _
+          | c == ' ' || c == '\t' || c == '\r' -> Just (consumeWhile (\x -> x == ' ' || x == '\t' || x == '\r') st)
+          | c == '\n' -> Just (advanceChars "\n" st)
+        '-' : '-' : _ -> Just (consumeLineComment st)
+        '{' : '-' : '#' : _ ->
+          case tryConsumeControlPragma st of
+            Just (Nothing, st') -> Just st'
+            Just (Just tok, st') -> Just st' {lexerPending = lexerPending st' <> [tok]}
+            Nothing ->
+              case tryConsumeKnownPragma st of
+                Just _ -> Nothing
+                Nothing ->
+                  consumeUnknownPragma st
+        '{' : '-' : _ ->
+          Just (consumeBlockCommentOrError st)
+        _ ->
+          case tryConsumeLineDirective st of
+            Just (Nothing, st') -> Just st'
+            Just (Just tok, st') -> Just st' {lexerPending = lexerPending st' <> [tok]}
+            Nothing -> Nothing
+
+nextToken :: LexerState -> (LexToken, LexerState)
+nextToken st =
+  fromMaybe (lexErrorToken st "unexpected character") (firstJust tokenParsers)
+  where
+    tokenParsers =
+      [ lexKnownPragma,
+        lexQuasiQuote,
+        lexHexFloat,
+        lexFloat,
+        lexIntBase,
+        lexInt,
+        lexChar,
+        lexString,
+        lexSymbol,
+        lexIdentifier,
+        lexOperator
+      ]
+
+    firstJust [] = Nothing
+    firstJust (parser : rest) =
+      case parser st of
+        Just out -> Just out
+        Nothing -> firstJust rest
 
 -- | Apply all extension-driven post-lexing rewrites in a deterministic order.
 applyExtensions :: [Extension] -> [LexToken] -> [LexToken]
@@ -267,77 +393,50 @@ combinedSpan first second =
     (SourceSpan sl sc _ _, SourceSpan _ _ el ec) -> SourceSpan sl sc el ec
     _ -> NoSourceSpan
 
--- | Layout stack entries.
---
--- 'LayoutExplicit' means we are inside explicit braces, so indentation should not
--- create virtual punctuation for that level.
--- 'LayoutImplicit' stores the indentation column for an offside block.
-data LayoutContext
-  = LayoutExplicit
-  | LayoutImplicit !Int
-  deriving (Eq, Show)
-
--- | Mutable state threaded through the layout insertion pass.
-data LayoutState = LayoutState
-  { layoutContexts :: [LayoutContext],
-    layoutPendingLayout :: !Bool,
-    layoutPrevLine :: !(Maybe Int)
-  }
-  deriving (Eq, Show)
-
--- | Insert virtual layout tokens (@{@, @;@, @}@) according to indentation.
---
--- When @enableModuleLayout@ is True, a synthetic layout block is also considered for
--- the module body (after @module ... where@, or from the first non-pragma token when
--- the @module@ header is omitted).
 applyLayoutTokens :: Bool -> [LexToken] -> [LexToken]
-applyLayoutTokens enableModuleLayout toks =
-  go initialState 0 toks
-    <> closeAllImplicit (layoutContexts finalState) eofAnchor
+applyLayoutTokens enableModuleLayout =
+  go
+    LayoutState
+      { layoutContexts = [],
+        layoutPendingLayout = False,
+        layoutPrevLine = Nothing,
+        layoutModuleMode =
+          if enableModuleLayout
+            then ModuleLayoutSeekStart
+            else ModuleLayoutOff
+      }
   where
-    initialState = LayoutState [] False Nothing
-    pendingOpenIndices =
-      if enableModuleLayout
-        then moduleLayoutOpenIndices toks
-        else IntSet.empty
-    finalState = foldl stepState initialState (zip [0 ..] toks)
-    eofAnchor = eofAnchorSpan toks
+    go st toks =
+      case toks of
+        [] -> closeAllImplicit (layoutContexts st) NoSourceSpan
+        tok : rest ->
+          let stModule = noteModuleLayoutBeforeToken st tok
+              (pendingInserted, stAfterPending, skipBOL) = openPendingLayout stModule tok
+              (bolInserted, stAfterBOL) = if skipBOL then ([], stAfterPending) else bolLayout stAfterPending tok
+              stAfterToken = noteModuleLayoutAfterToken (stepTokenContext stAfterBOL tok) tok
+              stNext = stAfterToken {layoutPrevLine = Just (tokenStartLine tok)}
+           in pendingInserted <> bolInserted <> (tok : go stNext rest)
 
-    go _ _ [] = []
-    go st idx (tok : rest) =
-      let stWithPending =
-            if IntSet.member idx pendingOpenIndices
-              then st {layoutPendingLayout = True}
-              else st
-          (pendingInserted, stAfterPending, skipBOL) = openPendingLayout stWithPending tok
-          (bolInserted, stAfterBOL) = if skipBOL then ([], stAfterPending) else bolLayout stAfterPending tok
-          stAfterToken = stepTokenContext stAfterBOL tok
-          stNext = stAfterToken {layoutPrevLine = Just (tokenStartLine tok)}
-       in pendingInserted <> bolInserted <> (tok : go stNext (idx + 1) rest)
+noteModuleLayoutBeforeToken :: LayoutState -> LexToken -> LayoutState
+noteModuleLayoutBeforeToken st tok =
+  case layoutModuleMode st of
+    ModuleLayoutSeekStart ->
+      case lexTokenKind tok of
+        TkPragmaLanguage _ -> st
+        TkPragmaWarning _ -> st
+        TkPragmaDeprecated _ -> st
+        TkKeywordModule -> st {layoutModuleMode = ModuleLayoutAwaitWhere}
+        _ -> st {layoutModuleMode = ModuleLayoutDone, layoutPendingLayout = True}
+    _ -> st
 
-    stepState st (idx, tok) =
-      let stWithPending =
-            if IntSet.member idx pendingOpenIndices
-              then st {layoutPendingLayout = True}
-              else st
-          (_, stAfterPending, skipBOL) = openPendingLayout stWithPending tok
-          (_, stAfterBOL) = if skipBOL then ([], stAfterPending) else bolLayout stAfterPending tok
-          stAfterToken = stepTokenContext stAfterBOL tok
-       in stAfterToken {layoutPrevLine = Just (tokenStartLine tok)}
+noteModuleLayoutAfterToken :: LayoutState -> LexToken -> LayoutState
+noteModuleLayoutAfterToken st tok =
+  case layoutModuleMode st of
+    ModuleLayoutAwaitWhere
+      | lexTokenKind tok == TkKeywordWhere ->
+          st {layoutModuleMode = ModuleLayoutDone, layoutPendingLayout = True}
+    _ -> st
 
--- | If a layout-introducing token was seen previously, decide how to open that block.
---
--- Returns:
---
--- * tokens inserted before @tok@
--- * updated state
--- * whether BOL processing should be skipped for this token
---
--- If @tok@ is explicit @{@, pending layout is cancelled. Otherwise, we insert a
--- virtual @{@ and either:
---
--- * immediately close it with virtual @}@ when indentation is not greater than parent
--- * push a new implicit indentation context
 openPendingLayout :: LayoutState -> LexToken -> ([LexToken], LayoutState, Bool)
 openPendingLayout st tok
   | not (layoutPendingLayout st) = ([], st, False)
@@ -360,10 +459,6 @@ openPendingLayout st tok
                     True
                   )
 
--- | Handle beginning-of-line layout rules for the current token.
---
--- Dedent closes implicit blocks with virtual @}@. Matching indentation inserts a
--- virtual @;@ unless suppressed by 'suppressesVirtualSemicolon'.
 bolLayout :: LayoutState -> LexToken -> ([LexToken], LayoutState)
 bolLayout st tok
   | not (isBOL st tok) = ([], st)
@@ -379,10 +474,6 @@ bolLayout st tok
               _ -> []
        in (inserted <> eqSemi, st {layoutContexts = contexts'})
 
--- | Tokens that should not be preceded by an inserted virtual semicolon on EQ-indent.
---
--- This avoids producing a spurious statement separator before @then@/@else@ in common
--- conditional layouts.
 suppressesVirtualSemicolon :: LexToken -> Bool
 suppressesVirtualSemicolon tok =
   case lexTokenKind tok of
@@ -390,7 +481,6 @@ suppressesVirtualSemicolon tok =
     TkKeywordElse -> True
     _ -> False
 
--- | Pop implicit layout contexts while current column is less indented.
 closeForDedent :: Int -> SourceSpan -> [LayoutContext] -> ([LexToken], [LayoutContext])
 closeForDedent col anchor = go []
   where
@@ -401,15 +491,10 @@ closeForDedent col anchor = go []
           | otherwise -> (reverse acc, contexts)
         _ -> (reverse acc, contexts)
 
--- | Emit virtual closing braces for all still-open implicit layouts at EOF.
 closeAllImplicit :: [LayoutContext] -> SourceSpan -> [LexToken]
 closeAllImplicit contexts anchor =
   [virtualSymbolToken "}" anchor | LayoutImplicit _ <- contexts]
 
--- | Update layout state from a real token.
---
--- @do@ and @of@ start pending implicit layout, and explicit braces push/pop
--- 'LayoutExplicit'.
 stepTokenContext :: LayoutState -> LexToken -> LayoutState
 stepTokenContext st tok =
   case lexTokenKind tok of
@@ -419,84 +504,36 @@ stepTokenContext st tok =
     TkSymbol "}" -> st {layoutContexts = popOneContext (layoutContexts st)}
     _ -> st
 
--- | Determine token indices where module-level layout should begin.
---
--- Strategy:
---
--- * skip leading LANGUAGE/WARNING/DEPRECATED pragmas
--- * if first token is @module@, start after the corresponding @where@ (if body exists)
--- * otherwise, start from that first non-pragma token
-moduleLayoutOpenIndices :: [LexToken] -> IntSet.IntSet
-moduleLayoutOpenIndices toks =
-  case firstNonPragma of
-    Nothing -> IntSet.empty
-    Just (startIx, startTok) ->
-      case lexTokenKind startTok of
-        TkKeywordModule ->
-          case find (\(ix, tok) -> ix > startIx && lexTokenKind tok == TkKeywordWhere) indexedToks of
-            Just (whereIx, _)
-              | whereIx + 1 < length toks -> IntSet.singleton (whereIx + 1)
-            _ -> IntSet.empty
-        _ -> IntSet.singleton startIx
-  where
-    indexedToks = zip [0 ..] toks
-    firstNonPragma =
-      find
-        ( \(_, tok) ->
-            case lexTokenKind tok of
-              TkPragmaLanguage _ -> False
-              TkPragmaWarning _ -> False
-              TkPragmaDeprecated _ -> False
-              _ -> True
-        )
-        indexedToks
-
--- | Pop one layout context, if any.
 popOneContext :: [LayoutContext] -> [LayoutContext]
 popOneContext contexts =
   case contexts of
     _ : rest -> rest
     [] -> []
 
--- | Current indentation baseline used for pending implicit layout opening.
 currentLayoutIndent :: [LayoutContext] -> Int
 currentLayoutIndent contexts =
   case contexts of
     LayoutImplicit indent : _ -> indent
     _ -> 0
 
--- | True when @tok@ begins on a later line than the previously emitted token.
 isBOL :: LayoutState -> LexToken -> Bool
 isBOL st tok =
   case layoutPrevLine st of
     Just prevLine -> tokenStartLine tok > prevLine
     Nothing -> False
 
--- | Start line of a token (defaults to 1 for missing spans).
 tokenStartLine :: LexToken -> Int
 tokenStartLine tok =
   case lexTokenSpan tok of
     SourceSpan line _ _ _ -> line
     NoSourceSpan -> 1
 
--- | Start column of a token (defaults to 1 for missing spans).
 tokenStartCol :: LexToken -> Int
 tokenStartCol tok =
   case lexTokenSpan tok of
     SourceSpan _ col _ _ -> col
     NoSourceSpan -> 1
 
--- | Zero-width EOF anchor span at the end of the final token.
-eofAnchorSpan :: [LexToken] -> SourceSpan
-eofAnchorSpan toks =
-  case reverse toks of
-    tok : _ ->
-      case lexTokenSpan tok of
-        SourceSpan _ _ endLine endCol -> SourceSpan endLine endCol endLine endCol
-        NoSourceSpan -> NoSourceSpan
-    [] -> NoSourceSpan
-
--- | Construct a virtual punctuation token used by the layout pass.
 virtualSymbolToken :: Text -> SourceSpan -> LexToken
 virtualSymbolToken sym span' =
   LexToken
@@ -505,105 +542,396 @@ virtualSymbolToken sym span' =
       lexTokenSpan = span'
     }
 
--- | Skip whitespace and non-pragma comments between tokens.
---
--- Pragmas are lexed as tokens, so @{-# ... #-}@ must not be consumed here.
-triviaConsumer :: LParser ()
-triviaConsumer = MP.skipMany (void C.spaceChar <|> lineCommentConsumer <|> try blockCommentConsumer <|> try unknownPragmaConsumer)
+lexKnownPragma :: LexerState -> Maybe (LexToken, LexerState)
+lexKnownPragma st
+  | Just ((raw, kind), st') <- parsePragmaLike parseLanguagePragma st = Just (mkToken st st' raw kind, st')
+  | Just ((raw, kind), st') <- parsePragmaLike parseOptionsPragma st = Just (mkToken st st' raw kind, st')
+  | Just ((raw, kind), st') <- parsePragmaLike parseWarningPragma st = Just (mkToken st st' raw kind, st')
+  | Just ((raw, kind), st') <- parsePragmaLike parseDeprecatedPragma st = Just (mkToken st st' raw kind, st')
+  | otherwise = Nothing
 
--- | Consume a line comment introduced by @--@.
-lineCommentConsumer :: LParser ()
-lineCommentConsumer = L.skipLineComment "--"
+parsePragmaLike :: (String -> Maybe (Int, (Text, LexTokenKind))) -> LexerState -> Maybe ((Text, LexTokenKind), LexerState)
+parsePragmaLike parser st = do
+  (n, out) <- parser (lexerInput st)
+  pure (out, advanceChars (take n (lexerInput st)) st)
 
--- | Consume unsupported pragmas as ignorable header/comment trivia.
-unknownPragmaConsumer :: LParser ()
-unknownPragmaConsumer = do
-  _ <- C.string "{-#"
-  _ <- many C.spaceChar
-  notFollowedBy (C.string "LANGUAGE")
-  notFollowedBy (C.string "OPTIONS")
-  notFollowedBy (C.string "OPTIONS_GHC")
-  notFollowedBy (C.string "WARNING")
-  notFollowedBy (C.string "DEPRECATED")
-  void (manyTillText "#-}")
+lexIdentifier :: LexerState -> Maybe (LexToken, LexerState)
+lexIdentifier st =
+  case lexerInput st of
+    c : rest
+      | isIdentStart c ->
+          let (seg, rest0) = span isIdentTail rest
+              firstChunk = c : seg
+              (consumed, _) = gatherQualified firstChunk rest0
+              ident = T.pack consumed
+              kind = fromMaybe (TkIdentifier ident) (keywordTokenKind ident)
+              st' = advanceChars consumed st
+           in Just (mkToken st st' ident kind, st')
+    _ -> Nothing
+  where
+    gatherQualified acc chars =
+      case chars of
+        '.' : c : more
+          | isIdentStart c ->
+              let (seg, rest) = span isIdentTail more
+               in gatherQualified (acc <> "." <> [c] <> seg) rest
+        _ -> (acc, chars)
 
--- | Consume a non-pragma nested block comment.
---
--- The initial @{-@ has been read, and @{-# ... #-}@ is excluded by caller.
-blockCommentConsumer :: LParser ()
-blockCommentConsumer = do
-  _ <- C.string "{-"
-  notFollowedBy (C.char '#')
-  skipNestedBlockCommentBody 1
+lexOperator :: LexerState -> Maybe (LexToken, LexerState)
+lexOperator st =
+  case span isSymbolicOpChar (lexerInput st) of
+    ("", _) -> Nothing
+    (op, _) ->
+      let txt = T.pack op
+          st' = advanceChars op st
+       in Just (mkToken st st' txt (TkOperator txt), st')
 
--- | Skip the remaining body of a nested block comment.
-skipNestedBlockCommentBody :: Int -> LParser ()
-skipNestedBlockCommentBody depth
-  | depth <= 0 = pure ()
+lexSymbol :: LexerState -> Maybe (LexToken, LexerState)
+lexSymbol st =
+  firstJust
+    [ ("..", TkSymbol ".."),
+      ("`", TkSymbol "`"),
+      ("(", TkSymbol "("),
+      (")", TkSymbol ")"),
+      ("[", TkSymbol "["),
+      ("]", TkSymbol "]"),
+      ("{", TkSymbol "{"),
+      ("}", TkSymbol "}"),
+      (",", TkSymbol ","),
+      (";", TkSymbol ";")
+    ]
+  where
+    firstJust xs =
+      case xs of
+        [] -> Nothing
+        (txt, kind) : rest ->
+          if txt `List.isPrefixOf` lexerInput st
+            then
+              let st' = advanceChars txt st
+               in Just (mkToken st st' (T.pack txt) kind, st')
+            else firstJust rest
+
+lexIntBase :: LexerState -> Maybe (LexToken, LexerState)
+lexIntBase st =
+  case lexerInput st of
+    '0' : base : rest
+      | base `elem` ("xXoObB" :: String) ->
+          let isDigitChar
+                | base `elem` ("xX" :: String) = isHexDigit
+                | base `elem` ("oO" :: String) = isOctDigit
+                | otherwise = (`elem` ("01" :: String))
+              (digitsRaw, _) = takeDigitsWithUnderscores isDigitChar rest
+           in if null digitsRaw
+                then Nothing
+                else
+                  let raw = '0' : base : digitsRaw
+                      txt = T.pack raw
+                      n
+                        | base `elem` ("xX" :: String) = readHexLiteral txt
+                        | base `elem` ("oO" :: String) = readOctLiteral txt
+                        | otherwise = readBinLiteral txt
+                      st' = advanceChars raw st
+                   in Just (mkToken st st' txt (TkIntegerBase n txt), st')
+    _ -> Nothing
+
+lexHexFloat :: LexerState -> Maybe (LexToken, LexerState)
+lexHexFloat st = do
+  ('0' : x : rest) <- Just (lexerInput st)
+  if x `notElem` ("xX" :: String)
+    then Nothing
+    else do
+      let (intDigits, rest1) = span isHexDigit rest
+      if null intDigits
+        then Nothing
+        else do
+          let (mFracDigits, rest2) =
+                case rest1 of
+                  '.' : more ->
+                    let (frac, rest') = span isHexDigit more
+                     in (Just frac, rest')
+                  _ -> (Nothing, rest1)
+          expo@(_ : expoRest) <- takeHexExponent rest2
+          let fracDigits = fromMaybe "" mFracDigits
+          if null expoRest
+            then Nothing
+            else
+              let dotAndFrac =
+                    case mFracDigits of
+                      Just ds -> '.' : ds
+                      Nothing -> ""
+                  raw = '0' : x : intDigits <> dotAndFrac <> expo
+                  txt = T.pack raw
+                  value = parseHexFloatLiteral intDigits fracDigits expo
+                  st' = advanceChars raw st
+               in Just (mkToken st st' txt (TkFloat value txt), st')
+
+lexFloat :: LexerState -> Maybe (LexToken, LexerState)
+lexFloat st =
+  let (lhsRaw, rest) = takeDigitsWithUnderscores isDigit (lexerInput st)
+   in if null lhsRaw
+        then Nothing
+        else case rest of
+          '.' : d : more
+            | isDigit d ->
+                let (rhsRaw, rest') = takeDigitsWithUnderscores isDigit (d : more)
+                    (expo, _) = takeExponent rest'
+                    raw = lhsRaw <> "." <> rhsRaw <> expo
+                    txt = T.pack raw
+                    normalized = filter (/= '_') raw
+                    st' = advanceChars raw st
+                 in Just (mkToken st st' txt (TkFloat (read normalized) txt), st')
+          _ ->
+            case takeExponent rest of
+              ("", _) -> Nothing
+              (expo, _) ->
+                let raw = lhsRaw <> expo
+                    txt = T.pack raw
+                    normalized = filter (/= '_') raw
+                    st' = advanceChars raw st
+                 in Just (mkToken st st' txt (TkFloat (read normalized) txt), st')
+
+lexInt :: LexerState -> Maybe (LexToken, LexerState)
+lexInt st =
+  let (digitsRaw, _) = takeDigitsWithUnderscores isDigit (lexerInput st)
+   in if null digitsRaw
+        then Nothing
+        else
+          let txt = T.pack digitsRaw
+              digits = filter (/= '_') digitsRaw
+              st' = advanceChars digitsRaw st
+           in Just (mkToken st st' txt (TkInteger (read digits)), st')
+
+lexChar :: LexerState -> Maybe (LexToken, LexerState)
+lexChar st =
+  case lexerInput st of
+    '\'' : rest ->
+      case scanQuoted '\'' rest of
+        Right (body, _) ->
+          let raw = '\'' : body <> "'"
+              st' = advanceChars raw st
+           in case readMaybeChar raw of
+                Just c -> Just (mkToken st st' (T.pack raw) (TkChar c), st')
+                Nothing -> Just (mkErrorToken st st' (T.pack raw) "invalid char literal", st')
+        Left raw ->
+          let full = '\'' : raw
+              st' = advanceChars full st
+           in Just (mkErrorToken st st' (T.pack full) "unterminated char literal", st')
+    _ -> Nothing
+
+lexString :: LexerState -> Maybe (LexToken, LexerState)
+lexString st =
+  case lexerInput st of
+    '"' : rest ->
+      case scanQuoted '"' rest of
+        Right (body, _) ->
+          let raw = "\"" <> body <> "\""
+              decoded =
+                case reads raw of
+                  [(str, "")] -> T.pack str
+                  _ -> T.pack body
+              st' = advanceChars raw st
+           in Just (mkToken st st' (T.pack raw) (TkString decoded), st')
+        Left raw ->
+          let full = '"' : raw
+              st' = advanceChars full st
+           in Just (mkErrorToken st st' (T.pack full) "unterminated string literal", st')
+    _ -> Nothing
+
+lexQuasiQuote :: LexerState -> Maybe (LexToken, LexerState)
+lexQuasiQuote st =
+  case lexerInput st of
+    '[' : rest ->
+      case parseQuasiQuote rest of
+        Just (quoter, body, _) ->
+          let raw = "[" <> quoter <> "|" <> body <> "|]"
+              st' = advanceChars raw st
+           in Just (mkToken st st' (T.pack raw) (TkQuasiQuote (T.pack quoter) (T.pack body)), st')
+        Nothing -> Nothing
+    _ -> Nothing
+  where
+    parseQuasiQuote chars =
+      let (quoter, rest0) = takeQuoter chars
+       in case rest0 of
+            '|' : rest1
+              | not (null quoter) ->
+                  let (body, rest2) = breakOnMarker "|]" rest1
+                   in case rest2 of
+                        '|' : ']' : _ -> Just (quoter, body, take (length body + 2) rest1)
+                        _ -> Nothing
+            _ -> Nothing
+
+lexErrorToken :: LexerState -> Text -> (LexToken, LexerState)
+lexErrorToken st msg =
+  let raw = take 1 (lexerInput st)
+      rawTxt = if null raw then "<eof>" else T.pack raw
+      st' = if null raw then st else advanceChars raw st
+   in ( mkErrorToken st st' rawTxt msg,
+        st'
+      )
+
+mkErrorToken :: LexerState -> LexerState -> Text -> Text -> LexToken
+mkErrorToken start end rawTxt msg =
+  mkToken start end rawTxt (TkError msg)
+
+tryConsumeLineDirective :: LexerState -> Maybe (Maybe LexToken, LexerState)
+tryConsumeLineDirective st
+  | not (lexerAtLineStart st) = Nothing
   | otherwise =
-      try (C.string "{-" *> skipNestedBlockCommentBody (depth + 1))
-        <|> try (C.string "-}" *> skipNestedBlockCommentBody (depth - 1))
-        <|> (anySingle *> skipNestedBlockCommentBody depth)
+      let (spaces, rest) = span (\c -> c == ' ' || c == '\t') (lexerInput st)
+       in case rest of
+            '#' : more ->
+              let lineText = '#' : takeLineRemainder more
+                  consumed = spaces <> lineText
+               in case parseHashLineDirective lineText of
+                    Just update ->
+                      Just (Nothing, applyDirectiveAdvance consumed update st)
+                    Nothing ->
+                      let st' = advanceChars consumed st
+                       in Just (Just (mkToken st st' (T.pack consumed) (TkError "malformed line directive")), st')
+            _ -> Nothing
 
--- | Parse one lexical token and attach its source span.
---
--- Order matters here: more specific token forms must appear before more general ones.
-lexTokenParser :: LParser LexToken
-lexTokenParser =
-  lexWithSpan $
-    try languagePragmaToken
-      <|> try optionsPragmaToken
-      <|> try pragmaWarningToken
-      <|> try pragmaDeprecatedToken
-      <|> try quasiQuoteToken
-      <|> try hexFloatToken
-      <|> try floatToken
-      <|> try intBaseToken
-      <|> try intToken
-      <|> try charToken
-      <|> try stringToken
-      <|> try symbolToken
-      <|> try identifierToken
-      <|> operatorToken
+tryConsumeControlPragma :: LexerState -> Maybe (Maybe LexToken, LexerState)
+tryConsumeControlPragma st =
+  case parseControlPragma (lexerInput st) of
+    Just (consumed0, Right update0) ->
+      let (consumed, update) =
+            case directiveLine update0 of
+              Just lineNo ->
+                case drop (length consumed0) (lexerInput st) of
+                  '\n' : _ ->
+                    (consumed0 <> "\n", update0 {directiveLine = Just lineNo, directiveCol = Just 1})
+                  _ -> (consumed0, update0)
+              Nothing -> (consumed0, update0)
+       in Just (Nothing, applyDirectiveAdvance consumed update st)
+    Just (consumed, Left msg) ->
+      let st' = advanceChars consumed st
+       in Just (Just (mkToken st st' (T.pack consumed) (TkError msg)), st')
+    Nothing -> Nothing
 
--- | Parse a @LANGUAGE@ pragma token.
---
--- The token kind stores parsed extension names, and token text is normalized to a
--- canonical comma-separated representation.
-languagePragmaToken :: LParser (Text, LexTokenKind)
-languagePragmaToken = do
-  _ <- C.string "{-#"
-  _ <- many C.spaceChar
-  _ <- C.string "LANGUAGE"
-  _ <- many C.spaceChar
-  body <- manyTillText "#-}"
+applyDirectiveAdvance :: String -> DirectiveUpdate -> LexerState -> LexerState
+applyDirectiveAdvance consumed update st =
+  let hasTrailingNewline =
+        case reverse consumed of
+          '\n' : _ -> True
+          _ -> False
+   in st
+        { lexerInput = drop (length consumed) (lexerInput st),
+          lexerLine = maybe (lexerLine st) (max 1) (directiveLine update),
+          lexerCol = maybe (lexerCol st) (max 1) (directiveCol update),
+          lexerAtLineStart = hasTrailingNewline || (Just 1 == directiveCol update)
+        }
+
+consumeLineComment :: LexerState -> LexerState
+consumeLineComment st = advanceChars consumed st
+  where
+    consumed = takeCommentRemainder (drop 2 (lexerInput st))
+    prefix = "--"
+    takeCommentRemainder xs =
+      prefix <> takeWhile (/= '\n') xs
+
+consumeUnknownPragma :: LexerState -> Maybe LexerState
+consumeUnknownPragma st =
+  case breakOnMarker "#-}" (lexerInput st) of
+    (_, "") -> Nothing
+    (body, marker) ->
+      let consumed = body <> take 3 marker
+       in Just (advanceChars consumed st)
+
+consumeBlockComment :: LexerState -> Maybe LexerState
+consumeBlockComment st =
+  case scanNestedBlockComment 1 (drop 2 (lexerInput st)) of
+    Just consumedTail -> Just (advanceChars ("{-" <> consumedTail) st)
+    Nothing -> Nothing
+
+consumeBlockCommentOrError :: LexerState -> LexerState
+consumeBlockCommentOrError st =
+  case consumeBlockComment st of
+    Just st' -> st'
+    Nothing ->
+      let consumed = lexerInput st
+          st' = advanceChars consumed st
+          tok = mkToken st st' (T.pack consumed) (TkError "unterminated block comment")
+       in st' {lexerPending = lexerPending st' <> [tok]}
+
+scanNestedBlockComment :: Int -> String -> Maybe String
+scanNestedBlockComment depth chars
+  | depth <= 0 = Just ""
+  | otherwise =
+      case chars of
+        [] -> Nothing
+        '{' : '-' : rest -> ("{-" <>) <$> scanNestedBlockComment (depth + 1) rest
+        '-' : '}' : rest ->
+          if depth == 1
+            then Just "-}"
+            else ("-}" <>) <$> scanNestedBlockComment (depth - 1) rest
+        c : rest -> (c :) <$> scanNestedBlockComment depth rest
+
+tryConsumeKnownPragma :: LexerState -> Maybe ()
+tryConsumeKnownPragma st =
+  case lexKnownPragma st of
+    Just _ -> Just ()
+    Nothing -> Nothing
+
+parseLanguagePragma :: String -> Maybe (Int, (Text, LexTokenKind))
+parseLanguagePragma input = do
+  (_, body, consumed) <- stripNamedPragma ["LANGUAGE"] input
   let names = parseLanguagePragmaNames (T.pack body)
-      raw = "{-# LANGUAGE " <> T.intercalate ", " (map extensionSettingName names) <> " #-}"
-  pure (raw, TkPragmaLanguage names)
+      raw = "{-# LANGUAGE " <> T.unpack (T.intercalate ", " (map extensionSettingName names)) <> " #-}"
+  pure (length consumed, (T.pack raw, TkPragmaLanguage names))
 
--- | Parse extension names from the body of a LANGUAGE pragma.
+parseOptionsPragma :: String -> Maybe (Int, (Text, LexTokenKind))
+parseOptionsPragma input = do
+  (pragmaName, body, consumed) <- stripNamedPragma ["OPTIONS_GHC", "OPTIONS"] input
+  let settings = parseOptionsPragmaSettings (T.pack body)
+      raw = "{-# " <> pragmaName <> " " <> T.unpack (T.strip (T.pack body)) <> " #-}"
+  pure (length consumed, (T.pack raw, TkPragmaLanguage settings))
+
+parseWarningPragma :: String -> Maybe (Int, (Text, LexTokenKind))
+parseWarningPragma input = do
+  (_, body, consumed) <- stripNamedPragma ["WARNING"] input
+  let txt = T.strip (T.pack body)
+      (msg, rawMsg) =
+        case body of
+          '"' : _ ->
+            case reads body of
+              [(decoded, "")] -> (T.pack decoded, T.pack body)
+              _ -> (txt, txt)
+          _ -> (txt, txt)
+      raw = "{-# WARNING " <> rawMsg <> " #-}"
+  pure (length consumed, (raw, TkPragmaWarning msg))
+
+parseDeprecatedPragma :: String -> Maybe (Int, (Text, LexTokenKind))
+parseDeprecatedPragma input = do
+  (_, body, consumed) <- stripNamedPragma ["DEPRECATED"] input
+  let txt = T.strip (T.pack body)
+      (msg, rawMsg) =
+        case body of
+          '"' : _ ->
+            case reads body of
+              [(decoded, "")] -> (T.pack decoded, T.pack body)
+              _ -> (txt, txt)
+          _ -> (txt, txt)
+      raw = "{-# DEPRECATED " <> rawMsg <> " #-}"
+  pure (length consumed, (raw, TkPragmaDeprecated msg))
+
+stripPragma :: String -> String -> Maybe String
+stripPragma name input = (\(_, body, _) -> body) <$> stripNamedPragma [name] input
+
+stripNamedPragma :: [String] -> String -> Maybe (String, String, String)
+stripNamedPragma names input = do
+  rest0 <- List.stripPrefix "{-#" input
+  let rest1 = dropWhile isSpace rest0
+  name <- List.find (`List.isPrefixOf` rest1) names
+  rest2 <- List.stripPrefix name rest1
+  let rest3 = dropWhile isSpace rest2
+      (body, marker) = breakOnMarker "#-}" rest3
+  guardPrefix "#-}" marker
+  let consumedLen = length input - length (drop 3 marker)
+  pure (name, trimRight body, take consumedLen input)
+
 parseLanguagePragmaNames :: Text -> [ExtensionSetting]
 parseLanguagePragmaNames body =
   mapMaybe (parseExtensionSettingName . T.strip . T.takeWhile (/= '#')) (T.splitOn "," body)
-
--- | Parse @OPTIONS@/@OPTIONS_GHC@ pragmas and best-effort map known flags to LANGUAGE settings.
---
--- Recognized flags:
---
--- * @-XExtension@
--- * @-cpp@ (maps to @CPP@)
--- * @-fffi@ (maps to @ForeignFunctionInterface@)
--- * @-fglasgow-exts@ (maps to the legacy extension bundle)
-optionsPragmaToken :: LParser (Text, LexTokenKind)
-optionsPragmaToken = do
-  _ <- C.string "{-#"
-  _ <- many C.spaceChar
-  pragmaName <- C.string "OPTIONS_GHC" <|> C.string "OPTIONS"
-  _ <- many C.spaceChar
-  body <- manyTillText "#-}"
-  let settings = parseOptionsPragmaSettings (T.pack body)
-      raw = "{-# " <> pragmaName <> " " <> T.strip (T.pack body) <> " #-}"
-  pure (raw, TkPragmaLanguage settings)
 
 parseOptionsPragmaSettings :: Text -> [ExtensionSetting]
 parseOptionsPragmaSettings body = go (pragmaWords body)
@@ -693,93 +1021,61 @@ pragmaWords txt = go [] [] Nothing (T.unpack txt)
         [] -> acc
         token -> T.pack token : acc
 
--- | Parse a @WARNING@ pragma token.
---
--- Accepts both string-literal and raw-text message forms.
-pragmaWarningToken :: LParser (Text, LexTokenKind)
-pragmaWarningToken = do
-  _ <- C.string "{-#"
-  _ <- many C.spaceChar
-  _ <- C.string "WARNING"
-  _ <- many C.spaceChar
-  (msg, rawMsg) <-
-    try
-      ( do
-          (rawStr, TkString decoded) <- stringToken
-          pure (decoded, rawStr)
-      )
-      <|> ( do
-              body <- MP.manyTill anySingle (try (lookAhead (C.string "#-}")))
-              let txt = T.strip (T.pack body)
-              pure (txt, txt)
-          )
-  _ <- many C.spaceChar
-  void (C.string "#-}")
-  let raw = "{-# WARNING " <> rawMsg <> " #-}"
-  pure (raw, TkPragmaWarning msg)
+parseHashLineDirective :: String -> Maybe DirectiveUpdate
+parseHashLineDirective raw =
+  let trimmed = trimLeft (drop 1 (trimLeft raw))
+      trimmed' =
+        if "line" `List.isPrefixOf` trimmed
+          then dropWhile isSpace (drop 4 trimmed)
+          else trimmed
+      (digits, _) = span isDigit trimmed'
+   in if null digits
+        then Nothing
+        else Just DirectiveUpdate {directiveLine = Just (read digits), directiveCol = Just 1}
 
--- | Parse a @DEPRECATED@ pragma token.
---
--- Accepts both string-literal and raw-text message forms.
-pragmaDeprecatedToken :: LParser (Text, LexTokenKind)
-pragmaDeprecatedToken = do
-  _ <- C.string "{-#"
-  _ <- many C.spaceChar
-  _ <- C.string "DEPRECATED"
-  _ <- many C.spaceChar
-  (msg, rawMsg) <-
-    try
-      ( do
-          (rawStr, TkString decoded) <- stringToken
-          pure (decoded, rawStr)
-      )
-      <|> ( do
-              body <- MP.manyTill anySingle (try (lookAhead (C.string "#-}")))
-              let txt = T.strip (T.pack body)
-              pure (txt, txt)
-          )
-  _ <- many C.spaceChar
-  void (C.string "#-}")
-  let raw = "{-# DEPRECATED " <> rawMsg <> " #-}"
-  pure (raw, TkPragmaDeprecated msg)
+parseControlPragma :: String -> Maybe (String, Either Text DirectiveUpdate)
+parseControlPragma input
+  | Just body <- stripPragma "LINE" input =
+      let trimmed = words body
+       in case trimmed of
+            lineNo : _
+              | all isDigit lineNo ->
+                  Just
+                    ( fullPragmaConsumed "LINE" body,
+                      Right DirectiveUpdate {directiveLine = Just (read lineNo), directiveCol = Just 1}
+                    )
+            _ -> Just (fullPragmaConsumed "LINE" body, Left "malformed LINE pragma")
+  | Just body <- stripPragma "COLUMN" input =
+      let trimmed = words body
+       in case trimmed of
+            colNo : _
+              | all isDigit colNo ->
+                  Just
+                    ( fullPragmaConsumed "COLUMN" body,
+                      Right DirectiveUpdate {directiveLine = Nothing, directiveCol = Just (read colNo)}
+                    )
+            _ -> Just (fullPragmaConsumed "COLUMN" body, Left "malformed COLUMN pragma")
+  | otherwise = Nothing
 
--- | Run a token parser while capturing start/end positions.
-lexWithSpan :: LParser (Text, LexTokenKind) -> LParser LexToken
-lexWithSpan parser = do
-  start <- getSourcePos
-  (tokTxt, kind) <- parser
-  end <- getSourcePos
-  pure
-    LexToken
-      { lexTokenKind = kind,
-        lexTokenText = tokTxt,
-        lexTokenSpan = mkSpan start end
-      }
+fullPragmaConsumed :: String -> String -> String
+fullPragmaConsumed name body = "{-# " <> name <> " " <> trimRight body <> " #-}"
 
--- | Convert Megaparsec source positions into project 'SourceSpan'.
-mkSpan :: MP.SourcePos -> MP.SourcePos -> SourceSpan
-mkSpan start end =
-  SourceSpan
-    { sourceSpanStartLine = unPos (MP.sourceLine start),
-      sourceSpanStartCol = unPos (MP.sourceColumn start),
-      sourceSpanEndLine = unPos (MP.sourceLine end),
-      sourceSpanEndCol = unPos (MP.sourceColumn end)
+mkToken :: LexerState -> LexerState -> Text -> LexTokenKind -> LexToken
+mkToken start end tokTxt kind =
+  LexToken
+    { lexTokenKind = kind,
+      lexTokenText = tokTxt,
+      lexTokenSpan = mkSpan start end
     }
 
--- | Parse identifiers (including dotted qualifiers) and classify exact keywords.
---
--- Keyword promotion is strict lexical equality against 'keywordTokenKind':
--- qualified names and suffixed variants are always identifiers.
-identifierToken :: LParser (Text, LexTokenKind)
-identifierToken = do
-  first <- C.letterChar <|> C.char '_'
-  rest <- many identTailChar
-  more <- many (try (C.char '.' *> ((:) <$> C.letterChar <*> many identTailChar)))
-  let base = first : rest
-      chunks = base : more
-      ident = T.intercalate "." (map T.pack chunks)
-      kind = fromMaybe (TkIdentifier ident) (keywordTokenKind ident)
-  pure (ident, kind)
+mkSpan :: LexerState -> LexerState -> SourceSpan
+mkSpan start end =
+  SourceSpan
+    { sourceSpanStartLine = lexerLine start,
+      sourceSpanStartCol = lexerCol start,
+      sourceSpanEndLine = lexerLine end,
+      sourceSpanEndCol = lexerCol end
+    }
 
 -- | Identifier tail character after the first character.
 identTailChar :: LParser Char
@@ -815,200 +1111,163 @@ symbolToken =
     choice2 xs =
       foldr1 (<|>) [try (C.string t >> pure (t, k)) | (t, k) <- xs]
 
--- | Parse non-decimal integer literals (@0x@/@0o@/@0b@) with underscore separators.
-intBaseToken :: LParser (Text, LexTokenKind)
-intBaseToken = do
-  _ <- C.char '0'
-  base <- C.char 'x' <|> C.char 'X' <|> C.char 'o' <|> C.char 'O' <|> C.char 'b' <|> C.char 'B'
-  digitsRaw <-
-    if base `elem` ['x', 'X']
-      then digitsWithUnderscores isHexDigit
-      else
-        if base `elem` ['o', 'O']
-          then digitsWithUnderscores isOctDigit
-          else digitsWithUnderscores (`elem` ("01" :: String))
-  let txt = T.pack ('0' : base : digitsRaw)
-      n
-        | base `elem` ['x', 'X'] = readHexLiteral txt
-        | base `elem` ['o', 'O'] = readOctLiteral txt
-        | otherwise = readBinLiteral txt
-  pure (txt, TkIntegerBase n txt)
-
--- | Parse decimal integer literals with underscore separators.
-intToken :: LParser (Text, LexTokenKind)
-intToken = do
-  digitsRaw <- digitsWithUnderscores isDigit
-  let txt = T.pack digitsRaw
-      digits = filter (/= '_') digitsRaw
-  pure (txt, TkInteger (read digits))
-
--- | Parse decimal float literals (fractional and/or exponent form).
-floatToken :: LParser (Text, LexTokenKind)
-floatToken = do
-  lhsRaw <- digitsWithUnderscores isDigit
-  repr <-
-    try
-      ( do
-          _ <- C.char '.'
-          rhsRaw <- digitsWithUnderscores isDigit
-          expo <- MP.optional exponentPart
-          pure (lhsRaw <> "." <> rhsRaw <> fromMaybe "" expo)
-      )
-      <|> do
-        expo <- exponentPart
-        pure (lhsRaw <> expo)
-  let txt = T.pack repr
-      normalized = filter (/= '_') repr
-  pure (txt, TkFloat (read normalized) txt)
-
--- | Parse hexadecimal floating-point literals with @p@/@P@ exponent.
-hexFloatToken :: LParser (Text, LexTokenKind)
-hexFloatToken = do
-  _ <- C.char '0'
-  x <- C.char 'x' <|> C.char 'X'
-  intDigits <- some (satisfy isHexDigit)
-  mFracDigits <- MP.optional (C.char '.' *> many (satisfy isHexDigit))
-  expo <- hexExponentPart
-  let fracDigits = fromMaybe "" mFracDigits
-      dotAndFrac =
-        case mFracDigits of
-          Just ds -> '.' : ds
-          Nothing -> ""
-      repr = '0' : x : intDigits <> dotAndFrac <> expo
-      value = parseHexFloatLiteral intDigits fracDigits expo
-  pure (T.pack repr, TkFloat value (T.pack repr))
-
--- | Parse hex-float exponent component (for example @p-3@).
-hexExponentPart :: LParser String
-hexExponentPart = do
-  marker <- C.char 'p' <|> C.char 'P'
-  sign <- MP.optional (C.char '+' <|> C.char '-')
-  ds <- some C.digitChar
-  pure (marker : maybe [] pure sign <> ds)
-
--- | Parse decimal-float exponent component (for example @e+12@).
-exponentPart :: LParser String
-exponentPart = do
-  marker <- C.char 'e' <|> C.char 'E'
-  sign <- MP.optional (C.char '+' <|> C.char '-')
-  ds <- digitsWithUnderscores isDigit
-  pure (marker : maybe [] pure sign <> ds)
-
--- | Parse one-or-more digits with optional underscore separators between chunks.
-digitsWithUnderscores :: (Char -> Bool) -> LParser String
-digitsWithUnderscores isDigitChar = do
-  firstChunk <- some (satisfy isDigitChar)
-  rest <- many $ do
-    _ <- C.char '_'
-    some (satisfy isDigitChar)
-  pure (concat (firstChunk : map ('_' :) rest))
-
--- | Parse character literal and decode escapes via @reads@.
-charToken :: LParser (Text, LexTokenKind)
-charToken = do
-  _ <- C.char '\''
-  body <- manyTillChar '\''
-  let raw = "'" <> body <> "'"
-  case readMaybeChar raw of
-    Just c -> pure (T.pack raw, TkChar c)
-    Nothing -> fail "char literal"
-
--- | Parse string literal and decode escapes via @reads@.
-stringToken :: LParser (Text, LexTokenKind)
-stringToken = do
-  _ <- C.char '"'
-  body <- manyTillChar '"'
-  let raw = "\"" <> body <> "\""
-      decoded =
-        case reads raw of
-          [(str, "")] -> T.pack str
-          _ -> T.pack body
-  pure (T.pack raw, TkString decoded)
-
--- | Parse quasi-quote literal of the form @[quoter|body|]@.
-quasiQuoteToken :: LParser (Text, LexTokenKind)
-quasiQuoteToken = do
-  _ <- C.char '['
-  quoter <- takeQuoter
-  _ <- C.char '|'
-  body <- manyTillText "|]"
-  let raw = "[" <> quoter <> "|" <> body <> "|]"
-      q = T.pack quoter
-      b = T.pack body
-  pure (T.pack raw, TkQuasiQuote q b)
-
--- | Parse quasiquoter name (identifier with optional dotted qualifiers).
-takeQuoter :: LParser String
-takeQuoter = do
-  first <- C.letterChar <|> C.char '_'
-  rest <- many (satisfy isIdentTailOrStart)
-  more <- many (C.char '.' *> ((:) <$> C.letterChar <*> many (satisfy isIdentTailOrStart)))
-  let base = first : rest
-  pure (concat (base : map ('.' :) more))
-
--- | Consume characters until @endCh@ (excluding terminator from result).
-manyTillChar :: Char -> LParser String
-manyTillChar endCh = go []
+advanceChars :: String -> LexerState -> LexerState
+advanceChars chars st = foldl advanceOne st chars
   where
-    go acc =
-      (C.char endCh >> pure (reverse acc))
-        <|> do
-          ch <- anySingle
-          go (ch : acc)
+    advanceOne acc ch =
+      case ch of
+        '\n' ->
+          acc
+            { lexerInput = drop 1 (lexerInput acc),
+              lexerLine = lexerLine acc + 1,
+              lexerCol = 1,
+              lexerAtLineStart = True
+            }
+        _ ->
+          acc
+            { lexerInput = drop 1 (lexerInput acc),
+              lexerCol = lexerCol acc + 1,
+              lexerAtLineStart = False
+            }
 
--- | Consume characters until @end@ text marker (excluding terminator from result).
-manyTillText :: Text -> LParser String
-manyTillText end = go []
+consumeWhile :: (Char -> Bool) -> LexerState -> LexerState
+consumeWhile f st = advanceChars (takeWhile f (lexerInput st)) st
+
+takeDigitsWithUnderscores :: (Char -> Bool) -> String -> (String, String)
+takeDigitsWithUnderscores isDigitChar chars =
+  let (firstChunk, rest) = span isDigitChar chars
+   in if null firstChunk
+        then ("", chars)
+        else go firstChunk rest
   where
-    go acc =
-      (try (C.string end) >> pure (reverse acc))
-        <|> do
-          ch <- anySingle
-          go (ch : acc)
+    go acc xs =
+      case xs of
+        '_' : rest ->
+          let (chunk, rest') = span isDigitChar rest
+           in if null chunk
+                then (acc, xs)
+                else go (acc <> "_" <> chunk) rest'
+        _ -> (acc, xs)
 
--- | Safe @reads@ helper for character literals.
+takeExponent :: String -> (String, String)
+takeExponent chars =
+  case chars of
+    marker : rest
+      | marker `elem` ("eE" :: String) ->
+          let (signPart, rest1) =
+                case rest of
+                  sign : more | sign `elem` ("+-" :: String) -> ([sign], more)
+                  _ -> ("", rest)
+              (digits, rest2) = takeDigitsWithUnderscores isDigit rest1
+           in if null digits then ("", chars) else (marker : signPart <> digits, rest2)
+    _ -> ("", chars)
+
+takeHexExponent :: String -> Maybe String
+takeHexExponent chars =
+  case chars of
+    marker : rest
+      | marker `elem` ("pP" :: String) ->
+          let (signPart, rest1) =
+                case rest of
+                  sign : more | sign `elem` ("+-" :: String) -> ([sign], more)
+                  _ -> ("", rest)
+              (digits, _) = span isDigit rest1
+           in if null digits then Nothing else Just (marker : signPart <> digits)
+    _ -> Nothing
+
+scanQuoted :: Char -> String -> Either String (String, String)
+scanQuoted endCh = go []
+  where
+    go acc chars =
+      case chars of
+        [] -> Left (reverse acc)
+        c : rest
+          | c == endCh -> Right (reverse acc, rest)
+          | c == '\\' ->
+              case rest of
+                escaped : rest' -> go (escaped : c : acc) rest'
+                [] -> Left (reverse (c : acc))
+          | otherwise -> go (c : acc) rest
+
+takeQuoter :: String -> (String, String)
+takeQuoter chars =
+  case chars of
+    c : rest
+      | isIdentStart c ->
+          let (tailChars, rest0) = span isIdentTailOrStart rest
+           in go (c : tailChars) rest0
+    _ -> ("", chars)
+  where
+    go acc chars' =
+      case chars' of
+        '.' : c : rest
+          | isIdentStart c ->
+              let (tailChars, rest0) = span isIdentTailOrStart rest
+               in go (acc <> "." <> [c] <> tailChars) rest0
+        _ -> (acc, chars')
+
+breakOnMarker :: String -> String -> (String, String)
+breakOnMarker marker = go []
+  where
+    go acc chars
+      | marker `List.isPrefixOf` chars = (reverse acc, chars)
+      | otherwise =
+          case chars of
+            [] -> (reverse acc, [])
+            c : rest -> go (c : acc) rest
+
+takeLineRemainder :: String -> String
+takeLineRemainder chars =
+  let (prefix, rest) = break (== '\n') chars
+   in prefix <> take 1 rest
+
+trimLeft :: String -> String
+trimLeft = dropWhile isSpace
+
+trimRight :: String -> String
+trimRight = reverse . dropWhile isSpace . reverse
+
+guardPrefix :: (Eq a) => [a] -> [a] -> Maybe ()
+guardPrefix prefix actual =
+  if prefix `List.isPrefixOf` actual
+    then Just ()
+    else Nothing
+
 readMaybeChar :: String -> Maybe Char
 readMaybeChar raw =
   case reads raw of
     [(c, "")] -> Just c
     _ -> Nothing
 
--- | Parse a @0x@/@0X@ literal text into an 'Integer' (underscores ignored).
 readHexLiteral :: Text -> Integer
 readHexLiteral txt =
   case readHex (T.unpack (T.filter (/= '_') (T.drop 2 txt))) of
     [(n, "")] -> n
     _ -> 0
 
--- | Parse a @0o@/@0O@ literal text into an 'Integer' (underscores ignored).
 readOctLiteral :: Text -> Integer
 readOctLiteral txt =
   case readOct (T.unpack (T.filter (/= '_') (T.drop 2 txt))) of
     [(n, "")] -> n
     _ -> 0
 
--- | Parse a @0b@/@0B@ literal text into an 'Integer' (underscores ignored).
 readBinLiteral :: Text -> Integer
 readBinLiteral txt =
   case readInt 2 (`elem` ("01" :: String)) digitToInt (T.unpack (T.filter (/= '_') (T.drop 2 txt))) of
     [(n, "")] -> n
     _ -> 0
 
--- | Evaluate a hexadecimal floating-point literal from parsed components.
 parseHexFloatLiteral :: String -> String -> String -> Double
 parseHexFloatLiteral intDigits fracDigits expo =
   (parseHexDigits intDigits + parseHexFraction fracDigits) * (2 ^^ exponentValue expo)
 
--- | Parse hex integer digits into a numeric value.
 parseHexDigits :: String -> Double
 parseHexDigits = foldl (\acc d -> acc * 16 + fromIntegral (digitToInt d)) 0
 
--- | Parse hex fractional digits into a numeric value.
 parseHexFraction :: String -> Double
 parseHexFraction ds =
   sum [fromIntegral (digitToInt d) / (16 ^^ i) | (d, i) <- zip ds [1 :: Int ..]]
 
--- | Decode exponent sign and magnitude from @e@/@p@-style exponent text.
 exponentValue :: String -> Int
 exponentValue expo =
   case expo of
@@ -1017,18 +1276,18 @@ exponentValue expo =
     _ : ds -> read ds
     _ -> 0
 
--- | Characters allowed in symbolic operator tokens.
+isIdentStart :: Char -> Bool
+isIdentStart c = isAsciiUpper c || isAsciiLower c || c == '_'
+
+isIdentTail :: Char -> Bool
+isIdentTail c = isAlphaNum c || c == '_' || c == '\''
+
 isSymbolicOpChar :: Char -> Bool
 isSymbolicOpChar c = c `elem` (":!#$%&*+./<=>?\\^|-~" :: String)
 
--- | Identifier character allowed after first position (and in dotted chunks).
 isIdentTailOrStart :: Char -> Bool
 isIdentTailOrStart c = isAlphaNum c || c == '_' || c == '\''
 
--- | Reserved-word lookup used by 'identifierToken'.
---
--- Only exact lexemes are keywords. Any qualification or extra suffix means the
--- token stays an identifier.
 keywordTokenKind :: Text -> Maybe LexTokenKind
 keywordTokenKind txt = case txt of
   "module" -> Just TkKeywordModule

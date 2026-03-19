@@ -1,5 +1,5 @@
 extensions: []
 input: "'ab'"
-tokens: []
-status: xfail
-reason: lexer currently rejects multi-character char literals
+tokens:
+  - 'TkError "invalid char literal"'
+status: pass
