@@ -201,9 +201,12 @@ classDeclParser = withSpan $ do
         }
 
 classWhereClauseParser :: TokParser [ClassDeclItem]
-classWhereClauseParser = do
+classWhereClauseParser = whereClauseItemsParser classItemsBracedParser classItemsPlainParser
+
+whereClauseItemsParser :: TokParser [item] -> TokParser [item] -> TokParser [item]
+whereClauseItemsParser bracedParser plainParser = do
   keywordTok TkKeywordWhere
-  classItemsBracedParser <|> classItemsPlainParser <|> pure []
+  bracedParser <|> plainParser <|> pure []
 
 classItemsPlainParser :: TokParser [ClassDeclItem]
 classItemsPlainParser = MP.some (MP.try (classDeclItemParser <* MP.many (symbolLikeTok ";")))
@@ -246,9 +249,7 @@ instanceDeclParser = withSpan $ do
         }
 
 instanceWhereClauseParser :: TokParser [InstanceDeclItem]
-instanceWhereClauseParser = do
-  keywordTok TkKeywordWhere
-  instanceItemsBracedParser <|> instanceItemsPlainParser <|> pure []
+instanceWhereClauseParser = whereClauseItemsParser instanceItemsBracedParser instanceItemsPlainParser
 
 instanceItemsPlainParser :: TokParser [InstanceDeclItem]
 instanceItemsPlainParser = MP.some (MP.try (instanceDeclItemParser <* MP.many (symbolLikeTok ";")))
