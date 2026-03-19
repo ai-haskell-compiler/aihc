@@ -197,7 +197,10 @@ shrinkFailingModule exts fails source
   | otherwise =
       case parseCandidate exts source of
         Nothing -> Nothing
-        Just candidate0 -> Just (runShrinks candidate0)
+        Just candidate0 ->
+          let astShrunk = shrinkByLines fails (runShrinks candidate0)
+              rawShrunk = shrinkByLines fails source
+           in Just (shorterText astShrunk rawShrunk)
   where
     runShrinks candidate0 =
       let steps = iterateShrink 0 candidate0
@@ -220,6 +223,51 @@ shrinkFailingModule exts fails source
             Just candidate'
               | fails (candSource candidate') -> Just candidate'
               | otherwise -> tryCandidates rest
+
+    shorterText left right
+      | length (T.lines right) < length (T.lines left) = right
+      | otherwise = left
+
+shrinkByLines :: (Text -> Bool) -> Text -> Text
+shrinkByLines fails source0
+  | not (fails source0) = source0
+  | otherwise = go (T.lines source0) 2
+  where
+    go current n
+      | length current < 2 = T.unlines current
+      | otherwise =
+          case firstChunkDeletion current n of
+            Just smaller -> go smaller 2
+            Nothing
+              | n >= length current -> T.unlines current
+              | otherwise -> go current (min (length current) (n * 2))
+
+    firstChunkDeletion current n =
+      firstJust
+        [ deleteChunk current idx n
+        | idx <- [0 .. length (chunksOf current n) - 1]
+        ]
+
+    deleteChunk current idx n =
+      case splitAt idx (chunksOf current n) of
+        (before, _ : after) ->
+          let candidate = concat before <> concat after
+           in if fails (T.unlines candidate) then Just candidate else Nothing
+        _ -> Nothing
+
+    chunksOf xs n =
+      let chunkSize = max 1 ((length xs + n - 1) `div` n)
+       in chunkBySize chunkSize xs
+
+    chunkBySize _ [] = []
+    chunkBySize size xs =
+      let (chunk, rest) = splitAt size xs
+       in chunk : chunkBySize size rest
+
+    firstJust [] = Nothing
+    firstJust (x : xs) = case x of
+      Nothing -> firstJust xs
+      Just _ -> x
 
 candidateTransforms :: ShrinkCandidate -> [HSE.Module HSE.SrcSpanInfo]
 candidateTransforms candidate = candidateTransformsWith trimSegment (candAst candidate)

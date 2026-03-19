@@ -15,6 +15,7 @@ import GhcOracle (oracleDetailedParsesModuleWithNamesAt)
 import HackageSupport (fileInfoPath, findTargetFilesFromCabal, resolveIncludeBestEffort)
 import HackageTester.CLI (Options (..), parseOptionsPure)
 import HackageTester.Model (FileResult (..), Outcome (..), Summary (..), shouldFailSummary, summarizeResults)
+import ParserValidation (ValidationError (..), validateParserDetailed)
 import System.Directory (createDirectory, getTemporaryDirectory, removeDirectoryRecursive, removeFile)
 import System.FilePath ((</>))
 import System.IO (hClose, openTempFile)
@@ -64,6 +65,10 @@ hackageTesterTests =
       testGroup
         "io"
         [ testCase "include resolution decodes invalid utf8 leniently" test_resolveIncludeLenientDecode
+        ],
+      testGroup
+        "minimizer"
+        [ testCase "shrinks unsafe parse failure to a single import" test_shrinksUnsafeParseFailure
         ]
     ]
 
@@ -291,6 +296,53 @@ test_resolveIncludeLenientDecode =
       Nothing -> assertBool "expected include text to resolve" False
       Just txt ->
         assertBool "expected replacement character in decoded text" ("\xFFFD" `T.isInfixOf` txt)
+
+test_shrinksUnsafeParseFailure :: Assertion
+test_shrinksUnsafeParseFailure =
+  case validateParserDetailed unsafeSource of
+    Nothing ->
+      assertBool "expected unsafe source to fail parsing" False
+    Just err ->
+      assertBool
+        ("expected minimized reproducer to shrink to a single import, got: " <> validationErrorMessage err)
+        ("import Foreign.Ptr (Ptr, )" `T.isInfixOf` T.pack (validationErrorMessage err))
+  where
+    unsafeSource =
+      T.unlines
+        [ "module System.Unsafe where",
+          "",
+          "-- taken from share/doc/ghc/html/libraries/base-4.5.1.0/doc-index-U.html",
+          "import System.IO.Unsafe (unsafePerformIO, unsafeInterleaveIO, )",
+          "import Control.Monad.ST.Unsafe (unsafeInterleaveST, unsafeIOToST, unsafeSTToIO, )",
+          "import Foreign.ForeignPtr.Unsafe (unsafeForeignPtrToPtr, )",
+          "import Unsafe.Coerce (unsafeCoerce, )",
+          "",
+          "import Control.Monad.ST (ST, )",
+          "import Foreign.ForeignPtr (ForeignPtr, )",
+          "import Foreign.Ptr (Ptr, )",
+          "",
+          "",
+          "performIO :: IO a -> a",
+          "performIO = unsafePerformIO",
+          "",
+          "interleaveIO :: IO a -> IO a",
+          "interleaveIO = unsafeInterleaveIO",
+          "",
+          "interleaveST :: ST s a -> ST s a",
+          "interleaveST = unsafeInterleaveST",
+          "",
+          "ioToST :: IO a -> ST s a",
+          "ioToST = unsafeIOToST",
+          "",
+          "stToIO :: IO a -> ST s a",
+          "stToIO = unsafeSTToIO",
+          "",
+          "foreignPtrToPtr :: ForeignPtr a -> Ptr a",
+          "foreignPtrToPtr = unsafeForeignPtrToPtr",
+          "",
+          "coerce :: a -> b",
+          "coerce = unsafeCoerce"
+        ]
 
 test_cppMinVersionBaseTrue :: Assertion
 test_cppMinVersionBaseTrue = do
