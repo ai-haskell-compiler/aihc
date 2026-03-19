@@ -55,6 +55,9 @@ test-suite spec
     , Test.Extensions.Suite
     , Test.HackageTester.Suite
     , Test.Lexer.Suite
+    , Test.Properties.ExprModuleRoundTrip
+    , Test.Properties.Identifiers
+    , Test.Properties.TypeRoundTrip
     , Test.Parser.Suite
   build-depends:
       base >=4.16 && <5
