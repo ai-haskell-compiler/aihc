@@ -138,14 +138,13 @@ shrinkImportDecl decl =
     Nothing -> []
     Just (HSE.ImportSpecList specLoc hidingFlag specs) ->
       let removeAt specIdx = take specIdx specs <> drop (specIdx + 1) specs
-          shrinkSpec = shrinkImportSpec
           shrinkSpecs =
             [ decl {HSE.importSpecs = Just (HSE.ImportSpecList specLoc hidingFlag specs')}
             | specs' <- unique ([removeAt idx | idx <- [0 .. length specs - 1]] <> [take 1 specs]),
               not (null specs'),
               specs' /= specs
             ]
-       in shrinkSpecs <> [decl {HSE.importSpecs = Just (HSE.ImportSpecList specLoc hidingFlag [spec'])} | spec <- specs, spec' <- shrinkSpec spec]
+       in shrinkSpecs <> [decl {HSE.importSpecs = Just (HSE.ImportSpecList specLoc hidingFlag [spec'])} | spec <- specs, spec' <- shrinkImportSpec spec]
 
 shrinkImportSpec :: HSE.ImportSpec HSE.SrcSpanInfo -> [HSE.ImportSpec HSE.SrcSpanInfo]
 shrinkImportSpec spec =
