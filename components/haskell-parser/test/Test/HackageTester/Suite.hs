@@ -16,7 +16,7 @@ import HackageSupport (fileInfoPath, findTargetFilesFromCabal, resolveIncludeBes
 import HackageTester.CLI (Options (..), parseOptionsPure)
 import HackageTester.Model (FileResult (..), Outcome (..), Summary (..), shouldFailSummary, summarizeResults)
 import qualified Language.Haskell.Exts as HSE
-import ParserValidation (ValidationError (..), validateParserDetailed)
+import ModuleShrinker (shrinkModule)
 import System.Directory (createDirectory, getTemporaryDirectory, removeDirectoryRecursive, removeFile)
 import System.FilePath ((</>))
 import System.IO (hClose, openTempFile)
@@ -69,7 +69,7 @@ hackageTesterTests =
         ],
       testGroup
         "minimizer"
-        [ testCase "shrinks unsafe parse failure to a single import" test_shrinksUnsafeParseFailure
+        [ testCase "shrinks a module with a custom predicate" test_shrinksModuleWithCustomPredicate
         ]
     ]
 
@@ -298,28 +298,25 @@ test_resolveIncludeLenientDecode =
       Just txt ->
         assertBool "expected replacement character in decoded text" ("\xFFFD" `T.isInfixOf` txt)
 
-test_shrinksUnsafeParseFailure :: Assertion
-test_shrinksUnsafeParseFailure =
-  case validateParserDetailed unsafeSource of
+test_shrinksModuleWithCustomPredicate :: Assertion
+test_shrinksModuleWithCustomPredicate =
+  case shrinkModule keepsTarget unsafeSource of
     Nothing ->
-      assertBool "expected unsafe source to fail parsing" False
-    Just err ->
-      case extractShrunkSource (T.pack (validationErrorMessage err)) of
-        Nothing ->
-          assertBool "expected minimized reproducer block" False
-        Just shrunk ->
-          case HSE.parseFileContentsWithMode HSE.defaultParseMode (T.unpack shrunk) of
-            HSE.ParseFailed _ parseErr ->
-              assertBool ("expected minimized reproducer to parse under HSE, got: " <> parseErr) False
-            HSE.ParseOk modu ->
-              case modu of
-                HSE.Module _ _ _ imports decls ->
-                  assertBool
-                    ("expected a single-import AST, got: " <> show modu)
-                    (length imports == 1 && null decls)
-                other ->
-                  assertBool ("expected a normal module AST, got: " <> show other) False
+      assertBool "expected shrinker to produce a candidate" False
+    Just shrunk ->
+      case HSE.parseFileContentsWithMode HSE.defaultParseMode (T.unpack shrunk) of
+        HSE.ParseFailed _ parseErr ->
+          assertBool ("expected minimized reproducer to parse under HSE, got: " <> parseErr) False
+        HSE.ParseOk modu ->
+          case modu of
+            HSE.Module _ _ _ imports decls ->
+              assertBool
+                ("expected a single-import AST, got: " <> show modu)
+                (length imports == 1 && null decls && keepsTarget shrunk)
+            other ->
+              assertBool ("expected a normal module AST, got: " <> show other) False
   where
+    keepsTarget = T.isInfixOf "import Foreign.Ptr (Ptr, )"
     unsafeSource =
       T.unlines
         [ "module System.Unsafe where",
@@ -356,19 +353,6 @@ test_shrinksUnsafeParseFailure =
           "coerce :: a -> b",
           "coerce = unsafeCoerce"
         ]
-
-extractShrunkSource :: T.Text -> Maybe T.Text
-extractShrunkSource msg =
-  case T.breakOn marker msg of
-    (_, rest)
-      | T.null rest -> Nothing
-      | otherwise ->
-          let afterStart = T.drop (T.length marker) rest
-              (body, tailPart) = T.breakOn endMarker afterStart
-           in if T.null tailPart then Nothing else Just body
-  where
-    marker = "HSE minimized reproducer:\n---8<---\n"
-    endMarker = "\n--->8---"
 
 test_cppMinVersionBaseTrue :: Assertion
 test_cppMinVersionBaseTrue = do
