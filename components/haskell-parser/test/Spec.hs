@@ -6,6 +6,7 @@ import qualified Data.Text as T
 import Parser
 import Parser.Ast
 import Parser.Types (ParseResult (..))
+import Test.ErrorMessages.Suite (errorMessageTests)
 import Test.ExtensionMapping.Suite (extensionMappingTests)
 import Test.Extensions.Suite (extensionTests)
 import Test.H2010.Suite (h2010Tests)
@@ -29,6 +30,7 @@ main = buildTests >>= defaultMain
 buildTests :: IO TestTree
 buildTests = do
   parserGolden <- parserGoldenTests
+  errorMessages <- errorMessageTests
   h2010 <- h2010Tests
   extensions <- extensionTests
   lexer <- lexerTests
@@ -37,6 +39,7 @@ buildTests = do
     testGroup
       "aihc-parser"
       [ parserGolden,
+        errorMessages,
         lexer,
         testGroup
           "parser"

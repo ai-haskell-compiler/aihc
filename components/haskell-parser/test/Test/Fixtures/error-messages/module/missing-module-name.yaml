@@ -1,0 +1,9 @@
+src: |
+  module where
+ghc: |
+  test.hs:1:8: error: [GHC-58481] parse error on input `where'
+aihc: |
+  Parse error!
+  Expected a module name after `module`.
+status: xfail
+reason: current parser errors do not explain missing module names

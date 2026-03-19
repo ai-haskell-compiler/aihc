@@ -45,12 +45,14 @@ test-suite spec
     , HackageTester.Model
     , HseExtensions
     , LexerGolden
+    , ParserErrorGolden
     , ParserGolden
     , OracleExtensions
     , ParserValidation
     , ShrinkUtils
     , StackageProgress.Summary
     , Test.Oracle
+    , Test.ErrorMessages.Suite
     , Test.H2010.Suite
     , Test.ExtensionMapping.Suite
     , Test.Extensions.Suite

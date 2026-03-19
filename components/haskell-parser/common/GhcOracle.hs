@@ -7,6 +7,8 @@ module GhcOracle
     oracleParsesModuleWithExtensionsAt,
     oracleModuleAstFingerprintWithExtensions,
     oracleModuleAstFingerprintWithExtensionsAt,
+    oracleModuleParseErrorWithNames,
+    oracleModuleParseErrorWithNamesAt,
     oracleParsesModuleWithNames,
     oracleParsesModuleWithNamesAt,
     oracleDetailedParsesModuleWithNames,
@@ -218,6 +220,18 @@ oracleDetailedParsesModuleWithNamesAt sourceTag extNames langName input =
               langInfo = maybe "" (\l -> " Language: " <> T.pack l) langName
            in Left (err <> "\n(Extensions: " <> extList <> langInfo <> " Effective parse extensions: " <> parseExtList <> ")")
         Right _ -> Right ()
+
+oracleModuleParseErrorWithNames :: [String] -> Maybe String -> Text -> Either Text Text
+oracleModuleParseErrorWithNames = oracleModuleParseErrorWithNamesAt "oracle"
+
+oracleModuleParseErrorWithNamesAt :: String -> [String] -> Maybe String -> Text -> Either Text Text
+oracleModuleParseErrorWithNamesAt sourceTag extNames langName input =
+  let extSettings = mapMaybe (Ast.parseExtensionSettingName . T.pack) extNames
+      langExts = maybe [] languageExtensions langName
+      allExts = EnumSet.toList (List.foldl' applyExtensionSetting (EnumSet.fromList langExts) extSettings)
+   in case parseWithGhcWithExtensionsDetailed sourceTag allExts input of
+        Left (err, _parseExts) -> Right err
+        Right _ -> Left "GHC parser accepted the input"
 
 toGhcExtension :: Ast.Extension -> Maybe GHC.Extension
 toGhcExtension ext =
