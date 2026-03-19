@@ -107,12 +107,12 @@ decls-data-abstract	declarations	declarations/data-abstract.hs	pass
 decls-newtype	declarations	declarations/newtype.hs	pass	parser now supports simple newtype declarations
 decls-type-synonym	declarations	declarations/type-synonym.hs	pass	parser now supports type synonym declarations
 decls-class	declarations	declarations/class.hs	pass
-decls-class-minimal	declarations	declarations/class-minimal.hs	xfail	parser intentionally disabled
+decls-class-minimal	declarations	declarations/class-minimal.hs	pass	parser now supports minimal class declarations without where
 decls-class-where-empty	declarations	declarations/class-where-empty.hs	xfail	parser intentionally disabled
-decls-class-super-simple	declarations	declarations/class-super-simple.hs	xfail	parser intentionally disabled
+decls-class-super-simple	declarations	declarations/class-super-simple.hs	pass	parser now supports superclass class declarations without where
 decls-class-super-paren-empty	declarations	declarations/class-super-paren-empty.hs	xfail	parser intentionally disabled
 decls-class-super-paren-single	declarations	declarations/class-super-paren-single.hs	xfail	parser intentionally disabled
-decls-class-super-paren-multiple	declarations	declarations/class-super-paren-multiple.hs	xfail	parser intentionally disabled
+decls-class-super-paren-multiple	declarations	declarations/class-super-paren-multiple.hs	pass	parser now supports parenthesized multi-superclass declarations without where
 decls-class-cdecl-signature	declarations	declarations/class-cdecl-signature.hs	pass
 decls-class-cdecl-signature-context	declarations	declarations/class-cdecl-signature-context.hs	pass
 decls-class-cdecl-default-var	declarations	declarations/class-cdecl-default-var.hs	xfail	parser intentionally disabled

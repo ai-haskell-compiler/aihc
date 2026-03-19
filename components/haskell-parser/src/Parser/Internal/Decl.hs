@@ -188,8 +188,7 @@ classDeclParser = withSpan $ do
   context <- MP.optional (MP.try (declContextParser <* operatorLikeTok "=>"))
   className <- identifierTextParser
   classParams <- MP.some typeParamParser
-  keywordTok TkKeywordWhere
-  items <- classItemsBracedParser <|> classItemsPlainParser
+  items <- MP.option [] classWhereClauseParser
   pure $ \span' ->
     DeclClass
       span'
@@ -200,6 +199,14 @@ classDeclParser = withSpan $ do
           classDeclParams = classParams,
           classDeclItems = items
         }
+
+classWhereClauseParser :: TokParser [ClassDeclItem]
+classWhereClauseParser = whereClauseItemsParser classItemsBracedParser classItemsPlainParser
+
+whereClauseItemsParser :: TokParser [item] -> TokParser [item] -> TokParser [item]
+whereClauseItemsParser bracedParser plainParser = do
+  keywordTok TkKeywordWhere
+  bracedParser <|> plainParser <|> pure []
 
 classItemsPlainParser :: TokParser [ClassDeclItem]
 classItemsPlainParser = MP.some (MP.try (classDeclItemParser <* MP.many (symbolLikeTok ";")))
@@ -229,8 +236,7 @@ instanceDeclParser = withSpan $ do
   context <- MP.optional (MP.try (declContextParser <* operatorLikeTok "=>"))
   className <- identifierTextParser
   instanceTypes <- MP.some constraintTypeParser
-  keywordTok TkKeywordWhere
-  items <- instanceItemsBracedParser <|> instanceItemsPlainParser
+  items <- MP.option [] instanceWhereClauseParser
   pure $ \span' ->
     DeclInstance
       span'
@@ -241,6 +247,9 @@ instanceDeclParser = withSpan $ do
           instanceDeclTypes = instanceTypes,
           instanceDeclItems = items
         }
+
+instanceWhereClauseParser :: TokParser [InstanceDeclItem]
+instanceWhereClauseParser = whereClauseItemsParser instanceItemsBracedParser instanceItemsPlainParser
 
 instanceItemsPlainParser :: TokParser [InstanceDeclItem]
 instanceItemsPlainParser = MP.some (MP.try (instanceDeclItemParser <* MP.many (symbolLikeTok ";")))
