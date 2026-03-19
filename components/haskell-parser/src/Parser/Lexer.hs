@@ -648,7 +648,7 @@ lexHexFloat st = do
                     let (frac, rest') = span isHexDigit more
                      in (Just frac, rest')
                   _ -> (Nothing, rest1)
-          expo@(marker : expoRest) <- takeHexExponent rest2
+          expo@(_ : expoRest) <- takeHexExponent rest2
           let fracDigits = fromMaybe "" mFracDigits
           if null expoRest
             then Nothing
@@ -661,7 +661,7 @@ lexHexFloat st = do
                   txt = T.pack raw
                   value = parseHexFloatLiteral intDigits fracDigits expo
                   st' = advanceChars raw st
-               in marker `seq` Just (mkToken st st' txt (TkFloat value txt), st')
+               in Just (mkToken st st' txt (TkFloat value txt), st')
 
 lexFloat :: LexerState -> Maybe (LexToken, LexerState)
 lexFloat st =
