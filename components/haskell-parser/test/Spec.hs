@@ -16,6 +16,7 @@ import Test.Properties.ExprModuleRoundTrip
   ( prop_exprPrettyRoundTrip,
     prop_modulePrettyRoundTrip,
   )
+import Test.Properties.PatternRoundTrip (prop_patternPrettyRoundTrip)
 import Test.Properties.TypeRoundTrip (prop_typePrettyRoundTrip)
 import Test.StackageProgress.Summary (stackageProgressSummaryTests)
 import Test.Tasty
@@ -65,6 +66,7 @@ buildTests = do
           "properties"
           [ QC.testProperty "generated expr AST pretty-printer round-trip" prop_exprPrettyRoundTrip,
             QC.testProperty "generated module AST pretty-printer round-trip" prop_modulePrettyRoundTrip,
+            QC.testProperty "generated pattern AST pretty-printer round-trip" prop_patternPrettyRoundTrip,
             QC.testProperty "generated type AST pretty-printer round-trip" prop_typePrettyRoundTrip
           ],
         h2010,
