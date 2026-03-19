@@ -235,7 +235,7 @@ instanceDeclParser = withSpan $ do
   identifierExact "instance"
   context <- MP.optional (MP.try (declContextParser <* operatorLikeTok "=>"))
   className <- identifierTextParser
-  instanceTypes <- MP.some constraintTypeParser
+  instanceTypes <- MP.some typeAtomParser
   items <- MP.option [] instanceWhereClauseParser
   pure $ \span' ->
     DeclInstance
@@ -412,7 +412,7 @@ parenContextParser = do
 constraintParser :: TokParser Constraint
 constraintParser = withSpan $ do
   className <- identifierTextParser
-  args <- MP.many constraintTypeParser
+  args <- MP.many typeAtomParser
   pure $ \span' ->
     Constraint
       { constraintSpan = span',
@@ -421,22 +421,20 @@ constraintParser = withSpan $ do
         constraintParen = False
       }
 
-constraintTypeParser :: TokParser Type
-constraintTypeParser = withSpan $ do
-  ident <- identifierTextParser
-  pure $ \span' ->
-    case T.uncons ident of
-      Just (first, _)
-        | isUpper first -> TCon span' ident
-      _ -> TVar span' ident
-
 typeParamParser :: TokParser Text
 typeParamParser =
-  tokenSatisfy $ \tok ->
+  (tokenSatisfy $ \tok ->
     case lexTokenKind tok of
       TkIdentifier ident
         | ident /= "deriving" -> Just ident
-      _ -> Nothing
+      _ -> Nothing)
+    <|> (do
+          symbolLikeTok "("
+          ident <- identifierTextParser
+          operatorLikeTok "::"
+          _kind <- typeParser
+          symbolLikeTok ")"
+          pure ident)
 
 derivingClauseParser :: TokParser DerivingClause
 derivingClauseParser = do

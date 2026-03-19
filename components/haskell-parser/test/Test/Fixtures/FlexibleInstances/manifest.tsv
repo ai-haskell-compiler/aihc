@@ -1,2 +1,3 @@
-flexible-instance-empty-no-where	declarations	flexible-instance-empty-no-where.hs	pass
-flexible-instance-empty-where	declarations	flexible-instance-empty-where.hs	pass
+flexible-instance-empty-no-where	FlexibleInstances	flexible-instance-empty-no-where.hs	pass	parser supports empty flexible instances without where clause
+flexible-instance-empty-where	FlexibleInstances	flexible-instance-empty-where.hs	pass	parser supports empty flexible instances with where clause
+instance-unit	FlexibleInstances	instance-unit.hs	pass	parser supports FlexibleInstances with kind signatures
