@@ -54,8 +54,10 @@ buildTests = do
             testCase "emits lexer error token for unterminated strings" test_unterminatedStringProducesErrorToken,
             testCase "emits lexer error token for unterminated block comments" test_unterminatedBlockCommentProducesErrorToken,
             testCase "applies hash line directives to subsequent tokens" test_hashLineDirectiveUpdatesSpan,
+            testCase "applies gcc-style hash line directives to subsequent tokens" test_gccHashLineDirectiveUpdatesSpan,
             testCase "applies LINE pragmas to subsequent tokens" test_linePragmaUpdatesSpan,
             testCase "applies COLUMN pragmas to subsequent tokens" test_columnPragmaUpdatesSpan,
+            testCase "applies COLUMN pragmas in the middle of a line" test_inlineColumnPragmaUpdatesSpan,
             testCase "can lex lazily from chunks" test_lexerChunkLaziness
           ],
         testGroup
@@ -271,6 +273,12 @@ test_hashLineDirectiveUpdatesSpan =
     [LexToken {lexTokenKind = TkIdentifier "x", lexTokenSpan = SourceSpan 42 1 42 2}] -> pure ()
     other -> assertFailure ("expected identifier at line 42, got: " <> show other)
 
+test_gccHashLineDirectiveUpdatesSpan :: Assertion
+test_gccHashLineDirectiveUpdatesSpan =
+  case lexTokens "# 42 \"generated.h\"\nx" of
+    [LexToken {lexTokenKind = TkIdentifier "x", lexTokenSpan = SourceSpan 42 1 42 2}] -> pure ()
+    other -> assertFailure ("expected identifier at line 42 from gcc-style directive, got: " <> show other)
+
 test_linePragmaUpdatesSpan :: Assertion
 test_linePragmaUpdatesSpan =
   case lexTokens "{-# LINE 17 #-}\nx" of
@@ -284,6 +292,14 @@ test_columnPragmaUpdatesSpan =
       LexToken {lexTokenKind = TkIdentifier "y", lexTokenSpan = SourceSpan 2 7 2 8}
       ] -> pure ()
     other -> assertFailure ("expected second identifier at column 7, got: " <> show other)
+
+test_inlineColumnPragmaUpdatesSpan :: Assertion
+test_inlineColumnPragmaUpdatesSpan =
+  case lexTokens "x{-# COLUMN 7 #-}y" of
+    [ LexToken {lexTokenKind = TkIdentifier "x", lexTokenSpan = SourceSpan 1 1 1 2},
+      LexToken {lexTokenKind = TkIdentifier "y", lexTokenSpan = SourceSpan 1 7 1 8}
+      ] -> pure ()
+    other -> assertFailure ("expected inline COLUMN pragma to update same-line column, got: " <> show other)
 
 test_lexerChunkLaziness :: Assertion
 test_lexerChunkLaziness =

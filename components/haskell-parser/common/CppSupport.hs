@@ -47,7 +47,7 @@ preprocessForParserWithCppOptions cppOptions inputFile resolveInclude source = d
             configMacros = cppMacrosFromOptions cppOptions
           }
   result <- drive (preprocess cfg injected)
-  pure result {resultOutput = stripLinePragmas (resultOutput result)}
+  pure result
   where
     drive (Done result) = pure result
     drive (NeedInclude req k) = resolveInclude req >>= drive . k
@@ -90,18 +90,6 @@ cppEnabledInSettings = foldl apply False
         EnableExtension CPP -> True
         DisableExtension CPP -> False
         _ -> enabled
-
-stripLinePragmas :: Text -> Text
-stripLinePragmas =
-  T.unlines
-    . filter (not . isLinePragma)
-    . T.lines
-  where
-    isLinePragma line =
-      let stripped = T.stripStart line
-       in "#line " `T.isPrefixOf` stripped
-            || "{-# LINE " `T.isPrefixOf` stripped
-            || "{-# COLUMN " `T.isPrefixOf` stripped
 
 cppMacrosFromOptions :: [String] -> M.Map Text Text
 cppMacrosFromOptions cppOptions =

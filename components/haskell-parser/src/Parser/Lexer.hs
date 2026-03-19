@@ -1023,7 +1023,7 @@ pragmaWords txt = go [] [] Nothing (T.unpack txt)
 
 parseHashLineDirective :: String -> Maybe DirectiveUpdate
 parseHashLineDirective raw =
-  let trimmed = drop 1 (trimLeft raw)
+  let trimmed = trimLeft (drop 1 (trimLeft raw))
       trimmed' =
         if "line" `List.isPrefixOf` trimmed
           then dropWhile isSpace (drop 4 trimmed)
