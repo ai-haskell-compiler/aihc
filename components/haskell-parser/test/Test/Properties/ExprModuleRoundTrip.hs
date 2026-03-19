@@ -27,11 +27,22 @@ prop_exprPrettyRoundTrip generated =
    in counterexample (T.unpack source) $
         case parseExpr defaultConfig source of
           ParseOk reparsed ->
-            case (expr, reparsed) of
-              (EVar _ expected, EVar _ actual) ->
-                counterexample ("reparsed variable mismatch: " <> show reparsed) (property (expected == actual))
-              _ -> property True
-          ParseErr _ -> property True
+            case fromExpr reparsed of
+              Nothing ->
+                counterexample ("reparsed expression not in generated subset: " <> show reparsed) False
+              Just reparsedGenerated ->
+                counterexample ("reparsed mismatch: " <> show reparsedGenerated) (generated == reparsedGenerated)
+          ParseErr err ->
+            counterexample ("parse failed: " <> errorBundlePretty err) False
+
+fromExpr :: Expr -> Maybe GenExpr
+fromExpr expr =
+  case expr of
+    EParen _ inner -> fromExpr inner
+    EVar _ name -> Just (GVar name)
+    EInt _ value _ -> Just (GInt value)
+    EApp _ fn arg -> GApp <$> fromExpr fn <*> fromExpr arg
+    _ -> Nothing
 
 prop_modulePrettyRoundTrip :: GenModule -> Property
 prop_modulePrettyRoundTrip generated =
