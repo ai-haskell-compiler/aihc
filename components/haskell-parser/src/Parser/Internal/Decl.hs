@@ -170,9 +170,9 @@ declParser =
   MP.try foreignDeclParser
     <|> MP.try typeSigDeclParser
     <|> MP.try newtypeDeclParser
+    <|> MP.try dataDeclParser
     <|> MP.try classDeclParser
     <|> MP.try instanceDeclParser
-    <|> dataDeclParser
     <|> valueDeclParser
 
 typeSigDeclParser :: TokParser Decl
@@ -423,18 +423,21 @@ constraintParser = withSpan $ do
 
 typeParamParser :: TokParser Text
 typeParamParser =
-  (tokenSatisfy $ \tok ->
-    case lexTokenKind tok of
-      TkIdentifier ident
-        | ident /= "deriving" -> Just ident
-      _ -> Nothing)
-    <|> (do
-          symbolLikeTok "("
-          ident <- identifierTextParser
-          operatorLikeTok "::"
-          _kind <- typeParser
-          symbolLikeTok ")"
-          pure ident)
+  tokenSatisfy
+    ( \tok ->
+        case lexTokenKind tok of
+          TkIdentifier ident
+            | ident /= "deriving" -> Just ident
+          _ -> Nothing
+    )
+    <|> ( do
+            symbolLikeTok "("
+            ident <- identifierTextParser
+            operatorLikeTok "::"
+            _kind <- typeParser
+            symbolLikeTok ")"
+            pure ident
+        )
 
 derivingClauseParser :: TokParser DerivingClause
 derivingClauseParser = do
