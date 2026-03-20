@@ -934,7 +934,7 @@ stripTypeSynDecl d =
   TypeSynDecl
     { typeSynSpan = noSourceSpan,
       typeSynName = typeSynName d,
-      typeSynParams = typeSynParams d,
+      typeSynParams = map stripTyVarBinder (typeSynParams d),
       typeSynBody = stripType (typeSynBody d)
     }
 
@@ -944,7 +944,7 @@ stripDataDecl d =
     { dataDeclSpan = noSourceSpan,
       dataDeclContext = map stripConstraint (dataDeclContext d),
       dataDeclName = dataDeclName d,
-      dataDeclParams = dataDeclParams d,
+      dataDeclParams = map stripTyVarBinder (dataDeclParams d),
       dataDeclConstructors = map stripDataConDecl (dataDeclConstructors d),
       dataDeclDeriving = dataDeclDeriving d
     }
@@ -955,9 +955,17 @@ stripNewtypeDecl d =
     { newtypeDeclSpan = noSourceSpan,
       newtypeDeclContext = map stripConstraint (newtypeDeclContext d),
       newtypeDeclName = newtypeDeclName d,
-      newtypeDeclParams = newtypeDeclParams d,
+      newtypeDeclParams = map stripTyVarBinder (newtypeDeclParams d),
       newtypeDeclConstructor = fmap stripDataConDecl (newtypeDeclConstructor d),
       newtypeDeclDeriving = newtypeDeclDeriving d
+    }
+
+stripTyVarBinder :: TyVarBinder -> TyVarBinder
+stripTyVarBinder b =
+  TyVarBinder
+    { tyVarBinderSpan = noSourceSpan,
+      tyVarBinderName = tyVarBinderName b,
+      tyVarBinderKind = fmap stripType (tyVarBinderKind b)
     }
 
 stripDataConDecl :: DataConDecl -> DataConDecl
@@ -989,7 +997,7 @@ stripClassDecl d =
     { classDeclSpan = noSourceSpan,
       classDeclContext = map stripConstraint (classDeclContext d),
       classDeclName = classDeclName d,
-      classDeclParams = classDeclParams d,
+      classDeclParams = map stripTyVarBinder (classDeclParams d),
       classDeclItems = map stripClassDeclItem (classDeclItems d)
     }
 

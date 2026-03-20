@@ -141,7 +141,7 @@ prettyDeclLines decl =
       [ hsep
           [ "type",
             pretty (typeSynName synDecl),
-            hsep (map pretty (typeSynParams synDecl)),
+            hsep (map prettyTyVarBinder (typeSynParams synDecl)),
             "=",
             prettyType (typeSynBody synDecl)
           ]
@@ -380,13 +380,19 @@ derivingPart (DerivingClause strategy classes) =
       | otherwise = [pretty single]
     classesPart _ = [parens (hsep (punctuate comma (map pretty classes)))]
 
-prettyDeclHead :: [Constraint] -> Text -> [Text] -> Doc ann
+prettyDeclHead :: [Constraint] -> Text -> [TyVarBinder] -> Doc ann
 prettyDeclHead constraints name params =
   hsep
     ( contextPrefix constraints
         <> [pretty name]
-        <> map pretty params
+        <> map prettyTyVarBinder params
     )
+
+prettyTyVarBinder :: TyVarBinder -> Doc ann
+prettyTyVarBinder binder =
+  case tyVarBinderKind binder of
+    Nothing -> pretty (tyVarBinderName binder)
+    Just kind -> parens (pretty (tyVarBinderName binder) <+> "::" <+> prettyType kind)
 
 contextPrefix :: [Constraint] -> [Doc ann]
 contextPrefix constraints =
@@ -446,7 +452,7 @@ prettyClassDecl decl =
           ( ["class"]
               <> contextPrefix (classDeclContext decl)
               <> [pretty (classDeclName decl)]
-              <> map pretty (classDeclParams decl)
+              <> map prettyTyVarBinder (classDeclParams decl)
           )
    in case classDeclItems decl of
         [] -> headDoc

@@ -44,6 +44,7 @@ module Parser.Ast
     Rhs (..),
     SourceSpan (..),
     Type (..),
+    TyVarBinder (..),
     TypeSynDecl (..),
     ValueDecl (..),
     declValueBinderNames,
@@ -432,10 +433,17 @@ data Constraint = Constraint
   }
   deriving (Data, Eq, Show)
 
+data TyVarBinder = TyVarBinder
+  { tyVarBinderSpan :: SourceSpan,
+    tyVarBinderName :: Text,
+    tyVarBinderKind :: Maybe Type
+  }
+  deriving (Data, Eq, Show)
+
 data TypeSynDecl = TypeSynDecl
   { typeSynSpan :: SourceSpan,
     typeSynName :: Text,
-    typeSynParams :: [Text],
+    typeSynParams :: [TyVarBinder],
     typeSynBody :: Type
   }
   deriving (Data, Eq, Show)
@@ -444,7 +452,7 @@ data DataDecl = DataDecl
   { dataDeclSpan :: SourceSpan,
     dataDeclContext :: [Constraint],
     dataDeclName :: Text,
-    dataDeclParams :: [Text],
+    dataDeclParams :: [TyVarBinder],
     dataDeclConstructors :: [DataConDecl],
     dataDeclDeriving :: [DerivingClause]
   }
@@ -454,7 +462,7 @@ data NewtypeDecl = NewtypeDecl
   { newtypeDeclSpan :: SourceSpan,
     newtypeDeclContext :: [Constraint],
     newtypeDeclName :: Text,
-    newtypeDeclParams :: [Text],
+    newtypeDeclParams :: [TyVarBinder],
     newtypeDeclConstructor :: Maybe DataConDecl,
     newtypeDeclDeriving :: [DerivingClause]
   }
@@ -496,7 +504,7 @@ data ClassDecl = ClassDecl
   { classDeclSpan :: SourceSpan,
     classDeclContext :: [Constraint],
     classDeclName :: Text,
-    classDeclParams :: [Text],
+    classDeclParams :: [TyVarBinder],
     classDeclItems :: [ClassDeclItem]
   }
   deriving (Data, Eq, Show)
