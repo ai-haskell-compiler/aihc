@@ -10,24 +10,63 @@ permissions:
   contents: read
 
 jobs:
-  flake-check:
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+  select-runner:
+    runs-on: ubuntu-24.04
+    outputs:
+      use_self_hosted: ${{ steps.select.outputs.use_self_hosted }}
+      selected_runner: ${{ steps.select.outputs.selected_runner }}
+      reason: ${{ steps.select.outputs.reason }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Install Determinate Nix
-        uses: DeterminateSystems/nix-installer-action@c5a866b6ab867e88becbed4467b93592bce69f8a # v21
-
-      - name: Configure Cloudflare R2 cache
-        uses: lemmih/nix-s3-cache-action@29264f2f7ee0569b80a4c91ef27734c92ac69026 # v1.0.2
+      - id: select
+        uses: ./.github/actions/select-ci-runner
         with:
-          s3-endpoint: ${{ vars.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
-          bucket: nix-cache
-          public-key: nix-cache:2eICaC37vEBexPk98J0dRt5FzSX7f6hx0vRl9tPaUuM=
-          aws-access-key-id: ${{ vars.R2_ACCESS_KEY }}
-          aws-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          private-key: ${{ secrets.NIX_CACHE_PRIVATE_KEY }}
+          repository: ${{ github.repository }}
+          runner-label: ${{ vars.CI_SELF_HOSTED_RUNNER_LABEL != '' && vars.CI_SELF_HOSTED_RUNNER_LABEL || 'aihc-lima' }}
+          fallback-runner: ${{ vars.CI_HOSTED_FALLBACK_RUNNER != '' && vars.CI_HOSTED_FALLBACK_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+          runner-token: ${{ secrets.SELF_HOSTED_RUNNER_ADMIN_TOKEN }}
+          allow-self-hosted: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+
+      - name: Summarize runner selection
+        run: |
+          {
+            echo "### Runner selection"
+            echo
+            echo "- Selected runner: \`${{ steps.select.outputs.selected_runner }}\`"
+            echo "- Self-hosted enabled: \`${{ steps.select.outputs.use_self_hosted }}\`"
+            echo "- Reason: ${{ steps.select.outputs.reason }}"
+          } >>"$GITHUB_STEP_SUMMARY"
+
+  flake-check-self-hosted:
+    needs: select-runner
+    if: ${{ needs.select-runner.outputs.use_self_hosted == 'true' }}
+    runs-on:
+      - self-hosted
+      - linux
+      - ${{ vars.CI_SELF_HOSTED_RUNNER_LABEL != '' && vars.CI_SELF_HOSTED_RUNNER_LABEL || 'aihc-lima' }}
+    steps:
+      - name: Setup Nix CI
+        uses: ./.github/actions/setup-nix-ci
+        with:
+          r2-account-id: ${{ vars.R2_ACCOUNT_ID }}
+          r2-access-key: ${{ vars.R2_ACCESS_KEY }}
+          r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          nix-cache-private-key: ${{ secrets.NIX_CACHE_PRIVATE_KEY }}
+
+      - name: Run flake checks
+        run: nix flake check
+
+  flake-check-hosted:
+    needs: select-runner
+    if: ${{ needs.select-runner.outputs.use_self_hosted != 'true' }}
+    runs-on: ${{ vars.CI_HOSTED_FALLBACK_RUNNER != '' && vars.CI_HOSTED_FALLBACK_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    steps:
+      - name: Setup Nix CI
+        uses: ./.github/actions/setup-nix-ci
+        with:
+          r2-account-id: ${{ vars.R2_ACCOUNT_ID }}
+          r2-access-key: ${{ vars.R2_ACCESS_KEY }}
+          r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          nix-cache-private-key: ${{ secrets.NIX_CACHE_PRIVATE_KEY }}
 
       - name: Run flake checks
         run: nix flake check

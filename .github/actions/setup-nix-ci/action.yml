@@ -1,0 +1,35 @@
+name: Setup Nix CI
+description: Checkout the repository and configure Nix with the shared R2 cache.
+
+inputs:
+  r2-account-id:
+    description: Cloudflare R2 account ID.
+    required: true
+  r2-access-key:
+    description: Cloudflare R2 access key ID.
+    required: true
+  r2-secret-access-key:
+    description: Cloudflare R2 secret access key.
+    required: true
+  nix-cache-private-key:
+    description: Private signing key for the Nix cache.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Checkout
+      uses: actions/checkout@v6
+
+    - name: Install Determinate Nix
+      uses: DeterminateSystems/nix-installer-action@c5a866b6ab867e88becbed4467b93592bce69f8a # v21
+
+    - name: Configure Cloudflare R2 cache
+      uses: lemmih/nix-s3-cache-action@29264f2f7ee0569b80a4c91ef27734c92ac69026 # v1.0.2
+      with:
+        s3-endpoint: ${{ inputs.r2-account-id }}.r2.cloudflarestorage.com
+        bucket: nix-cache
+        public-key: nix-cache:2eICaC37vEBexPk98J0dRt5FzSX7f6hx0vRl9tPaUuM=
+        aws-access-key-id: ${{ inputs.r2-access-key }}
+        aws-secret-access-key: ${{ inputs.r2-secret-access-key }}
+        private-key: ${{ inputs.nix-cache-private-key }}

@@ -1,0 +1,98 @@
+name: Select CI Runner
+description: Decide whether CI should use the optional self-hosted runner or a hosted fallback.
+
+inputs:
+  repository:
+    description: Repository in owner/name format.
+    required: true
+  runner-label:
+    description: Custom label used to target the optional self-hosted runner.
+    required: true
+  fallback-runner:
+    description: Hosted runner label to use when self-hosted capacity is unavailable.
+    required: true
+  runner-token:
+    description: Admin-capable token used to inspect repository self-hosted runners.
+    required: false
+    default: ""
+  allow-self-hosted:
+    description: Whether this workflow context is trusted to use self-hosted capacity.
+    required: false
+    default: "true"
+
+outputs:
+  use_self_hosted:
+    description: Whether the workflow should run on the optional self-hosted runner.
+    value: ${{ steps.select.outputs.use_self_hosted }}
+  selected_runner:
+    description: Human-readable selected runner target.
+    value: ${{ steps.select.outputs.selected_runner }}
+  reason:
+    description: Short explanation for the selection result.
+    value: ${{ steps.select.outputs.reason }}
+
+runs:
+  using: composite
+  steps:
+    - id: select
+      shell: bash
+      env:
+        REPOSITORY: ${{ inputs.repository }}
+        RUNNER_LABEL: ${{ inputs.runner-label }}
+        FALLBACK_RUNNER: ${{ inputs.fallback-runner }}
+        RUNNER_TOKEN: ${{ inputs.runner-token }}
+        ALLOW_SELF_HOSTED: ${{ inputs.allow-self-hosted }}
+      run: |
+        set -euo pipefail
+
+        set_hosted_outputs() {
+          local reason="$1"
+          {
+            echo "use_self_hosted=false"
+            echo "selected_runner=$FALLBACK_RUNNER"
+            echo "reason=$reason"
+          } >>"$GITHUB_OUTPUT"
+        }
+
+        if [ "$ALLOW_SELF_HOSTED" != "true" ]; then
+          set_hosted_outputs "self-hosted runners disabled for this workflow context"
+          exit 0
+        fi
+
+        if [ -z "$RUNNER_TOKEN" ]; then
+          set_hosted_outputs "SELF_HOSTED_RUNNER_ADMIN_TOKEN is not configured"
+          exit 0
+        fi
+
+        err_file="$(mktemp)"
+        if ! runners_json="$(GH_TOKEN="$RUNNER_TOKEN" gh api "repos/$REPOSITORY/actions/runners?per_page=100" 2>"$err_file")"; then
+          reason="$(tr '\n' ' ' <"$err_file" | sed 's/[[:space:]]\+/ /g; s/^ //; s/ $//')"
+          rm -f "$err_file"
+          set_hosted_outputs "runner probe failed: ${reason:-unknown error}"
+          exit 0
+        fi
+        rm -f "$err_file"
+
+        if printf '%s' "$runners_json" | python3 - "$RUNNER_LABEL" <<'PY'
+        import json
+        import sys
+
+        label = sys.argv[1]
+        data = json.load(sys.stdin)
+
+        for runner in data.get("runners", []):
+            labels = {item.get("name") for item in runner.get("labels", [])}
+            if label in labels and runner.get("status") == "online" and not runner.get("busy", False):
+                raise SystemExit(0)
+
+        raise SystemExit(1)
+        PY
+        then
+          {
+            echo "use_self_hosted=true"
+            echo "selected_runner=$RUNNER_LABEL"
+            echo "reason=found an online idle runner with label '$RUNNER_LABEL'"
+          } >>"$GITHUB_OUTPUT"
+        else
+          set_hosted_outputs "no online idle runner matched label '$RUNNER_LABEL'"
+        fi

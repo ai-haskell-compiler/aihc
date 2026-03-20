@@ -10,26 +10,96 @@ permissions:
   pull-requests: write
 
 jobs:
-  update-generated-reports:
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+  select-runner:
+    runs-on: ubuntu-24.04
+    outputs:
+      use_self_hosted: ${{ steps.select.outputs.use_self_hosted }}
+      selected_runner: ${{ steps.select.outputs.selected_runner }}
+      reason: ${{ steps.select.outputs.reason }}
+    steps:
+      - id: select
+        uses: ./.github/actions/select-ci-runner
+        with:
+          repository: ${{ github.repository }}
+          runner-label: ${{ vars.CI_SELF_HOSTED_RUNNER_LABEL != '' && vars.CI_SELF_HOSTED_RUNNER_LABEL || 'aihc-lima' }}
+          fallback-runner: ${{ vars.CI_HOSTED_FALLBACK_RUNNER != '' && vars.CI_HOSTED_FALLBACK_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+          runner-token: ${{ secrets.SELF_HOSTED_RUNNER_ADMIN_TOKEN }}
+          allow-self-hosted: true
+
+      - name: Summarize runner selection
+        run: |
+          {
+            echo "### Runner selection"
+            echo
+            echo "- Selected runner: \`${{ steps.select.outputs.selected_runner }}\`"
+            echo "- Self-hosted enabled: \`${{ steps.select.outputs.use_self_hosted }}\`"
+            echo "- Reason: ${{ steps.select.outputs.reason }}"
+          } >>"$GITHUB_STEP_SUMMARY"
+
+  update-generated-reports-self-hosted:
+    needs: select-runner
+    if: ${{ needs.select-runner.outputs.use_self_hosted == 'true' }}
+    runs-on:
+      - self-hosted
+      - linux
+      - ${{ vars.CI_SELF_HOSTED_RUNNER_LABEL != '' && vars.CI_SELF_HOSTED_RUNNER_LABEL || 'aihc-lima' }}
     env:
       XDG_CACHE_HOME: ${{ github.workspace }}/.cache
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Install Determinate Nix
-        uses: DeterminateSystems/nix-installer-action@c5a866b6ab867e88becbed4467b93592bce69f8a # v21
-
-      - name: Configure Cloudflare R2 cache
-        uses: lemmih/nix-s3-cache-action@29264f2f7ee0569b80a4c91ef27734c92ac69026 # v1.0.2
+      - name: Setup Nix CI
+        uses: ./.github/actions/setup-nix-ci
         with:
-          s3-endpoint: ${{ vars.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
-          bucket: nix-cache
-          public-key: nix-cache:2eICaC37vEBexPk98J0dRt5FzSX7f6hx0vRl9tPaUuM=
-          aws-access-key-id: ${{ vars.R2_ACCESS_KEY }}
-          aws-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          private-key: ${{ secrets.NIX_CACHE_PRIVATE_KEY }}
+          r2-account-id: ${{ vars.R2_ACCOUNT_ID }}
+          r2-access-key: ${{ vars.R2_ACCESS_KEY }}
+          r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          nix-cache-private-key: ${{ secrets.NIX_CACHE_PRIVATE_KEY }}
+
+      - name: Cache Stackage and package downloads
+        uses: actions/cache@v5
+        with:
+          path: |
+            .cache/aihc/stackage
+            .cache/aihc/hackage
+          key: generated-reports-aihc-downloads-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            generated-reports-aihc-downloads-${{ runner.os }}-
+
+      - name: Update generated reports
+        run: nix run .#generate-reports
+
+      - name: Open pull request for generated updates
+        uses: peter-evans/create-pull-request@v8
+        with:
+          token: ${{ secrets.AUTOMATION_PR_TOKEN }}
+          branch-token: ${{ secrets.AUTOMATION_PR_TOKEN }}
+          commit-message: "chore(reports): update generated reports"
+          add-paths: |
+            README.md
+            docs/haskell-parser-extension-support.md
+            components/haskell-parser/README.md
+            components/haskell-cpp/README.md
+            components/haskell-name-resolution/README.md
+          branch: "automation/generated-reports-update"
+          title: "chore(reports): update generated reports"
+          body: |
+            This PR was created automatically by the daily generated reports workflow.
+
+            It updates generated README sections and report artifacts when they drift.
+
+  update-generated-reports-hosted:
+    needs: select-runner
+    if: ${{ needs.select-runner.outputs.use_self_hosted != 'true' }}
+    runs-on: ${{ vars.CI_HOSTED_FALLBACK_RUNNER != '' && vars.CI_HOSTED_FALLBACK_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    env:
+      XDG_CACHE_HOME: ${{ github.workspace }}/.cache
+    steps:
+      - name: Setup Nix CI
+        uses: ./.github/actions/setup-nix-ci
+        with:
+          r2-account-id: ${{ vars.R2_ACCOUNT_ID }}
+          r2-access-key: ${{ vars.R2_ACCESS_KEY }}
+          r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          nix-cache-private-key: ${{ secrets.NIX_CACHE_PRIVATE_KEY }}
 
       - name: Cache Stackage and package downloads
         uses: actions/cache@v5
