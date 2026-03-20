@@ -18,9 +18,9 @@ genIdent = do
   restLen <- chooseInt (0, 8)
   rest <- vectorOf restLen (elements (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> "_'"))
   let candidate = T.pack (first : rest)
-  if isReservedIdentifier candidate
-    then genIdent
-    else pure candidate
+  if isValidGeneratedIdent candidate
+    then pure candidate
+    else genIdent
 
 shrinkIdent :: Text -> [Text]
 shrinkIdent name =
@@ -34,7 +34,8 @@ isValidGeneratedIdent :: Text -> Bool
 isValidGeneratedIdent ident =
   case T.uncons ident of
     Just (first, rest) ->
-      (first `elem` (['a' .. 'z'] <> ['_']))
+      ident /= "_"
+        && (first `elem` (['a' .. 'z'] <> ['_']))
         && T.all (`elem` (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> "_'")) rest
         && not (isReservedIdentifier ident)
     Nothing -> False

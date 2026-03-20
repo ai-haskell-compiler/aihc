@@ -17,7 +17,7 @@ import Test.Properties.ExprModuleRoundTrip
   ( prop_exprPrettyRoundTrip,
     prop_modulePrettyRoundTrip,
   )
-import Test.Properties.Identifiers (isValidGeneratedIdent)
+import Test.Properties.Identifiers (isValidGeneratedIdent, shrinkIdent)
 import Test.Properties.PatternRoundTrip (prop_patternPrettyRoundTrip)
 import Test.Properties.TypeRoundTrip (prop_typePrettyRoundTrip)
 import Test.StackageProgress.Summary (stackageProgressSummaryTests)
@@ -65,7 +65,9 @@ buildTests = do
             testCase "applies COLUMN pragmas to subsequent tokens" test_columnPragmaUpdatesSpan,
             testCase "applies COLUMN pragmas in the middle of a line" test_inlineColumnPragmaUpdatesSpan,
             testCase "can lex lazily from chunks" test_lexerChunkLaziness,
-            testCase "generated identifiers reject reserved keyword as" test_generatedIdentifiersRejectReservedAs
+            testCase "generated identifiers reject reserved keyword as" test_generatedIdentifiersRejectReservedAs,
+            testCase "generated identifiers reject standalone underscore" test_generatedIdentifiersRejectStandaloneUnderscore,
+            testCase "shrunk identifiers reject standalone underscore" test_shrunkIdentifiersRejectStandaloneUnderscore
           ],
         testGroup
           "properties"
@@ -320,3 +322,13 @@ test_generatedIdentifiersRejectReservedAs :: Assertion
 test_generatedIdentifiersRejectReservedAs =
   assertBool "reserved keyword 'as' must not be treated as a valid generated identifier" $
     not (isValidGeneratedIdent "as")
+
+test_generatedIdentifiersRejectStandaloneUnderscore :: Assertion
+test_generatedIdentifiersRejectStandaloneUnderscore =
+  assertBool "standalone underscore must not be treated as a valid generated identifier" $
+    not (isValidGeneratedIdent "_")
+
+test_shrunkIdentifiersRejectStandaloneUnderscore :: Assertion
+test_shrunkIdentifiersRejectStandaloneUnderscore =
+  assertBool "standalone underscore must not be produced by shrinking" $
+    "_" `notElem` shrinkIdent "__"
