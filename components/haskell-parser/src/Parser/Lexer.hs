@@ -51,6 +51,7 @@
 module Parser.Lexer
   ( LexToken (..),
     LexTokenKind (..),
+    isReservedIdentifier,
     readModuleHeaderExtensions,
     readModuleHeaderExtensionsFromChunks,
     lexTokensFromChunks,
@@ -64,7 +65,7 @@ where
 
 import Data.Char (digitToInt, isAlphaNum, isAsciiLower, isAsciiUpper, isDigit, isHexDigit, isOctDigit, isSpace)
 import qualified Data.List as List
-import Data.Maybe (fromMaybe, mapMaybe)
+import Data.Maybe (fromMaybe, isJust, mapMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Numeric (readHex, readInt, readOct)
@@ -1254,6 +1255,9 @@ isSymbolicOpChar c = c `elem` (":!#$%&*+./<=>?\\^|-~" :: String)
 
 isIdentTailOrStart :: Char -> Bool
 isIdentTailOrStart c = isAlphaNum c || c == '_' || c == '\''
+
+isReservedIdentifier :: Text -> Bool
+isReservedIdentifier = isJust . keywordTokenKind
 
 keywordTokenKind :: Text -> Maybe LexTokenKind
 keywordTokenKind txt = case txt of

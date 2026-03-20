@@ -9,11 +9,11 @@ import Data.Data (dataTypeConstrs, dataTypeOf, showConstr, toConstr)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as T
-import Parser (defaultConfig, errorBundlePretty, parsePattern)
+import Parser (defaultConfig, errorBundlePretty, isReservedIdentifier, parsePattern)
 import Parser.Ast
 import Parser.Pretty (prettyPatternText)
 import Parser.Types (ParseResult (..))
-import Test.Properties.Identifiers (genIdent, reservedWords, shrinkIdent)
+import Test.Properties.Identifiers (genIdent, shrinkIdent)
 import Test.QuickCheck
 
 span0 :: SourceSpan
@@ -291,7 +291,7 @@ genFieldName = do
   restLen <- chooseInt (0, 5)
   rest <- vectorOf restLen (elements (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> "_'"))
   let candidate = T.pack (first : rest)
-  if candidate `elem` reservedWords
+  if isReservedIdentifier candidate
     then genFieldName
     else pure candidate
 
