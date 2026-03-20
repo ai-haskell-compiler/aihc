@@ -28,6 +28,7 @@
       apps = forAllSystems (pkgs:
         let
           hsPkgs = mkHsPkgs pkgs;
+          parserQuickcheckBatchExe = pkgs.lib.getExe' hsPkgs.aihc-parser "parser-quickcheck-batch";
           parserProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser "parser-progress";
           lexerProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser "lexer-progress";
           extensionProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser "extension-progress";
@@ -57,6 +58,34 @@
             meta.description = "aihc app: ${name}";
           };
         in {
+          parser-quickcheck-batch =
+            mkAppWithInputs "parser-quickcheck-batch" [ pkgs.bash pkgs.git ] ''
+              set -euo pipefail
+
+              repo_root="$(git rev-parse --show-toplevel 2>/dev/null)" || {
+                echo "Run this app from inside the repository." >&2
+                exit 1
+              }
+              test -d "$repo_root/components/haskell-parser" || {
+                echo "Run this app from the repository root." >&2
+                exit 1
+              }
+              cd "$repo_root"
+              AIHC_COMMIT_SHA="$(git rev-parse HEAD 2>/dev/null || printf '%s' unknown)"
+              export AIHC_COMMIT_SHA
+              exec ${parserQuickcheckBatchExe} "$@"
+            '';
+
+          parser-quickcheck-soak =
+            mkAppWithInputs "parser-quickcheck-soak" [ pkgs.bash pkgs.git pkgs.nix pkgs.jq ] ''
+              set -euo pipefail
+              test -f scripts/parser-quickcheck-soak.sh || {
+                echo "Run this app from the repository root." >&2
+                exit 1
+              }
+              exec bash ./scripts/parser-quickcheck-soak.sh "$@"
+            '';
+
           line-counts = mkAppWithInputs "line-counts" [ pkgs.tokei pkgs.jq pkgs.bash ] ''
             set -euo pipefail
 
@@ -321,6 +350,29 @@
             extension-progress --strict
             touch "$out"
           '';
+          parserQuickcheckSmoke = pkgs.runCommand "aihc-parser-quickcheck-smoke" {
+            src = ./.;
+            nativeBuildInputs = [ hsPkgs.aihc-parser pkgs.jq ];
+          } ''
+            cd "$src"
+            first_json="$(mktemp)"
+            second_json="$(mktemp)"
+            parser-quickcheck-batch --max-success 200 --seed 123 --property "generated module AST pretty-printer round-trip" >"$first_json"
+            parser-quickcheck-batch --max-success 200 --seed 123 --property "generated module AST pretty-printer round-trip" >"$second_json"
+            jq -e '
+              .selectedProperties == ["generated module AST pretty-printer round-trip"]
+              and (.results | length == 1)
+              and (.results[0].configuredMaxSuccess == 200)
+              and (.results[0].status == "PASS")
+            ' "$first_json" >/dev/null
+            first_seed="$(jq -r '.results[0].seed' "$first_json")"
+            second_seed="$(jq -r '.results[0].seed' "$second_json")"
+            if [ "$first_seed" != "$second_seed" ]; then
+              echo "expected deterministic property seeds" >&2
+              exit 1
+            fi
+            touch "$out"
+          '';
           cppProgressStrict = pkgs.runCommand "aihc-cpp-progress-strict" {
             src = ./.;
             nativeBuildInputs = [ hsPkgs.aihc-cpp ];
@@ -337,6 +389,14 @@
             name-resolution-progress --strict
             touch "$out"
           '';
+          parserQuickcheckSoakCheck = pkgs.runCommand "aihc-parser-quickcheck-soak-check" {
+            src = ./.;
+            nativeBuildInputs = [ pkgs.bash pkgs.git pkgs.jq ];
+          } ''
+            cd "$src"
+            bash ./scripts/test-parser-quickcheck-soak.sh
+            touch "$out"
+          '';
         in {
           parser-tests = parserTests;
           cpp-tests = cppTests;
@@ -344,6 +404,8 @@
           parser-progress-strict = parserProgressStrict;
           lexer-progress-strict = lexerProgressStrict;
           parser-extension-progress-strict = parserExtensionProgressStrict;
+          parser-quickcheck-smoke = parserQuickcheckSmoke;
+          parser-quickcheck-soak-check = parserQuickcheckSoakCheck;
           cpp-progress-strict = cppProgressStrict;
           name-resolution-progress-strict = nameResolutionProgressStrict;
            nix-lint = nixLint;
@@ -357,6 +419,8 @@
                 { name = "parser-progress-strict"; path = parserProgressStrict; }
                 { name = "lexer-progress-strict"; path = lexerProgressStrict; }
                 { name = "parser-extension-progress-strict"; path = parserExtensionProgressStrict; }
+                { name = "parser-quickcheck-smoke"; path = parserQuickcheckSmoke; }
+                { name = "parser-quickcheck-soak-check"; path = parserQuickcheckSoakCheck; }
                 { name = "cpp-progress-strict"; path = cppProgressStrict; }
                 { name = "name-resolution-progress-strict"; path = nameResolutionProgressStrict; }
                  { name = "nix-lint"; path = nixLint; }

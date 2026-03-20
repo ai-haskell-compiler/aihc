@@ -112,6 +112,34 @@ executable parser-progress
   ghc-options:        -Wall -Werror
   default-language: Haskell2010
 
+executable parser-quickcheck-batch
+  hs-source-dirs:
+      app/parser-quickcheck-batch
+    , common
+    , test
+  main-is:          Main.hs
+  other-modules:
+      ParserQuickCheck.CLI
+    , ParserQuickCheck.Registry
+    , ParserQuickCheck.Runner
+    , ParserQuickCheck.Types
+    , Test.Properties.ExprModuleRoundTrip
+    , Test.Properties.Identifiers
+    , Test.Properties.PatternRoundTrip
+    , Test.Properties.TypeRoundTrip
+  build-depends:
+      base >=4.16 && <5
+    , aihc-parser
+    , text
+    , aeson
+    , QuickCheck
+    , containers
+    , bytestring
+    , optparse-applicative
+    , time
+  ghc-options:        -O2 -Wall -Werror
+  default-language: Haskell2010
+
 executable lexer-progress
   hs-source-dirs:
       app/lexer-progress
@@ -254,3 +282,28 @@ executable parser-fuzz
     , Cabal-syntax
   ghc-options:        -Wall -Werror
   default-language: GHC2021
+
+test-suite parser-quickcheck-tests
+  type:             exitcode-stdio-1.0
+  hs-source-dirs:
+      test/quickcheck-batch
+    , common
+  main-is:          Spec.hs
+  other-modules:
+      ParserQuickCheck.CLI
+    , ParserQuickCheck.Runner
+    , ParserQuickCheck.Types
+    , Test.ParserQuickCheck.CLI
+    , Test.ParserQuickCheck.Runner
+  build-depends:
+      base >=4.16 && <5
+    , aeson
+    , QuickCheck
+    , containers
+    , tasty
+    , tasty-hunit
+    , text
+    , time
+    , optparse-applicative
+  ghc-options:        -O2 -Wall -Werror -threaded -rtsopts -with-rtsopts=-N
+  default-language: Haskell2010
