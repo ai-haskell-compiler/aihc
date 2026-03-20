@@ -411,7 +411,7 @@ prettyDataCon ctor =
                   [ hsep
                       [ hsep (punctuate comma (map pretty (fieldNames fld))),
                         "::",
-                        prettyBangType (fieldType fld)
+                        prettyRecordFieldBangType (fieldType fld)
                       ]
                   | fld <- fields
                   ]
@@ -428,6 +428,11 @@ prettyBangType :: BangType -> Doc ann
 prettyBangType bt
   | bangStrict bt = "!" <> prettyTypeAtom (bangType bt)
   | otherwise = prettyTypeAtom (bangType bt)
+
+prettyRecordFieldBangType :: BangType -> Doc ann
+prettyRecordFieldBangType bt
+  | bangStrict bt = "!" <> prettyType (bangType bt)
+  | otherwise = prettyType (bangType bt)
 
 prettyBangTypeAtom :: BangType -> Doc ann
 prettyBangTypeAtom bt =

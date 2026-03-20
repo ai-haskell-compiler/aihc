@@ -475,12 +475,18 @@ forallBindersParser = do
 dataConRecordOrPrefixParser :: [Text] -> [Constraint] -> TokParser (SourceSpan -> DataConDecl)
 dataConRecordOrPrefixParser forallVars context = do
   name <- constructorNameParser
-  mRecordFields <- MP.optional recordFieldsParser
+  mRecordFields <- MP.optional (MP.try recordFieldsParserAfterLayoutSemicolon)
   case mRecordFields of
     Just fields -> pure (\span' -> RecordCon span' forallVars context name fields)
     Nothing -> do
       args <- MP.many constructorArgParser
       pure (\span' -> PrefixCon span' forallVars context name args)
+  where
+    -- Layout may inject a virtual ';' before a newline-started record field block.
+    -- Accept it as part of the constructor declaration.
+    recordFieldsParserAfterLayoutSemicolon =
+      recordFieldsParser
+        <|> (symbolLikeTok ";" *> recordFieldsParser)
 
 dataConInfixParser :: [Text] -> [Constraint] -> TokParser (SourceSpan -> DataConDecl)
 dataConInfixParser forallVars context = do
@@ -500,7 +506,7 @@ recordFieldDeclParser :: TokParser FieldDecl
 recordFieldDeclParser = withSpan $ do
   names <- identifierTextParser `MP.sepBy1` symbolLikeTok ","
   operatorLikeTok "::"
-  fieldTy <- bangTypeParser
+  fieldTy <- recordFieldBangTypeParser
   pure $ \span' ->
     FieldDecl
       { fieldSpan = span',
@@ -531,6 +537,26 @@ bangTypeParser = withSpan $ do
         bangStrict = strict,
         bangType = ty
       }
+
+recordFieldBangTypeParser :: TokParser BangType
+recordFieldBangTypeParser = withSpan $ do
+  strict <- MP.option False (operatorLikeTok "!" >> pure True)
+  ty <- constructorFieldTypeParser
+  pure $ \span' ->
+    BangType
+      { bangSpan = span',
+        bangStrict = strict,
+        bangType = ty
+      }
+
+constructorFieldTypeParser :: TokParser Type
+constructorFieldTypeParser = do
+  first <- typeAtomParser
+  rest <- MP.many typeAtomParser
+  pure (foldl appendTypeArg first rest)
+  where
+    appendTypeArg lhs rhs =
+      TApp (mergeSourceSpans (typeSourceSpan lhs) (typeSourceSpan rhs)) lhs rhs
 
 constructorNameParser :: TokParser Text
 constructorNameParser =
