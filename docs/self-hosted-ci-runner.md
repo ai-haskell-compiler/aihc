@@ -20,12 +20,20 @@ The self-hosted runner label defaults to `aihc-lima`.
 
 ## Repository Configuration
 
-Add this repository secret:
+The workflow probe first tries:
 
-- `SELF_HOSTED_RUNNER_ADMIN_TOKEN`: a classic PAT with `repo` scope and repository admin access.
+- `SELF_HOSTED_RUNNER_ADMIN_TOKEN`
 
-This token is used only by the workflow probe job. The default workflow
+If that secret is not set, it falls back to:
+
+- `AUTOMATION_PR_TOKEN`
+
+The token is used only by the workflow probe job. The default workflow
 `GITHUB_TOKEN` cannot call the repository self-hosted runner admin endpoints.
+
+For the most predictable setup, `SELF_HOSTED_RUNNER_ADMIN_TOKEN` should be a
+classic PAT with `repo` scope and repository admin access. Reusing
+`AUTOMATION_PR_TOKEN` can also work if that token is accepted by the runner API.
 
 Optional repository variables:
 
