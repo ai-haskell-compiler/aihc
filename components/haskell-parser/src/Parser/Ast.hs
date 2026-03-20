@@ -345,6 +345,7 @@ data ImportItem
 data Decl
   = DeclValue SourceSpan ValueDecl
   | DeclTypeSig SourceSpan [BinderName] Type
+  | DeclStandaloneKindSig SourceSpan BinderName Type
   | DeclFixity SourceSpan FixityAssoc (Maybe Int) [OperatorName]
   | DeclTypeSyn SourceSpan TypeSynDecl
   | DeclData SourceSpan DataDecl

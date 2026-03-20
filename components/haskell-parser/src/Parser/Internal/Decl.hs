@@ -166,12 +166,26 @@ exportImportNamespaceParser =
 declParser :: TokParser Decl
 declParser =
   MP.try foreignDeclParser
+    <|> MP.try standaloneKindSigDeclParser
     <|> MP.try typeSigDeclParser
     <|> MP.try newtypeDeclParser
     <|> MP.try dataDeclParser
     <|> MP.try classDeclParser
     <|> MP.try instanceDeclParser
     <|> valueDeclParser
+
+standaloneKindSigDeclParser :: TokParser Decl
+standaloneKindSigDeclParser = withSpan $ do
+  identifierExact "type"
+  typeName <-
+    tokenSatisfy $ \tok ->
+      case lexTokenKind tok of
+        TkIdentifier ident
+          | isTypeName ident -> Just ident
+        _ -> Nothing
+  operatorLikeTok "::"
+  kind <- typeParser
+  pure (\span' -> DeclStandaloneKindSig span' typeName kind)
 
 typeSigDeclParser :: TokParser Decl
 typeSigDeclParser = withSpan $ do

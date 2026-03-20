@@ -749,6 +749,7 @@ declSourceSpan decl =
   case decl of
     DeclValue span' _ -> span'
     DeclTypeSig span' _ _ -> span'
+    DeclStandaloneKindSig span' _ _ -> span'
     DeclFixity span' _ _ _ -> span'
     DeclTypeSyn span' _ -> span'
     DeclData span' _ -> span'

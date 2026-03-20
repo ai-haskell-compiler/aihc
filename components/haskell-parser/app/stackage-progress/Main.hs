@@ -833,6 +833,7 @@ stripDecl decl =
   case decl of
     DeclValue _ value -> DeclValue noSourceSpan (stripValueDecl value)
     DeclTypeSig _ names t -> DeclTypeSig noSourceSpan names (stripType t)
+    DeclStandaloneKindSig _ name kind -> DeclStandaloneKindSig noSourceSpan name (stripType kind)
     DeclFixity _ assoc prec ops -> DeclFixity noSourceSpan assoc prec ops
     DeclTypeSyn _ syn -> DeclTypeSyn noSourceSpan (stripTypeSynDecl syn)
     DeclData _ dat -> DeclData noSourceSpan (stripDataDecl dat)

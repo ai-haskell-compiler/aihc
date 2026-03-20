@@ -130,6 +130,7 @@ prettyDeclLines decl =
   case decl of
     DeclValue _ valueDecl -> prettyValueDeclLines valueDecl
     DeclTypeSig _ names ty -> [hsep [hsep (punctuate comma (map prettyBinderName names)), "::", prettyType ty]]
+    DeclStandaloneKindSig _ name kind -> [hsep ["type", prettyConstructorName name, "::", prettyType kind]]
     DeclFixity _ assoc prec ops ->
       [ hsep
           ( [prettyFixityAssoc assoc]

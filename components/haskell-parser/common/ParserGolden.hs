@@ -311,6 +311,7 @@ renderDecl decl =
   case decl of
     DeclValue _ valueDecl -> "DeclValue " <> par (renderValueDecl valueDecl)
     DeclTypeSig _ names ty -> "DeclTypeSig " <> show names <> " " <> par (renderType ty)
+    DeclStandaloneKindSig _ name kind -> "DeclStandaloneKindSig " <> show name <> " " <> par (renderType kind)
     DeclFixity _ assoc prec ops -> "DeclFixity " <> show assoc <> " " <> show prec <> " " <> show ops
     DeclTypeSyn _ syn -> "DeclTypeSyn " <> par (renderTypeSynDecl syn)
     DeclData _ dat -> "DeclData " <> par (renderDataDecl dat)
