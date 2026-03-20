@@ -16,8 +16,8 @@ import qualified Data.Text as T
 import Parser.Ast
 import Parser.Internal.Common
 import Parser.Internal.Expr (equationRhsParser, exprParser, simplePatternParser, typeAtomParser, typeParser)
-import Parser.Lexer (LexToken (..), LexTokenKind (..), lexTokenKind, lexTokenSpan)
-import Text.Megaparsec (anySingle, lookAhead, (<|>))
+import Parser.Lexer (LexTokenKind (..), lexTokenKind)
+import Text.Megaparsec ((<|>))
 import qualified Text.Megaparsec as MP
 
 languagePragmaParser :: TokParser [ExtensionSetting]
@@ -545,21 +545,9 @@ recordFieldBangTypeParser = withSpan $ do
 constructorFieldTypeParser :: TokParser Type
 constructorFieldTypeParser = do
   first <- typeAtomParser
-  let line = typeStartLine first
-  rest <- MP.many (sameLineTypeAtomParser line)
+  rest <- MP.many typeAtomParser
   pure (foldl appendTypeArg first rest)
   where
-    typeStartLine ty =
-      case typeSourceSpan ty of
-        SourceSpan l _ _ _ -> l
-        NoSourceSpan -> 1
-
-    sameLineTypeAtomParser expectedLine = do
-      nextTok <- lookAhead anySingle
-      case lexTokenSpan nextTok of
-        SourceSpan line _ _ _ | line == expectedLine -> typeAtomParser
-        _ -> fail "line break"
-
     appendTypeArg lhs rhs =
       TApp (mergeSourceSpans (typeSourceSpan lhs) (typeSourceSpan rhs)) lhs rhs
 
