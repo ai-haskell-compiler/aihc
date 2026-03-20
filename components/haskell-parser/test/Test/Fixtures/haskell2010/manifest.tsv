@@ -10,6 +10,7 @@ modules-import-hiding	modules	modules/import-hiding.hs	pass	parser now supports 
 modules-multi-imports	modules	modules/multi-imports.hs	pass	parser supports multiple plain imports
 modules-import-only	modules	modules/import-only.hs	pass	parser supports modules with imports and no declarations
 modules-import-as	modules	modules/import-as.hs	pass	parser now supports import aliases
+modules-import-var-operator	modules	modules/import-var-operator.hs	pass	parser now supports parenthesized variable operators in import lists
 modules-multiline-definition	modules	modules/multiline-definition.hs	pass	parser now handles multiline module headers
 modules-multiline-definition-module-split	modules	modules/multiline-definition-module-split.hs	pass	parser now handles multiline module headers
 modules-multiline-definition-where-split	modules	modules/multiline-definition-where-split.hs	pass	parser now handles multiline module headers
