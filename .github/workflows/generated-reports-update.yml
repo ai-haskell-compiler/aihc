@@ -49,6 +49,9 @@ jobs:
     env:
       XDG_CACHE_HOME: ${{ github.workspace }}/.cache
     steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
       - name: Setup Nix CI
         uses: ./.github/actions/setup-nix-ci
         with:
@@ -96,6 +99,9 @@ jobs:
     env:
       XDG_CACHE_HOME: ${{ github.workspace }}/.cache
     steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
       - name: Setup Nix CI
         uses: ./.github/actions/setup-nix-ci
         with:

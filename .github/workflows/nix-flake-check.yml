@@ -47,6 +47,9 @@ jobs:
       - linux
       - ${{ vars.CI_SELF_HOSTED_RUNNER_LABEL != '' && vars.CI_SELF_HOSTED_RUNNER_LABEL || 'aihc-lima' }}
     steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
       - name: Setup Nix CI
         uses: ./.github/actions/setup-nix-ci
         with:
@@ -63,6 +66,9 @@ jobs:
     if: ${{ needs.select-runner.outputs.use_self_hosted != 'true' }}
     runs-on: ${{ vars.CI_HOSTED_FALLBACK_RUNNER != '' && vars.CI_HOSTED_FALLBACK_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
       - name: Setup Nix CI
         uses: ./.github/actions/setup-nix-ci
         with:
