@@ -397,24 +397,7 @@ newtypeDeclParser = withSpan $ do
 newtypeConDeclParser :: TokParser DataConDecl
 newtypeConDeclParser = withSpan $ do
   (forallVars, context) <- dataConQualifiersParser
-  MP.try (newtypeRecordOrPrefixParser forallVars context) <|> newtypeInfixParser forallVars context
-
-newtypeRecordOrPrefixParser :: [Text] -> [Constraint] -> TokParser (SourceSpan -> DataConDecl)
-newtypeRecordOrPrefixParser forallVars context = do
-  name <- constructorNameParser
-  mRecordFields <- MP.optional recordFieldsParser
-  case mRecordFields of
-    Just fields -> pure (\span' -> RecordCon span' forallVars context name fields)
-    Nothing -> do
-      args <- MP.many constructorArgParser
-      pure (\span' -> PrefixCon span' forallVars context name args)
-
-newtypeInfixParser :: [Text] -> [Constraint] -> TokParser (SourceSpan -> DataConDecl)
-newtypeInfixParser forallVars context = do
-  lhs <- constructorArgParser
-  op <- constructorOperatorParser
-  rhs <- constructorArgParser
-  pure (\span' -> InfixCon span' forallVars context lhs op rhs)
+  MP.try (dataConRecordOrPrefixParser forallVars context) <|> dataConInfixParser forallVars context
 
 declContextParser :: TokParser [Constraint]
 declContextParser =
