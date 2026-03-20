@@ -10,7 +10,6 @@ module Parser.Internal.Expr
   )
 where
 
-import Control.Monad (guard)
 import Data.Char (isLower, isUpper)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -89,9 +88,26 @@ doBindStmtParser = withSpan $ do
 doLetStmtParser :: TokParser DoStmt
 doLetStmtParser = withSpan $ do
   keywordTok TkKeywordLet
-  decls <- MP.try bracedDeclsParser <|> ((: []) <$> localDeclParser)
+  decls <- MP.try bracedDeclsParser <|> doLayoutDeclsParser
   MP.notFollowedBy (keywordTok TkKeywordIn)
   pure (`DoLetDecls` decls)
+
+doLayoutDeclsParser :: TokParser [Decl]
+doLayoutDeclsParser = do
+  first <- localDeclParser
+  rest <-
+    MP.many
+      ( MP.try $ do
+          _ <-
+            MP.optional
+              ( do
+                  symbolLikeTok ";"
+                  _ <- MP.lookAhead localDeclParser
+                  pure ()
+              )
+          localDeclParser
+      )
+  pure (first : rest)
 
 doExprStmtParser :: TokParser DoStmt
 doExprStmtParser = withSpan $ do
@@ -600,7 +616,6 @@ localTypeSigDeclParser = withSpan $ do
   names <- identifierTextParser `MP.sepBy1` symbolLikeTok ","
   operatorLikeTok "::"
   ty <- typeParser
-  guard (hasExplicitForall ty)
   pure (\span' -> DeclTypeSig span' names ty)
 
 localFunctionDeclParser :: TokParser Decl
@@ -910,18 +925,3 @@ sameLineTypeAtomParser expectedLine = do
   case lexTokenSpan nextTok of
     SourceSpan line _ _ _ | line == expectedLine -> typeAtomParser
     _ -> fail "line break"
-
-hasExplicitForall :: Type -> Bool
-hasExplicitForall ty =
-  case ty of
-    TForall {} -> True
-    TApp _ f x -> hasExplicitForall f || hasExplicitForall x
-    TFun _ a b -> hasExplicitForall a || hasExplicitForall b
-    TTuple _ elems -> any hasExplicitForall elems
-    TList _ inner -> hasExplicitForall inner
-    TParen _ inner -> hasExplicitForall inner
-    TContext _ constraints inner -> any constraintHasForall constraints || hasExplicitForall inner
-    _ -> False
-
-constraintHasForall :: Constraint -> Bool
-constraintHasForall constraint = any hasExplicitForall (constraintArgs constraint)

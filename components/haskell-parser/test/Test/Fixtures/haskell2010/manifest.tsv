@@ -31,11 +31,11 @@ modules-s5-import-as-explicit-list	modules	modules/s5-import-as-explicit-list.hs
 modules-s5-import-as-hiding	modules	modules/s5-import-as-hiding.hs	pass	parser now supports section 5 import aliases with hiding lists
 modules-s5-import-as	modules	modules/s5-import-as.hs	pass	parser now supports section 5 import aliases
 modules-s5-import-empty-list	modules	modules/s5-import-empty-list.hs	pass	parser now supports empty section 5 import lists
-modules-s5-import-explicit-tycls-all	modules	modules/s5-import-explicit-tycls-all.hs	xfail	section 5 module variation unsupported
-modules-s5-import-explicit-tycls-methods	modules	modules/s5-import-explicit-tycls-methods.hs	xfail	section 5 module variation unsupported
+modules-s5-import-explicit-tycls-all	modules	modules/s5-import-explicit-tycls-all.hs	pass	parser now supports constructor imports with (..)
+modules-s5-import-explicit-tycls-methods	modules	modules/s5-import-explicit-tycls-methods.hs	pass	parser now supports constructor imports with explicit names
 modules-s5-import-explicit-tycls	modules	modules/s5-import-explicit-tycls.hs	pass	parser now supports section 5 explicit class imports
-modules-s5-import-explicit-tycon-all	modules	modules/s5-import-explicit-tycon-all.hs	xfail	section 5 module variation unsupported
-modules-s5-import-explicit-tycon-cnames	modules	modules/s5-import-explicit-tycon-cnames.hs	xfail	section 5 module variation unsupported
+modules-s5-import-explicit-tycon-all	modules	modules/s5-import-explicit-tycon-all.hs	pass	parser now supports data constructor imports with (..)
+modules-s5-import-explicit-tycon-cnames	modules	modules/s5-import-explicit-tycon-cnames.hs	pass	parser now supports data constructor imports with explicit names
 modules-s5-import-explicit-tycon	modules	modules/s5-import-explicit-tycon.hs	pass	parser now supports section 5 explicit type constructor imports
 modules-s5-import-explicit-var	modules	modules/s5-import-explicit-var.hs	pass	parser now supports section 5 explicit variable imports
 modules-s5-import-hiding-empty	modules	modules/s5-import-hiding-empty.hs	pass	parser now supports section 5 empty hiding import lists
@@ -230,11 +230,12 @@ types-newtype-record-layout-application	types	types/newtype-record-layout-applic
 types-newtype-record-field-multiline-application	types	types/newtype-record-field-multiline-application.hs	pass	parser now supports multiline type applications in newtype record fields
 types-multi-vars-signature	types	types/multi-vars-signature.hs	pass	parser now supports multi-variable top-level signatures
 types-context-multi-vars	types	types/context-multi-vars.hs	pass
-types-signature-where	types	types/signature-where.hs	xfail	local type signatures in where bindings unsupported
+types-signature-where	types	types/signature-where.hs	pass	parser now supports local where type signatures
 types-inline-signature-basic	types	types/inline-signature-basic.hs	xfail	parser intentionally disabled
 types-inline-signature-context	types	types/inline-signature-context.hs	xfail	parser intentionally disabled
 types-inline-signature-lambda	types	types/inline-signature-lambda.hs	xfail	parser intentionally disabled
-types-let-signature	types	types/let-signature.hs	xfail	local let type signatures unsupported
+types-let-signature	types	types/let-signature.hs	pass	parser now supports local let type signatures
+types-do-let-signature	types	types/do-let-signature.hs	pass	parser now supports do-block let type signatures
 types-guard-inline-signature	types	types/guard-inline-signature.hs	xfail	parser intentionally disabled
 types-list-type-constructor	types	types/list-type-constructor.hs	pass	parser now supports list type constructors
 types-maybe-type-constructor	types	types/maybe-type-constructor.hs	pass	parser now handles maybe type constructors
@@ -258,7 +259,7 @@ hashable-xxh3-cpp-include	corpus	corpus/hashable/hashable-xxh3-cpp-include.hs	pa
 hashable-generic-instances-kind-arrow	corpus	corpus/hashable/hashable-generic-instances-kind-arrow.hs	pass	from hashable/src/Data/Hashable/Generic/Instances.hs; parser now accepts multiline LANGUAGE pragma lists
 hashable-mix-cpp-if	corpus	corpus/hashable/hashable-mix-cpp-if.hs	pass	from hashable/src/Data/Hashable/Mix.hs; parser now accepts this preprocessed case
 hashable-ffi-capi-calling-convention	corpus	corpus/hashable/hashable-ffi-capi-calling-convention.hs	xfail	from hashable/src/Data/Hashable/FFI.hs; parser does not support capi calling convention (CApiFFI)
-hashable-class-package-imports	corpus	corpus/hashable/hashable-class-package-imports.hs	xfail	from hashable/src/Data/Hashable/Class.hs; parser rejects package-qualified imports
+hashable-class-package-imports	corpus	corpus/hashable/hashable-class-package-imports.hs	pass	from hashable/src/Data/Hashable/Class.hs; parser now supports package-qualified imports with constructors
 hashable-lowlevel-cpp-ifdef	corpus	corpus/hashable/hashable-lowlevel-cpp-ifdef.hs	pass	from hashable/src/Data/Hashable/LowLevel.hs; parser now accepts this preprocessed case
 hashable-properties-unboxed-tuples	corpus	corpus/hashable/hashable-properties-unboxed-tuples.hs	xfail	from hashable/tests/Properties.hs; parser rejects unboxed tuple syntax
 hashable-regress-cpp-have-mmap	corpus	corpus/hashable/hashable-regress-cpp-have-mmap.hs	pass	from hashable/tests/Regress.hs; covered by parser-test CPP preprocessing
