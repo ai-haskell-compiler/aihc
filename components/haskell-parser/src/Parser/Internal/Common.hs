@@ -14,6 +14,7 @@ module Parser.Internal.Common
     exprSourceSpan,
     typeSourceSpan,
     mergeSourceSpans,
+    markSingleParenConstraint,
     parens,
   )
 where
@@ -145,6 +146,12 @@ mergeSourceSpans left right =
     (SourceSpan l1 c1 _ _, SourceSpan _ _ l2 c2) -> SourceSpan l1 c1 l2 c2
     (NoSourceSpan, span') -> span'
     (span', NoSourceSpan) -> span'
+
+markSingleParenConstraint :: [Constraint] -> [Constraint]
+markSingleParenConstraint constraints =
+  case constraints of
+    [constraint] -> [constraint {constraintParen = True}]
+    _ -> constraints
 
 parens :: TokParser a -> TokParser a
 parens parser = do

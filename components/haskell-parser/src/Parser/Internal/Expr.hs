@@ -77,7 +77,7 @@ bracedStmtListParser stmtParser = do
   pure stmts
 
 doStmtParser :: TokParser DoStmt
-doStmtParser = MP.try doBindStmtParser <|> doExprStmtParser
+doStmtParser = MP.try doBindStmtParser <|> MP.try doLetStmtParser <|> doExprStmtParser
 
 doBindStmtParser :: TokParser DoStmt
 doBindStmtParser = withSpan $ do
@@ -85,6 +85,13 @@ doBindStmtParser = withSpan $ do
   operatorLikeTok "<-"
   expr <- exprParser
   pure (\span' -> DoBind span' pat expr)
+
+doLetStmtParser :: TokParser DoStmt
+doLetStmtParser = withSpan $ do
+  keywordTok TkKeywordLet
+  decls <- MP.try bracedDeclsParser <|> ((: []) <$> localDeclParser)
+  MP.notFollowedBy (keywordTok TkKeywordIn)
+  pure (`DoLetDecls` decls)
 
 doExprStmtParser :: TokParser DoStmt
 doExprStmtParser = withSpan $ do
@@ -805,7 +812,7 @@ parenthesizedConstraintsParser = do
   symbolLikeTok "("
   cs <- constraintParser `MP.sepEndBy` symbolLikeTok ","
   symbolLikeTok ")"
-  pure cs
+  pure (markSingleParenConstraint cs)
 
 constraintParser :: TokParser Constraint
 constraintParser = withSpan $ do

@@ -411,7 +411,9 @@ declContextParser =
   MP.try parenContextParser <|> ((: []) <$> constraintParser)
 
 parenContextParser :: TokParser [Constraint]
-parenContextParser = parens $ constraintParser `MP.sepEndBy` symbolLikeTok ","
+parenContextParser = parens $ do
+  constraints <- constraintParser `MP.sepEndBy` symbolLikeTok ","
+  pure (markSingleParenConstraint constraints)
 
 constraintParser :: TokParser Constraint
 constraintParser = withSpan $ do
