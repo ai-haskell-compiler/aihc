@@ -251,6 +251,12 @@ limactl shell "$INSTANCE_NAME" env \
 	bash -lc '
 set -euo pipefail
 
+export DEBIAN_FRONTEND=noninteractive
+export NEEDRESTART_MODE=a
+
+runner_user="$(id -un)"
+runner_home="$HOME"
+
 sudo apt-get update
 sudo apt-get install -y curl git tar
 
@@ -259,9 +265,9 @@ sudo systemctl disable aihc-github-runner.service >/dev/null 2>&1 || true
 sudo rm -f /etc/systemd/system/aihc-github-runner.service
 sudo systemctl daemon-reload
 
-rm -rf "$HOME/actions-runner"
-mkdir -p "$HOME/actions-runner"
-cd "$HOME/actions-runner"
+rm -rf "$runner_home/actions-runner"
+mkdir -p "$runner_home/actions-runner"
+cd "$runner_home/actions-runner"
 
 curl -fsSL "$DOWNLOAD_URL" -o runner.tar.gz
 tar xzf runner.tar.gz
@@ -285,9 +291,9 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-User=lima
-WorkingDirectory=/home/lima/actions-runner
-ExecStart=/home/lima/actions-runner/run.sh
+User=${runner_user}
+WorkingDirectory=${runner_home}/actions-runner
+ExecStart=${runner_home}/actions-runner/run.sh
 Restart=always
 RestartSec=5
 KillMode=process
@@ -302,6 +308,12 @@ sudo systemctl enable --now aihc-github-runner.service
 
 if ! wait_for_runner_online "$REPO" "$RUNNER_NAME"; then
 	echo "Runner '${RUNNER_NAME}' did not come online in time." >&2
+	limactl shell "$INSTANCE_NAME" bash -lc '
+set -euo pipefail
+sudo systemctl status aihc-github-runner.service --no-pager -l || true
+echo ---
+sudo journalctl -u aihc-github-runner.service -n 80 --no-pager || true
+' >&2 || true
 	exit 1
 fi
 
