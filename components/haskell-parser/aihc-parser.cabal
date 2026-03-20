@@ -46,12 +46,14 @@ test-suite spec
     , HseExtensions
     , LexerGolden
     , ModuleShrinker
+    , ParserErrorGolden
     , ParserGolden
     , OracleExtensions
     , ParserValidation
     , ShrinkUtils
     , StackageProgress.Summary
     , Test.Oracle
+    , Test.ErrorMessages.Suite
     , Test.H2010.Suite
     , Test.ExtensionMapping.Suite
     , Test.Extensions.Suite
@@ -59,6 +61,7 @@ test-suite spec
     , Test.Lexer.Suite
     , Test.Properties.ExprModuleRoundTrip
     , Test.Properties.Identifiers
+    , Test.Properties.PatternRoundTrip
     , Test.Properties.TypeRoundTrip
     , Test.Parser.Suite
     , Test.StackageProgress.Summary

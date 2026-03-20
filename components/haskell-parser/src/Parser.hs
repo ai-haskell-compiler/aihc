@@ -2,8 +2,13 @@
 
 module Parser
   ( parseExpr,
+    parseExprAt,
+    parsePattern,
+    parsePatternAt,
     parseType,
+    parseTypeAt,
     parseModule,
+    parseModuleAt,
     defaultConfig,
     errorBundlePretty,
     LexToken (..),
@@ -22,10 +27,10 @@ module Parser
 where
 
 import Data.Text (Text)
-import Parser.Ast (Decl, Expr, Extension (..), ExtensionSetting (..), ImportDecl, Module (..), Type)
+import Parser.Ast (Decl, Expr, Extension (..), ExtensionSetting (..), ImportDecl, Module (..), Pattern, Type)
 import Parser.Internal.Common (TokParser, symbolLikeTok, withSpan)
 import Parser.Internal.Decl (declParser, importDeclParser, languagePragmaParser, moduleHeaderParser)
-import Parser.Internal.Expr (exprParser, typeParser)
+import Parser.Internal.Expr (exprParser, patternParser, typeParser)
 import Parser.Lexer
   ( LexToken (..),
     LexTokenKind (..),
@@ -86,20 +91,38 @@ defaultConfig =
     }
 
 parseExpr :: ParserConfig -> Text -> ParseResult Expr
-parseExpr _cfg input =
-  case runParser (exprParser <* MP.eof) "" (TokStream (lexTokens input)) of
+parseExpr = parseExprAt ""
+
+parseExprAt :: FilePath -> ParserConfig -> Text -> ParseResult Expr
+parseExprAt sourceName _cfg input =
+  case runParser (exprParser <* MP.eof) sourceName (TokStream (lexTokens input)) of
     Left bundle -> ParseErr bundle
     Right expr -> ParseOk expr
 
+parsePattern :: ParserConfig -> Text -> ParseResult Pattern
+parsePattern = parsePatternAt ""
+
+parsePatternAt :: FilePath -> ParserConfig -> Text -> ParseResult Pattern
+parsePatternAt sourceName _cfg input =
+  case runParser (patternParser <* MP.eof) sourceName (TokStream (lexTokens input)) of
+    Left bundle -> ParseErr bundle
+    Right pat -> ParseOk pat
+
 parseType :: ParserConfig -> Text -> ParseResult Type
-parseType _cfg input =
-  case runParser (typeParser <* MP.eof) "" (TokStream (lexTokens input)) of
+parseType = parseTypeAt ""
+
+parseTypeAt :: FilePath -> ParserConfig -> Text -> ParseResult Type
+parseTypeAt sourceName _cfg input =
+  case runParser (typeParser <* MP.eof) sourceName (TokStream (lexTokens input)) of
     Left bundle -> ParseErr bundle
     Right ty -> ParseOk ty
 
 parseModule :: ParserConfig -> Text -> ParseResult Module
-parseModule _cfg input =
-  case runParser (moduleParser <* MP.eof) "" (TokStream (lexModuleTokens input)) of
+parseModule = parseModuleAt ""
+
+parseModuleAt :: FilePath -> ParserConfig -> Text -> ParseResult Module
+parseModuleAt sourceName _cfg input =
+  case runParser (moduleParser <* MP.eof) sourceName (TokStream (lexModuleTokens input)) of
     Left bundle -> ParseErr bundle
     Right m -> ParseOk m
 

@@ -591,6 +591,7 @@ lexSymbol st =
   firstJust
     [ ("..", TkSymbol ".."),
       ("`", TkSymbol "`"),
+      ("@", TkSymbol "@"),
       ("(", TkSymbol "("),
       (")", TkSymbol ")"),
       ("[", TkSymbol "["),

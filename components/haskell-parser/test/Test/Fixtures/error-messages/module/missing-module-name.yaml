@@ -1,0 +1,7 @@
+src: |
+  module where
+ghc: |
+  test.hs:1:8: error: [GHC-58481] parse error on input `where'
+aihc: |
+  test.hs:1:8:
+  token

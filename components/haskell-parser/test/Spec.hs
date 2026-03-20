@@ -6,6 +6,7 @@ import qualified Data.Text as T
 import Parser
 import Parser.Ast
 import Parser.Types (ParseResult (..))
+import Test.ErrorMessages.Suite (errorMessageTests)
 import Test.ExtensionMapping.Suite (extensionMappingTests)
 import Test.Extensions.Suite (extensionTests)
 import Test.H2010.Suite (h2010Tests)
@@ -16,6 +17,7 @@ import Test.Properties.ExprModuleRoundTrip
   ( prop_exprPrettyRoundTrip,
     prop_modulePrettyRoundTrip,
   )
+import Test.Properties.PatternRoundTrip (prop_patternPrettyRoundTrip)
 import Test.Properties.TypeRoundTrip (prop_typePrettyRoundTrip)
 import Test.StackageProgress.Summary (stackageProgressSummaryTests)
 import Test.Tasty
@@ -28,6 +30,7 @@ main = buildTests >>= defaultMain
 buildTests :: IO TestTree
 buildTests = do
   parserGolden <- parserGoldenTests
+  errorMessages <- errorMessageTests
   h2010 <- h2010Tests
   extensions <- extensionTests
   lexer <- lexerTests
@@ -36,6 +39,7 @@ buildTests = do
     testGroup
       "aihc-parser"
       [ parserGolden,
+        errorMessages,
         lexer,
         testGroup
           "parser"
@@ -65,6 +69,7 @@ buildTests = do
           "properties"
           [ QC.testProperty "generated expr AST pretty-printer round-trip" prop_exprPrettyRoundTrip,
             QC.testProperty "generated module AST pretty-printer round-trip" prop_modulePrettyRoundTrip,
+            QC.testProperty "generated pattern AST pretty-printer round-trip" prop_patternPrettyRoundTrip,
             QC.testProperty "generated type AST pretty-printer round-trip" prop_typePrettyRoundTrip
           ],
         h2010,
