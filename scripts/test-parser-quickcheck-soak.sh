@@ -88,6 +88,21 @@ case "\$1 \$2" in
     fi
     count=\$((count + 1))
     printf '%s\n' "\$count" >"\$count_file"
+    body_file=""
+    while [ "\$#" -gt 0 ]; do
+      case "\$1" in
+        --body-file)
+          body_file="\${2:?missing body file}"
+          shift 2
+          ;;
+        *)
+          shift
+          ;;
+      esac
+    done
+    if [ -n "\$body_file" ]; then
+      cp "\$body_file" "\$repo_dir/gh-issue-body.md"
+    fi
     printf 'https://example.invalid/issues/%s\n' "\$count"
     ;;
   *)
@@ -167,6 +182,8 @@ EOF
   if [ -f "$repo_dir/gh-issue-list-count" ]; then
     assert_file_contains "$repo_dir/gh-issue-list-count" '1'
   fi
+  assert_file_contains "$repo_dir/gh-issue-body.md" $'Reproduction:\n```'
+  assert_file_contains "$repo_dir/gh-issue-body.md" $'Failure transcript:\n```'
   assert_file_contains "$repo_dir/stdout.log" 'Completed 1 tests across 1 batch.'
   assert_file_contains "$repo_dir/stdout.log" 'Completed 2 tests across 2 batches.'
   assert_file_contains "$repo_dir/stderr.log" 'NOTICE: parser-quickcheck found FAIL for property demo (fingerprint: f00d, seed: 111)'

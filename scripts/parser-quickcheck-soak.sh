@@ -103,10 +103,14 @@ report_failure() {
           "Tests per property: " + (.configuredMaxSuccess | tostring),
           "",
           "Reproduction:",
+          "```",
           .reproductionCommand,
+          "```",
           "",
           "Failure transcript:",
-          (.failureTranscript // "(missing)")
+          "```",
+          (.failureTranscript // "(missing)"),
+          "```"
         ] | join("\n")
       ' >"$body_file"
 
