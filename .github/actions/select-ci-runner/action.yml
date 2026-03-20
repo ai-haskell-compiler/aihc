@@ -73,7 +73,7 @@ runs:
         fi
         rm -f "$err_file"
 
-        if printf '%s' "$runners_json" | python3 - "$RUNNER_LABEL" <<'PY'
+        if printf '%s' "$runners_json" | python3 -c '
         import json
         import sys
 
@@ -86,7 +86,7 @@ runs:
                 raise SystemExit(0)
 
         raise SystemExit(1)
-        PY
+        ' "$RUNNER_LABEL"
         then
           {
             echo "use_self_hosted=true"

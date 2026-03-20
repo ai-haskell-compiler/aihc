@@ -48,7 +48,7 @@ runner_query_json() {
 
 runner_field() {
 	local field="$1"
-	python3 - "$field" <<'PY'
+	python3 -c '
 import json
 import sys
 
@@ -63,7 +63,7 @@ if isinstance(value, bool):
     print("true" if value else "false")
 elif value is not None:
     print(value)
-PY
+' "$field"
 }
 
 REPO=""

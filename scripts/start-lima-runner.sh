@@ -52,7 +52,7 @@ runner_query_json() {
 
 runner_field() {
 	local field="$1"
-	python3 - "$field" <<'PY'
+	python3 -c '
 import json
 import sys
 
@@ -67,7 +67,7 @@ if isinstance(value, bool):
     print("true" if value else "false")
 elif value is not None:
     print(value)
-PY
+' "$field"
 }
 
 wait_for_runner_online() {
@@ -198,11 +198,12 @@ fi
 
 if [ -d "$LIMA_INSTANCE_DIR" ]; then
 	echo "Starting existing Lima instance '${INSTANCE_NAME}'..."
-	limactl start "$INSTANCE_NAME"
+	limactl -y start "$INSTANCE_NAME"
 else
 	echo "Creating Lima instance '${INSTANCE_NAME}'..."
 	start_cmd=(
 		limactl
+		-y
 		start
 		--name="$INSTANCE_NAME"
 		--cpus="$CPUS"
@@ -226,7 +227,7 @@ aarch64 | arm64) runner_arch="arm64" ;;
 	;;
 esac
 
-download_url="$(gh api "repos/${REPO}/actions/runners/downloads" | python3 - "$runner_arch" <<'PY'
+download_url="$(gh api "repos/${REPO}/actions/runners/downloads" | python3 -c '
 import json
 import sys
 
@@ -236,8 +237,7 @@ for entry in json.load(sys.stdin):
         print(entry["download_url"])
         raise SystemExit(0)
 raise SystemExit(1)
-PY
-)"
+' "$runner_arch")"
 
 registration_token="$(gh api --method POST "repos/${REPO}/actions/runners/registration-token" --jq '.token')"
 
