@@ -74,6 +74,7 @@ stop_requested=0
 trap 'stop_requested=1' INT TERM
 
 batch_counter=0
+total_tests_completed=0
 
 report_failure() {
   local failure_json="$1"
@@ -102,10 +103,14 @@ report_failure() {
           "Tests per property: " + (.configuredMaxSuccess | tostring),
           "",
           "Reproduction:",
+          "```",
           .reproductionCommand,
+          "```",
           "",
           "Failure transcript:",
-          (.failureTranscript // "(missing)")
+          "```",
+          (.failureTranscript // "(missing)"),
+          "```"
         ] | join("\n")
       ' >"$body_file"
 
@@ -127,6 +132,11 @@ report_failure() {
   if [ -n "$fingerprint" ]; then
     printf '%s\n' "$fingerprint" >>"$reported_fingerprints"
   fi
+  printf 'NOTICE: parser-quickcheck found %s for property %s (fingerprint: %s, seed: %s)\n' \
+    "$(printf '%s\n' "$failure_json" | jq -r '.status')" \
+    "$(printf '%s\n' "$failure_json" | jq -r '.propertyName')" \
+    "${fingerprint:-unknown}" \
+    "$(printf '%s\n' "$failure_json" | jq -r '.seed | tostring')" >&2
   rm -f "$body_file"
 }
 
@@ -154,13 +164,23 @@ while :; do
         report_failure "$failure_payload"
       done
 
+  batch_tests_completed="$(jq -r '[.results[] | (.actualTests // 0)] | add // 0' "$batch_output")"
+  total_tests_completed=$((total_tests_completed + batch_tests_completed))
+  printf 'Completed %s tests across %s batch%s.\n' \
+    "$total_tests_completed" \
+    "$batch_counter" \
+    "$( [ "$batch_counter" -eq 1 ] && printf '' || printf 'es' )"
+
   if [ "$stop_requested" -ne 0 ]; then
     rm -f "$batch_output"
     exit 0
   fi
 
   if [ $((batch_counter % pull_every)) -eq 0 ]; then
-    if ! git pull --ff-only; then
+    if ! pull_output="$(git pull --ff-only 2>&1)"; then
+      if [ -n "$pull_output" ]; then
+        printf '%s\n' "$pull_output" >&2
+      fi
       echo "git pull --ff-only failed after batch $batch_counter; stopping." >&2
       rm -f "$batch_output"
       exit 1
