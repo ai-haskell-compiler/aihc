@@ -24,6 +24,9 @@ outputs:
   use_self_hosted:
     description: Whether the workflow should run on the optional self-hosted runner.
     value: ${{ steps.select.outputs.use_self_hosted }}
+  runs_on:
+    description: JSON-encoded runs-on value for the selected runner target.
+    value: ${{ steps.select.outputs.runs_on }}
   selected_runner:
     description: Human-readable selected runner target.
     value: ${{ steps.select.outputs.selected_runner }}
@@ -49,6 +52,7 @@ runs:
           local reason="$1"
           {
             echo "use_self_hosted=false"
+            echo "runs_on=[\"$FALLBACK_RUNNER\"]"
             echo "selected_runner=$FALLBACK_RUNNER"
             echo "reason=$reason"
           } >>"$GITHUB_OUTPUT"
@@ -90,6 +94,7 @@ runs:
         then
           {
             echo "use_self_hosted=true"
+            echo "runs_on=[\"self-hosted\",\"linux\",\"$RUNNER_LABEL\"]"
             echo "selected_runner=$RUNNER_LABEL"
             echo "reason=found an online idle runner with label '$RUNNER_LABEL'"
           } >>"$GITHUB_OUTPUT"

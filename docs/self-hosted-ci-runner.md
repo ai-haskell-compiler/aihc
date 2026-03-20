@@ -14,9 +14,13 @@ That job:
 
 - checks whether a repository self-hosted runner with the configured custom label is online and idle,
 - only enables self-hosted execution for trusted contexts,
+- emits a dynamic `runs-on` value for the main job,
 - falls back to a hosted runner when the admin token is missing or the probe fails.
 
 The self-hosted runner label defaults to `aihc-lima`.
+
+The actual execution job keeps the same job name regardless of where it runs, so
+required checks such as `flake-check` continue to work.
 
 ## Repository Configuration
 
