@@ -847,6 +847,7 @@ typeAtomParser =
   typeQuasiQuoteParser
     <|> typeListParser
     <|> typeParenOrTupleParser
+    <|> typeStarParser
     <|> typeIdentifierParser
 
 typeQuasiQuoteParser :: TokParser Type
@@ -863,6 +864,11 @@ typeIdentifierParser = withSpan $ do
     case T.uncons name of
       Just (c, _) | isLower c || c == '_' -> TVar span' name
       _ -> TCon span' name
+
+typeStarParser :: TokParser Type
+typeStarParser = withSpan $ do
+  operatorLikeTok "*"
+  pure (`TCon` "*")
 
 typeListParser :: TokParser Type
 typeListParser = withSpan $ do

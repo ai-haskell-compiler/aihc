@@ -45,6 +45,7 @@ buildTests = do
         testGroup
           "parser"
           [ testCase "module parses declaration list" test_moduleParsesDecls,
+            testCase "parses class declaration with star kind parameter" test_parsesClassStarKindParam,
             testCase "reads header LANGUAGE pragmas" test_readsHeaderLanguagePragmas,
             testCase "reads chunked header LANGUAGE pragmas" test_readsChunkedHeaderLanguagePragmas,
             testCase "reads header LANGUAGE pragmas starting with No" test_readsHeaderLanguagePragmasStartingWithNo,
@@ -93,6 +94,26 @@ test_moduleParsesDecls =
         [ DeclValue _ (FunctionBind _ "x" [Match {matchPats = [], matchRhs = UnguardedRhs _ (EIf _ (EVar _ "y") (EVar _ "z") (EVar _ "w"))}])
           ] ->
             pure ()
+        other ->
+          assertFailure ("unexpected parsed declarations: " <> show other)
+
+test_parsesClassStarKindParam :: Assertion
+test_parsesClassStarKindParam =
+  case parseModule
+    defaultConfig
+    ( T.unlines
+        [ "{-# LANGUAGE",
+          "    KindSignatures",
+          "  , FlexibleInstances",
+          "  #-}",
+          "class Unit (x :: *)"
+        ]
+    ) of
+    ParseErr err ->
+      assertFailure ("expected module parse success, got parse error: " <> errorBundlePretty err)
+    ParseOk modu ->
+      case moduleDecls modu of
+        [DeclClass _ ClassDecl {classDeclName = "Unit", classDeclParams = ["x"], classDeclItems = []}] -> pure ()
         other ->
           assertFailure ("unexpected parsed declarations: " <> show other)
 
