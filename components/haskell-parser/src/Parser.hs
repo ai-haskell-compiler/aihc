@@ -23,6 +23,7 @@ module Parser
     lexModuleTokens,
     lexTokensWithExtensions,
     lexModuleTokensWithExtensions,
+    isReservedIdentifier,
   )
 where
 
@@ -34,6 +35,7 @@ import Parser.Internal.Expr (exprParser, patternParser, typeParser)
 import Parser.Lexer
   ( LexToken (..),
     LexTokenKind (..),
+    isReservedIdentifier,
     lexModuleTokens,
     lexModuleTokensFromChunks,
     lexModuleTokensWithExtensions,

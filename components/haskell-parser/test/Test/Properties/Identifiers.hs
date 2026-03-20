@@ -10,6 +10,7 @@ where
 
 import Data.Text (Text)
 import qualified Data.Text as T
+import Parser (isReservedIdentifier)
 import Test.QuickCheck (Gen, chooseInt, elements, shrink, vectorOf)
 
 genIdent :: Gen Text
@@ -18,7 +19,7 @@ genIdent = do
   restLen <- chooseInt (0, 8)
   rest <- vectorOf restLen (elements (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> "_'"))
   let candidate = T.pack (first : rest)
-  if candidate `elem` reservedWords
+  if isReservedIdentifier candidate
     then genIdent
     else pure candidate
 
@@ -36,7 +37,7 @@ isValidGeneratedIdent ident =
     Just (first, rest) ->
       (first `elem` (['a' .. 'z'] <> ['_']))
         && T.all (`elem` (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> "_'")) rest
-        && ident `notElem` reservedWords
+        && not (isReservedIdentifier ident)
     Nothing -> False
 
 reservedWords :: [Text]
@@ -59,6 +60,9 @@ reservedWords =
     "infixl",
     "infixr",
     "instance",
+    "qualified",
+    "as",
+    "hiding",
     "let",
     "module",
     "newtype",

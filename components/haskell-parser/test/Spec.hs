@@ -17,6 +17,7 @@ import Test.Properties.ExprModuleRoundTrip
   ( prop_exprPrettyRoundTrip,
     prop_modulePrettyRoundTrip,
   )
+import Test.Properties.Identifiers (isValidGeneratedIdent)
 import Test.Properties.PatternRoundTrip (prop_patternPrettyRoundTrip)
 import Test.Properties.TypeRoundTrip (prop_typePrettyRoundTrip)
 import Test.StackageProgress.Summary (stackageProgressSummaryTests)
@@ -63,7 +64,8 @@ buildTests = do
             testCase "applies LINE pragmas to subsequent tokens" test_linePragmaUpdatesSpan,
             testCase "applies COLUMN pragmas to subsequent tokens" test_columnPragmaUpdatesSpan,
             testCase "applies COLUMN pragmas in the middle of a line" test_inlineColumnPragmaUpdatesSpan,
-            testCase "can lex lazily from chunks" test_lexerChunkLaziness
+            testCase "can lex lazily from chunks" test_lexerChunkLaziness,
+            testCase "generated identifiers reject reserved keyword as" test_generatedIdentifiersRejectReservedAs
           ],
         testGroup
           "properties"
@@ -313,3 +315,8 @@ test_lexerChunkLaziness =
   case take 1 (lexTokensFromChunks ["x ", error "forced tail"]) of
     [LexToken {lexTokenKind = TkIdentifier "x"}] -> pure ()
     other -> assertFailure ("expected lazy first token from chunks, got: " <> show other)
+
+test_generatedIdentifiersRejectReservedAs :: Assertion
+test_generatedIdentifiersRejectReservedAs =
+  assertBool "reserved keyword 'as' must not be treated as a valid generated identifier" $
+    not (isValidGeneratedIdent "as")
