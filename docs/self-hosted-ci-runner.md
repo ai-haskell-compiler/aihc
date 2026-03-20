@@ -35,9 +35,11 @@ If that secret is not set, it falls back to:
 The token is used only by the workflow probe job. The default workflow
 `GITHUB_TOKEN` cannot call the repository self-hosted runner admin endpoints.
 
-For the most predictable setup, `SELF_HOSTED_RUNNER_ADMIN_TOKEN` should be a
-classic PAT with `repo` scope and repository admin access. Reusing
-`AUTOMATION_PR_TOKEN` can also work if that token is accepted by the runner API.
+For the workflow probe, the token must be able to read the repository runner
+administration API. If you use a fine-grained token, grant repository
+`Administration` permission with `read-only` access. Reusing
+`AUTOMATION_PR_TOKEN` can also work if it has that permission and is accepted by
+the runner API.
 
 Optional repository variables:
 
