@@ -89,6 +89,7 @@ ffi-s8-mixed-import-export	ffi	ffi/s8-mixed-import-export.hs	pass	parser now sup
 ffi-s8-multiple-foreign-decls	ffi	ffi/s8-multiple-foreign-decls.hs	pass	parser now supports multiple foreign declarations per module
 
 decls-type-signature	declarations	declarations/type-signature.hs	pass	parser now supports top-level type signatures
+decls-type-signature-context-multiline	declarations	declarations/type-signature-context-multiline.hs	pass	parser supports multiline parenthesized contexts in type signatures
 decls-multiple-equations	declarations	declarations/multiple-equations.hs	pass	parser now supports multiple equations
 decls-pattern-binding	declarations	declarations/pattern-binding.hs	xfail	parser intentionally disabled
 decls-data	declarations	declarations/data.hs	pass
@@ -112,7 +113,7 @@ decls-class-minimal	declarations	declarations/class-minimal.hs	pass	parser now s
 decls-class-where-empty	declarations	declarations/class-where-empty.hs	xfail	parser intentionally disabled
 decls-class-super-simple	declarations	declarations/class-super-simple.hs	pass	parser now supports superclass class declarations without where
 decls-class-super-paren-empty	declarations	declarations/class-super-paren-empty.hs	xfail	parser intentionally disabled
-decls-class-super-paren-single	declarations	declarations/class-super-paren-single.hs	xfail	parser intentionally disabled
+decls-class-super-paren-single	declarations	declarations/class-super-paren-single.hs	pass	parser now supports parenthesized single-superclass declarations without where
 decls-class-super-paren-multiple	declarations	declarations/class-super-paren-multiple.hs	pass	parser now supports parenthesized multi-superclass declarations without where
 decls-class-cdecl-signature	declarations	declarations/class-cdecl-signature.hs	pass
 decls-class-cdecl-signature-context	declarations	declarations/class-cdecl-signature-context.hs	pass
@@ -187,7 +188,8 @@ expr-s3-case-basic	expressions	expressions/case-basic.hs	pass	parser now support
 expr-s3-case-guarded-alts	expressions	expressions/case-guarded-alts.hs	pass	parser now supports guarded case alternatives
 expr-s3-do-single-expression	expressions	expressions/do-single-expression.hs	pass	parser now supports single-expression do blocks
 expr-s3-do-bind-stmt	expressions	expressions/do-bind-stmt.hs	pass	parser now supports do bind statements
-expr-s3-do-let-stmt	expressions	expressions/do-let-stmt.hs	xfail	parser intentionally disabled
+expr-s3-do-let-stmt	expressions	expressions/do-let-stmt.hs	pass	parser now supports do-notation let statements
+expr-s3-do-let-function-binding-nested	expressions	expressions/do-let-function-binding-nested.hs	pass	parser supports nested do with plain let function bindings
 expr-s3-do-sequence-stmts	expressions	expressions/do-sequence-stmts.hs	pass	parser now supports do statement sequencing
 expr-s3-record-field-selection	expressions	expressions/record-field-selection.hs	pass
 expr-s3-record-construction-empty	expressions	expressions/record-construction-empty.hs	xfail	parser intentionally disabled

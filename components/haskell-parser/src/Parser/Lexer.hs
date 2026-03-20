@@ -480,6 +480,13 @@ suppressesVirtualSemicolon tok =
   case lexTokenKind tok of
     TkKeywordThen -> True
     TkKeywordElse -> True
+    TkOperator op
+      | op == "=>"
+          || op == "->"
+          || op == "="
+          || op == "|"
+          || op == "::" ->
+          True
     _ -> False
 
 closeForDedent :: Int -> SourceSpan -> [LayoutContext] -> ([LexToken], [LayoutContext])
