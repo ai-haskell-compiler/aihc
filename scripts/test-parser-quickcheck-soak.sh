@@ -4,6 +4,7 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 soak_script="$repo_root/scripts/parser-quickcheck-soak.sh"
 original_path="$PATH"
+system_bash="$(command -v bash)"
 system_git="$(command -v git)"
 
 make_repo() {
@@ -16,7 +17,7 @@ write_common_git_stub() {
   local repo_dir="$1"
   local path="$repo_dir/stubs/git"
   cat >"$path" <<EOF
-#!/usr/bin/env bash
+#!$system_bash
 set -euo pipefail
 repo_dir="$repo_dir"
 system_git="$system_git"
@@ -53,7 +54,7 @@ write_nix_stub() {
   local exit_code="$3"
   local path="$repo_dir/stubs/nix"
   cat >"$path" <<EOF
-#!/usr/bin/env bash
+#!$system_bash
 set -euo pipefail
 cat "$json_file"
 exit $exit_code
@@ -65,7 +66,7 @@ write_gh_stub() {
   local repo_dir="$1"
   local path="$repo_dir/stubs/gh"
   cat >"$path" <<EOF
-#!/usr/bin/env bash
+#!$system_bash
 set -euo pipefail
 repo_dir="$repo_dir"
 case "\$1 \$2" in
