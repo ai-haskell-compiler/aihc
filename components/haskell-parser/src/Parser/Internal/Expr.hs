@@ -814,12 +814,6 @@ parenthesizedConstraintsParser = do
   symbolLikeTok ")"
   pure (markSingleParenConstraint cs)
 
-markSingleParenConstraint :: [Constraint] -> [Constraint]
-markSingleParenConstraint constraints =
-  case constraints of
-    [constraint] -> [constraint {constraintParen = True}]
-    _ -> constraints
-
 constraintParser :: TokParser Constraint
 constraintParser = withSpan $ do
   cls <- identifierTextParser
