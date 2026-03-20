@@ -14,7 +14,7 @@ import Parser
 import Parser.Ast
 import Parser.Pretty (prettyTypeText)
 import Parser.Types (ParseResult (..))
-import Test.Properties.Identifiers (reservedWords, shrinkIdent)
+import Test.Properties.Identifiers (shrinkIdent)
 import Test.QuickCheck
 
 span0 :: SourceSpan
@@ -289,7 +289,7 @@ genTypeVarName = do
   restLen <- chooseInt (0, 5)
   rest <- vectorOf restLen (elements (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> "_'"))
   let candidate = T.pack (first : rest)
-  if candidate `elem` reservedWords
+  if isReservedIdentifier candidate
     then genTypeVarName
     else pure candidate
 

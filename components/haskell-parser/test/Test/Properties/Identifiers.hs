@@ -3,7 +3,6 @@
 module Test.Properties.Identifiers
   ( genIdent,
     shrinkIdent,
-    reservedWords,
     isValidGeneratedIdent,
   )
 where
@@ -39,35 +38,3 @@ isValidGeneratedIdent ident =
         && T.all (`elem` (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> "_'")) rest
         && not (isReservedIdentifier ident)
     Nothing -> False
-
-reservedWords :: [Text]
-reservedWords =
-  [ "_",
-    "case",
-    "class",
-    "data",
-    "default",
-    "deriving",
-    "do",
-    "else",
-    "export",
-    "foreign",
-    "forall",
-    "if",
-    "import",
-    "in",
-    "infix",
-    "infixl",
-    "infixr",
-    "instance",
-    "qualified",
-    "as",
-    "hiding",
-    "let",
-    "module",
-    "newtype",
-    "of",
-    "then",
-    "type",
-    "where"
-  ]
