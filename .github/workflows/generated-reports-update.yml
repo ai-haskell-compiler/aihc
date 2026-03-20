@@ -17,6 +17,9 @@ jobs:
       selected_runner: ${{ steps.select.outputs.selected_runner }}
       reason: ${{ steps.select.outputs.reason }}
     steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
       - id: select
         uses: ./.github/actions/select-ci-runner
         with:
