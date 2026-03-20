@@ -4,10 +4,12 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 soak_script="$repo_root/scripts/parser-quickcheck-soak.sh"
 original_path="$PATH"
+system_git="$(command -v git)"
 
 make_repo() {
   local repo_dir="$1"
-  mkdir -p "$repo_dir/.git" "$repo_dir/stubs"
+  mkdir -p "$repo_dir/stubs"
+  "$system_git" init -q "$repo_dir"
 }
 
 write_common_git_stub() {
@@ -17,20 +19,11 @@ write_common_git_stub() {
 #!/usr/bin/env bash
 set -euo pipefail
 repo_dir="$repo_dir"
+system_git="$system_git"
 case "\$1" in
   rev-parse)
-    case "\$2" in
-      --show-toplevel)
-        printf '%s\n' "\$repo_dir"
-        ;;
-      --absolute-git-dir)
-        printf '%s\n' "\$repo_dir/.git"
-        ;;
-      *)
-        echo "unexpected git rev-parse args: \$*" >&2
-        exit 1
-        ;;
-    esac
+    cd "\$repo_dir"
+    exec "\$system_git" "\$@"
     ;;
   pull)
     state_file="\$repo_dir/pull-count"
@@ -128,7 +121,7 @@ EOF
   export PATH="$repo_dir/stubs:$original_path"
   export AIHC_DISABLE_GH=1
   export FAKE_GIT_PULL_FAIL_ON=1
-  if bash "$soak_script" --tests-per-property 10000 --failure-log "$repo_dir/failures.jsonl"; then
+  if (cd "$repo_dir" && bash "$soak_script" --tests-per-property 10000 --failure-log "$repo_dir/failures.jsonl"); then
     echo "expected fallback scenario to stop on pull failure" >&2
     exit 1
   fi
@@ -152,7 +145,7 @@ EOF
 
   export PATH="$repo_dir/stubs:$original_path"
   export FAKE_GIT_PULL_FAIL_ON=2
-  if bash "$soak_script" --tests-per-property 10000; then
+  if (cd "$repo_dir" && bash "$soak_script" --tests-per-property 10000); then
     echo "expected dedupe scenario to stop on the second pull failure" >&2
     exit 1
   fi
@@ -178,7 +171,7 @@ EOF
   export PATH="$repo_dir/stubs:$original_path"
   export AIHC_DISABLE_GH=1
   export FAKE_GIT_PULL_FAIL_ON=1
-  if bash "$soak_script" --tests-per-property 10000; then
+  if (cd "$repo_dir" && bash "$soak_script" --tests-per-property 10000); then
     echo "expected pull failure scenario to exit nonzero" >&2
     exit 1
   fi

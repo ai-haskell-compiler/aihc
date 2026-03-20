@@ -391,7 +391,7 @@
           '';
           parserQuickcheckSoakCheck = pkgs.runCommand "aihc-parser-quickcheck-soak-check" {
             src = ./.;
-            nativeBuildInputs = [ pkgs.bash pkgs.jq ];
+            nativeBuildInputs = [ pkgs.bash pkgs.git pkgs.jq ];
           } ''
             cd "$src"
             bash ./scripts/test-parser-quickcheck-soak.sh
