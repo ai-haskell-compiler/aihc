@@ -223,6 +223,7 @@ pat-contexts	patterns	patterns/contexts.hs	xfail	pattern matching contexts unsup
 types-context	types	types/context.hs	pass
 types-tuple-list	types	types/tuple-list-types.hs	pass	parser now supports tuple type forms
 types-newtype-record	types	types/newtype-record.hs	pass	parser now supports newtype record syntax
+types-newtype-record-layout-application	types	types/newtype-record-layout-application.hs	pass	parser now supports newline-started newtype record fields with type applications
 types-multi-vars-signature	types	types/multi-vars-signature.hs	pass	parser now supports multi-variable top-level signatures
 types-context-multi-vars	types	types/context-multi-vars.hs	pass
 types-signature-where	types	types/signature-where.hs	xfail	local type signatures in where bindings unsupported
