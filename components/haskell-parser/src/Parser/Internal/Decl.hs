@@ -138,7 +138,7 @@ importSpecParser = withSpan $ do
 importItemParser :: TokParser ImportItem
 importItemParser = withSpan $ do
   namespace <- MP.optional exportImportNamespaceParser
-  itemName <- identifierTextParser <|> parens constructorOperatorParser
+  itemName <- identifierTextParser <|> parens importOperatorParser
   case namespace of
     Nothing ->
       pure (\span' -> ImportItemVar span' Nothing itemName)
@@ -151,6 +151,13 @@ importItemParser = withSpan $ do
           Nothing
             | ns == "type" || isTypeName itemName -> ImportItemAbs span' (Just ns) itemName
             | otherwise -> ImportItemVar span' (Just ns) itemName
+
+importOperatorParser :: TokParser Text
+importOperatorParser =
+  tokenSatisfy $ \tok ->
+    case lexTokenKind tok of
+      TkOperator op -> Just op
+      _ -> Nothing
 
 exportImportNamespaceParser :: TokParser Text
 exportImportNamespaceParser =
