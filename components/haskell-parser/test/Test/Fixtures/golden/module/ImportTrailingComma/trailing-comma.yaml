@@ -1,6 +1,0 @@
-extensions: []
-input: |
-  import Data.Aeson (FromJSON (..),)
-status: pass
-ast: |
-  Module {name = "Main", languagePragmas = [], exports = Nothing, imports = [ImportDecl {level = Nothing, package = Nothing, qualified = False, qualifiedPost = False, module = "Data.Aeson", as = Nothing, spec = Just (ImportSpec {hiding = False, items = [ImportItemAll Nothing "FromJSON"]})}] , decls = []}
