@@ -366,6 +366,11 @@ dataDeclParser = withSpan $ do
           dataDeclDeriving = derivingClauses
         }
 
+dataConDeclParser :: TokParser DataConDecl
+dataConDeclParser = withSpan $ do
+  (forallVars, context) <- dataConQualifiersParser
+  MP.try (dataConRecordOrPrefixParser forallVars context) <|> dataConInfixParser forallVars context
+
 newtypeDeclParser :: TokParser Decl
 newtypeDeclParser = withSpan $ do
   identifierExact "newtype"
@@ -388,6 +393,11 @@ newtypeDeclParser = withSpan $ do
           newtypeDeclConstructor = constructor,
           newtypeDeclDeriving = derivingClauses
         }
+
+newtypeConDeclParser :: TokParser DataConDecl
+newtypeConDeclParser = withSpan $ do
+  (forallVars, context) <- dataConQualifiersParser
+  MP.try (dataConRecordOrPrefixParser forallVars context) <|> dataConInfixParser forallVars context
 
 declContextParser :: TokParser [Constraint]
 declContextParser =
@@ -441,20 +451,6 @@ derivingStrategyParser =
   (identifierExact "stock" >> pure DerivingStock)
     <|> (identifierExact "newtype" >> pure DerivingNewtype)
     <|> (identifierExact "anyclass" >> pure DerivingAnyclass)
-
-dataConDeclParser :: TokParser DataConDecl
-dataConDeclParser = withSpan $ do
-  (forallVars, context) <- dataConQualifiersParser
-  MP.try (dataConRecordOrPrefixParser forallVars context) <|> dataConInfixParser forallVars context
-
-newtypeConDeclParser :: TokParser DataConDecl
-newtypeConDeclParser = newtypePrefixConDeclParser
-
-newtypePrefixConDeclParser :: TokParser DataConDecl
-newtypePrefixConDeclParser = withSpan $ do
-  name <- constructorNameParser
-  fields <- MP.many constructorArgParser
-  pure (\span' -> PrefixCon span' [] [] name fields)
 
 dataConQualifiersParser :: TokParser ([Text], [Constraint])
 dataConQualifiersParser = do
