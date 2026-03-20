@@ -3,9 +3,9 @@
 ## Summary
 
 - Total Extensions: 138
-- Supported: 15
-- In Progress: 18
-- Planned: 105
+- Supported: 19
+- In Progress: 15
+- Planned: 104
 
 ## Extension Status
 
@@ -41,15 +41,15 @@
 | EmptyCase | Supported | 4/4 | EmptyCase |
 | EmptyDataDecls | In Progress | 4/5 | EmptyDataDecls |
 | EmptyDataDeriving | Planned | - | EmptyDataDeriving |
-| ExistentialQuantification | In Progress | 0/4 | ExistentialQuantification |
+| ExistentialQuantification | Supported | 4/4 | ExistentialQuantification |
 | ExplicitForAll | Supported | 5/5 | ExplicitForAll |
 | ExplicitLevelImports | Supported | 4/4 | ExplicitLevelImports |
-| ExplicitNamespaces | In Progress | 0/3 | ExplicitNamespaces |
+| ExplicitNamespaces | Supported | 3/3 | ExplicitNamespaces |
 | ExtendedDefaultRules | Planned | - | ExtendedDefaultRules |
 | ExtendedLiterals | Planned | - | ExtendedLiterals |
 | FieldSelectors | Planned | - | FieldSelectors |
 | FlexibleContexts | Planned | - | FlexibleContexts |
-| FlexibleInstances | Planned | - | FlexibleInstances |
+| FlexibleInstances | Supported | 3/3 | FlexibleInstances |
 | ForeignFunctionInterface | Planned | - | ForeignFunctionInterface |
 | FunctionalDependencies | In Progress | 0/5 | FunctionalDependencies |
 | GADTs | In Progress | 0/3 | GADTs |
@@ -67,7 +67,7 @@
 | ImportQualifiedPost | Supported | 3/3 | ImportQualifiedPost |
 | ImpredicativeTypes | Planned | - | ImpredicativeTypes |
 | IncoherentInstances | Planned | - | IncoherentInstances |
-| InstanceSigs | In Progress | 3/5 | InstanceSigs |
+| InstanceSigs | Supported | 5/5 | InstanceSigs |
 | InterruptibleFFI | Planned | - | InterruptibleFFI |
 | KindSignatures | In Progress | 0/5 | KindSignatures |
 | LambdaCase | In Progress | 3/5 | LambdaCase |
@@ -108,7 +108,7 @@
 | QualifiedDo | Planned | - | QualifiedDo |
 | QualifiedStrings | Planned | - | QualifiedStrings |
 | QuantifiedConstraints | Planned | - | QuantifiedConstraints |
-| QuasiQuotes | In Progress | 0/3 | QuasiQuotes |
+| QuasiQuotes | In Progress | 2/3 | QuasiQuotes |
 | Rank2Types | Planned | - | Rank2Types |
 | RankNTypes | Planned | - | RankNTypes |
 | RebindableSyntax | Planned | - | RebindableSyntax |
@@ -148,5 +148,5 @@
 | UnliftedFFITypes | Planned | - | UnliftedFFITypes |
 | UnliftedNewtypes | Planned | - | UnliftedNewtypes |
 | Unsafe | Planned | - | Unsafe |
-| ViewPatterns | In Progress | 0/3 | ViewPatterns |
+| ViewPatterns | In Progress | 2/3 | ViewPatterns |
 
