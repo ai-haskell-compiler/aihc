@@ -148,10 +148,11 @@ parse_stackage_progress() {
 	local infile="$1"
 	tr '\r' '\n' <"$infile" | awk '
     {
-      if ($1 ~ /^[0-9]+\/[0-9]+$/) {
-        split($1, parts, "/")
-        implemented = parts[1] + 0
-        total = parts[2] + 0
+      for (i=1; i<=NF; i++) {
+        if ($i == "/" && $(i-2) == "AIHC:") {
+          implemented = $(i-1) + 0
+          total = $(i+1) + 0
+        }
       }
     }
     END {

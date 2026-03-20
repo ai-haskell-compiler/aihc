@@ -9,8 +9,8 @@
 
 | Name | Progress |
 | --- | --- |
-| Parser Tests | <!-- AUTO-GENERATED: START parser-progress --> `254/458` (`55.46%`) <!-- AUTO-GENERATED: END parser-progress --> |
-| Lexer Tests | <!-- AUTO-GENERATED: START lexer-progress --> `3/4` (`75.00%`) <!-- AUTO-GENERATED: END lexer-progress --> |
-| Parser Stackage | <!-- AUTO-GENERATED: START parser-stackage-progress --> `888/3427` (`25.91%`) <!-- AUTO-GENERATED: END parser-stackage-progress --> |
-| CPP preprocessor | <!-- AUTO-GENERATED: START cpp-progress --> `19/28` (`67.85%`) <!-- AUTO-GENERATED: END cpp-progress --> |
+| Parser Tests | <!-- AUTO-GENERATED: START parser-progress --> `289/453` (`63.80%`) <!-- AUTO-GENERATED: END parser-progress --> |
+| Lexer Tests | <!-- AUTO-GENERATED: START lexer-progress --> `6/6` (`100.00%`) <!-- AUTO-GENERATED: END lexer-progress --> |
+| Parser Stackage | <!-- AUTO-GENERATED: START parser-stackage-progress --> `230/3390` (`6.78%`) <!-- AUTO-GENERATED: END parser-stackage-progress --> |
+| CPP preprocessor | <!-- AUTO-GENERATED: START cpp-progress --> `37/37` (`100.00%`) <!-- AUTO-GENERATED: END cpp-progress --> |
 | Name resolution | <!-- AUTO-GENERATED: START name-resolution-progress --> `10/12` (`83.33%`) <!-- AUTO-GENERATED: END name-resolution-progress --> |
