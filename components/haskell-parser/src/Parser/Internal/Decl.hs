@@ -249,7 +249,7 @@ instanceItemsBracedParser :: TokParser [InstanceDeclItem]
 instanceItemsBracedParser = do
   symbolLikeTok "{"
   _ <- MP.many (symbolLikeTok ";")
-  items <- instanceDeclItemParser `MP.sepBy1` symbolLikeTok ";"
+  items <- instanceDeclItemParser `MP.sepBy` symbolLikeTok ";"
   _ <- MP.many (symbolLikeTok ";")
   symbolLikeTok "}"
   pure items
