@@ -422,22 +422,41 @@ parenExprParser = withSpan $ do
   mClosed <- MP.optional (symbolLikeTok ")")
   case mClosed of
     Just () -> pure (`ETuple` [])
-    Nothing -> do
+    Nothing -> MP.try parseSection <|> MP.try parseTupleSectionExpr <|> parseParenOrTupleExpr
+  where
+    parseSection = do
+      MP.try parseSectionR <|> parseSectionL
+
+    parseSectionR = do
+      op <- infixOperatorParserExcept []
+      rhs <- exprParser
+      symbolLikeTok ")"
+      pure (\span' -> ESectionR span' op rhs)
+
+    parseSectionL = do
+      lhs <- exprParser
+      op <- infixOperatorParserExcept []
+      symbolLikeTok ")"
+      pure (\span' -> ESectionL span' lhs op)
+
+    parseTupleSectionExpr = do
       -- Try to parse as tuple section first (e.g., "(,1)" or "(1,)")
       -- If that fails, fall back to regular tuple/paren parsing
-      (MP.try parseTupleSection >>= \values -> pure (`ETupleSection` values))
-        MP.<|> do
-          first <- exprParser
-          mComma <- MP.optional (symbolLikeTok ",")
-          case mComma of
-            Nothing -> do
-              symbolLikeTok ")"
-              pure (`EParen` first)
-            Just () -> do
-              second <- exprParser
-              more <- MP.many (symbolLikeTok "," *> exprParser)
-              symbolLikeTok ")"
-              pure (`ETuple` (first : second : more))
+      values <- parseTupleSection
+      pure (`ETupleSection` values)
+
+    parseParenOrTupleExpr = do
+      first <- exprParser
+      mComma <- MP.optional (symbolLikeTok ",")
+      case mComma of
+        Nothing -> do
+          symbolLikeTok ")"
+          pure (`EParen` first)
+        Just () -> do
+          second <- exprParser
+          more <- MP.many (symbolLikeTok "," *> exprParser)
+          symbolLikeTok ")"
+          pure (`ETuple` (first : second : more))
 
 parseTupleSection :: TokParser [Maybe Expr]
 parseTupleSection = do
@@ -713,12 +732,39 @@ constraintsParser = constraintsParserWith typeAtomParser
 
 typeFunParser :: TokParser Type
 typeFunParser = do
-  lhs <- typeAppParser
+  lhs <- typeInfixParser
   mRhs <- MP.optional (operatorLikeTok "->" *> typeParser)
   pure $
     case mRhs of
       Just rhs -> TFun (mergeSourceSpans (getSourceSpan lhs) (getSourceSpan rhs)) lhs rhs
       Nothing -> lhs
+
+typeInfixParser :: TokParser Type
+typeInfixParser = do
+  lhs <- typeAppParser
+  rest <- MP.many ((,) <$> typeInfixOperatorParser <*> typeAppParser)
+  pure (foldl buildInfixType lhs rest)
+
+buildInfixType :: Type -> (Text, Type) -> Type
+buildInfixType lhs (op, rhs) =
+  let span' = mergeSourceSpans (typeSourceSpan lhs) (typeSourceSpan rhs)
+      opType = TCon span' op
+   in TApp span' (TApp span' opType lhs) rhs
+
+typeInfixOperatorParser :: TokParser Text
+typeInfixOperatorParser =
+  tokenSatisfy $ \tok ->
+    case lexTokenKind tok of
+      TkOperator op
+        | op /= "::"
+            && op /= "=>"
+            && op /= "->"
+            && op /= "."
+            && op /= "|"
+            && op /= "="
+            && op /= "!" ->
+            Just op
+      _ -> Nothing
 
 typeAppParser :: TokParser Type
 typeAppParser = do
@@ -734,9 +780,21 @@ typeAtomParser :: TokParser Type
 typeAtomParser =
   typeQuasiQuoteParser
     <|> typeListParser
+    <|> MP.try typeParenOperatorParser
     <|> typeParenOrTupleParser
     <|> typeStarParser
     <|> typeIdentifierParser
+
+typeParenOperatorParser :: TokParser Type
+typeParenOperatorParser = withSpan $ do
+  symbolLikeTok "("
+  op <- tokenSatisfy $ \tok ->
+    case lexTokenKind tok of
+      TkOperator sym
+        | sym /= "*" -> Just sym
+      _ -> Nothing
+  symbolLikeTok ")"
+  pure (`TCon` op)
 
 typeQuasiQuoteParser :: TokParser Type
 typeQuasiQuoteParser =

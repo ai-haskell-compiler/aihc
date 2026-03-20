@@ -204,16 +204,23 @@ prettyType :: Type -> Doc ann
 prettyType ty =
   case ty of
     TVar _ name -> pretty name
-    TCon _ name -> pretty name
+    TCon _ name
+      | isSymbolicTypeOperator name -> parens (pretty name)
+      | otherwise -> pretty name
     TStar _ -> "*"
     TQuasiQuote _ quoter body -> prettyQuasiQuote quoter body
     TForall _ binders inner ->
       "forall" <+> hsep (map pretty binders) <> "." <+> prettyType inner
+    TApp _ (TApp _ (TCon _ op) lhs) rhs
+      | isSymbolicTypeOperator op && op /= "->" ->
+          parens (prettyType lhs <+> pretty op <+> prettyType rhs)
     TApp _ f x -> parenthesizeTypeApp f <+> parenthesizeTypeArg x
     TFun _ a b -> parenthesizeTypeFunLeft a <+> "->" <+> prettyType b
     TTuple _ elems -> parens (hsep (punctuate comma (map prettyType elems)))
     TList _ inner -> brackets (prettyType inner)
-    TParen _ inner -> parens (prettyType inner)
+    TParen _ inner
+      | isInfixTypeApp inner -> prettyType inner
+      | otherwise -> parens (prettyType inner)
     TContext _ constraints inner ->
       prettyContext constraints <+> "=>" <+> prettyType inner
 
@@ -237,6 +244,8 @@ parenthesizeTypeApp ty =
 parenthesizeTypeArg :: Type -> Doc ann
 parenthesizeTypeArg ty =
   case ty of
+    TApp _ (TApp _ (TCon _ op) _) _
+      | isSymbolicTypeOperator op && op /= "->" -> prettyType ty
     TQuasiQuote {} -> prettyType ty
     TApp {} -> parens (prettyType ty)
     TForall {} -> parens (prettyType ty)
@@ -271,6 +280,18 @@ prettyTypeAtom ty =
     TTuple _ _ -> prettyType ty
     TParen _ _ -> prettyType ty
     _ -> parens (prettyType ty)
+
+isSymbolicTypeOperator :: Text -> Bool
+isSymbolicTypeOperator op =
+  case T.uncons op of
+    Nothing -> False
+    Just _ -> T.all (`elem` (":!#$%&*+./<=>?\\^|-~" :: String)) op
+
+isInfixTypeApp :: Type -> Bool
+isInfixTypeApp ty =
+  case ty of
+    TApp _ (TApp _ (TCon _ op) _) _ -> isSymbolicTypeOperator op && op /= "->"
+    _ -> False
 
 prettyPattern :: Pattern -> Doc ann
 prettyPattern pat =
