@@ -388,6 +388,7 @@ renderType ty =
   case ty of
     TVar _ name -> "TVar " <> show name
     TCon _ name -> "TCon " <> show name
+    TStar _ -> "TStar"
     TQuasiQuote _ quoter body -> "TQuasiQuote " <> show quoter <> " " <> show body
     TForall _ names body -> "TForall " <> show names <> " " <> par (renderType body)
     TApp _ fn arg -> "TApp " <> par (renderType fn) <> " " <> par (renderType arg)

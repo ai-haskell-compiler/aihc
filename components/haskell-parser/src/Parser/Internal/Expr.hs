@@ -868,7 +868,7 @@ typeIdentifierParser = withSpan $ do
 typeStarParser :: TokParser Type
 typeStarParser = withSpan $ do
   operatorLikeTok "*"
-  pure (`TCon` "*")
+  pure TStar
 
 typeListParser :: TokParser Type
 typeListParser = withSpan $ do

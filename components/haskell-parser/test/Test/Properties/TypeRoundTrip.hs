@@ -49,6 +49,7 @@ typeCtorNames ty =
    in case ty of
         TVar {} -> here
         TCon {} -> here
+        TStar {} -> here
         TQuasiQuote {} -> here
         TForall _ _ inner -> here <> typeCtorNames inner
         TApp _ f x -> here <> typeCtorNames f <> typeCtorNames x
@@ -73,6 +74,8 @@ shrinkType ty =
       [TVar span0 shrunk | shrunk <- shrinkIdent name]
     TCon _ name ->
       [TCon span0 shrunk | shrunk <- shrinkTypeConName name]
+    TStar _ ->
+      []
     TQuasiQuote _ quoter body ->
       [TQuasiQuote span0 q body | q <- shrinkIdent quoter]
         <> [TQuasiQuote span0 quoter b | b <- map T.pack (shrink (T.unpack body))]
@@ -152,6 +155,7 @@ genType depth
       oneof
         [ TVar span0 <$> genTypeVarName,
           TCon span0 <$> genTypeConName,
+          pure (TStar span0),
           TQuasiQuote span0 <$> genQuoterName <*> genQuasiBody,
           TTuple span0 <$> elements [[], [TVar span0 "a", TCon span0 "B"]],
           TList span0 <$> genTypeAtom 0,
@@ -161,6 +165,7 @@ genType depth
       frequency
         [ (3, TVar span0 <$> genTypeVarName),
           (3, TCon span0 <$> genTypeConName),
+          (1, pure (TStar span0)),
           (2, TQuasiQuote span0 <$> genQuoterName <*> genQuasiBody),
           (2, TForall span0 <$> genTypeBinders <*> genForallInner (depth - 1)),
           (4, genTypeApp depth),
@@ -213,6 +218,7 @@ genTypeAtom depth =
   oneof
     [ TVar span0 <$> genTypeVarName,
       TCon span0 <$> genTypeConName,
+      pure (TStar span0),
       TQuasiQuote span0 <$> genQuoterName <*> genQuasiBody,
       TTuple span0 <$> genTypeTupleElems depth,
       TList span0 <$> genType depth,
@@ -272,6 +278,7 @@ canonicalConstraintArg ty =
   case ty of
     TVar {} -> ty
     TCon {} -> ty
+    TStar {} -> ty
     TQuasiQuote {} -> ty
     TList {} -> ty
     TTuple {} -> ty
@@ -318,6 +325,7 @@ normalizeType ty =
   case ty of
     TVar _ name -> TVar span0 name
     TCon _ name -> TCon span0 name
+    TStar _ -> TStar span0
     TQuasiQuote _ quoter body -> TQuasiQuote span0 quoter body
     TForall _ binders inner -> TForall span0 binders (normalizeType inner)
     TApp _ f x -> TApp span0 (normalizeType f) (normalizeType x)

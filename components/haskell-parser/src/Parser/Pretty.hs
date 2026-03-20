@@ -204,6 +204,7 @@ prettyType ty =
   case ty of
     TVar _ name -> pretty name
     TCon _ name -> pretty name
+    TStar _ -> "*"
     TQuasiQuote _ quoter body -> prettyQuasiQuote quoter body
     TForall _ binders inner ->
       "forall" <+> hsep (map pretty binders) <> "." <+> prettyType inner
@@ -263,6 +264,7 @@ prettyTypeAtom ty =
   case ty of
     TVar _ _ -> prettyType ty
     TCon _ _ -> prettyType ty
+    TStar _ -> prettyType ty
     TQuasiQuote {} -> prettyType ty
     TList _ _ -> prettyType ty
     TTuple _ _ -> prettyType ty

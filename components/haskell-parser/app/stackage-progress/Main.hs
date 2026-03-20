@@ -910,6 +910,7 @@ stripType ty =
   case ty of
     TVar _ n -> TVar noSourceSpan n
     TCon _ n -> TCon noSourceSpan n
+    TStar _ -> TStar noSourceSpan
     TQuasiQuote _ q body -> TQuasiQuote noSourceSpan q body
     TForall _ binders inner -> TForall noSourceSpan binders (stripType inner)
     TApp _ a b -> TApp noSourceSpan (stripType a) (stripType b)

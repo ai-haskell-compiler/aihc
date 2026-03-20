@@ -3,3 +3,4 @@ kindsig-higher-kinded	declarations	kindsig-higher-kinded.hs	xfail	parser support
 kindsig-newtype	declarations	kindsig-newtype.hs	xfail	parser support pending
 kindsig-class-head	declarations	kindsig-class-head.hs	xfail	parser support pending
 kindsig-constraint	declarations	kindsig-constraint.hs	xfail	parser support pending
+kindsig-class-head-star	declarations	kindsig-class-head-star.hs	xfail	roundtrip drops explicit kind annotations

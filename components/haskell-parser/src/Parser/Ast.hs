@@ -413,6 +413,7 @@ data Pattern
 data Type
   = TVar SourceSpan Text
   | TCon SourceSpan Text
+  | TStar SourceSpan
   | TQuasiQuote SourceSpan Text Text
   | TForall SourceSpan [Text] Type
   | TApp SourceSpan Type Type
