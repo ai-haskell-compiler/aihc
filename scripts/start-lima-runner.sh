@@ -258,7 +258,7 @@ runner_user="$(id -un)"
 runner_home="$HOME"
 
 sudo apt-get update
-sudo apt-get install -y curl git tar
+sudo apt-get install -y awscli curl git tar
 
 sudo systemctl stop aihc-github-runner.service >/dev/null 2>&1 || true
 sudo systemctl disable aihc-github-runner.service >/dev/null 2>&1 || true
