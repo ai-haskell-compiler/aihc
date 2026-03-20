@@ -388,6 +388,7 @@ renderType ty =
   case ty of
     TVar _ name -> "TVar " <> show name
     TCon _ name -> "TCon " <> show name
+    TStar _ -> "TStar"
     TQuasiQuote _ quoter body -> "TQuasiQuote " <> show quoter <> " " <> show body
     TForall _ names body -> "TForall " <> show names <> " " <> par (renderType body)
     TApp _ fn arg -> "TApp " <> par (renderType fn) <> " " <> par (renderType arg)
@@ -412,7 +413,7 @@ renderTypeSynDecl syn =
   "TypeSynDecl {name = "
     <> show (typeSynName syn)
     <> ", params = "
-    <> show (typeSynParams syn)
+    <> showListWith renderTyVarBinder (typeSynParams syn)
     <> ", body = "
     <> renderType (typeSynBody syn)
     <> "}"
@@ -424,7 +425,7 @@ renderDataDecl dat =
     <> ", name = "
     <> show (dataDeclName dat)
     <> ", params = "
-    <> show (dataDeclParams dat)
+    <> showListWith renderTyVarBinder (dataDeclParams dat)
     <> ", constructors = "
     <> showListWith renderDataConDecl (dataDeclConstructors dat)
     <> ", deriving = "
@@ -438,7 +439,7 @@ renderNewtypeDecl dat =
     <> ", name = "
     <> show (newtypeDeclName dat)
     <> ", params = "
-    <> show (newtypeDeclParams dat)
+    <> showListWith renderTyVarBinder (newtypeDeclParams dat)
     <> ", constructor = "
     <> renderMaybe renderDataConDecl (newtypeDeclConstructor dat)
     <> ", deriving = "
@@ -508,10 +509,16 @@ renderClassDecl decl =
     <> ", name = "
     <> show (classDeclName decl)
     <> ", params = "
-    <> show (classDeclParams decl)
+    <> showListWith renderTyVarBinder (classDeclParams decl)
     <> ", items = "
     <> showListWith renderClassDeclItem (classDeclItems decl)
     <> "}"
+
+renderTyVarBinder :: TyVarBinder -> String
+renderTyVarBinder binder =
+  case tyVarBinderKind binder of
+    Nothing -> show (tyVarBinderName binder)
+    Just kind -> "(" <> show (tyVarBinderName binder) <> " :: " <> renderType kind <> ")"
 
 renderClassDeclItem :: ClassDeclItem -> String
 renderClassDeclItem item =

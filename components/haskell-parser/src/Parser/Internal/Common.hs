@@ -131,6 +131,7 @@ typeSourceSpan ty =
   case ty of
     TVar span' _ -> span'
     TCon span' _ -> span'
+    TStar span' -> span'
     TQuasiQuote span' _ _ -> span'
     TForall span' _ _ -> span'
     TApp span' _ _ -> span'

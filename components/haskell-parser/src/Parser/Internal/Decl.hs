@@ -427,23 +427,28 @@ constraintParser = withSpan $ do
         constraintParen = False
       }
 
-typeParamParser :: TokParser Text
+typeParamParser :: TokParser TyVarBinder
 typeParamParser =
-  tokenSatisfy
-    ( \tok ->
-        case lexTokenKind tok of
-          TkIdentifier ident
-            | ident /= "deriving" -> Just ident
-          _ -> Nothing
+  withSpan $
+    ( do
+        ident <-
+          tokenSatisfy
+            ( \tok ->
+                case lexTokenKind tok of
+                  TkIdentifier name
+                    | name /= "deriving" -> Just name
+                  _ -> Nothing
+            )
+        pure (\span' -> TyVarBinder span' ident Nothing)
     )
-    <|> ( do
-            symbolLikeTok "("
-            ident <- identifierTextParser
-            operatorLikeTok "::"
-            _kind <- typeParser
-            symbolLikeTok ")"
-            pure ident
-        )
+      <|> ( do
+              symbolLikeTok "("
+              ident <- identifierTextParser
+              operatorLikeTok "::"
+              kind <- typeParser
+              symbolLikeTok ")"
+              pure (\span' -> TyVarBinder span' ident (Just kind))
+          )
 
 derivingClauseParser :: TokParser DerivingClause
 derivingClauseParser = do
@@ -472,7 +477,7 @@ forallBindersParser = do
   identifierExact "forall"
   binders <- MP.some typeParamParser
   operatorLikeTok "."
-  pure binders
+  pure (map tyVarBinderName binders)
 
 dataConRecordOrPrefixParser :: [Text] -> [Constraint] -> TokParser (SourceSpan -> DataConDecl)
 dataConRecordOrPrefixParser forallVars context = do
