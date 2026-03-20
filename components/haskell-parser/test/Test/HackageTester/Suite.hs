@@ -17,6 +17,7 @@ import HackageTester.CLI (Options (..), parseOptionsPure)
 import HackageTester.Model (FileResult (..), Outcome (..), Summary (..), shouldFailSummary, summarizeResults)
 import qualified Language.Haskell.Exts as HSE
 import ModuleShrinker (shrinkModule)
+import ParserValidation (validateParser)
 import System.Directory (createDirectory, getTemporaryDirectory, removeDirectoryRecursive, removeFile)
 import System.FilePath ((</>))
 import System.IO (hClose, openTempFile)
@@ -47,7 +48,8 @@ hackageTesterTests =
           testCase "applies implied extensions" test_oracleAppliesImpliedExtensions,
           testCase "uses Haskell2010 language defaults" test_oracleUsesHaskell2010Defaults,
           testCase "uses Haskell98 fallback defaults" test_oracleUsesHaskell98FallbackDefaults,
-          testCase "handles CPP-defined LANGUAGE pragmas" test_oracleHandlesCppDefinedLanguagePragmas
+          testCase "handles CPP-defined LANGUAGE pragmas" test_oracleHandlesCppDefinedLanguagePragmas,
+          testCase "accepts newtype records with newline-started fields" test_oracleAcceptsNewtypeRecordLayout
         ],
       testGroup
         "package-selection"
@@ -233,6 +235,28 @@ test_oracleHandlesCppDefinedLanguagePragmas =
           "#endif",
           "module Test where",
           "x = \\case _ -> ()"
+        ]
+
+test_oracleAcceptsNewtypeRecordLayout :: Assertion
+test_oracleAcceptsNewtypeRecordLayout =
+  case oracleDetailedParsesModuleWithNamesAt "hackage-tester" [] Nothing source of
+    Left err ->
+      assertBool
+        ("expected newline-started newtype record fields to be accepted by oracle, got: " <> T.unpack err)
+        False
+    Right () ->
+      case validateParser source of
+        Just err ->
+          assertBool
+            ("expected parser validation success for newline-started newtype record fields, got: " <> err)
+            False
+        Nothing -> pure ()
+  where
+    source =
+      T.unlines
+        [ "newtype TimeSince = TimeSince",
+          "  { sinceRef :: IORef UTCTime",
+          "  }"
         ]
 
 test_skipsNonBuildableComponents :: Assertion
