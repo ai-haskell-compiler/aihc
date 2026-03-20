@@ -108,6 +108,15 @@ assert_file_contains() {
   fi
 }
 
+assert_file_not_contains() {
+  local path="$1"
+  local unexpected="$2"
+  if grep -Fq "$unexpected" "$path"; then
+    echo "did not expect '$unexpected' in $path" >&2
+    exit 1
+  fi
+}
+
 run_fallback_scenario() {
   local repo_dir
   repo_dir="$(mktemp -d)"
@@ -122,7 +131,7 @@ EOF
   export PATH="$repo_dir/stubs:$original_path"
   export AIHC_DISABLE_GH=1
   export FAKE_GIT_PULL_FAIL_ON=1
-  if (cd "$repo_dir" && bash "$soak_script" --tests-per-property 10000 --failure-log "$repo_dir/failures.jsonl"); then
+  if (cd "$repo_dir" && bash "$soak_script" --tests-per-property 10000 --failure-log "$repo_dir/failures.jsonl" >"$repo_dir/stdout.log" 2>"$repo_dir/stderr.log"); then
     echo "expected fallback scenario to stop on pull failure" >&2
     exit 1
   fi
@@ -130,6 +139,8 @@ EOF
   unset AIHC_DISABLE_GH
 
   assert_file_contains "$repo_dir/failures.jsonl" '"fingerprint":"f00d"'
+  assert_file_contains "$repo_dir/stdout.log" 'Completed 1 tests across 1 batch.'
+  assert_file_contains "$repo_dir/stderr.log" 'NOTICE: parser-quickcheck found FAIL for property demo (fingerprint: f00d, seed: 111)'
 }
 
 run_dedupe_scenario() {
@@ -146,7 +157,7 @@ EOF
 
   export PATH="$repo_dir/stubs:$original_path"
   export FAKE_GIT_PULL_FAIL_ON=2
-  if (cd "$repo_dir" && bash "$soak_script" --tests-per-property 10000); then
+  if (cd "$repo_dir" && bash "$soak_script" --tests-per-property 10000 >"$repo_dir/stdout.log" 2>"$repo_dir/stderr.log"); then
     echo "expected dedupe scenario to stop on the second pull failure" >&2
     exit 1
   fi
@@ -156,6 +167,9 @@ EOF
   if [ -f "$repo_dir/gh-issue-list-count" ]; then
     assert_file_contains "$repo_dir/gh-issue-list-count" '1'
   fi
+  assert_file_contains "$repo_dir/stdout.log" 'Completed 1 tests across 1 batch.'
+  assert_file_contains "$repo_dir/stdout.log" 'Completed 2 tests across 2 batches.'
+  assert_file_contains "$repo_dir/stderr.log" 'NOTICE: parser-quickcheck found FAIL for property demo (fingerprint: f00d, seed: 111)'
 }
 
 run_pull_failure_scenario() {
@@ -172,12 +186,15 @@ EOF
   export PATH="$repo_dir/stubs:$original_path"
   export AIHC_DISABLE_GH=1
   export FAKE_GIT_PULL_FAIL_ON=1
-  if (cd "$repo_dir" && bash "$soak_script" --tests-per-property 10000); then
+  if (cd "$repo_dir" && bash "$soak_script" --tests-per-property 10000 >"$repo_dir/stdout.log" 2>"$repo_dir/stderr.log"); then
     echo "expected pull failure scenario to exit nonzero" >&2
     exit 1
   fi
   unset FAKE_GIT_PULL_FAIL_ON
   unset AIHC_DISABLE_GH
+
+  assert_file_contains "$repo_dir/stdout.log" 'Completed 10000 tests across 1 batch.'
+  assert_file_not_contains "$repo_dir/stderr.log" 'Already up to date.'
 }
 
 run_fallback_scenario
