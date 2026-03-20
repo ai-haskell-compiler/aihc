@@ -46,7 +46,7 @@ warningTextParser =
         _ -> Nothing
 
 exportSpecListParser :: TokParser [ExportSpec]
-exportSpecListParser = parens $ exportSpecParser `MP.sepBy` symbolLikeTok ","
+exportSpecListParser = parens $ exportSpecParser `MP.sepEndBy` symbolLikeTok ","
 
 exportSpecParser :: TokParser ExportSpec
 exportSpecParser =
@@ -76,7 +76,7 @@ exportMembersParser :: TokParser (Maybe [Text])
 exportMembersParser =
   parens $
     (symbolLikeTok ".." >> pure Nothing)
-      <|> (Just <$> (identifierTextParser `MP.sepBy` symbolLikeTok ","))
+      <|> (Just <$> (identifierTextParser `MP.sepEndBy` symbolLikeTok ","))
 
 isTypeName :: Text -> Bool
 isTypeName txt =
@@ -127,7 +127,7 @@ importSpecParser :: TokParser ImportSpec
 importSpecParser = withSpan $ do
   isHiding <-
     MP.option False (keywordTok TkKeywordHiding >> pure True)
-  items <- parens $ importItemParser `MP.sepBy` symbolLikeTok ","
+  items <- parens $ importItemParser `MP.sepEndBy` symbolLikeTok ","
   pure $ \span' ->
     ImportSpec
       { importSpecSpan = span',
@@ -394,7 +394,7 @@ declContextParser =
   MP.try parenContextParser <|> ((: []) <$> constraintParser)
 
 parenContextParser :: TokParser [Constraint]
-parenContextParser = parens $ constraintParser `MP.sepBy` symbolLikeTok ","
+parenContextParser = parens $ constraintParser `MP.sepEndBy` symbolLikeTok ","
 
 constraintParser :: TokParser Constraint
 constraintParser = withSpan $ do
@@ -434,7 +434,7 @@ derivingClauseParser = do
   pure (DerivingClause strategy classes)
   where
     singleClass = (: []) <$> identifierTextParser
-    parenClasses = parens $ identifierTextParser `MP.sepBy` symbolLikeTok ","
+    parenClasses = parens $ identifierTextParser `MP.sepEndBy` symbolLikeTok ","
 
 derivingStrategyParser :: TokParser DerivingStrategy
 derivingStrategyParser =
@@ -489,7 +489,7 @@ dataConInfixParser forallVars context = do
 recordFieldsParser :: TokParser [FieldDecl]
 recordFieldsParser = do
   symbolLikeTok "{"
-  fields <- recordFieldDeclParser `MP.sepBy` symbolLikeTok ","
+  fields <- recordFieldDeclParser `MP.sepEndBy` symbolLikeTok ","
   symbolLikeTok "}"
   pure fields
 

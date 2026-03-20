@@ -645,7 +645,7 @@ recordPatternParser = withSpan $ do
   case mClose of
     Just () -> pure (\span' -> PRecord span' con [])
     Nothing -> do
-      fields <- recordFieldPatternParser `MP.sepBy` symbolLikeTok ","
+      fields <- recordFieldPatternParser `MP.sepEndBy` symbolLikeTok ","
       symbolLikeTok "}"
       pure (\span' -> PRecord span' con fields)
 
@@ -803,7 +803,7 @@ constraintsParser =
 parenthesizedConstraintsParser :: TokParser [Constraint]
 parenthesizedConstraintsParser = do
   symbolLikeTok "("
-  cs <- constraintParser `MP.sepBy` symbolLikeTok ","
+  cs <- constraintParser `MP.sepEndBy` symbolLikeTok ","
   symbolLikeTok ")"
   pure cs
 

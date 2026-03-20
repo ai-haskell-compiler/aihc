@@ -48,7 +48,8 @@ modules-s5-module-body-imports-only-braces	modules	modules/s5-module-body-import
 modules-s5-module-body-topdecls-only-braces	modules	modules/s5-module-body-topdecls-only-braces.hs	pass	parser now supports section 5 braced module bodies with top-level declarations
 modules-s5-module-empty-exports	modules	modules/s5-module-empty-exports.hs	pass	parser now supports explicit empty module export lists
 modules-s5-module-explicit-no-exports	modules	modules/s5-module-explicit-no-exports.hs	pass	parser now supports explicit no-export module form
-modules-s5-module-exports-trailing-comma	modules	modules/s5-module-exports-trailing-comma.hs	xfail	section 5 module variation unsupported
+modules-s5-module-exports-trailing-comma	modules	modules/s5-module-exports-trailing-comma.hs	pass	parser now supports section 5 module export entries with trailing commas
+modules-s5-import-trailing-comma	modules	modules/s5-import-trailing-comma.hs	pass	parser now supports section 5 module import entries with trailing commas
 
 modules-language-pragma-basic	modules	modules/pre-module-language-pragma.hs	pass
 modules-language-pragma-singleline-above	modules	modules/pre-module-language-pragma-singleline-comment-above.hs	pass
