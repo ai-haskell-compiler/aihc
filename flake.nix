@@ -18,10 +18,10 @@
           pkgs.haskellPackages.override {
              overrides = final: prev: {
                ghc-lib-parser = pkgs.haskell.lib.dontHaddock final.ghc-lib-parser_9_14_1_20251220;
-               aihc-parser = final.callCabal2nix "aihc-parser" ./components/haskell-parser { };
-               aihc-cpp = final.callCabal2nix "aihc-cpp" ./components/haskell-cpp { };
+               aihc-parser = final.callCabal2nix "aihc-parser" ./components/aihc-parser { };
+               aihc-cpp = final.callCabal2nix "aihc-cpp" ./components/aihc-cpp { };
                aihc-name-resolution =
-                 final.callCabal2nix "aihc-name-resolution" ./components/haskell-name-resolution { };
+                 final.callCabal2nix "aihc-name-resolution" ./components/aihc-name-resolution { };
              };
            };
      in {
@@ -66,7 +66,7 @@
                 echo "Run this app from inside the repository." >&2
                 exit 1
               }
-              test -d "$repo_root/components/haskell-parser" || {
+              test -d "$repo_root/components/aihc-parser" || {
                 echo "Run this app from the repository root." >&2
                 exit 1
               }
@@ -121,41 +121,41 @@
 
           parser-test = mkApp "parser-test" ''
             set -euo pipefail
-            test -d components/haskell-parser || {
+            test -d components/aihc-parser || {
               echo "Run this app from the repository root." >&2
               exit 1
             }
-            cd components/haskell-parser
+            cd components/aihc-parser
             cabal test --test-show-details=direct
           '';
 
           parser-progress = mkApp "parser-progress" ''
             set -euo pipefail
-            test -d components/haskell-parser || {
+            test -d components/aihc-parser || {
               echo "Run this app from the repository root." >&2
               exit 1
             }
-            cd components/haskell-parser
+            cd components/aihc-parser
             ${parserProgressExe}
           '';
 
           lexer-progress = mkApp "lexer-progress" ''
             set -euo pipefail
-            test -d components/haskell-parser || {
+            test -d components/aihc-parser || {
               echo "Run this app from the repository root." >&2
               exit 1
             }
-            cd components/haskell-parser
+            cd components/aihc-parser
             ${lexerProgressExe}
           '';
 
           parser-extension-progress = mkApp "parser-extension-progress" ''
             set -euo pipefail
-            test -d components/haskell-parser || {
+            test -d components/aihc-parser || {
               echo "Run this app from the repository root." >&2
               exit 1
             }
-            cd components/haskell-parser
+            cd components/aihc-parser
             ${extensionProgressExe} "$@"
           '';
 
@@ -181,97 +181,97 @@
 
           parser-progress-strict = mkApp "parser-progress-strict" ''
             set -euo pipefail
-            test -d components/haskell-parser || {
+            test -d components/aihc-parser || {
               echo "Run this app from the repository root." >&2
               exit 1
             }
-            cd components/haskell-parser
+            cd components/aihc-parser
             ${parserProgressExe} --strict
           '';
 
           lexer-progress-strict = mkApp "lexer-progress-strict" ''
             set -euo pipefail
-            test -d components/haskell-parser || {
+            test -d components/aihc-parser || {
               echo "Run this app from the repository root." >&2
               exit 1
             }
-            cd components/haskell-parser
+            cd components/aihc-parser
             ${lexerProgressExe} --strict
           '';
 
           parser-extension-progress-strict = mkApp "parser-extension-progress-strict" ''
             set -euo pipefail
-            test -d components/haskell-parser || {
+            test -d components/aihc-parser || {
               echo "Run this app from the repository root." >&2
               exit 1
             }
-            cd components/haskell-parser
+            cd components/aihc-parser
             ${extensionProgressExe} --strict "$@"
           '';
 
           cpp-test = mkApp "cpp-test" ''
             set -euo pipefail
-            test -d components/haskell-cpp || {
+            test -d components/aihc-cpp || {
               echo "Run this app from the repository root." >&2
               exit 1
             }
-            cd components/haskell-cpp
+            cd components/aihc-cpp
             cabal test --test-show-details=direct
           '';
 
           cpp-progress = mkApp "cpp-progress" ''
             set -euo pipefail
-            test -d components/haskell-cpp || {
+            test -d components/aihc-cpp || {
               echo "Run this app from the repository root." >&2
               exit 1
             }
-            cd components/haskell-cpp
+            cd components/aihc-cpp
             ${cppProgressExe} "$@"
           '';
 
           cpp-progress-strict = mkApp "cpp-progress-strict" ''
             set -euo pipefail
-            test -d components/haskell-cpp || {
+            test -d components/aihc-cpp || {
               echo "Run this app from the repository root." >&2
               exit 1
             }
-            cd components/haskell-cpp
+            cd components/aihc-cpp
             ${cppProgressExe} --strict "$@"
           '';
 
           name-resolution-test = mkApp "name-resolution-test" ''
             set -euo pipefail
-            test -d components/haskell-name-resolution || {
+            test -d components/aihc-name-resolution || {
               echo "Run this app from the repository root." >&2
               exit 1
             }
-            cd components/haskell-name-resolution
+            cd components/aihc-name-resolution
             cabal test --test-show-details=direct
           '';
 
           name-resolution-progress = mkApp "name-resolution-progress" ''
             set -euo pipefail
-            test -d components/haskell-name-resolution || {
+            test -d components/aihc-name-resolution || {
               echo "Run this app from the repository root." >&2
               exit 1
             }
-            cd components/haskell-name-resolution
+            cd components/aihc-name-resolution
             ${nameResolutionProgressExe}
           '';
 
           name-resolution-progress-strict = mkApp "name-resolution-progress-strict" ''
             set -euo pipefail
-            test -d components/haskell-name-resolution || {
+            test -d components/aihc-name-resolution || {
               echo "Run this app from the repository root." >&2
               exit 1
             }
-            cd components/haskell-name-resolution
+            cd components/aihc-name-resolution
             ${nameResolutionProgressExe} --strict
           '';
 
           generate-reports = mkReportsApp "generate-reports" ''
             set -euo pipefail
-            test -d components/haskell-parser || {
+            test -d components/aihc-parser || {
               echo "Run this app from the repository root." >&2
               exit 1
             }
@@ -280,7 +280,7 @@
 
           check-reports = mkReportsApp "check-reports" ''
             set -euo pipefail
-            test -d components/haskell-parser || {
+            test -d components/aihc-parser || {
               echo "Run this app from the repository root." >&2
               exit 1
             }
@@ -289,11 +289,11 @@
 
           default = mkApp "default" ''
             set -euo pipefail
-            test -d components/haskell-parser || {
+            test -d components/aihc-parser || {
               echo "Run this app from the repository root." >&2
               exit 1
             }
-            cd components/haskell-parser
+            cd components/aihc-parser
             cabal test --test-show-details=direct
           '';
         });
@@ -335,7 +335,7 @@
             src = ./.;
             nativeBuildInputs = [ hsPkgs.aihc-parser ];
           } ''
-            cd "$src/components/haskell-parser"
+            cd "$src/components/aihc-parser"
             parser-progress --strict
             touch "$out"
           '';
@@ -343,7 +343,7 @@
             src = ./.;
             nativeBuildInputs = [ hsPkgs.aihc-parser ];
           } ''
-            cd "$src/components/haskell-parser"
+            cd "$src/components/aihc-parser"
             lexer-progress --strict
             touch "$out"
           '';
@@ -351,7 +351,7 @@
             src = ./.;
             nativeBuildInputs = [ hsPkgs.aihc-parser ];
           } ''
-            cd "$src/components/haskell-parser"
+            cd "$src/components/aihc-parser"
             extension-progress --strict
             touch "$out"
           '';
@@ -382,7 +382,7 @@
             src = ./.;
             nativeBuildInputs = [ hsPkgs.aihc-cpp ];
           } ''
-            cd "$src/components/haskell-cpp"
+            cd "$src/components/aihc-cpp"
             cpp-progress --strict
             touch "$out"
           '';
@@ -390,7 +390,7 @@
             src = ./.;
             nativeBuildInputs = [ hsPkgs.aihc-name-resolution ];
           } ''
-            cd "$src/components/haskell-name-resolution"
+            cd "$src/components/aihc-name-resolution"
             name-resolution-progress --strict
             touch "$out"
           '';
