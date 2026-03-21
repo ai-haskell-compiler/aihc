@@ -102,7 +102,8 @@ main = do
 
   let total = length packages
   jobs <- maybe getNumProcessors pure (optJobs opts)
-  showProgress <- hIsTerminalDevice stdout
+  isStdoutTerminal <- hIsTerminalDevice stdout
+  let showProgress = isStdoutTerminal && not (optPrompt opts)
   when showProgress (putProgressLine (ProgressState 0 0 total))
   promptTemplate <-
     if optPrompt opts
