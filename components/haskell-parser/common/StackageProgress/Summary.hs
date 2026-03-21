@@ -153,17 +153,9 @@ promptCandidateFromResult result
             promptErrorMessage = packageReason result
           }
 
-renderPrompt :: PromptCandidate -> String
-renderPrompt candidate =
-  unlines
-    [ "# Error messages:",
-      promptErrorMessage candidate,
-      "",
-      "Re-test by running: nix run .#hackage-tester -- " ++ promptPackageName candidate,
-      "Haskell 2010 language report (contains a slightly outdated specification for syntax): docs/haskell2010-language-report.md",
-      "",
-      "Fix the parsing issue that prevents '" ++ promptPackageName candidate ++ "' from parsing successfully. Remember to include unit tests, golden tests, oracle tests, and quickcheck properties if appropriate. Open a PR when done."
-    ]
+renderPrompt :: String -> PromptCandidate -> String
+renderPrompt template candidate =
+  replaceAll "{{ERROR_MESSAGES}}" (promptErrorMessage candidate) $ replaceAll "{{PACKAGE_NAME}}" (promptPackageName candidate) template
 
 selectPromptCandidate :: Integer -> [PromptCandidate] -> Maybe PromptCandidate
 selectPromptCandidate _ [] = Nothing
@@ -191,3 +183,16 @@ boolToInt False = 0
 
 forceString :: String -> String
 forceString value = length value `seq` value
+
+replaceAll :: String -> String -> String -> String
+replaceAll needle replacement = go
+  where
+    go haystack
+      | null needle = haystack
+      | otherwise =
+          case List.stripPrefix needle haystack of
+            Just rest -> replacement ++ go rest
+            Nothing ->
+              case haystack of
+                [] -> []
+                x : xs -> x : go xs

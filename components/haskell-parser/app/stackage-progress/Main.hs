@@ -52,7 +52,7 @@ import StackageProgress.Summary
     summarySuccessHseN,
     summarySuccessOursN,
   )
-import System.Directory (XdgDirectory (XdgCache), createDirectoryIfMissing, doesFileExist, getFileSize, getHomeDirectory, getXdgDirectory)
+import System.Directory (XdgDirectory (XdgCache), createDirectoryIfMissing, doesFileExist, getCurrentDirectory, getFileSize, getHomeDirectory, getXdgDirectory)
 import System.Environment (getArgs)
 import System.Exit (exitFailure, exitSuccess)
 import System.FilePath ((</>))
@@ -104,6 +104,10 @@ main = do
   jobs <- maybe getNumProcessors pure (optJobs opts)
   showProgress <- hIsTerminalDevice stdout
   when showProgress (putProgressLine (ProgressState 0 0 total))
+  promptTemplate <-
+    if optPrompt opts
+      then loadPromptTemplate
+      else pure ""
   (summary, promptCandidates) <-
     foldConcurrentlyChunksWithProgress
       jobs
@@ -125,7 +129,7 @@ main = do
         hPutStrLn stderr "No parser failures found in this snapshot; no prompt generated."
         exitFailure
       Just selected -> do
-        putStr (renderPrompt selected)
+        putStr (renderPrompt promptTemplate selected)
         exitSuccess
 
   when (optPrintSucceeded opts) $ do
@@ -1120,6 +1124,26 @@ pickPromptCandidate maybeSeed candidates = do
       Just seed -> pure (toInteger seed)
       Nothing -> toInteger <$> getMonotonicTimeNSec
   pure (selectPromptCandidate picker candidates)
+
+loadPromptTemplate :: IO String
+loadPromptTemplate = do
+  let candidatePaths =
+        [ "docs/PKG_FIX_PROMPT.md",
+          "../../docs/PKG_FIX_PROMPT.md"
+        ]
+  existing <-
+    mapM
+      ( \path -> do
+          exists <- doesFileExist path
+          pure (path, exists)
+      )
+      candidatePaths
+  case [path | (path, True) <- existing] of
+    path : _ -> readFile path
+    [] -> do
+      cwd <- getCurrentDirectory
+      hPutStrLn stderr ("Could not find prompt template docs/PKG_FIX_PROMPT.md (cwd: " ++ cwd ++ ")")
+      exitFailure
 
 chunksOf :: Int -> [a] -> [[a]]
 chunksOf _ [] = []

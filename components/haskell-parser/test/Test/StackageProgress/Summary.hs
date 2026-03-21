@@ -115,15 +115,25 @@ test_promptRendering = do
   assertEqual "seed 0 chooses first" (Just (PromptCandidate "a" "PARSE_ERROR: a")) (selectPromptCandidate 0 candidates)
   assertEqual "seed 1 chooses second" (Just (PromptCandidate "b" "PARSE_ERROR: b")) (selectPromptCandidate 1 candidates)
   assertEqual "seed wraps by modulo" (Just (PromptCandidate "c" "PARSE_ERROR: c")) (selectPromptCandidate 5 candidates)
-  let rendered =
+  let template =
+        unlines
+          [ "# Error messages:",
+            "{{ERROR_MESSAGES}}",
+            "",
+            "Re-test by running: nix run .#hackage-tester -- {{PACKAGE_NAME}}",
+            "",
+            "Fix '{{PACKAGE_NAME}}'"
+          ]
+      rendered =
         renderPrompt
+          template
           PromptCandidate
             { promptPackageName = "monad-st",
               promptErrorMessage = "parse failed in /tmp/Control/Monad/ST/Class.hs"
             }
   assertBool "prompt includes heading" ("# Error messages:" `isInfixOf` rendered)
   assertBool "prompt includes re-test command" ("nix run .#hackage-tester -- monad-st" `isInfixOf` rendered)
-  assertBool "prompt includes fix instruction" ("Fix the parsing issue that prevents 'monad-st'" `isInfixOf` rendered)
+  assertBool "prompt includes package replacement" ("Fix 'monad-st'" `isInfixOf` rendered)
 
 packageResult :: String -> Bool -> Bool -> Bool -> String -> Maybe String -> Integer -> PackageResult
 packageResult name oursOk hseOk ghcOk reason ghcError size =
