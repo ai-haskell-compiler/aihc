@@ -183,7 +183,7 @@ atomExprParser =
 negateExprParser :: TokParser Expr
 negateExprParser = withSpan $ do
   operatorLikeTok "-"
-  inner <- atomExprParser
+  inner <- appExprParser
   pure (`ENegate` inner)
 
 parenOperatorExprParser :: TokParser Expr
