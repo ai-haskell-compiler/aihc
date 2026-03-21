@@ -33,7 +33,6 @@ where
 import qualified Data.List as List
 import Data.Text (Text)
 import Parser.Ast (Decl, ExportSpec, Expr, Extension (..), ExtensionSetting (..), ImportDecl, Module (..), Pattern, Type, WarningText)
-import Parser.Internal.Common (TokParser, symbolLikeTok, withSpan)
 import Parser.Internal.Common (TokParser, skipSemicolons, symbolLikeTok, withSpan)
 import Parser.Internal.Decl (declParser, importDeclParser, languagePragmaParser, moduleHeaderParser)
 import Parser.Internal.Expr (exprParser, patternParser, typeParser)
