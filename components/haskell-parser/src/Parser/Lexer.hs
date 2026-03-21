@@ -1,3 +1,5 @@
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- |
@@ -63,11 +65,13 @@ module Parser.Lexer
   )
 where
 
+import Control.DeepSeq (NFData)
 import Data.Char (digitToInt, isAlphaNum, isAsciiLower, isAsciiUpper, isDigit, isHexDigit, isOctDigit, isSpace)
 import qualified Data.List as List
 import Data.Maybe (fromMaybe, isJust, mapMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
+import GHC.Generics (Generic)
 import Numeric (readHex, readInt, readOct)
 import Parser.Ast
 
@@ -100,14 +104,14 @@ data LexTokenKind
   | TkSymbol Text
   | TkQuasiQuote Text Text
   | TkError Text
-  deriving (Eq, Ord, Show, Read)
+  deriving (Eq, Ord, Show, Read, Generic, NFData)
 
 data LexToken = LexToken
   { lexTokenKind :: !LexTokenKind,
     lexTokenText :: !Text,
     lexTokenSpan :: !SourceSpan
   }
-  deriving (Eq, Ord, Show)
+  deriving (Eq, Ord, Show, Generic, NFData)
 
 data LexerState = LexerState
   { lexerInput :: String,

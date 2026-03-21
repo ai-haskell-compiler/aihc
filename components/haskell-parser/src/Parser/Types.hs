@@ -1,3 +1,5 @@
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE TypeFamilies #-}
 
 module Parser.Types
@@ -10,10 +12,12 @@ module Parser.Types
   )
 where
 
+import Control.DeepSeq (NFData (..))
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Set as Set
 import qualified Data.Text as T
 import Data.Void (Void)
+import GHC.Generics (Generic)
 import Parser.Ast (Extension, SourceSpan (..))
 import Parser.Lexer (LexToken (..))
 import qualified Text.Megaparsec as MP
@@ -39,7 +43,7 @@ lexerErrorBundle sourcePath message =
 newtype TokStream = TokStream
   { unTokStream :: [LexToken]
   }
-  deriving (Eq, Ord, Show)
+  deriving (Eq, Ord, Show, Generic, NFData)
 
 instance Stream TokStream where
   type Token TokStream = LexToken
@@ -109,12 +113,18 @@ data ParserConfig = ParserConfig
   { parserSourceName :: FilePath,
     parserExtensions :: [Extension]
   }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic, NFData)
 
 data ParseResult a
   = ParseOk a
   | ParseErr ParseErrorBundle
   deriving (Eq, Show)
+
+instance (NFData a) => NFData (ParseResult a) where
+  rnf parseResult =
+    case parseResult of
+      ParseOk parsed -> rnf parsed
+      ParseErr bundle -> rnf (show bundle)
 
 data CoverageSlice
   = Lexing
@@ -122,4 +132,4 @@ data CoverageSlice
   | ExprApp
   | Decls
   | Modules
-  deriving (Eq, Ord, Show, Enum, Bounded)
+  deriving (Eq, Ord, Show, Enum, Bounded, Generic, NFData)

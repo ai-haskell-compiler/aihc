@@ -1,3 +1,5 @@
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Cpp
@@ -13,6 +15,7 @@ module Cpp
   )
 where
 
+import Control.DeepSeq (NFData)
 import Data.Char (isAlphaNum, isDigit, isLetter, isSpace)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
@@ -21,6 +24,7 @@ import qualified Data.Text as T
 import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Lazy.Builder as TB
 import qualified Data.Text.Read as TR
+import GHC.Generics (Generic)
 import System.FilePath (takeDirectory, (</>))
 
 data Config = Config
@@ -37,7 +41,7 @@ data MacroDef
 defaultConfig :: Config
 defaultConfig = Config {configInputFile = "<input>", configDateTime = ("Jan  1 1970", "00:00:00"), configMacros = M.empty}
 
-data IncludeKind = IncludeLocal | IncludeSystem deriving (Eq, Show)
+data IncludeKind = IncludeLocal | IncludeSystem deriving (Eq, Show, Generic, NFData)
 
 data IncludeRequest = IncludeRequest
   { includePath :: !FilePath,
@@ -45,9 +49,9 @@ data IncludeRequest = IncludeRequest
     includeFrom :: !FilePath,
     includeLine :: !Int
   }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic, NFData)
 
-data Severity = Warning | Error deriving (Eq, Show)
+data Severity = Warning | Error deriving (Eq, Show, Generic, NFData)
 
 data Diagnostic = Diagnostic
   { diagSeverity :: !Severity,
@@ -55,13 +59,13 @@ data Diagnostic = Diagnostic
     diagFile :: !FilePath,
     diagLine :: !Int
   }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic, NFData)
 
 data Result = Result
   { resultOutput :: !Text,
     resultDiagnostics :: ![Diagnostic]
   }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic, NFData)
 
 data Step
   = Done !Result

@@ -1,4 +1,6 @@
+{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE DeriveGeneric #-}
 
 module Parser.Ast
   ( ArithSeq (..),
@@ -62,9 +64,11 @@ module Parser.Ast
 where
 
 import Control.Applicative ((<|>))
+import Control.DeepSeq (NFData)
 import Data.Data (Data)
 import Data.Text (Text)
 import qualified Data.Text as T
+import GHC.Generics (Generic)
 import Text.Read (readMaybe)
 
 data Extension
@@ -226,12 +230,12 @@ data Extension
   | UnsafeHaskell
   | ViewPatterns
   | XmlSyntax
-  deriving (Eq, Ord, Show, Read, Enum, Bounded)
+  deriving (Eq, Ord, Show, Read, Enum, Bounded, Generic, NFData)
 
 data ExtensionSetting
   = EnableExtension Extension
   | DisableExtension Extension
-  deriving (Eq, Ord, Show, Read)
+  deriving (Eq, Ord, Show, Read, Generic, NFData)
 
 allKnownExtensions :: [Extension]
 allKnownExtensions = [minBound .. maxBound]
@@ -281,7 +285,7 @@ data SourceSpan
         sourceSpanEndLine :: !Int,
         sourceSpanEndCol :: !Int
       }
-  deriving (Data, Eq, Ord, Show)
+  deriving (Data, Eq, Ord, Show, Generic, NFData)
 
 noSourceSpan :: SourceSpan
 noSourceSpan = NoSourceSpan
@@ -309,7 +313,7 @@ type OperatorName = Text
 data WarningText
   = DeprText SourceSpan Text
   | WarnText SourceSpan Text
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic, NFData)
 
 instance HasSourceSpan WarningText where
   getSourceSpan warningText =
@@ -326,7 +330,7 @@ data Module = Module
     moduleImports :: [ImportDecl],
     moduleDecls :: [Decl]
   }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic, NFData)
 
 instance HasSourceSpan Module where
   getSourceSpan = moduleSpan
@@ -337,7 +341,7 @@ data ExportSpec
   | ExportAbs SourceSpan (Maybe Text) Text
   | ExportAll SourceSpan (Maybe Text) Text
   | ExportWith SourceSpan (Maybe Text) Text [Text]
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic, NFData)
 
 data ImportDecl = ImportDecl
   { importDeclSpan :: SourceSpan,
@@ -349,7 +353,7 @@ data ImportDecl = ImportDecl
     importDeclAs :: Maybe Text,
     importDeclSpec :: Maybe ImportSpec
   }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic, NFData)
 
 instance HasSourceSpan ImportDecl where
   getSourceSpan = importDeclSpan
@@ -357,14 +361,14 @@ instance HasSourceSpan ImportDecl where
 data ImportLevel
   = ImportLevelQuote
   | ImportLevelSplice
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic, NFData)
 
 data ImportSpec = ImportSpec
   { importSpecSpan :: SourceSpan,
     importSpecHiding :: Bool,
     importSpecItems :: [ImportItem]
   }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic, NFData)
 
 instance HasSourceSpan ImportSpec where
   getSourceSpan = importSpecSpan
@@ -374,7 +378,7 @@ data ImportItem
   | ImportItemAbs SourceSpan (Maybe Text) Text
   | ImportItemAll SourceSpan (Maybe Text) Text
   | ImportItemWith SourceSpan (Maybe Text) Text [Text]
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic, NFData)
 
 data Decl
   = DeclValue SourceSpan ValueDecl
@@ -388,7 +392,7 @@ data Decl
   | DeclInstance SourceSpan InstanceDecl
   | DeclDefault SourceSpan [Type]
   | DeclForeign SourceSpan ForeignDecl
-  deriving (Data, Eq, Show)
+  deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan Decl where
   getSourceSpan decl =
@@ -408,7 +412,7 @@ instance HasSourceSpan Decl where
 data ValueDecl
   = FunctionBind SourceSpan BinderName [Match]
   | PatternBind SourceSpan Pattern Rhs
-  deriving (Data, Eq, Show)
+  deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan ValueDecl where
   getSourceSpan valueDecl =
@@ -421,7 +425,7 @@ data Match = Match
     matchPats :: [Pattern],
     matchRhs :: Rhs
   }
-  deriving (Data, Eq, Show)
+  deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan Match where
   getSourceSpan = matchSpan
@@ -429,7 +433,7 @@ instance HasSourceSpan Match where
 data Rhs
   = UnguardedRhs SourceSpan Expr
   | GuardedRhss SourceSpan [GuardedRhs]
-  deriving (Data, Eq, Show)
+  deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan Rhs where
   getSourceSpan rhs =
@@ -442,7 +446,7 @@ data GuardedRhs = GuardedRhs
     guardedRhsGuards :: [GuardQualifier],
     guardedRhsBody :: Expr
   }
-  deriving (Data, Eq, Show)
+  deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan GuardedRhs where
   getSourceSpan = guardedRhsSpan
@@ -451,7 +455,7 @@ data GuardQualifier
   = GuardExpr SourceSpan Expr
   | GuardPat SourceSpan Pattern Expr
   | GuardLet SourceSpan [Decl]
-  deriving (Data, Eq, Show)
+  deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan GuardQualifier where
   getSourceSpan qualifier =
@@ -466,7 +470,7 @@ data Literal
   | LitFloat SourceSpan Double Text
   | LitChar SourceSpan Char Text
   | LitString SourceSpan Text Text
-  deriving (Data, Eq, Show)
+  deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan Literal where
   getSourceSpan literal =
@@ -493,7 +497,7 @@ data Pattern
   | PNegLit SourceSpan Literal
   | PParen SourceSpan Pattern
   | PRecord SourceSpan Text [(Text, Pattern)]
-  deriving (Data, Eq, Show)
+  deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan Pattern where
   getSourceSpan pat =
@@ -526,7 +530,7 @@ data Type
   | TList SourceSpan Type
   | TParen SourceSpan Type
   | TContext SourceSpan [Constraint] Type
-  deriving (Data, Eq, Show)
+  deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan Type where
   getSourceSpan ty =
@@ -549,7 +553,7 @@ data Constraint = Constraint
     constraintArgs :: [Type],
     constraintParen :: Bool
   }
-  deriving (Data, Eq, Show)
+  deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan Constraint where
   getSourceSpan = constraintSpan
@@ -559,7 +563,7 @@ data TyVarBinder = TyVarBinder
     tyVarBinderName :: Text,
     tyVarBinderKind :: Maybe Type
   }
-  deriving (Data, Eq, Show)
+  deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan TyVarBinder where
   getSourceSpan = tyVarBinderSpan
@@ -570,7 +574,7 @@ data TypeSynDecl = TypeSynDecl
     typeSynParams :: [TyVarBinder],
     typeSynBody :: Type
   }
-  deriving (Data, Eq, Show)
+  deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan TypeSynDecl where
   getSourceSpan = typeSynSpan
@@ -583,7 +587,7 @@ data DataDecl = DataDecl
     dataDeclConstructors :: [DataConDecl],
     dataDeclDeriving :: [DerivingClause]
   }
-  deriving (Data, Eq, Show)
+  deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan DataDecl where
   getSourceSpan = dataDeclSpan
@@ -596,7 +600,7 @@ data NewtypeDecl = NewtypeDecl
     newtypeDeclConstructor :: Maybe DataConDecl,
     newtypeDeclDeriving :: [DerivingClause]
   }
-  deriving (Data, Eq, Show)
+  deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan NewtypeDecl where
   getSourceSpan = newtypeDeclSpan
@@ -605,7 +609,7 @@ data DataConDecl
   = PrefixCon SourceSpan [Text] [Constraint] Text [BangType]
   | InfixCon SourceSpan [Text] [Constraint] BangType Text BangType
   | RecordCon SourceSpan [Text] [Constraint] Text [FieldDecl]
-  deriving (Data, Eq, Show)
+  deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan DataConDecl where
   getSourceSpan dataConDecl =
@@ -619,7 +623,7 @@ data BangType = BangType
     bangStrict :: Bool,
     bangType :: Type
   }
-  deriving (Data, Eq, Show)
+  deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan BangType where
   getSourceSpan = bangSpan
@@ -629,7 +633,7 @@ data FieldDecl = FieldDecl
     fieldNames :: [Text],
     fieldType :: BangType
   }
-  deriving (Data, Eq, Show)
+  deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan FieldDecl where
   getSourceSpan = fieldSpan
@@ -638,13 +642,13 @@ data DerivingClause = DerivingClause
   { derivingStrategy :: Maybe DerivingStrategy,
     derivingClasses :: [Text]
   }
-  deriving (Data, Eq, Show)
+  deriving (Data, Eq, Show, Generic, NFData)
 
 data DerivingStrategy
   = DerivingStock
   | DerivingNewtype
   | DerivingAnyclass
-  deriving (Data, Eq, Show)
+  deriving (Data, Eq, Show, Generic, NFData)
 
 data ClassDecl = ClassDecl
   { classDeclSpan :: SourceSpan,
@@ -653,7 +657,7 @@ data ClassDecl = ClassDecl
     classDeclParams :: [TyVarBinder],
     classDeclItems :: [ClassDeclItem]
   }
-  deriving (Data, Eq, Show)
+  deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan ClassDecl where
   getSourceSpan = classDeclSpan
@@ -662,7 +666,7 @@ data ClassDeclItem
   = ClassItemTypeSig SourceSpan [BinderName] Type
   | ClassItemFixity SourceSpan FixityAssoc (Maybe Int) [OperatorName]
   | ClassItemDefault SourceSpan ValueDecl
-  deriving (Data, Eq, Show)
+  deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan ClassDeclItem where
   getSourceSpan classDeclItem =
@@ -678,7 +682,7 @@ data InstanceDecl = InstanceDecl
     instanceDeclTypes :: [Type],
     instanceDeclItems :: [InstanceDeclItem]
   }
-  deriving (Data, Eq, Show)
+  deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan InstanceDecl where
   getSourceSpan = instanceDeclSpan
@@ -687,7 +691,7 @@ data InstanceDeclItem
   = InstanceItemBind SourceSpan ValueDecl
   | InstanceItemTypeSig SourceSpan [BinderName] Type
   | InstanceItemFixity SourceSpan FixityAssoc (Maybe Int) [OperatorName]
-  deriving (Data, Eq, Show)
+  deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan InstanceDeclItem where
   getSourceSpan instanceDeclItem =
@@ -700,7 +704,7 @@ data FixityAssoc
   = Infix
   | InfixL
   | InfixR
-  deriving (Data, Eq, Show)
+  deriving (Data, Eq, Show, Generic, NFData)
 
 data ForeignDecl = ForeignDecl
   { foreignDeclSpan :: SourceSpan,
@@ -711,7 +715,7 @@ data ForeignDecl = ForeignDecl
     foreignName :: Text,
     foreignType :: Type
   }
-  deriving (Data, Eq, Show)
+  deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan ForeignDecl where
   getSourceSpan = foreignDeclSpan
@@ -723,22 +727,22 @@ data ForeignEntitySpec
   | ForeignEntityAddress (Maybe Text)
   | ForeignEntityNamed Text
   | ForeignEntityOmitted
-  deriving (Data, Eq, Show)
+  deriving (Data, Eq, Show, Generic, NFData)
 
 data ForeignDirection
   = ForeignImport
   | ForeignExport
-  deriving (Data, Eq, Show)
+  deriving (Data, Eq, Show, Generic, NFData)
 
 data CallConv
   = CCall
   | StdCall
-  deriving (Data, Eq, Show)
+  deriving (Data, Eq, Show, Generic, NFData)
 
 data ForeignSafety
   = Safe
   | Unsafe
-  deriving (Data, Eq, Show)
+  deriving (Data, Eq, Show, Generic, NFData)
 
 data Expr
   = EVar SourceSpan Text
@@ -772,7 +776,7 @@ data Expr
   | ETupleCon SourceSpan Int
   | ETypeApp SourceSpan Expr Type
   | EApp SourceSpan Expr Expr
-  deriving (Data, Eq, Show)
+  deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan Expr where
   getSourceSpan expr =
@@ -814,7 +818,7 @@ data CaseAlt = CaseAlt
     caseAltPattern :: Pattern,
     caseAltRhs :: Rhs
   }
-  deriving (Data, Eq, Show)
+  deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan CaseAlt where
   getSourceSpan = caseAltSpan
@@ -824,7 +828,7 @@ data DoStmt
   | DoLet SourceSpan [(Text, Expr)]
   | DoLetDecls SourceSpan [Decl]
   | DoExpr SourceSpan Expr
-  deriving (Data, Eq, Show)
+  deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan DoStmt where
   getSourceSpan doStmt =
@@ -839,7 +843,7 @@ data CompStmt
   | CompGuard SourceSpan Expr
   | CompLet SourceSpan [(Text, Expr)]
   | CompLetDecls SourceSpan [Decl]
-  deriving (Data, Eq, Show)
+  deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan CompStmt where
   getSourceSpan compStmt =
@@ -854,7 +858,7 @@ data ArithSeq
   | ArithSeqFromThen SourceSpan Expr Expr
   | ArithSeqFromTo SourceSpan Expr Expr
   | ArithSeqFromThenTo SourceSpan Expr Expr Expr
-  deriving (Data, Eq, Show)
+  deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan ArithSeq where
   getSourceSpan arithSeq =

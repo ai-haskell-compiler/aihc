@@ -2,9 +2,16 @@
 
 module Parser
   ( parseExpr,
+    parseExprFromTokens,
     parsePattern,
+    parsePatternFromTokens,
     parseType,
+    parseTypeFromTokens,
     parseModule,
+    parseModuleFromTokens,
+    parseDeclFromTokens,
+    parseImportDeclFromTokens,
+    parseModuleHeaderFromTokens,
     defaultConfig,
     errorBundlePretty,
     LexToken (..),
@@ -25,7 +32,7 @@ where
 
 import qualified Data.List as List
 import Data.Text (Text)
-import Parser.Ast (Decl, Expr, Extension (..), ExtensionSetting (..), ImportDecl, Module (..), Pattern, Type)
+import Parser.Ast (Decl, ExportSpec, Expr, Extension (..), ExtensionSetting (..), ImportDecl, Module (..), Pattern, Type, WarningText)
 import Parser.Internal.Common (TokParser, skipSemicolons, symbolLikeTok, withSpan)
 import Parser.Internal.Decl (declParser, importDeclParser, languagePragmaParser, moduleHeaderParser)
 import Parser.Internal.Expr (exprParser, patternParser, typeParser)
@@ -99,6 +106,9 @@ parseExpr cfg input =
         Left bundle -> ParseErr bundle
         Right expr -> ParseOk expr
 
+parseExprFromTokens :: FilePath -> [LexToken] -> ParseResult Expr
+parseExprFromTokens = parseFromTokens exprParser
+
 parsePattern :: ParserConfig -> Text -> ParseResult Pattern
 parsePattern cfg input =
   case lexTokensWithExtensions (parserExtensions cfg) input of
@@ -108,6 +118,9 @@ parsePattern cfg input =
         Left bundle -> ParseErr bundle
         Right pat -> ParseOk pat
 
+parsePatternFromTokens :: FilePath -> [LexToken] -> ParseResult Pattern
+parsePatternFromTokens = parseFromTokens patternParser
+
 parseType :: ParserConfig -> Text -> ParseResult Type
 parseType cfg input =
   case lexTokensWithExtensions (parserExtensions cfg) input of
@@ -116,6 +129,9 @@ parseType cfg input =
       case runParser (typeParser <* MP.eof) (parserSourceName cfg) (TokStream toks) of
         Left bundle -> ParseErr bundle
         Right ty -> ParseOk ty
+
+parseTypeFromTokens :: FilePath -> [LexToken] -> ParseResult Type
+parseTypeFromTokens = parseFromTokens typeParser
 
 parseModule :: ParserConfig -> Text -> ParseResult Module
 parseModule cfg input =
@@ -140,6 +156,24 @@ applyExtensionSettings = List.foldl' applySetting
           | ext `elem` exts -> exts
           | otherwise -> exts <> [ext]
         DisableExtension ext -> filter (/= ext) exts
+
+parseModuleFromTokens :: FilePath -> [LexToken] -> ParseResult Module
+parseModuleFromTokens = parseFromTokens moduleParser
+
+parseDeclFromTokens :: FilePath -> [LexToken] -> ParseResult Decl
+parseDeclFromTokens = parseFromTokens declParser
+
+parseImportDeclFromTokens :: FilePath -> [LexToken] -> ParseResult ImportDecl
+parseImportDeclFromTokens = parseFromTokens importDeclParser
+
+parseModuleHeaderFromTokens :: FilePath -> [LexToken] -> ParseResult (Text, Maybe WarningText, Maybe [ExportSpec])
+parseModuleHeaderFromTokens = parseFromTokens moduleHeaderParser
+
+parseFromTokens :: TokParser a -> FilePath -> [LexToken] -> ParseResult a
+parseFromTokens parser sourceName toks =
+  case runParser (parser <* MP.eof) sourceName (TokStream toks) of
+    Left bundle -> ParseErr bundle
+    Right parsed -> ParseOk parsed
 
 errorBundlePretty :: ParseErrorBundle -> String
 errorBundlePretty = MP.errorBundlePretty
