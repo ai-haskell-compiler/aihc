@@ -74,6 +74,7 @@ test-suite spec
     , containers
     , directory
     , filepath
+    , deepseq
     , tasty
     , tasty-hunit
     , tasty-quickcheck
@@ -140,6 +141,7 @@ executable parser-quickcheck-batch
     , containers
     , bytestring
     , filepath
+    , deepseq
     , optparse-applicative
     , time
   ghc-options:        -O2 -Wall -Werror
