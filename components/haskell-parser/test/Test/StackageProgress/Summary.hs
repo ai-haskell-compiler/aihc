@@ -13,7 +13,7 @@ stackageProgressSummaryTests =
       testCase "preserves succeeded and failed package output" test_keptOutputs,
       testCase "limits ghc errors and falls back to package reason" test_ghcErrors,
       testCase "extracts prompt candidates from parser failures" test_promptCandidate,
-      testCase "ignores non-parser failures for prompt candidates" test_promptCandidateIgnoresNonParser,
+      testCase "extracts prompt candidates from any parser failure" test_promptCandidateIncludesAnyFailure,
       testCase "renders prompt text and deterministic candidate selection" test_promptRendering
     ]
 
@@ -90,11 +90,19 @@ test_promptCandidate = do
     )
     (promptCandidateFromResult result)
 
-test_promptCandidateIgnoresNonParser :: Assertion
-test_promptCandidateIgnoresNonParser = do
+test_promptCandidateIncludesAnyFailure :: Assertion
+test_promptCandidateIncludesAnyFailure = do
   let roundtripOnly = packageResult "roundtrip-only" False True True "roundtrip mismatch in /tmp/Foo.hs" Nothing 1024
       parseSucceeded = packageResult "parse-success" True True True "parse failed in /tmp/Bar.hs" Nothing 1024
-  assertEqual "roundtrip failure should be ignored" Nothing (promptCandidateFromResult roundtripOnly)
+  assertEqual
+    "non-parse failure text is still treated as a parser failure"
+    ( Just
+        PromptCandidate
+          { promptPackageName = "roundtrip-only",
+            promptErrorMessage = "PARSE_ERROR: roundtrip mismatch in /tmp/Foo.hs"
+          }
+    )
+    (promptCandidateFromResult roundtripOnly)
   assertEqual "successful parser result should be ignored" Nothing (promptCandidateFromResult parseSucceeded)
 
 test_promptRendering :: Assertion

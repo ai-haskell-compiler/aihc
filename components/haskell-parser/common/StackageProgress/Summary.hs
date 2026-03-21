@@ -146,7 +146,6 @@ packageParserFailed result = not (packageOursOk result) && packageSourceSize res
 promptCandidateFromResult :: PackageResult -> Maybe PromptCandidate
 promptCandidateFromResult result
   | packageOursOk result = Nothing
-  | not (looksLikeParserFailure (packageReason result)) = Nothing
   | otherwise =
       Just
         PromptCandidate
@@ -182,12 +181,6 @@ ghcFailureMessage result =
        in if null reason
             then "GHC check failed without diagnostic details"
             else "No direct GHC diagnostic; package failed before/around GHC check: " ++ forceString reason
-
-looksLikeParserFailure :: String -> Bool
-looksLikeParserFailure message =
-  "parse failed in " `List.isInfixOf` message
-    || "Parse failed:" `List.isInfixOf` message
-    || "source-span parse failed" `List.isInfixOf` message
 
 normalizePromptErrorMessage :: String -> String
 normalizePromptErrorMessage raw =
