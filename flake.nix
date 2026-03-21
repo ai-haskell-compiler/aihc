@@ -174,6 +174,11 @@
             ${stackageProgressExe} "$@"
           '';
 
+          prompt = mkApp "prompt" ''
+            set -euo pipefail
+            ${stackageProgressExe} --prompt "$@"
+          '';
+
           parser-progress-strict = mkApp "parser-progress-strict" ''
             set -euo pipefail
             test -d components/haskell-parser || {
