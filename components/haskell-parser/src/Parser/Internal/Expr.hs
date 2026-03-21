@@ -69,7 +69,7 @@ doExprParser = withSpan $ do
   pure (`EDo` stmts)
 
 bracedStmtListParser :: TokParser a -> TokParser [a]
-bracedStmtListParser = bracedSemiSep
+bracedStmtListParser = bracedSemiSep1
 
 doStmtParser :: TokParser DoStmt
 doStmtParser = MP.try doBindStmtParser <|> MP.try doLetStmtParser <|> doExprStmtParser

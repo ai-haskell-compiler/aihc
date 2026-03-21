@@ -243,10 +243,18 @@ fixityPrecedenceParser =
 
 fixityOperatorParser :: TokParser Text
 fixityOperatorParser =
-  tokenSatisfy "fixity operator" $ \tok ->
-    case lexTokenKind tok of
-      TkOperator op -> Just op
-      _ -> Nothing
+  symbolicOperatorParser <|> backtickIdentifierParser
+  where
+    symbolicOperatorParser =
+      tokenSatisfy "fixity operator" $ \tok ->
+        case lexTokenKind tok of
+          TkOperator op -> Just op
+          _ -> Nothing
+    backtickIdentifierParser = do
+      symbolLikeTok "`"
+      op <- identifierTextParser
+      symbolLikeTok "`"
+      pure op
 
 classDeclParser :: TokParser Decl
 classDeclParser = withSpan $ do
@@ -278,7 +286,7 @@ classItemsPlainParser :: TokParser [ClassDeclItem]
 classItemsPlainParser = plainSemiSep1 classDeclItemParser
 
 classItemsBracedParser :: TokParser [ClassDeclItem]
-classItemsBracedParser = bracedSemiSep1 classDeclItemParser
+classItemsBracedParser = bracedSemiSep classDeclItemParser
 
 classDeclItemParser :: TokParser ClassDeclItem
 classDeclItemParser = MP.try classFixityItemParser <|> classTypeSigItemParser
