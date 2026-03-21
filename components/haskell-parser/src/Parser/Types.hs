@@ -4,12 +4,14 @@ module Parser.Types
   ( TokStream (..),
     CoverageSlice (..),
     ParseErrorBundle,
+    lexerErrorBundle,
     ParseResult (..),
     ParserConfig (..),
   )
 where
 
 import qualified Data.List.NonEmpty as NE
+import qualified Data.Set as Set
 import qualified Data.Text as T
 import Data.Void (Void)
 import Parser.Ast (Extension, SourceSpan (..))
@@ -21,6 +23,18 @@ import Text.Megaparsec.Stream (Stream (..), TraversableStream (..), VisualStream
 
 -- | Parse error from token parser. Use 'errorBundlePretty' from "Parser" to render.
 type ParseErrorBundle = MPE.ParseErrorBundle TokStream Void
+
+lexerErrorBundle :: FilePath -> String -> ParseErrorBundle
+lexerErrorBundle sourcePath message =
+  MPE.ParseErrorBundle
+    (NE.singleton (MPE.FancyError 0 (Set.singleton (MPE.ErrorFail message))))
+    MP.PosState
+      { MP.pstateInput = TokStream [],
+        MP.pstateOffset = 0,
+        MP.pstateSourcePos = SourcePos sourcePath (mkPos 1) (mkPos 1),
+        MP.pstateTabWidth = mkPos 8,
+        MP.pstateLinePrefix = ""
+      }
 
 newtype TokStream = TokStream
   { unTokStream :: [LexToken]

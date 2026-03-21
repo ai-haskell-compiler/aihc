@@ -182,7 +182,7 @@ plainSemiSep1 parser = MP.some (parser <* skipSemicolons)
 
 constraintParserWith :: TokParser Type -> TokParser Constraint
 constraintParserWith typeAtomParser = withSpan $ do
-  className <- identifierTextParser
+  className <- constructorIdentifierParser
   args <- MP.many typeAtomParser
   pure $ \span' ->
     Constraint

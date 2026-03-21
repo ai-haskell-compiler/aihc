@@ -93,7 +93,7 @@ defaultConfig =
 parseExpr :: ParserConfig -> Text -> ParseResult Expr
 parseExpr cfg input =
   case lexTokensWithExtensions (parserExtensions cfg) input of
-    Left err -> error ("lexer unexpectedly failed: " <> err)
+    Left err -> ParseErr (lexerErrorBundle (parserSourceName cfg) err)
     Right toks ->
       case runParser (exprParser <* MP.eof) (parserSourceName cfg) (TokStream toks) of
         Left bundle -> ParseErr bundle
@@ -102,7 +102,7 @@ parseExpr cfg input =
 parsePattern :: ParserConfig -> Text -> ParseResult Pattern
 parsePattern cfg input =
   case lexTokensWithExtensions (parserExtensions cfg) input of
-    Left err -> error ("lexer unexpectedly failed: " <> err)
+    Left err -> ParseErr (lexerErrorBundle (parserSourceName cfg) err)
     Right toks ->
       case runParser (patternParser <* MP.eof) (parserSourceName cfg) (TokStream toks) of
         Left bundle -> ParseErr bundle
@@ -111,7 +111,7 @@ parsePattern cfg input =
 parseType :: ParserConfig -> Text -> ParseResult Type
 parseType cfg input =
   case lexTokensWithExtensions (parserExtensions cfg) input of
-    Left err -> error ("lexer unexpectedly failed: " <> err)
+    Left err -> ParseErr (lexerErrorBundle (parserSourceName cfg) err)
     Right toks ->
       case runParser (typeParser <* MP.eof) (parserSourceName cfg) (TokStream toks) of
         Left bundle -> ParseErr bundle
@@ -120,7 +120,7 @@ parseType cfg input =
 parseModule :: ParserConfig -> Text -> ParseResult Module
 parseModule cfg input =
   case lexModuleTokensWithExtensions effectiveExtensions input of
-    Left err -> error ("lexer unexpectedly failed: " <> err)
+    Left err -> ParseErr (lexerErrorBundle (parserSourceName cfg) err)
     Right toks ->
       case runParser (moduleParser <* MP.eof) (parserSourceName cfg) (TokStream toks) of
         Left bundle -> ParseErr bundle
