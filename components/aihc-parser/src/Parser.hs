@@ -2,13 +2,16 @@
 
 module Parser
   ( parseExpr,
-    parseExprAt,
+    parseExprFromTokens,
     parsePattern,
-    parsePatternAt,
+    parsePatternFromTokens,
     parseType,
-    parseTypeAt,
+    parseTypeFromTokens,
     parseModule,
-    parseModuleAt,
+    parseModuleFromTokens,
+    parseDeclFromTokens,
+    parseImportDeclFromTokens,
+    parseModuleHeaderFromTokens,
     defaultConfig,
     errorBundlePretty,
     LexToken (..),
@@ -27,9 +30,10 @@ module Parser
   )
 where
 
+import qualified Data.List as List
 import Data.Text (Text)
-import Parser.Ast (Decl, Expr, Extension (..), ExtensionSetting (..), ImportDecl, Module (..), Pattern, Type)
-import Parser.Internal.Common (TokParser, symbolLikeTok, withSpan)
+import Parser.Ast (Decl, ExportSpec, Expr, Extension (..), ExtensionSetting (..), ImportDecl, Module (..), Pattern, Type, WarningText)
+import Parser.Internal.Common (TokParser, skipSemicolons, symbolLikeTok, withSpan)
 import Parser.Internal.Decl (declParser, importDeclParser, languagePragmaParser, moduleHeaderParser)
 import Parser.Internal.Expr (exprParser, patternParser, typeParser)
 import Parser.Lexer
@@ -73,60 +77,95 @@ moduleBodyParser :: TokParser ([ImportDecl], [Decl])
 moduleBodyParser = MP.try bracedModuleBodyParser MP.<|> plainModuleBodyParser
   where
     plainModuleBodyParser = do
-      imports <- MP.many (importDeclParser <* MP.many (symbolLikeTok ";"))
-      decls <- MP.many (declParser <* MP.many (symbolLikeTok ";"))
+      imports <- MP.many (importDeclParser <* skipSemicolons)
+      decls <- MP.many (declParser <* skipSemicolons)
       pure (imports, decls)
 
     bracedModuleBodyParser = do
       symbolLikeTok "{"
-      _ <- MP.many (symbolLikeTok ";")
-      imports <- MP.many (importDeclParser <* MP.many (symbolLikeTok ";"))
-      decls <- MP.many (declParser <* MP.many (symbolLikeTok ";"))
-      _ <- MP.many (symbolLikeTok ";")
+      skipSemicolons
+      imports <- MP.many (importDeclParser <* skipSemicolons)
+      decls <- MP.many (declParser <* skipSemicolons)
+      skipSemicolons
       symbolLikeTok "}"
       pure (imports, decls)
 
 defaultConfig :: ParserConfig
 defaultConfig =
   ParserConfig
-    { allowLineComments = True
+    { parserSourceName = "<input>",
+      parserExtensions = []
     }
 
 parseExpr :: ParserConfig -> Text -> ParseResult Expr
-parseExpr = parseExprAt ""
+parseExpr cfg input =
+  let toks = lexTokensWithExtensions (parserExtensions cfg) input
+   in case runParser (exprParser <* MP.eof) (parserSourceName cfg) (TokStream toks) of
+        Left bundle -> ParseErr bundle
+        Right expr -> ParseOk expr
 
-parseExprAt :: FilePath -> ParserConfig -> Text -> ParseResult Expr
-parseExprAt sourceName _cfg input =
-  case runParser (exprParser <* MP.eof) sourceName (TokStream (lexTokens input)) of
-    Left bundle -> ParseErr bundle
-    Right expr -> ParseOk expr
+parseExprFromTokens :: FilePath -> [LexToken] -> ParseResult Expr
+parseExprFromTokens = parseFromTokens exprParser
 
 parsePattern :: ParserConfig -> Text -> ParseResult Pattern
-parsePattern = parsePatternAt ""
+parsePattern cfg input =
+  let toks = lexTokensWithExtensions (parserExtensions cfg) input
+   in case runParser (patternParser <* MP.eof) (parserSourceName cfg) (TokStream toks) of
+        Left bundle -> ParseErr bundle
+        Right pat -> ParseOk pat
 
-parsePatternAt :: FilePath -> ParserConfig -> Text -> ParseResult Pattern
-parsePatternAt sourceName _cfg input =
-  case runParser (patternParser <* MP.eof) sourceName (TokStream (lexTokens input)) of
-    Left bundle -> ParseErr bundle
-    Right pat -> ParseOk pat
+parsePatternFromTokens :: FilePath -> [LexToken] -> ParseResult Pattern
+parsePatternFromTokens = parseFromTokens patternParser
 
 parseType :: ParserConfig -> Text -> ParseResult Type
-parseType = parseTypeAt ""
+parseType cfg input =
+  let toks = lexTokensWithExtensions (parserExtensions cfg) input
+   in case runParser (typeParser <* MP.eof) (parserSourceName cfg) (TokStream toks) of
+        Left bundle -> ParseErr bundle
+        Right ty -> ParseOk ty
 
-parseTypeAt :: FilePath -> ParserConfig -> Text -> ParseResult Type
-parseTypeAt sourceName _cfg input =
-  case runParser (typeParser <* MP.eof) sourceName (TokStream (lexTokens input)) of
-    Left bundle -> ParseErr bundle
-    Right ty -> ParseOk ty
+parseTypeFromTokens :: FilePath -> [LexToken] -> ParseResult Type
+parseTypeFromTokens = parseFromTokens typeParser
 
 parseModule :: ParserConfig -> Text -> ParseResult Module
-parseModule = parseModuleAt ""
+parseModule cfg input =
+  let toks = lexModuleTokensWithExtensions effectiveExtensions input
+   in case runParser (moduleParser <* MP.eof) (parserSourceName cfg) (TokStream toks) of
+        Left bundle -> ParseErr bundle
+        Right modu -> ParseOk modu
+  where
+    effectiveExtensions =
+      applyExtensionSettings
+        (parserExtensions cfg)
+        (readModuleHeaderExtensions input)
 
-parseModuleAt :: FilePath -> ParserConfig -> Text -> ParseResult Module
-parseModuleAt sourceName _cfg input =
-  case runParser (moduleParser <* MP.eof) sourceName (TokStream (lexModuleTokens input)) of
+applyExtensionSettings :: [Extension] -> [ExtensionSetting] -> [Extension]
+applyExtensionSettings = List.foldl' applySetting
+  where
+    applySetting exts setting =
+      case setting of
+        EnableExtension ext
+          | ext `elem` exts -> exts
+          | otherwise -> exts <> [ext]
+        DisableExtension ext -> filter (/= ext) exts
+
+parseModuleFromTokens :: FilePath -> [LexToken] -> ParseResult Module
+parseModuleFromTokens = parseFromTokens moduleParser
+
+parseDeclFromTokens :: FilePath -> [LexToken] -> ParseResult Decl
+parseDeclFromTokens = parseFromTokens declParser
+
+parseImportDeclFromTokens :: FilePath -> [LexToken] -> ParseResult ImportDecl
+parseImportDeclFromTokens = parseFromTokens importDeclParser
+
+parseModuleHeaderFromTokens :: FilePath -> [LexToken] -> ParseResult (Text, Maybe WarningText, Maybe [ExportSpec])
+parseModuleHeaderFromTokens = parseFromTokens moduleHeaderParser
+
+parseFromTokens :: TokParser a -> FilePath -> [LexToken] -> ParseResult a
+parseFromTokens parser sourceName toks =
+  case runParser (parser <* MP.eof) sourceName (TokStream toks) of
     Left bundle -> ParseErr bundle
-    Right m -> ParseOk m
+    Right parsed -> ParseOk parsed
 
 errorBundlePretty :: ParseErrorBundle -> String
 errorBundlePretty = MP.errorBundlePretty

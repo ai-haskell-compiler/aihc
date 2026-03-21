@@ -25,6 +25,7 @@ library
       base >=4.16 && <5
     , text >=1.2
     , containers
+    , deepseq
     , megaparsec
     , prettyprinter
   ghc-options:        -Wall -Werror
@@ -59,20 +60,23 @@ test-suite spec
     , Test.Extensions.Suite
     , Test.HackageTester.Suite
     , Test.Lexer.Suite
-    , Test.Properties.ExprModuleRoundTrip
-    , Test.Properties.Identifiers
-    , Test.Properties.PatternRoundTrip
-    , Test.Properties.TypeRoundTrip
+     , Test.Properties.ExprModuleRoundTrip
+     , Test.Properties.Identifiers
+     , Test.Properties.NoExceptions
+     , Test.Properties.PatternRoundTrip
+     , Test.Properties.TypeRoundTrip
     , Test.Parser.Suite
     , Test.StackageProgress.Summary
   build-depends:
       base >=4.16 && <5
     , aihc-parser
     , aihc-cpp
+    , megaparsec
     , text
     , containers
     , directory
     , filepath
+    , deepseq
     , tasty
     , tasty-hunit
     , tasty-quickcheck
@@ -119,22 +123,27 @@ executable parser-quickcheck-batch
     , test
   main-is:          Main.hs
   other-modules:
-      ParserQuickCheck.CLI
+      CppSupport
+    , ParserQuickCheck.CLI
     , ParserQuickCheck.Registry
     , ParserQuickCheck.Runner
     , ParserQuickCheck.Types
-    , Test.Properties.ExprModuleRoundTrip
-    , Test.Properties.Identifiers
-    , Test.Properties.PatternRoundTrip
-    , Test.Properties.TypeRoundTrip
+     , Test.Properties.ExprModuleRoundTrip
+     , Test.Properties.Identifiers
+     , Test.Properties.NoExceptions
+     , Test.Properties.PatternRoundTrip
+     , Test.Properties.TypeRoundTrip
   build-depends:
       base >=4.16 && <5
     , aihc-parser
+    , aihc-cpp
     , text
     , aeson
     , QuickCheck
     , containers
     , bytestring
+    , filepath
+    , deepseq
     , optparse-applicative
     , time
   ghc-options:        -O2 -Wall -Werror

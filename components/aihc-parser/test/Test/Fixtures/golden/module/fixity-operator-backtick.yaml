@@ -1,0 +1,9 @@
+extensions: []
+input: |
+  module D9 where
+  infixl 5 `foo`
+  foo :: a -> a -> a
+  foo = undefined
+ast: |
+  Module {name = Just "D9", languagePragmas = [], exports = Nothing, imports = [], decls = [DeclFixity InfixL Just 5 ["foo"], DeclTypeSig ["foo"] (TFun (TVar "a") (TFun (TVar "a") (TVar "a"))), DeclValue (FunctionBind "foo" [Match {pats = [], rhs = UnguardedRhs (EVar "undefined")}])]}
+status: pass

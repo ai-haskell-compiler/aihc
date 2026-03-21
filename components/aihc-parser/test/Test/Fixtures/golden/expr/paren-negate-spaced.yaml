@@ -1,0 +1,5 @@
+extensions: []
+input: |
+  (- x)
+ast: EParen (ESectionR "-" (EVar "x"))
+status: pass

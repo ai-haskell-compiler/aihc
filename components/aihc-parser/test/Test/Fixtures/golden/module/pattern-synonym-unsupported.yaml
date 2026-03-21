@@ -1,0 +1,6 @@
+extensions:
+  - PatternSynonyms
+input: |
+  pattern Pair x y = (x, y)
+status: fail
+reason: pattern synonym declarations should fail explicitly until the AST and parser support them

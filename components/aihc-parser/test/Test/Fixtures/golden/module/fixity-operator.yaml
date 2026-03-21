@@ -1,0 +1,9 @@
+extensions: []
+input: |
+  module D9 where
+  infixr 5 <++>
+  (<++>) :: [a] -> [a] -> [a]
+  (<++>) = (++ )
+ast: |
+  Module {name = Just "D9", languagePragmas = [], exports = Nothing, imports = [], decls = [DeclFixity InfixR Just 5 ["<++>"], DeclTypeSig ["<++>"] (TFun (TList (TVar "a")) (TFun (TList (TVar "a")) (TList (TVar "a")))), DeclValue (FunctionBind "<++>" [Match {pats = [], rhs = UnguardedRhs (EVar "++")}])]}
+status: pass

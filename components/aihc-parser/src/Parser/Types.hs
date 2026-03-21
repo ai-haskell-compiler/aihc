@@ -1,18 +1,24 @@
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE TypeFamilies #-}
 
 module Parser.Types
   ( TokStream (..),
     CoverageSlice (..),
     ParseErrorBundle,
+    lexerErrorBundle,
     ParseResult (..),
     ParserConfig (..),
   )
 where
 
+import Control.DeepSeq (NFData (..))
 import qualified Data.List.NonEmpty as NE
+import qualified Data.Set as Set
 import qualified Data.Text as T
 import Data.Void (Void)
-import Parser.Ast (SourceSpan (..))
+import GHC.Generics (Generic)
+import Parser.Ast (Extension, SourceSpan (..))
 import Parser.Lexer (LexToken (..))
 import qualified Text.Megaparsec as MP
 import qualified Text.Megaparsec.Error as MPE
@@ -22,10 +28,22 @@ import Text.Megaparsec.Stream (Stream (..), TraversableStream (..), VisualStream
 -- | Parse error from token parser. Use 'errorBundlePretty' from "Parser" to render.
 type ParseErrorBundle = MPE.ParseErrorBundle TokStream Void
 
+lexerErrorBundle :: FilePath -> String -> ParseErrorBundle
+lexerErrorBundle sourcePath message =
+  MPE.ParseErrorBundle
+    (NE.singleton (MPE.FancyError 0 (Set.singleton (MPE.ErrorFail message))))
+    MP.PosState
+      { MP.pstateInput = TokStream [],
+        MP.pstateOffset = 0,
+        MP.pstateSourcePos = SourcePos sourcePath (mkPos 1) (mkPos 1),
+        MP.pstateTabWidth = mkPos 8,
+        MP.pstateLinePrefix = ""
+      }
+
 newtype TokStream = TokStream
   { unTokStream :: [LexToken]
   }
-  deriving (Eq, Ord, Show)
+  deriving (Eq, Ord, Show, Generic, NFData)
 
 instance Stream TokStream where
   type Token TokStream = LexToken
@@ -91,15 +109,22 @@ sourcePosFromEndSpan file span' =
     SourceSpan _ _ line col -> SourcePos file (mkPos (max 1 line)) (mkPos (max 1 col))
     NoSourceSpan -> SourcePos file (mkPos 1) (mkPos 1)
 
-newtype ParserConfig = ParserConfig
-  { allowLineComments :: Bool
+data ParserConfig = ParserConfig
+  { parserSourceName :: FilePath,
+    parserExtensions :: [Extension]
   }
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic, NFData)
 
 data ParseResult a
   = ParseOk a
   | ParseErr ParseErrorBundle
   deriving (Eq, Show)
+
+instance (NFData a) => NFData (ParseResult a) where
+  rnf parseResult =
+    case parseResult of
+      ParseOk parsed -> rnf parsed
+      ParseErr bundle -> rnf (show bundle)
 
 data CoverageSlice
   = Lexing
@@ -107,4 +132,4 @@ data CoverageSlice
   | ExprApp
   | Decls
   | Modules
-  deriving (Eq, Ord, Show, Enum, Bounded)
+  deriving (Eq, Ord, Show, Enum, Bounded, Generic, NFData)

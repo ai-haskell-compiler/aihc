@@ -1,0 +1,8 @@
+extensions: []
+input: |
+  x -- comment
+  y
+tokens:
+  - 'TkIdentifier "x"'
+  - 'TkIdentifier "y"'
+status: pass

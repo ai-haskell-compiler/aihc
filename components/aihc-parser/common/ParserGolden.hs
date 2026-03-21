@@ -35,7 +35,7 @@ import Parser
     parseModule,
   )
 import Parser.Ast
-import Parser.Types (ParseResult (..))
+import Parser.Types (ParseResult (..), ParserConfig (..))
 import System.Directory (doesDirectoryExist, listDirectory)
 import System.FilePath (takeDirectory, takeExtension, (</>))
 
@@ -60,7 +60,7 @@ data ParserCase = ParserCase
     caseId :: !String,
     caseCategory :: !String,
     casePath :: !FilePath,
-    caseExtensions :: ![Text],
+    caseExtensions :: ![Extension],
     caseInput :: !Text,
     caseAst :: !String,
     caseStatus :: !ExpectedStatus,
@@ -142,15 +142,27 @@ parseYamlFixture path value =
 
 evaluateExprCase :: ParserCase -> (Outcome, String)
 evaluateExprCase meta =
-  case parseExpr defaultConfig (caseInput meta) of
+  case parseExpr parserConfig (caseInput meta) of
     ParseOk ast -> classifySuccess meta (renderExprAst ast)
     ParseErr err -> classifyFailure meta (errorBundlePretty err)
+  where
+    parserConfig =
+      defaultConfig
+        { parserSourceName = casePath meta,
+          parserExtensions = caseExtensions meta
+        }
 
 evaluateModuleCase :: ParserCase -> (Outcome, String)
 evaluateModuleCase meta =
-  case parseModule defaultConfig (caseInput meta) of
+  case parseModule parserConfig (caseInput meta) of
     ParseOk ast -> classifySuccess meta (renderModuleAst ast)
     ParseErr err -> classifyFailure meta (errorBundlePretty err)
+  where
+    parserConfig =
+      defaultConfig
+        { parserSourceName = casePath meta,
+          parserExtensions = caseExtensions meta
+        }
 
 classifySuccess :: ParserCase -> String -> (Outcome, String)
 classifySuccess meta actualAst =
@@ -641,11 +653,13 @@ listFixtureFiles dir = do
       )
       entries
 
-validateExtensions :: FilePath -> [Text] -> Either String [Text]
-validateExtensions path names =
-  if null names
-    then Right []
-    else Left ("Parser golden fixtures currently require [extensions] to be empty in " <> path)
+validateExtensions :: FilePath -> [Text] -> Either String [Extension]
+validateExtensions path = traverse parseOne
+  where
+    parseOne raw =
+      case parseExtensionName raw of
+        Just ext -> Right ext
+        Nothing -> Left ("Unknown parser extension " <> show raw <> " in " <> path)
 
 parseStatus :: FilePath -> Text -> Either String ExpectedStatus
 parseStatus path raw =
