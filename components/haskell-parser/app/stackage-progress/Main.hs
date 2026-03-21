@@ -55,7 +55,7 @@ import StackageProgress.Summary
 import System.Directory (XdgDirectory (XdgCache), createDirectoryIfMissing, doesFileExist, getCurrentDirectory, getFileSize, getHomeDirectory, getXdgDirectory)
 import System.Environment (getArgs)
 import System.Exit (exitFailure, exitSuccess)
-import System.FilePath ((</>))
+import System.FilePath ((</>), takeDirectory)
 import System.IO (hFlush, hIsTerminalDevice, hPutStrLn, stderr, stdout)
 import System.Process (readProcess)
 
@@ -1110,7 +1110,7 @@ foldConcurrentlyChunksWithProgress n action items total showProgress opts collec
       let done' = done + length batch
           success' = success + length [() | result <- batch, packageOursOk result]
           !summary' = addPackageResults opts batch summary
-          promptCandidatesRev' =
+          !promptCandidatesRev' =
             if collectPromptCandidates
               then reverse (mapMaybe promptCandidateFromResult batch) <> promptCandidatesRev
               else promptCandidatesRev
@@ -1127,23 +1127,27 @@ pickPromptCandidate maybeSeed candidates = do
 
 loadPromptTemplate :: IO String
 loadPromptTemplate = do
-  let candidatePaths =
-        [ "docs/PKG_FIX_PROMPT.md",
-          "../../docs/PKG_FIX_PROMPT.md"
-        ]
-  existing <-
-    mapM
-      ( \path -> do
-          exists <- doesFileExist path
-          pure (path, exists)
-      )
-      candidatePaths
-  case [path | (path, True) <- existing] of
-    path : _ -> readFile path
-    [] -> do
-      cwd <- getCurrentDirectory
+  cwd <- getCurrentDirectory
+  path <- findPromptTemplatePath cwd
+  case path of
+    Just promptPath -> readFile promptPath
+    Nothing -> do
       hPutStrLn stderr ("Could not find prompt template docs/PKG_FIX_PROMPT.md (cwd: " ++ cwd ++ ")")
       exitFailure
+
+findPromptTemplatePath :: FilePath -> IO (Maybe FilePath)
+findPromptTemplatePath startDir = go startDir
+  where
+    go dir = do
+      let candidate = dir </> "docs" </> "PKG_FIX_PROMPT.md"
+      exists <- doesFileExist candidate
+      if exists
+        then pure (Just candidate)
+        else
+          let parent = takeDirectory dir
+           in if parent == dir
+                then pure Nothing
+                else go parent
 
 chunksOf :: Int -> [a] -> [[a]]
 chunksOf _ [] = []
