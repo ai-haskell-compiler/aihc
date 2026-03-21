@@ -48,7 +48,7 @@ exprCoreParserExcept forbiddenInfix = do
     TkKeywordIf -> ifExprParser
     TkKeywordCase -> caseExprParser
     TkKeywordLet -> letExprParser
-    TkOperator "\\" -> lambdaExprParser
+    TkReservedBackslash -> lambdaExprParser
     _ -> infixExprParserExcept forbiddenInfix
 
 ifExprParser :: TokParser Expr
@@ -109,8 +109,12 @@ infixOperatorParserExcept forbidden =
     symbolicOperatorParser =
       tokenSatisfy "infix operator" $ \tok ->
         case lexTokenKind tok of
-          TkOperator op
-            | op /= "=" && op /= "::" && op /= "->" && op `notElem` forbidden -> Just op
+          TkVarSym op | op `notElem` forbidden -> Just op
+          TkConSym op | op `notElem` forbidden -> Just op
+          TkQVarSym op | op `notElem` forbidden -> Just op
+          TkQConSym op | op `notElem` forbidden -> Just op
+          -- Reserved operators that can be used as infix operators
+          TkReservedColon | ":" `notElem` forbidden -> Just ":"
           _ -> Nothing
 
     backtickIdentifierOperatorParser = do
@@ -191,7 +195,19 @@ parenOperatorExprParser = withSpan $ do
   symbolLikeTok "("
   op <- tokenSatisfy "operator" $ \tok ->
     case lexTokenKind tok of
-      TkOperator sym -> Just sym
+      TkVarSym sym -> Just sym
+      TkConSym sym -> Just sym
+      TkQVarSym sym -> Just sym
+      TkQConSym sym -> Just sym
+      TkReservedColon -> Just ":"
+      TkReservedDoubleColon -> Just "::"
+      TkReservedEquals -> Just "="
+      TkReservedPipe -> Just "|"
+      TkReservedLeftArrow -> Just "<-"
+      TkReservedRightArrow -> Just "->"
+      TkReservedDoubleArrow -> Just "=>"
+      TkReservedTilde -> Just "~"
+      TkReservedDotDot -> Just ".."
       _ -> Nothing
   symbolLikeTok ")"
   pure (`EVar` op)
@@ -204,7 +220,7 @@ asPatternParser =
   MP.try
     ( withSpan $ do
         name <- identifierTextParser
-        symbolLikeTok "@"
+        operatorLikeTok "@"
         inner <- patternAtomParser
         pure (\span' -> PAs span' name inner)
     )
@@ -224,8 +240,9 @@ conOperatorParser :: TokParser Text
 conOperatorParser =
   tokenSatisfy "constructor operator" $ \tok ->
     case lexTokenKind tok of
-      TkOperator op
-        | ":" `T.isPrefixOf` op -> Just op
+      TkConSym op -> Just op
+      TkQConSym op -> Just op
+      TkReservedColon -> Just ":"
       _ -> Nothing
 
 appPatternParser :: TokParser Pattern
@@ -346,9 +363,11 @@ rhsParserWithArrow :: Text -> TokParser Rhs
 rhsParserWithArrow arrow = do
   tok <- lookAhead anySingle
   case lexTokenKind tok of
-    TkOperator "|" -> guardedRhssParser arrow
-    TkOperator op
-      | op == arrow -> unguardedRhsParser arrow
+    TkReservedPipe -> guardedRhssParser arrow
+    TkReservedRightArrow | arrow == "->" -> unguardedRhsParser arrow
+    TkReservedEquals | arrow == "=" -> unguardedRhsParser arrow
+    TkVarSym op | op == arrow -> unguardedRhsParser arrow
+    TkConSym op | op == arrow -> unguardedRhsParser arrow
     _ -> fail ("expected " <> T.unpack arrow <> " or guarded right-hand side")
 
 unguardedRhsParser :: Text -> TokParser Rhs
@@ -473,14 +492,22 @@ parseListTail first =
     <|> MP.try commaTailParser
     <|> singletonTailParser
   where
+    -- Parse list comprehension qualifiers, which can be:
+    -- - Regular: [ expr | qual1, qual2, qual3 ]
+    -- - Parallel (with ParallelListComp): [ expr | qual1, qual2 | qual3, qual4 ]
     listCompTailParser = do
       operatorLikeTok "|"
-      quals <- compStmtParser `MP.sepBy1` symbolLikeTok ","
+      firstGroup <- compStmtParser `MP.sepBy1` symbolLikeTok ","
+      -- Try to parse additional parallel groups separated by |
+      moreGroups <- MP.many (operatorLikeTok "|" *> (compStmtParser `MP.sepBy1` symbolLikeTok ","))
       symbolLikeTok "]"
-      pure (\span' -> EListComp span' first quals)
+      pure $ \span' ->
+        case moreGroups of
+          [] -> EListComp span' first firstGroup
+          _ -> EListCompParallel span' first (firstGroup : moreGroups)
 
     arithFromToTailParser = do
-      symbolLikeTok ".."
+      operatorLikeTok ".."
       mTo <- MP.optional exprParser
       symbolLikeTok "]"
       pure $ \span' ->
@@ -495,7 +522,7 @@ parseListTail first =
       MP.try (arithFromThenTailParser second) <|> listTailParser second
 
     arithFromThenTailParser second = do
-      symbolLikeTok ".."
+      operatorLikeTok ".."
       mTo <- MP.optional exprParser
       symbolLikeTok "]"
       pure $ \span' ->
@@ -678,7 +705,7 @@ simplePatternParser =
   MP.try
     ( withSpan $ do
         name <- identifierTextParser
-        symbolLikeTok "@"
+        operatorLikeTok "@"
         inner <- patternAtomParser
         pure (\span' -> PAs span' name inner)
     )

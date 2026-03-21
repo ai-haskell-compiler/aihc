@@ -30,7 +30,7 @@ module Parser.Internal.Common
   )
 where
 
-import Data.Char (isLower, isUpper)
+import Data.Char (isUpper)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Void (Void)
@@ -51,17 +51,37 @@ keywordTok expected =
 symbolLikeTok :: Text -> TokParser ()
 symbolLikeTok expected =
   tokenSatisfy ("symbol " <> show (T.unpack expected)) $ \tok ->
-    case lexTokenKind tok of
-      TkSymbol sym
-        | sym == expected -> Just ()
+    case (expected, lexTokenKind tok) of
+      ("(", TkSpecialLParen) -> Just ()
+      (")", TkSpecialRParen) -> Just ()
+      (",", TkSpecialComma) -> Just ()
+      (";", TkSpecialSemicolon) -> Just ()
+      ("[", TkSpecialLBracket) -> Just ()
+      ("]", TkSpecialRBracket) -> Just ()
+      ("`", TkSpecialBacktick) -> Just ()
+      ("{", TkSpecialLBrace) -> Just ()
+      ("}", TkSpecialRBrace) -> Just ()
       _ -> Nothing
 
 operatorLikeTok :: Text -> TokParser ()
 operatorLikeTok expected =
   tokenSatisfy ("operator " <> show (T.unpack expected)) $ \tok ->
     case lexTokenKind tok of
-      TkOperator op
-        | op == expected -> Just ()
+      TkVarSym op | op == expected -> Just ()
+      TkConSym op | op == expected -> Just ()
+      TkQVarSym op | op == expected -> Just ()
+      TkQConSym op | op == expected -> Just ()
+      TkReservedDotDot | expected == ".." -> Just ()
+      TkReservedColon | expected == ":" -> Just ()
+      TkReservedDoubleColon | expected == "::" -> Just ()
+      TkReservedEquals | expected == "=" -> Just ()
+      TkReservedBackslash | expected == "\\" -> Just ()
+      TkReservedPipe | expected == "|" -> Just ()
+      TkReservedLeftArrow | expected == "<-" -> Just ()
+      TkReservedRightArrow | expected == "->" -> Just ()
+      TkReservedAt | expected == "@" -> Just ()
+      TkReservedTilde | expected == "~" -> Just ()
+      TkReservedDoubleArrow | expected == "=>" -> Just ()
       _ -> Nothing
 
 tokenSatisfy :: String -> (LexToken -> Maybe a) -> TokParser a
@@ -76,31 +96,34 @@ moduleNameParser :: TokParser Text
 moduleNameParser =
   tokenSatisfy "module name" $ \tok ->
     case lexTokenKind tok of
-      TkIdentifier ident
-        | isModuleName ident -> Just ident
+      TkConId ident | isModuleName ident -> Just ident
+      TkQConId ident | isModuleName ident -> Just ident
       _ -> Nothing
 
 identifierTextParser :: TokParser Text
 identifierTextParser =
   tokenSatisfy "identifier" $ \tok ->
     case lexTokenKind tok of
-      TkIdentifier ident -> Just ident
+      TkVarId ident -> Just ident
+      TkConId ident -> Just ident
+      TkQVarId ident -> Just ident
+      TkQConId ident -> Just ident
       _ -> Nothing
 
 lowerIdentifierParser :: TokParser Text
 lowerIdentifierParser =
   tokenSatisfy "lowercase identifier" $ \tok ->
     case lexTokenKind tok of
-      TkIdentifier ident
-        | isLowerIdentifier ident -> Just ident
+      TkVarId ident -> Just ident
+      TkQVarId ident -> Just ident
       _ -> Nothing
 
 constructorIdentifierParser :: TokParser Text
 constructorIdentifierParser =
   tokenSatisfy "constructor identifier" $ \tok ->
     case lexTokenKind tok of
-      TkIdentifier ident
-        | isConstructorIdentifier ident -> Just ident
+      TkConId ident -> Just ident
+      TkQConId ident -> Just ident
       _ -> Nothing
 
 binderNameParser :: TokParser Text
@@ -112,15 +135,30 @@ identifierExact :: Text -> TokParser ()
 identifierExact expected =
   tokenSatisfy ("identifier " <> show (T.unpack expected)) $ \tok ->
     case lexTokenKind tok of
-      TkIdentifier ident
-        | ident == expected -> Just ()
+      TkVarId ident | ident == expected -> Just ()
+      TkConId ident | ident == expected -> Just ()
+      -- Also match reserved keywords that are used as contextual identifiers
+      TkKeywordClass | expected == "class" -> Just ()
+      TkKeywordDefault | expected == "default" -> Just ()
+      TkKeywordDeriving | expected == "deriving" -> Just ()
+      TkKeywordForeign | expected == "foreign" -> Just ()
+      TkKeywordInfix | expected == "infix" -> Just ()
+      TkKeywordInfixl | expected == "infixl" -> Just ()
+      TkKeywordInfixr | expected == "infixr" -> Just ()
+      TkKeywordInstance | expected == "instance" -> Just ()
+      TkKeywordNewtype | expected == "newtype" -> Just ()
+      TkKeywordType | expected == "type" -> Just ()
+      TkKeywordUnderscore | expected == "_" -> Just ()
       _ -> Nothing
 
 operatorTextParser :: TokParser Text
 operatorTextParser =
   tokenSatisfy "operator" $ \tok ->
     case lexTokenKind tok of
-      TkOperator op -> Just op
+      TkVarSym op -> Just op
+      TkConSym op -> Just op
+      TkQVarSym op -> Just op
+      TkQConSym op -> Just op
       _ -> Nothing
 
 stringTextParser :: TokParser Text
@@ -241,12 +279,6 @@ isModuleName name =
   case T.splitOn "." name of
     [] -> False
     segments -> all isConstructorIdentifier segments
-
-isLowerIdentifier :: Text -> Bool
-isLowerIdentifier txt =
-  case T.uncons txt of
-    Just (c, _) -> isLower c || c == '_'
-    Nothing -> False
 
 isConstructorIdentifier :: Text -> Bool
 isConstructorIdentifier txt =

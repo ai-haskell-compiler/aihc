@@ -75,7 +75,7 @@ exportNameParser = do
 exportMembersParser :: TokParser (Maybe [Text])
 exportMembersParser =
   parens $
-    (symbolLikeTok ".." >> pure Nothing)
+    (operatorLikeTok ".." >> pure Nothing)
       <|> (Just <$> (identifierTextParser `MP.sepEndBy` symbolLikeTok ","))
 
 isTypeName :: Text -> Bool
@@ -160,18 +160,22 @@ declParser = do
   tok <- lookAhead anySingle
   case lexTokenKind tok of
     TkKeywordData -> dataDeclParser
-    TkIdentifier ident ->
+    TkKeywordClass -> classDeclParser
+    TkKeywordDefault -> defaultDeclParser
+    TkKeywordForeign -> foreignDeclParser
+    TkKeywordInfix -> fixityDeclParser Infix
+    TkKeywordInfixl -> fixityDeclParser InfixL
+    TkKeywordInfixr -> fixityDeclParser InfixR
+    TkKeywordInstance -> instanceDeclParser
+    TkKeywordNewtype -> newtypeDeclParser
+    TkKeywordType -> MP.try standaloneKindSigDeclParser <|> typeSynDeclParser
+    TkVarId ident ->
       case ident of
-        "class" -> classDeclParser
-        "default" -> defaultDeclParser
-        "foreign" -> foreignDeclParser
-        "infix" -> fixityDeclParser Infix
-        "infixl" -> fixityDeclParser InfixL
-        "infixr" -> fixityDeclParser InfixR
-        "instance" -> instanceDeclParser
-        "newtype" -> newtypeDeclParser
         "pattern" -> unsupportedDeclParser "pattern synonym declarations are not implemented yet"
-        "type" -> MP.try standaloneKindSigDeclParser <|> typeSynDeclParser
+        _ -> MP.try typeSigDeclParser <|> valueDeclParser
+    TkConId ident ->
+      case ident of
+        "pattern" -> unsupportedDeclParser "pattern synonym declarations are not implemented yet"
         _ -> MP.try typeSigDeclParser <|> valueDeclParser
     _ -> MP.try typeSigDeclParser <|> valueDeclParser
 
@@ -248,7 +252,10 @@ fixityOperatorParser =
     symbolicOperatorParser =
       tokenSatisfy "fixity operator" $ \tok ->
         case lexTokenKind tok of
-          TkOperator op -> Just op
+          TkVarSym op -> Just op
+          TkConSym op -> Just op
+          TkQVarSym op -> Just op
+          TkQConSym op -> Just op
           _ -> Nothing
     backtickIdentifierParser = do
       symbolLikeTok "`"
@@ -467,7 +474,7 @@ typeParamParser =
         ident <-
           tokenSatisfy "type parameter binder" $ \tok ->
             case lexTokenKind tok of
-              TkIdentifier name
+              TkVarId name
                 | name /= "deriving",
                   isTypeVarName name ->
                     Just name
@@ -569,8 +576,7 @@ derivingKeywordParser :: TokParser ()
 derivingKeywordParser =
   tokenSatisfy "identifier \"deriving\"" $ \tok ->
     case lexTokenKind tok of
-      TkIdentifier ident
-        | ident == "deriving" -> Just ()
+      TkKeywordDeriving -> Just ()
       _ -> Nothing
 
 bangTypeParser :: TokParser BangType
@@ -611,8 +617,9 @@ constructorOperatorParser :: TokParser Text
 constructorOperatorParser =
   tokenSatisfy "constructor operator" $ \tok ->
     case lexTokenKind tok of
-      TkOperator op
-        | T.isPrefixOf ":" op -> Just op
+      TkConSym op -> Just op
+      TkQConSym op -> Just op
+      TkReservedColon -> Just ":"
       _ -> Nothing
 
 unsupportedDeclParser :: String -> TokParser Decl

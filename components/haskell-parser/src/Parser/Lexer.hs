@@ -72,33 +72,78 @@ import Numeric (readHex, readInt, readOct)
 import Parser.Ast
 
 data LexTokenKind
-  = TkKeywordModule
-  | TkKeywordWhere
-  | TkKeywordDo
+  = -- Keywords (reserved identifiers per Haskell Report Section 2.4)
+    TkKeywordCase
+  | TkKeywordClass
   | TkKeywordData
+  | TkKeywordDefault
+  | TkKeywordDeriving
+  | TkKeywordDo
+  | TkKeywordElse
+  | TkKeywordForeign
+  | TkKeywordIf
   | TkKeywordImport
-  | TkKeywordQualified
+  | TkKeywordIn
+  | TkKeywordInfix
+  | TkKeywordInfixl
+  | TkKeywordInfixr
+  | TkKeywordInstance
+  | TkKeywordLet
+  | TkKeywordModule
+  | TkKeywordNewtype
+  | TkKeywordOf
+  | TkKeywordThen
+  | TkKeywordType
+  | TkKeywordWhere
+  | TkKeywordUnderscore -- _ (wildcard, reserved per Report)
+  | -- Context-sensitive keywords (not strictly reserved per Report, but needed for imports)
+    TkKeywordQualified
   | TkKeywordAs
   | TkKeywordHiding
-  | TkKeywordCase
-  | TkKeywordOf
-  | TkKeywordLet
-  | TkKeywordIn
-  | TkKeywordIf
-  | TkKeywordThen
-  | TkKeywordElse
-  | TkPragmaLanguage [ExtensionSetting]
-  | TkPragmaWarning Text
-  | TkPragmaDeprecated Text
-  | TkIdentifier Text
-  | TkOperator Text
-  | TkInteger Integer
+  | -- Reserved operators (per Haskell Report Section 2.4)
+    TkReservedDotDot -- ..
+  | TkReservedColon -- :
+  | TkReservedDoubleColon -- ::
+  | TkReservedEquals -- =
+  | TkReservedBackslash -- \
+  | TkReservedPipe
+  | TkReservedLeftArrow -- <-
+  | TkReservedRightArrow -- ->
+  | TkReservedAt -- @
+  | TkReservedTilde -- ~
+  | TkReservedDoubleArrow -- =>
+  | -- Identifiers (per Haskell Report Section 2.4)
+    TkVarId Text -- variable identifier (starts lowercase/_)
+  | TkConId Text -- constructor identifier (starts uppercase)
+  | TkQVarId Text -- qualified variable identifier
+  | TkQConId Text -- qualified constructor identifier
+  | -- Operators (per Haskell Report Section 2.4)
+    TkVarSym Text -- variable symbol (doesn't start with :)
+  | TkConSym Text -- constructor symbol (starts with :)
+  | TkQVarSym Text -- qualified variable symbol
+  | TkQConSym Text -- qualified constructor symbol
+  | -- Literals
+    TkInteger Integer
   | TkIntegerBase Integer Text
   | TkFloat Double Text
   | TkChar Char
   | TkString Text
-  | TkSymbol Text
-  | TkQuasiQuote Text Text
+  | -- Special characters (per Haskell Report Section 2.2)
+    TkSpecialLParen -- (
+  | TkSpecialRParen -- )
+  | TkSpecialComma -- ,
+  | TkSpecialSemicolon -- ;
+  | TkSpecialLBracket -- [
+  | TkSpecialRBracket -- ]
+  | TkSpecialBacktick -- `
+  | TkSpecialLBrace -- {
+  | TkSpecialRBrace -- }
+  | -- Pragmas
+    TkPragmaLanguage [ExtensionSetting]
+  | TkPragmaWarning Text
+  | TkPragmaDeprecated Text
+  | -- Other
+    TkQuasiQuote Text Text
   | TkError Text
   deriving (Eq, Ord, Show, Read)
 
@@ -347,7 +392,7 @@ applyNegativeLiterals :: [LexToken] -> [LexToken]
 applyNegativeLiterals toks =
   case toks of
     minusTok : numTok : rest
-      | lexTokenKind minusTok == TkOperator "-",
+      | lexTokenKind minusTok == TkVarSym "-",
         tokensAdjacent minusTok numTok ->
           case lexTokenKind numTok of
             TkInteger n ->
@@ -459,7 +504,7 @@ openPendingLayout st tok =
     Nothing -> ([], st, False)
     Just pending ->
       case lexTokenKind tok of
-        TkSymbol "{" -> ([], st {layoutPendingLayout = Nothing}, False)
+        TkSpecialLBrace -> ([], st {layoutPendingLayout = Nothing}, False)
         _ ->
           let col = tokenStartCol tok
               parentIndent = currentLayoutIndent (layoutContexts st)
@@ -486,7 +531,7 @@ closeBeforeToken st tok =
     TkKeywordIn ->
       let (inserted, contexts') = closeLeadingImplicitLets (lexTokenSpan tok) (layoutContexts st)
        in (inserted, st {layoutContexts = contexts'})
-    TkSymbol ","
+    TkSpecialComma
       | layoutDelimiterDepth st == 0 ->
           let (inserted, contexts') = closeLeadingImplicitLets (lexTokenSpan tok) (layoutContexts st)
            in (inserted, st {layoutContexts = contexts'})
@@ -512,13 +557,11 @@ suppressesVirtualSemicolon tok =
   case lexTokenKind tok of
     TkKeywordThen -> True
     TkKeywordElse -> True
-    TkOperator op
-      | op == "=>"
-          || op == "->"
-          || op == "="
-          || op == "|"
-          || op == "::" ->
-          True
+    TkReservedDoubleArrow -> True -- =>
+    TkReservedRightArrow -> True -- ->
+    TkReservedEquals -> True -- =
+    TkReservedPipe -> True
+    TkReservedDoubleColon -> True -- ::
     _ -> False
 
 closeForDedent :: Int -> SourceSpan -> [LayoutContext] -> ([LexToken], [LayoutContext])
@@ -552,16 +595,17 @@ stepTokenContext st tok =
     TkKeywordDo -> st {layoutPendingLayout = Just PendingLayoutGeneric}
     TkKeywordOf -> st {layoutPendingLayout = Just PendingLayoutGeneric}
     TkKeywordCase
-      | layoutPrevTokenKind st == Just (TkOperator "\\") ->
+      | layoutPrevTokenKind st == Just TkReservedBackslash ->
           st {layoutPendingLayout = Just PendingLayoutGeneric}
+      | otherwise -> st
     TkKeywordLet -> st {layoutPendingLayout = Just PendingLayoutLet}
     TkKeywordWhere -> st {layoutPendingLayout = Just PendingLayoutGeneric}
-    TkSymbol "(" -> st {layoutDelimiterDepth = layoutDelimiterDepth st + 1}
-    TkSymbol "[" -> st {layoutDelimiterDepth = layoutDelimiterDepth st + 1}
-    TkSymbol ")" -> st {layoutDelimiterDepth = max 0 (layoutDelimiterDepth st - 1)}
-    TkSymbol "]" -> st {layoutDelimiterDepth = max 0 (layoutDelimiterDepth st - 1)}
-    TkSymbol "{" -> st {layoutContexts = LayoutExplicit : layoutContexts st}
-    TkSymbol "}" -> st {layoutContexts = popOneContext (layoutContexts st)}
+    TkSpecialLParen -> st {layoutDelimiterDepth = layoutDelimiterDepth st + 1}
+    TkSpecialLBracket -> st {layoutDelimiterDepth = layoutDelimiterDepth st + 1}
+    TkSpecialRParen -> st {layoutDelimiterDepth = max 0 (layoutDelimiterDepth st - 1)}
+    TkSpecialRBracket -> st {layoutDelimiterDepth = max 0 (layoutDelimiterDepth st - 1)}
+    TkSpecialLBrace -> st {layoutContexts = LayoutExplicit : layoutContexts st}
+    TkSpecialRBrace -> st {layoutContexts = popOneContext (layoutContexts st)}
     _ -> st
 
 popOneContext :: [LayoutContext] -> [LayoutContext]
@@ -608,7 +652,11 @@ tokenStartCol tok =
 virtualSymbolToken :: Text -> SourceSpan -> LexToken
 virtualSymbolToken sym span' =
   LexToken
-    { lexTokenKind = TkSymbol sym,
+    { lexTokenKind = case sym of
+        "{" -> TkSpecialLBrace
+        "}" -> TkSpecialRBrace
+        ";" -> TkSpecialSemicolon
+        _ -> error ("virtualSymbolToken: unexpected symbol " ++ T.unpack sym),
       lexTokenText = sym,
       lexTokenSpan = span'
     }
@@ -633,44 +681,65 @@ lexIdentifier st =
       | isIdentStart c ->
           let (seg, rest0) = span isIdentTail rest
               firstChunk = c : seg
-              (consumed, _) = gatherQualified firstChunk rest0
+              (consumed, isQualified) = gatherQualified firstChunk rest0
               ident = T.pack consumed
-              kind = fromMaybe (TkIdentifier ident) (keywordTokenKind ident)
+              kind = classifyIdentifier c isQualified ident
               st' = advanceChars consumed st
            in Just (mkToken st st' ident kind, st')
     _ -> Nothing
   where
     gatherQualified acc chars =
       case chars of
-        '.' : c : more
-          | isIdentStart c ->
+        '.' : c' : more
+          | isIdentStart c' ->
               let (seg, rest) = span isIdentTail more
-               in gatherQualified (acc <> "." <> [c] <> seg) rest
-        _ -> (acc, chars)
+               in gatherQualified (acc <> "." <> [c'] <> seg) rest
+        _ -> (acc, '.' `elem` acc)
+
+    classifyIdentifier firstChar isQualified ident
+      | isQualified =
+          -- Qualified name: use final part to determine var/con
+          let finalPart = T.takeWhileEnd (/= '.') ident
+              firstCharFinal = T.head finalPart
+           in if isAsciiUpper firstCharFinal
+                then TkQConId ident
+                else TkQVarId ident
+      | otherwise =
+          -- Unqualified: check for keyword first
+          case keywordTokenKind ident of
+            Just kw -> kw
+            Nothing ->
+              if isAsciiUpper firstChar
+                then TkConId ident
+                else TkVarId ident
 
 lexOperator :: LexerState -> Maybe (LexToken, LexerState)
 lexOperator st =
   case span isSymbolicOpChar (lexerInput st) of
-    ("", _) -> Nothing
-    (op, _) ->
+    (op@(c : _), _) ->
       let txt = T.pack op
           st' = advanceChars op st
-       in Just (mkToken st st' txt (TkOperator txt), st')
+          kind = case reservedOpTokenKind txt of
+            Just reserved -> reserved
+            Nothing ->
+              if c == ':'
+                then TkConSym txt
+                else TkVarSym txt
+       in Just (mkToken st st' txt kind, st')
+    _ -> Nothing
 
 lexSymbol :: LexerState -> Maybe (LexToken, LexerState)
 lexSymbol st =
   firstJust
-    [ ("..", TkSymbol ".."),
-      ("`", TkSymbol "`"),
-      ("@", TkSymbol "@"),
-      ("(", TkSymbol "("),
-      (")", TkSymbol ")"),
-      ("[", TkSymbol "["),
-      ("]", TkSymbol "]"),
-      ("{", TkSymbol "{"),
-      ("}", TkSymbol "}"),
-      (",", TkSymbol ","),
-      (";", TkSymbol ";")
+    [ ("(", TkSpecialLParen),
+      (")", TkSpecialRParen),
+      ("[", TkSpecialLBracket),
+      ("]", TkSpecialRBracket),
+      ("{", TkSpecialLBrace),
+      ("}", TkSpecialRBrace),
+      (",", TkSpecialComma),
+      (";", TkSpecialSemicolon),
+      ("`", TkSpecialBacktick)
     ]
   where
     firstJust xs =
@@ -1321,7 +1390,7 @@ isIdentTail :: Char -> Bool
 isIdentTail c = isAlphaNum c || c == '_' || c == '\''
 
 isSymbolicOpChar :: Char -> Bool
-isSymbolicOpChar c = c `elem` (":!#$%&*+./<=>?\\^|-~" :: String)
+isSymbolicOpChar c = c `elem` (":!#$%&*+./<=>?@\\^|-~" :: String)
 
 isIdentTailOrStart :: Char -> Bool
 isIdentTailOrStart c = isAlphaNum c || c == '_' || c == '\''
@@ -1331,19 +1400,47 @@ isReservedIdentifier = isJust . keywordTokenKind
 
 keywordTokenKind :: Text -> Maybe LexTokenKind
 keywordTokenKind txt = case txt of
-  "module" -> Just TkKeywordModule
-  "where" -> Just TkKeywordWhere
-  "do" -> Just TkKeywordDo
+  "case" -> Just TkKeywordCase
+  "class" -> Just TkKeywordClass
   "data" -> Just TkKeywordData
+  "default" -> Just TkKeywordDefault
+  "deriving" -> Just TkKeywordDeriving
+  "do" -> Just TkKeywordDo
+  "else" -> Just TkKeywordElse
+  "foreign" -> Just TkKeywordForeign
+  "if" -> Just TkKeywordIf
   "import" -> Just TkKeywordImport
+  "in" -> Just TkKeywordIn
+  "infix" -> Just TkKeywordInfix
+  "infixl" -> Just TkKeywordInfixl
+  "infixr" -> Just TkKeywordInfixr
+  "instance" -> Just TkKeywordInstance
+  "let" -> Just TkKeywordLet
+  "module" -> Just TkKeywordModule
+  "newtype" -> Just TkKeywordNewtype
+  "of" -> Just TkKeywordOf
+  "then" -> Just TkKeywordThen
+  "type" -> Just TkKeywordType
+  "where" -> Just TkKeywordWhere
+  "_" -> Just TkKeywordUnderscore
+  -- Context-sensitive keywords (not strictly reserved per Report)
   "qualified" -> Just TkKeywordQualified
   "as" -> Just TkKeywordAs
   "hiding" -> Just TkKeywordHiding
-  "case" -> Just TkKeywordCase
-  "of" -> Just TkKeywordOf
-  "let" -> Just TkKeywordLet
-  "in" -> Just TkKeywordIn
-  "if" -> Just TkKeywordIf
-  "then" -> Just TkKeywordThen
-  "else" -> Just TkKeywordElse
+  _ -> Nothing
+
+-- | Classify reserved operators per Haskell Report Section 2.4.
+reservedOpTokenKind :: Text -> Maybe LexTokenKind
+reservedOpTokenKind txt = case txt of
+  ".." -> Just TkReservedDotDot
+  ":" -> Just TkReservedColon
+  "::" -> Just TkReservedDoubleColon
+  "=" -> Just TkReservedEquals
+  "\\" -> Just TkReservedBackslash
+  "|" -> Just TkReservedPipe
+  "<-" -> Just TkReservedLeftArrow
+  "->" -> Just TkReservedRightArrow
+  "@" -> Just TkReservedAt
+  "~" -> Just TkReservedTilde
+  "=>" -> Just TkReservedDoubleArrow
   _ -> Nothing
