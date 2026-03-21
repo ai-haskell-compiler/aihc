@@ -4,6 +4,7 @@ module StackageProgress.Summary
   ( FailedPackage (..),
     PackageResult (..),
     PackageSpec (..),
+    PromptCandidate (..),
     RunSummary,
     SummaryOptions (..),
     addPackageResults,
@@ -12,6 +13,9 @@ module StackageProgress.Summary
     forceString,
     formatPackage,
     packageParserFailed,
+    promptCandidateFromResult,
+    renderPrompt,
+    selectPromptCandidate,
     summaryFailedPackages,
     summaryGhcErrors,
     summarySuccessGhcN,
@@ -43,6 +47,12 @@ data PackageResult = PackageResult
 data FailedPackage = FailedPackage
   { failedPackageName :: String,
     failedPackageSourceSize :: Integer
+  }
+  deriving (Eq, Show)
+
+data PromptCandidate = PromptCandidate
+  { promptPackageName :: String,
+    promptErrorMessage :: String
   }
   deriving (Eq, Show)
 
@@ -133,6 +143,27 @@ formatPackage spec = pkgName spec ++ "-" ++ pkgVersion spec
 packageParserFailed :: PackageResult -> Bool
 packageParserFailed result = not (packageOursOk result) && packageSourceSize result > 0
 
+promptCandidateFromResult :: PackageResult -> Maybe PromptCandidate
+promptCandidateFromResult result
+  | packageOursOk result = Nothing
+  | otherwise =
+      Just
+        PromptCandidate
+          { promptPackageName = pkgName (package result),
+            promptErrorMessage = packageReason result
+          }
+
+renderPrompt :: String -> PromptCandidate -> String
+renderPrompt template candidate =
+  replaceAll "{{ERROR_MESSAGES}}" (promptErrorMessage candidate) $ replaceAll "{{PACKAGE_NAME}}" (promptPackageName candidate) template
+
+selectPromptCandidate :: Integer -> [PromptCandidate] -> Maybe PromptCandidate
+selectPromptCandidate _ [] = Nothing
+selectPromptCandidate seed candidates =
+  let n = length candidates
+      idx = fromInteger (seed `mod` toInteger n)
+   in Just (candidates !! idx)
+
 ghcFailureMessage :: PackageResult -> String
 ghcFailureMessage result =
   case packageGhcError result of
@@ -152,3 +183,16 @@ boolToInt False = 0
 
 forceString :: String -> String
 forceString value = length value `seq` value
+
+replaceAll :: String -> String -> String -> String
+replaceAll needle replacement = go
+  where
+    go haystack
+      | null needle = haystack
+      | otherwise =
+          case List.stripPrefix needle haystack of
+            Just rest -> replacement ++ go rest
+            Nothing ->
+              case haystack of
+                [] -> []
+                x : xs -> x : go xs

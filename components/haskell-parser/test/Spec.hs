@@ -2,10 +2,11 @@
 
 module Main (main) where
 
+import Data.List (isInfixOf)
 import qualified Data.Text as T
 import Parser
 import Parser.Ast
-import Parser.Types (ParseResult (..))
+import Parser.Types (ParseResult (..), ParserConfig (..))
 import Test.ErrorMessages.Suite (errorMessageTests)
 import Test.ExtensionMapping.Suite (extensionMappingTests)
 import Test.Extensions.Suite (extensionTests)
@@ -65,6 +66,8 @@ buildTests = do
             testCase "applies COLUMN pragmas to subsequent tokens" test_columnPragmaUpdatesSpan,
             testCase "applies COLUMN pragmas in the middle of a line" test_inlineColumnPragmaUpdatesSpan,
             testCase "can lex lazily from chunks" test_lexerChunkLaziness,
+            testCase "parser config passes extensions to lexer" test_parserConfigPassesExtensions,
+            testCase "parser config sets source name in parse errors" test_parserConfigSetsSourceName,
             testCase "generated identifiers reject reserved keyword as" test_generatedIdentifiersRejectReservedAs,
             testCase "generated identifiers reject standalone underscore" test_generatedIdentifiersRejectStandaloneUnderscore,
             testCase "shrunk identifiers reject standalone underscore" test_shrunkIdentifiersRejectStandaloneUnderscore
@@ -95,6 +98,23 @@ test_moduleParsesDecls =
             pure ()
         other ->
           assertFailure ("unexpected parsed declarations: " <> show other)
+
+test_parserConfigPassesExtensions :: Assertion
+test_parserConfigPassesExtensions =
+  case parseExpr defaultConfig {parserExtensions = [NegativeLiterals]} "-1" of
+    ParseOk (EInt _ (-1) _) -> pure ()
+    ParseOk other -> assertFailure ("expected negative literal expression, got: " <> show other)
+    ParseErr err -> assertFailure ("expected parse success, got parse error: " <> errorBundlePretty err)
+
+test_parserConfigSetsSourceName :: Assertion
+test_parserConfigSetsSourceName =
+  case parseModule defaultConfig {parserSourceName = "Example.hs"} "module" of
+    ParseErr err ->
+      if "Example.hs" `isInfixOf` errorBundlePretty err
+        then pure ()
+        else assertFailure ("expected source name in parse error, got: " <> errorBundlePretty err)
+    ParseOk modu ->
+      assertFailure ("expected parse failure, got: " <> show modu)
 
 test_readsHeaderLanguagePragmas :: Assertion
 test_readsHeaderLanguagePragmas = do

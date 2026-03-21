@@ -1,0 +1,6 @@
+extensions:
+  - NegativeLiterals
+input: |
+  -1
+ast: EInt -1
+status: pass

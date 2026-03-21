@@ -23,8 +23,8 @@ import Data.Text.Encoding (encodeUtf8)
 import qualified Data.Text.IO as TIO
 import qualified Data.Yaml as Y
 import GhcOracle (oracleModuleParseErrorWithNamesAt)
-import Parser (defaultConfig, errorBundlePretty, parseModuleAt)
-import Parser.Types (ParseResult (..))
+import Parser (defaultConfig, errorBundlePretty, parseModule)
+import Parser.Types (ParseResult (..), ParserConfig (..))
 import System.Directory (doesDirectoryExist, listDirectory)
 import System.FilePath (makeRelative, takeDirectory, takeExtension, (</>))
 
@@ -131,7 +131,7 @@ ghcMismatch meta =
 
 renderAihcMessage :: ErrorMessageCase -> Either String Text
 renderAihcMessage meta =
-  case parseModuleAt sourceName defaultConfig (caseSource meta) of
+  case parseModule defaultConfig {parserSourceName = sourceName} (caseSource meta) of
     ParseErr bundle -> Right (normalizeText (T.pack (errorBundlePretty bundle)))
     ParseOk _ -> Left "aihc parser accepted the input"
 
