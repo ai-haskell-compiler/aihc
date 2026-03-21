@@ -198,7 +198,7 @@ Why this matters:
 
 - Every new AST constructor requires updates in multiple functions.
 - Span logic is now split across modules instead of being attached to the AST types themselves.
-- Helpers like `sameLine*Parser` also carry `NoSourceSpan -> 1` fallback logic repeatedly.
+- Helpers like `sameLine*Parser` also carry repeated "fallback to line 1 when no source span is available" logic.
 
 Recommendation:
 

@@ -198,9 +198,7 @@ constraintsParserWith typeAtomParser =
     <|> fmap pure (constraintParserWith typeAtomParser)
 
 contextParserWith :: TokParser Type -> TokParser [Constraint]
-contextParserWith typeAtomParser =
-  MP.try (parens (markSingleParenConstraint <$> (constraintParserWith typeAtomParser `MP.sepEndBy` symbolLikeTok ",")))
-    <|> fmap pure (constraintParserWith typeAtomParser)
+contextParserWith = constraintsParserWith
 
 functionBindValue :: SourceSpan -> Text -> [Pattern] -> Rhs -> ValueDecl
 functionBindValue span' name pats rhs =
