@@ -49,7 +49,6 @@ exprCoreParserExcept forbiddenInfix = do
     TkKeywordCase -> caseExprParser
     TkKeywordLet -> letExprParser
     TkOperator "\\" -> lambdaExprParser
-    TkOperator "-" -> MP.try negateExprParser <|> infixExprParserExcept forbiddenInfix
     _ -> infixExprParserExcept forbiddenInfix
 
 ifExprParser :: TokParser Expr
@@ -95,7 +94,7 @@ doExprStmtParser = withSpan $ do
 
 infixExprParserExcept :: [Text] -> TokParser Expr
 infixExprParserExcept forbidden = do
-  lhs <- appExprParser
+  lhs <- MP.try negateExprParser <|> appExprParser
   rest <- MP.many ((,) <$> infixOperatorParserExcept forbidden <*> appExprParser)
   pure (foldl buildInfix lhs rest)
 
