@@ -55,7 +55,7 @@ import StackageProgress.Summary
 import System.Directory (XdgDirectory (XdgCache), createDirectoryIfMissing, doesFileExist, getCurrentDirectory, getFileSize, getHomeDirectory, getXdgDirectory)
 import System.Environment (getArgs)
 import System.Exit (exitFailure, exitSuccess)
-import System.FilePath ((</>), takeDirectory)
+import System.FilePath (takeDirectory, (</>))
 import System.IO (hFlush, hIsTerminalDevice, hPutStrLn, stderr, stdout)
 import System.Process (readProcess)
 
@@ -1136,7 +1136,7 @@ loadPromptTemplate = do
       exitFailure
 
 findPromptTemplatePath :: FilePath -> IO (Maybe FilePath)
-findPromptTemplatePath startDir = go startDir
+findPromptTemplatePath = go
   where
     go dir = do
       let candidate = dir </> "docs" </> "PKG_FIX_PROMPT.md"
