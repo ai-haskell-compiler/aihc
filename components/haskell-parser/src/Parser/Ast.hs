@@ -44,6 +44,7 @@ module Parser.Ast
     OperatorName,
     Pattern (..),
     Rhs (..),
+    HasSourceSpan (..),
     SourceSpan (..),
     Type (..),
     TyVarBinder (..),
@@ -53,9 +54,11 @@ module Parser.Ast
     allKnownExtensions,
     extensionName,
     extensionSettingName,
+    mergeSourceSpans,
     noSourceSpan,
     parseExtensionName,
     parseExtensionSettingName,
+    sourceSpanEnd,
     valueDeclBinderName,
   )
 where
@@ -287,6 +290,22 @@ data SourceSpan
 noSourceSpan :: SourceSpan
 noSourceSpan = NoSourceSpan
 
+class HasSourceSpan a where
+  getSourceSpan :: a -> SourceSpan
+
+mergeSourceSpans :: SourceSpan -> SourceSpan -> SourceSpan
+mergeSourceSpans left right =
+  case (left, right) of
+    (SourceSpan l1 c1 _ _, SourceSpan _ _ l2 c2) -> SourceSpan l1 c1 l2 c2
+    (NoSourceSpan, span') -> span'
+    (span', NoSourceSpan) -> span'
+
+sourceSpanEnd :: (HasSourceSpan a) => [a] -> SourceSpan
+sourceSpanEnd xs =
+  case reverse xs of
+    [] -> NoSourceSpan
+    x : _ -> getSourceSpan x
+
 type BinderName = Text
 
 type OperatorName = Text
@@ -295,6 +314,12 @@ data WarningText
   = DeprText SourceSpan Text
   | WarnText SourceSpan Text
   deriving (Eq, Show, Generic, NFData)
+
+instance HasSourceSpan WarningText where
+  getSourceSpan warningText =
+    case warningText of
+      DeprText span' _ -> span'
+      WarnText span' _ -> span'
 
 data Module = Module
   { moduleSpan :: SourceSpan,
@@ -306,6 +331,9 @@ data Module = Module
     moduleDecls :: [Decl]
   }
   deriving (Eq, Show, Generic, NFData)
+
+instance HasSourceSpan Module where
+  getSourceSpan = moduleSpan
 
 data ExportSpec
   = ExportModule SourceSpan Text
@@ -327,6 +355,9 @@ data ImportDecl = ImportDecl
   }
   deriving (Eq, Show, Generic, NFData)
 
+instance HasSourceSpan ImportDecl where
+  getSourceSpan = importDeclSpan
+
 data ImportLevel
   = ImportLevelQuote
   | ImportLevelSplice
@@ -338,6 +369,9 @@ data ImportSpec = ImportSpec
     importSpecItems :: [ImportItem]
   }
   deriving (Eq, Show, Generic, NFData)
+
+instance HasSourceSpan ImportSpec where
+  getSourceSpan = importSpecSpan
 
 data ImportItem
   = ImportItemVar SourceSpan (Maybe Text) Text
@@ -360,10 +394,31 @@ data Decl
   | DeclForeign SourceSpan ForeignDecl
   deriving (Data, Eq, Show, Generic, NFData)
 
+instance HasSourceSpan Decl where
+  getSourceSpan decl =
+    case decl of
+      DeclValue span' _ -> span'
+      DeclTypeSig span' _ _ -> span'
+      DeclStandaloneKindSig span' _ _ -> span'
+      DeclFixity span' _ _ _ -> span'
+      DeclTypeSyn span' _ -> span'
+      DeclData span' _ -> span'
+      DeclNewtype span' _ -> span'
+      DeclClass span' _ -> span'
+      DeclInstance span' _ -> span'
+      DeclDefault span' _ -> span'
+      DeclForeign span' _ -> span'
+
 data ValueDecl
   = FunctionBind SourceSpan BinderName [Match]
   | PatternBind SourceSpan Pattern Rhs
   deriving (Data, Eq, Show, Generic, NFData)
+
+instance HasSourceSpan ValueDecl where
+  getSourceSpan valueDecl =
+    case valueDecl of
+      FunctionBind span' _ _ -> span'
+      PatternBind span' _ _ -> span'
 
 data Match = Match
   { matchSpan :: SourceSpan,
@@ -372,10 +427,19 @@ data Match = Match
   }
   deriving (Data, Eq, Show, Generic, NFData)
 
+instance HasSourceSpan Match where
+  getSourceSpan = matchSpan
+
 data Rhs
   = UnguardedRhs SourceSpan Expr
   | GuardedRhss SourceSpan [GuardedRhs]
   deriving (Data, Eq, Show, Generic, NFData)
+
+instance HasSourceSpan Rhs where
+  getSourceSpan rhs =
+    case rhs of
+      UnguardedRhs span' _ -> span'
+      GuardedRhss span' _ -> span'
 
 data GuardedRhs = GuardedRhs
   { guardedRhsSpan :: SourceSpan,
@@ -384,11 +448,21 @@ data GuardedRhs = GuardedRhs
   }
   deriving (Data, Eq, Show, Generic, NFData)
 
+instance HasSourceSpan GuardedRhs where
+  getSourceSpan = guardedRhsSpan
+
 data GuardQualifier
   = GuardExpr SourceSpan Expr
   | GuardPat SourceSpan Pattern Expr
   | GuardLet SourceSpan [Decl]
   deriving (Data, Eq, Show, Generic, NFData)
+
+instance HasSourceSpan GuardQualifier where
+  getSourceSpan qualifier =
+    case qualifier of
+      GuardExpr span' _ -> span'
+      GuardPat span' _ _ -> span'
+      GuardLet span' _ -> span'
 
 data Literal
   = LitInt SourceSpan Integer Text
@@ -397,6 +471,15 @@ data Literal
   | LitChar SourceSpan Char Text
   | LitString SourceSpan Text Text
   deriving (Data, Eq, Show, Generic, NFData)
+
+instance HasSourceSpan Literal where
+  getSourceSpan literal =
+    case literal of
+      LitInt span' _ _ -> span'
+      LitIntBase span' _ _ -> span'
+      LitFloat span' _ _ -> span'
+      LitChar span' _ _ -> span'
+      LitString span' _ _ -> span'
 
 data Pattern
   = PVar SourceSpan Text
@@ -416,6 +499,25 @@ data Pattern
   | PRecord SourceSpan Text [(Text, Pattern)]
   deriving (Data, Eq, Show, Generic, NFData)
 
+instance HasSourceSpan Pattern where
+  getSourceSpan pat =
+    case pat of
+      PVar span' _ -> span'
+      PWildcard span' -> span'
+      PLit span' _ -> span'
+      PQuasiQuote span' _ _ -> span'
+      PTuple span' _ -> span'
+      PList span' _ -> span'
+      PCon span' _ _ -> span'
+      PInfix span' _ _ _ -> span'
+      PView span' _ _ -> span'
+      PAs span' _ _ -> span'
+      PStrict span' _ -> span'
+      PIrrefutable span' _ -> span'
+      PNegLit span' _ -> span'
+      PParen span' _ -> span'
+      PRecord span' _ _ -> span'
+
 data Type
   = TVar SourceSpan Text
   | TCon SourceSpan Text
@@ -430,6 +532,21 @@ data Type
   | TContext SourceSpan [Constraint] Type
   deriving (Data, Eq, Show, Generic, NFData)
 
+instance HasSourceSpan Type where
+  getSourceSpan ty =
+    case ty of
+      TVar span' _ -> span'
+      TCon span' _ -> span'
+      TStar span' -> span'
+      TQuasiQuote span' _ _ -> span'
+      TForall span' _ _ -> span'
+      TApp span' _ _ -> span'
+      TFun span' _ _ -> span'
+      TTuple span' _ -> span'
+      TList span' _ -> span'
+      TParen span' _ -> span'
+      TContext span' _ _ -> span'
+
 data Constraint = Constraint
   { constraintSpan :: SourceSpan,
     constraintClass :: Text,
@@ -438,12 +555,18 @@ data Constraint = Constraint
   }
   deriving (Data, Eq, Show, Generic, NFData)
 
+instance HasSourceSpan Constraint where
+  getSourceSpan = constraintSpan
+
 data TyVarBinder = TyVarBinder
   { tyVarBinderSpan :: SourceSpan,
     tyVarBinderName :: Text,
     tyVarBinderKind :: Maybe Type
   }
   deriving (Data, Eq, Show, Generic, NFData)
+
+instance HasSourceSpan TyVarBinder where
+  getSourceSpan = tyVarBinderSpan
 
 data TypeSynDecl = TypeSynDecl
   { typeSynSpan :: SourceSpan,
@@ -452,6 +575,9 @@ data TypeSynDecl = TypeSynDecl
     typeSynBody :: Type
   }
   deriving (Data, Eq, Show, Generic, NFData)
+
+instance HasSourceSpan TypeSynDecl where
+  getSourceSpan = typeSynSpan
 
 data DataDecl = DataDecl
   { dataDeclSpan :: SourceSpan,
@@ -463,6 +589,9 @@ data DataDecl = DataDecl
   }
   deriving (Data, Eq, Show, Generic, NFData)
 
+instance HasSourceSpan DataDecl where
+  getSourceSpan = dataDeclSpan
+
 data NewtypeDecl = NewtypeDecl
   { newtypeDeclSpan :: SourceSpan,
     newtypeDeclContext :: [Constraint],
@@ -473,11 +602,21 @@ data NewtypeDecl = NewtypeDecl
   }
   deriving (Data, Eq, Show, Generic, NFData)
 
+instance HasSourceSpan NewtypeDecl where
+  getSourceSpan = newtypeDeclSpan
+
 data DataConDecl
   = PrefixCon SourceSpan [Text] [Constraint] Text [BangType]
   | InfixCon SourceSpan [Text] [Constraint] BangType Text BangType
   | RecordCon SourceSpan [Text] [Constraint] Text [FieldDecl]
   deriving (Data, Eq, Show, Generic, NFData)
+
+instance HasSourceSpan DataConDecl where
+  getSourceSpan dataConDecl =
+    case dataConDecl of
+      PrefixCon span' _ _ _ _ -> span'
+      InfixCon span' _ _ _ _ _ -> span'
+      RecordCon span' _ _ _ _ -> span'
 
 data BangType = BangType
   { bangSpan :: SourceSpan,
@@ -486,12 +625,18 @@ data BangType = BangType
   }
   deriving (Data, Eq, Show, Generic, NFData)
 
+instance HasSourceSpan BangType where
+  getSourceSpan = bangSpan
+
 data FieldDecl = FieldDecl
   { fieldSpan :: SourceSpan,
     fieldNames :: [Text],
     fieldType :: BangType
   }
   deriving (Data, Eq, Show, Generic, NFData)
+
+instance HasSourceSpan FieldDecl where
+  getSourceSpan = fieldSpan
 
 data DerivingClause = DerivingClause
   { derivingStrategy :: Maybe DerivingStrategy,
@@ -514,11 +659,21 @@ data ClassDecl = ClassDecl
   }
   deriving (Data, Eq, Show, Generic, NFData)
 
+instance HasSourceSpan ClassDecl where
+  getSourceSpan = classDeclSpan
+
 data ClassDeclItem
   = ClassItemTypeSig SourceSpan [BinderName] Type
   | ClassItemFixity SourceSpan FixityAssoc (Maybe Int) [OperatorName]
   | ClassItemDefault SourceSpan ValueDecl
   deriving (Data, Eq, Show, Generic, NFData)
+
+instance HasSourceSpan ClassDeclItem where
+  getSourceSpan classDeclItem =
+    case classDeclItem of
+      ClassItemTypeSig span' _ _ -> span'
+      ClassItemFixity span' _ _ _ -> span'
+      ClassItemDefault span' _ -> span'
 
 data InstanceDecl = InstanceDecl
   { instanceDeclSpan :: SourceSpan,
@@ -529,11 +684,21 @@ data InstanceDecl = InstanceDecl
   }
   deriving (Data, Eq, Show, Generic, NFData)
 
+instance HasSourceSpan InstanceDecl where
+  getSourceSpan = instanceDeclSpan
+
 data InstanceDeclItem
   = InstanceItemBind SourceSpan ValueDecl
   | InstanceItemTypeSig SourceSpan [BinderName] Type
   | InstanceItemFixity SourceSpan FixityAssoc (Maybe Int) [OperatorName]
   deriving (Data, Eq, Show, Generic, NFData)
+
+instance HasSourceSpan InstanceDeclItem where
+  getSourceSpan instanceDeclItem =
+    case instanceDeclItem of
+      InstanceItemBind span' _ -> span'
+      InstanceItemTypeSig span' _ _ -> span'
+      InstanceItemFixity span' _ _ _ -> span'
 
 data FixityAssoc
   = Infix
@@ -551,6 +716,9 @@ data ForeignDecl = ForeignDecl
     foreignType :: Type
   }
   deriving (Data, Eq, Show, Generic, NFData)
+
+instance HasSourceSpan ForeignDecl where
+  getSourceSpan = foreignDeclSpan
 
 data ForeignEntitySpec
   = ForeignEntityDynamic
@@ -610,12 +778,50 @@ data Expr
   | EApp SourceSpan Expr Expr
   deriving (Data, Eq, Show, Generic, NFData)
 
+instance HasSourceSpan Expr where
+  getSourceSpan expr =
+    case expr of
+      EVar span' _ -> span'
+      EInt span' _ _ -> span'
+      EIntBase span' _ _ -> span'
+      EFloat span' _ _ -> span'
+      EChar span' _ _ -> span'
+      EString span' _ _ -> span'
+      EQuasiQuote span' _ _ -> span'
+      EIf span' _ _ _ -> span'
+      ELambdaPats span' _ _ -> span'
+      ELambdaCase span' _ -> span'
+      EInfix span' _ _ _ -> span'
+      ENegate span' _ -> span'
+      ESectionL span' _ _ -> span'
+      ESectionR span' _ _ -> span'
+      ELetDecls span' _ _ -> span'
+      ECase span' _ _ -> span'
+      EDo span' _ -> span'
+      EListComp span' _ _ -> span'
+      EListCompParallel span' _ _ -> span'
+      EArithSeq span' _ -> span'
+      ERecordCon span' _ _ -> span'
+      ERecordUpd span' _ _ -> span'
+      ETypeSig span' _ _ -> span'
+      EParen span' _ -> span'
+      EWhereDecls span' _ _ -> span'
+      EList span' _ -> span'
+      ETuple span' _ -> span'
+      ETupleSection span' _ -> span'
+      ETupleCon span' _ -> span'
+      ETypeApp span' _ _ -> span'
+      EApp span' _ _ -> span'
+
 data CaseAlt = CaseAlt
   { caseAltSpan :: SourceSpan,
     caseAltPattern :: Pattern,
     caseAltRhs :: Rhs
   }
   deriving (Data, Eq, Show, Generic, NFData)
+
+instance HasSourceSpan CaseAlt where
+  getSourceSpan = caseAltSpan
 
 data DoStmt
   = DoBind SourceSpan Pattern Expr
@@ -624,6 +830,14 @@ data DoStmt
   | DoExpr SourceSpan Expr
   deriving (Data, Eq, Show, Generic, NFData)
 
+instance HasSourceSpan DoStmt where
+  getSourceSpan doStmt =
+    case doStmt of
+      DoBind span' _ _ -> span'
+      DoLet span' _ -> span'
+      DoLetDecls span' _ -> span'
+      DoExpr span' _ -> span'
+
 data CompStmt
   = CompGen SourceSpan Pattern Expr
   | CompGuard SourceSpan Expr
@@ -631,12 +845,28 @@ data CompStmt
   | CompLetDecls SourceSpan [Decl]
   deriving (Data, Eq, Show, Generic, NFData)
 
+instance HasSourceSpan CompStmt where
+  getSourceSpan compStmt =
+    case compStmt of
+      CompGen span' _ _ -> span'
+      CompGuard span' _ -> span'
+      CompLet span' _ -> span'
+      CompLetDecls span' _ -> span'
+
 data ArithSeq
   = ArithSeqFrom SourceSpan Expr
   | ArithSeqFromThen SourceSpan Expr Expr
   | ArithSeqFromTo SourceSpan Expr Expr
   | ArithSeqFromThenTo SourceSpan Expr Expr Expr
   deriving (Data, Eq, Show, Generic, NFData)
+
+instance HasSourceSpan ArithSeq where
+  getSourceSpan arithSeq =
+    case arithSeq of
+      ArithSeqFrom span' _ -> span'
+      ArithSeqFromThen span' _ _ -> span'
+      ArithSeqFromTo span' _ _ -> span'
+      ArithSeqFromThenTo span' _ _ _ -> span'
 
 valueDeclBinderName :: ValueDecl -> Maybe Text
 valueDeclBinderName vdecl =

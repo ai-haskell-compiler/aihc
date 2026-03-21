@@ -8,23 +8,36 @@ module Parser.Internal.Common
     tokenSatisfy,
     moduleNameParser,
     identifierTextParser,
+    lowerIdentifierParser,
+    constructorIdentifierParser,
+    binderNameParser,
     identifierExact,
+    operatorTextParser,
+    stringTextParser,
     withSpan,
     sourceSpanFromPositions,
-    exprSourceSpan,
-    typeSourceSpan,
-    mergeSourceSpans,
     markSingleParenConstraint,
     parens,
+    skipSemicolons,
+    bracedSemiSep,
+    bracedSemiSep1,
+    plainSemiSep1,
+    constraintParserWith,
+    constraintsParserWith,
+    contextParserWith,
+    functionBindValue,
+    functionBindDecl,
   )
 where
 
+import Data.Char (isLower, isUpper)
 import Data.Text (Text)
+import qualified Data.Text as T
 import Data.Void (Void)
 import Parser.Ast
 import Parser.Lexer (LexToken (..), LexTokenKind (..))
 import Parser.Types (TokStream)
-import Text.Megaparsec (Parsec, anySingle, lookAhead)
+import Text.Megaparsec (Parsec, anySingle, lookAhead, (<|>))
 import qualified Text.Megaparsec as MP
 import Text.Megaparsec.Pos (SourcePos (..))
 
@@ -32,12 +45,12 @@ type TokParser = Parsec Void TokStream
 
 keywordTok :: LexTokenKind -> TokParser ()
 keywordTok expected =
-  tokenSatisfy $ \tok ->
+  tokenSatisfy ("keyword " <> renderKeyword expected) $ \tok ->
     if lexTokenKind tok == expected then Just () else Nothing
 
 symbolLikeTok :: Text -> TokParser ()
 symbolLikeTok expected =
-  tokenSatisfy $ \tok ->
+  tokenSatisfy ("symbol " <> show (T.unpack expected)) $ \tok ->
     case lexTokenKind tok of
       TkSymbol sym
         | sym == expected -> Just ()
@@ -45,35 +58,76 @@ symbolLikeTok expected =
 
 operatorLikeTok :: Text -> TokParser ()
 operatorLikeTok expected =
-  tokenSatisfy $ \tok ->
+  tokenSatisfy ("operator " <> show (T.unpack expected)) $ \tok ->
     case lexTokenKind tok of
       TkOperator op
         | op == expected -> Just ()
       _ -> Nothing
 
-tokenSatisfy :: (LexToken -> Maybe a) -> TokParser a
-tokenSatisfy f = do
-  tok <- lookAhead anySingle
-  case f tok of
-    Just out -> out <$ anySingle
-    Nothing -> fail "token"
+tokenSatisfy :: String -> (LexToken -> Maybe a) -> TokParser a
+tokenSatisfy label f =
+  MP.label label $ do
+    tok <- lookAhead anySingle
+    case f tok of
+      Just out -> out <$ anySingle
+      Nothing -> fail label
 
 moduleNameParser :: TokParser Text
-moduleNameParser = identifierTextParser
+moduleNameParser =
+  tokenSatisfy "module name" $ \tok ->
+    case lexTokenKind tok of
+      TkIdentifier ident
+        | isModuleName ident -> Just ident
+      _ -> Nothing
 
 identifierTextParser :: TokParser Text
 identifierTextParser =
-  tokenSatisfy $ \tok ->
+  tokenSatisfy "identifier" $ \tok ->
     case lexTokenKind tok of
       TkIdentifier ident -> Just ident
       _ -> Nothing
 
+lowerIdentifierParser :: TokParser Text
+lowerIdentifierParser =
+  tokenSatisfy "lowercase identifier" $ \tok ->
+    case lexTokenKind tok of
+      TkIdentifier ident
+        | isLowerIdentifier ident -> Just ident
+      _ -> Nothing
+
+constructorIdentifierParser :: TokParser Text
+constructorIdentifierParser =
+  tokenSatisfy "constructor identifier" $ \tok ->
+    case lexTokenKind tok of
+      TkIdentifier ident
+        | isConstructorIdentifier ident -> Just ident
+      _ -> Nothing
+
+binderNameParser :: TokParser Text
+binderNameParser =
+  identifierTextParser
+    <|> parens operatorTextParser
+
 identifierExact :: Text -> TokParser ()
 identifierExact expected =
-  tokenSatisfy $ \tok ->
+  tokenSatisfy ("identifier " <> show (T.unpack expected)) $ \tok ->
     case lexTokenKind tok of
       TkIdentifier ident
         | ident == expected -> Just ()
+      _ -> Nothing
+
+operatorTextParser :: TokParser Text
+operatorTextParser =
+  tokenSatisfy "operator" $ \tok ->
+    case lexTokenKind tok of
+      TkOperator op -> Just op
+      _ -> Nothing
+
+stringTextParser :: TokParser Text
+stringTextParser =
+  tokenSatisfy "string literal" $ \tok ->
+    case lexTokenKind tok of
+      TkString txt -> Just txt
       _ -> Nothing
 
 withSpan :: TokParser (SourceSpan -> a) -> TokParser a
@@ -91,63 +145,6 @@ sourceSpanFromPositions start end =
       sourceSpanEndCol = MP.unPos (sourceColumn end)
     }
 
-exprSourceSpan :: Expr -> SourceSpan
-exprSourceSpan expr =
-  case expr of
-    EVar span' _ -> span'
-    EInt span' _ _ -> span'
-    EIntBase span' _ _ -> span'
-    EFloat span' _ _ -> span'
-    EChar span' _ _ -> span'
-    EString span' _ _ -> span'
-    EQuasiQuote span' _ _ -> span'
-    EIf span' _ _ _ -> span'
-    ELambdaPats span' _ _ -> span'
-    ELambdaCase span' _ -> span'
-    EInfix span' _ _ _ -> span'
-    ENegate span' _ -> span'
-    ESectionL span' _ _ -> span'
-    ESectionR span' _ _ -> span'
-    ELetDecls span' _ _ -> span'
-    ECase span' _ _ -> span'
-    EDo span' _ -> span'
-    EListComp span' _ _ -> span'
-    EListCompParallel span' _ _ -> span'
-    EArithSeq span' _ -> span'
-    ERecordCon span' _ _ -> span'
-    ERecordUpd span' _ _ -> span'
-    ETypeSig span' _ _ -> span'
-    EParen span' _ -> span'
-    EWhereDecls span' _ _ -> span'
-    EList span' _ -> span'
-    ETuple span' _ -> span'
-    ETupleSection span' _ -> span'
-    ETupleCon span' _ -> span'
-    ETypeApp span' _ _ -> span'
-    EApp span' _ _ -> span'
-
-typeSourceSpan :: Type -> SourceSpan
-typeSourceSpan ty =
-  case ty of
-    TVar span' _ -> span'
-    TCon span' _ -> span'
-    TStar span' -> span'
-    TQuasiQuote span' _ _ -> span'
-    TForall span' _ _ -> span'
-    TApp span' _ _ -> span'
-    TFun span' _ _ -> span'
-    TTuple span' _ -> span'
-    TList span' _ -> span'
-    TParen span' _ -> span'
-    TContext span' _ _ -> span'
-
-mergeSourceSpans :: SourceSpan -> SourceSpan -> SourceSpan
-mergeSourceSpans left right =
-  case (left, right) of
-    (SourceSpan l1 c1 _ _, SourceSpan _ _ l2 c2) -> SourceSpan l1 c1 l2 c2
-    (NoSourceSpan, span') -> span'
-    (span', NoSourceSpan) -> span'
-
 markSingleParenConstraint :: [Constraint] -> [Constraint]
 markSingleParenConstraint constraints =
   case constraints of
@@ -160,3 +157,99 @@ parens parser = do
   res <- parser
   symbolLikeTok ")"
   pure res
+
+skipSemicolons :: TokParser ()
+skipSemicolons = MP.skipMany (symbolLikeTok ";")
+
+bracedSemiSep :: TokParser a -> TokParser [a]
+bracedSemiSep parser = do
+  symbolLikeTok "{"
+  skipSemicolons
+  items <- parser `MP.sepEndBy` symbolLikeTok ";"
+  symbolLikeTok "}"
+  pure items
+
+bracedSemiSep1 :: TokParser a -> TokParser [a]
+bracedSemiSep1 parser = do
+  symbolLikeTok "{"
+  skipSemicolons
+  items <- parser `MP.sepEndBy1` symbolLikeTok ";"
+  symbolLikeTok "}"
+  pure items
+
+plainSemiSep1 :: TokParser a -> TokParser [a]
+plainSemiSep1 parser = MP.some (parser <* skipSemicolons)
+
+constraintParserWith :: TokParser Type -> TokParser Constraint
+constraintParserWith typeAtomParser = withSpan $ do
+  className <- constructorIdentifierParser
+  args <- MP.many typeAtomParser
+  pure $ \span' ->
+    Constraint
+      { constraintSpan = span',
+        constraintClass = className,
+        constraintArgs = args,
+        constraintParen = False
+      }
+
+constraintsParserWith :: TokParser Type -> TokParser [Constraint]
+constraintsParserWith typeAtomParser =
+  MP.try (parens (markSingleParenConstraint <$> (constraintParserWith typeAtomParser `MP.sepEndBy` symbolLikeTok ",")))
+    <|> fmap pure (constraintParserWith typeAtomParser)
+
+contextParserWith :: TokParser Type -> TokParser [Constraint]
+contextParserWith = constraintsParserWith
+
+functionBindValue :: SourceSpan -> Text -> [Pattern] -> Rhs -> ValueDecl
+functionBindValue span' name pats rhs =
+  FunctionBind
+    span'
+    name
+    [ Match
+        { matchSpan = span',
+          matchPats = pats,
+          matchRhs = rhs
+        }
+    ]
+
+functionBindDecl :: SourceSpan -> Text -> [Pattern] -> Rhs -> Decl
+functionBindDecl span' name pats rhs =
+  DeclValue span' (functionBindValue span' name pats rhs)
+
+renderKeyword :: LexTokenKind -> String
+renderKeyword keyword =
+  case keyword of
+    TkKeywordModule -> "'module'"
+    TkKeywordWhere -> "'where'"
+    TkKeywordDo -> "'do'"
+    TkKeywordData -> "'data'"
+    TkKeywordImport -> "'import'"
+    TkKeywordQualified -> "'qualified'"
+    TkKeywordAs -> "'as'"
+    TkKeywordHiding -> "'hiding'"
+    TkKeywordCase -> "'case'"
+    TkKeywordOf -> "'of'"
+    TkKeywordLet -> "'let'"
+    TkKeywordIn -> "'in'"
+    TkKeywordIf -> "'if'"
+    TkKeywordThen -> "'then'"
+    TkKeywordElse -> "'else'"
+    _ -> "keyword"
+
+isModuleName :: Text -> Bool
+isModuleName name =
+  case T.splitOn "." name of
+    [] -> False
+    segments -> all isConstructorIdentifier segments
+
+isLowerIdentifier :: Text -> Bool
+isLowerIdentifier txt =
+  case T.uncons txt of
+    Just (c, _) -> isLower c || c == '_'
+    Nothing -> False
+
+isConstructorIdentifier :: Text -> Bool
+isConstructorIdentifier txt =
+  case T.uncons txt of
+    Just (c, _) -> isUpper c
+    Nothing -> False

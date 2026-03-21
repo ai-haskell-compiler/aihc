@@ -701,7 +701,7 @@ prettyGuardQualifier qualifier =
   case qualifier of
     GuardExpr _ expr -> prettyExprPrec 0 expr
     GuardPat _ pat expr -> prettyPattern pat <+> "<-" <+> prettyExprPrec 0 expr
-    GuardLet _ decls -> "let" <+> prettyInlineDecls decls
+    GuardLet _ decls -> "let" <+> braces (prettyInlineDecls decls)
 
 prettyDoStmt :: DoStmt -> Doc ann
 prettyDoStmt stmt =

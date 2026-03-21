@@ -3,8 +3,8 @@
 ## Summary
 
 - Total Extensions: 138
-- Supported: 19
-- In Progress: 15
+- Supported: 21
+- In Progress: 13
 - Planned: 104
 
 ## Extension Status
@@ -39,7 +39,7 @@
 | DoAndIfThenElse | Supported | 3/3 | DoAndIfThenElse |
 | DuplicateRecordFields | Planned | - | DuplicateRecordFields |
 | EmptyCase | Supported | 4/4 | EmptyCase |
-| EmptyDataDecls | In Progress | 4/5 | EmptyDataDecls |
+| EmptyDataDecls | Supported | 5/5 | EmptyDataDecls |
 | EmptyDataDeriving | Planned | - | EmptyDataDeriving |
 | ExistentialQuantification | Supported | 4/4 | ExistentialQuantification |
 | ExplicitForAll | Supported | 5/5 | ExplicitForAll |
@@ -49,7 +49,7 @@
 | ExtendedLiterals | Planned | - | ExtendedLiterals |
 | FieldSelectors | Planned | - | FieldSelectors |
 | FlexibleContexts | Planned | - | FlexibleContexts |
-| FlexibleInstances | Supported | 3/3 | FlexibleInstances |
+| FlexibleInstances | Supported | 4/4 | FlexibleInstances |
 | ForeignFunctionInterface | Planned | - | ForeignFunctionInterface |
 | FunctionalDependencies | In Progress | 0/5 | FunctionalDependencies |
 | GADTs | In Progress | 0/3 | GADTs |
@@ -69,7 +69,7 @@
 | IncoherentInstances | Planned | - | IncoherentInstances |
 | InstanceSigs | Supported | 5/5 | InstanceSigs |
 | InterruptibleFFI | Planned | - | InterruptibleFFI |
-| KindSignatures | In Progress | 0/5 | KindSignatures |
+| KindSignatures | In Progress | 5/6 | KindSignatures |
 | LambdaCase | In Progress | 3/5 | LambdaCase |
 | LexicalNegation | Planned | - | LexicalNegation |
 | LiberalTypeSynonyms | Planned | - | LiberalTypeSynonyms |
@@ -120,7 +120,7 @@
 | Safe | Planned | - | Safe |
 | ScopedTypeVariables | Planned | - | ScopedTypeVariables |
 | StandaloneDeriving | In Progress | 0/4 | StandaloneDeriving |
-| StandaloneKindSignatures | In Progress | 0/4 | StandaloneKindSignatures |
+| StandaloneKindSignatures | Supported | 5/5 | StandaloneKindSignatures |
 | StarIsType | Planned | - | StarIsType |
 | StaticPointers | Planned | - | StaticPointers |
 | Strict | Planned | - | Strict |
