@@ -209,4 +209,4 @@ shrinkSourceSpan span' =
     NoSourceSpan -> []
     SourceSpan sl sc el ec ->
       [NoSourceSpan]
-        <> [SourceSpan sl' sc' el' ec' | (sl', sc', el', ec') <- shrink (sl, sc, el, ec), sl' >= 1, sc' >= 1, el' >= sl', ec' >= 1]
+        <> [SourceSpan sl' sc' el' ec' | (sl', sc', el', ec') <- shrink (sl, sc, el, ec), sl' >= 1, sc' >= 1, el' >= sl', ec' >= 1, el' > sl' || ec' >= sc']
