@@ -96,6 +96,8 @@ data LexTokenKind
   | TkPragmaDeprecated Text
   | TkIdentifier Text
   | TkOperator Text
+  | TkMinusOperator
+  | TkPrefixMinus
   | TkInteger Integer
   | TkIntegerBase Integer Text
   | TkFloat Double Text
@@ -340,29 +342,105 @@ nextToken st =
 -- | Apply all extension-driven post-lexing rewrites in a deterministic order.
 applyExtensions :: [Extension] -> [LexToken] -> [LexToken]
 applyExtensions exts toks
+  | LexicalNegation `elem` exts = applyLexicalNegation (markLexicalMinusOperators (applyNegativeLiterals toks))
   | NegativeLiterals `elem` exts = applyNegativeLiterals toks
   | otherwise = toks
+
+markLexicalMinusOperators :: [LexToken] -> [LexToken]
+markLexicalMinusOperators =
+  map
+    ( \tok ->
+        case lexTokenKind tok of
+          TkOperator "-" -> tok {lexTokenKind = TkMinusOperator}
+          _ -> tok
+    )
 
 -- | Implement @NegativeLiterals@ by merging @-@ and immediately adjacent numerics.
 --
 -- The merge only happens when there is no intervening whitespace/comments, and only
 -- for integer/base-integer/float tokens.
 applyNegativeLiterals :: [LexToken] -> [LexToken]
-applyNegativeLiterals toks =
-  case toks of
-    minusTok : numTok : rest
-      | lexTokenKind minusTok == TkOperator "-",
-        tokensAdjacent minusTok numTok ->
-          case lexTokenKind numTok of
-            TkInteger n ->
-              negativeIntegerToken minusTok numTok n : applyNegativeLiterals rest
-            TkIntegerBase n repr ->
-              negativeIntegerBaseToken minusTok numTok n repr : applyNegativeLiterals rest
-            TkFloat n repr ->
-              negativeFloatToken minusTok numTok n repr : applyNegativeLiterals rest
-            _ -> minusTok : applyNegativeLiterals (numTok : rest)
-    tok : rest -> tok : applyNegativeLiterals rest
-    [] -> []
+applyNegativeLiterals = go Nothing
+  where
+    go prev toks =
+      case toks of
+        minusTok : numTok : rest
+          | lexTokenKind minusTok == TkOperator "-",
+            tokensAdjacent minusTok numTok,
+            allowsNegativeLiteralMerge prev minusTok ->
+              case lexTokenKind numTok of
+                TkInteger n ->
+                  let merged = negativeIntegerToken minusTok numTok n
+                   in merged : go (Just merged) rest
+                TkIntegerBase n repr ->
+                  let merged = negativeIntegerBaseToken minusTok numTok n repr
+                   in merged : go (Just merged) rest
+                TkFloat n repr ->
+                  let merged = negativeFloatToken minusTok numTok n repr
+                   in merged : go (Just merged) rest
+                _ -> minusTok : go (Just minusTok) (numTok : rest)
+        tok : rest -> tok : go (Just tok) rest
+        [] -> []
+
+applyLexicalNegation :: [LexToken] -> [LexToken]
+applyLexicalNegation = go Nothing
+  where
+    go prev toks =
+      case toks of
+        minusTok : nextTok : rest
+          | lexTokenKind minusTok == TkMinusOperator,
+            tokensAdjacent minusTok nextTok,
+            allowsLexicalNegationPrefix prev minusTok,
+            tokenCanStartNegatedAtom nextTok ->
+              let prefixed = minusTok {lexTokenKind = TkPrefixMinus}
+               in prefixed : go (Just prefixed) (nextTok : rest)
+        tok : rest -> tok : go (Just tok) rest
+        [] -> []
+
+allowsNegativeLiteralMerge :: Maybe LexToken -> LexToken -> Bool
+allowsNegativeLiteralMerge prev minusTok =
+  case prev of
+    Nothing -> True
+    Just prevTok
+      | tokensAdjacent prevTok minusTok -> tokenAllowsTightUnaryPrefix prevTok
+      | otherwise -> True
+
+allowsLexicalNegationPrefix :: Maybe LexToken -> LexToken -> Bool
+allowsLexicalNegationPrefix prev minusTok =
+  case prev of
+    Nothing -> True
+    Just prevTok
+      | tokensAdjacent prevTok minusTok -> tokenAllowsTightUnaryPrefix prevTok
+      | otherwise -> True
+
+tokenAllowsTightUnaryPrefix :: LexToken -> Bool
+tokenAllowsTightUnaryPrefix tok =
+  case lexTokenKind tok of
+    TkSymbol "(" -> True
+    TkSymbol "[" -> True
+    TkSymbol "{" -> True
+    TkSymbol "," -> True
+    TkSymbol ";" -> True
+    TkOperator _ -> True
+    TkMinusOperator -> True
+    TkPrefixMinus -> True
+    _ -> False
+
+tokenCanStartNegatedAtom :: LexToken -> Bool
+tokenCanStartNegatedAtom tok =
+  case lexTokenKind tok of
+    TkIdentifier _ -> True
+    TkMinusOperator -> True
+    TkInteger _ -> True
+    TkIntegerBase _ _ -> True
+    TkFloat _ _ -> True
+    TkChar _ -> True
+    TkString _ -> True
+    TkQuasiQuote _ _ -> True
+    TkSymbol "(" -> True
+    TkSymbol "[" -> True
+    TkOperator "\\" -> True
+    _ -> False
 
 -- | True when the second token starts exactly where the first one ends.
 tokensAdjacent :: LexToken -> LexToken -> Bool

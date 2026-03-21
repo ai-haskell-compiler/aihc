@@ -131,7 +131,7 @@ expr-case-of	expressions	expressions/case-of.hs	pass	parser now supports simple 
 expr-let-in	expressions	expressions/let-in.hs	pass	parser now supports let-in expressions
 expr-lambda	expressions	expressions/lambda.hs	pass	parser now supports lambda expressions
 expr-list-tuple	expressions	expressions/list-tuple.hs	pass	parser now supports list and tuple expressions
-expr-sections	expressions	expressions/sections.hs	xfail	parser intentionally disabled
+expr-sections	expressions	expressions/sections.hs	pass	parser now supports operator sections
 expr-do-notation	expressions	expressions/do-notation.hs	pass	parser now handles do-notation with layout and explicit braces
 expr-where-clause	expressions	expressions/where-clause.hs	pass	parser now supports where clauses in declarations
 expr-list-comprehension	expressions	expressions/list-comprehension.hs	pass	parser now supports list comprehensions with generators and guards
@@ -162,10 +162,10 @@ expr-s3-infix-qvarop	expressions	expressions/infix-qvarop.hs	pass	parser now sup
 expr-s3-infix-qconop	expressions	expressions/infix-qconop.hs	pass	parser now supports infix qualified constructor operators
 expr-s3-prefix-negation	expressions	expressions/prefix-negation.hs	pass	parser now supports prefix negation expressions
 expr-s3-minus-with-parenthesized-negation	expressions	expressions/minus-with-parenthesized-negation.hs	pass	parser now supports parenthesized prefix-negation forms
-expr-s3-section-left	expressions	expressions/section-left.hs	xfail	parser intentionally disabled
-expr-s3-section-right	expressions	expressions/section-right.hs	xfail	parser intentionally disabled
-expr-s3-section-backtick-left	expressions	expressions/section-backtick-left.hs	xfail	parser intentionally disabled
-expr-s3-section-backtick-right	expressions	expressions/section-backtick-right.hs	xfail	parser intentionally disabled
+expr-s3-section-left	expressions	expressions/section-left.hs	pass	parser now supports left operator sections
+expr-s3-section-right	expressions	expressions/section-right.hs	pass	parser now supports right operator sections
+expr-s3-section-backtick-left	expressions	expressions/section-backtick-left.hs	pass	parser now supports left backtick operator sections
+expr-s3-section-backtick-right	expressions	expressions/section-backtick-right.hs	pass	parser now supports right backtick operator sections
 expr-s3-conditional-basic	expressions	expressions/conditional-basic.hs	pass	parser now supports basic conditional expressions
 expr-s3-conditional-semicolons	expressions	expressions/conditional-semicolons.hs	xfail	parser intentionally disabled
 expr-s3-list-empty	expressions	expressions/list-empty.hs	pass	parser supports empty list literals
@@ -238,8 +238,8 @@ types-let-signature	types	types/let-signature.hs	pass	parser now supports local 
 types-guard-inline-signature	types	types/guard-inline-signature.hs	xfail	parser intentionally disabled
 types-list-type-constructor	types	types/list-type-constructor.hs	pass	parser now supports list type constructors
 types-maybe-type-constructor	types	types/maybe-type-constructor.hs	pass	parser now handles maybe type constructors
-types-function-type-constructor	types	types/function-type-constructor.hs	xfail	parser intentionally disabled
-types-function-type-constructor-partial	types	types/function-type-constructor-partial.hs	xfail	parser intentionally disabled
+types-function-type-constructor	types	types/function-type-constructor.hs	pass	parser now supports function type constructors in type positions
+types-function-type-constructor-partial	types	types/function-type-constructor-partial.hs	pass	parser now supports partial function type constructors in type positions
 types-tuple-type-constructor	types	types/tuple-type-constructor.hs	xfail	parser intentionally disabled
 types-nested-maybe-list	types	types/nested-maybe-list.hs	pass	parser now handles nested maybe/list type constructors
 
@@ -264,3 +264,4 @@ hashable-properties-unboxed-tuples	corpus	corpus/hashable/hashable-properties-un
 hashable-regress-cpp-have-mmap	corpus	corpus/hashable/hashable-regress-cpp-have-mmap.hs	pass	from hashable/tests/Regress.hs; covered by parser-test CPP preprocessing
 hashable-xxhash-tests-numeric-underscores	corpus	corpus/hashable/hashable-xxhash-tests-numeric-underscores.hs	pass	from hashable/tests/xxhash-tests.hs; parser now accepts NumericUnderscores literals
 modules-import-operator	modules	modules/import-operator.hs	xfail	parser supports parenthesized operators in import lists
+vinyl-loeb-rloeb-section	corpus	corpus/vinyl-loeb-rloeb-section.hs	pass	from vinyl-loeb; parser now supports parenthesized right sections like (($ go) ...)

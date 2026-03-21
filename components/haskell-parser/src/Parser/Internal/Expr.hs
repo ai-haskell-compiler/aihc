@@ -10,12 +10,13 @@ module Parser.Internal.Expr
   )
 where
 
+import Control.Monad (guard)
 import Data.Char (isLower, isUpper)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Parser.Ast
 import Parser.Internal.Common
-import Parser.Lexer (LexTokenKind (..), lexTokenKind, lexTokenSpan, lexTokenText)
+import Parser.Lexer (LexToken (..), LexTokenKind (..), lexTokenKind, lexTokenSpan, lexTokenText)
 import Text.Megaparsec (anySingle, lookAhead, (<|>))
 import qualified Text.Megaparsec as MP
 
@@ -41,15 +42,14 @@ exprCoreParser :: TokParser Expr
 exprCoreParser = exprCoreParserExcept []
 
 exprCoreParserExcept :: [Text] -> TokParser Expr
-exprCoreParserExcept forbiddenInfix = do
-  tok <- lookAhead anySingle
-  case lexTokenKind tok of
-    TkKeywordDo -> doExprParser
-    TkKeywordIf -> ifExprParser
-    TkKeywordCase -> caseExprParser
-    TkKeywordLet -> letExprParser
-    TkOperator "\\" -> lambdaExprParser
-    _ -> infixExprParserExcept forbiddenInfix
+exprCoreParserExcept forbiddenInfix =
+  doExprParser
+    <|> ifExprParser
+    <|> caseExprParser
+    <|> lambdaExprParser
+    <|> letExprParser
+    <|> MP.try (infixExprParserExcept forbiddenInfix)
+    <|> negateExprParser
 
 ifExprParser :: TokParser Expr
 ifExprParser = withSpan $ do
@@ -111,6 +111,8 @@ infixOperatorParserExcept forbidden =
         case lexTokenKind tok of
           TkOperator op
             | op /= "=" && op /= "::" && op /= "->" && op `notElem` forbidden -> Just op
+          TkMinusOperator
+            | "-" `notElem` forbidden -> Just "-"
           _ -> Nothing
 
     backtickIdentifierOperatorParser = do
@@ -168,7 +170,8 @@ appExprParser = withSpan $ do
 
 atomExprParser :: TokParser Expr
 atomExprParser =
-  MP.try parenOperatorExprParser
+  MP.try prefixNegateAtomExprParser
+    <|> MP.try parenOperatorExprParser
     <|> lambdaExprParser
     <|> letExprParser
     <|> parenExprParser
@@ -180,11 +183,33 @@ atomExprParser =
     <|> stringExprParser
     <|> varExprParser
 
+prefixNegateAtomExprParser :: TokParser Expr
+prefixNegateAtomExprParser = withSpan $ do
+  prefixMinusTokenParser
+  inner <- atomExprParser
+  pure (`ENegate` inner)
+
 negateExprParser :: TokParser Expr
 negateExprParser = withSpan $ do
-  operatorLikeTok "-"
+  _ <- minusTokenValueParser
   inner <- appExprParser
   pure (`ENegate` inner)
+
+minusTokenValueParser :: TokParser LexToken
+minusTokenValueParser =
+  tokenSatisfy "minus operator" $ \tok ->
+    case lexTokenKind tok of
+      TkOperator "-" -> Just tok
+      TkMinusOperator -> Just tok
+      TkPrefixMinus -> Just tok
+      _ -> Nothing
+
+prefixMinusTokenParser :: TokParser ()
+prefixMinusTokenParser =
+  tokenSatisfy "prefix minus" $ \tok ->
+    case lexTokenKind tok of
+      TkPrefixMinus -> Just ()
+      _ -> Nothing
 
 parenOperatorExprParser :: TokParser Expr
 parenOperatorExprParser = withSpan $ do
@@ -422,22 +447,65 @@ parenExprParser = withSpan $ do
   mClosed <- MP.optional (symbolLikeTok ")")
   case mClosed of
     Just () -> pure (`ETuple` [])
-    Nothing -> do
+    Nothing -> MP.try parseNegateParen <|> MP.try parseSection <|> MP.try parseTupleSectionExpr <|> parseParenOrTupleExpr
+  where
+    parseNegateParen = do
+      minusTok <- minusTokenValueParser
+      nextTok <- lookAhead anySingle
+      guard (parenNegateAllowed minusTok nextTok)
+      inner <- exprParser
+      symbolLikeTok ")"
+      pure $ \span' ->
+        case lexTokenKind minusTok of
+          TkPrefixMinus -> ENegate span' inner
+          _ -> EParen span' (ENegate span' inner)
+
+    parenNegateAllowed minusTok nextTok =
+      case lexTokenKind minusTok of
+        TkPrefixMinus -> True
+        TkOperator "-" -> tokensAdjacent minusTok nextTok
+        TkMinusOperator -> False
+        _ -> False
+
+    tokensAdjacent first second =
+      case (lexTokenSpan first, lexTokenSpan second) of
+        (SourceSpan _ _ firstEndLine firstEndCol, SourceSpan secondStartLine secondStartCol _ _) ->
+          firstEndLine == secondStartLine && firstEndCol == secondStartCol
+        _ -> False
+
+    parseSection = do
+      MP.try parseSectionR <|> parseSectionL
+
+    parseSectionR = do
+      op <- infixOperatorParserExcept []
+      rhs <- exprParser
+      symbolLikeTok ")"
+      pure (\span' -> EParen span' (ESectionR span' op rhs))
+
+    parseSectionL = do
+      lhs <- appExprParser
+      op <- infixOperatorParserExcept []
+      symbolLikeTok ")"
+      pure (\span' -> EParen span' (ESectionL span' lhs op))
+
+    parseTupleSectionExpr = do
       -- Try to parse as tuple section first (e.g., "(,1)" or "(1,)")
       -- If that fails, fall back to regular tuple/paren parsing
-      (MP.try parseTupleSection >>= \values -> pure (`ETupleSection` values))
-        MP.<|> do
-          first <- exprParser
-          mComma <- MP.optional (symbolLikeTok ",")
-          case mComma of
-            Nothing -> do
-              symbolLikeTok ")"
-              pure (`EParen` first)
-            Just () -> do
-              second <- exprParser
-              more <- MP.many (symbolLikeTok "," *> exprParser)
-              symbolLikeTok ")"
-              pure (`ETuple` (first : second : more))
+      values <- parseTupleSection
+      pure (`ETupleSection` values)
+
+    parseParenOrTupleExpr = do
+      first <- exprParser
+      mComma <- MP.optional (symbolLikeTok ",")
+      case mComma of
+        Nothing -> do
+          symbolLikeTok ")"
+          pure (`EParen` first)
+        Just () -> do
+          second <- exprParser
+          more <- MP.many (symbolLikeTok "," *> exprParser)
+          symbolLikeTok ")"
+          pure (`ETuple` (first : second : more))
 
 parseTupleSection :: TokParser [Maybe Expr]
 parseTupleSection = do
@@ -713,12 +781,39 @@ constraintsParser = constraintsParserWith typeAtomParser
 
 typeFunParser :: TokParser Type
 typeFunParser = do
-  lhs <- typeAppParser
+  lhs <- typeInfixParser
   mRhs <- MP.optional (operatorLikeTok "->" *> typeParser)
   pure $
     case mRhs of
       Just rhs -> TFun (mergeSourceSpans (getSourceSpan lhs) (getSourceSpan rhs)) lhs rhs
       Nothing -> lhs
+
+typeInfixParser :: TokParser Type
+typeInfixParser = do
+  lhs <- typeAppParser
+  rest <- MP.many ((,) <$> typeInfixOperatorParser <*> typeAppParser)
+  pure (foldl buildInfixType lhs rest)
+
+buildInfixType :: Type -> (Text, Type) -> Type
+buildInfixType lhs (op, rhs) =
+  let span' = mergeSourceSpans (getSourceSpan lhs) (getSourceSpan rhs)
+      opType = TCon span' op
+   in TApp span' (TApp span' opType lhs) rhs
+
+typeInfixOperatorParser :: TokParser Text
+typeInfixOperatorParser =
+  tokenSatisfy "type infix operator" $ \tok ->
+    case lexTokenKind tok of
+      TkOperator op
+        | op /= "::"
+            && op /= "=>"
+            && op /= "->"
+            && op /= "."
+            && op /= "|"
+            && op /= "="
+            && op /= "!" ->
+            Just op
+      _ -> Nothing
 
 typeAppParser :: TokParser Type
 typeAppParser = do
@@ -734,9 +829,21 @@ typeAtomParser :: TokParser Type
 typeAtomParser =
   typeQuasiQuoteParser
     <|> typeListParser
+    <|> MP.try typeParenOperatorParser
     <|> typeParenOrTupleParser
     <|> typeStarParser
     <|> typeIdentifierParser
+
+typeParenOperatorParser :: TokParser Type
+typeParenOperatorParser = withSpan $ do
+  symbolLikeTok "("
+  op <- tokenSatisfy "type operator" $ \tok ->
+    case lexTokenKind tok of
+      TkOperator sym
+        | sym /= "*" -> Just sym
+      _ -> Nothing
+  symbolLikeTok ")"
+  pure (`TCon` op)
 
 typeQuasiQuoteParser :: TokParser Type
 typeQuasiQuoteParser =
