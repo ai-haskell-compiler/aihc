@@ -1,0 +1,7 @@
+extensions: []
+input: |
+  do
+    x
+      y
+ast: EDo [DoExpr (EApp (EVar "x") (EVar "y"))]
+status: pass

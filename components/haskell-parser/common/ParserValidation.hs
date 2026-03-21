@@ -10,6 +10,7 @@ module ParserValidation
   )
 where
 
+import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import GHC.LanguageExtensions.Type (Extension)
@@ -17,7 +18,7 @@ import qualified GhcOracle
 import ModuleShrinker (shrinkModuleWithExtensions)
 import Parser (defaultConfig, errorBundlePretty, parseModule)
 import Parser.Pretty (prettyModule)
-import Parser.Types (ParseResult (..))
+import Parser.Types (ParseResult (..), ParserConfig (..))
 
 data ValidationErrorKind
   = ValidationParseError
@@ -52,7 +53,7 @@ validateParserDetailedWithExtensions exts source =
 
 validateParserDetailedCore :: [Extension] -> Text -> Maybe ValidationError
 validateParserDetailedCore exts source =
-  case parseModule defaultConfig source of
+  case parseModule parserConfig source of
     ParseErr err ->
       Just
         ValidationError
@@ -105,6 +106,12 @@ validateParserDetailedCore exts source =
                           T.unpack renderedErr
                         ]
                   }
+  where
+    parserConfig =
+      defaultConfig
+        { parserSourceName = "parser-validation",
+          parserExtensions = mapMaybe GhcOracle.fromGhcExtension exts
+        }
 
 formatFingerprintMismatch :: Text -> Text -> String
 formatFingerprintMismatch sourceFp renderedFp =

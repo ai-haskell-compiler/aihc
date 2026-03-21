@@ -1,0 +1,6 @@
+extensions: []
+input: |
+  do {}
+ast: ""
+status: fail
+reason: empty do blocks are invalid

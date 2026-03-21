@@ -32,7 +32,7 @@
 -- layout contexts and mirrors the @haskell-src-exts@ model summarized in
 -- @docs/hse-indentation-layout.md@:
 --
--- * after layout-introducing keywords (currently @do@ and @of@, plus optional module
+-- * after layout-introducing keywords (currently @do@, @of@, @let@, @where@, @\\case@, plus optional module
 --   body layout), mark a pending implicit block
 -- * if the next token is an explicit @{@, disable implicit insertion for that block
 -- * otherwise, open an implicit layout context at the next token column
@@ -121,6 +121,12 @@ data LexerState = LexerState
 data LayoutContext
   = LayoutExplicit
   | LayoutImplicit !Int
+  | LayoutImplicitLet !Int
+  deriving (Eq, Show)
+
+data PendingLayout
+  = PendingLayoutGeneric
+  | PendingLayoutLet
   deriving (Eq, Show)
 
 data ModuleLayoutMode
@@ -132,8 +138,10 @@ data ModuleLayoutMode
 
 data LayoutState = LayoutState
   { layoutContexts :: [LayoutContext],
-    layoutPendingLayout :: !Bool,
+    layoutPendingLayout :: !(Maybe PendingLayout),
     layoutPrevLine :: !(Maybe Int),
+    layoutPrevTokenKind :: !(Maybe LexTokenKind),
+    layoutDelimiterDepth :: !Int,
     layoutModuleMode :: !ModuleLayoutMode
   }
   deriving (Eq, Show)
@@ -399,8 +407,10 @@ applyLayoutTokens enableModuleLayout =
   go
     LayoutState
       { layoutContexts = [],
-        layoutPendingLayout = False,
+        layoutPendingLayout = Nothing,
         layoutPrevLine = Nothing,
+        layoutPrevTokenKind = Nothing,
+        layoutDelimiterDepth = 0,
         layoutModuleMode =
           if enableModuleLayout
             then ModuleLayoutSeekStart
@@ -412,11 +422,16 @@ applyLayoutTokens enableModuleLayout =
         [] -> closeAllImplicit (layoutContexts st) NoSourceSpan
         tok : rest ->
           let stModule = noteModuleLayoutBeforeToken st tok
-              (pendingInserted, stAfterPending, skipBOL) = openPendingLayout stModule tok
+              (preInserted, stBeforePending) = closeBeforeToken stModule tok
+              (pendingInserted, stAfterPending, skipBOL) = openPendingLayout stBeforePending tok
               (bolInserted, stAfterBOL) = if skipBOL then ([], stAfterPending) else bolLayout stAfterPending tok
               stAfterToken = noteModuleLayoutAfterToken (stepTokenContext stAfterBOL tok) tok
-              stNext = stAfterToken {layoutPrevLine = Just (tokenStartLine tok)}
-           in pendingInserted <> bolInserted <> (tok : go stNext rest)
+              stNext =
+                stAfterToken
+                  { layoutPrevLine = Just (tokenStartLine tok),
+                    layoutPrevTokenKind = Just (lexTokenKind tok)
+                  }
+           in preInserted <> pendingInserted <> bolInserted <> (tok : go stNext rest)
 
 noteModuleLayoutBeforeToken :: LayoutState -> LexToken -> LayoutState
 noteModuleLayoutBeforeToken st tok =
@@ -427,7 +442,7 @@ noteModuleLayoutBeforeToken st tok =
         TkPragmaWarning _ -> st
         TkPragmaDeprecated _ -> st
         TkKeywordModule -> st {layoutModuleMode = ModuleLayoutAwaitWhere}
-        _ -> st {layoutModuleMode = ModuleLayoutDone, layoutPendingLayout = True}
+        _ -> st {layoutModuleMode = ModuleLayoutDone, layoutPendingLayout = Just PendingLayoutGeneric}
     _ -> st
 
 noteModuleLayoutAfterToken :: LayoutState -> LexToken -> LayoutState
@@ -435,30 +450,47 @@ noteModuleLayoutAfterToken st tok =
   case layoutModuleMode st of
     ModuleLayoutAwaitWhere
       | lexTokenKind tok == TkKeywordWhere ->
-          st {layoutModuleMode = ModuleLayoutDone, layoutPendingLayout = True}
+          st {layoutModuleMode = ModuleLayoutDone, layoutPendingLayout = Just PendingLayoutGeneric}
     _ -> st
 
 openPendingLayout :: LayoutState -> LexToken -> ([LexToken], LayoutState, Bool)
-openPendingLayout st tok
-  | not (layoutPendingLayout st) = ([], st, False)
-  | otherwise =
+openPendingLayout st tok =
+  case layoutPendingLayout st of
+    Nothing -> ([], st, False)
+    Just pending ->
       case lexTokenKind tok of
-        TkSymbol "{" -> ([], st {layoutPendingLayout = False}, False)
+        TkSymbol "{" -> ([], st {layoutPendingLayout = Nothing}, False)
         _ ->
           let col = tokenStartCol tok
               parentIndent = currentLayoutIndent (layoutContexts st)
               openTok = virtualSymbolToken "{" (lexTokenSpan tok)
               closeTok = virtualSymbolToken "}" (lexTokenSpan tok)
+              newContext =
+                case pending of
+                  PendingLayoutGeneric -> LayoutImplicit col
+                  PendingLayoutLet -> LayoutImplicitLet col
            in if col <= parentIndent
-                then ([openTok, closeTok], st {layoutPendingLayout = False}, False)
+                then ([openTok, closeTok], st {layoutPendingLayout = Nothing}, False)
                 else
                   ( [openTok],
                     st
-                      { layoutPendingLayout = False,
-                        layoutContexts = LayoutImplicit col : layoutContexts st
+                      { layoutPendingLayout = Nothing,
+                        layoutContexts = newContext : layoutContexts st
                       },
                     True
                   )
+
+closeBeforeToken :: LayoutState -> LexToken -> ([LexToken], LayoutState)
+closeBeforeToken st tok =
+  case lexTokenKind tok of
+    TkKeywordIn ->
+      let (inserted, contexts') = closeLeadingImplicitLets (lexTokenSpan tok) (layoutContexts st)
+       in (inserted, st {layoutContexts = contexts'})
+    TkSymbol ","
+      | layoutDelimiterDepth st == 0 ->
+          let (inserted, contexts') = closeLeadingImplicitLets (lexTokenSpan tok) (layoutContexts st)
+           in (inserted, st {layoutContexts = contexts'})
+    _ -> ([], st)
 
 bolLayout :: LayoutState -> LexToken -> ([LexToken], LayoutState)
 bolLayout st tok
@@ -467,8 +499,8 @@ bolLayout st tok
       let col = tokenStartCol tok
           (inserted, contexts') = closeForDedent col (lexTokenSpan tok) (layoutContexts st)
           eqSemi =
-            case contexts' of
-              LayoutImplicit indent : _
+            case currentLayoutIndentMaybe contexts' of
+              Just indent
                 | col == indent,
                   not (suppressesVirtualSemicolon tok) ->
                     [virtualSymbolToken ";" (lexTokenSpan tok)]
@@ -497,17 +529,37 @@ closeForDedent col anchor = go []
         LayoutImplicit indent : rest
           | col < indent -> go (virtualSymbolToken "}" anchor : acc) rest
           | otherwise -> (reverse acc, contexts)
+        LayoutImplicitLet indent : rest
+          | col < indent -> go (virtualSymbolToken "}" anchor : acc) rest
+          | otherwise -> (reverse acc, contexts)
         _ -> (reverse acc, contexts)
 
 closeAllImplicit :: [LayoutContext] -> SourceSpan -> [LexToken]
 closeAllImplicit contexts anchor =
-  [virtualSymbolToken "}" anchor | LayoutImplicit _ <- contexts]
+  [virtualSymbolToken "}" anchor | ctx <- contexts, isImplicitLayoutContext ctx]
+
+closeLeadingImplicitLets :: SourceSpan -> [LayoutContext] -> ([LexToken], [LayoutContext])
+closeLeadingImplicitLets anchor = go []
+  where
+    go acc contexts =
+      case contexts of
+        LayoutImplicitLet _ : rest -> go (virtualSymbolToken "}" anchor : acc) rest
+        _ -> (reverse acc, contexts)
 
 stepTokenContext :: LayoutState -> LexToken -> LayoutState
 stepTokenContext st tok =
   case lexTokenKind tok of
-    TkKeywordDo -> st {layoutPendingLayout = True}
-    TkKeywordOf -> st {layoutPendingLayout = True}
+    TkKeywordDo -> st {layoutPendingLayout = Just PendingLayoutGeneric}
+    TkKeywordOf -> st {layoutPendingLayout = Just PendingLayoutGeneric}
+    TkKeywordCase
+      | layoutPrevTokenKind st == Just (TkOperator "\\") ->
+          st {layoutPendingLayout = Just PendingLayoutGeneric}
+    TkKeywordLet -> st {layoutPendingLayout = Just PendingLayoutLet}
+    TkKeywordWhere -> st {layoutPendingLayout = Just PendingLayoutGeneric}
+    TkSymbol "(" -> st {layoutDelimiterDepth = layoutDelimiterDepth st + 1}
+    TkSymbol "[" -> st {layoutDelimiterDepth = layoutDelimiterDepth st + 1}
+    TkSymbol ")" -> st {layoutDelimiterDepth = max 0 (layoutDelimiterDepth st - 1)}
+    TkSymbol "]" -> st {layoutDelimiterDepth = max 0 (layoutDelimiterDepth st - 1)}
     TkSymbol "{" -> st {layoutContexts = LayoutExplicit : layoutContexts st}
     TkSymbol "}" -> st {layoutContexts = popOneContext (layoutContexts st)}
     _ -> st
@@ -519,10 +571,21 @@ popOneContext contexts =
     [] -> []
 
 currentLayoutIndent :: [LayoutContext] -> Int
-currentLayoutIndent contexts =
+currentLayoutIndent contexts = fromMaybe 0 (currentLayoutIndentMaybe contexts)
+
+currentLayoutIndentMaybe :: [LayoutContext] -> Maybe Int
+currentLayoutIndentMaybe contexts =
   case contexts of
-    LayoutImplicit indent : _ -> indent
-    _ -> 0
+    LayoutImplicit indent : _ -> Just indent
+    LayoutImplicitLet indent : _ -> Just indent
+    _ -> Nothing
+
+isImplicitLayoutContext :: LayoutContext -> Bool
+isImplicitLayoutContext ctx =
+  case ctx of
+    LayoutImplicit _ -> True
+    LayoutImplicitLet _ -> True
+    LayoutExplicit -> False
 
 isBOL :: LayoutState -> LexToken -> Bool
 isBOL st tok =
