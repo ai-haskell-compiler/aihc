@@ -15,8 +15,8 @@ module Test.Properties.NoExceptions
   )
 where
 
-import Control.Exception (SomeException, evaluate, try)
 import Control.DeepSeq (NFData (..), deepseq)
+import Control.Exception (SomeException, evaluate, try)
 import qualified Cpp
 import CppSupport (preprocessForParserWithoutIncludes)
 import Data.Text (Text)
