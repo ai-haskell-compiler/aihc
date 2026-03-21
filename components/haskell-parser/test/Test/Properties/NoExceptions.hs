@@ -1,6 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# OPTIONS_GHC -Wno-orphans #-}
 
 module Test.Properties.NoExceptions
   ( prop_preprocessorArbitraryTextNoExceptions,
@@ -15,9 +14,8 @@ module Test.Properties.NoExceptions
   )
 where
 
-import Control.DeepSeq (NFData (..), deepseq)
+import Control.DeepSeq (NFData (..), force)
 import Control.Exception (SomeException, evaluate, try)
-import qualified Cpp
 import CppSupport (preprocessForParserWithoutIncludes)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -37,7 +35,6 @@ import Parser
   )
 import Parser.Ast (SourceSpan (..))
 import qualified Parser.Ast as Ast
-import Parser.Types (ParseResult (..))
 import Test.QuickCheck
 
 prop_preprocessorArbitraryTextNoExceptions :: Property
@@ -91,91 +88,13 @@ prop_moduleHeaderParserArbitraryTokensNoExceptions =
   forAllShrink genTokenStream shrinkTokenStream $ \tokens ->
     ioProperty (noExceptionProperty "parseModuleHeaderFromTokens" (parseModuleHeaderFromTokens "<quickcheck>" tokens))
 
-noExceptionProperty :: (NFData a) => String -> a -> IO Property
+noExceptionProperty :: forall a. (NFData a) => String -> a -> IO Property
 noExceptionProperty operation value = do
-  outcome <- (try (evaluate (value `deepseq` ())) :: IO (Either SomeException ()))
+  outcome <- (try (evaluate (force value)) :: IO (Either SomeException a))
   pure $
     case outcome of
       Left err -> counterexample (operation <> " threw exception: " <> show err) False
       Right _ -> property True
-
-instance NFData ExtensionSetting where
-  rnf = rnf . show
-
-instance NFData LexTokenKind where
-  rnf kind =
-    case kind of
-      TkKeywordModule -> ()
-      TkKeywordWhere -> ()
-      TkKeywordDo -> ()
-      TkKeywordData -> ()
-      TkKeywordImport -> ()
-      TkKeywordQualified -> ()
-      TkKeywordAs -> ()
-      TkKeywordHiding -> ()
-      TkKeywordCase -> ()
-      TkKeywordOf -> ()
-      TkKeywordLet -> ()
-      TkKeywordIn -> ()
-      TkKeywordIf -> ()
-      TkKeywordThen -> ()
-      TkKeywordElse -> ()
-      TkPragmaLanguage settings -> settings `deepseq` ()
-      TkPragmaWarning txt -> txt `deepseq` ()
-      TkPragmaDeprecated txt -> txt `deepseq` ()
-      TkIdentifier txt -> txt `deepseq` ()
-      TkOperator txt -> txt `deepseq` ()
-      TkInteger n -> n `deepseq` ()
-      TkIntegerBase n repr -> n `deepseq` repr `deepseq` ()
-      TkFloat n repr -> n `deepseq` repr `deepseq` ()
-      TkChar c -> c `deepseq` ()
-      TkString txt -> txt `deepseq` ()
-      TkSymbol txt -> txt `deepseq` ()
-      TkQuasiQuote quoter body -> quoter `deepseq` body `deepseq` ()
-      TkError txt -> txt `deepseq` ()
-
-instance NFData SourceSpan where
-  rnf span' =
-    case span' of
-      NoSourceSpan -> ()
-      SourceSpan sl sc el ec -> sl `deepseq` sc `deepseq` el `deepseq` ec `deepseq` ()
-
-instance NFData LexToken where
-  rnf token =
-    lexTokenKind token `deepseq` lexTokenText token `deepseq` lexTokenSpan token `deepseq` ()
-
-instance NFData Cpp.Result where
-  rnf = rnf . show
-
-instance NFData Ast.Expr where
-  rnf = rnf . show
-
-instance NFData Ast.Type where
-  rnf = rnf . show
-
-instance NFData Ast.Pattern where
-  rnf = rnf . show
-
-instance NFData Ast.Decl where
-  rnf = rnf . show
-
-instance NFData Ast.ImportDecl where
-  rnf = rnf . show
-
-instance NFData Ast.Module where
-  rnf = rnf . show
-
-instance NFData Ast.WarningText where
-  rnf = rnf . show
-
-instance NFData Ast.ExportSpec where
-  rnf = rnf . show
-
-instance (NFData a) => NFData (ParseResult a) where
-  rnf parseResult =
-    case parseResult of
-      ParseOk parsed -> parsed `deepseq` ()
-      ParseErr bundle -> show bundle `deepseq` ()
 
 genArbitraryText :: Gen Text
 genArbitraryText = T.pack <$> sized (\size -> do n <- chooseInt (0, min 256 (size * 8 + 8)); vectorOf n arbitrary)
