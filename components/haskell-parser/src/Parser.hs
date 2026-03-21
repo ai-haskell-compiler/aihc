@@ -99,10 +99,8 @@ defaultConfig =
 
 parseExpr :: ParserConfig -> Text -> ParseResult Expr
 parseExpr cfg input =
-  case lexTokensWithExtensions (parserExtensions cfg) input of
-    Left err -> ParseErr (lexerErrorBundle (parserSourceName cfg) err)
-    Right toks ->
-      case runParser (exprParser <* MP.eof) (parserSourceName cfg) (TokStream toks) of
+  let toks = lexTokensWithExtensions (parserExtensions cfg) input
+   in case runParser (exprParser <* MP.eof) (parserSourceName cfg) (TokStream toks) of
         Left bundle -> ParseErr bundle
         Right expr -> ParseOk expr
 
@@ -111,10 +109,8 @@ parseExprFromTokens = parseFromTokens exprParser
 
 parsePattern :: ParserConfig -> Text -> ParseResult Pattern
 parsePattern cfg input =
-  case lexTokensWithExtensions (parserExtensions cfg) input of
-    Left err -> ParseErr (lexerErrorBundle (parserSourceName cfg) err)
-    Right toks ->
-      case runParser (patternParser <* MP.eof) (parserSourceName cfg) (TokStream toks) of
+  let toks = lexTokensWithExtensions (parserExtensions cfg) input
+   in case runParser (patternParser <* MP.eof) (parserSourceName cfg) (TokStream toks) of
         Left bundle -> ParseErr bundle
         Right pat -> ParseOk pat
 
@@ -123,10 +119,8 @@ parsePatternFromTokens = parseFromTokens patternParser
 
 parseType :: ParserConfig -> Text -> ParseResult Type
 parseType cfg input =
-  case lexTokensWithExtensions (parserExtensions cfg) input of
-    Left err -> ParseErr (lexerErrorBundle (parserSourceName cfg) err)
-    Right toks ->
-      case runParser (typeParser <* MP.eof) (parserSourceName cfg) (TokStream toks) of
+  let toks = lexTokensWithExtensions (parserExtensions cfg) input
+   in case runParser (typeParser <* MP.eof) (parserSourceName cfg) (TokStream toks) of
         Left bundle -> ParseErr bundle
         Right ty -> ParseOk ty
 
@@ -135,10 +129,8 @@ parseTypeFromTokens = parseFromTokens typeParser
 
 parseModule :: ParserConfig -> Text -> ParseResult Module
 parseModule cfg input =
-  case lexModuleTokensWithExtensions effectiveExtensions input of
-    Left err -> ParseErr (lexerErrorBundle (parserSourceName cfg) err)
-    Right toks ->
-      case runParser (moduleParser <* MP.eof) (parserSourceName cfg) (TokStream toks) of
+  let toks = lexModuleTokensWithExtensions effectiveExtensions input
+   in case runParser (moduleParser <* MP.eof) (parserSourceName cfg) (TokStream toks) of
         Left bundle -> ParseErr bundle
         Right modu -> ParseOk modu
   where

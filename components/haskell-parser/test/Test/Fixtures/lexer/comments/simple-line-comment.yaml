@@ -1,0 +1,4 @@
+extensions: []
+input: "-- simple comment"
+tokens: []
+status: pass
