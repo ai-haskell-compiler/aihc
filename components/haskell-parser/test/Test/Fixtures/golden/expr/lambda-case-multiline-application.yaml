@@ -1,0 +1,11 @@
+extensions:
+  - LambdaCase
+input: |
+  map
+    (\case
+        Just n -> n
+        Nothing -> 0
+    )
+ast: |
+  EApp (EVar "map") (ELambdaCase [CaseAlt {pattern = PCon "Just" [PVar "n"], rhs = UnguardedRhs (EVar "n")}, CaseAlt {pattern = PCon "Nothing" [], rhs = UnguardedRhs (EInt 0)}])
+status: pass

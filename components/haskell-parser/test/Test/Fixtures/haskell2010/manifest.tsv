@@ -120,10 +120,10 @@ decls-class-cdecl-signature	declarations	declarations/class-cdecl-signature.hs	p
 decls-class-cdecl-signature-context	declarations	declarations/class-cdecl-signature-context.hs	pass
 decls-class-cdecl-default-var	declarations	declarations/class-cdecl-default-var.hs	xfail	parser intentionally disabled
 decls-class-cdecl-default-funlhs	declarations	declarations/class-cdecl-default-funlhs.hs	xfail	parser intentionally disabled
-decls-class-cdecl-fixity	declarations	declarations/class-cdecl-fixity.hs	xfail	parser intentionally disabled
+decls-class-cdecl-fixity	declarations	declarations/class-cdecl-fixity.hs	pass	parser now supports class fixity declarations
 decls-instance	declarations	declarations/instance.hs	xfail	parser intentionally disabled
-decls-fixity	declarations	declarations/fixity.hs	xfail	parser intentionally disabled
-decls-default	declarations	declarations/default.hs	xfail	default declarations unsupported
+decls-fixity	declarations	declarations/fixity.hs	pass	parser now supports fixity declarations
+decls-default	declarations	declarations/default.hs	pass	parser now supports default declarations
 decls-deriving	declarations	declarations/deriving.hs	pass	parser now supports parenthesized data deriving clauses
 
 expr-if-then-else	expressions	expressions/if-then-else.hs	pass	parser now handles this if-then-else form
@@ -230,11 +230,11 @@ types-newtype-record-layout-application	types	types/newtype-record-layout-applic
 types-newtype-record-field-multiline-application	types	types/newtype-record-field-multiline-application.hs	pass	parser now supports multiline type applications in newtype record fields
 types-multi-vars-signature	types	types/multi-vars-signature.hs	pass	parser now supports multi-variable top-level signatures
 types-context-multi-vars	types	types/context-multi-vars.hs	pass
-types-signature-where	types	types/signature-where.hs	xfail	local type signatures in where bindings unsupported
+types-signature-where	types	types/signature-where.hs	pass	parser now supports local type signatures in where bindings
 types-inline-signature-basic	types	types/inline-signature-basic.hs	xfail	parser intentionally disabled
 types-inline-signature-context	types	types/inline-signature-context.hs	xfail	parser intentionally disabled
 types-inline-signature-lambda	types	types/inline-signature-lambda.hs	xfail	parser intentionally disabled
-types-let-signature	types	types/let-signature.hs	xfail	local let type signatures unsupported
+types-let-signature	types	types/let-signature.hs	pass	parser now supports local let type signatures
 types-guard-inline-signature	types	types/guard-inline-signature.hs	xfail	parser intentionally disabled
 types-list-type-constructor	types	types/list-type-constructor.hs	pass	parser now supports list type constructors
 types-maybe-type-constructor	types	types/maybe-type-constructor.hs	pass	parser now handles maybe type constructors

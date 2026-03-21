@@ -9,7 +9,7 @@ module Parser.Internal.Decl
 where
 
 import Control.Monad (when)
-import Data.Char (isUpper)
+import Data.Char (isAsciiLower, isUpper)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -17,12 +17,12 @@ import Parser.Ast
 import Parser.Internal.Common
 import Parser.Internal.Expr (equationRhsParser, exprParser, simplePatternParser, typeAtomParser, typeParser)
 import Parser.Lexer (LexTokenKind (..), lexTokenKind)
-import Text.Megaparsec ((<|>))
+import Text.Megaparsec (anySingle, lookAhead, (<|>))
 import qualified Text.Megaparsec as MP
 
 languagePragmaParser :: TokParser [ExtensionSetting]
 languagePragmaParser =
-  tokenSatisfy $ \tok ->
+  tokenSatisfy "LANGUAGE pragma" $ \tok ->
     case lexTokenKind tok of
       TkPragmaLanguage names -> Just names
       _ -> Nothing
@@ -39,7 +39,7 @@ moduleHeaderParser = do
 warningTextParser :: TokParser WarningText
 warningTextParser =
   withSpan $
-    tokenSatisfy $ \tok ->
+    tokenSatisfy "warning pragma" $ \tok ->
       case lexTokenKind tok of
         TkPragmaWarning msg -> Just (`WarnText` msg)
         TkPragmaDeprecated msg -> Just (`DeprText` msg)
@@ -117,11 +117,7 @@ importLevelParser =
     <|> (identifierExact "splice" >> pure ImportLevelSplice)
 
 packageNameParser :: TokParser Text
-packageNameParser =
-  tokenSatisfy $ \tok ->
-    case lexTokenKind tok of
-      TkString txt -> Just txt
-      _ -> Nothing
+packageNameParser = stringTextParser
 
 importSpecParser :: TokParser ImportSpec
 importSpecParser = withSpan $ do
@@ -153,52 +149,110 @@ importItemParser = withSpan $ do
             | otherwise -> ImportItemVar span' (Just ns) itemName
 
 importOperatorParser :: TokParser Text
-importOperatorParser =
-  tokenSatisfy $ \tok ->
-    case lexTokenKind tok of
-      TkOperator op -> Just op
-      _ -> Nothing
+importOperatorParser = operatorTextParser
 
 exportImportNamespaceParser :: TokParser Text
 exportImportNamespaceParser =
   identifierExact "type" >> pure "type"
 
 declParser :: TokParser Decl
-declParser =
-  MP.try foreignDeclParser
-    <|> MP.try standaloneKindSigDeclParser
-    <|> MP.try typeSigDeclParser
-    <|> MP.try newtypeDeclParser
-    <|> MP.try dataDeclParser
-    <|> MP.try classDeclParser
-    <|> MP.try instanceDeclParser
-    <|> valueDeclParser
+declParser = do
+  tok <- lookAhead anySingle
+  case lexTokenKind tok of
+    TkKeywordData -> dataDeclParser
+    TkIdentifier ident ->
+      case ident of
+        "class" -> classDeclParser
+        "default" -> defaultDeclParser
+        "foreign" -> foreignDeclParser
+        "infix" -> fixityDeclParser Infix
+        "infixl" -> fixityDeclParser InfixL
+        "infixr" -> fixityDeclParser InfixR
+        "instance" -> instanceDeclParser
+        "newtype" -> newtypeDeclParser
+        "pattern" -> unsupportedDeclParser "pattern synonym declarations are not implemented yet"
+        "type" -> MP.try standaloneKindSigDeclParser <|> typeSynDeclParser
+        _ -> MP.try typeSigDeclParser <|> valueDeclParser
+    _ -> MP.try typeSigDeclParser <|> valueDeclParser
 
 standaloneKindSigDeclParser :: TokParser Decl
 standaloneKindSigDeclParser = withSpan $ do
   identifierExact "type"
-  typeName <-
-    tokenSatisfy $ \tok ->
-      case lexTokenKind tok of
-        TkIdentifier ident
-          | isTypeName ident -> Just ident
-        _ -> Nothing
+  typeName <- constructorIdentifierParser
   operatorLikeTok "::"
   kind <- typeParser
   pure (\span' -> DeclStandaloneKindSig span' typeName kind)
 
+typeSynDeclParser :: TokParser Decl
+typeSynDeclParser = withSpan $ do
+  identifierExact "type"
+  typeName <- constructorIdentifierParser
+  typeParams <- MP.many typeParamParser
+  operatorLikeTok "="
+  body <- typeParser
+  pure $ \span' ->
+    DeclTypeSyn
+      span'
+      TypeSynDecl
+        { typeSynSpan = span',
+          typeSynName = typeName,
+          typeSynParams = typeParams,
+          typeSynBody = body
+        }
+
 typeSigDeclParser :: TokParser Decl
 typeSigDeclParser = withSpan $ do
-  names <- identifierTextParser `MP.sepBy1` symbolLikeTok ","
+  names <- binderNameParser `MP.sepBy1` symbolLikeTok ","
   operatorLikeTok "::"
   ty <- typeParser
   pure (\span' -> DeclTypeSig span' names ty)
+
+defaultDeclParser :: TokParser Decl
+defaultDeclParser = withSpan $ do
+  identifierExact "default"
+  tys <- parens (typeParser `MP.sepEndBy1` symbolLikeTok ",")
+  pure (`DeclDefault` tys)
+
+fixityDeclParser :: FixityAssoc -> TokParser Decl
+fixityDeclParser assoc = withSpan $ do
+  (parsedAssoc, prec, ops) <- fixityDeclPartsParser
+  when (assoc /= parsedAssoc) $
+    fail "internal fixity dispatch mismatch"
+  pure (\span' -> DeclFixity span' parsedAssoc prec ops)
+
+fixityDeclPartsParser :: TokParser (FixityAssoc, Maybe Int, [Text])
+fixityDeclPartsParser = do
+  assoc <- fixityAssocParser
+  prec <- MP.optional fixityPrecedenceParser
+  ops <- fixityOperatorParser `MP.sepBy1` symbolLikeTok ","
+  pure (assoc, prec, ops)
+
+fixityAssocParser :: TokParser FixityAssoc
+fixityAssocParser =
+  (identifierExact "infix" >> pure Infix)
+    <|> (identifierExact "infixl" >> pure InfixL)
+    <|> (identifierExact "infixr" >> pure InfixR)
+
+fixityPrecedenceParser :: TokParser Int
+fixityPrecedenceParser =
+  tokenSatisfy "fixity precedence" $ \tok ->
+    case lexTokenKind tok of
+      TkInteger n
+        | n >= 0 && n <= 9 -> Just (fromInteger n)
+      _ -> Nothing
+
+fixityOperatorParser :: TokParser Text
+fixityOperatorParser =
+  tokenSatisfy "fixity operator" $ \tok ->
+    case lexTokenKind tok of
+      TkOperator op -> Just op
+      _ -> Nothing
 
 classDeclParser :: TokParser Decl
 classDeclParser = withSpan $ do
   identifierExact "class"
   context <- MP.optional (MP.try (declContextParser <* operatorLikeTok "=>"))
-  className <- identifierTextParser
+  className <- constructorIdentifierParser
   classParams <- MP.some typeParamParser
   items <- MP.option [] classWhereClauseParser
   pure $ \span' ->
@@ -221,32 +275,31 @@ whereClauseItemsParser bracedParser plainParser = do
   bracedParser <|> plainParser <|> pure []
 
 classItemsPlainParser :: TokParser [ClassDeclItem]
-classItemsPlainParser = MP.some (MP.try (classDeclItemParser <* MP.many (symbolLikeTok ";")))
+classItemsPlainParser = plainSemiSep1 classDeclItemParser
 
 classItemsBracedParser :: TokParser [ClassDeclItem]
-classItemsBracedParser = do
-  symbolLikeTok "{"
-  _ <- MP.many (symbolLikeTok ";")
-  items <- classDeclItemParser `MP.sepBy1` symbolLikeTok ";"
-  _ <- MP.many (symbolLikeTok ";")
-  symbolLikeTok "}"
-  pure items
+classItemsBracedParser = bracedSemiSep1 classDeclItemParser
 
 classDeclItemParser :: TokParser ClassDeclItem
-classDeclItemParser = classTypeSigItemParser
+classDeclItemParser = MP.try classFixityItemParser <|> classTypeSigItemParser
 
 classTypeSigItemParser :: TokParser ClassDeclItem
 classTypeSigItemParser = withSpan $ do
-  names <- identifierTextParser `MP.sepBy1` symbolLikeTok ","
+  names <- binderNameParser `MP.sepBy1` symbolLikeTok ","
   operatorLikeTok "::"
   ty <- typeParser
   pure (\span' -> ClassItemTypeSig span' names ty)
+
+classFixityItemParser :: TokParser ClassDeclItem
+classFixityItemParser = withSpan $ do
+  (assoc, prec, ops) <- fixityDeclPartsParser
+  pure (\span' -> ClassItemFixity span' assoc prec ops)
 
 instanceDeclParser :: TokParser Decl
 instanceDeclParser = withSpan $ do
   identifierExact "instance"
   context <- MP.optional (MP.try (declContextParser <* operatorLikeTok "=>"))
-  className <- identifierTextParser
+  className <- constructorIdentifierParser
   instanceTypes <- MP.some typeAtomParser
   items <- MP.option [] instanceWhereClauseParser
   pure $ \span' ->
@@ -264,46 +317,33 @@ instanceWhereClauseParser :: TokParser [InstanceDeclItem]
 instanceWhereClauseParser = whereClauseItemsParser instanceItemsBracedParser instanceItemsPlainParser
 
 instanceItemsPlainParser :: TokParser [InstanceDeclItem]
-instanceItemsPlainParser = MP.some (MP.try (instanceDeclItemParser <* MP.many (symbolLikeTok ";")))
+instanceItemsPlainParser = plainSemiSep1 instanceDeclItemParser
 
 instanceItemsBracedParser :: TokParser [InstanceDeclItem]
-instanceItemsBracedParser = do
-  symbolLikeTok "{"
-  _ <- MP.many (symbolLikeTok ";")
-  items <- instanceDeclItemParser `MP.sepBy` symbolLikeTok ";"
-  _ <- MP.many (symbolLikeTok ";")
-  symbolLikeTok "}"
-  pure items
+instanceItemsBracedParser = bracedSemiSep instanceDeclItemParser
 
 instanceDeclItemParser :: TokParser InstanceDeclItem
-instanceDeclItemParser = MP.try instanceTypeSigItemParser <|> instanceValueItemParser
+instanceDeclItemParser = MP.try instanceFixityItemParser <|> MP.try instanceTypeSigItemParser <|> instanceValueItemParser
 
 instanceTypeSigItemParser :: TokParser InstanceDeclItem
 instanceTypeSigItemParser = withSpan $ do
-  names <- identifierTextParser `MP.sepBy1` symbolLikeTok ","
+  names <- binderNameParser `MP.sepBy1` symbolLikeTok ","
   operatorLikeTok "::"
   ty <- typeParser
   pure (\span' -> InstanceItemTypeSig span' names ty)
 
+instanceFixityItemParser :: TokParser InstanceDeclItem
+instanceFixityItemParser = withSpan $ do
+  (assoc, prec, ops) <- fixityDeclPartsParser
+  pure (\span' -> InstanceItemFixity span' assoc prec ops)
+
 instanceValueItemParser :: TokParser InstanceDeclItem
 instanceValueItemParser = withSpan $ do
-  name <- identifierTextParser
+  name <- binderNameParser
   pats <- MP.many simplePatternParser
   operatorLikeTok "="
   rhsExpr <- exprParser
-  pure $ \span' ->
-    InstanceItemBind
-      span'
-      ( FunctionBind
-          span'
-          name
-          [ Match
-              { matchSpan = span',
-                matchPats = pats,
-                matchRhs = UnguardedRhs span' rhsExpr
-              }
-          ]
-      )
+  pure (\span' -> InstanceItemBind span' (functionBindValue span' name pats (UnguardedRhs span' rhsExpr)))
 
 foreignDeclParser :: TokParser Decl
 foreignDeclParser = withSpan $ do
@@ -347,12 +387,7 @@ foreignSafetyParser =
     <|> (identifierExact "unsafe" >> pure Unsafe)
 
 foreignEntityParser :: TokParser ForeignEntitySpec
-foreignEntityParser = do
-  entityTxt <- tokenSatisfy $ \tok ->
-    case lexTokenKind tok of
-      TkString txt -> Just txt
-      _ -> Nothing
-  pure (foreignEntityFromString entityTxt)
+foreignEntityParser = foreignEntityFromString <$> stringTextParser
 
 foreignEntityFromString :: Text -> ForeignEntitySpec
 foreignEntityFromString txt
@@ -368,10 +403,7 @@ dataDeclParser :: TokParser Decl
 dataDeclParser = withSpan $ do
   keywordTok TkKeywordData
   context <- MP.optional (MP.try (declContextParser <* operatorLikeTok "=>"))
-  typeName <- tokenSatisfy $ \tok ->
-    case lexTokenKind tok of
-      TkIdentifier ident -> Just ident
-      _ -> Nothing
+  typeName <- constructorIdentifierParser
   typeParams <- MP.many typeParamParser
   constructors <- MP.optional (operatorLikeTok "=" *> dataConDeclParser `MP.sepBy1` operatorLikeTok "|")
   derivingClauses <- MP.many derivingClauseParser
@@ -396,10 +428,7 @@ newtypeDeclParser :: TokParser Decl
 newtypeDeclParser = withSpan $ do
   identifierExact "newtype"
   context <- MP.optional (MP.try (declContextParser <* operatorLikeTok "=>"))
-  typeName <- tokenSatisfy $ \tok ->
-    case lexTokenKind tok of
-      TkIdentifier ident -> Just ident
-      _ -> Nothing
+  typeName <- constructorIdentifierParser
   typeParams <- MP.many typeParamParser
   constructor <- MP.optional (operatorLikeTok "=" *> newtypeConDeclParser)
   derivingClauses <- MP.many derivingClauseParser
@@ -421,48 +450,36 @@ newtypeConDeclParser = withSpan $ do
   MP.try (dataConRecordOrPrefixParser forallVars context) <|> dataConInfixParser forallVars context
 
 declContextParser :: TokParser [Constraint]
-declContextParser =
-  MP.try parenContextParser <|> ((: []) <$> constraintParser)
-
-parenContextParser :: TokParser [Constraint]
-parenContextParser = parens $ do
-  constraints <- constraintParser `MP.sepEndBy` symbolLikeTok ","
-  pure (markSingleParenConstraint constraints)
-
-constraintParser :: TokParser Constraint
-constraintParser = withSpan $ do
-  className <- identifierTextParser
-  args <- MP.many typeAtomParser
-  pure $ \span' ->
-    Constraint
-      { constraintSpan = span',
-        constraintClass = className,
-        constraintArgs = args,
-        constraintParen = False
-      }
+declContextParser = contextParserWith typeAtomParser
 
 typeParamParser :: TokParser TyVarBinder
 typeParamParser =
   withSpan $
     ( do
         ident <-
-          tokenSatisfy
-            ( \tok ->
-                case lexTokenKind tok of
-                  TkIdentifier name
-                    | name /= "deriving" -> Just name
-                  _ -> Nothing
-            )
+          tokenSatisfy "type parameter binder" $ \tok ->
+            case lexTokenKind tok of
+              TkIdentifier name
+                | name /= "deriving",
+                  isTypeVarName name ->
+                    Just name
+              _ -> Nothing
         pure (\span' -> TyVarBinder span' ident Nothing)
     )
       <|> ( do
               symbolLikeTok "("
-              ident <- identifierTextParser
+              ident <- lowerIdentifierParser
               operatorLikeTok "::"
               kind <- typeParser
               symbolLikeTok ")"
               pure (\span' -> TyVarBinder span' ident (Just kind))
           )
+
+isTypeVarName :: Text -> Bool
+isTypeVarName name =
+  case T.uncons name of
+    Just (c, _) -> c == '_' || isAsciiLower c
+    Nothing -> False
 
 derivingClauseParser :: TokParser DerivingClause
 derivingClauseParser = do
@@ -542,7 +559,7 @@ constructorArgParser = MP.try $ do
 
 derivingKeywordParser :: TokParser ()
 derivingKeywordParser =
-  tokenSatisfy $ \tok ->
+  tokenSatisfy "identifier \"deriving\"" $ \tok ->
     case lexTokenKind tok of
       TkIdentifier ident
         | ident == "deriving" -> Just ()
@@ -577,39 +594,25 @@ constructorFieldTypeParser = do
   pure (foldl appendTypeArg first rest)
   where
     appendTypeArg lhs rhs =
-      TApp (mergeSourceSpans (typeSourceSpan lhs) (typeSourceSpan rhs)) lhs rhs
+      TApp (mergeSourceSpans (getSourceSpan lhs) (getSourceSpan rhs)) lhs rhs
 
 constructorNameParser :: TokParser Text
-constructorNameParser =
-  tokenSatisfy $ \tok ->
-    case lexTokenKind tok of
-      TkIdentifier ident
-        | isTypeName ident -> Just ident
-      _ -> Nothing
+constructorNameParser = constructorIdentifierParser
 
 constructorOperatorParser :: TokParser Text
 constructorOperatorParser =
-  tokenSatisfy $ \tok ->
+  tokenSatisfy "constructor operator" $ \tok ->
     case lexTokenKind tok of
       TkOperator op
         | T.isPrefixOf ":" op -> Just op
       _ -> Nothing
 
+unsupportedDeclParser :: String -> TokParser Decl
+unsupportedDeclParser = fail
+
 valueDeclParser :: TokParser Decl
 valueDeclParser = withSpan $ do
-  name <- identifierTextParser
+  name <- binderNameParser
   pats <- MP.many simplePatternParser
   rhs <- equationRhsParser
-  pure $ \span' ->
-    DeclValue
-      span'
-      ( FunctionBind
-          span'
-          name
-          [ Match
-              { matchSpan = span',
-                matchPats = pats,
-                matchRhs = rhs
-              }
-          ]
-      )
+  pure (\span' -> functionBindDecl span' name pats rhs)

@@ -1,5 +1,5 @@
 lambda-case-basic	expressions	lambda-case-basic.hs	pass
-lambda-case-nested	expressions	lambda-case-nested.hs	xfail	multiline application around lambda-case not yet supported
+lambda-case-nested	expressions	lambda-case-nested.hs	pass	parser now supports multiline application around lambda-case
 lambda-case-guards	expressions	lambda-case-guards.hs	pass
 lambda-case-locally-bound	expressions	lambda-case-locally-bound.hs	pass
-lambda-case-in-application	expressions	lambda-case-in-application.hs	xfail	multiline application around lambda-case not yet supported
+lambda-case-in-application	expressions	lambda-case-in-application.hs	pass	parser now supports multiline application around lambda-case

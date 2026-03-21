@@ -12,7 +12,7 @@ where
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Text as T
 import Data.Void (Void)
-import Parser.Ast (SourceSpan (..))
+import Parser.Ast (Extension, SourceSpan (..))
 import Parser.Lexer (LexToken (..))
 import qualified Text.Megaparsec as MP
 import qualified Text.Megaparsec.Error as MPE
@@ -91,8 +91,9 @@ sourcePosFromEndSpan file span' =
     SourceSpan _ _ line col -> SourcePos file (mkPos (max 1 line)) (mkPos (max 1 col))
     NoSourceSpan -> SourcePos file (mkPos 1) (mkPos 1)
 
-newtype ParserConfig = ParserConfig
-  { allowLineComments :: Bool
+data ParserConfig = ParserConfig
+  { parserSourceName :: FilePath,
+    parserExtensions :: [Extension]
   }
   deriving (Eq, Show)
 
