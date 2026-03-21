@@ -20,27 +20,27 @@ aihc is developed test-first. Run the full suite with `nix flake check`. When wo
   - Outcomes: `PASS`, `XFAIL`, `FAIL`, `XPASS`.
   - Any `FAIL` or unexpected `XPASS` should block merge until handled.
 
-- **`haskell-parser`**
+- **`aihc-parser`**
   - Golden regression tests:
-    - Parser fixtures: `components/haskell-parser/test/Test/Fixtures/golden/`.
-    - Lexer fixtures: `components/haskell-parser/test/Test/Fixtures/lexer/`.
+    - Parser fixtures: `components/aihc-parser/test/Test/Fixtures/golden/`.
+    - Lexer fixtures: `components/aihc-parser/test/Test/Fixtures/lexer/`.
     - Input/output snapshots with `pass`/`xfail`/`xpass` coverage.
   - Oracle compliance tests:
-    - Haskell2010 manifest: `components/haskell-parser/test/Test/Fixtures/haskell2010/manifest.tsv`.
-    - Extension manifests: per-extension `manifest.tsv` files under `components/haskell-parser/test/Test/Fixtures/`.
+    - Haskell2010 manifest: `components/aihc-parser/test/Test/Fixtures/haskell2010/manifest.tsv`.
+    - Extension manifests: per-extension `manifest.tsv` files under `components/aihc-parser/test/Test/Fixtures/`.
     - Oracle is GHC, with parser round-trip/fingerprint validation.
   - Fuzz completeness tests:
     - Run `nix run .#parser-fuzz -- ...`.
     - Generates random modules, finds parser-validation failures, and shrinks to minimal repros.
     - Promote minimized repros into golden/oracle fixtures.
 
-- **`haskell-cpp`**
+- **`aihc-cpp`**
   - Oracle compliance tests:
-    - Manifest: `components/haskell-cpp/test/Test/Fixtures/progress/manifest.tsv`.
+    - Manifest: `components/aihc-cpp/test/Test/Fixtures/progress/manifest.tsv`.
     - Oracle is `cpphs`; outputs are compared against `cpphs` behavior.
 
-- **`haskell-name-resolution`**
-  - Fixture-driven progress and resolver tests under `components/haskell-name-resolution/test/Test/Fixtures/`.
+- **`aihc-name-resolution`**
+  - Fixture-driven progress and resolver tests under `components/aihc-name-resolution/test/Test/Fixtures/`.
   - Use `nix run .#name-resolution-progress` to track coverage progress.
 
 ## Pre-PR Review

@@ -1,0 +1,4 @@
+extensions: []
+input: "--foo"
+tokens: []
+status: pass

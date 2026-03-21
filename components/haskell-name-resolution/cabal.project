@@ -1,2 +1,0 @@
-packages: . ../haskell-parser
-tests: True

@@ -1,0 +1,5 @@
+extensions: [LexicalNegation]
+input: |
+  -a % b
+ast: EInfix (ENegate (EVar "a")) "%" (EVar "b")
+status: pass

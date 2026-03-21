@@ -1,0 +1,8 @@
+extensions: []
+input: |
+  x -- comment
+  y
+tokens:
+  - 'TkVarId "x"'
+  - 'TkVarId "y"'
+status: pass

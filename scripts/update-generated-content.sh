@@ -372,10 +372,10 @@ replace_marker_inline README.md "lexer-progress" "$tmpdir/readme-root-lexer.txt"
 replace_marker_inline README.md "parser-stackage-progress" "$tmpdir/readme-root-stackage.txt"
 replace_marker_inline README.md "cpp-progress" "$tmpdir/readme-root-cpp.txt"
 replace_marker_inline README.md "name-resolution-progress" "$tmpdir/readme-root-name.txt"
-replace_marker_block components/haskell-parser/README.md "haskell2010-progress" "$tmpdir/readme-parser-h2010.txt"
-replace_marker_block components/haskell-parser/README.md "extension-progress" "$tmpdir/readme-parser-extension.txt"
-replace_marker_block components/haskell-cpp/README.md "cpp-progress" "$tmpdir/readme-cpp.txt"
-replace_marker_block components/haskell-name-resolution/README.md "name-resolution-progress" "$tmpdir/readme-name-resolution.txt"
+replace_marker_block components/aihc-parser/README.md "haskell2010-progress" "$tmpdir/readme-parser-h2010.txt"
+replace_marker_block components/aihc-parser/README.md "extension-progress" "$tmpdir/readme-parser-extension.txt"
+replace_marker_block components/aihc-cpp/README.md "cpp-progress" "$tmpdir/readme-cpp.txt"
+replace_marker_block components/aihc-name-resolution/README.md "name-resolution-progress" "$tmpdir/readme-name-resolution.txt"
 
 if [ "$mode" = "--check" ] && [ "$stale" -ne 0 ]; then
 	exit 1
