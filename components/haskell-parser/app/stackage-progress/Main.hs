@@ -13,6 +13,7 @@ import Data.List (isPrefixOf, nub, sortBy)
 import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
+import GHC.Clock (getMonotonicTimeNSec)
 import GHC.Conc (getNumProcessors)
 import qualified GhcOracle
 import HackageSupport
@@ -34,12 +35,16 @@ import StackageProgress.Summary
   ( FailedPackage (..),
     PackageResult (..),
     PackageSpec (..),
+    PromptCandidate,
     RunSummary,
     SummaryOptions (..),
     addPackageResults,
     emptySummary,
     finalizeSummary,
     forceString,
+    promptCandidateFromResult,
+    renderPrompt,
+    selectPromptCandidate,
     summaryFailedPackages,
     summaryGhcErrors,
     summarySucceededPackages,
@@ -67,6 +72,8 @@ data Options = Options
     optChecks :: [Check],
     optJobs :: Maybe Int,
     optOffline :: Bool,
+    optPrompt :: Bool,
+    optPromptSeed :: Maybe Int,
     optPrintSucceeded :: Bool,
     optPrintFailedTable :: Bool,
     optSanityCheck :: Bool,
@@ -97,7 +104,7 @@ main = do
   jobs <- maybe getNumProcessors pure (optJobs opts)
   showProgress <- hIsTerminalDevice stdout
   when showProgress (putProgressLine (ProgressState 0 0 total))
-  summary <-
+  (summary, promptCandidates) <-
     foldConcurrentlyChunksWithProgress
       jobs
       (runPackage opts)
@@ -105,10 +112,21 @@ main = do
       total
       showProgress
       (summaryOptions opts)
+      (optPrompt opts)
   let successOursN = summarySuccessOursN summary
       successHseN = summarySuccessHseN summary
       successGhcN = summarySuccessGhcN summary
   when showProgress (putStrLn "")
+
+  when (optPrompt opts) $ do
+    candidate <- pickPromptCandidate (optPromptSeed opts) promptCandidates
+    case candidate of
+      Nothing -> do
+        hPutStrLn stderr "No parser failures found in this snapshot; no prompt generated."
+        exitFailure
+      Just selected -> do
+        putStr (renderPrompt selected)
+        exitSuccess
 
   when (optPrintSucceeded opts) $ do
     mapM_ putStrLn (summarySucceededPackages summary)
@@ -156,13 +174,15 @@ main = do
 usage :: String
 usage =
   unlines
-    [ "Usage: cabal run stackage-progress -- [--snapshot lts-24.33] [--checks parse,roundtrip-ghc,source-span] [--jobs N] [--offline] [--print-succeeded] [--print-failed-table] [--sanity-check]",
+    [ "Usage: cabal run stackage-progress -- [--snapshot lts-24.33] [--checks parse,roundtrip-ghc,source-span] [--jobs N] [--offline] [--prompt] [--prompt-seed N] [--print-succeeded] [--print-failed-table] [--sanity-check]",
       "",
       "Defaults:",
       "  --snapshot lts-24.33",
       "  --checks parse",
       "  --jobs <num processors>",
       "  --offline false",
+      "  --prompt false",
+      "  --prompt-seed <monotonic clock>",
       "  --print-succeeded false",
       "  --print-failed-table false",
       "  --sanity-check false",
@@ -171,7 +191,7 @@ usage =
     ]
 
 parseOptions :: [String] -> Either String Options
-parseOptions = go (Options "lts-24.33" [CheckParse] Nothing False False False False Nothing 100)
+parseOptions = go (Options "lts-24.33" [CheckParse] Nothing False False Nothing False False False Nothing 100)
   where
     go opts [] =
       let opts' =
@@ -191,6 +211,12 @@ parseOptions = go (Options "lts-24.33" [CheckParse] Nothing False False False Fa
         _ -> Left "--jobs must be a positive integer"
     go opts ("--offline" : rest) =
       go opts {optOffline = True} rest
+    go opts ("--prompt" : rest) =
+      go opts {optPrompt = True} rest
+    go opts ("--prompt-seed" : value : rest) =
+      case reads value of
+        [(n, "")] -> go opts {optPrompt = True, optPromptSeed = Just n} rest
+        _ -> Left "--prompt-seed must be an integer"
     go opts ("--print-succeeded" : rest) =
       go opts {optPrintSucceeded = True} rest
     go opts ("--print-failed-table" : rest) =
@@ -1069,19 +1095,31 @@ stripArithSeq seqExpr =
     ArithSeqFromTo _ a b -> ArithSeqFromTo noSourceSpan (stripExpr a) (stripExpr b)
     ArithSeqFromThenTo _ a b c -> ArithSeqFromThenTo noSourceSpan (stripExpr a) (stripExpr b) (stripExpr c)
 
-foldConcurrentlyChunksWithProgress :: Int -> (a -> IO PackageResult) -> [a] -> Int -> Bool -> SummaryOptions -> IO RunSummary
-foldConcurrentlyChunksWithProgress n action items total showProgress opts =
-  go 0 0 emptySummary (chunksOf chunkSize items)
+foldConcurrentlyChunksWithProgress :: Int -> (a -> IO PackageResult) -> [a] -> Int -> Bool -> SummaryOptions -> Bool -> IO (RunSummary, [PromptCandidate])
+foldConcurrentlyChunksWithProgress n action items total showProgress opts collectPromptCandidates =
+  go 0 0 emptySummary [] (chunksOf chunkSize items)
   where
     chunkSize = if n <= 0 then 1 else n
-    go _ _ summary [] = pure (finalizeSummary summary)
-    go done success summary (chunk : rest) = do
+    go _ _ summary promptCandidatesRev [] = pure (finalizeSummary summary, reverse promptCandidatesRev)
+    go done success summary promptCandidatesRev (chunk : rest) = do
       batch <- mapConcurrently action chunk
       let done' = done + length batch
           success' = success + length [() | result <- batch, packageOursOk result]
           !summary' = addPackageResults opts batch summary
+          promptCandidatesRev' =
+            if collectPromptCandidates
+              then reverse (mapMaybe promptCandidateFromResult batch) <> promptCandidatesRev
+              else promptCandidatesRev
       when showProgress (putProgressLine (ProgressState done' success' total))
-      go done' success' summary' rest
+      go done' success' summary' promptCandidatesRev' rest
+
+pickPromptCandidate :: Maybe Int -> [PromptCandidate] -> IO (Maybe PromptCandidate)
+pickPromptCandidate maybeSeed candidates = do
+  picker <-
+    case maybeSeed of
+      Just seed -> pure (toInteger seed)
+      Nothing -> toInteger <$> getMonotonicTimeNSec
+  pure (selectPromptCandidate picker candidates)
 
 chunksOf :: Int -> [a] -> [[a]]
 chunksOf _ [] = []

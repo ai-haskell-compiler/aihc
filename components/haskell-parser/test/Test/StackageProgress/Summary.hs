@@ -1,5 +1,6 @@
 module Test.StackageProgress.Summary (stackageProgressSummaryTests) where
 
+import Data.List (isInfixOf)
 import StackageProgress.Summary
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -10,7 +11,10 @@ stackageProgressSummaryTests =
     "stackage progress summary"
     [ testCase "tracks counts without retaining optional output" test_countsOnly,
       testCase "preserves succeeded and failed package output" test_keptOutputs,
-      testCase "limits ghc errors and falls back to package reason" test_ghcErrors
+      testCase "limits ghc errors and falls back to package reason" test_ghcErrors,
+      testCase "extracts prompt candidates from parser failures" test_promptCandidate,
+      testCase "ignores non-parser failures for prompt candidates" test_promptCandidateIgnoresNonParser,
+      testCase "renders prompt text and deterministic candidate selection" test_promptRendering
     ]
 
 test_countsOnly :: Assertion
@@ -64,6 +68,54 @@ test_ghcErrors = do
       ("beta-1.0.0", "No direct GHC diagnostic; package failed before/around GHC check: parser failed early")
     ]
     (summaryGhcErrors summary)
+
+test_promptCandidate :: Assertion
+test_promptCandidate = do
+  let result =
+        packageResult
+          "monad-st"
+          False
+          True
+          True
+          "parse failed in /tmp/Control/Monad/ST/Class.hs: Parse failed: unexpected {'"
+          Nothing
+          1024
+  assertEqual
+    "extracts prompt candidate with normalized prefix"
+    ( Just
+        PromptCandidate
+          { promptPackageName = "monad-st",
+            promptErrorMessage = "PARSE_ERROR: parse failed in /tmp/Control/Monad/ST/Class.hs: Parse failed: unexpected {'"
+          }
+    )
+    (promptCandidateFromResult result)
+
+test_promptCandidateIgnoresNonParser :: Assertion
+test_promptCandidateIgnoresNonParser = do
+  let roundtripOnly = packageResult "roundtrip-only" False True True "roundtrip mismatch in /tmp/Foo.hs" Nothing 1024
+      parseSucceeded = packageResult "parse-success" True True True "parse failed in /tmp/Bar.hs" Nothing 1024
+  assertEqual "roundtrip failure should be ignored" Nothing (promptCandidateFromResult roundtripOnly)
+  assertEqual "successful parser result should be ignored" Nothing (promptCandidateFromResult parseSucceeded)
+
+test_promptRendering :: Assertion
+test_promptRendering = do
+  let candidates =
+        [ PromptCandidate "a" "PARSE_ERROR: a",
+          PromptCandidate "b" "PARSE_ERROR: b",
+          PromptCandidate "c" "PARSE_ERROR: c"
+        ]
+  assertEqual "seed 0 chooses first" (Just (PromptCandidate "a" "PARSE_ERROR: a")) (selectPromptCandidate 0 candidates)
+  assertEqual "seed 1 chooses second" (Just (PromptCandidate "b" "PARSE_ERROR: b")) (selectPromptCandidate 1 candidates)
+  assertEqual "seed wraps by modulo" (Just (PromptCandidate "c" "PARSE_ERROR: c")) (selectPromptCandidate 5 candidates)
+  let rendered =
+        renderPrompt
+          PromptCandidate
+            { promptPackageName = "monad-st",
+              promptErrorMessage = "PARSE_ERROR: parse failed in /tmp/Control/Monad/ST/Class.hs"
+            }
+  assertBool "prompt includes heading" ("# Error messages:" `isInfixOf` rendered)
+  assertBool "prompt includes re-test command" ("nix run .#hackage-tester -- monad-st" `isInfixOf` rendered)
+  assertBool "prompt includes fix instruction" ("Fix the parsing issue that prevents 'monad-st'" `isInfixOf` rendered)
 
 packageResult :: String -> Bool -> Bool -> Bool -> String -> Maybe String -> Integer -> PackageResult
 packageResult name oursOk hseOk ghcOk reason ghcError size =

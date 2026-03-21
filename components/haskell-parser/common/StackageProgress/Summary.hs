@@ -4,6 +4,7 @@ module StackageProgress.Summary
   ( FailedPackage (..),
     PackageResult (..),
     PackageSpec (..),
+    PromptCandidate (..),
     RunSummary,
     SummaryOptions (..),
     addPackageResults,
@@ -12,6 +13,9 @@ module StackageProgress.Summary
     forceString,
     formatPackage,
     packageParserFailed,
+    promptCandidateFromResult,
+    renderPrompt,
+    selectPromptCandidate,
     summaryFailedPackages,
     summaryGhcErrors,
     summarySuccessGhcN,
@@ -43,6 +47,12 @@ data PackageResult = PackageResult
 data FailedPackage = FailedPackage
   { failedPackageName :: String,
     failedPackageSourceSize :: Integer
+  }
+  deriving (Eq, Show)
+
+data PromptCandidate = PromptCandidate
+  { promptPackageName :: String,
+    promptErrorMessage :: String
   }
   deriving (Eq, Show)
 
@@ -133,6 +143,36 @@ formatPackage spec = pkgName spec ++ "-" ++ pkgVersion spec
 packageParserFailed :: PackageResult -> Bool
 packageParserFailed result = not (packageOursOk result) && packageSourceSize result > 0
 
+promptCandidateFromResult :: PackageResult -> Maybe PromptCandidate
+promptCandidateFromResult result
+  | packageOursOk result = Nothing
+  | not (looksLikeParserFailure (packageReason result)) = Nothing
+  | otherwise =
+      Just
+        PromptCandidate
+          { promptPackageName = pkgName (package result),
+            promptErrorMessage = normalizePromptErrorMessage (packageReason result)
+          }
+
+renderPrompt :: PromptCandidate -> String
+renderPrompt candidate =
+  unlines
+    [ "# Error messages:",
+      promptErrorMessage candidate,
+      "",
+      "Re-test by running: nix run .#hackage-tester -- " ++ promptPackageName candidate,
+      "Haskell 2010 language report (contains a slightly outdated specification for syntax): docs/haskell2010-language-report.md",
+      "",
+      "Fix the parsing issue that prevents '" ++ promptPackageName candidate ++ "' from parsing successfully. Remember to include unit tests, golden tests, oracle tests, and quickcheck properties if appropriate. Open a PR when done."
+    ]
+
+selectPromptCandidate :: Integer -> [PromptCandidate] -> Maybe PromptCandidate
+selectPromptCandidate _ [] = Nothing
+selectPromptCandidate seed candidates =
+  let n = length candidates
+      idx = fromInteger (seed `mod` toInteger n)
+   in Just (candidates !! idx)
+
 ghcFailureMessage :: PackageResult -> String
 ghcFailureMessage result =
   case packageGhcError result of
@@ -142,6 +182,22 @@ ghcFailureMessage result =
        in if null reason
             then "GHC check failed without diagnostic details"
             else "No direct GHC diagnostic; package failed before/around GHC check: " ++ forceString reason
+
+looksLikeParserFailure :: String -> Bool
+looksLikeParserFailure message =
+  "parse failed in " `List.isInfixOf` message
+    || "Parse failed:" `List.isInfixOf` message
+    || "source-span parse failed" `List.isInfixOf` message
+
+normalizePromptErrorMessage :: String -> String
+normalizePromptErrorMessage raw =
+  let message =
+        case trim raw of
+          "" -> "parse failed without detailed diagnostics"
+          trimmed -> trimmed
+   in if "PARSE_ERROR:" `List.isPrefixOf` message
+        then message
+        else "PARSE_ERROR: " ++ message
 
 trim :: String -> String
 trim = List.dropWhileEnd isSpace . dropWhile isSpace
