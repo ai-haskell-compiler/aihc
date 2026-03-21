@@ -1,5 +1,5 @@
 extensions: [NegativeLiterals]
 input: |
-  -1
-ast: EInt -1
+  f -x
+ast: EInfix (EVar "f") "-" (EVar "x")
 status: pass

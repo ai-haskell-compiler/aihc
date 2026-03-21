@@ -1,5 +1,5 @@
 extensions: [LexicalNegation]
 input: |
-  (-x)
-ast: ENegate (EVar "x")
+  (- x)
+ast: EParen (ESectionR "-" (EVar "x"))
 status: pass

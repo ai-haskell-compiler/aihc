@@ -1,5 +1,5 @@
 extensions: [NegativeLiterals]
 input: |
-  -1
-ast: EInt -1
+  -10
+ast: EInt -10
 status: pass
