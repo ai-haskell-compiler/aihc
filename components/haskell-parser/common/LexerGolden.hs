@@ -34,7 +34,6 @@ import Text.Read (readMaybe)
 
 data ExpectedStatus
   = StatusPass
-  | StatusFail
   | StatusXPass
   | StatusXFail
   deriving (Eq, Show)
@@ -120,11 +119,9 @@ parseYamlFixture path value =
 evaluateLexerCase :: LexerCase -> (Outcome, String)
 evaluateLexerCase meta =
   let expectedKinds = caseTokens meta
-      actual = lexTokensWithExtensions (caseExtensions meta) (caseInput meta)
-      actualKinds = fmap (map lexTokenKind) actual
-      lexOk = either (const False) (const True) actual
-      tokenMatch = actualKinds == Right expectedKinds
-      lexFail = either (const True) (const False) actual
+      actualTokens = lexTokensWithExtensions (caseExtensions meta) (caseInput meta)
+      actualKinds = map lexTokenKind actualTokens
+      tokenMatch = actualKinds == expectedKinds
    in case caseStatus meta of
         StatusPass
           | tokenMatch -> (OutcomePass, "")
@@ -133,15 +130,12 @@ evaluateLexerCase meta =
                 "expected successful lex with matching token kinds"
                   <> detailsSuffix actualKinds expectedKinds
               )
-        StatusFail
-          | lexFail -> (OutcomePass, "")
-          | otherwise -> (OutcomeFail, "expected lex failure but lexing succeeded")
         StatusXFail
-          | lexFail -> (OutcomeXFail, "")
-          | otherwise -> (OutcomeFail, "expected xfail (known failing bug), but lexing succeeded")
+          | tokenMatch -> (OutcomeFail, "expected xfail (known failing bug), but tokens now match")
+          | otherwise -> (OutcomeXFail, "")
         StatusXPass
-          | lexOk && tokenMatch -> (OutcomeXPass, "known bug still passes unexpectedly")
-          | otherwise -> (OutcomeFail, "expected xpass (known passing bug), but case no longer matches xpass expectation")
+          | tokenMatch -> (OutcomeXPass, "known bug still passes unexpectedly")
+          | otherwise -> (OutcomeFail, "expected xpass (known passing bug), but tokens no longer match")
 
 progressSummary :: [(LexerCase, Outcome, String)] -> (Int, Int, Int, Int)
 progressSummary outcomes =
@@ -153,14 +147,11 @@ progressSummary outcomes =
   where
     count wanted = length [() | (_, out, _) <- outcomes, out == wanted]
 
-detailsSuffix :: Either String [LexTokenKind] -> [LexTokenKind] -> String
+detailsSuffix :: [LexTokenKind] -> [LexTokenKind] -> String
 detailsSuffix actual expected =
-  case actual of
-    Left err -> " (lexer error: " <> err <> ")"
-    Right actualKinds ->
-      if actualKinds == expected
-        then ""
-        else " (expected=" <> show expected <> ", actual=" <> show actualKinds <> ")"
+  if actual == expected
+    then ""
+    else " (expected=" <> show expected <> ", actual=" <> show actual <> ")"
 
 listFixtureFiles :: FilePath -> IO [FilePath]
 listFixtureFiles dir = do
@@ -195,7 +186,6 @@ parseStatus :: FilePath -> Text -> Either String ExpectedStatus
 parseStatus path raw =
   case map toLower (trim (T.unpack raw)) of
     "pass" -> Right StatusPass
-    "fail" -> Right StatusFail
     "xpass" -> Right StatusXPass
     "xfail" -> Right StatusXFail
     _ -> Left ("Invalid [status] in " <> path <> ": " <> T.unpack raw)

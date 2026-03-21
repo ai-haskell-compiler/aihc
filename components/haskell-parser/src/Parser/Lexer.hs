@@ -193,18 +193,18 @@ lexModuleTokensFromChunks = lexChunksWithExtensions True
 -- | Lex source text using explicit lexer extensions.
 --
 -- This runs raw tokenization, extension rewrites, and implicit-layout insertion.
--- Module-top layout is /not/ enabled here. The result currently cannot fail:
--- malformed lexemes become 'TkError' tokens in the token stream.
-lexTokensWithExtensions :: [Extension] -> Text -> Either String [LexToken]
-lexTokensWithExtensions exts input = Right (lexTokensFromChunksWithExtensions exts [input])
+-- Module-top layout is /not/ enabled here. Malformed lexemes become 'TkError'
+-- tokens in the token stream.
+lexTokensWithExtensions :: [Extension] -> Text -> [LexToken]
+lexTokensWithExtensions exts input = lexTokensFromChunksWithExtensions exts [input]
 
 -- | Lex module source text using explicit lexer extensions.
 --
 -- Like 'lexTokensWithExtensions', but also enables top-level module-body layout:
 -- when the source omits explicit braces, virtual layout tokens are inserted
 -- after @module ... where@ (or from the first non-pragma token in module-less files).
-lexModuleTokensWithExtensions :: [Extension] -> Text -> Either String [LexToken]
-lexModuleTokensWithExtensions exts input = Right (lexModuleTokensFromChunks exts [input])
+lexModuleTokensWithExtensions :: [Extension] -> Text -> [LexToken]
+lexModuleTokensWithExtensions exts input = lexModuleTokensFromChunks exts [input]
 
 -- | Internal chunked lexer entrypoint for non-module inputs.
 --
