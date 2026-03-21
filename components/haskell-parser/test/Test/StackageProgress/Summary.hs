@@ -81,11 +81,11 @@ test_promptCandidate = do
           Nothing
           1024
   assertEqual
-    "extracts prompt candidate with normalized prefix"
+    "extracts prompt candidate preserving original error text"
     ( Just
         PromptCandidate
           { promptPackageName = "monad-st",
-            promptErrorMessage = "PARSE_ERROR: parse failed in /tmp/Control/Monad/ST/Class.hs: Parse failed: unexpected {'"
+            promptErrorMessage = "parse failed in /tmp/Control/Monad/ST/Class.hs: Parse failed: unexpected {'"
           }
     )
     (promptCandidateFromResult result)
@@ -99,7 +99,7 @@ test_promptCandidateIncludesAnyFailure = do
     ( Just
         PromptCandidate
           { promptPackageName = "roundtrip-only",
-            promptErrorMessage = "PARSE_ERROR: roundtrip mismatch in /tmp/Foo.hs"
+            promptErrorMessage = "roundtrip mismatch in /tmp/Foo.hs"
           }
     )
     (promptCandidateFromResult roundtripOnly)
@@ -119,7 +119,7 @@ test_promptRendering = do
         renderPrompt
           PromptCandidate
             { promptPackageName = "monad-st",
-              promptErrorMessage = "PARSE_ERROR: parse failed in /tmp/Control/Monad/ST/Class.hs"
+              promptErrorMessage = "parse failed in /tmp/Control/Monad/ST/Class.hs"
             }
   assertBool "prompt includes heading" ("# Error messages:" `isInfixOf` rendered)
   assertBool "prompt includes re-test command" ("nix run .#hackage-tester -- monad-st" `isInfixOf` rendered)

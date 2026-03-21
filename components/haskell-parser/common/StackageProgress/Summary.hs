@@ -150,7 +150,7 @@ promptCandidateFromResult result
       Just
         PromptCandidate
           { promptPackageName = pkgName (package result),
-            promptErrorMessage = normalizePromptErrorMessage (packageReason result)
+            promptErrorMessage = packageReason result
           }
 
 renderPrompt :: PromptCandidate -> String
@@ -181,16 +181,6 @@ ghcFailureMessage result =
        in if null reason
             then "GHC check failed without diagnostic details"
             else "No direct GHC diagnostic; package failed before/around GHC check: " ++ forceString reason
-
-normalizePromptErrorMessage :: String -> String
-normalizePromptErrorMessage raw =
-  let message =
-        case trim raw of
-          "" -> "parse failed without detailed diagnostics"
-          trimmed -> trimmed
-   in if "PARSE_ERROR:" `List.isPrefixOf` message
-        then message
-        else "PARSE_ERROR: " ++ message
 
 trim :: String -> String
 trim = List.dropWhileEnd isSpace . dropWhile isSpace
