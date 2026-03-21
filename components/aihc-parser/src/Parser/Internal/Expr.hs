@@ -114,6 +114,8 @@ infixOperatorParserExcept forbidden =
           TkConSym op | op `notElem` forbidden -> Just op
           TkQVarSym op | op `notElem` forbidden -> Just op
           TkQConSym op | op `notElem` forbidden -> Just op
+          -- TkMinusOperator is minus when LexicalNegation is enabled but used as infix
+          TkMinusOperator | "-" `notElem` forbidden -> Just "-"
           -- Reserved operators that can be used as infix operators
           TkReservedColon | ":" `notElem` forbidden -> Just ":"
           _ -> Nothing
@@ -203,13 +205,15 @@ minusTokenValueParser =
   tokenSatisfy "minus operator" $ \tok ->
     case lexTokenKind tok of
       TkVarSym "-" -> Just tok
+      TkMinusOperator -> Just tok
+      TkPrefixMinus -> Just tok
       _ -> Nothing
 
 prefixMinusTokenParser :: TokParser ()
 prefixMinusTokenParser =
   tokenSatisfy "prefix minus" $ \tok ->
     case lexTokenKind tok of
-      TkVarSym "-" -> Just ()
+      TkPrefixMinus -> Just ()
       _ -> Nothing
 
 parenOperatorExprParser :: TokParser Expr
@@ -221,6 +225,7 @@ parenOperatorExprParser = withSpan $ do
       TkConSym sym -> Just sym
       TkQVarSym sym -> Just sym
       TkQConSym sym -> Just sym
+      TkMinusOperator -> Just "-"
       TkReservedColon -> Just ":"
       TkReservedDoubleColon -> Just "::"
       TkReservedEquals -> Just "="
@@ -265,6 +270,7 @@ conOperatorParser =
       TkConSym op -> Just op
       TkQConSym op -> Just op
       TkReservedColon -> Just ":"
+      TkReservedDoubleColon -> Just "::"
       _ -> Nothing
 
 appPatternParser :: TokParser Pattern
@@ -471,11 +477,16 @@ parenExprParser = withSpan $ do
       guard (parenNegateAllowed minusTok nextTok)
       inner <- exprParser
       symbolLikeTok ")"
-      pure $ \span' -> EParen span' (ENegate span' inner)
+      pure $ \span' ->
+        case lexTokenKind minusTok of
+          TkPrefixMinus -> ENegate span' inner
+          _ -> EParen span' (ENegate span' inner)
 
     parenNegateAllowed minusTok nextTok =
       case lexTokenKind minusTok of
+        TkPrefixMinus -> True
         TkVarSym "-" -> tokensAdjacent minusTok nextTok
+        TkMinusOperator -> False
         _ -> False
 
     tokensAdjacent first second =
@@ -857,10 +868,13 @@ typeParenOperatorParser = withSpan $ do
   symbolLikeTok "("
   op <- tokenSatisfy "type operator" $ \tok ->
     case lexTokenKind tok of
-      TkVarSym sym -> Just sym
+      TkVarSym sym | sym /= "*" -> Just sym
       TkConSym sym | sym /= "*" -> Just sym
       TkQVarSym sym -> Just sym
       TkQConSym sym -> Just sym
+      -- Handle reserved operators that can be used as type constructors
+      TkReservedRightArrow -> Just "->"
+      TkReservedTilde -> Just "~"
       _ -> Nothing
   symbolLikeTok ")"
   pure (`TCon` op)

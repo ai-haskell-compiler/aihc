@@ -142,6 +142,9 @@ data LexTokenKind
   | TkSpecialBacktick -- `
   | TkSpecialLBrace -- {
   | TkSpecialRBrace -- }
+  | -- LexicalNegation support
+    TkMinusOperator -- minus operator when LexicalNegation enabled (before prefix detection)
+  | TkPrefixMinus -- prefix minus (tight, no space) for LexicalNegation
   | -- Pragmas
     TkPragmaLanguage [ExtensionSetting]
   | TkPragmaWarning Text
@@ -385,29 +388,126 @@ nextToken st =
 -- | Apply all extension-driven post-lexing rewrites in a deterministic order.
 applyExtensions :: [Extension] -> [LexToken] -> [LexToken]
 applyExtensions exts toks
+  | LexicalNegation `elem` exts = applyLexicalNegation (markLexicalMinusOperators (applyNegativeLiterals toks))
   | NegativeLiterals `elem` exts = applyNegativeLiterals toks
   | otherwise = toks
+
+-- | Mark all minus operators as TkMinusOperator when LexicalNegation is enabled.
+-- This is an intermediate step before detecting prefix positions.
+markLexicalMinusOperators :: [LexToken] -> [LexToken]
+markLexicalMinusOperators =
+  map
+    ( \tok ->
+        case lexTokenKind tok of
+          TkVarSym "-" -> tok {lexTokenKind = TkMinusOperator}
+          _ -> tok
+    )
 
 -- | Implement @NegativeLiterals@ by merging @-@ and immediately adjacent numerics.
 --
 -- The merge only happens when there is no intervening whitespace/comments, and only
 -- for integer/base-integer/float tokens.
 applyNegativeLiterals :: [LexToken] -> [LexToken]
-applyNegativeLiterals toks =
-  case toks of
-    minusTok : numTok : rest
-      | lexTokenKind minusTok == TkVarSym "-",
-        tokensAdjacent minusTok numTok ->
-          case lexTokenKind numTok of
-            TkInteger n ->
-              negativeIntegerToken minusTok numTok n : applyNegativeLiterals rest
-            TkIntegerBase n repr ->
-              negativeIntegerBaseToken minusTok numTok n repr : applyNegativeLiterals rest
-            TkFloat n repr ->
-              negativeFloatToken minusTok numTok n repr : applyNegativeLiterals rest
-            _ -> minusTok : applyNegativeLiterals (numTok : rest)
-    tok : rest -> tok : applyNegativeLiterals rest
-    [] -> []
+applyNegativeLiterals = go Nothing
+  where
+    go prev toks =
+      case toks of
+        minusTok : numTok : rest
+          | lexTokenKind minusTok == TkVarSym "-",
+            tokensAdjacent minusTok numTok,
+            allowsNegativeLiteralMerge prev minusTok ->
+              case lexTokenKind numTok of
+                TkInteger n ->
+                  let merged = negativeIntegerToken minusTok numTok n
+                   in merged : go (Just merged) rest
+                TkIntegerBase n repr ->
+                  let merged = negativeIntegerBaseToken minusTok numTok n repr
+                   in merged : go (Just merged) rest
+                TkFloat n repr ->
+                  let merged = negativeFloatToken minusTok numTok n repr
+                   in merged : go (Just merged) rest
+                _ -> minusTok : go (Just minusTok) (numTok : rest)
+        tok : rest -> tok : go (Just tok) rest
+        [] -> []
+
+-- | Apply LexicalNegation extension by detecting prefix minus positions.
+-- Converts TkMinusOperator to TkPrefixMinus when in prefix position (tight, no space).
+applyLexicalNegation :: [LexToken] -> [LexToken]
+applyLexicalNegation = go Nothing
+  where
+    go prev toks =
+      case toks of
+        minusTok : nextTok : rest
+          | lexTokenKind minusTok == TkMinusOperator,
+            tokensAdjacent minusTok nextTok,
+            allowsLexicalNegationPrefix prev minusTok,
+            tokenCanStartNegatedAtom nextTok ->
+              let prefixed = minusTok {lexTokenKind = TkPrefixMinus}
+               in prefixed : go (Just prefixed) (nextTok : rest)
+        tok : rest -> tok : go (Just tok) rest
+        [] -> []
+
+-- | Check if a negative literal merge is allowed based on the preceding token.
+allowsNegativeLiteralMerge :: Maybe LexToken -> LexToken -> Bool
+allowsNegativeLiteralMerge prev minusTok =
+  case prev of
+    Nothing -> True
+    Just prevTok
+      | tokensAdjacent prevTok minusTok -> tokenAllowsTightUnaryPrefix prevTok
+      | otherwise -> True
+
+-- | Check if a LexicalNegation prefix is allowed based on the preceding token.
+allowsLexicalNegationPrefix :: Maybe LexToken -> LexToken -> Bool
+allowsLexicalNegationPrefix prev minusTok =
+  case prev of
+    Nothing -> True
+    Just prevTok
+      | tokensAdjacent prevTok minusTok -> tokenAllowsTightUnaryPrefix prevTok
+      | otherwise -> True
+
+-- | Check if the preceding token allows a tight unary prefix (like negation).
+tokenAllowsTightUnaryPrefix :: LexToken -> Bool
+tokenAllowsTightUnaryPrefix tok =
+  case lexTokenKind tok of
+    TkSpecialLParen -> True
+    TkSpecialLBracket -> True
+    TkSpecialLBrace -> True
+    TkSpecialComma -> True
+    TkSpecialSemicolon -> True
+    TkVarSym _ -> True
+    TkConSym _ -> True
+    TkQVarSym _ -> True
+    TkQConSym _ -> True
+    TkMinusOperator -> True
+    TkPrefixMinus -> True
+    TkReservedEquals -> True
+    TkReservedLeftArrow -> True
+    TkReservedRightArrow -> True
+    TkReservedDoubleArrow -> True
+    TkReservedDoubleColon -> True
+    TkReservedPipe -> True
+    TkReservedBackslash -> True
+    _ -> False
+
+-- | Check if a token can start a negated atom (for LexicalNegation).
+tokenCanStartNegatedAtom :: LexToken -> Bool
+tokenCanStartNegatedAtom tok =
+  case lexTokenKind tok of
+    TkVarId _ -> True
+    TkConId _ -> True
+    TkQVarId _ -> True
+    TkQConId _ -> True
+    TkMinusOperator -> True
+    TkInteger _ -> True
+    TkIntegerBase _ _ -> True
+    TkFloat _ _ -> True
+    TkChar _ -> True
+    TkString _ -> True
+    TkQuasiQuote _ _ -> True
+    TkSpecialLParen -> True
+    TkSpecialLBracket -> True
+    TkReservedBackslash -> True
+    _ -> False
 
 -- | True when the second token starts exactly where the first one ends.
 tokensAdjacent :: LexToken -> LexToken -> Bool
