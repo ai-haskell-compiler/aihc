@@ -675,7 +675,11 @@ prettyExprPrec prec expr =
     ERecordUpd _ base fields ->
       prettyExprPrec 3 base <+> braces (hsep (punctuate comma (map prettyBinding fields)))
     ETypeSig _ inner ty -> parenthesize (prec > 1) (prettyExprPrec 1 inner <+> "::" <+> prettyType ty)
-    EParen _ inner -> parens (prettyExprPrec 0 inner)
+    EParen _ inner ->
+      case inner of
+        ESectionL {} -> prettyExprPrec 0 inner
+        ESectionR {} -> prettyExprPrec 0 inner
+        _ -> parens (prettyExprPrec 0 inner)
     EWhereDecls _ body decls ->
       parenthesize
         (prec > 0)

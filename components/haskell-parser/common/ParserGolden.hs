@@ -31,7 +31,7 @@ import qualified Data.Yaml as Y
 import Parser
   ( defaultConfig,
     errorBundlePretty,
-    parseExpr,
+    parseExprWithExtensions,
     parseModule,
   )
 import Parser.Ast

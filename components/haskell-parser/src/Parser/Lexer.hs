@@ -336,7 +336,7 @@ nextToken st =
 -- | Apply all extension-driven post-lexing rewrites in a deterministic order.
 applyExtensions :: [Extension] -> [LexToken] -> [LexToken]
 applyExtensions exts toks
-  | NegativeLiterals `elem` exts = applyNegativeLiterals toks
+  | NegativeLiterals `elem` exts || LexicalNegation `elem` exts = applyNegativeLiterals toks
   | otherwise = toks
 
 -- | Implement @NegativeLiterals@ by merging @-@ and immediately adjacent numerics.

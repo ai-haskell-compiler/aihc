@@ -422,8 +422,14 @@ parenExprParser = withSpan $ do
   mClosed <- MP.optional (symbolLikeTok ")")
   case mClosed of
     Just () -> pure (`ETuple` [])
-    Nothing -> MP.try parseSection <|> MP.try parseTupleSectionExpr <|> parseParenOrTupleExpr
+    Nothing -> MP.try parseNegateParen <|> MP.try parseSection <|> MP.try parseTupleSectionExpr <|> parseParenOrTupleExpr
   where
+    parseNegateParen = do
+      operatorLikeTok "-"
+      inner <- exprParser
+      symbolLikeTok ")"
+      pure (\span' -> EParen span' (ENegate span' inner))
+
     parseSection = do
       MP.try parseSectionR <|> parseSectionL
 
@@ -431,13 +437,13 @@ parenExprParser = withSpan $ do
       op <- infixOperatorParserExcept []
       rhs <- exprParser
       symbolLikeTok ")"
-      pure (\span' -> ESectionR span' op rhs)
+      pure (\span' -> EParen span' (ESectionR span' op rhs))
 
     parseSectionL = do
-      lhs <- exprParser
+      lhs <- appExprParser
       op <- infixOperatorParserExcept []
       symbolLikeTok ")"
-      pure (\span' -> ESectionL span' lhs op)
+      pure (\span' -> EParen span' (ESectionL span' lhs op))
 
     parseTupleSectionExpr = do
       -- Try to parse as tuple section first (e.g., "(,1)" or "(1,)")
