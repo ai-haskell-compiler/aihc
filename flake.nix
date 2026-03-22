@@ -171,6 +171,11 @@
                 app_lines=$(tokei "$comp_path/app" --output json | jq '[.[] | .code] | add // 0')
                 test_lines=$((test_lines + app_lines))
               fi
+              # Common contains shared test infrastructure (golden, quickcheck, oracle, etc.)
+              if [ -d "$comp_path/common" ]; then
+                common_lines=$(tokei "$comp_path/common" --output json | jq '[.[] | .code] | add // 0')
+                test_lines=$((test_lines + common_lines))
+              fi
               code_lines=$((comp_all_lines - test_lines))
               if [ $code_lines -lt 0 ]; then code_lines=0; fi
 
