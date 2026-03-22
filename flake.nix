@@ -96,6 +96,19 @@
               preCheck = (old.preCheck or "") + ''
                 export AIHC_LEXER_EXE="$PWD/dist/build/aihc-lexer/aihc-lexer"
                 export AIHC_PARSER_EXE="$PWD/dist/build/aihc-parser/aihc-parser"
+                # Create wrapper scripts that disable HPC for spawned executables
+                # This prevents .tix file corruption when test-spawned executables
+                # try to write to the same coverage file as the test runner
+                mkdir -p "$PWD/hpc-wrappers"
+                for exe in aihc-lexer aihc-parser; do
+                  cat > "$PWD/hpc-wrappers/$exe" << EOF
+                #!/bin/sh
+                HPCTIXFILE=/dev/null exec "$PWD/dist/build/$exe/$exe" "\$@"
+                EOF
+                  chmod +x "$PWD/hpc-wrappers/$exe"
+                done
+                export AIHC_LEXER_EXE="$PWD/hpc-wrappers/aihc-lexer"
+                export AIHC_PARSER_EXE="$PWD/hpc-wrappers/aihc-parser"
               '';
               postInstall = (old.postInstall or "") + ''
                 # Export HPC coverage data
