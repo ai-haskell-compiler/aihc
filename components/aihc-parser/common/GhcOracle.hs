@@ -18,8 +18,8 @@ module GhcOracle
   )
 where
 
+import Aihc.Cpp (resultOutput)
 import Control.Exception (catch, displayException, evaluate)
-import Cpp (resultOutput)
 import CppSupport (moduleHeaderExtensionSettings, preprocessForParserWithoutIncludes)
 import Data.Bifunctor (first)
 import Data.List (nub)

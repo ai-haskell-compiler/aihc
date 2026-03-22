@@ -10,7 +10,7 @@ module CppSupport
   )
 where
 
-import Cpp
+import Aihc.Cpp
   ( Config (..),
     IncludeKind (..),
     IncludeRequest (..),

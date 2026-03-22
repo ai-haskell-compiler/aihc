@@ -507,9 +507,8 @@
             ];
           } ''
             cd "$src/components/aihc-cpp"
-            # Run doctest on the Cpp module
-            # We need to tell doctest where to find the package database
-            doctest -isrc src/Cpp.hs
+            # Run doctest on the Aihc.Cpp module
+            doctest -isrc src/Aihc/Cpp.hs
             touch "$out"
           '';
         in {

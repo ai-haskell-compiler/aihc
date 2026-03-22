@@ -3,7 +3,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 -- |
--- Module      : Cpp
+-- Module      : Aihc.Cpp
 -- Description : Pure Haskell C preprocessor for Haskell source files
 -- License     : Unlicense
 --
@@ -13,7 +13,7 @@
 -- The main entry point is 'preprocess', which takes a 'Config' and
 -- source text, returning a 'Step' that either completes with a 'Result'
 -- or requests an include file to be resolved.
-module Cpp
+module Aihc.Cpp
   ( -- * Preprocessing
     preprocess,
 

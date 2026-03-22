@@ -2,12 +2,12 @@
 
 module Main (main) where
 
+import Aihc.Cpp (Severity (..), diagSeverity, resultDiagnostics, resultOutput)
 import Control.Concurrent (newChan, readChan, writeChan)
 import Control.Concurrent.Async (async, wait)
 import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newMVar, readMVar)
 import Control.Exception (SomeException, displayException, try)
 import Control.Monad (unless, when)
-import Cpp (Severity (..), diagSeverity, resultDiagnostics, resultOutput)
 import CppSupport (preprocessForParserIfEnabled)
 import qualified Data.Aeson as Aeson
 import qualified Data.ByteString as BS

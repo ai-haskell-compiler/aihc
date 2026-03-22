@@ -9,8 +9,8 @@ module Test.Progress
   )
 where
 
+import Aihc.Cpp (Config (..), Diagnostic (..), IncludeRequest (..), Result (..), Severity (..), Step (..), defaultConfig, preprocess)
 import qualified Control.Exception as E
-import Cpp (Config (..), Diagnostic (..), IncludeRequest (..), Result (..), Severity (..), Step (..), defaultConfig, preprocess)
 import Data.Char (isDigit, isSpace)
 import Data.List (dropWhileEnd)
 import Data.Maybe (fromMaybe)

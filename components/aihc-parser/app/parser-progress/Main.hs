@@ -2,8 +2,8 @@
 
 module Main (main) where
 
+import Aihc.Cpp (resultOutput)
 import Control.Monad (filterM)
-import Cpp (resultOutput)
 import CppSupport (preprocessForParserWithoutIncludes)
 import Data.Text (Text)
 import qualified Data.Text.IO as TIO

@@ -2,7 +2,7 @@
 
 module Main (main) where
 
-import Cpp (Config (..), Result (..), Step (..), defaultConfig, preprocess)
+import Aihc.Cpp (Config (..), Result (..), Step (..), defaultConfig, preprocess)
 import qualified Data.Map.Strict as M
 import qualified Data.Text as T
 import Test.Progress (CaseMeta (..), Outcome (..), evaluateCase, loadManifest)
