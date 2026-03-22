@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module ModuleShrinker
   ( shrinkModule,
@@ -6,6 +7,8 @@ module ModuleShrinker
   )
 where
 
+import Control.DeepSeq (force)
+import Control.Exception (SomeException, evaluate, try)
 import Control.Monad ((<=<))
 import Data.Maybe (mapMaybe)
 import Data.Text (Text)
@@ -15,6 +18,7 @@ import qualified GhcOracle
 import HseExtensions (toHseExtension)
 import qualified Language.Haskell.Exts as HSE
 import ShrinkUtils (candidateTransformsWith, unique)
+import System.IO.Unsafe (unsafePerformIO)
 
 shrinkModule :: (Text -> Bool) -> Text -> Maybe Text
 shrinkModule = shrinkModuleWithExtensions []
@@ -50,11 +54,12 @@ shrinkModuleWithExtensions exts keeps source
               | otherwise -> tryCandidates rest
 
     normalizeCandidateAst modu0 =
-      Just
-        ShrinkCandidate
-          { candAst = modu0,
-            candSource = T.pack (HSE.exactPrint modu0 [])
-          }
+      safeExactPrint modu0 >>= \src ->
+        Just
+          ShrinkCandidate
+            { candAst = modu0,
+              candSource = src
+            }
 
 candidateTransforms :: ShrinkCandidate -> [HSE.Module HSE.SrcSpanInfo]
 candidateTransforms candidate = candidateTransformsWith trimSegment (candAst candidate)
@@ -76,11 +81,29 @@ parseCandidate exts source0 =
   case HSE.parseFileContentsWithMode (hseParseModeFor exts) (T.unpack source0) of
     HSE.ParseFailed _ _ -> Nothing
     HSE.ParseOk modu0 ->
-      Just
-        ShrinkCandidate
-          { candAst = modu0,
-            candSource = T.pack (HSE.exactPrint modu0 [])
-          }
+      safeExactPrint modu0 >>= \src ->
+        Just
+          ShrinkCandidate
+            { candAst = modu0,
+              candSource = src
+            }
+
+-- | Safely call HSE.exactPrint, catching any exceptions.
+-- HSE can throw exceptions like "ExactP: QName is given wrong number of srcInfoPoints"
+-- when the AST has malformed source location info.
+safeExactPrint :: HSE.Module HSE.SrcSpanInfo -> Maybe Text
+safeExactPrint modu =
+  -- Using unsafePerformIO here is acceptable because:
+  -- 1. HSE.exactPrint is conceptually pure (it just formats an AST)
+  -- 2. The exception is a bug in HSE, not an expected IO effect
+  -- 3. We want to gracefully degrade rather than crash
+  unsafePerformIO $ do
+    -- Use force to fully evaluate the string, since exactPrint is lazy
+    -- and exceptions may be thrown during traversal
+    result <- try (evaluate (force (HSE.exactPrint modu [])))
+    pure $ case result of
+      Left (_ :: SomeException) -> Nothing
+      Right s -> Just (T.pack s)
 
 trimSegment :: String -> [String]
 trimSegment segment =

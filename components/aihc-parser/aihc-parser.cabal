@@ -221,6 +221,7 @@ executable hackage-tester
     , aihc-cpp
     , text
     , containers
+    , deepseq
     , directory
     , filepath
     , ghc-lib-parser
@@ -257,6 +258,7 @@ executable stackage-progress
     , aihc-cpp
     , text
     , containers
+    , deepseq
     , directory
     , filepath
     , ghc-lib-parser
@@ -289,6 +291,7 @@ executable parser-fuzz
       base >=4.16 && <5
     , aihc-parser
     , aihc-cpp
+    , deepseq
     , haskell-src-exts
     , QuickCheck
     , optparse-applicative

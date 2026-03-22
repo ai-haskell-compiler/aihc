@@ -62,7 +62,7 @@ exportModuleParser = do
 exportNameParser :: TokParser (SourceSpan -> ExportSpec)
 exportNameParser = do
   namespace <- MP.optional exportImportNamespaceParser
-  name <- identifierTextParser
+  name <- identifierTextParser <|> parens operatorTextParser
   members <- MP.optional exportMembersParser
   pure $ \span' ->
     case members of
@@ -76,12 +76,18 @@ exportMembersParser :: TokParser (Maybe [Text])
 exportMembersParser =
   parens $
     (expectedTok TkReservedDotDot >> pure Nothing)
-      <|> (Just <$> (identifierTextParser `MP.sepEndBy` expectedTok TkSpecialComma))
+      <|> (Just <$> (memberNameParser `MP.sepEndBy` expectedTok TkSpecialComma))
+  where
+    memberNameParser = identifierTextParser <|> parens operatorTextParser
 
+-- | Checks if a name refers to a type/class (as opposed to a variable/function).
+-- In Haskell:
+-- - Identifiers starting with uppercase letters are type constructors/classes
+-- - Symbolic operators starting with ':' are constructor operators (type-level)
 isTypeName :: Text -> Bool
 isTypeName txt =
   case T.uncons txt of
-    Just (c, _) -> isUpper c
+    Just (c, _) -> isUpper c || c == ':'
     Nothing -> False
 
 importDeclParser :: TokParser ImportDecl
@@ -135,18 +141,20 @@ importItemParser :: TokParser ImportItem
 importItemParser = withSpan $ do
   namespace <- MP.optional exportImportNamespaceParser
   itemName <- identifierTextParser <|> parens importOperatorParser
-  case namespace of
-    Nothing ->
-      pure (\span' -> ImportItemVar span' Nothing itemName)
-    Just ns -> do
-      members <- MP.optional exportMembersParser
-      pure $ \span' ->
-        case members of
-          Just Nothing -> ImportItemAll span' (Just ns) itemName
-          Just (Just names) -> ImportItemWith span' (Just ns) itemName names
-          Nothing
-            | ns == "type" || isTypeName itemName -> ImportItemAbs span' (Just ns) itemName
-            | otherwise -> ImportItemVar span' (Just ns) itemName
+  -- When there's no explicit namespace, we still need to try parsing members
+  -- for type constructors and type classes (uppercase names or parenthesized operators)
+  let shouldTryMembers = case namespace of
+        Just _ -> True
+        Nothing -> isTypeName itemName
+  members <- if shouldTryMembers then MP.optional exportMembersParser else pure Nothing
+  let effectiveNamespace = namespace
+  pure $ \span' ->
+    case members of
+      Just Nothing -> ImportItemAll span' effectiveNamespace itemName
+      Just (Just names) -> ImportItemWith span' effectiveNamespace itemName names
+      Nothing
+        | effectiveNamespace == Just "type" || isTypeName itemName -> ImportItemAbs span' effectiveNamespace itemName
+        | otherwise -> ImportItemVar span' effectiveNamespace itemName
 
 importOperatorParser :: TokParser Text
 importOperatorParser = operatorTextParser

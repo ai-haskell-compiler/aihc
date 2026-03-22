@@ -174,6 +174,8 @@ data LayoutContext
   = LayoutExplicit
   | LayoutImplicit !Int
   | LayoutImplicitLet !Int
+  | -- | Marker for ( or [ to scope implicit layout closures
+    LayoutDelimiter
   deriving (Eq, Show)
 
 data PendingLayout
@@ -640,6 +642,16 @@ closeBeforeToken st tok =
       | layoutDelimiterDepth st == 0 ->
           let (inserted, contexts') = closeLeadingImplicitLets (lexTokenSpan tok) (layoutContexts st)
            in (inserted, st {layoutContexts = contexts'})
+    -- Close implicit layout contexts before closing delimiters (parse-error rule)
+    TkSpecialRParen ->
+      let (inserted, contexts') = closeAllImplicitBeforeDelimiter (lexTokenSpan tok) (layoutContexts st)
+       in (inserted, st {layoutContexts = contexts'})
+    TkSpecialRBracket ->
+      let (inserted, contexts') = closeAllImplicitBeforeDelimiter (lexTokenSpan tok) (layoutContexts st)
+       in (inserted, st {layoutContexts = contexts'})
+    TkSpecialRBrace ->
+      let (inserted, contexts') = closeAllImplicitBeforeDelimiter (lexTokenSpan tok) (layoutContexts st)
+       in (inserted, st {layoutContexts = contexts'})
     _ -> ([], st)
 
 bolLayout :: LayoutState -> LexToken -> ([LexToken], LayoutState)
@@ -694,6 +706,17 @@ closeLeadingImplicitLets anchor = go []
         LayoutImplicitLet _ : rest -> go (virtualSymbolToken "}" anchor : acc) rest
         _ -> (reverse acc, contexts)
 
+-- | Close all implicit layout contexts up to (but not including) the first explicit context.
+-- Used to implement the Haskell Report's "parse-error" rule for closing delimiters.
+closeAllImplicitBeforeDelimiter :: SourceSpan -> [LayoutContext] -> ([LexToken], [LayoutContext])
+closeAllImplicitBeforeDelimiter anchor = go []
+  where
+    go acc contexts =
+      case contexts of
+        LayoutImplicit _ : rest -> go (virtualSymbolToken "}" anchor : acc) rest
+        LayoutImplicitLet _ : rest -> go (virtualSymbolToken "}" anchor : acc) rest
+        _ -> (reverse acc, contexts)
+
 stepTokenContext :: LayoutState -> LexToken -> LayoutState
 stepTokenContext st tok =
   case lexTokenKind tok of
@@ -705,13 +728,37 @@ stepTokenContext st tok =
       | otherwise -> st
     TkKeywordLet -> st {layoutPendingLayout = Just PendingLayoutLet}
     TkKeywordWhere -> st {layoutPendingLayout = Just PendingLayoutGeneric}
-    TkSpecialLParen -> st {layoutDelimiterDepth = layoutDelimiterDepth st + 1}
-    TkSpecialLBracket -> st {layoutDelimiterDepth = layoutDelimiterDepth st + 1}
-    TkSpecialRParen -> st {layoutDelimiterDepth = max 0 (layoutDelimiterDepth st - 1)}
-    TkSpecialRBracket -> st {layoutDelimiterDepth = max 0 (layoutDelimiterDepth st - 1)}
+    TkSpecialLParen ->
+      st
+        { layoutDelimiterDepth = layoutDelimiterDepth st + 1,
+          layoutContexts = LayoutDelimiter : layoutContexts st
+        }
+    TkSpecialLBracket ->
+      st
+        { layoutDelimiterDepth = layoutDelimiterDepth st + 1,
+          layoutContexts = LayoutDelimiter : layoutContexts st
+        }
+    TkSpecialRParen ->
+      st
+        { layoutDelimiterDepth = max 0 (layoutDelimiterDepth st - 1),
+          layoutContexts = popToDelimiter (layoutContexts st)
+        }
+    TkSpecialRBracket ->
+      st
+        { layoutDelimiterDepth = max 0 (layoutDelimiterDepth st - 1),
+          layoutContexts = popToDelimiter (layoutContexts st)
+        }
     TkSpecialLBrace -> st {layoutContexts = LayoutExplicit : layoutContexts st}
     TkSpecialRBrace -> st {layoutContexts = popOneContext (layoutContexts st)}
     _ -> st
+
+-- | Pop the layout context stack up to and including the nearest LayoutDelimiter.
+popToDelimiter :: [LayoutContext] -> [LayoutContext]
+popToDelimiter contexts =
+  case contexts of
+    LayoutDelimiter : rest -> rest
+    _ : rest -> popToDelimiter rest
+    [] -> []
 
 popOneContext :: [LayoutContext] -> [LayoutContext]
 popOneContext contexts =
@@ -735,6 +782,7 @@ isImplicitLayoutContext ctx =
     LayoutImplicit _ -> True
     LayoutImplicitLet _ -> True
     LayoutExplicit -> False
+    LayoutDelimiter -> False
 
 isBOL :: LayoutState -> LexToken -> Bool
 isBOL st tok =

@@ -100,9 +100,22 @@ doExprStmtParser = withSpan $ do
 
 infixExprParserExcept :: [Text] -> TokParser Expr
 infixExprParserExcept forbidden = do
-  lhs <- MP.try negateExprParser <|> appExprParser
-  rest <- MP.many ((,) <$> infixOperatorParserExcept forbidden <*> appExprParser)
+  lhs <- MP.try negateExprParser <|> lexpParser
+  rest <- MP.many ((,) <$> infixOperatorParserExcept forbidden <*> lexpParser)
   pure (foldl buildInfix lhs rest)
+
+-- | Parse an lexp (left-expression) - includes do, if, case, let, lambda, and fexp.
+-- This is used on both sides of infix operators per the Haskell Report grammar.
+lexpParser :: TokParser Expr
+lexpParser = do
+  tok <- lookAhead anySingle
+  case lexTokenKind tok of
+    TkKeywordDo -> doExprParser
+    TkKeywordIf -> ifExprParser
+    TkKeywordCase -> caseExprParser
+    TkKeywordLet -> letExprParser
+    TkReservedBackslash -> lambdaExprParser
+    _ -> appExprParser
 
 buildInfix :: Expr -> (Text, Expr) -> Expr
 buildInfix lhs (op, rhs) =
