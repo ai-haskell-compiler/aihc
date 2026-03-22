@@ -22,6 +22,41 @@
                aihc-cpp = final.callCabal2nix "aihc-cpp" ./components/aihc-cpp { };
              };
            };
+        # Haskell packages with Haddock enabled for documentation generation
+        mkHsPkgsWithHaddock = pkgs:
+          pkgs.haskellPackages.override {
+            overrides = final: prev: {
+              ghc-lib-parser = pkgs.haskell.lib.dontHaddock final.ghc-lib-parser_9_14_1_20251220;
+              aihc-parser = pkgs.haskell.lib.doHaddock (final.callCabal2nix "aihc-parser" ./components/aihc-parser { });
+              aihc-cpp = pkgs.haskell.lib.doHaddock (final.callCabal2nix "aihc-cpp" ./components/aihc-cpp { });
+            };
+          };
+        # Combined Haddock documentation derivation
+        mkCombinedDocs = pkgs:
+          let
+            hsPkgsHaddock = mkHsPkgsWithHaddock pkgs;
+            parserDoc = hsPkgsHaddock.aihc-parser.doc;
+            cppDoc = hsPkgsHaddock.aihc-cpp.doc;
+            # Use haddock from ghc package (bundled with GHC)
+            haddock = pkgs.haskellPackages.ghc;
+          in pkgs.runCommand "aihc-docs" {
+            nativeBuildInputs = [ haddock ];
+            inherit parserDoc cppDoc;
+          } ''
+            mkdir -p "$out"
+
+            # Copy individual package docs
+            cp -r "$parserDoc/share/doc/aihc-parser-0.1.0.0/html" "$out/aihc-parser"
+            cp -r "$cppDoc/share/doc/aihc-cpp-0.1.0.0/html" "$out/aihc-cpp"
+
+            # Generate combined index and contents
+            haddock \
+              --gen-index \
+              --gen-contents \
+              -o "$out" \
+              --read-interface=aihc-parser,"$out/aihc-parser/aihc-parser.haddock" \
+              --read-interface=aihc-cpp,"$out/aihc-cpp/aihc-cpp.haddock"
+          '';
         # Haskell packages with HIE file generation enabled for stan analysis
         mkHsPkgsWithHie = pkgs:
           let
@@ -46,6 +81,11 @@
             };
           };
      in {
+      packages = forAllSystems (pkgs: {
+        docs = mkCombinedDocs pkgs;
+        default = mkCombinedDocs pkgs;
+      });
+
       apps = forAllSystems (pkgs:
         let
           hsPkgs = mkHsPkgs pkgs;
@@ -413,9 +453,12 @@
             stan --hiedir="$hie_dir" 2>&1 | tee "$out/stan-output.txt" || true
             touch "$out/completed"
           '';
+          # Haddock documentation check - ensures docs build without errors
+          haddockDocs = mkCombinedDocs pkgs;
         in {
           parser-tests = parserTests;
           cpp-tests = cppTests;
+          haddock-docs = haddockDocs;
           parser-progress-strict = parserProgressStrict;
           lexer-progress-strict = lexerProgressStrict;
           parser-extension-progress-strict = parserExtensionProgressStrict;
@@ -430,6 +473,7 @@
               pkgs.linkFarm "aihc-all-tests" [
                 { name = "parser-tests"; path = parserTests; }
                 { name = "cpp-tests"; path = cppTests; }
+                { name = "haddock-docs"; path = haddockDocs; }
                 { name = "parser-progress-strict"; path = parserProgressStrict; }
                 { name = "lexer-progress-strict"; path = lexerProgressStrict; }
                 { name = "parser-extension-progress-strict"; path = parserExtensionProgressStrict; }
