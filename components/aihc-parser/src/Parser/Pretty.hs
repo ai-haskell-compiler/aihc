@@ -601,6 +601,19 @@ prettyConstructorName name
   | isOperatorToken name = parens (pretty name)
   | otherwise = pretty name
 
+-- | Print an expression used as the RHS of an infix operator.
+-- Self-delimiting expressions (do, if, case, let, lambda) don't need parentheses.
+prettyExprInfixRhs :: Expr -> Doc ann
+prettyExprInfixRhs expr =
+  case expr of
+    EDo {} -> prettyExprPrec 0 expr
+    EIf {} -> prettyExprPrec 0 expr
+    ECase {} -> prettyExprPrec 0 expr
+    ELetDecls {} -> prettyExprPrec 0 expr
+    ELambdaPats {} -> prettyExprPrec 0 expr
+    ELambdaCase {} -> prettyExprPrec 0 expr
+    _ -> prettyExprPrec 1 expr
+
 prettyExprPrec :: Int -> Expr -> Doc ann
 prettyExprPrec prec expr =
   case expr of
@@ -627,7 +640,7 @@ prettyExprPrec prec expr =
       parenthesize
         (prec > 0)
         ("\\" <> "case" <+> braces (hsep (punctuate semi (map prettyCaseAlt alts))))
-    EInfix _ lhs op rhs -> parenthesize (prec > 1) (prettyExprPrec 1 lhs <+> prettyExprOperator op <+> prettyExprPrec 1 rhs)
+    EInfix _ lhs op rhs -> parenthesize (prec > 1) (prettyExprPrec 1 lhs <+> prettyExprOperator op <+> prettyExprInfixRhs rhs)
     ENegate _ inner -> parenthesize (prec > 2) ("-" <> prettyExprPrec 3 inner)
     ESectionL _ lhs op -> parens (prettyExprPrec 0 lhs <+> prettyExprOperator op)
     ESectionR _ op rhs -> parens (prettyExprOperator op <+> prettyExprPrec 0 rhs)

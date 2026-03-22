@@ -197,6 +197,14 @@ expr-s3-do-bind-stmt	expressions	expressions/do-bind-stmt.hs	pass	parser now sup
 expr-s3-do-let-stmt	expressions	expressions/do-let-stmt.hs	pass	parser now supports do-notation let statements
 expr-s3-do-let-function-binding-nested	expressions	expressions/do-let-function-binding-nested.hs	pass	parser supports nested do with plain let function bindings
 expr-s3-do-sequence-stmts	expressions	expressions/do-sequence-stmts.hs	pass	parser now supports do statement sequencing
+expr-s3-do-infix-rhs	expressions	expressions/do-infix-rhs.hs	pass	parser supports do as right operand of infix expression
+expr-s3-do-in-parens	expressions	expressions/do-in-parens.hs	pass	parser supports do inside parentheses with layout
+expr-s3-do-in-list	expressions	expressions/do-in-list.hs	pass	parser supports do inside list brackets with layout
+expr-s3-do-as-argument	expressions	expressions/do-as-argument.hs	pass	parser supports do as function argument with layout
+expr-s3-if-infix-rhs	expressions	expressions/if-infix-rhs.hs	pass	parser supports if as right operand of infix expression
+expr-s3-case-infix-rhs	expressions	expressions/case-infix-rhs.hs	pass	parser supports case as right operand of infix expression
+expr-s3-let-infix-rhs	expressions	expressions/let-infix-rhs.hs	pass	parser supports let as right operand of infix expression
+expr-s3-lambda-infix-rhs	expressions	expressions/lambda-infix-rhs.hs	pass	parser supports lambda as right operand of infix expression
 expr-s3-record-field-selection	expressions	expressions/record-field-selection.hs	pass
 expr-s3-record-construction-empty	expressions	expressions/record-construction-empty.hs	xfail	parser intentionally disabled
 expr-s3-record-construction-fields	expressions	expressions/record-construction-fields.hs	xfail	parser intentionally disabled
