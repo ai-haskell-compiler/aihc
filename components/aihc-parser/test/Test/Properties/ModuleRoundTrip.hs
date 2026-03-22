@@ -37,15 +37,14 @@ instance Arbitrary Module where
     let names = take n (nub candidateNames)
     exprs <- vectorOf (length names) (genExpr 4)
     imports <- genImportDecls
+    -- Generate arbitrary module name, including Nothing for implicit modules
+    modName <- genMaybeModuleName
     pure $
       Module
         { moduleSpan = span0,
-          moduleName = Just "Generated",
+          moduleName = modName,
           moduleLanguagePragmas = [],
           moduleWarningText = Nothing,
-          -- NOTE: moduleExports = Nothing to work around layout lexer issue
-          -- with parenthesized import/export specs. See xfail golden test:
-          -- Test/Fixtures/golden/module/import-export-spec-layout-bug.yaml
           moduleExports = Nothing,
           moduleImports = imports,
           moduleDecls =
@@ -73,6 +72,26 @@ instance Arbitrary Module where
       <> [ modu {moduleImports = shrunk}
          | shrunk <- shrinkList shrinkImportDecl (moduleImports modu)
          ]
+      <> [ modu {moduleName = shrunk}
+         | shrunk <- shrinkMaybeModuleName (moduleName modu)
+         ]
+
+-- | Generate an optional module name.
+-- Most modules have explicit names, but implicit modules (Nothing) are also valid.
+genMaybeModuleName :: Gen (Maybe Text)
+genMaybeModuleName =
+  frequency
+    [ (9, Just <$> genModuleName), -- 90% explicit module name
+      (1, pure Nothing) -- 10% implicit module (no module declaration)
+    ]
+
+-- | Shrink an optional module name.
+shrinkMaybeModuleName :: Maybe Text -> [Maybe Text]
+shrinkMaybeModuleName mName =
+  case mName of
+    Nothing -> []
+    Just name ->
+      Nothing : [Just shrunk | shrunk <- shrinkModuleName name]
 
 shrinkDecl :: Decl -> [Decl]
 shrinkDecl decl =
