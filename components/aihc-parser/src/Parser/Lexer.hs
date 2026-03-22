@@ -343,7 +343,8 @@ consumeTrivia st
         c : _
           | c == ' ' || c == '\t' || c == '\r' -> Just (consumeWhile (\x -> x == ' ' || x == '\t' || x == '\r') st)
           | c == '\n' -> Just (advanceChars "\n" st)
-        '-' : '-' : _ -> Just (consumeLineComment st)
+        '-' : '-' : rest
+          | isLineComment rest -> Just (consumeLineComment st)
         '{' : '-' : '#' : _ ->
           case tryConsumeControlPragma st of
             Just (Nothing, st') -> Just st'
@@ -1495,6 +1496,19 @@ isIdentTail c = isAlphaNum c || c == '_' || c == '\''
 
 isSymbolicOpChar :: Char -> Bool
 isSymbolicOpChar c = c `elem` (":!#$%&*+./<=>?@\\^|-~" :: String)
+
+-- | Check if the remainder after '--' should start a line comment.
+-- Per Haskell Report: '--' starts a comment only if the entire symbol sequence
+-- consists solely of dashes, or is not followed by any symbol character.
+-- E.g., '-- foo' is a comment, '---' is a comment, but '-->' is an operator.
+isLineComment :: String -> Bool
+isLineComment rest =
+  case rest of
+    [] -> True -- Just '--' followed by nothing or whitespace
+    c : _
+      | c == '-' -> isLineComment (dropWhile (== '-') rest) -- More dashes, keep checking
+      | isSymbolicOpChar c -> False -- Non-dash symbol char means it's an operator
+      | otherwise -> True -- Non-symbol char means comment
 
 isIdentTailOrStart :: Char -> Bool
 isIdentTailOrStart c = isAlphaNum c || c == '_' || c == '\''
