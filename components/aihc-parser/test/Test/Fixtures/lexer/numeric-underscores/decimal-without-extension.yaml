@@ -1,5 +1,8 @@
+# Without NumericUnderscores, underscore should not be part of the literal
 extensions: []
 input: "1_000_000"
 tokens:
-  - 'TkInteger 1000000'
-status: pass
+  - 'TkInteger 1'
+  - 'TkVarId "_000_000"'
+status: xfail
+reason: "lexer does not yet check NumericUnderscores extension"

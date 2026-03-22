@@ -1,6 +1,8 @@
-# Octal literal with underscores, no extension
+# Without NumericUnderscores, underscore should not be part of the literal
 extensions: []
 input: "0o777_777"
 tokens:
-  - 'TkIntegerBase 262143 "0o777_777"'
-status: pass
+  - 'TkIntegerBase 511 "0o777"'
+  - 'TkVarId "_777"'
+status: xfail
+reason: "lexer does not yet check NumericUnderscores extension"
