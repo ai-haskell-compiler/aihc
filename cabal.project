@@ -1,6 +1,5 @@
 packages:
   components/aihc-cpp
   components/aihc-parser
-  components/aihc-name-resolution
 
 tests: True
