@@ -118,8 +118,11 @@ decls-class-super-paren-single	declarations	declarations/class-super-paren-singl
 decls-class-super-paren-multiple	declarations	declarations/class-super-paren-multiple.hs	pass	parser now supports parenthesized multi-superclass declarations without where
 decls-class-cdecl-signature	declarations	declarations/class-cdecl-signature.hs	pass
 decls-class-cdecl-signature-context	declarations	declarations/class-cdecl-signature-context.hs	pass
-decls-class-cdecl-default-var	declarations	declarations/class-cdecl-default-var.hs	xfail	parser intentionally disabled
-decls-class-cdecl-default-funlhs	declarations	declarations/class-cdecl-default-funlhs.hs	xfail	parser intentionally disabled
+decls-class-cdecl-default-var	declarations	declarations/class-cdecl-default-var.hs	pass	parser now supports default method implementations
+decls-class-cdecl-default-funlhs	declarations	declarations/class-cdecl-default-funlhs.hs	pass	parser now supports default method implementations with patterns
+decls-class-cdecl-default-layout	declarations	declarations/class-cdecl-default-layout.hs	pass	parser supports layout-based default method implementations
+decls-class-cdecl-multiple-defaults	declarations	declarations/class-cdecl-multiple-defaults.hs	pass	parser supports multiple default methods with blank line
+decls-class-universe-some	declarations	declarations/class-universe-some.hs	pass	parser supports universe-some style class declarations
 decls-class-cdecl-fixity	declarations	declarations/class-cdecl-fixity.hs	pass	parser now supports class fixity declarations
 decls-instance	declarations	declarations/instance.hs	xfail	parser intentionally disabled
 decls-fixity	declarations	declarations/fixity.hs	pass	parser now supports fixity declarations
@@ -197,8 +200,8 @@ expr-s3-record-construction-empty	expressions	expressions/record-construction-em
 expr-s3-record-construction-fields	expressions	expressions/record-construction-fields.hs	xfail	parser intentionally disabled
 expr-s3-record-update-single	expressions	expressions/record-update-single.hs	xfail	parser intentionally disabled
 expr-s3-record-update-multiple	expressions	expressions/record-update-multiple.hs	xfail	parser intentionally disabled
-expr-s3-expr-type-signature-basic	expressions	expressions/expr-type-signature-basic.hs	xfail	parser intentionally disabled
-expr-s3-expr-type-signature-context	expressions	expressions/expr-type-signature-context.hs	xfail	parser intentionally disabled
+expr-s3-expr-type-signature-basic	expressions	expressions/expr-type-signature-basic.hs	pass	parser now supports expression type signatures
+expr-s3-expr-type-signature-context	expressions	expressions/expr-type-signature-context.hs	pass	parser now supports expression type signatures with context
 expr-s3-pattern-infix-constructor	expressions	expressions/pattern-infix-constructor.hs	pass	parser now supports infix constructor patterns in case alternatives
 expr-s3-pattern-negative-literal	expressions	expressions/pattern-negative-literal.hs	pass	parser now supports negative literal patterns
 expr-s3-pattern-constructor-application	expressions	expressions/pattern-constructor-application.hs	pass
@@ -231,11 +234,11 @@ types-newtype-record-field-multiline-application	types	types/newtype-record-fiel
 types-multi-vars-signature	types	types/multi-vars-signature.hs	pass	parser now supports multi-variable top-level signatures
 types-context-multi-vars	types	types/context-multi-vars.hs	pass
 types-signature-where	types	types/signature-where.hs	pass	parser now supports local type signatures in where bindings
-types-inline-signature-basic	types	types/inline-signature-basic.hs	xfail	parser intentionally disabled
-types-inline-signature-context	types	types/inline-signature-context.hs	xfail	parser intentionally disabled
-types-inline-signature-lambda	types	types/inline-signature-lambda.hs	xfail	parser intentionally disabled
+types-inline-signature-basic	types	types/inline-signature-basic.hs	pass	parser now supports inline type signatures
+types-inline-signature-context	types	types/inline-signature-context.hs	pass	parser now supports inline type signatures with context
+types-inline-signature-lambda	types	types/inline-signature-lambda.hs	pass	parser now supports inline type signatures in lambdas
 types-let-signature	types	types/let-signature.hs	pass	parser now supports local let type signatures
-types-guard-inline-signature	types	types/guard-inline-signature.hs	xfail	parser intentionally disabled
+types-guard-inline-signature	types	types/guard-inline-signature.hs	pass	parser now supports inline type signatures in guards
 types-list-type-constructor	types	types/list-type-constructor.hs	pass	parser now supports list type constructors
 types-maybe-type-constructor	types	types/maybe-type-constructor.hs	pass	parser now handles maybe type constructors
 types-function-type-constructor	types	types/function-type-constructor.hs	pass	parser now supports function type constructors in type positions
