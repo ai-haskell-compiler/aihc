@@ -26,22 +26,17 @@ module Aihc.Parser
     parseExpr,
     parseType,
     parsePattern,
-
-    -- * Internal (for testing)
-    moduleParser,
   )
 where
 
 import Aihc.Lexer
-  ( LexTokenKind (..),
-    lexModuleTokensWithExtensions,
+  ( lexModuleTokensWithExtensions,
     lexTokensWithExtensions,
     readModuleHeaderExtensions,
   )
-import Aihc.Parser.Ast (Decl, Expr, Extension (..), ExtensionSetting (..), ImportDecl, Module (..), Pattern, Type)
-import Aihc.Parser.Internal.Common (TokParser, expectedTok, skipSemicolons, withSpan)
-import Aihc.Parser.Internal.Decl (declParser, importDeclParser, languagePragmaParser, moduleHeaderParser)
+import Aihc.Parser.Ast (Expr, Extension (..), ExtensionSetting (..), Module, Pattern, Type)
 import Aihc.Parser.Internal.Expr (exprParser, patternParser, typeParser)
+import Aihc.Parser.Internal.Parser (moduleParser)
 import Aihc.Parser.Types
 import qualified Data.List as List
 import Data.Text (Text)
@@ -52,43 +47,7 @@ import qualified Text.Megaparsec as MP
 -- >>> :set -XOverloadedStrings
 -- >>> import Aihc.Parser
 -- >>> import Aihc.Parser.Ast (moduleName)
-
-moduleParser :: TokParser Module
-moduleParser = withSpan $ do
-  languagePragmas <- MP.many (languagePragmaParser <* MP.many (expectedTok TkSpecialSemicolon))
-  mHeader <- MP.optional (moduleHeaderParser <* MP.many (expectedTok TkSpecialSemicolon))
-  (imports, decls) <- moduleBodyParser
-  let (mName, mWarning, mExports) =
-        case mHeader of
-          Nothing -> (Nothing, Nothing, Nothing)
-          Just (name, warn, exports) -> (Just name, warn, exports)
-  pure $ \span' ->
-    Module
-      { moduleSpan = span',
-        moduleName = mName,
-        moduleLanguagePragmas = concat languagePragmas,
-        moduleWarningText = mWarning,
-        moduleExports = mExports,
-        moduleImports = imports,
-        moduleDecls = decls
-      }
-
-moduleBodyParser :: TokParser ([ImportDecl], [Decl])
-moduleBodyParser = MP.try bracedModuleBodyParser MP.<|> plainModuleBodyParser
-  where
-    plainModuleBodyParser = do
-      imports <- MP.many (importDeclParser <* skipSemicolons)
-      decls <- MP.many (declParser <* skipSemicolons)
-      pure (imports, decls)
-
-    bracedModuleBodyParser = do
-      expectedTok TkSpecialLBrace
-      skipSemicolons
-      imports <- MP.many (importDeclParser <* skipSemicolons)
-      decls <- MP.many (declParser <* skipSemicolons)
-      skipSemicolons
-      expectedTok TkSpecialRBrace
-      pure (imports, decls)
+-- >>> import Aihc.Parser.PrettyAST (prettyASTExpr, prettyASTPattern, prettyASTType, prettyASTModule)
 
 -- | Default parser configuration.
 --
@@ -109,11 +68,11 @@ defaultConfig =
 
 -- | Parse a Haskell expression.
 --
--- >>> case parseExpr defaultConfig "1 + 2" of { ParseOk _ -> "success"; ParseErr _ -> "error" }
--- "success"
+-- >>> case parseExpr defaultConfig "1 + 2" of { ParseOk expr -> prettyASTExpr expr; ParseErr _ -> "error" }
+-- "EInfix (EInt 1) \"+\" (EInt 2)"
 --
--- >>> case parseExpr defaultConfig "\\x -> x + 1" of { ParseOk _ -> "success"; ParseErr _ -> "error" }
--- "success"
+-- >>> case parseExpr defaultConfig "\\x -> x + 1" of { ParseOk expr -> prettyASTExpr expr; ParseErr _ -> "error" }
+-- "ELambdaPats [PVar \"x\"] (EInfix (EVar \"x\") \"+\" (EInt 1))"
 --
 -- Parse errors are returned as 'ParseErr':
 --
@@ -128,11 +87,11 @@ parseExpr cfg input =
 
 -- | Parse a Haskell pattern.
 --
--- >>> case parsePattern defaultConfig "(x, y)" of { ParseOk _ -> "success"; ParseErr _ -> "error" }
--- "success"
+-- >>> case parsePattern defaultConfig "(x, y)" of { ParseOk pat -> prettyASTPattern pat; ParseErr _ -> "error" }
+-- "PTuple [PVar \"x\", PVar \"y\"]"
 --
--- >>> case parsePattern defaultConfig "Just x" of { ParseOk _ -> "success"; ParseErr _ -> "error" }
--- "success"
+-- >>> case parsePattern defaultConfig "Just x" of { ParseOk pat -> prettyASTPattern pat; ParseErr _ -> "error" }
+-- "PCon \"Just\" [PVar \"x\"]"
 parsePattern :: ParserConfig -> Text -> ParseResult Pattern
 parsePattern cfg input =
   let toks = lexTokensWithExtensions (parserExtensions cfg) input
@@ -142,11 +101,11 @@ parsePattern cfg input =
 
 -- | Parse a Haskell type.
 --
--- >>> case parseType defaultConfig "Int -> Bool" of { ParseOk _ -> "success"; ParseErr _ -> "error" }
--- "success"
+-- >>> case parseType defaultConfig "Int -> Bool" of { ParseOk ty -> prettyASTType ty; ParseErr _ -> "error" }
+-- "TFun (TCon \"Int\") (TCon \"Bool\")"
 --
--- >>> case parseType defaultConfig "Maybe a" of { ParseOk _ -> "success"; ParseErr _ -> "error" }
--- "success"
+-- >>> case parseType defaultConfig "Maybe a" of { ParseOk ty -> prettyASTType ty; ParseErr _ -> "error" }
+-- "TApp (TCon \"Maybe\") (TVar \"a\")"
 parseType :: ParserConfig -> Text -> ParseResult Type
 parseType cfg input =
   let toks = lexTokensWithExtensions (parserExtensions cfg) input
@@ -156,8 +115,8 @@ parseType cfg input =
 
 -- | Parse a complete Haskell module.
 --
--- >>> case parseModule defaultConfig "module Main where\nmain = putStrLn \"Hello\"" of { ParseOk m -> moduleName m; ParseErr _ -> Nothing }
--- Just "Main"
+-- >>> case parseModule defaultConfig "module Main where\nmain = putStrLn \"Hello\"" of { ParseOk m -> prettyASTModule m; ParseErr _ -> "error" }
+-- "Module {name = \"Main\", decls = [DeclValue (FunctionBind \"main\" [Match {rhs = UnguardedRhs (EApp (EVar \"putStrLn\") (EString \"Hello\"))}])]}"
 --
 -- Modules without a header are also supported:
 --

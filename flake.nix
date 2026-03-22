@@ -702,8 +702,10 @@
             # Find the GHC package database from ghcWithPackages
             PKGDB=$(ghc --print-global-package-db)
             # Run doctest with explicit package database
-            # Options before source files are passed to GHC
-            doctest -package-db="$PKGDB" -isrc src/Aihc/Parser.hs
+            # Include all source files so imports between modules work
+            doctest -package-db="$PKGDB" -isrc \
+              src/Aihc/Parser/PrettyAST.hs \
+              src/Aihc/Parser.hs
             touch "$out"
           '';
         in {
