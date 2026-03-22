@@ -7,5 +7,5 @@ input: |
         Nothing -> 0
     )
 ast: |
-  EApp (EVar "map") (EParen (ELambdaCase [CaseAlt {pattern = PCon "Just" [PVar "n"], rhs = UnguardedRhs (EVar "n")}, CaseAlt {pattern = PCon "Nothing" [], rhs = UnguardedRhs (EInt 0)}]))
+  EApp (EVar "map") (EParen (ELambdaCase [CaseAlt (PCon "Just" [PVar "n"]) (UnguardedRhs (EVar "n")), CaseAlt (PCon "Nothing" []) (UnguardedRhs (EInt 0))]))
 status: pass

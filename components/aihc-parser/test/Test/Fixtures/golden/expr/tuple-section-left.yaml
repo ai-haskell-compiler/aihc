@@ -1,5 +1,5 @@
 extensions: []
 input: |
   (a,)
-ast: ETupleSection [Just (EVar "a"), Nothing]
+ast: ETupleSection [EVar "a", _]
 status: pass
