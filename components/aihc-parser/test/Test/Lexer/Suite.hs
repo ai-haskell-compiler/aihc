@@ -118,7 +118,7 @@ validXFailMissingReason =
     [ "extensions: []",
       "input: bad",
       "tokens:",
-      "  - 'TkIdentifier \"bad\"'",
+      "  - 'TkVarId \"bad\"'",
       "status: xfail"
     ]
 
@@ -128,7 +128,7 @@ validXPassFixture =
     [ "extensions: []",
       "input: \"-10\"",
       "tokens:",
-      "  - 'TkOperator \"-\"'",
+      "  - 'TkVarSym \"-\"'",
       "  - 'TkInteger 10'",
       "status: xpass",
       "reason: known bug"

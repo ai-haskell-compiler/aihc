@@ -2,8 +2,8 @@ extensions: []
 input: |
   x --> y
 tokens:
-  - 'TkIdentifier "x"'
-  - 'TkOperator "-->"'
-  - 'TkIdentifier "y"'
+  - 'TkVarId "x"'
+  - 'TkVarSym "-->"'
+  - 'TkVarId "y"'
 status: xfail
 reason: "lexer incorrectly treats --> as line comment; per Haskell report, --> is a legal operator"

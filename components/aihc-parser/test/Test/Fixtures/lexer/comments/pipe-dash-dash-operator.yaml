@@ -1,5 +1,5 @@
 extensions: []
 input: "|--"
 tokens:
-  - 'TkOperator "|--"'
+  - 'TkVarSym "|--"'
 status: pass

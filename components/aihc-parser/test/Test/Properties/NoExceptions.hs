@@ -140,16 +140,43 @@ genLexTokenKind =
       TkPragmaLanguage <$> genExtensionSettings,
       TkPragmaWarning <$> genTokenText,
       TkPragmaDeprecated <$> genTokenText,
-      TkIdentifier <$> genIdentifierText,
-      TkOperator <$> genOperatorText,
+      TkVarId <$> genIdentifierText,
+      TkConId <$> genConstructorText,
+      TkVarSym <$> genOperatorText,
+      TkConSym <$> genConOperatorText,
       TkInteger <$> arbitrary,
       TkIntegerBase <$> arbitrary <*> genTokenText,
       TkFloat <$> arbitrary <*> genTokenText,
       TkChar <$> arbitrary,
       TkString <$> genTokenText,
-      TkSymbol <$> genSymbolText,
+      pure TkSpecialLParen,
+      pure TkSpecialRParen,
+      pure TkSpecialComma,
+      pure TkSpecialSemicolon,
+      pure TkSpecialLBracket,
+      pure TkSpecialRBracket,
+      pure TkSpecialBacktick,
+      pure TkSpecialLBrace,
+      pure TkSpecialRBrace,
       TkQuasiQuote <$> genQuoterText <*> genTokenText,
       TkError <$> genTokenText
+    ]
+
+genConstructorText :: Gen Text
+genConstructorText =
+  oneof
+    [ pure "Foo",
+      pure "Bar",
+      pure "Just",
+      pure "Nothing"
+    ]
+
+genConOperatorText :: Gen Text
+genConOperatorText =
+  oneof
+    [ pure ":",
+      pure ":+:",
+      pure ":-:"
     ]
 
 genExtensionSettings :: Gen [ExtensionSetting]
@@ -182,13 +209,6 @@ genOperatorText :: Gen Text
 genOperatorText =
   oneof
     [ elements ["+", "-", "*", "->", "=>", "::", "=", "|", ":", ".."],
-      genTokenText
-    ]
-
-genSymbolText :: Gen Text
-genSymbolText =
-  oneof
-    [ elements ["(", ")", "[", "]", "{", "}", ",", ";", "`", "@", ".."],
       genTokenText
     ]
 

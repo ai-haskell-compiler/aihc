@@ -1,6 +1,6 @@
 extensions: []
 input: "-->"
 tokens:
-  - 'TkOperator "-->"'
+  - 'TkVarSym "-->"'
 status: xfail
 reason: "lexer incorrectly treats --> as line comment; per Haskell report, --> is a legal operator"

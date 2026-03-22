@@ -1,6 +1,6 @@
 extensions: []
 input: "-10"
 tokens:
-  - 'TkOperator "-"'
+  - 'TkVarSym "-"'
   - 'TkInteger 10'
 status: pass

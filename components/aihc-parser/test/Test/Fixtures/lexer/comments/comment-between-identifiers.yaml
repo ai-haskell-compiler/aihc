@@ -3,6 +3,6 @@ input: |
   x -- comment
   y
 tokens:
-  - 'TkIdentifier "x"'
-  - 'TkIdentifier "y"'
+  - 'TkVarId "x"'
+  - 'TkVarId "y"'
 status: pass

@@ -301,41 +301,41 @@ test_unterminatedBlockCommentProducesErrorToken =
 test_hashLineDirectiveUpdatesSpan :: Assertion
 test_hashLineDirectiveUpdatesSpan =
   case lexTokens "#line 42\nx" of
-    [LexToken {lexTokenKind = TkIdentifier "x", lexTokenSpan = SourceSpan 42 1 42 2}] -> pure ()
+    [LexToken {lexTokenKind = TkVarId "x", lexTokenSpan = SourceSpan 42 1 42 2}] -> pure ()
     other -> assertFailure ("expected identifier at line 42, got: " <> show other)
 
 test_gccHashLineDirectiveUpdatesSpan :: Assertion
 test_gccHashLineDirectiveUpdatesSpan =
   case lexTokens "# 42 \"generated.h\"\nx" of
-    [LexToken {lexTokenKind = TkIdentifier "x", lexTokenSpan = SourceSpan 42 1 42 2}] -> pure ()
+    [LexToken {lexTokenKind = TkVarId "x", lexTokenSpan = SourceSpan 42 1 42 2}] -> pure ()
     other -> assertFailure ("expected identifier at line 42 from gcc-style directive, got: " <> show other)
 
 test_linePragmaUpdatesSpan :: Assertion
 test_linePragmaUpdatesSpan =
   case lexTokens "{-# LINE 17 #-}\nx" of
-    [LexToken {lexTokenKind = TkIdentifier "x", lexTokenSpan = SourceSpan 17 1 17 2}] -> pure ()
+    [LexToken {lexTokenKind = TkVarId "x", lexTokenSpan = SourceSpan 17 1 17 2}] -> pure ()
     other -> assertFailure ("expected identifier at line 17, got: " <> show other)
 
 test_columnPragmaUpdatesSpan :: Assertion
 test_columnPragmaUpdatesSpan =
   case lexTokens "x\n{-# COLUMN 7 #-}y" of
-    [ LexToken {lexTokenKind = TkIdentifier "x"},
-      LexToken {lexTokenKind = TkIdentifier "y", lexTokenSpan = SourceSpan 2 7 2 8}
+    [ LexToken {lexTokenKind = TkVarId "x"},
+      LexToken {lexTokenKind = TkVarId "y", lexTokenSpan = SourceSpan 2 7 2 8}
       ] -> pure ()
     other -> assertFailure ("expected second identifier at column 7, got: " <> show other)
 
 test_inlineColumnPragmaUpdatesSpan :: Assertion
 test_inlineColumnPragmaUpdatesSpan =
   case lexTokens "x{-# COLUMN 7 #-}y" of
-    [ LexToken {lexTokenKind = TkIdentifier "x", lexTokenSpan = SourceSpan 1 1 1 2},
-      LexToken {lexTokenKind = TkIdentifier "y", lexTokenSpan = SourceSpan 1 7 1 8}
+    [ LexToken {lexTokenKind = TkVarId "x", lexTokenSpan = SourceSpan 1 1 1 2},
+      LexToken {lexTokenKind = TkVarId "y", lexTokenSpan = SourceSpan 1 7 1 8}
       ] -> pure ()
     other -> assertFailure ("expected inline COLUMN pragma to update same-line column, got: " <> show other)
 
 test_lexerChunkLaziness :: Assertion
 test_lexerChunkLaziness =
   case take 1 (lexTokensFromChunks ["x ", error "forced tail"]) of
-    [LexToken {lexTokenKind = TkIdentifier "x"}] -> pure ()
+    [LexToken {lexTokenKind = TkVarId "x"}] -> pure ()
     other -> assertFailure ("expected lazy first token from chunks, got: " <> show other)
 
 test_generatedIdentifiersRejectReservedAs :: Assertion

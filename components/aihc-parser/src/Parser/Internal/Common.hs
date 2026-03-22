@@ -3,15 +3,14 @@
 module Parser.Internal.Common
   ( TokParser,
     keywordTok,
-    symbolLikeTok,
-    operatorLikeTok,
+    expectedTok,
+    varIdTok,
     tokenSatisfy,
     moduleNameParser,
     identifierTextParser,
     lowerIdentifierParser,
     constructorIdentifierParser,
     binderNameParser,
-    identifierExact,
     operatorTextParser,
     stringTextParser,
     withSpan,
@@ -30,7 +29,7 @@ module Parser.Internal.Common
   )
 where
 
-import Data.Char (isLower, isUpper)
+import Data.Char (isUpper)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Void (Void)
@@ -48,21 +47,45 @@ keywordTok expected =
   tokenSatisfy ("keyword " <> renderKeyword expected) $ \tok ->
     if lexTokenKind tok == expected then Just () else Nothing
 
-symbolLikeTok :: Text -> TokParser ()
-symbolLikeTok expected =
-  tokenSatisfy ("symbol " <> show (T.unpack expected)) $ \tok ->
+-- | Match a specific token kind exactly.
+expectedTok :: LexTokenKind -> TokParser ()
+expectedTok expected =
+  tokenSatisfy (renderTokenKind expected) $ \tok ->
+    if lexTokenKind tok == expected then Just () else Nothing
+
+-- | Match a specific variable identifier (contextual keyword).
+varIdTok :: Text -> TokParser ()
+varIdTok expected =
+  tokenSatisfy ("identifier '" <> T.unpack expected <> "'") $ \tok ->
     case lexTokenKind tok of
-      TkSymbol sym
-        | sym == expected -> Just ()
+      TkVarId ident | ident == expected -> Just ()
       _ -> Nothing
 
-operatorLikeTok :: Text -> TokParser ()
-operatorLikeTok expected =
-  tokenSatisfy ("operator " <> show (T.unpack expected)) $ \tok ->
-    case lexTokenKind tok of
-      TkOperator op
-        | op == expected -> Just ()
-      _ -> Nothing
+renderTokenKind :: LexTokenKind -> String
+renderTokenKind tk = case tk of
+  TkSpecialLParen -> "symbol '('"
+  TkSpecialRParen -> "symbol ')'"
+  TkSpecialComma -> "symbol ','"
+  TkSpecialSemicolon -> "symbol ';'"
+  TkSpecialLBracket -> "symbol '['"
+  TkSpecialRBracket -> "symbol ']'"
+  TkSpecialBacktick -> "symbol '`'"
+  TkSpecialLBrace -> "symbol '{'"
+  TkSpecialRBrace -> "symbol '}'"
+  TkReservedDotDot -> "operator '..'"
+  TkReservedColon -> "operator ':'"
+  TkReservedDoubleColon -> "operator '::'"
+  TkReservedEquals -> "operator '='"
+  TkReservedBackslash -> "operator '\\'"
+  TkReservedPipe -> "operator '|'"
+  TkReservedLeftArrow -> "operator '<-'"
+  TkReservedRightArrow -> "operator '->'"
+  TkReservedAt -> "operator '@'"
+  TkReservedTilde -> "operator '~'"
+  TkReservedDoubleArrow -> "operator '=>'"
+  TkVarSym op -> "operator '" <> show op <> "'"
+  TkConSym op -> "operator '" <> show op <> "'"
+  _ -> show tk
 
 tokenSatisfy :: String -> (LexToken -> Maybe a) -> TokParser a
 tokenSatisfy label f =
@@ -76,31 +99,34 @@ moduleNameParser :: TokParser Text
 moduleNameParser =
   tokenSatisfy "module name" $ \tok ->
     case lexTokenKind tok of
-      TkIdentifier ident
-        | isModuleName ident -> Just ident
+      TkConId ident | isModuleName ident -> Just ident
+      TkQConId ident | isModuleName ident -> Just ident
       _ -> Nothing
 
 identifierTextParser :: TokParser Text
 identifierTextParser =
   tokenSatisfy "identifier" $ \tok ->
     case lexTokenKind tok of
-      TkIdentifier ident -> Just ident
+      TkVarId ident -> Just ident
+      TkConId ident -> Just ident
+      TkQVarId ident -> Just ident
+      TkQConId ident -> Just ident
       _ -> Nothing
 
 lowerIdentifierParser :: TokParser Text
 lowerIdentifierParser =
   tokenSatisfy "lowercase identifier" $ \tok ->
     case lexTokenKind tok of
-      TkIdentifier ident
-        | isLowerIdentifier ident -> Just ident
+      TkVarId ident -> Just ident
+      TkQVarId ident -> Just ident
       _ -> Nothing
 
 constructorIdentifierParser :: TokParser Text
 constructorIdentifierParser =
   tokenSatisfy "constructor identifier" $ \tok ->
     case lexTokenKind tok of
-      TkIdentifier ident
-        | isConstructorIdentifier ident -> Just ident
+      TkConId ident -> Just ident
+      TkQConId ident -> Just ident
       _ -> Nothing
 
 binderNameParser :: TokParser Text
@@ -108,19 +134,14 @@ binderNameParser =
   identifierTextParser
     <|> parens operatorTextParser
 
-identifierExact :: Text -> TokParser ()
-identifierExact expected =
-  tokenSatisfy ("identifier " <> show (T.unpack expected)) $ \tok ->
-    case lexTokenKind tok of
-      TkIdentifier ident
-        | ident == expected -> Just ()
-      _ -> Nothing
-
 operatorTextParser :: TokParser Text
 operatorTextParser =
   tokenSatisfy "operator" $ \tok ->
     case lexTokenKind tok of
-      TkOperator op -> Just op
+      TkVarSym op -> Just op
+      TkConSym op -> Just op
+      TkQVarSym op -> Just op
+      TkQConSym op -> Just op
       _ -> Nothing
 
 stringTextParser :: TokParser Text
@@ -153,28 +174,28 @@ markSingleParenConstraint constraints =
 
 parens :: TokParser a -> TokParser a
 parens parser = do
-  symbolLikeTok "("
+  expectedTok TkSpecialLParen
   res <- parser
-  symbolLikeTok ")"
+  expectedTok TkSpecialRParen
   pure res
 
 skipSemicolons :: TokParser ()
-skipSemicolons = MP.skipMany (symbolLikeTok ";")
+skipSemicolons = MP.skipMany (expectedTok TkSpecialSemicolon)
 
 bracedSemiSep :: TokParser a -> TokParser [a]
 bracedSemiSep parser = do
-  symbolLikeTok "{"
+  expectedTok TkSpecialLBrace
   skipSemicolons
-  items <- parser `MP.sepEndBy` symbolLikeTok ";"
-  symbolLikeTok "}"
+  items <- parser `MP.sepEndBy` expectedTok TkSpecialSemicolon
+  expectedTok TkSpecialRBrace
   pure items
 
 bracedSemiSep1 :: TokParser a -> TokParser [a]
 bracedSemiSep1 parser = do
-  symbolLikeTok "{"
+  expectedTok TkSpecialLBrace
   skipSemicolons
-  items <- parser `MP.sepEndBy1` symbolLikeTok ";"
-  symbolLikeTok "}"
+  items <- parser `MP.sepEndBy1` expectedTok TkSpecialSemicolon
+  expectedTok TkSpecialRBrace
   pure items
 
 plainSemiSep1 :: TokParser a -> TokParser [a]
@@ -194,7 +215,7 @@ constraintParserWith typeAtomParser = withSpan $ do
 
 constraintsParserWith :: TokParser Type -> TokParser [Constraint]
 constraintsParserWith typeAtomParser =
-  MP.try (parens (markSingleParenConstraint <$> (constraintParserWith typeAtomParser `MP.sepEndBy` symbolLikeTok ",")))
+  MP.try (parens (markSingleParenConstraint <$> (constraintParserWith typeAtomParser `MP.sepEndBy` expectedTok TkSpecialComma)))
     <|> fmap pure (constraintParserWith typeAtomParser)
 
 contextParserWith :: TokParser Type -> TokParser [Constraint]
@@ -241,12 +262,6 @@ isModuleName name =
   case T.splitOn "." name of
     [] -> False
     segments -> all isConstructorIdentifier segments
-
-isLowerIdentifier :: Text -> Bool
-isLowerIdentifier txt =
-  case T.uncons txt of
-    Just (c, _) -> isLower c || c == '_'
-    Nothing -> False
 
 isConstructorIdentifier :: Text -> Bool
 isConstructorIdentifier txt =
