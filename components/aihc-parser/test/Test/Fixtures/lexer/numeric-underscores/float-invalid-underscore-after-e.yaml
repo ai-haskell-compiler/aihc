@@ -1,0 +1,11 @@
+# Testing: 1e_+23 (invalid - underscore after 'e')
+# Per GHC docs, this should be invalid
+extensions:
+  - NumericUnderscores
+input: "1e_+23"
+tokens:
+  - 'TkInteger 1'
+  - 'TkVarId "e_"'
+  - 'TkVarSym "+"'
+  - 'TkInteger 23'
+status: pass

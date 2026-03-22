@@ -1,0 +1,8 @@
+# Double underscore before exponent marker is valid per GHC NumericUnderscores
+extensions:
+  - NumericUnderscores
+input: "1__e+23"
+tokens:
+  - 'TkFloat 1.0e23 "1__e+23"'
+status: xfail
+reason: "lexer does not yet support double underscore before exponent marker"

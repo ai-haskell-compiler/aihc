@@ -1,0 +1,12 @@
+# Testing: 0_.0001 (invalid - underscore before decimal point)
+# Per GHC docs, this should be invalid with NumericUnderscores
+# The lexer should not accept underscore directly before the decimal point
+extensions:
+  - NumericUnderscores
+input: "0_.0001"
+tokens:
+  - 'TkInteger 0'
+  - TkKeywordUnderscore
+  - 'TkVarSym "."'
+  - 'TkInteger 1'
+status: pass

@@ -1,0 +1,8 @@
+# Trailing underscore is invalid - lexer treats as separate tokens
+extensions:
+  - NumericUnderscores
+input: "1000000_"
+tokens:
+  - 'TkInteger 1000000'
+  - TkKeywordUnderscore
+status: pass
