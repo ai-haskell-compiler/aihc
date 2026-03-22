@@ -45,9 +45,11 @@
           } ''
             mkdir -p "$out"
 
-            # Copy individual package docs
-            cp -r "$parserDoc/share/doc/aihc-parser-0.1.0.0/html" "$out/aihc-parser"
-            cp -r "$cppDoc/share/doc/aihc-cpp-0.1.0.0/html" "$out/aihc-cpp"
+            # Copy individual package docs (discover html directory dynamically)
+            parserHtml=$(find "$parserDoc/share/doc" -type d -name html | head -1)
+            cppHtml=$(find "$cppDoc/share/doc" -type d -name html | head -1)
+            cp -r "$parserHtml" "$out/aihc-parser"
+            cp -r "$cppHtml" "$out/aihc-cpp"
 
             # Generate combined index and contents
             haddock \
