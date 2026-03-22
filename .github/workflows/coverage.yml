@@ -1,0 +1,69 @@
+name: Coverage
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  coverage:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Nix CI
+        uses: ./.github/actions/setup-nix-ci
+        with:
+          r2-account-id: ${{ vars.R2_ACCOUNT_ID }}
+          r2-access-key: ${{ vars.R2_ACCESS_KEY }}
+          r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          nix-cache-private-key: ${{ secrets.NIX_CACHE_PRIVATE_KEY }}
+
+      - name: Build and test with coverage
+        run: |
+          nix develop .#coverage --command bash << 'COVERAGE_SCRIPT'
+            set -euo pipefail
+
+            echo "=== Building aihc-parser with coverage ==="
+            cd components/aihc-parser
+            cabal configure --enable-tests --enable-coverage
+            cabal build
+            cabal test --test-show-details=direct || true
+            cd ../..
+
+            echo "=== Building aihc-cpp with coverage ==="
+            cd components/aihc-cpp
+            cabal configure --enable-tests --enable-coverage
+            cabal build
+            cabal test --test-show-details=direct || true
+            cd ../..
+
+            echo "=== Coverage data generated ==="
+          COVERAGE_SCRIPT
+
+      - name: Upload coverage to Coveralls
+        env:
+          COVERALLS_REPO_TOKEN: ${{ secrets.COVERALLS_REPO_TOKEN }}
+        run: |
+          nix develop .#coverage --command bash << 'UPLOAD_SCRIPT'
+            set -euo pipefail
+
+            # Check if repo token is set
+            if [ -z "${COVERALLS_REPO_TOKEN:-}" ]; then
+              echo "Warning: COVERALLS_REPO_TOKEN not set, skipping upload"
+              exit 0
+            fi
+
+            echo "=== Uploading aihc-parser coverage to Coveralls ==="
+            cd components/aihc-parser
+            hpc-coveralls spec \
+              --repo-token="$COVERALLS_REPO_TOKEN" \
+              --exclude-dir=test \
+              --exclude-dir=app \
+              --exclude-dir=common || echo "Parser coverage upload completed (or skipped)"
+            cd ../..
+          UPLOAD_SCRIPT
