@@ -1,4 +1,5 @@
 {-# LANGUAGE NumericUnderscores #-}
+
 module X where
 
 x :: Integer

@@ -17,7 +17,7 @@
 -- @
 -- Module {name = "Demo", decls = [DeclValue (FunctionBind "x" [Match {rhs = UnguardedRhs (EInt 1)}])]}
 -- @
-module Parser.PrettyAST
+module Aihc.Parser.PrettyAST
   ( prettyASTModule,
     prettyASTExpr,
     prettyASTPattern,
@@ -27,9 +27,9 @@ module Parser.PrettyAST
   )
 where
 
+import Aihc.Lexer (LexToken (..), LexTokenKind (..))
+import Aihc.Parser.Ast
 import Data.Text (Text)
-import Parser.Ast
-import Parser.Lexer (LexToken (..), LexTokenKind (..))
 import Prettyprinter
   ( Doc,
     Pretty (..),

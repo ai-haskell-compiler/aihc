@@ -8,9 +8,10 @@ funcMaybe (Just a) Nothing = a
 funcAs (a@b) = b
 
 letPattern = let Just x = Nothing in x
+
 wherePattern = y where Just y = Nothing
 
-lambdaPattern = (\(x:_) -> x) [1, 2, 3]
+lambdaPattern = (\(x : _) -> x) [1, 2, 3]
 
 casePattern value = case value of
   Just x -> x

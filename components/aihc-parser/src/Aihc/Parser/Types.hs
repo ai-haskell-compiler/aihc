@@ -2,7 +2,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE TypeFamilies #-}
 
-module Parser.Types
+module Aihc.Parser.Types
   ( TokStream (..),
     CoverageSlice (..),
     ParseErrorBundle,
@@ -12,14 +12,14 @@ module Parser.Types
   )
 where
 
+import Aihc.Lexer (LexToken (..))
+import Aihc.Parser.Ast (Extension, SourceSpan (..))
 import Control.DeepSeq (NFData (..))
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Set as Set
 import qualified Data.Text as T
 import Data.Void (Void)
 import GHC.Generics (Generic)
-import Parser.Ast (Extension, SourceSpan (..))
-import Parser.Lexer (LexToken (..))
 import qualified Text.Megaparsec as MP
 import qualified Text.Megaparsec.Error as MPE
 import Text.Megaparsec.Pos (SourcePos (..), mkPos)

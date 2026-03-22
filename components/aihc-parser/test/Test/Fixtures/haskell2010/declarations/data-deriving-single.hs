@@ -1,2 +1,3 @@
 module D22 where
-data Flag = On | Off deriving Eq
+
+data Flag = On | Off deriving (Eq)

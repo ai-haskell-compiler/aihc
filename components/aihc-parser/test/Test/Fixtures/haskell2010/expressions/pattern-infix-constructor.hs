@@ -1,2 +1,3 @@
 module ExprS317PatInfixConstructor where
-x xs = case xs of { y:ys -> y; [] -> 0 }
+
+x xs = case xs of y : ys -> y; [] -> 0

@@ -11,16 +11,17 @@ synopsis:           From-scratch Haskell parser with differential tests
 
 library
   exposed-modules:
-      Parser
-    , Parser.Ast
-    , Parser.Lexer
-    , Parser.Pretty
-    , Parser.PrettyAST
-    , Parser.Types
+      Aihc.Parser
+    , Aihc.Parser.Ast
+    , Aihc.Lexer
+    , Aihc.Parser.Pretty
+    , Aihc.Parser.PrettyAST
+    , Aihc.Parser.Types
+    , Aihc.Parser.Internal.FromTokens
   other-modules:
-      Parser.Internal.Common
-    , Parser.Internal.Expr
-    , Parser.Internal.Decl
+      Aihc.Parser.Internal.Common
+    , Aihc.Parser.Internal.Expr
+    , Aihc.Parser.Internal.Decl
   hs-source-dirs:   src
   build-depends:
       base >=4.16 && <5

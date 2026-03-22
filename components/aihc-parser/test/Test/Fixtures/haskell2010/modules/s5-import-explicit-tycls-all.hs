@@ -1,3 +1,5 @@
 module S5ImportExplicitTyClsAll where
-import Prelude (Ord(..))
+
+import Prelude (Ord (..))
+
 x = EQ

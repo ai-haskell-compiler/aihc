@@ -2,12 +2,12 @@
 
 module Main (main) where
 
+import Aihc.Lexer (lexTokensWithExtensions)
+import Aihc.Parser.Ast (Extension, ExtensionSetting (..), parseExtensionSettingName)
+import Aihc.Parser.PrettyAST (prettyASTToken)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import Options.Applicative
-import Parser.Ast (Extension, ExtensionSetting (..), parseExtensionSettingName)
-import Parser.Lexer (lexTokensWithExtensions)
-import Parser.PrettyAST (prettyASTToken)
 
 data Options = Options
   { optExtensions :: [Extension],

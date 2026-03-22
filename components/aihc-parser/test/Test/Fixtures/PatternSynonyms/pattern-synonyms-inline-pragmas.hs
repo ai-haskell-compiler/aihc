@@ -6,7 +6,6 @@ data Wrapped = Wrapped Int
 
 pattern Wrap :: Int -> Wrapped
 pattern Wrap n = Wrapped n
-
 {-# INLINE Wrap #-}
 {-# NOINLINE [0] Wrap #-}
 

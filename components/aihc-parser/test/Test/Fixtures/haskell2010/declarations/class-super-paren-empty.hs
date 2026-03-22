@@ -1,2 +1,3 @@
 module D28 where
-class () => C a
+
+class C a

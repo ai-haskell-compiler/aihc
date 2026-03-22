@@ -1,7 +1,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module Parser.Pretty
+module Aihc.Parser.Pretty
   ( prettyExpr,
     prettyPatternText,
     prettyType,
@@ -10,10 +10,10 @@ module Parser.Pretty
   )
 where
 
+import Aihc.Parser.Ast
 import Data.Maybe (catMaybes)
 import Data.Text (Text)
 import qualified Data.Text as T
-import Parser.Ast
 import Prettyprinter
   ( Doc,
     Pretty (pretty),

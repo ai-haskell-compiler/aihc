@@ -1,6 +1,6 @@
 {-# LANGUAGE ExplicitNamespaces #-}
 
-module ExplicitNamespacesExportType (type Token(..), makeToken) where
+module ExplicitNamespacesExportType (type Token (..), makeToken) where
 
 data Token = Token
 

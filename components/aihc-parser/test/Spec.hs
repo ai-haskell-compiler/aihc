@@ -2,11 +2,11 @@
 
 module Main (main) where
 
+import Aihc.Lexer (LexToken (..), LexTokenKind (..), lexTokens, lexTokensFromChunks, readModuleHeaderExtensions, readModuleHeaderExtensionsFromChunks)
+import Aihc.Parser
+import Aihc.Parser.Ast
 import Data.List (isInfixOf)
 import qualified Data.Text as T
-import Parser
-import Parser.Ast
-import Parser.Types (ParseResult (..), ParserConfig (..))
 import Test.CLI.Suite (cliTests)
 import Test.ErrorMessages.Suite (errorMessageTests)
 import Test.ExtensionMapping.Suite (extensionMappingTests)

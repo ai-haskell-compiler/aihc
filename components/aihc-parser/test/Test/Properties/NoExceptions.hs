@@ -14,18 +14,16 @@ module Test.Properties.NoExceptions
   )
 where
 
-import Control.DeepSeq (NFData (..), force)
-import Control.Exception (SomeException, evaluate, try)
-import CppSupport (preprocessForParserWithoutIncludes)
-import Data.Text (Text)
-import qualified Data.Text as T
-import Parser
-  ( ExtensionSetting (..),
-    LexToken (..),
+import Aihc.Lexer
+  ( LexToken (..),
     LexTokenKind (..),
     lexModuleTokens,
     lexTokens,
-    parseDeclFromTokens,
+  )
+import Aihc.Parser.Ast (ExtensionSetting (..), SourceSpan (..))
+import qualified Aihc.Parser.Ast as Ast
+import Aihc.Parser.Internal.FromTokens
+  ( parseDeclFromTokens,
     parseExprFromTokens,
     parseImportDeclFromTokens,
     parseModuleFromTokens,
@@ -33,8 +31,11 @@ import Parser
     parsePatternFromTokens,
     parseTypeFromTokens,
   )
-import Parser.Ast (SourceSpan (..))
-import qualified Parser.Ast as Ast
+import Control.DeepSeq (NFData (..), force)
+import Control.Exception (SomeException, evaluate, try)
+import CppSupport (preprocessForParserWithoutIncludes)
+import Data.Text (Text)
+import qualified Data.Text as T
 import Test.QuickCheck
 
 prop_preprocessorArbitraryTextNoExceptions :: Property

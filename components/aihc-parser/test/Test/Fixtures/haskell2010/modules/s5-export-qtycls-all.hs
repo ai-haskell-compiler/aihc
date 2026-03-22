@@ -1,2 +1,3 @@
-module S5ExportQtyClsAll (Eq(..)) where
+module S5ExportQtyClsAll (Eq (..)) where
+
 x = True

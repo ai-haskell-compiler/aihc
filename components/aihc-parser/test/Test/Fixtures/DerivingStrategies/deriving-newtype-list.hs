@@ -3,4 +3,4 @@
 module DerivingStrategiesNewtypeList where
 
 newtype Total = Total Int
-  deriving newtype Eq
+  deriving newtype (Eq)

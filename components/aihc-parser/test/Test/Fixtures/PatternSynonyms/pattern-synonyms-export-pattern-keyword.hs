@@ -1,10 +1,11 @@
-{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE ExplicitNamespaces #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 module PatternSynonymsExportPatternKeyword
   ( pattern Zero,
     pattern Succ,
-  ) where
+  )
+where
 
 data Nat = Z | S Nat
 

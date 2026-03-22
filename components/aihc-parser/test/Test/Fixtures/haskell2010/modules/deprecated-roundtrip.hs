@@ -1,5 +1,3 @@
-module DeprecatedRoundtrip
-  {-# DEPRECATED "Use SomethingElse instead" #-}
-  where
+module DeprecatedRoundtrip {-# DEPRECATED "Use SomethingElse instead" #-} where
 
 y = 2

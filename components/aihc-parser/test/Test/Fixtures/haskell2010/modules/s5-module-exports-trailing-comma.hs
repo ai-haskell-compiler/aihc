@@ -1,2 +1,3 @@
-module S5ModuleExportsTrailingComma (x,) where
+module S5ModuleExportsTrailingComma (x) where
+
 x = 1

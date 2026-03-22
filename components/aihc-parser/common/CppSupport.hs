@@ -22,6 +22,8 @@ import Aihc.Cpp
     includePath,
     preprocess,
   )
+import Aihc.Lexer (readModuleHeaderExtensions)
+import Aihc.Parser.Ast (Extension (CPP), ExtensionSetting (..), parseExtensionSettingName)
 import Data.Char (isAsciiLower, isAsciiUpper, isDigit, toLower)
 import Data.Functor.Identity (Identity (..), runIdentity)
 import qualified Data.Map.Strict as M
@@ -29,8 +31,6 @@ import Data.Maybe (fromMaybe, mapMaybe)
 import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
-import qualified Parser as P
-import Parser.Ast (Extension (CPP), ExtensionSetting (..), parseExtensionSettingName)
 import System.FilePath (takeDirectory, takeExtension, (</>))
 
 preprocessForParser :: (Monad m) => FilePath -> (IncludeRequest -> m (Maybe Text)) -> Text -> m Result
@@ -68,7 +68,7 @@ preprocessForParserWithoutIncludesIfEnabled globalExtensionNames cppOptions inpu
   runIdentity (preprocessForParserIfEnabled globalExtensionNames cppOptions inputFile (\_ -> Identity Nothing) source)
 
 moduleHeaderExtensionSettings :: Text -> [ExtensionSetting]
-moduleHeaderExtensionSettings = P.readModuleHeaderExtensions
+moduleHeaderExtensionSettings = readModuleHeaderExtensions
 
 cppEnabledInSource :: Text -> Bool
 cppEnabledInSource = cppEnabledInSettings . moduleHeaderExtensionSettings

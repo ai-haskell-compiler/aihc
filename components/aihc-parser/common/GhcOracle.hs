@@ -19,6 +19,7 @@ module GhcOracle
 where
 
 import Aihc.Cpp (resultOutput)
+import qualified Aihc.Parser.Ast as Ast
 import Control.Exception (catch, displayException, evaluate)
 import CppSupport (moduleHeaderExtensionSettings, preprocessForParserWithoutIncludes)
 import Data.Bifunctor (first)
@@ -48,7 +49,6 @@ import GHC.Types.SourceError (SourceError)
 import GHC.Types.SrcLoc (GenLocated, mkRealSrcLoc, unLoc)
 import GHC.Utils.Error (emptyDiagOpts, pprMessages)
 import GHC.Utils.Outputable (ppr, showSDocUnsafe)
-import qualified Parser.Ast as Ast
 import System.IO.Unsafe (unsafePerformIO)
 import Prelude hiding (foldl')
 

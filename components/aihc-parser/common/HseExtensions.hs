@@ -8,10 +8,10 @@ module HseExtensions
   )
 where
 
+import qualified Aihc.Parser.Ast as Ast
 import Data.Maybe (listToMaybe, mapMaybe)
 import qualified Data.Text as T
 import qualified Language.Haskell.Exts as HSE
-import qualified Parser.Ast as Ast
 import Text.Read (readMaybe)
 
 toHseExtension :: Ast.Extension -> Maybe HSE.Extension

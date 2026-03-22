@@ -1,5 +1,6 @@
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE UnboxedTuples #-}
+
 module X where
 
 import GHC.Exts (Int#)

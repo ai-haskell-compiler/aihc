@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Parser.Internal.Decl
+module Aihc.Parser.Internal.Decl
   ( declParser,
     importDeclParser,
     moduleHeaderParser,
@@ -8,15 +8,15 @@ module Parser.Internal.Decl
   )
 where
 
+import Aihc.Lexer (LexTokenKind (..), lexTokenKind)
+import Aihc.Parser.Ast
+import Aihc.Parser.Internal.Common
+import Aihc.Parser.Internal.Expr (equationRhsParser, exprParser, simplePatternParser, typeAtomParser, typeParser)
 import Control.Monad (when)
 import Data.Char (isAsciiLower, isUpper)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
-import Parser.Ast
-import Parser.Internal.Common
-import Parser.Internal.Expr (equationRhsParser, exprParser, simplePatternParser, typeAtomParser, typeParser)
-import Parser.Lexer (LexTokenKind (..), lexTokenKind)
 import Text.Megaparsec (anySingle, lookAhead, (<|>))
 import qualified Text.Megaparsec as MP
 

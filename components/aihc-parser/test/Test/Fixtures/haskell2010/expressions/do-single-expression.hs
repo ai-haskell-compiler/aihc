@@ -1,2 +1,3 @@
 module ExprS314DoSingleExpression where
-x = do { Just 1 }
+
+x = do Just 1

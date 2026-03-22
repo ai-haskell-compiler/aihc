@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Parser.Internal.Common
+module Aihc.Parser.Internal.Common
   ( TokParser,
     keywordTok,
     expectedTok,
@@ -29,13 +29,13 @@ module Parser.Internal.Common
   )
 where
 
+import Aihc.Lexer (LexToken (..), LexTokenKind (..))
+import Aihc.Parser.Ast
+import Aihc.Parser.Types (TokStream)
 import Data.Char (isUpper)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Void (Void)
-import Parser.Ast
-import Parser.Lexer (LexToken (..), LexTokenKind (..))
-import Parser.Types (TokStream)
 import Text.Megaparsec (Parsec, anySingle, lookAhead, (<|>))
 import qualified Text.Megaparsec as MP
 import Text.Megaparsec.Pos (SourcePos (..))

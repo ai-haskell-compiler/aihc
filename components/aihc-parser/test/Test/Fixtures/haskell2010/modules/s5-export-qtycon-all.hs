@@ -1,2 +1,3 @@
-module S5ExportQtyConAll (Maybe(..)) where
+module S5ExportQtyConAll (Maybe (..)) where
+
 x = Just 1

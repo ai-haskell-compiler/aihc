@@ -17,6 +17,16 @@ module ParserGolden
   )
 where
 
+import Aihc.Parser
+  ( ParseResult (..),
+    ParserConfig (..),
+    defaultConfig,
+    errorBundlePretty,
+    parseExpr,
+    parseModule,
+  )
+import Aihc.Parser.Ast (Extension, parseExtensionName)
+import Aihc.Parser.PrettyAST (prettyASTExpr, prettyASTModule)
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withObject)
 import Data.Char (isSpace, toLower)
@@ -26,15 +36,6 @@ import qualified Data.Text as T
 import Data.Text.Encoding (encodeUtf8)
 import qualified Data.Text.IO as TIO
 import qualified Data.Yaml as Y
-import Parser
-  ( defaultConfig,
-    errorBundlePretty,
-    parseExpr,
-    parseModule,
-  )
-import Parser.Ast (Extension, parseExtensionName)
-import Parser.PrettyAST (prettyASTExpr, prettyASTModule)
-import Parser.Types (ParseResult (..), ParserConfig (..))
 import System.Directory (doesDirectoryExist, listDirectory)
 import System.FilePath (takeDirectory, takeExtension, (</>))
 

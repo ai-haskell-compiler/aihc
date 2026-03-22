@@ -1,2 +1,5 @@
-newtype X = X { field :: Maybe
-  Int }
+newtype X = X
+  { field ::
+      Maybe
+        Int
+  }

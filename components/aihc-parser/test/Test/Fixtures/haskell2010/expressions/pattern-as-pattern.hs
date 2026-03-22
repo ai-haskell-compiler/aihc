@@ -1,2 +1,3 @@
 module ExprS317PatAsPattern where
-x xs = case xs of { ys@(y:_) -> y; [] -> 0 }
+
+x xs = case xs of ys@(y : _) -> y; [] -> 0
