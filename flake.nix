@@ -18,7 +18,24 @@
           pkgs.haskellPackages.override {
              overrides = final: prev: {
                ghc-lib-parser = pkgs.haskell.lib.dontHaddock final.ghc-lib-parser_9_14_1_20251220;
-               aihc-parser = final.callCabal2nix "aihc-parser" ./components/aihc-parser { };
+               # Disable tests by default - tests are run explicitly via the checks
+               aihc-parser = pkgs.haskell.lib.dontCheck (final.callCabal2nix "aihc-parser" ./components/aihc-parser { });
+               aihc-cpp = pkgs.haskell.lib.dontCheck (final.callCabal2nix "aihc-cpp" ./components/aihc-cpp { });
+             };
+           };
+        # Haskell packages with tests enabled and CLI executables available via env vars
+        mkHsPkgsWithTests = pkgs:
+          pkgs.haskellPackages.override {
+             overrides = final: prev: {
+               ghc-lib-parser = pkgs.haskell.lib.dontHaddock final.ghc-lib-parser_9_14_1_20251220;
+               aihc-parser = pkgs.haskell.lib.overrideCabal
+                 (final.callCabal2nix "aihc-parser" ./components/aihc-parser { })
+                 (old: {
+                   preCheck = (old.preCheck or "") + ''
+                     export AIHC_LEXER_EXE="$PWD/dist/build/aihc-lexer/aihc-lexer"
+                     export AIHC_PARSER_EXE="$PWD/dist/build/aihc-parser/aihc-parser"
+                   '';
+                 });
                aihc-cpp = final.callCabal2nix "aihc-cpp" ./components/aihc-cpp { };
              };
            };
@@ -27,8 +44,8 @@
           pkgs.haskellPackages.override {
             overrides = final: prev: {
               ghc-lib-parser = pkgs.haskell.lib.dontHaddock final.ghc-lib-parser_9_14_1_20251220;
-              aihc-parser = pkgs.haskell.lib.doHaddock (final.callCabal2nix "aihc-parser" ./components/aihc-parser { });
-              aihc-cpp = pkgs.haskell.lib.doHaddock (final.callCabal2nix "aihc-cpp" ./components/aihc-cpp { });
+              aihc-parser = pkgs.haskell.lib.dontCheck (pkgs.haskell.lib.doHaddock (final.callCabal2nix "aihc-parser" ./components/aihc-parser { }));
+              aihc-cpp = pkgs.haskell.lib.dontCheck (pkgs.haskell.lib.doHaddock (final.callCabal2nix "aihc-cpp" ./components/aihc-cpp { }));
             };
           };
         # Combined Haddock documentation derivation
@@ -78,8 +95,9 @@
           in hsPkgs.override {
             overrides = final: prev: {
               ghc-lib-parser = pkgs.haskell.lib.dontHaddock final.ghc-lib-parser_9_14_1_20251220;
-              aihc-parser = enableHie (final.callCabal2nix "aihc-parser" ./components/aihc-parser { });
-              aihc-cpp = enableHie (final.callCabal2nix "aihc-cpp" ./components/aihc-cpp { });
+              # Disable tests for HIE builds - we only need the HIE files for stan
+              aihc-parser = enableHie (pkgs.haskell.lib.dontCheck (final.callCabal2nix "aihc-parser" ./components/aihc-parser { }));
+              aihc-cpp = enableHie (pkgs.haskell.lib.dontCheck (final.callCabal2nix "aihc-cpp" ./components/aihc-cpp { }));
             };
           };
      in {
@@ -99,6 +117,8 @@
           cppProgressExe = pkgs.lib.getExe' hsPkgs.aihc-cpp "cpp-progress";
           hackageTesterExe = pkgs.lib.getExe' hsPkgs.aihc-parser "hackage-tester";
           stackageProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser "stackage-progress";
+          aihcLexerExe = pkgs.lib.getExe' hsPkgs.aihc-parser "aihc-lexer";
+          aihcParserExe = pkgs.lib.getExe' hsPkgs.aihc-parser "aihc-parser";
           mkAppWithInputs = name: runtimeInputs: text: {
             type = "app";
             program = "${pkgs.writeShellApplication {
@@ -328,6 +348,14 @@
             bash ./scripts/update-generated-content.sh --check
           '';
 
+          aihc-lexer = mkAppWithInputs "aihc-lexer" [ pkgs.bash ] ''
+            exec ${aihcLexerExe} "$@"
+          '';
+
+          aihc-parser = mkAppWithInputs "aihc-parser" [ pkgs.bash ] ''
+            exec ${aihcParserExe} "$@"
+          '';
+
           default = mkApp "default" ''
             set -euo pipefail
             test -d components/aihc-parser || {
@@ -342,8 +370,10 @@
       checks = forAllSystems (pkgs:
         let
           hsPkgs = mkHsPkgs pkgs;
-          parserTests = pkgs.haskell.lib.doCheck (pkgs.haskell.lib.dontHaddock hsPkgs.aihc-parser);
-          cppTests = pkgs.haskell.lib.doCheck (pkgs.haskell.lib.dontHaddock hsPkgs.aihc-cpp);
+          hsPkgsWithTests = mkHsPkgsWithTests pkgs;
+          # Parser tests with CLI executables available from the local build
+          parserTests = pkgs.haskell.lib.doCheck (pkgs.haskell.lib.dontHaddock hsPkgsWithTests.aihc-parser);
+          cppTests = pkgs.haskell.lib.doCheck (pkgs.haskell.lib.dontHaddock hsPkgsWithTests.aihc-cpp);
           nixLint = pkgs.runCommand "aihc-nix-lint" {
             src = ./.;
             nativeBuildInputs = [ pkgs.statix ];

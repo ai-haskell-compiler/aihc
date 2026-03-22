@@ -1,5 +1,5 @@
 extensions: []
 input: |
   ((),,)
-ast: ETupleSection [Just (ETuple []), Nothing, Nothing]
+ast: ETupleSection [ETuple [], _, _]
 status: pass

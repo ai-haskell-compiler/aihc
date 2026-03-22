@@ -1,0 +1,4 @@
+input: "foo"
+output: |
+  TkVarId "foo"
+status: pass

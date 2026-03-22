@@ -7,6 +7,7 @@ import qualified Data.Text as T
 import Parser
 import Parser.Ast
 import Parser.Types (ParseResult (..), ParserConfig (..))
+import Test.CLI.Suite (cliTests)
 import Test.ErrorMessages.Suite (errorMessageTests)
 import Test.ExtensionMapping.Suite (extensionMappingTests)
 import Test.Extensions.Suite (extensionTests)
@@ -34,6 +35,7 @@ buildTests = do
   h2010 <- h2010Tests
   extensions <- extensionTests
   lexer <- lexerTests
+  cli <- cliTests
   let hackageTester = hackageTesterTests
   pure $
     testGroup
@@ -81,7 +83,8 @@ buildTests = do
         extensions,
         extensionMappingTests,
         hackageTester,
-        stackageProgressSummaryTests
+        stackageProgressSummaryTests,
+        cli
       ]
 
 test_moduleParsesDecls :: Assertion
