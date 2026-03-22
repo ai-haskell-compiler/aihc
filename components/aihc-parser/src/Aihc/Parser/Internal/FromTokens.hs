@@ -21,52 +21,16 @@ module Aihc.Parser.Internal.FromTokens
   )
 where
 
-import Aihc.Lexer (LexToken, LexTokenKind (..))
-import Aihc.Parser.Ast (Decl, ExportSpec, Expr, ImportDecl, Module (..), Pattern, Type, WarningText)
-import Aihc.Parser.Internal.Common (TokParser, expectedTok, skipSemicolons, withSpan)
-import Aihc.Parser.Internal.Decl (declParser, importDeclParser, languagePragmaParser, moduleHeaderParser)
+import Aihc.Lexer (LexToken)
+import Aihc.Parser (moduleParser)
+import Aihc.Parser.Ast (Decl, ExportSpec, Expr, ImportDecl, Module, Pattern, Type, WarningText)
+import Aihc.Parser.Internal.Common (TokParser)
+import Aihc.Parser.Internal.Decl (declParser, importDeclParser, moduleHeaderParser)
 import Aihc.Parser.Internal.Expr (exprParser, patternParser, typeParser)
 import Aihc.Parser.Types
 import Data.Text (Text)
 import Text.Megaparsec (runParser)
 import qualified Text.Megaparsec as MP
-
-moduleParser :: TokParser Module
-moduleParser = withSpan $ do
-  languagePragmas <- MP.many (languagePragmaParser <* MP.many (expectedTok TkSpecialSemicolon))
-  mHeader <- MP.optional (moduleHeaderParser <* MP.many (expectedTok TkSpecialSemicolon))
-  (imports, decls) <- moduleBodyParser
-  let (mName, mWarning, mExports) =
-        case mHeader of
-          Nothing -> (Nothing, Nothing, Nothing)
-          Just (name, warn, exports) -> (Just name, warn, exports)
-  pure $ \span' ->
-    Module
-      { moduleSpan = span',
-        moduleName = mName,
-        moduleLanguagePragmas = concat languagePragmas,
-        moduleWarningText = mWarning,
-        moduleExports = mExports,
-        moduleImports = imports,
-        moduleDecls = decls
-      }
-
-moduleBodyParser :: TokParser ([ImportDecl], [Decl])
-moduleBodyParser = MP.try bracedModuleBodyParser MP.<|> plainModuleBodyParser
-  where
-    plainModuleBodyParser = do
-      imports <- MP.many (importDeclParser <* skipSemicolons)
-      decls <- MP.many (declParser <* skipSemicolons)
-      pure (imports, decls)
-
-    bracedModuleBodyParser = do
-      expectedTok TkSpecialLBrace
-      skipSemicolons
-      imports <- MP.many (importDeclParser <* skipSemicolons)
-      decls <- MP.many (declParser <* skipSemicolons)
-      skipSemicolons
-      expectedTok TkSpecialRBrace
-      pure (imports, decls)
 
 parseFromTokens :: TokParser a -> FilePath -> [LexToken] -> ParseResult a
 parseFromTokens parser sourceName toks =

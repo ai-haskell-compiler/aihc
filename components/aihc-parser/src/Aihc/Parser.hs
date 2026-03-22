@@ -26,6 +26,9 @@ module Aihc.Parser
     parseExpr,
     parseType,
     parsePattern,
+
+    -- * Internal (for testing)
+    moduleParser,
   )
 where
 
@@ -47,7 +50,8 @@ import qualified Text.Megaparsec as MP
 
 -- $setup
 -- >>> :set -XOverloadedStrings
--- >>> import qualified Data.Text as T
+-- >>> import Aihc.Parser
+-- >>> import Aihc.Parser.Ast (moduleName)
 
 moduleParser :: TokParser Module
 moduleParser = withSpan $ do
@@ -105,11 +109,11 @@ defaultConfig =
 
 -- | Parse a Haskell expression.
 --
--- >>> parseExpr defaultConfig "1 + 2"
--- ParseOk ...
+-- >>> case parseExpr defaultConfig "1 + 2" of { ParseOk _ -> "success"; ParseErr _ -> "error" }
+-- "success"
 --
--- >>> parseExpr defaultConfig "\\x -> x + 1"
--- ParseOk ...
+-- >>> case parseExpr defaultConfig "\\x -> x + 1" of { ParseOk _ -> "success"; ParseErr _ -> "error" }
+-- "success"
 --
 -- Parse errors are returned as 'ParseErr':
 --
@@ -124,11 +128,11 @@ parseExpr cfg input =
 
 -- | Parse a Haskell pattern.
 --
--- >>> parsePattern defaultConfig "(x, y)"
--- ParseOk ...
+-- >>> case parsePattern defaultConfig "(x, y)" of { ParseOk _ -> "success"; ParseErr _ -> "error" }
+-- "success"
 --
--- >>> parsePattern defaultConfig "Just x"
--- ParseOk ...
+-- >>> case parsePattern defaultConfig "Just x" of { ParseOk _ -> "success"; ParseErr _ -> "error" }
+-- "success"
 parsePattern :: ParserConfig -> Text -> ParseResult Pattern
 parsePattern cfg input =
   let toks = lexTokensWithExtensions (parserExtensions cfg) input
@@ -138,11 +142,11 @@ parsePattern cfg input =
 
 -- | Parse a Haskell type.
 --
--- >>> parseType defaultConfig "Int -> Bool"
--- ParseOk ...
+-- >>> case parseType defaultConfig "Int -> Bool" of { ParseOk _ -> "success"; ParseErr _ -> "error" }
+-- "success"
 --
--- >>> parseType defaultConfig "Maybe a"
--- ParseOk ...
+-- >>> case parseType defaultConfig "Maybe a" of { ParseOk _ -> "success"; ParseErr _ -> "error" }
+-- "success"
 parseType :: ParserConfig -> Text -> ParseResult Type
 parseType cfg input =
   let toks = lexTokensWithExtensions (parserExtensions cfg) input
@@ -152,20 +156,12 @@ parseType cfg input =
 
 -- | Parse a complete Haskell module.
 --
--- >>> :{
--- case parseModule defaultConfig "module Main where\nmain = putStrLn \"Hello\"" of
---   ParseOk m -> moduleName m
---   ParseErr _ -> Nothing
--- :}
+-- >>> case parseModule defaultConfig "module Main where\nmain = putStrLn \"Hello\"" of { ParseOk m -> moduleName m; ParseErr _ -> Nothing }
 -- Just "Main"
 --
 -- Modules without a header are also supported:
 --
--- >>> :{
--- case parseModule defaultConfig "x = 1" of
---   ParseOk m -> moduleName m
---   ParseErr _ -> Just "error"
--- :}
+-- >>> case parseModule defaultConfig "x = 1" of { ParseOk m -> moduleName m; ParseErr _ -> Just "error" }
 -- Nothing
 parseModule :: ParserConfig -> Text -> ParseResult Module
 parseModule cfg input =

@@ -684,12 +684,33 @@
             doctest -isrc src/Aihc/Cpp.hs
             touch "$out"
           '';
-          # Note: parser-doctest is disabled pending proper cabal-doctest integration.
-          # The doctest examples are still visible in haddock documentation.
+          # Doctest for aihc-parser documentation examples
+          # Uses ghcWithPackages to create a GHC environment with all dependencies
+          # and runs doctest with the correct package database
+          parserDoctest =
+            let
+              # Create a GHC environment with all parser dependencies + doctest
+              ghcEnv = hsPkgs.ghcWithPackages (p: [
+                p.aihc-parser
+                p.doctest
+              ]);
+            in pkgs.runCommand "aihc-parser-doctest" {
+            src = ./.;
+            nativeBuildInputs = [ ghcEnv ];
+          } ''
+            cd "$src/components/aihc-parser"
+            # Find the GHC package database from ghcWithPackages
+            PKGDB=$(ghc --print-global-package-db)
+            # Run doctest with explicit package database
+            # Options before source files are passed to GHC
+            doctest -package-db="$PKGDB" -isrc src/Aihc/Parser.hs
+            touch "$out"
+          '';
         in {
           parser-tests = parserTests;
           cpp-tests = cppTests;
           cpp-doctest = cppDoctest;
+          parser-doctest = parserDoctest;
           haddock-docs = haddockDocs;
           parser-progress-strict = parserProgressStrict;
           lexer-progress-strict = lexerProgressStrict;
@@ -706,6 +727,7 @@
                 { name = "parser-tests"; path = parserTests; }
                 { name = "cpp-tests"; path = cppTests; }
                 { name = "cpp-doctest"; path = cppDoctest; }
+                { name = "parser-doctest"; path = parserDoctest; }
                 { name = "haddock-docs"; path = haddockDocs; }
                 { name = "parser-progress-strict"; path = parserProgressStrict; }
                 { name = "lexer-progress-strict"; path = lexerProgressStrict; }
