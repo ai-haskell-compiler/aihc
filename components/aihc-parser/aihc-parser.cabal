@@ -39,7 +39,8 @@ test-suite spec
     , common
   main-is:          Spec.hs
   other-modules:
-      CppSupport
+      CLIGolden
+    , CppSupport
     , ExtensionSupport
     , GhcOracle
     , HackageSupport

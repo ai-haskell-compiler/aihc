@@ -1,0 +1,6 @@
+input: "foo + bar"
+output:
+  - 'TkVarId "foo"'
+  - 'TkVarSym "+"'
+  - 'TkVarId "bar"'
+status: pass

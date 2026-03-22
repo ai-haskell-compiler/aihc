@@ -1,0 +1,5 @@
+input: |
+  module Demo where
+output:
+  - 'Module {name = "Demo"}'
+status: pass

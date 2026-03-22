@@ -37,6 +37,7 @@ buildTests = do
   h2010 <- h2010Tests
   extensions <- extensionTests
   lexer <- lexerTests
+  cli <- cliTests
   let hackageTester = hackageTesterTests
   pure $
     testGroup
@@ -85,7 +86,7 @@ buildTests = do
         extensionMappingTests,
         hackageTester,
         stackageProgressSummaryTests,
-        cliTests
+        cli
       ]
 
 test_moduleParsesDecls :: Assertion

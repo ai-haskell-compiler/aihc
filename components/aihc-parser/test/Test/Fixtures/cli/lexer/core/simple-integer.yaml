@@ -1,0 +1,4 @@
+input: "42"
+output:
+  - 'TkInteger 42'
+status: pass

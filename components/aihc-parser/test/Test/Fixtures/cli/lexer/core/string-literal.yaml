@@ -1,0 +1,4 @@
+input: '"hello world"'
+output:
+  - 'TkString "hello world"'
+status: pass
