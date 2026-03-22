@@ -7,6 +7,7 @@ import qualified Data.Text as T
 import Parser
 import Parser.Ast
 import Parser.Types (ParseResult (..), ParserConfig (..))
+import Test.CLI.Suite (cliTests)
 import Test.ErrorMessages.Suite (errorMessageTests)
 import Test.ExtensionMapping.Suite (extensionMappingTests)
 import Test.Extensions.Suite (extensionTests)
@@ -83,7 +84,8 @@ buildTests = do
         extensions,
         extensionMappingTests,
         hackageTester,
-        stackageProgressSummaryTests
+        stackageProgressSummaryTests,
+        cliTests
       ]
 
 test_moduleParsesDecls :: Assertion
