@@ -44,13 +44,18 @@ exprCoreParser = exprCoreParserExcept []
 exprCoreParserExcept :: [Text] -> TokParser Expr
 exprCoreParserExcept forbiddenInfix = do
   tok <- lookAhead anySingle
-  case lexTokenKind tok of
+  base <- case lexTokenKind tok of
     TkKeywordDo -> doExprParser
     TkKeywordIf -> ifExprParser
     TkKeywordCase -> caseExprParser
     TkKeywordLet -> letExprParser
     TkReservedBackslash -> lambdaExprParser
     _ -> infixExprParserExcept forbiddenInfix
+  -- Optional type signature: expr :: type
+  mTypeSig <- MP.optional (expectedTok TkReservedDoubleColon *> typeParser)
+  pure $ case mTypeSig of
+    Just ty -> ETypeSig (mergeSourceSpans (getSourceSpan base) (getSourceSpan ty)) base ty
+    Nothing -> base
 
 ifExprParser :: TokParser Expr
 ifExprParser = withSpan $ do

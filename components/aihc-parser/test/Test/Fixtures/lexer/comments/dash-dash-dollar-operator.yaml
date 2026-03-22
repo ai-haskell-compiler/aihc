@@ -2,5 +2,4 @@ extensions: []
 input: "--$"
 tokens:
   - 'TkVarSym "--$"'
-status: xfail
-reason: "lexer incorrectly treats --$ as line comment; per Haskell report, --$ is a legal operator"
+status: pass

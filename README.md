@@ -1,3 +1,6 @@
+[![Documentation](https://img.shields.io/github/actions/workflow/status/ai-haskell-compiler/aihc/deploy-docs.yml?label=docs)](https://ai-haskell-compiler.github.io/aihc/)
+[![Generated Reports](https://img.shields.io/github/actions/workflow/status/ai-haskell-compiler/aihc/generated-reports-update.yml?label=reports)](https://github.com/ai-haskell-compiler/aihc/actions/workflows/generated-reports-update.yml)
+
 # AI-written Haskell Compiler (aihc)
 
 ## Docs
@@ -9,9 +12,9 @@
 
 | Name | Progress |
 | --- | --- |
+| Parser Stackage | <!-- AUTO-GENERATED: START parser-stackage-progress --> `369/3390` (`10.88%`) <!-- AUTO-GENERATED: END parser-stackage-progress --> |
 | Parser Tests | <!-- AUTO-GENERATED: START parser-progress --> `325/451` (`72.06%`) <!-- AUTO-GENERATED: END parser-progress --> |
 | Lexer Tests | <!-- AUTO-GENERATED: START lexer-progress --> `12/15` (`80.00%`) <!-- AUTO-GENERATED: END lexer-progress --> |
-| Parser Stackage | <!-- AUTO-GENERATED: START parser-stackage-progress --> `369/3390` (`10.88%`) <!-- AUTO-GENERATED: END parser-stackage-progress --> |
 | CPP preprocessor | <!-- AUTO-GENERATED: START cpp-progress --> `37/37` (`100.00%`) <!-- AUTO-GENERATED: END cpp-progress --> |
 
 ## Ways to contribute

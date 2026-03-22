@@ -6,10 +6,8 @@ module ParserQuickCheck.Registry
 where
 
 import ParserQuickCheck.Runner (RegisteredProperty (..))
-import Test.Properties.ExprModuleRoundTrip
-  ( prop_exprPrettyRoundTrip,
-    prop_modulePrettyRoundTrip,
-  )
+import Test.Properties.ExprRoundTrip (prop_exprPrettyRoundTrip)
+import Test.Properties.ModuleRoundTrip (prop_modulePrettyRoundTrip)
 import Test.Properties.NoExceptions
   ( prop_declParserArbitraryTokensNoExceptions,
     prop_exprParserArbitraryTokensNoExceptions,

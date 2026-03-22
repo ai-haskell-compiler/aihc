@@ -15,11 +15,9 @@ import Test.H2010.Suite (h2010Tests)
 import Test.HackageTester.Suite (hackageTesterTests)
 import Test.Lexer.Suite (lexerTests)
 import Test.Parser.Suite (parserGoldenTests)
-import Test.Properties.ExprModuleRoundTrip
-  ( prop_exprPrettyRoundTrip,
-    prop_modulePrettyRoundTrip,
-  )
+import Test.Properties.ExprRoundTrip (prop_exprPrettyRoundTrip)
 import Test.Properties.Identifiers (isValidGeneratedIdent, shrinkIdent)
+import Test.Properties.ModuleRoundTrip (prop_modulePrettyRoundTrip)
 import Test.Properties.PatternRoundTrip (prop_patternPrettyRoundTrip)
 import Test.Properties.TypeRoundTrip (prop_typePrettyRoundTrip)
 import Test.StackageProgress.Summary (stackageProgressSummaryTests)
