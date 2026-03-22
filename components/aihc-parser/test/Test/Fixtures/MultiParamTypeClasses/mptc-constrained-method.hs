@@ -3,4 +3,4 @@
 module MultiParamTypeClassesConstrainedMethod where
 
 class Render a b where
-  render :: (Show a) => a -> b -> String
+  render :: Show a => a -> b -> String

@@ -1,10 +1,9 @@
-{-# LANGUAGE ExplicitNamespaces #-}
 {-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE ExplicitNamespaces #-}
 
 module PatternSynonymsImportPatternKeyword where
 
-import PatternSynonymsSource (pattern Succ, pattern Zero)
+import PatternSynonymsSource (pattern Zero, pattern Succ)
 
 buildZero = Zero
-
 buildOne = Succ Zero

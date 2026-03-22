@@ -1,5 +1,4 @@
 module ClassMultipleDefaults where
-
 class C a where
   foo :: a -> a
   foo = id

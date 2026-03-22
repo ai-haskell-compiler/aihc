@@ -2,8 +2,7 @@
 
 module EmptyCaseMultilineTypeParam where
 
-data
-  Test
-    a
+data Test
+ a
 
 x = 1

@@ -1,3 +1,1 @@
-import Data.Maybe
-
-x = 1
+{ import Data.Maybe ; x = 1 }

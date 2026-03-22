@@ -1,5 +1,3 @@
 module S5ImportExplicitTyConCNames where
-
-import Data.Maybe (Maybe (Just, Nothing))
-
+import Data.Maybe (Maybe(Nothing, Just))
 x = Just 1

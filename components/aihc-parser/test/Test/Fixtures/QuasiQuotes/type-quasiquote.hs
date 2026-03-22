@@ -1,5 +1,4 @@
 {-# LANGUAGE QuasiQuotes #-}
-
 module TypeQuasiQuote where
 
 f :: [sql|INT|] -> Int

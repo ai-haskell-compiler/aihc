@@ -1,1 +1,1 @@
-import Data.Maybe
+{ import Data.Maybe }

@@ -6,3 +6,4 @@ describeBool :: Bool -> String
 describeBool = \case
   True -> "yes"
   False -> "no"
+

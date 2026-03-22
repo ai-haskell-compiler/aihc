@@ -2,8 +2,8 @@
 
 module PackageImportsBasic where
 
-import "containers" Data.Map (Map)
 import "base" Prelude
+import "containers" Data.Map (Map)
 
 usesMap :: Maybe (Map Int Int)
 usesMap = Nothing

@@ -1,10 +1,4 @@
-{-# LANGUAGE ConstrainedClassMethods #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE KindSignatures #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE TypeSynonymInstances #-}
-
+{-# LANGUAGE KindSignatures, FlexibleInstances, MultiParamTypeClasses, FlexibleContexts, ConstrainedClassMethods, TypeSynonymInstances #-}
 module InstanceUnit where
 
 class Unit x

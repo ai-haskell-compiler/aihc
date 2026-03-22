@@ -5,7 +5,7 @@ module LambdaCaseInApplication where
 describeMany :: [Maybe Int] -> [String]
 describeMany =
   map
-    ( \case
+    (\case
         Just n -> "just"
         Nothing -> "nothing"
     )

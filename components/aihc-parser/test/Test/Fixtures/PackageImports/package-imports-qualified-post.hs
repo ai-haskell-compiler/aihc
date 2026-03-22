@@ -1,10 +1,10 @@
-{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE PackageImports #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 
 module PackageImportsQualifiedPost where
 
-import "containers" Data.Map qualified as M
 import "base" Prelude
+import "containers" Data.Map qualified as M
 
 fromListMap :: [(Int, Int)] -> M.Map Int Int
 fromListMap = M.fromList

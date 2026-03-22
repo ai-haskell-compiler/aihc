@@ -1,3 +1,2 @@
 module D26 where
-
-class C a
+class C a where {}

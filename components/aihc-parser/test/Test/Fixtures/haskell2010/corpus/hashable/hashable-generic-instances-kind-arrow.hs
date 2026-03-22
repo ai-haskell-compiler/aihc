@@ -1,12 +1,6 @@
-{-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE GADTs #-}
-{-# LANGUAGE KindSignatures #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeOperators #-}
-
+{-# LANGUAGE BangPatterns, FlexibleInstances, KindSignatures,
+             ScopedTypeVariables, TypeOperators,
+             MultiParamTypeClasses, GADTs, FlexibleContexts #-}
 module X where
 
 x :: Int

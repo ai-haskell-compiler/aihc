@@ -1,3 +1,4 @@
-module MultilineDefinitionModuleSplit where
+module
+  MultilineDefinitionModuleSplit where
 
 x = 1

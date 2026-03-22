@@ -1,5 +1,4 @@
 module K2 where
 
-x =
-  "This string spans\
-  \ multiple lines."
+x = "This string spans\
+     \ multiple lines."

@@ -1,3 +1,2 @@
 module D31 where
-
-class C a where op :: a -> a
+class C a where { op :: a -> a }

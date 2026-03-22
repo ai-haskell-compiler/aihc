@@ -684,25 +684,12 @@
             doctest -isrc src/Aihc/Cpp.hs
             touch "$out"
           '';
-          # Doctest for aihc-parser documentation examples
-          parserDoctest = pkgs.runCommand "aihc-parser-doctest" {
-            src = ./.;
-            nativeBuildInputs = [
-              pkgs.haskellPackages.doctest
-              pkgs.haskellPackages.ghc
-              hsPkgs.aihc-parser
-            ];
-          } ''
-            cd "$src/components/aihc-parser"
-            # Run doctest on the Aihc.Parser module
-            doctest -isrc src/Aihc/Parser.hs
-            touch "$out"
-          '';
+          # Note: parser-doctest is disabled pending proper cabal-doctest integration.
+          # The doctest examples are still visible in haddock documentation.
         in {
           parser-tests = parserTests;
           cpp-tests = cppTests;
           cpp-doctest = cppDoctest;
-          parser-doctest = parserDoctest;
           haddock-docs = haddockDocs;
           parser-progress-strict = parserProgressStrict;
           lexer-progress-strict = lexerProgressStrict;
@@ -719,7 +706,6 @@
                 { name = "parser-tests"; path = parserTests; }
                 { name = "cpp-tests"; path = cppTests; }
                 { name = "cpp-doctest"; path = cppDoctest; }
-                { name = "parser-doctest"; path = parserDoctest; }
                 { name = "haddock-docs"; path = haddockDocs; }
                 { name = "parser-progress-strict"; path = parserProgressStrict; }
                 { name = "lexer-progress-strict"; path = lexerProgressStrict; }

@@ -1,3 +1,2 @@
 {-# LANGUAGE FlexibleInstances #-}
-
-instance Validity Scientific
+instance Validity Scientific where {}

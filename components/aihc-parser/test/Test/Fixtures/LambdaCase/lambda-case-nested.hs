@@ -6,7 +6,7 @@ choose :: Either Int String -> Int
 choose = \case
   Left n -> n
   Right _ ->
-    ( \case
+    (\case
         Just k -> k
         Nothing -> 0
     )

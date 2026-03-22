@@ -1,3 +1,2 @@
 module T3 where
-
-newtype UserId = UserId {unUserId :: Int}
+newtype UserId = UserId { unUserId :: Int }

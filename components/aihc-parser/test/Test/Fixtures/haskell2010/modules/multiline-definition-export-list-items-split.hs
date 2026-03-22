@@ -1,9 +1,8 @@
 module MultilineDefinitionExportListItemsSplit
-  ( x,
-    T (..),
+  ( x
+  , T(..)
   )
-where
+  where
 
 x = 1
-
 data T = A | B

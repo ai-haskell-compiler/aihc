@@ -1,3 +1,5 @@
-module MultilineDefinition where
+module
+  MultilineDefinition
+where
 
 x = 1

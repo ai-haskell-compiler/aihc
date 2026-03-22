@@ -1,5 +1,4 @@
 module T10 where
-
 f :: Int -> Int
 f n =
   let y :: Int
