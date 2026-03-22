@@ -23,47 +23,21 @@ jobs:
           r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           nix-cache-private-key: ${{ secrets.NIX_CACHE_PRIVATE_KEY }}
 
-      - name: Build and test with coverage
+      - name: Build coverage report
         run: |
-          nix develop .#coverage --command bash << 'COVERAGE_SCRIPT'
-            set -euo pipefail
+          echo "=== Building coverage report with Nix ==="
+          nix build .#coverage --print-out-paths
 
-            echo "=== Building aihc-parser with coverage ==="
-            cd components/aihc-parser
-            cabal configure --enable-tests --enable-coverage
-            cabal build
-            cabal test --test-show-details=direct || true
-            cd ../..
-
-            echo "=== Building aihc-cpp with coverage ==="
-            cd components/aihc-cpp
-            cabal configure --enable-tests --enable-coverage
-            cabal build
-            cabal test --test-show-details=direct || true
-            cd ../..
-
-            echo "=== Coverage data generated ==="
-          COVERAGE_SCRIPT
-
-      - name: Upload coverage to Coveralls
-        env:
-          COVERALLS_REPO_TOKEN: ${{ secrets.COVERALLS_REPO_TOKEN }}
+      - name: Display coverage summary
         run: |
-          nix develop .#coverage --command bash << 'UPLOAD_SCRIPT'
-            set -euo pipefail
-
-            # Check if repo token is set
-            if [ -z "${COVERALLS_REPO_TOKEN:-}" ]; then
-              echo "Warning: COVERALLS_REPO_TOKEN not set, skipping upload"
-              exit 0
-            fi
-
-            echo "=== Uploading aihc-parser coverage to Coveralls ==="
-            cd components/aihc-parser
-            hpc-coveralls spec \
-              --repo-token="$COVERALLS_REPO_TOKEN" \
-              --exclude-dir=test \
-              --exclude-dir=app \
-              --exclude-dir=common || echo "Parser coverage upload completed (or skipped)"
-            cd ../..
-          UPLOAD_SCRIPT
+          coverage_path=$(nix build .#coverage --print-out-paths)
+          echo "=== Coverage Report Location ==="
+          echo "$coverage_path"
+          echo ""
+          echo "=== Coverage Report Contents ==="
+          ls -la "$coverage_path/"
+          echo ""
+          if [ -f "$coverage_path/README.txt" ]; then
+            echo "=== Coverage Summary ==="
+            cat "$coverage_path/README.txt"
+          fi

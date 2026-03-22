@@ -474,61 +474,6 @@
               fi
             '';
 
-          # Upload coverage to coveralls.io using hpc-coveralls
-          upload-coverage = mkAppWithInputs "upload-coverage" [
-            pkgs.bash
-            pkgs.git
-            pkgs.curl
-          ] ''
-            set -euo pipefail
-
-            test -d components/aihc-parser || {
-              echo "Run this app from the repository root." >&2
-              exit 1
-            }
-
-            # Check for repo token
-            if [ -z "''${COVERALLS_REPO_TOKEN:-}" ]; then
-              echo "Error: COVERALLS_REPO_TOKEN environment variable is not set" >&2
-              exit 1
-            fi
-
-            echo "=== Uploading coverage to Coveralls.io ==="
-            echo "Note: This app requires hpc-coveralls to be installed separately."
-            echo "In CI, use: nix develop .#coverage --command hpc-coveralls ..."
-
-            # hpc-coveralls expects to find .tix files in dist/hpc/tix/<test-suite-name>/
-            # and .mix files in dist/hpc/mix/<package-name>/
-            # We need to run this from within the cabal project
-
-            # Upload parser coverage
-            if [ -d "components/aihc-parser" ]; then
-              echo "Uploading aihc-parser coverage..."
-              cd components/aihc-parser
-              hpc-coveralls spec \
-                --repo-token="$COVERALLS_REPO_TOKEN" \
-                --exclude-dir=test \
-                --exclude-dir=app \
-                --exclude-dir=common \
-                "$@" || echo "Warning: parser coverage upload failed"
-              cd ../..
-            fi
-
-            # Upload cpp coverage
-            if [ -d "components/aihc-cpp" ]; then
-              echo "Uploading aihc-cpp coverage..."
-              cd components/aihc-cpp
-              hpc-coveralls spec \
-                --repo-token="$COVERALLS_REPO_TOKEN" \
-                --exclude-dir=test \
-                --exclude-dir=app \
-                "$@" || echo "Warning: cpp coverage upload failed"
-              cd ../..
-            fi
-
-            echo "=== Coverage upload complete ==="
-          '';
-
           default = mkApp "default" ''
             set -euo pipefail
             test -d components/aihc-parser || {
@@ -722,8 +667,6 @@
       devShells = forAllSystems (pkgs:
         let
           hsPkgs = mkHsPkgs pkgs;
-          # Allow broken packages for hpc-coveralls
-          hpcCoveralls = pkgs.haskell.lib.unmarkBroken pkgs.haskellPackages.hpc-coveralls;
         in {
           default = pkgs.mkShell {
             buildInputs = [
@@ -738,26 +681,6 @@
               echo "aihc development shell"
               echo "  - GHC with project dependencies"
               echo "  - cabal-install"
-            '';
-          };
-
-          # Shell specifically for coverage builds
-          coverage = pkgs.mkShell {
-            buildInputs = [
-              # GHC with all project dependencies for building with coverage
-              (hsPkgs.ghcWithPackages (p: [
-                p.aihc-parser
-                p.aihc-cpp
-              ]))
-              pkgs.cabal-install
-              # Coverage tools - unmark broken to allow hpc-coveralls
-              hpcCoveralls
-            ];
-            shellHook = ''
-              echo "aihc coverage shell"
-              echo "  - GHC with project dependencies"
-              echo "  - cabal-install"
-              echo "  - hpc-coveralls"
             '';
           };
         });
