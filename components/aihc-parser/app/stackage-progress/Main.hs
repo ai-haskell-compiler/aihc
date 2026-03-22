@@ -538,7 +538,7 @@ checkFile opts packageRoot info = do
   oursStatus <- case oursResult of
     ParseErr err ->
       if CheckParse `elem` optChecks opts || needsParsedModule (optChecks opts)
-        then pure (Left (T.unpack (prefixCppErrors cppErrorMsg ("parse failed in " <> T.pack file <> ": " <> T.pack (show err)))))
+        then pure (Left (T.unpack (prefixCppErrors cppErrorMsg ("parse failed in " <> T.pack file <> ":\n" <> T.pack (Parser.errorBundlePretty err)))))
         else pure (Right ())
     ParseOk parsed -> do
       roundtripRes <-
@@ -613,7 +613,7 @@ validateExprSpan :: Text -> Expr -> Either String ()
 validateExprSpan source expr = do
   snippet <- extractSpanText source (exprSpan expr)
   case Parser.parseExpr Parser.defaultConfig snippet of
-    ParseErr err -> Left ("source-span parse failed for span " ++ show (exprSpan expr) ++ ": " ++ show err)
+    ParseErr err -> Left ("source-span parse failed for span " ++ show (exprSpan expr) ++ ":\n" ++ Parser.errorBundlePretty err)
     ParseOk reparsed ->
       if stripExpr reparsed == stripExpr expr
         then Right ()
