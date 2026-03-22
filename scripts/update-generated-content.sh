@@ -42,7 +42,6 @@ lexer_cmd="${LEXER_PROGRESS_CMD:-nix run .#lexer-progress}"
 extension_markdown_cmd="${PARSER_EXTENSION_PROGRESS_CMD:-nix run .#parser-extension-progress -- --markdown}"
 extension_progress_cmd="${PARSER_EXTENSION_PROGRESS_TEXT_CMD:-nix run .#parser-extension-progress}"
 cpp_cmd="${CPP_PROGRESS_CMD:-nix run .#cpp-progress}"
-name_resolution_cmd="${NAME_RESOLUTION_PROGRESS_CMD:-nix run .#name-resolution-progress}"
 stackage_cmd="${PARSER_STACKAGE_PROGRESS_CMD:-nix run .#stackage-progress -- --snapshot lts-24.33 --checks parse}"
 
 tmpdir="$(mktemp -d)"
@@ -55,7 +54,6 @@ parser_out="$tmpdir/parser-progress.txt"
 lexer_out="$tmpdir/lexer-progress.txt"
 extension_out="$tmpdir/extension-progress.md"
 extension_progress_out="$tmpdir/extension-progress.txt"
-name_out="$tmpdir/name-resolution-progress.txt"
 cpp_out="$tmpdir/cpp-progress.txt"
 stackage_out="$tmpdir/stackage-progress.txt"
 
@@ -64,7 +62,6 @@ run_cmd "$lexer_cmd" >"$lexer_out"
 run_cmd "$extension_markdown_cmd" | sed -n '/^# Haskell Parser Extension Support Status/,$p' >"$extension_out"
 run_cmd "$extension_progress_cmd" >"$extension_progress_out"
 run_cmd "$cpp_cmd" >"$cpp_out"
-run_cmd "$name_resolution_cmd" >"$name_out"
 run_cmd "$stackage_cmd" >"$stackage_out" || true
 
 parse_progress() {
@@ -183,15 +180,6 @@ lexer_total="${lexer_vals[4]}"
 lexer_implemented="${lexer_vals[5]}"
 lexer_complete="${lexer_vals[6]}"
 
-name_vals=($(parse_progress "$name_out"))
-name_pass="${name_vals[0]}"
-name_xfail="${name_vals[1]}"
-name_xpass="${name_vals[2]}"
-name_fail="${name_vals[3]}"
-name_total="${name_vals[4]}"
-name_implemented="${name_vals[5]}"
-name_complete="${name_vals[6]}"
-
 cpp_vals=($(parse_progress "$cpp_out"))
 cpp_pass="${cpp_vals[0]}"
 cpp_xfail="${cpp_vals[1]}"
@@ -228,10 +216,6 @@ cat >"$tmpdir/readme-root-parser.txt" <<EOF2
 \`${parser_passing_tests}/${parser_total_tests}\` (\`${parser_total_complete}%\`)
 EOF2
 
-cat >"$tmpdir/readme-root-name.txt" <<EOF2
-\`${name_implemented}/${name_total}\` (\`${name_complete}%\`)
-EOF2
-
 cat >"$tmpdir/readme-root-cpp.txt" <<EOF2
 \`${cpp_implemented}/${cpp_total}\` (\`${cpp_complete}%\`)
 EOF2
@@ -253,10 +237,6 @@ cat >"$tmpdir/readme-parser-extension.txt" <<EOF2
 - Supported: \`${ext_supported}\`
 - In Progress: \`${ext_in_progress}\`
 - Planned: \`${ext_planned}\`
-EOF2
-
-cat >"$tmpdir/readme-name-resolution.txt" <<EOF2
-- \`${name_implemented}/${name_total}\` implemented (\`${name_complete}%\` complete)
 EOF2
 
 cat >"$tmpdir/readme-cpp.txt" <<EOF2
@@ -371,11 +351,9 @@ replace_marker_inline README.md "parser-progress" "$tmpdir/readme-root-parser.tx
 replace_marker_inline README.md "lexer-progress" "$tmpdir/readme-root-lexer.txt"
 replace_marker_inline README.md "parser-stackage-progress" "$tmpdir/readme-root-stackage.txt"
 replace_marker_inline README.md "cpp-progress" "$tmpdir/readme-root-cpp.txt"
-replace_marker_inline README.md "name-resolution-progress" "$tmpdir/readme-root-name.txt"
 replace_marker_block components/aihc-parser/README.md "haskell2010-progress" "$tmpdir/readme-parser-h2010.txt"
 replace_marker_block components/aihc-parser/README.md "extension-progress" "$tmpdir/readme-parser-extension.txt"
 replace_marker_block components/aihc-cpp/README.md "cpp-progress" "$tmpdir/readme-cpp.txt"
-replace_marker_block components/aihc-name-resolution/README.md "name-resolution-progress" "$tmpdir/readme-name-resolution.txt"
 
 if [ "$mode" = "--check" ] && [ "$stale" -ne 0 ]; then
 	exit 1

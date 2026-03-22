@@ -7,7 +7,6 @@
   - Parser: `nix run .#parser-progress`
   - Extensions: `nix run .#parser-extension-progress`
   - CPP: `nix run .#cpp-progress`
-  - Name-resolution: `nix run .#name-resolution-progress`
 
 - Create PRs: `gh pr create --base main --head <branch> --title "<title>" --body $(cat <file>)`
 - PR titles should follow the same Conventional Commits format as commit messages (see below)
@@ -38,10 +37,6 @@ aihc is developed test-first. Run the full suite with `nix flake check`. When wo
   - Oracle compliance tests:
     - Manifest: `components/aihc-cpp/test/Test/Fixtures/progress/manifest.tsv`.
     - Oracle is `cpphs`; outputs are compared against `cpphs` behavior.
-
-- **`aihc-name-resolution`**
-  - Fixture-driven progress and resolver tests under `components/aihc-name-resolution/test/Test/Fixtures/`.
-  - Use `nix run .#name-resolution-progress` to track coverage progress.
 
 ## Pre-PR Review
 

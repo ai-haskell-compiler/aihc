@@ -14,14 +14,12 @@
           "aarch64-darwin"
         ];
         forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f (import nixpkgs { inherit system; }));
-         mkHsPkgs = pkgs:
+        mkHsPkgs = pkgs:
           pkgs.haskellPackages.override {
              overrides = final: prev: {
                ghc-lib-parser = pkgs.haskell.lib.dontHaddock final.ghc-lib-parser_9_14_1_20251220;
                aihc-parser = final.callCabal2nix "aihc-parser" ./components/aihc-parser { };
                aihc-cpp = final.callCabal2nix "aihc-cpp" ./components/aihc-cpp { };
-               aihc-name-resolution =
-                 final.callCabal2nix "aihc-name-resolution" ./components/aihc-name-resolution { };
              };
            };
         # Haskell packages with HIE file generation enabled for stan analysis
@@ -45,8 +43,6 @@
               ghc-lib-parser = pkgs.haskell.lib.dontHaddock final.ghc-lib-parser_9_14_1_20251220;
               aihc-parser = enableHie (final.callCabal2nix "aihc-parser" ./components/aihc-parser { });
               aihc-cpp = enableHie (final.callCabal2nix "aihc-cpp" ./components/aihc-cpp { });
-              aihc-name-resolution =
-                enableHie (final.callCabal2nix "aihc-name-resolution" ./components/aihc-name-resolution { });
             };
           };
      in {
@@ -61,8 +57,6 @@
           cppProgressExe = pkgs.lib.getExe' hsPkgs.aihc-cpp "cpp-progress";
           hackageTesterExe = pkgs.lib.getExe' hsPkgs.aihc-parser "hackage-tester";
           stackageProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser "stackage-progress";
-          nameResolutionProgressExe =
-            pkgs.lib.getExe' hsPkgs.aihc-name-resolution "name-resolution-progress";
           mkAppWithInputs = name: runtimeInputs: text: {
             type = "app";
             program = "${pkgs.writeShellApplication {
@@ -264,36 +258,6 @@
             ${cppProgressExe} --strict "$@"
           '';
 
-          name-resolution-test = mkApp "name-resolution-test" ''
-            set -euo pipefail
-            test -d components/aihc-name-resolution || {
-              echo "Run this app from the repository root." >&2
-              exit 1
-            }
-            cd components/aihc-name-resolution
-            cabal test --test-show-details=direct
-          '';
-
-          name-resolution-progress = mkApp "name-resolution-progress" ''
-            set -euo pipefail
-            test -d components/aihc-name-resolution || {
-              echo "Run this app from the repository root." >&2
-              exit 1
-            }
-            cd components/aihc-name-resolution
-            ${nameResolutionProgressExe}
-          '';
-
-          name-resolution-progress-strict = mkApp "name-resolution-progress-strict" ''
-            set -euo pipefail
-            test -d components/aihc-name-resolution || {
-              echo "Run this app from the repository root." >&2
-              exit 1
-            }
-            cd components/aihc-name-resolution
-            ${nameResolutionProgressExe} --strict
-          '';
-
           generate-reports = mkReportsApp "generate-reports" ''
             set -euo pipefail
             test -d components/aihc-parser || {
@@ -328,8 +292,6 @@
           hsPkgs = mkHsPkgs pkgs;
           parserTests = pkgs.haskell.lib.doCheck (pkgs.haskell.lib.dontHaddock hsPkgs.aihc-parser);
           cppTests = pkgs.haskell.lib.doCheck (pkgs.haskell.lib.dontHaddock hsPkgs.aihc-cpp);
-          nameResolutionTests =
-            pkgs.haskell.lib.doCheck (pkgs.haskell.lib.dontHaddock hsPkgs.aihc-name-resolution);
           nixLint = pkgs.runCommand "aihc-nix-lint" {
             src = ./.;
             nativeBuildInputs = [ pkgs.statix ];
@@ -411,12 +373,12 @@
             cpp-progress --strict
             touch "$out"
           '';
-          nameResolutionProgressStrict = pkgs.runCommand "aihc-name-resolution-progress-strict" {
+          parserQuickcheckSoakCheck = pkgs.runCommand "aihc-parser-quickcheck-soak-check" {
             src = ./.;
-            nativeBuildInputs = [ hsPkgs.aihc-name-resolution ];
+            nativeBuildInputs = [ pkgs.bash pkgs.git pkgs.jq ];
           } ''
-            cd "$src/components/aihc-name-resolution"
-            name-resolution-progress --strict
+            cd "$src"
+            bash ./scripts/test-parser-quickcheck-soak.sh
             touch "$out"
           '';
           # Stan static analysis
@@ -426,7 +388,6 @@
             # Build packages with HIE files
             aihcParser = hsPkgsHie.aihc-parser;
             aihcCpp = hsPkgsHie.aihc-cpp;
-            aihcNameResolution = hsPkgsHie.aihc-name-resolution;
           } ''
             mkdir -p "$out"
             # Collect all HIE files from built packages
@@ -436,9 +397,6 @@
             fi
             if [ -d "$aihcCpp/.hie" ]; then
               cp -r "$aihcCpp/.hie"/* "$hie_dir/" 2>/dev/null || true
-            fi
-            if [ -d "$aihcNameResolution/.hie" ]; then
-              cp -r "$aihcNameResolution/.hie"/* "$hie_dir/" 2>/dev/null || true
             fi
             # Check if we have any HIE files
             hie_count=$(find "$hie_dir" -name '*.hie' 2>/dev/null | wc -l)
@@ -455,25 +413,15 @@
             stan --hiedir="$hie_dir" 2>&1 | tee "$out/stan-output.txt" || true
             touch "$out/completed"
           '';
-          parserQuickcheckSoakCheck = pkgs.runCommand "aihc-parser-quickcheck-soak-check" {
-            src = ./.;
-            nativeBuildInputs = [ pkgs.bash pkgs.git pkgs.jq ];
-          } ''
-            cd "$src"
-            bash ./scripts/test-parser-quickcheck-soak.sh
-            touch "$out"
-          '';
         in {
           parser-tests = parserTests;
           cpp-tests = cppTests;
-          name-resolution-tests = nameResolutionTests;
           parser-progress-strict = parserProgressStrict;
           lexer-progress-strict = lexerProgressStrict;
           parser-extension-progress-strict = parserExtensionProgressStrict;
           parser-quickcheck-smoke = parserQuickcheckSmoke;
           parser-quickcheck-soak-check = parserQuickcheckSoakCheck;
           cpp-progress-strict = cppProgressStrict;
-          name-resolution-progress-strict = nameResolutionProgressStrict;
           stan-analysis = stanAnalysis;
            nix-lint = nixLint;
            haskell-lint = haskellLint;
@@ -482,14 +430,12 @@
               pkgs.linkFarm "aihc-all-tests" [
                 { name = "parser-tests"; path = parserTests; }
                 { name = "cpp-tests"; path = cppTests; }
-                { name = "name-resolution-tests"; path = nameResolutionTests; }
                 { name = "parser-progress-strict"; path = parserProgressStrict; }
                 { name = "lexer-progress-strict"; path = lexerProgressStrict; }
                 { name = "parser-extension-progress-strict"; path = parserExtensionProgressStrict; }
                 { name = "parser-quickcheck-smoke"; path = parserQuickcheckSmoke; }
                 { name = "parser-quickcheck-soak-check"; path = parserQuickcheckSoakCheck; }
                 { name = "cpp-progress-strict"; path = cppProgressStrict; }
-                { name = "name-resolution-progress-strict"; path = nameResolutionProgressStrict; }
                 { name = "stan-analysis"; path = stanAnalysis; }
                  { name = "nix-lint"; path = nixLint; }
                 { name = "haskell-lint"; path = haskellLint; }

@@ -3,8 +3,8 @@
 ## Summary
 
 - Total Extensions: 138
-- Supported: 21
-- In Progress: 13
+- Supported: 22
+- In Progress: 12
 - Planned: 104
 
 ## Extension Status
@@ -70,7 +70,7 @@
 | InstanceSigs | Supported | 5/5 | InstanceSigs |
 | InterruptibleFFI | Planned | - | InterruptibleFFI |
 | KindSignatures | In Progress | 5/6 | KindSignatures |
-| LambdaCase | In Progress | 3/5 | LambdaCase |
+| LambdaCase | Supported | 5/5 | LambdaCase |
 | LexicalNegation | Planned | - | LexicalNegation |
 | LiberalTypeSynonyms | Planned | - | LiberalTypeSynonyms |
 | LinearTypes | Planned | - | LinearTypes |
