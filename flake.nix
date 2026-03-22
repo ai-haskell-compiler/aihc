@@ -166,6 +166,11 @@
               if [ -d "$comp_path/test" ]; then
                 test_lines=$(tokei "$comp_path/test" --output json | jq '[.[] | .code] | add // 0')
               fi
+              # Apps are testing tools (fuzz, progress reports, etc.), count as test code
+              if [ -d "$comp_path/app" ]; then
+                app_lines=$(tokei "$comp_path/app" --output json | jq '[.[] | .code] | add // 0')
+                test_lines=$((test_lines + app_lines))
+              fi
               code_lines=$((comp_all_lines - test_lines))
               if [ $code_lines -lt 0 ]; then code_lines=0; fi
 
