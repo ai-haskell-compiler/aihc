@@ -57,6 +57,8 @@
           cppProgressExe = pkgs.lib.getExe' hsPkgs.aihc-cpp "cpp-progress";
           hackageTesterExe = pkgs.lib.getExe' hsPkgs.aihc-parser "hackage-tester";
           stackageProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser "stackage-progress";
+          aihcLexerExe = pkgs.lib.getExe' hsPkgs.aihc-parser "aihc-lexer";
+          aihcParserExe = pkgs.lib.getExe' hsPkgs.aihc-parser "aihc-parser";
           mkAppWithInputs = name: runtimeInputs: text: {
             type = "app";
             program = "${pkgs.writeShellApplication {
@@ -274,6 +276,14 @@
               exit 1
             }
             bash ./scripts/update-generated-content.sh --check
+          '';
+
+          aihc-lexer = mkAppWithInputs "aihc-lexer" [ pkgs.bash ] ''
+            exec ${aihcLexerExe} "$@"
+          '';
+
+          aihc-parser = mkAppWithInputs "aihc-parser" [ pkgs.bash ] ''
+            exec ${aihcParserExe} "$@"
           '';
 
           default = mkApp "default" ''
