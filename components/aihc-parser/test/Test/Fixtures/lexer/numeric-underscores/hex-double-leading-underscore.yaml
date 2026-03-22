@@ -1,0 +1,8 @@
+# Double leading underscore after base prefix is valid per GHC NumericUnderscores
+extensions:
+  - NumericUnderscores
+input: "0x__ffff"
+tokens:
+  - 'TkIntegerBase 65535 "0x__ffff"'
+status: xfail
+reason: "lexer does not yet support double underscore after hex base prefix"

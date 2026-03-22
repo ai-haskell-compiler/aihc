@@ -1,0 +1,5 @@
+extensions: []
+input: "1_000_000"
+tokens:
+  - 'TkInteger 1000000'
+status: pass

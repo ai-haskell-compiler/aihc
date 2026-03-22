@@ -1,0 +1,11 @@
+# Testing: 0._0001 (invalid - underscore after decimal point)
+# Per GHC docs, this should be invalid
+# The lexer should not accept underscore directly after the decimal point
+extensions:
+  - NumericUnderscores
+input: "0._0001"
+tokens:
+  - 'TkFloat 0.0 "0."'
+  - 'TkVarId "_0001"'
+status: xfail
+reason: "lexer may not correctly reject underscore immediately after decimal point"

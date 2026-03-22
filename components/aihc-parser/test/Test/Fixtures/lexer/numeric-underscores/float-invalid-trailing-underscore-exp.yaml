@@ -1,0 +1,9 @@
+# Testing: 1e+23_ (invalid - trailing underscore in exponent)
+# Per GHC docs, this should be invalid
+extensions:
+  - NumericUnderscores
+input: "1e+23_"
+tokens:
+  - 'TkFloat 1.0e23 "1e+23"'
+  - TkKeywordUnderscore
+status: pass
