@@ -76,6 +76,89 @@
               --read-interface=aihc-parser,"$out/aihc-parser/aihc-parser.haddock" \
               --read-interface=aihc-cpp,"$out/aihc-cpp/aihc-cpp.haddock"
           '';
+        # Haskell packages with HPC coverage enabled and coverage data exported
+        mkHsPkgsWithCoverage = pkgs:
+          let
+            # Enable coverage and export HPC artifacts
+            enableCoverageWithExport = drv: pkgs.haskell.lib.overrideCabal drv (old: {
+              configureFlags = (old.configureFlags or []) ++ ["--enable-coverage"];
+              postInstall = (old.postInstall or "") + ''
+                # Export HPC coverage data
+                if [ -d dist/hpc ]; then
+                  mkdir -p "$out/hpc"
+                  cp -r dist/hpc/* "$out/hpc/"
+                fi
+              '';
+            });
+            # Set up CLI executable environment for tests (same as mkHsPkgsWithTests) + export HPC
+            enableCoverageWithTests = drv: pkgs.haskell.lib.overrideCabal drv (old: {
+              configureFlags = (old.configureFlags or []) ++ ["--enable-coverage"];
+              preCheck = (old.preCheck or "") + ''
+                export AIHC_LEXER_EXE="$PWD/dist/build/aihc-lexer/aihc-lexer"
+                export AIHC_PARSER_EXE="$PWD/dist/build/aihc-parser/aihc-parser"
+              '';
+              postInstall = (old.postInstall or "") + ''
+                # Export HPC coverage data
+                if [ -d dist/hpc ]; then
+                  mkdir -p "$out/hpc"
+                  cp -r dist/hpc/* "$out/hpc/"
+                fi
+              '';
+            });
+          in pkgs.haskellPackages.override {
+            overrides = final: prev: {
+              ghc-lib-parser = pkgs.haskell.lib.dontHaddock final.ghc-lib-parser_9_14_1_20251220;
+              # Parser needs test setup for CLI executables
+              aihc-parser = enableCoverageWithTests (final.callCabal2nix "aihc-parser" ./components/aihc-parser { });
+              # CPP doesn't need the CLI setup
+              aihc-cpp = enableCoverageWithExport (final.callCabal2nix "aihc-cpp" ./components/aihc-cpp { });
+            };
+          };
+        # Combined coverage report derivation
+        mkCoverageReport = pkgs:
+          let
+            hsPkgsCoverage = mkHsPkgsWithCoverage pkgs;
+            parserWithCoverage = pkgs.haskell.lib.doCheck hsPkgsCoverage.aihc-parser;
+            cppWithCoverage = pkgs.haskell.lib.doCheck hsPkgsCoverage.aihc-cpp;
+          in pkgs.runCommand "aihc-coverage" {
+            nativeBuildInputs = [ pkgs.haskellPackages.ghc ];
+            inherit parserWithCoverage cppWithCoverage;
+          } ''
+            mkdir -p "$out"
+
+            echo "=== Collecting HPC Coverage Data ==="
+
+            # Copy parser coverage data
+            if [ -d "$parserWithCoverage/hpc" ]; then
+              echo "Found parser coverage data"
+              cp -r "$parserWithCoverage/hpc" "$out/aihc-parser-hpc"
+              # Copy HTML report if it exists
+              if [ -d "$parserWithCoverage/hpc/vanilla/html" ]; then
+                cp -r "$parserWithCoverage/hpc/vanilla/html" "$out/aihc-parser-html"
+              fi
+            else
+              echo "No parser coverage data found at $parserWithCoverage/hpc"
+              ls -la "$parserWithCoverage/" || true
+            fi
+
+            # Copy cpp coverage data
+            if [ -d "$cppWithCoverage/hpc" ]; then
+              echo "Found cpp coverage data"
+              cp -r "$cppWithCoverage/hpc" "$out/aihc-cpp-hpc"
+              if [ -d "$cppWithCoverage/hpc/vanilla/html" ]; then
+                cp -r "$cppWithCoverage/hpc/vanilla/html" "$out/aihc-cpp-html"
+              fi
+            else
+              echo "No cpp coverage data found at $cppWithCoverage/hpc"
+              ls -la "$cppWithCoverage/" || true
+            fi
+
+            # Create a summary
+            echo "Coverage report generated at: $out" > "$out/README.txt"
+            echo "" >> "$out/README.txt"
+            echo "Contents:" >> "$out/README.txt"
+            ls -la "$out" >> "$out/README.txt"
+          '';
         # Haskell packages with HIE file generation enabled for stan analysis
         mkHsPkgsWithHie = pkgs:
           let
@@ -103,6 +186,7 @@
      in {
       packages = forAllSystems (pkgs: {
         docs = mkCombinedDocs pkgs;
+        coverage = mkCoverageReport pkgs;
         default = mkCombinedDocs pkgs;
       });
 
@@ -356,6 +440,95 @@
             exec ${aihcParserExe} "$@"
           '';
 
+          # Coverage app: builds and displays the coverage report
+          coverage =
+            let
+              coverageReport = mkCoverageReport pkgs;
+            in mkAppWithInputs "coverage" [
+              pkgs.bash
+            ] ''
+              set -euo pipefail
+
+              echo "=== HPC Coverage Report ==="
+              echo ""
+              echo "Coverage report location: ${coverageReport}"
+              echo ""
+
+              # Show contents
+              echo "Report contents:"
+              ls -la "${coverageReport}/"
+              echo ""
+
+              # Show README
+              if [ -f "${coverageReport}/README.txt" ]; then
+                cat "${coverageReport}/README.txt"
+              fi
+
+              echo ""
+              echo "To view HTML reports, open:"
+              if [ -d "${coverageReport}/aihc-parser-html" ]; then
+                echo "  ${coverageReport}/aihc-parser-html/hpc_index.html"
+              fi
+              if [ -d "${coverageReport}/aihc-cpp-html" ]; then
+                echo "  ${coverageReport}/aihc-cpp-html/hpc_index.html"
+              fi
+            '';
+
+          # Upload coverage to coveralls.io using hpc-coveralls
+          upload-coverage = mkAppWithInputs "upload-coverage" [
+            pkgs.bash
+            pkgs.git
+            pkgs.curl
+          ] ''
+            set -euo pipefail
+
+            test -d components/aihc-parser || {
+              echo "Run this app from the repository root." >&2
+              exit 1
+            }
+
+            # Check for repo token
+            if [ -z "''${COVERALLS_REPO_TOKEN:-}" ]; then
+              echo "Error: COVERALLS_REPO_TOKEN environment variable is not set" >&2
+              exit 1
+            fi
+
+            echo "=== Uploading coverage to Coveralls.io ==="
+            echo "Note: This app requires hpc-coveralls to be installed separately."
+            echo "In CI, use: nix develop .#coverage --command hpc-coveralls ..."
+
+            # hpc-coveralls expects to find .tix files in dist/hpc/tix/<test-suite-name>/
+            # and .mix files in dist/hpc/mix/<package-name>/
+            # We need to run this from within the cabal project
+
+            # Upload parser coverage
+            if [ -d "components/aihc-parser" ]; then
+              echo "Uploading aihc-parser coverage..."
+              cd components/aihc-parser
+              hpc-coveralls spec \
+                --repo-token="$COVERALLS_REPO_TOKEN" \
+                --exclude-dir=test \
+                --exclude-dir=app \
+                --exclude-dir=common \
+                "$@" || echo "Warning: parser coverage upload failed"
+              cd ../..
+            fi
+
+            # Upload cpp coverage
+            if [ -d "components/aihc-cpp" ]; then
+              echo "Uploading aihc-cpp coverage..."
+              cd components/aihc-cpp
+              hpc-coveralls spec \
+                --repo-token="$COVERALLS_REPO_TOKEN" \
+                --exclude-dir=test \
+                --exclude-dir=app \
+                "$@" || echo "Warning: cpp coverage upload failed"
+              cd ../..
+            fi
+
+            echo "=== Coverage upload complete ==="
+          '';
+
           default = mkApp "default" ''
             set -euo pipefail
             test -d components/aihc-parser || {
@@ -559,6 +732,50 @@
                 { name = "haskell-lint"; path = haskellLint; }
                 { name = "haskell-format"; path = haskellFormat; }
              ];
+        });
+
+      # Development shells
+      devShells = forAllSystems (pkgs:
+        let
+          hsPkgs = mkHsPkgs pkgs;
+          # Allow broken packages for hpc-coveralls
+          hpcCoveralls = pkgs.haskell.lib.unmarkBroken pkgs.haskellPackages.hpc-coveralls;
+        in {
+          default = pkgs.mkShell {
+            buildInputs = [
+              # GHC with all project dependencies
+              (hsPkgs.ghcWithPackages (p: [
+                p.aihc-parser
+                p.aihc-cpp
+              ]))
+              pkgs.cabal-install
+            ];
+            shellHook = ''
+              echo "aihc development shell"
+              echo "  - GHC with project dependencies"
+              echo "  - cabal-install"
+            '';
+          };
+
+          # Shell specifically for coverage builds
+          coverage = pkgs.mkShell {
+            buildInputs = [
+              # GHC with all project dependencies for building with coverage
+              (hsPkgs.ghcWithPackages (p: [
+                p.aihc-parser
+                p.aihc-cpp
+              ]))
+              pkgs.cabal-install
+              # Coverage tools - unmark broken to allow hpc-coveralls
+              hpcCoveralls
+            ];
+            shellHook = ''
+              echo "aihc coverage shell"
+              echo "  - GHC with project dependencies"
+              echo "  - cabal-install"
+              echo "  - hpc-coveralls"
+            '';
+          };
         });
     };
 }
