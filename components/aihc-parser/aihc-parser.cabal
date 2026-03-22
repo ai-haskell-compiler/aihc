@@ -60,11 +60,13 @@ test-suite spec
     , Test.Extensions.Suite
     , Test.HackageTester.Suite
     , Test.Lexer.Suite
-     , Test.Properties.ExprModuleRoundTrip
-     , Test.Properties.Identifiers
-     , Test.Properties.NoExceptions
-     , Test.Properties.PatternRoundTrip
-     , Test.Properties.TypeRoundTrip
+    , Test.Properties.ExprHelpers
+    , Test.Properties.ExprRoundTrip
+    , Test.Properties.ModuleRoundTrip
+    , Test.Properties.Identifiers
+    , Test.Properties.NoExceptions
+    , Test.Properties.PatternRoundTrip
+    , Test.Properties.TypeRoundTrip
     , Test.Parser.Suite
     , Test.StackageProgress.Summary
   build-depends:
@@ -128,11 +130,13 @@ executable parser-quickcheck-batch
     , ParserQuickCheck.Registry
     , ParserQuickCheck.Runner
     , ParserQuickCheck.Types
-     , Test.Properties.ExprModuleRoundTrip
-     , Test.Properties.Identifiers
-     , Test.Properties.NoExceptions
-     , Test.Properties.PatternRoundTrip
-     , Test.Properties.TypeRoundTrip
+    , Test.Properties.ExprHelpers
+    , Test.Properties.ExprRoundTrip
+    , Test.Properties.ModuleRoundTrip
+    , Test.Properties.Identifiers
+    , Test.Properties.NoExceptions
+    , Test.Properties.PatternRoundTrip
+    , Test.Properties.TypeRoundTrip
   build-depends:
       base >=4.16 && <5
     , aihc-parser
