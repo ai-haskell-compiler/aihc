@@ -73,10 +73,10 @@ prettyExportSpec spec =
   case spec of
     ExportModule _ modName -> "module" <+> pretty modName
     ExportVar _ namespace name -> prettyNamespacePrefix namespace <> prettyBinderName name
-    ExportAbs _ namespace name -> prettyNamespacePrefix namespace <> pretty name
-    ExportAll _ namespace name -> prettyNamespacePrefix namespace <> pretty name <> "(..)"
+    ExportAbs _ namespace name -> prettyNamespacePrefix namespace <> prettyConstructorName name
+    ExportAll _ namespace name -> prettyNamespacePrefix namespace <> prettyConstructorName name <> "(..)"
     ExportWith _ namespace name members ->
-      prettyNamespacePrefix namespace <> pretty name <> parens (hsep (punctuate comma (map prettyBinderName members)))
+      prettyNamespacePrefix namespace <> prettyConstructorName name <> parens (hsep (punctuate comma (map prettyBinderName members)))
 
 prettyImportDecl :: ImportDecl -> Doc ann
 prettyImportDecl decl =
@@ -114,10 +114,10 @@ prettyImportItem :: ImportItem -> Doc ann
 prettyImportItem item =
   case item of
     ImportItemVar _ namespace name -> prettyNamespacePrefix namespace <> prettyBinderName name
-    ImportItemAbs _ namespace name -> prettyNamespacePrefix namespace <> pretty name
-    ImportItemAll _ namespace name -> prettyNamespacePrefix namespace <> pretty name <> "(..)"
+    ImportItemAbs _ namespace name -> prettyNamespacePrefix namespace <> prettyConstructorName name
+    ImportItemAll _ namespace name -> prettyNamespacePrefix namespace <> prettyConstructorName name <> "(..)"
     ImportItemWith _ namespace name members ->
-      prettyNamespacePrefix namespace <> pretty name <> parens (hsep (punctuate comma (map prettyBinderName members)))
+      prettyNamespacePrefix namespace <> prettyConstructorName name <> parens (hsep (punctuate comma (map prettyBinderName members)))
 
 prettyNamespacePrefix :: Maybe Text -> Doc ann
 prettyNamespacePrefix namespace =
