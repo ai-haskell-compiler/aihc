@@ -113,8 +113,8 @@ importDeclParser = withSpan $ do
 
 importLevelParser :: TokParser ImportLevel
 importLevelParser =
-  (identifierExact "quote" >> pure ImportLevelQuote)
-    <|> (identifierExact "splice" >> pure ImportLevelSplice)
+  (varIdTok "quote" >> pure ImportLevelQuote)
+    <|> (varIdTok "splice" >> pure ImportLevelSplice)
 
 packageNameParser :: TokParser Text
 packageNameParser = stringTextParser
@@ -153,7 +153,7 @@ importOperatorParser = operatorTextParser
 
 exportImportNamespaceParser :: TokParser Text
 exportImportNamespaceParser =
-  identifierExact "type" >> pure "type"
+  keywordTok TkKeywordType >> pure "type"
 
 declParser :: TokParser Decl
 declParser = do
@@ -181,7 +181,7 @@ declParser = do
 
 standaloneKindSigDeclParser :: TokParser Decl
 standaloneKindSigDeclParser = withSpan $ do
-  identifierExact "type"
+  keywordTok TkKeywordType
   typeName <- constructorIdentifierParser
   expectedTok TkReservedDoubleColon
   kind <- typeParser
@@ -189,7 +189,7 @@ standaloneKindSigDeclParser = withSpan $ do
 
 typeSynDeclParser :: TokParser Decl
 typeSynDeclParser = withSpan $ do
-  identifierExact "type"
+  keywordTok TkKeywordType
   typeName <- constructorIdentifierParser
   typeParams <- MP.many typeParamParser
   expectedTok TkReservedEquals
@@ -213,7 +213,7 @@ typeSigDeclParser = withSpan $ do
 
 defaultDeclParser :: TokParser Decl
 defaultDeclParser = withSpan $ do
-  identifierExact "default"
+  keywordTok TkKeywordDefault
   tys <- parens (typeParser `MP.sepEndBy1` expectedTok TkSpecialComma)
   pure (`DeclDefault` tys)
 
@@ -233,9 +233,9 @@ fixityDeclPartsParser = do
 
 fixityAssocParser :: TokParser FixityAssoc
 fixityAssocParser =
-  (identifierExact "infix" >> pure Infix)
-    <|> (identifierExact "infixl" >> pure InfixL)
-    <|> (identifierExact "infixr" >> pure InfixR)
+  (keywordTok TkKeywordInfix >> pure Infix)
+    <|> (keywordTok TkKeywordInfixl >> pure InfixL)
+    <|> (keywordTok TkKeywordInfixr >> pure InfixR)
 
 fixityPrecedenceParser :: TokParser Int
 fixityPrecedenceParser =
@@ -265,7 +265,7 @@ fixityOperatorParser =
 
 classDeclParser :: TokParser Decl
 classDeclParser = withSpan $ do
-  identifierExact "class"
+  keywordTok TkKeywordClass
   context <- MP.optional (MP.try (declContextParser <* expectedTok TkReservedDoubleArrow))
   className <- constructorIdentifierParser
   classParams <- MP.some typeParamParser
@@ -312,7 +312,7 @@ classFixityItemParser = withSpan $ do
 
 instanceDeclParser :: TokParser Decl
 instanceDeclParser = withSpan $ do
-  identifierExact "instance"
+  keywordTok TkKeywordInstance
   context <- MP.optional (MP.try (declContextParser <* expectedTok TkReservedDoubleArrow))
   className <- constructorIdentifierParser
   instanceTypes <- MP.some typeAtomParser
@@ -362,7 +362,7 @@ instanceValueItemParser = withSpan $ do
 
 foreignDeclParser :: TokParser Decl
 foreignDeclParser = withSpan $ do
-  identifierExact "foreign"
+  keywordTok TkKeywordForeign
   direction <- foreignDirectionParser
   callConv <- callConvParser
   safety <-
@@ -389,17 +389,17 @@ foreignDeclParser = withSpan $ do
 foreignDirectionParser :: TokParser ForeignDirection
 foreignDirectionParser =
   (keywordTok TkKeywordImport >> pure ForeignImport)
-    <|> (identifierExact "export" >> pure ForeignExport)
+    <|> (varIdTok "export" >> pure ForeignExport)
 
 callConvParser :: TokParser CallConv
 callConvParser =
-  (identifierExact "ccall" >> pure CCall)
-    <|> (identifierExact "stdcall" >> pure StdCall)
+  (varIdTok "ccall" >> pure CCall)
+    <|> (varIdTok "stdcall" >> pure StdCall)
 
 foreignSafetyParser :: TokParser ForeignSafety
 foreignSafetyParser =
-  (identifierExact "safe" >> pure Safe)
-    <|> (identifierExact "unsafe" >> pure Unsafe)
+  (varIdTok "safe" >> pure Safe)
+    <|> (varIdTok "unsafe" >> pure Unsafe)
 
 foreignEntityParser :: TokParser ForeignEntitySpec
 foreignEntityParser = foreignEntityFromString <$> stringTextParser
@@ -441,7 +441,7 @@ dataConDeclParser = withSpan $ do
 
 newtypeDeclParser :: TokParser Decl
 newtypeDeclParser = withSpan $ do
-  identifierExact "newtype"
+  keywordTok TkKeywordNewtype
   context <- MP.optional (MP.try (declContextParser <* expectedTok TkReservedDoubleArrow))
   typeName <- constructorIdentifierParser
   typeParams <- MP.many typeParamParser
@@ -498,7 +498,7 @@ isTypeVarName name =
 
 derivingClauseParser :: TokParser DerivingClause
 derivingClauseParser = do
-  identifierExact "deriving"
+  keywordTok TkKeywordDeriving
   strategy <- MP.optional derivingStrategyParser
   classes <- parenClasses <|> singleClass
   pure (DerivingClause strategy classes)
@@ -508,9 +508,9 @@ derivingClauseParser = do
 
 derivingStrategyParser :: TokParser DerivingStrategy
 derivingStrategyParser =
-  (identifierExact "stock" >> pure DerivingStock)
-    <|> (identifierExact "newtype" >> pure DerivingNewtype)
-    <|> (identifierExact "anyclass" >> pure DerivingAnyclass)
+  (varIdTok "stock" >> pure DerivingStock)
+    <|> (keywordTok TkKeywordNewtype >> pure DerivingNewtype)
+    <|> (varIdTok "anyclass" >> pure DerivingAnyclass)
 
 dataConQualifiersParser :: TokParser ([Text], [Constraint])
 dataConQualifiersParser = do
@@ -520,7 +520,7 @@ dataConQualifiersParser = do
 
 forallBindersParser :: TokParser [Text]
 forallBindersParser = do
-  identifierExact "forall"
+  varIdTok "forall"
   binders <- MP.some typeParamParser
   expectedTok (TkVarSym ".")
   pure (map tyVarBinderName binders)

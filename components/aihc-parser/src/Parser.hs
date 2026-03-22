@@ -33,7 +33,7 @@ where
 import qualified Data.List as List
 import Data.Text (Text)
 import Parser.Ast (Decl, ExportSpec, Expr, Extension (..), ExtensionSetting (..), ImportDecl, Module (..), Pattern, Type, WarningText)
-import Parser.Internal.Common (TokParser, skipSemicolons, symbolLikeTok, withSpan)
+import Parser.Internal.Common (TokParser, expectedTok, skipSemicolons, withSpan)
 import Parser.Internal.Decl (declParser, importDeclParser, languagePragmaParser, moduleHeaderParser)
 import Parser.Internal.Expr (exprParser, patternParser, typeParser)
 import Parser.Lexer
@@ -55,8 +55,8 @@ import qualified Text.Megaparsec as MP
 
 moduleParser :: TokParser Module
 moduleParser = withSpan $ do
-  languagePragmas <- MP.many (languagePragmaParser <* MP.many (symbolLikeTok ";"))
-  mHeader <- MP.optional (moduleHeaderParser <* MP.many (symbolLikeTok ";"))
+  languagePragmas <- MP.many (languagePragmaParser <* MP.many (expectedTok TkSpecialSemicolon))
+  mHeader <- MP.optional (moduleHeaderParser <* MP.many (expectedTok TkSpecialSemicolon))
   (imports, decls) <- moduleBodyParser
   let (mName, mWarning, mExports) =
         case mHeader of
@@ -82,12 +82,12 @@ moduleBodyParser = MP.try bracedModuleBodyParser MP.<|> plainModuleBodyParser
       pure (imports, decls)
 
     bracedModuleBodyParser = do
-      symbolLikeTok "{"
+      expectedTok TkSpecialLBrace
       skipSemicolons
       imports <- MP.many (importDeclParser <* skipSemicolons)
       decls <- MP.many (declParser <* skipSemicolons)
       skipSemicolons
-      symbolLikeTok "}"
+      expectedTok TkSpecialRBrace
       pure (imports, decls)
 
 defaultConfig :: ParserConfig

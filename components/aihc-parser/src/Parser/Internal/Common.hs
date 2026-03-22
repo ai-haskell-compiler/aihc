@@ -4,15 +4,13 @@ module Parser.Internal.Common
   ( TokParser,
     keywordTok,
     expectedTok,
-    symbolLikeTok,
-    operatorLikeTok,
+    varIdTok,
     tokenSatisfy,
     moduleNameParser,
     identifierTextParser,
     lowerIdentifierParser,
     constructorIdentifierParser,
     binderNameParser,
-    identifierExact,
     operatorTextParser,
     stringTextParser,
     withSpan,
@@ -55,6 +53,14 @@ expectedTok expected =
   tokenSatisfy (renderTokenKind expected) $ \tok ->
     if lexTokenKind tok == expected then Just () else Nothing
 
+-- | Match a specific variable identifier (contextual keyword).
+varIdTok :: Text -> TokParser ()
+varIdTok expected =
+  tokenSatisfy ("identifier '" <> T.unpack expected <> "'") $ \tok ->
+    case lexTokenKind tok of
+      TkVarId ident | ident == expected -> Just ()
+      _ -> Nothing
+
 renderTokenKind :: LexTokenKind -> String
 renderTokenKind tk = case tk of
   TkSpecialLParen -> "symbol '('"
@@ -80,42 +86,6 @@ renderTokenKind tk = case tk of
   TkVarSym op -> "operator '" <> show op <> "'"
   TkConSym op -> "operator '" <> show op <> "'"
   _ -> show tk
-
-symbolLikeTok :: Text -> TokParser ()
-symbolLikeTok expected =
-  tokenSatisfy ("symbol " <> show (T.unpack expected)) $ \tok ->
-    case (expected, lexTokenKind tok) of
-      ("(", TkSpecialLParen) -> Just ()
-      (")", TkSpecialRParen) -> Just ()
-      (",", TkSpecialComma) -> Just ()
-      (";", TkSpecialSemicolon) -> Just ()
-      ("[", TkSpecialLBracket) -> Just ()
-      ("]", TkSpecialRBracket) -> Just ()
-      ("`", TkSpecialBacktick) -> Just ()
-      ("{", TkSpecialLBrace) -> Just ()
-      ("}", TkSpecialRBrace) -> Just ()
-      _ -> Nothing
-
-operatorLikeTok :: Text -> TokParser ()
-operatorLikeTok expected =
-  tokenSatisfy ("operator " <> show (T.unpack expected)) $ \tok ->
-    case lexTokenKind tok of
-      TkVarSym op | op == expected -> Just ()
-      TkConSym op | op == expected -> Just ()
-      TkQVarSym op | op == expected -> Just ()
-      TkQConSym op | op == expected -> Just ()
-      TkReservedDotDot | expected == ".." -> Just ()
-      TkReservedColon | expected == ":" -> Just ()
-      TkReservedDoubleColon | expected == "::" -> Just ()
-      TkReservedEquals | expected == "=" -> Just ()
-      TkReservedBackslash | expected == "\\" -> Just ()
-      TkReservedPipe | expected == "|" -> Just ()
-      TkReservedLeftArrow | expected == "<-" -> Just ()
-      TkReservedRightArrow | expected == "->" -> Just ()
-      TkReservedAt | expected == "@" -> Just ()
-      TkReservedTilde | expected == "~" -> Just ()
-      TkReservedDoubleArrow | expected == "=>" -> Just ()
-      _ -> Nothing
 
 tokenSatisfy :: String -> (LexToken -> Maybe a) -> TokParser a
 tokenSatisfy label f =
@@ -163,26 +133,6 @@ binderNameParser :: TokParser Text
 binderNameParser =
   identifierTextParser
     <|> parens operatorTextParser
-
-identifierExact :: Text -> TokParser ()
-identifierExact expected =
-  tokenSatisfy ("identifier " <> show (T.unpack expected)) $ \tok ->
-    case lexTokenKind tok of
-      TkVarId ident | ident == expected -> Just ()
-      TkConId ident | ident == expected -> Just ()
-      -- Also match reserved keywords that are used as contextual identifiers
-      TkKeywordClass | expected == "class" -> Just ()
-      TkKeywordDefault | expected == "default" -> Just ()
-      TkKeywordDeriving | expected == "deriving" -> Just ()
-      TkKeywordForeign | expected == "foreign" -> Just ()
-      TkKeywordInfix | expected == "infix" -> Just ()
-      TkKeywordInfixl | expected == "infixl" -> Just ()
-      TkKeywordInfixr | expected == "infixr" -> Just ()
-      TkKeywordInstance | expected == "instance" -> Just ()
-      TkKeywordNewtype | expected == "newtype" -> Just ()
-      TkKeywordType | expected == "type" -> Just ()
-      TkKeywordUnderscore | expected == "_" -> Just ()
-      _ -> Nothing
 
 operatorTextParser :: TokParser Text
 operatorTextParser =

@@ -322,7 +322,7 @@ negativeLiteralPatternParser = withSpan $ do
 
 wildcardPatternParser :: TokParser Pattern
 wildcardPatternParser = withSpan $ do
-  identifierExact "_"
+  keywordTok TkKeywordUnderscore
   pure PWildcard
 
 literalPatternParser :: TokParser Pattern
@@ -382,39 +382,48 @@ stringLiteralParser = withSpan $ do
   pure (\span' -> LitString span' s repr)
 
 rhsParser :: TokParser Rhs
-rhsParser = rhsParserWithArrow "->"
+rhsParser = rhsParserWithArrow RhsArrowCase
 
 equationRhsParser :: TokParser Rhs
-equationRhsParser = rhsParserWithArrow "="
+equationRhsParser = rhsParserWithArrow RhsArrowEquation
 
-rhsParserWithArrow :: Text -> TokParser Rhs
-rhsParserWithArrow arrow = do
+-- | The kind of arrow used in RHS parsing
+data RhsArrowKind = RhsArrowCase | RhsArrowEquation
+
+rhsArrowText :: RhsArrowKind -> Text
+rhsArrowText RhsArrowCase = "->"
+rhsArrowText RhsArrowEquation = "="
+
+rhsArrowTok :: RhsArrowKind -> TokParser ()
+rhsArrowTok RhsArrowCase = expectedTok TkReservedRightArrow
+rhsArrowTok RhsArrowEquation = expectedTok TkReservedEquals
+
+rhsParserWithArrow :: RhsArrowKind -> TokParser Rhs
+rhsParserWithArrow arrowKind = do
   tok <- lookAhead anySingle
   case lexTokenKind tok of
-    TkReservedPipe -> guardedRhssParser arrow
-    TkReservedRightArrow | arrow == "->" -> unguardedRhsParser arrow
-    TkReservedEquals | arrow == "=" -> unguardedRhsParser arrow
-    TkVarSym op | op == arrow -> unguardedRhsParser arrow
-    TkConSym op | op == arrow -> unguardedRhsParser arrow
-    _ -> fail ("expected " <> T.unpack arrow <> " or guarded right-hand side")
+    TkReservedPipe -> guardedRhssParser arrowKind
+    TkReservedRightArrow | RhsArrowCase <- arrowKind -> unguardedRhsParser arrowKind
+    TkReservedEquals | RhsArrowEquation <- arrowKind -> unguardedRhsParser arrowKind
+    _ -> fail ("expected " <> T.unpack (rhsArrowText arrowKind) <> " or guarded right-hand side")
 
-unguardedRhsParser :: Text -> TokParser Rhs
-unguardedRhsParser arrow = withSpan $ do
-  operatorLikeTok arrow
+unguardedRhsParser :: RhsArrowKind -> TokParser Rhs
+unguardedRhsParser arrowKind = withSpan $ do
+  rhsArrowTok arrowKind
   body <- exprParser
   pure (`UnguardedRhs` body)
 
-guardedRhssParser :: Text -> TokParser Rhs
-guardedRhssParser arrow = withSpan $ do
-  grhss <- MP.some (guardedRhsParser arrow)
+guardedRhssParser :: RhsArrowKind -> TokParser Rhs
+guardedRhssParser arrowKind = withSpan $ do
+  grhss <- MP.some (guardedRhsParser arrowKind)
   pure (`GuardedRhss` grhss)
 
-guardedRhsParser :: Text -> TokParser GuardedRhs
-guardedRhsParser arrow = withSpan $ do
+guardedRhsParser :: RhsArrowKind -> TokParser GuardedRhs
+guardedRhsParser arrowKind = withSpan $ do
   expectedTok TkReservedPipe
-  guards <- guardQualifierParser arrow `MP.sepBy1` expectedTok TkSpecialComma
-  operatorLikeTok arrow
-  body <- exprParserExcept ["|", arrow]
+  guards <- guardQualifierParser `MP.sepBy1` expectedTok TkSpecialComma
+  rhsArrowTok arrowKind
+  body <- exprParserExcept ["|", rhsArrowText arrowKind]
   pure $ \span' ->
     GuardedRhs
       { guardedRhsSpan = span',
@@ -422,8 +431,8 @@ guardedRhsParser arrow = withSpan $ do
         guardedRhsBody = body
       }
 
-guardQualifierParser :: Text -> TokParser GuardQualifier
-guardQualifierParser _arrow = MP.try guardPatParser <|> MP.try guardLetParser <|> guardExprParser
+guardQualifierParser :: TokParser GuardQualifier
+guardQualifierParser = MP.try guardPatParser <|> MP.try guardLetParser <|> guardExprParser
   where
     guardPatParser = withSpan $ do
       pat <- patternParser
@@ -787,7 +796,7 @@ typeParser = MP.try forallTypeParser <|> MP.try contextTypeParser <|> typeFunPar
 
 forallTypeParser :: TokParser Type
 forallTypeParser = withSpan $ do
-  identifierExact "forall"
+  varIdTok "forall"
   binders <- MP.some identifierTextParser
   expectedTok (TkVarSym ".")
   inner <- MP.try contextTypeParser <|> typeFunParser
