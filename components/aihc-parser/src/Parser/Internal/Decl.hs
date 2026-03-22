@@ -46,7 +46,7 @@ warningTextParser =
         _ -> Nothing
 
 exportSpecListParser :: TokParser [ExportSpec]
-exportSpecListParser = parens $ exportSpecParser `MP.sepEndBy` symbolLikeTok ","
+exportSpecListParser = parens $ exportSpecParser `MP.sepEndBy` expectedTok TkSpecialComma
 
 exportSpecParser :: TokParser ExportSpec
 exportSpecParser =
@@ -75,8 +75,8 @@ exportNameParser = do
 exportMembersParser :: TokParser (Maybe [Text])
 exportMembersParser =
   parens $
-    (operatorLikeTok ".." >> pure Nothing)
-      <|> (Just <$> (identifierTextParser `MP.sepEndBy` symbolLikeTok ","))
+    (expectedTok TkReservedDotDot >> pure Nothing)
+      <|> (Just <$> (identifierTextParser `MP.sepEndBy` expectedTok TkSpecialComma))
 
 isTypeName :: Text -> Bool
 isTypeName txt =
@@ -123,7 +123,7 @@ importSpecParser :: TokParser ImportSpec
 importSpecParser = withSpan $ do
   isHiding <-
     MP.option False (keywordTok TkKeywordHiding >> pure True)
-  items <- parens $ importItemParser `MP.sepEndBy` symbolLikeTok ","
+  items <- parens $ importItemParser `MP.sepEndBy` expectedTok TkSpecialComma
   pure $ \span' ->
     ImportSpec
       { importSpecSpan = span',
@@ -183,7 +183,7 @@ standaloneKindSigDeclParser :: TokParser Decl
 standaloneKindSigDeclParser = withSpan $ do
   identifierExact "type"
   typeName <- constructorIdentifierParser
-  operatorLikeTok "::"
+  expectedTok TkReservedDoubleColon
   kind <- typeParser
   pure (\span' -> DeclStandaloneKindSig span' typeName kind)
 
@@ -192,7 +192,7 @@ typeSynDeclParser = withSpan $ do
   identifierExact "type"
   typeName <- constructorIdentifierParser
   typeParams <- MP.many typeParamParser
-  operatorLikeTok "="
+  expectedTok TkReservedEquals
   body <- typeParser
   pure $ \span' ->
     DeclTypeSyn
@@ -206,15 +206,15 @@ typeSynDeclParser = withSpan $ do
 
 typeSigDeclParser :: TokParser Decl
 typeSigDeclParser = withSpan $ do
-  names <- binderNameParser `MP.sepBy1` symbolLikeTok ","
-  operatorLikeTok "::"
+  names <- binderNameParser `MP.sepBy1` expectedTok TkSpecialComma
+  expectedTok TkReservedDoubleColon
   ty <- typeParser
   pure (\span' -> DeclTypeSig span' names ty)
 
 defaultDeclParser :: TokParser Decl
 defaultDeclParser = withSpan $ do
   identifierExact "default"
-  tys <- parens (typeParser `MP.sepEndBy1` symbolLikeTok ",")
+  tys <- parens (typeParser `MP.sepEndBy1` expectedTok TkSpecialComma)
   pure (`DeclDefault` tys)
 
 fixityDeclParser :: FixityAssoc -> TokParser Decl
@@ -228,7 +228,7 @@ fixityDeclPartsParser :: TokParser (FixityAssoc, Maybe Int, [Text])
 fixityDeclPartsParser = do
   assoc <- fixityAssocParser
   prec <- MP.optional fixityPrecedenceParser
-  ops <- fixityOperatorParser `MP.sepBy1` symbolLikeTok ","
+  ops <- fixityOperatorParser `MP.sepBy1` expectedTok TkSpecialComma
   pure (assoc, prec, ops)
 
 fixityAssocParser :: TokParser FixityAssoc
@@ -258,15 +258,15 @@ fixityOperatorParser =
           TkQConSym op -> Just op
           _ -> Nothing
     backtickIdentifierParser = do
-      symbolLikeTok "`"
+      expectedTok TkSpecialBacktick
       op <- identifierTextParser
-      symbolLikeTok "`"
+      expectedTok TkSpecialBacktick
       pure op
 
 classDeclParser :: TokParser Decl
 classDeclParser = withSpan $ do
   identifierExact "class"
-  context <- MP.optional (MP.try (declContextParser <* operatorLikeTok "=>"))
+  context <- MP.optional (MP.try (declContextParser <* expectedTok TkReservedDoubleArrow))
   className <- constructorIdentifierParser
   classParams <- MP.some typeParamParser
   items <- MP.option [] classWhereClauseParser
@@ -300,8 +300,8 @@ classDeclItemParser = MP.try classFixityItemParser <|> classTypeSigItemParser
 
 classTypeSigItemParser :: TokParser ClassDeclItem
 classTypeSigItemParser = withSpan $ do
-  names <- binderNameParser `MP.sepBy1` symbolLikeTok ","
-  operatorLikeTok "::"
+  names <- binderNameParser `MP.sepBy1` expectedTok TkSpecialComma
+  expectedTok TkReservedDoubleColon
   ty <- typeParser
   pure (\span' -> ClassItemTypeSig span' names ty)
 
@@ -313,7 +313,7 @@ classFixityItemParser = withSpan $ do
 instanceDeclParser :: TokParser Decl
 instanceDeclParser = withSpan $ do
   identifierExact "instance"
-  context <- MP.optional (MP.try (declContextParser <* operatorLikeTok "=>"))
+  context <- MP.optional (MP.try (declContextParser <* expectedTok TkReservedDoubleArrow))
   className <- constructorIdentifierParser
   instanceTypes <- MP.some typeAtomParser
   items <- MP.option [] instanceWhereClauseParser
@@ -342,8 +342,8 @@ instanceDeclItemParser = MP.try instanceFixityItemParser <|> MP.try instanceType
 
 instanceTypeSigItemParser :: TokParser InstanceDeclItem
 instanceTypeSigItemParser = withSpan $ do
-  names <- binderNameParser `MP.sepBy1` symbolLikeTok ","
-  operatorLikeTok "::"
+  names <- binderNameParser `MP.sepBy1` expectedTok TkSpecialComma
+  expectedTok TkReservedDoubleColon
   ty <- typeParser
   pure (\span' -> InstanceItemTypeSig span' names ty)
 
@@ -356,7 +356,7 @@ instanceValueItemParser :: TokParser InstanceDeclItem
 instanceValueItemParser = withSpan $ do
   name <- binderNameParser
   pats <- MP.many simplePatternParser
-  operatorLikeTok "="
+  expectedTok TkReservedEquals
   rhsExpr <- exprParser
   pure (\span' -> InstanceItemBind span' (functionBindValue span' name pats (UnguardedRhs span' rhsExpr)))
 
@@ -371,7 +371,7 @@ foreignDeclParser = withSpan $ do
       ForeignExport -> pure Nothing
   entity <- MP.optional foreignEntityParser
   name <- identifierTextParser
-  operatorLikeTok "::"
+  expectedTok TkReservedDoubleColon
   ty <- typeParser
   pure $ \span' ->
     DeclForeign
@@ -417,10 +417,10 @@ foreignEntityFromString txt
 dataDeclParser :: TokParser Decl
 dataDeclParser = withSpan $ do
   keywordTok TkKeywordData
-  context <- MP.optional (MP.try (declContextParser <* operatorLikeTok "=>"))
+  context <- MP.optional (MP.try (declContextParser <* expectedTok TkReservedDoubleArrow))
   typeName <- constructorIdentifierParser
   typeParams <- MP.many typeParamParser
-  constructors <- MP.optional (operatorLikeTok "=" *> dataConDeclParser `MP.sepBy1` operatorLikeTok "|")
+  constructors <- MP.optional (expectedTok TkReservedEquals *> dataConDeclParser `MP.sepBy1` expectedTok TkReservedPipe)
   derivingClauses <- MP.many derivingClauseParser
   pure $ \span' ->
     DeclData
@@ -442,10 +442,10 @@ dataConDeclParser = withSpan $ do
 newtypeDeclParser :: TokParser Decl
 newtypeDeclParser = withSpan $ do
   identifierExact "newtype"
-  context <- MP.optional (MP.try (declContextParser <* operatorLikeTok "=>"))
+  context <- MP.optional (MP.try (declContextParser <* expectedTok TkReservedDoubleArrow))
   typeName <- constructorIdentifierParser
   typeParams <- MP.many typeParamParser
-  constructor <- MP.optional (operatorLikeTok "=" *> newtypeConDeclParser)
+  constructor <- MP.optional (expectedTok TkReservedEquals *> newtypeConDeclParser)
   derivingClauses <- MP.many derivingClauseParser
   pure $ \span' ->
     DeclNewtype
@@ -482,11 +482,11 @@ typeParamParser =
         pure (\span' -> TyVarBinder span' ident Nothing)
     )
       <|> ( do
-              symbolLikeTok "("
+              expectedTok TkSpecialLParen
               ident <- lowerIdentifierParser
-              operatorLikeTok "::"
+              expectedTok TkReservedDoubleColon
               kind <- typeParser
-              symbolLikeTok ")"
+              expectedTok TkSpecialRParen
               pure (\span' -> TyVarBinder span' ident (Just kind))
           )
 
@@ -504,7 +504,7 @@ derivingClauseParser = do
   pure (DerivingClause strategy classes)
   where
     singleClass = (: []) <$> identifierTextParser
-    parenClasses = parens $ identifierTextParser `MP.sepEndBy` symbolLikeTok ","
+    parenClasses = parens $ identifierTextParser `MP.sepEndBy` expectedTok TkSpecialComma
 
 derivingStrategyParser :: TokParser DerivingStrategy
 derivingStrategyParser =
@@ -515,14 +515,14 @@ derivingStrategyParser =
 dataConQualifiersParser :: TokParser ([Text], [Constraint])
 dataConQualifiersParser = do
   mForall <- MP.optional (MP.try forallBindersParser)
-  mContext <- MP.optional (MP.try (declContextParser <* operatorLikeTok "=>"))
+  mContext <- MP.optional (MP.try (declContextParser <* expectedTok TkReservedDoubleArrow))
   pure (fromMaybe [] mForall, fromMaybe [] mContext)
 
 forallBindersParser :: TokParser [Text]
 forallBindersParser = do
   identifierExact "forall"
   binders <- MP.some typeParamParser
-  operatorLikeTok "."
+  expectedTok (TkVarSym ".")
   pure (map tyVarBinderName binders)
 
 dataConRecordOrPrefixParser :: [Text] -> [Constraint] -> TokParser (SourceSpan -> DataConDecl)
@@ -539,7 +539,7 @@ dataConRecordOrPrefixParser forallVars context = do
     -- Accept it as part of the constructor declaration.
     recordFieldsParserAfterLayoutSemicolon =
       recordFieldsParser
-        <|> (symbolLikeTok ";" *> recordFieldsParser)
+        <|> (expectedTok TkSpecialSemicolon *> recordFieldsParser)
 
 dataConInfixParser :: [Text] -> [Constraint] -> TokParser (SourceSpan -> DataConDecl)
 dataConInfixParser forallVars context = do
@@ -550,15 +550,15 @@ dataConInfixParser forallVars context = do
 
 recordFieldsParser :: TokParser [FieldDecl]
 recordFieldsParser = do
-  symbolLikeTok "{"
-  fields <- recordFieldDeclParser `MP.sepEndBy` symbolLikeTok ","
-  symbolLikeTok "}"
+  expectedTok TkSpecialLBrace
+  fields <- recordFieldDeclParser `MP.sepEndBy` expectedTok TkSpecialComma
+  expectedTok TkSpecialRBrace
   pure fields
 
 recordFieldDeclParser :: TokParser FieldDecl
 recordFieldDeclParser = withSpan $ do
-  names <- identifierTextParser `MP.sepBy1` symbolLikeTok ","
-  operatorLikeTok "::"
+  names <- identifierTextParser `MP.sepBy1` expectedTok TkSpecialComma
+  expectedTok TkReservedDoubleColon
   fieldTy <- recordFieldBangTypeParser
   pure $ \span' ->
     FieldDecl
@@ -581,7 +581,7 @@ derivingKeywordParser =
 
 bangTypeParser :: TokParser BangType
 bangTypeParser = withSpan $ do
-  strict <- MP.option False (operatorLikeTok "!" >> pure True)
+  strict <- MP.option False (expectedTok (TkVarSym "!") >> pure True)
   ty <- typeAtomParser
   pure $ \span' ->
     BangType
@@ -592,7 +592,7 @@ bangTypeParser = withSpan $ do
 
 recordFieldBangTypeParser :: TokParser BangType
 recordFieldBangTypeParser = withSpan $ do
-  strict <- MP.option False (operatorLikeTok "!" >> pure True)
+  strict <- MP.option False (expectedTok (TkVarSym "!") >> pure True)
   ty <- constructorFieldTypeParser
   pure $ \span' ->
     BangType

@@ -77,7 +77,7 @@ doStmtParser = MP.try doBindStmtParser <|> MP.try doLetStmtParser <|> doExprStmt
 doBindStmtParser :: TokParser DoStmt
 doBindStmtParser = withSpan $ do
   pat <- patternParser
-  operatorLikeTok "<-"
+  expectedTok TkReservedLeftArrow
   expr <- exprParser
   pure (\span' -> DoBind span' pat expr)
 
@@ -121,9 +121,9 @@ infixOperatorParserExcept forbidden =
           _ -> Nothing
 
     backtickIdentifierOperatorParser = do
-      symbolLikeTok "`"
+      expectedTok TkSpecialBacktick
       op <- identifierTextParser
-      symbolLikeTok "`"
+      expectedTok TkSpecialBacktick
       if op `elem` forbidden then fail "forbidden infix operator" else pure op
 
 intExprParser :: TokParser Expr
@@ -218,7 +218,7 @@ prefixMinusTokenParser =
 
 parenOperatorExprParser :: TokParser Expr
 parenOperatorExprParser = withSpan $ do
-  symbolLikeTok "("
+  expectedTok TkSpecialLParen
   op <- tokenSatisfy "operator" $ \tok ->
     case lexTokenKind tok of
       TkVarSym sym -> Just sym
@@ -236,7 +236,7 @@ parenOperatorExprParser = withSpan $ do
       TkReservedTilde -> Just "~"
       TkReservedDotDot -> Just ".."
       _ -> Nothing
-  symbolLikeTok ")"
+  expectedTok TkSpecialRParen
   pure (`EVar` op)
 
 patternParser :: TokParser Pattern
@@ -247,7 +247,7 @@ asPatternParser =
   MP.try
     ( withSpan $ do
         name <- identifierTextParser
-        operatorLikeTok "@"
+        expectedTok TkReservedAt
         inner <- patternAtomParser
         pure (\span' -> PAs span' name inner)
     )
@@ -304,19 +304,19 @@ patternAtomParser =
 
 strictPatternParser :: TokParser Pattern
 strictPatternParser = withSpan $ do
-  operatorLikeTok "!"
+  expectedTok (TkVarSym "!")
   inner <- patternAtomParser
   pure (`PStrict` inner)
 
 irrefutablePatternParser :: TokParser Pattern
 irrefutablePatternParser = withSpan $ do
-  operatorLikeTok "~"
+  expectedTok TkReservedTilde
   inner <- patternAtomParser
   pure (`PIrrefutable` inner)
 
 negativeLiteralPatternParser :: TokParser Pattern
 negativeLiteralPatternParser = withSpan $ do
-  operatorLikeTok "-"
+  expectedTok (TkVarSym "-")
   lit <- literalParser
   pure (`PNegLit` lit)
 
@@ -411,8 +411,8 @@ guardedRhssParser arrow = withSpan $ do
 
 guardedRhsParser :: Text -> TokParser GuardedRhs
 guardedRhsParser arrow = withSpan $ do
-  operatorLikeTok "|"
-  guards <- guardQualifierParser arrow `MP.sepBy1` symbolLikeTok ","
+  expectedTok TkReservedPipe
+  guards <- guardQualifierParser arrow `MP.sepBy1` expectedTok TkSpecialComma
   operatorLikeTok arrow
   body <- exprParserExcept ["|", arrow]
   pure $ \span' ->
@@ -427,7 +427,7 @@ guardQualifierParser _arrow = MP.try guardPatParser <|> MP.try guardLetParser <|
   where
     guardPatParser = withSpan $ do
       pat <- patternParser
-      operatorLikeTok "<-"
+      expectedTok TkReservedLeftArrow
       expr <- exprParser
       pure (\span' -> GuardPat span' pat expr)
 
@@ -465,8 +465,8 @@ caseExprParser = withSpan $ do
 
 parenExprParser :: TokParser Expr
 parenExprParser = withSpan $ do
-  symbolLikeTok "("
-  mClosed <- MP.optional (symbolLikeTok ")")
+  expectedTok TkSpecialLParen
+  mClosed <- MP.optional (expectedTok TkSpecialRParen)
   case mClosed of
     Just () -> pure (`ETuple` [])
     Nothing -> MP.try parseNegateParen <|> MP.try parseSection <|> MP.try parseTupleSectionExpr <|> parseParenOrTupleExpr
@@ -476,7 +476,7 @@ parenExprParser = withSpan $ do
       nextTok <- lookAhead anySingle
       guard (parenNegateAllowed minusTok nextTok)
       inner <- exprParser
-      symbolLikeTok ")"
+      expectedTok TkSpecialRParen
       pure $ \span' ->
         case lexTokenKind minusTok of
           TkPrefixMinus -> ENegate span' inner
@@ -501,13 +501,13 @@ parenExprParser = withSpan $ do
     parseSectionR = do
       op <- infixOperatorParserExcept []
       rhs <- exprParser
-      symbolLikeTok ")"
+      expectedTok TkSpecialRParen
       pure (\span' -> EParen span' (ESectionR span' op rhs))
 
     parseSectionL = do
       lhs <- appExprParser
       op <- infixOperatorParserExcept []
-      symbolLikeTok ")"
+      expectedTok TkSpecialRParen
       pure (\span' -> EParen span' (ESectionL span' lhs op))
 
     parseTupleSectionExpr = do
@@ -518,24 +518,24 @@ parenExprParser = withSpan $ do
 
     parseParenOrTupleExpr = do
       first <- exprParser
-      mComma <- MP.optional (symbolLikeTok ",")
+      mComma <- MP.optional (expectedTok TkSpecialComma)
       case mComma of
         Nothing -> do
-          symbolLikeTok ")"
+          expectedTok TkSpecialRParen
           pure (`EParen` first)
         Just () -> do
           second <- exprParser
-          more <- MP.many (symbolLikeTok "," *> exprParser)
-          symbolLikeTok ")"
+          more <- MP.many (expectedTok TkSpecialComma *> exprParser)
+          expectedTok TkSpecialRParen
           pure (`ETuple` (first : second : more))
 
 parseTupleSection :: TokParser [Maybe Expr]
 parseTupleSection = do
   first <- MP.optional exprParser
-  _ <- symbolLikeTok ","
-  middle <- MP.many (MP.try (MP.optional exprParser <* symbolLikeTok ","))
+  _ <- expectedTok TkSpecialComma
+  middle <- MP.many (MP.try (MP.optional exprParser <* expectedTok TkSpecialComma))
   lastSlot <- MP.optional exprParser
-  symbolLikeTok ")"
+  expectedTok TkSpecialRParen
   let vals = first : middle <> [lastSlot]
   let hasMissing = any isNothing vals
   if hasMissing && length vals > 1
@@ -548,8 +548,8 @@ isNothing (Just _) = False
 
 listExprParser :: TokParser Expr
 listExprParser = withSpan $ do
-  symbolLikeTok "["
-  mClose <- MP.optional (symbolLikeTok "]")
+  expectedTok TkSpecialLBracket
+  mClose <- MP.optional (expectedTok TkSpecialRBracket)
   case mClose of
     Just () -> pure (`EList` [])
     Nothing -> do
@@ -567,20 +567,20 @@ parseListTail first =
     -- - Regular: [ expr | qual1, qual2, qual3 ]
     -- - Parallel (with ParallelListComp): [ expr | qual1, qual2 | qual3, qual4 ]
     listCompTailParser = do
-      operatorLikeTok "|"
-      firstGroup <- compStmtParser `MP.sepBy1` symbolLikeTok ","
+      expectedTok TkReservedPipe
+      firstGroup <- compStmtParser `MP.sepBy1` expectedTok TkSpecialComma
       -- Try to parse additional parallel groups separated by |
-      moreGroups <- MP.many (operatorLikeTok "|" *> (compStmtParser `MP.sepBy1` symbolLikeTok ","))
-      symbolLikeTok "]"
+      moreGroups <- MP.many (expectedTok TkReservedPipe *> (compStmtParser `MP.sepBy1` expectedTok TkSpecialComma))
+      expectedTok TkSpecialRBracket
       pure $ \span' ->
         case moreGroups of
           [] -> EListComp span' first firstGroup
           _ -> EListCompParallel span' first (firstGroup : moreGroups)
 
     arithFromToTailParser = do
-      operatorLikeTok ".."
+      expectedTok TkReservedDotDot
       mTo <- MP.optional exprParser
-      symbolLikeTok "]"
+      expectedTok TkSpecialRBracket
       pure $ \span' ->
         EArithSeq span' $
           case mTo of
@@ -588,14 +588,14 @@ parseListTail first =
             Just toExpr -> ArithSeqFromTo span' first toExpr
 
     commaTailParser = do
-      symbolLikeTok ","
+      expectedTok TkSpecialComma
       second <- exprParser
       MP.try (arithFromThenTailParser second) <|> listTailParser second
 
     arithFromThenTailParser second = do
-      operatorLikeTok ".."
+      expectedTok TkReservedDotDot
       mTo <- MP.optional exprParser
-      symbolLikeTok "]"
+      expectedTok TkSpecialRBracket
       pure $ \span' ->
         EArithSeq span' $
           case mTo of
@@ -603,12 +603,12 @@ parseListTail first =
             Just toExpr -> ArithSeqFromThenTo span' first second toExpr
 
     listTailParser second = do
-      rest <- MP.many (symbolLikeTok "," *> exprParser)
-      symbolLikeTok "]"
+      rest <- MP.many (expectedTok TkSpecialComma *> exprParser)
+      expectedTok TkSpecialRBracket
       pure (\span' -> EList span' (first : second : rest))
 
     singletonTailParser = do
-      symbolLikeTok "]"
+      expectedTok TkSpecialRBracket
       pure (\span' -> EList span' [first])
 
 compStmtParser :: TokParser CompStmt
@@ -617,13 +617,13 @@ compStmtParser = MP.try compGenStmtParser <|> compGuardStmtParser
 compGenStmtParser :: TokParser CompStmt
 compGenStmtParser = withSpan $ do
   pat <- patternParser
-  operatorLikeTok "<-"
+  expectedTok TkReservedLeftArrow
   expr <- exprParser
   pure (\span' -> CompGen span' pat expr)
 
 lambdaExprParser :: TokParser Expr
 lambdaExprParser = withSpan $ do
-  operatorLikeTok "\\"
+  expectedTok TkReservedBackslash
   lambdaCaseParser <|> lambdaPatsParser
   where
     lambdaCaseParser = do
@@ -633,7 +633,7 @@ lambdaExprParser = withSpan $ do
 
     lambdaPatsParser = do
       pats <- MP.some patternParser
-      operatorLikeTok "->"
+      expectedTok TkReservedRightArrow
       body <- exprParser
       pure (\span' -> ELambdaPats span' pats body)
 
@@ -663,8 +663,8 @@ localDeclParser = MP.try localTypeSigDeclParser <|> MP.try localFunctionDeclPars
 
 localTypeSigDeclParser :: TokParser Decl
 localTypeSigDeclParser = withSpan $ do
-  names <- binderNameParser `MP.sepBy1` symbolLikeTok ","
-  operatorLikeTok "::"
+  names <- binderNameParser `MP.sepBy1` expectedTok TkSpecialComma
+  expectedTok TkReservedDoubleColon
   ty <- typeParser
   pure (\span' -> DeclTypeSig span' names ty)
 
@@ -678,7 +678,7 @@ localFunctionDeclParser = withSpan $ do
 localPatternDeclParser :: TokParser Decl
 localPatternDeclParser = withSpan $ do
   pat <- patternParser
-  operatorLikeTok "="
+  expectedTok TkReservedEquals
   rhsExpr <- exprParser
   pure (\span' -> DeclValue span' (PatternBind span' pat (UnguardedRhs span' rhsExpr)))
 
@@ -696,56 +696,56 @@ bareVarOrConPatternParser = withSpan $ do
 recordPatternParser :: TokParser Pattern
 recordPatternParser = withSpan $ do
   con <- constructorIdentifierParser
-  symbolLikeTok "{"
-  mClose <- MP.optional (symbolLikeTok "}")
+  expectedTok TkSpecialLBrace
+  mClose <- MP.optional (expectedTok TkSpecialRBrace)
   case mClose of
     Just () -> pure (\span' -> PRecord span' con [])
     Nothing -> do
-      fields <- recordFieldPatternParser `MP.sepEndBy` symbolLikeTok ","
-      symbolLikeTok "}"
+      fields <- recordFieldPatternParser `MP.sepEndBy` expectedTok TkSpecialComma
+      expectedTok TkSpecialRBrace
       pure (\span' -> PRecord span' con fields)
 
 recordFieldPatternParser :: TokParser (Text, Pattern)
 recordFieldPatternParser = do
   field <- identifierTextParser
-  operatorLikeTok "="
+  expectedTok TkReservedEquals
   pat <- patternParser
   pure (field, pat)
 
 listPatternParser :: TokParser Pattern
 listPatternParser = withSpan $ do
-  symbolLikeTok "["
-  elems <- patternParser `MP.sepBy` symbolLikeTok ","
-  symbolLikeTok "]"
+  expectedTok TkSpecialLBracket
+  elems <- patternParser `MP.sepBy` expectedTok TkSpecialComma
+  expectedTok TkSpecialRBracket
   pure (`PList` elems)
 
 parenOrTuplePatternParser :: TokParser Pattern
 parenOrTuplePatternParser = withSpan $ do
-  symbolLikeTok "("
+  expectedTok TkSpecialLParen
   MP.try unitPatternParser <|> MP.try viewPatternParser <|> tupleOrParenPatternParser
   where
     unitPatternParser = do
-      symbolLikeTok ")"
+      expectedTok TkSpecialRParen
       pure (`PTuple` [])
 
     viewPatternParser = do
       viewExpr <- exprParser
-      operatorLikeTok "->"
+      expectedTok TkReservedRightArrow
       inner <- patternParser
-      symbolLikeTok ")"
+      expectedTok TkSpecialRParen
       pure (\span' -> PView span' viewExpr inner)
 
     tupleOrParenPatternParser = do
       first <- patternParser
-      mComma <- MP.optional (symbolLikeTok ",")
+      mComma <- MP.optional (expectedTok TkSpecialComma)
       case mComma of
         Nothing -> do
-          symbolLikeTok ")"
+          expectedTok TkSpecialRParen
           pure (`PParen` first)
         Just () -> do
           second <- patternParser
-          more <- MP.many (symbolLikeTok "," *> patternParser)
-          symbolLikeTok ")"
+          more <- MP.many (expectedTok TkSpecialComma *> patternParser)
+          expectedTok TkSpecialRParen
           pure (`PTuple` (first : second : more))
 
 isConLikeName :: Text -> Bool
@@ -776,7 +776,7 @@ simplePatternParser =
   MP.try
     ( withSpan $ do
         name <- identifierTextParser
-        operatorLikeTok "@"
+        expectedTok TkReservedAt
         inner <- patternAtomParser
         pure (\span' -> PAs span' name inner)
     )
@@ -789,14 +789,14 @@ forallTypeParser :: TokParser Type
 forallTypeParser = withSpan $ do
   identifierExact "forall"
   binders <- MP.some identifierTextParser
-  operatorLikeTok "."
+  expectedTok (TkVarSym ".")
   inner <- MP.try contextTypeParser <|> typeFunParser
   pure (\span' -> TForall span' binders inner)
 
 contextTypeParser :: TokParser Type
 contextTypeParser = do
   constraints <- constraintsParser
-  operatorLikeTok "=>"
+  expectedTok TkReservedDoubleArrow
   inner <- typeParser
   pure (TContext (mergeSourceSpans (constraintHeadSpan constraints) (getSourceSpan inner)) constraints inner)
 
@@ -812,7 +812,7 @@ constraintsParser = constraintsParserWith typeAtomParser
 typeFunParser :: TokParser Type
 typeFunParser = do
   lhs <- typeInfixParser
-  mRhs <- MP.optional (operatorLikeTok "->" *> typeParser)
+  mRhs <- MP.optional (expectedTok TkReservedRightArrow *> typeParser)
   pure $
     case mRhs of
       Just rhs -> TFun (mergeSourceSpans (getSourceSpan lhs) (getSourceSpan rhs)) lhs rhs
@@ -865,7 +865,7 @@ typeAtomParser =
 
 typeParenOperatorParser :: TokParser Type
 typeParenOperatorParser = withSpan $ do
-  symbolLikeTok "("
+  expectedTok TkSpecialLParen
   op <- tokenSatisfy "type operator" $ \tok ->
     case lexTokenKind tok of
       TkVarSym sym | sym /= "*" -> Just sym
@@ -876,7 +876,7 @@ typeParenOperatorParser = withSpan $ do
       TkReservedRightArrow -> Just "->"
       TkReservedTilde -> Just "~"
       _ -> Nothing
-  symbolLikeTok ")"
+  expectedTok TkSpecialRParen
   pure (`TCon` op)
 
 typeQuasiQuoteParser :: TokParser Type
@@ -896,31 +896,31 @@ typeIdentifierParser = withSpan $ do
 
 typeStarParser :: TokParser Type
 typeStarParser = withSpan $ do
-  operatorLikeTok "*"
+  expectedTok (TkVarSym "*")
   pure TStar
 
 typeListParser :: TokParser Type
 typeListParser = withSpan $ do
-  symbolLikeTok "["
+  expectedTok TkSpecialLBracket
   inner <- typeParser
-  symbolLikeTok "]"
+  expectedTok TkSpecialRBracket
   pure (`TList` inner)
 
 typeParenOrTupleParser :: TokParser Type
 typeParenOrTupleParser = withSpan $ do
-  symbolLikeTok "("
-  mClosed <- MP.optional (symbolLikeTok ")")
+  expectedTok TkSpecialLParen
+  mClosed <- MP.optional (expectedTok TkSpecialRParen)
   case mClosed of
     Just () -> pure (`TTuple` [])
     Nothing -> do
       first <- typeParser
-      mComma <- MP.optional (symbolLikeTok ",")
+      mComma <- MP.optional (expectedTok TkSpecialComma)
       case mComma of
         Nothing -> do
-          symbolLikeTok ")"
+          expectedTok TkSpecialRParen
           pure (`TParen` first)
         Just () -> do
           second <- typeParser
-          more <- MP.many (symbolLikeTok "," *> typeParser)
-          symbolLikeTok ")"
+          more <- MP.many (expectedTok TkSpecialComma *> typeParser)
+          expectedTok TkSpecialRParen
           pure (`TTuple` (first : second : more))

@@ -3,6 +3,7 @@
 module Parser.Internal.Common
   ( TokParser,
     keywordTok,
+    expectedTok,
     symbolLikeTok,
     operatorLikeTok,
     tokenSatisfy,
@@ -47,6 +48,38 @@ keywordTok :: LexTokenKind -> TokParser ()
 keywordTok expected =
   tokenSatisfy ("keyword " <> renderKeyword expected) $ \tok ->
     if lexTokenKind tok == expected then Just () else Nothing
+
+-- | Match a specific token kind exactly.
+expectedTok :: LexTokenKind -> TokParser ()
+expectedTok expected =
+  tokenSatisfy (renderTokenKind expected) $ \tok ->
+    if lexTokenKind tok == expected then Just () else Nothing
+
+renderTokenKind :: LexTokenKind -> String
+renderTokenKind tk = case tk of
+  TkSpecialLParen -> "symbol '('"
+  TkSpecialRParen -> "symbol ')'"
+  TkSpecialComma -> "symbol ','"
+  TkSpecialSemicolon -> "symbol ';'"
+  TkSpecialLBracket -> "symbol '['"
+  TkSpecialRBracket -> "symbol ']'"
+  TkSpecialBacktick -> "symbol '`'"
+  TkSpecialLBrace -> "symbol '{'"
+  TkSpecialRBrace -> "symbol '}'"
+  TkReservedDotDot -> "operator '..'"
+  TkReservedColon -> "operator ':'"
+  TkReservedDoubleColon -> "operator '::'"
+  TkReservedEquals -> "operator '='"
+  TkReservedBackslash -> "operator '\\'"
+  TkReservedPipe -> "operator '|'"
+  TkReservedLeftArrow -> "operator '<-'"
+  TkReservedRightArrow -> "operator '->'"
+  TkReservedAt -> "operator '@'"
+  TkReservedTilde -> "operator '~'"
+  TkReservedDoubleArrow -> "operator '=>'"
+  TkVarSym op -> "operator '" <> show op <> "'"
+  TkConSym op -> "operator '" <> show op <> "'"
+  _ -> show tk
 
 symbolLikeTok :: Text -> TokParser ()
 symbolLikeTok expected =
@@ -191,28 +224,28 @@ markSingleParenConstraint constraints =
 
 parens :: TokParser a -> TokParser a
 parens parser = do
-  symbolLikeTok "("
+  expectedTok TkSpecialLParen
   res <- parser
-  symbolLikeTok ")"
+  expectedTok TkSpecialRParen
   pure res
 
 skipSemicolons :: TokParser ()
-skipSemicolons = MP.skipMany (symbolLikeTok ";")
+skipSemicolons = MP.skipMany (expectedTok TkSpecialSemicolon)
 
 bracedSemiSep :: TokParser a -> TokParser [a]
 bracedSemiSep parser = do
-  symbolLikeTok "{"
+  expectedTok TkSpecialLBrace
   skipSemicolons
-  items <- parser `MP.sepEndBy` symbolLikeTok ";"
-  symbolLikeTok "}"
+  items <- parser `MP.sepEndBy` expectedTok TkSpecialSemicolon
+  expectedTok TkSpecialRBrace
   pure items
 
 bracedSemiSep1 :: TokParser a -> TokParser [a]
 bracedSemiSep1 parser = do
-  symbolLikeTok "{"
+  expectedTok TkSpecialLBrace
   skipSemicolons
-  items <- parser `MP.sepEndBy1` symbolLikeTok ";"
-  symbolLikeTok "}"
+  items <- parser `MP.sepEndBy1` expectedTok TkSpecialSemicolon
+  expectedTok TkSpecialRBrace
   pure items
 
 plainSemiSep1 :: TokParser a -> TokParser [a]
@@ -232,7 +265,7 @@ constraintParserWith typeAtomParser = withSpan $ do
 
 constraintsParserWith :: TokParser Type -> TokParser [Constraint]
 constraintsParserWith typeAtomParser =
-  MP.try (parens (markSingleParenConstraint <$> (constraintParserWith typeAtomParser `MP.sepEndBy` symbolLikeTok ",")))
+  MP.try (parens (markSingleParenConstraint <$> (constraintParserWith typeAtomParser `MP.sepEndBy` expectedTok TkSpecialComma)))
     <|> fmap pure (constraintParserWith typeAtomParser)
 
 contextParserWith :: TokParser Type -> TokParser [Constraint]
