@@ -1,4 +1,4 @@
 input: "'x'"
-output:
-  - "TkChar 'x'"
+output: |
+  TkChar 'x'
 status: pass

@@ -4,6 +4,13 @@
 --
 -- These tests spawn the actual aihc-lexer and aihc-parser executables
 -- and verify their output against expected golden outputs.
+--
+-- The executables must be available via environment variables:
+-- - AIHC_LEXER_EXE: path to the aihc-lexer executable
+-- - AIHC_PARSER_EXE: path to the aihc-parser executable
+--
+-- If these are not set, the tests will look for the executables in PATH.
+-- If not found anywhere, the tests will fail (not skip).
 module Test.CLI.Suite
   ( cliTests,
   )
@@ -13,6 +20,7 @@ import qualified CLIGolden as CG
 import Control.Monad (forM, unless)
 import Data.List (intercalate)
 import System.Directory (findExecutable)
+import System.Environment (lookupEnv)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertFailure, testCase)
 
@@ -23,8 +31,8 @@ cliTests = do
   parserCases <- CG.loadParserCLICases
 
   -- Build test trees
-  lexerTests <- mkCLIGoldenTests "aihc-lexer" lexerCases
-  parserTests <- mkCLIGoldenTests "aihc-parser" parserCases
+  lexerTests <- mkCLIGoldenTests "aihc-lexer" "AIHC_LEXER_EXE" lexerCases
+  parserTests <- mkCLIGoldenTests "aihc-parser" "AIHC_PARSER_EXE" parserCases
 
   pure $
     testGroup
@@ -34,33 +42,38 @@ cliTests = do
       ]
 
 -- | Build golden tests for a CLI tool.
-mkCLIGoldenTests :: String -> [CG.CLICase] -> IO [TestTree]
-mkCLIGoldenTests toolName cases = do
+-- Looks for the executable first in the given environment variable,
+-- then in PATH. If not found, the test fails.
+mkCLIGoldenTests :: String -> String -> [CG.CLICase] -> IO [TestTree]
+mkCLIGoldenTests toolName envVar cases = do
   if null cases
-    then pure [testCase "no fixtures found" (pure ())]
+    then pure [testCase "no fixtures found" (assertFailure "no CLI test fixtures found")]
     else do
-      -- Try to find the executable
-      mExePath <- findExecutable toolName
-      case mExePath of
+      -- First check environment variable, then PATH
+      mEnvPath <- lookupEnv envVar
+      mPathExe <- findExecutable toolName
+      case mEnvPath of
+        Just envPath -> mkTests envPath cases
         Nothing ->
-          -- If not found in PATH, skip tests gracefully.
-          -- This is expected when running via nix flake check since the
-          -- executables aren't installed to PATH during the build.
-          pure
-            [ testCase
-                "skipped (executable not in PATH)"
-                (pure ())
-            ]
-        Just exePath -> do
-          -- Create a test case for each fixture
-          tests <- forM cases $ \cliCase -> do
-            let testName = CG.caseId cliCase
-            pure $
-              testCase testName $
-                runCLIGoldenTest exePath cliCase
-          -- Add a summary test
-          let summaryTest = testCase "summary" (runSummaryTest exePath cases)
-          pure (tests <> [summaryTest])
+          case mPathExe of
+            Just pathExe -> mkTests pathExe cases
+            Nothing ->
+              pure
+                [ testCase
+                    "executable not found"
+                    (assertFailure $ "Could not find " <> toolName <> " executable. Set " <> envVar <> " or ensure " <> toolName <> " is in PATH.")
+                ]
+  where
+    mkTests exePath fixtures = do
+      -- Create a test case for each fixture
+      tests <- forM fixtures $ \cliCase -> do
+        let testName = CG.caseId cliCase
+        pure $
+          testCase testName $
+            runCLIGoldenTest exePath cliCase
+      -- Add a summary test
+      let summaryTest = testCase "summary" (runSummaryTest exePath fixtures)
+      pure (tests <> [summaryTest])
 
 -- | Run a single CLI golden test.
 runCLIGoldenTest :: FilePath -> CG.CLICase -> IO ()

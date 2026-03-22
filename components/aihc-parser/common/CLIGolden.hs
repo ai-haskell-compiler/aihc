@@ -9,7 +9,6 @@ module CLIGolden
   ( ExpectedStatus (..),
     Outcome (..),
     CLICase (..),
-    CLITool (..),
     fixtureRoot,
     loadLexerCLICases,
     loadParserCLICases,
@@ -30,7 +29,6 @@ import qualified Data.Text as T
 import Data.Text.Encoding (encodeUtf8)
 import qualified Data.Text.IO as TIO
 import qualified Data.Yaml as Y
-import Parser.Ast (Extension, parseExtensionName)
 import System.Directory (doesDirectoryExist, listDirectory)
 import System.Exit (ExitCode (..))
 import System.FilePath (takeDirectory, takeExtension, (</>))
@@ -56,20 +54,13 @@ data Outcome
   | OutcomeFail
   deriving (Eq, Show)
 
-data CLITool
-  = ToolLexer
-  | ToolParser
-  deriving (Eq, Show)
-
 data CLICase = CLICase
   { caseId :: !String,
     caseCategory :: !String,
     casePath :: !FilePath,
-    caseTool :: !CLITool,
-    caseExtensions :: ![Extension],
     caseArgs :: ![String],
     caseInput :: !Text,
-    caseExpectedOutput :: ![Text],
+    caseExpectedOutput :: !Text,
     caseExpectedExitCode :: !Int,
     caseStatus :: !ExpectedStatus,
     caseReason :: !String
@@ -86,36 +77,35 @@ parserFixtureRoot :: FilePath
 parserFixtureRoot = fixtureRoot </> "parser"
 
 loadLexerCLICases :: IO [CLICase]
-loadLexerCLICases = loadCases ToolLexer lexerFixtureRoot
+loadLexerCLICases = loadCases lexerFixtureRoot
 
 loadParserCLICases :: IO [CLICase]
-loadParserCLICases = loadCases ToolParser parserFixtureRoot
+loadParserCLICases = loadCases parserFixtureRoot
 
-loadCases :: CLITool -> FilePath -> IO [CLICase]
-loadCases tool root = do
+loadCases :: FilePath -> IO [CLICase]
+loadCases root = do
   exists <- doesDirectoryExist root
   if not exists
     then pure []
     else do
       paths <- listFixtureFiles root
-      mapM (loadCLICase tool root) paths
+      mapM (loadCLICase root) paths
 
-loadCLICase :: CLITool -> FilePath -> FilePath -> IO CLICase
-loadCLICase tool root path = do
+loadCLICase :: FilePath -> FilePath -> IO CLICase
+loadCLICase root path = do
   source <- TIO.readFile path
-  case parseCLICaseText tool root path source of
+  case parseCLICaseText root path source of
     Left err -> fail err
     Right parsed -> pure parsed
 
-parseCLICaseText :: CLITool -> FilePath -> FilePath -> Text -> Either String CLICase
-parseCLICaseText tool root path source = do
+parseCLICaseText :: FilePath -> FilePath -> Text -> Either String CLICase
+parseCLICaseText root path source = do
   value <-
     case Y.decodeEither' (encodeUtf8 source) of
       Left err -> Left ("Invalid YAML fixture " <> path <> ": " <> Y.prettyPrintParseException err)
       Right parsed -> Right parsed
-  (extNames, extraArgs, inputText, expectedLines, exitCode, statusText, reasonText) <-
+  (args, inputText, expectedOutput, exitCode, statusText, reasonText) <-
     parseYamlFixture path value
-  exts <- mapM (parseFixtureExtensionName path) extNames
   status <- parseStatus path statusText
   reason <- validateReason path status (T.unpack reasonText)
   let relPath = dropRootPrefix root path
@@ -125,11 +115,9 @@ parseCLICaseText tool root path source = do
       { caseId = relPath,
         caseCategory = category,
         casePath = relPath,
-        caseTool = tool,
-        caseExtensions = exts,
-        caseArgs = map T.unpack extraArgs,
+        caseArgs = map T.unpack args,
         caseInput = inputText,
-        caseExpectedOutput = expectedLines,
+        caseExpectedOutput = expectedOutput,
         caseExpectedExitCode = exitCode,
         caseStatus = status,
         caseReason = reason
@@ -138,18 +126,17 @@ parseCLICaseText tool root path source = do
 parseYamlFixture ::
   FilePath ->
   Y.Value ->
-  Either String ([Text], [Text], Text, [Text], Int, Text, Text)
+  Either String ([Text], Text, Text, Int, Text, Text)
 parseYamlFixture path value =
   case parseEither
     ( withObject "cli fixture" $ \obj -> do
-        exts <- obj .:? "extensions" .!= []
-        extraArgs <- obj .:? "args" .!= []
+        args <- obj .:? "args" .!= []
         inputText <- obj .: "input"
-        expectedLines <- obj .: "output"
+        expectedOutput <- obj .: "output"
         exitCode <- obj .:? "exit_code" .!= 0
         statusText <- obj .: "status"
         reasonText <- obj .:? "reason" .!= ""
-        pure (exts, extraArgs, inputText, expectedLines, exitCode, statusText, reasonText)
+        pure (args, inputText, expectedOutput, exitCode, statusText, reasonText)
     )
     value of
     Left err -> Left ("Invalid CLI fixture schema in " <> path <> ": " <> err)
@@ -159,14 +146,12 @@ parseYamlFixture path value =
 -- Returns (Outcome, detail message).
 evaluateCLICase :: FilePath -> CLICase -> IO (Outcome, String)
 evaluateCLICase exePath meta = do
-  let extArgs = concatMap (\ext -> ["-X" <> show ext]) (caseExtensions meta)
-      allArgs = extArgs <> caseArgs meta
-  (exitCode, stdout, stderr) <- runProcess exePath allArgs (caseInput meta)
-  let actualLines = filter (not . T.null) $ map T.strip $ T.lines stdout
-      expectedLines = caseExpectedOutput meta
+  (exitCode, stdout, stderr) <- runProcess exePath (caseArgs meta) (caseInput meta)
+  let actualOutput = T.stripEnd stdout
+      expectedOutput = T.stripEnd (caseExpectedOutput meta)
       expectedExit = caseExpectedExitCode meta
       actualExit = exitCodeToInt exitCode
-      outputMatch = actualLines == expectedLines
+      outputMatch = actualOutput == expectedOutput
       exitMatch = actualExit == expectedExit
       success = outputMatch && exitMatch
   pure $ case caseStatus meta of
@@ -175,7 +160,7 @@ evaluateCLICase exePath meta = do
       | otherwise ->
           ( OutcomeFail,
             "expected pass but got mismatch"
-              <> detailsSuffix actualLines expectedLines actualExit expectedExit stderr
+              <> detailsSuffix actualOutput expectedOutput actualExit expectedExit stderr
           )
     StatusXFail
       | success -> (OutcomeFail, "expected xfail (known failing bug), but test now passes")
@@ -219,17 +204,17 @@ progressSummary outcomes =
   where
     count wanted = length [() | (_, out, _) <- outcomes, out == wanted]
 
-detailsSuffix :: [Text] -> [Text] -> Int -> Int -> Text -> String
+detailsSuffix :: Text -> Text -> Int -> Int -> Text -> String
 detailsSuffix actualOut expectedOut actualExit expectedExit stderrOut =
-  "\n  expected output: "
-    <> show expectedOut
-    <> "\n  actual output:   "
-    <> show actualOut
-    <> "\n  expected exit:   "
+  "\n  expected output:\n"
+    <> T.unpack expectedOut
+    <> "\n  actual output:\n"
+    <> T.unpack actualOut
+    <> "\n  expected exit: "
     <> show expectedExit
-    <> "\n  actual exit:     "
+    <> "\n  actual exit: "
     <> show actualExit
-    <> (if T.null stderrOut then "" else "\n  stderr: " <> T.unpack stderrOut)
+    <> (if T.null stderrOut then "" else "\n  stderr:\n" <> T.unpack stderrOut)
 
 listFixtureFiles :: FilePath -> IO [FilePath]
 listFixtureFiles dir = do
@@ -251,12 +236,6 @@ listFixtureFiles dir = do
                     else pure []
           )
           entries
-
-parseFixtureExtensionName :: FilePath -> Text -> Either String Extension
-parseFixtureExtensionName path name =
-  case parseExtensionName name of
-    Just ext -> Right ext
-    Nothing -> Left ("Unknown extension in " <> path <> ": " <> T.unpack name)
 
 parseStatus :: FilePath -> Text -> Either String ExpectedStatus
 parseStatus path raw =

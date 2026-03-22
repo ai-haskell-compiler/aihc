@@ -1,4 +1,4 @@
 input: "x = 1"
-output:
-  - 'Module {decls = [DeclValue (FunctionBind "x" [Match {rhs = UnguardedRhs (EInt 1)}])]}'
+output: |
+  Module {decls = [DeclValue (FunctionBind "x" [Match {rhs = UnguardedRhs (EInt 1)}])]}
 status: pass

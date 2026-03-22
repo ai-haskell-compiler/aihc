@@ -1,6 +1,6 @@
-extensions:
-  - NumericUnderscores
+args:
+  - "-XNumericUnderscores"
 input: "1_000_000"
-output:
-  - 'TkInteger 1000000'
+output: |
+  TkInteger 1000000
 status: pass
