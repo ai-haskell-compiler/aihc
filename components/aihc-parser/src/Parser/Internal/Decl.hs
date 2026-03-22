@@ -296,7 +296,7 @@ classItemsBracedParser :: TokParser [ClassDeclItem]
 classItemsBracedParser = bracedSemiSep classDeclItemParser
 
 classDeclItemParser :: TokParser ClassDeclItem
-classDeclItemParser = MP.try classFixityItemParser <|> classTypeSigItemParser
+classDeclItemParser = MP.try classFixityItemParser <|> MP.try classTypeSigItemParser <|> classDefaultItemParser
 
 classTypeSigItemParser :: TokParser ClassDeclItem
 classTypeSigItemParser = withSpan $ do
@@ -309,6 +309,14 @@ classFixityItemParser :: TokParser ClassDeclItem
 classFixityItemParser = withSpan $ do
   (assoc, prec, ops) <- fixityDeclPartsParser
   pure (\span' -> ClassItemFixity span' assoc prec ops)
+
+classDefaultItemParser :: TokParser ClassDeclItem
+classDefaultItemParser = withSpan $ do
+  name <- binderNameParser
+  pats <- MP.many simplePatternParser
+  expectedTok TkReservedEquals
+  rhsExpr <- exprParser
+  pure (\span' -> ClassItemDefault span' (functionBindValue span' name pats (UnguardedRhs span' rhsExpr)))
 
 instanceDeclParser :: TokParser Decl
 instanceDeclParser = withSpan $ do
