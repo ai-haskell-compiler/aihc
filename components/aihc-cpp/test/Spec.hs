@@ -3,6 +3,7 @@
 module Main (main) where
 
 import Cpp (Config (..), Result (..), Step (..), defaultConfig, preprocess)
+import qualified Data.Map.Strict as M
 import qualified Data.Text as T
 import Test.Progress (CaseMeta (..), Outcome (..), evaluateCase, loadManifest)
 import Test.Tasty (TestTree, defaultMain, testGroup)
@@ -23,7 +24,14 @@ dateTimeTest =
   testGroup
     "__DATE__ and __TIME__"
     [ testCase "expands to provided values" $ do
-        let cfg = defaultConfig {configDateTime = ("Mar 15 2026", "12:00:00")}
+        let cfg =
+              defaultConfig
+                { configMacros =
+                    M.fromList
+                      [ ("__DATE__", "\"Mar 15 2026\""),
+                        ("__TIME__", "\"12:00:00\"")
+                      ]
+                }
             input = "__DATE__ __TIME__"
         case preprocess cfg input of
           Done result ->

@@ -497,9 +497,25 @@
           '';
           # Haddock documentation check - ensures docs build without errors
           haddockDocs = mkCombinedDocs pkgs;
+          # Doctest for aihc-cpp documentation examples
+          cppDoctest = pkgs.runCommand "aihc-cpp-doctest" {
+            src = ./.;
+            nativeBuildInputs = [
+              pkgs.haskellPackages.doctest
+              pkgs.haskellPackages.ghc
+              hsPkgs.aihc-cpp
+            ];
+          } ''
+            cd "$src/components/aihc-cpp"
+            # Run doctest on the Cpp module
+            # We need to tell doctest where to find the package database
+            doctest -isrc src/Cpp.hs
+            touch "$out"
+          '';
         in {
           parser-tests = parserTests;
           cpp-tests = cppTests;
+          cpp-doctest = cppDoctest;
           haddock-docs = haddockDocs;
           parser-progress-strict = parserProgressStrict;
           lexer-progress-strict = lexerProgressStrict;
@@ -515,6 +531,7 @@
               pkgs.linkFarm "aihc-all-tests" [
                 { name = "parser-tests"; path = parserTests; }
                 { name = "cpp-tests"; path = cppTests; }
+                { name = "cpp-doctest"; path = cppDoctest; }
                 { name = "haddock-docs"; path = haddockDocs; }
                 { name = "parser-progress-strict"; path = parserProgressStrict; }
                 { name = "lexer-progress-strict"; path = lexerProgressStrict; }
