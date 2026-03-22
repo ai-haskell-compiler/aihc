@@ -1,3 +1,5 @@
+{-# OPTIONS_HADDOCK hide #-}
+
 -- |
 -- Module      : Aihc.Parser.Internal.FromTokens
 -- Description : Internal parsing functions from token streams
