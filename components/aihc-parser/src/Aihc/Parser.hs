@@ -36,7 +36,7 @@ import Aihc.Lexer
   )
 import Aihc.Parser.Ast (Expr, Extension (..), ExtensionSetting (..), Module, Pattern, Type)
 import Aihc.Parser.Internal.Expr (exprParser, patternParser, typeParser)
-import Aihc.Parser.Internal.Parser (moduleParser)
+import Aihc.Parser.Internal.Module (moduleParser)
 import Aihc.Parser.Types
 import qualified Data.List as List
 import Data.Text (Text)

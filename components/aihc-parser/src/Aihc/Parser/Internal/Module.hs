@@ -1,11 +1,11 @@
 -- |
--- Module      : Aihc.Parser.Internal.Parser
+-- Module      : Aihc.Parser.Internal.Module
 -- Description : Internal module parser
 -- License     : Unlicense
 --
 -- Internal module containing the core module parser.
 -- This is used by both 'Aihc.Parser' and 'Aihc.Parser.Internal.FromTokens'.
-module Aihc.Parser.Internal.Parser
+module Aihc.Parser.Internal.Module
   ( moduleParser,
   )
 where
