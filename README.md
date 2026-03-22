@@ -13,7 +13,6 @@
 | Lexer Tests | <!-- AUTO-GENERATED: START lexer-progress --> `6/6` (`100.00%`) <!-- AUTO-GENERATED: END lexer-progress --> |
 | Parser Stackage | <!-- AUTO-GENERATED: START parser-stackage-progress --> `255/3390` (`7.52%`) <!-- AUTO-GENERATED: END parser-stackage-progress --> |
 | CPP preprocessor | <!-- AUTO-GENERATED: START cpp-progress --> `37/37` (`100.00%`) <!-- AUTO-GENERATED: END cpp-progress --> |
-| Name resolution | <!-- AUTO-GENERATED: START name-resolution-progress --> `10/12` (`83.33%`) <!-- AUTO-GENERATED: END name-resolution-progress --> |
 
 ## Ways to contribute
 
@@ -36,12 +35,10 @@ nix flake check
 | --- | --- |
 | `nix run .#parser-test` | Run parser test suite |
 | `nix run .#cpp-test` | Run CPP preprocessor test suite |
-| `nix run .#name-resolution-test` | Run name resolution test suite |
 | `nix run .#parser-progress` | Show parser oracle test progress |
 | `nix run .#lexer-progress` | Show lexer oracle test progress |
 | `nix run .#parser-extension-progress` | Show parser extension test progress |
 | `nix run .#cpp-progress` | Show CPP preprocessor test progress |
-| `nix run .#name-resolution-progress` | Show name resolution test progress |
 | `nix run .#stackage-progress` | Show parser progress on Stackage packages |
 | `nix run .#prompt` | Generate a prompt for contributing |
 | `nix run .#hackage-tester` | Test parser against Hackage packages |
@@ -52,5 +49,5 @@ nix flake check
 | `nix run .#generate-reports` | Update generated README content |
 | `nix run .#check-reports` | Check if generated content is up-to-date |
 
-Strict variants (fail on unexpected results): `parser-progress-strict`, `lexer-progress-strict`, `parser-extension-progress-strict`, `cpp-progress-strict`, `name-resolution-progress-strict`.
+Strict variants (fail on unexpected results): `parser-progress-strict`, `lexer-progress-strict`, `parser-extension-progress-strict`, `cpp-progress-strict`.
 
