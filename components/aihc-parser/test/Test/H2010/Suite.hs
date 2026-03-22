@@ -5,8 +5,8 @@ module Test.H2010.Suite
   )
 where
 
+import Aihc.Cpp (resultOutput)
 import Control.Monad (when)
-import Cpp (resultOutput)
 import CppSupport (preprocessForParserWithoutIncludes)
 import Data.Char (isSpace)
 import Data.List (dropWhileEnd)

@@ -3,10 +3,10 @@
 
 module Main (main) where
 
+import Aihc.Cpp (Severity (..), diagSeverity, resultDiagnostics, resultOutput)
 import Control.Concurrent.Async (mapConcurrently)
 import Control.Exception (IOException, SomeException, displayException, try)
 import Control.Monad (when)
-import Cpp (Severity (..), diagSeverity, resultDiagnostics, resultOutput)
 import CppSupport (preprocessForParserIfEnabled)
 import Data.Char (isAlphaNum, isSpace)
 import Data.List (isPrefixOf, nub, sortBy)

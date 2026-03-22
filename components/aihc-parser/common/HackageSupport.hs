@@ -13,8 +13,8 @@ module HackageSupport
   )
 where
 
+import Aihc.Cpp (Diagnostic (..), IncludeKind (..), IncludeRequest (..), Severity (..))
 import Control.Monad (forM, when)
-import Cpp (Diagnostic (..), IncludeKind (..), IncludeRequest (..), Severity (..))
 import qualified Data.ByteString as BS
 import Data.Char (toLower)
 import Data.List (isPrefixOf, isSuffixOf, nub, sortOn)

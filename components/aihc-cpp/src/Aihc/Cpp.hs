@@ -2,16 +2,36 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module Cpp
-  ( Config (..),
+-- |
+-- Module      : Aihc.Cpp
+-- Description : Pure Haskell C preprocessor for Haskell source files
+-- License     : Unlicense
+--
+-- This module provides a C preprocessor implementation designed for
+-- preprocessing Haskell source files that use CPP extensions.
+--
+-- The main entry point is 'preprocess', which takes a 'Config' and
+-- source text, returning a 'Step' that either completes with a 'Result'
+-- or requests an include file to be resolved.
+module Aihc.Cpp
+  ( -- * Preprocessing
+    preprocess,
+
+    -- * Configuration
+    Config (..),
     defaultConfig,
+
+    -- * Results
     Step (..),
     Result (..),
+
+    -- * Include handling
     IncludeRequest (..),
     IncludeKind (..),
+
+    -- * Diagnostics
     Diagnostic (..),
     Severity (..),
-    preprocess,
   )
 where
 
@@ -27,9 +47,20 @@ import qualified Data.Text.Read as TR
 import GHC.Generics (Generic)
 import System.FilePath (takeDirectory, (</>))
 
+-- $setup
+-- >>> :set -XOverloadedStrings
+-- >>> import qualified Data.Map.Strict as M
+-- >>> import qualified Data.Text as T
+-- >>> import qualified Data.Text.IO as T
+
+-- | Configuration for the C preprocessor.
 data Config = Config
-  { configInputFile :: FilePath,
-    configDateTime :: !(Text, Text),
+  { -- | The name of the input file, used in @#line@ directives and
+    -- @__FILE__@ expansion.
+    configInputFile :: FilePath,
+    -- | User-defined macros. These are expanded as object-like macros.
+    -- Note that the values should include any necessary quoting. For
+    -- example, to define a string macro, use @"\"value\""@.
     configMacros :: !(Map Text Text)
   }
 
@@ -38,51 +69,194 @@ data MacroDef
   | FunctionMacro ![Text] !Text
   deriving (Eq, Show)
 
+-- | Default configuration with sensible defaults.
+--
+-- * 'configInputFile' is set to @\"\<input\>\"@
+-- * 'configMacros' includes @__DATE__@ and @__TIME__@ set to the Unix epoch
+--
+-- To customize the date and time macros:
+--
+-- >>> import qualified Data.Map.Strict as M
+-- >>> let cfg = defaultConfig { configMacros = M.fromList [("__DATE__", "\"Mar 15 2026\""), ("__TIME__", "\"14:30:00\"")] }
+-- >>> configMacros cfg
+-- fromList [("__DATE__","\"Mar 15 2026\""),("__TIME__","\"14:30:00\"")]
+--
+-- To add additional macros while keeping the defaults:
+--
+-- >>> import qualified Data.Map.Strict as M
+-- >>> let cfg = defaultConfig { configMacros = M.insert "VERSION" "42" (configMacros defaultConfig) }
+-- >>> M.lookup "VERSION" (configMacros cfg)
+-- Just "42"
 defaultConfig :: Config
-defaultConfig = Config {configInputFile = "<input>", configDateTime = ("Jan  1 1970", "00:00:00"), configMacros = M.empty}
+defaultConfig =
+  Config
+    { configInputFile = "<input>",
+      configMacros =
+        M.fromList
+          [ ("__DATE__", "\"Jan  1 1970\""),
+            ("__TIME__", "\"00:00:00\"")
+          ]
+    }
 
+-- | The kind of @#include@ directive.
 data IncludeKind = IncludeLocal | IncludeSystem deriving (Eq, Show, Generic, NFData)
 
+-- | Information about a pending @#include@ that needs to be resolved.
 data IncludeRequest = IncludeRequest
-  { includePath :: !FilePath,
+  { -- | The path specified in the include directive.
+    includePath :: !FilePath,
+    -- | Whether this is a local (@\"...\"@) or system (@\<...\>@) include.
     includeKind :: !IncludeKind,
+    -- | The file that contains the @#include@ directive.
     includeFrom :: !FilePath,
+    -- | The line number of the @#include@ directive.
     includeLine :: !Int
   }
   deriving (Eq, Show, Generic, NFData)
 
+-- | Severity level for diagnostics.
 data Severity = Warning | Error deriving (Eq, Show, Generic, NFData)
 
+-- | A diagnostic message emitted during preprocessing.
 data Diagnostic = Diagnostic
-  { diagSeverity :: !Severity,
+  { -- | The severity of the diagnostic.
+    diagSeverity :: !Severity,
+    -- | The diagnostic message text.
     diagMessage :: !Text,
+    -- | The file where the diagnostic occurred.
     diagFile :: !FilePath,
+    -- | The line number where the diagnostic occurred.
     diagLine :: !Int
   }
   deriving (Eq, Show, Generic, NFData)
 
+-- | The result of preprocessing.
 data Result = Result
-  { resultOutput :: !Text,
+  { -- | The preprocessed output text.
+    resultOutput :: !Text,
+    -- | Any diagnostics (warnings or errors) emitted during preprocessing.
     resultDiagnostics :: ![Diagnostic]
   }
   deriving (Eq, Show, Generic, NFData)
 
+-- | A step in the preprocessing process. Either preprocessing is complete
+-- ('Done') or an @#include@ directive needs to be resolved ('NeedInclude').
 data Step
-  = Done !Result
-  | NeedInclude !IncludeRequest !(Maybe Text -> Step)
+  = -- | Preprocessing is complete.
+    Done !Result
+  | -- | An @#include@ directive was encountered. The caller must provide
+    -- the contents of the included file (or 'Nothing' if not found),
+    -- and preprocessing will continue.
+    NeedInclude !IncludeRequest !(Maybe Text -> Step)
 
+-- | Preprocess C preprocessor directives in the input text.
+--
+-- This function handles:
+--
+-- * Macro definitions (@#define@) and expansion
+-- * Conditional compilation (@#if@, @#ifdef@, @#ifndef@, @#elif@, @#else@, @#endif@)
+-- * File inclusion (@#include@)
+-- * Diagnostics (@#warning@, @#error@)
+-- * Line control (@#line@)
+-- * Predefined macros (@__FILE__@, @__LINE__@, @__DATE__@, @__TIME__@)
+--
+-- === Macro expansion
+--
+-- Object-like macros are expanded in the output:
+--
+-- >>> let Done r = preprocess defaultConfig "#define FOO 42\nThe answer is FOO"
+-- >>> T.putStr (resultOutput r)
+-- #line 1 "<input>"
+-- <BLANKLINE>
+-- The answer is 42
+--
+-- Function-like macros are also supported:
+--
+-- >>> let Done r = preprocess defaultConfig "#define MAX(a,b) ((a) > (b) ? (a) : (b))\nMAX(3, 5)"
+-- >>> T.putStr (resultOutput r)
+-- #line 1 "<input>"
+-- <BLANKLINE>
+-- ((3) > (5) ? (3) : (5))
+--
+-- === Conditional compilation
+--
+-- Conditional directives control which sections of code are included:
+--
+-- >>> :{
+-- let Done r = preprocess defaultConfig
+--       "#define DEBUG 1\n#if DEBUG\ndebug mode\n#else\nrelease mode\n#endif"
+-- in T.putStr (resultOutput r)
+-- :}
+-- #line 1 "<input>"
+-- <BLANKLINE>
+-- <BLANKLINE>
+-- debug mode
+-- <BLANKLINE>
+-- <BLANKLINE>
+-- <BLANKLINE>
+--
+-- === Include handling
+--
+-- When an @#include@ directive is encountered, 'preprocess' returns a
+-- 'NeedInclude' step. The caller must provide the contents of the included
+-- file:
+--
+-- >>> :{
+-- let NeedInclude req k = preprocess defaultConfig "#include \"header.h\"\nmain code"
+--     Done r = k (Just "-- header content")
+-- in T.putStr (resultOutput r)
+-- :}
+-- #line 1 "<input>"
+-- #line 1 "./header.h"
+-- -- header content
+-- #line 2 "<input>"
+-- main code
+--
+-- If the include file is not found, pass 'Nothing' to emit an error:
+--
+-- >>> :{
+-- let NeedInclude _ k = preprocess defaultConfig "#include \"missing.h\""
+--     Done r = k Nothing
+-- in do
+--   T.putStr (resultOutput r)
+--   mapM_ print (resultDiagnostics r)
+-- :}
+-- #line 1 "<input>"
+-- Diagnostic {diagSeverity = Error, diagMessage = "missing include: missing.h", diagFile = "<input>", diagLine = 1}
+--
+-- === Diagnostics
+--
+-- The @#warning@ directive emits a warning:
+--
+-- >>> :{
+-- let Done r = preprocess defaultConfig "#warning This is a warning"
+-- in do
+--   T.putStr (resultOutput r)
+--   mapM_ print (resultDiagnostics r)
+-- :}
+-- #line 1 "<input>"
+-- <BLANKLINE>
+-- Diagnostic {diagSeverity = Warning, diagMessage = "This is a warning", diagFile = "<input>", diagLine = 1}
+--
+-- The @#error@ directive emits an error and stops preprocessing:
+--
+-- >>> :{
+-- let Done r = preprocess defaultConfig "#error Build failed\nthis line is not processed"
+-- in do
+--   T.putStr (resultOutput r)
+--   mapM_ print (resultDiagnostics r)
+-- :}
+-- #line 1 "<input>"
+-- <BLANKLINE>
+-- Diagnostic {diagSeverity = Error, diagMessage = "Build failed", diagFile = "<input>", diagLine = 1}
 preprocess :: Config -> Text -> Step
 preprocess cfg input =
   processFile (configInputFile cfg) (joinMultiline 1 (T.lines input)) [] initialState finish
   where
     initialState =
       let st0 = emitLine (linePragma 1 (configInputFile cfg)) (emptyState (configInputFile cfg))
-          (date, time) = configDateTime cfg
        in st0
-            { stMacros =
-                M.insert "__DATE__" (ObjectMacro ("\"" <> date <> "\"")) $
-                  M.insert "__TIME__" (ObjectMacro ("\"" <> time <> "\"")) $
-                    M.map ObjectMacro (configMacros cfg)
+            { stMacros = M.map ObjectMacro (configMacros cfg)
             }
     finish st =
       let out = T.intercalate "\n" (reverse (stOutputRev st))

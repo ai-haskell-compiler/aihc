@@ -5,8 +5,8 @@ module Test.HackageTester.Suite
   )
 where
 
+import Aihc.Cpp (IncludeKind (..), IncludeRequest (..), Result (..))
 import Control.Exception (bracket)
-import Cpp (IncludeKind (..), IncludeRequest (..), Result (..))
 import CppSupport (preprocessForParserIfEnabled)
 import qualified Data.ByteString as BS
 import Data.List (isSuffixOf)

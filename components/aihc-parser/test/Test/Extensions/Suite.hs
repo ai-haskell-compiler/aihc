@@ -5,8 +5,8 @@ module Test.Extensions.Suite
   )
 where
 
+import Aihc.Cpp (resultOutput)
 import Control.Monad (when)
-import Cpp (resultOutput)
 import CppSupport (preprocessForParserWithoutIncludesIfEnabled)
 import Data.Maybe (isNothing)
 import Data.Text (Text)
