@@ -10,15 +10,15 @@ module ParserValidation
   )
 where
 
+import Aihc.Parser (defaultConfig, errorBundlePretty, parseModule)
+import Aihc.Parser.Pretty (prettyModule)
+import Aihc.Parser.Types (ParseResult (..), ParserConfig (..))
 import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import GHC.LanguageExtensions.Type (Extension)
 import qualified GhcOracle
 import ModuleShrinker (shrinkModuleWithExtensions)
-import Parser (defaultConfig, errorBundlePretty, parseModule)
-import Parser.Pretty (prettyModule)
-import Parser.Types (ParseResult (..), ParserConfig (..))
 
 data ValidationErrorKind
   = ValidationParseError

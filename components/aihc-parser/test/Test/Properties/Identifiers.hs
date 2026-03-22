@@ -7,9 +7,9 @@ module Test.Properties.Identifiers
   )
 where
 
+import Aihc.Lexer (isReservedIdentifier)
 import Data.Text (Text)
 import qualified Data.Text as T
-import Parser (isReservedIdentifier)
 import Test.QuickCheck (Gen, chooseInt, elements, shrink, vectorOf)
 
 genIdent :: Gen Text

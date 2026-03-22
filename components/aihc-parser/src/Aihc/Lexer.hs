@@ -3,7 +3,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 -- |
--- Module      : Parser.Lexer
+-- Module      : Aihc.Lexer
 -- Description : Lex Haskell source into span-annotated tokens, then apply extensions and layout.
 --
 -- This module performs the pre-parse tokenization step for Haskell source code.
@@ -50,7 +50,7 @@
 --
 -- In other words, use keyword tokens only for exact reserved lexemes; contextual
 -- validity is left to the parser.
-module Parser.Lexer
+module Aihc.Lexer
   ( LexToken (..),
     LexTokenKind (..),
     isReservedIdentifier,
@@ -65,6 +65,7 @@ module Parser.Lexer
   )
 where
 
+import Aihc.Parser.Ast
 import Control.DeepSeq (NFData)
 import Data.Char (digitToInt, isAlphaNum, isAsciiLower, isAsciiUpper, isDigit, isHexDigit, isOctDigit, isSpace)
 import qualified Data.List as List
@@ -73,7 +74,6 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import GHC.Generics (Generic)
 import Numeric (readHex, readInt, readOct)
-import Parser.Ast
 
 data LexTokenKind
   = -- Keywords (reserved identifiers per Haskell Report Section 2.4)

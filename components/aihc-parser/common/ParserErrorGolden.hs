@@ -11,6 +11,8 @@ module ParserErrorGolden
   )
 where
 
+import Aihc.Parser (defaultConfig, errorBundlePretty, parseModule)
+import Aihc.Parser.Types (ParseResult (..), ParserConfig (..))
 import Data.Aeson ((.:))
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KeyMap
@@ -23,8 +25,6 @@ import Data.Text.Encoding (encodeUtf8)
 import qualified Data.Text.IO as TIO
 import qualified Data.Yaml as Y
 import GhcOracle (oracleModuleParseErrorWithNamesAt)
-import Parser (defaultConfig, errorBundlePretty, parseModule)
-import Parser.Types (ParseResult (..), ParserConfig (..))
 import System.Directory (doesDirectoryExist, listDirectory)
 import System.FilePath (makeRelative, takeDirectory, takeExtension, (</>))
 

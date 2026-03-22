@@ -9,8 +9,8 @@ module Test.Properties.ExprHelpers
   )
 where
 
+import Aihc.Parser.Ast
 import qualified Data.Text as T
-import Parser.Ast
 import Test.Properties.Identifiers (genIdent, shrinkIdent)
 import Test.QuickCheck
 

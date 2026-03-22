@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Parser.Internal.Expr
+module Aihc.Parser.Internal.Expr
   ( exprParser,
     equationRhsParser,
     simplePatternParser,
@@ -10,13 +10,13 @@ module Parser.Internal.Expr
   )
 where
 
+import Aihc.Lexer (LexToken (..), LexTokenKind (..), lexTokenKind, lexTokenSpan, lexTokenText)
+import Aihc.Parser.Ast
+import Aihc.Parser.Internal.Common
 import Control.Monad (guard)
 import Data.Char (isLower, isUpper)
 import Data.Text (Text)
 import qualified Data.Text as T
-import Parser.Ast
-import Parser.Internal.Common
-import Parser.Lexer (LexToken (..), LexTokenKind (..), lexTokenKind, lexTokenSpan, lexTokenText)
 import Text.Megaparsec (anySingle, lookAhead, (<|>))
 import qualified Text.Megaparsec as MP
 

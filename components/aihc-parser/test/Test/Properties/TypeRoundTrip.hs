@@ -6,14 +6,14 @@ module Test.Properties.TypeRoundTrip
   )
 where
 
+import Aihc.Lexer (isReservedIdentifier)
+import Aihc.Parser
+import Aihc.Parser.Ast
+import Aihc.Parser.Pretty (prettyTypeText)
 import Data.Data (dataTypeConstrs, dataTypeOf, showConstr, toConstr)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as T
-import Parser
-import Parser.Ast
-import Parser.Pretty (prettyTypeText)
-import Parser.Types (ParseResult (..))
 import Test.Properties.Identifiers (shrinkIdent)
 import Test.QuickCheck
 

@@ -6,11 +6,10 @@ module Test.Properties.ExprRoundTrip
   )
 where
 
+import Aihc.Parser
+import Aihc.Parser.Ast
+import Aihc.Parser.Pretty (prettyExpr)
 import qualified Data.Text as T
-import Parser
-import Parser.Ast
-import Parser.Pretty (prettyExpr)
-import Parser.Types (ParseResult (..))
 import Test.Properties.ExprHelpers (genExpr, normalizeExpr, shrinkExpr)
 import Test.QuickCheck
 

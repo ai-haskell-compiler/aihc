@@ -4,6 +4,9 @@
 module Main (main) where
 
 import Aihc.Cpp (Severity (..), diagSeverity, resultDiagnostics, resultOutput)
+import qualified Aihc.Parser
+import Aihc.Parser.Ast
+import Aihc.Parser.Types (ParseResult (..))
 import Control.Concurrent.Async (mapConcurrently)
 import Control.Exception (IOException, SomeException, displayException, try)
 import Control.Monad (when)
@@ -27,9 +30,6 @@ import HackageSupport
   )
 import HseExtensions (fromExtensionNames)
 import qualified Language.Haskell.Exts as HSE
-import qualified Parser
-import Parser.Ast
-import Parser.Types (ParseResult (..))
 import ParserValidation (ValidationError (..), ValidationErrorKind (..), validateParserDetailed)
 import StackageProgress.Summary
   ( FailedPackage (..),
@@ -533,12 +533,12 @@ checkFile opts packageRoot info = do
         if null cppErrors
           then Nothing
           else Just (T.intercalate "\n" cppErrors)
-      oursResult = Parser.parseModule Parser.defaultConfig source'
+      oursResult = Aihc.Parser.parseModule Aihc.Parser.defaultConfig source'
 
   oursStatus <- case oursResult of
     ParseErr err ->
       if CheckParse `elem` optChecks opts || needsParsedModule (optChecks opts)
-        then pure (Left (T.unpack (prefixCppErrors cppErrorMsg ("parse failed in " <> T.pack file <> ":\n" <> T.pack (Parser.errorBundlePretty err)))))
+        then pure (Left (T.unpack (prefixCppErrors cppErrorMsg ("parse failed in " <> T.pack file <> ":\n" <> T.pack (Aihc.Parser.errorBundlePretty err)))))
         else pure (Right ())
     ParseOk parsed -> do
       roundtripRes <-
@@ -612,8 +612,8 @@ checkSourceSpans file source modu =
 validateExprSpan :: Text -> Expr -> Either String ()
 validateExprSpan source expr = do
   snippet <- extractSpanText source (exprSpan expr)
-  case Parser.parseExpr Parser.defaultConfig snippet of
-    ParseErr err -> Left ("source-span parse failed for span " ++ show (exprSpan expr) ++ ":\n" ++ Parser.errorBundlePretty err)
+  case Aihc.Parser.parseExpr Aihc.Parser.defaultConfig snippet of
+    ParseErr err -> Left ("source-span parse failed for span " ++ show (exprSpan expr) ++ ":\n" ++ Aihc.Parser.errorBundlePretty err)
     ParseOk reparsed ->
       if stripExpr reparsed == stripExpr expr
         then Right ()

@@ -2,7 +2,7 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DeriveGeneric #-}
 
-module Parser.Ast
+module Aihc.Parser.Ast
   ( ArithSeq (..),
     BangType (..),
     BinderName,

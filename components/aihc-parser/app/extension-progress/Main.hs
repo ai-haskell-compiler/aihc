@@ -2,6 +2,10 @@
 
 module Main (main) where
 
+import qualified Aihc.Parser
+import Aihc.Parser.Ast (Module)
+import Aihc.Parser.Pretty (prettyModule)
+import Aihc.Parser.Types (ParseResult (..))
 import Data.Text (Text)
 import qualified Data.Text.IO as TIO
 import ExtensionSupport
@@ -11,10 +15,6 @@ import GhcOracle
     oracleParsesModuleWithExtensionsAt,
   )
 import OracleExtensions (resolveOracleExtensions)
-import qualified Parser
-import Parser.Ast (Module)
-import Parser.Pretty (prettyModule)
-import Parser.Types (ParseResult (..))
 import System.Environment (getArgs)
 import System.Exit (exitFailure, exitSuccess)
 import System.FilePath ((</>))
@@ -224,7 +224,7 @@ countOutcome target = length . filter (\(_, outcome, _) -> outcome == target)
 evaluateCase :: ExtensionSpec -> [Extension] -> CaseMeta -> IO (CaseMeta, Outcome, String)
 evaluateCase spec exts meta = do
   source <- TIO.readFile (fixtureDirFor spec </> casePath meta)
-  let parsed = Parser.parseModule Parser.defaultConfig source
+  let parsed = Aihc.Parser.parseModule Aihc.Parser.defaultConfig source
       oracleOk = oracleParsesModuleWithExtensionsAt "extension-progress" exts source
       roundtripOk = moduleRoundtripsViaGhc exts source parsed
   pure (finalizeOutcome meta oracleOk roundtripOk)

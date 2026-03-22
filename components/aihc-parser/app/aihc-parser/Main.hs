@@ -2,13 +2,13 @@
 
 module Main (main) where
 
+import Aihc.Parser (defaultConfig, errorBundlePretty, parseModule)
+import Aihc.Parser.Ast (Extension, ExtensionSetting (..), parseExtensionSettingName)
+import Aihc.Parser.PrettyAST (prettyASTModule)
+import Aihc.Parser.Types (ParseResult (..), ParserConfig (..))
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import Options.Applicative
-import Parser (defaultConfig, errorBundlePretty, parseModule)
-import Parser.Ast (Extension, ExtensionSetting (..), parseExtensionSettingName)
-import Parser.PrettyAST (prettyASTModule)
-import Parser.Types (ParseResult (..), ParserConfig (..))
 import System.Exit (exitFailure)
 
 data Options = Options

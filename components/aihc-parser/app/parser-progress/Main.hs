@@ -3,6 +3,10 @@
 module Main (main) where
 
 import Aihc.Cpp (resultOutput)
+import qualified Aihc.Parser
+import Aihc.Parser.Ast (Module)
+import Aihc.Parser.Pretty (prettyModule)
+import Aihc.Parser.Types (ParseResult (..))
 import Control.Monad (filterM)
 import CppSupport (preprocessForParserWithoutIncludes)
 import Data.Text (Text)
@@ -14,10 +18,6 @@ import GhcOracle
     oracleParsesModuleWithExtensionsAt,
   )
 import OracleExtensions (resolveOracleExtensions)
-import qualified Parser
-import Parser.Ast (Module)
-import Parser.Pretty (prettyModule)
-import Parser.Types (ParseResult (..))
 import System.Environment (getArgs)
 import System.Exit (exitFailure, exitSuccess)
 import System.FilePath ((</>))
@@ -104,7 +104,7 @@ evaluateCase :: ExtensionSpec -> [Extension] -> CaseMeta -> IO (CaseMeta, Outcom
 evaluateCase spec exts meta = do
   source <- TIO.readFile (fixtureDirFor spec </> casePath meta)
   let source' = resultOutput (preprocessForParserWithoutIncludes (casePath meta) source)
-      parsed = Parser.parseModule Parser.defaultConfig source'
+      parsed = Aihc.Parser.parseModule Aihc.Parser.defaultConfig source'
       oracleOk = oracleParsesModuleWithExtensionsAt "parser-progress" exts source'
       roundtripOk = moduleRoundtripsViaGhc exts source' parsed
       (outcome, details) = classifyForSuite spec (caseExpected meta) oracleOk roundtripOk

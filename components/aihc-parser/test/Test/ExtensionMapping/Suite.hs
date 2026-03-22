@@ -3,12 +3,12 @@ module Test.ExtensionMapping.Suite
   )
 where
 
+import qualified Aihc.Parser.Ast as Ast
 import Data.List (intercalate)
 import Data.Maybe (isNothing)
 import qualified Data.Text as T
 import qualified Language.Haskell.Extension as Cabal
 import qualified Language.Haskell.TH.Syntax as TH
-import qualified Parser.Ast as Ast
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertFailure, testCase)
 

@@ -3,11 +3,11 @@ module OracleExtensions
   )
 where
 
+import Aihc.Parser.Ast (parseExtensionName)
 import qualified Data.Text as T
 import ExtensionSupport (ExtensionSpec (..))
 import qualified GHC.LanguageExtensions.Type as GHC
 import GhcOracle (toGhcExtension)
-import Parser.Ast (parseExtensionName)
 
 resolveOracleExtensions :: ExtensionSpec -> IO [GHC.Extension]
 resolveOracleExtensions spec =

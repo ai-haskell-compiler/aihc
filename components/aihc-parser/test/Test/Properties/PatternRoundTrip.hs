@@ -5,14 +5,14 @@ module Test.Properties.PatternRoundTrip
   )
 where
 
+import Aihc.Lexer (isReservedIdentifier)
+import Aihc.Parser (ParseResult (..), defaultConfig, errorBundlePretty, parsePattern)
+import Aihc.Parser.Ast
+import Aihc.Parser.Pretty (prettyPatternText)
 import Data.Data (dataTypeConstrs, dataTypeOf, showConstr, toConstr)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as T
-import Parser (defaultConfig, errorBundlePretty, isReservedIdentifier, parsePattern)
-import Parser.Ast
-import Parser.Pretty (prettyPatternText)
-import Parser.Types (ParseResult (..))
 import Test.Properties.Identifiers (genIdent, shrinkIdent)
 import Test.QuickCheck
 

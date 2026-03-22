@@ -12,6 +12,12 @@ module LexerGolden
   )
 where
 
+import Aihc.Lexer
+  ( LexToken (..),
+    LexTokenKind,
+    lexTokensWithExtensions,
+  )
+import Aihc.Parser.Ast (Extension, parseExtensionName)
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withObject)
 import Data.Char (isSpace, toLower)
@@ -21,13 +27,6 @@ import qualified Data.Text as T
 import Data.Text.Encoding (encodeUtf8)
 import qualified Data.Text.IO as TIO
 import qualified Data.Yaml as Y
-import Parser
-  ( Extension,
-    LexToken (..),
-    LexTokenKind,
-    lexTokensWithExtensions,
-  )
-import Parser.Ast (parseExtensionName)
 import System.Directory (doesDirectoryExist, listDirectory)
 import System.FilePath (takeDirectory, takeExtension, (</>))
 import Text.Read (readMaybe)
