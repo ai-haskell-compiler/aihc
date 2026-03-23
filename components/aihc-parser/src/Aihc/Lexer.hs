@@ -268,12 +268,11 @@ lexTokensFromChunksWithExtensions = lexChunksWithExtensions False
 
 -- | Run the full lexer pipeline over chunked input.
 --
--- The scanner operates over the concatenated chunk stream, then the resulting token
--- stream is rewritten for enabled extensions and finally passed through the layout
--- insertion step.
+-- The scanner operates over the concatenated chunk stream with inline extension
+-- handling, then the resulting token stream is passed through the layout insertion step.
 lexChunksWithExtensions :: Bool -> [Extension] -> [Text] -> [LexToken]
 lexChunksWithExtensions enableModuleLayout exts chunks =
-  applyLayoutTokens enableModuleLayout (applyExtensions exts (scanTokens initialLexerState))
+  applyLayoutTokens enableModuleLayout (scanTokens initialLexerState)
   where
     initialLexerState =
       LexerState
@@ -409,16 +408,6 @@ nextToken st =
       case parser st of
         Just out -> Just out
         Nothing -> firstJust rest
-
--- | Apply all extension-driven post-lexing rewrites in a deterministic order.
---
--- Note: NegativeLiterals and LexicalNegation are now handled inline during lexing
--- in lexNegativeLiteralOrMinus, so this function is now a no-op. It is kept for
--- API compatibility.
---
--- UnicodeSyntax is also handled inline during lexing in lexOperator.
-applyExtensions :: [Extension] -> [LexToken] -> [LexToken]
-applyExtensions _ = id
 
 applyLayoutTokens :: Bool -> [LexToken] -> [LexToken]
 applyLayoutTokens enableModuleLayout =
