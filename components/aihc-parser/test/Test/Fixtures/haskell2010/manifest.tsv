@@ -140,6 +140,7 @@ decls-infix-funlhs-instance	declarations	declarations/infix-funlhs-instance.hs	p
 decls-infix-funlhs-local	declarations	declarations/infix-funlhs-local.hs	pass	parser now supports infix definitions in where clauses
 decls-infix-funlhs-let	declarations	declarations/infix-funlhs-let.hs	pass	parser now supports infix definitions in let expressions
 decls-infix-funlhs-class	declarations	declarations/infix-funlhs-class.hs	pass	parser now supports infix definitions in class declarations
+decls-infix-funlhs-bang	declarations	declarations/infix-funlhs-bang.hs	xfail	requires whitespace-sensitive lexing (GHC 9.0+ proposal 0229)
 
 expr-if-then-else	expressions	expressions/if-then-else.hs	pass	parser now handles this if-then-else form
 expr-case-of	expressions	expressions/case-of.hs	pass	parser now supports simple case-of expressions
@@ -181,6 +182,7 @@ expr-s3-section-left	expressions	expressions/section-left.hs	pass	parser now sup
 expr-s3-section-right	expressions	expressions/section-right.hs	pass	parser now supports right operator sections
 expr-s3-section-backtick-left	expressions	expressions/section-backtick-left.hs	pass	parser now supports left backtick operator sections
 expr-s3-section-backtick-right	expressions	expressions/section-backtick-right.hs	pass	parser now supports right backtick operator sections
+expr-s3-section-bang	expressions	expressions/section-bang.hs	pass	parser supports bang operator sections in expressions
 expr-s3-conditional-basic	expressions	expressions/conditional-basic.hs	pass	parser now supports basic conditional expressions
 expr-s3-conditional-semicolons	expressions	expressions/conditional-semicolons.hs	xfail	parser intentionally disabled
 expr-s3-list-empty	expressions	expressions/list-empty.hs	pass	parser supports empty list literals
