@@ -1,0 +1,7 @@
+# Negative octal integer with NegativeLiterals extension
+extensions:
+  - NegativeLiterals
+input: "-0o17"
+tokens:
+  - 'TkIntegerBase (-15) "-0o17"'
+status: pass
