@@ -43,6 +43,7 @@ extension_markdown_cmd="${PARSER_EXTENSION_PROGRESS_CMD:-nix run .#parser-extens
 extension_progress_cmd="${PARSER_EXTENSION_PROGRESS_TEXT_CMD:-nix run .#parser-extension-progress}"
 cpp_cmd="${CPP_PROGRESS_CMD:-nix run .#cpp-progress}"
 stackage_cmd="${PARSER_STACKAGE_PROGRESS_CMD:-nix run .#stackage-progress -- --snapshot lts-24.33 --checks parse}"
+line_counts_cmd="${LINE_COUNTS_CMD:-nix run .#line-counts}"
 
 tmpdir="$(mktemp -d)"
 cleanup() {
@@ -56,6 +57,7 @@ extension_out="$tmpdir/extension-progress.md"
 extension_progress_out="$tmpdir/extension-progress.txt"
 cpp_out="$tmpdir/cpp-progress.txt"
 stackage_out="$tmpdir/stackage-progress.txt"
+line_counts_out="$tmpdir/line-counts.txt"
 
 run_cmd "$parser_cmd" >"$parser_out"
 run_cmd "$lexer_cmd" >"$lexer_out"
@@ -63,6 +65,7 @@ run_cmd "$extension_markdown_cmd" | sed -n '/^# Haskell Parser Extension Support
 run_cmd "$extension_progress_cmd" >"$extension_progress_out"
 run_cmd "$cpp_cmd" >"$cpp_out"
 run_cmd "$stackage_cmd" >"$stackage_out" || true
+run_cmd "$line_counts_cmd" >"$line_counts_out"
 
 parse_progress() {
 	local infile="$1"
@@ -351,6 +354,7 @@ replace_marker_inline README.md "parser-progress" "$tmpdir/readme-root-parser.tx
 replace_marker_inline README.md "lexer-progress" "$tmpdir/readme-root-lexer.txt"
 replace_marker_inline README.md "parser-stackage-progress" "$tmpdir/readme-root-stackage.txt"
 replace_marker_inline README.md "cpp-progress" "$tmpdir/readme-root-cpp.txt"
+replace_marker_block README.md "line-counts" "$line_counts_out"
 replace_marker_block components/aihc-parser/README.md "haskell2010-progress" "$tmpdir/readme-parser-h2010.txt"
 replace_marker_block components/aihc-parser/README.md "extension-progress" "$tmpdir/readme-parser-extension.txt"
 replace_marker_block components/aihc-cpp/README.md "cpp-progress" "$tmpdir/readme-cpp.txt"

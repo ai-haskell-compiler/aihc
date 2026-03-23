@@ -3,9 +3,9 @@
 ## Summary
 
 - Total Extensions: 138
-- Supported: 23
-- In Progress: 11
-- Planned: 104
+- Supported: 26
+- In Progress: 9
+- Planned: 103
 
 ## Extension Status
 
@@ -36,7 +36,7 @@
 | DerivingStrategies | Supported | 5/5 | DerivingStrategies |
 | DerivingVia | Planned | - | DerivingVia |
 | DisambiguateRecordFields | Planned | - | DisambiguateRecordFields |
-| DoAndIfThenElse | Supported | 3/3 | DoAndIfThenElse |
+| DoAndIfThenElse | Supported | 7/7 | DoAndIfThenElse |
 | DuplicateRecordFields | Planned | - | DuplicateRecordFields |
 | EmptyCase | Supported | 4/4 | EmptyCase |
 | EmptyDataDecls | Supported | 5/5 | EmptyDataDecls |
@@ -83,7 +83,7 @@
 | MultiParamTypeClasses | Supported | 5/5 | MultiParamTypeClasses |
 | MultiWayIf | Planned | - | MultiWayIf |
 | NamedDefaults | Planned | - | NamedDefaults |
-| NamedFieldPuns | In Progress | 0/5 | NamedFieldPuns |
+| NamedFieldPuns | Supported | 5/5 | NamedFieldPuns |
 | NamedWildCards | Supported | 4/4 | NamedWildCards |
 | NegativeLiterals | Planned | - | NegativeLiterals |
 | NondecreasingIndentation | Planned | - | NondecreasingIndentation |
@@ -119,7 +119,7 @@
 | RoleAnnotations | In Progress | 0/4 | RoleAnnotations |
 | Safe | Planned | - | Safe |
 | ScopedTypeVariables | Planned | - | ScopedTypeVariables |
-| StandaloneDeriving | In Progress | 0/4 | StandaloneDeriving |
+| StandaloneDeriving | Supported | 12/12 | StandaloneDeriving |
 | StandaloneKindSignatures | Supported | 5/5 | StandaloneKindSignatures |
 | StarIsType | Planned | - | StarIsType |
 | StaticPointers | Planned | - | StaticPointers |
@@ -143,7 +143,7 @@
 | UnboxedTuples | Planned | - | UnboxedTuples |
 | UndecidableInstances | Planned | - | UndecidableInstances |
 | UndecidableSuperClasses | Planned | - | UndecidableSuperClasses |
-| UnicodeSyntax | Planned | - | UnicodeSyntax |
+| UnicodeSyntax | Supported | 6/6 | UnicodeSyntax |
 | UnliftedDatatypes | Planned | - | UnliftedDatatypes |
 | UnliftedFFITypes | Planned | - | UnliftedFFITypes |
 | UnliftedNewtypes | Planned | - | UnliftedNewtypes |

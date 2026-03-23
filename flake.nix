@@ -313,6 +313,9 @@ WRAPPER
               [ -d "$comp_path" ] || continue
               comp=$(basename "$comp_path")
 
+              # Skip aihc-name-resolution (empty stub)
+              [ "$comp" = "aihc-name-resolution" ] && continue
+
               comp_all_lines=$(tokei "$comp_path" --output json | jq '.Total.code // 0')
               test_lines=0
               if [ -d "$comp_path/test" ]; then
