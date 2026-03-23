@@ -6,8 +6,9 @@ import qualified Aihc.Parser
 import Aihc.Parser.Ast (Module)
 import Aihc.Parser.Pretty (prettyModule)
 import Aihc.Parser.Types (ParseResult (..))
+import qualified Data.ByteString as BS
 import Data.Text (Text)
-import qualified Data.Text.IO as TIO
+import Data.Text.Encoding (decodeUtf8)
 import ExtensionSupport
 import GHC.LanguageExtensions.Type (Extension)
 import GhcOracle
@@ -223,8 +224,9 @@ countOutcome target = length . filter (\(_, outcome, _) -> outcome == target)
 
 evaluateCase :: ExtensionSpec -> [Extension] -> CaseMeta -> IO (CaseMeta, Outcome, String)
 evaluateCase spec exts meta = do
-  source <- TIO.readFile (fixtureDirFor spec </> casePath meta)
-  let parsed = Aihc.Parser.parseModule Aihc.Parser.defaultConfig source
+  bytes <- BS.readFile (fixtureDirFor spec </> casePath meta)
+  let source = decodeUtf8 bytes
+      parsed = Aihc.Parser.parseModule Aihc.Parser.defaultConfig source
       oracleOk = oracleParsesModuleWithExtensionsAt "extension-progress" exts source
       roundtripOk = moduleRoundtripsViaGhc exts source parsed
   pure (finalizeOutcome meta oracleOk roundtripOk)

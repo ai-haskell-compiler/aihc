@@ -192,6 +192,7 @@ executable extension-progress
       base >=4.16 && <5
     , aihc-parser
     , aihc-cpp
+    , bytestring
     , text
     , containers
     , directory
