@@ -135,6 +135,9 @@ infixOperatorParserExcept forbidden =
           TkQConSym op | op `notElem` forbidden -> Just op
           -- TkMinusOperator is minus when LexicalNegation is enabled but used as infix
           TkMinusOperator | "-" `notElem` forbidden -> Just "-"
+          -- TkBangOperator and TkTildeOperator are loose infix occurrences
+          TkBangOperator | "!" `notElem` forbidden -> Just "!"
+          TkTildeOperator | "~" `notElem` forbidden -> Just "~"
           -- Reserved operators that can be used as infix operators
           TkReservedColon | ":" `notElem` forbidden -> Just ":"
           _ -> Nothing
@@ -306,6 +309,8 @@ parenOperatorExprParser = withSpan $ do
       TkQVarSym sym -> Just sym
       TkQConSym sym -> Just sym
       TkMinusOperator -> Just "-"
+      TkBangOperator -> Just "!"
+      TkTildeOperator -> Just "~"
       TkReservedColon -> Just ":"
       TkReservedDoubleColon -> Just "::"
       TkReservedEquals -> Just "="
@@ -313,7 +318,6 @@ parenOperatorExprParser = withSpan $ do
       TkReservedLeftArrow -> Just "<-"
       TkReservedRightArrow -> Just "->"
       TkReservedDoubleArrow -> Just "=>"
-      TkReservedTilde -> Just "~"
       TkReservedDotDot -> Just ".."
       _ -> Nothing
   expectedTok TkSpecialRParen
@@ -384,13 +388,13 @@ patternAtomParser =
 
 strictPatternParser :: TokParser Pattern
 strictPatternParser = withSpan $ do
-  expectedTok (TkVarSym "!")
+  expectedTok TkPrefixBang
   inner <- patternAtomParser
   pure (`PStrict` inner)
 
 irrefutablePatternParser :: TokParser Pattern
 irrefutablePatternParser = withSpan $ do
-  expectedTok TkReservedTilde
+  expectedTok TkPrefixTilde
   inner <- patternAtomParser
   pure (`PIrrefutable` inner)
 
@@ -980,7 +984,8 @@ typeParenOperatorParser = withSpan $ do
       TkQConSym sym -> Just sym
       -- Handle reserved operators that can be used as type constructors
       TkReservedRightArrow -> Just "->"
-      TkReservedTilde -> Just "~"
+      TkBangOperator -> Just "!"
+      TkTildeOperator -> Just "~"
       _ -> Nothing
   expectedTok TkSpecialRParen
   pure (`TCon` op)

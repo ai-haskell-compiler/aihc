@@ -140,7 +140,8 @@ decls-infix-funlhs-instance	declarations	declarations/infix-funlhs-instance.hs	p
 decls-infix-funlhs-local	declarations	declarations/infix-funlhs-local.hs	pass	parser now supports infix definitions in where clauses
 decls-infix-funlhs-let	declarations	declarations/infix-funlhs-let.hs	pass	parser now supports infix definitions in let expressions
 decls-infix-funlhs-class	declarations	declarations/infix-funlhs-class.hs	pass	parser now supports infix definitions in class declarations
-decls-infix-funlhs-bang	declarations	declarations/infix-funlhs-bang.hs	xfail	requires whitespace-sensitive lexing (GHC 9.0+ proposal 0229)
+decls-infix-funlhs-bang	declarations	declarations/infix-funlhs-bang.hs	pass	parser now supports whitespace-sensitive infix bang operator definitions
+decls-prefix-bang-pattern	declarations	declarations/prefix-bang-pattern.hs	pass	parser now supports whitespace-sensitive prefix bang patterns
 
 expr-if-then-else	expressions	expressions/if-then-else.hs	pass	parser now handles this if-then-else form
 expr-case-of	expressions	expressions/case-of.hs	pass	parser now supports simple case-of expressions

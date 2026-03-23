@@ -145,6 +145,11 @@ data LexTokenKind
   | -- LexicalNegation support
     TkMinusOperator -- minus operator when LexicalNegation enabled (before prefix detection)
   | TkPrefixMinus -- prefix minus (tight, no space) for LexicalNegation
+  | -- Whitespace-sensitive bang/tilde (GHC proposal 0229)
+    TkBangOperator -- bang operator (before prefix detection)
+  | TkPrefixBang -- prefix bang (tight, no space) for bang patterns
+  | TkTildeOperator -- tilde operator (before prefix detection)
+  | TkPrefixTilde -- prefix tilde (tight, no space) for irrefutable patterns
   | -- Pragmas
     TkPragmaLanguage [ExtensionSetting]
   | TkPragmaWarning Text
@@ -392,11 +397,17 @@ nextToken st =
 
 -- | Apply all extension-driven post-lexing rewrites in a deterministic order.
 -- Note: UnicodeSyntax is handled inline during lexing in lexOperator.
+-- Whitespace-sensitive bang/tilde (GHC proposal 0229) is always applied as it's
+-- standard behavior since GHC 9.0.
 applyExtensions :: [Extension] -> [LexToken] -> [LexToken]
-applyExtensions exts toks
-  | LexicalNegation `elem` exts = applyLexicalNegation (markLexicalMinusOperators (applyNegativeLiterals toks))
-  | NegativeLiterals `elem` exts = applyNegativeLiterals toks
-  | otherwise = toks
+applyExtensions exts toks =
+  let bangTildeProcessed = applyWhitespaceBangTilde (markBangTildeOperators toks)
+   in if LexicalNegation `elem` exts
+        then applyLexicalNegation (markLexicalMinusOperators (applyNegativeLiterals bangTildeProcessed))
+        else
+          if NegativeLiterals `elem` exts
+            then applyNegativeLiterals bangTildeProcessed
+            else bangTildeProcessed
 
 -- | Mark all minus operators as TkMinusOperator when LexicalNegation is enabled.
 -- This is an intermediate step before detecting prefix positions.
@@ -408,6 +419,151 @@ markLexicalMinusOperators =
           TkVarSym "-" -> tok {lexTokenKind = TkMinusOperator}
           _ -> tok
     )
+
+-- | Mark all bang (!) operators as TkBangOperator and tilde (~) as TkTildeOperator.
+-- This is an intermediate step before detecting prefix positions.
+-- Note: TkReservedTilde is already a reserved token, so we don't need to mark it here.
+markBangTildeOperators :: [LexToken] -> [LexToken]
+markBangTildeOperators =
+  map
+    ( \tok ->
+        case lexTokenKind tok of
+          TkVarSym "!" -> tok {lexTokenKind = TkBangOperator}
+          TkReservedTilde -> tok {lexTokenKind = TkTildeOperator}
+          _ -> tok
+    )
+
+-- | Apply whitespace-sensitive bang/tilde parsing (GHC proposal 0229).
+-- Converts TkBangOperator to TkPrefixBang when in prefix position (tight, no space).
+-- Converts TkTildeOperator to TkPrefixTilde when in prefix position.
+--
+-- Per the proposal:
+--   * Prefix occurrence: not(closing), operator, opening
+--   * Loose infix occurrence: not(closing), operator, not(opening) - stays as operator
+--   * Tight infix occurrence: closing, operator, opening - stays as operator
+--   * Suffix occurrence: closing, operator, not(opening) - stays as operator
+applyWhitespaceBangTilde :: [LexToken] -> [LexToken]
+applyWhitespaceBangTilde = go Nothing
+  where
+    go prev toks =
+      case toks of
+        [] -> []
+        tok : rest
+          | isBangOrTildeOperator tok ->
+              -- Only look at next token if we have a bang/tilde operator
+              case rest of
+                nextTok : _
+                  | tokensAdjacent tok nextTok,
+                    allowsPrefixBangTilde prev tok,
+                    tokenCanStartBangTildeAtom nextTok ->
+                      let prefixed = tok {lexTokenKind = prefixKind (lexTokenKind tok)}
+                       in prefixed : go (Just prefixed) rest
+                _ -> tok : go (Just tok) rest
+          | otherwise -> tok : go (Just tok) rest
+
+    isBangOrTildeOperator tok =
+      case lexTokenKind tok of
+        TkBangOperator -> True
+        TkTildeOperator -> True
+        _ -> False
+
+    prefixKind kind =
+      case kind of
+        TkBangOperator -> TkPrefixBang
+        TkTildeOperator -> TkPrefixTilde
+        other -> other
+
+-- | Check if a prefix bang/tilde is allowed based on the preceding token.
+-- Prefix position means: not(closing), operator, opening
+-- The token is NOT in prefix position if the previous token is a closing token
+-- and they are adjacent.
+allowsPrefixBangTilde :: Maybe LexToken -> LexToken -> Bool
+allowsPrefixBangTilde prev bangTok =
+  case prev of
+    Nothing -> True
+    Just prevTok
+      | tokensAdjacent prevTok bangTok -> not (isClosingToken prevTok)
+      | otherwise -> True
+
+-- | Check if a token is a "closing" token per GHC proposal 0229.
+-- Closing tokens include identifiers, keywords, literals, and closing brackets.
+isClosingToken :: LexToken -> Bool
+isClosingToken tok =
+  case lexTokenKind tok of
+    -- Identifiers
+    TkVarId _ -> True
+    TkConId _ -> True
+    TkQVarId _ -> True
+    TkQConId _ -> True
+    -- Keywords are identifiers
+    TkKeywordCase -> True
+    TkKeywordClass -> True
+    TkKeywordData -> True
+    TkKeywordDefault -> True
+    TkKeywordDeriving -> True
+    TkKeywordDo -> True
+    TkKeywordElse -> True
+    TkKeywordForeign -> True
+    TkKeywordIf -> True
+    TkKeywordImport -> True
+    TkKeywordIn -> True
+    TkKeywordInfix -> True
+    TkKeywordInfixl -> True
+    TkKeywordInfixr -> True
+    TkKeywordInstance -> True
+    TkKeywordLet -> True
+    TkKeywordModule -> True
+    TkKeywordNewtype -> True
+    TkKeywordOf -> True
+    TkKeywordThen -> True
+    TkKeywordType -> True
+    TkKeywordWhere -> True
+    TkKeywordUnderscore -> True
+    TkKeywordQualified -> True
+    TkKeywordAs -> True
+    TkKeywordHiding -> True
+    -- Literals
+    TkInteger _ -> True
+    TkIntegerBase _ _ -> True
+    TkFloat _ _ -> True
+    TkChar _ -> True
+    TkString _ -> True
+    -- Closing brackets
+    TkSpecialRParen -> True
+    TkSpecialRBracket -> True
+    TkSpecialRBrace -> True
+    -- Everything else is not closing
+    _ -> False
+
+-- | Check if a token can start an atom after a prefix bang/tilde.
+-- Opening tokens include identifiers, keywords, literals, and opening brackets.
+tokenCanStartBangTildeAtom :: LexToken -> Bool
+tokenCanStartBangTildeAtom tok =
+  case lexTokenKind tok of
+    -- Identifiers
+    TkVarId _ -> True
+    TkConId _ -> True
+    TkQVarId _ -> True
+    TkQConId _ -> True
+    -- Literals
+    TkInteger _ -> True
+    TkIntegerBase _ _ -> True
+    TkFloat _ _ -> True
+    TkChar _ -> True
+    TkString _ -> True
+    TkQuasiQuote _ _ -> True
+    -- Opening brackets
+    TkSpecialLParen -> True
+    TkSpecialLBracket -> True
+    TkSpecialLBrace -> True
+    -- Prefix operators can chain
+    TkBangOperator -> True
+    TkTildeOperator -> True
+    TkPrefixBang -> True
+    TkPrefixTilde -> True
+    -- Keywords (which can start expressions/patterns)
+    TkKeywordUnderscore -> True
+    _ -> False
 
 -- | Implement @NegativeLiterals@ by merging @-@ and immediately adjacent numerics.
 --

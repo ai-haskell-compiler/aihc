@@ -84,6 +84,10 @@ renderTokenKind tk = case tk of
   TkReservedAt -> "operator '@'"
   TkReservedTilde -> "operator '~'"
   TkReservedDoubleArrow -> "operator '=>'"
+  TkBangOperator -> "operator '!'"
+  TkPrefixBang -> "prefix '!'"
+  TkTildeOperator -> "operator '~'"
+  TkPrefixTilde -> "prefix '~'"
   TkVarSym op -> "operator '" <> show op <> "'"
   TkConSym op -> "operator '" <> show op <> "'"
   _ -> show tk
@@ -149,7 +153,9 @@ operatorTextParser =
 -- Per Haskell Report section 4.4.3, funlhs uses 'varop' which is:
 --   varop → varsym | ` varid `
 -- This excludes constructor operators (consym) and qualified operators.
--- Note: We exclude "!" because it's used for strict patterns (BangPatterns)
+-- Note: We accept TkBangOperator for "!" in loose infix position (e.g., "x ! y = ()").
+-- The lexer handles the whitespace-sensitive distinction, so TkBangOperator
+-- represents a loose infix "!" while TkPrefixBang is used for bang patterns.
 infixOperatorNameParser :: TokParser Text
 infixOperatorNameParser =
   symbolicOperatorParser <|> backtickIdentifierParser
@@ -157,7 +163,9 @@ infixOperatorNameParser =
     symbolicOperatorParser =
       tokenSatisfy "variable operator" $ \tok ->
         case lexTokenKind tok of
-          TkVarSym op | op /= "!" -> Just op
+          TkVarSym op -> Just op
+          TkBangOperator -> Just "!"
+          TkTildeOperator -> Just "~"
           _ -> Nothing
     backtickIdentifierParser = do
       expectedTok TkSpecialBacktick

@@ -554,6 +554,10 @@ docTokenKind kind =
     TkSpecialRBrace -> "TkSpecialRBrace"
     TkMinusOperator -> "TkMinusOperator"
     TkPrefixMinus -> "TkPrefixMinus"
+    TkBangOperator -> "TkBangOperator"
+    TkPrefixBang -> "TkPrefixBang"
+    TkTildeOperator -> "TkTildeOperator"
+    TkPrefixTilde -> "TkPrefixTilde"
     TkPragmaLanguage settings -> "TkPragmaLanguage" <+> brackets (hsep (punctuate comma (map docExtensionSetting settings)))
     TkPragmaWarning msg -> "TkPragmaWarning" <+> docText msg
     TkPragmaDeprecated msg -> "TkPragmaDeprecated" <+> docText msg
