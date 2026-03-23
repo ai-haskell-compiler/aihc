@@ -35,7 +35,7 @@ exprCoverage expr =
     . cover 20 (hasAppExpr expr) "contains application"
 
 instance Arbitrary Expr where
-  arbitrary = sized (genExpr . min 5)
+  arbitrary = resize 5 genExpr
   shrink = shrinkExpr
 
 hasVarExpr :: Expr -> Bool

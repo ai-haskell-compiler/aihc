@@ -35,7 +35,7 @@ instance Arbitrary Module where
     -- Generate unique names by generating more than needed and deduplicating
     candidateNames <- vectorOf (n * 2) genIdent
     let names = take n (nub candidateNames)
-    exprs <- vectorOf (length names) (genExpr 4)
+    exprs <- vectorOf (length names) (resize 4 genExpr)
     imports <- genImportDecls
     -- Generate arbitrary module name, including Nothing for implicit modules
     modName <- genMaybeModuleName
