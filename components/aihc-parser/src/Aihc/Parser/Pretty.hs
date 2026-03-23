@@ -317,11 +317,18 @@ prettyPattern pat =
           ( hsep
               ( punctuate
                   comma
-                  [ pretty fieldName <+> "=" <+> prettyPattern fieldPat
-                  | (fieldName, fieldPat) <- fields
-                  ]
+                  [prettyPatternFieldBinding fieldName fieldPat | (fieldName, fieldPat) <- fields]
               )
           )
+
+-- | Pretty print a pattern field binding.
+-- Supports NamedFieldPuns: if pattern is a variable with the same name as the field,
+-- print just the field name (punned form).
+prettyPatternFieldBinding :: Text -> Pattern -> Doc ann
+prettyPatternFieldBinding fieldName fieldPat =
+  case fieldPat of
+    PVar _ varName | varName == fieldName -> pretty fieldName -- NamedFieldPuns: punned form
+    _ -> pretty fieldName <+> "=" <+> prettyPattern fieldPat
 
 prettyPatternAtom :: Pattern -> Doc ann
 prettyPatternAtom pat =
@@ -734,8 +741,14 @@ prettyExprPrec prec expr =
         )
     ETupleCon _ arity -> parens (pretty (T.replicate (max 1 (arity - 1)) ","))
 
+-- | Pretty print a record field binding.
+-- Supports NamedFieldPuns: if value is a variable with the same name as the field,
+-- print just the field name (punned form).
 prettyBinding :: (Text, Expr) -> Doc ann
-prettyBinding (name, value) = pretty name <+> "=" <+> prettyExprPrec 0 value
+prettyBinding (name, value) =
+  case value of
+    EVar _ varName | varName == name -> pretty name -- NamedFieldPuns: punned form
+    _ -> pretty name <+> "=" <+> prettyExprPrec 0 value
 
 prettyCaseAlt :: CaseAlt -> Doc ann
 prettyCaseAlt (CaseAlt _ pat rhs) =

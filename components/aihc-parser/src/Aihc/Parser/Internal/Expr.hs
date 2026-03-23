@@ -186,10 +186,71 @@ stringExprParser = withSpan $ do
 
 appExprParser :: TokParser Expr
 appExprParser = withSpan $ do
-  first <- atomExprParser
-  rest <- MP.many atomExprParser
+  first <- atomOrRecordExprParser
+  rest <- MP.many atomOrRecordExprParser
   pure $ \span' ->
     foldl (EApp span') first rest
+
+-- | Parse an atom, optionally followed by one or more record construction/update syntax.
+-- This handles cases like:
+--   - Foo { x = 1 }  -- record construction
+--   - expr { x = 1 } -- record update
+--   - r { a = 1 } { b = 2 } -- chained record update
+atomOrRecordExprParser :: TokParser Expr
+atomOrRecordExprParser = do
+  base <- atomExprParser
+  applyRecordSuffixes base
+  where
+    applyRecordSuffixes :: Expr -> TokParser Expr
+    applyRecordSuffixes e = do
+      mRecordFields <- MP.optional recordBracesParser
+      case mRecordFields of
+        Nothing -> pure e
+        Just fields -> do
+          let result = case e of
+                EVar span' name
+                  | isConLikeName name ->
+                      ERecordCon (mergeSourceSpans span' (fieldsEndSpan fields)) name (map normalizeField fields)
+                _ ->
+                  ERecordUpd (mergeSourceSpans (getSourceSpan e) (fieldsEndSpan fields)) e (map normalizeField fields)
+          -- Recursively check for more record braces (chained updates)
+          applyRecordSuffixes result
+
+    -- Get the end span from the last field (or the opening brace position)
+    fieldsEndSpan :: [(Text, Maybe Expr, SourceSpan)] -> SourceSpan
+    fieldsEndSpan [] = NoSourceSpan
+    fieldsEndSpan fs = case last fs of (_, _, sp) -> sp
+    -- Normalize field: if no expression given (pun), use field name as expression
+    normalizeField :: (Text, Maybe Expr, SourceSpan) -> (Text, Expr)
+    normalizeField (fieldName, mExpr, sp) =
+      case mExpr of
+        Just expr' -> (fieldName, expr')
+        Nothing -> (fieldName, EVar sp fieldName) -- NamedFieldPuns: field name becomes variable
+
+-- | Parse record braces: { field = value, field2 = value2, ... }
+-- Supports both explicit assignment (field = value) and puns (field)
+recordBracesParser :: TokParser [(Text, Maybe Expr, SourceSpan)]
+recordBracesParser = do
+  expectedTok TkSpecialLBrace
+  mClose <- MP.optional (expectedTok TkSpecialRBrace)
+  case mClose of
+    Just () -> pure []
+    Nothing -> do
+      fields <- recordFieldBindingParser `MP.sepEndBy` expectedTok TkSpecialComma
+      expectedTok TkSpecialRBrace
+      pure fields
+
+-- | Parse a single record field binding: either "field = expr" or just "field" (pun)
+recordFieldBindingParser :: TokParser (Text, Maybe Expr, SourceSpan)
+recordFieldBindingParser = do
+  startPos <- MP.getSourcePos
+  fieldName <- tokenSatisfy "field name" $ \tok ->
+    case lexTokenKind tok of
+      TkVarId name -> Just name
+      _ -> Nothing
+  mAssign <- MP.optional (expectedTok TkReservedEquals *> exprParser)
+  endPos <- MP.getSourcePos
+  pure (fieldName, mAssign, sourceSpanFromPositions startPos endPos)
 
 atomExprParser :: TokParser Expr
 atomExprParser =
@@ -734,10 +795,18 @@ recordPatternParser = withSpan $ do
 
 recordFieldPatternParser :: TokParser (Text, Pattern)
 recordFieldPatternParser = do
+  startPos <- MP.getSourcePos
   field <- identifierTextParser
-  expectedTok TkReservedEquals
-  pat <- patternParser
-  pure (field, pat)
+  mEq <- MP.optional (expectedTok TkReservedEquals)
+  endPos <- MP.getSourcePos
+  case mEq of
+    Just () -> do
+      pat <- patternParser
+      pure (field, pat)
+    Nothing -> do
+      -- NamedFieldPuns: just "field" means "field = field"
+      let span' = sourceSpanFromPositions startPos endPos
+      pure (field, PVar span' field)
 
 listPatternParser :: TokParser Pattern
 listPatternParser = withSpan $ do

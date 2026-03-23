@@ -206,10 +206,13 @@ expr-s3-case-infix-rhs	expressions	expressions/case-infix-rhs.hs	pass	parser sup
 expr-s3-let-infix-rhs	expressions	expressions/let-infix-rhs.hs	pass	parser supports let as right operand of infix expression
 expr-s3-lambda-infix-rhs	expressions	expressions/lambda-infix-rhs.hs	pass	parser supports lambda as right operand of infix expression
 expr-s3-record-field-selection	expressions	expressions/record-field-selection.hs	pass
-expr-s3-record-construction-empty	expressions	expressions/record-construction-empty.hs	xfail	parser intentionally disabled
-expr-s3-record-construction-fields	expressions	expressions/record-construction-fields.hs	xfail	parser intentionally disabled
-expr-s3-record-update-single	expressions	expressions/record-update-single.hs	xfail	parser intentionally disabled
-expr-s3-record-update-multiple	expressions	expressions/record-update-multiple.hs	xfail	parser intentionally disabled
+expr-s3-record-construction-empty	expressions	expressions/record-construction-empty.hs	pass	parser now supports empty record construction expressions
+expr-s3-record-construction-fields	expressions	expressions/record-construction-fields.hs	pass	parser now supports record construction expressions with fields
+expr-s3-record-construction-trailing-comma	expressions	expressions/record-construction-trailing-comma.hs	xfail	GHC does not accept trailing comma in record expressions
+expr-s3-record-update-single	expressions	expressions/record-update-single.hs	pass	parser now supports record update expressions
+expr-s3-record-update-multiple	expressions	expressions/record-update-multiple.hs	pass	parser now supports record update expressions with multiple fields
+expr-s3-record-update-chained	expressions	expressions/record-update-chained.hs	pass	parser now supports chained record updates
+expr-s3-record-update-paren-base	expressions	expressions/record-update-paren-base.hs	pass	parser now supports record update on parenthesized expressions
 expr-s3-expr-type-signature-basic	expressions	expressions/expr-type-signature-basic.hs	pass	parser now supports expression type signatures
 expr-s3-expr-type-signature-context	expressions	expressions/expr-type-signature-context.hs	pass	parser now supports expression type signatures with context
 expr-s3-pattern-infix-constructor	expressions	expressions/pattern-infix-constructor.hs	pass	parser now supports infix constructor patterns in case alternatives
