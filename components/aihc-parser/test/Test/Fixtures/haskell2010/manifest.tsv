@@ -132,7 +132,7 @@ decls-default	declarations	declarations/default.hs	pass	parser now supports defa
 decls-deriving	declarations	declarations/deriving.hs	pass	parser now supports parenthesized data deriving clauses
 decls-infix-funlhs-basic	declarations	declarations/infix-funlhs-basic.hs	pass	parser now supports infix operator function definitions
 decls-infix-funlhs-backtick	declarations	declarations/infix-funlhs-backtick.hs	xfail	backtick infix definitions parse but don't roundtrip (printed as prefix)
-decls-infix-funlhs-lambda	declarations	declarations/infix-funlhs-lambda.hs	xfail	infix definition with lambda body parses but has roundtrip issues
+decls-infix-funlhs-lambda	declarations	declarations/infix-funlhs-lambda.hs	pass	parser now supports infix definitions with lambda bodies
 decls-infix-funlhs-pattern	declarations	declarations/infix-funlhs-pattern.hs	pass	parser now supports infix definitions with patterns
 decls-infix-funlhs-with-sig	declarations	declarations/infix-funlhs-with-sig.hs	pass	parser now supports infix definitions with type signatures
 decls-infix-funlhs-guarded	declarations	declarations/infix-funlhs-guarded.hs	pass	parser now supports infix definitions with guards
