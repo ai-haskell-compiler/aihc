@@ -20,12 +20,12 @@ import Aihc.Lexer
 import Aihc.Parser.Ast (Extension, parseExtensionName)
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withObject)
+import qualified Data.ByteString as BS
 import Data.Char (isSpace, toLower)
 import Data.List (dropWhileEnd, sort)
 import Data.Text (Text)
 import qualified Data.Text as T
-import Data.Text.Encoding (encodeUtf8)
-import qualified Data.Text.IO as TIO
+import Data.Text.Encoding (decodeUtf8, encodeUtf8)
 import qualified Data.Yaml as Y
 import System.Directory (doesDirectoryExist, listDirectory)
 import System.FilePath (takeDirectory, takeExtension, (</>))
@@ -70,7 +70,8 @@ loadLexerCases = do
 
 loadLexerCase :: FilePath -> IO LexerCase
 loadLexerCase path = do
-  source <- TIO.readFile path
+  bytes <- BS.readFile path
+  let source = decodeUtf8 bytes
   case parseLexerCaseText path source of
     Left err -> fail err
     Right parsed -> pure parsed
