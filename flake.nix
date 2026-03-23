@@ -99,16 +99,20 @@
                 # Create wrapper scripts that disable HPC for spawned executables
                 # This prevents .tix file corruption when test-spawned executables
                 # try to write to the same coverage file as the test runner
-                # We create a valid empty .tix file for each wrapper to read/write
+                # Each invocation creates its own unique temp .tix file to avoid
+                # race conditions when tests run in parallel
                 mkdir -p "$PWD/hpc-wrappers"
                 for exe in aihc-lexer aihc-parser; do
-                  # Create a valid empty .tix file for this executable
-                  echo "Tix []" > "$PWD/hpc-wrappers/$exe.tix"
-                  cat > "$PWD/hpc-wrappers/$exe" << EOF
-                #!/bin/sh
-                HPCTIXFILE="$PWD/hpc-wrappers/$exe.tix" exec "$PWD/dist/build/$exe/$exe" "\$@"
-                EOF
+                  cat > "$PWD/hpc-wrappers/$exe" << 'WRAPPER'
+#!/bin/sh
+# Create a unique temp .tix file for this invocation
+tix_file=$(mktemp --suffix=.tix)
+echo "Tix []" > "$tix_file"
+HPCTIXFILE="$tix_file" exec "$0.real" "$@"
+WRAPPER
                   chmod +x "$PWD/hpc-wrappers/$exe"
+                  # Create symlink to actual executable
+                  ln -sf "$PWD/dist/build/$exe/$exe" "$PWD/hpc-wrappers/$exe.real"
                 done
                 export AIHC_LEXER_EXE="$PWD/hpc-wrappers/aihc-lexer"
                 export AIHC_PARSER_EXE="$PWD/hpc-wrappers/aihc-parser"
