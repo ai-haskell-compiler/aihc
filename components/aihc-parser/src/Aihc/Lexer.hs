@@ -438,12 +438,13 @@ rewriteUnicodeVarSym sym =
     _ -> TkVarSym sym
 
 -- | Rewrite a constructor symbol token if it's a Unicode operator.
--- Note: Most Unicode syntax symbols are variable symbols, not constructor symbols.
+-- Note: All Unicode syntax symbols are classified as TkVarSym by lexOperator
+-- because the TkConSym/TkVarSym distinction is based on whether the first
+-- character is ASCII ':'. Unicode symbols like ∷ start with non-ASCII characters,
+-- so they're always TkVarSym and handled by rewriteUnicodeVarSym.
+-- This function exists for completeness but currently passes through unchanged.
 rewriteUnicodeConSym :: Text -> LexTokenKind
-rewriteUnicodeConSym sym =
-  case T.unpack sym of
-    "∷" -> TkReservedDoubleColon -- :: can appear in operator position starting with :
-    _ -> TkConSym sym
+rewriteUnicodeConSym = TkConSym
 
 -- | Mark all minus operators as TkMinusOperator when LexicalNegation is enabled.
 -- This is an intermediate step before detecting prefix positions.
