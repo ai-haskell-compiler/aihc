@@ -70,10 +70,10 @@ defaultConfig =
 -- | Parse a Haskell expression.
 --
 -- >>> shorthand $ parseExpr defaultConfig "1 + 2"
--- ParseOk (EInfix (EInt 1) + (EInt 2))
+-- ParseOk (EInfix (EInt 1) "+" (EInt 2))
 --
 -- >>> shorthand $ parseExpr defaultConfig "\\x -> x + 1"
--- ParseOk (ELambdaPats [PVar x] (EInfix (EVar x) + (EInt 1)))
+-- ParseOk (ELambdaPats [PVar "x"] (EInfix (EVar "x") "+" (EInt 1)))
 --
 -- Parse errors are returned as 'ParseErr':
 --
@@ -89,10 +89,10 @@ parseExpr cfg input =
 -- | Parse a Haskell pattern.
 --
 -- >>> shorthand $ parsePattern defaultConfig "(x, y)"
--- ParseOk (PTuple [PVar x, PVar y])
+-- ParseOk (PTuple [PVar "x", PVar "y"])
 --
 -- >>> shorthand $ parsePattern defaultConfig "Just x"
--- ParseOk (PCon Just [PVar x])
+-- ParseOk (PCon "Just" [PVar "x"])
 parsePattern :: ParserConfig -> Text -> ParseResult Pattern
 parsePattern cfg input =
   let toks = lexTokensWithExtensions (parserExtensions cfg) input
@@ -103,10 +103,10 @@ parsePattern cfg input =
 -- | Parse a Haskell type.
 --
 -- >>> shorthand $ parseType defaultConfig "Int -> Bool"
--- ParseOk (TFun (TCon Int) (TCon Bool))
+-- ParseOk (TFun (TCon "Int") (TCon "Bool"))
 --
 -- >>> shorthand $ parseType defaultConfig "Maybe a"
--- ParseOk (TApp (TCon Maybe) (TVar a))
+-- ParseOk (TApp (TCon "Maybe") (TVar "a"))
 parseType :: ParserConfig -> Text -> ParseResult Type
 parseType cfg input =
   let toks = lexTokensWithExtensions (parserExtensions cfg) input
@@ -117,7 +117,7 @@ parseType cfg input =
 -- | Parse a complete Haskell module.
 --
 -- >>> shorthand $ parseModule defaultConfig "module Main where\nmain = putStrLn \"Hello\""
--- ParseOk (Module {name = Main, decls = [DeclValue (FunctionBind main [Match {rhs = UnguardedRhs (EApp (EVar putStrLn) (EString Hello))}])]})
+-- ParseOk (Module {name = "Main", decls = [DeclValue (FunctionBind "main" [Match {rhs = UnguardedRhs (EApp (EVar "putStrLn") (EString "Hello"))}])]})
 --
 -- Modules without a header are also supported:
 --

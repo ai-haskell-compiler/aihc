@@ -4,7 +4,7 @@
 -- >>> import Aihc.Parser (parseModule)
 --
 -- >>> shorthand $ parseModule "module Demo where x = 1"
--- ParseOk (Module {name = Demo, decls = [DeclValue (FunctionBind x [Match {rhs = UnguardedRhs (EInt 1)}])]})
+-- ParseOk (Module {name = "Demo", decls = [DeclValue (FunctionBind "x" [Match {rhs = UnguardedRhs (EInt 1)}])]})
 
 -- |
 -- Module      : Aihc.Parser.Shorthand
@@ -34,6 +34,7 @@ import Prettyprinter
     braces,
     brackets,
     comma,
+    dquotes,
     hsep,
     parens,
     punctuate,
@@ -591,7 +592,7 @@ boolField _ False = []
 boolField name True = [field name "True"]
 
 docText :: Text -> Doc ann
-docText = pretty
+docText t = dquotes (pretty t)
 
 docTextList :: [Text] -> Doc ann
 docTextList ts = brackets (hsep (punctuate comma (map docText ts)))

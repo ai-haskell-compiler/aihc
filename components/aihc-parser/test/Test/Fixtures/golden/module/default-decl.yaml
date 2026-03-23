@@ -3,5 +3,5 @@ input: |
   module D10 where
   default (Integer, Double)
 ast: |
-  Module {name = D10, decls = [DeclDefault [TCon Integer, TCon Double]]}
+  Module {name = "D10", decls = [DeclDefault [TCon "Integer", TCon "Double"]]}
 status: pass

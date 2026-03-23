@@ -1,5 +1,5 @@
 extensions: []
 input: |
   ((,a),)
-ast: ETupleSection [ETupleSection [_, EVar a], _]
+ast: ETupleSection [ETupleSection [_, EVar "a"], _]
 status: pass
