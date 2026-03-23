@@ -391,62 +391,12 @@ nextToken st =
         Nothing -> firstJust rest
 
 -- | Apply all extension-driven post-lexing rewrites in a deterministic order.
+-- Note: UnicodeSyntax is handled inline during lexing in lexOperator.
 applyExtensions :: [Extension] -> [LexToken] -> [LexToken]
-applyExtensions exts toks =
-  let toks1
-        | UnicodeSyntax `elem` exts = applyUnicodeSyntax toks
-        | otherwise = toks
-      toks2
-        | LexicalNegation `elem` exts = applyLexicalNegation (markLexicalMinusOperators (applyNegativeLiterals toks1))
-        | NegativeLiterals `elem` exts = applyNegativeLiterals toks1
-        | otherwise = toks1
-   in toks2
-
--- | Apply UnicodeSyntax extension by mapping Unicode operators to their ASCII equivalents.
--- This allows using Unicode symbols like ∷ ⇒ → ← ∀ ★ in place of :: => -> <- forall *.
-applyUnicodeSyntax :: [LexToken] -> [LexToken]
-applyUnicodeSyntax = map rewriteUnicodeToken
-
--- | Rewrite a single token to convert Unicode symbols to their ASCII equivalents.
-rewriteUnicodeToken :: LexToken -> LexToken
-rewriteUnicodeToken tok =
-  case lexTokenKind tok of
-    TkVarSym sym -> tok {lexTokenKind = rewriteUnicodeVarSym sym}
-    TkConSym sym -> tok {lexTokenKind = rewriteUnicodeConSym sym}
-    _ -> tok
-
--- | Rewrite a variable symbol token if it's a Unicode operator.
-rewriteUnicodeVarSym :: Text -> LexTokenKind
-rewriteUnicodeVarSym sym =
-  case T.unpack sym of
-    "∷" -> TkReservedDoubleColon -- :: (proportion)
-    "⇒" -> TkReservedDoubleArrow -- => (rightwards double arrow)
-    "→" -> TkReservedRightArrow -- -> (rightwards arrow)
-    "←" -> TkReservedLeftArrow -- <- (leftwards arrow)
-    "∀" -> TkVarId "forall" -- forall (for all)
-    "★" -> TkVarSym "*"
-    -- \* (black star, for kind signatures)
-    "⤙" -> TkVarSym "-<" -- -< (leftwards arrow-tail, for arrows)
-    "⤚" -> TkVarSym ">-" -- >- (rightwards arrow-tail, for arrows)
-    "⤛" -> TkVarSym "-<<" -- -<< (leftwards double arrow-tail)
-    "⤜" -> TkVarSym ">>-" -- >>- (rightwards double arrow-tail)
-    "⦇" -> TkVarSym "(|" -- (| (left banana bracket)
-    "⦈" -> TkVarSym "|)"
-    -- \|) (right banana bracket)
-    "⟦" -> TkVarSym "[|" -- [| (left semantic bracket)
-    "⟧" -> TkVarSym "|]"
-    -- \|] (right semantic bracket)
-    "⊸" -> TkVarSym "%1->" -- %1-> (linear arrow, for LinearTypes)
-    _ -> TkVarSym sym
-
--- | Rewrite a constructor symbol token if it's a Unicode operator.
--- Note: All Unicode syntax symbols are classified as TkVarSym by lexOperator
--- because the TkConSym/TkVarSym distinction is based on whether the first
--- character is ASCII ':'. Unicode symbols like ∷ start with non-ASCII characters,
--- so they're always TkVarSym and handled by rewriteUnicodeVarSym.
--- This function exists for completeness but currently passes through unchanged.
-rewriteUnicodeConSym :: Text -> LexTokenKind
-rewriteUnicodeConSym = TkConSym
+applyExtensions exts toks
+  | LexicalNegation `elem` exts = applyLexicalNegation (markLexicalMinusOperators (applyNegativeLiterals toks))
+  | NegativeLiterals `elem` exts = applyNegativeLiterals toks
+  | otherwise = toks
 
 -- | Mark all minus operators as TkMinusOperator when LexicalNegation is enabled.
 -- This is an intermediate step before detecting prefix positions.
@@ -925,14 +875,40 @@ lexOperator st =
     (op@(c : _), _) ->
       let txt = T.pack op
           st' = advanceChars op st
+          hasUnicode = UnicodeSyntax `elem` lexerExtensions st
           kind = case reservedOpTokenKind txt of
             Just reserved -> reserved
-            Nothing ->
-              if c == ':'
-                then TkConSym txt
-                else TkVarSym txt
+            Nothing
+              | hasUnicode -> unicodeOpTokenKind txt c
+              | c == ':' -> TkConSym txt
+              | otherwise -> TkVarSym txt
        in Just (mkToken st st' txt kind, st')
     _ -> Nothing
+
+-- | Map Unicode operators to their ASCII equivalents when UnicodeSyntax is enabled.
+-- Returns the appropriate token kind for known Unicode operators, or falls back
+-- to TkVarSym/TkConSym based on whether the first character is ':'.
+unicodeOpTokenKind :: Text -> Char -> LexTokenKind
+unicodeOpTokenKind txt firstChar =
+  case T.unpack txt of
+    "∷" -> TkReservedDoubleColon -- :: (proportion)
+    "⇒" -> TkReservedDoubleArrow -- => (rightwards double arrow)
+    "→" -> TkReservedRightArrow -- -> (rightwards arrow)
+    "←" -> TkReservedLeftArrow -- <- (leftwards arrow)
+    "∀" -> TkVarId "forall" -- forall (for all)
+    "★" -> TkVarSym "*" -- star (for kind signatures)
+    "⤙" -> TkVarSym "-<" -- -< (leftwards arrow-tail)
+    "⤚" -> TkVarSym ">-" -- >- (rightwards arrow-tail)
+    "⤛" -> TkVarSym "-<<" -- -<< (leftwards double arrow-tail)
+    "⤜" -> TkVarSym ">>-" -- >>- (rightwards double arrow-tail)
+    "⦇" -> TkVarSym "(|" -- (| left banana bracket
+    "⦈" -> TkVarSym "|)" -- right banana bracket |)
+    "⟦" -> TkVarSym "[|" -- [| left semantic bracket
+    "⟧" -> TkVarSym "|]" -- right semantic bracket |]
+    "⊸" -> TkVarSym "%1->" -- %1-> (linear arrow)
+    _
+      | firstChar == ':' -> TkConSym txt
+      | otherwise -> TkVarSym txt
 
 lexSymbol :: LexerState -> Maybe (LexToken, LexerState)
 lexSymbol st =
