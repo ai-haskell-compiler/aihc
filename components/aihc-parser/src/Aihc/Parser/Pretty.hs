@@ -11,12 +11,15 @@
 --
 -- The 'Pretty' instances from 'Prettyprinter' are provided for the main
 -- AST types, allowing direct use of 'pretty' from @Prettyprinter@.
+--
+-- This module has an empty export list because it only provides typeclass
+-- instances. Import it to bring the 'Pretty' instances into scope.
+--
+-- __Provided instances:__ 'Pretty' for 'Module', 'Expr', 'Pattern', 'Type'.
 module Aihc.Parser.Pretty
   (
   )
 where
-
--- Pretty instances are available for Module, Expr, Pattern, Type
 
 import Aihc.Parser.Ast
 import Data.Maybe (catMaybes)

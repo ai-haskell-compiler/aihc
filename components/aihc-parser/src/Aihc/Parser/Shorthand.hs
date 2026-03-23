@@ -61,7 +61,7 @@ instance Shorthand Module where
     where
       fields =
         optionalField "name" docText (moduleName modu)
-          <> optionalListField "languagePragmas" docExtensionSetting (moduleLanguagePragmas modu)
+          <> listField "languagePragmas" docExtensionSetting (moduleLanguagePragmas modu)
           <> optionalField "warningText" docWarningText (moduleWarningText modu)
           <> optionalField "exports" (brackets . hsep . punctuate comma . map docExportSpec) (moduleExports modu)
           <> listField "imports" docImportDecl (moduleImports modu)
@@ -579,9 +579,6 @@ optionalField' f mVal =
 listField :: Text -> (a -> Doc ann) -> [a] -> [Doc ann]
 listField _ _ [] = []
 listField name f xs = [field name (brackets (hsep (punctuate comma (map f xs))))]
-
-optionalListField :: Text -> (a -> Doc ann) -> [a] -> [Doc ann]
-optionalListField = listField
 
 boolField :: Text -> Bool -> [Doc ann]
 boolField _ False = []
