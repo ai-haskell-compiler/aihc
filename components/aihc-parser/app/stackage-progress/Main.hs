@@ -18,7 +18,6 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import GHC.Clock (getMonotonicTimeNSec)
 import GHC.Conc (getNumProcessors)
-import qualified GHC.LanguageExtensions.Type as GHC
 import qualified GhcOracle
 import HackageSupport
   ( FileInfo (..),
@@ -31,7 +30,7 @@ import HackageSupport
   )
 import HseExtensions (fromExtensionNames)
 import qualified Language.Haskell.Exts as HSE
-import ParserValidation (ValidationError (..), ValidationErrorKind (..), validateParserDetailedWithExtensions)
+import ParserValidation (ValidationError (..), ValidationErrorKind (..), validateParserDetailedWithExtensionNames)
 import StackageProgress.Summary
   ( FailedPackage (..),
     PackageResult (..),
@@ -526,8 +525,7 @@ needsFullPackageScan opts =
 checkFile :: Options -> FilePath -> FileInfo -> IO FileResult
 checkFile opts packageRoot info = do
   let file = fileInfoPath info
-      ghcExts = GhcOracle.extensionNamesToGhcExtensions (fileInfoExtensions info) (fileInfoLanguage info)
-      parserExts = mapMaybe GhcOracle.fromGhcExtension ghcExts
+      parserExts = GhcOracle.extensionNamesToParserExtensions (fileInfoExtensions info)
       parserConfig = Aihc.Parser.defaultConfig {Aihc.Parser.parserExtensions = parserExts}
   source <- readTextFileLenient file
   preprocessed <- preprocessForParserIfEnabled (fileInfoExtensions info) (fileInfoCppOptions info) file (resolveIncludeBestEffort packageRoot file) source
@@ -547,7 +545,7 @@ checkFile opts packageRoot info = do
     ParseOk parsed -> do
       roundtripRes <-
         if CheckRoundtripGhc `elem` optChecks opts
-          then pure (checkRoundtrip ghcExts file cppErrorMsg source')
+          then pure (checkRoundtrip (fileInfoExtensions info) (fileInfoLanguage info) file cppErrorMsg source')
           else pure (Right ())
       case roundtripRes of
         Left err -> pure (Left err)
@@ -595,9 +593,9 @@ needsParsedModule :: [Check] -> Bool
 needsParsedModule checks =
   CheckRoundtripGhc `elem` checks || CheckSourceSpan `elem` checks
 
-checkRoundtrip :: [GHC.Extension] -> FilePath -> Maybe Text -> Text -> Either String ()
-checkRoundtrip exts file cppErrorMsg source' =
-  case validateParserDetailedWithExtensions exts source' of
+checkRoundtrip :: [String] -> Maybe String -> FilePath -> Maybe Text -> Text -> Either String ()
+checkRoundtrip extNames langName file cppErrorMsg source' =
+  case validateParserDetailedWithExtensionNames extNames langName source' of
     Nothing -> Right ()
     Just err ->
       case validationErrorKind err of
