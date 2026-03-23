@@ -1,0 +1,8 @@
+extensions:
+  - UnicodeSyntax
+input: "a → b"
+tokens:
+  - 'TkVarId "a"'
+  - 'TkReservedRightArrow'
+  - 'TkVarId "b"'
+status: pass

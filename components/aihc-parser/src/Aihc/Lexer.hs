@@ -391,6 +391,7 @@ nextToken st =
         Nothing -> firstJust rest
 
 -- | Apply all extension-driven post-lexing rewrites in a deterministic order.
+-- Note: UnicodeSyntax is handled inline during lexing in lexOperator.
 applyExtensions :: [Extension] -> [LexToken] -> [LexToken]
 applyExtensions exts toks
   | LexicalNegation `elem` exts = applyLexicalNegation (markLexicalMinusOperators (applyNegativeLiterals toks))
@@ -874,14 +875,40 @@ lexOperator st =
     (op@(c : _), _) ->
       let txt = T.pack op
           st' = advanceChars op st
+          hasUnicode = UnicodeSyntax `elem` lexerExtensions st
           kind = case reservedOpTokenKind txt of
             Just reserved -> reserved
-            Nothing ->
-              if c == ':'
-                then TkConSym txt
-                else TkVarSym txt
+            Nothing
+              | hasUnicode -> unicodeOpTokenKind txt c
+              | c == ':' -> TkConSym txt
+              | otherwise -> TkVarSym txt
        in Just (mkToken st st' txt kind, st')
     _ -> Nothing
+
+-- | Map Unicode operators to their ASCII equivalents when UnicodeSyntax is enabled.
+-- Returns the appropriate token kind for known Unicode operators, or falls back
+-- to TkVarSym/TkConSym based on whether the first character is ':'.
+unicodeOpTokenKind :: Text -> Char -> LexTokenKind
+unicodeOpTokenKind txt firstChar =
+  case T.unpack txt of
+    "∷" -> TkReservedDoubleColon -- :: (proportion)
+    "⇒" -> TkReservedDoubleArrow -- => (rightwards double arrow)
+    "→" -> TkReservedRightArrow -- -> (rightwards arrow)
+    "←" -> TkReservedLeftArrow -- <- (leftwards arrow)
+    "∀" -> TkVarId "forall" -- forall (for all)
+    "★" -> TkVarSym "*" -- star (for kind signatures)
+    "⤙" -> TkVarSym "-<" -- -< (leftwards arrow-tail)
+    "⤚" -> TkVarSym ">-" -- >- (rightwards arrow-tail)
+    "⤛" -> TkVarSym "-<<" -- -<< (leftwards double arrow-tail)
+    "⤜" -> TkVarSym ">>-" -- >>- (rightwards double arrow-tail)
+    "⦇" -> TkVarSym "(|" -- (| left banana bracket
+    "⦈" -> TkVarSym "|)" -- right banana bracket |)
+    "⟦" -> TkVarSym "[|" -- [| left semantic bracket
+    "⟧" -> TkVarSym "|]" -- right semantic bracket |]
+    "⊸" -> TkVarSym "%1->" -- %1-> (linear arrow)
+    _
+      | firstChar == ':' -> TkConSym txt
+      | otherwise -> TkVarSym txt
 
 lexSymbol :: LexerState -> Maybe (LexToken, LexerState)
 lexSymbol st =
@@ -1622,7 +1649,27 @@ isIdentTail :: Char -> Bool
 isIdentTail c = isAlphaNum c || c == '_' || c == '\''
 
 isSymbolicOpChar :: Char -> Bool
-isSymbolicOpChar c = c `elem` (":!#$%&*+./<=>?@\\^|-~" :: String)
+isSymbolicOpChar c = c `elem` (":!#$%&*+./<=>?@\\^|-~" :: String) || isUnicodeSymbol c
+
+-- | Unicode symbols that may be used with UnicodeSyntax extension.
+-- These are: ∷ ⇒ → ← ∀ ★ ⤙ ⤚ ⤛ ⤜ ⦇ ⦈ ⟦ ⟧ ⊸
+isUnicodeSymbol :: Char -> Bool
+isUnicodeSymbol c =
+  c == '∷' -- U+2237 PROPORTION (for ::)
+    || c == '⇒' -- U+21D2 RIGHTWARDS DOUBLE ARROW (for =>)
+    || c == '→' -- U+2192 RIGHTWARDS ARROW (for ->)
+    || c == '←' -- U+2190 LEFTWARDS ARROW (for <-)
+    || c == '∀' -- U+2200 FOR ALL (for forall)
+    || c == '★' -- U+2605 BLACK STAR (for *)
+    || c == '⤙' -- U+2919 LEFTWARDS ARROW-TAIL (for -<)
+    || c == '⤚' -- U+291A RIGHTWARDS ARROW-TAIL (for >-)
+    || c == '⤛' -- U+291B LEFTWARDS DOUBLE ARROW-TAIL (for -<<)
+    || c == '⤜' -- U+291C RIGHTWARDS DOUBLE ARROW-TAIL (for >>-)
+    || c == '⦇' -- U+2987 Z NOTATION LEFT IMAGE BRACKET (for (|)
+    || c == '⦈' -- U+2988 Z NOTATION RIGHT IMAGE BRACKET (for |))
+    || c == '⟦' -- U+27E6 MATHEMATICAL LEFT WHITE SQUARE BRACKET (for [|)
+    || c == '⟧' -- U+27E7 MATHEMATICAL RIGHT WHITE SQUARE BRACKET (for |])
+    || c == '⊸' -- U+22B8 MULTIMAP (for %1-> with LinearTypes)
 
 -- | Check if the remainder after '--' should start a line comment.
 -- Per Haskell Report: '--' starts a comment only if the entire symbol sequence

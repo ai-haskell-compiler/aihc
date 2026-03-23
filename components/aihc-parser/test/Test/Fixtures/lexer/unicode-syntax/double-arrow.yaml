@@ -1,0 +1,9 @@
+extensions:
+  - UnicodeSyntax
+input: "Eq a ⇒ a"
+tokens:
+  - 'TkConId "Eq"'
+  - 'TkVarId "a"'
+  - 'TkReservedDoubleArrow'
+  - 'TkVarId "a"'
+status: pass

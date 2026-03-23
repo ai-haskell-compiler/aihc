@@ -10,7 +10,7 @@ import Aihc.Parser.Types (ParseResult (..))
 import Control.Monad (filterM)
 import CppSupport (preprocessForParserWithoutIncludes)
 import Data.Text (Text)
-import qualified Data.Text.IO as TIO
+import qualified Data.Text.IO.Utf8 as Utf8
 import ExtensionSupport
 import GHC.LanguageExtensions.Type (Extension)
 import GhcOracle
@@ -102,7 +102,7 @@ oracleExtensionsFor spec
 
 evaluateCase :: ExtensionSpec -> [Extension] -> CaseMeta -> IO (CaseMeta, Outcome, String)
 evaluateCase spec exts meta = do
-  source <- TIO.readFile (fixtureDirFor spec </> casePath meta)
+  source <- Utf8.readFile (fixtureDirFor spec </> casePath meta)
   let source' = resultOutput (preprocessForParserWithoutIncludes (casePath meta) source)
       parsed = Aihc.Parser.parseModule Aihc.Parser.defaultConfig source'
       oracleOk = oracleParsesModuleWithExtensionsAt "parser-progress" exts source'

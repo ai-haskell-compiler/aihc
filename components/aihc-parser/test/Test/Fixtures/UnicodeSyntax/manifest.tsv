@@ -1,0 +1,6 @@
+unicode-double-colon	types	unicode-double-colon.hs	pass
+unicode-forall	types	unicode-forall.hs	pass
+unicode-constraint	types	unicode-constraint.hs	pass
+unicode-bind-arrow	do-blocks	unicode-bind-arrow.hs	pass
+unicode-lambda	types	unicode-lambda.hs	pass
+unicode-rank-n	types	unicode-rank-n.hs	pass

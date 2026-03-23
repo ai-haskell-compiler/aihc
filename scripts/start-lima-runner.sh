@@ -258,7 +258,12 @@ runner_user="$(id -un)"
 runner_home="$HOME"
 
 sudo apt-get update
-sudo apt-get install -y awscli curl git tar
+sudo apt-get install -y awscli curl git tar locales
+
+# Configure UTF-8 locale for proper Unicode handling
+sudo sed -i "s/# en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/" /etc/locale.gen
+sudo locale-gen en_US.UTF-8
+sudo update-locale LANG=en_US.UTF-8
 
 sudo systemctl stop aihc-github-runner.service >/dev/null 2>&1 || true
 sudo systemctl disable aihc-github-runner.service >/dev/null 2>&1 || true
@@ -297,6 +302,8 @@ ExecStart=${runner_home}/actions-runner/run.sh
 Restart=always
 RestartSec=5
 KillMode=process
+Environment=LANG=en_US.UTF-8
+Environment=LC_ALL=en_US.UTF-8
 
 [Install]
 WantedBy=multi-user.target

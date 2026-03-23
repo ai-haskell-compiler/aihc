@@ -169,6 +169,7 @@ executable lexer-progress
       base >=4.16 && <5
     , aihc-parser
     , text
+    , bytestring
     , containers
     , directory
     , filepath
