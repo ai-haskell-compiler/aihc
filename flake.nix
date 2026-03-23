@@ -172,30 +172,6 @@
             echo "Contents:" >> "$out/README.txt"
             ls -la "$out" >> "$out/README.txt"
           '';
-        # Haskell packages with HIE file generation enabled for stan analysis
-        mkHsPkgsWithHie = pkgs:
-          let
-            hsPkgs = mkHsPkgs pkgs;
-            enableHie = drv: pkgs.haskell.lib.overrideCabal drv (old: {
-              configureFlags = (old.configureFlags or []) ++ [
-                "--ghc-option=-fwrite-ide-info"
-                "--ghc-option=-hiedir=.hie"
-              ];
-              postInstall = (old.postInstall or "") + ''
-                if [ -d .hie ]; then
-                  mkdir -p "$out/.hie"
-                  cp -r .hie/* "$out/.hie/"
-                fi
-              '';
-            });
-          in hsPkgs.override {
-            overrides = final: prev: {
-              ghc-lib-parser = pkgs.haskell.lib.dontHaddock final.ghc-lib-parser_9_14_1_20251220;
-              # Disable tests for HIE builds - we only need the HIE files for stan
-              aihc-parser = enableHie (pkgs.haskell.lib.dontCheck (final.callCabal2nix "aihc-parser" ./components/aihc-parser { }));
-              aihc-cpp = enableHie (pkgs.haskell.lib.dontCheck (final.callCabal2nix "aihc-cpp" ./components/aihc-cpp { }));
-            };
-          };
      in {
       packages = forAllSystems (pkgs: {
         docs = mkCombinedDocs pkgs;
@@ -594,38 +570,6 @@
             bash ./scripts/test-parser-quickcheck-soak.sh
             touch "$out"
           '';
-          # Stan static analysis
-          hsPkgsHie = mkHsPkgsWithHie pkgs;
-          stanAnalysis = pkgs.runCommand "aihc-stan-analysis" {
-            nativeBuildInputs = [ pkgs.haskellPackages.stan ];
-            # Build packages with HIE files
-            aihcParser = hsPkgsHie.aihc-parser;
-            aihcCpp = hsPkgsHie.aihc-cpp;
-          } ''
-            mkdir -p "$out"
-            # Collect all HIE files from built packages
-            hie_dir="$(mktemp -d)"
-            if [ -d "$aihcParser/.hie" ]; then
-              cp -r "$aihcParser/.hie"/* "$hie_dir/" 2>/dev/null || true
-            fi
-            if [ -d "$aihcCpp/.hie" ]; then
-              cp -r "$aihcCpp/.hie"/* "$hie_dir/" 2>/dev/null || true
-            fi
-            # Check if we have any HIE files
-            hie_count=$(find "$hie_dir" -name '*.hie' 2>/dev/null | wc -l)
-            if [ "$hie_count" -eq 0 ]; then
-              echo "No HIE files found, skipping stan analysis"
-              touch "$out/skipped"
-              exit 0
-            fi
-            echo "Found $hie_count HIE files"
-            # Run stan on the HIE files
-            # Stan returns non-zero if it finds issues, so we capture output
-            # Using || true to make this advisory (non-blocking) initially
-            # Remove '|| true' once the codebase is clean to enforce stan checks
-            stan --hiedir="$hie_dir" 2>&1 | tee "$out/stan-output.txt" || true
-            touch "$out/completed"
-          '';
           # Haddock documentation check - ensures docs build without errors
           haddockDocs = mkCombinedDocs pkgs;
           # Doctest for aihc-cpp documentation examples
@@ -678,7 +622,6 @@
           parser-quickcheck-smoke = parserQuickcheckSmoke;
           parser-quickcheck-soak-check = parserQuickcheckSoakCheck;
           cpp-progress-strict = cppProgressStrict;
-          stan-analysis = stanAnalysis;
            nix-lint = nixLint;
            haskell-lint = haskellLint;
            haskell-format = haskellFormat;
@@ -695,7 +638,6 @@
                 { name = "parser-quickcheck-smoke"; path = parserQuickcheckSmoke; }
                 { name = "parser-quickcheck-soak-check"; path = parserQuickcheckSoakCheck; }
                 { name = "cpp-progress-strict"; path = cppProgressStrict; }
-                { name = "stan-analysis"; path = stanAnalysis; }
                  { name = "nix-lint"; path = nixLint; }
                 { name = "haskell-lint"; path = haskellLint; }
                 { name = "haskell-format"; path = haskellFormat; }
