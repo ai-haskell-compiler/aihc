@@ -35,7 +35,7 @@ import HackageTester.CLI (Options (..), parseOptionsIO)
 import HackageTester.Model (FileResult (..), Outcome (..), Summary (..), failureLabel, shouldFailSummary, summarizeResults)
 import Network.HTTP.Client (HttpException, Manager, Request (responseTimeout), httpLbs, newManager, parseRequest, responseBody, responseTimeoutMicro)
 import Network.HTTP.Client.TLS (tlsManagerSettings)
-import ParserValidation (ValidationError (..), ValidationErrorKind (..), validateParserDetailed)
+import ParserValidation (ValidationError (..), ValidationErrorKind (..), validateParserDetailedWithExtensionNames)
 import System.Exit (exitFailure, exitSuccess)
 import System.IO (hFlush, hIsTerminalDevice, hPutStrLn, stderr, stdout)
 
@@ -190,7 +190,7 @@ processFile opts packageRoot info = do
                 cppDiagnostics = cppErrs,
                 outcomeDetail = Nothing
               }
-        else case validateParserDetailed source' of
+        else case validateParserDetailedWithExtensionNames (fileInfoExtensions info) (fileInfoLanguage info) source' of
           Nothing ->
             pure
               FileResult

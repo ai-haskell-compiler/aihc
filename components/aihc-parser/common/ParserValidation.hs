@@ -7,6 +7,7 @@ module ParserValidation
     validateParserWithExtensions,
     validateParserDetailed,
     validateParserDetailedWithExtensions,
+    validateParserDetailedWithExtensionNames,
   )
 where
 
@@ -40,6 +41,7 @@ validateParserWithExtensions exts = fmap validationErrorMessage . validateParser
 validateParserDetailed :: Text -> Maybe ValidationError
 validateParserDetailed = validateParserDetailedWithExtensions []
 
+-- | Validate parser with GHC extensions.
 validateParserDetailedWithExtensions :: [Extension] -> Text -> Maybe ValidationError
 validateParserDetailedWithExtensions exts source =
   case validateParserDetailedCore exts source of
@@ -50,6 +52,12 @@ validateParserDetailedWithExtensions exts source =
           { validationErrorMessage =
               validationErrorMessage err <> optionalShrunkDiagnostic exts source
           }
+
+-- | Validate parser with extension names (as strings) and optional language.
+-- This is a convenience function for use with cabal file metadata.
+validateParserDetailedWithExtensionNames :: [String] -> Maybe String -> Text -> Maybe ValidationError
+validateParserDetailedWithExtensionNames extNames langName =
+  validateParserDetailedWithExtensions (GhcOracle.extensionNamesToGhcExtensions extNames langName)
 
 validateParserDetailedCore :: [Extension] -> Text -> Maybe ValidationError
 validateParserDetailedCore exts source =

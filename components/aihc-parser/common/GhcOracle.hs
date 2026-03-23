@@ -15,6 +15,8 @@ module GhcOracle
     oracleDetailedParsesModuleWithNamesAt,
     toGhcExtension,
     fromGhcExtension,
+    extensionNamesToGhcExtensions,
+    extensionNamesToParserExtensions,
   )
 where
 
@@ -259,6 +261,28 @@ toGhcExtension ext =
 
 fromGhcExtension :: GHC.Extension -> Maybe Ast.Extension
 fromGhcExtension ghcExt = Ast.parseExtensionName (T.pack (show ghcExt))
+
+-- | Convert a list of extension names (from cabal files) to GHC extensions.
+-- Handles both positive (e.g., "UnicodeSyntax") and negative (e.g., "NoUnicodeSyntax") extension names.
+-- The language parameter can be used to include base language extensions (e.g., "Haskell2010").
+extensionNamesToGhcExtensions :: [String] -> Maybe String -> [GHC.Extension]
+extensionNamesToGhcExtensions extNames langName =
+  let extSettings = mapMaybe (Ast.parseExtensionSettingName . T.pack) extNames
+      langExts = maybe [] languageExtensions langName
+   in EnumSet.toList (List.foldl' applyExtensionSetting (EnumSet.fromList langExts) extSettings)
+
+-- | Convert a list of extension names (from cabal files) directly to AIHC parser extensions.
+-- This extracts enabled extensions from ExtensionSettings, applying enable/disable semantics.
+extensionNamesToParserExtensions :: [String] -> [Ast.Extension]
+extensionNamesToParserExtensions extNames =
+  let extSettings = mapMaybe (Ast.parseExtensionSettingName . T.pack) extNames
+   in applyExtensionSettings extSettings []
+  where
+    applyExtensionSettings [] acc = acc
+    applyExtensionSettings (setting : rest) acc =
+      case setting of
+        Ast.EnableExtension ext -> applyExtensionSettings rest (ext : filter (/= ext) acc)
+        Ast.DisableExtension ext -> applyExtensionSettings rest (filter (/= ext) acc)
 
 languageExtensions :: String -> [GHC.Extension]
 languageExtensions lang =
