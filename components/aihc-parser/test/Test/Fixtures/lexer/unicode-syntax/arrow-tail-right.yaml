@@ -1,0 +1,6 @@
+extensions:
+  - UnicodeSyntax
+input: "⤚"
+tokens:
+  - 'TkVarSym ">-"'
+status: pass

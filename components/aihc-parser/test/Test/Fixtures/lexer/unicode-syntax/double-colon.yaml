@@ -1,0 +1,8 @@
+extensions:
+  - UnicodeSyntax
+input: "x ∷ Int"
+tokens:
+  - 'TkVarId "x"'
+  - 'TkReservedDoubleColon'
+  - 'TkConId "Int"'
+status: pass

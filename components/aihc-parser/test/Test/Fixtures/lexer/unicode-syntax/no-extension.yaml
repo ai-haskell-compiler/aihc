@@ -1,0 +1,5 @@
+extensions: []
+input: "∷"
+tokens:
+  - 'TkVarSym "∷"'
+status: pass

@@ -1,0 +1,7 @@
+extensions:
+  - UnicodeSyntax
+input: "∀ a"
+tokens:
+  - 'TkVarId "forall"'
+  - 'TkVarId "a"'
+status: pass

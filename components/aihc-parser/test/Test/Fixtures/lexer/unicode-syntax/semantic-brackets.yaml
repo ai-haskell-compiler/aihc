@@ -1,0 +1,8 @@
+extensions:
+  - UnicodeSyntax
+input: "⟦ x ⟧"
+tokens:
+  - 'TkVarSym "[|"'
+  - 'TkVarId "x"'
+  - 'TkVarSym "|]"'
+status: pass

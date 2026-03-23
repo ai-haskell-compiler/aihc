@@ -1,0 +1,13 @@
+extensions:
+  - UnicodeSyntax
+input: "id ∷ ∀ a . a → a"
+tokens:
+  - 'TkVarId "id"'
+  - 'TkReservedDoubleColon'
+  - 'TkVarId "forall"'
+  - 'TkVarId "a"'
+  - 'TkVarSym "."'
+  - 'TkVarId "a"'
+  - 'TkReservedRightArrow'
+  - 'TkVarId "a"'
+status: pass
