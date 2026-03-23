@@ -8,11 +8,12 @@ where
 import Aihc.Lexer (isReservedIdentifier)
 import Aihc.Parser (ParseResult (..), defaultConfig, errorBundlePretty, parsePattern)
 import Aihc.Parser.Ast
-import Aihc.Parser.Pretty (prettyPatternText)
 import Data.Data (dataTypeConstrs, dataTypeOf, showConstr, toConstr)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as T
+import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
+import Prettyprinter.Render.Text (renderStrict)
 import Test.Properties.Identifiers (genIdent, shrinkIdent)
 import Test.QuickCheck
 
@@ -24,7 +25,7 @@ newtype GenPattern = GenPattern {unGenPattern :: Pattern}
 
 prop_patternPrettyRoundTrip :: GenPattern -> Property
 prop_patternPrettyRoundTrip (GenPattern pat) =
-  let source = prettyPatternText pat
+  let source = renderStrict (layoutPretty defaultLayoutOptions (pretty pat))
       expected = normalizePattern pat
    in checkCoverage $
         applyCoverage (patternCtorCoverage pat) $

@@ -2,10 +2,9 @@
 
 module Main (main) where
 
+import Aihc.Parser (ParseResult (..))
 import qualified Aihc.Parser
 import Aihc.Parser.Ast (Module)
-import Aihc.Parser.Pretty (prettyModule)
-import Aihc.Parser.Types (ParseResult (..))
 import Data.Text (Text)
 import qualified Data.Text.IO.Utf8 as Utf8
 import ExtensionSupport
@@ -15,6 +14,8 @@ import GhcOracle
     oracleParsesModuleWithExtensionsAt,
   )
 import OracleExtensions (resolveOracleExtensions)
+import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
+import Prettyprinter.Render.Text (renderStrict)
 import System.Environment (getArgs)
 import System.Exit (exitFailure, exitSuccess)
 import System.FilePath ((</>))
@@ -234,7 +235,7 @@ moduleRoundtripsViaGhc exts source oursResult =
   case oursResult of
     ParseErr _ -> False
     ParseOk parsed ->
-      let rendered = prettyModule parsed
+      let rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty parsed))
        in case ( oracleModuleAstFingerprintWithExtensionsAt "extension-progress" exts source,
                  oracleModuleAstFingerprintWithExtensionsAt "extension-progress" exts rendered
                ) of

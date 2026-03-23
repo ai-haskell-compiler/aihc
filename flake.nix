@@ -668,7 +668,7 @@ WRAPPER
             # Run doctest with explicit package database
             # Include all source files so imports between modules work
             doctest -package-db="$PKGDB" -isrc \
-              src/Aihc/Parser/PrettyAST.hs \
+              src/Aihc/Parser/Shorthand.hs \
               src/Aihc/Parser.hs
             touch "$out"
           '';

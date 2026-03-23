@@ -4,7 +4,6 @@
 
 module Aihc.Parser.Types
   ( TokStream (..),
-    CoverageSlice (..),
     ParseErrorBundle,
     lexerErrorBundle,
     ParseResult (..),
@@ -125,11 +124,3 @@ instance (NFData a) => NFData (ParseResult a) where
     case parseResult of
       ParseOk parsed -> rnf parsed
       ParseErr bundle -> rnf (show bundle)
-
-data CoverageSlice
-  = Lexing
-  | ExprAtoms
-  | ExprApp
-  | Decls
-  | Modules
-  deriving (Eq, Ord, Show, Enum, Bounded, Generic, NFData)

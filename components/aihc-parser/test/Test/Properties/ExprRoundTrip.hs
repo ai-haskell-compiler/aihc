@@ -8,14 +8,15 @@ where
 
 import Aihc.Parser
 import Aihc.Parser.Ast
-import Aihc.Parser.Pretty (prettyExpr)
 import qualified Data.Text as T
+import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
+import Prettyprinter.Render.Text (renderStrict)
 import Test.Properties.ExprHelpers (genExpr, normalizeExpr, shrinkExpr)
 import Test.QuickCheck
 
 prop_exprPrettyRoundTrip :: Expr -> Property
 prop_exprPrettyRoundTrip expr =
-  let source = prettyExpr expr
+  let source = renderStrict (layoutPretty defaultLayoutOptions (pretty expr))
       expected = normalizeExpr expr
    in checkCoverage $
         exprCoverage expr $

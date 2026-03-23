@@ -11,8 +11,7 @@ module ParserErrorGolden
   )
 where
 
-import Aihc.Parser (defaultConfig, errorBundlePretty, parseModule)
-import Aihc.Parser.Types (ParseResult (..), ParserConfig (..))
+import Aihc.Parser (ParseResult (..), ParserConfig (..), defaultConfig, errorBundlePretty, parseModule)
 import Data.Aeson ((.:))
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KeyMap
