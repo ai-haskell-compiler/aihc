@@ -727,46 +727,90 @@ lexIdentifier st =
 -- or LexicalNegation is enabled. It handles the following cases:
 --
 -- 1. NegativeLiterals: If '-' is immediately followed by a numeric literal (no space),
---    and the preceding token allows a merge (or there was whitespace before '-'),
---    lex the combined negative literal.
+-- | Handle minus in the context of NegativeLiterals and LexicalNegation extensions.
 --
--- 2. LexicalNegation: If '-' is in a prefix position (tight against the following
---    token, with whitespace or an operator before), emit TkPrefixMinus.
+-- When NegativeLiterals is enabled and context allows, attempts to lex a negative
+-- literal by consuming '-' and delegating to existing number lexers.
+--
+-- When LexicalNegation is enabled, emits TkPrefixMinus or TkMinusOperator based
+-- on position.
 --
 -- Otherwise, return Nothing and let lexOperator handle it.
 lexNegativeLiteralOrMinus :: LexerState -> Maybe (LexToken, LexerState)
 lexNegativeLiteralOrMinus st
   | not hasNegExt = Nothing
+  | not (isStandaloneMinus (lexerInput st)) = Nothing
   | otherwise =
-      case lexerInput st of
-        '-' : nextChar : _
-          | not (isSymbolicOpChar nextChar && nextChar /= '-') ->
-              -- Check if this is just a standalone '-' (not part of multi-char operator like -> or -<)
-              case span isSymbolicOpChar (lexerInput st) of
-                ("-", _) -> tryNegativeOrPrefixMinus st (drop 1 (lexerInput st))
-                _ -> Nothing -- Multi-char operator starting with '-', let lexOperator handle it
-        ['-'] ->
-          -- Standalone '-' at end of input
-          case span isSymbolicOpChar (lexerInput st) of
-            ("-", _) -> tryNegativeOrPrefixMinus st []
-            _ -> Nothing
-        _ -> Nothing
+      let prevAllows = allowsMergeOrPrefix (lexerPrevTokenKind st) (lexerHadTrivia st)
+          rest = drop 1 (lexerInput st) -- input after '-'
+       in if NegativeLiterals `elem` lexerExtensions st && prevAllows
+            then case tryLexNumberAfterMinus st of
+              Just result -> Just result
+              Nothing -> lexMinusOperator st rest prevAllows
+            else lexMinusOperator st rest prevAllows
   where
-    hasNegExt = NegativeLiterals `elem` lexerExtensions st || LexicalNegation `elem` lexerExtensions st
+    hasNegExt =
+      NegativeLiterals `elem` lexerExtensions st
+        || LexicalNegation `elem` lexerExtensions st
 
--- | Try to lex a negative literal or prefix minus.
--- Called when we know we have a standalone '-' (not part of a multi-char operator).
-tryNegativeOrPrefixMinus :: LexerState -> String -> Maybe (LexToken, LexerState)
-tryNegativeOrPrefixMinus st rest = do
-  -- Check if merge/prefix is allowed based on preceding token
-  let prevAllowsMerge = allowsMergeOrPrefix (lexerPrevTokenKind st) (lexerHadTrivia st)
+-- | Check if input starts with a standalone '-' (not part of ->, -<, etc.)
+isStandaloneMinus :: String -> Bool
+isStandaloneMinus input =
+  case input of
+    '-' : c : _ | isSymbolicOpChar c && c /= '-' -> False -- part of multi-char op
+    '-' : _ -> True
+    _ -> False
 
-  -- Try NegativeLiterals first: merge '-' with immediately adjacent numeric
-  if NegativeLiterals `elem` lexerExtensions st && prevAllowsMerge
-    then case tryLexNegativeNumber st rest of
+-- | Try to lex a negative number by delegating to existing number lexers.
+-- Consumes '-', runs number lexers on remainder, negates result if successful.
+tryLexNumberAfterMinus :: LexerState -> Maybe (LexToken, LexerState)
+tryLexNumberAfterMinus st = do
+  -- Create a temporary state positioned after the '-'
+  let stAfterMinus = advanceChars "-" st
+  -- Try existing number lexers in order (most specific first)
+  (numTok, stFinal) <- firstJust numberLexers stAfterMinus
+  -- Build combined negative token
+  Just (negateToken st numTok, stFinal)
+  where
+    numberLexers = [lexHexFloat, lexFloat, lexIntBase, lexInt]
+
+    firstJust [] _ = Nothing
+    firstJust (f : fs) s = case f s of
       Just result -> Just result
-      Nothing -> tryLexicalNegation st rest prevAllowsMerge
-    else tryLexicalNegation st rest prevAllowsMerge
+      Nothing -> firstJust fs s
+
+-- | Negate a numeric token and adjust its span/text to include the leading '-'.
+negateToken :: LexerState -> LexToken -> LexToken
+negateToken stBefore numTok =
+  LexToken
+    { lexTokenKind = negateKind (lexTokenKind numTok),
+      lexTokenText = "-" <> lexTokenText numTok,
+      lexTokenSpan = extendSpanLeft (lexTokenSpan numTok)
+    }
+  where
+    negateKind k = case k of
+      TkInteger n -> TkInteger (negate n)
+      TkIntegerBase n repr -> TkIntegerBase (negate n) ("-" <> repr)
+      TkFloat n repr -> TkFloat (negate n) ("-" <> repr)
+      other -> other -- shouldn't happen
+
+    -- Extend span to start at the '-' position
+    extendSpanLeft sp = case sp of
+      SourceSpan _ _ endLine endCol ->
+        SourceSpan (lexerLine stBefore) (lexerCol stBefore) endLine endCol
+      NoSourceSpan -> NoSourceSpan
+
+-- | Emit TkPrefixMinus or TkMinusOperator based on LexicalNegation rules.
+lexMinusOperator :: LexerState -> String -> Bool -> Maybe (LexToken, LexerState)
+lexMinusOperator st rest prevAllows
+  | LexicalNegation `notElem` lexerExtensions st = Nothing
+  | otherwise =
+      let st' = advanceChars "-" st
+          kind =
+            if prevAllows && canStartNegatedAtom rest
+              then TkPrefixMinus
+              else TkMinusOperator
+       in Just (mkToken st st' "-" kind, st')
 
 -- | Check if the preceding token context allows a merge (NegativeLiterals) or
 -- prefix minus (LexicalNegation).
@@ -806,128 +850,6 @@ prevTokenAllowsTightPrefix kind =
     TkReservedPipe -> True
     TkReservedBackslash -> True
     _ -> False
-
--- | Try to lex a negative number (for NegativeLiterals extension).
--- Returns Just if '-' is immediately followed by a numeric literal.
-tryLexNegativeNumber :: LexerState -> String -> Maybe (LexToken, LexerState)
-tryLexNegativeNumber st rest =
-  case rest of
-    -- Hex float: -0xNN.NNpEE
-    '0' : x : _ | x `elem` ("xX" :: String) -> tryLexNegativeHexFloat st
-    -- Based integer: -0x..., -0o..., -0b...
-    '0' : base : _ | base `elem` ("xXoObB" :: String) -> tryLexNegativeIntBase st
-    -- Decimal float or integer
-    d : _ | isDigit d -> tryLexNegativeFloatOrInt st
-    _ -> Nothing
-
--- | Try to lex a negative hex float: -0xNN.NNpEE
-tryLexNegativeHexFloat :: LexerState -> Maybe (LexToken, LexerState)
-tryLexNegativeHexFloat st = do
-  -- Skip the '-'
-  let afterMinus = drop 1 (lexerInput st)
-  ('0' : x : rest) <- Just afterMinus
-  if x `notElem` ("xX" :: String)
-    then Nothing
-    else do
-      let (intDigits, rest1) = span isHexDigit rest
-      if null intDigits
-        then Nothing
-        else do
-          let (mFracDigits, rest2) =
-                case rest1 of
-                  '.' : more ->
-                    let (frac, rest') = span isHexDigit more
-                     in (Just frac, rest')
-                  _ -> (Nothing, rest1)
-          expo@(_ : expoRest) <- takeHexExponent rest2
-          let fracDigits = fromMaybe "" mFracDigits
-          if null expoRest
-            then Nothing
-            else
-              let dotAndFrac =
-                    case mFracDigits of
-                      Just ds -> '.' : ds
-                      Nothing -> ""
-                  raw = '-' : '0' : x : intDigits <> dotAndFrac <> expo
-                  txt = T.pack raw
-                  value = negate (parseHexFloatLiteral intDigits fracDigits expo)
-                  st' = advanceChars raw st
-               in Just (mkToken st st' txt (TkFloat value txt), st')
-
--- | Try to lex a negative based integer: -0x..., -0o..., -0b...
-tryLexNegativeIntBase :: LexerState -> Maybe (LexToken, LexerState)
-tryLexNegativeIntBase st =
-  case drop 1 (lexerInput st) of
-    '0' : base : rest
-      | base `elem` ("xXoObB" :: String) ->
-          let allowUnderscores = NumericUnderscores `elem` lexerExtensions st
-              isDigitChar
-                | base `elem` ("xX" :: String) = isHexDigit
-                | base `elem` ("oO" :: String) = isOctDigit
-                | otherwise = (`elem` ("01" :: String))
-              (digitsRaw, _) = takeDigitsWithLeadingUnderscores allowUnderscores isDigitChar rest
-           in if null digitsRaw
-                then Nothing
-                else
-                  let raw = '-' : '0' : base : digitsRaw
-                      txt = T.pack raw
-                      positiveTxt = T.pack ('0' : base : digitsRaw)
-                      n
-                        | base `elem` ("xX" :: String) = readHexLiteral positiveTxt
-                        | base `elem` ("oO" :: String) = readOctLiteral positiveTxt
-                        | otherwise = readBinLiteral positiveTxt
-                      st' = advanceChars raw st
-                   in Just (mkToken st st' txt (TkIntegerBase (negate n) txt), st')
-    _ -> Nothing
-
--- | Try to lex a negative float or integer
-tryLexNegativeFloatOrInt :: LexerState -> Maybe (LexToken, LexerState)
-tryLexNegativeFloatOrInt st =
-  let afterMinus = drop 1 (lexerInput st)
-      allowUnderscores = NumericUnderscores `elem` lexerExtensions st
-      (lhsRaw, rest) = takeDigitsWithUnderscores allowUnderscores isDigit afterMinus
-   in if null lhsRaw
-        then Nothing
-        else case rest of
-          '.' : d : more
-            | isDigit d ->
-                let (rhsRaw, rest') = takeDigitsWithUnderscores allowUnderscores isDigit (d : more)
-                    (expo, _) = takeExponent allowUnderscores rest'
-                    raw = '-' : lhsRaw <> "." <> rhsRaw <> expo
-                    txt = T.pack raw
-                    normalized = filter (/= '_') raw
-                    st' = advanceChars raw st
-                 in Just (mkToken st st' txt (TkFloat (read normalized) txt), st')
-          _ ->
-            case takeExponent allowUnderscores rest of
-              ("", _) ->
-                -- Plain negative integer
-                let raw = '-' : lhsRaw
-                    txt = T.pack raw
-                    digits = filter (/= '_') lhsRaw
-                    st' = advanceChars raw st
-                 in Just (mkToken st st' txt (TkInteger (negate (read digits))), st')
-              (expo, _) ->
-                -- Float with exponent
-                let raw = '-' : lhsRaw <> expo
-                    txt = T.pack raw
-                    normalized = filter (/= '_') raw
-                    st' = advanceChars raw st
-                 in Just (mkToken st st' txt (TkFloat (read normalized) txt), st')
-
--- | Try to handle LexicalNegation extension (TkPrefixMinus or TkMinusOperator).
-tryLexicalNegation :: LexerState -> String -> Bool -> Maybe (LexToken, LexerState)
-tryLexicalNegation st rest prevAllowsMerge
-  | LexicalNegation `notElem` lexerExtensions st = Nothing
-  | otherwise =
-      let st' = advanceChars "-" st
-          tok = mkToken st st' "-" TkMinusOperator
-       in -- Check if this is a prefix position
-          -- Prefix means: previous token allows prefix AND next char is tight (part of same "word")
-          -- We check if the next char could start an atom that can be negated
-          if prevAllowsMerge && canStartNegatedAtom rest
-            then Just (tok {lexTokenKind = TkPrefixMinus}, st')
-            else Just (tok, st')
 
 -- | Check if the given input could start a negated atom (for LexicalNegation).
 canStartNegatedAtom :: String -> Bool
