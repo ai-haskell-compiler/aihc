@@ -9,9 +9,8 @@ import Aihc.Parser.Pretty (prettyModule)
 import Aihc.Parser.Types (ParseResult (..))
 import Control.Monad (filterM)
 import CppSupport (preprocessForParserWithoutIncludes)
-import qualified Data.ByteString as BS
 import Data.Text (Text)
-import Data.Text.Encoding (decodeUtf8)
+import qualified Data.Text.IO.Utf8 as Utf8
 import ExtensionSupport
 import GHC.LanguageExtensions.Type (Extension)
 import GhcOracle
@@ -103,9 +102,8 @@ oracleExtensionsFor spec
 
 evaluateCase :: ExtensionSpec -> [Extension] -> CaseMeta -> IO (CaseMeta, Outcome, String)
 evaluateCase spec exts meta = do
-  bytes <- BS.readFile (fixtureDirFor spec </> casePath meta)
-  let source = decodeUtf8 bytes
-      source' = resultOutput (preprocessForParserWithoutIncludes (casePath meta) source)
+  source <- Utf8.readFile (fixtureDirFor spec </> casePath meta)
+  let source' = resultOutput (preprocessForParserWithoutIncludes (casePath meta) source)
       parsed = Aihc.Parser.parseModule Aihc.Parser.defaultConfig source'
       oracleOk = oracleParsesModuleWithExtensionsAt "parser-progress" exts source'
       roundtripOk = moduleRoundtripsViaGhc exts source' parsed
