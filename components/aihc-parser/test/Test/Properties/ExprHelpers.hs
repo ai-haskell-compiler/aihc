@@ -22,143 +22,70 @@ import Test.QuickCheck
 span0 :: SourceSpan
 span0 = noSourceSpan
 
--- | Generate a random expression up to the given depth.
-genExpr :: Int -> Gen Expr
-genExpr depth
-  | depth <= 0 =
-      -- At depth 0, generate more variables and integers to meet coverage requirements
-      frequency
-        [ (4, EVar span0 <$> genIdent),
-          (4, mkIntExpr <$> chooseInteger (0, 999)),
-          (1, mkHexExpr <$> chooseInteger (0, 255)),
-          (1, mkFloatExpr <$> genTenths),
-          (1, mkCharExpr <$> genCharValue),
-          (1, mkStringExpr <$> genStringValue),
-          -- Note: EQuasiQuote requires QuasiQuotes extension, skip for now
-          (1, pure (EList span0 [])),
-          (1, pure (ETuple span0 [])),
-          (1, ETupleCon span0 <$> chooseInt (2, 5))
-        ]
-  | otherwise =
-      frequency
-        [ -- Variables and literals - higher weights for coverage
-          (6, EVar span0 <$> genIdent),
-          (8, mkIntExpr <$> chooseInteger (0, 999)),
-          (1, mkHexExpr <$> chooseInteger (0, 255)),
-          (1, mkFloatExpr <$> genTenths),
-          (1, mkCharExpr <$> genCharValue),
-          (1, mkStringExpr <$> genStringValue),
-          -- Note: EQuasiQuote requires QuasiQuotes extension, skip for now
-          -- Application and operators - higher weight for coverage
-          -- Note: using genExprAppHead to avoid negation precedence issues
-          (15, EApp span0 <$> genExprAppHead (depth - 1) <*> genExprAtom (depth - 1)),
-          (2, genInfixExpr depth),
-          (1, ENegate span0 <$> genExprAtom (depth - 1)),
-          -- Note: sections with complex expressions like let/if/case cause parsing issues
-          (2, ESectionL span0 <$> genExprAtom (depth - 1) <*> genOperator),
-          (2, ESectionR span0 <$> genOperator <*> genExprAtom (depth - 1)),
-          -- Control flow
-          -- Note: if-then-else branches with case/let can cause module-level parsing issues
-          (2, EIf span0 <$> genExprAtom (depth - 1) <*> genExprAtom (depth - 1) <*> genExprAtom (depth - 1)),
-          -- Note: case scrutinee must be atomic to avoid "case case ... of ... of ..." ambiguity
-          (2, ECase span0 <$> genExprAtom (depth - 1) <*> genCaseAlts (depth - 1)),
-          (2, ELambdaPats span0 <$> genPatterns (depth - 1) <*> genExprAtom (depth - 1)),
-          (1, ELambdaCase span0 <$> genCaseAlts (depth - 1)),
-          -- Bindings
-          -- Note: let body with case/if can cause module-level parsing issues
-          (2, ELetDecls span0 <$> genValueDecls (depth - 1) <*> genExprAtom (depth - 1)),
-          -- Note: EWhereDecls with arbitrary expressions causes parsing ambiguity
-          -- (where binds to innermost expression), so we use atomic expressions only
-          (1, EWhereDecls span0 <$> genExprAtom (depth - 1) <*> genValueDecls (depth - 1)),
-          -- Do notation and list comprehensions
-          (2, EDo span0 <$> genDoStmts (depth - 1)),
-          -- Note: list comprehension body with case can cause parsing issues
-          (2, EListComp span0 <$> genExprAtom (depth - 1) <*> genCompStmts (depth - 1)),
-          (1, EListCompParallel span0 <$> genExprAtom (depth - 1) <*> genParallelCompStmts (depth - 1)),
-          -- Collections
-          (3, EList span0 <$> genListElems (depth - 1)),
-          (3, ETuple span0 <$> genTupleElems (depth - 1)),
-          (1, ETupleSection span0 <$> genTupleSectionElems (depth - 1)),
-          (1, ETupleCon span0 <$> chooseInt (2, 5)),
-          -- Arithmetic sequences
-          (1, EArithSeq span0 <$> genArithSeq (depth - 1)),
-          -- Records
-          (2, ERecordCon span0 <$> genConName <*> genRecordFields (depth - 1)),
-          (1, ERecordUpd span0 <$> genExprAtom (depth - 1) <*> genRecordFields (depth - 1)),
-          -- Type annotations - using atomic expressions to avoid nested type sigs
-          (2, ETypeSig span0 <$> genExprAtom (depth - 1) <*> genType (depth - 1)),
-          -- Note: ETypeApp requires TypeApplications extension and has parsing issues
-          -- Parentheses
-          (2, EParen span0 <$> genExpr (depth - 1))
-        ]
+-- | Generate a random expression. Uses QuickCheck's size parameter
+-- to control recursion depth.
+genExpr :: Gen Expr
+genExpr = sized genExprSized
 
--- | Generate an atomic expression (one that doesn't need parentheses in most contexts)
--- NOTE: This intentionally only generates simple expressions (no case/if/let/lambda)
--- to avoid parsing ambiguity in contexts like list elements, tuple elements, etc.
-genExprAtom :: Int -> Gen Expr
-genExprAtom depth
-  | depth <= 0 =
+-- | Generate an expression with a given size budget.
+-- When size is 0, only generate non-recursive (leaf) expressions.
+genExprSized :: Int -> Gen Expr
+genExprSized n
+  | n <= 0 = genExprLeaf
+  | otherwise =
       oneof
-        [ EVar span0 <$> genIdent,
-          mkIntExpr <$> chooseInteger (0, 999),
-          mkFloatExpr <$> genTenths,
-          mkCharExpr <$> genCharValue,
-          mkStringExpr <$> genStringValue,
-          pure (EList span0 []),
-          pure (ETuple span0 [])
+        [ -- Leaf expressions
+          genExprLeaf,
+          -- Recursive expressions (reduce size for subexpressions)
+          EApp span0 <$> genExprSized half <*> genExprSized half,
+          EInfix span0 <$> genExprSized half <*> genOperator <*> genExprSized half,
+          ENegate span0 <$> genExprSized (n - 1),
+          ESectionL span0 <$> genExprSized (n - 1) <*> genOperator,
+          ESectionR span0 <$> genOperator <*> genExprSized (n - 1),
+          EIf span0 <$> genExprSized third <*> genExprSized third <*> genExprSized third,
+          ECase span0 <$> genExprSized half <*> genCaseAlts half,
+          ELambdaPats span0 <$> genPatterns half <*> genExprSized half,
+          ELambdaCase span0 <$> genCaseAlts (n - 1),
+          ELetDecls span0 <$> genValueDecls half <*> genExprSized half,
+          EWhereDecls span0 <$> genExprSized half <*> genValueDecls half,
+          EDo span0 <$> genDoStmts (n - 1),
+          EListComp span0 <$> genExprSized half <*> genCompStmts half,
+          EListCompParallel span0 <$> genExprSized half <*> genParallelCompStmts half,
+          EList span0 <$> genListElems (n - 1),
+          ETuple span0 <$> genTupleElems (n - 1),
+          ETupleSection span0 <$> genTupleSectionElems (n - 1),
+          EArithSeq span0 <$> genArithSeq (n - 1),
+          ERecordCon span0 <$> genConName <*> genRecordFields (n - 1),
+          ERecordUpd span0 <$> genExprSized half <*> genRecordFields half,
+          ETypeSig span0 <$> genExprSized half <*> genType half,
+          EParen span0 <$> genExprSized (n - 1)
         ]
-  | otherwise =
-      frequency
-        [ (4, EVar span0 <$> genIdent),
-          (3, mkIntExpr <$> chooseInteger (0, 999)),
-          (2, EList span0 <$> genSimpleListElems (depth - 1)),
-          (2, ETuple span0 <$> genSimpleTupleElems (depth - 1)),
-          (1, EParen span0 <$> genExprAtom (depth - 1)),
-          -- Higher weight for application to meet coverage requirements
-          (4, EApp span0 <$> genExprAtom (depth - 1) <*> genExprAtom (depth - 1))
-        ]
+  where
+    half = n `div` 2
+    third = n `div` 3
 
--- | Generate simple list elements (no complex expressions)
-genSimpleListElems :: Int -> Gen [Expr]
-genSimpleListElems depth = do
-  n <- chooseInt (0, 3)
-  vectorOf n (genExprAtom depth)
-
--- | Generate simple tuple elements (no complex expressions)
-genSimpleTupleElems :: Int -> Gen [Expr]
-genSimpleTupleElems depth = do
-  isUnit <- arbitrary
-  if isUnit
-    then pure []
-    else do
-      n <- chooseInt (2, 3)
-      vectorOf n (genExprAtom depth)
-
--- | Generate an expression suitable for use as the head of an application
--- Avoids negation which has lower precedence than application
-genExprAppHead :: Int -> Gen Expr
-genExprAppHead depth =
-  frequency
-    [ (4, EVar span0 <$> genIdent),
-      (2, EParen span0 <$> genExpr depth),
-      (2, EApp span0 <$> genExprAppHead (max 0 (depth - 1)) <*> genExprAtom (max 0 (depth - 1)))
+-- | Generate a leaf (non-recursive) expression.
+genExprLeaf :: Gen Expr
+genExprLeaf =
+  oneof
+    [ EVar span0 <$> genIdent,
+      mkIntExpr <$> chooseInteger (0, 999),
+      mkHexExpr <$> chooseInteger (0, 255),
+      mkFloatExpr <$> genTenths,
+      mkCharExpr <$> genCharValue,
+      mkStringExpr <$> genStringValue,
+      -- Note: EQuasiQuote requires QuasiQuotes extension, skip for now
+      pure (EList span0 []),
+      pure (ETuple span0 []),
+      ETupleCon span0 <$> chooseInt (2, 5)
     ]
-
--- | Generate an infix expression
--- Uses atomic expressions as operands to avoid precedence issues
-genInfixExpr :: Int -> Gen Expr
-genInfixExpr depth = do
-  lhs <- genExprAtom (depth - 1)
-  op <- genOperator
-  rhs <- genExprAtom (depth - 1)
-  pure (EInfix span0 lhs op rhs)
 
 -- | Generate an operator symbol
 genOperator :: Gen Text
 genOperator =
-  frequency
-    [ (5, elements ["+", "-", "*", "/", "<", ">", "<=", ">=", "==", "/=", "&&", "||", "++", ">>", ">>=", "."]),
-      (1, genCustomOperator)
+  oneof
+    [ elements ["+", "-", "*", "/", "<", ">", "<=", ">=", "==", "/=", "&&", "||", "++", ">>", ">>=", "."],
+      genCustomOperator
     ]
 
 -- | Generate a custom operator
@@ -185,70 +112,72 @@ genConName = do
 
 -- | Generate simple patterns for lambdas
 genPatterns :: Int -> Gen [Pattern]
-genPatterns depth = do
-  n <- chooseInt (1, 3)
-  vectorOf n (genSimplePattern depth)
+genPatterns n = do
+  count <- chooseInt (1, 3)
+  vectorOf count (genPattern n)
 
--- | Generate a simple pattern (suitable for lambda patterns)
-genSimplePattern :: Int -> Gen Pattern
-genSimplePattern depth
-  | depth <= 0 =
-      oneof
-        [ PVar span0 <$> genIdent,
-          pure (PWildcard span0)
-        ]
+-- | Generate a pattern
+genPattern :: Int -> Gen Pattern
+genPattern n
+  | n <= 0 = genPatternLeaf
   | otherwise =
-      frequency
-        [ (4, PVar span0 <$> genIdent),
-          (2, pure (PWildcard span0)),
-          (2, PTuple span0 <$> genPatternTupleElems (depth - 1)),
-          (2, PList span0 <$> genPatternListElems (depth - 1))
-          -- Note: PParen around patterns can cause parsing ambiguity in some contexts
+      oneof
+        [ genPatternLeaf,
+          PTuple span0 <$> genPatternTupleElems half,
+          PList span0 <$> genPatternListElems half
         ]
+  where
+    half = n `div` 2
+
+-- | Generate a leaf pattern
+genPatternLeaf :: Gen Pattern
+genPatternLeaf =
+  oneof
+    [ PVar span0 <$> genIdent,
+      pure (PWildcard span0)
+    ]
 
 genPatternTupleElems :: Int -> Gen [Pattern]
-genPatternTupleElems depth = do
+genPatternTupleElems n = do
   isUnit <- arbitrary
   if isUnit
     then pure []
     else do
-      n <- chooseInt (2, 3)
-      vectorOf n (genSimplePattern depth)
+      count <- chooseInt (2, 3)
+      vectorOf count (genPattern n)
 
 genPatternListElems :: Int -> Gen [Pattern]
-genPatternListElems depth = do
-  n <- chooseInt (0, 3)
-  vectorOf n (genSimplePattern depth)
+genPatternListElems n = do
+  count <- chooseInt (0, 3)
+  vectorOf count (genPattern n)
 
 -- | Generate case alternatives
--- Using single-alt to avoid layout ambiguity with nested case expressions
 genCaseAlts :: Int -> Gen [CaseAlt]
-genCaseAlts depth = do
-  -- Only generate single alt to avoid parsing ambiguity with nested cases
-  let n = 1
-  vectorOf n (genCaseAlt depth)
+genCaseAlts n = do
+  count <- chooseInt (1, 3)
+  vectorOf count (genCaseAlt n)
 
 genCaseAlt :: Int -> Gen CaseAlt
-genCaseAlt depth = do
-  pat <- genSimplePattern depth
-  expr <- genExpr depth
+genCaseAlt n = do
+  pat <- genPattern half
+  expr <- genExprSized half
   pure $
     CaseAlt
       { caseAltSpan = span0,
         caseAltPattern = pat,
         caseAltRhs = UnguardedRhs span0 expr
       }
+  where
+    half = n `div` 2
 
 -- | Generate value declarations for let/where
 -- We use FunctionBind format because that's what the parser produces for simple
 -- variable bindings like `x = e`.
--- Using atomic expressions to avoid case/if/let ambiguity with inline layout.
 genValueDecls :: Int -> Gen [Decl]
-genValueDecls depth = do
-  n <- chooseInt (1, 3)
-  names <- vectorOf n genIdent
-  -- Use atomic expressions to avoid case/if ambiguity when multiple decls in inline layout
-  exprs <- vectorOf n (genExprAtom depth)
+genValueDecls n = do
+  count <- chooseInt (1, 3)
+  names <- vectorOf count genIdent
+  exprs <- vectorOf count (genExprSized (n `div` count))
   pure
     [ DeclValue
         span0
@@ -266,104 +195,100 @@ genValueDecls depth = do
     ]
 
 -- | Generate do statements
--- Using atomic expressions to avoid parsing ambiguity
 genDoStmts :: Int -> Gen [DoStmt]
-genDoStmts depth = do
-  n <- chooseInt (0, 2)
-  stmts <- vectorOf n (genDoStmt depth)
-  -- Last statement must be DoExpr with atomic expression
-  lastExpr <- genExprAtom depth
+genDoStmts n = do
+  count <- chooseInt (1, 3)
+  let perStmt = n `div` count
+  stmts <- vectorOf (count - 1) (genDoStmt perStmt)
+  -- Last statement must be DoExpr
+  lastExpr <- genExprSized perStmt
   pure (stmts <> [DoExpr span0 lastExpr])
 
 genDoStmt :: Int -> Gen DoStmt
-genDoStmt depth =
-  frequency
-    [ (3, DoBind span0 <$> genSimplePattern depth <*> genExprAtom depth),
-      -- Use DoLetDecls instead of DoLet since that's what the parser produces
-      (2, DoLetDecls span0 <$> genValueDecls depth),
-      -- Use atomic expressions to avoid case/if/let ambiguity in do statements
-      (3, DoExpr span0 <$> genExprAtom depth)
+genDoStmt n =
+  oneof
+    [ DoBind span0 <$> genPattern half <*> genExprSized half,
+      DoLetDecls span0 <$> genValueDecls (n - 1),
+      DoExpr span0 <$> genExprSized (n - 1)
     ]
+  where
+    half = n `div` 2
 
 -- | Generate list comprehension statements
--- Using atomic expressions to avoid parsing ambiguity with case/if/let
 genCompStmts :: Int -> Gen [CompStmt]
-genCompStmts depth = do
-  n <- chooseInt (1, 3)
-  vectorOf n (genCompStmt depth)
+genCompStmts n = do
+  count <- chooseInt (1, 3)
+  vectorOf count (genCompStmt (n `div` count))
 
 genCompStmt :: Int -> Gen CompStmt
-genCompStmt depth =
-  frequency
-    [ -- Use atomic expressions to avoid case/if/let ambiguity in comp stmts
-      (4, CompGen span0 <$> genSimplePattern depth <*> genExprAtom depth),
-      (2, CompGuard span0 <$> genExprAtom depth)
-      -- Note: CompLet and CompLetDecls have parsing issues in some contexts,
-      -- so we skip generating them for now
+genCompStmt n =
+  oneof
+    [ CompGen span0 <$> genPattern half <*> genExprSized half,
+      CompGuard span0 <$> genExprSized (n - 1)
     ]
+  where
+    half = n `div` 2
 
 -- | Generate parallel list comprehension statements
 genParallelCompStmts :: Int -> Gen [[CompStmt]]
-genParallelCompStmts depth = do
-  n <- chooseInt (2, 3)
-  vectorOf n (genCompStmts depth)
+genParallelCompStmts n = do
+  count <- chooseInt (2, 3)
+  vectorOf count (genCompStmts (n `div` count))
 
 -- | Generate list elements
--- Using atomic expressions to avoid parsing ambiguity with case/if/let in lists
 genListElems :: Int -> Gen [Expr]
-genListElems depth = do
-  n <- chooseInt (0, 4)
-  vectorOf n (genExprAtom depth)
+genListElems n = do
+  count <- chooseInt (0, 4)
+  vectorOf count (genExprSized (n `div` max 1 count))
 
 -- | Generate tuple elements
--- Using atomic expressions to avoid parsing ambiguity
 genTupleElems :: Int -> Gen [Expr]
-genTupleElems depth = do
+genTupleElems n = do
   isUnit <- arbitrary
   if isUnit
     then pure []
     else do
-      n <- chooseInt (2, 4)
-      vectorOf n (genExprAtom depth)
+      count <- chooseInt (2, 4)
+      vectorOf count (genExprSized (n `div` count))
 
 -- | Generate tuple section elements
 genTupleSectionElems :: Int -> Gen [Maybe Expr]
-genTupleSectionElems depth = do
-  n <- chooseInt (2, 4)
-  elems <- vectorOf n (genMaybeExpr depth)
+genTupleSectionElems n = do
+  count <- chooseInt (2, 4)
+  elems <- vectorOf count (genMaybeExpr (n `div` count))
   -- Ensure at least one Nothing (otherwise it's just a tuple)
   if Nothing `notElem` elems
     then do
-      idx <- chooseInt (0, n - 1)
+      idx <- chooseInt (0, count - 1)
       pure (take idx elems <> [Nothing] <> drop (idx + 1) elems)
     else pure elems
 
 genMaybeExpr :: Int -> Gen (Maybe Expr)
-genMaybeExpr depth =
-  frequency
-    [ -- Use atomic expressions to avoid case/if/let ambiguity in tuple sections
-      (2, Just <$> genExprAtom depth),
-      (1, pure Nothing)
+genMaybeExpr n =
+  oneof
+    [ Just <$> genExprSized n,
+      pure Nothing
     ]
 
 -- | Generate arithmetic sequences
--- Using atomic expressions to avoid parsing ambiguity
 genArithSeq :: Int -> Gen ArithSeq
-genArithSeq depth =
+genArithSeq n =
   oneof
-    [ ArithSeqFrom span0 <$> genExprAtom depth,
-      ArithSeqFromThen span0 <$> genExprAtom depth <*> genExprAtom depth,
-      ArithSeqFromTo span0 <$> genExprAtom depth <*> genExprAtom depth,
-      ArithSeqFromThenTo span0 <$> genExprAtom depth <*> genExprAtom depth <*> genExprAtom depth
+    [ ArithSeqFrom span0 <$> genExprSized n,
+      ArithSeqFromThen span0 <$> genExprSized half <*> genExprSized half,
+      ArithSeqFromTo span0 <$> genExprSized half <*> genExprSized half,
+      ArithSeqFromThenTo span0 <$> genExprSized third <*> genExprSized third <*> genExprSized third
     ]
+  where
+    half = n `div` 2
+    third = n `div` 3
 
 -- | Generate record fields
 genRecordFields :: Int -> Gen [(Text, Expr)]
-genRecordFields depth = do
-  n <- chooseInt (0, 3)
-  names <- vectorOf n genFieldName
-  -- Use atomic expressions to avoid parsing issues with case/if/let in record fields
-  exprs <- vectorOf n (genExprAtom depth)
+genRecordFields n = do
+  count <- chooseInt (0, 3)
+  names <- vectorOf count genFieldName
+  exprs <- vectorOf count (genExprSized (n `div` max 1 count))
   pure (zip names exprs)
 
 genFieldName :: Gen Text
@@ -376,43 +301,38 @@ genFieldName = do
     then genFieldName
     else pure candidate
 
--- | Generate a simple type for type annotations
+-- | Generate a type
 genType :: Int -> Gen Type
-genType depth
-  | depth <= 0 =
-      oneof
-        [ TVar span0 <$> genTypeVarName,
-          TCon span0 <$> genConName
-        ]
+genType n
+  | n <= 0 = genTypeLeaf
   | otherwise =
-      frequency
-        [ (3, TVar span0 <$> genTypeVarName),
-          (3, TCon span0 <$> genConName),
-          (2, TApp span0 <$> genType (depth - 1) <*> genTypeAtom (depth - 1)),
-          (2, TFun span0 <$> genType (depth - 1) <*> genType (depth - 1)),
-          (2, TList span0 <$> genType (depth - 1)),
-          (2, TTuple span0 <$> genTypeTupleElems (depth - 1)),
-          (1, TParen span0 <$> genType (depth - 1))
+      oneof
+        [ genTypeLeaf,
+          TApp span0 <$> genType half <*> genType half,
+          TFun span0 <$> genType half <*> genType half,
+          TList span0 <$> genType (n - 1),
+          TTuple span0 <$> genTypeTupleElems (n - 1),
+          TParen span0 <$> genType (n - 1)
         ]
+  where
+    half = n `div` 2
 
-genTypeAtom :: Int -> Gen Type
-genTypeAtom depth =
+-- | Generate a leaf type
+genTypeLeaf :: Gen Type
+genTypeLeaf =
   oneof
     [ TVar span0 <$> genTypeVarName,
-      TCon span0 <$> genConName,
-      TList span0 <$> genType depth,
-      TTuple span0 <$> genTypeTupleElems depth,
-      TParen span0 <$> genType depth
+      TCon span0 <$> genConName
     ]
 
 genTypeTupleElems :: Int -> Gen [Type]
-genTypeTupleElems depth = do
+genTypeTupleElems n = do
   isUnit <- arbitrary
   if isUnit
     then pure []
     else do
-      n <- chooseInt (2, 3)
-      vectorOf n (genType depth)
+      count <- chooseInt (2, 3)
+      vectorOf count (genType (n `div` count))
 
 genTypeVarName :: Gen Text
 genTypeVarName = do
@@ -456,7 +376,7 @@ showHex value
   | value < 16 = [hexDigit value]
   | otherwise = showHex (value `div` 16) <> [hexDigit (value `mod` 16)]
   where
-    hexDigit n = "0123456789abcdef" !! fromInteger n
+    hexDigit x = "0123456789abcdef" !! fromInteger x
 
 -- | Create an integer expression with canonical representation.
 mkIntExpr :: Integer -> Expr
