@@ -4,7 +4,7 @@
 
 -- |
 -- Module      : Aihc.Lexer
--- Description : Lex Haskell source into span-annotated tokens, then apply extensions and layout.
+-- Description : Lex Haskell source into span-annotated tokens with inline extension handling.
 --
 -- This module performs the pre-parse tokenization step for Haskell source code.
 -- It turns raw text into 'LexToken's that preserve:
@@ -13,13 +13,13 @@
 -- * the original token text ('lexTokenText')
 -- * source location information ('lexTokenSpan')
 --
--- The lexer runs in three phases:
+-- The lexer runs in two phases:
 --
 -- 1. /Raw tokenization/ with a custom incremental scanner that consumes one or more
---    input chunks and emits tokens lazily.
--- 2. /Extension rewrites/ ('applyExtensions'), for example @NegativeLiterals@ which
---    folds @-@ plus an adjacent numeric literal into one literal token.
--- 3. /Layout insertion/ ('applyLayoutTokens') that inserts virtual @{@, @;@ and @}@
+--    input chunks and emits tokens lazily. Extension-specific lexing (such as
+--    @NegativeLiterals@ and @LexicalNegation@) is handled inline during this phase
+--    by tracking the previous token context.
+-- 2. /Layout insertion/ ('applyLayoutTokens') that inserts virtual @{@, @;@ and @}@
 --    according to indentation (the offside rule), so the parser can treat implicit
 --    layout like explicit braces and semicolons.
 --
@@ -167,7 +167,11 @@ data LexerState = LexerState
     lexerCol :: !Int,
     lexerAtLineStart :: !Bool,
     lexerPending :: [LexToken],
-    lexerExtensions :: [Extension]
+    lexerExtensions :: [Extension],
+    -- | The kind of the previous non-trivia token (for NegativeLiterals/LexicalNegation)
+    lexerPrevTokenKind :: !(Maybe LexTokenKind),
+    -- | Whether trivia (whitespace/comments) was skipped since the last token
+    lexerHadTrivia :: !Bool
   }
   deriving (Eq, Show)
 
@@ -278,7 +282,9 @@ lexChunksWithExtensions enableModuleLayout exts chunks =
           lexerCol = 1,
           lexerAtLineStart = True,
           lexerPending = [],
-          lexerExtensions = exts
+          lexerExtensions = exts,
+          lexerPrevTokenKind = Nothing,
+          lexerHadTrivia = True -- Start of file is treated as having leading trivia
         }
 
 -- | Read leading module-header pragmas and return parsed LANGUAGE settings.
@@ -317,19 +323,28 @@ enabledExtensionsFromSettings = List.foldl' apply []
 --
 -- Pending synthetic tokens are emitted first, then trivia is skipped, and finally
 -- the next real token is scanned from the remaining input.
+--
+-- The lexer tracks the previous token kind and whether trivia was consumed between
+-- tokens, which enables inline handling of LexicalNegation and NegativeLiterals.
 scanTokens :: LexerState -> [LexToken]
 scanTokens st0 =
   case lexerPending st0 of
-    tok : rest -> tok : scanTokens st0 {lexerPending = rest}
+    tok : rest ->
+      let st0' = st0 {lexerPending = rest, lexerPrevTokenKind = Just (lexTokenKind tok), lexerHadTrivia = False}
+       in tok : scanTokens st0'
     [] ->
       let st = skipTrivia st0
        in case lexerPending st of
-            tok : rest -> tok : scanTokens st {lexerPending = rest}
+            tok : rest ->
+              let st' = st {lexerPending = rest, lexerPrevTokenKind = Just (lexTokenKind tok), lexerHadTrivia = False}
+               in tok : scanTokens st'
             []
               | null (lexerInput st) -> []
               | otherwise ->
+                  -- Reset hadTrivia flag is already set by skipTrivia; we just lex the token
                   let (tok, st') = nextToken st
-                   in tok : scanTokens st'
+                      st'' = st' {lexerPrevTokenKind = Just (lexTokenKind tok), lexerHadTrivia = False}
+                   in tok : scanTokens st''
 
 -- | Skip ignorable trivia until the next token boundary.
 --
@@ -345,26 +360,30 @@ consumeTrivia st
   | otherwise =
       case lexerInput st of
         c : _
-          | c == ' ' || c == '\t' || c == '\r' -> Just (consumeWhile (\x -> x == ' ' || x == '\t' || x == '\r') st)
-          | c == '\n' -> Just (advanceChars "\n" st)
+          | c == ' ' || c == '\t' || c == '\r' -> Just (markHadTrivia (consumeWhile (\x -> x == ' ' || x == '\t' || x == '\r') st))
+          | c == '\n' -> Just (markHadTrivia (advanceChars "\n" st))
         '-' : '-' : rest
-          | isLineComment rest -> Just (consumeLineComment st)
+          | isLineComment rest -> Just (markHadTrivia (consumeLineComment st))
         '{' : '-' : '#' : _ ->
           case tryConsumeControlPragma st of
-            Just (Nothing, st') -> Just st'
-            Just (Just tok, st') -> Just st' {lexerPending = lexerPending st' <> [tok]}
+            Just (Nothing, st') -> Just (markHadTrivia st')
+            Just (Just tok, st') -> Just (markHadTrivia st' {lexerPending = lexerPending st' <> [tok]})
             Nothing ->
               case tryConsumeKnownPragma st of
                 Just _ -> Nothing
                 Nothing ->
-                  consumeUnknownPragma st
+                  markHadTrivia <$> consumeUnknownPragma st
         '{' : '-' : _ ->
-          Just (consumeBlockCommentOrError st)
+          Just (markHadTrivia (consumeBlockCommentOrError st))
         _ ->
           case tryConsumeLineDirective st of
-            Just (Nothing, st') -> Just st'
-            Just (Just tok, st') -> Just st' {lexerPending = lexerPending st' <> [tok]}
+            Just (Nothing, st') -> Just (markHadTrivia st')
+            Just (Just tok, st') -> Just (markHadTrivia st' {lexerPending = lexerPending st' <> [tok]})
             Nothing -> Nothing
+
+-- | Mark that trivia was consumed
+markHadTrivia :: LexerState -> LexerState
+markHadTrivia st = st {lexerHadTrivia = True}
 
 nextToken :: LexerState -> (LexToken, LexerState)
 nextToken st =
@@ -381,6 +400,7 @@ nextToken st =
         lexString,
         lexSymbol,
         lexIdentifier,
+        lexNegativeLiteralOrMinus,
         lexOperator
       ]
 
@@ -391,171 +411,14 @@ nextToken st =
         Nothing -> firstJust rest
 
 -- | Apply all extension-driven post-lexing rewrites in a deterministic order.
--- Note: UnicodeSyntax is handled inline during lexing in lexOperator.
-applyExtensions :: [Extension] -> [LexToken] -> [LexToken]
-applyExtensions exts toks
-  | LexicalNegation `elem` exts = applyLexicalNegation (markLexicalMinusOperators (applyNegativeLiterals toks))
-  | NegativeLiterals `elem` exts = applyNegativeLiterals toks
-  | otherwise = toks
-
--- | Mark all minus operators as TkMinusOperator when LexicalNegation is enabled.
--- This is an intermediate step before detecting prefix positions.
-markLexicalMinusOperators :: [LexToken] -> [LexToken]
-markLexicalMinusOperators =
-  map
-    ( \tok ->
-        case lexTokenKind tok of
-          TkVarSym "-" -> tok {lexTokenKind = TkMinusOperator}
-          _ -> tok
-    )
-
--- | Implement @NegativeLiterals@ by merging @-@ and immediately adjacent numerics.
 --
--- The merge only happens when there is no intervening whitespace/comments, and only
--- for integer/base-integer/float tokens.
-applyNegativeLiterals :: [LexToken] -> [LexToken]
-applyNegativeLiterals = go Nothing
-  where
-    go prev toks =
-      case toks of
-        minusTok : numTok : rest
-          | lexTokenKind minusTok == TkVarSym "-",
-            tokensAdjacent minusTok numTok,
-            allowsNegativeLiteralMerge prev minusTok ->
-              case lexTokenKind numTok of
-                TkInteger n ->
-                  let merged = negativeIntegerToken minusTok numTok n
-                   in merged : go (Just merged) rest
-                TkIntegerBase n repr ->
-                  let merged = negativeIntegerBaseToken minusTok numTok n repr
-                   in merged : go (Just merged) rest
-                TkFloat n repr ->
-                  let merged = negativeFloatToken minusTok numTok n repr
-                   in merged : go (Just merged) rest
-                _ -> minusTok : go (Just minusTok) (numTok : rest)
-        tok : rest -> tok : go (Just tok) rest
-        [] -> []
-
--- | Apply LexicalNegation extension by detecting prefix minus positions.
--- Converts TkMinusOperator to TkPrefixMinus when in prefix position (tight, no space).
-applyLexicalNegation :: [LexToken] -> [LexToken]
-applyLexicalNegation = go Nothing
-  where
-    go prev toks =
-      case toks of
-        minusTok : nextTok : rest
-          | lexTokenKind minusTok == TkMinusOperator,
-            tokensAdjacent minusTok nextTok,
-            allowsLexicalNegationPrefix prev minusTok,
-            tokenCanStartNegatedAtom nextTok ->
-              let prefixed = minusTok {lexTokenKind = TkPrefixMinus}
-               in prefixed : go (Just prefixed) (nextTok : rest)
-        tok : rest -> tok : go (Just tok) rest
-        [] -> []
-
--- | Check if a negative literal merge is allowed based on the preceding token.
-allowsNegativeLiteralMerge :: Maybe LexToken -> LexToken -> Bool
-allowsNegativeLiteralMerge prev minusTok =
-  case prev of
-    Nothing -> True
-    Just prevTok
-      | tokensAdjacent prevTok minusTok -> tokenAllowsTightUnaryPrefix prevTok
-      | otherwise -> True
-
--- | Check if a LexicalNegation prefix is allowed based on the preceding token.
-allowsLexicalNegationPrefix :: Maybe LexToken -> LexToken -> Bool
-allowsLexicalNegationPrefix prev minusTok =
-  case prev of
-    Nothing -> True
-    Just prevTok
-      | tokensAdjacent prevTok minusTok -> tokenAllowsTightUnaryPrefix prevTok
-      | otherwise -> True
-
--- | Check if the preceding token allows a tight unary prefix (like negation).
-tokenAllowsTightUnaryPrefix :: LexToken -> Bool
-tokenAllowsTightUnaryPrefix tok =
-  case lexTokenKind tok of
-    TkSpecialLParen -> True
-    TkSpecialLBracket -> True
-    TkSpecialLBrace -> True
-    TkSpecialComma -> True
-    TkSpecialSemicolon -> True
-    TkVarSym _ -> True
-    TkConSym _ -> True
-    TkQVarSym _ -> True
-    TkQConSym _ -> True
-    TkMinusOperator -> True
-    TkPrefixMinus -> True
-    TkReservedEquals -> True
-    TkReservedLeftArrow -> True
-    TkReservedRightArrow -> True
-    TkReservedDoubleArrow -> True
-    TkReservedDoubleColon -> True
-    TkReservedPipe -> True
-    TkReservedBackslash -> True
-    _ -> False
-
--- | Check if a token can start a negated atom (for LexicalNegation).
-tokenCanStartNegatedAtom :: LexToken -> Bool
-tokenCanStartNegatedAtom tok =
-  case lexTokenKind tok of
-    TkVarId _ -> True
-    TkConId _ -> True
-    TkQVarId _ -> True
-    TkQConId _ -> True
-    TkMinusOperator -> True
-    TkInteger _ -> True
-    TkIntegerBase _ _ -> True
-    TkFloat _ _ -> True
-    TkChar _ -> True
-    TkString _ -> True
-    TkQuasiQuote _ _ -> True
-    TkSpecialLParen -> True
-    TkSpecialLBracket -> True
-    TkReservedBackslash -> True
-    _ -> False
-
--- | True when the second token starts exactly where the first one ends.
-tokensAdjacent :: LexToken -> LexToken -> Bool
-tokensAdjacent first second =
-  case (lexTokenSpan first, lexTokenSpan second) of
-    (SourceSpan _ _ firstEndLine firstEndCol, SourceSpan secondStartLine secondStartCol _ _) ->
-      firstEndLine == secondStartLine && firstEndCol == secondStartCol
-    _ -> False
-
--- | Build a negative decimal integer token from @-@ and a positive literal token.
-negativeIntegerToken :: LexToken -> LexToken -> Integer -> LexToken
-negativeIntegerToken minusTok numTok n =
-  LexToken
-    { lexTokenKind = TkInteger (negate n),
-      lexTokenText = lexTokenText minusTok <> lexTokenText numTok,
-      lexTokenSpan = combinedSpan minusTok numTok
-    }
-
--- | Build a negative non-decimal integer token from @-@ and a positive literal token.
-negativeIntegerBaseToken :: LexToken -> LexToken -> Integer -> Text -> LexToken
-negativeIntegerBaseToken minusTok numTok n repr =
-  LexToken
-    { lexTokenKind = TkIntegerBase (negate n) ("-" <> repr),
-      lexTokenText = lexTokenText minusTok <> lexTokenText numTok,
-      lexTokenSpan = combinedSpan minusTok numTok
-    }
-
--- | Build a negative float token from @-@ and a positive literal token.
-negativeFloatToken :: LexToken -> LexToken -> Double -> Text -> LexToken
-negativeFloatToken minusTok numTok n repr =
-  LexToken
-    { lexTokenKind = TkFloat (negate n) ("-" <> repr),
-      lexTokenText = lexTokenText minusTok <> lexTokenText numTok,
-      lexTokenSpan = combinedSpan minusTok numTok
-    }
-
--- | Span that starts at the first token and ends at the second token.
-combinedSpan :: LexToken -> LexToken -> SourceSpan
-combinedSpan first second =
-  case (lexTokenSpan first, lexTokenSpan second) of
-    (SourceSpan sl sc _ _, SourceSpan _ _ el ec) -> SourceSpan sl sc el ec
-    _ -> NoSourceSpan
+-- Note: NegativeLiterals and LexicalNegation are now handled inline during lexing
+-- in lexNegativeLiteralOrMinus, so this function is now a no-op. It is kept for
+-- API compatibility.
+--
+-- UnicodeSyntax is also handled inline during lexing in lexOperator.
+applyExtensions :: [Extension] -> [LexToken] -> [LexToken]
+applyExtensions _ = id
 
 applyLayoutTokens :: Bool -> [LexToken] -> [LexToken]
 applyLayoutTokens enableModuleLayout =
@@ -868,6 +731,230 @@ lexIdentifier st =
               if isAsciiUpper firstChar
                 then TkConId ident
                 else TkVarId ident
+
+-- | Handle minus in the context of NegativeLiterals and LexicalNegation extensions.
+--
+-- This function is called when the input starts with '-' and either NegativeLiterals
+-- or LexicalNegation is enabled. It handles the following cases:
+--
+-- 1. NegativeLiterals: If '-' is immediately followed by a numeric literal (no space),
+--    and the preceding token allows a merge (or there was whitespace before '-'),
+--    lex the combined negative literal.
+--
+-- 2. LexicalNegation: If '-' is in a prefix position (tight against the following
+--    token, with whitespace or an operator before), emit TkPrefixMinus.
+--
+-- Otherwise, return Nothing and let lexOperator handle it.
+lexNegativeLiteralOrMinus :: LexerState -> Maybe (LexToken, LexerState)
+lexNegativeLiteralOrMinus st
+  | not hasNegExt = Nothing
+  | otherwise =
+      case lexerInput st of
+        '-' : nextChar : _
+          | not (isSymbolicOpChar nextChar && nextChar /= '-') ->
+              -- Check if this is just a standalone '-' (not part of multi-char operator like -> or -<)
+              case span isSymbolicOpChar (lexerInput st) of
+                ("-", _) -> tryNegativeOrPrefixMinus st (drop 1 (lexerInput st))
+                _ -> Nothing -- Multi-char operator starting with '-', let lexOperator handle it
+        ['-'] ->
+          -- Standalone '-' at end of input
+          case span isSymbolicOpChar (lexerInput st) of
+            ("-", _) -> tryNegativeOrPrefixMinus st []
+            _ -> Nothing
+        _ -> Nothing
+  where
+    hasNegExt = NegativeLiterals `elem` lexerExtensions st || LexicalNegation `elem` lexerExtensions st
+
+-- | Try to lex a negative literal or prefix minus.
+-- Called when we know we have a standalone '-' (not part of a multi-char operator).
+tryNegativeOrPrefixMinus :: LexerState -> String -> Maybe (LexToken, LexerState)
+tryNegativeOrPrefixMinus st rest = do
+  -- Check if merge/prefix is allowed based on preceding token
+  let prevAllowsMerge = allowsMergeOrPrefix (lexerPrevTokenKind st) (lexerHadTrivia st)
+
+  -- Try NegativeLiterals first: merge '-' with immediately adjacent numeric
+  if NegativeLiterals `elem` lexerExtensions st && prevAllowsMerge
+    then case tryLexNegativeNumber st rest of
+      Just result -> Just result
+      Nothing -> tryLexicalNegation st rest prevAllowsMerge
+    else tryLexicalNegation st rest prevAllowsMerge
+
+-- | Check if the preceding token context allows a merge (NegativeLiterals) or
+-- prefix minus (LexicalNegation).
+--
+-- The merge/prefix is allowed when:
+-- - There is no previous token (start of input)
+-- - There was whitespace/trivia before the '-'
+-- - The previous token is an operator or punctuation that allows tight unary prefix
+allowsMergeOrPrefix :: Maybe LexTokenKind -> Bool -> Bool
+allowsMergeOrPrefix prev hadTrivia =
+  case prev of
+    Nothing -> True
+    Just _ | hadTrivia -> True
+    Just prevKind -> prevTokenAllowsTightPrefix prevKind
+
+-- | Check if the preceding token allows a tight unary prefix (like negation).
+-- This is used when there's no whitespace between the previous token and '-'.
+prevTokenAllowsTightPrefix :: LexTokenKind -> Bool
+prevTokenAllowsTightPrefix kind =
+  case kind of
+    TkSpecialLParen -> True
+    TkSpecialLBracket -> True
+    TkSpecialLBrace -> True
+    TkSpecialComma -> True
+    TkSpecialSemicolon -> True
+    TkVarSym _ -> True
+    TkConSym _ -> True
+    TkQVarSym _ -> True
+    TkQConSym _ -> True
+    TkMinusOperator -> True
+    TkPrefixMinus -> True
+    TkReservedEquals -> True
+    TkReservedLeftArrow -> True
+    TkReservedRightArrow -> True
+    TkReservedDoubleArrow -> True
+    TkReservedDoubleColon -> True
+    TkReservedPipe -> True
+    TkReservedBackslash -> True
+    _ -> False
+
+-- | Try to lex a negative number (for NegativeLiterals extension).
+-- Returns Just if '-' is immediately followed by a numeric literal.
+tryLexNegativeNumber :: LexerState -> String -> Maybe (LexToken, LexerState)
+tryLexNegativeNumber st rest =
+  case rest of
+    -- Hex float: -0xNN.NNpEE
+    '0' : x : _ | x `elem` ("xX" :: String) -> tryLexNegativeHexFloat st
+    -- Based integer: -0x..., -0o..., -0b...
+    '0' : base : _ | base `elem` ("xXoObB" :: String) -> tryLexNegativeIntBase st
+    -- Decimal float or integer
+    d : _ | isDigit d -> tryLexNegativeFloatOrInt st
+    _ -> Nothing
+
+-- | Try to lex a negative hex float: -0xNN.NNpEE
+tryLexNegativeHexFloat :: LexerState -> Maybe (LexToken, LexerState)
+tryLexNegativeHexFloat st = do
+  -- Skip the '-'
+  let afterMinus = drop 1 (lexerInput st)
+  ('0' : x : rest) <- Just afterMinus
+  if x `notElem` ("xX" :: String)
+    then Nothing
+    else do
+      let (intDigits, rest1) = span isHexDigit rest
+      if null intDigits
+        then Nothing
+        else do
+          let (mFracDigits, rest2) =
+                case rest1 of
+                  '.' : more ->
+                    let (frac, rest') = span isHexDigit more
+                     in (Just frac, rest')
+                  _ -> (Nothing, rest1)
+          expo@(_ : expoRest) <- takeHexExponent rest2
+          let fracDigits = fromMaybe "" mFracDigits
+          if null expoRest
+            then Nothing
+            else
+              let dotAndFrac =
+                    case mFracDigits of
+                      Just ds -> '.' : ds
+                      Nothing -> ""
+                  raw = '-' : '0' : x : intDigits <> dotAndFrac <> expo
+                  txt = T.pack raw
+                  value = negate (parseHexFloatLiteral intDigits fracDigits expo)
+                  st' = advanceChars raw st
+               in Just (mkToken st st' txt (TkFloat value txt), st')
+
+-- | Try to lex a negative based integer: -0x..., -0o..., -0b...
+tryLexNegativeIntBase :: LexerState -> Maybe (LexToken, LexerState)
+tryLexNegativeIntBase st =
+  case drop 1 (lexerInput st) of
+    '0' : base : rest
+      | base `elem` ("xXoObB" :: String) ->
+          let allowUnderscores = NumericUnderscores `elem` lexerExtensions st
+              isDigitChar
+                | base `elem` ("xX" :: String) = isHexDigit
+                | base `elem` ("oO" :: String) = isOctDigit
+                | otherwise = (`elem` ("01" :: String))
+              (digitsRaw, _) = takeDigitsWithLeadingUnderscores allowUnderscores isDigitChar rest
+           in if null digitsRaw
+                then Nothing
+                else
+                  let raw = '-' : '0' : base : digitsRaw
+                      txt = T.pack raw
+                      positiveTxt = T.pack ('0' : base : digitsRaw)
+                      n
+                        | base `elem` ("xX" :: String) = readHexLiteral positiveTxt
+                        | base `elem` ("oO" :: String) = readOctLiteral positiveTxt
+                        | otherwise = readBinLiteral positiveTxt
+                      st' = advanceChars raw st
+                   in Just (mkToken st st' txt (TkIntegerBase (negate n) txt), st')
+    _ -> Nothing
+
+-- | Try to lex a negative float or integer
+tryLexNegativeFloatOrInt :: LexerState -> Maybe (LexToken, LexerState)
+tryLexNegativeFloatOrInt st =
+  let afterMinus = drop 1 (lexerInput st)
+      allowUnderscores = NumericUnderscores `elem` lexerExtensions st
+      (lhsRaw, rest) = takeDigitsWithUnderscores allowUnderscores isDigit afterMinus
+   in if null lhsRaw
+        then Nothing
+        else case rest of
+          '.' : d : more
+            | isDigit d ->
+                let (rhsRaw, rest') = takeDigitsWithUnderscores allowUnderscores isDigit (d : more)
+                    (expo, _) = takeExponent allowUnderscores rest'
+                    raw = '-' : lhsRaw <> "." <> rhsRaw <> expo
+                    txt = T.pack raw
+                    normalized = filter (/= '_') raw
+                    st' = advanceChars raw st
+                 in Just (mkToken st st' txt (TkFloat (read normalized) txt), st')
+          _ ->
+            case takeExponent allowUnderscores rest of
+              ("", _) ->
+                -- Plain negative integer
+                let raw = '-' : lhsRaw
+                    txt = T.pack raw
+                    digits = filter (/= '_') lhsRaw
+                    st' = advanceChars raw st
+                 in Just (mkToken st st' txt (TkInteger (negate (read digits))), st')
+              (expo, _) ->
+                -- Float with exponent
+                let raw = '-' : lhsRaw <> expo
+                    txt = T.pack raw
+                    normalized = filter (/= '_') raw
+                    st' = advanceChars raw st
+                 in Just (mkToken st st' txt (TkFloat (read normalized) txt), st')
+
+-- | Try to handle LexicalNegation extension (TkPrefixMinus or TkMinusOperator).
+tryLexicalNegation :: LexerState -> String -> Bool -> Maybe (LexToken, LexerState)
+tryLexicalNegation st rest prevAllowsMerge
+  | LexicalNegation `notElem` lexerExtensions st = Nothing
+  | otherwise =
+      let st' = advanceChars "-" st
+          tok = mkToken st st' "-" TkMinusOperator
+       in -- Check if this is a prefix position
+          -- Prefix means: previous token allows prefix AND next char is tight (part of same "word")
+          -- We check if the next char could start an atom that can be negated
+          if prevAllowsMerge && canStartNegatedAtom rest
+            then Just (tok {lexTokenKind = TkPrefixMinus}, st')
+            else Just (tok, st')
+
+-- | Check if the given input could start a negated atom (for LexicalNegation).
+canStartNegatedAtom :: String -> Bool
+canStartNegatedAtom rest =
+  case rest of
+    [] -> False
+    c : _
+      | isIdentStart c -> True -- identifier
+      | isDigit c -> True -- number
+      | c == '\'' -> True -- char literal
+      | c == '"' -> True -- string literal
+      | c == '(' -> True -- parenthesized expression
+      | c == '[' -> True -- list/TH brackets
+      | c == '\\' -> True -- lambda
+      | c == '-' -> True -- nested negation
+      | otherwise -> False
 
 lexOperator :: LexerState -> Maybe (LexToken, LexerState)
 lexOperator st =
