@@ -1,4 +1,4 @@
-input: "foo"
+input: foo
 output: |
-  TkVarId "foo"
+  TkVarId foo
 status: pass

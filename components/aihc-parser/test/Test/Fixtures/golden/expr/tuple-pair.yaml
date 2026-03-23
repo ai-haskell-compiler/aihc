@@ -1,5 +1,5 @@
 extensions: []
 input: |
   (a,b)
-ast: ETuple [EVar "a", EVar "b"]
+ast: ETuple [EVar a, EVar b]
 status: pass

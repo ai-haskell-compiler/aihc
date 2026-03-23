@@ -1,5 +1,5 @@
 extensions: []
 input: |
   -f x
-ast: ENegate (EApp (EVar "f") (EVar "x"))
+ast: ENegate (EApp (EVar f) (EVar x))
 status: pass

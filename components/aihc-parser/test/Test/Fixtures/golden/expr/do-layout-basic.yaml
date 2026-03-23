@@ -3,5 +3,5 @@ input: |
   do
     x
     y
-ast: EDo [DoExpr (EVar "x"), DoExpr (EVar "y")]
+ast: EDo [DoExpr (EVar x), DoExpr (EVar y)]
 status: pass

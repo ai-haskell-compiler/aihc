@@ -3,8 +3,8 @@
 -- \$setup
 -- >>> import Aihc.Parser (parseModule)
 --
--- >>> let m = parseModule "module Demo where x = 1" in show (shorthand m)
--- "ParseOk (Module {name = \"Demo\", decls = [DeclValue (FunctionBind \"x\" [Match {rhs = UnguardedRhs (EInt 1)}])]})"
+-- >>> shorthand $ parseModule "module Demo where x = 1"
+-- ParseOk (Module {name = Demo, decls = [DeclValue (FunctionBind x [Match {rhs = UnguardedRhs (EInt 1)}])]})
 
 -- |
 -- Module      : Aihc.Parser.Shorthand
@@ -26,6 +26,7 @@ where
 
 import Aihc.Lexer (LexToken (..), LexTokenKind (..))
 import Aihc.Parser.Ast
+import Aihc.Parser.Types (ParseResult (..))
 import Data.Text (Text)
 import Prettyprinter
   ( Doc,
@@ -33,7 +34,6 @@ import Prettyprinter
     braces,
     brackets,
     comma,
-    dquotes,
     hsep,
     parens,
     punctuate,
@@ -52,6 +52,12 @@ import Prettyprinter
 -- @
 class Shorthand a where
   shorthand :: a -> Doc ()
+
+-- ParseResult
+
+instance (Shorthand a) => Shorthand (ParseResult a) where
+  shorthand (ParseOk a) = "ParseOk" <+> parens (shorthand a)
+  shorthand (ParseErr _) = "ParseErr"
 
 -- Module
 
@@ -585,7 +591,7 @@ boolField _ False = []
 boolField name True = [field name "True"]
 
 docText :: Text -> Doc ann
-docText t = dquotes (pretty t)
+docText = pretty
 
 docTextList :: [Text] -> Doc ann
 docTextList ts = brackets (hsep (punctuate comma (map docText ts)))

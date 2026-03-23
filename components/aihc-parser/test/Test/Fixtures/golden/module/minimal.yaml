@@ -2,5 +2,5 @@ extensions: []
 input: |
   module Demo where
   x = 1
-ast: Module {name = "Demo", decls = [DeclValue (FunctionBind "x" [Match {rhs = UnguardedRhs (EInt 1)}])]}
+ast: Module {name = Demo, decls = [DeclValue (FunctionBind x [Match {rhs = UnguardedRhs (EInt 1)}])]}
 status: pass

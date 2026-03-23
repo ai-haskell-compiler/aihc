@@ -1,5 +1,5 @@
 input: "-10"
 output: |
-  TkVarSym "-"
+  TkVarSym -
   TkInteger 10
 status: pass

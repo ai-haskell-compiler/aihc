@@ -10,5 +10,5 @@ input: |
         Right obj -> return obj
       else do
       return ()
-ast: Module {name = "DoAndIfThenElseCaseLayout", languagePragmas = [EnableExtension DoAndIfThenElse], decls = [DeclValue (FunctionBind "toCaseLayout" [Match {rhs = UnguardedRhs (EDo [DoExpr (EIf (EVar "True") (EDo [DoExpr (ECase (EVar "undefined") [CaseAlt (PCon "Left" [PVar "err"]) (UnguardedRhs (EApp (EVar "error") (EVar "err"))), CaseAlt (PCon "Right" [PVar "obj"]) (UnguardedRhs (EApp (EVar "return") (EVar "obj")))])]) (EDo [DoExpr (EApp (EVar "return") (ETuple []))]))])}])]}
+ast: Module {name = DoAndIfThenElseCaseLayout, languagePragmas = [EnableExtension DoAndIfThenElse], decls = [DeclValue (FunctionBind toCaseLayout [Match {rhs = UnguardedRhs (EDo [DoExpr (EIf (EVar True) (EDo [DoExpr (ECase (EVar undefined) [CaseAlt (PCon Left [PVar err]) (UnguardedRhs (EApp (EVar error) (EVar err))), CaseAlt (PCon Right [PVar obj]) (UnguardedRhs (EApp (EVar return) (EVar obj)))])]) (EDo [DoExpr (EApp (EVar return) (ETuple []))]))])}])]}
 status: pass
