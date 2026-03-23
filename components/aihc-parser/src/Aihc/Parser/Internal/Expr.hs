@@ -706,9 +706,9 @@ localFunctionDeclParser = withSpan $ MP.try infixLocalFunctionParser <|> prefixL
       pure (\span' -> functionBindDecl span' name pats rhs)
 
     infixLocalFunctionParser = do
-      lhsPat <- appPatternParser
+      lhsPat <- patternParser
       op <- infixOperatorNameParser
-      rhsPat <- appPatternParser
+      rhsPat <- patternParser
       rhs <- equationRhsParser
       pure (\span' -> functionBindDecl span' op [lhsPat, rhsPat] rhs)
 

@@ -11,7 +11,7 @@ where
 import Aihc.Lexer (LexTokenKind (..), lexTokenKind)
 import Aihc.Parser.Ast
 import Aihc.Parser.Internal.Common
-import Aihc.Parser.Internal.Expr (appPatternParser, equationRhsParser, exprParser, simplePatternParser, typeAtomParser, typeParser)
+import Aihc.Parser.Internal.Expr (equationRhsParser, exprParser, patternParser, simplePatternParser, typeAtomParser, typeParser)
 import Control.Monad (when)
 import Data.Char (isAsciiLower, isUpper)
 import Data.Maybe (fromMaybe)
@@ -330,9 +330,9 @@ classDefaultItemParser = withSpan $ MP.try infixClassDefaultParser <|> prefixCla
       pure (\span' -> ClassItemDefault span' (functionBindValue span' name pats (UnguardedRhs span' rhsExpr)))
 
     infixClassDefaultParser = do
-      lhsPat <- appPatternParser
+      lhsPat <- patternParser
       op <- infixOperatorNameParser
-      rhsPat <- appPatternParser
+      rhsPat <- patternParser
       expectedTok TkReservedEquals
       rhsExpr <- exprParser
       pure (\span' -> ClassItemDefault span' (functionBindValue span' op [lhsPat, rhsPat] (UnguardedRhs span' rhsExpr)))
@@ -409,9 +409,9 @@ instanceValueItemParser = withSpan $ MP.try infixInstanceValueParser <|> prefixI
       pure (\span' -> InstanceItemBind span' (functionBindValue span' name pats (UnguardedRhs span' rhsExpr)))
 
     infixInstanceValueParser = do
-      lhsPat <- appPatternParser
+      lhsPat <- patternParser
       op <- infixOperatorNameParser
-      rhsPat <- appPatternParser
+      rhsPat <- patternParser
       expectedTok TkReservedEquals
       rhsExpr <- exprParser
       pure (\span' -> InstanceItemBind span' (functionBindValue span' op [lhsPat, rhsPat] (UnguardedRhs span' rhsExpr)))
@@ -693,8 +693,8 @@ valueDeclParser = withSpan $ MP.try infixValueDeclParser <|> prefixValueDeclPars
 
     -- Infix form: x `op` y = ... or x <op> y = ...
     infixValueDeclParser = do
-      lhsPat <- appPatternParser
+      lhsPat <- patternParser
       op <- infixOperatorNameParser
-      rhsPat <- appPatternParser
+      rhsPat <- patternParser
       rhs <- equationRhsParser
       pure (\span' -> functionBindDecl span' op [lhsPat, rhsPat] rhs)
