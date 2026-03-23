@@ -114,8 +114,8 @@ data LexTokenKind
   | TkReservedLeftArrow -- <-
   | TkReservedRightArrow -- ->
   | TkReservedAt -- @
-  | TkReservedTilde -- ~
-  | TkReservedDoubleArrow -- =>
+  | -- Note: ~ is NOT reserved; it uses whitespace-sensitive lexing (GHC proposal 0229)
+    TkReservedDoubleArrow -- =>
   | -- Identifiers (per Haskell Report Section 2.4)
     TkVarId Text -- variable identifier (starts lowercase/_)
   | TkConId Text -- constructor identifier (starts uppercase)
@@ -145,6 +145,9 @@ data LexTokenKind
   | -- LexicalNegation support
     TkMinusOperator -- minus operator when LexicalNegation enabled (before prefix detection)
   | TkPrefixMinus -- prefix minus (tight, no space) for LexicalNegation
+  | -- Whitespace-sensitive operator support (GHC proposal 0229)
+    TkPrefixBang -- prefix bang (!x) for bang patterns
+  | TkPrefixTilde -- prefix tilde (~x) for irrefutable patterns
   | -- Pragmas
     TkPragmaLanguage [ExtensionSetting]
   | TkPragmaWarning Text
@@ -400,6 +403,7 @@ nextToken st =
         lexSymbol,
         lexIdentifier,
         lexNegativeLiteralOrMinus,
+        lexBangOrTildeOperator, -- must come before lexOperator
         lexOperator
       ]
 
@@ -865,6 +869,75 @@ canStartNegatedAtom rest =
       | c == '[' -> True -- list/TH brackets
       | c == '\\' -> True -- lambda
       | c == '-' -> True -- nested negation
+      | otherwise -> False
+
+-- | Whitespace-sensitive lexing for ! and ~ operators (GHC proposal 0229).
+--
+-- Per the proposal, these operators are classified based on surrounding whitespace:
+--   - Prefix occurrence: whitespace before, no whitespace after → bang/lazy pattern
+--   - Otherwise (loose infix, tight infix, suffix) → regular operator
+--
+-- Examples:
+--   a ! b   -- loose infix (operator)
+--   a!b     -- tight infix (operator)
+--   a !b    -- prefix (bang pattern)
+--   a! b    -- suffix (operator)
+lexBangOrTildeOperator :: LexerState -> Maybe (LexToken, LexerState)
+lexBangOrTildeOperator st =
+  case lexerInput st of
+    '!' : rest -> lexPrefixSensitiveOp st '!' "!" TkPrefixBang rest
+    '~' : rest -> lexPrefixSensitiveOp st '~' "~" TkPrefixTilde rest
+    _ -> Nothing
+
+-- | Lex a whitespace-sensitive prefix operator.
+-- Returns TkPrefixBang/TkPrefixTilde if in prefix position, otherwise Nothing
+-- to let lexOperator handle it as a regular VarSym.
+--
+-- Per GHC proposal 0229, prefix position is determined by:
+--   - Whitespace before the operator, OR
+--   - Previous token is an opening bracket/punctuation that allows tight prefix
+-- AND no whitespace after (next char can start a pattern atom).
+lexPrefixSensitiveOp :: LexerState -> Char -> String -> LexTokenKind -> String -> Maybe (LexToken, LexerState)
+lexPrefixSensitiveOp st opChar opStr prefixKind rest
+  -- Only handle single-character ! or ~ (not part of multi-char operator like !=)
+  | isMultiCharOp rest = Nothing
+  -- Prefix position: (whitespace before OR opening token before) AND next char can start a pattern atom
+  | isPrefixPosition && canStartPrefixPatternAtom rest =
+      let st' = advanceChars opStr st
+       in Just (mkToken st st' (T.singleton opChar) prefixKind, st')
+  -- Otherwise, let lexOperator handle it as a regular operator
+  | otherwise = Nothing
+  where
+    -- Check if rest starts with another symbolic operator char (making this a multi-char op)
+    isMultiCharOp (c : _) = isSymbolicOpChar c
+    isMultiCharOp [] = False
+    -- Prefix position is allowed when:
+    -- - There is no previous token (start of input)
+    -- - There was whitespace/trivia before the operator
+    -- - The previous token is an opening bracket or punctuation that allows tight prefix
+    isPrefixPosition =
+      case lexerPrevTokenKind st of
+        Nothing -> True -- start of input
+        Just prevKind
+          | lexerHadTrivia st -> True -- had whitespace before
+          | otherwise -> prevTokenAllowsTightPrefix prevKind -- opening bracket, etc.
+
+-- | Check if the given input could start a pattern atom (for prefix ! and ~).
+-- This is similar to canStartNegatedAtom but tailored for patterns.
+canStartPrefixPatternAtom :: String -> Bool
+canStartPrefixPatternAtom rest =
+  case rest of
+    [] -> False
+    c : _
+      | isIdentStart c -> True -- identifier (variable or constructor)
+      | isDigit c -> True -- numeric literal
+      | c == '\'' -> True -- char literal
+      | c == '"' -> True -- string literal
+      | c == '(' -> True -- parenthesized pattern or tuple
+      | c == '[' -> True -- list pattern
+      | c == '_' -> True -- wildcard
+      | c == '!' -> True -- nested bang pattern
+      | c == '~' -> True -- nested lazy pattern
       | otherwise -> False
 
 lexOperator :: LexerState -> Maybe (LexToken, LexerState)
@@ -1731,6 +1804,6 @@ reservedOpTokenKind txt = case txt of
   "<-" -> Just TkReservedLeftArrow
   "->" -> Just TkReservedRightArrow
   "@" -> Just TkReservedAt
-  "~" -> Just TkReservedTilde
+  -- Note: ~ is NOT reserved; it uses whitespace-sensitive lexing (GHC proposal 0229)
   "=>" -> Just TkReservedDoubleArrow
   _ -> Nothing
