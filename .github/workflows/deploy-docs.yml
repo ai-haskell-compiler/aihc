@@ -19,13 +19,26 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Install Nix
-        uses: cachix/install-nix-action@v30
+      - name: Setup Nix CI
+        uses: ./.github/actions/setup-nix-ci
+        with:
+          r2-account-id: ${{ vars.R2_ACCOUNT_ID }}
+          r2-access-key: ${{ vars.R2_ACCESS_KEY }}
+          r2-secret-access-key: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          nix-cache-private-key: ${{ secrets.NIX_CACHE_PRIVATE_KEY }}
 
-      - name: Build documentation
+      - name: Build documentation and coverage
         run: |
-          nix build .#docs
+          echo "=== Building Haddock documentation ==="
+          nix build .#docs --print-out-paths
           cp -rL result docs-output
+
+          echo "=== Building coverage report ==="
+          nix build .#coverage --print-out-paths
+          cp -rL result docs-output/coverage
+
+          echo "=== Site structure ==="
+          find docs-output -type f | head -50
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
