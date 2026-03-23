@@ -4,5 +4,4 @@ extensions:
 input: "1__000000"
 tokens:
   - 'TkInteger 1000000'
-status: xfail
-reason: "lexer does not yet support double underscores in numeric literals"
+status: pass

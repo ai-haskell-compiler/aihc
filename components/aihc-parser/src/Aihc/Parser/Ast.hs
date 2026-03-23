@@ -46,6 +46,7 @@ module Aihc.Parser.Ast
     Rhs (..),
     HasSourceSpan (..),
     SourceSpan (..),
+    StandaloneDerivingDecl (..),
     Type (..),
     TyVarBinder (..),
     TypeSynDecl (..),
@@ -390,6 +391,7 @@ data Decl
   | DeclNewtype SourceSpan NewtypeDecl
   | DeclClass SourceSpan ClassDecl
   | DeclInstance SourceSpan InstanceDecl
+  | DeclStandaloneDeriving SourceSpan StandaloneDerivingDecl
   | DeclDefault SourceSpan [Type]
   | DeclForeign SourceSpan ForeignDecl
   deriving (Data, Eq, Show, Generic, NFData)
@@ -406,6 +408,7 @@ instance HasSourceSpan Decl where
       DeclNewtype span' _ -> span'
       DeclClass span' _ -> span'
       DeclInstance span' _ -> span'
+      DeclStandaloneDeriving span' _ -> span'
       DeclDefault span' _ -> span'
       DeclForeign span' _ -> span'
 
@@ -649,6 +652,18 @@ data DerivingStrategy
   | DerivingNewtype
   | DerivingAnyclass
   deriving (Data, Eq, Show, Generic, NFData)
+
+data StandaloneDerivingDecl = StandaloneDerivingDecl
+  { standaloneDerivingSpan :: SourceSpan,
+    standaloneDerivingStrategy :: Maybe DerivingStrategy,
+    standaloneDerivingContext :: [Constraint],
+    standaloneDerivingClassName :: Text,
+    standaloneDerivingTypes :: [Type]
+  }
+  deriving (Data, Eq, Show, Generic, NFData)
+
+instance HasSourceSpan StandaloneDerivingDecl where
+  getSourceSpan = standaloneDerivingSpan
 
 data ClassDecl = ClassDecl
   { classDeclSpan :: SourceSpan,
