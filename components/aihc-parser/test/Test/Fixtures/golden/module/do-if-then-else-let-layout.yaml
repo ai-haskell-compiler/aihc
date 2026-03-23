@@ -1,0 +1,15 @@
+extensions: [DoAndIfThenElse]
+input: |
+  {-# LANGUAGE DoAndIfThenElse #-}
+  module DoAndIfThenElseLetLayout where
+  withLet :: IO ()
+  withLet = do
+    if True
+      then do
+      let x = 1
+          y = 2
+      return (x + y)
+      else do
+      return 0
+ast: Module {name = "DoAndIfThenElseLetLayout", languagePragmas = [EnableExtension DoAndIfThenElse], decls = [DeclTypeSig {names = ["withLet"], type = TApp (TCon "IO") (TTuple [])}, DeclValue (FunctionBind "withLet" [Match {rhs = UnguardedRhs (EDo [DoExpr (EIf (EVar "True") (EDo [DoLetDecls [DeclValue (FunctionBind "x" [Match {rhs = UnguardedRhs (EInt 1)}]), DeclValue (FunctionBind "y" [Match {rhs = UnguardedRhs (EInt 2)}])], DoExpr (EApp (EVar "return") (EParen (EInfix (EVar "x") "+" (EVar "y"))))]) (EDo [DoExpr (EApp (EVar "return") (EInt 0))]))])}])]}
+status: pass

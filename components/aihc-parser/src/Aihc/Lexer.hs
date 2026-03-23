@@ -528,6 +528,13 @@ closeBeforeToken st tok =
       let col = tokenStartCol tok
           (inserted, contexts') = closeForDedentInclusive col (lexTokenSpan tok) (layoutContexts st)
        in (inserted, st {layoutContexts = contexts'})
+    -- Close implicit layout contexts before 'where' keyword (parse-error rule)
+    -- 'where' at the same column as an implicit layout closes that layout,
+    -- allowing it to attach to the enclosing definition.
+    TkKeywordWhere ->
+      let col = tokenStartCol tok
+          (inserted, contexts') = closeForDedentInclusiveAll col (lexTokenSpan tok) (layoutContexts st)
+       in (inserted, st {layoutContexts = contexts'})
     _ -> ([], st)
 
 bolLayout :: LayoutState -> LexToken -> ([LexToken], LayoutState)
@@ -576,13 +583,43 @@ closeForDedent col anchor = go []
 -- | Close layout contexts opened after 'then do' or 'else do' when encountering
 -- 'then' or 'else' at the same or lesser indent. This handles the parse-error rule
 -- for these specific cases where the keyword cannot be part of the do block.
--- Only closes LayoutImplicitAfterThenElse contexts, not regular LayoutImplicit.
--- Recursively closes all such contexts where col <= indent.
+--
+-- This function first closes any implicit layouts with indent > col (regular dedent),
+-- then closes LayoutImplicitAfterThenElse contexts where col <= indent.
+-- This ensures that nested layouts (like case blocks) are closed before
+-- the then/else-specific layout closing.
 closeForDedentInclusive :: Int -> SourceSpan -> [LayoutContext] -> ([LexToken], [LayoutContext])
 closeForDedentInclusive col anchor = go []
   where
     go acc contexts =
       case contexts of
+        -- Close any implicit layout with indent > col (dedent rule)
+        LayoutImplicit indent : rest
+          | col < indent -> go (virtualSymbolToken "}" anchor : acc) rest
+          | otherwise -> (reverse acc, contexts)
+        LayoutImplicitLet indent : rest
+          | col < indent -> go (virtualSymbolToken "}" anchor : acc) rest
+          | otherwise -> (reverse acc, contexts)
+        -- Close LayoutImplicitAfterThenElse where col <= indent (parse-error rule)
+        LayoutImplicitAfterThenElse indent : rest
+          | col <= indent -> go (virtualSymbolToken "}" anchor : acc) rest
+          | otherwise -> (reverse acc, contexts)
+        _ -> (reverse acc, contexts)
+
+-- | Close all implicit layout contexts at or above the given column.
+-- Used for 'where' which needs to close all enclosing implicit layouts
+-- (not just LayoutImplicitAfterThenElse like then/else).
+closeForDedentInclusiveAll :: Int -> SourceSpan -> [LayoutContext] -> ([LexToken], [LayoutContext])
+closeForDedentInclusiveAll col anchor = go []
+  where
+    go acc contexts =
+      case contexts of
+        LayoutImplicit indent : rest
+          | col <= indent -> go (virtualSymbolToken "}" anchor : acc) rest
+          | otherwise -> (reverse acc, contexts)
+        LayoutImplicitLet indent : rest
+          | col <= indent -> go (virtualSymbolToken "}" anchor : acc) rest
+          | otherwise -> (reverse acc, contexts)
         LayoutImplicitAfterThenElse indent : rest
           | col <= indent -> go (virtualSymbolToken "}" anchor : acc) rest
           | otherwise -> (reverse acc, contexts)

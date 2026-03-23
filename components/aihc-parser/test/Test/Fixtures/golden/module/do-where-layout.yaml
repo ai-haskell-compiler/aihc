@@ -1,0 +1,8 @@
+extensions: []
+input: |
+  module DoWhereLayout where
+  testDoWhereLayout a = do
+    action
+    where action = a
+ast: Module {name = "DoWhereLayout", decls = [DeclValue (FunctionBind "testDoWhereLayout" [Match {pats = [PVar "a"], rhs = UnguardedRhs (EWhereDecls (EDo [DoExpr (EVar "action")]) [DeclValue (FunctionBind "action" [Match {rhs = UnguardedRhs (EVar "a")}])])}])]}
+status: pass

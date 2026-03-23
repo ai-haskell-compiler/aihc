@@ -5,3 +5,5 @@ do-and-if-then-else-then-do-single-stmt	layout	do-and-if-then-else-then-do-singl
 do-and-if-then-else-then-do-multi-stmt	layout	do-and-if-then-else-then-do-multi-stmt.hs	pass
 do-and-if-then-else-nested-if	layout	do-and-if-then-else-nested-if.hs	pass
 do-and-if-then-else-at-layout	layout	do-and-if-then-else-at-layout.hs	pass
+do-and-if-then-else-case-layout	layout	do-and-if-then-else-case-layout.hs	pass
+do-and-if-then-else-let-layout	layout	do-and-if-then-else-let-layout.hs	pass
