@@ -151,6 +151,7 @@ prettyDeclLines decl =
     DeclNewtype _ newtypeDecl -> [prettyNewtypeDecl newtypeDecl]
     DeclClass _ classDecl -> [prettyClassDecl classDecl]
     DeclInstance _ instanceDecl -> [prettyInstanceDecl instanceDecl]
+    DeclStandaloneDeriving _ derivingDecl -> [prettyStandaloneDeriving derivingDecl]
     DeclDefault _ tys -> ["default" <+> parens (hsep (punctuate comma (map prettyType tys)))]
     DeclForeign _ foreignDecl -> [prettyForeignDecl foreignDecl]
 
@@ -512,6 +513,24 @@ prettyInstanceDecl decl =
    in case instanceDeclItems decl of
         [] -> headDoc
         items -> headDoc <+> "where" <+> braces (hsep (punctuate semi (map prettyInstanceItem items)))
+
+prettyStandaloneDeriving :: StandaloneDerivingDecl -> Doc ann
+prettyStandaloneDeriving decl =
+  hsep
+    ( ["deriving"]
+        <> maybe [] (\s -> [prettyDerivingStrategy s]) (standaloneDerivingStrategy decl)
+        <> ["instance"]
+        <> contextPrefix (standaloneDerivingContext decl)
+        <> [pretty (standaloneDerivingClassName decl)]
+        <> map prettyTypeAtom (standaloneDerivingTypes decl)
+    )
+
+prettyDerivingStrategy :: DerivingStrategy -> Doc ann
+prettyDerivingStrategy strategy =
+  case strategy of
+    DerivingStock -> "stock"
+    DerivingNewtype -> "newtype"
+    DerivingAnyclass -> "anyclass"
 
 prettyInstanceItem :: InstanceDeclItem -> Doc ann
 prettyInstanceItem item =

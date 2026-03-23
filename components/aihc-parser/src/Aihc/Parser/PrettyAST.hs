@@ -162,6 +162,7 @@ docDecl decl =
     DeclNewtype _ nd -> "DeclNewtype" <+> parens (docNewtypeDecl nd)
     DeclClass _ cd -> "DeclClass" <+> parens (docClassDecl cd)
     DeclInstance _ inst -> "DeclInstance" <+> parens (docInstanceDecl inst)
+    DeclStandaloneDeriving _ sd -> "DeclStandaloneDeriving" <+> parens (docStandaloneDerivingDecl sd)
     DeclDefault _ tys -> "DeclDefault" <+> brackets (hsep (punctuate comma (map docType tys)))
     DeclForeign _ fd -> "DeclForeign" <+> parens (docForeignDecl fd)
 
@@ -297,6 +298,16 @@ docInstanceDeclItem item =
     InstanceItemBind _ vdecl -> "InstanceItemBind" <+> parens (docValueDecl vdecl)
     InstanceItemTypeSig _ names ty -> "InstanceItemTypeSig" <+> braces (hsep (punctuate comma [field "names" (docTextList names), field "type" (docType ty)]))
     InstanceItemFixity _ assoc mPrec ops -> "InstanceItemFixity" <+> braces (hsep (punctuate comma ([field "assoc" (docFixityAssoc assoc)] <> optionalField "prec" pretty mPrec <> [field "ops" (docTextList ops)])))
+
+docStandaloneDerivingDecl :: StandaloneDerivingDecl -> Doc ann
+docStandaloneDerivingDecl sd =
+  "StandaloneDerivingDecl" <+> braces (hsep (punctuate comma fields))
+  where
+    fields =
+      [field "className" (docText (standaloneDerivingClassName sd))]
+        <> optionalField "strategy" docDerivingStrategy (standaloneDerivingStrategy sd)
+        <> listField "context" docConstraint (standaloneDerivingContext sd)
+        <> [field "types" (brackets (hsep (punctuate comma (map docType (standaloneDerivingTypes sd)))))]
 
 docForeignDecl :: ForeignDecl -> Doc ann
 docForeignDecl fd =

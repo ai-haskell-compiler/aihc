@@ -1,4 +1,12 @@
-standalone-deriving-basic	declarations	standalone-deriving-basic.hs	xfail	parser support pending
-standalone-deriving-with-context	declarations	standalone-deriving-with-context.hs	xfail	parser support pending
-standalone-deriving-layout	declarations	standalone-deriving-layout.hs	xfail	parser support pending
-standalone-deriving-parenthesized	declarations	standalone-deriving-parenthesized.hs	xfail	parser support pending
+standalone-deriving-basic	declarations	standalone-deriving-basic.hs	pass
+standalone-deriving-with-context	declarations	standalone-deriving-with-context.hs	pass
+standalone-deriving-layout	declarations	standalone-deriving-layout.hs	pass
+standalone-deriving-parenthesized	declarations	standalone-deriving-parenthesized.hs	pass
+standalone-deriving-no-context	declarations	standalone-deriving-no-context.hs	pass
+standalone-deriving-multi-arg	declarations	standalone-deriving-multi-arg.hs	pass
+standalone-deriving-strategy-stock	declarations	standalone-deriving-strategy-stock.hs	pass
+standalone-deriving-strategy-newtype	declarations	standalone-deriving-strategy-newtype.hs	pass
+standalone-deriving-strategy-anyclass	declarations	standalone-deriving-strategy-anyclass.hs	pass
+standalone-deriving-type-application	declarations	standalone-deriving-type-application.hs	pass
+standalone-deriving-qualified	declarations	standalone-deriving-qualified.hs	pass
+standalone-deriving-nested-type	declarations	standalone-deriving-nested-type.hs	pass
