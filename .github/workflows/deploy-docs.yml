@@ -32,6 +32,7 @@ jobs:
           echo "=== Building Haddock documentation ==="
           nix build .#docs --print-out-paths
           cp -rL result docs-output
+          chmod -R u+w docs-output
 
           echo "=== Building coverage report ==="
           nix build .#coverage --print-out-paths
