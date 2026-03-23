@@ -182,6 +182,9 @@ data LayoutContext
   = LayoutExplicit
   | LayoutImplicit !Int
   | LayoutImplicitLet !Int
+  | -- | Implicit layout opened after 'then do' or 'else do'.
+    -- This variant allows 'then' and 'else' to close it at the same indent level.
+    LayoutImplicitAfterThenElse !Int
   | -- | Marker for ( or [ to scope implicit layout closures
     LayoutDelimiter
   deriving (Eq, Show)
@@ -189,6 +192,9 @@ data LayoutContext
 data PendingLayout
   = PendingLayoutGeneric
   | PendingLayoutLet
+  | -- | Pending layout from 'do' after 'then' or 'else'.
+    -- The resulting layout can be closed by 'then'/'else' at the same indent.
+    PendingLayoutAfterThenElse
   deriving (Eq, Show)
 
 data ModuleLayoutMode
@@ -480,6 +486,7 @@ openPendingLayout st tok =
                 case pending of
                   PendingLayoutGeneric -> LayoutImplicit col
                   PendingLayoutLet -> LayoutImplicitLet col
+                  PendingLayoutAfterThenElse -> LayoutImplicitAfterThenElse col
            in if col <= parentIndent
                 then ([openTok, closeTok], st {layoutPendingLayout = Nothing}, False)
                 else
@@ -510,6 +517,16 @@ closeBeforeToken st tok =
        in (inserted, st {layoutContexts = contexts'})
     TkSpecialRBrace ->
       let (inserted, contexts') = closeAllImplicitBeforeDelimiter (lexTokenSpan tok) (layoutContexts st)
+       in (inserted, st {layoutContexts = contexts'})
+    -- Close implicit layout contexts before 'then' and 'else' keywords (parse-error rule)
+    -- These keywords cannot appear inside a do block, so we close contexts at >= their column.
+    TkKeywordThen ->
+      let col = tokenStartCol tok
+          (inserted, contexts') = closeForDedentInclusive col (lexTokenSpan tok) (layoutContexts st)
+       in (inserted, st {layoutContexts = contexts'})
+    TkKeywordElse ->
+      let col = tokenStartCol tok
+          (inserted, contexts') = closeForDedentInclusive col (lexTokenSpan tok) (layoutContexts st)
        in (inserted, st {layoutContexts = contexts'})
     _ -> ([], st)
 
@@ -551,6 +568,24 @@ closeForDedent col anchor = go []
         LayoutImplicitLet indent : rest
           | col < indent -> go (virtualSymbolToken "}" anchor : acc) rest
           | otherwise -> (reverse acc, contexts)
+        LayoutImplicitAfterThenElse indent : rest
+          | col < indent -> go (virtualSymbolToken "}" anchor : acc) rest
+          | otherwise -> (reverse acc, contexts)
+        _ -> (reverse acc, contexts)
+
+-- | Close layout contexts opened after 'then do' or 'else do' when encountering
+-- 'then' or 'else' at the same or lesser indent. This handles the parse-error rule
+-- for these specific cases where the keyword cannot be part of the do block.
+-- Only closes LayoutImplicitAfterThenElse contexts, not regular LayoutImplicit.
+-- Recursively closes all such contexts where col <= indent.
+closeForDedentInclusive :: Int -> SourceSpan -> [LayoutContext] -> ([LexToken], [LayoutContext])
+closeForDedentInclusive col anchor = go []
+  where
+    go acc contexts =
+      case contexts of
+        LayoutImplicitAfterThenElse indent : rest
+          | col <= indent -> go (virtualSymbolToken "}" anchor : acc) rest
+          | otherwise -> (reverse acc, contexts)
         _ -> (reverse acc, contexts)
 
 closeAllImplicit :: [LayoutContext] -> SourceSpan -> [LexToken]
@@ -574,12 +609,17 @@ closeAllImplicitBeforeDelimiter anchor = go []
       case contexts of
         LayoutImplicit _ : rest -> go (virtualSymbolToken "}" anchor : acc) rest
         LayoutImplicitLet _ : rest -> go (virtualSymbolToken "}" anchor : acc) rest
+        LayoutImplicitAfterThenElse _ : rest -> go (virtualSymbolToken "}" anchor : acc) rest
         _ -> (reverse acc, contexts)
 
 stepTokenContext :: LayoutState -> LexToken -> LayoutState
 stepTokenContext st tok =
   case lexTokenKind tok of
-    TkKeywordDo -> st {layoutPendingLayout = Just PendingLayoutGeneric}
+    TkKeywordDo
+      | layoutPrevTokenKind st == Just TkKeywordThen
+          || layoutPrevTokenKind st == Just TkKeywordElse ->
+          st {layoutPendingLayout = Just PendingLayoutAfterThenElse}
+      | otherwise -> st {layoutPendingLayout = Just PendingLayoutGeneric}
     TkKeywordOf -> st {layoutPendingLayout = Just PendingLayoutGeneric}
     TkKeywordCase
       | layoutPrevTokenKind st == Just TkReservedBackslash ->
@@ -633,6 +673,7 @@ currentLayoutIndentMaybe contexts =
   case contexts of
     LayoutImplicit indent : _ -> Just indent
     LayoutImplicitLet indent : _ -> Just indent
+    LayoutImplicitAfterThenElse indent : _ -> Just indent
     _ -> Nothing
 
 isImplicitLayoutContext :: LayoutContext -> Bool
@@ -640,6 +681,7 @@ isImplicitLayoutContext ctx =
   case ctx of
     LayoutImplicit _ -> True
     LayoutImplicitLet _ -> True
+    LayoutImplicitAfterThenElse _ -> True
     LayoutExplicit -> False
     LayoutDelimiter -> False
 
