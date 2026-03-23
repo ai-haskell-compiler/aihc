@@ -1,0 +1,7 @@
+# Negative binary integer with NegativeLiterals extension
+extensions:
+  - NegativeLiterals
+input: "-0b101"
+tokens:
+  - 'TkIntegerBase (-5) "-0b101"'
+status: pass

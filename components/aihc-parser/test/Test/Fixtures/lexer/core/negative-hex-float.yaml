@@ -1,0 +1,7 @@
+# Negative hex float with NegativeLiterals extension
+extensions:
+  - NegativeLiterals
+input: "-0x1p2"
+tokens:
+  - 'TkFloat (-4.0) "-0x1p2"'
+status: pass
