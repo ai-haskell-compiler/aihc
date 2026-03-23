@@ -871,6 +871,7 @@ stripDecl decl =
     DeclNewtype _ nt -> DeclNewtype noSourceSpan (stripNewtypeDecl nt)
     DeclClass _ cls -> DeclClass noSourceSpan (stripClassDecl cls)
     DeclInstance _ inst -> DeclInstance noSourceSpan (stripInstanceDecl inst)
+    DeclStandaloneDeriving _ sd -> DeclStandaloneDeriving noSourceSpan (stripStandaloneDerivingDecl sd)
     DeclDefault _ tys -> DeclDefault noSourceSpan (map stripType tys)
     DeclForeign _ foreignDecl -> DeclForeign noSourceSpan (stripForeignDecl foreignDecl)
 
@@ -1048,6 +1049,16 @@ stripInstanceDecl d =
       instanceDeclClassName = instanceDeclClassName d,
       instanceDeclTypes = map stripType (instanceDeclTypes d),
       instanceDeclItems = map stripInstanceDeclItem (instanceDeclItems d)
+    }
+
+stripStandaloneDerivingDecl :: StandaloneDerivingDecl -> StandaloneDerivingDecl
+stripStandaloneDerivingDecl d =
+  StandaloneDerivingDecl
+    { standaloneDerivingSpan = noSourceSpan,
+      standaloneDerivingStrategy = standaloneDerivingStrategy d,
+      standaloneDerivingContext = map stripConstraint (standaloneDerivingContext d),
+      standaloneDerivingClassName = standaloneDerivingClassName d,
+      standaloneDerivingTypes = map stripType (standaloneDerivingTypes d)
     }
 
 stripInstanceDeclItem :: InstanceDeclItem -> InstanceDeclItem
