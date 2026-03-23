@@ -11,7 +11,7 @@ where
 import Aihc.Lexer (LexTokenKind (..), lexTokenKind)
 import Aihc.Parser.Ast
 import Aihc.Parser.Internal.Common
-import Aihc.Parser.Internal.Expr (equationRhsParser, exprParser, simplePatternParser, typeAtomParser, typeParser)
+import Aihc.Parser.Internal.Expr (equationRhsParser, exprParser, patternParser, simplePatternParser, typeAtomParser, typeParser)
 import Control.Monad (when)
 import Data.Char (isAsciiLower, isUpper)
 import Data.Maybe (fromMaybe)
@@ -320,12 +320,22 @@ classFixityItemParser = withSpan $ do
   pure (\span' -> ClassItemFixity span' assoc prec ops)
 
 classDefaultItemParser :: TokParser ClassDeclItem
-classDefaultItemParser = withSpan $ do
-  name <- binderNameParser
-  pats <- MP.many simplePatternParser
-  expectedTok TkReservedEquals
-  rhsExpr <- exprParser
-  pure (\span' -> ClassItemDefault span' (functionBindValue span' name pats (UnguardedRhs span' rhsExpr)))
+classDefaultItemParser = withSpan $ MP.try infixClassDefaultParser <|> prefixClassDefaultParser
+  where
+    prefixClassDefaultParser = do
+      name <- binderNameParser
+      pats <- MP.many simplePatternParser
+      expectedTok TkReservedEquals
+      rhsExpr <- exprParser
+      pure (\span' -> ClassItemDefault span' (functionBindValue span' name pats (UnguardedRhs span' rhsExpr)))
+
+    infixClassDefaultParser = do
+      lhsPat <- patternParser
+      op <- infixOperatorNameParser
+      rhsPat <- patternParser
+      expectedTok TkReservedEquals
+      rhsExpr <- exprParser
+      pure (\span' -> ClassItemDefault span' (functionBindValue span' op [lhsPat, rhsPat] (UnguardedRhs span' rhsExpr)))
 
 instanceDeclParser :: TokParser Decl
 instanceDeclParser = withSpan $ do
@@ -389,12 +399,22 @@ instanceFixityItemParser = withSpan $ do
   pure (\span' -> InstanceItemFixity span' assoc prec ops)
 
 instanceValueItemParser :: TokParser InstanceDeclItem
-instanceValueItemParser = withSpan $ do
-  name <- binderNameParser
-  pats <- MP.many simplePatternParser
-  expectedTok TkReservedEquals
-  rhsExpr <- exprParser
-  pure (\span' -> InstanceItemBind span' (functionBindValue span' name pats (UnguardedRhs span' rhsExpr)))
+instanceValueItemParser = withSpan $ MP.try infixInstanceValueParser <|> prefixInstanceValueParser
+  where
+    prefixInstanceValueParser = do
+      name <- binderNameParser
+      pats <- MP.many simplePatternParser
+      expectedTok TkReservedEquals
+      rhsExpr <- exprParser
+      pure (\span' -> InstanceItemBind span' (functionBindValue span' name pats (UnguardedRhs span' rhsExpr)))
+
+    infixInstanceValueParser = do
+      lhsPat <- patternParser
+      op <- infixOperatorNameParser
+      rhsPat <- patternParser
+      expectedTok TkReservedEquals
+      rhsExpr <- exprParser
+      pure (\span' -> InstanceItemBind span' (functionBindValue span' op [lhsPat, rhsPat] (UnguardedRhs span' rhsExpr)))
 
 foreignDeclParser :: TokParser Decl
 foreignDeclParser = withSpan $ do
@@ -662,8 +682,19 @@ unsupportedDeclParser :: String -> TokParser Decl
 unsupportedDeclParser = fail
 
 valueDeclParser :: TokParser Decl
-valueDeclParser = withSpan $ do
-  name <- binderNameParser
-  pats <- MP.many simplePatternParser
-  rhs <- equationRhsParser
-  pure (\span' -> functionBindDecl span' name pats rhs)
+valueDeclParser = withSpan $ MP.try infixValueDeclParser <|> prefixValueDeclParser
+  where
+    -- Prefix form: f x y = ...
+    prefixValueDeclParser = do
+      name <- binderNameParser
+      pats <- MP.many simplePatternParser
+      rhs <- equationRhsParser
+      pure (\span' -> functionBindDecl span' name pats rhs)
+
+    -- Infix form: x `op` y = ... or x <op> y = ...
+    infixValueDeclParser = do
+      lhsPat <- patternParser
+      op <- infixOperatorNameParser
+      rhsPat <- patternParser
+      rhs <- equationRhsParser
+      pure (\span' -> functionBindDecl span' op [lhsPat, rhsPat] rhs)

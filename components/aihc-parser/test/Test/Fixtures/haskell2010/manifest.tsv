@@ -126,10 +126,21 @@ decls-class-cdecl-default-layout	declarations	declarations/class-cdecl-default-l
 decls-class-cdecl-multiple-defaults	declarations	declarations/class-cdecl-multiple-defaults.hs	pass	parser supports multiple default methods with blank line
 decls-class-universe-some	declarations	declarations/class-universe-some.hs	pass	parser supports universe-some style class declarations
 decls-class-cdecl-fixity	declarations	declarations/class-cdecl-fixity.hs	pass	parser now supports class fixity declarations
-decls-instance	declarations	declarations/instance.hs	xfail	parser intentionally disabled
+decls-instance	declarations	declarations/instance.hs	pass	parser now supports infix operator function definitions in instance declarations
 decls-fixity	declarations	declarations/fixity.hs	pass	parser now supports fixity declarations
 decls-default	declarations	declarations/default.hs	pass	parser now supports default declarations
 decls-deriving	declarations	declarations/deriving.hs	pass	parser now supports parenthesized data deriving clauses
+decls-infix-funlhs-basic	declarations	declarations/infix-funlhs-basic.hs	pass	parser now supports infix operator function definitions
+decls-infix-funlhs-backtick	declarations	declarations/infix-funlhs-backtick.hs	xfail	backtick infix definitions parse but don't roundtrip (printed as prefix)
+decls-infix-funlhs-lambda	declarations	declarations/infix-funlhs-lambda.hs	pass	parser now supports infix definitions with lambda bodies
+decls-infix-funlhs-pattern	declarations	declarations/infix-funlhs-pattern.hs	pass	parser now supports infix definitions with patterns
+decls-infix-funlhs-with-sig	declarations	declarations/infix-funlhs-with-sig.hs	pass	parser now supports infix definitions with type signatures
+decls-infix-funlhs-guarded	declarations	declarations/infix-funlhs-guarded.hs	pass	parser now supports infix definitions with guards
+decls-infix-funlhs-instance	declarations	declarations/infix-funlhs-instance.hs	pass	parser now supports infix definitions in instance declarations
+decls-infix-funlhs-local	declarations	declarations/infix-funlhs-local.hs	pass	parser now supports infix definitions in where clauses
+decls-infix-funlhs-let	declarations	declarations/infix-funlhs-let.hs	pass	parser now supports infix definitions in let expressions
+decls-infix-funlhs-class	declarations	declarations/infix-funlhs-class.hs	pass	parser now supports infix definitions in class declarations
+decls-infix-funlhs-bang	declarations	declarations/infix-funlhs-bang.hs	xfail	requires whitespace-sensitive lexing (GHC 9.0+ proposal 0229)
 
 expr-if-then-else	expressions	expressions/if-then-else.hs	pass	parser now handles this if-then-else form
 expr-case-of	expressions	expressions/case-of.hs	pass	parser now supports simple case-of expressions
@@ -171,6 +182,7 @@ expr-s3-section-left	expressions	expressions/section-left.hs	pass	parser now sup
 expr-s3-section-right	expressions	expressions/section-right.hs	pass	parser now supports right operator sections
 expr-s3-section-backtick-left	expressions	expressions/section-backtick-left.hs	pass	parser now supports left backtick operator sections
 expr-s3-section-backtick-right	expressions	expressions/section-backtick-right.hs	pass	parser now supports right backtick operator sections
+expr-s3-section-bang	expressions	expressions/section-bang.hs	pass	parser supports bang operator sections in expressions
 expr-s3-conditional-basic	expressions	expressions/conditional-basic.hs	pass	parser now supports basic conditional expressions
 expr-s3-conditional-semicolons	expressions	expressions/conditional-semicolons.hs	xfail	parser intentionally disabled
 expr-s3-list-empty	expressions	expressions/list-empty.hs	pass	parser supports empty list literals

@@ -12,6 +12,7 @@ module Aihc.Parser.Internal.Common
     constructorIdentifierParser,
     binderNameParser,
     operatorTextParser,
+    infixOperatorNameParser,
     stringTextParser,
     withSpan,
     sourceSpanFromPositions,
@@ -143,6 +144,31 @@ operatorTextParser =
       TkQVarSym op -> Just op
       TkQConSym op -> Just op
       _ -> Nothing
+
+-- | Parse an infix operator name (varop) for function definitions.
+-- Per Haskell Report section 4.4.3, funlhs uses 'varop' which is:
+--   varop → varsym | ` varid `
+-- This excludes constructor operators (consym) and qualified operators.
+-- Note: We exclude "!" because it's used for strict patterns (BangPatterns)
+infixOperatorNameParser :: TokParser Text
+infixOperatorNameParser =
+  symbolicOperatorParser <|> backtickIdentifierParser
+  where
+    symbolicOperatorParser =
+      tokenSatisfy "variable operator" $ \tok ->
+        case lexTokenKind tok of
+          TkVarSym op | op /= "!" -> Just op
+          _ -> Nothing
+    backtickIdentifierParser = do
+      expectedTok TkSpecialBacktick
+      op <- varIdTextParser
+      expectedTok TkSpecialBacktick
+      pure op
+    varIdTextParser =
+      tokenSatisfy "variable identifier" $ \tok ->
+        case lexTokenKind tok of
+          TkVarId name -> Just name
+          _ -> Nothing
 
 stringTextParser :: TokParser Text
 stringTextParser =
