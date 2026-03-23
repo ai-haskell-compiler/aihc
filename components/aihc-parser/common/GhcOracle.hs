@@ -15,6 +15,7 @@ module GhcOracle
     oracleDetailedParsesModuleWithNamesAt,
     toGhcExtension,
     fromGhcExtension,
+    extensionNamesToGhcExtensions,
   )
 where
 
@@ -259,6 +260,15 @@ toGhcExtension ext =
 
 fromGhcExtension :: GHC.Extension -> Maybe Ast.Extension
 fromGhcExtension ghcExt = Ast.parseExtensionName (T.pack (show ghcExt))
+
+-- | Convert a list of extension names (from cabal files) to GHC extensions.
+-- Handles both positive (e.g., "UnicodeSyntax") and negative (e.g., "NoUnicodeSyntax") extension names.
+-- The language parameter can be used to include base language extensions (e.g., "Haskell2010").
+extensionNamesToGhcExtensions :: [String] -> Maybe String -> [GHC.Extension]
+extensionNamesToGhcExtensions extNames langName =
+  let extSettings = mapMaybe (Ast.parseExtensionSettingName . T.pack) extNames
+      langExts = maybe [] languageExtensions langName
+   in EnumSet.toList (List.foldl' applyExtensionSetting (EnumSet.fromList langExts) extSettings)
 
 languageExtensions :: String -> [GHC.Extension]
 languageExtensions lang =

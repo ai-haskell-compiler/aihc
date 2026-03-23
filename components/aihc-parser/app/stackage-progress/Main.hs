@@ -18,6 +18,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import GHC.Clock (getMonotonicTimeNSec)
 import GHC.Conc (getNumProcessors)
+import qualified GHC.LanguageExtensions.Type as GHC
 import qualified GhcOracle
 import HackageSupport
   ( FileInfo (..),
@@ -30,7 +31,7 @@ import HackageSupport
   )
 import HseExtensions (fromExtensionNames)
 import qualified Language.Haskell.Exts as HSE
-import ParserValidation (ValidationError (..), ValidationErrorKind (..), validateParserDetailed)
+import ParserValidation (ValidationError (..), ValidationErrorKind (..), validateParserDetailedWithExtensions)
 import StackageProgress.Summary
   ( FailedPackage (..),
     PackageResult (..),
@@ -525,6 +526,9 @@ needsFullPackageScan opts =
 checkFile :: Options -> FilePath -> FileInfo -> IO FileResult
 checkFile opts packageRoot info = do
   let file = fileInfoPath info
+      ghcExts = GhcOracle.extensionNamesToGhcExtensions (fileInfoExtensions info) (fileInfoLanguage info)
+      parserExts = mapMaybe GhcOracle.fromGhcExtension ghcExts
+      parserConfig = Aihc.Parser.defaultConfig {Aihc.Parser.parserExtensions = parserExts}
   source <- readTextFileLenient file
   preprocessed <- preprocessForParserIfEnabled (fileInfoExtensions info) (fileInfoCppOptions info) file (resolveIncludeBestEffort packageRoot file) source
   let source' = resultOutput preprocessed
@@ -533,7 +537,7 @@ checkFile opts packageRoot info = do
         if null cppErrors
           then Nothing
           else Just (T.intercalate "\n" cppErrors)
-      oursResult = Aihc.Parser.parseModule Aihc.Parser.defaultConfig source'
+      oursResult = Aihc.Parser.parseModule parserConfig source'
 
   oursStatus <- case oursResult of
     ParseErr err ->
@@ -543,7 +547,7 @@ checkFile opts packageRoot info = do
     ParseOk parsed -> do
       roundtripRes <-
         if CheckRoundtripGhc `elem` optChecks opts
-          then pure (checkRoundtrip file cppErrorMsg source')
+          then pure (checkRoundtrip ghcExts file cppErrorMsg source')
           else pure (Right ())
       case roundtripRes of
         Left err -> pure (Left err)
@@ -591,9 +595,9 @@ needsParsedModule :: [Check] -> Bool
 needsParsedModule checks =
   CheckRoundtripGhc `elem` checks || CheckSourceSpan `elem` checks
 
-checkRoundtrip :: FilePath -> Maybe Text -> Text -> Either String ()
-checkRoundtrip file cppErrorMsg source' =
-  case validateParserDetailed source' of
+checkRoundtrip :: [GHC.Extension] -> FilePath -> Maybe Text -> Text -> Either String ()
+checkRoundtrip exts file cppErrorMsg source' =
+  case validateParserDetailedWithExtensions exts source' of
     Nothing -> Right ()
     Just err ->
       case validationErrorKind err of
