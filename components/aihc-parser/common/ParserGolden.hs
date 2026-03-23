@@ -26,7 +26,7 @@ import Aihc.Parser
     parseModule,
   )
 import Aihc.Parser.Ast (Extension, parseExtensionName)
-import Aihc.Parser.PrettyAST (prettyASTExpr, prettyASTModule)
+import Aihc.Parser.Shorthand (Shorthand (..))
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withObject)
 import Data.Char (isSpace, toLower)
@@ -143,7 +143,7 @@ parseYamlFixture path value =
 evaluateExprCase :: ParserCase -> (Outcome, String)
 evaluateExprCase meta =
   case parseExpr parserConfig (caseInput meta) of
-    ParseOk ast -> classifySuccess meta (T.unpack (prettyASTExpr ast))
+    ParseOk ast -> classifySuccess meta (show (shorthand ast))
     ParseErr err -> classifyFailure meta (errorBundlePretty err)
   where
     parserConfig =
@@ -155,7 +155,7 @@ evaluateExprCase meta =
 evaluateModuleCase :: ParserCase -> (Outcome, String)
 evaluateModuleCase meta =
   case parseModule parserConfig (caseInput meta) of
-    ParseOk ast -> classifySuccess meta (T.unpack (prettyASTModule ast))
+    ParseOk ast -> classifySuccess meta (show (shorthand ast))
     ParseErr err -> classifyFailure meta (errorBundlePretty err)
   where
     parserConfig =

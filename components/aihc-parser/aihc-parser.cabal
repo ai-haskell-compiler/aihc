@@ -14,12 +14,12 @@ library
       Aihc.Parser
     , Aihc.Parser.Ast
     , Aihc.Lexer
-    , Aihc.Parser.Pretty
-    , Aihc.Parser.PrettyAST
-    , Aihc.Parser.Types
+    , Aihc.Parser.Shorthand
     , Aihc.Parser.Internal.FromTokens
   other-modules:
-      Aihc.Parser.Internal.Common
+      Aihc.Parser.Pretty
+    , Aihc.Parser.Types
+    , Aihc.Parser.Internal.Common
     , Aihc.Parser.Internal.Expr
     , Aihc.Parser.Internal.Decl
     , Aihc.Parser.Internal.Module
@@ -93,6 +93,7 @@ test-suite spec
     , haskell-src-exts
     , aeson
     , bytestring
+    , prettyprinter
     , process
     , yaml
     , optparse-applicative
@@ -120,6 +121,7 @@ executable parser-progress
     , filepath
     , ghc-lib-parser
     , Cabal-syntax
+    , prettyprinter
   ghc-options:        -Wall -Werror
   default-language: Haskell2010
 
@@ -155,6 +157,7 @@ executable parser-quickcheck-batch
     , deepseq
     , optparse-applicative
     , time
+    , prettyprinter
   ghc-options:        -O2 -Wall -Werror
   default-language: Haskell2010
 
@@ -198,6 +201,7 @@ executable extension-progress
     , filepath
     , ghc-lib-parser
     , Cabal-syntax
+    , prettyprinter
   ghc-options:        -Wall -Werror
   default-language: Haskell2010
 
@@ -236,6 +240,7 @@ executable hackage-tester
     , http-client-tls
     , optparse-applicative
     , haskell-src-exts
+    , prettyprinter
   ghc-options:        -O2 -Wall -Werror -threaded -rtsopts -with-rtsopts=-N
   default-language: Haskell2010
 
@@ -269,6 +274,7 @@ executable stackage-progress
     , Cabal-syntax
     , bytestring
     , haskell-src-exts
+    , prettyprinter
   ghc-options:        -O2 -Wall -Werror -threaded -rtsopts -with-rtsopts=-N
   default-language: Haskell2010
 
@@ -302,6 +308,7 @@ executable parser-fuzz
     , filepath
     , ghc-lib-parser
     , Cabal-syntax
+    , prettyprinter
   ghc-options:        -Wall -Werror
   default-language: GHC2021
 

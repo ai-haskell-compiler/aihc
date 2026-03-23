@@ -2,10 +2,9 @@
 
 module Main (main) where
 
-import Aihc.Parser (defaultConfig, errorBundlePretty, parseModule)
+import Aihc.Parser (ParseResult (..), ParserConfig (..), defaultConfig, errorBundlePretty, parseModule)
 import Aihc.Parser.Ast (Extension, ExtensionSetting (..), parseExtensionSettingName)
-import Aihc.Parser.PrettyAST (prettyASTModule)
-import Aihc.Parser.Types (ParseResult (..), ParserConfig (..))
+import Aihc.Parser.Shorthand (Shorthand (..))
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import Options.Applicative
@@ -22,7 +21,7 @@ main = do
   input <- maybe TIO.getContents TIO.readFile (optInputFile opts)
   let cfg = defaultConfig {parserExtensions = optExtensions opts}
   case parseModule cfg input of
-    ParseOk modu -> TIO.putStrLn (prettyASTModule modu)
+    ParseOk modu -> print (shorthand modu)
     ParseErr bundle -> do
       putStr (errorBundlePretty bundle)
       exitFailure

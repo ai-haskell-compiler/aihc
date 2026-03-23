@@ -1,11 +1,17 @@
 {-# LANGUAGE OverloadedStrings #-}
 
+-- \$setup
+-- >>> import Aihc.Parser (parseModule)
+--
+-- >>> shorthand $ parseModule "module Demo where x = 1"
+-- ParseOk (Module {name = "Demo", decls = [DeclValue (FunctionBind "x" [Match {rhs = UnguardedRhs (EInt 1)}])]})
+
 -- |
--- Module      : Parser.PrettyAST
+-- Module      : Aihc.Parser.Shorthand
 -- Description : Compact pretty-printing of AST nodes for debugging
 --
 -- This module provides a compact, human-readable representation of parsed
--- AST structures. Key features:
+-- AST structures via the 'Shorthand' typeclass. Key features:
 --
 -- * Source spans are omitted to reduce noise
 -- * Empty fields (Nothing, [], False, etc.) are omitted
@@ -13,22 +19,14 @@
 -- * Uses the prettyprinter library for consistent formatting
 --
 -- Example:
---
--- @
--- Module {name = "Demo", decls = [DeclValue (FunctionBind "x" [Match {rhs = UnguardedRhs (EInt 1)}])]}
--- @
-module Aihc.Parser.PrettyAST
-  ( prettyASTModule,
-    prettyASTExpr,
-    prettyASTPattern,
-    prettyASTType,
-    prettyASTToken,
-    prettyASTTokenKind,
+module Aihc.Parser.Shorthand
+  ( Shorthand (..),
   )
 where
 
 import Aihc.Lexer (LexToken (..), LexTokenKind (..))
 import Aihc.Parser.Ast
+import Aihc.Parser.Types (ParseResult (..))
 import Data.Text (Text)
 import Prettyprinter
   ( Doc,
@@ -36,53 +34,60 @@ import Prettyprinter
     braces,
     brackets,
     comma,
-    defaultLayoutOptions,
     dquotes,
     hsep,
-    layoutPretty,
     parens,
     punctuate,
     (<+>),
   )
-import Prettyprinter.Render.Text (renderStrict)
 
--- | Render a Module AST to compact text
-prettyASTModule :: Module -> Text
-prettyASTModule = renderDoc . docModule
+-- | Typeclass for compact, human-readable AST representations.
+--
+-- The 'shorthand' method produces a 'Doc' that can be rendered to text
+-- or shown as a string. This is useful for debugging and golden tests.
+--
+-- Use 'show' on the result of 'shorthand' to get a 'String':
+--
+-- @
+-- show (shorthand expr) :: String
+-- @
+class Shorthand a where
+  shorthand :: a -> Doc ()
 
--- | Render an Expr AST to compact text
-prettyASTExpr :: Expr -> Text
-prettyASTExpr = renderDoc . docExpr
+-- ParseResult
 
--- | Render a Pattern AST to compact text
-prettyASTPattern :: Pattern -> Text
-prettyASTPattern = renderDoc . docPattern
-
--- | Render a Type AST to compact text
-prettyASTType :: Type -> Text
-prettyASTType = renderDoc . docType
-
--- | Render a LexToken to compact text
-prettyASTToken :: LexToken -> Text
-prettyASTToken = renderDoc . docToken
-
--- | Render a LexTokenKind to compact text
-prettyASTTokenKind :: LexTokenKind -> Text
-prettyASTTokenKind = renderDoc . docTokenKind
+instance (Shorthand a) => Shorthand (ParseResult a) where
+  shorthand (ParseOk a) = "ParseOk" <+> parens (shorthand a)
+  shorthand (ParseErr _) = "ParseErr"
 
 -- Module
 
-docModule :: Module -> Doc ann
-docModule modu =
-  "Module" <+> braces (hsep (punctuate comma fields))
-  where
-    fields =
-      optionalField "name" docText (moduleName modu)
-        <> optionalListField "languagePragmas" docExtensionSetting (moduleLanguagePragmas modu)
-        <> optionalField "warningText" docWarningText (moduleWarningText modu)
-        <> optionalField "exports" (brackets . hsep . punctuate comma . map docExportSpec) (moduleExports modu)
-        <> listField "imports" docImportDecl (moduleImports modu)
-        <> listField "decls" docDecl (moduleDecls modu)
+instance Shorthand Module where
+  shorthand modu =
+    "Module" <+> braces (hsep (punctuate comma fields))
+    where
+      fields =
+        optionalField "name" docText (moduleName modu)
+          <> listField "languagePragmas" docExtensionSetting (moduleLanguagePragmas modu)
+          <> optionalField "warningText" docWarningText (moduleWarningText modu)
+          <> optionalField "exports" (brackets . hsep . punctuate comma . map docExportSpec) (moduleExports modu)
+          <> listField "imports" docImportDecl (moduleImports modu)
+          <> listField "decls" docDecl (moduleDecls modu)
+
+instance Shorthand Expr where
+  shorthand = docExpr
+
+instance Shorthand Pattern where
+  shorthand = docPattern
+
+instance Shorthand Type where
+  shorthand = docType
+
+instance Shorthand LexToken where
+  shorthand = docToken
+
+instance Shorthand LexTokenKind where
+  shorthand = docTokenKind
 
 docWarningText :: WarningText -> Doc ann
 docWarningText wt =
@@ -582,9 +587,6 @@ listField :: Text -> (a -> Doc ann) -> [a] -> [Doc ann]
 listField _ _ [] = []
 listField name f xs = [field name (brackets (hsep (punctuate comma (map f xs))))]
 
-optionalListField :: Text -> (a -> Doc ann) -> [a] -> [Doc ann]
-optionalListField = listField
-
 boolField :: Text -> Bool -> [Doc ann]
 boolField _ False = []
 boolField name True = [field name "True"]
@@ -594,6 +596,3 @@ docText t = dquotes (pretty t)
 
 docTextList :: [Text] -> Doc ann
 docTextList ts = brackets (hsep (punctuate comma (map docText ts)))
-
-renderDoc :: Doc ann -> Text
-renderDoc = renderStrict . layoutPretty defaultLayoutOptions

@@ -4,9 +4,9 @@
 module Main (main) where
 
 import Aihc.Cpp (Severity (..), diagSeverity, resultDiagnostics, resultOutput)
+import Aihc.Parser (ParseResult (..))
 import qualified Aihc.Parser
 import Aihc.Parser.Ast
-import Aihc.Parser.Types (ParseResult (..))
 import Control.Concurrent.Async (mapConcurrently)
 import Control.Exception (IOException, SomeException, displayException, try)
 import Control.Monad (when)

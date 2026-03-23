@@ -4,7 +4,7 @@ module Main (main) where
 
 import Aihc.Lexer (lexTokensWithExtensions)
 import Aihc.Parser.Ast (Extension, ExtensionSetting (..), parseExtensionSettingName)
-import Aihc.Parser.PrettyAST (prettyASTToken)
+import Aihc.Parser.Shorthand (Shorthand (..))
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import Options.Applicative
@@ -19,7 +19,7 @@ main = do
   opts <- execParser optionsParser
   input <- maybe TIO.getContents TIO.readFile (optInputFile opts)
   let tokens = lexTokensWithExtensions (optExtensions opts) input
-  mapM_ (TIO.putStrLn . prettyASTToken) tokens
+  mapM_ (print . shorthand) tokens
 
 optionsParser :: ParserInfo Options
 optionsParser =

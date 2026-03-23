@@ -9,11 +9,12 @@ where
 import Aihc.Lexer (isReservedIdentifier)
 import Aihc.Parser
 import Aihc.Parser.Ast
-import Aihc.Parser.Pretty (prettyTypeText)
 import Data.Data (dataTypeConstrs, dataTypeOf, showConstr, toConstr)
 import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as T
+import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
+import Prettyprinter.Render.Text (renderStrict)
 import Test.Properties.Identifiers (shrinkIdent)
 import Test.QuickCheck
 
@@ -22,7 +23,7 @@ span0 = noSourceSpan
 
 prop_typePrettyRoundTrip :: Type -> Property
 prop_typePrettyRoundTrip ty =
-  let source = prettyTypeText ty
+  let source = renderStrict (layoutPretty defaultLayoutOptions (pretty ty))
       expected = normalizeType ty
    in checkCoverage $
         applyCoverage (typeCtorCoverage ty) $

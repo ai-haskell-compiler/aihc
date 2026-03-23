@@ -8,17 +8,18 @@ where
 
 import Aihc.Parser
 import Aihc.Parser.Ast
-import Aihc.Parser.Pretty (prettyModule)
 import Data.List (nub)
 import Data.Text (Text)
 import qualified Data.Text as T
+import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
+import Prettyprinter.Render.Text (renderStrict)
 import Test.Properties.ExprHelpers (genExpr, normalizeExpr, shrinkExpr, span0)
 import Test.Properties.Identifiers (genIdent, shrinkIdent)
 import Test.QuickCheck
 
 prop_modulePrettyRoundTrip :: Module -> Property
 prop_modulePrettyRoundTrip modu =
-  let source = prettyModule modu
+  let source = renderStrict (layoutPretty defaultLayoutOptions (pretty modu))
    in counterexample (T.unpack source) $
         case parseModule defaultConfig source of
           ParseOk reparsed ->

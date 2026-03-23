@@ -1,12 +1,23 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# OPTIONS_GHC -Wno-orphans #-}
 
+-- |
+-- Module      : Aihc.Parser.Pretty
+-- Description : Pretty-printing of AST to Haskell source code
+--
+-- This module provides pretty-printing of parsed AST back to valid Haskell
+-- source code. It is used for round-trip testing and code generation.
+--
+-- The 'Pretty' instances from 'Prettyprinter' are provided for the main
+-- AST types, allowing direct use of 'pretty' from @Prettyprinter@.
+--
+-- This module has an empty export list because it only provides typeclass
+-- instances. Import it to bring the 'Pretty' instances into scope.
+--
+-- __Provided instances:__ 'Pretty' for 'Module', 'Expr', 'Pattern', 'Type'.
 module Aihc.Parser.Pretty
-  ( prettyExpr,
-    prettyPatternText,
-    prettyType,
-    prettyTypeText,
-    prettyModule,
+  (
   )
 where
 
@@ -20,29 +31,33 @@ import Prettyprinter
     braces,
     brackets,
     comma,
-    defaultLayoutOptions,
     hsep,
-    layoutPretty,
     parens,
     punctuate,
     semi,
     vsep,
     (<+>),
   )
-import Prettyprinter.Render.Text (renderStrict)
 
-prettyExpr :: Expr -> Text
-prettyExpr = renderDoc . prettyExprPrec 0
+-- | Pretty instance for Module - renders to valid Haskell source code.
+instance Pretty Module where
+  pretty = prettyModuleDoc
 
-prettyPatternText :: Pattern -> Text
-prettyPatternText = renderDoc . prettyPattern
+-- | Pretty instance for Expr - renders to valid Haskell source code.
+instance Pretty Expr where
+  pretty = prettyExprPrec 0
 
-prettyTypeText :: Type -> Text
-prettyTypeText = renderDoc . prettyType
+-- | Pretty instance for Pattern - renders to valid Haskell source code.
+instance Pretty Pattern where
+  pretty = prettyPattern
 
-prettyModule :: Module -> Text
-prettyModule modu =
-  renderDoc (vsep (pragmaLines <> headerLines <> importLines <> declLines))
+-- | Pretty instance for Type - renders to valid Haskell source code.
+instance Pretty Type where
+  pretty = prettyType
+
+prettyModuleDoc :: Module -> Doc ann
+prettyModuleDoc modu =
+  vsep (pragmaLines <> headerLines <> importLines <> declLines)
   where
     pragmaLines =
       map
@@ -816,6 +831,3 @@ prettyQuasiQuote quoter body = "[" <> pretty quoter <> "|" <> pretty body <> "|]
 isOperatorToken :: Text -> Bool
 isOperatorToken tok =
   not (T.null tok) && T.all (`elem` (":!#$%&*+./<=>?\\^|-~" :: String)) tok
-
-renderDoc :: Doc ann -> Text
-renderDoc = renderStrict . layoutPretty defaultLayoutOptions

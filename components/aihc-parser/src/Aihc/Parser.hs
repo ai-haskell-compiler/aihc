@@ -37,6 +37,7 @@ import Aihc.Lexer
 import Aihc.Parser.Ast (Expr, Extension (..), ExtensionSetting (..), Module, Pattern, Type)
 import Aihc.Parser.Internal.Expr (exprParser, patternParser, typeParser)
 import Aihc.Parser.Internal.Module (moduleParser)
+import Aihc.Parser.Pretty ()
 import Aihc.Parser.Types
 import qualified Data.List as List
 import Data.Text (Text)
@@ -47,7 +48,7 @@ import qualified Text.Megaparsec as MP
 -- >>> :set -XOverloadedStrings
 -- >>> import Aihc.Parser
 -- >>> import Aihc.Parser.Ast (moduleName)
--- >>> import Aihc.Parser.PrettyAST (prettyASTExpr, prettyASTPattern, prettyASTType, prettyASTModule)
+-- >>> import Aihc.Parser.Shorthand (Shorthand(..))
 
 -- | Default parser configuration.
 --
@@ -68,11 +69,11 @@ defaultConfig =
 
 -- | Parse a Haskell expression.
 --
--- >>> case parseExpr defaultConfig "1 + 2" of { ParseOk expr -> prettyASTExpr expr; ParseErr _ -> "error" }
--- "EInfix (EInt 1) \"+\" (EInt 2)"
+-- >>> shorthand $ parseExpr defaultConfig "1 + 2"
+-- ParseOk (EInfix (EInt 1) "+" (EInt 2))
 --
--- >>> case parseExpr defaultConfig "\\x -> x + 1" of { ParseOk expr -> prettyASTExpr expr; ParseErr _ -> "error" }
--- "ELambdaPats [PVar \"x\"] (EInfix (EVar \"x\") \"+\" (EInt 1))"
+-- >>> shorthand $ parseExpr defaultConfig "\\x -> x + 1"
+-- ParseOk (ELambdaPats [PVar "x"] (EInfix (EVar "x") "+" (EInt 1)))
 --
 -- Parse errors are returned as 'ParseErr':
 --
@@ -87,11 +88,11 @@ parseExpr cfg input =
 
 -- | Parse a Haskell pattern.
 --
--- >>> case parsePattern defaultConfig "(x, y)" of { ParseOk pat -> prettyASTPattern pat; ParseErr _ -> "error" }
--- "PTuple [PVar \"x\", PVar \"y\"]"
+-- >>> shorthand $ parsePattern defaultConfig "(x, y)"
+-- ParseOk (PTuple [PVar "x", PVar "y"])
 --
--- >>> case parsePattern defaultConfig "Just x" of { ParseOk pat -> prettyASTPattern pat; ParseErr _ -> "error" }
--- "PCon \"Just\" [PVar \"x\"]"
+-- >>> shorthand $ parsePattern defaultConfig "Just x"
+-- ParseOk (PCon "Just" [PVar "x"])
 parsePattern :: ParserConfig -> Text -> ParseResult Pattern
 parsePattern cfg input =
   let toks = lexTokensWithExtensions (parserExtensions cfg) input
@@ -101,11 +102,11 @@ parsePattern cfg input =
 
 -- | Parse a Haskell type.
 --
--- >>> case parseType defaultConfig "Int -> Bool" of { ParseOk ty -> prettyASTType ty; ParseErr _ -> "error" }
--- "TFun (TCon \"Int\") (TCon \"Bool\")"
+-- >>> shorthand $ parseType defaultConfig "Int -> Bool"
+-- ParseOk (TFun (TCon "Int") (TCon "Bool"))
 --
--- >>> case parseType defaultConfig "Maybe a" of { ParseOk ty -> prettyASTType ty; ParseErr _ -> "error" }
--- "TApp (TCon \"Maybe\") (TVar \"a\")"
+-- >>> shorthand $ parseType defaultConfig "Maybe a"
+-- ParseOk (TApp (TCon "Maybe") (TVar "a"))
 parseType :: ParserConfig -> Text -> ParseResult Type
 parseType cfg input =
   let toks = lexTokensWithExtensions (parserExtensions cfg) input
@@ -115,8 +116,8 @@ parseType cfg input =
 
 -- | Parse a complete Haskell module.
 --
--- >>> case parseModule defaultConfig "module Main where\nmain = putStrLn \"Hello\"" of { ParseOk m -> prettyASTModule m; ParseErr _ -> "error" }
--- "Module {name = \"Main\", decls = [DeclValue (FunctionBind \"main\" [Match {rhs = UnguardedRhs (EApp (EVar \"putStrLn\") (EString \"Hello\"))}])]}"
+-- >>> shorthand $ parseModule defaultConfig "module Main where\nmain = putStrLn \"Hello\""
+-- ParseOk (Module {name = "Main", decls = [DeclValue (FunctionBind "main" [Match {rhs = UnguardedRhs (EApp (EVar "putStrLn") (EString "Hello"))}])]})
 --
 -- Modules without a header are also supported:
 --

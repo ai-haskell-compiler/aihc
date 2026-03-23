@@ -10,15 +10,15 @@ module ParserValidation
   )
 where
 
-import Aihc.Parser (defaultConfig, errorBundlePretty, parseModule)
-import Aihc.Parser.Pretty (prettyModule)
-import Aihc.Parser.Types (ParseResult (..), ParserConfig (..))
+import Aihc.Parser (ParseResult (..), ParserConfig (..), defaultConfig, errorBundlePretty, parseModule)
 import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import GHC.LanguageExtensions.Type (Extension)
 import qualified GhcOracle
 import ModuleShrinker (shrinkModuleWithExtensions)
+import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
+import Prettyprinter.Render.Text (renderStrict)
 
 data ValidationErrorKind
   = ValidationParseError
@@ -61,7 +61,7 @@ validateParserDetailedCore exts source =
             validationErrorMessage = "Parse failed:\n" <> errorBundlePretty err
           }
     ParseOk parsed ->
-      let rendered = prettyModule parsed
+      let rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty parsed))
           sourceAst = GhcOracle.oracleModuleAstFingerprintWithExtensionsAt "parser-validation" exts source
           renderedAst = GhcOracle.oracleModuleAstFingerprintWithExtensionsAt "parser-validation" exts rendered
        in case (sourceAst, renderedAst) of
