@@ -4,5 +4,4 @@ input: "0o777_777"
 tokens:
   - 'TkIntegerBase 511 "0o777"'
   - 'TkVarId "_777"'
-status: xfail
-reason: "lexer does not yet check NumericUnderscores extension"
+status: pass

@@ -4,5 +4,4 @@ extensions:
 input: "0x_ffff"
 tokens:
   - 'TkIntegerBase 65535 "0x_ffff"'
-status: xfail
-reason: "lexer does not yet support leading underscore after hex base prefix"
+status: pass
