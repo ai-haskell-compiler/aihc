@@ -170,7 +170,7 @@ declParser = do
     TkKeywordData -> dataDeclParser
     TkKeywordClass -> classDeclParser
     TkKeywordDefault -> defaultDeclParser
-    TkKeywordDeriving -> standaloneDeriviingDeclParser
+    TkKeywordDeriving -> standaloneDerivingDeclParser
     TkKeywordForeign -> foreignDeclParser
     TkKeywordInfix -> fixityDeclParser Infix
     TkKeywordInfixl -> fixityDeclParser InfixL
@@ -345,8 +345,8 @@ instanceDeclParser = withSpan $ do
           instanceDeclItems = items
         }
 
-standaloneDeriviingDeclParser :: TokParser Decl
-standaloneDeriviingDeclParser = withSpan $ do
+standaloneDerivingDeclParser :: TokParser Decl
+standaloneDerivingDeclParser = withSpan $ do
   keywordTok TkKeywordDeriving
   strategy <- MP.optional derivingStrategyParser
   keywordTok TkKeywordInstance
