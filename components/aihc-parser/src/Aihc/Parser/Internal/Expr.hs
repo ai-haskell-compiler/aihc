@@ -4,6 +4,7 @@ module Aihc.Parser.Internal.Expr
   ( exprParser,
     equationRhsParser,
     simplePatternParser,
+    appPatternParser,
     patternParser,
     typeParser,
     typeAtomParser,
@@ -696,11 +697,20 @@ localTypeSigDeclParser = withSpan $ do
   pure (\span' -> DeclTypeSig span' names ty)
 
 localFunctionDeclParser :: TokParser Decl
-localFunctionDeclParser = withSpan $ do
-  name <- binderNameParser
-  pats <- MP.many simplePatternParser
-  rhs <- equationRhsParser
-  pure (\span' -> functionBindDecl span' name pats rhs)
+localFunctionDeclParser = withSpan $ MP.try infixLocalFunctionParser <|> prefixLocalFunctionParser
+  where
+    prefixLocalFunctionParser = do
+      name <- binderNameParser
+      pats <- MP.many simplePatternParser
+      rhs <- equationRhsParser
+      pure (\span' -> functionBindDecl span' name pats rhs)
+
+    infixLocalFunctionParser = do
+      lhsPat <- appPatternParser
+      op <- infixOperatorNameParser
+      rhsPat <- appPatternParser
+      rhs <- equationRhsParser
+      pure (\span' -> functionBindDecl span' op [lhsPat, rhsPat] rhs)
 
 localPatternDeclParser :: TokParser Decl
 localPatternDeclParser = withSpan $ do

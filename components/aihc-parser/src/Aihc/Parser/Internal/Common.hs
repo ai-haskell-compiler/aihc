@@ -12,6 +12,7 @@ module Aihc.Parser.Internal.Common
     constructorIdentifierParser,
     binderNameParser,
     operatorTextParser,
+    infixOperatorNameParser,
     stringTextParser,
     withSpan,
     sourceSpanFromPositions,
@@ -143,6 +144,26 @@ operatorTextParser =
       TkQVarSym op -> Just op
       TkQConSym op -> Just op
       _ -> Nothing
+
+-- | Parse an infix operator name (symbolic or backtick-quoted) for function definitions
+-- Note: We exclude "!" because it's used for strict patterns (BangPatterns)
+infixOperatorNameParser :: TokParser Text
+infixOperatorNameParser =
+  symbolicOperatorParser <|> backtickIdentifierParser
+  where
+    symbolicOperatorParser =
+      tokenSatisfy "infix operator" $ \tok ->
+        case lexTokenKind tok of
+          TkVarSym op | op /= "!" -> Just op
+          TkConSym op -> Just op
+          TkQVarSym op -> Just op
+          TkQConSym op -> Just op
+          _ -> Nothing
+    backtickIdentifierParser = do
+      expectedTok TkSpecialBacktick
+      op <- identifierTextParser
+      expectedTok TkSpecialBacktick
+      pure op
 
 stringTextParser :: TokParser Text
 stringTextParser =
