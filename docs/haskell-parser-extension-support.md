@@ -3,8 +3,8 @@
 ## Summary
 
 - Total Extensions: 138
-- Supported: 22
-- In Progress: 12
+- Supported: 23
+- In Progress: 11
 - Planned: 104
 
 ## Extension Status
@@ -84,7 +84,7 @@
 | MultiWayIf | Planned | - | MultiWayIf |
 | NamedDefaults | Planned | - | NamedDefaults |
 | NamedFieldPuns | In Progress | 0/5 | NamedFieldPuns |
-| NamedWildCards | In Progress | 3/4 | NamedWildCards |
+| NamedWildCards | Supported | 4/4 | NamedWildCards |
 | NegativeLiterals | Planned | - | NegativeLiterals |
 | NondecreasingIndentation | Planned | - | NondecreasingIndentation |
 | NPlusKPatterns | Planned | - | NPlusKPatterns |
@@ -102,7 +102,7 @@
 | ParallelListComp | Supported | 1/1 | ParallelListComp |
 | PartialTypeSignatures | Planned | - | PartialTypeSignatures |
 | PatternGuards | Supported | 5/5 | PatternGuards |
-| PatternSynonyms | In Progress | 0/17 | PatternSynonyms |
+| PatternSynonyms | In Progress | 1/17 | PatternSynonyms |
 | PolyKinds | Planned | - | PolyKinds |
 | PostfixOperators | Planned | - | PostfixOperators |
 | QualifiedDo | Planned | - | QualifiedDo |
