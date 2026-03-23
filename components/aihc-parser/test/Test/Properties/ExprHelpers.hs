@@ -480,6 +480,16 @@ shrinkDecl decl =
   case decl of
     DeclValue _ (PatternBind _ pat (UnguardedRhs _ expr)) ->
       [DeclValue span0 (PatternBind span0 pat (UnguardedRhs span0 expr')) | expr' <- shrinkExpr expr]
+    DeclValue _ (FunctionBind _ name [match@Match {matchRhs = UnguardedRhs _ expr}]) ->
+      [ DeclValue
+          span0
+          ( FunctionBind
+              span0
+              name
+              [match {matchSpan = span0, matchRhs = UnguardedRhs span0 expr'}]
+          )
+      | expr' <- shrinkExpr expr
+      ]
     _ -> []
 
 shrinkDoStmts :: [DoStmt] -> [[DoStmt]]
