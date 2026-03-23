@@ -1,0 +1,3 @@
+module MixedInfixPrefixBang where
+a ! b = a + b
+f !x = x

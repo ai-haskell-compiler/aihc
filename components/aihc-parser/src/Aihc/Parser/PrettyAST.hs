@@ -528,7 +528,6 @@ docTokenKind kind =
     TkReservedLeftArrow -> "TkReservedLeftArrow"
     TkReservedRightArrow -> "TkReservedRightArrow"
     TkReservedAt -> "TkReservedAt"
-    TkReservedTilde -> "TkReservedTilde"
     TkReservedDoubleArrow -> "TkReservedDoubleArrow"
     TkVarId name -> "TkVarId" <+> docText name
     TkConId name -> "TkConId" <+> docText name
@@ -554,6 +553,8 @@ docTokenKind kind =
     TkSpecialRBrace -> "TkSpecialRBrace"
     TkMinusOperator -> "TkMinusOperator"
     TkPrefixMinus -> "TkPrefixMinus"
+    TkPrefixBang -> "TkPrefixBang"
+    TkPrefixTilde -> "TkPrefixTilde"
     TkPragmaLanguage settings -> "TkPragmaLanguage" <+> brackets (hsep (punctuate comma (map docExtensionSetting settings)))
     TkPragmaWarning msg -> "TkPragmaWarning" <+> docText msg
     TkPragmaDeprecated msg -> "TkPragmaDeprecated" <+> docText msg

@@ -313,8 +313,8 @@ parenOperatorExprParser = withSpan $ do
       TkReservedLeftArrow -> Just "<-"
       TkReservedRightArrow -> Just "->"
       TkReservedDoubleArrow -> Just "=>"
-      TkReservedTilde -> Just "~"
       TkReservedDotDot -> Just ".."
+      -- Note: ~ is now lexed as TkVarSym "~" so TkVarSym case handles it
       _ -> Nothing
   expectedTok TkSpecialRParen
   pure (`EVar` op)
@@ -384,13 +384,13 @@ patternAtomParser =
 
 strictPatternParser :: TokParser Pattern
 strictPatternParser = withSpan $ do
-  expectedTok (TkVarSym "!")
+  expectedTok TkPrefixBang
   inner <- patternAtomParser
   pure (`PStrict` inner)
 
 irrefutablePatternParser :: TokParser Pattern
 irrefutablePatternParser = withSpan $ do
-  expectedTok TkReservedTilde
+  expectedTok TkPrefixTilde
   inner <- patternAtomParser
   pure (`PIrrefutable` inner)
 
@@ -980,7 +980,7 @@ typeParenOperatorParser = withSpan $ do
       TkQConSym sym -> Just sym
       -- Handle reserved operators that can be used as type constructors
       TkReservedRightArrow -> Just "->"
-      TkReservedTilde -> Just "~"
+      -- Note: ~ is now lexed as TkVarSym "~" so TkVarSym case handles it
       _ -> Nothing
   expectedTok TkSpecialRParen
   pure (`TCon` op)

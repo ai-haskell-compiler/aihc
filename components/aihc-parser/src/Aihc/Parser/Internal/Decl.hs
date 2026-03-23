@@ -637,7 +637,7 @@ derivingKeywordParser =
 
 bangTypeParser :: TokParser BangType
 bangTypeParser = withSpan $ do
-  strict <- MP.option False (expectedTok (TkVarSym "!") >> pure True)
+  strict <- MP.option False (expectedTok TkPrefixBang >> pure True)
   ty <- typeAtomParser
   pure $ \span' ->
     BangType
@@ -648,7 +648,7 @@ bangTypeParser = withSpan $ do
 
 recordFieldBangTypeParser :: TokParser BangType
 recordFieldBangTypeParser = withSpan $ do
-  strict <- MP.option False (expectedTok (TkVarSym "!") >> pure True)
+  strict <- MP.option False (expectedTok TkPrefixBang >> pure True)
   ty <- constructorFieldTypeParser
   pure $ \span' ->
     BangType
