@@ -166,7 +166,8 @@ data LexerState = LexerState
     lexerLine :: !Int,
     lexerCol :: !Int,
     lexerAtLineStart :: !Bool,
-    lexerPending :: [LexToken]
+    lexerPending :: [LexToken],
+    lexerExtensions :: [Extension]
   }
   deriving (Eq, Show)
 
@@ -276,7 +277,8 @@ lexChunksWithExtensions enableModuleLayout exts chunks =
           lexerLine = 1,
           lexerCol = 1,
           lexerAtLineStart = True,
-          lexerPending = []
+          lexerPending = [],
+          lexerExtensions = exts
         }
 
 -- | Read leading module-header pragmas and return parsed LANGUAGE settings.
@@ -910,11 +912,12 @@ lexIntBase st =
   case lexerInput st of
     '0' : base : rest
       | base `elem` ("xXoObB" :: String) ->
-          let isDigitChar
+          let allowUnderscores = NumericUnderscores `elem` lexerExtensions st
+              isDigitChar
                 | base `elem` ("xX" :: String) = isHexDigit
                 | base `elem` ("oO" :: String) = isOctDigit
                 | otherwise = (`elem` ("01" :: String))
-              (digitsRaw, _) = takeDigitsWithUnderscores isDigitChar rest
+              (digitsRaw, _) = takeDigitsWithLeadingUnderscores allowUnderscores isDigitChar rest
            in if null digitsRaw
                 then Nothing
                 else
@@ -961,21 +964,22 @@ lexHexFloat st = do
 
 lexFloat :: LexerState -> Maybe (LexToken, LexerState)
 lexFloat st =
-  let (lhsRaw, rest) = takeDigitsWithUnderscores isDigit (lexerInput st)
+  let allowUnderscores = NumericUnderscores `elem` lexerExtensions st
+      (lhsRaw, rest) = takeDigitsWithUnderscores allowUnderscores isDigit (lexerInput st)
    in if null lhsRaw
         then Nothing
         else case rest of
           '.' : d : more
             | isDigit d ->
-                let (rhsRaw, rest') = takeDigitsWithUnderscores isDigit (d : more)
-                    (expo, _) = takeExponent rest'
+                let (rhsRaw, rest') = takeDigitsWithUnderscores allowUnderscores isDigit (d : more)
+                    (expo, _) = takeExponent allowUnderscores rest'
                     raw = lhsRaw <> "." <> rhsRaw <> expo
                     txt = T.pack raw
                     normalized = filter (/= '_') raw
                     st' = advanceChars raw st
                  in Just (mkToken st st' txt (TkFloat (read normalized) txt), st')
           _ ->
-            case takeExponent rest of
+            case takeExponent allowUnderscores rest of
               ("", _) -> Nothing
               (expo, _) ->
                 let raw = lhsRaw <> expo
@@ -986,7 +990,8 @@ lexFloat st =
 
 lexInt :: LexerState -> Maybe (LexToken, LexerState)
 lexInt st =
-  let (digitsRaw, _) = takeDigitsWithUnderscores isDigit (lexerInput st)
+  let allowUnderscores = NumericUnderscores `elem` lexerExtensions st
+      (digitsRaw, _) = takeDigitsWithUnderscores allowUnderscores isDigit (lexerInput st)
    in if null digitsRaw
         then Nothing
         else
@@ -1393,32 +1398,106 @@ advanceChars chars st = foldl advanceOne st chars
 consumeWhile :: (Char -> Bool) -> LexerState -> LexerState
 consumeWhile f st = advanceChars (takeWhile f (lexerInput st)) st
 
-takeDigitsWithUnderscores :: (Char -> Bool) -> String -> (String, String)
-takeDigitsWithUnderscores isDigitChar chars =
+-- | Take digits with optional underscores.
+--
+-- When @allowUnderscores@ is True (NumericUnderscores enabled):
+--   - Underscores may appear between digits, including consecutive underscores
+--   - Leading underscores are NOT allowed (the first character must be a digit)
+--   - Trailing underscores cause lexing to stop (they're not consumed)
+--
+-- When @allowUnderscores@ is False:
+--   - No underscores are accepted; only digits are consumed
+takeDigitsWithUnderscores :: Bool -> (Char -> Bool) -> String -> (String, String)
+takeDigitsWithUnderscores allowUnderscores isDigitChar chars =
   let (firstChunk, rest) = span isDigitChar chars
    in if null firstChunk
         then ("", chars)
-        else go firstChunk rest
+        else
+          if allowUnderscores
+            then go firstChunk rest
+            else (firstChunk, rest)
   where
     go acc xs =
       case xs of
         '_' : rest ->
-          let (chunk, rest') = span isDigitChar rest
+          -- Consume consecutive underscores
+          let (underscores, rest') = span (== '_') rest
+              allUnderscores = '_' : underscores
+              (chunk, rest'') = span isDigitChar rest'
            in if null chunk
-                then (acc, xs)
-                else go (acc <> "_" <> chunk) rest'
+                then (acc, xs) -- Trailing underscore(s), stop here
+                else go (acc <> allUnderscores <> chunk) rest''
         _ -> (acc, xs)
 
-takeExponent :: String -> (String, String)
-takeExponent chars =
+-- | Take digits with optional leading underscores after a base prefix.
+--
+-- When @allowUnderscores@ is True (NumericUnderscores enabled):
+--   - Leading underscores are allowed (e.g., 0x_ff, 0x__ff)
+--   - Underscores may appear between digits, including consecutive underscores
+--   - Trailing underscores cause lexing to stop
+--
+-- When @allowUnderscores@ is False:
+--   - No underscores are accepted; only digits are consumed
+takeDigitsWithLeadingUnderscores :: Bool -> (Char -> Bool) -> String -> (String, String)
+takeDigitsWithLeadingUnderscores allowUnderscores isDigitChar chars
+  | not allowUnderscores =
+      let (digits, rest) = span isDigitChar chars
+       in (digits, rest)
+  | otherwise =
+      -- With NumericUnderscores, leading underscores are allowed
+      let (leadingUnderscores, rest0) = span (== '_') chars
+          (firstChunk, rest1) = span isDigitChar rest0
+       in if null firstChunk
+            then ("", chars) -- Must have at least one digit somewhere
+            else go (leadingUnderscores <> firstChunk) rest1
+  where
+    go acc xs =
+      case xs of
+        '_' : rest ->
+          let (underscores, rest') = span (== '_') rest
+              allUnderscores = '_' : underscores
+              (chunk, rest'') = span isDigitChar rest'
+           in if null chunk
+                then (acc, xs)
+                else go (acc <> allUnderscores <> chunk) rest''
+        _ -> (acc, xs)
+
+-- | Parse the exponent part of a float literal (e.g., "e+10", "E-5").
+--
+-- When @allowUnderscores@ is True (NumericUnderscores enabled):
+--   - Underscores may appear before the exponent marker (e.g., "1_e+23")
+--   - This is handled by consuming trailing underscores from the mantissa into the exponent
+--   - Underscores may also appear within the exponent digits
+--
+-- When @allowUnderscores@ is False:
+--   - Only digits are accepted in the exponent
+takeExponent :: Bool -> String -> (String, String)
+takeExponent allowUnderscores chars =
   case chars of
+    -- Handle leading underscores before 'e'/'E' when NumericUnderscores enabled
+    '_' : rest
+      | allowUnderscores ->
+          let (underscores, rest') = span (== '_') rest
+              allUnderscores = '_' : underscores
+           in case rest' of
+                marker : rest2
+                  | marker `elem` ("eE" :: String) ->
+                      let (signPart, rest3) =
+                            case rest2 of
+                              sign : more | sign `elem` ("+-" :: String) -> ([sign], more)
+                              _ -> ("", rest2)
+                          (digits, rest4) = takeDigitsWithUnderscores allowUnderscores isDigit rest3
+                       in if null digits
+                            then ("", chars)
+                            else (allUnderscores <> [marker] <> signPart <> digits, rest4)
+                _ -> ("", chars)
     marker : rest
       | marker `elem` ("eE" :: String) ->
           let (signPart, rest1) =
                 case rest of
                   sign : more | sign `elem` ("+-" :: String) -> ([sign], more)
                   _ -> ("", rest)
-              (digits, rest2) = takeDigitsWithUnderscores isDigit rest1
+              (digits, rest2) = takeDigitsWithUnderscores allowUnderscores isDigit rest1
            in if null digits then ("", chars) else (marker : signPart <> digits, rest2)
     _ -> ("", chars)
 
