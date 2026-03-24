@@ -3,9 +3,7 @@
 module Main (main) where
 
 import Aihc.Cpp (Severity (..), diagSeverity, resultDiagnostics, resultOutput)
-import Control.Concurrent (newChan, readChan, writeChan)
-import Control.Concurrent.Async (async, wait)
-import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newMVar, readMVar)
+import ConcurrentProgress (mapConcurrentlyBounded)
 import Control.Exception (SomeException, displayException, try)
 import Control.Monad (unless, when)
 import CppSupport (preprocessForParserIfEnabled)
@@ -13,7 +11,6 @@ import qualified Data.Aeson as Aeson
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString.Lazy.Char8 as LBS8
-import Data.List (sortOn)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
@@ -37,7 +34,7 @@ import Network.HTTP.Client (HttpException, Manager, Request (responseTimeout), h
 import Network.HTTP.Client.TLS (tlsManagerSettings)
 import ParserValidation (ValidationError (..), ValidationErrorKind (..), validateParserDetailedWithExtensionNames)
 import System.Exit (exitFailure, exitSuccess)
-import System.IO (hFlush, hIsTerminalDevice, hPutStrLn, stderr, stdout)
+import System.IO (hPutStrLn, stderr)
 
 data RunInfo = RunInfo
   { runPackageName :: String,
@@ -119,48 +116,8 @@ fetchCabalFile manager request = do
   pure (responseBody response)
 
 processFiles :: Options -> Int -> FilePath -> [FileInfo] -> IO [FileResult]
-processFiles opts jobs packageRoot files = do
-  counter <- newMVar 0
-  showProgress <- hIsTerminalDevice stdout
-  let total = length files
-      worker info = do
-        result <- processFile opts packageRoot info
-        when showProgress (printProgress counter total)
-        pure result
-
-  results <- mapConcurrentlyBounded jobs worker files
-  when showProgress (putStrLn "")
-  pure results
-
-printProgress :: MVar Int -> Int -> IO ()
-printProgress counter total = do
-  done <- modifyMVar counter $ \n ->
-    let n' = n + 1
-     in pure (n', n')
-  putStr ("\rProcessed " ++ show done ++ "/" ++ show total)
-  hFlush stdout
-
-mapConcurrentlyBounded :: Int -> (a -> IO b) -> [a] -> IO [b]
-mapConcurrentlyBounded jobs action items = do
-  let indexedItems = zip [0 :: Int ..] items
-      workerCount = max 1 (min jobs (length indexedItems))
-  queue <- newChan
-  results <- newMVar []
-  mapM_ (writeChan queue . Just) indexedItems
-  mapM_ (const (writeChan queue Nothing)) [1 .. workerCount]
-  workers <- mapM (\_ -> async (workerLoop queue results)) [1 .. workerCount]
-  mapM_ wait workers
-  ordered <- readMVar results
-  pure (map snd (sortOn fst ordered))
-  where
-    workerLoop queue results = do
-      next <- readChan queue
-      case next of
-        Nothing -> pure ()
-        Just (idx, item) -> do
-          value <- action item
-          modifyMVar_ results (\acc -> pure ((idx, value) : acc))
-          workerLoop queue results
+processFiles opts jobs packageRoot =
+  mapConcurrentlyBounded jobs (processFile opts packageRoot)
 
 processFile :: Options -> FilePath -> FileInfo -> IO FileResult
 processFile opts packageRoot info = do
