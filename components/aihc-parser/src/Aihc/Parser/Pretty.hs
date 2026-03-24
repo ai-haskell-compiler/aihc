@@ -714,40 +714,64 @@ prettyConstructorName name
   | isOperatorToken name = parens (pretty name)
   | otherwise = pretty name
 
--- | Print an expression used as the RHS of an infix operator.
--- Nested infix expressions need parentheses to preserve right-associativity,
--- since the parser left-associates all infix operators.
--- Type signatures need parentheses because :: binds looser than infix operators.
--- EWhereDecls needs parentheses because "where" binds looser than infix operators.
--- ENegate needs parentheses because negate can only appear at the start of
--- an infix expression, not as the RHS of an operator.
--- Open-ended expressions (if, lambda, let, and infix expressions with open-ended
--- RHS) need parentheses when this infix node can be followed by another operator;
--- otherwise they can capture that trailing operator into their bodies.
--- Brace-terminated expressions (do, case, \case) are safe on the RHS.
-prettyExprInfixRhs :: Bool -> Expr -> Doc ann
-prettyExprInfixRhs protectOpenEnded expr =
-  case expr of
-    EInfix {} -> parens (prettyExprPrec 0 expr)
-    ETypeSig {} -> parens (prettyExprPrec 0 expr)
-    ENegate {} -> parens (prettyExprPrec 0 expr)
-    EWhereDecls {} -> parens (prettyExprPrec 0 expr)
-    _ | protectOpenEnded && isOpenEnded expr -> parens (prettyExprPrec 0 expr)
-    -- Other greedy expressions are safe at prec 0 as RHS of infix
-    _ | isGreedyExpr expr -> prettyExprPrec 0 expr
-    _ -> prettyExprPrec 1 expr
+-- | Print an expression in a context-sensitive slot.
+-- Nested infix expressions need context-sensitive parenthesization, not just
+-- operator precedence. We model these slots explicitly.
+data ExprCtx
+  = CtxInfixRhs Bool
+  | CtxInfixLhs
+  | CtxWhereBody
+  | CtxAppFun
+  | CtxTypeSigBody
+  | CtxGuarded
 
--- | Print an expression used as the LHS of an infix operator.
--- ETypeSig needs parentheses because the type in x :: T can include type
--- operators, so x :: T || y would parse as x :: (T || y).
--- ENegate needs parentheses because inside parentheses, parseNegateParen
--- would consume the following infix operators as part of the negation.
-prettyExprInfixLhs :: Expr -> Doc ann
-prettyExprInfixLhs expr =
-  case expr of
-    ETypeSig {} -> parens (prettyExprPrec 0 expr)
-    ENegate {} -> parens (prettyExprPrec 0 expr)
-    _ -> prettyExprPrec 1 expr
+prettyExprIn :: ExprCtx -> Expr -> Doc ann
+prettyExprIn ctx expr =
+  parenthesize (needsExprParens ctx expr) (prettyExprPrec (exprCtxPrec ctx expr) expr)
+
+exprCtxPrec :: ExprCtx -> Expr -> Int
+exprCtxPrec ctx expr =
+  case ctx of
+    CtxInfixRhs _
+      | isGreedyExpr expr -> 0
+      | otherwise -> 1
+    CtxInfixLhs -> 1
+    CtxWhereBody -> 0
+    CtxAppFun -> 2
+    CtxTypeSigBody -> 1
+    CtxGuarded -> 0
+
+needsExprParens :: ExprCtx -> Expr -> Bool
+needsExprParens ctx expr =
+  case ctx of
+    CtxInfixRhs protectOpenEnded ->
+      case expr of
+        EInfix {} -> True
+        ETypeSig {} -> True
+        ENegate {} -> True
+        EWhereDecls {} -> True
+        _ | protectOpenEnded && isOpenEnded expr -> True
+        _ -> False
+    CtxInfixLhs ->
+      case expr of
+        ETypeSig {} -> True
+        ENegate {} -> True
+        _ -> False
+    CtxWhereBody ->
+      case expr of
+        ENegate {} -> True
+        _ -> isOpenEnded expr
+    CtxAppFun ->
+      case expr of
+        ENegate {} -> True
+        _ -> False
+    CtxTypeSigBody ->
+      case expr of
+        ENegate {} -> True
+        ETypeSig {} -> True
+        ELambdaPats {} -> True
+        _ -> False
+    CtxGuarded -> isGreedyExpr expr
 
 -- | Check if an expression is "greedy" - i.e., it could consume trailing syntax.
 -- These expressions may need special handling in certain contexts.
@@ -765,9 +789,7 @@ isGreedyExpr = \case
 -- | Print an expression in a "guarded" context where greedy expressions
 -- need parentheses to prevent them from consuming trailing syntax.
 prettyExprGuarded :: Expr -> Doc ann
-prettyExprGuarded expr
-  | isGreedyExpr expr = parens (prettyExprPrec 0 expr)
-  | otherwise = prettyExprPrec 0 expr
+prettyExprGuarded = prettyExprIn CtxGuarded
 
 -- | Check if an expression is "open-ended" - its rightmost component can
 -- capture a trailing where clause. This includes:
@@ -785,43 +807,20 @@ isOpenEnded = \case
   _ -> False
 
 -- | Print the body of a where expression.
--- ENegate needs parentheses because inside parentheses, -a where {...}
--- parses as -(a where {...}) due to parseNegateParen in the parser.
--- "Open-ended" expressions (if, lambda, let, or infix with open-ended RHS)
--- need parentheses because their body would otherwise capture the where clause.
--- "Brace-terminated" expressions (do, case, \case) don't need parens because
--- the explicit braces clearly delimit them.
 prettyWhereBody :: Expr -> Doc ann
-prettyWhereBody expr =
-  case expr of
-    ENegate {} -> parens (prettyExprPrec 0 expr)
-    _ | isOpenEnded expr -> parens (prettyExprPrec 0 expr)
-    _ -> prettyExprPrec 0 expr
+prettyWhereBody = prettyExprIn CtxWhereBody
 
 -- | Print an expression used as the function in an application.
--- ENegate needs parentheses because the parser's negateExprParser uses
--- appExprParser which would consume following arguments.
 prettyExprApp :: Expr -> Doc ann
-prettyExprApp expr =
-  case expr of
-    ENegate {} -> parens (prettyExprPrec 0 expr)
-    _ -> prettyExprPrec 2 expr
+prettyExprApp = prettyExprIn CtxAppFun
 
 -- | Print a negation expression.
 prettyNegate :: Expr -> Doc ann
 prettyNegate inner = "-" <> prettyExprPrec 3 inner
 
 -- | Print the body of a type signature expression.
--- ENegate needs parentheses because inside parentheses, -x :: T parses as
--- -(x :: T) due to parseNegateParen in the parser.
--- ETypeSig needs parentheses because :: is not associative - x :: T :: U is invalid.
 prettyTypeSigBody :: Expr -> Doc ann
-prettyTypeSigBody expr =
-  case expr of
-    ENegate {} -> parens (prettyExprPrec 0 expr)
-    ETypeSig {} -> parens (prettyExprPrec 0 expr)
-    ELambdaPats {} -> parens (prettyExprPrec 0 expr)
-    _ -> prettyExprPrec 1 expr
+prettyTypeSigBody = prettyExprIn CtxTypeSigBody
 
 prettyExprPrec :: Int -> Expr -> Doc ann
 prettyExprPrec prec expr =
@@ -854,7 +853,7 @@ prettyExprPrec prec expr =
     EInfix _ lhs op rhs ->
       parenthesize
         (prec > 1)
-        (prettyExprInfixLhs lhs <+> prettyInfixOp op <+> prettyExprInfixRhs (prec == 1) rhs)
+        (prettyExprIn CtxInfixLhs lhs <+> prettyInfixOp op <+> prettyExprIn (CtxInfixRhs (prec == 1)) rhs)
     ENegate _ inner -> parenthesize (prec > 2) (prettyNegate inner)
     ESectionL _ lhs op -> parens (prettyExprPrec 3 lhs <+> prettyInfixOp op)
     ESectionR _ op rhs -> parens (prettyInfixOp op <+> prettyExprPrec 0 rhs)
