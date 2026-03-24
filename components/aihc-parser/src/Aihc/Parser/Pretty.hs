@@ -234,9 +234,12 @@ prettyRhs rhs =
 prettyType :: Type -> Doc ann
 prettyType = prettyTypePrec 0
 
+-- | Type context for parenthesization decisions.
+-- CtxTypeFunArg: LHS of -> or function position of type application (same rules).
+-- CtxTypeAppArg: argument position of type application.
+-- CtxTypeAtom: must be syntactically atomic (e.g., constraint args, instance heads).
 data TypeCtx
-  = CtxTypeFunLhs
-  | CtxTypeAppFun
+  = CtxTypeFunArg
   | CtxTypeAppArg
   | CtxTypeAtom
 
@@ -247,13 +250,7 @@ prettyTypeIn ctx ty =
 needsTypeParens :: TypeCtx -> Type -> Bool
 needsTypeParens ctx ty =
   case ctx of
-    CtxTypeFunLhs ->
-      case ty of
-        TForall {} -> True
-        TFun {} -> True
-        TContext {} -> True
-        _ -> False
-    CtxTypeAppFun ->
+    CtxTypeFunArg ->
       case ty of
         TForall {} -> True
         TFun {} -> True
@@ -263,6 +260,7 @@ needsTypeParens ctx ty =
       case ty of
         TApp _ (TApp _ (TCon _ op) _) _
           | isSymbolicTypeOperator op && op /= "->" -> False
+        TQuasiQuote {} -> False
         TApp {} -> True
         TForall {} -> True
         TFun {} -> True
@@ -298,11 +296,11 @@ prettyTypePrec prec ty =
     TApp _ f x ->
       parenthesize
         (prec > 2)
-        (prettyTypeIn CtxTypeAppFun f <+> prettyTypeIn CtxTypeAppArg x)
+        (prettyTypeIn CtxTypeFunArg f <+> prettyTypeIn CtxTypeAppArg x)
     TFun _ a b ->
       parenthesize
         (prec > 0)
-        (prettyTypeIn CtxTypeFunLhs a <+> "->" <+> prettyTypePrec 0 b)
+        (prettyTypeIn CtxTypeFunArg a <+> "->" <+> prettyTypePrec 0 b)
     TTuple _ elems -> parens (hsep (punctuate comma (map (prettyTypePrec 0) elems)))
     TList _ inner -> brackets (prettyTypePrec 0 inner)
     TParen _ inner
@@ -353,9 +351,9 @@ prettyPattern pat =
     PCon _ con args -> hsep (pretty con : map prettyPatternAtom args)
     PInfix _ lhs op rhs -> prettyPatternAtom lhs <+> prettyInfixOp op <+> prettyPatternAtom rhs
     PView _ viewExpr inner -> parens (prettyExprPrec 0 viewExpr <+> "->" <+> prettyPattern inner)
-    PAs _ name inner -> pretty name <> "@" <> prettyPatternAtomAfterAt inner
-    PStrict _ inner -> "!" <> prettyUnaryPattern inner
-    PIrrefutable _ inner -> "~" <> prettyUnaryPattern inner
+    PAs _ name inner -> pretty name <> "@" <> prettyPatternAtomStrict inner
+    PStrict _ inner -> "!" <> prettyPatternAtomStrict inner
+    PIrrefutable _ inner -> "~" <> prettyPatternAtomStrict inner
     PNegLit _ lit -> "-" <> prettyLiteral lit
     PParen _ inner -> parens (prettyPattern inner)
     PRecord _ con fields ->
@@ -392,17 +390,10 @@ prettyPatternAtom pat =
     PView {} -> prettyPattern pat
     _ -> parens (prettyPattern pat)
 
--- | Pretty print a pattern atom after @. Negative literals need parens since a@-1 is ambiguous.
-prettyPatternAtomAfterAt :: Pattern -> Doc ann
-prettyPatternAtomAfterAt pat =
-  case pat of
-    PNegLit {} -> parens (prettyPattern pat)
-    PStrict {} -> parens (prettyPattern pat)
-    PIrrefutable {} -> parens (prettyPattern pat)
-    _ -> prettyPatternAtom pat
-
-prettyUnaryPattern :: Pattern -> Doc ann
-prettyUnaryPattern pat =
+-- | Pretty print a pattern atom after @ or as the operand of ! or ~.
+-- Negative literals and nested strictness/irrefutability need parens.
+prettyPatternAtomStrict :: Pattern -> Doc ann
+prettyPatternAtomStrict pat =
   case pat of
     PNegLit {} -> parens (prettyPattern pat)
     PStrict {} -> parens (prettyPattern pat)
@@ -580,20 +571,18 @@ dataConQualifierPrefix forallVars constraints = forallPrefix forallVars <> conte
 prettyBangType :: BangType -> Doc ann
 prettyBangType bt
   | bangStrict bt = "!" <> prettyTypeIn CtxTypeAtom (bangType bt)
-  | otherwise = prettyTypeIn CtxTypeFunLhs (bangType bt)
+  | otherwise = prettyTypeIn CtxTypeFunArg (bangType bt)
 
 prettyRecordFieldBangType :: BangType -> Doc ann
 prettyRecordFieldBangType bt
   | bangStrict bt = "!" <> prettyType (bangType bt)
   | otherwise = prettyType (bangType bt)
 
+-- | Pretty print a BangType as an atom (e.g., for infix data constructors).
+-- Wraps the entire bang type in parens if the underlying type needs it.
 prettyBangTypeAtom :: BangType -> Doc ann
 prettyBangTypeAtom bt =
-  case bangType bt of
-    TForall {} -> parens (prettyBangType bt)
-    TFun {} -> parens (prettyBangType bt)
-    TContext {} -> parens (prettyBangType bt)
-    _ -> prettyBangType bt
+  parenthesize (needsTypeParens CtxTypeFunArg (bangType bt)) (prettyBangType bt)
 
 prettyClassDecl :: ClassDecl -> Doc ann
 prettyClassDecl decl =
