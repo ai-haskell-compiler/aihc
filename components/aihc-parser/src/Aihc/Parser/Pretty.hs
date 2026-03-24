@@ -975,7 +975,13 @@ prettyCompStmt stmt =
 
 prettyInlineDecls :: [Decl] -> Doc ann
 prettyInlineDecls decls =
-  hsep (punctuate semi (concatMap prettyDeclLines decls))
+  hsep (punctuate semi (map prettyInlineDecl decls))
+  where
+    -- For value declarations, use single-line form to keep guarded bindings together.
+    -- For other declarations, join their lines with spaces.
+    prettyInlineDecl decl = case decl of
+      DeclValue _ valueDecl -> prettyValueDeclSingleLine valueDecl
+      _ -> hsep (prettyDeclLines decl)
 
 prettyArithSeq :: ArithSeq -> Doc ann
 prettyArithSeq seqInfo =
