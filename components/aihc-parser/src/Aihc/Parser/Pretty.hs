@@ -531,10 +531,15 @@ dataConQualifierPrefix forallVars constraints = forallPrefix forallVars <> conte
     forallPrefix [] = []
     forallPrefix binders = ["forall", hsep (map pretty binders) <> "."]
 
+-- | Pretty print a BangType in GADT prefix body context.
+-- For strict types (!Type), we use prettyTypeAtom to ensure the type is atomic
+-- (e.g., !Int or !(Term a), not !Term a which would be parsed as (!Term) a).
+-- For non-strict types, we use parenthesizeTypeFunLeft since only function types,
+-- foralls, and contexts need parentheses before -> in GADT syntax.
 prettyBangType :: BangType -> Doc ann
 prettyBangType bt
   | bangStrict bt = "!" <> prettyTypeAtom (bangType bt)
-  | otherwise = prettyTypeAtom (bangType bt)
+  | otherwise = parenthesizeTypeFunLeft (bangType bt)
 
 prettyRecordFieldBangType :: BangType -> Doc ann
 prettyRecordFieldBangType bt
