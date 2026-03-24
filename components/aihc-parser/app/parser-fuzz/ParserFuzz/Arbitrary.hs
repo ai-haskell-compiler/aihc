@@ -30,7 +30,7 @@ instance Arbitrary GenModule where
     GenModuleHead header <- arbitrary
     declCount <- chooseInt (0, 8)
     decls <- vectorOf declCount (unGenDecl <$> (arbitrary :: Gen GenDecl))
-    pure (GenModule (HSE.Module () header [HSE.LanguagePragma () requiredExtensions] []decls))
+    pure (GenModule (HSE.Module () header [HSE.LanguagePragma () requiredExtensions] [] decls))
     where
       requiredExtensions = [HSE.Ident () "FlexibleContexts"]
 
