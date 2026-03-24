@@ -21,7 +21,6 @@ import Test.Properties.NoExceptions
   )
 import Test.Properties.PatternRoundTrip (prop_patternPrettyRoundTrip)
 import Test.Properties.TypeRoundTrip (prop_typePrettyRoundTrip)
-import Test.QuickCheck (expectFailure)
 
 registeredParserProperties :: [RegisteredProperty]
 registeredParserProperties =
@@ -34,11 +33,8 @@ registeredParserProperties =
     RegisteredProperty "decl parser arbitrary token stream does not throw exceptions" prop_declParserArbitraryTokensNoExceptions,
     RegisteredProperty "import decl parser arbitrary token stream does not throw exceptions" prop_importDeclParserArbitraryTokensNoExceptions,
     RegisteredProperty "module header parser arbitrary token stream does not throw exceptions" prop_moduleHeaderParserArbitraryTokensNoExceptions,
-    -- These round-trip properties are marked as expected failures because the
-    -- simplified generators don't try to avoid parsing ambiguities. They help
-    -- find real parser/printer bugs that should be fixed later.
-    RegisteredProperty "generated expr AST pretty-printer round-trip" (expectFailure prop_exprPrettyRoundTrip),
-    RegisteredProperty "generated module AST pretty-printer round-trip" (expectFailure prop_modulePrettyRoundTrip),
+    RegisteredProperty "generated expr AST pretty-printer round-trip" prop_exprPrettyRoundTrip,
+    RegisteredProperty "generated module AST pretty-printer round-trip" prop_modulePrettyRoundTrip,
     RegisteredProperty "generated pattern AST pretty-printer round-trip" prop_patternPrettyRoundTrip,
     RegisteredProperty "generated type AST pretty-printer round-trip" prop_typePrettyRoundTrip
   ]
