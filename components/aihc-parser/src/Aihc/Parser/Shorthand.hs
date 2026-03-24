@@ -242,6 +242,17 @@ docDataConDecl dcd =
       "InfixCon" <+> braces (hsep (punctuate comma ([field "op" (docText op), field "lhs" (docBangType lhs), field "rhs" (docBangType rhs)] <> listField "forallVars" docText forallVars <> listField "constraints" docConstraint constraints)))
     RecordCon _ forallVars constraints name fields' ->
       "RecordCon" <+> braces (hsep (punctuate comma ([field "name" (docText name)] <> listField "forallVars" docText forallVars <> listField "constraints" docConstraint constraints <> listField "fields" docFieldDecl fields')))
+    GadtCon _ forallBinders constraints names body ->
+      "GadtCon" <+> braces (hsep (punctuate comma (listField "names" docText names <> listField "forallBinders" docTyVarBinder forallBinders <> listField "constraints" docConstraint constraints <> [field "body" (docGadtBody body)])))
+
+-- | Document a GADT body
+docGadtBody :: GadtBody -> Doc ann
+docGadtBody body =
+  case body of
+    GadtPrefixBody args resultTy ->
+      "GadtPrefixBody" <+> braces (hsep (punctuate comma (listField "args" docBangType args <> [field "result" (docType resultTy)])))
+    GadtRecordBody fields' resultTy ->
+      "GadtRecordBody" <+> braces (hsep (punctuate comma (listField "fields" docFieldDecl fields' <> [field "result" (docType resultTy)])))
 
 docBangType :: BangType -> Doc ann
 docBangType bt =

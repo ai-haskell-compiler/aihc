@@ -1,0 +1,9 @@
+gadt-maybe	declarations	gadt-maybe.hs	pass
+gadt-newtype	declarations	gadt-newtype.hs	pass
+gadt-existential	declarations	gadt-existential.hs	pass
+gadt-context	declarations	gadt-context.hs	pass
+gadt-multi-con	declarations	gadt-multi-con.hs	pass
+gadt-strict	declarations	gadt-strict.hs	xfail	strict fields on complex types not yet supported
+gadt-deriving	declarations	gadt-deriving.hs	pass
+gadt-record	declarations	gadt-record.hs	pass
+gadt-infix	declarations	gadt-infix.hs	pass

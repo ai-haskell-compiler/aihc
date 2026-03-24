@@ -28,6 +28,7 @@ module Aihc.Parser.Ast
     ForeignDirection (..),
     ForeignEntitySpec (..),
     ForeignSafety (..),
+    GadtBody (..),
     GuardQualifier (..),
     GuardedRhs (..),
     ImportDecl (..),
@@ -55,6 +56,7 @@ module Aihc.Parser.Ast
     allKnownExtensions,
     extensionName,
     extensionSettingName,
+    gadtBodyResultType,
     mergeSourceSpans,
     noSourceSpan,
     parseExtensionName,
@@ -612,7 +614,25 @@ data DataConDecl
   = PrefixCon SourceSpan [Text] [Constraint] Text [BangType]
   | InfixCon SourceSpan [Text] [Constraint] BangType Text BangType
   | RecordCon SourceSpan [Text] [Constraint] Text [FieldDecl]
+  | -- | GADT-style constructor: @Con :: forall a. Ctx => Type@
+    -- The list of names supports multiple constructors: @T1, T2 :: Type@
+    GadtCon SourceSpan [TyVarBinder] [Constraint] [Text] GadtBody
   deriving (Data, Eq, Show, Generic, NFData)
+
+-- | Body of a GADT constructor after the @::@ and optional forall/context
+data GadtBody
+  = -- | Prefix body: @a -> b -> T a@
+    GadtPrefixBody [BangType] Type
+  | -- | Record body: @{ field :: Type } -> T a@
+    GadtRecordBody [FieldDecl] Type
+  deriving (Data, Eq, Show, Generic, NFData)
+
+-- | Get the result type from a GADT body
+gadtBodyResultType :: GadtBody -> Type
+gadtBodyResultType body =
+  case body of
+    GadtPrefixBody _ ty -> ty
+    GadtRecordBody _ ty -> ty
 
 instance HasSourceSpan DataConDecl where
   getSourceSpan dataConDecl =
@@ -620,6 +640,7 @@ instance HasSourceSpan DataConDecl where
       PrefixCon span' _ _ _ _ -> span'
       InfixCon span' _ _ _ _ _ -> span'
       RecordCon span' _ _ _ _ -> span'
+      GadtCon span' _ _ _ _ -> span'
 
 data BangType = BangType
   { bangSpan :: SourceSpan,
