@@ -412,9 +412,12 @@ normalizeUnaryInner pat =
 
 -- | Normalize the inner pattern of an as-pattern.
 -- The pretty-printer adds parens around negative literals after @ for safety (a@-0 is invalid),
--- so we strip PParen around PNegLit to get the canonical form.
+-- and around strict/irrefutable patterns to avoid lexing @!/@~ as symbolic operators,
+-- so we strip those parens to get the canonical form.
 normalizeAsInner :: Pattern -> Pattern
 normalizeAsInner pat =
   case normalizePattern pat of
     PParen _ inner@(PNegLit {}) -> inner
+    PParen _ inner@(PStrict {}) -> inner
+    PParen _ inner@(PIrrefutable {}) -> inner
     other -> other
