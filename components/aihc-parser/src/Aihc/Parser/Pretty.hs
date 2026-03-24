@@ -186,7 +186,7 @@ prettyFunctionMatchLines name match =
         : [ "  |"
               <+> hsep (punctuate comma (map prettyGuardQualifier (guardedRhsGuards grhs)))
               <+> "="
-              <+> prettyExprGuarded (guardedRhsBody grhs)
+              <+> prettyExprPrec 0 (guardedRhsBody grhs)
           | grhs <- grhss
           ]
 
@@ -206,13 +206,18 @@ prettyFunctionHead name pats =
 prettyRhs :: Rhs -> Doc ann
 prettyRhs rhs =
   case rhs of
-    UnguardedRhs _ expr -> "=" <+> prettyExprGuarded expr
+    -- For UnguardedRhs, nothing follows the expression, so no parens needed
+    UnguardedRhs _ expr -> "=" <+> prettyExprPrec 0 expr
+    -- For GuardedRhss, multiple guards can follow, but brace-terminated
+    -- expressions (do, case, \case) are safe. Open-ended expressions
+    -- (if, lambda, let, where) could capture trailing guards with layout,
+    -- but our pretty-printer doesn't use layout for guards.
     GuardedRhss _ guards ->
       hsep
         [ "|"
             <+> hsep (punctuate comma (map prettyGuardQualifier (guardedRhsGuards grhs)))
             <+> "="
-            <+> prettyExprGuarded (guardedRhsBody grhs)
+            <+> prettyExprPrec 0 (guardedRhsBody grhs)
         | grhs <- guards
         ]
 
@@ -646,17 +651,20 @@ prettyConstructorName name
 -- Nested infix expressions need parentheses to preserve right-associativity,
 -- since the parser left-associates all infix operators.
 -- Type signatures need parentheses because :: binds looser than infix operators.
--- Greedy expressions (do, if, case, let, lambda, where) need parentheses because
--- their bodies would otherwise capture any following infix operators.
+-- EWhereDecls needs parentheses because "where" binds looser than infix operators.
 -- ENegate needs parentheses because negate can only appear at the start of
 -- an infix expression, not as the RHS of an operator.
+-- Other greedy expressions (do, case, \case, if, lambda, let) are safe as RHS
+-- because the parser correctly identifies them and they don't capture following operators.
 prettyExprInfixRhs :: Expr -> Doc ann
 prettyExprInfixRhs expr =
   case expr of
     EInfix {} -> parens (prettyExprPrec 0 expr)
     ETypeSig {} -> parens (prettyExprPrec 0 expr)
     ENegate {} -> parens (prettyExprPrec 0 expr)
-    _ | isGreedyExpr expr -> parens (prettyExprPrec 0 expr)
+    EWhereDecls {} -> parens (prettyExprPrec 0 expr)
+    -- Other greedy expressions are safe at prec 0 as RHS of infix
+    _ | isGreedyExpr expr -> prettyExprPrec 0 expr
     _ -> prettyExprPrec 1 expr
 
 -- | Print an expression used as the LHS of an infix operator.
@@ -672,8 +680,7 @@ prettyExprInfixLhs expr =
     _ -> prettyExprPrec 1 expr
 
 -- | Check if an expression is "greedy" - i.e., it could consume trailing syntax.
--- These expressions need parentheses in contexts like list comprehensions
--- where trailing syntax (like |) should not be captured by the expression.
+-- These expressions may need special handling in certain contexts.
 isGreedyExpr :: Expr -> Bool
 isGreedyExpr = \case
   ECase {} -> True
@@ -692,16 +699,33 @@ prettyExprGuarded expr
   | isGreedyExpr expr = parens (prettyExprPrec 0 expr)
   | otherwise = prettyExprPrec 0 expr
 
+-- | Check if an expression is "open-ended" - its rightmost component can
+-- capture a trailing where clause. This includes:
+-- - Directly open-ended expressions (if, lambda, let)
+-- - Infix expressions whose RHS is open-ended (recursively)
+-- Brace-terminated expressions (do, case, \case) are NOT open-ended because
+-- their explicit braces delimit them.
+isOpenEnded :: Expr -> Bool
+isOpenEnded = \case
+  EIf {} -> True
+  ELambdaPats {} -> True
+  ELetDecls {} -> True
+  EWhereDecls {} -> True
+  EInfix _ _ _ rhs -> isOpenEnded rhs
+  _ -> False
+
 -- | Print the body of a where expression.
 -- ENegate needs parentheses because inside parentheses, -a where {...}
 -- parses as -(a where {...}) due to parseNegateParen in the parser.
--- Greedy expressions (if, case, etc.) need parentheses because their branches
--- would otherwise capture the where clause.
+-- "Open-ended" expressions (if, lambda, let, or infix with open-ended RHS)
+-- need parentheses because their body would otherwise capture the where clause.
+-- "Brace-terminated" expressions (do, case, \case) don't need parens because
+-- the explicit braces clearly delimit them.
 prettyWhereBody :: Expr -> Doc ann
 prettyWhereBody expr =
   case expr of
     ENegate {} -> parens (prettyExprPrec 0 expr)
-    _ | isGreedyExpr expr -> parens (prettyExprPrec 0 expr)
+    _ | isOpenEnded expr -> parens (prettyExprPrec 0 expr)
     _ -> prettyExprPrec 0 expr
 
 -- | Print an expression used as the function in an application.
@@ -745,9 +769,11 @@ prettyExprPrec prec expr =
     EString _ _ repr -> pretty repr
     EQuasiQuote _ quoter body -> prettyQuasiQuote quoter body
     EIf _ cond yes no ->
+      -- The 'then' keyword delimits the condition, and 'else' delimits the then-branch,
+      -- so greedy expressions in those positions don't need parentheses.
       parenthesize
         (prec > 0)
-        ("if" <+> prettyExprGuarded cond <+> "then" <+> prettyExprGuarded yes <+> "else" <+> prettyExprPrec 0 no)
+        ("if" <+> prettyExprPrec 0 cond <+> "then" <+> prettyExprPrec 0 yes <+> "else" <+> prettyExprPrec 0 no)
     ELambdaPats _ pats body ->
       parenthesize (prec > 0) ("\\" <+> hsep (map prettyPattern pats) <+> "->" <+> prettyExprPrec 0 body)
     ELambdaCase _ alts ->
@@ -767,28 +793,32 @@ prettyExprPrec prec expr =
             <+> prettyExprPrec 0 body
         )
     ECase _ scrutinee alts ->
+      -- The 'of' keyword delimits the scrutinee, so greedy expressions don't need parens
+      -- Use "{ " instead of braces to avoid {- being lexed as block comment start
       parenthesize
         (prec > 0)
         ( "case"
-            <+> prettyExprGuarded scrutinee
+            <+> prettyExprPrec 0 scrutinee
             <+> "of"
-            <+> case alts of
-              [] -> braces mempty
-              _ -> hsep (punctuate semi (map prettyCaseAlt alts))
+            <+> "{"
+            <+> hsep (punctuate semi (map prettyCaseAlt alts))
+            <+> "}"
         )
     EDo _ stmts ->
       parenthesize
         (prec > 0)
         ("do" <+> "{" <+> hsep (punctuate semi (map prettyDoStmt stmts)) <+> "}")
     EListComp _ body quals ->
+      -- Brace-terminated expressions in the body don't capture the |
       brackets
-        ( prettyExprGuarded body
+        ( prettyExprPrec 0 body
             <+> "|"
             <+> hsep (punctuate comma (map prettyCompStmt quals))
         )
     EListCompParallel _ body qualifierGroups ->
+      -- Brace-terminated expressions in the body don't capture the |
       brackets
-        ( prettyExprGuarded body
+        ( prettyExprPrec 0 body
             <+> "|"
             <+> hsep
               ( punctuate
@@ -811,8 +841,8 @@ prettyExprPrec prec expr =
       parenthesize
         (prec > 0)
         (prettyWhereBody body <+> "where" <+> braces (prettyInlineDecls decls))
-    EList _ values -> brackets (hsep (punctuate comma (map prettyExprGuarded values)))
-    ETuple _ values -> parens (hsep (punctuate comma (map prettyExprGuarded values)))
+    EList _ values -> brackets (hsep (punctuate comma (map (prettyExprPrec 0) values)))
+    ETuple _ values -> parens (hsep (punctuate comma (map (prettyExprPrec 0) values)))
     ETupleSection _ values ->
       parens
         ( hsep
@@ -820,7 +850,7 @@ prettyExprPrec prec expr =
                 comma
                 ( map
                     ( \case
-                        Just val -> prettyExprGuarded val
+                        Just val -> prettyExprPrec 0 val
                         Nothing -> mempty
                     )
                     values
@@ -832,16 +862,20 @@ prettyExprPrec prec expr =
 -- | Pretty print a record field binding.
 -- Supports NamedFieldPuns: if value is a variable with the same name as the field,
 -- print just the field name (punned form).
+-- Record fields are comma-separated, so greedy expressions don't need parens.
 prettyBinding :: (Text, Expr) -> Doc ann
 prettyBinding (name, value) =
   case value of
     EVar _ varName | varName == name -> pretty name -- NamedFieldPuns: punned form
-    _ -> pretty name <+> "=" <+> prettyExprGuarded value
+    _ -> pretty name <+> "=" <+> prettyExprPrec 0 value
 
+-- | Pretty print a case alternative.
+-- Since case alternatives are separated by semicolons (in explicit brace syntax),
+-- greedy expressions in the body don't need parentheses.
 prettyCaseAlt :: CaseAlt -> Doc ann
 prettyCaseAlt (CaseAlt _ pat rhs) =
   case rhs of
-    UnguardedRhs _ expr -> prettyPattern pat <+> "->" <+> prettyExprGuarded expr
+    UnguardedRhs _ expr -> prettyPattern pat <+> "->" <+> prettyExprPrec 0 expr
     GuardedRhss _ grhss ->
       hsep
         [ prettyPattern pat,
@@ -849,7 +883,7 @@ prettyCaseAlt (CaseAlt _ pat rhs) =
             [ "|"
                 <+> hsep (punctuate comma (map prettyGuardQualifier (guardedRhsGuards grhs)))
                 <+> "->"
-                <+> prettyExprGuarded (guardedRhsBody grhs)
+                <+> prettyExprPrec 0 (guardedRhsBody grhs)
             | grhs <- grhss
             ]
         ]
@@ -861,13 +895,16 @@ prettyGuardQualifier qualifier =
     GuardPat _ pat expr -> prettyPattern pat <+> "<-" <+> prettyExprPrec 0 expr
     GuardLet _ decls -> "let" <+> braces (prettyInlineDecls decls)
 
+-- | Pretty print a do statement.
+-- Since do blocks are always rendered with explicit braces and semicolons,
+-- statement boundaries are clear and greedy expressions don't need parens.
 prettyDoStmt :: DoStmt -> Doc ann
 prettyDoStmt stmt =
   case stmt of
-    DoBind _ pat expr -> prettyPattern pat <+> "<-" <+> prettyExprGuarded expr
+    DoBind _ pat expr -> prettyPattern pat <+> "<-" <+> prettyExprPrec 0 expr
     DoLet _ bindings -> "let" <+> braces (hsep (punctuate semi (map prettyBinding bindings)))
     DoLetDecls _ decls -> "let" <+> braces (prettyInlineDecls decls)
-    DoExpr _ expr -> prettyExprGuarded expr
+    DoExpr _ expr -> prettyExprPrec 0 expr
 
 prettyCompStmt :: CompStmt -> Doc ann
 prettyCompStmt stmt =
