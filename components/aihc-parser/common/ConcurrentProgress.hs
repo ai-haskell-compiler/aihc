@@ -24,7 +24,7 @@ where
 
 import Control.Concurrent (newChan, readChan, writeChan)
 import Control.Concurrent.Async (async, mapConcurrently, wait)
-import Control.Concurrent.MVar (MVar, modifyMVar, modifyMVar_, newMVar, readMVar)
+import Control.Concurrent.MVar (modifyMVar, modifyMVar_, newMVar, readMVar)
 import Control.Monad (when)
 import Data.List (sortOn)
 import System.IO (hFlush, hIsTerminalDevice, stdout)
@@ -174,12 +174,3 @@ foldConcurrentlyChunksWithProgress n action items total showProgress acc0 folder
           success' = success + successInc
       when showProgress (putProgressLine (ProgressState done' success' total))
       go done' success' acc' rest
-
--- | Increment progress counter and optionally display.
-printProgress :: MVar Int -> Int -> IO ()
-printProgress counter total = do
-  done <- modifyMVar counter $ \n ->
-    let n' = n + 1
-     in pure (n', n')
-  putStr ("\rProcessed " ++ show done ++ "/" ++ show total)
-  hFlush stdout

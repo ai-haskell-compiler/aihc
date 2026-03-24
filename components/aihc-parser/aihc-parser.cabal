@@ -211,7 +211,8 @@ executable hackage-tester
     , common
   main-is:          Main.hs
   other-modules:
-      CppSupport
+      ConcurrentProgress
+    , CppSupport
     , GhcOracle
     , HackageSupport
     , HackageTester.CLI
@@ -250,7 +251,7 @@ executable stackage-progress
     , common
   main-is:          Main.hs
   other-modules:
-      AstStripping
+      ConcurrentProgress
     , CppSupport
     , GhcOracle
     , HackageSupport
