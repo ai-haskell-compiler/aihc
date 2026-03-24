@@ -809,6 +809,7 @@ prettyTypeSigBody expr =
   case expr of
     ENegate {} -> parens (prettyExprPrec 0 expr)
     ETypeSig {} -> parens (prettyExprPrec 0 expr)
+    ELambdaPats {} -> parens (prettyExprPrec 0 expr)
     _ -> prettyExprPrec 1 expr
 
 prettyExprPrec :: Int -> Expr -> Doc ann
