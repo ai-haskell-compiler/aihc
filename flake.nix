@@ -3,9 +3,10 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+    ghc-wasm-meta.url = "git+https://gitlab.haskell.org/haskell-wasm/ghc-wasm-meta.git";
   };
 
-   outputs = { self, nixpkgs }:
+   outputs = { self, nixpkgs, ghc-wasm-meta }:
       let
         systems = [
           "x86_64-linux"
@@ -82,6 +83,30 @@
               isSh = pkgs.lib.hasSuffix ".sh" baseName;
               isScriptsDir = pkgs.lib.hasInfix "/scripts" (toString path);
             in type == "directory" || (isSh && isScriptsDir);
+        };
+
+        # Filtered source for WASM builds - include both packages plus cabal.project
+        wasmBuildSrc = pkgs: pkgs.lib.cleanSourceWith {
+          src = ./.;
+          filter = path: type:
+            let
+              pathStr = toString path;
+              baseName = baseNameOf path;
+              isDir = type == "directory";
+              inComponents = pkgs.lib.hasInfix "/components/aihc-parser/" pathStr
+                || pkgs.lib.hasInfix "/components/aihc-cpp/" pathStr;
+              isHaskell = pkgs.lib.hasSuffix ".hs" baseName;
+              isCabal = pkgs.lib.hasSuffix ".cabal" baseName;
+              isYaml = pkgs.lib.hasSuffix ".yaml" baseName || pkgs.lib.hasSuffix ".yml" baseName;
+              isTsv = pkgs.lib.hasSuffix ".tsv" baseName;
+              isJson = pkgs.lib.hasSuffix ".json" baseName;
+              isInc = pkgs.lib.hasSuffix ".inc" baseName;
+              isLicense = baseName == "LICENSE";
+              isProject = pathStr == toString ./cabal.project;
+            in
+              isDir
+              || isProject
+              || (inComponents && (isHaskell || isCabal || isYaml || isTsv || isJson || isInc || isLicense));
         };
 
         mkHsPkgs = pkgs:
@@ -303,6 +328,50 @@ WRAPPER
           '';
      in {
       packages = forAllSystems (pkgs: {
+        parser-wasm-wasi =
+          let
+            wasmTools = ghc-wasm-meta.packages.${pkgs.stdenv.hostPlatform.system}.all_9_10;
+          in pkgs.stdenvNoCC.mkDerivation {
+            pname = "aihc-parser-wasm-wasi";
+            version = "0.1.0.0";
+            src = wasmBuildSrc pkgs;
+            nativeBuildInputs = [
+              wasmTools
+              pkgs.findutils
+            ];
+            buildPhase = ''
+              runHook preBuild
+              export HOME="$TMPDIR/home"
+              mkdir -p "$HOME"
+              cp -r "$src" source
+              chmod -R u+w source
+              cd source
+
+              printf '%s\n' \
+                'packages:' \
+                '  ./components/aihc-cpp' \
+                '  ./components/aihc-parser' \
+                "" \
+                'tests: False' > cabal.project.wasm
+
+              wasm32-wasi-cabal update
+              wasm32-wasi-cabal build \
+                aihc-parser:exe:aihc-parser \
+                aihc-parser:exe:aihc-lexer \
+                --project-file=cabal.project.wasm
+              runHook postBuild
+            '';
+            installPhase = ''
+              runHook preInstall
+              mkdir -p "$out/bin"
+              find dist-newstyle -type f -name 'aihc-parser.wasm' -exec cp {} "$out/bin/aihc-parser.wasm" \;
+              find dist-newstyle -type f -name 'aihc-lexer.wasm' -exec cp {} "$out/bin/aihc-lexer.wasm" \;
+              test -f "$out/bin/aihc-parser.wasm"
+              test -f "$out/bin/aihc-lexer.wasm"
+              runHook postInstall
+            '';
+            meta.description = "WASM-WASI builds of aihc-parser and aihc-lexer using ghc-wasm-meta";
+          };
         docs = mkCombinedDocs pkgs;
         coverage = mkCoverageReport pkgs;
         default = mkCombinedDocs pkgs;
