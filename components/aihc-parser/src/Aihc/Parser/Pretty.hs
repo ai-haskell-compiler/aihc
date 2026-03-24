@@ -390,7 +390,14 @@ prettyDataDecl decl =
     ctorPart =
       case dataDeclConstructors decl of
         [] -> []
-        ctors -> ["=", hsep (punctuate " |" (map prettyDataCon ctors))]
+        ctors
+          | any isGadtCon ctors -> ["where", braces (hsep (punctuate semi (map prettyDataCon ctors)))]
+          | otherwise -> ["=", hsep (punctuate " |" (map prettyDataCon ctors))]
+
+-- | Check if a constructor uses GADT syntax
+isGadtCon :: DataConDecl -> Bool
+isGadtCon (GadtCon {}) = True
+isGadtCon _ = False
 
 prettyNewtypeDecl :: NewtypeDecl -> Doc ann
 prettyNewtypeDecl decl =
@@ -405,7 +412,9 @@ prettyNewtypeDecl decl =
     ctorPart =
       case newtypeDeclConstructor decl of
         Nothing -> []
-        Just ctor -> ["=", prettyDataCon ctor]
+        Just ctor
+          | isGadtCon ctor -> ["where", braces (prettyDataCon ctor)]
+          | otherwise -> ["=", prettyDataCon ctor]
 
 derivingParts :: [DerivingClause] -> [Doc ann]
 derivingParts = concatMap derivingPart
@@ -470,6 +479,51 @@ prettyDataCon ctor =
                   ]
               )
           )
+    GadtCon _ forallBinders constraints names body ->
+      prettyGadtCon forallBinders constraints names body
+
+-- | Pretty print a GADT constructor in GADT syntax: @Con :: forall a. Ctx => Type@
+prettyGadtCon :: [TyVarBinder] -> [Constraint] -> [Text] -> GadtBody -> Doc ann
+prettyGadtCon forallBinders constraints names body =
+  hsep
+    ( [hsep (punctuate comma (map prettyConstructorName names)), "::"]
+        <> forallPart
+        <> contextPart
+        <> [prettyGadtBody body]
+    )
+  where
+    forallPart
+      | null forallBinders = []
+      | otherwise = ["forall", hsep (map prettyTyVarBinder forallBinders) <> "."]
+    contextPart
+      | null constraints = []
+      | otherwise = [prettyContext constraints, "=>"]
+
+-- | Pretty print the body of a GADT constructor
+prettyGadtBody :: GadtBody -> Doc ann
+prettyGadtBody body =
+  case body of
+    GadtPrefixBody args resultTy ->
+      case args of
+        [] -> prettyType resultTy
+        _ -> hsep (punctuate " ->" (map prettyBangType args ++ [prettyType resultTy]))
+    GadtRecordBody fields resultTy ->
+      braces (prettyRecordFields fields) <+> "->" <+> prettyType resultTy
+
+-- | Pretty print record fields for GADT body
+prettyRecordFields :: [FieldDecl] -> Doc ann
+prettyRecordFields fields =
+  hsep
+    ( punctuate
+        comma
+        [ hsep
+            [ hsep (punctuate comma (map pretty (fieldNames fld))),
+              "::",
+              prettyRecordFieldBangType (fieldType fld)
+            ]
+        | fld <- fields
+        ]
+    )
 
 dataConQualifierPrefix :: [Text] -> [Constraint] -> [Doc ann]
 dataConQualifierPrefix forallVars constraints = forallPrefix forallVars <> contextPrefix constraints

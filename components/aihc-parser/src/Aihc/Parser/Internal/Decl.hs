@@ -476,8 +476,8 @@ dataDeclParser = withSpan $ do
   context <- MP.optional (MP.try (declContextParser <* expectedTok TkReservedDoubleArrow))
   typeName <- constructorIdentifierParser
   typeParams <- MP.many typeParamParser
-  constructors <- MP.optional (expectedTok TkReservedEquals *> dataConDeclParser `MP.sepBy1` expectedTok TkReservedPipe)
-  derivingClauses <- MP.many derivingClauseParser
+  -- Try GADT syntax (where) first, then traditional syntax (=)
+  (constructors, derivingClauses) <- MP.try gadtStyleDataDecl <|> traditionalStyleDataDecl
   pure $ \span' ->
     DeclData
       span'
@@ -486,9 +486,19 @@ dataDeclParser = withSpan $ do
           dataDeclContext = fromMaybe [] context,
           dataDeclName = typeName,
           dataDeclParams = typeParams,
-          dataDeclConstructors = fromMaybe [] constructors,
+          dataDeclConstructors = constructors,
           dataDeclDeriving = derivingClauses
         }
+  where
+    traditionalStyleDataDecl = do
+      constructors <- MP.optional (expectedTok TkReservedEquals *> dataConDeclParser `MP.sepBy1` expectedTok TkReservedPipe)
+      derivingClauses <- MP.many derivingClauseParser
+      pure (fromMaybe [] constructors, derivingClauses)
+
+    gadtStyleDataDecl = do
+      constructors <- gadtWhereClauseParser
+      derivingClauses <- MP.many derivingClauseParser
+      pure (constructors, derivingClauses)
 
 dataConDeclParser :: TokParser DataConDecl
 dataConDeclParser = withSpan $ do
@@ -501,8 +511,8 @@ newtypeDeclParser = withSpan $ do
   context <- MP.optional (MP.try (declContextParser <* expectedTok TkReservedDoubleArrow))
   typeName <- constructorIdentifierParser
   typeParams <- MP.many typeParamParser
-  constructor <- MP.optional (expectedTok TkReservedEquals *> newtypeConDeclParser)
-  derivingClauses <- MP.many derivingClauseParser
+  -- Try GADT syntax (where) first, then traditional syntax (=)
+  (constructor, derivingClauses) <- MP.try gadtStyleNewtypeDecl <|> traditionalStyleNewtypeDecl
   pure $ \span' ->
     DeclNewtype
       span'
@@ -514,11 +524,96 @@ newtypeDeclParser = withSpan $ do
           newtypeDeclConstructor = constructor,
           newtypeDeclDeriving = derivingClauses
         }
+  where
+    traditionalStyleNewtypeDecl = do
+      constructor <- MP.optional (expectedTok TkReservedEquals *> newtypeConDeclParser)
+      derivingClauses <- MP.many derivingClauseParser
+      pure (constructor, derivingClauses)
+
+    gadtStyleNewtypeDecl = do
+      constructors <- gadtWhereClauseParser
+      -- newtype can only have one constructor
+      case constructors of
+        [ctor] -> do
+          derivingClauses <- MP.many derivingClauseParser
+          pure (Just ctor, derivingClauses)
+        _ -> fail "newtype must have exactly one constructor"
 
 newtypeConDeclParser :: TokParser DataConDecl
 newtypeConDeclParser = withSpan $ do
   (forallVars, context) <- dataConQualifiersParser
   MP.try (dataConRecordOrPrefixParser forallVars context) <|> dataConInfixParser forallVars context
+
+-- | Parse GADT-style constructors after 'where'
+gadtWhereClauseParser :: TokParser [DataConDecl]
+gadtWhereClauseParser = whereClauseItemsParser gadtConsBracedParser gadtConsPlainParser
+
+gadtConsPlainParser :: TokParser [DataConDecl]
+gadtConsPlainParser = plainSemiSep1 gadtConDeclParser
+
+gadtConsBracedParser :: TokParser [DataConDecl]
+gadtConsBracedParser = bracedSemiSep gadtConDeclParser
+
+-- | Parse a GADT constructor declaration: @Con1, Con2 :: forall a. Ctx => Type@
+gadtConDeclParser :: TokParser DataConDecl
+gadtConDeclParser = withSpan $ do
+  -- Parse constructor names (can be multiple separated by commas)
+  names <- gadtConNameParser `MP.sepBy1` expectedTok TkSpecialComma
+  expectedTok TkReservedDoubleColon
+  -- Parse optional forall
+  forallBinders <- MP.option [] gadtForallParser
+  -- Parse optional context
+  context <- MP.option [] (MP.try (declContextParser <* expectedTok TkReservedDoubleArrow))
+  -- Parse the body (record or prefix style)
+  body <- gadtBodyParser
+  pure $ \span' -> GadtCon span' forallBinders context names body
+
+-- | Parse constructor name for GADT - can be regular or operator in parens
+gadtConNameParser :: TokParser Text
+gadtConNameParser =
+  constructorIdentifierParser
+    <|> parens constructorOperatorParser
+
+-- | Parse forall in GADT context: @forall a b.@
+gadtForallParser :: TokParser [TyVarBinder]
+gadtForallParser = do
+  varIdTok "forall"
+  binders <- MP.some typeParamParser
+  expectedTok (TkVarSym ".")
+  pure binders
+
+-- | Parse the body of a GADT constructor (after :: and optional forall/context)
+-- Can be either prefix style: @a -> b -> T a@
+-- Or record style: @{ field :: Type } -> T a@
+gadtBodyParser :: TokParser GadtBody
+gadtBodyParser = MP.try gadtRecordBodyParser <|> gadtPrefixBodyParser
+
+-- | Parse record-style GADT body: @{ field :: Type, ... } -> ResultType@
+gadtRecordBodyParser :: TokParser GadtBody
+gadtRecordBodyParser = do
+  fields <- recordFieldsParser
+  expectedTok TkReservedRightArrow
+  GadtRecordBody fields <$> gadtResultTypeParser
+
+-- | Parse prefix-style GADT body: @Type1 -> Type2 -> ... -> ResultType@
+-- The result type is the final type in a chain of arrows
+gadtPrefixBodyParser :: TokParser GadtBody
+gadtPrefixBodyParser = typeToGadtPrefixBody <$> typeParser
+
+-- | Convert a function type into GADT prefix body
+-- Splits @a -> b -> c@ into args @[a, b]@ and result @c@
+typeToGadtPrefixBody :: Type -> GadtBody
+typeToGadtPrefixBody = collectArgs []
+  where
+    collectArgs acc (TFun _ argTy resultTy) =
+      let bangArg = BangType (getSourceSpan argTy) False argTy
+       in collectArgs (acc ++ [bangArg]) resultTy
+    collectArgs acc resultTy = GadtPrefixBody acc resultTy
+
+-- | Parse the result type of a GADT constructor
+-- This is a simple type application like @T a b@
+gadtResultTypeParser :: TokParser Type
+gadtResultTypeParser = typeParser
 
 declContextParser :: TokParser [Constraint]
 declContextParser = contextParserWith typeAtomParser
