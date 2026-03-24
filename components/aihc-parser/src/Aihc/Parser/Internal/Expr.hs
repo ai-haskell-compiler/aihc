@@ -939,17 +939,27 @@ buildInfixType lhs (op, rhs) =
 
 typeInfixOperatorParser :: TokParser Text
 typeInfixOperatorParser =
-  tokenSatisfy "type infix operator" $ \tok ->
-    case lexTokenKind tok of
-      TkVarSym op
-        | op /= "."
-            && op /= "!"
-            && op /= "-" ->
-            Just op
-      TkConSym op -> Just op
-      TkQVarSym op -> Just op
-      TkQConSym op -> Just op
-      _ -> Nothing
+  MP.try backtickTypeOperatorParser
+    <|> tokenSatisfy "type infix operator" tokenToOperator
+  where
+    tokenToOperator tok =
+      case lexTokenKind tok of
+        TkVarSym op
+          | op /= "."
+              && op /= "!"
+              && op /= "-" ->
+              Just op
+        TkConSym op -> Just op
+        TkQVarSym op -> Just op
+        TkQConSym op -> Just op
+        _ -> Nothing
+
+backtickTypeOperatorParser :: TokParser Text
+backtickTypeOperatorParser = do
+  expectedTok TkSpecialBacktick
+  op <- identifierTextParser
+  expectedTok TkSpecialBacktick
+  pure op
 
 typeAppParser :: TokParser Type
 typeAppParser = do
