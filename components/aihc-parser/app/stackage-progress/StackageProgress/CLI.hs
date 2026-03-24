@@ -18,7 +18,6 @@ import StackageProgress.Summary (SummaryOptions (..))
 data Check
   = CheckParse
   | CheckRoundtripGhc
-  | CheckSourceSpan
   | CheckHse
   | CheckGhc
   deriving (Eq, Show)
@@ -151,7 +150,6 @@ parseCheck raw =
   case trim raw of
     "parse" -> Right CheckParse
     "roundtrip-ghc" -> Right CheckRoundtripGhc
-    "source-span" -> Right CheckSourceSpan
     other -> Left ("Unknown check: " ++ other)
 
 splitComma :: String -> [String]
