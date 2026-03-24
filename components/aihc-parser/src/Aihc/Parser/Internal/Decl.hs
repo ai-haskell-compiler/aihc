@@ -787,12 +787,20 @@ constructorNameParser = constructorIdentifierParser
 
 constructorOperatorParser :: TokParser Text
 constructorOperatorParser =
-  tokenSatisfy "constructor operator" $ \tok ->
-    case lexTokenKind tok of
-      TkConSym op -> Just op
-      TkQConSym op -> Just op
-      TkReservedColon -> Just ":"
-      _ -> Nothing
+  symbolicConstructorOperatorParser <|> backtickConstructorIdentifierParser
+  where
+    symbolicConstructorOperatorParser =
+      tokenSatisfy "constructor operator" $ \tok ->
+        case lexTokenKind tok of
+          TkConSym op -> Just op
+          TkQConSym op -> Just op
+          TkReservedColon -> Just ":"
+          _ -> Nothing
+    backtickConstructorIdentifierParser = do
+      expectedTok TkSpecialBacktick
+      op <- constructorIdentifierParser
+      expectedTok TkSpecialBacktick
+      pure op
 
 unsupportedDeclParser :: String -> TokParser Decl
 unsupportedDeclParser = fail
