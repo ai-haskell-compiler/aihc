@@ -94,7 +94,7 @@ ffi-s8-multiple-foreign-decls	ffi	ffi/s8-multiple-foreign-decls.hs	pass	parser n
 decls-type-signature	declarations	declarations/type-signature.hs	pass	parser now supports top-level type signatures
 decls-type-signature-context-multiline	declarations	declarations/type-signature-context-multiline.hs	pass	parser supports multiline parenthesized contexts in type signatures
 decls-multiple-equations	declarations	declarations/multiple-equations.hs	pass	parser now supports multiple equations
-decls-pattern-binding	declarations	declarations/pattern-binding.hs	xfail	parser intentionally disabled
+decls-pattern-binding	declarations	declarations/pattern-binding.hs	pass	parser now supports pattern binding declarations
 decls-data	declarations	declarations/data.hs	pass
 decls-data-context	declarations	declarations/data-context.hs	pass
 decls-data-prefix-positional	declarations	declarations/data-prefix-positional.hs	pass

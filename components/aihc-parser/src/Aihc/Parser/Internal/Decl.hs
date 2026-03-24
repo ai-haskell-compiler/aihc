@@ -186,6 +186,10 @@ declParser = do
       case ident of
         "pattern" -> unsupportedDeclParser "pattern synonym declarations are not implemented yet"
         _ -> MP.try typeSigDeclParser <|> valueDeclParser
+    TkSpecialLParen -> MP.try typeSigDeclParser <|> MP.try patternBindDeclParser <|> valueDeclParser
+    TkSpecialLBracket -> patternBindDeclParser
+    TkPrefixTilde -> patternBindDeclParser
+    TkKeywordUnderscore -> patternBindDeclParser
     _ -> MP.try typeSigDeclParser <|> valueDeclParser
 
 standaloneKindSigDeclParser :: TokParser Decl
@@ -798,6 +802,14 @@ constructorOperatorParser =
 
 unsupportedDeclParser :: String -> TokParser Decl
 unsupportedDeclParser = fail
+
+-- | Parse a pattern binding declaration like @(x, y) = (1, 2)@.
+-- This handles bindings where the LHS is a pattern rather than a function name.
+patternBindDeclParser :: TokParser Decl
+patternBindDeclParser = withSpan $ do
+  pat <- patternParser
+  rhs <- equationRhsParser
+  pure (\span' -> DeclValue span' (PatternBind span' pat rhs))
 
 valueDeclParser :: TokParser Decl
 valueDeclParser = withSpan $ MP.try infixValueDeclParser <|> prefixValueDeclParser
