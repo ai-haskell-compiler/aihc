@@ -102,10 +102,14 @@
               isJson = pkgs.lib.hasSuffix ".json" baseName;
               isInc = pkgs.lib.hasSuffix ".inc" baseName;
               isLicense = baseName == "LICENSE";
-              isProject = pathStr == toString ./cabal.project;
+              isProject = baseName == "cabal.project";
+              isWasmProject = baseName == "cabal.project.wasm";
+              isWasmFreeze = baseName == "cabal.project.wasm.freeze";
             in
               isDir
               || isProject
+              || isWasmProject
+              || isWasmFreeze
               || (inComponents && (isHaskell || isCabal || isYaml || isTsv || isJson || isInc || isLicense));
         };
 
@@ -331,6 +335,22 @@ WRAPPER
         parser-wasm-wasi =
           let
             wasmTools = ghc-wasm-meta.packages.${pkgs.stdenv.hostPlatform.system}.all_9_10;
+            wasmParserTarballs = [
+              (pkgs.fetchurl { url = "https://hackage.haskell.org/package/colour-2.3.7/colour-2.3.7.tar.gz"; sha256 = "104nprq14qajna16q7qsybyjvfdrgazwj340c8rlxgjscxai0fqz"; })
+              (pkgs.fetchurl { url = "https://hackage.haskell.org/package/hashable-1.5.1.0/hashable-1.5.1.0.tar.gz"; sha256 = "04mig5gzgjbwaq9zycrnzy3b97fkqqwdrni0akjgzjcjrq87q2zd"; })
+              (pkgs.fetchurl { url = "https://hackage.haskell.org/package/integer-logarithms-1.0.5/integer-logarithms-1.0.5.tar.gz"; sha256 = "0nclcr82rypaj7453iil6xj9asjfrljy37qki731xzkqyzqzdpv6"; })
+              (pkgs.fetchurl { url = "https://hackage.haskell.org/package/primitive-0.9.1.0/primitive-0.9.1.0.tar.gz"; sha256 = "0xixplp2b5sh2sx6hqllhr8bcsd028v7ry2pibdwayrwh50xxd24"; })
+              (pkgs.fetchurl { url = "https://hackage.haskell.org/package/parser-combinators-1.3.1/parser-combinators-1.3.1.tar.gz"; sha256 = "1gs0yz7qw5j4w06pfpaiaingr6873znkkrs2m4izrw4xiz1nql4w"; })
+              (pkgs.fetchurl { url = "https://hackage.haskell.org/package/prettyprinter-1.7.1/prettyprinter-1.7.1.tar.gz"; sha256 = "0i8b3wjjpdvp5b857j065jwyrpgcnzgk75imrj7i3yhl668acvjy"; })
+              (pkgs.fetchurl { url = "https://hackage.haskell.org/package/ansi-terminal-types-1.1.3/ansi-terminal-types-1.1.3.tar.gz"; sha256 = "12d625xa33qwwzpw75zpw05mk2a5qvqwj8jdkbcrp27iawhwxjcz"; })
+              (pkgs.fetchurl { url = "https://hackage.haskell.org/package/case-insensitive-1.2.1.0/case-insensitive-1.2.1.0.tar.gz"; sha256 = "01p40hfjyldfds5jg6vlvvn3ihs4ki63xn6fh8yzngaz1izc2v99"; })
+              (pkgs.fetchurl { url = "https://hackage.haskell.org/package/scientific-0.3.8.1/scientific-0.3.8.1.tar.gz"; sha256 = "1znwribsk6rdyv91dbjdbfcfkl6yg2nw7f9fwqv7kz4x2jz82dxd"; })
+              (pkgs.fetchurl { url = "https://hackage.haskell.org/package/ansi-terminal-1.1.5/ansi-terminal-1.1.5.tar.gz"; sha256 = "0wrhwaicx3vz06r350n3n2s1x4zs5flchcpi4nj8ifp2yb787w4w"; })
+              (pkgs.fetchurl { url = "https://hackage.haskell.org/package/megaparsec-9.7.0/megaparsec-9.7.0.tar.gz"; sha256 = "15zc66lplq5382wayigcw9kql08nvp9403a8f9xaw85z4lv45vdr"; })
+              (pkgs.fetchurl { url = "https://hackage.haskell.org/package/prettyprinter-ansi-terminal-1.1.3/prettyprinter-ansi-terminal-1.1.3.tar.gz"; sha256 = "1cqxbcmy9ykk4pssq5hp6h51g2h547zfz549awh0c1fni8q3jdw1"; })
+              (pkgs.fetchurl { url = "https://hackage.haskell.org/package/optparse-applicative-0.19.0.0/optparse-applicative-0.19.0.0.tar.gz"; sha256 = "0waq6i6jk0zj9vb00m62khfcm9xdnz3afzs471vhqwr1v3psw5ng"; })
+            ];
+            wasmParserDepLines = pkgs.lib.concatMapStringsSep "\n" (dep: "  ${dep}") wasmParserTarballs;
           in pkgs.stdenvNoCC.mkDerivation {
             pname = "aihc-parser-wasm-wasi";
             version = "0.1.0.0";
@@ -343,22 +363,77 @@ WRAPPER
               runHook preBuild
               export HOME="$TMPDIR/home"
               mkdir -p "$HOME"
-              cp -r "$src" source
-              chmod -R u+w source
-              cd source
+              chmod -R u+w .
 
-              printf '%s\n' \
-                'packages:' \
-                '  ./components/aihc-cpp' \
-                '  ./components/aihc-parser' \
-                "" \
-                'tests: False' > cabal.project.wasm
+              mkdir -p .wasm-build/pkg
+              cat > .wasm-build/pkg/aihc-parser-wasm.cabal <<'EOF'
+cabal-version: 3.8
+name: aihc-parser-wasm
+version: 0.1.0.0
+build-type: Simple
 
-              wasm32-wasi-cabal update
+library
+  hs-source-dirs: ../../components/aihc-parser/src
+  exposed-modules:
+      Aihc.Parser
+    , Aihc.Parser.Ast
+    , Aihc.Lexer
+    , Aihc.Parser.Shorthand
+    , Aihc.Parser.Internal.FromTokens
+  other-modules:
+      Aihc.Parser.Pretty
+    , Aihc.Parser.Types
+    , Aihc.Parser.Internal.Common
+    , Aihc.Parser.Internal.Expr
+    , Aihc.Parser.Internal.Decl
+    , Aihc.Parser.Internal.Module
+  build-depends:
+      base >=4.16 && <5
+    , text >=1.2
+    , containers
+    , deepseq
+    , megaparsec
+    , prettyprinter
+  ghc-options: -Wall -Werror
+  default-language: Haskell2010
+
+executable aihc-lexer
+  hs-source-dirs: ../../components/aihc-parser/app/aihc-lexer
+  main-is: Main.hs
+  build-depends:
+      base >=4.16 && <5
+    , aihc-parser-wasm
+    , text
+    , optparse-applicative
+  ghc-options: -Wall -Werror
+  default-language: Haskell2010
+
+executable aihc-parser
+  hs-source-dirs: ../../components/aihc-parser/app/aihc-parser
+  main-is: Main.hs
+  build-depends:
+      base >=4.16 && <5
+    , aihc-parser-wasm
+    , text
+    , optparse-applicative
+  ghc-options: -Wall -Werror
+  default-language: Haskell2010
+EOF
+
+              cat > .wasm-build/cabal.project <<EOF
+packages:
+  ./pkg
+${wasmParserDepLines}
+
+tests: False
+EOF
+
+              cd .wasm-build
               wasm32-wasi-cabal build \
-                aihc-parser:exe:aihc-parser \
-                aihc-parser:exe:aihc-lexer \
-                --project-file=cabal.project.wasm
+                --offline \
+                aihc-parser-wasm:exe:aihc-parser \
+                aihc-parser-wasm:exe:aihc-lexer \
+                --project-file=cabal.project
               runHook postBuild
             '';
             installPhase = ''
