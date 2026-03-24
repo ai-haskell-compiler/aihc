@@ -380,6 +380,8 @@ prettyPatternAtomAfterAt :: Pattern -> Doc ann
 prettyPatternAtomAfterAt pat =
   case pat of
     PNegLit {} -> parens (prettyPattern pat)
+    PStrict {} -> parens (prettyPattern pat)
+    PIrrefutable {} -> parens (prettyPattern pat)
     _ -> prettyPatternAtom pat
 
 prettyUnaryPattern :: Pattern -> Doc ann
@@ -719,15 +721,18 @@ prettyConstructorName name
 -- EWhereDecls needs parentheses because "where" binds looser than infix operators.
 -- ENegate needs parentheses because negate can only appear at the start of
 -- an infix expression, not as the RHS of an operator.
--- Other greedy expressions (do, case, \case, if, lambda, let) are safe as RHS
--- because the parser correctly identifies them and they don't capture following operators.
-prettyExprInfixRhs :: Expr -> Doc ann
-prettyExprInfixRhs expr =
+-- Open-ended expressions (if, lambda, let, and infix expressions with open-ended
+-- RHS) need parentheses when this infix node can be followed by another operator;
+-- otherwise they can capture that trailing operator into their bodies.
+-- Brace-terminated expressions (do, case, \case) are safe on the RHS.
+prettyExprInfixRhs :: Bool -> Expr -> Doc ann
+prettyExprInfixRhs protectOpenEnded expr =
   case expr of
     EInfix {} -> parens (prettyExprPrec 0 expr)
     ETypeSig {} -> parens (prettyExprPrec 0 expr)
     ENegate {} -> parens (prettyExprPrec 0 expr)
     EWhereDecls {} -> parens (prettyExprPrec 0 expr)
+    _ | protectOpenEnded && isOpenEnded expr -> parens (prettyExprPrec 0 expr)
     -- Other greedy expressions are safe at prec 0 as RHS of infix
     _ | isGreedyExpr expr -> prettyExprPrec 0 expr
     _ -> prettyExprPrec 1 expr
@@ -846,7 +851,10 @@ prettyExprPrec prec expr =
       parenthesize
         (prec > 0)
         ("\\" <> "case" <+> "{" <+> hsep (punctuate semi (map prettyCaseAlt alts)) <+> "}")
-    EInfix _ lhs op rhs -> parenthesize (prec > 1) (prettyExprInfixLhs lhs <+> prettyInfixOp op <+> prettyExprInfixRhs rhs)
+    EInfix _ lhs op rhs ->
+      parenthesize
+        (prec > 1)
+        (prettyExprInfixLhs lhs <+> prettyInfixOp op <+> prettyExprInfixRhs (prec == 1) rhs)
     ENegate _ inner -> parenthesize (prec > 2) (prettyNegate inner)
     ESectionL _ lhs op -> parens (prettyExprPrec 3 lhs <+> prettyInfixOp op)
     ESectionR _ op rhs -> parens (prettyInfixOp op <+> prettyExprPrec 0 rhs)
