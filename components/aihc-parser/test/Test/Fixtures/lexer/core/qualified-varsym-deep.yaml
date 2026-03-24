@@ -1,0 +1,5 @@
+extensions: []
+input: "A.B.C.++"
+tokens:
+  - 'TkQVarSym "A.B.C.++"'
+status: pass

@@ -1,0 +1,5 @@
+extensions: []
+input: "Data.List.:++"
+tokens:
+  - 'TkQConSym "Data.List.:++"'
+status: pass

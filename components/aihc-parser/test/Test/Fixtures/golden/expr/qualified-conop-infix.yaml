@@ -1,0 +1,5 @@
+extensions: []
+input: |
+  x Data.List.:++ y
+ast: EInfix (EVar "x") "Data.List.:++" (EVar "y")
+status: pass

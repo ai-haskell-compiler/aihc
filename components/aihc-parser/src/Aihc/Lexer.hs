@@ -772,20 +772,40 @@ lexIdentifier st =
       | isIdentStart c ->
           let (seg, rest0) = span isIdentTail rest
               firstChunk = c : seg
-              (consumed, isQualified) = gatherQualified firstChunk rest0
-              ident = T.pack consumed
-              kind = classifyIdentifier c isQualified ident
-              st' = advanceChars consumed st
-           in Just (mkToken st st' ident kind, st')
+              (consumed, rest1, isQualified) = gatherQualified firstChunk rest0
+           in -- Check if we have a qualified operator (e.g., Prelude.+)
+              case (isQualified || isAsciiUpper c, rest1) of
+                (True, '.' : opChar : opRest)
+                  | isSymbolicOpCharNotDot opChar ->
+                      -- This is a qualified operator like Prelude.+ or A.B.C.:++
+                      let (opChars, _) = span isSymbolicOpChar (opChar : opRest)
+                          fullOp = consumed <> "." <> opChars
+                          opTxt = T.pack fullOp
+                          kind =
+                            if opChar == ':'
+                              then TkQConSym opTxt
+                              else TkQVarSym opTxt
+                          st' = advanceChars fullOp st
+                       in Just (mkToken st st' opTxt kind, st')
+                _ ->
+                  -- Regular identifier
+                  let ident = T.pack consumed
+                      kind = classifyIdentifier c isQualified ident
+                      st' = advanceChars consumed st
+                   in Just (mkToken st st' ident kind, st')
     _ -> Nothing
   where
+    -- Returns (consumed, remaining, isQualified)
     gatherQualified acc chars =
       case chars of
         '.' : c' : more
           | isIdentStart c' ->
               let (seg, rest) = span isIdentTail more
                in gatherQualified (acc <> "." <> [c'] <> seg) rest
-        _ -> (acc, '.' `elem` acc)
+        _ -> (acc, chars, '.' `elem` acc)
+
+    -- Check for symbol char that is not '.' to avoid consuming module path dots
+    isSymbolicOpCharNotDot c = isSymbolicOpChar c && c /= '.'
 
     classifyIdentifier firstChar isQualified ident
       | isQualified =
