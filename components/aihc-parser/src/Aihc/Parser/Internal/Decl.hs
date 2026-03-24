@@ -771,14 +771,10 @@ recordFieldBangTypeParser = withSpan $ do
         bangType = ty
       }
 
+-- | Parse a type in a constructor field position.
+-- This supports function types (Int -> Int) and type applications (Maybe Int).
 constructorFieldTypeParser :: TokParser Type
-constructorFieldTypeParser = do
-  first <- typeAtomParser
-  rest <- MP.many typeAtomParser
-  pure (foldl appendTypeArg first rest)
-  where
-    appendTypeArg lhs rhs =
-      TApp (mergeSourceSpans (getSourceSpan lhs) (getSourceSpan rhs)) lhs rhs
+constructorFieldTypeParser = typeParser
 
 constructorNameParser :: TokParser Text
 constructorNameParser = constructorIdentifierParser

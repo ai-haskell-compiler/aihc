@@ -299,10 +299,10 @@ modules-import-operator	modules	modules/import-operator.hs	pass	parser now suppo
 vinyl-loeb-rloeb-section	corpus	corpus/vinyl-loeb-rloeb-section.hs	pass	from vinyl-loeb; parser now supports parenthesized right sections like (($ go) ...)
 
 decls-instance-tuple-type-constructor	declarations	declarations/instance-tuple-type-constructor.hs	xfail	parser does not support tuple type constructors like ((,,) w s) in instance heads
-decls-data-record-function-type	declarations	declarations/data-record-function-type.hs	xfail	parser does not support function types in record field declarations
-decls-data-record-function-type-simple	declarations	declarations/data-record-function-type-simple.hs	xfail	parser does not support function types in record field declarations (minimal repro)
+decls-data-record-function-type	declarations	declarations/data-record-function-type.hs	pass	parser now supports function types in record field declarations
+decls-data-record-function-type-simple	declarations	declarations/data-record-function-type-simple.hs	pass	parser now supports function types in record field declarations (minimal repro)
 decls-operator-funlhs-infix-application	declarations	declarations/operator-funlhs-infix-application.hs	xfail	parser does not support infix operator application in function LHS like (g . h) x = ...
 decls-instance-method-guards	declarations	declarations/instance-method-guards.hs	pass	parser now supports guards in instance method definitions
-types-newtype-record-function-type	types	types/newtype-record-function-type.hs	xfail	parser does not support function types in newtype record field declarations
+types-newtype-record-function-type	types	types/newtype-record-function-type.hs	pass	parser now supports function types in newtype record field declarations
 types-tuple-type-constructor-prefix	types	types/tuple-type-constructor-prefix.hs	xfail	parser does not support prefix tuple type constructor syntax like (,) a b
 decls-data-infix-backtick	declarations	declarations/infix-con.hs	pass	parser now supports backtick infix data constructors
