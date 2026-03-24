@@ -1,0 +1,7 @@
+thq_quote_e	expressions	thq_quote_e.hs	xfail	TemplateHaskellQuotes [|e|] syntax
+thq_quote_d	declarations	thq_quote_d.hs	xfail	TemplateHaskellQuotes [d|t|] syntax
+thq_quote_t	types	thq_quote_t.hs	xfail	TemplateHaskellQuotes [t|t|] syntax
+thq_quote_p	patterns	thq_quote_p.hs	xfail	TemplateHaskellQuotes [p|t|] syntax
+thq_typed_quote	expressions	thq_typed_quote.hs	xfail	TemplateHaskellQuotes [||e||] syntax
+thq_name_quote	expressions	thq_name_quote.hs	xfail	TemplateHaskellQuotes 'f syntax
+thq_type_quote	types	thq_type_quote.hs	xfail	TemplateHaskellQuotes ''T syntax
