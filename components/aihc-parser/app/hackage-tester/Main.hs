@@ -34,7 +34,7 @@ import Network.HTTP.Client (HttpException, Manager, Request (responseTimeout), h
 import Network.HTTP.Client.TLS (tlsManagerSettings)
 import ParserValidation (ValidationError (..), ValidationErrorKind (..), validateParserDetailedWithExtensionNames)
 import System.Exit (exitFailure, exitSuccess)
-import System.IO (hFlush, hIsTerminalDevice, hPutStrLn, stderr, stdout)
+import System.IO (hPutStrLn, stderr)
 
 data RunInfo = RunInfo
   { runPackageName :: String,
@@ -116,22 +116,8 @@ fetchCabalFile manager request = do
   pure (responseBody response)
 
 processFiles :: Options -> Int -> FilePath -> [FileInfo] -> IO [FileResult]
-processFiles opts jobs packageRoot files = do
-  showProgress <- hIsTerminalDevice stdout
-  let total = length files
-      worker info = do
-        result <- processFile opts packageRoot info
-        when showProgress (printProgress total)
-        pure result
-
-  results <- mapConcurrentlyBounded jobs worker files
-  when showProgress (putStrLn "")
-  pure results
-
-printProgress :: Int -> IO ()
-printProgress total = do
-  putStr ("\rProcessing " ++ show total ++ " files...")
-  hFlush stdout
+processFiles opts jobs packageRoot =
+  mapConcurrentlyBounded jobs (processFile opts packageRoot)
 
 processFile :: Options -> FilePath -> FileInfo -> IO FileResult
 processFile opts packageRoot info = do
