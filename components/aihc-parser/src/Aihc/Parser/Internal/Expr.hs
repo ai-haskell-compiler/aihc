@@ -7,6 +7,7 @@ module Aihc.Parser.Internal.Expr
     appPatternParser,
     patternParser,
     typeParser,
+    typeAppParser,
     typeAtomParser,
   )
 where

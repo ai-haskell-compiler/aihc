@@ -11,7 +11,7 @@ where
 import Aihc.Lexer (LexTokenKind (..), lexTokenKind)
 import Aihc.Parser.Ast
 import Aihc.Parser.Internal.Common
-import Aihc.Parser.Internal.Expr (equationRhsParser, exprParser, patternParser, simplePatternParser, typeAtomParser, typeParser)
+import Aihc.Parser.Internal.Expr (equationRhsParser, exprParser, patternParser, simplePatternParser, typeAppParser, typeAtomParser, typeParser)
 import Control.Monad (when)
 import Data.Char (isAsciiLower, isUpper)
 import Data.Maybe (fromMaybe)
@@ -595,20 +595,41 @@ gadtRecordBodyParser = do
   expectedTok TkReservedRightArrow
   GadtRecordBody fields <$> gadtResultTypeParser
 
--- | Parse prefix-style GADT body: @Type1 -> Type2 -> ... -> ResultType@
--- The result type is the final type in a chain of arrows
+-- | Parse prefix-style GADT body: @!Type1 -> Type2 -> ... -> ResultType@
+-- Each argument can have an optional strictness annotation (!).
+-- The result type is the final type in a chain of arrows.
 gadtPrefixBodyParser :: TokParser GadtBody
-gadtPrefixBodyParser = typeToGadtPrefixBody <$> typeParser
+gadtPrefixBodyParser = do
+  -- Parse the first component (could be an argument with bang or the result type)
+  firstBang <- gadtBangTypeParser
+  -- Try to parse more arguments after ->
+  moreArgs <- MP.many $ do
+    expectedTok TkReservedRightArrow
+    gadtBangTypeParser
+  -- The last component is the result type, everything before it are arguments
+  case moreArgs of
+    [] ->
+      -- No arrows - this is just a result type
+      pure (GadtPrefixBody [] (bangType firstBang))
+    _ ->
+      -- Multiple components - last is result, rest are args
+      let allBangs = firstBang : moreArgs
+          args = init allBangs
+          result = last allBangs
+       in pure (GadtPrefixBody args (bangType result))
 
--- | Convert a function type into GADT prefix body
--- Splits @a -> b -> c@ into args @[a, b]@ and result @c@
-typeToGadtPrefixBody :: Type -> GadtBody
-typeToGadtPrefixBody = collectArgs []
-  where
-    collectArgs acc (TFun _ argTy resultTy) =
-      let bangArg = BangType (getSourceSpan argTy) False argTy
-       in collectArgs (acc ++ [bangArg]) resultTy
-    collectArgs acc resultTy = GadtPrefixBody acc resultTy
+-- | Parse a potentially strict type for GADT prefix body: @!Type@ or @Type@
+-- This handles strictness annotations on both simple and complex (parenthesized) types.
+gadtBangTypeParser :: TokParser BangType
+gadtBangTypeParser = withSpan $ do
+  strict <- MP.option False (expectedTok TkPrefixBang >> pure True)
+  ty <- typeAppParser
+  pure $ \span' ->
+    BangType
+      { bangSpan = span',
+        bangStrict = strict,
+        bangType = ty
+      }
 
 -- | Parse the result type of a GADT constructor
 -- This is a simple type application like @T a b@
