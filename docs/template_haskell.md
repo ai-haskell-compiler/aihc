@@ -34,7 +34,7 @@ Identifiers and types can be quoted to extract their `Name` representations.
 - **Value/Function Names**: `'name` (single quote prefix). Used for things in expression contexts (like variables or data constructors). Example: `'map`, `'True`.
 - **Type/Class Names**: `''Name` (double quote prefix). Used for things in type contexts (like type constructors or classes). Example: `''Int`, `''Eq`.
 
-Because ` ' ` is overloaded, a space may be required when quoting a name that starts with a character or if the quoted name could be confused with a character literal. E.g., `' f'7` (name ends with `'7`).
+Because ` ' ` is overloaded, a space may be required when the quote would otherwise be parsed as a character literal or cause a token collision. For example, `'f'7` (name ends with `'7`) does not require a space, but a space would be needed after the quote if it would otherwise form a character literal.
 
 ### 6. Quasi-Quotations
 `QuasiQuotes` is a related extension but often discussed with TH. It introduces custom parsers, typically written as `[quoter| ... |]`. This syntax is structurally similar to quotations, and the parser generally just needs to identify the `quoter` and scoop the raw string until `|]`. (Note: Not strictly TH, but shares its syntax style.)
