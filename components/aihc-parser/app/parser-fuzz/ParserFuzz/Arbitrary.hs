@@ -243,8 +243,8 @@ shrinkMaybeWarningText mWarning =
 shrinkWarningText :: HSE.WarningText () -> [HSE.WarningText ()]
 shrinkWarningText warning =
   case warning of
-    HSE.DeprText () msg -> HSE.DeprText () <$> shrink msg
-    HSE.WarnText () msg -> HSE.WarnText () <$> shrink msg
+    HSE.DeprText () msg -> HSE.DeprText () . show <$> shrink (read msg :: String)
+    HSE.WarnText () msg -> HSE.WarnText () . show <$> shrink (read msg :: String)
 
 shrinkExportSpec :: HSE.ExportSpec () -> [HSE.ExportSpec ()]
 shrinkExportSpec spec =

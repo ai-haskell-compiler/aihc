@@ -18,13 +18,14 @@ prop_exprPrettyRoundTrip :: Expr -> Property
 prop_exprPrettyRoundTrip expr =
   let source = renderStrict (layoutPretty defaultLayoutOptions (pretty expr))
       expected = normalizeExpr expr
-   in counterexample (T.unpack source) $
-        case parseExpr defaultConfig source of
-          ParseErr err ->
-            counterexample (errorBundlePretty err) False
-          ParseOk parsed ->
-            let actual = normalizeExpr parsed
-             in counterexample ("expected: " <> show expected <> "\nactual: " <> show actual) (expected == actual)
+   in withMaxSuccess 1000 $
+        counterexample (T.unpack source) $
+          case parseExpr defaultConfig source of
+            ParseErr err ->
+              counterexample (errorBundlePretty err) False
+            ParseOk parsed ->
+              let actual = normalizeExpr parsed
+               in counterexample ("expected: " <> show expected <> "\nactual: " <> show actual) (expected == actual)
 
 instance Arbitrary Expr where
   arbitrary = resize 5 genExpr
