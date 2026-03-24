@@ -105,8 +105,15 @@
                      export AIHC_LEXER_EXE="$PWD/dist/build/aihc-lexer/aihc-lexer"
                      export AIHC_PARSER_EXE="$PWD/dist/build/aihc-parser/aihc-parser"
                    '';
+                   # Hide passing tests so failures are visible in Nix's truncated output
+                   testFlags = (old.testFlags or []) ++ ["--hide-successes"];
                  });
-               aihc-cpp = final.callCabal2nix "aihc-cpp" (cppSrc pkgs) { };
+               aihc-cpp = pkgs.haskell.lib.overrideCabal
+                 (final.callCabal2nix "aihc-cpp" (cppSrc pkgs) { })
+                 (old: {
+                   # Hide passing tests so failures are visible in Nix's truncated output
+                   testFlags = (old.testFlags or []) ++ ["--hide-successes"];
+                 });
              };
            };
         # Haskell packages with Haddock enabled for documentation generation
@@ -152,6 +159,8 @@
             # Enable coverage and export HPC artifacts
             enableCoverageWithExport = drv: pkgs.haskell.lib.overrideCabal drv (old: {
               configureFlags = (old.configureFlags or []) ++ ["--enable-coverage"];
+              # Hide passing tests so failures are visible in Nix's truncated output
+              testFlags = (old.testFlags or []) ++ ["--hide-successes"];
               postInstall = (old.postInstall or "") + ''
                 # Export HPC coverage data
                 if [ -d dist/hpc ]; then
@@ -163,6 +172,8 @@
             # Set up CLI executable environment for tests (same as mkHsPkgsWithTests) + export HPC
             enableCoverageWithTests = drv: pkgs.haskell.lib.overrideCabal drv (old: {
               configureFlags = (old.configureFlags or []) ++ ["--enable-coverage"];
+              # Hide passing tests so failures are visible in Nix's truncated output
+              testFlags = (old.testFlags or []) ++ ["--hide-successes"];
               preCheck = (old.preCheck or "") + ''
                 export AIHC_LEXER_EXE="$PWD/dist/build/aihc-lexer/aihc-lexer"
                 export AIHC_PARSER_EXE="$PWD/dist/build/aihc-parser/aihc-parser"
