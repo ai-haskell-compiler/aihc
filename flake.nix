@@ -366,59 +366,37 @@ WRAPPER
               chmod -R u+w .
 
               mkdir -p .wasm-build/pkg
-              cat > .wasm-build/pkg/aihc-parser-wasm.cabal <<'EOF'
-cabal-version: 3.8
-name: aihc-parser-wasm
-version: 0.1.0.0
-build-type: Simple
-
-library
-  hs-source-dirs: ../../components/aihc-parser/src
-  exposed-modules:
-      Aihc.Parser
-    , Aihc.Parser.Ast
-    , Aihc.Lexer
-    , Aihc.Parser.Shorthand
-    , Aihc.Parser.Internal.FromTokens
-  other-modules:
-      Aihc.Parser.Pretty
-    , Aihc.Parser.Types
-    , Aihc.Parser.Internal.Common
-    , Aihc.Parser.Internal.Expr
-    , Aihc.Parser.Internal.Decl
-    , Aihc.Parser.Internal.Module
-  build-depends:
-      base >=4.16 && <5
-    , text >=1.2
-    , containers
-    , deepseq
-    , megaparsec
-    , prettyprinter
-  ghc-options: -Wall -Werror
-  default-language: Haskell2010
-
-executable aihc-lexer
-  hs-source-dirs: ../../components/aihc-parser/app/aihc-lexer
-  main-is: Main.hs
-  build-depends:
-      base >=4.16 && <5
-    , aihc-parser-wasm
-    , text
-    , optparse-applicative
-  ghc-options: -Wall -Werror
-  default-language: Haskell2010
-
-executable aihc-parser
-  hs-source-dirs: ../../components/aihc-parser/app/aihc-parser
-  main-is: Main.hs
-  build-depends:
-      base >=4.16 && <5
-    , aihc-parser-wasm
-    , text
-    , optparse-applicative
-  ghc-options: -Wall -Werror
-  default-language: Haskell2010
-EOF
+              # Generate a WASM-focused cabal package from the canonical
+              # aihc-parser.cabal so dependency declarations stay single-source.
+              {
+                echo "cabal-version: 3.8"
+                echo "name: aihc-parser-wasm"
+                echo "version: 0.1.0.0"
+                echo "build-type: Simple"
+                echo
+                awk '
+                  /^library$/ { emit=1 }
+                  /^test-suite spec$/ { emit=0 }
+                  emit { print }
+                ' components/aihc-parser/aihc-parser.cabal \
+                  | sed 's#hs-source-dirs:[[:space:]]*src#hs-source-dirs:   ../../components/aihc-parser/src#'
+                echo
+                awk '
+                  /^executable aihc-lexer$/ { emit=1 }
+                  /^executable aihc-parser$/ { emit=0 }
+                  emit { print }
+                ' components/aihc-parser/aihc-parser.cabal \
+                  | sed 's#hs-source-dirs:[[:space:]]*app/aihc-lexer#hs-source-dirs:     ../../components/aihc-parser/app/aihc-lexer#' \
+                  | sed 's/, aihc-parser/, aihc-parser-wasm/'
+                echo
+                awk '
+                  /^executable aihc-parser$/ { emit=1 }
+                  /^test-suite parser-quickcheck-tests$/ { emit=0 }
+                  emit { print }
+                ' components/aihc-parser/aihc-parser.cabal \
+                  | sed 's#hs-source-dirs:[[:space:]]*app/aihc-parser#hs-source-dirs:     ../../components/aihc-parser/app/aihc-parser#' \
+                  | sed 's/, aihc-parser/, aihc-parser-wasm/'
+              } > .wasm-build/pkg/aihc-parser-wasm.cabal
 
               cat > .wasm-build/cabal.project <<EOF
 packages:
