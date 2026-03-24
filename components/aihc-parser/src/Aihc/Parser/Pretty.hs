@@ -336,7 +336,7 @@ prettyPattern pat =
     PCon _ con args -> hsep (pretty con : map prettyPatternAtom args)
     PInfix _ lhs op rhs -> prettyPatternAtom lhs <+> prettyInfixOp op <+> prettyPatternAtom rhs
     PView _ viewExpr inner -> parens (prettyExprPrec 0 viewExpr <+> "->" <+> prettyPattern inner)
-    PAs _ name inner -> pretty name <+> "@" <+> prettyPatternAtom inner
+    PAs _ name inner -> pretty name <> "@" <> prettyPatternAtomAfterAt inner
     PStrict _ inner -> "!" <> prettyUnaryPattern inner
     PIrrefutable _ inner -> "~" <> prettyUnaryPattern inner
     PNegLit _ lit -> "-" <> prettyLiteral lit
@@ -374,6 +374,13 @@ prettyPatternAtom pat =
     PStrict _ _ -> prettyPattern pat
     PView {} -> prettyPattern pat
     _ -> parens (prettyPattern pat)
+
+-- | Pretty print a pattern atom after @. Negative literals need parens since a@-1 is ambiguous.
+prettyPatternAtomAfterAt :: Pattern -> Doc ann
+prettyPatternAtomAfterAt pat =
+  case pat of
+    PNegLit {} -> parens (prettyPattern pat)
+    _ -> prettyPatternAtom pat
 
 prettyUnaryPattern :: Pattern -> Doc ann
 prettyUnaryPattern pat =

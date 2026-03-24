@@ -378,7 +378,7 @@ normalizePattern pat =
     PCon _ con args -> PCon span0 con (map normalizePattern args)
     PInfix _ lhs op rhs -> PInfix span0 (normalizePattern lhs) op (normalizePattern rhs)
     PView _ expr inner -> PView span0 (normalizeViewExpr expr) (normalizePattern inner)
-    PAs _ name inner -> PAs span0 name (normalizePattern inner)
+    PAs _ name inner -> PAs span0 name (normalizeAsInner inner)
     PStrict _ inner -> PStrict span0 (normalizeUnaryInner inner)
     PIrrefutable _ inner -> PIrrefutable span0 (normalizeUnaryInner inner)
     PNegLit _ lit -> PNegLit span0 (normalizeLiteral lit)
@@ -408,4 +408,13 @@ normalizeUnaryInner pat =
     PParen _ inner@(PNegLit {}) -> inner
     PParen _ inner@(PStrict {}) -> inner
     PParen _ inner@(PIrrefutable {}) -> inner
+    other -> other
+
+-- | Normalize the inner pattern of an as-pattern.
+-- The pretty-printer adds parens around negative literals after @ for safety (a@-0 is invalid),
+-- so we strip PParen around PNegLit to get the canonical form.
+normalizeAsInner :: Pattern -> Pattern
+normalizeAsInner pat =
+  case normalizePattern pat of
+    PParen _ inner@(PNegLit {}) -> inner
     other -> other

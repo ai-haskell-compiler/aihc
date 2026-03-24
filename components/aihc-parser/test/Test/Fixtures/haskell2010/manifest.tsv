@@ -232,7 +232,7 @@ expr-s3-expr-type-signature-context	expressions	expressions/expr-type-signature-
 expr-s3-pattern-infix-constructor	expressions	expressions/pattern-infix-constructor.hs	pass	parser now supports infix constructor patterns in case alternatives
 expr-s3-pattern-negative-literal	expressions	expressions/pattern-negative-literal.hs	pass	parser now supports negative literal patterns
 expr-s3-pattern-constructor-application	expressions	expressions/pattern-constructor-application.hs	pass
-expr-s3-pattern-as-pattern	expressions	expressions/pattern-as-pattern.hs	xfail	parser intentionally disabled
+expr-s3-pattern-as-pattern	expressions	expressions/pattern-as-pattern.hs	pass	parser now supports as-patterns in case alternatives
 expr-s3-pattern-nullary-constructor	expressions	expressions/pattern-nullary-constructor.hs	pass	parser now handles nullary constructor case alternatives
 expr-s3-pattern-labeled	expressions	expressions/pattern-labeled.hs	pass
 expr-s3-pattern-literal	expressions	expressions/pattern-literal.hs	pass	parser now supports literal patterns
@@ -244,14 +244,14 @@ expr-s3-pattern-irrefutable	expressions	expressions/pattern-irrefutable.hs	pass	
 
 pat-constructor	patterns	patterns/constructor.hs	pass
 pat-tuple-list	patterns	patterns/tuple-list.hs	pass	parser now supports tuple and list patterns
-pat-as-pattern	patterns	patterns/as-pattern.hs	xfail	parser intentionally disabled
+pat-as-pattern	patterns	patterns/as-pattern.hs	pass	parser now supports as-patterns
 pat-irrefutable	patterns	patterns/irrefutable.hs	pass	parser now supports irrefutable patterns
 pat-guards	patterns	patterns/guards.hs	pass
 pat-infix-constructor	patterns	patterns/infix-constructor.hs	pass	parser now supports infix constructor patterns
 pat-negative-literal	patterns	patterns/negative-literal.hs	pass	parser now supports negative literal patterns
 pat-labeled	patterns	patterns/labeled.hs	pass
 pat-literal-wildcard-parenthesized	patterns	patterns/literal-wildcard-parenthesized.hs	pass	parser now supports literal, wildcard, and parenthesized patterns
-pat-contexts	patterns	patterns/contexts.hs	xfail	pattern matching contexts unsupported
+pat-contexts	patterns	patterns/contexts.hs	pass	parser now supports pattern matching contexts
 
 types-context	types	types/context.hs	pass
 types-tuple-list	types	types/tuple-list-types.hs	pass	parser now supports tuple type forms
