@@ -707,6 +707,10 @@ dataConRecordOrPrefixParser forallVars context = do
     Just fields -> pure (\span' -> RecordCon span' forallVars context name fields)
     Nothing -> do
       args <- MP.many constructorArgParser
+      -- Ensure we're not leaving a constructor operator unconsumed.
+      -- If there's a constructor operator next, this is actually an infix form
+      -- and we should backtrack to let dataConInfixParser handle it.
+      MP.notFollowedBy constructorOperatorParser
       pure (\span' -> PrefixCon span' forallVars context name args)
   where
     -- Layout may inject a virtual ';' before a newline-started record field block.
