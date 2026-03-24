@@ -177,6 +177,16 @@ prettyValueDeclLines valueDecl =
     FunctionBind _ name matches ->
       concatMap (prettyFunctionMatchLines name) matches
 
+-- | Pretty-print a value declaration on a single line.
+-- For function binds with multiple matches, each match becomes a semicolon-separated item.
+-- For function binds with guards, the guards are space-separated.
+prettyValueDeclSingleLine :: ValueDecl -> Doc ann
+prettyValueDeclSingleLine valueDecl =
+  case valueDecl of
+    PatternBind _ pat rhs -> prettyPattern pat <+> prettyRhs rhs
+    FunctionBind _ name matches ->
+      hsep (punctuate semi (map (prettyFunctionMatch name) matches))
+
 prettyFunctionMatchLines :: Text -> Match -> [Doc ann]
 prettyFunctionMatchLines name match =
   case matchRhs match of
@@ -582,10 +592,7 @@ prettyClassItem item =
             <> maybe [] (pure . pretty . show) prec
             <> map prettyInfixOp ops
         )
-    ClassItemDefault _ valueDecl ->
-      case prettyValueDeclLines valueDecl of
-        [] -> ""
-        (line : _) -> line
+    ClassItemDefault _ valueDecl -> prettyValueDeclSingleLine valueDecl
 
 prettyInstanceDecl :: InstanceDecl -> Doc ann
 prettyInstanceDecl decl =
@@ -621,10 +628,7 @@ prettyDerivingStrategy strategy =
 prettyInstanceItem :: InstanceDeclItem -> Doc ann
 prettyInstanceItem item =
   case item of
-    InstanceItemBind _ valueDecl ->
-      case prettyValueDeclLines valueDecl of
-        [] -> ""
-        (line : _) -> line
+    InstanceItemBind _ valueDecl -> prettyValueDeclSingleLine valueDecl
     InstanceItemTypeSig _ names ty -> hsep [hsep (punctuate comma (map prettyBinderName names)), "::", prettyType ty]
     InstanceItemFixity _ assoc prec ops ->
       hsep

@@ -404,17 +404,15 @@ instanceValueItemParser = withSpan $ MP.try infixInstanceValueParser <|> prefixI
     prefixInstanceValueParser = do
       name <- binderNameParser
       pats <- MP.many simplePatternParser
-      expectedTok TkReservedEquals
-      rhsExpr <- exprParser
-      pure (\span' -> InstanceItemBind span' (functionBindValue span' name pats (UnguardedRhs span' rhsExpr)))
+      rhs <- equationRhsParser
+      pure (\span' -> InstanceItemBind span' (functionBindValue span' name pats rhs))
 
     infixInstanceValueParser = do
       lhsPat <- patternParser
       op <- infixOperatorNameParser
       rhsPat <- patternParser
-      expectedTok TkReservedEquals
-      rhsExpr <- exprParser
-      pure (\span' -> InstanceItemBind span' (functionBindValue span' op [lhsPat, rhsPat] (UnguardedRhs span' rhsExpr)))
+      rhs <- equationRhsParser
+      pure (\span' -> InstanceItemBind span' (functionBindValue span' op [lhsPat, rhsPat] rhs))
 
 foreignDeclParser :: TokParser Decl
 foreignDeclParser = withSpan $ do
