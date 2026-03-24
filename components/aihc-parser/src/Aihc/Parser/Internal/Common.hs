@@ -234,10 +234,11 @@ constraintParserWith :: TokParser Type -> TokParser Constraint
 constraintParserWith typeAtomParser = withSpan $ do
   className <- constructorIdentifierParser
   args <- MP.many typeAtomParser
+  let baseName = textToName className
   pure $ \span' ->
     Constraint
       { constraintSpan = span',
-        constraintClass = className,
+        constraintClass = baseName {nameSpace = TcClsName},
         constraintArgs = args,
         constraintParen = False
       }

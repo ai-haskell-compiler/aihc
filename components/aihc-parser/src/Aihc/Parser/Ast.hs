@@ -40,7 +40,8 @@ module Aihc.Parser.Ast
     Literal (..),
     Match (..),
     Module (..),
-    WarningText (..),
+    Name (..),
+    NameSpace (..),
     NewtypeDecl (..),
     OperatorName,
     Pattern (..),
@@ -52,16 +53,19 @@ module Aihc.Parser.Ast
     TyVarBinder (..),
     TypeSynDecl (..),
     ValueDecl (..),
-    declValueBinderNames,
+    WarningText (..),
     allKnownExtensions,
+    declValueBinderNames,
     extensionName,
     extensionSettingName,
     gadtBodyResultType,
     mergeSourceSpans,
+    nameToText,
     noSourceSpan,
     parseExtensionName,
     parseExtensionSettingName,
     sourceSpanEnd,
+    textToName,
     valueDeclBinderName,
   )
 where
@@ -313,6 +317,54 @@ type BinderName = Text
 
 type OperatorName = Text
 
+-- | The namespace of a name, following GHC's naming conventions.
+data NameSpace
+  = -- | Variables (lowercase identifiers and operators in value positions)
+    VarName
+  | -- | Data constructors (uppercase identifiers and operators starting with :)
+    DataName
+  | -- | Type variables (lowercase identifiers in type positions)
+    TvName
+  | -- | Type constructors and classes (uppercase identifiers in type positions)
+    TcClsName
+  deriving (Data, Eq, Ord, Show, Generic, NFData)
+
+-- | A name with optional module qualification and namespace.
+-- Used for all identifiers: variables, constructors, type variables, type constructors.
+data Name = Name
+  { nameModule :: Maybe Text,
+    nameSpace :: NameSpace,
+    nameIdent :: Text
+  }
+  deriving (Data, Eq, Ord, Generic, NFData)
+
+instance Show Name where
+  show (Name mMod _ns ident) =
+    case mMod of
+      Nothing -> show ident
+      Just modName -> show modName <> "." <> show ident
+
+-- | Convert a Name back to text (without namespace information).
+nameToText :: Name -> Text
+nameToText (Name mMod _ns ident) =
+  case mMod of
+    Nothing -> ident
+    Just modName -> modName <> T.pack "." <> ident
+
+-- | Convert a raw text identifier to a Name.
+-- Handles qualified identifiers like @M.x@ and @M.+@.
+-- Uses VarName namespace by default (caller should adjust if needed).
+textToName :: Text -> Name
+textToName txt =
+  case T.breakOnEnd (T.pack ".") txt of
+    (prefix, name)
+      | T.null prefix -> Name Nothing VarName name
+      | otherwise ->
+          let modName = T.dropEnd 1 prefix
+           in if T.null modName
+                then Name Nothing VarName txt
+                else Name (Just modName) VarName name
+
 data WarningText
   = DeprText SourceSpan Text
   | WarnText SourceSpan Text
@@ -487,21 +539,21 @@ instance HasSourceSpan Literal where
       LitString span' _ _ -> span'
 
 data Pattern
-  = PVar SourceSpan Text
+  = PVar SourceSpan Name
   | PWildcard SourceSpan
   | PLit SourceSpan Literal
   | PQuasiQuote SourceSpan Text Text
   | PTuple SourceSpan [Pattern]
   | PList SourceSpan [Pattern]
-  | PCon SourceSpan Text [Pattern]
-  | PInfix SourceSpan Pattern Text Pattern
+  | PCon SourceSpan Name [Pattern]
+  | PInfix SourceSpan Pattern Name Pattern
   | PView SourceSpan Expr Pattern
-  | PAs SourceSpan Text Pattern
+  | PAs SourceSpan Name Pattern
   | PStrict SourceSpan Pattern
   | PIrrefutable SourceSpan Pattern
   | PNegLit SourceSpan Literal
   | PParen SourceSpan Pattern
-  | PRecord SourceSpan Text [(Text, Pattern)]
+  | PRecord SourceSpan Name [(Name, Pattern)]
   deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan Pattern where
@@ -524,11 +576,11 @@ instance HasSourceSpan Pattern where
       PRecord span' _ _ -> span'
 
 data Type
-  = TVar SourceSpan Text
-  | TCon SourceSpan Text
+  = TVar SourceSpan Name
+  | TCon SourceSpan Name
   | TStar SourceSpan
   | TQuasiQuote SourceSpan Text Text
-  | TForall SourceSpan [Text] Type
+  | TForall SourceSpan [Name] Type
   | TApp SourceSpan Type Type
   | TFun SourceSpan Type Type
   | TTuple SourceSpan [Type]
@@ -554,7 +606,7 @@ instance HasSourceSpan Type where
 
 data Constraint = Constraint
   { constraintSpan :: SourceSpan,
-    constraintClass :: Text,
+    constraintClass :: Name,
     constraintArgs :: [Type],
     constraintParen :: Bool
   }
@@ -781,7 +833,7 @@ data ForeignSafety
   deriving (Data, Eq, Show, Generic, NFData)
 
 data Expr
-  = EVar SourceSpan Text
+  = EVar SourceSpan Name
   | EInt SourceSpan Integer Text
   | EIntBase SourceSpan Integer Text
   | EFloat SourceSpan Double Text
@@ -791,17 +843,17 @@ data Expr
   | EIf SourceSpan Expr Expr Expr
   | ELambdaPats SourceSpan [Pattern] Expr
   | ELambdaCase SourceSpan [CaseAlt]
-  | EInfix SourceSpan Expr Text Expr
+  | EInfix SourceSpan Expr Name Expr
   | ENegate SourceSpan Expr
-  | ESectionL SourceSpan Expr Text
-  | ESectionR SourceSpan Text Expr
+  | ESectionL SourceSpan Expr Name
+  | ESectionR SourceSpan Name Expr
   | ELetDecls SourceSpan [Decl] Expr
   | ECase SourceSpan Expr [CaseAlt]
   | EDo SourceSpan [DoStmt]
   | EListComp SourceSpan Expr [CompStmt]
   | EListCompParallel SourceSpan Expr [[CompStmt]]
   | EArithSeq SourceSpan ArithSeq
-  | ERecordCon SourceSpan Text [(Text, Expr)]
+  | ERecordCon SourceSpan Name [(Text, Expr)]
   | ERecordUpd SourceSpan Expr [(Text, Expr)]
   | ETypeSig SourceSpan Expr Type
   | EParen SourceSpan Expr
@@ -910,7 +962,7 @@ valueDeclBinderName vdecl =
     FunctionBind _ name _ -> Just name
     PatternBind _ pat _ ->
       case pat of
-        PVar _ name -> Just name
+        PVar _ name -> Just (nameIdent name)
         _ -> Nothing
 
 declValueBinderNames :: Decl -> [Text]

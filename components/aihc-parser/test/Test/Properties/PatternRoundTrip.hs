@@ -14,7 +14,12 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.Text (renderStrict)
-import Test.Properties.Identifiers (genIdent, shrinkIdent)
+import Test.Properties.Identifiers
+  ( genDataName,
+    genName,
+    genVarName,
+    shrinkName,
+  )
 import Test.QuickCheck
 
 span0 :: SourceSpan
@@ -74,7 +79,7 @@ shrinkPattern :: Pattern -> [Pattern]
 shrinkPattern pat =
   case pat of
     PVar _ name ->
-      [PVar span0 shrunk | shrunk <- shrinkIdent name]
+      [PVar span0 shrunk | shrunk <- shrinkName name]
     PWildcard _ -> []
     PLit _ lit ->
       [PLit span0 shrunk | shrunk <- shrinkLiteral lit]
@@ -86,8 +91,14 @@ shrinkPattern pat =
     PList _ elems ->
       [PList span0 elems' | elems' <- shrinkList shrinkPattern elems]
     PCon _ con args ->
-      [PCon span0 con [] | not (null args)]
-        <> [PCon span0 con args' | args' <- shrinkList (map canonicalPatternAtom . shrinkPattern) args]
+      -- Only shrink to zero args if constructor is alphanumeric
+      -- (operator constructors need at least one argument)
+      [PCon span0 con [] | not (null args), not (isSymbolName con)]
+        <> [ PCon span0 con args'
+           | args' <- shrinkList (map canonicalPatternAtom . shrinkPattern) args,
+             -- Ensure symbol constructors keep at least one argument
+             not (isSymbolName con) || not (null args')
+           ]
     PInfix _ lhs op rhs ->
       [canonicalPatternAtom lhs, canonicalPatternAtom rhs]
         <> [PInfix span0 (canonicalPatternAtom lhs') op (canonicalPatternAtom rhs) | lhs' <- shrinkPattern lhs]
@@ -98,7 +109,7 @@ shrinkPattern pat =
         <> [PView span0 expr inner' | inner' <- shrinkPattern inner]
     PAs _ name inner ->
       [canonicalPatternAtom inner]
-        <> [PAs span0 name' (canonicalPatternAtom inner) | name' <- shrinkIdent name]
+        <> [PAs span0 name' (canonicalPatternAtom inner) | name' <- shrinkName name]
         <> [PAs span0 name (canonicalPatternAtom inner') | inner' <- shrinkPattern inner]
     PStrict _ inner ->
       [canonicalPatternAtom inner]
@@ -125,9 +136,10 @@ shrinkTupleElems elems =
       _ -> [PTuple span0 shrunk]
   ]
 
-shrinkField :: (Text, Pattern) -> [(Text, Pattern)]
+shrinkField :: (Name, Pattern) -> [(Name, Pattern)]
 shrinkField (fieldName, fieldPat) =
   [(fieldName, shrunk) | shrunk <- shrinkPattern fieldPat]
+    <> [(shrunk, fieldPat) | shrunk <- shrinkName fieldName]
 
 shrinkLiteral :: Literal -> [Literal]
 shrinkLiteral lit =
@@ -161,18 +173,20 @@ genPattern :: Int -> Gen Pattern
 genPattern depth
   | depth <= 0 =
       oneof
-        [ PVar span0 <$> genIdent,
+        [ PVar span0 <$> genVarName,
           pure (PWildcard span0),
           PLit span0 <$> genLiteral,
           PQuasiQuote span0 <$> genQuoterName <*> genQuasiBody,
-          PTuple span0 <$> elements [[], [PVar span0 "x", PWildcard span0]],
+          PTuple span0 <$> elements [[], [PVar span0 (Name Nothing VarName "x"), PWildcard span0]],
           pure (PList span0 []),
-          PCon span0 <$> genPatternConName <*> pure [],
+          -- Use only alphanumeric constructor names for nullary patterns
+          -- (operator constructors like (:+) need arguments)
+          PCon span0 <$> genAlphaConName <*> pure [],
           PNegLit span0 <$> genNumericLiteral
         ]
   | otherwise =
       frequency
-        [ (3, PVar span0 <$> genIdent),
+        [ (3, PVar span0 <$> genVarName),
           (2, pure (PWildcard span0)),
           (3, PLit span0 <$> genLiteral),
           (2, PQuasiQuote span0 <$> genQuoterName <*> genQuasiBody),
@@ -181,25 +195,28 @@ genPattern depth
           (3, genPatternCon depth),
           (2, genPatternInfix depth),
           (2, PView span0 <$> genViewExpr <*> genPattern (depth - 1)),
-          (2, PAs span0 <$> genIdent <*> (canonicalPatternAtom <$> genPattern (depth - 1))),
+          (2, PAs span0 <$> genVarName <*> (canonicalPatternAtom <$> genPattern (depth - 1))),
           (2, PStrict span0 . canonicalPatternAtom <$> genPattern (depth - 1)),
           (2, PIrrefutable span0 . canonicalPatternAtom <$> genPattern (depth - 1)),
           (2, PNegLit span0 <$> genNumericLiteral),
           (2, PParen span0 <$> genPattern (depth - 1)),
-          (2, PRecord span0 <$> genPatternConName <*> genRecordFields (depth - 1))
+          (2, PRecord span0 <$> genRecordConName <*> genRecordFields (depth - 1))
         ]
 
 genPatternCon :: Int -> Gen Pattern
 genPatternCon depth = do
-  con <- genPatternConName
   argCount <- chooseInt (0, 3)
+  -- Always use alphanumeric constructor names for PCon patterns
+  -- because the parser doesn't support prefix constructor operators like (:&&) a
+  -- (constructor operators should use PInfix instead)
+  con <- genAlphaConName
   args <- vectorOf argCount (canonicalPatternAtom <$> genPattern (depth - 1))
   pure (PCon span0 con args)
 
 genPatternInfix :: Int -> Gen Pattern
 genPatternInfix depth = do
   lhs <- canonicalPatternAtom <$> genPattern (depth - 1)
-  op <- genConOperator
+  op <- genConOpName
   rhs <- canonicalPatternAtom <$> genPattern (depth - 1)
   pure (PInfix span0 lhs op rhs)
 
@@ -217,10 +234,10 @@ genListElems depth = do
   n <- chooseInt (0, 4)
   vectorOf n (genPattern depth)
 
-genRecordFields :: Int -> Gen [(Text, Pattern)]
+genRecordFields :: Int -> Gen [(Name, Pattern)]
 genRecordFields depth = do
   n <- chooseInt (0, 3)
-  names <- vectorOf n genFieldName
+  names <- vectorOf n genFieldVarName
   pats <- vectorOf n (genPattern depth)
   pure (zip names pats)
 
@@ -259,42 +276,59 @@ genStringValue = do
 genViewExpr :: Gen Expr
 genViewExpr =
   oneof
-    [ EVar span0 <$> genIdent,
+    [ EVar span0 <$> genName,
       mkIntExpr <$> chooseInteger (0, 999),
-      EParen span0 . EVar span0 <$> genIdent
+      EParen span0 . EVar span0 <$> genName
     ]
 
 shrinkViewExpr :: Expr -> [Expr]
 shrinkViewExpr expr =
   case expr of
-    EVar _ name -> [EVar span0 shrunk | shrunk <- shrinkIdent name]
+    EVar _ name -> [EVar span0 shrunk | shrunk <- shrinkName name]
     EInt _ value _ -> [mkIntExpr shrunk | shrunk <- shrinkIntegral value]
     EParen _ inner -> inner : [EParen span0 inner' | inner' <- shrinkViewExpr inner]
     _ -> []
 
-genPatternConName :: Gen Text
-genPatternConName = do
+-- | Generate an alphanumeric constructor name (no operators)
+genAlphaConName :: Gen Name
+genAlphaConName = do
   first <- elements ['A' .. 'Z']
   restLen <- chooseInt (0, 5)
   rest <- vectorOf restLen (elements (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> "_'"))
-  pure (T.pack (first : rest))
+  pure (Name Nothing DataName (T.pack (first : rest)))
 
-genConOperator :: Gen Text
-genConOperator = do
-  first <- elements ":"
-  restLen <- chooseInt (0, 3)
-  rest <- vectorOf restLen (elements ":!#$%&*+./<=>?\\^|-~")
-  pure (T.pack (first : rest))
+-- | Generate a constructor operator Name (starts with :)
+-- We require at least one character after the initial ':' to avoid
+-- generating bare ':' which is the built-in cons operator with specific arity.
+-- Exclude: backslash (lambda), minus (prefix negate), dot (composition), slash (comment issues)
+genConOpName :: Gen Name
+genConOpName = do
+  -- Require at least one more character to avoid bare ':'
+  restLen <- chooseInt (1, 3)
+  rest <- vectorOf restLen (elements ":!#$%&*+<=>?^|~")
+  pure (Name Nothing DataName (T.pack (':' : rest)))
 
-genFieldName :: Gen Text
-genFieldName = do
+-- | Check if a Name is a symbolic operator
+isSymbolName :: Name -> Bool
+isSymbolName (Name _ _ ident) =
+  case T.uncons ident of
+    Just (c, _) -> c `notElem` (['a' .. 'z'] <> ['A' .. 'Z'] <> ['_'])
+    Nothing -> False
+
+-- | Generate a Name for record patterns
+genRecordConName :: Gen Name
+genRecordConName = genDataName
+
+-- | Generate a Name for record field names
+genFieldVarName :: Gen Name
+genFieldVarName = do
   first <- elements (['a' .. 'z'] <> ['_'])
   restLen <- chooseInt (0, 5)
   rest <- vectorOf restLen (elements (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> "_'"))
   let candidate = T.pack (first : rest)
   if isReservedIdentifier candidate
-    then genFieldName
-    else pure candidate
+    then genFieldVarName
+    else pure (Name Nothing VarName candidate)
 
 genQuoterName :: Gen Text
 genQuoterName = do

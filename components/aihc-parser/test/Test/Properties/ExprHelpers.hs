@@ -15,7 +15,16 @@ import Aihc.Lexer (isReservedIdentifier)
 import Aihc.Parser.Ast
 import Data.Text (Text)
 import qualified Data.Text as T
-import Test.Properties.Identifiers (genIdent, shrinkIdent)
+import Test.Properties.Identifiers
+  ( genConName,
+    genIdent,
+    genName,
+    genNameOp,
+    genTypeConName,
+    genTypeVarName,
+    genVarName,
+    shrinkName,
+  )
 import Test.QuickCheck
 
 -- | Canonical empty source span for normalization.
@@ -38,10 +47,10 @@ genExprSized n
           genExprLeaf,
           -- Recursive expressions (reduce size for subexpressions)
           EApp span0 <$> genExprSized half <*> genExprSized half,
-          EInfix span0 <$> genExprSized half <*> genOperator <*> genExprSized half,
+          EInfix span0 <$> genExprSized half <*> genNameOp <*> genExprSized half,
           ENegate span0 <$> genExprSized (n - 1),
-          ESectionL span0 <$> genExprSized (n - 1) <*> genOperator,
-          ESectionR span0 <$> genOperator <*> genExprSized (n - 1),
+          ESectionL span0 <$> genExprSized (n - 1) <*> genNameOp,
+          ESectionR span0 <$> genNameOp <*> genExprSized (n - 1),
           EIf span0 <$> genExprSized third <*> genExprSized third <*> genExprSized third,
           ECase span0 <$> genExprSized half <*> genCaseAlts half,
           ELambdaPats span0 <$> genPatterns half <*> genExprSized half,
@@ -68,7 +77,7 @@ genExprSized n
 genExprLeaf :: Gen Expr
 genExprLeaf =
   oneof
-    [ EVar span0 <$> genIdent,
+    [ EVar span0 <$> genName,
       mkIntExpr <$> chooseInteger (0, 999),
       mkHexExpr <$> chooseInteger (0, 255),
       mkFloatExpr <$> genTenths,
@@ -79,36 +88,6 @@ genExprLeaf =
       pure (ETuple span0 []),
       ETupleCon span0 <$> chooseInt (2, 5)
     ]
-
--- | Generate an operator symbol
-genOperator :: Gen Text
-genOperator =
-  oneof
-    [ elements ["+", "-", "*", "/", "<", ">", "<=", ">=", "==", "/=", "&&", "||", "++", ">>", ">>=", "."],
-      genCustomOperator
-    ]
-
--- | Generate a custom operator
--- Only uses valid operator characters (matching isOperatorToken in Pretty.hs)
-genCustomOperator :: Gen Text
-genCustomOperator = do
-  len <- chooseInt (1, 3)
-  -- Note: matches ":!#$%&*+./<=>?\\^|-~" from Pretty.hs isOperatorToken
-  -- Excluding ':' since that's for constructor operators
-  chars <- vectorOf len (elements "!#$%&*+./<=>?\\^|-~")
-  let candidate = T.pack chars
-  -- Avoid reserved operators and comment starters
-  if candidate `elem` ["..", "::", "=", "\\", "|", "<-", "->", "~", "=>", "--"]
-    then genCustomOperator
-    else pure candidate
-
--- | Generate a data constructor name
-genConName :: Gen Text
-genConName = do
-  first <- elements ['A' .. 'Z']
-  restLen <- chooseInt (0, 5)
-  rest <- vectorOf restLen (elements (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> "_'"))
-  pure (T.pack (first : rest))
 
 -- | Generate simple patterns for lambdas
 genPatterns :: Int -> Gen [Pattern]
@@ -133,7 +112,7 @@ genPattern n
 genPatternLeaf :: Gen Pattern
 genPatternLeaf =
   oneof
-    [ PVar span0 <$> genIdent,
+    [ PVar span0 <$> genVarName,
       pure (PWildcard span0)
     ]
 
@@ -322,7 +301,7 @@ genTypeLeaf :: Gen Type
 genTypeLeaf =
   oneof
     [ TVar span0 <$> genTypeVarName,
-      TCon span0 <$> genConName
+      TCon span0 <$> genTypeConName
     ]
 
 genTypeTupleElems :: Int -> Gen [Type]
@@ -333,16 +312,6 @@ genTypeTupleElems n = do
     else do
       count <- chooseInt (2, 3)
       vectorOf count (genType (n `div` count))
-
-genTypeVarName :: Gen Text
-genTypeVarName = do
-  first <- elements ['a' .. 'z']
-  restLen <- chooseInt (0, 3)
-  rest <- vectorOf restLen (elements (['a' .. 'z'] <> ['0' .. '9']))
-  let candidate = T.pack (first : rest)
-  if isReservedIdentifier candidate
-    then genTypeVarName
-    else pure candidate
 
 -- | Literal expression generators
 mkHexExpr :: Integer -> Expr
@@ -386,7 +355,7 @@ mkIntExpr value = EInt span0 value (T.pack (show value))
 shrinkExpr :: Expr -> [Expr]
 shrinkExpr expr =
   case expr of
-    EVar _ name -> [EVar span0 shrunk | shrunk <- shrinkIdent name]
+    EVar _ name -> [EVar span0 shrunk | shrunk <- shrinkName name]
     EInt _ value _ -> [mkIntExpr shrunk | shrunk <- shrinkIntegral value]
     EIntBase _ value _ -> [mkIntExpr shrunk | shrunk <- shrinkIntegral value]
     EFloat _ value _ -> [mkFloatExpr shrunk | shrunk <- shrinkFloat value]
@@ -453,9 +422,9 @@ shrinkExpr expr =
         : [ERecordUpd span0 target' fields | target' <- shrinkExpr target]
           <> [ERecordUpd span0 target fields' | fields' <- shrinkRecordFields fields]
     ETypeSig _ inner _ ->
-      inner : [ETypeSig span0 inner' (TCon span0 "T") | inner' <- shrinkExpr inner]
+      inner : [ETypeSig span0 inner' (TCon span0 (Name Nothing TcClsName "T")) | inner' <- shrinkExpr inner]
     ETypeApp _ inner _ ->
-      inner : [ETypeApp span0 inner' (TCon span0 "T") | inner' <- shrinkExpr inner]
+      inner : [ETypeApp span0 inner' (TCon span0 (Name Nothing TcClsName "T")) | inner' <- shrinkExpr inner]
     EParen _ inner -> inner : [EParen span0 inner' | inner' <- shrinkExpr inner]
 
 shrinkFloat :: Double -> [Double]

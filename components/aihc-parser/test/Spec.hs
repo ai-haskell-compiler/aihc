@@ -94,9 +94,10 @@ test_moduleParsesDecls =
       assertFailure ("expected module parse success, got parse error: " <> errorBundlePretty err)
     ParseOk modu ->
       case moduleDecls modu of
-        [ DeclValue _ (FunctionBind _ "x" [Match {matchPats = [], matchRhs = UnguardedRhs _ (EIf _ (EVar _ "y") (EVar _ "z") (EVar _ "w"))}])
-          ] ->
-            pure ()
+        [ DeclValue _ (FunctionBind _ "x" [Match {matchPats = [], matchRhs = UnguardedRhs _ (EIf _ (EVar _ nameY) (EVar _ nameZ) (EVar _ nameW))}])
+          ]
+            | nameToText nameY == "y" && nameToText nameZ == "z" && nameToText nameW == "w" ->
+                pure ()
         other ->
           assertFailure ("unexpected parsed declarations: " <> show other)
 

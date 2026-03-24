@@ -6,7 +6,6 @@ module Test.Properties.TypeRoundTrip
   )
 where
 
-import Aihc.Lexer (isReservedIdentifier)
 import Aihc.Parser
 import Aihc.Parser.Ast
 import Data.Data (dataTypeConstrs, dataTypeOf, showConstr, toConstr)
@@ -15,7 +14,12 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.Text (renderStrict)
-import Test.Properties.Identifiers (shrinkIdent)
+import Test.Properties.Identifiers
+  ( genTcClsName,
+    genTvName,
+    shrinkIdent,
+    shrinkName,
+  )
 import Test.QuickCheck
 
 span0 :: SourceSpan
@@ -72,9 +76,9 @@ shrinkType :: Type -> [Type]
 shrinkType ty =
   case ty of
     TVar _ name ->
-      [TVar span0 shrunk | shrunk <- shrinkIdent name]
+      [TVar span0 shrunk | shrunk <- shrinkName name]
     TCon _ name ->
-      [TCon span0 shrunk | shrunk <- shrinkTypeConName name]
+      [TCon span0 shrunk | shrunk <- shrinkName name]
     TStar _ ->
       []
     TQuasiQuote _ quoter body ->
@@ -109,27 +113,12 @@ canonicalForallInner ty =
     TForall {} -> TParen span0 ty
     _ -> ty
 
-shrinkTypeBinders :: [Text] -> [[Text]]
+shrinkTypeBinders :: [Name] -> [[Name]]
 shrinkTypeBinders binders =
   [ shrunk
-  | shrunk <- shrinkList shrinkIdent binders,
+  | shrunk <- shrinkList shrinkName binders,
     not (null shrunk)
   ]
-
-shrinkTypeConName :: Text -> [Text]
-shrinkTypeConName name =
-  [ candidate
-  | candidate <- map T.pack (shrink (T.unpack name)),
-    isValidTypeConName candidate
-  ]
-
-isValidTypeConName :: Text -> Bool
-isValidTypeConName ident =
-  case T.uncons ident of
-    Just (first, rest) ->
-      (first `elem` ['A' .. 'Z'])
-        && T.all (`elem` (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> "_'")) rest
-    Nothing -> False
 
 shrinkTupleElems :: [Type] -> [Type]
 shrinkTupleElems elems =
@@ -154,18 +143,18 @@ genType :: Int -> Gen Type
 genType depth
   | depth <= 0 =
       oneof
-        [ TVar span0 <$> genTypeVarName,
-          TCon span0 <$> genTypeConName,
+        [ TVar span0 <$> genTvName,
+          TCon span0 <$> genTcClsName,
           pure (TStar span0),
           TQuasiQuote span0 <$> genQuoterName <*> genQuasiBody,
-          TTuple span0 <$> elements [[], [TVar span0 "a", TCon span0 "B"]],
+          TTuple span0 <$> elements [[], [TVar span0 (Name Nothing TvName "a"), TCon span0 (Name Nothing TcClsName "B")]],
           TList span0 <$> genTypeAtom 0,
           TParen span0 <$> genTypeAtom 0
         ]
   | otherwise =
       frequency
-        [ (3, TVar span0 <$> genTypeVarName),
-          (3, TCon span0 <$> genTypeConName),
+        [ (3, TVar span0 <$> genTvName),
+          (3, TCon span0 <$> genTcClsName),
           (1, pure (TStar span0)),
           (2, TQuasiQuote span0 <$> genQuoterName <*> genQuasiBody),
           (2, TForall span0 <$> genTypeBinders <*> genForallInner (depth - 1)),
@@ -217,8 +206,8 @@ genTypeTupleElems depth = do
 genTypeAtom :: Int -> Gen Type
 genTypeAtom depth =
   oneof
-    [ TVar span0 <$> genTypeVarName,
-      TCon span0 <$> genTypeConName,
+    [ TVar span0 <$> genTvName,
+      TCon span0 <$> genTcClsName,
       pure (TStar span0),
       TQuasiQuote span0 <$> genQuoterName <*> genQuasiBody,
       TTuple span0 <$> genTypeTupleElems depth,
@@ -233,7 +222,7 @@ genConstraints depth = do
 
 genConstraint :: Int -> Gen Constraint
 genConstraint depth = do
-  cls <- genTypeConName
+  cls <- genTcClsName
   argCount <- chooseInt (0, 2)
   args <- vectorOf argCount (genConstraintArg depth)
   pure $
@@ -286,27 +275,10 @@ canonicalConstraintArg ty =
     TParen {} -> ty
     _ -> TParen span0 ty
 
-genTypeBinders :: Gen [Text]
+genTypeBinders :: Gen [Name]
 genTypeBinders = do
   n <- chooseInt (1, 3)
-  vectorOf n genTypeVarName
-
-genTypeVarName :: Gen Text
-genTypeVarName = do
-  first <- elements (['a' .. 'z'] <> ['_'])
-  restLen <- chooseInt (0, 5)
-  rest <- vectorOf restLen (elements (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> "_'"))
-  let candidate = T.pack (first : rest)
-  if isReservedIdentifier candidate
-    then genTypeVarName
-    else pure candidate
-
-genTypeConName :: Gen Text
-genTypeConName = do
-  first <- elements ['A' .. 'Z']
-  restLen <- chooseInt (0, 5)
-  rest <- vectorOf restLen (elements (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> "_'"))
-  pure (T.pack (first : rest))
+  vectorOf n genTvName
 
 genQuoterName :: Gen Text
 genQuoterName = do

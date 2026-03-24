@@ -221,14 +221,14 @@ prettyType ty =
   case ty of
     TVar _ name -> pretty name
     TCon _ name
-      | isSymbolicTypeOperator name -> parens (pretty name)
+      | isNameOperator name -> parens (pretty name)
       | otherwise -> pretty name
     TStar _ -> "*"
     TQuasiQuote _ quoter body -> prettyQuasiQuote quoter body
     TForall _ binders inner ->
       "forall" <+> hsep (map pretty binders) <> "." <+> prettyType inner
     TApp _ (TApp _ (TCon _ op) lhs) rhs
-      | isSymbolicTypeOperator op && op /= "->" ->
+      | isNameOperator op && nameToText op /= "->" ->
           parens (prettyType lhs <+> pretty op <+> prettyType rhs)
     TApp _ f x -> parenthesizeTypeApp f <+> parenthesizeTypeArg x
     TFun _ a b -> parenthesizeTypeFunLeft a <+> "->" <+> prettyType b
@@ -261,7 +261,7 @@ parenthesizeTypeArg :: Type -> Doc ann
 parenthesizeTypeArg ty =
   case ty of
     TApp _ (TApp _ (TCon _ op) _) _
-      | isSymbolicTypeOperator op && op /= "->" -> prettyType ty
+      | isNameOperator op && nameToText op /= "->" -> prettyType ty
     TQuasiQuote {} -> prettyType ty
     TApp {} -> parens (prettyType ty)
     TForall {} -> parens (prettyType ty)
@@ -278,7 +278,7 @@ prettyContext constraints =
 prettyConstraint :: Constraint -> Doc ann
 prettyConstraint constraint =
   let base =
-        if constraintClass constraint == "()" && null (constraintArgs constraint)
+        if nameToText (constraintClass constraint) == "()" && null (constraintArgs constraint)
           then "()"
           else hsep (pretty (constraintClass constraint) : map prettyTypeAtom (constraintArgs constraint))
    in if constraintParen constraint
@@ -297,16 +297,10 @@ prettyTypeAtom ty =
     TParen _ _ -> prettyType ty
     _ -> parens (prettyType ty)
 
-isSymbolicTypeOperator :: Text -> Bool
-isSymbolicTypeOperator op =
-  case T.uncons op of
-    Nothing -> False
-    Just _ -> T.all (`elem` (":!#$%&*+./<=>?\\^|-~" :: String)) op
-
 isInfixTypeApp :: Type -> Bool
 isInfixTypeApp ty =
   case ty of
-    TApp _ (TApp _ (TCon _ op) _) _ -> isSymbolicTypeOperator op && op /= "->"
+    TApp _ (TApp _ (TCon _ op) _) _ -> isNameOperator op && nameToText op /= "->"
     _ -> False
 
 prettyPattern :: Pattern -> Doc ann
@@ -318,7 +312,7 @@ prettyPattern pat =
     PQuasiQuote _ quoter body -> prettyQuasiQuote quoter body
     PTuple _ elems -> parens (hsep (punctuate comma (map prettyPattern elems)))
     PList _ elems -> brackets (hsep (punctuate comma (map prettyPattern elems)))
-    PCon _ con args -> hsep (pretty con : map prettyPatternAtom args)
+    PCon _ con args -> hsep (prettyConName con : map prettyPatternAtom args)
     PInfix _ lhs op rhs -> prettyPatternAtom lhs <+> pretty op <+> prettyPatternAtom rhs
     PView _ viewExpr inner -> parens (prettyExprPrec 0 viewExpr <+> "->" <+> prettyPattern inner)
     PAs _ name inner -> pretty name <+> "@" <+> prettyPatternAtom inner
@@ -339,10 +333,10 @@ prettyPattern pat =
 -- | Pretty print a pattern field binding.
 -- Supports NamedFieldPuns: if pattern is a variable with the same name as the field,
 -- print just the field name (punned form).
-prettyPatternFieldBinding :: Text -> Pattern -> Doc ann
+prettyPatternFieldBinding :: Name -> Pattern -> Doc ann
 prettyPatternFieldBinding fieldName fieldPat =
   case fieldPat of
-    PVar _ varName | varName == fieldName -> pretty fieldName -- NamedFieldPuns: punned form
+    PVar _ varName | nameIdent varName == nameIdent fieldName -> pretty fieldName -- NamedFieldPuns: punned form
     _ -> pretty fieldName <+> "=" <+> prettyPattern fieldPat
 
 prettyPatternAtom :: Pattern -> Doc ann
@@ -691,11 +685,6 @@ prettyFunctionBinder name
 prettyBinderName :: Text -> Doc ann
 prettyBinderName = prettyFunctionBinder
 
-prettyExprOperator :: Text -> Doc ann
-prettyExprOperator op
-  | isOperatorToken op = pretty op
-  | otherwise = "`" <> pretty op <> "`"
-
 prettyConstructorName :: Text -> Doc ann
 prettyConstructorName name
   | isOperatorToken name = parens (pretty name)
@@ -722,7 +711,7 @@ prettyExprPrec prec expr =
     ETypeApp _ fn ty ->
       parenthesize (prec > 2) (prettyExprPrec 2 fn <+> "@" <> prettyTypeAtom ty)
     EVar _ name
-      | isOperatorToken name -> parens (pretty name)
+      | isNameOperator name -> parens (pretty name)
       | otherwise -> pretty name
     EInt _ _ repr -> pretty repr
     EIntBase _ _ repr -> pretty repr
@@ -740,10 +729,10 @@ prettyExprPrec prec expr =
       parenthesize
         (prec > 0)
         ("\\" <> "case" <+> braces (hsep (punctuate semi (map prettyCaseAlt alts))))
-    EInfix _ lhs op rhs -> parenthesize (prec > 1) (prettyExprPrec 1 lhs <+> prettyExprOperator op <+> prettyExprInfixRhs rhs)
+    EInfix _ lhs op rhs -> parenthesize (prec > 1) (prettyExprPrec 1 lhs <+> prettyNameOperator op <+> prettyExprInfixRhs rhs)
     ENegate _ inner -> parenthesize (prec > 2) ("-" <> prettyExprPrec 3 inner)
-    ESectionL _ lhs op -> parens (prettyExprPrec 0 lhs <+> prettyExprOperator op)
-    ESectionR _ op rhs -> parens (prettyExprOperator op <+> prettyExprPrec 0 rhs)
+    ESectionL _ lhs op -> parens (prettyExprPrec 0 lhs <+> prettyNameOperator op)
+    ESectionR _ op rhs -> parens (prettyNameOperator op <+> prettyExprPrec 0 rhs)
     ELetDecls _ decls body ->
       parenthesize
         (prec > 0)
@@ -821,7 +810,7 @@ prettyExprPrec prec expr =
 prettyBinding :: (Text, Expr) -> Doc ann
 prettyBinding (name, value) =
   case value of
-    EVar _ varName | varName == name -> pretty name -- NamedFieldPuns: punned form
+    EVar _ varName | nameToText varName == name -> pretty name -- NamedFieldPuns: punned form
     _ -> pretty name <+> "=" <+> prettyExprPrec 0 value
 
 prettyCaseAlt :: CaseAlt -> Doc ann
@@ -890,3 +879,25 @@ prettyQuasiQuote quoter body = "[" <> pretty quoter <> "|" <> pretty body <> "|]
 isOperatorToken :: Text -> Bool
 isOperatorToken tok =
   not (T.null tok) && T.all (`elem` (":!#$%&*+./<=>?\\^|-~" :: String)) tok
+
+-- Pretty instances for Name types
+
+instance Pretty Name where
+  pretty name = pretty (nameToText name)
+
+-- | Check if a Name is an operator (symbolic)
+isNameOperator :: Name -> Bool
+isNameOperator (Name _ _ ident) = isOperatorToken ident
+
+-- | Pretty print a Name used in prefix position (like a constructor).
+-- Parenthesizes symbolic names.
+prettyConName :: Name -> Doc ann
+prettyConName name
+  | isNameOperator name = parens (pretty name)
+  | otherwise = pretty name
+
+-- | Pretty print a Name used as an operator in infix position
+prettyNameOperator :: Name -> Doc ann
+prettyNameOperator name
+  | isNameOperator name = pretty name
+  | otherwise = "`" <> pretty name <> "`"

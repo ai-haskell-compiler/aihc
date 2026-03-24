@@ -377,11 +377,11 @@ docFixityAssoc fa =
 docType :: Type -> Doc ann
 docType ty =
   case ty of
-    TVar _ name -> "TVar" <+> docText name
-    TCon _ name -> "TCon" <+> docText name
+    TVar _ name -> "TVar" <+> docName name
+    TCon _ name -> "TCon" <+> docName name
     TStar _ -> "TStar"
     TQuasiQuote _ quoter body -> "TQuasiQuote" <+> docText quoter <+> docText body
-    TForall _ binders inner -> "TForall" <+> brackets (hsep (punctuate comma (map docText binders))) <+> parens (docType inner)
+    TForall _ binders inner -> "TForall" <+> brackets (hsep (punctuate comma (map docName binders))) <+> parens (docType inner)
     TApp _ f x -> "TApp" <+> parens (docType f) <+> parens (docType x)
     TFun _ a b -> "TFun" <+> parens (docType a) <+> parens (docType b)
     TTuple _ elems -> "TTuple" <+> brackets (hsep (punctuate comma (map docType elems)))
@@ -394,7 +394,7 @@ docConstraint c =
   "Constraint" <+> braces (hsep (punctuate comma fields))
   where
     fields =
-      [field "class" (docText (constraintClass c))]
+      [field "class" (docName (constraintClass c))]
         <> listField "args" docType (constraintArgs c)
         <> boolField "paren" (constraintParen c)
 
@@ -411,21 +411,21 @@ docTyVarBinder tvb =
 docPattern :: Pattern -> Doc ann
 docPattern pat =
   case pat of
-    PVar _ name -> "PVar" <+> docText name
+    PVar _ name -> "PVar" <+> docName name
     PWildcard _ -> "PWildcard"
     PLit _ lit -> "PLit" <+> parens (docLiteral lit)
     PQuasiQuote _ quoter body -> "PQuasiQuote" <+> docText quoter <+> docText body
     PTuple _ elems -> "PTuple" <+> brackets (hsep (punctuate comma (map docPattern elems)))
     PList _ elems -> "PList" <+> brackets (hsep (punctuate comma (map docPattern elems)))
-    PCon _ name args -> "PCon" <+> docText name <+> brackets (hsep (punctuate comma (map docPattern args)))
-    PInfix _ lhs op rhs -> "PInfix" <+> parens (docPattern lhs) <+> docText op <+> parens (docPattern rhs)
+    PCon _ name args -> "PCon" <+> docName name <+> brackets (hsep (punctuate comma (map docPattern args)))
+    PInfix _ lhs op rhs -> "PInfix" <+> parens (docPattern lhs) <+> docName op <+> parens (docPattern rhs)
     PView _ expr inner -> "PView" <+> parens (docExpr expr) <+> parens (docPattern inner)
-    PAs _ name inner -> "PAs" <+> docText name <+> parens (docPattern inner)
+    PAs _ name inner -> "PAs" <+> docName name <+> parens (docPattern inner)
     PStrict _ inner -> "PStrict" <+> parens (docPattern inner)
     PIrrefutable _ inner -> "PIrrefutable" <+> parens (docPattern inner)
     PNegLit _ lit -> "PNegLit" <+> parens (docLiteral lit)
     PParen _ inner -> "PParen" <+> parens (docPattern inner)
-    PRecord _ name fields' -> "PRecord" <+> docText name <+> braces (hsep (punctuate comma [docText fn <+> "=" <+> docPattern fp | (fn, fp) <- fields']))
+    PRecord _ name fields' -> "PRecord" <+> docName name <+> braces (hsep (punctuate comma [docName fn <+> "=" <+> docPattern fp | (fn, fp) <- fields']))
 
 docLiteral :: Literal -> Doc ann
 docLiteral lit =
@@ -441,7 +441,7 @@ docLiteral lit =
 docExpr :: Expr -> Doc ann
 docExpr expr =
   case expr of
-    EVar _ name -> "EVar" <+> docText name
+    EVar _ name -> "EVar" <+> docName name
     EInt _ n _ -> "EInt" <+> pretty n
     EIntBase _ n repr -> "EIntBase" <+> pretty n <+> docText repr
     EFloat _ n _ -> "EFloat" <+> pretty n
@@ -451,17 +451,17 @@ docExpr expr =
     EIf _ cond yes no -> "EIf" <+> parens (docExpr cond) <+> parens (docExpr yes) <+> parens (docExpr no)
     ELambdaPats _ pats body -> "ELambdaPats" <+> brackets (hsep (punctuate comma (map docPattern pats))) <+> parens (docExpr body)
     ELambdaCase _ alts -> "ELambdaCase" <+> brackets (hsep (punctuate comma (map docCaseAlt alts)))
-    EInfix _ lhs op rhs -> "EInfix" <+> parens (docExpr lhs) <+> docText op <+> parens (docExpr rhs)
+    EInfix _ lhs op rhs -> "EInfix" <+> parens (docExpr lhs) <+> docName op <+> parens (docExpr rhs)
     ENegate _ inner -> "ENegate" <+> parens (docExpr inner)
-    ESectionL _ lhs op -> "ESectionL" <+> parens (docExpr lhs) <+> docText op
-    ESectionR _ op rhs -> "ESectionR" <+> docText op <+> parens (docExpr rhs)
+    ESectionL _ lhs op -> "ESectionL" <+> parens (docExpr lhs) <+> docName op
+    ESectionR _ op rhs -> "ESectionR" <+> docName op <+> parens (docExpr rhs)
     ELetDecls _ decls body -> "ELetDecls" <+> brackets (hsep (punctuate comma (map docDecl decls))) <+> parens (docExpr body)
     ECase _ scrutinee alts -> "ECase" <+> parens (docExpr scrutinee) <+> brackets (hsep (punctuate comma (map docCaseAlt alts)))
     EDo _ stmts -> "EDo" <+> brackets (hsep (punctuate comma (map docDoStmt stmts)))
     EListComp _ body quals -> "EListComp" <+> parens (docExpr body) <+> brackets (hsep (punctuate comma (map docCompStmt quals)))
     EListCompParallel _ body qualGroups -> "EListCompParallel" <+> parens (docExpr body) <+> brackets (hsep (punctuate "|" [brackets (hsep (punctuate comma (map docCompStmt qs))) | qs <- qualGroups]))
     EArithSeq _ seqInfo -> "EArithSeq" <+> parens (docArithSeq seqInfo)
-    ERecordCon _ name fields' -> "ERecordCon" <+> docText name <+> braces (hsep (punctuate comma [docText fn <+> "=" <+> docExpr fv | (fn, fv) <- fields']))
+    ERecordCon _ name fields' -> "ERecordCon" <+> docName name <+> braces (hsep (punctuate comma [docText fn <+> "=" <+> docExpr fv | (fn, fv) <- fields']))
     ERecordUpd _ base fields' -> "ERecordUpd" <+> parens (docExpr base) <+> braces (hsep (punctuate comma [docText fn <+> "=" <+> docExpr fv | (fn, fv) <- fields']))
     ETypeSig _ inner ty -> "ETypeSig" <+> parens (docExpr inner) <+> parens (docType ty)
     EParen _ inner -> "EParen" <+> parens (docExpr inner)
@@ -607,3 +607,7 @@ docText t = dquotes (pretty t)
 
 docTextList :: [Text] -> Doc ann
 docTextList ts = brackets (hsep (punctuate comma (map docText ts)))
+
+-- Helper function for Name type
+docName :: Name -> Doc ann
+docName name = dquotes (pretty (nameToText name))

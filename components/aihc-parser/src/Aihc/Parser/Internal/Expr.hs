@@ -121,7 +121,7 @@ lexpParser = do
 
 buildInfix :: Expr -> (Text, Expr) -> Expr
 buildInfix lhs (op, rhs) =
-  EInfix (mergeSourceSpans (getSourceSpan lhs) (getSourceSpan rhs)) lhs op rhs
+  EInfix (mergeSourceSpans (getSourceSpan lhs) (getSourceSpan rhs)) lhs (textToName op) rhs
 
 infixOperatorParserExcept :: [Text] -> TokParser Text
 infixOperatorParserExcept forbidden =
@@ -211,8 +211,8 @@ atomOrRecordExprParser = do
         Just fields -> do
           let result = case e of
                 EVar span' name
-                  | isConLikeName name ->
-                      ERecordCon (mergeSourceSpans span' (fieldsEndSpan fields)) name (map normalizeField fields)
+                  | isConName name ->
+                      ERecordCon (mergeSourceSpans span' (fieldsEndSpan fields)) (nameToDataName name) (map normalizeField fields)
                 _ ->
                   ERecordUpd (mergeSourceSpans (getSourceSpan e) (fieldsEndSpan fields)) e (map normalizeField fields)
           -- Recursively check for more record braces (chained updates)
@@ -227,7 +227,19 @@ atomOrRecordExprParser = do
     normalizeField (fieldName, mExpr, sp) =
       case mExpr of
         Just expr' -> (fieldName, expr')
-        Nothing -> (fieldName, EVar sp fieldName) -- NamedFieldPuns: field name becomes variable
+        Nothing -> (fieldName, EVar sp (textToName fieldName)) -- NamedFieldPuns: field name becomes variable
+
+-- | Check if a Name represents a constructor (uppercase or qualified uppercase)
+isConName :: Name -> Bool
+isConName (Name _ ns ident) =
+  case ns of
+    DataName -> True
+    TcClsName -> True
+    _ -> isConLikeName ident
+
+-- | Convert a Name to a DataName (for record constructors)
+nameToDataName :: Name -> Name
+nameToDataName (Name mMod _ ident) = Name mMod DataName ident
 
 -- | Parse record braces: { field = value, field2 = value2, ... }
 -- Supports both explicit assignment (field = value) and puns (field)
@@ -318,7 +330,7 @@ parenOperatorExprParser = withSpan $ do
       -- Note: ~ is now lexed as TkVarSym "~" so TkVarSym case handles it
       _ -> Nothing
   expectedTok TkSpecialRParen
-  pure (`EVar` op)
+  pure (`EVar` textToName op)
 
 patternParser :: TokParser Pattern
 patternParser = asPatternParser
@@ -330,7 +342,7 @@ asPatternParser =
         name <- identifierTextParser
         expectedTok TkReservedAt
         inner <- patternAtomParser
-        pure (\span' -> PAs span' name inner)
+        pure (\span' -> PAs span' (Name Nothing VarName name) inner)
     )
     <|> infixPatternParser
 
@@ -342,7 +354,10 @@ infixPatternParser = do
 
 buildInfixPattern :: Pattern -> (Text, Pattern) -> Pattern
 buildInfixPattern lhs (op, rhs) =
-  PInfix (mergeSourceSpans (getSourceSpan lhs) (getSourceSpan rhs)) lhs op rhs
+  -- Constructor operators (starting with ':') use DataName namespace
+  let opName = textToName op
+      ns = if T.isPrefixOf ":" (nameIdent opName) then DataName else VarName
+   in PInfix (mergeSourceSpans (getSourceSpan lhs) (getSourceSpan rhs)) lhs (opName {nameSpace = ns}) rhs
 
 conOperatorParser :: TokParser Text
 conOperatorParser =
@@ -368,7 +383,7 @@ buildPatternApp lhs rhs =
   case lhs of
     PCon lSpan name args -> PCon (mergeSourceSpans lSpan (getSourceSpan rhs)) name (args <> [rhs])
     PVar lSpan name
-      | isConLikeName name -> PCon (mergeSourceSpans lSpan (getSourceSpan rhs)) name [rhs]
+      | isConLikeName (nameIdent name) -> PCon (mergeSourceSpans lSpan (getSourceSpan rhs)) (name {nameSpace = DataName}) [rhs]
     _ -> lhs
 
 patternAtomParser :: TokParser Pattern
@@ -592,13 +607,13 @@ parenExprParser = withSpan $ do
       op <- infixOperatorParserExcept []
       rhs <- exprParser
       expectedTok TkSpecialRParen
-      pure (\span' -> EParen span' (ESectionR span' op rhs))
+      pure (\span' -> EParen span' (ESectionR span' (textToName op) rhs))
 
     parseSectionL = do
       lhs <- appExprParser
       op <- infixOperatorParserExcept []
       expectedTok TkSpecialRParen
-      pure (\span' -> EParen span' (ESectionL span' lhs op))
+      pure (\span' -> EParen span' (ESectionL span' lhs (textToName op)))
 
     parseTupleSectionExpr = do
       -- Try to parse as tuple section first (e.g., "(,1)" or "(1,)")
@@ -789,8 +804,8 @@ bareVarOrConPatternParser = withSpan $ do
   name <- identifierTextParser
   pure $ \span' ->
     if isConLikeName name
-      then PCon span' name []
-      else PVar span' name
+      then PCon span' (Name Nothing DataName name) []
+      else PVar span' (Name Nothing VarName name)
 
 recordPatternParser :: TokParser Pattern
 recordPatternParser = withSpan $ do
@@ -798,13 +813,13 @@ recordPatternParser = withSpan $ do
   expectedTok TkSpecialLBrace
   mClose <- MP.optional (expectedTok TkSpecialRBrace)
   case mClose of
-    Just () -> pure (\span' -> PRecord span' con [])
+    Just () -> pure (\span' -> PRecord span' (Name Nothing DataName con) [])
     Nothing -> do
       fields <- recordFieldPatternParser `MP.sepEndBy` expectedTok TkSpecialComma
       expectedTok TkSpecialRBrace
-      pure (\span' -> PRecord span' con fields)
+      pure (\span' -> PRecord span' (Name Nothing DataName con) fields)
 
-recordFieldPatternParser :: TokParser (Text, Pattern)
+recordFieldPatternParser :: TokParser (Name, Pattern)
 recordFieldPatternParser = do
   startPos <- MP.getSourcePos
   field <- identifierTextParser
@@ -813,11 +828,11 @@ recordFieldPatternParser = do
   case mEq of
     Just () -> do
       pat <- patternParser
-      pure (field, pat)
+      pure (Name Nothing VarName field, pat)
     Nothing -> do
       -- NamedFieldPuns: just "field" means "field = field"
       let span' = sourceSpanFromPositions startPos endPos
-      pure (field, PVar span' field)
+      pure (Name Nothing VarName field, PVar span' (Name Nothing VarName field))
 
 listPatternParser :: TokParser Pattern
 listPatternParser = withSpan $ do
@@ -865,7 +880,7 @@ isPatternAppHead :: Pattern -> Bool
 isPatternAppHead pat =
   case pat of
     PCon {} -> True
-    PVar _ name -> isConLikeName name
+    PVar _ name -> isConLikeName (nameIdent name)
     _ -> False
 
 compGuardStmtParser :: TokParser CompStmt
@@ -876,7 +891,7 @@ compGuardStmtParser = withSpan $ do
 varExprParser :: TokParser Expr
 varExprParser = withSpan $ do
   name <- identifierTextParser
-  pure (`EVar` name)
+  pure (`EVar` textToName name)
 
 simplePatternParser :: TokParser Pattern
 simplePatternParser =
@@ -885,7 +900,7 @@ simplePatternParser =
         name <- identifierTextParser
         expectedTok TkReservedAt
         inner <- patternAtomParser
-        pure (\span' -> PAs span' name inner)
+        pure (\span' -> PAs span' (Name Nothing VarName name) inner)
     )
     <|> patternAtomParser
 
@@ -898,7 +913,7 @@ forallTypeParser = withSpan $ do
   binders <- MP.some identifierTextParser
   expectedTok (TkVarSym ".")
   inner <- MP.try contextTypeParser <|> typeFunParser
-  pure (\span' -> TForall span' binders inner)
+  pure (\span' -> TForall span' (map (Name Nothing TvName) binders) inner)
 
 contextTypeParser :: TokParser Type
 contextTypeParser = do
@@ -934,7 +949,7 @@ typeInfixParser = do
 buildInfixType :: Type -> (Text, Type) -> Type
 buildInfixType lhs (op, rhs) =
   let span' = mergeSourceSpans (getSourceSpan lhs) (getSourceSpan rhs)
-      opType = TCon span' op
+      opType = TCon span' (Name Nothing TcClsName op)
    in TApp span' (TApp span' opType lhs) rhs
 
 typeInfixOperatorParser :: TokParser Text
@@ -984,7 +999,7 @@ typeParenOperatorParser = withSpan $ do
       -- Note: ~ is now lexed as TkVarSym "~" so TkVarSym case handles it
       _ -> Nothing
   expectedTok TkSpecialRParen
-  pure (`TCon` op)
+  pure (`TCon` Name Nothing TcClsName op)
 
 typeQuasiQuoteParser :: TokParser Type
 typeQuasiQuoteParser =
@@ -998,8 +1013,8 @@ typeIdentifierParser = withSpan $ do
   name <- identifierTextParser
   pure $ \span' ->
     case T.uncons name of
-      Just (c, _) | isLower c || c == '_' -> TVar span' name
-      _ -> TCon span' name
+      Just (c, _) | isLower c || c == '_' -> TVar span' (Name Nothing TvName name)
+      _ -> TCon span' (Name Nothing TcClsName name)
 
 typeStarParser :: TokParser Type
 typeStarParser = withSpan $ do
