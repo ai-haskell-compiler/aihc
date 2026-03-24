@@ -270,7 +270,7 @@ types-list-type-constructor	types	types/list-type-constructor.hs	pass	parser now
 types-maybe-type-constructor	types	types/maybe-type-constructor.hs	pass	parser now handles maybe type constructors
 types-function-type-constructor	types	types/function-type-constructor.hs	pass	parser now supports function type constructors in type positions
 types-function-type-constructor-partial	types	types/function-type-constructor-partial.hs	pass	parser now supports partial function type constructors in type positions
-types-tuple-type-constructor	types	types/tuple-type-constructor.hs	xfail	parser intentionally disabled
+types-tuple-type-constructor	types	types/tuple-type-constructor.hs	pass	parser now supports tuple type constructors
 types-nested-maybe-list	types	types/nested-maybe-list.hs	pass	parser now handles nested maybe/list type constructors
 
 layout-let	layout	layout/let-layout.hs	pass	parser now supports let layout forms
@@ -298,11 +298,11 @@ hashable-xxhash-tests-numeric-underscores	corpus	corpus/hashable/hashable-xxhash
 modules-import-operator	modules	modules/import-operator.hs	pass	parser now supports parenthesized type operators with wildcard in import lists
 vinyl-loeb-rloeb-section	corpus	corpus/vinyl-loeb-rloeb-section.hs	pass	from vinyl-loeb; parser now supports parenthesized right sections like (($ go) ...)
 
-decls-instance-tuple-type-constructor	declarations	declarations/instance-tuple-type-constructor.hs	xfail	parser does not support tuple type constructors like ((,,) w s) in instance heads
+decls-instance-tuple-type-constructor	declarations	declarations/instance-tuple-type-constructor.hs	pass	parser now supports tuple type constructors like ((,,) w s) in instance heads
 decls-data-record-function-type	declarations	declarations/data-record-function-type.hs	pass	parser now supports function types in record field declarations
 decls-data-record-function-type-simple	declarations	declarations/data-record-function-type-simple.hs	pass	parser now supports function types in record field declarations (minimal repro)
 decls-operator-funlhs-infix-application	declarations	declarations/operator-funlhs-infix-application.hs	xfail	parser does not support infix operator application in function LHS like (g . h) x = ...
 decls-instance-method-guards	declarations	declarations/instance-method-guards.hs	pass	parser now supports guards in instance method definitions
 types-newtype-record-function-type	types	types/newtype-record-function-type.hs	pass	parser now supports function types in newtype record field declarations
-types-tuple-type-constructor-prefix	types	types/tuple-type-constructor-prefix.hs	xfail	parser does not support prefix tuple type constructor syntax like (,) a b
+types-tuple-type-constructor-prefix	types	types/tuple-type-constructor-prefix.hs	pass	parser now supports prefix tuple type constructor syntax like (,) a b
 decls-data-infix-backtick	declarations	declarations/infix-con.hs	pass	parser now supports backtick infix data constructors

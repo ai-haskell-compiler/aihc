@@ -1020,6 +1020,17 @@ typeParenOrTupleParser = withSpan $ do
   case mClosed of
     Just () -> pure (`TTuple` [])
     Nothing -> do
+      MP.try tupleConstructorParser <|> parenthesizedTypeOrTupleParser
+  where
+    tupleConstructorParser = do
+      _ <- expectedTok TkSpecialComma
+      moreCommas <- MP.many (expectedTok TkSpecialComma)
+      expectedTok TkSpecialRParen
+      let arity = 2 + length moreCommas
+          tupleConName = "(" <> T.replicate (arity - 1) "," <> ")"
+      pure (`TCon` tupleConName)
+
+    parenthesizedTypeOrTupleParser = do
       first <- typeParser
       mComma <- MP.optional (expectedTok TkSpecialComma)
       case mComma of
