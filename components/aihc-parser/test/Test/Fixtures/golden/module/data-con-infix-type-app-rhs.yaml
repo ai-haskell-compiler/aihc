@@ -1,0 +1,6 @@
+extensions: []
+input: |
+  data A a b = b `Infix` a b
+ast: |
+  Module {decls = [DeclData (DataDecl {name = "A", params = [TyVarBinder {name = "a"}, TyVarBinder {name = "b"}], constructors = [InfixCon {op = "Infix", lhs = BangType {type = TVar "b"}, rhs = BangType {type = TApp (TVar "a") (TVar "b")}}]})]}
+status: pass

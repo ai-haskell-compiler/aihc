@@ -476,8 +476,7 @@ dataDeclParser :: TokParser Decl
 dataDeclParser = withSpan $ do
   keywordTok TkKeywordData
   context <- MP.optional (MP.try (declContextParser <* expectedTok TkReservedDoubleArrow))
-  typeName <- constructorIdentifierParser
-  typeParams <- MP.many typeParamParser
+  (typeName, typeParams) <- typeDeclHeadParser
   -- Try GADT syntax (where) first, then traditional syntax (=)
   (constructors, derivingClauses) <- MP.try gadtStyleDataDecl <|> traditionalStyleDataDecl
   pure $ \span' ->
@@ -511,8 +510,7 @@ newtypeDeclParser :: TokParser Decl
 newtypeDeclParser = withSpan $ do
   keywordTok TkKeywordNewtype
   context <- MP.optional (MP.try (declContextParser <* expectedTok TkReservedDoubleArrow))
-  typeName <- constructorIdentifierParser
-  typeParams <- MP.many typeParamParser
+  (typeName, typeParams) <- typeDeclHeadParser
   -- Try GADT syntax (where) first, then traditional syntax (=)
   (constructor, derivingClauses) <- MP.try gadtStyleNewtypeDecl <|> traditionalStyleNewtypeDecl
   pure $ \span' ->
@@ -641,6 +639,21 @@ gadtResultTypeParser = typeParser
 declContextParser :: TokParser [Constraint]
 declContextParser = contextParserWith typeAtomParser
 
+typeDeclHeadParser :: TokParser (Text, [TyVarBinder])
+typeDeclHeadParser =
+  MP.try infixHeadParser <|> prefixHeadParser
+  where
+    prefixHeadParser = do
+      name <- constructorIdentifierParser
+      params <- MP.many typeParamParser
+      pure (name, params)
+
+    infixHeadParser = do
+      lhs <- typeParamParser
+      op <- constructorOperatorParser
+      rhs <- typeParamParser
+      pure (op, [lhs, rhs])
+
 typeParamParser :: TokParser TyVarBinder
 typeParamParser =
   withSpan $
@@ -721,9 +734,9 @@ dataConRecordOrPrefixParser forallVars context = do
 
 dataConInfixParser :: [Text] -> [Constraint] -> TokParser (SourceSpan -> DataConDecl)
 dataConInfixParser forallVars context = do
-  lhs <- constructorArgParser
+  lhs <- infixConstructorArgParser
   op <- constructorOperatorParser
-  rhs <- constructorArgParser
+  rhs <- infixConstructorArgParser
   pure (\span' -> InfixCon span' forallVars context lhs op rhs)
 
 recordFieldsParser :: TokParser [FieldDecl]
@@ -749,6 +762,19 @@ constructorArgParser :: TokParser BangType
 constructorArgParser = MP.try $ do
   MP.notFollowedBy derivingKeywordParser
   bangTypeParser
+
+infixConstructorArgParser :: TokParser BangType
+infixConstructorArgParser = MP.try $ do
+  MP.notFollowedBy derivingKeywordParser
+  withSpan $ do
+    strict <- MP.option False (expectedTok TkPrefixBang >> pure True)
+    ty <- typeAppParser
+    pure $ \span' ->
+      BangType
+        { bangSpan = span',
+          bangStrict = strict,
+          bangType = ty
+        }
 
 derivingKeywordParser :: TokParser ()
 derivingKeywordParser =
