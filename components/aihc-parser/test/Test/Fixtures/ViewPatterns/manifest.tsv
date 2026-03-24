@@ -1,3 +1,3 @@
 viewpatterns-funarg	patterns	viewpatterns-funarg.hs	pass	parser now supports view patterns in function arguments
 viewpatterns-casealt	patterns	viewpatterns-casealt.hs	pass	parser now supports view patterns in case alternatives
-viewpatterns-patbind	patterns	viewpatterns-patbind.hs	xfail	parser intentionally disabled
+viewpatterns-patbind	patterns	viewpatterns-patbind.hs	pass	parser now supports pattern binding declarations with view patterns

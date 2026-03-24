@@ -186,6 +186,10 @@ declParser = do
       case ident of
         "pattern" -> unsupportedDeclParser "pattern synonym declarations are not implemented yet"
         _ -> MP.try typeSigDeclParser <|> valueDeclParser
+    TkSpecialLParen -> MP.try typeSigDeclParser <|> MP.try patternBindDeclParser <|> valueDeclParser
+    TkSpecialLBracket -> patternBindDeclParser
+    TkPrefixTilde -> patternBindDeclParser
+    TkKeywordUnderscore -> patternBindDeclParser
     _ -> MP.try typeSigDeclParser <|> valueDeclParser
 
 standaloneKindSigDeclParser :: TokParser Decl
@@ -404,17 +408,15 @@ instanceValueItemParser = withSpan $ MP.try infixInstanceValueParser <|> prefixI
     prefixInstanceValueParser = do
       name <- binderNameParser
       pats <- MP.many simplePatternParser
-      expectedTok TkReservedEquals
-      rhsExpr <- exprParser
-      pure (\span' -> InstanceItemBind span' (functionBindValue span' name pats (UnguardedRhs span' rhsExpr)))
+      rhs <- equationRhsParser
+      pure (\span' -> InstanceItemBind span' (functionBindValue span' name pats rhs))
 
     infixInstanceValueParser = do
       lhsPat <- patternParser
       op <- infixOperatorNameParser
       rhsPat <- patternParser
-      expectedTok TkReservedEquals
-      rhsExpr <- exprParser
-      pure (\span' -> InstanceItemBind span' (functionBindValue span' op [lhsPat, rhsPat] (UnguardedRhs span' rhsExpr)))
+      rhs <- equationRhsParser
+      pure (\span' -> InstanceItemBind span' (functionBindValue span' op [lhsPat, rhsPat] rhs))
 
 foreignDeclParser :: TokParser Decl
 foreignDeclParser = withSpan $ do
@@ -705,6 +707,10 @@ dataConRecordOrPrefixParser forallVars context = do
     Just fields -> pure (\span' -> RecordCon span' forallVars context name fields)
     Nothing -> do
       args <- MP.many constructorArgParser
+      -- Ensure we're not leaving a constructor operator unconsumed.
+      -- If there's a constructor operator next, this is actually an infix form
+      -- and we should backtrack to let dataConInfixParser handle it.
+      MP.notFollowedBy constructorOperatorParser
       pure (\span' -> PrefixCon span' forallVars context name args)
   where
     -- Layout may inject a virtual ';' before a newline-started record field block.
@@ -773,14 +779,10 @@ recordFieldBangTypeParser = withSpan $ do
         bangType = ty
       }
 
+-- | Parse a type in a constructor field position.
+-- This supports function types (Int -> Int) and type applications (Maybe Int).
 constructorFieldTypeParser :: TokParser Type
-constructorFieldTypeParser = do
-  first <- typeAtomParser
-  rest <- MP.many typeAtomParser
-  pure (foldl appendTypeArg first rest)
-  where
-    appendTypeArg lhs rhs =
-      TApp (mergeSourceSpans (getSourceSpan lhs) (getSourceSpan rhs)) lhs rhs
+constructorFieldTypeParser = typeParser
 
 constructorNameParser :: TokParser Text
 constructorNameParser = constructorIdentifierParser
@@ -804,6 +806,14 @@ constructorOperatorParser =
 
 unsupportedDeclParser :: String -> TokParser Decl
 unsupportedDeclParser = fail
+
+-- | Parse a pattern binding declaration like @(x, y) = (1, 2)@.
+-- This handles bindings where the LHS is a pattern rather than a function name.
+patternBindDeclParser :: TokParser Decl
+patternBindDeclParser = withSpan $ do
+  pat <- patternParser
+  rhs <- equationRhsParser
+  pure (\span' -> DeclValue span' (PatternBind span' pat rhs))
 
 valueDeclParser :: TokParser Decl
 valueDeclParser = withSpan $ MP.try infixValueDeclParser <|> prefixValueDeclParser

@@ -177,6 +177,16 @@ prettyValueDeclLines valueDecl =
     FunctionBind _ name matches ->
       concatMap (prettyFunctionMatchLines name) matches
 
+-- | Pretty-print a value declaration on a single line.
+-- For function binds with multiple matches, each match becomes a semicolon-separated item.
+-- For function binds with guards, the guards are space-separated.
+prettyValueDeclSingleLine :: ValueDecl -> Doc ann
+prettyValueDeclSingleLine valueDecl =
+  case valueDecl of
+    PatternBind _ pat rhs -> prettyPattern pat <+> prettyRhs rhs
+    FunctionBind _ name matches ->
+      hsep (punctuate semi (map (prettyFunctionMatch name) matches))
+
 prettyFunctionMatchLines :: Text -> Match -> [Doc ann]
 prettyFunctionMatchLines name match =
   case matchRhs match of
@@ -326,7 +336,7 @@ prettyPattern pat =
     PCon _ con args -> hsep (pretty con : map prettyPatternAtom args)
     PInfix _ lhs op rhs -> prettyPatternAtom lhs <+> prettyInfixOp op <+> prettyPatternAtom rhs
     PView _ viewExpr inner -> parens (prettyExprPrec 0 viewExpr <+> "->" <+> prettyPattern inner)
-    PAs _ name inner -> pretty name <+> "@" <+> prettyPatternAtom inner
+    PAs _ name inner -> pretty name <> "@" <> prettyPatternAtomAfterAt inner
     PStrict _ inner -> "!" <> prettyUnaryPattern inner
     PIrrefutable _ inner -> "~" <> prettyUnaryPattern inner
     PNegLit _ lit -> "-" <> prettyLiteral lit
@@ -364,6 +374,13 @@ prettyPatternAtom pat =
     PStrict _ _ -> prettyPattern pat
     PView {} -> prettyPattern pat
     _ -> parens (prettyPattern pat)
+
+-- | Pretty print a pattern atom after @. Negative literals need parens since a@-1 is ambiguous.
+prettyPatternAtomAfterAt :: Pattern -> Doc ann
+prettyPatternAtomAfterAt pat =
+  case pat of
+    PNegLit {} -> parens (prettyPattern pat)
+    _ -> prettyPatternAtom pat
 
 prettyUnaryPattern :: Pattern -> Doc ann
 prettyUnaryPattern pat =
@@ -582,10 +599,7 @@ prettyClassItem item =
             <> maybe [] (pure . pretty . show) prec
             <> map prettyInfixOp ops
         )
-    ClassItemDefault _ valueDecl ->
-      case prettyValueDeclLines valueDecl of
-        [] -> ""
-        (line : _) -> line
+    ClassItemDefault _ valueDecl -> prettyValueDeclSingleLine valueDecl
 
 prettyInstanceDecl :: InstanceDecl -> Doc ann
 prettyInstanceDecl decl =
@@ -621,10 +635,7 @@ prettyDerivingStrategy strategy =
 prettyInstanceItem :: InstanceDeclItem -> Doc ann
 prettyInstanceItem item =
   case item of
-    InstanceItemBind _ valueDecl ->
-      case prettyValueDeclLines valueDecl of
-        [] -> ""
-        (line : _) -> line
+    InstanceItemBind _ valueDecl -> prettyValueDeclSingleLine valueDecl
     InstanceItemTypeSig _ names ty -> hsep [hsep (punctuate comma (map prettyBinderName names)), "::", prettyType ty]
     InstanceItemFixity _ assoc prec ops ->
       hsep
@@ -971,7 +982,13 @@ prettyCompStmt stmt =
 
 prettyInlineDecls :: [Decl] -> Doc ann
 prettyInlineDecls decls =
-  hsep (punctuate semi (concatMap prettyDeclLines decls))
+  hsep (punctuate semi (map prettyInlineDecl decls))
+  where
+    -- For value declarations, use single-line form to keep guarded bindings together.
+    -- For other declarations, join their lines with spaces.
+    prettyInlineDecl decl = case decl of
+      DeclValue _ valueDecl -> prettyValueDeclSingleLine valueDecl
+      _ -> hsep (prettyDeclLines decl)
 
 prettyArithSeq :: ArithSeq -> Doc ann
 prettyArithSeq seqInfo =
