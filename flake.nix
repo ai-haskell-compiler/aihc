@@ -14,13 +14,83 @@
           "aarch64-darwin"
         ];
         forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f (import nixpkgs { inherit system; }));
+
+        # Source filtering: only include relevant files for each component
+        # This prevents rebuilds when unrelated files change
+        parserSrc = pkgs: pkgs.lib.cleanSourceWith {
+          src = ./components/aihc-parser;
+          filter = path: type:
+            let
+              baseName = baseNameOf path;
+              # Include Haskell sources, cabal file, and test fixtures
+              isHaskell = pkgs.lib.hasSuffix ".hs" baseName;
+              isCabal = pkgs.lib.hasSuffix ".cabal" baseName;
+              isYaml = pkgs.lib.hasSuffix ".yaml" baseName || pkgs.lib.hasSuffix ".yml" baseName;
+              isTsv = pkgs.lib.hasSuffix ".tsv" baseName;
+              isJson = pkgs.lib.hasSuffix ".json" baseName;
+              isLicense = baseName == "LICENSE";
+              isDir = type == "directory";
+            in isDir || isHaskell || isCabal || isYaml || isTsv || isJson || isLicense;
+        };
+
+        cppSrc = pkgs: pkgs.lib.cleanSourceWith {
+          src = ./components/aihc-cpp;
+          filter = path: type:
+            let
+              baseName = baseNameOf path;
+              isHaskell = pkgs.lib.hasSuffix ".hs" baseName;
+              isCabal = pkgs.lib.hasSuffix ".cabal" baseName;
+              isYaml = pkgs.lib.hasSuffix ".yaml" baseName || pkgs.lib.hasSuffix ".yml" baseName;
+              isTsv = pkgs.lib.hasSuffix ".tsv" baseName;
+              isInc = pkgs.lib.hasSuffix ".inc" baseName;  # Include files for CPP tests
+              isLicense = baseName == "LICENSE";
+              isDir = type == "directory";
+            in isDir || isHaskell || isCabal || isYaml || isTsv || isInc || isLicense;
+        };
+
+        # Filtered source for nix linting - only nix files
+        nixSrc = pkgs: pkgs.lib.cleanSourceWith {
+          src = ./.;
+          filter = path: type:
+            let
+              baseName = baseNameOf path;
+              isNix = pkgs.lib.hasSuffix ".nix" baseName;
+            in type == "directory" || isNix;
+        };
+
+        # Filtered source for Haskell linting/formatting - .hs files and .cabal files in components
+        # (.cabal files needed for ormolu to detect language settings like GHC2021)
+        haskellSrc = pkgs: pkgs.lib.cleanSourceWith {
+          src = ./components;
+          filter = path: type:
+            let
+              baseName = baseNameOf path;
+              isHaskell = pkgs.lib.hasSuffix ".hs" baseName;
+              isCabal = pkgs.lib.hasSuffix ".cabal" baseName;
+              # Exclude test fixtures from linting
+              pathStr = toString path;
+              isFixture = pkgs.lib.hasInfix "/test/Test/Fixtures/" pathStr;
+            in type == "directory" || isCabal || (isHaskell && !isFixture);
+        };
+
+        # Filtered source for scripts - only shell scripts
+        scriptsSrc = pkgs: pkgs.lib.cleanSourceWith {
+          src = ./.;
+          filter = path: type:
+            let
+              baseName = baseNameOf path;
+              isSh = pkgs.lib.hasSuffix ".sh" baseName;
+              isScriptsDir = pkgs.lib.hasInfix "/scripts" (toString path);
+            in type == "directory" || (isSh && isScriptsDir);
+        };
+
         mkHsPkgs = pkgs:
           pkgs.haskellPackages.override {
              overrides = final: prev: {
                ghc-lib-parser = pkgs.haskell.lib.dontHaddock final.ghc-lib-parser_9_14_1_20251220;
                # Disable tests by default - tests are run explicitly via the checks
-               aihc-parser = pkgs.haskell.lib.dontCheck (final.callCabal2nix "aihc-parser" ./components/aihc-parser { });
-               aihc-cpp = pkgs.haskell.lib.dontCheck (final.callCabal2nix "aihc-cpp" ./components/aihc-cpp { });
+               aihc-parser = pkgs.haskell.lib.dontCheck (final.callCabal2nix "aihc-parser" (parserSrc pkgs) { });
+               aihc-cpp = pkgs.haskell.lib.dontCheck (final.callCabal2nix "aihc-cpp" (cppSrc pkgs) { });
              };
            };
         # Haskell packages with tests enabled and CLI executables available via env vars
@@ -29,14 +99,14 @@
              overrides = final: prev: {
                ghc-lib-parser = pkgs.haskell.lib.dontHaddock final.ghc-lib-parser_9_14_1_20251220;
                aihc-parser = pkgs.haskell.lib.overrideCabal
-                 (final.callCabal2nix "aihc-parser" ./components/aihc-parser { })
+                 (final.callCabal2nix "aihc-parser" (parserSrc pkgs) { })
                  (old: {
                    preCheck = (old.preCheck or "") + ''
                      export AIHC_LEXER_EXE="$PWD/dist/build/aihc-lexer/aihc-lexer"
                      export AIHC_PARSER_EXE="$PWD/dist/build/aihc-parser/aihc-parser"
                    '';
                  });
-               aihc-cpp = final.callCabal2nix "aihc-cpp" ./components/aihc-cpp { };
+               aihc-cpp = final.callCabal2nix "aihc-cpp" (cppSrc pkgs) { };
              };
            };
         # Haskell packages with Haddock enabled for documentation generation
@@ -44,8 +114,8 @@
           pkgs.haskellPackages.override {
             overrides = final: prev: {
               ghc-lib-parser = pkgs.haskell.lib.dontHaddock final.ghc-lib-parser_9_14_1_20251220;
-              aihc-parser = pkgs.haskell.lib.dontCheck (pkgs.haskell.lib.doHaddock (final.callCabal2nix "aihc-parser" ./components/aihc-parser { }));
-              aihc-cpp = pkgs.haskell.lib.dontCheck (pkgs.haskell.lib.doHaddock (final.callCabal2nix "aihc-cpp" ./components/aihc-cpp { }));
+              aihc-parser = pkgs.haskell.lib.dontCheck (pkgs.haskell.lib.doHaddock (final.callCabal2nix "aihc-parser" (parserSrc pkgs) { }));
+              aihc-cpp = pkgs.haskell.lib.dontCheck (pkgs.haskell.lib.doHaddock (final.callCabal2nix "aihc-cpp" (cppSrc pkgs) { }));
             };
           };
         # Combined Haddock documentation derivation
@@ -129,9 +199,9 @@ WRAPPER
             overrides = final: prev: {
               ghc-lib-parser = pkgs.haskell.lib.dontHaddock final.ghc-lib-parser_9_14_1_20251220;
               # Parser needs test setup for CLI executables
-              aihc-parser = enableCoverageWithTests (final.callCabal2nix "aihc-parser" ./components/aihc-parser { });
+              aihc-parser = enableCoverageWithTests (final.callCabal2nix "aihc-parser" (parserSrc pkgs) { });
               # CPP doesn't need the CLI setup
-              aihc-cpp = enableCoverageWithExport (final.callCabal2nix "aihc-cpp" ./components/aihc-cpp { });
+              aihc-cpp = enableCoverageWithExport (final.callCabal2nix "aihc-cpp" (cppSrc pkgs) { });
             };
           };
         # Combined coverage report derivation
@@ -544,7 +614,7 @@ WRAPPER
           parserTests = pkgs.haskell.lib.doCheck (pkgs.haskell.lib.dontHaddock hsPkgsWithTests.aihc-parser);
           cppTests = pkgs.haskell.lib.doCheck (pkgs.haskell.lib.dontHaddock hsPkgsWithTests.aihc-cpp);
           nixLint = pkgs.runCommand "aihc-nix-lint" {
-            src = ./.;
+            src = nixSrc pkgs;
             nativeBuildInputs = [ pkgs.statix ];
           } ''
             cd "$src"
@@ -552,52 +622,50 @@ WRAPPER
             touch "$out"
           '';
           haskellLint = pkgs.runCommand "aihc-haskell-lint" {
-            src = ./.;
-            nativeBuildInputs = [ pkgs.haskellPackages.hlint ];
+            src = haskellSrc pkgs;
+            nativeBuildInputs = [ pkgs.haskellPackages.hlint pkgs.findutils ];
           } ''
             cd "$src"
-            find components -type f -name '*.hs' ! -path '*/test/Test/Fixtures/*' -print0 \
+            find . -type f -name '*.hs' -print0 \
               | xargs -0 -r hlint
             touch "$out"
           '';
           haskellFormat = pkgs.runCommand "aihc-haskell-format" {
-            src = ./.;
-            nativeBuildInputs = [ pkgs.haskellPackages.ormolu ];
+            src = haskellSrc pkgs;
+            nativeBuildInputs = [ pkgs.haskellPackages.ormolu pkgs.findutils ];
           } ''
             cd "$src"
-            find components -type f -name '*.hs' ! -path '*/test/Test/Fixtures/*' -print0 \
+            find . -type f -name '*.hs' -print0 \
               | xargs -0 -r ormolu --mode check
             touch "$out"
           '';
           parserProgressStrict = pkgs.runCommand "aihc-parser-progress-strict" {
-            src = ./.;
+            src = parserSrc pkgs;
             nativeBuildInputs = [ hsPkgs.aihc-parser ];
           } ''
-            cd "$src/components/aihc-parser"
+            cd "$src"
             parser-progress --strict
             touch "$out"
           '';
           lexerProgressStrict = pkgs.runCommand "aihc-lexer-progress-strict" {
-            src = ./.;
+            src = parserSrc pkgs;
             nativeBuildInputs = [ hsPkgs.aihc-parser ];
           } ''
-            cd "$src/components/aihc-parser"
+            cd "$src"
             lexer-progress --strict
             touch "$out"
           '';
           parserExtensionProgressStrict = pkgs.runCommand "aihc-parser-extension-progress-strict" {
-            src = ./.;
+            src = parserSrc pkgs;
             nativeBuildInputs = [ hsPkgs.aihc-parser ];
           } ''
-            cd "$src/components/aihc-parser"
+            cd "$src"
             extension-progress --strict
             touch "$out"
           '';
           parserQuickcheckSmoke = pkgs.runCommand "aihc-parser-quickcheck-smoke" {
-            src = ./.;
             nativeBuildInputs = [ hsPkgs.aihc-parser pkgs.jq ];
           } ''
-            cd "$src"
             first_json="$(mktemp)"
             second_json="$(mktemp)"
             parser-quickcheck-batch --max-success 200 --seed 123 --property "generated module AST pretty-printer round-trip" >"$first_json"
@@ -617,15 +685,15 @@ WRAPPER
             touch "$out"
           '';
           cppProgressStrict = pkgs.runCommand "aihc-cpp-progress-strict" {
-            src = ./.;
+            src = cppSrc pkgs;
             nativeBuildInputs = [ hsPkgs.aihc-cpp ];
           } ''
-            cd "$src/components/aihc-cpp"
+            cd "$src"
             cpp-progress --strict
             touch "$out"
           '';
           parserQuickcheckSoakCheck = pkgs.runCommand "aihc-parser-quickcheck-soak-check" {
-            src = ./.;
+            src = scriptsSrc pkgs;
             nativeBuildInputs = [ pkgs.bash pkgs.git pkgs.jq ];
           } ''
             cd "$src"
@@ -636,14 +704,14 @@ WRAPPER
           haddockDocs = mkCombinedDocs pkgs;
           # Doctest for aihc-cpp documentation examples
           cppDoctest = pkgs.runCommand "aihc-cpp-doctest" {
-            src = ./.;
+            src = cppSrc pkgs;
             nativeBuildInputs = [
               pkgs.haskellPackages.doctest
               pkgs.haskellPackages.ghc
               hsPkgs.aihc-cpp
             ];
           } ''
-            cd "$src/components/aihc-cpp"
+            cd "$src"
             # Run doctest on the Aihc.Cpp module
             doctest -isrc src/Aihc/Cpp.hs
             touch "$out"
@@ -659,10 +727,10 @@ WRAPPER
                 p.doctest
               ]);
             in pkgs.runCommand "aihc-parser-doctest" {
-            src = ./.;
+            src = parserSrc pkgs;
             nativeBuildInputs = [ ghcEnv ];
           } ''
-            cd "$src/components/aihc-parser"
+            cd "$src"
             # Find the GHC package database from ghcWithPackages
             PKGDB=$(ghc --print-global-package-db)
             # Run doctest with explicit package database
