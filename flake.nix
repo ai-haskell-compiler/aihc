@@ -3,9 +3,10 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+    ghc-wasm-meta.url = "gitlab:haskell-wasm/ghc-wasm-meta?host=gitlab.haskell.org";
   };
 
-   outputs = { self, nixpkgs }:
+   outputs = { self, nixpkgs, ghc-wasm-meta }:
       let
         systems = [
           "x86_64-linux"
@@ -301,11 +302,97 @@ WRAPPER
             echo "Contents:" >> "$out/README.txt"
             ls -la "$out" >> "$out/README.txt"
           '';
-     in {
+      in {
       packages = forAllSystems (pkgs: {
         docs = mkCombinedDocs pkgs;
         coverage = mkCoverageReport pkgs;
         default = mkCombinedDocs pkgs;
+        wasm = let
+          wasmGhc = ghc-wasm-meta.packages.${pkgs.system}.wasm32-wasi-ghc-9_12;
+          wasmCabal = ghc-wasm-meta.packages.${pkgs.system}.wasm32-wasi-cabal-9_12;
+          wasmtime = ghc-wasm-meta.packages.${pkgs.system}.wasmtime;
+          cppSrcFiltered = cppSrc pkgs;
+        in pkgs.runCommand "aihc-wasm" {
+          src = pkgs.lib.cleanSourceWith {
+            src = ./.;
+            filter = path: type:
+              let
+                baseName = baseNameOf path;
+                isParser = pkgs.lib.hasInfix "/aihc-parser/" (toString path);
+                isCpp = pkgs.lib.hasInfix "/aihc-cpp/" (toString path);
+              in type == "directory" || isParser || isCpp;
+          };
+          buildInputs = [
+            pkgs.bash
+            wasmGhc
+            wasmCabal
+            wasmtime
+            pkgs.gmp
+          ];
+          __noChroot = true;
+        } ''
+          set -euo pipefail
+
+          # nativeBuildInputs should add wasm tools to PATH automatically
+
+          # Set up the cabal config directory in a writable location
+          export HOME="$PWD/home"
+          mkdir -p "$HOME/.ghc-wasm/.cabal"
+          export CABAL_DIR="$HOME/.ghc-wasm/.cabal"
+
+          # Copy source to /tmp for cabal build (source is read-only in nix sandbox)
+          WORKDIR="$(mktemp -d)"
+          BUILDDIR="$WORKDIR/build"
+          mkdir -p "$BUILDDIR"
+
+          # Copy both aihc-parser and aihc-cpp sources
+          cp -r "$src/components/aihc-parser" "$WORKDIR/"
+          cp -r "$src/components/aihc-cpp" "$WORKDIR/"
+
+          # Create a cabal.project file to specify local packages
+          cat > "$WORKDIR/cabal.project" << 'EOF'
+packages:
+  aihc-cpp/
+  aihc-parser/
+EOF
+
+          cd "$WORKDIR"
+
+          # Configure for wasm32-wasi target using wasm32-wasi-cabal
+          # Add both packages as local packages
+          wasm32-wasi-cabal update --builddir="$BUILDDIR"
+          wasm32-wasi-cabal v2-configure --builddir="$BUILDDIR" \
+            --package-db=clear \
+            --package-db=global
+
+          # Build only aihc-parser and aihc-lexer executables (others may have WASI-incompatible deps)
+          wasm32-wasi-cabal build --disable-tests --disable-benchmarks \
+            exe:aihc-parser exe:aihc-lexer --builddir="$BUILDDIR"
+
+          mkdir -p "$out"
+
+          # Copy the built wasm executables
+          for exe in aihc-parser aihc-lexer; do
+            wasm_path="$(wasm32-wasi-cabal list-bin exe:$exe --builddir="$BUILDDIR")"
+            if [ -f "$wasm_path" ]; then
+              cp "$wasm_path" "$out/$exe.wasm"
+              echo "Built: $out/$exe.wasm"
+            fi
+          done
+
+          # Also copy the reactor modules for library if any
+          if [ -d "$BUILDDIR/build" ]; then
+            find "$BUILDDIR/build" -name "*.wasm" -type f -exec cp {} "$out/" \; 2>/dev/null || true
+          fi
+
+          # Verify the wasm files are valid
+          for f in "$out"/*.wasm; do
+            if [ -f "$f" ]; then
+              echo "Output: $f"
+              ls -la "$f"
+            fi
+          done
+        '';
       });
 
       apps = forAllSystems (pkgs:
