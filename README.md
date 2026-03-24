@@ -15,8 +15,8 @@
 
 | Name | Progress |
 | --- | --- |
-| Parser Stackage | <!-- AUTO-GENERATED: START parser-stackage-progress --> `895/3390` (`26.40%`) <!-- AUTO-GENERATED: END parser-stackage-progress --> |
-| Parser Tests | <!-- AUTO-GENERATED: START parser-progress --> `401/488` (`82.17%`) <!-- AUTO-GENERATED: END parser-progress --> |
+| Parser Stackage | <!-- AUTO-GENERATED: START parser-stackage-progress --> `980/3390` (`28.91%`) <!-- AUTO-GENERATED: END parser-stackage-progress --> |
+| Parser Tests | <!-- AUTO-GENERATED: START parser-progress --> `405/492` (`82.32%`) <!-- AUTO-GENERATED: END parser-progress --> |
 | Lexer Tests | <!-- AUTO-GENERATED: START lexer-progress --> `59/60` (`98.33%`) <!-- AUTO-GENERATED: END lexer-progress --> |
 | CPP preprocessor | <!-- AUTO-GENERATED: START cpp-progress --> `37/37` (`100.00%`) <!-- AUTO-GENERATED: END cpp-progress --> |
 
@@ -24,8 +24,8 @@
 | Component                      |       Code |      Tests |      Total |
 | :------------------------------ | ----------: | ----------: | ----------: |
 | aihc-cpp                       |        589 |        512 |       1101 |
-| aihc-parser                    |       5859 |      11365 |      17224 |
-| **Total**                      |       6448 |      11877 |      18325 |
+| aihc-parser                    |       5869 |      12049 |      17918 |
+| **Total**                      |       6458 |      12561 |      19019 |
 <!-- AUTO-GENERATED: END line-counts -->
 
 ## Ways to contribute

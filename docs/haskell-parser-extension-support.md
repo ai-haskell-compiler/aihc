@@ -36,7 +36,7 @@
 | DerivingStrategies | Supported | 5/5 | DerivingStrategies |
 | DerivingVia | Planned | - | DerivingVia |
 | DisambiguateRecordFields | Planned | - | DisambiguateRecordFields |
-| DoAndIfThenElse | Supported | 7/7 | DoAndIfThenElse |
+| DoAndIfThenElse | Supported | 9/9 | DoAndIfThenElse |
 | DuplicateRecordFields | Planned | - | DuplicateRecordFields |
 | EmptyCase | Supported | 4/4 | EmptyCase |
 | EmptyDataDecls | Supported | 5/5 | EmptyDataDecls |
