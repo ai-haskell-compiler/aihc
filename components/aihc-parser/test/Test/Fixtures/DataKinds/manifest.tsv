@@ -1,0 +1,1 @@
+datakinds-numeric-type-literal	types	datakinds-numeric-type-literal.hs	xfail	parser does not support numeric type-level literals with DataKinds
