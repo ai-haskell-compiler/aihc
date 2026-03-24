@@ -1,0 +1,5 @@
+packages:
+  ./components/aihc-cpp
+  ./components/aihc-parser
+
+tests: False

@@ -335,22 +335,77 @@ WRAPPER
         parser-wasm-wasi =
           let
             wasmTools = ghc-wasm-meta.packages.${pkgs.stdenv.hostPlatform.system}.all_9_10;
-            wasmParserTarballs = [
-              (pkgs.fetchurl { url = "https://hackage.haskell.org/package/colour-2.3.7/colour-2.3.7.tar.gz"; sha256 = "104nprq14qajna16q7qsybyjvfdrgazwj340c8rlxgjscxai0fqz"; })
-              (pkgs.fetchurl { url = "https://hackage.haskell.org/package/hashable-1.5.1.0/hashable-1.5.1.0.tar.gz"; sha256 = "04mig5gzgjbwaq9zycrnzy3b97fkqqwdrni0akjgzjcjrq87q2zd"; })
-              (pkgs.fetchurl { url = "https://hackage.haskell.org/package/integer-logarithms-1.0.5/integer-logarithms-1.0.5.tar.gz"; sha256 = "0nclcr82rypaj7453iil6xj9asjfrljy37qki731xzkqyzqzdpv6"; })
-              (pkgs.fetchurl { url = "https://hackage.haskell.org/package/primitive-0.9.1.0/primitive-0.9.1.0.tar.gz"; sha256 = "0xixplp2b5sh2sx6hqllhr8bcsd028v7ry2pibdwayrwh50xxd24"; })
-              (pkgs.fetchurl { url = "https://hackage.haskell.org/package/parser-combinators-1.3.1/parser-combinators-1.3.1.tar.gz"; sha256 = "1gs0yz7qw5j4w06pfpaiaingr6873znkkrs2m4izrw4xiz1nql4w"; })
-              (pkgs.fetchurl { url = "https://hackage.haskell.org/package/prettyprinter-1.7.1/prettyprinter-1.7.1.tar.gz"; sha256 = "0i8b3wjjpdvp5b857j065jwyrpgcnzgk75imrj7i3yhl668acvjy"; })
-              (pkgs.fetchurl { url = "https://hackage.haskell.org/package/ansi-terminal-types-1.1.3/ansi-terminal-types-1.1.3.tar.gz"; sha256 = "12d625xa33qwwzpw75zpw05mk2a5qvqwj8jdkbcrp27iawhwxjcz"; })
-              (pkgs.fetchurl { url = "https://hackage.haskell.org/package/case-insensitive-1.2.1.0/case-insensitive-1.2.1.0.tar.gz"; sha256 = "01p40hfjyldfds5jg6vlvvn3ihs4ki63xn6fh8yzngaz1izc2v99"; })
-              (pkgs.fetchurl { url = "https://hackage.haskell.org/package/scientific-0.3.8.1/scientific-0.3.8.1.tar.gz"; sha256 = "1znwribsk6rdyv91dbjdbfcfkl6yg2nw7f9fwqv7kz4x2jz82dxd"; })
-              (pkgs.fetchurl { url = "https://hackage.haskell.org/package/ansi-terminal-1.1.5/ansi-terminal-1.1.5.tar.gz"; sha256 = "0wrhwaicx3vz06r350n3n2s1x4zs5flchcpi4nj8ifp2yb787w4w"; })
-              (pkgs.fetchurl { url = "https://hackage.haskell.org/package/megaparsec-9.7.0/megaparsec-9.7.0.tar.gz"; sha256 = "15zc66lplq5382wayigcw9kql08nvp9403a8f9xaw85z4lv45vdr"; })
-              (pkgs.fetchurl { url = "https://hackage.haskell.org/package/prettyprinter-ansi-terminal-1.1.3/prettyprinter-ansi-terminal-1.1.3.tar.gz"; sha256 = "1cqxbcmy9ykk4pssq5hp6h51g2h547zfz549awh0c1fni8q3jdw1"; })
-              (pkgs.fetchurl { url = "https://hackage.haskell.org/package/optparse-applicative-0.19.0.0/optparse-applicative-0.19.0.0.tar.gz"; sha256 = "0waq6i6jk0zj9vb00m62khfcm9xdnz3afzs471vhqwr1v3psw5ng"; })
-            ];
-            wasmParserDepLines = pkgs.lib.concatMapStringsSep "\n" (dep: "  ${dep}") wasmParserTarballs;
+            wasmCabalDeps = pkgs.stdenvNoCC.mkDerivation {
+              pname = "aihc-parser-wasm-cabal-deps";
+              version = "0.1.0.0";
+              src = wasmBuildSrc pkgs;
+              nativeBuildInputs = [ wasmTools ];
+              buildPhase = ''
+                runHook preBuild
+                export HOME="$out/home"
+                mkdir -p "$HOME"
+                chmod -R u+w .
+
+                mkdir -p .wasm-build/pkg
+                {
+                  echo "cabal-version: 3.8"
+                  echo "name: aihc-parser-wasm"
+                  echo "version: 0.1.0.0"
+                  echo "build-type: Simple"
+                  echo
+                  awk '
+                    /^library$/ { emit=1 }
+                    /^test-suite spec$/ { emit=0 }
+                    emit { print }
+                  ' components/aihc-parser/aihc-parser.cabal \
+                    | sed 's#hs-source-dirs:[[:space:]]*src#hs-source-dirs:   ../../components/aihc-parser/src#'
+                  echo
+                  awk '
+                    /^executable aihc-lexer$/ { emit=1 }
+                    /^executable aihc-parser$/ { emit=0 }
+                    emit { print }
+                  ' components/aihc-parser/aihc-parser.cabal \
+                    | sed 's#hs-source-dirs:[[:space:]]*app/aihc-lexer#hs-source-dirs:     ../../components/aihc-parser/app/aihc-lexer#' \
+                    | sed 's/, aihc-parser/, aihc-parser-wasm/'
+                  echo
+                  awk '
+                    /^executable aihc-parser$/ { emit=1 }
+                    /^test-suite parser-quickcheck-tests$/ { emit=0 }
+                    emit { print }
+                  ' components/aihc-parser/aihc-parser.cabal \
+                    | sed 's#hs-source-dirs:[[:space:]]*app/aihc-parser#hs-source-dirs:     ../../components/aihc-parser/app/aihc-parser#' \
+                    | sed 's/, aihc-parser/, aihc-parser-wasm/'
+                } > .wasm-build/pkg/aihc-parser-wasm.cabal
+
+                cat > .wasm-build/cabal.project <<'EOF'
+packages:
+  ./pkg
+
+tests: False
+EOF
+                cp cabal.project.wasm.freeze .wasm-build/cabal.project.freeze
+
+                cd .wasm-build
+                wasm32-wasi-cabal update
+                wasm32-wasi-cabal build \
+                  --only-download \
+                  aihc-parser-wasm:exe:aihc-parser \
+                  aihc-parser-wasm:exe:aihc-lexer \
+                  --project-file=cabal.project
+
+                mkdir -p "$out"
+                packages_dir="$(find "$HOME" -type d -path '*/.cabal/packages' | head -n1 || true)"
+                if [ -z "$packages_dir" ]; then
+                  echo "Could not locate Cabal package cache under $HOME" >&2
+                  exit 1
+                fi
+                cp -R "$packages_dir" "$out/packages"
+                runHook postBuild
+              '';
+              outputHashMode = "recursive";
+              outputHashAlgo = "sha256";
+              outputHash = "sha256-NtFIFGuLBUoPcBWgH1rIt3IzhotAoVPeMrepY4hiYns=";
+            };
           in pkgs.stdenvNoCC.mkDerivation {
             pname = "aihc-parser-wasm-wasi";
             version = "0.1.0.0";
@@ -366,6 +421,8 @@ WRAPPER
               chmod -R u+w .
 
               mkdir -p .wasm-build/pkg
+              mkdir -p .wasm-build/deps
+              find ${wasmCabalDeps}/packages -type f -name '*.tar.gz' ! -name '01-index.tar.gz' -exec cp {} .wasm-build/deps/ \;
               # Generate a WASM-focused cabal package from the canonical
               # aihc-parser.cabal so dependency declarations stay single-source.
               {
@@ -398,10 +455,12 @@ WRAPPER
                   | sed 's/, aihc-parser/, aihc-parser-wasm/'
               } > .wasm-build/pkg/aihc-parser-wasm.cabal
 
-              cat > .wasm-build/cabal.project <<EOF
+              cat > .wasm-build/cabal.project <<'EOF'
 packages:
   ./pkg
-${wasmParserDepLines}
+  ./deps/*.tar.gz
+EOF
+              cat >> .wasm-build/cabal.project <<'EOF'
 
 tests: False
 EOF
