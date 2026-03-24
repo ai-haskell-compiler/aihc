@@ -150,7 +150,7 @@ prettyDeclLines decl =
       [ hsep
           ( [prettyFixityAssoc assoc]
               <> maybe [] (pure . pretty . show) prec
-              <> map prettyOperatorName ops
+              <> map prettyInfixOp ops
           )
       ]
     DeclTypeSyn _ synDecl ->
@@ -324,7 +324,7 @@ prettyPattern pat =
     PTuple _ elems -> parens (hsep (punctuate comma (map prettyPattern elems)))
     PList _ elems -> brackets (hsep (punctuate comma (map prettyPattern elems)))
     PCon _ con args -> hsep (pretty con : map prettyPatternAtom args)
-    PInfix _ lhs op rhs -> prettyPatternAtom lhs <+> pretty op <+> prettyPatternAtom rhs
+    PInfix _ lhs op rhs -> prettyPatternAtom lhs <+> prettyInfixOp op <+> prettyPatternAtom rhs
     PView _ viewExpr inner -> parens (prettyExprPrec 0 viewExpr <+> "->" <+> prettyPattern inner)
     PAs _ name inner -> pretty name <+> "@" <+> prettyPatternAtom inner
     PStrict _ inner -> "!" <> prettyUnaryPattern inner
@@ -467,7 +467,7 @@ prettyDataCon ctor =
     InfixCon _ forallVars constraints lhs op rhs ->
       hsep
         ( dataConQualifierPrefix forallVars constraints
-            <> [prettyBangTypeAtom lhs, pretty op, prettyBangTypeAtom rhs]
+            <> [prettyBangTypeAtom lhs, prettyInfixOp op, prettyBangTypeAtom rhs]
         )
     RecordCon _ forallVars constraints name fields ->
       hsep (dataConQualifierPrefix forallVars constraints <> [prettyConstructorName name])
@@ -580,7 +580,7 @@ prettyClassItem item =
       hsep
         ( [prettyFixityAssoc assoc]
             <> maybe [] (pure . pretty . show) prec
-            <> map prettyOperatorName ops
+            <> map prettyInfixOp ops
         )
     ClassItemDefault _ valueDecl ->
       case prettyValueDeclLines valueDecl of
@@ -630,7 +630,7 @@ prettyInstanceItem item =
       hsep
         ( [prettyFixityAssoc assoc]
             <> maybe [] (pure . pretty . show) prec
-            <> map prettyOperatorName ops
+            <> map prettyInfixOp ops
         )
 
 prettyFixityAssoc :: FixityAssoc -> Doc ann
@@ -683,10 +683,10 @@ prettyForeignEntity spec =
     ForeignEntityAddress (Just name) -> Just (quoted ("&" <> name))
     ForeignEntityNamed name -> Just (quoted name)
 
-prettyOperatorName :: Text -> Doc ann
-prettyOperatorName name
-  | isOperatorToken name = pretty name
-  | otherwise = parens (pretty name)
+prettyInfixOp :: Text -> Doc ann
+prettyInfixOp op
+  | isOperatorToken op = pretty op
+  | otherwise = "`" <> pretty op <> "`"
 
 prettyFunctionBinder :: Text -> Doc ann
 prettyFunctionBinder name
@@ -695,11 +695,6 @@ prettyFunctionBinder name
 
 prettyBinderName :: Text -> Doc ann
 prettyBinderName = prettyFunctionBinder
-
-prettyExprOperator :: Text -> Doc ann
-prettyExprOperator op
-  | isOperatorToken op = pretty op
-  | otherwise = "`" <> pretty op <> "`"
 
 prettyConstructorName :: Text -> Doc ann
 prettyConstructorName name
@@ -839,10 +834,10 @@ prettyExprPrec prec expr =
       parenthesize
         (prec > 0)
         ("\\" <> "case" <+> "{" <+> hsep (punctuate semi (map prettyCaseAlt alts)) <+> "}")
-    EInfix _ lhs op rhs -> parenthesize (prec > 1) (prettyExprInfixLhs lhs <+> prettyExprOperator op <+> prettyExprInfixRhs rhs)
+    EInfix _ lhs op rhs -> parenthesize (prec > 1) (prettyExprInfixLhs lhs <+> prettyInfixOp op <+> prettyExprInfixRhs rhs)
     ENegate _ inner -> parenthesize (prec > 2) (prettyNegate inner)
-    ESectionL _ lhs op -> parens (prettyExprPrec 3 lhs <+> prettyExprOperator op)
-    ESectionR _ op rhs -> parens (prettyExprOperator op <+> prettyExprPrec 0 rhs)
+    ESectionL _ lhs op -> parens (prettyExprPrec 3 lhs <+> prettyInfixOp op)
+    ESectionR _ op rhs -> parens (prettyInfixOp op <+> prettyExprPrec 0 rhs)
     ELetDecls _ decls body ->
       parenthesize
         (prec > 0)
