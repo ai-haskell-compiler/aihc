@@ -3,9 +3,9 @@
 ## Summary
 
 - Total Extensions: 138
-- Supported: 26
-- In Progress: 9
-- Planned: 103
+- Supported: 29
+- In Progress: 10
+- Planned: 99
 
 ## Extension Status
 
@@ -22,7 +22,7 @@
 | ConstraintKinds | Planned | - | ConstraintKinds |
 | CPP | Planned | - | CPP |
 | CUSKs | Planned | - | CUSKs |
-| DataKinds | Planned | - | DataKinds |
+| DataKinds | In Progress | 0/1 | DataKinds |
 | DatatypeContexts | Planned | - | DatatypeContexts |
 | DeepSubsumption | Planned | - | DeepSubsumption |
 | DefaultSignatures | Planned | - | DefaultSignatures |
@@ -52,8 +52,8 @@
 | FlexibleInstances | Supported | 4/4 | FlexibleInstances |
 | ForeignFunctionInterface | Planned | - | ForeignFunctionInterface |
 | FunctionalDependencies | In Progress | 0/5 | FunctionalDependencies |
-| GADTs | In Progress | 0/3 | GADTs |
-| GADTSyntax | Planned | - | GADTSyntax |
+| GADTs | Supported | 3/3 | GADTs |
+| GADTSyntax | Supported | 9/9 | GADTSyntax |
 | GeneralisedNewtypeDeriving | Planned | - | GeneralisedNewtypeDeriving |
 | GHC2021 | Planned | - | GHC2021 |
 | GHC2024 | Planned | - | GHC2024 |
@@ -125,8 +125,8 @@
 | StaticPointers | Planned | - | StaticPointers |
 | Strict | Planned | - | Strict |
 | StrictData | Planned | - | StrictData |
-| TemplateHaskell | Planned | - | TemplateHaskell |
-| TemplateHaskellQuotes | Planned | - | TemplateHaskellQuotes |
+| TemplateHaskell | In Progress | 0/6 | TemplateHaskell |
+| TemplateHaskellQuotes | In Progress | 0/7 | TemplateHaskellQuotes |
 | TraditionalRecordSyntax | Planned | - | TraditionalRecordSyntax |
 | TransformListComp | Planned | - | TransformListComp |
 | Trustworthy | Planned | - | Trustworthy |
@@ -148,5 +148,5 @@
 | UnliftedFFITypes | Planned | - | UnliftedFFITypes |
 | UnliftedNewtypes | Planned | - | UnliftedNewtypes |
 | Unsafe | Planned | - | Unsafe |
-| ViewPatterns | In Progress | 2/3 | ViewPatterns |
+| ViewPatterns | Supported | 3/3 | ViewPatterns |
 
