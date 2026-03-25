@@ -169,6 +169,20 @@ frameworkTests =
                 if outcome == OutcomeFail
                   then pure ()
                   else assertFailure ("expected OutcomeFail when oracle rejects fixture, got " <> show outcome),
+        testCase "oracle rejects top-level block-argument lambda" $
+          let meta =
+                CaseMeta
+                  { caseId = "framework-block-argument-lambda",
+                    caseCategory = "framework",
+                    casePath = "framework-block-argument-lambda.hs",
+                    caseExpected = ExpectPass,
+                    caseReason = ""
+                  }
+           in do
+                (outcome, _) <- evaluateCaseText meta "module M where\nf \\x -> x\n"
+                if outcome == OutcomeFail
+                  then pure ()
+                  else assertFailure ("expected OutcomeFail when oracle rejects fixture, got " <> show outcome),
         testCase "oracle parse failure fails pass case" $
           let meta =
                 CaseMeta
