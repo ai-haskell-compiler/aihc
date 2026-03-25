@@ -288,7 +288,7 @@ classDeclParser = withSpan $ do
       span'
       ClassDecl
         { classDeclSpan = span',
-          classDeclContext = fromMaybe [] context,
+          classDeclContext = context,
           classDeclName = className,
           classDeclParams = classParams,
           classDeclItems = items

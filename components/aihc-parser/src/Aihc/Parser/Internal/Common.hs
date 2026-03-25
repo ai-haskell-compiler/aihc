@@ -244,23 +244,7 @@ constraintParserWith typeAtomParser = withSpan $ do
 
 constraintsParserWith :: TokParser Type -> TokParser [Constraint]
 constraintsParserWith typeAtomParser =
-  MP.try
-    ( withSpan $ do
-        expectedTok TkSpecialLParen
-        constraints <- constraintParserWith typeAtomParser `MP.sepEndBy` expectedTok TkSpecialComma
-        expectedTok TkSpecialRParen
-        pure $ \span' ->
-          case constraints of
-            [] ->
-              [ Constraint
-                  { constraintSpan = span',
-                    constraintClass = "()",
-                    constraintArgs = [],
-                    constraintParen = False
-                  }
-              ]
-            _ -> markSingleParenConstraint constraints
-    )
+  MP.try (parens (markSingleParenConstraint <$> (constraintParserWith typeAtomParser `MP.sepEndBy` expectedTok TkSpecialComma)))
     <|> fmap pure (constraintParserWith typeAtomParser)
 
 contextParserWith :: TokParser Type -> TokParser [Constraint]
