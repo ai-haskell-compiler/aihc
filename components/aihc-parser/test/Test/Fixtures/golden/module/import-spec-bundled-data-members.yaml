@@ -1,0 +1,9 @@
+extensions:
+  - PatternSynonyms
+  - ExplicitNamespaces
+input: |
+  module Demo where
+  import PatternSynonymsSource (Nat (data Zero, data Succ))
+  x = 1
+status: xfail
+reason: parser does not yet support data namespace bundled members in import specs
