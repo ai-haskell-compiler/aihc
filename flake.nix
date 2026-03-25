@@ -376,10 +376,22 @@ WRAPPER
               cp -R ${wasmCabalCache}/packages/. "$HOME/.ghc-wasm/.cabal/packages/"
               chmod -R u+w "$HOME/.ghc-wasm/.cabal"
               chmod -R u+w .
+
+              mkdir -p .wasm-offline-deps
+              find ${wasmCabalCache}/packages -type f -name '*.tar.gz' ! -name '01-index.tar.gz' -exec cp {} .wasm-offline-deps/ \;
+              cat > cabal.project.offline <<'EOF'
+import: cabal.project
+
+packages:
+  ./.wasm-offline-deps/*.tar.gz
+EOF
+              cp cabal.project.freeze cabal.project.offline.freeze
+
               wasm32-wasi-cabal build \
+                --offline \
                 aihc-parser:exe:aihc-parser \
                 aihc-parser:exe:aihc-lexer \
-                --project-file=cabal.project
+                --project-file=cabal.project.offline
               runHook postBuild
             '';
             installPhase = ''
