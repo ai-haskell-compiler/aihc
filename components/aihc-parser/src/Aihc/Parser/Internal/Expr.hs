@@ -936,7 +936,7 @@ typeInfixParser = do
 buildInfixType :: Type -> (Text, Type) -> Type
 buildInfixType lhs (op, rhs) =
   let span' = mergeSourceSpans (getSourceSpan lhs) (getSourceSpan rhs)
-      opType = TCon span' op False
+      opType = TCon span' op Unpromoted
    in TApp span' (TApp span' opType lhs) rhs
 
 typeInfixOperatorParser :: TokParser Text
@@ -1003,7 +1003,7 @@ promotedStructuredTypeParser = do
 promotedRawTypeParser :: TokParser Type
 promotedRawTypeParser = withSpan $ do
   suffix <- promotedBracketedSuffixParser <|> promotedParenthesizedSuffixParser
-  pure (\span' -> TCon span' suffix True)
+  pure (\span' -> TCon span' suffix Promoted)
 
 promotedBracketedSuffixParser :: TokParser Text
 promotedBracketedSuffixParser = collectDelimitedRaw TkSpecialLBracket TkSpecialRBracket
@@ -1046,7 +1046,7 @@ typeParenOperatorParser = withSpan $ do
       -- Note: ~ is now lexed as TkVarSym "~" so TkVarSym case handles it
       _ -> Nothing
   expectedTok TkSpecialRParen
-  pure (\span' -> TCon span' op False)
+  pure (\span' -> TCon span' op Unpromoted)
 
 typeQuasiQuoteParser :: TokParser Type
 typeQuasiQuoteParser =
@@ -1061,7 +1061,7 @@ typeIdentifierParser = withSpan $ do
   pure $ \span' ->
     case T.uncons name of
       Just (c, _) | isLower c || c == '_' -> TVar span' name
-      _ -> TCon span' name False
+      _ -> TCon span' name Unpromoted
 
 typeStarParser :: TokParser Type
 typeStarParser = withSpan $ do
@@ -1073,14 +1073,14 @@ typeListParser = withSpan $ do
   expectedTok TkSpecialLBracket
   inner <- typeParser
   expectedTok TkSpecialRBracket
-  pure (\span' -> TList span' False inner)
+  pure (\span' -> TList span' Unpromoted inner)
 
 typeParenOrTupleParser :: TokParser Type
 typeParenOrTupleParser = withSpan $ do
   expectedTok TkSpecialLParen
   mClosed <- MP.optional (expectedTok TkSpecialRParen)
   case mClosed of
-    Just () -> pure (\span' -> TTuple span' False [])
+    Just () -> pure (\span' -> TTuple span' Unpromoted [])
     Nothing -> do
       MP.try tupleConstructorParser <|> parenthesizedTypeOrTupleParser
   where
@@ -1090,7 +1090,7 @@ typeParenOrTupleParser = withSpan $ do
       expectedTok TkSpecialRParen
       let arity = 2 + length moreCommas
           tupleConName = "(" <> T.replicate (arity - 1) "," <> ")"
-      pure (\span' -> TCon span' tupleConName False)
+      pure (\span' -> TCon span' tupleConName Unpromoted)
 
     parenthesizedTypeOrTupleParser = do
       first <- typeParser
@@ -1103,14 +1103,14 @@ typeParenOrTupleParser = withSpan $ do
           second <- typeParser
           more <- MP.many (expectedTok TkSpecialComma *> typeParser)
           expectedTok TkSpecialRParen
-          pure (\span' -> TTuple span' False (first : second : more))
+          pure (\span' -> TTuple span' Unpromoted (first : second : more))
 
 markTypePromoted :: Type -> Maybe Type
 markTypePromoted ty =
   case ty of
-    TCon span' name _ -> Just (TCon span' name True)
-    TList span' _ inner -> Just (TList span' True inner)
-    TTuple span' _ elems -> Just (TTuple span' True elems)
+    TCon span' name _ -> Just (TCon span' name Promoted)
+    TList span' _ inner -> Just (TList span' Promoted inner)
+    TTuple span' _ elems -> Just (TTuple span' Promoted elems)
     _ -> Nothing
 
 setTypeSpan :: SourceSpan -> Type -> Type

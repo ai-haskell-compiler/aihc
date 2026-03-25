@@ -98,7 +98,7 @@ shrinkType ty =
     TTuple _ _ elems ->
       shrinkTupleElems elems
     TList _ _ inner ->
-      [inner] <> [TList span0 False inner' | inner' <- shrinkType inner]
+      [inner] <> [TList span0 Unpromoted inner' | inner' <- shrinkType inner]
     TParen _ inner ->
       [inner] <> [TParen span0 inner' | inner' <- shrinkType inner]
     TContext _ constraints inner ->
@@ -139,9 +139,9 @@ shrinkTupleElems elems =
   [ candidate
   | shrunk <- shrinkList shrinkType elems,
     candidate <- case shrunk of
-      [] -> [TTuple span0 False []]
+      [] -> [TTuple span0 Unpromoted []]
       [_] -> []
-      _ -> [TTuple span0 False shrunk]
+      _ -> [TTuple span0 Unpromoted shrunk]
   ]
 
 shrinkConstraints :: [Constraint] -> [[Constraint]]
@@ -158,26 +158,26 @@ genType depth
   | depth <= 0 =
       oneof
         [ TVar span0 <$> genTypeVarName,
-          (\name -> TCon span0 name False) <$> genTypeConName,
+          (\name -> TCon span0 name Unpromoted) <$> genTypeConName,
           TTypeLit span0 <$> genTypeLiteral,
           pure (TStar span0),
           TQuasiQuote span0 <$> genQuoterName <*> genQuasiBody,
-          TTuple span0 False <$> elements [[], [TVar span0 "a", TCon span0 "B" False]],
-          TList span0 False <$> genTypeAtom 0,
+          TTuple span0 Unpromoted <$> elements [[], [TVar span0 "a", TCon span0 "B" Unpromoted]],
+          TList span0 Unpromoted <$> genTypeAtom 0,
           TParen span0 <$> genTypeAtom 0
         ]
   | otherwise =
       frequency
         [ (3, TVar span0 <$> genTypeVarName),
-          (3, (\name -> TCon span0 name False) <$> genTypeConName),
+          (3, (\name -> TCon span0 name Unpromoted) <$> genTypeConName),
           (1, TTypeLit span0 <$> genTypeLiteral),
           (1, pure (TStar span0)),
           (2, TQuasiQuote span0 <$> genQuoterName <*> genQuasiBody),
           (2, TForall span0 <$> genTypeBinders <*> genForallInner (depth - 1)),
           (4, genTypeApp depth),
           (4, genTypeFun depth),
-          (3, TTuple span0 False <$> genTypeTupleElems (depth - 1)),
-          (3, TList span0 False <$> genType (depth - 1)),
+          (3, TTuple span0 Unpromoted <$> genTypeTupleElems (depth - 1)),
+          (3, TList span0 Unpromoted <$> genType (depth - 1)),
           (3, TParen span0 <$> genType (depth - 1)),
           (3, TContext span0 <$> genConstraints (depth - 1) <*> genContextInner (depth - 1))
         ]
@@ -223,12 +223,12 @@ genTypeAtom :: Int -> Gen Type
 genTypeAtom depth =
   oneof
     [ TVar span0 <$> genTypeVarName,
-      (\name -> TCon span0 name False) <$> genTypeConName,
+      (\name -> TCon span0 name Unpromoted) <$> genTypeConName,
       TTypeLit span0 <$> genTypeLiteral,
       pure (TStar span0),
       TQuasiQuote span0 <$> genQuoterName <*> genQuasiBody,
-      TTuple span0 False <$> genTypeTupleElems depth,
-      TList span0 False <$> genType depth,
+      TTuple span0 Unpromoted <$> genTypeTupleElems depth,
+      TList span0 Unpromoted <$> genType depth,
       TParen span0 <$> genType depth
     ]
 

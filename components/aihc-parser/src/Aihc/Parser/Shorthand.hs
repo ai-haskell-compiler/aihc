@@ -379,7 +379,7 @@ docType ty =
   case ty of
     TVar _ name -> "TVar" <+> docText name
     TCon _ name promoted ->
-      if promoted
+      if promoted == Promoted
         then "TConPromoted" <+> docText name
         else "TCon" <+> docText name
     TTypeLit _ lit -> "TTypeLit" <+> docTypeLiteral lit
@@ -389,10 +389,10 @@ docType ty =
     TApp _ f x -> "TApp" <+> parens (docType f) <+> parens (docType x)
     TFun _ a b -> "TFun" <+> parens (docType a) <+> parens (docType b)
     TTuple _ promoted elems ->
-      (if promoted then "TTuplePromoted" else "TTuple")
+      (if promoted == Promoted then "TTuplePromoted" else "TTuple")
         <+> brackets (hsep (punctuate comma (map docType elems)))
     TList _ promoted inner ->
-      (if promoted then "TListPromoted" else "TList")
+      (if promoted == Promoted then "TListPromoted" else "TList")
         <+> parens (docType inner)
     TParen _ inner -> "TParen" <+> parens (docType inner)
     TContext _ constraints inner -> "TContext" <+> brackets (hsep (punctuate comma (map docConstraint constraints))) <+> parens (docType inner)

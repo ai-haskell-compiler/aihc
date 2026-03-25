@@ -51,6 +51,7 @@ module Aihc.Parser.Ast
     StandaloneDerivingDecl (..),
     Type (..),
     TypeLiteral (..),
+    TypePromotion (..),
     TyVarBinder (..),
     TypeSynDecl (..),
     ValueDecl (..),
@@ -548,15 +549,15 @@ instance HasSourceSpan Pattern where
 
 data Type
   = TVar SourceSpan Text
-  | TCon SourceSpan Text Bool
+  | TCon SourceSpan Text TypePromotion
   | TTypeLit SourceSpan TypeLiteral
   | TStar SourceSpan
   | TQuasiQuote SourceSpan Text Text
   | TForall SourceSpan [Text] Type
   | TApp SourceSpan Type Type
   | TFun SourceSpan Type Type
-  | TTuple SourceSpan Bool [Type]
-  | TList SourceSpan Bool Type
+  | TTuple SourceSpan TypePromotion [Type]
+  | TList SourceSpan TypePromotion Type
   | TParen SourceSpan Type
   | TContext SourceSpan [Constraint] Type
   deriving (Data, Eq, Show, Generic, NFData)
@@ -581,6 +582,11 @@ data TypeLiteral
   = TypeLitInteger Integer Text
   | TypeLitSymbol Text Text
   | TypeLitChar Char Text
+  deriving (Data, Eq, Show, Generic, NFData)
+
+data TypePromotion
+  = Unpromoted
+  | Promoted
   deriving (Data, Eq, Show, Generic, NFData)
 
 data Constraint = Constraint

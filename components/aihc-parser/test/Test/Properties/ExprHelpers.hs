@@ -310,8 +310,8 @@ genType n
         [ genTypeLeaf,
           TApp span0 <$> genType half <*> genType half,
           TFun span0 <$> genType half <*> genType half,
-          TList span0 False <$> genType (n - 1),
-          TTuple span0 False <$> genTypeTupleElems (n - 1),
+          TList span0 Unpromoted <$> genType (n - 1),
+          TTuple span0 Unpromoted <$> genTypeTupleElems (n - 1),
           TParen span0 <$> genType (n - 1)
         ]
   where
@@ -322,7 +322,7 @@ genTypeLeaf :: Gen Type
 genTypeLeaf =
   oneof
     [ TVar span0 <$> genTypeVarName,
-      (\name -> TCon span0 name False) <$> genConName
+      (\name -> TCon span0 name Unpromoted) <$> genConName
     ]
 
 genTypeTupleElems :: Int -> Gen [Type]
@@ -453,9 +453,9 @@ shrinkExpr expr =
         : [ERecordUpd span0 target' fields | target' <- shrinkExpr target]
           <> [ERecordUpd span0 target fields' | fields' <- shrinkRecordFields fields]
     ETypeSig _ inner _ ->
-      inner : [ETypeSig span0 inner' (TCon span0 "T" False) | inner' <- shrinkExpr inner]
+      inner : [ETypeSig span0 inner' (TCon span0 "T" Unpromoted) | inner' <- shrinkExpr inner]
     ETypeApp _ inner _ ->
-      inner : [ETypeApp span0 inner' (TCon span0 "T" False) | inner' <- shrinkExpr inner]
+      inner : [ETypeApp span0 inner' (TCon span0 "T" Unpromoted) | inner' <- shrinkExpr inner]
     EParen _ inner -> inner : [EParen span0 inner' | inner' <- shrinkExpr inner]
 
 shrinkFloat :: Double -> [Double]

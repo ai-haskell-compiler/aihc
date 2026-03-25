@@ -286,7 +286,7 @@ prettyTypePrec prec ty =
       let base
             | isSymbolicTypeOperator name = parens (pretty name)
             | otherwise = pretty name
-       in if promoted then "'" <> base else base
+       in if promoted == Promoted then "'" <> base else base
     TTypeLit _ lit -> prettyTypeLiteral lit
     TStar _ -> "*"
     TQuasiQuote _ quoter body -> prettyQuasiQuote quoter body
@@ -307,10 +307,10 @@ prettyTypePrec prec ty =
         (prettyTypeIn CtxTypeFunArg a <+> "->" <+> prettyTypePrec 0 b)
     TTuple _ promoted elems ->
       let tupleDoc = parens (hsep (punctuate comma (map (prettyTypePrec 0) elems)))
-       in if promoted then "'" <> tupleDoc else tupleDoc
+       in if promoted == Promoted then "'" <> tupleDoc else tupleDoc
     TList _ promoted inner ->
       let listDoc = brackets (prettyTypePrec 0 inner)
-       in if promoted then "'" <> listDoc else listDoc
+       in if promoted == Promoted then "'" <> listDoc else listDoc
     TParen _ inner
       | isInfixTypeApp inner -> prettyTypePrec prec inner
       | otherwise -> parens (prettyTypePrec 0 inner)
