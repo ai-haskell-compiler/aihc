@@ -40,8 +40,8 @@ import qualified GHC.LanguageExtensions.Type as GHC
 import GHC.Parser (parseModule)
 import GHC.Parser.Header (getOptions)
 import GHC.Parser.Lexer
-  ( ParseResult (..),
-    PState,
+  ( PState,
+    ParseResult (..),
     Token (..),
     getPsErrorMessages,
     initParserState,

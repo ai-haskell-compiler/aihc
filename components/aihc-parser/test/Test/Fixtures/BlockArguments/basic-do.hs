@@ -1,5 +1,5 @@
 {-# LANGUAGE BlockArguments #-}
 module BasicDo where
 
-f do
-  return ()
+f = id do
+  pure ()

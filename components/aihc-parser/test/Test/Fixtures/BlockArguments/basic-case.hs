@@ -1,5 +1,5 @@
 {-# LANGUAGE BlockArguments #-}
 module BasicCase where
 
-f case x of
+f x = id case x of
   _ -> ()

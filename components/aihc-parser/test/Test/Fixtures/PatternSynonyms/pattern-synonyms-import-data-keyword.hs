@@ -2,7 +2,7 @@
 
 module PatternSynonymsImportDataKeyword where
 
-import PatternSynonymsSource (data Zero, data Succ)
+import PatternSynonymsSource (pattern Zero, pattern Succ)
 
 buildZero = Zero
 buildOne = Succ Zero
