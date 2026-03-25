@@ -31,8 +31,9 @@ prop_modulePrettyRoundTrip modu =
 
 instance Arbitrary Module where
   arbitrary = do
-    n <- chooseInt (1, 6)
-    decls <- vectorOf n (resize 4 arbitrary)
+    size <- getSize
+    n <- chooseInt (0, min 6 size)
+    decls <- vectorOf n (scaleDecl arbitrary)
     imports <- genImportDecls
     mHead <- genMaybeModuleHead
     pure $
@@ -126,6 +127,7 @@ shrinkDecl decl =
                | expr' <- shrinkExpr expr
                ]
         _ -> []
+    DeclValue _ _ -> []
     DeclTypeSig _ names ty ->
       [DeclTypeSig span0 names' ty | names' <- shrinkBinderNames names]
         <> [DeclTypeSig span0 names ty' | ty' <- shrinkDeclType ty]
@@ -141,13 +143,20 @@ shrinkDecl decl =
       [DeclData span0 dataDecl' | dataDecl' <- shrinkDataDecl dataDecl]
     DeclNewtype _ newtypeDecl ->
       [DeclNewtype span0 newtypeDecl' | newtypeDecl' <- shrinkNewtypeDecl newtypeDecl]
+    DeclClass _ classDecl ->
+      [DeclClass span0 classDecl' | classDecl' <- shrinkClassDecl classDecl]
+    DeclInstance _ instanceDecl ->
+      [DeclInstance span0 instanceDecl' | instanceDecl' <- shrinkInstanceDecl instanceDecl]
+    DeclStandaloneDeriving _ derivingDecl ->
+      [DeclStandaloneDeriving span0 derivingDecl' | derivingDecl' <- shrinkStandaloneDerivingDecl derivingDecl]
     DeclDefault _ tys ->
       [DeclDefault span0 tys' | tys' <- shrinkDeclTypes tys]
-    _ -> []
+    DeclForeign _ foreignDecl ->
+      [DeclForeign span0 foreignDecl' | foreignDecl' <- shrinkForeignDecl foreignDecl]
 
 instance Arbitrary Decl where
   arbitrary =
-    sized (genDecl . min 4)
+    sized genDecl
 
   shrink = shrinkDecl
 
@@ -157,8 +166,16 @@ genDecl n
       oneof
         [ genValueDecl,
           genTypeSigDecl,
+          genStandaloneKindSigDecl,
           genFixityDecl,
-          genDefaultDecl
+          genTypeSynDecl,
+          genDataDecl 0,
+          genNewtypeDecl 0,
+          genClassDecl 0,
+          genInstanceDecl 0,
+          genStandaloneDerivingDecl 0,
+          genDefaultDecl,
+          genForeignDecl 0
         ]
   | otherwise =
       frequency
@@ -167,15 +184,19 @@ genDecl n
           (2, genStandaloneKindSigDecl),
           (2, genFixityDecl),
           (3, genTypeSynDecl),
-          (3, genDataDecl (n - 1)),
-          (3, genNewtypeDecl (n - 1)),
-          (2, genDefaultDecl)
+          (3, genDataDecl n),
+          (3, genNewtypeDecl n),
+          (2, genClassDecl n),
+          (2, genInstanceDecl n),
+          (2, genStandaloneDerivingDecl n),
+          (2, genDefaultDecl),
+          (2, genForeignDecl n)
         ]
 
 genValueDecl :: Gen Decl
 genValueDecl = do
   name <- genIdent
-  expr <- resize 4 genExpr
+  expr <- scaleExpr genExpr
   pure $
     DeclValue
       span0
@@ -193,13 +214,13 @@ genValueDecl = do
 genTypeSigDecl :: Gen Decl
 genTypeSigDecl = do
   names <- genBinderNames
-  ty <- resize 4 (genType 4)
+  ty <- scaleTypeFromSize
   pure (DeclTypeSig span0 names ty)
 
 genStandaloneKindSigDecl :: Gen Decl
 genStandaloneKindSigDecl = do
   name <- genTypeName
-  kind <- resize 3 (genType 3)
+  kind <- scaleTypeFromSize
   pure (DeclStandaloneKindSig span0 name kind)
 
 genFixityDecl :: Gen Decl
@@ -215,7 +236,7 @@ genTypeSynDeclBody :: Gen TypeSynDecl
 genTypeSynDeclBody = do
   name <- genTypeName
   params <- genTyVarBinders
-  body <- resize 4 (genType 4)
+  body <- scaleTypeFromSize
   pure $
     TypeSynDecl
       { typeSynSpan = span0,
@@ -228,38 +249,114 @@ genDataDecl :: Int -> Gen Decl
 genDataDecl n = do
   name <- genTypeName
   params <- genTyVarBinders
-  constructors <- genDataConstructors n
+  context <- genConstraints
+  constructors <- genDataConstructors (childDeclSize n)
+  derivingClauses <- genDerivingClauses
   pure $
     DeclData
       span0
       DataDecl
         { dataDeclSpan = span0,
-          dataDeclContext = [],
+          dataDeclContext = context,
           dataDeclName = name,
           dataDeclParams = params,
           dataDeclConstructors = constructors,
-          dataDeclDeriving = []
+          dataDeclDeriving = derivingClauses
         }
 
 genNewtypeDecl :: Int -> Gen Decl
 genNewtypeDecl n = do
   name <- genTypeName
   params <- genTyVarBinders
-  constructor <- genSingleConstructor n
+  context <- genConstraints
+  constructor <- genSingleConstructor (childDeclSize n)
+  derivingClauses <- genDerivingClauses
   pure $
     DeclNewtype
       span0
       NewtypeDecl
         { newtypeDeclSpan = span0,
-          newtypeDeclContext = [],
+          newtypeDeclContext = context,
           newtypeDeclName = name,
           newtypeDeclParams = params,
           newtypeDeclConstructor = Just constructor,
-          newtypeDeclDeriving = []
+          newtypeDeclDeriving = derivingClauses
+        }
+
+genClassDecl :: Int -> Gen Decl
+genClassDecl n = do
+  name <- genTypeName
+  params <- genNonEmptyTyVarBinders
+  context <- frequency [(2, pure Nothing), (3, Just <$> genNonEmptyConstraints)]
+  items <- genClassDeclItems (childDeclSize n)
+  pure $
+    DeclClass
+      span0
+      ClassDecl
+        { classDeclSpan = span0,
+          classDeclContext = context,
+          classDeclName = name,
+          classDeclParams = params,
+          classDeclItems = items
+        }
+
+genInstanceDecl :: Int -> Gen Decl
+genInstanceDecl n = do
+  className <- genTypeName
+  context <- genConstraints
+  types <- genNonEmptyDeclTypes
+  items <- genInstanceDeclItems (childDeclSize n)
+  pure $
+    DeclInstance
+      span0
+      InstanceDecl
+        { instanceDeclSpan = span0,
+          instanceDeclContext = context,
+          instanceDeclClassName = className,
+          instanceDeclTypes = types,
+          instanceDeclItems = items
+        }
+
+genStandaloneDerivingDecl :: Int -> Gen Decl
+genStandaloneDerivingDecl _ = do
+  strategy <- genMaybeDerivingStrategy
+  context <- genConstraints
+  className <- genTypeName
+  types <- genNonEmptyDeclTypes
+  pure $
+    DeclStandaloneDeriving
+      span0
+      StandaloneDerivingDecl
+        { standaloneDerivingSpan = span0,
+          standaloneDerivingStrategy = strategy,
+          standaloneDerivingContext = context,
+          standaloneDerivingClassName = className,
+          standaloneDerivingTypes = types
         }
 
 genDefaultDecl :: Gen Decl
 genDefaultDecl = DeclDefault span0 <$> genNonEmptyDeclTypes
+
+genForeignDecl :: Int -> Gen Decl
+genForeignDecl _ = do
+  direction <- elements [ForeignImport, ForeignExport]
+  callConv <- elements [CCall, StdCall]
+  safety <- frequency [(2, pure Nothing), (3, Just <$> elements [Safe, Unsafe])]
+  entity <- genForeignEntitySpec
+  name <- genIdent
+  ty <- scaleTypeFromSize
+  pure $
+    DeclForeign
+      span0
+      ForeignDecl
+        { foreignDeclSpan = span0,
+          foreignDirection = direction,
+          foreignCallConv = callConv,
+          foreignSafety = safety,
+          foreignEntity = entity,
+          foreignName = name,
+          foreignType = ty
+        }
 
 genBinderNames :: Gen [Text]
 genBinderNames = do
@@ -288,11 +385,15 @@ shrinkFixityOps ops =
 
 genFixityOp :: Gen Text
 genFixityOp =
-  elements ["+", "-", "*", "/", "<>", "<++>", "&&", "||", "++"]
+  oneof
+    [ elements ["+", "-", "*", "/", "<>", "<++>", "&&", "||", "++"],
+      genIdent,
+      genTypeName
+    ]
 
 shrinkFixityOp :: Text -> [Text]
 shrinkFixityOp op =
-  [candidate | candidate <- ["+", "-", "*"], candidate /= op]
+  [candidate | candidate <- ["+", "-", "*", "op", "Infix"], candidate /= op]
 
 genTyVarBinders :: Gen [TyVarBinder]
 genTyVarBinders = do
@@ -302,7 +403,7 @@ genTyVarBinders = do
 genTyVarBinder :: Gen TyVarBinder
 genTyVarBinder = do
   name <- genTypeVarName
-  kind <- frequency [(4, pure Nothing), (1, Just <$> resize 3 (genType 3))]
+  kind <- frequency [(4, pure Nothing), (1, Just <$> scaleTypeFromSize)]
   pure $
     TyVarBinder
       { tyVarBinderSpan = span0,
@@ -325,16 +426,44 @@ genDataConstructors n = do
     then pure []
     else do
       count <- chooseInt (1, 3)
-      vectorOf count (genPrefixConstructor n)
+      vectorOf count (genDataConDecl (childDeclSize n))
 
 genSingleConstructor :: Int -> Gen DataConDecl
-genSingleConstructor = genPrefixConstructor
+genSingleConstructor n = genDataConDecl (childDeclSize n)
 
 genPrefixConstructor :: Int -> Gen DataConDecl
 genPrefixConstructor n = do
   name <- genTypeName
-  fields <- genBangTypes n
-  pure (PrefixCon span0 [] [] name fields)
+  forallVars <- genForallVars
+  constraints <- genConstraints
+  fields <- genBangTypes (childDeclSize n)
+  pure (PrefixCon span0 forallVars constraints name fields)
+
+genInfixConstructor :: Int -> Gen DataConDecl
+genInfixConstructor n = do
+  forallVars <- genForallVars
+  constraints <- genConstraints
+  lhs <- genBangType (childDeclSize n)
+  op <- genTypeName
+  rhs <- genBangType (childDeclSize n)
+  pure (InfixCon span0 forallVars constraints lhs op rhs)
+
+genRecordConstructor :: Int -> Gen DataConDecl
+genRecordConstructor n = do
+  forallVars <- genForallVars
+  constraints <- genConstraints
+  name <- genTypeName
+  fieldCount <- chooseInt (1, 3)
+  fields <- vectorOf fieldCount (genFieldDecl (childDeclSize n))
+  pure (RecordCon span0 forallVars constraints name fields)
+
+genDataConDecl :: Int -> Gen DataConDecl
+genDataConDecl n =
+  frequency
+    [ (4, genPrefixConstructor n),
+      (2, genInfixConstructor n),
+      (2, genRecordConstructor n)
+    ]
 
 genBangTypes :: Int -> Gen [BangType]
 genBangTypes n = do
@@ -344,7 +473,7 @@ genBangTypes n = do
 genBangType :: Int -> Gen BangType
 genBangType n = do
   strict <- arbitrary
-  ty <- resize 4 (genType (min 4 n))
+  ty <- genType (childDeclSize n)
   pure $
     BangType
       { bangSpan = span0,
@@ -363,10 +492,17 @@ shrinkBangTypes = shrinkList shrinkBangType
 shrinkDataConDecl :: DataConDecl -> [DataConDecl]
 shrinkDataConDecl dataCon =
   case dataCon of
-    PrefixCon _ _ _ name fields ->
-      [PrefixCon span0 [] [] name' fields | name' <- shrinkTypeName name]
-        <> [PrefixCon span0 [] [] name fields' | fields' <- shrinkBangTypes fields]
-    _ -> []
+    PrefixCon _ forallVars constraints name fields ->
+      [PrefixCon span0 forallVars constraints name' fields | name' <- shrinkTypeName name]
+        <> [PrefixCon span0 forallVars constraints name fields' | fields' <- shrinkBangTypes fields]
+    InfixCon _ forallVars constraints lhs name rhs ->
+      [InfixCon span0 forallVars constraints lhs name' rhs | name' <- shrinkTypeName name]
+        <> [InfixCon span0 forallVars constraints lhs' name rhs | lhs' <- shrinkBangType lhs]
+        <> [InfixCon span0 forallVars constraints lhs name rhs' | rhs' <- shrinkBangType rhs]
+    RecordCon _ forallVars constraints name fields ->
+      [RecordCon span0 forallVars constraints name' fields | name' <- shrinkTypeName name]
+        <> [RecordCon span0 forallVars constraints name fields' | fields' <- shrinkFieldDecls fields]
+    GadtCon {} -> []
 
 shrinkDataConstructors :: [DataConDecl] -> [[DataConDecl]]
 shrinkDataConstructors = shrinkList shrinkDataConDecl
@@ -380,15 +516,21 @@ shrinkTypeSynDecl syn =
 shrinkDataDecl :: DataDecl -> [DataDecl]
 shrinkDataDecl dataDecl =
   [dataDecl {dataDeclName = name'} | name' <- shrinkTypeName (dataDeclName dataDecl)]
+    <> [dataDecl {dataDeclContext = ctx'} | ctx' <- shrinkConstraints (dataDeclContext dataDecl)]
     <> [dataDecl {dataDeclParams = params'} | params' <- shrinkTyVarBinders (dataDeclParams dataDecl)]
     <> [dataDecl {dataDeclConstructors = ctors'} | ctors' <- shrinkDataConstructors (dataDeclConstructors dataDecl)]
+    <> [dataDecl {dataDeclDeriving = deriving'} | deriving' <- shrinkDerivingClauses (dataDeclDeriving dataDecl)]
 
 shrinkNewtypeDecl :: NewtypeDecl -> [NewtypeDecl]
 shrinkNewtypeDecl newtypeDecl =
   [newtypeDecl {newtypeDeclName = name'} | name' <- shrinkTypeName (newtypeDeclName newtypeDecl)]
+    <> [newtypeDecl {newtypeDeclContext = ctx'} | ctx' <- shrinkConstraints (newtypeDeclContext newtypeDecl)]
     <> [newtypeDecl {newtypeDeclParams = params'} | params' <- shrinkTyVarBinders (newtypeDeclParams newtypeDecl)]
     <> [ newtypeDecl {newtypeDeclConstructor = ctor'}
        | ctor' <- shrinkMaybeDataConDecl (newtypeDeclConstructor newtypeDecl)
+       ]
+    <> [ newtypeDecl {newtypeDeclDeriving = deriving'}
+       | deriving' <- shrinkDerivingClauses (newtypeDeclDeriving newtypeDecl)
        ]
 
 shrinkMaybeDataConDecl :: Maybe DataConDecl -> [Maybe DataConDecl]
@@ -422,7 +564,215 @@ isValidTypeVarName name =
 genNonEmptyDeclTypes :: Gen [Type]
 genNonEmptyDeclTypes = do
   n <- chooseInt (1, 3)
-  vectorOf n (resize 4 (genType 4))
+  vectorOf n scaleTypeFromSize
+
+genConstraints :: Gen [Constraint]
+genConstraints = do
+  n <- chooseInt (0, 2)
+  vectorOf n genConstraint
+
+genConstraint :: Gen Constraint
+genConstraint = do
+  className <- genTypeName
+  argCount <- chooseInt (0, 2)
+  args <- vectorOf argCount scaleTypeAtomish
+  paren <- arbitrary
+  pure $
+    Constraint
+      { constraintSpan = span0,
+        constraintClass = className,
+        constraintArgs = args,
+        constraintParen = paren
+      }
+
+genNonEmptyConstraints :: Gen [Constraint]
+genNonEmptyConstraints = do
+  n <- chooseInt (1, 2)
+  vectorOf n genConstraint
+
+genForallVars :: Gen [Text]
+genForallVars = do
+  n <- chooseInt (0, 2)
+  vectorOf n genTypeVarName
+
+genFieldDecl :: Int -> Gen FieldDecl
+genFieldDecl n = do
+  names <- genFieldNames
+  fieldTy <- genBangType n
+  pure $
+    FieldDecl
+      { fieldSpan = span0,
+        fieldNames = names,
+        fieldType = fieldTy
+      }
+
+genFieldNames :: Gen [Text]
+genFieldNames = do
+  n <- chooseInt (1, 3)
+  candidateNames <- vectorOf (n * 2) genIdent
+  pure (take n (nub candidateNames))
+
+shrinkFieldDecl :: FieldDecl -> [FieldDecl]
+shrinkFieldDecl fieldDecl =
+  [fieldDecl {fieldNames = names'} | names' <- shrinkBinderNames (fieldNames fieldDecl)]
+    <> [fieldDecl {fieldType = ty'} | ty' <- shrinkBangType (fieldType fieldDecl)]
+
+shrinkFieldDecls :: [FieldDecl] -> [[FieldDecl]]
+shrinkFieldDecls =
+  shrinkList shrinkFieldDecl
+
+genDerivingClauses :: Gen [DerivingClause]
+genDerivingClauses = do
+  n <- chooseInt (0, 2)
+  vectorOf n genDerivingClause
+
+genDerivingClause :: Gen DerivingClause
+genDerivingClause = do
+  strategy <- genMaybeDerivingStrategy
+  classCount <- chooseInt (1, 3)
+  derivingClassNames <- vectorOf classCount genTypeName
+  pure (DerivingClause strategy derivingClassNames)
+
+genMaybeDerivingStrategy :: Gen (Maybe DerivingStrategy)
+genMaybeDerivingStrategy =
+  frequency
+    [ (2, pure Nothing),
+      (1, Just <$> elements [DerivingStock, DerivingNewtype, DerivingAnyclass])
+    ]
+
+shrinkDerivingClauses :: [DerivingClause] -> [[DerivingClause]]
+shrinkDerivingClauses =
+  shrinkList shrinkDerivingClause
+
+shrinkDerivingClause :: DerivingClause -> [DerivingClause]
+shrinkDerivingClause (DerivingClause strategy derivingClassNames) =
+  [DerivingClause strategy' derivingClassNames | strategy' <- shrinkMaybeDerivingStrategy strategy]
+    <> [ DerivingClause strategy derivingClassNames'
+       | derivingClassNames' <- shrinkList shrinkTypeName derivingClassNames,
+         not (null derivingClassNames')
+       ]
+
+shrinkMaybeDerivingStrategy :: Maybe DerivingStrategy -> [Maybe DerivingStrategy]
+shrinkMaybeDerivingStrategy strategy =
+  case strategy of
+    Nothing -> []
+    Just strategy' -> Nothing : [Just strategy'' | strategy'' <- shrinkDerivingStrategy strategy']
+
+shrinkDerivingStrategy :: DerivingStrategy -> [DerivingStrategy]
+shrinkDerivingStrategy strategy =
+  case strategy of
+    DerivingAnyclass -> [DerivingStock, DerivingNewtype]
+    DerivingNewtype -> [DerivingStock]
+    DerivingStock -> []
+
+genClassDeclItems :: Int -> Gen [ClassDeclItem]
+genClassDeclItems n = do
+  count <- chooseInt (0, 3)
+  vectorOf count (genClassDeclItem n)
+
+genClassDeclItem :: Int -> Gen ClassDeclItem
+genClassDeclItem n =
+  frequency
+    [ (3, do
+          names <- genBinderNames
+          ty <- genType (childDeclSize n)
+          pure (ClassItemTypeSig span0 names ty)
+      ),
+      (2, do
+          assoc <- elements [Infix, InfixL, InfixR]
+          mPrec <- frequency [(1, pure Nothing), (4, Just <$> chooseInt (0, 9))]
+          ops <- genFixityOps
+          pure (ClassItemFixity span0 assoc mPrec ops)
+      ),
+      (2, do
+          valueDecl <- genSimpleValueDecl
+          pure (ClassItemDefault span0 valueDecl)
+      )
+    ]
+
+genInstanceDeclItems :: Int -> Gen [InstanceDeclItem]
+genInstanceDeclItems n = do
+  count <- chooseInt (0, 3)
+  vectorOf count (genInstanceDeclItem n)
+
+genInstanceDeclItem :: Int -> Gen InstanceDeclItem
+genInstanceDeclItem n =
+  frequency
+    [ (3, InstanceItemBind span0 <$> genSimpleValueDecl),
+      (2, do
+          names <- genBinderNames
+          ty <- genType (childDeclSize n)
+          pure (InstanceItemTypeSig span0 names ty)
+      ),
+      (2, do
+          assoc <- elements [Infix, InfixL, InfixR]
+          mPrec <- frequency [(1, pure Nothing), (4, Just <$> chooseInt (0, 9))]
+          ops <- genFixityOps
+          pure (InstanceItemFixity span0 assoc mPrec ops)
+      )
+    ]
+
+genSimpleValueDecl :: Gen ValueDecl
+genSimpleValueDecl = do
+  name <- genIdent
+  expr <- scaleExpr genExpr
+  pure $
+    FunctionBind
+      span0
+      name
+      [ Match
+          { matchSpan = span0,
+            matchPats = [],
+            matchRhs = UnguardedRhs span0 expr
+          }
+      ]
+
+genForeignEntitySpec :: Gen ForeignEntitySpec
+genForeignEntitySpec =
+  frequency
+    [ (2, pure ForeignEntityOmitted),
+      (1, pure ForeignEntityDynamic),
+      (1, pure ForeignEntityWrapper),
+      (2, ForeignEntityStatic <$> genMaybeForeignEntityName),
+      (2, ForeignEntityAddress <$> genMaybeForeignEntityName),
+      (2, ForeignEntityNamed <$> genForeignEntityName)
+    ]
+
+genMaybeForeignEntityName :: Gen (Maybe Text)
+genMaybeForeignEntityName =
+  frequency
+    [ (1, pure Nothing),
+      (3, Just <$> genForeignEntityName)
+    ]
+
+genForeignEntityName :: Gen Text
+genForeignEntityName =
+  oneof [genIdent, genTypeName]
+
+genNonEmptyTyVarBinders :: Gen [TyVarBinder]
+genNonEmptyTyVarBinders = do
+  n <- chooseInt (1, 2)
+  vectorOf n genTyVarBinder
+
+childDeclSize :: Int -> Int
+childDeclSize n =
+  max 0 (n `div` 2)
+
+scaleDecl :: Gen a -> Gen a
+scaleDecl =
+  scale (\n -> max 0 (n `div` 2))
+
+scaleExpr :: Gen a -> Gen a
+scaleExpr =
+  scale (\n -> max 0 (n `div` 2))
+
+scaleTypeFromSize :: Gen Type
+scaleTypeFromSize =
+  sized (\n -> genType (max 0 (n `div` 2)))
+
+scaleTypeAtomish :: Gen Type
+scaleTypeAtomish =
+  sized (\n -> genType (max 0 (n `div` 2)))
 
 shrinkDeclTypes :: [Type] -> [[Type]]
 shrinkDeclTypes tys =
@@ -480,6 +830,125 @@ shrinkConstraint :: Constraint -> [Constraint]
 shrinkConstraint constraint =
   [constraint {constraintClass = name'} | name' <- shrinkTypeName (constraintClass constraint)]
     <> [constraint {constraintArgs = args'} | args' <- shrinkDeclTypes (constraintArgs constraint)]
+
+shrinkClassDecl :: ClassDecl -> [ClassDecl]
+shrinkClassDecl classDecl =
+  [classDecl {classDeclContext = context'} | context' <- shrinkMaybeConstraints (classDeclContext classDecl)]
+    <> [classDecl {classDeclName = name'} | name' <- shrinkTypeName (classDeclName classDecl)]
+    <> [classDecl {classDeclParams = params'} | params' <- shrinkNonEmptyTyVarBinders (classDeclParams classDecl)]
+    <> [classDecl {classDeclItems = items'} | items' <- shrinkClassDeclItems (classDeclItems classDecl)]
+
+shrinkMaybeConstraints :: Maybe [Constraint] -> [Maybe [Constraint]]
+shrinkMaybeConstraints maybeConstraints =
+  case maybeConstraints of
+    Nothing -> []
+    Just constraints ->
+      Nothing : [Just constraints' | constraints' <- shrinkConstraints constraints, not (null constraints')]
+
+shrinkNonEmptyTyVarBinders :: [TyVarBinder] -> [[TyVarBinder]]
+shrinkNonEmptyTyVarBinders binders =
+  [ binders'
+  | binders' <- shrinkTyVarBinders binders,
+    not (null binders')
+  ]
+
+shrinkClassDeclItems :: [ClassDeclItem] -> [[ClassDeclItem]]
+shrinkClassDeclItems =
+  shrinkList shrinkClassDeclItem
+
+shrinkClassDeclItem :: ClassDeclItem -> [ClassDeclItem]
+shrinkClassDeclItem item =
+  case item of
+    ClassItemTypeSig _ names ty ->
+      [ClassItemTypeSig span0 names' ty | names' <- shrinkBinderNames names]
+        <> [ClassItemTypeSig span0 names ty' | ty' <- shrinkDeclType ty]
+    ClassItemFixity _ assoc mPrec ops ->
+      [ClassItemFixity span0 assoc mPrec' ops | mPrec' <- shrink mPrec]
+        <> [ClassItemFixity span0 assoc mPrec ops' | ops' <- shrinkFixityOps ops]
+    ClassItemDefault _ valueDecl ->
+      [ClassItemDefault span0 valueDecl' | valueDecl' <- shrinkValueDecl valueDecl]
+
+shrinkInstanceDecl :: InstanceDecl -> [InstanceDecl]
+shrinkInstanceDecl instanceDecl =
+  [instanceDecl {instanceDeclContext = ctx'} | ctx' <- shrinkConstraints (instanceDeclContext instanceDecl)]
+    <> [instanceDecl {instanceDeclClassName = name'} | name' <- shrinkTypeName (instanceDeclClassName instanceDecl)]
+    <> [ instanceDecl {instanceDeclTypes = tys'}
+       | tys' <- shrinkDeclTypes (instanceDeclTypes instanceDecl),
+         not (null tys')
+       ]
+    <> [instanceDecl {instanceDeclItems = items'} | items' <- shrinkInstanceDeclItems (instanceDeclItems instanceDecl)]
+
+shrinkInstanceDeclItems :: [InstanceDeclItem] -> [[InstanceDeclItem]]
+shrinkInstanceDeclItems =
+  shrinkList shrinkInstanceDeclItem
+
+shrinkInstanceDeclItem :: InstanceDeclItem -> [InstanceDeclItem]
+shrinkInstanceDeclItem item =
+  case item of
+    InstanceItemBind _ valueDecl ->
+      [InstanceItemBind span0 valueDecl' | valueDecl' <- shrinkValueDecl valueDecl]
+    InstanceItemTypeSig _ names ty ->
+      [InstanceItemTypeSig span0 names' ty | names' <- shrinkBinderNames names]
+        <> [InstanceItemTypeSig span0 names ty' | ty' <- shrinkDeclType ty]
+    InstanceItemFixity _ assoc mPrec ops ->
+      [InstanceItemFixity span0 assoc mPrec' ops | mPrec' <- shrink mPrec]
+        <> [InstanceItemFixity span0 assoc mPrec ops' | ops' <- shrinkFixityOps ops]
+
+shrinkStandaloneDerivingDecl :: StandaloneDerivingDecl -> [StandaloneDerivingDecl]
+shrinkStandaloneDerivingDecl derivingDecl =
+  [derivingDecl {standaloneDerivingStrategy = strategy'} | strategy' <- shrinkMaybeDerivingStrategy (standaloneDerivingStrategy derivingDecl)]
+    <> [derivingDecl {standaloneDerivingContext = ctx'} | ctx' <- shrinkConstraints (standaloneDerivingContext derivingDecl)]
+    <> [derivingDecl {standaloneDerivingClassName = name'} | name' <- shrinkTypeName (standaloneDerivingClassName derivingDecl)]
+    <> [ derivingDecl {standaloneDerivingTypes = tys'}
+       | tys' <- shrinkDeclTypes (standaloneDerivingTypes derivingDecl),
+         not (null tys')
+       ]
+
+shrinkForeignDecl :: ForeignDecl -> [ForeignDecl]
+shrinkForeignDecl foreignDecl =
+  [foreignDecl {foreignSafety = safety'} | safety' <- shrinkMaybeForeignSafety (foreignSafety foreignDecl)]
+    <> [foreignDecl {foreignEntity = entity'} | entity' <- shrinkForeignEntitySpec (foreignEntity foreignDecl)]
+    <> [foreignDecl {foreignName = name'} | name' <- shrinkIdent (foreignName foreignDecl)]
+    <> [foreignDecl {foreignType = ty'} | ty' <- shrinkDeclType (foreignType foreignDecl)]
+
+shrinkMaybeForeignSafety :: Maybe ForeignSafety -> [Maybe ForeignSafety]
+shrinkMaybeForeignSafety safety =
+  case safety of
+    Nothing -> []
+    Just safety' -> Nothing : [Just safety'' | safety'' <- shrinkForeignSafety safety']
+
+shrinkForeignSafety :: ForeignSafety -> [ForeignSafety]
+shrinkForeignSafety safety =
+  case safety of
+    Unsafe -> [Safe]
+    Safe -> []
+
+shrinkForeignEntitySpec :: ForeignEntitySpec -> [ForeignEntitySpec]
+shrinkForeignEntitySpec spec =
+  case spec of
+    ForeignEntityDynamic -> [ForeignEntityOmitted]
+    ForeignEntityWrapper -> [ForeignEntityOmitted]
+    ForeignEntityStatic mName -> ForeignEntityOmitted : [ForeignEntityStatic mName' | mName' <- shrinkMaybeText shrinkIdent mName]
+    ForeignEntityAddress mName -> ForeignEntityOmitted : [ForeignEntityAddress mName' | mName' <- shrinkMaybeText shrinkIdent mName]
+    ForeignEntityNamed name -> ForeignEntityOmitted : [ForeignEntityNamed name' | name' <- shrinkIdent name]
+    ForeignEntityOmitted -> []
+
+shrinkMaybeText :: (a -> [a]) -> Maybe a -> [Maybe a]
+shrinkMaybeText shrinkFn mValue =
+  case mValue of
+    Nothing -> []
+    Just value -> Nothing : [Just value' | value' <- shrinkFn value]
+
+shrinkValueDecl :: ValueDecl -> [ValueDecl]
+shrinkValueDecl valueDecl =
+  case valueDecl of
+    FunctionBind _ name [match] ->
+      case matchRhs match of
+        UnguardedRhs _ expr ->
+          [FunctionBind span0 name' [match {matchSpan = span0, matchRhs = UnguardedRhs span0 expr}] | name' <- shrinkIdent name]
+            <> [FunctionBind span0 name [match {matchSpan = span0, matchRhs = UnguardedRhs span0 expr'}] | expr' <- shrinkExpr expr]
+        _ -> []
+    _ -> []
 
 instance Arbitrary ExportSpec where
   arbitrary =
@@ -719,8 +1188,11 @@ normalizeDecl decl =
     DeclTypeSyn _ syn -> DeclTypeSyn span0 (normalizeTypeSynDecl syn)
     DeclData _ dataDecl -> DeclData span0 (normalizeDataDecl dataDecl)
     DeclNewtype _ newtypeDecl -> DeclNewtype span0 (normalizeNewtypeDecl newtypeDecl)
+    DeclClass _ classDecl -> DeclClass span0 (normalizeClassDecl classDecl)
+    DeclInstance _ instanceDecl -> DeclInstance span0 (normalizeInstanceDecl instanceDecl)
+    DeclStandaloneDeriving _ derivingDecl -> DeclStandaloneDeriving span0 (normalizeStandaloneDerivingDecl derivingDecl)
     DeclDefault _ tys -> DeclDefault span0 (map normalizeType tys)
-    _ -> decl
+    DeclForeign _ foreignDecl -> DeclForeign span0 (normalizeForeignDecl foreignDecl)
 
 normalizeValueDecl :: ValueDecl -> ValueDecl
 normalizeValueDecl valueDecl =
@@ -771,6 +1243,62 @@ normalizeNewtypeDecl newtypeDecl =
       newtypeDeclParams = map normalizeTyVarBinder (newtypeDeclParams newtypeDecl),
       newtypeDeclConstructor = fmap normalizeDataConDecl (newtypeDeclConstructor newtypeDecl),
       newtypeDeclDeriving = newtypeDeclDeriving newtypeDecl
+    }
+
+normalizeClassDecl :: ClassDecl -> ClassDecl
+normalizeClassDecl classDecl =
+  ClassDecl
+    { classDeclSpan = span0,
+      classDeclContext = fmap (map normalizeConstraint) (classDeclContext classDecl),
+      classDeclName = classDeclName classDecl,
+      classDeclParams = map normalizeTyVarBinder (classDeclParams classDecl),
+      classDeclItems = map normalizeClassDeclItem (classDeclItems classDecl)
+    }
+
+normalizeClassDeclItem :: ClassDeclItem -> ClassDeclItem
+normalizeClassDeclItem item =
+  case item of
+    ClassItemTypeSig _ names ty -> ClassItemTypeSig span0 names (normalizeType ty)
+    ClassItemFixity _ assoc mPrec ops -> ClassItemFixity span0 assoc mPrec ops
+    ClassItemDefault _ valueDecl -> ClassItemDefault span0 (normalizeValueDecl valueDecl)
+
+normalizeInstanceDecl :: InstanceDecl -> InstanceDecl
+normalizeInstanceDecl instanceDecl =
+  InstanceDecl
+    { instanceDeclSpan = span0,
+      instanceDeclContext = map normalizeConstraint (instanceDeclContext instanceDecl),
+      instanceDeclClassName = instanceDeclClassName instanceDecl,
+      instanceDeclTypes = map normalizeType (instanceDeclTypes instanceDecl),
+      instanceDeclItems = map normalizeInstanceDeclItem (instanceDeclItems instanceDecl)
+    }
+
+normalizeInstanceDeclItem :: InstanceDeclItem -> InstanceDeclItem
+normalizeInstanceDeclItem item =
+  case item of
+    InstanceItemBind _ valueDecl -> InstanceItemBind span0 (normalizeValueDecl valueDecl)
+    InstanceItemTypeSig _ names ty -> InstanceItemTypeSig span0 names (normalizeType ty)
+    InstanceItemFixity _ assoc mPrec ops -> InstanceItemFixity span0 assoc mPrec ops
+
+normalizeStandaloneDerivingDecl :: StandaloneDerivingDecl -> StandaloneDerivingDecl
+normalizeStandaloneDerivingDecl derivingDecl =
+  StandaloneDerivingDecl
+    { standaloneDerivingSpan = span0,
+      standaloneDerivingStrategy = standaloneDerivingStrategy derivingDecl,
+      standaloneDerivingContext = map normalizeConstraint (standaloneDerivingContext derivingDecl),
+      standaloneDerivingClassName = standaloneDerivingClassName derivingDecl,
+      standaloneDerivingTypes = map normalizeType (standaloneDerivingTypes derivingDecl)
+    }
+
+normalizeForeignDecl :: ForeignDecl -> ForeignDecl
+normalizeForeignDecl foreignDecl =
+  ForeignDecl
+    { foreignDeclSpan = span0,
+      foreignDirection = foreignDirection foreignDecl,
+      foreignCallConv = foreignCallConv foreignDecl,
+      foreignSafety = foreignSafety foreignDecl,
+      foreignEntity = foreignEntity foreignDecl,
+      foreignName = foreignName foreignDecl,
+      foreignType = normalizeType (foreignType foreignDecl)
     }
 
 normalizeTyVarBinder :: TyVarBinder -> TyVarBinder
