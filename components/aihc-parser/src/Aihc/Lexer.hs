@@ -404,6 +404,7 @@ nextToken st =
         lexFloat,
         lexIntBase,
         lexInt,
+        lexPromotedQuote,
         lexChar,
         lexString,
         lexSymbol,
@@ -1196,6 +1197,33 @@ lexInt st =
               digits = filter (/= '_') digitsRaw
               st' = advanceChars digitsRaw st
            in Just (mkToken st st' txt (TkInteger (read digits)), st')
+
+lexPromotedQuote :: LexerState -> Maybe (LexToken, LexerState)
+lexPromotedQuote st
+  | DataKinds `notElem` lexerExtensions st = Nothing
+  | otherwise =
+      case lexerInput st of
+        '\'' : rest
+          | isValidCharLiteral rest -> Nothing
+          | isPromotionStart rest ->
+              let st' = advanceChars "'" st
+               in Just (mkToken st st' "'" (TkVarSym "'"), st')
+          | otherwise -> Nothing
+        _ -> Nothing
+  where
+    isValidCharLiteral chars =
+      case scanQuoted '\'' chars of
+        Right (body, _) -> isJust (readMaybeChar ('\'' : body <> "'"))
+        Left _ -> False
+
+    isPromotionStart chars =
+      case chars of
+        c : _
+          | c == '[' -> True
+          | c == '(' -> True
+          | c == ':' -> True
+          | isAsciiUpper c -> True
+        _ -> False
 
 lexChar :: LexerState -> Maybe (LexToken, LexerState)
 lexChar st =

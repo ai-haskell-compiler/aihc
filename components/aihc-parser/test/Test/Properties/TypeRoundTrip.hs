@@ -50,13 +50,14 @@ typeCtorNames ty =
    in case ty of
         TVar {} -> here
         TCon {} -> here
+        TTypeLit {} -> here
         TStar {} -> here
         TQuasiQuote {} -> here
         TForall _ _ inner -> here <> typeCtorNames inner
         TApp _ f x -> here <> typeCtorNames f <> typeCtorNames x
         TFun _ a b -> here <> typeCtorNames a <> typeCtorNames b
-        TTuple _ elems -> here <> mconcat (map typeCtorNames elems)
-        TList _ inner -> here <> typeCtorNames inner
+        TTuple _ _ elems -> here <> mconcat (map typeCtorNames elems)
+        TList _ _ inner -> here <> typeCtorNames inner
         TParen _ inner -> here <> typeCtorNames inner
         TContext _ constraints inner ->
           here <> mconcat (map constraintTypeCtorNames constraints) <> typeCtorNames inner
@@ -73,8 +74,10 @@ shrinkType ty =
   case ty of
     TVar _ name ->
       [TVar span0 shrunk | shrunk <- shrinkIdent name]
-    TCon _ name ->
-      [TCon span0 shrunk | shrunk <- shrinkTypeConName name]
+    TCon _ name promoted ->
+      [TCon span0 shrunk promoted | shrunk <- shrinkTypeConName name]
+    TTypeLit {} ->
+      []
     TStar _ ->
       []
     TQuasiQuote _ quoter body ->
@@ -92,10 +95,10 @@ shrinkType ty =
       [canonicalFunLeft lhs, rhs]
         <> [TFun span0 (canonicalFunLeft lhs') rhs | lhs' <- shrinkType lhs]
         <> [TFun span0 (canonicalFunLeft lhs) rhs' | rhs' <- shrinkType rhs]
-    TTuple _ elems ->
+    TTuple _ _ elems ->
       shrinkTupleElems elems
-    TList _ inner ->
-      [inner] <> [TList span0 inner' | inner' <- shrinkType inner]
+    TList _ _ inner ->
+      [inner] <> [TList span0 Unpromoted inner' | inner' <- shrinkType inner]
     TParen _ inner ->
       [inner] <> [TParen span0 inner' | inner' <- shrinkType inner]
     TContext _ constraints inner ->
@@ -136,9 +139,9 @@ shrinkTupleElems elems =
   [ candidate
   | shrunk <- shrinkList shrinkType elems,
     candidate <- case shrunk of
-      [] -> [TTuple span0 []]
+      [] -> [TTuple span0 Unpromoted []]
       [_] -> []
-      _ -> [TTuple span0 shrunk]
+      _ -> [TTuple span0 Unpromoted shrunk]
   ]
 
 shrinkConstraints :: [Constraint] -> [[Constraint]]
@@ -155,24 +158,26 @@ genType depth
   | depth <= 0 =
       oneof
         [ TVar span0 <$> genTypeVarName,
-          TCon span0 <$> genTypeConName,
+          (\name -> TCon span0 name Unpromoted) <$> genTypeConName,
+          TTypeLit span0 <$> genTypeLiteral,
           pure (TStar span0),
           TQuasiQuote span0 <$> genQuoterName <*> genQuasiBody,
-          TTuple span0 <$> elements [[], [TVar span0 "a", TCon span0 "B"]],
-          TList span0 <$> genTypeAtom 0,
+          TTuple span0 Unpromoted <$> elements [[], [TVar span0 "a", TCon span0 "B" Unpromoted]],
+          TList span0 Unpromoted <$> genTypeAtom 0,
           TParen span0 <$> genTypeAtom 0
         ]
   | otherwise =
       frequency
         [ (3, TVar span0 <$> genTypeVarName),
-          (3, TCon span0 <$> genTypeConName),
+          (3, (\name -> TCon span0 name Unpromoted) <$> genTypeConName),
+          (1, TTypeLit span0 <$> genTypeLiteral),
           (1, pure (TStar span0)),
           (2, TQuasiQuote span0 <$> genQuoterName <*> genQuasiBody),
           (2, TForall span0 <$> genTypeBinders <*> genForallInner (depth - 1)),
           (4, genTypeApp depth),
           (4, genTypeFun depth),
-          (3, TTuple span0 <$> genTypeTupleElems (depth - 1)),
-          (3, TList span0 <$> genType (depth - 1)),
+          (3, TTuple span0 Unpromoted <$> genTypeTupleElems (depth - 1)),
+          (3, TList span0 Unpromoted <$> genType (depth - 1)),
           (3, TParen span0 <$> genType (depth - 1)),
           (3, TContext span0 <$> genConstraints (depth - 1) <*> genContextInner (depth - 1))
         ]
@@ -218,11 +223,12 @@ genTypeAtom :: Int -> Gen Type
 genTypeAtom depth =
   oneof
     [ TVar span0 <$> genTypeVarName,
-      TCon span0 <$> genTypeConName,
+      (\name -> TCon span0 name Unpromoted) <$> genTypeConName,
+      TTypeLit span0 <$> genTypeLiteral,
       pure (TStar span0),
       TQuasiQuote span0 <$> genQuoterName <*> genQuasiBody,
-      TTuple span0 <$> genTypeTupleElems depth,
-      TList span0 <$> genType depth,
+      TTuple span0 Unpromoted <$> genTypeTupleElems depth,
+      TList span0 Unpromoted <$> genType depth,
       TParen span0 <$> genType depth
     ]
 
@@ -279,6 +285,7 @@ canonicalConstraintArg ty =
   case ty of
     TVar {} -> ty
     TCon {} -> ty
+    TTypeLit {} -> ty
     TStar {} -> ty
     TQuasiQuote {} -> ty
     TList {} -> ty
@@ -321,18 +328,42 @@ genQuasiBody = do
   chars <- vectorOf len (elements (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> " +-*/_()"))
   pure (T.pack chars)
 
+genTypeLiteral :: Gen TypeLiteral
+genTypeLiteral =
+  oneof
+    [ do
+        n <- chooseInteger (0, 1000)
+        pure (TypeLitInteger n (T.pack (show n))),
+      do
+        txt <- genSymbolText
+        pure (TypeLitSymbol txt (T.pack (show (T.unpack txt)))),
+      do
+        c <- genTypeLiteralChar
+        pure (TypeLitChar c (T.pack (show c)))
+    ]
+
+genSymbolText :: Gen Text
+genSymbolText = do
+  len <- chooseInt (0, 8)
+  chars <- vectorOf len genTypeLiteralChar
+  pure (T.pack chars)
+
+genTypeLiteralChar :: Gen Char
+genTypeLiteralChar = elements (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> " _")
+
 normalizeType :: Type -> Type
 normalizeType ty =
   case ty of
     TVar _ name -> TVar span0 name
-    TCon _ name -> TCon span0 name
+    TCon _ name promoted -> TCon span0 name promoted
+    TTypeLit _ lit -> TTypeLit span0 lit
     TStar _ -> TStar span0
     TQuasiQuote _ quoter body -> TQuasiQuote span0 quoter body
     TForall _ binders inner -> TForall span0 binders (normalizeType inner)
     TApp _ f x -> TApp span0 (normalizeType f) (normalizeType x)
     TFun _ a b -> TFun span0 (normalizeType a) (normalizeType b)
-    TTuple _ elems -> TTuple span0 (map normalizeType elems)
-    TList _ inner -> TList span0 (normalizeType inner)
+    TTuple _ promoted elems -> TTuple span0 promoted (map normalizeType elems)
+    TList _ promoted inner -> TList span0 promoted (normalizeType inner)
     TParen _ inner -> TParen span0 (normalizeType inner)
     TContext _ constraints inner -> TContext span0 (map normalizeConstraint constraints) (normalizeType inner)
 

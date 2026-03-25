@@ -310,8 +310,8 @@ genType n
         [ genTypeLeaf,
           TApp span0 <$> genType half <*> genType half,
           TFun span0 <$> genType half <*> genType half,
-          TList span0 <$> genType (n - 1),
-          TTuple span0 <$> genTypeTupleElems (n - 1),
+          TList span0 Unpromoted <$> genType (n - 1),
+          TTuple span0 Unpromoted <$> genTypeTupleElems (n - 1),
           TParen span0 <$> genType (n - 1)
         ]
   where
@@ -322,7 +322,7 @@ genTypeLeaf :: Gen Type
 genTypeLeaf =
   oneof
     [ TVar span0 <$> genTypeVarName,
-      TCon span0 <$> genConName
+      (\name -> TCon span0 name Unpromoted) <$> genConName
     ]
 
 genTypeTupleElems :: Int -> Gen [Type]
@@ -453,9 +453,9 @@ shrinkExpr expr =
         : [ERecordUpd span0 target' fields | target' <- shrinkExpr target]
           <> [ERecordUpd span0 target fields' | fields' <- shrinkRecordFields fields]
     ETypeSig _ inner _ ->
-      inner : [ETypeSig span0 inner' (TCon span0 "T") | inner' <- shrinkExpr inner]
+      inner : [ETypeSig span0 inner' (TCon span0 "T" Unpromoted) | inner' <- shrinkExpr inner]
     ETypeApp _ inner _ ->
-      inner : [ETypeApp span0 inner' (TCon span0 "T") | inner' <- shrinkExpr inner]
+      inner : [ETypeApp span0 inner' (TCon span0 "T" Unpromoted) | inner' <- shrinkExpr inner]
     EParen _ inner -> inner : [EParen span0 inner' | inner' <- shrinkExpr inner]
 
 shrinkFloat :: Double -> [Double]
@@ -722,14 +722,15 @@ normalizeType :: Type -> Type
 normalizeType ty =
   case ty of
     TVar _ name -> TVar span0 name
-    TCon _ name -> TCon span0 name
+    TCon _ name promoted -> TCon span0 name promoted
+    TTypeLit _ lit -> TTypeLit span0 lit
     TStar _ -> TStar span0
     TQuasiQuote _ quoter body -> TQuasiQuote span0 quoter body
     TForall _ binders inner -> TForall span0 binders (normalizeType inner)
     TApp _ fn arg -> TApp span0 (normalizeType fn) (normalizeType arg)
     TFun _ lhs rhs -> TFun span0 (normalizeType lhs) (normalizeType rhs)
-    TTuple _ elems -> TTuple span0 (map normalizeType elems)
-    TList _ inner -> TList span0 (normalizeType inner)
+    TTuple _ promoted elems -> TTuple span0 promoted (map normalizeType elems)
+    TList _ promoted inner -> TList span0 promoted (normalizeType inner)
     -- Remove redundant parentheses from types
     TParen _ inner -> normalizeType inner
     TContext _ constraints inner -> TContext span0 (map normalizeConstraint constraints) (normalizeType inner)
