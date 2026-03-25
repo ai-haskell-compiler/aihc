@@ -222,7 +222,6 @@ expr-s3-lambda-infix-rhs	expressions	expressions/lambda-infix-rhs.hs	pass	parser
 expr-s3-record-field-selection	expressions	expressions/record-field-selection.hs	pass
 expr-s3-record-construction-empty	expressions	expressions/record-construction-empty.hs	pass	parser now supports empty record construction expressions
 expr-s3-record-construction-fields	expressions	expressions/record-construction-fields.hs	pass	parser now supports record construction expressions with fields
-expr-s3-record-construction-trailing-comma	expressions	expressions/record-construction-trailing-comma.hs	xfail	GHC does not accept trailing comma in record expressions
 expr-s3-record-update-single	expressions	expressions/record-update-single.hs	pass	parser now supports record update expressions
 expr-s3-record-update-multiple	expressions	expressions/record-update-multiple.hs	pass	parser now supports record update expressions with multiple fields
 expr-s3-record-update-chained	expressions	expressions/record-update-chained.hs	pass	parser now supports chained record updates
