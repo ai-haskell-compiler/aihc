@@ -41,14 +41,17 @@ import GHC.Parser (parseModule)
 import GHC.Parser.Header (getOptions)
 import GHC.Parser.Lexer
   ( ParseResult (..),
+    PState,
+    Token (..),
     getPsErrorMessages,
     initParserState,
+    lexer,
     mkParserOpts,
     unP,
   )
 import GHC.Types.Error (NoDiagnosticOpts (NoDiagnosticOpts))
 import GHC.Types.SourceError (SourceError)
-import GHC.Types.SrcLoc (GenLocated, mkRealSrcLoc, unLoc)
+import GHC.Types.SrcLoc (GenLocated, Located, mkRealSrcLoc, unLoc)
 import GHC.Utils.Error (emptyDiagOpts, pprMessages)
 import GHC.Utils.Outputable (ppr, showSDocUnsafe)
 import System.IO.Unsafe (unsafePerformIO)
@@ -104,7 +107,23 @@ parseWithGhcWithExtensionsDetailed sourceTag extraExts input =
             buffer = stringToStringBuffer (T.unpack inputForParse)
             start = mkRealSrcLoc (mkFastString sourceTag) 1 1
         case catchPureExceptionText $ case unP parseModule (initParserState opts buffer start) of
-          POk _ modu -> Right (languagePragmas, unLoc modu)
+          POk st modu ->
+            case firstSignificantTokenAfterModule st of
+              Right tok ->
+                case unLoc tok of
+                  ITeof -> Right (languagePragmas, unLoc modu)
+                  _ ->
+                    Left
+                      ( "GHC parser accepted module prefix but left trailing token: "
+                          <> T.pack (show tok),
+                        parseExts
+                      )
+              Left lexErr ->
+                Left
+                  ( "GHC lexer failed while checking for trailing tokens: "
+                      <> lexErr,
+                    parseExts
+                  )
           PFailed st ->
             let rendered = showSDocUnsafe (pprMessages NoDiagnosticOpts (getPsErrorMessages st))
              in Left (T.pack rendered, parseExts) of
@@ -146,6 +165,24 @@ extractLanguagePragmas sourceTag baseExts input =
         ) of
         Left err -> Left ("GHC option parsing exception: " <> err)
         Right pragmas -> Right pragmas
+
+firstSignificantTokenAfterModule :: PState -> Either Text (Located Token)
+firstSignificantTokenAfterModule st =
+  case unP (lexer False pure) st of
+    POk st' tok
+      | isIgnorableToken (unLoc tok) -> firstSignificantTokenAfterModule st'
+      | otherwise -> Right tok
+    PFailed st' ->
+      Left (T.pack (showSDocUnsafe (pprMessages NoDiagnosticOpts (getPsErrorMessages st'))))
+
+isIgnorableToken :: Token -> Bool
+isIgnorableToken tok =
+  case tok of
+    ITdocComment {} -> True
+    ITdocOptions {} -> True
+    ITlineComment {} -> True
+    ITblockComment {} -> True
+    _ -> False
 
 optionToLanguagePragma :: GenLocated l String -> Maybe Ast.ExtensionSetting
 optionToLanguagePragma locatedOpt =
