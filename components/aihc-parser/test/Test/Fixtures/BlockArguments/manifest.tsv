@@ -1,0 +1,4 @@
+basic-do	expressions	basic-do.hs	xfail	basic do block argument
+basic-case	expressions	basic-case.hs	xfail	basic case block argument
+basic-if	expressions	basic-if.hs	xfail	basic if block argument
+basic-lambda	expressions	basic-lambda.hs	xfail	basic lambda block argument

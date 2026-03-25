@@ -1,0 +1,4 @@
+basic	expressions	basic.hs	xfail	basic multi-way if
+indented	expressions	indented.hs	xfail	indented multi-way if
+nested	expressions	nested.hs	xfail	nested multi-way if
+pattern-guards	expressions	pattern-guards.hs	xfail	pattern guards in multi-way if

@@ -1,0 +1,4 @@
+basic	declarations	basic.hs	xfail	basic deriving via
+multiple-classes	declarations	multiple-classes.hs	xfail	deriving multiple classes via
+standalone	declarations	standalone.hs	xfail	standalone deriving via
+complex-via	declarations	complex-via.hs	xfail	complex via type

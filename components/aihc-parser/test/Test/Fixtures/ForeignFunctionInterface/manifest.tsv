@@ -1,0 +1,4 @@
+import	declarations	import.hs	pass
+export	declarations	export.hs	pass
+safety	declarations	safety.hs	pass
+stdcall	declarations	stdcall.hs	pass

@@ -1,0 +1,3 @@
+basic	declarations	basic.hs	xfail	basic type family
+data-family	declarations	data-family.hs	xfail	data family
+closed-type-family	declarations	closed-type-family.hs	xfail	closed type family

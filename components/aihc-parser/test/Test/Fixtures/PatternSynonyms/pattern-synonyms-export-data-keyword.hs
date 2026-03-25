@@ -1,8 +1,8 @@
 {-# LANGUAGE PatternSynonyms #-}
 
 module PatternSynonymsExportDataKeyword
-  ( data Zero,
-    data Succ,
+  ( pattern Zero,
+    pattern Succ,
   ) where
 
 data Nat = Z | S Nat

@@ -1,0 +1,3 @@
+basic	expressions	basic.hs	xfail	basic unboxed sum
+pattern	patterns	pattern.hs	xfail	unboxed sum pattern
+type	types	type.hs	xfail	unboxed sum type
