@@ -490,7 +490,7 @@ prettyDataCon :: DataConDecl -> Doc ann
 prettyDataCon ctor =
   case ctor of
     PrefixCon _ forallVars constraints name fields ->
-      hsep (dataConQualifierPrefix forallVars constraints <> [prettyConstructorName name] <> map prettyBangType fields)
+      hsep (dataConQualifierPrefix forallVars constraints <> [prettyConstructorName name] <> map prettyConstructorArgBangType fields)
     InfixCon _ forallVars constraints lhs op rhs ->
       hsep
         ( dataConQualifierPrefix forallVars constraints
@@ -572,6 +572,14 @@ prettyBangType :: BangType -> Doc ann
 prettyBangType bt
   | bangStrict bt = "!" <> prettyTypeIn CtxTypeAtom (bangType bt)
   | otherwise = prettyTypeIn CtxTypeFunArg (bangType bt)
+
+-- | Pretty print a BangType in a prefix constructor argument position.
+-- Constructor arguments are syntactically atomic, so type applications like
+-- @A ()@ must be parenthesized to remain a single field.
+prettyConstructorArgBangType :: BangType -> Doc ann
+prettyConstructorArgBangType bt
+  | bangStrict bt = "!" <> prettyTypeIn CtxTypeAtom (bangType bt)
+  | otherwise = prettyTypeIn CtxTypeAtom (bangType bt)
 
 prettyRecordFieldBangType :: BangType -> Doc ann
 prettyRecordFieldBangType bt

@@ -7,6 +7,8 @@ import Aihc.Parser
 import Aihc.Parser.Ast
 import Data.List (isInfixOf)
 import qualified Data.Text as T
+import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
+import Prettyprinter.Render.Text (renderStrict)
 import Test.CLI.Suite (cliTests)
 import Test.ErrorMessages.Suite (errorMessageTests)
 import Test.ExtensionMapping.Suite (extensionMappingTests)
@@ -68,6 +70,7 @@ buildTests = do
             testCase "can lex lazily from chunks" test_lexerChunkLaziness,
             testCase "parser config passes extensions to lexer" test_parserConfigPassesExtensions,
             testCase "parser config sets source name in parse errors" test_parserConfigSetsSourceName,
+            testCase "pretty-printed constructor args preserve applied types" test_prettyPrintedConstructorArgsPreserveAppliedTypes,
             testCase "generated identifiers reject reserved keyword as" test_generatedIdentifiersRejectReservedAs,
             testCase "generated identifiers reject standalone underscore" test_generatedIdentifiersRejectStandaloneUnderscore,
             testCase "shrunk identifiers reject standalone underscore" test_shrunkIdentifiersRejectStandaloneUnderscore
@@ -116,6 +119,70 @@ test_parserConfigSetsSourceName =
         else assertFailure ("expected source name in parse error, got: " <> errorBundlePretty err)
     ParseOk modu ->
       assertFailure ("expected parse failure, got: " <> show modu)
+
+test_prettyPrintedConstructorArgsPreserveAppliedTypes :: Assertion
+test_prettyPrintedConstructorArgsPreserveAppliedTypes = do
+  let modu =
+        Module
+          { moduleSpan = noSourceSpan,
+            moduleHead = Nothing,
+            moduleLanguagePragmas = [],
+            moduleImports = [],
+            moduleDecls =
+              [ DeclData
+                  noSourceSpan
+                  DataDecl
+                    { dataDeclSpan = noSourceSpan,
+                      dataDeclContext = [],
+                      dataDeclName = "A",
+                      dataDeclParams = [],
+                      dataDeclConstructors =
+                        [ PrefixCon
+                            noSourceSpan
+                            []
+                            []
+                            "A"
+                            [ BangType
+                                { bangSpan = noSourceSpan,
+                                  bangStrict = False,
+                                  bangType = TApp noSourceSpan (TCon noSourceSpan "A") (TTuple noSourceSpan [])
+                                }
+                            ]
+                        ],
+                      dataDeclDeriving = []
+                    }
+              ]
+          }
+      source = renderStrict (layoutPretty defaultLayoutOptions (pretty modu))
+  assertEqual "pretty-prints applied constructor field type atomically" "data A = A (A ())" source
+  case parseModule defaultConfig source of
+    ParseErr err ->
+      assertFailure ("expected parse success, got parse error: " <> errorBundlePretty err)
+    ParseOk reparsed ->
+      case moduleDecls reparsed of
+        [ DeclData _ DataDecl {dataDeclConstructors = [PrefixCon _ _ _ "A" [BangType {bangType = reparsedTy}]]}
+          ] ->
+            assertEqual
+              "reparsed module preserves single applied constructor field"
+              (TApp noSourceSpan (TCon noSourceSpan "A") (TTuple noSourceSpan []))
+              (stripTypeParens reparsedTy)
+        other ->
+          assertFailure ("unexpected reparsed declarations: " <> show other)
+
+stripTypeParens :: Type -> Type
+stripTypeParens ty =
+  case ty of
+    TParen _ inner -> stripTypeParens inner
+    TApp _ lhs rhs -> TApp noSourceSpan (stripTypeParens lhs) (stripTypeParens rhs)
+    TCon _ name -> TCon noSourceSpan name
+    TTuple _ elems -> TTuple noSourceSpan (map stripTypeParens elems)
+    TVar _ name -> TVar noSourceSpan name
+    TStar _ -> TStar noSourceSpan
+    TQuasiQuote _ quoter body -> TQuasiQuote noSourceSpan quoter body
+    TForall _ binders inner -> TForall noSourceSpan binders (stripTypeParens inner)
+    TFun _ lhs rhs -> TFun noSourceSpan (stripTypeParens lhs) (stripTypeParens rhs)
+    TList _ inner -> TList noSourceSpan (stripTypeParens inner)
+    TContext _ constraints inner -> TContext noSourceSpan constraints (stripTypeParens inner)
 
 test_readsHeaderLanguagePragmas :: Assertion
 test_readsHeaderLanguagePragmas = do

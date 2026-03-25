@@ -4,9 +4,11 @@
 -- used by both ExprRoundTrip and ModuleRoundTrip tests.
 module Test.Properties.ExprHelpers
   ( genExpr,
+    genType,
     mkIntExpr,
     shrinkExpr,
     normalizeExpr,
+    normalizeType,
     span0,
   )
 where
