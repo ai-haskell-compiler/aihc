@@ -14,4 +14,4 @@ pattern-synonyms-import-pattern-keyword	modules	pattern-synonyms-import-pattern-
 pattern-synonyms-import-export-bundled	modules	pattern-synonyms-import-export-bundled.hs	pass	parser now supports type constructor explicit member imports/exports
 pattern-synonyms-export-data-keyword	modules	pattern-synonyms-export-data-keyword.hs	xfail	parser support pending
 pattern-synonyms-import-data-keyword	modules	pattern-synonyms-import-data-keyword.hs	xfail	parser support pending
-pattern-synonyms-import-export-bundled-data	modules	pattern-synonyms-import-export-bundled-data.hs	xfail	parser support pending
+pattern-synonyms-import-export-bundled-data	modules	pattern-synonyms-import-export-bundled-data.hs	pass	parser support pending
