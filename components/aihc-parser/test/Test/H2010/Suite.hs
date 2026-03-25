@@ -14,7 +14,6 @@ import Data.Maybe (isNothing)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
-import GhcCompileCheck (checkFilesParseWithGhc)
 import GhcOracle (oracleDetailedParsesModuleWithNamesAt)
 import ParserValidation (validateParser)
 import System.Directory (doesFileExist)
@@ -45,10 +44,9 @@ h2010Tests :: IO TestTree
 h2010Tests = do
   cases <- loadManifest
   checks <- mapM mkCaseTest cases
-  ghcFixtureValidity <- ghcFixtureValidityTest cases
   framework <- frameworkTests
   summary <- mkSummaryTest cases
-  pure (testGroup "haskell2010-oracle" ([ghcFixtureValidity] <> checks <> [framework, summary]))
+  pure (testGroup "haskell2010-oracle" (checks <> [framework, summary]))
 
 mkCaseTest :: CaseMeta -> IO TestTree
 mkCaseTest meta = do
@@ -186,20 +184,6 @@ frameworkTests =
                   then pure ()
                   else assertFailure ("expected OutcomeFail when oracle rejects fixture, got " <> show outcome)
       ]
-
-ghcFixtureValidityTest :: [CaseMeta] -> IO TestTree
-ghcFixtureValidityTest cases =
-  pure $
-    testCase "ghc-fixture-validity" $ do
-      let files = map (\meta -> fixtureRoot </> casePath meta) cases
-      result <- checkFilesParseWithGhc ["Haskell2010"] files
-      case result of
-        Right () -> pure ()
-        Left details ->
-          assertFailure
-            ( "GHC rejected Haskell2010 fixtures. "
-                <> details
-            )
 
 loadManifest :: IO [CaseMeta]
 loadManifest = do

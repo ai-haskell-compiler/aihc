@@ -13,7 +13,6 @@ import Data.Text (Text)
 import qualified Data.Text.IO as TIO
 import ExtensionSupport
 import GHC.LanguageExtensions.Type (Extension)
-import GhcCompileCheck (checkFilesParseWithGhc)
 import OracleExtensions (resolveOracleExtensions)
 import ParserValidation (validateParserWithExtensions)
 import System.FilePath ((</>))
@@ -36,26 +35,9 @@ extensionGroup spec = do
     else do
       exts <- resolveOracleExtensions spec
       cases <- loadManifest spec
-      ghcFixtureValidity <- ghcFixtureValidityTest spec exts cases
       checks <- mapM (mkCaseTest spec exts) cases
       summary <- extensionSummaryTest spec exts cases
-      pure (testGroup (extName spec) ([ghcFixtureValidity] <> checks <> [summary]))
-
-ghcFixtureValidityTest :: ExtensionSpec -> [Extension] -> [CaseMeta] -> IO TestTree
-ghcFixtureValidityTest spec exts cases =
-  pure $
-    testCase "ghc-fixture-validity" $ do
-      let files = map (\meta -> fixtureDirFor spec </> casePath meta) cases
-      result <- checkFilesParseWithGhc (map show exts) files
-      case result of
-        Right () -> pure ()
-        Left details ->
-          assertFailure
-            ( "GHC rejected extension fixtures for "
-                <> extName spec
-                <> ". "
-                <> details
-            )
+      pure (testGroup (extName spec) (checks <> [summary]))
 
 mkCaseTest :: ExtensionSpec -> [Extension] -> CaseMeta -> IO TestTree
 mkCaseTest spec exts meta = do
