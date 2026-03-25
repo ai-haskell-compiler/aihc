@@ -1,0 +1,2 @@
+mdo	expressions	mdo.hs	xfail	basic mdo block
+rec	expressions	rec.hs	xfail	basic rec block

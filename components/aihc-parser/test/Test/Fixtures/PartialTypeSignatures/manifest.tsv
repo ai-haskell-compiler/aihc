@@ -1,0 +1,2 @@
+wildcard	types	wildcard.hs	xfail	anonymous wildcard type
+named-wildcard	types	named-wildcard.hs	pass

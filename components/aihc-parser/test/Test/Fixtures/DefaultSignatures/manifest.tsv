@@ -1,0 +1,2 @@
+basic	declarations	basic.hs	xfail	basic default signature
+context	declarations	context.hs	xfail	default signature with context
