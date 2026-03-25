@@ -21,17 +21,11 @@ moduleParser = withSpan $ do
   languagePragmas <- MP.many (languagePragmaParser <* MP.many (expectedTok TkSpecialSemicolon))
   mHeader <- MP.optional (moduleHeaderParser <* MP.many (expectedTok TkSpecialSemicolon))
   (imports, decls) <- moduleBodyParser
-  let (mName, mWarning, mExports) =
-        case mHeader of
-          Nothing -> (Nothing, Nothing, Nothing)
-          Just (name, warn, exports) -> (Just name, warn, exports)
   pure $ \span' ->
     Module
       { moduleSpan = span',
-        moduleName = mName,
+        moduleHead = mHeader,
         moduleLanguagePragmas = concat languagePragmas,
-        moduleWarningText = mWarning,
-        moduleExports = mExports,
         moduleImports = imports,
         moduleDecls = decls
       }

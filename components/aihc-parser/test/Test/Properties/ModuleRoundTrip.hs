@@ -37,15 +37,12 @@ instance Arbitrary Module where
     let names = take n (nub candidateNames)
     exprs <- vectorOf (length names) (resize 4 genExpr)
     imports <- genImportDecls
-    -- Generate arbitrary module name, including Nothing for implicit modules
-    modName <- genMaybeModuleName
+    mHead <- genMaybeModuleHead
     pure $
       Module
         { moduleSpan = span0,
-          moduleName = modName,
+          moduleHead = mHead,
           moduleLanguagePragmas = [],
-          moduleWarningText = Nothing,
-          moduleExports = Nothing,
           moduleImports = imports,
           moduleDecls =
             [ DeclValue
@@ -72,26 +69,66 @@ instance Arbitrary Module where
       <> [ modu {moduleImports = shrunk}
          | shrunk <- shrinkList shrinkImportDecl (moduleImports modu)
          ]
-      <> [ modu {moduleName = shrunk}
-         | shrunk <- shrinkMaybeModuleName (moduleName modu)
+      <> [ modu {moduleHead = shrunk}
+         | shrunk <- shrinkMaybeModuleHead (moduleHead modu)
          ]
 
--- | Generate an optional module name.
--- Most modules have explicit names, but implicit modules (Nothing) are also valid.
-genMaybeModuleName :: Gen (Maybe Text)
-genMaybeModuleName =
+-- | Generate an optional module head.
+-- Most modules have explicit headers, but implicit modules (Nothing) are also valid.
+genMaybeModuleHead :: Gen (Maybe ModuleHead)
+genMaybeModuleHead =
   frequency
-    [ (9, Just <$> genModuleName), -- 90% explicit module name
+    [ (9, Just <$> genModuleHead), -- 90% explicit module header
       (1, pure Nothing) -- 10% implicit module (no module declaration)
     ]
 
--- | Shrink an optional module name.
-shrinkMaybeModuleName :: Maybe Text -> [Maybe Text]
-shrinkMaybeModuleName mName =
-  case mName of
+genModuleHead :: Gen ModuleHead
+genModuleHead = do
+  name <- genModuleName
+  exports <- genMaybeExportSpecs
+  pure $
+    ModuleHead
+      { moduleHeadSpan = span0,
+        moduleHeadName = name,
+        moduleHeadWarningText = Nothing,
+        moduleHeadExports = exports
+      }
+
+-- | Shrink an optional module head.
+shrinkMaybeModuleHead :: Maybe ModuleHead -> [Maybe ModuleHead]
+shrinkMaybeModuleHead mHead =
+  case mHead of
     Nothing -> []
-    Just name ->
-      Nothing : [Just shrunk | shrunk <- shrinkModuleName name]
+    Just head' ->
+      Nothing : [Just shrunk | shrunk <- shrinkModuleHead head']
+
+shrinkModuleHead :: ModuleHead -> [ModuleHead]
+shrinkModuleHead head' =
+  [ head' {moduleHeadName = shrunk}
+  | shrunk <- shrinkModuleName (moduleHeadName head')
+  ]
+    <> [ head' {moduleHeadExports = shrunk}
+       | shrunk <- shrinkMaybeExportSpecs (moduleHeadExports head')
+       ]
+
+genMaybeExportSpecs :: Gen (Maybe [ExportSpec])
+genMaybeExportSpecs =
+  frequency
+    [ (3, pure Nothing),
+      (2, Just <$> genExportSpecs)
+    ]
+
+shrinkMaybeExportSpecs :: Maybe [ExportSpec] -> [Maybe [ExportSpec]]
+shrinkMaybeExportSpecs mSpecs =
+  case mSpecs of
+    Nothing -> []
+    Just specs ->
+      Nothing : [Just shrunk | shrunk <- shrinkList shrink specs]
+
+genExportSpecs :: Gen [ExportSpec]
+genExportSpecs = do
+  n <- chooseInt (0, 3)
+  vectorOf n arbitrary
 
 shrinkDecl :: Decl -> [Decl]
 shrinkDecl decl =
@@ -113,9 +150,9 @@ instance Arbitrary ExportSpec where
     oneof
       [ ExportModule span0 <$> genModuleName,
         ExportVar span0 Nothing <$> genIdent,
-        ExportAbs span0 Nothing <$> genTypeName,
-        ExportAll span0 Nothing <$> genTypeName,
-        ExportWith span0 Nothing <$> genTypeName <*> genExportMembers
+        ExportAbs span0 <$> genTypeNamespace <*> genTypeName,
+        ExportAll span0 <$> genTypeNamespace <*> genTypeName,
+        ExportWith span0 <$> genTypeNamespace <*> genTypeName <*> genExportMembers
       ]
 
   shrink spec =
@@ -134,9 +171,43 @@ instance Arbitrary ExportSpec where
           <> [ExportWith span0 namespace shrunk members | shrunk <- shrinkTypeName name]
           <> [ExportWith span0 namespace name shrunk | shrunk <- shrinkList shrinkIdent members, not (null shrunk)]
 
+instance Arbitrary ImportSpec where
+  arbitrary =
+    ImportSpec span0
+      <$> arbitrary
+      <*> genImportItems
+
+  shrink spec =
+    [spec {importSpecHiding = shrunk} | shrunk <- shrink (importSpecHiding spec)]
+      <> [spec {importSpecItems = shrunk} | shrunk <- shrinkList shrink (importSpecItems spec)]
+
+instance Arbitrary ImportItem where
+  arbitrary =
+    oneof
+      [ ImportItemVar span0 Nothing <$> genIdent,
+        ImportItemAbs span0 <$> genTypeNamespace <*> genTypeName,
+        ImportItemAll span0 <$> genTypeNamespace <*> genTypeName,
+        ImportItemWith span0 <$> genTypeNamespace <*> genTypeName <*> genExportMembers
+      ]
+
+  shrink item =
+    case item of
+      ImportItemVar _ namespace name ->
+        [ImportItemVar span0 namespace shrunk | shrunk <- shrinkIdent name]
+      ImportItemAbs _ namespace name ->
+        [ImportItemAbs span0 namespace shrunk | shrunk <- shrinkTypeName name]
+      ImportItemAll _ namespace name ->
+        [ImportItemAbs span0 namespace name]
+          <> [ImportItemAll span0 namespace shrunk | shrunk <- shrinkTypeName name]
+      ImportItemWith _ namespace name members ->
+        [ImportItemAbs span0 namespace name | not (null members)]
+          <> [ImportItemWith span0 namespace shrunk members | shrunk <- shrinkTypeName name]
+          <> [ImportItemWith span0 namespace name shrunk | shrunk <- shrinkList shrinkIdent members, not (null shrunk)]
+
 instance Arbitrary ImportDecl where
   arbitrary = do
     modName <- genModuleName
+    spec <- genMaybeImportSpec
     pure $
       ImportDecl
         { importDeclSpan = span0,
@@ -146,16 +217,16 @@ instance Arbitrary ImportDecl where
           importDeclQualifiedPost = False,
           importDeclModule = modName,
           importDeclAs = Nothing,
-          -- NOTE: importDeclSpec = Nothing to work around layout lexer issue
-          -- with parenthesized import/export specs. See xfail golden test:
-          -- Test/Fixtures/golden/module/import-export-spec-layout-bug.yaml
-          importDeclSpec = Nothing
+          importDeclSpec = spec
         }
 
   shrink decl =
     [ decl {importDeclModule = shrunk}
     | shrunk <- shrinkModuleName (importDeclModule decl)
     ]
+      <> [ decl {importDeclSpec = shrunk}
+         | shrunk <- shrinkMaybeImportSpec (importDeclSpec decl)
+         ]
 
 genImportDecls :: Gen [ImportDecl]
 genImportDecls = do
@@ -212,20 +283,66 @@ isValidTypeName name =
 genExportMembers :: Gen [Text]
 genExportMembers = do
   n <- chooseInt (1, 3)
-  vectorOf n genIdent
+  vectorOf n genMemberName
+
+genTypeNamespace :: Gen (Maybe Text)
+genTypeNamespace =
+  frequency
+    [ (3, pure Nothing),
+      (1, pure (Just "type"))
+    ]
+
+genMemberName :: Gen Text
+genMemberName =
+  oneof
+    [genIdent, genTypeName]
+
+genImportItems :: Gen [ImportItem]
+genImportItems = do
+  n <- chooseInt (0, 3)
+  vectorOf n arbitrary
+
+genMaybeImportSpec :: Gen (Maybe ImportSpec)
+genMaybeImportSpec =
+  frequency
+    [ (3, pure Nothing),
+      (2, Just <$> arbitrary)
+    ]
+
+shrinkMaybeImportSpec :: Maybe ImportSpec -> [Maybe ImportSpec]
+shrinkMaybeImportSpec mSpec =
+  case mSpec of
+    Nothing -> []
+    Just spec -> Nothing : [Just shrunk | shrunk <- shrink spec]
 
 -- Module normalization
 normalizeModule :: Module -> Module
 normalizeModule modu =
   Module
     { moduleSpan = span0,
-      moduleName = moduleName modu,
+      moduleHead = fmap normalizeModuleHead (moduleHead modu),
       moduleLanguagePragmas = [],
-      moduleWarningText = Nothing,
-      moduleExports = Nothing,
       moduleImports = map normalizeImportDecl (moduleImports modu),
       moduleDecls = map normalizeDecl (moduleDecls modu)
     }
+
+normalizeModuleHead :: ModuleHead -> ModuleHead
+normalizeModuleHead head' =
+  ModuleHead
+    { moduleHeadSpan = span0,
+      moduleHeadName = moduleHeadName head',
+      moduleHeadWarningText = Nothing,
+      moduleHeadExports = fmap (map normalizeExportSpec) (moduleHeadExports head')
+    }
+
+normalizeExportSpec :: ExportSpec -> ExportSpec
+normalizeExportSpec spec =
+  case spec of
+    ExportModule _ modName -> ExportModule span0 modName
+    ExportVar _ namespace name -> ExportVar span0 namespace name
+    ExportAbs _ namespace name -> ExportAbs span0 namespace name
+    ExportAll _ namespace name -> ExportAll span0 namespace name
+    ExportWith _ namespace name members -> ExportWith span0 namespace name members
 
 normalizeImportDecl :: ImportDecl -> ImportDecl
 normalizeImportDecl decl =
@@ -237,8 +354,24 @@ normalizeImportDecl decl =
       importDeclQualifiedPost = importDeclQualifiedPost decl,
       importDeclModule = importDeclModule decl,
       importDeclAs = importDeclAs decl,
-      importDeclSpec = Nothing
+      importDeclSpec = fmap normalizeImportSpec (importDeclSpec decl)
     }
+
+normalizeImportSpec :: ImportSpec -> ImportSpec
+normalizeImportSpec spec =
+  ImportSpec
+    { importSpecSpan = span0,
+      importSpecHiding = importSpecHiding spec,
+      importSpecItems = map normalizeImportItem (importSpecItems spec)
+    }
+
+normalizeImportItem :: ImportItem -> ImportItem
+normalizeImportItem item =
+  case item of
+    ImportItemVar _ namespace name -> ImportItemVar span0 namespace name
+    ImportItemAbs _ namespace name -> ImportItemAbs span0 namespace name
+    ImportItemAll _ namespace name -> ImportItemAll span0 namespace name
+    ImportItemWith _ namespace name members -> ImportItemWith span0 namespace name members
 
 normalizeDecl :: Decl -> Decl
 normalizeDecl decl =

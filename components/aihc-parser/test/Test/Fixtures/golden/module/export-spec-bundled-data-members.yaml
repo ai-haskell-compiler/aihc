@@ -1,0 +1,8 @@
+extensions:
+  - PatternSynonyms
+  - ExplicitNamespaces
+input: |
+  module Demo (Nat (data Zero, data Succ)) where
+  x = 1
+status: xfail
+reason: parser does not yet support data namespace bundled members in export specs
