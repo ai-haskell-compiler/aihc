@@ -90,11 +90,20 @@ doBindStmtParser = withSpan $ do
   expr <- exprParser
   pure (\span' -> DoBind span' pat expr)
 
+parseLetDeclsParser :: TokParser [Decl]
+parseLetDeclsParser = do
+  keywordTok TkKeywordLet
+  bracedDeclsParser <|> plainDeclsParser
+
+parseLetDeclsStmtParser :: TokParser [Decl]
+parseLetDeclsStmtParser = do
+  decls <- parseLetDeclsParser
+  MP.notFollowedBy (keywordTok TkKeywordIn)
+  pure decls
+
 doLetStmtParser :: TokParser DoStmt
 doLetStmtParser = withSpan $ do
-  keywordTok TkKeywordLet
-  decls <- bracedDeclsParser <|> plainDeclsParser
-  MP.notFollowedBy (keywordTok TkKeywordIn)
+  decls <- parseLetDeclsStmtParser
   pure (`DoLetDecls` decls)
 
 doExprStmtParser :: TokParser DoStmt
@@ -524,9 +533,7 @@ guardQualifierParser = MP.try guardPatParser <|> MP.try guardLetParser <|> guard
       pure (\span' -> GuardPat span' pat expr)
 
     guardLetParser = withSpan $ do
-      keywordTok TkKeywordLet
-      decls <- bracedDeclsParser <|> plainDeclsParser
-      MP.notFollowedBy (keywordTok TkKeywordIn)
+      decls <- parseLetDeclsStmtParser
       pure (`GuardLet` decls)
 
     guardExprParser = withSpan $ do
@@ -704,7 +711,7 @@ parseListTail first =
       pure (\span' -> EList span' [first])
 
 compStmtParser :: TokParser CompStmt
-compStmtParser = MP.try compGenStmtParser <|> compGuardStmtParser
+compStmtParser = MP.try compGenStmtParser <|> MP.try compLetStmtParser <|> compGuardStmtParser
 
 compGenStmtParser :: TokParser CompStmt
 compGenStmtParser = withSpan $ do
@@ -712,6 +719,11 @@ compGenStmtParser = withSpan $ do
   expectedTok TkReservedLeftArrow
   expr <- exprParser
   pure (\span' -> CompGen span' pat expr)
+
+compLetStmtParser :: TokParser CompStmt
+compLetStmtParser = withSpan $ do
+  decls <- parseLetDeclsStmtParser
+  pure (`CompLetDecls` decls)
 
 lambdaExprParser :: TokParser Expr
 lambdaExprParser = withSpan $ do
@@ -733,8 +745,7 @@ lambdaExprParser = withSpan $ do
 
 letExprParser :: TokParser Expr
 letExprParser = withSpan $ do
-  keywordTok TkKeywordLet
-  decls <- bracedDeclsParser <|> plainDeclsParser
+  decls <- parseLetDeclsParser
   keywordTok TkKeywordIn
   body <- exprParser
   pure (\span' -> ELetDecls span' decls body)

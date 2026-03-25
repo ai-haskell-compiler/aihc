@@ -200,7 +200,7 @@ expr-s3-arithseq-from-to	expressions	expressions/arithseq-from-to.hs	pass	parser
 expr-s3-arithseq-from-then-to	expressions	expressions/arithseq-from-then-to.hs	pass	parser now supports section 3 arithmetic sequences from-then-to form
 expr-s3-listcomp-generator	expressions	expressions/listcomp-generator.hs	pass	parser now supports simple list-comprehension generator forms
 expr-s3-listcomp-guards	expressions	expressions/listcomp-guards.hs	pass	parser now supports simple list-comprehension guard forms
-expr-s3-listcomp-let-qualifier	expressions	expressions/listcomp-let-qualifier.hs	xfail	parser intentionally disabled
+expr-s3-listcomp-let-qualifier	expressions	expressions/listcomp-let-qualifier.hs	pass	parser now supports list-comprehension let qualifiers
 expr-s3-listcomp-multi-generator	expressions	expressions/listcomp-multi-generator.hs	pass	parser now supports multiple list-comprehension generators
 expr-s3-let-basic	expressions	expressions/let-basic.hs	pass	parser now supports basic let expressions
 expr-s3-let-multiple-decls	expressions	expressions/let-multiple-decls.hs	pass	parser now supports multiple let declarations
