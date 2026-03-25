@@ -40,6 +40,7 @@ module Aihc.Parser.Ast
     Literal (..),
     Match (..),
     Module (..),
+    ModuleHead (..),
     WarningText (..),
     NewtypeDecl (..),
     OperatorName,
@@ -63,6 +64,9 @@ module Aihc.Parser.Ast
     parseExtensionSettingName,
     sourceSpanEnd,
     valueDeclBinderName,
+    moduleName,
+    moduleWarningText,
+    moduleExports,
   )
 where
 
@@ -326,10 +330,8 @@ instance HasSourceSpan WarningText where
 
 data Module = Module
   { moduleSpan :: SourceSpan,
-    moduleName :: Maybe Text,
+    moduleHead :: Maybe ModuleHead,
     moduleLanguagePragmas :: [ExtensionSetting],
-    moduleWarningText :: Maybe WarningText,
-    moduleExports :: Maybe [ExportSpec],
     moduleImports :: [ImportDecl],
     moduleDecls :: [Decl]
   }
@@ -337,6 +339,26 @@ data Module = Module
 
 instance HasSourceSpan Module where
   getSourceSpan = moduleSpan
+
+data ModuleHead = ModuleHead
+  { moduleHeadSpan :: SourceSpan,
+    moduleHeadName :: Text,
+    moduleHeadWarningText :: Maybe WarningText,
+    moduleHeadExports :: Maybe [ExportSpec]
+  }
+  deriving (Eq, Show, Generic, NFData)
+
+instance HasSourceSpan ModuleHead where
+  getSourceSpan = moduleHeadSpan
+
+moduleName :: Module -> Maybe Text
+moduleName modu = moduleHeadName <$> moduleHead modu
+
+moduleWarningText :: Module -> Maybe WarningText
+moduleWarningText modu = moduleHeadWarningText =<< moduleHead modu
+
+moduleExports :: Module -> Maybe [ExportSpec]
+moduleExports modu = moduleHeadExports =<< moduleHead modu
 
 data ExportSpec
   = ExportModule SourceSpan Text

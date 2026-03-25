@@ -27,14 +27,20 @@ languagePragmaParser =
       TkPragmaLanguage names -> Just names
       _ -> Nothing
 
-moduleHeaderParser :: TokParser (Text, Maybe WarningText, Maybe [ExportSpec])
-moduleHeaderParser = do
+moduleHeaderParser :: TokParser ModuleHead
+moduleHeaderParser = withSpan $ do
   keywordTok TkKeywordModule
   name <- moduleNameParser
   mWarning <- MP.optional warningTextParser
   exports <- MP.optional exportSpecListParser
   keywordTok TkKeywordWhere
-  pure (name, mWarning, exports)
+  pure $ \span' ->
+    ModuleHead
+      { moduleHeadSpan = span',
+        moduleHeadName = name,
+        moduleHeadWarningText = mWarning,
+        moduleHeadExports = exports
+      }
 
 warningTextParser :: TokParser WarningText
 warningTextParser =

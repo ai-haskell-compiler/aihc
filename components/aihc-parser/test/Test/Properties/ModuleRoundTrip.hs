@@ -37,16 +37,12 @@ instance Arbitrary Module where
     let names = take n (nub candidateNames)
     exprs <- vectorOf (length names) (resize 4 genExpr)
     imports <- genImportDecls
-    -- Generate arbitrary module name, including Nothing for implicit modules
-    modName <- genMaybeModuleName
-    exports <- genMaybeExportSpecs modName
+    mHead <- genMaybeModuleHead
     pure $
       Module
         { moduleSpan = span0,
-          moduleName = modName,
+          moduleHead = mHead,
           moduleLanguagePragmas = [],
-          moduleWarningText = Nothing,
-          moduleExports = exports,
           moduleImports = imports,
           moduleDecls =
             [ DeclValue
@@ -73,44 +69,54 @@ instance Arbitrary Module where
       <> [ modu {moduleImports = shrunk}
          | shrunk <- shrinkList shrinkImportDecl (moduleImports modu)
          ]
-      <> [ modu {moduleExports = shrunk}
-         | shrunk <- shrinkMaybeExportSpecs (moduleExports modu)
-         ]
-      <> [ modu {moduleName = shrunk}
-         | shrunk <- shrinkMaybeModuleName (moduleName modu)
+      <> [ modu {moduleHead = shrunk}
+         | shrunk <- shrinkMaybeModuleHead (moduleHead modu)
          ]
 
--- | Generate an optional module name.
--- Most modules have explicit names, but implicit modules (Nothing) are also valid.
-genMaybeModuleName :: Gen (Maybe Text)
-genMaybeModuleName =
+-- | Generate an optional module head.
+-- Most modules have explicit headers, but implicit modules (Nothing) are also valid.
+genMaybeModuleHead :: Gen (Maybe ModuleHead)
+genMaybeModuleHead =
   frequency
-    [ (9, Just <$> genModuleName), -- 90% explicit module name
+    [ (9, Just <$> genModuleHead), -- 90% explicit module header
       (1, pure Nothing) -- 10% implicit module (no module declaration)
     ]
 
--- | Shrink an optional module name.
-shrinkMaybeModuleName :: Maybe Text -> [Maybe Text]
-shrinkMaybeModuleName mName =
-  case mName of
+genModuleHead :: Gen ModuleHead
+genModuleHead = do
+  name <- genModuleName
+  exports <- genMaybeExportSpecs
+  pure $
+    ModuleHead
+      { moduleHeadSpan = span0,
+        moduleHeadName = name,
+        moduleHeadWarningText = Nothing,
+        moduleHeadExports = exports
+      }
+
+-- | Shrink an optional module head.
+shrinkMaybeModuleHead :: Maybe ModuleHead -> [Maybe ModuleHead]
+shrinkMaybeModuleHead mHead =
+  case mHead of
     Nothing -> []
-    Just name ->
-      Nothing : [Just shrunk | shrunk <- shrinkModuleName name]
+    Just head' ->
+      Nothing : [Just shrunk | shrunk <- shrinkModuleHead head']
 
-genMaybeExportSpecs :: Maybe Text -> Gen (Maybe [ExportSpec])
-genMaybeExportSpecs mModuleName =
-  case mModuleName of
-    Nothing -> pure Nothing
-    Just _ ->
-      frequency
-        [ (3, pure Nothing),
-          (2, Just <$> genExportSpecs)
-        ]
+shrinkModuleHead :: ModuleHead -> [ModuleHead]
+shrinkModuleHead head' =
+  [ head' {moduleHeadName = shrunk}
+  | shrunk <- shrinkModuleName (moduleHeadName head')
+  ]
+    <> [ head' {moduleHeadExports = shrunk}
+       | shrunk <- shrinkMaybeExportSpecs (moduleHeadExports head')
+       ]
 
-genExportSpecs :: Gen [ExportSpec]
-genExportSpecs = do
-  n <- chooseInt (0, 3)
-  vectorOf n arbitrary
+genMaybeExportSpecs :: Gen (Maybe [ExportSpec])
+genMaybeExportSpecs =
+  frequency
+    [ (3, pure Nothing),
+      (2, Just <$> genExportSpecs)
+    ]
 
 shrinkMaybeExportSpecs :: Maybe [ExportSpec] -> [Maybe [ExportSpec]]
 shrinkMaybeExportSpecs mSpecs =
@@ -118,6 +124,11 @@ shrinkMaybeExportSpecs mSpecs =
     Nothing -> []
     Just specs ->
       Nothing : [Just shrunk | shrunk <- shrinkList shrink specs]
+
+genExportSpecs :: Gen [ExportSpec]
+genExportSpecs = do
+  n <- chooseInt (0, 3)
+  vectorOf n arbitrary
 
 shrinkDecl :: Decl -> [Decl]
 shrinkDecl decl =
@@ -309,12 +320,19 @@ normalizeModule :: Module -> Module
 normalizeModule modu =
   Module
     { moduleSpan = span0,
-      moduleName = moduleName modu,
+      moduleHead = fmap normalizeModuleHead (moduleHead modu),
       moduleLanguagePragmas = [],
-      moduleWarningText = Nothing,
-      moduleExports = fmap (map normalizeExportSpec) (moduleExports modu),
       moduleImports = map normalizeImportDecl (moduleImports modu),
       moduleDecls = map normalizeDecl (moduleDecls modu)
+    }
+
+normalizeModuleHead :: ModuleHead -> ModuleHead
+normalizeModuleHead head' =
+  ModuleHead
+    { moduleHeadSpan = span0,
+      moduleHeadName = moduleHeadName head',
+      moduleHeadWarningText = Nothing,
+      moduleHeadExports = fmap (map normalizeExportSpec) (moduleHeadExports head')
     }
 
 normalizeExportSpec :: ExportSpec -> ExportSpec

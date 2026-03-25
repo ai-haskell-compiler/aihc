@@ -24,13 +24,12 @@ module Aihc.Parser.Internal.FromTokens
 where
 
 import Aihc.Lexer (LexToken)
-import Aihc.Parser.Ast (Decl, ExportSpec, Expr, ImportDecl, Module, Pattern, Type, WarningText)
+import Aihc.Parser.Ast (Decl, Expr, ImportDecl, Module, ModuleHead, Pattern, Type)
 import Aihc.Parser.Internal.Common (TokParser)
 import Aihc.Parser.Internal.Decl (declParser, importDeclParser, moduleHeaderParser)
 import Aihc.Parser.Internal.Expr (exprParser, patternParser, typeParser)
 import Aihc.Parser.Internal.Module (moduleParser)
 import Aihc.Parser.Types
-import Data.Text (Text)
 import Text.Megaparsec (runParser)
 import qualified Text.Megaparsec as MP
 
@@ -58,5 +57,5 @@ parseDeclFromTokens = parseFromTokens declParser
 parseImportDeclFromTokens :: FilePath -> [LexToken] -> ParseResult ImportDecl
 parseImportDeclFromTokens = parseFromTokens importDeclParser
 
-parseModuleHeaderFromTokens :: FilePath -> [LexToken] -> ParseResult (Text, Maybe WarningText, Maybe [ExportSpec])
+parseModuleHeaderFromTokens :: FilePath -> [LexToken] -> ParseResult ModuleHead
 parseModuleHeaderFromTokens = parseFromTokens moduleHeaderParser
