@@ -1,5 +1,5 @@
-datakinds-numeric-type-literal	types	datakinds-numeric-type-literal.hs	xfail	parser does not support numeric type-level literals with DataKinds
-promoted-list	types	promoted-list.hs	xfail	promoted lists
-promoted-tuple	types	promoted-tuple.hs	xfail	promoted tuples
-promoted-ctor	types	promoted-ctor.hs	xfail	promoted constructors
-promoted-builtin	types	promoted-builtin.hs	xfail	promoted strings
+datakinds-numeric-type-literal	types	datakinds-numeric-type-literal.hs	pass
+promoted-list	types	promoted-list.hs	pass
+promoted-tuple	types	promoted-tuple.hs	pass
+promoted-ctor	types	promoted-ctor.hs	pass
+promoted-builtin	types	promoted-builtin.hs	pass

@@ -965,12 +965,71 @@ buildTypeApp lhs rhs =
 
 typeAtomParser :: TokParser Type
 typeAtomParser =
-  typeQuasiQuoteParser
+  MP.try promotedTypeParser
+    <|> typeLiteralTypeParser
+    <|> typeQuasiQuoteParser
     <|> typeListParser
     <|> MP.try typeParenOperatorParser
     <|> typeParenOrTupleParser
     <|> typeStarParser
     <|> typeIdentifierParser
+
+typeLiteralTypeParser :: TokParser Type
+typeLiteralTypeParser = withSpan $ do
+  repr <- tokenSatisfy "type literal" $ \tok ->
+    case lexTokenKind tok of
+      TkInteger _ -> Just (lexTokenText tok)
+      TkIntegerBase _ _ -> Just (lexTokenText tok)
+      TkString _ -> Just (lexTokenText tok)
+      _ -> Nothing
+  pure (`TCon` repr)
+
+promotedTypeParser :: TokParser Type
+promotedTypeParser = withSpan $ do
+  expectedTok (TkVarSym "'")
+  promotedSuffix <- promotedTypeSuffixParser
+  pure (\span' -> TCon span' ("'" <> promotedSuffix))
+
+promotedTypeSuffixParser :: TokParser Text
+promotedTypeSuffixParser =
+  promotedConstructorSuffixParser
+    <|> promotedBracketedSuffixParser
+    <|> promotedParenthesizedSuffixParser
+
+promotedConstructorSuffixParser :: TokParser Text
+promotedConstructorSuffixParser =
+  tokenSatisfy "promoted constructor" $ \tok ->
+    case lexTokenKind tok of
+      TkConId name -> Just name
+      TkQConId name -> Just name
+      _ -> Nothing
+
+promotedBracketedSuffixParser :: TokParser Text
+promotedBracketedSuffixParser = collectDelimitedRaw TkSpecialLBracket TkSpecialRBracket
+
+promotedParenthesizedSuffixParser :: TokParser Text
+promotedParenthesizedSuffixParser = collectDelimitedRaw TkSpecialLParen TkSpecialRParen
+
+collectDelimitedRaw :: LexTokenKind -> LexTokenKind -> TokParser Text
+collectDelimitedRaw openKind closeKind = do
+  openTxt <- tokenSatisfy ("opening delimiter " <> show openKind) $ \tok ->
+    if lexTokenKind tok == openKind then Just (lexTokenText tok) else Nothing
+  go 1 openTxt
+  where
+    go :: Int -> Text -> TokParser Text
+    go depth acc = do
+      tok <- anySingle
+      let kind = lexTokenKind tok
+          txt = lexTokenText tok
+          acc' = acc <> txt
+      case () of
+        _
+          | kind == openKind -> go (depth + 1) acc'
+          | kind == closeKind ->
+              if depth == 1
+                then pure acc'
+                else go (depth - 1) acc'
+          | otherwise -> go depth acc'
 
 typeParenOperatorParser :: TokParser Type
 typeParenOperatorParser = withSpan $ do
