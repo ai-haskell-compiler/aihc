@@ -688,7 +688,7 @@ instance HasSourceSpan StandaloneDerivingDecl where
 
 data ClassDecl = ClassDecl
   { classDeclSpan :: SourceSpan,
-    classDeclContext :: [Constraint],
+    classDeclContext :: Maybe [Constraint],
     classDeclName :: Text,
     classDeclParams :: [TyVarBinder],
     classDeclItems :: [ClassDeclItem]

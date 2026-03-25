@@ -287,7 +287,7 @@ docClassDecl cd =
   where
     fields =
       [field "name" (docText (classDeclName cd))]
-        <> listField "context" docConstraint (classDeclContext cd)
+        <> optionalField "context" (brackets . hsep . punctuate comma . map docConstraint) (classDeclContext cd)
         <> listField "params" docTyVarBinder (classDeclParams cd)
         <> listField "items" docClassDeclItem (classDeclItems cd)
 
