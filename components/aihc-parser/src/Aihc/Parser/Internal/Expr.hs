@@ -704,7 +704,7 @@ parseListTail first =
       pure (\span' -> EList span' [first])
 
 compStmtParser :: TokParser CompStmt
-compStmtParser = MP.try compGenStmtParser <|> compGuardStmtParser
+compStmtParser = MP.try compGenStmtParser <|> MP.try compLetStmtParser <|> compGuardStmtParser
 
 compGenStmtParser :: TokParser CompStmt
 compGenStmtParser = withSpan $ do
@@ -712,6 +712,13 @@ compGenStmtParser = withSpan $ do
   expectedTok TkReservedLeftArrow
   expr <- exprParser
   pure (\span' -> CompGen span' pat expr)
+
+compLetStmtParser :: TokParser CompStmt
+compLetStmtParser = withSpan $ do
+  keywordTok TkKeywordLet
+  decls <- bracedDeclsParser <|> plainDeclsParser
+  MP.notFollowedBy (keywordTok TkKeywordIn)
+  pure (`CompLetDecls` decls)
 
 lambdaExprParser :: TokParser Expr
 lambdaExprParser = withSpan $ do
