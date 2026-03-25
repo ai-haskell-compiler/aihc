@@ -589,13 +589,19 @@ prettyClassDecl decl =
   let headDoc =
         hsep
           ( ["class"]
-              <> contextPrefix (classDeclContext decl)
+              <> maybeContextPrefix (classDeclContext decl)
               <> [pretty (classDeclName decl)]
               <> map prettyTyVarBinder (classDeclParams decl)
           )
    in case classDeclItems decl of
         [] -> headDoc
         items -> headDoc <+> "where" <+> braces (hsep (punctuate semi (map prettyClassItem items)))
+
+maybeContextPrefix :: Maybe [Constraint] -> [Doc ann]
+maybeContextPrefix maybeConstraints =
+  case maybeConstraints of
+    Nothing -> []
+    Just constraints -> [prettyContext constraints, "=>"]
 
 prettyClassItem :: ClassDeclItem -> Doc ann
 prettyClassItem item =

@@ -127,8 +127,10 @@ normalizeCandidateSource context source0 =
                 <> source0
             )
         HSE.ParseOk modu1 ->
-          let source1 = HSE.exactPrint modu1 []
-           in case HSE.parseFileContentsWithMode mode source1 of
+          case exactPrintParseable context mode modu1 of
+            Left msg -> Left msg
+            Right source1 ->
+              case HSE.parseFileContentsWithMode mode source1 of
                 HSE.ParseFailed loc err ->
                   Left
                     ( context
@@ -140,11 +142,53 @@ normalizeCandidateSource context source0 =
                         <> source1
                     )
                 HSE.ParseOk modu2 ->
-                  Right
-                    Candidate
-                      { candAst = modu2,
-                        candSource = HSE.exactPrint modu2 []
-                      }
+                  case exactPrintParseable context mode modu2 of
+                    Left msg -> Left msg
+                    Right source2 ->
+                      Right
+                        Candidate
+                          { candAst = modu2,
+                            candSource = source2
+                          }
+
+exactPrintParseable :: String -> HSE.ParseMode -> HSE.Module HSE.SrcSpanInfo -> Either String String
+exactPrintParseable context mode modu =
+  let sourceRaw = HSE.exactPrint modu []
+   in case HSE.parseFileContentsWithMode mode sourceRaw of
+        HSE.ParseOk _ -> Right sourceRaw
+        HSE.ParseFailed _ _ ->
+          let sourceNormalized = HSE.exactPrint (normalizeModuleWarningPragmas modu) []
+           in case HSE.parseFileContentsWithMode mode sourceNormalized of
+                HSE.ParseOk _ -> Right sourceNormalized
+                HSE.ParseFailed loc err ->
+                  Left
+                    ( context
+                        <> ": internal bug: normalized exactPrint failed to parse at "
+                        <> show loc
+                        <> " with error: "
+                        <> err
+                        <> "\nsource:\n"
+                        <> sourceNormalized
+                    )
+
+normalizeModuleWarningPragmas :: HSE.Module HSE.SrcSpanInfo -> HSE.Module HSE.SrcSpanInfo
+normalizeModuleWarningPragmas modu =
+  case modu of
+    HSE.Module loc (Just (HSE.ModuleHead hLoc modName warning exports)) pragmas imports decls ->
+      HSE.Module loc (Just (HSE.ModuleHead hLoc modName (fmap normalizeWarningText warning) exports)) pragmas imports decls
+    _ -> modu
+
+normalizeWarningText :: HSE.WarningText HSE.SrcSpanInfo -> HSE.WarningText HSE.SrcSpanInfo
+normalizeWarningText warning =
+  case warning of
+    HSE.DeprText loc msg -> HSE.DeprText loc (quoteWarningMessage msg)
+    HSE.WarnText loc msg -> HSE.WarnText loc (quoteWarningMessage msg)
+
+quoteWarningMessage :: String -> String
+quoteWarningMessage msg =
+  case reads msg :: [(String, String)] of
+    [(decoded, "")] | show decoded == msg -> msg
+    _ -> show msg
 
 shrinkGeneratedModule :: HSE.Module HSE.SrcSpanInfo -> [HSE.Module HSE.SrcSpanInfo]
 shrinkGeneratedModule modu =

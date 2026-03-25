@@ -115,7 +115,7 @@ decls-class	declarations	declarations/class.hs	pass
 decls-class-minimal	declarations	declarations/class-minimal.hs	pass	parser now supports minimal class declarations without where
 decls-class-where-empty	declarations	declarations/class-where-empty.hs	pass	parser now supports empty class bodies with explicit braces
 decls-class-super-simple	declarations	declarations/class-super-simple.hs	pass	parser now supports superclass class declarations without where
-decls-class-super-paren-empty	declarations	declarations/class-super-paren-empty.hs	xfail	parser intentionally disabled
+decls-class-super-paren-empty	declarations	declarations/class-super-paren-empty.hs	pass	parser now preserves explicit empty superclass context
 decls-class-super-paren-single	declarations	declarations/class-super-paren-single.hs	pass	parser now supports parenthesized single-superclass declarations without where
 decls-class-super-paren-multiple	declarations	declarations/class-super-paren-multiple.hs	pass	parser now supports parenthesized multi-superclass declarations without where
 decls-class-cdecl-signature	declarations	declarations/class-cdecl-signature.hs	pass
@@ -186,7 +186,7 @@ expr-s3-section-backtick-left	expressions	expressions/section-backtick-left.hs	p
 expr-s3-section-backtick-right	expressions	expressions/section-backtick-right.hs	pass	parser now supports right backtick operator sections
 expr-s3-section-bang	expressions	expressions/section-bang.hs	pass	parser supports bang operator sections in expressions
 expr-s3-conditional-basic	expressions	expressions/conditional-basic.hs	pass	parser now supports basic conditional expressions
-expr-s3-conditional-semicolons	expressions	expressions/conditional-semicolons.hs	xfail	parser intentionally disabled
+expr-s3-conditional-semicolons	expressions	expressions/conditional-semicolons.hs	pass	parser now supports optional semicolons before then/else
 expr-s3-list-empty	expressions	expressions/list-empty.hs	pass	parser supports empty list literals
 expr-s3-list-singleton	expressions	expressions/list-singleton.hs	pass	parser supports singleton list literals
 expr-s3-list-multiple	expressions	expressions/list-multiple.hs	pass	parser supports multi-element list literals
@@ -222,7 +222,6 @@ expr-s3-lambda-infix-rhs	expressions	expressions/lambda-infix-rhs.hs	pass	parser
 expr-s3-record-field-selection	expressions	expressions/record-field-selection.hs	pass
 expr-s3-record-construction-empty	expressions	expressions/record-construction-empty.hs	pass	parser now supports empty record construction expressions
 expr-s3-record-construction-fields	expressions	expressions/record-construction-fields.hs	pass	parser now supports record construction expressions with fields
-expr-s3-record-construction-trailing-comma	expressions	expressions/record-construction-trailing-comma.hs	xfail	GHC does not accept trailing comma in record expressions
 expr-s3-record-update-single	expressions	expressions/record-update-single.hs	pass	parser now supports record update expressions
 expr-s3-record-update-multiple	expressions	expressions/record-update-multiple.hs	pass	parser now supports record update expressions with multiple fields
 expr-s3-record-update-chained	expressions	expressions/record-update-chained.hs	pass	parser now supports chained record updates

@@ -14,6 +14,7 @@ import Data.Maybe (isNothing)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
+import GhcOracle (oracleDetailedParsesModuleWithNamesAt)
 import ParserValidation (validateParser)
 import System.Directory (doesFileExist)
 import System.FilePath ((</>))
@@ -43,8 +44,9 @@ h2010Tests :: IO TestTree
 h2010Tests = do
   cases <- loadManifest
   checks <- mapM mkCaseTest cases
+  framework <- frameworkTests
   summary <- mkSummaryTest cases
-  pure (testGroup "haskell2010-oracle" (checks <> [summary]))
+  pure (testGroup "haskell2010-oracle" (checks <> [framework, summary]))
 
 mkCaseTest :: CaseMeta -> IO TestTree
 mkCaseTest meta = do
@@ -90,7 +92,7 @@ pct done totalN
 
 assertCase :: CaseMeta -> Text -> Assertion
 assertCase meta source = do
-  outcome <- evaluateCaseText meta source
+  (outcome, details) <- evaluateCaseText meta source
   case outcome of
     OutcomeFail ->
       assertFailure
@@ -102,6 +104,8 @@ assertCase meta source = do
             <> show (caseExpected meta)
             <> " reason="
             <> caseReason meta
+            <> " details="
+            <> details
         )
     OutcomeXPass ->
       assertFailure
@@ -117,23 +121,69 @@ assertCase meta source = do
 evaluateCase :: CaseMeta -> IO Outcome
 evaluateCase meta = do
   source <- TIO.readFile (fixtureRoot </> casePath meta)
-  evaluateCaseText meta source
+  fst <$> evaluateCaseText meta source
 
-evaluateCaseText :: CaseMeta -> Text -> IO Outcome
+evaluateCaseText :: CaseMeta -> Text -> IO (Outcome, String)
 evaluateCaseText meta source = do
   let source' = resultOutput (preprocessForParserWithoutIncludes (casePath meta) source)
       validationOk = isNothing (validateParser source')
-  pure $ classify (caseExpected meta) validationOk
+      oracleResult = oracleDetailedParsesModuleWithNamesAt (casePath meta) [] Nothing source'
+  pure (classify (caseExpected meta) oracleResult validationOk)
 
-classify :: Expected -> Bool -> Outcome
-classify expected validationOk =
+classify :: Expected -> Either Text () -> Bool -> (Outcome, String)
+classify expected oracleResult validationOk =
+  case oracleResult of
+    Left oracleErr ->
+      ( OutcomeFail,
+        "oracle rejected fixture: " <> T.unpack oracleErr
+      )
+    Right () ->
+      classifyByValidation expected validationOk
+
+classifyByValidation :: Expected -> Bool -> (Outcome, String)
+classifyByValidation expected validationOk =
   case expected of
     ExpectPass
-      | validationOk -> OutcomePass
-      | otherwise -> OutcomeFail
+      | validationOk -> (OutcomePass, "")
+      | otherwise -> (OutcomeFail, "roundtrip mismatch against oracle AST")
     ExpectXFail
-      | validationOk -> OutcomeXPass
-      | otherwise -> OutcomeXFail
+      | validationOk -> (OutcomeXPass, "case now passes oracle and roundtrip checks")
+      | otherwise -> (OutcomeXFail, "")
+
+frameworkTests :: IO TestTree
+frameworkTests =
+  pure $
+    testGroup
+      "framework"
+      [ testCase "oracle parse failure fails xfail case" $
+          let meta =
+                CaseMeta
+                  { caseId = "framework-invalid-xfail",
+                    caseCategory = "framework",
+                    casePath = "framework-invalid-xfail.hs",
+                    caseExpected = ExpectXFail,
+                    caseReason = "regression coverage"
+                  }
+           in do
+                (outcome, _) <- evaluateCaseText meta "module M where\nx = { y = 1, }\n"
+                if outcome == OutcomeFail
+                  then pure ()
+                  else assertFailure ("expected OutcomeFail when oracle rejects fixture, got " <> show outcome),
+        testCase "oracle parse failure fails pass case" $
+          let meta =
+                CaseMeta
+                  { caseId = "framework-invalid-pass",
+                    caseCategory = "framework",
+                    casePath = "framework-invalid-pass.hs",
+                    caseExpected = ExpectPass,
+                    caseReason = ""
+                  }
+           in do
+                (outcome, _) <- evaluateCaseText meta "module M where\nx = { y = 1, }\n"
+                if outcome == OutcomeFail
+                  then pure ()
+                  else assertFailure ("expected OutcomeFail when oracle rejects fixture, got " <> show outcome)
+      ]
 
 loadManifest :: IO [CaseMeta]
 loadManifest = do

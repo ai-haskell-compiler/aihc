@@ -63,8 +63,10 @@ ifExprParser :: TokParser Expr
 ifExprParser = withSpan $ do
   keywordTok TkKeywordIf
   cond <- exprParser
+  skipSemicolons
   keywordTok TkKeywordThen
   yes <- exprParser
+  skipSemicolons
   keywordTok TkKeywordElse
   no <- exprParser
   pure (\span' -> EIf span' cond yes no)
