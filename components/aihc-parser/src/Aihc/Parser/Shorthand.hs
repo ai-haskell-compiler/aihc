@@ -378,16 +378,31 @@ docType :: Type -> Doc ann
 docType ty =
   case ty of
     TVar _ name -> "TVar" <+> docText name
-    TCon _ name -> "TCon" <+> docText name
+    TCon _ name promoted ->
+      if promoted
+        then "TConPromoted" <+> docText name
+        else "TCon" <+> docText name
+    TTypeLit _ lit -> "TTypeLit" <+> docTypeLiteral lit
     TStar _ -> "TStar"
     TQuasiQuote _ quoter body -> "TQuasiQuote" <+> docText quoter <+> docText body
     TForall _ binders inner -> "TForall" <+> brackets (hsep (punctuate comma (map docText binders))) <+> parens (docType inner)
     TApp _ f x -> "TApp" <+> parens (docType f) <+> parens (docType x)
     TFun _ a b -> "TFun" <+> parens (docType a) <+> parens (docType b)
-    TTuple _ elems -> "TTuple" <+> brackets (hsep (punctuate comma (map docType elems)))
-    TList _ inner -> "TList" <+> parens (docType inner)
+    TTuple _ promoted elems ->
+      (if promoted then "TTuplePromoted" else "TTuple")
+        <+> brackets (hsep (punctuate comma (map docType elems)))
+    TList _ promoted inner ->
+      (if promoted then "TListPromoted" else "TList")
+        <+> parens (docType inner)
     TParen _ inner -> "TParen" <+> parens (docType inner)
     TContext _ constraints inner -> "TContext" <+> brackets (hsep (punctuate comma (map docConstraint constraints))) <+> parens (docType inner)
+
+docTypeLiteral :: TypeLiteral -> Doc ann
+docTypeLiteral lit =
+  case lit of
+    TypeLitInteger n _ -> "TypeLitInteger" <+> pretty n
+    TypeLitSymbol s _ -> "TypeLitSymbol" <+> docText s
+    TypeLitChar c _ -> "TypeLitChar" <+> pretty (show c)
 
 docConstraint :: Constraint -> Doc ann
 docConstraint c =

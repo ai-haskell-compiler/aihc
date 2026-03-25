@@ -50,6 +50,7 @@ module Aihc.Parser.Ast
     SourceSpan (..),
     StandaloneDerivingDecl (..),
     Type (..),
+    TypeLiteral (..),
     TyVarBinder (..),
     TypeSynDecl (..),
     ValueDecl (..),
@@ -547,14 +548,15 @@ instance HasSourceSpan Pattern where
 
 data Type
   = TVar SourceSpan Text
-  | TCon SourceSpan Text
+  | TCon SourceSpan Text Bool
+  | TTypeLit SourceSpan TypeLiteral
   | TStar SourceSpan
   | TQuasiQuote SourceSpan Text Text
   | TForall SourceSpan [Text] Type
   | TApp SourceSpan Type Type
   | TFun SourceSpan Type Type
-  | TTuple SourceSpan [Type]
-  | TList SourceSpan Type
+  | TTuple SourceSpan Bool [Type]
+  | TList SourceSpan Bool Type
   | TParen SourceSpan Type
   | TContext SourceSpan [Constraint] Type
   deriving (Data, Eq, Show, Generic, NFData)
@@ -563,16 +565,23 @@ instance HasSourceSpan Type where
   getSourceSpan ty =
     case ty of
       TVar span' _ -> span'
-      TCon span' _ -> span'
+      TCon span' _ _ -> span'
+      TTypeLit span' _ -> span'
       TStar span' -> span'
       TQuasiQuote span' _ _ -> span'
       TForall span' _ _ -> span'
       TApp span' _ _ -> span'
       TFun span' _ _ -> span'
-      TTuple span' _ -> span'
-      TList span' _ -> span'
+      TTuple span' _ _ -> span'
+      TList span' _ _ -> span'
       TParen span' _ -> span'
       TContext span' _ _ -> span'
+
+data TypeLiteral
+  = TypeLitInteger Integer Text
+  | TypeLitSymbol Text Text
+  | TypeLitChar Char Text
+  deriving (Data, Eq, Show, Generic, NFData)
 
 data Constraint = Constraint
   { constraintSpan :: SourceSpan,
