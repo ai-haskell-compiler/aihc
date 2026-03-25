@@ -232,7 +232,53 @@ prettyRhs rhs =
         ]
 
 prettyType :: Type -> Doc ann
-prettyType ty =
+prettyType = prettyTypePrec 0
+
+-- | Type context for parenthesization decisions.
+-- CtxTypeFunArg: LHS of -> or function position of type application (same rules).
+-- CtxTypeAppArg: argument position of type application.
+-- CtxTypeAtom: must be syntactically atomic (e.g., constraint args, instance heads).
+data TypeCtx
+  = CtxTypeFunArg
+  | CtxTypeAppArg
+  | CtxTypeAtom
+
+prettyTypeIn :: TypeCtx -> Type -> Doc ann
+prettyTypeIn ctx ty =
+  parenthesize (needsTypeParens ctx ty) (prettyTypePrec 0 ty)
+
+needsTypeParens :: TypeCtx -> Type -> Bool
+needsTypeParens ctx ty =
+  case ctx of
+    CtxTypeFunArg ->
+      case ty of
+        TForall {} -> True
+        TFun {} -> True
+        TContext {} -> True
+        _ -> False
+    CtxTypeAppArg ->
+      case ty of
+        TApp _ (TApp _ (TCon _ op) _) _
+          | isSymbolicTypeOperator op && op /= "->" -> False
+        TQuasiQuote {} -> False
+        TApp {} -> True
+        TForall {} -> True
+        TFun {} -> True
+        TContext {} -> True
+        _ -> False
+    CtxTypeAtom ->
+      case ty of
+        TVar {} -> False
+        TCon {} -> False
+        TStar {} -> False
+        TQuasiQuote {} -> False
+        TList {} -> False
+        TTuple {} -> False
+        TParen {} -> False
+        _ -> True
+
+prettyTypePrec :: Int -> Type -> Doc ann
+prettyTypePrec prec ty =
   case ty of
     TVar _ name -> pretty name
     TCon _ name
@@ -241,48 +287,29 @@ prettyType ty =
     TStar _ -> "*"
     TQuasiQuote _ quoter body -> prettyQuasiQuote quoter body
     TForall _ binders inner ->
-      "forall" <+> hsep (map pretty binders) <> "." <+> prettyType inner
+      parenthesize
+        (prec > 0)
+        ("forall" <+> hsep (map pretty binders) <> "." <+> prettyTypePrec 0 inner)
     TApp _ (TApp _ (TCon _ op) lhs) rhs
       | isSymbolicTypeOperator op && op /= "->" ->
-          parens (prettyType lhs <+> pretty op <+> prettyType rhs)
-    TApp _ f x -> parenthesizeTypeApp f <+> parenthesizeTypeArg x
-    TFun _ a b -> parenthesizeTypeFunLeft a <+> "->" <+> prettyType b
-    TTuple _ elems -> parens (hsep (punctuate comma (map prettyType elems)))
-    TList _ inner -> brackets (prettyType inner)
+          parens (prettyTypePrec 0 lhs <+> pretty op <+> prettyTypePrec 0 rhs)
+    TApp _ f x ->
+      parenthesize
+        (prec > 2)
+        (prettyTypeIn CtxTypeFunArg f <+> prettyTypeIn CtxTypeAppArg x)
+    TFun _ a b ->
+      parenthesize
+        (prec > 0)
+        (prettyTypeIn CtxTypeFunArg a <+> "->" <+> prettyTypePrec 0 b)
+    TTuple _ elems -> parens (hsep (punctuate comma (map (prettyTypePrec 0) elems)))
+    TList _ inner -> brackets (prettyTypePrec 0 inner)
     TParen _ inner
-      | isInfixTypeApp inner -> prettyType inner
-      | otherwise -> parens (prettyType inner)
+      | isInfixTypeApp inner -> prettyTypePrec prec inner
+      | otherwise -> parens (prettyTypePrec 0 inner)
     TContext _ constraints inner ->
-      prettyContext constraints <+> "=>" <+> prettyType inner
-
-parenthesizeTypeFunLeft :: Type -> Doc ann
-parenthesizeTypeFunLeft ty =
-  case ty of
-    TForall {} -> parens (prettyType ty)
-    TFun {} -> parens (prettyType ty)
-    TContext {} -> parens (prettyType ty)
-    _ -> prettyType ty
-
-parenthesizeTypeApp :: Type -> Doc ann
-parenthesizeTypeApp ty =
-  case ty of
-    TQuasiQuote {} -> prettyType ty
-    TForall {} -> parens (prettyType ty)
-    TFun {} -> parens (prettyType ty)
-    TContext {} -> parens (prettyType ty)
-    _ -> prettyType ty
-
-parenthesizeTypeArg :: Type -> Doc ann
-parenthesizeTypeArg ty =
-  case ty of
-    TApp _ (TApp _ (TCon _ op) _) _
-      | isSymbolicTypeOperator op && op /= "->" -> prettyType ty
-    TQuasiQuote {} -> prettyType ty
-    TApp {} -> parens (prettyType ty)
-    TForall {} -> parens (prettyType ty)
-    TFun {} -> parens (prettyType ty)
-    TContext {} -> parens (prettyType ty)
-    _ -> prettyType ty
+      parenthesize
+        (prec > 0)
+        (prettyContext constraints <+> "=>" <+> prettyTypePrec 0 inner)
 
 prettyContext :: [Constraint] -> Doc ann
 prettyContext constraints =
@@ -295,22 +322,10 @@ prettyConstraint constraint =
   let base =
         if constraintClass constraint == "()" && null (constraintArgs constraint)
           then "()"
-          else hsep (pretty (constraintClass constraint) : map prettyTypeAtom (constraintArgs constraint))
+          else hsep (pretty (constraintClass constraint) : map (prettyTypeIn CtxTypeAtom) (constraintArgs constraint))
    in if constraintParen constraint
         then parens base
         else base
-
-prettyTypeAtom :: Type -> Doc ann
-prettyTypeAtom ty =
-  case ty of
-    TVar _ _ -> prettyType ty
-    TCon _ _ -> prettyType ty
-    TStar _ -> prettyType ty
-    TQuasiQuote {} -> prettyType ty
-    TList _ _ -> prettyType ty
-    TTuple _ _ -> prettyType ty
-    TParen _ _ -> prettyType ty
-    _ -> parens (prettyType ty)
 
 isSymbolicTypeOperator :: Text -> Bool
 isSymbolicTypeOperator op =
@@ -336,9 +351,9 @@ prettyPattern pat =
     PCon _ con args -> hsep (pretty con : map prettyPatternAtom args)
     PInfix _ lhs op rhs -> prettyPatternAtom lhs <+> prettyInfixOp op <+> prettyPatternAtom rhs
     PView _ viewExpr inner -> parens (prettyExprPrec 0 viewExpr <+> "->" <+> prettyPattern inner)
-    PAs _ name inner -> pretty name <> "@" <> prettyPatternAtomAfterAt inner
-    PStrict _ inner -> "!" <> prettyUnaryPattern inner
-    PIrrefutable _ inner -> "~" <> prettyUnaryPattern inner
+    PAs _ name inner -> pretty name <> "@" <> prettyPatternAtomStrict inner
+    PStrict _ inner -> "!" <> prettyPatternAtomStrict inner
+    PIrrefutable _ inner -> "~" <> prettyPatternAtomStrict inner
     PNegLit _ lit -> "-" <> prettyLiteral lit
     PParen _ inner -> parens (prettyPattern inner)
     PRecord _ con fields ->
@@ -375,17 +390,10 @@ prettyPatternAtom pat =
     PView {} -> prettyPattern pat
     _ -> parens (prettyPattern pat)
 
--- | Pretty print a pattern atom after @. Negative literals need parens since a@-1 is ambiguous.
-prettyPatternAtomAfterAt :: Pattern -> Doc ann
-prettyPatternAtomAfterAt pat =
-  case pat of
-    PNegLit {} -> parens (prettyPattern pat)
-    PStrict {} -> parens (prettyPattern pat)
-    PIrrefutable {} -> parens (prettyPattern pat)
-    _ -> prettyPatternAtom pat
-
-prettyUnaryPattern :: Pattern -> Doc ann
-prettyUnaryPattern pat =
+-- | Pretty print a pattern atom after @ or as the operand of ! or ~.
+-- Negative literals and nested strictness/irrefutability need parens.
+prettyPatternAtomStrict :: Pattern -> Doc ann
+prettyPatternAtomStrict pat =
   case pat of
     PNegLit {} -> parens (prettyPattern pat)
     PStrict {} -> parens (prettyPattern pat)
@@ -556,27 +564,25 @@ dataConQualifierPrefix forallVars constraints = forallPrefix forallVars <> conte
     forallPrefix binders = ["forall", hsep (map pretty binders) <> "."]
 
 -- | Pretty print a BangType in GADT prefix body context.
--- For strict types (!Type), we use prettyTypeAtom to ensure the type is atomic
+-- For strict types (!Type), we use atomic type rendering to ensure the type is atomic
 -- (e.g., !Int or !(Term a), not !Term a which would be parsed as (!Term) a).
--- For non-strict types, we use parenthesizeTypeFunLeft since only function types,
+-- For non-strict types, we use function-LHS context rendering since only function types,
 -- foralls, and contexts need parentheses before -> in GADT syntax.
 prettyBangType :: BangType -> Doc ann
 prettyBangType bt
-  | bangStrict bt = "!" <> prettyTypeAtom (bangType bt)
-  | otherwise = parenthesizeTypeFunLeft (bangType bt)
+  | bangStrict bt = "!" <> prettyTypeIn CtxTypeAtom (bangType bt)
+  | otherwise = prettyTypeIn CtxTypeFunArg (bangType bt)
 
 prettyRecordFieldBangType :: BangType -> Doc ann
 prettyRecordFieldBangType bt
   | bangStrict bt = "!" <> prettyType (bangType bt)
   | otherwise = prettyType (bangType bt)
 
+-- | Pretty print a BangType as an atom (e.g., for infix data constructors).
+-- Wraps the entire bang type in parens if the underlying type needs it.
 prettyBangTypeAtom :: BangType -> Doc ann
 prettyBangTypeAtom bt =
-  case bangType bt of
-    TForall {} -> parens (prettyBangType bt)
-    TFun {} -> parens (prettyBangType bt)
-    TContext {} -> parens (prettyBangType bt)
-    _ -> prettyBangType bt
+  parenthesize (needsTypeParens CtxTypeFunArg (bangType bt)) (prettyBangType bt)
 
 prettyClassDecl :: ClassDecl -> Doc ann
 prettyClassDecl decl =
@@ -610,7 +616,7 @@ prettyInstanceDecl decl =
           ( ["instance"]
               <> contextPrefix (instanceDeclContext decl)
               <> [pretty (instanceDeclClassName decl)]
-              <> map prettyTypeAtom (instanceDeclTypes decl)
+              <> map (prettyTypeIn CtxTypeAtom) (instanceDeclTypes decl)
           )
    in case instanceDeclItems decl of
         [] -> headDoc
@@ -624,7 +630,7 @@ prettyStandaloneDeriving decl =
         <> ["instance"]
         <> contextPrefix (standaloneDerivingContext decl)
         <> [pretty (standaloneDerivingClassName decl)]
-        <> map prettyTypeAtom (standaloneDerivingTypes decl)
+        <> map (prettyTypeIn CtxTypeAtom) (standaloneDerivingTypes decl)
     )
 
 prettyDerivingStrategy :: DerivingStrategy -> Doc ann
@@ -714,40 +720,64 @@ prettyConstructorName name
   | isOperatorToken name = parens (pretty name)
   | otherwise = pretty name
 
--- | Print an expression used as the RHS of an infix operator.
--- Nested infix expressions need parentheses to preserve right-associativity,
--- since the parser left-associates all infix operators.
--- Type signatures need parentheses because :: binds looser than infix operators.
--- EWhereDecls needs parentheses because "where" binds looser than infix operators.
--- ENegate needs parentheses because negate can only appear at the start of
--- an infix expression, not as the RHS of an operator.
--- Open-ended expressions (if, lambda, let, and infix expressions with open-ended
--- RHS) need parentheses when this infix node can be followed by another operator;
--- otherwise they can capture that trailing operator into their bodies.
--- Brace-terminated expressions (do, case, \case) are safe on the RHS.
-prettyExprInfixRhs :: Bool -> Expr -> Doc ann
-prettyExprInfixRhs protectOpenEnded expr =
-  case expr of
-    EInfix {} -> parens (prettyExprPrec 0 expr)
-    ETypeSig {} -> parens (prettyExprPrec 0 expr)
-    ENegate {} -> parens (prettyExprPrec 0 expr)
-    EWhereDecls {} -> parens (prettyExprPrec 0 expr)
-    _ | protectOpenEnded && isOpenEnded expr -> parens (prettyExprPrec 0 expr)
-    -- Other greedy expressions are safe at prec 0 as RHS of infix
-    _ | isGreedyExpr expr -> prettyExprPrec 0 expr
-    _ -> prettyExprPrec 1 expr
+-- | Print an expression in a context-sensitive slot.
+-- Nested infix expressions need context-sensitive parenthesization, not just
+-- operator precedence. We model these slots explicitly.
+data ExprCtx
+  = CtxInfixRhs Bool
+  | CtxInfixLhs
+  | CtxWhereBody
+  | CtxAppFun
+  | CtxTypeSigBody
+  | CtxGuarded
 
--- | Print an expression used as the LHS of an infix operator.
--- ETypeSig needs parentheses because the type in x :: T can include type
--- operators, so x :: T || y would parse as x :: (T || y).
--- ENegate needs parentheses because inside parentheses, parseNegateParen
--- would consume the following infix operators as part of the negation.
-prettyExprInfixLhs :: Expr -> Doc ann
-prettyExprInfixLhs expr =
-  case expr of
-    ETypeSig {} -> parens (prettyExprPrec 0 expr)
-    ENegate {} -> parens (prettyExprPrec 0 expr)
-    _ -> prettyExprPrec 1 expr
+prettyExprIn :: ExprCtx -> Expr -> Doc ann
+prettyExprIn ctx expr =
+  parenthesize (needsExprParens ctx expr) (prettyExprPrec (exprCtxPrec ctx expr) expr)
+
+exprCtxPrec :: ExprCtx -> Expr -> Int
+exprCtxPrec ctx expr =
+  case ctx of
+    CtxInfixRhs _
+      | isGreedyExpr expr -> 0
+      | otherwise -> 1
+    CtxInfixLhs -> 1
+    CtxWhereBody -> 0
+    CtxAppFun -> 2
+    CtxTypeSigBody -> 1
+    CtxGuarded -> 0
+
+needsExprParens :: ExprCtx -> Expr -> Bool
+needsExprParens ctx expr =
+  case ctx of
+    CtxInfixRhs protectOpenEnded ->
+      case expr of
+        EInfix {} -> True
+        ETypeSig {} -> True
+        ENegate {} -> True
+        EWhereDecls {} -> True
+        _ | protectOpenEnded && isOpenEnded expr -> True
+        _ -> False
+    CtxInfixLhs ->
+      case expr of
+        ETypeSig {} -> True
+        ENegate {} -> True
+        _ -> False
+    CtxWhereBody ->
+      case expr of
+        ENegate {} -> True
+        _ -> isOpenEnded expr
+    CtxAppFun ->
+      case expr of
+        ENegate {} -> True
+        _ -> False
+    CtxTypeSigBody ->
+      case expr of
+        ENegate {} -> True
+        ETypeSig {} -> True
+        ELambdaPats {} -> True
+        _ -> False
+    CtxGuarded -> isGreedyExpr expr
 
 -- | Check if an expression is "greedy" - i.e., it could consume trailing syntax.
 -- These expressions may need special handling in certain contexts.
@@ -765,9 +795,7 @@ isGreedyExpr = \case
 -- | Print an expression in a "guarded" context where greedy expressions
 -- need parentheses to prevent them from consuming trailing syntax.
 prettyExprGuarded :: Expr -> Doc ann
-prettyExprGuarded expr
-  | isGreedyExpr expr = parens (prettyExprPrec 0 expr)
-  | otherwise = prettyExprPrec 0 expr
+prettyExprGuarded = prettyExprIn CtxGuarded
 
 -- | Check if an expression is "open-ended" - its rightmost component can
 -- capture a trailing where clause. This includes:
@@ -785,43 +813,20 @@ isOpenEnded = \case
   _ -> False
 
 -- | Print the body of a where expression.
--- ENegate needs parentheses because inside parentheses, -a where {...}
--- parses as -(a where {...}) due to parseNegateParen in the parser.
--- "Open-ended" expressions (if, lambda, let, or infix with open-ended RHS)
--- need parentheses because their body would otherwise capture the where clause.
--- "Brace-terminated" expressions (do, case, \case) don't need parens because
--- the explicit braces clearly delimit them.
 prettyWhereBody :: Expr -> Doc ann
-prettyWhereBody expr =
-  case expr of
-    ENegate {} -> parens (prettyExprPrec 0 expr)
-    _ | isOpenEnded expr -> parens (prettyExprPrec 0 expr)
-    _ -> prettyExprPrec 0 expr
+prettyWhereBody = prettyExprIn CtxWhereBody
 
 -- | Print an expression used as the function in an application.
--- ENegate needs parentheses because the parser's negateExprParser uses
--- appExprParser which would consume following arguments.
 prettyExprApp :: Expr -> Doc ann
-prettyExprApp expr =
-  case expr of
-    ENegate {} -> parens (prettyExprPrec 0 expr)
-    _ -> prettyExprPrec 2 expr
+prettyExprApp = prettyExprIn CtxAppFun
 
 -- | Print a negation expression.
 prettyNegate :: Expr -> Doc ann
 prettyNegate inner = "-" <> prettyExprPrec 3 inner
 
 -- | Print the body of a type signature expression.
--- ENegate needs parentheses because inside parentheses, -x :: T parses as
--- -(x :: T) due to parseNegateParen in the parser.
--- ETypeSig needs parentheses because :: is not associative - x :: T :: U is invalid.
 prettyTypeSigBody :: Expr -> Doc ann
-prettyTypeSigBody expr =
-  case expr of
-    ENegate {} -> parens (prettyExprPrec 0 expr)
-    ETypeSig {} -> parens (prettyExprPrec 0 expr)
-    ELambdaPats {} -> parens (prettyExprPrec 0 expr)
-    _ -> prettyExprPrec 1 expr
+prettyTypeSigBody = prettyExprIn CtxTypeSigBody
 
 prettyExprPrec :: Int -> Expr -> Doc ann
 prettyExprPrec prec expr =
@@ -829,7 +834,7 @@ prettyExprPrec prec expr =
     EApp _ fn arg ->
       parenthesize (prec > 2) (prettyExprApp fn <+> prettyExprPrec 3 arg)
     ETypeApp _ fn ty ->
-      parenthesize (prec > 2) (prettyExprApp fn <+> "@" <> prettyTypeAtom ty)
+      parenthesize (prec > 2) (prettyExprApp fn <+> "@" <> prettyTypeIn CtxTypeAtom ty)
     EVar _ name
       | isOperatorToken name -> parens (pretty name)
       | otherwise -> pretty name
@@ -854,7 +859,7 @@ prettyExprPrec prec expr =
     EInfix _ lhs op rhs ->
       parenthesize
         (prec > 1)
-        (prettyExprInfixLhs lhs <+> prettyInfixOp op <+> prettyExprInfixRhs (prec == 1) rhs)
+        (prettyExprIn CtxInfixLhs lhs <+> prettyInfixOp op <+> prettyExprIn (CtxInfixRhs (prec == 1)) rhs)
     ENegate _ inner -> parenthesize (prec > 2) (prettyNegate inner)
     ESectionL _ lhs op -> parens (prettyExprPrec 3 lhs <+> prettyInfixOp op)
     ESectionR _ op rhs -> parens (prettyInfixOp op <+> prettyExprPrec 0 rhs)
