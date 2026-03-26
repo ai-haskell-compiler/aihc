@@ -12,7 +12,7 @@ synopsis:           From-scratch Haskell parser with differential tests
 library
   exposed-modules:
       Aihc.Parser
-    , AIhc.Parser.Syntax
+    , Aihc.Parser.Syntax
     , Aihc.Parser.Lex
     , Aihc.Parser.Shorthand
     , Aihc.Parser.Internal.FromTokens

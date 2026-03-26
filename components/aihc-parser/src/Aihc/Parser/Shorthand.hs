@@ -22,8 +22,8 @@ module Aihc.Parser.Shorthand
   )
 where
 
-import AIhc.Parser.Syntax
 import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..))
+import Aihc.Parser.Syntax
 import Aihc.Parser.Types (ParseResult (..))
 import Data.Text (Text)
 import Prettyprinter

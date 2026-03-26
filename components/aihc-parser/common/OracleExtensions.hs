@@ -3,7 +3,7 @@ module OracleExtensions
   )
 where
 
-import AIhc.Parser.Syntax (parseExtensionName)
+import Aihc.Parser.Syntax (parseExtensionName)
 import qualified Data.Text as T
 import ExtensionSupport (ExtensionSpec (..))
 import qualified GHC.LanguageExtensions.Type as GHC

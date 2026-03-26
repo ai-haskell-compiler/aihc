@@ -2,9 +2,9 @@
 
 module Main (main) where
 
-import AIhc.Parser.Syntax (Module)
 import Aihc.Parser (ParseResult (..))
 import qualified Aihc.Parser
+import Aihc.Parser.Syntax (Module)
 import Data.Text (Text)
 import qualified Data.Text.IO.Utf8 as Utf8
 import ExtensionSupport

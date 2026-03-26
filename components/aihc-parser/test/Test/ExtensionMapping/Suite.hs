@@ -3,7 +3,7 @@ module Test.ExtensionMapping.Suite
   )
 where
 
-import qualified AIhc.Parser.Syntax as Ast
+import qualified Aihc.Parser.Syntax as Ast
 import Data.List (intercalate)
 import Data.Maybe (isNothing)
 import qualified Data.Text as T

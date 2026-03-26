@@ -14,8 +14,6 @@ module Test.Properties.NoExceptions
   )
 where
 
-import AIhc.Parser.Syntax (ExtensionSetting (..), SourceSpan (..))
-import qualified AIhc.Parser.Syntax as Ast
 import Aihc.Parser.Internal.FromTokens
   ( parseDeclFromTokens,
     parseExprFromTokens,
@@ -31,6 +29,8 @@ import Aihc.Parser.Lex
     lexModuleTokens,
     lexTokens,
   )
+import Aihc.Parser.Syntax (ExtensionSetting (..), SourceSpan (..))
+import qualified Aihc.Parser.Syntax as Ast
 import Control.DeepSeq (NFData (..), force)
 import Control.Exception (SomeException, evaluate, try)
 import CppSupport (preprocessForParserWithoutIncludes)

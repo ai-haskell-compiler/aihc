@@ -10,7 +10,6 @@ module CppSupport
   )
 where
 
-import AIhc.Parser.Syntax (Extension (CPP), ExtensionSetting (..), parseExtensionSettingName)
 import Aihc.Cpp
   ( Config (..),
     IncludeKind (..),
@@ -24,6 +23,7 @@ import Aihc.Cpp
     preprocess,
   )
 import Aihc.Parser.Lex (readModuleHeaderExtensions)
+import Aihc.Parser.Syntax (Extension (CPP), ExtensionSetting (..), parseExtensionSettingName)
 import Data.Char (isAsciiLower, isAsciiUpper, isDigit, toLower)
 import Data.Functor.Identity (Identity (..), runIdentity)
 import qualified Data.Map.Strict as M

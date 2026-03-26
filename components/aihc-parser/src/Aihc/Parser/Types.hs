@@ -11,8 +11,8 @@ module Aihc.Parser.Types
   )
 where
 
-import AIhc.Parser.Syntax (Extension, SourceSpan (..))
 import Aihc.Parser.Lex (LexToken (..))
+import Aihc.Parser.Syntax (Extension, SourceSpan (..))
 import Control.DeepSeq (NFData (..))
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Set as Set

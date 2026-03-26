@@ -65,7 +65,7 @@ module Aihc.Parser.Lex
   )
 where
 
-import AIhc.Parser.Syntax
+import Aihc.Parser.Syntax
 import Control.DeepSeq (NFData)
 import Data.Char (digitToInt, isAlphaNum, isAsciiLower, isAsciiUpper, isDigit, isHexDigit, isOctDigit, isSpace)
 import qualified Data.List as List

@@ -8,7 +8,7 @@ module HseExtensions
   )
 where
 
-import qualified AIhc.Parser.Syntax as Ast
+import qualified Aihc.Parser.Syntax as Ast
 import Data.Maybe (listToMaybe, mapMaybe)
 import qualified Data.Text as T
 import qualified Language.Haskell.Exts as HSE

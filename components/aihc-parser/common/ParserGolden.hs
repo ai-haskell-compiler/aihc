@@ -17,7 +17,6 @@ module ParserGolden
   )
 where
 
-import AIhc.Parser.Syntax (Extension, parseExtensionName)
 import Aihc.Parser
   ( ParseResult (..),
     ParserConfig (..),
@@ -27,6 +26,7 @@ import Aihc.Parser
     parseModule,
   )
 import Aihc.Parser.Shorthand (Shorthand (..))
+import Aihc.Parser.Syntax (Extension, parseExtensionName)
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withObject)
 import Data.Char (isSpace, toLower)
