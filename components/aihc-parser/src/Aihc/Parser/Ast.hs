@@ -2,6 +2,13 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DeriveGeneric #-}
 
+-- |
+--
+-- Module      : Aihc.Parser.Ast
+-- Description : Abstract Syntax Tree
+-- License     : Unlicense
+--
+-- Abstract Syntax Tree (AST) covering Haskell2010 plus all language extensions.
 module Aihc.Parser.Ast
   ( ArithSeq (..),
     BangType (..),

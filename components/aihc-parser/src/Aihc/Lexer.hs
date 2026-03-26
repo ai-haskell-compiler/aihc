@@ -4,7 +4,7 @@
 
 -- |
 -- Module      : Aihc.Lexer
--- Description : Lex Haskell source into span-annotated tokens with inline extension handling.
+-- Description : Lex Haskell source into span-annotated tokens with inline extension handling
 --
 -- This module performs the pre-parse tokenization step for Haskell source code.
 -- It turns raw text into 'LexToken's that preserve:
