@@ -67,6 +67,8 @@ modules-language-pragma-multiple	modules	modules/pre-module-language-pragma-mult
 modules-language-pragma-multiple-singleline-comments	modules	modules/pre-module-language-pragma-multiple-singleline-comments.hs	pass
 modules-language-pragma-multiple-multiline-comments	modules	modules/pre-module-language-pragma-multiple-multiline-comments.hs	pass
 
+modules-astack	modules	modules/astack.hs	pass	example taken from the haskell language report
+
 ffi-s8-export-ccall-named	ffi	ffi/s8-export-ccall-named.hs	pass	parser now supports foreign export declarations
 ffi-s8-export-ccall-omitted-entity	ffi	ffi/s8-export-ccall-omitted-entity.hs	pass	parser now supports foreign export declarations with omitted entity
 ffi-s8-export-stdcall-named	ffi	ffi/s8-export-stdcall-named.hs	pass	parser now supports stdcall foreign export declarations
