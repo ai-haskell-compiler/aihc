@@ -3,9 +3,9 @@
 ## Summary
 
 - Total Extensions: 138
-- Supported: 29
-- In Progress: 10
-- Planned: 99
+- Supported: 33
+- In Progress: 26
+- Planned: 79
 
 ## Extension Status
 
@@ -13,19 +13,19 @@
 |-----------|--------|---------------|-------|
 | AllowAmbiguousTypes | Planned | - | AllowAmbiguousTypes |
 | ApplicativeDo | Planned | - | ApplicativeDo |
-| Arrows | Planned | - | Arrows |
+| Arrows | In Progress | 0/2 | Arrows |
 | BangPatterns | Supported | 5/5 | BangPatterns |
 | BinaryLiterals | Supported | 3/3 | BinaryLiterals |
-| BlockArguments | Planned | - | BlockArguments |
+| BlockArguments | In Progress | 0/4 | BlockArguments |
 | CApiFFI | Planned | - | CApiFFI |
 | ConstrainedClassMethods | Planned | - | ConstrainedClassMethods |
 | ConstraintKinds | Planned | - | ConstraintKinds |
 | CPP | Planned | - | CPP |
 | CUSKs | Planned | - | CUSKs |
-| DataKinds | In Progress | 0/1 | DataKinds |
+| DataKinds | Supported | 5/5 | DataKinds |
 | DatatypeContexts | Planned | - | DatatypeContexts |
 | DeepSubsumption | Planned | - | DeepSubsumption |
-| DefaultSignatures | Planned | - | DefaultSignatures |
+| DefaultSignatures | In Progress | 0/2 | DefaultSignatures |
 | DeriveAnyClass | Planned | - | DeriveAnyClass |
 | DeriveDataTypeable | Planned | - | DeriveDataTypeable |
 | DeriveFoldable | Planned | - | DeriveFoldable |
@@ -34,23 +34,23 @@
 | DeriveLift | Planned | - | DeriveLift |
 | DeriveTraversable | Planned | - | DeriveTraversable |
 | DerivingStrategies | Supported | 5/5 | DerivingStrategies |
-| DerivingVia | Planned | - | DerivingVia |
+| DerivingVia | In Progress | 0/4 | DerivingVia |
 | DisambiguateRecordFields | Planned | - | DisambiguateRecordFields |
 | DoAndIfThenElse | Supported | 9/9 | DoAndIfThenElse |
 | DuplicateRecordFields | Planned | - | DuplicateRecordFields |
 | EmptyCase | Supported | 4/4 | EmptyCase |
 | EmptyDataDecls | Supported | 5/5 | EmptyDataDecls |
-| EmptyDataDeriving | Planned | - | EmptyDataDeriving |
+| EmptyDataDeriving | In Progress | 2/3 | EmptyDataDeriving |
 | ExistentialQuantification | Supported | 4/4 | ExistentialQuantification |
 | ExplicitForAll | Supported | 5/5 | ExplicitForAll |
 | ExplicitLevelImports | Supported | 4/4 | ExplicitLevelImports |
 | ExplicitNamespaces | Supported | 3/3 | ExplicitNamespaces |
 | ExtendedDefaultRules | Planned | - | ExtendedDefaultRules |
-| ExtendedLiterals | Planned | - | ExtendedLiterals |
+| ExtendedLiterals | Supported | 2/2 | ExtendedLiterals |
 | FieldSelectors | Planned | - | FieldSelectors |
 | FlexibleContexts | Planned | - | FlexibleContexts |
 | FlexibleInstances | Supported | 4/4 | FlexibleInstances |
-| ForeignFunctionInterface | Planned | - | ForeignFunctionInterface |
+| ForeignFunctionInterface | Supported | 4/4 | ForeignFunctionInterface |
 | FunctionalDependencies | In Progress | 0/5 | FunctionalDependencies |
 | GADTs | Supported | 3/3 | GADTs |
 | GADTSyntax | Supported | 9/9 | GADTSyntax |
@@ -61,7 +61,7 @@
 | Haskell2010 | Planned | - | Haskell2010 |
 | Haskell98 | Planned | - | Haskell98 |
 | HexFloatLiterals | Supported | 3/3 | HexFloatLiterals |
-| ImplicitParams | Planned | - | ImplicitParams |
+| ImplicitParams | In Progress | 0/2 | ImplicitParams |
 | ImplicitPrelude | Planned | - | ImplicitPrelude |
 | ImplicitStagePersistence | Planned | - | ImplicitStagePersistence |
 | ImportQualifiedPost | Supported | 3/3 | ImportQualifiedPost |
@@ -75,13 +75,13 @@
 | LiberalTypeSynonyms | Planned | - | LiberalTypeSynonyms |
 | LinearTypes | Planned | - | LinearTypes |
 | ListTuplePuns | Planned | - | ListTuplePuns |
-| MagicHash | Planned | - | MagicHash |
+| MagicHash | In Progress | 0/2 | MagicHash |
 | MonadComprehensions | Planned | - | MonadComprehensions |
 | MonoLocalBinds | Planned | - | MonoLocalBinds |
 | MonomorphismRestriction | Planned | - | MonomorphismRestriction |
-| MultilineStrings | Planned | - | MultilineStrings |
+| MultilineStrings | In Progress | 0/6 | MultilineStrings |
 | MultiParamTypeClasses | Supported | 5/5 | MultiParamTypeClasses |
-| MultiWayIf | Planned | - | MultiWayIf |
+| MultiWayIf | In Progress | 0/4 | MultiWayIf |
 | NamedDefaults | Planned | - | NamedDefaults |
 | NamedFieldPuns | Supported | 5/5 | NamedFieldPuns |
 | NamedWildCards | Supported | 4/4 | NamedWildCards |
@@ -100,22 +100,22 @@
 | OverloadedStrings | Planned | - | OverloadedStrings |
 | PackageImports | Supported | 3/3 | PackageImports |
 | ParallelListComp | Supported | 1/1 | ParallelListComp |
-| PartialTypeSignatures | Planned | - | PartialTypeSignatures |
+| PartialTypeSignatures | In Progress | 1/2 | PartialTypeSignatures |
 | PatternGuards | Supported | 5/5 | PatternGuards |
-| PatternSynonyms | In Progress | 1/17 | PatternSynonyms |
+| PatternSynonyms | In Progress | 2/17 | PatternSynonyms |
 | PolyKinds | Planned | - | PolyKinds |
 | PostfixOperators | Planned | - | PostfixOperators |
-| QualifiedDo | Planned | - | QualifiedDo |
+| QualifiedDo | Supported | 1/1 | QualifiedDo |
 | QualifiedStrings | Planned | - | QualifiedStrings |
 | QuantifiedConstraints | Planned | - | QuantifiedConstraints |
 | QuasiQuotes | In Progress | 2/3 | QuasiQuotes |
 | Rank2Types | Planned | - | Rank2Types |
 | RankNTypes | Planned | - | RankNTypes |
 | RebindableSyntax | Planned | - | RebindableSyntax |
-| RecordWildCards | Planned | - | RecordWildCards |
-| RecursiveDo | Planned | - | RecursiveDo |
+| RecordWildCards | In Progress | 0/3 | RecordWildCards |
+| RecursiveDo | In Progress | 0/2 | RecursiveDo |
 | RelaxedPolyRec | Planned | - | RelaxedPolyRec |
-| RequiredTypeArguments | Planned | - | RequiredTypeArguments |
+| RequiredTypeArguments | In Progress | 0/2 | RequiredTypeArguments |
 | RoleAnnotations | In Progress | 0/4 | RoleAnnotations |
 | Safe | Planned | - | Safe |
 | ScopedTypeVariables | Planned | - | ScopedTypeVariables |
@@ -133,14 +133,14 @@
 | TupleSections | Supported | 4/4 | TupleSections |
 | TypeAbstractions | Planned | - | TypeAbstractions |
 | TypeApplications | In Progress | 0/2 | TypeApplications |
-| TypeData | Planned | - | TypeData |
-| TypeFamilies | Planned | - | TypeFamilies |
+| TypeData | In Progress | 0/1 | TypeData |
+| TypeFamilies | In Progress | 0/3 | TypeFamilies |
 | TypeFamilyDependencies | Planned | - | TypeFamilyDependencies |
 | TypeInType | Planned | - | TypeInType |
 | TypeOperators | In Progress | 0/4 | TypeOperators |
 | TypeSynonymInstances | Planned | - | TypeSynonymInstances |
-| UnboxedSums | Planned | - | UnboxedSums |
-| UnboxedTuples | Planned | - | UnboxedTuples |
+| UnboxedSums | In Progress | 0/3 | UnboxedSums |
+| UnboxedTuples | In Progress | 0/3 | UnboxedTuples |
 | UndecidableInstances | Planned | - | UndecidableInstances |
 | UndecidableSuperClasses | Planned | - | UndecidableSuperClasses |
 | UnicodeSyntax | Supported | 6/6 | UnicodeSyntax |

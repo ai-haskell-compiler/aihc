@@ -4,7 +4,7 @@ module Main (main) where
 
 import Aihc.Parser (ParseResult (..))
 import qualified Aihc.Parser
-import Aihc.Parser.Ast (Module)
+import Aihc.Parser.Syntax (Module)
 import Data.Text (Text)
 import qualified Data.Text.IO.Utf8 as Utf8
 import ExtensionSupport

@@ -3,8 +3,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 -- |
--- Module      : Aihc.Lexer
--- Description : Lex Haskell source into span-annotated tokens with inline extension handling.
+-- Module      : Aihc.Parser.Lex
+-- Description : Lex Haskell source into span-annotated tokens with inline extension handling
 --
 -- This module performs the pre-parse tokenization step for Haskell source code.
 -- It turns raw text into 'LexToken's that preserve:
@@ -50,7 +50,7 @@
 --
 -- In other words, use keyword tokens only for exact reserved lexemes; contextual
 -- validity is left to the parser.
-module Aihc.Lexer
+module Aihc.Parser.Lex
   ( LexToken (..),
     LexTokenKind (..),
     isReservedIdentifier,
@@ -65,13 +65,13 @@ module Aihc.Lexer
   )
 where
 
-import Aihc.Parser.Ast
+import Aihc.Parser.Syntax
 import Control.DeepSeq (NFData)
 import Data.Char (digitToInt, isAlphaNum, isAsciiLower, isAsciiUpper, isDigit, isHexDigit, isOctDigit, isSpace)
-import qualified Data.List as List
+import Data.List qualified as List
 import Data.Maybe (fromMaybe, isJust, mapMaybe)
 import Data.Text (Text)
-import qualified Data.Text as T
+import Data.Text qualified as T
 import GHC.Generics (Generic)
 import Numeric (readHex, readInt, readOct)
 
@@ -404,6 +404,7 @@ nextToken st =
         lexFloat,
         lexIntBase,
         lexInt,
+        lexPromotedQuote,
         lexChar,
         lexString,
         lexSymbol,
@@ -1196,6 +1197,33 @@ lexInt st =
               digits = filter (/= '_') digitsRaw
               st' = advanceChars digitsRaw st
            in Just (mkToken st st' txt (TkInteger (read digits)), st')
+
+lexPromotedQuote :: LexerState -> Maybe (LexToken, LexerState)
+lexPromotedQuote st
+  | DataKinds `notElem` lexerExtensions st = Nothing
+  | otherwise =
+      case lexerInput st of
+        '\'' : rest
+          | isValidCharLiteral rest -> Nothing
+          | isPromotionStart rest ->
+              let st' = advanceChars "'" st
+               in Just (mkToken st st' "'" (TkVarSym "'"), st')
+          | otherwise -> Nothing
+        _ -> Nothing
+  where
+    isValidCharLiteral chars =
+      case scanQuoted '\'' chars of
+        Right (body, _) -> isJust (readMaybeChar ('\'' : body <> "'"))
+        Left _ -> False
+
+    isPromotionStart chars =
+      case chars of
+        c : _
+          | c == '[' -> True
+          | c == '(' -> True
+          | c == ':' -> True
+          | isAsciiUpper c -> True
+        _ -> False
 
 lexChar :: LexerState -> Maybe (LexToken, LexerState)
 lexChar st =

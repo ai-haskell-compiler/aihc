@@ -12,15 +12,15 @@ module Aihc.Parser.Internal.Expr
   )
 where
 
-import Aihc.Lexer (LexToken (..), LexTokenKind (..), lexTokenKind, lexTokenSpan, lexTokenText)
-import Aihc.Parser.Ast
 import Aihc.Parser.Internal.Common
+import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokenKind, lexTokenSpan, lexTokenText)
+import Aihc.Parser.Syntax
 import Control.Monad (guard)
 import Data.Char (isLower, isUpper)
 import Data.Text (Text)
-import qualified Data.Text as T
+import Data.Text qualified as T
 import Text.Megaparsec (anySingle, lookAhead, (<|>))
-import qualified Text.Megaparsec as MP
+import Text.Megaparsec qualified as MP
 
 exprParser :: TokParser Expr
 exprParser = do
@@ -90,11 +90,20 @@ doBindStmtParser = withSpan $ do
   expr <- exprParser
   pure (\span' -> DoBind span' pat expr)
 
+parseLetDeclsParser :: TokParser [Decl]
+parseLetDeclsParser = do
+  keywordTok TkKeywordLet
+  bracedDeclsParser <|> plainDeclsParser
+
+parseLetDeclsStmtParser :: TokParser [Decl]
+parseLetDeclsStmtParser = do
+  decls <- parseLetDeclsParser
+  MP.notFollowedBy (keywordTok TkKeywordIn)
+  pure decls
+
 doLetStmtParser :: TokParser DoStmt
 doLetStmtParser = withSpan $ do
-  keywordTok TkKeywordLet
-  decls <- bracedDeclsParser <|> plainDeclsParser
-  MP.notFollowedBy (keywordTok TkKeywordIn)
+  decls <- parseLetDeclsStmtParser
   pure (`DoLetDecls` decls)
 
 doExprStmtParser :: TokParser DoStmt
@@ -524,9 +533,7 @@ guardQualifierParser = MP.try guardPatParser <|> MP.try guardLetParser <|> guard
       pure (\span' -> GuardPat span' pat expr)
 
     guardLetParser = withSpan $ do
-      keywordTok TkKeywordLet
-      decls <- bracedDeclsParser <|> plainDeclsParser
-      MP.notFollowedBy (keywordTok TkKeywordIn)
+      decls <- parseLetDeclsStmtParser
       pure (`GuardLet` decls)
 
     guardExprParser = withSpan $ do
@@ -704,7 +711,7 @@ parseListTail first =
       pure (\span' -> EList span' [first])
 
 compStmtParser :: TokParser CompStmt
-compStmtParser = MP.try compGenStmtParser <|> compGuardStmtParser
+compStmtParser = MP.try compGenStmtParser <|> MP.try compLetStmtParser <|> compGuardStmtParser
 
 compGenStmtParser :: TokParser CompStmt
 compGenStmtParser = withSpan $ do
@@ -712,6 +719,11 @@ compGenStmtParser = withSpan $ do
   expectedTok TkReservedLeftArrow
   expr <- exprParser
   pure (\span' -> CompGen span' pat expr)
+
+compLetStmtParser :: TokParser CompStmt
+compLetStmtParser = withSpan $ do
+  decls <- parseLetDeclsStmtParser
+  pure (`CompLetDecls` decls)
 
 lambdaExprParser :: TokParser Expr
 lambdaExprParser = withSpan $ do
@@ -733,8 +745,7 @@ lambdaExprParser = withSpan $ do
 
 letExprParser :: TokParser Expr
 letExprParser = withSpan $ do
-  keywordTok TkKeywordLet
-  decls <- bracedDeclsParser <|> plainDeclsParser
+  decls <- parseLetDeclsParser
   keywordTok TkKeywordIn
   body <- exprParser
   pure (\span' -> ELetDecls span' decls body)
@@ -936,7 +947,7 @@ typeInfixParser = do
 buildInfixType :: Type -> (Text, Type) -> Type
 buildInfixType lhs (op, rhs) =
   let span' = mergeSourceSpans (getSourceSpan lhs) (getSourceSpan rhs)
-      opType = TCon span' op
+      opType = TCon span' op Unpromoted
    in TApp span' (TApp span' opType lhs) rhs
 
 typeInfixOperatorParser :: TokParser Text
@@ -965,12 +976,72 @@ buildTypeApp lhs rhs =
 
 typeAtomParser :: TokParser Type
 typeAtomParser =
-  typeQuasiQuoteParser
+  MP.try promotedTypeParser
+    <|> typeLiteralTypeParser
+    <|> typeQuasiQuoteParser
     <|> typeListParser
     <|> MP.try typeParenOperatorParser
     <|> typeParenOrTupleParser
     <|> typeStarParser
     <|> typeIdentifierParser
+
+typeLiteralTypeParser :: TokParser Type
+typeLiteralTypeParser = withSpan $ do
+  lit <- tokenSatisfy "type literal" $ \tok ->
+    case lexTokenKind tok of
+      TkInteger n -> Just (TypeLitInteger n (lexTokenText tok))
+      TkIntegerBase n _ -> Just (TypeLitInteger n (lexTokenText tok))
+      TkString s -> Just (TypeLitSymbol s (lexTokenText tok))
+      TkChar c -> Just (TypeLitChar c (lexTokenText tok))
+      _ -> Nothing
+  pure (`TTypeLit` lit)
+
+promotedTypeParser :: TokParser Type
+promotedTypeParser = withSpan $ do
+  expectedTok (TkVarSym "'")
+  promotedTy <- MP.try promotedStructuredTypeParser <|> promotedRawTypeParser
+  pure (`setTypeSpan` promotedTy)
+
+promotedStructuredTypeParser :: TokParser Type
+promotedStructuredTypeParser = do
+  ty <-
+    MP.try typeListParser
+      <|> MP.try typeParenOrTupleParser
+      <|> MP.try typeParenOperatorParser
+      <|> typeIdentifierParser
+  maybe (fail "promoted type") pure (markTypePromoted ty)
+
+promotedRawTypeParser :: TokParser Type
+promotedRawTypeParser = withSpan $ do
+  suffix <- promotedBracketedSuffixParser <|> promotedParenthesizedSuffixParser
+  pure (\span' -> TCon span' suffix Promoted)
+
+promotedBracketedSuffixParser :: TokParser Text
+promotedBracketedSuffixParser = collectDelimitedRaw TkSpecialLBracket TkSpecialRBracket
+
+promotedParenthesizedSuffixParser :: TokParser Text
+promotedParenthesizedSuffixParser = collectDelimitedRaw TkSpecialLParen TkSpecialRParen
+
+collectDelimitedRaw :: LexTokenKind -> LexTokenKind -> TokParser Text
+collectDelimitedRaw openKind closeKind = do
+  openTxt <- tokenSatisfy ("opening delimiter " <> show openKind) $ \tok ->
+    if lexTokenKind tok == openKind then Just (lexTokenText tok) else Nothing
+  go 1 openTxt
+  where
+    go :: Int -> Text -> TokParser Text
+    go depth acc = do
+      tok <- anySingle
+      let kind = lexTokenKind tok
+          txt = lexTokenText tok
+          acc' = acc <> txt
+      case () of
+        _
+          | kind == openKind -> go (depth + 1) acc'
+          | kind == closeKind ->
+              if depth == 1
+                then pure acc'
+                else go (depth - 1) acc'
+          | otherwise -> go depth acc'
 
 typeParenOperatorParser :: TokParser Type
 typeParenOperatorParser = withSpan $ do
@@ -986,7 +1057,7 @@ typeParenOperatorParser = withSpan $ do
       -- Note: ~ is now lexed as TkVarSym "~" so TkVarSym case handles it
       _ -> Nothing
   expectedTok TkSpecialRParen
-  pure (`TCon` op)
+  pure (\span' -> TCon span' op Unpromoted)
 
 typeQuasiQuoteParser :: TokParser Type
 typeQuasiQuoteParser =
@@ -1001,7 +1072,7 @@ typeIdentifierParser = withSpan $ do
   pure $ \span' ->
     case T.uncons name of
       Just (c, _) | isLower c || c == '_' -> TVar span' name
-      _ -> TCon span' name
+      _ -> TCon span' name Unpromoted
 
 typeStarParser :: TokParser Type
 typeStarParser = withSpan $ do
@@ -1013,14 +1084,14 @@ typeListParser = withSpan $ do
   expectedTok TkSpecialLBracket
   inner <- typeParser
   expectedTok TkSpecialRBracket
-  pure (`TList` inner)
+  pure (\span' -> TList span' Unpromoted inner)
 
 typeParenOrTupleParser :: TokParser Type
 typeParenOrTupleParser = withSpan $ do
   expectedTok TkSpecialLParen
   mClosed <- MP.optional (expectedTok TkSpecialRParen)
   case mClosed of
-    Just () -> pure (`TTuple` [])
+    Just () -> pure (\span' -> TTuple span' Unpromoted [])
     Nothing -> do
       MP.try tupleConstructorParser <|> parenthesizedTypeOrTupleParser
   where
@@ -1030,7 +1101,7 @@ typeParenOrTupleParser = withSpan $ do
       expectedTok TkSpecialRParen
       let arity = 2 + length moreCommas
           tupleConName = "(" <> T.replicate (arity - 1) "," <> ")"
-      pure (`TCon` tupleConName)
+      pure (\span' -> TCon span' tupleConName Unpromoted)
 
     parenthesizedTypeOrTupleParser = do
       first <- typeParser
@@ -1043,4 +1114,28 @@ typeParenOrTupleParser = withSpan $ do
           second <- typeParser
           more <- MP.many (expectedTok TkSpecialComma *> typeParser)
           expectedTok TkSpecialRParen
-          pure (`TTuple` (first : second : more))
+          pure (\span' -> TTuple span' Unpromoted (first : second : more))
+
+markTypePromoted :: Type -> Maybe Type
+markTypePromoted ty =
+  case ty of
+    TCon span' name _ -> Just (TCon span' name Promoted)
+    TList span' _ inner -> Just (TList span' Promoted inner)
+    TTuple span' _ elems -> Just (TTuple span' Promoted elems)
+    _ -> Nothing
+
+setTypeSpan :: SourceSpan -> Type -> Type
+setTypeSpan span' ty =
+  case ty of
+    TVar _ name -> TVar span' name
+    TCon _ name promoted -> TCon span' name promoted
+    TTypeLit _ lit -> TTypeLit span' lit
+    TStar _ -> TStar span'
+    TQuasiQuote _ quoter body -> TQuasiQuote span' quoter body
+    TForall _ binders inner -> TForall span' binders inner
+    TApp _ lhs rhs -> TApp span' lhs rhs
+    TFun _ lhs rhs -> TFun span' lhs rhs
+    TTuple _ promoted elems -> TTuple span' promoted elems
+    TList _ promoted inner -> TList span' promoted inner
+    TParen _ inner -> TParen span' inner
+    TContext _ constraints inner -> TContext span' constraints inner

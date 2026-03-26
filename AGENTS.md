@@ -11,6 +11,12 @@
 - Create PRs: `gh pr create --base main --head <branch> --title "<title>" --body $(cat <file>)`
 - PR titles should follow the same Conventional Commits format as commit messages (see below)
 
+## Cheatsheet
+
+- Test whether a snippet is accepted by GHC: `echo snippet | ghci -v0`. Return code 0 means the snippet is valid, non-zero means it is invalid.
+- Test whether a snippet is accepted by AIHC: `echo snippet | nix run .#aihc-parser`
+- Test how the lexer interprets a string: `echo string | nix run .#aihc-lexer`
+
 ## Testing (TDD)
 
 aihc is developed test-first. Run the full suite with `nix flake check`. When working on new features, always include tests that cover expected use plus a few corner cases. When fixing bugs, always include regression tests.

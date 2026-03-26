@@ -3,8 +3,8 @@
 module Main (main) where
 
 import Aihc.Parser (ParseResult (..), ParserConfig (..), defaultConfig, errorBundlePretty, parseModule)
-import Aihc.Parser.Ast (Extension, ExtensionSetting (..), parseExtensionSettingName)
 import Aihc.Parser.Shorthand (Shorthand (..))
+import Aihc.Parser.Syntax (Extension, ExtensionSetting (..), parseExtensionSettingName)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import Options.Applicative

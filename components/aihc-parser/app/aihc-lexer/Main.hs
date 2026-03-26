@@ -2,9 +2,9 @@
 
 module Main (main) where
 
-import Aihc.Lexer (lexTokensWithExtensions)
-import Aihc.Parser.Ast (Extension, ExtensionSetting (..), parseExtensionSettingName)
+import Aihc.Parser.Lex (lexTokensWithExtensions)
 import Aihc.Parser.Shorthand (Shorthand (..))
+import Aihc.Parser.Syntax (Extension, ExtensionSetting (..), parseExtensionSettingName)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import Options.Applicative

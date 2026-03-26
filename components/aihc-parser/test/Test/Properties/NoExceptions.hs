@@ -14,14 +14,6 @@ module Test.Properties.NoExceptions
   )
 where
 
-import Aihc.Lexer
-  ( LexToken (..),
-    LexTokenKind (..),
-    lexModuleTokens,
-    lexTokens,
-  )
-import Aihc.Parser.Ast (ExtensionSetting (..), SourceSpan (..))
-import qualified Aihc.Parser.Ast as Ast
 import Aihc.Parser.Internal.FromTokens
   ( parseDeclFromTokens,
     parseExprFromTokens,
@@ -31,6 +23,14 @@ import Aihc.Parser.Internal.FromTokens
     parsePatternFromTokens,
     parseTypeFromTokens,
   )
+import Aihc.Parser.Lex
+  ( LexToken (..),
+    LexTokenKind (..),
+    lexModuleTokens,
+    lexTokens,
+  )
+import Aihc.Parser.Syntax (ExtensionSetting (..), SourceSpan (..))
+import qualified Aihc.Parser.Syntax as Syntax
 import Control.DeepSeq (NFData (..), force)
 import Control.Exception (SomeException, evaluate, try)
 import CppSupport (preprocessForParserWithoutIncludes)
@@ -187,7 +187,7 @@ genExtensionSettings = do
 
 genExtensionSetting :: Gen ExtensionSetting
 genExtensionSetting = do
-  extension <- elements Ast.allKnownExtensions
+  extension <- elements Syntax.allKnownExtensions
   oneof [pure (EnableExtension extension), pure (DisableExtension extension)]
 
 genTokenText :: Gen Text

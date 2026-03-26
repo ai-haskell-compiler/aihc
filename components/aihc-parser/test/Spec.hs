@@ -2,9 +2,9 @@
 
 module Main (main) where
 
-import Aihc.Lexer (LexToken (..), LexTokenKind (..), lexTokens, lexTokensFromChunks, readModuleHeaderExtensions, readModuleHeaderExtensionsFromChunks)
 import Aihc.Parser
-import Aihc.Parser.Ast
+import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokens, lexTokensFromChunks, readModuleHeaderExtensions, readModuleHeaderExtensionsFromChunks)
+import Aihc.Parser.Syntax
 import Data.List (isInfixOf)
 import qualified Data.Text as T
 import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
@@ -26,6 +26,9 @@ import Test.StackageProgress.Summary (stackageProgressSummaryTests)
 import Test.Tasty
 import Test.Tasty.HUnit
 import qualified Test.Tasty.QuickCheck as QC
+
+tenMinutes :: Timeout
+tenMinutes = Timeout (10 * 60 * 1000000) "10m"
 
 main :: IO ()
 main = buildTests >>= defaultMain
@@ -75,13 +78,14 @@ buildTests = do
             testCase "generated identifiers reject standalone underscore" test_generatedIdentifiersRejectStandaloneUnderscore,
             testCase "shrunk identifiers reject standalone underscore" test_shrunkIdentifiersRejectStandaloneUnderscore
           ],
-        testGroup
-          "properties"
-          [ QC.testProperty "generated expr AST pretty-printer round-trip" prop_exprPrettyRoundTrip,
-            QC.testProperty "generated module AST pretty-printer round-trip" prop_modulePrettyRoundTrip,
-            QC.testProperty "generated pattern AST pretty-printer round-trip" prop_patternPrettyRoundTrip,
-            QC.testProperty "generated type AST pretty-printer round-trip" prop_typePrettyRoundTrip
-          ],
+        adjustOption (const tenMinutes) $
+          testGroup
+            "properties"
+            [ QC.testProperty "generated expr AST pretty-printer round-trip" prop_exprPrettyRoundTrip,
+              QC.testProperty "generated module AST pretty-printer round-trip" prop_modulePrettyRoundTrip,
+              QC.testProperty "generated pattern AST pretty-printer round-trip" prop_patternPrettyRoundTrip,
+              QC.testProperty "generated type AST pretty-printer round-trip" prop_typePrettyRoundTrip
+            ],
         h2010,
         extensions,
         extensionMappingTests,

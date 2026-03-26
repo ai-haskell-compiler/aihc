@@ -25,8 +25,8 @@ import Aihc.Parser
     parseExpr,
     parseModule,
   )
-import Aihc.Parser.Ast (Extension, parseExtensionName)
 import Aihc.Parser.Shorthand (Shorthand (..))
+import Aihc.Parser.Syntax (Extension, parseExtensionName)
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withObject)
 import Data.Char (isSpace, toLower)

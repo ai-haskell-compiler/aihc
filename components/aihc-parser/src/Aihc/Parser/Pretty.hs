@@ -21,10 +21,10 @@ module Aihc.Parser.Pretty
   )
 where
 
-import Aihc.Parser.Ast
+import Aihc.Parser.Syntax
 import Data.Maybe (catMaybes)
 import Data.Text (Text)
-import qualified Data.Text as T
+import Data.Text qualified as T
 import Prettyprinter
   ( Doc,
     Pretty (pretty),
@@ -258,7 +258,7 @@ needsTypeParens ctx ty =
         _ -> False
     CtxTypeAppArg ->
       case ty of
-        TApp _ (TApp _ (TCon _ op) _) _
+        TApp _ (TApp _ (TCon _ op _) _) _
           | isSymbolicTypeOperator op && op /= "->" -> False
         TQuasiQuote {} -> False
         TApp {} -> True
@@ -270,6 +270,7 @@ needsTypeParens ctx ty =
       case ty of
         TVar {} -> False
         TCon {} -> False
+        TTypeLit {} -> False
         TStar {} -> False
         TQuasiQuote {} -> False
         TList {} -> False
@@ -281,16 +282,19 @@ prettyTypePrec :: Int -> Type -> Doc ann
 prettyTypePrec prec ty =
   case ty of
     TVar _ name -> pretty name
-    TCon _ name
-      | isSymbolicTypeOperator name -> parens (pretty name)
-      | otherwise -> pretty name
+    TCon _ name promoted ->
+      let base
+            | isSymbolicTypeOperator name = parens (pretty name)
+            | otherwise = pretty name
+       in if promoted == Promoted then "'" <> base else base
+    TTypeLit _ lit -> prettyTypeLiteral lit
     TStar _ -> "*"
     TQuasiQuote _ quoter body -> prettyQuasiQuote quoter body
     TForall _ binders inner ->
       parenthesize
         (prec > 0)
         ("forall" <+> hsep (map pretty binders) <> "." <+> prettyTypePrec 0 inner)
-    TApp _ (TApp _ (TCon _ op) lhs) rhs
+    TApp _ (TApp _ (TCon _ op _) lhs) rhs
       | isSymbolicTypeOperator op && op /= "->" ->
           parens (prettyTypePrec 0 lhs <+> pretty op <+> prettyTypePrec 0 rhs)
     TApp _ f x ->
@@ -301,8 +305,12 @@ prettyTypePrec prec ty =
       parenthesize
         (prec > 0)
         (prettyTypeIn CtxTypeFunArg a <+> "->" <+> prettyTypePrec 0 b)
-    TTuple _ elems -> parens (hsep (punctuate comma (map (prettyTypePrec 0) elems)))
-    TList _ inner -> brackets (prettyTypePrec 0 inner)
+    TTuple _ promoted elems ->
+      let tupleDoc = parens (hsep (punctuate comma (map (prettyTypePrec 0) elems)))
+       in if promoted == Promoted then "'" <> tupleDoc else tupleDoc
+    TList _ promoted inner ->
+      let listDoc = brackets (prettyTypePrec 0 inner)
+       in if promoted == Promoted then "'" <> listDoc else listDoc
     TParen _ inner
       | isInfixTypeApp inner -> prettyTypePrec prec inner
       | otherwise -> parens (prettyTypePrec 0 inner)
@@ -336,8 +344,15 @@ isSymbolicTypeOperator op =
 isInfixTypeApp :: Type -> Bool
 isInfixTypeApp ty =
   case ty of
-    TApp _ (TApp _ (TCon _ op) _) _ -> isSymbolicTypeOperator op && op /= "->"
+    TApp _ (TApp _ (TCon _ op _) _) _ -> isSymbolicTypeOperator op && op /= "->"
     _ -> False
+
+prettyTypeLiteral :: TypeLiteral -> Doc ann
+prettyTypeLiteral lit =
+  case lit of
+    TypeLitInteger _ repr -> pretty repr
+    TypeLitSymbol _ repr -> pretty repr
+    TypeLitChar _ repr -> pretty repr
 
 prettyPattern :: Pattern -> Doc ann
 prettyPattern pat =

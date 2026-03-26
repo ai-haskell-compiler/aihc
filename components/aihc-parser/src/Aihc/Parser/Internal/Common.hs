@@ -30,15 +30,15 @@ module Aihc.Parser.Internal.Common
   )
 where
 
-import Aihc.Lexer (LexToken (..), LexTokenKind (..))
-import Aihc.Parser.Ast
+import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..))
+import Aihc.Parser.Syntax
 import Aihc.Parser.Types (TokStream)
 import Data.Char (isUpper)
 import Data.Text (Text)
-import qualified Data.Text as T
+import Data.Text qualified as T
 import Data.Void (Void)
 import Text.Megaparsec (Parsec, anySingle, lookAhead, (<|>))
-import qualified Text.Megaparsec as MP
+import Text.Megaparsec qualified as MP
 import Text.Megaparsec.Pos (SourcePos (..))
 
 type TokParser = Parsec Void TokStream
