@@ -617,7 +617,7 @@
         cd "$repo_root"
 
         git ls-files -z -- '*.nix' | xargs -0 -r alejandra
-        git ls-files -z -- '*.hs' | xargs -0 -r ormolu -m inplace
+        git ls-files -z -- '*.hs' | grep -vz '/Fixtures/' | xargs -r ormolu -m inplace
       '';
 
       line-counts = mkAppWithInputs "line-counts" [pkgs.tokei pkgs.jq pkgs.bash] ''
