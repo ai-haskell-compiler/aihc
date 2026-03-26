@@ -982,7 +982,7 @@
         } ''
           cd "$src"
           # Run doctest on the Aihc.Cpp module
-          doctest -isrc src/Aihc/Cpp.hs
+          doctest -XGHC2021 -isrc src/Aihc/Cpp.hs
           touch "$out"
         '';
       # Doctest for aihc-parser documentation examples
@@ -1004,7 +1004,7 @@
           PKGDB=$(ghc --print-global-package-db)
           # Run doctest with explicit package database
           # Include all source files so imports between modules work
-          doctest -package-db="$PKGDB" -isrc \
+          doctest -XGHC2021 -package-db="$PKGDB" -isrc \
             src/Aihc/Parser/Shorthand.hs \
             src/Aihc/Parser.hs
           touch "$out"
