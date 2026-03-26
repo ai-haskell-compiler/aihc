@@ -25,8 +25,8 @@ import Test.Tasty
 import Test.Tasty.HUnit
 import qualified Test.Tasty.QuickCheck as QC
 
-tenMinutes :: Int
-tenMinutes = 10 * 60 * 1000000
+tenMinutes :: Timeout
+tenMinutes = Timeout (10 * 60 * 1000000) "10m"
 
 main :: IO ()
 main = buildTests >>= defaultMain
@@ -75,7 +75,7 @@ buildTests = do
             testCase "generated identifiers reject standalone underscore" test_generatedIdentifiersRejectStandaloneUnderscore,
             testCase "shrunk identifiers reject standalone underscore" test_shrunkIdentifiersRejectStandaloneUnderscore
           ],
-        localTimeout tenMinutes $
+        adjustOption (const tenMinutes) $
           testGroup
             "properties"
             [ QC.testProperty "generated expr AST pretty-printer round-trip" prop_exprPrettyRoundTrip,
