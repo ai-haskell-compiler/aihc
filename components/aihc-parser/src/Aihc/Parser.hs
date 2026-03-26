@@ -39,10 +39,10 @@ import Aihc.Parser.Lex
 import Aihc.Parser.Pretty ()
 import Aihc.Parser.Syntax (Expr, Extension (..), ExtensionSetting (..), Module, Pattern, Type)
 import Aihc.Parser.Types
-import qualified Data.List as List
+import Data.List qualified as List
 import Data.Text (Text)
 import Text.Megaparsec (runParser)
-import qualified Text.Megaparsec as MP
+import Text.Megaparsec qualified as MP
 
 -- $setup
 -- >>> :set -XOverloadedStrings

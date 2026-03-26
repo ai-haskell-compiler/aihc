@@ -16,9 +16,9 @@ import Control.Monad (when)
 import Data.Char (isAsciiLower, isUpper)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
-import qualified Data.Text as T
+import Data.Text qualified as T
 import Text.Megaparsec (anySingle, lookAhead, (<|>))
-import qualified Text.Megaparsec as MP
+import Text.Megaparsec qualified as MP
 
 languagePragmaParser :: TokParser [ExtensionSetting]
 languagePragmaParser =

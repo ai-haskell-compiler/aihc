@@ -68,10 +68,10 @@ where
 import Aihc.Parser.Syntax
 import Control.DeepSeq (NFData)
 import Data.Char (digitToInt, isAlphaNum, isAsciiLower, isAsciiUpper, isDigit, isHexDigit, isOctDigit, isSpace)
-import qualified Data.List as List
+import Data.List qualified as List
 import Data.Maybe (fromMaybe, isJust, mapMaybe)
 import Data.Text (Text)
-import qualified Data.Text as T
+import Data.Text qualified as T
 import GHC.Generics (Generic)
 import Numeric (readHex, readInt, readOct)
 

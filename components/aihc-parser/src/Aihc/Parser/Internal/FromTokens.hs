@@ -31,7 +31,7 @@ import Aihc.Parser.Lex (LexToken)
 import Aihc.Parser.Syntax (Decl, Expr, ImportDecl, Module, ModuleHead, Pattern, Type)
 import Aihc.Parser.Types
 import Text.Megaparsec (runParser)
-import qualified Text.Megaparsec as MP
+import Text.Megaparsec qualified as MP
 
 parseFromTokens :: TokParser a -> FilePath -> [LexToken] -> ParseResult a
 parseFromTokens parser sourceName toks =

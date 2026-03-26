@@ -14,7 +14,7 @@ import Aihc.Parser.Internal.Common (TokParser, expectedTok, skipSemicolons, with
 import Aihc.Parser.Internal.Decl (declParser, importDeclParser, languagePragmaParser, moduleHeaderParser)
 import Aihc.Parser.Lex (LexTokenKind (..))
 import Aihc.Parser.Syntax (Decl, ImportDecl, Module (..))
-import qualified Text.Megaparsec as MP
+import Text.Megaparsec qualified as MP
 
 moduleParser :: TokParser Module
 moduleParser = withSpan $ do

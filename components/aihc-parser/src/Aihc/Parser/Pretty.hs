@@ -24,7 +24,7 @@ where
 import Aihc.Parser.Syntax
 import Data.Maybe (catMaybes)
 import Data.Text (Text)
-import qualified Data.Text as T
+import Data.Text qualified as T
 import Prettyprinter
   ( Doc,
     Pretty (pretty),

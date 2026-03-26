@@ -83,7 +83,7 @@ import Control.Applicative ((<|>))
 import Control.DeepSeq (NFData)
 import Data.Data (Data)
 import Data.Text (Text)
-import qualified Data.Text as T
+import Data.Text qualified as T
 import GHC.Generics (Generic)
 import Text.Read (readMaybe)
 
