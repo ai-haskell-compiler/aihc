@@ -21,7 +21,7 @@ module GhcOracle
 where
 
 import Aihc.Cpp (resultOutput)
-import qualified Aihc.Parser.Syntax as Ast
+import qualified Aihc.Parser.Syntax as Syntax
 import Control.Exception (catch, displayException, evaluate)
 import CppSupport (moduleHeaderExtensionSettings, preprocessForParserWithoutIncludes)
 import Data.Bifunctor (first)
@@ -75,14 +75,14 @@ oracleModuleAstFingerprintWithExtensionsAt sourceTag exts input = do
   let pragmaFingerprint =
         if null pragmas
           then ""
-          else "LANGUAGE " <> T.intercalate "," (map Ast.extensionSettingName pragmas) <> "\n"
+          else "LANGUAGE " <> T.intercalate "," (map Syntax.extensionSettingName pragmas) <> "\n"
   pure (pragmaFingerprint <> T.pack (showSDocUnsafe (ppr parsed)))
 
-parseWithGhcWithExtensions :: String -> [GHC.Extension] -> Text -> Either Text ([Ast.ExtensionSetting], HsModule GhcPs)
+parseWithGhcWithExtensions :: String -> [GHC.Extension] -> Text -> Either Text ([Syntax.ExtensionSetting], HsModule GhcPs)
 parseWithGhcWithExtensions sourceTag extraExts input =
   first fst (parseWithGhcWithExtensionsDetailed sourceTag extraExts input)
 
-parseWithGhcWithExtensionsDetailed :: String -> [GHC.Extension] -> Text -> Either (Text, EnumSet.EnumSet GHC.Extension) ([Ast.ExtensionSetting], HsModule GhcPs)
+parseWithGhcWithExtensionsDetailed :: String -> [GHC.Extension] -> Text -> Either (Text, EnumSet.EnumSet GHC.Extension) ([Syntax.ExtensionSetting], HsModule GhcPs)
 parseWithGhcWithExtensionsDetailed sourceTag extraExts input =
   let baseExts = nub extraExts
       baseExtSet = EnumSet.fromList baseExts :: EnumSet.EnumSet GHC.Extension
@@ -130,15 +130,15 @@ parseWithGhcWithExtensionsDetailed sourceTag extraExts input =
           Left err -> Left ("GHC parser exception: " <> err, parseExts)
           Right result -> result
 
-applyExtensionSetting :: EnumSet.EnumSet GHC.Extension -> Ast.ExtensionSetting -> EnumSet.EnumSet GHC.Extension
+applyExtensionSetting :: EnumSet.EnumSet GHC.Extension -> Syntax.ExtensionSetting -> EnumSet.EnumSet GHC.Extension
 applyExtensionSetting exts setting =
   case setting of
-    Ast.EnableExtension ext ->
+    Syntax.EnableExtension ext ->
       maybe exts (`EnumSet.insert` exts) (toGhcExtension ext)
-    Ast.DisableExtension ext ->
+    Syntax.DisableExtension ext ->
       maybe exts (`EnumSet.delete` exts) (toGhcExtension ext)
 
-extractLanguagePragmas :: String -> [GHC.Extension] -> Text -> Either Text [Ast.ExtensionSetting]
+extractLanguagePragmas :: String -> [GHC.Extension] -> Text -> Either Text [Syntax.ExtensionSetting]
 extractLanguagePragmas sourceTag baseExts input =
   let headerPragmas = moduleHeaderExtensionSettings input
       headerExts =
@@ -184,11 +184,11 @@ isIgnorableToken tok =
     ITblockComment {} -> True
     _ -> False
 
-optionToLanguagePragma :: GenLocated l String -> Maybe Ast.ExtensionSetting
+optionToLanguagePragma :: GenLocated l String -> Maybe Syntax.ExtensionSetting
 optionToLanguagePragma locatedOpt =
   let opt = T.pack (unLoc locatedOpt)
    in case T.stripPrefix "-X" opt of
-        Just pragmaName | not (T.null pragmaName) -> Ast.parseExtensionSettingName pragmaName
+        Just pragmaName | not (T.null pragmaName) -> Syntax.parseExtensionSettingName pragmaName
         _ -> Nothing
 
 applyImpliedExtensions :: EnumSet.EnumSet GHC.Extension -> EnumSet.EnumSet GHC.Extension
@@ -249,7 +249,7 @@ oracleDetailedParsesModuleWithNames = oracleDetailedParsesModuleWithNamesAt "ora
 
 oracleDetailedParsesModuleWithNamesAt :: String -> [String] -> Maybe String -> Text -> Either Text ()
 oracleDetailedParsesModuleWithNamesAt sourceTag extNames langName input =
-  let extSettings = mapMaybe (Ast.parseExtensionSettingName . T.pack) extNames
+  let extSettings = mapMaybe (Syntax.parseExtensionSettingName . T.pack) extNames
       langExts = maybe [] languageExtensions langName
       allExts = EnumSet.toList (List.foldl' applyExtensionSetting (EnumSet.fromList langExts) extSettings)
    in case parseWithGhcWithExtensionsDetailed sourceTag allExts input of
@@ -265,17 +265,17 @@ oracleModuleParseErrorWithNames = oracleModuleParseErrorWithNamesAt "oracle"
 
 oracleModuleParseErrorWithNamesAt :: String -> [String] -> Maybe String -> Text -> Either Text Text
 oracleModuleParseErrorWithNamesAt sourceTag extNames langName input =
-  let extSettings = mapMaybe (Ast.parseExtensionSettingName . T.pack) extNames
+  let extSettings = mapMaybe (Syntax.parseExtensionSettingName . T.pack) extNames
       langExts = maybe [] languageExtensions langName
       allExts = EnumSet.toList (List.foldl' applyExtensionSetting (EnumSet.fromList langExts) extSettings)
    in case parseWithGhcWithExtensionsDetailed sourceTag allExts input of
         Left (err, _parseExts) -> Right err
         Right _ -> Left "GHC parser accepted the input"
 
-toGhcExtension :: Ast.Extension -> Maybe GHC.Extension
+toGhcExtension :: Syntax.Extension -> Maybe GHC.Extension
 toGhcExtension ext =
   case ext of
-    Ast.NondecreasingIndentation ->
+    Syntax.NondecreasingIndentation ->
       lookupAny ["NondecreasingIndentation", "AlternativeLayoutRule", "AlternativeLayoutRuleTransitional", "RelaxedLayout"]
     _ ->
       lookupAny [toGhcExtensionName ext]
@@ -287,39 +287,39 @@ toGhcExtension ext =
         Just ghcExt -> Just ghcExt
         Nothing -> lookupAny names
 
-    toGhcExtensionName Ast.CPP = "Cpp"
-    toGhcExtensionName Ast.GeneralizedNewtypeDeriving = "GeneralisedNewtypeDeriving"
-    toGhcExtensionName Ast.SafeHaskell = "Safe"
-    toGhcExtensionName Ast.Trustworthy = "Trustworthy"
-    toGhcExtensionName Ast.UnsafeHaskell = "Unsafe"
-    toGhcExtensionName Ast.Rank2Types = "RankNTypes"
-    toGhcExtensionName Ast.PolymorphicComponents = "RankNTypes"
-    toGhcExtensionName other = T.unpack (Ast.extensionName other)
+    toGhcExtensionName Syntax.CPP = "Cpp"
+    toGhcExtensionName Syntax.GeneralizedNewtypeDeriving = "GeneralisedNewtypeDeriving"
+    toGhcExtensionName Syntax.SafeHaskell = "Safe"
+    toGhcExtensionName Syntax.Trustworthy = "Trustworthy"
+    toGhcExtensionName Syntax.UnsafeHaskell = "Unsafe"
+    toGhcExtensionName Syntax.Rank2Types = "RankNTypes"
+    toGhcExtensionName Syntax.PolymorphicComponents = "RankNTypes"
+    toGhcExtensionName other = T.unpack (Syntax.extensionName other)
 
-fromGhcExtension :: GHC.Extension -> Maybe Ast.Extension
-fromGhcExtension ghcExt = Ast.parseExtensionName (T.pack (show ghcExt))
+fromGhcExtension :: GHC.Extension -> Maybe Syntax.Extension
+fromGhcExtension ghcExt = Syntax.parseExtensionName (T.pack (show ghcExt))
 
 -- | Convert a list of extension names (from cabal files) to GHC extensions.
 -- Handles both positive (e.g., "UnicodeSyntax") and negative (e.g., "NoUnicodeSyntax") extension names.
 -- The language parameter can be used to include base language extensions (e.g., "Haskell2010").
 extensionNamesToGhcExtensions :: [String] -> Maybe String -> [GHC.Extension]
 extensionNamesToGhcExtensions extNames langName =
-  let extSettings = mapMaybe (Ast.parseExtensionSettingName . T.pack) extNames
+  let extSettings = mapMaybe (Syntax.parseExtensionSettingName . T.pack) extNames
       langExts = maybe [] languageExtensions langName
    in EnumSet.toList (List.foldl' applyExtensionSetting (EnumSet.fromList langExts) extSettings)
 
 -- | Convert a list of extension names (from cabal files) directly to AIHC parser extensions.
 -- This extracts enabled extensions from ExtensionSettings, applying enable/disable semantics.
-extensionNamesToParserExtensions :: [String] -> [Ast.Extension]
+extensionNamesToParserExtensions :: [String] -> [Syntax.Extension]
 extensionNamesToParserExtensions extNames =
-  let extSettings = mapMaybe (Ast.parseExtensionSettingName . T.pack) extNames
+  let extSettings = mapMaybe (Syntax.parseExtensionSettingName . T.pack) extNames
    in applyExtensionSettings extSettings []
   where
     applyExtensionSettings [] acc = acc
     applyExtensionSettings (setting : rest) acc =
       case setting of
-        Ast.EnableExtension ext -> applyExtensionSettings rest (ext : filter (/= ext) acc)
-        Ast.DisableExtension ext -> applyExtensionSettings rest (filter (/= ext) acc)
+        Syntax.EnableExtension ext -> applyExtensionSettings rest (ext : filter (/= ext) acc)
+        Syntax.DisableExtension ext -> applyExtensionSettings rest (filter (/= ext) acc)
 
 languageExtensions :: String -> [GHC.Extension]
 languageExtensions lang =

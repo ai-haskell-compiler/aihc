@@ -30,7 +30,7 @@ import Aihc.Parser.Lex
     lexTokens,
   )
 import Aihc.Parser.Syntax (ExtensionSetting (..), SourceSpan (..))
-import qualified Aihc.Parser.Syntax as Ast
+import qualified Aihc.Parser.Syntax as Syntax
 import Control.DeepSeq (NFData (..), force)
 import Control.Exception (SomeException, evaluate, try)
 import CppSupport (preprocessForParserWithoutIncludes)
@@ -187,7 +187,7 @@ genExtensionSettings = do
 
 genExtensionSetting :: Gen ExtensionSetting
 genExtensionSetting = do
-  extension <- elements Ast.allKnownExtensions
+  extension <- elements Syntax.allKnownExtensions
   oneof [pure (EnableExtension extension), pure (DisableExtension extension)]
 
 genTokenText :: Gen Text
