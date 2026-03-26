@@ -116,7 +116,26 @@
              overrides = final: prev: {
                ghc-lib-parser = pkgs.haskell.lib.dontHaddock final.ghc-lib-parser_9_14_1_20251220;
                # Disable tests by default - tests are run explicitly via the checks
-               aihc-parser = pkgs.haskell.lib.dontCheck (final.callCabal2nix "aihc-parser" (parserSrc pkgs) { });
+               aihc-parser = pkgs.haskell.lib.dontCheck (
+                 pkgs.haskell.lib.disableExecutableProfiling (
+                   pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-parser" (parserSrc pkgs) { })
+                 )
+               );
+               aihc-cpp = pkgs.haskell.lib.dontCheck (final.callCabal2nix "aihc-cpp" (cppSrc pkgs) { });
+             };
+           };
+        mkHsPkgsForChecks = pkgs:
+          pkgs.haskellPackages.override {
+             overrides = final: prev: {
+               ghc-lib-parser = pkgs.haskell.lib.dontHaddock final.ghc-lib-parser_9_14_1_20251220;
+               # Checks should compile quickly; keep profiling disabled and optimization off.
+               aihc-parser = pkgs.haskell.lib.dontCheck (
+                 pkgs.haskell.lib.disableOptimization (
+                   pkgs.haskell.lib.disableExecutableProfiling (
+                     pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-parser" (parserSrc pkgs) { })
+                   )
+                 )
+               );
                aihc-cpp = pkgs.haskell.lib.dontCheck (final.callCabal2nix "aihc-cpp" (cppSrc pkgs) { });
              };
            };
@@ -126,7 +145,35 @@
              overrides = final: prev: {
                ghc-lib-parser = pkgs.haskell.lib.dontHaddock final.ghc-lib-parser_9_14_1_20251220;
                aihc-parser = pkgs.haskell.lib.overrideCabal
-                 (final.callCabal2nix "aihc-parser" (parserSrc pkgs) { })
+                 (pkgs.haskell.lib.disableExecutableProfiling (
+                   pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-parser" (parserSrc pkgs) { })
+                 ))
+                 (old: {
+                   preCheck = (old.preCheck or "") + ''
+                     export AIHC_LEXER_EXE="$PWD/dist/build/aihc-lexer/aihc-lexer"
+                     export AIHC_PARSER_EXE="$PWD/dist/build/aihc-parser/aihc-parser"
+                   '';
+                   # Hide passing tests so failures are visible in Nix's truncated output
+                   testFlags = (old.testFlags or []) ++ ["--hide-successes"];
+                 });
+               aihc-cpp = pkgs.haskell.lib.overrideCabal
+                 (final.callCabal2nix "aihc-cpp" (cppSrc pkgs) { })
+                 (old: {
+                   # Hide passing tests so failures are visible in Nix's truncated output
+                   testFlags = (old.testFlags or []) ++ ["--hide-successes"];
+                 });
+             };
+           };
+        mkHsPkgsWithTestsForChecks = pkgs:
+          pkgs.haskellPackages.override {
+             overrides = final: prev: {
+               ghc-lib-parser = pkgs.haskell.lib.dontHaddock final.ghc-lib-parser_9_14_1_20251220;
+               aihc-parser = pkgs.haskell.lib.overrideCabal
+                 (pkgs.haskell.lib.disableOptimization (
+                   pkgs.haskell.lib.disableExecutableProfiling (
+                     pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-parser" (parserSrc pkgs) { })
+                   )
+                 ))
                  (old: {
                    preCheck = (old.preCheck or "") + ''
                      export AIHC_LEXER_EXE="$PWD/dist/build/aihc-lexer/aihc-lexer"
@@ -148,7 +195,29 @@
           pkgs.haskellPackages.override {
             overrides = final: prev: {
               ghc-lib-parser = pkgs.haskell.lib.dontHaddock final.ghc-lib-parser_9_14_1_20251220;
-              aihc-parser = pkgs.haskell.lib.dontCheck (pkgs.haskell.lib.doHaddock (final.callCabal2nix "aihc-parser" (parserSrc pkgs) { }));
+              aihc-parser = pkgs.haskell.lib.dontCheck (
+                pkgs.haskell.lib.doHaddock (
+                  pkgs.haskell.lib.disableExecutableProfiling (
+                    pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-parser" (parserSrc pkgs) { })
+                  )
+                )
+              );
+              aihc-cpp = pkgs.haskell.lib.dontCheck (pkgs.haskell.lib.doHaddock (final.callCabal2nix "aihc-cpp" (cppSrc pkgs) { }));
+            };
+          };
+        mkHsPkgsWithHaddockForChecks = pkgs:
+          pkgs.haskellPackages.override {
+            overrides = final: prev: {
+              ghc-lib-parser = pkgs.haskell.lib.dontHaddock final.ghc-lib-parser_9_14_1_20251220;
+              aihc-parser = pkgs.haskell.lib.dontCheck (
+                pkgs.haskell.lib.doHaddock (
+                  pkgs.haskell.lib.disableOptimization (
+                    pkgs.haskell.lib.disableExecutableProfiling (
+                      pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-parser" (parserSrc pkgs) { })
+                    )
+                  )
+                )
+              );
               aihc-cpp = pkgs.haskell.lib.dontCheck (pkgs.haskell.lib.doHaddock (final.callCabal2nix "aihc-cpp" (cppSrc pkgs) { }));
             };
           };
@@ -156,6 +225,33 @@
         mkCombinedDocs = pkgs:
           let
             hsPkgsHaddock = mkHsPkgsWithHaddock pkgs;
+            parserDoc = hsPkgsHaddock.aihc-parser.doc;
+            cppDoc = hsPkgsHaddock.aihc-cpp.doc;
+            # Use haddock from ghc package (bundled with GHC)
+            haddock = pkgs.haskellPackages.ghc;
+          in pkgs.runCommand "aihc-docs" {
+            nativeBuildInputs = [ haddock ];
+            inherit parserDoc cppDoc;
+          } ''
+            mkdir -p "$out"
+
+            # Copy individual package docs (discover html directory dynamically)
+            parserHtml=$(find "$parserDoc/share/doc" -type d -name html | head -1)
+            cppHtml=$(find "$cppDoc/share/doc" -type d -name html | head -1)
+            cp -r "$parserHtml" "$out/aihc-parser"
+            cp -r "$cppHtml" "$out/aihc-cpp"
+
+            # Generate combined index and contents
+            haddock \
+              --gen-index \
+              --gen-contents \
+              -o "$out" \
+              --read-interface=aihc-parser,"$out/aihc-parser/aihc-parser.haddock" \
+              --read-interface=aihc-cpp,"$out/aihc-cpp/aihc-cpp.haddock"
+          '';
+        mkCombinedDocsForChecks = pkgs:
+          let
+            hsPkgsHaddock = mkHsPkgsWithHaddockForChecks pkgs;
             parserDoc = hsPkgsHaddock.aihc-parser.doc;
             cppDoc = hsPkgsHaddock.aihc-cpp.doc;
             # Use haddock from ghc package (bundled with GHC)
@@ -237,7 +333,11 @@ WRAPPER
             overrides = final: prev: {
               ghc-lib-parser = pkgs.haskell.lib.dontHaddock final.ghc-lib-parser_9_14_1_20251220;
               # Parser needs test setup for CLI executables
-              aihc-parser = enableCoverageWithTests (final.callCabal2nix "aihc-parser" (parserSrc pkgs) { });
+              aihc-parser = enableCoverageWithTests (
+                pkgs.haskell.lib.disableExecutableProfiling (
+                  pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-parser" (parserSrc pkgs) { })
+                )
+              );
               # CPP doesn't need the CLI setup
               aihc-cpp = enableCoverageWithExport (final.callCabal2nix "aihc-cpp" (cppSrc pkgs) { });
             };
@@ -721,8 +821,8 @@ EOF
 
       checks = forAllSystems (pkgs:
         let
-          hsPkgs = mkHsPkgs pkgs;
-          hsPkgsWithTests = mkHsPkgsWithTests pkgs;
+          hsPkgs = mkHsPkgsForChecks pkgs;
+          hsPkgsWithTests = mkHsPkgsWithTestsForChecks pkgs;
           # Parser tests with CLI executables available from the local build
           parserTests = pkgs.haskell.lib.doCheck (pkgs.haskell.lib.dontHaddock hsPkgsWithTests.aihc-parser);
           cppTests = pkgs.haskell.lib.doCheck (pkgs.haskell.lib.dontHaddock hsPkgsWithTests.aihc-cpp);
@@ -814,7 +914,7 @@ EOF
             touch "$out"
           '';
           # Haddock documentation check - ensures docs build without errors
-          haddockDocs = mkCombinedDocs pkgs;
+          haddockDocs = mkCombinedDocsForChecks pkgs;
           # Doctest for aihc-cpp documentation examples
           cppDoctest = pkgs.runCommand "aihc-cpp-doctest" {
             src = cppSrc pkgs;
