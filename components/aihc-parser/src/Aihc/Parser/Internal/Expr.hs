@@ -12,15 +12,15 @@ module Aihc.Parser.Internal.Expr
   )
 where
 
-import Aihc.Lexer (LexToken (..), LexTokenKind (..), lexTokenKind, lexTokenSpan, lexTokenText)
-import Aihc.Parser.Ast
 import Aihc.Parser.Internal.Common
+import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokenKind, lexTokenSpan, lexTokenText)
+import Aihc.Parser.Syntax
 import Control.Monad (guard)
 import Data.Char (isLower, isUpper)
 import Data.Text (Text)
-import qualified Data.Text as T
+import Data.Text qualified as T
 import Text.Megaparsec (anySingle, lookAhead, (<|>))
-import qualified Text.Megaparsec as MP
+import Text.Megaparsec qualified as MP
 
 exprParser :: TokParser Expr
 exprParser = do

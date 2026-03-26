@@ -1,8 +1,13 @@
 {-# LANGUAGE DeriveAnyClass #-}
-{-# LANGUAGE DeriveDataTypeable #-}
-{-# LANGUAGE DeriveGeneric #-}
 
-module Aihc.Parser.Ast
+-- |
+--
+-- Module      : Aihc.Parser.Syntax
+-- Description : Abstract Syntax Tree
+-- License     : Unlicense
+--
+-- Abstract Syntax Tree (AST) covering Haskell2010 plus all language extensions.
+module Aihc.Parser.Syntax
   ( ArithSeq (..),
     BangType (..),
     BinderName,
@@ -76,7 +81,7 @@ import Control.Applicative ((<|>))
 import Control.DeepSeq (NFData)
 import Data.Data (Data)
 import Data.Text (Text)
-import qualified Data.Text as T
+import Data.Text qualified as T
 import GHC.Generics (Generic)
 import Text.Read (readMaybe)
 

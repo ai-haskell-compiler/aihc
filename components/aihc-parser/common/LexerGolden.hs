@@ -12,12 +12,12 @@ module LexerGolden
   )
 where
 
-import Aihc.Lexer
+import Aihc.Parser.Lex
   ( LexToken (..),
     LexTokenKind,
     lexTokensWithExtensions,
   )
-import Aihc.Parser.Ast (Extension, parseExtensionName)
+import Aihc.Parser.Syntax (Extension, parseExtensionName)
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withObject)
 import Data.Char (isSpace, toLower)

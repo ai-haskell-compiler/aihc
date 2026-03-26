@@ -2,9 +2,9 @@
 
 module Main (main) where
 
-import Aihc.Lexer (LexToken (..), LexTokenKind (..), lexTokens, lexTokensFromChunks, readModuleHeaderExtensions, readModuleHeaderExtensionsFromChunks)
 import Aihc.Parser
-import Aihc.Parser.Ast
+import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokens, lexTokensFromChunks, readModuleHeaderExtensions, readModuleHeaderExtensionsFromChunks)
+import Aihc.Parser.Syntax
 import Data.List (isInfixOf)
 import qualified Data.Text as T
 import Test.CLI.Suite (cliTests)

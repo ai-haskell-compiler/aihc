@@ -1,5 +1,5 @@
 {-# LANGUAGE DeriveAnyClass #-}
-{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE TypeFamilies #-}
 
 module Aihc.Parser.Types
@@ -11,16 +11,16 @@ module Aihc.Parser.Types
   )
 where
 
-import Aihc.Lexer (LexToken (..))
-import Aihc.Parser.Ast (Extension, SourceSpan (..))
+import Aihc.Parser.Lex (LexToken (..))
+import Aihc.Parser.Syntax (Extension, SourceSpan (..))
 import Control.DeepSeq (NFData (..))
-import qualified Data.List.NonEmpty as NE
-import qualified Data.Set as Set
-import qualified Data.Text as T
+import Data.List.NonEmpty qualified as NE
+import Data.Set qualified as Set
+import Data.Text qualified as T
 import Data.Void (Void)
 import GHC.Generics (Generic)
-import qualified Text.Megaparsec as MP
-import qualified Text.Megaparsec.Error as MPE
+import Text.Megaparsec qualified as MP
+import Text.Megaparsec.Error qualified as MPE
 import Text.Megaparsec.Pos (SourcePos (..), mkPos)
 import Text.Megaparsec.Stream (Stream (..), TraversableStream (..), VisualStream (..))
 
@@ -42,7 +42,8 @@ lexerErrorBundle sourcePath message =
 newtype TokStream = TokStream
   { unTokStream :: [LexToken]
   }
-  deriving (Eq, Ord, Show, Generic, NFData)
+  deriving (Eq, Ord, Show, Generic)
+  deriving newtype (NFData)
 
 instance Stream TokStream where
   type Token TokStream = LexToken

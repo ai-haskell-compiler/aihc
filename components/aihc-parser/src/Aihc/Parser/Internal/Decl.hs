@@ -8,17 +8,17 @@ module Aihc.Parser.Internal.Decl
   )
 where
 
-import Aihc.Lexer (LexTokenKind (..), lexTokenKind)
-import Aihc.Parser.Ast
 import Aihc.Parser.Internal.Common
 import Aihc.Parser.Internal.Expr (equationRhsParser, exprParser, patternParser, simplePatternParser, typeAppParser, typeAtomParser, typeParser)
+import Aihc.Parser.Lex (LexTokenKind (..), lexTokenKind)
+import Aihc.Parser.Syntax
 import Control.Monad (when)
 import Data.Char (isAsciiLower, isUpper)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
-import qualified Data.Text as T
+import Data.Text qualified as T
 import Text.Megaparsec (anySingle, lookAhead, (<|>))
-import qualified Text.Megaparsec as MP
+import Text.Megaparsec qualified as MP
 
 languagePragmaParser :: TokParser [ExtensionSetting]
 languagePragmaParser =

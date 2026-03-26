@@ -10,11 +10,11 @@ module Aihc.Parser.Internal.Module
   )
 where
 
-import Aihc.Lexer (LexTokenKind (..))
-import Aihc.Parser.Ast (Decl, ImportDecl, Module (..))
 import Aihc.Parser.Internal.Common (TokParser, expectedTok, skipSemicolons, withSpan)
 import Aihc.Parser.Internal.Decl (declParser, importDeclParser, languagePragmaParser, moduleHeaderParser)
-import qualified Text.Megaparsec as MP
+import Aihc.Parser.Lex (LexTokenKind (..))
+import Aihc.Parser.Syntax (Decl, ImportDecl, Module (..))
+import Text.Megaparsec qualified as MP
 
 moduleParser :: TokParser Module
 moduleParser = withSpan $ do

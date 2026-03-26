@@ -1,14 +1,9 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- \$setup
--- >>> import Aihc.Parser (parseModule)
---
--- >>> shorthand $ parseModule "module Demo where x = 1"
--- ParseOk (Module {name = "Demo", decls = [DeclValue (FunctionBind "x" [Match {rhs = UnguardedRhs (EInt 1)}])]})
-
 -- |
+--
 -- Module      : Aihc.Parser.Shorthand
--- Description : Compact pretty-printing of AST nodes for debugging
+-- Description : Compact pretty-printing for debugging/inspection
 --
 -- This module provides a compact, human-readable representation of parsed
 -- AST structures via the 'Shorthand' typeclass. Key features:
@@ -19,13 +14,16 @@
 -- * Uses the prettyprinter library for consistent formatting
 --
 -- Example:
+--
+-- >>> shorthand $ parseModule defaultConfig "module Demo where x = 1"
+-- ParseOk (Module {name = "Demo", decls = [DeclValue (FunctionBind "x" [Match {rhs = UnguardedRhs (EInt 1)}])]})
 module Aihc.Parser.Shorthand
   ( Shorthand (..),
   )
 where
 
-import Aihc.Lexer (LexToken (..), LexTokenKind (..))
-import Aihc.Parser.Ast
+import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..))
+import Aihc.Parser.Syntax
 import Aihc.Parser.Types (ParseResult (..))
 import Data.Text (Text)
 import Prettyprinter
@@ -40,6 +38,10 @@ import Prettyprinter
     punctuate,
     (<+>),
   )
+
+-- $setup
+-- >>> :set -XOverloadedStrings
+-- >>> import Aihc.Parser
 
 -- | Typeclass for compact, human-readable AST representations.
 --

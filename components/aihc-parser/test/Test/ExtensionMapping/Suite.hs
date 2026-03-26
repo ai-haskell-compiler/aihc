@@ -3,7 +3,7 @@ module Test.ExtensionMapping.Suite
   )
 where
 
-import qualified Aihc.Parser.Ast as Ast
+import qualified Aihc.Parser.Syntax as Syntax
 import Data.List (intercalate)
 import Data.Maybe (isNothing)
 import qualified Data.Text as T
@@ -38,14 +38,14 @@ test_templateHaskellExtensionCoverage = do
         ]
   assertNoMissing "Language.Haskell.TH.Syntax.Extension" missing
 
-toParserExtension :: (Show a) => a -> Maybe Ast.Extension
-toParserExtension = Ast.parseExtensionName . T.pack . show
+toParserExtension :: (Show a) => a -> Maybe Syntax.Extension
+toParserExtension = Syntax.parseExtensionName . T.pack . show
 
 assertNoMissing :: String -> [String] -> IO ()
 assertNoMissing _ [] = pure ()
 assertNoMissing source missing =
   assertFailure
     ( source
-        <> " constructors missing Parser.Ast mapping: "
+        <> " constructors missing Parser.Syntax mapping: "
         <> intercalate ", " missing
     )

@@ -7,7 +7,7 @@ module Test.Properties.ModuleRoundTrip
 where
 
 import Aihc.Parser
-import Aihc.Parser.Ast
+import Aihc.Parser.Syntax
 import Data.List (nub)
 import Data.Text (Text)
 import qualified Data.Text as T

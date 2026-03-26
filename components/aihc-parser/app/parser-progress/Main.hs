@@ -5,7 +5,7 @@ module Main (main) where
 import Aihc.Cpp (resultOutput)
 import Aihc.Parser (ParseResult (..))
 import qualified Aihc.Parser
-import Aihc.Parser.Ast (Module)
+import Aihc.Parser.Syntax (Module)
 import Control.Monad (filterM)
 import CppSupport (preprocessForParserWithoutIncludes)
 import Data.Text (Text)
