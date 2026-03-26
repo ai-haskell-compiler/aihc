@@ -3,7 +3,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 -- |
--- Module      : Aihc.Lexer
+-- Module      : Aihc.Parser.Lex
 -- Description : Lex Haskell source into span-annotated tokens with inline extension handling
 --
 -- This module performs the pre-parse tokenization step for Haskell source code.
@@ -50,7 +50,7 @@
 --
 -- In other words, use keyword tokens only for exact reserved lexemes; contextual
 -- validity is left to the parser.
-module Aihc.Lexer
+module Aihc.Parser.Lex
   ( LexToken (..),
     LexTokenKind (..),
     isReservedIdentifier,

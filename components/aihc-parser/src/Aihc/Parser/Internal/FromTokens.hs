@@ -24,11 +24,11 @@ module Aihc.Parser.Internal.FromTokens
 where
 
 import AIhc.Parser.Syntax (Decl, Expr, ImportDecl, Module, ModuleHead, Pattern, Type)
-import Aihc.Lexer (LexToken)
 import Aihc.Parser.Internal.Common (TokParser)
 import Aihc.Parser.Internal.Decl (declParser, importDeclParser, moduleHeaderParser)
 import Aihc.Parser.Internal.Expr (exprParser, patternParser, typeParser)
 import Aihc.Parser.Internal.Module (moduleParser)
+import Aihc.Parser.Lex (LexToken)
 import Aihc.Parser.Types
 import Text.Megaparsec (runParser)
 import qualified Text.Megaparsec as MP

@@ -31,7 +31,7 @@ module Aihc.Parser.Internal.Common
 where
 
 import AIhc.Parser.Syntax
-import Aihc.Lexer (LexToken (..), LexTokenKind (..))
+import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..))
 import Aihc.Parser.Types (TokStream)
 import Data.Char (isUpper)
 import Data.Text (Text)

@@ -3,7 +3,7 @@
 module Main (main) where
 
 import AIhc.Parser.Syntax (Extension, ExtensionSetting (..), parseExtensionSettingName)
-import Aihc.Lexer (lexTokensWithExtensions)
+import Aihc.Parser.Lex (lexTokensWithExtensions)
 import Aihc.Parser.Shorthand (Shorthand (..))
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO

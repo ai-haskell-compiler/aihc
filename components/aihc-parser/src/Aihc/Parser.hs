@@ -30,13 +30,13 @@ module Aihc.Parser
 where
 
 import AIhc.Parser.Syntax (Expr, Extension (..), ExtensionSetting (..), Module, Pattern, Type)
-import Aihc.Lexer
+import Aihc.Parser.Internal.Expr (exprParser, patternParser, typeParser)
+import Aihc.Parser.Internal.Module (moduleParser)
+import Aihc.Parser.Lex
   ( lexModuleTokensWithExtensions,
     lexTokensWithExtensions,
     readModuleHeaderExtensions,
   )
-import Aihc.Parser.Internal.Expr (exprParser, patternParser, typeParser)
-import Aihc.Parser.Internal.Module (moduleParser)
 import Aihc.Parser.Pretty ()
 import Aihc.Parser.Types
 import qualified Data.List as List

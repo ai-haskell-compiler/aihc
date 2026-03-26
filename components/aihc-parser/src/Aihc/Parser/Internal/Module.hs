@@ -11,9 +11,9 @@ module Aihc.Parser.Internal.Module
 where
 
 import AIhc.Parser.Syntax (Decl, ImportDecl, Module (..))
-import Aihc.Lexer (LexTokenKind (..))
 import Aihc.Parser.Internal.Common (TokParser, expectedTok, skipSemicolons, withSpan)
 import Aihc.Parser.Internal.Decl (declParser, importDeclParser, languagePragmaParser, moduleHeaderParser)
+import Aihc.Parser.Lex (LexTokenKind (..))
 import qualified Text.Megaparsec as MP
 
 moduleParser :: TokParser Module

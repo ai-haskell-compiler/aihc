@@ -13,7 +13,7 @@ library
   exposed-modules:
       Aihc.Parser
     , AIhc.Parser.Syntax
-    , Aihc.Lexer
+    , Aihc.Parser.Lex
     , Aihc.Parser.Shorthand
     , Aihc.Parser.Internal.FromTokens
   other-modules:

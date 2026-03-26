@@ -13,7 +13,7 @@ module LexerGolden
 where
 
 import AIhc.Parser.Syntax (Extension, parseExtensionName)
-import Aihc.Lexer
+import Aihc.Parser.Lex
   ( LexToken (..),
     LexTokenKind,
     lexTokensWithExtensions,

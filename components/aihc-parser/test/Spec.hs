@@ -3,8 +3,8 @@
 module Main (main) where
 
 import AIhc.Parser.Syntax
-import Aihc.Lexer (LexToken (..), LexTokenKind (..), lexTokens, lexTokensFromChunks, readModuleHeaderExtensions, readModuleHeaderExtensionsFromChunks)
 import Aihc.Parser
+import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokens, lexTokensFromChunks, readModuleHeaderExtensions, readModuleHeaderExtensionsFromChunks)
 import Data.List (isInfixOf)
 import qualified Data.Text as T
 import Test.CLI.Suite (cliTests)

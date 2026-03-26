@@ -16,12 +16,6 @@ where
 
 import AIhc.Parser.Syntax (ExtensionSetting (..), SourceSpan (..))
 import qualified AIhc.Parser.Syntax as Ast
-import Aihc.Lexer
-  ( LexToken (..),
-    LexTokenKind (..),
-    lexModuleTokens,
-    lexTokens,
-  )
 import Aihc.Parser.Internal.FromTokens
   ( parseDeclFromTokens,
     parseExprFromTokens,
@@ -30,6 +24,12 @@ import Aihc.Parser.Internal.FromTokens
     parseModuleHeaderFromTokens,
     parsePatternFromTokens,
     parseTypeFromTokens,
+  )
+import Aihc.Parser.Lex
+  ( LexToken (..),
+    LexTokenKind (..),
+    lexModuleTokens,
+    lexTokens,
   )
 import Control.DeepSeq (NFData (..), force)
 import Control.Exception (SomeException, evaluate, try)

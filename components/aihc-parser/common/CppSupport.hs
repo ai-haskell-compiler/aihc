@@ -23,7 +23,7 @@ import Aihc.Cpp
     includePath,
     preprocess,
   )
-import Aihc.Lexer (readModuleHeaderExtensions)
+import Aihc.Parser.Lex (readModuleHeaderExtensions)
 import Data.Char (isAsciiLower, isAsciiUpper, isDigit, toLower)
 import Data.Functor.Identity (Identity (..), runIdentity)
 import qualified Data.Map.Strict as M

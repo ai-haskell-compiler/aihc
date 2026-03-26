@@ -6,8 +6,8 @@ module Test.Properties.PatternRoundTrip
 where
 
 import AIhc.Parser.Syntax
-import Aihc.Lexer (isReservedIdentifier)
 import Aihc.Parser (ParseResult (..), defaultConfig, errorBundlePretty, parsePattern)
+import Aihc.Parser.Lex (isReservedIdentifier)
 import Data.Data (dataTypeConstrs, dataTypeOf, showConstr, toConstr)
 import qualified Data.Set as Set
 import Data.Text (Text)
