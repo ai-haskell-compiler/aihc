@@ -23,8 +23,8 @@
 | Component                      |       Code |      Tests |      Total |
 | :------------------------------ | ----------: | ----------: | ----------: |
 | aihc-cpp                       |        589 |        512 |       1101 |
-| aihc-parser                    |       6335 |      12452 |      18787 |
-| **Total**                      |       6924 |      12964 |      19888 |
+| aihc-parser                    |       6335 |      12455 |      18790 |
+| **Total**                      |       6924 |      12967 |      19891 |
 <!-- AUTO-GENERATED: END line-counts -->
 
 <!-- Both commands are broken atm
