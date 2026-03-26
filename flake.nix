@@ -103,11 +103,11 @@
               isInc = pkgs.lib.hasSuffix ".inc" baseName;
               isLicense = baseName == "LICENSE";
               isProject = baseName == "cabal.project";
-              isProjectFreeze = baseName == "cabal.project.freeze";
+              isWasmProjectFreeze = pkgs.lib.hasInfix "/scripts/nix/cabal.project.freeze" pathStr;
             in
               isDir
               || isProject
-              || isProjectFreeze
+              || isWasmProjectFreeze
               || (inComponents && (isHaskell || isCabal || isYaml || isTsv || isJson || isInc || isLicense));
         };
 
@@ -396,7 +396,7 @@ import: cabal.project
 packages:
   ./.wasm-offline-deps/*.tar.gz
 EOF
-              cp cabal.project.freeze cabal.project.offline.freeze
+              cp scripts/nix/cabal.project.freeze cabal.project.offline.freeze
 
               wasm32-wasi-cabal build \
                 --offline \
