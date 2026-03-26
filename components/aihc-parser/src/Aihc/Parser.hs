@@ -29,12 +29,12 @@ module Aihc.Parser
   )
 where
 
+import AIhc.Parser.Syntax (Expr, Extension (..), ExtensionSetting (..), Module, Pattern, Type)
 import Aihc.Lexer
   ( lexModuleTokensWithExtensions,
     lexTokensWithExtensions,
     readModuleHeaderExtensions,
   )
-import Aihc.Parser.Ast (Expr, Extension (..), ExtensionSetting (..), Module, Pattern, Type)
 import Aihc.Parser.Internal.Expr (exprParser, patternParser, typeParser)
 import Aihc.Parser.Internal.Module (moduleParser)
 import Aihc.Parser.Pretty ()
@@ -47,7 +47,7 @@ import qualified Text.Megaparsec as MP
 -- $setup
 -- >>> :set -XOverloadedStrings
 -- >>> import Aihc.Parser
--- >>> import Aihc.Parser.Ast (moduleName)
+-- >>> import AIhc.Parser.Syntax (moduleName)
 -- >>> import Aihc.Parser.Shorthand (Shorthand(..))
 
 -- | Default parser configuration.

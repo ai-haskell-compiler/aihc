@@ -3,7 +3,7 @@ module Test.ExtensionMapping.Suite
   )
 where
 
-import qualified Aihc.Parser.Ast as Ast
+import qualified AIhc.Parser.Syntax as Ast
 import Data.List (intercalate)
 import Data.Maybe (isNothing)
 import qualified Data.Text as T
@@ -46,6 +46,6 @@ assertNoMissing _ [] = pure ()
 assertNoMissing source missing =
   assertFailure
     ( source
-        <> " constructors missing Parser.Ast mapping: "
+        <> " constructors missing Parser.Syntax mapping: "
         <> intercalate ", " missing
     )

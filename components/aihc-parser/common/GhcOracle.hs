@@ -20,8 +20,8 @@ module GhcOracle
   )
 where
 
+import qualified AIhc.Parser.Syntax as Ast
 import Aihc.Cpp (resultOutput)
-import qualified Aihc.Parser.Ast as Ast
 import Control.Exception (catch, displayException, evaluate)
 import CppSupport (moduleHeaderExtensionSettings, preprocessForParserWithoutIncludes)
 import Data.Bifunctor (first)

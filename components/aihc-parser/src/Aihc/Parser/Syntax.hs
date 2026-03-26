@@ -4,12 +4,12 @@
 
 -- |
 --
--- Module      : Aihc.Parser.Ast
+-- Module      : AIhc.Parser.Syntax
 -- Description : Abstract Syntax Tree
 -- License     : Unlicense
 --
 -- Abstract Syntax Tree (AST) covering Haskell2010 plus all language extensions.
-module Aihc.Parser.Ast
+module AIhc.Parser.Syntax
   ( ArithSeq (..),
     BangType (..),
     BinderName,

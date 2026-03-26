@@ -14,14 +14,14 @@ module Test.Properties.NoExceptions
   )
 where
 
+import AIhc.Parser.Syntax (ExtensionSetting (..), SourceSpan (..))
+import qualified AIhc.Parser.Syntax as Ast
 import Aihc.Lexer
   ( LexToken (..),
     LexTokenKind (..),
     lexModuleTokens,
     lexTokens,
   )
-import Aihc.Parser.Ast (ExtensionSetting (..), SourceSpan (..))
-import qualified Aihc.Parser.Ast as Ast
 import Aihc.Parser.Internal.FromTokens
   ( parseDeclFromTokens,
     parseExprFromTokens,

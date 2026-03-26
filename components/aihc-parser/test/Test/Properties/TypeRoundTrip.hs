@@ -6,9 +6,9 @@ module Test.Properties.TypeRoundTrip
   )
 where
 
+import AIhc.Parser.Syntax
 import Aihc.Lexer (isReservedIdentifier)
 import Aihc.Parser
-import Aihc.Parser.Ast
 import Data.Data (dataTypeConstrs, dataTypeOf, showConstr, toConstr)
 import qualified Data.Set as Set
 import Data.Text (Text)

@@ -2,10 +2,10 @@
 
 module Main (main) where
 
+import AIhc.Parser.Syntax (Module)
 import Aihc.Cpp (resultOutput)
 import Aihc.Parser (ParseResult (..))
 import qualified Aihc.Parser
-import Aihc.Parser.Ast (Module)
 import Control.Monad (filterM)
 import CppSupport (preprocessForParserWithoutIncludes)
 import Data.Text (Text)

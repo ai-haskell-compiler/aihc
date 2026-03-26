@@ -21,7 +21,7 @@ module Aihc.Parser.Pretty
   )
 where
 
-import Aihc.Parser.Ast
+import AIhc.Parser.Syntax
 import Data.Maybe (catMaybes)
 import Data.Text (Text)
 import qualified Data.Text as T

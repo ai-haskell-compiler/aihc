@@ -12,8 +12,8 @@ module Aihc.Parser.Internal.Expr
   )
 where
 
+import AIhc.Parser.Syntax
 import Aihc.Lexer (LexToken (..), LexTokenKind (..), lexTokenKind, lexTokenSpan, lexTokenText)
-import Aihc.Parser.Ast
 import Aihc.Parser.Internal.Common
 import Control.Monad (guard)
 import Data.Char (isLower, isUpper)

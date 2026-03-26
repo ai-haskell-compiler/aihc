@@ -23,8 +23,8 @@ module Aihc.Parser.Internal.FromTokens
   )
 where
 
+import AIhc.Parser.Syntax (Decl, Expr, ImportDecl, Module, ModuleHead, Pattern, Type)
 import Aihc.Lexer (LexToken)
-import Aihc.Parser.Ast (Decl, Expr, ImportDecl, Module, ModuleHead, Pattern, Type)
 import Aihc.Parser.Internal.Common (TokParser)
 import Aihc.Parser.Internal.Decl (declParser, importDeclParser, moduleHeaderParser)
 import Aihc.Parser.Internal.Expr (exprParser, patternParser, typeParser)

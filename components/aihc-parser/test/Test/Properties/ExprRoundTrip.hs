@@ -6,8 +6,8 @@ module Test.Properties.ExprRoundTrip
   )
 where
 
+import AIhc.Parser.Syntax
 import Aihc.Parser
-import Aihc.Parser.Ast
 import qualified Data.Text as T
 import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.Text (renderStrict)

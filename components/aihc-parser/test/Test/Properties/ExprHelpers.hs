@@ -11,8 +11,8 @@ module Test.Properties.ExprHelpers
   )
 where
 
+import AIhc.Parser.Syntax
 import Aihc.Lexer (isReservedIdentifier)
-import Aihc.Parser.Ast
 import Data.Text (Text)
 import qualified Data.Text as T
 import Test.Properties.Identifiers (genIdent, shrinkIdent)

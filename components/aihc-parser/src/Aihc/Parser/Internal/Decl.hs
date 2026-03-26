@@ -8,8 +8,8 @@ module Aihc.Parser.Internal.Decl
   )
 where
 
+import AIhc.Parser.Syntax
 import Aihc.Lexer (LexTokenKind (..), lexTokenKind)
-import Aihc.Parser.Ast
 import Aihc.Parser.Internal.Common
 import Aihc.Parser.Internal.Expr (equationRhsParser, exprParser, patternParser, simplePatternParser, typeAppParser, typeAtomParser, typeParser)
 import Control.Monad (when)
