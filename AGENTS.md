@@ -44,6 +44,12 @@ aihc is developed test-first. Run the full suite with `nix flake check`. When wo
     - Manifest: `components/aihc-cpp/test/Test/Fixtures/progress/manifest.tsv`.
     - Oracle is `cpphs`; outputs are compared against `cpphs` behavior.
 
+## Gotchas
+
+- `nix flake check` builds from tracked Git sources. If a manifest references a newly created fixture file, run `git add <file>` before `nix flake check` or the suite may fail with "Manifest references missing case file".
+- In parser oracle suites, `pass` means both oracle acceptance and AST roundtrip-fingerprint equality. A case can parse successfully and still fail as `roundtrip mismatch against oracle AST`.
+- `xfail` rows in fixture `manifest.tsv` files require a reason column (5th TSV field).
+
 ## Pre-PR Review
 
 - Run `coderabbit review --prompt-only` after local checks pass (including `nix flake check`) and before `gh pr create`.
