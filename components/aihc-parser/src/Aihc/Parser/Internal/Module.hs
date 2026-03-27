@@ -35,15 +35,12 @@ moduleParser = withSpan $ do
 
 moduleBodyParser :: TokParser ([ImportDecl], [Decl])
 moduleBodyParser = do
-  hasBraces <- MP.optional (expectedTok TkSpecialLBrace)
+  expectedTok TkSpecialLBrace
   skipSemicolons
   imports <- importDeclsWithRecovery
   decls <- MP.many (declParser <* skipSemicolons)
-  case hasBraces of
-    Just _ -> do
-      skipSemicolons
-      expectedTok TkSpecialRBrace
-    Nothing -> pure ()
+  skipSemicolons
+  expectedTok TkSpecialRBrace
   pure (imports, decls)
 
 importDeclsWithRecovery :: TokParser [ImportDecl]
