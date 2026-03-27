@@ -1,3 +1,5 @@
 basic	expressions	basic.hs	pass	basic unboxed tuple
 pattern	patterns	pattern.hs	pass	unboxed tuple pattern
 type	types	type.hs	pass	unboxed tuple type
+multiline-implicit-layout	layout	multiline-implicit-layout.hs	pass	multiline unboxed tuples with implicit layout
+multiline-explicit-layout	layout	multiline-explicit-layout.hs	pass	multiline unboxed tuples with explicit layout
