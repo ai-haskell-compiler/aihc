@@ -1,0 +1,10 @@
+src: |
+  { import qualified; import qualified; x = 1 }
+ghc: |
+  test.hs:1:19: error: [GHC-58481] parse error on input `;'
+aihc: |
+  test.hs:1:19:
+  expecting imported module name
+
+  test.hs:1:37:
+  expecting imported module name
