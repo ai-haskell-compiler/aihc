@@ -1,0 +1,31 @@
+src: |
+  import
+  x = let
+ghc: |
+  test.hs:2:1: error: [GHC-58481]
+      parse error (possibly incorrect indentation or mismatched brackets)
+aihc: |
+  test.hs:2:1:
+  2 | x = let
+    | ^
+  unexpected ';'
+  expecting imported module name
+
+  test.hs:2:8:
+  2 | x = let
+    |        ^
+  bang pattern '!'
+  based integer literal
+  character literal
+  constructor identifier
+  floating literal
+  identifier
+  integer literal
+  irrefutable pattern '~'
+  keyword keyword
+  operator '"-"'
+  quasi quote
+  string literal
+  symbol '('
+  symbol '['
+  symbol '{'

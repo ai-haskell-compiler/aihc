@@ -1,0 +1,12 @@
+src: |
+  {-# LANGUAGE ImportQualifiedPost #-}
+  import qualified Prelude qualified
+ghc: |
+  test.hs:2:26: error: [GHC-05661]
+      Multiple occurrences of 'qualified'
+aihc: |
+  test.hs:2:26:
+  2 | import qualified Prelude qualified
+    |                          ^^^^^^^^^
+  unexpected 'qualified'
+  expecting import declaration without duplicate 'qualified'

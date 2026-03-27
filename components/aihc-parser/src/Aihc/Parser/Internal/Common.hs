@@ -17,6 +17,7 @@ module Aihc.Parser.Internal.Common
     withSpan,
     sourceSpanFromPositions,
     parens,
+    braces,
     skipSemicolons,
     bracedSemiSep,
     bracedSemiSep1,
@@ -201,24 +202,27 @@ parens parser = do
   expectedTok TkSpecialRParen
   pure res
 
+braces :: TokParser a -> TokParser a
+braces parser = do
+  expectedTok TkSpecialLBrace
+  res <- parser
+  expectedTok TkSpecialRBrace
+  pure res
+
 skipSemicolons :: TokParser ()
 skipSemicolons = MP.skipMany (expectedTok TkSpecialSemicolon)
 
 bracedSemiSep :: TokParser a -> TokParser [a]
-bracedSemiSep parser = do
-  expectedTok TkSpecialLBrace
-  skipSemicolons
-  items <- parser `MP.sepEndBy` expectedTok TkSpecialSemicolon
-  expectedTok TkSpecialRBrace
-  pure items
+bracedSemiSep parser =
+  braces $ do
+    skipSemicolons
+    parser `MP.sepEndBy` expectedTok TkSpecialSemicolon
 
 bracedSemiSep1 :: TokParser a -> TokParser [a]
-bracedSemiSep1 parser = do
-  expectedTok TkSpecialLBrace
-  skipSemicolons
-  items <- parser `MP.sepEndBy1` expectedTok TkSpecialSemicolon
-  expectedTok TkSpecialRBrace
-  pure items
+bracedSemiSep1 parser =
+  braces $ do
+    skipSemicolons
+    parser `MP.sepEndBy1` expectedTok TkSpecialSemicolon
 
 plainSemiSep1 :: TokParser a -> TokParser [a]
 plainSemiSep1 parser = MP.some (parser <* skipSemicolons)

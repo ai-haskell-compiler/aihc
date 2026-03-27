@@ -6,9 +6,11 @@ aihc: |
   test.hs:1:19:
   1 | { import qualified; import qualified; x = 1 }
     |                   ^
+  unexpected ';'
   expecting imported module name
 
   test.hs:1:37:
   1 | { import qualified; import qualified; x = 1 }
     |                                     ^
+  unexpected ';'
   expecting imported module name
