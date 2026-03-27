@@ -613,10 +613,25 @@ prettyClassDecl decl =
               <> maybeContextPrefix (classDeclContext decl)
               <> [pretty (classDeclName decl)]
               <> map prettyTyVarBinder (classDeclParams decl)
+              <> prettyClassFundeps (classDeclFundeps decl)
           )
    in case classDeclItems decl of
         [] -> headDoc
         items -> headDoc <+> "where" <+> braces (hsep (punctuate semi (map prettyClassItem items)))
+
+prettyClassFundeps :: [FunctionalDependency] -> [Doc ann]
+prettyClassFundeps deps =
+  case deps of
+    [] -> []
+    _ -> ["|", hsep (punctuate comma (map prettyFunctionalDependency deps))]
+
+prettyFunctionalDependency :: FunctionalDependency -> Doc ann
+prettyFunctionalDependency dep =
+  hsep
+    [ hsep (map pretty (functionalDependencyDeterminers dep)),
+      "->",
+      hsep (map pretty (functionalDependencyDetermined dep))
+    ]
 
 maybeContextPrefix :: Maybe [Constraint] -> [Doc ann]
 maybeContextPrefix maybeConstraints =

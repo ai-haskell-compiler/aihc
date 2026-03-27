@@ -17,6 +17,7 @@ module Aihc.Parser.Syntax
     ClassDeclItem (..),
     CompStmt (..),
     Constraint (..),
+    FunctionalDependency (..),
     DataConDecl (..),
     DataDecl (..),
     Decl (..),
@@ -740,12 +741,23 @@ data ClassDecl = ClassDecl
     classDeclContext :: Maybe [Constraint],
     classDeclName :: Text,
     classDeclParams :: [TyVarBinder],
+    classDeclFundeps :: [FunctionalDependency],
     classDeclItems :: [ClassDeclItem]
   }
   deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan ClassDecl where
   getSourceSpan = classDeclSpan
+
+data FunctionalDependency = FunctionalDependency
+  { functionalDependencySpan :: SourceSpan,
+    functionalDependencyDeterminers :: [Text],
+    functionalDependencyDetermined :: [Text]
+  }
+  deriving (Data, Eq, Show, Generic, NFData)
+
+instance HasSourceSpan FunctionalDependency where
+  getSourceSpan = functionalDependencySpan
 
 data ClassDeclItem
   = ClassItemTypeSig SourceSpan [BinderName] Type
