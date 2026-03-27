@@ -1,0 +1,5 @@
+extensions: [MagicHash]
+input: |
+  foo#bar
+ast: EApp (EVar "foo#") (EVar "bar")
+status: pass

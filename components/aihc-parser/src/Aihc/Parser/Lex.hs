@@ -778,10 +778,10 @@ lexIdentifier st =
   case lexerInput st of
     c : rest
       | isIdentStart c ->
-          let identTail = isIdentTailWithExtensions (lexerExtensions st)
-              (seg, rest0) = span identTail rest
+          let exts = lexerExtensions st
+              (seg, rest0) = consumeIdentTail exts rest
               firstChunk = c : seg
-              (consumed, rest1, isQualified) = gatherQualified identTail firstChunk rest0
+              (consumed, rest1, isQualified) = gatherQualified exts firstChunk rest0
            in -- Check if we have a qualified operator (e.g., Prelude.+)
               case (isQualified || isAsciiUpper c, rest1) of
                 (True, '.' : opChar : opRest)
@@ -805,13 +805,27 @@ lexIdentifier st =
     _ -> Nothing
   where
     -- Returns (consumed, remaining, isQualified)
-    gatherQualified identTail acc chars =
+    gatherQualified exts acc chars =
       case chars of
         '.' : c' : more
-          | isIdentStart c' ->
-              let (seg, rest) = span identTail more
-               in gatherQualified identTail (acc <> "." <> [c'] <> seg) rest
+          | isIdentStart c' && not (endsWithHash acc) ->
+              let (seg, rest) = consumeIdentTail exts more
+               in gatherQualified exts (acc <> "." <> [c'] <> seg) rest
         _ -> (acc, chars, '.' `elem` acc)
+
+    consumeIdentTail exts = go []
+      where
+        go acc chars =
+          case chars of
+            c' : more
+              | isIdentTail c' -> go (c' : acc) more
+              | c' == '#' && MagicHash `elem` exts -> (reverse ('#' : acc), more)
+            _ -> (reverse acc, chars)
+
+    endsWithHash s =
+      case reverse s of
+        '#' : _ -> True
+        _ -> False
 
     -- Check for symbol char that is not '.' to avoid consuming module path dots
     isSymbolicOpCharNotDot c = isSymbolicOpChar c && c /= '.'
@@ -1890,11 +1904,6 @@ isIdentStart c = isAsciiUpper c || isAsciiLower c || c == '_'
 
 isIdentTail :: Char -> Bool
 isIdentTail c = isAlphaNum c || c == '_' || c == '\''
-
-isIdentTailWithExtensions :: [Extension] -> Char -> Bool
-isIdentTailWithExtensions exts c
-  | c == '#' = MagicHash `elem` exts
-  | otherwise = isIdentTail c
 
 isSymbolicOpChar :: Char -> Bool
 isSymbolicOpChar c = c `elem` (":!#$%&*+./<=>?@\\^|-~" :: String) || isUnicodeSymbol c
