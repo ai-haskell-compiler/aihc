@@ -601,12 +601,16 @@ data TypePromotion
   | Promoted
   deriving (Data, Eq, Show, Generic, NFData)
 
-data Constraint = Constraint
-  { constraintSpan :: SourceSpan,
-    constraintClass :: Text,
-    constraintArgs :: [Type],
-    constraintParen :: Bool
-  }
+data Constraint
+  = Constraint
+      { constraintSpan :: SourceSpan,
+        constraintClass :: Text,
+        constraintArgs :: [Type]
+      }
+  | CParen
+      { constraintSpan :: SourceSpan,
+        constraintInner :: Constraint
+      }
   deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan Constraint where

@@ -747,9 +747,12 @@ normalizeType ty =
 
 normalizeConstraint :: Constraint -> Constraint
 normalizeConstraint c =
-  Constraint
-    { constraintSpan = span0,
-      constraintClass = constraintClass c,
-      constraintArgs = map normalizeType (constraintArgs c),
-      constraintParen = constraintParen c
-    }
+  case c of
+    Constraint _ cls args ->
+      Constraint
+        { constraintSpan = span0,
+          constraintClass = cls,
+          constraintArgs = map normalizeType args
+        }
+    CParen _ inner ->
+      CParen span0 (normalizeConstraint inner)

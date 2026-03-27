@@ -333,13 +333,11 @@ prettyContext constraints =
 
 prettyConstraint :: Constraint -> Doc ann
 prettyConstraint constraint =
-  let base =
-        if constraintClass constraint == "()" && null (constraintArgs constraint)
-          then "()"
-          else hsep (pretty (constraintClass constraint) : map (prettyTypeIn CtxTypeAtom) (constraintArgs constraint))
-   in if constraintParen constraint
-        then parens base
-        else base
+  case constraint of
+    Constraint _ cls args ->
+      hsep (pretty cls : map (prettyTypeIn CtxTypeAtom) args)
+    CParen _ inner ->
+      parens (prettyConstraint inner)
 
 isSymbolicTypeOperator :: Text -> Bool
 isSymbolicTypeOperator op =

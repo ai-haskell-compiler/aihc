@@ -16,7 +16,6 @@ module Aihc.Parser.Internal.Common
     stringTextParser,
     withSpan,
     sourceSpanFromPositions,
-    markSingleParenConstraint,
     parens,
     skipSemicolons,
     bracedSemiSep,
@@ -196,12 +195,6 @@ sourceSpanFromPositions start end =
       sourceSpanEndCol = MP.unPos (sourceColumn end)
     }
 
-markSingleParenConstraint :: [Constraint] -> [Constraint]
-markSingleParenConstraint constraints =
-  case constraints of
-    [constraint] -> [constraint {constraintParen = True}]
-    _ -> constraints
-
 parens :: TokParser a -> TokParser a
 parens parser = do
   expectedTok TkSpecialLParen
@@ -232,21 +225,32 @@ plainSemiSep1 :: TokParser a -> TokParser [a]
 plainSemiSep1 parser = MP.some (parser <* skipSemicolons)
 
 constraintParserWith :: TokParser Type -> TokParser Constraint
-constraintParserWith typeAtomParser = withSpan $ do
-  className <- constructorIdentifierParser
-  args <- MP.many typeAtomParser
-  pure $ \span' ->
-    Constraint
-      { constraintSpan = span',
-        constraintClass = className,
-        constraintArgs = args,
-        constraintParen = False
-      }
+constraintParserWith typeAtomParser =
+  MP.try parenthesizedConstraintParser <|> bareConstraintParser
+  where
+    bareConstraintParser = withSpan $ do
+      className <- constructorIdentifierParser
+      args <- MP.many typeAtomParser
+      pure $ \span' ->
+        Constraint
+          { constraintSpan = span',
+            constraintClass = className,
+            constraintArgs = args
+          }
+    parenthesizedConstraintParser = withSpan $ do
+      constraint <- parens (constraintParserWith typeAtomParser)
+      pure (`CParen` constraint)
 
 constraintsParserWith :: TokParser Type -> TokParser [Constraint]
 constraintsParserWith typeAtomParser =
-  MP.try (parens (markSingleParenConstraint <$> (constraintParserWith typeAtomParser `MP.sepEndBy` expectedTok TkSpecialComma)))
-    <|> fmap pure (constraintParserWith typeAtomParser)
+  MP.try parenthesizedConstraintsParser <|> fmap pure (constraintParserWith typeAtomParser)
+  where
+    parenthesizedConstraintsParser = withSpan $ do
+      constraints <- parens (constraintParserWith typeAtomParser `MP.sepEndBy` expectedTok TkSpecialComma)
+      pure $ \span' ->
+        case constraints of
+          [constraint] -> [CParen span' constraint]
+          _ -> constraints
 
 contextParserWith :: TokParser Type -> TokParser [Constraint]
 contextParserWith = constraintsParserWith
