@@ -5,5 +5,5 @@ input: |
   foo :: a -> a -> a
   foo = undefined
 ast: |
-  Module {name = "D9", decls = [DeclFixity {assoc = InfixL, prec = 5, ops = ["foo"]}, DeclTypeSig {names = ["foo"], type = TFun (TVar "a") (TFun (TVar "a") (TVar "a"))}, DeclValue (FunctionBind "foo" [Match {rhs = UnguardedRhs (EVar "undefined")}])]}
+  Module {name = "D9", decls = [DeclFixity {assoc = InfixL, prec = 5, ops = ["foo"]}, DeclTypeSig {names = ["foo"], type = TFun (TVar "a") (TFun (TVar "a") (TVar "a"))}, DeclValue (FunctionBind "foo" [Match {headForm = Prefix, rhs = UnguardedRhs (EVar "undefined")}])]}
 status: pass

@@ -44,6 +44,7 @@ module Aihc.Parser.Syntax
     InstanceDeclItem (..),
     Literal (..),
     Match (..),
+    MatchHeadForm (..),
     Module (..),
     ModuleHead (..),
     WarningText (..),
@@ -457,6 +458,7 @@ instance HasSourceSpan ValueDecl where
 
 data Match = Match
   { matchSpan :: SourceSpan,
+    matchHeadForm :: MatchHeadForm,
     matchPats :: [Pattern],
     matchRhs :: Rhs
   }
@@ -464,6 +466,11 @@ data Match = Match
 
 instance HasSourceSpan Match where
   getSourceSpan = matchSpan
+
+data MatchHeadForm
+  = MatchHeadPrefix
+  | MatchHeadInfix
+  deriving (Data, Eq, Show, Generic, NFData)
 
 data Rhs
   = UnguardedRhs SourceSpan Expr
@@ -610,12 +617,16 @@ data TypePromotion
   | Promoted
   deriving (Data, Eq, Show, Generic, NFData)
 
-data Constraint = Constraint
-  { constraintSpan :: SourceSpan,
-    constraintClass :: Text,
-    constraintArgs :: [Type],
-    constraintParen :: Bool
-  }
+data Constraint
+  = Constraint
+      { constraintSpan :: SourceSpan,
+        constraintClass :: Text,
+        constraintArgs :: [Type]
+      }
+  | CParen
+      { constraintSpan :: SourceSpan,
+        constraintInner :: Constraint
+      }
   deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan Constraint where

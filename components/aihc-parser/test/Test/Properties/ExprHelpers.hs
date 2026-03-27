@@ -4,6 +4,8 @@
 -- used by both ExprRoundTrip and ModuleRoundTrip tests.
 module Test.Properties.ExprHelpers
   ( genExpr,
+    genOperator,
+    isValidGeneratedOperator,
     mkIntExpr,
     shrinkExpr,
     normalizeExpr,
@@ -97,10 +99,16 @@ genCustomOperator = do
   -- Excluding ':' since that's for constructor operators
   chars <- vectorOf len (elements "!#$%&*+./<=>?\\^|-~")
   let candidate = T.pack chars
-  -- Avoid reserved operators and comment starters
-  if candidate `elem` ["..", "::", "=", "\\", "|", "<-", "->", "~", "=>", "--"]
-    then genCustomOperator
-    else pure candidate
+  -- Avoid reserved operators and symbols that lex as comments.
+  if isValidGeneratedOperator candidate
+    then pure candidate
+    else genCustomOperator
+
+isValidGeneratedOperator :: Text -> Bool
+isValidGeneratedOperator candidate =
+  let reserved = candidate `elem` ["..", "::", "=", "\\", "|", "<-", "->", "~", "=>", "--"]
+      dashOnly = T.length candidate >= 2 && T.all (== '-') candidate
+   in not reserved && not dashOnly
 
 -- | Generate a data constructor name
 genConName :: Gen Text
@@ -186,6 +194,7 @@ genValueDecls n = do
             name
             [ Match
                 { matchSpan = span0,
+                  matchHeadForm = MatchHeadPrefix,
                   matchPats = [],
                   matchRhs = UnguardedRhs span0 expr
                 }
@@ -705,6 +714,7 @@ normalizeMatch :: Match -> Match
 normalizeMatch m =
   Match
     { matchSpan = span0,
+      matchHeadForm = matchHeadForm m,
       matchPats = map normalizePattern (matchPats m),
       matchRhs = normalizeRhs (matchRhs m)
     }
@@ -752,9 +762,12 @@ normalizeType ty =
 
 normalizeConstraint :: Constraint -> Constraint
 normalizeConstraint c =
-  Constraint
-    { constraintSpan = span0,
-      constraintClass = constraintClass c,
-      constraintArgs = map normalizeType (constraintArgs c),
-      constraintParen = constraintParen c
-    }
+  case c of
+    Constraint _ cls args ->
+      Constraint
+        { constraintSpan = span0,
+          constraintClass = cls,
+          constraintArgs = map normalizeType args
+        }
+    CParen _ inner ->
+      CParen span0 (normalizeConstraint inner)

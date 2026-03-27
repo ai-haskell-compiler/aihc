@@ -63,7 +63,10 @@ typeCtorNames ty =
           here <> mconcat (map constraintTypeCtorNames constraints) <> typeCtorNames inner
 
 constraintTypeCtorNames :: Constraint -> Set.Set String
-constraintTypeCtorNames constraint = mconcat (map typeCtorNames (constraintArgs constraint))
+constraintTypeCtorNames constraint =
+  case constraint of
+    Constraint _ _ args -> mconcat (map typeCtorNames args)
+    CParen _ inner -> constraintTypeCtorNames inner
 
 instance Arbitrary Type where
   arbitrary = sized (genType . min 6)
@@ -149,9 +152,17 @@ shrinkConstraints = shrinkList shrinkConstraint
 
 shrinkConstraint :: Constraint -> [Constraint]
 shrinkConstraint constraint =
-  [ constraint {constraintArgs = shrunk}
-  | shrunk <- shrinkList shrinkType (constraintArgs constraint)
-  ]
+  case constraint of
+    Constraint _ cls args ->
+      [ Constraint
+          { constraintSpan = span0,
+            constraintClass = cls,
+            constraintArgs = shrunk
+          }
+      | shrunk <- shrinkList shrinkType args
+      ]
+    CParen _ inner ->
+      inner : [CParen span0 shrunk | shrunk <- shrinkConstraint inner]
 
 genType :: Int -> Gen Type
 genType depth
@@ -246,8 +257,7 @@ genConstraint depth = do
     Constraint
       { constraintSpan = span0,
         constraintClass = cls,
-        constraintArgs = args,
-        constraintParen = False
+        constraintArgs = args
       }
 
 genConstraintArg :: Int -> Gen Type
@@ -369,9 +379,12 @@ normalizeType ty =
 
 normalizeConstraint :: Constraint -> Constraint
 normalizeConstraint constraint =
-  Constraint
-    { constraintSpan = span0,
-      constraintClass = constraintClass constraint,
-      constraintArgs = map normalizeType (constraintArgs constraint),
-      constraintParen = False
-    }
+  case constraint of
+    Constraint _ cls args ->
+      Constraint
+        { constraintSpan = span0,
+          constraintClass = cls,
+          constraintArgs = map normalizeType args
+        }
+    CParen _ inner ->
+      CParen span0 (normalizeConstraint inner)

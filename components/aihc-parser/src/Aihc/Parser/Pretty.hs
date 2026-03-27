@@ -192,7 +192,7 @@ prettyFunctionMatchLines name match =
   case matchRhs match of
     UnguardedRhs _ _ -> [prettyFunctionMatch name match]
     GuardedRhss _ grhss ->
-      prettyFunctionHead name (matchPats match)
+      prettyFunctionHead name (matchHeadForm match) (matchPats match)
         : [ "  |"
               <+> hsep (punctuate comma (map prettyGuardQualifier (guardedRhsGuards grhs)))
               <+> "="
@@ -202,16 +202,22 @@ prettyFunctionMatchLines name match =
 
 prettyFunctionMatch :: Text -> Match -> Doc ann
 prettyFunctionMatch name match =
-  prettyFunctionHead name (matchPats match) <+> prettyRhs (matchRhs match)
+  prettyFunctionHead name (matchHeadForm match) (matchPats match) <+> prettyRhs (matchRhs match)
 
-prettyFunctionHead :: Text -> [Pattern] -> Doc ann
-prettyFunctionHead name pats =
-  case pats of
-    [lhs, rhsPat]
-      | isOperatorToken name ->
-          prettyPattern lhs <+> pretty name <+> prettyPattern rhsPat
-    _ ->
+prettyFunctionHead :: Text -> MatchHeadForm -> [Pattern] -> Doc ann
+prettyFunctionHead name headForm pats =
+  case headForm of
+    MatchHeadPrefix ->
       hsep (prettyFunctionBinder name : map prettyPattern pats)
+    MatchHeadInfix ->
+      case pats of
+        lhs : rhsPat : tailPats ->
+          let infixHead = prettyPattern lhs <+> prettyInfixOp name <+> prettyPattern rhsPat
+           in case tailPats of
+                [] -> infixHead
+                _ -> hsep (parens infixHead : map prettyPattern tailPats)
+        _ ->
+          hsep (prettyFunctionBinder name : map prettyPattern pats)
 
 prettyRhs :: Rhs -> Doc ann
 prettyRhs rhs =
@@ -327,13 +333,11 @@ prettyContext constraints =
 
 prettyConstraint :: Constraint -> Doc ann
 prettyConstraint constraint =
-  let base =
-        if constraintClass constraint == "()" && null (constraintArgs constraint)
-          then "()"
-          else hsep (pretty (constraintClass constraint) : map (prettyTypeIn CtxTypeAtom) (constraintArgs constraint))
-   in if constraintParen constraint
-        then parens base
-        else base
+  case constraint of
+    Constraint _ cls args ->
+      hsep (pretty cls : map (prettyTypeIn CtxTypeAtom) args)
+    CParen _ inner ->
+      parens (prettyConstraint inner)
 
 isSymbolicTypeOperator :: Text -> Bool
 isSymbolicTypeOperator op =

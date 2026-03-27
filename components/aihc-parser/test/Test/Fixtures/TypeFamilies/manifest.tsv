@@ -1,3 +1,17 @@
 basic	declarations	basic.hs	xfail	basic type family
 data-family	declarations	data-family.hs	xfail	data family
 closed-type-family	declarations	closed-type-family.hs	xfail	closed type family
+data-family-index	declarations	data-family-index.hs	xfail	data family with explicit kind
+data-instance	declarations	data-instance.hs	xfail	data instance
+data-instance-gadt	declarations	data-instance-gadt.hs	xfail	data instance with GADT syntax
+type-family-arity	declarations	type-family-arity.hs	xfail	type family with arity
+type-instance	declarations	type-instance.hs	xfail	type instance
+associated-type	declarations	associated-type.hs	xfail	associated type family
+associated-data	declarations	associated-data.hs	xfail	associated data family
+default-type-instance	declarations	default-type-instance.hs	xfail	default type instance
+explicit-forall	declarations	explicit-forall.hs	xfail	data instance with explicit forall
+newtype-instance	declarations	newtype-instance.hs	xfail	newtype instance
+polykinded-type-family	declarations	polykinded-type-family.hs	xfail	polykinded type family
+wildcards	declarations	wildcards.hs	xfail	wildcards in type instances
+multiple-associated-instances	declarations	multiple-associated-instances.hs	xfail	multiple associated instances
+closed-type-family-forall	declarations	closed-type-family-forall.hs	xfail	closed type family with forall

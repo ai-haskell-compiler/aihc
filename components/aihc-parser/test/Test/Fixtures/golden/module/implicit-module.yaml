@@ -2,5 +2,5 @@ extensions: []
 input: |
   x = 1
   y = x
-ast: Module {decls = [DeclValue (FunctionBind "x" [Match {rhs = UnguardedRhs (EInt 1)}]), DeclValue (FunctionBind "y" [Match {rhs = UnguardedRhs (EVar "x")}])]}
+ast: Module {decls = [DeclValue (FunctionBind "x" [Match {headForm = Prefix, rhs = UnguardedRhs (EInt 1)}]), DeclValue (FunctionBind "y" [Match {headForm = Prefix, rhs = UnguardedRhs (EVar "x")}])]}
 status: pass
