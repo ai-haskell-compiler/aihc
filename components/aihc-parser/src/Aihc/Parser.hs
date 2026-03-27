@@ -188,12 +188,14 @@ renderCustomError bundle err custom = do
     MissingModuleName mFound -> do
       srcLine <- getSourceLine source lineNo
       let markerLen = markerLength mFound
-          marker = replicate (max 1 (colNo - 1)) ' ' <> replicate markerLen '^'
+          marker = replicate (max 0 (colNo - 1)) ' ' <> replicate markerLen '^'
+          lineNoText = show lineNo
+          markerPrefix = replicate (length lineNoText) ' ' <> " | "
           unexpectedLine = maybe "unexpected end of input" renderUnexpectedToken mFound
       pure . unlines $
         [ location,
-          show lineNo <> " | " <> T.unpack srcLine,
-          "  | " <> marker,
+          lineNoText <> " | " <> T.unpack srcLine,
+          markerPrefix <> marker,
           unexpectedLine,
           "expecting module name"
         ]
