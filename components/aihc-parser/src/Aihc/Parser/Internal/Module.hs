@@ -34,21 +34,17 @@ moduleParser = withSpan $ do
       }
 
 moduleBodyParser :: TokParser ([ImportDecl], [Decl])
-moduleBodyParser = bracedModuleBodyParser MP.<|> plainModuleBodyParser
-  where
-    plainModuleBodyParser = do
-      imports <- importDeclsWithRecovery
-      decls <- MP.many (declParser <* skipSemicolons)
-      pure (imports, decls)
-
-    bracedModuleBodyParser = do
-      expectedTok TkSpecialLBrace
-      skipSemicolons
-      imports <- importDeclsWithRecovery
-      decls <- MP.many (declParser <* skipSemicolons)
+moduleBodyParser = do
+  hasBraces <- MP.optional (expectedTok TkSpecialLBrace)
+  skipSemicolons
+  imports <- importDeclsWithRecovery
+  decls <- MP.many (declParser <* skipSemicolons)
+  case hasBraces of
+    Just _ -> do
       skipSemicolons
       expectedTok TkSpecialRBrace
-      pure (imports, decls)
+    Nothing -> pure ()
+  pure (imports, decls)
 
 importDeclsWithRecovery :: TokParser [ImportDecl]
 importDeclsWithRecovery = catMaybes <$> go
@@ -59,7 +55,7 @@ importDeclsWithRecovery = catMaybes <$> go
       case mTok of
         Just tok
           | lexTokenKind tok == TkKeywordImport -> do
-              mImport <- MP.withRecovery recoverImportDecl (Just <$> importDeclParser)
+              mImport <- MP.withRecovery recoverImportDecl (MP.optional importDeclParser)
               skipSemicolons
               (mImport :) <$> go
         _ -> pure []
