@@ -390,8 +390,13 @@ docType ty =
     TForall _ binders inner -> "TForall" <+> brackets (hsep (punctuate comma (map docText binders))) <+> parens (docType inner)
     TApp _ f x -> "TApp" <+> parens (docType f) <+> parens (docType x)
     TFun _ a b -> "TFun" <+> parens (docType a) <+> parens (docType b)
-    TTuple _ promoted elems ->
-      (if promoted == Promoted then "TTuplePromoted" else "TTuple")
+    TTuple _ tupleFlavor promoted elems ->
+      ( case (tupleFlavor, promoted) of
+          (Boxed, Promoted) -> "TTuplePromoted"
+          (Boxed, Unpromoted) -> "TTuple"
+          (Unboxed, Promoted) -> "TTuplePromotedUnboxed"
+          (Unboxed, Unpromoted) -> "TTupleUnboxed"
+      )
         <+> brackets (hsep (punctuate comma (map docType elems)))
     TList _ promoted inner ->
       (if promoted == Promoted then "TListPromoted" else "TList")
@@ -432,7 +437,9 @@ docPattern pat =
     PWildcard _ -> "PWildcard"
     PLit _ lit -> "PLit" <+> parens (docLiteral lit)
     PQuasiQuote _ quoter body -> "PQuasiQuote" <+> docText quoter <+> docText body
-    PTuple _ elems -> "PTuple" <+> brackets (hsep (punctuate comma (map docPattern elems)))
+    PTuple _ tupleFlavor elems ->
+      (if tupleFlavor == Boxed then "PTuple" else "PTupleUnboxed")
+        <+> brackets (hsep (punctuate comma (map docPattern elems)))
     PList _ elems -> "PList" <+> brackets (hsep (punctuate comma (map docPattern elems)))
     PCon _ name args -> "PCon" <+> docText name <+> brackets (hsep (punctuate comma (map docPattern args)))
     PInfix _ lhs op rhs -> "PInfix" <+> parens (docPattern lhs) <+> docText op <+> parens (docPattern rhs)
@@ -448,10 +455,15 @@ docLiteral :: Literal -> Doc ann
 docLiteral lit =
   case lit of
     LitInt _ n _ -> "LitInt" <+> pretty n
+    LitIntHash _ n repr -> "LitIntHash" <+> pretty n <+> docText repr
     LitIntBase _ n repr -> "LitIntBase" <+> pretty n <+> docText repr
+    LitIntBaseHash _ n repr -> "LitIntBaseHash" <+> pretty n <+> docText repr
     LitFloat _ n _ -> "LitFloat" <+> pretty n
+    LitFloatHash _ n repr -> "LitFloatHash" <+> pretty n <+> docText repr
     LitChar _ c _ -> "LitChar" <+> pretty (show c)
+    LitCharHash _ c repr -> "LitCharHash" <+> pretty (show c) <+> docText repr
     LitString _ s _ -> "LitString" <+> docText s
+    LitStringHash _ s repr -> "LitStringHash" <+> docText s <+> docText repr
 
 -- Expressions
 
@@ -460,10 +472,15 @@ docExpr expr =
   case expr of
     EVar _ name -> "EVar" <+> docText name
     EInt _ n _ -> "EInt" <+> pretty n
+    EIntHash _ n repr -> "EIntHash" <+> pretty n <+> docText repr
     EIntBase _ n repr -> "EIntBase" <+> pretty n <+> docText repr
+    EIntBaseHash _ n repr -> "EIntBaseHash" <+> pretty n <+> docText repr
     EFloat _ n _ -> "EFloat" <+> pretty n
+    EFloatHash _ n repr -> "EFloatHash" <+> pretty n <+> docText repr
     EChar _ c _ -> "EChar" <+> pretty (show c)
+    ECharHash _ c repr -> "ECharHash" <+> pretty (show c) <+> docText repr
     EString _ s _ -> "EString" <+> docText s
+    EStringHash _ s repr -> "EStringHash" <+> docText s <+> docText repr
     EQuasiQuote _ quoter body -> "EQuasiQuote" <+> docText quoter <+> docText body
     EIf _ cond yes no -> "EIf" <+> parens (docExpr cond) <+> parens (docExpr yes) <+> parens (docExpr no)
     ELambdaPats _ pats body -> "ELambdaPats" <+> brackets (hsep (punctuate comma (map docPattern pats))) <+> parens (docExpr body)
@@ -484,9 +501,15 @@ docExpr expr =
     EParen _ inner -> "EParen" <+> parens (docExpr inner)
     EWhereDecls _ body decls -> "EWhereDecls" <+> parens (docExpr body) <+> brackets (hsep (punctuate comma (map docDecl decls)))
     EList _ elems -> "EList" <+> brackets (hsep (punctuate comma (map docExpr elems)))
-    ETuple _ elems -> "ETuple" <+> brackets (hsep (punctuate comma (map docExpr elems)))
-    ETupleSection _ elems -> "ETupleSection" <+> brackets (hsep (punctuate comma (map (maybe "_" docExpr) elems)))
-    ETupleCon _ arity -> "ETupleCon" <+> pretty arity
+    ETuple _ tupleFlavor elems ->
+      (if tupleFlavor == Boxed then "ETuple" else "ETupleUnboxed")
+        <+> brackets (hsep (punctuate comma (map docExpr elems)))
+    ETupleSection _ tupleFlavor elems ->
+      (if tupleFlavor == Boxed then "ETupleSection" else "ETupleSectionUnboxed")
+        <+> brackets (hsep (punctuate comma (map (maybe "_" docExpr) elems)))
+    ETupleCon _ tupleFlavor arity ->
+      (if tupleFlavor == Boxed then "ETupleCon" else "ETupleConUnboxed")
+        <+> pretty arity
     ETypeApp _ inner ty -> "ETypeApp" <+> parens (docExpr inner) <+> parens (docType ty)
     EApp _ f x -> "EApp" <+> parens (docExpr f) <+> parens (docExpr x)
 
@@ -571,12 +594,19 @@ docTokenKind kind =
     TkQVarSym name -> "TkQVarSym" <+> docText name
     TkQConSym name -> "TkQConSym" <+> docText name
     TkInteger n -> "TkInteger" <+> pretty n
+    TkIntegerHash n repr -> "TkIntegerHash" <+> pretty n <+> docText repr
     TkIntegerBase n repr -> "TkIntegerBase" <+> pretty n <+> docText repr
+    TkIntegerBaseHash n repr -> "TkIntegerBaseHash" <+> pretty n <+> docText repr
     TkFloat n repr -> "TkFloat" <+> pretty n <+> docText repr
+    TkFloatHash n repr -> "TkFloatHash" <+> pretty n <+> docText repr
     TkChar c -> "TkChar" <+> pretty (show c)
+    TkCharHash c repr -> "TkCharHash" <+> pretty (show c) <+> docText repr
     TkString s -> "TkString" <+> docText s
+    TkStringHash s repr -> "TkStringHash" <+> docText s <+> docText repr
     TkSpecialLParen -> "TkSpecialLParen"
     TkSpecialRParen -> "TkSpecialRParen"
+    TkSpecialUnboxedLParen -> "TkSpecialUnboxedLParen"
+    TkSpecialUnboxedRParen -> "TkSpecialUnboxedRParen"
     TkSpecialComma -> "TkSpecialComma"
     TkSpecialSemicolon -> "TkSpecialSemicolon"
     TkSpecialLBracket -> "TkSpecialLBracket"

@@ -1,0 +1,8 @@
+extensions: [MagicHash]
+input: |
+  {-# LANGUAGE MagicHash #-}
+  module MagicHashBasic where
+  x# :: Int#
+  x# = 42#
+ast: Module {name = "MagicHashBasic", languagePragmas = [EnableExtension MagicHash], decls = [DeclTypeSig {names = ["x#"], type = TCon "Int#"}, DeclValue (FunctionBind "x#" [Match {rhs = UnguardedRhs (EIntHash 42 "42#")}]) ]}
+status: pass

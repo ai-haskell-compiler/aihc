@@ -55,6 +55,7 @@ module Aihc.Parser.Syntax
     SourceSpan (..),
     StandaloneDerivingDecl (..),
     Type (..),
+    TupleFlavor (..),
     TypeLiteral (..),
     TypePromotion (..),
     TyVarBinder (..),
@@ -500,27 +501,42 @@ instance HasSourceSpan GuardQualifier where
 
 data Literal
   = LitInt SourceSpan Integer Text
+  | LitIntHash SourceSpan Integer Text
   | LitIntBase SourceSpan Integer Text
+  | LitIntBaseHash SourceSpan Integer Text
   | LitFloat SourceSpan Double Text
+  | LitFloatHash SourceSpan Double Text
   | LitChar SourceSpan Char Text
+  | LitCharHash SourceSpan Char Text
   | LitString SourceSpan Text Text
+  | LitStringHash SourceSpan Text Text
   deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan Literal where
   getSourceSpan literal =
     case literal of
       LitInt span' _ _ -> span'
+      LitIntHash span' _ _ -> span'
       LitIntBase span' _ _ -> span'
+      LitIntBaseHash span' _ _ -> span'
       LitFloat span' _ _ -> span'
+      LitFloatHash span' _ _ -> span'
       LitChar span' _ _ -> span'
+      LitCharHash span' _ _ -> span'
       LitString span' _ _ -> span'
+      LitStringHash span' _ _ -> span'
+
+data TupleFlavor
+  = Boxed
+  | Unboxed
+  deriving (Data, Eq, Show, Generic, NFData)
 
 data Pattern
   = PVar SourceSpan Text
   | PWildcard SourceSpan
   | PLit SourceSpan Literal
   | PQuasiQuote SourceSpan Text Text
-  | PTuple SourceSpan [Pattern]
+  | PTuple SourceSpan TupleFlavor [Pattern]
   | PList SourceSpan [Pattern]
   | PCon SourceSpan Text [Pattern]
   | PInfix SourceSpan Pattern Text Pattern
@@ -540,7 +556,7 @@ instance HasSourceSpan Pattern where
       PWildcard span' -> span'
       PLit span' _ -> span'
       PQuasiQuote span' _ _ -> span'
-      PTuple span' _ -> span'
+      PTuple span' _ _ -> span'
       PList span' _ -> span'
       PCon span' _ _ -> span'
       PInfix span' _ _ _ -> span'
@@ -561,7 +577,7 @@ data Type
   | TForall SourceSpan [Text] Type
   | TApp SourceSpan Type Type
   | TFun SourceSpan Type Type
-  | TTuple SourceSpan TypePromotion [Type]
+  | TTuple SourceSpan TupleFlavor TypePromotion [Type]
   | TList SourceSpan TypePromotion Type
   | TParen SourceSpan Type
   | TContext SourceSpan [Constraint] Type
@@ -578,7 +594,7 @@ instance HasSourceSpan Type where
       TForall span' _ _ -> span'
       TApp span' _ _ -> span'
       TFun span' _ _ -> span'
-      TTuple span' _ _ -> span'
+      TTuple span' _ _ _ -> span'
       TList span' _ _ -> span'
       TParen span' _ -> span'
       TContext span' _ _ -> span'
@@ -825,10 +841,15 @@ data ForeignSafety
 data Expr
   = EVar SourceSpan Text
   | EInt SourceSpan Integer Text
+  | EIntHash SourceSpan Integer Text
   | EIntBase SourceSpan Integer Text
+  | EIntBaseHash SourceSpan Integer Text
   | EFloat SourceSpan Double Text
+  | EFloatHash SourceSpan Double Text
   | EChar SourceSpan Char Text
+  | ECharHash SourceSpan Char Text
   | EString SourceSpan Text Text
+  | EStringHash SourceSpan Text Text
   | EQuasiQuote SourceSpan Text Text
   | EIf SourceSpan Expr Expr Expr
   | ELambdaPats SourceSpan [Pattern] Expr
@@ -849,9 +870,9 @@ data Expr
   | EParen SourceSpan Expr
   | EWhereDecls SourceSpan Expr [Decl]
   | EList SourceSpan [Expr]
-  | ETuple SourceSpan [Expr]
-  | ETupleSection SourceSpan [Maybe Expr]
-  | ETupleCon SourceSpan Int
+  | ETuple SourceSpan TupleFlavor [Expr]
+  | ETupleSection SourceSpan TupleFlavor [Maybe Expr]
+  | ETupleCon SourceSpan TupleFlavor Int
   | ETypeApp SourceSpan Expr Type
   | EApp SourceSpan Expr Expr
   deriving (Data, Eq, Show, Generic, NFData)
@@ -861,10 +882,15 @@ instance HasSourceSpan Expr where
     case expr of
       EVar span' _ -> span'
       EInt span' _ _ -> span'
+      EIntHash span' _ _ -> span'
       EIntBase span' _ _ -> span'
+      EIntBaseHash span' _ _ -> span'
       EFloat span' _ _ -> span'
+      EFloatHash span' _ _ -> span'
       EChar span' _ _ -> span'
+      ECharHash span' _ _ -> span'
       EString span' _ _ -> span'
+      EStringHash span' _ _ -> span'
       EQuasiQuote span' _ _ -> span'
       EIf span' _ _ _ -> span'
       ELambdaPats span' _ _ -> span'
@@ -885,9 +911,9 @@ instance HasSourceSpan Expr where
       EParen span' _ -> span'
       EWhereDecls span' _ _ -> span'
       EList span' _ -> span'
-      ETuple span' _ -> span'
-      ETupleSection span' _ -> span'
-      ETupleCon span' _ -> span'
+      ETuple span' _ _ -> span'
+      ETupleSection span' _ _ -> span'
+      ETupleCon span' _ _ -> span'
       ETypeApp span' _ _ -> span'
       EApp span' _ _ -> span'
 

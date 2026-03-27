@@ -1,0 +1,5 @@
+extensions: [UnboxedTuples]
+input: |
+  (#,,#)
+ast: ETupleSectionUnboxed [_, _, _]
+status: pass

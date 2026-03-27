@@ -1,0 +1,10 @@
+extensions: [UnboxedTuples]
+input: |
+  {-# LANGUAGE UnboxedTuples #-}
+  module UnboxedTuplesBasic where
+  x = (# 1, 2 #)
+  f (# a, b #) = a
+  h :: (# Int, Int #) -> (# Int, Int #)
+  h t = t
+ast: Module {name = "UnboxedTuplesBasic", languagePragmas = [EnableExtension UnboxedTuples], decls = [DeclValue (FunctionBind "x" [Match {rhs = UnguardedRhs (ETupleUnboxed [EInt 1, EInt 2])}]), DeclValue (FunctionBind "f" [Match {pats = [PTupleUnboxed [PVar "a", PVar "b"]], rhs = UnguardedRhs (EVar "a")}]), DeclTypeSig {names = ["h"], type = TFun (TTupleUnboxed [TCon "Int", TCon "Int"]) (TTupleUnboxed [TCon "Int", TCon "Int"])}, DeclValue (FunctionBind "h" [Match {pats = [PVar "t"], rhs = UnguardedRhs (EVar "t")}]) ]}
+status: pass

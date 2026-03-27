@@ -52,8 +52,8 @@ genExprSized n
           EListComp span0 <$> genExprSized half <*> genCompStmts half,
           EListCompParallel span0 <$> genExprSized half <*> genParallelCompStmts half,
           EList span0 <$> genListElems (n - 1),
-          ETuple span0 <$> genTupleElems (n - 1),
-          ETupleSection span0 <$> genTupleSectionElems (n - 1),
+          ETuple span0 Boxed <$> genTupleElems (n - 1),
+          ETupleSection span0 Boxed <$> genTupleSectionElems (n - 1),
           EArithSeq span0 <$> genArithSeq (n - 1),
           ERecordCon span0 <$> genConName <*> genRecordFields (n - 1),
           ERecordUpd span0 <$> genExprSized half <*> genRecordFields half,
@@ -76,8 +76,8 @@ genExprLeaf =
       mkStringExpr <$> genStringValue,
       -- Note: EQuasiQuote requires QuasiQuotes extension, skip for now
       pure (EList span0 []),
-      pure (ETuple span0 []),
-      ETupleCon span0 <$> chooseInt (2, 5)
+      pure (ETuple span0 Boxed []),
+      ETupleCon span0 Boxed <$> chooseInt (2, 5)
     ]
 
 -- | Generate an operator symbol
@@ -123,7 +123,7 @@ genPattern n
   | otherwise =
       oneof
         [ genPatternLeaf,
-          PTuple span0 <$> genPatternTupleElems half,
+          PTuple span0 Boxed <$> genPatternTupleElems half,
           PList span0 <$> genPatternListElems half
         ]
   where
@@ -311,7 +311,7 @@ genType n
           TApp span0 <$> genType half <*> genType half,
           TFun span0 <$> genType half <*> genType half,
           TList span0 Unpromoted <$> genType (n - 1),
-          TTuple span0 Unpromoted <$> genTypeTupleElems (n - 1),
+          TTuple span0 Boxed Unpromoted <$> genTypeTupleElems (n - 1),
           TParen span0 <$> genType (n - 1)
         ]
   where
@@ -388,10 +388,15 @@ shrinkExpr expr =
   case expr of
     EVar _ name -> [EVar span0 shrunk | shrunk <- shrinkIdent name]
     EInt _ value _ -> [mkIntExpr shrunk | shrunk <- shrinkIntegral value]
+    EIntHash _ value _ -> [EIntHash span0 shrunk (T.pack (show shrunk) <> "#") | shrunk <- shrinkIntegral value]
     EIntBase _ value _ -> [mkIntExpr shrunk | shrunk <- shrinkIntegral value]
+    EIntBaseHash _ value _ -> [EIntBaseHash span0 shrunk ("0x" <> T.pack (showHex shrunk) <> "#") | shrunk <- shrinkIntegral value]
     EFloat _ value _ -> [mkFloatExpr shrunk | shrunk <- shrinkFloat value]
+    EFloatHash _ value _ -> [EFloatHash span0 shrunk (T.pack (show shrunk) <> "#") | shrunk <- shrinkFloat value]
     EChar {} -> []
+    ECharHash {} -> []
     EString _ value _ -> [mkStringExpr (T.pack shrunk) | shrunk <- shrink (T.unpack value)]
+    EStringHash _ value _ -> [EStringHash span0 (T.pack shrunk) (T.pack (show shrunk) <> "#") | shrunk <- shrink (T.unpack value)]
     EQuasiQuote _ quoter body ->
       [EQuasiQuote span0 quoter (T.pack shrunk) | shrunk <- shrink (T.unpack body)]
     EApp _ fn arg ->
@@ -439,11 +444,11 @@ shrinkExpr expr =
           <> [EListCompParallel span0 body stmtss' | stmtss' <- shrinkParallelCompStmts stmtss, length stmtss' >= 2]
     EList _ elems ->
       [EList span0 elems' | elems' <- shrinkList shrinkExpr elems]
-    ETuple _ elems ->
-      [ETuple span0 elems' | elems' <- shrinkTupleElems shrinkExpr elems]
-    ETupleSection _ elems ->
-      [ETupleSection span0 elems' | elems' <- shrinkTupleSectionElems elems]
-    ETupleCon _ n -> [ETupleCon span0 n' | n' <- shrink n, n' >= 2]
+    ETuple _ tupleFlavor elems ->
+      [ETuple span0 tupleFlavor elems' | elems' <- shrinkTupleElems shrinkExpr elems]
+    ETupleSection _ tupleFlavor elems ->
+      [ETupleSection span0 tupleFlavor elems' | elems' <- shrinkTupleSectionElems elems]
+    ETupleCon _ tupleFlavor n -> [ETupleCon span0 tupleFlavor n' | n' <- shrink n, n' >= 2]
     EArithSeq _ seq' ->
       [EArithSeq span0 seq'' | seq'' <- shrinkArithSeq seq']
     ERecordCon _ con fields ->
@@ -582,10 +587,15 @@ normalizeExpr expr =
   case expr of
     EVar _ name -> EVar span0 name
     EInt _ value _ -> mkIntExpr value
+    EIntHash _ value repr -> EIntHash span0 value repr
     EIntBase _ value repr -> EIntBase span0 value repr
+    EIntBaseHash _ value repr -> EIntBaseHash span0 value repr
     EFloat _ value repr -> EFloat span0 value repr
+    EFloatHash _ value repr -> EFloatHash span0 value repr
     EChar _ value repr -> EChar span0 value repr
+    ECharHash _ value repr -> ECharHash span0 value repr
     EString _ value repr -> EString span0 value repr
+    EStringHash _ value repr -> EStringHash span0 value repr
     EQuasiQuote _ quoter body -> EQuasiQuote span0 quoter body
     EApp _ fn arg -> EApp span0 (normalizeExpr fn) (normalizeExpr arg)
     EInfix _ lhs op rhs -> EInfix span0 (normalizeExpr lhs) op (normalizeExpr rhs)
@@ -602,13 +612,13 @@ normalizeExpr expr =
     EListComp _ body stmts -> EListComp span0 (normalizeExpr body) (map normalizeCompStmt stmts)
     EListCompParallel _ body stmtss -> EListCompParallel span0 (normalizeExpr body) (map (map normalizeCompStmt) stmtss)
     EList _ elems -> EList span0 (map normalizeExpr elems)
-    ETuple _ elems -> ETuple span0 (map normalizeExpr elems)
+    ETuple _ tupleFlavor elems -> ETuple span0 tupleFlavor (map normalizeExpr elems)
     -- When a tuple section has all holes, it becomes a tuple constructor
-    ETupleSection _ elems
-      | all (== Nothing) elems -> ETupleSection span0 elems
-      | otherwise -> ETupleSection span0 (map (fmap normalizeExpr) elems)
+    ETupleSection _ tupleFlavor elems
+      | all (== Nothing) elems -> ETupleSection span0 tupleFlavor elems
+      | otherwise -> ETupleSection span0 tupleFlavor (map (fmap normalizeExpr) elems)
     -- A tuple constructor is equivalent to a tuple section with all holes
-    ETupleCon _ n -> ETupleSection span0 (replicate n Nothing)
+    ETupleCon _ tupleFlavor n -> ETupleSection span0 tupleFlavor (replicate n Nothing)
     EArithSeq _ seq' -> EArithSeq span0 (normalizeArithSeq seq')
     ERecordCon _ con fields -> ERecordCon span0 con [(name, normalizeExpr e) | (name, e) <- fields]
     ERecordUpd _ target fields -> ERecordUpd span0 (normalizeExpr target) [(name, normalizeExpr e) | (name, e) <- fields]
@@ -652,7 +662,7 @@ normalizePattern pat =
     PWildcard _ -> PWildcard span0
     PLit _ lit -> PLit span0 (normalizeLiteral lit)
     PQuasiQuote _ quoter body -> PQuasiQuote span0 quoter body
-    PTuple _ elems -> PTuple span0 (map normalizePattern elems)
+    PTuple _ tupleFlavor elems -> PTuple span0 tupleFlavor (map normalizePattern elems)
     PList _ elems -> PList span0 (map normalizePattern elems)
     PCon _ con args -> PCon span0 con (map normalizePattern args)
     PInfix _ lhs op rhs -> PInfix span0 (normalizePattern lhs) op (normalizePattern rhs)
@@ -668,10 +678,15 @@ normalizeLiteral :: Literal -> Literal
 normalizeLiteral lit =
   case lit of
     LitInt _ value repr -> LitInt span0 value repr
+    LitIntHash _ value repr -> LitIntHash span0 value repr
     LitIntBase _ value repr -> LitIntBase span0 value repr
+    LitIntBaseHash _ value repr -> LitIntBaseHash span0 value repr
     LitFloat _ value repr -> LitFloat span0 value repr
+    LitFloatHash _ value repr -> LitFloatHash span0 value repr
     LitChar _ value repr -> LitChar span0 value repr
+    LitCharHash _ value repr -> LitCharHash span0 value repr
     LitString _ value repr -> LitString span0 value repr
+    LitStringHash _ value repr -> LitStringHash span0 value repr
 
 normalizeDecl :: Decl -> Decl
 normalizeDecl decl =
@@ -729,7 +744,7 @@ normalizeType ty =
     TForall _ binders inner -> TForall span0 binders (normalizeType inner)
     TApp _ fn arg -> TApp span0 (normalizeType fn) (normalizeType arg)
     TFun _ lhs rhs -> TFun span0 (normalizeType lhs) (normalizeType rhs)
-    TTuple _ promoted elems -> TTuple span0 promoted (map normalizeType elems)
+    TTuple _ tupleFlavor promoted elems -> TTuple span0 tupleFlavor promoted (map normalizeType elems)
     TList _ promoted inner -> TList span0 promoted (normalizeType inner)
     -- Remove redundant parentheses from types
     TParen _ inner -> normalizeType inner
