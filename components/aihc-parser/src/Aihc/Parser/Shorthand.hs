@@ -299,7 +299,16 @@ docClassDecl cd =
       [field "name" (docText (classDeclName cd))]
         <> optionalField "context" (brackets . hsep . punctuate comma . map docConstraint) (classDeclContext cd)
         <> listField "params" docTyVarBinder (classDeclParams cd)
+        <> listField "fundeps" docFunctionalDependency (classDeclFundeps cd)
         <> listField "items" docClassDeclItem (classDeclItems cd)
+
+docFunctionalDependency :: FunctionalDependency -> Doc ann
+docFunctionalDependency dep =
+  "FunctionalDependency" <+> braces (hsep (punctuate comma fields))
+  where
+    fields =
+      listField "determiners" docText (functionalDependencyDeterminers dep)
+        <> listField "determined" docText (functionalDependencyDetermined dep)
 
 docClassDeclItem :: ClassDeclItem -> Doc ann
 docClassDeclItem item =
