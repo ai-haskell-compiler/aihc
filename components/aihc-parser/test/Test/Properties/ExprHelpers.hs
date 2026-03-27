@@ -4,6 +4,8 @@
 -- used by both ExprRoundTrip and ModuleRoundTrip tests.
 module Test.Properties.ExprHelpers
   ( genExpr,
+    genOperator,
+    isValidGeneratedOperator,
     mkIntExpr,
     shrinkExpr,
     normalizeExpr,
@@ -97,10 +99,16 @@ genCustomOperator = do
   -- Excluding ':' since that's for constructor operators
   chars <- vectorOf len (elements "!#$%&*+./<=>?\\^|-~")
   let candidate = T.pack chars
-  -- Avoid reserved operators and comment starters
-  if candidate `elem` ["..", "::", "=", "\\", "|", "<-", "->", "~", "=>", "--"]
-    then genCustomOperator
-    else pure candidate
+  -- Avoid reserved operators and symbols that lex as comments.
+  if isValidGeneratedOperator candidate
+    then pure candidate
+    else genCustomOperator
+
+isValidGeneratedOperator :: Text -> Bool
+isValidGeneratedOperator candidate =
+  let reserved = candidate `elem` ["..", "::", "=", "\\", "|", "<-", "->", "~", "=>", "--"]
+      dashOnly = T.length candidate >= 2 && T.all (== '-') candidate
+   in not reserved && not dashOnly
 
 -- | Generate a data constructor name
 genConName :: Gen Text
