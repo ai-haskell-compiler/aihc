@@ -25,6 +25,7 @@ module Aihc.Parser.Internal.Common
     constraintParserWith,
     constraintsParserWith,
     contextParserWith,
+    functionHeadParserWith,
     functionBindValue,
     functionBindDecl,
   )
@@ -250,21 +251,46 @@ constraintsParserWith typeAtomParser =
 contextParserWith :: TokParser Type -> TokParser [Constraint]
 contextParserWith = constraintsParserWith
 
-functionBindValue :: SourceSpan -> Text -> [Pattern] -> Rhs -> ValueDecl
-functionBindValue span' name pats rhs =
+functionHeadParserWith :: TokParser Pattern -> TokParser Pattern -> TokParser (MatchHeadForm, Text, [Pattern])
+functionHeadParserWith fullPatternParser prefixPatternParser =
+  MP.try parenthesizedInfixHeadParser <|> MP.try infixHeadParser <|> prefixHeadParser
+  where
+    prefixHeadParser = do
+      name <- binderNameParser
+      pats <- MP.many prefixPatternParser
+      pure (MatchHeadPrefix, name, pats)
+
+    infixHeadParser = do
+      lhsPat <- fullPatternParser
+      op <- infixOperatorNameParser
+      rhsPat <- fullPatternParser
+      pure (MatchHeadInfix, op, [lhsPat, rhsPat])
+
+    parenthesizedInfixHeadParser = do
+      expectedTok TkSpecialLParen
+      lhsPat <- fullPatternParser
+      op <- infixOperatorNameParser
+      rhsPat <- fullPatternParser
+      expectedTok TkSpecialRParen
+      tailPats <- MP.many prefixPatternParser
+      pure (MatchHeadInfix, op, [lhsPat, rhsPat] <> tailPats)
+
+functionBindValue :: SourceSpan -> MatchHeadForm -> Text -> [Pattern] -> Rhs -> ValueDecl
+functionBindValue span' headForm name pats rhs =
   FunctionBind
     span'
     name
     [ Match
         { matchSpan = span',
+          matchHeadForm = headForm,
           matchPats = pats,
           matchRhs = rhs
         }
     ]
 
-functionBindDecl :: SourceSpan -> Text -> [Pattern] -> Rhs -> Decl
-functionBindDecl span' name pats rhs =
-  DeclValue span' (functionBindValue span' name pats rhs)
+functionBindDecl :: SourceSpan -> MatchHeadForm -> Text -> [Pattern] -> Rhs -> Decl
+functionBindDecl span' headForm name pats rhs =
+  DeclValue span' (functionBindValue span' headForm name pats rhs)
 
 renderKeyword :: LexTokenKind -> String
 renderKeyword keyword =

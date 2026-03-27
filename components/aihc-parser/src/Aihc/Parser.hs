@@ -117,7 +117,7 @@ parseType cfg input =
 -- | Parse a complete Haskell module.
 --
 -- >>> shorthand $ parseModule defaultConfig "module Main where\nmain = putStrLn \"Hello\""
--- ParseOk (Module {name = "Main", decls = [DeclValue (FunctionBind "main" [Match {rhs = UnguardedRhs (EApp (EVar "putStrLn") (EString "Hello"))}])]})
+-- ParseOk (Module {name = "Main", decls = [DeclValue (FunctionBind "main" [Match {headForm = Prefix, rhs = UnguardedRhs (EApp (EVar "putStrLn") (EString "Hello"))}])]})
 --
 -- Modules without a header are also supported:
 --

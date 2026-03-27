@@ -16,7 +16,7 @@
 -- Example:
 --
 -- >>> shorthand $ parseModule defaultConfig "module Demo where x = 1"
--- ParseOk (Module {name = "Demo", decls = [DeclValue (FunctionBind "x" [Match {rhs = UnguardedRhs (EInt 1)}])]})
+-- ParseOk (Module {name = "Demo", decls = [DeclValue (FunctionBind "x" [Match {headForm = Prefix, rhs = UnguardedRhs (EInt 1)}])]})
 module Aihc.Parser.Shorthand
   ( Shorthand (..),
   )
@@ -184,8 +184,16 @@ docMatch m =
   "Match" <+> braces (hsep (punctuate comma fields))
   where
     fields =
-      listField "pats" docPattern (matchPats m)
+      [ field "headForm" (docMatchHeadForm (matchHeadForm m))
+      ]
+        <> listField "pats" docPattern (matchPats m)
         <> [field "rhs" (docRhs (matchRhs m))]
+
+docMatchHeadForm :: MatchHeadForm -> Doc ann
+docMatchHeadForm headForm =
+  case headForm of
+    MatchHeadPrefix -> "Prefix"
+    MatchHeadInfix -> "Infix"
 
 docRhs :: Rhs -> Doc ann
 docRhs rhs =

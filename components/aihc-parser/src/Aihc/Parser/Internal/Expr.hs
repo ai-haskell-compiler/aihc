@@ -772,20 +772,10 @@ localTypeSigDeclParser = withSpan $ do
   pure (\span' -> DeclTypeSig span' names ty)
 
 localFunctionDeclParser :: TokParser Decl
-localFunctionDeclParser = withSpan $ MP.try infixLocalFunctionParser <|> prefixLocalFunctionParser
-  where
-    prefixLocalFunctionParser = do
-      name <- binderNameParser
-      pats <- MP.many simplePatternParser
-      rhs <- equationRhsParser
-      pure (\span' -> functionBindDecl span' name pats rhs)
-
-    infixLocalFunctionParser = do
-      lhsPat <- patternParser
-      op <- infixOperatorNameParser
-      rhsPat <- patternParser
-      rhs <- equationRhsParser
-      pure (\span' -> functionBindDecl span' op [lhsPat, rhsPat] rhs)
+localFunctionDeclParser = withSpan $ do
+  (headForm, name, pats) <- functionHeadParserWith patternParser simplePatternParser
+  rhs <- equationRhsParser
+  pure (\span' -> functionBindDecl span' headForm name pats rhs)
 
 localPatternDeclParser :: TokParser Decl
 localPatternDeclParser = withSpan $ do

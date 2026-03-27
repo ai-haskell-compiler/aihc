@@ -194,6 +194,7 @@ genValueDecls n = do
             name
             [ Match
                 { matchSpan = span0,
+                  matchHeadForm = MatchHeadPrefix,
                   matchPats = [],
                   matchRhs = UnguardedRhs span0 expr
                 }
@@ -698,6 +699,7 @@ normalizeMatch :: Match -> Match
 normalizeMatch m =
   Match
     { matchSpan = span0,
+      matchHeadForm = matchHeadForm m,
       matchPats = map normalizePattern (matchPats m),
       matchRhs = normalizeRhs (matchRhs m)
     }

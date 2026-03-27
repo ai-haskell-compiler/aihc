@@ -330,22 +330,11 @@ classFixityItemParser = withSpan $ do
   pure (\span' -> ClassItemFixity span' assoc prec ops)
 
 classDefaultItemParser :: TokParser ClassDeclItem
-classDefaultItemParser = withSpan $ MP.try infixClassDefaultParser <|> prefixClassDefaultParser
-  where
-    prefixClassDefaultParser = do
-      name <- binderNameParser
-      pats <- MP.many simplePatternParser
-      expectedTok TkReservedEquals
-      rhsExpr <- exprParser
-      pure (\span' -> ClassItemDefault span' (functionBindValue span' name pats (UnguardedRhs span' rhsExpr)))
-
-    infixClassDefaultParser = do
-      lhsPat <- patternParser
-      op <- infixOperatorNameParser
-      rhsPat <- patternParser
-      expectedTok TkReservedEquals
-      rhsExpr <- exprParser
-      pure (\span' -> ClassItemDefault span' (functionBindValue span' op [lhsPat, rhsPat] (UnguardedRhs span' rhsExpr)))
+classDefaultItemParser = withSpan $ do
+  (headForm, name, pats) <- functionHeadParserWith patternParser simplePatternParser
+  expectedTok TkReservedEquals
+  rhsExpr <- exprParser
+  pure (\span' -> ClassItemDefault span' (functionBindValue span' headForm name pats (UnguardedRhs span' rhsExpr)))
 
 instanceDeclParser :: TokParser Decl
 instanceDeclParser = withSpan $ do
@@ -409,20 +398,10 @@ instanceFixityItemParser = withSpan $ do
   pure (\span' -> InstanceItemFixity span' assoc prec ops)
 
 instanceValueItemParser :: TokParser InstanceDeclItem
-instanceValueItemParser = withSpan $ MP.try infixInstanceValueParser <|> prefixInstanceValueParser
-  where
-    prefixInstanceValueParser = do
-      name <- binderNameParser
-      pats <- MP.many simplePatternParser
-      rhs <- equationRhsParser
-      pure (\span' -> InstanceItemBind span' (functionBindValue span' name pats rhs))
-
-    infixInstanceValueParser = do
-      lhsPat <- patternParser
-      op <- infixOperatorNameParser
-      rhsPat <- patternParser
-      rhs <- equationRhsParser
-      pure (\span' -> InstanceItemBind span' (functionBindValue span' op [lhsPat, rhsPat] rhs))
+instanceValueItemParser = withSpan $ do
+  (headForm, name, pats) <- functionHeadParserWith patternParser simplePatternParser
+  rhs <- equationRhsParser
+  pure (\span' -> InstanceItemBind span' (functionBindValue span' headForm name pats rhs))
 
 foreignDeclParser :: TokParser Decl
 foreignDeclParser = withSpan $ do
@@ -848,19 +827,7 @@ patternBindDeclParser = withSpan $ do
   pure (\span' -> DeclValue span' (PatternBind span' pat rhs))
 
 valueDeclParser :: TokParser Decl
-valueDeclParser = withSpan $ MP.try infixValueDeclParser <|> prefixValueDeclParser
-  where
-    -- Prefix form: f x y = ...
-    prefixValueDeclParser = do
-      name <- binderNameParser
-      pats <- MP.many simplePatternParser
-      rhs <- equationRhsParser
-      pure (\span' -> functionBindDecl span' name pats rhs)
-
-    -- Infix form: x `op` y = ... or x <op> y = ...
-    infixValueDeclParser = do
-      lhsPat <- patternParser
-      op <- infixOperatorNameParser
-      rhsPat <- patternParser
-      rhs <- equationRhsParser
-      pure (\span' -> functionBindDecl span' op [lhsPat, rhsPat] rhs)
+valueDeclParser = withSpan $ do
+  (headForm, name, pats) <- functionHeadParserWith patternParser simplePatternParser
+  rhs <- equationRhsParser
+  pure (\span' -> functionBindDecl span' headForm name pats rhs)

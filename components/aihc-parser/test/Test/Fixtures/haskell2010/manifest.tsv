@@ -133,7 +133,7 @@ decls-fixity	declarations	declarations/fixity.hs	pass	parser now supports fixity
 decls-default	declarations	declarations/default.hs	pass	parser now supports default declarations
 decls-deriving	declarations	declarations/deriving.hs	pass	parser now supports parenthesized data deriving clauses
 decls-infix-funlhs-basic	declarations	declarations/infix-funlhs-basic.hs	pass	parser now supports infix operator function definitions
-decls-infix-funlhs-backtick	declarations	declarations/infix-funlhs-backtick.hs	xfail	backtick infix definitions parse but don't roundtrip (printed as prefix)
+decls-infix-funlhs-backtick	declarations	declarations/infix-funlhs-backtick.hs	pass	parser preserves backtick infix function definitions in roundtrip
 decls-infix-funlhs-lambda	declarations	declarations/infix-funlhs-lambda.hs	pass	parser now supports infix definitions with lambda bodies
 decls-infix-funlhs-pattern	declarations	declarations/infix-funlhs-pattern.hs	pass	parser now supports infix definitions with patterns
 decls-infix-funlhs-with-sig	declarations	declarations/infix-funlhs-with-sig.hs	pass	parser now supports infix definitions with type signatures
@@ -302,7 +302,8 @@ vinyl-loeb-rloeb-section	corpus	corpus/vinyl-loeb-rloeb-section.hs	pass	from vin
 decls-instance-tuple-type-constructor	declarations	declarations/instance-tuple-type-constructor.hs	pass	parser now supports tuple type constructors like ((,,) w s) in instance heads
 decls-data-record-function-type	declarations	declarations/data-record-function-type.hs	pass	parser now supports function types in record field declarations
 decls-data-record-function-type-simple	declarations	declarations/data-record-function-type-simple.hs	pass	parser now supports function types in record field declarations (minimal repro)
-decls-operator-funlhs-infix-application	declarations	declarations/operator-funlhs-infix-application.hs	xfail	parser does not support infix operator application in function LHS like (g . h) x = ...
+decls-operator-funlhs-infix-application	declarations	declarations/operator-funlhs-infix-application.hs	pass	parser supports parenthesized infix function heads with trailing arguments
+decls-operator-funlhs-infix-application-backtick	declarations	declarations/operator-funlhs-infix-application-backtick.hs	pass	parser supports parenthesized backtick infix function heads with trailing arguments
 decls-instance-method-guards	declarations	declarations/instance-method-guards.hs	pass	parser now supports guards in instance method definitions
 types-newtype-record-function-type	types	types/newtype-record-function-type.hs	pass	parser now supports function types in newtype record field declarations
 types-tuple-type-constructor-prefix	types	types/tuple-type-constructor-prefix.hs	pass	parser now supports prefix tuple type constructor syntax like (,) a b
