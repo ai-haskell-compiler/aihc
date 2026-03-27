@@ -17,6 +17,12 @@
 - Test whether a snippet is accepted by AIHC: `echo snippet | nix run .#aihc-parser`
 - Test how the lexer interprets a string: `echo string | nix run .#aihc-lexer`
 
+## Gotchas
+
+- CI checks the PR merge commit (`pull/<n>/merge`), not only the branch HEAD. If local passes but CI fails, merge or rebase `origin/main` locally and rerun `nix flake check`.
+- Golden AST strings are sensitive to upstream AST/shorthand changes (for example, `Match` now printing `headForm = Prefix`), so new fixtures must match current `main` formatting.
+- `nix run .#parser-test` in local shell may fail on CLI executable discovery (`aihc-parser`/`aihc-lexer` not in `PATH`) even when derivation-based `nix flake check` is green.
+
 ## Testing (TDD)
 
 aihc is developed test-first. Run the full suite with `nix flake check`. When working on new features, always include tests that cover expected use plus a few corner cases. When fixing bugs, always include regression tests.
