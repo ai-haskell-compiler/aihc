@@ -44,7 +44,7 @@ import Aihc.Parser.Types
 import Control.Monad (guard)
 import Data.List qualified as List
 import Data.List.NonEmpty qualified as NE
-import Data.Maybe (listToMaybe, mapMaybe)
+import Data.Maybe (fromMaybe, listToMaybe, mapMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -156,9 +156,12 @@ applyExtensionSettings = List.foldl' applySetting
 -- | Pretty-print a parse error bundle.
 errorBundlePretty :: Maybe Text -> ParseErrorBundle -> String
 errorBundlePretty mSource bundle =
-  case renderCustomMessage mSource bundle of
-    Just rendered -> rendered
-    Nothing -> MP.errorBundlePretty bundle
+  case (mSource, NE.length (MPE.bundleErrors bundle)) of
+    (Just source, n) | n > 1 -> renderMultipleErrorsWithSource source bundle
+    _ ->
+      case renderCustomMessage mSource bundle of
+        Just rendered -> rendered
+        Nothing -> MP.errorBundlePretty bundle
 
 renderCustomMessage :: Maybe Text -> ParseErrorBundle -> Maybe String
 renderCustomMessage mSource bundle = do
@@ -266,3 +269,36 @@ tokenDescriptor found =
   case foundTokenKind found of
     TkKeywordWhere -> "'where' keyword"
     _ -> "'" <> T.unpack (foundTokenText found) <> "'"
+
+renderMultipleErrorsWithSource :: Text -> ParseErrorBundle -> String
+renderMultipleErrorsWithSource source bundle =
+  let pst = MPE.bundlePosState bundle
+      sourceName = MP.sourceName (MP.pstateSourcePos pst)
+      stream = MP.pstateInput pst
+      errs = NE.toList (MPE.bundleErrors bundle)
+      blocks = map (renderErrorBlock sourceName source stream) errs
+   in List.intercalate "\n\n" blocks
+
+renderErrorBlock :: FilePath -> Text -> TokStream -> MPE.ParseError TokStream ParserErrorComponent -> String
+renderErrorBlock sourceName source stream err =
+  let (lineNo, colNo) = sourcePosForOffset stream (MPE.errorOffset err)
+      lineNoText = show lineNo
+      srcLine = fromMaybe "" (getSourceLine (Just source) lineNo)
+      markerPrefix = replicate (length lineNoText) ' ' <> " | "
+      markerLen = markerLengthForError err
+      marker = replicate (max 0 (colNo - 1)) ' ' <> replicate markerLen '^'
+      msg = List.dropWhileEnd (`elem` ['\n', '\r']) (MPE.parseErrorTextPretty err)
+   in List.intercalate
+        "\n"
+        [ sourceName <> ":" <> lineNoText <> ":" <> show colNo <> ":",
+          lineNoText <> " | " <> T.unpack srcLine,
+          markerPrefix <> marker,
+          msg
+        ]
+
+markerLengthForError :: MPE.ParseError TokStream ParserErrorComponent -> Int
+markerLengthForError err =
+  case extractCustomError err of
+    Just (MissingModuleName (Just found)) -> max 1 (T.length (foundTokenText found))
+    Just (MissingImportModuleName (Just found)) -> max 1 (T.length (foundTokenText found))
+    _ -> 1
