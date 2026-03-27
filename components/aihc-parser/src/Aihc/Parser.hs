@@ -199,14 +199,34 @@ renderCustomError mSource bundle err custom = do
           unexpectedLine,
           "expecting module name"
         ]
+    MissingImportModuleName mFound -> do
+      srcLine <- getSourceLine mSource lineNo
+      let markerLen = markerLength mFound
+          marker = replicate (max 0 (colNo - 1)) ' ' <> replicate markerLen '^'
+          lineNoText = show lineNo
+          markerPrefix = replicate (length lineNoText) ' ' <> " | "
+          unexpectedLine = maybe "unexpected end of input" renderUnexpectedToken mFound
+      pure . unlines $
+        [ location,
+          lineNoText <> " | " <> T.unpack srcLine,
+          markerPrefix <> marker,
+          unexpectedLine,
+          "expecting imported module name"
+        ]
 
 sourcePosForOffset :: TokStream -> Int -> (Int, Int)
 sourcePosForOffset stream off =
   let toks = unTokStream stream
       idx = max 0 off
-   in case drop idx toks of
-        tok : _ -> spanStart (lexTokenSpan tok)
-        [] ->
+      atIndex n = if n >= 0 && n < length toks then Just (toks !! n) else Nothing
+   in case atIndex idx of
+        Just tok
+          | lexTokenKind tok == TkSpecialRBrace ->
+              case atIndex (idx - 1) of
+                Just prevTok -> spanEnd (lexTokenSpan prevTok)
+                Nothing -> spanStart (lexTokenSpan tok)
+          | otherwise -> spanStart (lexTokenSpan tok)
+        Nothing ->
           case reverse toks of
             tok : _ -> spanEnd (lexTokenSpan tok)
             [] -> (1, 1)

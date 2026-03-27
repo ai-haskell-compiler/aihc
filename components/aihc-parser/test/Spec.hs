@@ -73,6 +73,7 @@ buildTests = do
             testCase "parser config passes extensions to lexer" test_parserConfigPassesExtensions,
             testCase "parser config sets source name in parse errors" test_parserConfigSetsSourceName,
             testCase "module keyword requires module name with helpful error" test_moduleKeywordRequiresModuleNameError,
+            testCase "import keyword requires module name with helpful error" test_importKeywordRequiresModuleNameError,
             testCase "generated identifiers reject reserved keyword as" test_generatedIdentifiersRejectReservedAs,
             testCase "generated identifiers reject standalone underscore" test_generatedIdentifiersRejectStandaloneUnderscore,
             testCase "shrunk identifiers reject standalone underscore" test_shrunkIdentifiersRejectStandaloneUnderscore,
@@ -132,6 +133,17 @@ test_moduleKeywordRequiresModuleNameError =
        in if all (`isInfixOf` rendered) ["unexpected 'where' keyword", "expecting module name", "^"]
             then pure ()
             else assertFailure ("expected improved module-name parse error, got: " <> rendered)
+    ParseOk modu ->
+      assertFailure ("expected parse failure, got: " <> show modu)
+
+test_importKeywordRequiresModuleNameError :: Assertion
+test_importKeywordRequiresModuleNameError =
+  case parseModule defaultConfig "import where" of
+    ParseErr err ->
+      let rendered = errorBundlePretty (Just "import where") err
+       in if all (`isInfixOf` rendered) ["unexpected 'where' keyword", "expecting imported module name", "^"]
+            then pure ()
+            else assertFailure ("expected improved import-module-name parse error, got: " <> rendered)
     ParseOk modu ->
       assertFailure ("expected parse failure, got: " <> show modu)
 

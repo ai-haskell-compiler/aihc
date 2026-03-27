@@ -35,13 +35,18 @@ data FoundToken = FoundToken
   }
   deriving (Eq, Ord, Show, Generic, NFData)
 
-newtype ParserErrorComponent = MissingModuleName
-  { missingModuleNameFound :: Maybe FoundToken
-  }
+data ParserErrorComponent
+  = MissingModuleName
+      { missingModuleNameFound :: Maybe FoundToken
+      }
+  | MissingImportModuleName
+      { missingImportModuleNameFound :: Maybe FoundToken
+      }
   deriving (Eq, Ord, Show, Generic)
 
 instance MPE.ShowErrorComponent ParserErrorComponent where
   showErrorComponent (MissingModuleName _) = "expecting module name"
+  showErrorComponent (MissingImportModuleName _) = "expecting imported module name"
 
 lexerErrorBundle :: FilePath -> String -> ParseErrorBundle
 lexerErrorBundle sourcePath message =

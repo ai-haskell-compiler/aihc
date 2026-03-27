@@ -31,7 +31,7 @@ moduleParser = withSpan $ do
       }
 
 moduleBodyParser :: TokParser ([ImportDecl], [Decl])
-moduleBodyParser = MP.try bracedModuleBodyParser MP.<|> plainModuleBodyParser
+moduleBodyParser = bracedModuleBodyParser MP.<|> plainModuleBodyParser
   where
     plainModuleBodyParser = do
       imports <- MP.many (importDeclParser <* skipSemicolons)

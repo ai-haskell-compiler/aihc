@@ -5,5 +5,15 @@ ghc: |
       parse error (possibly incorrect indentation or mismatched brackets)
 aihc: |
   test.hs:1:1:
-  unexpected {
-  expecting end of input
+  based integer literal
+  character literal
+  floating literal
+  identifier
+  integer literal
+  keyword 'let'
+  minus operator
+  operator '\'
+  prefix minus
+  string literal
+  symbol '('
+  symbol '['

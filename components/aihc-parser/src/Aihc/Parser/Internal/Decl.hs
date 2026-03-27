@@ -122,7 +122,7 @@ importDeclParser = withSpan $ do
     MP.option False (keywordTok TkKeywordQualified >> pure True)
   importedLevel <- MP.optional importLevelParser
   importedPackage <- MP.optional packageNameParser
-  importedModule <- moduleNameParser
+  importedModule <- importModuleNameOrFailParser
   postQualified <-
     MP.option False (keywordTok TkKeywordQualified >> pure True)
   when (preQualified && postQualified) $
@@ -141,6 +141,35 @@ importDeclParser = withSpan $ do
         importDeclAs = importAlias,
         importDeclSpec = importSpec
       }
+
+importModuleNameOrFailParser :: TokParser Text
+importModuleNameOrFailParser = do
+  mTok <- MP.optional (lookAhead anySingle)
+  case mTok of
+    Just tok ->
+      case lexTokenKind tok of
+        TkConId _ -> moduleNameParser
+        TkQConId _ -> moduleNameParser
+        TkSpecialRBrace ->
+          MP.customFailure
+            MissingImportModuleName
+              { missingImportModuleNameFound = Nothing
+              }
+        _ ->
+          MP.customFailure
+            MissingImportModuleName
+              { missingImportModuleNameFound =
+                  Just
+                    FoundToken
+                      { foundTokenText = lexTokenText tok,
+                        foundTokenKind = lexTokenKind tok
+                      }
+              }
+    Nothing ->
+      MP.customFailure
+        MissingImportModuleName
+          { missingImportModuleNameFound = Nothing
+          }
 
 importLevelParser :: TokParser ImportLevel
 importLevelParser =
