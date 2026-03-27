@@ -329,9 +329,7 @@ prettyConstraint :: Constraint -> Doc ann
 prettyConstraint constraint =
   case constraint of
     Constraint _ cls args ->
-      if cls == "()" && null args
-        then "()"
-        else hsep (pretty cls : map (prettyTypeIn CtxTypeAtom) args)
+      hsep (pretty cls : map (prettyTypeIn CtxTypeAtom) args)
     CParen _ inner ->
       parens (prettyConstraint inner)
 
