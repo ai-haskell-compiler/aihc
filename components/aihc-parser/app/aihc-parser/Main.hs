@@ -23,7 +23,7 @@ main = do
   case parseModule cfg input of
     ParseOk modu -> print (shorthand modu)
     ParseErr bundle -> do
-      putStr (errorBundlePretty bundle)
+      putStr (errorBundlePretty (Just input) bundle)
       exitFailure
 
 optionsParser :: ParserInfo Options

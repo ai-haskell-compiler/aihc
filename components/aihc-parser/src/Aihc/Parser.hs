@@ -89,7 +89,7 @@ defaultConfig =
 parseExpr :: ParserConfig -> Text -> ParseResult Expr
 parseExpr cfg input =
   let toks = lexTokensWithExtensions (parserExtensions cfg) input
-   in case runParser (exprParser <* MP.eof) (parserSourceName cfg) (TokStream toks (Just (T.lines input))) of
+   in case runParser (exprParser <* MP.eof) (parserSourceName cfg) (TokStream toks) of
         Left bundle -> ParseErr bundle
         Right expr -> ParseOk expr
 
@@ -103,7 +103,7 @@ parseExpr cfg input =
 parsePattern :: ParserConfig -> Text -> ParseResult Pattern
 parsePattern cfg input =
   let toks = lexTokensWithExtensions (parserExtensions cfg) input
-   in case runParser (patternParser <* MP.eof) (parserSourceName cfg) (TokStream toks (Just (T.lines input))) of
+   in case runParser (patternParser <* MP.eof) (parserSourceName cfg) (TokStream toks) of
         Left bundle -> ParseErr bundle
         Right pat -> ParseOk pat
 
@@ -117,7 +117,7 @@ parsePattern cfg input =
 parseType :: ParserConfig -> Text -> ParseResult Type
 parseType cfg input =
   let toks = lexTokensWithExtensions (parserExtensions cfg) input
-   in case runParser (typeParser <* MP.eof) (parserSourceName cfg) (TokStream toks (Just (T.lines input))) of
+   in case runParser (typeParser <* MP.eof) (parserSourceName cfg) (TokStream toks) of
         Left bundle -> ParseErr bundle
         Right ty -> ParseOk ty
 
@@ -133,7 +133,7 @@ parseType cfg input =
 parseModule :: ParserConfig -> Text -> ParseResult Module
 parseModule cfg input =
   let toks = lexModuleTokensWithExtensions effectiveExtensions input
-   in case runParser (moduleParser <* MP.eof) (parserSourceName cfg) (TokStream toks (Just (T.lines input))) of
+   in case runParser (moduleParser <* MP.eof) (parserSourceName cfg) (TokStream toks) of
         Left bundle -> ParseErr bundle
         Right modu -> ParseOk modu
   where
@@ -153,17 +153,17 @@ applyExtensionSettings = List.foldl' applySetting
         DisableExtension ext -> filter (/= ext) exts
 
 -- | Pretty-print a parse error bundle.
-errorBundlePretty :: ParseErrorBundle -> String
-errorBundlePretty bundle =
-  case renderCustomMessage bundle of
+errorBundlePretty :: Maybe Text -> ParseErrorBundle -> String
+errorBundlePretty mSource bundle =
+  case renderCustomMessage mSource bundle of
     Just rendered -> rendered
     Nothing -> MP.errorBundlePretty bundle
 
-renderCustomMessage :: ParseErrorBundle -> Maybe String
-renderCustomMessage bundle = do
+renderCustomMessage :: Maybe Text -> ParseErrorBundle -> Maybe String
+renderCustomMessage mSource bundle = do
   let err = NE.head (MPE.bundleErrors bundle)
   custom <- extractCustomError err
-  renderCustomError bundle err custom
+  renderCustomError mSource bundle err custom
 
 extractCustomError :: MPE.ParseError TokStream ParserErrorComponent -> Maybe ParserErrorComponent
 extractCustomError err =
@@ -176,8 +176,8 @@ extractCustomError err =
         MPE.ErrorCustom custom -> Just custom
         _ -> Nothing
 
-renderCustomError :: ParseErrorBundle -> MPE.ParseError TokStream ParserErrorComponent -> ParserErrorComponent -> Maybe String
-renderCustomError bundle err custom = do
+renderCustomError :: Maybe Text -> ParseErrorBundle -> MPE.ParseError TokStream ParserErrorComponent -> ParserErrorComponent -> Maybe String
+renderCustomError mSource bundle err custom = do
   let pst = MPE.bundlePosState bundle
       source = MP.pstateInput pst
       sourceName = MP.sourceName (MP.pstateSourcePos pst)
@@ -186,7 +186,7 @@ renderCustomError bundle err custom = do
       location = sourceName <> ":" <> show lineNo <> ":" <> show colNo <> ":"
   case custom of
     MissingModuleName mFound -> do
-      srcLine <- getSourceLine source lineNo
+      srcLine <- getSourceLine mSource lineNo
       let markerLen = markerLength mFound
           marker = replicate (max 0 (colNo - 1)) ' ' <> replicate markerLen '^'
           lineNoText = show lineNo
@@ -220,9 +220,10 @@ sourcePosForOffset stream off =
         SourceSpan _ _ line col -> (line, col)
         NoSourceSpan -> (1, 1)
 
-getSourceLine :: TokStream -> Int -> Maybe Text
-getSourceLine stream lineNo = do
-  sourceLines <- tokStreamSourceLines stream
+getSourceLine :: Maybe Text -> Int -> Maybe Text
+getSourceLine mSource lineNo = do
+  source <- mSource
+  let sourceLines = T.lines source
   let idx = lineNo - 1
   if idx < 0 || idx >= length sourceLines
     then Nothing

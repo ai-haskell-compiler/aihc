@@ -48,18 +48,18 @@ lexerErrorBundle sourcePath message =
   MPE.ParseErrorBundle
     (NE.singleton (MPE.FancyError 0 (Set.singleton (MPE.ErrorFail message))))
     MP.PosState
-      { MP.pstateInput = TokStream [] Nothing,
+      { MP.pstateInput = TokStream [],
         MP.pstateOffset = 0,
         MP.pstateSourcePos = SourcePos sourcePath (mkPos 1) (mkPos 1),
         MP.pstateTabWidth = mkPos 8,
         MP.pstateLinePrefix = ""
       }
 
-data TokStream = TokStream
-  { unTokStream :: [LexToken],
-    tokStreamSourceLines :: Maybe [Text]
+newtype TokStream = TokStream
+  { unTokStream :: [LexToken]
   }
-  deriving (Eq, Ord, Show, Generic, NFData)
+  deriving (Eq, Ord, Show, Generic)
+  deriving newtype (NFData)
 
 instance Stream TokStream where
   type Token TokStream = LexToken
@@ -71,21 +71,21 @@ instance Stream TokStream where
   chunkLength _ = length
   chunkEmpty _ = null
 
-  take1_ (TokStream toks sourceLines) =
+  take1_ (TokStream toks) =
     case toks of
       [] -> Nothing
-      tok : rest -> Just (tok, TokStream rest sourceLines)
+      tok : rest -> Just (tok, TokStream rest)
 
-  takeN_ n (TokStream toks sourceLines)
-    | n <= 0 = Just ([], TokStream toks sourceLines)
+  takeN_ n (TokStream toks)
+    | n <= 0 = Just ([], TokStream toks)
     | null toks = Nothing
     | otherwise =
         let (chunk, rest) = splitAt n toks
-         in Just (chunk, TokStream rest sourceLines)
+         in Just (chunk, TokStream rest)
 
-  takeWhile_ f (TokStream toks sourceLines) =
+  takeWhile_ f (TokStream toks) =
     let (chunk, rest) = span f toks
-     in (chunk, TokStream rest sourceLines)
+     in (chunk, TokStream rest)
 
 instance VisualStream TokStream where
   showTokens _ toks =
@@ -95,7 +95,6 @@ instance TraversableStream TokStream where
   reachOffset o pst =
     let currOff = MP.pstateOffset pst
         currInput = unTokStream (MP.pstateInput pst)
-        sourceLines = tokStreamSourceLines (MP.pstateInput pst)
         advance = max 0 (o - currOff)
         (consumed, rest) = splitAt advance currInput
         currPos = MP.pstateSourcePos pst
@@ -108,7 +107,7 @@ instance TraversableStream TokStream where
                 [] -> currPos
         pst' =
           pst
-            { MP.pstateInput = TokStream rest sourceLines,
+            { MP.pstateInput = TokStream rest,
               MP.pstateOffset = currOff + advance,
               MP.pstateSourcePos = newPos
             }
