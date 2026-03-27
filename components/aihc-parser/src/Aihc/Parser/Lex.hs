@@ -201,6 +201,7 @@ data ModuleLayoutMode
   = ModuleLayoutOff
   | ModuleLayoutSeekStart
   | ModuleLayoutAwaitWhere
+  | ModuleLayoutAwaitBody
   | ModuleLayoutDone
   deriving (Eq, Show)
 
@@ -437,7 +438,10 @@ applyLayoutTokens enableModuleLayout =
   where
     go st toks =
       case toks of
-        [] -> closeAllImplicit (layoutContexts st) NoSourceSpan
+        [] ->
+          let eofAnchor = NoSourceSpan
+              (moduleInserted, stAfterModule) = finalizeModuleLayoutAtEOF st eofAnchor
+           in moduleInserted <> closeAllImplicit (layoutContexts stAfterModule) eofAnchor
         tok : rest ->
           let stModule = noteModuleLayoutBeforeToken st tok
               (preInserted, stBeforePending) = closeBeforeToken stModule tok
@@ -451,9 +455,23 @@ applyLayoutTokens enableModuleLayout =
                   }
            in preInserted <> pendingInserted <> bolInserted <> (tok : go stNext rest)
 
+finalizeModuleLayoutAtEOF :: LayoutState -> SourceSpan -> ([LexToken], LayoutState)
+finalizeModuleLayoutAtEOF st anchor =
+  case layoutModuleMode st of
+    ModuleLayoutSeekStart ->
+      ( [virtualSymbolToken "{" anchor, virtualSymbolToken "}" anchor],
+        st {layoutModuleMode = ModuleLayoutDone}
+      )
+    ModuleLayoutAwaitBody ->
+      ( [virtualSymbolToken "{" anchor, virtualSymbolToken "}" anchor],
+        st {layoutModuleMode = ModuleLayoutDone, layoutPendingLayout = Nothing}
+      )
+    _ -> ([], st)
+
 noteModuleLayoutBeforeToken :: LayoutState -> LexToken -> LayoutState
 noteModuleLayoutBeforeToken st tok =
   case layoutModuleMode st of
+    ModuleLayoutAwaitBody -> st {layoutModuleMode = ModuleLayoutDone}
     ModuleLayoutSeekStart ->
       case lexTokenKind tok of
         TkPragmaLanguage _ -> st
@@ -468,7 +486,7 @@ noteModuleLayoutAfterToken st tok =
   case layoutModuleMode st of
     ModuleLayoutAwaitWhere
       | lexTokenKind tok == TkKeywordWhere ->
-          st {layoutModuleMode = ModuleLayoutDone, layoutPendingLayout = Just PendingLayoutGeneric}
+          st {layoutModuleMode = ModuleLayoutAwaitBody, layoutPendingLayout = Just PendingLayoutGeneric}
     _ -> st
 
 openPendingLayout :: LayoutState -> LexToken -> ([LexToken], LayoutState, Bool)
