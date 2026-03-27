@@ -1,6 +1,7 @@
-args:
-  - "-XNumericUnderscores"
 input: "1_000_000"
+args: ["-XNumericUnderscores"]
 output: |
+  TkSpecialLBrace
   TkInteger 1000000
+  TkSpecialRBrace
 status: pass

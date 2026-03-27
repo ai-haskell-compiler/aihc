@@ -1,4 +1,6 @@
 input: "'x'"
 output: |
+  TkSpecialLBrace
   TkChar 'x'
+  TkSpecialRBrace
 status: pass
