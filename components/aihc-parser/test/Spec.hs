@@ -74,6 +74,8 @@ buildTests = do
             testCase "parser config sets source name in parse errors" test_parserConfigSetsSourceName,
             testCase "module keyword requires module name with helpful error" test_moduleKeywordRequiresModuleNameError,
             testCase "import keyword requires module name with helpful error" test_importKeywordRequiresModuleNameError,
+            testCase "reports multiple import errors in plain module body" test_reportsMultipleImportErrorsPlainBody,
+            testCase "reports multiple import errors in braced module body" test_reportsMultipleImportErrorsBracedBody,
             testCase "generated identifiers reject reserved keyword as" test_generatedIdentifiersRejectReservedAs,
             testCase "generated identifiers reject standalone underscore" test_generatedIdentifiersRejectStandaloneUnderscore,
             testCase "shrunk identifiers reject standalone underscore" test_shrunkIdentifiersRejectStandaloneUnderscore,
@@ -146,6 +148,30 @@ test_importKeywordRequiresModuleNameError =
             else assertFailure ("expected improved import-module-name parse error, got: " <> rendered)
     ParseOk modu ->
       assertFailure ("expected parse failure, got: " <> show modu)
+
+test_reportsMultipleImportErrorsPlainBody :: Assertion
+test_reportsMultipleImportErrorsPlainBody =
+  let source = "import qualified; import qualified; x = 1"
+   in case parseModule defaultConfig source of
+        ParseErr err ->
+          let rendered = errorBundlePretty (Just source) err
+           in if all (`isInfixOf` rendered) [":1:17", ":1:35", "expecting imported module name"]
+                then pure ()
+                else assertFailure ("expected multiple import parse errors, got: " <> rendered)
+        ParseOk modu ->
+          assertFailure ("expected parse failure, got: " <> show modu)
+
+test_reportsMultipleImportErrorsBracedBody :: Assertion
+test_reportsMultipleImportErrorsBracedBody =
+  let source = "{ import qualified; import qualified; x = 1 }"
+   in case parseModule defaultConfig source of
+        ParseErr err ->
+          let rendered = errorBundlePretty (Just source) err
+           in if all (`isInfixOf` rendered) [":1:19", ":1:37", "expecting imported module name"]
+                then pure ()
+                else assertFailure ("expected multiple import parse errors in braced body, got: " <> rendered)
+        ParseOk modu ->
+          assertFailure ("expected parse failure, got: " <> show modu)
 
 test_readsHeaderLanguagePragmas :: Assertion
 test_readsHeaderLanguagePragmas = do

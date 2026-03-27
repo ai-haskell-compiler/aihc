@@ -41,6 +41,7 @@ import Aihc.Parser.Lex
 import Aihc.Parser.Pretty ()
 import Aihc.Parser.Syntax (Expr, Extension (..), ExtensionSetting (..), Module, Pattern, SourceSpan (..), Type)
 import Aihc.Parser.Types
+import Control.Monad (guard)
 import Data.List qualified as List
 import Data.List.NonEmpty qualified as NE
 import Data.Maybe (listToMaybe, mapMaybe)
@@ -161,6 +162,7 @@ errorBundlePretty mSource bundle =
 
 renderCustomMessage :: Maybe Text -> ParseErrorBundle -> Maybe String
 renderCustomMessage mSource bundle = do
+  guard (NE.length (MPE.bundleErrors bundle) == 1)
   let err = NE.head (MPE.bundleErrors bundle)
   custom <- extractCustomError err
   renderCustomError mSource bundle err custom
