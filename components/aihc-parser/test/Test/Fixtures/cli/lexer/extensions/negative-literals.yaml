@@ -1,6 +1,7 @@
-args:
-  - "-XNegativeLiterals"
 input: "-10"
+args: ["-XNegativeLiterals"]
 output: |
+  TkSpecialLBrace
   TkInteger -10
+  TkSpecialRBrace
 status: pass

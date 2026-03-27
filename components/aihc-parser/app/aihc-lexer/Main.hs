@@ -2,7 +2,7 @@
 
 module Main (main) where
 
-import Aihc.Parser.Lex (lexTokensWithExtensions)
+import Aihc.Parser.Lex (lexModuleTokensWithExtensions)
 import Aihc.Parser.Shorthand (Shorthand (..))
 import Aihc.Parser.Syntax (Extension, ExtensionSetting (..), parseExtensionSettingName)
 import qualified Data.Text as T
@@ -18,7 +18,7 @@ main :: IO ()
 main = do
   opts <- execParser optionsParser
   input <- maybe TIO.getContents TIO.readFile (optInputFile opts)
-  let tokens = lexTokensWithExtensions (optExtensions opts) input
+  let tokens = lexModuleTokensWithExtensions (optExtensions opts) input
   mapM_ (print . shorthand) tokens
 
 optionsParser :: ParserInfo Options

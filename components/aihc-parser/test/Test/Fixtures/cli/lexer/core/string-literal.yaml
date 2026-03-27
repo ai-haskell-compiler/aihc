@@ -1,4 +1,6 @@
-input: '"hello world"'
+input: "\"hello world\""
 output: |
+  TkSpecialLBrace
   TkString "hello world"
+  TkSpecialRBrace
 status: pass
