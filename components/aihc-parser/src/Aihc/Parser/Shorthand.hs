@@ -408,12 +408,11 @@ docTypeLiteral lit =
 
 docConstraint :: Constraint -> Doc ann
 docConstraint c =
-  "Constraint" <+> braces (hsep (punctuate comma fields))
-  where
-    fields =
-      [field "class" (docText (constraintClass c))]
-        <> listField "args" docType (constraintArgs c)
-        <> boolField "paren" (constraintParen c)
+  case c of
+    Constraint _ cls args ->
+      "Constraint" <+> braces (hsep (punctuate comma ([field "class" (docText cls)] <> listField "args" docType args)))
+    CParen _ inner ->
+      "CParen" <+> parens (docConstraint inner)
 
 docTyVarBinder :: TyVarBinder -> Doc ann
 docTyVarBinder tvb =

@@ -1,4 +1,5 @@
 existential-prefix-context	declarations	existential-prefix-context.hs	pass
+existential-prefix-nested-parenthesized-context	declarations	existential-prefix-nested-parenthesized-context.hs	pass
 existential-record-context	declarations	existential-record-context.hs	pass
 existential-infix-constructor	declarations	existential-infix-constructor.hs	pass
 existential-infix-parenthesized-context	declarations	existential-infix-parenthesized-context.hs	pass
