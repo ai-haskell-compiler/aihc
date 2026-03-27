@@ -387,6 +387,11 @@ showHex value
   where
     hexDigit x = "0123456789abcdef" !! fromInteger x
 
+renderIntBaseHash :: Integer -> Text
+renderIntBaseHash value
+  | value < 0 = "-0x" <> T.pack (showHex (abs value)) <> "#"
+  | otherwise = "0x" <> T.pack (showHex value) <> "#"
+
 -- | Create an integer expression with canonical representation.
 mkIntExpr :: Integer -> Expr
 mkIntExpr value = EInt span0 value (T.pack (show value))
@@ -399,7 +404,7 @@ shrinkExpr expr =
     EInt _ value _ -> [mkIntExpr shrunk | shrunk <- shrinkIntegral value]
     EIntHash _ value _ -> [EIntHash span0 shrunk (T.pack (show shrunk) <> "#") | shrunk <- shrinkIntegral value]
     EIntBase _ value _ -> [mkIntExpr shrunk | shrunk <- shrinkIntegral value]
-    EIntBaseHash _ value _ -> [EIntBaseHash span0 shrunk ("0x" <> T.pack (showHex shrunk) <> "#") | shrunk <- shrinkIntegral value]
+    EIntBaseHash _ value _ -> [EIntBaseHash span0 shrunk (renderIntBaseHash shrunk) | shrunk <- shrinkIntegral value]
     EFloat _ value _ -> [mkFloatExpr shrunk | shrunk <- shrinkFloat value]
     EFloatHash _ value _ -> [EFloatHash span0 shrunk (T.pack (show shrunk) <> "#") | shrunk <- shrinkFloat value]
     EChar {} -> []
