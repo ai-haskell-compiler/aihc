@@ -32,17 +32,24 @@ where
 import Aihc.Parser.Internal.Expr (exprParser, patternParser, typeParser)
 import Aihc.Parser.Internal.Module (moduleParser)
 import Aihc.Parser.Lex
-  ( lexModuleTokensWithExtensions,
+  ( LexToken (..),
+    LexTokenKind (..),
+    lexModuleTokensWithExtensions,
     lexTokensWithExtensions,
     readModuleHeaderExtensions,
   )
 import Aihc.Parser.Pretty ()
-import Aihc.Parser.Syntax (Expr, Extension (..), ExtensionSetting (..), Module, Pattern, Type)
+import Aihc.Parser.Syntax (Expr, Extension (..), ExtensionSetting (..), Module, Pattern, SourceSpan (..), Type)
 import Aihc.Parser.Types
 import Data.List qualified as List
+import Data.List.NonEmpty qualified as NE
+import Data.Maybe (listToMaybe, mapMaybe)
+import Data.Set qualified as Set
 import Data.Text (Text)
+import Data.Text qualified as T
 import Text.Megaparsec (runParser)
 import Text.Megaparsec qualified as MP
+import Text.Megaparsec.Error qualified as MPE
 
 -- $setup
 -- >>> :set -XOverloadedStrings
@@ -82,7 +89,7 @@ defaultConfig =
 parseExpr :: ParserConfig -> Text -> ParseResult Expr
 parseExpr cfg input =
   let toks = lexTokensWithExtensions (parserExtensions cfg) input
-   in case runParser (exprParser <* MP.eof) (parserSourceName cfg) (TokStream toks) of
+   in case runParser (exprParser <* MP.eof) (parserSourceName cfg) (TokStream toks (Just (T.lines input))) of
         Left bundle -> ParseErr bundle
         Right expr -> ParseOk expr
 
@@ -96,7 +103,7 @@ parseExpr cfg input =
 parsePattern :: ParserConfig -> Text -> ParseResult Pattern
 parsePattern cfg input =
   let toks = lexTokensWithExtensions (parserExtensions cfg) input
-   in case runParser (patternParser <* MP.eof) (parserSourceName cfg) (TokStream toks) of
+   in case runParser (patternParser <* MP.eof) (parserSourceName cfg) (TokStream toks (Just (T.lines input))) of
         Left bundle -> ParseErr bundle
         Right pat -> ParseOk pat
 
@@ -110,7 +117,7 @@ parsePattern cfg input =
 parseType :: ParserConfig -> Text -> ParseResult Type
 parseType cfg input =
   let toks = lexTokensWithExtensions (parserExtensions cfg) input
-   in case runParser (typeParser <* MP.eof) (parserSourceName cfg) (TokStream toks) of
+   in case runParser (typeParser <* MP.eof) (parserSourceName cfg) (TokStream toks (Just (T.lines input))) of
         Left bundle -> ParseErr bundle
         Right ty -> ParseOk ty
 
@@ -126,7 +133,7 @@ parseType cfg input =
 parseModule :: ParserConfig -> Text -> ParseResult Module
 parseModule cfg input =
   let toks = lexModuleTokensWithExtensions effectiveExtensions input
-   in case runParser (moduleParser <* MP.eof) (parserSourceName cfg) (TokStream toks) of
+   in case runParser (moduleParser <* MP.eof) (parserSourceName cfg) (TokStream toks (Just (T.lines input))) of
         Left bundle -> ParseErr bundle
         Right modu -> ParseOk modu
   where
@@ -147,4 +154,90 @@ applyExtensionSettings = List.foldl' applySetting
 
 -- | Pretty-print a parse error bundle.
 errorBundlePretty :: ParseErrorBundle -> String
-errorBundlePretty = MP.errorBundlePretty
+errorBundlePretty bundle =
+  case renderCustomMessage bundle of
+    Just rendered -> rendered
+    Nothing -> MP.errorBundlePretty bundle
+
+renderCustomMessage :: ParseErrorBundle -> Maybe String
+renderCustomMessage bundle = do
+  let err = NE.head (MPE.bundleErrors bundle)
+  custom <- extractCustomError err
+  renderCustomError bundle err custom
+
+extractCustomError :: MPE.ParseError TokStream ParserErrorComponent -> Maybe ParserErrorComponent
+extractCustomError err =
+  case err of
+    MPE.FancyError _ fancySet -> listToMaybe (mapMaybe fromFancy (Set.toList fancySet))
+    _ -> Nothing
+  where
+    fromFancy fancyErr =
+      case fancyErr of
+        MPE.ErrorCustom custom -> Just custom
+        _ -> Nothing
+
+renderCustomError :: ParseErrorBundle -> MPE.ParseError TokStream ParserErrorComponent -> ParserErrorComponent -> Maybe String
+renderCustomError bundle err custom = do
+  let pst = MPE.bundlePosState bundle
+      source = MP.pstateInput pst
+      sourceName = MP.sourceName (MP.pstateSourcePos pst)
+      offset = MPE.errorOffset err
+      (lineNo, colNo) = sourcePosForOffset source offset
+      location = sourceName <> ":" <> show lineNo <> ":" <> show colNo <> ":"
+  case custom of
+    MissingModuleName mFound -> do
+      srcLine <- getSourceLine source lineNo
+      let markerLen = markerLength mFound
+          marker = replicate (max 1 (colNo - 1)) ' ' <> replicate markerLen '^'
+          unexpectedLine = maybe "unexpected end of input" renderUnexpectedToken mFound
+      pure . unlines $
+        [ location,
+          show lineNo <> " | " <> T.unpack srcLine,
+          "  | " <> marker,
+          unexpectedLine,
+          "expecting module name"
+        ]
+
+sourcePosForOffset :: TokStream -> Int -> (Int, Int)
+sourcePosForOffset stream off =
+  let toks = unTokStream stream
+      idx = max 0 off
+   in case drop idx toks of
+        tok : _ -> spanStart (lexTokenSpan tok)
+        [] ->
+          case reverse toks of
+            tok : _ -> spanEnd (lexTokenSpan tok)
+            [] -> (1, 1)
+  where
+    spanStart span' =
+      case span' of
+        SourceSpan line col _ _ -> (line, col)
+        NoSourceSpan -> (1, 1)
+    spanEnd span' =
+      case span' of
+        SourceSpan _ _ line col -> (line, col)
+        NoSourceSpan -> (1, 1)
+
+getSourceLine :: TokStream -> Int -> Maybe Text
+getSourceLine stream lineNo = do
+  sourceLines <- tokStreamSourceLines stream
+  let idx = lineNo - 1
+  if idx < 0 || idx >= length sourceLines
+    then Nothing
+    else Just (sourceLines !! idx)
+
+markerLength :: Maybe FoundToken -> Int
+markerLength mFound =
+  case mFound of
+    Just found -> max 1 (T.length (foundTokenText found))
+    Nothing -> 1
+
+renderUnexpectedToken :: FoundToken -> String
+renderUnexpectedToken found =
+  "unexpected " <> tokenDescriptor found
+
+tokenDescriptor :: FoundToken -> String
+tokenDescriptor found =
+  case foundTokenKind found of
+    TkKeywordWhere -> "'where' keyword"
+    _ -> "'" <> T.unpack (foundTokenText found) <> "'"

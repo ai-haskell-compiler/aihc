@@ -4,6 +4,8 @@
 
 module Aihc.Parser.Types
   ( TokStream (..),
+    ParserErrorComponent (..),
+    FoundToken (..),
     ParseErrorBundle,
     lexerErrorBundle,
     ParseResult (..),
@@ -11,13 +13,13 @@ module Aihc.Parser.Types
   )
 where
 
-import Aihc.Parser.Lex (LexToken (..))
+import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..))
 import Aihc.Parser.Syntax (Extension, SourceSpan (..))
 import Control.DeepSeq (NFData (..))
 import Data.List.NonEmpty qualified as NE
 import Data.Set qualified as Set
+import Data.Text (Text)
 import Data.Text qualified as T
-import Data.Void (Void)
 import GHC.Generics (Generic)
 import Text.Megaparsec qualified as MP
 import Text.Megaparsec.Error qualified as MPE
@@ -25,25 +27,39 @@ import Text.Megaparsec.Pos (SourcePos (..), mkPos)
 import Text.Megaparsec.Stream (Stream (..), TraversableStream (..), VisualStream (..))
 
 -- | Parse error from token parser. Use 'errorBundlePretty' from "Parser" to render.
-type ParseErrorBundle = MPE.ParseErrorBundle TokStream Void
+type ParseErrorBundle = MPE.ParseErrorBundle TokStream ParserErrorComponent
+
+data FoundToken = FoundToken
+  { foundTokenText :: !Text,
+    foundTokenKind :: !LexTokenKind
+  }
+  deriving (Eq, Ord, Show, Generic, NFData)
+
+newtype ParserErrorComponent = MissingModuleName
+  { missingModuleNameFound :: Maybe FoundToken
+  }
+  deriving (Eq, Ord, Show, Generic)
+
+instance MPE.ShowErrorComponent ParserErrorComponent where
+  showErrorComponent (MissingModuleName _) = "expecting module name"
 
 lexerErrorBundle :: FilePath -> String -> ParseErrorBundle
 lexerErrorBundle sourcePath message =
   MPE.ParseErrorBundle
     (NE.singleton (MPE.FancyError 0 (Set.singleton (MPE.ErrorFail message))))
     MP.PosState
-      { MP.pstateInput = TokStream [],
+      { MP.pstateInput = TokStream [] Nothing,
         MP.pstateOffset = 0,
         MP.pstateSourcePos = SourcePos sourcePath (mkPos 1) (mkPos 1),
         MP.pstateTabWidth = mkPos 8,
         MP.pstateLinePrefix = ""
       }
 
-newtype TokStream = TokStream
-  { unTokStream :: [LexToken]
+data TokStream = TokStream
+  { unTokStream :: [LexToken],
+    tokStreamSourceLines :: Maybe [Text]
   }
-  deriving (Eq, Ord, Show, Generic)
-  deriving newtype (NFData)
+  deriving (Eq, Ord, Show, Generic, NFData)
 
 instance Stream TokStream where
   type Token TokStream = LexToken
@@ -55,21 +71,21 @@ instance Stream TokStream where
   chunkLength _ = length
   chunkEmpty _ = null
 
-  take1_ (TokStream toks) =
+  take1_ (TokStream toks sourceLines) =
     case toks of
       [] -> Nothing
-      tok : rest -> Just (tok, TokStream rest)
+      tok : rest -> Just (tok, TokStream rest sourceLines)
 
-  takeN_ n (TokStream toks)
-    | n <= 0 = Just ([], TokStream toks)
+  takeN_ n (TokStream toks sourceLines)
+    | n <= 0 = Just ([], TokStream toks sourceLines)
     | null toks = Nothing
     | otherwise =
         let (chunk, rest) = splitAt n toks
-         in Just (chunk, TokStream rest)
+         in Just (chunk, TokStream rest sourceLines)
 
-  takeWhile_ f (TokStream toks) =
+  takeWhile_ f (TokStream toks sourceLines) =
     let (chunk, rest) = span f toks
-     in (chunk, TokStream rest)
+     in (chunk, TokStream rest sourceLines)
 
 instance VisualStream TokStream where
   showTokens _ toks =
@@ -79,6 +95,7 @@ instance TraversableStream TokStream where
   reachOffset o pst =
     let currOff = MP.pstateOffset pst
         currInput = unTokStream (MP.pstateInput pst)
+        sourceLines = tokStreamSourceLines (MP.pstateInput pst)
         advance = max 0 (o - currOff)
         (consumed, rest) = splitAt advance currInput
         currPos = MP.pstateSourcePos pst
@@ -91,7 +108,7 @@ instance TraversableStream TokStream where
                 [] -> currPos
         pst' =
           pst
-            { MP.pstateInput = TokStream rest,
+            { MP.pstateInput = TokStream rest sourceLines,
               MP.pstateOffset = currOff + advance,
               MP.pstateSourcePos = newPos
             }

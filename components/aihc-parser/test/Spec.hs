@@ -72,6 +72,7 @@ buildTests = do
             testCase "can lex lazily from chunks" test_lexerChunkLaziness,
             testCase "parser config passes extensions to lexer" test_parserConfigPassesExtensions,
             testCase "parser config sets source name in parse errors" test_parserConfigSetsSourceName,
+            testCase "module keyword requires module name with helpful error" test_moduleKeywordRequiresModuleNameError,
             testCase "generated identifiers reject reserved keyword as" test_generatedIdentifiersRejectReservedAs,
             testCase "generated identifiers reject standalone underscore" test_generatedIdentifiersRejectStandaloneUnderscore,
             testCase "shrunk identifiers reject standalone underscore" test_shrunkIdentifiersRejectStandaloneUnderscore,
@@ -120,6 +121,17 @@ test_parserConfigSetsSourceName =
       if "Example.hs" `isInfixOf` errorBundlePretty err
         then pure ()
         else assertFailure ("expected source name in parse error, got: " <> errorBundlePretty err)
+    ParseOk modu ->
+      assertFailure ("expected parse failure, got: " <> show modu)
+
+test_moduleKeywordRequiresModuleNameError :: Assertion
+test_moduleKeywordRequiresModuleNameError =
+  case parseModule defaultConfig "module where" of
+    ParseErr err ->
+      let rendered = errorBundlePretty err
+       in if all (`isInfixOf` rendered) ["unexpected 'where' keyword", "expecting module name", "^"]
+            then pure ()
+            else assertFailure ("expected improved module-name parse error, got: " <> rendered)
     ParseOk modu ->
       assertFailure ("expected parse failure, got: " <> show modu)
 

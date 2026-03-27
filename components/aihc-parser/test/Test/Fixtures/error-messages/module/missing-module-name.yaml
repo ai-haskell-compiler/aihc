@@ -4,4 +4,7 @@ ghc: |
   test.hs:1:8: error: [GHC-58481] parse error on input `where'
 aihc: |
   test.hs:1:8:
-  module name
+  1 | module where
+    |        ^^^^^
+  unexpected 'where' keyword
+  expecting module name

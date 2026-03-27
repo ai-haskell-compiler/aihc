@@ -10,8 +10,9 @@ where
 
 import Aihc.Parser.Internal.Common
 import Aihc.Parser.Internal.Expr (equationRhsParser, exprParser, patternParser, simplePatternParser, typeAppParser, typeAtomParser, typeParser)
-import Aihc.Parser.Lex (LexTokenKind (..), lexTokenKind)
+import Aihc.Parser.Lex (LexTokenKind (..), lexTokenKind, lexTokenText)
 import Aihc.Parser.Syntax
+import Aihc.Parser.Types (FoundToken (..), ParserErrorComponent (..))
 import Control.Monad (when)
 import Data.Char (isAsciiLower, isUpper)
 import Data.Maybe (fromMaybe)
@@ -30,7 +31,7 @@ languagePragmaParser =
 moduleHeaderParser :: TokParser ModuleHead
 moduleHeaderParser = withSpan $ do
   keywordTok TkKeywordModule
-  name <- moduleNameParser
+  name <- moduleNameOrFailParser
   mWarning <- MP.optional warningTextParser
   exports <- MP.optional exportSpecListParser
   keywordTok TkKeywordWhere
@@ -41,6 +42,24 @@ moduleHeaderParser = withSpan $ do
         moduleHeadWarningText = mWarning,
         moduleHeadExports = exports
       }
+
+moduleNameOrFailParser :: TokParser Text
+moduleNameOrFailParser = do
+  tok <- lookAhead anySingle
+  case lexTokenKind tok of
+    TkConId _ -> moduleNameParser
+    TkQConId _ -> moduleNameParser
+    _ ->
+      MP.customFailure
+        ( MissingModuleName
+            { missingModuleNameFound =
+                Just
+                  FoundToken
+                    { foundTokenText = lexTokenText tok,
+                      foundTokenKind = lexTokenKind tok
+                    }
+            }
+        )
 
 warningTextParser :: TokParser WarningText
 warningTextParser =
