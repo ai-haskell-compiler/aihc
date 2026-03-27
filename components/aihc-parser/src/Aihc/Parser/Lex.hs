@@ -128,13 +128,20 @@ data LexTokenKind
   | TkQConSym Text -- qualified constructor symbol
   | -- Literals
     TkInteger Integer
+  | TkIntegerHash Integer Text
   | TkIntegerBase Integer Text
+  | TkIntegerBaseHash Integer Text
   | TkFloat Double Text
+  | TkFloatHash Double Text
   | TkChar Char
+  | TkCharHash Char Text
   | TkString Text
+  | TkStringHash Text Text
   | -- Special characters (per Haskell Report Section 2.2)
     TkSpecialLParen -- (
   | TkSpecialRParen -- )
+  | TkSpecialUnboxedLParen -- (#
+  | TkSpecialUnboxedRParen -- #)
   | TkSpecialComma -- ,
   | TkSpecialSemicolon -- ;
   | TkSpecialLBracket -- [
@@ -771,9 +778,10 @@ lexIdentifier st =
   case lexerInput st of
     c : rest
       | isIdentStart c ->
-          let (seg, rest0) = span isIdentTail rest
+          let exts = lexerExtensions st
+              (seg, rest0) = consumeIdentTail exts rest
               firstChunk = c : seg
-              (consumed, rest1, isQualified) = gatherQualified firstChunk rest0
+              (consumed, rest1, isQualified) = gatherQualified exts firstChunk rest0
            in -- Check if we have a qualified operator (e.g., Prelude.+)
               case (isQualified || isAsciiUpper c, rest1) of
                 (True, '.' : opChar : opRest)
@@ -797,13 +805,27 @@ lexIdentifier st =
     _ -> Nothing
   where
     -- Returns (consumed, remaining, isQualified)
-    gatherQualified acc chars =
+    gatherQualified exts acc chars =
       case chars of
         '.' : c' : more
-          | isIdentStart c' ->
-              let (seg, rest) = span isIdentTail more
-               in gatherQualified (acc <> "." <> [c'] <> seg) rest
+          | isIdentStart c' && not (endsWithHash acc) ->
+              let (seg, rest) = consumeIdentTail exts more
+               in gatherQualified exts (acc <> "." <> [c'] <> seg) rest
         _ -> (acc, chars, '.' `elem` acc)
+
+    consumeIdentTail exts = go []
+      where
+        go acc chars =
+          case chars of
+            c' : more
+              | isIdentTail c' -> go (c' : acc) more
+              | c' == '#' && MagicHash `elem` exts -> (reverse ('#' : acc), more)
+            _ -> (reverse acc, chars)
+
+    endsWithHash s =
+      case reverse s of
+        '#' : _ -> True
+        _ -> False
 
     -- Check for symbol char that is not '.' to avoid consuming module path dots
     isSymbolicOpCharNotDot c = isSymbolicOpChar c && c /= '.'
@@ -894,8 +916,11 @@ negateToken stBefore numTok =
   where
     negateKind k = case k of
       TkInteger n -> TkInteger (negate n)
+      TkIntegerHash n repr -> TkIntegerHash (negate n) ("-" <> repr)
       TkIntegerBase n repr -> TkIntegerBase (negate n) ("-" <> repr)
+      TkIntegerBaseHash n repr -> TkIntegerBaseHash (negate n) ("-" <> repr)
       TkFloat n repr -> TkFloat (negate n) ("-" <> repr)
+      TkFloatHash n repr -> TkFloatHash (negate n) ("-" <> repr)
       other -> other -- shouldn't happen
 
     -- Extend span to start at the '-' position
@@ -1083,18 +1108,24 @@ unicodeOpTokenKind txt firstChar =
 
 lexSymbol :: LexerState -> Maybe (LexToken, LexerState)
 lexSymbol st =
-  firstJust
-    [ ("(", TkSpecialLParen),
-      (")", TkSpecialRParen),
-      ("[", TkSpecialLBracket),
-      ("]", TkSpecialRBracket),
-      ("{", TkSpecialLBrace),
-      ("}", TkSpecialRBrace),
-      (",", TkSpecialComma),
-      (";", TkSpecialSemicolon),
-      ("`", TkSpecialBacktick)
-    ]
+  firstJust symbols
   where
+    symbols =
+      ( if UnboxedTuples `elem` lexerExtensions st || UnboxedSums `elem` lexerExtensions st
+          then [("(#", TkSpecialUnboxedLParen), ("#)", TkSpecialUnboxedRParen)]
+          else []
+      )
+        <> [ ("(", TkSpecialLParen),
+             (")", TkSpecialRParen),
+             ("[", TkSpecialLBracket),
+             ("]", TkSpecialRBracket),
+             ("{", TkSpecialLBrace),
+             ("}", TkSpecialRBrace),
+             (",", TkSpecialComma),
+             (";", TkSpecialSemicolon),
+             ("`", TkSpecialBacktick)
+           ]
+
     firstJust xs =
       case xs of
         [] -> Nothing
@@ -1104,6 +1135,22 @@ lexSymbol st =
               let st' = advanceChars txt st
                in Just (mkToken st st' (T.pack txt) kind, st')
             else firstJust rest
+
+withOptionalMagicHashSuffix ::
+  LexerState ->
+  String ->
+  LexTokenKind ->
+  (Text -> LexTokenKind) ->
+  (Text, LexTokenKind, LexerState)
+withOptionalMagicHashSuffix st raw plainKind hashKind =
+  let st' = advanceChars raw st
+   in case lexerInput st' of
+        '#' : _
+          | MagicHash `elem` lexerExtensions st ->
+              let rawHash = raw <> "#"
+                  txtHash = T.pack rawHash
+               in (txtHash, hashKind txtHash, advanceChars "#" st')
+        _ -> (T.pack raw, plainKind, st')
 
 lexIntBase :: LexerState -> Maybe (LexToken, LexerState)
 lexIntBase st =
@@ -1125,8 +1172,9 @@ lexIntBase st =
                         | base `elem` ("xX" :: String) = readHexLiteral txt
                         | base `elem` ("oO" :: String) = readOctLiteral txt
                         | otherwise = readBinLiteral txt
-                      st' = advanceChars raw st
-                   in Just (mkToken st st' txt (TkIntegerBase n txt), st')
+                      (tokTxt, tokKind, st') =
+                        withOptionalMagicHashSuffix st raw (TkIntegerBase n txt) (TkIntegerBaseHash n)
+                   in Just (mkToken st st' tokTxt tokKind, st')
     _ -> Nothing
 
 lexHexFloat :: LexerState -> Maybe (LexToken, LexerState)
@@ -1157,8 +1205,9 @@ lexHexFloat st = do
                   raw = '0' : x : intDigits <> dotAndFrac <> expo
                   txt = T.pack raw
                   value = parseHexFloatLiteral intDigits fracDigits expo
-                  st' = advanceChars raw st
-               in Just (mkToken st st' txt (TkFloat value txt), st')
+                  (tokTxt, tokKind, st') =
+                    withOptionalMagicHashSuffix st raw (TkFloat value txt) (TkFloatHash value)
+               in Just (mkToken st st' tokTxt tokKind, st')
 
 lexFloat :: LexerState -> Maybe (LexToken, LexerState)
 lexFloat st =
@@ -1174,8 +1223,10 @@ lexFloat st =
                     raw = lhsRaw <> "." <> rhsRaw <> expo
                     txt = T.pack raw
                     normalized = filter (/= '_') raw
-                    st' = advanceChars raw st
-                 in Just (mkToken st st' txt (TkFloat (read normalized) txt), st')
+                    value = read normalized
+                    (tokTxt, tokKind, st') =
+                      withOptionalMagicHashSuffix st raw (TkFloat value txt) (TkFloatHash value)
+                 in Just (mkToken st st' tokTxt tokKind, st')
           _ ->
             case takeExponent allowUnderscores rest of
               ("", _) -> Nothing
@@ -1183,8 +1234,10 @@ lexFloat st =
                 let raw = lhsRaw <> expo
                     txt = T.pack raw
                     normalized = filter (/= '_') raw
-                    st' = advanceChars raw st
-                 in Just (mkToken st st' txt (TkFloat (read normalized) txt), st')
+                    value = read normalized
+                    (tokTxt, tokKind, st') =
+                      withOptionalMagicHashSuffix st raw (TkFloat value txt) (TkFloatHash value)
+                 in Just (mkToken st st' tokTxt tokKind, st')
 
 lexInt :: LexerState -> Maybe (LexToken, LexerState)
 lexInt st =
@@ -1193,10 +1246,11 @@ lexInt st =
    in if null digitsRaw
         then Nothing
         else
-          let txt = T.pack digitsRaw
-              digits = filter (/= '_') digitsRaw
-              st' = advanceChars digitsRaw st
-           in Just (mkToken st st' txt (TkInteger (read digits)), st')
+          let digits = filter (/= '_') digitsRaw
+              n = read digits
+              (tokTxt, tokKind, st') =
+                withOptionalMagicHashSuffix st digitsRaw (TkInteger n) (TkIntegerHash n)
+           in Just (mkToken st st' tokTxt tokKind, st')
 
 lexPromotedQuote :: LexerState -> Maybe (LexToken, LexerState)
 lexPromotedQuote st
@@ -1232,10 +1286,14 @@ lexChar st =
       case scanQuoted '\'' rest of
         Right (body, _) ->
           let raw = '\'' : body <> "'"
-              st' = advanceChars raw st
            in case readMaybeChar raw of
-                Just c -> Just (mkToken st st' (T.pack raw) (TkChar c), st')
-                Nothing -> Just (mkErrorToken st st' (T.pack raw) "invalid char literal", st')
+                Just c ->
+                  let (tokTxt, tokKind, st') =
+                        withOptionalMagicHashSuffix st raw (TkChar c) (TkCharHash c)
+                   in Just (mkToken st st' tokTxt tokKind, st')
+                Nothing ->
+                  let st' = advanceChars raw st
+                   in Just (mkErrorToken st st' (T.pack raw) "invalid char literal", st')
         Left raw ->
           let full = '\'' : raw
               st' = advanceChars full st
@@ -1253,8 +1311,9 @@ lexString st =
                 case reads raw of
                   [(str, "")] -> T.pack str
                   _ -> T.pack body
-              st' = advanceChars raw st
-           in Just (mkToken st st' (T.pack raw) (TkString decoded), st')
+              (tokTxt, tokKind, st') =
+                withOptionalMagicHashSuffix st raw (TkString decoded) (TkStringHash decoded)
+           in Just (mkToken st st' tokTxt tokKind, st')
         Left raw ->
           let full = '"' : raw
               st' = advanceChars full st

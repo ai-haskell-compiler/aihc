@@ -311,8 +311,8 @@ prettyTypePrec prec ty =
       parenthesize
         (prec > 0)
         (prettyTypeIn CtxTypeFunArg a <+> "->" <+> prettyTypePrec 0 b)
-    TTuple _ promoted elems ->
-      let tupleDoc = parens (hsep (punctuate comma (map (prettyTypePrec 0) elems)))
+    TTuple _ tupleFlavor promoted elems ->
+      let tupleDoc = prettyTupleBody tupleFlavor (hsep (punctuate comma (map (prettyTypePrec 0) elems)))
        in if promoted == Promoted then "'" <> tupleDoc else tupleDoc
     TList _ promoted inner ->
       let listDoc = brackets (prettyTypePrec 0 inner)
@@ -365,7 +365,7 @@ prettyPattern pat =
     PWildcard _ -> "_"
     PLit _ lit -> prettyLiteral lit
     PQuasiQuote _ quoter body -> prettyQuasiQuote quoter body
-    PTuple _ elems -> parens (hsep (punctuate comma (map prettyPattern elems)))
+    PTuple _ tupleFlavor elems -> prettyTupleBody tupleFlavor (hsep (punctuate comma (map prettyPattern elems)))
     PList _ elems -> brackets (hsep (punctuate comma (map prettyPattern elems)))
     PCon _ con args -> hsep (pretty con : map prettyPatternAtom args)
     PInfix _ lhs op rhs -> prettyPatternAtom lhs <+> prettyInfixOp op <+> prettyPatternAtom rhs
@@ -403,7 +403,7 @@ prettyPatternAtom pat =
     PQuasiQuote {} -> prettyPattern pat
     PNegLit _ _ -> prettyPattern pat
     PList _ _ -> prettyPattern pat
-    PTuple _ _ -> prettyPattern pat
+    PTuple {} -> prettyPattern pat
     PParen _ _ -> prettyPattern pat
     PStrict _ _ -> prettyPattern pat
     PView {} -> prettyPattern pat
@@ -423,10 +423,15 @@ prettyLiteral :: Literal -> Doc ann
 prettyLiteral lit =
   case lit of
     LitInt _ _ repr -> pretty repr
+    LitIntHash _ _ repr -> pretty repr
     LitIntBase _ _ repr -> pretty repr
+    LitIntBaseHash _ _ repr -> pretty repr
     LitFloat _ _ repr -> pretty repr
+    LitFloatHash _ _ repr -> pretty repr
     LitChar _ _ repr -> pretty repr
+    LitCharHash _ _ repr -> pretty repr
     LitString _ _ repr -> pretty repr
+    LitStringHash _ _ repr -> pretty repr
 
 prettyDataDecl :: DataDecl -> Doc ann
 prettyDataDecl decl =
@@ -864,10 +869,15 @@ prettyExprPrec prec expr =
       | isOperatorToken name -> parens (pretty name)
       | otherwise -> pretty name
     EInt _ _ repr -> pretty repr
+    EIntHash _ _ repr -> pretty repr
     EIntBase _ _ repr -> pretty repr
+    EIntBaseHash _ _ repr -> pretty repr
     EFloat _ _ repr -> pretty repr
+    EFloatHash _ _ repr -> pretty repr
     EChar _ _ repr -> pretty repr
+    ECharHash _ _ repr -> pretty repr
     EString _ _ repr -> pretty repr
+    EStringHash _ _ repr -> pretty repr
     EQuasiQuote _ quoter body -> prettyQuasiQuote quoter body
     EIf _ cond yes no ->
       -- The 'then' keyword delimits the condition, and 'else' delimits the then-branch,
@@ -946,9 +956,10 @@ prettyExprPrec prec expr =
         (prec > 0)
         (prettyWhereBody body <+> "where" <+> braces (prettyInlineDecls decls))
     EList _ values -> brackets (hsep (punctuate comma (map (prettyExprPrec 0) values)))
-    ETuple _ values -> parens (hsep (punctuate comma (map (prettyExprPrec 0) values)))
-    ETupleSection _ values ->
-      parens
+    ETuple _ tupleFlavor values -> prettyTupleBody tupleFlavor (hsep (punctuate comma (map (prettyExprPrec 0) values)))
+    ETupleSection _ tupleFlavor values ->
+      prettyTupleBody
+        tupleFlavor
         ( hsep
             ( punctuate
                 comma
@@ -961,7 +972,16 @@ prettyExprPrec prec expr =
                 )
             )
         )
-    ETupleCon _ arity -> parens (pretty (T.replicate (max 1 (arity - 1)) ","))
+    ETupleCon _ tupleFlavor arity ->
+      case tupleFlavor of
+        Boxed -> parens (pretty (T.replicate (max 1 (arity - 1)) ","))
+        Unboxed -> "(#" <> pretty (T.replicate (max 1 (arity - 1)) ",") <> "#)"
+
+prettyTupleBody :: TupleFlavor -> Doc ann -> Doc ann
+prettyTupleBody tupleFlavor inner =
+  case tupleFlavor of
+    Boxed -> parens inner
+    Unboxed -> hsep ["(#", inner, "#)"]
 
 -- | Pretty print a record field binding.
 -- Supports NamedFieldPuns: if value is a variable with the same name as the field,

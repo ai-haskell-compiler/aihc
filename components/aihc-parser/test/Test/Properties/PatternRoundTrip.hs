@@ -54,7 +54,7 @@ patternCtorNames pat =
         PWildcard {} -> here
         PLit {} -> here
         PQuasiQuote {} -> here
-        PTuple _ elems -> here <> mconcat (map patternCtorNames elems)
+        PTuple _ _ elems -> here <> mconcat (map patternCtorNames elems)
         PList _ elems -> here <> mconcat (map patternCtorNames elems)
         PCon _ _ args -> here <> mconcat (map patternCtorNames args)
         PInfix _ lhs _ rhs -> here <> patternCtorNames lhs <> patternCtorNames rhs
@@ -81,8 +81,8 @@ shrinkPattern pat =
     PQuasiQuote _ quoter body ->
       [PQuasiQuote span0 q body | q <- shrinkQuoterName quoter]
         <> [PQuasiQuote span0 quoter b | b <- map T.pack (shrink (T.unpack body))]
-    PTuple _ elems ->
-      shrinkTupleElems elems
+    PTuple _ tupleFlavor elems ->
+      shrinkTupleElems tupleFlavor elems
     PList _ elems ->
       [PList span0 elems' | elems' <- shrinkList shrinkPattern elems]
     PCon _ con args ->
@@ -115,14 +115,14 @@ shrinkPattern pat =
       [PRecord span0 con [] | not (null fields)]
         <> [PRecord span0 con fields' | fields' <- shrinkList shrinkField fields]
 
-shrinkTupleElems :: [Pattern] -> [Pattern]
-shrinkTupleElems elems =
+shrinkTupleElems :: TupleFlavor -> [Pattern] -> [Pattern]
+shrinkTupleElems tupleFlavor elems =
   [ candidate
   | shrunk <- shrinkList shrinkPattern elems,
     candidate <- case shrunk of
-      [] -> [PTuple span0 []]
+      [] -> [PTuple span0 tupleFlavor []]
       [_] -> []
-      _ -> [PTuple span0 shrunk]
+      _ -> [PTuple span0 tupleFlavor shrunk]
   ]
 
 shrinkField :: (Text, Pattern) -> [(Text, Pattern)]
@@ -133,17 +133,25 @@ shrinkLiteral :: Literal -> [Literal]
 shrinkLiteral lit =
   case lit of
     LitInt _ value _ -> [mkIntLiteral shrunk | shrunk <- shrinkIntegral value]
+    LitIntHash _ value _ -> [LitIntHash span0 shrunk (T.pack (show shrunk) <> "#") | shrunk <- shrinkIntegral value]
     LitIntBase _ value _ -> [mkHexLiteral shrunk | shrunk <- shrinkIntegral value, shrunk >= 0]
+    LitIntBaseHash _ value _ -> [LitIntBaseHash span0 shrunk ("0x" <> T.pack (showHex shrunk) <> "#") | shrunk <- shrinkIntegral value, shrunk >= 0]
     LitFloat _ value _ -> [mkFloatLiteral shrunk | shrunk <- shrinkFloat value, shrunk >= 0]
+    LitFloatHash _ value _ -> [LitFloatHash span0 shrunk (T.pack (show shrunk) <> "#") | shrunk <- shrinkFloat value, shrunk >= 0]
     LitChar _ c _ -> [mkCharLiteral shrunk | shrunk <- shrink c]
+    LitCharHash _ c _ -> [LitCharHash span0 shrunk (T.pack (show shrunk) <> "#") | shrunk <- shrink c]
     LitString _ txt _ -> [mkStringLiteral (T.pack shrunk) | shrunk <- shrink (T.unpack txt)]
+    LitStringHash _ txt _ -> [LitStringHash span0 (T.pack shrunk) (T.pack (show shrunk) <> "#") | shrunk <- shrink (T.unpack txt)]
 
 shrinkNumericLiteral :: Literal -> [Literal]
 shrinkNumericLiteral lit =
   case lit of
     LitInt {} -> shrinkLiteral lit
+    LitIntHash {} -> shrinkLiteral lit
     LitIntBase {} -> shrinkLiteral lit
+    LitIntBaseHash {} -> shrinkLiteral lit
     LitFloat {} -> shrinkLiteral lit
+    LitFloatHash {} -> shrinkLiteral lit
     _ -> []
 
 shrinkQuoterName :: Text -> [Text]
@@ -165,7 +173,7 @@ genPattern depth
           pure (PWildcard span0),
           PLit span0 <$> genLiteral,
           PQuasiQuote span0 <$> genQuoterName <*> genQuasiBody,
-          PTuple span0 <$> elements [[], [PVar span0 "x", PWildcard span0]],
+          PTuple span0 Boxed <$> elements [[], [PVar span0 "x", PWildcard span0]],
           pure (PList span0 []),
           PCon span0 <$> genPatternConName <*> pure [],
           PNegLit span0 <$> genNumericLiteral
@@ -176,7 +184,7 @@ genPattern depth
           (2, pure (PWildcard span0)),
           (3, PLit span0 <$> genLiteral),
           (2, PQuasiQuote span0 <$> genQuoterName <*> genQuasiBody),
-          (2, PTuple span0 <$> genTupleElems (depth - 1)),
+          (2, PTuple span0 Boxed <$> genTupleElems (depth - 1)),
           (2, PList span0 <$> genListElems (depth - 1)),
           (3, genPatternCon depth),
           (2, genPatternInfix depth),
@@ -373,7 +381,7 @@ normalizePattern pat =
     PWildcard _ -> PWildcard span0
     PLit _ lit -> PLit span0 (normalizeLiteral lit)
     PQuasiQuote _ quoter body -> PQuasiQuote span0 quoter body
-    PTuple _ elems -> PTuple span0 (map normalizePattern elems)
+    PTuple _ tupleFlavor elems -> PTuple span0 tupleFlavor (map normalizePattern elems)
     PList _ elems -> PList span0 (map normalizePattern elems)
     PCon _ con args -> PCon span0 con (map normalizePattern args)
     PInfix _ lhs op rhs -> PInfix span0 (normalizePattern lhs) op (normalizePattern rhs)
@@ -389,10 +397,15 @@ normalizeLiteral :: Literal -> Literal
 normalizeLiteral lit =
   case lit of
     LitInt _ value repr -> LitInt span0 value repr
+    LitIntHash _ value repr -> LitIntHash span0 value repr
     LitIntBase _ value repr -> LitIntBase span0 value repr
+    LitIntBaseHash _ value repr -> LitIntBaseHash span0 value repr
     LitFloat _ value repr -> LitFloat span0 value repr
+    LitFloatHash _ value repr -> LitFloatHash span0 value repr
     LitChar _ value repr -> LitChar span0 value repr
+    LitCharHash _ value repr -> LitCharHash span0 value repr
     LitString _ value repr -> LitString span0 value repr
+    LitStringHash _ value repr -> LitStringHash span0 value repr
 
 normalizeViewExpr :: Expr -> Expr
 normalizeViewExpr expr =

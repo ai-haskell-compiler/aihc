@@ -1,0 +1,5 @@
+extensions: [MagicHash]
+input: |
+  x#
+ast: EVar "x#"
+status: pass

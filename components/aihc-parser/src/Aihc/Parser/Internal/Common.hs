@@ -66,6 +66,8 @@ renderTokenKind :: LexTokenKind -> String
 renderTokenKind tk = case tk of
   TkSpecialLParen -> "symbol '('"
   TkSpecialRParen -> "symbol ')'"
+  TkSpecialUnboxedLParen -> "symbol '(#'"
+  TkSpecialUnboxedRParen -> "symbol '#)'"
   TkSpecialComma -> "symbol ','"
   TkSpecialSemicolon -> "symbol ';'"
   TkSpecialLBracket -> "symbol '['"

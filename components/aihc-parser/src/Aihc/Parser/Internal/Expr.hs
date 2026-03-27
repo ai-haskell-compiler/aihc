@@ -17,6 +17,7 @@ import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokenKind, lexToken
 import Aihc.Parser.Syntax
 import Control.Monad (guard)
 import Data.Char (isLower, isUpper)
+import Data.Functor (($>))
 import Data.Text (Text)
 import Data.Text qualified as T
 import Text.Megaparsec (anySingle, lookAhead, (<|>))
@@ -159,43 +160,48 @@ infixOperatorParserExcept forbidden =
 
 intExprParser :: TokParser Expr
 intExprParser = withSpan $ do
-  (n, repr) <- tokenSatisfy "integer literal" $ \tok ->
+  (ctor, n, repr) <- tokenSatisfy "integer literal" $ \tok ->
     case lexTokenKind tok of
-      TkInteger i -> Just (i, lexTokenText tok)
+      TkInteger i -> Just (EInt, i, lexTokenText tok)
+      TkIntegerHash i txt -> Just (EIntHash, i, txt)
       _ -> Nothing
-  pure (\span' -> EInt span' n repr)
+  pure (\span' -> ctor span' n repr)
 
 intBaseExprParser :: TokParser Expr
 intBaseExprParser = withSpan $ do
-  (n, repr) <- tokenSatisfy "based integer literal" $ \tok ->
+  (ctor, n, repr) <- tokenSatisfy "based integer literal" $ \tok ->
     case lexTokenKind tok of
-      TkIntegerBase i txt -> Just (i, txt)
+      TkIntegerBase i txt -> Just (EIntBase, i, txt)
+      TkIntegerBaseHash i txt -> Just (EIntBaseHash, i, txt)
       _ -> Nothing
-  pure (\span' -> EIntBase span' n repr)
+  pure (\span' -> ctor span' n repr)
 
 floatExprParser :: TokParser Expr
 floatExprParser = withSpan $ do
-  (n, repr) <- tokenSatisfy "floating literal" $ \tok ->
+  (ctor, n, repr) <- tokenSatisfy "floating literal" $ \tok ->
     case lexTokenKind tok of
-      TkFloat x txt -> Just (x, txt)
+      TkFloat x txt -> Just (EFloat, x, txt)
+      TkFloatHash x txt -> Just (EFloatHash, x, txt)
       _ -> Nothing
-  pure (\span' -> EFloat span' n repr)
+  pure (\span' -> ctor span' n repr)
 
 charExprParser :: TokParser Expr
 charExprParser = withSpan $ do
-  (c, repr) <- tokenSatisfy "character literal" $ \tok ->
+  (ctor, c, repr) <- tokenSatisfy "character literal" $ \tok ->
     case lexTokenKind tok of
-      TkChar x -> Just (x, lexTokenText tok)
+      TkChar x -> Just (EChar, x, lexTokenText tok)
+      TkCharHash x txt -> Just (ECharHash, x, txt)
       _ -> Nothing
-  pure (\span' -> EChar span' c repr)
+  pure (\span' -> ctor span' c repr)
 
 stringExprParser :: TokParser Expr
 stringExprParser = withSpan $ do
-  (s, repr) <- tokenSatisfy "string literal" $ \tok ->
+  (ctor, s, repr) <- tokenSatisfy "string literal" $ \tok ->
     case lexTokenKind tok of
-      TkString x -> Just (x, lexTokenText tok)
+      TkString x -> Just (EString, x, lexTokenText tok)
+      TkStringHash x txt -> Just (EStringHash, x, txt)
       _ -> Nothing
-  pure (\span' -> EString span' s repr)
+  pure (\span' -> ctor span' s repr)
 
 appExprParser :: TokParser Expr
 appExprParser = withSpan $ do
@@ -435,43 +441,48 @@ literalParser = intLiteralParser <|> intBaseLiteralParser <|> floatLiteralParser
 
 intLiteralParser :: TokParser Literal
 intLiteralParser = withSpan $ do
-  (n, repr) <- tokenSatisfy "integer literal" $ \tok ->
+  (ctor, n, repr) <- tokenSatisfy "integer literal" $ \tok ->
     case lexTokenKind tok of
-      TkInteger i -> Just (i, lexTokenText tok)
+      TkInteger i -> Just (LitInt, i, lexTokenText tok)
+      TkIntegerHash i txt -> Just (LitIntHash, i, txt)
       _ -> Nothing
-  pure (\span' -> LitInt span' n repr)
+  pure (\span' -> ctor span' n repr)
 
 intBaseLiteralParser :: TokParser Literal
 intBaseLiteralParser = withSpan $ do
-  (n, repr) <- tokenSatisfy "based integer literal" $ \tok ->
+  (ctor, n, repr) <- tokenSatisfy "based integer literal" $ \tok ->
     case lexTokenKind tok of
-      TkIntegerBase i txt -> Just (i, txt)
+      TkIntegerBase i txt -> Just (LitIntBase, i, txt)
+      TkIntegerBaseHash i txt -> Just (LitIntBaseHash, i, txt)
       _ -> Nothing
-  pure (\span' -> LitIntBase span' n repr)
+  pure (\span' -> ctor span' n repr)
 
 floatLiteralParser :: TokParser Literal
 floatLiteralParser = withSpan $ do
-  (n, repr) <- tokenSatisfy "floating literal" $ \tok ->
+  (ctor, n, repr) <- tokenSatisfy "floating literal" $ \tok ->
     case lexTokenKind tok of
-      TkFloat x txt -> Just (x, txt)
+      TkFloat x txt -> Just (LitFloat, x, txt)
+      TkFloatHash x txt -> Just (LitFloatHash, x, txt)
       _ -> Nothing
-  pure (\span' -> LitFloat span' n repr)
+  pure (\span' -> ctor span' n repr)
 
 charLiteralParser :: TokParser Literal
 charLiteralParser = withSpan $ do
-  (c, repr) <- tokenSatisfy "character literal" $ \tok ->
+  (ctor, c, repr) <- tokenSatisfy "character literal" $ \tok ->
     case lexTokenKind tok of
-      TkChar x -> Just (x, lexTokenText tok)
+      TkChar x -> Just (LitChar, x, lexTokenText tok)
+      TkCharHash x txt -> Just (LitCharHash, x, txt)
       _ -> Nothing
-  pure (\span' -> LitChar span' c repr)
+  pure (\span' -> ctor span' c repr)
 
 stringLiteralParser :: TokParser Literal
 stringLiteralParser = withSpan $ do
-  (s, repr) <- tokenSatisfy "string literal" $ \tok ->
+  (ctor, s, repr) <- tokenSatisfy "string literal" $ \tok ->
     case lexTokenKind tok of
-      TkString x -> Just (x, lexTokenText tok)
+      TkString x -> Just (LitString, x, lexTokenText tok)
+      TkStringHash x txt -> Just (LitStringHash, x, txt)
       _ -> Nothing
-  pure (\span' -> LitString span' s repr)
+  pure (\span' -> ctor span' s repr)
 
 rhsParser :: TokParser Rhs
 rhsParser = rhsParserWithArrow RhsArrowCase
@@ -564,18 +575,23 @@ caseExprParser = withSpan $ do
 
 parenExprParser :: TokParser Expr
 parenExprParser = withSpan $ do
-  expectedTok TkSpecialLParen
-  mClosed <- MP.optional (expectedTok TkSpecialRParen)
+  (tupleFlavor, closeTok) <-
+    (expectedTok TkSpecialLParen $> (Boxed, TkSpecialRParen))
+      <|> (expectedTok TkSpecialUnboxedLParen $> (Unboxed, TkSpecialUnboxedRParen))
+  mClosed <- MP.optional (expectedTok closeTok)
   case mClosed of
-    Just () -> pure (`ETuple` [])
-    Nothing -> MP.try parseNegateParen <|> MP.try parseSection <|> MP.try parseTupleSectionExpr <|> parseParenOrTupleExpr
+    Just () -> pure (\span' -> ETuple span' tupleFlavor [])
+    Nothing ->
+      if tupleFlavor == Boxed
+        then MP.try (parseNegateParen closeTok) <|> MP.try (parseSection closeTok) <|> MP.try (parseTupleSectionExpr tupleFlavor closeTok) <|> parseParenOrTupleExpr tupleFlavor closeTok
+        else MP.try (parseTupleSectionExpr tupleFlavor closeTok) <|> parseParenOrTupleExpr tupleFlavor closeTok
   where
-    parseNegateParen = do
+    parseNegateParen closeTok = do
       minusTok <- minusTokenValueParser
       nextTok <- lookAhead anySingle
       guard (parenNegateAllowed minusTok nextTok)
       inner <- exprParser
-      expectedTok TkSpecialRParen
+      expectedTok closeTok
       pure $ \span' ->
         case lexTokenKind minusTok of
           TkPrefixMinus -> ENegate span' inner
@@ -594,47 +610,49 @@ parenExprParser = withSpan $ do
           firstEndLine == secondStartLine && firstEndCol == secondStartCol
         _ -> False
 
-    parseSection = do
+    parseSection closeTok = do
       MP.try parseSectionR <|> parseSectionL
+      where
+        parseSectionR = do
+          op <- infixOperatorParserExcept []
+          rhs <- exprParser
+          expectedTok closeTok
+          pure (\span' -> EParen span' (ESectionR span' op rhs))
 
-    parseSectionR = do
-      op <- infixOperatorParserExcept []
-      rhs <- exprParser
-      expectedTok TkSpecialRParen
-      pure (\span' -> EParen span' (ESectionR span' op rhs))
+        parseSectionL = do
+          lhs <- appExprParser
+          op <- infixOperatorParserExcept []
+          expectedTok closeTok
+          pure (\span' -> EParen span' (ESectionL span' lhs op))
 
-    parseSectionL = do
-      lhs <- appExprParser
-      op <- infixOperatorParserExcept []
-      expectedTok TkSpecialRParen
-      pure (\span' -> EParen span' (ESectionL span' lhs op))
-
-    parseTupleSectionExpr = do
+    parseTupleSectionExpr tupleFlavor closeTok = do
       -- Try to parse as tuple section first (e.g., "(,1)" or "(1,)")
       -- If that fails, fall back to regular tuple/paren parsing
-      values <- parseTupleSection
-      pure (`ETupleSection` values)
+      values <- parseTupleSection closeTok
+      pure (\span' -> ETupleSection span' tupleFlavor values)
 
-    parseParenOrTupleExpr = do
+    parseParenOrTupleExpr tupleFlavor closeTok = do
       first <- exprParser
       mComma <- MP.optional (expectedTok TkSpecialComma)
       case mComma of
         Nothing -> do
-          expectedTok TkSpecialRParen
-          pure (`EParen` first)
+          expectedTok closeTok
+          if tupleFlavor == Boxed
+            then pure (`EParen` first)
+            else fail "not an unboxed tuple"
         Just () -> do
           second <- exprParser
           more <- MP.many (expectedTok TkSpecialComma *> exprParser)
-          expectedTok TkSpecialRParen
-          pure (`ETuple` (first : second : more))
+          expectedTok closeTok
+          pure (\span' -> ETuple span' tupleFlavor (first : second : more))
 
-parseTupleSection :: TokParser [Maybe Expr]
-parseTupleSection = do
+parseTupleSection :: LexTokenKind -> TokParser [Maybe Expr]
+parseTupleSection closeTok = do
   first <- MP.optional exprParser
   _ <- expectedTok TkSpecialComma
   middle <- MP.many (MP.try (MP.optional exprParser <* expectedTok TkSpecialComma))
   lastSlot <- MP.optional exprParser
-  expectedTok TkSpecialRParen
+  expectedTok closeTok
   let vals = first : middle <> [lastSlot]
   let hasMissing = any isNothing vals
   if hasMissing && length vals > 1
@@ -831,32 +849,40 @@ listPatternParser = withSpan $ do
 
 parenOrTuplePatternParser :: TokParser Pattern
 parenOrTuplePatternParser = withSpan $ do
-  expectedTok TkSpecialLParen
-  MP.try unitPatternParser <|> MP.try viewPatternParser <|> tupleOrParenPatternParser
+  (tupleFlavor, closeTok) <-
+    (expectedTok TkSpecialLParen $> (Boxed, TkSpecialRParen))
+      <|> (expectedTok TkSpecialUnboxedLParen $> (Unboxed, TkSpecialUnboxedRParen))
+  MP.try (unitPatternParser tupleFlavor closeTok)
+    <|> MP.try (viewPatternParser tupleFlavor closeTok)
+    <|> tupleOrParenPatternParser tupleFlavor closeTok
   where
-    unitPatternParser = do
-      expectedTok TkSpecialRParen
-      pure (`PTuple` [])
+    unitPatternParser tupleFlavor closeTok = do
+      expectedTok closeTok
+      pure (\span' -> PTuple span' tupleFlavor [])
 
-    viewPatternParser = do
+    viewPatternParser tupleFlavor closeTok = do
       viewExpr <- exprParser
       expectedTok TkReservedRightArrow
       inner <- patternParser
-      expectedTok TkSpecialRParen
-      pure (\span' -> PView span' viewExpr inner)
+      expectedTok closeTok
+      if tupleFlavor == Boxed
+        then pure (\span' -> PView span' viewExpr inner)
+        else fail "not an unboxed tuple pattern"
 
-    tupleOrParenPatternParser = do
+    tupleOrParenPatternParser tupleFlavor closeTok = do
       first <- patternParser
       mComma <- MP.optional (expectedTok TkSpecialComma)
       case mComma of
         Nothing -> do
-          expectedTok TkSpecialRParen
-          pure (`PParen` first)
+          expectedTok closeTok
+          if tupleFlavor == Boxed
+            then pure (`PParen` first)
+            else fail "not an unboxed tuple pattern"
         Just () -> do
           second <- patternParser
           more <- MP.many (expectedTok TkSpecialComma *> patternParser)
-          expectedTok TkSpecialRParen
-          pure (`PTuple` (first : second : more))
+          expectedTok closeTok
+          pure (\span' -> PTuple span' tupleFlavor (first : second : more))
 
 isConLikeName :: Text -> Bool
 isConLikeName name =
@@ -1078,40 +1104,47 @@ typeListParser = withSpan $ do
 
 typeParenOrTupleParser :: TokParser Type
 typeParenOrTupleParser = withSpan $ do
-  expectedTok TkSpecialLParen
-  mClosed <- MP.optional (expectedTok TkSpecialRParen)
+  (tupleFlavor, closeTok) <-
+    (expectedTok TkSpecialLParen $> (Boxed, TkSpecialRParen))
+      <|> (expectedTok TkSpecialUnboxedLParen $> (Unboxed, TkSpecialUnboxedRParen))
+  mClosed <- MP.optional (expectedTok closeTok)
   case mClosed of
-    Just () -> pure (\span' -> TTuple span' Unpromoted [])
+    Just () -> pure (\span' -> TTuple span' tupleFlavor Unpromoted [])
     Nothing -> do
-      MP.try tupleConstructorParser <|> parenthesizedTypeOrTupleParser
+      MP.try (tupleConstructorParser tupleFlavor closeTok) <|> parenthesizedTypeOrTupleParser tupleFlavor closeTok
   where
-    tupleConstructorParser = do
+    tupleConstructorParser tupleFlavor closeTok = do
       _ <- expectedTok TkSpecialComma
       moreCommas <- MP.many (expectedTok TkSpecialComma)
-      expectedTok TkSpecialRParen
+      expectedTok closeTok
       let arity = 2 + length moreCommas
-          tupleConName = "(" <> T.replicate (arity - 1) "," <> ")"
+          tupleConName =
+            case tupleFlavor of
+              Boxed -> "(" <> T.replicate (arity - 1) "," <> ")"
+              Unboxed -> "(#" <> T.replicate (arity - 1) "," <> "#)"
       pure (\span' -> TCon span' tupleConName Unpromoted)
 
-    parenthesizedTypeOrTupleParser = do
+    parenthesizedTypeOrTupleParser tupleFlavor closeTok = do
       first <- typeParser
       mComma <- MP.optional (expectedTok TkSpecialComma)
       case mComma of
         Nothing -> do
-          expectedTok TkSpecialRParen
-          pure (`TParen` first)
+          expectedTok closeTok
+          if tupleFlavor == Boxed
+            then pure (`TParen` first)
+            else fail "not an unboxed tuple type"
         Just () -> do
           second <- typeParser
           more <- MP.many (expectedTok TkSpecialComma *> typeParser)
-          expectedTok TkSpecialRParen
-          pure (\span' -> TTuple span' Unpromoted (first : second : more))
+          expectedTok closeTok
+          pure (\span' -> TTuple span' tupleFlavor Unpromoted (first : second : more))
 
 markTypePromoted :: Type -> Maybe Type
 markTypePromoted ty =
   case ty of
     TCon span' name _ -> Just (TCon span' name Promoted)
     TList span' _ inner -> Just (TList span' Promoted inner)
-    TTuple span' _ elems -> Just (TTuple span' Promoted elems)
+    TTuple span' tupleFlavor _ elems -> Just (TTuple span' tupleFlavor Promoted elems)
     _ -> Nothing
 
 setTypeSpan :: SourceSpan -> Type -> Type
@@ -1125,7 +1158,7 @@ setTypeSpan span' ty =
     TForall _ binders inner -> TForall span' binders inner
     TApp _ lhs rhs -> TApp span' lhs rhs
     TFun _ lhs rhs -> TFun span' lhs rhs
-    TTuple _ promoted elems -> TTuple span' promoted elems
+    TTuple _ tupleFlavor promoted elems -> TTuple span' tupleFlavor promoted elems
     TList _ promoted inner -> TList span' promoted inner
     TParen _ inner -> TParen span' inner
     TContext _ constraints inner -> TContext span' constraints inner
