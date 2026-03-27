@@ -34,6 +34,7 @@ import Aihc.Parser.Internal.Module (moduleParser)
 import Aihc.Parser.Lex
   ( LexToken (..),
     LexTokenKind (..),
+    TokenOrigin (..),
     lexModuleTokensWithExtensions,
     lexTokensWithExtensions,
     readModuleHeaderExtensions,
@@ -206,6 +207,7 @@ markerLength :: Maybe FoundToken -> Int
 markerLength mFound =
   case mFound of
     Just found
+      | foundTokenOrigin found == InsertedLayout -> 1
       | T.null (foundTokenText found) -> 1
       | otherwise -> max 1 (T.length (foundTokenText found))
     Nothing -> 1
@@ -216,10 +218,13 @@ renderUnexpectedToken found =
 
 tokenDescriptor :: FoundToken -> String
 tokenDescriptor found =
-  case foundTokenKind found of
-    Nothing -> "end of input"
-    Just TkKeywordWhere -> "'where' keyword"
-    Just _ -> "'" <> T.unpack (foundTokenText found) <> "'"
+  case foundTokenOrigin found of
+    InsertedLayout -> "end of input"
+    FromSource ->
+      case foundTokenKind found of
+        Nothing -> "end of input"
+        Just TkKeywordWhere -> "'where' keyword"
+        Just _ -> "'" <> T.unpack (foundTokenText found) <> "'"
 
 renderErrorBlocks :: Maybe Text -> ParseErrorBundle -> String
 renderErrorBlocks mSource bundle =
@@ -249,7 +254,11 @@ renderErrorBlock sourceName mSource stream err =
 positionForError :: TokStream -> MPE.ParseError TokStream ParserErrorComponent -> (Int, Int)
 positionForError stream err =
   case extractCustomError err >>= customFoundToken of
-    Just found -> spanStart (foundTokenSpan found)
+    Just found
+      | foundTokenOrigin found == InsertedLayout ->
+          sourcePosForOffset stream (MPE.errorOffset err)
+      | otherwise ->
+          spanStart (foundTokenSpan found)
     Nothing -> sourcePosForOffset stream (MPE.errorOffset err)
   where
     spanStart span' =

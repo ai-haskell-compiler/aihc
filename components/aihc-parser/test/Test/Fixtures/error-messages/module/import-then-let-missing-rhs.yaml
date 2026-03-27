@@ -8,7 +8,7 @@ aihc: |
   test.hs:2:1:
   2 | x = let
     | ^
-  unexpected ';'
+  unexpected end of input
   expecting imported module name
 
   test.hs:2:8:

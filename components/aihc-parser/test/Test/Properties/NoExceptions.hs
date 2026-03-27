@@ -26,6 +26,7 @@ import Aihc.Parser.Internal.FromTokens
 import Aihc.Parser.Lex
   ( LexToken (..),
     LexTokenKind (..),
+    TokenOrigin (..),
     lexModuleTokens,
     lexTokens,
   )
@@ -113,7 +114,8 @@ genLexToken = do
   kind <- genLexTokenKind
   tokenText <- genTokenText
   span' <- genSourceSpan
-  pure LexToken {lexTokenKind = kind, lexTokenText = tokenText, lexTokenSpan = span'}
+  tokenOrigin <- elements [FromSource, InsertedLayout]
+  pure LexToken {lexTokenKind = kind, lexTokenText = tokenText, lexTokenSpan = span', lexTokenOrigin = tokenOrigin}
 
 shrinkLexToken :: LexToken -> [LexToken]
 shrinkLexToken token =

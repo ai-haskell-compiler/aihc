@@ -15,7 +15,7 @@ module Aihc.Parser.Types
   )
 where
 
-import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..))
+import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), TokenOrigin (..))
 import Aihc.Parser.Syntax (Extension, SourceSpan (..))
 import Control.DeepSeq (NFData (..))
 import Data.List.NonEmpty qualified as NE
@@ -34,7 +34,8 @@ type ParseErrorBundle = MPE.ParseErrorBundle TokStream ParserErrorComponent
 data FoundToken = FoundToken
   { foundTokenText :: !Text,
     foundTokenKind :: !(Maybe LexTokenKind),
-    foundTokenSpan :: !SourceSpan
+    foundTokenSpan :: !SourceSpan,
+    foundTokenOrigin :: !TokenOrigin
   }
   deriving (Eq, Ord, Show, Generic, NFData)
 
@@ -61,7 +62,8 @@ mkFoundToken tok =
   FoundToken
     { foundTokenText = lexTokenText tok,
       foundTokenKind = Just (lexTokenKind tok),
-      foundTokenSpan = lexTokenSpan tok
+      foundTokenSpan = lexTokenSpan tok,
+      foundTokenOrigin = lexTokenOrigin tok
     }
 
 eofFoundTokenAt :: SourcePos -> FoundToken
@@ -69,7 +71,8 @@ eofFoundTokenAt pos =
   FoundToken
     { foundTokenText = T.empty,
       foundTokenKind = Nothing,
-      foundTokenSpan = spanFromPos pos
+      foundTokenSpan = spanFromPos pos,
+      foundTokenOrigin = FromSource
     }
   where
     spanFromPos sourcePos =

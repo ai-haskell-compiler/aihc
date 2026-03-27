@@ -51,7 +51,8 @@
 -- In other words, use keyword tokens only for exact reserved lexemes; contextual
 -- validity is left to the parser.
 module Aihc.Parser.Lex
-  ( LexToken (..),
+  ( TokenOrigin (..),
+    LexToken (..),
     LexTokenKind (..),
     isReservedIdentifier,
     readModuleHeaderExtensions,
@@ -157,10 +158,16 @@ data LexTokenKind
   | TkError Text
   deriving (Eq, Ord, Show, Read, Generic, NFData)
 
+data TokenOrigin
+  = FromSource
+  | InsertedLayout
+  deriving (Eq, Ord, Show, Read, Generic, NFData)
+
 data LexToken = LexToken
   { lexTokenKind :: !LexTokenKind,
     lexTokenText :: !Text,
-    lexTokenSpan :: !SourceSpan
+    lexTokenSpan :: !SourceSpan,
+    lexTokenOrigin :: !TokenOrigin
   }
   deriving (Eq, Ord, Show, Generic, NFData)
 
@@ -768,7 +775,8 @@ virtualSymbolToken sym span' =
         ";" -> TkSpecialSemicolon
         _ -> error ("virtualSymbolToken: unexpected symbol " ++ T.unpack sym),
       lexTokenText = sym,
-      lexTokenSpan = span'
+      lexTokenSpan = span',
+      lexTokenOrigin = InsertedLayout
     }
 
 lexKnownPragma :: LexerState -> Maybe (LexToken, LexerState)
@@ -907,7 +915,8 @@ negateToken stBefore numTok =
   LexToken
     { lexTokenKind = negateKind (lexTokenKind numTok),
       lexTokenText = "-" <> lexTokenText numTok,
-      lexTokenSpan = extendSpanLeft (lexTokenSpan numTok)
+      lexTokenSpan = extendSpanLeft (lexTokenSpan numTok),
+      lexTokenOrigin = lexTokenOrigin numTok
     }
   where
     negateKind k = case k of
@@ -1607,7 +1616,8 @@ mkToken start end tokTxt kind =
   LexToken
     { lexTokenKind = kind,
       lexTokenText = tokTxt,
-      lexTokenSpan = mkSpan start end
+      lexTokenSpan = mkSpan start end,
+      lexTokenOrigin = FromSource
     }
 
 mkSpan :: LexerState -> LexerState -> SourceSpan
