@@ -7,5 +7,5 @@ input: |
     where
       x = a
       y = b
-ast: Module {name = "DoWhereLayoutMulti", decls = [DeclValue (FunctionBind "testMulti" [Match {pats = [PVar "a", PVar "b"], rhs = UnguardedRhs (EWhereDecls (EDo [DoExpr (EVar "x"), DoExpr (EVar "y")]) [DeclValue (FunctionBind "x" [Match {rhs = UnguardedRhs (EVar "a")}]), DeclValue (FunctionBind "y" [Match {rhs = UnguardedRhs (EVar "b")}])])}])]}
+ast: Module {name = "DoWhereLayoutMulti", decls = [DeclValue (FunctionBind "testMulti" [Match {headForm = Prefix, pats = [PVar "a", PVar "b"], rhs = UnguardedRhs (EWhereDecls (EDo [DoExpr (EVar "x"), DoExpr (EVar "y")]) [DeclValue (FunctionBind "x" [Match {headForm = Prefix, rhs = UnguardedRhs (EVar "a")}]), DeclValue (FunctionBind "y" [Match {headForm = Prefix, rhs = UnguardedRhs (EVar "b")}])])}])]}
 status: pass

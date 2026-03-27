@@ -250,21 +250,22 @@ constraintsParserWith typeAtomParser =
 contextParserWith :: TokParser Type -> TokParser [Constraint]
 contextParserWith = constraintsParserWith
 
-functionBindValue :: SourceSpan -> Text -> [Pattern] -> Rhs -> ValueDecl
-functionBindValue span' name pats rhs =
+functionBindValue :: SourceSpan -> MatchHeadForm -> Text -> [Pattern] -> Rhs -> ValueDecl
+functionBindValue span' headForm name pats rhs =
   FunctionBind
     span'
     name
     [ Match
         { matchSpan = span',
+          matchHeadForm = headForm,
           matchPats = pats,
           matchRhs = rhs
         }
     ]
 
-functionBindDecl :: SourceSpan -> Text -> [Pattern] -> Rhs -> Decl
-functionBindDecl span' name pats rhs =
-  DeclValue span' (functionBindValue span' name pats rhs)
+functionBindDecl :: SourceSpan -> MatchHeadForm -> Text -> [Pattern] -> Rhs -> Decl
+functionBindDecl span' headForm name pats rhs =
+  DeclValue span' (functionBindValue span' headForm name pats rhs)
 
 renderKeyword :: LexTokenKind -> String
 renderKeyword keyword =

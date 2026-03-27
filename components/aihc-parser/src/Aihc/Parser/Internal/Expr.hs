@@ -772,20 +772,33 @@ localTypeSigDeclParser = withSpan $ do
   pure (\span' -> DeclTypeSig span' names ty)
 
 localFunctionDeclParser :: TokParser Decl
-localFunctionDeclParser = withSpan $ MP.try infixLocalFunctionParser <|> prefixLocalFunctionParser
+localFunctionDeclParser = withSpan $ do
+  (headForm, name, pats) <- functionHeadParser
+  rhs <- equationRhsParser
+  pure (\span' -> functionBindDecl span' headForm name pats rhs)
   where
-    prefixLocalFunctionParser = do
+    functionHeadParser :: TokParser (MatchHeadForm, Text, [Pattern])
+    functionHeadParser = MP.try parenthesizedInfixHeadParser <|> MP.try infixHeadParser <|> prefixHeadParser
+
+    prefixHeadParser = do
       name <- binderNameParser
       pats <- MP.many simplePatternParser
-      rhs <- equationRhsParser
-      pure (\span' -> functionBindDecl span' name pats rhs)
+      pure (MatchHeadPrefix, name, pats)
 
-    infixLocalFunctionParser = do
+    infixHeadParser = do
       lhsPat <- patternParser
       op <- infixOperatorNameParser
       rhsPat <- patternParser
-      rhs <- equationRhsParser
-      pure (\span' -> functionBindDecl span' op [lhsPat, rhsPat] rhs)
+      pure (MatchHeadInfix, op, [lhsPat, rhsPat])
+
+    parenthesizedInfixHeadParser = do
+      expectedTok TkSpecialLParen
+      lhsPat <- patternParser
+      op <- infixOperatorNameParser
+      rhsPat <- patternParser
+      expectedTok TkSpecialRParen
+      tailPats <- MP.many simplePatternParser
+      pure (MatchHeadInfix, op, [lhsPat, rhsPat] <> tailPats)
 
 localPatternDeclParser :: TokParser Decl
 localPatternDeclParser = withSpan $ do

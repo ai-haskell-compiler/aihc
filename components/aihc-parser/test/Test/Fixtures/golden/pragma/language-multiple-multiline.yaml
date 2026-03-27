@@ -5,5 +5,5 @@ input: |
   {-# LANGUAGE ScopedTypeVariables #-}
   module Demo where
   x = 1
-ast: Module {name = Just "Demo", languagePragmas = ["BangPatterns", "GADTs", "ScopedTypeVariables"], warningText = Nothing, exports = Nothing, imports = [], decls = [DeclValue (FunctionBind "x" [Match {pats = [], rhs = UnguardedRhs (EInt 1)}])]}
+ast: Module {name = Just "Demo", languagePragmas = ["BangPatterns", "GADTs", "ScopedTypeVariables"], warningText = Nothing, exports = Nothing, imports = [], decls = [DeclValue (FunctionBind "x" [Match {headForm = Prefix, pats = [], rhs = UnguardedRhs (EInt 1)}])]}
 status: pass

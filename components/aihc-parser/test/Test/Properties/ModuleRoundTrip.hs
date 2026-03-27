@@ -52,6 +52,7 @@ instance Arbitrary Module where
                     name
                     [ Match
                         { matchSpan = span0,
+                          matchHeadForm = MatchHeadPrefix,
                           matchPats = [],
                           matchRhs = UnguardedRhs span0 expr
                         }
@@ -389,6 +390,7 @@ normalizeMatch :: Match -> Match
 normalizeMatch match =
   Match
     { matchSpan = span0,
+      matchHeadForm = matchHeadForm match,
       matchPats = matchPats match,
       matchRhs = normalizeRhs (matchRhs match)
     }
