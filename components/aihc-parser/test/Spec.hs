@@ -15,6 +15,7 @@ import Test.H2010.Suite (h2010Tests)
 import Test.HackageTester.Suite (hackageTesterTests)
 import Test.Lexer.Suite (lexerTests)
 import Test.Parser.Suite (parserGoldenTests)
+import Test.Properties.ExprHelpers (genOperator, isValidGeneratedOperator)
 import Test.Properties.ExprRoundTrip (prop_exprPrettyRoundTrip)
 import Test.Properties.Identifiers (isValidGeneratedIdent, shrinkIdent)
 import Test.Properties.ModuleRoundTrip (prop_modulePrettyRoundTrip)
@@ -73,7 +74,8 @@ buildTests = do
             testCase "parser config sets source name in parse errors" test_parserConfigSetsSourceName,
             testCase "generated identifiers reject reserved keyword as" test_generatedIdentifiersRejectReservedAs,
             testCase "generated identifiers reject standalone underscore" test_generatedIdentifiersRejectStandaloneUnderscore,
-            testCase "shrunk identifiers reject standalone underscore" test_shrunkIdentifiersRejectStandaloneUnderscore
+            testCase "shrunk identifiers reject standalone underscore" test_shrunkIdentifiersRejectStandaloneUnderscore,
+            QC.testProperty "generated operators reject dash-only comment starters" prop_generatedOperatorsRejectDashOnlyCommentStarters
           ],
         adjustOption (const tenMinutes) $
           testGroup
@@ -357,3 +359,9 @@ test_shrunkIdentifiersRejectStandaloneUnderscore :: Assertion
 test_shrunkIdentifiersRejectStandaloneUnderscore =
   assertBool "standalone underscore must not be produced by shrinking" $
     "_" `notElem` shrinkIdent "__"
+
+prop_generatedOperatorsRejectDashOnlyCommentStarters :: QC.Property
+prop_generatedOperatorsRejectDashOnlyCommentStarters =
+  QC.forAll (QC.vectorOf 2000 genOperator) $ \ops ->
+    let invalid = filter (not . isValidGeneratedOperator) ops
+     in QC.counterexample ("invalid generated operators: " <> show invalid) (null invalid)
