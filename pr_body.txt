@@ -1,0 +1,18 @@
+This PR adds oracle tests for various language extensions to track parser progress and compatibility.
+
+Extensions covered:
+- DerivingVia, EmptyDataDeriving, MagicHash, ExtendedLiterals
+- PartialTypeSignatures, QualifiedDo, RequiredTypeArguments
+- UnboxedTuples, UnboxedSums, TypeData, TypeFamilies
+- RecordWildCards, RecursiveDo, ImplicitParams
+- ForeignFunctionInterface, Arrows
+
+Current parser progress:
+```
+Haskell parser extension support progress
+=================================
+SUPPORTED    32
+IN_PROGRESS  27
+PLANNED      79
+TOTAL        138
+```
