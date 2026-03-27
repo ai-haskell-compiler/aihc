@@ -38,28 +38,14 @@ instance Arbitrary Module where
     exprs <- vectorOf (length names) (resize 4 genExpr)
     imports <- genImportDecls
     mHead <- genMaybeModuleHead
+    decls <- mapM genFunctionDecl (zip names exprs)
     pure $
       Module
         { moduleSpan = span0,
           moduleHead = mHead,
           moduleLanguagePragmas = [],
           moduleImports = imports,
-          moduleDecls =
-            [ DeclValue
-                span0
-                ( FunctionBind
-                    span0
-                    name
-                    [ Match
-                        { matchSpan = span0,
-                          matchHeadForm = MatchHeadPrefix,
-                          matchPats = [],
-                          matchRhs = UnguardedRhs span0 expr
-                        }
-                    ]
-                )
-            | (name, expr) <- zip names exprs
-            ]
+          moduleDecls = decls
         }
 
   shrink modu =
@@ -73,6 +59,43 @@ instance Arbitrary Module where
       <> [ modu {moduleHead = shrunk}
          | shrunk <- shrinkMaybeModuleHead (moduleHead modu)
          ]
+
+genFunctionDecl :: (Text, Expr) -> Gen Decl
+genFunctionDecl (name, expr) = do
+  infixHead <- arbitrary
+  if infixHead
+    then do
+      lhs <- genIdent
+      rhs <- genIdent
+      pure $
+        DeclValue
+          span0
+          ( FunctionBind
+              span0
+              name
+              [ Match
+                  { matchSpan = span0,
+                    matchHeadForm = MatchHeadInfix,
+                    matchPats = [PVar span0 lhs, PVar span0 rhs],
+                    matchRhs = UnguardedRhs span0 expr
+                  }
+              ]
+          )
+    else
+      pure $
+        DeclValue
+          span0
+          ( FunctionBind
+              span0
+              name
+              [ Match
+                  { matchSpan = span0,
+                    matchHeadForm = MatchHeadPrefix,
+                    matchPats = [],
+                    matchRhs = UnguardedRhs span0 expr
+                  }
+              ]
+          )
 
 -- | Generate an optional module head.
 -- Most modules have explicit headers, but implicit modules (Nothing) are also valid.
@@ -391,9 +414,15 @@ normalizeMatch match =
   Match
     { matchSpan = span0,
       matchHeadForm = matchHeadForm match,
-      matchPats = matchPats match,
+      matchPats = map normalizeMatchPattern (matchPats match),
       matchRhs = normalizeRhs (matchRhs match)
     }
+
+normalizeMatchPattern :: Pattern -> Pattern
+normalizeMatchPattern pat =
+  case pat of
+    PVar _ name -> PVar span0 name
+    _ -> pat
 
 normalizeRhs :: Rhs -> Rhs
 normalizeRhs rhs =

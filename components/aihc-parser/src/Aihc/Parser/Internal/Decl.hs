@@ -331,33 +331,10 @@ classFixityItemParser = withSpan $ do
 
 classDefaultItemParser :: TokParser ClassDeclItem
 classDefaultItemParser = withSpan $ do
-  (headForm, name, pats) <- functionHeadParser
+  (headForm, name, pats) <- functionHeadParserWith patternParser simplePatternParser
   expectedTok TkReservedEquals
   rhsExpr <- exprParser
   pure (\span' -> ClassItemDefault span' (functionBindValue span' headForm name pats (UnguardedRhs span' rhsExpr)))
-  where
-    functionHeadParser :: TokParser (MatchHeadForm, Text, [Pattern])
-    functionHeadParser = MP.try parenthesizedInfixHeadParser <|> MP.try infixHeadParser <|> prefixHeadParser
-
-    prefixHeadParser = do
-      name <- binderNameParser
-      pats <- MP.many simplePatternParser
-      pure (MatchHeadPrefix, name, pats)
-
-    infixHeadParser = do
-      lhsPat <- patternParser
-      op <- infixOperatorNameParser
-      rhsPat <- patternParser
-      pure (MatchHeadInfix, op, [lhsPat, rhsPat])
-
-    parenthesizedInfixHeadParser = do
-      expectedTok TkSpecialLParen
-      lhsPat <- patternParser
-      op <- infixOperatorNameParser
-      rhsPat <- patternParser
-      expectedTok TkSpecialRParen
-      tailPats <- MP.many simplePatternParser
-      pure (MatchHeadInfix, op, [lhsPat, rhsPat] <> tailPats)
 
 instanceDeclParser :: TokParser Decl
 instanceDeclParser = withSpan $ do
@@ -422,32 +399,9 @@ instanceFixityItemParser = withSpan $ do
 
 instanceValueItemParser :: TokParser InstanceDeclItem
 instanceValueItemParser = withSpan $ do
-  (headForm, name, pats) <- functionHeadParser
+  (headForm, name, pats) <- functionHeadParserWith patternParser simplePatternParser
   rhs <- equationRhsParser
   pure (\span' -> InstanceItemBind span' (functionBindValue span' headForm name pats rhs))
-  where
-    functionHeadParser :: TokParser (MatchHeadForm, Text, [Pattern])
-    functionHeadParser = MP.try parenthesizedInfixHeadParser <|> MP.try infixHeadParser <|> prefixHeadParser
-
-    prefixHeadParser = do
-      name <- binderNameParser
-      pats <- MP.many simplePatternParser
-      pure (MatchHeadPrefix, name, pats)
-
-    infixHeadParser = do
-      lhsPat <- patternParser
-      op <- infixOperatorNameParser
-      rhsPat <- patternParser
-      pure (MatchHeadInfix, op, [lhsPat, rhsPat])
-
-    parenthesizedInfixHeadParser = do
-      expectedTok TkSpecialLParen
-      lhsPat <- patternParser
-      op <- infixOperatorNameParser
-      rhsPat <- patternParser
-      expectedTok TkSpecialRParen
-      tailPats <- MP.many simplePatternParser
-      pure (MatchHeadInfix, op, [lhsPat, rhsPat] <> tailPats)
 
 foreignDeclParser :: TokParser Decl
 foreignDeclParser = withSpan $ do
@@ -874,32 +828,6 @@ patternBindDeclParser = withSpan $ do
 
 valueDeclParser :: TokParser Decl
 valueDeclParser = withSpan $ do
-  (headForm, name, pats) <- functionHeadParser
+  (headForm, name, pats) <- functionHeadParserWith patternParser simplePatternParser
   rhs <- equationRhsParser
   pure (\span' -> functionBindDecl span' headForm name pats rhs)
-  where
-    functionHeadParser :: TokParser (MatchHeadForm, Text, [Pattern])
-    functionHeadParser = MP.try parenthesizedInfixHeadParser <|> MP.try infixValueHeadParser <|> prefixValueHeadParser
-
-    -- Prefix form: f x y = ...
-    prefixValueHeadParser = do
-      name <- binderNameParser
-      pats <- MP.many simplePatternParser
-      pure (MatchHeadPrefix, name, pats)
-
-    -- Infix form: x `op` y = ... or x <op> y = ...
-    infixValueHeadParser = do
-      lhsPat <- patternParser
-      op <- infixOperatorNameParser
-      rhsPat <- patternParser
-      pure (MatchHeadInfix, op, [lhsPat, rhsPat])
-
-    -- Parenthesized infix head with trailing arguments: (g . h) x = ...
-    parenthesizedInfixHeadParser = do
-      expectedTok TkSpecialLParen
-      lhsPat <- patternParser
-      op <- infixOperatorNameParser
-      rhsPat <- patternParser
-      expectedTok TkSpecialRParen
-      tailPats <- MP.many simplePatternParser
-      pure (MatchHeadInfix, op, [lhsPat, rhsPat] <> tailPats)
