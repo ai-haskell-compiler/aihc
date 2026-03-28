@@ -21,7 +21,6 @@ where
 
 import qualified Aihc.Parser.Run.Lexer as LexerRun
 import qualified Aihc.Parser.Run.Parser as ParserRun
-import Aihc.Parser.Syntax (Extension, ExtensionSetting (..), parseExtensionSettingName)
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withObject)
 import Data.Char (isSpace, toLower)
@@ -144,11 +143,12 @@ parseYamlFixture path value =
 -- Returns (Outcome, detail message).
 evaluateCLICase :: CLITool -> CLICase -> IO (Outcome, String)
 evaluateCLICase tool meta = do
-  let (exitCode, stdoutText) = runCLIInProcess tool (caseArgs meta) (caseInput meta)
-      actualOutput = T.stripEnd stdoutText
+  let result = runCLIInProcess tool (caseArgs meta) (caseInput meta)
+      -- Combine stdout and stderr for output comparison
+      actualOutput = T.stripEnd (cliStdout result <> cliStderr result)
       expectedOutput = T.stripEnd (caseExpectedOutput meta)
       expectedExit = caseExpectedExitCode meta
-      actualExit = exitCodeToInt exitCode
+      actualExit = exitCodeToInt (cliExitCode result)
       outputMatch = actualOutput == expectedOutput
       exitMatch = actualExit == expectedExit
       success = outputMatch && exitMatch
@@ -167,32 +167,24 @@ evaluateCLICase tool meta = do
       | success -> (OutcomeXPass, "known bug still passes unexpectedly")
       | otherwise -> (OutcomeFail, "expected xpass (known passing bug), but test now fails")
 
--- | Run a CLI tool in-process, returning output and exit code.
--- This calls the pure core functions directly without IO capture.
-runCLIInProcess :: CLITool -> [String] -> Text -> (ExitCode, Text)
-runCLIInProcess tool args input =
-  let extensions = parseExtensionArgs args
-   in case tool of
-        ToolLexer -> LexerRun.runLexer extensions input
-        ToolParser -> ParserRun.runParser extensions input
+-- | CLI result with exit code, stdout, and stderr.
+data CLIResult = CLIResult
+  { cliExitCode :: !ExitCode,
+    cliStdout :: !Text,
+    cliStderr :: !Text
+  }
 
--- | Parse -X extension arguments from command line args.
--- Returns a list of enabled extensions.
-parseExtensionArgs :: [String] -> [Extension]
-parseExtensionArgs [] = []
-parseExtensionArgs ("-X" : ext : rest) =
-  case parseExtensionSettingName (T.pack ext) of
-    Just (EnableExtension e) -> e : parseExtensionArgs rest
-    _ -> parseExtensionArgs rest
-parseExtensionArgs (arg : rest)
-  | "-X" `isPrefixOf` arg =
-      let ext = drop 2 arg
-       in case parseExtensionSettingName (T.pack ext) of
-            Just (EnableExtension e) -> e : parseExtensionArgs rest
-            _ -> parseExtensionArgs rest
-  | otherwise = parseExtensionArgs rest
-  where
-    isPrefixOf prefix str = take (length prefix) str == prefix
+-- | Run a CLI tool in-process with full argument parsing.
+-- This calls the pure CLI functions directly without IO.
+runCLIInProcess :: CLITool -> [String] -> Text -> CLIResult
+runCLIInProcess tool args input =
+  case tool of
+    ToolLexer ->
+      let r = LexerRun.runLexer args input
+       in CLIResult (LexerRun.cliExitCode r) (LexerRun.cliStdout r) (LexerRun.cliStderr r)
+    ToolParser ->
+      let r = ParserRun.runParser args input
+       in CLIResult (ParserRun.cliExitCode r) (ParserRun.cliStdout r) (ParserRun.cliStderr r)
 
 exitCodeToInt :: ExitCode -> Int
 exitCodeToInt ExitSuccess = 0
