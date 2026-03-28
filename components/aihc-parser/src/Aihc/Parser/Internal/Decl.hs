@@ -845,7 +845,7 @@ unsupportedDeclParser = fail
 -- This handles bindings where the LHS is a pattern rather than a function name.
 patternBindDeclParser :: TokParser Decl
 patternBindDeclParser = withSpan $ do
-  pat <- region "while parsing pattern binding" (label "pattern" patternParser)
+  pat <- region "while parsing pattern binding" patternParser
   rhs <- equationRhsParser
   pure (\span' -> DeclValue span' (PatternBind span' pat rhs))
 

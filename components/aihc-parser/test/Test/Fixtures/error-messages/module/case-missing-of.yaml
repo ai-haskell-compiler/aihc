@@ -18,5 +18,4 @@ aihc: |
     |         ^
   unexpected end of input
   expecting expression
-  context: after infix operator
   context: while parsing equation right-hand side

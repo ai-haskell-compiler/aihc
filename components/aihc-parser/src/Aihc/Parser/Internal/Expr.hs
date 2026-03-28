@@ -24,13 +24,14 @@ import Text.Megaparsec (anySingle, lookAhead, (<|>))
 import Text.Megaparsec qualified as MP
 
 exprParser :: TokParser Expr
-exprParser = do
-  core <- exprCoreParser
-  mWhere <- MP.optional whereClauseParser
-  pure $
-    case mWhere of
-      Just decls -> EWhereDecls (mergeSourceSpans (getSourceSpan core) (sourceSpanEnd decls)) core decls
-      Nothing -> core
+exprParser =
+  label "expression" $ do
+    core <- exprCoreParser
+    mWhere <- MP.optional whereClauseParser
+    pure $
+      case mWhere of
+        Just decls -> EWhereDecls (mergeSourceSpans (getSourceSpan core) (sourceSpanEnd decls)) core decls
+        Nothing -> core
 
 exprParserExcept :: [Text] -> TokParser Expr
 exprParserExcept forbiddenInfix = do
@@ -63,13 +64,13 @@ exprCoreParserExcept forbiddenInfix = do
 ifExprParser :: TokParser Expr
 ifExprParser = withSpan $ do
   keywordTok TkKeywordIf
-  cond <- region "while parsing if condition" (label "expression" exprParser)
+  cond <- region "while parsing if condition" exprParser
   skipSemicolons
   keywordTok TkKeywordThen
-  yes <- region "while parsing then branch" (label "expression" exprParser)
+  yes <- region "while parsing then branch" exprParser
   skipSemicolons
   keywordTok TkKeywordElse
-  no <- region "while parsing else branch" (label "expression" exprParser)
+  no <- region "while parsing else branch" exprParser
   pure (\span' -> EIf span' cond yes no)
 
 doExprParser :: TokParser Expr
@@ -88,7 +89,7 @@ doBindStmtParser :: TokParser DoStmt
 doBindStmtParser = withSpan $ do
   pat <- patternParser
   expectedTok TkReservedLeftArrow
-  expr <- region "while parsing '<-' binding" (label "expression" exprParser)
+  expr <- region "while parsing '<-' binding" exprParser
   pure (\span' -> DoBind span' pat expr)
 
 parseLetDeclsParser :: TokParser [Decl]
@@ -119,7 +120,7 @@ infixExprParserExcept forbidden = do
     MP.many
       ( (,)
           <$> infixOperatorParserExcept forbidden
-          <*> region "after infix operator" (label "expression" lexpParser)
+          <*> region "after infix operator" lexpParser
       )
   pure (foldl buildInfix lhs rest)
 
@@ -336,7 +337,7 @@ parenOperatorExprParser = withSpan $ do
   pure (`EVar` op)
 
 patternParser :: TokParser Pattern
-patternParser = asPatternParser
+patternParser = label "pattern" asPatternParser
 
 asPatternParser :: TokParser Pattern
 asPatternParser =
@@ -483,10 +484,10 @@ stringLiteralParser = withSpan $ do
   pure (\span' -> ctor span' s repr)
 
 rhsParser :: TokParser Rhs
-rhsParser = rhsParserWithArrow RhsArrowCase
+rhsParser = label "right-hand side" (rhsParserWithArrow RhsArrowCase)
 
 equationRhsParser :: TokParser Rhs
-equationRhsParser = rhsParserWithArrow RhsArrowEquation
+equationRhsParser = label "equation right-hand side" (rhsParserWithArrow RhsArrowEquation)
 
 -- | The kind of arrow used in RHS parsing
 data RhsArrowKind = RhsArrowCase | RhsArrowEquation
@@ -511,7 +512,7 @@ rhsParserWithArrow arrowKind = do
 unguardedRhsParser :: RhsArrowKind -> TokParser Rhs
 unguardedRhsParser arrowKind = withSpan $ do
   rhsArrowTok arrowKind
-  body <- region (rhsContextText arrowKind) (label "expression" exprParser)
+  body <- region (rhsContextText arrowKind) exprParser
   pure (`UnguardedRhs` body)
 
 rhsContextText :: RhsArrowKind -> Text
@@ -555,8 +556,8 @@ guardQualifierParser = MP.try guardPatParser <|> MP.try guardLetParser <|> guard
 
 caseAltParser :: TokParser CaseAlt
 caseAltParser = withSpan $ do
-  pat <- region "while parsing case alternative" (label "pattern" patternParser)
-  rhs <- region "while parsing case alternative" (label "right-hand side" rhsParser)
+  pat <- region "while parsing case alternative" patternParser
+  rhs <- region "while parsing case alternative" rhsParser
   pure $ \span' ->
     CaseAlt
       { caseAltSpan = span',
@@ -567,7 +568,7 @@ caseAltParser = withSpan $ do
 caseExprParser :: TokParser Expr
 caseExprParser = withSpan $ do
   keywordTok TkKeywordCase
-  scrutinee <- region "while parsing case expression" (label "expression" exprParser)
+  scrutinee <- region "while parsing case expression" exprParser
   keywordTok TkKeywordOf
   alts <- bracedAlts <|> plainAlts
   pure $ \span' -> ECase span' scrutinee alts
@@ -737,7 +738,7 @@ compGenStmtParser :: TokParser CompStmt
 compGenStmtParser = withSpan $ do
   pat <- patternParser
   expectedTok TkReservedLeftArrow
-  expr <- region "while parsing '<-' generator" (label "expression" exprParser)
+  expr <- region "while parsing '<-' generator" exprParser
   pure (\span' -> CompGen span' pat expr)
 
 compLetStmtParser :: TokParser CompStmt
@@ -758,7 +759,7 @@ lambdaExprParser = withSpan $ do
     lambdaPatsParser = do
       pats <- MP.some patternParser
       expectedTok TkReservedRightArrow
-      body <- region "while parsing lambda body" (label "expression" exprParser)
+      body <- region "while parsing lambda body" exprParser
       pure (\span' -> ELambdaPats span' pats body)
 
     bracedAlts = bracedSemiSep1 caseAltParser
@@ -915,7 +916,8 @@ simplePatternParser =
     <|> patternAtomParser
 
 typeParser :: TokParser Type
-typeParser = MP.try forallTypeParser <|> MP.try contextTypeParser <|> typeFunParser
+typeParser =
+  label "type" (MP.try forallTypeParser <|> MP.try contextTypeParser <|> typeFunParser)
 
 forallTypeParser :: TokParser Type
 forallTypeParser = withSpan $ do

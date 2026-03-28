@@ -37,7 +37,6 @@ import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..))
 import Aihc.Parser.Syntax
 import Aihc.Parser.Types (ParserErrorComponent (..), TokStream, mkFoundToken)
 import Data.Char (isUpper)
-import Data.Maybe (listToMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -70,32 +69,7 @@ label expected parser = do
                         }
                   )
               )
-        MPE.FancyError off fancySet ->
-          case firstUnexpected fancySet of
-            Just (mFound, contexts) ->
-              MP.parseError $
-                MPE.FancyError
-                  off
-                  ( Set.singleton
-                      ( MPE.ErrorCustom
-                          UnexpectedTokenExpecting
-                            { unexpectedFound = mFound,
-                              unexpectedExpecting = expected,
-                              unexpectedContext = contexts
-                            }
-                      )
-                  )
-            Nothing -> MP.parseError err
-  where
-    firstUnexpected fancySet = listToMaybe [extract custom | MPE.ErrorCustom custom <- Set.toList fancySet, isUnexpected custom]
-    isUnexpected custom =
-      case custom of
-        UnexpectedTokenExpecting {} -> True
-        _ -> False
-    extract custom =
-      case custom of
-        UnexpectedTokenExpecting found _ contexts -> (found, contexts)
-        _ -> (Nothing, [])
+        _ -> MP.parseError err
 
 region :: Text -> TokParser a -> TokParser a
 region context =
@@ -165,13 +139,11 @@ renderTokenKind tk = case tk of
 
 tokenSatisfy :: String -> (LexToken -> Maybe a) -> TokParser a
 tokenSatisfy expectedLabel f =
-  label (T.pack expectedLabel) $
-    MP.try $
-      do
-        tok <- MP.satisfy matches <?> expectedLabel
-        case f tok of
-          Just out -> pure out
-          Nothing -> fail "internal tokenSatisfy predicate mismatch"
+  do
+    tok <- MP.satisfy matches <?> expectedLabel
+    case f tok of
+      Just out -> pure out
+      Nothing -> fail "internal tokenSatisfy predicate mismatch"
   where
     matches tok =
       case f tok of
