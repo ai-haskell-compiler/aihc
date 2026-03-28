@@ -5,9 +5,9 @@ ghc: |
   test.hs:2:1: error: [GHC-58481]
       parse error (possibly incorrect indentation or mismatched brackets)
 aihc: |
-  test.hs:2:1:
-  2 | x = let
-    | ^
+  test.hs:1:7:
+  1 | import
+    |       ^
   unexpected end of input
   expecting imported module name
 

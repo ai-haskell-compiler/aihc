@@ -173,17 +173,32 @@ sourcePosForOffset stream off =
   let toks = unTokStream stream
       idx = max 0 off
       atIndex n = if n >= 0 && n < length toks then Just (toks !! n) else Nothing
+      prevSourceToken n
+        | n < 0 = Nothing
+        | otherwise =
+            case atIndex n of
+              Just tok
+                | lexTokenOrigin tok == FromSource -> Just tok
+                | otherwise -> prevSourceToken (n - 1)
+              Nothing -> Nothing
    in case atIndex idx of
         Just tok
+          | lexTokenOrigin tok == InsertedLayout ->
+              case prevSourceToken (idx - 1) of
+                Just prevTok -> spanEnd (lexTokenSpan prevTok)
+                Nothing -> spanStart (lexTokenSpan tok)
           | lexTokenKind tok == TkSpecialRBrace ->
               case atIndex (idx - 1) of
                 Just prevTok -> spanEnd (lexTokenSpan prevTok)
                 Nothing -> spanStart (lexTokenSpan tok)
           | otherwise -> spanStart (lexTokenSpan tok)
         Nothing ->
-          case reverse toks of
-            tok : _ -> spanEnd (lexTokenSpan tok)
-            [] -> (1, 1)
+          case prevSourceToken (length toks - 1) of
+            Just tok -> spanEnd (lexTokenSpan tok)
+            Nothing ->
+              case reverse toks of
+                tok : _ -> spanEnd (lexTokenSpan tok)
+                [] -> (1, 1)
   where
     spanStart span' =
       case span' of

@@ -1,13 +1,14 @@
 src: |
-  x = case
-  y = 20 +
+  x =
+  y =
+  z = 1
 ghc: |
   test.hs:2:1: error: [GHC-58481]
       parse error (possibly incorrect indentation or mismatched brackets)
 aihc: |
-  test.hs:1:9:
-  1 | x = case
-    |         ^
+  test.hs:1:4:
+  1 | x =
+    |    ^
   based integer literal
   character literal
   floating literal
@@ -21,15 +22,16 @@ aihc: |
   symbol '('
   symbol '['
 
-  test.hs:2:9:
-  2 | y = 20 +
-    |         ^
+  test.hs:2:4:
+  2 | y =
+    |    ^
   based integer literal
   character literal
   floating literal
   identifier
   integer literal
   keyword 'let'
+  minus operator
   operator '\'
   prefix minus
   string literal

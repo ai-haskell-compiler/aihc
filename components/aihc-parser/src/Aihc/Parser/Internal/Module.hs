@@ -17,10 +17,10 @@ import Aihc.Parser.Syntax (Decl, ImportDecl, Module (..))
 import Control.Monad (void)
 import Text.Megaparsec qualified as MP
 
-data ImportParseStep
-  = ImportDone
-  | ImportParsed !ImportDecl
-  | ImportRecovered
+data RecoverParseStep a
+  = RecoverDone
+  | RecoverParsed !a
+  | RecoverFailed
 
 moduleParser :: TokParser Module
 moduleParser = withSpan $ do
@@ -40,40 +40,47 @@ moduleBodyParser :: TokParser ([ImportDecl], [Decl])
 moduleBodyParser = braces $ do
   skipSemicolons
   imports <- importDeclsWithRecovery
-  decls <- MP.many (declParser <* skipSemicolons)
+  decls <- declsWithRecovery
   skipSemicolons
   pure (imports, decls)
 
 importDeclsWithRecovery :: TokParser [ImportDecl]
-importDeclsWithRecovery = go []
+importDeclsWithRecovery = recoverDeclLike importDeclParser
+
+declsWithRecovery :: TokParser [Decl]
+declsWithRecovery = recoverDeclLike declParser
+
+recoverDeclLike :: TokParser a -> TokParser [a]
+recoverDeclLike parser = go []
   where
     go acc = do
       skipSemicolons
-      step <- MP.withRecovery recoverImportDecl parseImportStep
+      step <- MP.withRecovery recoverParseError parseStep
       case step of
-        ImportDone -> pure (reverse acc)
-        ImportParsed importDecl -> do
+        RecoverDone -> pure (reverse acc)
+        RecoverParsed parsed -> do
           skipSemicolons
-          go (importDecl : acc)
-        ImportRecovered -> do
+          go (parsed : acc)
+        RecoverFailed -> do
           skipSemicolons
           go acc
 
-    parseImportStep = do
-      mImport <- MP.optional importDeclParser
-      pure $ maybe ImportDone ImportParsed mImport
+    parseStep = do
+      mParsed <- MP.optional parser
+      pure $ maybe RecoverDone RecoverParsed mParsed
 
-    recoverImportDecl err = do
+    recoverParseError err = do
       MP.registerParseError err
-      skipUntilImportBoundary
-      pure ImportRecovered
+      skipUntilDeclBoundary
+      pure RecoverFailed
 
-    skipUntilImportBoundary = do
-      _ <-
-        MP.takeWhileP
-          Nothing
-          ( \tok ->
-              let kind = lexTokenKind tok
-               in kind /= TkSpecialSemicolon && kind /= TkSpecialRBrace
-          )
-      void (MP.optional (expectedTok TkSpecialSemicolon))
+skipUntilDeclBoundary :: TokParser ()
+skipUntilDeclBoundary = do
+  _ <-
+    MP.takeWhileP
+      Nothing
+      ( \tok ->
+          let kind = lexTokenKind tok
+           in kind /= TkSpecialSemicolon && kind /= TkSpecialRBrace
+      )
+  void (MP.optional (expectedTok TkSpecialSemicolon))
