@@ -1,11 +1,18 @@
 src: |
-  x =
+  x = case
+  y = 20 +
 ghc: |
   test.hs:2:1: error: [GHC-58481]
       parse error (possibly incorrect indentation or mismatched brackets)
 aihc: |
-  test.hs:1:4:
-  1 | x =
-    |    ^
+  test.hs:1:9:
+  1 | x = case
+    |         ^
+  unexpected end of input
+  expecting based integer literal
+
+  test.hs:2:9:
+  2 | y = 20 +
+    |         ^
   unexpected end of input
   expecting based integer literal

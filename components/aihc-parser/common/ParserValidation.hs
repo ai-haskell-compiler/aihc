@@ -66,7 +66,7 @@ validateParserDetailedCore exts source =
       Just
         ValidationError
           { validationErrorKind = ValidationParseError,
-            validationErrorMessage = "Parse failed:\n" <> errorBundlePretty err
+            validationErrorMessage = "Parse failed:\n" <> errorBundlePretty (Just source) err
           }
     ParseOk parsed ->
       let rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty parsed))

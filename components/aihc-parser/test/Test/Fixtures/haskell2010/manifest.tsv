@@ -104,7 +104,7 @@ decls-data-prefix-strict	declarations	declarations/data-prefix-strict.hs	pass
 decls-data-infix	declarations	declarations/data-infix.hs	pass
 decls-data-infix-strict-left	declarations	declarations/data-infix-strict-left.hs	pass
 decls-data-infix-strict-right	declarations	declarations/data-infix-strict-right.hs	pass	parser now supports infix data constructors with strict right arguments
-decls-data-record-empty	declarations	declarations/data-record-empty.hs	pass	
+decls-data-record-empty	declarations	declarations/data-record-empty.hs	pass
 decls-data-record-fields	declarations	declarations/data-record-fields.hs	pass
 decls-data-record-grouped-fields	declarations	declarations/data-record-grouped-fields.hs	pass
 decls-data-record-strict-field	declarations	declarations/data-record-strict-field.hs	pass
@@ -144,7 +144,7 @@ decls-infix-funlhs-let	declarations	declarations/infix-funlhs-let.hs	pass	parser
 decls-infix-funlhs-class	declarations	declarations/infix-funlhs-class.hs	pass	parser now supports infix definitions in class declarations
 decls-infix-funlhs-bang	declarations	declarations/infix-funlhs-bang.hs	pass	whitespace-sensitive lexing (GHC proposal 0229)
 decls-infix-funlhs-tilde	declarations	declarations/infix-funlhs-tilde.hs	pass	whitespace-sensitive ~ as infix operator (GHC proposal 0229)
-decls-mixed-infix-prefix-bang	declarations	declarations/mixed-infix-prefix-bang.hs	pass	mixed infix operator and prefix bang pattern forms
+decls-mixed-infix-prefix-bang	declarations	declarations/mixed-infix-prefix-bang.hs	pass
 
 expr-if-then-else	expressions	expressions/if-then-else.hs	pass	parser now handles this if-then-else form
 expr-case-of	expressions	expressions/case-of.hs	pass	parser now supports simple case-of expressions
@@ -188,7 +188,7 @@ expr-s3-section-backtick-left	expressions	expressions/section-backtick-left.hs	p
 expr-s3-section-backtick-right	expressions	expressions/section-backtick-right.hs	pass	parser now supports right backtick operator sections
 expr-s3-section-bang	expressions	expressions/section-bang.hs	pass	parser supports bang operator sections in expressions
 expr-s3-conditional-basic	expressions	expressions/conditional-basic.hs	pass	parser now supports basic conditional expressions
-expr-s3-conditional-semicolons	expressions	expressions/conditional-semicolons.hs	pass	parser now supports optional semicolons before then/else
+expr-s3-conditional-semicolons	expressions	expressions/conditional-semicolons.hs	pass
 expr-s3-list-empty	expressions	expressions/list-empty.hs	pass	parser supports empty list literals
 expr-s3-list-singleton	expressions	expressions/list-singleton.hs	pass	parser supports singleton list literals
 expr-s3-list-multiple	expressions	expressions/list-multiple.hs	pass	parser supports multi-element list literals
@@ -222,12 +222,12 @@ expr-s3-case-infix-rhs	expressions	expressions/case-infix-rhs.hs	pass	parser sup
 expr-s3-let-infix-rhs	expressions	expressions/let-infix-rhs.hs	pass	parser supports let as right operand of infix expression
 expr-s3-lambda-infix-rhs	expressions	expressions/lambda-infix-rhs.hs	pass	parser supports lambda as right operand of infix expression
 expr-s3-record-field-selection	expressions	expressions/record-field-selection.hs	pass
-expr-s3-record-construction-empty	expressions	expressions/record-construction-empty.hs	pass	parser now supports empty record construction expressions
-expr-s3-record-construction-fields	expressions	expressions/record-construction-fields.hs	pass	parser now supports record construction expressions with fields
-expr-s3-record-update-single	expressions	expressions/record-update-single.hs	pass	parser now supports record update expressions
-expr-s3-record-update-multiple	expressions	expressions/record-update-multiple.hs	pass	parser now supports record update expressions with multiple fields
-expr-s3-record-update-chained	expressions	expressions/record-update-chained.hs	pass	parser now supports chained record updates
-expr-s3-record-update-paren-base	expressions	expressions/record-update-paren-base.hs	pass	parser now supports record update on parenthesized expressions
+expr-s3-record-construction-empty	expressions	expressions/record-construction-empty.hs	pass
+expr-s3-record-construction-fields	expressions	expressions/record-construction-fields.hs	pass
+expr-s3-record-update-single	expressions	expressions/record-update-single.hs	pass
+expr-s3-record-update-multiple	expressions	expressions/record-update-multiple.hs	pass
+expr-s3-record-update-chained	expressions	expressions/record-update-chained.hs	pass
+expr-s3-record-update-paren-base	expressions	expressions/record-update-paren-base.hs	pass
 expr-s3-expr-type-signature-basic	expressions	expressions/expr-type-signature-basic.hs	pass	parser now supports expression type signatures
 expr-s3-expr-type-signature-context	expressions	expressions/expr-type-signature-context.hs	pass	parser now supports expression type signatures with context
 expr-s3-pattern-infix-constructor	expressions	expressions/pattern-infix-constructor.hs	pass	parser now supports infix constructor patterns in case alternatives
@@ -256,9 +256,9 @@ pat-contexts	patterns	patterns/contexts.hs	pass	parser now supports pattern matc
 
 types-context	types	types/context.hs	pass
 types-tuple-list	types	types/tuple-list-types.hs	pass	parser now supports tuple type forms
-types-newtype-record	types	types/newtype-record.hs	pass	parser now supports newtype record syntax
-types-newtype-record-layout-application	types	types/newtype-record-layout-application.hs	pass	parser now supports newline-started newtype record fields with type applications
-types-newtype-record-field-multiline-application	types	types/newtype-record-field-multiline-application.hs	pass	parser now supports multiline type applications in newtype record fields
+types-newtype-record	types	types/newtype-record.hs	pass
+types-newtype-record-layout-application	types	types/newtype-record-layout-application.hs	pass
+types-newtype-record-field-multiline-application	types	types/newtype-record-field-multiline-application.hs	pass
 types-multi-vars-signature	types	types/multi-vars-signature.hs	pass	parser now supports multi-variable top-level signatures
 types-context-multi-vars	types	types/context-multi-vars.hs	pass
 types-signature-where	types	types/signature-where.hs	pass	parser now supports local type signatures in where bindings
@@ -300,11 +300,11 @@ modules-import-operator	modules	modules/import-operator.hs	pass	parser now suppo
 vinyl-loeb-rloeb-section	corpus	corpus/vinyl-loeb-rloeb-section.hs	pass	from vinyl-loeb; parser now supports parenthesized right sections like (($ go) ...)
 
 decls-instance-tuple-type-constructor	declarations	declarations/instance-tuple-type-constructor.hs	pass	parser now supports tuple type constructors like ((,,) w s) in instance heads
-decls-data-record-function-type	declarations	declarations/data-record-function-type.hs	pass	parser now supports function types in record field declarations
-decls-data-record-function-type-simple	declarations	declarations/data-record-function-type-simple.hs	pass	parser now supports function types in record field declarations (minimal repro)
+decls-data-record-function-type	declarations	declarations/data-record-function-type.hs	pass
+decls-data-record-function-type-simple	declarations	declarations/data-record-function-type-simple.hs	pass
 decls-operator-funlhs-infix-application	declarations	declarations/operator-funlhs-infix-application.hs	pass	parser supports parenthesized infix function heads with trailing arguments
 decls-operator-funlhs-infix-application-backtick	declarations	declarations/operator-funlhs-infix-application-backtick.hs	pass	parser supports parenthesized backtick infix function heads with trailing arguments
 decls-instance-method-guards	declarations	declarations/instance-method-guards.hs	pass	parser now supports guards in instance method definitions
-types-newtype-record-function-type	types	types/newtype-record-function-type.hs	pass	parser now supports function types in newtype record field declarations
+types-newtype-record-function-type	types	types/newtype-record-function-type.hs	pass
 types-tuple-type-constructor-prefix	types	types/tuple-type-constructor-prefix.hs	pass	parser now supports prefix tuple type constructor syntax like (,) a b
 decls-data-infix-backtick	declarations	declarations/infix-con.hs	pass	parser now supports backtick infix data constructors

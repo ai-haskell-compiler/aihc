@@ -131,7 +131,7 @@ ghcMismatch meta =
 renderAihcMessage :: ErrorMessageCase -> Either String Text
 renderAihcMessage meta =
   case parseModule defaultConfig {parserSourceName = sourceName} (caseSource meta) of
-    ParseErr bundle -> Right (normalizeText (T.pack (errorBundlePretty bundle)))
+    ParseErr bundle -> Right (normalizeText (T.pack (errorBundlePretty (Just (caseSource meta)) bundle)))
     ParseOk _ -> Left "aihc parser accepted the input"
 
 progressSummary :: [(ErrorMessageCase, Outcome, String)] -> (Int, Int)

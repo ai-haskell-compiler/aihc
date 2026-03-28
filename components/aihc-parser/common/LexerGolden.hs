@@ -15,13 +15,14 @@ where
 import Aihc.Parser.Lex
   ( LexToken (..),
     LexTokenKind,
+    lexModuleTokensWithExtensions,
     lexTokensWithExtensions,
   )
 import Aihc.Parser.Syntax (Extension, parseExtensionName)
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withObject)
 import Data.Char (isSpace, toLower)
-import Data.List (dropWhileEnd, sort)
+import Data.List (dropWhileEnd, isPrefixOf, sort)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Text.Encoding (encodeUtf8)
@@ -48,6 +49,7 @@ data LexerCase = LexerCase
   { caseId :: !String,
     caseCategory :: !String,
     casePath :: !FilePath,
+    caseIsModule :: !Bool,
     caseExtensions :: ![Extension],
     caseInput :: !Text,
     caseTokens :: ![LexTokenKind],
@@ -88,11 +90,13 @@ parseLexerCaseText path source = do
   reason <- validateReason path status (T.unpack reasonText)
   let relPath = dropRootPrefix path
       category = categoryFromPath relPath
+      isModuleFixture = isModulePath relPath
   pure
     LexerCase
       { caseId = relPath,
         caseCategory = category,
         casePath = relPath,
+        caseIsModule = isModuleFixture,
         caseExtensions = exts,
         caseInput = inputText,
         caseTokens = toks,
@@ -118,7 +122,10 @@ parseYamlFixture path value =
 evaluateLexerCase :: LexerCase -> (Outcome, String)
 evaluateLexerCase meta =
   let expectedKinds = caseTokens meta
-      actualTokens = lexTokensWithExtensions (caseExtensions meta) (caseInput meta)
+      actualTokens =
+        if caseIsModule meta
+          then lexModuleTokensWithExtensions (caseExtensions meta) (caseInput meta)
+          else lexTokensWithExtensions (caseExtensions meta) (caseInput meta)
       actualKinds = map lexTokenKind actualTokens
       tokenMatch = actualKinds == expectedKinds
    in case caseStatus meta of
@@ -206,6 +213,10 @@ categoryFromPath path =
   case takeDirectory path of
     "." -> "lexer"
     dir -> dir
+
+isModulePath :: FilePath -> Bool
+isModulePath path =
+  "module/" `isPrefixOf` path
 
 trim :: String -> String
 trim = dropWhile isSpace . dropWhileEnd isSpace

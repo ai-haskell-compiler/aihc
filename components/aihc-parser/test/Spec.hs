@@ -94,7 +94,7 @@ test_moduleParsesDecls :: Assertion
 test_moduleParsesDecls =
   case parseModule defaultConfig "x = if y then z else w" of
     ParseErr err ->
-      assertFailure ("expected module parse success, got parse error: " <> errorBundlePretty err)
+      assertFailure ("expected module parse success, got parse error: " <> errorBundlePretty Nothing err)
     ParseOk modu ->
       case moduleDecls modu of
         [ DeclValue _ (FunctionBind _ "x" [Match {matchPats = [], matchRhs = UnguardedRhs _ (EIf _ (EVar _ "y") (EVar _ "z") (EVar _ "w"))}])
@@ -108,15 +108,15 @@ test_parserConfigPassesExtensions =
   case parseExpr defaultConfig {parserExtensions = [NegativeLiterals]} "-1" of
     ParseOk (EInt _ (-1) _) -> pure ()
     ParseOk other -> assertFailure ("expected negative literal expression, got: " <> show other)
-    ParseErr err -> assertFailure ("expected parse success, got parse error: " <> errorBundlePretty err)
+    ParseErr err -> assertFailure ("expected parse success, got parse error: " <> errorBundlePretty Nothing err)
 
 test_parserConfigSetsSourceName :: Assertion
 test_parserConfigSetsSourceName =
   case parseModule defaultConfig {parserSourceName = "Example.hs"} "module" of
     ParseErr err ->
-      if "Example.hs" `isInfixOf` errorBundlePretty err
+      if "Example.hs" `isInfixOf` errorBundlePretty (Just "module") err
         then pure ()
-        else assertFailure ("expected source name in parse error, got: " <> errorBundlePretty err)
+        else assertFailure ("expected source name in parse error, got: " <> errorBundlePretty (Just "module") err)
     ParseOk modu ->
       assertFailure ("expected parse failure, got: " <> show modu)
 

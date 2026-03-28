@@ -142,7 +142,7 @@ checkFile checks packageRoot info = do
   oursStatus <- case oursResult of
     ParseErr err ->
       if CheckParse `elem` checks || needsParsedModule checks
-        then pure (Left (T.unpack (prefixCppErrors cppErrorMsg ("parse failed in " <> T.pack file <> ":\n" <> T.pack (Aihc.Parser.errorBundlePretty err)))))
+        then pure (Left (T.unpack (prefixCppErrors cppErrorMsg ("parse failed in " <> T.pack file <> ":\n" <> T.pack (Aihc.Parser.errorBundlePretty (Just source') err)))))
         else pure (Right ())
     ParseOk _parsed ->
       if CheckRoundtripGhc `elem` checks

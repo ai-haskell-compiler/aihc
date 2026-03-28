@@ -1,5 +1,6 @@
 src: |
   import
+  x = let
 ghc: |
   test.hs:2:1: error: [GHC-58481]
       parse error (possibly incorrect indentation or mismatched brackets)
@@ -9,3 +10,9 @@ aihc: |
     |       ^
   unexpected end of input
   expecting module name
+
+  test.hs:2:8:
+  2 | x = let
+    |        ^
+  unexpected end of input
+  expecting bang pattern '!'

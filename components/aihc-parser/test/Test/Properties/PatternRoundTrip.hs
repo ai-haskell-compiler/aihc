@@ -32,7 +32,7 @@ prop_patternPrettyRoundTrip (GenPattern pat) =
           counterexample (T.unpack source) $
             case parsePattern defaultConfig source of
               ParseErr err ->
-                counterexample (errorBundlePretty err) False
+                counterexample (errorBundlePretty (Just source) err) False
               ParseOk parsed ->
                 let actual = normalizePattern parsed
                  in counterexample ("expected: " <> show expected <> "\nactual: " <> show actual) (expected == actual)

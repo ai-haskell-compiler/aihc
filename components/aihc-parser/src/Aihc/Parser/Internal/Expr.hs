@@ -249,15 +249,8 @@ atomOrRecordExprParser = do
 -- | Parse record braces: { field = value, field2 = value2, ... }
 -- Supports both explicit assignment (field = value) and puns (field)
 recordBracesParser :: TokParser [(Text, Maybe Expr, SourceSpan)]
-recordBracesParser = do
-  expectedTok TkSpecialLBrace
-  mClose <- MP.optional (expectedTok TkSpecialRBrace)
-  case mClose of
-    Just () -> pure []
-    Nothing -> do
-      fields <- recordFieldBindingParser `MP.sepEndBy` expectedTok TkSpecialComma
-      expectedTok TkSpecialRBrace
-      pure fields
+recordBracesParser =
+  braces (recordFieldBindingParser `MP.sepEndBy` expectedTok TkSpecialComma)
 
 -- | Parse a single record field binding: either "field = expr" or just "field" (pun)
 recordFieldBindingParser :: TokParser (Text, Maybe Expr, SourceSpan)
@@ -816,14 +809,8 @@ bareVarOrConPatternParser = withSpan $ do
 recordPatternParser :: TokParser Pattern
 recordPatternParser = withSpan $ do
   con <- constructorIdentifierParser
-  expectedTok TkSpecialLBrace
-  mClose <- MP.optional (expectedTok TkSpecialRBrace)
-  case mClose of
-    Just () -> pure (\span' -> PRecord span' con [])
-    Nothing -> do
-      fields <- recordFieldPatternParser `MP.sepEndBy` expectedTok TkSpecialComma
-      expectedTok TkSpecialRBrace
-      pure (\span' -> PRecord span' con fields)
+  fields <- braces (recordFieldPatternParser `MP.sepEndBy` expectedTok TkSpecialComma)
+  pure (\span' -> PRecord span' con fields)
 
 recordFieldPatternParser :: TokParser (Text, Pattern)
 recordFieldPatternParser = do

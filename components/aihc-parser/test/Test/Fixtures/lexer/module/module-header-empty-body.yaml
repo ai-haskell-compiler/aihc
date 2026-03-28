@@ -1,0 +1,9 @@
+extensions: []
+input: "module Demo where"
+tokens:
+  - 'TkKeywordModule'
+  - 'TkConId "Demo"'
+  - 'TkKeywordWhere'
+  - 'TkSpecialLBrace'
+  - 'TkSpecialRBrace'
+status: pass

@@ -144,7 +144,7 @@ evaluateExprCase :: ParserCase -> (Outcome, String)
 evaluateExprCase meta =
   case parseExpr parserConfig (caseInput meta) of
     ParseOk ast -> classifySuccess meta (show (shorthand ast))
-    ParseErr err -> classifyFailure meta (errorBundlePretty err)
+    ParseErr err -> classifyFailure meta (errorBundlePretty (Just (caseInput meta)) err)
   where
     parserConfig =
       defaultConfig
@@ -156,7 +156,7 @@ evaluateModuleCase :: ParserCase -> (Outcome, String)
 evaluateModuleCase meta =
   case parseModule parserConfig (caseInput meta) of
     ParseOk ast -> classifySuccess meta (show (shorthand ast))
-    ParseErr err -> classifyFailure meta (errorBundlePretty err)
+    ParseErr err -> classifyFailure meta (errorBundlePretty (Just (caseInput meta)) err)
   where
     parserConfig =
       defaultConfig

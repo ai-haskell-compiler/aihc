@@ -51,7 +51,8 @@
 -- In other words, use keyword tokens only for exact reserved lexemes; contextual
 -- validity is left to the parser.
 module Aihc.Parser.Lex
-  ( LexToken (..),
+  ( TokenOrigin (..),
+    LexToken (..),
     LexTokenKind (..),
     isReservedIdentifier,
     readModuleHeaderExtensions,
@@ -164,10 +165,16 @@ data LexTokenKind
   | TkError Text
   deriving (Eq, Ord, Show, Read, Generic, NFData)
 
+data TokenOrigin
+  = FromSource
+  | InsertedLayout
+  deriving (Eq, Ord, Show, Read, Generic, NFData)
+
 data LexToken = LexToken
   { lexTokenKind :: !LexTokenKind,
     lexTokenText :: !Text,
-    lexTokenSpan :: !SourceSpan
+    lexTokenSpan :: !SourceSpan,
+    lexTokenOrigin :: !TokenOrigin
   }
   deriving (Eq, Ord, Show, Generic, NFData)
 
@@ -208,6 +215,7 @@ data ModuleLayoutMode
   = ModuleLayoutOff
   | ModuleLayoutSeekStart
   | ModuleLayoutAwaitWhere
+  | ModuleLayoutAwaitBody
   | ModuleLayoutDone
   deriving (Eq, Show)
 
@@ -444,7 +452,10 @@ applyLayoutTokens enableModuleLayout =
   where
     go st toks =
       case toks of
-        [] -> closeAllImplicit (layoutContexts st) NoSourceSpan
+        [] ->
+          let eofAnchor = NoSourceSpan
+              (moduleInserted, stAfterModule) = finalizeModuleLayoutAtEOF st eofAnchor
+           in moduleInserted <> closeAllImplicit (layoutContexts stAfterModule) eofAnchor
         tok : rest ->
           let stModule = noteModuleLayoutBeforeToken st tok
               (preInserted, stBeforePending) = closeBeforeToken stModule tok
@@ -458,9 +469,23 @@ applyLayoutTokens enableModuleLayout =
                   }
            in preInserted <> pendingInserted <> bolInserted <> (tok : go stNext rest)
 
+finalizeModuleLayoutAtEOF :: LayoutState -> SourceSpan -> ([LexToken], LayoutState)
+finalizeModuleLayoutAtEOF st anchor =
+  case layoutModuleMode st of
+    ModuleLayoutSeekStart ->
+      ( [virtualSymbolToken "{" anchor, virtualSymbolToken "}" anchor],
+        st {layoutModuleMode = ModuleLayoutDone}
+      )
+    ModuleLayoutAwaitBody ->
+      ( [virtualSymbolToken "{" anchor, virtualSymbolToken "}" anchor],
+        st {layoutModuleMode = ModuleLayoutDone, layoutPendingLayout = Nothing}
+      )
+    _ -> ([], st)
+
 noteModuleLayoutBeforeToken :: LayoutState -> LexToken -> LayoutState
 noteModuleLayoutBeforeToken st tok =
   case layoutModuleMode st of
+    ModuleLayoutAwaitBody -> st {layoutModuleMode = ModuleLayoutDone}
     ModuleLayoutSeekStart ->
       case lexTokenKind tok of
         TkPragmaLanguage _ -> st
@@ -475,7 +500,7 @@ noteModuleLayoutAfterToken st tok =
   case layoutModuleMode st of
     ModuleLayoutAwaitWhere
       | lexTokenKind tok == TkKeywordWhere ->
-          st {layoutModuleMode = ModuleLayoutDone, layoutPendingLayout = Just PendingLayoutGeneric}
+          st {layoutModuleMode = ModuleLayoutAwaitBody, layoutPendingLayout = Just PendingLayoutGeneric}
     _ -> st
 
 openPendingLayout :: LayoutState -> LexToken -> ([LexToken], LayoutState, Bool)
@@ -757,7 +782,8 @@ virtualSymbolToken sym span' =
         ";" -> TkSpecialSemicolon
         _ -> error ("virtualSymbolToken: unexpected symbol " ++ T.unpack sym),
       lexTokenText = sym,
-      lexTokenSpan = span'
+      lexTokenSpan = span',
+      lexTokenOrigin = InsertedLayout
     }
 
 lexKnownPragma :: LexerState -> Maybe (LexToken, LexerState)
@@ -911,7 +937,8 @@ negateToken stBefore numTok =
   LexToken
     { lexTokenKind = negateKind (lexTokenKind numTok),
       lexTokenText = "-" <> lexTokenText numTok,
-      lexTokenSpan = extendSpanLeft (lexTokenSpan numTok)
+      lexTokenSpan = extendSpanLeft (lexTokenSpan numTok),
+      lexTokenOrigin = lexTokenOrigin numTok
     }
   where
     negateKind k = case k of
@@ -1648,7 +1675,8 @@ mkToken start end tokTxt kind =
   LexToken
     { lexTokenKind = kind,
       lexTokenText = tokTxt,
-      lexTokenSpan = mkSpan start end
+      lexTokenSpan = mkSpan start end,
+      lexTokenOrigin = FromSource
     }
 
 mkSpan :: LexerState -> LexerState -> SourceSpan

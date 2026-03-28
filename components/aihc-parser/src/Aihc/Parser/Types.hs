@@ -4,6 +4,9 @@
 
 module Aihc.Parser.Types
   ( TokStream (..),
+    ParserErrorComponent (..),
+    FoundToken (..),
+    mkFoundToken,
     ParseErrorBundle,
     lexerErrorBundle,
     ParseResult (..),
@@ -11,13 +14,13 @@ module Aihc.Parser.Types
   )
 where
 
-import Aihc.Parser.Lex (LexToken (..))
+import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), TokenOrigin (..))
 import Aihc.Parser.Syntax (Extension, SourceSpan (..))
 import Control.DeepSeq (NFData (..))
 import Data.List.NonEmpty qualified as NE
 import Data.Set qualified as Set
+import Data.Text (Text)
 import Data.Text qualified as T
-import Data.Void (Void)
 import GHC.Generics (Generic)
 import Text.Megaparsec qualified as MP
 import Text.Megaparsec.Error qualified as MPE
@@ -25,7 +28,34 @@ import Text.Megaparsec.Pos (SourcePos (..), mkPos)
 import Text.Megaparsec.Stream (Stream (..), TraversableStream (..), VisualStream (..))
 
 -- | Parse error from token parser. Use 'errorBundlePretty' from "Parser" to render.
-type ParseErrorBundle = MPE.ParseErrorBundle TokStream Void
+type ParseErrorBundle = MPE.ParseErrorBundle TokStream ParserErrorComponent
+
+data FoundToken = FoundToken
+  { foundTokenText :: !Text,
+    foundTokenKind :: !(Maybe LexTokenKind),
+    foundTokenSpan :: !SourceSpan,
+    foundTokenOrigin :: !TokenOrigin
+  }
+  deriving (Eq, Ord, Show, Generic, NFData)
+
+data ParserErrorComponent
+  = UnexpectedTokenExpecting
+  { unexpectedFound :: Maybe FoundToken,
+    unexpectedExpecting :: Text
+  }
+  deriving (Eq, Ord, Show, Generic)
+
+instance MPE.ShowErrorComponent ParserErrorComponent where
+  showErrorComponent (UnexpectedTokenExpecting _ expecting) = "expecting " <> T.unpack expecting
+
+mkFoundToken :: LexToken -> FoundToken
+mkFoundToken tok =
+  FoundToken
+    { foundTokenText = lexTokenText tok,
+      foundTokenKind = Just (lexTokenKind tok),
+      foundTokenSpan = lexTokenSpan tok,
+      foundTokenOrigin = lexTokenOrigin tok
+    }
 
 lexerErrorBundle :: FilePath -> String -> ParseErrorBundle
 lexerErrorBundle sourcePath message =

@@ -1,10 +1,10 @@
 src: |
-  module where
+  import where
 ghc: |
   test.hs:1:8: error: [GHC-58481] parse error on input `where'
 aihc: |
   test.hs:1:8:
-  1 | module where
+  1 | import where
     |        ^^^^^
   unexpected 'where' keyword
   expecting module name

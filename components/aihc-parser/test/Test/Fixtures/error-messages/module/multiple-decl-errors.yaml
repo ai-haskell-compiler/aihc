@@ -1,11 +1,19 @@
 src: |
   x =
+  y =
+  z = 1
 ghc: |
   test.hs:2:1: error: [GHC-58481]
       parse error (possibly incorrect indentation or mismatched brackets)
 aihc: |
   test.hs:1:4:
   1 | x =
+    |    ^
+  unexpected end of input
+  expecting based integer literal
+
+  test.hs:2:4:
+  2 | y =
     |    ^
   unexpected end of input
   expecting based integer literal

@@ -44,7 +44,7 @@ runParser args stdin =
             ParseOk modu ->
               CLIResult ExitSuccess (T.pack (show (shorthand modu)) <> "\n") ""
             ParseErr bundle ->
-              CLIResult (ExitFailure 1) "" (T.pack (errorBundlePretty bundle))
+              CLIResult (ExitFailure 1) "" (T.pack (errorBundlePretty (Just stdin) bundle))
     Failure failure ->
       let (msg, _exitCode) = renderFailure failure "aihc-parser"
        in CLIResult (ExitFailure 1) "" (T.pack msg)

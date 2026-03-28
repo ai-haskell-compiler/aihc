@@ -49,7 +49,7 @@ import GHC.Parser.Lexer
     mkParserOpts,
     unP,
   )
-import GHC.Types.Error (NoDiagnosticOpts (NoDiagnosticOpts))
+import GHC.Types.Error (NoDiagnosticOpts (NoDiagnosticOpts), errorsFound)
 import GHC.Types.SourceError (SourceError)
 import GHC.Types.SrcLoc (GenLocated, Located, mkRealSrcLoc, unLoc)
 import GHC.Utils.Error (emptyDiagOpts, pprMessages)
@@ -84,7 +84,7 @@ parseWithGhcWithExtensions sourceTag extraExts input =
 
 parseWithGhcWithExtensionsDetailed :: String -> [GHC.Extension] -> Text -> Either (Text, EnumSet.EnumSet GHC.Extension) ([Syntax.ExtensionSetting], HsModule GhcPs)
 parseWithGhcWithExtensionsDetailed sourceTag extraExts input =
-  let baseExts = nub extraExts
+  let baseExts = nub (languageExtensions "Haskell2010" <> extraExts)
       baseExtSet = EnumSet.fromList baseExts :: EnumSet.EnumSet GHC.Extension
       baseParseExts = applyImpliedExtensions baseExtSet
    in do
@@ -108,22 +108,24 @@ parseWithGhcWithExtensionsDetailed sourceTag extraExts input =
             start = mkRealSrcLoc (mkFastString sourceTag) 1 1
         case catchPureExceptionText $ case unP parseModule (initParserState opts buffer start) of
           POk st modu ->
-            case firstSignificantTokenAfterModule st of
-              Right tok ->
-                case unLoc tok of
-                  ITeof -> Right (languagePragmas, unLoc modu)
-                  _ ->
-                    Left
-                      ( "GHC parser accepted module prefix but left trailing token: "
-                          <> T.pack (show tok),
-                        parseExts
-                      )
-              Left lexErr ->
-                Left
-                  ( "GHC lexer failed while checking for trailing tokens: "
-                      <> lexErr,
-                    parseExts
-                  )
+            if not (parserStateHasErrors st)
+              then case firstSignificantTokenAfterModule st of
+                Right tok ->
+                  case unLoc tok of
+                    ITeof -> Right (languagePragmas, unLoc modu)
+                    _ ->
+                      Left
+                        ( "GHC parser accepted module prefix but left trailing token: "
+                            <> T.pack (show tok),
+                          parseExts
+                        )
+                Left lexErr ->
+                  Left
+                    ( "GHC lexer failed while checking for trailing tokens: "
+                        <> lexErr,
+                      parseExts
+                    )
+              else Left (renderParserErrors st, parseExts)
           PFailed st ->
             let rendered = showSDocUnsafe (pprMessages NoDiagnosticOpts (getPsErrorMessages st))
              in Left (T.pack rendered, parseExts) of
@@ -174,6 +176,13 @@ firstSignificantTokenAfterModule st =
       | otherwise -> Right tok
     PFailed st' ->
       Left (T.pack (showSDocUnsafe (pprMessages NoDiagnosticOpts (getPsErrorMessages st'))))
+
+renderParserErrors :: PState -> Text
+renderParserErrors st =
+  T.pack (showSDocUnsafe (pprMessages NoDiagnosticOpts (getPsErrorMessages st)))
+
+parserStateHasErrors :: PState -> Bool
+parserStateHasErrors st = errorsFound (getPsErrorMessages st)
 
 isIgnorableToken :: Token -> Bool
 isIgnorableToken tok =
@@ -269,7 +278,7 @@ oracleModuleParseErrorWithNamesAt sourceTag extNames langName input =
       langExts = maybe [] languageExtensions langName
       allExts = EnumSet.toList (List.foldl' applyExtensionSetting (EnumSet.fromList langExts) extSettings)
    in case parseWithGhcWithExtensionsDetailed sourceTag allExts input of
-        Left (err, _parseExts) -> Right err
+        Left (err, _) -> Right err
         Right _ -> Left "GHC parser accepted the input"
 
 toGhcExtension :: Syntax.Extension -> Maybe GHC.Extension

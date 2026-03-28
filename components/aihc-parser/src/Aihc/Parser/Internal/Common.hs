@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Aihc.Parser.Internal.Common
@@ -17,6 +18,7 @@ module Aihc.Parser.Internal.Common
     withSpan,
     sourceSpanFromPositions,
     parens,
+    braces,
     skipSemicolons,
     bracedSemiSep,
     bracedSemiSep1,
@@ -32,16 +34,15 @@ where
 
 import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..))
 import Aihc.Parser.Syntax
-import Aihc.Parser.Types (TokStream)
+import Aihc.Parser.Types (ParserErrorComponent (..), TokStream, mkFoundToken)
 import Data.Char (isUpper)
 import Data.Text (Text)
 import Data.Text qualified as T
-import Data.Void (Void)
 import Text.Megaparsec (Parsec, anySingle, lookAhead, (<|>))
 import Text.Megaparsec qualified as MP
 import Text.Megaparsec.Pos (SourcePos (..))
 
-type TokParser = Parsec Void TokStream
+type TokParser = Parsec ParserErrorComponent TokStream
 
 keywordTok :: LexTokenKind -> TokParser ()
 keywordTok expected =
@@ -93,11 +94,23 @@ renderTokenKind tk = case tk of
 
 tokenSatisfy :: String -> (LexToken -> Maybe a) -> TokParser a
 tokenSatisfy label f =
-  MP.label label $ do
-    tok <- lookAhead anySingle
-    case f tok of
-      Just out -> out <$ anySingle
-      Nothing -> fail label
+  MP.try $
+    MP.optional (lookAhead anySingle) >>= \case
+      Nothing ->
+        MP.customFailure
+          UnexpectedTokenExpecting
+            { unexpectedFound = Nothing,
+              unexpectedExpecting = T.pack label
+            }
+      Just tok ->
+        case f tok of
+          Just out -> out <$ anySingle
+          Nothing ->
+            MP.customFailure
+              UnexpectedTokenExpecting
+                { unexpectedFound = Just (mkFoundToken tok),
+                  unexpectedExpecting = T.pack label
+                }
 
 moduleNameParser :: TokParser Text
 moduleNameParser =
@@ -204,24 +217,27 @@ parens parser = do
   expectedTok TkSpecialRParen
   pure res
 
+braces :: TokParser a -> TokParser a
+braces parser = do
+  expectedTok TkSpecialLBrace
+  res <- parser
+  expectedTok TkSpecialRBrace
+  pure res
+
 skipSemicolons :: TokParser ()
 skipSemicolons = MP.skipMany (expectedTok TkSpecialSemicolon)
 
 bracedSemiSep :: TokParser a -> TokParser [a]
-bracedSemiSep parser = do
-  expectedTok TkSpecialLBrace
-  skipSemicolons
-  items <- parser `MP.sepEndBy` expectedTok TkSpecialSemicolon
-  expectedTok TkSpecialRBrace
-  pure items
+bracedSemiSep parser =
+  braces $ do
+    skipSemicolons
+    parser `MP.sepEndBy` expectedTok TkSpecialSemicolon
 
 bracedSemiSep1 :: TokParser a -> TokParser [a]
-bracedSemiSep1 parser = do
-  expectedTok TkSpecialLBrace
-  skipSemicolons
-  items <- parser `MP.sepEndBy1` expectedTok TkSpecialSemicolon
-  expectedTok TkSpecialRBrace
-  pure items
+bracedSemiSep1 parser =
+  braces $ do
+    skipSemicolons
+    parser `MP.sepEndBy1` expectedTok TkSpecialSemicolon
 
 plainSemiSep1 :: TokParser a -> TokParser [a]
 plainSemiSep1 parser = MP.some (parser <* skipSemicolons)

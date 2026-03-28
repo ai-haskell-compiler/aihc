@@ -30,7 +30,7 @@ prop_typePrettyRoundTrip ty =
           counterexample (T.unpack source) $
             case parseType defaultConfig source of
               ParseErr err ->
-                counterexample (errorBundlePretty err) False
+                counterexample (errorBundlePretty (Just source) err) False
               ParseOk parsed ->
                 let actual = normalizeType parsed
                  in counterexample ("expected: " <> show expected <> "\nactual: " <> show actual) (expected == actual)

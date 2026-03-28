@@ -22,7 +22,7 @@ prop_exprPrettyRoundTrip expr =
         counterexample (T.unpack source) $
           case parseExpr defaultConfig source of
             ParseErr err ->
-              counterexample (errorBundlePretty err) False
+              counterexample (errorBundlePretty (Just source) err) False
             ParseOk parsed ->
               let actual = normalizeExpr parsed
                in counterexample ("expected: " <> show expected <> "\nactual: " <> show actual) (expected == actual)

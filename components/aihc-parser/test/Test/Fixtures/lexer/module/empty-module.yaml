@@ -1,0 +1,6 @@
+extensions: []
+input: ""
+tokens:
+  - 'TkSpecialLBrace'
+  - 'TkSpecialRBrace'
+status: pass

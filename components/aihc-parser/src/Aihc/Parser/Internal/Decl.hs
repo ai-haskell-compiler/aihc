@@ -12,9 +12,10 @@ import Aihc.Parser.Internal.Common
 import Aihc.Parser.Internal.Expr (equationRhsParser, exprParser, patternParser, simplePatternParser, typeAppParser, typeAtomParser, typeParser)
 import Aihc.Parser.Lex (LexTokenKind (..), lexTokenKind)
 import Aihc.Parser.Syntax
+import Aihc.Parser.Types (ParserErrorComponent (..), mkFoundToken)
 import Control.Monad (when)
 import Data.Char (isAsciiLower, isUpper)
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, isJust)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Text.Megaparsec (anySingle, lookAhead, (<|>))
@@ -105,19 +106,25 @@ importDeclParser = withSpan $ do
   importedPackage <- MP.optional packageNameParser
   importedModule <- moduleNameParser
   postQualified <-
-    MP.option False (keywordTok TkKeywordQualified >> pure True)
-  when (preQualified && postQualified) $
-    fail "import declaration cannot contain 'qualified' both before and after the module name"
+    MP.optional $
+      tokenSatisfy "keyword 'qualified'" $ \tok ->
+        if lexTokenKind tok == TkKeywordQualified then Just (mkFoundToken tok) else Nothing
+  when (preQualified && isJust postQualified) $
+    MP.customFailure
+      UnexpectedTokenExpecting
+        { unexpectedFound = postQualified,
+          unexpectedExpecting = "import declaration without duplicate 'qualified'"
+        }
   importAlias <- MP.optional (keywordTok TkKeywordAs *> moduleNameParser)
   importSpec <- MP.optional importSpecParser
-  let isQualified = preQualified || postQualified
+  let isQualified = preQualified || isJust postQualified
   pure $ \span' ->
     ImportDecl
       { importDeclSpan = span',
         importDeclLevel = importedLevel,
         importDeclPackage = importedPackage,
         importDeclQualified = isQualified,
-        importDeclQualifiedPost = postQualified,
+        importDeclQualifiedPost = isJust postQualified,
         importDeclModule = importedModule,
         importDeclAs = importAlias,
         importDeclSpec = importSpec
@@ -744,11 +751,7 @@ dataConInfixParser forallVars context = do
   pure (\span' -> InfixCon span' forallVars context lhs op rhs)
 
 recordFieldsParser :: TokParser [FieldDecl]
-recordFieldsParser = do
-  expectedTok TkSpecialLBrace
-  fields <- recordFieldDeclParser `MP.sepEndBy` expectedTok TkSpecialComma
-  expectedTok TkSpecialRBrace
-  pure fields
+recordFieldsParser = braces (recordFieldDeclParser `MP.sepEndBy` expectedTok TkSpecialComma)
 
 recordFieldDeclParser :: TokParser FieldDecl
 recordFieldDeclParser = withSpan $ do

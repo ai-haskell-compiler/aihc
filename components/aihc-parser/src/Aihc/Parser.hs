@@ -32,17 +32,25 @@ where
 import Aihc.Parser.Internal.Expr (exprParser, patternParser, typeParser)
 import Aihc.Parser.Internal.Module (moduleParser)
 import Aihc.Parser.Lex
-  ( lexModuleTokensWithExtensions,
+  ( LexToken (..),
+    LexTokenKind (..),
+    TokenOrigin (..),
+    lexModuleTokensWithExtensions,
     lexTokensWithExtensions,
     readModuleHeaderExtensions,
   )
 import Aihc.Parser.Pretty ()
-import Aihc.Parser.Syntax (Expr, Extension (..), ExtensionSetting (..), Module, Pattern, Type)
+import Aihc.Parser.Syntax (Expr, Extension (..), ExtensionSetting (..), Module, Pattern, SourceSpan (..), Type)
 import Aihc.Parser.Types
 import Data.List qualified as List
+import Data.List.NonEmpty qualified as NE
+import Data.Maybe (fromMaybe, listToMaybe, mapMaybe)
+import Data.Set qualified as Set
 import Data.Text (Text)
+import Data.Text qualified as T
 import Text.Megaparsec (runParser)
 import Text.Megaparsec qualified as MP
+import Text.Megaparsec.Error qualified as MPE
 
 -- $setup
 -- >>> :set -XOverloadedStrings
@@ -146,5 +154,146 @@ applyExtensionSettings = List.foldl' applySetting
         DisableExtension ext -> filter (/= ext) exts
 
 -- | Pretty-print a parse error bundle.
-errorBundlePretty :: ParseErrorBundle -> String
-errorBundlePretty = MP.errorBundlePretty
+errorBundlePretty :: Maybe Text -> ParseErrorBundle -> String
+errorBundlePretty = renderErrorBlocks
+
+extractCustomError :: MPE.ParseError TokStream ParserErrorComponent -> Maybe ParserErrorComponent
+extractCustomError err =
+  case err of
+    MPE.FancyError _ fancySet -> listToMaybe (mapMaybe fromFancy (Set.toList fancySet))
+    _ -> Nothing
+  where
+    fromFancy fancyErr =
+      case fancyErr of
+        MPE.ErrorCustom custom -> Just custom
+        _ -> Nothing
+
+sourcePosForOffset :: TokStream -> Int -> (Int, Int)
+sourcePosForOffset stream off =
+  let toks = unTokStream stream
+      idx = max 0 off
+      atIndex n = if n >= 0 && n < length toks then Just (toks !! n) else Nothing
+      prevSourceToken n
+        | n < 0 = Nothing
+        | otherwise =
+            case atIndex n of
+              Just tok
+                | lexTokenOrigin tok == FromSource -> Just tok
+                | otherwise -> prevSourceToken (n - 1)
+              Nothing -> Nothing
+   in case atIndex idx of
+        Just tok
+          | lexTokenOrigin tok == InsertedLayout ->
+              case prevSourceToken (idx - 1) of
+                Just prevTok -> spanEnd (lexTokenSpan prevTok)
+                Nothing -> spanStart (lexTokenSpan tok)
+          | lexTokenKind tok == TkSpecialRBrace ->
+              case atIndex (idx - 1) of
+                Just prevTok -> spanEnd (lexTokenSpan prevTok)
+                Nothing -> spanStart (lexTokenSpan tok)
+          | otherwise -> spanStart (lexTokenSpan tok)
+        Nothing ->
+          case prevSourceToken (length toks - 1) of
+            Just tok -> spanEnd (lexTokenSpan tok)
+            Nothing ->
+              case reverse toks of
+                tok : _ -> spanEnd (lexTokenSpan tok)
+                [] -> (1, 1)
+  where
+    spanStart span' =
+      case span' of
+        SourceSpan line col _ _ -> (line, col)
+        NoSourceSpan -> (1, 1)
+    spanEnd span' =
+      case span' of
+        SourceSpan _ _ line col -> (line, col)
+        NoSourceSpan -> (1, 1)
+
+getSourceLine :: Maybe Text -> Int -> Maybe Text
+getSourceLine mSource lineNo = do
+  source <- mSource
+  let sourceLines = T.lines source
+  let idx = lineNo - 1
+  if idx < 0 || idx >= length sourceLines
+    then Nothing
+    else Just (sourceLines !! idx)
+
+markerLength :: Maybe FoundToken -> Int
+markerLength mFound =
+  case mFound of
+    Just found
+      | foundTokenOrigin found == InsertedLayout -> 1
+      | T.null (foundTokenText found) -> 1
+      | otherwise -> max 1 (T.length (foundTokenText found))
+    Nothing -> 1
+
+renderUnexpectedToken :: FoundToken -> String
+renderUnexpectedToken found =
+  "unexpected " <> tokenDescriptor found
+
+tokenDescriptor :: FoundToken -> String
+tokenDescriptor found =
+  case foundTokenOrigin found of
+    InsertedLayout -> "end of input"
+    FromSource ->
+      case foundTokenKind found of
+        Nothing -> "end of input"
+        Just TkKeywordWhere -> "'where' keyword"
+        Just _ -> "'" <> T.unpack (foundTokenText found) <> "'"
+
+renderErrorBlocks :: Maybe Text -> ParseErrorBundle -> String
+renderErrorBlocks mSource bundle =
+  let pst = MPE.bundlePosState bundle
+      sourceName = MP.sourceName (MP.pstateSourcePos pst)
+      stream = MP.pstateInput pst
+      errs = NE.toList (MPE.bundleErrors bundle)
+      blocks = map (renderErrorBlock sourceName mSource stream) errs
+   in List.intercalate "\n\n" blocks
+
+renderErrorBlock :: FilePath -> Maybe Text -> TokStream -> MPE.ParseError TokStream ParserErrorComponent -> String
+renderErrorBlock sourceName mSource stream err =
+  let (lineNo, colNo) = positionForError stream err
+      lineNoText = show lineNo
+      srcLine = fromMaybe "" (getSourceLine mSource lineNo)
+      markerPrefix = replicate (length lineNoText) ' ' <> " | "
+      markerLen = markerLengthForError err
+      marker = replicate (max 0 (colNo - 1)) ' ' <> replicate markerLen '^'
+      msgLines = renderMessageLines err
+      header = [sourceName <> ":" <> lineNoText <> ":" <> show colNo <> ":"]
+      snippetLines =
+        case mSource of
+          Just _ -> [lineNoText <> " | " <> T.unpack srcLine, markerPrefix <> marker]
+          Nothing -> []
+   in List.intercalate "\n" (header <> snippetLines <> msgLines)
+
+positionForError :: TokStream -> MPE.ParseError TokStream ParserErrorComponent -> (Int, Int)
+positionForError stream err =
+  case extractCustomError err >>= customFoundToken of
+    Just found
+      | foundTokenOrigin found == InsertedLayout ->
+          sourcePosForOffset stream (MPE.errorOffset err)
+      | otherwise ->
+          spanStart (foundTokenSpan found)
+    Nothing -> sourcePosForOffset stream (MPE.errorOffset err)
+  where
+    spanStart span' =
+      case span' of
+        SourceSpan line col _ _ -> (line, col)
+        NoSourceSpan -> (1, 1)
+
+markerLengthForError :: MPE.ParseError TokStream ParserErrorComponent -> Int
+markerLengthForError err =
+  markerLength (extractCustomError err >>= customFoundToken)
+
+customFoundToken :: ParserErrorComponent -> Maybe FoundToken
+customFoundToken custom =
+  case custom of
+    UnexpectedTokenExpecting mFound _ -> mFound
+
+renderMessageLines :: MPE.ParseError TokStream ParserErrorComponent -> [String]
+renderMessageLines err =
+  case extractCustomError err of
+    Just (UnexpectedTokenExpecting mFound expecting) ->
+      [maybe "unexpected end of input" renderUnexpectedToken mFound, "expecting " <> T.unpack expecting]
+    Nothing ->
+      [List.dropWhileEnd (`elem` ['\n', '\r']) (MPE.parseErrorTextPretty err)]

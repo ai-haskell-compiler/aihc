@@ -27,7 +27,7 @@ prop_modulePrettyRoundTrip modu =
                 actual = normalizeModule reparsed
              in counterexample ("expected: " <> show expected <> "\nactual: " <> show actual) (expected == actual)
           ParseErr err ->
-            counterexample (errorBundlePretty err) False
+            counterexample (errorBundlePretty (Just source) err) False
 
 instance Arbitrary Module where
   arbitrary = do
