@@ -45,6 +45,7 @@ hackageTesterTests =
           testCase "accepts LANGUAGE Haskell2010 pragmas" test_oracleAcceptsHaskell2010LanguagePragma,
           testCase "accepts NondecreasingIndentation pragmas" test_oracleAcceptsNondecreasingIndentationPragma,
           testCase "applies implied extensions" test_oracleAppliesImpliedExtensions,
+          testCase "defaults to Haskell2010 when language is omitted" test_oracleDefaultsToHaskell2010,
           testCase "uses Haskell2010 language defaults" test_oracleUsesHaskell2010Defaults,
           testCase "uses Haskell98 fallback defaults" test_oracleUsesHaskell98FallbackDefaults,
           testCase "handles CPP-defined LANGUAGE pragmas" test_oracleHandlesCppDefinedLanguagePragmas
@@ -181,6 +182,21 @@ test_oracleAppliesImpliedExtensions =
           "module A where",
           "f :: forall a. a -> a",
           "f x = x"
+        ]
+
+test_oracleDefaultsToHaskell2010 :: Assertion
+test_oracleDefaultsToHaskell2010 =
+  case oracleDetailedParsesModuleWithNamesAt "hackage-tester" [] Nothing source of
+    Left err ->
+      assertBool
+        ("expected omitted language to default to Haskell2010 record syntax, got: " <> T.unpack err)
+        False
+    Right () -> pure ()
+  where
+    source =
+      T.unlines
+        [ "module A where",
+          "data R = R { field :: Int }"
         ]
 
 test_oracleUsesHaskell2010Defaults :: Assertion

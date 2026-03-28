@@ -80,15 +80,11 @@ oracleModuleAstFingerprintWithExtensionsAt sourceTag exts input = do
 
 parseWithGhcWithExtensions :: String -> [GHC.Extension] -> Text -> Either Text ([Syntax.ExtensionSetting], HsModule GhcPs)
 parseWithGhcWithExtensions sourceTag extraExts input =
-  first fst (parseWithGhcWithExtensionsDetailedInternal False sourceTag extraExts input)
+  first fst (parseWithGhcWithExtensionsDetailed sourceTag extraExts input)
 
-parseWithGhcWithExtensionsDetailed :: String -> [GHC.Extension] -> Text -> Either (Text, EnumSet.EnumSet GHC.Extension) ([Syntax.ExtensionSetting], HsModule GhcPs)
-parseWithGhcWithExtensionsDetailed =
-  parseWithGhcWithExtensionsDetailedInternal True
-
-parseWithGhcWithExtensionsDetailedInternal :: Bool -> String -> [GHC.Extension] -> Text -> Either (Text, EnumSet.EnumSet GHC.Extension) ([Syntax.ExtensionSetting], HsModule GhcPs)
-parseWithGhcWithExtensionsDetailedInternal checkParserErrors sourceTag extraExts input =
-  let baseExts = nub extraExts
+parseWithGhcWithExtensionsDetailed ::  String -> [GHC.Extension] -> Text -> Either (Text, EnumSet.EnumSet GHC.Extension) ([Syntax.ExtensionSetting], HsModule GhcPs)
+parseWithGhcWithExtensionsDetailed sourceTag extraExts input =
+  let baseExts = nub (languageExtensions "Haskell2010" <> extraExts)
       baseExtSet = EnumSet.fromList baseExts :: EnumSet.EnumSet GHC.Extension
       baseParseExts = applyImpliedExtensions baseExtSet
    in do
@@ -112,7 +108,7 @@ parseWithGhcWithExtensionsDetailedInternal checkParserErrors sourceTag extraExts
             start = mkRealSrcLoc (mkFastString sourceTag) 1 1
         case catchPureExceptionText $ case unP parseModule (initParserState opts buffer start) of
           POk st modu ->
-            if not (checkParserErrors && parserStateHasErrors st)
+            if not (parserStateHasErrors st)
               then case firstSignificantTokenAfterModule st of
                 Right tok ->
                   case unLoc tok of
@@ -265,7 +261,7 @@ oracleDetailedParsesModuleWithNamesAt sourceTag extNames langName input =
   let extSettings = mapMaybe (Syntax.parseExtensionSettingName . T.pack) extNames
       langExts = maybe [] languageExtensions langName
       allExts = EnumSet.toList (List.foldl' applyExtensionSetting (EnumSet.fromList langExts) extSettings)
-   in case parseWithGhcWithExtensionsDetailedInternal False sourceTag allExts input of
+   in case parseWithGhcWithExtensionsDetailed sourceTag allExts input of
         Left (err, parseExts) ->
           let extList = T.pack (show extNames)
               parseExtList = T.pack (show (EnumSet.toList parseExts))

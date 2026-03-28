@@ -1,4 +1,4 @@
-{-# LANGUAGE NamedWildCards #-}
+{-# LANGUAGE NamedWildCards, ExplicitForAll #-}
 
 module NamedWildcardForall where
 
