@@ -19,8 +19,8 @@ module CLIGolden
   )
 where
 
-import qualified Aihc.Parser.CLI.Lexer as LexerCLI
-import qualified Aihc.Parser.CLI.Parser as ParserCLI
+import qualified Aihc.Parser.Run.Lexer as LexerRun
+import qualified Aihc.Parser.Run.Parser as ParserRun
 import Aihc.Parser.Syntax (Extension, ExtensionSetting (..), parseExtensionSettingName)
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withObject)
@@ -173,8 +173,8 @@ runCLIInProcess :: CLITool -> [String] -> Text -> (ExitCode, Text)
 runCLIInProcess tool args input =
   let extensions = parseExtensionArgs args
    in case tool of
-        ToolLexer -> LexerCLI.runLexer extensions input
-        ToolParser -> ParserCLI.runParser extensions input
+        ToolLexer -> LexerRun.runLexer extensions input
+        ToolParser -> ParserRun.runParser extensions input
 
 -- | Parse -X extension arguments from command line args.
 -- Returns a list of enabled extensions.

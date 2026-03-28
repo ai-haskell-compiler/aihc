@@ -1,16 +1,13 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | CLI entry point for aihc-lexer, exposed as a library module for testing.
+-- | CLI entry point for aihc-lexer.
 module Aihc.Parser.CLI.Lexer
   ( main,
-    runLexer,
   )
 where
 
-import Aihc.Parser.Lex (lexModuleTokensWithExtensions)
-import Aihc.Parser.Shorthand (Shorthand (..))
+import Aihc.Parser.Run.Lexer (runLexer)
 import Aihc.Parser.Syntax (Extension, ExtensionSetting (..), parseExtensionSettingName)
-import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
 import Options.Applicative
@@ -30,15 +27,6 @@ main = do
   case exitCode of
     ExitSuccess -> pure ()
     ExitFailure _ -> pure () -- Lexer doesn't fail, but keep consistent API
-
--- | Run the lexer on input text with given extensions.
--- Returns (ExitCode, output text).
--- This is the pure core that can be tested without IO capture.
-runLexer :: [Extension] -> Text -> (ExitCode, Text)
-runLexer extensions input =
-  let tokens = lexModuleTokensWithExtensions extensions input
-      output = T.unlines (map (T.pack . show . shorthand) tokens)
-   in (ExitSuccess, output)
 
 optionsParser :: ParserInfo Options
 optionsParser =
