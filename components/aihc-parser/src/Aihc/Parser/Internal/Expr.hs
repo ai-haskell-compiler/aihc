@@ -15,6 +15,7 @@ where
 import Aihc.Parser.Internal.Common
 import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokenKind, lexTokenSpan, lexTokenText)
 import Aihc.Parser.Syntax
+import Aihc.Parser.Types (ParserErrorComponent (..), mkFoundToken)
 import Control.Monad (guard)
 import Data.Char (isLower, isUpper)
 import Data.Text (Text)
@@ -547,11 +548,23 @@ caseAltParser = withSpan $ do
 caseExprParser :: TokParser Expr
 caseExprParser = withSpan $ do
   keywordTok TkKeywordCase
-  scrutinee <- exprParser
+  scrutinee <- exprAfterCaseParser
   keywordTok TkKeywordOf
   alts <- bracedAlts <|> plainAlts
   pure $ \span' -> ECase span' scrutinee alts
   where
+    exprAfterCaseParser = do
+      mTok <- MP.optional (lookAhead anySingle)
+      case mTok of
+        Just tok
+          | lexTokenKind tok == TkSpecialSemicolon || lexTokenKind tok == TkSpecialRBrace ->
+              MP.customFailure
+                UnexpectedTokenExpecting
+                  { unexpectedFound = Just (mkFoundToken tok),
+                    unexpectedExpecting = "expression"
+                  }
+        _ -> exprParser
+
     plainAlts = plainSemiSep1 caseAltParser
     bracedAlts = bracedSemiSep caseAltParser
 

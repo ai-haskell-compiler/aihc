@@ -8,18 +8,8 @@ aihc: |
   test.hs:1:9:
   1 | x = case
     |         ^
-  based integer literal
-  character literal
-  floating literal
-  identifier
-  integer literal
-  keyword 'let'
-  minus operator
-  operator '\'
-  prefix minus
-  string literal
-  symbol '('
-  symbol '['
+  unexpected end of input
+  expecting expression
 
   test.hs:2:9:
   2 | y = 20 +
