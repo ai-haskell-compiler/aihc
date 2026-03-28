@@ -82,7 +82,7 @@ parseWithGhcWithExtensions :: String -> [GHC.Extension] -> Text -> Either Text (
 parseWithGhcWithExtensions sourceTag extraExts input =
   first fst (parseWithGhcWithExtensionsDetailed sourceTag extraExts input)
 
-parseWithGhcWithExtensionsDetailed ::  String -> [GHC.Extension] -> Text -> Either (Text, EnumSet.EnumSet GHC.Extension) ([Syntax.ExtensionSetting], HsModule GhcPs)
+parseWithGhcWithExtensionsDetailed :: String -> [GHC.Extension] -> Text -> Either (Text, EnumSet.EnumSet GHC.Extension) ([Syntax.ExtensionSetting], HsModule GhcPs)
 parseWithGhcWithExtensionsDetailed sourceTag extraExts input =
   let baseExts = nub (languageExtensions "Haskell2010" <> extraExts)
       baseExtSet = EnumSet.fromList baseExts :: EnumSet.EnumSet GHC.Extension
