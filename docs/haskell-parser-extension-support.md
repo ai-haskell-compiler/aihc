@@ -3,8 +3,8 @@
 ## Summary
 
 - Total Extensions: 138
-- Supported: 33
-- In Progress: 26
+- Supported: 36
+- In Progress: 23
 - Planned: 79
 
 ## Extension Status
@@ -41,7 +41,7 @@
 | EmptyCase | Supported | 4/4 | EmptyCase |
 | EmptyDataDecls | Supported | 5/5 | EmptyDataDecls |
 | EmptyDataDeriving | In Progress | 2/3 | EmptyDataDeriving |
-| ExistentialQuantification | Supported | 4/4 | ExistentialQuantification |
+| ExistentialQuantification | Supported | 6/6 | ExistentialQuantification |
 | ExplicitForAll | Supported | 5/5 | ExplicitForAll |
 | ExplicitLevelImports | Supported | 4/4 | ExplicitLevelImports |
 | ExplicitNamespaces | Supported | 3/3 | ExplicitNamespaces |
@@ -51,7 +51,7 @@
 | FlexibleContexts | Planned | - | FlexibleContexts |
 | FlexibleInstances | Supported | 4/4 | FlexibleInstances |
 | ForeignFunctionInterface | Supported | 4/4 | ForeignFunctionInterface |
-| FunctionalDependencies | In Progress | 0/5 | FunctionalDependencies |
+| FunctionalDependencies | Supported | 7/7 | FunctionalDependencies |
 | GADTs | Supported | 3/3 | GADTs |
 | GADTSyntax | Supported | 9/9 | GADTSyntax |
 | GeneralisedNewtypeDeriving | Planned | - | GeneralisedNewtypeDeriving |
@@ -75,7 +75,7 @@
 | LiberalTypeSynonyms | Planned | - | LiberalTypeSynonyms |
 | LinearTypes | Planned | - | LinearTypes |
 | ListTuplePuns | Planned | - | ListTuplePuns |
-| MagicHash | In Progress | 0/2 | MagicHash |
+| MagicHash | Supported | 2/2 | MagicHash |
 | MonadComprehensions | Planned | - | MonadComprehensions |
 | MonoLocalBinds | Planned | - | MonoLocalBinds |
 | MonomorphismRestriction | Planned | - | MonomorphismRestriction |
@@ -134,13 +134,13 @@
 | TypeAbstractions | Planned | - | TypeAbstractions |
 | TypeApplications | In Progress | 0/2 | TypeApplications |
 | TypeData | In Progress | 0/1 | TypeData |
-| TypeFamilies | In Progress | 0/3 | TypeFamilies |
+| TypeFamilies | In Progress | 0/17 | TypeFamilies |
 | TypeFamilyDependencies | Planned | - | TypeFamilyDependencies |
 | TypeInType | Planned | - | TypeInType |
 | TypeOperators | In Progress | 0/4 | TypeOperators |
 | TypeSynonymInstances | Planned | - | TypeSynonymInstances |
 | UnboxedSums | In Progress | 0/3 | UnboxedSums |
-| UnboxedTuples | In Progress | 0/3 | UnboxedTuples |
+| UnboxedTuples | Supported | 5/5 | UnboxedTuples |
 | UndecidableInstances | Planned | - | UndecidableInstances |
 | UndecidableSuperClasses | Planned | - | UndecidableSuperClasses |
 | UnicodeSyntax | Supported | 6/6 | UnicodeSyntax |
