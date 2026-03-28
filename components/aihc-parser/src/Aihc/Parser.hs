@@ -314,4 +314,17 @@ renderMessageLines err =
       case extractSemanticErrors err of
         semanticErr : _ -> [T.unpack semanticErr]
         [] ->
-          [List.dropWhileEnd (`elem` ['\n', '\r']) (MPE.parseErrorTextPretty err)]
+          [ normalizeUnexpectedDelimiter $
+              List.dropWhileEnd (`elem` ['\n', '\r']) (MPE.parseErrorTextPretty err)
+          ]
+
+normalizeUnexpectedDelimiter :: String -> String
+normalizeUnexpectedDelimiter msg =
+  case msg of
+    "unexpected }" -> "unexpected '}'"
+    "unexpected {" -> "unexpected '{'"
+    "unexpected ]" -> "unexpected ']'"
+    "unexpected [" -> "unexpected '['"
+    "unexpected )" -> "unexpected ')'"
+    "unexpected (" -> "unexpected '('"
+    _ -> msg
