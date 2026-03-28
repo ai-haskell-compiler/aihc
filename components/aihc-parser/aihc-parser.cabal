@@ -16,6 +16,8 @@ library
     , Aihc.Parser.Lex
     , Aihc.Parser.Shorthand
     , Aihc.Parser.Internal.FromTokens
+    , Aihc.Parser.CLI.Lexer
+    , Aihc.Parser.CLI.Parser
   other-modules:
       Aihc.Parser.Pretty
     , Aihc.Parser.Types
@@ -31,6 +33,7 @@ library
     , deepseq
     , megaparsec
     , prettyprinter
+    , optparse-applicative
   ghc-options:        -Wall -Werror
   default-language: GHC2021
 

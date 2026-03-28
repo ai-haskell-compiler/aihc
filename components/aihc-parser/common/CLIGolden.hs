@@ -2,13 +2,14 @@
 
 -- | Golden test infrastructure for CLI binaries (aihc-lexer, aihc-parser).
 --
--- This module provides process-based testing that actually spawns the
--- executables and verifies command-line argument parsing, stdin/file input,
--- and output format.
+-- This module provides in-process testing that directly calls the CLI core
+-- functions and captures their output, avoiding the need to spawn external
+-- processes or have executables installed in PATH.
 module CLIGolden
   ( ExpectedStatus (..),
     Outcome (..),
     CLICase (..),
+    CLITool (..),
     fixtureRoot,
     loadLexerCLICases,
     loadParserCLICases,
@@ -18,10 +19,11 @@ module CLIGolden
   )
 where
 
+import qualified Aihc.Parser.CLI.Lexer as LexerCLI
+import qualified Aihc.Parser.CLI.Parser as ParserCLI
+import Aihc.Parser.Syntax (Extension, ExtensionSetting (..), parseExtensionSettingName)
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withObject)
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Char8 as BS8
 import Data.Char (isSpace, toLower)
 import Data.List (dropWhileEnd, sort)
 import Data.Text (Text)
@@ -32,14 +34,6 @@ import qualified Data.Yaml as Y
 import System.Directory (doesDirectoryExist, listDirectory)
 import System.Exit (ExitCode (..))
 import System.FilePath (takeDirectory, takeExtension, (</>))
-import System.IO (hClose, hFlush)
-import System.Process
-  ( CreateProcess (..),
-    StdStream (..),
-    createProcess,
-    proc,
-    waitForProcess,
-  )
 
 data ExpectedStatus
   = StatusPass
@@ -52,6 +46,10 @@ data Outcome
   | OutcomeXFail
   | OutcomeXPass
   | OutcomeFail
+  deriving (Eq, Show)
+
+-- | Which CLI tool to run
+data CLITool = ToolLexer | ToolParser
   deriving (Eq, Show)
 
 data CLICase = CLICase
@@ -142,12 +140,12 @@ parseYamlFixture path value =
     Left err -> Left ("Invalid CLI fixture schema in " <> path <> ": " <> err)
     Right parsed -> Right parsed
 
--- | Run a CLI case and evaluate the outcome.
+-- | Run a CLI case in-process and evaluate the outcome.
 -- Returns (Outcome, detail message).
-evaluateCLICase :: FilePath -> CLICase -> IO (Outcome, String)
-evaluateCLICase exePath meta = do
-  (exitCode, stdout, stderr) <- runProcess exePath (caseArgs meta) (caseInput meta)
-  let actualOutput = T.stripEnd stdout
+evaluateCLICase :: CLITool -> CLICase -> IO (Outcome, String)
+evaluateCLICase tool meta = do
+  let (exitCode, stdoutText) = runCLIInProcess tool (caseArgs meta) (caseInput meta)
+      actualOutput = T.stripEnd stdoutText
       expectedOutput = T.stripEnd (caseExpectedOutput meta)
       expectedExit = caseExpectedExitCode meta
       actualExit = exitCodeToInt exitCode
@@ -160,7 +158,7 @@ evaluateCLICase exePath meta = do
       | otherwise ->
           ( OutcomeFail,
             "expected pass but got mismatch"
-              <> detailsSuffix actualOutput expectedOutput actualExit expectedExit stderr
+              <> detailsSuffix actualOutput expectedOutput actualExit expectedExit
           )
     StatusXFail
       | success -> (OutcomeFail, "expected xfail (known failing bug), but test now passes")
@@ -169,26 +167,32 @@ evaluateCLICase exePath meta = do
       | success -> (OutcomeXPass, "known bug still passes unexpectedly")
       | otherwise -> (OutcomeFail, "expected xpass (known passing bug), but test now fails")
 
-runProcess :: FilePath -> [String] -> Text -> IO (ExitCode, Text, Text)
-runProcess exe args input = do
-  let cp =
-        (proc exe args)
-          { std_in = CreatePipe,
-            std_out = CreatePipe,
-            std_err = CreatePipe
-          }
-  (Just hIn, Just hOut, Just hErr, ph) <- createProcess cp
-  -- Write input
-  TIO.hPutStr hIn input
-  hFlush hIn
-  hClose hIn
-  -- Read output
-  outBytes <- BS.hGetContents hOut
-  errBytes <- BS.hGetContents hErr
-  exitCode <- waitForProcess ph
-  let stdout = T.pack (BS8.unpack outBytes)
-      stderr = T.pack (BS8.unpack errBytes)
-  pure (exitCode, stdout, stderr)
+-- | Run a CLI tool in-process, returning output and exit code.
+-- This calls the pure core functions directly without IO capture.
+runCLIInProcess :: CLITool -> [String] -> Text -> (ExitCode, Text)
+runCLIInProcess tool args input =
+  let extensions = parseExtensionArgs args
+   in case tool of
+        ToolLexer -> LexerCLI.runLexer extensions input
+        ToolParser -> ParserCLI.runParser extensions input
+
+-- | Parse -X extension arguments from command line args.
+-- Returns a list of enabled extensions.
+parseExtensionArgs :: [String] -> [Extension]
+parseExtensionArgs [] = []
+parseExtensionArgs ("-X" : ext : rest) =
+  case parseExtensionSettingName (T.pack ext) of
+    Just (EnableExtension e) -> e : parseExtensionArgs rest
+    _ -> parseExtensionArgs rest
+parseExtensionArgs (arg : rest)
+  | "-X" `isPrefixOf` arg =
+      let ext = drop 2 arg
+       in case parseExtensionSettingName (T.pack ext) of
+            Just (EnableExtension e) -> e : parseExtensionArgs rest
+            _ -> parseExtensionArgs rest
+  | otherwise = parseExtensionArgs rest
+  where
+    isPrefixOf prefix str = take (length prefix) str == prefix
 
 exitCodeToInt :: ExitCode -> Int
 exitCodeToInt ExitSuccess = 0
@@ -204,8 +208,8 @@ progressSummary outcomes =
   where
     count wanted = length [() | (_, out, _) <- outcomes, out == wanted]
 
-detailsSuffix :: Text -> Text -> Int -> Int -> Text -> String
-detailsSuffix actualOut expectedOut actualExit expectedExit stderrOut =
+detailsSuffix :: Text -> Text -> Int -> Int -> String
+detailsSuffix actualOut expectedOut actualExit expectedExit =
   "\n  expected output:\n"
     <> T.unpack expectedOut
     <> "\n  actual output:\n"
@@ -214,7 +218,6 @@ detailsSuffix actualOut expectedOut actualExit expectedExit stderrOut =
     <> show expectedExit
     <> "\n  actual exit: "
     <> show actualExit
-    <> (if T.null stderrOut then "" else "\n  stderr:\n" <> T.unpack stderrOut)
 
 listFixtureFiles :: FilePath -> IO [FilePath]
 listFixtureFiles dir = do

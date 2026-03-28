@@ -2,15 +2,9 @@
 
 -- | CLI binary tests using golden test fixtures.
 --
--- These tests spawn the actual aihc-lexer and aihc-parser executables
--- and verify their output against expected golden outputs.
---
--- The executables must be available via environment variables:
--- - AIHC_LEXER_EXE: path to the aihc-lexer executable
--- - AIHC_PARSER_EXE: path to the aihc-parser executable
---
--- If these are not set, the tests will look for the executables in PATH.
--- If not found anywhere, the tests will fail (not skip).
+-- These tests run the aihc-lexer and aihc-parser main functions in-process
+-- using the 'silently' library to capture output. No external executables
+-- are required.
 module Test.CLI.Suite
   ( cliTests,
   )
@@ -19,8 +13,6 @@ where
 import qualified CLIGolden as CG
 import Control.Monad (forM, unless)
 import Data.List (intercalate)
-import System.Directory (findExecutable)
-import System.Environment (lookupEnv)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertFailure, testCase)
 
@@ -31,8 +23,8 @@ cliTests = do
   parserCases <- CG.loadParserCLICases
 
   -- Build test trees
-  lexerTests <- mkCLIGoldenTests "aihc-lexer" "AIHC_LEXER_EXE" lexerCases
-  parserTests <- mkCLIGoldenTests "aihc-parser" "AIHC_PARSER_EXE" parserCases
+  let lexerTests = mkCLIGoldenTests CG.ToolLexer lexerCases
+      parserTests = mkCLIGoldenTests CG.ToolParser parserCases
 
   pure $
     testGroup
@@ -42,43 +34,24 @@ cliTests = do
       ]
 
 -- | Build golden tests for a CLI tool.
--- Looks for the executable first in the given environment variable,
--- then in PATH. If not found, the test fails.
-mkCLIGoldenTests :: String -> String -> [CG.CLICase] -> IO [TestTree]
-mkCLIGoldenTests toolName envVar cases = do
+-- Runs tests in-process, no external executables required.
+mkCLIGoldenTests :: CG.CLITool -> [CG.CLICase] -> [TestTree]
+mkCLIGoldenTests tool cases =
   if null cases
-    then pure [testCase "no fixtures found" (assertFailure "no CLI test fixtures found")]
-    else do
-      -- First check environment variable, then PATH
-      mEnvPath <- lookupEnv envVar
-      mPathExe <- findExecutable toolName
-      case mEnvPath of
-        Just envPath -> mkTests envPath cases
-        Nothing ->
-          case mPathExe of
-            Just pathExe -> mkTests pathExe cases
-            Nothing ->
-              pure
-                [ testCase
-                    "executable not found"
-                    (assertFailure $ "Could not find " <> toolName <> " executable. Set " <> envVar <> " or ensure " <> toolName <> " is in PATH.")
-                ]
+    then [testCase "no fixtures found" (assertFailure "no CLI test fixtures found")]
+    else
+      let tests = map (mkTest tool) cases
+          summaryTest = testCase "summary" (runSummaryTest tool cases)
+       in tests <> [summaryTest]
   where
-    mkTests exePath fixtures = do
-      -- Create a test case for each fixture
-      tests <- forM fixtures $ \cliCase -> do
-        let testName = CG.caseId cliCase
-        pure $
-          testCase testName $
-            runCLIGoldenTest exePath cliCase
-      -- Add a summary test
-      let summaryTest = testCase "summary" (runSummaryTest exePath fixtures)
-      pure (tests <> [summaryTest])
+    mkTest cliTool cliCase =
+      testCase (CG.caseId cliCase) $
+        runCLIGoldenTest cliTool cliCase
 
 -- | Run a single CLI golden test.
-runCLIGoldenTest :: FilePath -> CG.CLICase -> IO ()
-runCLIGoldenTest exePath cliCase = do
-  (outcome, detail) <- CG.evaluateCLICase exePath cliCase
+runCLIGoldenTest :: CG.CLITool -> CG.CLICase -> IO ()
+runCLIGoldenTest tool cliCase = do
+  (outcome, detail) <- CG.evaluateCLICase tool cliCase
   case outcome of
     CG.OutcomePass -> pure ()
     CG.OutcomeXFail -> pure () -- Expected failure
@@ -88,10 +61,10 @@ runCLIGoldenTest exePath cliCase = do
         "CLI test failed for " <> CG.caseId cliCase <> ": " <> detail
 
 -- | Run all tests and produce a summary.
-runSummaryTest :: FilePath -> [CG.CLICase] -> IO ()
-runSummaryTest exePath cases = do
+runSummaryTest :: CG.CLITool -> [CG.CLICase] -> IO ()
+runSummaryTest tool cases = do
   results <- forM cases $ \cliCase -> do
-    (outcome, detail) <- CG.evaluateCLICase exePath cliCase
+    (outcome, detail) <- CG.evaluateCLICase tool cliCase
     pure (cliCase, outcome, detail)
   let (pass, xfail, xpass, _failures) = CG.progressSummary results
       total = length cases
