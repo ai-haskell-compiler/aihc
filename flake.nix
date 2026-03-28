@@ -54,6 +54,20 @@
           isDir || isHaskell || isCabal || isYaml || isTsv || isInc || isLicense;
       };
 
+    parserCliSrc = pkgs:
+      pkgs.lib.cleanSourceWith {
+        src = ./components/aihc-parser-cli;
+        filter = path: type: let
+          baseName = baseNameOf path;
+          isHaskell = pkgs.lib.hasSuffix ".hs" baseName;
+          isCabal = pkgs.lib.hasSuffix ".cabal" baseName;
+          isYaml = pkgs.lib.hasSuffix ".yaml" baseName || pkgs.lib.hasSuffix ".yml" baseName;
+          isLicense = baseName == "LICENSE";
+          isDir = type == "directory";
+        in
+          isDir || isHaskell || isCabal || isYaml || isLicense;
+      };
+
     # Filtered source for nix linting - only nix files
     nixSrc = pkgs:
       pkgs.lib.cleanSourceWith {
@@ -93,7 +107,7 @@
           type == "directory" || (isSh && isScriptsDir);
       };
 
-    # Filtered source for WASM builds - include both packages plus cabal.project
+    # Filtered source for WASM builds - include all packages plus cabal.project
     wasmBuildSrc = pkgs:
       pkgs.lib.cleanSourceWith {
         src = ./.;
@@ -103,6 +117,7 @@
           isDir = type == "directory";
           inComponents =
             pkgs.lib.hasInfix "/components/aihc-parser/" pathStr
+            || pkgs.lib.hasInfix "/components/aihc-parser-cli/" pathStr
             || pkgs.lib.hasInfix "/components/aihc-cpp/" pathStr;
           isHaskell = pkgs.lib.hasSuffix ".hs" baseName;
           isCabal = pkgs.lib.hasSuffix ".cabal" baseName;
@@ -130,6 +145,11 @@
               pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-parser" (parserSrc pkgs) {})
             )
           );
+          aihc-parser-cli = pkgs.haskell.lib.dontCheck (
+            pkgs.haskell.lib.disableExecutableProfiling (
+              pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-parser-cli" (parserCliSrc pkgs) {})
+            )
+          );
           aihc-cpp = pkgs.haskell.lib.dontCheck (final.callCabal2nix "aihc-cpp" (cppSrc pkgs) {});
         };
       };
@@ -145,10 +165,17 @@
               )
             )
           );
+          aihc-parser-cli = pkgs.haskell.lib.dontCheck (
+            pkgs.haskell.lib.disableOptimization (
+              pkgs.haskell.lib.disableExecutableProfiling (
+                pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-parser-cli" (parserCliSrc pkgs) {})
+              )
+            )
+          );
           aihc-cpp = pkgs.haskell.lib.dontCheck (final.callCabal2nix "aihc-cpp" (cppSrc pkgs) {});
         };
       };
-    # Haskell packages with tests enabled and CLI executables available via env vars
+    # Haskell packages with tests enabled
     mkHsPkgsWithTests = pkgs:
       pkgs.haskellPackages.override {
         overrides = final: prev: {
@@ -159,12 +186,15 @@
               pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-parser" (parserSrc pkgs) {})
             ))
             (old: {
-              preCheck =
-                (old.preCheck or "")
-                + ''
-                  export AIHC_LEXER_EXE="$PWD/dist/build/aihc-lexer/aihc-lexer"
-                  export AIHC_PARSER_EXE="$PWD/dist/build/aihc-parser/aihc-parser"
-                '';
+              # Hide passing tests so failures are visible in Nix's truncated output
+              testFlags = (old.testFlags or []) ++ ["--hide-successes"];
+            });
+          aihc-parser-cli =
+            pkgs.haskell.lib.overrideCabal
+            (pkgs.haskell.lib.disableExecutableProfiling (
+              pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-parser-cli" (parserCliSrc pkgs) {})
+            ))
+            (old: {
               # Hide passing tests so failures are visible in Nix's truncated output
               testFlags = (old.testFlags or []) ++ ["--hide-successes"];
             });
@@ -189,12 +219,17 @@
               )
             ))
             (old: {
-              preCheck =
-                (old.preCheck or "")
-                + ''
-                  export AIHC_LEXER_EXE="$PWD/dist/build/aihc-lexer/aihc-lexer"
-                  export AIHC_PARSER_EXE="$PWD/dist/build/aihc-parser/aihc-parser"
-                '';
+              # Hide passing tests so failures are visible in Nix's truncated output
+              testFlags = (old.testFlags or []) ++ ["--hide-successes"];
+            });
+          aihc-parser-cli =
+            pkgs.haskell.lib.overrideCabal
+            (pkgs.haskell.lib.disableOptimization (
+              pkgs.haskell.lib.disableExecutableProfiling (
+                pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-parser-cli" (parserCliSrc pkgs) {})
+              )
+            ))
+            (old: {
               # Hide passing tests so failures are visible in Nix's truncated output
               testFlags = (old.testFlags or []) ++ ["--hide-successes"];
             });
@@ -219,6 +254,13 @@
               )
             )
           );
+          aihc-parser-cli = pkgs.haskell.lib.dontCheck (
+            pkgs.haskell.lib.dontHaddock (
+              pkgs.haskell.lib.disableExecutableProfiling (
+                pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-parser-cli" (parserCliSrc pkgs) {})
+              )
+            )
+          );
           aihc-cpp = pkgs.haskell.lib.dontCheck (pkgs.haskell.lib.doHaddock (final.callCabal2nix "aihc-cpp" (cppSrc pkgs) {}));
         };
       };
@@ -231,6 +273,15 @@
               pkgs.haskell.lib.disableOptimization (
                 pkgs.haskell.lib.disableExecutableProfiling (
                   pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-parser" (parserSrc pkgs) {})
+                )
+              )
+            )
+          );
+          aihc-parser-cli = pkgs.haskell.lib.dontCheck (
+            pkgs.haskell.lib.dontHaddock (
+              pkgs.haskell.lib.disableOptimization (
+                pkgs.haskell.lib.disableExecutableProfiling (
+                  pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-parser-cli" (parserCliSrc pkgs) {})
                 )
               )
             )
@@ -311,59 +362,23 @@
               fi
             '';
         });
-      # Set up CLI executable environment for tests (same as mkHsPkgsWithTests) + export HPC
-      enableCoverageWithTests = drv:
-        pkgs.haskell.lib.overrideCabal drv (old: {
-          configureFlags = (old.configureFlags or []) ++ ["--enable-coverage"];
-          # Hide passing tests so failures are visible in Nix's truncated output
-          testFlags = (old.testFlags or []) ++ ["--hide-successes"];
-          preCheck =
-            (old.preCheck or "")
-            + ''
-                              export AIHC_LEXER_EXE="$PWD/dist/build/aihc-lexer/aihc-lexer"
-                              export AIHC_PARSER_EXE="$PWD/dist/build/aihc-parser/aihc-parser"
-                              # Create wrapper scripts that disable HPC for spawned executables
-                              # This prevents .tix file corruption when test-spawned executables
-                              # try to write to the same coverage file as the test runner
-                              # Each invocation creates its own unique temp .tix file to avoid
-                              # race conditions when tests run in parallel
-                              mkdir -p "$PWD/hpc-wrappers"
-                              for exe in aihc-lexer aihc-parser; do
-                                cat > "$PWD/hpc-wrappers/$exe" << 'WRAPPER'
-              #!/bin/sh
-              # Create a unique temp .tix file for this invocation
-              tix_file=$(mktemp --suffix=.tix)
-              echo "Tix []" > "$tix_file"
-              HPCTIXFILE="$tix_file" exec "$0.real" "$@"
-              WRAPPER
-                                chmod +x "$PWD/hpc-wrappers/$exe"
-                                # Create symlink to actual executable
-                                ln -sf "$PWD/dist/build/$exe/$exe" "$PWD/hpc-wrappers/$exe.real"
-                              done
-                              export AIHC_LEXER_EXE="$PWD/hpc-wrappers/aihc-lexer"
-                              export AIHC_PARSER_EXE="$PWD/hpc-wrappers/aihc-parser"
-            '';
-          postInstall =
-            (old.postInstall or "")
-            + ''
-              # Export HPC coverage data
-              if [ -d dist/hpc ]; then
-                mkdir -p "$out/hpc"
-                cp -r dist/hpc/* "$out/hpc/"
-              fi
-            '';
-        });
     in
       pkgs.haskellPackages.override {
         overrides = final: prev: {
           ghc-lib-parser = pkgs.haskell.lib.dontHaddock final.ghc-lib-parser_9_14_1_20251220;
-          # Parser needs test setup for CLI executables
-          aihc-parser = enableCoverageWithTests (
+          # Parser with coverage enabled
+          aihc-parser = enableCoverageWithExport (
             pkgs.haskell.lib.disableExecutableProfiling (
               pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-parser" (parserSrc pkgs) {})
             )
           );
-          # CPP doesn't need the CLI setup
+          # Parser CLI - no coverage needed, just make it available
+          aihc-parser-cli = pkgs.haskell.lib.dontCheck (
+            pkgs.haskell.lib.disableExecutableProfiling (
+              pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-parser-cli" (parserCliSrc pkgs) {})
+            )
+          );
+          # CPP with coverage enabled
           aihc-cpp = enableCoverageWithExport (final.callCabal2nix "aihc-cpp" (cppSrc pkgs) {});
         };
       };
@@ -558,8 +573,8 @@
       cppProgressExe = pkgs.lib.getExe' hsPkgs.aihc-cpp "cpp-progress";
       hackageTesterExe = pkgs.lib.getExe' hsPkgs.aihc-parser "hackage-tester";
       stackageProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser "stackage-progress";
-      aihcLexerExe = pkgs.lib.getExe' hsPkgs.aihc-parser "aihc-lexer";
-      aihcParserExe = pkgs.lib.getExe' hsPkgs.aihc-parser "aihc-parser";
+      aihcLexerExe = pkgs.lib.getExe' hsPkgs.aihc-parser-cli "aihc-lexer";
+      aihcParserExe = pkgs.lib.getExe' hsPkgs.aihc-parser-cli "aihc-parser";
       mkAppWithInputs = name: runtimeInputs: text: {
         type = "app";
         program = "${pkgs.writeShellApplication {
@@ -862,6 +877,7 @@
       hsPkgsWithTests = mkHsPkgsWithTestsForChecks pkgs;
       # Parser tests with CLI executables available from the local build
       parserTests = pkgs.haskell.lib.doCheck (pkgs.haskell.lib.dontHaddock hsPkgsWithTests.aihc-parser);
+      parserCliTests = pkgs.haskell.lib.doCheck (pkgs.haskell.lib.dontHaddock hsPkgsWithTests.aihc-parser-cli);
       cppTests = pkgs.haskell.lib.doCheck (pkgs.haskell.lib.dontHaddock hsPkgsWithTests.aihc-cpp);
       nixLint =
         pkgs.runCommand "aihc-nix-lint" {
@@ -1011,6 +1027,7 @@
         '';
     in {
       parser-tests = parserTests;
+      parser-cli-tests = parserCliTests;
       cpp-tests = cppTests;
       cpp-doctest = cppDoctest;
       parser-doctest = parserDoctest;
@@ -1029,6 +1046,10 @@
         {
           name = "parser-tests";
           path = parserTests;
+        }
+        {
+          name = "parser-cli-tests";
+          path = parserCliTests;
         }
         {
           name = "cpp-tests";
@@ -1098,6 +1119,7 @@
           # GHC with all project dependencies
           (hsPkgs.ghcWithPackages (p: [
             p.aihc-parser
+            p.aihc-parser-cli
             p.aihc-cpp
           ]))
           pkgs.cabal-install
