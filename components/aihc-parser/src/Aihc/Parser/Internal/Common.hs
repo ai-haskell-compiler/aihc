@@ -87,7 +87,6 @@ region context =
           case custom of
             UnexpectedTokenExpecting found expecting contexts ->
               MPE.ErrorCustom (UnexpectedTokenExpecting found expecting (contexts <> [context]))
-            _ -> fancyErr
         _ -> fancyErr
 
 keywordTok :: LexTokenKind -> TokParser ()

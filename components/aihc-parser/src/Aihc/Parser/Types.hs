@@ -40,16 +40,14 @@ data FoundToken = FoundToken
 
 data ParserErrorComponent
   = UnexpectedTokenExpecting
-      { unexpectedFound :: Maybe FoundToken,
-        unexpectedExpecting :: Text,
-        unexpectedContext :: [Text]
-      }
-  | SemanticError Text
+  { unexpectedFound :: Maybe FoundToken,
+    unexpectedExpecting :: Text,
+    unexpectedContext :: [Text]
+  }
   deriving (Eq, Ord, Show, Generic)
 
 instance MPE.ShowErrorComponent ParserErrorComponent where
   showErrorComponent (UnexpectedTokenExpecting _ expecting _) = "expecting " <> T.unpack expecting
-  showErrorComponent (SemanticError msg) = T.unpack msg
 
 mkFoundToken :: LexToken -> FoundToken
 mkFoundToken tok =

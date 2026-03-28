@@ -172,10 +172,6 @@ extractUnexpecteds :: MPE.ParseError TokStream ParserErrorComponent -> [ParserEr
 extractUnexpecteds err =
   [custom | custom@UnexpectedTokenExpecting {} <- extractCustomErrors err]
 
-extractSemanticErrors :: MPE.ParseError TokStream ParserErrorComponent -> [Text]
-extractSemanticErrors err =
-  [msg | SemanticError msg <- extractCustomErrors err]
-
 bestFoundTokenForError :: MPE.ParseError TokStream ParserErrorComponent -> Maybe FoundToken
 bestFoundTokenForError err =
   listToMaybe
@@ -311,12 +307,9 @@ renderMessageLines err =
       ]
         <> map (\context -> "context: " <> T.unpack context) contexts
     _ ->
-      case extractSemanticErrors err of
-        semanticErr : _ -> [T.unpack semanticErr]
-        [] ->
-          [ normalizeUnexpectedDelimiter $
-              List.dropWhileEnd (`elem` ['\n', '\r']) (MPE.parseErrorTextPretty err)
-          ]
+      [ normalizeUnexpectedDelimiter $
+          List.dropWhileEnd (`elem` ['\n', '\r']) (MPE.parseErrorTextPretty err)
+      ]
 
 normalizeUnexpectedDelimiter :: String -> String
 normalizeUnexpectedDelimiter msg =
