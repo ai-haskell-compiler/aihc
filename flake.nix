@@ -61,10 +61,11 @@
           baseName = baseNameOf path;
           isHaskell = pkgs.lib.hasSuffix ".hs" baseName;
           isCabal = pkgs.lib.hasSuffix ".cabal" baseName;
+          isYaml = pkgs.lib.hasSuffix ".yaml" baseName || pkgs.lib.hasSuffix ".yml" baseName;
           isLicense = baseName == "LICENSE";
           isDir = type == "directory";
         in
-          isDir || isHaskell || isCabal || isLicense;
+          isDir || isHaskell || isCabal || isYaml || isLicense;
       };
 
     # Filtered source for nix linting - only nix files
@@ -188,11 +189,15 @@
               # Hide passing tests so failures are visible in Nix's truncated output
               testFlags = (old.testFlags or []) ++ ["--hide-successes"];
             });
-          aihc-parser-cli = pkgs.haskell.lib.dontCheck (
-            pkgs.haskell.lib.disableExecutableProfiling (
+          aihc-parser-cli =
+            pkgs.haskell.lib.overrideCabal
+            (pkgs.haskell.lib.disableExecutableProfiling (
               pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-parser-cli" (parserCliSrc pkgs) {})
-            )
-          );
+            ))
+            (old: {
+              # Hide passing tests so failures are visible in Nix's truncated output
+              testFlags = (old.testFlags or []) ++ ["--hide-successes"];
+            });
           aihc-cpp =
             pkgs.haskell.lib.overrideCabal
             (final.callCabal2nix "aihc-cpp" (cppSrc pkgs) {})
@@ -217,13 +222,17 @@
               # Hide passing tests so failures are visible in Nix's truncated output
               testFlags = (old.testFlags or []) ++ ["--hide-successes"];
             });
-          aihc-parser-cli = pkgs.haskell.lib.dontCheck (
-            pkgs.haskell.lib.disableOptimization (
+          aihc-parser-cli =
+            pkgs.haskell.lib.overrideCabal
+            (pkgs.haskell.lib.disableOptimization (
               pkgs.haskell.lib.disableExecutableProfiling (
                 pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-parser-cli" (parserCliSrc pkgs) {})
               )
-            )
-          );
+            ))
+            (old: {
+              # Hide passing tests so failures are visible in Nix's truncated output
+              testFlags = (old.testFlags or []) ++ ["--hide-successes"];
+            });
           aihc-cpp =
             pkgs.haskell.lib.overrideCabal
             (final.callCabal2nix "aihc-cpp" (cppSrc pkgs) {})
@@ -868,6 +877,7 @@
       hsPkgsWithTests = mkHsPkgsWithTestsForChecks pkgs;
       # Parser tests with CLI executables available from the local build
       parserTests = pkgs.haskell.lib.doCheck (pkgs.haskell.lib.dontHaddock hsPkgsWithTests.aihc-parser);
+      parserCliTests = pkgs.haskell.lib.doCheck (pkgs.haskell.lib.dontHaddock hsPkgsWithTests.aihc-parser-cli);
       cppTests = pkgs.haskell.lib.doCheck (pkgs.haskell.lib.dontHaddock hsPkgsWithTests.aihc-cpp);
       nixLint =
         pkgs.runCommand "aihc-nix-lint" {
@@ -1017,6 +1027,7 @@
         '';
     in {
       parser-tests = parserTests;
+      parser-cli-tests = parserCliTests;
       cpp-tests = cppTests;
       cpp-doctest = cppDoctest;
       parser-doctest = parserDoctest;
@@ -1035,6 +1046,10 @@
         {
           name = "parser-tests";
           path = parserTests;
+        }
+        {
+          name = "parser-cli-tests";
+          path = parserCliTests;
         }
         {
           name = "cpp-tests";

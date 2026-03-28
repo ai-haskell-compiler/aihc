@@ -39,3 +39,25 @@ executable aihc-parser
     , aihc-parser-cli
   ghc-options:        -Wall -Werror
   default-language:   Haskell2010
+
+test-suite spec
+  type:             exitcode-stdio-1.0
+  hs-source-dirs:   test
+  main-is:          Spec.hs
+  other-modules:
+      CLIGolden
+    , Test.CLI.Suite
+  build-depends:
+      base >=4.16 && <5
+    , aihc-parser
+    , text
+    , aeson
+    , bytestring
+    , containers
+    , directory
+    , filepath
+    , tasty
+    , tasty-hunit
+    , yaml
+  ghc-options:        -Wall -Werror -threaded -rtsopts -with-rtsopts=-N
+  default-language: Haskell2010

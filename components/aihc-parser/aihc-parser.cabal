@@ -43,8 +43,7 @@ test-suite spec
     , common
   main-is:          Spec.hs
   other-modules:
-      CLIGolden
-    , CppSupport
+      CppSupport
     , ExtensionSupport
     , GhcOracle
     , HackageSupport
@@ -66,7 +65,6 @@ test-suite spec
     , Test.Extensions.Suite
     , Test.HackageTester.Suite
     , Test.Lexer.Suite
-    , Test.CLI.Suite
     , Test.Properties.ExprHelpers
     , Test.Properties.ExprRoundTrip
     , Test.Properties.ModuleRoundTrip
