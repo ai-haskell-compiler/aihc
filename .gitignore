@@ -22,9 +22,9 @@ cabal.project.local~
 .HTF/
 .ghc.environment.*
 worktrees/
+notes/
 
 # Nix / direnv artifacts
 result
 result-*
 .direnv/
-.devenv/
