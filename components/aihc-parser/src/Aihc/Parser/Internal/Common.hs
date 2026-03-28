@@ -98,16 +98,14 @@ label expected parser = do
         _ -> (Nothing, [])
 
 region :: Text -> TokParser a -> TokParser a
-region context parser = do
-  outcome <- MP.observing parser
-  case outcome of
-    Right parsed -> pure parsed
-    Left err ->
+region context =
+  MP.region addContextToError
+  where
+    addContextToError err =
       case err of
         MPE.FancyError off fancySet ->
-          MP.parseError (MPE.FancyError off (Set.map appendContext fancySet))
-        _ -> MP.parseError err
-  where
+          MPE.FancyError off (Set.map appendContext fancySet)
+        _ -> err
     appendContext fancyErr =
       case fancyErr of
         MPE.ErrorCustom custom ->
