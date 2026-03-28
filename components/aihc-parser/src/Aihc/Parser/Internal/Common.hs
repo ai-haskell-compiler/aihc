@@ -3,6 +3,7 @@
 
 module Aihc.Parser.Internal.Common
   ( TokParser,
+    withExpectedAtEntry,
     keywordTok,
     expectedTok,
     varIdTok,
@@ -34,15 +35,47 @@ where
 
 import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..))
 import Aihc.Parser.Syntax
-import Aihc.Parser.Types (ParserErrorComponent (..), TokStream, mkFoundToken)
+import Aihc.Parser.Types (ExpectationClass (..), ParserErrorComponent (..), TokStream, mkFoundToken)
 import Data.Char (isUpper)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Text.Megaparsec (Parsec, anySingle, lookAhead, (<|>))
 import Text.Megaparsec qualified as MP
+import Text.Megaparsec.Error qualified as MPE
 import Text.Megaparsec.Pos (SourcePos (..))
 
 type TokParser = Parsec ParserErrorComponent TokStream
+
+withExpectedAtEntry :: ExpectationClass -> Text -> Maybe Text -> TokParser a -> TokParser a
+withExpectedAtEntry expectedClass label context parser = do
+  startOffset <- MP.getOffset
+  outcome <- MP.observing parser
+  case outcome of
+    Right parsed -> pure parsed
+    Left err
+      | MPE.errorOffset err == startOffset -> do
+          emitUnexpected expectedClass label context
+      | otherwise -> MP.parseError err
+
+emitUnexpected :: ExpectationClass -> Text -> Maybe Text -> TokParser a
+emitUnexpected expectedClass label context =
+  MP.optional (lookAhead anySingle) >>= \case
+    Nothing ->
+      MP.customFailure
+        UnexpectedTokenExpecting
+          { unexpectedFound = Nothing,
+            unexpectedExpecting = label,
+            unexpectedClass = expectedClass,
+            unexpectedContext = context
+          }
+    Just tok ->
+      MP.customFailure
+        UnexpectedTokenExpecting
+          { unexpectedFound = Just (mkFoundToken tok),
+            unexpectedExpecting = label,
+            unexpectedClass = expectedClass,
+            unexpectedContext = context
+          }
 
 keywordTok :: LexTokenKind -> TokParser ()
 keywordTok expected =
@@ -100,7 +133,9 @@ tokenSatisfy label f =
         MP.customFailure
           UnexpectedTokenExpecting
             { unexpectedFound = Nothing,
-              unexpectedExpecting = T.pack label
+              unexpectedExpecting = T.pack label,
+              unexpectedClass = ExpectationTokenSpecific,
+              unexpectedContext = Nothing
             }
       Just tok ->
         case f tok of
@@ -109,16 +144,19 @@ tokenSatisfy label f =
             MP.customFailure
               UnexpectedTokenExpecting
                 { unexpectedFound = Just (mkFoundToken tok),
-                  unexpectedExpecting = T.pack label
+                  unexpectedExpecting = T.pack label,
+                  unexpectedClass = ExpectationTokenSpecific,
+                  unexpectedContext = Nothing
                 }
 
 moduleNameParser :: TokParser Text
 moduleNameParser =
-  tokenSatisfy "module name" $ \tok ->
-    case lexTokenKind tok of
-      TkConId ident | isModuleName ident -> Just ident
-      TkQConId ident | isModuleName ident -> Just ident
-      _ -> Nothing
+  withExpectedAtEntry ExpectationGrammar "module name" Nothing $
+    tokenSatisfy "module name" $ \tok ->
+      case lexTokenKind tok of
+        TkConId ident | isModuleName ident -> Just ident
+        TkQConId ident | isModuleName ident -> Just ident
+        _ -> Nothing
 
 identifierTextParser :: TokParser Text
 identifierTextParser =

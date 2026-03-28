@@ -10,10 +10,12 @@ aihc: |
   1 | x =
     |    ^
   unexpected end of input
-  expecting based integer literal
+  expecting expression
+  context: while parsing equation right-hand side
 
   test.hs:2:4:
   2 | y =
     |    ^
   unexpected end of input
-  expecting based integer literal
+  expecting expression
+  context: while parsing equation right-hand side

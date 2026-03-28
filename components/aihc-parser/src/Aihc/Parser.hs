@@ -157,16 +157,71 @@ applyExtensionSettings = List.foldl' applySetting
 errorBundlePretty :: Maybe Text -> ParseErrorBundle -> String
 errorBundlePretty = renderErrorBlocks
 
-extractCustomError :: MPE.ParseError TokStream ParserErrorComponent -> Maybe ParserErrorComponent
-extractCustomError err =
+extractCustomErrors :: MPE.ParseError TokStream ParserErrorComponent -> [ParserErrorComponent]
+extractCustomErrors err =
   case err of
-    MPE.FancyError _ fancySet -> listToMaybe (mapMaybe fromFancy (Set.toList fancySet))
-    _ -> Nothing
+    MPE.FancyError _ fancySet -> mapMaybe fromFancy (Set.toList fancySet)
+    _ -> []
   where
     fromFancy fancyErr =
       case fancyErr of
         MPE.ErrorCustom custom -> Just custom
         _ -> Nothing
+
+extractUnexpecteds :: MPE.ParseError TokStream ParserErrorComponent -> [ParserErrorComponent]
+extractUnexpecteds err =
+  [custom | custom@UnexpectedTokenExpecting {} <- extractCustomErrors err]
+
+extractSemanticErrors :: MPE.ParseError TokStream ParserErrorComponent -> [Text]
+extractSemanticErrors err =
+  [msg | SemanticError msg <- extractCustomErrors err]
+
+classRank :: ExpectationClass -> Int
+classRank cls =
+  case cls of
+    ExpectationGrammar -> 0
+    ExpectationStructural -> 1
+    ExpectationTokenSpecific -> 2
+
+expectationKey :: ParserErrorComponent -> (Text, Maybe Text)
+expectationKey custom =
+  case custom of
+    UnexpectedTokenExpecting _ expecting _ context -> (expecting, context)
+    _ -> ("", Nothing)
+
+expectationOrder :: ParserErrorComponent -> (Int, Int, Text)
+expectationOrder custom =
+  case custom of
+    UnexpectedTokenExpecting _ expecting expectedClass _ ->
+      ( classRank expectedClass,
+        if isLiteralExpectation expecting then 1 else 0,
+        expecting
+      )
+    _ -> (3, 0, "")
+
+isLiteralExpectation :: Text -> Bool
+isLiteralExpectation expected =
+  "literal" `T.isInfixOf` expected
+
+dedupeExpectations :: [ParserErrorComponent] -> [ParserErrorComponent]
+dedupeExpectations customs =
+  map bestForGroup grouped
+  where
+    grouped = List.groupBy sameKey (List.sortOn expectationKey customs)
+    sameKey left right = expectationKey left == expectationKey right
+    bestForGroup = List.minimumBy compareOrder
+    compareOrder left right = compare (expectationOrder left) (expectationOrder right)
+
+bestFoundTokenForError :: MPE.ParseError TokStream ParserErrorComponent -> Maybe FoundToken
+bestFoundTokenForError err =
+  let unexpecteds = dedupeExpectations (extractUnexpecteds err)
+      sortedUnexpecteds = List.sortOn expectationOrder unexpecteds
+   in listToMaybe
+        [found | UnexpectedTokenExpecting (Just found) _ _ _ <- sortedUnexpecteds]
+
+bestUnexpectedForError :: MPE.ParseError TokStream ParserErrorComponent -> Maybe ParserErrorComponent
+bestUnexpectedForError err =
+  listToMaybe (List.sortOn expectationOrder (dedupeExpectations (extractUnexpecteds err)))
 
 sourcePosForOffset :: TokStream -> Int -> (Int, Int)
 sourcePosForOffset stream off =
@@ -268,7 +323,7 @@ renderErrorBlock sourceName mSource stream err =
 
 positionForError :: TokStream -> MPE.ParseError TokStream ParserErrorComponent -> (Int, Int)
 positionForError stream err =
-  case extractCustomError err >>= customFoundToken of
+  case bestFoundTokenForError err of
     Just found
       | foundTokenOrigin found == InsertedLayout ->
           sourcePosForOffset stream (MPE.errorOffset err)
@@ -283,17 +338,18 @@ positionForError stream err =
 
 markerLengthForError :: MPE.ParseError TokStream ParserErrorComponent -> Int
 markerLengthForError err =
-  markerLength (extractCustomError err >>= customFoundToken)
-
-customFoundToken :: ParserErrorComponent -> Maybe FoundToken
-customFoundToken custom =
-  case custom of
-    UnexpectedTokenExpecting mFound _ -> mFound
+  markerLength (bestFoundTokenForError err)
 
 renderMessageLines :: MPE.ParseError TokStream ParserErrorComponent -> [String]
 renderMessageLines err =
-  case extractCustomError err of
-    Just (UnexpectedTokenExpecting mFound expecting) ->
-      [maybe "unexpected end of input" renderUnexpectedToken mFound, "expecting " <> T.unpack expecting]
-    Nothing ->
-      [List.dropWhileEnd (`elem` ['\n', '\r']) (MPE.parseErrorTextPretty err)]
+  case bestUnexpectedForError err of
+    Just (UnexpectedTokenExpecting _ expecting _ mContext) ->
+      [ maybe "unexpected end of input" renderUnexpectedToken (bestFoundTokenForError err),
+        "expecting " <> T.unpack expecting
+      ]
+        <> maybe [] (\context -> ["context: " <> T.unpack context]) mContext
+    _ ->
+      case extractSemanticErrors err of
+        semanticErr : _ -> [T.unpack semanticErr]
+        [] ->
+          [List.dropWhileEnd (`elem` ['\n', '\r']) (MPE.parseErrorTextPretty err)]
