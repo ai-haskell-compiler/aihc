@@ -37,10 +37,11 @@ import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..))
 import Aihc.Parser.Syntax
 import Aihc.Parser.Types (ParserErrorComponent (..), TokStream, mkFoundToken)
 import Data.Char (isUpper)
+import Data.List.NonEmpty qualified as NE
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
-import Text.Megaparsec (Parsec, anySingle, lookAhead, (<?>), (<|>))
+import Text.Megaparsec (Parsec, anySingle, lookAhead, (<|>))
 import Text.Megaparsec qualified as MP
 import Text.Megaparsec.Error qualified as MPE
 import Text.Megaparsec.Pos (SourcePos (..))
@@ -139,16 +140,13 @@ renderTokenKind tk = case tk of
 
 tokenSatisfy :: String -> (LexToken -> Maybe a) -> TokParser a
 tokenSatisfy expectedLabel f =
-  do
-    tok <- MP.satisfy matches <?> expectedLabel
-    case f tok of
-      Just out -> pure out
-      Nothing -> fail "internal tokenSatisfy predicate mismatch"
+  MP.token f expectedItems
   where
-    matches tok =
-      case f tok of
-        Just _ -> True
-        Nothing -> False
+    expectedItems =
+      Set.singleton $
+        if null expectedLabel
+          then MPE.EndOfInput
+          else MPE.Label (NE.fromList expectedLabel)
 
 moduleNameParser :: TokParser Text
 moduleNameParser =
