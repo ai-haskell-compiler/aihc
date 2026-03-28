@@ -25,6 +25,7 @@ import Text.Megaparsec qualified as MP
 
 exprParser :: TokParser Expr
 exprParser = do
+  ensureExpressionStart
   core <- exprCoreParser
   mWhere <- MP.optional whereClauseParser
   pure $
@@ -34,6 +35,7 @@ exprParser = do
 
 exprParserExcept :: [Text] -> TokParser Expr
 exprParserExcept forbiddenInfix = do
+  ensureExpressionStart
   core <- exprCoreParserExcept forbiddenInfix
   mWhere <- MP.optional whereClauseParser
   pure $
@@ -548,25 +550,57 @@ caseAltParser = withSpan $ do
 caseExprParser :: TokParser Expr
 caseExprParser = withSpan $ do
   keywordTok TkKeywordCase
-  scrutinee <- exprAfterCaseParser
+  scrutinee <- exprParser
   keywordTok TkKeywordOf
   alts <- bracedAlts <|> plainAlts
   pure $ \span' -> ECase span' scrutinee alts
   where
-    exprAfterCaseParser = do
-      mTok <- MP.optional (lookAhead anySingle)
-      case mTok of
-        Just tok
-          | lexTokenKind tok == TkSpecialSemicolon || lexTokenKind tok == TkSpecialRBrace ->
-              MP.customFailure
-                UnexpectedTokenExpecting
-                  { unexpectedFound = Just (mkFoundToken tok),
-                    unexpectedExpecting = "expression"
-                  }
-        _ -> exprParser
-
     plainAlts = plainSemiSep1 caseAltParser
     bracedAlts = bracedSemiSep caseAltParser
+
+ensureExpressionStart :: TokParser ()
+ensureExpressionStart = do
+  mTok <- MP.optional (lookAhead anySingle)
+  case mTok of
+    Nothing ->
+      MP.customFailure
+        UnexpectedTokenExpecting
+          { unexpectedFound = Nothing,
+            unexpectedExpecting = "expression"
+          }
+    Just tok
+      | isExpressionStartToken (lexTokenKind tok) -> pure ()
+      | otherwise ->
+          MP.customFailure
+            UnexpectedTokenExpecting
+              { unexpectedFound = Just (mkFoundToken tok),
+                unexpectedExpecting = "expression"
+              }
+
+isExpressionStartToken :: LexTokenKind -> Bool
+isExpressionStartToken kind =
+  case kind of
+    TkKeywordDo -> True
+    TkKeywordIf -> True
+    TkKeywordCase -> True
+    TkKeywordLet -> True
+    TkReservedBackslash -> True
+    TkVarId _ -> True
+    TkConId _ -> True
+    TkQVarId _ -> True
+    TkQConId _ -> True
+    TkInteger _ -> True
+    TkIntegerBase _ _ -> True
+    TkFloat _ _ -> True
+    TkChar _ -> True
+    TkString _ -> True
+    TkQuasiQuote _ _ -> True
+    TkSpecialLParen -> True
+    TkSpecialLBracket -> True
+    TkVarSym "-" -> True
+    TkMinusOperator -> True
+    TkPrefixMinus -> True
+    _ -> False
 
 parenExprParser :: TokParser Expr
 parenExprParser = withSpan $ do
