@@ -13,6 +13,8 @@ library
   exposed-modules:
       Aihc.Parser.CLI.Lexer
     , Aihc.Parser.CLI.Parser
+    , Aihc.Parser.Run.Lexer
+    , Aihc.Parser.Run.Parser
   hs-source-dirs:   src
   build-depends:
       base >=4.16 && <5
@@ -50,6 +52,7 @@ test-suite spec
   build-depends:
       base >=4.16 && <5
     , aihc-parser
+    , aihc-parser-cli
     , text
     , aeson
     , bytestring

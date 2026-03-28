@@ -16,8 +16,6 @@ library
     , Aihc.Parser.Lex
     , Aihc.Parser.Shorthand
     , Aihc.Parser.Internal.FromTokens
-    , Aihc.Parser.Run.Lexer
-    , Aihc.Parser.Run.Parser
   other-modules:
       Aihc.Parser.Pretty
     , Aihc.Parser.Types
