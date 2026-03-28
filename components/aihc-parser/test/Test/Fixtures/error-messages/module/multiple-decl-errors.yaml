@@ -10,10 +10,10 @@ aihc: |
   1 | x =
     |    ^
   unexpected end of input
-  expecting expression
+  expecting based integer literal
 
   test.hs:2:4:
   2 | y =
     |    ^
   unexpected end of input
-  expecting expression
+  expecting based integer literal

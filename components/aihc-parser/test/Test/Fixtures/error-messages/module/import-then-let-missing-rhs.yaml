@@ -14,18 +14,5 @@ aihc: |
   test.hs:2:8:
   2 | x = let
     |        ^
-  bang pattern '!'
-  based integer literal
-  character literal
-  constructor identifier
-  floating literal
-  identifier
-  integer literal
-  irrefutable pattern '~'
-  keyword keyword
-  operator '"-"'
-  quasi quote
-  string literal
-  symbol '('
-  symbol '['
-  symbol '{'
+  unexpected end of input
+  expecting bang pattern '!'

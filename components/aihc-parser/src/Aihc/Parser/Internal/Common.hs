@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Aihc.Parser.Internal.Common
@@ -93,32 +94,31 @@ renderTokenKind tk = case tk of
 
 tokenSatisfy :: String -> (LexToken -> Maybe a) -> TokParser a
 tokenSatisfy label f =
-  MP.label label $ do
-    tok <- lookAhead anySingle
-    case f tok of
-      Just out -> out <$ anySingle
-      Nothing -> fail label
+  MP.try $
+    MP.optional (lookAhead anySingle) >>= \case
+      Nothing ->
+        MP.customFailure
+          UnexpectedTokenExpecting
+            { unexpectedFound = Nothing,
+              unexpectedExpecting = T.pack label
+            }
+      Just tok ->
+        case f tok of
+          Just out -> out <$ anySingle
+          Nothing ->
+            MP.customFailure
+              UnexpectedTokenExpecting
+                { unexpectedFound = Just (mkFoundToken tok),
+                  unexpectedExpecting = T.pack label
+                }
 
 moduleNameParser :: TokParser Text
-moduleNameParser = do
-  mTok <- MP.optional (lookAhead anySingle)
-  case mTok of
-    Nothing ->
-      MP.customFailure
-        UnexpectedTokenExpecting
-          { unexpectedFound = Nothing,
-            unexpectedExpecting = "module name"
-          }
-    Just tok ->
-      case lexTokenKind tok of
-        TkConId ident | isModuleName ident -> ident <$ anySingle
-        TkQConId ident | isModuleName ident -> ident <$ anySingle
-        _ ->
-          MP.customFailure
-            UnexpectedTokenExpecting
-              { unexpectedFound = Just (mkFoundToken tok),
-                unexpectedExpecting = "module name"
-              }
+moduleNameParser =
+  tokenSatisfy "module name" $ \tok ->
+    case lexTokenKind tok of
+      TkConId ident | isModuleName ident -> Just ident
+      TkQConId ident | isModuleName ident -> Just ident
+      _ -> Nothing
 
 identifierTextParser :: TokParser Text
 identifierTextParser =

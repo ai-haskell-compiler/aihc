@@ -8,4 +8,4 @@ aihc: |
   1 | x =
     |    ^
   unexpected end of input
-  expecting expression
+  expecting based integer literal
