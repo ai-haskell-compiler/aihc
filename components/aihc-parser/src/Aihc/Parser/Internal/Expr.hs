@@ -15,7 +15,6 @@ where
 import Aihc.Parser.Internal.Common
 import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokenKind, lexTokenSpan, lexTokenText)
 import Aihc.Parser.Syntax
-import Aihc.Parser.Types (ExpectationClass (..))
 import Control.Monad (guard)
 import Data.Char (isLower, isUpper)
 import Data.Functor (($>))
@@ -64,13 +63,13 @@ exprCoreParserExcept forbiddenInfix = do
 ifExprParser :: TokParser Expr
 ifExprParser = withSpan $ do
   keywordTok TkKeywordIf
-  cond <- withExpectedAtEntry ExpectationGrammar "expression" (Just "while parsing if condition") exprParser
+  cond <- region "while parsing if condition" (label "expression" exprParser)
   skipSemicolons
   keywordTok TkKeywordThen
-  yes <- withExpectedAtEntry ExpectationGrammar "expression" (Just "while parsing then branch") exprParser
+  yes <- region "while parsing then branch" (label "expression" exprParser)
   skipSemicolons
   keywordTok TkKeywordElse
-  no <- withExpectedAtEntry ExpectationGrammar "expression" (Just "while parsing else branch") exprParser
+  no <- region "while parsing else branch" (label "expression" exprParser)
   pure (\span' -> EIf span' cond yes no)
 
 doExprParser :: TokParser Expr
@@ -89,7 +88,7 @@ doBindStmtParser :: TokParser DoStmt
 doBindStmtParser = withSpan $ do
   pat <- patternParser
   expectedTok TkReservedLeftArrow
-  expr <- withExpectedAtEntry ExpectationGrammar "expression" (Just "while parsing '<-' binding") exprParser
+  expr <- region "while parsing '<-' binding" (label "expression" exprParser)
   pure (\span' -> DoBind span' pat expr)
 
 parseLetDeclsParser :: TokParser [Decl]
@@ -120,7 +119,7 @@ infixExprParserExcept forbidden = do
     MP.many
       ( (,)
           <$> infixOperatorParserExcept forbidden
-          <*> withExpectedAtEntry ExpectationGrammar "expression" (Just "after infix operator") lexpParser
+          <*> region "after infix operator" (label "expression" lexpParser)
       )
   pure (foldl buildInfix lhs rest)
 
@@ -512,7 +511,7 @@ rhsParserWithArrow arrowKind = do
 unguardedRhsParser :: RhsArrowKind -> TokParser Rhs
 unguardedRhsParser arrowKind = withSpan $ do
   rhsArrowTok arrowKind
-  body <- withExpectedAtEntry ExpectationGrammar "expression" (Just (rhsContextText arrowKind)) exprParser
+  body <- region (rhsContextText arrowKind) (label "expression" exprParser)
   pure (`UnguardedRhs` body)
 
 rhsContextText :: RhsArrowKind -> Text
@@ -556,8 +555,8 @@ guardQualifierParser = MP.try guardPatParser <|> MP.try guardLetParser <|> guard
 
 caseAltParser :: TokParser CaseAlt
 caseAltParser = withSpan $ do
-  pat <- withExpectedAtEntry ExpectationGrammar "pattern" (Just "while parsing case alternative") patternParser
-  rhs <- withExpectedAtEntry ExpectationStructural "right-hand side" (Just "while parsing case alternative") rhsParser
+  pat <- region "while parsing case alternative" (label "pattern" patternParser)
+  rhs <- region "while parsing case alternative" (label "right-hand side" rhsParser)
   pure $ \span' ->
     CaseAlt
       { caseAltSpan = span',
@@ -568,7 +567,7 @@ caseAltParser = withSpan $ do
 caseExprParser :: TokParser Expr
 caseExprParser = withSpan $ do
   keywordTok TkKeywordCase
-  scrutinee <- withExpectedAtEntry ExpectationGrammar "expression" (Just "while parsing case expression") exprParser
+  scrutinee <- region "while parsing case expression" (label "expression" exprParser)
   keywordTok TkKeywordOf
   alts <- bracedAlts <|> plainAlts
   pure $ \span' -> ECase span' scrutinee alts
@@ -738,7 +737,7 @@ compGenStmtParser :: TokParser CompStmt
 compGenStmtParser = withSpan $ do
   pat <- patternParser
   expectedTok TkReservedLeftArrow
-  expr <- withExpectedAtEntry ExpectationGrammar "expression" (Just "while parsing '<-' generator") exprParser
+  expr <- region "while parsing '<-' generator" (label "expression" exprParser)
   pure (\span' -> CompGen span' pat expr)
 
 compLetStmtParser :: TokParser CompStmt
@@ -759,7 +758,7 @@ lambdaExprParser = withSpan $ do
     lambdaPatsParser = do
       pats <- MP.some patternParser
       expectedTok TkReservedRightArrow
-      body <- withExpectedAtEntry ExpectationGrammar "expression" (Just "while parsing lambda body") exprParser
+      body <- region "while parsing lambda body" (label "expression" exprParser)
       pure (\span' -> ELambdaPats span' pats body)
 
     bracedAlts = bracedSemiSep1 caseAltParser

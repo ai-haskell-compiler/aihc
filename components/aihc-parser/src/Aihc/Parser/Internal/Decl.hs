@@ -12,7 +12,7 @@ import Aihc.Parser.Internal.Common
 import Aihc.Parser.Internal.Expr (equationRhsParser, exprParser, patternParser, simplePatternParser, typeAppParser, typeAtomParser, typeParser)
 import Aihc.Parser.Lex (LexTokenKind (..), lexTokenKind)
 import Aihc.Parser.Syntax
-import Aihc.Parser.Types (ExpectationClass (..), ParserErrorComponent (..), mkFoundToken)
+import Aihc.Parser.Types (ParserErrorComponent (..), mkFoundToken)
 import Control.Monad (when)
 import Data.Char (isAsciiLower, isUpper)
 import Data.Maybe (fromMaybe, isJust)
@@ -114,8 +114,7 @@ importDeclParser = withSpan $ do
       UnexpectedTokenExpecting
         { unexpectedFound = postQualified,
           unexpectedExpecting = "import declaration without duplicate 'qualified'",
-          unexpectedClass = ExpectationStructural,
-          unexpectedContext = Nothing
+          unexpectedContext = []
         }
   importAlias <- MP.optional (keywordTok TkKeywordAs *> moduleNameParser)
   importSpec <- MP.optional importSpecParser
@@ -846,12 +845,12 @@ unsupportedDeclParser = fail
 -- This handles bindings where the LHS is a pattern rather than a function name.
 patternBindDeclParser :: TokParser Decl
 patternBindDeclParser = withSpan $ do
-  pat <- withExpectedAtEntry ExpectationGrammar "pattern" (Just "while parsing pattern binding") patternParser
-  rhs <- withExpectedAtEntry ExpectationStructural "equation right-hand side" (Just "while parsing pattern binding") equationRhsParser
+  pat <- region "while parsing pattern binding" (label "pattern" patternParser)
+  rhs <- equationRhsParser
   pure (\span' -> DeclValue span' (PatternBind span' pat rhs))
 
 valueDeclParser :: TokParser Decl
 valueDeclParser = withSpan $ do
   (headForm, name, pats) <- functionHeadParserWith patternParser simplePatternParser
-  rhs <- withExpectedAtEntry ExpectationStructural "equation right-hand side" (Just "while parsing value declaration") equationRhsParser
+  rhs <- equationRhsParser
   pure (\span' -> functionBindDecl span' headForm name pats rhs)

@@ -5,7 +5,6 @@
 module Aihc.Parser.Types
   ( TokStream (..),
     ParserErrorComponent (..),
-    ExpectationClass (..),
     FoundToken (..),
     mkFoundToken,
     ParseErrorBundle,
@@ -43,20 +42,13 @@ data ParserErrorComponent
   = UnexpectedTokenExpecting
       { unexpectedFound :: Maybe FoundToken,
         unexpectedExpecting :: Text,
-        unexpectedClass :: ExpectationClass,
-        unexpectedContext :: Maybe Text
+        unexpectedContext :: [Text]
       }
   | SemanticError Text
   deriving (Eq, Ord, Show, Generic)
 
-data ExpectationClass
-  = ExpectationGrammar
-  | ExpectationStructural
-  | ExpectationTokenSpecific
-  deriving (Eq, Ord, Show, Generic)
-
 instance MPE.ShowErrorComponent ParserErrorComponent where
-  showErrorComponent (UnexpectedTokenExpecting _ expecting _ _) = "expecting " <> T.unpack expecting
+  showErrorComponent (UnexpectedTokenExpecting _ expecting _) = "expecting " <> T.unpack expecting
   showErrorComponent (SemanticError msg) = T.unpack msg
 
 mkFoundToken :: LexToken -> FoundToken

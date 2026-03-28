@@ -10,3 +10,4 @@ aihc: |
   unexpected end of input
   expecting expression
   context: while parsing lambda body
+  context: while parsing equation right-hand side
