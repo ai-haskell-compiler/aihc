@@ -293,7 +293,7 @@ hashable-mix-cpp-if	corpus	corpus/hashable/hashable-mix-cpp-if.hs	pass	from hash
 hashable-ffi-capi-calling-convention	corpus	corpus/hashable/hashable-ffi-capi-calling-convention.hs	xfail	from hashable/src/Data/Hashable/FFI.hs; parser does not support capi calling convention (CApiFFI)
 hashable-class-package-imports	corpus	corpus/hashable/hashable-class-package-imports.hs	pass	from hashable/src/Data/Hashable/Class.hs; parser now supports package-qualified imports with type constructor wildcards
 hashable-lowlevel-cpp-ifdef	corpus	corpus/hashable/hashable-lowlevel-cpp-ifdef.hs	pass	from hashable/src/Data/Hashable/LowLevel.hs; parser now accepts this preprocessed case
-hashable-properties-unboxed-tuples	corpus	corpus/hashable/hashable-properties-unboxed-tuples.hs	xfail	from hashable/tests/Properties.hs; parser rejects unboxed tuple syntax
+hashable-properties-unboxed-tuples	corpus	corpus/hashable/hashable-properties-unboxed-tuples.hs	pass	from hashable/tests/Properties.hs; parser supports unboxed tuple syntax
 hashable-regress-cpp-have-mmap	corpus	corpus/hashable/hashable-regress-cpp-have-mmap.hs	pass	from hashable/tests/Regress.hs; covered by parser-test CPP preprocessing
 hashable-xxhash-tests-numeric-underscores	corpus	corpus/hashable/hashable-xxhash-tests-numeric-underscores.hs	pass	from hashable/tests/xxhash-tests.hs; parser now accepts NumericUnderscores literals
 modules-import-operator	modules	modules/import-operator.hs	pass	parser now supports parenthesized type operators with wildcard in import lists

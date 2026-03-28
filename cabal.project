@@ -1,5 +1,6 @@
 packages:
   components/aihc-cpp
   components/aihc-parser
+  components/aihc-parser-cli
 
 tests: True

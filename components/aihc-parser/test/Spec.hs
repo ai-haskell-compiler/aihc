@@ -7,7 +7,6 @@ import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokens, lexTokensFr
 import Aihc.Parser.Syntax
 import Data.List (isInfixOf)
 import qualified Data.Text as T
-import Test.CLI.Suite (cliTests)
 import Test.ErrorMessages.Suite (errorMessageTests)
 import Test.ExtensionMapping.Suite (extensionMappingTests)
 import Test.Extensions.Suite (extensionTests)
@@ -39,7 +38,6 @@ buildTests = do
   h2010 <- h2010Tests
   extensions <- extensionTests
   lexer <- lexerTests
-  cli <- cliTests
   let hackageTester = hackageTesterTests
   pure $
     testGroup
@@ -89,8 +87,7 @@ buildTests = do
         extensions,
         extensionMappingTests,
         hackageTester,
-        stackageProgressSummaryTests,
-        cli
+        stackageProgressSummaryTests
       ]
 
 test_moduleParsesDecls :: Assertion

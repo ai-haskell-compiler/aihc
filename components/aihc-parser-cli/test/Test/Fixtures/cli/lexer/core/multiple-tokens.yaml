@@ -1,6 +1,8 @@
 input: "foo + bar"
 output: |
+  TkSpecialLBrace
   TkVarId "foo"
   TkVarSym "+"
   TkVarId "bar"
+  TkSpecialRBrace
 status: pass

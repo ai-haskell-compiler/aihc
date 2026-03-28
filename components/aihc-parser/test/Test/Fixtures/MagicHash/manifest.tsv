@@ -1,2 +1,2 @@
-basic	expressions	basic.hs	xfail	basic magic hash identifiers
-literals	expressions	literals.hs	xfail	magic hash literals
+basic	expressions	basic.hs	pass	basic magic hash identifiers
+literals	expressions	literals.hs	pass	magic hash literals

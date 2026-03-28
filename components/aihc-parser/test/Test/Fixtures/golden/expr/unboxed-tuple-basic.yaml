@@ -1,0 +1,5 @@
+extensions: [UnboxedTuples]
+input: |
+  (# 1, 2 #)
+ast: ETupleUnboxed [EInt 1, EInt 2]
+status: pass

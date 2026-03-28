@@ -1,5 +1,7 @@
-fundep-single	declarations	fundep-single.hs	xfail	parser support pending
-fundep-bidirectional	declarations	fundep-bidirectional.hs	xfail	parser support pending
-fundep-multi-left	declarations	fundep-multi-left.hs	xfail	parser support pending
-fundep-class-instance	declarations	fundep-class-instance.hs	xfail	parser support pending
-fundep-with-context	declarations	fundep-with-context.hs	xfail	parser support pending
+fundep-single	declarations	fundep-single.hs	pass
+fundep-bidirectional	declarations	fundep-bidirectional.hs	pass
+fundep-multi-left	declarations	fundep-multi-left.hs	pass
+fundep-class-instance	declarations	fundep-class-instance.hs	pass
+fundep-with-context	declarations	fundep-with-context.hs	pass
+fundep-empty-right	declarations	fundep-empty-right.hs	pass
+fundep-empty-left	declarations	fundep-empty-left.hs	pass

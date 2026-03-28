@@ -1,6 +1,0 @@
-args:
-  - "-XNegativeLiterals"
-input: "-10"
-output: |
-  TkInteger -10
-status: pass

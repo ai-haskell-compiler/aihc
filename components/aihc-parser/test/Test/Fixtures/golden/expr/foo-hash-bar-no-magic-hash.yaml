@@ -1,0 +1,5 @@
+extensions: []
+input: |
+  foo#bar
+ast: EInfix (EVar "foo") "#" (EVar "bar")
+status: pass

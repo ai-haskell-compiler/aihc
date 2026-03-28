@@ -1,4 +1,6 @@
 input: "foo"
 output: |
+  TkSpecialLBrace
   TkVarId "foo"
+  TkSpecialRBrace
 status: pass

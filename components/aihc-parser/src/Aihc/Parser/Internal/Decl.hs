@@ -295,6 +295,7 @@ classDeclParser = withSpan $ do
   context <- MP.optional (MP.try (declContextParser <* expectedTok TkReservedDoubleArrow))
   className <- constructorIdentifierParser
   classParams <- MP.some typeParamParser
+  classFundeps <- MP.option [] (MP.try classFundepsParser)
   items <- MP.option [] classWhereClauseParser
   pure $ \span' ->
     DeclClass
@@ -304,8 +305,26 @@ classDeclParser = withSpan $ do
           classDeclContext = context,
           classDeclName = className,
           classDeclParams = classParams,
+          classDeclFundeps = classFundeps,
           classDeclItems = items
         }
+
+classFundepsParser :: TokParser [FunctionalDependency]
+classFundepsParser = do
+  expectedTok TkReservedPipe
+  classFundepParser `MP.sepBy1` expectedTok TkSpecialComma
+
+classFundepParser :: TokParser FunctionalDependency
+classFundepParser = withSpan $ do
+  determinedBy <- MP.many lowerIdentifierParser
+  expectedTok TkReservedRightArrow
+  determines <- MP.many lowerIdentifierParser
+  pure $ \span' ->
+    FunctionalDependency
+      { functionalDependencySpan = span',
+        functionalDependencyDeterminers = determinedBy,
+        functionalDependencyDetermined = determines
+      }
 
 classWhereClauseParser :: TokParser [ClassDeclItem]
 classWhereClauseParser = whereClauseItemsParser classItemsBracedParser classItemsPlainParser

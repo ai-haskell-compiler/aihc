@@ -41,8 +41,7 @@ test-suite spec
     , common
   main-is:          Spec.hs
   other-modules:
-      CLIGolden
-    , CppSupport
+      CppSupport
     , ExtensionSupport
     , GhcOracle
     , HackageSupport
@@ -64,7 +63,6 @@ test-suite spec
     , Test.Extensions.Suite
     , Test.HackageTester.Suite
     , Test.Lexer.Suite
-    , Test.CLI.Suite
     , Test.Properties.ExprHelpers
     , Test.Properties.ExprRoundTrip
     , Test.Properties.ModuleRoundTrip
@@ -318,28 +316,6 @@ executable parser-fuzz
     , prettyprinter
   ghc-options:        -Wall -Werror
   default-language: GHC2021
-
-executable aihc-lexer
-  hs-source-dirs:     app/aihc-lexer
-  main-is:            Main.hs
-  build-depends:
-      base >=4.16 && <5
-    , aihc-parser
-    , text
-    , optparse-applicative
-  ghc-options:        -Wall -Werror
-  default-language:   Haskell2010
-
-executable aihc-parser
-  hs-source-dirs:     app/aihc-parser
-  main-is:            Main.hs
-  build-depends:
-      base >=4.16 && <5
-    , aihc-parser
-    , text
-    , optparse-applicative
-  ghc-options:        -Wall -Werror
-  default-language:   Haskell2010
 
 test-suite parser-quickcheck-tests
   type:             exitcode-stdio-1.0
