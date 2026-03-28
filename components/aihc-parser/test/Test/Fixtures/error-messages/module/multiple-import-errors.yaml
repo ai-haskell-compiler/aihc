@@ -7,10 +7,10 @@ aihc: |
   1 | import qualified; import qualified; x = 1
     |                 ^
   unexpected ';'
-  expecting imported module name
+  expecting module name
 
   test.hs:1:35:
   1 | import qualified; import qualified; x = 1
     |                                   ^
   unexpected ';'
-  expecting imported module name
+  expecting module name

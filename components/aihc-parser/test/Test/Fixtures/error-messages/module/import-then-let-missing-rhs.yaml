@@ -9,7 +9,7 @@ aihc: |
   1 | import
     |       ^
   unexpected end of input
-  expecting imported module name
+  expecting module name
 
   test.hs:2:8:
   2 | x = let

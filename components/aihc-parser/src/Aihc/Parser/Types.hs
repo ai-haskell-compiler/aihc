@@ -7,7 +7,6 @@ module Aihc.Parser.Types
     ParserErrorComponent (..),
     FoundToken (..),
     mkFoundToken,
-    eofFoundTokenAt,
     ParseErrorBundle,
     lexerErrorBundle,
     ParseResult (..),
@@ -40,21 +39,13 @@ data FoundToken = FoundToken
   deriving (Eq, Ord, Show, Generic, NFData)
 
 data ParserErrorComponent
-  = MissingModuleName
-      { missingModuleNameFound :: Maybe FoundToken
-      }
-  | MissingImportModuleName
-      { missingImportModuleNameFound :: Maybe FoundToken
-      }
-  | UnexpectedTokenExpecting
-      { unexpectedFound :: Maybe FoundToken,
-        unexpectedExpecting :: Text
-      }
+  = UnexpectedTokenExpecting
+  { unexpectedFound :: Maybe FoundToken,
+    unexpectedExpecting :: Text
+  }
   deriving (Eq, Ord, Show, Generic)
 
 instance MPE.ShowErrorComponent ParserErrorComponent where
-  showErrorComponent (MissingModuleName _) = "expecting module name"
-  showErrorComponent (MissingImportModuleName _) = "expecting imported module name"
   showErrorComponent (UnexpectedTokenExpecting _ expecting) = "expecting " <> T.unpack expecting
 
 mkFoundToken :: LexToken -> FoundToken
@@ -65,20 +56,6 @@ mkFoundToken tok =
       foundTokenSpan = lexTokenSpan tok,
       foundTokenOrigin = lexTokenOrigin tok
     }
-
-eofFoundTokenAt :: SourcePos -> FoundToken
-eofFoundTokenAt pos =
-  FoundToken
-    { foundTokenText = T.empty,
-      foundTokenKind = Nothing,
-      foundTokenSpan = spanFromPos pos,
-      foundTokenOrigin = FromSource
-    }
-  where
-    spanFromPos sourcePos =
-      let line = MP.unPos (sourceLine sourcePos)
-          col = MP.unPos (sourceColumn sourcePos)
-       in SourceSpan line col line col
 
 lexerErrorBundle :: FilePath -> String -> ParseErrorBundle
 lexerErrorBundle sourcePath message =

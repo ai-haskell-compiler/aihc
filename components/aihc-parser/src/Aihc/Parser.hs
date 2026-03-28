@@ -288,17 +288,11 @@ markerLengthForError err =
 customFoundToken :: ParserErrorComponent -> Maybe FoundToken
 customFoundToken custom =
   case custom of
-    MissingModuleName mFound -> mFound
-    MissingImportModuleName mFound -> mFound
     UnexpectedTokenExpecting mFound _ -> mFound
 
 renderMessageLines :: MPE.ParseError TokStream ParserErrorComponent -> [String]
 renderMessageLines err =
   case extractCustomError err of
-    Just (MissingModuleName mFound) ->
-      [maybe "unexpected end of input" renderUnexpectedToken mFound, "expecting module name"]
-    Just (MissingImportModuleName mFound) ->
-      [maybe "unexpected end of input" renderUnexpectedToken mFound, "expecting imported module name"]
     Just (UnexpectedTokenExpecting mFound expecting) ->
       [maybe "unexpected end of input" renderUnexpectedToken mFound, "expecting " <> T.unpack expecting]
     Nothing ->

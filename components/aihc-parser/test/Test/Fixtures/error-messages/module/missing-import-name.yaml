@@ -8,4 +8,4 @@ aihc: |
   1 | import
     |       ^
   unexpected end of input
-  expecting imported module name
+  expecting module name

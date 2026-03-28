@@ -7,4 +7,4 @@ aihc: |
   1 | import where
     |        ^^^^^
   unexpected 'where' keyword
-  expecting imported module name
+  expecting module name

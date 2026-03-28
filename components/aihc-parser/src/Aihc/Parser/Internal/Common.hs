@@ -33,7 +33,7 @@ where
 
 import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..))
 import Aihc.Parser.Syntax
-import Aihc.Parser.Types (ParserErrorComponent, TokStream)
+import Aihc.Parser.Types (ParserErrorComponent (..), TokStream, mkFoundToken)
 import Data.Char (isUpper)
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -98,12 +98,25 @@ tokenSatisfy label f =
       Nothing -> fail label
 
 moduleNameParser :: TokParser Text
-moduleNameParser =
-  tokenSatisfy "module name" $ \tok ->
-    case lexTokenKind tok of
-      TkConId ident | isModuleName ident -> Just ident
-      TkQConId ident | isModuleName ident -> Just ident
-      _ -> Nothing
+moduleNameParser = do
+  mTok <- MP.optional (lookAhead anySingle)
+  case mTok of
+    Nothing ->
+      MP.customFailure
+        UnexpectedTokenExpecting
+          { unexpectedFound = Nothing,
+            unexpectedExpecting = "module name"
+          }
+    Just tok ->
+      case lexTokenKind tok of
+        TkConId ident | isModuleName ident -> ident <$ anySingle
+        TkQConId ident | isModuleName ident -> ident <$ anySingle
+        _ ->
+          MP.customFailure
+            UnexpectedTokenExpecting
+              { unexpectedFound = Just (mkFoundToken tok),
+                unexpectedExpecting = "module name"
+              }
 
 identifierTextParser :: TokParser Text
 identifierTextParser =

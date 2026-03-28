@@ -12,7 +12,7 @@ import Aihc.Parser.Internal.Common
 import Aihc.Parser.Internal.Expr (equationRhsParser, exprParser, patternParser, simplePatternParser, typeAppParser, typeAtomParser, typeParser)
 import Aihc.Parser.Lex (LexTokenKind (..), lexTokenKind)
 import Aihc.Parser.Syntax
-import Aihc.Parser.Types (ParserErrorComponent (..), eofFoundTokenAt, mkFoundToken)
+import Aihc.Parser.Types (ParserErrorComponent (..), mkFoundToken)
 import Control.Monad (when)
 import Data.Char (isAsciiLower, isUpper)
 import Data.Maybe (fromMaybe, isJust)
@@ -31,7 +31,7 @@ languagePragmaParser =
 moduleHeaderParser :: TokParser ModuleHead
 moduleHeaderParser = withSpan $ do
   keywordTok TkKeywordModule
-  name <- moduleNameOrFailParser
+  name <- moduleNameParser
   mWarning <- MP.optional warningTextParser
   exports <- MP.optional exportSpecListParser
   keywordTok TkKeywordWhere
@@ -42,20 +42,6 @@ moduleHeaderParser = withSpan $ do
         moduleHeadWarningText = mWarning,
         moduleHeadExports = exports
       }
-
-moduleNameOrFailParser :: TokParser Text
-moduleNameOrFailParser = do
-  tok <- lookAhead anySingle
-  case lexTokenKind tok of
-    TkConId _ -> moduleNameParser
-    TkQConId _ -> moduleNameParser
-    _ ->
-      MP.customFailure
-        ( MissingModuleName
-            { missingModuleNameFound =
-                Just (mkFoundToken tok)
-            }
-        )
 
 warningTextParser :: TokParser WarningText
 warningTextParser =
@@ -118,7 +104,7 @@ importDeclParser = withSpan $ do
     MP.option False (keywordTok TkKeywordQualified >> pure True)
   importedLevel <- MP.optional importLevelParser
   importedPackage <- MP.optional packageNameParser
-  importedModule <- importModuleNameOrFailParser
+  importedModule <- moduleNameParser
   postQualified <-
     MP.optional $
       tokenSatisfy "keyword 'qualified'" $ \tok ->
@@ -143,33 +129,6 @@ importDeclParser = withSpan $ do
         importDeclAs = importAlias,
         importDeclSpec = importSpec
       }
-
-importModuleNameOrFailParser :: TokParser Text
-importModuleNameOrFailParser = do
-  mTok <- MP.optional (lookAhead anySingle)
-  case mTok of
-    Just tok ->
-      case lexTokenKind tok of
-        TkConId _ -> moduleNameParser
-        TkQConId _ -> moduleNameParser
-        TkSpecialRBrace ->
-          MP.customFailure
-            MissingImportModuleName
-              { missingImportModuleNameFound = Just (mkFoundToken tok)
-              }
-        _ ->
-          MP.customFailure
-            MissingImportModuleName
-              { missingImportModuleNameFound =
-                  Just (mkFoundToken tok)
-              }
-    Nothing ->
-      do
-        pos <- MP.getSourcePos
-        MP.customFailure
-          MissingImportModuleName
-            { missingImportModuleNameFound = Just (eofFoundTokenAt pos)
-            }
 
 importLevelParser :: TokParser ImportLevel
 importLevelParser =
