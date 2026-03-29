@@ -307,17 +307,4 @@ renderMessageLines err =
       ]
         <> map (\context -> "context: " <> T.unpack context) contexts
     _ ->
-      [ normalizeUnexpectedDelimiter $
-          List.dropWhileEnd (`elem` ['\n', '\r']) (MPE.parseErrorTextPretty err)
-      ]
-
-normalizeUnexpectedDelimiter :: String -> String
-normalizeUnexpectedDelimiter msg =
-  case msg of
-    "unexpected }" -> "unexpected '}'"
-    "unexpected {" -> "unexpected '{'"
-    "unexpected ]" -> "unexpected ']'"
-    "unexpected [" -> "unexpected '['"
-    "unexpected )" -> "unexpected ')'"
-    "unexpected (" -> "unexpected '('"
-    _ -> msg
+      [List.dropWhileEnd (`elem` ['\n', '\r']) (MPE.parseErrorTextPretty err)]
