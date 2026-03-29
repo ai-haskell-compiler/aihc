@@ -157,16 +157,29 @@ applyExtensionSettings = List.foldl' applySetting
 errorBundlePretty :: Maybe Text -> ParseErrorBundle -> String
 errorBundlePretty = renderErrorBlocks
 
-extractCustomError :: MPE.ParseError TokStream ParserErrorComponent -> Maybe ParserErrorComponent
-extractCustomError err =
+extractCustomErrors :: MPE.ParseError TokStream ParserErrorComponent -> [ParserErrorComponent]
+extractCustomErrors err =
   case err of
-    MPE.FancyError _ fancySet -> listToMaybe (mapMaybe fromFancy (Set.toList fancySet))
-    _ -> Nothing
+    MPE.FancyError _ fancySet -> mapMaybe fromFancy (Set.toList fancySet)
+    _ -> []
   where
     fromFancy fancyErr =
       case fancyErr of
         MPE.ErrorCustom custom -> Just custom
         _ -> Nothing
+
+extractUnexpecteds :: MPE.ParseError TokStream ParserErrorComponent -> [ParserErrorComponent]
+extractUnexpecteds err =
+  [custom | custom@UnexpectedTokenExpecting {} <- extractCustomErrors err]
+
+bestFoundTokenForError :: MPE.ParseError TokStream ParserErrorComponent -> Maybe FoundToken
+bestFoundTokenForError err =
+  listToMaybe
+    [found | UnexpectedTokenExpecting (Just found) _ _ <- extractUnexpecteds err]
+
+bestUnexpectedForError :: MPE.ParseError TokStream ParserErrorComponent -> Maybe ParserErrorComponent
+bestUnexpectedForError err =
+  listToMaybe (extractUnexpecteds err)
 
 sourcePosForOffset :: TokStream -> Int -> (Int, Int)
 sourcePosForOffset stream off =
@@ -268,7 +281,7 @@ renderErrorBlock sourceName mSource stream err =
 
 positionForError :: TokStream -> MPE.ParseError TokStream ParserErrorComponent -> (Int, Int)
 positionForError stream err =
-  case extractCustomError err >>= customFoundToken of
+  case bestFoundTokenForError err of
     Just found
       | foundTokenOrigin found == InsertedLayout ->
           sourcePosForOffset stream (MPE.errorOffset err)
@@ -283,17 +296,15 @@ positionForError stream err =
 
 markerLengthForError :: MPE.ParseError TokStream ParserErrorComponent -> Int
 markerLengthForError err =
-  markerLength (extractCustomError err >>= customFoundToken)
-
-customFoundToken :: ParserErrorComponent -> Maybe FoundToken
-customFoundToken custom =
-  case custom of
-    UnexpectedTokenExpecting mFound _ -> mFound
+  markerLength (bestFoundTokenForError err)
 
 renderMessageLines :: MPE.ParseError TokStream ParserErrorComponent -> [String]
 renderMessageLines err =
-  case extractCustomError err of
-    Just (UnexpectedTokenExpecting mFound expecting) ->
-      [maybe "unexpected end of input" renderUnexpectedToken mFound, "expecting " <> T.unpack expecting]
-    Nothing ->
+  case bestUnexpectedForError err of
+    Just (UnexpectedTokenExpecting _ expecting contexts) ->
+      [ maybe "unexpected end of input" renderUnexpectedToken (bestFoundTokenForError err),
+        "expecting " <> T.unpack expecting
+      ]
+        <> map (\context -> "context: " <> T.unpack context) contexts
+    _ ->
       [List.dropWhileEnd (`elem` ['\n', '\r']) (MPE.parseErrorTextPretty err)]

@@ -1,12 +1,13 @@
 src: |
-  x =
+  x = \y ->
 ghc: |
   test.hs:2:1: error: [GHC-58481]
       parse error (possibly incorrect indentation or mismatched brackets)
 aihc: |
-  test.hs:1:4:
-  1 | x =
-    |    ^
+  test.hs:1:10:
+  1 | x = \y ->
+    |          ^
   unexpected end of input
   expecting expression
+  context: while parsing lambda body
   context: while parsing equation right-hand side

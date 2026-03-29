@@ -9,10 +9,13 @@ aihc: |
   1 | x = case
     |         ^
   unexpected end of input
-  expecting based integer literal
+  expecting expression
+  context: while parsing case expression
+  context: while parsing equation right-hand side
 
   test.hs:2:9:
   2 | y = 20 +
     |         ^
   unexpected end of input
-  expecting based integer literal
+  expecting expression
+  context: while parsing equation right-hand side

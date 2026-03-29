@@ -1,0 +1,18 @@
+src: |
+  x = do { _ <- }
+ghc: |
+  test.hs:1:15: error: [GHC-58481] parse error on input `}'
+aihc: |
+  test.hs:1:15:
+  1 | x = do { _ <- }
+    |               ^
+  unexpected '}'
+  expecting expression
+  context: while parsing '<-' binding
+  context: while parsing equation right-hand side
+
+  test.hs:1:16:
+  1 | x = do { _ <- }
+    |                ^
+  unexpected }
+  expecting end of input

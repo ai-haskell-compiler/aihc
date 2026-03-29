@@ -1,8 +1,9 @@
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Aihc.Parser.Internal.Common
   ( TokParser,
+    label,
+    region,
     keywordTok,
     expectedTok,
     varIdTok,
@@ -36,13 +37,57 @@ import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..))
 import Aihc.Parser.Syntax
 import Aihc.Parser.Types (ParserErrorComponent (..), TokStream, mkFoundToken)
 import Data.Char (isUpper)
+import Data.List.NonEmpty qualified as NE
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Text.Megaparsec (Parsec, anySingle, lookAhead, (<|>))
 import Text.Megaparsec qualified as MP
+import Text.Megaparsec.Error qualified as MPE
 import Text.Megaparsec.Pos (SourcePos (..))
 
 type TokParser = Parsec ParserErrorComponent TokStream
+
+label :: Text -> TokParser a -> TokParser a
+label expected parser = do
+  outcome <- MP.observing parser
+  case outcome of
+    Right parsed -> pure parsed
+    Left err ->
+      case err of
+        MPE.TrivialError off _ _ -> do
+          mTok <- MP.optional (lookAhead anySingle)
+          let mFound = mkFoundToken <$> mTok
+          MP.parseError $
+            MPE.FancyError
+              off
+              ( Set.singleton
+                  ( MPE.ErrorCustom
+                      UnexpectedTokenExpecting
+                        { unexpectedFound = mFound,
+                          unexpectedExpecting = expected,
+                          unexpectedContext = []
+                        }
+                  )
+              )
+        _ -> MP.parseError err
+
+region :: Text -> TokParser a -> TokParser a
+region context =
+  MP.region addContextToError
+  where
+    addContextToError err =
+      case err of
+        MPE.FancyError off fancySet ->
+          MPE.FancyError off (Set.map appendContext fancySet)
+        _ -> err
+    appendContext fancyErr =
+      case fancyErr of
+        MPE.ErrorCustom custom ->
+          case custom of
+            UnexpectedTokenExpecting found expecting contexts ->
+              MPE.ErrorCustom (UnexpectedTokenExpecting found expecting (contexts <> [context]))
+        _ -> fancyErr
 
 keywordTok :: LexTokenKind -> TokParser ()
 keywordTok expected =
@@ -93,32 +138,23 @@ renderTokenKind tk = case tk of
   _ -> show tk
 
 tokenSatisfy :: String -> (LexToken -> Maybe a) -> TokParser a
-tokenSatisfy label f =
-  MP.try $
-    MP.optional (lookAhead anySingle) >>= \case
-      Nothing ->
-        MP.customFailure
-          UnexpectedTokenExpecting
-            { unexpectedFound = Nothing,
-              unexpectedExpecting = T.pack label
-            }
-      Just tok ->
-        case f tok of
-          Just out -> out <$ anySingle
-          Nothing ->
-            MP.customFailure
-              UnexpectedTokenExpecting
-                { unexpectedFound = Just (mkFoundToken tok),
-                  unexpectedExpecting = T.pack label
-                }
+tokenSatisfy expectedLabel f =
+  MP.token f expectedItems
+  where
+    expectedItems =
+      Set.singleton $
+        if null expectedLabel
+          then MPE.EndOfInput
+          else MPE.Label (NE.fromList expectedLabel)
 
 moduleNameParser :: TokParser Text
 moduleNameParser =
-  tokenSatisfy "module name" $ \tok ->
-    case lexTokenKind tok of
-      TkConId ident | isModuleName ident -> Just ident
-      TkQConId ident | isModuleName ident -> Just ident
-      _ -> Nothing
+  label "module name" $
+    tokenSatisfy "module name" $ \tok ->
+      case lexTokenKind tok of
+        TkConId ident | isModuleName ident -> Just ident
+        TkQConId ident | isModuleName ident -> Just ident
+        _ -> Nothing
 
 identifierTextParser :: TokParser Text
 identifierTextParser =

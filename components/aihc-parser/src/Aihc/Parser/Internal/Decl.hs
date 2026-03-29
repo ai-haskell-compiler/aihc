@@ -113,7 +113,8 @@ importDeclParser = withSpan $ do
     MP.customFailure
       UnexpectedTokenExpecting
         { unexpectedFound = postQualified,
-          unexpectedExpecting = "import declaration without duplicate 'qualified'"
+          unexpectedExpecting = "import declaration without duplicate 'qualified'",
+          unexpectedContext = []
         }
   importAlias <- MP.optional (keywordTok TkKeywordAs *> moduleNameParser)
   importSpec <- MP.optional importSpecParser
@@ -844,7 +845,7 @@ unsupportedDeclParser = fail
 -- This handles bindings where the LHS is a pattern rather than a function name.
 patternBindDeclParser :: TokParser Decl
 patternBindDeclParser = withSpan $ do
-  pat <- patternParser
+  pat <- region "while parsing pattern binding" patternParser
   rhs <- equationRhsParser
   pure (\span' -> DeclValue span' (PatternBind span' pat rhs))
 
