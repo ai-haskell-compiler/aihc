@@ -16,15 +16,16 @@
 | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
 | Parser Stackage  | <!-- AUTO-GENERATED: START parser-stackage-progress --> `1154/3390` (`34.04%`) <!-- AUTO-GENERATED: END parser-stackage-progress --> |
 | Parser Tests     | <!-- AUTO-GENERATED: START parser-progress --> `471/660` (`71.36%`) <!-- AUTO-GENERATED: END parser-progress -->                    |
-| Lexer Tests      | <!-- AUTO-GENERATED: START lexer-progress --> `62/63` (`98.41%`) <!-- AUTO-GENERATED: END lexer-progress -->                        |
+| Lexer Tests      | <!-- AUTO-GENERATED: START lexer-progress --> `64/65` (`98.46%`) <!-- AUTO-GENERATED: END lexer-progress -->                        |
 | CPP preprocessor | <!-- AUTO-GENERATED: START cpp-progress --> `37/37` (`100.00%`) <!-- AUTO-GENERATED: END cpp-progress -->                           |
 
 <!-- AUTO-GENERATED: START line-counts -->
 | Component                      |       Code |      Tests |      Total |
 | :------------------------------ | ----------: | ----------: | ----------: |
 | aihc-cpp                       |        589 |        512 |       1101 |
-| aihc-parser                    |       6560 |      12730 |      19290 |
-| **Total**                      |       7149 |      13242 |      20391 |
+| aihc-parser                    |       6819 |      12468 |      19287 |
+| aihc-parser-cli                |        223 |        374 |        597 |
+| **Total**                      |       7631 |      13354 |      20985 |
 <!-- AUTO-GENERATED: END line-counts -->
 
 <!-- Both commands are broken atm
