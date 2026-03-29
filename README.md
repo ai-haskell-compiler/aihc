@@ -10,7 +10,7 @@
 - [Haskell 2010 Language Report (Markdown)](docs/haskell2010-language-report.md)
 - [Layout-sensitive parsing](docs/hse-indentation-layout.md)
 
-## Component Progress
+## Progress
 
 | Name             | Progress                                                                                                                            |
 | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
@@ -18,6 +18,8 @@
 | Parser Tests     | <!-- AUTO-GENERATED: START parser-progress --> `471/660` (`71.36%`) <!-- AUTO-GENERATED: END parser-progress -->                    |
 | Lexer Tests      | <!-- AUTO-GENERATED: START lexer-progress --> `64/65` (`98.46%`) <!-- AUTO-GENERATED: END lexer-progress -->                        |
 | CPP preprocessor | <!-- AUTO-GENERATED: START cpp-progress --> `37/37` (`100.00%`) <!-- AUTO-GENERATED: END cpp-progress -->                           |
+
+## Lines of code
 
 <!-- AUTO-GENERATED: START line-counts -->
 | Component                      |       Code |      Tests |      Total |
