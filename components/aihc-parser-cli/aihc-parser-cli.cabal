@@ -37,7 +37,9 @@ library
     , filepath
     , ghc-lib-parser
     , haskell-src-exts
-    , process
+    , http-client
+    , http-client-tls
+    , http-types
     , tar
     , time
     , zlib

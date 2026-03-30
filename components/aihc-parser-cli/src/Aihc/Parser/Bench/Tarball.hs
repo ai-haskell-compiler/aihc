@@ -79,6 +79,9 @@ import Distribution.Types.ConfVar (ConfVar (..))
 import Distribution.Types.GenericPackageDescription (GenericPackageDescription, genPackageFlags)
 import Distribution.Utils.Path (getSymbolicPath)
 import Distribution.Version (mkVersion, withinRange)
+import Network.HTTP.Client (httpLbs, newManager, parseRequest, responseBody, responseStatus)
+import Network.HTTP.Client.TLS (tlsManagerSettings)
+import Network.HTTP.Types.Status (statusCode)
 import System.Directory
   ( XdgDirectory (XdgCache),
     createDirectoryIfMissing,
@@ -87,13 +90,10 @@ import System.Directory
     getXdgDirectory,
     listDirectory,
     removeDirectoryRecursive,
-    removeFile,
-    renameDirectory,
   )
 import System.FilePath (makeRelative, normalise, takeDirectory, takeExtension, (<.>), (</>))
 import System.IO (hPutStrLn, stderr)
 import System.Info (compilerName, compilerVersion)
-import System.Process (callCommand, readProcess)
 
 -- | A package specification.
 data PackageSpec = PackageSpec
@@ -647,9 +647,9 @@ loadStackageSnapshot snapshot offline = do
         then pure (Left ("Snapshot missing from cache in offline mode: " ++ snapshot))
         else do
           let url = "https://www.stackage.org/" ++ snapshot ++ "/cabal.config"
-          fetched <- try (readProcess "curl" ["-s", "-f", url] "")
+          fetched <- httpGetString url
           case fetched of
-            Left (err :: SomeException) -> pure (Left (displayException err))
+            Left err -> pure (Left err)
             Right body ->
               case parseSnapshotConstraints body of
                 Left parseErr -> pure (Left parseErr)
@@ -760,17 +760,18 @@ downloadPackage offline pkg = do
                   ++ "/"
                   ++ formatPackage pkg
                   ++ ".tar.gz"
-          let tarball = cacheDir </> formatPackage pkg ++ ".tar.gz"
-          let tempDir = cacheDir </> formatPackage pkg ++ ".tmp"
-          callCommand ("curl -s -f -o " ++ show tarball ++ " " ++ show url)
-          createDirectoryIfMissing True tempDir
-          callCommand ("tar -xzf " ++ show tarball ++ " -C " ++ show tempDir)
-          removeFile tarball
-          pkgDirExists <- doesDirectoryExist pkgDir
-          when pkgDirExists $ removeDirectoryRecursive pkgDir
-          renameDirectory tempDir pkgDir
-          writeFile markerFile ""
-          pure pkgDir
+          -- Download tarball
+          tarballBytes <- httpGetLBS url
+          case tarballBytes of
+            Left err -> ioError (userError ("Failed to download " ++ formatPackage pkg ++ ": " ++ err))
+            Right lbs -> do
+              -- Extract using Codec.Archive.Tar
+              let entries = Tar.read (GZip.decompress lbs)
+              pkgDirExists <- doesDirectoryExist pkgDir
+              when pkgDirExists $ removeDirectoryRecursive pkgDir
+              Tar.unpack cacheDir entries
+              writeFile markerFile ""
+              pure pkgDir
 
 getCacheDir :: IO FilePath
 getCacheDir = do
@@ -826,3 +827,28 @@ partitionResults = go [] []
     go successes failures [] = (reverse successes, reverse failures)
     go successes failures (Left f : rest) = go successes (f : failures) rest
     go successes failures (Right s : rest) = go (s : successes) failures rest
+
+--------------------------------------------------------------------------------
+-- HTTP utilities
+--------------------------------------------------------------------------------
+
+-- | Perform an HTTP GET request and return the response body as a String.
+httpGetString :: String -> IO (Either String String)
+httpGetString url = do
+  result <- httpGetLBS url
+  pure $ fmap (map (toEnum . fromEnum) . LBS.unpack) result
+
+-- | Perform an HTTP GET request and return the response body as lazy ByteString.
+httpGetLBS :: String -> IO (Either String LBS.ByteString)
+httpGetLBS url = do
+  manager <- newManager tlsManagerSettings
+  result <- try $ do
+    request <- parseRequest url
+    response <- httpLbs request manager
+    let status = statusCode (responseStatus response)
+    if status >= 200 && status < 300
+      then pure (Right (responseBody response))
+      else pure (Left ("HTTP " ++ show status ++ " for " ++ url))
+  case result of
+    Left (err :: SomeException) -> pure (Left (displayException err))
+    Right r -> pure r
