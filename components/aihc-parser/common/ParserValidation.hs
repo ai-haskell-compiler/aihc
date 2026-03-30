@@ -17,7 +17,6 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import GHC.LanguageExtensions.Type (Extension)
 import qualified GhcOracle
-import ModuleShrinker (shrinkModuleWithExtensions)
 import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.Text (renderStrict)
 
@@ -43,15 +42,7 @@ validateParserDetailed = validateParserDetailedWithExtensions []
 
 -- | Validate parser with GHC extensions.
 validateParserDetailedWithExtensions :: [Extension] -> Text -> Maybe ValidationError
-validateParserDetailedWithExtensions exts source =
-  case validateParserDetailedCore exts source of
-    Nothing -> Nothing
-    Just err ->
-      Just
-        err
-          { validationErrorMessage =
-              validationErrorMessage err <> optionalShrunkDiagnostic exts source
-          }
+validateParserDetailedWithExtensions = validateParserDetailedCore
 
 -- | Validate parser with extension names (as strings) and optional language.
 -- This is a convenience function for use with cabal file metadata.
@@ -180,21 +171,3 @@ commonSuffixLen xs ys =
       alignedYs = drop (lenYs - minLen) ys
       suffixEqs = zipWith (==) (reverse alignedXs) (reverse alignedYs)
    in length (takeWhile id suffixEqs)
-
-optionalShrunkDiagnostic :: [Extension] -> Text -> String
-optionalShrunkDiagnostic exts source =
-  case shrinkModuleWithExtensions exts (stillFails exts) source of
-    Nothing -> ""
-    Just shrunk ->
-      if T.strip shrunk == T.strip source
-        then ""
-        else
-          let compactShrunk = T.unlines (filter (not . T.null) (T.lines shrunk))
-              bodyLines = ["---8<---", T.unpack compactShrunk, "--->8---"]
-           in unlines (["", "HSE minimized reproducer:"] <> bodyLines)
-
-stillFails :: [Extension] -> Text -> Bool
-stillFails exts source =
-  case validateParserDetailedCore exts source of
-    Nothing -> False
-    Just _ -> True
