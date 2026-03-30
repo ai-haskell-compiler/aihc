@@ -6,10 +6,12 @@ import Aihc.Cpp (resultOutput)
 import Aihc.Parser (ParseResult (..))
 import qualified Aihc.Parser
 import Aihc.Parser.Syntax (Module)
+import qualified Aihc.Parser.Syntax as Syntax
 import CppSupport (preprocessForParserWithoutIncludesIfEnabled)
 import Data.List (sortOn)
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
+import qualified Data.Text as T
 import qualified Data.Text.IO.Utf8 as Utf8
 import ExtensionSupport
 import qualified GHC.LanguageExtensions.Type as GHC
@@ -18,6 +20,7 @@ import GhcOracle
     oracleModuleAstFingerprintWithExtensionsAt,
     oracleParsesModuleWithExtensionsAt,
   )
+import qualified ParserGolden as PG
 import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.Text (renderStrict)
 import System.Environment (getArgs)
@@ -42,10 +45,17 @@ main = do
   let strict = "--strict" `elem` args
       markdown = "--markdown" `elem` args
 
-  cases <- loadOracleCases
-  caseOutcomes <- fmap concat (mapM evaluateCaseMaybe cases)
+  -- Load and evaluate oracle cases
+  oracleCases <- loadOracleCases
+  oracleOutcomes <- fmap concat (mapM evaluateOracleCaseMaybe oracleCases)
 
-  let grouped = groupByExtension caseOutcomes
+  -- Load and evaluate golden module cases
+  goldenCases <- PG.loadModuleCases
+  let goldenOutcomes = concatMap evaluateGoldenCaseMaybe goldenCases
+
+  -- Combine all outcomes
+  let allOutcomes = oracleOutcomes <> goldenOutcomes
+      grouped = groupByExtension allOutcomes
       results = map mkExtensionResult (sortOn fst (M.toList grouped))
 
   if markdown
@@ -58,16 +68,16 @@ main = do
     then exitSuccess
     else exitFailure
 
-evaluateCaseMaybe :: CaseMeta -> IO [(CaseMeta, Outcome, String)]
-evaluateCaseMaybe meta =
+evaluateOracleCaseMaybe :: CaseMeta -> IO [(CaseMeta, Outcome, String)]
+evaluateOracleCaseMaybe meta =
   if null (caseExtensions meta)
     then pure []
     else do
-      outcome <- evaluateCase meta
+      outcome <- evaluateOracleCase meta
       pure [outcome]
 
-evaluateCase :: CaseMeta -> IO (CaseMeta, Outcome, String)
-evaluateCase meta = do
+evaluateOracleCase :: CaseMeta -> IO (CaseMeta, Outcome, String)
+evaluateOracleCase meta = do
   source <- Utf8.readFile (caseSourcePath meta)
   let exts = extensionNamesToGhcExtensions (caseExtensions meta) Nothing
       source' =
@@ -82,6 +92,47 @@ evaluateCase meta = do
       oracleOk = oracleParsesModuleWithExtensionsAt "extension-progress" exts source'
       roundtripOk = moduleRoundtripsViaGhc exts source' parsed
   pure (finalizeOutcome meta oracleOk roundtripOk)
+
+-- | Evaluate a golden module case and return outcomes for each extension
+evaluateGoldenCaseMaybe :: PG.ParserCase -> [(CaseMeta, Outcome, String)]
+evaluateGoldenCaseMaybe goldenCase =
+  if null (PG.caseExtensions goldenCase)
+    then []
+    else
+      let (pgOutcome, details) = PG.evaluateModuleCase goldenCase
+          outcome = convertGoldenOutcome pgOutcome
+          meta = goldenCaseToCaseMeta goldenCase
+       in [(meta, outcome, details)]
+
+-- | Convert ParserGolden.Outcome to ExtensionSupport.Outcome
+convertGoldenOutcome :: PG.Outcome -> Outcome
+convertGoldenOutcome pgOutcome =
+  case pgOutcome of
+    PG.OutcomePass -> OutcomePass
+    PG.OutcomeXFail -> OutcomeXFail
+    PG.OutcomeXPass -> OutcomeXPass
+    PG.OutcomeFail -> OutcomeFail
+
+-- | Convert a golden ParserCase to a CaseMeta for unified reporting
+goldenCaseToCaseMeta :: PG.ParserCase -> CaseMeta
+goldenCaseToCaseMeta goldenCase =
+  CaseMeta
+    { caseId = "golden/" <> PG.caseId goldenCase,
+      caseCategory = "golden/" <> PG.caseCategory goldenCase,
+      casePath = PG.casePath goldenCase,
+      caseExpected = convertGoldenStatus (PG.caseStatus goldenCase),
+      caseReason = PG.caseReason goldenCase,
+      caseExtensions = map (T.unpack . Syntax.extensionName) (PG.caseExtensions goldenCase)
+    }
+
+-- | Convert ParserGolden.ExpectedStatus to ExtensionSupport.Expected
+convertGoldenStatus :: PG.ExpectedStatus -> Expected
+convertGoldenStatus status =
+  case status of
+    PG.StatusPass -> ExpectPass
+    PG.StatusFail -> ExpectPass -- StatusFail means we expect a parse failure (which is a "pass" for the test)
+    PG.StatusXFail -> ExpectXFail
+    PG.StatusXPass -> ExpectXFail -- StatusXPass is similar to XFail (known issue)
 
 moduleRoundtripsViaGhc :: [GHC.Extension] -> Text -> ParseResult Module -> Bool
 moduleRoundtripsViaGhc exts source oursResult =

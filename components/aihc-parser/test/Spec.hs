@@ -9,8 +9,7 @@ import Data.List (isInfixOf)
 import qualified Data.Text as T
 import Test.ErrorMessages.Suite (errorMessageTests)
 import Test.ExtensionMapping.Suite (extensionMappingTests)
-import Test.Extensions.Suite (extensionTests)
-import Test.H2010.Suite (h2010Tests)
+import Test.H2010.Suite (oracleTests)
 import Test.HackageTester.Suite (hackageTesterTests)
 import Test.Lexer.Suite (lexerTests)
 import Test.Parser.Suite (parserGoldenTests)
@@ -35,8 +34,7 @@ buildTests :: IO TestTree
 buildTests = do
   parserGolden <- parserGoldenTests
   errorMessages <- errorMessageTests
-  h2010 <- h2010Tests
-  extensions <- extensionTests
+  oracle <- oracleTests
   lexer <- lexerTests
   let hackageTester = hackageTesterTests
   pure $
@@ -83,8 +81,7 @@ buildTests = do
               QC.testProperty "generated pattern AST pretty-printer round-trip" prop_patternPrettyRoundTrip,
               QC.testProperty "generated type AST pretty-printer round-trip" prop_typePrettyRoundTrip
             ],
-        h2010,
-        extensions,
+        oracle,
         extensionMappingTests,
         hackageTester,
         stackageProgressSummaryTests
