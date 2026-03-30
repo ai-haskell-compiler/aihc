@@ -13,6 +13,12 @@ module GhcOracle
     oracleParsesModuleWithNamesAt,
     oracleDetailedParsesModuleWithNames,
     oracleDetailedParsesModuleWithNamesAt,
+    -- New functions for unified extension handling
+    oracleParsesWithParserExtensions,
+    oracleParsesWithParserExtensionsAt,
+    oracleDetailedParsesWithParserExtensions,
+    oracleDetailedParsesWithParserExtensionsAt,
+    computeEffectiveExtensions,
     toGhcExtension,
     fromGhcExtension,
     extensionNamesToGhcExtensions,
@@ -27,7 +33,7 @@ import CppSupport (moduleHeaderExtensionSettings, preprocessForParserWithoutIncl
 import Data.Bifunctor (first)
 import Data.List (nub)
 import qualified Data.List as List
-import Data.Maybe (mapMaybe)
+import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified GHC.Data.EnumSet as EnumSet
@@ -344,3 +350,71 @@ parseLanguage lang =
     "GHC2021" -> Just DynFlags.GHC2021
     "GHC2024" -> Just DynFlags.GHC2024
     _ -> Nothing
+
+-- | Compute the effective set of parser extensions from:
+-- 1. A default language edition (from cabal file)
+-- 2. Extension names from cabal file
+-- 3. Module header pragmas (which may override the language edition)
+--
+-- This is the unified extension computation that should be used by all parsers.
+computeEffectiveExtensions ::
+  -- | Default language edition (from cabal file), defaults to Haskell2010 if Nothing
+  Maybe Syntax.LanguageEdition ->
+  -- | Extension names from cabal file (e.g., ["UnicodeSyntax", "NoFieldSelectors"])
+  [String] ->
+  -- | Module header pragmas (from readModuleHeaderPragmas)
+  Syntax.ModuleHeaderPragmas ->
+  -- | Effective set of extensions
+  [Syntax.Extension]
+computeEffectiveExtensions defaultEdition cabalExtNames headerPragmas =
+  let -- Module header may override the language edition
+      effectiveEdition =
+        case Syntax.headerLanguageEdition headerPragmas of
+          Just edition -> edition
+          Nothing -> fromMaybe Syntax.Haskell2010Edition defaultEdition
+      -- Start with the edition's extensions
+      baseExts = Syntax.languageEditionExtensions effectiveEdition
+      -- Apply cabal-level extension settings
+      cabalSettings = mapMaybe (Syntax.parseExtensionSettingName . T.pack) cabalExtNames
+      afterCabal = applyParserExtensionSettings cabalSettings baseExts
+      -- Apply module-level extension settings
+      afterModule = applyParserExtensionSettings (Syntax.headerExtensionSettings headerPragmas) afterCabal
+   in afterModule
+
+-- | Apply extension settings to a list of extensions
+applyParserExtensionSettings :: [Syntax.ExtensionSetting] -> [Syntax.Extension] -> [Syntax.Extension]
+applyParserExtensionSettings settings exts = List.foldl' apply exts settings
+  where
+    apply acc setting =
+      case setting of
+        Syntax.EnableExtension ext
+          | ext `elem` acc -> acc
+          | otherwise -> acc <> [ext]
+        Syntax.DisableExtension ext -> filter (/= ext) acc
+
+-- | Parse a module using a precomputed list of parser extensions.
+-- This is the preferred way to call the oracle when using unified extension handling.
+oracleParsesWithParserExtensions :: [Syntax.Extension] -> Text -> Bool
+oracleParsesWithParserExtensions = oracleParsesWithParserExtensionsAt "oracle"
+
+-- | Parse a module using a precomputed list of parser extensions with source location.
+oracleParsesWithParserExtensionsAt :: String -> [Syntax.Extension] -> Text -> Bool
+oracleParsesWithParserExtensionsAt sourceTag exts input =
+  case oracleDetailedParsesWithParserExtensionsAt sourceTag exts input of
+    Left _ -> False
+    Right _ -> True
+
+-- | Parse a module with detailed error reporting using a precomputed list of parser extensions.
+oracleDetailedParsesWithParserExtensions :: [Syntax.Extension] -> Text -> Either Text ()
+oracleDetailedParsesWithParserExtensions = oracleDetailedParsesWithParserExtensionsAt "oracle"
+
+-- | Parse a module with detailed error reporting using a precomputed list of parser extensions.
+oracleDetailedParsesWithParserExtensionsAt :: String -> [Syntax.Extension] -> Text -> Either Text ()
+oracleDetailedParsesWithParserExtensionsAt sourceTag exts input =
+  let ghcExts = mapMaybe toGhcExtension exts
+   in case parseWithGhcWithExtensionsDetailed sourceTag ghcExts input of
+        Left (err, parseExts) ->
+          let extList = T.pack (show (map Syntax.extensionName exts))
+              parseExtList = T.pack (show (EnumSet.toList parseExts))
+           in Left (err <> "\n(Parser extensions: " <> extList <> " Effective GHC parse extensions: " <> parseExtList <> ")")
+        Right _ -> Right ()

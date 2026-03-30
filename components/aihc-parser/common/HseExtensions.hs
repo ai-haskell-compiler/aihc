@@ -5,6 +5,7 @@ module HseExtensions
     toHseExtensionSetting,
     toHseExtensionSettings,
     fromExtensionNames,
+    fromParserExtensions,
   )
 where
 
@@ -40,6 +41,11 @@ toHseExtensionSettings = mapMaybe toHseExtensionSetting
 fromExtensionNames :: [String] -> [HSE.Extension]
 fromExtensionNames names =
   toHseExtensionSettings (mapMaybe (Syntax.parseExtensionSettingName . T.pack) names)
+
+-- | Convert a list of parser extensions to HSE extensions.
+-- This is the preferred way to convert extensions when using unified extension handling.
+fromParserExtensions :: [Syntax.Extension] -> [HSE.Extension]
+fromParserExtensions = toHseExtensions
 
 toHseKnownExtension :: Syntax.Extension -> Maybe HSE.KnownExtension
 toHseKnownExtension ext =

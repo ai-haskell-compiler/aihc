@@ -57,6 +57,8 @@ module Aihc.Parser.Lex
     isReservedIdentifier,
     readModuleHeaderExtensions,
     readModuleHeaderExtensionsFromChunks,
+    readModuleHeaderPragmas,
+    readModuleHeaderPragmasFromChunks,
     lexTokensFromChunks,
     lexModuleTokensFromChunks,
     lexTokensWithExtensions,
@@ -337,6 +339,63 @@ readModuleHeaderExtensionsFromChunks chunks = go (lexTokensFromChunks chunks)
         LexToken {lexTokenKind = TkPragmaDeprecated _} : rest -> go rest
         LexToken {lexTokenKind = TkError _} : _ -> []
         _ -> []
+
+-- | Read leading module-header pragmas and return language edition and extension settings.
+--
+-- This scans only the pragma/header prefix (allowing whitespace and comments)
+-- and stops at the first non-pragma token or lexer error token.
+--
+-- If multiple language edition pragmas are encountered, only the last one applies.
+-- Language editions (Haskell98, Haskell2010, GHC2021, GHC2024) are separated from
+-- regular extension settings in the result.
+readModuleHeaderPragmas :: Text -> ModuleHeaderPragmas
+readModuleHeaderPragmas input = readModuleHeaderPragmasFromChunks [input]
+
+-- | Read leading module-header pragmas from one or more input chunks.
+--
+-- This scans only the pragma/header prefix (allowing whitespace and comments)
+-- and stops at the first non-pragma token or lexer error token.
+--
+-- If multiple language edition pragmas are encountered, only the last one applies.
+-- Language editions (Haskell98, Haskell2010, GHC2021, GHC2024) are separated from
+-- regular extension settings in the result.
+readModuleHeaderPragmasFromChunks :: [Text] -> ModuleHeaderPragmas
+readModuleHeaderPragmasFromChunks chunks =
+  let allSettings = readModuleHeaderExtensionsFromChunks chunks
+   in separateEditionAndExtensions allSettings
+
+-- | Separate language edition settings from regular extension settings.
+-- If multiple editions are specified, only the last one applies (matching GHC behavior).
+separateEditionAndExtensions :: [ExtensionSetting] -> ModuleHeaderPragmas
+separateEditionAndExtensions settings =
+  let (editions, extensions) = List.partition isEditionSetting settings
+      -- Only the last edition applies
+      lastEdition = case reverse editions of
+        EnableExtension ext : _ -> extensionToEdition ext
+        _ -> Nothing
+   in ModuleHeaderPragmas
+        { headerLanguageEdition = lastEdition,
+          headerExtensionSettings = extensions
+        }
+
+isEditionSetting :: ExtensionSetting -> Bool
+isEditionSetting setting =
+  case setting of
+    EnableExtension ext -> isEditionExtension ext
+    DisableExtension ext -> isEditionExtension ext
+
+isEditionExtension :: Extension -> Bool
+isEditionExtension ext =
+  ext `elem` [Haskell98, Haskell2010, GHC2021, GHC2024]
+
+extensionToEdition :: Extension -> Maybe LanguageEdition
+extensionToEdition ext =
+  case ext of
+    Haskell98 -> Just Haskell98Edition
+    Haskell2010 -> Just Haskell2010Edition
+    GHC2021 -> Just GHC2021Edition
+    GHC2024 -> Just GHC2024Edition
+    _ -> Nothing
 
 enabledExtensionsFromSettings :: [ExtensionSetting] -> [Extension]
 enabledExtensionsFromSettings = List.foldl' apply []

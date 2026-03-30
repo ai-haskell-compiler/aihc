@@ -43,11 +43,13 @@ module Aihc.Parser.Syntax
     ImportSpec (..),
     InstanceDecl (..),
     InstanceDeclItem (..),
+    LanguageEdition (..),
     Literal (..),
     Match (..),
     MatchHeadForm (..),
     Module (..),
     ModuleHead (..),
+    ModuleHeaderPragmas (..),
     WarningText (..),
     NewtypeDecl (..),
     OperatorName,
@@ -68,10 +70,12 @@ module Aihc.Parser.Syntax
     extensionName,
     extensionSettingName,
     gadtBodyResultType,
+    languageEditionExtensions,
     mergeSourceSpans,
     noSourceSpan,
     parseExtensionName,
     parseExtensionSettingName,
+    parseLanguageEdition,
     sourceSpanEnd,
     valueDeclBinderName,
     moduleName,
@@ -254,6 +258,23 @@ data ExtensionSetting
   | DisableExtension Extension
   deriving (Eq, Ord, Show, Read, Generic, NFData)
 
+-- | The Haskell language edition/standard.
+-- Each edition implies a set of language extensions.
+data LanguageEdition
+  = Haskell98Edition
+  | Haskell2010Edition
+  | GHC2021Edition
+  | GHC2024Edition
+  deriving (Eq, Ord, Show, Read, Enum, Bounded, Generic, NFData)
+
+-- | Pragmas extracted from a module header.
+-- Contains the last language edition pragma (if any) and all extension settings.
+data ModuleHeaderPragmas = ModuleHeaderPragmas
+  { headerLanguageEdition :: Maybe LanguageEdition,
+    headerExtensionSettings :: [ExtensionSetting]
+  }
+  deriving (Eq, Show, Generic, NFData)
+
 allKnownExtensions :: [Extension]
 allKnownExtensions = [minBound .. maxBound]
 
@@ -293,6 +314,167 @@ parseExtensionSettingName raw =
     _ -> EnableExtension <$> parseExtensionName trimmed
   where
     trimmed = T.strip raw
+
+-- | Parse a language edition name (e.g., "Haskell2010", "GHC2021").
+parseLanguageEdition :: Text -> Maybe LanguageEdition
+parseLanguageEdition raw
+  | trimmed == T.pack "Haskell98" = Just Haskell98Edition
+  | trimmed == T.pack "Haskell2010" = Just Haskell2010Edition
+  | trimmed == T.pack "GHC2021" = Just GHC2021Edition
+  | trimmed == T.pack "GHC2024" = Just GHC2024Edition
+  | otherwise = Nothing
+  where
+    trimmed = T.strip raw
+
+-- | Get the set of extensions enabled by a language edition.
+-- These lists are derived from GHC's DynFlags.languageExtensions.
+-- IMPORTANT: Keep these in sync with GHC. The test suite validates this.
+languageEditionExtensions :: LanguageEdition -> [Extension]
+languageEditionExtensions edition =
+  case edition of
+    Haskell98Edition ->
+      -- Haskell98 has minimal extensions, mostly implicitly enabled features
+      [ CUSKs,
+        DeepSubsumption,
+        DatatypeContexts,
+        FieldSelectors,
+        ImplicitPrelude,
+        ImplicitStagePersistence,
+        ListTuplePuns,
+        MonomorphismRestriction,
+        NondecreasingIndentation,
+        NPlusKPatterns,
+        StarIsType,
+        TraditionalRecordSyntax
+      ]
+    Haskell2010Edition ->
+      -- Haskell2010 adds a few more extensions over Haskell98
+      [ CUSKs,
+        DeepSubsumption,
+        DatatypeContexts,
+        DoAndIfThenElse,
+        EmptyDataDecls,
+        FieldSelectors,
+        ForeignFunctionInterface,
+        ImplicitPrelude,
+        ImplicitStagePersistence,
+        ListTuplePuns,
+        MonomorphismRestriction,
+        PatternGuards,
+        RelaxedPolyRec,
+        StarIsType,
+        TraditionalRecordSyntax
+      ]
+    GHC2021Edition ->
+      -- GHC2021 enables many modern convenience extensions
+      [ BangPatterns,
+        BinaryLiterals,
+        ConstrainedClassMethods,
+        ConstraintKinds,
+        DeriveDataTypeable,
+        DeriveFoldable,
+        DeriveFunctor,
+        DeriveGeneric,
+        DeriveLift,
+        DeriveTraversable,
+        DoAndIfThenElse,
+        EmptyCase,
+        EmptyDataDecls,
+        EmptyDataDeriving,
+        ExistentialQuantification,
+        ExplicitForAll,
+        FieldSelectors,
+        FlexibleContexts,
+        FlexibleInstances,
+        ForeignFunctionInterface,
+        GADTSyntax,
+        GeneralizedNewtypeDeriving,
+        HexFloatLiterals,
+        ImplicitPrelude,
+        ImplicitStagePersistence,
+        ImportQualifiedPost,
+        InstanceSigs,
+        KindSignatures,
+        ListTuplePuns,
+        MonomorphismRestriction,
+        MultiParamTypeClasses,
+        NamedFieldPuns,
+        NamedWildCards,
+        NumericUnderscores,
+        PatternGuards,
+        PolyKinds,
+        PostfixOperators,
+        RankNTypes,
+        RelaxedPolyRec,
+        ScopedTypeVariables,
+        StandaloneDeriving,
+        StandaloneKindSignatures,
+        StarIsType,
+        TraditionalRecordSyntax,
+        TupleSections,
+        TypeApplications,
+        TypeOperators,
+        TypeSynonymInstances
+      ]
+    GHC2024Edition ->
+      -- GHC2024 adds more extensions on top of GHC2021
+      [ BangPatterns,
+        BinaryLiterals,
+        ConstrainedClassMethods,
+        ConstraintKinds,
+        DataKinds,
+        DeriveDataTypeable,
+        DeriveFoldable,
+        DeriveFunctor,
+        DeriveGeneric,
+        DeriveLift,
+        DeriveTraversable,
+        DerivingStrategies,
+        DisambiguateRecordFields,
+        DoAndIfThenElse,
+        EmptyCase,
+        EmptyDataDecls,
+        EmptyDataDeriving,
+        ExistentialQuantification,
+        ExplicitForAll,
+        ExplicitNamespaces,
+        FieldSelectors,
+        FlexibleContexts,
+        FlexibleInstances,
+        ForeignFunctionInterface,
+        GADTs,
+        GADTSyntax,
+        GeneralizedNewtypeDeriving,
+        HexFloatLiterals,
+        ImplicitPrelude,
+        ImplicitStagePersistence,
+        ImportQualifiedPost,
+        InstanceSigs,
+        KindSignatures,
+        LambdaCase,
+        ListTuplePuns,
+        MonoLocalBinds,
+        MonomorphismRestriction,
+        MultiParamTypeClasses,
+        NamedFieldPuns,
+        NamedWildCards,
+        NumericUnderscores,
+        PatternGuards,
+        PolyKinds,
+        PostfixOperators,
+        RankNTypes,
+        RelaxedPolyRec,
+        RoleAnnotations,
+        ScopedTypeVariables,
+        StandaloneDeriving,
+        StandaloneKindSignatures,
+        StarIsType,
+        TraditionalRecordSyntax,
+        TupleSections,
+        TypeApplications,
+        TypeOperators,
+        TypeSynonymInstances
+      ]
 
 data SourceSpan
   = NoSourceSpan

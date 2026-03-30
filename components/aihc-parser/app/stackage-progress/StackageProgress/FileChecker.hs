@@ -22,7 +22,8 @@ where
 import Aihc.Cpp (Severity (..), diagSeverity, resultDiagnostics, resultOutput)
 import Aihc.Parser (ParseResult (..))
 import qualified Aihc.Parser
-import CppSupport (preprocessForParserIfEnabled)
+import qualified Aihc.Parser.Syntax as Syntax
+import CppSupport (moduleHeaderPragmas, preprocessForParserIfEnabled)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -34,9 +35,9 @@ import HackageSupport
     readTextFileLenient,
     resolveIncludeBestEffort,
   )
-import HseExtensions (fromExtensionNames)
+import HseExtensions (fromParserExtensions)
 import qualified Language.Haskell.Exts as HSE
-import ParserValidation (ValidationError (..), ValidationErrorKind (..), validateParserDetailedWithExtensionNames)
+import ParserValidation (ValidationError (..), ValidationErrorKind (..), validateParserDetailedWithParserExtensions)
 import StackageProgress.CLI (Check (..))
 import StackageProgress.Summary (forceString)
 
@@ -124,11 +125,14 @@ needsFullPackageScan checks =
   CheckHse `elem` checks || CheckGhc `elem` checks
 
 -- | Check a single file.
+-- This uses unified extension handling: the default edition comes from the cabal file,
+-- each file may override the language edition via pragmas, and we use our own mapping
+-- to compute the final set of enabled extensions. This set is used by all parsers.
 checkFile :: [Check] -> FilePath -> FileInfo -> IO FileResult
 checkFile checks packageRoot info = do
   let file = fileInfoPath info
-      parserExts = GhcOracle.extensionNamesToParserExtensions (fileInfoExtensions info)
-      parserConfig = Aihc.Parser.defaultConfig {Aihc.Parser.parserExtensions = parserExts}
+      -- Parse default language edition from cabal file
+      defaultEdition = fileInfoLanguage info >>= Syntax.parseLanguageEdition . T.pack
   source <- readTextFileLenient file
   preprocessed <- preprocessForParserIfEnabled (fileInfoExtensions info) (fileInfoCppOptions info) file (resolveIncludeBestEffort packageRoot file) source
   let source' = resultOutput preprocessed
@@ -137,6 +141,12 @@ checkFile checks packageRoot info = do
         if null cppErrors
           then Nothing
           else Just (T.intercalate "\n" cppErrors)
+      -- Read module header pragmas to get any LANGUAGE pragma overrides
+      headerPragmas = moduleHeaderPragmas source'
+      -- Compute the effective extensions using unified extension handling
+      effectiveExts = GhcOracle.computeEffectiveExtensions defaultEdition (fileInfoExtensions info) headerPragmas
+      -- Configure parser with computed extensions
+      parserConfig = Aihc.Parser.defaultConfig {Aihc.Parser.parserExtensions = effectiveExts}
       oursResult = Aihc.Parser.parseModule parserConfig source'
 
   oursStatus <- case oursResult of
@@ -146,17 +156,17 @@ checkFile checks packageRoot info = do
         else pure (Right ())
     ParseOk _parsed ->
       if CheckRoundtripGhc `elem` checks
-        then pure (checkRoundtrip (fileInfoExtensions info) (fileInfoLanguage info) file cppErrorMsg source')
+        then pure (checkRoundtrip effectiveExts file cppErrorMsg source')
         else pure (Right ())
 
   hseOk <-
     if CheckHse `elem` checks
-      then pure $ checkHse (fileInfoExtensions info) (fileInfoLanguage info) source'
+      then pure $ checkHse effectiveExts source'
       else pure True
 
   ghcOkResult <-
     if CheckGhc `elem` checks
-      then pure $ GhcOracle.oracleDetailedParsesModuleWithNamesAt file (fileInfoExtensions info) (fileInfoLanguage info) source'
+      then pure $ GhcOracle.oracleDetailedParsesWithParserExtensionsAt file effectiveExts source'
       else pure (Right ())
   let ghcOk = case ghcOkResult of Right () -> True; Left _ -> False
       ghcErrMsg = case ghcOkResult of Left err -> Just (T.unpack err); Right () -> Nothing
@@ -171,9 +181,9 @@ checkFile checks packageRoot info = do
       }
 
 -- | Check if parsing with HSE succeeds.
-checkHse :: [String] -> Maybe String -> Text -> Bool
-checkHse extNames _langName source =
-  let mode = hseParseMode {HSE.extensions = fromExtensionNames extNames}
+checkHse :: [Syntax.Extension] -> Text -> Bool
+checkHse exts source =
+  let mode = hseParseMode {HSE.extensions = fromParserExtensions exts}
    in case HSE.parseFileContentsWithMode mode (T.unpack source) of
         HSE.ParseOk _ -> True
         HSE.ParseFailed _ _ -> False
@@ -191,9 +201,9 @@ needsParsedModule checks =
   CheckRoundtripGhc `elem` checks
 
 -- | Check roundtrip via GHC oracle.
-checkRoundtrip :: [String] -> Maybe String -> FilePath -> Maybe Text -> Text -> Either String ()
-checkRoundtrip extNames langName file cppErrorMsg source' =
-  case validateParserDetailedWithExtensionNames extNames langName source' of
+checkRoundtrip :: [Syntax.Extension] -> FilePath -> Maybe Text -> Text -> Either String ()
+checkRoundtrip exts file cppErrorMsg source' =
+  case validateParserDetailedWithParserExtensions exts source' of
     Nothing -> Right ()
     Just err ->
       case validationErrorKind err of
