@@ -224,10 +224,7 @@ tokenDescriptor :: FoundToken -> String
 tokenDescriptor found =
   case foundTokenOrigin found of
     InsertedLayout -> "end of input"
-    FromSource ->
-      case foundTokenKind found of
-        Nothing -> "end of input"
-        Just kind -> show kind
+    FromSource -> maybe "end of input" show (foundTokenKind found)
 
 renderErrorBlocks :: Maybe Text -> ParseErrorBundle -> String
 renderErrorBlocks mSource bundle =
