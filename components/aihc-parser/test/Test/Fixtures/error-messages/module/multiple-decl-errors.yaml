@@ -6,16 +6,16 @@ ghc: |
   test.hs:2:1: error: [GHC-58481]
       parse error (possibly incorrect indentation or mismatched brackets)
 aihc: |
-  test.hs:1:4:
-  1 | x =
-    |    ^
+  test.hs:2:1:
+  2 | y =
+    | ^
   unexpected end of input
   expecting expression
   context: while parsing equation right-hand side
 
-  test.hs:2:4:
-  2 | y =
-    |    ^
+  test.hs:3:1:
+  3 | z = 1
+    | ^
   unexpected end of input
   expecting expression
   context: while parsing equation right-hand side

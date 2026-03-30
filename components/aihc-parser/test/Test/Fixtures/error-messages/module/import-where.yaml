@@ -6,5 +6,5 @@ aihc: |
   test.hs:1:8:
   1 | import where
     |        ^^^^^
-  unexpected 'where' keyword
+  unexpected TkKeywordWhere
   expecting module name

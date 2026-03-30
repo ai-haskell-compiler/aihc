@@ -33,7 +33,6 @@ import Aihc.Parser.Internal.Expr (exprParser, patternParser, typeParser)
 import Aihc.Parser.Internal.Module (moduleParser)
 import Aihc.Parser.Lex
   ( LexToken (..),
-    LexTokenKind (..),
     TokenOrigin (..),
     lexModuleTokensWithExtensions,
     lexTokensWithExtensions,
@@ -44,12 +43,14 @@ import Aihc.Parser.Syntax (Expr, Extension (..), ExtensionSetting (..), Module, 
 import Aihc.Parser.Types
 import Data.List qualified as List
 import Data.List.NonEmpty qualified as NE
-import Data.Maybe (fromMaybe, listToMaybe, mapMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
+import Prettyprinter (Doc, colon, defaultLayoutOptions, layoutPretty, pretty, vcat)
+import Prettyprinter.Render.String (renderString)
 import Text.Megaparsec (runParser)
 import Text.Megaparsec qualified as MP
+import Text.Megaparsec.Error (ErrorFancy (..), ErrorItem (..))
 import Text.Megaparsec.Error qualified as MPE
 
 -- $setup
@@ -90,7 +91,7 @@ defaultConfig =
 parseExpr :: ParserConfig -> Text -> ParseResult Expr
 parseExpr cfg input =
   let toks = lexTokensWithExtensions (parserExtensions cfg) input
-   in case runParser (exprParser <* MP.eof) (parserSourceName cfg) (TokStream toks) of
+   in case runParser (exprParser <* MP.eof) (parserSourceName cfg) (mkTokStream toks) of
         Left bundle -> ParseErr bundle
         Right expr -> ParseOk expr
 
@@ -104,7 +105,7 @@ parseExpr cfg input =
 parsePattern :: ParserConfig -> Text -> ParseResult Pattern
 parsePattern cfg input =
   let toks = lexTokensWithExtensions (parserExtensions cfg) input
-   in case runParser (patternParser <* MP.eof) (parserSourceName cfg) (TokStream toks) of
+   in case runParser (patternParser <* MP.eof) (parserSourceName cfg) (mkTokStream toks) of
         Left bundle -> ParseErr bundle
         Right pat -> ParseOk pat
 
@@ -118,7 +119,7 @@ parsePattern cfg input =
 parseType :: ParserConfig -> Text -> ParseResult Type
 parseType cfg input =
   let toks = lexTokensWithExtensions (parserExtensions cfg) input
-   in case runParser (typeParser <* MP.eof) (parserSourceName cfg) (TokStream toks) of
+   in case runParser (typeParser <* MP.eof) (parserSourceName cfg) (mkTokStream toks) of
         Left bundle -> ParseErr bundle
         Right ty -> ParseOk ty
 
@@ -134,7 +135,7 @@ parseType cfg input =
 parseModule :: ParserConfig -> Text -> ParseResult Module
 parseModule cfg input =
   let toks = lexModuleTokensWithExtensions effectiveExtensions input
-   in case runParser (moduleParser <* MP.eof) (parserSourceName cfg) (TokStream toks) of
+   in case runParser (moduleParser <* MP.eof) (parserSourceName cfg) (mkTokStream toks) of
         Left bundle -> ParseErr bundle
         Right modu -> ParseOk modu
   where
@@ -157,88 +158,63 @@ applyExtensionSettings = List.foldl' applySetting
 errorBundlePretty :: Maybe Text -> ParseErrorBundle -> String
 errorBundlePretty = renderErrorBlocks
 
-extractCustomErrors :: MPE.ParseError TokStream ParserErrorComponent -> [ParserErrorComponent]
-extractCustomErrors err =
+-- | Turn a Megaparsec 'MPE.ParseError' into message blocks with optional spans.
+--
+-- * 'MPE.TrivialError': text from 'MPE.parseErrorTextPretty' (Megaparsec\'s built-in
+--   formatting for unexpected / expected items). A span is attached when the
+--   unexpected item is token content ('ErrorItem.Tokens').
+-- * 'MPE.FancyError': one block per fancy error. 'ErrorFail' and 'ErrorIndentation'
+--   are formatted with 'MPE.parseErrorTextPretty' on a singleton fancy error (same
+--   text Megaparsec uses internally). 'ErrorCustom' uses our unexpected line,
+--   'MPE.showErrorComponent', and context lines.
+renderParseErrors :: MPE.ParseError TokStream ParserErrorComponent -> [(Maybe SourceSpan, Doc ann)]
+renderParseErrors err =
   case err of
-    MPE.FancyError _ fancySet -> mapMaybe fromFancy (Set.toList fancySet)
-    _ -> []
+    MPE.TrivialError _ mUnexpected _ ->
+      let mSpan = trivialUnexpectedSpan mUnexpected
+          text =
+            List.dropWhileEnd
+              (`elem` ['\n', '\r'])
+              (MPE.parseErrorTextPretty err)
+       in [(mSpan, vcat (map pretty (lines text)))]
+    MPE.FancyError _ fancySet ->
+      map renderFancyError (Set.toAscList fancySet)
   where
-    fromFancy fancyErr =
-      case fancyErr of
-        MPE.ErrorCustom custom -> Just custom
+    trivialUnexpectedSpan :: Maybe (ErrorItem LexToken) -> Maybe SourceSpan
+    trivialUnexpectedSpan mItem =
+      case mItem of
+        Just (Tokens ts) -> Just (lexTokenSpan (NE.head ts))
         _ -> Nothing
 
-extractUnexpecteds :: MPE.ParseError TokStream ParserErrorComponent -> [ParserErrorComponent]
-extractUnexpecteds err =
-  [custom | custom@UnexpectedTokenExpecting {} <- extractCustomErrors err]
+    renderFancyError :: ErrorFancy ParserErrorComponent -> (Maybe SourceSpan, Doc ann)
+    renderFancyError fancy =
+      case fancy of
+        ErrorCustom custom ->
+          ( customFoundSpan custom,
+            vcat (map pretty (customMessageLines custom))
+          )
+        _ ->
+          ( Nothing,
+            pretty
+              ( List.dropWhileEnd
+                  (`elem` ['\n', '\r'])
+                  ( MPE.parseErrorTextPretty
+                      ( MPE.FancyError 0 (Set.singleton fancy)
+                          :: MPE.ParseError TokStream ParserErrorComponent
+                      )
+                  )
+              )
+          )
 
-bestFoundTokenForError :: MPE.ParseError TokStream ParserErrorComponent -> Maybe FoundToken
-bestFoundTokenForError err =
-  listToMaybe
-    [found | UnexpectedTokenExpecting (Just found) _ _ <- extractUnexpecteds err]
+    customFoundSpan :: ParserErrorComponent -> Maybe SourceSpan
+    customFoundSpan (UnexpectedTokenExpecting (Just found) _ _) =
+      Just (foundTokenSpan found)
+    customFoundSpan _ = Nothing
 
-bestUnexpectedForError :: MPE.ParseError TokStream ParserErrorComponent -> Maybe ParserErrorComponent
-bestUnexpectedForError err =
-  listToMaybe (extractUnexpecteds err)
-
-sourcePosForOffset :: TokStream -> Int -> (Int, Int)
-sourcePosForOffset stream off =
-  let toks = unTokStream stream
-      idx = max 0 off
-      atIndex n = if n >= 0 && n < length toks then Just (toks !! n) else Nothing
-      prevSourceToken n
-        | n < 0 = Nothing
-        | otherwise =
-            case atIndex n of
-              Just tok
-                | lexTokenOrigin tok == FromSource -> Just tok
-                | otherwise -> prevSourceToken (n - 1)
-              Nothing -> Nothing
-   in case atIndex idx of
-        Just tok
-          | lexTokenOrigin tok == InsertedLayout ->
-              case prevSourceToken (idx - 1) of
-                Just prevTok -> spanEnd (lexTokenSpan prevTok)
-                Nothing -> spanStart (lexTokenSpan tok)
-          | lexTokenKind tok == TkSpecialRBrace ->
-              case atIndex (idx - 1) of
-                Just prevTok -> spanEnd (lexTokenSpan prevTok)
-                Nothing -> spanStart (lexTokenSpan tok)
-          | otherwise -> spanStart (lexTokenSpan tok)
-        Nothing ->
-          case prevSourceToken (length toks - 1) of
-            Just tok -> spanEnd (lexTokenSpan tok)
-            Nothing ->
-              case reverse toks of
-                tok : _ -> spanEnd (lexTokenSpan tok)
-                [] -> (1, 1)
-  where
-    spanStart span' =
-      case span' of
-        SourceSpan line col _ _ -> (line, col)
-        NoSourceSpan -> (1, 1)
-    spanEnd span' =
-      case span' of
-        SourceSpan _ _ line col -> (line, col)
-        NoSourceSpan -> (1, 1)
-
-getSourceLine :: Maybe Text -> Int -> Maybe Text
-getSourceLine mSource lineNo = do
-  source <- mSource
-  let sourceLines = T.lines source
-  let idx = lineNo - 1
-  if idx < 0 || idx >= length sourceLines
-    then Nothing
-    else Just (sourceLines !! idx)
-
-markerLength :: Maybe FoundToken -> Int
-markerLength mFound =
-  case mFound of
-    Just found
-      | foundTokenOrigin found == InsertedLayout -> 1
-      | T.null (foundTokenText found) -> 1
-      | otherwise -> max 1 (T.length (foundTokenText found))
-    Nothing -> 1
+    customMessageLines :: ParserErrorComponent -> [String]
+    customMessageLines e@(UnexpectedTokenExpecting mFound _ contexts) =
+      [maybe "unexpected end of input" renderUnexpectedToken mFound, MPE.showErrorComponent e]
+        <> map (\context -> "context: " <> T.unpack context) contexts
 
 renderUnexpectedToken :: FoundToken -> String
 renderUnexpectedToken found =
@@ -251,60 +227,59 @@ tokenDescriptor found =
     FromSource ->
       case foundTokenKind found of
         Nothing -> "end of input"
-        Just TkKeywordWhere -> "'where' keyword"
-        Just _ -> "'" <> T.unpack (foundTokenText found) <> "'"
+        Just kind -> show kind
 
 renderErrorBlocks :: Maybe Text -> ParseErrorBundle -> String
 renderErrorBlocks mSource bundle =
   let pst = MPE.bundlePosState bundle
       sourceName = MP.sourceName (MP.pstateSourcePos pst)
-      stream = MP.pstateInput pst
       errs = NE.toList (MPE.bundleErrors bundle)
-      blocks = map (renderErrorBlock sourceName mSource stream) errs
+      opts = defaultLayoutOptions
+      blocks =
+        map
+          (renderString . layoutPretty opts . renderErrorBlock sourceName mSource)
+          errs
    in List.intercalate "\n\n" blocks
 
-renderErrorBlock :: FilePath -> Maybe Text -> TokStream -> MPE.ParseError TokStream ParserErrorComponent -> String
-renderErrorBlock sourceName mSource stream err =
-  let (lineNo, colNo) = positionForError stream err
+-- renderSourceReference "<input>" "x = 1" (SourceSpan 1 5 1 6) = """
+-- <input>:1:5:
+-- 1 | x = 1
+--   |     ^
+-- """
+-- renderSourceReference "<input>" "module where" (SourceSpan 1 8 1 13) = """
+-- <input>:1:5:
+-- 1 | module where
+--   |        ^^^^^
+-- """
+renderSourceReference :: String -> Text -> SourceSpan -> Doc ann
+renderSourceReference origin source srcSpan =
+  let (lineNo, colNo, endCol) = case srcSpan of
+        SourceSpan sourceLine col _ endC -> (sourceLine, col, endC)
+        NoSourceSpan -> (1, 1, 1)
       lineNoText = show lineNo
-      srcLine = fromMaybe "" (getSourceLine mSource lineNo)
-      markerPrefix = replicate (length lineNoText) ' ' <> " | "
-      markerLen = markerLengthForError err
-      marker = replicate (max 0 (colNo - 1)) ' ' <> replicate markerLen '^'
-      msgLines = renderMessageLines err
-      header = [sourceName <> ":" <> lineNoText <> ":" <> show colNo <> ":"]
-      snippetLines =
-        case mSource of
-          Just _ -> [lineNoText <> " | " <> T.unpack srcLine, markerPrefix <> marker]
-          Nothing -> []
-   in List.intercalate "\n" (header <> snippetLines <> msgLines)
+      sourceLines = T.lines source
+      lineIdx = lineNo - 1
+      srcLine =
+        if lineIdx < 0 || lineIdx >= length sourceLines
+          then ""
+          else T.unpack (sourceLines !! lineIdx)
+      markerPrefix = replicate (length lineNoText) ' ' ++ " | "
+      markerStart = max 0 (colNo - 1)
+      markerLen = max 1 (endCol - colNo)
+      marker = replicate markerStart ' ' ++ replicate markerLen '^'
+      header =
+        pretty origin <> colon <> pretty lineNo <> colon <> pretty colNo <> colon
+   in vcat
+        [ header
+        , pretty (lineNoText ++ " | " ++ srcLine)
+        , pretty (markerPrefix ++ marker)
+        ]
 
-positionForError :: TokStream -> MPE.ParseError TokStream ParserErrorComponent -> (Int, Int)
-positionForError stream err =
-  case bestFoundTokenForError err of
-    Just found
-      | foundTokenOrigin found == InsertedLayout ->
-          sourcePosForOffset stream (MPE.errorOffset err)
-      | otherwise ->
-          spanStart (foundTokenSpan found)
-    Nothing -> sourcePosForOffset stream (MPE.errorOffset err)
-  where
-    spanStart span' =
-      case span' of
-        SourceSpan line col _ _ -> (line, col)
-        NoSourceSpan -> (1, 1)
+renderErrorBlock :: FilePath -> Maybe Text -> MPE.ParseError TokStream ParserErrorComponent -> Doc ann
+renderErrorBlock sourceName mSource err =
+  vcat
+    [ case (mbSpan, mSource) of
+        (Just srcSpan, Just source) -> vcat [renderSourceReference sourceName source srcSpan, doc]
+        _ -> vcat [pretty sourceName, doc]
+    | (mbSpan, doc) <- renderParseErrors err]
 
-markerLengthForError :: MPE.ParseError TokStream ParserErrorComponent -> Int
-markerLengthForError err =
-  markerLength (bestFoundTokenForError err)
-
-renderMessageLines :: MPE.ParseError TokStream ParserErrorComponent -> [String]
-renderMessageLines err =
-  case bestUnexpectedForError err of
-    Just (UnexpectedTokenExpecting _ expecting contexts) ->
-      [ maybe "unexpected end of input" renderUnexpectedToken (bestFoundTokenForError err),
-        "expecting " <> T.unpack expecting
-      ]
-        <> map (\context -> "context: " <> T.unpack context) contexts
-    _ ->
-      [List.dropWhileEnd (`elem` ['\n', '\r']) (MPE.parseErrorTextPretty err)]

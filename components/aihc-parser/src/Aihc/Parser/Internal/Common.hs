@@ -35,7 +35,7 @@ where
 
 import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..))
 import Aihc.Parser.Syntax
-import Aihc.Parser.Types (ParserErrorComponent (..), TokStream, mkFoundToken)
+import Aihc.Parser.Types (ParserErrorComponent (..), TokStream(..), mkFoundToken)
 import Data.Char (isUpper)
 import Data.List.NonEmpty qualified as NE
 import Data.Set qualified as Set
@@ -233,9 +233,13 @@ stringTextParser =
 
 withSpan :: TokParser (SourceSpan -> a) -> TokParser a
 withSpan parser = do
-  start <- MP.getSourcePos
+  startToken <- MP.optional (lookAhead anySingle)
   out <- parser
-  out . sourceSpanFromPositions start <$> MP.getSourcePos
+  lastToken <- fmap (tokStreamPrevToken . MP.stateInput) MP.getParserState
+  let startSpan = maybe noSourceSpan lexTokenSpan startToken
+      endSpan = maybe noSourceSpan lexTokenSpan lastToken
+      parserSpan = mergeSourceSpans startSpan endSpan
+  pure (out parserSpan)
 
 sourceSpanFromPositions :: SourcePos -> SourcePos -> SourceSpan
 sourceSpanFromPositions start end =

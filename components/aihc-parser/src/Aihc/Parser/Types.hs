@@ -4,6 +4,7 @@
 
 module Aihc.Parser.Types
   ( TokStream (..),
+    mkTokStream,
     ParserErrorComponent (..),
     FoundToken (..),
     mkFoundToken,
@@ -18,6 +19,7 @@ import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), TokenOrigin (..))
 import Aihc.Parser.Syntax (Extension, SourceSpan (..))
 import Control.DeepSeq (NFData (..))
 import Data.List.NonEmpty qualified as NE
+import Data.List (unsnoc)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -63,18 +65,21 @@ lexerErrorBundle sourcePath message =
   MPE.ParseErrorBundle
     (NE.singleton (MPE.FancyError 0 (Set.singleton (MPE.ErrorFail message))))
     MP.PosState
-      { MP.pstateInput = TokStream [],
+      { MP.pstateInput = TokStream [] Nothing,
         MP.pstateOffset = 0,
         MP.pstateSourcePos = SourcePos sourcePath (mkPos 1) (mkPos 1),
         MP.pstateTabWidth = mkPos 8,
         MP.pstateLinePrefix = ""
       }
 
-newtype TokStream = TokStream
-  { unTokStream :: [LexToken]
+data TokStream = TokStream
+  { tokStreamTokens :: [LexToken]
+  , tokStreamPrevToken :: Maybe LexToken
   }
-  deriving (Eq, Ord, Show, Generic)
-  deriving newtype (NFData)
+  deriving (Eq, Ord, Show, Generic, NFData)
+
+mkTokStream :: [LexToken] -> TokStream
+mkTokStream toks = TokStream toks Nothing
 
 instance Stream TokStream where
   type Token TokStream = LexToken
@@ -86,21 +91,21 @@ instance Stream TokStream where
   chunkLength _ = length
   chunkEmpty _ = null
 
-  take1_ (TokStream toks) =
+  take1_ (TokStream toks _prevToken) =
     case toks of
       [] -> Nothing
-      tok : rest -> Just (tok, TokStream rest)
+      tok : rest -> Just (tok, TokStream rest (Just tok))
 
-  takeN_ n (TokStream toks)
-    | n <= 0 = Just ([], TokStream toks)
+  takeN_ n (TokStream toks prevToken)
+    | n <= 0 = Just ([], TokStream toks prevToken)
     | null toks = Nothing
     | otherwise =
         let (chunk, rest) = splitAt n toks
-         in Just (chunk, TokStream rest)
+         in Just (chunk, TokStream rest (Just (last chunk)))
 
-  takeWhile_ f (TokStream toks) =
+  takeWhile_ f (TokStream toks _prevToken) =
     let (chunk, rest) = span f toks
-     in (chunk, TokStream rest)
+     in (chunk, TokStream rest (fmap snd (unsnoc chunk)))
 
 instance VisualStream TokStream where
   showTokens _ toks =
@@ -109,7 +114,7 @@ instance VisualStream TokStream where
 instance TraversableStream TokStream where
   reachOffset o pst =
     let currOff = MP.pstateOffset pst
-        currInput = unTokStream (MP.pstateInput pst)
+        currInput = tokStreamTokens (MP.pstateInput pst)
         advance = max 0 (o - currOff)
         (consumed, rest) = splitAt advance currInput
         currPos = MP.pstateSourcePos pst
@@ -122,7 +127,7 @@ instance TraversableStream TokStream where
                 [] -> currPos
         pst' =
           pst
-            { MP.pstateInput = TokStream rest,
+            { MP.pstateInput = TokStream rest Nothing,
               MP.pstateOffset = currOff + advance,
               MP.pstateSourcePos = newPos
             }

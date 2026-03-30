@@ -107,10 +107,10 @@ evaluateErrorMessageCase meta =
           | actual == caseExpectedAihc meta -> (OutcomePass, "")
           | otherwise ->
               ( OutcomeFail,
-                "aihc error mismatch. expected="
-                  <> show (T.unpack (caseExpectedAihc meta))
-                  <> " actual="
-                  <> show (T.unpack actual)
+                "aihc error mismatch.\nEXPECTED:\n"
+                  <> T.unpack (caseExpectedAihc meta)
+                  <> "\nACTUAL:\n"
+                  <> T.unpack actual
               )
 
 ghcMismatch :: ErrorMessageCase -> Maybe String
