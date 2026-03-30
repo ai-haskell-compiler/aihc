@@ -827,7 +827,7 @@ recordFieldPatternParser = withSpan $ do
   case mEq of
     Just () -> do
       pat <- patternParser
-      pure $ \_srcSpan ->(field, pat)
+      pure $ \_srcSpan -> (field, pat)
     Nothing -> do
       -- NamedFieldPuns: just "field" means "field = field"
       pure $ \srcSpan -> (field, PVar srcSpan field)

@@ -199,8 +199,8 @@ renderParseErrors err =
               ( List.dropWhileEnd
                   (`elem` ['\n', '\r'])
                   ( MPE.parseErrorTextPretty
-                      ( MPE.FancyError 0 (Set.singleton fancy)
-                          :: MPE.ParseError TokStream ParserErrorComponent
+                      ( MPE.FancyError 0 (Set.singleton fancy) ::
+                          MPE.ParseError TokStream ParserErrorComponent
                       )
                   )
               )
@@ -270,9 +270,9 @@ renderSourceReference origin source srcSpan =
       header =
         pretty origin <> colon <> pretty lineNo <> colon <> pretty colNo <> colon
    in vcat
-        [ header
-        , pretty (lineNoText ++ " | " ++ srcLine)
-        , pretty (markerPrefix ++ marker)
+        [ header,
+          pretty (lineNoText ++ " | " ++ srcLine),
+          pretty (markerPrefix ++ marker)
         ]
 
 renderErrorBlock :: FilePath -> Maybe Text -> MPE.ParseError TokStream ParserErrorComponent -> Doc ann
@@ -281,5 +281,5 @@ renderErrorBlock sourceName mSource err =
     [ case (mbSpan, mSource) of
         (Just srcSpan, Just source) -> vcat [renderSourceReference sourceName source srcSpan, doc]
         _ -> vcat [pretty sourceName, doc]
-    | (mbSpan, doc) <- renderParseErrors err]
-
+    | (mbSpan, doc) <- renderParseErrors err
+    ]

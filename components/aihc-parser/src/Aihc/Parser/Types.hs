@@ -18,8 +18,8 @@ where
 import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), TokenOrigin (..))
 import Aihc.Parser.Syntax (Extension, SourceSpan (..))
 import Control.DeepSeq (NFData (..))
-import Data.List.NonEmpty qualified as NE
 import Data.List (unsnoc)
+import Data.List.NonEmpty qualified as NE
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -73,8 +73,8 @@ lexerErrorBundle sourcePath message =
       }
 
 data TokStream = TokStream
-  { tokStreamTokens :: [LexToken]
-  , tokStreamPrevToken :: Maybe LexToken
+  { tokStreamTokens :: [LexToken],
+    tokStreamPrevToken :: Maybe LexToken
   }
   deriving (Eq, Ord, Show, Generic, NFData)
 

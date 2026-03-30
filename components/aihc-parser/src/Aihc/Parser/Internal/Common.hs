@@ -35,7 +35,7 @@ where
 
 import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..))
 import Aihc.Parser.Syntax
-import Aihc.Parser.Types (ParserErrorComponent (..), TokStream(..), mkFoundToken)
+import Aihc.Parser.Types (ParserErrorComponent (..), TokStream (..), mkFoundToken)
 import Data.Char (isUpper)
 import Data.List.NonEmpty qualified as NE
 import Data.Set qualified as Set
