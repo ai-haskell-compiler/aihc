@@ -7,7 +7,7 @@ where
 
 import Aihc.Cpp (resultOutput)
 import Control.Monad (when)
-import CppSupport (preprocessForParserWithoutIncludes)
+import CppSupport (preprocessForParserWithoutIncludesIfEnabled)
 import Data.Maybe (isNothing)
 import Data.Text (Text)
 import qualified Data.Text.IO as TIO
@@ -115,7 +115,9 @@ evaluateCaseText meta source = do
   let exts = extensionNamesToGhcExtensions (caseExtensions meta) Nothing
       source' =
         resultOutput
-          ( preprocessForParserWithoutIncludes
+          ( preprocessForParserWithoutIncludesIfEnabled
+              (caseExtensions meta)
+              []
               (casePath meta)
               source
           )

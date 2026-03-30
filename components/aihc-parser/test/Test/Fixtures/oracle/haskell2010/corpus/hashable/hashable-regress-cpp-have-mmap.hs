@@ -1,4 +1,5 @@
 {- ORACLE_TEST pass -}
+{-# LANGUAGE CPP #-}
 module X where
 
 #ifdef HAVE_MMAP
