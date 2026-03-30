@@ -630,50 +630,61 @@
         git ls-files -z -- '*.hs' | grep -vz '/Fixtures/' | xargs -0 -r ormolu -m inplace
       '';
 
-      line-counts = mkAppWithInputs "line-counts" [pkgs.tokei pkgs.jq pkgs.bash] ''
+      line-counts = mkAppWithInputs "line-counts" [pkgs.tokei pkgs.jq pkgs.jtbl pkgs.bash] ''
         set -euo pipefail
-
-        # Output header
-        printf "| %-30s | %10s | %10s | %10s |\n" "Component" "Code" "Tests" "Total"
-        printf "| :%-30s | %10s: | %10s: | %10s: |\n" "------------------------------" "----------" "----------" "----------"
 
         total_code=0
         total_tests=0
 
-        for comp_path in components/*; do
-          [ -d "$comp_path" ] || continue
-          comp=$(basename "$comp_path")
+        {
+          for comp_path in components/*; do
+            [ -d "$comp_path" ] || continue
+            comp=$(basename "$comp_path")
 
-          # Skip aihc-name-resolution (empty stub)
-          [ "$comp" = "aihc-name-resolution" ] && continue
+            # Skip aihc-name-resolution (empty stub)
+            [ "$comp" = "aihc-name-resolution" ] && continue
 
-          comp_all_lines=$(tokei "$comp_path" --output json | jq '.Total.code // 0')
-          test_lines=0
-          if [ -d "$comp_path/test" ]; then
-            test_lines=$(tokei "$comp_path/test" --output json | jq '.Total.code // 0')
-          fi
-          # Apps are testing tools (fuzz, progress reports, etc.), count as test code
-          if [ -d "$comp_path/app" ]; then
-            app_lines=$(tokei "$comp_path/app" --output json | jq '.Total.code // 0')
-            test_lines=$((test_lines + app_lines))
-          fi
-          # Common contains shared test infrastructure (golden, quickcheck, oracle, etc.)
-          if [ -d "$comp_path/common" ]; then
-            common_lines=$(tokei "$comp_path/common" --output json | jq '.Total.code // 0')
-            test_lines=$((test_lines + common_lines))
-          fi
-          code_lines=$((comp_all_lines - test_lines))
-          if [ $code_lines -lt 0 ]; then code_lines=0; fi
+            comp_all_lines=$(tokei "$comp_path" --output json | jq '.Total.code // 0')
+            test_lines=0
+            if [ -d "$comp_path/test" ]; then
+              test_lines=$(tokei "$comp_path/test" --output json | jq '.Total.code // 0')
+            fi
+            # Apps are testing tools (fuzz, progress reports, etc.), count as test code
+            if [ -d "$comp_path/app" ]; then
+              app_lines=$(tokei "$comp_path/app" --output json | jq '.Total.code // 0')
+              test_lines=$((test_lines + app_lines))
+            fi
+            # Common contains shared test infrastructure (golden, quickcheck, oracle, etc.)
+            if [ -d "$comp_path/common" ]; then
+              common_lines=$(tokei "$comp_path/common" --output json | jq '.Total.code // 0')
+              test_lines=$((test_lines + common_lines))
+            fi
+            code_lines=$((comp_all_lines - test_lines))
+            if [ "$code_lines" -lt 0 ]; then code_lines=0; fi
 
-          comp_total=$comp_all_lines
-          printf "| %-30s | %10d | %10d | %10d |\n" "$comp" "$code_lines" "$test_lines" "$comp_total"
+            comp_total=$comp_all_lines
+            jq -nc \
+              --arg Component "$comp" \
+              --argjson Code "$code_lines" \
+              --argjson Tests "$test_lines" \
+              --argjson Total "$comp_total" \
+              '{Component: $Component, Code: $Code, Tests: $Tests, Total: $Total}'
 
-          total_code=$((total_code + code_lines))
-          total_tests=$((total_tests + test_lines))
-        done
+            total_code=$((total_code + code_lines))
+            total_tests=$((total_tests + test_lines))
+          done
 
-        total_all=$((total_code + total_tests))
-        printf "| %-30s | %10d | %10d | %10d |\n" "**Total**" "$total_code" "$total_tests" "$total_all"
+          total_all=$((total_code + total_tests))
+          jq -nc \
+            --argjson Code "$total_code" \
+            --argjson Tests "$total_tests" \
+            --argjson Total "$total_all" \
+            '{Component: "**Total**", Code: $Code, Tests: $Tests, Total: $Total}'
+        } | {
+          printf '%s\n' '```'
+          jtbl --markdown
+          printf '%s\n' '```'
+        }
       '';
 
       parser-test = mkApp "parser-test" ''
@@ -1111,12 +1122,7 @@
     in {
       default = pkgs.mkShell {
         buildInputs = [
-          # GHC with all project dependencies
-          (hsPkgs.ghcWithPackages (p: [
-            p.aihc-parser
-            p.aihc-parser-cli
-            p.aihc-cpp
-          ]))
+          hsPkgs.ghc
           pkgs.cabal-install
         ];
         shellHook = ''
