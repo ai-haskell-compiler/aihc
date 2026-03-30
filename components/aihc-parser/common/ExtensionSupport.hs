@@ -3,12 +3,10 @@
 module ExtensionSupport
   ( Expected (..),
     Outcome (..),
-    ExtensionSpec (..),
     CaseMeta (..),
-    fixtureDirFor,
-    hasManifest,
-    loadRegistry,
-    loadManifest,
+    oracleFixtureRoot,
+    caseSourcePath,
+    loadOracleCases,
     classifyOutcome,
     finalizeOutcome,
   )
@@ -20,7 +18,6 @@ import Data.Char (isSpace)
 import Data.List (dropWhileEnd, sort, sortOn)
 import Data.Text (Text)
 import qualified Data.Text as T
-import qualified Data.Text.IO as TIO
 import qualified Data.Text.IO.Utf8 as Utf8
 import System.Directory (doesDirectoryExist, listDirectory)
 import System.FilePath (dropExtension, makeRelative, takeDirectory, takeExtension, (</>))
@@ -28,13 +25,6 @@ import System.FilePath (dropExtension, makeRelative, takeDirectory, takeExtensio
 data Expected = ExpectPass | ExpectXFail deriving (Eq, Show)
 
 data Outcome = OutcomePass | OutcomeXFail | OutcomeXPass | OutcomeFail deriving (Eq, Show)
-
-data ExtensionSpec = ExtensionSpec
-  { extName :: !String,
-    extFixtureDir :: !FilePath,
-    extNotes :: !String
-  }
-  deriving (Eq, Show)
 
 data CaseMeta = CaseMeta
   { caseId :: !String,
@@ -46,56 +36,19 @@ data CaseMeta = CaseMeta
   }
   deriving (Eq, Show)
 
-fixtureRoot :: FilePath
-fixtureRoot = "test/Test/Fixtures"
+oracleFixtureRoot :: FilePath
+oracleFixtureRoot = "test/Test/Fixtures/oracle"
 
-registryPath :: FilePath
-registryPath = fixtureRoot </> "extensions.tsv"
+caseSourcePath :: CaseMeta -> FilePath
+caseSourcePath meta = oracleFixtureRoot </> casePath meta
 
-fixtureDirFor :: ExtensionSpec -> FilePath
-fixtureDirFor spec = fixtureRoot </> extFixtureDir spec
-
-hasManifest :: ExtensionSpec -> IO Bool
-hasManifest spec = do
-  let dir = fixtureDirFor spec
-  exists <- doesDirectoryExist dir
-  if not exists
-    then pure False
-    else do
-      files <- listFixtureFiles dir
-      pure (not (null files))
-
-loadRegistry :: IO [ExtensionSpec]
-loadRegistry = do
-  raw <- TIO.readFile registryPath
-  let rows = filter (not . T.null) (map stripComment (T.lines raw))
-  mapM parseRegistryRow rows
-
-parseRegistryRow :: Text -> IO ExtensionSpec
-parseRegistryRow row =
-  case T.splitOn "\t" row of
-    [nameTxt, dirTxt] ->
-      pure
-        ExtensionSpec
-          { extName = T.unpack (T.strip nameTxt),
-            extFixtureDir = T.unpack (T.strip dirTxt),
-            extNotes = ""
-          }
-    [nameTxt, dirTxt, notesTxt] ->
-      pure
-        ExtensionSpec
-          { extName = T.unpack (T.strip nameTxt),
-            extFixtureDir = T.unpack (T.strip dirTxt),
-            extNotes = T.unpack (T.strip notesTxt)
-          }
-    _ -> fail ("Invalid extension registry row (expected 2 or 3 tab-separated columns): " <> T.unpack row)
-
-loadManifest :: ExtensionSpec -> IO [CaseMeta]
-loadManifest spec = do
-  let dir = fixtureDirFor spec
-  files <- listFixtureFiles dir
+loadOracleCases :: IO [CaseMeta]
+loadOracleCases = do
+  files <- listFixtureFiles oracleFixtureRoot
   cases <- mapM (loadCaseMeta dir) files
   pure (sortOn casePath cases)
+  where
+    dir = oracleFixtureRoot
 
 classifyOutcome :: Expected -> Bool -> Bool -> (Outcome, String)
 classifyOutcome expected oracleOk roundtripOk =
@@ -116,11 +69,6 @@ finalizeOutcome :: CaseMeta -> Bool -> Bool -> (CaseMeta, Outcome, String)
 finalizeOutcome meta oracleOk roundtripOk =
   let (outcome, details) = classifyOutcome (caseExpected meta) oracleOk roundtripOk
    in (meta, outcome, details)
-
-stripComment :: Text -> Text
-stripComment line =
-  let core = fst (T.breakOn "#" line)
-   in T.strip core
 
 trim :: String -> String
 trim = dropWhile isSpace . dropWhileEnd isSpace

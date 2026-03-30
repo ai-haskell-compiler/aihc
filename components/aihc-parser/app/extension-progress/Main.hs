@@ -6,7 +6,6 @@ import Aihc.Cpp (resultOutput)
 import Aihc.Parser (ParseResult (..))
 import qualified Aihc.Parser
 import Aihc.Parser.Syntax (Module)
-import Control.Monad (forM)
 import CppSupport (preprocessForParserWithoutIncludesIfEnabled)
 import Data.List (sortOn)
 import qualified Data.Map.Strict as M
@@ -23,7 +22,6 @@ import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.Text (renderStrict)
 import System.Environment (getArgs)
 import System.Exit (exitFailure, exitSuccess)
-import System.FilePath ((</>))
 
 data SupportStatus = Supported | InProgress deriving (Eq, Show)
 
@@ -44,9 +42,8 @@ main = do
   let strict = "--strict" `elem` args
       markdown = "--markdown" `elem` args
 
-  allSpecs <- loadRegistry
-  specs <- filterM hasManifest allSpecs
-  caseOutcomes <- concat <$> mapM evaluateSpec specs
+  cases <- loadOracleCases
+  caseOutcomes <- fmap concat (mapM evaluateCaseMaybe cases)
 
   let grouped = groupByExtension caseOutcomes
       results = map mkExtensionResult (sortOn fst (M.toList grouped))
@@ -61,28 +58,17 @@ main = do
     then exitSuccess
     else exitFailure
 
-filterM :: (Monad m) => (a -> m Bool) -> [a] -> m [a]
-filterM p = foldr go (pure [])
-  where
-    go x m = do
-      keep <- p x
-      xs <- m
-      pure (if keep then x : xs else xs)
+evaluateCaseMaybe :: CaseMeta -> IO [(CaseMeta, Outcome, String)]
+evaluateCaseMaybe meta =
+  if null (caseExtensions meta)
+    then pure []
+    else do
+      outcome <- evaluateCase meta
+      pure [outcome]
 
-evaluateSpec :: ExtensionSpec -> IO [(CaseMeta, Outcome, String)]
-evaluateSpec spec = do
-  cases <- loadManifest spec
-  fmap concat $
-    forM cases $ \meta ->
-      if null (caseExtensions meta)
-        then pure []
-        else do
-          outcome <- evaluateCase spec meta
-          pure [outcome]
-
-evaluateCase :: ExtensionSpec -> CaseMeta -> IO (CaseMeta, Outcome, String)
-evaluateCase spec meta = do
-  source <- Utf8.readFile (fixtureDirFor spec </> casePath meta)
+evaluateCase :: CaseMeta -> IO (CaseMeta, Outcome, String)
+evaluateCase meta = do
+  source <- Utf8.readFile (caseSourcePath meta)
   let exts = extensionNamesToGhcExtensions (caseExtensions meta) Nothing
       source' =
         resultOutput

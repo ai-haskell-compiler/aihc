@@ -8,6 +8,7 @@ where
 import Aihc.Cpp (resultOutput)
 import Control.Monad (when)
 import CppSupport (preprocessForParserWithoutIncludes)
+import Data.List (isPrefixOf)
 import Data.Maybe (isNothing)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -15,31 +16,19 @@ import qualified Data.Text.IO as TIO
 import ExtensionSupport
   ( CaseMeta (..),
     Expected (..),
-    ExtensionSpec (..),
     Outcome (..),
-    fixtureDirFor,
-    loadManifest,
+    caseSourcePath,
+    loadOracleCases,
   )
 import GhcOracle (oracleDetailedParsesModuleWithNamesAt)
 import ParserValidation (validateParser)
-import System.FilePath ((</>))
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertFailure, testCase)
 
-fixtureRoot :: FilePath
-fixtureRoot = fixtureDirFor h2010Spec
-
-h2010Spec :: ExtensionSpec
-h2010Spec =
-  ExtensionSpec
-    { extName = "Haskell2010",
-      extFixtureDir = "haskell2010",
-      extNotes = ""
-    }
-
 h2010Tests :: IO TestTree
 h2010Tests = do
-  cases <- loadManifest h2010Spec
+  allCases <- loadOracleCases
+  let cases = filter isH2010Case allCases
   checks <- mapM mkCaseTest cases
   framework <- frameworkTests
   summary <- mkSummaryTest cases
@@ -47,7 +36,7 @@ h2010Tests = do
 
 mkCaseTest :: CaseMeta -> IO TestTree
 mkCaseTest meta = do
-  source <- TIO.readFile (fixtureRoot </> casePath meta)
+  source <- TIO.readFile (caseSourcePath meta)
   pure $ testCase (caseId meta) (assertCase meta source)
 
 mkSummaryTest :: [CaseMeta] -> IO TestTree
@@ -117,7 +106,7 @@ assertCase meta source = do
 
 evaluateCase :: CaseMeta -> IO Outcome
 evaluateCase meta = do
-  source <- TIO.readFile (fixtureRoot </> casePath meta)
+  source <- TIO.readFile (caseSourcePath meta)
   fst <$> evaluateCaseText meta source
 
 evaluateCaseText :: CaseMeta -> Text -> IO (Outcome, String)
@@ -198,3 +187,6 @@ frameworkTests =
                   then pure ()
                   else assertFailure ("expected OutcomeFail when oracle rejects fixture, got " <> show outcome)
       ]
+
+isH2010Case :: CaseMeta -> Bool
+isH2010Case meta = "haskell2010/" `isPrefixOf` casePath meta
