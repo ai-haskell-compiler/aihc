@@ -1,4 +1,5 @@
 {- ORACLE_TEST pass -}
+{-# LANGUAGE CPP #-}
 module X where
 
 #if WORD_SIZE_IN_BITS == 64

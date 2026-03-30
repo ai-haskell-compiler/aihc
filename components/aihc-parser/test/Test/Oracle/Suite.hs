@@ -1,38 +1,37 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Test.H2010.Suite
-  ( h2010Tests,
+module Test.Oracle.Suite
+  ( oracleTests,
   )
 where
 
 import Aihc.Cpp (resultOutput)
 import Control.Monad (when)
-import CppSupport (preprocessForParserWithoutIncludes)
-import Data.List (isPrefixOf)
+import CppSupport (preprocessForParserWithoutIncludesIfEnabled)
 import Data.Maybe (isNothing)
 import Data.Text (Text)
-import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import ExtensionSupport
   ( CaseMeta (..),
     Expected (..),
     Outcome (..),
     caseSourcePath,
+    finalizeOutcome,
     loadOracleCases,
   )
-import GhcOracle (oracleDetailedParsesModuleWithNamesAt)
-import ParserValidation (validateParser)
+import GhcOracle (extensionNamesToGhcExtensions)
+import ParserValidation (validateParserWithExtensions)
+import Test.Oracle (oracleParsesModuleWithExtensions)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertFailure, testCase)
 
-h2010Tests :: IO TestTree
-h2010Tests = do
-  allCases <- loadOracleCases
-  let cases = filter isH2010Case allCases
+oracleTests :: IO TestTree
+oracleTests = do
+  cases <- loadOracleCases
   checks <- mapM mkCaseTest cases
   framework <- frameworkTests
   summary <- mkSummaryTest cases
-  pure (testGroup "haskell2010-oracle" (checks <> [framework, summary]))
+  pure (testGroup "oracle" (checks <> [framework, summary]))
 
 mkCaseTest :: CaseMeta -> IO TestTree
 mkCaseTest meta = do
@@ -41,15 +40,15 @@ mkCaseTest meta = do
 
 mkSummaryTest :: [CaseMeta] -> IO TestTree
 mkSummaryTest cases = do
-  outcomes <- mapM evaluateCase cases
+  outcomes <- mapM evaluateCaseFromFile cases
   pure $
     testCase "summary" $ do
-      let (passN, xfailN, xpassN, failN) = foldr countOutcome (0, 0, 0, 0) outcomes
+      let (passN, xfailN, xpassN, failN) = foldr (countOutcome . snd3) (0, 0, 0, 0) outcomes
           totalN = passN + xfailN + xpassN + failN
           completion = pct (passN + xpassN) totalN
       when (failN > 0 || xpassN > 0) $
         assertFailure
-          ( "Haskell2010 regressions found. "
+          ( "Oracle regressions found. "
               <> "pass="
               <> show passN
               <> " xfail="
@@ -62,6 +61,8 @@ mkSummaryTest cases = do
               <> show completion
               <> "%"
           )
+  where
+    snd3 (_, b, _) = b
 
 countOutcome :: Outcome -> (Int, Int, Int, Int) -> (Int, Int, Int, Int)
 countOutcome outcome (passN, xfailN, xpassN, failN) =
@@ -78,7 +79,7 @@ pct done totalN
 
 assertCase :: CaseMeta -> Text -> Assertion
 assertCase meta source = do
-  (outcome, details) <- evaluateCaseText meta source
+  (_, outcome, details) <- evaluateCaseText meta source
   case outcome of
     OutcomeFail ->
       assertFailure
@@ -104,37 +105,26 @@ assertCase meta source = do
         )
     _ -> pure ()
 
-evaluateCase :: CaseMeta -> IO Outcome
-evaluateCase meta = do
+evaluateCaseFromFile :: CaseMeta -> IO (CaseMeta, Outcome, String)
+evaluateCaseFromFile meta = do
   source <- TIO.readFile (caseSourcePath meta)
-  fst <$> evaluateCaseText meta source
+  evaluateCaseText meta source
 
-evaluateCaseText :: CaseMeta -> Text -> IO (Outcome, String)
+evaluateCaseText :: CaseMeta -> Text -> IO (CaseMeta, Outcome, String)
 evaluateCaseText meta source = do
-  let source' = resultOutput (preprocessForParserWithoutIncludes (casePath meta) source)
-      validationOk = isNothing (validateParser source')
-      oracleResult = oracleDetailedParsesModuleWithNamesAt (casePath meta) [] Nothing source'
-  pure (classify (caseExpected meta) oracleResult validationOk)
-
-classify :: Expected -> Either Text () -> Bool -> (Outcome, String)
-classify expected oracleResult validationOk =
-  case oracleResult of
-    Left oracleErr ->
-      ( OutcomeFail,
-        "oracle rejected fixture: " <> T.unpack oracleErr
-      )
-    Right () ->
-      classifyByValidation expected validationOk
-
-classifyByValidation :: Expected -> Bool -> (Outcome, String)
-classifyByValidation expected validationOk =
-  case expected of
-    ExpectPass
-      | validationOk -> (OutcomePass, "")
-      | otherwise -> (OutcomeFail, "roundtrip mismatch against oracle AST")
-    ExpectXFail
-      | validationOk -> (OutcomeXPass, "case now passes oracle and roundtrip checks")
-      | otherwise -> (OutcomeXFail, "")
+  let exts = extensionNamesToGhcExtensions (caseExtensions meta) Nothing
+      source' =
+        resultOutput
+          ( preprocessForParserWithoutIncludesIfEnabled
+              (caseExtensions meta)
+              []
+              (casePath meta)
+              source
+          )
+      oracleOk = oracleParsesModuleWithExtensions exts source'
+      validationOk = isNothing (validateParserWithExtensions exts source')
+      roundtripOk = oracleOk && validationOk
+  pure (finalizeOutcome meta oracleOk roundtripOk)
 
 frameworkTests :: IO TestTree
 frameworkTests =
@@ -152,7 +142,7 @@ frameworkTests =
                     caseExtensions = []
                   }
            in do
-                (outcome, _) <- evaluateCaseText meta "module M where\nx = { y = 1, }\n"
+                (_, outcome, _) <- evaluateCaseText meta "module M where\nx = { y = 1, }\n"
                 if outcome == OutcomeFail
                   then pure ()
                   else assertFailure ("expected OutcomeFail when oracle rejects fixture, got " <> show outcome),
@@ -167,7 +157,7 @@ frameworkTests =
                     caseExtensions = []
                   }
            in do
-                (outcome, _) <- evaluateCaseText meta "module M where\nf \\x -> x\n"
+                (_, outcome, _) <- evaluateCaseText meta "module M where\nf \\x -> x\n"
                 if outcome == OutcomeFail
                   then pure ()
                   else assertFailure ("expected OutcomeFail when oracle rejects fixture, got " <> show outcome),
@@ -182,11 +172,8 @@ frameworkTests =
                     caseExtensions = []
                   }
            in do
-                (outcome, _) <- evaluateCaseText meta "module M where\nx = { y = 1, }\n"
+                (_, outcome, _) <- evaluateCaseText meta "module M where\nx = { y = 1, }\n"
                 if outcome == OutcomeFail
                   then pure ()
                   else assertFailure ("expected OutcomeFail when oracle rejects fixture, got " <> show outcome)
       ]
-
-isH2010Case :: CaseMeta -> Bool
-isH2010Case meta = "haskell2010/" `isPrefixOf` casePath meta
