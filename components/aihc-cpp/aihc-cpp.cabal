@@ -12,6 +12,11 @@ synopsis:           Pure Haskell C preprocessor for aihc
 library
   exposed-modules:
       Aihc.Cpp
+  other-modules:
+      Aihc.Cpp.Types
+      Aihc.Cpp.Parser
+      Aihc.Cpp.Evaluator
+      Aihc.Cpp.Scanner
   hs-source-dirs:   src
   build-depends:
       base >=4.16 && <5
