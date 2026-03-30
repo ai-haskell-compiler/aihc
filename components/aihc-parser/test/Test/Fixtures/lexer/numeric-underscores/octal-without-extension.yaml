@@ -4,4 +4,5 @@ input: "0o777_777"
 tokens:
   - 'TkIntegerBase 511 "0o777"'
   - 'TkVarId "_777"'
+  - 'TkEOF'
 status: pass

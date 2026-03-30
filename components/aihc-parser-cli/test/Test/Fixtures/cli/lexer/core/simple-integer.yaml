@@ -3,4 +3,5 @@ output: |
   TkSpecialLBrace
   TkInteger 42
   TkSpecialRBrace
+  TkEOF
 status: pass

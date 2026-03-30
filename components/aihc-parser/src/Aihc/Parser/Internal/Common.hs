@@ -6,6 +6,7 @@ module Aihc.Parser.Internal.Common
     region,
     keywordTok,
     expectedTok,
+    eofTok,
     varIdTok,
     tokenSatisfy,
     moduleNameParser,
@@ -99,6 +100,15 @@ expectedTok :: LexTokenKind -> TokParser ()
 expectedTok expected =
   tokenSatisfy (renderTokenKind expected) $ \tok ->
     if lexTokenKind tok == expected then Just () else Nothing
+
+-- | Match the end-of-file token.
+--
+-- The lexer emits a 'TkEOF' token at the end of input. This parser consumes
+-- that token, ensuring the entire input has been processed.
+eofTok :: TokParser ()
+eofTok =
+  tokenSatisfy "end of input" $ \tok ->
+    if lexTokenKind tok == TkEOF then Just () else Nothing
 
 -- | Match a specific variable identifier (contextual keyword).
 varIdTok :: Text -> TokParser ()

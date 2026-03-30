@@ -5,4 +5,5 @@ input: |
 tokens:
   - 'TkVarId "x"'
   - 'TkVarId "y"'
+  - 'TkEOF'
 status: pass

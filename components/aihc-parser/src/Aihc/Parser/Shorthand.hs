@@ -639,6 +639,7 @@ docTokenKind kind =
     TkPragmaDeprecated msg -> "TkPragmaDeprecated" <+> docText msg
     TkQuasiQuote quoter body -> "TkQuasiQuote" <+> docText quoter <+> docText body
     TkError msg -> "TkError" <+> docText msg
+    TkEOF -> "TkEOF"
 
 -- Helpers
 

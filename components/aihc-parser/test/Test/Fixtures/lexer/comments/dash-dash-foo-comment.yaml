@@ -1,4 +1,5 @@
 extensions: []
 input: "--foo"
-tokens: []
+tokens:
+  - 'TkEOF'
 status: pass

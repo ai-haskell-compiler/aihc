@@ -4,4 +4,5 @@ input: "1_000_000"
 tokens:
   - 'TkInteger 1'
   - 'TkVarId "_000_000"'
+  - 'TkEOF'
 status: pass

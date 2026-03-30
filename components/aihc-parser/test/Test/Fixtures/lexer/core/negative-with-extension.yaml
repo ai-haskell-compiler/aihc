@@ -3,4 +3,5 @@ extensions:
 input: "-10"
 tokens:
   - 'TkInteger (-10)'
+  - 'TkEOF'
 status: pass

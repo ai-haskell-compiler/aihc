@@ -6,4 +6,5 @@ tokens:
   - 'TkVarId "a"'
   - 'TkReservedDoubleArrow'
   - 'TkVarId "a"'
+  - 'TkEOF'
 status: pass

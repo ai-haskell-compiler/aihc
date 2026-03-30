@@ -163,6 +163,8 @@ data LexTokenKind
   | -- Other
     TkQuasiQuote Text Text
   | TkError Text
+  | -- End of input marker (always last token in stream)
+    TkEOF
   deriving (Eq, Ord, Show, Read, Generic, NFData)
 
 data TokenOrigin
@@ -225,7 +227,11 @@ data LayoutState = LayoutState
     layoutPrevLine :: !(Maybe Int),
     layoutPrevTokenKind :: !(Maybe LexTokenKind),
     layoutDelimiterDepth :: !Int,
-    layoutModuleMode :: !ModuleLayoutMode
+    layoutModuleMode :: !ModuleLayoutMode,
+    -- | End span of the previous real (non-virtual) token, used to anchor
+    -- virtual semicolons to the end of the previous line rather than the
+    -- beginning of the next line. This improves error messages.
+    layoutPrevTokenEndSpan :: !(Maybe SourceSpan)
   }
   deriving (Eq, Show)
 
@@ -362,7 +368,23 @@ scanTokens st0 =
               let st' = st {lexerPending = rest, lexerPrevTokenKind = Just (lexTokenKind tok), lexerHadTrivia = False}
                in tok : scanTokens st'
             []
-              | null (lexerInput st) -> []
+              | null (lexerInput st) ->
+                  -- Emit explicit EOF token with span at current position
+                  let eofSpan =
+                        SourceSpan
+                          { sourceSpanStartLine = lexerLine st,
+                            sourceSpanStartCol = lexerCol st,
+                            sourceSpanEndLine = lexerLine st,
+                            sourceSpanEndCol = lexerCol st
+                          }
+                      eofToken =
+                        LexToken
+                          { lexTokenKind = TkEOF,
+                            lexTokenText = "",
+                            lexTokenSpan = eofSpan,
+                            lexTokenOrigin = FromSource
+                          }
+                   in [eofToken]
               | otherwise ->
                   -- Reset hadTrivia flag is already set by skipTrivia; we just lex the token
                   let (tok, st') = nextToken st
@@ -447,25 +469,40 @@ applyLayoutTokens enableModuleLayout =
         layoutModuleMode =
           if enableModuleLayout
             then ModuleLayoutSeekStart
-            else ModuleLayoutOff
+            else ModuleLayoutOff,
+        layoutPrevTokenEndSpan = Nothing
       }
   where
     go st toks =
       case toks of
         [] ->
+          -- This shouldn't happen since scanTokens always emits TkEOF,
+          -- but handle gracefully
           let eofAnchor = NoSourceSpan
               (moduleInserted, stAfterModule) = finalizeModuleLayoutAtEOF st eofAnchor
            in moduleInserted <> closeAllImplicit (layoutContexts stAfterModule) eofAnchor
+        [eofTok]
+          | lexTokenKind eofTok == TkEOF ->
+              -- Use EOF token's span for closing virtual braces
+              let eofAnchor = lexTokenSpan eofTok
+                  (moduleInserted, stAfterModule) = finalizeModuleLayoutAtEOF st eofAnchor
+               in moduleInserted <> closeAllImplicit (layoutContexts stAfterModule) eofAnchor <> [eofTok]
         tok : rest ->
           let stModule = noteModuleLayoutBeforeToken st tok
               (preInserted, stBeforePending) = closeBeforeToken stModule tok
               (pendingInserted, stAfterPending, skipBOL) = openPendingLayout stBeforePending tok
               (bolInserted, stAfterBOL) = if skipBOL then ([], stAfterPending) else bolLayout stAfterPending tok
               stAfterToken = noteModuleLayoutAfterToken (stepTokenContext stAfterBOL tok) tok
+              -- Track end span of real (non-virtual) tokens for BOL anchoring
+              newEndSpan =
+                if lexTokenOrigin tok == FromSource
+                  then Just (lexTokenSpan tok)
+                  else layoutPrevTokenEndSpan stAfterToken
               stNext =
                 stAfterToken
                   { layoutPrevLine = Just (tokenStartLine tok),
-                    layoutPrevTokenKind = Just (lexTokenKind tok)
+                    layoutPrevTokenKind = Just (lexTokenKind tok),
+                    layoutPrevTokenEndSpan = newEndSpan
                   }
            in preInserted <> pendingInserted <> bolInserted <> (tok : go stNext rest)
 
@@ -576,12 +613,16 @@ bolLayout st tok
   | otherwise =
       let col = tokenStartCol tok
           (inserted, contexts') = closeForDedent col (lexTokenSpan tok) (layoutContexts st)
+          -- Use end of previous token for semicolon span (improves error messages
+          -- by pointing to the end of the incomplete declaration rather than the
+          -- start of the next one)
+          semiAnchor = fromMaybe (lexTokenSpan tok) (layoutPrevTokenEndSpan st)
           eqSemi =
             case currentLayoutIndentMaybe contexts' of
               Just indent
                 | col == indent,
                   not (suppressesVirtualSemicolon tok) ->
-                    [virtualSymbolToken ";" (lexTokenSpan tok)]
+                    [virtualSymbolToken ";" semiAnchor]
               _ -> []
        in (inserted <> eqSemi, st {layoutContexts = contexts'})
 

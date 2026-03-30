@@ -1,4 +1,5 @@
 extensions: []
 input: "-- simple comment"
-tokens: []
+tokens:
+  - 'TkEOF'
 status: pass

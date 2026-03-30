@@ -4,8 +4,8 @@ ghc: |
   test.hs:2:1: error: [GHC-58481]
       parse error (possibly incorrect indentation or mismatched brackets)
 aihc: |
-  test.hs:1:1:
-  1 | import
+  test.hs:2:1:
+  2 |
     | ^
   unexpected end of input
   expecting module name

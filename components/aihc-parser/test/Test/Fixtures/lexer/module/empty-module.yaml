@@ -3,4 +3,5 @@ input: ""
 tokens:
   - 'TkSpecialLBrace'
   - 'TkSpecialRBrace'
+  - 'TkEOF'
 status: pass

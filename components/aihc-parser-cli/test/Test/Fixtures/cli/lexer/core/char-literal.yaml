@@ -3,4 +3,5 @@ output: |
   TkSpecialLBrace
   TkChar 'x'
   TkSpecialRBrace
+  TkEOF
 status: pass

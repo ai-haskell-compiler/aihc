@@ -5,4 +5,5 @@ tokens:
   - 'TkVarSym "[|"'
   - 'TkVarId "x"'
   - 'TkVarSym "|]"'
+  - 'TkEOF'
 status: pass

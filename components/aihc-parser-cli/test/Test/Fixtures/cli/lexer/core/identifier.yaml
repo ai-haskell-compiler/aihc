@@ -3,4 +3,5 @@ output: |
   TkSpecialLBrace
   TkVarId "foo"
   TkSpecialRBrace
+  TkEOF
 status: pass

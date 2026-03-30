@@ -23,7 +23,7 @@ module Aihc.Parser.Internal.FromTokens
   )
 where
 
-import Aihc.Parser.Internal.Common (TokParser)
+import Aihc.Parser.Internal.Common (TokParser, eofTok)
 import Aihc.Parser.Internal.Decl (declParser, importDeclParser, moduleHeaderParser)
 import Aihc.Parser.Internal.Expr (exprParser, patternParser, typeParser)
 import Aihc.Parser.Internal.Module (moduleParser)
@@ -31,11 +31,10 @@ import Aihc.Parser.Lex (LexToken)
 import Aihc.Parser.Syntax (Decl, Expr, ImportDecl, Module, ModuleHead, Pattern, Type)
 import Aihc.Parser.Types
 import Text.Megaparsec (runParser)
-import Text.Megaparsec qualified as MP
 
 parseFromTokens :: TokParser a -> FilePath -> [LexToken] -> ParseResult a
 parseFromTokens parser sourceName toks =
-  case runParser (parser <* MP.eof) sourceName (mkTokStream toks) of
+  case runParser (parser <* eofTok) sourceName (mkTokStream toks) of
     Left bundle -> ParseErr bundle
     Right parsed -> ParseOk parsed
 
