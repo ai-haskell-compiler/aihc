@@ -14,9 +14,12 @@ where
 import Aihc.Parser.Bench.CLI (BenchOptions (..), ParserChoice (..))
 import Aihc.Parser.Bench.Parsers (ParseResult (..), lexWithAihcExts, parseWithAihcExts, parseWithGhcExts, parseWithHseExts)
 import Aihc.Parser.Bench.Tarball (PackageInfo (..), PackageSpec (..), TarballEntry (..), isHaskellEntry, streamTarball)
+import Control.DeepSeq (rnf)
 import Control.Exception (evaluate)
 import Control.Monad (replicateM)
+import Data.List (isPrefixOf)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (catMaybes, listToMaybe)
 import GHC.Clock (getMonotonicTimeNSec)
 import GHC.Stats qualified as Stats
 import System.IO (hFlush, hPutStr, hPutStrLn, stderr)
@@ -158,16 +161,13 @@ enrichEntry packageInfos entry =
       if prefix `isPrefixOf` s
         then drop (length prefix) s
         else s
-    isPrefixOf p s = take (length p) s == p
 
     dropFirstDir path =
       case break (== '/') path of
         (_, '/' : rest) -> rest
         _ -> path
 
-    firstJust [] = Nothing
-    firstJust (Nothing : xs) = firstJust xs
-    firstJust (Just x : _) = Just x
+    firstJust = listToMaybe . catMaybes
 
 -- | Select the parser function based on options.
 -- Now uses the entry's extensions and language.
@@ -186,13 +186,12 @@ runSingleIteration parser entries = do
 
   let results = map parser entries
 
-  -- Force evaluation of all results
-  _ <- evaluate (length [() | ParseSuccess <- results])
+  -- Force full evaluation of all results using rnf
+  _ <- evaluate (rnf results)
 
   endTime <- getMonotonicTimeNSec
 
   let successCount = length [() | ParseSuccess <- results]
-      failCount = length results - successCount
       totalBytes = sum (map (fromIntegral . entryByteSize) entries)
 
   pure
@@ -201,7 +200,7 @@ runSingleIteration parser entries = do
         iterBytesRead = totalBytes,
         iterFilesRead = length entries,
         iterParseSuccess = successCount,
-        iterParseFailed = failCount
+        iterParseFailed = length results - successCount
       }
 
 -- | Capture current GC statistics.
@@ -219,8 +218,10 @@ captureGCStats = do
       }
 
 -- | Force all entries into memory.
+-- Uses strict fold to ensure all entries are fully evaluated.
 forceEntries :: [TarballEntry] -> [TarballEntry]
-forceEntries [] = []
-forceEntries (e : es) =
-  let !_ = entryContents e `seq` entryByteSize e `seq` entryExtensions e `seq` entryLanguage e
-   in e : forceEntries es
+forceEntries = foldr forceAndCons []
+  where
+    forceAndCons e !acc =
+      let !_ = entryContents e `seq` entryByteSize e `seq` entryExtensions e `seq` entryLanguage e
+       in e : acc

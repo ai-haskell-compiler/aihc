@@ -1,4 +1,5 @@
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 -- | Tarball generation for Stackage packages.
 module Aihc.Parser.Bench.Tarball
@@ -36,10 +37,12 @@ import Data.ByteString.Lazy qualified as LBS
 import Data.Char (isAlphaNum, isSpace)
 import Data.List (isPrefixOf, isSuffixOf, nub)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (catMaybes, mapMaybe)
+import Data.Maybe (catMaybes, listToMaybe, mapMaybe)
 import Data.Text (Text)
 import Data.Text.Encoding (decodeUtf8With, encodeUtf8)
 import Data.Text.Encoding.Error (lenientDecode)
+import Data.Text.Lazy qualified as TL
+import Data.Text.Lazy.Encoding qualified as TLE
 import Data.Time.Clock.POSIX (getPOSIXTime)
 import Data.Version qualified as DV
 import Distribution.Compiler (CompilerFlavor (..))
@@ -79,7 +82,7 @@ import Distribution.Types.ConfVar (ConfVar (..))
 import Distribution.Types.GenericPackageDescription (GenericPackageDescription, genPackageFlags)
 import Distribution.Utils.Path (getSymbolicPath)
 import Distribution.Version (mkVersion, withinRange)
-import Network.HTTP.Client (httpLbs, newManager, parseRequest, responseBody, responseStatus)
+import Network.HTTP.Client (Manager, httpLbs, newManager, parseRequest, responseBody, responseStatus)
 import Network.HTTP.Client.TLS (tlsManagerSettings)
 import Network.HTTP.Types.Status (statusCode)
 import System.Directory
@@ -157,7 +160,9 @@ data PackageInfo = PackageInfo
 -- | Generate a tarball from a Stackage snapshot.
 generateTarball :: GenerateOptions -> IO (Either String GenerateResult)
 generateTarball opts = do
-  snapshotResult <- loadStackageSnapshot (genSnapshot opts) (genOffline opts)
+  -- Create a single HTTP manager to reuse for all requests
+  manager <- newManager tlsManagerSettings
+  snapshotResult <- loadStackageSnapshot manager (genSnapshot opts) (genOffline opts)
   case snapshotResult of
     Left err -> pure (Left err)
     Right packages -> do
@@ -166,7 +171,7 @@ generateTarball opts = do
           "Loaded " ++ show (length packages) ++ " packages from " ++ genSnapshot opts
 
       -- Process packages and collect entries/failures
-      results <- processPackages opts packages
+      results <- processPackages manager opts packages
 
       let (successes, failures) = partitionResults results
           allEntries = concat successes
@@ -204,13 +209,13 @@ generateTarball opts = do
           pure (Right summary)
 
 -- | Process all packages sequentially.
-processPackages :: GenerateOptions -> [PackageSpec] -> IO [Either (PackageSpec, FilterReason) [TarballEntry]]
-processPackages opts packages = forM packages (processPackage opts)
+processPackages :: Manager -> GenerateOptions -> [PackageSpec] -> IO [Either (PackageSpec, FilterReason) [TarballEntry]]
+processPackages manager opts packages = forM packages (processPackage manager opts)
 
 -- | Process a single package.
-processPackage :: GenerateOptions -> PackageSpec -> IO (Either (PackageSpec, FilterReason) [TarballEntry])
-processPackage opts pkg = do
-  downloadResult <- try $ downloadPackage (genOffline opts) pkg
+processPackage :: Manager -> GenerateOptions -> PackageSpec -> IO (Either (PackageSpec, FilterReason) [TarballEntry])
+processPackage manager opts pkg = do
+  downloadResult <- try $ downloadPackage manager (genOffline opts) pkg
   case downloadResult of
     Left (err :: SomeException) ->
       pure (Left (pkg, FilterDownloadFailed (displayException err)))
@@ -280,7 +285,10 @@ parseCabalForExtensions pkgDir cabalFile = do
   cabalBytes <- BS.readFile cabalFile
   let parseResult = Cabal.runParseResult (Cabal.parseGenericPackageDescription cabalBytes)
   case snd parseResult of
-    Left _ -> pure Map.empty -- Fall back to empty if parsing fails
+    Left errs -> do
+      -- Log parse errors instead of silently ignoring
+      hPutStrLn stderr $ "Warning: Failed to parse " ++ cabalFile ++ ": " ++ show errs
+      pure Map.empty
     Right gpd -> do
       fileInfos <- collectComponentFilesSimple gpd (takeDirectory cabalFile)
       -- Build map from relative paths to their extensions
@@ -407,51 +415,35 @@ dedupeExistingFiles :: [FilePath] -> IO [FilePath]
 dedupeExistingFiles files = fmap nub (existingPaths files)
 
 -- | Check if a package passes all filters.
+-- Returns the first filter failure reason, or Nothing if all pass.
 checkPackageFilters :: FilterOptions -> [TarballEntry] -> IO (Maybe FilterReason)
 checkPackageFilters opts entries
   | not (filterAihc opts || filterHse opts || filterGhc opts) = pure Nothing
-  | otherwise = go (filter isHaskellEntry entries)
+  | otherwise = pure $ listToMaybe $ mapMaybe checkEntry (filter isHaskellEntry entries)
   where
-    go [] = pure Nothing
-    go (e : es) = do
+    checkEntry e =
       let source = entryContents e
           path = entryFilePath e
           exts = entryExtensions e
           lang = entryLanguage e
-
-      -- Check aihc filter
-      aihcResult <-
-        if filterAihc opts
-          then case parseWithAihcExts exts lang source of
-            ParseSuccess -> pure Nothing
-            ParseFailure err -> pure (Just (FilterAihcFailed path err))
-          else pure Nothing
-
-      case aihcResult of
-        Just reason -> pure (Just reason)
-        Nothing -> do
-          -- Check hse filter
-          hseResult <-
-            if filterHse opts
-              then case parseWithHseExts exts lang source of
-                ParseSuccess -> pure Nothing
-                ParseFailure err -> pure (Just (FilterHseFailed path err))
-              else pure Nothing
-
-          case hseResult of
-            Just reason -> pure (Just reason)
-            Nothing -> do
-              -- Check ghc filter
-              ghcResult <-
-                if filterGhc opts
-                  then case parseWithGhcExts exts lang source of
-                    ParseSuccess -> pure Nothing
-                    ParseFailure err -> pure (Just (FilterGhcFailed path err))
-                  else pure Nothing
-
-              case ghcResult of
-                Just reason -> pure (Just reason)
-                Nothing -> go es
+          checks =
+            [ if filterAihc opts
+                then case parseWithAihcExts exts lang source of
+                  ParseSuccess -> Nothing
+                  ParseFailure err -> Just (FilterAihcFailed path err)
+                else Nothing,
+              if filterHse opts
+                then case parseWithHseExts exts lang source of
+                  ParseSuccess -> Nothing
+                  ParseFailure err -> Just (FilterHseFailed path err)
+                else Nothing,
+              if filterGhc opts
+                then case parseWithGhcExts exts lang source of
+                  ParseSuccess -> Nothing
+                  ParseFailure err -> Just (FilterGhcFailed path err)
+                else Nothing
+            ]
+       in listToMaybe (catMaybes checks)
 
 -- | Generate tarball entries without writing (for testing).
 generateTarballEntries :: GenerateOptions -> IO (Either String ([TarballEntry], GenerateResult))
@@ -634,8 +626,8 @@ breakOnLast c s =
         _ : rest -> (reverse rest, reverse after)
 
 -- | Load a Stackage snapshot.
-loadStackageSnapshot :: String -> Bool -> IO (Either String [PackageSpec])
-loadStackageSnapshot snapshot offline = do
+loadStackageSnapshot :: Manager -> String -> Bool -> IO (Either String [PackageSpec])
+loadStackageSnapshot manager snapshot offline = do
   cacheFile <- snapshotCacheFile snapshot
   hasCache <- doesFileExist cacheFile
   if hasCache
@@ -647,7 +639,7 @@ loadStackageSnapshot snapshot offline = do
         then pure (Left ("Snapshot missing from cache in offline mode: " ++ snapshot))
         else do
           let url = "https://www.stackage.org/" ++ snapshot ++ "/cabal.config"
-          fetched <- httpGetString url
+          fetched <- httpGetString manager url
           case fetched of
             Left err -> pure (Left err)
             Right body ->
@@ -741,8 +733,8 @@ trim = dropWhileEnd isSpace . dropWhile isSpace
     dropWhileEnd p = reverse . dropWhile p . reverse
 
 -- | Download a package from Hackage.
-downloadPackage :: Bool -> PackageSpec -> IO FilePath
-downloadPackage offline pkg = do
+downloadPackage :: Manager -> Bool -> PackageSpec -> IO FilePath
+downloadPackage manager offline pkg = do
   cacheDir <- getCacheDir
   let pkgDir = cacheDir </> formatPackage pkg
       markerFile = pkgDir </> ".complete"
@@ -761,7 +753,7 @@ downloadPackage offline pkg = do
                   ++ formatPackage pkg
                   ++ ".tar.gz"
           -- Download tarball
-          tarballBytes <- httpGetLBS url
+          tarballBytes <- httpGetLBS manager url
           case tarballBytes of
             Left err -> ioError (userError ("Failed to download " ++ formatPackage pkg ++ ": " ++ err))
             Right lbs -> do
@@ -833,15 +825,15 @@ partitionResults = go [] []
 --------------------------------------------------------------------------------
 
 -- | Perform an HTTP GET request and return the response body as a String.
-httpGetString :: String -> IO (Either String String)
-httpGetString url = do
-  result <- httpGetLBS url
-  pure $ fmap (map (toEnum . fromEnum) . LBS.unpack) result
+-- Uses lenient UTF-8 decoding to handle malformed sequences.
+httpGetString :: Manager -> String -> IO (Either String String)
+httpGetString manager url = do
+  result <- httpGetLBS manager url
+  pure $ fmap (TL.unpack . TLE.decodeUtf8With lenientDecode) result
 
 -- | Perform an HTTP GET request and return the response body as lazy ByteString.
-httpGetLBS :: String -> IO (Either String LBS.ByteString)
-httpGetLBS url = do
-  manager <- newManager tlsManagerSettings
+httpGetLBS :: Manager -> String -> IO (Either String LBS.ByteString)
+httpGetLBS manager url = do
   result <- try $ do
     request <- parseRequest url
     response <- httpLbs request manager

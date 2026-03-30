@@ -1,3 +1,5 @@
+{-# LANGUAGE LambdaCase #-}
+
 -- | Command-line interface for aihc-parser-bench.
 module Aihc.Parser.Bench.CLI
   ( Options (..),
@@ -45,7 +47,7 @@ data GenerateOptions = GenerateOptions
     genVerbose :: !Bool,
     genDryRun :: !Bool
   }
-  deriving (Show)
+  deriving (Eq, Show)
 
 -- | Options for the bench subcommand.
 data BenchOptions = BenchOptions
@@ -58,7 +60,7 @@ data BenchOptions = BenchOptions
     benchMemory :: !Bool,
     benchGcStats :: !Bool
   }
-  deriving (Show)
+  deriving (Eq, Show)
 
 -- | Top-level command.
 data Command
@@ -172,6 +174,13 @@ benchOptionsParser =
       ( long "parser"
           <> short 'p'
           <> metavar "PARSER"
+          <> value ParserAihc
+          <> showDefaultWith
+            ( \case
+                ParserAihc -> "aihc"
+                ParserHse -> "hse"
+                ParserGhc -> "ghc"
+            )
           <> help "Parser to use: aihc, hse, ghc"
       )
     <*> switch

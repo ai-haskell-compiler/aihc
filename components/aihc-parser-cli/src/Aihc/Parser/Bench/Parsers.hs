@@ -26,7 +26,7 @@ import Aihc.Cpp qualified as Cpp
 import Aihc.Parser qualified as Aihc
 import Aihc.Parser.Lex qualified as AihcLex
 import Aihc.Parser.Syntax qualified as Syntax
-import Control.DeepSeq (deepseq)
+import Control.DeepSeq (NFData (..), deepseq)
 import Data.List qualified as List
 import Data.Maybe (mapMaybe)
 import Data.Text (Text)
@@ -35,6 +35,7 @@ import GHC.Data.EnumSet qualified as EnumSet
 import GHC.Data.FastString (mkFastString)
 import GHC.Data.StringBuffer (stringToStringBuffer)
 import GHC.Driver.Session qualified as DynFlags
+import GHC.Generics (Generic)
 import GHC.LanguageExtensions.Type qualified as GHC
 import GHC.Parser (parseModule)
 import GHC.Parser.Lexer
@@ -55,7 +56,11 @@ import Text.Read (readMaybe)
 data ParseResult
   = ParseSuccess
   | ParseFailure !String
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
+
+instance NFData ParseResult where
+  rnf ParseSuccess = ()
+  rnf (ParseFailure s) = rnf s
 
 --------------------------------------------------------------------------------
 -- Parsing with explicit extensions from cabal files
@@ -388,10 +393,9 @@ toGhcExtension ext =
     _ ->
       lookupAny [toGhcExtensionName ext]
   where
-    ghcExtensions = [(show ghcExt, ghcExt) | ghcExt <- [minBound .. maxBound]]
     lookupAny [] = Nothing
     lookupAny (name : names) =
-      case lookup name ghcExtensions of
+      case lookup name ghcExtensionsByName of
         Just ghcExt -> Just ghcExt
         Nothing -> lookupAny names
 
@@ -403,6 +407,11 @@ toGhcExtension ext =
     toGhcExtensionName Syntax.Rank2Types = "RankNTypes"
     toGhcExtensionName Syntax.PolymorphicComponents = "RankNTypes"
     toGhcExtensionName other = T.unpack (Syntax.extensionName other)
+
+-- | Lookup table mapping extension names to GHC extensions.
+-- Lifted to top-level to avoid recomputing on every call.
+ghcExtensionsByName :: [(String, GHC.Extension)]
+ghcExtensionsByName = [(show ghcExt, ghcExt) | ghcExt <- [minBound .. maxBound]]
 
 -- | Get GHC extensions for a language.
 languageToGhcExtensions :: Maybe String -> [GHC.Extension]
