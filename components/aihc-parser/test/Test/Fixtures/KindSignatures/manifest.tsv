@@ -1,6 +1,0 @@
-kindsig-data-param	declarations	kindsig-data-param.hs	pass
-kindsig-higher-kinded	declarations	kindsig-higher-kinded.hs	pass
-kindsig-newtype	declarations	kindsig-newtype.hs	pass
-kindsig-class-head	declarations	kindsig-class-head.hs	pass
-kindsig-constraint	declarations	kindsig-constraint.hs	xfail	parser support pending
-kindsig-class-head-star	declarations	kindsig-class-head-star.hs	pass

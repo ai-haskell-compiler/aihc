@@ -1,5 +1,0 @@
-named-puns-construct	expressions	named-puns-construct.hs	pass	parser now supports NamedFieldPuns in record construction expressions
-named-puns-pattern	expressions	named-puns-pattern.hs	pass	parser now supports NamedFieldPuns in record patterns
-named-puns-case	expressions	named-puns-case.hs	pass	parser now supports NamedFieldPuns in case pattern matching
-named-puns-let	expressions	named-puns-let.hs	pass	parser now supports NamedFieldPuns in let bindings
-named-puns-mixed	expressions	named-puns-mixed.hs	pass	parser now supports mixed NamedFieldPuns and explicit field bindings

@@ -8,41 +8,27 @@ where
 import Aihc.Cpp (resultOutput)
 import Control.Monad (when)
 import CppSupport (preprocessForParserWithoutIncludes)
-import Data.Char (isSpace)
-import Data.List (dropWhileEnd)
+import Data.List (isPrefixOf)
 import Data.Maybe (isNothing)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
+import ExtensionSupport
+  ( CaseMeta (..),
+    Expected (..),
+    Outcome (..),
+    caseSourcePath,
+    loadOracleCases,
+  )
 import GhcOracle (oracleDetailedParsesModuleWithNamesAt)
 import ParserValidation (validateParser)
-import System.Directory (doesFileExist)
-import System.FilePath ((</>))
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertFailure, testCase)
 
-data Expected = ExpectPass | ExpectXFail deriving (Eq, Show)
-
-data Outcome = OutcomePass | OutcomeXFail | OutcomeXPass | OutcomeFail deriving (Eq, Show)
-
-data CaseMeta = CaseMeta
-  { caseId :: !String,
-    caseCategory :: !String,
-    casePath :: !FilePath,
-    caseExpected :: !Expected,
-    caseReason :: !String
-  }
-  deriving (Eq, Show)
-
-fixtureRoot :: FilePath
-fixtureRoot = "test/Test/Fixtures/haskell2010"
-
-manifestPath :: FilePath
-manifestPath = fixtureRoot </> "manifest.tsv"
-
 h2010Tests :: IO TestTree
 h2010Tests = do
-  cases <- loadManifest
+  allCases <- loadOracleCases
+  let cases = filter isH2010Case allCases
   checks <- mapM mkCaseTest cases
   framework <- frameworkTests
   summary <- mkSummaryTest cases
@@ -50,7 +36,7 @@ h2010Tests = do
 
 mkCaseTest :: CaseMeta -> IO TestTree
 mkCaseTest meta = do
-  source <- TIO.readFile (fixtureRoot </> casePath meta)
+  source <- TIO.readFile (caseSourcePath meta)
   pure $ testCase (caseId meta) (assertCase meta source)
 
 mkSummaryTest :: [CaseMeta] -> IO TestTree
@@ -120,7 +106,7 @@ assertCase meta source = do
 
 evaluateCase :: CaseMeta -> IO Outcome
 evaluateCase meta = do
-  source <- TIO.readFile (fixtureRoot </> casePath meta)
+  source <- TIO.readFile (caseSourcePath meta)
   fst <$> evaluateCaseText meta source
 
 evaluateCaseText :: CaseMeta -> Text -> IO (Outcome, String)
@@ -162,7 +148,8 @@ frameworkTests =
                     caseCategory = "framework",
                     casePath = "framework-invalid-xfail.hs",
                     caseExpected = ExpectXFail,
-                    caseReason = "regression coverage"
+                    caseReason = "regression coverage",
+                    caseExtensions = []
                   }
            in do
                 (outcome, _) <- evaluateCaseText meta "module M where\nx = { y = 1, }\n"
@@ -176,7 +163,8 @@ frameworkTests =
                     caseCategory = "framework",
                     casePath = "framework-block-argument-lambda.hs",
                     caseExpected = ExpectPass,
-                    caseReason = ""
+                    caseReason = "",
+                    caseExtensions = []
                   }
            in do
                 (outcome, _) <- evaluateCaseText meta "module M where\nf \\x -> x\n"
@@ -190,7 +178,8 @@ frameworkTests =
                     caseCategory = "framework",
                     casePath = "framework-invalid-pass.hs",
                     caseExpected = ExpectPass,
-                    caseReason = ""
+                    caseReason = "",
+                    caseExtensions = []
                   }
            in do
                 (outcome, _) <- evaluateCaseText meta "module M where\nx = { y = 1, }\n"
@@ -199,50 +188,5 @@ frameworkTests =
                   else assertFailure ("expected OutcomeFail when oracle rejects fixture, got " <> show outcome)
       ]
 
-loadManifest :: IO [CaseMeta]
-loadManifest = do
-  raw <- TIO.readFile manifestPath
-  let rows = filter (not . T.null) (map stripComment (T.lines raw))
-  mapM parseRow rows
-
-stripComment :: Text -> Text
-stripComment line =
-  let core = fst (T.breakOn "#" line)
-   in T.strip core
-
-parseRow :: Text -> IO CaseMeta
-parseRow row =
-  case T.splitOn "\t" row of
-    [cid, cat, pathTxt, expectedTxt] ->
-      parseRowWithReason cid cat pathTxt expectedTxt ""
-    [cid, cat, pathTxt, expectedTxt, reasonTxt] ->
-      parseRowWithReason cid cat pathTxt expectedTxt reasonTxt
-    _ -> fail ("Invalid manifest row (expected 4 or 5 tab-separated columns): " <> T.unpack row)
-
-parseRowWithReason :: Text -> Text -> Text -> Text -> Text -> IO CaseMeta
-parseRowWithReason cid cat pathTxt expectedTxt reasonTxt = do
-  let path = T.unpack pathTxt
-  exists <- doesFileExist (fixtureRoot </> path)
-  if not exists
-    then fail ("Manifest references missing case file: " <> path)
-    else do
-      expected <-
-        case expectedTxt of
-          "pass" -> pure ExpectPass
-          "xfail" -> pure ExpectXFail
-          _ -> fail ("Unknown expected value in manifest: " <> T.unpack expectedTxt)
-      let reason = trim (T.unpack reasonTxt)
-      case expected of
-        ExpectXFail | null reason -> fail ("xfail case requires a reason: " <> T.unpack cid)
-        _ -> pure ()
-      pure
-        CaseMeta
-          { caseId = T.unpack cid,
-            caseCategory = T.unpack cat,
-            casePath = path,
-            caseExpected = expected,
-            caseReason = reason
-          }
-
-trim :: String -> String
-trim = dropWhile isSpace . dropWhileEnd isSpace
+isH2010Case :: CaseMeta -> Bool
+isH2010Case meta = "haskell2010/" `isPrefixOf` casePath meta

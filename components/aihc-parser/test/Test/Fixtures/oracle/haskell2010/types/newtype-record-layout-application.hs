@@ -1,0 +1,9 @@
+{- ORACLE_TEST pass -}
+module TNewtypeRecordLayoutApplication where
+
+import Data.IORef (IORef)
+import Data.Time.Clock (UTCTime)
+
+newtype TimeSince = TimeSince
+  { sinceRef :: IORef UTCTime
+  }

@@ -1,3 +1,0 @@
-import-qualified-post-basic	modules	import-qualified-post-basic.hs	pass
-import-qualified-post-as	modules	import-qualified-post-as.hs	pass
-import-qualified-post-hiding	modules	import-qualified-post-hiding.hs	pass

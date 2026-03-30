@@ -1,4 +1,0 @@
-explicit-level-basic-modifiers	modules	explicit-level-basic-modifiers.hs	pass	parser now supports explicit-level import modifiers
-explicit-level-with-import-list	modules	explicit-level-with-import-list.hs	pass	parser now supports explicit-level imports with import lists
-explicit-level-with-as	modules	explicit-level-with-as.hs	pass	parser now supports explicit-level imports with aliases
-explicit-level-with-hiding	modules	explicit-level-with-hiding.hs	pass	parser now supports explicit-level imports with hiding clauses

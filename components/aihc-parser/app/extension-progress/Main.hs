@@ -2,28 +2,31 @@
 
 module Main (main) where
 
+import Aihc.Cpp (resultOutput)
 import Aihc.Parser (ParseResult (..))
 import qualified Aihc.Parser
 import Aihc.Parser.Syntax (Module)
+import CppSupport (preprocessForParserWithoutIncludesIfEnabled)
+import Data.List (sortOn)
+import qualified Data.Map.Strict as M
 import Data.Text (Text)
 import qualified Data.Text.IO.Utf8 as Utf8
 import ExtensionSupport
-import GHC.LanguageExtensions.Type (Extension)
+import qualified GHC.LanguageExtensions.Type as GHC
 import GhcOracle
-  ( oracleModuleAstFingerprintWithExtensionsAt,
+  ( extensionNamesToGhcExtensions,
+    oracleModuleAstFingerprintWithExtensionsAt,
     oracleParsesModuleWithExtensionsAt,
   )
-import OracleExtensions (resolveOracleExtensions)
 import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.Text (renderStrict)
 import System.Environment (getArgs)
 import System.Exit (exitFailure, exitSuccess)
-import System.FilePath ((</>))
 
-data SupportStatus = Supported | InProgress | Planned deriving (Eq, Show)
+data SupportStatus = Supported | InProgress deriving (Eq, Show)
 
 data ExtensionResult = ExtensionResult
-  { erSpec :: !ExtensionSpec,
+  { erName :: !String,
     erStatus :: !SupportStatus,
     erPassN :: !Int,
     erXFailN :: !Int,
@@ -38,8 +41,12 @@ main = do
   args <- getArgs
   let strict = "--strict" `elem` args
       markdown = "--markdown" `elem` args
-  specs <- loadRegistry
-  results <- mapM evaluateExtension specs
+
+  cases <- loadOracleCases
+  caseOutcomes <- fmap concat (mapM evaluateCaseMaybe cases)
+
+  let grouped = groupByExtension caseOutcomes
+      results = map mkExtensionResult (sortOn fst (M.toList grouped))
 
   if markdown
     then putStrLn (renderMarkdown results)
@@ -47,33 +54,103 @@ main = do
 
   let failN = sum [erFailN result | result <- results]
       xpassN = sum [erXPassN result | result <- results]
-
   if failN == 0 && (not strict || xpassN == 0)
     then exitSuccess
     else exitFailure
+
+evaluateCaseMaybe :: CaseMeta -> IO [(CaseMeta, Outcome, String)]
+evaluateCaseMaybe meta =
+  if null (caseExtensions meta)
+    then pure []
+    else do
+      outcome <- evaluateCase meta
+      pure [outcome]
+
+evaluateCase :: CaseMeta -> IO (CaseMeta, Outcome, String)
+evaluateCase meta = do
+  source <- Utf8.readFile (caseSourcePath meta)
+  let exts = extensionNamesToGhcExtensions (caseExtensions meta) Nothing
+      source' =
+        resultOutput
+          ( preprocessForParserWithoutIncludesIfEnabled
+              (caseExtensions meta)
+              []
+              (casePath meta)
+              source
+          )
+      parsed = Aihc.Parser.parseModule Aihc.Parser.defaultConfig source'
+      oracleOk = oracleParsesModuleWithExtensionsAt "extension-progress" exts source'
+      roundtripOk = moduleRoundtripsViaGhc exts source' parsed
+  pure (finalizeOutcome meta oracleOk roundtripOk)
+
+moduleRoundtripsViaGhc :: [GHC.Extension] -> Text -> ParseResult Module -> Bool
+moduleRoundtripsViaGhc exts source oursResult =
+  case oursResult of
+    ParseErr _ -> False
+    ParseOk parsed ->
+      let rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty parsed))
+       in case ( oracleModuleAstFingerprintWithExtensionsAt "extension-progress" exts source,
+                 oracleModuleAstFingerprintWithExtensionsAt "extension-progress" exts rendered
+               ) of
+            (Right sourceAst, Right renderedAst) -> sourceAst == renderedAst
+            _ -> False
+
+groupByExtension ::
+  [(CaseMeta, Outcome, String)] ->
+  M.Map String [(CaseMeta, Outcome, String)]
+groupByExtension =
+  foldl' insertCase M.empty
+  where
+    insertCase acc caseOutcome@(meta, _, _) =
+      foldl'
+        (\m ext -> M.insertWith (<>) ext [caseOutcome] m)
+        acc
+        (caseExtensions meta)
+
+mkExtensionResult :: (String, [(CaseMeta, Outcome, String)]) -> ExtensionResult
+mkExtensionResult (name, outcomes) =
+  let passN = countOutcome OutcomePass outcomes
+      xfailN = countOutcome OutcomeXFail outcomes
+      xpassN = countOutcome OutcomeXPass outcomes
+      failN = countOutcome OutcomeFail outcomes
+      totalN = passN + xfailN + xpassN + failN
+      status
+        | failN == 0 && xfailN == 0 && xpassN == 0 = Supported
+        | otherwise = InProgress
+   in ExtensionResult
+        { erName = name,
+          erStatus = status,
+          erPassN = passN,
+          erXFailN = xfailN,
+          erXPassN = xpassN,
+          erFailN = failN,
+          erTotalN = totalN,
+          erOutcomes = outcomes
+        }
+
+countOutcome :: Outcome -> [(CaseMeta, Outcome, String)] -> Int
+countOutcome target = length . filter (\(_, outcome, _) -> outcome == target)
 
 printTextSummary :: [ExtensionResult] -> IO ()
 printTextSummary results = do
   let supportedN = length [() | result <- results, erStatus result == Supported]
       inProgressN = length [() | result <- results, erStatus result == InProgress]
-      plannedN = length [() | result <- results, erStatus result == Planned]
       totalN = length results
   putStrLn "Haskell parser extension support progress"
   putStrLn "================================="
   putStrLn ("SUPPORTED    " <> show supportedN)
   putStrLn ("IN_PROGRESS  " <> show inProgressN)
-  putStrLn ("PLANNED      " <> show plannedN)
   putStrLn ("TOTAL        " <> show totalN)
   putStrLn ""
   mapM_ printExtensionLine results
 
   let regressions =
-        [ (erSpec result, meta, details)
+        [ (erName result, meta, details)
         | result <- results,
           (meta, OutcomeFail, details) <- erOutcomes result
         ]
       xpasses =
-        [ (erSpec result, meta, details)
+        [ (erName result, meta, details)
         | result <- results,
           (meta, OutcomeXPass, details) <- erOutcomes result
         ]
@@ -84,7 +161,7 @@ printTextSummary results = do
 printExtensionLine :: ExtensionResult -> IO ()
 printExtensionLine result =
   putStrLn
-    ( extName (erSpec result)
+    ( erName result
         <> "\t"
         <> statusText (erStatus result)
         <> "\tPASS="
@@ -97,11 +174,11 @@ printExtensionLine result =
         <> show (erFailN result)
     )
 
-printRegression :: (ExtensionSpec, CaseMeta, String) -> IO ()
-printRegression (spec, meta, details) =
+printRegression :: (String, CaseMeta, String) -> IO ()
+printRegression (ext, meta, details) =
   putStrLn
     ( "FAIL "
-        <> extName spec
+        <> ext
         <> "/"
         <> caseId meta
         <> " ["
@@ -110,11 +187,11 @@ printRegression (spec, meta, details) =
         <> details
     )
 
-printXPass :: (ExtensionSpec, CaseMeta, String) -> IO ()
-printXPass (spec, meta, details) =
+printXPass :: (String, CaseMeta, String) -> IO ()
+printXPass (ext, meta, details) =
   putStrLn
     ( "XPASS "
-        <> extName spec
+        <> ext
         <> "/"
         <> caseId meta
         <> " ["
@@ -133,111 +210,33 @@ renderMarkdown results =
         "- Total Extensions: " <> show totalN,
         "- Supported: " <> show supportedN,
         "- In Progress: " <> show inProgressN,
-        "- Planned: " <> show plannedN,
         "",
         "## Extension Status",
         "",
-        "| Extension | Status | Tests Passing | Notes |",
-        "|-----------|--------|---------------|-------|"
+        "| Extension | Status | Tests Passing |",
+        "|-----------|--------|---------------|"
       ]
         <> map renderResultRow results
     )
   where
     supportedN = length [() | result <- results, erStatus result == Supported]
     inProgressN = length [() | result <- results, erStatus result == InProgress]
-    plannedN = length [() | result <- results, erStatus result == Planned]
     totalN = length results
 
 renderResultRow :: ExtensionResult -> String
 renderResultRow result =
   "| "
-    <> extName spec
+    <> erName result
     <> " | "
     <> statusText (erStatus result)
     <> " | "
-    <> testsPassingText
-    <> " | "
-    <> sanitizeCell (extNotes spec)
+    <> show (erPassN result)
+    <> "/"
+    <> show (erTotalN result)
     <> " |"
-  where
-    spec = erSpec result
-    testsPassingText =
-      case erStatus result of
-        Planned -> "-"
-        _ -> show (erPassN result) <> "/" <> show (erTotalN result)
-
-sanitizeCell :: String -> String
-sanitizeCell = concatMap escapePipe
-  where
-    escapePipe '|' = "\\|"
-    escapePipe c = [c]
 
 statusText :: SupportStatus -> String
 statusText status =
   case status of
     Supported -> "Supported"
     InProgress -> "In Progress"
-    Planned -> "Planned"
-
-evaluateExtension :: ExtensionSpec -> IO ExtensionResult
-evaluateExtension spec = do
-  exists <- hasManifest spec
-  if not exists
-    then
-      pure
-        ExtensionResult
-          { erSpec = spec,
-            erStatus = Planned,
-            erPassN = 0,
-            erXFailN = 0,
-            erXPassN = 0,
-            erFailN = 0,
-            erTotalN = 0,
-            erOutcomes = []
-          }
-    else do
-      exts <- resolveOracleExtensions spec
-      cases <- loadManifest spec
-      outcomes <- mapM (evaluateCase spec exts) cases
-      let passN = countOutcome OutcomePass outcomes
-          xfailN = countOutcome OutcomeXFail outcomes
-          xpassN = countOutcome OutcomeXPass outcomes
-          failN = countOutcome OutcomeFail outcomes
-          totalN = passN + xfailN + xpassN + failN
-          status
-            | totalN > 0 && failN == 0 && xfailN == 0 && xpassN == 0 = Supported
-            | otherwise = InProgress
-      pure
-        ExtensionResult
-          { erSpec = spec,
-            erStatus = status,
-            erPassN = passN,
-            erXFailN = xfailN,
-            erXPassN = xpassN,
-            erFailN = failN,
-            erTotalN = totalN,
-            erOutcomes = outcomes
-          }
-
-countOutcome :: Outcome -> [(CaseMeta, Outcome, String)] -> Int
-countOutcome target = length . filter (\(_, outcome, _) -> outcome == target)
-
-evaluateCase :: ExtensionSpec -> [Extension] -> CaseMeta -> IO (CaseMeta, Outcome, String)
-evaluateCase spec exts meta = do
-  source <- Utf8.readFile (fixtureDirFor spec </> casePath meta)
-  let parsed = Aihc.Parser.parseModule Aihc.Parser.defaultConfig source
-      oracleOk = oracleParsesModuleWithExtensionsAt "extension-progress" exts source
-      roundtripOk = moduleRoundtripsViaGhc exts source parsed
-  pure (finalizeOutcome meta oracleOk roundtripOk)
-
-moduleRoundtripsViaGhc :: [Extension] -> Text -> ParseResult Module -> Bool
-moduleRoundtripsViaGhc exts source oursResult =
-  case oursResult of
-    ParseErr _ -> False
-    ParseOk parsed ->
-      let rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty parsed))
-       in case ( oracleModuleAstFingerprintWithExtensionsAt "extension-progress" exts source,
-                 oracleModuleAstFingerprintWithExtensionsAt "extension-progress" exts rendered
-               ) of
-            (Right sourceAst, Right renderedAst) -> sourceAst == renderedAst
-            _ -> False

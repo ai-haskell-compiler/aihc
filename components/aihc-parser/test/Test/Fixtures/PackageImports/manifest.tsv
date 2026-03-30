@@ -1,3 +1,0 @@
-package-imports-basic	modules	package-imports-basic.hs	pass
-package-imports-qualified	modules	package-imports-qualified.hs	pass
-package-imports-qualified-post	modules	package-imports-qualified-post.hs	pass

@@ -1,6 +1,0 @@
-th_splice_e	expressions	th_splice_e.hs	xfail	TemplateHaskell $e syntax
-th_splice_p	patterns	th_splice_p.hs	xfail	TemplateHaskell $p syntax
-th_splice_t	types	th_splice_t.hs	xfail	TemplateHaskell $t syntax
-th_splice_decl	declarations	th_splice_decl.hs	xfail	TemplateHaskell top-level splice
-th_typed_splice	expressions	th_typed_splice.hs	xfail	TemplateHaskell $$e syntax
-th_nested_splice	expressions	th_nested_splice.hs	xfail	TemplateHaskell nested splices

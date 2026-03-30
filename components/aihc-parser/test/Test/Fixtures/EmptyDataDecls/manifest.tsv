@@ -1,5 +1,0 @@
-empty-data-basic	declarations	empty-data-basic.hs	pass
-empty-data-param	declarations	empty-data-param.hs	pass
-empty-data-multi	declarations	empty-data-multi.hs	pass
-empty-data-with-kind	declarations	empty-data-with-kind.hs	pass
-empty-data-export	modules	empty-data-export.hs	pass

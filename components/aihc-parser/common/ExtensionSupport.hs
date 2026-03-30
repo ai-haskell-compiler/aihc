@@ -3,125 +3,52 @@
 module ExtensionSupport
   ( Expected (..),
     Outcome (..),
-    ExtensionSpec (..),
     CaseMeta (..),
-    fixtureDirFor,
-    manifestPathFor,
-    hasManifest,
-    loadRegistry,
-    loadManifest,
+    oracleFixtureRoot,
+    caseSourcePath,
+    loadOracleCases,
     classifyOutcome,
     finalizeOutcome,
   )
 where
 
+import qualified Aihc.Parser.Syntax as Syntax
+import CppSupport (moduleHeaderExtensionSettings)
 import Data.Char (isSpace)
-import Data.List (dropWhileEnd)
+import Data.List (dropWhileEnd, sort, sortOn)
 import Data.Text (Text)
 import qualified Data.Text as T
-import qualified Data.Text.IO as TIO
-import System.Directory (doesFileExist)
-import System.FilePath ((</>))
+import qualified Data.Text.IO.Utf8 as Utf8
+import System.Directory (doesDirectoryExist, listDirectory)
+import System.FilePath (dropExtension, makeRelative, takeDirectory, takeExtension, (</>))
 
 data Expected = ExpectPass | ExpectXFail deriving (Eq, Show)
 
 data Outcome = OutcomePass | OutcomeXFail | OutcomeXPass | OutcomeFail deriving (Eq, Show)
-
-data ExtensionSpec = ExtensionSpec
-  { extName :: !String,
-    extFixtureDir :: !FilePath,
-    extNotes :: !String
-  }
-  deriving (Eq, Show)
 
 data CaseMeta = CaseMeta
   { caseId :: !String,
     caseCategory :: !String,
     casePath :: !FilePath,
     caseExpected :: !Expected,
-    caseReason :: !String
+    caseReason :: !String,
+    caseExtensions :: ![String]
   }
   deriving (Eq, Show)
 
-fixtureRoot :: FilePath
-fixtureRoot = "test/Test/Fixtures"
+oracleFixtureRoot :: FilePath
+oracleFixtureRoot = "test/Test/Fixtures/oracle"
 
-registryPath :: FilePath
-registryPath = fixtureRoot </> "extensions.tsv"
+caseSourcePath :: CaseMeta -> FilePath
+caseSourcePath meta = oracleFixtureRoot </> casePath meta
 
-fixtureDirFor :: ExtensionSpec -> FilePath
-fixtureDirFor spec = fixtureRoot </> extFixtureDir spec
-
-manifestPathFor :: ExtensionSpec -> FilePath
-manifestPathFor spec = fixtureDirFor spec </> "manifest.tsv"
-
-hasManifest :: ExtensionSpec -> IO Bool
-hasManifest = doesFileExist . manifestPathFor
-
-loadRegistry :: IO [ExtensionSpec]
-loadRegistry = do
-  raw <- TIO.readFile registryPath
-  let rows = filter (not . T.null) (map stripComment (T.lines raw))
-  mapM parseRegistryRow rows
-
-parseRegistryRow :: Text -> IO ExtensionSpec
-parseRegistryRow row =
-  case T.splitOn "\t" row of
-    [nameTxt, dirTxt] ->
-      pure
-        ExtensionSpec
-          { extName = T.unpack (T.strip nameTxt),
-            extFixtureDir = T.unpack (T.strip dirTxt),
-            extNotes = ""
-          }
-    [nameTxt, dirTxt, notesTxt] ->
-      pure
-        ExtensionSpec
-          { extName = T.unpack (T.strip nameTxt),
-            extFixtureDir = T.unpack (T.strip dirTxt),
-            extNotes = T.unpack (T.strip notesTxt)
-          }
-    _ -> fail ("Invalid extension registry row (expected 2 or 3 tab-separated columns): " <> T.unpack row)
-
-loadManifest :: ExtensionSpec -> IO [CaseMeta]
-loadManifest spec = do
-  raw <- TIO.readFile (manifestPathFor spec)
-  let rows = filter (not . T.null) (map stripComment (T.lines raw))
-  mapM (parseManifestRow spec) rows
-
-parseManifestRow :: ExtensionSpec -> Text -> IO CaseMeta
-parseManifestRow spec row =
-  case T.splitOn "\t" row of
-    [cid, cat, pathTxt, expectedTxt] ->
-      parseManifestRowWithReason spec cid cat pathTxt expectedTxt ""
-    [cid, cat, pathTxt, expectedTxt, reasonTxt] ->
-      parseManifestRowWithReason spec cid cat pathTxt expectedTxt reasonTxt
-    _ -> fail ("Invalid manifest row (expected 4 or 5 tab-separated columns): " <> T.unpack row)
-
-parseManifestRowWithReason :: ExtensionSpec -> Text -> Text -> Text -> Text -> Text -> IO CaseMeta
-parseManifestRowWithReason spec cid cat pathTxt expectedTxt reasonTxt = do
-  let path = T.unpack pathTxt
-  exists <- doesFileExist (fixtureDirFor spec </> path)
-  if not exists
-    then fail ("Manifest references missing case file: " <> path)
-    else do
-      expected <-
-        case expectedTxt of
-          "pass" -> pure ExpectPass
-          "xfail" -> pure ExpectXFail
-          _ -> fail ("Unknown expected value in manifest: " <> T.unpack expectedTxt)
-      let reason = trim (T.unpack reasonTxt)
-      case expected of
-        ExpectXFail | null reason -> fail ("xfail case requires a reason: " <> T.unpack cid)
-        _ -> pure ()
-      pure
-        CaseMeta
-          { caseId = T.unpack cid,
-            caseCategory = T.unpack cat,
-            casePath = path,
-            caseExpected = expected,
-            caseReason = reason
-          }
+loadOracleCases :: IO [CaseMeta]
+loadOracleCases = do
+  files <- listFixtureFiles oracleFixtureRoot
+  cases <- mapM (loadCaseMeta dir) files
+  pure (sortOn casePath cases)
+  where
+    dir = oracleFixtureRoot
 
 classifyOutcome :: Expected -> Bool -> Bool -> (Outcome, String)
 classifyOutcome expected oracleOk roundtripOk =
@@ -143,10 +70,83 @@ finalizeOutcome meta oracleOk roundtripOk =
   let (outcome, details) = classifyOutcome (caseExpected meta) oracleOk roundtripOk
    in (meta, outcome, details)
 
-stripComment :: Text -> Text
-stripComment line =
-  let core = fst (T.breakOn "#" line)
-   in T.strip core
-
 trim :: String -> String
 trim = dropWhile isSpace . dropWhileEnd isSpace
+
+listFixtureFiles :: FilePath -> IO [FilePath]
+listFixtureFiles = go
+  where
+    go dir = do
+      entries <- sort <$> listDirectory dir
+      concat
+        <$> mapM
+          ( \entry -> do
+              let path = dir </> entry
+              isDir <- doesDirectoryExist path
+              if isDir
+                then go path
+                else
+                  if takeExtension path == ".hs"
+                    then pure [path]
+                    else pure []
+          )
+          entries
+
+loadCaseMeta :: FilePath -> FilePath -> IO CaseMeta
+loadCaseMeta root path = do
+  source <- Utf8.readFile path
+  (expected, reason) <- parseOracleTestBlock path source
+  let relPath = makeRelative root path
+      cid = dropExtension relPath
+      categoryRaw = takeDirectory relPath
+      category = if categoryRaw == "." then "fixture" else categoryRaw
+  pure
+    CaseMeta
+      { caseId = cid,
+        caseCategory = category,
+        casePath = relPath,
+        caseExpected = expected,
+        caseReason = reason,
+        caseExtensions = enabledExtensionNames source
+      }
+
+parseOracleTestBlock :: FilePath -> Text -> IO (Expected, String)
+parseOracleTestBlock path source =
+  case extractOracleBlock source of
+    Nothing ->
+      fail ("Fixture is missing an ORACLE_TEST block: " <> path)
+    Just block ->
+      case T.words block of
+        ["pass"] -> pure (ExpectPass, "")
+        ("xfail" : rest) ->
+          let reason = trim (T.unpack (T.unwords rest))
+           in if null reason
+                then fail ("ORACLE_TEST xfail case requires a reason in " <> path)
+                else pure (ExpectXFail, reason)
+        _ ->
+          fail
+            ( "Invalid ORACLE_TEST block in "
+                <> path
+                <> " (expected `pass` or `xfail <reason>`): "
+                <> T.unpack block
+            )
+
+extractOracleBlock :: Text -> Maybe Text
+extractOracleBlock source = do
+  remainder <- T.stripPrefix "{- ORACLE_TEST" (T.stripStart source)
+  let (block, suffix) = T.breakOn "-}" remainder
+  if T.null suffix
+    then Nothing
+    else Just (T.strip block)
+
+enabledExtensionNames :: Text -> [String]
+enabledExtensionNames =
+  reverse
+    . map (T.unpack . Syntax.extensionName)
+    . foldl apply []
+    . moduleHeaderExtensionSettings
+  where
+    apply acc setting =
+      case setting of
+        Syntax.EnableExtension ext -> ext : filter (/= ext) acc
+        Syntax.DisableExtension ext -> filter (/= ext) acc

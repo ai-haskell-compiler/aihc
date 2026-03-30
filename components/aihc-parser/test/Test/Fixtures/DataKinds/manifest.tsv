@@ -1,5 +1,0 @@
-datakinds-numeric-type-literal	types	datakinds-numeric-type-literal.hs	pass
-promoted-list	types	promoted-list.hs	pass
-promoted-tuple	types	promoted-tuple.hs	pass
-promoted-ctor	types	promoted-ctor.hs	pass
-promoted-builtin	types	promoted-builtin.hs	pass

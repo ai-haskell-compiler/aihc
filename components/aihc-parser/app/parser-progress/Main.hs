@@ -6,38 +6,31 @@ import Aihc.Cpp (resultOutput)
 import Aihc.Parser (ParseResult (..))
 import qualified Aihc.Parser
 import Aihc.Parser.Syntax (Module)
-import Control.Monad (filterM)
 import CppSupport (preprocessForParserWithoutIncludes)
+import Data.List (isPrefixOf)
 import Data.Text (Text)
 import qualified Data.Text.IO.Utf8 as Utf8
 import ExtensionSupport
-import GHC.LanguageExtensions.Type (Extension)
+import qualified GHC.LanguageExtensions.Type as GHC
 import GhcOracle
-  ( oracleModuleAstFingerprintWithExtensionsAt,
+  ( extensionNamesToGhcExtensions,
+    oracleModuleAstFingerprintWithExtensionsAt,
     oracleParsesModuleWithExtensionsAt,
   )
-import OracleExtensions (resolveOracleExtensions)
 import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.Text (renderStrict)
 import System.Environment (getArgs)
 import System.Exit (exitFailure, exitSuccess)
-import System.FilePath ((</>))
-
-data SuiteResult = SuiteResult
-  { srSpec :: !ExtensionSpec,
-    srOutcomes :: ![(CaseMeta, Outcome, String)]
-  }
 
 main :: IO ()
 main = do
   args <- getArgs
   let strict = "--strict" `elem` args
 
-  specs <- loadProgressSpecs
-  results <- mapM evaluateSuite specs
+  cases <- loadOracleCases
+  outcomes <- mapM evaluateCase cases
 
-  let outcomes = concatMap srOutcomes results
-      passN = countOutcome OutcomePass outcomes
+  let passN = countOutcome OutcomePass outcomes
       xfailN = countOutcome OutcomeXFail outcomes
       xpassN = countOutcome OutcomeXPass outcomes
       failN = countOutcome OutcomeFail outcomes
@@ -53,16 +46,8 @@ main = do
   putStrLn ("TOTAL     " <> show totalN)
   putStrLn ("COMPLETE  " <> show completion <> "%")
 
-  let regressions =
-        [ (srSpec result, meta, details)
-        | result <- results,
-          (meta, OutcomeFail, details) <- srOutcomes result
-        ]
-      xpasses =
-        [ (srSpec result, meta, details)
-        | result <- results,
-          (meta, OutcomeXPass, details) <- srOutcomes result
-        ]
+  let regressions = [(meta, details) | (meta, OutcomeFail, details) <- outcomes]
+      xpasses = [(meta, details) | (meta, OutcomeXPass, details) <- outcomes]
 
   mapM_ printRegression regressions
   mapM_ printXPass xpasses
@@ -71,49 +56,20 @@ main = do
     then exitSuccess
     else exitFailure
 
-loadProgressSpecs :: IO [ExtensionSpec]
-loadProgressSpecs = do
-  allExtensionSpecs <- loadRegistry
-  extensionSpecs <- filterM hasManifest allExtensionSpecs
-  pure (h2010Spec : extensionSpecs)
-
-h2010Spec :: ExtensionSpec
-h2010Spec =
-  ExtensionSpec
-    { extName = "Haskell2010",
-      extFixtureDir = "haskell2010",
-      extNotes = ""
-    }
-
-evaluateSuite :: ExtensionSpec -> IO SuiteResult
-evaluateSuite spec = do
-  exts <- oracleExtensionsFor spec
-  cases <- loadManifest spec
-  outcomes <- mapM (evaluateCase spec exts) cases
-  pure
-    SuiteResult
-      { srSpec = spec,
-        srOutcomes = outcomes
-      }
-
-oracleExtensionsFor :: ExtensionSpec -> IO [Extension]
-oracleExtensionsFor spec
-  | extFixtureDir spec == "haskell2010" = pure []
-  | otherwise = resolveOracleExtensions spec
-
-evaluateCase :: ExtensionSpec -> [Extension] -> CaseMeta -> IO (CaseMeta, Outcome, String)
-evaluateCase spec exts meta = do
-  source <- Utf8.readFile (fixtureDirFor spec </> casePath meta)
-  let source' = resultOutput (preprocessForParserWithoutIncludes (casePath meta) source)
+evaluateCase :: CaseMeta -> IO (CaseMeta, Outcome, String)
+evaluateCase meta = do
+  source <- Utf8.readFile (caseSourcePath meta)
+  let exts = extensionNamesToGhcExtensions (caseExtensions meta) Nothing
+      source' = resultOutput (preprocessForParserWithoutIncludes (casePath meta) source)
       parsed = Aihc.Parser.parseModule Aihc.Parser.defaultConfig source'
       oracleOk = oracleParsesModuleWithExtensionsAt "parser-progress" exts source'
       roundtripOk = moduleRoundtripsViaGhc exts source' parsed
-      (outcome, details) = classifyForSuite spec (caseExpected meta) oracleOk roundtripOk
+      (outcome, details) = classifyForCase meta oracleOk roundtripOk
   pure (meta, outcome, details)
 
-classifyForSuite :: ExtensionSpec -> Expected -> Bool -> Bool -> (Outcome, String)
-classifyForSuite spec expected oracleOk roundtripOk
-  | extFixtureDir spec == "haskell2010" =
+classifyForCase :: CaseMeta -> Bool -> Bool -> (Outcome, String)
+classifyForCase meta oracleOk roundtripOk
+  | "haskell2010/" `isPrefixOf` casePath meta =
       case expected of
         ExpectPass
           | not oracleOk -> (OutcomeFail, "oracle rejected pass case")
@@ -123,8 +79,10 @@ classifyForSuite spec expected oracleOk roundtripOk
           | oracleOk && roundtripOk -> (OutcomeXPass, "case now passes oracle and roundtrip checks")
           | otherwise -> (OutcomeXFail, "")
   | otherwise = classifyOutcome expected oracleOk roundtripOk
+  where
+    expected = caseExpected meta
 
-moduleRoundtripsViaGhc :: [Extension] -> Text -> ParseResult Module -> Bool
+moduleRoundtripsViaGhc :: [GHC.Extension] -> Text -> ParseResult Module -> Bool
 moduleRoundtripsViaGhc exts source oursResult =
   case oursResult of
     ParseErr _ -> False
@@ -144,12 +102,10 @@ pct done totalN
   | totalN <= 0 = 0.0
   | otherwise = fromIntegral (done * 10000 `div` totalN) / 100.0
 
-printRegression :: (ExtensionSpec, CaseMeta, String) -> IO ()
-printRegression (spec, meta, details) =
+printRegression :: (CaseMeta, String) -> IO ()
+printRegression (meta, details) =
   putStrLn
     ( "FAIL "
-        <> extName spec
-        <> "/"
         <> caseId meta
         <> " ["
         <> caseCategory meta
@@ -157,12 +113,10 @@ printRegression (spec, meta, details) =
         <> details
     )
 
-printXPass :: (ExtensionSpec, CaseMeta, String) -> IO ()
-printXPass (spec, meta, details) =
+printXPass :: (CaseMeta, String) -> IO ()
+printXPass (meta, details) =
   putStrLn
     ( "XPASS "
-        <> extName spec
-        <> "/"
         <> caseId meta
         <> " ["
         <> caseCategory meta

@@ -1,6 +1,0 @@
-basic	expressions	basic.hs	xfail	basic multiline string
-indentation	expressions	indentation.hs	xfail	indentation stripping
-escape	expressions	escape.hs	xfail	escape sequences
-manual-linebreaks	expressions	manual-linebreaks.hs	xfail	manual linebreaks \&
-empty	expressions	empty.hs	xfail	empty multiline string
-single-line	expressions	single-line.hs	xfail	single line multiline string
