@@ -5,15 +5,15 @@ ghc: |
   test.hs:2:1: error: [GHC-58481]
       parse error (possibly incorrect indentation or mismatched brackets)
 aihc: |
-  test.hs:1:7:
-  1 | import
-    |       ^
+  test.hs:2:1:
+  2 | x = let
+    | ^
   unexpected end of input
   expecting module name
 
-  test.hs:2:8:
-  2 | x = let
-    |        ^
+  test.hs:1:1:
+  1 | import
+    | ^
   unexpected end of input
   expecting pattern
   context: while parsing equation right-hand side

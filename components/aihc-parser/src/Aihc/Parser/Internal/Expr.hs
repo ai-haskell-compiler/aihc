@@ -260,15 +260,13 @@ recordBracesParser =
 
 -- | Parse a single record field binding: either "field = expr" or just "field" (pun)
 recordFieldBindingParser :: TokParser (Text, Maybe Expr, SourceSpan)
-recordFieldBindingParser = do
-  startPos <- MP.getSourcePos
+recordFieldBindingParser = withSpan $ do
   fieldName <- tokenSatisfy "field name" $ \tok ->
     case lexTokenKind tok of
       TkVarId name -> Just name
       _ -> Nothing
   mAssign <- MP.optional (expectedTok TkReservedEquals *> exprParser)
-  endPos <- MP.getSourcePos
-  pure (fieldName, mAssign, sourceSpanFromPositions startPos endPos)
+  pure (fieldName,mAssign,)
 
 atomExprParser :: TokParser Expr
 atomExprParser =
@@ -823,19 +821,16 @@ recordPatternParser = withSpan $ do
   pure (\span' -> PRecord span' con fields)
 
 recordFieldPatternParser :: TokParser (Text, Pattern)
-recordFieldPatternParser = do
-  startPos <- MP.getSourcePos
+recordFieldPatternParser = withSpan $ do
   field <- identifierTextParser
   mEq <- MP.optional (expectedTok TkReservedEquals)
-  endPos <- MP.getSourcePos
   case mEq of
     Just () -> do
       pat <- patternParser
-      pure (field, pat)
+      pure $ const (field, pat)
     Nothing -> do
       -- NamedFieldPuns: just "field" means "field = field"
-      let span' = sourceSpanFromPositions startPos endPos
-      pure (field, PVar span' field)
+      pure $ \srcSpan -> (field, PVar srcSpan field)
 
 listPatternParser :: TokParser Pattern
 listPatternParser = withSpan $ do

@@ -6,7 +6,7 @@ aihc: |
   test.hs:1:8:
   1 | x = if then 1 else 2
     |        ^^^^
-  unexpected 'then'
+  unexpected TkKeywordThen
   expecting expression
   context: while parsing if condition
   context: while parsing equation right-hand side
