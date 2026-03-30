@@ -4,14 +4,30 @@
 -- Module      : Aihc.Cpp
 -- Description : Pure Haskell C preprocessor for Haskell source files
 -- License     : Unlicense
+--
+-- This module provides a C preprocessor implementation designed for
+-- preprocessing Haskell source files that use CPP extensions.
+--
+-- The main entry point is 'preprocess', which takes a 'Config' and
+-- source text, returning a 'Step' that either completes with a 'Result'
+-- or requests an include file to be resolved.
 module Aihc.Cpp
-  ( preprocess,
+  ( -- * Preprocessing
+    preprocess,
+
+    -- * Configuration
     Config (..),
     defaultConfig,
+
+    -- * Results
     Step (..),
     Result (..),
+
+    -- * Include Handling
     IncludeRequest (..),
     IncludeKind (..),
+
+    -- * Diagnostics
     Diagnostic (..),
     Severity (..),
   )
@@ -44,6 +60,112 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import System.FilePath (takeDirectory, (</>))
 
+-- $setup
+-- >>> :set -XOverloadedStrings
+-- >>> import qualified Data.Map.Strict as M
+-- >>> import qualified Data.Text as T
+-- >>> import qualified Data.Text.IO as T
+
+-- | Preprocess C preprocessor directives in the input text.
+--
+-- This function handles:
+--
+-- * Macro definitions (@#define@) and expansion
+-- * Conditional compilation (@#if@, @#ifdef@, @#ifndef@, @#elif@, @#else@, @#endif@)
+-- * File inclusion (@#include@)
+-- * Diagnostics (@#warning@, @#error@)
+-- * Line control (@#line@)
+-- * Predefined macros (@__FILE__@, @__LINE__@, @__DATE__@, @__TIME__@)
+--
+-- === Macro expansion
+--
+-- Object-like macros are expanded in the output:
+--
+-- >>> let Done r = preprocess defaultConfig "#define FOO 42\nThe answer is FOO"
+-- >>> T.putStr (resultOutput r)
+-- #line 1 "<input>"
+-- <BLANKLINE>
+-- The answer is 42
+--
+-- Function-like macros are also supported:
+--
+-- >>> let Done r = preprocess defaultConfig "#define MAX(a,b) ((a) > (b) ? (a) : (b))\nMAX(3, 5)"
+-- >>> T.putStr (resultOutput r)
+-- #line 1 "<input>"
+-- <BLANKLINE>
+-- ((3) > (5) ? (3) : (5))
+--
+-- === Conditional compilation
+--
+-- Conditional directives control which sections of code are included:
+--
+-- >>> :{
+-- let Done r = preprocess defaultConfig
+--       "#define DEBUG 1\n#if DEBUG\ndebug mode\n#else\nrelease mode\n#endif"
+-- in T.putStr (resultOutput r)
+-- :}
+-- #line 1 "<input>"
+-- <BLANKLINE>
+-- <BLANKLINE>
+-- debug mode
+-- <BLANKLINE>
+-- <BLANKLINE>
+-- <BLANKLINE>
+--
+-- === Include handling
+--
+-- When an @#include@ directive is encountered, 'preprocess' returns a
+-- 'NeedInclude' step. The caller must provide the contents of the included
+-- file:
+--
+-- >>> :{
+-- let NeedInclude req k = preprocess defaultConfig "#include \"header.h\"\nmain code"
+--     Done r = k (Just "-- header content")
+-- in T.putStr (resultOutput r)
+-- :}
+-- #line 1 "<input>"
+-- #line 1 "./header.h"
+-- -- header content
+-- #line 2 "<input>"
+-- main code
+--
+-- If the include file is not found, pass 'Nothing' to emit an error:
+--
+-- >>> :{
+-- let NeedInclude _ k = preprocess defaultConfig "#include \"missing.h\""
+--     Done r = k Nothing
+-- in do
+--   T.putStr (resultOutput r)
+--   mapM_ print (resultDiagnostics r)
+-- :}
+-- #line 1 "<input>"
+-- Diagnostic {diagSeverity = Error, diagMessage = "missing include: missing.h", diagFile = "<input>", diagLine = 1}
+--
+-- === Diagnostics
+--
+-- The @#warning@ directive emits a warning:
+--
+-- >>> :{
+-- let Done r = preprocess defaultConfig "#warning This is a warning"
+-- in do
+--   T.putStr (resultOutput r)
+--   mapM_ print (resultDiagnostics r)
+-- :}
+-- #line 1 "<input>"
+-- <BLANKLINE>
+-- Diagnostic {diagSeverity = Warning, diagMessage = "This is a warning", diagFile = "<input>", diagLine = 1}
+--
+-- The @#error@ directive emits an error and stops preprocessing:
+--
+-- >>> :{
+-- let Done r = preprocess defaultConfig "#error Build failed\nthis line is not processed"
+-- in do
+--   T.putStr (resultOutput r)
+--   mapM_ print (resultDiagnostics r)
+-- :}
+-- #line 1 "<input>"
+-- <BLANKLINE>
+-- Diagnostic {diagSeverity = Error, diagMessage = "Build failed", diagFile = "<input>", diagLine = 1}
 preprocess :: Config -> Text -> Step
 preprocess cfg input =
   processFile (configInputFile cfg) (joinMultiline 1 (T.lines input)) [] initialState finish

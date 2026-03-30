@@ -28,6 +28,10 @@ import qualified Data.Map.Strict as M
 import Data.Text (Text)
 import GHC.Generics (Generic)
 
+-- $setup
+-- >>> :set -XOverloadedStrings
+-- >>> import qualified Data.Map.Strict as M
+
 -- | Configuration for the C preprocessor.
 data Config = Config
   { -- | The name of the input file, used in @#line@ directives and
@@ -45,6 +49,23 @@ data MacroDef
   deriving (Eq, Show)
 
 -- | Default configuration with sensible defaults.
+--
+-- * 'configInputFile' is set to @\"\<input\>\"@
+-- * 'configMacros' includes @__DATE__@ and @__TIME__@ set to the Unix epoch
+--
+-- To customize the date and time macros:
+--
+-- >>> import qualified Data.Map.Strict as M
+-- >>> let cfg = defaultConfig { configMacros = M.fromList [("__DATE__", "\"Mar 15 2026\""), ("__TIME__", "\"14:30:00\"")] }
+-- >>> configMacros cfg
+-- fromList [("__DATE__","\"Mar 15 2026\""),("__TIME__","\"14:30:00\"")]
+--
+-- To add additional macros while keeping the defaults:
+--
+-- >>> import qualified Data.Map.Strict as M
+-- >>> let cfg = defaultConfig { configMacros = M.insert "VERSION" "42" (configMacros defaultConfig) }
+-- >>> M.lookup "VERSION" (configMacros cfg)
+-- Just "42"
 defaultConfig :: Config
 defaultConfig =
   Config
@@ -61,9 +82,13 @@ data IncludeKind = IncludeLocal | IncludeSystem deriving (Eq, Show, Generic, NFD
 
 -- | Information about a pending @#include@ that needs to be resolved.
 data IncludeRequest = IncludeRequest
-  { includePath :: !FilePath,
+  { -- | The path specified in the include directive.
+    includePath :: !FilePath,
+    -- | Whether this is a local (@\"...\"@) or system (@\<...\>@) include.
     includeKind :: !IncludeKind,
+    -- | The file that contains the @#include@ directive.
     includeFrom :: !FilePath,
+    -- | The line number of the @#include@ directive.
     includeLine :: !Int
   }
   deriving (Eq, Show, Generic, NFData)
@@ -73,24 +98,35 @@ data Severity = Warning | Error deriving (Eq, Show, Generic, NFData)
 
 -- | A diagnostic message emitted during preprocessing.
 data Diagnostic = Diagnostic
-  { diagSeverity :: !Severity,
+  { -- | The severity of the diagnostic.
+    diagSeverity :: !Severity,
+    -- | The diagnostic message text.
     diagMessage :: !Text,
+    -- | The file where the diagnostic occurred.
     diagFile :: !FilePath,
+    -- | The line number where the diagnostic occurred.
     diagLine :: !Int
   }
   deriving (Eq, Show, Generic, NFData)
 
 -- | The result of preprocessing.
 data Result = Result
-  { resultOutput :: !Text,
+  { -- | The preprocessed output text.
+    resultOutput :: !Text,
+    -- | Any diagnostics (warnings or errors) emitted during preprocessing.
     resultDiagnostics :: ![Diagnostic]
   }
   deriving (Eq, Show, Generic, NFData)
 
--- | A step in the preprocessing process.
+-- | A step in the preprocessing process. Either preprocessing is complete
+-- ('Done') or an @#include@ directive needs to be resolved ('NeedInclude').
 data Step
-  = Done !Result
-  | NeedInclude !IncludeRequest !(Maybe Text -> Step)
+  = -- | Preprocessing is complete.
+    Done !Result
+  | -- | An @#include@ directive was encountered. The caller must provide
+    -- the contents of the included file (or 'Nothing' if not found),
+    -- and preprocessing will continue.
+    NeedInclude !IncludeRequest !(Maybe Text -> Step)
 
 data EngineState = EngineState
   { stMacros :: !(Map Text MacroDef),
