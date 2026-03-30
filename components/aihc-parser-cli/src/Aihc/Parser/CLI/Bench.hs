@@ -77,6 +77,7 @@ reasonToString (FilterHseFailed path _) = "haskell-src-exts failed: " ++ path
 reasonToString (FilterGhcFailed path _) = "ghc-lib-parser failed: " ++ path
 reasonToString FilterNoHaskellFiles = "no Haskell files"
 reasonToString (FilterDownloadFailed err) = "download failed: " ++ err
+reasonToString (FilterCabalParseFailed err) = "cabal file parse failed: " ++ err
 
 -- | Run the bench command.
 runBench :: BenchOptions -> IO ()

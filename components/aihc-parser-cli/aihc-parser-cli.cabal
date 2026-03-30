@@ -29,6 +29,7 @@ library
     , aeson
     , async
     , bytestring
+    , Cabal-syntax
     , containers
     , deepseq
     , directory

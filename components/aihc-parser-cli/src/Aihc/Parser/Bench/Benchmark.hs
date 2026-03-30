@@ -12,11 +12,11 @@ module Aihc.Parser.Bench.Benchmark
 where
 
 import Aihc.Parser.Bench.CLI (BenchOptions (..), ParserChoice (..))
-import Aihc.Parser.Bench.Parsers (ParseResult (..), lexWithAihc, parseWithAihc, parseWithGhc, parseWithHse)
-import Aihc.Parser.Bench.Tarball (TarballEntry (..), streamTarballEntries)
-import Control.Concurrent.Async (mapConcurrently)
+import Aihc.Parser.Bench.Parsers (ParseResult (..), lexWithAihcExts, parseWithAihcExts, parseWithGhcExts, parseWithHseExts)
+import Aihc.Parser.Bench.Tarball (PackageInfo (..), PackageSpec (..), TarballEntry (..), isHaskellEntry, streamTarball)
 import Control.Exception (evaluate)
 import Control.Monad (replicateM)
+import Data.Map.Strict qualified as Map
 import GHC.Clock (getMonotonicTimeNSec)
 import GHC.Stats qualified as Stats
 import System.IO (hFlush, hPutStr, hPutStrLn, stderr)
@@ -55,13 +55,18 @@ data BenchmarkResult = BenchmarkResult
 runBenchmark :: BenchOptions -> IO BenchmarkResult
 runBenchmark opts = do
   hPutStrLn stderr $ "Loading tarball: " ++ benchTarball opts
-  entries <- streamTarballEntries (benchTarball opts)
-  hPutStrLn stderr $ "Loaded " ++ show (length entries) ++ " files"
+  (rawEntries, packageInfos) <- streamTarball (benchTarball opts)
+
+  -- Filter to only Haskell files and enrich with extension info
+  let hsEntries = filter isHaskellEntry rawEntries
+      enrichedEntries = map (enrichEntry packageInfos) hsEntries
+
+  hPutStrLn stderr $ "Loaded " ++ show (length enrichedEntries) ++ " Haskell files"
 
   -- Force entries into memory by evaluating the list spine and each entry
   hPutStr stderr "Loading files into memory..."
   hFlush stderr
-  let !forcedEntries = forceEntries entries
+  let !forcedEntries = forceEntries enrichedEntries
   hPutStrLn stderr " done"
 
   let parser = selectParser opts
@@ -71,7 +76,7 @@ runBenchmark opts = do
   -- Warmup iterations
   hPutStrLn stderr $ "Running " ++ show numWarmup ++ " warmup iteration(s)..."
   warmupResults <- replicateM numWarmup $ do
-    result <- runSingleIteration parser (benchJobs opts) forcedEntries
+    result <- runSingleIteration parser forcedEntries
     hPutStrLn stderr $
       "  Warmup: "
         ++ show (iterFilesRead result)
@@ -95,7 +100,7 @@ runBenchmark opts = do
   -- Main iterations
   hPutStrLn stderr $ "Running " ++ show numMain ++ " benchmark iteration(s)..."
   mainResults <- replicateM numMain $ do
-    result <- runSingleIteration parser (benchJobs opts) forcedEntries
+    result <- runSingleIteration parser forcedEntries
     hPutStrLn stderr $
       "  Iteration: "
         ++ show (iterFilesRead result)
@@ -122,26 +127,64 @@ runBenchmark opts = do
         benchGcAfter = gcAfter
       }
 
+-- | Enrich a tarball entry with extension info from parsed .cabal files.
+enrichEntry :: Map.Map String PackageInfo -> TarballEntry -> TarballEntry
+enrichEntry packageInfos entry =
+  let pkgKey = pkgName (entryPackage entry) ++ "-" ++ pkgVersion (entryPackage entry)
+      pkgPrefix = pkgKey ++ "/"
+   in case Map.lookup pkgKey packageInfos of
+        Nothing -> entry -- No package info found, use entry as-is
+        Just info ->
+          -- Try to find the file in the package info
+          let relPath = dropPrefix pkgPrefix (entryFilePath entry)
+           in case Map.lookup relPath (packageInfoFiles info) of
+                Nothing ->
+                  -- Try without leading directory
+                  let pathsToTry =
+                        [ relPath,
+                          -- Try stripping subdirectory
+                          dropFirstDir relPath,
+                          -- Try with different source dirs
+                          "src/" ++ relPath,
+                          "lib/" ++ relPath
+                        ]
+                      lookupResult = firstJust (map (`Map.lookup` packageInfoFiles info) pathsToTry)
+                   in case lookupResult of
+                        Just (exts, lang) -> entry {entryExtensions = exts, entryLanguage = lang}
+                        Nothing -> entry
+                Just (exts, lang) -> entry {entryExtensions = exts, entryLanguage = lang}
+  where
+    dropPrefix prefix s =
+      if prefix `isPrefixOf` s
+        then drop (length prefix) s
+        else s
+    isPrefixOf p s = take (length p) s == p
+
+    dropFirstDir path =
+      case break (== '/') path of
+        (_, '/' : rest) -> rest
+        _ -> path
+
+    firstJust [] = Nothing
+    firstJust (Nothing : xs) = firstJust xs
+    firstJust (Just x : _) = Just x
+
 -- | Select the parser function based on options.
+-- Now uses the entry's extensions and language.
 selectParser :: BenchOptions -> (TarballEntry -> ParseResult)
 selectParser opts =
   case (benchParser opts, benchLexerOnly opts) of
-    (ParserAihc, True) -> lexWithAihc . entryContents
-    (ParserAihc, False) -> parseWithAihc . entryContents
-    (ParserHse, _) -> parseWithHse . entryContents
-    (ParserGhc, _) -> parseWithGhc . entryContents
+    (ParserAihc, True) -> \e -> lexWithAihcExts (entryExtensions e) (entryLanguage e) (entryContents e)
+    (ParserAihc, False) -> \e -> parseWithAihcExts (entryExtensions e) (entryLanguage e) (entryContents e)
+    (ParserHse, _) -> \e -> parseWithHseExts (entryExtensions e) (entryLanguage e) (entryContents e)
+    (ParserGhc, _) -> \e -> parseWithGhcExts (entryExtensions e) (entryLanguage e) (entryContents e)
 
 -- | Run a single benchmark iteration.
-runSingleIteration :: (TarballEntry -> ParseResult) -> Int -> [TarballEntry] -> IO IterationResult
-runSingleIteration parser jobs entries = do
+runSingleIteration :: (TarballEntry -> ParseResult) -> [TarballEntry] -> IO IterationResult
+runSingleIteration parser entries = do
   startTime <- getMonotonicTimeNSec
 
-  results <-
-    if jobs <= 1
-      then pure $ map parser entries
-      else do
-        let chunks = chunksOf ((length entries + jobs - 1) `div` jobs) entries
-        concat <$> mapConcurrently (pure . map parser) chunks
+  let results = map parser entries
 
   -- Force evaluation of all results
   _ <- evaluate (length [() | ParseSuccess <- results])
@@ -175,16 +218,9 @@ captureGCStats = do
         gcNumGcs = fromIntegral (Stats.gcs stats)
       }
 
--- | Split a list into chunks.
-chunksOf :: Int -> [a] -> [[a]]
-chunksOf _ [] = []
-chunksOf n xs =
-  let (chunk, rest) = splitAt n xs
-   in chunk : chunksOf n rest
-
 -- | Force all entries into memory.
 forceEntries :: [TarballEntry] -> [TarballEntry]
 forceEntries [] = []
 forceEntries (e : es) =
-  let !_ = entryContents e `seq` entryByteSize e
+  let !_ = entryContents e `seq` entryByteSize e `seq` entryExtensions e `seq` entryLanguage e
    in e : forceEntries es

@@ -40,7 +40,6 @@ data GenerateOptions = GenerateOptions
   { genSnapshot :: !String,
     genOutput :: !(Maybe FilePath),
     genFilters :: !FilterOptions,
-    genJobs :: !(Maybe Int),
     genCacheDir :: !(Maybe FilePath),
     genOffline :: !Bool,
     genVerbose :: !Bool,
@@ -56,7 +55,6 @@ data BenchOptions = BenchOptions
     benchWarmup :: !Int,
     benchIterations :: !Int,
     benchOutput :: !OutputFormat,
-    benchJobs :: !Int,
     benchMemory :: !Bool,
     benchGcStats :: !Bool
   }
@@ -125,15 +123,6 @@ generateParser =
           )
       )
     <*> filterOptionsParser
-    <*> optional
-      ( option
-          auto
-          ( long "jobs"
-              <> short 'j'
-              <> metavar "N"
-              <> help "Number of parallel jobs (default: CPU count)"
-          )
-      )
     <*> optional
       ( strOption
           ( long "cache-dir"
@@ -212,15 +201,6 @@ benchOptionsParser =
           <> metavar "FORMAT"
           <> value FormatHuman
           <> help "Output format: human, json, csv (default: human)"
-      )
-    <*> option
-      auto
-      ( long "jobs"
-          <> short 'j'
-          <> metavar "N"
-          <> value 1
-          <> showDefault
-          <> help "Number of parallel jobs"
       )
     <*> switch
       ( long "memory"

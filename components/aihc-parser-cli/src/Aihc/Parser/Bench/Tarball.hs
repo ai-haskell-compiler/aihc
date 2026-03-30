@@ -6,6 +6,9 @@ module Aihc.Parser.Bench.Tarball
     TarballEntry (..),
     GenerateResult (..),
     PackageSpec (..),
+    PackageInfo (..),
+    isCabalEntry,
+    isHaskellEntry,
 
     -- * Generation
     generateTarball,
@@ -17,28 +20,65 @@ module Aihc.Parser.Bench.Tarball
 
     -- * Tarball I/O
     writeTarball,
-    streamTarballEntries,
+    streamTarball,
   )
 where
 
 import Aihc.Parser.Bench.CLI (FilterOptions (..), GenerateOptions (..))
-import Aihc.Parser.Bench.Parsers (ParseResult (..), parseWithAihc, parseWithGhc, parseWithHse)
+import Aihc.Parser.Bench.Parsers (ParseResult (..), parseWithAihcExts, parseWithGhcExts, parseWithHseExts)
 import Codec.Archive.Tar qualified as Tar
 import Codec.Archive.Tar.Entry qualified as Tar
 import Codec.Compression.GZip qualified as GZip
-import Control.Concurrent.Async (mapConcurrently)
 import Control.Exception (SomeException, displayException, try)
 import Control.Monad (forM, when)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
 import Data.Char (isAlphaNum, isSpace)
-import Data.List (isPrefixOf)
-import Data.Maybe (mapMaybe)
+import Data.List (isPrefixOf, isSuffixOf, nub)
+import Data.Map.Strict qualified as Map
+import Data.Maybe (catMaybes, mapMaybe)
 import Data.Text (Text)
 import Data.Text.Encoding (decodeUtf8With, encodeUtf8)
 import Data.Text.Encoding.Error (lenientDecode)
 import Data.Time.Clock.POSIX (getPOSIXTime)
-import GHC.Conc (getNumProcessors)
+import Data.Version qualified as DV
+import Distribution.Compiler (CompilerFlavor (..))
+import Distribution.ModuleName (ModuleName, toFilePath)
+import Distribution.PackageDescription
+  ( BuildInfo,
+    Executable,
+    FlagName,
+    Library,
+    autogenModules,
+    buildInfo,
+    buildable,
+    condExecutables,
+    condLibrary,
+    condSubLibraries,
+    defaultExtensions,
+    defaultLanguage,
+    exeModules,
+    exposedModules,
+    flagDefault,
+    flagName,
+    hsSourceDirs,
+    libBuildInfo,
+    modulePath,
+    oldExtensions,
+    otherModules,
+  )
+import Distribution.PackageDescription.Parsec qualified as Cabal
+import Distribution.Pretty (prettyShow)
+import Distribution.System (buildArch, buildOS)
+import Distribution.Types.CondTree
+  ( CondBranch (CondBranch),
+    CondTree (condTreeComponents, condTreeData),
+  )
+import Distribution.Types.Condition (Condition (..))
+import Distribution.Types.ConfVar (ConfVar (..))
+import Distribution.Types.GenericPackageDescription (GenericPackageDescription, genPackageFlags)
+import Distribution.Utils.Path (getSymbolicPath)
+import Distribution.Version (mkVersion, withinRange)
 import System.Directory
   ( XdgDirectory (XdgCache),
     createDirectoryIfMissing,
@@ -50,8 +90,9 @@ import System.Directory
     removeFile,
     renameDirectory,
   )
-import System.FilePath (makeRelative, takeExtension, (</>))
+import System.FilePath (makeRelative, normalise, takeDirectory, takeExtension, (<.>), (</>))
 import System.IO (hPutStrLn, stderr)
+import System.Info (compilerName, compilerVersion)
 import System.Process (callCommand, readProcess)
 
 -- | A package specification.
@@ -62,13 +103,28 @@ data PackageSpec = PackageSpec
   deriving (Eq, Show)
 
 -- | An entry to be written to the tarball.
+-- This can be either a Haskell source file or a .cabal file.
 data TarballEntry = TarballEntry
   { entryPackage :: !PackageSpec,
     entryFilePath :: !FilePath,
     entryContents :: !Text,
-    entryByteSize :: !Int
+    entryByteSize :: !Int,
+    -- | Extension names from cabal file (empty for .cabal files themselves)
+    entryExtensions :: ![String],
+    -- | Default language from cabal file (Nothing for .cabal files)
+    entryLanguage :: !(Maybe String)
   }
   deriving (Show)
+
+-- | Check if an entry is a .cabal file
+isCabalEntry :: TarballEntry -> Bool
+isCabalEntry e = ".cabal" `isSuffixOf` entryFilePath e
+
+-- | Check if an entry is a Haskell source file
+isHaskellEntry :: TarballEntry -> Bool
+isHaskellEntry e =
+  let ext = takeExtension (entryFilePath e)
+   in ext == ".hs" || ext == ".lhs"
 
 -- | Why a package was filtered out.
 data FilterReason
@@ -77,6 +133,7 @@ data FilterReason
   | FilterGhcFailed !FilePath !String
   | FilterNoHaskellFiles
   | FilterDownloadFailed !String
+  | FilterCabalParseFailed !String
   deriving (Eq, Show)
 
 -- | Result of tarball generation.
@@ -86,6 +143,14 @@ data GenerateResult = GenerateResult
     resultTotalFiles :: !Int,
     resultTotalBytes :: !Integer,
     resultFilteredOut :: ![(PackageSpec, FilterReason)]
+  }
+  deriving (Show)
+
+-- | Package info extracted from .cabal files in the tarball
+data PackageInfo = PackageInfo
+  { packageInfoSpec :: !PackageSpec,
+    -- | Map from relative file paths to (extensions, language)
+    packageInfoFiles :: !(Map.Map FilePath ([String], Maybe String))
   }
   deriving (Show)
 
@@ -100,14 +165,13 @@ generateTarball opts = do
         hPutStrLn stderr $
           "Loaded " ++ show (length packages) ++ " packages from " ++ genSnapshot opts
 
-      jobs <- maybe getNumProcessors pure (genJobs opts)
-
       -- Process packages and collect entries/failures
-      results <- processPackages opts jobs packages
+      results <- processPackages opts packages
 
       let (successes, failures) = partitionResults results
           allEntries = concat successes
-          totalFiles = length allEntries
+          -- Count only Haskell files, not .cabal files
+          totalFiles = length (filter isHaskellEntry allEntries)
           totalBytes = sum (map (fromIntegral . entryByteSize) allEntries)
           summary =
             GenerateResult
@@ -135,17 +199,13 @@ generateTarball opts = do
                 Nothing -> "stackage-" ++ sanitizeName (genSnapshot opts) ++ ".tar.gz"
           when (genVerbose opts) $
             hPutStrLn stderr $
-              "Writing " ++ show totalFiles ++ " files to " ++ outputPath
+              "Writing " ++ show totalFiles ++ " Haskell files to " ++ outputPath
           writeTarball outputPath allEntries
           pure (Right summary)
 
--- | Process all packages in parallel.
-processPackages :: GenerateOptions -> Int -> [PackageSpec] -> IO [Either (PackageSpec, FilterReason) [TarballEntry]]
-processPackages opts jobs packages = do
-  -- Process in chunks to avoid overwhelming the system
-  let chunks = chunksOf jobs packages
-  results <- forM chunks $ \chunk -> mapConcurrently (processPackage opts) chunk
-  pure (concat results)
+-- | Process all packages sequentially.
+processPackages :: GenerateOptions -> [PackageSpec] -> IO [Either (PackageSpec, FilterReason) [TarballEntry]]
+processPackages opts packages = forM packages (processPackage opts)
 
 -- | Process a single package.
 processPackage :: GenerateOptions -> PackageSpec -> IO (Either (PackageSpec, FilterReason) [TarballEntry])
@@ -155,43 +215,214 @@ processPackage opts pkg = do
     Left (err :: SomeException) ->
       pure (Left (pkg, FilterDownloadFailed (displayException err)))
     Right pkgDir -> do
-      hsFiles <- findHaskellFiles pkgDir
-      if null hsFiles
-        then pure (Left (pkg, FilterNoHaskellFiles))
-        else do
-          -- Read all files
-          entries <- forM hsFiles $ \file -> do
-            contents <- readTextFileLenient file
-            let relPath = formatPackage pkg </> makeRelative pkgDir file
-            pure
-              TarballEntry
-                { entryPackage = pkg,
-                  entryFilePath = relPath,
-                  entryContents = contents,
-                  entryByteSize = BS.length (encodeUtf8 contents)
-                }
+      -- Find and read .cabal file
+      cabalResult <- try $ findAndReadCabalFile pkgDir pkg
+      case cabalResult of
+        Left (err :: SomeException) ->
+          pure (Left (pkg, FilterCabalParseFailed (displayException err)))
+        Right (cabalEntry, fileInfoMap) -> do
+          hsFiles <- findHaskellFiles pkgDir
+          if null hsFiles
+            then pure (Left (pkg, FilterNoHaskellFiles))
+            else do
+              -- Read all files with their extension info from the cabal file
+              entries <- forM hsFiles $ \file -> do
+                contents <- readTextFileLenient file
+                let relPath = formatPackage pkg </> makeRelative pkgDir file
+                    -- Look up extension info for this file
+                    info = Map.lookup (makeRelative pkgDir file) fileInfoMap
+                    exts = maybe [] fst info
+                    lang = info >>= snd
+                pure
+                  TarballEntry
+                    { entryPackage = pkg,
+                      entryFilePath = relPath,
+                      entryContents = contents,
+                      entryByteSize = BS.length (encodeUtf8 contents),
+                      entryExtensions = exts,
+                      entryLanguage = lang
+                    }
 
-          -- Check filters
-          filterResult <- checkPackageFilters (genFilters opts) entries
-          case filterResult of
-            Just reason -> pure (Left (pkg, reason))
-            Nothing -> pure (Right entries)
+              -- Check filters (only for Haskell files)
+              filterResult <- checkPackageFilters (genFilters opts) entries
+              case filterResult of
+                Just reason -> pure (Left (pkg, reason))
+                -- Include the .cabal file along with the Haskell files
+                Nothing -> pure (Right (cabalEntry : entries))
+
+-- | Find and read the .cabal file, returning the entry and a map of file paths to their extensions
+findAndReadCabalFile :: FilePath -> PackageSpec -> IO (TarballEntry, Map.Map FilePath ([String], Maybe String))
+findAndReadCabalFile pkgDir pkg = do
+  cabalFiles <- findCabalFiles pkgDir
+  cabalFile <- case cabalFiles of
+    [f] -> pure f
+    [] -> ioError (userError ("No .cabal file found in " ++ pkgDir))
+    (f : _) -> pure f -- Take first one if multiple
+  contents <- readTextFileLenient cabalFile
+  let relPath = formatPackage pkg </> makeRelative pkgDir cabalFile
+      cabalEntry =
+        TarballEntry
+          { entryPackage = pkg,
+            entryFilePath = relPath,
+            entryContents = contents,
+            entryByteSize = BS.length (encodeUtf8 contents),
+            entryExtensions = [],
+            entryLanguage = Nothing
+          }
+
+  -- Parse the cabal file to get extension info for each source file
+  fileInfoMap <- parseCabalForExtensions pkgDir cabalFile
+  pure (cabalEntry, fileInfoMap)
+
+-- | Parse a cabal file and return a map from file paths to (extensions, language)
+parseCabalForExtensions :: FilePath -> FilePath -> IO (Map.Map FilePath ([String], Maybe String))
+parseCabalForExtensions pkgDir cabalFile = do
+  cabalBytes <- BS.readFile cabalFile
+  let parseResult = Cabal.runParseResult (Cabal.parseGenericPackageDescription cabalBytes)
+  case snd parseResult of
+    Left _ -> pure Map.empty -- Fall back to empty if parsing fails
+    Right gpd -> do
+      fileInfos <- collectComponentFilesSimple gpd (takeDirectory cabalFile)
+      -- Build map from relative paths to their extensions
+      pure $
+        Map.fromList
+          [ (makeRelative pkgDir path, (exts, lang))
+          | (path, exts, lang) <- fileInfos
+          ]
+
+-- | Simplified version of collectComponentFiles that just gets paths and extensions
+collectComponentFilesSimple :: GenericPackageDescription -> FilePath -> IO [(FilePath, [String], Maybe String)]
+collectComponentFilesSimple gpd packageRoot = do
+  let evalCond = conditionEvaluator gpd
+      libraryTrees = maybe [] pure (condLibrary gpd) <> map snd (condSubLibraries gpd)
+      executableTrees = map snd (condExecutables gpd)
+
+  libraryFiles <- fmap concat (forM libraryTrees (libraryFilesSimple evalCond packageRoot))
+  executableFiles <- fmap concat (forM executableTrees (executableFilesSimple evalCond packageRoot))
+
+  pure (libraryFiles <> executableFiles)
+
+libraryFilesSimple :: (Condition ConfVar -> Bool) -> FilePath -> CondTree ConfVar c Library -> IO [(FilePath, [String], Maybe String)]
+libraryFilesSimple evalCond packageRoot tree = do
+  let library = condTreeData tree
+      build = collectMergedBuildInfo evalCond libBuildInfo tree
+      moduleNames = exposedModules library <> otherModules build <> autogenModules build
+      exts = extractExtensions build
+      lang = extractLanguage build
+  if not (buildable build)
+    then pure []
+    else do
+      paths <- moduleFilesForBuildInfo packageRoot build moduleNames
+      pure [(path, exts, lang) | path <- paths]
+
+executableFilesSimple :: (Condition ConfVar -> Bool) -> FilePath -> CondTree ConfVar c Executable -> IO [(FilePath, [String], Maybe String)]
+executableFilesSimple evalCond packageRoot tree = do
+  let executable = condTreeData tree
+      build = collectMergedBuildInfo evalCond buildInfo tree
+      moduleNames = otherModules build <> exeModules executable <> autogenModules build
+      mainPath = modulePath executable
+      exts = extractExtensions build
+      lang = extractLanguage build
+  if not (buildable build)
+    then pure []
+    else do
+      moduleFiles <- moduleFilesForBuildInfo packageRoot build moduleNames
+      mainFiles <- existingPaths [dir </> mainPath | dir <- sourceDirs packageRoot build]
+      pure [(path, exts, lang) | path <- moduleFiles <> mainFiles]
+
+extractExtensions :: BuildInfo -> [String]
+extractExtensions bi = nub (map prettyShow (defaultExtensions bi <> oldExtensions bi))
+
+extractLanguage :: BuildInfo -> Maybe String
+extractLanguage bi =
+  case defaultLanguage bi of
+    Just lang -> Just (prettyShow lang)
+    Nothing -> Nothing -- Don't default, let the parser decide
+
+collectCondTreeData :: (Condition v -> Bool) -> CondTree v c a -> [a]
+collectCondTreeData evalCond tree =
+  condTreeData tree : concatMap collectBranch (condTreeComponents tree)
+  where
+    collectBranch (CondBranch cond thenTree elseTree) =
+      if evalCond cond
+        then collectCondTreeData evalCond thenTree
+        else maybe [] (collectCondTreeData evalCond) elseTree
+
+collectMergedBuildInfo :: (Monoid b) => (Condition v -> Bool) -> (a -> b) -> CondTree v c a -> b
+collectMergedBuildInfo evalCond toBuildInfo =
+  mconcat . map toBuildInfo . collectCondTreeData evalCond
+
+conditionEvaluator :: GenericPackageDescription -> Condition ConfVar -> Bool
+conditionEvaluator gpd = eval
+  where
+    defaultFlags :: Map.Map FlagName Bool
+    defaultFlags =
+      Map.fromList [(flagName flag, flagDefault flag) | flag <- genPackageFlags gpd]
+
+    compilerFlavor :: CompilerFlavor
+    compilerFlavor =
+      case compilerName of
+        "ghc" -> GHC
+        "ghcjs" -> GHCJS
+        other -> OtherCompiler other
+
+    compilerVer = mkVersion (DV.versionBranch compilerVersion)
+
+    eval (Var confVar) =
+      case confVar of
+        OS os -> os == buildOS
+        Arch arch -> arch == buildArch
+        PackageFlag flag -> Map.findWithDefault False flag defaultFlags
+        Impl flavor range -> flavor == compilerFlavor && withinRange compilerVer range
+    eval (Lit b) = b
+    eval (CNot c) = not (eval c)
+    eval (COr a b) = eval a || eval b
+    eval (CAnd a b) = eval a && eval b
+
+moduleFilesForBuildInfo :: FilePath -> BuildInfo -> [ModuleName] -> IO [FilePath]
+moduleFilesForBuildInfo packageRoot build modules = do
+  let dirs = sourceDirs packageRoot build
+      moduleCandidates =
+        [ dir </> toFilePath modu <.> ext
+        | dir <- dirs,
+          modu <- modules,
+          ext <- ["hs", "lhs"]
+        ]
+  dedupeExistingFiles moduleCandidates
+
+sourceDirs :: FilePath -> BuildInfo -> [FilePath]
+sourceDirs packageRoot build =
+  case map getSymbolicPath (hsSourceDirs build) of
+    [] -> [packageRoot]
+    dirs -> [packageRoot </> dir | dir <- dirs]
+
+existingPaths :: [FilePath] -> IO [FilePath]
+existingPaths candidates = do
+  existing <- forM candidates $ \candidate -> do
+    fileExists <- doesFileExist candidate
+    pure (if fileExists then Just (normalise candidate) else Nothing)
+  pure (catMaybes existing)
+
+dedupeExistingFiles :: [FilePath] -> IO [FilePath]
+dedupeExistingFiles files = fmap nub (existingPaths files)
 
 -- | Check if a package passes all filters.
 checkPackageFilters :: FilterOptions -> [TarballEntry] -> IO (Maybe FilterReason)
 checkPackageFilters opts entries
   | not (filterAihc opts || filterHse opts || filterGhc opts) = pure Nothing
-  | otherwise = go entries
+  | otherwise = go (filter isHaskellEntry entries)
   where
     go [] = pure Nothing
     go (e : es) = do
       let source = entryContents e
           path = entryFilePath e
+          exts = entryExtensions e
+          lang = entryLanguage e
 
       -- Check aihc filter
       aihcResult <-
         if filterAihc opts
-          then case parseWithAihc source of
+          then case parseWithAihcExts exts lang source of
             ParseSuccess -> pure Nothing
             ParseFailure err -> pure (Just (FilterAihcFailed path err))
           else pure Nothing
@@ -202,7 +433,7 @@ checkPackageFilters opts entries
           -- Check hse filter
           hseResult <-
             if filterHse opts
-              then case parseWithHse source of
+              then case parseWithHseExts exts lang source of
                 ParseSuccess -> pure Nothing
                 ParseFailure err -> pure (Just (FilterHseFailed path err))
               else pure Nothing
@@ -213,7 +444,7 @@ checkPackageFilters opts entries
               -- Check ghc filter
               ghcResult <-
                 if filterGhc opts
-                  then case parseWithGhc source of
+                  then case parseWithGhcExts exts lang source of
                     ParseSuccess -> pure Nothing
                     ParseFailure err -> pure (Just (FilterGhcFailed path err))
                   else pure Nothing
@@ -257,30 +488,135 @@ entryToTarEntry mtime e =
                     }
               }
 
--- | Stream entries from a gzipped tarball.
-streamTarballEntries :: FilePath -> IO [TarballEntry]
-streamTarballEntries path = do
-  compressed <- LBS.readFile path
-  let entries = Tar.read (GZip.decompress compressed)
-  pure (extractEntries entries)
+-- | Stream entries from a tarball, supporting both gzipped (.tar.gz) and uncompressed (.tar).
+-- Also returns package info maps extracted from .cabal files.
+streamTarball :: FilePath -> IO ([TarballEntry], Map.Map String PackageInfo)
+streamTarball path = do
+  raw <- LBS.readFile path
+  let decompressed =
+        if ".tar.gz" `isSuffixOf` path || ".tgz" `isSuffixOf` path
+          then GZip.decompress raw
+          else raw -- Assume uncompressed .tar
+      tarEntries = Tar.read decompressed
+      (entries, cabalContents) = extractEntriesWithCabal tarEntries
 
-extractEntries :: Tar.Entries Tar.FormatError -> [TarballEntry]
-extractEntries (Tar.Next entry rest) =
-  case Tar.entryContent entry of
-    Tar.NormalFile content _ ->
-      let filePath = Tar.entryPath entry
-          text = decodeUtf8With lenientDecode (LBS.toStrict content)
-          pkg = parsePackageFromPath filePath
-       in TarballEntry
-            { entryPackage = pkg,
-              entryFilePath = filePath,
-              entryContents = text,
-              entryByteSize = fromIntegral (LBS.length content)
-            }
-            : extractEntries rest
-    _ -> extractEntries rest
-extractEntries Tar.Done = []
-extractEntries (Tar.Fail _) = []
+  -- Parse .cabal files to get extension info
+  let packageInfos = parseCabalContents cabalContents
+  pure (entries, packageInfos)
+
+-- | Extract entries, separating out .cabal file contents for later parsing
+extractEntriesWithCabal :: Tar.Entries Tar.FormatError -> ([TarballEntry], [(PackageSpec, FilePath, Text)])
+extractEntriesWithCabal = go [] []
+  where
+    go entries cabals (Tar.Next entry rest) =
+      case Tar.entryContent entry of
+        Tar.NormalFile content _ ->
+          let filePath = Tar.entryPath entry
+              text = decodeUtf8With lenientDecode (LBS.toStrict content)
+              pkg = parsePackageFromPath filePath
+              tarEntry =
+                TarballEntry
+                  { entryPackage = pkg,
+                    entryFilePath = filePath,
+                    entryContents = text,
+                    entryByteSize = fromIntegral (LBS.length content),
+                    -- Extensions will be filled in later from .cabal parsing
+                    entryExtensions = [],
+                    entryLanguage = Nothing
+                  }
+           in if ".cabal" `isSuffixOf` filePath
+                then go (tarEntry : entries) ((pkg, filePath, text) : cabals) rest
+                else go (tarEntry : entries) cabals rest
+        _ -> go entries cabals rest
+    go entries cabals Tar.Done = (reverse entries, reverse cabals)
+    go entries cabals (Tar.Fail _) = (reverse entries, reverse cabals)
+
+-- | Parse .cabal file contents to extract extension info
+parseCabalContents :: [(PackageSpec, FilePath, Text)] -> Map.Map String PackageInfo
+parseCabalContents cabals =
+  Map.fromList
+    [ (formatPackage pkg, info)
+    | (pkg, cabalPath, content) <- cabals,
+      Just info <- [parseSingleCabal pkg cabalPath content]
+    ]
+
+-- | Parse a single .cabal file content
+parseSingleCabal :: PackageSpec -> FilePath -> Text -> Maybe PackageInfo
+parseSingleCabal pkg cabalPath content =
+  let cabalBytes = encodeUtf8 content
+      parseResult = Cabal.runParseResult (Cabal.parseGenericPackageDescription cabalBytes)
+   in case snd parseResult of
+        Left _ -> Nothing
+        Right gpd ->
+          let pkgPrefix = formatPackage pkg ++ "/"
+              -- Get the package root from the cabal path
+              cabalRelPath = dropPrefix pkgPrefix cabalPath
+              pkgRoot =
+                case takeDirectory cabalRelPath of
+                  "" -> ""
+                  d -> d ++ "/"
+              fileInfos = extractFileInfoFromGPD gpd pkgRoot
+           in Just
+                PackageInfo
+                  { packageInfoSpec = pkg,
+                    packageInfoFiles = fileInfos
+                  }
+  where
+    dropPrefix prefix s =
+      if prefix `isPrefixOf` s
+        then drop (length prefix) s
+        else s
+
+-- | Extract file info from a parsed GenericPackageDescription
+extractFileInfoFromGPD :: GenericPackageDescription -> String -> Map.Map FilePath ([String], Maybe String)
+extractFileInfoFromGPD gpd pkgRoot =
+  let evalCond = conditionEvaluator gpd
+      libraryTrees = maybe [] pure (condLibrary gpd) <> map snd (condSubLibraries gpd)
+      executableTrees = map snd (condExecutables gpd)
+
+      libraryInfos = concatMap (libraryFileInfos evalCond pkgRoot) libraryTrees
+      executableInfos = concatMap (executableFileInfos evalCond pkgRoot) executableTrees
+   in Map.fromList (libraryInfos <> executableInfos)
+
+libraryFileInfos :: (Condition ConfVar -> Bool) -> String -> CondTree ConfVar c Library -> [(FilePath, ([String], Maybe String))]
+libraryFileInfos evalCond pkgRoot tree =
+  let library = condTreeData tree
+      build = collectMergedBuildInfo evalCond libBuildInfo tree
+      moduleNames = exposedModules library <> otherModules build <> autogenModules build
+      exts = extractExtensions build
+      lang = extractLanguage build
+      dirs = case map getSymbolicPath (hsSourceDirs build) of
+        [] -> [""]
+        ds -> ds
+   in if not (buildable build)
+        then []
+        else
+          [ (pkgRoot ++ dir ++ (if null dir then "" else "/") ++ toFilePath modu ++ ext, (exts, lang))
+          | dir <- dirs,
+            modu <- moduleNames,
+            ext <- [".hs", ".lhs"]
+          ]
+
+executableFileInfos :: (Condition ConfVar -> Bool) -> String -> CondTree ConfVar c Executable -> [(FilePath, ([String], Maybe String))]
+executableFileInfos evalCond pkgRoot tree =
+  let executable = condTreeData tree
+      build = collectMergedBuildInfo evalCond buildInfo tree
+      moduleNames = otherModules build <> exeModules executable <> autogenModules build
+      mainPath = modulePath executable
+      exts = extractExtensions build
+      lang = extractLanguage build
+      dirs = case map getSymbolicPath (hsSourceDirs build) of
+        [] -> [""]
+        ds -> ds
+   in if not (buildable build)
+        then []
+        else
+          [ (pkgRoot ++ dir ++ (if null dir then "" else "/") ++ toFilePath modu ++ ext, (exts, lang))
+          | dir <- dirs,
+            modu <- moduleNames,
+            ext <- [".hs", ".lhs"]
+          ]
+            ++ [(pkgRoot ++ dir ++ (if null dir then "" else "/") ++ mainPath, (exts, lang)) | dir <- dirs]
 
 -- | Parse package name from tarball path.
 parsePackageFromPath :: FilePath -> PackageSpec
@@ -444,6 +780,21 @@ getCacheDir = do
 formatPackage :: PackageSpec -> String
 formatPackage pkg = pkgName pkg ++ "-" ++ pkgVersion pkg
 
+-- | Find all .cabal files in a directory.
+findCabalFiles :: FilePath -> IO [FilePath]
+findCabalFiles dir = do
+  entries <- listDirectory dir
+  paths <- forM entries $ \entry -> do
+    let fullPath = dir </> entry
+    isDir <- doesDirectoryExist fullPath
+    if isDir
+      then pure []
+      else
+        if ".cabal" `isSuffixOf` entry
+          then pure [fullPath]
+          else pure []
+  pure (concat paths)
+
 -- | Find all Haskell source files in a directory.
 findHaskellFiles :: FilePath -> IO [FilePath]
 findHaskellFiles dir = do
@@ -475,10 +826,3 @@ partitionResults = go [] []
     go successes failures [] = (reverse successes, reverse failures)
     go successes failures (Left f : rest) = go successes (f : failures) rest
     go successes failures (Right s : rest) = go (s : successes) failures rest
-
--- | Split a list into chunks.
-chunksOf :: Int -> [a] -> [[a]]
-chunksOf _ [] = []
-chunksOf n xs =
-  let (chunk, rest) = splitAt n xs
-   in chunk : chunksOf n rest
