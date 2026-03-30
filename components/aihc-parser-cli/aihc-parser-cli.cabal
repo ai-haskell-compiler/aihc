@@ -22,6 +22,7 @@ library
   hs-source-dirs:   src
   build-depends:
       base >=4.16 && <5
+    , aihc-cpp
     , aihc-parser
     , text >=1.2
     , optparse-applicative

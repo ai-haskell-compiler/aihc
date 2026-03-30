@@ -1,7 +1,10 @@
 -- | Parser wrappers for benchmarking.
 -- Provides uniform interface for aihc-parser, haskell-src-exts, and ghc-lib-parser.
--- All parsers use the same extension detection: first reading LANGUAGE pragmas from the
--- module header using readModuleHeaderExtensions, then applying cabal-file extensions on top.
+-- All parsers use the same extension detection and CPP preprocessing:
+-- 1. First scan for CPP extension in cabal extensions + LANGUAGE pragmas
+-- 2. If CPP is enabled, preprocess the source
+-- 3. Re-scan the preprocessed source for LANGUAGE pragmas
+-- 4. Parse with the final extension set
 module Aihc.Parser.Bench.Parsers
   ( ParseResult (..),
 
@@ -19,6 +22,7 @@ module Aihc.Parser.Bench.Parsers
   )
 where
 
+import Aihc.Cpp qualified as Cpp
 import Aihc.Parser qualified as Aihc
 import Aihc.Parser.Lex qualified as AihcLex
 import Aihc.Parser.Syntax qualified as Syntax
@@ -40,7 +44,7 @@ import GHC.Parser.Lexer
     unP,
   )
 import GHC.Parser.Lexer qualified as Lexer (ParseResult (..))
-import GHC.Types.Error (NoDiagnosticOpts (NoDiagnosticOpts))
+import GHC.Types.Error (NoDiagnosticOpts (NoDiagnosticOpts), errorsFound)
 import GHC.Types.SrcLoc (mkRealSrcLoc)
 import GHC.Utils.Error (emptyDiagOpts, pprMessages)
 import GHC.Utils.Outputable (showSDocUnsafe)
@@ -58,43 +62,29 @@ data ParseResult
 --------------------------------------------------------------------------------
 
 -- | Parse with aihc-parser using extensions from cabal file.
--- First reads LANGUAGE pragmas from source, then applies cabal extensions.
+-- Handles CPP preprocessing if CPP extension is enabled.
 parseWithAihcExts :: [String] -> Maybe String -> Text -> ParseResult
 parseWithAihcExts cabalExts langName source =
-  let -- Get extensions from LANGUAGE pragmas in the source
-      headerSettings = AihcLex.readModuleHeaderExtensions source
-      -- Convert cabal extension names to settings
-      cabalSettings = extensionNamesToSettings cabalExts
-      -- Combine: cabal first, then header pragmas override
-      allSettings = cabalSettings <> headerSettings
-      -- Convert to aihc Extension list
-      extensions = applyExtensionSettings allSettings (languageBaseExtensions langName)
+  let (preprocessedSource, extensions) = prepareSourceAndExtensions cabalExts langName source
       config = Aihc.defaultConfig {Aihc.parserExtensions = extensions}
-   in case Aihc.parseModule config source of
+   in case Aihc.parseModule config preprocessedSource of
         Aihc.ParseOk m -> m `deepseq` ParseSuccess
-        Aihc.ParseErr err -> ParseFailure (Aihc.errorBundlePretty (Just source) err)
+        Aihc.ParseErr err -> ParseFailure (Aihc.errorBundlePretty (Just preprocessedSource) err)
 
 -- | Lex with aihc-parser using extensions from cabal file (lexer-only mode).
+-- Handles CPP preprocessing if CPP extension is enabled.
 lexWithAihcExts :: [String] -> Maybe String -> Text -> ParseResult
 lexWithAihcExts cabalExts langName source =
-  let headerSettings = AihcLex.readModuleHeaderExtensions source
-      cabalSettings = extensionNamesToSettings cabalExts
-      allSettings = cabalSettings <> headerSettings
-      extensions = applyExtensionSettings allSettings (languageBaseExtensions langName)
-      tokens = AihcLex.lexModuleTokensWithExtensions extensions source
+  let (preprocessedSource, extensions) = prepareSourceAndExtensions cabalExts langName source
+      tokens = AihcLex.lexModuleTokensWithExtensions extensions preprocessedSource
    in tokens `deepseq` ParseSuccess
 
 -- | Parse with haskell-src-exts using extensions from cabal file.
+-- Handles CPP preprocessing if CPP extension is enabled.
 parseWithHseExts :: [String] -> Maybe String -> Text -> ParseResult
 parseWithHseExts cabalExts langName source =
-  let -- Get extensions from LANGUAGE pragmas in the source
-      headerSettings = AihcLex.readModuleHeaderExtensions source
-      -- Convert cabal extension names to settings
-      cabalSettings = extensionNamesToSettings cabalExts
-      -- Combine: cabal first, then header pragmas override
-      allSettings = cabalSettings <> headerSettings
-      -- Convert to HSE extensions
-      hseExts = toHseExtensionSettings allSettings
+  let (preprocessedSource, extensions) = prepareSourceAndExtensions cabalExts langName source
+      hseExts = toHseExtensions extensions
       langExts = languageToHseExtensions langName
       baseLang = languageToHseLanguage langName
       mode =
@@ -102,35 +92,86 @@ parseWithHseExts cabalExts langName source =
           { HSE.baseLanguage = baseLang,
             HSE.extensions = langExts <> hseExts
           }
-   in case HSE.parseModuleWithMode mode (T.unpack source) of
+   in case HSE.parseModuleWithMode mode (T.unpack preprocessedSource) of
         HSE.ParseOk m -> m `seq` ParseSuccess
         HSE.ParseFailed loc msg -> ParseFailure (HSE.prettyPrint loc ++ ": " ++ msg)
 
 -- | Parse with ghc-lib-parser using extensions from cabal file.
+-- Handles CPP preprocessing if CPP extension is enabled.
+-- Note: GHC can return POk with errors, so we check for errors even on success.
 parseWithGhcExts :: [String] -> Maybe String -> Text -> ParseResult
 parseWithGhcExts cabalExts langName source =
-  let -- Get extensions from LANGUAGE pragmas in the source
-      headerSettings = AihcLex.readModuleHeaderExtensions source
-      -- Convert cabal extension names to settings
-      cabalSettings = extensionNamesToSettings cabalExts
-      -- Combine: cabal first, then header pragmas override
-      allSettings = cabalSettings <> headerSettings
+  let (preprocessedSource, extensions) = prepareSourceAndExtensions cabalExts langName source
       -- Start with language base extensions
       langExts = languageToGhcExtensions langName
       baseExtSet = EnumSet.fromList langExts :: EnumSet.EnumSet GHC.Extension
-      -- Apply all settings
-      finalExtSet = List.foldl' applyGhcExtensionSetting baseExtSet allSettings
+      -- Convert aihc extensions to GHC extensions and apply
+      ghcSettings = map toGhcExtensionSetting extensions
+      finalExtSet = List.foldl' applyGhcExtensionSetting baseExtSet ghcSettings
       -- Apply implied extensions
       extSet = applyImpliedExtensions finalExtSet
       opts = mkParserOpts extSet emptyDiagOpts False False False True
-      buffer = stringToStringBuffer (T.unpack source)
+      buffer = stringToStringBuffer (T.unpack preprocessedSource)
       start = mkRealSrcLoc (mkFastString "<bench>") 1 1
    in case unP parseModule (initParserState opts buffer start) of
-        Lexer.POk _ m -> m `seq` ParseSuccess
+        Lexer.POk pState m ->
+          -- GHC can return POk with errors, so we must check
+          if errorsFound (getPsErrorMessages pState)
+            then
+              let msgs = getPsErrorMessages pState
+                  errText = showSDocUnsafe (pprMessages NoDiagnosticOpts msgs)
+               in ParseFailure errText
+            else m `seq` ParseSuccess
         Lexer.PFailed pState ->
           let msgs = getPsErrorMessages pState
               errText = showSDocUnsafe (pprMessages NoDiagnosticOpts msgs)
            in ParseFailure errText
+
+--------------------------------------------------------------------------------
+-- Source preparation with CPP preprocessing
+--------------------------------------------------------------------------------
+
+-- | Prepare source for parsing: check for CPP, preprocess if needed, collect extensions.
+-- This implements the two-step extension scanning:
+-- 1. Check if CPP is enabled (from cabal extensions or initial LANGUAGE pragmas)
+-- 2. If CPP is enabled, preprocess the source
+-- 3. Re-scan the (possibly preprocessed) source for final LANGUAGE pragmas
+prepareSourceAndExtensions :: [String] -> Maybe String -> Text -> (Text, [Syntax.Extension])
+prepareSourceAndExtensions cabalExts langName source =
+  let -- Convert cabal extension names to settings
+      cabalSettings = extensionNamesToSettings cabalExts
+      -- Get initial extensions from LANGUAGE pragmas (before CPP)
+      initialHeaderSettings = AihcLex.readModuleHeaderExtensions source
+      -- Combine to check if CPP is enabled
+      initialSettings = cabalSettings <> initialHeaderSettings
+      baseExts = languageBaseExtensions langName
+      initialExtensions = applyExtensionSettings initialSettings baseExts
+      cppEnabled = Syntax.CPP `elem` initialExtensions
+      -- Preprocess if CPP is enabled
+      preprocessedSource =
+        if cppEnabled
+          then runCppPreprocessor source
+          else source
+      -- Re-scan for extensions after preprocessing (CPP can affect LANGUAGE pragmas)
+      finalHeaderSettings = AihcLex.readModuleHeaderExtensions preprocessedSource
+      finalSettings = cabalSettings <> finalHeaderSettings
+      finalExtensions = applyExtensionSettings finalSettings baseExts
+   in (preprocessedSource, finalExtensions)
+
+-- | Run CPP preprocessor on source, ignoring includes.
+-- For benchmarking purposes, we don't resolve includes - just process the source.
+runCppPreprocessor :: Text -> Text
+runCppPreprocessor source =
+  let cfg = Cpp.defaultConfig {Cpp.configInputFile = "<bench>"}
+      result = runCppWithoutIncludes cfg source
+   in Cpp.resultOutput result
+
+-- | Run CPP without resolving includes (return Nothing for all include requests).
+runCppWithoutIncludes :: Cpp.Config -> Text -> Cpp.Result
+runCppWithoutIncludes cfg source = go (Cpp.preprocess cfg source)
+  where
+    go (Cpp.Done result) = result
+    go (Cpp.NeedInclude _ k) = go (k Nothing)
 
 --------------------------------------------------------------------------------
 -- Legacy functions (no cabal extensions)
@@ -239,15 +280,9 @@ ghc2024Extensions =
 -- HSE extension conversion
 --------------------------------------------------------------------------------
 
--- | Convert ExtensionSettings to HSE extensions.
-toHseExtensionSettings :: [Syntax.ExtensionSetting] -> [HSE.Extension]
-toHseExtensionSettings = mapMaybe toHseExtensionSetting
-
-toHseExtensionSetting :: Syntax.ExtensionSetting -> Maybe HSE.Extension
-toHseExtensionSetting setting =
-  case setting of
-    Syntax.EnableExtension ext -> toHseExtension ext
-    Syntax.DisableExtension ext -> HSE.DisableExtension <$> toHseKnownExtension ext
+-- | Convert a list of aihc Extensions to HSE extensions.
+toHseExtensions :: [Syntax.Extension] -> [HSE.Extension]
+toHseExtensions = mapMaybe toHseExtension
 
 toHseExtension :: Syntax.Extension -> Maybe HSE.Extension
 toHseExtension ext = HSE.EnableExtension <$> toHseKnownExtension ext
@@ -330,6 +365,10 @@ languageToHseExtensions langName =
 --------------------------------------------------------------------------------
 -- GHC extension conversion
 --------------------------------------------------------------------------------
+
+-- | Convert an aihc Extension to an ExtensionSetting (always enabled).
+toGhcExtensionSetting :: Syntax.Extension -> Syntax.ExtensionSetting
+toGhcExtensionSetting = Syntax.EnableExtension
 
 -- | Apply an ExtensionSetting to a GHC extension set.
 applyGhcExtensionSetting :: EnumSet.EnumSet GHC.Extension -> Syntax.ExtensionSetting -> EnumSet.EnumSet GHC.Extension
