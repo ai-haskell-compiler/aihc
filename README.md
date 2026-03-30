@@ -5,10 +5,7 @@
 
 # AI-written Haskell Compiler (aihc)
 
-## Docs
-
-- [Haskell 2010 Language Report (Markdown)](docs/haskell2010-language-report.md)
-- [Layout-sensitive parsing](docs/hse-indentation-layout.md)
+Can gpt-5.3-codex and Claude Opus 4.5 write a Haskell compiler? Probably not but let's find out. We'll need preprocessing, parsing, name resolution, type checking, desugaring, and code generation. Progress will be tracked as a percentage of stackage for each component.
 
 ## Progress
 
