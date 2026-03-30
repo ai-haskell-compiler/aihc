@@ -57,7 +57,7 @@ test-suite spec
     , StackageProgress.Summary
     , Test.Oracle
     , Test.ErrorMessages.Suite
-    , Test.H2010.Suite
+    , Test.Oracle.Suite
     , Test.ExtensionMapping.Suite
     , Test.HackageTester.Suite
     , Test.Lexer.Suite

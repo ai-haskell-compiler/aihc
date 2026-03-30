@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Test.H2010.Suite
+module Test.Oracle.Suite
   ( oracleTests,
   )
 where
