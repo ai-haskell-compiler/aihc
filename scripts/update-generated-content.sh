@@ -95,12 +95,11 @@ parse_extension_summary() {
     /^- Total Extensions:/ { total=$4 }
     /^- Supported:/ { supported=$3 }
     /^- In Progress:/ { in_progress=$4 }
-    /^- Planned:/ { planned=$3 }
     END {
-      if (total == "" || supported == "" || in_progress == "" || planned == "") {
+      if (total == "" || supported == "" || in_progress == "") {
         exit 2
       }
-      printf "%d\n%d\n%d\n%d\n", total, supported, in_progress, planned
+      printf "%d\n%d\n%d\n", total, supported, in_progress
     }
   ' "$infile"
 }
@@ -135,10 +134,9 @@ parse_extension_progress() {
     END {
       total = pass + xfail + xpass + fail
       if (total <= 0) {
-        complete = 0.0
-      } else {
-        complete = ((pass + xpass) * 100.0) / total
+        exit 2
       }
+      complete = ((pass + xpass) * 100.0) / total
       printf "%d\n%d\n%d\n%d\n%d\n%d\n%.2f\n", pass, xfail, xpass, fail, total, pass + xpass, complete
     }
   ' "$infile"
@@ -165,7 +163,10 @@ parse_stackage_progress() {
   '
 }
 
-parser_vals=($(parse_progress "$parser_out"))
+parser_vals=($(parse_progress "$parser_out")) || {
+	echo "update-generated-content.sh: could not parse parser-progress summary (expected PASS/XFAIL/XPASS/FAIL/TOTAL/COMPLETE on stdout)." >&2
+	exit 2
+}
 parser_pass="${parser_vals[0]}"
 parser_xfail="${parser_vals[1]}"
 parser_xpass="${parser_vals[2]}"
@@ -174,7 +175,10 @@ parser_total="${parser_vals[4]}"
 parser_implemented="${parser_vals[5]}"
 parser_complete="${parser_vals[6]}"
 
-lexer_vals=($(parse_progress "$lexer_out"))
+lexer_vals=($(parse_progress "$lexer_out")) || {
+	echo "update-generated-content.sh: could not parse lexer-progress summary (expected PASS/XFAIL/XPASS/FAIL/TOTAL/COMPLETE on stdout)." >&2
+	exit 2
+}
 lexer_pass="${lexer_vals[0]}"
 lexer_xfail="${lexer_vals[1]}"
 lexer_xpass="${lexer_vals[2]}"
@@ -183,7 +187,10 @@ lexer_total="${lexer_vals[4]}"
 lexer_implemented="${lexer_vals[5]}"
 lexer_complete="${lexer_vals[6]}"
 
-cpp_vals=($(parse_progress "$cpp_out"))
+cpp_vals=($(parse_progress "$cpp_out")) || {
+	echo "update-generated-content.sh: could not parse cpp-progress summary (expected PASS/XFAIL/XPASS/FAIL/TOTAL/COMPLETE on stdout)." >&2
+	exit 2
+}
 cpp_pass="${cpp_vals[0]}"
 cpp_xfail="${cpp_vals[1]}"
 cpp_xpass="${cpp_vals[2]}"
@@ -192,17 +199,25 @@ cpp_total="${cpp_vals[4]}"
 cpp_implemented="${cpp_vals[5]}"
 cpp_complete="${cpp_vals[6]}"
 
-ext_vals=($(parse_extension_summary "$extension_out"))
+ext_vals=($(parse_extension_summary "$extension_out")) || {
+	echo "update-generated-content.sh: could not parse extension markdown summary (expected Total Extensions, Supported, In Progress lines after --markdown)." >&2
+	exit 2
+}
 ext_total="${ext_vals[0]}"
 ext_supported="${ext_vals[1]}"
 ext_in_progress="${ext_vals[2]}"
-ext_planned="${ext_vals[3]}"
 
-ext_progress_vals=($(parse_extension_progress "$extension_progress_out"))
+ext_progress_vals=($(parse_extension_progress "$extension_progress_out")) || {
+	echo "update-generated-content.sh: could not parse parser-extension-progress text (expected PASS=/XFAIL=/ lines)." >&2
+	exit 2
+}
 ext_test_total="${ext_progress_vals[4]}"
 ext_implemented="${ext_progress_vals[5]}"
 
-stackage_vals=($(parse_stackage_progress "$stackage_out"))
+stackage_vals=($(parse_stackage_progress "$stackage_out")) || {
+	echo "update-generated-content.sh: could not parse stackage-progress output (expected 'AIHC: N / M' line on stdout)." >&2
+	exit 2
+}
 stackage_implemented="${stackage_vals[0]}"
 stackage_total="${stackage_vals[1]}"
 stackage_complete="${stackage_vals[2]}"
@@ -239,7 +254,6 @@ cat >"$tmpdir/readme-parser-extension.txt" <<EOF2
 - Total tracked extensions: \`${ext_total}\`
 - Supported: \`${ext_supported}\`
 - In Progress: \`${ext_in_progress}\`
-- Planned: \`${ext_planned}\`
 EOF2
 
 cat >"$tmpdir/readme-cpp.txt" <<EOF2
