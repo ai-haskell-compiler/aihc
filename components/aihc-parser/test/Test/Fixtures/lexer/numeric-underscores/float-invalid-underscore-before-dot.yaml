@@ -9,4 +9,5 @@ tokens:
   - TkKeywordUnderscore
   - 'TkVarSym "."'
   - 'TkInteger 1'
+  - 'TkEOF'
 status: pass

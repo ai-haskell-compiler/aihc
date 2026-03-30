@@ -4,4 +4,5 @@ extensions:
 input: "1__e+23"
 tokens:
   - 'TkFloat 1.0e23 "1__e+23"'
+  - 'TkEOF'
 status: pass

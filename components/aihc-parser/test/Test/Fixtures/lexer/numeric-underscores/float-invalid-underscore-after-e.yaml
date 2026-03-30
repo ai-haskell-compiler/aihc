@@ -8,4 +8,5 @@ tokens:
   - 'TkVarId "e_"'
   - 'TkVarSym "+"'
   - 'TkInteger 23'
+  - 'TkEOF'
 status: pass

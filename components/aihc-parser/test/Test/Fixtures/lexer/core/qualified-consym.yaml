@@ -2,4 +2,5 @@ extensions: []
 input: "Data.List.:++"
 tokens:
   - 'TkQConSym "Data.List.:++"'
+  - 'TkEOF'
 status: pass

@@ -6,4 +6,5 @@ output: |
   TkVarSym "+"
   TkVarId "bar"
   TkSpecialRBrace
+  TkEOF
 status: pass

@@ -4,4 +4,5 @@ extensions:
 input: "0x__ffff"
 tokens:
   - 'TkIntegerBase 65535 "0x__ffff"'
+  - 'TkEOF'
 status: pass

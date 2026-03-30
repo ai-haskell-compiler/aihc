@@ -5,4 +5,5 @@ output: |
   TkVarSym "-"
   TkInteger 10
   TkSpecialRBrace
+  TkEOF
 status: pass

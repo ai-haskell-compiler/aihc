@@ -6,4 +6,5 @@ tokens:
   - 'TkKeywordWhere'
   - 'TkSpecialLBrace'
   - 'TkSpecialRBrace'
+  - 'TkEOF'
 status: pass

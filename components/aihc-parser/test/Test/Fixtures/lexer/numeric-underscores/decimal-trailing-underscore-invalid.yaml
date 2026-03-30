@@ -5,4 +5,5 @@ input: "1000000_"
 tokens:
   - 'TkInteger 1000000'
   - TkKeywordUnderscore
+  - 'TkEOF'
 status: pass

@@ -3,4 +3,5 @@ extensions:
 input: "3.141_592_653_589_793"
 tokens:
   - 'TkFloat 3.141592653589793 "3.141_592_653_589_793"'
+  - 'TkEOF'
 status: pass

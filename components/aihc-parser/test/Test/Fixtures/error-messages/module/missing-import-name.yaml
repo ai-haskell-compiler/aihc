@@ -6,6 +6,6 @@ ghc: |
 aihc: |
   test.hs:1:1:
   1 | import
-    | ^
+    | ^^^^^^
   unexpected end of input
   expecting module name

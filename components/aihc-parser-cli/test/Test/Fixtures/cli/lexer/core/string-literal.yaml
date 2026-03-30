@@ -4,4 +4,5 @@ output: |
   TkSpecialLBrace
   TkString "hello world"
   TkSpecialRBrace
+  TkEOF
 status: pass

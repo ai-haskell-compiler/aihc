@@ -6,4 +6,5 @@ input: "0.0001_"
 tokens:
   - 'TkFloat 1.0e-4 "0.0001"'
   - TkKeywordUnderscore
+  - 'TkEOF'
 status: pass

@@ -6,4 +6,5 @@ input: |
   #-}
 tokens:
   - 'TkPragmaLanguage [EnableExtension BangPatterns, EnableExtension GADTs]'
+  - 'TkEOF'
 status: pass

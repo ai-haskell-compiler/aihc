@@ -4,4 +4,5 @@ extensions:
 input: "1__000000"
 tokens:
   - 'TkInteger 1000000'
+  - 'TkEOF'
 status: pass

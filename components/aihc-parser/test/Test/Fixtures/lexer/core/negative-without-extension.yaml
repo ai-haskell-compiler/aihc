@@ -3,4 +3,5 @@ input: "-10"
 tokens:
   - 'TkVarSym "-"'
   - 'TkInteger 10'
+  - 'TkEOF'
 status: pass

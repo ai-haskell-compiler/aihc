@@ -3,4 +3,5 @@ extensions:
 input: "0b1_11_01_0000_0_111"
 tokens:
   - 'TkIntegerBase 7431 "0b1_11_01_0000_0_111"'
+  - 'TkEOF'
 status: pass

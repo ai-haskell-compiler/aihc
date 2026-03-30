@@ -29,6 +29,7 @@ module Aihc.Parser
   )
 where
 
+import Aihc.Parser.Internal.Common (eofTok)
 import Aihc.Parser.Internal.Expr (exprParser, patternParser, typeParser)
 import Aihc.Parser.Internal.Module (moduleParser)
 import Aihc.Parser.Lex
@@ -91,7 +92,7 @@ defaultConfig =
 parseExpr :: ParserConfig -> Text -> ParseResult Expr
 parseExpr cfg input =
   let toks = lexTokensWithExtensions (parserExtensions cfg) input
-   in case runParser (exprParser <* MP.eof) (parserSourceName cfg) (mkTokStream toks) of
+   in case runParser (exprParser <* eofTok) (parserSourceName cfg) (mkTokStream toks) of
         Left bundle -> ParseErr bundle
         Right expr -> ParseOk expr
 
@@ -105,7 +106,7 @@ parseExpr cfg input =
 parsePattern :: ParserConfig -> Text -> ParseResult Pattern
 parsePattern cfg input =
   let toks = lexTokensWithExtensions (parserExtensions cfg) input
-   in case runParser (patternParser <* MP.eof) (parserSourceName cfg) (mkTokStream toks) of
+   in case runParser (patternParser <* eofTok) (parserSourceName cfg) (mkTokStream toks) of
         Left bundle -> ParseErr bundle
         Right pat -> ParseOk pat
 
@@ -119,7 +120,7 @@ parsePattern cfg input =
 parseType :: ParserConfig -> Text -> ParseResult Type
 parseType cfg input =
   let toks = lexTokensWithExtensions (parserExtensions cfg) input
-   in case runParser (typeParser <* MP.eof) (parserSourceName cfg) (mkTokStream toks) of
+   in case runParser (typeParser <* eofTok) (parserSourceName cfg) (mkTokStream toks) of
         Left bundle -> ParseErr bundle
         Right ty -> ParseOk ty
 
@@ -135,7 +136,7 @@ parseType cfg input =
 parseModule :: ParserConfig -> Text -> ParseResult Module
 parseModule cfg input =
   let toks = lexModuleTokensWithExtensions effectiveExtensions input
-   in case runParser (moduleParser <* MP.eof) (parserSourceName cfg) (mkTokStream toks) of
+   in case runParser (moduleParser <* eofTok) (parserSourceName cfg) (mkTokStream toks) of
         Left bundle -> ParseErr bundle
         Right modu -> ParseOk modu
   where
