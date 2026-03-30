@@ -19,6 +19,7 @@ import Data.List (dropWhileEnd, group, sort, sortOn)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
+import qualified Data.Text.IO.Utf8 as Utf8
 import System.Directory (doesDirectoryExist, listDirectory)
 import System.FilePath (makeRelative, takeExtension, (</>))
 
@@ -143,7 +144,7 @@ listFixtureFiles = go
 
 loadCaseMeta :: FilePath -> FilePath -> IO CaseMeta
 loadCaseMeta root path = do
-  source <- TIO.readFile path
+  source <- Utf8.readFile path
   (cid, cat, expected, reason) <- parseOracleTestBlock path source
   pure
     CaseMeta
