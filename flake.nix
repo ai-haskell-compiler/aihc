@@ -1122,12 +1122,7 @@
     in {
       default = pkgs.mkShell {
         buildInputs = [
-          # GHC with all project dependencies
-          (hsPkgs.ghcWithPackages (p: [
-            p.aihc-parser
-            p.aihc-parser-cli
-            p.aihc-cpp
-          ]))
+          hsPkgs
           pkgs.cabal-install
         ];
         shellHook = ''
