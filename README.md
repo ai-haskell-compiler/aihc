@@ -10,7 +10,7 @@ Can gpt-5.3-codex and Claude Opus 4.5 write a Haskell compiler? Probably not but
 ## Progress
 
 | Name             | Progress                                                                                                                            |
-| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------: |
 | Parser Stackage  | <!-- AUTO-GENERATED: START parser-stackage-progress --> `1153/3390` (`34.01%`) <!-- AUTO-GENERATED: END parser-stackage-progress --> |
 | Parser Tests     | <!-- AUTO-GENERATED: START parser-progress --> `472/675` (`69.93%`) <!-- AUTO-GENERATED: END parser-progress -->                    |
 | Lexer Tests      | <!-- AUTO-GENERATED: START lexer-progress --> `64/65` (`98.46%`) <!-- AUTO-GENERATED: END lexer-progress -->                        |
