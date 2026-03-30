@@ -79,7 +79,8 @@ evaluateOracleCaseMaybe meta =
 evaluateOracleCase :: CaseMeta -> IO (CaseMeta, Outcome, String)
 evaluateOracleCase meta = do
   source <- Utf8.readFile (caseSourcePath meta)
-  let exts = extensionNamesToGhcExtensions (caseExtensions meta) Nothing
+  -- Use Haskell2010 as the base language, as test fixtures assume Haskell2010 base extensions
+  let exts = extensionNamesToGhcExtensions (caseExtensions meta) (Just "Haskell2010")
       source' =
         resultOutput
           ( preprocessForParserWithoutIncludesIfEnabled

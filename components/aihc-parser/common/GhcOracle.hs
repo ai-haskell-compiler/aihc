@@ -1,6 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TupleSections #-}
 
 module GhcOracle
   ( oracleParsesModuleWithExtensions,
@@ -27,11 +26,11 @@ module GhcOracle
 where
 
 import Aihc.Cpp (resultOutput)
+import qualified Aihc.Parser.Lex as Lex
 import qualified Aihc.Parser.Syntax as Syntax
 import Control.Exception (catch, displayException, evaluate)
-import CppSupport (moduleHeaderExtensionSettings, preprocessForParserWithoutIncludes)
+import CppSupport (preprocessForParserWithoutIncludes)
 import Data.Bifunctor (first)
-import Data.List (nub)
 import qualified Data.List as List
 import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Text (Text)
@@ -44,7 +43,6 @@ import GHC.Driver.Session (impliedXFlags)
 import GHC.Hs (GhcPs, HsModule)
 import qualified GHC.LanguageExtensions.Type as GHC
 import GHC.Parser (parseModule)
-import GHC.Parser.Header (getOptions)
 import GHC.Parser.Lexer
   ( PState,
     ParseResult (..),
@@ -57,7 +55,7 @@ import GHC.Parser.Lexer
   )
 import GHC.Types.Error (NoDiagnosticOpts (NoDiagnosticOpts), errorsFound)
 import GHC.Types.SourceError (SourceError)
-import GHC.Types.SrcLoc (GenLocated, Located, mkRealSrcLoc, unLoc)
+import GHC.Types.SrcLoc (Located, mkRealSrcLoc, unLoc)
 import GHC.Utils.Error (emptyDiagOpts, pprMessages)
 import GHC.Utils.Outputable (ppr, showSDocUnsafe)
 import System.IO.Unsafe (unsafePerformIO)
@@ -77,66 +75,48 @@ oracleModuleAstFingerprintWithExtensions = oracleModuleAstFingerprintWithExtensi
 
 oracleModuleAstFingerprintWithExtensionsAt :: String -> [GHC.Extension] -> Text -> Either Text Text
 oracleModuleAstFingerprintWithExtensionsAt sourceTag exts input = do
-  (pragmas, parsed) <- parseWithGhcWithExtensions sourceTag exts input
-  let pragmaFingerprint =
-        if null pragmas
-          then ""
-          else "LANGUAGE " <> T.intercalate "," (map Syntax.extensionSettingName pragmas) <> "\n"
-  pure (pragmaFingerprint <> T.pack (showSDocUnsafe (ppr parsed)))
+  parsed <- parseWithGhcWithExtensions sourceTag exts input
+  pure (T.pack (showSDocUnsafe (ppr parsed)))
 
-parseWithGhcWithExtensions :: String -> [GHC.Extension] -> Text -> Either Text ([Syntax.ExtensionSetting], HsModule GhcPs)
-parseWithGhcWithExtensions sourceTag extraExts input =
-  first fst (parseWithGhcWithExtensionsDetailed sourceTag extraExts input)
+parseWithGhcWithExtensions :: String -> [GHC.Extension] -> Text -> Either Text (HsModule GhcPs)
+parseWithGhcWithExtensions sourceTag exts input =
+  first fst (parseWithGhcWithExtensionsDetailed sourceTag exts input)
 
-parseWithGhcWithExtensionsDetailed :: String -> [GHC.Extension] -> Text -> Either (Text, EnumSet.EnumSet GHC.Extension) ([Syntax.ExtensionSetting], HsModule GhcPs)
-parseWithGhcWithExtensionsDetailed sourceTag extraExts input =
-  let baseExts = nub (languageExtensions "Haskell2010" <> extraExts)
-      baseExtSet = EnumSet.fromList baseExts :: EnumSet.EnumSet GHC.Extension
-      baseParseExts = applyImpliedExtensions baseExtSet
-   in do
-        initialLanguagePragmas <- first (,baseParseExts) (extractLanguagePragmas sourceTag baseExts input)
-        let initialParseExts =
-              applyImpliedExtensions
-                (List.foldl' applyExtensionSetting baseExtSet initialLanguagePragmas)
-            inputForParse =
-              if EnumSet.member GHC.Cpp initialParseExts
-                then resultOutput (preprocessForParserWithoutIncludes sourceTag input)
-                else input
-            languagePragmas =
-              if EnumSet.member GHC.Cpp initialParseExts
-                then nub (initialLanguagePragmas <> moduleHeaderExtensionSettings inputForParse)
-                else initialLanguagePragmas
-            parseExts =
-              applyImpliedExtensions
-                (List.foldl' applyExtensionSetting baseExtSet languagePragmas)
-            opts = mkParserOpts parseExts emptyDiagOpts False False False True
-            buffer = stringToStringBuffer (T.unpack inputForParse)
-            start = mkRealSrcLoc (mkFastString sourceTag) 1 1
-        case catchPureExceptionText $ case unP parseModule (initParserState opts buffer start) of
-          POk st modu ->
-            if not (parserStateHasErrors st)
-              then case firstSignificantTokenAfterModule st of
-                Right tok ->
-                  case unLoc tok of
-                    ITeof -> Right (languagePragmas, unLoc modu)
-                    _ ->
-                      Left
-                        ( "GHC parser accepted module prefix but left trailing token: "
-                            <> T.pack (show tok),
-                          parseExts
-                        )
-                Left lexErr ->
-                  Left
-                    ( "GHC lexer failed while checking for trailing tokens: "
-                        <> lexErr,
-                      parseExts
-                    )
-              else Left (renderParserErrors st, parseExts)
-          PFailed st ->
-            let rendered = showSDocUnsafe (pprMessages NoDiagnosticOpts (getPsErrorMessages st))
-             in Left (T.pack rendered, parseExts) of
-          Left err -> Left ("GHC parser exception: " <> err, parseExts)
-          Right result -> result
+-- | Parse a module with GHC using the given extensions.
+-- The extensions should be the complete set - no base extensions are added.
+-- Extension handling (language editions, pragmas, implied extensions) should be done
+-- by the caller using aihc-parser infrastructure.
+parseWithGhcWithExtensionsDetailed :: String -> [GHC.Extension] -> Text -> Either (Text, [GHC.Extension]) (HsModule GhcPs)
+parseWithGhcWithExtensionsDetailed sourceTag exts input =
+  let parseExts = applyImpliedExtensions (EnumSet.fromList exts)
+      opts = mkParserOpts parseExts emptyDiagOpts False False False True
+      buffer = stringToStringBuffer (T.unpack input)
+      start = mkRealSrcLoc (mkFastString sourceTag) 1 1
+   in case catchPureExceptionText $ case unP parseModule (initParserState opts buffer start) of
+        POk st modu ->
+          if not (parserStateHasErrors st)
+            then case firstSignificantTokenAfterModule st of
+              Right tok ->
+                case unLoc tok of
+                  ITeof -> Right (unLoc modu)
+                  _ ->
+                    Left
+                      ( "GHC parser accepted module prefix but left trailing token: "
+                          <> T.pack (show tok),
+                        EnumSet.toList parseExts
+                      )
+              Left lexErr ->
+                Left
+                  ( "GHC lexer failed while checking for trailing tokens: "
+                      <> lexErr,
+                    EnumSet.toList parseExts
+                  )
+            else Left (renderParserErrors st, EnumSet.toList parseExts)
+        PFailed st ->
+          let rendered = showSDocUnsafe (pprMessages NoDiagnosticOpts (getPsErrorMessages st))
+           in Left (T.pack rendered, EnumSet.toList parseExts) of
+        Left err -> Left ("GHC parser exception: " <> err, EnumSet.toList parseExts)
+        Right result -> result
 
 applyExtensionSetting :: EnumSet.EnumSet GHC.Extension -> Syntax.ExtensionSetting -> EnumSet.EnumSet GHC.Extension
 applyExtensionSetting exts setting =
@@ -145,34 +125,6 @@ applyExtensionSetting exts setting =
       maybe exts (`EnumSet.insert` exts) (toGhcExtension ext)
     Syntax.DisableExtension ext ->
       maybe exts (`EnumSet.delete` exts) (toGhcExtension ext)
-
-extractLanguagePragmas :: String -> [GHC.Extension] -> Text -> Either Text [Syntax.ExtensionSetting]
-extractLanguagePragmas sourceTag baseExts input =
-  let headerPragmas = moduleHeaderExtensionSettings input
-      headerExts =
-        applyImpliedExtensions
-          (List.foldl' applyExtensionSetting (EnumSet.fromList baseExts :: EnumSet.EnumSet GHC.Extension) headerPragmas)
-      inputForOptions =
-        if EnumSet.member GHC.Cpp headerExts
-          then resultOutput (preprocessForParserWithoutIncludes sourceTag input)
-          else input
-      buffer = stringToStringBuffer (T.unpack inputForOptions)
-      baseOpts =
-        mkParserOpts
-          (EnumSet.fromList baseExts :: EnumSet.EnumSet GHC.Extension)
-          emptyDiagOpts
-          False
-          False
-          False
-          True
-   in case catchPureExceptionText
-        ( let (_warns, rawOptions) = getOptions baseOpts supportedLanguagePragmas buffer sourceTag
-              optionPragmas = mapMaybe optionToLanguagePragma rawOptions
-              pragmas = nub (headerPragmas <> optionPragmas)
-           in length pragmas `seq` pragmas
-        ) of
-        Left err -> Left ("GHC option parsing exception: " <> err)
-        Right pragmas -> Right pragmas
 
 firstSignificantTokenAfterModule :: PState -> Either Text (Located Token)
 firstSignificantTokenAfterModule st =
@@ -199,13 +151,6 @@ isIgnorableToken tok =
     ITblockComment {} -> True
     _ -> False
 
-optionToLanguagePragma :: GenLocated l String -> Maybe Syntax.ExtensionSetting
-optionToLanguagePragma locatedOpt =
-  let opt = T.pack (unLoc locatedOpt)
-   in case T.stripPrefix "-X" opt of
-        Just pragmaName | not (T.null pragmaName) -> Syntax.parseExtensionSettingName pragmaName
-        _ -> Nothing
-
 applyImpliedExtensions :: EnumSet.EnumSet GHC.Extension -> EnumSet.EnumSet GHC.Extension
 applyImpliedExtensions = go
   where
@@ -219,28 +164,6 @@ applyImpliedExtensions = go
             DynFlags.On ext -> EnumSet.insert ext exts
             DynFlags.Off ext -> EnumSet.delete ext exts
       | otherwise = exts
-
-supportedLanguagePragmas :: [String]
-supportedLanguagePragmas =
-  [ "CPP",
-    "Haskell98",
-    "Haskell2010",
-    "GHC2021",
-    "GHC2024",
-    "Safe",
-    "Trustworthy",
-    "Unsafe",
-    "Rank2Types",
-    "PolymorphicComponents",
-    "GeneralisedNewtypeDeriving",
-    "NoGeneralisedNewtypeDeriving"
-  ]
-    <> concatMap (includeNegative . show) ([minBound .. maxBound] :: [GHC.Extension])
-  where
-    includeNegative extName =
-      case extName of
-        "Cpp" -> [extName, "NoCPP", "NoCpp"]
-        _ -> [extName, "No" <> extName]
 
 catchPureExceptionText :: a -> Either Text a
 catchPureExceptionText value =
@@ -264,13 +187,29 @@ oracleDetailedParsesModuleWithNames = oracleDetailedParsesModuleWithNamesAt "ora
 
 oracleDetailedParsesModuleWithNamesAt :: String -> [String] -> Maybe String -> Text -> Either Text ()
 oracleDetailedParsesModuleWithNamesAt sourceTag extNames langName input =
-  let extSettings = mapMaybe (Syntax.parseExtensionSettingName . T.pack) extNames
-      langExts = maybe [] languageExtensions langName
-      allExts = EnumSet.toList (List.foldl' applyExtensionSetting (EnumSet.fromList langExts) extSettings)
-   in case parseWithGhcWithExtensionsDetailed sourceTag allExts input of
+  let -- Parse default language edition from string
+      defaultEdition = langName >>= Syntax.parseLanguageEdition . T.pack
+      -- Read module header pragmas (before CPP)
+      initialPragmas = Lex.readModuleHeaderPragmas input
+      -- Compute initial extensions to check for CPP
+      initialExts = computeEffectiveExtensions defaultEdition extNames initialPragmas
+      -- Preprocess if CPP is enabled
+      preprocessedInput =
+        if Syntax.CPP `elem` initialExts
+          then resultOutput (preprocessForParserWithoutIncludes sourceTag input)
+          else input
+      -- Re-read pragmas after CPP (may reveal more pragmas)
+      finalPragmas =
+        if Syntax.CPP `elem` initialExts
+          then Lex.readModuleHeaderPragmas preprocessedInput
+          else initialPragmas
+      -- Compute final extensions
+      finalExts = computeEffectiveExtensions defaultEdition extNames finalPragmas
+      ghcExts = mapMaybe toGhcExtension finalExts
+   in case parseWithGhcWithExtensionsDetailed sourceTag ghcExts preprocessedInput of
         Left (err, parseExts) ->
           let extList = T.pack (show extNames)
-              parseExtList = T.pack (show (EnumSet.toList parseExts))
+              parseExtList = T.pack (show parseExts)
               langInfo = maybe "" (\l -> " Language: " <> T.pack l) langName
            in Left (err <> "\n(Extensions: " <> extList <> langInfo <> " Effective parse extensions: " <> parseExtList <> ")")
         Right _ -> Right ()
@@ -280,10 +219,26 @@ oracleModuleParseErrorWithNames = oracleModuleParseErrorWithNamesAt "oracle"
 
 oracleModuleParseErrorWithNamesAt :: String -> [String] -> Maybe String -> Text -> Either Text Text
 oracleModuleParseErrorWithNamesAt sourceTag extNames langName input =
-  let extSettings = mapMaybe (Syntax.parseExtensionSettingName . T.pack) extNames
-      langExts = maybe [] languageExtensions langName
-      allExts = EnumSet.toList (List.foldl' applyExtensionSetting (EnumSet.fromList langExts) extSettings)
-   in case parseWithGhcWithExtensionsDetailed sourceTag allExts input of
+  let -- Parse default language edition from string
+      defaultEdition = langName >>= Syntax.parseLanguageEdition . T.pack
+      -- Read module header pragmas (before CPP)
+      initialPragmas = Lex.readModuleHeaderPragmas input
+      -- Compute initial extensions to check for CPP
+      initialExts = computeEffectiveExtensions defaultEdition extNames initialPragmas
+      -- Preprocess if CPP is enabled
+      preprocessedInput =
+        if Syntax.CPP `elem` initialExts
+          then resultOutput (preprocessForParserWithoutIncludes sourceTag input)
+          else input
+      -- Re-read pragmas after CPP (may reveal more pragmas)
+      finalPragmas =
+        if Syntax.CPP `elem` initialExts
+          then Lex.readModuleHeaderPragmas preprocessedInput
+          else initialPragmas
+      -- Compute final extensions
+      finalExts = computeEffectiveExtensions defaultEdition extNames finalPragmas
+      ghcExts = mapMaybe toGhcExtension finalExts
+   in case parseWithGhcWithExtensionsDetailed sourceTag ghcExts preprocessedInput of
         Left (err, _) -> Right err
         Right _ -> Left "GHC parser accepted the input"
 
@@ -415,6 +370,6 @@ oracleDetailedParsesWithParserExtensionsAt sourceTag exts input =
    in case parseWithGhcWithExtensionsDetailed sourceTag ghcExts input of
         Left (err, parseExts) ->
           let extList = T.pack (show (map Syntax.extensionName exts))
-              parseExtList = T.pack (show (EnumSet.toList parseExts))
+              parseExtList = T.pack (show parseExts)
            in Left (err <> "\n(Parser extensions: " <> extList <> " Effective GHC parse extensions: " <> parseExtList <> ")")
         Right _ -> Right ()
