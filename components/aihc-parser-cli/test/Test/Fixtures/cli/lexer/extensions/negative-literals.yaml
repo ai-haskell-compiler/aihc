@@ -1,5 +1,5 @@
 input: "-10"
-args: ["-XNegativeLiterals"]
+args: ["--lex", "-XNegativeLiterals"]
 output: |
   TkSpecialLBrace
   TkInteger -10

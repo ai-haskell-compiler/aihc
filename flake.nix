@@ -498,7 +498,6 @@
             wasm32-wasi-cabal build \
               --only-download \
               aihc-parser:exe:aihc-parser \
-              aihc-parser:exe:aihc-lexer \
               --project-file=cabal.project
 
             mkdir -p "$out"
@@ -541,7 +540,6 @@
                           wasm32-wasi-cabal build \
                             --offline \
                             aihc-parser:exe:aihc-parser \
-                            aihc-parser:exe:aihc-lexer \
                             --project-file=cabal.project.offline
                           runHook postBuild
           '';
@@ -549,12 +547,10 @@
             runHook preInstall
             mkdir -p "$out/bin"
             find dist-newstyle -type f -name 'aihc-parser.wasm' -exec cp {} "$out/bin/aihc-parser.wasm" \;
-            find dist-newstyle -type f -name 'aihc-lexer.wasm' -exec cp {} "$out/bin/aihc-lexer.wasm" \;
             test -f "$out/bin/aihc-parser.wasm"
-            test -f "$out/bin/aihc-lexer.wasm"
             runHook postInstall
           '';
-          meta.description = "WASM-WASI builds of aihc-parser and aihc-lexer using ghc-wasm-meta";
+          meta.description = "WASM-WASI build of aihc-parser using ghc-wasm-meta";
         };
       docs = mkCombinedDocs pkgs;
       coverage = mkCoverageReport pkgs;
@@ -573,7 +569,6 @@
       cppProgressExe = pkgs.lib.getExe' hsPkgs.aihc-cpp "cpp-progress";
       hackageTesterExe = pkgs.lib.getExe' hsPkgs.aihc-parser "hackage-tester";
       stackageProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser "stackage-progress";
-      aihcLexerExe = pkgs.lib.getExe' hsPkgs.aihc-parser-cli "aihc-lexer";
       aihcParserExe = pkgs.lib.getExe' hsPkgs.aihc-parser-cli "aihc-parser";
       mkAppWithInputs = name: runtimeInputs: text: {
         type = "app";
@@ -820,7 +815,7 @@
       '';
 
       aihc-lexer = mkAppWithInputs "aihc-lexer" [pkgs.bash] ''
-        exec ${aihcLexerExe} "$@"
+        exec ${aihcParserExe} --lex "$@"
       '';
 
       aihc-parser = mkAppWithInputs "aihc-parser" [pkgs.bash] ''

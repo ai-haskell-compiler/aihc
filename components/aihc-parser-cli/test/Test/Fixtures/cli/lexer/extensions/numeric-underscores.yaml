@@ -1,5 +1,5 @@
 input: "1_000_000"
-args: ["-XNumericUnderscores"]
+args: ["--lex", "-XNumericUnderscores"]
 output: |
   TkSpecialLBrace
   TkInteger 1000000

@@ -15,7 +15,7 @@
 
 - Test whether a snippet is accepted by GHC: `echo snippet | ghci -v0`. Return code 0 means the snippet is valid, non-zero means it is invalid.
 - Test whether a snippet is accepted by AIHC: `echo snippet | nix run .#aihc-parser`
-- Test how the lexer interprets a string: `echo string | nix run .#aihc-lexer`
+- Test how the lexer interprets a string: `echo string | nix run .#aihc-parser -- --lex`
 
 ## Gotchas
 

@@ -2,9 +2,8 @@
 
 -- | CLI binary tests using golden test fixtures.
 --
--- These tests run the aihc-lexer and aihc-parser main functions in-process
--- using the 'silently' library to capture output. No external executables
--- are required.
+-- These tests run the unified aihc-parser CLI in-process. Lexer tests use the
+-- @--lex@ flag to switch to lexer mode. No external executables are required.
 module Test.CLI.Suite
   ( cliTests,
   )
@@ -22,36 +21,36 @@ cliTests = do
   lexerCases <- CG.loadLexerCLICases
   parserCases <- CG.loadParserCLICases
 
-  -- Build test trees
-  let lexerTests = mkCLIGoldenTests CG.ToolLexer lexerCases
-      parserTests = mkCLIGoldenTests CG.ToolParser parserCases
+  -- Build test trees (both use the unified aihc-parser CLI)
+  let lexerTests = mkCLIGoldenTests lexerCases
+      parserTests = mkCLIGoldenTests parserCases
 
   pure $
     testGroup
       "CLI"
-      [ testGroup "aihc-lexer" lexerTests,
-        testGroup "aihc-parser" parserTests
+      [ testGroup "lexer (--lex)" lexerTests,
+        testGroup "parser" parserTests
       ]
 
--- | Build golden tests for a CLI tool.
+-- | Build golden tests for the CLI.
 -- Runs tests in-process, no external executables required.
-mkCLIGoldenTests :: CG.CLITool -> [CG.CLICase] -> [TestTree]
-mkCLIGoldenTests tool cases =
+mkCLIGoldenTests :: [CG.CLICase] -> [TestTree]
+mkCLIGoldenTests cases =
   if null cases
     then [testCase "no fixtures found" (assertFailure "no CLI test fixtures found")]
     else
-      let tests = map (mkTest tool) cases
-          summaryTest = testCase "summary" (runSummaryTest tool cases)
+      let tests = map mkTest cases
+          summaryTest = testCase "summary" (runSummaryTest cases)
        in tests <> [summaryTest]
   where
-    mkTest cliTool cliCase =
+    mkTest cliCase =
       testCase (CG.caseId cliCase) $
-        runCLIGoldenTest cliTool cliCase
+        runCLIGoldenTest cliCase
 
 -- | Run a single CLI golden test.
-runCLIGoldenTest :: CG.CLITool -> CG.CLICase -> IO ()
-runCLIGoldenTest tool cliCase = do
-  (outcome, detail) <- CG.evaluateCLICase tool cliCase
+runCLIGoldenTest :: CG.CLICase -> IO ()
+runCLIGoldenTest cliCase = do
+  (outcome, detail) <- CG.evaluateCLICase cliCase
   case outcome of
     CG.OutcomePass -> pure ()
     CG.OutcomeXFail -> pure () -- Expected failure
@@ -61,10 +60,10 @@ runCLIGoldenTest tool cliCase = do
         "CLI test failed for " <> CG.caseId cliCase <> ": " <> detail
 
 -- | Run all tests and produce a summary.
-runSummaryTest :: CG.CLITool -> [CG.CLICase] -> IO ()
-runSummaryTest tool cases = do
+runSummaryTest :: [CG.CLICase] -> IO ()
+runSummaryTest cases = do
   results <- forM cases $ \cliCase -> do
-    (outcome, detail) <- CG.evaluateCLICase tool cliCase
+    (outcome, detail) <- CG.evaluateCLICase cliCase
     pure (cliCase, outcome, detail)
   let (pass, xfail, xpass, _failures) = CG.progressSummary results
       total = length cases

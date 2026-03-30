@@ -1,15 +1,17 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Golden test infrastructure for CLI binaries (aihc-lexer, aihc-parser).
+-- | Golden test infrastructure for the aihc-parser CLI binary.
 --
 -- This module provides in-process testing that directly calls the CLI core
 -- functions and captures their output, avoiding the need to spawn external
 -- processes or have executables installed in PATH.
+--
+-- Tests are organized into lexer and parser directories. Lexer tests use
+-- the @--lex@ flag to switch the CLI to lexer mode.
 module CLIGolden
   ( ExpectedStatus (..),
     Outcome (..),
     CLICase (..),
-    CLITool (..),
     fixtureRoot,
     loadLexerCLICases,
     loadParserCLICases,
@@ -19,8 +21,7 @@ module CLIGolden
   )
 where
 
-import qualified Aihc.Parser.Run.Lexer as LexerRun
-import qualified Aihc.Parser.Run.Parser as ParserRun
+import qualified Aihc.Parser.Run as Run
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withObject)
 import Data.Char (isSpace, toLower)
@@ -45,10 +46,6 @@ data Outcome
   | OutcomeXFail
   | OutcomeXPass
   | OutcomeFail
-  deriving (Eq, Show)
-
--- | Which CLI tool to run
-data CLITool = ToolLexer | ToolParser
   deriving (Eq, Show)
 
 data CLICase = CLICase
@@ -141,9 +138,11 @@ parseYamlFixture path value =
 
 -- | Run a CLI case in-process and evaluate the outcome.
 -- Returns (Outcome, detail message).
-evaluateCLICase :: CLITool -> CLICase -> IO (Outcome, String)
-evaluateCLICase tool meta = do
-  let result = runCLIInProcess tool (caseArgs meta) (caseInput meta)
+--
+-- All tests use the unified aihc-parser CLI. Lexer tests pass @--lex@ in their args.
+evaluateCLICase :: CLICase -> IO (Outcome, String)
+evaluateCLICase meta = do
+  let result = runCLIInProcess (caseArgs meta) (caseInput meta)
       -- Combine stdout and stderr for output comparison
       actualOutput = T.stripEnd (cliStdout result <> cliStderr result)
       expectedOutput = T.stripEnd (caseExpectedOutput meta)
@@ -174,17 +173,12 @@ data CLIResult = CLIResult
     cliStderr :: !Text
   }
 
--- | Run a CLI tool in-process with full argument parsing.
+-- | Run the unified aihc-parser CLI in-process with full argument parsing.
 -- This calls the pure CLI functions directly without IO.
-runCLIInProcess :: CLITool -> [String] -> Text -> CLIResult
-runCLIInProcess tool args input =
-  case tool of
-    ToolLexer ->
-      let r = LexerRun.runLexer args input
-       in CLIResult (LexerRun.cliExitCode r) (LexerRun.cliStdout r) (LexerRun.cliStderr r)
-    ToolParser ->
-      let r = ParserRun.runParser args input
-       in CLIResult (ParserRun.cliExitCode r) (ParserRun.cliStdout r) (ParserRun.cliStderr r)
+runCLIInProcess :: [String] -> Text -> CLIResult
+runCLIInProcess args input =
+  let r = Run.runCLI args input
+   in CLIResult (Run.cliExitCode r) (Run.cliStdout r) (Run.cliStderr r)
 
 exitCodeToInt :: ExitCode -> Int
 exitCodeToInt ExitSuccess = 0

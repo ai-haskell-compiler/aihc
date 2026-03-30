@@ -1,4 +1,5 @@
 input: "-10"
+args: ["--lex"]
 output: |
   TkSpecialLBrace
   TkVarSym "-"
