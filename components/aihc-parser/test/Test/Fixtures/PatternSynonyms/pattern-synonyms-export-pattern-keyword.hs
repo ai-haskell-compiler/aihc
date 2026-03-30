@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: pattern-synonyms-export-pattern-keyword
-category: modules
-expected: xfail
-reason: parser support pending
--}
+{- ORACLE_TEST xfail parser support pending -}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE ExplicitNamespaces #-}
 

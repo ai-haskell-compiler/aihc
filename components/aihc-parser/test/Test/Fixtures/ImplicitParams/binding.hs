@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: binding
-category: expressions
-expected: xfail
-reason: implicit parameter binding
--}
+{- ORACLE_TEST xfail implicit parameter binding -}
 {-# LANGUAGE ImplicitParams #-}
 module Binding where
 

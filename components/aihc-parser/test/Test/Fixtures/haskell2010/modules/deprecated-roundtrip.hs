@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: modules-deprecated-roundtrip
-category: modules
-expected: pass
-reason: parser supports roundtrip of module deprecated pragmas
--}
+{- ORACLE_TEST pass -}
 module DeprecatedRoundtrip
   {-# DEPRECATED "Use SomethingElse instead" #-}
   where

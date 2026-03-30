@@ -1,8 +1,4 @@
-{- ORACLE_TEST
-id: kindsig-class-head-star
-category: declarations
-expected: pass
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE StarIsType #-}
 

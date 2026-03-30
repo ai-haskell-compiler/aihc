@@ -1,8 +1,4 @@
-{- ORACLE_TEST
-id: mptc-constrained-method
-category: declarations
-expected: pass
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE MultiParamTypeClasses #-}
 
 module MultiParamTypeClassesConstrainedMethod where

@@ -1,8 +1,4 @@
-{- ORACLE_TEST
-id: pattern-guard-multi-qualifiers
-category: patterns
-expected: pass
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE PatternGuards #-}
 
 module PatternGuardMultiQualifiers where

@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: basic
-category: expressions
-expected: pass
-reason: basic unboxed tuple
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE UnboxedTuples #-}
 module Basic where
 

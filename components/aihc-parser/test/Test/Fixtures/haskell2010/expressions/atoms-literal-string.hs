@@ -1,8 +1,3 @@
-{- ORACLE_TEST
-id: expr-s3-atoms-literal-string
-category: expressions
-expected: pass
-reason: parser now handles string literal atom case
--}
+{- ORACLE_TEST pass -}
 module ExprS302LiteralString where
 x = "abc"

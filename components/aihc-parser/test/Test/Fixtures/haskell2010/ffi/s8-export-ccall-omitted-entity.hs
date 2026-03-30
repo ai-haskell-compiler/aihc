@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: ffi-s8-export-ccall-omitted-entity
-category: ffi
-expected: pass
-reason: parser now supports foreign export declarations with omitted entity
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE ForeignFunctionInterface #-}
 module FfiS8ExportCcallOmittedEntity where
 addOne :: Int -> Int

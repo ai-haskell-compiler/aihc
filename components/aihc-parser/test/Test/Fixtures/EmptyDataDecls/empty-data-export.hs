@@ -1,8 +1,4 @@
-{- ORACLE_TEST
-id: empty-data-export
-category: modules
-expected: pass
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE EmptyDataDecls #-}
 
 module EmptyDataDeclsExport (Empty, Phantom) where

@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: lexical-strings-escape-sequences
-category: lexical
-expected: pass
-reason: parser now handles escaped string literal forms
--}
+{- ORACLE_TEST pass -}
 module K2 where
 
 x = "\\SO\\&H"

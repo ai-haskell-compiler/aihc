@@ -1,8 +1,4 @@
-{- ORACLE_TEST
-id: standalone-deriving-strategy-anyclass
-category: declarations
-expected: pass
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE StandaloneDeriving #-}

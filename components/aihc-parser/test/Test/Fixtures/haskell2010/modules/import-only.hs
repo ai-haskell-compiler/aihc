@@ -1,7 +1,2 @@
-{- ORACLE_TEST
-id: modules-import-only
-category: modules
-expected: pass
-reason: parser supports modules with imports and no declarations
--}
+{- ORACLE_TEST pass -}
 import Data.List

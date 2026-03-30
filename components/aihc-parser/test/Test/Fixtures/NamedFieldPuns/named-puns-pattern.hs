@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: named-puns-pattern
-category: expressions
-expected: pass
-reason: parser now supports NamedFieldPuns in record patterns
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE NamedFieldPuns #-}
 
 module NamedFieldPunsPattern where

@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: empty-case-let
-category: expressions
-expected: pass
-reason: parser now supports empty case alternatives
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE EmptyCase #-}
 
 module EmptyCaseLet where

@@ -1,8 +1,3 @@
-{- ORACLE_TEST
-id: expr-s3-list-empty
-category: expressions
-expected: pass
-reason: parser supports empty list literals
--}
+{- ORACLE_TEST pass -}
 module ExprS307ListEmpty where
 x = []

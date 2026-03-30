@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: th_nested_splice
-category: expressions
-expected: xfail
-reason: TemplateHaskell nested splices
--}
+{- ORACLE_TEST xfail TemplateHaskell nested splices -}
 {-# LANGUAGE TemplateHaskell #-}
 module TH_Nested_Splice where
 

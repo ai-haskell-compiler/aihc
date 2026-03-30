@@ -1,8 +1,4 @@
-{- ORACLE_TEST
-id: standalone-deriving-multi-arg
-category: declarations
-expected: pass
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE StandaloneDeriving #-}
 
 module StandaloneDerivingMultiArg where

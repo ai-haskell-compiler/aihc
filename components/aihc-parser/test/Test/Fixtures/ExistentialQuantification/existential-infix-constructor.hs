@@ -1,8 +1,4 @@
-{- ORACLE_TEST
-id: existential-infix-constructor
-category: declarations
-expected: pass
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE ExistentialQuantification #-}
 
 module ExistentialInfixConstructor where

@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: newtype-instance
-category: declarations
-expected: xfail
-reason: newtype instance
--}
+{- ORACLE_TEST xfail newtype instance -}
 {-# LANGUAGE TypeFamilies #-}
 module NewtypeInstance where
 

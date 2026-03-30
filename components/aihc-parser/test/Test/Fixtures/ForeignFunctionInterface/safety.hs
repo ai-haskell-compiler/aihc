@@ -1,8 +1,4 @@
-{- ORACLE_TEST
-id: safety
-category: declarations
-expected: pass
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE ForeignFunctionInterface #-}
 module Safety where
 

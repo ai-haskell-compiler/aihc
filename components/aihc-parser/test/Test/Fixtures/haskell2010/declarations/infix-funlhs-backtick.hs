@@ -1,8 +1,3 @@
-{- ORACLE_TEST
-id: decls-infix-funlhs-backtick
-category: declarations
-expected: pass
-reason: parser preserves backtick infix function definitions in roundtrip
--}
+{- ORACLE_TEST pass -}
 module InfixFunlhsBacktick where
 x `myOp` y = x + y

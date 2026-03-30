@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: hashable-ffi-capi-calling-convention
-category: corpus
-expected: xfail
-reason: from hashable/src/Data/Hashable/FFI.hs; parser does not support capi calling convention (CApiFFI)
--}
+{- ORACLE_TEST xfail from hashable/src/Data/Hashable/FFI.hs; parser does not support capi calling convention (CApiFFI) -}
 {-# LANGUAGE CApiFFI #-}
 {-# LANGUAGE ForeignFunctionInterface #-}
 {-# LANGUAGE MagicHash #-}

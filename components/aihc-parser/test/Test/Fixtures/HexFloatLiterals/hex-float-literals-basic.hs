@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: hex-float-literals-basic
-category: literals
-expected: pass
-reason: parser now supports hexadecimal floating-point literals with binary exponent
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE HexFloatLiterals #-}
 
 module HexFloatLiteralsBasic where

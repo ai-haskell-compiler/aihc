@@ -1,8 +1,4 @@
-{- ORACLE_TEST
-id: import-qualified-post-as
-category: modules
-expected: pass
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE ImportQualifiedPost #-}
 
 module ImportQualifiedPostAs where

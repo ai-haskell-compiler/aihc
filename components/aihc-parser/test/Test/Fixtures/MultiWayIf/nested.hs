@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: nested
-category: expressions
-expected: xfail
-reason: nested multi-way if
--}
+{- ORACLE_TEST xfail nested multi-way if -}
 {-# LANGUAGE MultiWayIf #-}
 module Nested where
 

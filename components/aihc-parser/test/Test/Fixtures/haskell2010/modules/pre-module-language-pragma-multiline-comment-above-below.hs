@@ -1,8 +1,4 @@
-{- ORACLE_TEST
-id: modules-language-pragma-multiline-above-below
-category: modules
-expected: pass
--}
+{- ORACLE_TEST pass -}
 {- a
    multi-line comment before pragma -}
 {-# LANGUAGE ForeignFunctionInterface #-}

@@ -1,8 +1,4 @@
-{- ORACLE_TEST
-id: standalone-kind-type-synonym
-category: declarations
-expected: pass
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE StandaloneKindSignatures #-}
 
 module StandaloneKindTypeSynonym where

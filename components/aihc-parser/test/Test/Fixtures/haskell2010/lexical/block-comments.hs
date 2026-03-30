@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: lexical-block-comments
-category: lexical
-expected: pass
-reason: lexer now handles block comments
--}
+{- ORACLE_TEST pass -}
 module K1 where
 {- block
    comment -}

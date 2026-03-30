@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: mdo
-category: expressions
-expected: xfail
-reason: basic mdo block
--}
+{- ORACLE_TEST xfail basic mdo block -}
 {-# LANGUAGE RecursiveDo #-}
 module MDo where
 

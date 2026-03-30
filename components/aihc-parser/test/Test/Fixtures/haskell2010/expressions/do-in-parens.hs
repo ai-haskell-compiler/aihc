@@ -1,8 +1,3 @@
-{- ORACLE_TEST
-id: expr-s3-do-in-parens
-category: expressions
-expected: pass
-reason: parser supports do inside parentheses with layout
--}
+{- ORACLE_TEST pass -}
 module X where
 x = (do a;b)

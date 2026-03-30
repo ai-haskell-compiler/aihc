@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: pat-infix-constructor
-category: patterns
-expected: pass
-reason: parser now supports infix constructor patterns
--}
+{- ORACLE_TEST pass -}
 module P6 where
 
 headOrZero (x : _) = x

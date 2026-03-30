@@ -1,8 +1,4 @@
-{- ORACLE_TEST
-id: do-and-if-then-else-then-do-single-stmt
-category: layout
-expected: pass
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE DoAndIfThenElse #-}
 
 -- Test case: 'then do' and 'else do' with single statements at same indent as 'else'.

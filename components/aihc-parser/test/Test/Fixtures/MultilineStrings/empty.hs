@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: empty
-category: expressions
-expected: xfail
-reason: empty multiline string
--}
+{- ORACLE_TEST xfail empty multiline string -}
 {-# LANGUAGE MultilineStrings #-}
 module Empty where
 

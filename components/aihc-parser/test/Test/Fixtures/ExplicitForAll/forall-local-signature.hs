@@ -1,8 +1,4 @@
-{- ORACLE_TEST
-id: forall-local-signature
-category: types
-expected: pass
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE ExplicitForAll #-}
 
 module ExplicitForAllLocalSignature where

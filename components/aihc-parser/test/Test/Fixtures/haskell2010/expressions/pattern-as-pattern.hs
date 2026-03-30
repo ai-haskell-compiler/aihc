@@ -1,8 +1,3 @@
-{- ORACLE_TEST
-id: expr-s3-pattern-as-pattern
-category: expressions
-expected: pass
-reason: parser now supports as-patterns in case alternatives
--}
+{- ORACLE_TEST pass -}
 module ExprS317PatAsPattern where
 x xs = case xs of { ys@(y:_) -> y; [] -> 0 }

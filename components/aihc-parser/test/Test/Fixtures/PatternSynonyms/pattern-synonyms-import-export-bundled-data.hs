@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: pattern-synonyms-import-export-bundled-data
-category: modules
-expected: pass
-reason: parser support pending
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE PatternSynonyms #-}
 
 module PatternSynonymsImportExportBundledData

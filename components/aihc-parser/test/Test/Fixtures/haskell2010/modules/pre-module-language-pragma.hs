@@ -1,8 +1,4 @@
-{- ORACLE_TEST
-id: modules-language-pragma-basic
-category: modules
-expected: pass
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE ForeignFunctionInterface #-}
 module Demo where
 x = 1

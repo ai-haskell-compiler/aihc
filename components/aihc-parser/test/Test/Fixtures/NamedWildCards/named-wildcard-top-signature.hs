@@ -1,8 +1,4 @@
-{- ORACLE_TEST
-id: named-wildcard-top-signature
-category: types
-expected: pass
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE NamedWildCards #-}
 
 module NamedWildcardTopSignature where

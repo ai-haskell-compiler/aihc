@@ -1,8 +1,4 @@
-{- ORACLE_TEST
-id: types-newtype-record-layout-application
-category: types
-expected: pass
--}
+{- ORACLE_TEST pass -}
 module TNewtypeRecordLayoutApplication where
 
 import Data.IORef (IORef)

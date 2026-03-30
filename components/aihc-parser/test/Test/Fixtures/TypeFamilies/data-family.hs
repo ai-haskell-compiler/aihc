@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: data-family
-category: declarations
-expected: xfail
-reason: data family
--}
+{- ORACLE_TEST xfail data family -}
 {-# LANGUAGE TypeFamilies #-}
 module DataFamily where
 

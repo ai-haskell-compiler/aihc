@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: associated-type
-category: declarations
-expected: xfail
-reason: associated type family
--}
+{- ORACLE_TEST xfail associated type family -}
 {-# LANGUAGE TypeFamilies #-}
 module AssociatedType where
 

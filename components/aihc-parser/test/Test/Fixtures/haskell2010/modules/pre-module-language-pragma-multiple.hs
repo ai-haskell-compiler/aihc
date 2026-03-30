@@ -1,8 +1,4 @@
-{- ORACLE_TEST
-id: modules-language-pragma-multiple
-category: modules
-expected: pass
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE ForeignFunctionInterface #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 module DemoMultiplePragmas where

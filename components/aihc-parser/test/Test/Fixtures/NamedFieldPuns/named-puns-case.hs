@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: named-puns-case
-category: expressions
-expected: pass
-reason: parser now supports NamedFieldPuns in case pattern matching
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE NamedFieldPuns #-}
 
 module NamedFieldPunsCase where

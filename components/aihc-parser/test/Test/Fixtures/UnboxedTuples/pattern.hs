@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: pattern
-category: patterns
-expected: pass
-reason: unboxed tuple pattern
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE UnboxedTuples #-}
 module Pattern where
 

@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: basic
-category: declarations
-expected: xfail
-reason: basic default signature
--}
+{- ORACLE_TEST xfail basic default signature -}
 {-# LANGUAGE DefaultSignatures #-}
 module Basic where
 

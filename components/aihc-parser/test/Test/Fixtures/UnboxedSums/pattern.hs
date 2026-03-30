@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: pattern
-category: patterns
-expected: xfail
-reason: unboxed sum pattern
--}
+{- ORACLE_TEST xfail unboxed sum pattern -}
 {-# LANGUAGE UnboxedSums #-}
 module Pattern where
 

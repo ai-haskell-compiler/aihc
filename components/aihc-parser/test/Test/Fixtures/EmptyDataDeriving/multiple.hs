@@ -1,8 +1,4 @@
-{- ORACLE_TEST
-id: multiple
-category: declarations
-expected: pass
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE EmptyDataDecls #-}
 {-# LANGUAGE EmptyDataDeriving #-}
 module Multiple where

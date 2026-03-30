@@ -1,8 +1,4 @@
-{- ORACLE_TEST
-id: kindsig-data-param
-category: declarations
-expected: pass
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE KindSignatures #-}
 
 module KindSignaturesDataParam where

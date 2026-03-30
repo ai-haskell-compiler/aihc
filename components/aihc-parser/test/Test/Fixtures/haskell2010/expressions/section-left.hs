@@ -1,8 +1,3 @@
-{- ORACLE_TEST
-id: expr-s3-section-left
-category: expressions
-expected: pass
-reason: parser now supports left operator sections
--}
+{- ORACLE_TEST pass -}
 module ExprS305SectionLeft where
 x = map (1+) [1, 2, 3]

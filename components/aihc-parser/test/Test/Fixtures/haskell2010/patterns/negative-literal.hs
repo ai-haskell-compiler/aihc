@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: pat-negative-literal
-category: patterns
-expected: pass
-reason: parser now supports negative literal patterns
--}
+{- ORACLE_TEST pass -}
 module P7 where
 
 intSign (-1) = 0

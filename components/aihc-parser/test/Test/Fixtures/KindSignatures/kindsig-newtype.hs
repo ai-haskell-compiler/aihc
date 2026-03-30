@@ -1,8 +1,4 @@
-{- ORACLE_TEST
-id: kindsig-newtype
-category: declarations
-expected: pass
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE KindSignatures #-}
 
 module KindSignaturesNewtype where

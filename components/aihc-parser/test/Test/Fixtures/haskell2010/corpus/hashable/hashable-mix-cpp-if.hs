@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: hashable-mix-cpp-if
-category: corpus
-expected: pass
-reason: from hashable/src/Data/Hashable/Mix.hs; parser now accepts this preprocessed case
--}
+{- ORACLE_TEST pass -}
 module X where
 
 #if WORD_SIZE_IN_BITS == 64

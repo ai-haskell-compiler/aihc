@@ -1,8 +1,4 @@
-{- ORACLE_TEST
-id: forall-class-method
-category: types
-expected: pass
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE ExplicitForAll #-}
 
 module ExplicitForAllClassMethod where

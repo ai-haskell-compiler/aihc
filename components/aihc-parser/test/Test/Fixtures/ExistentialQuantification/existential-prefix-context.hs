@@ -1,8 +1,4 @@
-{- ORACLE_TEST
-id: existential-prefix-context
-category: declarations
-expected: pass
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE ExistentialQuantification #-}
 
 module ExistentialPrefixContext where

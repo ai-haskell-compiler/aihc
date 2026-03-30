@@ -1,8 +1,4 @@
-{- ORACLE_TEST
-id: bang-lambda
-category: patterns
-expected: pass
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE BangPatterns #-}
 
 module BangPatternsLambda where

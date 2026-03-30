@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: viewpatterns-casealt
-category: patterns
-expected: pass
-reason: parser now supports view patterns in case alternatives
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE ViewPatterns #-}
 
 module ViewPatternsCaseAlt where

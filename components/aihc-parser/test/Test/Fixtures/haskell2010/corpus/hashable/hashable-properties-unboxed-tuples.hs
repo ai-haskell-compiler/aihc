@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: hashable-properties-unboxed-tuples
-category: corpus
-expected: pass
-reason: from hashable/tests/Properties.hs; parser supports unboxed tuple syntax
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE UnboxedTuples #-}
 module X where

@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: do
-category: expressions
-expected: xfail
-reason: arrow notation with do
--}
+{- ORACLE_TEST xfail arrow notation with do -}
 {-# LANGUAGE Arrows #-}
 module Do where
 

@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: th_splice_t
-category: types
-expected: xfail
-reason: TemplateHaskell $t syntax
--}
+{- ORACLE_TEST xfail TemplateHaskell $t syntax -}
 {-# LANGUAGE TemplateHaskell #-}
 module TH_Splice_T where
 

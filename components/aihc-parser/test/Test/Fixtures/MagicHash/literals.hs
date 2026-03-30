@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: literals
-category: expressions
-expected: pass
-reason: magic hash literals
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE MagicHash #-}
 module Literals where
 

@@ -1,8 +1,4 @@
-{- ORACLE_TEST
-id: unicode-bind-arrow
-category: do-blocks
-expected: pass
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE UnicodeSyntax #-}
 
 module UnicodeSyntaxDo where

@@ -1,8 +1,4 @@
-{- ORACLE_TEST
-id: pattern-guard-let-in-expression
-category: patterns
-expected: pass
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE PatternGuards #-}
 
 module PatternGuardLetInExpression where

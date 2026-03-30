@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: numeric-underscores-floating
-category: literals
-expected: pass
-reason: parser now accepts NumericUnderscores floating literals
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE NumericUnderscores #-}
 
 module NumericUnderscoresFloating where

@@ -1,8 +1,4 @@
-{- ORACLE_TEST
-id: deriving-newtype-list
-category: declarations
-expected: pass
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE DerivingStrategies #-}
 
 module DerivingStrategiesNewtypeList where

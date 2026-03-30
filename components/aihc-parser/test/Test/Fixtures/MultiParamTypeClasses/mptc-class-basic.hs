@@ -1,8 +1,4 @@
-{- ORACLE_TEST
-id: mptc-class-basic
-category: declarations
-expected: pass
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE MultiParamTypeClasses #-}
 
 module MultiParamTypeClassesClassBasic where

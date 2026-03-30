@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: rec
-category: expressions
-expected: xfail
-reason: basic rec block
--}
+{- ORACLE_TEST xfail basic rec block -}
 {-# LANGUAGE RecursiveDo #-}
 module Rec where
 

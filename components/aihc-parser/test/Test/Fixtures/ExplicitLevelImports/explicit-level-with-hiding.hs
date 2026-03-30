@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: explicit-level-with-hiding
-category: modules
-expected: pass
-reason: parser now supports explicit-level imports with hiding clauses
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE ExplicitLevelImports #-}
 
 module ExplicitLevelWithHiding where

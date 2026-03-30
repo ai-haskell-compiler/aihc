@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: named-puns-mixed
-category: expressions
-expected: pass
-reason: parser now supports mixed NamedFieldPuns and explicit field bindings
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE NamedFieldPuns #-}
 
 module NamedFieldPunsMixed where

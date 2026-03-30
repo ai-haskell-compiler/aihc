@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: tuple-section-nested
-category: expressions
-expected: pass
-reason: parser now supports tuple sections
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE TupleSections #-}
 
 module TupleSectionNested where

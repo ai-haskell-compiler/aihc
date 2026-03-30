@@ -1,8 +1,4 @@
-{- ORACLE_TEST
-id: standalone-kind-higher-order
-category: declarations
-expected: pass
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE StandaloneKindSignatures #-}
 
 module StandaloneKindHigherOrder where

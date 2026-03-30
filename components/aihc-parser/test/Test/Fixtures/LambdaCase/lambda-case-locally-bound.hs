@@ -1,8 +1,4 @@
-{- ORACLE_TEST
-id: lambda-case-locally-bound
-category: expressions
-expected: pass
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE LambdaCase #-}
 
 module LambdaCaseLocallyBound where

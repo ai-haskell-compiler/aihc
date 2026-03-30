@@ -1,8 +1,4 @@
-{- ORACLE_TEST
-id: named-wildcard-multi-hole
-category: types
-expected: pass
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE NamedWildCards #-}
 
 module NamedWildcardMultiHole where

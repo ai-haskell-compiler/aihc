@@ -1,8 +1,4 @@
-{- ORACLE_TEST
-id: pat-labeled
-category: patterns
-expected: pass
--}
+{- ORACLE_TEST pass -}
 module P8 where
 
 data Pair = Pair { left :: Int, right :: Int }

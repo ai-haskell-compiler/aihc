@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: basic
-category: expressions
-expected: xfail
-reason: basic multiline string
--}
+{- ORACLE_TEST xfail basic multiline string -}
 {-# LANGUAGE MultilineStrings #-}
 module Basic where
 

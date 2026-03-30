@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: basic
-category: expressions
-expected: xfail
-reason: basic multi-way if
--}
+{- ORACLE_TEST xfail basic multi-way if -}
 {-# LANGUAGE MultiWayIf #-}
 module Basic where
 

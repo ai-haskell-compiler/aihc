@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: named-puns-construct
-category: expressions
-expected: pass
-reason: parser now supports NamedFieldPuns in record construction expressions
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE NamedFieldPuns #-}
 
 module NamedFieldPunsConstruct where

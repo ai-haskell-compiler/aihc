@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: type
-category: types
-expected: pass
-reason: unboxed tuple type
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE UnboxedTuples #-}
 module Type where
 

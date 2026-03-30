@@ -1,8 +1,4 @@
-{- ORACLE_TEST
-id: standalone-kind-nullary
-category: declarations
-expected: pass
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE StandaloneKindSignatures #-}
 
 module StandaloneKindNullary where

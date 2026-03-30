@@ -1,8 +1,4 @@
-{- ORACLE_TEST
-id: basic
-category: expressions
-expected: pass
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE QualifiedDo #-}
 module Basic where
 

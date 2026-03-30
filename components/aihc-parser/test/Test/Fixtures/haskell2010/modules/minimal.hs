@@ -1,8 +1,3 @@
-{- ORACLE_TEST
-id: modules-minimal
-category: modules
-expected: pass
-reason: parser supports minimal module parsing
--}
+{- ORACLE_TEST pass -}
 module M where
 x = 1

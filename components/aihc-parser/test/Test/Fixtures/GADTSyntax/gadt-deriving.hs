@@ -1,8 +1,4 @@
-{- ORACLE_TEST
-id: gadt-deriving
-category: declarations
-expected: pass
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE GADTSyntax #-}
 
 module GadtDeriving where

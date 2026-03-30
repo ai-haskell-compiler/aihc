@@ -1,8 +1,4 @@
-{- ORACLE_TEST
-id: bang-let-binding
-category: patterns
-expected: pass
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE BangPatterns #-}
 
 module BangPatternsLetBinding where

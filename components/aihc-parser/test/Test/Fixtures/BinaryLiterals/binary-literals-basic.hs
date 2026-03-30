@@ -1,8 +1,4 @@
-{- ORACLE_TEST
-id: binary-literals-basic
-category: literals
-expected: pass
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE BinaryLiterals #-}
 
 module BinaryLiteralsBasic where

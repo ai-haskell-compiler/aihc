@@ -1,8 +1,3 @@
-{- ORACLE_TEST
-id: modules-export-var-operator
-category: modules
-expected: pass
-reason: parser now supports parenthesized operator export entries
--}
+{- ORACLE_TEST pass -}
 module Test ((</$>)) where
 (</$>) = undefined

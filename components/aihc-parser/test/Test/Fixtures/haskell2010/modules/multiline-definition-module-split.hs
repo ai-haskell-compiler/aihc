@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: modules-multiline-definition-module-split
-category: modules
-expected: pass
-reason: parser now handles multiline module headers
--}
+{- ORACLE_TEST pass -}
 module
   MultilineDefinitionModuleSplit where
 

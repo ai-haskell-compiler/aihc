@@ -1,8 +1,4 @@
-{- ORACLE_TEST
-id: do-and-if-then-else-basic
-category: layout
-expected: pass
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE DoAndIfThenElse #-}
 
 module DoAndIfThenElseBasic where

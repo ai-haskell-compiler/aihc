@@ -1,8 +1,4 @@
-{- ORACLE_TEST
-id: empty-data-multi
-category: declarations
-expected: pass
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE EmptyDataDecls #-}
 
 module EmptyDataDeclsMulti where

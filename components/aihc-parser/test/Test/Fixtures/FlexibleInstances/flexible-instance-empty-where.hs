@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: flexible-instance-empty-where
-category: FlexibleInstances
-expected: pass
-reason: parser supports empty flexible instances with where clause
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE FlexibleInstances #-}
 
 module FlexibleInstanceEmptyWhere where

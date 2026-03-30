@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: type-applications-expr-basic
-category: expressions
-expected: xfail
-reason: parser intentionally disabled
--}
+{- ORACLE_TEST xfail parser intentionally disabled -}
 module TypeApplicationsExprBasic where
 
 f :: a -> b -> a

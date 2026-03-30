@@ -1,8 +1,4 @@
-{- ORACLE_TEST
-id: fundep-with-context
-category: declarations
-expected: pass
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 

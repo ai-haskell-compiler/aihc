@@ -1,8 +1,4 @@
-{- ORACLE_TEST
-id: do-and-if-then-else-nested-do
-category: layout
-expected: pass
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE DoAndIfThenElse #-}
 
 module DoAndIfThenElseNestedDo where

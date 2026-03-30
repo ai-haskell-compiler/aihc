@@ -1,8 +1,4 @@
-{- ORACLE_TEST
-id: forall-with-context
-category: types
-expected: pass
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE ExplicitForAll #-}
 
 module ExplicitForAllWithContext where

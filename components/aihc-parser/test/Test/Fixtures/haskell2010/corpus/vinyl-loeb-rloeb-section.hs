@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: vinyl-loeb-rloeb-section
-category: corpus
-expected: pass
-reason: from vinyl-loeb; parser now supports parenthesized right sections like (($ go) ...)
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE TypeOperators #-}
 

@@ -1,8 +1,4 @@
-{- ORACLE_TEST
-id: kindsig-higher-kinded
-category: declarations
-expected: pass
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE KindSignatures #-}
 
 module KindSignaturesHigherKinded where

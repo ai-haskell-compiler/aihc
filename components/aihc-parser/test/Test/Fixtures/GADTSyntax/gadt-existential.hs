@@ -1,8 +1,4 @@
-{- ORACLE_TEST
-id: gadt-existential
-category: declarations
-expected: pass
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE GADTSyntax #-}
 {-# LANGUAGE ExistentialQuantification #-}
 

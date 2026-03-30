@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: standalone
-category: declarations
-expected: xfail
-reason: standalone deriving via
--}
+{- ORACLE_TEST xfail standalone deriving via -}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE StandaloneDeriving #-}
 module Standalone where

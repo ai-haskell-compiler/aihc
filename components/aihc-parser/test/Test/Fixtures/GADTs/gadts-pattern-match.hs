@@ -1,8 +1,4 @@
-{- ORACLE_TEST
-id: gadts-pattern-match
-category: expressions
-expected: pass
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE GADTs #-}
 
 module GADTSPatternMatch where

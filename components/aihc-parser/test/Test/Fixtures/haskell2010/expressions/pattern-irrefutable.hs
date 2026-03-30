@@ -1,8 +1,3 @@
-{- ORACLE_TEST
-id: expr-s3-pattern-irrefutable
-category: expressions
-expected: pass
-reason: parser now supports irrefutable patterns
--}
+{- ORACLE_TEST pass -}
 module ExprS317PatIrrefutable where
 x v = (\ ~(a, b) -> a) v

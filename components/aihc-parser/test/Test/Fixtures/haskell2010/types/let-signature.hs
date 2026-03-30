@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: types-let-signature
-category: types
-expected: pass
-reason: parser now supports local let type signatures
--}
+{- ORACLE_TEST pass -}
 module T10 where
 f :: Int -> Int
 f n =

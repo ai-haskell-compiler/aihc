@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: types-maybe-type-constructor
-category: types
-expected: pass
-reason: parser now handles maybe type constructors
--}
+{- ORACLE_TEST pass -}
 module T13 where
 withDefault :: Maybe a -> a -> a
 withDefault mx fallback = case mx of

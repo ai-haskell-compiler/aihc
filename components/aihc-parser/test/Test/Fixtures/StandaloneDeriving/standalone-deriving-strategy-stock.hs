@@ -1,8 +1,4 @@
-{- ORACLE_TEST
-id: standalone-deriving-strategy-stock
-category: declarations
-expected: pass
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE StandaloneDeriving #-}
 

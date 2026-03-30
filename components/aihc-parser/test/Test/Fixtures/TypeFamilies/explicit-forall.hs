@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: explicit-forall
-category: declarations
-expected: xfail
-reason: data instance with explicit forall
--}
+{- ORACLE_TEST xfail data instance with explicit forall -}
 {-# LANGUAGE TypeFamilies, ExplicitForAll, PolyKinds #-}
 module ExplicitForAll where
 

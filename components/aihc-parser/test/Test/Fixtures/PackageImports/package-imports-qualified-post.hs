@@ -1,8 +1,4 @@
-{- ORACLE_TEST
-id: package-imports-qualified-post
-category: modules
-expected: pass
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE PackageImports #-}
 {-# LANGUAGE ImportQualifiedPost #-}
 

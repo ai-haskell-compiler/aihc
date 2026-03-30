@@ -1,8 +1,4 @@
-{- ORACLE_TEST
-id: import-qualified-post-hiding
-category: modules
-expected: pass
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE ImportQualifiedPost #-}
 
 module ImportQualifiedPostHiding where

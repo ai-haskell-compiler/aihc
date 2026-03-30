@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: lexical-chars-escape-sequences
-category: lexical
-expected: pass
-reason: parser now handles char escape sequences
--}
+{- ORACLE_TEST pass -}
 module K2 where
 
 x = '\SOH'

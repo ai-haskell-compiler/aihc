@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: pattern-synonyms-explicitly-bidirectional
-category: patterns
-expected: xfail
-reason: parser support pending
--}
+{- ORACLE_TEST xfail parser support pending -}
 {-# LANGUAGE PatternSynonyms #-}
 
 module PatternSynonymsExplicitlyBidirectional where

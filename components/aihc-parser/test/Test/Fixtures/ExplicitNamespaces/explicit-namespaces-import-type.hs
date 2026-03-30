@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: explicit-namespaces-import-type
-category: modules
-expected: pass
-reason: parser now supports type namespace import items
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE ExplicitNamespaces #-}
 
 module ExplicitNamespacesImportType where

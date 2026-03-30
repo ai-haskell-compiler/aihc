@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: thq_quote_e
-category: expressions
-expected: xfail
-reason: TemplateHaskellQuotes [|e|] syntax
--}
+{- ORACLE_TEST xfail TemplateHaskellQuotes [|e|] syntax -}
 {-# LANGUAGE TemplateHaskellQuotes #-}
 module THQ_Quote_E where
 

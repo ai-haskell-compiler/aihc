@@ -159,7 +159,8 @@ frameworkTests =
                     caseCategory = "framework",
                     casePath = "framework-invalid-xfail.hs",
                     caseExpected = ExpectXFail,
-                    caseReason = "regression coverage"
+                    caseReason = "regression coverage",
+                    caseExtensions = []
                   }
            in do
                 (outcome, _) <- evaluateCaseText meta "module M where\nx = { y = 1, }\n"
@@ -173,7 +174,8 @@ frameworkTests =
                     caseCategory = "framework",
                     casePath = "framework-block-argument-lambda.hs",
                     caseExpected = ExpectPass,
-                    caseReason = ""
+                    caseReason = "",
+                    caseExtensions = []
                   }
            in do
                 (outcome, _) <- evaluateCaseText meta "module M where\nf \\x -> x\n"
@@ -187,7 +189,8 @@ frameworkTests =
                     caseCategory = "framework",
                     casePath = "framework-invalid-pass.hs",
                     caseExpected = ExpectPass,
-                    caseReason = ""
+                    caseReason = "",
+                    caseExtensions = []
                   }
            in do
                 (outcome, _) <- evaluateCaseText meta "module M where\nx = { y = 1, }\n"

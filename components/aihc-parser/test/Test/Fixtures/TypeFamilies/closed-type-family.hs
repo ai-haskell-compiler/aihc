@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: closed-type-family
-category: declarations
-expected: xfail
-reason: closed type family
--}
+{- ORACLE_TEST xfail closed type family -}
 {-# LANGUAGE TypeFamilies #-}
 module ClosedTypeFamily where
 

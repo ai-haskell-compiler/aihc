@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: hashable-xxhash-tests-numeric-underscores
-category: corpus
-expected: pass
-reason: from hashable/tests/xxhash-tests.hs; parser now accepts NumericUnderscores literals
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE NumericUnderscores #-}
 module X where
 

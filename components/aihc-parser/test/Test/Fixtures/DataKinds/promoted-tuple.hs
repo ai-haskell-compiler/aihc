@@ -1,8 +1,4 @@
-{- ORACLE_TEST
-id: promoted-tuple
-category: types
-expected: pass
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE DataKinds #-}
 module PromotedTuple where
 

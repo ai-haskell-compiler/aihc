@@ -1,8 +1,3 @@
-{- ORACLE_TEST
-id: expr-s3-tuple-triple
-category: expressions
-expected: pass
-reason: parser now supports tuple expressions
--}
+{- ORACLE_TEST pass -}
 module ExprS308TupleTriple where
 x = (1, 2, 3)

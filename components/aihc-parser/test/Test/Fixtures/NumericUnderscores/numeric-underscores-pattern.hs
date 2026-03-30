@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: numeric-underscores-pattern
-category: patterns
-expected: pass
-reason: parser now accepts NumericUnderscores literals in patterns
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE NumericUnderscores #-}
 
 module NumericUnderscoresPattern where

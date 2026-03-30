@@ -1,7 +1,3 @@
-{- ORACLE_TEST
-id: types-newtype-record-field-multiline-application
-category: types
-expected: pass
--}
+{- ORACLE_TEST pass -}
 newtype X = X { field :: Maybe
   Int }

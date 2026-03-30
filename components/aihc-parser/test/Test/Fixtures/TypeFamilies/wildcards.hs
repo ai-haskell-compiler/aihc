@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: wildcards
-category: declarations
-expected: xfail
-reason: wildcards in type instances
--}
+{- ORACLE_TEST xfail wildcards in type instances -}
 {-# LANGUAGE TypeFamilies #-}
 module Wildcards where
 

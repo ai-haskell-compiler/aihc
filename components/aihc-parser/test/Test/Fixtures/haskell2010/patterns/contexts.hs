@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: pat-contexts
-category: patterns
-expected: pass
-reason: parser now supports pattern matching contexts
--}
+{- ORACLE_TEST pass -}
 module P10 where
 
 funcApply a b c = a b c

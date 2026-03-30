@@ -1,8 +1,4 @@
-{- ORACLE_TEST
-id: basic
-category: declarations
-expected: pass
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE EmptyDataDecls #-}
 {-# LANGUAGE EmptyDataDeriving #-}
 module Basic where

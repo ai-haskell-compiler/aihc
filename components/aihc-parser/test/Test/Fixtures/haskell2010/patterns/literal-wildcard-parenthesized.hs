@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: pat-literal-wildcard-parenthesized
-category: patterns
-expected: pass
-reason: parser now supports literal, wildcard, and parenthesized patterns
--}
+{- ORACLE_TEST pass -}
 module P9 where
 
 isA 'a' = True

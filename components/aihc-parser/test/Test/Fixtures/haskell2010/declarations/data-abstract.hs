@@ -1,7 +1,3 @@
-{- ORACLE_TEST
-id: decls-data-abstract
-category: declarations
-expected: pass
--}
+{- ORACLE_TEST pass -}
 module D24 where
 data Abstract a

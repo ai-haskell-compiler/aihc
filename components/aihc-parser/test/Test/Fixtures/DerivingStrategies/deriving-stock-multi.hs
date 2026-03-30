@@ -1,8 +1,4 @@
-{- ORACLE_TEST
-id: deriving-stock-multi
-category: declarations
-expected: pass
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE DerivingStrategies #-}
 
 module DerivingStrategiesStockMulti where

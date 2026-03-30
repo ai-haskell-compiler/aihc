@@ -1,8 +1,4 @@
-{- ORACLE_TEST
-id: unicode-double-colon
-category: types
-expected: pass
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE UnicodeSyntax #-}
 
 module UnicodeSyntaxDoubleColon where

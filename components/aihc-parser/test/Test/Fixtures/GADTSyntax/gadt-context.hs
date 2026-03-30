@@ -1,8 +1,4 @@
-{- ORACLE_TEST
-id: gadt-context
-category: declarations
-expected: pass
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE GADTSyntax #-}
 
 module GadtContext where

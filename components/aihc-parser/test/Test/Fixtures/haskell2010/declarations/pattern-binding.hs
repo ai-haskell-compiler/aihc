@@ -1,8 +1,3 @@
-{- ORACLE_TEST
-id: decls-pattern-binding
-category: declarations
-expected: pass
-reason: parser now supports pattern binding declarations
--}
+{- ORACLE_TEST pass -}
 module D3 where
 (x, y) = (1, 2)

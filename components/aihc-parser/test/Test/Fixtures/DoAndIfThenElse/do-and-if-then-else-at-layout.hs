@@ -1,8 +1,4 @@
-{- ORACLE_TEST
-id: do-and-if-then-else-at-layout
-category: layout
-expected: pass
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE DoAndIfThenElse #-}
 
 -- Test case: then and else at column of parent do with no inner do.

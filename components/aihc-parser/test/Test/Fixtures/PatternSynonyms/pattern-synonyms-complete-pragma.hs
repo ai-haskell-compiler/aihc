@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: pattern-synonyms-complete-pragma
-category: declarations
-expected: xfail
-reason: parser support pending
--}
+{- ORACLE_TEST xfail parser support pending -}
 {-# LANGUAGE PatternSynonyms #-}
 
 module PatternSynonymsCompletePragma where

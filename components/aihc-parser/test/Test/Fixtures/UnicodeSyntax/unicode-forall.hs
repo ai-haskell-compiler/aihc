@@ -1,8 +1,4 @@
-{- ORACLE_TEST
-id: unicode-forall
-category: types
-expected: pass
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE UnicodeSyntax #-}
 {-# LANGUAGE ExplicitForAll #-}
 

@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: basic
-category: declarations
-expected: xfail
-reason: basic type data declarations
--}
+{- ORACLE_TEST xfail basic type data declarations -}
 {-# LANGUAGE TypeData #-}
 module Basic where
 

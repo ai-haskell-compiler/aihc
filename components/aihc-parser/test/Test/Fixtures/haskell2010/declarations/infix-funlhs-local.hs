@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: decls-infix-funlhs-local
-category: declarations
-expected: pass
-reason: parser now supports infix definitions in where clauses
--}
+{- ORACLE_TEST pass -}
 module InfixFunlhsLocal where
 f = g
   where

@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: expr-quasiquote
-category: expressions
-expected: xfail
-reason: parser intentionally disabled
--}
+{- ORACLE_TEST xfail parser intentionally disabled -}
 {-# LANGUAGE QuasiQuotes #-}
 module ExprQuasiQuote where
 

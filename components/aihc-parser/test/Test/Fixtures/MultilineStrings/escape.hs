@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: escape
-category: expressions
-expected: xfail
-reason: escape sequences
--}
+{- ORACLE_TEST xfail escape sequences -}
 {-# LANGUAGE MultilineStrings #-}
 module Escape where
 

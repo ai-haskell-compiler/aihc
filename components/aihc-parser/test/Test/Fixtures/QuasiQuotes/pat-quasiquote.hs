@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: pat-quasiquote
-category: patterns
-expected: pass
-reason: parser now supports pattern quasiquotes
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE QuasiQuotes #-}
 module PatQuasiQuote where
 

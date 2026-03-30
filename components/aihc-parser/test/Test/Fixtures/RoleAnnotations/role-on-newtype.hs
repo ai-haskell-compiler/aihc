@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: role-on-newtype
-category: declarations
-expected: xfail
-reason: parser support pending
--}
+{- ORACLE_TEST xfail parser support pending -}
 {-# LANGUAGE RoleAnnotations #-}
 
 module RoleOnNewtype where

@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: decls-instance-tuple-type-constructor
-category: declarations
-expected: pass
-reason: parser now supports tuple type constructors like ((,,) w s) in instance heads
--}
+{- ORACLE_TEST pass -}
 module M where
 class Extractable f where
   runSingleton :: f a -> a

@@ -1,8 +1,4 @@
-{- ORACLE_TEST
-id: pattern-guard-single
-category: patterns
-expected: pass
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE PatternGuards #-}
 
 module PatternGuardSingle where

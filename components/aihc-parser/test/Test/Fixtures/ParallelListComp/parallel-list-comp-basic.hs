@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: parallel-list-comp-basic
-category: expressions
-expected: pass
-reason: parser now supports basic parallel list comprehensions
--}
+{- ORACLE_TEST pass -}
 module ParallelListCompBasic where
 
 pairs :: [a] -> [b] -> [(a, b)]

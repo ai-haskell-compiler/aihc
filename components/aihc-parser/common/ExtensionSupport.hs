@@ -14,14 +14,16 @@ module ExtensionSupport
   )
 where
 
+import qualified Aihc.Parser.Syntax as Syntax
+import CppSupport (moduleHeaderExtensionSettings)
 import Data.Char (isSpace)
-import Data.List (dropWhileEnd, group, sort, sortOn)
+import Data.List (dropWhileEnd, sort, sortOn)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import qualified Data.Text.IO.Utf8 as Utf8
 import System.Directory (doesDirectoryExist, listDirectory)
-import System.FilePath (makeRelative, takeExtension, (</>))
+import System.FilePath (dropExtension, makeRelative, takeDirectory, takeExtension, (</>))
 
 data Expected = ExpectPass | ExpectXFail deriving (Eq, Show)
 
@@ -39,7 +41,8 @@ data CaseMeta = CaseMeta
     caseCategory :: !String,
     casePath :: !FilePath,
     caseExpected :: !Expected,
-    caseReason :: !String
+    caseReason :: !String,
+    caseExtensions :: ![String]
   }
   deriving (Eq, Show)
 
@@ -92,8 +95,7 @@ loadManifest spec = do
   let dir = fixtureDirFor spec
   files <- listFixtureFiles dir
   cases <- mapM (loadCaseMeta dir) files
-  assertUniqueCaseIds (extName spec) cases
-  pure (sortOn caseId cases)
+  pure (sortOn casePath cases)
 
 classifyOutcome :: Expected -> Bool -> Bool -> (Outcome, String)
 classifyOutcome expected oracleOk roundtripOk =
@@ -145,53 +147,41 @@ listFixtureFiles = go
 loadCaseMeta :: FilePath -> FilePath -> IO CaseMeta
 loadCaseMeta root path = do
   source <- Utf8.readFile path
-  (cid, cat, expected, reason) <- parseOracleTestBlock path source
+  (expected, reason) <- parseOracleTestBlock path source
+  let relPath = makeRelative root path
+      cid = dropExtension relPath
+      categoryRaw = takeDirectory relPath
+      category = if categoryRaw == "." then "fixture" else categoryRaw
   pure
     CaseMeta
       { caseId = cid,
-        caseCategory = cat,
-        casePath = makeRelative root path,
+        caseCategory = category,
+        casePath = relPath,
         caseExpected = expected,
-        caseReason = reason
+        caseReason = reason,
+        caseExtensions = enabledExtensionNames source
       }
 
-parseOracleTestBlock :: FilePath -> Text -> IO (String, String, Expected, String)
+parseOracleTestBlock :: FilePath -> Text -> IO (Expected, String)
 parseOracleTestBlock path source =
   case extractOracleBlock source of
     Nothing ->
       fail ("Fixture is missing an ORACLE_TEST block: " <> path)
-    Just block -> do
-      fields <- mapM parseField (filter (not . T.null) (map T.strip (T.lines block)))
-      let findValue key = [value | (field, value) <- fields, field == key]
-          getRequired key =
-            case findValue key of
-              [value] -> pure value
-              [] -> fail ("ORACLE_TEST in " <> path <> " is missing required field: " <> T.unpack key)
-              _ -> fail ("ORACLE_TEST in " <> path <> " has duplicate field: " <> T.unpack key)
-      cid <- getRequired "id"
-      cat <- getRequired "category"
-      expectedTxt <- getRequired "expected"
-      expected <-
-        case T.toLower expectedTxt of
-          "pass" -> pure ExpectPass
-          "xfail" -> pure ExpectXFail
-          _ -> fail ("Unknown ORACLE_TEST expected value in " <> path <> ": " <> T.unpack expectedTxt)
-      let reasonValues = findValue "reason"
-          reason =
-            case reasonValues of
-              [] -> ""
-              [value] -> trim (T.unpack value)
-              _ -> ""
-      case reasonValues of
-        (_ : _ : _) ->
-          fail ("ORACLE_TEST in " <> path <> " has duplicate field: reason")
-        _ -> pure ()
-      case expected of
-        ExpectXFail
-          | null reason ->
-              fail ("ORACLE_TEST xfail case requires a reason in " <> path)
-        _ -> pure ()
-      pure (T.unpack cid, T.unpack cat, expected, reason)
+    Just block ->
+      case T.words block of
+        ["pass"] -> pure (ExpectPass, "")
+        ("xfail" : rest) ->
+          let reason = trim (T.unpack (T.unwords rest))
+           in if null reason
+                then fail ("ORACLE_TEST xfail case requires a reason in " <> path)
+                else pure (ExpectXFail, reason)
+        _ ->
+          fail
+            ( "Invalid ORACLE_TEST block in "
+                <> path
+                <> " (expected `pass` or `xfail <reason>`): "
+                <> T.unpack block
+            )
 
 extractOracleBlock :: Text -> Maybe Text
 extractOracleBlock source = do
@@ -201,42 +191,14 @@ extractOracleBlock source = do
     then Nothing
     else Just (T.strip block)
 
-parseField :: Text -> IO (Text, Text)
-parseField line =
-  case T.breakOn ":" line of
-    (rawKey, rawValue)
-      | T.null rawValue ->
-          fail ("Invalid ORACLE_TEST line (expected key: value): " <> T.unpack line)
-      | otherwise -> do
-          let key = T.toLower (T.strip rawKey)
-              value = T.strip (T.drop 1 rawValue)
-              canonical =
-                case key of
-                  "id" -> Just "id"
-                  "label" -> Just "id"
-                  "category" -> Just "category"
-                  "subset" -> Just "category"
-                  "expected" -> Just "expected"
-                  "status" -> Just "expected"
-                  "reason" -> Just "reason"
-                  "description" -> Just "reason"
-                  _ -> Nothing
-          case canonical of
-            Nothing ->
-              fail ("Unknown ORACLE_TEST field: " <> T.unpack rawKey)
-            Just canonicalKey -> pure (canonicalKey, value)
-
-assertUniqueCaseIds :: String -> [CaseMeta] -> IO ()
-assertUniqueCaseIds suiteName cases =
-  case duplicateIds of
-    [] -> pure ()
-    ids ->
-      fail
-        ( "Duplicate ORACLE_TEST ids in "
-            <> suiteName
-            <> ": "
-            <> unwords ids
-        )
+enabledExtensionNames :: Text -> [String]
+enabledExtensionNames =
+  reverse
+    . map (T.unpack . Syntax.extensionName)
+    . foldl apply []
+    . moduleHeaderExtensionSettings
   where
-    duplicateIds =
-      [cid | (cid : _ : _) <- group (sort (map caseId cases))]
+    apply acc setting =
+      case setting of
+        Syntax.EnableExtension ext -> ext : filter (/= ext) acc
+        Syntax.DisableExtension ext -> filter (/= ext) acc

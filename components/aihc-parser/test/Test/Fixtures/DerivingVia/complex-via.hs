@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: complex-via
-category: declarations
-expected: xfail
-reason: complex via type
--}
+{- ORACLE_TEST xfail complex via type -}
 {-# LANGUAGE DerivingVia #-}
 module ComplexVia where
 

@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: types-signature-where
-category: types
-expected: pass
-reason: parser now supports local type signatures in where bindings
--}
+{- ORACLE_TEST pass -}
 module T6 where
 f :: Int -> Int
 f n = helper n

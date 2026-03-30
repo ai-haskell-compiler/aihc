@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: modules-multiline-definition-export-list-split
-category: modules
-expected: pass
-reason: parser now supports multiline module export lists
--}
+{- ORACLE_TEST pass -}
 module
   MultilineDefinitionExportListSplit
   (x, T(..))

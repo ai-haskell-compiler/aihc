@@ -1,8 +1,4 @@
-{- ORACLE_TEST
-id: pragma-multiple-multiline
-category: pragma
-expected: pass
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE BangPatterns,
              GADTs #-}
 {-# LANGUAGE ScopedTypeVariables #-}

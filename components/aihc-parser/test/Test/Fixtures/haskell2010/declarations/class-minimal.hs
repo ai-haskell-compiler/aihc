@@ -1,8 +1,3 @@
-{- ORACLE_TEST
-id: decls-class-minimal
-category: declarations
-expected: pass
-reason: parser now supports minimal class declarations without where
--}
+{- ORACLE_TEST pass -}
 module D25 where
 class C a

@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: types-function-type-constructor-partial
-category: types
-expected: pass
-reason: parser now supports partial function type constructors in type positions
--}
+{- ORACLE_TEST pass -}
 module T15 where
 toMaybe :: (->) a (Maybe a)
 toMaybe x = Just x

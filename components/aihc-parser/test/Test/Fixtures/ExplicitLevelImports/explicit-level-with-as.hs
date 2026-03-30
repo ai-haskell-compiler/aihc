@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: explicit-level-with-as
-category: modules
-expected: pass
-reason: parser now supports explicit-level imports with aliases
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE ExplicitLevelImports #-}
 
 module ExplicitLevelWithAs where

@@ -1,8 +1,4 @@
-{- ORACLE_TEST
-id: forall-top-level
-category: types
-expected: pass
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE ExplicitForAll #-}
 
 module ExplicitForAllTopLevel where

@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: explicit-level-basic-modifiers
-category: modules
-expected: pass
-reason: parser now supports explicit-level import modifiers
--}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE ExplicitLevelImports #-}
 
 module ExplicitLevelBasicModifiers where

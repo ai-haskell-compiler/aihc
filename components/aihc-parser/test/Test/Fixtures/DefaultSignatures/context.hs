@@ -1,9 +1,4 @@
-{- ORACLE_TEST
-id: context
-category: declarations
-expected: xfail
-reason: default signature with context
--}
+{- ORACLE_TEST xfail default signature with context -}
 {-# LANGUAGE DefaultSignatures #-}
 module Context where
 
