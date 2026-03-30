@@ -11,8 +11,8 @@ aihc: |
   context: while parsing '<-' binding
   context: while parsing equation right-hand side
 
-  test.hs:2:1:
-  2 |
-    | ^
+  test.hs:1:15:
+  1 | x = do { _ <- }
+    |               ^
   unexpected }
   expecting end of input

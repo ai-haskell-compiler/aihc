@@ -4,9 +4,9 @@ ghc: |
   test.hs:2:1: error: [GHC-58481]
       parse error (possibly incorrect indentation or mismatched brackets)
 aihc: |
-  test.hs:2:1:
-  2 |
-    | ^
+  test.hs:1:8:
+  1 | x = \y ->
+    |        ^^
   unexpected end of input
   expecting expression
   context: while parsing lambda body

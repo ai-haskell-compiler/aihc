@@ -483,8 +483,10 @@ applyLayoutTokens enableModuleLayout =
            in moduleInserted <> closeAllImplicit (layoutContexts stAfterModule) eofAnchor
         [eofTok]
           | lexTokenKind eofTok == TkEOF ->
-              -- Use EOF token's span for closing virtual braces
-              let eofAnchor = lexTokenSpan eofTok
+              -- Use previous token's end span for closing virtual braces (if available),
+              -- falling back to EOF span. This improves error messages by pointing to
+              -- the end of the last real token rather than the empty line after.
+              let eofAnchor = fromMaybe (lexTokenSpan eofTok) (layoutPrevTokenEndSpan st)
                   (moduleInserted, stAfterModule) = finalizeModuleLayoutAtEOF st eofAnchor
                in moduleInserted <> closeAllImplicit (layoutContexts stAfterModule) eofAnchor <> [eofTok]
         tok : rest ->
