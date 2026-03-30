@@ -12,13 +12,33 @@ synopsis:           CLI interface for aihc-parser and aihc-lexer
 library
   exposed-modules:
       Aihc.Parser.CLI.Parser
+    , Aihc.Parser.CLI.Bench
     , Aihc.Parser.Run
+    , Aihc.Parser.Bench.CLI
+    , Aihc.Parser.Bench.Parsers
+    , Aihc.Parser.Bench.Tarball
+    , Aihc.Parser.Bench.Benchmark
+    , Aihc.Parser.Bench.Metrics
   hs-source-dirs:   src
   build-depends:
       base >=4.16 && <5
     , aihc-parser
     , text >=1.2
     , optparse-applicative
+    -- Dependencies for bench modules:
+    , aeson
+    , async
+    , bytestring
+    , containers
+    , deepseq
+    , directory
+    , filepath
+    , ghc-lib-parser
+    , haskell-src-exts
+    , process
+    , tar
+    , time
+    , zlib
   ghc-options:        -Wall -Werror
   default-language: GHC2021
 
@@ -29,6 +49,15 @@ executable aihc-parser
       base >=4.16 && <5
     , aihc-parser-cli
   ghc-options:        -Wall -Werror
+  default-language:   Haskell2010
+
+executable aihc-parser-bench
+  hs-source-dirs:     app/aihc-parser-bench
+  main-is:            Main.hs
+  build-depends:
+      base >=4.16 && <5
+    , aihc-parser-cli
+  ghc-options:        -Wall -Werror -threaded -rtsopts "-with-rtsopts=-T -N"
   default-language:   Haskell2010
 
 test-suite spec
