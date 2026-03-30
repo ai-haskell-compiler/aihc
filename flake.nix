@@ -1122,7 +1122,7 @@
     in {
       default = pkgs.mkShell {
         buildInputs = [
-          hsPkgs
+          hsPkgs.ghc
           pkgs.cabal-install
         ];
         shellHook = ''
