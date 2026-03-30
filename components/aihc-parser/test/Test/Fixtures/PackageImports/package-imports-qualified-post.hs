@@ -1,3 +1,8 @@
+{- ORACLE_TEST
+id: package-imports-qualified-post
+category: modules
+expected: pass
+-}
 {-# LANGUAGE PackageImports #-}
 {-# LANGUAGE ImportQualifiedPost #-}
 

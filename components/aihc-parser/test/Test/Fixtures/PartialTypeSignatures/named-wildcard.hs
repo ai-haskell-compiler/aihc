@@ -1,3 +1,8 @@
+{- ORACLE_TEST
+id: named-wildcard
+category: types
+expected: pass
+-}
 {-# LANGUAGE PartialTypeSignatures #-}
 {-# LANGUAGE NamedWildCards #-}
 module NamedWildcard where

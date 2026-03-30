@@ -1,3 +1,8 @@
+{- ORACLE_TEST
+id: kindsig-class-head
+category: declarations
+expected: pass
+-}
 {-# LANGUAGE KindSignatures #-}
 
 module KindSignaturesClassHead where

@@ -1,3 +1,9 @@
+{- ORACLE_TEST
+id: multiple-associated-instances
+category: declarations
+expected: xfail
+reason: multiple associated instances
+-}
 {-# LANGUAGE TypeFamilies #-}
 module MultipleAssociatedInstances where
 

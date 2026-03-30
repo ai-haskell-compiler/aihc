@@ -1,3 +1,8 @@
+{- ORACLE_TEST
+id: forall-nested-arrow
+category: types
+expected: pass
+-}
 {-# LANGUAGE ExplicitForAll #-}
 
 module ExplicitForAllNestedArrow where

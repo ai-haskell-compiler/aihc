@@ -1,3 +1,8 @@
+{- ORACLE_TEST
+id: instance-sig-constrained
+category: declarations
+expected: pass
+-}
 {-# LANGUAGE InstanceSigs #-}
 
 module InstanceSigsConstrained where

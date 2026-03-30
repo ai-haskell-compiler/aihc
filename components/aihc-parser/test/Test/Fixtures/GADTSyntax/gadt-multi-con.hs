@@ -1,3 +1,8 @@
+{- ORACLE_TEST
+id: gadt-multi-con
+category: declarations
+expected: pass
+-}
 {-# LANGUAGE GADTSyntax #-}
 
 module GadtMultiCon where

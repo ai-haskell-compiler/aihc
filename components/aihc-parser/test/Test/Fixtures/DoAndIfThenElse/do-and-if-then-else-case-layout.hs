@@ -1,3 +1,8 @@
+{- ORACLE_TEST
+id: do-and-if-then-else-case-layout
+category: layout
+expected: pass
+-}
 {-# LANGUAGE DoAndIfThenElse #-}
 
 -- Test case: 'then do' followed by 'case' expression, then 'else do'.

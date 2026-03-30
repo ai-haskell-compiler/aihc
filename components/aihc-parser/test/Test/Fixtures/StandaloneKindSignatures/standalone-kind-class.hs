@@ -1,3 +1,8 @@
+{- ORACLE_TEST
+id: standalone-kind-class
+category: declarations
+expected: pass
+-}
 {-# LANGUAGE StandaloneKindSignatures #-}
 
 module StandaloneKindClass where

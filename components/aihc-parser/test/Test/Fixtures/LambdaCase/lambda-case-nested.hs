@@ -1,3 +1,9 @@
+{- ORACLE_TEST
+id: lambda-case-nested
+category: expressions
+expected: pass
+reason: parser now supports multiline application around lambda-case
+-}
 {-# LANGUAGE LambdaCase #-}
 
 module LambdaCaseNested where

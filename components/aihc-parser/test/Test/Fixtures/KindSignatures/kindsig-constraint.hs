@@ -1,3 +1,9 @@
+{- ORACLE_TEST
+id: kindsig-constraint
+category: declarations
+expected: xfail
+reason: parser support pending
+-}
 {-# LANGUAGE KindSignatures #-}
 
 module KindSignaturesConstraint where

@@ -1,3 +1,9 @@
+{- ORACLE_TEST
+id: binary-literals-negative
+category: literals
+expected: pass
+reason: parser now supports negative binary literals
+-}
 {-# LANGUAGE BinaryLiterals #-}
 
 module BinaryLiteralsNegative where

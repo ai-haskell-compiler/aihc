@@ -1,3 +1,0 @@
-basic	declarations	basic.hs	pass
-multiple	declarations	multiple.hs	pass
-gadt	declarations	gadt.hs	xfail	gadt empty data deriving

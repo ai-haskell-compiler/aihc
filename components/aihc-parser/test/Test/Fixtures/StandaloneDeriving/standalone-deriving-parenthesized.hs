@@ -1,3 +1,8 @@
+{- ORACLE_TEST
+id: standalone-deriving-parenthesized
+category: declarations
+expected: pass
+-}
 {-# LANGUAGE StandaloneDeriving #-}
 
 module StandaloneDerivingParenthesized where

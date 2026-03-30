@@ -1,3 +1,8 @@
+{- ORACLE_TEST
+id: existential-multi-constructor
+category: declarations
+expected: pass
+-}
 {-# LANGUAGE ExistentialQuantification #-}
 
 module ExistentialMultiConstructor where

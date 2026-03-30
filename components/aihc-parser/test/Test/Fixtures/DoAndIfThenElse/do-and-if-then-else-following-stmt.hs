@@ -1,3 +1,8 @@
+{- ORACLE_TEST
+id: do-and-if-then-else-following-stmt
+category: layout
+expected: pass
+-}
 {-# LANGUAGE DoAndIfThenElse #-}
 
 module DoAndIfThenElseFollowingStmt where

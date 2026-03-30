@@ -1,3 +1,9 @@
+{- ORACLE_TEST
+id: ffi-s8-multiple-foreign-decls
+category: ffi
+expected: pass
+reason: parser now supports multiple foreign declarations per module
+-}
 {-# LANGUAGE ForeignFunctionInterface #-}
 module FfiS8MultipleForeignDecls where
 foreign import ccall unsafe "plus1" plus1 :: Int -> IO Int

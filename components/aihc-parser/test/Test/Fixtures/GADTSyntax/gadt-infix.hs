@@ -1,3 +1,8 @@
+{- ORACLE_TEST
+id: gadt-infix
+category: declarations
+expected: pass
+-}
 {-# LANGUAGE GADTSyntax #-}
 
 module GadtInfix where

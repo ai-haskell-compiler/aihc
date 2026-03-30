@@ -1,7 +1,0 @@
-fundep-single	declarations	fundep-single.hs	pass
-fundep-bidirectional	declarations	fundep-bidirectional.hs	pass
-fundep-multi-left	declarations	fundep-multi-left.hs	pass
-fundep-class-instance	declarations	fundep-class-instance.hs	pass
-fundep-with-context	declarations	fundep-with-context.hs	pass
-fundep-empty-right	declarations	fundep-empty-right.hs	pass
-fundep-empty-left	declarations	fundep-empty-left.hs	pass

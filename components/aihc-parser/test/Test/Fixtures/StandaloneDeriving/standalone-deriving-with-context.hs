@@ -1,3 +1,8 @@
+{- ORACLE_TEST
+id: standalone-deriving-with-context
+category: declarations
+expected: pass
+-}
 {-# LANGUAGE StandaloneDeriving #-}
 
 module StandaloneDerivingWithContext where

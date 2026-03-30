@@ -1,3 +1,8 @@
+{- ORACLE_TEST
+id: package-imports-basic
+category: modules
+expected: pass
+-}
 {-# LANGUAGE PackageImports #-}
 
 module PackageImportsBasic where

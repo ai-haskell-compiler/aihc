@@ -1,3 +1,9 @@
+{- ORACLE_TEST
+id: type-instance
+category: declarations
+expected: xfail
+reason: type instance
+-}
 {-# LANGUAGE TypeFamilies #-}
 module TypeInstance where
 

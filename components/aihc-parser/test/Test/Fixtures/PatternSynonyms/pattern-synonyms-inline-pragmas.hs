@@ -1,3 +1,9 @@
+{- ORACLE_TEST
+id: pattern-synonyms-inline-pragmas
+category: declarations
+expected: xfail
+reason: parser support pending
+-}
 {-# LANGUAGE PatternSynonyms #-}
 
 module PatternSynonymsInlinePragmas where

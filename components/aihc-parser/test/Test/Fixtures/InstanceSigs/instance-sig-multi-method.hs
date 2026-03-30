@@ -1,3 +1,8 @@
+{- ORACLE_TEST
+id: instance-sig-multi-method
+category: declarations
+expected: pass
+-}
 {-# LANGUAGE InstanceSigs #-}
 
 module InstanceSigsMultiMethod where

@@ -1,3 +1,8 @@
+{- ORACLE_TEST
+id: gadts-pattern-match
+category: expressions
+expected: pass
+-}
 {-# LANGUAGE GADTs #-}
 
 module GADTSPatternMatch where

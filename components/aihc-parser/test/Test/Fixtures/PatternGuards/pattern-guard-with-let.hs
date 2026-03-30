@@ -1,3 +1,8 @@
+{- ORACLE_TEST
+id: pattern-guard-with-let
+category: patterns
+expected: pass
+-}
 {-# LANGUAGE PatternGuards #-}
 
 module PatternGuardWithLet where

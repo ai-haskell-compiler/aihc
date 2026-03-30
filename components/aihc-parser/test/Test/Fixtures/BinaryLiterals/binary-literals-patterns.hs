@@ -1,3 +1,8 @@
+{- ORACLE_TEST
+id: binary-literals-patterns
+category: patterns
+expected: pass
+-}
 {-# LANGUAGE BinaryLiterals #-}
 
 module BinaryLiteralsPatterns where

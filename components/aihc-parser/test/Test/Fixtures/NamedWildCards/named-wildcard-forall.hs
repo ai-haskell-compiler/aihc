@@ -1,3 +1,8 @@
+{- ORACLE_TEST
+id: named-wildcard-forall
+category: types
+expected: pass
+-}
 {-# LANGUAGE NamedWildCards, ExplicitForAll #-}
 
 module NamedWildcardForall where

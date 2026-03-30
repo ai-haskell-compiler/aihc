@@ -1,3 +1,8 @@
+{- ORACLE_TEST
+id: unicode-lambda
+category: types
+expected: pass
+-}
 {-# LANGUAGE UnicodeSyntax #-}
 
 module UnicodeSyntaxLambda where

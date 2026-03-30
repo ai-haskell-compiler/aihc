@@ -1,3 +1,8 @@
+{- ORACLE_TEST
+id: signed
+category: expressions
+expected: pass
+-}
 {-# LANGUAGE ExtendedLiterals #-}
 module Signed where
 

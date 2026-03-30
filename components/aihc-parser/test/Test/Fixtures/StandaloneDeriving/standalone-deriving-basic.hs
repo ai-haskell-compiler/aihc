@@ -1,3 +1,8 @@
+{- ORACLE_TEST
+id: standalone-deriving-basic
+category: declarations
+expected: pass
+-}
 {-# LANGUAGE StandaloneDeriving #-}
 
 module StandaloneDerivingBasic where

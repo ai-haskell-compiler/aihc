@@ -1,3 +1,8 @@
+{- ORACLE_TEST
+id: standalone-deriving-type-application
+category: declarations
+expected: pass
+-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE StandaloneDeriving #-}
 

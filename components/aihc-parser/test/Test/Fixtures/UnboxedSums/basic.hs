@@ -1,3 +1,9 @@
+{- ORACLE_TEST
+id: basic
+category: expressions
+expected: xfail
+reason: basic unboxed sum
+-}
 {-# LANGUAGE UnboxedSums #-}
 module Basic where
 

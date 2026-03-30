@@ -1,3 +1,9 @@
+{- ORACLE_TEST
+id: pattern-synonyms-record-bidirectional
+category: patterns
+expected: xfail
+reason: parser support pending
+-}
 {-# LANGUAGE PatternSynonyms #-}
 
 module PatternSynonymsRecordBidirectional where

@@ -1,3 +1,8 @@
+{- ORACLE_TEST
+id: instance-sig-where-layout
+category: declarations
+expected: pass
+-}
 {-# LANGUAGE InstanceSigs #-}
 
 module InstanceSigsWhereLayout where

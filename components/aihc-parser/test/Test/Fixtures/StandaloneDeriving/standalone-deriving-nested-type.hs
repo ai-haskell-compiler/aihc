@@ -1,3 +1,8 @@
+{- ORACLE_TEST
+id: standalone-deriving-nested-type
+category: declarations
+expected: pass
+-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE StandaloneDeriving #-}
 

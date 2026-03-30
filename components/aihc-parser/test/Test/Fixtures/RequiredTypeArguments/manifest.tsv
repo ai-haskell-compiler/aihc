@@ -1,2 +1,0 @@
-basic	expressions	basic.hs	xfail	required type argument in expression
-parallel	patterns	pattern.hs	xfail	required type argument in pattern

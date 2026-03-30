@@ -1,3 +1,9 @@
+{- ORACLE_TEST
+id: data-instance
+category: declarations
+expected: xfail
+reason: data instance
+-}
 {-# LANGUAGE TypeFamilies #-}
 module DataInstance where
 

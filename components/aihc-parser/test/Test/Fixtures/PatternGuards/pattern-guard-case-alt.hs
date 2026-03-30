@@ -1,3 +1,8 @@
+{- ORACLE_TEST
+id: pattern-guard-case-alt
+category: patterns
+expected: pass
+-}
 {-# LANGUAGE PatternGuards #-}
 
 module PatternGuardCaseAlt where

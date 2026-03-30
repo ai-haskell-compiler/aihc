@@ -1,3 +1,9 @@
+{- ORACLE_TEST
+id: multiline-explicit-layout
+category: layout
+expected: pass
+reason: multiline unboxed tuples with explicit layout
+-}
 {-# LANGUAGE UnboxedTuples #-}
 module MultilineExplicitLayout where {
 

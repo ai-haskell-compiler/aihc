@@ -1,3 +1,9 @@
+{- ORACLE_TEST
+id: viewpatterns-patbind
+category: patterns
+expected: pass
+reason: parser now supports pattern binding declarations with view patterns
+-}
 {-# LANGUAGE ViewPatterns #-}
 
 module ViewPatternsPatBind where

@@ -1,3 +1,0 @@
-pattern	patterns	pattern.hs	xfail	record wildcard in pattern
-construction	expressions	construction.hs	xfail	record wildcard in construction
-mixed	patterns	mixed.hs	xfail	mixed record fields and wildcard

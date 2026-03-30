@@ -1,3 +1,9 @@
+{- ORACLE_TEST
+id: indented
+category: expressions
+expected: xfail
+reason: indented multi-way if
+-}
 {-# LANGUAGE MultiWayIf #-}
 module Indented where
 

@@ -1,3 +1,0 @@
-expr-quasiquote	expressions	expr-quasiquote.hs	xfail	parser intentionally disabled
-pat-quasiquote	patterns	pat-quasiquote.hs	pass	parser now supports pattern quasiquotes
-type-quasiquote	types	type-quasiquote.hs	pass	parser now supports type quasiquotes

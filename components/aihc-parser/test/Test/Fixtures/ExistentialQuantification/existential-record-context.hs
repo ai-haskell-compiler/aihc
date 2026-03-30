@@ -1,3 +1,8 @@
+{- ORACLE_TEST
+id: existential-record-context
+category: declarations
+expected: pass
+-}
 {-# LANGUAGE ExistentialQuantification #-}
 
 module ExistentialRecordContext where

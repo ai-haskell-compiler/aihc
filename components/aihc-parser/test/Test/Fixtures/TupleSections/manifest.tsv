@@ -1,4 +1,0 @@
-tuple-section-left	expressions	tuple-section-left.hs	pass	parser now supports tuple sections
-tuple-section-right	expressions	tuple-section-right.hs	pass	parser now supports tuple sections
-tuple-section-middle	expressions	tuple-section-middle.hs	pass	parser now supports tuple sections
-tuple-section-nested	expressions	tuple-section-nested.hs	pass	parser now supports tuple sections

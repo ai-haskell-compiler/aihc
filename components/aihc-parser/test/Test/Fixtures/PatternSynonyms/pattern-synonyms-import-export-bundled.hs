@@ -1,3 +1,9 @@
+{- ORACLE_TEST
+id: pattern-synonyms-import-export-bundled
+category: modules
+expected: pass
+reason: parser now supports type constructor explicit member imports/exports
+-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE ExplicitNamespaces #-}
 

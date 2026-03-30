@@ -1,3 +1,9 @@
+{- ORACLE_TEST
+id: decls-class-universe-some
+category: declarations
+expected: pass
+reason: parser supports universe-some style class declarations
+-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE RankNTypes #-}
 module UniverseSome (

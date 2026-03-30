@@ -1,3 +1,9 @@
+{- ORACLE_TEST
+id: hex-float-literals-list
+category: literals
+expected: pass
+reason: parser now supports hexadecimal floating-point literals in list expressions
+-}
 {-# LANGUAGE HexFloatLiterals #-}
 
 module HexFloatLiteralsList where

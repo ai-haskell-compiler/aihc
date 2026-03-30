@@ -1,3 +1,8 @@
+{- ORACLE_TEST
+id: do-and-if-then-else-nested-if
+category: layout
+expected: pass
+-}
 {-# LANGUAGE DoAndIfThenElse #-}
 
 -- Test case: nested if-then-else inside 'then do' and 'else do'.

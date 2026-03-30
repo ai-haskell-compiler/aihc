@@ -1,3 +1,8 @@
+{- ORACLE_TEST
+id: mptc-three-params
+category: declarations
+expected: pass
+-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 
 module MultiParamTypeClassesThreeParams where

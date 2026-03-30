@@ -1,3 +1,8 @@
+{- ORACLE_TEST
+id: fundep-class-instance
+category: declarations
+expected: pass
+-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 

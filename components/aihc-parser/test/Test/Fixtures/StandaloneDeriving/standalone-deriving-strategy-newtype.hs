@@ -1,3 +1,8 @@
+{- ORACLE_TEST
+id: standalone-deriving-strategy-newtype
+category: declarations
+expected: pass
+-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE StandaloneDeriving #-}

@@ -1,3 +1,8 @@
+{- ORACLE_TEST
+id: instance-sig-default
+category: declarations
+expected: pass
+-}
 {-# LANGUAGE InstanceSigs #-}
 
 module InstanceSigsDefault where

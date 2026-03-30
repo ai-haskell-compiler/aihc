@@ -1,3 +1,8 @@
+{- ORACLE_TEST
+id: gadts-basic
+category: declarations
+expected: pass
+-}
 {-# LANGUAGE GADTs #-}
 
 module GADTsBasic where

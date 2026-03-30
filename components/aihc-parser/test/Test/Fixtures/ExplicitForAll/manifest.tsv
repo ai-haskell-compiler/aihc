@@ -1,5 +1,0 @@
-forall-top-level	types	forall-top-level.hs	pass
-forall-with-context	types	forall-with-context.hs	pass
-forall-nested-arrow	types	forall-nested-arrow.hs	pass
-forall-class-method	types	forall-class-method.hs	pass
-forall-local-signature	types	forall-local-signature.hs	pass

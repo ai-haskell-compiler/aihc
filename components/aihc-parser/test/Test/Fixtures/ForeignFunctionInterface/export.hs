@@ -1,3 +1,8 @@
+{- ORACLE_TEST
+id: export
+category: declarations
+expected: pass
+-}
 {-# LANGUAGE ForeignFunctionInterface #-}
 module Export where
 

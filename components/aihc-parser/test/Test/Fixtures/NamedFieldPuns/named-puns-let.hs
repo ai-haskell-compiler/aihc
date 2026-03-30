@@ -1,3 +1,9 @@
+{- ORACLE_TEST
+id: named-puns-let
+category: expressions
+expected: pass
+reason: parser now supports NamedFieldPuns in let bindings
+-}
 {-# LANGUAGE NamedFieldPuns #-}
 
 module NamedFieldPunsLet where

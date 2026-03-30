@@ -1,5 +1,0 @@
-deriving-stock-single	declarations	deriving-stock-single.hs	pass
-deriving-stock-multi	declarations	deriving-stock-multi.hs	pass
-deriving-newtype	declarations	deriving-newtype.hs	pass
-deriving-multiple-clauses	declarations	deriving-multiple-clauses.hs	pass
-deriving-newtype-list	declarations	deriving-newtype-list.hs	pass

@@ -1,3 +1,8 @@
+{- ORACLE_TEST
+id: gadt-newtype
+category: declarations
+expected: pass
+-}
 {-# LANGUAGE GADTSyntax #-}
 
 module GadtNewtype where

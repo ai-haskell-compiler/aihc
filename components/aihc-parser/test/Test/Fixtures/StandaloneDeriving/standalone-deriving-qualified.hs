@@ -1,3 +1,8 @@
+{- ORACLE_TEST
+id: standalone-deriving-qualified
+category: declarations
+expected: pass
+-}
 {-# LANGUAGE StandaloneDeriving #-}
 
 module StandaloneDerivingQualified where

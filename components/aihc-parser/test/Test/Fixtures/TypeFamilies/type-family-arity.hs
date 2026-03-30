@@ -1,3 +1,9 @@
+{- ORACLE_TEST
+id: type-family-arity
+category: declarations
+expected: xfail
+reason: type family with arity
+-}
 {-# LANGUAGE TypeFamilies #-}
 module TypeFamilyArity where
 

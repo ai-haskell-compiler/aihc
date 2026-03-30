@@ -1,3 +1,8 @@
+{- ORACLE_TEST
+id: unsigned
+category: expressions
+expected: pass
+-}
 {-# LANGUAGE ExtendedLiterals #-}
 module Unsigned where
 

@@ -1,3 +1,9 @@
+{- ORACLE_TEST
+id: type-operator-signature
+category: declarations
+expected: xfail
+reason: parser support pending
+-}
 {-# LANGUAGE TypeOperators #-}
 
 module TypeOperatorSignature where

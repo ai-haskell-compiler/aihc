@@ -1,3 +1,8 @@
+{- ORACLE_TEST
+id: existential-infix-parenthesized-context
+category: declarations
+expected: pass
+-}
 {-# LANGUAGE ExistentialQuantification #-}
 
 module ExistentialInfixParenthesizedContext where

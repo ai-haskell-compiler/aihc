@@ -1,3 +1,8 @@
+{- ORACLE_TEST
+id: lambda-case-guards
+category: expressions
+expected: pass
+-}
 {-# LANGUAGE LambdaCase #-}
 
 module LambdaCaseGuards where

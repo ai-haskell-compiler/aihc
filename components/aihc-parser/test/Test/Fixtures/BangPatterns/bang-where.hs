@@ -1,3 +1,8 @@
+{- ORACLE_TEST
+id: bang-where
+category: patterns
+expected: pass
+-}
 {-# LANGUAGE BangPatterns #-}
 
 module BangPatternsWhere where

@@ -1,3 +1,8 @@
+{- ORACLE_TEST
+id: fundep-bidirectional
+category: declarations
+expected: pass
+-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 

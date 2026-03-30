@@ -1,3 +1,8 @@
+{- ORACLE_TEST
+id: stdcall
+category: declarations
+expected: pass
+-}
 {-# LANGUAGE ForeignFunctionInterface #-}
 module StdCall where
 

@@ -1,2 +1,0 @@
-type	types	type.hs	xfail	implicit parameter in type
-binding	expressions	binding.hs	xfail	implicit parameter binding

@@ -1,3 +1,8 @@
+{- ORACLE_TEST
+id: unicode-constraint
+category: types
+expected: pass
+-}
 {-# LANGUAGE UnicodeSyntax #-}
 {-# LANGUAGE ExplicitForAll #-}
 

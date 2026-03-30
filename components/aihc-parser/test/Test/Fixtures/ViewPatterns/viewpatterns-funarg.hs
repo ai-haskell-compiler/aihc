@@ -1,3 +1,9 @@
+{- ORACLE_TEST
+id: viewpatterns-funarg
+category: patterns
+expected: pass
+reason: parser now supports view patterns in function arguments
+-}
 {-# LANGUAGE ViewPatterns #-}
 
 module ViewPatternsFunArg where

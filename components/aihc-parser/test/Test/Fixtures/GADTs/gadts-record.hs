@@ -1,3 +1,8 @@
+{- ORACLE_TEST
+id: gadts-record
+category: declarations
+expected: pass
+-}
 {-# LANGUAGE GADTs #-}
 
 module GADTsRecord where

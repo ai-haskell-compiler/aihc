@@ -1,3 +1,9 @@
+{- ORACLE_TEST
+id: modules-astack
+category: modules
+expected: pass
+reason: example taken from the haskell language report
+-}
 module AStack( Stack, push, pop, top, size ) where
 {data Stack a = Empty 
               | MkStack a (Stack a)

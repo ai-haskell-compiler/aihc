@@ -1,3 +1,8 @@
+{- ORACLE_TEST
+id: do-and-if-then-else-then-do-multi-stmt
+category: layout
+expected: pass
+-}
 {-# LANGUAGE DoAndIfThenElse #-}
 
 -- Test case: 'then do' and 'else do' where inner do has multiple statements.

@@ -1,3 +1,8 @@
+{- ORACLE_TEST
+id: gadt-maybe
+category: declarations
+expected: pass
+-}
 {-# LANGUAGE GADTSyntax #-}
 
 module GadtMaybe where

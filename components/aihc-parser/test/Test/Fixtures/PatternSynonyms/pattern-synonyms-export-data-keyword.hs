@@ -1,3 +1,9 @@
+{- ORACLE_TEST
+id: pattern-synonyms-export-data-keyword
+category: modules
+expected: xfail
+reason: parser support pending
+-}
 {-# LANGUAGE PatternSynonyms #-}
 
 module PatternSynonymsExportDataKeyword

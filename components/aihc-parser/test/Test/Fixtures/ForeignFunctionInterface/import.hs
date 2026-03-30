@@ -1,3 +1,8 @@
+{- ORACLE_TEST
+id: import
+category: declarations
+expected: pass
+-}
 {-# LANGUAGE ForeignFunctionInterface #-}
 module Import where
 

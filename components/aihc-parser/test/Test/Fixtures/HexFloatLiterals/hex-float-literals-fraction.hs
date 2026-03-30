@@ -1,3 +1,9 @@
+{- ORACLE_TEST
+id: hex-float-literals-fraction
+category: literals
+expected: pass
+reason: parser now supports hexadecimal floating-point literals with fractional mantissas
+-}
 {-# LANGUAGE HexFloatLiterals #-}
 
 module HexFloatLiteralsFraction where

@@ -1,3 +1,8 @@
+{- ORACLE_TEST
+id: mptc-superclass
+category: declarations
+expected: pass
+-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 
 module MultiParamTypeClassesSuperclass where

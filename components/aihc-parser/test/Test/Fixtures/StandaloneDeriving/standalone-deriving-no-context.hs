@@ -1,3 +1,8 @@
+{- ORACLE_TEST
+id: standalone-deriving-no-context
+category: declarations
+expected: pass
+-}
 {-# LANGUAGE StandaloneDeriving #-}
 
 module StandaloneDerivingNoContext where

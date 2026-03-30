@@ -1,3 +1,8 @@
+{- ORACLE_TEST
+id: pat-guards
+category: patterns
+expected: pass
+-}
 module P5 where
 x n
   | n < 0 = -1

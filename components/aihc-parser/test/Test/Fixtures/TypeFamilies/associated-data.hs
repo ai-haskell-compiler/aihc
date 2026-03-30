@@ -1,3 +1,9 @@
+{- ORACLE_TEST
+id: associated-data
+category: declarations
+expected: xfail
+reason: associated data family
+-}
 {-# LANGUAGE TypeFamilies #-}
 module AssociatedData where
 

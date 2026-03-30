@@ -1,5 +1,0 @@
-standalone-kind-data	declarations	standalone-kind-data.hs	pass
-standalone-kind-class	declarations	standalone-kind-class.hs	pass
-standalone-kind-type-synonym	declarations	standalone-kind-type-synonym.hs	pass
-standalone-kind-higher-order	declarations	standalone-kind-higher-order.hs	pass
-standalone-kind-nullary	declarations	standalone-kind-nullary.hs	pass
