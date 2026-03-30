@@ -294,13 +294,13 @@ test_unterminatedStringProducesErrorToken :: Assertion
 test_unterminatedStringProducesErrorToken =
   case lexTokens "\"unterminated" of
     [LexToken {lexTokenKind = TkError _}, LexToken {lexTokenKind = TkEOF}] -> pure ()
-    other -> assertFailure ("expected single TkError token, got: " <> show other)
+    other -> assertFailure ("expected TkError followed by TkEOF, got: " <> show other)
 
 test_unterminatedBlockCommentProducesErrorToken :: Assertion
 test_unterminatedBlockCommentProducesErrorToken =
   case lexTokens "{-" of
     [LexToken {lexTokenKind = TkError _}, LexToken {lexTokenKind = TkEOF}] -> pure ()
-    other -> assertFailure ("expected single TkError token, got: " <> show other)
+    other -> assertFailure ("expected TkError followed by TkEOF, got: " <> show other)
 
 test_hashLineDirectiveUpdatesSpan :: Assertion
 test_hashLineDirectiveUpdatesSpan =
