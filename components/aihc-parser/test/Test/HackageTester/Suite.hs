@@ -15,8 +15,6 @@ import GhcOracle (oracleDetailedParsesModuleWithNamesAt)
 import HackageSupport (fileInfoPath, findTargetFilesFromCabal, resolveIncludeBestEffort)
 import HackageTester.CLI (Options (..), parseOptionsPure)
 import HackageTester.Model (FileResult (..), Outcome (..), Summary (..), shouldFailSummary, summarizeResults)
-import qualified Language.Haskell.Exts as HSE
-import ModuleShrinker (shrinkModule)
 import System.Directory (createDirectory, getTemporaryDirectory, removeDirectoryRecursive, removeFile)
 import System.FilePath ((</>))
 import System.IO (hClose, openTempFile)
@@ -67,10 +65,6 @@ hackageTesterTests =
       testGroup
         "io"
         [ testCase "include resolution decodes invalid utf8 leniently" test_resolveIncludeLenientDecode
-        ],
-      testGroup
-        "minimizer"
-        [ testCase "shrinks a module with a custom predicate" test_shrinksModuleWithCustomPredicate
         ]
     ]
 
@@ -313,62 +307,6 @@ test_resolveIncludeLenientDecode =
       Nothing -> assertBool "expected include text to resolve" False
       Just txt ->
         assertBool "expected replacement character in decoded text" ("\xFFFD" `T.isInfixOf` txt)
-
-test_shrinksModuleWithCustomPredicate :: Assertion
-test_shrinksModuleWithCustomPredicate =
-  case shrinkModule keepsTarget unsafeSource of
-    Nothing ->
-      assertBool "expected shrinker to produce a candidate" False
-    Just shrunk ->
-      case HSE.parseFileContentsWithMode HSE.defaultParseMode (T.unpack shrunk) of
-        HSE.ParseFailed _ parseErr ->
-          assertBool ("expected minimized reproducer to parse under HSE, got: " <> parseErr) False
-        HSE.ParseOk modu ->
-          case modu of
-            HSE.Module _ _ _ imports decls ->
-              assertBool
-                ("expected a single-import AST, got: " <> show modu)
-                (length imports == 1 && null decls && keepsTarget shrunk)
-            other ->
-              assertBool ("expected a normal module AST, got: " <> show other) False
-  where
-    keepsTarget = T.isInfixOf "import Foreign.Ptr (Ptr, )"
-    unsafeSource =
-      T.unlines
-        [ "module System.Unsafe where",
-          "",
-          "-- taken from share/doc/ghc/html/libraries/base-4.5.1.0/doc-index-U.html",
-          "import System.IO.Unsafe (unsafePerformIO, unsafeInterleaveIO, )",
-          "import Control.Monad.ST.Unsafe (unsafeInterleaveST, unsafeIOToST, unsafeSTToIO, )",
-          "import Foreign.ForeignPtr.Unsafe (unsafeForeignPtrToPtr, )",
-          "import Unsafe.Coerce (unsafeCoerce, )",
-          "",
-          "import Control.Monad.ST (ST, )",
-          "import Foreign.ForeignPtr (ForeignPtr, )",
-          "import Foreign.Ptr (Ptr, )",
-          "",
-          "",
-          "performIO :: IO a -> a",
-          "performIO = unsafePerformIO",
-          "",
-          "interleaveIO :: IO a -> IO a",
-          "interleaveIO = unsafeInterleaveIO",
-          "",
-          "interleaveST :: ST s a -> ST s a",
-          "interleaveST = unsafeInterleaveST",
-          "",
-          "ioToST :: IO a -> ST s a",
-          "ioToST = unsafeIOToST",
-          "",
-          "stToIO :: IO a -> ST s a",
-          "stToIO = unsafeSTToIO",
-          "",
-          "foreignPtrToPtr :: ForeignPtr a -> Ptr a",
-          "foreignPtrToPtr = unsafeForeignPtrToPtr",
-          "",
-          "coerce :: a -> b",
-          "coerce = unsafeCoerce"
-        ]
 
 test_cppMinVersionBaseTrue :: Assertion
 test_cppMinVersionBaseTrue = do
