@@ -1,0 +1,5 @@
+extensions: [MultilineStrings]
+input: |
+  """Hello, World!"""
+ast: EString "Hello, World!"
+status: pass

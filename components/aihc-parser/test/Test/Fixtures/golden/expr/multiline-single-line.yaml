@@ -1,0 +1,5 @@
+extensions: [MultilineStrings]
+input: |
+  """single line"""
+ast: EString "single line"
+status: pass

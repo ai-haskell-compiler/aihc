@@ -1,0 +1,8 @@
+extensions: [MultilineStrings]
+input: |
+  """
+      indented
+      text
+      """
+ast: EString "\n      indented\n      text\n      "
+status: pass

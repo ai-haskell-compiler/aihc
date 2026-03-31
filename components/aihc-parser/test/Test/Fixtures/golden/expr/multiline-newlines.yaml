@@ -1,0 +1,7 @@
+extensions: [MultilineStrings]
+input: |
+  """Line 1
+  Line 2
+  Line 3"""
+ast: EString "Line 1\nLine 2\nLine 3"
+status: pass
