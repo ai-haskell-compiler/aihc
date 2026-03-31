@@ -4,3 +4,4 @@ input: |
     pure ()
 ast: ~
 status: xfail
+reason: BlockArguments extension not enabled
