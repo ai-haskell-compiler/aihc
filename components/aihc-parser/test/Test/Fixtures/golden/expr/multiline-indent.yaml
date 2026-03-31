@@ -4,7 +4,7 @@ input: |
       indented
       text
       """
-ast: "EString \"\\n      indented\\n      text\\n      \""
+ast: "EString \"\n    indented\n    text\n    \""
 status: pass
 comment: |
   Current implementation preserves raw content with all indentation.

@@ -4,7 +4,11 @@ input: |
       Line 1\
       continues here
       """
-ast: "EString \"\\n    Line 1\\\\\\n    continues here\\n    \""
+ast: |
+  EString "
+      Line 1\
+      continues here
+      "
 status: pass
 comment: |
   Current implementation preserves raw content including backslash.
