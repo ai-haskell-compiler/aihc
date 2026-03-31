@@ -694,6 +694,7 @@ normalizePattern pat =
     PNegLit _ lit -> PNegLit span0 (normalizeLiteral lit)
     PParen _ inner -> PParen span0 (normalizePattern inner)
     PRecord _ con fields -> PRecord span0 con [(name, normalizePattern p) | (name, p) <- fields]
+    PTypeSig _ inner ty -> PTypeSig span0 (normalizePattern inner) (normalizeType ty)
 
 normalizeLiteral :: Literal -> Literal
 normalizeLiteral lit =

@@ -65,6 +65,7 @@ patternCtorNames pat =
         PNegLit {} -> here
         PParen _ inner -> here <> patternCtorNames inner
         PRecord _ _ fields -> here <> mconcat [patternCtorNames fieldPat | (_, fieldPat) <- fields]
+        PTypeSig _ inner _ -> here <> patternCtorNames inner
 
 instance Arbitrary GenPattern where
   arbitrary = GenPattern <$> sized (genPattern . min 3)
@@ -114,6 +115,9 @@ shrinkPattern pat =
     PRecord _ con fields ->
       [PRecord span0 con [] | not (null fields)]
         <> [PRecord span0 con fields' | fields' <- shrinkList shrinkField fields]
+    PTypeSig _ inner ty ->
+      [inner]
+        <> [PTypeSig span0 inner' ty | inner' <- shrinkPattern inner]
 
 shrinkTupleElems :: TupleFlavor -> [Pattern] -> [Pattern]
 shrinkTupleElems tupleFlavor elems =
@@ -194,7 +198,8 @@ genPattern depth
           (2, PIrrefutable span0 . canonicalPatternAtom <$> genPattern (depth - 1)),
           (2, PNegLit span0 <$> genNumericLiteral),
           (2, PParen span0 <$> genPattern (depth - 1)),
-          (2, PRecord span0 <$> genPatternConName <*> genRecordFields (depth - 1))
+          (2, PRecord span0 <$> genPatternConName <*> genRecordFields (depth - 1)),
+          (2, genPatternTypeSig depth)
         ]
 
 genPatternCon :: Int -> Gen Pattern
@@ -203,6 +208,19 @@ genPatternCon depth = do
   argCount <- chooseInt (0, 3)
   args <- vectorOf argCount (canonicalPatternAtom <$> genPattern (depth - 1))
   pure (PCon span0 con args)
+
+genPatternTypeSig :: Int -> Gen Pattern
+genPatternTypeSig depth = do
+  inner <- genPattern (depth - 1)
+  PParen span0 . PTypeSig span0 inner <$> genPatternType
+
+-- | Generate a simple type for use in pattern type signatures.
+genPatternType :: Gen Type
+genPatternType =
+  oneof
+    [ TVar span0 <$> genIdent,
+      (\name -> TCon span0 name Unpromoted) <$> genPatternConName
+    ]
 
 genPatternInfix :: Int -> Gen Pattern
 genPatternInfix depth = do
@@ -292,7 +310,9 @@ genConOperator = do
   first <- elements ":"
   restLen <- chooseInt (0, 3)
   rest <- vectorOf restLen (elements ":!#$%&*+./<=>?\\^|-~")
-  pure (T.pack (first : rest))
+  let op = T.pack (first : rest)
+  -- :: is not a valid constructor operator in patterns (it's a type signature)
+  if op == "::" then genConOperator else pure op
 
 genFieldName :: Gen Text
 genFieldName = do
@@ -347,6 +367,7 @@ isPatternAtom pat =
     PParen {} -> True
     PStrict {} -> True
     PView {} -> True
+    PAs {} -> True
     _ -> False
 
 mkIntLiteral :: Integer -> Literal
@@ -392,6 +413,24 @@ normalizePattern pat =
     PNegLit _ lit -> PNegLit span0 (normalizeLiteral lit)
     PParen _ inner -> PParen span0 (normalizePattern inner)
     PRecord _ con fields -> PRecord span0 con [(fieldName, normalizePattern fieldPat) | (fieldName, fieldPat) <- fields]
+    PTypeSig _ inner ty -> PTypeSig span0 (normalizePattern inner) (normalizeTypeSpan ty)
+
+-- | Normalize source spans in a type (reset to noSourceSpan).
+normalizeTypeSpan :: Type -> Type
+normalizeTypeSpan ty =
+  case ty of
+    TVar _ name -> TVar span0 name
+    TCon _ name promoted -> TCon span0 name promoted
+    TTypeLit _ lit -> TTypeLit span0 lit
+    TStar _ -> TStar span0
+    TQuasiQuote _ quoter body -> TQuasiQuote span0 quoter body
+    TForall _ binders inner -> TForall span0 binders (normalizeTypeSpan inner)
+    TApp _ lhs rhs -> TApp span0 (normalizeTypeSpan lhs) (normalizeTypeSpan rhs)
+    TFun _ lhs rhs -> TFun span0 (normalizeTypeSpan lhs) (normalizeTypeSpan rhs)
+    TTuple _ tupleFlavor promoted elems -> TTuple span0 tupleFlavor promoted (map normalizeTypeSpan elems)
+    TList _ promoted inner -> TList span0 promoted (normalizeTypeSpan inner)
+    TParen _ inner -> TParen span0 (normalizeTypeSpan inner)
+    TContext _ constraints inner -> TContext span0 constraints (normalizeTypeSpan inner)
 
 normalizeLiteral :: Literal -> Literal
 normalizeLiteral lit =

@@ -466,6 +466,7 @@ docPattern pat =
     PNegLit _ lit -> "PNegLit" <+> parens (docLiteral lit)
     PParen _ inner -> "PParen" <+> parens (docPattern inner)
     PRecord _ name fields' -> "PRecord" <+> docText name <+> braces (hsep (punctuate comma [docText fn <+> "=" <+> docPattern fp | (fn, fp) <- fields']))
+    PTypeSig _ inner ty -> "PTypeSig" <+> parens (docPattern inner) <+> parens (docType ty)
 
 docLiteral :: Literal -> Doc ann
 docLiteral lit =

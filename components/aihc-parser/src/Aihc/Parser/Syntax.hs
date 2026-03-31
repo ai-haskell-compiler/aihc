@@ -737,6 +737,7 @@ data Pattern
   | PNegLit SourceSpan Literal
   | PParen SourceSpan Pattern
   | PRecord SourceSpan Text [(Text, Pattern)]
+  | PTypeSig SourceSpan Pattern Type
   deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan Pattern where
@@ -757,6 +758,7 @@ instance HasSourceSpan Pattern where
       PNegLit span' _ -> span'
       PParen span' _ -> span'
       PRecord span' _ _ -> span'
+      PTypeSig span' _ _ -> span'
 
 data Type
   = TVar SourceSpan Text
