@@ -1,0 +1,7 @@
+extensions: []
+input: |
+  id do
+    pure ()
+ast: ~
+status: xfail
+reason: BlockArguments extension not enabled

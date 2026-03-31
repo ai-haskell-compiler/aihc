@@ -1,0 +1,5 @@
+extensions: [BlockArguments]
+input: |
+  id if x then y else z
+ast: EApp (EVar "id") (EIf (EVar "x") (EVar "y") (EVar "z"))
+status: pass

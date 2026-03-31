@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail basic lambda block argument -}
+{- ORACLE_TEST xfail parser accepts but pretty-printer roundtrip formatting differs -}
 {-# LANGUAGE BlockArguments #-}
 module BasicLambda where
 

@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail basic do block argument -}
+{- ORACLE_TEST xfail parser accepts but pretty-printer roundtrip formatting differs -}
 {-# LANGUAGE BlockArguments #-}
 module BasicDo where
 

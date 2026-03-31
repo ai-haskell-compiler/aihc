@@ -1,0 +1,7 @@
+extensions: [BlockArguments]
+input: |
+  mapM f do
+    x <- get
+    return x
+ast: EApp (EApp (EVar "mapM") (EVar "f")) (EDo [DoBind (PVar "x") (EVar "get"), DoExpr (EApp (EVar "return") (EVar "x"))])
+status: pass
