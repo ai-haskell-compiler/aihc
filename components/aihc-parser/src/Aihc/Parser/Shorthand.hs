@@ -498,6 +498,13 @@ docExpr expr =
     EString _ s _ -> "EString" <+> docText s
     EStringHash _ s repr -> "EStringHash" <+> docText s <+> docText repr
     EQuasiQuote _ quoter body -> "EQuasiQuote" <+> docText quoter <+> docText body
+    ETHExpQuote _ body -> "ETHExpQuote" <+> parens (docExpr body)
+    ETHTypedQuote _ body -> "ETHTypedQuote" <+> parens (docExpr body)
+    ETHDeclQuote _ decls -> "ETHDeclQuote" <+> brackets (hsep (punctuate comma (map docDecl decls)))
+    ETHTypeQuote _ ty -> "ETHTypeQuote" <+> parens (docType ty)
+    ETHPatQuote _ pat -> "ETHPatQuote" <+> parens (docPattern pat)
+    ETHNameQuote _ name -> "ETHNameQuote" <+> docText name
+    ETHTypeNameQuote _ name -> "ETHTypeNameQuote" <+> docText name
     EIf _ cond yes no -> "EIf" <+> parens (docExpr cond) <+> parens (docExpr yes) <+> parens (docExpr no)
     EMultiWayIf _ rhss -> "EMultiWayIf" <+> brackets (hsep (punctuate comma (map docGuardedRhs rhss)))
     ELambdaPats _ pats body -> "ELambdaPats" <+> brackets (hsep (punctuate comma (map docPattern pats))) <+> parens (docExpr body)
@@ -639,6 +646,15 @@ docTokenKind kind =
     TkPragmaWarning msg -> "TkPragmaWarning" <+> docText msg
     TkPragmaDeprecated msg -> "TkPragmaDeprecated" <+> docText msg
     TkQuasiQuote quoter body -> "TkQuasiQuote" <+> docText quoter <+> docText body
+    TkTHExpQuoteOpen -> "TkTHExpQuoteOpen"
+    TkTHExpQuoteClose -> "TkTHExpQuoteClose"
+    TkTHTypedQuoteOpen -> "TkTHTypedQuoteOpen"
+    TkTHTypedQuoteClose -> "TkTHTypedQuoteClose"
+    TkTHDeclQuoteOpen -> "TkTHDeclQuoteOpen"
+    TkTHTypeQuoteOpen -> "TkTHTypeQuoteOpen"
+    TkTHPatQuoteOpen -> "TkTHPatQuoteOpen"
+    TkTHQuoteTick -> "TkTHQuoteTick"
+    TkTHTypeQuoteTick -> "TkTHTypeQuoteTick"
     TkError msg -> "TkError" <+> docText msg
     TkEOF -> "TkEOF"
 

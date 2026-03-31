@@ -298,6 +298,9 @@ recordFieldBindingParser = withSpan $ do
 atomExprParser :: TokParser Expr
 atomExprParser = do
   blockArgsEnabled <- isExtensionEnabled BlockArguments
+  thEnabled <- isExtensionEnabled TemplateHaskellQuotes
+  thFullEnabled <- isExtensionEnabled TemplateHaskell
+  let thAny = thEnabled || thFullEnabled
   MP.try prefixNegateAtomExprParser
     <|> MP.try parenOperatorExprParser
     <|> lambdaExprParser
@@ -305,6 +308,8 @@ atomExprParser = do
     <|> (if blockArgsEnabled then MP.try doExprParser else MP.empty)
     <|> (if blockArgsEnabled then MP.try caseExprParser else MP.empty)
     <|> (if blockArgsEnabled then MP.try ifExprParser else MP.empty)
+    <|> (if thAny then thQuoteExprParser else MP.empty)
+    <|> (if thAny then thNameQuoteExprParser else MP.empty)
     <|> parenExprParser
     <|> listExprParser
     <|> intBaseExprParser
@@ -929,6 +934,81 @@ varExprParser :: TokParser Expr
 varExprParser = withSpan $ do
   name <- identifierTextParser
   pure (`EVar` name)
+
+-- | Parse Template Haskell quote brackets:
+-- [| expr |], [e| expr |], [|| expr ||], [e|| expr ||],
+-- [d| decls |], [t| type |], [p| pat |]
+thQuoteExprParser :: TokParser Expr
+thQuoteExprParser =
+  thExpQuoteParser
+    <|> thTypedQuoteParser
+    <|> thDeclQuoteParser
+    <|> thTypeQuoteParser
+    <|> thPatQuoteParser
+
+thExpQuoteParser :: TokParser Expr
+thExpQuoteParser = withSpan $ do
+  expectedTok TkTHExpQuoteOpen
+  body <- exprParser
+  expectedTok TkTHExpQuoteClose
+  pure (`ETHExpQuote` body)
+
+thTypedQuoteParser :: TokParser Expr
+thTypedQuoteParser = withSpan $ do
+  expectedTok TkTHTypedQuoteOpen
+  body <- exprParser
+  expectedTok TkTHTypedQuoteClose
+  pure (`ETHTypedQuote` body)
+
+thDeclQuoteParser :: TokParser Expr
+thDeclQuoteParser = withSpan $ do
+  expectedTok TkTHDeclQuoteOpen
+  decls <- bracedSemiSep1 localDeclParser <|> plainSemiSep1 localDeclParser
+  expectedTok TkTHExpQuoteClose
+  pure (`ETHDeclQuote` decls)
+
+thTypeQuoteParser :: TokParser Expr
+thTypeQuoteParser = withSpan $ do
+  expectedTok TkTHTypeQuoteOpen
+  ty <- typeParser
+  expectedTok TkTHExpQuoteClose
+  pure (`ETHTypeQuote` ty)
+
+thPatQuoteParser :: TokParser Expr
+thPatQuoteParser = withSpan $ do
+  expectedTok TkTHPatQuoteOpen
+  pat <- patternParser
+  expectedTok TkTHExpQuoteClose
+  pure (`ETHPatQuote` pat)
+
+-- | Parse Template Haskell name quotes: 'name and ''Type
+thNameQuoteExprParser :: TokParser Expr
+thNameQuoteExprParser =
+  MP.try thValueNameQuoteParser <|> thTypeNameQuoteParser
+
+thValueNameQuoteParser :: TokParser Expr
+thValueNameQuoteParser = withSpan $ do
+  expectedTok TkTHQuoteTick
+  name <- identifierTextParser <|> parenOperatorNameParser
+  pure (`ETHNameQuote` name)
+
+thTypeNameQuoteParser :: TokParser Expr
+thTypeNameQuoteParser = withSpan $ do
+  expectedTok TkTHTypeQuoteTick
+  name <- identifierTextParser
+  pure (`ETHTypeNameQuote` name)
+
+-- | Parse a parenthesized operator name: (+), (++)
+parenOperatorNameParser :: TokParser Text
+parenOperatorNameParser = do
+  expectedTok TkSpecialLParen
+  op <- tokenSatisfy "operator" $ \tok ->
+    case lexTokenKind tok of
+      TkVarSym sym -> Just sym
+      TkConSym sym -> Just sym
+      _ -> Nothing
+  expectedTok TkSpecialRParen
+  pure ("(" <> op <> ")")
 
 simplePatternParser :: TokParser Pattern
 simplePatternParser =
