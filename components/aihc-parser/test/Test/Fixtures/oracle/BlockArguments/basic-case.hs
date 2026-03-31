@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail basic case block argument -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE BlockArguments #-}
 module BasicCase where
 

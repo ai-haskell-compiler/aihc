@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail basic if block argument -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE BlockArguments #-}
 module BasicIf where
 

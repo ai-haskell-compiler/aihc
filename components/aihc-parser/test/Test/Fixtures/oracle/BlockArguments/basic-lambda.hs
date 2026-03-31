@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail basic lambda block argument -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE BlockArguments #-}
 module BasicLambda where
 

@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail basic do block argument -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE BlockArguments #-}
 module BasicDo where
 
