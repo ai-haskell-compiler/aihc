@@ -477,6 +477,8 @@ shrinkExpr expr =
       inner : [ETypeSig span0 inner' (TCon span0 "T" Unpromoted) | inner' <- shrinkExpr inner]
     ETypeApp _ inner _ ->
       inner : [ETypeApp span0 inner' (TCon span0 "T" Unpromoted) | inner' <- shrinkExpr inner]
+    EUnboxedSum _ altIdx arity inner ->
+      [EUnboxedSum span0 altIdx arity inner' | inner' <- shrinkExpr inner]
     EParen _ inner -> inner : [EParen span0 inner' | inner' <- shrinkExpr inner]
 
 shrinkFloat :: Double -> [Double]
@@ -645,6 +647,7 @@ normalizeExpr expr =
     ERecordUpd _ target fields -> ERecordUpd span0 (normalizeExpr target) [(name, normalizeExpr e) | (name, e) <- fields]
     ETypeSig _ inner ty -> ETypeSig span0 (normalizeExpr inner) (normalizeType ty)
     ETypeApp _ inner ty -> ETypeApp span0 (normalizeExpr inner) (normalizeType ty)
+    EUnboxedSum _ altIdx arity inner -> EUnboxedSum span0 altIdx arity (normalizeExpr inner)
     EParen _ inner -> normalizeExpr inner
 
 normalizeCaseAlt :: CaseAlt -> CaseAlt
@@ -693,6 +696,7 @@ normalizePattern pat =
     PIrrefutable _ inner -> PIrrefutable span0 (normalizePattern inner)
     PNegLit _ lit -> PNegLit span0 (normalizeLiteral lit)
     PParen _ inner -> PParen span0 (normalizePattern inner)
+    PUnboxedSum _ altIdx arity inner -> PUnboxedSum span0 altIdx arity (normalizePattern inner)
     PRecord _ con fields -> PRecord span0 con [(name, normalizePattern p) | (name, p) <- fields]
 
 normalizeLiteral :: Literal -> Literal
@@ -770,6 +774,7 @@ normalizeType ty =
     TList _ promoted inner -> TList span0 promoted (normalizeType inner)
     -- Remove redundant parentheses from types
     TParen _ inner -> normalizeType inner
+    TUnboxedSum _ elems -> TUnboxedSum span0 (map normalizeType elems)
     TContext _ constraints inner -> TContext span0 (map normalizeConstraint constraints) (normalizeType inner)
 
 normalizeConstraint :: Constraint -> Constraint

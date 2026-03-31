@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail basic unboxed sum -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE UnboxedSums #-}
 module Basic where
 

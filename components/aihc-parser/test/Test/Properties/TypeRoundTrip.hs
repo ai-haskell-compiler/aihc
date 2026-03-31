@@ -38,8 +38,10 @@ prop_typePrettyRoundTrip ty =
 typeCtorCoverage :: Type -> [Property -> Property]
 typeCtorCoverage ty =
   let allCtors = map showConstr (dataTypeConstrs (dataTypeOf (undefined :: Type)))
+      -- Exclude constructors that cannot be round-tripped through the parser yet
+      coverableCtors = filter (`notElem` ["TUnboxedSum"]) allCtors
       seenCtors = typeCtorNames ty
-   in [cover 1 (ctor `Set.member` seenCtors) ctor | ctor <- allCtors]
+   in [cover 1 (ctor `Set.member` seenCtors) ctor | ctor <- coverableCtors]
 
 applyCoverage :: [Property -> Property] -> Property -> Property
 applyCoverage wrappers prop = foldr (\wrap acc -> wrap acc) prop wrappers
@@ -59,6 +61,7 @@ typeCtorNames ty =
         TTuple _ _ _ elems -> here <> mconcat (map typeCtorNames elems)
         TList _ _ inner -> here <> typeCtorNames inner
         TParen _ inner -> here <> typeCtorNames inner
+        TUnboxedSum _ elems -> here <> mconcat (map typeCtorNames elems)
         TContext _ constraints inner ->
           here <> mconcat (map constraintTypeCtorNames constraints) <> typeCtorNames inner
 
@@ -104,6 +107,8 @@ shrinkType ty =
       [inner] <> [TList span0 Unpromoted inner' | inner' <- shrinkType inner]
     TParen _ inner ->
       [inner] <> [TParen span0 inner' | inner' <- shrinkType inner]
+    TUnboxedSum _ elems ->
+      [TUnboxedSum span0 elems' | elems' <- shrinkList shrinkType elems, length elems' >= 2]
     TContext _ constraints inner ->
       [inner]
         <> [TContext span0 constraints' inner | constraints' <- shrinkConstraints constraints]
@@ -300,6 +305,7 @@ canonicalConstraintArg ty =
     TQuasiQuote {} -> ty
     TList {} -> ty
     TTuple {} -> ty
+    TUnboxedSum {} -> ty
     TParen {} -> ty
     _ -> TParen span0 ty
 
@@ -375,6 +381,7 @@ normalizeType ty =
     TTuple _ tupleFlavor promoted elems -> TTuple span0 tupleFlavor promoted (map normalizeType elems)
     TList _ promoted inner -> TList span0 promoted (normalizeType inner)
     TParen _ inner -> TParen span0 (normalizeType inner)
+    TUnboxedSum _ elems -> TUnboxedSum span0 (map normalizeType elems)
     TContext _ constraints inner -> TContext span0 (map normalizeConstraint constraints) (normalizeType inner)
 
 normalizeConstraint :: Constraint -> Constraint

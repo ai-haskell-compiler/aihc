@@ -616,7 +616,7 @@ parenExprParser = withSpan $ do
     Nothing ->
       if tupleFlavor == Boxed
         then MP.try (parseNegateParen closeTok) <|> MP.try (parseSection closeTok) <|> MP.try (parseTupleSectionExpr tupleFlavor closeTok) <|> parseParenOrTupleExpr tupleFlavor closeTok
-        else MP.try (parseTupleSectionExpr tupleFlavor closeTok) <|> parseParenOrTupleExpr tupleFlavor closeTok
+        else MP.try (parseTupleSectionExpr tupleFlavor closeTok) <|> MP.try (parseUnboxedSumExprLeadingBars closeTok) <|> parseParenOrTupleExpr tupleFlavor closeTok
   where
     parseNegateParen closeTok = do
       minusTok <- minusTokenValueParser
@@ -668,15 +668,36 @@ parenExprParser = withSpan $ do
       mComma <- MP.optional (expectedTok TkSpecialComma)
       case mComma of
         Nothing -> do
-          expectedTok closeTok
-          if tupleFlavor == Boxed
-            then pure (`EParen` first)
-            else fail "not an unboxed tuple"
+          -- Check for pipe (unboxed sum: value in first slot)
+          mPipe <- if tupleFlavor == Unboxed then MP.optional (expectedTok TkReservedPipe) else pure Nothing
+          case mPipe of
+            Just () -> do
+              -- (# expr | ... #) - value in first slot of sum
+              trailingBars <- MP.many (expectedTok TkReservedPipe)
+              expectedTok closeTok
+              let arity = 2 + length trailingBars
+              pure (\span' -> EUnboxedSum span' 0 arity first)
+            Nothing -> do
+              expectedTok closeTok
+              if tupleFlavor == Boxed
+                then pure (`EParen` first)
+                else fail "not an unboxed tuple"
         Just () -> do
           second <- exprParser
           more <- MP.many (expectedTok TkSpecialComma *> exprParser)
           expectedTok closeTok
           pure (\span' -> ETuple span' tupleFlavor (first : second : more))
+
+    parseUnboxedSumExprLeadingBars closeTok = do
+      -- Parse (# | | ... | expr | ... | #) where value is not in first slot
+      _ <- expectedTok TkReservedPipe
+      leadingBars <- MP.many (MP.try (expectedTok TkReservedPipe))
+      let altIdx = 1 + length leadingBars
+      inner <- exprParser
+      trailingBars <- MP.many (expectedTok TkReservedPipe)
+      expectedTok closeTok
+      let arity = altIdx + 1 + length trailingBars
+      pure (\span' -> EUnboxedSum span' altIdx arity inner)
 
 parseTupleSection :: LexTokenKind -> TokParser [Maybe Expr]
 parseTupleSection closeTok = do
@@ -877,6 +898,7 @@ parenOrTuplePatternParser = withSpan $ do
       <|> (expectedTok TkSpecialUnboxedLParen $> (Unboxed, TkSpecialUnboxedRParen))
   MP.try (unitPatternParser tupleFlavor closeTok)
     <|> MP.try (viewPatternParser tupleFlavor closeTok)
+    <|> (if tupleFlavor == Unboxed then MP.try (parseUnboxedSumPatLeadingBars closeTok) else MP.empty)
     <|> tupleOrParenPatternParser tupleFlavor closeTok
   where
     unitPatternParser tupleFlavor closeTok = do
@@ -897,15 +919,36 @@ parenOrTuplePatternParser = withSpan $ do
       mComma <- MP.optional (expectedTok TkSpecialComma)
       case mComma of
         Nothing -> do
-          expectedTok closeTok
-          if tupleFlavor == Boxed
-            then pure (`PParen` first)
-            else fail "not an unboxed tuple pattern"
+          -- Check for pipe (unboxed sum: pattern in first slot)
+          mPipe <- if tupleFlavor == Unboxed then MP.optional (expectedTok TkReservedPipe) else pure Nothing
+          case mPipe of
+            Just () -> do
+              -- (# pat | ... #) - pattern in first slot of sum
+              trailingBars <- MP.many (expectedTok TkReservedPipe)
+              expectedTok closeTok
+              let arity = 2 + length trailingBars
+              pure (\span' -> PUnboxedSum span' 0 arity first)
+            Nothing -> do
+              expectedTok closeTok
+              if tupleFlavor == Boxed
+                then pure (`PParen` first)
+                else fail "not an unboxed tuple pattern"
         Just () -> do
           second <- patternParser
           more <- MP.many (expectedTok TkSpecialComma *> patternParser)
           expectedTok closeTok
           pure (\span' -> PTuple span' tupleFlavor (first : second : more))
+
+    parseUnboxedSumPatLeadingBars closeTok = do
+      -- Parse (# | | ... | pat | ... | #) where pattern is not in first slot
+      _ <- expectedTok TkReservedPipe
+      leadingBars <- MP.many (MP.try (expectedTok TkReservedPipe))
+      let altIdx = 1 + length leadingBars
+      inner <- patternParser
+      trailingBars <- MP.many (expectedTok TkReservedPipe)
+      expectedTok closeTok
+      let arity = altIdx + 1 + length trailingBars
+      pure (\span' -> PUnboxedSum span' altIdx arity inner)
 
 isConLikeName :: Text -> Bool
 isConLikeName name =
@@ -1153,10 +1196,19 @@ typeParenOrTupleParser = withSpan $ do
       mComma <- MP.optional (expectedTok TkSpecialComma)
       case mComma of
         Nothing -> do
-          expectedTok closeTok
-          if tupleFlavor == Boxed
-            then pure (`TParen` first)
-            else fail "not an unboxed tuple type"
+          -- Check for pipe (unboxed sum type)
+          mPipe <- if tupleFlavor == Unboxed then MP.optional (expectedTok TkReservedPipe) else pure Nothing
+          case mPipe of
+            Just () -> do
+              -- (# Type1 | Type2 | ... #) - unboxed sum type
+              rest <- typeParser `MP.sepBy1` expectedTok TkReservedPipe
+              expectedTok closeTok
+              pure (\span' -> TUnboxedSum span' (first : rest))
+            Nothing -> do
+              expectedTok closeTok
+              if tupleFlavor == Boxed
+                then pure (`TParen` first)
+                else fail "not an unboxed tuple type"
         Just () -> do
           second <- typeParser
           more <- MP.many (expectedTok TkSpecialComma *> typeParser)
@@ -1183,6 +1235,7 @@ setTypeSpan span' ty =
     TApp _ lhs rhs -> TApp span' lhs rhs
     TFun _ lhs rhs -> TFun span' lhs rhs
     TTuple _ tupleFlavor promoted elems -> TTuple span' tupleFlavor promoted elems
+    TUnboxedSum _ elems -> TUnboxedSum span' elems
     TList _ promoted inner -> TList span' promoted inner
     TParen _ inner -> TParen span' inner
     TContext _ constraints inner -> TContext span' constraints inner
