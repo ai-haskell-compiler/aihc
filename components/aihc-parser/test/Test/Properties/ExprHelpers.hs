@@ -478,6 +478,13 @@ shrinkExpr expr =
     ETypeApp _ inner _ ->
       inner : [ETypeApp span0 inner' (TCon span0 "T" Unpromoted) | inner' <- shrinkExpr inner]
     EParen _ inner -> inner : [EParen span0 inner' | inner' <- shrinkExpr inner]
+    ETHExpQuote _ body -> body : [ETHExpQuote span0 body' | body' <- shrinkExpr body]
+    ETHTypedQuote _ body -> body : [ETHTypedQuote span0 body' | body' <- shrinkExpr body]
+    ETHDeclQuote {} -> []
+    ETHTypeQuote {} -> []
+    ETHPatQuote {} -> []
+    ETHNameQuote {} -> []
+    ETHTypeNameQuote {} -> []
 
 shrinkFloat :: Double -> [Double]
 shrinkFloat value =
@@ -646,6 +653,13 @@ normalizeExpr expr =
     ETypeSig _ inner ty -> ETypeSig span0 (normalizeExpr inner) (normalizeType ty)
     ETypeApp _ inner ty -> ETypeApp span0 (normalizeExpr inner) (normalizeType ty)
     EParen _ inner -> normalizeExpr inner
+    ETHExpQuote _ body -> ETHExpQuote span0 (normalizeExpr body)
+    ETHTypedQuote _ body -> ETHTypedQuote span0 (normalizeExpr body)
+    ETHDeclQuote _ decls -> ETHDeclQuote span0 (map normalizeDecl decls)
+    ETHTypeQuote _ ty -> ETHTypeQuote span0 (normalizeType ty)
+    ETHPatQuote _ pat -> ETHPatQuote span0 (normalizePattern pat)
+    ETHNameQuote _ name -> ETHNameQuote span0 name
+    ETHTypeNameQuote _ name -> ETHTypeNameQuote span0 name
 
 normalizeCaseAlt :: CaseAlt -> CaseAlt
 normalizeCaseAlt alt =

@@ -162,6 +162,16 @@ data LexTokenKind
     TkPragmaLanguage [ExtensionSetting]
   | TkPragmaWarning Text
   | TkPragmaDeprecated Text
+  | -- TemplateHaskellQuotes bracket tokens
+    TkTHExpQuoteOpen
+  | TkTHExpQuoteClose
+  | TkTHTypedQuoteOpen
+  | TkTHTypedQuoteClose
+  | TkTHDeclQuoteOpen
+  | TkTHTypeQuoteOpen
+  | TkTHPatQuoteOpen
+  | TkTHQuoteTick
+  | TkTHTypeQuoteTick
   | -- Other
     TkQuasiQuote Text Text
   | TkError Text
@@ -495,14 +505,17 @@ nextToken st =
   where
     tokenParsers =
       [ lexKnownPragma,
+        lexTHQuoteBracket, -- must come before lexQuasiQuote to handle [| [|| [e| etc.
         lexQuasiQuote,
         lexHexFloat,
         lexFloat,
         lexIntBase,
         lexInt,
+        lexTHNameQuote, -- must come before lexPromotedQuote and lexChar
         lexPromotedQuote,
         lexChar,
         lexString,
+        lexTHCloseQuote, -- must come before lexSymbol to handle |] and ||]
         lexSymbol,
         lexIdentifier,
         lexNegativeLiteralOrMinus,
@@ -644,6 +657,12 @@ closeBeforeToken st tok =
       let (inserted, contexts') = closeAllImplicitBeforeDelimiter (lexTokenSpan tok) (layoutContexts st)
        in (inserted, st {layoutContexts = contexts'})
     TkSpecialRBracket ->
+      let (inserted, contexts') = closeAllImplicitBeforeDelimiter (lexTokenSpan tok) (layoutContexts st)
+       in (inserted, st {layoutContexts = contexts'})
+    TkTHExpQuoteClose ->
+      let (inserted, contexts') = closeAllImplicitBeforeDelimiter (lexTokenSpan tok) (layoutContexts st)
+       in (inserted, st {layoutContexts = contexts'})
+    TkTHTypedQuoteClose ->
       let (inserted, contexts') = closeAllImplicitBeforeDelimiter (lexTokenSpan tok) (layoutContexts st)
        in (inserted, st {layoutContexts = contexts'})
     TkSpecialRBrace ->
@@ -809,12 +828,47 @@ stepTokenContext st tok =
         { layoutDelimiterDepth = layoutDelimiterDepth st + 1,
           layoutContexts = LayoutDelimiter : layoutContexts st
         }
+    TkTHExpQuoteOpen ->
+      st
+        { layoutDelimiterDepth = layoutDelimiterDepth st + 1,
+          layoutContexts = LayoutDelimiter : layoutContexts st
+        }
+    TkTHTypedQuoteOpen ->
+      st
+        { layoutDelimiterDepth = layoutDelimiterDepth st + 1,
+          layoutContexts = LayoutDelimiter : layoutContexts st
+        }
+    TkTHDeclQuoteOpen ->
+      st
+        { layoutDelimiterDepth = layoutDelimiterDepth st + 1,
+          layoutContexts = LayoutDelimiter : layoutContexts st
+        }
+    TkTHTypeQuoteOpen ->
+      st
+        { layoutDelimiterDepth = layoutDelimiterDepth st + 1,
+          layoutContexts = LayoutDelimiter : layoutContexts st
+        }
+    TkTHPatQuoteOpen ->
+      st
+        { layoutDelimiterDepth = layoutDelimiterDepth st + 1,
+          layoutContexts = LayoutDelimiter : layoutContexts st
+        }
     TkSpecialRParen ->
       st
         { layoutDelimiterDepth = max 0 (layoutDelimiterDepth st - 1),
           layoutContexts = popToDelimiter (layoutContexts st)
         }
     TkSpecialRBracket ->
+      st
+        { layoutDelimiterDepth = max 0 (layoutDelimiterDepth st - 1),
+          layoutContexts = popToDelimiter (layoutContexts st)
+        }
+    TkTHExpQuoteClose ->
+      st
+        { layoutDelimiterDepth = max 0 (layoutDelimiterDepth st - 1),
+          layoutContexts = popToDelimiter (layoutContexts st)
+        }
+    TkTHTypedQuoteClose ->
       st
         { layoutDelimiterDepth = max 0 (layoutDelimiterDepth st - 1),
           layoutContexts = popToDelimiter (layoutContexts st)
@@ -1471,6 +1525,99 @@ lexQuasiQuote st =
                         '|' : ']' : _ -> Just (quoter, body, take (length body + 2) rest1)
                         _ -> Nothing
             _ -> Nothing
+
+-- | Lex Template Haskell opening quote brackets: [| [e| [|| [e|| [d| [t| [p|
+-- Must be tried before lexQuasiQuote so that [e|...] is not misinterpreted
+-- as a quasi-quote with quoter "e".
+lexTHQuoteBracket :: LexerState -> Maybe (LexToken, LexerState)
+lexTHQuoteBracket st
+  | not (thQuotesEnabled st) = Nothing
+  | otherwise =
+      case lexerInput st of
+        '[' : '|' : '|' : _ ->
+          let raw = "[||"
+              st' = advanceChars raw st
+           in Just (mkToken st st' (T.pack raw) TkTHTypedQuoteOpen, st')
+        '[' : 'e' : '|' : '|' : _ ->
+          let raw = "[e||"
+              st' = advanceChars raw st
+           in Just (mkToken st st' (T.pack raw) TkTHTypedQuoteOpen, st')
+        '[' : '|' : _ ->
+          let raw = "[|"
+              st' = advanceChars raw st
+           in Just (mkToken st st' (T.pack raw) TkTHExpQuoteOpen, st')
+        '[' : 'e' : '|' : _ ->
+          let raw = "[e|"
+              st' = advanceChars raw st
+           in Just (mkToken st st' (T.pack raw) TkTHExpQuoteOpen, st')
+        '[' : 'd' : '|' : _ ->
+          let raw = "[d|"
+              st' = advanceChars raw st
+           in Just (mkToken st st' (T.pack raw) TkTHDeclQuoteOpen, st')
+        '[' : 't' : '|' : _ ->
+          let raw = "[t|"
+              st' = advanceChars raw st
+           in Just (mkToken st st' (T.pack raw) TkTHTypeQuoteOpen, st')
+        '[' : 'p' : '|' : _ ->
+          let raw = "[p|"
+              st' = advanceChars raw st
+           in Just (mkToken st st' (T.pack raw) TkTHPatQuoteOpen, st')
+        _ -> Nothing
+
+-- | Lex Template Haskell closing quote brackets: |] and ||]
+-- Must be tried before lexSymbol.
+lexTHCloseQuote :: LexerState -> Maybe (LexToken, LexerState)
+lexTHCloseQuote st
+  | not (thQuotesEnabled st) = Nothing
+  | otherwise =
+      case lexerInput st of
+        '|' : '|' : ']' : _ ->
+          let raw = "||]"
+              st' = advanceChars raw st
+           in Just (mkToken st st' (T.pack raw) TkTHTypedQuoteClose, st')
+        '|' : ']' : _ ->
+          let raw = "|]"
+              st' = advanceChars raw st
+           in Just (mkToken st st' (T.pack raw) TkTHExpQuoteClose, st')
+        _ -> Nothing
+
+-- | Lex Template Haskell name quote ticks: ' and ''
+-- Must be tried before lexPromotedQuote and lexChar.
+-- Produces standalone tick tokens; the parser combines with the following name.
+lexTHNameQuote :: LexerState -> Maybe (LexToken, LexerState)
+lexTHNameQuote st
+  | not (thQuotesEnabled st) = Nothing
+  | otherwise =
+      case lexerInput st of
+        '\'' : '\'' : rest ->
+          -- '' - type name quote tick (only when followed by an identifier start)
+          case rest of
+            c : _
+              | isIdentStart c ->
+                  let raw = "''"
+                      st' = advanceChars raw st
+                   in Just (mkToken st st' (T.pack raw) TkTHTypeQuoteTick, st')
+            _ -> Nothing
+        '\'' : rest ->
+          -- ' - value name quote tick (NOT a char literal)
+          if isValidCharLiteral rest
+            then Nothing
+            else
+              let raw = "'"
+                  st' = advanceChars raw st
+               in Just (mkToken st st' (T.pack raw) TkTHQuoteTick, st')
+        _ -> Nothing
+  where
+    isValidCharLiteral chars =
+      case scanQuoted '\'' chars of
+        Right (body, _) -> isJust (readMaybeChar ('\'' : body <> "'"))
+        Left _ -> False
+
+-- | Check if TemplateHaskellQuotes or TemplateHaskell is enabled
+thQuotesEnabled :: LexerState -> Bool
+thQuotesEnabled st =
+  TemplateHaskellQuotes `elem` lexerExtensions st
+    || TemplateHaskell `elem` lexerExtensions st
 
 lexErrorToken :: LexerState -> Text -> (LexToken, LexerState)
 lexErrorToken st msg =

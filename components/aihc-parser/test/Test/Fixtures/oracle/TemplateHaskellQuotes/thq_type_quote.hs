@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail TemplateHaskellQuotes ''T syntax -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE TemplateHaskellQuotes #-}
 module THQ_Type_Quote where
 

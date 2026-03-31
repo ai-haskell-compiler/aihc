@@ -1,5 +1,6 @@
 {- ORACLE_TEST pass -}
 {-# LANGUAGE TemplateHaskellQuotes #-}
-module THQ_Quote_D where
+module THQ_Op_Quote where
 
-decl = [d| f x = x |]
+opName = '(+)
+conOpName = '(:)

@@ -1081,6 +1081,14 @@ data Expr
   | ETupleCon SourceSpan TupleFlavor Int
   | ETypeApp SourceSpan Expr Type
   | EApp SourceSpan Expr Expr
+  | -- Template Haskell quotes
+    ETHExpQuote SourceSpan Expr -- [| expr |] or [e| expr |]
+  | ETHTypedQuote SourceSpan Expr -- [|| expr ||] or [e|| expr ||]
+  | ETHDeclQuote SourceSpan [Decl] -- [d| decls |]
+  | ETHTypeQuote SourceSpan Type -- [t| type |]
+  | ETHPatQuote SourceSpan Pattern -- [p| pat |]
+  | ETHNameQuote SourceSpan Text -- 'name
+  | ETHTypeNameQuote SourceSpan Text -- ''Name
   deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan Expr where
@@ -1123,6 +1131,13 @@ instance HasSourceSpan Expr where
       ETupleCon span' _ _ -> span'
       ETypeApp span' _ _ -> span'
       EApp span' _ _ -> span'
+      ETHExpQuote span' _ -> span'
+      ETHTypedQuote span' _ -> span'
+      ETHDeclQuote span' _ -> span'
+      ETHTypeQuote span' _ -> span'
+      ETHPatQuote span' _ -> span'
+      ETHNameQuote span' _ -> span'
+      ETHTypeNameQuote span' _ -> span'
 
 data CaseAlt = CaseAlt
   { caseAltSpan :: SourceSpan,
