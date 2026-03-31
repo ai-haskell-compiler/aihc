@@ -3,7 +3,7 @@ input: |
   """Line 1
       Line 2 with extra indent
   Line 3"""
-ast: 'EString "Line 1\n    Line 2 with extra indent\nLine 3"'
+ast: "EString \"Line 1\\n    Line 2 with extra indent\\nLine 3\""
 status: pass
 comment: |
   Current implementation preserves raw content with all indentation variations.

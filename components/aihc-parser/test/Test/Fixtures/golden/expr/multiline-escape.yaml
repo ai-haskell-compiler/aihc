@@ -1,7 +1,7 @@
 extensions: [MultilineStrings]
 input: |
   """Line 1\nLine 2"""
-ast: 'EString "Line 1\nLine 2"'
+ast: "EString \"Line 1\\nLine 2\""
 status: pass
 comment: |
   Backslash-n becomes newline after escape sequence processing.

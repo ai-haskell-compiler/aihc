@@ -3,7 +3,7 @@ input: |
   """
       Line with tab character:	here
       """
-ast: 'EString "\n      Line with tab character:\there\n      "'
+ast: "EString \"\\n      Line with tab character:\\there\\n      \""
 status: pass
 comment: |
   Current implementation preserves raw tab character in content.
