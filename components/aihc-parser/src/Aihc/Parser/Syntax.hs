@@ -727,6 +727,7 @@ data Pattern
   | PLit SourceSpan Literal
   | PQuasiQuote SourceSpan Text Text
   | PTuple SourceSpan TupleFlavor [Pattern]
+  | PUnboxedSum SourceSpan Int Int Pattern
   | PList SourceSpan [Pattern]
   | PCon SourceSpan Text [Pattern]
   | PInfix SourceSpan Pattern Text Pattern
@@ -747,6 +748,7 @@ instance HasSourceSpan Pattern where
       PLit span' _ -> span'
       PQuasiQuote span' _ _ -> span'
       PTuple span' _ _ -> span'
+      PUnboxedSum span' _ _ _ -> span'
       PList span' _ -> span'
       PCon span' _ _ -> span'
       PInfix span' _ _ _ -> span'
@@ -768,6 +770,7 @@ data Type
   | TApp SourceSpan Type Type
   | TFun SourceSpan Type Type
   | TTuple SourceSpan TupleFlavor TypePromotion [Type]
+  | TUnboxedSum SourceSpan [Type]
   | TList SourceSpan TypePromotion Type
   | TParen SourceSpan Type
   | TContext SourceSpan [Constraint] Type
@@ -785,6 +788,7 @@ instance HasSourceSpan Type where
       TApp span' _ _ -> span'
       TFun span' _ _ -> span'
       TTuple span' _ _ _ -> span'
+      TUnboxedSum span' _ -> span'
       TList span' _ _ -> span'
       TParen span' _ -> span'
       TContext span' _ _ -> span'
@@ -1079,6 +1083,7 @@ data Expr
   | ETuple SourceSpan TupleFlavor [Expr]
   | ETupleSection SourceSpan TupleFlavor [Maybe Expr]
   | ETupleCon SourceSpan TupleFlavor Int
+  | EUnboxedSum SourceSpan Int Int Expr
   | ETypeApp SourceSpan Expr Type
   | EApp SourceSpan Expr Expr
   | -- Template Haskell quotes
@@ -1129,6 +1134,7 @@ instance HasSourceSpan Expr where
       ETuple span' _ _ -> span'
       ETupleSection span' _ _ -> span'
       ETupleCon span' _ _ -> span'
+      EUnboxedSum span' _ _ _ -> span'
       ETypeApp span' _ _ -> span'
       EApp span' _ _ -> span'
       ETHExpQuote span' _ -> span'

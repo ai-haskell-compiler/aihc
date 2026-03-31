@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail unboxed sum type -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE UnboxedSums #-}
 module Type where
 
