@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail pattern guards in multi-way if -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE MultiWayIf #-}
 module PatternGuards where
 

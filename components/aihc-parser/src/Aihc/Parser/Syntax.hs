@@ -1057,6 +1057,7 @@ data Expr
   | EStringHash SourceSpan Text Text
   | EQuasiQuote SourceSpan Text Text
   | EIf SourceSpan Expr Expr Expr
+  | EMultiWayIf SourceSpan [GuardedRhs]
   | ELambdaPats SourceSpan [Pattern] Expr
   | ELambdaCase SourceSpan [CaseAlt]
   | EInfix SourceSpan Expr Text Expr
@@ -1098,6 +1099,7 @@ instance HasSourceSpan Expr where
       EStringHash span' _ _ -> span'
       EQuasiQuote span' _ _ -> span'
       EIf span' _ _ _ -> span'
+      EMultiWayIf span' _ -> span'
       ELambdaPats span' _ _ -> span'
       ELambdaCase span' _ -> span'
       EInfix span' _ _ _ -> span'

@@ -62,7 +62,10 @@ exprCoreParserExcept forbiddenInfix = do
     Nothing -> base
 
 ifExprParser :: TokParser Expr
-ifExprParser = withSpan $ do
+ifExprParser = MP.try multiWayIfExprParser <|> classicIfExprParser
+
+classicIfExprParser :: TokParser Expr
+classicIfExprParser = withSpan $ do
   keywordTok TkKeywordIf
   cond <- region "while parsing if condition" exprParser
   skipSemicolons
@@ -72,6 +75,28 @@ ifExprParser = withSpan $ do
   keywordTok TkKeywordElse
   no <- region "while parsing else branch" exprParser
   pure (\span' -> EIf span' cond yes no)
+
+multiWayIfExprParser :: TokParser Expr
+multiWayIfExprParser = withSpan $ do
+  keywordTok TkKeywordIf
+  rhss <- bracedAlts <|> plainAlts
+  pure (`EMultiWayIf` rhss)
+  where
+    plainAlts = plainSemiSep1 multiWayIfAlternative
+    bracedAlts = bracedSemiSep multiWayIfAlternative
+
+multiWayIfAlternative :: TokParser GuardedRhs
+multiWayIfAlternative = withSpan $ do
+  expectedTok TkReservedPipe
+  guards <- guardQualifierParser `MP.sepBy1` expectedTok TkSpecialComma
+  expectedTok TkReservedRightArrow
+  body <- exprParser
+  pure $ \span' ->
+    GuardedRhs
+      { guardedRhsSpan = span',
+        guardedRhsGuards = guards,
+        guardedRhsBody = body
+      }
 
 doExprParser :: TokParser Expr
 doExprParser = withSpan $ do
