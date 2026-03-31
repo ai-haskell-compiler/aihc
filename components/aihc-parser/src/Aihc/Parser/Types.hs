@@ -84,7 +84,7 @@ mkTokStream :: [LexToken] -> TokStream
 mkTokStream toks = TokStream toks Nothing []
 
 mkTokStreamWithExtensions :: [LexToken] -> [Extension] -> TokStream
-mkTokStreamWithExtensions toks exts = TokStream toks Nothing exts
+mkTokStreamWithExtensions toks = TokStream toks Nothing
 
 instance Stream TokStream where
   type Token TokStream = LexToken
