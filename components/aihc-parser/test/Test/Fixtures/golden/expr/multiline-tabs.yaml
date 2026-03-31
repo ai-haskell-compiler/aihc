@@ -1,0 +1,11 @@
+extensions: [MultilineStrings]
+input: |
+  """
+  	Line 1
+  	Line 2
+  	"""
+ast: "EString \"Line 1\nLine 2\""
+status: pass
+comment: |
+  Leading tabs expanded to spaces (8-space tab stops), then common
+  indentation stripped. Leading/trailing newlines removed.

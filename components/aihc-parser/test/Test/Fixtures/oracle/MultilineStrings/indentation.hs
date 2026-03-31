@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail indentation stripping -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE MultilineStrings #-}
 module Indentation where
 

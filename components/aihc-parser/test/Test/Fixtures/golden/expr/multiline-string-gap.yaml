@@ -1,0 +1,11 @@
+extensions: [MultilineStrings]
+input: |
+  """
+      Line 1\
+      \continues here
+      """
+ast: EString "Line 1continues here"
+status: pass
+comment: |
+  String gap (\<whitespace>\) is collapsed before multiline processing.
+  The backslash-whitespace-backslash sequence is removed entirely.

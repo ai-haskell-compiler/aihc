@@ -1486,6 +1486,19 @@ lexChar st =
 lexString :: LexerState -> Maybe (LexToken, LexerState)
 lexString st =
   case lexerInput st of
+    '"' : '"' : '"' : rest | MultilineStrings `elem` lexerExtensions st ->
+      -- Try multiline string first if extension is enabled
+      case scanMultilineString rest of
+        Right (body, _) ->
+          let raw = "\"\"\"" <> body <> "\"\"\""
+              decoded = T.pack (processMultilineString body)
+              (tokTxt, tokKind, st') =
+                withOptionalMagicHashSuffix st raw (TkString decoded) (TkStringHash decoded)
+           in Just (mkToken st st' tokTxt tokKind, st')
+        Left raw ->
+          let full = "\"\"\"" <> raw
+              st' = advanceChars full st
+           in Just (mkErrorToken st st' (T.pack full) "unterminated multiline string literal", st')
     '"' : rest ->
       case scanQuoted '"' rest of
         Right (body, _) ->
@@ -2088,6 +2101,117 @@ scanQuoted endCh = go []
                 escaped : rest' -> go (escaped : c : acc) rest'
                 [] -> Left (reverse (c : acc))
           | otherwise -> go (c : acc) rest
+
+-- | Scan a multiline string delimited by """ (closing marker is three consecutive quotes)
+-- Preserves all characters including newlines, spaces, and escape sequences.
+-- Backslash-escaped characters are skipped to prevent escaped quotes from
+-- being mistaken for the closing delimiter (e.g. \""" embeds three quotes).
+scanMultilineString :: String -> Either String (String, String)
+scanMultilineString = go []
+  where
+    go acc chars =
+      case chars of
+        [] -> Left (reverse acc)
+        '"' : '"' : '"' : rest -> Right (reverse acc, rest)
+        '\\' : c : rest -> go (c : '\\' : acc) rest
+        ['\\'] -> Left (reverse ('\\' : acc))
+        c : rest ->
+          go (c : acc) rest
+
+-- | Process the raw body of a multiline string literal according to GHC's
+-- MultilineStrings specification.  The processing pipeline is:
+--
+-- 1. Collapse string gaps (backslash-whitespace-backslash → empty)
+-- 2. Split by newline characters (\\n, \\r\\n, \\r, \\f)
+-- 3. Replace leading tabs with spaces up to the next tab stop
+-- 4. Remove the longest common whitespace prefix from all non-blank lines
+-- 5. If a line contains only whitespace, remove all of it
+-- 6. Re-join lines with \\n
+-- 7. Remove a leading \\n (if present)
+-- 8. Remove a trailing \\n (if present)
+-- 9. Resolve escape sequences
+processMultilineString :: String -> String
+processMultilineString =
+  resolveEscapes
+    . stripTrailingNewline
+    . stripLeadingNewline
+    . List.intercalate "\n"
+    . map blankToEmpty
+    . stripCommonIndent
+    . map expandLeadingTabs
+    . splitMultilineNewlines
+    . collapseStringGaps
+
+-- | Collapse string gaps: a backslash followed by whitespace (possibly including
+-- newlines) followed by another backslash is removed entirely.
+collapseStringGaps :: String -> String
+collapseStringGaps [] = []
+collapseStringGaps ('\\' : rest)
+  | not (null ws), '\\' : rest'' <- rest' = collapseStringGaps rest''
+  where
+    (ws, rest') = span (\c -> c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f') rest
+collapseStringGaps (c : rest) = c : collapseStringGaps rest
+
+-- | Split a string by newline characters: \\r\\n, \\r, \\n, \\f
+splitMultilineNewlines :: String -> [String]
+splitMultilineNewlines = go []
+  where
+    go acc [] = [reverse acc]
+    go acc ('\r' : '\n' : rest) = reverse acc : go [] rest
+    go acc ('\r' : rest) = reverse acc : go [] rest
+    go acc ('\n' : rest) = reverse acc : go [] rest
+    go acc ('\f' : rest) = reverse acc : go [] rest
+    go acc (c : rest) = go (c : acc) rest
+
+-- | Replace leading tabs with spaces, where each tab stop is at column multiples of 8.
+expandLeadingTabs :: String -> String
+expandLeadingTabs = go 0
+  where
+    go col ('\t' : rest) =
+      let spaces = 8 - (col `mod` 8)
+       in replicate spaces ' ' ++ go (col + spaces) rest
+    go col (' ' : rest) = ' ' : go (col + 1) rest
+    go _ rest = rest
+
+-- | Remove the longest common whitespace prefix from all non-blank lines.
+-- Blank lines (whitespace-only) are excluded from the prefix calculation.
+stripCommonIndent :: [String] -> [String]
+stripCommonIndent lns =
+  case mapMaybe indentOf nonBlank of
+    [] -> lns
+    indents -> map (dropPrefix (minimum indents)) lns
+  where
+    -- Skip the first line for common-indent calculation (per spec)
+    nonBlank = filter (not . all isSpace) (drop 1 lns)
+    indentOf s = Just (length (takeWhile isSpace s))
+    dropPrefix = drop
+
+-- | If a line contains only whitespace, replace it with an empty string.
+blankToEmpty :: String -> String
+blankToEmpty s
+  | all isSpace s = ""
+  | otherwise = s
+
+-- | Remove a leading newline character, if present.
+stripLeadingNewline :: String -> String
+stripLeadingNewline ('\n' : rest) = rest
+stripLeadingNewline s = s
+
+-- | Remove a trailing newline character, if present.
+stripTrailingNewline :: String -> String
+stripTrailingNewline s
+  | not (null s) && last s == '\n' = init s
+  | otherwise = s
+
+-- | Resolve escape sequences in a string.
+-- This handles standard Haskell escape sequences by wrapping the content in
+-- double quotes and using Haskell's 'reads' parser, falling back to the input
+-- string if parsing fails.
+resolveEscapes :: String -> String
+resolveEscapes s =
+  case reads ('"' : s ++ "\"") of
+    [(str, "")] -> str
+    _ -> s
 
 takeQuoter :: String -> (String, String)
 takeQuoter chars =

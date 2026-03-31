@@ -1,0 +1,9 @@
+extensions: [MultilineStrings]
+input: |
+  """
+      indented
+      text
+      """
+ast: "EString \"indented\ntext\""
+status: pass
+comment: Common indentation (4 spaces) is stripped, leading/trailing newlines removed.

@@ -1,0 +1,6 @@
+extensions: [MultilineStrings]
+input: |
+  """Hello, World!"""
+ast: EString "Hello, World!"
+status: pass
+comment: Single line without leading/trailing newlines

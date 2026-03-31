@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail empty multiline string -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE MultilineStrings #-}
 module Empty where
 

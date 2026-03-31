@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail manual linebreaks \& -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE MultilineStrings #-}
 module ManualLinebreaks where
 
