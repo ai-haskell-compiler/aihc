@@ -506,6 +506,8 @@ shrinkExpr expr =
     ETHPatQuote {} -> []
     ETHNameQuote {} -> []
     ETHTypeNameQuote {} -> []
+    ETHSplice _ body -> body : [ETHSplice span0 body' | body' <- shrinkExpr body]
+    ETHTypedSplice _ body -> body : [ETHTypedSplice span0 body' | body' <- shrinkExpr body]
 
 shrinkFloat :: Double -> [Double]
 shrinkFloat value =
@@ -682,6 +684,8 @@ normalizeExpr expr =
     ETHPatQuote _ pat -> ETHPatQuote span0 (normalizePattern pat)
     ETHNameQuote _ name -> ETHNameQuote span0 name
     ETHTypeNameQuote _ name -> ETHTypeNameQuote span0 name
+    ETHSplice _ body -> ETHSplice span0 (normalizeExpr body)
+    ETHTypedSplice _ body -> ETHTypedSplice span0 (normalizeExpr body)
 
 normalizeCaseAlt :: CaseAlt -> CaseAlt
 normalizeCaseAlt alt =
@@ -732,6 +736,7 @@ normalizePattern pat =
     PUnboxedSum _ altIdx arity inner -> PUnboxedSum span0 altIdx arity (normalizePattern inner)
     PRecord _ con fields -> PRecord span0 con [(name, normalizePattern p) | (name, p) <- fields]
     PTypeSig _ inner ty -> PTypeSig span0 (normalizePattern inner) (normalizeType ty)
+    PSplice _ body -> PSplice span0 (normalizeExpr body)
 
 normalizeLiteral :: Literal -> Literal
 normalizeLiteral lit =
@@ -810,6 +815,7 @@ normalizeType ty =
     TParen _ inner -> normalizeType inner
     TUnboxedSum _ elems -> TUnboxedSum span0 (map normalizeType elems)
     TContext _ constraints inner -> TContext span0 (map normalizeConstraint constraints) (normalizeType inner)
+    TSplice _ body -> TSplice span0 (normalizeExpr body)
 
 normalizeConstraint :: Constraint -> Constraint
 normalizeConstraint c =

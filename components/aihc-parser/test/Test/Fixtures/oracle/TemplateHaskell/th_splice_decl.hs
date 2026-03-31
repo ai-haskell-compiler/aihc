@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail TemplateHaskell top-level splice -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE TemplateHaskell #-}
 module TH_Splice_Decl where
 

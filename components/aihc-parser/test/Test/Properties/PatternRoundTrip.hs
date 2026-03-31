@@ -47,7 +47,7 @@ patternCtorCoverage :: Pattern -> [Property -> Property]
 patternCtorCoverage pat =
   let allCtors = map showConstr (dataTypeConstrs (dataTypeOf (undefined :: Pattern)))
       -- Exclude constructors that cannot be round-tripped through the parser yet
-      coverableCtors = allCtors
+      coverableCtors = filter (`notElem` ["PSplice"]) allCtors
       seenCtors = patternCtorNames pat
    in [cover 1 (ctor `Set.member` seenCtors) ctor | ctor <- coverableCtors]
 
@@ -75,6 +75,7 @@ patternCtorNames pat =
         PUnboxedSum _ _ _ inner -> here <> patternCtorNames inner
         PRecord _ _ fields -> here <> mconcat [patternCtorNames fieldPat | (_, fieldPat) <- fields]
         PTypeSig _ inner _ -> here <> patternCtorNames inner
+        PSplice {} -> here
 
 instance Arbitrary GenPattern where
   arbitrary = GenPattern <$> sized (genPattern . min 3)
@@ -129,6 +130,8 @@ shrinkPattern pat =
     PTypeSig _ inner ty ->
       [inner]
         <> [PTypeSig span0 inner' ty | inner' <- shrinkPattern inner]
+    PSplice {} ->
+      []
 
 shrinkTupleElems :: TupleFlavor -> [Pattern] -> [Pattern]
 shrinkTupleElems tupleFlavor elems =
@@ -438,6 +441,7 @@ normalizePattern pat =
     PUnboxedSum _ altIdx arity inner -> PUnboxedSum span0 altIdx arity (normalizePattern inner)
     PRecord _ con fields -> PRecord span0 con [(fieldName, normalizePattern fieldPat) | (fieldName, fieldPat) <- fields]
     PTypeSig _ inner ty -> PTypeSig span0 (normalizePattern inner) (normalizeTypeSpan ty)
+    PSplice _ body -> PSplice span0 body
 
 -- | Normalize source spans in a type (reset to noSourceSpan).
 normalizeTypeSpan :: Type -> Type
@@ -456,6 +460,7 @@ normalizeTypeSpan ty =
     TParen _ inner -> TParen span0 (normalizeTypeSpan inner)
     TContext _ constraints inner -> TContext span0 constraints (normalizeTypeSpan inner)
     TUnboxedSum _ elems -> TUnboxedSum span0 (map normalizeTypeSpan elems)
+    TSplice _ body -> TSplice span0 body
 
 normalizeLiteral :: Literal -> Literal
 normalizeLiteral lit =

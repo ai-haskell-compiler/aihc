@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail TemplateHaskell $e syntax -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE TemplateHaskell #-}
 module TH_Splice_E where
 

@@ -610,6 +610,8 @@ data Decl
   | DeclStandaloneDeriving SourceSpan StandaloneDerivingDecl
   | DeclDefault SourceSpan [Type]
   | DeclForeign SourceSpan ForeignDecl
+  | DeclSplice SourceSpan Expr
+  -- \$decl or $(decl) (TH top-level splice)
   deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan Decl where
@@ -627,6 +629,7 @@ instance HasSourceSpan Decl where
       DeclStandaloneDeriving span' _ -> span'
       DeclDefault span' _ -> span'
       DeclForeign span' _ -> span'
+      DeclSplice span' _ -> span'
 
 data ValueDecl
   = FunctionBind SourceSpan BinderName [Match]
@@ -739,6 +742,8 @@ data Pattern
   | PParen SourceSpan Pattern
   | PRecord SourceSpan Text [(Text, Pattern)]
   | PTypeSig SourceSpan Pattern Type
+  | PSplice SourceSpan Expr
+  -- \$pat or $(pat) (TH pattern splice)
   deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan Pattern where
@@ -761,6 +766,7 @@ instance HasSourceSpan Pattern where
       PParen span' _ -> span'
       PRecord span' _ _ -> span'
       PTypeSig span' _ _ -> span'
+      PSplice span' _ -> span'
 
 data Type
   = TVar SourceSpan Text
@@ -776,6 +782,8 @@ data Type
   | TList SourceSpan TypePromotion Type
   | TParen SourceSpan Type
   | TContext SourceSpan [Constraint] Type
+  | TSplice SourceSpan Expr
+  -- \$typ or $(typ) (TH type splice)
   deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan Type where
@@ -794,6 +802,7 @@ instance HasSourceSpan Type where
       TList span' _ _ -> span'
       TParen span' _ -> span'
       TContext span' _ _ -> span'
+      TSplice span' _ -> span'
 
 data TypeLiteral
   = TypeLitInteger Integer Text
@@ -1098,6 +1107,10 @@ data Expr
   | ETHPatQuote SourceSpan Pattern -- [p| pat |]
   | ETHNameQuote SourceSpan Text -- 'name
   | ETHTypeNameQuote SourceSpan Text -- ''Name
+  | -- Template Haskell splices
+    ETHSplice SourceSpan Expr
+  | -- \$expr or $(expr)
+    ETHTypedSplice SourceSpan Expr -- \$$expr or $$(expr)
   deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan Expr where
@@ -1148,6 +1161,8 @@ instance HasSourceSpan Expr where
       ETHPatQuote span' _ -> span'
       ETHNameQuote span' _ -> span'
       ETHTypeNameQuote span' _ -> span'
+      ETHSplice span' _ -> span'
+      ETHTypedSplice span' _ -> span'
 
 data CaseAlt = CaseAlt
   { caseAltSpan :: SourceSpan,

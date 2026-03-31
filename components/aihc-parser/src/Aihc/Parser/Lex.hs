@@ -174,6 +174,9 @@ data LexTokenKind
   | TkTHPatQuoteOpen
   | TkTHQuoteTick
   | TkTHTypeQuoteTick
+  | -- TemplateHaskell splice tokens (prefix $ and $$)
+    TkTHSplice -- prefix $ (no space before next token)
+  | TkTHTypedSplice -- prefix $$ (no space before next token)
   | -- Other
     TkQuasiQuote Text Text
   | TkError Text
@@ -523,6 +526,7 @@ nextToken st =
         lexNegativeLiteralOrMinus,
         lexBangOrTildeOperator, -- must come before lexOperator
         lexTypeApplication, -- must come before lexOperator
+        lexPrefixDollar, -- must come before lexOperator (TH splices)
         lexOperator
       ]
 
@@ -1244,6 +1248,51 @@ lexBangOrTildeOperator st =
     '~' : rest -> lexPrefixSensitiveOp st '~' "~" TkPrefixTilde rest
     _ -> Nothing
 
+-- | Lex a prefix $ or $$ for Template Haskell splices.
+-- When TemplateHaskell is enabled, $ and $$ in prefix position (no space after,
+-- whitespace or opening delimiter before) are lexed as TkTHSplice / TkTHTypedSplice.
+-- Otherwise they fall through to lexOperator as regular TkVarSym.
+--
+-- Examples:
+--   $x      -- splice (TkTHSplice)
+--   $(expr) -- splice (TkTHSplice)
+--   $$x     -- typed splice (TkTHTypedSplice)
+--   $$(e)   -- typed splice (TkTHTypedSplice)
+--   $ x     -- regular operator (TkVarSym "$")
+--   f $ x   -- regular operator (TkVarSym "$")
+lexPrefixDollar :: LexerState -> Maybe (LexToken, LexerState)
+lexPrefixDollar st
+  | TemplateHaskell `notElem` lexerExtensions st = Nothing
+  | otherwise =
+      case lexerInput st of
+        -- \$$ must be checked before $ (greedy match for typed splice)
+        '$' : '$' : rest
+          | not (isMultiCharOp rest),
+            isPrefixPosition,
+            canStartSpliceAtom rest ->
+              let st' = advanceChars "$$" st
+               in Just (mkToken st st' "$$" TkTHTypedSplice, st')
+        '$' : rest
+          | not (isMultiCharOp rest),
+            isPrefixPosition,
+            canStartSpliceAtom rest ->
+              let st' = advanceChars "$" st
+               in Just (mkToken st st' "$" TkTHSplice, st')
+        _ -> Nothing
+  where
+    isMultiCharOp (c : _) = isSymbolicOpChar c
+    isMultiCharOp [] = False
+    isPrefixPosition =
+      case lexerPrevTokenKind st of
+        Nothing -> True
+        Just prevKind
+          | lexerHadTrivia st -> True
+          | otherwise -> prevTokenAllowsTightPrefix prevKind
+    -- A splice can be followed by an identifier or a parenthesized expression
+    canStartSpliceAtom [] = False
+    canStartSpliceAtom (c : _) =
+      isIdentStart c || c == '('
+
 -- | Lex a whitespace-sensitive prefix operator.
 -- Returns TkPrefixBang/TkPrefixTilde if in prefix position, otherwise Nothing
 -- to let lexOperator handle it as a regular VarSym.
@@ -1293,6 +1342,7 @@ canStartPrefixPatternAtom rest =
       | c == '_' -> True -- wildcard
       | c == '!' -> True -- nested bang pattern
       | c == '~' -> True -- nested lazy pattern
+      | c == '$' -> True -- TH splice
       | otherwise -> False
 
 lexOperator :: LexerState -> Maybe (LexToken, LexerState)

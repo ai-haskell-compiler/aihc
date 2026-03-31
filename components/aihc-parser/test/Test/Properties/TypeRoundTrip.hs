@@ -45,7 +45,7 @@ typeCtorCoverage :: Type -> [Property -> Property]
 typeCtorCoverage ty =
   let allCtors = map showConstr (dataTypeConstrs (dataTypeOf (undefined :: Type)))
       -- Exclude constructors that cannot be round-tripped through the parser yet
-      coverableCtors = allCtors
+      coverableCtors = filter (`notElem` ["TSplice"]) allCtors
       seenCtors = typeCtorNames ty
    in [cover 1 (ctor `Set.member` seenCtors) ctor | ctor <- coverableCtors]
 
@@ -70,6 +70,7 @@ typeCtorNames ty =
         TUnboxedSum _ elems -> here <> mconcat (map typeCtorNames elems)
         TContext _ constraints inner ->
           here <> mconcat (map constraintTypeCtorNames constraints) <> typeCtorNames inner
+        TSplice {} -> here
 
 constraintTypeCtorNames :: Constraint -> Set.Set String
 constraintTypeCtorNames constraint =
@@ -119,6 +120,8 @@ shrinkType ty =
       [inner]
         <> [TContext span0 constraints' inner | constraints' <- shrinkConstraints constraints]
         <> [TContext span0 constraints inner' | inner' <- shrinkType inner]
+    TSplice {} ->
+      []
 
 canonicalForallInner :: Type -> Type
 canonicalForallInner ty =
@@ -400,6 +403,7 @@ normalizeType ty =
     TParen _ inner -> TParen span0 (normalizeType inner)
     TUnboxedSum _ elems -> TUnboxedSum span0 (map normalizeType elems)
     TContext _ constraints inner -> TContext span0 (map normalizeConstraint constraints) (normalizeType inner)
+    TSplice _ body -> TSplice span0 body
 
 normalizeConstraint :: Constraint -> Constraint
 normalizeConstraint constraint =

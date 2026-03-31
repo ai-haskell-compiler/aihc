@@ -204,7 +204,25 @@ declParser = do
     TkSpecialLBracket -> patternBindDeclParser
     TkPrefixTilde -> patternBindDeclParser
     TkKeywordUnderscore -> patternBindDeclParser
+    TkTHSplice -> spliceDeclParser
     _ -> MP.try typeSigDeclParser <|> valueDeclParser
+
+-- | Parse a top-level Template Haskell declaration splice: $expr or $(expr)
+spliceDeclParser :: TokParser Decl
+spliceDeclParser = withSpan $ do
+  expectedTok TkTHSplice
+  body <-
+    parenSpliceBody <|> bareSpliceBody
+  pure (`DeclSplice` body)
+  where
+    parenSpliceBody = withSpan $ do
+      expectedTok TkSpecialLParen
+      body <- exprParser
+      expectedTok TkSpecialRParen
+      pure (`EParen` body)
+    bareSpliceBody = withSpan $ do
+      name <- identifierTextParser
+      pure (`EVar` name)
 
 standaloneKindSigDeclParser :: TokParser Decl
 standaloneKindSigDeclParser = withSpan $ do
