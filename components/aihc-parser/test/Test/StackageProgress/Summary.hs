@@ -48,7 +48,7 @@ test_keptOutputs = do
   assertEqual "succeeded packages keep encounter order" ["alpha-1.0.0", "gamma-1.0.0"] (summarySucceededPackages summary)
   assertEqual
     "failed table keeps parser failures only"
-    [FailedPackage "beta-1.0.0" 256]
+    [FailedPackage "beta-1.0.0" 256 []]
     (summaryFailedPackages summary)
 
 test_ghcErrors :: Assertion
@@ -144,5 +144,6 @@ packageResult name oursOk hseOk ghcOk reason ghcError size =
       packageGhcOk = ghcOk,
       packageReason = reason,
       packageGhcError = ghcError,
-      packageSourceSize = size
+      packageSourceSize = size,
+      packageFileErrors = []
     }

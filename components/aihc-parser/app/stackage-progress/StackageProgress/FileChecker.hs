@@ -11,6 +11,7 @@ module StackageProgress.FileChecker
     checkAndAccumulateFile,
     foldFilesForPackage,
     firstFailureMessage,
+    getPackageFileErrors,
 
     -- * Check predicates
     needsFullPackageScan,
@@ -56,7 +57,8 @@ data PackageFileSummary = PackageFileSummary
     packageFileHseOk :: !Bool,
     packageFileGhcOk :: !Bool,
     packageFileFirstFailure :: Maybe String,
-    packageFileGhcError :: Maybe String
+    packageFileGhcError :: Maybe String,
+    packageFileErrorsList :: [(String, String)] -- [(filePath, errorMessage)]
   }
 
 -- | Empty file summary (all checks pass).
@@ -67,8 +69,13 @@ emptyFileSummary =
       packageFileHseOk = True,
       packageFileGhcOk = True,
       packageFileFirstFailure = Nothing,
-      packageFileGhcError = Nothing
+      packageFileGhcError = Nothing,
+      packageFileErrorsList = []
     }
+
+-- | Get the file errors from a summary.
+getPackageFileErrors :: PackageFileSummary -> [(String, String)]
+getPackageFileErrors = packageFileErrorsList
 
 -- | Check a file and accumulate results.
 checkAndAccumulateFile :: [Check] -> FilePath -> PackageFileSummary -> FileInfo -> IO PackageFileSummary
@@ -91,13 +98,18 @@ checkAndAccumulateFile checks packageRoot summary info = do
         case packageFileGhcError summary of
           Just err -> Just err
           Nothing -> fmap forceString (fileGhcError result)
+      errorsList =
+        case fileError result of
+          Just err -> packageFileErrorsList summary ++ [(fileInfoPath info, forceString err)]
+          Nothing -> packageFileErrorsList summary
   pure
     PackageFileSummary
       { packageFileOursOk = oursOk,
         packageFileHseOk = hseOk,
         packageFileGhcOk = ghcOk,
         packageFileFirstFailure = firstFailure,
-        packageFileGhcError = ghcError
+        packageFileGhcError = ghcError,
+        packageFileErrorsList = errorsList
       }
 
 -- | Get the first failure message from a summary.

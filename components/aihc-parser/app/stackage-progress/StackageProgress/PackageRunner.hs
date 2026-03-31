@@ -21,6 +21,7 @@ import StackageProgress.FileChecker
     emptyFileSummary,
     firstFailureMessage,
     foldFilesForPackage,
+    getPackageFileErrors,
   )
 import StackageProgress.Summary
   ( PackageResult (..),
@@ -41,7 +42,8 @@ runPackage opts spec = do
           packageGhcOk = False,
           packageReason = displayException (err :: SomeException),
           packageGhcError = Nothing,
-          packageSourceSize = 0
+          packageSourceSize = 0,
+          packageFileErrors = []
         }
     Right pkgResult -> pkgResult
 
@@ -58,7 +60,8 @@ runPackageOrThrow opts spec = do
             packageGhcOk = False,
             packageReason = "installed package has no downloadable snapshot version",
             packageGhcError = Nothing,
-            packageSourceSize = 0
+            packageSourceSize = 0,
+            packageFileErrors = []
           }
     else do
       srcDir <- downloadPackageQuietWithNetwork (not (optOffline opts)) (pkgName spec) (pkgVersion spec)
@@ -74,7 +77,8 @@ runPackageOrThrow opts spec = do
                 packageGhcOk = True,
                 packageReason = "",
                 packageGhcError = Nothing,
-                packageSourceSize = totalSize
+                packageSourceSize = totalSize,
+                packageFileErrors = []
               }
         else do
           fileSummary <- foldFilesForPackage (optChecks opts) srcDir emptyFileSummary files
@@ -82,6 +86,7 @@ runPackageOrThrow opts spec = do
               ghcOk = packageFileGhcOk fileSummary
               ghcError = packageFileGhcError fileSummary
               oursOk = packageFileOursOk fileSummary
+              errors = getPackageFileErrors fileSummary
           if oursOk
             then
               pure
@@ -92,7 +97,8 @@ runPackageOrThrow opts spec = do
                     packageGhcOk = ghcOk,
                     packageReason = "",
                     packageGhcError = ghcError,
-                    packageSourceSize = totalSize
+                    packageSourceSize = totalSize,
+                    packageFileErrors = errors
                   }
             else
               pure
@@ -103,7 +109,8 @@ runPackageOrThrow opts spec = do
                     packageGhcOk = ghcOk,
                     packageReason = firstFailureMessage fileSummary,
                     packageGhcError = ghcError,
-                    packageSourceSize = totalSize
+                    packageSourceSize = totalSize,
+                    packageFileErrors = errors
                   }
 
 -- | Calculate total source size for a list of files.

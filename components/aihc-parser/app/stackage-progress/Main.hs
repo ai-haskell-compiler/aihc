@@ -94,7 +94,7 @@ main = do
   putStrLn $ "  AIHC: " ++ show successOursN ++ " / " ++ show total ++ " (" ++ show (pct successOursN total) ++ "%)"
   when (optSanityCheck opts) $ do
     putStrLn $ "  HSE:  " ++ show successHseN ++ " / " ++ show total ++ " (" ++ show (pct successHseN total) ++ "%)"
-  putStrLn $ "  GHC:  " ++ show successGhcN ++ " / " ++ show total ++ " (" ++ show (pct successGhcN total) ++ "%)"
+    putStrLn $ "  GHC:  " ++ show successGhcN ++ " / " ++ show total ++ " (" ++ show (pct successGhcN total) ++ "%)"
 
   case optGhcErrorsFile opts of
     Nothing -> pure ()
@@ -125,7 +125,13 @@ main = do
         padR n s = replicate (n - length s) ' ' ++ s
     putStrLn (padL pkgWidth col1 ++ "  " ++ padR sizeWidth col2)
     putStrLn (replicate (pkgWidth + 2 + sizeWidth) '-')
-    mapM_ (\r -> putStrLn (padL pkgWidth (failedPackageName r) ++ "  " ++ padR sizeWidth (show (failedPackageSourceSize r)))) failed
+    mapM_
+      ( \r -> do
+          putStrLn (padL pkgWidth (failedPackageName r) ++ "  " ++ padR sizeWidth (show (failedPackageSourceSize r)))
+          mapM_ (\(filePath, errMsg) -> putStrLn (filePath ++ " :: Parse failed:\n" ++ unlines (map ("  " ++) (lines errMsg)))) (failedPackageErrors r)
+          putStrLn ""
+      )
+      failed
 
   if successOursN == total then exitSuccess else exitFailure
 
