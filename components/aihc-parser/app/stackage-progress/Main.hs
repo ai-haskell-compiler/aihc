@@ -128,7 +128,7 @@ main = do
     mapM_
       ( \r -> do
           putStrLn (padL pkgWidth (failedPackageName r) ++ "  " ++ padR sizeWidth (show (failedPackageSourceSize r)))
-          mapM_ (\(filePath, errMsg) -> putStrLn (filePath ++ " :: Parse failed:\n" ++ unlines (map ("  " ++) (lines errMsg)))) (failedPackageErrors r)
+          mapM_ (\(_, errMsg) -> putStrLn (unlines (map ("  " ++) (lines errMsg)))) (failedPackageErrors r)
           putStrLn ""
       )
       failed
