@@ -429,6 +429,8 @@ shrinkExpr expr =
         <> [EIf span0 cond' thenE elseE | cond' <- shrinkExpr cond]
         <> [EIf span0 cond thenE' elseE | thenE' <- shrinkExpr thenE]
         <> [EIf span0 cond thenE elseE' | elseE' <- shrinkExpr elseE]
+    EMultiWayIf _ rhss ->
+      [EMultiWayIf span0 rhss' | rhss' <- shrinkList shrinkGuardedRhs rhss, not (null rhss')]
     ECase _ scrutinee alts ->
       scrutinee
         : [ECase span0 scrutinee' alts | scrutinee' <- shrinkExpr scrutinee]
@@ -490,6 +492,10 @@ shrinkCaseAlt alt =
     UnguardedRhs _ expr ->
       [alt {caseAltRhs = UnguardedRhs span0 expr'} | expr' <- shrinkExpr expr]
     _ -> []
+
+shrinkGuardedRhs :: GuardedRhs -> [GuardedRhs]
+shrinkGuardedRhs grhs =
+  [grhs {guardedRhsBody = body'} | body' <- shrinkExpr (guardedRhsBody grhs)]
 
 shrinkDecls :: [Decl] -> [[Decl]]
 shrinkDecls = shrinkList shrinkDecl
@@ -617,6 +623,7 @@ normalizeExpr expr =
     ESectionL _ inner op -> ESectionL span0 (normalizeExpr inner) op
     ESectionR _ op inner -> ESectionR span0 op (normalizeExpr inner)
     EIf _ cond thenE elseE -> EIf span0 (normalizeExpr cond) (normalizeExpr thenE) (normalizeExpr elseE)
+    EMultiWayIf _ rhss -> EMultiWayIf span0 (map normalizeGuardedRhs rhss)
     ECase _ scrutinee alts -> ECase span0 (normalizeExpr scrutinee) (map normalizeCaseAlt alts)
     ELambdaPats _ pats body -> ELambdaPats span0 (map normalizePattern pats) (normalizeExpr body)
     ELambdaCase _ alts -> ELambdaCase span0 (map normalizeCaseAlt alts)

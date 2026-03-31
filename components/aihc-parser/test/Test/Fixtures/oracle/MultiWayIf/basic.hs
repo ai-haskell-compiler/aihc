@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail basic multi-way if -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE MultiWayIf #-}
 module Basic where
 

@@ -901,6 +901,20 @@ prettyExprPrec prec expr =
       parenthesize
         (prec > 0)
         ("if" <+> prettyExprPrec 0 cond <+> "then" <+> prettyExprPrec 0 yes <+> "else" <+> prettyExprPrec 0 no)
+    EMultiWayIf _ rhss ->
+      parenthesize
+        (prec > 0)
+        ( "if"
+            <+> "{"
+            <+> hsep
+              [ "|"
+                  <+> hsep (punctuate comma (map prettyGuardQualifier (guardedRhsGuards grhs)))
+                  <+> "->"
+                  <+> prettyExprPrec 0 (guardedRhsBody grhs)
+              | grhs <- rhss
+              ]
+            <+> "}"
+        )
     ELambdaPats _ pats body ->
       parenthesize (prec > 0) ("\\" <+> hsep (map prettyPattern pats) <+> "->" <+> prettyExprPrec 0 body)
     ELambdaCase _ alts ->

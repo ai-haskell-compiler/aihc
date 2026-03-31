@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail indented multi-way if -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE MultiWayIf #-}
 module Indented where
 

@@ -499,6 +499,7 @@ docExpr expr =
     EStringHash _ s repr -> "EStringHash" <+> docText s <+> docText repr
     EQuasiQuote _ quoter body -> "EQuasiQuote" <+> docText quoter <+> docText body
     EIf _ cond yes no -> "EIf" <+> parens (docExpr cond) <+> parens (docExpr yes) <+> parens (docExpr no)
+    EMultiWayIf _ rhss -> "EMultiWayIf" <+> brackets (hsep (punctuate comma (map docGuardedRhs rhss)))
     ELambdaPats _ pats body -> "ELambdaPats" <+> brackets (hsep (punctuate comma (map docPattern pats))) <+> parens (docExpr body)
     ELambdaCase _ alts -> "ELambdaCase" <+> brackets (hsep (punctuate comma (map docCaseAlt alts)))
     EInfix _ lhs op rhs -> "EInfix" <+> parens (docExpr lhs) <+> docText op <+> parens (docExpr rhs)
