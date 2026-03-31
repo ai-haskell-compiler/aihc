@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail single line multiline string -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE MultilineStrings #-}
 module SingleLine where
 

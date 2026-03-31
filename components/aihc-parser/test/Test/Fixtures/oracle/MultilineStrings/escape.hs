@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail escape sequences -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE MultilineStrings #-}
 module Escape where
 

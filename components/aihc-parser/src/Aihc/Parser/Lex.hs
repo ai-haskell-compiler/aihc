@@ -1373,6 +1373,19 @@ lexChar st =
 lexString :: LexerState -> Maybe (LexToken, LexerState)
 lexString st =
   case lexerInput st of
+    '"' : '"' : '"' : rest | MultilineStrings `elem` lexerExtensions st ->
+      -- Try multiline string first if extension is enabled
+      case scanMultilineString rest of
+        Right (body, _) ->
+          let raw = "\"\"\"" <> body <> "\"\"\""
+              decoded = T.pack body
+              (tokTxt, tokKind, st') =
+                withOptionalMagicHashSuffix st raw (TkString decoded) (TkStringHash decoded)
+           in Just (mkToken st st' tokTxt tokKind, st')
+        Left raw ->
+          let full = "\"\"\"" <> raw
+              st' = advanceChars full st
+           in Just (mkErrorToken st st' (T.pack full) "unterminated multiline string literal", st')
     '"' : rest ->
       case scanQuoted '"' rest of
         Right (body, _) ->
@@ -1882,6 +1895,18 @@ scanQuoted endCh = go []
                 escaped : rest' -> go (escaped : c : acc) rest'
                 [] -> Left (reverse (c : acc))
           | otherwise -> go (c : acc) rest
+
+-- | Scan a multiline string delimited by """ (closing marker is three consecutive quotes)
+-- Preserves all characters including newlines, spaces, and escape sequences
+scanMultilineString :: String -> Either String (String, String)
+scanMultilineString = go []
+  where
+    go acc chars =
+      case chars of
+        [] -> Left (reverse acc)
+        '"' : '"' : '"' : rest -> Right (reverse acc, rest)
+        c : rest ->
+          go (c : acc) rest
 
 takeQuoter :: String -> (String, String)
 takeQuoter chars =
