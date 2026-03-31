@@ -834,7 +834,7 @@
         exec ${aihcParserExe} "$@"
       '';
 
-      aihc-parser-bench = mkAppWithInputs "aihc-parser-bench" [pkgs.bash pkgs.curl] ''
+      aihc-parser-bench = mkAppWithInputs "aihc-parser-bench" [pkgs.bash] ''
         exec ${aihcParserBenchExe} "$@"
       '';
 

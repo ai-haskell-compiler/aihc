@@ -57,7 +57,6 @@ data BenchOptions = BenchOptions
     benchWarmup :: !Int,
     benchIterations :: !Int,
     benchOutput :: !OutputFormat,
-    benchMemory :: !Bool,
     benchGcStats :: !Bool
   }
   deriving (Eq, Show)
@@ -210,10 +209,6 @@ benchOptionsParser =
           <> metavar "FORMAT"
           <> value FormatHuman
           <> help "Output format: human, json, csv (default: human)"
-      )
-    <*> switch
-      ( long "memory"
-          <> help "Include memory usage statistics"
       )
     <*> switch
       ( long "gc-stats"

@@ -15,6 +15,7 @@ module Aihc.Parser.Bench.Metrics
     formatJson,
     formatCsv,
     formatCsvHeader,
+    formatBytes,
   )
 where
 
@@ -23,7 +24,7 @@ import Aihc.Parser.Bench.CLI (BenchOptions (..), ParserChoice (..))
 import Data.Aeson ((.=))
 import Data.Aeson qualified as Aeson
 import Data.ByteString.Lazy qualified as LBS
-import Data.List (sort)
+import Data.List (intercalate, sort)
 import Text.Printf (printf)
 
 -- | Computed metrics from benchmark results.
@@ -198,7 +199,8 @@ formatCsvHeader =
 -- | Format metrics as a CSV row.
 formatCsv :: BenchOptions -> Metrics -> String
 formatCsv opts m =
-  intercalateComma
+  intercalate
+    ","
     [ parserName (benchParser opts),
       if benchLexerOnly opts && benchParser opts == ParserAihc then "true" else "false",
       show (metricsTotalFiles m),
@@ -238,9 +240,3 @@ formatThroughput bps
   | bps < 1024 * 1024 = printf "%.1f KB/s" (bps / 1024.0)
   | bps < 1024 * 1024 * 1024 = printf "%.1f MB/s" (bps / (1024.0 * 1024.0))
   | otherwise = printf "%.2f GB/s" (bps / (1024.0 * 1024.0 * 1024.0))
-
--- | Join strings with commas.
-intercalateComma :: [String] -> String
-intercalateComma [] = ""
-intercalateComma [x] = x
-intercalateComma (x : xs) = x ++ "," ++ intercalateComma xs

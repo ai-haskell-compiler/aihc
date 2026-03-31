@@ -13,7 +13,7 @@ import Aihc.Parser.Bench.CLI
     OutputFormat (..),
     parseOptionsIO,
   )
-import Aihc.Parser.Bench.Metrics (computeMetrics, formatCsv, formatCsvHeader, formatHuman, formatJson)
+import Aihc.Parser.Bench.Metrics (computeMetrics, formatBytes, formatCsv, formatCsvHeader, formatHuman, formatJson)
 import Aihc.Parser.Bench.Tarball (FilterReason (..), GenerateResult (..), generateTarball)
 import Control.Monad (when)
 import Data.ByteString.Lazy.Char8 qualified as LBS8
@@ -93,11 +93,3 @@ runBench opts = do
       putStrLn (formatCsv opts metrics)
 
   exitSuccess
-
--- | Format bytes with appropriate unit.
-formatBytes :: Integer -> String
-formatBytes b
-  | b < 1024 = show b ++ " B"
-  | b < 1024 * 1024 = show (b `div` 1024) ++ " KB"
-  | b < 1024 * 1024 * 1024 = show (b `div` (1024 * 1024)) ++ " MB"
-  | otherwise = show (b `div` (1024 * 1024 * 1024)) ++ " GB"

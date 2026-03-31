@@ -28,7 +28,6 @@ library
     , optparse-applicative
     -- Dependencies for bench modules:
     , aeson
-    , async
     , bytestring
     , Cabal-syntax
     , containers
