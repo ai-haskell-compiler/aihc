@@ -271,11 +271,15 @@ recordFieldBindingParser = withSpan $ do
   pure (fieldName,mAssign,)
 
 atomExprParser :: TokParser Expr
-atomExprParser =
+atomExprParser = do
+  blockArgsEnabled <- isExtensionEnabled BlockArguments
   MP.try prefixNegateAtomExprParser
     <|> MP.try parenOperatorExprParser
     <|> lambdaExprParser
     <|> letExprParser
+    <|> (if blockArgsEnabled then MP.try doExprParser else MP.empty)
+    <|> (if blockArgsEnabled then MP.try caseExprParser else MP.empty)
+    <|> (if blockArgsEnabled then MP.try ifExprParser else MP.empty)
     <|> parenExprParser
     <|> listExprParser
     <|> intBaseExprParser

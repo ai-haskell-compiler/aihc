@@ -31,6 +31,7 @@ module Aihc.Parser.Internal.Common
     functionHeadParserWith,
     functionBindValue,
     functionBindDecl,
+    isExtensionEnabled,
   )
 where
 
@@ -395,3 +396,8 @@ isConstructorIdentifier txt =
   case T.uncons txt of
     Just (c, _) -> isUpper c
     Nothing -> False
+
+isExtensionEnabled :: Extension -> TokParser Bool
+isExtensionEnabled ext = do
+  pst <- MP.getParserState
+  pure (ext `elem` tokStreamExtensions (MP.stateInput pst))
