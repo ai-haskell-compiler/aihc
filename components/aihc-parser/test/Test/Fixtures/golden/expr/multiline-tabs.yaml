@@ -4,7 +4,8 @@ input: |
   	Line 1
   	Line 2
   	"""
-ast: 'EString "\n\tLine 1\n\tLine 2\n\t"'
+ast: |
+  EString "\n	Line 1\n	Line 2\n	"
 status: pass
 comment: |
   Current implementation preserves raw tab characters.
