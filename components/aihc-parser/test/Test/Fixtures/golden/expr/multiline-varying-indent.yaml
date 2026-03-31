@@ -1,0 +1,11 @@
+extensions: [MultilineStrings]
+input: |
+  """Line 1
+      Line 2 with extra indent
+  Line 3"""
+ast: EString "Line 1\n    Line 2 with extra indent\nLine 3"
+status: pass
+comment: |
+  First line "Line 1" determines the common indentation baseline (0 spaces).
+  "Line 2 with extra indent" has 4 extra spaces beyond common indent (preserved).
+  "Line 3" has no indent (baseline).

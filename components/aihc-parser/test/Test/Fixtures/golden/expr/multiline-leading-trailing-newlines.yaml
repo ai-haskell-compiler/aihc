@@ -1,0 +1,12 @@
+extensions: [MultilineStrings]
+input: |
+  """
+  first line
+  second line
+  """
+ast: EString "first line\nsecond line"
+status: pass
+comment: |
+  Leading newline after opening """ is removed (step 6).
+  Trailing newline before closing """ is removed (step 7).
+  No common indentation to strip (no leading spaces).

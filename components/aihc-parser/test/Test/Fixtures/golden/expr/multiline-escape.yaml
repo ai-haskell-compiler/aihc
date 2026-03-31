@@ -1,5 +1,8 @@
 extensions: [MultilineStrings]
 input: |
   """Line 1\nLine 2"""
-ast: EString "Line 1\\nLine 2"
+ast: EString "Line 1\nLine 2"
 status: pass
+comment: |
+  Escape sequences like \n are resolved AFTER indentation stripping.
+  Input has literal backslash-n which becomes newline in output.

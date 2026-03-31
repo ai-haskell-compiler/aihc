@@ -1,0 +1,13 @@
+extensions: [MultilineStrings]
+input: |
+  """
+      Line 1
+      
+      Line 2
+      """
+ast: EString "Line 1\n\nLine 2"
+status: pass
+comment: |
+  Common indentation (6 spaces) stripped from all lines.
+  Whitespace-only line (blank line with 6 spaces) becomes empty (step 4).
+  Leading and trailing newlines removed (steps 6 and 7).

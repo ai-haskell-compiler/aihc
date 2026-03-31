@@ -1,0 +1,10 @@
+extensions: [MultilineStrings]
+input: |
+  """
+      Line with tab character:	here
+      """
+ast: EString "Line with tab character:\there"
+status: pass
+comment: |
+  Literal tab character (not converted to spaces) is preserved in output.
+  Tab-to-space conversion only applies to LEADING tabs (step 2).
