@@ -702,8 +702,8 @@ derivingClauseParser = do
   classes <- parenClasses <|> singleClass
   pure (DerivingClause strategy classes)
   where
-    singleClass = (: []) <$> identifierTextParser
-    parenClasses = parens $ identifierTextParser `MP.sepEndBy` expectedTok TkSpecialComma
+    singleClass = (: []) <$> constraintParserWith typeAtomParser
+    parenClasses = parens $ constraintParserWith typeAtomParser `MP.sepEndBy` expectedTok TkSpecialComma
 
 derivingStrategyParser :: TokParser DerivingStrategy
 derivingStrategyParser =

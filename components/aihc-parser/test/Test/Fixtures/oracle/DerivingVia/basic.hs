@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail basic deriving via -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE DerivingVia #-}
 module Basic where
 
