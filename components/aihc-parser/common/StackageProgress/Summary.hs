@@ -41,12 +41,14 @@ data PackageResult = PackageResult
     packageGhcOk :: Bool,
     packageReason :: String,
     packageGhcError :: Maybe String,
-    packageSourceSize :: Integer
+    packageSourceSize :: Integer,
+    packageFileErrors :: [(String, String)] -- [(filePath, errorMessage)]
   }
 
 data FailedPackage = FailedPackage
   { failedPackageName :: String,
-    failedPackageSourceSize :: Integer
+    failedPackageSourceSize :: Integer,
+    failedPackageErrors :: [(String, String)] -- [(filePath, errorMessage)]
   }
   deriving (Eq, Show)
 
@@ -99,7 +101,7 @@ addPackageResults opts results summary0 = List.foldl' (addPackageResult opts) su
               else summarySucceededPackagesAcc summary
           failedRev =
             if summaryKeepFailedPackages summaryOpts && packageParserFailed result
-              then FailedPackage pkgLabel (packageSourceSize result) : summaryFailedPackagesAcc summary
+              then FailedPackage pkgLabel (packageSourceSize result) (packageFileErrors result) : summaryFailedPackagesAcc summary
               else summaryFailedPackagesAcc summary
           (!ghcStored, ghcErrorsRev) = addGhcErrorIfNeeded summaryOpts summary result pkgLabel
        in RunSummary
