@@ -900,8 +900,12 @@ prettyExprPrec prec expr =
     ETHDeclQuote _ decls -> "[d|" <+> prettyInlineDecls decls <+> "|]"
     ETHTypeQuote _ ty -> "[t|" <+> prettyType ty <+> "|]"
     ETHPatQuote _ pat -> "[p|" <+> prettyPattern pat <+> "|]"
-    ETHNameQuote _ name -> "'" <> pretty name
-    ETHTypeNameQuote _ name -> "''" <> pretty name
+    ETHNameQuote _ name
+      | isOperatorToken name -> "'" <> parens (pretty name)
+      | otherwise -> "'" <> pretty name
+    ETHTypeNameQuote _ name
+      | isOperatorToken name -> "''" <> parens (pretty name)
+      | otherwise -> "''" <> pretty name
     EIf _ cond yes no ->
       -- The 'then' keyword delimits the condition, and 'else' delimits the then-branch,
       -- so greedy expressions in those positions don't need parentheses.

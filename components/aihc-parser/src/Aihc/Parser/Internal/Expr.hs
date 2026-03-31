@@ -998,7 +998,7 @@ thTypeNameQuoteParser = withSpan $ do
   name <- identifierTextParser
   pure (`ETHTypeNameQuote` name)
 
--- | Parse a parenthesized operator name: (+), (++)
+-- | Parse a parenthesized operator name: (+), (++), (:)
 parenOperatorNameParser :: TokParser Text
 parenOperatorNameParser = do
   expectedTok TkSpecialLParen
@@ -1006,6 +1006,7 @@ parenOperatorNameParser = do
     case lexTokenKind tok of
       TkVarSym sym -> Just sym
       TkConSym sym -> Just sym
+      TkReservedColon -> Just ":"
       _ -> Nothing
   expectedTok TkSpecialRParen
   pure ("(" <> op <> ")")
