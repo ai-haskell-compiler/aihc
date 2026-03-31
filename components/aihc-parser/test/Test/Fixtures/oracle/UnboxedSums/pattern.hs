@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail unboxed sum pattern -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE UnboxedSums #-}
 module Pattern where
 

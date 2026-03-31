@@ -14,13 +14,19 @@ import Prettyprinter.Render.Text (renderStrict)
 import Test.Properties.ExprHelpers (genExpr, normalizeExpr, shrinkExpr)
 import Test.QuickCheck
 
+exprConfig :: ParserConfig
+exprConfig =
+  defaultConfig
+    { parserExtensions = [UnboxedTuples, UnboxedSums]
+    }
+
 prop_exprPrettyRoundTrip :: Expr -> Property
 prop_exprPrettyRoundTrip expr =
   let source = renderStrict (layoutPretty defaultLayoutOptions (pretty expr))
       expected = normalizeExpr expr
    in withMaxSuccess 1000 $
         counterexample (T.unpack source) $
-          case parseExpr defaultConfig source of
+          case parseExpr exprConfig source of
             ParseErr err ->
               counterexample (errorBundlePretty (Just source) err) False
             ParseOk parsed ->

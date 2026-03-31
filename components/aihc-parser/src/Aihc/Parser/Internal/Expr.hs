@@ -298,6 +298,9 @@ recordFieldBindingParser = withSpan $ do
 atomExprParser :: TokParser Expr
 atomExprParser = do
   blockArgsEnabled <- isExtensionEnabled BlockArguments
+  thEnabled <- isExtensionEnabled TemplateHaskellQuotes
+  thFullEnabled <- isExtensionEnabled TemplateHaskell
+  let thAny = thEnabled || thFullEnabled
   MP.try prefixNegateAtomExprParser
     <|> MP.try parenOperatorExprParser
     <|> lambdaExprParser
@@ -305,6 +308,8 @@ atomExprParser = do
     <|> (if blockArgsEnabled then MP.try doExprParser else MP.empty)
     <|> (if blockArgsEnabled then MP.try caseExprParser else MP.empty)
     <|> (if blockArgsEnabled then MP.try ifExprParser else MP.empty)
+    <|> (if thAny then thQuoteExprParser else MP.empty)
+    <|> (if thAny then thNameQuoteExprParser else MP.empty)
     <|> parenExprParser
     <|> listExprParser
     <|> intBaseExprParser
@@ -629,7 +634,7 @@ parenExprParser = withSpan $ do
     Nothing ->
       if tupleFlavor == Boxed
         then MP.try (parseNegateParen closeTok) <|> MP.try (parseSection closeTok) <|> MP.try (parseTupleSectionExpr tupleFlavor closeTok) <|> parseParenOrTupleExpr tupleFlavor closeTok
-        else MP.try (parseTupleSectionExpr tupleFlavor closeTok) <|> parseParenOrTupleExpr tupleFlavor closeTok
+        else MP.try (parseTupleSectionExpr tupleFlavor closeTok) <|> MP.try (parseUnboxedSumExprLeadingBars closeTok) <|> parseParenOrTupleExpr tupleFlavor closeTok
   where
     parseNegateParen closeTok = do
       minusTok <- minusTokenValueParser
@@ -681,15 +686,36 @@ parenExprParser = withSpan $ do
       mComma <- MP.optional (expectedTok TkSpecialComma)
       case mComma of
         Nothing -> do
-          expectedTok closeTok
-          if tupleFlavor == Boxed
-            then pure (`EParen` first)
-            else fail "not an unboxed tuple"
+          -- Check for pipe (unboxed sum: value in first slot)
+          mPipe <- if tupleFlavor == Unboxed then MP.optional (expectedTok TkReservedPipe) else pure Nothing
+          case mPipe of
+            Just () -> do
+              -- (# expr | ... #) - value in first slot of sum
+              trailingBars <- MP.many (expectedTok TkReservedPipe)
+              expectedTok closeTok
+              let arity = 2 + length trailingBars
+              pure (\span' -> EUnboxedSum span' 0 arity first)
+            Nothing -> do
+              expectedTok closeTok
+              if tupleFlavor == Boxed
+                then pure (`EParen` first)
+                else fail "not an unboxed tuple"
         Just () -> do
           second <- exprParser
           more <- MP.many (expectedTok TkSpecialComma *> exprParser)
           expectedTok closeTok
           pure (\span' -> ETuple span' tupleFlavor (first : second : more))
+
+    parseUnboxedSumExprLeadingBars closeTok = do
+      -- Parse (# | | ... | expr | ... | #) where value is not in first slot
+      _ <- expectedTok TkReservedPipe
+      leadingBars <- MP.many (MP.try (expectedTok TkReservedPipe))
+      let altIdx = 1 + length leadingBars
+      inner <- exprParser
+      trailingBars <- MP.many (expectedTok TkReservedPipe)
+      expectedTok closeTok
+      let arity = altIdx + 1 + length trailingBars
+      pure (\span' -> EUnboxedSum span' altIdx arity inner)
 
 parseTupleSection :: LexTokenKind -> TokParser [Maybe Expr]
 parseTupleSection closeTok = do
@@ -890,6 +916,7 @@ parenOrTuplePatternParser = withSpan $ do
       <|> (expectedTok TkSpecialUnboxedLParen $> (Unboxed, TkSpecialUnboxedRParen))
   MP.try (unitPatternParser tupleFlavor closeTok)
     <|> MP.try (viewPatternParser tupleFlavor closeTok)
+    <|> (if tupleFlavor == Unboxed then MP.try (parseUnboxedSumPatLeadingBars closeTok) else MP.empty)
     <|> tupleOrParenPatternParser tupleFlavor closeTok
   where
     unitPatternParser tupleFlavor closeTok = do
@@ -912,21 +939,43 @@ parenOrTuplePatternParser = withSpan $ do
         Nothing -> do
           -- Check for pattern type signature: (pat :: type)
           mTypeSig <- MP.optional (expectedTok TkReservedDoubleColon *> typeParser)
-          expectedTok closeTok
           case mTypeSig of
-            Just ty ->
+            Just ty -> do
+              expectedTok closeTok
               if tupleFlavor == Boxed
                 then pure (\span' -> PParen span' (PTypeSig span' first ty))
                 else fail "not an unboxed tuple pattern"
-            Nothing ->
-              if tupleFlavor == Boxed
-                then pure (`PParen` first)
-                else fail "not an unboxed tuple pattern"
+            Nothing -> do
+              -- Check for pipe (unboxed sum: pattern in first slot)
+              mPipe <- if tupleFlavor == Unboxed then MP.optional (expectedTok TkReservedPipe) else pure Nothing
+              case mPipe of
+                Just () -> do
+                  -- (# pat | ... #) - pattern in first slot of sum
+                  trailingBars <- MP.many (expectedTok TkReservedPipe)
+                  expectedTok closeTok
+                  let arity = 2 + length trailingBars
+                  pure (\span' -> PUnboxedSum span' 0 arity first)
+                Nothing -> do
+                  expectedTok closeTok
+                  if tupleFlavor == Boxed
+                    then pure (`PParen` first)
+                    else fail "not an unboxed tuple pattern"
         Just () -> do
           second <- patternParser
           more <- MP.many (expectedTok TkSpecialComma *> patternParser)
           expectedTok closeTok
           pure (\span' -> PTuple span' tupleFlavor (first : second : more))
+
+    parseUnboxedSumPatLeadingBars closeTok = do
+      -- Parse (# | | ... | pat | ... | #) where pattern is not in first slot
+      _ <- expectedTok TkReservedPipe
+      leadingBars <- MP.many (MP.try (expectedTok TkReservedPipe))
+      let altIdx = 1 + length leadingBars
+      inner <- patternParser
+      trailingBars <- MP.many (expectedTok TkReservedPipe)
+      expectedTok closeTok
+      let arity = altIdx + 1 + length trailingBars
+      pure (\span' -> PUnboxedSum span' altIdx arity inner)
 
 isConLikeName :: Text -> Bool
 isConLikeName name =
@@ -950,6 +999,82 @@ varExprParser :: TokParser Expr
 varExprParser = withSpan $ do
   name <- identifierTextParser
   pure (`EVar` name)
+
+-- | Parse Template Haskell quote brackets:
+-- [| expr |], [e| expr |], [|| expr ||], [e|| expr ||],
+-- [d| decls |], [t| type |], [p| pat |]
+thQuoteExprParser :: TokParser Expr
+thQuoteExprParser =
+  thExpQuoteParser
+    <|> thTypedQuoteParser
+    <|> thDeclQuoteParser
+    <|> thTypeQuoteParser
+    <|> thPatQuoteParser
+
+thExpQuoteParser :: TokParser Expr
+thExpQuoteParser = withSpan $ do
+  expectedTok TkTHExpQuoteOpen
+  body <- exprParser
+  expectedTok TkTHExpQuoteClose
+  pure (`ETHExpQuote` body)
+
+thTypedQuoteParser :: TokParser Expr
+thTypedQuoteParser = withSpan $ do
+  expectedTok TkTHTypedQuoteOpen
+  body <- exprParser
+  expectedTok TkTHTypedQuoteClose
+  pure (`ETHTypedQuote` body)
+
+thDeclQuoteParser :: TokParser Expr
+thDeclQuoteParser = withSpan $ do
+  expectedTok TkTHDeclQuoteOpen
+  decls <- bracedSemiSep1 localDeclParser <|> plainSemiSep1 localDeclParser
+  expectedTok TkTHExpQuoteClose
+  pure (`ETHDeclQuote` decls)
+
+thTypeQuoteParser :: TokParser Expr
+thTypeQuoteParser = withSpan $ do
+  expectedTok TkTHTypeQuoteOpen
+  ty <- typeParser
+  expectedTok TkTHExpQuoteClose
+  pure (`ETHTypeQuote` ty)
+
+thPatQuoteParser :: TokParser Expr
+thPatQuoteParser = withSpan $ do
+  expectedTok TkTHPatQuoteOpen
+  pat <- patternParser
+  expectedTok TkTHExpQuoteClose
+  pure (`ETHPatQuote` pat)
+
+-- | Parse Template Haskell name quotes: 'name and ''Type
+thNameQuoteExprParser :: TokParser Expr
+thNameQuoteExprParser =
+  MP.try thValueNameQuoteParser <|> thTypeNameQuoteParser
+
+thValueNameQuoteParser :: TokParser Expr
+thValueNameQuoteParser = withSpan $ do
+  expectedTok TkTHQuoteTick
+  name <- identifierTextParser <|> parenOperatorNameParser
+  pure (`ETHNameQuote` name)
+
+thTypeNameQuoteParser :: TokParser Expr
+thTypeNameQuoteParser = withSpan $ do
+  expectedTok TkTHTypeQuoteTick
+  name <- identifierTextParser
+  pure (`ETHTypeNameQuote` name)
+
+-- | Parse a parenthesized operator name: (+), (++), (:)
+parenOperatorNameParser :: TokParser Text
+parenOperatorNameParser = do
+  expectedTok TkSpecialLParen
+  op <- tokenSatisfy "operator" $ \tok ->
+    case lexTokenKind tok of
+      TkVarSym sym -> Just sym
+      TkConSym sym -> Just sym
+      TkReservedColon -> Just ":"
+      _ -> Nothing
+  expectedTok TkSpecialRParen
+  pure ("(" <> op <> ")")
 
 simplePatternParser :: TokParser Pattern
 simplePatternParser =
@@ -1174,10 +1299,19 @@ typeParenOrTupleParser = withSpan $ do
       mComma <- MP.optional (expectedTok TkSpecialComma)
       case mComma of
         Nothing -> do
-          expectedTok closeTok
-          if tupleFlavor == Boxed
-            then pure (`TParen` first)
-            else fail "not an unboxed tuple type"
+          -- Check for pipe (unboxed sum type)
+          mPipe <- if tupleFlavor == Unboxed then MP.optional (expectedTok TkReservedPipe) else pure Nothing
+          case mPipe of
+            Just () -> do
+              -- (# Type1 | Type2 | ... #) - unboxed sum type
+              rest <- typeParser `MP.sepBy1` expectedTok TkReservedPipe
+              expectedTok closeTok
+              pure (\span' -> TUnboxedSum span' (first : rest))
+            Nothing -> do
+              expectedTok closeTok
+              if tupleFlavor == Boxed
+                then pure (`TParen` first)
+                else fail "not an unboxed tuple type"
         Just () -> do
           second <- typeParser
           more <- MP.many (expectedTok TkSpecialComma *> typeParser)
@@ -1204,6 +1338,7 @@ setTypeSpan span' ty =
     TApp _ lhs rhs -> TApp span' lhs rhs
     TFun _ lhs rhs -> TFun span' lhs rhs
     TTuple _ tupleFlavor promoted elems -> TTuple span' tupleFlavor promoted elems
+    TUnboxedSum _ elems -> TUnboxedSum span' elems
     TList _ promoted inner -> TList span' promoted inner
     TParen _ inner -> TParen span' inner
     TContext _ constraints inner -> TContext span' constraints inner

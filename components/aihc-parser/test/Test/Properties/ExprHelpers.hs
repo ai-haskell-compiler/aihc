@@ -55,7 +55,9 @@ genExprSized n
           EListCompParallel span0 <$> genExprSized half <*> genParallelCompStmts half,
           EList span0 <$> genListElems (n - 1),
           ETuple span0 Boxed <$> genTupleElems (n - 1),
+          ETuple span0 Unboxed <$> genUnboxedTupleElems (n - 1),
           ETupleSection span0 Boxed <$> genTupleSectionElems (n - 1),
+          genUnboxedSumExpr (n - 1),
           EArithSeq span0 <$> genArithSeq (n - 1),
           ERecordCon span0 <$> genConName <*> genRecordFields (n - 1),
           ERecordUpd span0 <$> genExprSized half <*> genRecordFields half,
@@ -79,7 +81,9 @@ genExprLeaf =
       -- Note: EQuasiQuote requires QuasiQuotes extension, skip for now
       pure (EList span0 []),
       pure (ETuple span0 Boxed []),
-      ETupleCon span0 Boxed <$> chooseInt (2, 5)
+      pure (ETuple span0 Unboxed []),
+      ETupleCon span0 Boxed <$> chooseInt (2, 5),
+      ETupleCon span0 Unboxed <$> chooseInt (2, 5)
     ]
 
 -- | Generate an operator symbol
@@ -97,7 +101,8 @@ genCustomOperator = do
   len <- chooseInt (1, 3)
   -- Note: matches ":!#$%&*+./<=>?\\^|-~" from Pretty.hs isOperatorToken
   -- Excluding ':' since that's for constructor operators
-  chars <- vectorOf len (elements "!#$%&*+./<=>?\\^|-~")
+  -- Excluding '#' because it conflicts with (# and #) tokens when UnboxedTuples/UnboxedSums is enabled
+  chars <- vectorOf len (elements "!$%&*+./<=>?\\^|-~")
   let candidate = T.pack chars
   -- Avoid reserved operators and symbols that lex as comments.
   if isValidGeneratedOperator candidate
@@ -259,6 +264,20 @@ genTupleElems n = do
     else do
       count <- chooseInt (2, 4)
       vectorOf count (genExprSized (n `div` count))
+
+-- | Generate elements for an unboxed tuple (always 2+ elements, no unit)
+genUnboxedTupleElems :: Int -> Gen [Expr]
+genUnboxedTupleElems n = do
+  count <- chooseInt (2, 4)
+  vectorOf count (genExprSized (n `div` count))
+
+-- | Generate an unboxed sum expression
+genUnboxedSumExpr :: Int -> Gen Expr
+genUnboxedSumExpr n = do
+  arity <- chooseInt (2, 4)
+  altIdx <- chooseInt (0, arity - 1)
+  inner <- genExprSized n
+  pure (EUnboxedSum span0 altIdx arity inner)
 
 -- | Generate tuple section elements
 genTupleSectionElems :: Int -> Gen [Maybe Expr]
@@ -477,7 +496,16 @@ shrinkExpr expr =
       inner : [ETypeSig span0 inner' (TCon span0 "T" Unpromoted) | inner' <- shrinkExpr inner]
     ETypeApp _ inner _ ->
       inner : [ETypeApp span0 inner' (TCon span0 "T" Unpromoted) | inner' <- shrinkExpr inner]
+    EUnboxedSum _ altIdx arity inner ->
+      [EUnboxedSum span0 altIdx arity inner' | inner' <- shrinkExpr inner]
     EParen _ inner -> inner : [EParen span0 inner' | inner' <- shrinkExpr inner]
+    ETHExpQuote _ body -> body : [ETHExpQuote span0 body' | body' <- shrinkExpr body]
+    ETHTypedQuote _ body -> body : [ETHTypedQuote span0 body' | body' <- shrinkExpr body]
+    ETHDeclQuote {} -> []
+    ETHTypeQuote {} -> []
+    ETHPatQuote {} -> []
+    ETHNameQuote {} -> []
+    ETHTypeNameQuote {} -> []
 
 shrinkFloat :: Double -> [Double]
 shrinkFloat value =
@@ -645,7 +673,15 @@ normalizeExpr expr =
     ERecordUpd _ target fields -> ERecordUpd span0 (normalizeExpr target) [(name, normalizeExpr e) | (name, e) <- fields]
     ETypeSig _ inner ty -> ETypeSig span0 (normalizeExpr inner) (normalizeType ty)
     ETypeApp _ inner ty -> ETypeApp span0 (normalizeExpr inner) (normalizeType ty)
+    EUnboxedSum _ altIdx arity inner -> EUnboxedSum span0 altIdx arity (normalizeExpr inner)
     EParen _ inner -> normalizeExpr inner
+    ETHExpQuote _ body -> ETHExpQuote span0 (normalizeExpr body)
+    ETHTypedQuote _ body -> ETHTypedQuote span0 (normalizeExpr body)
+    ETHDeclQuote _ decls -> ETHDeclQuote span0 (map normalizeDecl decls)
+    ETHTypeQuote _ ty -> ETHTypeQuote span0 (normalizeType ty)
+    ETHPatQuote _ pat -> ETHPatQuote span0 (normalizePattern pat)
+    ETHNameQuote _ name -> ETHNameQuote span0 name
+    ETHTypeNameQuote _ name -> ETHTypeNameQuote span0 name
 
 normalizeCaseAlt :: CaseAlt -> CaseAlt
 normalizeCaseAlt alt =
@@ -693,6 +729,7 @@ normalizePattern pat =
     PIrrefutable _ inner -> PIrrefutable span0 (normalizePattern inner)
     PNegLit _ lit -> PNegLit span0 (normalizeLiteral lit)
     PParen _ inner -> PParen span0 (normalizePattern inner)
+    PUnboxedSum _ altIdx arity inner -> PUnboxedSum span0 altIdx arity (normalizePattern inner)
     PRecord _ con fields -> PRecord span0 con [(name, normalizePattern p) | (name, p) <- fields]
     PTypeSig _ inner ty -> PTypeSig span0 (normalizePattern inner) (normalizeType ty)
 
@@ -771,6 +808,7 @@ normalizeType ty =
     TList _ promoted inner -> TList span0 promoted (normalizeType inner)
     -- Remove redundant parentheses from types
     TParen _ inner -> normalizeType inner
+    TUnboxedSum _ elems -> TUnboxedSum span0 (map normalizeType elems)
     TContext _ constraints inner -> TContext span0 (map normalizeConstraint constraints) (normalizeType inner)
 
 normalizeConstraint :: Constraint -> Constraint

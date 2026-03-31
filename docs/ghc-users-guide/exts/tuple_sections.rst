@@ -1,0 +1,43 @@
+.. _tuple-sections:
+
+Tuple sections
+--------------
+
+.. extension:: TupleSections
+    :shortdesc: Allow use of tuple section synxtax.
+
+    :since: 6.12
+
+    :status: Included in :extension:`GHC2024`, :extension:`GHC2021`
+
+    Allow the use of tuple section syntax
+
+The :extension:`TupleSections` extension enables partially applied
+tuple constructors. For example, the following program ::
+
+      (, True)
+
+is considered to be an alternative notation for the more unwieldy
+alternative ::
+
+      \x -> (x, True)
+
+You can omit any combination of arguments to the tuple, as in the
+following ::
+
+      (, "I", , , "Love", , 1337)
+
+which translates to ::
+
+      \a b c d -> (a, "I", b, c, "Love", d, 1337)
+
+If you have :ref:`unboxed tuples <unboxed-tuples>` enabled, tuple sections
+will also be available for them, like so ::
+
+      (# , True #)
+
+Because there is no unboxed unit tuple, the following expression ::
+
+      (# #)
+
+continues to stand for the unboxed singleton tuple data constructor.

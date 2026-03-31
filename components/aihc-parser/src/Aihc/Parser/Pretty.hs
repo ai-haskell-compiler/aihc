@@ -282,6 +282,7 @@ needsTypeParens ctx ty =
         TQuasiQuote {} -> False
         TList {} -> False
         TTuple {} -> False
+        TUnboxedSum {} -> False
         TParen {} -> False
         _ -> True
 
@@ -315,6 +316,8 @@ prettyTypePrec prec ty =
     TTuple _ tupleFlavor promoted elems ->
       let tupleDoc = prettyTupleBody tupleFlavor (hsep (punctuate comma (map (prettyTypePrec 0) elems)))
        in if promoted == Promoted then "'" <> tupleDoc else tupleDoc
+    TUnboxedSum _ elems ->
+      hsep ["(#", hsep (punctuate " |" (map (prettyTypePrec 0) elems)), "#)"]
     TList _ promoted inner ->
       let listDoc = brackets (prettyTypePrec 0 inner)
        in if promoted == Promoted then "'" <> listDoc else listDoc
@@ -367,6 +370,9 @@ prettyPattern pat =
     PLit _ lit -> prettyLiteral lit
     PQuasiQuote _ quoter body -> prettyQuasiQuote quoter body
     PTuple _ tupleFlavor elems -> prettyTupleBody tupleFlavor (hsep (punctuate comma (map prettyPattern elems)))
+    PUnboxedSum _ altIdx arity inner ->
+      let slots = [if i == altIdx then prettyPattern inner else mempty | i <- [0 .. arity - 1]]
+       in hsep ["(#", hsep (punctuate " |" slots), "#)"]
     PList _ elems -> brackets (hsep (punctuate comma (map prettyPattern elems)))
     PCon _ con args -> hsep (pretty con : map prettyPatternAtom args)
     PInfix _ lhs op rhs -> prettyPatternAtom lhs <+> prettyInfixOp op <+> prettyPatternAtom rhs
@@ -406,6 +412,7 @@ prettyPatternAtom pat =
     PNegLit _ _ -> prettyPattern pat
     PList _ _ -> prettyPattern pat
     PTuple {} -> prettyPattern pat
+    PUnboxedSum {} -> prettyPattern pat
     PParen _ _ -> prettyPattern pat
     PStrict _ _ -> prettyPattern pat
     PView {} -> prettyPattern pat
@@ -897,6 +904,17 @@ prettyExprPrec prec expr =
     EString _ _ repr -> pretty repr
     EStringHash _ _ repr -> pretty repr
     EQuasiQuote _ quoter body -> prettyQuasiQuote quoter body
+    ETHExpQuote _ body -> "[|" <+> prettyExprPrec 0 body <+> "|]"
+    ETHTypedQuote _ body -> "[||" <+> prettyExprPrec 0 body <+> "||]"
+    ETHDeclQuote _ decls -> "[d|" <+> prettyInlineDecls decls <+> "|]"
+    ETHTypeQuote _ ty -> "[t|" <+> prettyType ty <+> "|]"
+    ETHPatQuote _ pat -> "[p|" <+> prettyPattern pat <+> "|]"
+    ETHNameQuote _ name
+      | isOperatorToken name -> "'" <> parens (pretty name)
+      | otherwise -> "'" <> pretty name
+    ETHTypeNameQuote _ name
+      | isOperatorToken name -> "''" <> parens (pretty name)
+      | otherwise -> "''" <> pretty name
     EIf _ cond yes no ->
       -- The 'then' keyword delimits the condition, and 'else' delimits the then-branch,
       -- so greedy expressions in those positions don't need parentheses.
@@ -1008,6 +1026,9 @@ prettyExprPrec prec expr =
       case tupleFlavor of
         Boxed -> parens (pretty (T.replicate (max 1 (arity - 1)) ","))
         Unboxed -> "(#" <> pretty (T.replicate (max 1 (arity - 1)) ",") <> "#)"
+    EUnboxedSum _ altIdx arity inner ->
+      let slots = [if i == altIdx then prettyExprPrec 0 inner else mempty | i <- [0 .. arity - 1]]
+       in hsep ["(#", hsep (punctuate " |" slots), "#)"]
 
 prettyTupleBody :: TupleFlavor -> Doc ann -> Doc ann
 prettyTupleBody tupleFlavor inner =

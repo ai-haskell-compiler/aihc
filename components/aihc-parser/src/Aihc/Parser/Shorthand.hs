@@ -415,6 +415,9 @@ docType ty =
           (Unboxed, Unpromoted) -> "TTupleUnboxed"
       )
         <+> brackets (hsep (punctuate comma (map docType elems)))
+    TUnboxedSum _ elems ->
+      "TUnboxedSum"
+        <+> brackets (hsep (punctuate comma (map docType elems)))
     TList _ promoted inner ->
       (if promoted == Promoted then "TListPromoted" else "TList")
         <+> parens (docType inner)
@@ -456,6 +459,8 @@ docPattern pat =
     PTuple _ tupleFlavor elems ->
       (if tupleFlavor == Boxed then "PTuple" else "PTupleUnboxed")
         <+> brackets (hsep (punctuate comma (map docPattern elems)))
+    PUnboxedSum _ altIdx arity inner ->
+      "PUnboxedSum" <+> pretty altIdx <+> pretty arity <+> docPattern inner
     PList _ elems -> "PList" <+> brackets (hsep (punctuate comma (map docPattern elems)))
     PCon _ name args -> "PCon" <+> docText name <+> brackets (hsep (punctuate comma (map docPattern args)))
     PInfix _ lhs op rhs -> "PInfix" <+> parens (docPattern lhs) <+> docText op <+> parens (docPattern rhs)
@@ -499,6 +504,13 @@ docExpr expr =
     EString _ s _ -> "EString" <+> docText s
     EStringHash _ s repr -> "EStringHash" <+> docText s <+> docText repr
     EQuasiQuote _ quoter body -> "EQuasiQuote" <+> docText quoter <+> docText body
+    ETHExpQuote _ body -> "ETHExpQuote" <+> parens (docExpr body)
+    ETHTypedQuote _ body -> "ETHTypedQuote" <+> parens (docExpr body)
+    ETHDeclQuote _ decls -> "ETHDeclQuote" <+> brackets (hsep (punctuate comma (map docDecl decls)))
+    ETHTypeQuote _ ty -> "ETHTypeQuote" <+> parens (docType ty)
+    ETHPatQuote _ pat -> "ETHPatQuote" <+> parens (docPattern pat)
+    ETHNameQuote _ name -> "ETHNameQuote" <+> docText name
+    ETHTypeNameQuote _ name -> "ETHTypeNameQuote" <+> docText name
     EIf _ cond yes no -> "EIf" <+> parens (docExpr cond) <+> parens (docExpr yes) <+> parens (docExpr no)
     EMultiWayIf _ rhss -> "EMultiWayIf" <+> brackets (hsep (punctuate comma (map docGuardedRhs rhss)))
     ELambdaPats _ pats body -> "ELambdaPats" <+> brackets (hsep (punctuate comma (map docPattern pats))) <+> parens (docExpr body)
@@ -528,6 +540,8 @@ docExpr expr =
     ETupleCon _ tupleFlavor arity ->
       (if tupleFlavor == Boxed then "ETupleCon" else "ETupleConUnboxed")
         <+> pretty arity
+    EUnboxedSum _ altIdx arity inner ->
+      "EUnboxedSum" <+> pretty altIdx <+> pretty arity <+> docExpr inner
     ETypeApp _ inner ty -> "ETypeApp" <+> parens (docExpr inner) <+> parens (docType ty)
     EApp _ f x -> "EApp" <+> parens (docExpr f) <+> parens (docExpr x)
 
@@ -640,6 +654,15 @@ docTokenKind kind =
     TkPragmaWarning msg -> "TkPragmaWarning" <+> docText msg
     TkPragmaDeprecated msg -> "TkPragmaDeprecated" <+> docText msg
     TkQuasiQuote quoter body -> "TkQuasiQuote" <+> docText quoter <+> docText body
+    TkTHExpQuoteOpen -> "TkTHExpQuoteOpen"
+    TkTHExpQuoteClose -> "TkTHExpQuoteClose"
+    TkTHTypedQuoteOpen -> "TkTHTypedQuoteOpen"
+    TkTHTypedQuoteClose -> "TkTHTypedQuoteClose"
+    TkTHDeclQuoteOpen -> "TkTHDeclQuoteOpen"
+    TkTHTypeQuoteOpen -> "TkTHTypeQuoteOpen"
+    TkTHPatQuoteOpen -> "TkTHPatQuoteOpen"
+    TkTHQuoteTick -> "TkTHQuoteTick"
+    TkTHTypeQuoteTick -> "TkTHTypeQuoteTick"
     TkError msg -> "TkError" <+> docText msg
     TkEOF -> "TkEOF"
 
