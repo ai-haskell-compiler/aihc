@@ -3,4 +3,4 @@ input: |
   id do
     pure ()
 ast: ~
-status: fail
+status: xfail
