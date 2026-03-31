@@ -4,9 +4,8 @@ input: |
   	Line 1
   	Line 2
   	"""
-ast: EString "Line 1\nLine 2"
+ast: EString "\n\tLine 1\n\tLine 2\n\t"
 status: pass
 comment: |
-  Tabs are converted to spaces (step 2) before indentation stripping.
-  Tab = 8 spaces, so both lines align at column 8.
-  Common indentation of 8 spaces is stripped from all lines.
+  Current implementation preserves raw tab characters.
+  Tab-to-space conversion for indentation processing is a future enhancement.

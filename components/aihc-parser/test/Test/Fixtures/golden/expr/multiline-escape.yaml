@@ -4,5 +4,5 @@ input: |
 ast: EString "Line 1\nLine 2"
 status: pass
 comment: |
-  Escape sequences like \n are resolved AFTER indentation stripping.
-  Input has literal backslash-n which becomes newline in output.
+  Backslash-n becomes newline after escape sequence processing.
+  Current implementation: escape sequences are processed on the raw content.

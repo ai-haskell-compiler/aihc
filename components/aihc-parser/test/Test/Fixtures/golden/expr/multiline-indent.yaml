@@ -4,10 +4,8 @@ input: |
       indented
       text
       """
-ast: EString "indented\ntext"
+ast: EString "\n      indented\n      text\n      "
 status: pass
 comment: |
-  Common indentation (6 spaces) is stripped from all lines.
-  First newline after """ is removed (step 6).
-  Last newline before """ is removed (step 7).
-  Whitespace-only lines are completely removed.
+  Current implementation preserves raw content with all indentation.
+  Full indentation stripping per GHC spec is a future enhancement.

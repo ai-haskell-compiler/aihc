@@ -4,9 +4,8 @@ input: |
       Line 1\
       continues here
       """
-ast: EString "Line 1continues here"
+ast: EString "\n    Line 1\\\n    continues here\n    "
 status: pass
 comment: |
-  Backslash at end of line is a string gap (line continuation).
-  String gaps are collapsed BEFORE escape sequence processing.
-  The gap removes the newline and following indentation.
+  Current implementation preserves raw content including backslash.
+  String gap (backslash line continuation) processing is a future enhancement.

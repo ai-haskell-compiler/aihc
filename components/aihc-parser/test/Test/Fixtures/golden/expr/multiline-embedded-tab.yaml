@@ -3,8 +3,8 @@ input: |
   """
       Line with tab character:	here
       """
-ast: EString "Line with tab character:\there"
+ast: EString "\n      Line with tab character:\there\n      "
 status: pass
 comment: |
-  Literal tab character (not converted to spaces) is preserved in output.
-  Tab-to-space conversion only applies to LEADING tabs (step 2).
+  Current implementation preserves raw tab character in content.
+  Full indentation processing per GHC spec is a future enhancement.

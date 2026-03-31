@@ -7,5 +7,4 @@ ast: EString "Line 1\nLine 2\nLine 3"
 status: pass
 comment: |
   Multiple lines with no common indentation.
-  First newline after opening """ is NOT removed (no leading newline).
-  Last newline before closing """ is NOT removed (no trailing newline).
+  Current implementation preserves raw content without indentation processing.
