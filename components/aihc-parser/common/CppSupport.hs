@@ -6,6 +6,7 @@ module CppSupport
     preprocessForParserWithoutIncludes,
     preprocessForParserWithoutIncludesIfEnabled,
     moduleHeaderExtensionSettings,
+    moduleHeaderPragmas,
     cppEnabledInSource,
   )
 where
@@ -22,8 +23,8 @@ import Aihc.Cpp
     includePath,
     preprocess,
   )
-import Aihc.Parser.Lex (readModuleHeaderExtensions)
-import Aihc.Parser.Syntax (Extension (CPP), ExtensionSetting (..), parseExtensionSettingName)
+import Aihc.Parser.Lex (readModuleHeaderExtensions, readModuleHeaderPragmas)
+import Aihc.Parser.Syntax (Extension (CPP), ExtensionSetting (..), ModuleHeaderPragmas (..), parseExtensionSettingName)
 import Data.Char (isAsciiLower, isAsciiUpper, isDigit, toLower)
 import Data.Functor.Identity (Identity (..), runIdentity)
 import qualified Data.Map.Strict as M
@@ -69,6 +70,9 @@ preprocessForParserWithoutIncludesIfEnabled globalExtensionNames cppOptions inpu
 
 moduleHeaderExtensionSettings :: Text -> [ExtensionSetting]
 moduleHeaderExtensionSettings = readModuleHeaderExtensions
+
+moduleHeaderPragmas :: Text -> ModuleHeaderPragmas
+moduleHeaderPragmas = readModuleHeaderPragmas
 
 cppEnabledInSource :: Text -> Bool
 cppEnabledInSource = cppEnabledInSettings . moduleHeaderExtensionSettings

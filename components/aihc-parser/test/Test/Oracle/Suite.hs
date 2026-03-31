@@ -112,7 +112,9 @@ evaluateCaseFromFile meta = do
 
 evaluateCaseText :: CaseMeta -> Text -> IO (CaseMeta, Outcome, String)
 evaluateCaseText meta source = do
-  let exts = extensionNamesToGhcExtensions (caseExtensions meta) Nothing
+  -- Use Haskell2010 as the base language for oracle tests, as these fixtures
+  -- are meant to be valid Haskell2010 code (possibly with extensions)
+  let exts = extensionNamesToGhcExtensions (caseExtensions meta) (Just "Haskell2010")
       source' =
         resultOutput
           ( preprocessForParserWithoutIncludesIfEnabled

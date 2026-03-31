@@ -8,10 +8,12 @@ module ParserValidation
     validateParserDetailed,
     validateParserDetailedWithExtensions,
     validateParserDetailedWithExtensionNames,
+    validateParserDetailedWithParserExtensions,
   )
 where
 
 import Aihc.Parser (ParseResult (..), ParserConfig (..), defaultConfig, errorBundlePretty, parseModule)
+import qualified Aihc.Parser.Syntax as Syntax
 import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -50,8 +52,17 @@ validateParserDetailedWithExtensionNames :: [String] -> Maybe String -> Text -> 
 validateParserDetailedWithExtensionNames extNames langName =
   validateParserDetailedWithExtensions (GhcOracle.extensionNamesToGhcExtensions extNames langName)
 
-validateParserDetailedCore :: [Extension] -> Text -> Maybe ValidationError
-validateParserDetailedCore exts source =
+-- | Validate parser with parser extensions directly.
+-- This is the preferred way to validate when using unified extension handling.
+validateParserDetailedWithParserExtensions :: [Syntax.Extension] -> Text -> Maybe ValidationError
+validateParserDetailedWithParserExtensions parserExts =
+  let ghcExts = mapMaybe GhcOracle.toGhcExtension parserExts
+   in validateParserDetailedCoreWithParserExts parserExts ghcExts
+
+-- | Core validation that accepts both parser extensions and GHC extensions.
+-- This ensures both parsers use exactly the same extensions.
+validateParserDetailedCoreWithParserExts :: [Syntax.Extension] -> [Extension] -> Text -> Maybe ValidationError
+validateParserDetailedCoreWithParserExts parserExts ghcExts source =
   case parseModule parserConfig source of
     ParseErr err ->
       Just
@@ -61,8 +72,8 @@ validateParserDetailedCore exts source =
           }
     ParseOk parsed ->
       let rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty parsed))
-          sourceAst = GhcOracle.oracleModuleAstFingerprintWithExtensionsAt "parser-validation" exts source
-          renderedAst = GhcOracle.oracleModuleAstFingerprintWithExtensionsAt "parser-validation" exts rendered
+          sourceAst = GhcOracle.oracleModuleAstFingerprintWithExtensionsAt "parser-validation" ghcExts source
+          renderedAst = GhcOracle.oracleModuleAstFingerprintWithExtensionsAt "parser-validation" ghcExts rendered
        in case (sourceAst, renderedAst) of
             (Right sourceFp, Right renderedFp)
               | sourceFp == renderedFp -> Nothing
@@ -109,8 +120,12 @@ validateParserDetailedCore exts source =
     parserConfig =
       defaultConfig
         { parserSourceName = "parser-validation",
-          parserExtensions = mapMaybe GhcOracle.fromGhcExtension exts
+          parserExtensions = parserExts
         }
+
+validateParserDetailedCore :: [Extension] -> Text -> Maybe ValidationError
+validateParserDetailedCore exts =
+  validateParserDetailedCoreWithParserExts (mapMaybe GhcOracle.fromGhcExtension exts) exts
 
 formatFingerprintMismatch :: Text -> Text -> String
 formatFingerprintMismatch sourceFp renderedFp =
