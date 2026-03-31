@@ -1,7 +1,7 @@
-{- ORACLE_TEST xfail reserved keyword as identifier -}
+{- ORACLE_TEST xfail reserved keyword used as parameter -}
 module ReservedKeywordAs where
 
-reserved :: as
-reserved = undefined
+reserved :: Int
+reserved = 42
 
 arg as = as
