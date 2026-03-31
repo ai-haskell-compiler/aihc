@@ -5,7 +5,7 @@ input: |
       
       Line 2
       """
-ast: EString "\n      Line 1\n      \n      Line 2\n      "
+ast: 'EString "\n      Line 1\n      \n      Line 2\n      "'
 status: pass
 comment: |
   Current implementation preserves raw content including whitespace-only lines.

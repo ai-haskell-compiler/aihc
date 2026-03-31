@@ -4,7 +4,7 @@ input: |
   first line
   second line
   """
-ast: EString "\nfirst line\nsecond line\n"
+ast: 'EString "\nfirst line\nsecond line\n"'
 status: pass
 comment: |
   Current implementation preserves raw content including leading/trailing newlines.
