@@ -1,0 +1,6 @@
+extensions: [BlockArguments]
+input: |
+  id do
+    pure ()
+ast: EApp (EVar "id") (EDo [DoExpr (EApp (EVar "pure") (ETuple []))])
+status: pass

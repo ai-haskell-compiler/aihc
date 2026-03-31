@@ -1,0 +1,6 @@
+extensions: []
+input: |
+  id do
+    pure ()
+ast: ~
+status: fail

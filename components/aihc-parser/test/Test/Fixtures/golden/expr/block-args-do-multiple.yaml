@@ -1,0 +1,7 @@
+extensions: [BlockArguments]
+input: |
+  f x do
+    y
+    z
+ast: EApp (EApp (EVar "f") (EVar "x")) (EDo [DoExpr (EVar "y"), DoExpr (EVar "z")])
+status: pass
