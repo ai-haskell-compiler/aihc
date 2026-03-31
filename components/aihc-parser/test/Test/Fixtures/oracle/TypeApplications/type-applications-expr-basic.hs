@@ -1,4 +1,5 @@
-{- ORACLE_TEST xfail parser intentionally disabled -}
+{- ORACLE_TEST pass -}
+{-# LANGUAGE TypeApplications #-}
 module TypeApplicationsExprBasic where
 
 f :: a -> b -> a

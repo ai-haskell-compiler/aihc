@@ -236,10 +236,25 @@ stringExprParser = withSpan $ do
 
 appExprParser :: TokParser Expr
 appExprParser = withSpan $ do
+  typeAppsEnabled <- isExtensionEnabled TypeApplications
   first <- atomOrRecordExprParser
-  rest <- MP.many atomOrRecordExprParser
+  rest <- MP.many (appArg typeAppsEnabled)
   pure $ \span' ->
-    foldl (EApp span') first rest
+    foldl (applyArg span') first rest
+  where
+    appArg :: Bool -> TokParser (Either Type Expr)
+    appArg typeAppsEnabled
+      | typeAppsEnabled = (Left <$> typeAppArg) <|> (Right <$> atomOrRecordExprParser)
+      | otherwise = Right <$> atomOrRecordExprParser
+
+    typeAppArg :: TokParser Type
+    typeAppArg = MP.try $ do
+      expectedTok TkReservedAt
+      typeAtomParser
+
+    applyArg :: SourceSpan -> Expr -> Either Type Expr -> Expr
+    applyArg span' fn (Left ty) = ETypeApp span' fn ty
+    applyArg span' fn (Right arg) = EApp span' fn arg
 
 -- | Parse an atom, optionally followed by one or more record construction/update syntax.
 -- This handles cases like:
