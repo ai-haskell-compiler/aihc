@@ -4,8 +4,6 @@ input: |
       indented
       text
       """
-ast: "EString \"\n    indented\n    text\n    \""
+ast: "EString \"indented\ntext\""
 status: pass
-comment: |
-  Current implementation preserves raw content with all indentation.
-  Full indentation stripping per GHC spec is a future enhancement.
+comment: Common indentation (4 spaces) is stripped, leading/trailing newlines removed.

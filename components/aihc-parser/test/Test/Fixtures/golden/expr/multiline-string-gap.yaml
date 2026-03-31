@@ -2,14 +2,10 @@ extensions: [MultilineStrings]
 input: |
   """
       Line 1\
-      continues here
+      \continues here
       """
-ast: |
-  EString "
-      Line 1\
-      continues here
-      "
+ast: EString "Line 1continues here"
 status: pass
 comment: |
-  Current implementation preserves raw content including backslash.
-  String gap (backslash line continuation) processing is a future enhancement.
+  String gap (\<whitespace>\) is collapsed before multiline processing.
+  The backslash-whitespace-backslash sequence is removed entirely.

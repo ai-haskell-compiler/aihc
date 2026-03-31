@@ -5,6 +5,4 @@ input: |
   Line 3"""
 ast: "EString \"Line 1\nLine 2\nLine 3\""
 status: pass
-comment: |
-  Multiple lines with no common indentation.
-  Current implementation preserves raw content without indentation processing.
+comment: Multiple lines with no common indentation. Text starts on same line as opening delimiter.

@@ -4,8 +4,6 @@ input: |
   first line
   second line
   """
-ast: "EString \"\nfirst line\nsecond line\n\""
+ast: "EString \"first line\nsecond line\""
 status: pass
-comment: |
-  Current implementation preserves raw content including leading/trailing newlines.
-  Full newline trimming per GHC spec is a future enhancement.
+comment: Leading and trailing newlines are removed per GHC MultilineStrings spec.

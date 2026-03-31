@@ -3,8 +3,7 @@ input: |
   """
       Line with tab character:	here
       """
-ast: "EString \"\n    Line with tab character:\there\n    \""
+ast: "EString \"Line with tab character:\there\""
 status: pass
 comment: |
-  Current implementation preserves raw tab character in content.
-  Full indentation processing per GHC spec is a future enhancement.
+  Common indentation stripped. Non-leading tab character preserved in content.
