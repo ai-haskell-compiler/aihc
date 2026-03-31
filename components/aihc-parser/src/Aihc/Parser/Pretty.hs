@@ -391,6 +391,7 @@ prettyPattern pat =
                   [prettyPatternFieldBinding fieldName fieldPat | (fieldName, fieldPat) <- fields]
               )
           )
+    PTypeSig _ inner ty -> prettyPattern inner <+> "::" <+> prettyType ty
 
 -- | Pretty print a pattern field binding.
 -- Supports NamedFieldPuns: if pattern is a variable with the same name as the field,
@@ -415,6 +416,7 @@ prettyPatternAtom pat =
     PParen _ _ -> prettyPattern pat
     PStrict _ _ -> prettyPattern pat
     PView {} -> prettyPattern pat
+    PAs {} -> prettyPattern pat
     _ -> parens (prettyPattern pat)
 
 -- | Pretty print a pattern atom after @ or as the operand of ! or ~.

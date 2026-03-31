@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail pattern with nested record wildcard -}
+{- ORACLE_TEST pass -}
 module PatternNestedRecord where
 
 delete (HKey k@(HKey' f _)) (HSet xs count) = ()

@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail reserved keyword as identifier -}
+{- ORACLE_TEST pass -}
 module ReservedKeywordAs where
 
 reserved :: as

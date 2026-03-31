@@ -184,6 +184,11 @@ identifierTextParser =
       TkConId ident -> Just ident
       TkQVarId ident -> Just ident
       TkQConId ident -> Just ident
+      -- Context-sensitive keywords that can be used as identifiers
+      -- (not reserved per Haskell Report §2.4)
+      TkKeywordAs -> Just "as"
+      TkKeywordQualified -> Just "qualified"
+      TkKeywordHiding -> Just "hiding"
       _ -> Nothing
 
 lowerIdentifierParser :: TokParser Text
@@ -192,6 +197,10 @@ lowerIdentifierParser =
     case lexTokenKind tok of
       TkVarId ident -> Just ident
       TkQVarId ident -> Just ident
+      -- Context-sensitive keywords that can be used as identifiers
+      TkKeywordAs -> Just "as"
+      TkKeywordQualified -> Just "qualified"
+      TkKeywordHiding -> Just "hiding"
       _ -> Nothing
 
 constructorIdentifierParser :: TokParser Text

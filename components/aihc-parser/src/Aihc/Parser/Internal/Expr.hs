@@ -371,10 +371,19 @@ parenOperatorExprParser = withSpan $ do
   pure (`EVar` op)
 
 patternParser :: TokParser Pattern
-patternParser = label "pattern" asPatternParser
+patternParser = label "pattern" infixPatternParser
 
-asPatternParser :: TokParser Pattern
-asPatternParser =
+infixPatternParser :: TokParser Pattern
+infixPatternParser = do
+  lhs <- asOrAppPatternParser
+  rest <- MP.many ((,) <$> conOperatorParser <*> asOrAppPatternParser)
+  pure (foldl buildInfixPattern lhs rest)
+
+-- | Parse either an as-pattern (name@atom) or an application pattern.
+-- As-patterns bind tighter than infix but looser than application,
+-- so they appear as operands of infix patterns.
+asOrAppPatternParser :: TokParser Pattern
+asOrAppPatternParser =
   MP.try
     ( withSpan $ do
         name <- identifierTextParser
@@ -382,13 +391,7 @@ asPatternParser =
         inner <- patternAtomParser
         pure (\span' -> PAs span' name inner)
     )
-    <|> infixPatternParser
-
-infixPatternParser :: TokParser Pattern
-infixPatternParser = do
-  lhs <- appPatternParser
-  rest <- MP.many ((,) <$> conOperatorParser <*> appPatternParser)
-  pure (foldl buildInfixPattern lhs rest)
+    <|> appPatternParser
 
 buildInfixPattern :: Pattern -> (Text, Pattern) -> Pattern
 buildInfixPattern lhs (op, rhs) =
@@ -401,7 +404,6 @@ conOperatorParser =
       TkConSym op -> Just op
       TkQConSym op -> Just op
       TkReservedColon -> Just ":"
-      TkReservedDoubleColon -> Just "::"
       _ -> Nothing
 
 appPatternParser :: TokParser Pattern
@@ -431,7 +433,18 @@ patternAtomParser =
     <|> literalPatternParser
     <|> listPatternParser
     <|> parenOrTuplePatternParser
+    <|> MP.try atomAsPatternParser
     <|> varOrConPatternParser
+  where
+    -- Parse an as-pattern as an atom: name@atom
+    -- This allows as-patterns within constructor application patterns
+    -- (e.g., Con x@(Con' y z)).
+    atomAsPatternParser :: TokParser Pattern
+    atomAsPatternParser = withSpan $ do
+      name <- identifierTextParser
+      expectedTok TkReservedAt
+      inner <- patternAtomParser
+      pure (\span' -> PAs span' name inner)
 
 strictPatternParser :: TokParser Pattern
 strictPatternParser = withSpan $ do
@@ -924,20 +937,29 @@ parenOrTuplePatternParser = withSpan $ do
       mComma <- MP.optional (expectedTok TkSpecialComma)
       case mComma of
         Nothing -> do
-          -- Check for pipe (unboxed sum: pattern in first slot)
-          mPipe <- if tupleFlavor == Unboxed then MP.optional (expectedTok TkReservedPipe) else pure Nothing
-          case mPipe of
-            Just () -> do
-              -- (# pat | ... #) - pattern in first slot of sum
-              trailingBars <- MP.many (expectedTok TkReservedPipe)
-              expectedTok closeTok
-              let arity = 2 + length trailingBars
-              pure (\span' -> PUnboxedSum span' 0 arity first)
-            Nothing -> do
+          -- Check for pattern type signature: (pat :: type)
+          mTypeSig <- MP.optional (expectedTok TkReservedDoubleColon *> typeParser)
+          case mTypeSig of
+            Just ty -> do
               expectedTok closeTok
               if tupleFlavor == Boxed
-                then pure (`PParen` first)
+                then pure (\span' -> PParen span' (PTypeSig span' first ty))
                 else fail "not an unboxed tuple pattern"
+            Nothing -> do
+              -- Check for pipe (unboxed sum: pattern in first slot)
+              mPipe <- if tupleFlavor == Unboxed then MP.optional (expectedTok TkReservedPipe) else pure Nothing
+              case mPipe of
+                Just () -> do
+                  -- (# pat | ... #) - pattern in first slot of sum
+                  trailingBars <- MP.many (expectedTok TkReservedPipe)
+                  expectedTok closeTok
+                  let arity = 2 + length trailingBars
+                  pure (\span' -> PUnboxedSum span' 0 arity first)
+                Nothing -> do
+                  expectedTok closeTok
+                  if tupleFlavor == Boxed
+                    then pure (`PParen` first)
+                    else fail "not an unboxed tuple pattern"
         Just () -> do
           second <- patternParser
           more <- MP.many (expectedTok TkSpecialComma *> patternParser)

@@ -731,6 +731,7 @@ normalizePattern pat =
     PParen _ inner -> PParen span0 (normalizePattern inner)
     PUnboxedSum _ altIdx arity inner -> PUnboxedSum span0 altIdx arity (normalizePattern inner)
     PRecord _ con fields -> PRecord span0 con [(name, normalizePattern p) | (name, p) <- fields]
+    PTypeSig _ inner ty -> PTypeSig span0 (normalizePattern inner) (normalizeType ty)
 
 normalizeLiteral :: Literal -> Literal
 normalizeLiteral lit =

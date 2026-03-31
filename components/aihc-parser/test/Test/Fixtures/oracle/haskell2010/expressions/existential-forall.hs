@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail existential with forall in type -}
+{- ORACLE_TEST pass -}
 module ExistentialForall where
 
 toJSON ((f :: f a) :=> (g :: g a)) = ()
