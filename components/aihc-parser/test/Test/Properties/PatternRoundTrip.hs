@@ -5,7 +5,7 @@ module Test.Properties.PatternRoundTrip
   )
 where
 
-import Aihc.Parser (ParseResult (..), defaultConfig, errorBundlePretty, parsePattern)
+import Aihc.Parser (ParseResult (..), ParserConfig (..), defaultConfig, errorBundlePretty, parsePattern)
 import Aihc.Parser.Lex (isReservedIdentifier)
 import Aihc.Parser.Syntax
 import Data.Data (dataTypeConstrs, dataTypeOf, showConstr, toConstr)
@@ -23,6 +23,12 @@ span0 = noSourceSpan
 newtype GenPattern = GenPattern {unGenPattern :: Pattern}
   deriving (Show)
 
+patternConfig :: ParserConfig
+patternConfig =
+  defaultConfig
+    { parserExtensions = [UnboxedTuples, UnboxedSums]
+    }
+
 prop_patternPrettyRoundTrip :: GenPattern -> Property
 prop_patternPrettyRoundTrip (GenPattern pat) =
   let source = renderStrict (layoutPretty defaultLayoutOptions (pretty pat))
@@ -30,7 +36,7 @@ prop_patternPrettyRoundTrip (GenPattern pat) =
    in checkCoverage $
         applyCoverage (patternCtorCoverage pat) $
           counterexample (T.unpack source) $
-            case parsePattern defaultConfig source of
+            case parsePattern patternConfig source of
               ParseErr err ->
                 counterexample (errorBundlePretty (Just source) err) False
               ParseOk parsed ->
@@ -41,7 +47,7 @@ patternCtorCoverage :: Pattern -> [Property -> Property]
 patternCtorCoverage pat =
   let allCtors = map showConstr (dataTypeConstrs (dataTypeOf (undefined :: Pattern)))
       -- Exclude constructors that cannot be round-tripped through the parser yet
-      coverableCtors = filter (`notElem` ["PUnboxedSum"]) allCtors
+      coverableCtors = allCtors
       seenCtors = patternCtorNames pat
    in [cover 1 (ctor `Set.member` seenCtors) ctor | ctor <- coverableCtors]
 
@@ -179,9 +185,11 @@ genPattern depth
           PLit span0 <$> genLiteral,
           PQuasiQuote span0 <$> genQuoterName <*> genQuasiBody,
           PTuple span0 Boxed <$> elements [[], [PVar span0 "x", PWildcard span0]],
+          PTuple span0 Unboxed <$> elements [[], [PVar span0 "x", PWildcard span0]],
           pure (PList span0 []),
           PCon span0 <$> genPatternConName <*> pure [],
-          PNegLit span0 <$> genNumericLiteral
+          PNegLit span0 <$> genNumericLiteral,
+          genUnboxedSumPattern 0
         ]
   | otherwise =
       frequency
@@ -190,6 +198,7 @@ genPattern depth
           (3, PLit span0 <$> genLiteral),
           (2, PQuasiQuote span0 <$> genQuoterName <*> genQuasiBody),
           (2, PTuple span0 Boxed <$> genTupleElems (depth - 1)),
+          (1, PTuple span0 Unboxed <$> genTupleElems (depth - 1)),
           (2, PList span0 <$> genListElems (depth - 1)),
           (3, genPatternCon depth),
           (2, genPatternInfix depth),
@@ -199,7 +208,8 @@ genPattern depth
           (2, PIrrefutable span0 . canonicalPatternAtom <$> genPattern (depth - 1)),
           (2, PNegLit span0 <$> genNumericLiteral),
           (2, PParen span0 <$> genPattern (depth - 1)),
-          (2, PRecord span0 <$> genPatternConName <*> genRecordFields (depth - 1))
+          (2, PRecord span0 <$> genPatternConName <*> genRecordFields (depth - 1)),
+          (1, genUnboxedSumPattern (depth - 1))
         ]
 
 genPatternCon :: Int -> Gen Pattern
@@ -224,6 +234,13 @@ genTupleElems depth = do
     else do
       n <- chooseInt (2, 4)
       vectorOf n (genPattern depth)
+
+genUnboxedSumPattern :: Int -> Gen Pattern
+genUnboxedSumPattern depth = do
+  arity <- chooseInt (2, 4)
+  altIdx <- chooseInt (0, arity - 1)
+  inner <- genPattern depth
+  pure (PUnboxedSum span0 altIdx arity inner)
 
 genListElems :: Int -> Gen [Pattern]
 genListElems depth = do

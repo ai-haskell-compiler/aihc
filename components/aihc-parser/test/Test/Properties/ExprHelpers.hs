@@ -55,7 +55,9 @@ genExprSized n
           EListCompParallel span0 <$> genExprSized half <*> genParallelCompStmts half,
           EList span0 <$> genListElems (n - 1),
           ETuple span0 Boxed <$> genTupleElems (n - 1),
+          ETuple span0 Unboxed <$> genUnboxedTupleElems (n - 1),
           ETupleSection span0 Boxed <$> genTupleSectionElems (n - 1),
+          genUnboxedSumExpr (n - 1),
           EArithSeq span0 <$> genArithSeq (n - 1),
           ERecordCon span0 <$> genConName <*> genRecordFields (n - 1),
           ERecordUpd span0 <$> genExprSized half <*> genRecordFields half,
@@ -79,7 +81,9 @@ genExprLeaf =
       -- Note: EQuasiQuote requires QuasiQuotes extension, skip for now
       pure (EList span0 []),
       pure (ETuple span0 Boxed []),
-      ETupleCon span0 Boxed <$> chooseInt (2, 5)
+      pure (ETuple span0 Unboxed []),
+      ETupleCon span0 Boxed <$> chooseInt (2, 5),
+      ETupleCon span0 Unboxed <$> chooseInt (2, 5)
     ]
 
 -- | Generate an operator symbol
@@ -97,7 +101,8 @@ genCustomOperator = do
   len <- chooseInt (1, 3)
   -- Note: matches ":!#$%&*+./<=>?\\^|-~" from Pretty.hs isOperatorToken
   -- Excluding ':' since that's for constructor operators
-  chars <- vectorOf len (elements "!#$%&*+./<=>?\\^|-~")
+  -- Excluding '#' because it conflicts with (# and #) tokens when UnboxedTuples/UnboxedSums is enabled
+  chars <- vectorOf len (elements "!$%&*+./<=>?\\^|-~")
   let candidate = T.pack chars
   -- Avoid reserved operators and symbols that lex as comments.
   if isValidGeneratedOperator candidate
@@ -259,6 +264,20 @@ genTupleElems n = do
     else do
       count <- chooseInt (2, 4)
       vectorOf count (genExprSized (n `div` count))
+
+-- | Generate elements for an unboxed tuple (always 2+ elements, no unit)
+genUnboxedTupleElems :: Int -> Gen [Expr]
+genUnboxedTupleElems n = do
+  count <- chooseInt (2, 4)
+  vectorOf count (genExprSized (n `div` count))
+
+-- | Generate an unboxed sum expression
+genUnboxedSumExpr :: Int -> Gen Expr
+genUnboxedSumExpr n = do
+  arity <- chooseInt (2, 4)
+  altIdx <- chooseInt (0, arity - 1)
+  inner <- genExprSized n
+  pure (EUnboxedSum span0 altIdx arity inner)
 
 -- | Generate tuple section elements
 genTupleSectionElems :: Int -> Gen [Maybe Expr]

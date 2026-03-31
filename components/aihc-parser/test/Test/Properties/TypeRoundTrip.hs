@@ -21,6 +21,12 @@ import Test.QuickCheck
 span0 :: SourceSpan
 span0 = noSourceSpan
 
+typeConfig :: ParserConfig
+typeConfig =
+  defaultConfig
+    { parserExtensions = [UnboxedTuples, UnboxedSums]
+    }
+
 prop_typePrettyRoundTrip :: Type -> Property
 prop_typePrettyRoundTrip ty =
   let source = renderStrict (layoutPretty defaultLayoutOptions (pretty ty))
@@ -28,7 +34,7 @@ prop_typePrettyRoundTrip ty =
    in checkCoverage $
         applyCoverage (typeCtorCoverage ty) $
           counterexample (T.unpack source) $
-            case parseType defaultConfig source of
+            case parseType typeConfig source of
               ParseErr err ->
                 counterexample (errorBundlePretty (Just source) err) False
               ParseOk parsed ->
@@ -39,7 +45,7 @@ typeCtorCoverage :: Type -> [Property -> Property]
 typeCtorCoverage ty =
   let allCtors = map showConstr (dataTypeConstrs (dataTypeOf (undefined :: Type)))
       -- Exclude constructors that cannot be round-tripped through the parser yet
-      coverableCtors = filter (`notElem` ["TUnboxedSum"]) allCtors
+      coverableCtors = allCtors
       seenCtors = typeCtorNames ty
    in [cover 1 (ctor `Set.member` seenCtors) ctor | ctor <- coverableCtors]
 
@@ -179,8 +185,10 @@ genType depth
           pure (TStar span0),
           TQuasiQuote span0 <$> genQuoterName <*> genQuasiBody,
           TTuple span0 Boxed Unpromoted <$> elements [[], [TVar span0 "a", TCon span0 "B" Unpromoted]],
+          TTuple span0 Unboxed Unpromoted <$> elements [[], [TVar span0 "a", TCon span0 "B" Unpromoted]],
           TList span0 Unpromoted <$> genTypeAtom 0,
-          TParen span0 <$> genTypeAtom 0
+          TParen span0 <$> genTypeAtom 0,
+          TUnboxedSum span0 <$> genUnboxedSumElems 0
         ]
   | otherwise =
       frequency
@@ -193,6 +201,8 @@ genType depth
           (4, genTypeApp depth),
           (4, genTypeFun depth),
           (3, TTuple span0 Boxed Unpromoted <$> genTypeTupleElems (depth - 1)),
+          (2, TTuple span0 Unboxed Unpromoted <$> genTypeTupleElems (depth - 1)),
+          (2, TUnboxedSum span0 <$> genUnboxedSumElems (depth - 1)),
           (3, TList span0 Unpromoted <$> genType (depth - 1)),
           (3, TParen span0 <$> genType (depth - 1)),
           (3, TContext span0 <$> genConstraints (depth - 1) <*> genContextInner (depth - 1))
@@ -235,6 +245,11 @@ genTypeTupleElems depth = do
       n <- chooseInt (2, 4)
       vectorOf n (genType depth)
 
+genUnboxedSumElems :: Int -> Gen [Type]
+genUnboxedSumElems depth = do
+  n <- chooseInt (2, 4)
+  vectorOf n (genType depth)
+
 genTypeAtom :: Int -> Gen Type
 genTypeAtom depth =
   oneof
@@ -244,6 +259,8 @@ genTypeAtom depth =
       pure (TStar span0),
       TQuasiQuote span0 <$> genQuoterName <*> genQuasiBody,
       TTuple span0 Boxed Unpromoted <$> genTypeTupleElems depth,
+      TTuple span0 Unboxed Unpromoted <$> genTypeTupleElems depth,
+      TUnboxedSum span0 <$> genUnboxedSumElems depth,
       TList span0 Unpromoted <$> genType depth,
       TParen span0 <$> genType depth
     ]

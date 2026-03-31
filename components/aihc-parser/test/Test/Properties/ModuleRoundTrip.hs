@@ -17,11 +17,17 @@ import Test.Properties.ExprHelpers (genExpr, normalizeExpr, shrinkExpr, span0)
 import Test.Properties.Identifiers (genIdent, shrinkIdent)
 import Test.QuickCheck
 
+moduleConfig :: ParserConfig
+moduleConfig =
+  defaultConfig
+    { parserExtensions = [UnboxedTuples, UnboxedSums]
+    }
+
 prop_modulePrettyRoundTrip :: Module -> Property
 prop_modulePrettyRoundTrip modu =
   let source = renderStrict (layoutPretty defaultLayoutOptions (pretty modu))
    in counterexample (T.unpack source) $
-        case parseModule defaultConfig source of
+        case parseModule moduleConfig source of
           ParseOk reparsed ->
             let expected = normalizeModule modu
                 actual = normalizeModule reparsed
