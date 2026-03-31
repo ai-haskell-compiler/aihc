@@ -22,6 +22,7 @@ module Aihc.Parser.Pretty
 where
 
 import Aihc.Parser.Syntax
+import Data.Char (GeneralCategory (..), generalCategory)
 import Data.Maybe (catMaybes)
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -486,9 +487,9 @@ derivingPart (DerivingClause strategy classes) =
 
     classesPart [] = ["()"]
     classesPart [single]
-      | Just DerivingStock <- strategy = [parens (pretty single)]
-      | otherwise = [pretty single]
-    classesPart _ = [parens (hsep (punctuate comma (map pretty classes)))]
+      | Just DerivingStock <- strategy = [parens (prettyConstraint single)]
+      | otherwise = [prettyConstraint single]
+    classesPart _ = [parens (hsep (punctuate comma (map prettyConstraint classes)))]
 
 prettyDeclHead :: [Constraint] -> Text -> [TyVarBinder] -> Doc ann
 prettyDeclHead constraints name params =
@@ -1085,4 +1086,18 @@ prettyQuasiQuote quoter body = "[" <> pretty quoter <> "|" <> pretty body <> "|]
 
 isOperatorToken :: Text -> Bool
 isOperatorToken tok =
-  not (T.null tok) && T.all (`elem` (":!#$%&*+./<=>?\\^|-~" :: String)) tok
+  not (T.null tok) && T.all isSymbolicOpChar tok
+
+-- | Matches operator characters per Haskell 2010 §2.2: ASCII symbol chars
+-- plus Unicode characters with general category Sm, Sc, Sk, or So.
+isSymbolicOpChar :: Char -> Bool
+isSymbolicOpChar c =
+  c `elem` (":!#$%&*+./<=>?\\^|-~" :: String) || isUnicodeSymbolCategory c
+
+isUnicodeSymbolCategory :: Char -> Bool
+isUnicodeSymbolCategory c = case generalCategory c of
+  MathSymbol -> True
+  CurrencySymbol -> True
+  ModifierSymbol -> True
+  OtherSymbol -> True
+  _ -> False

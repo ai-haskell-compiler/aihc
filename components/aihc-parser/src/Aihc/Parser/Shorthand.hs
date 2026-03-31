@@ -282,7 +282,7 @@ docDerivingClause dc =
   where
     fields =
       optionalField "strategy" docDerivingStrategy (derivingStrategy dc)
-        <> listField "classes" docText (derivingClasses dc)
+        <> listField "classes" docConstraint (derivingClasses dc)
 
 docDerivingStrategy :: DerivingStrategy -> Doc ann
 docDerivingStrategy ds =

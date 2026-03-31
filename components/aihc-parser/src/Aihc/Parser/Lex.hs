@@ -68,7 +68,7 @@ where
 
 import Aihc.Parser.Syntax
 import Control.DeepSeq (NFData)
-import Data.Char (digitToInt, isAlphaNum, isAsciiLower, isAsciiUpper, isDigit, isHexDigit, isOctDigit, isSpace)
+import Data.Char (GeneralCategory (..), digitToInt, generalCategory, isAlphaNum, isAsciiLower, isAsciiUpper, isDigit, isHexDigit, isOctDigit, isSpace)
 import Data.List qualified as List
 import Data.Maybe (fromMaybe, isJust, mapMaybe)
 import Data.Text (Text)
@@ -1979,16 +1979,23 @@ isIdentTail c = isAlphaNum c || c == '_' || c == '\''
 isSymbolicOpChar :: Char -> Bool
 isSymbolicOpChar c = c `elem` (":!#$%&*+./<=>?@\\^|-~" :: String) || isUnicodeSymbol c
 
--- | Unicode symbols that may be used with UnicodeSyntax extension.
--- These are: ∷ ⇒ → ← ∀ ★ ⤙ ⤚ ⤛ ⤜ ⦇ ⦈ ⟦ ⟧ ⊸
+-- | Unicode symbols accepted as operator characters per Haskell 2010 §2.2.
+--
+-- The Haskell 2010 Report defines the @symbol@ character class as any Unicode
+-- character with general category MathSymbol (Sm), CurrencySymbol (Sc),
+-- ModifierSymbol (Sk), or OtherSymbol (So), plus the specific ASCII symbol
+-- characters handled by 'isSymbolicOpChar'.
+--
+-- This function also accepts the specific Unicode codepoints used by the
+-- UnicodeSyntax extension as aliases for reserved operators.
 isUnicodeSymbol :: Char -> Bool
 isUnicodeSymbol c =
-  c == '∷' -- U+2237 PROPORTION (for ::)
+  isUnicodeSymbolCategory c
+    || c == '∷' -- U+2237 PROPORTION (for ::)
     || c == '⇒' -- U+21D2 RIGHTWARDS DOUBLE ARROW (for =>)
     || c == '→' -- U+2192 RIGHTWARDS ARROW (for ->)
     || c == '←' -- U+2190 LEFTWARDS ARROW (for <-)
     || c == '∀' -- U+2200 FOR ALL (for forall)
-    || c == '★' -- U+2605 BLACK STAR (for *)
     || c == '⤙' -- U+2919 LEFTWARDS ARROW-TAIL (for -<)
     || c == '⤚' -- U+291A RIGHTWARDS ARROW-TAIL (for >-)
     || c == '⤛' -- U+291B LEFTWARDS DOUBLE ARROW-TAIL (for -<<)
@@ -1998,6 +2005,16 @@ isUnicodeSymbol c =
     || c == '⟦' -- U+27E6 MATHEMATICAL LEFT WHITE SQUARE BRACKET (for [|)
     || c == '⟧' -- U+27E7 MATHEMATICAL RIGHT WHITE SQUARE BRACKET (for |])
     || c == '⊸' -- U+22B8 MULTIMAP (for %1-> with LinearTypes)
+
+-- | Accept characters whose Unicode general category is a symbol category
+-- per the Haskell 2010 Report §2.2 definition of @symbol@.
+isUnicodeSymbolCategory :: Char -> Bool
+isUnicodeSymbolCategory c = case generalCategory c of
+  MathSymbol -> True
+  CurrencySymbol -> True
+  ModifierSymbol -> True
+  OtherSymbol -> True
+  _ -> False
 
 -- | Check if the remainder after '--' should start a line comment.
 -- Per Haskell Report: '--' starts a comment only if the entire symbol sequence

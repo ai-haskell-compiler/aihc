@@ -259,11 +259,13 @@ recordBracesParser =
   braces (recordFieldBindingParser `MP.sepEndBy` expectedTok TkSpecialComma)
 
 -- | Parse a single record field binding: either "field = expr" or just "field" (pun)
+-- Accepts both unqualified (field) and qualified (Mod.field) field names.
 recordFieldBindingParser :: TokParser (Text, Maybe Expr, SourceSpan)
 recordFieldBindingParser = withSpan $ do
   fieldName <- tokenSatisfy "field name" $ \tok ->
     case lexTokenKind tok of
       TkVarId name -> Just name
+      TkQVarId name -> Just name
       _ -> Nothing
   mAssign <- MP.optional (expectedTok TkReservedEquals *> exprParser)
   pure (fieldName,mAssign,)
