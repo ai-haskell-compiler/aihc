@@ -1092,7 +1092,7 @@ isOperatorToken tok =
 -- plus Unicode characters with general category Sm, Sc, Sk, or So.
 isSymbolicOpChar :: Char -> Bool
 isSymbolicOpChar c =
-  c `elem` (":!#$%&*+./<=>?\\^|-~" :: String) || isUnicodeSymbolCategory c
+  c `elem` (":!#$%&*+./<=>?@\\^|-~" :: String) || isUnicodeSymbolCategory c
 
 isUnicodeSymbolCategory :: Char -> Bool
 isUnicodeSymbolCategory c = case generalCategory c of
