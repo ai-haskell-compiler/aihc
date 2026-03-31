@@ -249,7 +249,7 @@ appExprParser = withSpan $ do
 
     typeAppArg :: TokParser Type
     typeAppArg = MP.try $ do
-      expectedTok TkReservedAt
+      expectedTok TkTypeApp
       typeAtomParser
 
     applyArg :: SourceSpan -> Expr -> Either Type Expr -> Expr

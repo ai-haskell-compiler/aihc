@@ -144,6 +144,7 @@ renderTokenKind tk = case tk of
   TkReservedDoubleArrow -> "operator '=>'"
   TkPrefixBang -> "bang pattern '!'"
   TkPrefixTilde -> "irrefutable pattern '~'"
+  TkTypeApp -> "type application '@'"
   TkTHExpQuoteOpen -> "TH expression quote '[|'"
   TkTHExpQuoteClose -> "TH expression quote close '|]'"
   TkTHTypedQuoteOpen -> "TH typed quote '[||'"

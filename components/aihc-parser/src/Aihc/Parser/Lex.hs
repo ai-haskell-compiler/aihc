@@ -158,6 +158,8 @@ data LexTokenKind
   | -- Whitespace-sensitive operator support (GHC proposal 0229)
     TkPrefixBang -- prefix bang (!x) for bang patterns
   | TkPrefixTilde -- prefix tilde (~x) for irrefutable patterns
+  | -- TypeApplications support
+    TkTypeApp -- @ when tight on the right (type application)
   | -- Pragmas
     TkPragmaLanguage [ExtensionSetting]
   | TkPragmaWarning Text
@@ -520,6 +522,7 @@ nextToken st =
         lexIdentifier,
         lexNegativeLiteralOrMinus,
         lexBangOrTildeOperator, -- must come before lexOperator
+        lexTypeApplication, -- must come before lexOperator
         lexOperator
       ]
 
@@ -1178,6 +1181,47 @@ canStartNegatedAtom rest =
       | c == '\\' -> True -- lambda
       | c == '-' -> True -- nested negation
       | otherwise -> False
+
+-- | Whitespace-sensitive lexing for @ when TypeApplications is enabled.
+--
+-- In GHC, @ is a type application only when it is tight on the right
+-- (no whitespace between @ and the following token). With whitespace
+-- after @, it is treated as a regular operator.
+--
+-- Examples:
+--   f @Int    -- type application (@ tight on right)
+--   f @ Int   -- infix operator (@ loose)
+--   f @(a,b)  -- type application (@ tight on right)
+--
+-- This must come before lexOperator in the tokenizer chain so that @ can be
+-- classified as TkTypeApp before lexOperator turns it into TkReservedAt.
+lexTypeApplication :: LexerState -> Maybe (LexToken, LexerState)
+lexTypeApplication st
+  | TypeApplications `notElem` lexerExtensions st = Nothing
+  | otherwise =
+      case lexerInput st of
+        '@' : rest
+          -- Only handle single @ (not part of multi-char operator like @@)
+          | not (isMultiCharOp rest),
+            canStartTypeAtom rest ->
+              let st' = advanceChars "@" st
+               in Just (mkToken st st' "@" TkTypeApp, st')
+        _ -> Nothing
+  where
+    isMultiCharOp (c : _) = isSymbolicOpChar c
+    isMultiCharOp [] = False
+
+    -- Check if the given input could start a type atom (for type applications).
+    -- The character immediately after @ must be able to start a type without whitespace.
+    canStartTypeAtom :: String -> Bool
+    canStartTypeAtom [] = False
+    canStartTypeAtom (c : _)
+      | isIdentStart c = True -- type variable or constructor
+      | c == '(' = True -- parenthesized type or tuple
+      | c == '[' = True -- list type
+      | c == '_' = True -- wildcard type
+      | c == '\'' = True -- promoted data constructor (DataKinds)
+      | otherwise = False
 
 -- | Whitespace-sensitive lexing for ! and ~ operators (GHC proposal 0229).
 --
