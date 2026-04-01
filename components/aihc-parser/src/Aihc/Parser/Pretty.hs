@@ -1167,4 +1167,5 @@ prettySplice :: Doc ann -> Expr -> Doc ann
 prettySplice prefix body =
   case body of
     EParen _ inner -> prefix <> parens (prettyExprPrec 0 inner)
-    _ -> prefix <> prettyExprPrec 11 body
+    EVar {} -> prefix <> prettyExprPrec 11 body
+    _ -> prefix <> parens (prettyExprPrec 0 body)
