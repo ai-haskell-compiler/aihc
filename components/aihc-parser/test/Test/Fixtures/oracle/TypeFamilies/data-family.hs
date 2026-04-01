@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail data family -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE TypeFamilies #-}
 module DataFamily where
 

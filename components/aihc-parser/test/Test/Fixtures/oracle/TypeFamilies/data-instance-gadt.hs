@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail data instance with GADT syntax -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE TypeFamilies, GADTs #-}
 module DataInstanceGADT where
 

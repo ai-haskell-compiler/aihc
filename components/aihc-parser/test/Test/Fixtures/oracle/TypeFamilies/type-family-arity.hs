@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail type family with arity -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE TypeFamilies #-}
 module TypeFamilyArity where
 

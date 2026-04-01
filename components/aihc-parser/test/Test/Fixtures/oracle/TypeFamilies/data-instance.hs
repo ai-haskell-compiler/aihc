@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail data instance -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE TypeFamilies #-}
 module DataInstance where
 

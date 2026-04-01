@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail closed type family -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE TypeFamilies #-}
 module ClosedTypeFamily where
 

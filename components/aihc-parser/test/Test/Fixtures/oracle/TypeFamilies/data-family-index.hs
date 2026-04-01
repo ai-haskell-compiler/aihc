@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail data family with explicit kind -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE TypeFamilies #-}
 module DataFamilyIndex where
 

@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail default type instance -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE TypeFamilies #-}
 module DefaultTypeInstance where
 

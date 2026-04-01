@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail data instance with explicit forall -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE TypeFamilies, ExplicitForAll, PolyKinds #-}
 module ExplicitForAll where
 
