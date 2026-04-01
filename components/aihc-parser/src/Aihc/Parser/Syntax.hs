@@ -615,7 +615,7 @@ data Decl
   | DeclStandaloneDeriving SourceSpan StandaloneDerivingDecl
   | DeclDefault SourceSpan [Type]
   | -- \$decl or $(decl) (TH top-level splice)
-     DeclSplice SourceSpan Expr
+    DeclSplice SourceSpan Expr
   | DeclForeign SourceSpan ForeignDecl
   | DeclTypeFamilyDecl SourceSpan TypeFamilyDecl
   | DeclDataFamilyDecl SourceSpan DataFamilyDecl
@@ -797,8 +797,8 @@ data Type
   | TContext SourceSpan [Constraint] Type
   | TSplice SourceSpan Expr
   | -- \$typ or $(typ) (TH type splice)
-     -- \_ (wildcard type, used in type family instance patterns)
-     TWildcard SourceSpan
+    -- \_ (wildcard type, used in type family instance patterns)
+    TWildcard SourceSpan
   deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan Type where

@@ -1243,7 +1243,7 @@ prettyTopDataFamilyInst dfi =
     forallPart [] = []
     forallPart binders = ["forall", hsep (map prettyTyVarBinder binders) <> "."]
     ctorPart [] = []
-    ctorPart ctors@(c:_)
+    ctorPart ctors@(c : _)
       | any isGadtCon ctors = ["where", braces (hsep (punctuate semi (map prettyDataCon ctors)))]
       | dataFamilyInstIsNewtype dfi = ["=", prettyDataCon c]
       | otherwise = ["=", hsep (punctuate " |" (map prettyDataCon ctors))]
@@ -1302,7 +1302,7 @@ prettyInstDataFamilyInst dfi =
   where
     keyword = if dataFamilyInstIsNewtype dfi then "newtype" else "data"
     ctorPart [] = []
-    ctorPart ctors@(c:_)
+    ctorPart ctors@(c : _)
       | any isGadtCon ctors = ["where", braces (hsep (punctuate semi (map prettyDataCon ctors)))]
       | dataFamilyInstIsNewtype dfi = ["=", prettyDataCon c]
       | otherwise = ["=", hsep (punctuate " |" (map prettyDataCon ctors))]
