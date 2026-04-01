@@ -484,7 +484,7 @@ docPattern pat =
     PIrrefutable _ inner -> "PIrrefutable" <+> parens (docPattern inner)
     PNegLit _ lit -> "PNegLit" <+> parens (docLiteral lit)
     PParen _ inner -> "PParen" <+> parens (docPattern inner)
-    PRecord _ name fields' -> "PRecord" <+> docText name <+> braces (hsep (punctuate comma [docText fn <+> "=" <+> docPattern fp | (fn, fp) <- fields']))
+    PRecord _ name fields' hasWildcard -> "PRecord" <+> docText name <+> braces (hsep (punctuate comma ([docText fn <+> "=" <+> docPattern fp | (fn, fp) <- fields'] ++ [".." | hasWildcard])))
     PTypeSig _ inner ty -> "PTypeSig" <+> parens (docPattern inner) <+> parens (docType ty)
     PSplice _ body -> "PSplice" <+> parens (docExpr body)
 
@@ -542,7 +542,7 @@ docExpr expr =
     EListComp _ body quals -> "EListComp" <+> parens (docExpr body) <+> brackets (hsep (punctuate comma (map docCompStmt quals)))
     EListCompParallel _ body qualGroups -> "EListCompParallel" <+> parens (docExpr body) <+> brackets (hsep (punctuate "|" [brackets (hsep (punctuate comma (map docCompStmt qs))) | qs <- qualGroups]))
     EArithSeq _ seqInfo -> "EArithSeq" <+> parens (docArithSeq seqInfo)
-    ERecordCon _ name fields' -> "ERecordCon" <+> docText name <+> braces (hsep (punctuate comma [docText fn <+> "=" <+> docExpr fv | (fn, fv) <- fields']))
+    ERecordCon _ name fields' hasWildcard -> "ERecordCon" <+> docText name <+> braces (hsep (punctuate comma ([docText fn <+> "=" <+> docExpr fv | (fn, fv) <- fields'] ++ [".." | hasWildcard])))
     ERecordUpd _ base fields' -> "ERecordUpd" <+> parens (docExpr base) <+> braces (hsep (punctuate comma [docText fn <+> "=" <+> docExpr fv | (fn, fv) <- fields']))
     ETypeSig _ inner ty -> "ETypeSig" <+> parens (docExpr inner) <+> parens (docType ty)
     EParen _ inner -> "EParen" <+> parens (docExpr inner)

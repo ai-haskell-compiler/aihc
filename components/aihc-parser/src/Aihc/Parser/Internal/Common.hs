@@ -319,7 +319,7 @@ constraintParserWith typeAtomParser =
   MP.try parenthesizedConstraintParser <|> bareConstraintParser
   where
     bareConstraintParser = withSpan $ do
-      className <- constructorIdentifierParser
+      className <- identifierTextParser
       args <- MP.many typeAtomParser
       pure $ \span' ->
         Constraint

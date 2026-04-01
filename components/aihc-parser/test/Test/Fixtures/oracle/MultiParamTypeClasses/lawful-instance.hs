@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail lawful instance with constraints -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE MultiParamTypeClasses   #-}
 {-# LANGUAGE FlexibleContexts        #-}
 {-# LANGUAGE ConstraintKinds         #-}

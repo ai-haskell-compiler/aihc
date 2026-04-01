@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail mixed record fields and wildcard -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE RecordWildCards #-}
 module Mixed where
 

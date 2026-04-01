@@ -390,13 +390,15 @@ prettyPattern pat =
     PIrrefutable _ inner -> "~" <> prettyPatternAtomStrict inner
     PNegLit _ lit -> "-" <> prettyLiteral lit
     PParen _ inner -> parens (prettyPattern inner)
-    PRecord _ con fields ->
+    PRecord _ con fields hasWildcard ->
       pretty con
         <+> braces
           ( hsep
               ( punctuate
                   comma
-                  [prettyPatternFieldBinding fieldName fieldPat | (fieldName, fieldPat) <- fields]
+                  ( [prettyPatternFieldBinding fieldName fieldPat | (fieldName, fieldPat) <- fields]
+                      ++ [".." | hasWildcard]
+                  )
               )
           )
     PTypeSig _ inner ty -> prettyPattern inner <+> "::" <+> prettyType ty
@@ -405,6 +407,7 @@ prettyPattern pat =
 -- | Pretty print a pattern field binding.
 -- Supports NamedFieldPuns: if pattern is a variable with the same name as the field,
 -- print just the field name (punned form).
+-- Pattern fields are comma-separated, so greedy patterns don't need parens.
 prettyPatternFieldBinding :: Text -> Pattern -> Doc ann
 prettyPatternFieldBinding fieldName fieldPat =
   case fieldPat of
@@ -1019,8 +1022,8 @@ prettyExprPrec prec expr =
               )
         )
     EArithSeq _ seqInfo -> prettyArithSeq seqInfo
-    ERecordCon _ name fields ->
-      pretty name <+> braces (hsep (punctuate comma (map prettyBinding fields)))
+    ERecordCon _ name fields hasWildcard ->
+      pretty name <+> braces (hsep (punctuate comma (map prettyBinding fields ++ [".." | hasWildcard])))
     ERecordUpd _ base fields ->
       prettyExprPrec 3 base <+> braces (hsep (punctuate comma (map prettyBinding fields)))
     ETypeSig _ inner ty -> parenthesize (prec > 1) (prettyTypeSigBody inner <+> "::" <+> prettyType ty)
@@ -1067,6 +1070,7 @@ prettyTupleBody tupleFlavor inner =
 -- | Pretty print a record field binding.
 -- Supports NamedFieldPuns: if value is a variable with the same name as the field,
 -- print just the field name (punned form).
+-- Supports RecordWildCards: if name is "..", print just "..".
 -- Record fields are comma-separated, so greedy expressions don't need parens.
 prettyBinding :: (Text, Expr) -> Doc ann
 prettyBinding (name, value) =
@@ -1174,7 +1178,8 @@ prettySplice :: Doc ann -> Expr -> Doc ann
 prettySplice prefix body =
   case body of
     EParen _ inner -> prefix <> parens (prettyExprPrec 0 inner)
-    _ -> prefix <> prettyExprPrec 11 body
+    EVar {} -> prefix <> prettyExprPrec 11 body
+    _ -> prefix <> parens (prettyExprPrec 0 body)
 
 -- ---------------------------------------------------------------------------
 -- TypeFamilies pretty-printing helpers
@@ -1238,9 +1243,9 @@ prettyTopDataFamilyInst dfi =
     forallPart [] = []
     forallPart binders = ["forall", hsep (map prettyTyVarBinder binders) <> "."]
     ctorPart [] = []
-    ctorPart ctors
+    ctorPart ctors@(c:_)
       | any isGadtCon ctors = ["where", braces (hsep (punctuate semi (map prettyDataCon ctors)))]
-      | dataFamilyInstIsNewtype dfi = ["=", prettyDataCon (head ctors)]
+      | dataFamilyInstIsNewtype dfi = ["=", prettyDataCon c]
       | otherwise = ["=", hsep (punctuate " |" (map prettyDataCon ctors))]
 
 -- | @type Name params [:: Kind]@ (associated type family inside a class, no @family@ keyword)
@@ -1297,7 +1302,7 @@ prettyInstDataFamilyInst dfi =
   where
     keyword = if dataFamilyInstIsNewtype dfi then "newtype" else "data"
     ctorPart [] = []
-    ctorPart ctors
+    ctorPart ctors@(c:_)
       | any isGadtCon ctors = ["where", braces (hsep (punctuate semi (map prettyDataCon ctors)))]
-      | dataFamilyInstIsNewtype dfi = ["=", prettyDataCon (head ctors)]
+      | dataFamilyInstIsNewtype dfi = ["=", prettyDataCon c]
       | otherwise = ["=", hsep (punctuate " |" (map prettyDataCon ctors))]

@@ -753,7 +753,7 @@ data Pattern
   | PIrrefutable SourceSpan Pattern
   | PNegLit SourceSpan Literal
   | PParen SourceSpan Pattern
-  | PRecord SourceSpan Text [(Text, Pattern)]
+  | PRecord SourceSpan Text [(Text, Pattern)] Bool -- Bool: wildcard present
   | PTypeSig SourceSpan Pattern Type
   | PSplice SourceSpan Expr
   -- \$pat or $(pat) (TH pattern splice)
@@ -777,7 +777,7 @@ instance HasSourceSpan Pattern where
       PIrrefutable span' _ -> span'
       PNegLit span' _ -> span'
       PParen span' _ -> span'
-      PRecord span' _ _ -> span'
+      PRecord span' _ _ _ -> span'
       PTypeSig span' _ _ -> span'
       PSplice span' _ -> span'
 
@@ -1182,7 +1182,7 @@ data Expr
   | EListComp SourceSpan Expr [CompStmt]
   | EListCompParallel SourceSpan Expr [[CompStmt]]
   | EArithSeq SourceSpan ArithSeq
-  | ERecordCon SourceSpan Text [(Text, Expr)]
+  | ERecordCon SourceSpan Text [(Text, Expr)] Bool -- Bool: wildcard present
   | ERecordUpd SourceSpan Expr [(Text, Expr)]
   | ETypeSig SourceSpan Expr Type
   | EParen SourceSpan Expr
@@ -1237,7 +1237,7 @@ instance HasSourceSpan Expr where
       EListComp span' _ _ -> span'
       EListCompParallel span' _ _ -> span'
       EArithSeq span' _ -> span'
-      ERecordCon span' _ _ -> span'
+      ERecordCon span' _ _ _ -> span'
       ERecordUpd span' _ _ -> span'
       ETypeSig span' _ _ -> span'
       EParen span' _ -> span'

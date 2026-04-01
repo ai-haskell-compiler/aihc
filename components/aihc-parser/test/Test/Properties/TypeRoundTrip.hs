@@ -411,6 +411,7 @@ normalizeType ty =
     TCon _ name promoted -> TCon span0 name promoted
     TTypeLit _ lit -> TTypeLit span0 lit
     TStar _ -> TStar span0
+    TWildcard _ -> TWildcard span0
     TQuasiQuote _ quoter body -> TQuasiQuote span0 quoter body
     TForall _ binders inner -> TForall span0 binders (normalizeType inner)
     TApp _ f x -> TApp span0 (normalizeType f) (normalizeType x)
