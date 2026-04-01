@@ -570,6 +570,7 @@
       hackageTesterExe = pkgs.lib.getExe' hsPkgs.aihc-parser "hackage-tester";
       stackageProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser "stackage-progress";
       aihcParserExe = pkgs.lib.getExe' hsPkgs.aihc-parser-cli "aihc-parser";
+      aihcParserBenchExe = pkgs.lib.getExe' hsPkgs.aihc-parser-cli "aihc-parser-bench";
       mkAppWithInputs = name: runtimeInputs: text: {
         type = "app";
         program = "${pkgs.writeShellApplication {
@@ -831,6 +832,10 @@
 
       aihc-parser = mkAppWithInputs "aihc-parser" [pkgs.bash] ''
         exec ${aihcParserExe} "$@"
+      '';
+
+      aihc-parser-bench = mkAppWithInputs "aihc-parser-bench" [pkgs.bash] ''
+        exec ${aihcParserBenchExe} "$@"
       '';
 
       # Coverage app: builds and displays the coverage report
