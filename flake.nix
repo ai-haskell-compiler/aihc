@@ -1094,10 +1094,16 @@
           cp -r "$src" ./build
           chmod -R u+w ./build
           cd ./build
-          # Run cabal test all using the nix-provided GHC environment
-          # which already has all dependencies available.
+          # Set up a cabal config that works fully offline inside the nix
+          # sandbox (Linux blocks network access).  Removing all remote
+          # repositories prevents cabal from trying to contact Hackage;
+          # dependencies are already available via ghcWithPackages.
           HOME="$(mktemp -d)"
           export HOME
+          mkdir -p "$HOME/.config/cabal"
+          cat > "$HOME/.config/cabal/config" <<CABALCFG
+          -- no remote repositories; everything comes from the GHC package db
+          CABALCFG
           cabal test all --test-show-details=direct --test-option=--hide-successes
           touch "$out"
         '';
