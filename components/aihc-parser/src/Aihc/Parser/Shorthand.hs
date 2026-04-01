@@ -283,6 +283,7 @@ docDerivingClause dc =
     fields =
       optionalField "strategy" docDerivingStrategy (derivingStrategy dc)
         <> listField "classes" docConstraint (derivingClasses dc)
+        <> optionalField "viaType" docType (derivingViaType dc)
 
 docDerivingStrategy :: DerivingStrategy -> Doc ann
 docDerivingStrategy ds =
@@ -343,6 +344,7 @@ docStandaloneDerivingDecl sd =
         <> optionalField "strategy" docDerivingStrategy (standaloneDerivingStrategy sd)
         <> listField "context" docConstraint (standaloneDerivingContext sd)
         <> [field "types" (brackets (hsep (punctuate comma (map docType (standaloneDerivingTypes sd)))))]
+        <> optionalField "viaType" docType (standaloneDerivingViaType sd)
 
 docForeignDecl :: ForeignDecl -> Doc ann
 docForeignDecl fd =

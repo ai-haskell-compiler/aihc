@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail deriving multiple classes via -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE DerivingVia #-}
 module MultipleClasses where
 

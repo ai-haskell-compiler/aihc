@@ -486,8 +486,8 @@ derivingParts :: [DerivingClause] -> [Doc ann]
 derivingParts = concatMap derivingPart
 
 derivingPart :: DerivingClause -> [Doc ann]
-derivingPart (DerivingClause strategy classes) =
-  ["deriving"] <> strategyPart strategy <> classesPart classes
+derivingPart (DerivingClause strategy classes viaTy) =
+  ["deriving"] <> strategyPart strategy <> classesPart classes <> viaPart viaTy
   where
     strategyPart Nothing = []
     strategyPart (Just DerivingStock) = ["stock"]
@@ -499,6 +499,9 @@ derivingPart (DerivingClause strategy classes) =
       | Just DerivingStock <- strategy = [parens (prettyConstraint single)]
       | otherwise = [prettyConstraint single]
     classesPart _ = [parens (hsep (punctuate comma (map prettyConstraint classes)))]
+
+    viaPart Nothing = []
+    viaPart (Just ty) = ["via", prettyType ty]
 
 prettyDeclHead :: [Constraint] -> Text -> [TyVarBinder] -> Doc ann
 prettyDeclHead constraints name params =
@@ -682,6 +685,7 @@ prettyStandaloneDeriving decl =
   hsep
     ( ["deriving"]
         <> maybe [] (\s -> [prettyDerivingStrategy s]) (standaloneDerivingStrategy decl)
+        <> maybe [] (\ty -> ["via", prettyType ty]) (standaloneDerivingViaType decl)
         <> ["instance"]
         <> contextPrefix (standaloneDerivingContext decl)
         <> [pretty (standaloneDerivingClassName decl)]
