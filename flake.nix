@@ -107,6 +107,32 @@
           type == "directory" || (isSh && isScriptsDir);
       };
 
+    # Filtered source for cabal multi-package builds (cabal test all)
+    cabalProjectSrc = pkgs:
+      pkgs.lib.cleanSourceWith {
+        src = ./.;
+        filter = path: type: let
+          pathStr = toString path;
+          baseName = baseNameOf path;
+          isDir = type == "directory";
+          inComponents =
+            pkgs.lib.hasInfix "/components/aihc-parser/" pathStr
+            || pkgs.lib.hasInfix "/components/aihc-parser-cli/" pathStr
+            || pkgs.lib.hasInfix "/components/aihc-cpp/" pathStr;
+          isHaskell = pkgs.lib.hasSuffix ".hs" baseName;
+          isCabal = pkgs.lib.hasSuffix ".cabal" baseName;
+          isYaml = pkgs.lib.hasSuffix ".yaml" baseName || pkgs.lib.hasSuffix ".yml" baseName;
+          isTsv = pkgs.lib.hasSuffix ".tsv" baseName;
+          isJson = pkgs.lib.hasSuffix ".json" baseName;
+          isInc = pkgs.lib.hasSuffix ".inc" baseName;
+          isLicense = baseName == "LICENSE";
+          isProject = baseName == "cabal.project";
+        in
+          isDir
+          || isProject
+          || (inComponents && (isHaskell || isCabal || isYaml || isTsv || isJson || isInc || isLicense));
+      };
+
     # Filtered source for WASM builds - include all packages plus cabal.project
     wasmBuildSrc = pkgs:
       pkgs.lib.cleanSourceWith {
@@ -1036,6 +1062,45 @@
             src/Aihc/Parser.hs
           touch "$out"
         '';
+      # Run 'cabal test all' as a single integration check.
+      # This ensures that nix flake check exercises exactly the same test
+      # matrix as a local 'cabal test all' invocation, guarding against
+      # divergence between the per-package callCabal2nix checks and the
+      # multi-package cabal project.
+      cabalTestAll = let
+        ghcEnv = hsPkgsWithTests.ghcWithPackages (p: [
+          p.aihc-parser
+          p.aihc-parser-cli
+          p.aihc-cpp
+          # Test dependencies that are not pulled in by library deps
+          p.tasty
+          p.tasty-hunit
+          p.tasty-quickcheck
+          p.QuickCheck
+          p.haskell-src-exts
+          p.cpphs
+          p.yaml
+          p.aeson
+          p.megaparsec
+          p.prettyprinter
+          p.optparse-applicative
+        ]);
+      in
+        pkgs.runCommand "aihc-cabal-test-all" {
+          src = cabalProjectSrc pkgs;
+          nativeBuildInputs = [ghcEnv pkgs.cabal-install];
+        } ''
+          # Copy source to a writable location (nix store sources are read-only)
+          cp -r "$src" ./build
+          chmod -R u+w ./build
+          cd ./build
+          # Run cabal test all using the nix-provided GHC environment
+          # which already has all dependencies available.
+          HOME="$(mktemp -d)"
+          export HOME
+          cabal test all --test-show-details=direct --test-option=--hide-successes
+          touch "$out"
+        '';
     in {
       parser-tests = parserTests;
       parser-cli-tests = parserCliTests;
@@ -1053,6 +1118,7 @@
       nix-format = nixFormat;
       haskell-lint = haskellLint;
       haskell-format = haskellFormat;
+      cabal-test-all = cabalTestAll;
       all-tests = pkgs.linkFarm "aihc-all-tests" [
         {
           name = "parser-tests";
@@ -1117,6 +1183,10 @@
         {
           name = "haskell-format";
           path = haskellFormat;
+        }
+        {
+          name = "cabal-test-all";
+          path = cabalTestAll;
         }
       ];
     });
