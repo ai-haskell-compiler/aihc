@@ -726,8 +726,8 @@ docTypeFamilyDecl tf =
         <> listField "params" docTyVarBinder (typeFamilyDeclParams tf)
         <> optionalField "kind" docType (typeFamilyDeclKind tf)
         <> case typeFamilyDeclEquations tf of
-             Nothing -> []
-             Just eqs -> [field "equations" (brackets (hsep (punctuate comma (map docTypeFamilyEq eqs))))]
+          Nothing -> []
+          Just eqs -> [field "equations" (brackets (hsep (punctuate comma (map docTypeFamilyEq eqs))))]
 
 docTypeFamilyEq :: TypeFamilyEq -> Doc ann
 docTypeFamilyEq eq =

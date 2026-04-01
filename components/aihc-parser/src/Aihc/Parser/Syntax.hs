@@ -614,9 +614,9 @@ data Decl
   | DeclInstance SourceSpan InstanceDecl
   | DeclStandaloneDeriving SourceSpan StandaloneDerivingDecl
   | DeclDefault SourceSpan [Type]
+  | -- \$decl or $(decl) (TH top-level splice)
+     DeclSplice SourceSpan Expr
   | DeclForeign SourceSpan ForeignDecl
-  | DeclSplice SourceSpan Expr
-  -- \$decl or $(decl) (TH top-level splice)
   | DeclTypeFamilyDecl SourceSpan TypeFamilyDecl
   | DeclDataFamilyDecl SourceSpan DataFamilyDecl
   | DeclTypeFamilyInst SourceSpan TypeFamilyInst
@@ -796,9 +796,9 @@ data Type
   | TParen SourceSpan Type
   | TContext SourceSpan [Constraint] Type
   | TSplice SourceSpan Expr
-  -- \$typ or $(typ) (TH type splice)
-  | TWildcard SourceSpan
-  -- \_ (wildcard type, used in type family instance patterns)
+  | -- \$typ or $(typ) (TH type splice)
+     -- \_ (wildcard type, used in type family instance patterns)
+     TWildcard SourceSpan
   deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan Type where
@@ -873,10 +873,10 @@ data TypeFamilyDecl = TypeFamilyDecl
   { typeFamilyDeclSpan :: SourceSpan,
     typeFamilyDeclName :: Text,
     typeFamilyDeclParams :: [TyVarBinder],
+    -- | Optional result kind annotation (@:: Kind@)
     typeFamilyDeclKind :: Maybe Type,
-    -- ^ Optional result kind annotation (@:: Kind@)
+    -- | @Nothing@ = open family; @Just eqs@ = closed family with equations
     typeFamilyDeclEquations :: Maybe [TypeFamilyEq]
-    -- ^ @Nothing@ = open family; @Just eqs@ = closed family with equations
   }
   deriving (Data, Eq, Show, Generic, NFData)
 
@@ -900,8 +900,8 @@ data DataFamilyDecl = DataFamilyDecl
   { dataFamilyDeclSpan :: SourceSpan,
     dataFamilyDeclName :: Text,
     dataFamilyDeclParams :: [TyVarBinder],
+    -- | Optional result kind annotation (@:: Kind@)
     dataFamilyDeclKind :: Maybe Type
-    -- ^ Optional result kind annotation (@:: Kind@)
   }
   deriving (Data, Eq, Show, Generic, NFData)
 
@@ -923,11 +923,11 @@ instance HasSourceSpan TypeFamilyInst where
 -- | Data or newtype family instance (standalone or in an instance body).
 data DataFamilyInst = DataFamilyInst
   { dataFamilyInstSpan :: SourceSpan,
+    -- | @True@ when declared with @newtype instance@
     dataFamilyInstIsNewtype :: Bool,
-    -- ^ @True@ when declared with @newtype instance@
     dataFamilyInstForall :: [TyVarBinder],
+    -- | The LHS type-application pattern (e.g. @GMap (Either a b) v@)
     dataFamilyInstHead :: Type,
-    -- ^ The LHS type-application pattern (e.g. @GMap (Either a b) v@)
     dataFamilyInstConstructors :: [DataConDecl],
     dataFamilyInstDeriving :: [DerivingClause]
   }
