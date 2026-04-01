@@ -325,6 +325,7 @@ atomExprParser = do
     <|> (if blockArgsEnabled then MP.try ifExprParser else MP.empty)
     <|> (if thAny then thQuoteExprParser else MP.empty)
     <|> (if thAny then thNameQuoteExprParser else MP.empty)
+    <|> (if thFullEnabled then thSpliceExprParser else MP.empty)
     <|> parenExprParser
     <|> listExprParser
     <|> intBaseExprParser
@@ -439,11 +440,13 @@ buildPatternApp lhs rhs =
     _ -> lhs
 
 patternAtomParser :: TokParser Pattern
-patternAtomParser =
+patternAtomParser = do
+  thFullEnabled <- isExtensionEnabled TemplateHaskell
   MP.try strictPatternParser
     <|> MP.try irrefutablePatternParser
     <|> MP.try negativeLiteralPatternParser
     <|> quasiQuotePatternParser
+    <|> (if thFullEnabled then thSplicePatternParser else MP.empty)
     <|> wildcardPatternParser
     <|> literalPatternParser
     <|> listPatternParser
@@ -1061,6 +1064,37 @@ thPatQuoteParser = withSpan $ do
   expectedTok TkTHExpQuoteClose
   pure (`ETHPatQuote` pat)
 
+-- | Parse Template Haskell splice expressions: $expr, $(expr), $$expr, $$(expr)
+thSpliceExprParser :: TokParser Expr
+thSpliceExprParser =
+  MP.try thTypedSpliceParser <|> thUntypedSpliceParser
+
+-- | Parse untyped TH splice: $name or $(expr)
+thUntypedSpliceParser :: TokParser Expr
+thUntypedSpliceParser = withSpan $ do
+  expectedTok TkTHSplice
+  body <- thSpliceBody
+  pure (`ETHSplice` body)
+
+-- | Parse typed TH splice: $$name or $$(expr)
+thTypedSpliceParser :: TokParser Expr
+thTypedSpliceParser = withSpan $ do
+  expectedTok TkTHTypedSplice
+  body <- thSpliceBody
+  pure (`ETHTypedSplice` body)
+
+-- | Parse the body of a splice: either a parenthesized expression or a bare identifier
+thSpliceBody :: TokParser Expr
+thSpliceBody =
+  parenSpliceBody <|> bareSpliceBody
+  where
+    parenSpliceBody = withSpan $ do
+      body <- parens exprParser
+      pure (`EParen` body)
+    bareSpliceBody = withSpan $ do
+      name <- identifierTextParser
+      pure (`EVar` name)
+
 -- | Parse Template Haskell name quotes: 'name and ''Type
 thNameQuoteExprParser :: TokParser Expr
 thNameQuoteExprParser =
@@ -1090,6 +1124,20 @@ parenOperatorNameParser = do
       _ -> Nothing
   expectedTok TkSpecialRParen
   pure ("(" <> op <> ")")
+
+-- | Parse Template Haskell pattern splice: $pat or $(pat)
+thSplicePatternParser :: TokParser Pattern
+thSplicePatternParser = withSpan $ do
+  expectedTok TkTHSplice
+  body <- thSpliceBody
+  pure (`PSplice` body)
+
+-- | Parse Template Haskell type splice: $typ or $(typ)
+thSpliceTypeParser :: TokParser Type
+thSpliceTypeParser = withSpan $ do
+  expectedTok TkTHSplice
+  body <- thSpliceBody
+  pure (`TSplice` body)
 
 simplePatternParser :: TokParser Pattern
 simplePatternParser =
@@ -1176,10 +1224,12 @@ buildTypeApp lhs rhs =
   TApp (mergeSourceSpans (getSourceSpan lhs) (getSourceSpan rhs)) lhs rhs
 
 typeAtomParser :: TokParser Type
-typeAtomParser =
+typeAtomParser = do
+  thFullEnabled <- isExtensionEnabled TemplateHaskell
   MP.try promotedTypeParser
     <|> typeLiteralTypeParser
     <|> typeQuasiQuoteParser
+    <|> (if thFullEnabled then thSpliceTypeParser else MP.empty)
     <|> typeListParser
     <|> MP.try typeParenOperatorParser
     <|> typeParenOrTupleParser
@@ -1357,3 +1407,4 @@ setTypeSpan span' ty =
     TList _ promoted inner -> TList span' promoted inner
     TParen _ inner -> TParen span' inner
     TContext _ constraints inner -> TContext span' constraints inner
+    TSplice _ body -> TSplice span' body

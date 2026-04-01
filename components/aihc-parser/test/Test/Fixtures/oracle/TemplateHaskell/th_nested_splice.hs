@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail TemplateHaskell nested splices -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE TemplateHaskell #-}
 module TH_Nested_Splice where
 

@@ -14,6 +14,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.Text (renderStrict)
+import Test.Properties.ExprHelpers (normalizeExpr)
 import Test.Properties.Identifiers (genIdent, shrinkIdent)
 import Test.QuickCheck
 
@@ -26,7 +27,7 @@ newtype GenPattern = GenPattern {unGenPattern :: Pattern}
 patternConfig :: ParserConfig
 patternConfig =
   defaultConfig
-    { parserExtensions = [UnboxedTuples, UnboxedSums]
+    { parserExtensions = [UnboxedTuples, UnboxedSums, TemplateHaskell]
     }
 
 prop_patternPrettyRoundTrip :: GenPattern -> Property
@@ -75,6 +76,7 @@ patternCtorNames pat =
         PUnboxedSum _ _ _ inner -> here <> patternCtorNames inner
         PRecord _ _ fields -> here <> mconcat [patternCtorNames fieldPat | (_, fieldPat) <- fields]
         PTypeSig _ inner _ -> here <> patternCtorNames inner
+        PSplice {} -> here
 
 instance Arbitrary GenPattern where
   arbitrary = GenPattern <$> sized (genPattern . min 3)
@@ -129,6 +131,8 @@ shrinkPattern pat =
     PTypeSig _ inner ty ->
       [inner]
         <> [PTypeSig span0 inner' ty | inner' <- shrinkPattern inner]
+    PSplice {} ->
+      []
 
 shrinkTupleElems :: TupleFlavor -> [Pattern] -> [Pattern]
 shrinkTupleElems tupleFlavor elems =
@@ -214,7 +218,8 @@ genPattern depth
           (2, PParen span0 <$> genPattern (depth - 1)),
           (2, PRecord span0 <$> genPatternConName <*> genRecordFields (depth - 1)),
           (2, genPatternTypeSig depth),
-          (1, genUnboxedSumPattern (depth - 1))
+          (1, genUnboxedSumPattern (depth - 1)),
+          (2, PSplice span0 <$> genPatSpliceBody)
         ]
 
 genPatternCon :: Int -> Gen Pattern
@@ -312,6 +317,14 @@ genViewExpr =
       EParen span0 . EVar span0 <$> genIdent
     ]
 
+-- | Generate the body of a TH pattern splice: either a bare variable or a parenthesized expression.
+genPatSpliceBody :: Gen Expr
+genPatSpliceBody =
+  oneof
+    [ EVar span0 <$> genIdent,
+      EParen span0 . EVar span0 <$> genIdent
+    ]
+
 shrinkViewExpr :: Expr -> [Expr]
 shrinkViewExpr expr =
   case expr of
@@ -362,6 +375,8 @@ isValidQuoterName name =
     Just (first, rest) ->
       (first `elem` (['a' .. 'z'] <> ['_']))
         && T.all (`elem` (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> "_'.")) rest
+        -- Exclude names that clash with TH quote brackets when TemplateHaskell is enabled
+        && name `notElem` ["e", "t", "d", "p"]
     Nothing -> False
 
 genQuasiBody :: Gen Text
@@ -438,6 +453,7 @@ normalizePattern pat =
     PUnboxedSum _ altIdx arity inner -> PUnboxedSum span0 altIdx arity (normalizePattern inner)
     PRecord _ con fields -> PRecord span0 con [(fieldName, normalizePattern fieldPat) | (fieldName, fieldPat) <- fields]
     PTypeSig _ inner ty -> PTypeSig span0 (normalizePattern inner) (normalizeTypeSpan ty)
+    PSplice _ body -> PSplice span0 (normalizeExpr body)
 
 -- | Normalize source spans in a type (reset to noSourceSpan).
 normalizeTypeSpan :: Type -> Type
@@ -456,6 +472,7 @@ normalizeTypeSpan ty =
     TParen _ inner -> TParen span0 (normalizeTypeSpan inner)
     TContext _ constraints inner -> TContext span0 constraints (normalizeTypeSpan inner)
     TUnboxedSum _ elems -> TUnboxedSum span0 (map normalizeTypeSpan elems)
+    TSplice _ body -> TSplice span0 (normalizeExpr body)
 
 normalizeLiteral :: Literal -> Literal
 normalizeLiteral lit =

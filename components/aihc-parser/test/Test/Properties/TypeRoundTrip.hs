@@ -15,7 +15,8 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.Text (renderStrict)
-import Test.Properties.Identifiers (shrinkIdent)
+import Test.Properties.ExprHelpers (normalizeExpr)
+import Test.Properties.Identifiers (genIdent, shrinkIdent)
 import Test.QuickCheck
 
 span0 :: SourceSpan
@@ -24,7 +25,7 @@ span0 = noSourceSpan
 typeConfig :: ParserConfig
 typeConfig =
   defaultConfig
-    { parserExtensions = [UnboxedTuples, UnboxedSums]
+    { parserExtensions = [UnboxedTuples, UnboxedSums, TemplateHaskell]
     }
 
 prop_typePrettyRoundTrip :: Type -> Property
@@ -70,6 +71,7 @@ typeCtorNames ty =
         TUnboxedSum _ elems -> here <> mconcat (map typeCtorNames elems)
         TContext _ constraints inner ->
           here <> mconcat (map constraintTypeCtorNames constraints) <> typeCtorNames inner
+        TSplice {} -> here
 
 constraintTypeCtorNames :: Constraint -> Set.Set String
 constraintTypeCtorNames constraint =
@@ -119,6 +121,8 @@ shrinkType ty =
       [inner]
         <> [TContext span0 constraints' inner | constraints' <- shrinkConstraints constraints]
         <> [TContext span0 constraints inner' | inner' <- shrinkType inner]
+    TSplice {} ->
+      []
 
 canonicalForallInner :: Type -> Type
 canonicalForallInner ty =
@@ -205,7 +209,8 @@ genType depth
           (2, TUnboxedSum span0 <$> genUnboxedSumElems (depth - 1)),
           (3, TList span0 Unpromoted <$> genType (depth - 1)),
           (3, TParen span0 <$> genType (depth - 1)),
-          (3, TContext span0 <$> genConstraints (depth - 1) <*> genContextInner (depth - 1))
+          (3, TContext span0 <$> genConstraints (depth - 1) <*> genContextInner (depth - 1)),
+          (2, TSplice span0 <$> genTypeSpliceBody)
         ]
 
 genTypeApp :: Int -> Gen Type
@@ -235,6 +240,14 @@ genContextInner depth = do
     case inner of
       TContext {} -> TParen span0 inner
       _ -> inner
+
+-- | Generate the body of a TH type splice: either a bare variable or a parenthesized expression.
+genTypeSpliceBody :: Gen Expr
+genTypeSpliceBody =
+  oneof
+    [ EVar span0 <$> genIdent,
+      EParen span0 . EVar span0 <$> genIdent
+    ]
 
 genTypeTupleElems :: Int -> Gen [Type]
 genTypeTupleElems depth = do
@@ -353,7 +366,11 @@ genQuoterName = do
   first <- elements (['a' .. 'z'] <> ['_'])
   restLen <- chooseInt (0, 4)
   rest <- vectorOf restLen (elements (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> "_'"))
-  pure (T.pack (first : rest))
+  let candidate = T.pack (first : rest)
+  -- Exclude names that clash with TH quote brackets when TemplateHaskell is enabled
+  if candidate `elem` ["e", "t", "d", "p"]
+    then genQuoterName
+    else pure candidate
 
 genQuasiBody :: Gen Text
 genQuasiBody = do
@@ -400,6 +417,7 @@ normalizeType ty =
     TParen _ inner -> TParen span0 (normalizeType inner)
     TUnboxedSum _ elems -> TUnboxedSum span0 (map normalizeType elems)
     TContext _ constraints inner -> TContext span0 (map normalizeConstraint constraints) (normalizeType inner)
+    TSplice _ body -> TSplice span0 (normalizeExpr body)
 
 normalizeConstraint :: Constraint -> Constraint
 normalizeConstraint constraint =

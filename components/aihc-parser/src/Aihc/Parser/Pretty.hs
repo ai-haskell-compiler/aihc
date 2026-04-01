@@ -170,6 +170,7 @@ prettyDeclLines decl =
     DeclStandaloneDeriving _ derivingDecl -> [prettyStandaloneDeriving derivingDecl]
     DeclDefault _ tys -> ["default" <+> parens (hsep (punctuate comma (map prettyType tys)))]
     DeclForeign _ foreignDecl -> [prettyForeignDecl foreignDecl]
+    DeclSplice _ body -> [prettySplice "$" body]
 
 prettyValueDeclLines :: ValueDecl -> [Doc ann]
 prettyValueDeclLines valueDecl =
@@ -328,6 +329,7 @@ prettyTypePrec prec ty =
       parenthesize
         (prec > 0)
         (prettyContext constraints <+> "=>" <+> prettyTypePrec 0 inner)
+    TSplice _ body -> prettySplice "$" body
 
 prettyContext :: [Constraint] -> Doc ann
 prettyContext constraints =
@@ -392,6 +394,7 @@ prettyPattern pat =
               )
           )
     PTypeSig _ inner ty -> prettyPattern inner <+> "::" <+> prettyType ty
+    PSplice _ body -> prettySplice "$" body
 
 -- | Pretty print a pattern field binding.
 -- Supports NamedFieldPuns: if pattern is a variable with the same name as the field,
@@ -417,6 +420,7 @@ prettyPatternAtom pat =
     PStrict _ _ -> prettyPattern pat
     PView {} -> prettyPattern pat
     PAs {} -> prettyPattern pat
+    PSplice {} -> prettyPattern pat
     _ -> parens (prettyPattern pat)
 
 -- | Pretty print a pattern atom after @ or as the operand of ! or ~.
@@ -881,7 +885,14 @@ prettyExprApp = prettyExprIn CtxAppFun
 
 -- | Print a negation expression.
 prettyNegate :: Expr -> Doc ann
-prettyNegate inner = "-" <> prettyExprPrec 3 inner
+prettyNegate inner =
+  case inner of
+    -- Splices start with $ which is a symbolic operator character.
+    -- Without parens, -$x lexes as the operator -$ followed by x,
+    -- and - $x lexes as a right section.
+    ETHSplice {} -> "-" <> parens (prettyExprPrec 0 inner)
+    ETHTypedSplice {} -> "-" <> parens (prettyExprPrec 0 inner)
+    _ -> "-" <> prettyExprPrec 3 inner
 
 -- | Print the body of a type signature expression.
 prettyTypeSigBody :: Expr -> Doc ann
@@ -919,6 +930,8 @@ prettyExprPrec prec expr =
     ETHTypeNameQuote _ name
       | isOperatorToken name -> "''" <> parens (pretty name)
       | otherwise -> "''" <> pretty name
+    ETHSplice _ body -> prettySplice "$" body
+    ETHTypedSplice _ body -> prettySplice "$$" body
     EIf _ cond yes no ->
       -- The 'then' keyword delimits the condition, and 'else' delimits the then-branch,
       -- so greedy expressions in those positions don't need parentheses.
@@ -1142,3 +1155,12 @@ isUnicodeSymbolCategory c = case generalCategory c of
   ModifierSymbol -> True
   OtherSymbol -> True
   _ -> False
+
+-- | Pretty-print a TH splice with the given prefix ("$" or "$$").
+-- If the body is a parenthesized expression, print as $(expr) or $$(expr).
+-- If the body is a bare variable, print as $name or $$name.
+prettySplice :: Doc ann -> Expr -> Doc ann
+prettySplice prefix body =
+  case body of
+    EParen _ inner -> prefix <> parens (prettyExprPrec 0 inner)
+    _ -> prefix <> prettyExprPrec 11 body

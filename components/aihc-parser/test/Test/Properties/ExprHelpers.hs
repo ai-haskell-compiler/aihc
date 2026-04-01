@@ -62,7 +62,17 @@ genExprSized n
           ERecordCon span0 <$> genConName <*> genRecordFields (n - 1),
           ERecordUpd span0 <$> genExprSized half <*> genRecordFields half,
           ETypeSig span0 <$> genExprSized half <*> genType half,
-          EParen span0 <$> genExprSized (n - 1)
+          EParen span0 <$> genExprSized (n - 1),
+          -- Template Haskell splices and quotes
+          ETHSplice span0 <$> genSpliceBody (n - 1),
+          ETHTypedSplice span0 <$> genSpliceBody (n - 1),
+          ETHExpQuote span0 <$> genExprSized (n - 1),
+          ETHTypedQuote span0 <$> genExprSized (n - 1),
+          ETHDeclQuote span0 <$> genValueDecls (n - 1),
+          ETHPatQuote span0 <$> genSimplePattern,
+          ETHTypeQuote span0 <$> genType (n - 1),
+          ETHNameQuote span0 <$> genNameQuoteIdent,
+          ETHTypeNameQuote span0 <$> genConName
         ]
   where
     half = n `div` 2
@@ -85,6 +95,36 @@ genExprLeaf =
       ETupleCon span0 Boxed <$> chooseInt (2, 5),
       ETupleCon span0 Unboxed <$> chooseInt (2, 5)
     ]
+
+-- | Generate the body of a TH splice: either a bare variable or a parenthesized expression.
+-- Bare variables produce $name syntax; parenthesized produce $(expr) syntax.
+genSpliceBody :: Int -> Gen Expr
+genSpliceBody n =
+  oneof
+    [ EVar span0 <$> genIdent,
+      EParen span0 <$> genExprSized (max 0 (n - 1))
+    ]
+
+-- | Generate a simple pattern for TH pattern quotes [p| pat |].
+-- Only generates patterns that don't require additional extensions.
+genSimplePattern :: Gen Pattern
+genSimplePattern =
+  oneof
+    [ PVar span0 <$> genIdent,
+      pure (PWildcard span0),
+      PCon span0 <$> genConName <*> pure []
+    ]
+
+-- | Generate an identifier safe for TH name quotes ('name).
+-- Avoids identifiers where the second character is a single quote,
+-- as 'x'y would be parsed as char literal 'x' followed by identifier y.
+genNameQuoteIdent :: Gen Text
+genNameQuoteIdent = do
+  ident <- genIdent
+  -- If length >= 2 and second char is a quote, regenerate
+  if T.length ident >= 2 && T.index ident 1 == '\''
+    then genNameQuoteIdent
+    else pure ident
 
 -- | Generate an operator symbol
 genOperator :: Gen Text
@@ -506,6 +546,8 @@ shrinkExpr expr =
     ETHPatQuote {} -> []
     ETHNameQuote {} -> []
     ETHTypeNameQuote {} -> []
+    ETHSplice _ body -> body : [ETHSplice span0 body' | body' <- shrinkExpr body]
+    ETHTypedSplice _ body -> body : [ETHTypedSplice span0 body' | body' <- shrinkExpr body]
 
 shrinkFloat :: Double -> [Double]
 shrinkFloat value =
@@ -682,6 +724,8 @@ normalizeExpr expr =
     ETHPatQuote _ pat -> ETHPatQuote span0 (normalizePattern pat)
     ETHNameQuote _ name -> ETHNameQuote span0 name
     ETHTypeNameQuote _ name -> ETHTypeNameQuote span0 name
+    ETHSplice _ body -> ETHSplice span0 (normalizeExpr body)
+    ETHTypedSplice _ body -> ETHTypedSplice span0 (normalizeExpr body)
 
 normalizeCaseAlt :: CaseAlt -> CaseAlt
 normalizeCaseAlt alt =
@@ -732,6 +776,7 @@ normalizePattern pat =
     PUnboxedSum _ altIdx arity inner -> PUnboxedSum span0 altIdx arity (normalizePattern inner)
     PRecord _ con fields -> PRecord span0 con [(name, normalizePattern p) | (name, p) <- fields]
     PTypeSig _ inner ty -> PTypeSig span0 (normalizePattern inner) (normalizeType ty)
+    PSplice _ body -> PSplice span0 (normalizeExpr body)
 
 normalizeLiteral :: Literal -> Literal
 normalizeLiteral lit =
@@ -810,6 +855,7 @@ normalizeType ty =
     TParen _ inner -> normalizeType inner
     TUnboxedSum _ elems -> TUnboxedSum span0 (map normalizeType elems)
     TContext _ constraints inner -> TContext span0 (map normalizeConstraint constraints) (normalizeType inner)
+    TSplice _ body -> TSplice span0 (normalizeExpr body)
 
 normalizeConstraint :: Constraint -> Constraint
 normalizeConstraint c =

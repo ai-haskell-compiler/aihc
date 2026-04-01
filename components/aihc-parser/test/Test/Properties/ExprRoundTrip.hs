@@ -17,7 +17,7 @@ import Test.QuickCheck
 exprConfig :: ParserConfig
 exprConfig =
   defaultConfig
-    { parserExtensions = [UnboxedTuples, UnboxedSums]
+    { parserExtensions = [UnboxedTuples, UnboxedSums, TemplateHaskell]
     }
 
 prop_exprPrettyRoundTrip :: Expr -> Property

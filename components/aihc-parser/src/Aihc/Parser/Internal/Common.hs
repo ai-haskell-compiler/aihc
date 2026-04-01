@@ -154,6 +154,8 @@ renderTokenKind tk = case tk of
   TkTHPatQuoteOpen -> "TH pattern quote '[p|'"
   TkTHQuoteTick -> "TH name quote '''"
   TkTHTypeQuoteTick -> "TH type name quote ''''"
+  TkTHSplice -> "TH splice '$'"
+  TkTHTypedSplice -> "TH typed splice '$$'"
   TkVarSym op -> "operator '" <> show op <> "'"
   TkConSym op -> "operator '" <> show op <> "'"
   _ -> show tk

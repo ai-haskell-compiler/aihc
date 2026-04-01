@@ -172,6 +172,7 @@ docDecl decl =
     DeclStandaloneDeriving _ sd -> "DeclStandaloneDeriving" <+> parens (docStandaloneDerivingDecl sd)
     DeclDefault _ tys -> "DeclDefault" <+> brackets (hsep (punctuate comma (map docType tys)))
     DeclForeign _ fd -> "DeclForeign" <+> parens (docForeignDecl fd)
+    DeclSplice _ body -> "DeclSplice" <+> parens (docExpr body)
 
 docValueDecl :: ValueDecl -> Doc ann
 docValueDecl vdecl =
@@ -425,6 +426,7 @@ docType ty =
         <+> parens (docType inner)
     TParen _ inner -> "TParen" <+> parens (docType inner)
     TContext _ constraints inner -> "TContext" <+> brackets (hsep (punctuate comma (map docConstraint constraints))) <+> parens (docType inner)
+    TSplice _ body -> "TSplice" <+> parens (docExpr body)
 
 docTypeLiteral :: TypeLiteral -> Doc ann
 docTypeLiteral lit =
@@ -474,6 +476,7 @@ docPattern pat =
     PParen _ inner -> "PParen" <+> parens (docPattern inner)
     PRecord _ name fields' -> "PRecord" <+> docText name <+> braces (hsep (punctuate comma [docText fn <+> "=" <+> docPattern fp | (fn, fp) <- fields']))
     PTypeSig _ inner ty -> "PTypeSig" <+> parens (docPattern inner) <+> parens (docType ty)
+    PSplice _ body -> "PSplice" <+> parens (docExpr body)
 
 docLiteral :: Literal -> Doc ann
 docLiteral lit =
@@ -513,6 +516,8 @@ docExpr expr =
     ETHPatQuote _ pat -> "ETHPatQuote" <+> parens (docPattern pat)
     ETHNameQuote _ name -> "ETHNameQuote" <+> docText name
     ETHTypeNameQuote _ name -> "ETHTypeNameQuote" <+> docText name
+    ETHSplice _ body -> "ETHSplice" <+> parens (docExpr body)
+    ETHTypedSplice _ body -> "ETHTypedSplice" <+> parens (docExpr body)
     EIf _ cond yes no -> "EIf" <+> parens (docExpr cond) <+> parens (docExpr yes) <+> parens (docExpr no)
     EMultiWayIf _ rhss -> "EMultiWayIf" <+> brackets (hsep (punctuate comma (map docGuardedRhs rhss)))
     ELambdaPats _ pats body -> "ELambdaPats" <+> brackets (hsep (punctuate comma (map docPattern pats))) <+> parens (docExpr body)
@@ -666,6 +671,8 @@ docTokenKind kind =
     TkTHPatQuoteOpen -> "TkTHPatQuoteOpen"
     TkTHQuoteTick -> "TkTHQuoteTick"
     TkTHTypeQuoteTick -> "TkTHTypeQuoteTick"
+    TkTHSplice -> "TkTHSplice"
+    TkTHTypedSplice -> "TkTHTypedSplice"
     TkError msg -> "TkError" <+> docText msg
     TkEOF -> "TkEOF"
 
