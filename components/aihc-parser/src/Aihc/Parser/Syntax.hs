@@ -922,7 +922,8 @@ instance HasSourceSpan FieldDecl where
 
 data DerivingClause = DerivingClause
   { derivingStrategy :: Maybe DerivingStrategy,
-    derivingClasses :: [Constraint]
+    derivingClasses :: [Constraint],
+    derivingViaType :: Maybe Type
   }
   deriving (Data, Eq, Show, Generic, NFData)
 
@@ -937,7 +938,8 @@ data StandaloneDerivingDecl = StandaloneDerivingDecl
     standaloneDerivingStrategy :: Maybe DerivingStrategy,
     standaloneDerivingContext :: [Constraint],
     standaloneDerivingClassName :: Text,
-    standaloneDerivingTypes :: [Type]
+    standaloneDerivingTypes :: [Type],
+    standaloneDerivingViaType :: Maybe Type
   }
   deriving (Data, Eq, Show, Generic, NFData)
 

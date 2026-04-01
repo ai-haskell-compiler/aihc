@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail standalone deriving via -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE StandaloneDeriving #-}
 module Standalone where

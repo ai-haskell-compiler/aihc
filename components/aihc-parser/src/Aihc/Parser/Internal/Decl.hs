@@ -385,6 +385,7 @@ standaloneDerivingDeclParser :: TokParser Decl
 standaloneDerivingDeclParser = withSpan $ do
   keywordTok TkKeywordDeriving
   strategy <- MP.optional derivingStrategyParser
+  viaTy <- MP.optional (MP.try derivingViaTypeParser)
   keywordTok TkKeywordInstance
   context <- MP.optional (MP.try (declContextParser <* expectedTok TkReservedDoubleArrow))
   className <- constructorIdentifierParser
@@ -397,7 +398,8 @@ standaloneDerivingDeclParser = withSpan $ do
           standaloneDerivingStrategy = strategy,
           standaloneDerivingContext = fromMaybe [] context,
           standaloneDerivingClassName = className,
-          standaloneDerivingTypes = instanceTypes
+          standaloneDerivingTypes = instanceTypes,
+          standaloneDerivingViaType = viaTy
         }
 
 instanceWhereClauseParser :: TokParser [InstanceDeclItem]
@@ -700,10 +702,16 @@ derivingClauseParser = do
   keywordTok TkKeywordDeriving
   strategy <- MP.optional derivingStrategyParser
   classes <- parenClasses <|> singleClass
-  pure (DerivingClause strategy classes)
+  viaTy <- MP.optional derivingViaTypeParser
+  pure (DerivingClause strategy classes viaTy)
   where
     singleClass = (: []) <$> constraintParserWith typeAtomParser
     parenClasses = parens $ constraintParserWith typeAtomParser `MP.sepEndBy` expectedTok TkSpecialComma
+
+derivingViaTypeParser :: TokParser Type
+derivingViaTypeParser = do
+  varIdTok "via"
+  typeParser
 
 derivingStrategyParser :: TokParser DerivingStrategy
 derivingStrategyParser =
