@@ -216,9 +216,7 @@ spliceDeclParser = withSpan $ do
   pure (`DeclSplice` body)
   where
     parenSpliceBody = withSpan $ do
-      expectedTok TkSpecialLParen
-      body <- exprParser
-      expectedTok TkSpecialRParen
+      body <- parens exprParser
       pure (`EParen` body)
     bareSpliceBody = withSpan $ do
       name <- identifierTextParser
