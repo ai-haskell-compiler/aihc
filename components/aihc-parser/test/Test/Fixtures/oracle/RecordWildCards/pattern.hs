@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail record wildcard in pattern -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE RecordWildCards #-}
 module Pattern where
 

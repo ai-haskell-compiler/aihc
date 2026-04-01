@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail record wildcard in construction -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE RecordWildCards #-}
 module Construction where
 
