@@ -1089,6 +1089,12 @@
         pkgs.runCommand "aihc-cabal-test-all" {
           src = cabalProjectSrc pkgs;
           nativeBuildInputs = [ghcEnv pkgs.cabal-install];
+          # Ensure UTF-8 locale on Linux (nix sandbox defaults to C locale
+          # which cannot decode Unicode test fixtures).
+          LANG = "C.UTF-8";
+          LOCALE_ARCHIVE =
+            pkgs.lib.optionalString pkgs.stdenv.isLinux
+            "${pkgs.glibcLocales}/lib/locale/locale-archive";
         } ''
           # Copy source to a writable location (nix store sources are read-only)
           cp -r "$src" ./build
