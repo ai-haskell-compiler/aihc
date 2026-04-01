@@ -1186,7 +1186,7 @@ canStartNegatedAtom rest =
 --
 -- In GHC, @ is a type application only when it is tight on the right
 -- (no whitespace between @ and the following token). With whitespace
--- after @, it is treated as a regular operator.
+-- after @, it is treated as a regular operator symbol.
 --
 -- Examples:
 --   f @Int    -- type application (@ tight on right)
@@ -1194,7 +1194,8 @@ canStartNegatedAtom rest =
 --   f @(a,b)  -- type application (@ tight on right)
 --
 -- This must come before lexOperator in the tokenizer chain so that @ can be
--- classified as TkTypeApp before lexOperator turns it into TkReservedAt.
+-- classified as TkTypeApp or TkVarSym before lexOperator turns it into
+-- TkReservedAt.
 lexTypeApplication :: LexerState -> Maybe (LexToken, LexerState)
 lexTypeApplication st
   | TypeApplications `notElem` lexerExtensions st = Nothing
@@ -1202,10 +1203,12 @@ lexTypeApplication st
       case lexerInput st of
         '@' : rest
           -- Only handle single @ (not part of multi-char operator like @@)
-          | not (isMultiCharOp rest),
-            canStartTypeAtom rest ->
+          | not (isMultiCharOp rest) ->
               let st' = advanceChars "@" st
-               in Just (mkToken st st' "@" TkTypeApp, st')
+                  kind
+                    | canStartTypeAtom rest = TkTypeApp
+                    | otherwise = TkVarSym "@"
+               in Just (mkToken st st' "@" kind, st')
         _ -> Nothing
   where
     isMultiCharOp (c : _) = isSymbolicOpChar c

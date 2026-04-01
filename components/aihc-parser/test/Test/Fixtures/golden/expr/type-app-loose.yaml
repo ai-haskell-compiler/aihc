@@ -1,6 +1,5 @@
 extensions: [TypeApplications]
 input: |
   f @ a
-ast: ""
-status: fail
-reason: space after @ prevents type application
+ast: EInfix (EVar "f") "@" (EVar "a")
+status: pass
