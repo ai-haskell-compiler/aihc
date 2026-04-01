@@ -856,6 +856,7 @@ normalizeType ty =
     TUnboxedSum _ elems -> TUnboxedSum span0 (map normalizeType elems)
     TContext _ constraints inner -> TContext span0 (map normalizeConstraint constraints) (normalizeType inner)
     TSplice _ body -> TSplice span0 (normalizeExpr body)
+    TWildcard _ -> TWildcard span0
 
 normalizeConstraint :: Constraint -> Constraint
 normalizeConstraint c =

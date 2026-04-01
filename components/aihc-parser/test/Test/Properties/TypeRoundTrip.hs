@@ -72,6 +72,7 @@ typeCtorNames ty =
         TContext _ constraints inner ->
           here <> mconcat (map constraintTypeCtorNames constraints) <> typeCtorNames inner
         TSplice {} -> here
+        TWildcard {} -> here
 
 constraintTypeCtorNames :: Constraint -> Set.Set String
 constraintTypeCtorNames constraint =
@@ -122,6 +123,8 @@ shrinkType ty =
         <> [TContext span0 constraints' inner | constraints' <- shrinkConstraints constraints]
         <> [TContext span0 constraints inner' | inner' <- shrinkType inner]
     TSplice {} ->
+      []
+    TWildcard _ ->
       []
 
 canonicalForallInner :: Type -> Type
