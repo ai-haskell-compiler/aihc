@@ -171,6 +171,10 @@ prettyDeclLines decl =
     DeclDefault _ tys -> ["default" <+> parens (hsep (punctuate comma (map prettyType tys)))]
     DeclForeign _ foreignDecl -> [prettyForeignDecl foreignDecl]
     DeclSplice _ body -> [prettySplice "$" body]
+    DeclTypeFamilyDecl _ tf -> [prettyTypeFamilyDecl tf]
+    DeclDataFamilyDecl _ df -> [prettyDataFamilyDecl df]
+    DeclTypeFamilyInst _ tfi -> [prettyTopTypeFamilyInst tfi]
+    DeclDataFamilyInst _ dfi -> [prettyTopDataFamilyInst dfi]
 
 prettyValueDeclLines :: ValueDecl -> [Doc ann]
 prettyValueDeclLines valueDecl =
@@ -285,6 +289,7 @@ needsTypeParens ctx ty =
         TTuple {} -> False
         TUnboxedSum {} -> False
         TParen {} -> False
+        TWildcard {} -> False
         _ -> True
 
 prettyTypePrec :: Int -> Type -> Doc ann
@@ -330,6 +335,7 @@ prettyTypePrec prec ty =
         (prec > 0)
         (prettyContext constraints <+> "=>" <+> prettyTypePrec 0 inner)
     TSplice _ body -> prettySplice "$" body
+    TWildcard _ -> "_"
 
 prettyContext :: [Constraint] -> Doc ann
 prettyContext constraints =
@@ -673,6 +679,9 @@ prettyClassItem item =
             <> map prettyInfixOp ops
         )
     ClassItemDefault _ valueDecl -> prettyValueDeclSingleLine valueDecl
+    ClassItemTypeFamilyDecl _ tf -> prettyAssocTypeFamilyDecl tf
+    ClassItemDataFamilyDecl _ df -> prettyAssocDataFamilyDecl df
+    ClassItemDefaultTypeInst _ tfi -> prettyDefaultTypeInst tfi
 
 prettyInstanceDecl :: InstanceDecl -> Doc ann
 prettyInstanceDecl decl =
@@ -717,6 +726,8 @@ prettyInstanceItem item =
             <> maybe [] (pure . pretty . show) prec
             <> map prettyInfixOp ops
         )
+    InstanceItemTypeFamilyInst _ tfi -> prettyInstTypeFamilyInst tfi
+    InstanceItemDataFamilyInst _ dfi -> prettyInstDataFamilyInst dfi
 
 prettyFixityAssoc :: FixityAssoc -> Doc ann
 prettyFixityAssoc assoc =
@@ -1169,3 +1180,129 @@ prettySplice prefix body =
     EParen _ inner -> prefix <> parens (prettyExprPrec 0 inner)
     EVar {} -> prefix <> prettyExprPrec 11 body
     _ -> prefix <> parens (prettyExprPrec 0 body)
+
+-- ---------------------------------------------------------------------------
+-- TypeFamilies pretty-printing helpers
+
+-- | @type family Name params [:: Kind] [where { equations }]@
+prettyTypeFamilyDecl :: TypeFamilyDecl -> Doc ann
+prettyTypeFamilyDecl tf =
+  hsep $
+    ["type", "family", pretty (typeFamilyDeclName tf)]
+      <> map prettyTyVarBinder (typeFamilyDeclParams tf)
+      <> kindPart (typeFamilyDeclKind tf)
+      <> eqsPart (typeFamilyDeclEquations tf)
+  where
+    kindPart Nothing = []
+    kindPart (Just k) = ["::", prettyType k]
+    eqsPart Nothing = []
+    eqsPart (Just eqs) = ["where", braces (hsep (punctuate semi (map prettyTypeFamilyEq eqs)))]
+
+prettyTypeFamilyEq :: TypeFamilyEq -> Doc ann
+prettyTypeFamilyEq eq =
+  hsep $
+    forallPart (typeFamilyEqForall eq)
+      <> [prettyType (typeFamilyEqLhs eq), "=", prettyType (typeFamilyEqRhs eq)]
+  where
+    forallPart [] = []
+    forallPart binders = ["forall", hsep (map prettyTyVarBinder binders) <> "."]
+
+-- | @data family Name params [:: Kind]@
+prettyDataFamilyDecl :: DataFamilyDecl -> Doc ann
+prettyDataFamilyDecl df =
+  hsep $
+    ["data", "family", pretty (dataFamilyDeclName df)]
+      <> map prettyTyVarBinder (dataFamilyDeclParams df)
+      <> kindPart (dataFamilyDeclKind df)
+  where
+    kindPart Nothing = []
+    kindPart (Just k) = ["::", prettyType k]
+
+-- | @type instance [forall.] LhsType = RhsType@ (top-level)
+prettyTopTypeFamilyInst :: TypeFamilyInst -> Doc ann
+prettyTopTypeFamilyInst tfi =
+  hsep $
+    ["type", "instance"]
+      <> forallPart (typeFamilyInstForall tfi)
+      <> [prettyType (typeFamilyInstLhs tfi), "=", prettyType (typeFamilyInstRhs tfi)]
+  where
+    forallPart [] = []
+    forallPart binders = ["forall", hsep (map prettyTyVarBinder binders) <> "."]
+
+-- | @(data|newtype) instance [forall.] HeadType = Cons@ (top-level)
+prettyTopDataFamilyInst :: DataFamilyInst -> Doc ann
+prettyTopDataFamilyInst dfi =
+  hsep $
+    [keyword, "instance"]
+      <> forallPart (dataFamilyInstForall dfi)
+      <> [prettyType (dataFamilyInstHead dfi)]
+      <> ctorPart (dataFamilyInstConstructors dfi)
+      <> derivingParts (dataFamilyInstDeriving dfi)
+  where
+    keyword = if dataFamilyInstIsNewtype dfi then "newtype" else "data"
+    forallPart [] = []
+    forallPart binders = ["forall", hsep (map prettyTyVarBinder binders) <> "."]
+    ctorPart [] = []
+    ctorPart ctors@(c : _)
+      | any isGadtCon ctors = ["where", braces (hsep (punctuate semi (map prettyDataCon ctors)))]
+      | dataFamilyInstIsNewtype dfi = ["=", prettyDataCon c]
+      | otherwise = ["=", hsep (punctuate " |" (map prettyDataCon ctors))]
+
+-- | @type Name params [:: Kind]@ (associated type family inside a class, no @family@ keyword)
+prettyAssocTypeFamilyDecl :: TypeFamilyDecl -> Doc ann
+prettyAssocTypeFamilyDecl tf =
+  hsep $
+    ["type", pretty (typeFamilyDeclName tf)]
+      <> map prettyTyVarBinder (typeFamilyDeclParams tf)
+      <> kindPart (typeFamilyDeclKind tf)
+  where
+    kindPart Nothing = []
+    kindPart (Just k) = ["::", prettyType k]
+
+-- | @data Name params [:: Kind]@ (associated data family inside a class, no @family@ keyword)
+prettyAssocDataFamilyDecl :: DataFamilyDecl -> Doc ann
+prettyAssocDataFamilyDecl df =
+  hsep $
+    ["data", pretty (dataFamilyDeclName df)]
+      <> map prettyTyVarBinder (dataFamilyDeclParams df)
+      <> kindPart (dataFamilyDeclKind df)
+  where
+    kindPart Nothing = []
+    kindPart (Just k) = ["::", prettyType k]
+
+-- | @type instance LhsType = RhsType@ (default type instance inside a class)
+prettyDefaultTypeInst :: TypeFamilyInst -> Doc ann
+prettyDefaultTypeInst tfi =
+  hsep $
+    ["type", "instance"]
+      <> forallPart (typeFamilyInstForall tfi)
+      <> [prettyType (typeFamilyInstLhs tfi), "=", prettyType (typeFamilyInstRhs tfi)]
+  where
+    forallPart [] = []
+    forallPart binders = ["forall", hsep (map prettyTyVarBinder binders) <> "."]
+
+-- | @type LhsType = RhsType@ inside an instance body (no @instance@ keyword)
+prettyInstTypeFamilyInst :: TypeFamilyInst -> Doc ann
+prettyInstTypeFamilyInst tfi =
+  hsep $
+    ["type"]
+      <> forallPart (typeFamilyInstForall tfi)
+      <> [prettyType (typeFamilyInstLhs tfi), "=", prettyType (typeFamilyInstRhs tfi)]
+  where
+    forallPart [] = []
+    forallPart binders = ["forall", hsep (map prettyTyVarBinder binders) <> "."]
+
+-- | @(data|newtype) HeadType = Cons@ inside an instance body
+prettyInstDataFamilyInst :: DataFamilyInst -> Doc ann
+prettyInstDataFamilyInst dfi =
+  hsep $
+    [keyword, prettyType (dataFamilyInstHead dfi)]
+      <> ctorPart (dataFamilyInstConstructors dfi)
+      <> derivingParts (dataFamilyInstDeriving dfi)
+  where
+    keyword = if dataFamilyInstIsNewtype dfi then "newtype" else "data"
+    ctorPart [] = []
+    ctorPart ctors@(c : _)
+      | any isGadtCon ctors = ["where", braces (hsep (punctuate semi (map prettyDataCon ctors)))]
+      | dataFamilyInstIsNewtype dfi = ["=", prettyDataCon c]
+      | otherwise = ["=", hsep (punctuate " |" (map prettyDataCon ctors))]

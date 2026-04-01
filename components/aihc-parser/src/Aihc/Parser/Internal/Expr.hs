@@ -1264,7 +1264,13 @@ typeAtomParser = do
     <|> MP.try typeParenOperatorParser
     <|> typeParenOrTupleParser
     <|> typeStarParser
+    <|> typeWildcardParser
     <|> typeIdentifierParser
+
+typeWildcardParser :: TokParser Type
+typeWildcardParser = withSpan $ do
+  expectedTok TkKeywordUnderscore
+  pure TWildcard
 
 typeLiteralTypeParser :: TokParser Type
 typeLiteralTypeParser = withSpan $ do
@@ -1438,3 +1444,4 @@ setTypeSpan span' ty =
     TParen _ inner -> TParen span' inner
     TContext _ constraints inner -> TContext span' constraints inner
     TSplice _ body -> TSplice span' body
+    TWildcard _ -> TWildcard span'

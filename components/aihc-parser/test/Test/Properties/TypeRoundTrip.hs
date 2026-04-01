@@ -72,6 +72,7 @@ typeCtorNames ty =
         TContext _ constraints inner ->
           here <> mconcat (map constraintTypeCtorNames constraints) <> typeCtorNames inner
         TSplice {} -> here
+        TWildcard {} -> here
 
 constraintTypeCtorNames :: Constraint -> Set.Set String
 constraintTypeCtorNames constraint =
@@ -122,6 +123,8 @@ shrinkType ty =
         <> [TContext span0 constraints' inner | constraints' <- shrinkConstraints constraints]
         <> [TContext span0 constraints inner' | inner' <- shrinkType inner]
     TSplice {} ->
+      []
+    TWildcard _ ->
       []
 
 canonicalForallInner :: Type -> Type
@@ -187,6 +190,7 @@ genType depth
           (\name -> TCon span0 name Unpromoted) <$> genTypeConName,
           TTypeLit span0 <$> genTypeLiteral,
           pure (TStar span0),
+          pure (TWildcard span0),
           TQuasiQuote span0 <$> genQuoterName <*> genQuasiBody,
           TTuple span0 Boxed Unpromoted <$> elements [[], [TVar span0 "a", TCon span0 "B" Unpromoted]],
           TTuple span0 Unboxed Unpromoted <$> elements [[], [TVar span0 "a", TCon span0 "B" Unpromoted]],
@@ -200,6 +204,7 @@ genType depth
           (3, (\name -> TCon span0 name Unpromoted) <$> genTypeConName),
           (1, TTypeLit span0 <$> genTypeLiteral),
           (1, pure (TStar span0)),
+          (1, pure (TWildcard span0)),
           (2, TQuasiQuote span0 <$> genQuoterName <*> genQuasiBody),
           (2, TForall span0 <$> genTypeBinders <*> genForallInner (depth - 1)),
           (4, genTypeApp depth),
@@ -270,6 +275,7 @@ genTypeAtom depth =
       (\name -> TCon span0 name Unpromoted) <$> genTypeConName,
       TTypeLit span0 <$> genTypeLiteral,
       pure (TStar span0),
+      pure (TWildcard span0),
       TQuasiQuote span0 <$> genQuoterName <*> genQuasiBody,
       TTuple span0 Boxed Unpromoted <$> genTypeTupleElems depth,
       TTuple span0 Unboxed Unpromoted <$> genTypeTupleElems depth,
@@ -408,6 +414,7 @@ normalizeType ty =
     TCon _ name promoted -> TCon span0 name promoted
     TTypeLit _ lit -> TTypeLit span0 lit
     TStar _ -> TStar span0
+    TWildcard _ -> TWildcard span0
     TQuasiQuote _ quoter body -> TQuasiQuote span0 quoter body
     TForall _ binders inner -> TForall span0 binders (normalizeType inner)
     TApp _ f x -> TApp span0 (normalizeType f) (normalizeType x)

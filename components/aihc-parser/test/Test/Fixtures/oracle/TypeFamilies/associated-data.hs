@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail associated data family -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE TypeFamilies #-}
 module AssociatedData where
 

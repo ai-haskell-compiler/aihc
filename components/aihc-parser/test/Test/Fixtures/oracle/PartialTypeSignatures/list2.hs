@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail wildcard in list element type -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE PartialTypeSignatures #-}
 module List2 where
 

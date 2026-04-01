@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail basic type family -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE TypeFamilies #-}
 module Basic where
 

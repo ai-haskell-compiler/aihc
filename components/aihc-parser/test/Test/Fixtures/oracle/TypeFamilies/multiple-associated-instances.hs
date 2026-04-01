@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail multiple associated instances -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE TypeFamilies #-}
 module MultipleAssociatedInstances where
 

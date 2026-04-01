@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail newtype instance -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE TypeFamilies #-}
 module NewtypeInstance where
 

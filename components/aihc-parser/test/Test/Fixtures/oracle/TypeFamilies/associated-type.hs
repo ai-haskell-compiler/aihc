@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail associated type family -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE TypeFamilies #-}
 module AssociatedType where
 

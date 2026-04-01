@@ -64,6 +64,11 @@ module Aihc.Parser.Syntax
     TypePromotion (..),
     TyVarBinder (..),
     TypeSynDecl (..),
+    TypeFamilyDecl (..),
+    TypeFamilyEq (..),
+    DataFamilyDecl (..),
+    TypeFamilyInst (..),
+    DataFamilyInst (..),
     ValueDecl (..),
     declValueBinderNames,
     allKnownExtensions,
@@ -609,9 +614,13 @@ data Decl
   | DeclInstance SourceSpan InstanceDecl
   | DeclStandaloneDeriving SourceSpan StandaloneDerivingDecl
   | DeclDefault SourceSpan [Type]
+  | -- \$decl or $(decl) (TH top-level splice)
+    DeclSplice SourceSpan Expr
   | DeclForeign SourceSpan ForeignDecl
-  | DeclSplice SourceSpan Expr
-  -- \$decl or $(decl) (TH top-level splice)
+  | DeclTypeFamilyDecl SourceSpan TypeFamilyDecl
+  | DeclDataFamilyDecl SourceSpan DataFamilyDecl
+  | DeclTypeFamilyInst SourceSpan TypeFamilyInst
+  | DeclDataFamilyInst SourceSpan DataFamilyInst
   deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan Decl where
@@ -630,6 +639,10 @@ instance HasSourceSpan Decl where
       DeclDefault span' _ -> span'
       DeclForeign span' _ -> span'
       DeclSplice span' _ -> span'
+      DeclTypeFamilyDecl span' _ -> span'
+      DeclDataFamilyDecl span' _ -> span'
+      DeclTypeFamilyInst span' _ -> span'
+      DeclDataFamilyInst span' _ -> span'
 
 data ValueDecl
   = FunctionBind SourceSpan BinderName [Match]
@@ -783,7 +796,9 @@ data Type
   | TParen SourceSpan Type
   | TContext SourceSpan [Constraint] Type
   | TSplice SourceSpan Expr
-  -- \$typ or $(typ) (TH type splice)
+  | -- \$typ or $(typ) (TH type splice)
+    -- \_ (wildcard type, used in type family instance patterns)
+    TWildcard SourceSpan
   deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan Type where
@@ -803,6 +818,7 @@ instance HasSourceSpan Type where
       TParen span' _ -> span'
       TContext span' _ _ -> span'
       TSplice span' _ -> span'
+      TWildcard span' -> span'
 
 data TypeLiteral
   = TypeLitInteger Integer Text
@@ -850,6 +866,75 @@ data TypeSynDecl = TypeSynDecl
 
 instance HasSourceSpan TypeSynDecl where
   getSourceSpan = typeSynSpan
+
+-- | Open or closed type synonym family declaration.
+-- Used for top-level @type family F a@ and associated @type F a :: Kind@ in class bodies.
+data TypeFamilyDecl = TypeFamilyDecl
+  { typeFamilyDeclSpan :: SourceSpan,
+    typeFamilyDeclName :: Text,
+    typeFamilyDeclParams :: [TyVarBinder],
+    -- | Optional result kind annotation (@:: Kind@)
+    typeFamilyDeclKind :: Maybe Type,
+    -- | @Nothing@ = open family; @Just eqs@ = closed family with equations
+    typeFamilyDeclEquations :: Maybe [TypeFamilyEq]
+  }
+  deriving (Data, Eq, Show, Generic, NFData)
+
+instance HasSourceSpan TypeFamilyDecl where
+  getSourceSpan = typeFamilyDeclSpan
+
+-- | One equation in a closed type family: @[forall binders.] LhsType = RhsType@
+data TypeFamilyEq = TypeFamilyEq
+  { typeFamilyEqSpan :: SourceSpan,
+    typeFamilyEqForall :: [TyVarBinder],
+    typeFamilyEqLhs :: Type,
+    typeFamilyEqRhs :: Type
+  }
+  deriving (Data, Eq, Show, Generic, NFData)
+
+instance HasSourceSpan TypeFamilyEq where
+  getSourceSpan = typeFamilyEqSpan
+
+-- | Data family declaration (standalone or associated in a class body).
+data DataFamilyDecl = DataFamilyDecl
+  { dataFamilyDeclSpan :: SourceSpan,
+    dataFamilyDeclName :: Text,
+    dataFamilyDeclParams :: [TyVarBinder],
+    -- | Optional result kind annotation (@:: Kind@)
+    dataFamilyDeclKind :: Maybe Type
+  }
+  deriving (Data, Eq, Show, Generic, NFData)
+
+instance HasSourceSpan DataFamilyDecl where
+  getSourceSpan = dataFamilyDeclSpan
+
+-- | Type family instance: @type [instance] [forall binders.] LhsType = RhsType@
+data TypeFamilyInst = TypeFamilyInst
+  { typeFamilyInstSpan :: SourceSpan,
+    typeFamilyInstForall :: [TyVarBinder],
+    typeFamilyInstLhs :: Type,
+    typeFamilyInstRhs :: Type
+  }
+  deriving (Data, Eq, Show, Generic, NFData)
+
+instance HasSourceSpan TypeFamilyInst where
+  getSourceSpan = typeFamilyInstSpan
+
+-- | Data or newtype family instance (standalone or in an instance body).
+data DataFamilyInst = DataFamilyInst
+  { dataFamilyInstSpan :: SourceSpan,
+    -- | @True@ when declared with @newtype instance@
+    dataFamilyInstIsNewtype :: Bool,
+    dataFamilyInstForall :: [TyVarBinder],
+    -- | The LHS type-application pattern (e.g. @GMap (Either a b) v@)
+    dataFamilyInstHead :: Type,
+    dataFamilyInstConstructors :: [DataConDecl],
+    dataFamilyInstDeriving :: [DerivingClause]
+  }
+  deriving (Data, Eq, Show, Generic, NFData)
+
+instance HasSourceSpan DataFamilyInst where
+  getSourceSpan = dataFamilyInstSpan
 
 data DataDecl = DataDecl
   { dataDeclSpan :: SourceSpan,
@@ -982,6 +1067,9 @@ data ClassDeclItem
   = ClassItemTypeSig SourceSpan [BinderName] Type
   | ClassItemFixity SourceSpan FixityAssoc (Maybe Int) [OperatorName]
   | ClassItemDefault SourceSpan ValueDecl
+  | ClassItemTypeFamilyDecl SourceSpan TypeFamilyDecl
+  | ClassItemDataFamilyDecl SourceSpan DataFamilyDecl
+  | ClassItemDefaultTypeInst SourceSpan TypeFamilyInst
   deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan ClassDeclItem where
@@ -990,6 +1078,9 @@ instance HasSourceSpan ClassDeclItem where
       ClassItemTypeSig span' _ _ -> span'
       ClassItemFixity span' _ _ _ -> span'
       ClassItemDefault span' _ -> span'
+      ClassItemTypeFamilyDecl span' _ -> span'
+      ClassItemDataFamilyDecl span' _ -> span'
+      ClassItemDefaultTypeInst span' _ -> span'
 
 data InstanceDecl = InstanceDecl
   { instanceDeclSpan :: SourceSpan,
@@ -1007,6 +1098,8 @@ data InstanceDeclItem
   = InstanceItemBind SourceSpan ValueDecl
   | InstanceItemTypeSig SourceSpan [BinderName] Type
   | InstanceItemFixity SourceSpan FixityAssoc (Maybe Int) [OperatorName]
+  | InstanceItemTypeFamilyInst SourceSpan TypeFamilyInst
+  | InstanceItemDataFamilyInst SourceSpan DataFamilyInst
   deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan InstanceDeclItem where
@@ -1015,6 +1108,8 @@ instance HasSourceSpan InstanceDeclItem where
       InstanceItemBind span' _ -> span'
       InstanceItemTypeSig span' _ _ -> span'
       InstanceItemFixity span' _ _ _ -> span'
+      InstanceItemTypeFamilyInst span' _ -> span'
+      InstanceItemDataFamilyInst span' _ -> span'
 
 data FixityAssoc
   = Infix

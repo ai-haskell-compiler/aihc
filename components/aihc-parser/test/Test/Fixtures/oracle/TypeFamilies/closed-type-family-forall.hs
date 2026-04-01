@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail closed type family with forall -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE TypeFamilies, ExplicitForAll #-}
 module ClosedTypeFamilyForAll where
 

@@ -173,6 +173,10 @@ docDecl decl =
     DeclDefault _ tys -> "DeclDefault" <+> brackets (hsep (punctuate comma (map docType tys)))
     DeclForeign _ fd -> "DeclForeign" <+> parens (docForeignDecl fd)
     DeclSplice _ body -> "DeclSplice" <+> parens (docExpr body)
+    DeclTypeFamilyDecl _ tf -> "DeclTypeFamilyDecl" <+> parens (docTypeFamilyDecl tf)
+    DeclDataFamilyDecl _ df -> "DeclDataFamilyDecl" <+> parens (docDataFamilyDecl df)
+    DeclTypeFamilyInst _ tfi -> "DeclTypeFamilyInst" <+> parens (docTypeFamilyInst tfi)
+    DeclDataFamilyInst _ dfi -> "DeclDataFamilyInst" <+> parens (docDataFamilyInst dfi)
 
 docValueDecl :: ValueDecl -> Doc ann
 docValueDecl vdecl =
@@ -318,6 +322,9 @@ docClassDeclItem item =
     ClassItemTypeSig _ names ty -> "ClassItemTypeSig" <+> braces (hsep (punctuate comma [field "names" (docTextList names), field "type" (docType ty)]))
     ClassItemFixity _ assoc mPrec ops -> "ClassItemFixity" <+> braces (hsep (punctuate comma ([field "assoc" (docFixityAssoc assoc)] <> optionalField "prec" pretty mPrec <> [field "ops" (docTextList ops)])))
     ClassItemDefault _ vdecl -> "ClassItemDefault" <+> parens (docValueDecl vdecl)
+    ClassItemTypeFamilyDecl _ tf -> "ClassItemTypeFamilyDecl" <+> parens (docTypeFamilyDecl tf)
+    ClassItemDataFamilyDecl _ df -> "ClassItemDataFamilyDecl" <+> parens (docDataFamilyDecl df)
+    ClassItemDefaultTypeInst _ tfi -> "ClassItemDefaultTypeInst" <+> parens (docTypeFamilyInst tfi)
 
 docInstanceDecl :: InstanceDecl -> Doc ann
 docInstanceDecl inst =
@@ -335,6 +342,8 @@ docInstanceDeclItem item =
     InstanceItemBind _ vdecl -> "InstanceItemBind" <+> parens (docValueDecl vdecl)
     InstanceItemTypeSig _ names ty -> "InstanceItemTypeSig" <+> braces (hsep (punctuate comma [field "names" (docTextList names), field "type" (docType ty)]))
     InstanceItemFixity _ assoc mPrec ops -> "InstanceItemFixity" <+> braces (hsep (punctuate comma ([field "assoc" (docFixityAssoc assoc)] <> optionalField "prec" pretty mPrec <> [field "ops" (docTextList ops)])))
+    InstanceItemTypeFamilyInst _ tfi -> "InstanceItemTypeFamilyInst" <+> parens (docTypeFamilyInst tfi)
+    InstanceItemDataFamilyInst _ dfi -> "InstanceItemDataFamilyInst" <+> parens (docDataFamilyInst dfi)
 
 docStandaloneDerivingDecl :: StandaloneDerivingDecl -> Doc ann
 docStandaloneDerivingDecl sd =
@@ -427,6 +436,7 @@ docType ty =
     TParen _ inner -> "TParen" <+> parens (docType inner)
     TContext _ constraints inner -> "TContext" <+> brackets (hsep (punctuate comma (map docConstraint constraints))) <+> parens (docType inner)
     TSplice _ body -> "TSplice" <+> parens (docExpr body)
+    TWildcard _ -> "TWildcard"
 
 docTypeLiteral :: TypeLiteral -> Doc ann
 docTypeLiteral lit =
@@ -706,3 +716,51 @@ docText t = dquotes (pretty t)
 
 docTextList :: [Text] -> Doc ann
 docTextList ts = brackets (hsep (punctuate comma (map docText ts)))
+
+docTypeFamilyDecl :: TypeFamilyDecl -> Doc ann
+docTypeFamilyDecl tf =
+  "TypeFamilyDecl" <+> braces (hsep (punctuate comma fields))
+  where
+    fields =
+      [field "name" (docText (typeFamilyDeclName tf))]
+        <> listField "params" docTyVarBinder (typeFamilyDeclParams tf)
+        <> optionalField "kind" docType (typeFamilyDeclKind tf)
+        <> case typeFamilyDeclEquations tf of
+          Nothing -> []
+          Just eqs -> [field "equations" (brackets (hsep (punctuate comma (map docTypeFamilyEq eqs))))]
+
+docTypeFamilyEq :: TypeFamilyEq -> Doc ann
+docTypeFamilyEq eq =
+  "TypeFamilyEq" <+> braces (hsep (punctuate comma fields))
+  where
+    fields =
+      listField "forall" docTyVarBinder (typeFamilyEqForall eq)
+        <> [field "lhs" (docType (typeFamilyEqLhs eq)), field "rhs" (docType (typeFamilyEqRhs eq))]
+
+docDataFamilyDecl :: DataFamilyDecl -> Doc ann
+docDataFamilyDecl df =
+  "DataFamilyDecl" <+> braces (hsep (punctuate comma fields))
+  where
+    fields =
+      [field "name" (docText (dataFamilyDeclName df))]
+        <> listField "params" docTyVarBinder (dataFamilyDeclParams df)
+        <> optionalField "kind" docType (dataFamilyDeclKind df)
+
+docTypeFamilyInst :: TypeFamilyInst -> Doc ann
+docTypeFamilyInst tfi =
+  "TypeFamilyInst" <+> braces (hsep (punctuate comma fields))
+  where
+    fields =
+      listField "forall" docTyVarBinder (typeFamilyInstForall tfi)
+        <> [field "lhs" (docType (typeFamilyInstLhs tfi)), field "rhs" (docType (typeFamilyInstRhs tfi))]
+
+docDataFamilyInst :: DataFamilyInst -> Doc ann
+docDataFamilyInst dfi =
+  "DataFamilyInst" <+> braces (hsep (punctuate comma fields))
+  where
+    fields =
+      boolField "isNewtype" (dataFamilyInstIsNewtype dfi)
+        <> listField "forall" docTyVarBinder (dataFamilyInstForall dfi)
+        <> [field "head" (docType (dataFamilyInstHead dfi))]
+        <> listField "constructors" docDataConDecl (dataFamilyInstConstructors dfi)
+        <> listField "deriving" docDerivingClause (dataFamilyInstDeriving dfi)

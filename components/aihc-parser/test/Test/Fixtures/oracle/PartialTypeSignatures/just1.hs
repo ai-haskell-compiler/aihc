@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail wildcard in return type -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE PartialTypeSignatures #-}
 module Just1 where
 

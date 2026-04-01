@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail wildcards in type instances -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE TypeFamilies #-}
 module Wildcards where
 

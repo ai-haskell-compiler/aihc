@@ -181,7 +181,10 @@ declParser :: TokParser Decl
 declParser = do
   tok <- lookAhead anySingle
   case lexTokenKind tok of
-    TkKeywordData -> dataDeclParser
+    TkKeywordData ->
+      MP.try dataFamilyDeclParser
+        <|> MP.try dataFamilyInstParser
+        <|> dataDeclParser
     TkKeywordClass -> classDeclParser
     TkKeywordDefault -> defaultDeclParser
     TkKeywordDeriving -> standaloneDerivingDeclParser
@@ -190,8 +193,14 @@ declParser = do
     TkKeywordInfixl -> fixityDeclParser InfixL
     TkKeywordInfixr -> fixityDeclParser InfixR
     TkKeywordInstance -> instanceDeclParser
-    TkKeywordNewtype -> newtypeDeclParser
-    TkKeywordType -> MP.try standaloneKindSigDeclParser <|> typeSynDeclParser
+    TkKeywordNewtype ->
+      MP.try newtypeFamilyInstParser
+        <|> newtypeDeclParser
+    TkKeywordType ->
+      MP.try typeFamilyDeclParser
+        <|> MP.try typeFamilyInstParser
+        <|> MP.try standaloneKindSigDeclParser
+        <|> typeSynDeclParser
     TkVarId ident ->
       case ident of
         "pattern" -> unsupportedDeclParser "pattern synonym declarations are not implemented yet"
@@ -246,6 +255,296 @@ typeSynDeclParser = withSpan $ do
           typeSynParams = typeParams,
           typeSynBody = body
         }
+
+-- ---------------------------------------------------------------------------
+-- TypeFamilies: shared helpers
+
+-- | Parse an optional explicit forall for type family instances/equations.
+-- Handles @forall a (b :: Kind).@ syntax.
+typeFamilyForallParser :: TokParser [TyVarBinder]
+typeFamilyForallParser = do
+  varIdTok "forall"
+  binders <- MP.some typeParamParser
+  expectedTok (TkVarSym ".")
+  pure binders
+
+-- | Parse the optional @:: Kind@ result annotation on a type/data family head.
+familyResultKindParser :: TokParser (Maybe Type)
+familyResultKindParser =
+  MP.optional (expectedTok TkReservedDoubleColon *> typeParser)
+
+-- ---------------------------------------------------------------------------
+-- TypeFamilies: top-level type family declaration
+
+-- | Parse @type family Name params [:: Kind] [where { equations }]@
+typeFamilyDeclParser :: TokParser Decl
+typeFamilyDeclParser = withSpan $ do
+  keywordTok TkKeywordType
+  varIdTok "family"
+  name <- constructorIdentifierParser
+  params <- MP.many typeParamParser
+  kind <- familyResultKindParser
+  -- A closed type family has a `where` clause with equations.
+  equations <- MP.optional (MP.try closedTypeFamilyWhereParser)
+  pure $ \span' ->
+    DeclTypeFamilyDecl
+      span'
+      TypeFamilyDecl
+        { typeFamilyDeclSpan = span',
+          typeFamilyDeclName = name,
+          typeFamilyDeclParams = params,
+          typeFamilyDeclKind = kind,
+          typeFamilyDeclEquations = equations
+        }
+
+-- | Parse the @where { eq; ... }@ block of a closed type family.
+closedTypeFamilyWhereParser :: TokParser [TypeFamilyEq]
+closedTypeFamilyWhereParser =
+  whereClauseItemsParser
+    (bracedSemiSep typeFamilyEqParser)
+    (plainSemiSep1 typeFamilyEqParser)
+
+-- | Parse one closed type family equation: @[forall binders.] LhsType = RhsType@
+typeFamilyEqParser :: TokParser TypeFamilyEq
+typeFamilyEqParser = withSpan $ do
+  forallBinders <- MP.option [] (MP.try typeFamilyForallParser)
+  lhs <- typeAppParser
+  expectedTok TkReservedEquals
+  rhs <- typeParser
+  pure $ \span' ->
+    TypeFamilyEq
+      { typeFamilyEqSpan = span',
+        typeFamilyEqForall = forallBinders,
+        typeFamilyEqLhs = lhs,
+        typeFamilyEqRhs = rhs
+      }
+
+-- ---------------------------------------------------------------------------
+-- TypeFamilies: top-level data family declaration
+
+-- | Parse @data family Name params [:: Kind]@
+dataFamilyDeclParser :: TokParser Decl
+dataFamilyDeclParser = withSpan $ do
+  keywordTok TkKeywordData
+  varIdTok "family"
+  name <- constructorIdentifierParser
+  params <- MP.many typeParamParser
+  kind <- familyResultKindParser
+  pure $ \span' ->
+    DeclDataFamilyDecl
+      span'
+      DataFamilyDecl
+        { dataFamilyDeclSpan = span',
+          dataFamilyDeclName = name,
+          dataFamilyDeclParams = params,
+          dataFamilyDeclKind = kind
+        }
+
+-- ---------------------------------------------------------------------------
+-- TypeFamilies: top-level type/data/newtype family instances
+
+-- | Parse @type instance [forall binders.] LhsType = RhsType@
+typeFamilyInstParser :: TokParser Decl
+typeFamilyInstParser = withSpan $ do
+  keywordTok TkKeywordType
+  keywordTok TkKeywordInstance
+  forallBinders <- MP.option [] (MP.try typeFamilyForallParser)
+  lhs <- typeAppParser
+  expectedTok TkReservedEquals
+  rhs <- typeParser
+  pure $ \span' ->
+    DeclTypeFamilyInst
+      span'
+      TypeFamilyInst
+        { typeFamilyInstSpan = span',
+          typeFamilyInstForall = forallBinders,
+          typeFamilyInstLhs = lhs,
+          typeFamilyInstRhs = rhs
+        }
+
+-- | Parse @data instance [forall binders.] HeadType = Cons | ...@ (also GADT style)
+dataFamilyInstParser :: TokParser Decl
+dataFamilyInstParser = withSpan $ do
+  keywordTok TkKeywordData
+  keywordTok TkKeywordInstance
+  forallBinders <- MP.option [] (MP.try typeFamilyForallParser)
+  head' <- typeAppParser
+  (constructors, derivingClauses) <- MP.try gadtStyleDataDecl <|> traditionalStyleDataDecl
+  pure $ \span' ->
+    DeclDataFamilyInst
+      span'
+      DataFamilyInst
+        { dataFamilyInstSpan = span',
+          dataFamilyInstIsNewtype = False,
+          dataFamilyInstForall = forallBinders,
+          dataFamilyInstHead = head',
+          dataFamilyInstConstructors = constructors,
+          dataFamilyInstDeriving = derivingClauses
+        }
+  where
+    traditionalStyleDataDecl = do
+      constructors <- MP.optional (expectedTok TkReservedEquals *> dataConDeclParser `MP.sepBy1` expectedTok TkReservedPipe)
+      derivingClauses <- MP.many derivingClauseParser
+      pure (fromMaybe [] constructors, derivingClauses)
+    gadtStyleDataDecl = do
+      constructors <- gadtWhereClauseParser
+      derivingClauses <- MP.many derivingClauseParser
+      pure (constructors, derivingClauses)
+
+-- | Parse @newtype instance [forall binders.] HeadType = Constructor@
+newtypeFamilyInstParser :: TokParser Decl
+newtypeFamilyInstParser = withSpan $ do
+  keywordTok TkKeywordNewtype
+  keywordTok TkKeywordInstance
+  forallBinders <- MP.option [] (MP.try typeFamilyForallParser)
+  head' <- typeAppParser
+  expectedTok TkReservedEquals
+  constructor <- newtypeConDeclParser
+  derivingClauses <- MP.many derivingClauseParser
+  pure $ \span' ->
+    DeclDataFamilyInst
+      span'
+      DataFamilyInst
+        { dataFamilyInstSpan = span',
+          dataFamilyInstIsNewtype = True,
+          dataFamilyInstForall = forallBinders,
+          dataFamilyInstHead = head',
+          dataFamilyInstConstructors = [constructor],
+          dataFamilyInstDeriving = derivingClauses
+        }
+
+-- ---------------------------------------------------------------------------
+-- TypeFamilies: class body items (associated type/data families + defaults)
+
+-- | Parse @type Name params [:: Kind]@ as an associated type family in a class.
+-- Note: no @family@ keyword inside class bodies.
+classTypeFamilyDeclParser :: TokParser ClassDeclItem
+classTypeFamilyDeclParser = withSpan $ do
+  keywordTok TkKeywordType
+  -- Bail out if the next token is `instance` (handled by classDefaultTypeInstParser).
+  tok <- lookAhead anySingle
+  case lexTokenKind tok of
+    TkKeywordInstance -> MP.empty
+    _ -> pure ()
+  name <- constructorIdentifierParser
+  params <- MP.many typeParamParser
+  kind <- familyResultKindParser
+  pure $ \span' ->
+    ClassItemTypeFamilyDecl
+      span'
+      TypeFamilyDecl
+        { typeFamilyDeclSpan = span',
+          typeFamilyDeclName = name,
+          typeFamilyDeclParams = params,
+          typeFamilyDeclKind = kind,
+          typeFamilyDeclEquations = Nothing
+        }
+
+-- | Parse @data Name params [:: Kind]@ as an associated data family in a class.
+classDataFamilyDeclParser :: TokParser ClassDeclItem
+classDataFamilyDeclParser = withSpan $ do
+  keywordTok TkKeywordData
+  name <- constructorIdentifierParser
+  params <- MP.many typeParamParser
+  kind <- familyResultKindParser
+  pure $ \span' ->
+    ClassItemDataFamilyDecl
+      span'
+      DataFamilyDecl
+        { dataFamilyDeclSpan = span',
+          dataFamilyDeclName = name,
+          dataFamilyDeclParams = params,
+          dataFamilyDeclKind = kind
+        }
+
+-- | Parse @type instance LhsType = RhsType@ as a default type family instance in a class.
+classDefaultTypeInstParser :: TokParser ClassDeclItem
+classDefaultTypeInstParser = withSpan $ do
+  keywordTok TkKeywordType
+  keywordTok TkKeywordInstance
+  forallBinders <- MP.option [] (MP.try typeFamilyForallParser)
+  lhs <- typeAppParser
+  expectedTok TkReservedEquals
+  rhs <- typeParser
+  pure $ \span' ->
+    ClassItemDefaultTypeInst
+      span'
+      TypeFamilyInst
+        { typeFamilyInstSpan = span',
+          typeFamilyInstForall = forallBinders,
+          typeFamilyInstLhs = lhs,
+          typeFamilyInstRhs = rhs
+        }
+
+-- ---------------------------------------------------------------------------
+-- TypeFamilies: instance body items
+
+-- | Parse @type LhsType = RhsType@ inside an instance body (no @instance@ keyword here).
+instanceTypeFamilyInstParser :: TokParser InstanceDeclItem
+instanceTypeFamilyInstParser = withSpan $ do
+  keywordTok TkKeywordType
+  forallBinders <- MP.option [] (MP.try typeFamilyForallParser)
+  lhs <- typeAppParser
+  expectedTok TkReservedEquals
+  rhs <- typeParser
+  pure $ \span' ->
+    InstanceItemTypeFamilyInst
+      span'
+      TypeFamilyInst
+        { typeFamilyInstSpan = span',
+          typeFamilyInstForall = forallBinders,
+          typeFamilyInstLhs = lhs,
+          typeFamilyInstRhs = rhs
+        }
+
+-- | Parse @data HeadType = Cons | ...@ (or GADT style) inside an instance body.
+instanceDataFamilyInstParser :: TokParser InstanceDeclItem
+instanceDataFamilyInstParser = withSpan $ do
+  keywordTok TkKeywordData
+  head' <- typeAppParser
+  (constructors, derivingClauses) <- MP.try gadtStyleDataDecl <|> traditionalStyleDataDecl
+  pure $ \span' ->
+    InstanceItemDataFamilyInst
+      span'
+      DataFamilyInst
+        { dataFamilyInstSpan = span',
+          dataFamilyInstIsNewtype = False,
+          dataFamilyInstForall = [],
+          dataFamilyInstHead = head',
+          dataFamilyInstConstructors = constructors,
+          dataFamilyInstDeriving = derivingClauses
+        }
+  where
+    traditionalStyleDataDecl = do
+      constructors <- MP.optional (expectedTok TkReservedEquals *> dataConDeclParser `MP.sepBy1` expectedTok TkReservedPipe)
+      derivingClauses <- MP.many derivingClauseParser
+      pure (fromMaybe [] constructors, derivingClauses)
+    gadtStyleDataDecl = do
+      constructors <- gadtWhereClauseParser
+      derivingClauses <- MP.many derivingClauseParser
+      pure (constructors, derivingClauses)
+
+-- | Parse @newtype HeadType = Constructor@ inside an instance body.
+instanceNewtypeFamilyInstParser :: TokParser InstanceDeclItem
+instanceNewtypeFamilyInstParser = withSpan $ do
+  keywordTok TkKeywordNewtype
+  head' <- typeAppParser
+  expectedTok TkReservedEquals
+  constructor <- newtypeConDeclParser
+  derivingClauses <- MP.many derivingClauseParser
+  pure $ \span' ->
+    InstanceItemDataFamilyInst
+      span'
+      DataFamilyInst
+        { dataFamilyInstSpan = span',
+          dataFamilyInstIsNewtype = True,
+          dataFamilyInstForall = [],
+          dataFamilyInstHead = head',
+          dataFamilyInstConstructors = [constructor],
+          dataFamilyInstDeriving = derivingClauses
+        }
+
+-- ---------------------------------------------------------------------------
 
 typeSigDeclParser :: TokParser Decl
 typeSigDeclParser = withSpan $ do
@@ -358,7 +657,13 @@ classItemsBracedParser :: TokParser [ClassDeclItem]
 classItemsBracedParser = bracedSemiSep classDeclItemParser
 
 classDeclItemParser :: TokParser ClassDeclItem
-classDeclItemParser = MP.try classFixityItemParser <|> MP.try classTypeSigItemParser <|> classDefaultItemParser
+classDeclItemParser =
+  MP.try classFixityItemParser
+    <|> MP.try classTypeFamilyDeclParser
+    <|> MP.try classDataFamilyDeclParser
+    <|> MP.try classDefaultTypeInstParser
+    <|> MP.try classTypeSigItemParser
+    <|> classDefaultItemParser
 
 classTypeSigItemParser :: TokParser ClassDeclItem
 classTypeSigItemParser = withSpan $ do
@@ -428,7 +733,13 @@ instanceItemsBracedParser :: TokParser [InstanceDeclItem]
 instanceItemsBracedParser = bracedSemiSep instanceDeclItemParser
 
 instanceDeclItemParser :: TokParser InstanceDeclItem
-instanceDeclItemParser = MP.try instanceFixityItemParser <|> MP.try instanceTypeSigItemParser <|> instanceValueItemParser
+instanceDeclItemParser =
+  MP.try instanceFixityItemParser
+    <|> MP.try instanceTypeSigItemParser
+    <|> MP.try instanceTypeFamilyInstParser
+    <|> MP.try instanceDataFamilyInstParser
+    <|> MP.try instanceNewtypeFamilyInstParser
+    <|> instanceValueItemParser
 
 instanceTypeSigItemParser :: TokParser InstanceDeclItem
 instanceTypeSigItemParser = withSpan $ do

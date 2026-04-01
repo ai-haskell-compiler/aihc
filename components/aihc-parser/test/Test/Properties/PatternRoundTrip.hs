@@ -473,6 +473,7 @@ normalizeTypeSpan ty =
     TContext _ constraints inner -> TContext span0 constraints (normalizeTypeSpan inner)
     TUnboxedSum _ elems -> TUnboxedSum span0 (map normalizeTypeSpan elems)
     TSplice _ body -> TSplice span0 (normalizeExpr body)
+    TWildcard _ -> TWildcard span0
 
 normalizeLiteral :: Literal -> Literal
 normalizeLiteral lit =

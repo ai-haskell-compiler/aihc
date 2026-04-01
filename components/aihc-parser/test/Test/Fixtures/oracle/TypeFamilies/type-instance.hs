@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail type instance -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE TypeFamilies #-}
 module TypeInstance where
 

@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail wildcard in pattern -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE PartialTypeSignatures #-}
 module PatternWildcard where
 

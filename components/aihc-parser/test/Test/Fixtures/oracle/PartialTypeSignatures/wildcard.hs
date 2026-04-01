@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail anonymous wildcard type -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE PartialTypeSignatures #-}
 module Wildcard where
 

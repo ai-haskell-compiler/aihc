@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail polykinded type family -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE TypeFamilies, PolyKinds #-}
 module PolykindedTypeFamily where
 
