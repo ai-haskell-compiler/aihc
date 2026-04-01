@@ -401,14 +401,12 @@ prettyPattern pat =
 -- | Pretty print a pattern field binding.
 -- Supports NamedFieldPuns: if pattern is a variable with the same name as the field,
 -- print just the field name (punned form).
--- Supports RecordWildCards: if fieldName is "..", print just "..".
+-- Pattern fields are comma-separated, so greedy patterns don't need parens.
 prettyPatternFieldBinding :: Text -> Pattern -> Doc ann
 prettyPatternFieldBinding fieldName fieldPat =
-  case fieldName of
-    ".." -> ".." -- RecordWildCards: wildcard sentinel
-    _ -> case fieldPat of
-      PVar _ varName | varName == fieldName -> pretty fieldName -- NamedFieldPuns: punned form
-      _ -> pretty fieldName <+> "=" <+> prettyPattern fieldPat
+  case fieldPat of
+    PVar _ varName | varName == fieldName -> pretty fieldName -- NamedFieldPuns: punned form
+    _ -> pretty fieldName <+> "=" <+> prettyPattern fieldPat
 
 prettyPatternAtom :: Pattern -> Doc ann
 prettyPatternAtom pat =
@@ -1065,11 +1063,9 @@ prettyTupleBody tupleFlavor inner =
 -- Record fields are comma-separated, so greedy expressions don't need parens.
 prettyBinding :: (Text, Expr) -> Doc ann
 prettyBinding (name, value) =
-  case name of
-    ".." -> ".." -- RecordWildCards: wildcard sentinel
-    _ -> case value of
-      EVar _ varName | varName == name -> pretty name -- NamedFieldPuns: punned form
-      _ -> pretty name <+> "=" <+> prettyExprPrec 0 value
+  case value of
+    EVar _ varName | varName == name -> pretty name -- NamedFieldPuns: punned form
+    _ -> pretty name <+> "=" <+> prettyExprPrec 0 value
 
 -- | Pretty print a case alternative.
 -- Since case alternatives are separated by semicolons (in explicit brace syntax),
