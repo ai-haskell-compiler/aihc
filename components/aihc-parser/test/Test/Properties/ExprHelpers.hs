@@ -65,7 +65,7 @@ genExprSized n
           EParen span0 <$> genExprSized (n - 1),
           -- Template Haskell splices and quotes
           ETHSplice span0 <$> genSpliceBody (n - 1),
-          ETHTypedSplice span0 <$> genSpliceBody (n - 1),
+          ETHTypedSplice span0 <$> genTypedSpliceBody (n - 1),
           ETHExpQuote span0 <$> genExprSized (n - 1),
           ETHTypedQuote span0 <$> genExprSized (n - 1),
           ETHDeclQuote span0 <$> genValueDecls (n - 1),
@@ -104,6 +104,12 @@ genSpliceBody n =
     [ EVar span0 <$> genIdent,
       EParen span0 <$> genExprSized (max 0 (n - 1))
     ]
+
+-- | Generate the body of a TH typed splice: always parenthesized.
+-- Typed splices require parentheses: $$(expr) is valid, $$expr is invalid.
+genTypedSpliceBody :: Int -> Gen Expr
+genTypedSpliceBody n =
+  EParen span0 <$> genExprSized (max 0 (n - 1))
 
 -- | Generate a simple pattern for TH pattern quotes [p| pat |].
 -- Only generates patterns that don't require additional extensions.
