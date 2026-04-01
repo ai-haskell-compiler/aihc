@@ -617,6 +617,7 @@ docTokenKind kind =
     TkReservedRightArrow -> "TkReservedRightArrow"
     TkReservedAt -> "TkReservedAt"
     TkReservedDoubleArrow -> "TkReservedDoubleArrow"
+    TkTypeApp -> "TkTypeApp"
     TkVarId name -> "TkVarId" <+> docText name
     TkConId name -> "TkConId" <+> docText name
     TkQVarId name -> "TkQVarId" <+> docText name

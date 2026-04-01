@@ -1,0 +1,5 @@
+extensions: [TypeApplications]
+input: |
+  f @ a
+ast: EInfix (EVar "f") "@" (EVar "a")
+status: pass

@@ -1,0 +1,5 @@
+extensions: [TypeApplications]
+input: |
+  f @a
+ast: ETypeApp (EVar "f") (TVar "a")
+status: pass
