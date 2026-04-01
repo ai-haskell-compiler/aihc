@@ -59,9 +59,10 @@ test-suite spec
     , Test.ErrorMessages.Suite
     , Test.Oracle.Suite
     , Test.ExtensionMapping.Suite
-    , Test.HackageTester.Suite
-    , Test.Lexer.Suite
-    , Test.Properties.ExprHelpers
+     , Test.HackageTester.Suite
+     , Test.Lexer.Suite
+     , Test.Properties.BareSyntax
+     , Test.Properties.ExprHelpers
     , Test.Properties.ExprRoundTrip
     , Test.Properties.ModuleRoundTrip
     , Test.Properties.Identifiers
@@ -130,10 +131,11 @@ executable parser-quickcheck-batch
   other-modules:
       CppSupport
     , ParserQuickCheck.CLI
-    , ParserQuickCheck.Registry
-    , ParserQuickCheck.Runner
-    , ParserQuickCheck.Types
-    , Test.Properties.ExprHelpers
+     , ParserQuickCheck.Registry
+     , ParserQuickCheck.Runner
+     , ParserQuickCheck.Types
+     , Test.Properties.BareSyntax
+     , Test.Properties.ExprHelpers
     , Test.Properties.ExprRoundTrip
     , Test.Properties.ModuleRoundTrip
     , Test.Properties.Identifiers

@@ -14,15 +14,15 @@ module Test.Properties.ExprHelpers
 where
 
 import Aihc.Parser.Lex (isReservedIdentifier)
-import Aihc.Parser.Syntax
 import Data.Text (Text)
 import qualified Data.Text as T
+import Test.Properties.BareSyntax
 import Test.Properties.Identifiers (genIdent, shrinkIdent)
 import Test.QuickCheck
 
 -- | Canonical empty source span for normalization.
-span0 :: SourceSpan
-span0 = noSourceSpan
+span0 :: ()
+span0 = ()
 
 -- | Generate a random expression. Uses QuickCheck's size parameter
 -- to control recursion depth.
@@ -39,40 +39,40 @@ genExprSized n
         [ -- Leaf expressions
           genExprLeaf,
           -- Recursive expressions (reduce size for subexpressions)
-          EApp span0 <$> genExprSized half <*> genExprSized half,
-          EInfix span0 <$> genExprSized half <*> genOperator <*> genExprSized half,
-          ENegate span0 <$> genExprSized (n - 1),
-          ESectionL span0 <$> genExprSized (n - 1) <*> genOperator,
-          ESectionR span0 <$> genOperator <*> genExprSized (n - 1),
-          EIf span0 <$> genExprSized third <*> genExprSized third <*> genExprSized third,
-          ECase span0 <$> genExprSized half <*> genCaseAlts half,
-          ELambdaPats span0 <$> genPatterns half <*> genExprSized half,
-          ELambdaCase span0 <$> genCaseAlts (n - 1),
-          ELetDecls span0 <$> genValueDecls half <*> genExprSized half,
-          EWhereDecls span0 <$> genExprSized half <*> genValueDecls half,
-          EDo span0 <$> genDoStmts (n - 1),
-          EListComp span0 <$> genExprSized half <*> genCompStmts half,
-          EListCompParallel span0 <$> genExprSized half <*> genParallelCompStmts half,
-          EList span0 <$> genListElems (n - 1),
-          ETuple span0 Boxed <$> genTupleElems (n - 1),
-          ETuple span0 Unboxed <$> genUnboxedTupleElems (n - 1),
-          ETupleSection span0 Boxed <$> genTupleSectionElems (n - 1),
+          EApp <$> genExprSized half <*> genExprSized half,
+          EInfix <$> genExprSized half <*> genOperator <*> genExprSized half,
+          ENegate <$> genNegateOperand (n - 1),
+          ESectionL <$> genExprSized (n - 1) <*> genOperator,
+          ESectionR <$> genOperator <*> genExprSized (n - 1),
+          EIf <$> genExprSized third <*> genExprSized third <*> genExprSized third,
+          ECase <$> genExprSized half <*> genCaseAlts half,
+          ELambdaPats <$> genPatterns half <*> genExprSized half,
+          ELambdaCase <$> genCaseAlts (n - 1),
+          ELetDecls <$> genValueDecls half <*> genExprSized half,
+          EWhereDecls <$> genExprSized half <*> genValueDecls half,
+          EDo <$> genDoStmts (n - 1),
+          EListComp <$> genExprSized half <*> genCompStmts half,
+          EListCompParallel <$> genExprSized half <*> genParallelCompStmts half,
+          EList <$> genListElems (n - 1),
+          ETuple Boxed <$> genTupleElems (n - 1),
+          ETuple Unboxed <$> genUnboxedTupleElems (n - 1),
+          ETupleSection Boxed <$> genTupleSectionElems (n - 1),
           genUnboxedSumExpr (n - 1),
-          EArithSeq span0 <$> genArithSeq (n - 1),
-          ERecordCon span0 <$> genConName <*> genRecordFields (n - 1) <*> pure False,
-          ERecordUpd span0 <$> genExprSized half <*> genRecordFields half,
-          ETypeSig span0 <$> genExprSized half <*> genType half,
-          EParen span0 <$> genExprSized (n - 1),
+          EArithSeq <$> genArithSeq (n - 1),
+          ERecordCon <$> genConName <*> genRecordFields (n - 1) <*> pure False,
+          ERecordUpd <$> genExprSized half <*> genRecordFields half,
+          ETypeSig <$> genExprSized half <*> genType half,
+          EParen <$> genExprSized (n - 1),
           -- Template Haskell splices and quotes
-          ETHSplice span0 <$> genSpliceBody (n - 1),
-          ETHTypedSplice span0 <$> genTypedSpliceBody (n - 1),
-          ETHExpQuote span0 <$> genExprSized (n - 1),
-          ETHTypedQuote span0 <$> genExprSized (n - 1),
-          ETHDeclQuote span0 <$> genValueDecls (n - 1),
-          ETHPatQuote span0 <$> genSimplePattern,
-          ETHTypeQuote span0 <$> genType (n - 1),
-          ETHNameQuote span0 <$> genNameQuoteIdent,
-          ETHTypeNameQuote span0 <$> genConName
+          ETHSplice <$> genSpliceBody (n - 1),
+          ETHTypedSplice <$> genTypedSpliceBody (n - 1),
+          ETHExpQuote <$> genExprSized (n - 1),
+          ETHTypedQuote <$> genExprSized (n - 1),
+          ETHDeclQuote <$> genValueDecls (n - 1),
+          ETHPatQuote <$> genSimplePattern,
+          ETHTypeQuote <$> genType (n - 1),
+          ETHNameQuote <$> genNameQuoteIdent,
+          ETHTypeNameQuote <$> genConName
         ]
   where
     half = n `div` 2
@@ -82,18 +82,27 @@ genExprSized n
 genExprLeaf :: Gen Expr
 genExprLeaf =
   oneof
-    [ EVar span0 <$> genIdent,
+    [ EVar <$> genIdent,
       mkIntExpr <$> chooseInteger (0, 999),
       mkHexExpr <$> chooseInteger (0, 255),
       mkFloatExpr <$> genTenths,
       mkCharExpr <$> genCharValue,
       mkStringExpr <$> genStringValue,
       -- Note: EQuasiQuote requires QuasiQuotes extension, skip for now
-      pure (EList span0 []),
-      pure (ETuple span0 Boxed []),
-      pure (ETuple span0 Unboxed []),
-      ETupleCon span0 Boxed <$> chooseInt (2, 5),
-      ETupleCon span0 Unboxed <$> chooseInt (2, 5)
+      pure (EList []),
+      pure (ETuple Boxed []),
+      pure (ETuple Unboxed []),
+      ETupleCon Boxed <$> chooseInt (2, 5),
+      ETupleCon Unboxed <$> chooseInt (2, 5)
+    ]
+
+-- | Generate an operand that the current pretty-printer can render
+-- unambiguously after a leading minus.
+genNegateOperand :: Int -> Gen Expr
+genNegateOperand n =
+  oneof
+    [ genExprLeaf,
+      EParen <$> genExprSized (max 0 n)
     ]
 
 -- | Generate the body of a TH splice: either a bare variable or a parenthesized expression.
@@ -101,24 +110,24 @@ genExprLeaf =
 genSpliceBody :: Int -> Gen Expr
 genSpliceBody n =
   oneof
-    [ EVar span0 <$> genIdent,
-      EParen span0 <$> genExprSized (max 0 (n - 1))
+    [ EVar <$> genIdent,
+      EParen <$> genExprSized (max 0 (n - 1))
     ]
 
 -- | Generate the body of a TH typed splice: always parenthesized.
 -- Typed splices require parentheses: $$(expr) is valid, $$expr is invalid.
 genTypedSpliceBody :: Int -> Gen Expr
 genTypedSpliceBody n =
-  EParen span0 <$> genExprSized (max 0 (n - 1))
+  EParen <$> genExprSized (max 0 (n - 1))
 
 -- | Generate a simple pattern for TH pattern quotes [p| pat |].
 -- Only generates patterns that don't require additional extensions.
 genSimplePattern :: Gen Pattern
 genSimplePattern =
   oneof
-    [ PVar span0 <$> genIdent,
-      pure (PWildcard span0),
-      PCon span0 <$> genConName <*> pure []
+    [ PVar <$> genIdent,
+      pure PWildcard,
+      PCon <$> genConName <*> pure []
     ]
 
 -- | Generate an identifier safe for TH name quotes ('name).
@@ -182,8 +191,8 @@ genPattern n
   | otherwise =
       oneof
         [ genPatternLeaf,
-          PTuple span0 Boxed <$> genPatternTupleElems half,
-          PList span0 <$> genPatternListElems half
+          PTuple Boxed <$> genPatternTupleElems half,
+          PList <$> genPatternListElems half
         ]
   where
     half = n `div` 2
@@ -192,8 +201,8 @@ genPattern n
 genPatternLeaf :: Gen Pattern
 genPatternLeaf =
   oneof
-    [ PVar span0 <$> genIdent,
-      pure (PWildcard span0)
+    [ PVar <$> genIdent,
+      pure PWildcard
     ]
 
 genPatternTupleElems :: Int -> Gen [Pattern]
@@ -222,9 +231,8 @@ genCaseAlt n = do
   expr <- genExprSized half
   pure $
     CaseAlt
-      { caseAltSpan = span0,
-        caseAltPattern = pat,
-        caseAltRhs = UnguardedRhs span0 expr
+      { caseAltPattern = pat,
+        caseAltRhs = UnguardedRhs expr
       }
   where
     half = n `div` 2
@@ -239,15 +247,12 @@ genValueDecls n = do
   exprs <- vectorOf count (genExprSized (n `div` count))
   pure
     [ DeclValue
-        span0
         ( FunctionBind
-            span0
             name
             [ Match
-                { matchSpan = span0,
-                  matchHeadForm = MatchHeadPrefix,
+                { matchHeadForm = MatchHeadPrefix,
                   matchPats = [],
-                  matchRhs = UnguardedRhs span0 expr
+                  matchRhs = UnguardedRhs expr
                 }
             ]
         )
@@ -262,14 +267,14 @@ genDoStmts n = do
   stmts <- vectorOf (count - 1) (genDoStmt perStmt)
   -- Last statement must be DoExpr
   lastExpr <- genExprSized perStmt
-  pure (stmts <> [DoExpr span0 lastExpr])
+  pure (stmts <> [DoExpr lastExpr])
 
 genDoStmt :: Int -> Gen DoStmt
 genDoStmt n =
   oneof
-    [ DoBind span0 <$> genPattern half <*> genExprSized half,
-      DoLetDecls span0 <$> genValueDecls (n - 1),
-      DoExpr span0 <$> genExprSized (n - 1)
+    [ DoBind <$> genPattern half <*> genExprSized half,
+      DoLetDecls <$> genValueDecls (n - 1),
+      DoExpr <$> genExprSized (n - 1)
     ]
   where
     half = n `div` 2
@@ -283,8 +288,8 @@ genCompStmts n = do
 genCompStmt :: Int -> Gen CompStmt
 genCompStmt n =
   oneof
-    [ CompGen span0 <$> genPattern half <*> genExprSized half,
-      CompGuard span0 <$> genExprSized (n - 1)
+    [ CompGen <$> genPattern half <*> genExprSized half,
+      CompGuard <$> genExprSized (n - 1)
     ]
   where
     half = n `div` 2
@@ -323,7 +328,7 @@ genUnboxedSumExpr n = do
   arity <- chooseInt (2, 4)
   altIdx <- chooseInt (0, arity - 1)
   inner <- genExprSized n
-  pure (EUnboxedSum span0 altIdx arity inner)
+  pure (EUnboxedSum altIdx arity inner)
 
 -- | Generate tuple section elements
 genTupleSectionElems :: Int -> Gen [Maybe Expr]
@@ -348,10 +353,10 @@ genMaybeExpr n =
 genArithSeq :: Int -> Gen ArithSeq
 genArithSeq n =
   oneof
-    [ ArithSeqFrom span0 <$> genExprSized n,
-      ArithSeqFromThen span0 <$> genExprSized half <*> genExprSized half,
-      ArithSeqFromTo span0 <$> genExprSized half <*> genExprSized half,
-      ArithSeqFromThenTo span0 <$> genExprSized third <*> genExprSized third <*> genExprSized third
+    [ ArithSeqFrom <$> genExprSized n,
+      ArithSeqFromThen <$> genExprSized half <*> genExprSized half,
+      ArithSeqFromTo <$> genExprSized half <*> genExprSized half,
+      ArithSeqFromThenTo <$> genExprSized third <*> genExprSized third <*> genExprSized third
     ]
   where
     half = n `div` 2
@@ -382,11 +387,11 @@ genType n
   | otherwise =
       oneof
         [ genTypeLeaf,
-          TApp span0 <$> genType half <*> genType half,
-          TFun span0 <$> genType half <*> genType half,
-          TList span0 Unpromoted <$> genType (n - 1),
-          TTuple span0 Boxed Unpromoted <$> genTypeTupleElems (n - 1),
-          TParen span0 <$> genType (n - 1)
+          TApp <$> genType half <*> genType half,
+          TFun <$> genType half <*> genType half,
+          TList Unpromoted <$> genType (n - 1),
+          TTuple Boxed Unpromoted <$> genTypeTupleElems (n - 1),
+          TParen <$> genType (n - 1)
         ]
   where
     half = n `div` 2
@@ -395,8 +400,8 @@ genType n
 genTypeLeaf :: Gen Type
 genTypeLeaf =
   oneof
-    [ TVar span0 <$> genTypeVarName,
-      (\name -> TCon span0 name Unpromoted) <$> genConName
+    [ TVar <$> genTypeVarName,
+      (`TCon` Unpromoted) <$> genConName
     ]
 
 genTypeTupleElems :: Int -> Gen [Type]
@@ -420,16 +425,16 @@ genTypeVarName = do
 
 -- | Literal expression generators
 mkHexExpr :: Integer -> Expr
-mkHexExpr value = EIntBase span0 value ("0x" <> T.pack (showHex value))
+mkHexExpr value = EIntBase value ("0x" <> T.pack (showHex value))
 
 mkFloatExpr :: Double -> Expr
-mkFloatExpr value = EFloat span0 value (T.pack (show value))
+mkFloatExpr value = EFloat value (T.pack (show value))
 
 mkCharExpr :: Char -> Expr
-mkCharExpr value = EChar span0 value (T.pack (show value))
+mkCharExpr value = EChar value (T.pack (show value))
 
 mkStringExpr :: Text -> Expr
-mkStringExpr value = EString span0 value (T.pack (show (T.unpack value)))
+mkStringExpr value = EString value (T.pack (show (T.unpack value)))
 
 genTenths :: Gen Double
 genTenths = do
@@ -459,101 +464,101 @@ renderIntBaseHash value
 
 -- | Create an integer expression with canonical representation.
 mkIntExpr :: Integer -> Expr
-mkIntExpr value = EInt span0 value (T.pack (show value))
+mkIntExpr value = EInt value (T.pack (show value))
 
 -- | Shrink an expression for QuickCheck counterexample minimization.
 shrinkExpr :: Expr -> [Expr]
 shrinkExpr expr =
   case expr of
-    EVar _ name -> [EVar span0 shrunk | shrunk <- shrinkIdent name]
-    EInt _ value _ -> [mkIntExpr shrunk | shrunk <- shrinkIntegral value]
-    EIntHash _ value _ -> [EIntHash span0 shrunk (T.pack (show shrunk) <> "#") | shrunk <- shrinkIntegral value]
-    EIntBase _ value _ -> [mkIntExpr shrunk | shrunk <- shrinkIntegral value]
-    EIntBaseHash _ value _ -> [EIntBaseHash span0 shrunk (renderIntBaseHash shrunk) | shrunk <- shrinkIntegral value]
-    EFloat _ value _ -> [mkFloatExpr shrunk | shrunk <- shrinkFloat value]
-    EFloatHash _ value _ -> [EFloatHash span0 shrunk (T.pack (show shrunk) <> "#") | shrunk <- shrinkFloat value]
+    EVar name -> [EVar shrunk | shrunk <- shrinkIdent name]
+    EInt value _ -> [mkIntExpr shrunk | shrunk <- shrinkIntegral value]
+    EIntHash value _ -> [EIntHash shrunk (T.pack (show shrunk) <> "#") | shrunk <- shrinkIntegral value]
+    EIntBase value _ -> [mkIntExpr shrunk | shrunk <- shrinkIntegral value]
+    EIntBaseHash value _ -> [EIntBaseHash shrunk (renderIntBaseHash shrunk) | shrunk <- shrinkIntegral value]
+    EFloat value _ -> [mkFloatExpr shrunk | shrunk <- shrinkFloat value]
+    EFloatHash value _ -> [EFloatHash shrunk (T.pack (show shrunk) <> "#") | shrunk <- shrinkFloat value]
     EChar {} -> []
     ECharHash {} -> []
-    EString _ value _ -> [mkStringExpr (T.pack shrunk) | shrunk <- shrink (T.unpack value)]
-    EStringHash _ value _ -> [EStringHash span0 (T.pack shrunk) (T.pack (show shrunk) <> "#") | shrunk <- shrink (T.unpack value)]
-    EQuasiQuote _ quoter body ->
-      [EQuasiQuote span0 quoter (T.pack shrunk) | shrunk <- shrink (T.unpack body)]
-    EApp _ fn arg ->
+    EString value _ -> [mkStringExpr (T.pack shrunk) | shrunk <- shrink (T.unpack value)]
+    EStringHash value _ -> [EStringHash (T.pack shrunk) (T.pack (show shrunk) <> "#") | shrunk <- shrink (T.unpack value)]
+    EQuasiQuote quoter body ->
+      [EQuasiQuote quoter (T.pack shrunk) | shrunk <- shrink (T.unpack body)]
+    EApp fn arg ->
       [fn, arg]
-        <> [EApp span0 fn' arg | fn' <- shrinkExpr fn]
-        <> [EApp span0 fn arg' | arg' <- shrinkExpr arg]
-    EInfix _ lhs op rhs ->
+        <> [EApp fn' arg | fn' <- shrinkExpr fn]
+        <> [EApp fn arg' | arg' <- shrinkExpr arg]
+    EInfix lhs op rhs ->
       [lhs, rhs]
-        <> [EInfix span0 lhs' op rhs | lhs' <- shrinkExpr lhs]
-        <> [EInfix span0 lhs op rhs' | rhs' <- shrinkExpr rhs]
-    ENegate _ inner -> inner : [ENegate span0 inner' | inner' <- shrinkExpr inner]
-    ESectionL _ inner op -> inner : [ESectionL span0 inner' op | inner' <- shrinkExpr inner]
-    ESectionR _ op inner -> inner : [ESectionR span0 op inner' | inner' <- shrinkExpr inner]
-    EIf _ cond thenE elseE ->
+        <> [EInfix lhs' op rhs | lhs' <- shrinkExpr lhs]
+        <> [EInfix lhs op rhs' | rhs' <- shrinkExpr rhs]
+    ENegate inner -> inner : [ENegate inner' | inner' <- shrinkExpr inner]
+    ESectionL inner op -> inner : [ESectionL inner' op | inner' <- shrinkExpr inner]
+    ESectionR op inner -> inner : [ESectionR op inner' | inner' <- shrinkExpr inner]
+    EIf cond thenE elseE ->
       [thenE, elseE]
-        <> [EIf span0 cond' thenE elseE | cond' <- shrinkExpr cond]
-        <> [EIf span0 cond thenE' elseE | thenE' <- shrinkExpr thenE]
-        <> [EIf span0 cond thenE elseE' | elseE' <- shrinkExpr elseE]
-    EMultiWayIf _ rhss ->
-      [EMultiWayIf span0 rhss' | rhss' <- shrinkList shrinkGuardedRhs rhss, not (null rhss')]
-    ECase _ scrutinee alts ->
+        <> [EIf cond' thenE elseE | cond' <- shrinkExpr cond]
+        <> [EIf cond thenE' elseE | thenE' <- shrinkExpr thenE]
+        <> [EIf cond thenE elseE' | elseE' <- shrinkExpr elseE]
+    EMultiWayIf rhss ->
+      [EMultiWayIf rhss' | rhss' <- shrinkList shrinkGuardedRhs rhss, not (null rhss')]
+    ECase scrutinee alts ->
       scrutinee
-        : [ECase span0 scrutinee' alts | scrutinee' <- shrinkExpr scrutinee]
-          <> [ECase span0 scrutinee alts' | alts' <- shrinkCaseAlts alts, not (null alts')]
-    ELambdaPats _ pats body ->
-      body : [ELambdaPats span0 pats body' | body' <- shrinkExpr body]
-    ELambdaCase _ alts ->
-      [ELambdaCase span0 alts' | alts' <- shrinkCaseAlts alts, not (null alts')]
-    ELetDecls _ decls body ->
+        : [ECase scrutinee' alts | scrutinee' <- shrinkExpr scrutinee]
+          <> [ECase scrutinee alts' | alts' <- shrinkCaseAlts alts, not (null alts')]
+    ELambdaPats pats body ->
+      body : [ELambdaPats pats body' | body' <- shrinkExpr body]
+    ELambdaCase alts ->
+      [ELambdaCase alts' | alts' <- shrinkCaseAlts alts, not (null alts')]
+    ELetDecls decls body ->
       body
-        : [ELetDecls span0 decls body' | body' <- shrinkExpr body]
-          <> [ELetDecls span0 decls' body | decls' <- shrinkDecls decls, not (null decls')]
-    EWhereDecls _ body decls ->
+        : [ELetDecls decls body' | body' <- shrinkExpr body]
+          <> [ELetDecls decls' body | decls' <- shrinkDecls decls, not (null decls')]
+    EWhereDecls body decls ->
       body
-        : [EWhereDecls span0 body' decls | body' <- shrinkExpr body]
-          <> [EWhereDecls span0 body decls' | decls' <- shrinkDecls decls, not (null decls')]
-    EDo _ stmts ->
-      [EDo span0 stmts' | stmts' <- shrinkDoStmts stmts, not (null stmts')]
-    EListComp _ body stmts ->
+        : [EWhereDecls body' decls | body' <- shrinkExpr body]
+          <> [EWhereDecls body decls' | decls' <- shrinkDecls decls, not (null decls')]
+    EDo stmts ->
+      [EDo stmts' | stmts' <- shrinkDoStmts stmts, not (null stmts')]
+    EListComp body stmts ->
       body
-        : [EListComp span0 body' stmts | body' <- shrinkExpr body]
-          <> [EListComp span0 body stmts' | stmts' <- shrinkCompStmts stmts, not (null stmts')]
-    EListCompParallel _ body stmtss ->
+        : [EListComp body' stmts | body' <- shrinkExpr body]
+          <> [EListComp body stmts' | stmts' <- shrinkCompStmts stmts, not (null stmts')]
+    EListCompParallel body stmtss ->
       body
-        : [EListCompParallel span0 body' stmtss | body' <- shrinkExpr body]
+        : [EListCompParallel body' stmtss | body' <- shrinkExpr body]
           -- Each branch needs at least one statement, so filter out empty branches
-          <> [EListCompParallel span0 body stmtss' | stmtss' <- shrinkParallelCompStmts stmtss, length stmtss' >= 2]
-    EList _ elems ->
-      [EList span0 elems' | elems' <- shrinkList shrinkExpr elems]
-    ETuple _ tupleFlavor elems ->
-      [ETuple span0 tupleFlavor elems' | elems' <- shrinkTupleElems shrinkExpr elems]
-    ETupleSection _ tupleFlavor elems ->
-      [ETupleSection span0 tupleFlavor elems' | elems' <- shrinkTupleSectionElems elems]
-    ETupleCon _ tupleFlavor n -> [ETupleCon span0 tupleFlavor n' | n' <- shrink n, n' >= 2]
-    EArithSeq _ seq' ->
-      [EArithSeq span0 seq'' | seq'' <- shrinkArithSeq seq']
-    ERecordCon _ con fields _ ->
-      [ERecordCon span0 con fields' False | fields' <- shrinkRecordFields fields]
-    ERecordUpd _ target fields ->
+          <> [EListCompParallel body stmtss' | stmtss' <- shrinkParallelCompStmts stmtss, length stmtss' >= 2]
+    EList elems ->
+      [EList elems' | elems' <- shrinkList shrinkExpr elems]
+    ETuple tupleFlavor elems ->
+      [ETuple tupleFlavor elems' | elems' <- shrinkTupleElems shrinkExpr elems]
+    ETupleSection tupleFlavor elems ->
+      [ETupleSection tupleFlavor elems' | elems' <- shrinkTupleSectionElems elems]
+    ETupleCon tupleFlavor n -> [ETupleCon tupleFlavor n' | n' <- shrink n, n' >= 2]
+    EArithSeq seq' ->
+      [EArithSeq seq'' | seq'' <- shrinkArithSeq seq']
+    ERecordCon con fields _ ->
+      [ERecordCon con fields' False | fields' <- shrinkRecordFields fields]
+    ERecordUpd target fields ->
       target
-        : [ERecordUpd span0 target' fields | target' <- shrinkExpr target]
-          <> [ERecordUpd span0 target fields' | fields' <- shrinkRecordFields fields]
-    ETypeSig _ inner _ ->
-      inner : [ETypeSig span0 inner' (TCon span0 "T" Unpromoted) | inner' <- shrinkExpr inner]
-    ETypeApp _ inner _ ->
-      inner : [ETypeApp span0 inner' (TCon span0 "T" Unpromoted) | inner' <- shrinkExpr inner]
-    EUnboxedSum _ altIdx arity inner ->
-      [EUnboxedSum span0 altIdx arity inner' | inner' <- shrinkExpr inner]
-    EParen _ inner -> inner : [EParen span0 inner' | inner' <- shrinkExpr inner]
-    ETHExpQuote _ body -> body : [ETHExpQuote span0 body' | body' <- shrinkExpr body]
-    ETHTypedQuote _ body -> body : [ETHTypedQuote span0 body' | body' <- shrinkExpr body]
+        : [ERecordUpd target' fields | target' <- shrinkExpr target]
+          <> [ERecordUpd target fields' | fields' <- shrinkRecordFields fields]
+    ETypeSig inner _ ->
+      inner : [ETypeSig inner' (TCon "T" Unpromoted) | inner' <- shrinkExpr inner]
+    ETypeApp inner _ ->
+      inner : [ETypeApp inner' (TCon "T" Unpromoted) | inner' <- shrinkExpr inner]
+    EUnboxedSum altIdx arity inner ->
+      [EUnboxedSum altIdx arity inner' | inner' <- shrinkExpr inner]
+    EParen inner -> inner : [EParen inner' | inner' <- shrinkExpr inner]
+    ETHExpQuote body -> body : [ETHExpQuote body' | body' <- shrinkExpr body]
+    ETHTypedQuote body -> body : [ETHTypedQuote body' | body' <- shrinkExpr body]
     ETHDeclQuote {} -> []
     ETHTypeQuote {} -> []
     ETHPatQuote {} -> []
     ETHNameQuote {} -> []
     ETHTypeNameQuote {} -> []
-    ETHSplice _ body -> body : [ETHSplice span0 body' | body' <- shrinkExpr body]
-    ETHTypedSplice _ body -> body : [ETHTypedSplice span0 body' | body' <- shrinkExpr body]
+    ETHSplice body -> body : [ETHSplice body' | body' <- shrinkExpr body]
+    ETHTypedSplice body -> body : [ETHTypedSplice body' | body' <- shrinkExpr body]
 
 shrinkFloat :: Double -> [Double]
 shrinkFloat value =
@@ -565,8 +570,8 @@ shrinkCaseAlts = shrinkList shrinkCaseAlt
 shrinkCaseAlt :: CaseAlt -> [CaseAlt]
 shrinkCaseAlt alt =
   case caseAltRhs alt of
-    UnguardedRhs _ expr ->
-      [alt {caseAltRhs = UnguardedRhs span0 expr'} | expr' <- shrinkExpr expr]
+    UnguardedRhs expr ->
+      [alt {caseAltRhs = UnguardedRhs expr'} | expr' <- shrinkExpr expr]
     _ -> []
 
 shrinkGuardedRhs :: GuardedRhs -> [GuardedRhs]
@@ -579,15 +584,13 @@ shrinkDecls = shrinkList shrinkDecl
 shrinkDecl :: Decl -> [Decl]
 shrinkDecl decl =
   case decl of
-    DeclValue _ (PatternBind _ pat (UnguardedRhs _ expr)) ->
-      [DeclValue span0 (PatternBind span0 pat (UnguardedRhs span0 expr')) | expr' <- shrinkExpr expr]
-    DeclValue _ (FunctionBind _ name [match@Match {matchRhs = UnguardedRhs _ expr}]) ->
+    DeclValue (PatternBind pat (UnguardedRhs expr)) ->
+      [DeclValue (PatternBind pat (UnguardedRhs expr')) | expr' <- shrinkExpr expr]
+    DeclValue (FunctionBind name [match@Match {matchRhs = UnguardedRhs expr}]) ->
       [ DeclValue
-          span0
           ( FunctionBind
-              span0
               name
-              [match {matchSpan = span0, matchRhs = UnguardedRhs span0 expr'}]
+              [match {matchRhs = UnguardedRhs expr'}]
           )
       | expr' <- shrinkExpr expr
       ]
@@ -602,10 +605,10 @@ shrinkDoStmts stmts =
 shrinkDoStmt :: DoStmt -> [DoStmt]
 shrinkDoStmt stmt =
   case stmt of
-    DoBind _ pat expr -> [DoBind span0 pat expr' | expr' <- shrinkExpr expr]
-    DoLet _ bindings -> [DoLet span0 bindings' | bindings' <- shrinkList shrinkBinding bindings, not (null bindings')]
-    DoLetDecls _ decls -> [DoLetDecls span0 decls' | decls' <- shrinkDecls decls, not (null decls')]
-    DoExpr _ expr -> [DoExpr span0 expr' | expr' <- shrinkExpr expr]
+    DoBind pat expr -> [DoBind pat expr' | expr' <- shrinkExpr expr]
+    DoLet bindings -> [DoLet bindings' | bindings' <- shrinkList shrinkBinding bindings, not (null bindings')]
+    DoLetDecls decls -> [DoLetDecls decls' | decls' <- shrinkDecls decls, not (null decls')]
+    DoExpr expr -> [DoExpr expr' | expr' <- shrinkExpr expr]
 
 shrinkBinding :: (Text, Expr) -> [(Text, Expr)]
 shrinkBinding (name, expr) = [(name, expr') | expr' <- shrinkExpr expr]
@@ -625,10 +628,10 @@ shrinkParallelCompStmts =
 shrinkCompStmt :: CompStmt -> [CompStmt]
 shrinkCompStmt stmt =
   case stmt of
-    CompGen _ pat expr -> [CompGen span0 pat expr' | expr' <- shrinkExpr expr]
-    CompGuard _ expr -> [CompGuard span0 expr' | expr' <- shrinkExpr expr]
-    CompLet _ bindings -> [CompLet span0 bindings' | bindings' <- shrinkList shrinkBinding bindings, not (null bindings')]
-    CompLetDecls _ decls -> [CompLetDecls span0 decls' | decls' <- shrinkDecls decls, not (null decls')]
+    CompGen pat expr -> [CompGen pat expr' | expr' <- shrinkExpr expr]
+    CompGuard expr -> [CompGuard expr' | expr' <- shrinkExpr expr]
+    CompLet bindings -> [CompLet bindings' | bindings' <- shrinkList shrinkBinding bindings, not (null bindings')]
+    CompLetDecls decls -> [CompLetDecls decls' | decls' <- shrinkDecls decls, not (null decls')]
 
 shrinkTupleElems :: (a -> [a]) -> [a] -> [[a]]
 shrinkTupleElems shrinkElem elems =
@@ -654,21 +657,21 @@ shrinkMaybeExpr mExpr =
 shrinkArithSeq :: ArithSeq -> [ArithSeq]
 shrinkArithSeq seq' =
   case seq' of
-    ArithSeqFrom _ from ->
-      [ArithSeqFrom span0 from' | from' <- shrinkExpr from]
-    ArithSeqFromThen _ from thenE ->
-      ArithSeqFrom span0 from
-        : [ArithSeqFromThen span0 from' thenE | from' <- shrinkExpr from]
-          <> [ArithSeqFromThen span0 from thenE' | thenE' <- shrinkExpr thenE]
-    ArithSeqFromTo _ from to ->
-      ArithSeqFrom span0 from
-        : [ArithSeqFromTo span0 from' to | from' <- shrinkExpr from]
-          <> [ArithSeqFromTo span0 from to' | to' <- shrinkExpr to]
-    ArithSeqFromThenTo _ from thenE to ->
-      ArithSeqFromTo span0 from to
-        : [ArithSeqFromThenTo span0 from' thenE to | from' <- shrinkExpr from]
-          <> [ArithSeqFromThenTo span0 from thenE' to | thenE' <- shrinkExpr thenE]
-          <> [ArithSeqFromThenTo span0 from thenE to' | to' <- shrinkExpr to]
+    ArithSeqFrom from ->
+      [ArithSeqFrom from' | from' <- shrinkExpr from]
+    ArithSeqFromThen from thenE ->
+      ArithSeqFrom from
+        : [ArithSeqFromThen from' thenE | from' <- shrinkExpr from]
+          <> [ArithSeqFromThen from thenE' | thenE' <- shrinkExpr thenE]
+    ArithSeqFromTo from to ->
+      ArithSeqFrom from
+        : [ArithSeqFromTo from' to | from' <- shrinkExpr from]
+          <> [ArithSeqFromTo from to' | to' <- shrinkExpr to]
+    ArithSeqFromThenTo from thenE to ->
+      ArithSeqFromTo from to
+        : [ArithSeqFromThenTo from' thenE to | from' <- shrinkExpr from]
+          <> [ArithSeqFromThenTo from thenE' to | thenE' <- shrinkExpr thenE]
+          <> [ArithSeqFromThenTo from thenE to' | to' <- shrinkExpr to]
 
 shrinkRecordFields :: [(Text, Expr)] -> [[(Text, Expr)]]
 shrinkRecordFields = shrinkList shrinkRecordField
@@ -681,141 +684,137 @@ shrinkRecordField (name, expr) = [(name, expr') | expr' <- shrinkExpr expr]
 normalizeExpr :: Expr -> Expr
 normalizeExpr expr =
   case expr of
-    EVar _ name -> EVar span0 name
-    EInt _ value _ -> mkIntExpr value
-    EIntHash _ value repr -> EIntHash span0 value repr
-    EIntBase _ value repr -> EIntBase span0 value repr
-    EIntBaseHash _ value repr -> EIntBaseHash span0 value repr
-    EFloat _ value repr -> EFloat span0 value repr
-    EFloatHash _ value repr -> EFloatHash span0 value repr
-    EChar _ value repr -> EChar span0 value repr
-    ECharHash _ value repr -> ECharHash span0 value repr
-    EString _ value repr -> EString span0 value repr
-    EStringHash _ value repr -> EStringHash span0 value repr
-    EQuasiQuote _ quoter body -> EQuasiQuote span0 quoter body
-    EApp _ fn arg -> EApp span0 (normalizeExpr fn) (normalizeExpr arg)
-    EInfix _ lhs op rhs -> EInfix span0 (normalizeExpr lhs) op (normalizeExpr rhs)
-    ENegate _ inner -> ENegate span0 (normalizeExpr inner)
-    ESectionL _ inner op -> ESectionL span0 (normalizeExpr inner) op
-    ESectionR _ op inner -> ESectionR span0 op (normalizeExpr inner)
-    EIf _ cond thenE elseE -> EIf span0 (normalizeExpr cond) (normalizeExpr thenE) (normalizeExpr elseE)
-    EMultiWayIf _ rhss -> EMultiWayIf span0 (map normalizeGuardedRhs rhss)
-    ECase _ scrutinee alts -> ECase span0 (normalizeExpr scrutinee) (map normalizeCaseAlt alts)
-    ELambdaPats _ pats body -> ELambdaPats span0 (map normalizePattern pats) (normalizeExpr body)
-    ELambdaCase _ alts -> ELambdaCase span0 (map normalizeCaseAlt alts)
-    ELetDecls _ decls body -> ELetDecls span0 (map normalizeDecl decls) (normalizeExpr body)
-    EWhereDecls _ body decls -> EWhereDecls span0 (normalizeExpr body) (map normalizeDecl decls)
-    EDo _ stmts -> EDo span0 (map normalizeDoStmt stmts)
-    EListComp _ body stmts -> EListComp span0 (normalizeExpr body) (map normalizeCompStmt stmts)
-    EListCompParallel _ body stmtss -> EListCompParallel span0 (normalizeExpr body) (map (map normalizeCompStmt) stmtss)
-    EList _ elems -> EList span0 (map normalizeExpr elems)
-    ETuple _ tupleFlavor elems -> ETuple span0 tupleFlavor (map normalizeExpr elems)
+    EVar name -> EVar name
+    EInt value _ -> mkIntExpr value
+    EIntHash value repr -> EIntHash value repr
+    EIntBase value repr -> EIntBase value repr
+    EIntBaseHash value repr -> EIntBaseHash value repr
+    EFloat value repr -> EFloat value repr
+    EFloatHash value repr -> EFloatHash value repr
+    EChar value repr -> EChar value repr
+    ECharHash value repr -> ECharHash value repr
+    EString value repr -> EString value repr
+    EStringHash value repr -> EStringHash value repr
+    EQuasiQuote quoter body -> EQuasiQuote quoter body
+    EApp fn arg -> EApp (normalizeExpr fn) (normalizeExpr arg)
+    EInfix lhs op rhs -> EInfix (normalizeExpr lhs) op (normalizeExpr rhs)
+    ENegate inner -> ENegate (normalizeExpr inner)
+    ESectionL inner op -> ESectionL (normalizeExpr inner) op
+    ESectionR op inner -> ESectionR op (normalizeExpr inner)
+    EIf cond thenE elseE -> EIf (normalizeExpr cond) (normalizeExpr thenE) (normalizeExpr elseE)
+    EMultiWayIf rhss -> EMultiWayIf (map normalizeGuardedRhs rhss)
+    ECase scrutinee alts -> ECase (normalizeExpr scrutinee) (map normalizeCaseAlt alts)
+    ELambdaPats pats body -> ELambdaPats (map normalizePattern pats) (normalizeExpr body)
+    ELambdaCase alts -> ELambdaCase (map normalizeCaseAlt alts)
+    ELetDecls decls body -> ELetDecls (map normalizeDecl decls) (normalizeExpr body)
+    EWhereDecls body decls -> EWhereDecls (normalizeExpr body) (map normalizeDecl decls)
+    EDo stmts -> EDo (map normalizeDoStmt stmts)
+    EListComp body stmts -> EListComp (normalizeExpr body) (map normalizeCompStmt stmts)
+    EListCompParallel body stmtss -> EListCompParallel (normalizeExpr body) (map (map normalizeCompStmt) stmtss)
+    EList elems -> EList (map normalizeExpr elems)
+    ETuple tupleFlavor elems -> ETuple tupleFlavor (map normalizeExpr elems)
     -- When a tuple section has all holes, it becomes a tuple constructor
-    ETupleSection _ tupleFlavor elems
-      | all (== Nothing) elems -> ETupleSection span0 tupleFlavor elems
-      | otherwise -> ETupleSection span0 tupleFlavor (map (fmap normalizeExpr) elems)
+    ETupleSection tupleFlavor elems
+      | all (== Nothing) elems -> ETupleSection tupleFlavor elems
+      | otherwise -> ETupleSection tupleFlavor (map (fmap normalizeExpr) elems)
     -- A tuple constructor is equivalent to a tuple section with all holes
-    ETupleCon _ tupleFlavor n -> ETupleSection span0 tupleFlavor (replicate n Nothing)
-    EArithSeq _ seq' -> EArithSeq span0 (normalizeArithSeq seq')
-    ERecordCon _ con fields rwc -> ERecordCon span0 con [(name, normalizeExpr e) | (name, e) <- fields] rwc
-    ERecordUpd _ target fields -> ERecordUpd span0 (normalizeExpr target) [(name, normalizeExpr e) | (name, e) <- fields]
-    ETypeSig _ inner ty -> ETypeSig span0 (normalizeExpr inner) (normalizeType ty)
-    ETypeApp _ inner ty -> ETypeApp span0 (normalizeExpr inner) (normalizeType ty)
-    EUnboxedSum _ altIdx arity inner -> EUnboxedSum span0 altIdx arity (normalizeExpr inner)
-    EParen _ inner -> normalizeExpr inner
-    ETHExpQuote _ body -> ETHExpQuote span0 (normalizeExpr body)
-    ETHTypedQuote _ body -> ETHTypedQuote span0 (normalizeExpr body)
-    ETHDeclQuote _ decls -> ETHDeclQuote span0 (map normalizeDecl decls)
-    ETHTypeQuote _ ty -> ETHTypeQuote span0 (normalizeType ty)
-    ETHPatQuote _ pat -> ETHPatQuote span0 (normalizePattern pat)
-    ETHNameQuote _ name -> ETHNameQuote span0 name
-    ETHTypeNameQuote _ name -> ETHTypeNameQuote span0 name
-    ETHSplice _ body -> ETHSplice span0 (normalizeExpr body)
-    ETHTypedSplice _ body -> ETHTypedSplice span0 (normalizeExpr body)
+    ETupleCon tupleFlavor n -> ETupleSection tupleFlavor (replicate n Nothing)
+    EArithSeq seq' -> EArithSeq (normalizeArithSeq seq')
+    ERecordCon con fields rwc -> ERecordCon con [(name, normalizeExpr e) | (name, e) <- fields] rwc
+    ERecordUpd target fields -> ERecordUpd (normalizeExpr target) [(name, normalizeExpr e) | (name, e) <- fields]
+    ETypeSig inner ty -> ETypeSig (normalizeExpr inner) (normalizeType ty)
+    ETypeApp inner ty -> ETypeApp (normalizeExpr inner) (normalizeType ty)
+    EUnboxedSum altIdx arity inner -> EUnboxedSum altIdx arity (normalizeExpr inner)
+    EParen inner -> normalizeExpr inner
+    ETHExpQuote body -> ETHExpQuote (normalizeExpr body)
+    ETHTypedQuote body -> ETHTypedQuote (normalizeExpr body)
+    ETHDeclQuote decls -> ETHDeclQuote (map normalizeDecl decls)
+    ETHTypeQuote ty -> ETHTypeQuote (normalizeType ty)
+    ETHPatQuote pat -> ETHPatQuote (normalizePattern pat)
+    ETHNameQuote name -> ETHNameQuote name
+    ETHTypeNameQuote name -> ETHTypeNameQuote name
+    ETHSplice body -> ETHSplice (normalizeExpr body)
+    ETHTypedSplice body -> ETHTypedSplice (normalizeExpr body)
 
 normalizeCaseAlt :: CaseAlt -> CaseAlt
 normalizeCaseAlt alt =
   CaseAlt
-    { caseAltSpan = span0,
-      caseAltPattern = normalizePattern (caseAltPattern alt),
+    { caseAltPattern = normalizePattern (caseAltPattern alt),
       caseAltRhs = normalizeRhs (caseAltRhs alt)
     }
 
 normalizeRhs :: Rhs -> Rhs
 normalizeRhs rhs =
   case rhs of
-    UnguardedRhs _ body -> UnguardedRhs span0 (normalizeExpr body)
-    GuardedRhss _ guards -> GuardedRhss span0 (map normalizeGuardedRhs guards)
+    UnguardedRhs body -> UnguardedRhs (normalizeExpr body)
+    GuardedRhss guards -> GuardedRhss (map normalizeGuardedRhs guards)
 
 normalizeGuardedRhs :: GuardedRhs -> GuardedRhs
 normalizeGuardedRhs grhs =
   GuardedRhs
-    { guardedRhsSpan = span0,
-      guardedRhsGuards = map normalizeGuardQualifier (guardedRhsGuards grhs),
+    { guardedRhsGuards = map normalizeGuardQualifier (guardedRhsGuards grhs),
       guardedRhsBody = normalizeExpr (guardedRhsBody grhs)
     }
 
 normalizeGuardQualifier :: GuardQualifier -> GuardQualifier
 normalizeGuardQualifier qual =
   case qual of
-    GuardExpr _ e -> GuardExpr span0 (normalizeExpr e)
-    GuardPat _ pat e -> GuardPat span0 (normalizePattern pat) (normalizeExpr e)
-    GuardLet _ decls -> GuardLet span0 (map normalizeDecl decls)
+    GuardExpr e -> GuardExpr (normalizeExpr e)
+    GuardPat pat e -> GuardPat (normalizePattern pat) (normalizeExpr e)
+    GuardLet decls -> GuardLet (map normalizeDecl decls)
 
 normalizePattern :: Pattern -> Pattern
 normalizePattern pat =
   case pat of
-    PVar _ name -> PVar span0 name
-    PWildcard _ -> PWildcard span0
-    PLit _ lit -> PLit span0 (normalizeLiteral lit)
-    PQuasiQuote _ quoter body -> PQuasiQuote span0 quoter body
-    PTuple _ tupleFlavor elems -> PTuple span0 tupleFlavor (map normalizePattern elems)
-    PList _ elems -> PList span0 (map normalizePattern elems)
-    PCon _ con args -> PCon span0 con (map normalizePattern args)
-    PInfix _ lhs op rhs -> PInfix span0 (normalizePattern lhs) op (normalizePattern rhs)
-    PView _ e inner -> PView span0 (normalizeExpr e) (normalizePattern inner)
-    PAs _ name inner -> PAs span0 name (normalizePattern inner)
-    PStrict _ inner -> PStrict span0 (normalizePattern inner)
-    PIrrefutable _ inner -> PIrrefutable span0 (normalizePattern inner)
-    PNegLit _ lit -> PNegLit span0 (normalizeLiteral lit)
-    PParen _ inner -> PParen span0 (normalizePattern inner)
-    PUnboxedSum _ altIdx arity inner -> PUnboxedSum span0 altIdx arity (normalizePattern inner)
-    PRecord _ con fields rwc -> PRecord span0 con [(name, normalizePattern p) | (name, p) <- fields] rwc
-    PTypeSig _ inner ty -> PTypeSig span0 (normalizePattern inner) (normalizeType ty)
-    PSplice _ body -> PSplice span0 (normalizeExpr body)
+    PVar name -> PVar name
+    PWildcard -> PWildcard
+    PLit lit -> PLit (normalizeLiteral lit)
+    PQuasiQuote quoter body -> PQuasiQuote quoter body
+    PTuple tupleFlavor elems -> PTuple tupleFlavor (map normalizePattern elems)
+    PList elems -> PList (map normalizePattern elems)
+    PCon con args -> PCon con (map normalizePattern args)
+    PInfix lhs op rhs -> PInfix (normalizePattern lhs) op (normalizePattern rhs)
+    PView e inner -> PView (normalizeExpr e) (normalizePattern inner)
+    PAs name inner -> PAs name (normalizePattern inner)
+    PStrict inner -> PStrict (normalizePattern inner)
+    PIrrefutable inner -> PIrrefutable (normalizePattern inner)
+    PNegLit lit -> PNegLit (normalizeLiteral lit)
+    PParen inner -> PParen (normalizePattern inner)
+    PUnboxedSum altIdx arity inner -> PUnboxedSum altIdx arity (normalizePattern inner)
+    PRecord con fields rwc -> PRecord con [(name, normalizePattern p) | (name, p) <- fields] rwc
+    PTypeSig inner ty -> PTypeSig (normalizePattern inner) (normalizeType ty)
+    PSplice body -> PSplice (normalizeExpr body)
 
 normalizeLiteral :: Literal -> Literal
 normalizeLiteral lit =
   case lit of
-    LitInt _ value repr -> LitInt span0 value repr
-    LitIntHash _ value repr -> LitIntHash span0 value repr
-    LitIntBase _ value repr -> LitIntBase span0 value repr
-    LitIntBaseHash _ value repr -> LitIntBaseHash span0 value repr
-    LitFloat _ value repr -> LitFloat span0 value repr
-    LitFloatHash _ value repr -> LitFloatHash span0 value repr
-    LitChar _ value repr -> LitChar span0 value repr
-    LitCharHash _ value repr -> LitCharHash span0 value repr
-    LitString _ value repr -> LitString span0 value repr
-    LitStringHash _ value repr -> LitStringHash span0 value repr
+    LitInt value repr -> LitInt value repr
+    LitIntHash value repr -> LitIntHash value repr
+    LitIntBase value repr -> LitIntBase value repr
+    LitIntBaseHash value repr -> LitIntBaseHash value repr
+    LitFloat value repr -> LitFloat value repr
+    LitFloatHash value repr -> LitFloatHash value repr
+    LitChar value repr -> LitChar value repr
+    LitCharHash value repr -> LitCharHash value repr
+    LitString value repr -> LitString value repr
+    LitStringHash value repr -> LitStringHash value repr
 
 normalizeDecl :: Decl -> Decl
 normalizeDecl decl =
   case decl of
-    DeclValue _ vdecl -> DeclValue span0 (normalizeValueDecl vdecl)
-    DeclTypeSig _ names ty -> DeclTypeSig span0 names (normalizeType ty)
-    _ -> decl
+    DeclValue vdecl -> DeclValue (normalizeValueDecl vdecl)
+    DeclTypeSig names ty -> DeclTypeSig names (normalizeType ty)
 
 normalizeValueDecl :: ValueDecl -> ValueDecl
 normalizeValueDecl vdecl =
   case vdecl of
-    PatternBind _ pat rhs -> PatternBind span0 (normalizePattern pat) (normalizeRhs rhs)
-    FunctionBind _ name matches -> FunctionBind span0 name (map normalizeMatch matches)
+    PatternBind pat rhs -> PatternBind (normalizePattern pat) (normalizeRhs rhs)
+    FunctionBind name matches -> FunctionBind name (map normalizeMatch matches)
 
 normalizeMatch :: Match -> Match
 normalizeMatch m =
   Match
-    { matchSpan = span0,
-      matchHeadForm = matchHeadForm m,
+    { matchHeadForm = matchHeadForm m,
       matchPats = map normalizePattern (matchPats m),
       matchRhs = normalizeRhs (matchRhs m)
     }
@@ -823,54 +822,53 @@ normalizeMatch m =
 normalizeDoStmt :: DoStmt -> DoStmt
 normalizeDoStmt stmt =
   case stmt of
-    DoBind _ pat e -> DoBind span0 (normalizePattern pat) (normalizeExpr e)
-    DoLet _ bindings -> DoLet span0 [(name, normalizeExpr e) | (name, e) <- bindings]
-    DoLetDecls _ decls -> DoLetDecls span0 (map normalizeDecl decls)
-    DoExpr _ e -> DoExpr span0 (normalizeExpr e)
+    DoBind pat e -> DoBind (normalizePattern pat) (normalizeExpr e)
+    DoLet bindings -> DoLet [(name, normalizeExpr e) | (name, e) <- bindings]
+    DoLetDecls decls -> DoLetDecls (map normalizeDecl decls)
+    DoExpr e -> DoExpr (normalizeExpr e)
 
 normalizeCompStmt :: CompStmt -> CompStmt
 normalizeCompStmt stmt =
   case stmt of
-    CompGen _ pat e -> CompGen span0 (normalizePattern pat) (normalizeExpr e)
-    CompGuard _ e -> CompGuard span0 (normalizeExpr e)
-    CompLet _ bindings -> CompLet span0 [(name, normalizeExpr e) | (name, e) <- bindings]
-    CompLetDecls _ decls -> CompLetDecls span0 (map normalizeDecl decls)
+    CompGen pat e -> CompGen (normalizePattern pat) (normalizeExpr e)
+    CompGuard e -> CompGuard (normalizeExpr e)
+    CompLet bindings -> CompLet [(name, normalizeExpr e) | (name, e) <- bindings]
+    CompLetDecls decls -> CompLetDecls (map normalizeDecl decls)
 
 normalizeArithSeq :: ArithSeq -> ArithSeq
 normalizeArithSeq seq' =
   case seq' of
-    ArithSeqFrom _ from -> ArithSeqFrom span0 (normalizeExpr from)
-    ArithSeqFromThen _ from thenE -> ArithSeqFromThen span0 (normalizeExpr from) (normalizeExpr thenE)
-    ArithSeqFromTo _ from to -> ArithSeqFromTo span0 (normalizeExpr from) (normalizeExpr to)
-    ArithSeqFromThenTo _ from thenE to -> ArithSeqFromThenTo span0 (normalizeExpr from) (normalizeExpr thenE) (normalizeExpr to)
+    ArithSeqFrom from -> ArithSeqFrom (normalizeExpr from)
+    ArithSeqFromThen from thenE -> ArithSeqFromThen (normalizeExpr from) (normalizeExpr thenE)
+    ArithSeqFromTo from to -> ArithSeqFromTo (normalizeExpr from) (normalizeExpr to)
+    ArithSeqFromThenTo from thenE to -> ArithSeqFromThenTo (normalizeExpr from) (normalizeExpr thenE) (normalizeExpr to)
 
 normalizeType :: Type -> Type
 normalizeType ty =
   case ty of
-    TVar _ name -> TVar span0 name
-    TCon _ name promoted -> TCon span0 name promoted
-    TTypeLit _ lit -> TTypeLit span0 lit
-    TStar _ -> TStar span0
-    TQuasiQuote _ quoter body -> TQuasiQuote span0 quoter body
-    TForall _ binders inner -> TForall span0 binders (normalizeType inner)
-    TApp _ fn arg -> TApp span0 (normalizeType fn) (normalizeType arg)
-    TFun _ lhs rhs -> TFun span0 (normalizeType lhs) (normalizeType rhs)
-    TTuple _ tupleFlavor promoted elems -> TTuple span0 tupleFlavor promoted (map normalizeType elems)
-    TList _ promoted inner -> TList span0 promoted (normalizeType inner)
+    TVar name -> TVar name
+    TCon name promoted -> TCon name promoted
+    TTypeLit lit -> TTypeLit lit
+    TStar -> TStar
+    TQuasiQuote quoter body -> TQuasiQuote quoter body
+    TForall binders inner -> TForall binders (normalizeType inner)
+    TApp fn arg -> TApp (normalizeType fn) (normalizeType arg)
+    TFun lhs rhs -> TFun (normalizeType lhs) (normalizeType rhs)
+    TTuple tupleFlavor promoted elems -> TTuple tupleFlavor promoted (map normalizeType elems)
+    TList promoted inner -> TList promoted (normalizeType inner)
     -- Remove redundant parentheses from types
-    TParen _ inner -> normalizeType inner
-    TUnboxedSum _ elems -> TUnboxedSum span0 (map normalizeType elems)
-    TContext _ constraints inner -> TContext span0 (map normalizeConstraint constraints) (normalizeType inner)
-    TSplice _ body -> TSplice span0 (normalizeExpr body)
+    TParen inner -> normalizeType inner
+    TUnboxedSum elems -> TUnboxedSum (map normalizeType elems)
+    TContext constraints inner -> TContext (map normalizeConstraint constraints) (normalizeType inner)
+    TSplice body -> TSplice (normalizeExpr body)
 
 normalizeConstraint :: Constraint -> Constraint
 normalizeConstraint c =
   case c of
-    Constraint _ cls args ->
+    Constraint cls args ->
       Constraint
-        { constraintSpan = span0,
-          constraintClass = cls,
+        { constraintClass = cls,
           constraintArgs = map normalizeType args
         }
-    CParen _ inner ->
-      CParen span0 (normalizeConstraint inner)
+    CParen inner ->
+      CParen (normalizeConstraint inner)

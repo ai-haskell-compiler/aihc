@@ -7,10 +7,11 @@ module Test.Properties.ExprRoundTrip
 where
 
 import Aihc.Parser
-import Aihc.Parser.Syntax
+import Aihc.Parser.Syntax (Extension (TemplateHaskell, UnboxedSums, UnboxedTuples))
 import qualified Data.Text as T
 import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.Text (renderStrict)
+import Test.Properties.BareSyntax (Expr, eraseExpr, toSyntaxExpr)
 import Test.Properties.ExprHelpers (genExpr, normalizeExpr, shrinkExpr)
 import Test.QuickCheck
 
@@ -22,7 +23,7 @@ exprConfig =
 
 prop_exprPrettyRoundTrip :: Expr -> Property
 prop_exprPrettyRoundTrip expr =
-  let source = renderStrict (layoutPretty defaultLayoutOptions (pretty expr))
+  let source = renderStrict (layoutPretty defaultLayoutOptions (pretty (toSyntaxExpr expr)))
       expected = normalizeExpr expr
    in withMaxSuccess 1000 $
         counterexample (T.unpack source) $
@@ -30,7 +31,7 @@ prop_exprPrettyRoundTrip expr =
             ParseErr err ->
               counterexample (errorBundlePretty (Just source) err) False
             ParseOk parsed ->
-              let actual = normalizeExpr parsed
+              let actual = normalizeExpr (eraseExpr parsed)
                in counterexample ("expected: " <> show expected <> "\nactual: " <> show actual) (expected == actual)
 
 instance Arbitrary Expr where

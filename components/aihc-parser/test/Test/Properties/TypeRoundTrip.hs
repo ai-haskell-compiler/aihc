@@ -8,19 +8,15 @@ where
 
 import Aihc.Parser
 import Aihc.Parser.Lex (isReservedIdentifier)
-import Aihc.Parser.Syntax
-import Data.Data (dataTypeConstrs, dataTypeOf, showConstr, toConstr)
-import qualified Data.Set as Set
+import Aihc.Parser.Syntax (Extension (TemplateHaskell, UnboxedSums, UnboxedTuples))
 import Data.Text (Text)
 import qualified Data.Text as T
 import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.Text (renderStrict)
+import Test.Properties.BareSyntax
 import Test.Properties.ExprHelpers (normalizeExpr)
 import Test.Properties.Identifiers (genIdent, shrinkIdent)
 import Test.QuickCheck
-
-span0 :: SourceSpan
-span0 = noSourceSpan
 
 typeConfig :: ParserConfig
 typeConfig =
@@ -30,54 +26,15 @@ typeConfig =
 
 prop_typePrettyRoundTrip :: Type -> Property
 prop_typePrettyRoundTrip ty =
-  let source = renderStrict (layoutPretty defaultLayoutOptions (pretty ty))
+  let source = renderStrict (layoutPretty defaultLayoutOptions (pretty (toSyntaxType ty)))
       expected = normalizeType ty
-   in checkCoverage $
-        applyCoverage (typeCtorCoverage ty) $
-          counterexample (T.unpack source) $
-            case parseType typeConfig source of
-              ParseErr err ->
-                counterexample (errorBundlePretty (Just source) err) False
-              ParseOk parsed ->
-                let actual = normalizeType parsed
-                 in counterexample ("expected: " <> show expected <> "\nactual: " <> show actual) (expected == actual)
-
-typeCtorCoverage :: Type -> [Property -> Property]
-typeCtorCoverage ty =
-  let allCtors = map showConstr (dataTypeConstrs (dataTypeOf (undefined :: Type)))
-      -- Exclude constructors that cannot be round-tripped through the parser yet
-      coverableCtors = allCtors
-      seenCtors = typeCtorNames ty
-   in [cover 1 (ctor `Set.member` seenCtors) ctor | ctor <- coverableCtors]
-
-applyCoverage :: [Property -> Property] -> Property -> Property
-applyCoverage wrappers prop = foldr (\wrap acc -> wrap acc) prop wrappers
-
-typeCtorNames :: Type -> Set.Set String
-typeCtorNames ty =
-  let here = Set.singleton (showConstr (toConstr ty))
-   in case ty of
-        TVar {} -> here
-        TCon {} -> here
-        TTypeLit {} -> here
-        TStar {} -> here
-        TQuasiQuote {} -> here
-        TForall _ _ inner -> here <> typeCtorNames inner
-        TApp _ f x -> here <> typeCtorNames f <> typeCtorNames x
-        TFun _ a b -> here <> typeCtorNames a <> typeCtorNames b
-        TTuple _ _ _ elems -> here <> mconcat (map typeCtorNames elems)
-        TList _ _ inner -> here <> typeCtorNames inner
-        TParen _ inner -> here <> typeCtorNames inner
-        TUnboxedSum _ elems -> here <> mconcat (map typeCtorNames elems)
-        TContext _ constraints inner ->
-          here <> mconcat (map constraintTypeCtorNames constraints) <> typeCtorNames inner
-        TSplice {} -> here
-
-constraintTypeCtorNames :: Constraint -> Set.Set String
-constraintTypeCtorNames constraint =
-  case constraint of
-    Constraint _ _ args -> mconcat (map typeCtorNames args)
-    CParen _ inner -> constraintTypeCtorNames inner
+   in counterexample (T.unpack source) $
+        case parseType typeConfig source of
+          ParseErr err ->
+            counterexample (errorBundlePretty (Just source) err) False
+          ParseOk parsed ->
+            let actual = normalizeType (eraseType parsed)
+             in counterexample ("expected: " <> show expected <> "\nactual: " <> show actual) (expected == actual)
 
 instance Arbitrary Type where
   arbitrary = sized (genType . min 6)
@@ -86,48 +43,48 @@ instance Arbitrary Type where
 shrinkType :: Type -> [Type]
 shrinkType ty =
   case ty of
-    TVar _ name ->
-      [TVar span0 shrunk | shrunk <- shrinkIdent name]
-    TCon _ name promoted ->
-      [TCon span0 shrunk promoted | shrunk <- shrinkTypeConName name]
+    TVar name ->
+      [TVar shrunk | shrunk <- shrinkIdent name]
+    TCon name promoted ->
+      [TCon shrunk promoted | shrunk <- shrinkTypeConName name]
     TTypeLit {} ->
       []
-    TStar _ ->
+    TStar ->
       []
-    TQuasiQuote _ quoter body ->
-      [TQuasiQuote span0 q body | q <- shrinkIdent quoter]
-        <> [TQuasiQuote span0 quoter b | b <- map T.pack (shrink (T.unpack body))]
-    TForall _ binders inner ->
+    TQuasiQuote quoter body ->
+      [TQuasiQuote q body | q <- shrinkIdent quoter]
+        <> [TQuasiQuote quoter b | b <- map T.pack (shrink (T.unpack body))]
+    TForall binders inner ->
       [canonicalForallInner inner]
-        <> [TForall span0 binders' (canonicalForallInner inner) | binders' <- shrinkTypeBinders binders]
-        <> [TForall span0 binders (canonicalForallInner inner') | inner' <- shrinkType inner]
-    TApp _ fn arg ->
+        <> [TForall binders' (canonicalForallInner inner) | binders' <- shrinkTypeBinders binders]
+        <> [TForall binders (canonicalForallInner inner') | inner' <- shrinkType inner]
+    TApp fn arg ->
       [canonicalAppHead fn, canonicalAppArg arg]
-        <> [TApp span0 (canonicalAppHead fn') (canonicalAppArg arg) | fn' <- shrinkType fn]
-        <> [TApp span0 (canonicalAppHead fn) (canonicalAppArg arg') | arg' <- shrinkType arg]
-    TFun _ lhs rhs ->
+        <> [TApp (canonicalAppHead fn') (canonicalAppArg arg) | fn' <- shrinkType fn]
+        <> [TApp (canonicalAppHead fn) (canonicalAppArg arg') | arg' <- shrinkType arg]
+    TFun lhs rhs ->
       [canonicalFunLeft lhs, rhs]
-        <> [TFun span0 (canonicalFunLeft lhs') rhs | lhs' <- shrinkType lhs]
-        <> [TFun span0 (canonicalFunLeft lhs) rhs' | rhs' <- shrinkType rhs]
-    TTuple _ tupleFlavor _ elems ->
+        <> [TFun (canonicalFunLeft lhs') rhs | lhs' <- shrinkType lhs]
+        <> [TFun (canonicalFunLeft lhs) rhs' | rhs' <- shrinkType rhs]
+    TTuple tupleFlavor _ elems ->
       shrinkTupleElems tupleFlavor elems
-    TList _ _ inner ->
-      [inner] <> [TList span0 Unpromoted inner' | inner' <- shrinkType inner]
-    TParen _ inner ->
-      [inner] <> [TParen span0 inner' | inner' <- shrinkType inner]
-    TUnboxedSum _ elems ->
-      [TUnboxedSum span0 elems' | elems' <- shrinkList shrinkType elems, length elems' >= 2]
-    TContext _ constraints inner ->
+    TList _ inner ->
+      [inner] <> [TList Unpromoted inner' | inner' <- shrinkType inner]
+    TParen inner ->
+      [inner] <> [TParen inner' | inner' <- shrinkType inner]
+    TUnboxedSum elems ->
+      [TUnboxedSum elems' | elems' <- shrinkList shrinkType elems, length elems' >= 2]
+    TContext constraints inner ->
       [inner]
-        <> [TContext span0 constraints' inner | constraints' <- shrinkConstraints constraints]
-        <> [TContext span0 constraints inner' | inner' <- shrinkType inner]
+        <> [TContext constraints' inner | constraints' <- shrinkConstraints constraints]
+        <> [TContext constraints inner' | inner' <- shrinkType inner]
     TSplice {} ->
       []
 
 canonicalForallInner :: Type -> Type
 canonicalForallInner ty =
   case ty of
-    TForall {} -> TParen span0 ty
+    TForall {} -> TParen ty
     _ -> ty
 
 shrinkTypeBinders :: [Text] -> [[Text]]
@@ -157,9 +114,9 @@ shrinkTupleElems tupleFlavor elems =
   [ candidate
   | shrunk <- shrinkList shrinkType elems,
     candidate <- case shrunk of
-      [] -> [TTuple span0 tupleFlavor Unpromoted []]
+      [] -> [TTuple tupleFlavor Unpromoted []]
       [_] -> []
-      _ -> [TTuple span0 tupleFlavor Unpromoted shrunk]
+      _ -> [TTuple tupleFlavor Unpromoted shrunk]
   ]
 
 shrinkConstraints :: [Constraint] -> [[Constraint]]
@@ -168,69 +125,65 @@ shrinkConstraints = shrinkList shrinkConstraint
 shrinkConstraint :: Constraint -> [Constraint]
 shrinkConstraint constraint =
   case constraint of
-    Constraint _ cls args ->
-      [ Constraint
-          { constraintSpan = span0,
-            constraintClass = cls,
-            constraintArgs = shrunk
-          }
+    Constraint cls args ->
+      [ Constraint cls shrunk
       | shrunk <- shrinkList shrinkType args
       ]
-    CParen _ inner ->
-      inner : [CParen span0 shrunk | shrunk <- shrinkConstraint inner]
+    CParen inner ->
+      inner : [CParen shrunk | shrunk <- shrinkConstraint inner]
 
 genType :: Int -> Gen Type
 genType depth
   | depth <= 0 =
       oneof
-        [ TVar span0 <$> genTypeVarName,
-          (\name -> TCon span0 name Unpromoted) <$> genTypeConName,
-          TTypeLit span0 <$> genTypeLiteral,
-          pure (TStar span0),
-          TQuasiQuote span0 <$> genQuoterName <*> genQuasiBody,
-          TTuple span0 Boxed Unpromoted <$> elements [[], [TVar span0 "a", TCon span0 "B" Unpromoted]],
-          TTuple span0 Unboxed Unpromoted <$> elements [[], [TVar span0 "a", TCon span0 "B" Unpromoted]],
-          TList span0 Unpromoted <$> genTypeAtom 0,
-          TParen span0 <$> genTypeAtom 0,
-          TUnboxedSum span0 <$> genUnboxedSumElems 0
+        [ TVar <$> genTypeVarName,
+          (`TCon` Unpromoted) <$> genTypeConName,
+          TTypeLit <$> genTypeLiteral,
+          pure TStar,
+          TQuasiQuote <$> genQuoterName <*> genQuasiBody,
+          TTuple Boxed Unpromoted <$> elements [[], [TVar "a", TCon "B" Unpromoted]],
+          TTuple Unboxed Unpromoted <$> elements [[], [TVar "a", TCon "B" Unpromoted]],
+          TList Unpromoted <$> genTypeAtom 0,
+          TParen <$> genTypeAtom 0,
+          TUnboxedSum <$> genUnboxedSumElems 0
         ]
   | otherwise =
       frequency
-        [ (3, TVar span0 <$> genTypeVarName),
-          (3, (\name -> TCon span0 name Unpromoted) <$> genTypeConName),
-          (1, TTypeLit span0 <$> genTypeLiteral),
-          (1, pure (TStar span0)),
-          (2, TQuasiQuote span0 <$> genQuoterName <*> genQuasiBody),
-          (2, TForall span0 <$> genTypeBinders <*> genForallInner (depth - 1)),
+        [ (3, TVar <$> genTypeVarName),
+          (3, (`TCon` Unpromoted) <$> genTypeConName),
+          (1, TTypeLit <$> genTypeLiteral),
+          (1, pure TStar),
+          (2, TQuasiQuote <$> genQuoterName <*> genQuasiBody),
+          (2, TForall <$> genTypeBinders <*> genForallInner (depth - 1)),
           (4, genTypeApp depth),
           (4, genTypeFun depth),
-          (3, TTuple span0 Boxed Unpromoted <$> genTypeTupleElems (depth - 1)),
-          (2, TTuple span0 Unboxed Unpromoted <$> genTypeTupleElems (depth - 1)),
-          (2, TUnboxedSum span0 <$> genUnboxedSumElems (depth - 1)),
-          (3, TList span0 Unpromoted <$> genType (depth - 1)),
-          (3, TParen span0 <$> genType (depth - 1)),
-          (3, TContext span0 <$> genConstraints (depth - 1) <*> genContextInner (depth - 1)),
-          (2, TSplice span0 <$> genTypeSpliceBody)
+          (3, TTuple Boxed Unpromoted <$> genTypeTupleElems (depth - 1)),
+          (2, TTuple Unboxed Unpromoted <$> genTypeTupleElems (depth - 1)),
+          (2, TUnboxedSum <$> genUnboxedSumElems (depth - 1)),
+          (3, TList Unpromoted <$> genType (depth - 1)),
+          (3, TParen <$> genType (depth - 1)),
+          (3, TContext <$> genConstraints (depth - 1) <*> genContextInner (depth - 1)),
+          (2, TSplice <$> genTypeSpliceBody)
         ]
 
 genTypeApp :: Int -> Gen Type
 genTypeApp depth = do
   fn <- genType (depth - 1)
   arg <- genType (depth - 1)
-  pure (TApp span0 (canonicalAppHead fn) (canonicalAppArg arg))
+  pure (TApp (canonicalAppHead fn) (canonicalAppArg arg))
 
 genTypeFun :: Int -> Gen Type
 genTypeFun depth = do
   lhs <- genType (depth - 1)
   rhs <- genType (depth - 1)
-  pure (TFun span0 (canonicalFunLeft lhs) rhs)
+  pure (TFun (canonicalFunLeft lhs) rhs)
 
 genForallInner :: Int -> Gen Type
 genForallInner depth = do
   inner <- genType depth
   pure $
     case inner of
-      TForall {} -> TParen span0 inner
+      TForall {} -> TParen inner
       _ -> inner
 
 genContextInner :: Int -> Gen Type
@@ -238,15 +191,14 @@ genContextInner depth = do
   inner <- genType depth
   pure $
     case inner of
-      TContext {} -> TParen span0 inner
+      TContext {} -> TParen inner
       _ -> inner
 
--- | Generate the body of a TH type splice: either a bare variable or a parenthesized expression.
 genTypeSpliceBody :: Gen Expr
 genTypeSpliceBody =
   oneof
-    [ EVar span0 <$> genIdent,
-      EParen span0 . EVar span0 <$> genIdent
+    [ EVar <$> genIdent,
+      EParen . EVar <$> genIdent
     ]
 
 genTypeTupleElems :: Int -> Gen [Type]
@@ -266,16 +218,16 @@ genUnboxedSumElems depth = do
 genTypeAtom :: Int -> Gen Type
 genTypeAtom depth =
   oneof
-    [ TVar span0 <$> genTypeVarName,
-      (\name -> TCon span0 name Unpromoted) <$> genTypeConName,
-      TTypeLit span0 <$> genTypeLiteral,
-      pure (TStar span0),
-      TQuasiQuote span0 <$> genQuoterName <*> genQuasiBody,
-      TTuple span0 Boxed Unpromoted <$> genTypeTupleElems depth,
-      TTuple span0 Unboxed Unpromoted <$> genTypeTupleElems depth,
-      TUnboxedSum span0 <$> genUnboxedSumElems depth,
-      TList span0 Unpromoted <$> genType depth,
-      TParen span0 <$> genType depth
+    [ TVar <$> genTypeVarName,
+      (`TCon` Unpromoted) <$> genTypeConName,
+      TTypeLit <$> genTypeLiteral,
+      pure TStar,
+      TQuasiQuote <$> genQuoterName <*> genQuasiBody,
+      TTuple Boxed Unpromoted <$> genTypeTupleElems depth,
+      TTuple Unboxed Unpromoted <$> genTypeTupleElems depth,
+      TUnboxedSum <$> genUnboxedSumElems depth,
+      TList Unpromoted <$> genType depth,
+      TParen <$> genType depth
     ]
 
 genConstraints :: Int -> Gen [Constraint]
@@ -288,12 +240,7 @@ genConstraint depth = do
   cls <- genTypeConName
   argCount <- chooseInt (0, 2)
   args <- vectorOf argCount (genConstraintArg depth)
-  pure $
-    Constraint
-      { constraintSpan = span0,
-        constraintClass = cls,
-        constraintArgs = args
-      }
+  pure (Constraint cls args)
 
 genConstraintArg :: Int -> Gen Type
 genConstraintArg depth = do
@@ -303,26 +250,26 @@ genConstraintArg depth = do
 canonicalFunLeft :: Type -> Type
 canonicalFunLeft ty =
   case ty of
-    TForall {} -> TParen span0 ty
-    TFun {} -> TParen span0 ty
-    TContext {} -> TParen span0 ty
+    TForall {} -> TParen ty
+    TFun {} -> TParen ty
+    TContext {} -> TParen ty
     _ -> ty
 
 canonicalAppHead :: Type -> Type
 canonicalAppHead ty =
   case ty of
-    TForall {} -> TParen span0 ty
-    TFun {} -> TParen span0 ty
-    TContext {} -> TParen span0 ty
+    TForall {} -> TParen ty
+    TFun {} -> TParen ty
+    TContext {} -> TParen ty
     _ -> ty
 
 canonicalAppArg :: Type -> Type
 canonicalAppArg ty =
   case ty of
-    TApp {} -> TParen span0 ty
-    TForall {} -> TParen span0 ty
-    TFun {} -> TParen span0 ty
-    TContext {} -> TParen span0 ty
+    TApp {} -> TParen ty
+    TForall {} -> TParen ty
+    TFun {} -> TParen ty
+    TContext {} -> TParen ty
     _ -> ty
 
 canonicalConstraintArg :: Type -> Type
@@ -337,7 +284,7 @@ canonicalConstraintArg ty =
     TTuple {} -> ty
     TUnboxedSum {} -> ty
     TParen {} -> ty
-    _ -> TParen span0 ty
+    _ -> TParen ty
 
 genTypeBinders :: Gen [Text]
 genTypeBinders = do
@@ -367,7 +314,6 @@ genQuoterName = do
   restLen <- chooseInt (0, 4)
   rest <- vectorOf restLen (elements (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> "_'"))
   let candidate = T.pack (first : rest)
-  -- Exclude names that clash with TH quote brackets when TemplateHaskell is enabled
   if candidate `elem` ["e", "t", "d", "p"]
     then genQuoterName
     else pure candidate
@@ -404,29 +350,23 @@ genTypeLiteralChar = elements (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> "
 normalizeType :: Type -> Type
 normalizeType ty =
   case ty of
-    TVar _ name -> TVar span0 name
-    TCon _ name promoted -> TCon span0 name promoted
-    TTypeLit _ lit -> TTypeLit span0 lit
-    TStar _ -> TStar span0
-    TQuasiQuote _ quoter body -> TQuasiQuote span0 quoter body
-    TForall _ binders inner -> TForall span0 binders (normalizeType inner)
-    TApp _ f x -> TApp span0 (normalizeType f) (normalizeType x)
-    TFun _ a b -> TFun span0 (normalizeType a) (normalizeType b)
-    TTuple _ tupleFlavor promoted elems -> TTuple span0 tupleFlavor promoted (map normalizeType elems)
-    TList _ promoted inner -> TList span0 promoted (normalizeType inner)
-    TParen _ inner -> TParen span0 (normalizeType inner)
-    TUnboxedSum _ elems -> TUnboxedSum span0 (map normalizeType elems)
-    TContext _ constraints inner -> TContext span0 (map normalizeConstraint constraints) (normalizeType inner)
-    TSplice _ body -> TSplice span0 (normalizeExpr body)
+    TVar name -> TVar name
+    TCon name promoted -> TCon name promoted
+    TTypeLit lit -> TTypeLit lit
+    TStar -> TStar
+    TQuasiQuote quoter body -> TQuasiQuote quoter body
+    TForall binders inner -> TForall binders (normalizeType inner)
+    TApp f x -> TApp (normalizeType f) (normalizeType x)
+    TFun a b -> TFun (normalizeType a) (normalizeType b)
+    TTuple tupleFlavor promoted elems -> TTuple tupleFlavor promoted (map normalizeType elems)
+    TList promoted inner -> TList promoted (normalizeType inner)
+    TParen inner -> TParen (normalizeType inner)
+    TUnboxedSum elems -> TUnboxedSum (map normalizeType elems)
+    TContext constraints inner -> TContext (map normalizeConstraint constraints) (normalizeType inner)
+    TSplice body -> TSplice (normalizeExpr body)
 
 normalizeConstraint :: Constraint -> Constraint
 normalizeConstraint constraint =
   case constraint of
-    Constraint _ cls args ->
-      Constraint
-        { constraintSpan = span0,
-          constraintClass = cls,
-          constraintArgs = map normalizeType args
-        }
-    CParen _ inner ->
-      CParen span0 (normalizeConstraint inner)
+    Constraint cls args -> Constraint cls (map normalizeType args)
+    CParen inner -> CParen (normalizeConstraint inner)
