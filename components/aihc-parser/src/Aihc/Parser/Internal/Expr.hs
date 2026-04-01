@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TupleSections #-}
 
 module Aihc.Parser.Internal.Expr
   ( exprParser,
@@ -304,7 +305,7 @@ recordBracesParser =
       fields <- recordFieldBindingParser `MP.sepEndBy` expectedTok TkSpecialComma
       if rwcEnabled
         then do
-          mDotDot <- MP.optional (withSpan (expectedTok TkReservedDotDot *> pure (\sp -> ("..", Nothing, sp))))
+          mDotDot <- MP.optional (withSpan (expectedTok TkReservedDotDot $> ("..", Nothing,)))
           case mDotDot of
             Nothing -> pure fields
             Just sentinel -> do
@@ -941,7 +942,7 @@ recordPatternFieldListParser = do
   fields <- recordFieldPatternParser `MP.sepEndBy` expectedTok TkSpecialComma
   if rwcEnabled
     then do
-      mDotDot <- MP.optional (withSpan (expectedTok TkReservedDotDot *> pure (\sp -> ("..", PWildcard sp))))
+      mDotDot <- MP.optional (withSpan (expectedTok TkReservedDotDot $> \sp -> ("..", PWildcard sp)))
       case mDotDot of
         Nothing -> pure fields
         Just sentinel -> do
