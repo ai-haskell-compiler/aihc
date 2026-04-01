@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail wildcard in type application -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE PartialTypeSignatures #-}
 module Just2 where
 

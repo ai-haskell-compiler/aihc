@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail wildcard in let binding -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE PartialTypeSignatures #-}
 module LetBinding where
 
