@@ -885,7 +885,14 @@ prettyExprApp = prettyExprIn CtxAppFun
 
 -- | Print a negation expression.
 prettyNegate :: Expr -> Doc ann
-prettyNegate inner = "-" <> prettyExprPrec 3 inner
+prettyNegate inner =
+  case inner of
+    -- Splices start with $ which is a symbolic operator character.
+    -- Without parens, -$x lexes as the operator -$ followed by x,
+    -- and - $x lexes as a right section.
+    ETHSplice {} -> "-" <> parens (prettyExprPrec 0 inner)
+    ETHTypedSplice {} -> "-" <> parens (prettyExprPrec 0 inner)
+    _ -> "-" <> prettyExprPrec 3 inner
 
 -- | Print the body of a type signature expression.
 prettyTypeSigBody :: Expr -> Doc ann
