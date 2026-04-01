@@ -1,7 +1,9 @@
 # AGENTS
 
-- Tools: `gh`, `nix` (others via `nix`)
-- Run tests: `nix flake check`
+- Tools: `gh`, `cabal`, `nix` (others via `nix`)
+- A GHC developer environment is available
+- Run tests locally (fast): `cabal test lib:aihc-parser`
+- Run full test suite (slow, isolated sandbox): `nix flake check`
 - Include changes to progress counts in PR descriptions. Do not update the READMEs, though. They are updated by a cron workflow.
 - Commands:
   - Parser: `nix run .#parser-progress`
@@ -14,16 +16,14 @@
 ## Cheatsheet
 
 - Test whether a snippet is accepted by GHC: `echo snippet | ghci -v0`. Return code 0 means the snippet is valid, non-zero means it is invalid.
-- Test whether a snippet is accepted by AIHC: `echo snippet | nix run .#aihc-parser`
-- Test how the lexer interprets a string: `echo string | nix run .#aihc-parser -- --lex`
+- Test whether a snippet is accepted by AIHC: `echo snippet | cabal run -v0 exe:aihc-parser`
+- Test how the lexer interprets a string: `echo string | cabal run -v0 exe:aihc-parser -- --lex`
 
 ## Gotchas
 
 - CI checks the PR merge commit (`pull/<n>/merge`), not only the branch HEAD. If local passes but CI fails, merge or rebase `origin/main` locally and rerun `nix flake check`.
 - Golden AST strings are sensitive to upstream AST/shorthand changes (for example, `Match` now printing `headForm = Prefix`), so new fixtures must match current `main` formatting.
-- `nix flake check` builds from tracked Git sources. If a manifest references a newly created fixture file, run `git add <file>` before `nix flake check` or the suite may fail with "Manifest references missing case file".
 - In parser oracle suites, `pass` means both oracle acceptance and AST roundtrip-fingerprint equality. A case can parse successfully and still fail as `roundtrip mismatch against oracle AST`.
-- `xfail` rows in fixture `manifest.tsv` files require a reason column (5th TSV field).
 
 ## Testing (TDD)
 
@@ -34,23 +34,22 @@ aihc is developed test-first. Run the full suite with `nix flake check`. When wo
   - Any `FAIL` or unexpected `XPASS` should block merge until handled.
 
 - **`aihc-parser`**
-  - Golden regression tests:
-    - Parser fixtures: `components/aihc-parser/test/Test/Fixtures/golden/`.
-    - Lexer fixtures: `components/aihc-parser/test/Test/Fixtures/lexer/`.
-    - Input/output snapshots with `pass`/`xfail`/`xpass` coverage.
-  - Oracle compliance tests:
-    - Haskell2010 manifest: `components/aihc-parser/test/Test/Fixtures/haskell2010/manifest.tsv`.
-    - Extension manifests: per-extension `manifest.tsv` files under `components/aihc-parser/test/Test/Fixtures/`.
-    - Oracle is GHC, with parser round-trip/fingerprint validation.
-  - Fuzz completeness tests:
-    - Run `nix run .#parser-fuzz -- ...`.
-    - Generates random modules, finds parser-validation failures, and shrinks to minimal repros.
-    - Promote minimized repros into golden/oracle fixtures.
+   - Golden regression tests:
+     - Parser fixtures: `components/aihc-parser/test/Test/Fixtures/golden/`.
+     - Lexer fixtures: `components/aihc-parser/test/Test/Fixtures/lexer/`.
+     - Input/output snapshots with `pass`/`xfail`/`xpass` coverage.
+   - Oracle compliance tests:
+     - Oracle test fixtures with inline comments specifying test parameters.
+     - Oracle is GHC, with parser round-trip/fingerprint validation.
+   - Fuzz completeness tests:
+     - Run `nix run .#parser-fuzz -- ...`.
+     - Generates random modules, finds parser-validation failures, and shrinks to minimal repros.
+     - Promote minimized repros into golden/oracle fixtures.
 
 - **`aihc-cpp`**
-  - Oracle compliance tests:
-    - Manifest: `components/aihc-cpp/test/Test/Fixtures/progress/manifest.tsv`.
-    - Oracle is `cpphs`; outputs are compared against `cpphs` behavior.
+   - Oracle compliance tests:
+     - Oracle test fixtures with inline comments specifying test parameters.
+     - Oracle is `cpphs`; outputs are compared against `cpphs` behavior.
 
 ## Pre-PR Review
 
