@@ -74,7 +74,7 @@ patternCtorNames pat =
         PNegLit {} -> here
         PParen _ inner -> here <> patternCtorNames inner
         PUnboxedSum _ _ _ inner -> here <> patternCtorNames inner
-        PRecord _ _ fields -> here <> mconcat [patternCtorNames fieldPat | (_, fieldPat) <- fields]
+        PRecord _ _ fields _ -> here <> mconcat [patternCtorNames fieldPat | (_, fieldPat) <- fields]
         PTypeSig _ inner _ -> here <> patternCtorNames inner
         PSplice {} -> here
 
@@ -125,9 +125,9 @@ shrinkPattern pat =
       [inner] <> [PParen span0 inner' | inner' <- shrinkPattern inner]
     PUnboxedSum _ altIdx arity inner ->
       [PUnboxedSum span0 altIdx arity inner' | inner' <- shrinkPattern inner]
-    PRecord _ con fields ->
-      [PRecord span0 con [] | not (null fields)]
-        <> [PRecord span0 con fields' | fields' <- shrinkList shrinkField fields]
+    PRecord _ con fields _ ->
+      [PRecord span0 con [] False | not (null fields)]
+        <> [PRecord span0 con fields' False | fields' <- shrinkList shrinkField fields]
     PTypeSig _ inner ty ->
       [inner]
         <> [PTypeSig span0 inner' ty | inner' <- shrinkPattern inner]
@@ -216,7 +216,7 @@ genPattern depth
           (2, PIrrefutable span0 . canonicalPatternAtom <$> genPattern (depth - 1)),
           (2, PNegLit span0 <$> genNumericLiteral),
           (2, PParen span0 <$> genPattern (depth - 1)),
-          (2, PRecord span0 <$> genPatternConName <*> genRecordFields (depth - 1)),
+          (2, PRecord span0 <$> genPatternConName <*> genRecordFields (depth - 1) <*> pure False),
           (2, genPatternTypeSig depth),
           (1, genUnboxedSumPattern (depth - 1)),
           (2, PSplice span0 <$> genPatSpliceBody)
@@ -451,7 +451,7 @@ normalizePattern pat =
     PNegLit _ lit -> PNegLit span0 (normalizeLiteral lit)
     PParen _ inner -> PParen span0 (normalizePattern inner)
     PUnboxedSum _ altIdx arity inner -> PUnboxedSum span0 altIdx arity (normalizePattern inner)
-    PRecord _ con fields -> PRecord span0 con [(fieldName, normalizePattern fieldPat) | (fieldName, fieldPat) <- fields]
+    PRecord _ con fields rwc -> PRecord span0 con [(fieldName, normalizePattern fieldPat) | (fieldName, fieldPat) <- fields] rwc
     PTypeSig _ inner ty -> PTypeSig span0 (normalizePattern inner) (normalizeTypeSpan ty)
     PSplice _ body -> PSplice span0 (normalizeExpr body)
 

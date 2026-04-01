@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TupleSections #-}
 
 module Aihc.Parser.Internal.Expr
   ( exprParser,
@@ -271,11 +272,11 @@ atomOrRecordExprParser = do
       mRecordFields <- MP.optional recordBracesParser
       case mRecordFields of
         Nothing -> pure e
-        Just fields -> do
+        Just (fields, hasWildcard) -> do
           let result = case e of
                 EVar span' name
                   | isConLikeName name ->
-                      ERecordCon (mergeSourceSpans span' (fieldsEndSpan fields)) name (map normalizeField fields)
+                      ERecordCon (mergeSourceSpans span' (fieldsEndSpan fields)) name (map normalizeField fields) hasWildcard
                 _ ->
                   ERecordUpd (mergeSourceSpans (getSourceSpan e) (fieldsEndSpan fields)) e (map normalizeField fields)
           -- Recursively check for more record braces (chained updates)
@@ -294,9 +295,23 @@ atomOrRecordExprParser = do
 
 -- | Parse record braces: { field = value, field2 = value2, ... }
 -- Supports both explicit assignment (field = value) and puns (field)
-recordBracesParser :: TokParser [(Text, Maybe Expr, SourceSpan)]
+-- With RecordWildCards enabled, also supports ".." as a final wildcard field.
+recordBracesParser :: TokParser ([(Text, Maybe Expr, SourceSpan)], Bool)
 recordBracesParser =
-  braces (recordFieldBindingParser `MP.sepEndBy` expectedTok TkSpecialComma)
+  braces recordFieldListParser
+  where
+    recordFieldListParser = do
+      rwcEnabled <- isExtensionEnabled RecordWildCards
+      fields <- recordFieldBindingParser `MP.sepEndBy` expectedTok TkSpecialComma
+      if rwcEnabled
+        then do
+          mDotDot <- MP.optional (expectedTok TkReservedDotDot)
+          case mDotDot of
+            Nothing -> pure (fields, False)
+            Just _ -> do
+              _ <- MP.optional (expectedTok TkSpecialComma)
+              pure (fields, True)
+        else pure (fields, False)
 
 -- | Parse a single record field binding: either "field = expr" or just "field" (pun)
 -- Accepts both unqualified (field) and qualified (Mod.field) field names.
@@ -905,8 +920,8 @@ bareVarOrConPatternParser = withSpan $ do
 recordPatternParser :: TokParser Pattern
 recordPatternParser = withSpan $ do
   con <- constructorIdentifierParser
-  fields <- braces (recordFieldPatternParser `MP.sepEndBy` expectedTok TkSpecialComma)
-  pure (\span' -> PRecord span' con fields)
+  (fields, hasWildcard) <- braces recordPatternFieldListParser
+  pure (\span' -> PRecord span' con fields hasWildcard)
 
 recordFieldPatternParser :: TokParser (Text, Pattern)
 recordFieldPatternParser = withSpan $ do
@@ -919,6 +934,21 @@ recordFieldPatternParser = withSpan $ do
     Nothing -> do
       -- NamedFieldPuns: just "field" means "field = field"
       pure $ \srcSpan -> (field, PVar srcSpan field)
+
+-- | Parse the contents of record pattern braces, supporting RecordWildCards ".."
+recordPatternFieldListParser :: TokParser ([(Text, Pattern)], Bool)
+recordPatternFieldListParser = do
+  rwcEnabled <- isExtensionEnabled RecordWildCards
+  fields <- recordFieldPatternParser `MP.sepEndBy` expectedTok TkSpecialComma
+  if rwcEnabled
+    then do
+      mDotDot <- MP.optional (expectedTok TkReservedDotDot)
+      case mDotDot of
+        Nothing -> pure (fields, False)
+        Just _ -> do
+          _ <- MP.optional (expectedTok TkSpecialComma)
+          pure (fields, True)
+    else pure (fields, False)
 
 listPatternParser :: TokParser Pattern
 listPatternParser = withSpan $ do
