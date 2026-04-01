@@ -267,28 +267,28 @@ atomOrRecordExprParser = do
   base <- atomExprParser
   applyRecordSuffixes base
   where
-    applyRecordSuffixes :: Expr -> TokParser Expr
-    applyRecordSuffixes e = do
-      mRecordFields <- MP.optional recordBracesParser
-      case mRecordFields of
-        Nothing -> pure e
-        Just fields -> do
-          let result = case e of
-                EVar span' name
-                  | isConLikeName name ->
-                      ERecordCon (mergeSourceSpans span' (fieldsEndSpan fields)) name (map normalizeField fields)
-                _ ->
-                  ERecordUpd (mergeSourceSpans (getSourceSpan e) (fieldsEndSpan fields)) e (map normalizeField fields)
-          -- Recursively check for more record braces (chained updates)
-          applyRecordSuffixes result
+     applyRecordSuffixes :: Expr -> TokParser Expr
+     applyRecordSuffixes e = do
+       mRecordFields <- MP.optional recordBracesParser
+       case mRecordFields of
+         Nothing -> pure e
+         Just (fields, hasWildcard) -> do
+           let result = case e of
+                 EVar span' name
+                   | isConLikeName name ->
+                       ERecordCon (mergeSourceSpans span' (fieldsEndSpan fields)) name (map normalizeField fields) hasWildcard
+                 _ ->
+                   ERecordUpd (mergeSourceSpans (getSourceSpan e) (fieldsEndSpan fields)) e (map normalizeField fields)
+           -- Recursively check for more record braces (chained updates)
+           applyRecordSuffixes result
 
-    -- Get the end span from the last field (or the opening brace position)
-    fieldsEndSpan :: [(Text, Maybe Expr, SourceSpan)] -> SourceSpan
-    fieldsEndSpan [] = NoSourceSpan
-    fieldsEndSpan fs = case last fs of (_, _, sp) -> sp
-    -- Normalize field: if no expression given (pun), use field name as expression
-    normalizeField :: (Text, Maybe Expr, SourceSpan) -> (Text, Expr)
-    normalizeField (fieldName, mExpr, sp) =
+       -- Get the end span from the last field (or the opening brace position)
+     fieldsEndSpan :: [(Text, Maybe Expr, SourceSpan)] -> SourceSpan
+     fieldsEndSpan [] = NoSourceSpan
+     fieldsEndSpan fs = case last fs of (_, _, sp) -> sp
+       -- Normalize field: if no expression given (pun), use field name as expression
+     normalizeField :: (Text, Maybe Expr, SourceSpan) -> (Text, Expr)
+     normalizeField (fieldName, mExpr, sp) =
       case mExpr of
         Just expr' -> (fieldName, expr')
         Nothing -> (fieldName, EVar sp fieldName) -- NamedFieldPuns: field name becomes variable
@@ -296,7 +296,8 @@ atomOrRecordExprParser = do
 -- | Parse record braces: { field = value, field2 = value2, ... }
 -- Supports both explicit assignment (field = value) and puns (field)
 -- With RecordWildCards enabled, also supports ".." as a final wildcard field.
-recordBracesParser :: TokParser [(Text, Maybe Expr, SourceSpan)]
+-- Returns the fields and a boolean indicating if a wildcard was present.
+recordBracesParser :: TokParser ([(Text, Maybe Expr, SourceSpan)], Bool)
 recordBracesParser =
   braces recordFieldListParser
   where
@@ -305,13 +306,13 @@ recordBracesParser =
       fields <- recordFieldBindingParser `MP.sepEndBy` expectedTok TkSpecialComma
       if rwcEnabled
         then do
-          mDotDot <- MP.optional (withSpan (expectedTok TkReservedDotDot $> ("..", Nothing,)))
+          mDotDot <- MP.optional (expectedTok TkReservedDotDot)
           case mDotDot of
-            Nothing -> pure fields
-            Just sentinel -> do
+            Nothing -> pure (fields, False)
+            Just _ -> do
               _ <- MP.optional (expectedTok TkSpecialComma)
-              pure (fields ++ [sentinel])
-        else pure fields
+              pure (fields, True)
+        else pure (fields, False)
 
 -- | Parse a single record field binding: either "field = expr" or just "field" (pun)
 -- Accepts both unqualified (field) and qualified (Mod.field) field names.
@@ -920,8 +921,8 @@ bareVarOrConPatternParser = withSpan $ do
 recordPatternParser :: TokParser Pattern
 recordPatternParser = withSpan $ do
   con <- constructorIdentifierParser
-  fields <- braces recordPatternFieldListParser
-  pure (\span' -> PRecord span' con fields)
+  (fields, hasWildcard) <- braces recordPatternFieldListParser
+  pure (\span' -> PRecord span' con fields hasWildcard)
 
 recordFieldPatternParser :: TokParser (Text, Pattern)
 recordFieldPatternParser = withSpan $ do
@@ -936,19 +937,20 @@ recordFieldPatternParser = withSpan $ do
       pure $ \srcSpan -> (field, PVar srcSpan field)
 
 -- | Parse the contents of record pattern braces, supporting RecordWildCards ".."
-recordPatternFieldListParser :: TokParser [(Text, Pattern)]
+-- Returns the fields and a boolean indicating if a wildcard was present.
+recordPatternFieldListParser :: TokParser ([(Text, Pattern)], Bool)
 recordPatternFieldListParser = do
   rwcEnabled <- isExtensionEnabled RecordWildCards
   fields <- recordFieldPatternParser `MP.sepEndBy` expectedTok TkSpecialComma
   if rwcEnabled
     then do
-      mDotDot <- MP.optional (withSpan (expectedTok TkReservedDotDot $> \sp -> ("..", PWildcard sp)))
+      mDotDot <- MP.optional (expectedTok TkReservedDotDot)
       case mDotDot of
-        Nothing -> pure fields
-        Just sentinel -> do
+        Nothing -> pure (fields, False)
+        Just _ -> do
           _ <- MP.optional (expectedTok TkSpecialComma)
-          pure (fields ++ [sentinel])
-    else pure fields
+          pure (fields, True)
+    else pure (fields, False)
 
 listPatternParser :: TokParser Pattern
 listPatternParser = withSpan $ do

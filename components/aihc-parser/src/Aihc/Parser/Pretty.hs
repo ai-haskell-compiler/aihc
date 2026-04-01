@@ -384,13 +384,15 @@ prettyPattern pat =
     PIrrefutable _ inner -> "~" <> prettyPatternAtomStrict inner
     PNegLit _ lit -> "-" <> prettyLiteral lit
     PParen _ inner -> parens (prettyPattern inner)
-    PRecord _ con fields ->
+    PRecord _ con fields hasWildcard ->
       pretty con
         <+> braces
           ( hsep
               ( punctuate
                   comma
-                  [prettyPatternFieldBinding fieldName fieldPat | (fieldName, fieldPat) <- fields]
+                  ( [prettyPatternFieldBinding fieldName fieldPat | (fieldName, fieldPat) <- fields]
+                      ++ [".." | hasWildcard]
+                  )
               )
           )
     PTypeSig _ inner ty -> prettyPattern inner <+> "::" <+> prettyType ty
@@ -1011,8 +1013,8 @@ prettyExprPrec prec expr =
               )
         )
     EArithSeq _ seqInfo -> prettyArithSeq seqInfo
-    ERecordCon _ name fields ->
-      pretty name <+> braces (hsep (punctuate comma (map prettyBinding fields)))
+    ERecordCon _ name fields hasWildcard ->
+      pretty name <+> braces (hsep (punctuate comma (map prettyBinding fields ++ [".." | hasWildcard])))
     ERecordUpd _ base fields ->
       prettyExprPrec 3 base <+> braces (hsep (punctuate comma (map prettyBinding fields)))
     ETypeSig _ inner ty -> parenthesize (prec > 1) (prettyTypeSigBody inner <+> "::" <+> prettyType ty)

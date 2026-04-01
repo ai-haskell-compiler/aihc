@@ -59,7 +59,7 @@ genExprSized n
           ETupleSection span0 Boxed <$> genTupleSectionElems (n - 1),
           genUnboxedSumExpr (n - 1),
           EArithSeq span0 <$> genArithSeq (n - 1),
-          ERecordCon span0 <$> genConName <*> genRecordFields (n - 1),
+          ERecordCon span0 <$> genConName <*> genRecordFields (n - 1) <*> pure False,
           ERecordUpd span0 <$> genExprSized half <*> genRecordFields half,
           ETypeSig span0 <$> genExprSized half <*> genType half,
           EParen span0 <$> genExprSized (n - 1),
@@ -526,8 +526,8 @@ shrinkExpr expr =
     ETupleCon _ tupleFlavor n -> [ETupleCon span0 tupleFlavor n' | n' <- shrink n, n' >= 2]
     EArithSeq _ seq' ->
       [EArithSeq span0 seq'' | seq'' <- shrinkArithSeq seq']
-    ERecordCon _ con fields ->
-      [ERecordCon span0 con fields' | fields' <- shrinkRecordFields fields]
+    ERecordCon _ con fields _ ->
+      [ERecordCon span0 con fields' False | fields' <- shrinkRecordFields fields]
     ERecordUpd _ target fields ->
       target
         : [ERecordUpd span0 target' fields | target' <- shrinkExpr target]
@@ -711,7 +711,7 @@ normalizeExpr expr =
     -- A tuple constructor is equivalent to a tuple section with all holes
     ETupleCon _ tupleFlavor n -> ETupleSection span0 tupleFlavor (replicate n Nothing)
     EArithSeq _ seq' -> EArithSeq span0 (normalizeArithSeq seq')
-    ERecordCon _ con fields -> ERecordCon span0 con [(name, normalizeExpr e) | (name, e) <- fields]
+    ERecordCon _ con fields rwc -> ERecordCon span0 con [(name, normalizeExpr e) | (name, e) <- fields] rwc
     ERecordUpd _ target fields -> ERecordUpd span0 (normalizeExpr target) [(name, normalizeExpr e) | (name, e) <- fields]
     ETypeSig _ inner ty -> ETypeSig span0 (normalizeExpr inner) (normalizeType ty)
     ETypeApp _ inner ty -> ETypeApp span0 (normalizeExpr inner) (normalizeType ty)
@@ -774,7 +774,7 @@ normalizePattern pat =
     PNegLit _ lit -> PNegLit span0 (normalizeLiteral lit)
     PParen _ inner -> PParen span0 (normalizePattern inner)
     PUnboxedSum _ altIdx arity inner -> PUnboxedSum span0 altIdx arity (normalizePattern inner)
-    PRecord _ con fields -> PRecord span0 con [(name, normalizePattern p) | (name, p) <- fields]
+    PRecord _ con fields rwc -> PRecord span0 con [(name, normalizePattern p) | (name, p) <- fields] rwc
     PTypeSig _ inner ty -> PTypeSig span0 (normalizePattern inner) (normalizeType ty)
     PSplice _ body -> PSplice span0 (normalizeExpr body)
 
