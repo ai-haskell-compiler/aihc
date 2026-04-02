@@ -689,8 +689,10 @@ parenExprParser = withSpan $ do
 
     tokensAdjacent first second =
       case (lexTokenSpan first, lexTokenSpan second) of
-        (SourceSpan _ _ firstEndLine firstEndCol, SourceSpan secondStartLine secondStartCol _ _) ->
-          firstEndLine == secondStartLine && firstEndCol == secondStartCol
+        ( SourceSpan {sourceSpanEndLine = firstEndLine, sourceSpanEndCol = firstEndCol},
+          SourceSpan {sourceSpanStartLine = secondStartLine, sourceSpanStartCol = secondStartCol}
+          ) ->
+            firstEndLine == secondStartLine && firstEndCol == secondStartCol
         _ -> False
 
     parseSection closeTok = do

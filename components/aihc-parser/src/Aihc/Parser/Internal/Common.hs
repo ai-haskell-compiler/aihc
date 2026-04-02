@@ -277,10 +277,13 @@ withSpan parser = do
 sourceSpanFromPositions :: SourcePos -> SourcePos -> SourceSpan
 sourceSpanFromPositions start end =
   SourceSpan
-    { sourceSpanStartLine = MP.unPos (sourceLine start),
+    { sourceSpanSourceName = sourceName start,
+      sourceSpanStartLine = MP.unPos (sourceLine start),
       sourceSpanStartCol = MP.unPos (sourceColumn start),
       sourceSpanEndLine = MP.unPos (sourceLine end),
-      sourceSpanEndCol = MP.unPos (sourceColumn end)
+      sourceSpanEndCol = MP.unPos (sourceColumn end),
+      sourceSpanStartOffset = 0,
+      sourceSpanEndOffset = 0
     }
 
 parens :: TokParser a -> TokParser a
