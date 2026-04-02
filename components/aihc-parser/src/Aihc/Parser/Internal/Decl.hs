@@ -790,9 +790,9 @@ standaloneDerivingDeclParser = withSpan $ do
 instanceHeadParser :: TokParser (Bool, Text, [Type])
 instanceHeadParser =
   MP.try (parens bareInstanceHeadParser >>= \(className, instanceTypes) -> pure (True, className, instanceTypes))
-    <|> (do
-           (className, instanceTypes) <- bareInstanceHeadParser
-           pure (False, className, instanceTypes)
+    <|> ( do
+            (className, instanceTypes) <- bareInstanceHeadParser
+            pure (False, className, instanceTypes)
         )
   where
     bareInstanceHeadParser = do
