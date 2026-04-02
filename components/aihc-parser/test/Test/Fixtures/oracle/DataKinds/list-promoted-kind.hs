@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail list promoted kind -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE DataKinds #-}
 module ListPromotedKind where
 

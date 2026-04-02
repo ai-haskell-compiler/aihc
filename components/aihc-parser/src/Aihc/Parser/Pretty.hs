@@ -337,9 +337,7 @@ prettyTypePrec prec ty =
     TList _ promoted inner ->
       let listDoc = brackets (prettyTypePrec 0 inner)
        in if promoted == Promoted then "'" <> listDoc else listDoc
-    TParen _ inner
-      | isInfixTypeApp inner -> prettyTypePrec prec inner
-      | otherwise -> parens (prettyTypePrec 0 inner)
+    TParen _ inner -> parens (prettyTypePrec 0 inner)
     TContext _ constraints inner ->
       parenthesize
         (prec > 0)
@@ -369,12 +367,6 @@ isSymbolicTypeOperator op =
   case T.uncons op of
     Nothing -> False
     Just _ -> T.all (`elem` (":!#$%&*+./<=>?\\^|-~" :: String)) op
-
-isInfixTypeApp :: Type -> Bool
-isInfixTypeApp ty =
-  case ty of
-    TApp _ (TApp _ (TCon _ op _) _) _ -> isSymbolicTypeOperator op && op /= "->"
-    _ -> False
 
 prettyTypeLiteral :: TypeLiteral -> Doc ann
 prettyTypeLiteral lit =
