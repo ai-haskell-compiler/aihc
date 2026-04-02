@@ -28,6 +28,7 @@ library
       base >=4.16 && <5
     , text >=1.2
     , containers
+    , bytestring
     , deepseq
     , megaparsec
     , prettyprinter

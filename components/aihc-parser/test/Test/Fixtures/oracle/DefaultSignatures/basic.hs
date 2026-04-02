@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail basic default signature -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE DefaultSignatures #-}
 module Basic where
 

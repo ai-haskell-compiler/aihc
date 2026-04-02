@@ -116,6 +116,13 @@ prettyImportLevel level =
     ImportLevelQuote -> "quote"
     ImportLevelSplice -> "splice"
 
+prettyDeclSplice :: Expr -> Doc ann
+prettyDeclSplice body =
+  case body of
+    EVar {} -> prettySplice "$" body
+    EParen {} -> prettySplice "$" body
+    _ -> prettyExprPrec 0 body
+
 prettyQuotedText :: Text -> Doc ann
 prettyQuotedText txt = "\"" <> pretty txt <> "\""
 
@@ -170,7 +177,7 @@ prettyDeclLines decl =
     DeclStandaloneDeriving _ derivingDecl -> [prettyStandaloneDeriving derivingDecl]
     DeclDefault _ tys -> ["default" <+> parens (hsep (punctuate comma (map prettyType tys)))]
     DeclForeign _ foreignDecl -> [prettyForeignDecl foreignDecl]
-    DeclSplice _ body -> [prettySplice "$" body]
+    DeclSplice _ body -> [prettyDeclSplice body]
     DeclTypeFamilyDecl _ tf -> [prettyTypeFamilyDecl tf]
     DeclDataFamilyDecl _ df -> [prettyDataFamilyDecl df]
     DeclTypeFamilyInst _ tfi -> [prettyTopTypeFamilyInst tfi]
@@ -346,6 +353,9 @@ prettyContext constraints =
 prettyConstraint :: Constraint -> Doc ann
 prettyConstraint constraint =
   case constraint of
+    Constraint _ cls [lhs, rhs]
+      | cls == "~" ->
+          prettyTypeIn CtxTypeAtom lhs <+> pretty cls <+> prettyTypeIn CtxTypeAtom rhs
     Constraint _ cls args ->
       hsep (pretty cls : map (prettyTypeIn CtxTypeAtom) args)
     CParen _ inner ->
@@ -672,6 +682,7 @@ prettyClassItem :: ClassDeclItem -> Doc ann
 prettyClassItem item =
   case item of
     ClassItemTypeSig _ names ty -> hsep [hsep (punctuate comma (map prettyBinderName names)), "::", prettyType ty]
+    ClassItemDefaultSig _ name ty -> hsep ["default", prettyBinderName name, "::", prettyType ty]
     ClassItemFixity _ assoc prec ops ->
       hsep
         ( [prettyFixityAssoc assoc]
