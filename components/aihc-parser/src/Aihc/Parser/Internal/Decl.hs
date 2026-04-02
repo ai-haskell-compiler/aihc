@@ -180,6 +180,19 @@ exportImportNamespaceParser =
 declParser :: TokParser Decl
 declParser = do
   tok <- lookAhead anySingle
+  thFullEnabled <- isExtensionEnabled TemplateHaskell
+  let valueOrSpliceParser =
+        if thFullEnabled
+          then MP.try valueDeclParser <|> implicitSpliceDeclParser
+          else valueDeclParser
+      patternOrSpliceParser =
+        if thFullEnabled
+          then MP.try patternBindDeclParser <|> implicitSpliceDeclParser
+          else MP.try patternBindDeclParser
+      typeSigOrValueOrSpliceParser =
+        MP.try typeSigDeclParser <|> valueOrSpliceParser
+      typeSigOrPatternOrValueOrSpliceParser =
+        MP.try typeSigDeclParser <|> patternOrSpliceParser <|> valueOrSpliceParser
   case lexTokenKind tok of
     TkKeywordData ->
       MP.try dataFamilyDeclParser
@@ -204,17 +217,17 @@ declParser = do
     TkVarId ident ->
       case ident of
         "pattern" -> unsupportedDeclParser "pattern synonym declarations are not implemented yet"
-        _ -> MP.try typeSigDeclParser <|> valueDeclParser
+        _ -> typeSigOrValueOrSpliceParser
     TkConId ident ->
       case ident of
         "pattern" -> unsupportedDeclParser "pattern synonym declarations are not implemented yet"
-        _ -> MP.try typeSigDeclParser <|> valueDeclParser
-    TkSpecialLParen -> MP.try typeSigDeclParser <|> MP.try patternBindDeclParser <|> valueDeclParser
-    TkSpecialLBracket -> patternBindDeclParser
-    TkPrefixTilde -> patternBindDeclParser
-    TkKeywordUnderscore -> patternBindDeclParser
+        _ -> typeSigOrValueOrSpliceParser
+    TkSpecialLParen -> typeSigOrPatternOrValueOrSpliceParser
+    TkSpecialLBracket -> patternOrSpliceParser
+    TkPrefixTilde -> patternOrSpliceParser
+    TkKeywordUnderscore -> patternOrSpliceParser
     TkTHSplice -> spliceDeclParser
-    _ -> MP.try typeSigDeclParser <|> valueDeclParser
+    _ -> typeSigOrValueOrSpliceParser
 
 -- | Parse a top-level Template Haskell declaration splice: $expr or $(expr)
 spliceDeclParser :: TokParser Decl
@@ -230,6 +243,14 @@ spliceDeclParser = withSpan $ do
     bareSpliceBody = withSpan $ do
       name <- identifierTextParser
       pure (`EVar` name)
+
+-- | Parse an implicit top-level Template Haskell declaration splice: @expr@.
+-- GHC accepts bare declaration splices under TemplateHaskell and also pretty-prints
+-- them as explicit @$...@ splices, so we parse the expression body directly here.
+implicitSpliceDeclParser :: TokParser Decl
+implicitSpliceDeclParser = withSpan $ do
+  body <- exprParser
+  pure (`DeclSplice` body)
 
 standaloneKindSigDeclParser :: TokParser Decl
 standaloneKindSigDeclParser = withSpan $ do
