@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail arrow rec with multiple bindings -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE Arrows #-}
 module ArrowRecMultiple where
 

@@ -143,6 +143,8 @@ renderTokenKind tk = case tk of
   TkReservedRightArrow -> "operator '->'"
   TkReservedAt -> "operator '@'"
   TkReservedDoubleArrow -> "operator '=>'"
+  TkKeywordProc -> "keyword 'proc'"
+  TkKeywordRec -> "keyword 'rec'"
   TkPrefixBang -> "bang pattern '!'"
   TkPrefixTilde -> "irrefutable pattern '~'"
   TkTypeApp -> "type application '@'"

@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail arrow conditional if-then-else -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE Arrows #-}
 module ArrowConditionalIfThenElse where
 

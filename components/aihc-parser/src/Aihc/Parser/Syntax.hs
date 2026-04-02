@@ -15,6 +15,9 @@ module Aihc.Parser.Syntax
     CaseAlt (..),
     ClassDecl (..),
     ClassDeclItem (..),
+    Cmd (..),
+    CmdAlt (..),
+    CmdStmt (..),
     CompStmt (..),
     Constraint (..),
     FunctionalDependency (..),
@@ -73,6 +76,7 @@ module Aihc.Parser.Syntax
     TypeFamilyInst (..),
     DataFamilyInst (..),
     ValueDecl (..),
+    ArrowTail (..),
     declValueBinderNames,
     allKnownExtensions,
     extensionName,
@@ -1208,6 +1212,13 @@ data ForeignSafety
   | Unsafe
   deriving (Data, Eq, Show, Generic, NFData)
 
+data ArrowTail
+  = ArrowTailLeft
+  | ArrowTailLeftDouble
+  | ArrowTailRight
+  | ArrowTailRightDouble
+  deriving (Data, Eq, Show, Generic, NFData)
+
 data Expr
   = EVar SourceSpan Text
   | EInt SourceSpan Integer Text
@@ -1247,6 +1258,7 @@ data Expr
   | EUnboxedSum SourceSpan Int Int Expr
   | ETypeApp SourceSpan Expr Type
   | EApp SourceSpan Expr Expr
+  | EProc SourceSpan Pattern Cmd
   | -- Template Haskell quotes
     ETHExpQuote SourceSpan Expr -- [| expr |] or [e| expr |]
   | ETHTypedQuote SourceSpan Expr -- [|| expr ||] or [e|| expr ||]
@@ -1302,6 +1314,7 @@ instance HasSourceSpan Expr where
       EUnboxedSum span' _ _ _ -> span'
       ETypeApp span' _ _ -> span'
       EApp span' _ _ -> span'
+      EProc span' _ _ -> span'
       ETHExpQuote span' _ -> span'
       ETHTypedQuote span' _ -> span'
       ETHDeclQuote span' _ -> span'
@@ -1321,6 +1334,54 @@ data CaseAlt = CaseAlt
 
 instance HasSourceSpan CaseAlt where
   getSourceSpan = caseAltSpan
+
+data Cmd
+  = CArrowApp SourceSpan Expr ArrowTail Expr
+  | CInfix SourceSpan Cmd Text Cmd
+  | CLambdaPats SourceSpan [Pattern] Cmd
+  | CLetDecls SourceSpan [Decl] Cmd
+  | CIf SourceSpan Expr Cmd Cmd
+  | CCase SourceSpan Expr [CmdAlt]
+  | CDo SourceSpan [CmdStmt]
+  | CmdParen SourceSpan Cmd
+  deriving (Data, Eq, Show, Generic, NFData)
+
+instance HasSourceSpan Cmd where
+  getSourceSpan cmd =
+    case cmd of
+      CArrowApp span' _ _ _ -> span'
+      CInfix span' _ _ _ -> span'
+      CLambdaPats span' _ _ -> span'
+      CLetDecls span' _ _ -> span'
+      CIf span' _ _ _ -> span'
+      CCase span' _ _ -> span'
+      CDo span' _ -> span'
+      CmdParen span' _ -> span'
+
+data CmdAlt = CmdAlt
+  { cmdAltSpan :: SourceSpan,
+    cmdAltPattern :: Pattern,
+    cmdAltBody :: Cmd
+  }
+  deriving (Data, Eq, Show, Generic, NFData)
+
+instance HasSourceSpan CmdAlt where
+  getSourceSpan = cmdAltSpan
+
+data CmdStmt
+  = CmdBind SourceSpan Pattern Cmd
+  | CmdLetDecls SourceSpan [Decl]
+  | CmdRec SourceSpan [CmdStmt]
+  | CmdExpr SourceSpan Cmd
+  deriving (Data, Eq, Show, Generic, NFData)
+
+instance HasSourceSpan CmdStmt where
+  getSourceSpan cmdStmt =
+    case cmdStmt of
+      CmdBind span' _ _ -> span'
+      CmdLetDecls span' _ -> span'
+      CmdRec span' _ -> span'
+      CmdExpr span' _ -> span'
 
 data DoStmt
   = DoBind SourceSpan Pattern Expr

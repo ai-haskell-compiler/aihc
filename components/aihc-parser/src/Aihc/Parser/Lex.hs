@@ -101,6 +101,8 @@ data LexTokenKind
   | TkKeywordModule
   | TkKeywordNewtype
   | TkKeywordOf
+  | TkKeywordProc
+  | TkKeywordRec
   | TkKeywordThen
   | TkKeywordType
   | TkKeywordWhere
@@ -745,6 +747,11 @@ suppressesVirtualSemicolon tok =
     TkReservedEquals -> True -- =
     TkReservedPipe -> True
     TkReservedDoubleColon -> True -- ::
+    TkVarSym _ -> True
+    TkConSym _ -> True
+    TkQVarSym _ -> True
+    TkQConSym _ -> True
+    TkMinusOperator -> True
     _ -> False
 
 closeForDedent :: Int -> SourceSpan -> [LayoutContext] -> ([LexToken], [LayoutContext])
@@ -864,6 +871,7 @@ stepTokenContext st tok =
           st {layoutPendingLayout = Just PendingLayoutAfterThenElse}
       | otherwise -> st {layoutPendingLayout = Just PendingLayoutGeneric}
     TkKeywordOf -> st {layoutPendingLayout = Just PendingLayoutGeneric}
+    TkKeywordRec -> st {layoutPendingLayout = Just PendingLayoutGeneric}
     TkKeywordCase
       | layoutPrevTokenKind st == Just TkReservedBackslash ->
           st {layoutPendingLayout = Just PendingLayoutGeneric}
@@ -1044,7 +1052,7 @@ lexIdentifier st =
                 _ ->
                   -- Regular identifier
                   let ident = T.pack consumed
-                      kind = classifyIdentifier c isQualified ident
+                      kind = classifyIdentifier exts c isQualified ident
                       st' = advanceChars consumed st
                    in Just (mkToken st st' ident kind, st')
     _ -> Nothing
@@ -1075,7 +1083,7 @@ lexIdentifier st =
     -- Check for symbol char that is not '.' to avoid consuming module path dots
     isSymbolicOpCharNotDot c = isSymbolicOpChar c && c /= '.'
 
-    classifyIdentifier firstChar isQualified ident
+    classifyIdentifier exts' firstChar isQualified ident
       | isQualified =
           -- Qualified name: use final part to determine var/con
           let finalPart = T.takeWhileEnd (/= '.') ident
@@ -1085,7 +1093,7 @@ lexIdentifier st =
                 else TkQVarId ident
       | otherwise =
           -- Unqualified: check for keyword first
-          case keywordTokenKind ident of
+          case keywordTokenKindWithExtensions exts' ident of
             Just kw -> kw
             Nothing ->
               if isAsciiUpper firstChar
@@ -2620,6 +2628,16 @@ keywordTokenKind txt = case txt of
   "as" -> Just TkKeywordAs
   "hiding" -> Just TkKeywordHiding
   _ -> Nothing
+
+keywordTokenKindWithExtensions :: [Extension] -> Text -> Maybe LexTokenKind
+keywordTokenKindWithExtensions exts txt =
+  case keywordTokenKind txt of
+    Just kw -> Just kw
+    Nothing ->
+      case txt of
+        "proc" | Arrows `elem` exts -> Just TkKeywordProc
+        "rec" | Arrows `elem` exts || RecursiveDo `elem` exts -> Just TkKeywordRec
+        _ -> Nothing
 
 -- | Classify reserved operators per Haskell Report Section 2.4.
 reservedOpTokenKind :: Text -> Maybe LexTokenKind

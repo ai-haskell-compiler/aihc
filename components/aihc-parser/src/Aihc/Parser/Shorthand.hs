@@ -591,6 +591,39 @@ docExpr expr =
       "EUnboxedSum" <+> pretty altIdx <+> pretty arity <+> docExpr inner
     ETypeApp _ inner ty -> "ETypeApp" <+> parens (docExpr inner) <+> parens (docType ty)
     EApp _ f x -> "EApp" <+> parens (docExpr f) <+> parens (docExpr x)
+    EProc _ pat cmd -> "EProc" <+> parens (docPattern pat) <+> parens (docCmd cmd)
+
+docCmd :: Cmd -> Doc ann
+docCmd cmd =
+  case cmd of
+    CArrowApp _ fn tailOp arg -> "CArrowApp" <+> parens (docExpr fn) <+> docArrowTail tailOp <+> parens (docExpr arg)
+    CInfix _ lhs op rhs -> "CInfix" <+> parens (docCmd lhs) <+> docText op <+> parens (docCmd rhs)
+    CLambdaPats _ pats body -> "CLambdaPats" <+> brackets (hsep (punctuate comma (map docPattern pats))) <+> parens (docCmd body)
+    CLetDecls _ decls body -> "CLetDecls" <+> brackets (hsep (punctuate comma (map docDecl decls))) <+> parens (docCmd body)
+    CIf _ cond yes no -> "CIf" <+> parens (docExpr cond) <+> parens (docCmd yes) <+> parens (docCmd no)
+    CCase _ scrutinee alts -> "CCase" <+> parens (docExpr scrutinee) <+> brackets (hsep (punctuate comma (map docCmdAlt alts)))
+    CDo _ stmts -> "CDo" <+> brackets (hsep (punctuate comma (map docCmdStmt stmts)))
+    CmdParen _ inner -> "CmdParen" <+> parens (docCmd inner)
+
+docCmdAlt :: CmdAlt -> Doc ann
+docCmdAlt (CmdAlt _ pat body) =
+  "CmdAlt" <+> parens (docPattern pat) <+> parens (docCmd body)
+
+docCmdStmt :: CmdStmt -> Doc ann
+docCmdStmt stmt =
+  case stmt of
+    CmdBind _ pat cmd -> "CmdBind" <+> parens (docPattern pat) <+> parens (docCmd cmd)
+    CmdLetDecls _ decls -> "CmdLetDecls" <+> brackets (hsep (punctuate comma (map docDecl decls)))
+    CmdRec _ stmts -> "CmdRec" <+> brackets (hsep (punctuate comma (map docCmdStmt stmts)))
+    CmdExpr _ cmd -> "CmdExpr" <+> parens (docCmd cmd)
+
+docArrowTail :: ArrowTail -> Doc ann
+docArrowTail tailOp =
+  case tailOp of
+    ArrowTailLeft -> "ArrowTailLeft"
+    ArrowTailLeftDouble -> "ArrowTailLeftDouble"
+    ArrowTailRight -> "ArrowTailRight"
+    ArrowTailRightDouble -> "ArrowTailRightDouble"
 
 docCaseAlt :: CaseAlt -> Doc ann
 docCaseAlt (CaseAlt _ pat rhs) =
@@ -647,6 +680,8 @@ docTokenKind kind =
     TkKeywordModule -> "TkKeywordModule"
     TkKeywordNewtype -> "TkKeywordNewtype"
     TkKeywordOf -> "TkKeywordOf"
+    TkKeywordProc -> "TkKeywordProc"
+    TkKeywordRec -> "TkKeywordRec"
     TkKeywordThen -> "TkKeywordThen"
     TkKeywordType -> "TkKeywordType"
     TkKeywordWhere -> "TkKeywordWhere"

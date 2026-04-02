@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail arrow infix operator in do -}
+{- ORACLE_TEST xfail arrow infix operator in do roundtrip mismatch -}
 {-# LANGUAGE Arrows #-}
 module ArrowInfixInDo where
 

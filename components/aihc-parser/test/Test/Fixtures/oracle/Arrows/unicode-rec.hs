@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail arrow unicode rec -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE Arrows, UnicodeSyntax #-}
 module ArrowUnicodeRec where
 

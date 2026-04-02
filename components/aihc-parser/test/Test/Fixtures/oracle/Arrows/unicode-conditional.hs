@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail arrow unicode conditional -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE Arrows, UnicodeSyntax #-}
 module ArrowUnicodeConditional where
 

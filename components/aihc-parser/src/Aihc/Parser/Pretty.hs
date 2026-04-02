@@ -896,6 +896,7 @@ needsExprParens ctx expr =
         ENegate {} -> True
         ETypeSig {} -> True
         ELambdaPats {} -> True
+        EProc {} -> True
         _ -> False
     CtxGuarded -> isGreedyExpr expr
 
@@ -907,6 +908,7 @@ isGreedyExpr = \case
   EIf {} -> True
   ELambdaPats {} -> True
   ELambdaCase {} -> True
+  EProc {} -> True
   ELetDecls {} -> True
   EWhereDecls {} -> True
   EDo {} -> True
@@ -972,6 +974,8 @@ prettyExprPrec prec expr =
       parenthesize (prec > 2) (prettyExprApp fn <+> prettyExprPrec 3 arg)
     ETypeApp _ fn ty ->
       parenthesize (prec > 2) (prettyExprApp fn <+> "@" <> prettyTypeIn CtxTypeAtom ty)
+    EProc _ pat cmd ->
+      parenthesize (prec > 0) ("proc" <+> prettyPattern pat <+> "->" <+> prettyCmdPrec 0 cmd)
     EVar _ name
       | isOperatorToken name -> parens (pretty name)
       | otherwise -> pretty name
@@ -1113,6 +1117,61 @@ prettyExprPrec prec expr =
     EUnboxedSum _ altIdx arity inner ->
       let slots = [if i == altIdx then prettyExprPrec 0 inner else mempty | i <- [0 .. arity - 1]]
        in hsep ["(#", hsep (punctuate " |" slots), "#)"]
+
+prettyCmdPrec :: Int -> Cmd -> Doc ann
+prettyCmdPrec prec cmd =
+  case cmd of
+    CArrowApp _ fn tailOp arg ->
+      parenthesize (prec > 2) (prettyExprPrec 0 fn <+> prettyArrowTail tailOp <+> prettyExprPrec 0 arg)
+    CInfix _ lhs op rhs ->
+      parenthesize (prec > 1) (prettyCmdInfixOperand lhs <+> prettyInfixOp op <+> prettyCmdInfixOperand rhs)
+    CLambdaPats _ pats body ->
+      parenthesize (prec > 0) ("\\" <+> hsep (map prettyPattern pats) <+> "->" <+> prettyCmdPrec 0 body)
+    CLetDecls _ decls body ->
+      parenthesize (prec > 0) ("let" <+> braces (prettyInlineDecls decls) <+> "in" <+> prettyCmdPrec 0 body)
+    CIf _ cond yes no ->
+      parenthesize
+        (prec > 0)
+        ("if" <+> prettyExprPrec 0 cond <+> "then" <+> prettyCmdPrec 0 yes <+> "else" <+> prettyCmdPrec 0 no)
+    CCase _ scrutinee alts ->
+      parenthesize
+        (prec > 0)
+        ("case" <+> prettyExprPrec 0 scrutinee <+> "of" <+> "{" <+> hsep (punctuate semi (map prettyCmdAlt alts)) <+> "}")
+    CDo _ stmts ->
+      parenthesize
+        (prec > 0)
+        ("do" <+> "{" <+> hsep (punctuate semi (map prettyCmdStmt stmts)) <+> "}")
+    CmdParen _ inner -> parens (prettyCmdPrec 0 inner)
+
+prettyCmdInfixOperand :: Cmd -> Doc ann
+prettyCmdInfixOperand cmd =
+  case cmd of
+    CInfix {} -> parens (prettyCmdPrec 0 cmd)
+    _ -> prettyCmdPrec 0 cmd
+
+prettyArrowTail :: ArrowTail -> Doc ann
+prettyArrowTail tailOp =
+  pretty (arrowTailText tailOp)
+
+arrowTailText :: ArrowTail -> Text
+arrowTailText tailOp =
+  case tailOp of
+    ArrowTailLeft -> "-<"
+    ArrowTailLeftDouble -> "-<<"
+    ArrowTailRight -> ">-"
+    ArrowTailRightDouble -> ">>-"
+
+prettyCmdAlt :: CmdAlt -> Doc ann
+prettyCmdAlt (CmdAlt _ pat body) =
+  prettyPattern pat <+> "->" <+> prettyCmdPrec 0 body
+
+prettyCmdStmt :: CmdStmt -> Doc ann
+prettyCmdStmt stmt =
+  case stmt of
+    CmdBind _ pat cmd -> prettyPattern pat <+> "<-" <+> prettyCmdPrec 0 cmd
+    CmdLetDecls _ decls -> "let" <+> braces (prettyInlineDecls decls)
+    CmdRec _ stmts -> "rec" <+> braces (hsep (punctuate semi (map prettyCmdStmt stmts)))
+    CmdExpr _ cmd -> prettyCmdPrec 0 cmd
 
 prettyTupleBody :: TupleFlavor -> Doc ann -> Doc ann
 prettyTupleBody tupleFlavor inner =

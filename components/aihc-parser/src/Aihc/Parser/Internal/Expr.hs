@@ -43,13 +43,24 @@ exprParserExcept forbiddenInfix = do
       Just decls -> EWhereDecls (mergeSourceSpans (getSourceSpan core) (sourceSpanEnd decls)) core decls
       Nothing -> core
 
+exprParserRecoverExcept :: [Text] -> TokParser Expr
+exprParserRecoverExcept forbiddenInfix = do
+  core <- exprCoreParserRecoverExcept forbiddenInfix
+  mWhere <- MP.optional whereClauseParser
+  pure $
+    case mWhere of
+      Just decls -> EWhereDecls (mergeSourceSpans (getSourceSpan core) (sourceSpanEnd decls)) core decls
+      Nothing -> core
+
 exprCoreParser :: TokParser Expr
 exprCoreParser = exprCoreParserExcept []
 
 exprCoreParserExcept :: [Text] -> TokParser Expr
 exprCoreParserExcept forbiddenInfix = do
   tok <- lookAhead anySingle
+  arrowsEnabled <- isExtensionEnabled Arrows
   base <- case lexTokenKind tok of
+    TkKeywordProc | arrowsEnabled -> procExprParser
     TkKeywordDo -> doExprParser
     TkKeywordIf -> ifExprParser
     TkKeywordCase -> caseExprParser
@@ -61,6 +72,31 @@ exprCoreParserExcept forbiddenInfix = do
   pure $ case mTypeSig of
     Just ty -> ETypeSig (mergeSourceSpans (getSourceSpan base) (getSourceSpan ty)) base ty
     Nothing -> base
+
+exprCoreParserRecoverExcept :: [Text] -> TokParser Expr
+exprCoreParserRecoverExcept forbiddenInfix = do
+  tok <- lookAhead anySingle
+  arrowsEnabled <- isExtensionEnabled Arrows
+  base <- case lexTokenKind tok of
+    TkKeywordProc | arrowsEnabled -> procExprParser
+    TkKeywordDo -> doExprParser
+    TkKeywordIf -> ifExprParser
+    TkKeywordCase -> caseExprParser
+    TkKeywordLet -> letExprParser
+    TkReservedBackslash -> lambdaExprParser
+    _ -> infixExprParserRecoverExcept forbiddenInfix
+  mTypeSig <- MP.optional (expectedTok TkReservedDoubleColon *> typeParser)
+  pure $ case mTypeSig of
+    Just ty -> ETypeSig (mergeSourceSpans (getSourceSpan base) (getSourceSpan ty)) base ty
+    Nothing -> base
+
+procExprParser :: TokParser Expr
+procExprParser = withSpan $ do
+  keywordTok TkKeywordProc
+  pat <- region "while parsing proc pattern" patternParser
+  expectedTok TkReservedRightArrow
+  body <- region "while parsing proc body" commandParser
+  pure (\span' -> EProc span' pat body)
 
 ifExprParser :: TokParser Expr
 ifExprParser = MP.try multiWayIfExprParser <|> classicIfExprParser
@@ -139,6 +175,144 @@ doExprStmtParser = withSpan $ do
   expr <- exprParser
   pure (`DoExpr` expr)
 
+commandParser :: TokParser Cmd
+commandParser = label "command" commandInfixParser
+
+commandInfixParser :: TokParser Cmd
+commandInfixParser = do
+  lhs <- commandTermParser
+  rest <-
+    MP.many
+      ( (,)
+          <$> infixOperatorParserExcept arrowTailOperators
+          <*> region "after infix operator" commandTermParser
+      )
+  pure (foldl buildCommandInfix lhs rest)
+
+buildCommandInfix :: Cmd -> (Text, Cmd) -> Cmd
+buildCommandInfix lhs (op, rhs) =
+  CInfix (mergeSourceSpans (getSourceSpan lhs) (getSourceSpan rhs)) lhs op rhs
+
+arrowTailOperators :: [Text]
+arrowTailOperators = ["-<", "-<<", ">-", ">>-"]
+
+arrowTailParser :: TokParser ArrowTail
+arrowTailParser =
+  tokenSatisfy "arrow tail operator" $ \tok ->
+    case lexTokenKind tok of
+      TkVarSym "-<" -> Just ArrowTailLeft
+      TkVarSym "-<<" -> Just ArrowTailLeftDouble
+      TkVarSym ">-" -> Just ArrowTailRight
+      TkVarSym ">>-" -> Just ArrowTailRightDouble
+      _ -> Nothing
+
+commandTermParser :: TokParser Cmd
+commandTermParser = do
+  tok <- lookAhead anySingle
+  case lexTokenKind tok of
+    TkKeywordIf -> commandIfParser
+    TkKeywordCase -> commandCaseParser
+    TkKeywordDo -> commandDoParser
+    TkKeywordLet -> commandLetParser
+    TkReservedBackslash -> commandLambdaParser
+    TkSpecialLParen -> MP.try commandParenParser <|> commandArrowAppParser
+    _ -> commandArrowAppParser
+
+commandArrowAppParser :: TokParser Cmd
+commandArrowAppParser = withSpan $ do
+  fn <- exprParserExcept arrowTailOperators
+  tailOp <- arrowTailParser
+  arg <- region "while parsing arrow command input" (exprParserRecoverExcept arrowTailOperators)
+  pure (\span' -> CArrowApp span' fn tailOp arg)
+
+commandParenParser :: TokParser Cmd
+commandParenParser = withSpan $ do
+  expectedTok TkSpecialLParen
+  inner <- commandParser
+  expectedTok TkSpecialRParen
+  pure (`CmdParen` inner)
+
+commandLambdaParser :: TokParser Cmd
+commandLambdaParser = withSpan $ do
+  expectedTok TkReservedBackslash
+  pats <- MP.some patternParser
+  expectedTok TkReservedRightArrow
+  body <- region "while parsing command lambda body" commandParser
+  pure (\span' -> CLambdaPats span' pats body)
+
+commandLetParser :: TokParser Cmd
+commandLetParser = withSpan $ do
+  decls <- parseLetDeclsParser
+  keywordTok TkKeywordIn
+  body <- region "while parsing command let body" commandParser
+  pure (\span' -> CLetDecls span' decls body)
+
+commandIfParser :: TokParser Cmd
+commandIfParser = withSpan $ do
+  keywordTok TkKeywordIf
+  cond <- region "while parsing command if condition" exprParser
+  skipSemicolons
+  keywordTok TkKeywordThen
+  yes <- region "while parsing command then branch" commandParser
+  skipSemicolons
+  keywordTok TkKeywordElse
+  no <- region "while parsing command else branch" commandParser
+  pure (\span' -> CIf span' cond yes no)
+
+commandCaseParser :: TokParser Cmd
+commandCaseParser = withSpan $ do
+  keywordTok TkKeywordCase
+  scrutinee <- region "while parsing command case expression" exprParser
+  keywordTok TkKeywordOf
+  alts <- bracedAlts <|> plainAlts
+  pure (\span' -> CCase span' scrutinee alts)
+  where
+    plainAlts = plainSemiSep1 commandAltParser
+    bracedAlts = bracedSemiSep commandAltParser
+
+commandAltParser :: TokParser CmdAlt
+commandAltParser = withSpan $ do
+  pat <- region "while parsing command case alternative" patternParser
+  expectedTok TkReservedRightArrow
+  body <- region "while parsing command case alternative body" commandParser
+  pure (\span' -> CmdAlt span' pat body)
+
+commandDoParser :: TokParser Cmd
+commandDoParser = withSpan $ do
+  keywordTok TkKeywordDo
+  stmts <- bracedStmtListParser commandStmtParser
+  pure (`CDo` stmts)
+
+commandStmtParser :: TokParser CmdStmt
+commandStmtParser =
+  MP.try commandBindStmtParser
+    <|> MP.try commandLetStmtParser
+    <|> MP.try commandRecStmtParser
+    <|> commandExprStmtParser
+
+commandBindStmtParser :: TokParser CmdStmt
+commandBindStmtParser = withSpan $ do
+  pat <- patternParser
+  expectedTok TkReservedLeftArrow
+  cmd <- region "while parsing command '<-' binding" commandParser
+  pure (\span' -> CmdBind span' pat cmd)
+
+commandLetStmtParser :: TokParser CmdStmt
+commandLetStmtParser = withSpan $ do
+  decls <- parseLetDeclsStmtParser
+  pure (`CmdLetDecls` decls)
+
+commandRecStmtParser :: TokParser CmdStmt
+commandRecStmtParser = withSpan $ do
+  keywordTok TkKeywordRec
+  stmts <- bracedStmtListParser commandStmtParser
+  pure (`CmdRec` stmts)
+
+commandExprStmtParser :: TokParser CmdStmt
+commandExprStmtParser = withSpan $ do
+  cmd <- commandParser
+  pure (`CmdExpr` cmd)
+
 infixExprParserExcept :: [Text] -> TokParser Expr
 infixExprParserExcept forbidden = do
   lhs <- MP.try negateExprParser <|> lexpParser
@@ -149,6 +323,40 @@ infixExprParserExcept forbidden = do
           <*> region "after infix operator" lexpParser
       )
   pure (foldl buildInfix lhs rest)
+
+infixExprParserRecoverExcept :: [Text] -> TokParser Expr
+infixExprParserRecoverExcept forbidden = do
+  lhs <- MP.try negateExprParser <|> lexpParser
+  rest <- go []
+  pure (foldl buildInfix lhs rest)
+  where
+    go acc = do
+      mNext <-
+        MP.optional . MP.try $
+          do
+            op <- infixOperatorParserExcept forbidden
+            mTok <- MP.optional (lookAhead anySingle)
+            case (op, mTok) of
+              ( "<+>",
+                Just tok
+                )
+                  | startsCommandLikeTerm (lexTokenKind tok) ->
+                      fail "defer to command-level infix"
+              _ -> pure ()
+            rhs <- region "after infix operator" lexpParser
+            pure (op, rhs)
+      case mNext of
+        Nothing -> pure (reverse acc)
+        Just next -> go (next : acc)
+
+    startsCommandLikeTerm tokKind =
+      case tokKind of
+        TkKeywordDo -> True
+        TkKeywordIf -> True
+        TkKeywordCase -> True
+        TkKeywordLet -> True
+        TkReservedBackslash -> True
+        _ -> False
 
 -- | Parse an lexp (left-expression) - includes do, if, case, let, lambda, and fexp.
 -- This is used on both sides of infix operators per the Haskell Report grammar.

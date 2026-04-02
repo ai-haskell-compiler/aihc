@@ -549,6 +549,8 @@ shrinkExpr expr =
       inner : [ETypeApp span0 inner' (TCon span0 "T" Unpromoted) | inner' <- shrinkExpr inner]
     EUnboxedSum _ altIdx arity inner ->
       [EUnboxedSum span0 altIdx arity inner' | inner' <- shrinkExpr inner]
+    EProc _ pat cmd ->
+      [EProc span0 pat cmd' | cmd' <- shrinkCmd cmd]
     EParen _ inner -> inner : [EParen span0 inner' | inner' <- shrinkExpr inner]
     ETHExpQuote _ body -> body : [ETHExpQuote span0 body' | body' <- shrinkExpr body]
     ETHTypedQuote _ body -> body : [ETHTypedQuote span0 body' | body' <- shrinkExpr body]
@@ -611,6 +613,57 @@ shrinkDoStmt stmt =
     DoLet _ bindings -> [DoLet span0 bindings' | bindings' <- shrinkList shrinkBinding bindings, not (null bindings')]
     DoLetDecls _ decls -> [DoLetDecls span0 decls' | decls' <- shrinkDecls decls, not (null decls')]
     DoExpr _ expr -> [DoExpr span0 expr' | expr' <- shrinkExpr expr]
+
+shrinkCmd :: Cmd -> [Cmd]
+shrinkCmd cmd =
+  case cmd of
+    CArrowApp _ fn tailOp arg ->
+      [CArrowApp span0 fn' tailOp arg | fn' <- shrinkExpr fn]
+        <> [CArrowApp span0 fn tailOp arg' | arg' <- shrinkExpr arg]
+    CInfix _ lhs op rhs ->
+      [lhs, rhs]
+        <> [CInfix span0 lhs' op rhs | lhs' <- shrinkCmd lhs]
+        <> [CInfix span0 lhs op rhs' | rhs' <- shrinkCmd rhs]
+    CLambdaPats _ pats body ->
+      body : [CLambdaPats span0 pats body' | body' <- shrinkCmd body]
+    CLetDecls _ decls body ->
+      body
+        : [CLetDecls span0 decls body' | body' <- shrinkCmd body]
+          <> [CLetDecls span0 decls' body | decls' <- shrinkDecls decls, not (null decls')]
+    CIf _ cond yes no ->
+      [yes, no]
+        <> [CIf span0 cond' yes no | cond' <- shrinkExpr cond]
+        <> [CIf span0 cond yes' no | yes' <- shrinkCmd yes]
+        <> [CIf span0 cond yes no' | no' <- shrinkCmd no]
+    CCase _ scrutinee alts ->
+      [CArrowApp span0 scrutinee ArrowTailLeft (EVar span0 "x")]
+        <> [CCase span0 scrutinee' alts | scrutinee' <- shrinkExpr scrutinee]
+        <> [CCase span0 scrutinee alts' | alts' <- shrinkCmdAlts alts, not (null alts')]
+    CDo _ stmts ->
+      [CDo span0 stmts' | stmts' <- shrinkCmdStmts stmts, not (null stmts')]
+    CmdParen _ inner ->
+      inner : [CmdParen span0 inner' | inner' <- shrinkCmd inner]
+
+shrinkCmdAlts :: [CmdAlt] -> [[CmdAlt]]
+shrinkCmdAlts = shrinkList shrinkCmdAlt
+
+shrinkCmdAlt :: CmdAlt -> [CmdAlt]
+shrinkCmdAlt alt =
+  [alt {cmdAltBody = body'} | body' <- shrinkCmd (cmdAltBody alt)]
+
+shrinkCmdStmts :: [CmdStmt] -> [[CmdStmt]]
+shrinkCmdStmts stmts =
+  case stmts of
+    [_] -> []
+    _ -> shrinkList shrinkCmdStmt stmts
+
+shrinkCmdStmt :: CmdStmt -> [CmdStmt]
+shrinkCmdStmt stmt =
+  case stmt of
+    CmdBind _ pat cmd -> [CmdBind span0 pat cmd' | cmd' <- shrinkCmd cmd]
+    CmdLetDecls _ decls -> [CmdLetDecls span0 decls' | decls' <- shrinkDecls decls, not (null decls')]
+    CmdRec _ stmts -> [CmdRec span0 stmts' | stmts' <- shrinkCmdStmts stmts, not (null stmts')]
+    CmdExpr _ cmd -> [CmdExpr span0 cmd' | cmd' <- shrinkCmd cmd]
 
 shrinkBinding :: (Text, Expr) -> [(Text, Expr)]
 shrinkBinding (name, expr) = [(name, expr') | expr' <- shrinkExpr expr]
@@ -727,6 +780,7 @@ normalizeExpr expr =
     ETypeSig _ inner ty -> ETypeSig span0 (normalizeExpr inner) (normalizeType ty)
     ETypeApp _ inner ty -> ETypeApp span0 (normalizeExpr inner) (normalizeType ty)
     EUnboxedSum _ altIdx arity inner -> EUnboxedSum span0 altIdx arity (normalizeExpr inner)
+    EProc _ pat cmd -> EProc span0 (normalizePattern pat) (normalizeCmd cmd)
     EParen _ inner -> normalizeExpr inner
     ETHExpQuote _ body -> ETHExpQuote span0 (normalizeExpr body)
     ETHTypedQuote _ body -> ETHTypedQuote span0 (normalizeExpr body)
@@ -832,6 +886,34 @@ normalizeDoStmt stmt =
     DoLet _ bindings -> DoLet span0 [(name, normalizeExpr e) | (name, e) <- bindings]
     DoLetDecls _ decls -> DoLetDecls span0 (map normalizeDecl decls)
     DoExpr _ e -> DoExpr span0 (normalizeExpr e)
+
+normalizeCmd :: Cmd -> Cmd
+normalizeCmd cmd =
+  case cmd of
+    CArrowApp _ fn tailOp arg -> CArrowApp span0 (normalizeExpr fn) tailOp (normalizeExpr arg)
+    CInfix _ lhs op rhs -> CInfix span0 (normalizeCmd lhs) op (normalizeCmd rhs)
+    CLambdaPats _ pats body -> CLambdaPats span0 (map normalizePattern pats) (normalizeCmd body)
+    CLetDecls _ decls body -> CLetDecls span0 (map normalizeDecl decls) (normalizeCmd body)
+    CIf _ cond yes no -> CIf span0 (normalizeExpr cond) (normalizeCmd yes) (normalizeCmd no)
+    CCase _ scrutinee alts -> CCase span0 (normalizeExpr scrutinee) (map normalizeCmdAlt alts)
+    CDo _ stmts -> CDo span0 (map normalizeCmdStmt stmts)
+    CmdParen _ inner -> CmdParen span0 (normalizeCmd inner)
+
+normalizeCmdAlt :: CmdAlt -> CmdAlt
+normalizeCmdAlt alt =
+  CmdAlt
+    { cmdAltSpan = span0,
+      cmdAltPattern = normalizePattern (cmdAltPattern alt),
+      cmdAltBody = normalizeCmd (cmdAltBody alt)
+    }
+
+normalizeCmdStmt :: CmdStmt -> CmdStmt
+normalizeCmdStmt stmt =
+  case stmt of
+    CmdBind _ pat cmd -> CmdBind span0 (normalizePattern pat) (normalizeCmd cmd)
+    CmdLetDecls _ decls -> CmdLetDecls span0 (map normalizeDecl decls)
+    CmdRec _ stmts -> CmdRec span0 (map normalizeCmdStmt stmts)
+    CmdExpr _ cmd -> CmdExpr span0 (normalizeCmd cmd)
 
 normalizeCompStmt :: CompStmt -> CompStmt
 normalizeCompStmt stmt =

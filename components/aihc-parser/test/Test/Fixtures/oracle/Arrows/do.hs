@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail arrow notation with do -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE Arrows #-}
 module Do where
 

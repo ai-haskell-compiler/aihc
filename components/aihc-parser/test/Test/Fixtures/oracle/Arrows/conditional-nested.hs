@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail arrow conditional nested if -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE Arrows #-}
 module ArrowConditionalNested where
 
