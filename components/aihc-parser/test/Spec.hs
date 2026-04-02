@@ -70,6 +70,7 @@ buildTests = do
             testCase "can lex lazily from chunks" test_lexerChunkLaziness,
             testCase "parser config passes extensions to lexer" test_parserConfigPassesExtensions,
             testCase "parser config sets source name in parse errors" test_parserConfigSetsSourceName,
+            testCase "parses tab-indented where after else branch" test_tabIndentedWhereAfterElseParses,
             testCase "generated identifiers reject reserved keyword as" test_generatedIdentifiersRejectReservedAs,
             testCase "generated identifiers reject standalone underscore" test_generatedIdentifiersRejectStandaloneUnderscore,
             testCase "shrunk identifiers reject standalone underscore" test_shrunkIdentifiersRejectStandaloneUnderscore,
@@ -118,6 +119,25 @@ test_parserConfigSetsSourceName =
         else assertFailure ("expected source name in parse error, got: " <> errorBundlePretty (Just "module") err)
     ParseOk modu ->
       assertFailure ("expected parse failure, got: " <> show modu)
+
+test_tabIndentedWhereAfterElseParses :: Assertion
+test_tabIndentedWhereAfterElseParses =
+  let source =
+        T.pack $
+          unlines
+            [ "addExtension file ext = case B.uncons ext of",
+              "\tNothing -> file",
+              "\tJust (x,_xs) -> joinDrive a $",
+              "\t\tif isExtSeparator x",
+              "\t\t\tthen b <> ext",
+              "\t\t\telse b <> (extSeparator `B.cons` ext)",
+              "  where",
+              "\t(a,b) = splitDrive file"
+            ]
+   in case parseModule defaultConfig source of
+        ParseErr err ->
+          assertFailure ("expected parse success, got parse error: " <> errorBundlePretty Nothing err)
+        ParseOk _ -> pure ()
 
 test_readsHeaderLanguagePragmas :: Assertion
 test_readsHeaderLanguagePragmas = do

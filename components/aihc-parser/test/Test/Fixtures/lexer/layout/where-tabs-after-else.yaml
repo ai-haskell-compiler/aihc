@@ -1,0 +1,65 @@
+extensions: []
+input: |
+  addExtension file ext = case B.uncons ext of
+  	Nothing -> file
+  	Just (x,_xs) -> joinDrive a $
+  		if isExtSeparator x
+  			then b <> ext
+  			else b <> (extSeparator `B.cons` ext)
+    where
+  	(a,b) = splitDrive file
+tokens:
+  - 'TkVarId "addExtension"'
+  - 'TkVarId "file"'
+  - 'TkVarId "ext"'
+  - 'TkReservedEquals'
+  - 'TkKeywordCase'
+  - 'TkQVarId "B.uncons"'
+  - 'TkVarId "ext"'
+  - 'TkKeywordOf'
+  - 'TkSpecialLBrace'
+  - 'TkConId "Nothing"'
+  - 'TkReservedRightArrow'
+  - 'TkVarId "file"'
+  - 'TkSpecialSemicolon'
+  - 'TkConId "Just"'
+  - 'TkSpecialLParen'
+  - 'TkVarId "x"'
+  - 'TkSpecialComma'
+  - 'TkVarId "_xs"'
+  - 'TkSpecialRParen'
+  - 'TkReservedRightArrow'
+  - 'TkVarId "joinDrive"'
+  - 'TkVarId "a"'
+  - 'TkVarSym "$"'
+  - 'TkKeywordIf'
+  - 'TkVarId "isExtSeparator"'
+  - 'TkVarId "x"'
+  - 'TkKeywordThen'
+  - 'TkVarId "b"'
+  - 'TkVarSym "<>"'
+  - 'TkVarId "ext"'
+  - 'TkKeywordElse'
+  - 'TkVarId "b"'
+  - 'TkVarSym "<>"'
+  - 'TkSpecialLParen'
+  - 'TkVarId "extSeparator"'
+  - 'TkSpecialBacktick'
+  - 'TkQVarId "B.cons"'
+  - 'TkSpecialBacktick'
+  - 'TkVarId "ext"'
+  - 'TkSpecialRParen'
+  - 'TkSpecialRBrace'
+  - 'TkKeywordWhere'
+  - 'TkSpecialLBrace'
+  - 'TkSpecialLParen'
+  - 'TkVarId "a"'
+  - 'TkSpecialComma'
+  - 'TkVarId "b"'
+  - 'TkSpecialRParen'
+  - 'TkReservedEquals'
+  - 'TkVarId "splitDrive"'
+  - 'TkVarId "file"'
+  - 'TkSpecialRBrace'
+  - 'TkEOF'
+status: pass
