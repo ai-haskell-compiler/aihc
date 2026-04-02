@@ -9,12 +9,15 @@
 -- Abstract Syntax Tree (AST) covering Haskell2010 plus all language extensions.
 module Aihc.Parser.Syntax
   ( ArithSeq (..),
+    ArrowStmt (..),
     BangType (..),
     BinderName,
     CallConv (..),
     CaseAlt (..),
     ClassDecl (..),
     ClassDeclItem (..),
+    Cmd (..),
+    CmdAlt (..),
     CompStmt (..),
     Constraint (..),
     FunctionalDependency (..),
@@ -1206,6 +1209,61 @@ data ForeignSafety
   | Unsafe
   deriving (Data, Eq, Show, Generic, NFData)
 
+-- | Arrow notation statement (used in arrow blocks)
+data ArrowStmt
+  = ArrowBind SourceSpan Pattern Cmd
+  | ArrowExpr SourceSpan Cmd
+  | ArrowLet SourceSpan [Decl]
+  | ArrowRec SourceSpan [ArrowStmt]
+  deriving (Data, Eq, Show, Generic, NFData)
+
+instance HasSourceSpan ArrowStmt where
+  getSourceSpan stmt =
+    case stmt of
+      ArrowBind span' _ _ -> span'
+      ArrowExpr span' _ -> span'
+      ArrowLet span' _ -> span'
+      ArrowRec span' _ -> span'
+
+-- | Arrow command (used inside proc expressions)
+data Cmd
+  = CmdExpr SourceSpan Expr
+  | CmdApp SourceSpan Expr Expr
+  | CmdArrow SourceSpan Expr Text Expr
+  | CmdHigherOrderArrow SourceSpan Expr Text Expr
+  | CmdIf SourceSpan Expr Cmd Cmd
+  | CmdCase SourceSpan Expr [CmdAlt]
+  | CmdDo SourceSpan [ArrowStmt] Cmd
+  | CmdLambda SourceSpan [Pattern] Cmd
+  | CmdLet SourceSpan [Decl] Cmd
+  | CmdParen SourceSpan Cmd
+  deriving (Data, Eq, Show, Generic, NFData)
+
+instance HasSourceSpan Cmd where
+  getSourceSpan cmd =
+    case cmd of
+      CmdExpr span' _ -> span'
+      CmdApp span' _ _ -> span'
+      CmdArrow span' _ _ _ -> span'
+      CmdHigherOrderArrow span' _ _ _ -> span'
+      CmdIf span' _ _ _ -> span'
+      CmdCase span' _ _ -> span'
+      CmdDo span' _ _ -> span'
+      CmdLambda span' _ _ -> span'
+      CmdLet span' _ _ -> span'
+      CmdParen span' _ -> span'
+
+-- | Alternative in a command case expression
+data CmdAlt = CmdAlt
+  { cmdAltSpan :: SourceSpan,
+    cmdAltPattern :: Pattern,
+    cmdAltBody :: Cmd
+  }
+  deriving (Data, Eq, Show, Generic, NFData)
+
+instance HasSourceSpan CmdAlt where
+  getSourceSpan = cmdAltSpan
+
 data Expr
   = EVar SourceSpan Text
   | EInt SourceSpan Integer Text
@@ -1257,6 +1315,8 @@ data Expr
     ETHSplice SourceSpan Expr
   | -- \$expr or $(expr)
     ETHTypedSplice SourceSpan Expr -- \$$expr or $$(expr)
+  | -- Arrow notation
+    EProcExpr SourceSpan Pattern Cmd
   deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan Expr where
@@ -1309,6 +1369,7 @@ instance HasSourceSpan Expr where
       ETHTypeNameQuote span' _ -> span'
       ETHSplice span' _ -> span'
       ETHTypedSplice span' _ -> span'
+      EProcExpr span' _ _ -> span'
 
 data CaseAlt = CaseAlt
   { caseAltSpan :: SourceSpan,

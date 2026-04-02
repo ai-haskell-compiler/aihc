@@ -559,6 +559,7 @@ shrinkExpr expr =
     ETHTypeNameQuote {} -> []
     ETHSplice _ body -> body : [ETHSplice span0 body' | body' <- shrinkExpr body]
     ETHTypedSplice _ body -> body : [ETHTypedSplice span0 body' | body' <- shrinkExpr body]
+    EProcExpr _ pat cmd -> [EProcExpr span0 pat cmd' | cmd' <- shrinkCmd cmd, cmd' /= cmd]
 
 shrinkFloat :: Double -> [Double]
 shrinkFloat value =
@@ -737,6 +738,7 @@ normalizeExpr expr =
     ETHTypeNameQuote _ name -> ETHTypeNameQuote span0 name
     ETHSplice _ body -> ETHSplice span0 (normalizeExpr body)
     ETHTypedSplice _ body -> ETHTypedSplice span0 (normalizeExpr body)
+    EProcExpr _ pat cmd -> EProcExpr span0 (normalizePattern pat) (normalizeCmd cmd)
 
 normalizeCaseAlt :: CaseAlt -> CaseAlt
 normalizeCaseAlt alt =
@@ -880,3 +882,50 @@ normalizeConstraint c =
         }
     CParen _ inner ->
       CParen span0 (normalizeConstraint inner)
+
+shrinkCmd :: Cmd -> [Cmd]
+shrinkCmd cmd =
+  case cmd of
+    CmdExpr _ expr -> [CmdExpr span0 expr' | expr' <- shrinkExpr expr]
+    CmdApp _ fn arg -> [CmdApp span0 fn' arg | fn' <- shrinkExpr fn] ++ [CmdApp span0 fn arg' | arg' <- shrinkExpr arg]
+    CmdArrow _ fn op arg -> [CmdArrow span0 fn' op arg | fn' <- shrinkExpr fn] ++ [CmdArrow span0 fn op arg' | arg' <- shrinkExpr arg]
+    CmdHigherOrderArrow _ fn op arg -> [CmdHigherOrderArrow span0 fn' op arg | fn' <- shrinkExpr fn] ++ [CmdHigherOrderArrow span0 fn op arg' | arg' <- shrinkExpr arg]
+    CmdIf _ cond thenCmd elseCmd -> [CmdIf span0 cond' thenCmd elseCmd | cond' <- shrinkExpr cond] ++ [CmdIf span0 cond thenCmd' elseCmd | thenCmd' <- shrinkCmd thenCmd] ++ [CmdIf span0 cond thenCmd elseCmd' | elseCmd' <- shrinkCmd elseCmd]
+    CmdCase _ expr alts -> [CmdCase span0 expr' alts | expr' <- shrinkExpr expr] ++ [CmdCase span0 expr alts' | alts' <- shrinkCmdAlts alts]
+    CmdDo _ stmts cmd' -> [CmdDo span0 stmts cmd'' | cmd'' <- shrinkCmd cmd']
+    CmdLambda _ pats cmd' -> [CmdLambda span0 pats cmd'' | cmd'' <- shrinkCmd cmd']
+    CmdLet _ decls cmd' -> [CmdLet span0 decls cmd'' | cmd'' <- shrinkCmd cmd']
+    CmdParen _ cmd' -> cmd' : [CmdParen span0 cmd'' | cmd'' <- shrinkCmd cmd']
+
+shrinkCmdAlts :: [CmdAlt] -> [[CmdAlt]]
+shrinkCmdAlts = shrinkList shrinkCmdAlt
+
+shrinkCmdAlt :: CmdAlt -> [CmdAlt]
+shrinkCmdAlt alt =
+  [alt {cmdAltBody = cmd'} | cmd' <- shrinkCmd (cmdAltBody alt)]
+
+normalizeCmd :: Cmd -> Cmd
+normalizeCmd cmd =
+  case cmd of
+    CmdExpr _ expr -> CmdExpr span0 (normalizeExpr expr)
+    CmdApp _ fn arg -> CmdApp span0 (normalizeExpr fn) (normalizeExpr arg)
+    CmdArrow _ fn op arg -> CmdArrow span0 (normalizeExpr fn) op (normalizeExpr arg)
+    CmdHigherOrderArrow _ fn op arg -> CmdHigherOrderArrow span0 (normalizeExpr fn) op (normalizeExpr arg)
+    CmdIf _ cond thenCmd elseCmd -> CmdIf span0 (normalizeExpr cond) (normalizeCmd thenCmd) (normalizeCmd elseCmd)
+    CmdCase _ expr alts -> CmdCase span0 (normalizeExpr expr) (map normalizeCmdAlt alts)
+    CmdDo _ stmts cmd' -> CmdDo span0 (map normalizeArrowStmt stmts) (normalizeCmd cmd')
+    CmdLambda _ pats cmd' -> CmdLambda span0 (map normalizePattern pats) (normalizeCmd cmd')
+    CmdLet _ decls cmd' -> CmdLet span0 (map normalizeDecl decls) (normalizeCmd cmd')
+    CmdParen _ cmd' -> CmdParen span0 (normalizeCmd cmd')
+
+normalizeCmdAlt :: CmdAlt -> CmdAlt
+normalizeCmdAlt alt =
+  alt {cmdAltSpan = span0, cmdAltPattern = normalizePattern (cmdAltPattern alt), cmdAltBody = normalizeCmd (cmdAltBody alt)}
+
+normalizeArrowStmt :: ArrowStmt -> ArrowStmt
+normalizeArrowStmt stmt =
+  case stmt of
+    ArrowBind _ pat cmd -> ArrowBind span0 (normalizePattern pat) (normalizeCmd cmd)
+    ArrowExpr _ cmd -> ArrowExpr span0 (normalizeCmd cmd)
+    ArrowLet _ decls -> ArrowLet span0 (map normalizeDecl decls)
+    ArrowRec _ stmts -> ArrowRec span0 (map normalizeArrowStmt stmts)

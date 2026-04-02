@@ -1105,6 +1105,10 @@ prettyExprPrec prec expr =
     EUnboxedSum _ altIdx arity inner ->
       let slots = [if i == altIdx then prettyExprPrec 0 inner else mempty | i <- [0 .. arity - 1]]
        in hsep ["(#", hsep (punctuate " |" slots), "#)"]
+    EProcExpr _ pat cmd ->
+      parenthesize
+        (prec > 0)
+        ("proc" <+> prettyPattern pat <+> "->" <+> prettyCmd cmd)
 
 prettyTupleBody :: TupleFlavor -> Doc ann -> Doc ann
 prettyTupleBody tupleFlavor inner =
@@ -1336,6 +1340,47 @@ prettyInstTypeFamilyInst tfi =
   where
     forallPart [] = []
     forallPart binders = ["forall", hsep (map prettyTyVarBinder binders) <> "."]
+
+-- | Pretty print a command (used in proc expressions)
+prettyCmd :: Cmd -> Doc ann
+prettyCmd cmd =
+  case cmd of
+    CmdExpr _ expr -> prettyExprPrec 0 expr
+    CmdApp _ fn arg -> prettyExprPrec 2 fn <+> prettyExprPrec 3 arg
+    CmdArrow _ fn op arg -> prettyExprPrec 2 fn <+> pretty op <+> prettyExprPrec 0 arg
+    CmdHigherOrderArrow _ fn op arg -> prettyExprPrec 2 fn <+> pretty op <+> prettyExprPrec 0 arg
+    CmdIf _ cond yes no ->
+      "if" <+> prettyExprPrec 0 cond <+> "then" <+> prettyCmd yes <+> "else" <+> prettyCmd no
+    CmdCase _ scrutinee alts ->
+      "case"
+        <+> prettyExprPrec 0 scrutinee
+        <+> "of"
+        <+> "{"
+        <+> hsep (punctuate semi (map prettyCmdAlt alts))
+        <+> "}"
+    CmdDo _ stmts body ->
+      "do"
+        <+> "{"
+        <+> hsep (punctuate semi (map prettyArrowStmt stmts))
+        <+> semi
+        <+> prettyCmd body
+        <+> "}"
+    CmdLambda _ pats body ->
+      "\\" <+> hsep (map prettyPattern pats) <+> "->" <+> prettyCmd body
+    CmdLet _ decls body ->
+      "let" <+> braces (prettyInlineDecls decls) <+> "in" <+> prettyCmd body
+    CmdParen _ inner -> parens (prettyCmd inner)
+
+prettyCmdAlt :: CmdAlt -> Doc ann
+prettyCmdAlt (CmdAlt _ pat cmd) = prettyPattern pat <+> "->" <+> prettyCmd cmd
+
+prettyArrowStmt :: ArrowStmt -> Doc ann
+prettyArrowStmt stmt =
+  case stmt of
+    ArrowBind _ pat cmd -> prettyPattern pat <+> "<-" <+> prettyCmd cmd
+    ArrowExpr _ cmd -> prettyCmd cmd
+    ArrowLet _ decls -> "let" <+> braces (prettyInlineDecls decls)
+    ArrowRec _ stmts -> "rec" <+> "{" <+> hsep (punctuate semi (map prettyArrowStmt stmts)) <+> "}"
 
 -- | @(data|newtype) HeadType = Cons@ inside an instance body
 prettyInstDataFamilyInst :: DataFamilyInst -> Doc ann

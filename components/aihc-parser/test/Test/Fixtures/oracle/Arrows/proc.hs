@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail basic proc expression -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE Arrows #-}
 module Proc where
 

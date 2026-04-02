@@ -589,6 +589,7 @@ docExpr expr =
       "EUnboxedSum" <+> pretty altIdx <+> pretty arity <+> docExpr inner
     ETypeApp _ inner ty -> "ETypeApp" <+> parens (docExpr inner) <+> parens (docType ty)
     EApp _ f x -> "EApp" <+> parens (docExpr f) <+> parens (docExpr x)
+    EProcExpr _ pat cmd -> "EProcExpr" <+> parens (docPattern pat) <+> parens (docCmd cmd)
 
 docCaseAlt :: CaseAlt -> Doc ann
 docCaseAlt (CaseAlt _ pat rhs) =
@@ -617,6 +618,31 @@ docArithSeq seqInfo =
     ArithSeqFromThen _ from thn -> "ArithSeqFromThen" <+> parens (docExpr from) <+> parens (docExpr thn)
     ArithSeqFromTo _ from to -> "ArithSeqFromTo" <+> parens (docExpr from) <+> parens (docExpr to)
     ArithSeqFromThenTo _ from thn to -> "ArithSeqFromThenTo" <+> parens (docExpr from) <+> parens (docExpr thn) <+> parens (docExpr to)
+
+docCmd :: Cmd -> Doc ann
+docCmd cmd =
+  case cmd of
+    CmdExpr _ expr -> "CmdExpr" <+> parens (docExpr expr)
+    CmdApp _ fn arg -> "CmdApp" <+> parens (docExpr fn) <+> parens (docExpr arg)
+    CmdArrow _ fn op arg -> "CmdArrow" <+> parens (docExpr fn) <+> docText op <+> parens (docExpr arg)
+    CmdHigherOrderArrow _ fn op arg -> "CmdHigherOrderArrow" <+> parens (docExpr fn) <+> docText op <+> parens (docExpr arg)
+    CmdIf _ cond yes no -> "CmdIf" <+> parens (docExpr cond) <+> parens (docCmd yes) <+> parens (docCmd no)
+    CmdCase _ scrutinee alts -> "CmdCase" <+> parens (docExpr scrutinee) <+> brackets (hsep (punctuate comma (map docCmdAlt alts)))
+    CmdDo _ stmts body -> "CmdDo" <+> brackets (hsep (punctuate comma (map docArrowStmt stmts))) <+> parens (docCmd body)
+    CmdLambda _ pats body -> "CmdLambda" <+> brackets (hsep (punctuate comma (map docPattern pats))) <+> parens (docCmd body)
+    CmdLet _ decls body -> "CmdLet" <+> brackets (hsep (punctuate comma (map docDecl decls))) <+> parens (docCmd body)
+    CmdParen _ inner -> "CmdParen" <+> parens (docCmd inner)
+
+docCmdAlt :: CmdAlt -> Doc ann
+docCmdAlt (CmdAlt _ pat cmd) = "CmdAlt" <+> parens (docPattern pat) <+> parens (docCmd cmd)
+
+docArrowStmt :: ArrowStmt -> Doc ann
+docArrowStmt stmt =
+  case stmt of
+    ArrowBind _ pat cmd -> "ArrowBind" <+> parens (docPattern pat) <+> parens (docCmd cmd)
+    ArrowExpr _ cmd -> "ArrowExpr" <+> parens (docCmd cmd)
+    ArrowLet _ decls -> "ArrowLet" <+> brackets (hsep (punctuate comma (map docDecl decls)))
+    ArrowRec _ stmts -> "ArrowRec" <+> brackets (hsep (punctuate comma (map docArrowStmt stmts)))
 
 -- Token pretty printing
 

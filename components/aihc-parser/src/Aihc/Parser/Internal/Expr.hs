@@ -161,6 +161,9 @@ lexpParser = do
     TkKeywordCase -> caseExprParser
     TkKeywordLet -> letExprParser
     TkReservedBackslash -> lambdaExprParser
+    TkVarId "proc" -> do
+      arrowsEnabled <- isExtensionEnabled Arrows
+      if arrowsEnabled then procExprParser else appExprParser
     _ -> appExprParser
 
 buildInfix :: Expr -> (Text, Expr) -> Expr
@@ -874,6 +877,153 @@ lambdaExprParser = withSpan $ do
       pure (\span' -> ELambdaPats span' pats body)
 
     bracedAlts = bracedSemiSep1 caseAltParser
+
+procExprParser :: TokParser Expr
+procExprParser = withSpan $ do
+  varIdTok "proc"
+  pat <- patternParser
+  expectedTok TkReservedRightArrow
+  cmd <- cmdParser
+  pure (\span' -> EProcExpr span' pat cmd)
+
+-- | Parse a command (used inside proc expressions)
+cmdParser :: TokParser Cmd
+cmdParser = cmdInfixParser
+
+cmdInfixParser :: TokParser Cmd
+cmdInfixParser = do
+  lhs <- cmdPrimaryParser
+  -- Handle arrow operators and infix commands
+  rest <- MP.many ((,) <$> cmdOperator <*> cmdPrimaryParser)
+  pure $ foldl buildCmdInfix lhs rest
+  where
+    buildCmdInfix lhs (op, rhs) =
+      case op of
+        "-<" -> CmdArrow (mergeSourceSpans (getSourceSpan lhs) (getSourceSpan rhs)) expr1 op expr2
+          where
+            expr1 = case lhs of CmdExpr _ e -> e; _ -> error "Invalid arrow operand"
+            expr2 = case rhs of CmdExpr _ e -> e; _ -> error "Invalid arrow operand"
+        "-<<" -> CmdHigherOrderArrow (mergeSourceSpans (getSourceSpan lhs) (getSourceSpan rhs)) expr1 op expr2
+          where
+            expr1 = case lhs of CmdExpr _ e -> e; _ -> error "Invalid arrow operand"
+            expr2 = case rhs of CmdExpr _ e -> e; _ -> error "Invalid arrow operand"
+        _ -> CmdApp (mergeSourceSpans (getSourceSpan lhs) (getSourceSpan rhs)) expr1 expr2
+          where
+            expr1 = case lhs of CmdExpr _ e -> e; _ -> error "Invalid command application"
+            expr2 = case rhs of CmdExpr _ e -> e; _ -> error "Invalid command application"
+
+cmdOperator :: TokParser Text
+cmdOperator =
+  tokenSatisfy "command operator" $ \tok ->
+    case lexTokenKind tok of
+      TkVarSym op | op == "-<" || op == "-<<" || op == ">>>" -> Just op
+      TkVarId op | op == ">>>" -> Just op
+      _ -> Nothing
+
+cmdPrimaryParser :: TokParser Cmd
+cmdPrimaryParser = do
+  tok <- lookAhead anySingle
+  case lexTokenKind tok of
+    TkKeywordDo -> cmdDoParser
+    TkKeywordIf -> cmdIfParser
+    TkKeywordCase -> cmdCaseParser
+    TkReservedBackslash -> cmdLambdaParser
+    TkKeywordLet -> cmdLetParser
+    TkSpecialLParen -> cmdParenParser
+    _ -> cmdExprParser
+  where
+    cmdParenParser = do
+      expectedTok TkSpecialLParen
+      cmd <- cmdParser
+      expectedTok TkSpecialRParen
+      pure cmd
+
+cmdExprParser :: TokParser Cmd
+cmdExprParser = withSpan $ do
+  expr <- appExprParser
+  pure (`CmdExpr` expr)
+
+cmdDoParser :: TokParser Cmd
+cmdDoParser = withSpan $ do
+  keywordTok TkKeywordDo
+  stmts <- bracedArrowStmtListParser arrowStmtParser
+  cmd <- cmdParser
+  pure (\span' -> CmdDo span' stmts cmd)
+
+bracedArrowStmtListParser :: TokParser a -> TokParser [a]
+bracedArrowStmtListParser = bracedSemiSep1
+
+arrowStmtParser :: TokParser ArrowStmt
+arrowStmtParser = MP.try arrowBindStmtParser <|> MP.try arrowLetStmtParser <|> MP.try arrowRecStmtParser <|> arrowExprStmtParser
+
+arrowBindStmtParser :: TokParser ArrowStmt
+arrowBindStmtParser = withSpan $ do
+  pat <- patternParser
+  expectedTok TkReservedLeftArrow
+  cmd <- region "while parsing '<-' binding" cmdParser
+  pure (\span' -> ArrowBind span' pat cmd)
+
+arrowLetStmtParser :: TokParser ArrowStmt
+arrowLetStmtParser = withSpan $ do
+  decls <- parseLetDeclsStmtParser
+  pure (`ArrowLet` decls)
+
+arrowRecStmtParser :: TokParser ArrowStmt
+arrowRecStmtParser = withSpan $ do
+  varIdTok "rec"
+  stmts <- bracedArrowStmtListParser arrowStmtParser
+  pure (`ArrowRec` stmts)
+
+arrowExprStmtParser :: TokParser ArrowStmt
+arrowExprStmtParser = withSpan $ do
+  cmd <- cmdParser
+  pure (`ArrowExpr` cmd)
+
+cmdIfParser :: TokParser Cmd
+cmdIfParser = withSpan $ do
+  keywordTok TkKeywordIf
+  cond <- region "while parsing if condition" exprParser
+  skipSemicolons
+  keywordTok TkKeywordThen
+  yes <- region "while parsing then branch" cmdParser
+  skipSemicolons
+  keywordTok TkKeywordElse
+  no <- region "while parsing else branch" cmdParser
+  pure (\span' -> CmdIf span' cond yes no)
+
+cmdCaseParser :: TokParser Cmd
+cmdCaseParser = withSpan $ do
+  keywordTok TkKeywordCase
+  expr <- appExprParser
+  skipSemicolons
+  keywordTok TkKeywordOf
+  alts <- bracedCmdAltListParser
+  pure (\span' -> CmdCase span' expr alts)
+
+bracedCmdAltListParser :: TokParser [CmdAlt]
+bracedCmdAltListParser = bracedSemiSep1 cmdAltParser
+
+cmdAltParser :: TokParser CmdAlt
+cmdAltParser = withSpan $ do
+  pat <- patternParser
+  expectedTok TkReservedRightArrow
+  cmd <- cmdParser
+  pure (\span' -> CmdAlt span' pat cmd)
+
+cmdLambdaParser :: TokParser Cmd
+cmdLambdaParser = withSpan $ do
+  expectedTok TkReservedBackslash
+  pats <- MP.some patternParser
+  expectedTok TkReservedRightArrow
+  body <- region "while parsing lambda body" cmdParser
+  pure (\span' -> CmdLambda span' pats body)
+
+cmdLetParser :: TokParser Cmd
+cmdLetParser = withSpan $ do
+  decls <- parseLetDeclsParser
+  keywordTok TkKeywordIn
+  body <- cmdParser
+  pure (\span' -> CmdLet span' decls body)
 
 letExprParser :: TokParser Expr
 letExprParser = withSpan $ do
