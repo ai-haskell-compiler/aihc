@@ -41,6 +41,7 @@ hackageTesterTests =
         "oracle"
         [ testCase "accepts No-prefixed LANGUAGE pragmas" test_oracleAcceptsNoPrefixedLanguagePragma,
           testCase "accepts LANGUAGE Haskell2010 pragmas" test_oracleAcceptsHaskell2010LanguagePragma,
+          testCase "accepts mixed-case LANGUAGE pragmas" test_oracleAcceptsMixedCaseLanguagePragma,
           testCase "accepts NondecreasingIndentation pragmas" test_oracleAcceptsNondecreasingIndentationPragma,
           testCase "applies implied extensions" test_oracleAppliesImpliedExtensions,
           testCase "defaults to Haskell2010 when language is omitted" test_oracleDefaultsToHaskell2010,
@@ -140,6 +141,23 @@ test_oracleAcceptsHaskell2010LanguagePragma =
         [ "{-# LANGUAGE Haskell2010 #-}",
           "module A where",
           "x = 1"
+        ]
+
+test_oracleAcceptsMixedCaseLanguagePragma :: Assertion
+test_oracleAcceptsMixedCaseLanguagePragma =
+  case oracleDetailedParsesModuleWithNamesAt "hackage-tester" [] Nothing source of
+    Left err ->
+      assertBool
+        ("expected mixed-case BlockArguments pragma to be accepted, got: " <> T.unpack err)
+        False
+    Right () -> pure ()
+  where
+    source =
+      T.unlines
+        [ "{-# Language BlockArguments #-}",
+          "module A where",
+          "x = unsafePerformIO do",
+          "  pure ()"
         ]
 
 test_oracleAcceptsNondecreasingIndentationPragma :: Assertion
