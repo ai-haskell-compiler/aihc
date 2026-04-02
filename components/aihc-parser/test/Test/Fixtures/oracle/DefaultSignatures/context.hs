@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail default signature with context -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE DefaultSignatures #-}
 module Context where
 

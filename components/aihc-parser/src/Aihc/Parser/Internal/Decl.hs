@@ -662,6 +662,7 @@ classDeclItemParser =
     <|> MP.try classTypeFamilyDeclParser
     <|> MP.try classDataFamilyDeclParser
     <|> MP.try classDefaultTypeInstParser
+    <|> MP.try classDefaultSigItemParser
     <|> MP.try classTypeSigItemParser
     <|> classDefaultItemParser
 
@@ -671,6 +672,14 @@ classTypeSigItemParser = withSpan $ do
   expectedTok TkReservedDoubleColon
   ty <- typeParser
   pure (\span' -> ClassItemTypeSig span' names ty)
+
+classDefaultSigItemParser :: TokParser ClassDeclItem
+classDefaultSigItemParser = withSpan $ do
+  keywordTok TkKeywordDefault
+  name <- binderNameParser
+  expectedTok TkReservedDoubleColon
+  ty <- typeParser
+  pure (\span' -> ClassItemDefaultSig span' name ty)
 
 classFixityItemParser :: TokParser ClassDeclItem
 classFixityItemParser = withSpan $ do

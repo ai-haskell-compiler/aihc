@@ -38,6 +38,7 @@ where
 import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..))
 import Aihc.Parser.Syntax
 import Aihc.Parser.Types (ParserErrorComponent (..), TokStream (..), mkFoundToken)
+import Control.Monad (guard)
 import Data.Char (isUpper)
 import Data.List.NonEmpty qualified as NE
 import Data.Set qualified as Set
@@ -319,14 +320,23 @@ constraintParserWith typeAtomParser =
   MP.try parenthesizedConstraintParser <|> bareConstraintParser
   where
     bareConstraintParser = withSpan $ do
-      className <- identifierTextParser
-      args <- MP.many typeAtomParser
+      (className, args) <- MP.try infixConstraintParser <|> prefixConstraintParser
       pure $ \span' ->
         Constraint
           { constraintSpan = span',
             constraintClass = className,
             constraintArgs = args
           }
+    prefixConstraintParser = do
+      className <- identifierTextParser
+      args <- MP.many typeAtomParser
+      pure (className, args)
+    infixConstraintParser = do
+      lhs <- typeAtomParser
+      op <- operatorTextParser
+      guard (op == "~")
+      rhs <- typeAtomParser
+      pure (op, [lhs, rhs])
     parenthesizedConstraintParser = withSpan $ do
       constraint <- parens (constraintParserWith typeAtomParser)
       pure (`CParen` constraint)
