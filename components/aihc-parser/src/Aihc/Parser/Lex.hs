@@ -2161,6 +2161,14 @@ advanceChars chars st = foldl advanceOne st chars
               lexerByteOffset = lexerByteOffset acc + 1,
               lexerAtLineStart = True
             }
+        '\t' ->
+          let nextTabStop = 8 - ((lexerCol acc - 1) `mod` 8)
+           in acc
+                { lexerInput = drop 1 (lexerInput acc),
+                  lexerCol = lexerCol acc + nextTabStop,
+                  lexerByteOffset = lexerByteOffset acc + 1,
+                  lexerAtLineStart = False
+                }
         _ ->
           acc
             { lexerInput = drop 1 (lexerInput acc),
