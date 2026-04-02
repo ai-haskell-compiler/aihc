@@ -350,6 +350,7 @@ docInstanceDecl inst =
   where
     fields =
       optionalField "overlapPragma" docInstanceOverlapPragma (instanceDeclOverlapPragma inst)
+        <> boolField "parenthesizedHead" (instanceDeclParenthesizedHead inst)
         <> [field "className" (docText (instanceDeclClassName inst))]
         <> listField "context" docConstraint (instanceDeclContext inst)
         <> [field "types" (brackets (hsep (punctuate comma (map docType (instanceDeclTypes inst)))))]
@@ -370,6 +371,7 @@ docStandaloneDerivingDecl sd =
   where
     fields =
       optionalField "overlapPragma" docInstanceOverlapPragma (standaloneDerivingOverlapPragma sd)
+        <> boolField "parenthesizedHead" (standaloneDerivingParenthesizedHead sd)
         <> [field "className" (docText (standaloneDerivingClassName sd))]
         <> optionalField "strategy" docDerivingStrategy (standaloneDerivingStrategy sd)
         <> listField "context" docConstraint (standaloneDerivingContext sd)

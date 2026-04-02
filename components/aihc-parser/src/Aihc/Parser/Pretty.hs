@@ -711,13 +711,7 @@ prettyClassItem item =
 prettyInstanceDecl :: InstanceDecl -> Doc ann
 prettyInstanceDecl decl =
   let headDoc =
-        hsep
-          ( ["instance"]
-              <> maybe [] (\pragma' -> [prettyInstanceOverlapPragma pragma']) (instanceDeclOverlapPragma decl)
-              <> contextPrefix (instanceDeclContext decl)
-              <> [pretty (instanceDeclClassName decl)]
-              <> map (prettyTypeIn CtxTypeAtom) (instanceDeclTypes decl)
-          )
+        hsep (["instance"] <> maybe [] (\pragma' -> [prettyInstanceOverlapPragma pragma']) (instanceDeclOverlapPragma decl) <> contextPrefix (instanceDeclContext decl) <> [instanceHeadDoc decl])
    in case instanceDeclItems decl of
         [] -> headDoc
         items -> headDoc <+> "where" <+> braces (hsep (punctuate semi (map prettyInstanceItem items)))
@@ -731,9 +725,23 @@ prettyStandaloneDeriving decl =
         <> ["instance"]
         <> maybe [] (\pragma' -> [prettyInstanceOverlapPragma pragma']) (standaloneDerivingOverlapPragma decl)
         <> contextPrefix (standaloneDerivingContext decl)
-        <> [pretty (standaloneDerivingClassName decl)]
-        <> map (prettyTypeIn CtxTypeAtom) (standaloneDerivingTypes decl)
+        <> [standaloneDerivingHeadDoc decl]
     )
+
+instanceHeadDoc :: InstanceDecl -> Doc ann
+instanceHeadDoc decl =
+  maybeParenthesize (instanceDeclParenthesizedHead decl) $
+    hsep ([pretty (instanceDeclClassName decl)] <> map (prettyTypeIn CtxTypeAtom) (instanceDeclTypes decl))
+
+standaloneDerivingHeadDoc :: StandaloneDerivingDecl -> Doc ann
+standaloneDerivingHeadDoc decl =
+  maybeParenthesize (standaloneDerivingParenthesizedHead decl) $
+    hsep ([pretty (standaloneDerivingClassName decl)] <> map (prettyTypeIn CtxTypeAtom) (standaloneDerivingTypes decl))
+
+maybeParenthesize :: Bool -> Doc ann -> Doc ann
+maybeParenthesize shouldParen doc
+  | shouldParen = parens doc
+  | otherwise = doc
 
 prettyInstanceOverlapPragma :: InstanceOverlapPragma -> Doc ann
 prettyInstanceOverlapPragma pragma' =

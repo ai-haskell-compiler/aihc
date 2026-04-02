@@ -1072,6 +1072,7 @@ data StandaloneDerivingDecl = StandaloneDerivingDecl
     standaloneDerivingStrategy :: Maybe DerivingStrategy,
     standaloneDerivingOverlapPragma :: Maybe InstanceOverlapPragma,
     standaloneDerivingContext :: [Constraint],
+    standaloneDerivingParenthesizedHead :: Bool,
     standaloneDerivingClassName :: Text,
     standaloneDerivingTypes :: [Type],
     standaloneDerivingViaType :: Maybe Type
@@ -1129,6 +1130,7 @@ data InstanceDecl = InstanceDecl
   { instanceDeclSpan :: SourceSpan,
     instanceDeclOverlapPragma :: Maybe InstanceOverlapPragma,
     instanceDeclContext :: [Constraint],
+    instanceDeclParenthesizedHead :: Bool,
     instanceDeclClassName :: Text,
     instanceDeclTypes :: [Type],
     instanceDeclItems :: [InstanceDeclItem]
