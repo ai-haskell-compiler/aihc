@@ -673,10 +673,12 @@ closeBeforeToken st tok =
     TkKeywordIn ->
       let (inserted, contexts') = closeLeadingImplicitLets (lexTokenSpan tok) (layoutContexts st)
        in (inserted, st {layoutContexts = contexts'})
-    TkSpecialComma
-      | layoutDelimiterDepth st == 0 ->
-          let (inserted, contexts') = closeLeadingImplicitLets (lexTokenSpan tok) (layoutContexts st)
-           in (inserted, st {layoutContexts = contexts'})
+    TkSpecialComma ->
+      -- Close implicit layouts before commas, but only if there's an explicit context.
+      -- This handles: R { f = case y of A -> 1, g = 2 } (comma closes case layout)
+      -- But NOT: case x of A | p, q -> 1 (comma is guard separator, no explicit context)
+      let (inserted, contexts') = closeImplicitBeforeComma (lexTokenSpan tok) (layoutContexts st)
+       in (inserted, st {layoutContexts = contexts'})
     -- Close implicit layout contexts before closing delimiters (parse-error rule)
     TkSpecialRParen ->
       let (inserted, contexts') = closeAllImplicitBeforeDelimiter (lexTokenSpan tok) (layoutContexts st)
@@ -828,6 +830,31 @@ closeAllImplicitBeforeDelimiter anchor = go []
         LayoutImplicitAfterThenElse _ : rest -> go (virtualSymbolToken "}" anchor : acc) rest
         _ -> (reverse acc, contexts)
 
+-- | Close implicit layouts before commas.
+-- - Always close leading LayoutImplicitLet contexts (for let guards like: | let x = 1, p x)
+-- - If there's an explicit context (LayoutExplicit or LayoutDelimiter), also close
+--   other implicit layouts up to it (for cases like: R { f = case y of A -> 1, g = 2 })
+-- - If no explicit context, don't close LayoutImplicit (guard commas like: | p, q -> 1)
+closeImplicitBeforeComma :: SourceSpan -> [LayoutContext] -> ([LexToken], [LayoutContext])
+closeImplicitBeforeComma anchor contexts =
+  let -- First, close any leading LayoutImplicitLet contexts (original behavior)
+      (letInserted, afterLets) = closeLeadingImplicitLets anchor contexts
+      -- Then, if there's an explicit context, close remaining implicit layouts
+      (implicitInserted, afterImplicit) =
+        if hasExplicitContext afterLets
+          then closeAllImplicitBeforeDelimiter anchor afterLets
+          else ([], afterLets)
+   in (letInserted <> implicitInserted, afterImplicit)
+  where
+    hasExplicitContext :: [LayoutContext] -> Bool
+    hasExplicitContext = any isExplicitOrDelimiter
+    isExplicitOrDelimiter :: LayoutContext -> Bool
+    isExplicitOrDelimiter ctx =
+      case ctx of
+        LayoutExplicit -> True
+        LayoutDelimiter -> True
+        _ -> False
+
 stepTokenContext :: LayoutState -> LexToken -> LayoutState
 stepTokenContext st tok =
   case lexTokenKind tok of
@@ -878,7 +905,17 @@ stepTokenContext st tok =
         { layoutDelimiterDepth = layoutDelimiterDepth st + 1,
           layoutContexts = LayoutDelimiter : layoutContexts st
         }
+    TkSpecialUnboxedLParen ->
+      st
+        { layoutDelimiterDepth = layoutDelimiterDepth st + 1,
+          layoutContexts = LayoutDelimiter : layoutContexts st
+        }
     TkSpecialRParen ->
+      st
+        { layoutDelimiterDepth = max 0 (layoutDelimiterDepth st - 1),
+          layoutContexts = popToDelimiter (layoutContexts st)
+        }
+    TkSpecialUnboxedRParen ->
       st
         { layoutDelimiterDepth = max 0 (layoutDelimiterDepth st - 1),
           layoutContexts = popToDelimiter (layoutContexts st)
