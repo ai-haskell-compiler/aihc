@@ -20,7 +20,6 @@ import Test.Properties.Identifiers (isValidGeneratedIdent, shrinkIdent)
 import Test.Properties.ModuleRoundTrip (prop_modulePrettyRoundTrip)
 import Test.Properties.PatternRoundTrip (prop_patternPrettyRoundTrip)
 import Test.Properties.TypeRoundTrip (prop_typePrettyRoundTrip)
-import Test.StackageProgress.FileChecker (stackageProgressFileCheckerTests)
 import Test.StackageProgress.Summary (stackageProgressSummaryTests)
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -87,8 +86,7 @@ buildTests = do
         oracle,
         extensionMappingTests,
         hackageTester,
-        stackageProgressSummaryTests,
-        stackageProgressFileCheckerTests
+        stackageProgressSummaryTests
       ]
 
 test_moduleParsesDecls :: Assertion

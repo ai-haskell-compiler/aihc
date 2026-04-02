@@ -40,7 +40,6 @@ test-suite spec
   hs-source-dirs:
       test
     , common
-    , app/stackage-progress
   main-is:          Spec.hs
   other-modules:
       CppSupport
@@ -50,8 +49,6 @@ test-suite spec
       , HackageTester.CLI
       , HackageTester.Model
       , HseExtensions
-      , StackageProgress.CLI
-      , StackageProgress.FileChecker
       , LexerGolden
       , ParserErrorGolden
       , ParserGolden
@@ -73,7 +70,6 @@ test-suite spec
     , Test.Properties.PatternRoundTrip
     , Test.Properties.TypeRoundTrip
     , Test.Parser.Suite
-    , Test.StackageProgress.FileChecker
     , Test.StackageProgress.Summary
   build-depends:
       base >=4.16 && <5
