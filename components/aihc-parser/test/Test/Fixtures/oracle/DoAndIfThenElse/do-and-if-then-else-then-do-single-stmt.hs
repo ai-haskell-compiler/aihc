@@ -9,6 +9,6 @@ getCachedJSONQuery :: IO ()
 getCachedJSONQuery = do
   if True
     then do
-    error "err"
+      error "err"
     else do
-    error "blah"
+      error "blah"

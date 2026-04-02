@@ -11,6 +11,5 @@ input: |
               return ()
       else
           return ()
-ast: ""
-status: xfail
-reason: nested if-then-else with multi-statement then branch in do block fails to parse
+ast: Module {name = "Test", languagePragmas = [EnableExtension DoAndIfThenElse], decls = [DeclValue (FunctionBind "test" [Match {headForm = Prefix, rhs = UnguardedRhs (EDo [DoExpr (EIf (EVar "True") (EDo [DoExpr (EIf (EVar "True") (EDo [DoExpr (EApp (EVar "putStrLn") (EString "a")), DoExpr (EApp (EVar "putStrLn") (EString "b"))]) (EApp (EVar "return") (ETuple [])))]) (EApp (EVar "return") (ETuple [])))])}])]}
+status: pass

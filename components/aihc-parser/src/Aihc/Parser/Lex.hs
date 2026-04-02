@@ -705,7 +705,7 @@ closeBeforeToken st tok =
        in (inserted, st {layoutContexts = contexts'})
     TkKeywordElse ->
       let col = tokenStartCol tok
-          (inserted, contexts') = closeForDedentInclusive col (lexTokenSpan tok) (layoutContexts st)
+          (inserted, contexts') = closeForDedentInclusiveExcept col (lexTokenSpan tok) (layoutContexts st)
        in (inserted, st {layoutContexts = contexts'})
     -- Close implicit layout contexts before 'where' keyword (parse-error rule)
     -- 'where' at the same column as an implicit layout closes that layout,
@@ -786,6 +786,28 @@ closeForDedentInclusive col anchor = go []
         -- Close LayoutImplicitAfterThenElse where col <= indent (parse-error rule)
         LayoutImplicitAfterThenElse indent : rest
           | col <= indent -> go (virtualSymbolToken "}" anchor : acc) rest
+          | otherwise -> (reverse acc, contexts)
+        _ -> (reverse acc, contexts)
+
+-- | Like 'closeForDedentInclusive', but for 'else' keywords.
+-- We don't close LayoutImplicitAfterThenElse if 'else' is at the exact same column,
+-- since it might be the matching else for a nested if-then-else expression.
+closeForDedentInclusiveExcept :: Int -> SourceSpan -> [LayoutContext] -> ([LexToken], [LayoutContext])
+closeForDedentInclusiveExcept col anchor = go []
+  where
+    go acc contexts =
+      case contexts of
+        -- Close any implicit layout with indent > col (dedent rule)
+        LayoutImplicit indent : rest
+          | col < indent -> go (virtualSymbolToken "}" anchor : acc) rest
+          | otherwise -> (reverse acc, contexts)
+        LayoutImplicitLet indent : rest
+          | col < indent -> go (virtualSymbolToken "}" anchor : acc) rest
+          | otherwise -> (reverse acc, contexts)
+        -- Close LayoutImplicitAfterThenElse where col < indent (don't close at col == indent)
+        -- This allows 'else' at the same column to be matched with an inner if-then-else
+        LayoutImplicitAfterThenElse indent : rest
+          | col < indent -> go (virtualSymbolToken "}" anchor : acc) rest
           | otherwise -> (reverse acc, contexts)
         _ -> (reverse acc, contexts)
 

@@ -10,8 +10,8 @@ withLet :: IO ()
 withLet = do
   if True
     then do
-    let x = 1
-        y = 2
-    return (x + y)
+      let x = 1
+          y = 2
+      return (x + y)
     else do
-    return 0
+      return 0

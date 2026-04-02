@@ -10,8 +10,8 @@ toCaseLayout :: IO ()
 toCaseLayout = do
   if True
     then do
-    case undefined of
-      Left err -> error err
-      Right obj -> return obj
+      case undefined of
+        Left err -> error err
+        Right obj -> return obj
     else do
-    return ()
+      return ()

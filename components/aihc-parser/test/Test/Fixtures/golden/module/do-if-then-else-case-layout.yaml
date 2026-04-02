@@ -5,10 +5,10 @@ input: |
   toCaseLayout = do
     if True
       then do
-      case undefined of
-        Left err -> error err
-        Right obj -> return obj
+        case undefined of
+          Left err -> error err
+          Right obj -> return obj
       else do
-      return ()
+        return ()
 ast: Module {name = "DoAndIfThenElseCaseLayout", languagePragmas = [EnableExtension DoAndIfThenElse], decls = [DeclValue (FunctionBind "toCaseLayout" [Match {headForm = Prefix, rhs = UnguardedRhs (EDo [DoExpr (EIf (EVar "True") (EDo [DoExpr (ECase (EVar "undefined") [CaseAlt (PCon "Left" [PVar "err"]) (UnguardedRhs (EApp (EVar "error") (EVar "err"))), CaseAlt (PCon "Right" [PVar "obj"]) (UnguardedRhs (EApp (EVar "return") (EVar "obj")))])]) (EDo [DoExpr (EApp (EVar "return") (ETuple []))]))])}])]}
 status: pass

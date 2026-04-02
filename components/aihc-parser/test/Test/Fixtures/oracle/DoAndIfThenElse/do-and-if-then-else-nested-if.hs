@@ -9,10 +9,10 @@ nestedIf :: Bool -> Bool -> IO ()
 nestedIf a b = do
   if a
     then do
-    if b
-      then do
-      putStrLn "a and b"
-      else do
-      putStrLn "a and not b"
+      if b
+        then do
+          putStrLn "a and b"
+        else do
+          putStrLn "a and not b"
     else do
-    putStrLn "not a"
+      putStrLn "not a"

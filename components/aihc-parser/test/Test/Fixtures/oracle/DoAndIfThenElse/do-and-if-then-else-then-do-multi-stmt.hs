@@ -9,8 +9,8 @@ multiStmt :: IO ()
 multiStmt = do
   if True
     then do
-    putStrLn "a"
-    putStrLn "b"
+      putStrLn "a"
+      putStrLn "b"
     else do
-    putStrLn "c"
-    putStrLn "d"
+      putStrLn "c"
+      putStrLn "d"
