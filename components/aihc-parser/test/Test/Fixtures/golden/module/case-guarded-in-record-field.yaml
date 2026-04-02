@@ -1,0 +1,6 @@
+extensions: []
+input: |
+  module CaseGuardedInRecordField where
+  x = R { f = case y of A | p -> 1 | q -> 2, g = 3 }
+ast: Module {name = "CaseGuardedInRecordField", decls = [DeclValue (FunctionBind "x" [Match {headForm = Prefix, rhs = UnguardedRhs (ERecordCon "R" {"f" = ECase (EVar "y") [CaseAlt (PCon "A" []) (GuardedRhss [GuardedRhs {guards = [GuardExpr (EVar "p")], body = EInt 1}, GuardedRhs {guards = [GuardExpr (EVar "q")], body = EInt 2}])], "g" = EInt 3})}])]}
+status: pass
