@@ -1,0 +1,7 @@
+extensions: [Arrows]
+input: |
+  serveIndexHtml = proc _request ->
+    returnA -< "response"
+ast: ""
+status: xfail
+reason: unexpected arrow in proc notation
