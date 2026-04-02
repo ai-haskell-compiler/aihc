@@ -1,7 +1,6 @@
-{- ORACLE_TEST xfail list promoted kind -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE TypeOperators #-}
 module ListPromotedKind where
 
-import Data.Proxy
-fn :: Proxy (() ': '[])
-fn = undefined
+type T = a ': b

@@ -308,9 +308,12 @@ prettyTypePrec prec ty =
       parenthesize
         (prec > 0)
         ("forall" <+> hsep (map pretty binders) <> "." <+> prettyTypePrec 0 inner)
-    TApp _ (TApp _ (TCon _ op _) lhs) rhs
+    TApp _ (TApp _ (TCon _ op promoted) lhs) rhs
       | isSymbolicTypeOperator op && op /= "->" ->
-          parens (prettyTypePrec 0 lhs <+> pretty op <+> prettyTypePrec 0 rhs)
+          prettyTypePrec 0 lhs
+            <+> (if promoted == Promoted then "'" else mempty)
+            <> pretty op
+            <+> prettyTypePrec 0 rhs
     TApp _ f x ->
       parenthesize
         (prec > 2)
