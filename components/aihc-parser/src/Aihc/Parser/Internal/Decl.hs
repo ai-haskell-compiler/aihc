@@ -749,8 +749,7 @@ instanceDeclParser = withSpan $ do
   keywordTok TkKeywordInstance
   overlapPragma <- MP.optional instanceOverlapPragmaParser
   context <- MP.optional (MP.try (declContextParser <* expectedTok TkReservedDoubleArrow))
-  className <- constructorIdentifierParser
-  instanceTypes <- MP.some typeAtomParser
+  (parenthesizedHead, className, instanceTypes) <- instanceHeadParser
   items <- MP.option [] instanceWhereClauseParser
   pure $ \span' ->
     DeclInstance
@@ -759,6 +758,7 @@ instanceDeclParser = withSpan $ do
         { instanceDeclSpan = span',
           instanceDeclOverlapPragma = overlapPragma,
           instanceDeclContext = fromMaybe [] context,
+          instanceDeclParenthesizedHead = parenthesizedHead,
           instanceDeclClassName = className,
           instanceDeclTypes = instanceTypes,
           instanceDeclItems = items
@@ -772,8 +772,7 @@ standaloneDerivingDeclParser = withSpan $ do
   keywordTok TkKeywordInstance
   overlapPragma <- MP.optional instanceOverlapPragmaParser
   context <- MP.optional (MP.try (declContextParser <* expectedTok TkReservedDoubleArrow))
-  className <- constructorIdentifierParser
-  instanceTypes <- MP.some typeAtomParser
+  (parenthesizedHead, className, instanceTypes) <- instanceHeadParser
   pure $ \span' ->
     DeclStandaloneDeriving
       span'
@@ -782,10 +781,24 @@ standaloneDerivingDeclParser = withSpan $ do
           standaloneDerivingStrategy = strategy,
           standaloneDerivingOverlapPragma = overlapPragma,
           standaloneDerivingContext = fromMaybe [] context,
+          standaloneDerivingParenthesizedHead = parenthesizedHead,
           standaloneDerivingClassName = className,
           standaloneDerivingTypes = instanceTypes,
           standaloneDerivingViaType = viaTy
         }
+
+instanceHeadParser :: TokParser (Bool, Text, [Type])
+instanceHeadParser =
+  MP.try (parens bareInstanceHeadParser >>= \(className, instanceTypes) -> pure (True, className, instanceTypes))
+    <|> ( do
+            (className, instanceTypes) <- bareInstanceHeadParser
+            pure (False, className, instanceTypes)
+        )
+  where
+    bareInstanceHeadParser = do
+      className <- constructorIdentifierParser
+      instanceTypes <- MP.some typeAtomParser
+      pure (className, instanceTypes)
 
 instanceWhereClauseParser :: TokParser [InstanceDeclItem]
 instanceWhereClauseParser = whereClauseItemsParser instanceItemsBracedParser instanceItemsPlainParser

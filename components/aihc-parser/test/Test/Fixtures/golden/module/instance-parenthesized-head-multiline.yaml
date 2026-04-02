@@ -1,0 +1,19 @@
+extensions: []
+input: |
+  module ParenthesizedInstanceHead where
+
+  import qualified Data.List as List
+
+  class Collect a where
+    collect :: a -> [a]
+
+  data Box a = Box a
+
+  instance
+      Eq a
+      => (Collect (Box a))
+    where
+      collect value = List.reverse [value]
+status: pass
+ast: |
+  Module {name = "ParenthesizedInstanceHead", imports = [ImportDecl {module = "Data.List", qualified = True, as = "List"}], decls = [DeclClass (ClassDecl {name = "Collect", params = [TyVarBinder {name = "a"}], items = [ClassItemTypeSig {names = ["collect"], type = TFun (TVar "a") (TList (TVar "a"))}]}), DeclData (DataDecl {name = "Box", params = [TyVarBinder {name = "a"}], constructors = [PrefixCon {name = "Box", fields = [BangType {type = TVar "a"}]}]}), DeclInstance (InstanceDecl {parenthesizedHead = True, className = "Collect", context = [Constraint {class = "Eq", args = [TVar "a"]}], types = [TParen (TApp (TCon "Box") (TVar "a"))], items = [InstanceItemBind (FunctionBind "collect" [Match {headForm = Prefix, pats = [PVar "value"], rhs = UnguardedRhs (EApp (EVar "List.reverse") (EList [EVar "value"]))}])]})]}
