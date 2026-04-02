@@ -164,6 +164,7 @@ data LexTokenKind
     TkTypeApp -- @ when tight on the right (type application)
   | -- Pragmas
     TkPragmaLanguage [ExtensionSetting]
+  | TkPragmaInstanceOverlap InstanceOverlapPragma
   | TkPragmaWarning Text
   | TkPragmaDeprecated Text
   | -- TemplateHaskellQuotes bracket tokens
@@ -625,6 +626,7 @@ noteModuleLayoutBeforeToken st tok =
     ModuleLayoutSeekStart ->
       case lexTokenKind tok of
         TkPragmaLanguage _ -> st
+        TkPragmaInstanceOverlap _ -> st
         TkPragmaWarning _ -> st
         TkPragmaDeprecated _ -> st
         TkKeywordModule -> st {layoutModuleMode = ModuleLayoutAwaitWhere}
@@ -1007,6 +1009,7 @@ virtualSymbolToken sym span' =
 lexKnownPragma :: LexerState -> Maybe (LexToken, LexerState)
 lexKnownPragma st
   | Just ((raw, kind), st') <- parsePragmaLike parseLanguagePragma st = Just (mkToken st st' raw kind, st')
+  | Just ((raw, kind), st') <- parsePragmaLike parseInstanceOverlapPragma st = Just (mkToken st st' raw kind, st')
   | Just ((raw, kind), st') <- parsePragmaLike parseOptionsPragma st = Just (mkToken st st' raw kind, st')
   | Just ((raw, kind), st') <- parsePragmaLike parseWarningPragma st = Just (mkToken st st' raw kind, st')
   | Just ((raw, kind), st') <- parsePragmaLike parseDeprecatedPragma st = Just (mkToken st st' raw kind, st')
@@ -1911,6 +1914,19 @@ parseLanguagePragma input = do
   let names = parseLanguagePragmaNames (T.pack body)
       raw = "{-# LANGUAGE " <> T.unpack (T.intercalate ", " (map extensionSettingName names)) <> " #-}"
   pure (length consumed, (T.pack raw, TkPragmaLanguage names))
+
+parseInstanceOverlapPragma :: String -> Maybe (Int, (Text, LexTokenKind))
+parseInstanceOverlapPragma input = do
+  (pragmaName, _, consumed) <- stripNamedPragma ["OVERLAPPING", "OVERLAPPABLE", "OVERLAPS", "INCOHERENT"] input
+  overlapPragma <-
+    case pragmaName of
+      "OVERLAPPING" -> Just Overlapping
+      "OVERLAPPABLE" -> Just Overlappable
+      "OVERLAPS" -> Just Overlaps
+      "INCOHERENT" -> Just Incoherent
+      _ -> Nothing
+  let raw = "{-# " <> pragmaName <> " #-}"
+  pure (length consumed, (T.pack raw, TkPragmaInstanceOverlap overlapPragma))
 
 parseOptionsPragma :: String -> Maybe (Int, (Text, LexTokenKind))
 parseOptionsPragma input = do

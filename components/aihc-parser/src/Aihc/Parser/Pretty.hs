@@ -713,6 +713,7 @@ prettyInstanceDecl decl =
   let headDoc =
         hsep
           ( ["instance"]
+              <> maybe [] (\pragma' -> [prettyInstanceOverlapPragma pragma']) (instanceDeclOverlapPragma decl)
               <> contextPrefix (instanceDeclContext decl)
               <> [pretty (instanceDeclClassName decl)]
               <> map (prettyTypeIn CtxTypeAtom) (instanceDeclTypes decl)
@@ -728,10 +729,19 @@ prettyStandaloneDeriving decl =
         <> maybe [] (\s -> [prettyDerivingStrategy s]) (standaloneDerivingStrategy decl)
         <> maybe [] (\ty -> ["via", prettyType ty]) (standaloneDerivingViaType decl)
         <> ["instance"]
+        <> maybe [] (\pragma' -> [prettyInstanceOverlapPragma pragma']) (standaloneDerivingOverlapPragma decl)
         <> contextPrefix (standaloneDerivingContext decl)
         <> [pretty (standaloneDerivingClassName decl)]
         <> map (prettyTypeIn CtxTypeAtom) (standaloneDerivingTypes decl)
     )
+
+prettyInstanceOverlapPragma :: InstanceOverlapPragma -> Doc ann
+prettyInstanceOverlapPragma pragma' =
+  case pragma' of
+    Overlapping -> "{-# OVERLAPPING #-}"
+    Overlappable -> "{-# OVERLAPPABLE #-}"
+    Overlaps -> "{-# OVERLAPS #-}"
+    Incoherent -> "{-# INCOHERENT #-}"
 
 prettyDerivingStrategy :: DerivingStrategy -> Doc ann
 prettyDerivingStrategy strategy =

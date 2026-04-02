@@ -28,6 +28,13 @@ languagePragmaParser =
       TkPragmaLanguage names -> Just names
       _ -> Nothing
 
+instanceOverlapPragmaParser :: TokParser InstanceOverlapPragma
+instanceOverlapPragmaParser =
+  tokenSatisfy "instance overlap pragma" $ \tok ->
+    case lexTokenKind tok of
+      TkPragmaInstanceOverlap pragma' -> Just pragma'
+      _ -> Nothing
+
 moduleHeaderParser :: TokParser ModuleHead
 moduleHeaderParser = withSpan $ do
   keywordTok TkKeywordModule
@@ -740,6 +747,7 @@ classDefaultItemParser = withSpan $ do
 instanceDeclParser :: TokParser Decl
 instanceDeclParser = withSpan $ do
   keywordTok TkKeywordInstance
+  overlapPragma <- MP.optional instanceOverlapPragmaParser
   context <- MP.optional (MP.try (declContextParser <* expectedTok TkReservedDoubleArrow))
   className <- constructorIdentifierParser
   instanceTypes <- MP.some typeAtomParser
@@ -749,6 +757,7 @@ instanceDeclParser = withSpan $ do
       span'
       InstanceDecl
         { instanceDeclSpan = span',
+          instanceDeclOverlapPragma = overlapPragma,
           instanceDeclContext = fromMaybe [] context,
           instanceDeclClassName = className,
           instanceDeclTypes = instanceTypes,
@@ -761,6 +770,7 @@ standaloneDerivingDeclParser = withSpan $ do
   strategy <- MP.optional derivingStrategyParser
   viaTy <- MP.optional (MP.try derivingViaTypeParser)
   keywordTok TkKeywordInstance
+  overlapPragma <- MP.optional instanceOverlapPragmaParser
   context <- MP.optional (MP.try (declContextParser <* expectedTok TkReservedDoubleArrow))
   className <- constructorIdentifierParser
   instanceTypes <- MP.some typeAtomParser
@@ -770,6 +780,7 @@ standaloneDerivingDeclParser = withSpan $ do
       StandaloneDerivingDecl
         { standaloneDerivingSpan = span',
           standaloneDerivingStrategy = strategy,
+          standaloneDerivingOverlapPragma = overlapPragma,
           standaloneDerivingContext = fromMaybe [] context,
           standaloneDerivingClassName = className,
           standaloneDerivingTypes = instanceTypes,
