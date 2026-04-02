@@ -1,0 +1,16 @@
+extensions: [DoAndIfThenElse]
+input: |
+  {-# LANGUAGE DoAndIfThenElse #-}
+  module Test where
+  test = do
+      if True then do
+          if True then do
+              putStrLn "a"
+              putStrLn "b"
+          else
+              return ()
+      else
+          return ()
+ast: ""
+status: xfail
+reason: nested if-then-else with multi-statement then branch in do block fails to parse
