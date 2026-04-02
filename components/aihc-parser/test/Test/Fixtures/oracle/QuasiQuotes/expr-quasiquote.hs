@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail parser intentionally disabled -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE QuasiQuotes #-}
 module ExprQuasiQuote where
 

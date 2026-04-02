@@ -17,6 +17,7 @@ module GhcOracle
     oracleParsesWithParserExtensionsAt,
     oracleDetailedParsesWithParserExtensions,
     oracleDetailedParsesWithParserExtensionsAt,
+    oracleModuleAstFingerprintWithNamesAt,
     computeEffectiveExtensions,
     toGhcExtension,
     fromGhcExtension,
@@ -77,6 +78,26 @@ oracleModuleAstFingerprintWithExtensionsAt :: String -> [GHC.Extension] -> Text 
 oracleModuleAstFingerprintWithExtensionsAt sourceTag exts input = do
   parsed <- parseWithGhcWithExtensions sourceTag exts input
   pure (T.pack (showSDocUnsafe (ppr parsed)))
+
+-- | Compute an AST fingerprint using extension names and a language edition,
+-- reading in-file pragmas to determine the full effective extension set.
+-- This mirrors the logic in 'oracleDetailedParsesModuleWithNamesAt'.
+oracleModuleAstFingerprintWithNamesAt :: String -> [String] -> Maybe String -> Text -> Either Text Text
+oracleModuleAstFingerprintWithNamesAt sourceTag extNames langName input =
+  let defaultEdition = langName >>= Syntax.parseLanguageEdition . T.pack
+      initialPragmas = Lex.readModuleHeaderPragmas input
+      initialExts = computeEffectiveExtensions defaultEdition extNames initialPragmas
+      preprocessedInput =
+        if Syntax.CPP `elem` initialExts
+          then resultOutput (preprocessForParserWithoutIncludes sourceTag input)
+          else input
+      finalPragmas =
+        if Syntax.CPP `elem` initialExts
+          then Lex.readModuleHeaderPragmas preprocessedInput
+          else initialPragmas
+      finalExts = computeEffectiveExtensions defaultEdition extNames finalPragmas
+      ghcExts = mapMaybe toGhcExtension finalExts
+   in oracleModuleAstFingerprintWithExtensionsAt sourceTag ghcExts preprocessedInput
 
 parseWithGhcWithExtensions :: String -> [GHC.Extension] -> Text -> Either Text (HsModule GhcPs)
 parseWithGhcWithExtensions sourceTag exts input =

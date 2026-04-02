@@ -341,6 +341,7 @@ atomExprParser = do
     <|> (if thAny then thQuoteExprParser else MP.empty)
     <|> (if thAny then thNameQuoteExprParser else MP.empty)
     <|> (if thFullEnabled then thSpliceExprParser else MP.empty)
+    <|> quasiQuoteExprParser
     <|> parenExprParser
     <|> listExprParser
     <|> intBaseExprParser
@@ -514,6 +515,13 @@ quasiQuotePatternParser = withSpan $ do
       TkQuasiQuote q b -> Just (q, b)
       _ -> Nothing
   pure (\span' -> PQuasiQuote span' quoter body)
+
+quasiQuoteExprParser :: TokParser Expr
+quasiQuoteExprParser =
+  tokenSatisfy "quasi quote" $ \tok ->
+    case lexTokenKind tok of
+      TkQuasiQuote quoter body -> Just (EQuasiQuote (lexTokenSpan tok) quoter body)
+      _ -> Nothing
 
 literalParser :: TokParser Literal
 literalParser = intLiteralParser <|> intBaseLiteralParser <|> floatLiteralParser <|> charLiteralParser <|> stringLiteralParser
