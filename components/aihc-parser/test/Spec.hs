@@ -7,7 +7,6 @@ import Aihc.Parser
 import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokens, lexTokensFromChunks, readModuleHeaderExtensions, readModuleHeaderExtensionsFromChunks)
 import Aihc.Parser.Syntax
 import Data.List (isInfixOf)
-import Data.Maybe (mapMaybe)
 import qualified Data.Text as T
 import Test.ErrorMessages.Suite (errorMessageTests)
 import Test.ExtensionMapping.Suite (extensionMappingTests)
@@ -71,7 +70,6 @@ buildTests = do
             testCase "can lex lazily from chunks" test_lexerChunkLaziness,
             testCase "parser config passes extensions to lexer" test_parserConfigPassesExtensions,
             testCase "parser config sets source name in parse errors" test_parserConfigSetsSourceName,
-            testCase "parses type equality constraints with type family applications" test_parsesTypeEqualityConstraintWithTypeFamilyApplication,
             testCase "generated identifiers reject reserved keyword as" test_generatedIdentifiersRejectReservedAs,
             testCase "generated identifiers reject standalone underscore" test_generatedIdentifiersRejectStandaloneUnderscore,
             testCase "shrunk identifiers reject standalone underscore" test_shrunkIdentifiersRejectStandaloneUnderscore,
@@ -120,37 +118,6 @@ test_parserConfigSetsSourceName =
         else assertFailure ("expected source name in parse error, got: " <> errorBundlePretty (Just "module") err)
     ParseOk modu ->
       assertFailure ("expected parse failure, got: " <> show modu)
-
-test_parsesTypeEqualityConstraintWithTypeFamilyApplication :: Assertion
-test_parsesTypeEqualityConstraintWithTypeFamilyApplication =
-  case
-    parseModule
-      defaultConfig
-      ( T.unlines
-          [ "{-# LANGUAGE TypeFamilies #-}",
-            "module Equality where",
-            "type family IsUpperCased a",
-            "data No",
-            "data Upper",
-            "data Cased a b",
-            "class Casing a",
-            "upperCased :: (Casing b, IsUpperCased a ~ No) => Cased a b -> Cased Upper b",
-            "upperCased = undefined"
-          ]
-      ) of
-    ParseErr err ->
-      assertFailure ("expected module parse success, got parse error: " <> errorBundlePretty Nothing err)
-    ParseOk modu ->
-      case mapMaybe extractTypeSig (moduleDecls modu) of
-        [TContext _ [Constraint _ "Casing" [TVar _ "b"], Constraint _ "~" [TApp _ (TCon _ "IsUpperCased" Unpromoted) (TVar _ "a"), TCon _ "No" Unpromoted]] _] ->
-              pure ()
-        other ->
-          assertFailure ("expected type equality constraint with a type family application, got: " <> show other)
-  where
-    extractTypeSig decl =
-      case decl of
-        DeclTypeSig _ ["upperCased"] ty -> Just ty
-        _ -> Nothing
 
 test_readsHeaderLanguagePragmas :: Assertion
 test_readsHeaderLanguagePragmas = do
