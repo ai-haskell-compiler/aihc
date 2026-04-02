@@ -911,16 +911,26 @@ prettyWhereBody = prettyExprIn CtxWhereBody
 prettyExprApp :: Expr -> Doc ann
 prettyExprApp = prettyExprIn CtxAppFun
 
+-- | Check whether an expression's pretty-printed form starts with '$'.
+-- This matters for negation: -$x lexes as the operator -$ rather than
+-- negate applied to a splice.
+startsWithDollar :: Expr -> Bool
+startsWithDollar (ETHSplice {}) = True
+startsWithDollar (ETHTypedSplice {}) = True
+startsWithDollar (ERecordUpd _ base _) = startsWithDollar base
+startsWithDollar (EApp _ fn _) = startsWithDollar fn
+startsWithDollar _ = False
+
 -- | Print a negation expression.
 prettyNegate :: Expr -> Doc ann
 prettyNegate inner =
-  case inner of
-    -- Splices start with $ which is a symbolic operator character.
-    -- Without parens, -$x lexes as the operator -$ followed by x,
-    -- and - $x lexes as a right section.
-    ETHSplice {} -> "-" <> parens (prettyExprPrec 0 inner)
-    ETHTypedSplice {} -> "-" <> parens (prettyExprPrec 0 inner)
-    _ -> "-" <> prettyExprPrec 3 inner
+  -- Splices start with $ which is a symbolic operator character.
+  -- Without parens, -$x lexes as the operator -$ followed by x,
+  -- and - $x lexes as a right section. The same applies when a splice
+  -- is the leading subexpression of a record update or application.
+  if startsWithDollar inner
+    then "-" <> parens (prettyExprPrec 0 inner)
+    else "-" <> prettyExprPrec 3 inner
 
 -- | Print the body of a type signature expression.
 prettyTypeSigBody :: Expr -> Doc ann
