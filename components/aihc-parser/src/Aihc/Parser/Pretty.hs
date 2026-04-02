@@ -116,6 +116,13 @@ prettyImportLevel level =
     ImportLevelQuote -> "quote"
     ImportLevelSplice -> "splice"
 
+prettyDeclSplice :: Expr -> Doc ann
+prettyDeclSplice body =
+  case body of
+    EVar {} -> prettySplice "$" body
+    EParen {} -> prettySplice "$" body
+    _ -> prettyExprPrec 0 body
+
 prettyQuotedText :: Text -> Doc ann
 prettyQuotedText txt = "\"" <> pretty txt <> "\""
 
@@ -170,7 +177,7 @@ prettyDeclLines decl =
     DeclStandaloneDeriving _ derivingDecl -> [prettyStandaloneDeriving derivingDecl]
     DeclDefault _ tys -> ["default" <+> parens (hsep (punctuate comma (map prettyType tys)))]
     DeclForeign _ foreignDecl -> [prettyForeignDecl foreignDecl]
-    DeclSplice _ body -> [prettySplice "$" body]
+    DeclSplice _ body -> [prettyDeclSplice body]
     DeclTypeFamilyDecl _ tf -> [prettyTypeFamilyDecl tf]
     DeclDataFamilyDecl _ df -> [prettyDataFamilyDecl df]
     DeclTypeFamilyInst _ tfi -> [prettyTopTypeFamilyInst tfi]
