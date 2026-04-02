@@ -43,6 +43,7 @@ module Aihc.Parser.Syntax
     ImportSpec (..),
     InstanceDecl (..),
     InstanceDeclItem (..),
+    InstanceOverlapPragma (..),
     LanguageEdition (..),
     Literal (..),
     Match (..),
@@ -1048,6 +1049,7 @@ data DerivingStrategy
 data StandaloneDerivingDecl = StandaloneDerivingDecl
   { standaloneDerivingSpan :: SourceSpan,
     standaloneDerivingStrategy :: Maybe DerivingStrategy,
+    standaloneDerivingOverlapPragma :: Maybe InstanceOverlapPragma,
     standaloneDerivingContext :: [Constraint],
     standaloneDerivingClassName :: Text,
     standaloneDerivingTypes :: [Type],
@@ -1104,6 +1106,7 @@ instance HasSourceSpan ClassDeclItem where
 
 data InstanceDecl = InstanceDecl
   { instanceDeclSpan :: SourceSpan,
+    instanceDeclOverlapPragma :: Maybe InstanceOverlapPragma,
     instanceDeclContext :: [Constraint],
     instanceDeclClassName :: Text,
     instanceDeclTypes :: [Type],
@@ -1113,6 +1116,13 @@ data InstanceDecl = InstanceDecl
 
 instance HasSourceSpan InstanceDecl where
   getSourceSpan = instanceDeclSpan
+
+data InstanceOverlapPragma
+  = Overlapping
+  | Overlappable
+  | Overlaps
+  | Incoherent
+  deriving (Data, Eq, Ord, Show, Read, Generic, NFData)
 
 data InstanceDeclItem
   = InstanceItemBind SourceSpan ValueDecl

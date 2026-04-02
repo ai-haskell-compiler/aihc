@@ -332,7 +332,8 @@ docInstanceDecl inst =
   "InstanceDecl" <+> braces (hsep (punctuate comma fields))
   where
     fields =
-      [field "className" (docText (instanceDeclClassName inst))]
+      optionalField "overlapPragma" docInstanceOverlapPragma (instanceDeclOverlapPragma inst)
+        <> [field "className" (docText (instanceDeclClassName inst))]
         <> listField "context" docConstraint (instanceDeclContext inst)
         <> [field "types" (brackets (hsep (punctuate comma (map docType (instanceDeclTypes inst)))))]
         <> listField "items" docInstanceDeclItem (instanceDeclItems inst)
@@ -351,11 +352,20 @@ docStandaloneDerivingDecl sd =
   "StandaloneDerivingDecl" <+> braces (hsep (punctuate comma fields))
   where
     fields =
-      [field "className" (docText (standaloneDerivingClassName sd))]
+      optionalField "overlapPragma" docInstanceOverlapPragma (standaloneDerivingOverlapPragma sd)
+        <> [field "className" (docText (standaloneDerivingClassName sd))]
         <> optionalField "strategy" docDerivingStrategy (standaloneDerivingStrategy sd)
         <> listField "context" docConstraint (standaloneDerivingContext sd)
         <> [field "types" (brackets (hsep (punctuate comma (map docType (standaloneDerivingTypes sd)))))]
         <> optionalField "viaType" docType (standaloneDerivingViaType sd)
+
+docInstanceOverlapPragma :: InstanceOverlapPragma -> Doc ann
+docInstanceOverlapPragma pragma' =
+  case pragma' of
+    Overlapping -> "Overlapping"
+    Overlappable -> "Overlappable"
+    Overlaps -> "Overlaps"
+    Incoherent -> "Incoherent"
 
 docForeignDecl :: ForeignDecl -> Doc ann
 docForeignDecl fd =
@@ -670,6 +680,7 @@ docTokenKind kind =
     TkPrefixBang -> "TkPrefixBang"
     TkPrefixTilde -> "TkPrefixTilde"
     TkPragmaLanguage settings -> "TkPragmaLanguage" <+> brackets (hsep (punctuate comma (map docExtensionSetting settings)))
+    TkPragmaInstanceOverlap pragma' -> "TkPragmaInstanceOverlap" <+> docInstanceOverlapPragma pragma'
     TkPragmaWarning msg -> "TkPragmaWarning" <+> docText msg
     TkPragmaDeprecated msg -> "TkPragmaDeprecated" <+> docText msg
     TkQuasiQuote quoter body -> "TkQuasiQuote" <+> docText quoter <+> docText body
