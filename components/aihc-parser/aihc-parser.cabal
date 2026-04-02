@@ -43,15 +43,15 @@ test-suite spec
   main-is:          Spec.hs
   other-modules:
       CppSupport
-      , ExtensionSupport
-      , GhcOracle
-      , HackageSupport
-      , HackageTester.CLI
-      , HackageTester.Model
-      , HseExtensions
-      , LexerGolden
-      , ParserErrorGolden
-      , ParserGolden
+    , ExtensionSupport
+    , GhcOracle
+    , HackageSupport
+    , HackageTester.CLI
+    , HackageTester.Model
+    , HseExtensions
+    , LexerGolden
+    , ParserErrorGolden
+    , ParserGolden
     , OracleExtensions
     , ParserValidation
     , ShrinkUtils
