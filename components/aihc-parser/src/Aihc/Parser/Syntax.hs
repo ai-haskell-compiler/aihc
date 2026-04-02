@@ -43,6 +43,7 @@ module Aihc.Parser.Syntax
     ImportSpec (..),
     InstanceDecl (..),
     InstanceDeclItem (..),
+    InstanceOverlapPragma (..),
     LanguageEdition (..),
     Literal (..),
     Match (..),
@@ -54,6 +55,8 @@ module Aihc.Parser.Syntax
     NewtypeDecl (..),
     OperatorName,
     Pattern (..),
+    Role (..),
+    RoleAnnotation (..),
     Rhs (..),
     HasSourceSpan (..),
     SourceSpan (..),
@@ -625,6 +628,7 @@ data Decl
   | DeclTypeSig SourceSpan [BinderName] Type
   | DeclStandaloneKindSig SourceSpan BinderName Type
   | DeclFixity SourceSpan FixityAssoc (Maybe Int) [OperatorName]
+  | DeclRoleAnnotation SourceSpan RoleAnnotation
   | DeclTypeSyn SourceSpan TypeSynDecl
   | DeclData SourceSpan DataDecl
   | DeclNewtype SourceSpan NewtypeDecl
@@ -648,6 +652,7 @@ instance HasSourceSpan Decl where
       DeclTypeSig span' _ _ -> span'
       DeclStandaloneKindSig span' _ _ -> span'
       DeclFixity span' _ _ _ -> span'
+      DeclRoleAnnotation span' _ -> span'
       DeclTypeSyn span' _ -> span'
       DeclData span' _ -> span'
       DeclNewtype span' _ -> span'
@@ -874,6 +879,23 @@ data TyVarBinder = TyVarBinder
 instance HasSourceSpan TyVarBinder where
   getSourceSpan = tyVarBinderSpan
 
+data Role
+  = RoleNominal
+  | RoleRepresentational
+  | RolePhantom
+  | RoleInfer
+  deriving (Data, Eq, Show, Generic, NFData)
+
+data RoleAnnotation = RoleAnnotation
+  { roleAnnotationSpan :: SourceSpan,
+    roleAnnotationName :: Text,
+    roleAnnotationRoles :: [Role]
+  }
+  deriving (Data, Eq, Show, Generic, NFData)
+
+instance HasSourceSpan RoleAnnotation where
+  getSourceSpan = roleAnnotationSpan
+
 data TypeSynDecl = TypeSynDecl
   { typeSynSpan :: SourceSpan,
     typeSynName :: Text,
@@ -1048,6 +1070,7 @@ data DerivingStrategy
 data StandaloneDerivingDecl = StandaloneDerivingDecl
   { standaloneDerivingSpan :: SourceSpan,
     standaloneDerivingStrategy :: Maybe DerivingStrategy,
+    standaloneDerivingOverlapPragma :: Maybe InstanceOverlapPragma,
     standaloneDerivingContext :: [Constraint],
     standaloneDerivingClassName :: Text,
     standaloneDerivingTypes :: [Type],
@@ -1104,6 +1127,7 @@ instance HasSourceSpan ClassDeclItem where
 
 data InstanceDecl = InstanceDecl
   { instanceDeclSpan :: SourceSpan,
+    instanceDeclOverlapPragma :: Maybe InstanceOverlapPragma,
     instanceDeclContext :: [Constraint],
     instanceDeclClassName :: Text,
     instanceDeclTypes :: [Type],
@@ -1113,6 +1137,13 @@ data InstanceDecl = InstanceDecl
 
 instance HasSourceSpan InstanceDecl where
   getSourceSpan = instanceDeclSpan
+
+data InstanceOverlapPragma
+  = Overlapping
+  | Overlappable
+  | Overlaps
+  | Incoherent
+  deriving (Data, Eq, Ord, Show, Read, Generic, NFData)
 
 data InstanceDeclItem
   = InstanceItemBind SourceSpan ValueDecl

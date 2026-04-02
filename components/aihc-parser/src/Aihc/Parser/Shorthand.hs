@@ -164,6 +164,7 @@ docDecl decl =
     DeclTypeSig _ names ty -> "DeclTypeSig" <+> braces (hsep (punctuate comma [field "names" (docTextList names), field "type" (docType ty)]))
     DeclStandaloneKindSig _ name kind -> "DeclStandaloneKindSig" <+> braces (hsep (punctuate comma [field "name" (docText name), field "kind" (docType kind)]))
     DeclFixity _ assoc mPrec ops -> "DeclFixity" <+> braces (hsep (punctuate comma ([field "assoc" (docFixityAssoc assoc)] <> optionalField "prec" pretty mPrec <> [field "ops" (docTextList ops)])))
+    DeclRoleAnnotation _ ann -> "DeclRoleAnnotation" <+> parens (docRoleAnnotation ann)
     DeclTypeSyn _ syn -> "DeclTypeSyn" <+> parens (docTypeSynDecl syn)
     DeclData _ dd -> "DeclData" <+> parens (docDataDecl dd)
     DeclNewtype _ nd -> "DeclNewtype" <+> parens (docNewtypeDecl nd)
@@ -225,6 +226,22 @@ docTypeSynDecl syn =
       [field "name" (docText (typeSynName syn))]
         <> listField "params" docTyVarBinder (typeSynParams syn)
         <> [field "body" (docType (typeSynBody syn))]
+
+docRoleAnnotation :: RoleAnnotation -> Doc ann
+docRoleAnnotation ann =
+  "RoleAnnotation" <+> braces (hsep (punctuate comma fields))
+  where
+    fields =
+      [field "name" (docText (roleAnnotationName ann))]
+        <> [field "roles" (brackets (hsep (punctuate comma (map docRole (roleAnnotationRoles ann)))))]
+
+docRole :: Role -> Doc ann
+docRole role =
+  case role of
+    RoleNominal -> "RoleNominal"
+    RoleRepresentational -> "RoleRepresentational"
+    RolePhantom -> "RolePhantom"
+    RoleInfer -> "RoleInfer"
 
 docDataDecl :: DataDecl -> Doc ann
 docDataDecl dd =
@@ -332,7 +349,8 @@ docInstanceDecl inst =
   "InstanceDecl" <+> braces (hsep (punctuate comma fields))
   where
     fields =
-      [field "className" (docText (instanceDeclClassName inst))]
+      optionalField "overlapPragma" docInstanceOverlapPragma (instanceDeclOverlapPragma inst)
+        <> [field "className" (docText (instanceDeclClassName inst))]
         <> listField "context" docConstraint (instanceDeclContext inst)
         <> [field "types" (brackets (hsep (punctuate comma (map docType (instanceDeclTypes inst)))))]
         <> listField "items" docInstanceDeclItem (instanceDeclItems inst)
@@ -351,11 +369,20 @@ docStandaloneDerivingDecl sd =
   "StandaloneDerivingDecl" <+> braces (hsep (punctuate comma fields))
   where
     fields =
-      [field "className" (docText (standaloneDerivingClassName sd))]
+      optionalField "overlapPragma" docInstanceOverlapPragma (standaloneDerivingOverlapPragma sd)
+        <> [field "className" (docText (standaloneDerivingClassName sd))]
         <> optionalField "strategy" docDerivingStrategy (standaloneDerivingStrategy sd)
         <> listField "context" docConstraint (standaloneDerivingContext sd)
         <> [field "types" (brackets (hsep (punctuate comma (map docType (standaloneDerivingTypes sd)))))]
         <> optionalField "viaType" docType (standaloneDerivingViaType sd)
+
+docInstanceOverlapPragma :: InstanceOverlapPragma -> Doc ann
+docInstanceOverlapPragma pragma' =
+  case pragma' of
+    Overlapping -> "Overlapping"
+    Overlappable -> "Overlappable"
+    Overlaps -> "Overlaps"
+    Incoherent -> "Incoherent"
 
 docForeignDecl :: ForeignDecl -> Doc ann
 docForeignDecl fd =
@@ -670,6 +697,7 @@ docTokenKind kind =
     TkPrefixBang -> "TkPrefixBang"
     TkPrefixTilde -> "TkPrefixTilde"
     TkPragmaLanguage settings -> "TkPragmaLanguage" <+> brackets (hsep (punctuate comma (map docExtensionSetting settings)))
+    TkPragmaInstanceOverlap pragma' -> "TkPragmaInstanceOverlap" <+> docInstanceOverlapPragma pragma'
     TkPragmaWarning msg -> "TkPragmaWarning" <+> docText msg
     TkPragmaDeprecated msg -> "TkPragmaDeprecated" <+> docText msg
     TkQuasiQuote quoter body -> "TkQuasiQuote" <+> docText quoter <+> docText body

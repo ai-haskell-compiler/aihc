@@ -28,6 +28,13 @@ languagePragmaParser =
       TkPragmaLanguage names -> Just names
       _ -> Nothing
 
+instanceOverlapPragmaParser :: TokParser InstanceOverlapPragma
+instanceOverlapPragmaParser =
+  tokenSatisfy "instance overlap pragma" $ \tok ->
+    case lexTokenKind tok of
+      TkPragmaInstanceOverlap pragma' -> Just pragma'
+      _ -> Nothing
+
 moduleHeaderParser :: TokParser ModuleHead
 moduleHeaderParser = withSpan $ do
   keywordTok TkKeywordModule
@@ -210,7 +217,8 @@ declParser = do
       MP.try newtypeFamilyInstParser
         <|> newtypeDeclParser
     TkKeywordType ->
-      MP.try typeFamilyDeclParser
+      MP.try roleAnnotationDeclParser
+        <|> MP.try typeFamilyDeclParser
         <|> MP.try typeFamilyInstParser
         <|> MP.try standaloneKindSigDeclParser
         <|> typeSynDeclParser
@@ -259,6 +267,28 @@ standaloneKindSigDeclParser = withSpan $ do
   expectedTok TkReservedDoubleColon
   kind <- typeParser
   pure (\span' -> DeclStandaloneKindSig span' typeName kind)
+
+roleAnnotationDeclParser :: TokParser Decl
+roleAnnotationDeclParser = withSpan $ do
+  keywordTok TkKeywordType
+  varIdTok "role"
+  typeName <- constructorIdentifierParser
+  roles <- MP.some roleParser
+  pure $ \span' ->
+    DeclRoleAnnotation
+      span'
+      RoleAnnotation
+        { roleAnnotationSpan = span',
+          roleAnnotationName = typeName,
+          roleAnnotationRoles = roles
+        }
+
+roleParser :: TokParser Role
+roleParser =
+  (varIdTok "nominal" >> pure RoleNominal)
+    <|> (varIdTok "representational" >> pure RoleRepresentational)
+    <|> (varIdTok "phantom" >> pure RolePhantom)
+    <|> (keywordTok TkKeywordUnderscore >> pure RoleInfer)
 
 typeSynDeclParser :: TokParser Decl
 typeSynDeclParser = withSpan $ do
@@ -717,6 +747,7 @@ classDefaultItemParser = withSpan $ do
 instanceDeclParser :: TokParser Decl
 instanceDeclParser = withSpan $ do
   keywordTok TkKeywordInstance
+  overlapPragma <- MP.optional instanceOverlapPragmaParser
   context <- MP.optional (MP.try (declContextParser <* expectedTok TkReservedDoubleArrow))
   className <- constructorIdentifierParser
   instanceTypes <- MP.some typeAtomParser
@@ -726,6 +757,7 @@ instanceDeclParser = withSpan $ do
       span'
       InstanceDecl
         { instanceDeclSpan = span',
+          instanceDeclOverlapPragma = overlapPragma,
           instanceDeclContext = fromMaybe [] context,
           instanceDeclClassName = className,
           instanceDeclTypes = instanceTypes,
@@ -738,6 +770,7 @@ standaloneDerivingDeclParser = withSpan $ do
   strategy <- MP.optional derivingStrategyParser
   viaTy <- MP.optional (MP.try derivingViaTypeParser)
   keywordTok TkKeywordInstance
+  overlapPragma <- MP.optional instanceOverlapPragmaParser
   context <- MP.optional (MP.try (declContextParser <* expectedTok TkReservedDoubleArrow))
   className <- constructorIdentifierParser
   instanceTypes <- MP.some typeAtomParser
@@ -747,6 +780,7 @@ standaloneDerivingDeclParser = withSpan $ do
       StandaloneDerivingDecl
         { standaloneDerivingSpan = span',
           standaloneDerivingStrategy = strategy,
+          standaloneDerivingOverlapPragma = overlapPragma,
           standaloneDerivingContext = fromMaybe [] context,
           standaloneDerivingClassName = className,
           standaloneDerivingTypes = instanceTypes,

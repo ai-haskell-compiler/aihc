@@ -161,6 +161,7 @@ prettyDeclLines decl =
               <> map prettyInfixOp ops
           )
       ]
+    DeclRoleAnnotation _ ann -> [prettyRoleAnnotation ann]
     DeclTypeSyn _ synDecl ->
       [ hsep
           [ "type",
@@ -182,6 +183,24 @@ prettyDeclLines decl =
     DeclDataFamilyDecl _ df -> [prettyDataFamilyDecl df]
     DeclTypeFamilyInst _ tfi -> [prettyTopTypeFamilyInst tfi]
     DeclDataFamilyInst _ dfi -> [prettyTopDataFamilyInst dfi]
+
+prettyRoleAnnotation :: RoleAnnotation -> Doc ann
+prettyRoleAnnotation ann =
+  hsep
+    ( [ "type",
+        "role",
+        prettyConstructorName (roleAnnotationName ann)
+      ]
+        <> map prettyRole (roleAnnotationRoles ann)
+    )
+
+prettyRole :: Role -> Doc ann
+prettyRole role =
+  case role of
+    RoleNominal -> "nominal"
+    RoleRepresentational -> "representational"
+    RolePhantom -> "phantom"
+    RoleInfer -> "_"
 
 prettyValueDeclLines :: ValueDecl -> [Doc ann]
 prettyValueDeclLines valueDecl =
@@ -694,6 +713,7 @@ prettyInstanceDecl decl =
   let headDoc =
         hsep
           ( ["instance"]
+              <> maybe [] (\pragma' -> [prettyInstanceOverlapPragma pragma']) (instanceDeclOverlapPragma decl)
               <> contextPrefix (instanceDeclContext decl)
               <> [pretty (instanceDeclClassName decl)]
               <> map (prettyTypeIn CtxTypeAtom) (instanceDeclTypes decl)
@@ -709,10 +729,19 @@ prettyStandaloneDeriving decl =
         <> maybe [] (\s -> [prettyDerivingStrategy s]) (standaloneDerivingStrategy decl)
         <> maybe [] (\ty -> ["via", prettyType ty]) (standaloneDerivingViaType decl)
         <> ["instance"]
+        <> maybe [] (\pragma' -> [prettyInstanceOverlapPragma pragma']) (standaloneDerivingOverlapPragma decl)
         <> contextPrefix (standaloneDerivingContext decl)
         <> [pretty (standaloneDerivingClassName decl)]
         <> map (prettyTypeIn CtxTypeAtom) (standaloneDerivingTypes decl)
     )
+
+prettyInstanceOverlapPragma :: InstanceOverlapPragma -> Doc ann
+prettyInstanceOverlapPragma pragma' =
+  case pragma' of
+    Overlapping -> "{-# OVERLAPPING #-}"
+    Overlappable -> "{-# OVERLAPPABLE #-}"
+    Overlaps -> "{-# OVERLAPS #-}"
+    Incoherent -> "{-# INCOHERENT #-}"
 
 prettyDerivingStrategy :: DerivingStrategy -> Doc ann
 prettyDerivingStrategy strategy =

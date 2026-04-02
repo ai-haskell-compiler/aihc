@@ -88,13 +88,18 @@ genExprLeaf =
       mkFloatExpr <$> genTenths,
       mkCharExpr <$> genCharValue,
       mkStringExpr <$> genStringValue,
-      -- Note: EQuasiQuote requires QuasiQuotes extension, skip for now
+      EQuasiQuote span0 <$> genQuasiQuoteName <*> genStringValue,
       pure (EList span0 []),
       pure (ETuple span0 Boxed []),
       pure (ETuple span0 Unboxed []),
       ETupleCon span0 Boxed <$> chooseInt (2, 5),
       ETupleCon span0 Unboxed <$> chooseInt (2, 5)
     ]
+
+-- | Generate a quasi-quote name, excluding TH bracket names (e, d, p, t) which
+-- would collide with Template Haskell bracket syntax ([e|...|], [d|...|], etc.).
+genQuasiQuoteName :: Gen Text
+genQuasiQuoteName = suchThat genIdent (`notElem` ["e", "d", "p", "t"])
 
 -- | Generate the body of a TH splice: either a bare variable or a parenthesized expression.
 -- Bare variables produce $name syntax; parenthesized produce $(expr) syntax.
