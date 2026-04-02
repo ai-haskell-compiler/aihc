@@ -1,3 +1,4 @@
+{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Main (main) where
@@ -302,38 +303,56 @@ test_unterminatedBlockCommentProducesErrorToken =
 test_hashLineDirectiveUpdatesSpan :: Assertion
 test_hashLineDirectiveUpdatesSpan =
   case lexTokens "#line 42\nx" of
-    [LexToken {lexTokenKind = TkVarId "x", lexTokenSpan = SourceSpan 42 1 42 2}, LexToken {lexTokenKind = TkEOF}] -> pure ()
+    [LexToken {lexTokenKind = TkVarId "x", lexTokenSpan = span'}, LexToken {lexTokenKind = TkEOF}] ->
+      assertSourceSpan "<input>" 42 1 42 2 9 10 span'
     other -> assertFailure ("expected identifier at line 42, got: " <> show other)
 
 test_gccHashLineDirectiveUpdatesSpan :: Assertion
 test_gccHashLineDirectiveUpdatesSpan =
   case lexTokens "# 42 \"generated.h\"\nx" of
-    [LexToken {lexTokenKind = TkVarId "x", lexTokenSpan = SourceSpan 42 1 42 2}, LexToken {lexTokenKind = TkEOF}] -> pure ()
+    [LexToken {lexTokenKind = TkVarId "x", lexTokenSpan = span'}, LexToken {lexTokenKind = TkEOF}] ->
+      assertSourceSpan "generated.h" 42 1 42 2 19 20 span'
     other -> assertFailure ("expected identifier at line 42 from gcc-style directive, got: " <> show other)
 
 test_linePragmaUpdatesSpan :: Assertion
 test_linePragmaUpdatesSpan =
   case lexTokens "{-# LINE 17 #-}\nx" of
-    [LexToken {lexTokenKind = TkVarId "x", lexTokenSpan = SourceSpan 17 1 17 2}, LexToken {lexTokenKind = TkEOF}] -> pure ()
+    [LexToken {lexTokenKind = TkVarId "x", lexTokenSpan = span'}, LexToken {lexTokenKind = TkEOF}] ->
+      assertSourceSpan "<input>" 17 1 17 2 16 17 span'
     other -> assertFailure ("expected identifier at line 17, got: " <> show other)
 
 test_columnPragmaUpdatesSpan :: Assertion
 test_columnPragmaUpdatesSpan =
   case lexTokens "x\n{-# COLUMN 7 #-}y" of
     [ LexToken {lexTokenKind = TkVarId "x"},
-      LexToken {lexTokenKind = TkVarId "y", lexTokenSpan = SourceSpan 2 7 2 8},
+      LexToken {lexTokenKind = TkVarId "y", lexTokenSpan = span'},
       LexToken {lexTokenKind = TkEOF}
-      ] -> pure ()
+      ] -> assertSourceSpan "<input>" 2 7 2 8 18 19 span'
     other -> assertFailure ("expected second identifier at column 7, got: " <> show other)
 
 test_inlineColumnPragmaUpdatesSpan :: Assertion
 test_inlineColumnPragmaUpdatesSpan =
   case lexTokens "x{-# COLUMN 7 #-}y" of
-    [ LexToken {lexTokenKind = TkVarId "x", lexTokenSpan = SourceSpan 1 1 1 2},
-      LexToken {lexTokenKind = TkVarId "y", lexTokenSpan = SourceSpan 1 7 1 8},
+    [ LexToken {lexTokenKind = TkVarId "x", lexTokenSpan = xSpan},
+      LexToken {lexTokenKind = TkVarId "y", lexTokenSpan = ySpan},
       LexToken {lexTokenKind = TkEOF}
-      ] -> pure ()
+      ] -> do
+        assertSourceSpan "<input>" 1 1 1 2 0 1 xSpan
+        assertSourceSpan "<input>" 1 7 1 8 17 18 ySpan
     other -> assertFailure ("expected inline COLUMN pragma to update same-line column, got: " <> show other)
+
+assertSourceSpan :: FilePath -> Int -> Int -> Int -> Int -> Int -> Int -> SourceSpan -> Assertion
+assertSourceSpan expectedName expectedStartLine expectedStartCol expectedEndLine expectedEndCol expectedStartOffset expectedEndOffset span' =
+  case span' of
+    SourceSpan {sourceSpanSourceName, sourceSpanStartLine, sourceSpanStartCol, sourceSpanEndLine, sourceSpanEndCol, sourceSpanStartOffset, sourceSpanEndOffset} -> do
+      assertEqual "source name" expectedName sourceSpanSourceName
+      assertEqual "start line" expectedStartLine sourceSpanStartLine
+      assertEqual "start col" expectedStartCol sourceSpanStartCol
+      assertEqual "end line" expectedEndLine sourceSpanEndLine
+      assertEqual "end col" expectedEndCol sourceSpanEndCol
+      assertEqual "start offset" expectedStartOffset sourceSpanStartOffset
+      assertEqual "end offset" expectedEndOffset sourceSpanEndOffset
+    NoSourceSpan -> assertFailure "expected SourceSpan, got NoSourceSpan"
 
 test_lexerChunkLaziness :: Assertion
 test_lexerChunkLaziness =

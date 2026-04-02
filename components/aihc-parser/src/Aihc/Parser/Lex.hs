@@ -63,6 +63,8 @@ module Aihc.Parser.Lex
     lexModuleTokensFromChunks,
     lexTokensWithExtensions,
     lexModuleTokensWithExtensions,
+    lexTokensWithSourceNameAndExtensions,
+    lexModuleTokensWithSourceNameAndExtensions,
     lexTokens,
     lexModuleTokens,
   )
@@ -70,7 +72,7 @@ where
 
 import Aihc.Parser.Syntax
 import Control.DeepSeq (NFData)
-import Data.Char (GeneralCategory (..), digitToInt, generalCategory, isAlphaNum, isAsciiLower, isAsciiUpper, isDigit, isHexDigit, isOctDigit, isSpace)
+import Data.Char (GeneralCategory (..), digitToInt, generalCategory, isAlphaNum, isAsciiLower, isAsciiUpper, isDigit, isHexDigit, isOctDigit, isSpace, ord)
 import Data.List qualified as List
 import Data.Maybe (fromMaybe, isJust, mapMaybe)
 import Data.Text (Text)
@@ -199,8 +201,10 @@ data LexToken = LexToken
 
 data LexerState = LexerState
   { lexerInput :: String,
+    lexerLogicalSourceName :: !FilePath,
     lexerLine :: !Int,
     lexerCol :: !Int,
+    lexerByteOffset :: !Int,
     lexerAtLineStart :: !Bool,
     lexerPending :: [LexToken],
     lexerExtensions :: [Extension],
@@ -254,7 +258,8 @@ data LayoutState = LayoutState
 
 data DirectiveUpdate = DirectiveUpdate
   { directiveLine :: !(Maybe Int),
-    directiveCol :: !(Maybe Int)
+    directiveCol :: !(Maybe Int),
+    directiveSourceName :: !(Maybe FilePath)
   }
   deriving (Eq, Show)
 
@@ -264,17 +269,14 @@ data DirectiveUpdate = DirectiveUpdate
 -- tokens. Lexing errors are preserved as 'TkError' tokens instead of causing
 -- lexing to fail.
 lexTokens :: Text -> [LexToken]
-lexTokens = lexTokensFromChunks . (: [])
+lexTokens = lexTokensWithSourceNameAndExtensions "<input>" []
 
 -- | Convenience lexer entrypoint for full modules: no explicit extension list.
 --
 -- Leading header pragmas are scanned first so module-enabled extensions can be
 -- applied before token rewrites and top-level layout insertion.
 lexModuleTokens :: Text -> [LexToken]
-lexModuleTokens input =
-  lexModuleTokensFromChunks
-    (enabledExtensionsFromSettings (readModuleHeaderExtensionsFromChunks [input]))
-    [input]
+lexModuleTokens = lexModuleTokensWithSourceNameAndExtensions "<input>" []
 
 -- | Lex an expression/declaration stream from one or more input chunks.
 --
@@ -288,7 +290,7 @@ lexTokensFromChunks = lexTokensFromChunksWithExtensions []
 -- This variant enables module-body layout insertion in addition to the normal
 -- token scan and extension rewrites.
 lexModuleTokensFromChunks :: [Extension] -> [Text] -> [LexToken]
-lexModuleTokensFromChunks = lexChunksWithExtensions True
+lexModuleTokensFromChunks = lexChunksWithExtensions True "<input>"
 
 -- | Lex source text using explicit lexer extensions.
 --
@@ -296,7 +298,7 @@ lexModuleTokensFromChunks = lexChunksWithExtensions True
 -- Module-top layout is /not/ enabled here. Malformed lexemes become 'TkError'
 -- tokens in the token stream.
 lexTokensWithExtensions :: [Extension] -> Text -> [LexToken]
-lexTokensWithExtensions exts input = lexTokensFromChunksWithExtensions exts [input]
+lexTokensWithExtensions = lexTokensWithSourceNameAndExtensions "<input>"
 
 -- | Lex module source text using explicit lexer extensions.
 --
@@ -304,28 +306,41 @@ lexTokensWithExtensions exts input = lexTokensFromChunksWithExtensions exts [inp
 -- when the source omits explicit braces, virtual layout tokens are inserted
 -- after @module ... where@ (or from the first non-pragma token in module-less files).
 lexModuleTokensWithExtensions :: [Extension] -> Text -> [LexToken]
-lexModuleTokensWithExtensions exts input = lexModuleTokensFromChunks exts [input]
+lexModuleTokensWithExtensions = lexModuleTokensWithSourceNameAndExtensions "<input>"
+
+lexTokensWithSourceNameAndExtensions :: FilePath -> [Extension] -> Text -> [LexToken]
+lexTokensWithSourceNameAndExtensions sourceName exts input =
+  lexChunksWithExtensions False sourceName exts [input]
+
+lexModuleTokensWithSourceNameAndExtensions :: FilePath -> [Extension] -> Text -> [LexToken]
+lexModuleTokensWithSourceNameAndExtensions sourceName baseExts input =
+  lexChunksWithExtensions True sourceName effectiveExts [input]
+  where
+    headerExts = enabledExtensionsFromSettings (readModuleHeaderExtensionsFromChunks [input])
+    effectiveExts = baseExts <> [ext | ext <- headerExts, ext `notElem` baseExts]
 
 -- | Internal chunked lexer entrypoint for non-module inputs.
 --
 -- This exists so callers can stream input through the same scanner while still
 -- selecting extension-driven token rewrites.
 lexTokensFromChunksWithExtensions :: [Extension] -> [Text] -> [LexToken]
-lexTokensFromChunksWithExtensions = lexChunksWithExtensions False
+lexTokensFromChunksWithExtensions = lexChunksWithExtensions False "<input>"
 
 -- | Run the full lexer pipeline over chunked input.
 --
 -- The scanner operates over the concatenated chunk stream with inline extension
 -- handling, then the resulting token stream is passed through the layout insertion step.
-lexChunksWithExtensions :: Bool -> [Extension] -> [Text] -> [LexToken]
-lexChunksWithExtensions enableModuleLayout exts chunks =
+lexChunksWithExtensions :: Bool -> FilePath -> [Extension] -> [Text] -> [LexToken]
+lexChunksWithExtensions enableModuleLayout sourceName exts chunks =
   applyLayoutTokens enableModuleLayout (scanTokens initialLexerState)
   where
     initialLexerState =
       LexerState
         { lexerInput = concatMap T.unpack chunks,
+          lexerLogicalSourceName = sourceName,
           lexerLine = 1,
           lexerCol = 1,
+          lexerByteOffset = 0,
           lexerAtLineStart = True,
           lexerPending = [],
           lexerExtensions = exts,
@@ -446,10 +461,13 @@ scanTokens st0 =
                   -- Emit explicit EOF token with span at current position
                   let eofSpan =
                         SourceSpan
-                          { sourceSpanStartLine = lexerLine st,
+                          { sourceSpanSourceName = lexerLogicalSourceName st,
+                            sourceSpanStartLine = lexerLine st,
                             sourceSpanStartCol = lexerCol st,
                             sourceSpanEndLine = lexerLine st,
-                            sourceSpanEndCol = lexerCol st
+                            sourceSpanEndCol = lexerCol st,
+                            sourceSpanStartOffset = lexerByteOffset st,
+                            sourceSpanEndOffset = lexerByteOffset st
                           }
                       eofToken =
                         LexToken
@@ -927,13 +945,13 @@ isBOL st tok =
 tokenStartLine :: LexToken -> Int
 tokenStartLine tok =
   case lexTokenSpan tok of
-    SourceSpan line _ _ _ -> line
+    SourceSpan {sourceSpanStartLine = line} -> line
     NoSourceSpan -> 1
 
 tokenStartCol :: LexToken -> Int
 tokenStartCol tok =
   case lexTokenSpan tok of
-    SourceSpan _ col _ _ -> col
+    SourceSpan {sourceSpanStartCol = col} -> col
     NoSourceSpan -> 1
 
 virtualSymbolToken :: Text -> SourceSpan -> LexToken
@@ -1115,8 +1133,16 @@ negateToken stBefore numTok =
 
     -- Extend span to start at the '-' position
     extendSpanLeft sp = case sp of
-      SourceSpan _ _ endLine endCol ->
-        SourceSpan (lexerLine stBefore) (lexerCol stBefore) endLine endCol
+      SourceSpan {sourceSpanSourceName, sourceSpanEndLine = endLine, sourceSpanEndCol = endCol, sourceSpanEndOffset} ->
+        SourceSpan
+          { sourceSpanSourceName = sourceSpanSourceName,
+            sourceSpanStartLine = lexerLine stBefore,
+            sourceSpanStartCol = lexerCol stBefore,
+            sourceSpanEndLine = endLine,
+            sourceSpanEndCol = endCol,
+            sourceSpanStartOffset = lexerByteOffset stBefore,
+            sourceSpanEndOffset = sourceSpanEndOffset
+          }
       NoSourceSpan -> NoSourceSpan
 
 -- | Emit TkPrefixMinus or TkMinusOperator based on LexicalNegation rules.
@@ -1783,10 +1809,11 @@ applyDirectiveAdvance consumed update st =
         case reverse consumed of
           '\n' : _ -> True
           _ -> False
-   in st
-        { lexerInput = drop (length consumed) (lexerInput st),
-          lexerLine = maybe (lexerLine st) (max 1) (directiveLine update),
-          lexerCol = maybe (lexerCol st) (max 1) (directiveCol update),
+      st' = advanceChars consumed st
+   in st'
+        { lexerLogicalSourceName = fromMaybe (lexerLogicalSourceName st') (directiveSourceName update),
+          lexerLine = maybe (lexerLine st') (max 1) (directiveLine update),
+          lexerCol = maybe (lexerCol st') (max 1) (directiveCol update),
           lexerAtLineStart = hasTrailingNewline || (Just 1 == directiveCol update)
         }
 
@@ -1997,10 +2024,16 @@ parseHashLineDirective raw =
         if "line" `List.isPrefixOf` trimmed
           then dropWhile isSpace (drop 4 trimmed)
           else trimmed
-      (digits, _) = span isDigit trimmed'
+      (digits, rest) = span isDigit trimmed'
    in if null digits
         then Nothing
-        else Just DirectiveUpdate {directiveLine = Just (read digits), directiveCol = Just 1}
+        else
+          Just
+            DirectiveUpdate
+              { directiveLine = Just (read digits),
+                directiveCol = Just 1,
+                directiveSourceName = parseDirectiveSourceName rest
+              }
 
 parseControlPragma :: String -> Maybe (String, Either Text DirectiveUpdate)
 parseControlPragma input
@@ -2011,7 +2044,12 @@ parseControlPragma input
               | all isDigit lineNo ->
                   Just
                     ( fullPragmaConsumed "LINE" body,
-                      Right DirectiveUpdate {directiveLine = Just (read lineNo), directiveCol = Just 1}
+                      Right
+                        DirectiveUpdate
+                          { directiveLine = Just (read lineNo),
+                            directiveCol = Just 1,
+                            directiveSourceName = parseDirectiveSourceName (dropWhile isSpace (drop (length lineNo) body))
+                          }
                     )
             _ -> Just (fullPragmaConsumed "LINE" body, Left "malformed LINE pragma")
   | Just body <- stripPragma "COLUMN" input =
@@ -2021,7 +2059,7 @@ parseControlPragma input
               | all isDigit colNo ->
                   Just
                     ( fullPragmaConsumed "COLUMN" body,
-                      Right DirectiveUpdate {directiveLine = Nothing, directiveCol = Just (read colNo)}
+                      Right DirectiveUpdate {directiveLine = Nothing, directiveCol = Just (read colNo), directiveSourceName = Nothing}
                     )
             _ -> Just (fullPragmaConsumed "COLUMN" body, Left "malformed COLUMN pragma")
   | otherwise = Nothing
@@ -2041,10 +2079,13 @@ mkToken start end tokTxt kind =
 mkSpan :: LexerState -> LexerState -> SourceSpan
 mkSpan start end =
   SourceSpan
-    { sourceSpanStartLine = lexerLine start,
+    { sourceSpanSourceName = lexerLogicalSourceName start,
+      sourceSpanStartLine = lexerLine start,
       sourceSpanStartCol = lexerCol start,
       sourceSpanEndLine = lexerLine end,
-      sourceSpanEndCol = lexerCol end
+      sourceSpanEndCol = lexerCol end,
+      sourceSpanStartOffset = lexerByteOffset start,
+      sourceSpanEndOffset = lexerByteOffset end
     }
 
 advanceChars :: String -> LexerState -> LexerState
@@ -2057,14 +2098,35 @@ advanceChars chars st = foldl advanceOne st chars
             { lexerInput = drop 1 (lexerInput acc),
               lexerLine = lexerLine acc + 1,
               lexerCol = 1,
+              lexerByteOffset = lexerByteOffset acc + 1,
               lexerAtLineStart = True
             }
         _ ->
           acc
             { lexerInput = drop 1 (lexerInput acc),
               lexerCol = lexerCol acc + 1,
+              lexerByteOffset = lexerByteOffset acc + utf8CharWidth ch,
               lexerAtLineStart = False
             }
+
+utf8CharWidth :: Char -> Int
+utf8CharWidth ch =
+  case ord ch of
+    code
+      | code <= 0x7F -> 1
+      | code <= 0x7FF -> 2
+      | code <= 0xFFFF -> 3
+      | otherwise -> 4
+
+parseDirectiveSourceName :: String -> Maybe FilePath
+parseDirectiveSourceName rest =
+  case dropWhile isSpace rest of
+    '"' : more ->
+      let (name, trailing) = span (/= '"') more
+       in case trailing of
+            '"' : _ -> Just name
+            _ -> Nothing
+    _ -> Nothing
 
 consumeWhile :: (Char -> Bool) -> LexerState -> LexerState
 consumeWhile f st = advanceChars (takeWhile f (lexerInput st)) st

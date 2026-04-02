@@ -484,12 +484,27 @@ languageEditionExtensions edition =
 data SourceSpan
   = NoSourceSpan
   | SourceSpan
-      { sourceSpanStartLine :: !Int,
+      { sourceSpanSourceName :: !FilePath,
+        sourceSpanStartLine :: !Int,
         sourceSpanStartCol :: !Int,
         sourceSpanEndLine :: !Int,
-        sourceSpanEndCol :: !Int
+        sourceSpanEndCol :: !Int,
+        sourceSpanStartOffset :: !Int,
+        sourceSpanEndOffset :: !Int
       }
-  deriving (Data, Eq, Ord, Show, Generic, NFData)
+  deriving (Data, Eq, Ord, Generic, NFData)
+
+instance Show SourceSpan where
+  show NoSourceSpan = "NoSourceSpan"
+  show SourceSpan {sourceSpanStartLine, sourceSpanStartCol, sourceSpanEndLine, sourceSpanEndCol} =
+    "SourceSpan "
+      ++ show sourceSpanStartLine
+      ++ " "
+      ++ show sourceSpanStartCol
+      ++ " "
+      ++ show sourceSpanEndLine
+      ++ " "
+      ++ show sourceSpanEndCol
 
 noSourceSpan :: SourceSpan
 noSourceSpan = NoSourceSpan
@@ -500,7 +515,10 @@ class HasSourceSpan a where
 mergeSourceSpans :: SourceSpan -> SourceSpan -> SourceSpan
 mergeSourceSpans left right =
   case (left, right) of
-    (SourceSpan l1 c1 _ _, SourceSpan _ _ l2 c2) -> SourceSpan l1 c1 l2 c2
+    ( SourceSpan name l1 c1 _ _ startOffset _,
+      SourceSpan _ _ _ l2 c2 _ endOffset
+      ) ->
+        SourceSpan name l1 c1 l2 c2 startOffset endOffset
     (NoSourceSpan, span') -> span'
     (span', NoSourceSpan) -> span'
 

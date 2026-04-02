@@ -142,13 +142,15 @@ instance TraversableStream TokStream where
 sourcePosFromStartSpan :: FilePath -> SourceSpan -> SourcePos
 sourcePosFromStartSpan file span' =
   case span' of
-    SourceSpan line col _ _ -> SourcePos file (mkPos (max 1 line)) (mkPos (max 1 col))
+    SourceSpan {sourceSpanSourceName, sourceSpanStartLine = line, sourceSpanStartCol = col} ->
+      SourcePos sourceSpanSourceName (mkPos (max 1 line)) (mkPos (max 1 col))
     NoSourceSpan -> SourcePos file (mkPos 1) (mkPos 1)
 
 sourcePosFromEndSpan :: FilePath -> SourceSpan -> SourcePos
 sourcePosFromEndSpan file span' =
   case span' of
-    SourceSpan _ _ line col -> SourcePos file (mkPos (max 1 line)) (mkPos (max 1 col))
+    SourceSpan {sourceSpanSourceName, sourceSpanEndLine = line, sourceSpanEndCol = col} ->
+      SourcePos sourceSpanSourceName (mkPos (max 1 line)) (mkPos (max 1 col))
     NoSourceSpan -> SourcePos file (mkPos 1) (mkPos 1)
 
 data ParserConfig = ParserConfig

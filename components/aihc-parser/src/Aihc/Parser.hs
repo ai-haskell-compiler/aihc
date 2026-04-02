@@ -35,18 +35,21 @@ import Aihc.Parser.Internal.Module (moduleParser)
 import Aihc.Parser.Lex
   ( LexToken (..),
     TokenOrigin (..),
-    lexModuleTokensWithExtensions,
-    lexTokensWithExtensions,
+    lexModuleTokensWithSourceNameAndExtensions,
+    lexTokensWithSourceNameAndExtensions,
     readModuleHeaderExtensions,
   )
 import Aihc.Parser.Pretty ()
 import Aihc.Parser.Syntax (Expr, Extension (..), ExtensionSetting (..), Module, Pattern, SourceSpan (..), Type)
 import Aihc.Parser.Types
+import Data.ByteString qualified as BS
 import Data.List qualified as List
 import Data.List.NonEmpty qualified as NE
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
+import Data.Word (Word8)
 import Prettyprinter (Doc, colon, defaultLayoutOptions, layoutPretty, pretty, vcat)
 import Prettyprinter.Render.String (renderString)
 import Text.Megaparsec (runParser)
@@ -91,7 +94,7 @@ defaultConfig =
 -- "error"
 parseExpr :: ParserConfig -> Text -> ParseResult Expr
 parseExpr cfg input =
-  let toks = lexTokensWithExtensions (parserExtensions cfg) input
+  let toks = lexTokensWithSourceNameAndExtensions (parserSourceName cfg) (parserExtensions cfg) input
    in case runParser (exprParser <* eofTok) (parserSourceName cfg) (mkTokStreamWithExtensions toks (parserExtensions cfg)) of
         Left bundle -> ParseErr bundle
         Right expr -> ParseOk expr
@@ -105,7 +108,7 @@ parseExpr cfg input =
 -- ParseOk (PCon "Just" [PVar "x"])
 parsePattern :: ParserConfig -> Text -> ParseResult Pattern
 parsePattern cfg input =
-  let toks = lexTokensWithExtensions (parserExtensions cfg) input
+  let toks = lexTokensWithSourceNameAndExtensions (parserSourceName cfg) (parserExtensions cfg) input
    in case runParser (patternParser <* eofTok) (parserSourceName cfg) (mkTokStreamWithExtensions toks (parserExtensions cfg)) of
         Left bundle -> ParseErr bundle
         Right pat -> ParseOk pat
@@ -119,7 +122,7 @@ parsePattern cfg input =
 -- ParseOk (TApp (TCon "Maybe") (TVar "a"))
 parseType :: ParserConfig -> Text -> ParseResult Type
 parseType cfg input =
-  let toks = lexTokensWithExtensions (parserExtensions cfg) input
+  let toks = lexTokensWithSourceNameAndExtensions (parserSourceName cfg) (parserExtensions cfg) input
    in case runParser (typeParser <* eofTok) (parserSourceName cfg) (mkTokStreamWithExtensions toks (parserExtensions cfg)) of
         Left bundle -> ParseErr bundle
         Right ty -> ParseOk ty
@@ -135,7 +138,7 @@ parseType cfg input =
 -- Nothing
 parseModule :: ParserConfig -> Text -> ParseResult Module
 parseModule cfg input =
-  let toks = lexModuleTokensWithExtensions effectiveExtensions input
+  let toks = lexModuleTokensWithSourceNameAndExtensions (parserSourceName cfg) effectiveExtensions input
    in case runParser (moduleParser <* eofTok) (parserSourceName cfg) (mkTokStreamWithExtensions toks effectiveExtensions) of
         Left bundle -> ParseErr bundle
         Right modu -> ParseOk modu
@@ -251,27 +254,56 @@ renderErrorBlocks mSource bundle =
 -- """
 renderSourceReference :: String -> Text -> SourceSpan -> Doc ann
 renderSourceReference origin source srcSpan =
-  let (lineNo, colNo, endCol) = case srcSpan of
-        SourceSpan sourceLine col _ endC -> (sourceLine, col, endC)
-        NoSourceSpan -> (1, 1, 1)
+  let (renderedOrigin, lineNo, colNo, endCol, srcLine) = case srcSpan of
+        SourceSpan {sourceSpanSourceName, sourceSpanStartLine, sourceSpanStartCol, sourceSpanEndCol, sourceSpanStartOffset} ->
+          ( sourceSpanSourceName,
+            sourceSpanStartLine,
+            sourceSpanStartCol,
+            sourceSpanEndCol,
+            extractSourceLineByOffset source sourceSpanStartOffset
+          )
+        NoSourceSpan -> (origin, 1, 1, 1, "")
       lineNoText = show lineNo
-      sourceLines = T.lines source
-      lineIdx = lineNo - 1
-      srcLine =
-        if lineIdx < 0 || lineIdx >= length sourceLines
-          then ""
-          else T.unpack (sourceLines !! lineIdx)
       markerPrefix = replicate (length lineNoText) ' ' ++ " | "
       markerStart = max 0 (colNo - 1)
       markerLen = max 1 (endCol - colNo)
       marker = replicate markerStart ' ' ++ replicate markerLen '^'
       header =
-        pretty origin <> colon <> pretty lineNo <> colon <> pretty colNo <> colon
+        pretty renderedOrigin <> colon <> pretty lineNo <> colon <> pretty colNo <> colon
    in vcat
         [ header,
           pretty (lineNoText ++ " | " ++ srcLine),
           pretty (markerPrefix ++ marker)
         ]
+
+extractSourceLineByOffset :: Text -> Int -> String
+extractSourceLineByOffset source offset =
+  let bytes = TE.encodeUtf8 source
+      len = BS.length bytes
+      anchor = max 0 (min len offset)
+      lineStart = scanBackward bytes anchor
+      lineEnd = scanForward bytes anchor
+   in T.unpack (TE.decodeUtf8 (BS.take (lineEnd - lineStart) (BS.drop lineStart bytes)))
+
+scanBackward :: BS.ByteString -> Int -> Int
+scanBackward bytes = go
+  where
+    go idx
+      | idx <= 0 = 0
+      | isLineBreak (BS.index bytes (idx - 1)) = idx
+      | otherwise = go (idx - 1)
+
+scanForward :: BS.ByteString -> Int -> Int
+scanForward bytes = go
+  where
+    len = BS.length bytes
+    go idx
+      | idx >= len = len
+      | isLineBreak (BS.index bytes idx) = idx
+      | otherwise = go (idx + 1)
+
+isLineBreak :: Word8 -> Bool
+isLineBreak w = w == 10 || w == 13
 
 renderErrorBlock :: FilePath -> Maybe Text -> MPE.ParseError TokStream ParserErrorComponent -> Doc ann
 renderErrorBlock sourceName mSource err =
