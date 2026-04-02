@@ -320,6 +320,7 @@ docClassDeclItem :: ClassDeclItem -> Doc ann
 docClassDeclItem item =
   case item of
     ClassItemTypeSig _ names ty -> "ClassItemTypeSig" <+> braces (hsep (punctuate comma [field "names" (docTextList names), field "type" (docType ty)]))
+    ClassItemDefaultSig _ name ty -> "ClassItemDefaultSig" <+> braces (hsep (punctuate comma [field "name" (docText name), field "type" (docType ty)]))
     ClassItemFixity _ assoc mPrec ops -> "ClassItemFixity" <+> braces (hsep (punctuate comma ([field "assoc" (docFixityAssoc assoc)] <> optionalField "prec" pretty mPrec <> [field "ops" (docTextList ops)])))
     ClassItemDefault _ vdecl -> "ClassItemDefault" <+> parens (docValueDecl vdecl)
     ClassItemTypeFamilyDecl _ tf -> "ClassItemTypeFamilyDecl" <+> parens (docTypeFamilyDecl tf)

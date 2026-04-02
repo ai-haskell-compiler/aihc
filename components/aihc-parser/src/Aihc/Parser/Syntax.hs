@@ -1065,6 +1065,7 @@ instance HasSourceSpan FunctionalDependency where
 
 data ClassDeclItem
   = ClassItemTypeSig SourceSpan [BinderName] Type
+  | ClassItemDefaultSig SourceSpan BinderName Type
   | ClassItemFixity SourceSpan FixityAssoc (Maybe Int) [OperatorName]
   | ClassItemDefault SourceSpan ValueDecl
   | ClassItemTypeFamilyDecl SourceSpan TypeFamilyDecl
@@ -1076,6 +1077,7 @@ instance HasSourceSpan ClassDeclItem where
   getSourceSpan classDeclItem =
     case classDeclItem of
       ClassItemTypeSig span' _ _ -> span'
+      ClassItemDefaultSig span' _ _ -> span'
       ClassItemFixity span' _ _ _ -> span'
       ClassItemDefault span' _ -> span'
       ClassItemTypeFamilyDecl span' _ -> span'
