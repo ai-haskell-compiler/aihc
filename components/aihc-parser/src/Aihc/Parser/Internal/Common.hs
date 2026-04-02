@@ -335,14 +335,48 @@ constraintParserWith typeAtomParser =
       args <- MP.many typeAtomParser
       pure (className, args)
     infixConstraintParser = do
-      lhs <- typeAtomParser
+      lhs <- constraintTypeParser
       op <- operatorTextParser
       guard (op == "~")
-      rhs <- typeAtomParser
+      rhs <- constraintTypeParser
       pure (op, [lhs, rhs])
     parenthesizedConstraintParser = withSpan $ do
       constraint <- parens (constraintParserWith typeAtomParser)
       pure (`CParen` constraint)
+    constraintTypeParser = do
+      first <- constraintTypeAppParser
+      rest <- MP.many ((,) <$> constraintTypeInfixOperatorParser <*> constraintTypeAppParser)
+      pure (foldl buildInfixType first rest)
+    constraintTypeAppParser = do
+      first <- typeAtomParser
+      rest <- MP.many typeAtomParser
+      pure (foldl buildTypeApp first rest)
+    buildTypeApp lhs rhs =
+      TApp (mergeSourceSpans (getSourceSpan lhs) (getSourceSpan rhs)) lhs rhs
+    buildInfixType lhs ((op, promoted), rhs) =
+      let span' = mergeSourceSpans (getSourceSpan lhs) (getSourceSpan rhs)
+          opType = TCon span' op promoted
+       in TApp span' (TApp span' opType lhs) rhs
+    constraintTypeInfixOperatorParser =
+      MP.try promotedInfixOperatorParser <|> unpromotedInfixOperatorParser
+    unpromotedInfixOperatorParser =
+      tokenSatisfy "type infix operator" $ \tok ->
+        case lexTokenKind tok of
+          TkVarSym op
+            | op /= "."
+                && op /= "!"
+                && op /= "-"
+                && op /= "~" ->
+                Just (op, Unpromoted)
+          TkConSym op -> Just (op, Unpromoted)
+          TkQVarSym op
+            | op /= "~" -> Just (op, Unpromoted)
+          TkQConSym op -> Just (op, Unpromoted)
+          _ -> Nothing
+    promotedInfixOperatorParser = do
+      expectedTok (TkVarSym "'")
+      expectedTok TkReservedColon
+      pure (":", Promoted)
 
 constraintsParserWith :: TokParser Type -> TokParser [Constraint]
 constraintsParserWith typeAtomParser =

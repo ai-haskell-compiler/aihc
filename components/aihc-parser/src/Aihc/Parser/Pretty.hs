@@ -375,7 +375,7 @@ prettyConstraint constraint =
   case constraint of
     Constraint _ cls [lhs, rhs]
       | cls == "~" ->
-          prettyTypeIn CtxTypeAtom lhs <+> pretty cls <+> prettyTypeIn CtxTypeAtom rhs
+          prettyTypeIn CtxTypeFunArg lhs <+> pretty cls <+> prettyTypeIn CtxTypeFunArg rhs
     Constraint _ cls args ->
       hsep (pretty cls : map (prettyTypeIn CtxTypeAtom) args)
     CParen _ inner ->
