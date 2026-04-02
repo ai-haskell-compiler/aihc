@@ -164,6 +164,7 @@ docDecl decl =
     DeclTypeSig _ names ty -> "DeclTypeSig" <+> braces (hsep (punctuate comma [field "names" (docTextList names), field "type" (docType ty)]))
     DeclStandaloneKindSig _ name kind -> "DeclStandaloneKindSig" <+> braces (hsep (punctuate comma [field "name" (docText name), field "kind" (docType kind)]))
     DeclFixity _ assoc mPrec ops -> "DeclFixity" <+> braces (hsep (punctuate comma ([field "assoc" (docFixityAssoc assoc)] <> optionalField "prec" pretty mPrec <> [field "ops" (docTextList ops)])))
+    DeclRoleAnnotation _ ann -> "DeclRoleAnnotation" <+> parens (docRoleAnnotation ann)
     DeclTypeSyn _ syn -> "DeclTypeSyn" <+> parens (docTypeSynDecl syn)
     DeclData _ dd -> "DeclData" <+> parens (docDataDecl dd)
     DeclNewtype _ nd -> "DeclNewtype" <+> parens (docNewtypeDecl nd)
@@ -225,6 +226,22 @@ docTypeSynDecl syn =
       [field "name" (docText (typeSynName syn))]
         <> listField "params" docTyVarBinder (typeSynParams syn)
         <> [field "body" (docType (typeSynBody syn))]
+
+docRoleAnnotation :: RoleAnnotation -> Doc ann
+docRoleAnnotation ann =
+  "RoleAnnotation" <+> braces (hsep (punctuate comma fields))
+  where
+    fields =
+      [field "name" (docText (roleAnnotationName ann))]
+        <> [field "roles" (brackets (hsep (punctuate comma (map docRole (roleAnnotationRoles ann)))))]
+
+docRole :: Role -> Doc ann
+docRole role =
+  case role of
+    RoleNominal -> "RoleNominal"
+    RoleRepresentational -> "RoleRepresentational"
+    RolePhantom -> "RolePhantom"
+    RoleInfer -> "RoleInfer"
 
 docDataDecl :: DataDecl -> Doc ann
 docDataDecl dd =

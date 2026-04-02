@@ -210,7 +210,8 @@ declParser = do
       MP.try newtypeFamilyInstParser
         <|> newtypeDeclParser
     TkKeywordType ->
-      MP.try typeFamilyDeclParser
+      MP.try roleAnnotationDeclParser
+        <|> MP.try typeFamilyDeclParser
         <|> MP.try typeFamilyInstParser
         <|> MP.try standaloneKindSigDeclParser
         <|> typeSynDeclParser
@@ -259,6 +260,28 @@ standaloneKindSigDeclParser = withSpan $ do
   expectedTok TkReservedDoubleColon
   kind <- typeParser
   pure (\span' -> DeclStandaloneKindSig span' typeName kind)
+
+roleAnnotationDeclParser :: TokParser Decl
+roleAnnotationDeclParser = withSpan $ do
+  keywordTok TkKeywordType
+  varIdTok "role"
+  typeName <- constructorIdentifierParser
+  roles <- MP.some roleParser
+  pure $ \span' ->
+    DeclRoleAnnotation
+      span'
+      RoleAnnotation
+        { roleAnnotationSpan = span',
+          roleAnnotationName = typeName,
+          roleAnnotationRoles = roles
+        }
+
+roleParser :: TokParser Role
+roleParser =
+  (varIdTok "nominal" >> pure RoleNominal)
+    <|> (varIdTok "representational" >> pure RoleRepresentational)
+    <|> (varIdTok "phantom" >> pure RolePhantom)
+    <|> (keywordTok TkKeywordUnderscore >> pure RoleInfer)
 
 typeSynDeclParser :: TokParser Decl
 typeSynDeclParser = withSpan $ do

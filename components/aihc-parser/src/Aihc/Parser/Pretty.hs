@@ -161,6 +161,7 @@ prettyDeclLines decl =
               <> map prettyInfixOp ops
           )
       ]
+    DeclRoleAnnotation _ ann -> [prettyRoleAnnotation ann]
     DeclTypeSyn _ synDecl ->
       [ hsep
           [ "type",
@@ -182,6 +183,24 @@ prettyDeclLines decl =
     DeclDataFamilyDecl _ df -> [prettyDataFamilyDecl df]
     DeclTypeFamilyInst _ tfi -> [prettyTopTypeFamilyInst tfi]
     DeclDataFamilyInst _ dfi -> [prettyTopDataFamilyInst dfi]
+
+prettyRoleAnnotation :: RoleAnnotation -> Doc ann
+prettyRoleAnnotation ann =
+  hsep
+    ( [ "type",
+        "role",
+        prettyConstructorName (roleAnnotationName ann)
+      ]
+        <> map prettyRole (roleAnnotationRoles ann)
+    )
+
+prettyRole :: Role -> Doc ann
+prettyRole role =
+  case role of
+    RoleNominal -> "nominal"
+    RoleRepresentational -> "representational"
+    RolePhantom -> "phantom"
+    RoleInfer -> "_"
 
 prettyValueDeclLines :: ValueDecl -> [Doc ann]
 prettyValueDeclLines valueDecl =
