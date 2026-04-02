@@ -1,0 +1,18 @@
+extensions: [DoAndIfThenElse]
+input: |
+  {-# LANGUAGE DoAndIfThenElse #-}
+  module DoAndIfThenElseNestedLayout where
+  loadFirst ls hdl = do
+    eof <- hIsEOF hdl
+    if not eof then do
+      s <- hGetLine hdl
+      if s == endCert then do
+        pure s
+      else
+        pure ls
+    else if null ls then
+      pure []
+    else
+      pure ls
+ast: Module {name = "DoAndIfThenElseNestedLayout", languagePragmas = [EnableExtension DoAndIfThenElse], decls = [DeclValue (FunctionBind "loadFirst" [Match {headForm = Prefix, pats = [PVar "ls", PVar "hdl"], rhs = UnguardedRhs (EDo [DoBind (PVar "eof") (EApp (EVar "hIsEOF") (EVar "hdl")), DoExpr (EIf (EApp (EVar "not") (EVar "eof")) (EDo [DoBind (PVar "s") (EApp (EVar "hGetLine") (EVar "hdl")), DoExpr (EIf (EInfix (EVar "s") "==" (EVar "endCert")) (EDo [DoExpr (EApp (EVar "pure") (EVar "s"))]) (EApp (EVar "pure") (EVar "ls")))]) (EIf (EApp (EVar "null") (EVar "ls")) (EApp (EVar "pure") (EList [])) (EApp (EVar "pure") (EVar "ls"))))])}])]}
+status: pass

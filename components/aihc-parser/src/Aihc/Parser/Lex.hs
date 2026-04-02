@@ -220,9 +220,12 @@ data LayoutContext
   = LayoutExplicit
   | LayoutImplicit !Int
   | LayoutImplicitLet !Int
-  | -- | Implicit layout opened after 'then do' or 'else do'.
-    -- This variant allows 'then' and 'else' to close it at the same indent level.
-    LayoutImplicitAfterThenElse !Int
+  | -- | Implicit layout opened after 'then do'.
+    -- Tracks the enclosing 'if' nesting depth so only the matching 'else'
+    -- can close it at the same indent level.
+    LayoutImplicitAfterThen !Int !Int
+  | -- | Implicit layout opened after 'else do'.
+    LayoutImplicitAfterElse !Int
   | -- | Marker for ( or [ to scope implicit layout closures
     LayoutDelimiter
   deriving (Eq, Show)
@@ -230,9 +233,8 @@ data LayoutContext
 data PendingLayout
   = PendingLayoutGeneric
   | PendingLayoutLet
-  | -- | Pending layout from 'do' after 'then' or 'else'.
-    -- The resulting layout can be closed by 'then'/'else' at the same indent.
-    PendingLayoutAfterThenElse
+  | PendingLayoutAfterThen !Int
+  | PendingLayoutAfterElse
   deriving (Eq, Show)
 
 data ModuleLayoutMode
@@ -246,6 +248,7 @@ data ModuleLayoutMode
 data LayoutState = LayoutState
   { layoutContexts :: [LayoutContext],
     layoutPendingLayout :: !(Maybe PendingLayout),
+    layoutIfDepth :: !Int,
     layoutPrevLine :: !(Maybe Int),
     layoutPrevTokenKind :: !(Maybe LexTokenKind),
     layoutDelimiterDepth :: !Int,
@@ -561,6 +564,7 @@ applyLayoutTokens enableModuleLayout =
     LayoutState
       { layoutContexts = [],
         layoutPendingLayout = Nothing,
+        layoutIfDepth = 0,
         layoutPrevLine = Nothing,
         layoutPrevTokenKind = Nothing,
         layoutDelimiterDepth = 0,
@@ -657,7 +661,8 @@ openPendingLayout st tok =
                 case pending of
                   PendingLayoutGeneric -> LayoutImplicit col
                   PendingLayoutLet -> LayoutImplicitLet col
-                  PendingLayoutAfterThenElse -> LayoutImplicitAfterThenElse col
+                  PendingLayoutAfterThen ifDepth -> LayoutImplicitAfterThen col ifDepth
+                  PendingLayoutAfterElse -> LayoutImplicitAfterElse col
            in if col <= parentIndent
                 then ([openTok, closeTok], st {layoutPendingLayout = Nothing}, False)
                 else
@@ -701,11 +706,11 @@ closeBeforeToken st tok =
     -- These keywords cannot appear inside a do block, so we close contexts at >= their column.
     TkKeywordThen ->
       let col = tokenStartCol tok
-          (inserted, contexts') = closeForDedentInclusive col (lexTokenSpan tok) (layoutContexts st)
+          (inserted, contexts') = closeForDedentInclusiveThen col (lexTokenSpan tok) (layoutContexts st)
        in (inserted, st {layoutContexts = contexts'})
     TkKeywordElse ->
       let col = tokenStartCol tok
-          (inserted, contexts') = closeForDedentInclusive col (lexTokenSpan tok) (layoutContexts st)
+          (inserted, contexts') = closeForDedentInclusiveElse (layoutIfDepth st) col (lexTokenSpan tok) (layoutContexts st)
        in (inserted, st {layoutContexts = contexts'})
     -- Close implicit layout contexts before 'where' keyword (parse-error rule)
     -- 'where' at the same column as an implicit layout closes that layout,
@@ -758,7 +763,10 @@ closeForDedent col anchor = go []
         LayoutImplicitLet indent : rest
           | col < indent -> go (virtualSymbolToken "}" anchor : acc) rest
           | otherwise -> (reverse acc, contexts)
-        LayoutImplicitAfterThenElse indent : rest
+        LayoutImplicitAfterThen indent _ : rest
+          | col < indent -> go (virtualSymbolToken "}" anchor : acc) rest
+          | otherwise -> (reverse acc, contexts)
+        LayoutImplicitAfterElse indent : rest
           | col < indent -> go (virtualSymbolToken "}" anchor : acc) rest
           | otherwise -> (reverse acc, contexts)
         _ -> (reverse acc, contexts)
@@ -767,12 +775,12 @@ closeForDedent col anchor = go []
 -- 'then' or 'else' at the same or lesser indent. This handles the parse-error rule
 -- for these specific cases where the keyword cannot be part of the do block.
 --
--- This function first closes any implicit layouts with indent > col (regular dedent),
--- then closes LayoutImplicitAfterThenElse contexts where col <= indent.
--- This ensures that nested layouts (like case blocks) are closed before
--- the then/else-specific layout closing.
-closeForDedentInclusive :: Int -> SourceSpan -> [LayoutContext] -> ([LexToken], [LayoutContext])
-closeForDedentInclusive col anchor = go []
+-- | Close layouts before a 'then' keyword.
+--
+-- 'then' should dedent out of deeper implicit layouts, but it should not try to
+-- match any same-column 'then do' layout from an enclosing 'if'.
+closeForDedentInclusiveThen :: Int -> SourceSpan -> [LayoutContext] -> ([LexToken], [LayoutContext])
+closeForDedentInclusiveThen col anchor = go []
   where
     go acc contexts =
       case contexts of
@@ -783,9 +791,36 @@ closeForDedentInclusive col anchor = go []
         LayoutImplicitLet indent : rest
           | col < indent -> go (virtualSymbolToken "}" anchor : acc) rest
           | otherwise -> (reverse acc, contexts)
-        -- Close LayoutImplicitAfterThenElse where col <= indent (parse-error rule)
-        LayoutImplicitAfterThenElse indent : rest
-          | col <= indent -> go (virtualSymbolToken "}" anchor : acc) rest
+        LayoutImplicitAfterThen indent _ : rest
+          | col < indent -> go (virtualSymbolToken "}" anchor : acc) rest
+          | otherwise -> (reverse acc, contexts)
+        LayoutImplicitAfterElse indent : rest
+          | col < indent -> go (virtualSymbolToken "}" anchor : acc) rest
+          | otherwise -> (reverse acc, contexts)
+        _ -> (reverse acc, contexts)
+
+-- | Close layouts before an 'else' keyword.
+--
+-- Deeper implicit layouts still close by ordinary dedent. Once aligned at the
+-- current column, only a same-column 'then do' layout from the matching 'if'
+-- may be closed.
+closeForDedentInclusiveElse :: Int -> Int -> SourceSpan -> [LayoutContext] -> ([LexToken], [LayoutContext])
+closeForDedentInclusiveElse ifDepth col anchor = go []
+  where
+    go acc contexts =
+      case contexts of
+        LayoutImplicit indent : rest
+          | col < indent -> go (virtualSymbolToken "}" anchor : acc) rest
+          | otherwise -> (reverse acc, contexts)
+        LayoutImplicitLet indent : rest
+          | col < indent -> go (virtualSymbolToken "}" anchor : acc) rest
+          | otherwise -> (reverse acc, contexts)
+        LayoutImplicitAfterThen indent thenIfDepth : rest
+          | col < indent -> go (virtualSymbolToken "}" anchor : acc) rest
+          | col == indent && thenIfDepth == ifDepth -> (reverse (virtualSymbolToken "}" anchor : acc), rest)
+          | otherwise -> (reverse acc, contexts)
+        LayoutImplicitAfterElse indent : rest
+          | col < indent -> go (virtualSymbolToken "}" anchor : acc) rest
           | otherwise -> (reverse acc, contexts)
         _ -> (reverse acc, contexts)
 
@@ -803,7 +838,10 @@ closeForDedentInclusiveAll col anchor = go []
         LayoutImplicitLet indent : rest
           | col <= indent -> go (virtualSymbolToken "}" anchor : acc) rest
           | otherwise -> (reverse acc, contexts)
-        LayoutImplicitAfterThenElse indent : rest
+        LayoutImplicitAfterThen indent _ : rest
+          | col <= indent -> go (virtualSymbolToken "}" anchor : acc) rest
+          | otherwise -> (reverse acc, contexts)
+        LayoutImplicitAfterElse indent : rest
           | col <= indent -> go (virtualSymbolToken "}" anchor : acc) rest
           | otherwise -> (reverse acc, contexts)
         _ -> (reverse acc, contexts)
@@ -827,7 +865,8 @@ closeAllImplicitBeforeDelimiter anchor = go []
       case contexts of
         LayoutImplicit _ : rest -> go (virtualSymbolToken "}" anchor : acc) rest
         LayoutImplicitLet _ : rest -> go (virtualSymbolToken "}" anchor : acc) rest
-        LayoutImplicitAfterThenElse _ : rest -> go (virtualSymbolToken "}" anchor : acc) rest
+        LayoutImplicitAfterThen _ _ : rest -> go (virtualSymbolToken "}" anchor : acc) rest
+        LayoutImplicitAfterElse _ : rest -> go (virtualSymbolToken "}" anchor : acc) rest
         _ -> (reverse acc, contexts)
 
 -- | Close implicit layouts before commas.
@@ -859,10 +898,13 @@ stepTokenContext :: LayoutState -> LexToken -> LayoutState
 stepTokenContext st tok =
   case lexTokenKind tok of
     TkKeywordDo
-      | layoutPrevTokenKind st == Just TkKeywordThen
-          || layoutPrevTokenKind st == Just TkKeywordElse ->
-          st {layoutPendingLayout = Just PendingLayoutAfterThenElse}
+      | layoutPrevTokenKind st == Just TkKeywordThen ->
+          st {layoutPendingLayout = Just (PendingLayoutAfterThen (layoutIfDepth st))}
+      | layoutPrevTokenKind st == Just TkKeywordElse ->
+          st {layoutPendingLayout = Just PendingLayoutAfterElse}
       | otherwise -> st {layoutPendingLayout = Just PendingLayoutGeneric}
+    TkKeywordIf -> st {layoutIfDepth = layoutIfDepth st + 1}
+    TkKeywordElse -> st {layoutIfDepth = max 0 (layoutIfDepth st - 1)}
     TkKeywordOf -> st {layoutPendingLayout = Just PendingLayoutGeneric}
     TkKeywordCase
       | layoutPrevTokenKind st == Just TkReservedBackslash ->
@@ -961,7 +1003,8 @@ currentLayoutIndentMaybe contexts =
   case contexts of
     LayoutImplicit indent : _ -> Just indent
     LayoutImplicitLet indent : _ -> Just indent
-    LayoutImplicitAfterThenElse indent : _ -> Just indent
+    LayoutImplicitAfterThen indent _ : _ -> Just indent
+    LayoutImplicitAfterElse indent : _ -> Just indent
     _ -> Nothing
 
 isImplicitLayoutContext :: LayoutContext -> Bool
@@ -969,7 +1012,8 @@ isImplicitLayoutContext ctx =
   case ctx of
     LayoutImplicit _ -> True
     LayoutImplicitLet _ -> True
-    LayoutImplicitAfterThenElse _ -> True
+    LayoutImplicitAfterThen _ _ -> True
+    LayoutImplicitAfterElse _ -> True
     LayoutExplicit -> False
     LayoutDelimiter -> False
 
