@@ -1,0 +1,26 @@
+extensions: []
+input: |
+  x = let y =
+            let z = 1
+             in z
+       in y
+tokens:
+  - 'TkVarId "x"'
+  - 'TkReservedEquals'
+  - 'TkKeywordLet'
+  - 'TkSpecialLBrace'
+  - 'TkVarId "y"'
+  - 'TkReservedEquals'
+  - 'TkKeywordLet'
+  - 'TkSpecialLBrace'
+  - 'TkVarId "z"'
+  - 'TkReservedEquals'
+  - 'TkInteger 1'
+  - 'TkSpecialRBrace'
+  - 'TkKeywordIn'
+  - 'TkVarId "z"'
+  - 'TkSpecialRBrace'
+  - 'TkKeywordIn'
+  - 'TkVarId "y"'
+  - 'TkEOF'
+status: pass
