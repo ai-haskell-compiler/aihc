@@ -1225,25 +1225,33 @@ typeInfixParser = do
   rest <- MP.many ((,) <$> typeInfixOperatorParser <*> typeAppParser)
   pure (foldl buildInfixType lhs rest)
 
-buildInfixType :: Type -> (Text, Type) -> Type
-buildInfixType lhs (op, rhs) =
+buildInfixType :: Type -> ((Text, TypePromotion), Type) -> Type
+buildInfixType lhs ((op, promoted), rhs) =
   let span' = mergeSourceSpans (getSourceSpan lhs) (getSourceSpan rhs)
-      opType = TCon span' op Unpromoted
+      opType = TCon span' op promoted
    in TApp span' (TApp span' opType lhs) rhs
 
-typeInfixOperatorParser :: TokParser Text
+typeInfixOperatorParser :: TokParser (Text, TypePromotion)
 typeInfixOperatorParser =
-  tokenSatisfy "type infix operator" $ \tok ->
-    case lexTokenKind tok of
-      TkVarSym op
-        | op /= "."
-            && op /= "!"
-            && op /= "-" ->
-            Just op
-      TkConSym op -> Just op
-      TkQVarSym op -> Just op
-      TkQConSym op -> Just op
-      _ -> Nothing
+  promotedInfixOperatorParser <|> unpromotedInfixOperatorParser
+  where
+    unpromotedInfixOperatorParser =
+      tokenSatisfy "type infix operator" $ \tok ->
+        case lexTokenKind tok of
+          TkVarSym op
+            | op /= "."
+                && op /= "!"
+                && op /= "-" ->
+                Just (op, Unpromoted)
+          TkConSym op -> Just (op, Unpromoted)
+          TkQVarSym op -> Just (op, Unpromoted)
+          TkQConSym op -> Just (op, Unpromoted)
+          _ -> Nothing
+
+    promotedInfixOperatorParser = MP.try $ do
+      expectedTok (TkVarSym "'")
+      expectedTok TkReservedColon
+      pure (":", Promoted)
 
 typeAppParser :: TokParser Type
 typeAppParser = do
