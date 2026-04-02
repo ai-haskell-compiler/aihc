@@ -158,7 +158,11 @@ checkFile checks packageRoot info = do
       -- Compute the effective extensions using unified extension handling
       effectiveExts = GhcOracle.computeEffectiveExtensions defaultEdition (fileInfoExtensions info) headerPragmas
       -- Configure parser with computed extensions
-      parserConfig = Aihc.Parser.defaultConfig {Aihc.Parser.parserExtensions = effectiveExts}
+      parserConfig =
+        Aihc.Parser.defaultConfig
+          { Aihc.Parser.parserSourceName = file,
+            Aihc.Parser.parserExtensions = effectiveExts
+          }
       oursResult = Aihc.Parser.parseModule parserConfig source'
 
   oursStatus <- case oursResult of
@@ -166,7 +170,7 @@ checkFile checks packageRoot info = do
       if CheckParse `elem` checks || needsParsedModule checks
         then do
           let errorDetails = T.pack (Aihc.Parser.errorBundlePretty (Just source') err)
-              errorMsg = prefixCppErrors cppErrorMsg (T.pack file <> ":" <> errorDetails)
+              errorMsg = prefixCppErrors cppErrorMsg errorDetails
           pure (Left (T.unpack errorMsg))
         else pure (Right ())
     ParseOk _parsed ->
