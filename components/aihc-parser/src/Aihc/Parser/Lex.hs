@@ -72,7 +72,7 @@ where
 
 import Aihc.Parser.Syntax
 import Control.DeepSeq (NFData)
-import Data.Char (GeneralCategory (..), digitToInt, generalCategory, isAlphaNum, isAsciiLower, isAsciiUpper, isDigit, isHexDigit, isOctDigit, isSpace, ord)
+import Data.Char (GeneralCategory (..), digitToInt, generalCategory, isAlphaNum, isAsciiLower, isAsciiUpper, isDigit, isHexDigit, isOctDigit, isSpace, ord, toUpper)
 import Data.List qualified as List
 import Data.Maybe (fromMaybe, isJust, mapMaybe)
 import Data.Text (Text)
@@ -1917,13 +1917,20 @@ stripNamedPragma :: [String] -> String -> Maybe (String, String, String)
 stripNamedPragma names input = do
   rest0 <- List.stripPrefix "{-#" input
   let rest1 = dropWhile isSpace rest0
-  name <- List.find (`List.isPrefixOf` rest1) names
-  rest2 <- List.stripPrefix name rest1
+  (name, rest2) <- firstMatchingPragmaName rest1 names
   let rest3 = dropWhile isSpace rest2
       (body, marker) = breakOnMarker "#-}" rest3
   guardPrefix "#-}" marker
   let consumedLen = length input - length (drop 3 marker)
   pure (name, trimRight body, take consumedLen input)
+
+firstMatchingPragmaName :: String -> [String] -> Maybe (String, String)
+firstMatchingPragmaName _ [] = Nothing
+firstMatchingPragmaName input (name : names) =
+  let (candidate, rest) = splitAt (length name) input
+   in if map toUpper candidate == map toUpper name
+        then Just (name, rest)
+        else firstMatchingPragmaName input names
 
 parseLanguagePragmaNames :: Text -> [ExtensionSetting]
 parseLanguagePragmaNames body =
