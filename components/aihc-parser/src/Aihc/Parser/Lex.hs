@@ -813,12 +813,10 @@ closeAllImplicit contexts anchor =
   [virtualSymbolToken "}" anchor | ctx <- contexts, isImplicitLayoutContext ctx]
 
 closeLeadingImplicitLets :: SourceSpan -> [LayoutContext] -> ([LexToken], [LayoutContext])
-closeLeadingImplicitLets anchor = go []
-  where
-    go acc contexts =
-      case contexts of
-        LayoutImplicitLet _ : rest -> go (virtualSymbolToken "}" anchor : acc) rest
-        _ -> (reverse acc, contexts)
+closeLeadingImplicitLets anchor contexts =
+  case contexts of
+    LayoutImplicitLet _ : rest -> ([virtualSymbolToken "}" anchor], rest)
+    _ -> ([], contexts)
 
 -- | Close all implicit layout contexts up to (but not including) the first explicit context.
 -- Used to implement the Haskell Report's "parse-error" rule for closing delimiters.
