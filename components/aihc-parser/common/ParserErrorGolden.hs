@@ -11,7 +11,7 @@ module ParserErrorGolden
   )
 where
 
-import Aihc.Parser (ParseResult (..), ParserConfig (..), defaultConfig, errorBundlePretty, parseModule)
+import Aihc.Parser (ParserConfig (..), defaultConfig, formatParseErrors, parseModule)
 import qualified Aihc.Parser.Syntax as Syntax
 import Data.Aeson ((.:))
 import qualified Data.Aeson.Key as Key
@@ -131,9 +131,10 @@ ghcMismatch meta =
 
 renderAihcMessage :: ErrorMessageCase -> Either String Text
 renderAihcMessage meta =
-  case parseModule defaultConfig {parserSourceName = sourceName} (caseSource meta) of
-    ParseErr bundle -> Right (normalizeText (T.pack (errorBundlePretty (Just (caseSource meta)) bundle)))
-    ParseOk _ -> Left "aihc parser accepted the input"
+  let (errs, _) = parseModule defaultConfig {parserSourceName = sourceName} (caseSource meta)
+   in case errs of
+        _ : _ -> Right (normalizeText (T.pack (formatParseErrors sourceName (Just (caseSource meta)) errs)))
+        [] -> Left "aihc parser accepted the input"
 
 progressSummary :: [(ErrorMessageCase, Outcome, String)] -> (Int, Int)
 progressSummary outcomes =

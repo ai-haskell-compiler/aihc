@@ -92,16 +92,15 @@ buildTests = do
 
 test_moduleParsesDecls :: Assertion
 test_moduleParsesDecls =
-  case parseModule defaultConfig "x = if y then z else w" of
-    ParseErr err ->
-      assertFailure ("expected module parse success, got parse error: " <> errorBundlePretty Nothing err)
-    ParseOk modu ->
-      case moduleDecls modu of
-        [ DeclValue _ (FunctionBind _ "x" [Match {matchPats = [], matchRhs = UnguardedRhs _ (EIf _ (EVar _ "y") (EVar _ "z") (EVar _ "w"))}])
-          ] ->
-            pure ()
-        other ->
-          assertFailure ("unexpected parsed declarations: " <> show other)
+  let (errs, modu) = parseModule defaultConfig "x = if y then z else w"
+   in do
+        assertBool ("expected no parse errors, got: " <> show errs) (null errs)
+        case moduleDecls modu of
+          [ DeclValue _ (FunctionBind _ "x" [Match {matchPats = [], matchRhs = UnguardedRhs _ (EIf _ (EVar _ "y") (EVar _ "z") (EVar _ "w"))}])
+            ] ->
+              pure ()
+          other ->
+            assertFailure ("unexpected parsed declarations: " <> show other)
 
 test_parserConfigPassesExtensions :: Assertion
 test_parserConfigPassesExtensions =
@@ -112,13 +111,15 @@ test_parserConfigPassesExtensions =
 
 test_parserConfigSetsSourceName :: Assertion
 test_parserConfigSetsSourceName =
-  case parseModule defaultConfig {parserSourceName = "Example.hs"} "module" of
-    ParseErr err ->
-      if "Example.hs" `isInfixOf` errorBundlePretty (Just "module") err
-        then pure ()
-        else assertFailure ("expected source name in parse error, got: " <> errorBundlePretty (Just "module") err)
-    ParseOk modu ->
-      assertFailure ("expected parse failure, got: " <> show modu)
+  let (errs, _) = parseModule defaultConfig {parserSourceName = "Example.hs"} "module"
+   in case errs of
+        _ : _ ->
+          let errText = formatParseErrors "Example.hs" (Just "module") errs
+           in if "Example.hs" `isInfixOf` errText
+                then pure ()
+                else assertFailure ("expected source name in parse error, got: " <> errText)
+        [] ->
+          assertFailure "expected parse failure, but got no errors"
 
 test_tabIndentedWhereAfterElseParses :: Assertion
 test_tabIndentedWhereAfterElseParses =
@@ -134,10 +135,8 @@ test_tabIndentedWhereAfterElseParses =
               "  where",
               "\t(a,b) = splitDrive file"
             ]
-   in case parseModule defaultConfig source of
-        ParseErr err ->
-          assertFailure ("expected parse success, got parse error: " <> errorBundlePretty Nothing err)
-        ParseOk _ -> pure ()
+   in let (errs, _) = parseModule defaultConfig source
+       in assertBool ("expected no parse errors, got: " <> show errs) (null errs)
 
 test_readsHeaderLanguagePragmas :: Assertion
 test_readsHeaderLanguagePragmas = do

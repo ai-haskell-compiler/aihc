@@ -17,7 +17,6 @@ module StackageProgress.FileChecker
 where
 
 import Aihc.Cpp (Severity (..), diagSeverity, resultDiagnostics, resultOutput)
-import Aihc.Parser (ParseResult (..))
 import qualified Aihc.Parser
 import qualified Aihc.Parser.Syntax as Syntax
 import Control.DeepSeq (deepseq)
@@ -172,16 +171,16 @@ checkFile parsers verbose packageRoot info = do
   (aihcErrMsg, aihcNanos) <-
     if ParserAihc `elem` parsers
       then do
-        (oursResult, parseNanos) <-
+        ((parseErrs, _parsed), parseNanos) <-
           withElapsedNanos $
             evaluate (let r = Aihc.Parser.parseModule parserConfig source' in r `deepseq` r)
-        case oursResult of
-          ParseErr err -> do
-            let errorDetails = T.pack (Aihc.Parser.errorBundlePretty (Just source') err)
-                errorMsg = prefixCppErrors cppErrorMsg errorDetails
-            pure (Just (T.unpack errorMsg), parseNanos)
-          ParseOk _parsed ->
-            pure (Nothing, parseNanos)
+        let aihcErr = case parseErrs of
+              [] -> Nothing
+              _ ->
+                let errorDetails = T.pack (Aihc.Parser.formatParseErrors file (Just source') parseErrs)
+                    errorMsg = prefixCppErrors cppErrorMsg errorDetails
+                 in Just (T.unpack errorMsg)
+        pure (aihcErr, parseNanos)
       else pure (Nothing, 0)
 
   hseOk <-

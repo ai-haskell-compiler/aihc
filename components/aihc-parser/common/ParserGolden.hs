@@ -22,6 +22,7 @@ import Aihc.Parser
     ParserConfig (..),
     defaultConfig,
     errorBundlePretty,
+    formatParseErrors,
     parseExpr,
     parseModule,
   )
@@ -154,9 +155,10 @@ evaluateExprCase meta =
 
 evaluateModuleCase :: ParserCase -> (Outcome, String)
 evaluateModuleCase meta =
-  case parseModule parserConfig (caseInput meta) of
-    ParseOk ast -> classifySuccess meta (show (shorthand ast))
-    ParseErr err -> classifyFailure meta (errorBundlePretty (Just (caseInput meta)) err)
+  let (errs, ast) = parseModule parserConfig (caseInput meta)
+   in if null errs
+        then classifySuccess meta (show (shorthand ast))
+        else classifyFailure meta (formatParseErrors (casePath meta) (Just (caseInput meta)) errs)
   where
     parserConfig =
       defaultConfig

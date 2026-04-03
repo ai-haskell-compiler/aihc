@@ -21,6 +21,7 @@ module Aihc.Parser
     ParseResult (..),
     ParseErrorBundle,
     errorBundlePretty,
+    formatParseErrors,
 
     -- * Parsing expressions, patterns, and types
     parseExpr,
@@ -29,15 +30,16 @@ module Aihc.Parser
   )
 where
 
-import Aihc.Parser.Internal.Common (eofTok)
+import Aihc.Parser.Internal.Common (drainParseErrors, eofTok)
 import Aihc.Parser.Internal.Expr (exprParser, patternParser, typeParser)
 import Aihc.Parser.Internal.Module (moduleParser)
+import Data.Maybe (fromMaybe)
 import Aihc.Parser.Lex
   ( LexToken (..),
     TokenOrigin (..),
   )
 import Aihc.Parser.Pretty ()
-import Aihc.Parser.Syntax (Expr, Module, Pattern, SourceSpan (..), Type)
+import Aihc.Parser.Syntax (Expr, Module (..), Pattern, SourceSpan (..), Type)
 import Aihc.Parser.Types
 import Data.ByteString qualified as BS
 import Data.List qualified as List
@@ -49,6 +51,7 @@ import Data.Text.Encoding qualified as TE
 import Data.Word (Word8)
 import Prettyprinter (Doc, colon, defaultLayoutOptions, layoutPretty, pretty, vcat)
 import Prettyprinter.Render.String (renderString)
+import Prettyprinter.Render.Text qualified as RText
 import Text.Megaparsec (runParser)
 import Text.Megaparsec qualified as MP
 import Text.Megaparsec.Error (ErrorFancy (..), ErrorItem (..))
@@ -126,19 +129,68 @@ parseType cfg input =
 
 -- | Parse a complete Haskell module.
 --
--- >>> shorthand $ parseModule defaultConfig "module Main where\nmain = putStrLn \"Hello\""
--- ParseOk (Module {name = "Main", decls = [DeclValue (FunctionBind "main" [Match {headForm = Prefix, rhs = UnguardedRhs (EApp (EVar "putStrLn") (EString "Hello"))}])]})
+-- Returns any recovered parse errors alongside a (possibly partial) 'Module'.
+-- When individual declarations fail to parse, the parser recovers and continues,
+-- returning the error and the successfully parsed declarations.
+--
+-- >>> shorthand $ snd $ parseModule defaultConfig "module Main where\nmain = putStrLn \"Hello\""
+-- Module {name = "Main", decls = [DeclValue (FunctionBind "main" [Match {headForm = Prefix, rhs = UnguardedRhs (EApp (EVar "putStrLn") (EString "Hello"))}])]}
 --
 -- Modules without a header are also supported:
 --
--- >>> case parseModule defaultConfig "x = 1" of { ParseOk m -> moduleName m; ParseErr _ -> Just "error" }
+-- >>> case parseModule defaultConfig "x = 1" of { (_, m) -> moduleName m }
 -- Nothing
-parseModule :: ParserConfig -> Text -> ParseResult Module
+parseModule :: ParserConfig -> Text -> ([(SourceSpan, Text)], Module)
 parseModule cfg input =
   let ts = mkTokStreamModule (parserSourceName cfg) (parserExtensions cfg) input
-   in case runParser (moduleParser <* eofTok) (parserSourceName cfg) ts of
-        Left bundle -> ParseErr bundle
-        Right modu -> ParseOk modu
+      parser = do
+        modu <- moduleParser
+        _ <- eofTok
+        errs <- drainParseErrors
+        pure (errs, modu)
+   in case runParser parser (parserSourceName cfg) ts of
+        Left bundle ->
+          ( parseErrorsToSpannedText (NE.toList (MPE.bundleErrors bundle)),
+            Module
+              { moduleSpan = NoSourceSpan,
+                moduleHead = Nothing,
+                moduleLanguagePragmas = [],
+                moduleImports = [],
+                moduleDecls = []
+              }
+          )
+        Right (errs, modu) ->
+          (parseErrorsToSpannedText errs, modu)
+
+-- | Convert raw MegaParsec parse errors into @(SourceSpan, Text)@ pairs
+-- using the same rendering logic as 'errorBundlePretty'.
+parseErrorsToSpannedText :: [MPE.ParseError TokStream ParserErrorComponent] -> [(SourceSpan, Text)]
+parseErrorsToSpannedText errs =
+  [ (fromMaybe NoSourceSpan mSpan, RText.renderStrict (layoutPretty defaultLayoutOptions doc))
+  | err <- List.sortOn MP.errorOffset errs,
+    (mSpan, doc) <- renderParseErrors err
+  ]
+
+-- | Pretty-print a list of spanned parse errors with source context.
+-- This is the analogue of 'errorBundlePretty' for the new @(SourceSpan, Text)@
+-- error representation returned by 'parseModule'.
+formatParseErrors :: FilePath -> Maybe Text -> [(SourceSpan, Text)] -> String
+formatParseErrors sourceName mSource errs =
+  let opts = defaultLayoutOptions
+      blocks =
+        map
+          ( \(srcSpan, msg) ->
+              renderString
+                ( layoutPretty opts $
+                    case (srcSpan, mSource) of
+                      (ss@SourceSpan {}, Just source) ->
+                        vcat [renderSourceReference sourceName source ss, pretty msg]
+                      _ ->
+                        vcat [pretty sourceName, pretty msg]
+                )
+          )
+          errs
+   in List.intercalate "\n\n" blocks
 
 -- | Pretty-print a parse error bundle.
 errorBundlePretty :: Maybe Text -> ParseErrorBundle -> String

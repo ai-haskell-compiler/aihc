@@ -7,7 +7,7 @@ module ParserValidation
   )
 where
 
-import Aihc.Parser (ParseResult (..), ParserConfig (..), defaultConfig, errorBundlePretty, parseModule)
+import Aihc.Parser (ParserConfig (..), defaultConfig, formatParseErrors, parseModule)
 import qualified Aihc.Parser.Syntax as Syntax
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -35,14 +35,15 @@ instance Show ValidationError where
 -- pre-computed extension lists or by reading in-file pragmas).
 validateParser :: String -> Syntax.LanguageEdition -> [Syntax.ExtensionSetting] -> Text -> Maybe ValidationError
 validateParser sourceTag edition extensionSettings source =
-  case parseModule parserConfig source of
-    ParseErr err ->
+  let (errs, parsed) = parseModule parserConfig source
+   in case errs of
+    _ : _ ->
       Just
         ValidationError
           { validationErrorKind = ValidationParseError,
-            validationErrorMessage = "Parse failed:\n" <> errorBundlePretty (Just source) err
+            validationErrorMessage = "Parse failed:\n" <> formatParseErrors "parser-validation" (Just source) errs
           }
-    ParseOk parsed ->
+    [] ->
       let rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty parsed))
           sourceAst = fingerprint source
           renderedAst = fingerprint rendered
