@@ -9,7 +9,6 @@ import Aihc.Cpp (resultOutput)
 import qualified Aihc.Parser.Syntax as Syntax
 import Control.Monad (when)
 import CppSupport (preprocessForParserWithoutIncludesIfEnabled)
-import Data.Maybe (isNothing)
 import Data.Text (Text)
 import qualified Data.Text.IO as TIO
 import ExtensionSupport
@@ -79,7 +78,7 @@ pct done totalN
 
 assertCase :: CaseMeta -> Text -> Assertion
 assertCase meta source = do
-  (_, outcome, details) <- evaluateCaseText meta source
+  let (_, outcome, details) = evaluateCaseText meta source
   case outcome of
     OutcomeFail ->
       assertFailure
@@ -108,10 +107,10 @@ assertCase meta source = do
 evaluateCaseFromFile :: CaseMeta -> IO (CaseMeta, Outcome, String)
 evaluateCaseFromFile meta = do
   source <- TIO.readFile (caseSourcePath meta)
-  evaluateCaseText meta source
+  pure (evaluateCaseText meta source)
 
-evaluateCaseText :: CaseMeta -> Text -> IO (CaseMeta, Outcome, String)
-evaluateCaseText meta source = do
+evaluateCaseText :: CaseMeta -> Text -> (CaseMeta, Outcome, String)
+evaluateCaseText meta source =
   -- Use Haskell2010 as the base language for oracle tests, as these fixtures
   -- are meant to be valid Haskell2010 code (possibly with extensions)
   let exts = caseExtensions meta
@@ -124,9 +123,8 @@ evaluateCaseText meta source = do
               source
           )
       oracleOk = either (Just) (const Nothing) (oracleModuleAstFingerprint (casePath meta) Syntax.Haskell2010Edition exts source')
-      validationOk = isNothing (validateParser (casePath meta) Syntax.Haskell2010Edition exts source')
-      roundtripOk = isNothing oracleOk && validationOk
-  pure (finalizeOutcome meta oracleOk roundtripOk)
+      validationOk = fmap show (validateParser (casePath meta) Syntax.Haskell2010Edition exts source')
+   in finalizeOutcome meta oracleOk validationOk
 
 frameworkTests :: IO TestTree
 frameworkTests =
@@ -144,7 +142,7 @@ frameworkTests =
                     caseExtensions = []
                   }
            in do
-                (_, outcome, _) <- evaluateCaseText meta "module M where\nx = { y = 1, }\n"
+                let (_, outcome, _) = evaluateCaseText meta "module M where\nx = { y = 1, }\n"
                 if outcome == OutcomeFail
                   then pure ()
                   else assertFailure ("expected OutcomeFail when oracle rejects fixture, got " <> show outcome),
@@ -159,7 +157,7 @@ frameworkTests =
                     caseExtensions = []
                   }
            in do
-                (_, outcome, _) <- evaluateCaseText meta "module M where\nf \\x -> x\n"
+                let (_, outcome, _) = evaluateCaseText meta "module M where\nf \\x -> x\n"
                 if outcome == OutcomeFail
                   then pure ()
                   else assertFailure ("expected OutcomeFail when oracle rejects fixture, got " <> show outcome),
@@ -174,7 +172,7 @@ frameworkTests =
                     caseExtensions = []
                   }
            in do
-                (_, outcome, _) <- evaluateCaseText meta "module M where\nx = { y = 1, }\n"
+                let (_, outcome, _) = evaluateCaseText meta "module M where\nx = { y = 1, }\n"
                 if outcome == OutcomeFail
                   then pure ()
                   else assertFailure ("expected OutcomeFail when oracle rejects fixture, got " <> show outcome)

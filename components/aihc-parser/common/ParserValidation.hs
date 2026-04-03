@@ -24,7 +24,11 @@ data ValidationError = ValidationError
   { validationErrorKind :: ValidationErrorKind,
     validationErrorMessage :: String
   }
-  deriving (Eq, Show)
+  deriving (Eq)
+
+instance Show ValidationError where
+  show ValidationError {validationErrorKind = kind, validationErrorMessage = message} =
+    show kind <> ":\n" <> message
 
 -- | Core validation with a caller-supplied fingerprint function.
 -- This allows the caller to choose how GHC extensions are determined (e.g. from

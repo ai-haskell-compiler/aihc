@@ -50,18 +50,14 @@ loadOracleCases = do
   where
     dir = oracleFixtureRoot
 
-classifyOutcome :: Expected -> Maybe Text -> Bool -> (Outcome, String)
+classifyOutcome :: Expected -> Maybe Text -> Maybe String -> (Outcome, String)
 classifyOutcome _expected (Just oracleErr) _roundtripOk = (OutcomeFail, T.unpack oracleErr)
-classifyOutcome expected Nothing roundtripOk =
-  case expected of
-    ExpectPass
-      | not roundtripOk -> (OutcomeFail, "roundtrip mismatch against oracle AST")
-      | otherwise -> (OutcomePass, "")
-    ExpectXFail
-      | roundtripOk -> (OutcomeXPass, "case now passes oracle and roundtrip checks")
-      | otherwise -> (OutcomeXFail, "")
+classifyOutcome ExpectPass Nothing (Just err) = (OutcomeFail, err)
+classifyOutcome ExpectPass Nothing Nothing = (OutcomePass, "")
+classifyOutcome ExpectXFail Nothing Just {} = (OutcomeXFail, "")
+classifyOutcome ExpectXFail Nothing Nothing = (OutcomeXPass, "test case passed unexpectedly. Maybe update testcase from xfail to pass.")
 
-finalizeOutcome :: CaseMeta -> Maybe Text -> Bool -> (CaseMeta, Outcome, String)
+finalizeOutcome :: CaseMeta -> Maybe Text -> Maybe String -> (CaseMeta, Outcome, String)
 finalizeOutcome meta oracleOk roundtripOk =
   let (outcome, details) = classifyOutcome (caseExpected meta) oracleOk roundtripOk
    in (meta, outcome, details)
