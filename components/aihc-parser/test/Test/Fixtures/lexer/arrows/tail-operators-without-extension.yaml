@@ -1,0 +1,9 @@
+extensions: []
+input: "-< -<< >- >>-"
+tokens:
+  - 'TkVarSym "-<"'
+  - 'TkVarSym "-<<"'
+  - 'TkVarSym ">-"'
+  - 'TkVarSym ">>-"'
+  - "TkEOF"
+status: pass

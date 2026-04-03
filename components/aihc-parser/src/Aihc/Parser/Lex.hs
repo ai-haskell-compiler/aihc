@@ -130,6 +130,10 @@ data LexTokenKind
   | TkReservedPipe -- \"|\"
   | TkReservedLeftArrow -- <-
   | TkReservedRightArrow -- ->
+  | TkReservedArrowTailLeft -- -<
+  | TkReservedArrowTailLeftDouble -- -<<
+  | TkReservedArrowTailRight -- >-
+  | TkReservedArrowTailRightDouble -- >>-
   | TkReservedAt -- @
   | -- Note: ~ is NOT reserved; it uses whitespace-sensitive lexing (GHC proposal 0229)
     TkReservedDoubleArrow -- =>
@@ -1428,10 +1432,10 @@ lexOperator st =
       let txt = T.pack op
           st' = advanceChars op st
           hasUnicode = UnicodeSyntax `elem` lexerExtensions st
-          kind = case reservedOpTokenKind txt of
+          kind = case reservedOpTokenKindWithExtensions (lexerExtensions st) txt of
             Just reserved -> reserved
             Nothing
-              | hasUnicode -> unicodeOpTokenKind txt c
+              | hasUnicode -> unicodeOpTokenKindWithExtensions (lexerExtensions st) txt c
               | c == ':' -> TkConSym txt
               | otherwise -> TkVarSym txt
        in Just (mkToken st st' txt kind, st')
@@ -1440,8 +1444,8 @@ lexOperator st =
 -- | Map Unicode operators to their ASCII equivalents when UnicodeSyntax is enabled.
 -- Returns the appropriate token kind for known Unicode operators, or falls back
 -- to TkVarSym/TkConSym based on whether the first character is ':'.
-unicodeOpTokenKind :: Text -> Char -> LexTokenKind
-unicodeOpTokenKind txt firstChar =
+unicodeOpTokenKindWithExtensions :: [Extension] -> Text -> Char -> LexTokenKind
+unicodeOpTokenKindWithExtensions exts txt firstChar =
   case T.unpack txt of
     "∷" -> TkReservedDoubleColon -- :: (proportion)
     "⇒" -> TkReservedDoubleArrow -- => (rightwards double arrow)
@@ -1449,10 +1453,14 @@ unicodeOpTokenKind txt firstChar =
     "←" -> TkReservedLeftArrow -- <- (leftwards arrow)
     "∀" -> TkVarId "forall" -- forall (for all)
     "★" -> TkVarSym "*" -- star (for kind signatures)
-    "⤙" -> TkVarSym "-<" -- -< (leftwards arrow-tail)
-    "⤚" -> TkVarSym ">-" -- >- (rightwards arrow-tail)
-    "⤛" -> TkVarSym "-<<" -- -<< (leftwards double arrow-tail)
-    "⤜" -> TkVarSym ">>-" -- >>- (rightwards double arrow-tail)
+    "⤙" | Arrows `elem` exts -> TkReservedArrowTailLeft -- -< (leftwards arrow-tail)
+    "⤚" | Arrows `elem` exts -> TkReservedArrowTailRight -- >- (rightwards arrow-tail)
+    "⤛" | Arrows `elem` exts -> TkReservedArrowTailLeftDouble -- -<< (leftwards double arrow-tail)
+    "⤜" | Arrows `elem` exts -> TkReservedArrowTailRightDouble -- >>- (rightwards double arrow-tail)
+    "⤙" -> TkVarSym "-<"
+    "⤚" -> TkVarSym ">-"
+    "⤛" -> TkVarSym "-<<"
+    "⤜" -> TkVarSym ">>-"
     "⦇" -> TkVarSym "(|" -- (| left banana bracket
     "⦈" -> TkVarSym "|)" -- right banana bracket |)
     "⟦" -> TkVarSym "[|" -- [| left semantic bracket
@@ -2643,9 +2651,8 @@ keywordTokenKindWithExtensions exts txt =
         "rec" | Arrows `elem` exts || RecursiveDo `elem` exts -> Just TkKeywordRec
         _ -> Nothing
 
--- | Classify reserved operators per Haskell Report Section 2.4.
-reservedOpTokenKind :: Text -> Maybe LexTokenKind
-reservedOpTokenKind txt = case txt of
+reservedOpTokenKindWithExtensions :: [Extension] -> Text -> Maybe LexTokenKind
+reservedOpTokenKindWithExtensions exts txt = case txt of
   ".." -> Just TkReservedDotDot
   ":" -> Just TkReservedColon
   "::" -> Just TkReservedDoubleColon
@@ -2654,6 +2661,10 @@ reservedOpTokenKind txt = case txt of
   "|" -> Just TkReservedPipe
   "<-" -> Just TkReservedLeftArrow
   "->" -> Just TkReservedRightArrow
+  "-<" | Arrows `elem` exts -> Just TkReservedArrowTailLeft
+  "-<<" | Arrows `elem` exts -> Just TkReservedArrowTailLeftDouble
+  ">-" | Arrows `elem` exts -> Just TkReservedArrowTailRight
+  ">>-" | Arrows `elem` exts -> Just TkReservedArrowTailRightDouble
   "@" -> Just TkReservedAt
   -- Note: ~ is NOT reserved; it uses whitespace-sensitive lexing (GHC proposal 0229)
   "=>" -> Just TkReservedDoubleArrow

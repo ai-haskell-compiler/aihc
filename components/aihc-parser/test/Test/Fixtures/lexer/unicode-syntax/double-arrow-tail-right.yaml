@@ -1,7 +1,8 @@
 extensions:
+  - Arrows
   - UnicodeSyntax
 input: "⤜"
 tokens:
-  - 'TkVarSym ">>-"'
+  - "TkReservedArrowTailRightDouble"
   - 'TkEOF'
 status: pass

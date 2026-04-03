@@ -1,0 +1,10 @@
+extensions:
+  - Arrows
+input: "-< -<< >- >>-"
+tokens:
+  - "TkReservedArrowTailLeft"
+  - "TkReservedArrowTailLeftDouble"
+  - "TkReservedArrowTailRight"
+  - "TkReservedArrowTailRightDouble"
+  - "TkEOF"
+status: pass

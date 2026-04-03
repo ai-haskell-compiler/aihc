@@ -200,10 +200,10 @@ arrowTailParser :: TokParser ArrowTail
 arrowTailParser =
   tokenSatisfy "arrow tail operator" $ \tok ->
     case lexTokenKind tok of
-      TkVarSym "-<" -> Just ArrowTailLeft
-      TkVarSym "-<<" -> Just ArrowTailLeftDouble
-      TkVarSym ">-" -> Just ArrowTailRight
-      TkVarSym ">>-" -> Just ArrowTailRightDouble
+      TkReservedArrowTailLeft -> Just ArrowTailLeft
+      TkReservedArrowTailLeftDouble -> Just ArrowTailLeftDouble
+      TkReservedArrowTailRight -> Just ArrowTailRight
+      TkReservedArrowTailRightDouble -> Just ArrowTailRightDouble
       _ -> Nothing
 
 commandTermParser :: TokParser Cmd
