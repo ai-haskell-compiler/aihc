@@ -32,10 +32,13 @@ module Aihc.Parser.Internal.Common
     functionBindValue,
     functionBindDecl,
     isExtensionEnabled,
+    closeImplicitLayout,
+    layoutSepEndBy,
+    layoutSepBy1,
   )
 where
 
-import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..))
+import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), closeImplicitLayoutContext)
 import Aihc.Parser.Syntax
 import Aihc.Parser.Types (ParserErrorComponent (..), TokStream (..), mkFoundToken)
 import Control.Monad (guard)
@@ -297,8 +300,18 @@ braces :: TokParser a -> TokParser a
 braces parser = do
   expectedTok TkSpecialLBrace
   res <- parser
-  expectedTok TkSpecialRBrace
+  closeAndExpectRBrace
   pure res
+
+-- | Expect a @}@ token, closing implicit layout contexts if needed.
+-- This implements the parse-error rule for closing braces: if @}@ is not found
+-- but there is an implicit layout context, close it (which buffers a virtual @}@)
+-- and consume that virtual @}@.
+closeAndExpectRBrace :: TokParser ()
+closeAndExpectRBrace =
+  expectedTok TkSpecialRBrace <|> do
+    closed <- closeImplicitLayout
+    if closed then expectedTok TkSpecialRBrace else MP.empty
 
 skipSemicolons :: TokParser ()
 skipSemicolons = MP.skipMany (expectedTok TkSpecialSemicolon)
@@ -469,3 +482,59 @@ isExtensionEnabled :: Extension -> TokParser Bool
 isExtensionEnabled ext = do
   pst <- MP.getParserState
   pure (ext `elem` tokStreamExtensions (MP.stateInput pst))
+
+-- | Signal to the layout engine that a virtual close brace should be inserted.
+-- This implements the parse-error rule: when the parser encounters a token that
+-- is illegal in the current context but @}@ would be legal, it calls this to
+-- close the innermost implicit layout context.
+--
+-- Returns @True@ if a layout was closed, @False@ if there was no implicit
+-- layout context to close.
+closeImplicitLayout :: TokParser Bool
+closeImplicitLayout = do
+  pst <- MP.getParserState
+  let ts = MP.stateInput pst
+  case closeImplicitLayoutContext (tokStreamLayoutState ts) of
+    Nothing -> pure False
+    Just laySt' -> do
+      MP.updateParserState (\s -> s {MP.stateInput = (MP.stateInput s) {tokStreamLayoutState = laySt'}})
+      pure True
+
+-- | Like Megaparsec's 'MP.sepEndBy' but implements the parse-error rule for
+-- the separator. When the separator fails, we try closing an implicit layout
+-- context and retrying — this handles cases like:
+--
+-- @R { f = case y of A -> 1, g = 2 }@
+--
+-- where the comma is a record field separator but appears inside the implicit
+-- @case@ layout.
+layoutSepEndBy :: TokParser a -> TokParser sep -> TokParser [a]
+layoutSepEndBy p sep = layoutSepEndBy1 p sep <|> pure []
+
+layoutSepEndBy1 :: TokParser a -> TokParser sep -> TokParser [a]
+layoutSepEndBy1 p sep = do
+  x <- p
+  rest <- MP.option [] $ do
+    _ <- layoutSep sep
+    layoutSepEndBy p sep
+  pure (x : rest)
+
+-- | Like Megaparsec's 'MP.sepBy1' but implements the parse-error rule for
+-- the separator.
+layoutSepBy1 :: TokParser a -> TokParser sep -> TokParser [a]
+layoutSepBy1 p sep = do
+  x <- p
+  rest <- MP.many $ do
+    _ <- layoutSep sep
+    p
+  pure (x : rest)
+
+-- | Try to match a separator token. If that fails, try closing an implicit
+-- layout context and then matching the separator. This implements the
+-- parse-error rule: if a token is illegal in the current context but would
+-- be legal after inserting a virtual @}@, insert the @}@ and retry.
+layoutSep :: TokParser sep -> TokParser sep
+layoutSep sep =
+  MP.try sep <|> do
+    closed <- closeImplicitLayout
+    if closed then sep else MP.empty

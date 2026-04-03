@@ -89,7 +89,7 @@ multiWayIfExprParser = withSpan $ do
 multiWayIfAlternative :: TokParser GuardedRhs
 multiWayIfAlternative = withSpan $ do
   expectedTok TkReservedPipe
-  guards <- guardQualifierParser `MP.sepBy1` expectedTok TkSpecialComma
+  guards <- layoutSepBy1 guardQualifierParser (expectedTok TkSpecialComma)
   expectedTok TkReservedRightArrow
   body <- exprParser
   pure $ \span' ->
@@ -302,7 +302,7 @@ recordBracesParser =
   where
     recordFieldListParser = do
       rwcEnabled <- isExtensionEnabled RecordWildCards
-      fields <- recordFieldBindingParser `MP.sepEndBy` expectedTok TkSpecialComma
+      fields <- layoutSepEndBy recordFieldBindingParser (expectedTok TkSpecialComma)
       if rwcEnabled
         then do
           mDotDot <- MP.optional (expectedTok TkReservedDotDot)
@@ -615,7 +615,7 @@ guardedRhssParser arrowKind = withSpan $ do
 guardedRhsParser :: RhsArrowKind -> TokParser GuardedRhs
 guardedRhsParser arrowKind = withSpan $ do
   expectedTok TkReservedPipe
-  guards <- guardQualifierParser `MP.sepBy1` expectedTok TkSpecialComma
+  guards <- layoutSepBy1 guardQualifierParser (expectedTok TkSpecialComma)
   rhsArrowTok arrowKind
   body <- exprParserExcept ["|", rhsArrowText arrowKind]
   pure $ \span' ->

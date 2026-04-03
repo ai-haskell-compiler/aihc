@@ -34,7 +34,7 @@ import Text.Megaparsec (runParser)
 
 parseFromTokens :: TokParser a -> FilePath -> [LexToken] -> ParseResult a
 parseFromTokens parser sourceName toks =
-  case runParser (parser <* eofTok) sourceName (mkTokStream toks) of
+  case runParser (parser <* eofTok) sourceName (mkTokStreamFromTokens toks) of
     Left bundle -> ParseErr bundle
     Right parsed -> ParseOk parsed
 

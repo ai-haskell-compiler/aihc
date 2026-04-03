@@ -67,6 +67,16 @@ module Aihc.Parser.Lex
     lexModuleTokensWithSourceNameAndExtensions,
     lexTokens,
     lexModuleTokens,
+
+    -- * Incremental lexer/layout state for parser-driven layout
+    LexerState (..),
+    LayoutState (..),
+    LayoutContext (..),
+    mkInitialLexerState,
+    mkInitialLayoutState,
+    stepNextToken,
+    closeImplicitLayoutContext,
+    enabledExtensionsFromSettings,
   )
 where
 
@@ -253,7 +263,11 @@ data LayoutState = LayoutState
     -- | End span of the previous real (non-virtual) token, used to anchor
     -- virtual semicolons to the end of the previous line rather than the
     -- beginning of the next line. This improves error messages.
-    layoutPrevTokenEndSpan :: !(Maybe SourceSpan)
+    layoutPrevTokenEndSpan :: !(Maybe SourceSpan),
+    -- | Buffered tokens waiting to be emitted. When the layout engine produces
+    -- multiple tokens for a single raw token (e.g. virtual braces + the real token),
+    -- they are queued here and drained one at a time by 'stepNextToken'.
+    layoutBuffer :: [LexToken]
   }
   deriving (Eq, Show)
 
@@ -568,7 +582,8 @@ applyLayoutTokens enableModuleLayout =
           if enableModuleLayout
             then ModuleLayoutSeekStart
             else ModuleLayoutOff,
-        layoutPrevTokenEndSpan = Nothing
+        layoutPrevTokenEndSpan = Nothing,
+        layoutBuffer = []
       }
   where
     go st toks =
@@ -674,12 +689,6 @@ closeBeforeToken st tok =
   case lexTokenKind tok of
     TkKeywordIn ->
       let (inserted, contexts') = closeLeadingImplicitLets (lexTokenSpan tok) (layoutContexts st)
-       in (inserted, st {layoutContexts = contexts'})
-    TkSpecialComma ->
-      -- Close implicit layouts before commas, but only if there's an explicit context.
-      -- This handles: R { f = case y of A -> 1, g = 2 } (comma closes case layout)
-      -- But NOT: case x of A | p, q -> 1 (comma is guard separator, no explicit context)
-      let (inserted, contexts') = closeImplicitBeforeComma (lexTokenSpan tok) (layoutContexts st)
        in (inserted, st {layoutContexts = contexts'})
     -- Close implicit layout contexts before closing delimiters (parse-error rule)
     TkSpecialRParen ->
@@ -830,31 +839,9 @@ closeAllImplicitBeforeDelimiter anchor = go []
         LayoutImplicitAfterThenElse _ : rest -> go (virtualSymbolToken "}" anchor : acc) rest
         _ -> (reverse acc, contexts)
 
--- | Close implicit layouts before commas.
--- - Always close leading LayoutImplicitLet contexts (for let guards like: | let x = 1, p x)
--- - If there's an explicit context (LayoutExplicit or LayoutDelimiter), also close
---   other implicit layouts up to it (for cases like: R { f = case y of A -> 1, g = 2 })
--- - If no explicit context, don't close LayoutImplicit (guard commas like: | p, q -> 1)
-closeImplicitBeforeComma :: SourceSpan -> [LayoutContext] -> ([LexToken], [LayoutContext])
-closeImplicitBeforeComma anchor contexts =
-  let -- First, close any leading LayoutImplicitLet contexts (original behavior)
-      (letInserted, afterLets) = closeLeadingImplicitLets anchor contexts
-      -- Then, if there's an explicit context, close remaining implicit layouts
-      (implicitInserted, afterImplicit) =
-        if hasExplicitContext afterLets
-          then closeAllImplicitBeforeDelimiter anchor afterLets
-          else ([], afterLets)
-   in (letInserted <> implicitInserted, afterImplicit)
-  where
-    hasExplicitContext :: [LayoutContext] -> Bool
-    hasExplicitContext = any isExplicitOrDelimiter
-    isExplicitOrDelimiter :: LayoutContext -> Bool
-    isExplicitOrDelimiter ctx =
-      case ctx of
-        LayoutExplicit -> True
-        LayoutDelimiter -> True
-        _ -> False
-
+-- | Update the layout state for the context changes caused by a token.
+-- This pushes/pops layout contexts for braces, brackets, keywords that
+-- open layout, etc.
 stepTokenContext :: LayoutState -> LexToken -> LayoutState
 stepTokenContext st tok =
   case lexTokenKind tok of
@@ -1003,6 +990,194 @@ virtualSymbolToken sym span' =
       lexTokenSpan = span',
       lexTokenOrigin = InsertedLayout
     }
+
+-- ---------------------------------------------------------------------------
+-- Incremental lexer/layout API for parser-driven layout
+-- ---------------------------------------------------------------------------
+
+-- | Create an initial lexer state for incremental scanning.
+mkInitialLexerState :: FilePath -> [Extension] -> Text -> LexerState
+mkInitialLexerState sourceName exts input =
+  LexerState
+    { lexerInput = T.unpack input,
+      lexerLogicalSourceName = sourceName,
+      lexerLine = 1,
+      lexerCol = 1,
+      lexerByteOffset = 0,
+      lexerAtLineStart = True,
+      lexerPending = [],
+      lexerExtensions = exts,
+      lexerPrevTokenKind = Nothing,
+      lexerHadTrivia = True -- Start of file is treated as having leading trivia
+    }
+
+-- | Create an initial layout state.
+mkInitialLayoutState :: Bool -> LayoutState
+mkInitialLayoutState enableModuleLayout =
+  LayoutState
+    { layoutContexts = [],
+      layoutPendingLayout = Nothing,
+      layoutPrevLine = Nothing,
+      layoutPrevTokenKind = Nothing,
+      layoutDelimiterDepth = 0,
+      layoutModuleMode =
+        if enableModuleLayout
+          then ModuleLayoutSeekStart
+          else ModuleLayoutOff,
+      layoutPrevTokenEndSpan = Nothing,
+      layoutBuffer = []
+    }
+
+-- | Produce the next token from the combined lexer+layout state machine.
+--
+-- This drives the lexer and layout engine one token at a time. The layout
+-- engine may produce multiple virtual tokens (braces, semicolons) for a single
+-- raw token; these are buffered in 'layoutBuffer' and drained one at a time.
+--
+-- Returns @Nothing@ when input is exhausted and all closing tokens have been
+-- emitted (i.e., after the 'TkEOF' token has already been returned by a
+-- previous call).
+stepNextToken :: LexerState -> LayoutState -> Maybe (LexToken, LexerState, LayoutState)
+stepNextToken lexSt laySt =
+  case layoutBuffer laySt of
+    -- Drain buffered tokens first
+    tok : rest ->
+      Just (tok, lexSt, laySt {layoutBuffer = rest})
+    [] ->
+      -- Scan next raw token, run layout engine, buffer results
+      case scanOneToken lexSt of
+        Nothing -> Nothing -- input exhausted & EOF already emitted
+        Just (rawTok, lexSt') ->
+          let allToks = layoutStep laySt rawTok
+              laySt' = layoutStepState laySt rawTok
+           in case allToks of
+                [] -> Just (rawTok, lexSt', laySt') -- shouldn't happen, but be safe
+                first : rest ->
+                  Just (first, lexSt', laySt' {layoutBuffer = rest})
+
+-- | Scan exactly one raw token from the lexer state (no layout processing).
+-- Returns @Nothing@ when the lexer is past EOF (i.e., EOF token was already emitted).
+scanOneToken :: LexerState -> Maybe (LexToken, LexerState)
+scanOneToken st0 =
+  case lexerPending st0 of
+    tok : rest ->
+      let st0' = st0 {lexerPending = rest, lexerPrevTokenKind = Just (lexTokenKind tok), lexerHadTrivia = False}
+       in Just (tok, st0')
+    [] ->
+      let st = skipTrivia st0
+       in case lexerPending st of
+            tok : rest ->
+              let st' = st {lexerPending = rest, lexerPrevTokenKind = Just (lexTokenKind tok), lexerHadTrivia = False}
+               in Just (tok, st')
+            []
+              | null (lexerInput st) ->
+                  -- Check if we should emit EOF or if we already did
+                  -- We use a sentinel: if prevTokenKind is Just TkEOF, we already emitted it
+                  case lexerPrevTokenKind st of
+                    Just TkEOF -> Nothing
+                    _ ->
+                      let eofSpan =
+                            SourceSpan
+                              { sourceSpanSourceName = lexerLogicalSourceName st,
+                                sourceSpanStartLine = lexerLine st,
+                                sourceSpanStartCol = lexerCol st,
+                                sourceSpanEndLine = lexerLine st,
+                                sourceSpanEndCol = lexerCol st,
+                                sourceSpanStartOffset = lexerByteOffset st,
+                                sourceSpanEndOffset = lexerByteOffset st
+                              }
+                          eofToken =
+                            LexToken
+                              { lexTokenKind = TkEOF,
+                                lexTokenText = "",
+                                lexTokenSpan = eofSpan,
+                                lexTokenOrigin = FromSource
+                              }
+                          st' = st {lexerPrevTokenKind = Just TkEOF, lexerHadTrivia = False}
+                       in Just (eofToken, st')
+              | otherwise ->
+                  let (tok, st') = nextToken st
+                      st'' = st' {lexerPrevTokenKind = Just (lexTokenKind tok), lexerHadTrivia = False}
+                   in Just (tok, st'')
+
+-- | Run one step of the layout engine on a raw token.
+-- Returns the list of tokens to emit (virtual tokens + the raw token itself,
+-- or for EOF, the closing virtual braces + EOF).
+layoutStep :: LayoutState -> LexToken -> [LexToken]
+layoutStep st tok =
+  case lexTokenKind tok of
+    TkEOF ->
+      -- Close all remaining implicit contexts and emit EOF
+      let eofAnchor = fromMaybe (lexTokenSpan tok) (layoutPrevTokenEndSpan st)
+          (moduleInserted, stAfterModule) = finalizeModuleLayoutAtEOF st eofAnchor
+       in moduleInserted <> closeAllImplicit (layoutContexts stAfterModule) eofAnchor <> [tok]
+    _ ->
+      let stModule = noteModuleLayoutBeforeToken st tok
+          (preInserted, stBeforePending) = closeBeforeToken stModule tok
+          (pendingInserted, stAfterPending, skipBOL) = openPendingLayout stBeforePending tok
+          (bolInserted, _stAfterBOL) = if skipBOL then ([], stAfterPending) else bolLayout stAfterPending tok
+       in preInserted <> pendingInserted <> bolInserted <> [tok]
+
+-- | Compute the updated layout state after processing a raw token.
+-- This mirrors the state updates in 'layoutStep' without producing tokens.
+layoutStepState :: LayoutState -> LexToken -> LayoutState
+layoutStepState st tok =
+  case lexTokenKind tok of
+    TkEOF ->
+      let eofAnchor = fromMaybe (lexTokenSpan tok) (layoutPrevTokenEndSpan st)
+          (_moduleInserted, stAfterModule) = finalizeModuleLayoutAtEOF st eofAnchor
+       in stAfterModule {layoutContexts = []}
+    _ ->
+      let stModule = noteModuleLayoutBeforeToken st tok
+          (_preInserted, stBeforePending) = closeBeforeToken stModule tok
+          (_pendingInserted, stAfterPending, skipBOL) = openPendingLayout stBeforePending tok
+          (_bolInserted, stAfterBOL) = if skipBOL then ([], stAfterPending) else bolLayout stAfterPending tok
+          stAfterToken = noteModuleLayoutAfterToken (stepTokenContext stAfterBOL tok) tok
+          -- Track end span of real (non-virtual) tokens for BOL anchoring
+          newEndSpan =
+            if lexTokenOrigin tok == FromSource
+              then Just (lexTokenSpan tok)
+              else layoutPrevTokenEndSpan stAfterToken
+       in stAfterToken
+            { layoutPrevLine = Just (tokenStartLine tok),
+              layoutPrevTokenKind = Just (lexTokenKind tok),
+              layoutPrevTokenEndSpan = newEndSpan,
+              layoutBuffer = []
+            }
+
+-- | Close the innermost implicit layout context, as if a virtual @}@ was inserted.
+-- This implements the parse-error rule: when the parser encounters a token that
+-- is illegal in the current context but @}@ would be legal, it calls this to
+-- close the innermost implicit layout context.
+--
+-- The virtual @}@ token is buffered in the layout state so that the next call
+-- to 'stepNextToken' will produce it.
+--
+-- Returns @Nothing@ if there is no implicit layout context to close.
+closeImplicitLayoutContext :: LayoutState -> Maybe LayoutState
+closeImplicitLayoutContext st =
+  case layoutContexts st of
+    LayoutImplicit _ : rest -> Just (closeWith rest)
+    LayoutImplicitLet _ : rest -> Just (closeWith rest)
+    LayoutImplicitAfterThenElse _ : rest -> Just (closeWith rest)
+    _ -> Nothing
+  where
+    anchor = fromMaybe noSpan (layoutPrevTokenEndSpan st)
+    noSpan =
+      SourceSpan
+        { sourceSpanSourceName = "",
+          sourceSpanStartLine = 0,
+          sourceSpanStartCol = 0,
+          sourceSpanEndLine = 0,
+          sourceSpanEndCol = 0,
+          sourceSpanStartOffset = 0,
+          sourceSpanEndOffset = 0
+        }
+    closeWith rest =
+      st
+        { layoutContexts = rest,
+          layoutBuffer = layoutBuffer st <> [virtualSymbolToken "}" anchor]
+        }
 
 lexKnownPragma :: LexerState -> Maybe (LexToken, LexerState)
 lexKnownPragma st
