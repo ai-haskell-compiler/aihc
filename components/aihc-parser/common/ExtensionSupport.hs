@@ -9,16 +9,22 @@ module ExtensionSupport
     loadOracleCases,
     classifyOutcome,
     finalizeOutcome,
+    evaluateCaseFromFile,
+    evaluateCaseText,
   )
 where
 
+import Aihc.Cpp (resultOutput)
 import qualified Aihc.Parser.Syntax as Syntax
-import CppSupport (moduleHeaderExtensionSettings)
+import CppSupport (moduleHeaderExtensionSettings, preprocessForParserWithoutIncludesIfEnabled)
 import Data.Char (isSpace)
 import Data.List (dropWhileEnd, sort, sortOn)
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.IO as TIO
 import qualified Data.Text.IO.Utf8 as Utf8
+import GhcOracle (oracleModuleAstFingerprint)
+import ParserValidation (validateParser)
 import System.Directory (doesDirectoryExist, listDirectory)
 import System.FilePath (dropExtension, makeRelative, takeDirectory, takeExtension, (</>))
 
@@ -61,6 +67,28 @@ finalizeOutcome :: CaseMeta -> Maybe Text -> Maybe String -> (CaseMeta, Outcome,
 finalizeOutcome meta oracleOk roundtripOk =
   let (outcome, details) = classifyOutcome (caseExpected meta) oracleOk roundtripOk
    in (meta, outcome, details)
+
+evaluateCaseFromFile :: CaseMeta -> IO (CaseMeta, Outcome, String)
+evaluateCaseFromFile meta = do
+  source <- TIO.readFile (caseSourcePath meta)
+  pure (evaluateCaseText meta source)
+
+evaluateCaseText :: CaseMeta -> Text -> (CaseMeta, Outcome, String)
+evaluateCaseText meta source =
+  -- Use Haskell2010 as the base language for oracle tests, as these fixtures
+  -- are meant to be valid Haskell2010 code (possibly with extensions)
+  let exts = caseExtensions meta
+      source' =
+        resultOutput
+          ( preprocessForParserWithoutIncludesIfEnabled
+              (caseExtensions meta)
+              []
+              (casePath meta)
+              source
+          )
+      oracleOk = either Just (const Nothing) (oracleModuleAstFingerprint (casePath meta) Syntax.Haskell2010Edition exts source')
+      validationOk = fmap show (validateParser (casePath meta) Syntax.Haskell2010Edition exts source')
+   in finalizeOutcome meta oracleOk validationOk
 
 trim :: String -> String
 trim = dropWhile isSpace . dropWhileEnd isSpace

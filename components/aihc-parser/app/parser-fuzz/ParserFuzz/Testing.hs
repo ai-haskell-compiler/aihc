@@ -1,5 +1,6 @@
 module ParserFuzz.Testing (runWithOptions) where
 
+import Aihc.Parser.Syntax qualified as Syntax
 import Data.Text qualified as T
 import Language.Haskell.Exts qualified as HSE
 import ParserFuzz.Arbitrary (generateCandidate, normalizeCandidateAst, qcGenStream, shrinkGeneratedModule)
@@ -34,11 +35,11 @@ runWithOptions opts = do
           putStrLn "--->8---"
         else
           putStrLn "Minimized source omitted (>5 lines)."
-      case validateParser (T.pack minimizedSource) of
+      case validateParser "arbitrary" Syntax.Haskell2010Edition [] (T.pack minimizedSource) of
         Nothing -> pure ()
         Just err -> do
           putStrLn "Validation failure:"
-          putStrLn err
+          print err
       case optOutput opts of
         Nothing -> pure ()
         Just path -> do
@@ -108,7 +109,7 @@ candidateTransforms candidate =
 
 oursFails :: String -> Bool
 oursFails source =
-  case validateParser (T.pack source) of
+  case validateParser "arbitrary" Syntax.Haskell2010Edition [] (T.pack source) of
     Nothing -> False
     Just _ -> True
 

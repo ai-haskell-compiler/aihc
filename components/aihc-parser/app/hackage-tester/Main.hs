@@ -3,6 +3,7 @@
 module Main (main) where
 
 import Aihc.Cpp (Severity (..), diagSeverity, resultDiagnostics, resultOutput)
+import qualified Aihc.Parser.Syntax as Syntax
 import ConcurrentProgress (mapConcurrentlyBounded)
 import Control.Exception (SomeException, displayException, try)
 import Control.Monad (unless, when)
@@ -11,6 +12,7 @@ import qualified Data.Aeson as Aeson
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString.Lazy.Char8 as LBS8
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
@@ -32,7 +34,7 @@ import HackageTester.CLI (Options (..), parseOptionsIO)
 import HackageTester.Model (FileResult (..), Outcome (..), Summary (..), failureLabel, shouldFailSummary, summarizeResults)
 import Network.HTTP.Client (HttpException, Manager, Request (responseTimeout), httpLbs, newManager, parseRequest, responseBody, responseTimeoutMicro)
 import Network.HTTP.Client.TLS (tlsManagerSettings)
-import ParserValidation (ValidationError (..), ValidationErrorKind (..), validateParserDetailedWithExtensionNames)
+import ParserValidation (ValidationError (..), ValidationErrorKind (..), validateParser)
 import System.Exit (exitFailure, exitSuccess)
 import System.IO (hPutStrLn, stderr)
 
@@ -126,7 +128,8 @@ processFile opts packageRoot info = do
   preprocessed <- preprocessForParserIfEnabled (fileInfoExtensions info) (fileInfoCppOptions info) file (resolveIncludeBestEffort packageRoot file) source
   let source' = resultOutput preprocessed
       cppErrs = [diagToText diag | diag <- resultDiagnostics preprocessed, diagSeverity diag == Error]
-      ghcResult = GhcOracle.oracleDetailedParsesModuleWithNamesAt file (fileInfoExtensions info) (fileInfoLanguage info) source'
+      edition = fromMaybe Syntax.Haskell2010Edition (fileInfoLanguage info)
+      ghcResult = GhcOracle.oracleModuleAstFingerprint file edition (fileInfoExtensions info) source'
 
   case ghcResult of
     Left err ->
@@ -137,7 +140,7 @@ processFile opts packageRoot info = do
             cppDiagnostics = cppErrs,
             outcomeDetail = Just err
           }
-    Right () ->
+    Right {} ->
       if optOnlyGhcErrors opts
         then
           pure
@@ -147,7 +150,7 @@ processFile opts packageRoot info = do
                 cppDiagnostics = cppErrs,
                 outcomeDetail = Nothing
               }
-        else case validateParserDetailedWithExtensionNames (fileInfoExtensions info) (fileInfoLanguage info) source' of
+        else case validateParser file edition (fileInfoExtensions info) source' of
           Nothing ->
             pure
               FileResult

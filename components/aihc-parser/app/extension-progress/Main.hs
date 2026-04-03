@@ -2,27 +2,11 @@
 
 module Main (main) where
 
-import Aihc.Cpp (resultOutput)
-import Aihc.Parser (ParseResult (..))
-import qualified Aihc.Parser
-import Aihc.Parser.Syntax (Module)
 import qualified Aihc.Parser.Syntax as Syntax
-import CppSupport (preprocessForParserWithoutIncludesIfEnabled)
 import Data.List (sortOn)
 import qualified Data.Map.Strict as M
-import Data.Text (Text)
-import qualified Data.Text as T
-import qualified Data.Text.IO.Utf8 as Utf8
 import ExtensionSupport
-import qualified GHC.LanguageExtensions.Type as GHC
-import GhcOracle
-  ( extensionNamesToGhcExtensions,
-    oracleModuleAstFingerprintWithExtensionsAt,
-    oracleParsesModuleWithExtensionsAt,
-  )
 import qualified ParserGolden as PG
-import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
-import Prettyprinter.Render.Text (renderStrict)
 import System.Environment (getArgs)
 import System.Exit (exitFailure, exitSuccess)
 
@@ -73,26 +57,8 @@ evaluateOracleCaseMaybe meta =
   if null (caseExtensions meta)
     then pure []
     else do
-      outcome <- evaluateOracleCase meta
+      outcome <- evaluateCaseFromFile meta
       pure [outcome]
-
-evaluateOracleCase :: CaseMeta -> IO (CaseMeta, Outcome, String)
-evaluateOracleCase meta = do
-  source <- Utf8.readFile (caseSourcePath meta)
-  -- Use Haskell2010 as the base language, as test fixtures assume Haskell2010 base extensions
-  let exts = extensionNamesToGhcExtensions (caseExtensions meta) (Just "Haskell2010")
-      source' =
-        resultOutput
-          ( preprocessForParserWithoutIncludesIfEnabled
-              (caseExtensions meta)
-              []
-              (casePath meta)
-              source
-          )
-      parsed = Aihc.Parser.parseModule Aihc.Parser.defaultConfig source'
-      oracleOk = oracleParsesModuleWithExtensionsAt "extension-progress" exts source'
-      roundtripOk = moduleRoundtripsViaGhc exts source' parsed
-  pure (finalizeOutcome meta oracleOk roundtripOk)
 
 -- | Evaluate a golden module case and return outcomes for each extension
 evaluateGoldenCaseMaybe :: PG.ParserCase -> [(CaseMeta, Outcome, String)]
@@ -123,7 +89,7 @@ goldenCaseToCaseMeta goldenCase =
       casePath = PG.casePath goldenCase,
       caseExpected = convertGoldenStatus (PG.caseStatus goldenCase),
       caseReason = PG.caseReason goldenCase,
-      caseExtensions = map (T.unpack . Syntax.extensionName) (PG.caseExtensions goldenCase)
+      caseExtensions = map Syntax.EnableExtension (PG.caseExtensions goldenCase)
     }
 
 -- | Convert ParserGolden.ExpectedStatus to ExtensionSupport.Expected
@@ -135,21 +101,9 @@ convertGoldenStatus status =
     PG.StatusXFail -> ExpectXFail
     PG.StatusXPass -> ExpectXFail -- StatusXPass is similar to XFail (known issue)
 
-moduleRoundtripsViaGhc :: [GHC.Extension] -> Text -> ParseResult Module -> Bool
-moduleRoundtripsViaGhc exts source oursResult =
-  case oursResult of
-    ParseErr _ -> False
-    ParseOk parsed ->
-      let rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty parsed))
-       in case ( oracleModuleAstFingerprintWithExtensionsAt "extension-progress" exts source,
-                 oracleModuleAstFingerprintWithExtensionsAt "extension-progress" exts rendered
-               ) of
-            (Right sourceAst, Right renderedAst) -> sourceAst == renderedAst
-            _ -> False
-
 groupByExtension ::
   [(CaseMeta, Outcome, String)] ->
-  M.Map String [(CaseMeta, Outcome, String)]
+  M.Map Syntax.Extension [(CaseMeta, Outcome, String)]
 groupByExtension =
   foldl' insertCase M.empty
   where
@@ -157,9 +111,9 @@ groupByExtension =
       foldl'
         (\m ext -> M.insertWith (<>) ext [caseOutcome] m)
         acc
-        (caseExtensions meta)
+        [ext | Syntax.EnableExtension ext <- caseExtensions meta]
 
-mkExtensionResult :: (String, [(CaseMeta, Outcome, String)]) -> ExtensionResult
+mkExtensionResult :: (Syntax.Extension, [(CaseMeta, Outcome, String)]) -> ExtensionResult
 mkExtensionResult (name, outcomes) =
   let passN = countOutcome OutcomePass outcomes
       xfailN = countOutcome OutcomeXFail outcomes
@@ -170,7 +124,7 @@ mkExtensionResult (name, outcomes) =
         | failN == 0 && xfailN == 0 && xpassN == 0 = Supported
         | otherwise = InProgress
    in ExtensionResult
-        { erName = name,
+        { erName = show (Syntax.extensionName name),
           erStatus = status,
           erPassN = passN,
           erXFailN = xfailN,

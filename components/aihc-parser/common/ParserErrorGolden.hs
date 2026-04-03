@@ -118,7 +118,7 @@ ghcMismatch :: ErrorMessageCase -> Maybe String
 ghcMismatch meta =
   case oracleModuleAstFingerprint sourceName Syntax.Haskell2010Edition [] (caseSource meta) of
     Right {} ->
-      Just ("expected GHC parse failure, but parser accepted the input.")
+      Just "expected GHC parse failure, but parser accepted the input."
     Left actual
       | normalizeText actual == caseExpectedGhc meta -> Nothing
       | otherwise ->

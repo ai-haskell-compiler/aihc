@@ -5,10 +5,7 @@ module Test.Oracle.Suite
   )
 where
 
-import Aihc.Cpp (resultOutput)
-import qualified Aihc.Parser.Syntax as Syntax
 import Control.Monad (when)
-import CppSupport (preprocessForParserWithoutIncludesIfEnabled)
 import Data.Text (Text)
 import qualified Data.Text.IO as TIO
 import ExtensionSupport
@@ -16,11 +13,10 @@ import ExtensionSupport
     Expected (..),
     Outcome (..),
     caseSourcePath,
-    finalizeOutcome,
+    evaluateCaseFromFile,
+    evaluateCaseText,
     loadOracleCases,
   )
-import GhcOracle (oracleModuleAstFingerprint)
-import ParserValidation (validateParser)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertFailure, testCase)
 
@@ -103,28 +99,6 @@ assertCase meta source = do
             <> caseReason meta
         )
     _ -> pure ()
-
-evaluateCaseFromFile :: CaseMeta -> IO (CaseMeta, Outcome, String)
-evaluateCaseFromFile meta = do
-  source <- TIO.readFile (caseSourcePath meta)
-  pure (evaluateCaseText meta source)
-
-evaluateCaseText :: CaseMeta -> Text -> (CaseMeta, Outcome, String)
-evaluateCaseText meta source =
-  -- Use Haskell2010 as the base language for oracle tests, as these fixtures
-  -- are meant to be valid Haskell2010 code (possibly with extensions)
-  let exts = caseExtensions meta
-      source' =
-        resultOutput
-          ( preprocessForParserWithoutIncludesIfEnabled
-              (caseExtensions meta)
-              []
-              (casePath meta)
-              source
-          )
-      oracleOk = either (Just) (const Nothing) (oracleModuleAstFingerprint (casePath meta) Syntax.Haskell2010Edition exts source')
-      validationOk = fmap show (validateParser (casePath meta) Syntax.Haskell2010Edition exts source')
-   in finalizeOutcome meta oracleOk validationOk
 
 frameworkTests :: IO TestTree
 frameworkTests =
