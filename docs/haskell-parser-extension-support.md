@@ -2,15 +2,15 @@
 
 ## Summary
 
-- Total Extensions: 71
-- Supported: 49
-- In Progress: 22
+- Total Extensions: 72
+- Supported: 53
+- In Progress: 19
 
 ## Extension Status
 
 | Extension | Status | Tests Passing |
 |-----------|--------|---------------|
-| Arrows | In Progress | 0/13 |
+| Arrows | In Progress | 0/14 |
 | BangPatterns | Supported | 8/8 |
 | BinaryLiterals | Supported | 3/3 |
 | BlockArguments | In Progress | 0/4 |
@@ -18,7 +18,7 @@
 | CPP | Supported | 4/4 |
 | ConstrainedClassMethods | Supported | 1/1 |
 | ConstraintKinds | Supported | 1/1 |
-| DataKinds | In Progress | 5/6 |
+| DataKinds | Supported | 7/7 |
 | DefaultSignatures | Supported | 3/3 |
 | DeriveAnyClass | Supported | 1/1 |
 | DerivingStrategies | Supported | 8/8 |
@@ -43,6 +43,7 @@
 | HexFloatLiterals | Supported | 3/3 |
 | ImplicitParams | In Progress | 0/6 |
 | ImportQualifiedPost | Supported | 4/4 |
+| IncoherentInstances | Supported | 1/1 |
 | InstanceSigs | Supported | 5/5 |
 | KindSignatures | In Progress | 8/9 |
 | LambdaCase | Supported | 5/5 |
@@ -59,12 +60,12 @@
 | PatternSynonyms | In Progress | 3/20 |
 | PolyKinds | Supported | 3/3 |
 | QualifiedDo | Supported | 1/1 |
-| QuasiQuotes | In Progress | 2/3 |
+| QuasiQuotes | Supported | 4/4 |
 | RankNTypes | Supported | 2/2 |
 | RecordWildCards | Supported | 5/5 |
 | RecursiveDo | In Progress | 0/2 |
 | RequiredTypeArguments | In Progress | 0/2 |
-| RoleAnnotations | In Progress | 0/4 |
+| RoleAnnotations | Supported | 5/5 |
 | ScopedTypeVariables | Supported | 7/7 |
 | StandaloneDeriving | In Progress | 13/14 |
 | StandaloneKindSignatures | Supported | 5/5 |
@@ -74,8 +75,8 @@
 | TupleSections | Supported | 4/4 |
 | TypeApplications | Supported | 6/6 |
 | TypeData | In Progress | 0/1 |
-| TypeFamilies | Supported | 17/17 |
-| TypeOperators | In Progress | 3/7 |
+| TypeFamilies | Supported | 19/19 |
+| TypeOperators | In Progress | 4/8 |
 | TypeSynonymInstances | Supported | 1/1 |
 | UnboxedSums | Supported | 3/3 |
 | UnboxedTuples | Supported | 7/7 |
