@@ -87,8 +87,8 @@ listFixtureFiles = go
 loadCaseMeta :: FilePath -> FilePath -> IO CaseMeta
 loadCaseMeta root path = do
   source <- Utf8.readFile path
-  (expected, reason) <- parseOracleTestBlock path source
-  let relPath = makeRelative root path
+  let (expected, reason) = parseOracleTestBlock path source
+      relPath = makeRelative root path
       cid = dropExtension relPath
       categoryRaw = takeDirectory relPath
       category = if categoryRaw == "." then "fixture" else categoryRaw
@@ -102,21 +102,21 @@ loadCaseMeta root path = do
         caseExtensions = moduleHeaderExtensionSettings source
       }
 
-parseOracleTestBlock :: FilePath -> Text -> IO (Expected, String)
+parseOracleTestBlock :: FilePath -> Text -> (Expected, String)
 parseOracleTestBlock path source =
   case extractOracleBlock source of
     Nothing ->
-      fail ("Fixture is missing an ORACLE_TEST block: " <> path)
+      error ("Fixture is missing an ORACLE_TEST block: " <> path)
     Just block ->
       case T.words block of
-        ["pass"] -> pure (ExpectPass, "")
+        ["pass"] -> (ExpectPass, "")
         ("xfail" : rest) ->
           let reason = trim (T.unpack (T.unwords rest))
            in if null reason
-                then fail ("ORACLE_TEST xfail case requires a reason in " <> path)
-                else pure (ExpectXFail, reason)
+                then error ("ORACLE_TEST xfail case requires a reason in " <> path)
+                else (ExpectXFail, reason)
         _ ->
-          fail
+          error
             ( "Invalid ORACLE_TEST block in "
                 <> path
                 <> " (expected `pass` or `xfail <reason>`): "
