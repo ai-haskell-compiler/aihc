@@ -32,10 +32,11 @@ module Aihc.Parser.Internal.Common
     functionBindValue,
     functionBindDecl,
     isExtensionEnabled,
+    closeImplicitLayout,
   )
 where
 
-import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..))
+import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), closeImplicitLayoutContext)
 import Aihc.Parser.Syntax
 import Aihc.Parser.Types (ParserErrorComponent (..), TokStream (..), mkFoundToken)
 import Control.Monad (guard)
@@ -469,3 +470,20 @@ isExtensionEnabled :: Extension -> TokParser Bool
 isExtensionEnabled ext = do
   pst <- MP.getParserState
   pure (ext `elem` tokStreamExtensions (MP.stateInput pst))
+
+-- | Signal to the layout engine that a virtual close brace should be inserted.
+-- This implements the parse-error rule: when the parser encounters a token that
+-- is illegal in the current context but @}@ would be legal, it calls this to
+-- close the innermost implicit layout context.
+--
+-- Returns @True@ if a layout was closed, @False@ if there was no implicit
+-- layout context to close.
+closeImplicitLayout :: TokParser Bool
+closeImplicitLayout = do
+  pst <- MP.getParserState
+  let ts = MP.stateInput pst
+  case closeImplicitLayoutContext (tokStreamLayoutState ts) of
+    Nothing -> pure False
+    Just laySt' -> do
+      MP.updateParserState (\s -> s {MP.stateInput = (MP.stateInput s) {tokStreamLayoutState = laySt'}})
+      pure True
