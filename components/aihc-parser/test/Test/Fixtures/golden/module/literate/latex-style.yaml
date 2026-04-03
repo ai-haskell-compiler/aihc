@@ -1,0 +1,14 @@
+extensions: []
+input: |
+  This is a LaTeX-style literate Haskell file.
+
+  \begin{code}
+  module LatexStyle where
+
+  main :: IO ()
+  main = putStrLn "LaTeX style!"
+  \end{code}
+
+  Outside the code environment, everything is a comment.
+status: xfail
+reason: Basic LaTeX-style literate Haskell.

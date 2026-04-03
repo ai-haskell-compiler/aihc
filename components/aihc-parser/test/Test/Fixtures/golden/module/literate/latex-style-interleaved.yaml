@@ -1,0 +1,13 @@
+extensions: []
+input: |
+  \begin{code}
+  module LatexInterleaved where
+  \end{code}
+
+  Some text in between.
+
+  \begin{code}
+  x = 1
+  \end{code}
+status: xfail
+reason: Interleaved LaTeX-style literate Haskell.

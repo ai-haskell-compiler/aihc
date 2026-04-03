@@ -1,0 +1,16 @@
+extensions: []
+input: |
+  \begin{document}
+  This is a LaTeX document.
+
+  \begin{code}
+  module LatexWithOtherEnvs where
+  x = 1
+  \end{code}
+
+  \begin{itemize}
+    \item Point 1
+  \end{itemize}
+  \end{document}
+status: xfail
+reason: LaTeX-style with other LaTeX environments.

@@ -1,0 +1,13 @@
+extensions: []
+input: |
+  > module BirdStyleInterleaved where
+
+  Interleaving some text.
+
+  > x = 1
+
+  More text.
+
+  > y = 2
+status: xfail
+reason: Interleaved Bird-style literate Haskell.

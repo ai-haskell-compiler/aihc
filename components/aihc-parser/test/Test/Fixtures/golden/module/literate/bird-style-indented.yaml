@@ -1,0 +1,10 @@
+extensions: []
+input: |
+  > module IndentedBird where
+  > 
+  > main = do
+  >   putStrLn "Hello"
+  >   where
+  >     x = 1
+status: xfail
+reason: Bird-style with indented Haskell code.
