@@ -6,6 +6,7 @@ module Test.Oracle.Suite
 where
 
 import Aihc.Cpp (resultOutput)
+import qualified Aihc.Parser.Syntax as Syntax
 import Control.Monad (when)
 import CppSupport (preprocessForParserWithoutIncludesIfEnabled)
 import Data.Maybe (isNothing)
@@ -19,9 +20,8 @@ import ExtensionSupport
     finalizeOutcome,
     loadOracleCases,
   )
-import GhcOracle (extensionNamesToGhcExtensions)
+import GhcOracle (oracleModuleAstFingerprint)
 import ParserValidation (validateParserWithExtensions)
-import Test.Oracle (oracleParsesModuleWithExtensions)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertFailure, testCase)
 
@@ -114,7 +114,7 @@ evaluateCaseText :: CaseMeta -> Text -> IO (CaseMeta, Outcome, String)
 evaluateCaseText meta source = do
   -- Use Haskell2010 as the base language for oracle tests, as these fixtures
   -- are meant to be valid Haskell2010 code (possibly with extensions)
-  let exts = extensionNamesToGhcExtensions (caseExtensions meta) (Just "Haskell2010")
+  let exts = caseExtensions meta
       source' =
         resultOutput
           ( preprocessForParserWithoutIncludesIfEnabled
@@ -123,9 +123,9 @@ evaluateCaseText meta source = do
               (casePath meta)
               source
           )
-      oracleOk = oracleParsesModuleWithExtensions exts source'
+      oracleOk = either (Just) (const Nothing) (oracleModuleAstFingerprint (casePath meta) Syntax.Haskell2010Edition exts source')
       validationOk = isNothing (validateParserWithExtensions exts source')
-      roundtripOk = oracleOk && validationOk
+      roundtripOk = isNothing oracleOk && validationOk
   pure (finalizeOutcome meta oracleOk roundtripOk)
 
 frameworkTests :: IO TestTree

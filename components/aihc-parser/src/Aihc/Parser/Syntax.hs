@@ -75,6 +75,9 @@ module Aihc.Parser.Syntax
     ValueDecl (..),
     declValueBinderNames,
     allKnownExtensions,
+    applyExtensionSetting,
+    applyImpliedExtensions,
+    effectiveExtensions,
     extensionName,
     extensionSettingName,
     gadtBodyResultType,
@@ -95,6 +98,8 @@ where
 import Control.Applicative ((<|>))
 import Control.DeepSeq (NFData)
 import Data.Data (Data)
+import Data.List (sort)
+import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import GHC.Generics (Generic)
@@ -483,6 +488,45 @@ languageEditionExtensions edition =
         TypeOperators,
         TypeSynonymInstances
       ]
+
+-- FIXME: Verify against GHC's impliedXFlags
+impliedExtensions :: [(Extension, [ExtensionSetting])]
+impliedExtensions =
+  [ (MultiParamTypeClasses, [EnableExtension ConstrainedClassMethods]),
+    (FunctionalDependencies, [EnableExtension MultiParamTypeClasses]),
+    (TypeFamilyDependencies, [EnableExtension TypeFamilies]),
+    (DeriveTraversable, [EnableExtension DeriveFunctor, EnableExtension DeriveFoldable]),
+    (RecordWildCards, [EnableExtension DisambiguateRecordFields]),
+    (DuplicateRecordFields, [EnableExtension DisambiguateRecordFields]),
+    (ScopedTypeVariables, [EnableExtension ExplicitForAll]),
+    (LiberalTypeSynonyms, [EnableExtension ExplicitForAll]),
+    (TypeOperators, [EnableExtension ExplicitNamespaces]),
+    (TypeFamilies, [EnableExtension ExplicitNamespaces, EnableExtension KindSignatures, EnableExtension MonoLocalBinds]),
+    (PolyKinds, [EnableExtension KindSignatures]),
+    (GADTs, [EnableExtension GADTSyntax, EnableExtension MonoLocalBinds]),
+    (FlexibleInstances, [EnableExtension TypeSynonymInstances]),
+    (MonadComprehensions, [EnableExtension ParallelListComp]),
+    (UnboxedTuples, [EnableExtension UnboxedSums]),
+    (RebindableSyntax, [DisableExtension ImplicitPrelude]),
+    (TemplateHaskell, [EnableExtension TemplateHaskellQuotes])
+  ]
+
+applyExtensionSetting :: ExtensionSetting -> [Extension] -> [Extension]
+applyExtensionSetting setting extensions =
+  case setting of
+    EnableExtension ext -> ext : filter (/= ext) extensions
+    DisableExtension ext -> filter (/= ext) extensions
+
+applyImpliedExtensions :: [Extension] -> [Extension]
+applyImpliedExtensions extensions =
+  let settings = concat $ mapMaybe (`lookup` impliedExtensions) extensions
+      newExtensions = foldr applyExtensionSetting extensions settings
+   in if sort newExtensions == sort extensions then extensions else applyImpliedExtensions newExtensions
+
+effectiveExtensions :: LanguageEdition -> [ExtensionSetting] -> [Extension]
+effectiveExtensions edition extensionSettings =
+  applyImpliedExtensions $
+    foldr applyExtensionSetting (languageEditionExtensions edition) extensionSettings
 
 data SourceSpan
   = NoSourceSpan

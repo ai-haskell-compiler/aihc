@@ -32,7 +32,7 @@ data CaseMeta = CaseMeta
     casePath :: !FilePath,
     caseExpected :: !Expected,
     caseReason :: !String,
-    caseExtensions :: ![String]
+    caseExtensions :: ![Syntax.ExtensionSetting]
   }
   deriving (Eq, Show)
 
@@ -50,22 +50,18 @@ loadOracleCases = do
   where
     dir = oracleFixtureRoot
 
-classifyOutcome :: Expected -> Bool -> Bool -> (Outcome, String)
-classifyOutcome expected oracleOk roundtripOk =
+classifyOutcome :: Expected -> Maybe Text -> Bool -> (Outcome, String)
+classifyOutcome _expected (Just oracleErr) _roundtripOk = (OutcomeFail, T.unpack oracleErr)
+classifyOutcome expected Nothing roundtripOk =
   case expected of
     ExpectPass
-      | not oracleOk -> (OutcomeFail, "oracle rejected pass case")
       | not roundtripOk -> (OutcomeFail, "roundtrip mismatch against oracle AST")
       | otherwise -> (OutcomePass, "")
     ExpectXFail
-      | not oracleOk ->
-          ( OutcomeFail,
-            "oracle rejected xfail case (fixture invalid or missing oracle extension mapping)"
-          )
       | roundtripOk -> (OutcomeXPass, "case now passes oracle and roundtrip checks")
       | otherwise -> (OutcomeXFail, "")
 
-finalizeOutcome :: CaseMeta -> Bool -> Bool -> (CaseMeta, Outcome, String)
+finalizeOutcome :: CaseMeta -> Maybe Text -> Bool -> (CaseMeta, Outcome, String)
 finalizeOutcome meta oracleOk roundtripOk =
   let (outcome, details) = classifyOutcome (caseExpected meta) oracleOk roundtripOk
    in (meta, outcome, details)
@@ -107,7 +103,7 @@ loadCaseMeta root path = do
         casePath = relPath,
         caseExpected = expected,
         caseReason = reason,
-        caseExtensions = enabledExtensionNames source
+        caseExtensions = moduleHeaderExtensionSettings source
       }
 
 parseOracleTestBlock :: FilePath -> Text -> IO (Expected, String)
@@ -138,15 +134,3 @@ extractOracleBlock source = do
   if T.null suffix
     then Nothing
     else Just (T.strip block)
-
-enabledExtensionNames :: Text -> [String]
-enabledExtensionNames =
-  reverse
-    . map (T.unpack . Syntax.extensionName)
-    . foldl apply []
-    . moduleHeaderExtensionSettings
-  where
-    apply acc setting =
-      case setting of
-        Syntax.EnableExtension ext -> ext : filter (/= ext) acc
-        Syntax.DisableExtension ext -> filter (/= ext) acc
