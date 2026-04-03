@@ -9,16 +9,21 @@ module ExtensionSupport
     loadOracleCases,
     classifyOutcome,
     finalizeOutcome,
+    evaluateCaseFromFile,
+    evaluateCaseText,
   )
 where
 
+import Aihc.Cpp (resultOutput)
 import qualified Aihc.Parser.Syntax as Syntax
-import CppSupport (moduleHeaderExtensionSettings)
+import CppSupport (moduleHeaderExtensionSettings, preprocessForParserWithoutIncludesIfEnabled)
 import Data.Char (isSpace)
 import Data.List (dropWhileEnd, sort, sortOn)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO.Utf8 as Utf8
+import GhcOracle (oracleModuleAstFingerprint)
+import ParserValidation (validateParser)
 import System.Directory (doesDirectoryExist, listDirectory)
 import System.FilePath (dropExtension, makeRelative, takeDirectory, takeExtension, (</>))
 
@@ -32,7 +37,7 @@ data CaseMeta = CaseMeta
     casePath :: !FilePath,
     caseExpected :: !Expected,
     caseReason :: !String,
-    caseExtensions :: ![String]
+    caseExtensions :: ![Syntax.ExtensionSetting]
   }
   deriving (Eq, Show)
 
@@ -50,25 +55,39 @@ loadOracleCases = do
   where
     dir = oracleFixtureRoot
 
-classifyOutcome :: Expected -> Bool -> Bool -> (Outcome, String)
-classifyOutcome expected oracleOk roundtripOk =
-  case expected of
-    ExpectPass
-      | not oracleOk -> (OutcomeFail, "oracle rejected pass case")
-      | not roundtripOk -> (OutcomeFail, "roundtrip mismatch against oracle AST")
-      | otherwise -> (OutcomePass, "")
-    ExpectXFail
-      | not oracleOk ->
-          ( OutcomeFail,
-            "oracle rejected xfail case (fixture invalid or missing oracle extension mapping)"
-          )
-      | roundtripOk -> (OutcomeXPass, "case now passes oracle and roundtrip checks")
-      | otherwise -> (OutcomeXFail, "")
+classifyOutcome :: Expected -> Maybe Text -> Maybe String -> (Outcome, String)
+classifyOutcome _expected (Just oracleErr) _roundtripOk = (OutcomeFail, T.unpack oracleErr)
+classifyOutcome ExpectPass Nothing (Just err) = (OutcomeFail, err)
+classifyOutcome ExpectPass Nothing Nothing = (OutcomePass, "")
+classifyOutcome ExpectXFail Nothing Just {} = (OutcomeXFail, "")
+classifyOutcome ExpectXFail Nothing Nothing = (OutcomeXPass, "test case passed unexpectedly. Maybe update testcase from xfail to pass.")
 
-finalizeOutcome :: CaseMeta -> Bool -> Bool -> (CaseMeta, Outcome, String)
+finalizeOutcome :: CaseMeta -> Maybe Text -> Maybe String -> (CaseMeta, Outcome, String)
 finalizeOutcome meta oracleOk roundtripOk =
   let (outcome, details) = classifyOutcome (caseExpected meta) oracleOk roundtripOk
    in (meta, outcome, details)
+
+evaluateCaseFromFile :: CaseMeta -> IO (CaseMeta, Outcome, String)
+evaluateCaseFromFile meta = do
+  source <- Utf8.readFile (caseSourcePath meta)
+  pure (evaluateCaseText meta source)
+
+evaluateCaseText :: CaseMeta -> Text -> (CaseMeta, Outcome, String)
+evaluateCaseText meta source =
+  -- Use Haskell2010 as the base language for oracle tests, as these fixtures
+  -- are meant to be valid Haskell2010 code (possibly with extensions)
+  let exts = caseExtensions meta
+      source' =
+        resultOutput
+          ( preprocessForParserWithoutIncludesIfEnabled
+              (caseExtensions meta)
+              []
+              (casePath meta)
+              source
+          )
+      oracleOk = either Just (const Nothing) (oracleModuleAstFingerprint (casePath meta) Syntax.Haskell2010Edition exts source')
+      validationOk = fmap show (validateParser (casePath meta) Syntax.Haskell2010Edition exts source')
+   in finalizeOutcome meta oracleOk validationOk
 
 trim :: String -> String
 trim = dropWhile isSpace . dropWhileEnd isSpace
@@ -95,8 +114,8 @@ listFixtureFiles = go
 loadCaseMeta :: FilePath -> FilePath -> IO CaseMeta
 loadCaseMeta root path = do
   source <- Utf8.readFile path
-  (expected, reason) <- parseOracleTestBlock path source
-  let relPath = makeRelative root path
+  let (expected, reason) = parseOracleTestBlock path source
+      relPath = makeRelative root path
       cid = dropExtension relPath
       categoryRaw = takeDirectory relPath
       category = if categoryRaw == "." then "fixture" else categoryRaw
@@ -107,24 +126,24 @@ loadCaseMeta root path = do
         casePath = relPath,
         caseExpected = expected,
         caseReason = reason,
-        caseExtensions = enabledExtensionNames source
+        caseExtensions = moduleHeaderExtensionSettings source
       }
 
-parseOracleTestBlock :: FilePath -> Text -> IO (Expected, String)
+parseOracleTestBlock :: FilePath -> Text -> (Expected, String)
 parseOracleTestBlock path source =
   case extractOracleBlock source of
     Nothing ->
-      fail ("Fixture is missing an ORACLE_TEST block: " <> path)
+      error ("Fixture is missing an ORACLE_TEST block: " <> path)
     Just block ->
       case T.words block of
-        ["pass"] -> pure (ExpectPass, "")
+        ["pass"] -> (ExpectPass, "")
         ("xfail" : rest) ->
           let reason = trim (T.unpack (T.unwords rest))
            in if null reason
-                then fail ("ORACLE_TEST xfail case requires a reason in " <> path)
-                else pure (ExpectXFail, reason)
+                then error ("ORACLE_TEST xfail case requires a reason in " <> path)
+                else (ExpectXFail, reason)
         _ ->
-          fail
+          error
             ( "Invalid ORACLE_TEST block in "
                 <> path
                 <> " (expected `pass` or `xfail <reason>`): "
@@ -138,15 +157,3 @@ extractOracleBlock source = do
   if T.null suffix
     then Nothing
     else Just (T.strip block)
-
-enabledExtensionNames :: Text -> [String]
-enabledExtensionNames =
-  reverse
-    . map (T.unpack . Syntax.extensionName)
-    . foldl apply []
-    . moduleHeaderExtensionSettings
-  where
-    apply acc setting =
-      case setting of
-        Syntax.EnableExtension ext -> ext : filter (/= ext) acc
-        Syntax.DisableExtension ext -> filter (/= ext) acc

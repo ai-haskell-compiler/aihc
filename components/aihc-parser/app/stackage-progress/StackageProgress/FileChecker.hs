@@ -25,7 +25,7 @@ import Aihc.Parser (ParseResult (..))
 import qualified Aihc.Parser
 import qualified Aihc.Parser.Syntax as Syntax
 import CppSupport (moduleHeaderPragmas, preprocessForParserIfEnabled)
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, isNothing)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified GhcOracle
@@ -38,7 +38,7 @@ import HackageSupport
   )
 import HseExtensions (fromParserExtensions)
 import qualified Language.Haskell.Exts as HSE
-import ParserValidation (ValidationError (..), ValidationErrorKind (..), validateParserDetailedWithParserExtensions)
+import ParserValidation (ValidationError (..), ValidationErrorKind (..), validateParser)
 import StackageProgress.CLI (Check (..))
 import StackageProgress.Summary (forceString)
 
@@ -144,7 +144,7 @@ checkFile :: [Check] -> FilePath -> FileInfo -> IO FileResult
 checkFile checks packageRoot info = do
   let file = fileInfoPath info
       -- Parse default language edition from cabal file
-      defaultEdition = fileInfoLanguage info >>= Syntax.parseLanguageEdition . T.pack
+      edition = fromMaybe Syntax.Haskell2010Edition (fileInfoLanguage info)
   source <- readTextFileLenient file
   preprocessed <- preprocessForParserIfEnabled (fileInfoExtensions info) (fileInfoCppOptions info) file (resolveIncludeBestEffort packageRoot file) source
   let source' = resultOutput preprocessed
@@ -156,7 +156,8 @@ checkFile checks packageRoot info = do
       -- Read module header pragmas to get any LANGUAGE pragma overrides
       headerPragmas = moduleHeaderPragmas source'
       -- Compute the effective extensions using unified extension handling
-      effectiveExts = GhcOracle.computeEffectiveExtensions defaultEdition (fileInfoExtensions info) headerPragmas
+      effectiveExts = Syntax.effectiveExtensions edition (fileInfoExtensions info ++ Syntax.headerExtensionSettings headerPragmas)
+      effectiveExtsSettings = map Syntax.EnableExtension effectiveExts
       -- Configure parser with computed extensions
       parserConfig =
         Aihc.Parser.defaultConfig
@@ -175,7 +176,7 @@ checkFile checks packageRoot info = do
         else pure (Right ())
     ParseOk _parsed ->
       if CheckRoundtripGhc `elem` checks
-        then pure (checkRoundtrip effectiveExts file cppErrorMsg source')
+        then pure (checkRoundtrip edition effectiveExtsSettings file cppErrorMsg source')
         else pure (Right ())
 
   hseOk <-
@@ -183,18 +184,18 @@ checkFile checks packageRoot info = do
       then pure $ checkHse effectiveExts source'
       else pure True
 
-  ghcOkResult <-
+  ghcErrMsg <-
     if CheckGhc `elem` checks
-      then pure $ GhcOracle.oracleDetailedParsesWithParserExtensionsAt file effectiveExts source'
-      else pure (Right ())
-  let ghcOk = case ghcOkResult of Right () -> True; Left _ -> False
-      ghcErrMsg = case ghcOkResult of Left err -> Just (T.unpack err); Right () -> Nothing
+      then pure $ case GhcOracle.oracleModuleAstFingerprint file edition effectiveExtsSettings source' of
+        Right {} -> Nothing
+        Left err -> Just (T.unpack err)
+      else pure Nothing
 
   pure
     FileResult
       { fileOursOk = case oursStatus of Right () -> True; Left _ -> False,
         fileHseOk = hseOk,
-        fileGhcOk = ghcOk,
+        fileGhcOk = isNothing ghcErrMsg,
         fileError = case oursStatus of Left err -> Just err; Right () -> Nothing,
         fileGhcError = ghcErrMsg
       }
@@ -220,9 +221,9 @@ needsParsedModule checks =
   CheckRoundtripGhc `elem` checks
 
 -- | Check roundtrip via GHC oracle.
-checkRoundtrip :: [Syntax.Extension] -> FilePath -> Maybe Text -> Text -> Either String ()
-checkRoundtrip exts file cppErrorMsg source' =
-  case validateParserDetailedWithParserExtensions exts source' of
+checkRoundtrip :: Syntax.LanguageEdition -> [Syntax.ExtensionSetting] -> FilePath -> Maybe Text -> Text -> Either String ()
+checkRoundtrip edition exts file cppErrorMsg source' =
+  case validateParser file edition exts source' of
     Nothing -> Right ()
     Just err ->
       case validationErrorKind err of

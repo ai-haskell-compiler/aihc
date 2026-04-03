@@ -52,11 +52,9 @@ test-suite spec
     , LexerGolden
     , ParserErrorGolden
     , ParserGolden
-    , OracleExtensions
     , ParserValidation
     , ShrinkUtils
     , StackageProgress.Summary
-    , Test.Oracle
     , Test.ErrorMessages.Suite
     , Test.Oracle.Suite
     , Test.ExtensionMapping.Suite
@@ -106,8 +104,8 @@ executable parser-progress
   other-modules:
       CppSupport
     , ExtensionSupport
+    , ParserValidation
     , GhcOracle
-    , OracleExtensions
   build-depends:
       base >=4.16 && <5
     , aihc-parser
@@ -186,8 +184,8 @@ executable extension-progress
   other-modules:
       CppSupport
     , ExtensionSupport
+    , ParserValidation
     , GhcOracle
-    , OracleExtensions
     , ParserGolden
   build-depends:
       base >=4.16 && <5
