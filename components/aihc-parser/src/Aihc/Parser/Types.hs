@@ -118,17 +118,20 @@ instance Ord TokStream where
 -- Manual Show instance
 instance Show TokStream where
   show ts =
-    "TokStream { eofEmitted = " <> show (tokStreamEOFEmitted ts)
-      <> ", prevToken = " <> show (tokStreamPrevToken ts)
-      <> ", extensions = " <> show (tokStreamExtensions ts)
+    "TokStream { eofEmitted = "
+      <> show (tokStreamEOFEmitted ts)
+      <> ", prevToken = "
+      <> show (tokStreamPrevToken ts)
+      <> ", extensions = "
+      <> show (tokStreamExtensions ts)
       <> " }"
 
 -- Manual NFData instance
 instance NFData TokStream where
   rnf ts =
     rnf (tokStreamPrevToken ts) `seq`
-    rnf (tokStreamExtensions ts) `seq`
-    rnf (tokStreamEOFEmitted ts)
+      rnf (tokStreamExtensions ts) `seq`
+        rnf (tokStreamEOFEmitted ts)
 
 -- | An empty TokStream for error reporting purposes.
 emptyTokStream :: FilePath -> TokStream
