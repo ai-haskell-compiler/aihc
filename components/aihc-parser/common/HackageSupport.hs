@@ -14,12 +14,13 @@ module HackageSupport
 where
 
 import Aihc.Cpp (Diagnostic (..), IncludeKind (..), IncludeRequest (..), Severity (..))
+import qualified Aihc.Parser.Syntax as Syntax
 import Control.Monad (forM, when)
 import qualified Data.ByteString as BS
 import Data.Char (toLower)
 import Data.List (isPrefixOf, isSuffixOf, nub, sortOn)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (catMaybes)
+import Data.Maybe (catMaybes, mapMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Text.Encoding (decodeUtf8With)
@@ -134,9 +135,9 @@ getCacheDir = do
 
 data FileInfo = FileInfo
   { fileInfoPath :: FilePath,
-    fileInfoExtensions :: [String],
+    fileInfoExtensions :: [Syntax.ExtensionSetting],
     fileInfoCppOptions :: [String],
-    fileInfoLanguage :: Maybe String
+    fileInfoLanguage :: Maybe Syntax.LanguageEdition
   }
   deriving (Show)
 
@@ -219,14 +220,14 @@ executableFilesFor evalCond packageRoot tree = do
       mainFiles <- existingPaths [dir </> mainPath | dir <- sourceDirs packageRoot build]
       pure [FileInfo path exts cppOpts lang | path <- moduleFiles <> mainFiles]
 
-extractExtensions :: BuildInfo -> [String]
-extractExtensions bi = nub (map prettyShow (defaultExtensions bi <> oldExtensions bi))
+extractExtensions :: BuildInfo -> [Syntax.ExtensionSetting]
+extractExtensions bi = mapMaybe (Syntax.parseExtensionSettingName . T.pack) (nub (map prettyShow (defaultExtensions bi <> oldExtensions bi)))
 
-extractLanguage :: BuildInfo -> Maybe String
+extractLanguage :: BuildInfo -> Maybe Syntax.LanguageEdition
 extractLanguage bi =
   case defaultLanguage bi of
-    Just lang -> Just (prettyShow lang)
-    Nothing -> Just "Haskell98"
+    Just lang -> Syntax.parseLanguageEdition (T.pack (prettyShow lang))
+    Nothing -> Nothing
 
 collectCondTreeData :: (Condition v -> Bool) -> CondTree v c a -> [a]
 collectCondTreeData evalCond tree =

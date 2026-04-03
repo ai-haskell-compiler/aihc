@@ -5,10 +5,7 @@ module Test.Oracle.Suite
   )
 where
 
-import Aihc.Cpp (resultOutput)
 import Control.Monad (when)
-import CppSupport (preprocessForParserWithoutIncludesIfEnabled)
-import Data.Maybe (isNothing)
 import Data.Text (Text)
 import qualified Data.Text.IO as TIO
 import ExtensionSupport
@@ -16,12 +13,10 @@ import ExtensionSupport
     Expected (..),
     Outcome (..),
     caseSourcePath,
-    finalizeOutcome,
+    evaluateCaseFromFile,
+    evaluateCaseText,
     loadOracleCases,
   )
-import GhcOracle (extensionNamesToGhcExtensions)
-import ParserValidation (validateParserWithExtensions)
-import Test.Oracle (oracleParsesModuleWithExtensions)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertFailure, testCase)
 
@@ -79,7 +74,7 @@ pct done totalN
 
 assertCase :: CaseMeta -> Text -> Assertion
 assertCase meta source = do
-  (_, outcome, details) <- evaluateCaseText meta source
+  let (_, outcome, details) = evaluateCaseText meta source
   case outcome of
     OutcomeFail ->
       assertFailure
@@ -105,29 +100,6 @@ assertCase meta source = do
         )
     _ -> pure ()
 
-evaluateCaseFromFile :: CaseMeta -> IO (CaseMeta, Outcome, String)
-evaluateCaseFromFile meta = do
-  source <- TIO.readFile (caseSourcePath meta)
-  evaluateCaseText meta source
-
-evaluateCaseText :: CaseMeta -> Text -> IO (CaseMeta, Outcome, String)
-evaluateCaseText meta source = do
-  -- Use Haskell2010 as the base language for oracle tests, as these fixtures
-  -- are meant to be valid Haskell2010 code (possibly with extensions)
-  let exts = extensionNamesToGhcExtensions (caseExtensions meta) (Just "Haskell2010")
-      source' =
-        resultOutput
-          ( preprocessForParserWithoutIncludesIfEnabled
-              (caseExtensions meta)
-              []
-              (casePath meta)
-              source
-          )
-      oracleOk = oracleParsesModuleWithExtensions exts source'
-      validationOk = isNothing (validateParserWithExtensions exts source')
-      roundtripOk = oracleOk && validationOk
-  pure (finalizeOutcome meta oracleOk roundtripOk)
-
 frameworkTests :: IO TestTree
 frameworkTests =
   pure $
@@ -144,7 +116,7 @@ frameworkTests =
                     caseExtensions = []
                   }
            in do
-                (_, outcome, _) <- evaluateCaseText meta "module M where\nx = { y = 1, }\n"
+                let (_, outcome, _) = evaluateCaseText meta "module M where\nx = { y = 1, }\n"
                 if outcome == OutcomeFail
                   then pure ()
                   else assertFailure ("expected OutcomeFail when oracle rejects fixture, got " <> show outcome),
@@ -159,7 +131,7 @@ frameworkTests =
                     caseExtensions = []
                   }
            in do
-                (_, outcome, _) <- evaluateCaseText meta "module M where\nf \\x -> x\n"
+                let (_, outcome, _) = evaluateCaseText meta "module M where\nf \\x -> x\n"
                 if outcome == OutcomeFail
                   then pure ()
                   else assertFailure ("expected OutcomeFail when oracle rejects fixture, got " <> show outcome),
@@ -174,7 +146,7 @@ frameworkTests =
                     caseExtensions = []
                   }
            in do
-                (_, outcome, _) <- evaluateCaseText meta "module M where\nx = { y = 1, }\n"
+                let (_, outcome, _) = evaluateCaseText meta "module M where\nx = { y = 1, }\n"
                 if outcome == OutcomeFail
                   then pure ()
                   else assertFailure ("expected OutcomeFail when oracle rejects fixture, got " <> show outcome)

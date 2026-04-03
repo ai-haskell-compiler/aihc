@@ -67,6 +67,16 @@ module Aihc.Parser.Lex
     lexModuleTokensWithSourceNameAndExtensions,
     lexTokens,
     lexModuleTokens,
+
+    -- * Incremental lexer/layout state for parser-driven layout
+    LexerState (..),
+    LayoutState (..),
+    LayoutContext (..),
+    mkInitialLexerState,
+    mkInitialLayoutState,
+    stepNextToken,
+    closeImplicitLayoutContext,
+    enabledExtensionsFromSettings,
   )
 where
 
@@ -220,21 +230,17 @@ data LexerState = LexerState
 
 data LayoutContext
   = LayoutExplicit
-  | LayoutImplicit !Int
-  | LayoutImplicitLet !Int
-  | -- | Implicit layout opened after 'then do' or 'else do'.
-    -- This variant allows 'then' and 'else' to close it at the same indent level.
-    LayoutImplicitAfterThenElse !Int
+  | LayoutImplicit !Int !ImplicitLayoutKind
   | -- | Marker for ( or [ to scope implicit layout closures
     LayoutDelimiter
   deriving (Eq, Show)
 
-data PendingLayout
-  = PendingLayoutGeneric
-  | PendingLayoutLet
-  | -- | Pending layout from 'do' after 'then' or 'else'.
-    -- The resulting layout can be closed by 'then'/'else' at the same indent.
-    PendingLayoutAfterThenElse
+data ImplicitLayoutKind
+  = LayoutOrdinary
+  | LayoutLetBlock
+  | -- | Implicit layout opened after 'then do' or 'else do'.
+    -- These blocks can be closed by 'then'/'else' at the same indent level.
+    LayoutAfterThenElse
   deriving (Eq, Show)
 
 data ModuleLayoutMode
@@ -247,15 +253,18 @@ data ModuleLayoutMode
 
 data LayoutState = LayoutState
   { layoutContexts :: [LayoutContext],
-    layoutPendingLayout :: !(Maybe PendingLayout),
+    layoutPendingLayout :: !(Maybe ImplicitLayoutKind),
     layoutPrevLine :: !(Maybe Int),
     layoutPrevTokenKind :: !(Maybe LexTokenKind),
-    layoutDelimiterDepth :: !Int,
     layoutModuleMode :: !ModuleLayoutMode,
     -- | End span of the previous real (non-virtual) token, used to anchor
     -- virtual semicolons to the end of the previous line rather than the
     -- beginning of the next line. This improves error messages.
-    layoutPrevTokenEndSpan :: !(Maybe SourceSpan)
+    layoutPrevTokenEndSpan :: !(Maybe SourceSpan),
+    -- | Buffered tokens waiting to be emitted. When the layout engine produces
+    -- multiple tokens for a single raw token (e.g. virtual braces + the real token),
+    -- they are queued here and drained one at a time by 'stepNextToken'.
+    layoutBuffer :: [LexToken]
   }
   deriving (Eq, Show)
 
@@ -559,19 +568,7 @@ nextToken st =
 
 applyLayoutTokens :: Bool -> [LexToken] -> [LexToken]
 applyLayoutTokens enableModuleLayout =
-  go
-    LayoutState
-      { layoutContexts = [],
-        layoutPendingLayout = Nothing,
-        layoutPrevLine = Nothing,
-        layoutPrevTokenKind = Nothing,
-        layoutDelimiterDepth = 0,
-        layoutModuleMode =
-          if enableModuleLayout
-            then ModuleLayoutSeekStart
-            else ModuleLayoutOff,
-        layoutPrevTokenEndSpan = Nothing
-      }
+  go (mkInitialLayoutState enableModuleLayout)
   where
     go st toks =
       case toks of
@@ -581,32 +578,9 @@ applyLayoutTokens enableModuleLayout =
           let eofAnchor = NoSourceSpan
               (moduleInserted, stAfterModule) = finalizeModuleLayoutAtEOF st eofAnchor
            in moduleInserted <> closeAllImplicit (layoutContexts stAfterModule) eofAnchor
-        [eofTok]
-          | lexTokenKind eofTok == TkEOF ->
-              -- Use previous token's end span for closing virtual braces (if available),
-              -- falling back to EOF span. This improves error messages by pointing to
-              -- the end of the last real token rather than the empty line after.
-              let eofAnchor = fromMaybe (lexTokenSpan eofTok) (layoutPrevTokenEndSpan st)
-                  (moduleInserted, stAfterModule) = finalizeModuleLayoutAtEOF st eofAnchor
-               in moduleInserted <> closeAllImplicit (layoutContexts stAfterModule) eofAnchor <> [eofTok]
         tok : rest ->
-          let stModule = noteModuleLayoutBeforeToken st tok
-              (preInserted, stBeforePending) = closeBeforeToken stModule tok
-              (pendingInserted, stAfterPending, skipBOL) = openPendingLayout stBeforePending tok
-              (bolInserted, stAfterBOL) = if skipBOL then ([], stAfterPending) else bolLayout stAfterPending tok
-              stAfterToken = noteModuleLayoutAfterToken (stepTokenContext stAfterBOL tok) tok
-              -- Track end span of real (non-virtual) tokens for BOL anchoring
-              newEndSpan =
-                if lexTokenOrigin tok == FromSource
-                  then Just (lexTokenSpan tok)
-                  else layoutPrevTokenEndSpan stAfterToken
-              stNext =
-                stAfterToken
-                  { layoutPrevLine = Just (tokenStartLine tok),
-                    layoutPrevTokenKind = Just (lexTokenKind tok),
-                    layoutPrevTokenEndSpan = newEndSpan
-                  }
-           in preInserted <> pendingInserted <> bolInserted <> (tok : go stNext rest)
+          let (emitted, stNext) = layoutTransition st tok
+           in emitted <> go stNext rest
 
 finalizeModuleLayoutAtEOF :: LayoutState -> SourceSpan -> ([LexToken], LayoutState)
 finalizeModuleLayoutAtEOF st anchor =
@@ -632,7 +606,7 @@ noteModuleLayoutBeforeToken st tok =
         TkPragmaWarning _ -> st
         TkPragmaDeprecated _ -> st
         TkKeywordModule -> st {layoutModuleMode = ModuleLayoutAwaitWhere}
-        _ -> st {layoutModuleMode = ModuleLayoutDone, layoutPendingLayout = Just PendingLayoutGeneric}
+        _ -> st {layoutModuleMode = ModuleLayoutDone, layoutPendingLayout = Just LayoutOrdinary}
     _ -> st
 
 noteModuleLayoutAfterToken :: LayoutState -> LexToken -> LayoutState
@@ -640,7 +614,7 @@ noteModuleLayoutAfterToken st tok =
   case layoutModuleMode st of
     ModuleLayoutAwaitWhere
       | lexTokenKind tok == TkKeywordWhere ->
-          st {layoutModuleMode = ModuleLayoutAwaitBody, layoutPendingLayout = Just PendingLayoutGeneric}
+          st {layoutModuleMode = ModuleLayoutAwaitBody, layoutPendingLayout = Just LayoutOrdinary}
     _ -> st
 
 openPendingLayout :: LayoutState -> LexToken -> ([LexToken], LayoutState, Bool)
@@ -655,11 +629,7 @@ openPendingLayout st tok =
               parentIndent = currentLayoutIndent (layoutContexts st)
               openTok = virtualSymbolToken "{" (lexTokenSpan tok)
               closeTok = virtualSymbolToken "}" (lexTokenSpan tok)
-              newContext =
-                case pending of
-                  PendingLayoutGeneric -> LayoutImplicit col
-                  PendingLayoutLet -> LayoutImplicitLet col
-                  PendingLayoutAfterThenElse -> LayoutImplicitAfterThenElse col
+              newContext = LayoutImplicit col pending
            in if col <= parentIndent
                 then ([openTok, closeTok], st {layoutPendingLayout = Nothing}, False)
                 else
@@ -673,57 +643,37 @@ openPendingLayout st tok =
 
 closeBeforeToken :: LayoutState -> LexToken -> ([LexToken], LayoutState)
 closeBeforeToken st tok =
-  case lexTokenKind tok of
-    TkKeywordIn ->
-      let (inserted, contexts') = closeLeadingImplicitLets (lexTokenSpan tok) (layoutContexts st)
-       in (inserted, st {layoutContexts = contexts'})
-    TkSpecialComma ->
-      -- Close implicit layouts before commas, but only if there's an explicit context.
-      -- This handles: R { f = case y of A -> 1, g = 2 } (comma closes case layout)
-      -- But NOT: case x of A | p, q -> 1 (comma is guard separator, no explicit context)
-      let (inserted, contexts') = closeImplicitBeforeComma (lexTokenSpan tok) (layoutContexts st)
-       in (inserted, st {layoutContexts = contexts'})
-    -- Close implicit layout contexts before closing delimiters (parse-error rule)
-    TkSpecialRParen ->
-      let (inserted, contexts') = closeAllImplicitBeforeDelimiter (lexTokenSpan tok) (layoutContexts st)
-       in (inserted, st {layoutContexts = contexts'})
-    TkSpecialRBracket ->
-      let (inserted, contexts') = closeAllImplicitBeforeDelimiter (lexTokenSpan tok) (layoutContexts st)
-       in (inserted, st {layoutContexts = contexts'})
-    TkTHExpQuoteClose ->
-      let (inserted, contexts') = closeAllImplicitBeforeDelimiter (lexTokenSpan tok) (layoutContexts st)
-       in (inserted, st {layoutContexts = contexts'})
-    TkTHTypedQuoteClose ->
-      let (inserted, contexts') = closeAllImplicitBeforeDelimiter (lexTokenSpan tok) (layoutContexts st)
-       in (inserted, st {layoutContexts = contexts'})
-    TkSpecialRBrace ->
-      let (inserted, contexts') = closeAllImplicitBeforeDelimiter (lexTokenSpan tok) (layoutContexts st)
-       in (inserted, st {layoutContexts = contexts'})
-    -- Close implicit layout contexts before 'then' and 'else' keywords (parse-error rule)
-    -- These keywords cannot appear inside a do block, so we close contexts at >= their column.
-    TkKeywordThen ->
+  closeWith $
+    case lexTokenKind tok of
+      TkKeywordIn -> closeLeadingImplicitLet (lexTokenSpan tok)
+      kind
+        | closesImplicitBeforeDelimiter kind ->
+            closeImplicitLayouts (lexTokenSpan tok) (\_ _ -> True)
+      TkKeywordThen -> closeBeforeThenElse
+      TkKeywordElse -> closeBeforeThenElse
+      -- 'where' at the same column as an implicit layout closes that layout,
+      -- allowing it to attach to the enclosing definition.
+      TkKeywordWhere ->
+        closeImplicitLayouts (lexTokenSpan tok) (\indent _ -> tokenStartCol tok <= indent)
+      _ -> noLayoutClosures
+  where
+    closeBeforeThenElse =
       let col = tokenStartCol tok
-          (inserted, contexts') = closeForDedentInclusive col (lexTokenSpan tok) (layoutContexts st)
+       in closeImplicitLayouts (lexTokenSpan tok) $
+            \indent kind -> col < indent || (kind == LayoutAfterThenElse && col <= indent)
+
+    closeWith closeContexts =
+      let (inserted, contexts') = closeContexts (layoutContexts st)
        in (inserted, st {layoutContexts = contexts'})
-    TkKeywordElse ->
-      let col = tokenStartCol tok
-          (inserted, contexts') = closeForDedentInclusive col (lexTokenSpan tok) (layoutContexts st)
-       in (inserted, st {layoutContexts = contexts'})
-    -- Close implicit layout contexts before 'where' keyword (parse-error rule)
-    -- 'where' at the same column as an implicit layout closes that layout,
-    -- allowing it to attach to the enclosing definition.
-    TkKeywordWhere ->
-      let col = tokenStartCol tok
-          (inserted, contexts') = closeForDedentInclusiveAll col (lexTokenSpan tok) (layoutContexts st)
-       in (inserted, st {layoutContexts = contexts'})
-    _ -> ([], st)
+
+    noLayoutClosures contexts = ([], contexts)
 
 bolLayout :: LayoutState -> LexToken -> ([LexToken], LayoutState)
 bolLayout st tok
   | not (isBOL st tok) = ([], st)
   | otherwise =
       let col = tokenStartCol tok
-          (inserted, contexts') = closeForDedent col (lexTokenSpan tok) (layoutContexts st)
+          (inserted, contexts') = closeImplicitLayouts (lexTokenSpan tok) (\indent _ -> col < indent) (layoutContexts st)
           -- Use end of previous token for semicolon span (improves error messages
           -- by pointing to the end of the incomplete declaration rather than the
           -- start of the next one)
@@ -754,195 +704,52 @@ suppressesVirtualSemicolon tok =
     TkMinusOperator -> True
     _ -> False
 
-closeForDedent :: Int -> SourceSpan -> [LayoutContext] -> ([LexToken], [LayoutContext])
-closeForDedent col anchor = go []
+closeImplicitLayouts :: SourceSpan -> (Int -> ImplicitLayoutKind -> Bool) -> [LayoutContext] -> ([LexToken], [LayoutContext])
+closeImplicitLayouts anchor shouldClose = go []
   where
-    go acc contexts =
-      case contexts of
-        LayoutImplicit indent : rest
-          | col < indent -> go (virtualSymbolToken "}" anchor : acc) rest
-          | otherwise -> (reverse acc, contexts)
-        LayoutImplicitLet indent : rest
-          | col < indent -> go (virtualSymbolToken "}" anchor : acc) rest
-          | otherwise -> (reverse acc, contexts)
-        LayoutImplicitAfterThenElse indent : rest
-          | col < indent -> go (virtualSymbolToken "}" anchor : acc) rest
-          | otherwise -> (reverse acc, contexts)
-        _ -> (reverse acc, contexts)
+    closeTok = virtualSymbolToken "}" anchor
 
--- | Close layout contexts opened after 'then do' or 'else do' when encountering
--- 'then' or 'else' at the same or lesser indent. This handles the parse-error rule
--- for these specific cases where the keyword cannot be part of the do block.
---
--- This function first closes any implicit layouts with indent > col (regular dedent),
--- then closes LayoutImplicitAfterThenElse contexts where col <= indent.
--- This ensures that nested layouts (like case blocks) are closed before
--- the then/else-specific layout closing.
-closeForDedentInclusive :: Int -> SourceSpan -> [LayoutContext] -> ([LexToken], [LayoutContext])
-closeForDedentInclusive col anchor = go []
-  where
     go acc contexts =
       case contexts of
-        -- Close any implicit layout with indent > col (dedent rule)
-        LayoutImplicit indent : rest
-          | col < indent -> go (virtualSymbolToken "}" anchor : acc) rest
-          | otherwise -> (reverse acc, contexts)
-        LayoutImplicitLet indent : rest
-          | col < indent -> go (virtualSymbolToken "}" anchor : acc) rest
-          | otherwise -> (reverse acc, contexts)
-        -- Close LayoutImplicitAfterThenElse where col <= indent (parse-error rule)
-        LayoutImplicitAfterThenElse indent : rest
-          | col <= indent -> go (virtualSymbolToken "}" anchor : acc) rest
-          | otherwise -> (reverse acc, contexts)
-        _ -> (reverse acc, contexts)
-
--- | Close all implicit layout contexts at or above the given column.
--- Used for 'where' which needs to close all enclosing implicit layouts
--- (not just LayoutImplicitAfterThenElse like then/else).
-closeForDedentInclusiveAll :: Int -> SourceSpan -> [LayoutContext] -> ([LexToken], [LayoutContext])
-closeForDedentInclusiveAll col anchor = go []
-  where
-    go acc contexts =
-      case contexts of
-        LayoutImplicit indent : rest
-          | col <= indent -> go (virtualSymbolToken "}" anchor : acc) rest
-          | otherwise -> (reverse acc, contexts)
-        LayoutImplicitLet indent : rest
-          | col <= indent -> go (virtualSymbolToken "}" anchor : acc) rest
-          | otherwise -> (reverse acc, contexts)
-        LayoutImplicitAfterThenElse indent : rest
-          | col <= indent -> go (virtualSymbolToken "}" anchor : acc) rest
-          | otherwise -> (reverse acc, contexts)
+        LayoutImplicit indent kind : rest
+          | shouldClose indent kind -> go (closeTok : acc) rest
         _ -> (reverse acc, contexts)
 
 closeAllImplicit :: [LayoutContext] -> SourceSpan -> [LexToken]
 closeAllImplicit contexts anchor =
   [virtualSymbolToken "}" anchor | ctx <- contexts, isImplicitLayoutContext ctx]
 
-closeLeadingImplicitLets :: SourceSpan -> [LayoutContext] -> ([LexToken], [LayoutContext])
-closeLeadingImplicitLets anchor contexts =
+closeLeadingImplicitLet :: SourceSpan -> [LayoutContext] -> ([LexToken], [LayoutContext])
+closeLeadingImplicitLet anchor contexts =
   case contexts of
-    LayoutImplicitLet _ : rest -> ([virtualSymbolToken "}" anchor], rest)
+    LayoutImplicit _ LayoutLetBlock : rest -> ([virtualSymbolToken "}" anchor], rest)
     _ -> ([], contexts)
 
--- | Close all implicit layout contexts up to (but not including) the first explicit context.
--- Used to implement the Haskell Report's "parse-error" rule for closing delimiters.
-closeAllImplicitBeforeDelimiter :: SourceSpan -> [LayoutContext] -> ([LexToken], [LayoutContext])
-closeAllImplicitBeforeDelimiter anchor = go []
-  where
-    go acc contexts =
-      case contexts of
-        LayoutImplicit _ : rest -> go (virtualSymbolToken "}" anchor : acc) rest
-        LayoutImplicitLet _ : rest -> go (virtualSymbolToken "}" anchor : acc) rest
-        LayoutImplicitAfterThenElse _ : rest -> go (virtualSymbolToken "}" anchor : acc) rest
-        _ -> (reverse acc, contexts)
-
--- | Close implicit layouts before commas.
--- - Always close leading LayoutImplicitLet contexts (for let guards like: | let x = 1, p x)
--- - If there's an explicit context (LayoutExplicit or LayoutDelimiter), also close
---   other implicit layouts up to it (for cases like: R { f = case y of A -> 1, g = 2 })
--- - If no explicit context, don't close LayoutImplicit (guard commas like: | p, q -> 1)
-closeImplicitBeforeComma :: SourceSpan -> [LayoutContext] -> ([LexToken], [LayoutContext])
-closeImplicitBeforeComma anchor contexts =
-  let -- First, close any leading LayoutImplicitLet contexts (original behavior)
-      (letInserted, afterLets) = closeLeadingImplicitLets anchor contexts
-      -- Then, if there's an explicit context, close remaining implicit layouts
-      (implicitInserted, afterImplicit) =
-        if hasExplicitContext afterLets
-          then closeAllImplicitBeforeDelimiter anchor afterLets
-          else ([], afterLets)
-   in (letInserted <> implicitInserted, afterImplicit)
-  where
-    hasExplicitContext :: [LayoutContext] -> Bool
-    hasExplicitContext = any isExplicitOrDelimiter
-    isExplicitOrDelimiter :: LayoutContext -> Bool
-    isExplicitOrDelimiter ctx =
-      case ctx of
-        LayoutExplicit -> True
-        LayoutDelimiter -> True
-        _ -> False
-
+-- | Update the layout state for the context changes caused by a token.
+-- This pushes/pops layout contexts for braces, brackets, keywords that
+-- open layout, etc.
 stepTokenContext :: LayoutState -> LexToken -> LayoutState
 stepTokenContext st tok =
   case lexTokenKind tok of
     TkKeywordDo
       | layoutPrevTokenKind st == Just TkKeywordThen
           || layoutPrevTokenKind st == Just TkKeywordElse ->
-          st {layoutPendingLayout = Just PendingLayoutAfterThenElse}
-      | otherwise -> st {layoutPendingLayout = Just PendingLayoutGeneric}
-    TkKeywordOf -> st {layoutPendingLayout = Just PendingLayoutGeneric}
-    TkKeywordRec -> st {layoutPendingLayout = Just PendingLayoutGeneric}
+          st {layoutPendingLayout = Just LayoutAfterThenElse}
+      | otherwise -> st {layoutPendingLayout = Just LayoutOrdinary}
+    TkKeywordOf -> st {layoutPendingLayout = Just LayoutOrdinary}
+    TkKeywordRec -> st {layoutPendingLayout = Just LayoutOrdinary}
     TkKeywordCase
       | layoutPrevTokenKind st == Just TkReservedBackslash ->
-          st {layoutPendingLayout = Just PendingLayoutGeneric}
+          st {layoutPendingLayout = Just LayoutOrdinary}
       | otherwise -> st
-    TkKeywordLet -> st {layoutPendingLayout = Just PendingLayoutLet}
-    TkKeywordWhere -> st {layoutPendingLayout = Just PendingLayoutGeneric}
-    TkSpecialLParen ->
-      st
-        { layoutDelimiterDepth = layoutDelimiterDepth st + 1,
-          layoutContexts = LayoutDelimiter : layoutContexts st
-        }
-    TkSpecialLBracket ->
-      st
-        { layoutDelimiterDepth = layoutDelimiterDepth st + 1,
-          layoutContexts = LayoutDelimiter : layoutContexts st
-        }
-    TkTHExpQuoteOpen ->
-      st
-        { layoutDelimiterDepth = layoutDelimiterDepth st + 1,
-          layoutContexts = LayoutDelimiter : layoutContexts st
-        }
-    TkTHTypedQuoteOpen ->
-      st
-        { layoutDelimiterDepth = layoutDelimiterDepth st + 1,
-          layoutContexts = LayoutDelimiter : layoutContexts st
-        }
-    TkTHDeclQuoteOpen ->
-      st
-        { layoutDelimiterDepth = layoutDelimiterDepth st + 1,
-          layoutContexts = LayoutDelimiter : layoutContexts st
-        }
-    TkTHTypeQuoteOpen ->
-      st
-        { layoutDelimiterDepth = layoutDelimiterDepth st + 1,
-          layoutContexts = LayoutDelimiter : layoutContexts st
-        }
-    TkTHPatQuoteOpen ->
-      st
-        { layoutDelimiterDepth = layoutDelimiterDepth st + 1,
-          layoutContexts = LayoutDelimiter : layoutContexts st
-        }
-    TkSpecialUnboxedLParen ->
-      st
-        { layoutDelimiterDepth = layoutDelimiterDepth st + 1,
-          layoutContexts = LayoutDelimiter : layoutContexts st
-        }
-    TkSpecialRParen ->
-      st
-        { layoutDelimiterDepth = max 0 (layoutDelimiterDepth st - 1),
-          layoutContexts = popToDelimiter (layoutContexts st)
-        }
-    TkSpecialUnboxedRParen ->
-      st
-        { layoutDelimiterDepth = max 0 (layoutDelimiterDepth st - 1),
-          layoutContexts = popToDelimiter (layoutContexts st)
-        }
-    TkSpecialRBracket ->
-      st
-        { layoutDelimiterDepth = max 0 (layoutDelimiterDepth st - 1),
-          layoutContexts = popToDelimiter (layoutContexts st)
-        }
-    TkTHExpQuoteClose ->
-      st
-        { layoutDelimiterDepth = max 0 (layoutDelimiterDepth st - 1),
-          layoutContexts = popToDelimiter (layoutContexts st)
-        }
-    TkTHTypedQuoteClose ->
-      st
-        { layoutDelimiterDepth = max 0 (layoutDelimiterDepth st - 1),
-          layoutContexts = popToDelimiter (layoutContexts st)
-        }
+    TkKeywordLet -> st {layoutPendingLayout = Just LayoutLetBlock}
+    TkKeywordWhere -> st {layoutPendingLayout = Just LayoutOrdinary}
+    kind
+      | opensDelimiter kind ->
+          st {layoutContexts = LayoutDelimiter : layoutContexts st}
+    kind
+      | closesDelimiter kind ->
+          st {layoutContexts = popToDelimiter (layoutContexts st)}
     TkSpecialLBrace -> st {layoutContexts = LayoutExplicit : layoutContexts st}
     TkSpecialRBrace -> st {layoutContexts = popOneContext (layoutContexts st)}
     _ -> st
@@ -967,19 +774,48 @@ currentLayoutIndent contexts = fromMaybe 0 (currentLayoutIndentMaybe contexts)
 currentLayoutIndentMaybe :: [LayoutContext] -> Maybe Int
 currentLayoutIndentMaybe contexts =
   case contexts of
-    LayoutImplicit indent : _ -> Just indent
-    LayoutImplicitLet indent : _ -> Just indent
-    LayoutImplicitAfterThenElse indent : _ -> Just indent
+    LayoutImplicit indent _ : _ -> Just indent
     _ -> Nothing
 
 isImplicitLayoutContext :: LayoutContext -> Bool
 isImplicitLayoutContext ctx =
   case ctx of
-    LayoutImplicit _ -> True
-    LayoutImplicitLet _ -> True
-    LayoutImplicitAfterThenElse _ -> True
+    LayoutImplicit _ _ -> True
     LayoutExplicit -> False
     LayoutDelimiter -> False
+
+opensDelimiter :: LexTokenKind -> Bool
+opensDelimiter kind =
+  case kind of
+    TkSpecialLParen -> True
+    TkSpecialLBracket -> True
+    TkTHExpQuoteOpen -> True
+    TkTHTypedQuoteOpen -> True
+    TkTHDeclQuoteOpen -> True
+    TkTHTypeQuoteOpen -> True
+    TkTHPatQuoteOpen -> True
+    TkSpecialUnboxedLParen -> True
+    _ -> False
+
+closesDelimiter :: LexTokenKind -> Bool
+closesDelimiter kind =
+  case kind of
+    TkSpecialRParen -> True
+    TkSpecialUnboxedRParen -> True
+    TkSpecialRBracket -> True
+    TkTHExpQuoteClose -> True
+    TkTHTypedQuoteClose -> True
+    _ -> False
+
+closesImplicitBeforeDelimiter :: LexTokenKind -> Bool
+closesImplicitBeforeDelimiter kind =
+  case kind of
+    TkSpecialRParen -> True
+    TkSpecialRBracket -> True
+    TkTHExpQuoteClose -> True
+    TkTHTypedQuoteClose -> True
+    TkSpecialRBrace -> True
+    _ -> False
 
 isBOL :: LayoutState -> LexToken -> Bool
 isBOL st tok =
@@ -1011,6 +847,174 @@ virtualSymbolToken sym span' =
       lexTokenSpan = span',
       lexTokenOrigin = InsertedLayout
     }
+
+-- ---------------------------------------------------------------------------
+-- Incremental lexer/layout API for parser-driven layout
+-- ---------------------------------------------------------------------------
+
+-- | Create an initial lexer state for incremental scanning.
+mkInitialLexerState :: FilePath -> [Extension] -> Text -> LexerState
+mkInitialLexerState sourceName exts input =
+  LexerState
+    { lexerInput = T.unpack input,
+      lexerLogicalSourceName = sourceName,
+      lexerLine = 1,
+      lexerCol = 1,
+      lexerByteOffset = 0,
+      lexerAtLineStart = True,
+      lexerPending = [],
+      lexerExtensions = exts,
+      lexerPrevTokenKind = Nothing,
+      lexerHadTrivia = True -- Start of file is treated as having leading trivia
+    }
+
+-- | Create an initial layout state.
+mkInitialLayoutState :: Bool -> LayoutState
+mkInitialLayoutState enableModuleLayout =
+  LayoutState
+    { layoutContexts = [],
+      layoutPendingLayout = Nothing,
+      layoutPrevLine = Nothing,
+      layoutPrevTokenKind = Nothing,
+      layoutModuleMode =
+        if enableModuleLayout
+          then ModuleLayoutSeekStart
+          else ModuleLayoutOff,
+      layoutPrevTokenEndSpan = Nothing,
+      layoutBuffer = []
+    }
+
+-- | Produce the next token from the combined lexer+layout state machine.
+--
+-- This drives the lexer and layout engine one token at a time. The layout
+-- engine may produce multiple virtual tokens (braces, semicolons) for a single
+-- raw token; these are buffered in 'layoutBuffer' and drained one at a time.
+--
+-- Returns @Nothing@ when input is exhausted and all closing tokens have been
+-- emitted (i.e., after the 'TkEOF' token has already been returned by a
+-- previous call).
+stepNextToken :: LexerState -> LayoutState -> Maybe (LexToken, LexerState, LayoutState)
+stepNextToken lexSt laySt =
+  case layoutBuffer laySt of
+    -- Drain buffered tokens first
+    tok : rest ->
+      Just (tok, lexSt, laySt {layoutBuffer = rest})
+    [] ->
+      -- Scan next raw token, run layout engine, buffer results
+      case scanOneToken lexSt of
+        Nothing -> Nothing -- input exhausted & EOF already emitted
+        Just (rawTok, lexSt') ->
+          let (allToks, laySt') = layoutTransition laySt rawTok
+           in case allToks of
+                [] -> Just (rawTok, lexSt', laySt') -- shouldn't happen, but be safe
+                first : rest ->
+                  Just (first, lexSt', laySt' {layoutBuffer = rest})
+
+-- | Scan exactly one raw token from the lexer state (no layout processing).
+-- Returns @Nothing@ when the lexer is past EOF (i.e., EOF token was already emitted).
+scanOneToken :: LexerState -> Maybe (LexToken, LexerState)
+scanOneToken st0 =
+  case lexerPending st0 of
+    tok : rest ->
+      let st0' = st0 {lexerPending = rest, lexerPrevTokenKind = Just (lexTokenKind tok), lexerHadTrivia = False}
+       in Just (tok, st0')
+    [] ->
+      let st = skipTrivia st0
+       in case lexerPending st of
+            tok : rest ->
+              let st' = st {lexerPending = rest, lexerPrevTokenKind = Just (lexTokenKind tok), lexerHadTrivia = False}
+               in Just (tok, st')
+            []
+              | null (lexerInput st) ->
+                  -- Check if we should emit EOF or if we already did
+                  -- We use a sentinel: if prevTokenKind is Just TkEOF, we already emitted it
+                  case lexerPrevTokenKind st of
+                    Just TkEOF -> Nothing
+                    _ ->
+                      let eofSpan =
+                            SourceSpan
+                              { sourceSpanSourceName = lexerLogicalSourceName st,
+                                sourceSpanStartLine = lexerLine st,
+                                sourceSpanStartCol = lexerCol st,
+                                sourceSpanEndLine = lexerLine st,
+                                sourceSpanEndCol = lexerCol st,
+                                sourceSpanStartOffset = lexerByteOffset st,
+                                sourceSpanEndOffset = lexerByteOffset st
+                              }
+                          eofToken =
+                            LexToken
+                              { lexTokenKind = TkEOF,
+                                lexTokenText = "",
+                                lexTokenSpan = eofSpan,
+                                lexTokenOrigin = FromSource
+                              }
+                          st' = st {lexerPrevTokenKind = Just TkEOF, lexerHadTrivia = False}
+                       in Just (eofToken, st')
+              | otherwise ->
+                  let (tok, st') = nextToken st
+                      st'' = st' {lexerPrevTokenKind = Just (lexTokenKind tok), lexerHadTrivia = False}
+                   in Just (tok, st'')
+
+layoutTransition :: LayoutState -> LexToken -> ([LexToken], LayoutState)
+layoutTransition st tok =
+  case lexTokenKind tok of
+    TkEOF ->
+      let eofAnchor = fromMaybe (lexTokenSpan tok) (layoutPrevTokenEndSpan st)
+          (moduleInserted, stAfterModule) = finalizeModuleLayoutAtEOF st eofAnchor
+       in ( moduleInserted <> closeAllImplicit (layoutContexts stAfterModule) eofAnchor <> [tok],
+            stAfterModule {layoutContexts = [], layoutBuffer = []}
+          )
+    _ ->
+      let stModule = noteModuleLayoutBeforeToken st tok
+          (preInserted, stBeforePending) = closeBeforeToken stModule tok
+          (pendingInserted, stAfterPending, skipBOL) = openPendingLayout stBeforePending tok
+          (bolInserted, stAfterBOL) = if skipBOL then ([], stAfterPending) else bolLayout stAfterPending tok
+          stAfterToken = noteModuleLayoutAfterToken (stepTokenContext stAfterBOL tok) tok
+          -- Track end span of real (non-virtual) tokens for BOL anchoring
+          newEndSpan =
+            if lexTokenOrigin tok == FromSource
+              then Just (lexTokenSpan tok)
+              else layoutPrevTokenEndSpan stAfterToken
+          stNext =
+            stAfterToken
+              { layoutPrevLine = Just (tokenStartLine tok),
+                layoutPrevTokenKind = Just (lexTokenKind tok),
+                layoutPrevTokenEndSpan = newEndSpan,
+                layoutBuffer = []
+              }
+       in (preInserted <> pendingInserted <> bolInserted <> [tok], stNext)
+
+-- | Close the innermost implicit layout context, as if a virtual @}@ was inserted.
+-- This implements the parse-error rule: when the parser encounters a token that
+-- is illegal in the current context but @}@ would be legal, it calls this to
+-- close the innermost implicit layout context.
+--
+-- The virtual @}@ token is buffered in the layout state so that the next call
+-- to 'stepNextToken' will produce it.
+--
+-- Returns @Nothing@ if there is no implicit layout context to close.
+closeImplicitLayoutContext :: LayoutState -> Maybe LayoutState
+closeImplicitLayoutContext st =
+  case layoutContexts st of
+    LayoutImplicit _ _ : rest -> Just (closeWith rest)
+    _ -> Nothing
+  where
+    anchor = fromMaybe noSpan (layoutPrevTokenEndSpan st)
+    noSpan =
+      SourceSpan
+        { sourceSpanSourceName = "",
+          sourceSpanStartLine = 0,
+          sourceSpanStartCol = 0,
+          sourceSpanEndLine = 0,
+          sourceSpanEndCol = 0,
+          sourceSpanStartOffset = 0,
+          sourceSpanEndOffset = 0
+        }
+    closeWith rest =
+      st
+        { layoutContexts = rest,
+          layoutBuffer = layoutBuffer st <> [virtualSymbolToken "}" anchor]
+        }
 
 lexKnownPragma :: LexerState -> Maybe (LexToken, LexerState)
 lexKnownPragma st

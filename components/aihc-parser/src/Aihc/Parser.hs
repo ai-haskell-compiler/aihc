@@ -35,12 +35,9 @@ import Aihc.Parser.Internal.Module (moduleParser)
 import Aihc.Parser.Lex
   ( LexToken (..),
     TokenOrigin (..),
-    lexModuleTokensWithSourceNameAndExtensions,
-    lexTokensWithSourceNameAndExtensions,
-    readModuleHeaderExtensions,
   )
 import Aihc.Parser.Pretty ()
-import Aihc.Parser.Syntax (Expr, Extension (..), ExtensionSetting (..), Module, Pattern, SourceSpan (..), Type)
+import Aihc.Parser.Syntax (Expr, Module, Pattern, SourceSpan (..), Type)
 import Aihc.Parser.Types
 import Data.ByteString qualified as BS
 import Data.List qualified as List
@@ -94,8 +91,8 @@ defaultConfig =
 -- "error"
 parseExpr :: ParserConfig -> Text -> ParseResult Expr
 parseExpr cfg input =
-  let toks = lexTokensWithSourceNameAndExtensions (parserSourceName cfg) (parserExtensions cfg) input
-   in case runParser (exprParser <* eofTok) (parserSourceName cfg) (mkTokStreamWithExtensions toks (parserExtensions cfg)) of
+  let ts = mkTokStream (parserSourceName cfg) (parserExtensions cfg) input
+   in case runParser (exprParser <* eofTok) (parserSourceName cfg) ts of
         Left bundle -> ParseErr bundle
         Right expr -> ParseOk expr
 
@@ -108,8 +105,8 @@ parseExpr cfg input =
 -- ParseOk (PCon "Just" [PVar "x"])
 parsePattern :: ParserConfig -> Text -> ParseResult Pattern
 parsePattern cfg input =
-  let toks = lexTokensWithSourceNameAndExtensions (parserSourceName cfg) (parserExtensions cfg) input
-   in case runParser (patternParser <* eofTok) (parserSourceName cfg) (mkTokStreamWithExtensions toks (parserExtensions cfg)) of
+  let ts = mkTokStream (parserSourceName cfg) (parserExtensions cfg) input
+   in case runParser (patternParser <* eofTok) (parserSourceName cfg) ts of
         Left bundle -> ParseErr bundle
         Right pat -> ParseOk pat
 
@@ -122,8 +119,8 @@ parsePattern cfg input =
 -- ParseOk (TApp (TCon "Maybe") (TVar "a"))
 parseType :: ParserConfig -> Text -> ParseResult Type
 parseType cfg input =
-  let toks = lexTokensWithSourceNameAndExtensions (parserSourceName cfg) (parserExtensions cfg) input
-   in case runParser (typeParser <* eofTok) (parserSourceName cfg) (mkTokStreamWithExtensions toks (parserExtensions cfg)) of
+  let ts = mkTokStream (parserSourceName cfg) (parserExtensions cfg) input
+   in case runParser (typeParser <* eofTok) (parserSourceName cfg) ts of
         Left bundle -> ParseErr bundle
         Right ty -> ParseOk ty
 
@@ -138,25 +135,10 @@ parseType cfg input =
 -- Nothing
 parseModule :: ParserConfig -> Text -> ParseResult Module
 parseModule cfg input =
-  let toks = lexModuleTokensWithSourceNameAndExtensions (parserSourceName cfg) effectiveExtensions input
-   in case runParser (moduleParser <* eofTok) (parserSourceName cfg) (mkTokStreamWithExtensions toks effectiveExtensions) of
+  let ts = mkTokStreamModule (parserSourceName cfg) (parserExtensions cfg) input
+   in case runParser (moduleParser <* eofTok) (parserSourceName cfg) ts of
         Left bundle -> ParseErr bundle
         Right modu -> ParseOk modu
-  where
-    effectiveExtensions =
-      applyExtensionSettings
-        (parserExtensions cfg)
-        (readModuleHeaderExtensions input)
-
-applyExtensionSettings :: [Extension] -> [ExtensionSetting] -> [Extension]
-applyExtensionSettings = List.foldl' applySetting
-  where
-    applySetting exts setting =
-      case setting of
-        EnableExtension ext
-          | ext `elem` exts -> exts
-          | otherwise -> exts <> [ext]
-        DisableExtension ext -> filter (/= ext) exts
 
 -- | Pretty-print a parse error bundle.
 errorBundlePretty :: Maybe Text -> ParseErrorBundle -> String

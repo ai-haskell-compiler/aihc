@@ -1,11 +1,13 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeFamilies #-}
 
 module Aihc.Parser.Types
   ( TokStream (..),
     mkTokStream,
-    mkTokStreamWithExtensions,
+    mkTokStreamModule,
+    mkTokStreamFromTokens,
     ParserErrorComponent (..),
     FoundToken (..),
     mkFoundToken,
@@ -16,10 +18,20 @@ module Aihc.Parser.Types
   )
 where
 
-import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), TokenOrigin (..))
+import Aihc.Parser.Lex
+  ( LayoutState (..),
+    LexToken (..),
+    LexTokenKind (..),
+    LexerState (..),
+    TokenOrigin (..),
+    enabledExtensionsFromSettings,
+    mkInitialLayoutState,
+    mkInitialLexerState,
+    readModuleHeaderExtensionsFromChunks,
+    stepNextToken,
+  )
 import Aihc.Parser.Syntax (Extension, SourceSpan (..))
 import Control.DeepSeq (NFData (..))
-import Data.List (unsnoc)
 import Data.List.NonEmpty qualified as NE
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -66,25 +78,132 @@ lexerErrorBundle sourcePath message =
   MPE.ParseErrorBundle
     (NE.singleton (MPE.FancyError 0 (Set.singleton (MPE.ErrorFail message))))
     MP.PosState
-      { MP.pstateInput = TokStream [] Nothing [],
+      { MP.pstateInput = emptyTokStream sourcePath,
         MP.pstateOffset = 0,
         MP.pstateSourcePos = SourcePos sourcePath (mkPos 1) (mkPos 1),
         MP.pstateTabWidth = mkPos 8,
         MP.pstateLinePrefix = ""
       }
 
+-- | Token stream that lazily produces tokens from the lexer+layout state machine.
+--
+-- Instead of holding a pre-computed @[LexToken]@, this type contains the lexer
+-- and layout state machines. Tokens are produced on demand via the 'Stream'
+-- instance. This allows the parser to influence layout decisions (e.g., by
+-- closing implicit layout contexts via 'closeImplicitLayoutContext').
 data TokStream = TokStream
-  { tokStreamTokens :: [LexToken],
+  { tokStreamLexerState :: LexerState,
+    tokStreamLayoutState :: LayoutState,
     tokStreamPrevToken :: Maybe LexToken,
-    tokStreamExtensions :: [Extension]
+    tokStreamExtensions :: [Extension],
+    -- | Whether this stream has already emitted TkEOF.
+    -- After EOF is emitted, 'take1_' returns Nothing.
+    tokStreamEOFEmitted :: !Bool
   }
-  deriving (Eq, Ord, Show, Generic, NFData)
 
-mkTokStream :: [LexToken] -> TokStream
-mkTokStream toks = TokStream toks Nothing []
+-- Manual Eq instance (LexerState, LayoutState have Eq already)
+instance Eq TokStream where
+  a == b =
+    tokStreamLexerState a == tokStreamLexerState b
+      && tokStreamLayoutState a == tokStreamLayoutState b
+      && tokStreamPrevToken a == tokStreamPrevToken b
+      && tokStreamExtensions a == tokStreamExtensions b
+      && tokStreamEOFEmitted a == tokStreamEOFEmitted b
 
-mkTokStreamWithExtensions :: [LexToken] -> [Extension] -> TokStream
-mkTokStreamWithExtensions toks = TokStream toks Nothing
+-- Manual Ord instance
+instance Ord TokStream where
+  compare a b =
+    compare (tokStreamEOFEmitted a) (tokStreamEOFEmitted b)
+
+-- Manual Show instance
+instance Show TokStream where
+  show ts =
+    "TokStream { eofEmitted = "
+      <> show (tokStreamEOFEmitted ts)
+      <> ", prevToken = "
+      <> show (tokStreamPrevToken ts)
+      <> ", extensions = "
+      <> show (tokStreamExtensions ts)
+      <> " }"
+
+-- Manual NFData instance
+instance NFData TokStream where
+  rnf ts =
+    rnf (tokStreamPrevToken ts) `seq`
+      rnf (tokStreamExtensions ts) `seq`
+        rnf (tokStreamEOFEmitted ts)
+
+-- | An empty TokStream for error reporting purposes.
+emptyTokStream :: FilePath -> TokStream
+emptyTokStream sourcePath =
+  TokStream
+    { tokStreamLexerState = mkInitialLexerState sourcePath [] "",
+      tokStreamLayoutState = mkInitialLayoutState False,
+      tokStreamPrevToken = Nothing,
+      tokStreamExtensions = [],
+      tokStreamEOFEmitted = True
+    }
+
+-- | Create a TokStream for parsing expressions/declarations (no module layout).
+mkTokStream :: FilePath -> [Extension] -> Text -> TokStream
+mkTokStream sourceName exts input =
+  TokStream
+    { tokStreamLexerState = mkInitialLexerState sourceName exts input,
+      tokStreamLayoutState = mkInitialLayoutState False,
+      tokStreamPrevToken = Nothing,
+      tokStreamExtensions = exts,
+      tokStreamEOFEmitted = False
+    }
+
+-- | Create a TokStream for parsing full modules (with module-body layout).
+-- Also bootstraps LANGUAGE pragma extensions from the module header.
+mkTokStreamModule :: FilePath -> [Extension] -> Text -> TokStream
+mkTokStreamModule sourceName baseExts input =
+  TokStream
+    { tokStreamLexerState = mkInitialLexerState sourceName effectiveExts input,
+      tokStreamLayoutState = mkInitialLayoutState True,
+      tokStreamPrevToken = Nothing,
+      tokStreamExtensions = effectiveExts,
+      tokStreamEOFEmitted = False
+    }
+  where
+    headerExts = enabledExtensionsFromSettings (readModuleHeaderExtensionsFromChunks [input])
+    effectiveExts = baseExts <> [ext | ext <- headerExts, ext `notElem` baseExts]
+
+-- | Create a TokStream from pre-lexed tokens (for testing/compatibility).
+-- Layout tokens must already be inserted in the token list.
+mkTokStreamFromTokens :: [LexToken] -> TokStream
+mkTokStreamFromTokens toks =
+  TokStream
+    { tokStreamLexerState = mkInitialLexerState "<tokens>" [] "",
+      tokStreamLayoutState =
+        (mkInitialLayoutState False)
+          { layoutBuffer = toks
+          },
+      tokStreamPrevToken = Nothing,
+      tokStreamExtensions = [],
+      tokStreamEOFEmitted = False
+    }
+
+-- | Step one token from the stream. This is the core primitive used by all
+-- Stream methods.
+stepOne :: TokStream -> Maybe (LexToken, TokStream)
+stepOne ts
+  | tokStreamEOFEmitted ts = Nothing
+  | otherwise =
+      case stepNextToken (tokStreamLexerState ts) (tokStreamLayoutState ts) of
+        Nothing -> Nothing
+        Just (tok, lexSt', laySt') ->
+          let isEOF = lexTokenKind tok == TkEOF
+           in Just
+                ( tok,
+                  ts
+                    { tokStreamLexerState = lexSt',
+                      tokStreamLayoutState = laySt',
+                      tokStreamPrevToken = Just tok,
+                      tokStreamEOFEmitted = isEOF
+                    }
+                )
 
 instance Stream TokStream where
   type Token TokStream = LexToken
@@ -96,21 +215,32 @@ instance Stream TokStream where
   chunkLength _ = length
   chunkEmpty _ = null
 
-  take1_ (TokStream toks _prevToken exts) =
-    case toks of
-      [] -> Nothing
-      tok : rest -> Just (tok, TokStream rest (Just tok) exts)
+  take1_ = stepOne
 
-  takeN_ n (TokStream toks prevToken exts)
-    | n <= 0 = Just ([], TokStream toks prevToken exts)
-    | null toks = Nothing
+  takeN_ n ts
+    | n <= 0 = Just ([], ts)
     | otherwise =
-        let (chunk, rest) = splitAt n toks
-         in Just (chunk, TokStream rest (Just (last chunk)) exts)
+        case stepOne ts of
+          Nothing -> Nothing
+          Just (tok, ts') ->
+            let go 1 acc s = Just (reverse (tok : acc), s)
+                go k acc s =
+                  case stepOne s of
+                    Nothing -> Just (reverse (tok : acc), s)
+                    Just (t, s') -> go (k - 1) (t : acc) s'
+             in go n [] ts'
 
-  takeWhile_ f (TokStream toks _prevToken exts) =
-    let (chunk, rest) = span f toks
-     in (chunk, TokStream rest (fmap snd (unsnoc chunk)) exts)
+  takeWhile_ f =
+    go []
+    where
+      go acc s =
+        case stepOne s of
+          Nothing -> (reverse acc, s)
+          Just (tok, s')
+            | f tok -> go (tok : acc) s'
+            | otherwise ->
+                -- Put the non-matching token back by using the pre-step state
+                (reverse acc, s)
 
 instance VisualStream TokStream where
   showTokens _ toks =
@@ -119,25 +249,34 @@ instance VisualStream TokStream where
 instance TraversableStream TokStream where
   reachOffset o pst =
     let currOff = MP.pstateOffset pst
-        currInput = tokStreamTokens (MP.pstateInput pst)
-        currExts = tokStreamExtensions (MP.pstateInput pst)
         advance = max 0 (o - currOff)
-        (consumed, rest) = splitAt advance currInput
+        -- Advance the stream by consuming 'advance' tokens, collecting them
+        (consumed, advancedStream) = advanceN advance (MP.pstateInput pst)
         currPos = MP.pstateSourcePos pst
-        newPos =
-          case rest of
-            tok : _ -> sourcePosFromStartSpan (sourceName currPos) (lexTokenSpan tok)
-            [] ->
-              case reverse consumed of
-                tok : _ -> sourcePosFromEndSpan (sourceName currPos) (lexTokenSpan tok)
-                [] -> currPos
+        -- Compute new position from the next token or last consumed token
+        newPos = case stepOne advancedStream of
+          Just (tok, _) -> sourcePosFromStartSpan (sourceName currPos) (lexTokenSpan tok)
+          Nothing ->
+            case consumed of
+              _ : _ -> sourcePosFromEndSpan (sourceName currPos) (lexTokenSpan (last consumed))
+              [] -> currPos
         pst' =
           pst
-            { MP.pstateInput = TokStream rest Nothing currExts,
+            { MP.pstateInput = advancedStream,
               MP.pstateOffset = currOff + advance,
               MP.pstateSourcePos = newPos
             }
      in (Nothing, pst')
+
+-- | Advance a TokStream by n tokens, returning the consumed tokens.
+advanceN :: Int -> TokStream -> ([LexToken], TokStream)
+advanceN n = go n []
+  where
+    go 0 acc s = (reverse acc, s)
+    go k acc s =
+      case stepOne s of
+        Nothing -> (reverse acc, s)
+        Just (tok, s') -> go (k - 1) (tok : acc) s'
 
 sourcePosFromStartSpan :: FilePath -> SourceSpan -> SourcePos
 sourcePosFromStartSpan file span' =
