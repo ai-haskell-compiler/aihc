@@ -21,7 +21,6 @@ import Data.Char (isSpace)
 import Data.List (dropWhileEnd, sort, sortOn)
 import Data.Text (Text)
 import qualified Data.Text as T
-import qualified Data.Text.IO as TIO
 import qualified Data.Text.IO.Utf8 as Utf8
 import GhcOracle (oracleModuleAstFingerprint)
 import ParserValidation (validateParser)
@@ -70,7 +69,7 @@ finalizeOutcome meta oracleOk roundtripOk =
 
 evaluateCaseFromFile :: CaseMeta -> IO (CaseMeta, Outcome, String)
 evaluateCaseFromFile meta = do
-  source <- TIO.readFile (caseSourcePath meta)
+  source <- Utf8.readFile (caseSourcePath meta)
   pure (evaluateCaseText meta source)
 
 evaluateCaseText :: CaseMeta -> Text -> (CaseMeta, Outcome, String)
