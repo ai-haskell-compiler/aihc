@@ -1,0 +1,24 @@
+extensions: [DoAndIfThenElse]
+input: |
+  if True
+    then do
+    error "err"
+    else do
+    error "blah"
+tokens:
+  - 'TkKeywordIf'
+  - 'TkConId "True"'
+  - 'TkKeywordThen'
+  - 'TkKeywordDo'
+  - 'TkSpecialLBrace'
+  - 'TkVarId "error"'
+  - 'TkString "err"'
+  - 'TkSpecialRBrace'
+  - 'TkKeywordElse'
+  - 'TkKeywordDo'
+  - 'TkSpecialLBrace'
+  - 'TkVarId "error"'
+  - 'TkString "blah"'
+  - 'TkSpecialRBrace'
+  - 'TkEOF'
+status: pass
