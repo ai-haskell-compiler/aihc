@@ -12,6 +12,7 @@ module ParserErrorGolden
 where
 
 import Aihc.Parser (ParseResult (..), ParserConfig (..), defaultConfig, errorBundlePretty, parseModule)
+import qualified Aihc.Parser.Syntax as Syntax
 import Data.Aeson ((.:))
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KeyMap
@@ -23,7 +24,7 @@ import qualified Data.Text as T
 import Data.Text.Encoding (encodeUtf8)
 import qualified Data.Text.IO as TIO
 import qualified Data.Yaml as Y
-import GhcOracle (oracleModuleParseErrorWithNamesAt)
+import GhcOracle (oracleModuleAstFingerprint)
 import System.Directory (doesDirectoryExist, listDirectory)
 import System.FilePath (makeRelative, takeDirectory, takeExtension, (</>))
 
@@ -115,10 +116,10 @@ evaluateErrorMessageCase meta =
 
 ghcMismatch :: ErrorMessageCase -> Maybe String
 ghcMismatch meta =
-  case oracleModuleParseErrorWithNamesAt sourceName [] Nothing (caseSource meta) of
-    Left details ->
-      Just ("expected GHC parse failure, but parser accepted the input: " <> T.unpack details)
-    Right actual
+  case oracleModuleAstFingerprint sourceName Syntax.Haskell2010Edition [] (caseSource meta) of
+    Right {} ->
+      Just "expected GHC parse failure, but parser accepted the input."
+    Left actual
       | normalizeText actual == caseExpectedGhc meta -> Nothing
       | otherwise ->
           Just

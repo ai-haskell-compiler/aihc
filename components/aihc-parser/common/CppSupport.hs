@@ -24,7 +24,7 @@ import Aihc.Cpp
     preprocess,
   )
 import Aihc.Parser.Lex (readModuleHeaderExtensions, readModuleHeaderPragmas)
-import Aihc.Parser.Syntax (Extension (CPP), ExtensionSetting (..), ModuleHeaderPragmas (..), parseExtensionSettingName)
+import Aihc.Parser.Syntax (Extension (CPP), ExtensionSetting (..), ModuleHeaderPragmas (..))
 import Data.Char (isAsciiLower, isAsciiUpper, isDigit, toLower)
 import Data.Functor.Identity (Identity (..), runIdentity)
 import qualified Data.Map.Strict as M
@@ -56,7 +56,7 @@ preprocessForParserWithoutIncludes :: FilePath -> Text -> Result
 preprocessForParserWithoutIncludes inputFile source =
   runIdentity (preprocessForParser inputFile (\_ -> Identity Nothing) source)
 
-preprocessForParserIfEnabled :: (Monad m) => [String] -> [String] -> FilePath -> (IncludeRequest -> m (Maybe Text)) -> Text -> m Result
+preprocessForParserIfEnabled :: (Monad m) => [ExtensionSetting] -> [String] -> FilePath -> (IncludeRequest -> m (Maybe Text)) -> Text -> m Result
 preprocessForParserIfEnabled globalExtensionNames cppOptions inputFile resolveInclude source =
   let normalizedSource = normalizeSourceForParser inputFile source
       shouldPreprocess = cppEnabledInSourceWithGlobals globalExtensionNames normalizedSource
@@ -64,7 +64,7 @@ preprocessForParserIfEnabled globalExtensionNames cppOptions inputFile resolveIn
         then preprocessForParserWithCppOptions cppOptions inputFile resolveInclude normalizedSource
         else pure Result {resultOutput = normalizedSource, resultDiagnostics = []}
 
-preprocessForParserWithoutIncludesIfEnabled :: [String] -> [String] -> FilePath -> Text -> Result
+preprocessForParserWithoutIncludesIfEnabled :: [ExtensionSetting] -> [String] -> FilePath -> Text -> Result
 preprocessForParserWithoutIncludesIfEnabled globalExtensionNames cppOptions inputFile source =
   runIdentity (preprocessForParserIfEnabled globalExtensionNames cppOptions inputFile (\_ -> Identity Nothing) source)
 
@@ -77,13 +77,10 @@ moduleHeaderPragmas = readModuleHeaderPragmas
 cppEnabledInSource :: Text -> Bool
 cppEnabledInSource = cppEnabledInSettings . moduleHeaderExtensionSettings
 
-cppEnabledInSourceWithGlobals :: [String] -> Text -> Bool
+cppEnabledInSourceWithGlobals :: [ExtensionSetting] -> Text -> Bool
 cppEnabledInSourceWithGlobals globalExtensionNames source =
-  cppEnabledInSettings (settingsFromExtensionNames globalExtensionNames)
+  cppEnabledInSettings globalExtensionNames
     || cppEnabledInSettings (moduleHeaderExtensionSettings source)
-
-settingsFromExtensionNames :: [String] -> [ExtensionSetting]
-settingsFromExtensionNames = mapMaybe (parseExtensionSettingName . T.pack)
 
 cppEnabledInSettings :: [ExtensionSetting] -> Bool
 cppEnabledInSettings = foldl apply False

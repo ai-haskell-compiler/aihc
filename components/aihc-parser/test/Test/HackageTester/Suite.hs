@@ -6,12 +6,13 @@ module Test.HackageTester.Suite
 where
 
 import Aihc.Cpp (IncludeKind (..), IncludeRequest (..), Result (..))
+import qualified Aihc.Parser.Syntax as Syntax
 import Control.Exception (bracket)
 import CppSupport (preprocessForParserIfEnabled)
 import qualified Data.ByteString as BS
 import Data.List (isSuffixOf)
 import qualified Data.Text as T
-import GhcOracle (oracleDetailedParsesModuleWithNamesAt)
+import GhcOracle (oracleModuleAstFingerprint)
 import HackageSupport (fileInfoPath, findTargetFilesFromCabal, resolveIncludeBestEffort)
 import HackageTester.CLI (Options (..), parseOptionsPure)
 import HackageTester.Model (FileResult (..), Outcome (..), Summary (..), shouldFailSummary, summarizeResults)
@@ -113,12 +114,12 @@ test_zeroFilesFails =
 
 test_oracleAcceptsNoPrefixedLanguagePragma :: Assertion
 test_oracleAcceptsNoPrefixedLanguagePragma =
-  case oracleDetailedParsesModuleWithNamesAt "hackage-tester" [] Nothing source of
+  case oracleModuleAstFingerprint "hackage-tester" Syntax.Haskell2010Edition [] source of
     Left err ->
       assertBool
         ("expected NoMonomorphismRestriction pragma to be accepted, got: " <> T.unpack err)
         False
-    Right () -> pure ()
+    Right {} -> pure ()
   where
     source =
       T.unlines
@@ -129,12 +130,12 @@ test_oracleAcceptsNoPrefixedLanguagePragma =
 
 test_oracleAcceptsHaskell2010LanguagePragma :: Assertion
 test_oracleAcceptsHaskell2010LanguagePragma =
-  case oracleDetailedParsesModuleWithNamesAt "hackage-tester" [] Nothing source of
+  case oracleModuleAstFingerprint "hackage-tester" Syntax.Haskell2010Edition [] source of
     Left err ->
       assertBool
         ("expected Haskell2010 language pragma to be accepted, got: " <> T.unpack err)
         False
-    Right () -> pure ()
+    Right {} -> pure ()
   where
     source =
       T.unlines
@@ -145,12 +146,12 @@ test_oracleAcceptsHaskell2010LanguagePragma =
 
 test_oracleAcceptsMixedCaseLanguagePragma :: Assertion
 test_oracleAcceptsMixedCaseLanguagePragma =
-  case oracleDetailedParsesModuleWithNamesAt "hackage-tester" [] Nothing source of
+  case oracleModuleAstFingerprint "hackage-tester" Syntax.Haskell2010Edition [] source of
     Left err ->
       assertBool
         ("expected mixed-case BlockArguments pragma to be accepted, got: " <> T.unpack err)
         False
-    Right () -> pure ()
+    Right {} -> pure ()
   where
     source =
       T.unlines
@@ -162,12 +163,12 @@ test_oracleAcceptsMixedCaseLanguagePragma =
 
 test_oracleAcceptsNondecreasingIndentationPragma :: Assertion
 test_oracleAcceptsNondecreasingIndentationPragma =
-  case oracleDetailedParsesModuleWithNamesAt "hackage-tester" [] Nothing source of
+  case oracleModuleAstFingerprint "hackage-tester" Syntax.Haskell2010Edition [] source of
     Left err ->
       assertBool
         ("expected NondecreasingIndentation pragma to be accepted, got: " <> T.unpack err)
         False
-    Right () -> pure ()
+    Right {} -> pure ()
   where
     source =
       T.unlines
@@ -181,12 +182,12 @@ test_oracleAcceptsNondecreasingIndentationPragma =
 
 test_oracleAppliesImpliedExtensions :: Assertion
 test_oracleAppliesImpliedExtensions =
-  case oracleDetailedParsesModuleWithNamesAt "hackage-tester" [] Nothing source of
+  case oracleModuleAstFingerprint "hackage-tester" Syntax.Haskell2010Edition [] source of
     Left err ->
       assertBool
         ("expected ScopedTypeVariables to imply ExplicitForAll, got: " <> T.unpack err)
         False
-    Right () -> pure ()
+    Right {} -> pure ()
   where
     source =
       T.unlines
@@ -198,12 +199,12 @@ test_oracleAppliesImpliedExtensions =
 
 test_oracleDefaultsToHaskell2010 :: Assertion
 test_oracleDefaultsToHaskell2010 =
-  case oracleDetailedParsesModuleWithNamesAt "hackage-tester" [] Nothing source of
+  case oracleModuleAstFingerprint "hackage-tester" Syntax.Haskell2010Edition [] source of
     Left err ->
       assertBool
         ("expected omitted language to default to Haskell2010 record syntax, got: " <> T.unpack err)
         False
-    Right () -> pure ()
+    Right {} -> pure ()
   where
     source =
       T.unlines
@@ -213,12 +214,12 @@ test_oracleDefaultsToHaskell2010 =
 
 test_oracleUsesHaskell2010Defaults :: Assertion
 test_oracleUsesHaskell2010Defaults =
-  case oracleDetailedParsesModuleWithNamesAt "hackage-tester" [] (Just "Haskell2010") source of
+  case oracleModuleAstFingerprint "hackage-tester" Syntax.Haskell2010Edition [] source of
     Left err ->
       assertBool
         ("expected Haskell2010 defaults to enable traditional record syntax, got: " <> T.unpack err)
         False
-    Right () -> pure ()
+    Right {} -> pure ()
   where
     source =
       T.unlines
@@ -228,12 +229,12 @@ test_oracleUsesHaskell2010Defaults =
 
 test_oracleUsesHaskell98FallbackDefaults :: Assertion
 test_oracleUsesHaskell98FallbackDefaults =
-  case oracleDetailedParsesModuleWithNamesAt "hackage-tester" [] (Just "Haskell98") source of
+  case oracleModuleAstFingerprint "hackage-tester" Syntax.Haskell98Edition [] source of
     Left err ->
       assertBool
         ("expected Haskell98 fallback defaults to allow nondecreasing indentation, got: " <> T.unpack err)
         False
-    Right () -> pure ()
+    Right {} -> pure ()
   where
     source =
       T.unlines
@@ -246,12 +247,12 @@ test_oracleUsesHaskell98FallbackDefaults =
 
 test_oracleHandlesCppDefinedLanguagePragmas :: Assertion
 test_oracleHandlesCppDefinedLanguagePragmas =
-  case oracleDetailedParsesModuleWithNamesAt "hackage-tester" [] Nothing source of
+  case oracleModuleAstFingerprint "hackage-tester" Syntax.Haskell2010Edition [] source of
     Left err ->
       assertBool
         ("expected oracle to honor CPP-defined LANGUAGE pragmas, got: " <> T.unpack err)
         False
-    Right () -> pure ()
+    Right {} -> pure ()
   where
     source =
       T.unlines

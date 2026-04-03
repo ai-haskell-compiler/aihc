@@ -4,20 +4,13 @@ module ParserValidation
   ( ValidationErrorKind (..),
     ValidationError (..),
     validateParser,
-    validateParserWithExtensions,
-    validateParserDetailed,
-    validateParserDetailedWithExtensions,
-    validateParserDetailedWithExtensionNames,
-    validateParserDetailedWithParserExtensions,
   )
 where
 
 import Aihc.Parser (ParseResult (..), ParserConfig (..), defaultConfig, errorBundlePretty, parseModule)
 import qualified Aihc.Parser.Syntax as Syntax
-import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
-import GHC.LanguageExtensions.Type (Extension)
 import qualified GhcOracle
 import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.Text (renderStrict)
@@ -31,49 +24,17 @@ data ValidationError = ValidationError
   { validationErrorKind :: ValidationErrorKind,
     validationErrorMessage :: String
   }
-  deriving (Eq, Show)
+  deriving (Eq)
 
-validateParser :: Text -> Maybe String
-validateParser = fmap validationErrorMessage . validateParserDetailed
-
-validateParserWithExtensions :: [Extension] -> Text -> Maybe String
-validateParserWithExtensions exts = fmap validationErrorMessage . validateParserDetailedWithExtensions exts
-
-validateParserDetailed :: Text -> Maybe ValidationError
-validateParserDetailed = validateParserDetailedWithExtensions []
-
--- | Validate parser with GHC extensions.
-validateParserDetailedWithExtensions :: [Extension] -> Text -> Maybe ValidationError
-validateParserDetailedWithExtensions = validateParserDetailedCore
-
--- | Validate parser with extension names (as strings) and optional language.
--- This is a convenience function for use with cabal file metadata.
--- In-file pragmas are read from the source to determine the full GHC extension set,
--- matching the behaviour of the GHC pre-check in the hackage-tester.
-validateParserDetailedWithExtensionNames :: [String] -> Maybe String -> Text -> Maybe ValidationError
-validateParserDetailedWithExtensionNames extNames langName source =
-  let parserExts = GhcOracle.extensionNamesToParserExtensions extNames
-      fingerprint = GhcOracle.oracleModuleAstFingerprintWithNamesAt "parser-validation" extNames langName
-   in validateParserDetailedCoreWithFingerprint parserExts fingerprint source
-
--- | Validate parser with parser extensions directly.
--- This is the preferred way to validate when using unified extension handling.
-validateParserDetailedWithParserExtensions :: [Syntax.Extension] -> Text -> Maybe ValidationError
-validateParserDetailedWithParserExtensions parserExts =
-  let ghcExts = mapMaybe GhcOracle.toGhcExtension parserExts
-   in validateParserDetailedCoreWithParserExts parserExts ghcExts
-
--- | Core validation that accepts both parser extensions and GHC extensions.
--- This ensures both parsers use exactly the same extensions.
-validateParserDetailedCoreWithParserExts :: [Syntax.Extension] -> [Extension] -> Text -> Maybe ValidationError
-validateParserDetailedCoreWithParserExts parserExts ghcExts =
-  validateParserDetailedCoreWithFingerprint parserExts (GhcOracle.oracleModuleAstFingerprintWithExtensionsAt "parser-validation" ghcExts)
+instance Show ValidationError where
+  show ValidationError {validationErrorKind = kind, validationErrorMessage = message} =
+    show kind <> ":\n" <> message
 
 -- | Core validation with a caller-supplied fingerprint function.
 -- This allows the caller to choose how GHC extensions are determined (e.g. from
 -- pre-computed extension lists or by reading in-file pragmas).
-validateParserDetailedCoreWithFingerprint :: [Syntax.Extension] -> (Text -> Either Text Text) -> Text -> Maybe ValidationError
-validateParserDetailedCoreWithFingerprint parserExts fingerprint source =
+validateParser :: String -> Syntax.LanguageEdition -> [Syntax.ExtensionSetting] -> Text -> Maybe ValidationError
+validateParser sourceTag edition extensionSettings source =
   case parseModule parserConfig source of
     ParseErr err ->
       Just
@@ -128,15 +89,13 @@ validateParserDetailedCoreWithFingerprint parserExts fingerprint source =
                         ]
                   }
   where
+    finalExts = Syntax.effectiveExtensions edition extensionSettings
+    fingerprint = GhcOracle.oracleModuleAstFingerprint sourceTag edition extensionSettings
     parserConfig =
       defaultConfig
         { parserSourceName = "parser-validation",
-          parserExtensions = parserExts
+          parserExtensions = finalExts
         }
-
-validateParserDetailedCore :: [Extension] -> Text -> Maybe ValidationError
-validateParserDetailedCore exts =
-  validateParserDetailedCoreWithParserExts (mapMaybe GhcOracle.fromGhcExtension exts) exts
 
 formatFingerprintMismatch :: Text -> Text -> String
 formatFingerprintMismatch sourceFp renderedFp =
