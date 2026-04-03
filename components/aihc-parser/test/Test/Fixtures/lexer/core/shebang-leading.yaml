@@ -1,0 +1,8 @@
+# GHC treats an initial #! line as whitespace.
+extensions: []
+input: "#!/usr/bin/env runghc\nmain\n"
+tokens:
+  - 'TkVarId "main"'
+  - 'TkEOF'
+status: xfail
+reason: "lexer currently routes #! through line-directive handling instead of skipping it as whitespace"
