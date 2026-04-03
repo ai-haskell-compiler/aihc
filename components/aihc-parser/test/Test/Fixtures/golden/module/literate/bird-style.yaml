@@ -1,0 +1,12 @@
+extensions: []
+input: |
+  This is a literate Haskell file.
+  The code starts with a greater-than sign.
+
+  > module BirdStyle where
+  > 
+  > main = putStrLn "Bird style!"
+
+  And then some more text here.
+status: xfail
+reason: Basic Bird-style literate Haskell.
