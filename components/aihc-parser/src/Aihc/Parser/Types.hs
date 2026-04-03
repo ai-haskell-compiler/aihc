@@ -230,8 +230,8 @@ instance Stream TokStream where
                     Just (t, s') -> go (k - 1) (t : acc) s'
              in go n [] ts'
 
-  takeWhile_ f ts =
-    go [] ts
+  takeWhile_ f =
+    go []
     where
       go acc s =
         case stepOne s of
@@ -270,7 +270,7 @@ instance TraversableStream TokStream where
 
 -- | Advance a TokStream by n tokens, returning the consumed tokens.
 advanceN :: Int -> TokStream -> ([LexToken], TokStream)
-advanceN n ts = go n [] ts
+advanceN n = go n []
   where
     go 0 acc s = (reverse acc, s)
     go k acc s =
