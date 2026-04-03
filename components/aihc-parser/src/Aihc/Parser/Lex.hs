@@ -690,12 +690,6 @@ closeBeforeToken st tok =
     TkKeywordIn ->
       let (inserted, contexts') = closeLeadingImplicitLets (lexTokenSpan tok) (layoutContexts st)
        in (inserted, st {layoutContexts = contexts'})
-    TkSpecialComma ->
-      -- Close implicit layouts before commas, but only if there's an explicit context.
-      -- This handles: R { f = case y of A -> 1, g = 2 } (comma closes case layout)
-      -- But NOT: case x of A | p, q -> 1 (comma is guard separator, no explicit context)
-      let (inserted, contexts') = closeImplicitBeforeComma (lexTokenSpan tok) (layoutContexts st)
-       in (inserted, st {layoutContexts = contexts'})
     -- Close implicit layout contexts before closing delimiters (parse-error rule)
     TkSpecialRParen ->
       let (inserted, contexts') = closeAllImplicitBeforeDelimiter (lexTokenSpan tok) (layoutContexts st)
@@ -845,31 +839,9 @@ closeAllImplicitBeforeDelimiter anchor = go []
         LayoutImplicitAfterThenElse _ : rest -> go (virtualSymbolToken "}" anchor : acc) rest
         _ -> (reverse acc, contexts)
 
--- | Close implicit layouts before commas.
--- - Always close leading LayoutImplicitLet contexts (for let guards like: | let x = 1, p x)
--- - If there's an explicit context (LayoutExplicit or LayoutDelimiter), also close
---   other implicit layouts up to it (for cases like: R { f = case y of A -> 1, g = 2 })
--- - If no explicit context, don't close LayoutImplicit (guard commas like: | p, q -> 1)
-closeImplicitBeforeComma :: SourceSpan -> [LayoutContext] -> ([LexToken], [LayoutContext])
-closeImplicitBeforeComma anchor contexts =
-  let -- First, close any leading LayoutImplicitLet contexts (original behavior)
-      (letInserted, afterLets) = closeLeadingImplicitLets anchor contexts
-      -- Then, if there's an explicit context, close remaining implicit layouts
-      (implicitInserted, afterImplicit) =
-        if hasExplicitContext afterLets
-          then closeAllImplicitBeforeDelimiter anchor afterLets
-          else ([], afterLets)
-   in (letInserted <> implicitInserted, afterImplicit)
-  where
-    hasExplicitContext :: [LayoutContext] -> Bool
-    hasExplicitContext = any isExplicitOrDelimiter
-    isExplicitOrDelimiter :: LayoutContext -> Bool
-    isExplicitOrDelimiter ctx =
-      case ctx of
-        LayoutExplicit -> True
-        LayoutDelimiter -> True
-        _ -> False
-
+-- | Update the layout state for the context changes caused by a token.
+-- This pushes/pops layout contexts for braces, brackets, keywords that
+-- open layout, etc.
 stepTokenContext :: LayoutState -> LexToken -> LayoutState
 stepTokenContext st tok =
   case lexTokenKind tok of
@@ -1178,14 +1150,34 @@ layoutStepState st tok =
 -- is illegal in the current context but @}@ would be legal, it calls this to
 -- close the innermost implicit layout context.
 --
+-- The virtual @}@ token is buffered in the layout state so that the next call
+-- to 'stepNextToken' will produce it.
+--
 -- Returns @Nothing@ if there is no implicit layout context to close.
 closeImplicitLayoutContext :: LayoutState -> Maybe LayoutState
 closeImplicitLayoutContext st =
   case layoutContexts st of
-    LayoutImplicit _ : rest -> Just st {layoutContexts = rest}
-    LayoutImplicitLet _ : rest -> Just st {layoutContexts = rest}
-    LayoutImplicitAfterThenElse _ : rest -> Just st {layoutContexts = rest}
+    LayoutImplicit _ : rest -> Just (closeWith rest)
+    LayoutImplicitLet _ : rest -> Just (closeWith rest)
+    LayoutImplicitAfterThenElse _ : rest -> Just (closeWith rest)
     _ -> Nothing
+  where
+    anchor = fromMaybe noSpan (layoutPrevTokenEndSpan st)
+    noSpan =
+      SourceSpan
+        { sourceSpanSourceName = "",
+          sourceSpanStartLine = 0,
+          sourceSpanStartCol = 0,
+          sourceSpanEndLine = 0,
+          sourceSpanEndCol = 0,
+          sourceSpanStartOffset = 0,
+          sourceSpanEndOffset = 0
+        }
+    closeWith rest =
+      st
+        { layoutContexts = rest,
+          layoutBuffer = layoutBuffer st <> [virtualSymbolToken "}" anchor]
+        }
 
 lexKnownPragma :: LexerState -> Maybe (LexToken, LexerState)
 lexKnownPragma st
