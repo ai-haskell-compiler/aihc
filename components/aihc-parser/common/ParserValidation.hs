@@ -4,11 +4,6 @@ module ParserValidation
   ( ValidationErrorKind (..),
     ValidationError (..),
     validateParser,
-    validateParserWithExtensions,
-    validateParserDetailed,
-    validateParserDetailedWithExtensions,
-    validateParserDetailedWithExtensionNames,
-    validateParserDetailedWithParserExtensions,
   )
 where
 
@@ -31,38 +26,11 @@ data ValidationError = ValidationError
   }
   deriving (Eq, Show)
 
-validateParser :: Text -> Maybe String
-validateParser = fmap validationErrorMessage . validateParserDetailed
-
-validateParserWithExtensions :: [Syntax.ExtensionSetting] -> Text -> Maybe String
-validateParserWithExtensions exts = fmap validationErrorMessage . validateParserDetailedWithExtensions exts
-
-validateParserDetailed :: Text -> Maybe ValidationError
-validateParserDetailed = validateParserDetailedWithExtensions []
-
--- | Validate parser with GHC extensions.
-validateParserDetailedWithExtensions :: [Syntax.ExtensionSetting] -> Text -> Maybe ValidationError
-validateParserDetailedWithExtensions = validateParserDetailedCore Syntax.Haskell2010Edition
-
--- | Validate parser with extension names (as strings) and optional language.
--- This is a convenience function for use with cabal file metadata.
--- In-file pragmas are read from the source to determine the full GHC extension set,
--- matching the behaviour of the GHC pre-check in the hackage-tester.
-validateParserDetailedWithExtensionNames :: [Syntax.ExtensionSetting] -> Syntax.LanguageEdition -> Text -> Maybe ValidationError
-validateParserDetailedWithExtensionNames extensionSettings edition source =
-  validateParserDetailedCoreWithFingerprint "parser-validation" edition extensionSettings source
-
--- | Validate parser with parser extensions directly.
--- This is the preferred way to validate when using unified extension handling.
-validateParserDetailedWithParserExtensions :: [Syntax.ExtensionSetting] -> Text -> Maybe ValidationError
-validateParserDetailedWithParserExtensions =
-  validateParserDetailedCoreWithFingerprint "parser-validation" Syntax.Haskell2010Edition
-
 -- | Core validation with a caller-supplied fingerprint function.
 -- This allows the caller to choose how GHC extensions are determined (e.g. from
 -- pre-computed extension lists or by reading in-file pragmas).
-validateParserDetailedCoreWithFingerprint :: String -> Syntax.LanguageEdition -> [Syntax.ExtensionSetting] -> Text -> Maybe ValidationError
-validateParserDetailedCoreWithFingerprint sourceTag edition extensionSettings source =
+validateParser :: String -> Syntax.LanguageEdition -> [Syntax.ExtensionSetting] -> Text -> Maybe ValidationError
+validateParser sourceTag edition extensionSettings source =
   case parseModule parserConfig source of
     ParseErr err ->
       Just
@@ -124,10 +92,6 @@ validateParserDetailedCoreWithFingerprint sourceTag edition extensionSettings so
         { parserSourceName = "parser-validation",
           parserExtensions = finalExts
         }
-
-validateParserDetailedCore :: Syntax.LanguageEdition -> [Syntax.ExtensionSetting] -> Text -> Maybe ValidationError
-validateParserDetailedCore =
-  validateParserDetailedCoreWithFingerprint "parser-validation"
 
 formatFingerprintMismatch :: Text -> Text -> String
 formatFingerprintMismatch sourceFp renderedFp =

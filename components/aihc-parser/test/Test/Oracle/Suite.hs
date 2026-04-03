@@ -21,7 +21,7 @@ import ExtensionSupport
     loadOracleCases,
   )
 import GhcOracle (oracleModuleAstFingerprint)
-import ParserValidation (validateParserWithExtensions)
+import ParserValidation (validateParser)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertFailure, testCase)
 
@@ -124,7 +124,7 @@ evaluateCaseText meta source = do
               source
           )
       oracleOk = either (Just) (const Nothing) (oracleModuleAstFingerprint (casePath meta) Syntax.Haskell2010Edition exts source')
-      validationOk = isNothing (validateParserWithExtensions exts source')
+      validationOk = isNothing (validateParser (casePath meta) Syntax.Haskell2010Edition exts source')
       roundtripOk = isNothing oracleOk && validationOk
   pure (finalizeOutcome meta oracleOk roundtripOk)
 

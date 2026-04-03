@@ -56,7 +56,6 @@ test-suite spec
     , ParserValidation
     , ShrinkUtils
     , StackageProgress.Summary
-    , Test.Oracle
     , Test.ErrorMessages.Suite
     , Test.Oracle.Suite
     , Test.ExtensionMapping.Suite
