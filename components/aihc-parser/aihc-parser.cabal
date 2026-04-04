@@ -198,6 +198,7 @@ executable extension-progress
     , filepath
     , ghc-lib-parser
     , Cabal-syntax
+    , megaparsec
     , prettyprinter
     , yaml
     , aeson
