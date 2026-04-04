@@ -687,8 +687,17 @@ parenExprParser = withSpan $ do
     Just () -> pure (\span' -> ETuple span' tupleFlavor [])
     Nothing ->
       if tupleFlavor == Boxed
-        then MP.try (parseNegateParen closeTok) <|> MP.try (parseSection closeTok) <|> MP.try (parseTupleSectionExpr tupleFlavor closeTok) <|> parseParenOrTupleExpr tupleFlavor closeTok
-        else MP.try (parseTupleSectionExpr tupleFlavor closeTok) <|> MP.try (parseUnboxedSumExprLeadingBars closeTok) <|> parseParenOrTupleExpr tupleFlavor closeTok
+        then do
+          isTupleSection <- hasTupleSectionHole closeTok
+          MP.try (parseNegateParen closeTok)
+            <|> MP.try (parseSection closeTok)
+            <|> (if isTupleSection then MP.try (parseTupleSectionExpr tupleFlavor closeTok) else MP.empty)
+            <|> parseParenOrTupleExpr tupleFlavor closeTok
+        else do
+          isTupleSection <- hasTupleSectionHole closeTok
+          (if isTupleSection then MP.try (parseTupleSectionExpr tupleFlavor closeTok) else MP.empty)
+            <|> MP.try (parseUnboxedSumExprLeadingBars closeTok)
+            <|> parseParenOrTupleExpr tupleFlavor closeTok
   where
     parseNegateParen closeTok = do
       minusTok <- minusTokenValueParser
@@ -1110,6 +1119,46 @@ startsWithContextType = MP.lookAhead (go [])
         TkSpecialLBracket -> go (TkSpecialRBracket : stack)
         TkSpecialLBrace -> go (TkSpecialRBrace : stack)
         _ -> go stack
+
+-- | Look ahead to check if the tuple content has a section hole (missing element).
+-- A hole appears as a comma that is either leading, trailing, or doubled at the top level.
+-- Used to avoid expensive backtracking in 'parseTupleSectionExpr'.
+hasTupleSectionHole :: LexTokenKind -> TokParser Bool
+hasTupleSectionHole closeTok = MP.lookAhead (go [] True)
+  where
+    -- prevIsHoleIndicator: True if at start or just saw a top-level comma
+    go :: [LexTokenKind] -> Bool -> TokParser Bool
+    go [] prevIsHoleIndicator = do
+      tok <- anySingle
+      case lexTokenKind tok of
+        TkEOF -> pure False
+        kind
+          | kind == closeTok ->
+              -- Trailing hole: comma directly before close token
+              pure prevIsHoleIndicator
+          | kind == TkSpecialComma ->
+              if prevIsHoleIndicator
+                then pure True -- Leading or double-comma hole
+                else go [] True
+          | kind == TkSpecialLParen -> go [TkSpecialRParen] False
+          | kind == TkSpecialUnboxedLParen -> go [TkSpecialUnboxedRParen] False
+          | kind == TkSpecialLBracket -> go [TkSpecialRBracket] False
+          | kind == TkSpecialLBrace -> go [TkSpecialRBrace] False
+          | otherwise -> go [] False
+    go stack@(expectedClose : rest) _ = do
+      tok <- anySingle
+      case lexTokenKind tok of
+        TkEOF -> pure False
+        kind
+          | kind == expectedClose ->
+              case rest of
+                [] -> go [] False
+                _ -> go rest False
+          | kind == TkSpecialLParen -> go (TkSpecialRParen : stack) False
+          | kind == TkSpecialUnboxedLParen -> go (TkSpecialUnboxedRParen : stack) False
+          | kind == TkSpecialLBracket -> go (TkSpecialRBracket : stack) False
+          | kind == TkSpecialLBrace -> go (TkSpecialRBrace : stack) False
+          | otherwise -> go stack False
 
 hasTopLevelRightArrowBefore :: LexTokenKind -> TokParser Bool
 hasTopLevelRightArrowBefore closeTok = MP.lookAhead (go [closeTok])

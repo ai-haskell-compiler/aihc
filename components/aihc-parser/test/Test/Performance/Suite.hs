@@ -181,7 +181,7 @@ dropRootPrefix path =
 
 generatedPerfCases :: [PerfCase]
 generatedPerfCases =
-  [ mkGeneratedPerfCaseXFail "tuple-expression-nested" (mkExprModule (nestedTupleExpr generatedCaseSize)) "times out at size 100 under the current 1 second budget",
+  [ mkGeneratedPerfCase "tuple-expression-nested" (mkExprModule (nestedTupleExpr generatedCaseSize)),
     mkGeneratedPerfCase "tuple-expression-wide" (mkExprModule (wideTupleExpr generatedCaseSize)),
     mkGeneratedPerfCase "expression-list" (mkExprModule (longListExpr generatedCaseSize)),
     mkGeneratedPerfCase "tuple-type-nested" (mkTypeModule (nestedTupleType generatedCaseSize)),
@@ -199,10 +199,6 @@ generatedPerfCases =
 mkGeneratedPerfCase :: String -> Text -> PerfCase
 mkGeneratedPerfCase label inputText =
   mkGeneratedPerfCaseWithStatus label inputText StatusPass ""
-
-mkGeneratedPerfCaseXFail :: String -> Text -> String -> PerfCase
-mkGeneratedPerfCaseXFail label inputText =
-  mkGeneratedPerfCaseWithStatus label inputText StatusXFail
 
 mkGeneratedPerfCaseWithStatus :: String -> Text -> ExpectedStatus -> String -> PerfCase
 mkGeneratedPerfCaseWithStatus label inputText status reason =
