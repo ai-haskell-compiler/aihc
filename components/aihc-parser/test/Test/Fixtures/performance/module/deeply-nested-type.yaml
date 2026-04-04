@@ -1,0 +1,6 @@
+extensions:
+  - ForeignFunctionInterface
+status: xfail
+reason: "Deeply nested function types cause exponential parsing time in some parser configurations"
+input: |
+  fn :: (B -> (B -> (B -> (B -> (B -> (B -> (B -> (B -> (B -> (B -> (C -> ((Ptr C) -> (B -> ((Ptr C) -> (B -> (IO ()))))))))))))))))
