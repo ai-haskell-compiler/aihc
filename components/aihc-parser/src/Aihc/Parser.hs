@@ -320,4 +320,3 @@ scanForward bytes = go
 
 isLineBreak :: Word8 -> Bool
 isLineBreak w = w == 10 || w == 13
-
