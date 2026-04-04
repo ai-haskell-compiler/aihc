@@ -190,7 +190,14 @@ resolveIncludePath rootPath req =
 runOracle :: FilePath -> IO (Either String Text)
 runOracle sourcePath = do
   source <- TIO.readFile sourcePath
-  let cpphsOptions = defaultCpphsOptions {boolopts = (boolopts defaultCpphsOptions) {stripC89 = True}}
+  let cpphsOptions =
+        defaultCpphsOptions
+          { boolopts =
+              (boolopts defaultCpphsOptions)
+                { stripC89 = True,
+                  warnings = False
+                }
+          }
   oracleOut <-
     (E.try (runCpphs cpphsOptions sourcePath (T.unpack source)) :: IO (Either E.SomeException String))
   pure $
