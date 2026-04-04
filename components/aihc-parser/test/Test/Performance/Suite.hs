@@ -11,7 +11,7 @@ import Control.DeepSeq (force)
 import Control.Exception (evaluate)
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withObject)
-import Data.Char (toLower)
+import Data.Char (chr, toLower)
 import Data.List (sort)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -40,13 +40,20 @@ fixtureRoot = "test/Test/Fixtures/performance/module"
 timeoutMicros :: Int
 timeoutMicros = 1000000
 
+generatedCaseSize :: Int
+generatedCaseSize = 100
+
 parserPerformanceTests :: IO TestTree
 parserPerformanceTests = do
-  cases <- loadPerfCases
+  fixtureCases <- loadPerfCases
   pure $
     testGroup
       "performance"
-      [ testGroup "module-parse-under-1s" (map mkPerfCaseTest cases)
+      [ testGroup
+          "parse-under-1s"
+          [ testGroup "fixtures" (map mkPerfCaseTest fixtureCases),
+            testGroup "generated" (map mkPerfCaseTest generatedPerfCases)
+          ]
       ]
 
 mkPerfCaseTest :: PerfCase -> TestTree
@@ -81,6 +88,7 @@ assertPerfCase perfCase = do
                 <> ", got parse error: "
                 <> formatParseErrors (perfCaseSourceName perfCase) (Just (perfCaseInput perfCase)) errs
             )
+    (StatusXFail, Nothing) -> pure ()
     (StatusXFail, Just (errs, _))
       | null errs ->
           assertFailure
@@ -89,7 +97,6 @@ assertPerfCase perfCase = do
                 <> " reason="
                 <> perfCaseReason perfCase
             )
-    (StatusXFail, _) -> pure ()
     _ -> pure ()
 
 loadPerfCases :: IO [PerfCase]
@@ -171,3 +178,143 @@ dropRootPrefix path =
     (prefix, rest)
       | prefix == fixtureRoot <> "/" -> rest
     _ -> path
+
+generatedPerfCases :: [PerfCase]
+generatedPerfCases =
+  [ mkGeneratedPerfCaseXFail "tuple-expression-nested" (mkExprModule (nestedTupleExpr generatedCaseSize)) "times out at size 100 under the current 1 second budget",
+    mkGeneratedPerfCase "tuple-expression-wide" (mkExprModule (wideTupleExpr generatedCaseSize)),
+    mkGeneratedPerfCase "expression-list" (mkExprModule (longListExpr generatedCaseSize)),
+    mkGeneratedPerfCase "tuple-type-nested" (mkTypeModule (nestedTupleType generatedCaseSize)),
+    mkGeneratedPerfCase "tuple-type-wide" (mkTypeModule (wideTupleType generatedCaseSize)),
+    mkGeneratedPerfCase "tuple-pattern-nested" (mkPatternModule (nestedTuplePattern generatedCaseSize)),
+    mkGeneratedPerfCase "tuple-pattern-wide" (mkPatternModule (wideTuplePattern generatedCaseSize)),
+    mkGeneratedPerfCase "enum-data-constructors" (mkDataModule (enumDataDecl generatedCaseSize)),
+    mkGeneratedPerfCase "record-data-fields" (mkDataModule (recordDataDecl generatedCaseSize)),
+    mkGeneratedPerfCase "type-right-leaning-terms" (mkTypeModule (rightLeaningType generatedCaseSize)),
+    mkGeneratedPerfCase "type-left-leaning-terms" (mkTypeModule (leftLeaningType generatedCaseSize)),
+    mkGeneratedPerfCase "type-parameters" (mkTypeModule (typeWithParameters generatedCaseSize)),
+    mkGeneratedPerfCase "string-escapes" (mkExprModule (escapedStringExpr (generatedCaseSize * 100)))
+  ]
+
+mkGeneratedPerfCase :: String -> Text -> PerfCase
+mkGeneratedPerfCase label inputText =
+  mkGeneratedPerfCaseWithStatus label inputText StatusPass ""
+
+mkGeneratedPerfCaseXFail :: String -> Text -> String -> PerfCase
+mkGeneratedPerfCaseXFail label inputText =
+  mkGeneratedPerfCaseWithStatus label inputText StatusXFail
+
+mkGeneratedPerfCaseWithStatus :: String -> Text -> ExpectedStatus -> String -> PerfCase
+mkGeneratedPerfCaseWithStatus label inputText status reason =
+  let caseId = "generated/" <> label <> "-" <> show generatedCaseSize <> ".hs"
+   in PerfCase
+        { perfCaseId = caseId,
+          perfCaseSourceName = caseId,
+          perfCaseExtensions = [],
+          perfCaseInput = inputText,
+          perfCaseStatus = status,
+          perfCaseReason = reason
+        }
+
+mkExprModule :: Text -> Text
+mkExprModule expr = T.unlines ["module Generated where", "value = " <> expr]
+
+mkTypeModule :: Text -> Text
+mkTypeModule ty = T.unlines ["module Generated where", "value :: " <> ty, "value = undefined"]
+
+mkPatternModule :: Text -> Text
+mkPatternModule pat = T.unlines ["module Generated where", "value " <> pat <> " = x1", "  where", "    x1 = 1"]
+
+mkDataModule :: Text -> Text
+mkDataModule decl = T.unlines ["module Generated where", decl]
+
+nestedTupleExpr :: Int -> Text
+nestedTupleExpr n =
+  case n of
+    0 -> "a"
+    _ -> "(" <> "a, " <> nestedTupleExpr (n - 1) <> ")"
+
+wideTupleExpr :: Int -> Text
+wideTupleExpr n = tupleText n "a"
+
+longListExpr :: Int -> Text
+longListExpr n = "[" <> T.intercalate ", " (replicate n "a") <> "]"
+
+nestedTupleType :: Int -> Text
+nestedTupleType n =
+  case n of
+    0 -> "A"
+    _ -> "(" <> "A, " <> nestedTupleType (n - 1) <> ")"
+
+wideTupleType :: Int -> Text
+wideTupleType n = tupleText n "A"
+
+nestedTuplePattern :: Int -> Text
+nestedTuplePattern n =
+  case n of
+    0 -> "x1"
+    _ -> "(" <> T.pack ("x" <> show (n + 1)) <> ", " <> nestedTuplePattern (n - 1) <> ")"
+
+wideTuplePattern :: Int -> Text
+wideTuplePattern n = tupleItemsText (patternVars n)
+
+enumDataDecl :: Int -> Text
+enumDataDecl n =
+  "data T = "
+    <> T.intercalate " | " [T.pack ("C" <> show ix) | ix <- [1 .. n]]
+
+recordDataDecl :: Int -> Text
+recordDataDecl n =
+  "data T = T\n  { "
+    <> T.intercalate "\n  , " [T.pack ("field" <> show ix) <> " :: A" | ix <- [1 .. n]]
+    <> "\n  }"
+
+rightLeaningType :: Int -> Text
+rightLeaningType n =
+  case n of
+    0 -> "A"
+    1 -> "A"
+    _ -> "A -> (" <> rightLeaningType (n - 1) <> ")"
+
+leftLeaningType :: Int -> Text
+leftLeaningType n =
+  case n of
+    0 -> "A"
+    1 -> "A"
+    _ -> "(" <> leftLeaningType (n - 1) <> " -> A)"
+
+typeWithParameters :: Int -> Text
+typeWithParameters n =
+  T.unwords ("A" : replicate n "a")
+
+escapedStringExpr :: Int -> Text
+escapedStringExpr desiredLength =
+  T.concat ["\"", takeEscapedText desiredLength escapedStringFragments, "\""]
+
+escapedStringFragments :: [Text]
+escapedStringFragments =
+  [shownCharBody (chr n) | n <- [0 .. 255]]
+  where
+    shownCharBody ch =
+      let shown = show [ch]
+       in T.pack (take (length shown - 2) (drop 1 shown))
+
+takeEscapedText :: Int -> [Text] -> Text
+takeEscapedText desiredLength = go 0
+  where
+    go accLen (fragment : rest)
+      | accLen >= desiredLength = ""
+      | otherwise =
+          fragment <> go (accLen + T.length fragment) rest
+    go _ [] = ""
+
+tupleText :: Int -> Text -> Text
+tupleText n atom =
+  tupleItemsText (replicate n atom)
+
+tupleItemsText :: [Text] -> Text
+tupleItemsText items =
+  "(" <> T.intercalate ", " items <> ")"
+
+patternVars :: Int -> [Text]
+patternVars n = [T.pack ("x" <> show ix) | ix <- [1 .. n]]
