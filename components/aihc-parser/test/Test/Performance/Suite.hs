@@ -11,7 +11,7 @@ import Control.DeepSeq (force)
 import Control.Exception (evaluate)
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withObject)
-import Data.Char (toLower)
+import Data.Char (chr, toLower)
 import Data.List (sort)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -97,7 +97,6 @@ assertPerfCase perfCase = do
                 <> " reason="
                 <> perfCaseReason perfCase
             )
-    (StatusXFail, _) -> pure ()
     _ -> pure ()
 
 loadPerfCases :: IO [PerfCase]
@@ -194,7 +193,7 @@ generatedPerfCases =
     mkGeneratedPerfCase "type-right-leaning-terms" (mkTypeModule (rightLeaningType generatedCaseSize)),
     mkGeneratedPerfCase "type-left-leaning-terms" (mkTypeModule (leftLeaningType generatedCaseSize)),
     mkGeneratedPerfCase "type-parameters" (mkTypeModule (typeWithParameters generatedCaseSize)),
-    mkGeneratedPerfCase "string-escapes" (mkExprModule (escapedStringExpr generatedCaseSize))
+    mkGeneratedPerfCase "string-escapes" (mkExprModule (escapedStringExpr (generatedCaseSize * 100)))
   ]
 
 mkGeneratedPerfCase :: String -> Text -> PerfCase
@@ -289,8 +288,25 @@ typeWithParameters n =
   T.unwords ("A" : replicate n "a")
 
 escapedStringExpr :: Int -> Text
-escapedStringExpr n =
-  T.concat ["\"", T.concat (replicate n "\\n\\t\\\\\\\""), "\""]
+escapedStringExpr desiredLength =
+  T.concat ["\"", takeEscapedText desiredLength escapedStringFragments, "\""]
+
+escapedStringFragments :: [Text]
+escapedStringFragments =
+  [shownCharBody (chr n) | n <- [0 .. 255]]
+  where
+    shownCharBody ch =
+      let shown = show [ch]
+       in T.pack (take (length shown - 2) (drop 1 shown))
+
+takeEscapedText :: Int -> [Text] -> Text
+takeEscapedText desiredLength = go 0
+  where
+    go accLen (fragment : rest)
+      | accLen >= desiredLength = ""
+      | otherwise =
+          fragment <> go (accLen + T.length fragment) rest
+    go _ [] = ""
 
 tupleText :: Int -> Text -> Text
 tupleText n atom =
