@@ -41,7 +41,7 @@ validateParser sourceTag edition extensionSettings source =
           Just
             ValidationError
               { validationErrorKind = ValidationParseError,
-                validationErrorMessage = "Parse failed:\n" <> formatParseErrors "parser-validation" (Just source) errs
+                validationErrorMessage = formatParseErrors sourceTag (Just source) errs
               }
         [] ->
           let rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty parsed))
@@ -94,7 +94,7 @@ validateParser sourceTag edition extensionSettings source =
     fingerprint = GhcOracle.oracleModuleAstFingerprint sourceTag edition extensionSettings
     parserConfig =
       defaultConfig
-        { parserSourceName = "parser-validation",
+        { parserSourceName = sourceTag,
           parserExtensions = finalExts
         }
 

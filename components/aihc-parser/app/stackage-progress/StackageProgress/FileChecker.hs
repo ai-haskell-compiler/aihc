@@ -41,6 +41,7 @@ import qualified Language.Haskell.Exts as HSE
 import StackageProgress.CLI (Parser (..))
 import StackageProgress.Summary (forceString)
 import System.IO (hPutStrLn, stderr)
+import System.Timeout (timeout)
 import Text.Printf (printf)
 
 -- | Run an @IO@ action and return its result with elapsed monotonic time in nanoseconds.
@@ -53,6 +54,9 @@ withElapsedNanos action = do
 
 formatNanosMs :: Word64 -> String
 formatNanosMs n = printf "%.3fms" (fromIntegral n / 1e6 :: Double)
+
+aihcParseTimeoutMicros :: Int
+aihcParseTimeoutMicros = 5 * 60 * 1_000_000
 
 -- | Result of checking a single file.
 data FileResult = FileResult
@@ -171,15 +175,22 @@ checkFile parsers verbose packageRoot info = do
   (aihcErrMsg, aihcNanos) <-
     if ParserAihc `elem` parsers
       then do
-        ((parseErrs, _parsed), parseNanos) <-
+        (parseOutcome, parseNanos) <-
           withElapsedNanos $
-            evaluate (let r = Aihc.Parser.parseModule parserConfig source' in r `deepseq` r)
-        let aihcErr = case parseErrs of
-              [] -> Nothing
-              _ ->
-                let errorDetails = T.pack (Aihc.Parser.formatParseErrors file (Just source') parseErrs)
+            timeout aihcParseTimeoutMicros $
+              evaluate (let r = Aihc.Parser.parseModule parserConfig source' in r `deepseq` r)
+        let aihcErr = case parseOutcome of
+              Nothing ->
+                let errorDetails = "AIHC parser timed out after 5 minutes"
                     errorMsg = prefixCppErrors cppErrorMsg errorDetails
                  in Just (T.unpack errorMsg)
+              Just (parseErrs, _parsed) ->
+                case parseErrs of
+                  [] -> Nothing
+                  _ ->
+                    let errorDetails = T.pack (Aihc.Parser.formatParseErrors file (Just source') parseErrs)
+                        errorMsg = prefixCppErrors cppErrorMsg errorDetails
+                     in Just (T.unpack errorMsg)
         pure (aihcErr, parseNanos)
       else pure (Nothing, 0)
 
