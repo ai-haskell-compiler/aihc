@@ -8,11 +8,14 @@ module ParserGolden
     fixtureRoot,
     exprFixtureRoot,
     moduleFixtureRoot,
+    patternFixtureRoot,
     loadExprCases,
     loadModuleCases,
+    loadPatternCases,
     parseParserCaseText,
     evaluateExprCase,
     evaluateModuleCase,
+    evaluatePatternCase,
     progressSummary,
   )
 where
@@ -24,6 +27,7 @@ import Aihc.Parser
     errorBundlePretty,
     parseExpr,
     parseModule,
+    parsePattern,
   )
 import Aihc.Parser.Shorthand (Shorthand (..))
 import Aihc.Parser.Syntax (Extension, parseExtensionName)
@@ -39,7 +43,7 @@ import qualified Data.Yaml as Y
 import System.Directory (doesDirectoryExist, listDirectory)
 import System.FilePath (takeDirectory, takeExtension, (</>))
 
-data CaseKind = CaseExpr | CaseModule deriving (Eq, Show)
+data CaseKind = CaseExpr | CaseModule | CasePattern deriving (Eq, Show)
 
 data ExpectedStatus
   = StatusPass
@@ -77,11 +81,17 @@ exprFixtureRoot = fixtureRoot </> "expr"
 moduleFixtureRoot :: FilePath
 moduleFixtureRoot = fixtureRoot </> "module"
 
+patternFixtureRoot :: FilePath
+patternFixtureRoot = fixtureRoot </> "pattern"
+
 loadExprCases :: IO [ParserCase]
 loadExprCases = loadCases CaseExpr exprFixtureRoot
 
 loadModuleCases :: IO [ParserCase]
 loadModuleCases = loadCases CaseModule moduleFixtureRoot
+
+loadPatternCases :: IO [ParserCase]
+loadPatternCases = loadCases CasePattern patternFixtureRoot
 
 loadCases :: CaseKind -> FilePath -> IO [ParserCase]
 loadCases kind root = do
@@ -155,6 +165,18 @@ evaluateExprCase meta =
 evaluateModuleCase :: ParserCase -> (Outcome, String)
 evaluateModuleCase meta =
   case parseModule parserConfig (caseInput meta) of
+    ParseOk ast -> classifySuccess meta (show (shorthand ast))
+    ParseErr err -> classifyFailure meta (errorBundlePretty (Just (caseInput meta)) err)
+  where
+    parserConfig =
+      defaultConfig
+        { parserSourceName = casePath meta,
+          parserExtensions = caseExtensions meta
+        }
+
+evaluatePatternCase :: ParserCase -> (Outcome, String)
+evaluatePatternCase meta =
+  case parsePattern parserConfig (caseInput meta) of
     ParseOk ast -> classifySuccess meta (show (shorthand ast))
     ParseErr err -> classifyFailure meta (errorBundlePretty (Just (caseInput meta)) err)
   where

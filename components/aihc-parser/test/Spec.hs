@@ -13,6 +13,7 @@ import Test.ExtensionMapping.Suite (extensionMappingTests)
 import Test.HackageTester.Suite (hackageTesterTests)
 import Test.Lexer.Suite (lexerTests)
 import Test.Oracle.Suite (oracleTests)
+import Test.Performance.Suite (parserPerformanceTests)
 import Test.Parser.Suite (parserGoldenTests)
 import Test.Properties.ExprHelpers (genOperator, isValidGeneratedOperator)
 import Test.Properties.ExprRoundTrip (prop_exprPrettyRoundTrip)
@@ -34,6 +35,7 @@ main = buildTests >>= defaultMain
 buildTests :: IO TestTree
 buildTests = do
   parserGolden <- parserGoldenTests
+  performance <- parserPerformanceTests
   errorMessages <- errorMessageTests
   oracle <- oracleTests
   lexer <- lexerTests
@@ -42,14 +44,12 @@ buildTests = do
     testGroup
       "aihc-parser"
       [ parserGolden,
+        performance,
         errorMessages,
         lexer,
         testGroup
           "parser"
           [ testCase "module parses declaration list" test_moduleParsesDecls,
-            testCase "parses deeply nested parenthesized constructor patterns" test_nestedParenthesizedConstructorPatternParses,
-            testCase "parses view patterns without losing paren fallback" test_viewPatternParses,
-            testCase "parses record patterns after constructor heads" test_recordPatternParses,
             testCase "reads header LANGUAGE pragmas" test_readsHeaderLanguagePragmas,
             testCase "reads header LANGUAGE pragmas case-insensitively" test_readsHeaderLanguagePragmasCaseInsensitive,
             testCase "reads chunked header LANGUAGE pragmas" test_readsChunkedHeaderLanguagePragmas,
@@ -105,36 +105,6 @@ test_moduleParsesDecls =
             pure ()
         other ->
           assertFailure ("unexpected parsed declarations: " <> show other)
-
-test_nestedParenthesizedConstructorPatternParses :: Assertion
-test_nestedParenthesizedConstructorPatternParses =
-  case parseModule defaultConfig "fn (A(A(A(A(A(A(A(A(A(A(A))))))))))) = 10" of
-    ParseErr err ->
-      assertFailure ("expected parse success, got parse error: " <> errorBundlePretty Nothing err)
-    ParseOk modu ->
-      case moduleDecls modu of
-        [DeclValue _ (FunctionBind _ "fn" [Match {matchPats = [PParen _ (PCon _ "A" [_])]}])] -> pure ()
-        other -> assertFailure ("unexpected parsed declarations: " <> show other)
-
-test_viewPatternParses :: Assertion
-test_viewPatternParses =
-  case parsePattern defaultConfig {parserExtensions = [ViewPatterns]} "((== 0) -> True)" of
-    ParseErr err ->
-      assertFailure ("expected parse success, got parse error: " <> errorBundlePretty Nothing err)
-    ParseOk pat ->
-      case pat of
-        PView _ _ (PCon _ "True" []) -> pure ()
-        other -> assertFailure ("unexpected parsed pattern: " <> show other)
-
-test_recordPatternParses :: Assertion
-test_recordPatternParses =
-  case parsePattern defaultConfig "Foo { bar = baz }" of
-    ParseErr err ->
-      assertFailure ("expected parse success, got parse error: " <> errorBundlePretty Nothing err)
-    ParseOk pat ->
-      case pat of
-        PRecord _ "Foo" [("bar", PVar _ "baz")] False -> pure ()
-        other -> assertFailure ("unexpected parsed pattern: " <> show other)
 
 test_parserConfigPassesExtensions :: Assertion
 test_parserConfigPassesExtensions =
