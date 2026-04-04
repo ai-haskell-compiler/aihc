@@ -80,11 +80,8 @@ classicIfExprParser = withSpan $ do
 multiWayIfExprParser :: TokParser Expr
 multiWayIfExprParser = withSpan $ do
   keywordTok TkKeywordIf
-  rhss <- bracedAlts <|> plainAlts
+  rhss <- braces (MP.some multiWayIfAlternative)
   pure (`EMultiWayIf` rhss)
-  where
-    plainAlts = plainSemiSep1 multiWayIfAlternative
-    bracedAlts = bracedSemiSep multiWayIfAlternative
 
 multiWayIfAlternative :: TokParser GuardedRhs
 multiWayIfAlternative = withSpan $ do

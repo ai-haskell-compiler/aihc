@@ -75,6 +75,7 @@ buildTests = do
             testCase "parser config passes extensions to lexer" test_parserConfigPassesExtensions,
             testCase "parser config sets source name in parse errors" test_parserConfigSetsSourceName,
             testCase "parses tab-indented where after else branch" test_tabIndentedWhereAfterElseParses,
+            testCase "parses non-aligned multi-way-if guards" test_nonAlignedMultiWayIfGuardsParse,
             testCase "generated identifiers reject reserved keyword as" test_generatedIdentifiersRejectReservedAs,
             testCase "generated identifiers reject standalone underscore" test_generatedIdentifiersRejectStandaloneUnderscore,
             testCase "shrunk identifiers reject standalone underscore" test_shrunkIdentifiersRejectStandaloneUnderscore,
@@ -141,6 +142,19 @@ test_tabIndentedWhereAfterElseParses =
             ]
    in let (errs, _) = parseModule defaultConfig source
        in assertBool ("expected no parse errors, got: " <> show errs) (null errs)
+
+test_nonAlignedMultiWayIfGuardsParse :: Assertion
+test_nonAlignedMultiWayIfGuardsParse =
+  let source =
+        T.unlines
+          [ "{-# LANGUAGE MultiWayIf #-}",
+            "module M where",
+            "x = if | True -> 1",
+            "         | False -> 2",
+            "           | otherwise -> 3"
+          ]
+      (errs, _) = parseModule defaultConfig source
+   in assertBool ("expected no parse errors, got: " <> show errs) (null errs)
 
 test_readsHeaderLanguagePragmas :: Assertion
 test_readsHeaderLanguagePragmas = do
