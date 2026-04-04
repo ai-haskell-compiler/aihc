@@ -3,6 +3,7 @@
 module Main (main) where
 
 import Aihc.Cpp (Severity (..), diagSeverity, resultDiagnostics, resultOutput)
+import Aihc.Parser.Lex (readModuleHeaderPragmas)
 import qualified Aihc.Parser.Syntax as Syntax
 import ConcurrentProgress (mapConcurrentlyBounded)
 import Control.Exception (SomeException, displayException, try)
@@ -36,6 +37,7 @@ import Network.HTTP.Client (HttpException, Manager, Request (responseTimeout), h
 import Network.HTTP.Client.TLS (tlsManagerSettings)
 import ParserValidation (ValidationError (..), ValidationErrorKind (..), validateParser)
 import System.Exit (exitFailure, exitSuccess)
+import System.FilePath (takeFileName)
 import System.IO (hPutStrLn, stderr)
 
 data RunInfo = RunInfo
@@ -128,8 +130,11 @@ processFile opts packageRoot info = do
   preprocessed <- preprocessForParserIfEnabled (fileInfoExtensions info) (fileInfoCppOptions info) file (resolveIncludeBestEffort packageRoot file) source
   let source' = resultOutput preprocessed
       cppErrs = [diagToText diag | diag <- resultDiagnostics preprocessed, diagSeverity diag == Error]
-      edition = fromMaybe Syntax.Haskell2010Edition (fileInfoLanguage info)
-      ghcResult = GhcOracle.oracleModuleAstFingerprint file edition (fileInfoExtensions info) source'
+      headerPragmas = readModuleHeaderPragmas source'
+      defaultEdition = fromMaybe Syntax.Haskell2010Edition (fileInfoLanguage info)
+      edition = fromMaybe defaultEdition (Syntax.headerLanguageEdition headerPragmas)
+      extensionSettings = fileInfoExtensions info ++ Syntax.headerExtensionSettings headerPragmas
+      ghcResult = GhcOracle.oracleModuleAstFingerprint file edition extensionSettings source'
 
   case ghcResult of
     Left err ->
@@ -150,7 +155,7 @@ processFile opts packageRoot info = do
                 cppDiagnostics = cppErrs,
                 outcomeDetail = Nothing
               }
-        else case validateParser file edition (fileInfoExtensions info) source' of
+        else case validateParser (takeFileName file) edition extensionSettings source' of
           Nothing ->
             pure
               FileResult
@@ -185,34 +190,16 @@ printFailureDetails results = do
         case failureLabel (outcome result) of
           Nothing -> pure ()
           Just label -> do
-            let detailLineText = maybe "(no details)" firstLine (outcomeDetail result)
-            putStrLn (label ++ ": " ++ filePath result ++ " :: " ++ T.unpack detailLineText)
+            putStrLn (label ++ ": " ++ filePath result)
             unless (null (cppDiagnostics result)) $ do
               putStrLn "  cpp diagnostics:"
               mapM_ (TIO.putStrLn . ("    " <>)) (cppDiagnostics result)
             case outcomeDetail result of
               Nothing -> pure ()
               Just fullDetail -> do
-                let detailLines = detailLinesWithoutSummary fullDetail detailLineText
-                unless (null detailLines) $ do
-                  putStrLn "  details:"
-                  mapM_ (TIO.putStrLn . ("    " <>)) detailLines
+                mapM_ (TIO.putStrLn . ("  " <>)) (T.lines fullDetail)
     )
     results
-
-firstLine :: Text -> Text
-firstLine msg =
-  case T.lines msg of
-    [] -> ""
-    x : _ -> x
-
-detailLinesWithoutSummary :: Text -> Text -> [Text]
-detailLinesWithoutSummary fullDetail summaryLine =
-  case T.lines fullDetail of
-    [] -> []
-    x : xs
-      | x == summaryLine -> xs
-      | otherwise -> x : xs
 
 emitSummary :: Options -> RunInfo -> IO ()
 emitSummary opts info =

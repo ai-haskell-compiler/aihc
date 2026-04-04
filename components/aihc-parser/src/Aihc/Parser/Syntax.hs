@@ -82,6 +82,7 @@ module Aihc.Parser.Syntax
     extensionSettingName,
     gadtBodyResultType,
     languageEditionExtensions,
+    editionFromExtensionSettings,
     mergeSourceSpans,
     noSourceSpan,
     parseExtensionName,
@@ -338,6 +339,16 @@ parseLanguageEdition raw
   | otherwise = Nothing
   where
     trimmed = T.strip raw
+
+editionFromExtensionSettings :: [ExtensionSetting] -> Maybe LanguageEdition
+editionFromExtensionSettings = worker Nothing
+  where
+    worker acc [] = acc
+    worker _ (EnableExtension Haskell98 : rest) = worker (Just Haskell98Edition) rest
+    worker _ (EnableExtension Haskell2010 : rest) = worker (Just Haskell2010Edition) rest
+    worker _ (EnableExtension GHC2021 : rest) = worker (Just GHC2021Edition) rest
+    worker _ (EnableExtension GHC2024 : rest) = worker (Just GHC2024Edition) rest
+    worker acc (_ : rest) = worker acc rest
 
 -- | Get the set of extensions enabled by a language edition.
 -- These lists are derived from GHC's DynFlags.languageExtensions.

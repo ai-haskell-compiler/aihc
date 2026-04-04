@@ -12,9 +12,11 @@ module Aihc.Parser.Run
 where
 
 import Aihc.Parser (ParserConfig (..), defaultConfig, formatParseErrors, parseModule)
-import Aihc.Parser.Lex (lexModuleTokensWithExtensions)
+import Aihc.Parser.Lex (lexModuleTokensWithExtensions, readModuleHeaderPragmas)
 import Aihc.Parser.Shorthand (Shorthand (..))
-import Aihc.Parser.Syntax (Extension, ExtensionSetting (..), parseExtensionSettingName)
+import Aihc.Parser.Syntax (ExtensionSetting (..), parseExtensionSettingName)
+import Aihc.Parser.Syntax qualified as Syntax
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Options.Applicative
@@ -34,7 +36,7 @@ data Mode = ModeParse | ModeLex
 
 data Options = Options
   { optMode :: !Mode,
-    optExtensions :: ![Extension]
+    optExtensions :: ![ExtensionSetting]
   }
 
 -- | Run the CLI with given arguments and stdin.
@@ -61,20 +63,27 @@ runCLI args stdin =
       CLIResult ExitSuccess "" ""
 
 -- | Run in parse mode: parse a Haskell module and output the AST.
-runParseMode :: [Extension] -> Text -> CLIResult
-runParseMode extensions stdin =
-  let cfg = defaultConfig {parserExtensions = extensions}
-      (errs, modu) = parseModule cfg stdin
+runParseMode :: [ExtensionSetting] -> Text -> CLIResult
+runParseMode extensionSettings stdin =
+  let (errs, modu) = parseModule cfg stdin
    in if null errs
         then CLIResult ExitSuccess (T.pack (show (shorthand modu)) <> "\n") ""
         else CLIResult (ExitFailure 1) "" (T.pack (formatParseErrors (parserSourceName cfg) (Just stdin) errs))
+  where
+    headerPragmas = readModuleHeaderPragmas stdin
+    defaultEdition = fromMaybe Syntax.Haskell2010Edition (Syntax.editionFromExtensionSettings extensionSettings)
+    edition = fromMaybe defaultEdition (Syntax.headerLanguageEdition headerPragmas)
+    finalExts = Syntax.effectiveExtensions edition (extensionSettings ++ Syntax.headerExtensionSettings headerPragmas)
+    cfg = defaultConfig {parserExtensions = finalExts, parserSourceName = "<stdin>"}
 
 -- | Run in lex mode: tokenize Haskell source and output the token stream.
-runLexMode :: [Extension] -> Text -> CLIResult
-runLexMode extensions stdin =
-  let tokens = lexModuleTokensWithExtensions extensions stdin
-      output = T.unlines (map (T.pack . show . shorthand) tokens)
-   in CLIResult ExitSuccess output ""
+runLexMode :: [ExtensionSetting] -> Text -> CLIResult
+runLexMode extensionSettings stdin =
+  let headerPragmas = readModuleHeaderPragmas stdin
+      edition = fromMaybe Syntax.Haskell2010Edition (Syntax.headerLanguageEdition headerPragmas)
+      finalExts = Syntax.effectiveExtensions edition (extensionSettings ++ Syntax.headerExtensionSettings headerPragmas)
+      tokens = lexModuleTokensWithExtensions finalExts stdin
+   in CLIResult ExitSuccess (T.unlines (map (T.pack . show . shorthand) tokens)) ""
 
 optionsParser :: ParserInfo Options
 optionsParser =
@@ -101,18 +110,17 @@ modeOption =
         <> help "Lex only, do not parse (output token stream)"
     )
 
-extensionOption :: Parser Extension
+extensionOption :: Parser ExtensionSetting
 extensionOption =
   option
-    parseExtension
+    parseExtensionSetting
     ( short 'X'
         <> metavar "EXTENSION"
         <> help "Enable a language extension (e.g., -XNegativeLiterals)"
     )
 
-parseExtension :: ReadM Extension
-parseExtension = eitherReader $ \s ->
+parseExtensionSetting :: ReadM ExtensionSetting
+parseExtensionSetting = eitherReader $ \s ->
   case parseExtensionSettingName (T.pack s) of
-    Just (EnableExtension ext) -> Right ext
-    Just (DisableExtension _) -> Left ("Cannot disable extension with -X: " <> s)
+    Just setting -> Right setting
     Nothing -> Left ("Unknown extension: " <> s)
