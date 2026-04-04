@@ -150,6 +150,7 @@ executable parser-quickcheck-batch
     , bytestring
     , filepath
     , deepseq
+    , megaparsec
     , optparse-applicative
     , time
     , prettyprinter
