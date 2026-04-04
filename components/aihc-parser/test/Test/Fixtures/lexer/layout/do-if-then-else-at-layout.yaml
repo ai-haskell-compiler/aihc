@@ -1,0 +1,29 @@
+extensions: [DoAndIfThenElse]
+input: |
+  f cond = do
+    if cond
+    then putStrLn "true"
+    else putStrLn "false"
+    putStrLn "done"
+tokens:
+  - 'TkVarId "f"'
+  - 'TkVarId "cond"'
+  - 'TkReservedEquals'
+  - 'TkKeywordDo'
+  - 'TkSpecialLBrace'
+  - 'TkKeywordIf'
+  - 'TkVarId "cond"'
+  - 'TkSpecialSemicolon'
+  - 'TkKeywordThen'
+  - 'TkVarId "putStrLn"'
+  - 'TkString "true"'
+  - 'TkSpecialSemicolon'
+  - 'TkKeywordElse'
+  - 'TkVarId "putStrLn"'
+  - 'TkString "false"'
+  - 'TkSpecialSemicolon'
+  - 'TkVarId "putStrLn"'
+  - 'TkString "done"'
+  - 'TkSpecialRBrace'
+  - 'TkEOF'
+status: pass

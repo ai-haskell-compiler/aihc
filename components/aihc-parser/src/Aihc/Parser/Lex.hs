@@ -39,7 +39,7 @@
 -- * if the next token is an explicit @{@, disable implicit insertion for that block
 -- * otherwise, open an implicit layout context at the next token column
 -- * at beginning-of-line tokens, dedent emits virtual @}@, equal-indent emits virtual
---   @;@ (with a small suppression rule for @then@/@else@)
+--   @;@
 --
 -- Keyword classification is intentionally lexical and exact. 'lexIdentifier'
 -- produces a keyword token /only/ when the full identifier text exactly matches a
@@ -679,23 +679,10 @@ bolLayout st tok
           eqSemi =
             case currentLayoutIndentMaybe contexts' of
               Just indent
-                | col == indent,
-                  not (suppressesVirtualSemicolon tok) ->
+                | col == indent ->
                     [virtualSymbolToken ";" semiAnchor]
               _ -> []
        in (inserted <> eqSemi, st {layoutContexts = contexts'})
-
-suppressesVirtualSemicolon :: LexToken -> Bool
-suppressesVirtualSemicolon tok =
-  case lexTokenKind tok of
-    TkKeywordThen -> True
-    TkKeywordElse -> True
-    TkReservedDoubleArrow -> True -- =>
-    TkReservedRightArrow -> True -- ->
-    TkReservedEquals -> True -- =
-    TkReservedPipe -> True
-    TkReservedDoubleColon -> True -- ::
-    _ -> False
 
 closeImplicitLayouts :: SourceSpan -> (Int -> ImplicitLayoutKind -> Bool) -> [LayoutContext] -> ([LexToken], [LayoutContext])
 closeImplicitLayouts anchor shouldClose = go []
