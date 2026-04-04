@@ -8,11 +8,14 @@ module ParserGolden
     fixtureRoot,
     exprFixtureRoot,
     moduleFixtureRoot,
+    patternFixtureRoot,
     loadExprCases,
     loadModuleCases,
+    loadPatternCases,
     parseParserCaseText,
     evaluateExprCase,
     evaluateModuleCase,
+    evaluatePatternCase,
     progressSummary,
   )
 where
@@ -24,6 +27,7 @@ import Aihc.Parser
     formatParseErrors,
     parseExpr,
     parseModule,
+    parsePattern,
   )
 import Aihc.Parser.Shorthand (Shorthand (..))
 import Aihc.Parser.Syntax (Extension, parseExtensionName)
@@ -40,7 +44,7 @@ import System.Directory (doesDirectoryExist, listDirectory)
 import System.FilePath (takeDirectory, takeExtension, (</>))
 import qualified Text.Megaparsec.Error as MPE
 
-data CaseKind = CaseExpr | CaseModule deriving (Eq, Show)
+data CaseKind = CaseExpr | CaseModule | CasePattern deriving (Eq, Show)
 
 data ExpectedStatus
   = StatusPass
@@ -78,11 +82,17 @@ exprFixtureRoot = fixtureRoot </> "expr"
 moduleFixtureRoot :: FilePath
 moduleFixtureRoot = fixtureRoot </> "module"
 
+patternFixtureRoot :: FilePath
+patternFixtureRoot = fixtureRoot </> "pattern"
+
 loadExprCases :: IO [ParserCase]
 loadExprCases = loadCases CaseExpr exprFixtureRoot
 
 loadModuleCases :: IO [ParserCase]
 loadModuleCases = loadCases CaseModule moduleFixtureRoot
+
+loadPatternCases :: IO [ParserCase]
+loadPatternCases = loadCases CasePattern patternFixtureRoot
 
 loadCases :: CaseKind -> FilePath -> IO [ParserCase]
 loadCases kind root = do
@@ -159,6 +169,18 @@ evaluateModuleCase meta =
    in if null errs
         then classifySuccess meta (show (shorthand ast))
         else classifyFailure meta (formatParseErrors (casePath meta) (Just (caseInput meta)) errs)
+  where
+    parserConfig =
+      defaultConfig
+        { parserSourceName = casePath meta,
+          parserExtensions = caseExtensions meta
+        }
+
+evaluatePatternCase :: ParserCase -> (Outcome, String)
+evaluatePatternCase meta =
+  case parsePattern parserConfig (caseInput meta) of
+    ParseOk ast -> classifySuccess meta (show (shorthand ast))
+    ParseErr err -> classifyFailure meta (MPE.errorBundlePretty err)
   where
     parserConfig =
       defaultConfig

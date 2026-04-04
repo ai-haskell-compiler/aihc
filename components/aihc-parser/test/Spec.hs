@@ -14,6 +14,7 @@ import Test.HackageTester.Suite (hackageTesterTests)
 import Test.Lexer.Suite (lexerTests)
 import Test.Oracle.Suite (oracleTests)
 import Test.Parser.Suite (parserGoldenTests)
+import Test.Performance.Suite (parserPerformanceTests)
 import Test.Properties.ExprHelpers (genOperator, isValidGeneratedOperator)
 import Test.Properties.ExprRoundTrip (prop_exprPrettyRoundTrip)
 import Test.Properties.Identifiers (isValidGeneratedIdent, shrinkIdent)
@@ -35,6 +36,7 @@ main = buildTests >>= defaultMain
 buildTests :: IO TestTree
 buildTests = do
   parserGolden <- parserGoldenTests
+  performance <- parserPerformanceTests
   errorMessages <- errorMessageTests
   oracle <- oracleTests
   lexer <- lexerTests
@@ -43,6 +45,7 @@ buildTests = do
     testGroup
       "aihc-parser"
       [ parserGolden,
+        performance,
         errorMessages,
         lexer,
         testGroup

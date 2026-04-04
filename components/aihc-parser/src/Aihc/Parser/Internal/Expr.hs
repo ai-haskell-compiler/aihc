@@ -415,15 +415,15 @@ infixPatternParser = do
 -- As-patterns bind tighter than infix but looser than application,
 -- so they appear as operands of infix patterns.
 asOrAppPatternParser :: TokParser Pattern
-asOrAppPatternParser =
-  MP.try
-    ( withSpan $ do
-        name <- identifierTextParser
-        expectedTok TkReservedAt
-        inner <- patternAtomParser
-        pure (\span' -> PAs span' name inner)
-    )
-    <|> appPatternParser
+asOrAppPatternParser = do
+  isAsPattern <- startsWithAsPattern
+  if isAsPattern
+    then withSpan $ do
+      name <- identifierTextParser
+      expectedTok TkReservedAt
+      inner <- patternAtomParser
+      pure (\span' -> PAs span' name inner)
+    else appPatternParser
 
 buildInfixPattern :: Pattern -> (Text, Pattern) -> Pattern
 buildInfixPattern lhs (op, rhs) =
@@ -458,17 +458,30 @@ buildPatternApp lhs rhs =
 patternAtomParser :: TokParser Pattern
 patternAtomParser = do
   thFullEnabled <- isExtensionEnabled TemplateHaskell
-  MP.try strictPatternParser
-    <|> MP.try irrefutablePatternParser
-    <|> MP.try negativeLiteralPatternParser
-    <|> quasiQuotePatternParser
-    <|> (if thFullEnabled then thSplicePatternParser else MP.empty)
-    <|> wildcardPatternParser
-    <|> literalPatternParser
-    <|> listPatternParser
-    <|> parenOrTuplePatternParser
-    <|> MP.try atomAsPatternParser
-    <|> varOrConPatternParser
+  tok <- lookAhead anySingle
+  case lexTokenKind tok of
+    TkPrefixBang -> strictPatternParser
+    TkPrefixTilde -> irrefutablePatternParser
+    TkVarSym "-" -> negativeLiteralPatternParser
+    TkQuasiQuote {} -> quasiQuotePatternParser
+    TkTHSplice | thFullEnabled -> thSplicePatternParser
+    TkKeywordUnderscore -> wildcardPatternParser
+    TkInteger {} -> literalPatternParser
+    TkIntegerHash {} -> literalPatternParser
+    TkIntegerBase {} -> literalPatternParser
+    TkIntegerBaseHash {} -> literalPatternParser
+    TkFloat {} -> literalPatternParser
+    TkFloatHash {} -> literalPatternParser
+    TkChar {} -> literalPatternParser
+    TkCharHash {} -> literalPatternParser
+    TkString {} -> literalPatternParser
+    TkStringHash {} -> literalPatternParser
+    TkSpecialLBracket -> listPatternParser
+    TkSpecialLParen -> parenOrTuplePatternParser
+    TkSpecialUnboxedLParen -> parenOrTuplePatternParser
+    _ -> do
+      isAsPattern <- startsWithAsPattern
+      if isAsPattern then atomAsPatternParser else varOrConPatternParser
   where
     -- Parse an as-pattern as an atom: name@atom
     -- This allows as-patterns within constructor application patterns
@@ -917,21 +930,19 @@ localPatternDeclParser = withSpan $ do
   pure (\span' -> DeclValue span' (PatternBind span' pat (UnguardedRhs span' rhsExpr)))
 
 varOrConPatternParser :: TokParser Pattern
-varOrConPatternParser = MP.try recordPatternParser <|> bareVarOrConPatternParser
-
-bareVarOrConPatternParser :: TokParser Pattern
-bareVarOrConPatternParser = withSpan $ do
+varOrConPatternParser = withSpan $ do
   name <- identifierTextParser
-  pure $ \span' ->
-    if isConLikeName name
-      then PCon span' name []
-      else PVar span' name
-
-recordPatternParser :: TokParser Pattern
-recordPatternParser = withSpan $ do
-  con <- constructorIdentifierParser
-  (fields, hasWildcard) <- braces recordPatternFieldListParser
-  pure (\span' -> PRecord span' con fields hasWildcard)
+  mNextTok <- MP.optional (lookAhead anySingle)
+  case mNextTok of
+    Just nextTok
+      | isConLikeName name && lexTokenKind nextTok == TkSpecialLBrace -> do
+          (fields, hasWildcard) <- braces recordPatternFieldListParser
+          pure (\span' -> PRecord span' name fields hasWildcard)
+    _ ->
+      pure $ \span' ->
+        if isConLikeName name
+          then PCon span' name []
+          else PVar span' name
 
 recordFieldPatternParser :: TokParser (Text, Pattern)
 recordFieldPatternParser = withSpan $ do
@@ -972,10 +983,19 @@ parenOrTuplePatternParser = withSpan $ do
   (tupleFlavor, closeTok) <-
     (expectedTok TkSpecialLParen $> (Boxed, TkSpecialRParen))
       <|> (expectedTok TkSpecialUnboxedLParen $> (Unboxed, TkSpecialUnboxedRParen))
-  MP.try (unitPatternParser tupleFlavor closeTok)
-    <|> MP.try (viewPatternParser tupleFlavor closeTok)
-    <|> (if tupleFlavor == Unboxed then MP.try (parseUnboxedSumPatLeadingBars closeTok) else MP.empty)
-    <|> tupleOrParenPatternParser tupleFlavor closeTok
+  mNextTok <- MP.optional (lookAhead anySingle)
+  case fmap lexTokenKind mNextTok of
+    Just nextKind
+      | nextKind == closeTok -> unitPatternParser tupleFlavor closeTok
+      | tupleFlavor == Unboxed && nextKind == TkReservedPipe -> parseUnboxedSumPatLeadingBars closeTok
+    _ -> do
+      canBeViewPattern <-
+        if tupleFlavor == Boxed
+          then hasTopLevelRightArrowBefore closeTok
+          else pure False
+      if canBeViewPattern
+        then MP.try (viewPatternParser tupleFlavor closeTok) <|> tupleOrParenPatternParser tupleFlavor closeTok
+        else tupleOrParenPatternParser tupleFlavor closeTok
   where
     unitPatternParser tupleFlavor closeTok = do
       expectedTok closeTok
@@ -1047,6 +1067,32 @@ isPatternAppHead pat =
     PCon {} -> True
     PVar _ name -> isConLikeName name
     _ -> False
+
+startsWithAsPattern :: TokParser Bool
+startsWithAsPattern =
+  fmap (either (const False) (const True)) . MP.observing . MP.try . MP.lookAhead $ do
+    _ <- identifierTextParser
+    expectedTok TkReservedAt
+
+hasTopLevelRightArrowBefore :: LexTokenKind -> TokParser Bool
+hasTopLevelRightArrowBefore closeTok = MP.lookAhead (go [closeTok])
+  where
+    go [] = pure False
+    go stack@(expectedClose : rest) = do
+      tok <- anySingle
+      case lexTokenKind tok of
+        TkEOF -> pure False
+        TkReservedRightArrow | [_] <- stack -> pure True
+        kind
+          | kind == expectedClose ->
+              case rest of
+                [] -> pure False
+                _ -> go rest
+        TkSpecialLParen -> go (TkSpecialRParen : stack)
+        TkSpecialUnboxedLParen -> go (TkSpecialUnboxedRParen : stack)
+        TkSpecialLBracket -> go (TkSpecialRBracket : stack)
+        TkSpecialLBrace -> go (TkSpecialRBrace : stack)
+        _ -> go stack
 
 compGuardStmtParser :: TokParser CompStmt
 compGuardStmtParser = withSpan $ do
