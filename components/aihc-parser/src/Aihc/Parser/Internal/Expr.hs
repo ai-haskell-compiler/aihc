@@ -13,6 +13,7 @@ module Aihc.Parser.Internal.Expr
   )
 where
 
+import Aihc.Parser.Internal.CheckPattern (checkPattern)
 import Aihc.Parser.Internal.Common
 import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokenKind, lexTokenSpan, lexTokenText)
 import Aihc.Parser.Syntax
@@ -23,6 +24,11 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Text.Megaparsec (anySingle, lookAhead, (<|>))
 import Text.Megaparsec qualified as MP
+
+-- | Lift an @Either Text a@ into the parser, converting @Left@ into a parse error.
+liftCheck :: Either Text a -> TokParser a
+liftCheck (Right a) = pure a
+liftCheck (Left msg) = fail (T.unpack msg)
 
 exprParser :: TokParser Expr
 exprParser =
@@ -106,10 +112,58 @@ bracedStmtListParser :: TokParser a -> TokParser [a]
 bracedStmtListParser = bracedSemiSep1
 
 doStmtParser :: TokParser DoStmt
-doStmtParser = MP.try doBindStmtParser <|> MP.try doLetStmtParser <|> doExprStmtParser
+doStmtParser = do
+  tok <- lookAhead anySingle
+  case lexTokenKind tok of
+    -- 'let' statement: distinguished by leading keyword.
+    -- Uses MP.try because 'let ... in ...' is a valid expression that
+    -- doLetStmtParser rejects via notFollowedBy.
+    TkKeywordLet -> MP.try doLetStmtParser <|> doBindOrExprStmtParser
+    -- Pattern-only leading tokens: only valid in bind context.
+    -- No MP.try needed since these can only be bind statements.
+    TkPrefixBang -> doPatBindStmtParser
+    TkPrefixTilde -> doPatBindStmtParser
+    -- Common case: parse as expression first, then check for '<-'.
+    -- If the expression parser produces a complete expression and '<-'
+    -- follows, reclassify via checkPattern. Otherwise return DoExpr.
+    _ -> do
+      isAs <- startsWithAsPattern
+      if isAs
+        then doPatBindStmtParser
+        else doBindOrExprStmtParser
 
-doBindStmtParser :: TokParser DoStmt
-doBindStmtParser = withSpan $ do
+-- | Parse a do-statement that is either a bind (@pat <- expr@) or a plain
+-- expression. We parse the leading expression once and then check for @<-@
+-- to disambiguate, avoiding the backtracking that a separate pattern-first
+-- approach would require.
+--
+-- This handles the common case where the leading syntax is valid as both
+-- an expression and a pattern (variables, constructors, applications,
+-- literals, tuples, lists, etc.).
+doBindOrExprStmtParser :: TokParser DoStmt
+doBindOrExprStmtParser = withSpan $ do
+  expr <- exprParser
+  mArrow <- MP.optional (expectedTok TkReservedLeftArrow)
+  case mArrow of
+    Just () -> do
+      pat <- liftCheck (checkPattern expr)
+      rhs <- region "while parsing '<-' binding" exprParser
+      pure (\span' -> DoBind span' pat rhs)
+    Nothing ->
+      pure (`DoExpr` expr)
+
+-- | Fallback for do-bind statements that the expression-first approach
+-- cannot handle. This covers:
+--
+-- * Pattern-only leading syntax (@!pat@, @~pat@) that the expression
+--   parser does not recognise.
+-- * As-patterns (@x\@pat@) where the expression parser parses only the
+--   variable prefix and leaves @\@pat <- expr@ unparsed.
+--
+-- In the common case 'doBindOrExprStmtParser' handles the statement in a
+-- single pass, so this fallback is rarely reached.
+doPatBindStmtParser :: TokParser DoStmt
+doPatBindStmtParser = withSpan $ do
   pat <- patternParser
   expectedTok TkReservedLeftArrow
   expr <- region "while parsing '<-' binding" exprParser
@@ -130,11 +184,6 @@ doLetStmtParser :: TokParser DoStmt
 doLetStmtParser = withSpan $ do
   decls <- parseLetDeclsStmtParser
   pure (`DoLetDecls` decls)
-
-doExprStmtParser :: TokParser DoStmt
-doExprStmtParser = withSpan $ do
-  expr <- exprParser
-  pure (`DoExpr` expr)
 
 infixExprParserExcept :: [Text] -> TokParser Expr
 infixExprParserExcept forbidden = do
@@ -346,6 +395,7 @@ atomExprParser = do
     <|> intExprParser
     <|> charExprParser
     <|> stringExprParser
+    <|> wildcardExprParser
     <|> varExprParser
 
 prefixNegateAtomExprParser :: TokParser Expr
@@ -1197,6 +1247,15 @@ varExprParser :: TokParser Expr
 varExprParser = withSpan $ do
   name <- identifierTextParser
   pure (`EVar` name)
+
+-- | Parse a wildcard @_@ as an expression. In expression context this is
+-- a typed hole; in pattern context 'checkPattern' converts it to 'PWildcard'.
+-- This allows the unified parse-as-expression strategy to handle do-binds
+-- like @_ <- action@ without falling back to a separate pattern parser.
+wildcardExprParser :: TokParser Expr
+wildcardExprParser = withSpan $ do
+  keywordTok TkKeywordUnderscore
+  pure (`EVar` "_")
 
 -- | Parse Template Haskell quote brackets:
 -- [| expr |], [e| expr |], [|| expr ||], [e|| expr ||],

@@ -19,6 +19,7 @@ library
   other-modules:
       Aihc.Parser.Pretty
     , Aihc.Parser.Types
+    , Aihc.Parser.Internal.CheckPattern
     , Aihc.Parser.Internal.Common
     , Aihc.Parser.Internal.Expr
     , Aihc.Parser.Internal.Decl
