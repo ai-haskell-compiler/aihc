@@ -1,0 +1,4 @@
+interface:
+  display_name: "Minimize Parse Failures"
+  short_description: "Shrink parser failures to small repros"
+  default_prompt: "Use $minimize-parse-failures to turn this parser failure into a minimal GHC-accepted testcase."
