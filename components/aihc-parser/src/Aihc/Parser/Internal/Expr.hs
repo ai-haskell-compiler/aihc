@@ -80,11 +80,8 @@ classicIfExprParser = withSpan $ do
 multiWayIfExprParser :: TokParser Expr
 multiWayIfExprParser = withSpan $ do
   keywordTok TkKeywordIf
-  rhss <- bracedAlts <|> plainAlts
+  rhss <- braces (MP.some multiWayIfAlternative)
   pure (`EMultiWayIf` rhss)
-  where
-    plainAlts = plainSemiSep1 multiWayIfAlternative
-    bracedAlts = bracedSemiSep multiWayIfAlternative
 
 multiWayIfAlternative :: TokParser GuardedRhs
 multiWayIfAlternative = withSpan $ do
@@ -431,12 +428,20 @@ buildInfixPattern lhs (op, rhs) =
 
 conOperatorParser :: TokParser Text
 conOperatorParser =
-  tokenSatisfy "constructor operator" $ \tok ->
-    case lexTokenKind tok of
-      TkConSym op -> Just op
-      TkQConSym op -> Just op
-      TkReservedColon -> Just ":"
-      _ -> Nothing
+  symbolicConOp <|> backtickConOp
+  where
+    symbolicConOp =
+      tokenSatisfy "constructor operator" $ \tok ->
+        case lexTokenKind tok of
+          TkConSym op -> Just op
+          TkQConSym op -> Just op
+          TkReservedColon -> Just ":"
+          _ -> Nothing
+    backtickConOp = MP.try $ do
+      expectedTok TkSpecialBacktick
+      name <- constructorIdentifierParser
+      expectedTok TkSpecialBacktick
+      pure name
 
 appPatternParser :: TokParser Pattern
 appPatternParser = do
@@ -687,8 +692,8 @@ parenExprParser = withSpan $ do
     Just () -> pure (\span' -> ETuple span' tupleFlavor [])
     Nothing ->
       if tupleFlavor == Boxed
-        then MP.try (parseNegateParen closeTok) <|> MP.try (parseSection closeTok) <|> MP.try (parseTupleSectionExpr tupleFlavor closeTok) <|> parseParenOrTupleExpr tupleFlavor closeTok
-        else MP.try (parseTupleSectionExpr tupleFlavor closeTok) <|> MP.try (parseUnboxedSumExprLeadingBars closeTok) <|> parseParenOrTupleExpr tupleFlavor closeTok
+        then MP.try (parseNegateParen closeTok) <|> parseBoxedContent closeTok
+        else MP.try (parseUnboxedSumExprLeadingBars closeTok) <|> parseTupleOrParen tupleFlavor closeTok
   where
     parseNegateParen closeTok = do
       minusTok <- minusTokenValueParser
@@ -716,8 +721,63 @@ parenExprParser = withSpan $ do
             firstEndLine == secondStartLine && firstEndCol == secondStartCol
         _ -> False
 
-    parseSection closeTok = do
-      MP.try parseSectionR <|> parseSectionL
+    -- Parse boxed paren content without backtracking over the inner expression.
+    -- The old approach tried parseSectionL (which called appExprParser), then on
+    -- failure backtracked and re-parsed via parseTupleOrParen — O(2^N) for deeply
+    -- nested applications. This version parses each sub-expression exactly once.
+    parseBoxedContent closeTok =
+      -- Right section (op expr): operator is the first token, quick to detect.
+      MP.try parseSectionR
+        <|> do
+          -- Parse an lexp (do/if/case/let/lambda/application), same base as
+          -- infixExprParserExcept.  No MP.try: once we read a token we commit.
+          mBase <- MP.optional (MP.try negateExprParser <|> lexpParser)
+          case mBase of
+            Nothing ->
+              -- No expression: tuple section with a leading hole, e.g. (,a,b).
+              finishBoxed closeTok Nothing
+            Just base -> do
+              mOp <- MP.optional (infixOperatorParserExcept [])
+              case mOp of
+                Nothing -> do
+                  -- No infix operator: check for type annotation (expr :: type).
+                  mTypeSig <- MP.optional (expectedTok TkReservedDoubleColon *> typeParser)
+                  let typed = case mTypeSig of
+                        Just ty -> ETypeSig (mergeSourceSpans (getSourceSpan base) (getSourceSpan ty)) base ty
+                        Nothing -> base
+                  -- Where clause wraps the entire expression.
+                  mWhere <- MP.optional whereClauseParser
+                  let expr' = case mWhere of
+                        Just decls -> EWhereDecls (mergeSourceSpans (getSourceSpan typed) (sourceSpanEnd decls)) typed decls
+                        Nothing -> typed
+                  finishBoxed closeTok (Just expr')
+                Just op -> do
+                  mClose <- MP.optional (expectedTok closeTok)
+                  case mClose of
+                    Just () ->
+                      -- Left section: (base op).
+                      pure (\span' -> EParen span' (ESectionL span' base op))
+                    Nothing -> do
+                      -- Infix expression: build the full chain, then close.
+                      rhs <- region "after infix operator" lexpParser
+                      more <-
+                        MP.many
+                          ( (,)
+                              <$> infixOperatorParserExcept []
+                              <*> region "after infix operator" lexpParser
+                          )
+                      let fullInfix = foldl buildInfix base ((op, rhs) : more)
+                      -- Type annotation has lower precedence than all infix ops.
+                      mTypeSig <- MP.optional (expectedTok TkReservedDoubleColon *> typeParser)
+                      let typed = case mTypeSig of
+                            Just ty -> ETypeSig (mergeSourceSpans (getSourceSpan fullInfix) (getSourceSpan ty)) fullInfix ty
+                            Nothing -> fullInfix
+                      -- Where clause wraps the entire expression.
+                      mWhere <- MP.optional whereClauseParser
+                      let fullExpr = case mWhere of
+                            Just decls -> EWhereDecls (mergeSourceSpans (getSourceSpan typed) (sourceSpanEnd decls)) typed decls
+                            Nothing -> typed
+                      finishBoxed closeTok (Just fullExpr)
       where
         parseSectionR = do
           op <- infixOperatorParserExcept []
@@ -725,42 +785,55 @@ parenExprParser = withSpan $ do
           expectedTok closeTok
           pure (\span' -> EParen span' (ESectionR span' op rhs))
 
-        parseSectionL = do
-          lhs <- appExprParser
-          op <- infixOperatorParserExcept []
+    finishBoxed closeTok mFirst = do
+      mComma <- MP.optional (expectedTok TkSpecialComma)
+      case (mFirst, mComma) of
+        (Just e, Nothing) -> do
           expectedTok closeTok
-          pure (\span' -> EParen span' (ESectionL span' lhs op))
+          pure (`EParen` e)
+        (_, Just ()) -> do
+          rest <- parseTupleElems closeTok
+          pure (\span' -> ETuple span' Boxed (mFirst : rest))
+        (Nothing, Nothing) ->
+          fail "expected expression or closing paren"
 
-    parseTupleSectionExpr tupleFlavor closeTok = do
-      -- Try to parse as tuple section first (e.g., "(,1)" or "(1,)")
-      -- If that fails, fall back to regular tuple/paren parsing
-      values <- parseTupleSection closeTok
-      pure (\span' -> ETupleSection span' tupleFlavor values)
+    -- Parse a parenthesised unboxed expression, unboxed tuple, or tuple section.
+    parseTupleOrParen tupleFlavor closeTok = do
+      first <- MP.optional exprParser
+      mComma <- MP.optional (expectedTok TkSpecialComma)
+      case (first, mComma) of
+        (Just e, Nothing) ->
+          case tupleFlavor of
+            Boxed -> do
+              expectedTok closeTok
+              pure (`EParen` e)
+            Unboxed -> do
+              -- (# expr | ... #) - value in first slot of unboxed sum
+              mPipe <- MP.optional (expectedTok TkReservedPipe)
+              case mPipe of
+                Just () -> do
+                  trailingBars <- MP.many (expectedTok TkReservedPipe)
+                  expectedTok closeTok
+                  let arity = 2 + length trailingBars
+                  pure (\span' -> EUnboxedSum span' 0 arity e)
+                Nothing -> fail "not an unboxed tuple"
+        (_, Just ()) -> do
+          rest <- parseTupleElems closeTok
+          pure (\span' -> ETuple span' tupleFlavor (first : rest))
+        (Nothing, Nothing) ->
+          fail "expected expression or closing paren"
 
-    parseParenOrTupleExpr tupleFlavor closeTok = do
-      first <- exprParser
+    -- Parse remaining tuple elements after the first comma. Each element may
+    -- be absent (Nothing = hole). No MP.try needed: MP.optional on the comma
+    -- fails without consuming input when it sees the close token.
+    parseTupleElems closeTok = do
+      e <- MP.optional exprParser
       mComma <- MP.optional (expectedTok TkSpecialComma)
       case mComma of
+        Just () -> (e :) <$> parseTupleElems closeTok
         Nothing -> do
-          -- Check for pipe (unboxed sum: value in first slot)
-          mPipe <- if tupleFlavor == Unboxed then MP.optional (expectedTok TkReservedPipe) else pure Nothing
-          case mPipe of
-            Just () -> do
-              -- (# expr | ... #) - value in first slot of sum
-              trailingBars <- MP.many (expectedTok TkReservedPipe)
-              expectedTok closeTok
-              let arity = 2 + length trailingBars
-              pure (\span' -> EUnboxedSum span' 0 arity first)
-            Nothing -> do
-              expectedTok closeTok
-              if tupleFlavor == Boxed
-                then pure (`EParen` first)
-                else fail "not an unboxed tuple"
-        Just () -> do
-          second <- exprParser
-          more <- MP.many (expectedTok TkSpecialComma *> exprParser)
           expectedTok closeTok
-          pure (\span' -> ETuple span' tupleFlavor (first : second : more))
+          pure [e]
 
     parseUnboxedSumExprLeadingBars closeTok = do
       -- Parse (# | | ... | expr | ... | #) where value is not in first slot
@@ -772,23 +845,6 @@ parenExprParser = withSpan $ do
       expectedTok closeTok
       let arity = altIdx + 1 + length trailingBars
       pure (\span' -> EUnboxedSum span' altIdx arity inner)
-
-parseTupleSection :: LexTokenKind -> TokParser [Maybe Expr]
-parseTupleSection closeTok = do
-  first <- MP.optional exprParser
-  _ <- expectedTok TkSpecialComma
-  middle <- MP.many (MP.try (MP.optional exprParser <* expectedTok TkSpecialComma))
-  lastSlot <- MP.optional exprParser
-  expectedTok closeTok
-  let vals = first : middle <> [lastSlot]
-  let hasMissing = any isNothing vals
-  if hasMissing && length vals > 1
-    then pure vals
-    else fail "not a tuple section"
-
-isNothing :: Maybe a -> Bool
-isNothing Nothing = True
-isNothing (Just _) = False
 
 listExprParser :: TokParser Expr
 listExprParser = withSpan $ do
@@ -991,7 +1047,7 @@ parenOrTuplePatternParser = withSpan $ do
     _ -> do
       canBeViewPattern <-
         if tupleFlavor == Boxed
-          then hasTopLevelRightArrowBefore closeTok
+          then hasTopLevelViewPatternArrowBefore closeTok
           else pure False
       if canBeViewPattern
         then MP.try (viewPatternParser tupleFlavor closeTok) <|> tupleOrParenPatternParser tupleFlavor closeTok
@@ -1111,8 +1167,8 @@ startsWithContextType = MP.lookAhead (go [])
         TkSpecialLBrace -> go (TkSpecialRBrace : stack)
         _ -> go stack
 
-hasTopLevelRightArrowBefore :: LexTokenKind -> TokParser Bool
-hasTopLevelRightArrowBefore closeTok = MP.lookAhead (go [closeTok])
+hasTopLevelViewPatternArrowBefore :: LexTokenKind -> TokParser Bool
+hasTopLevelViewPatternArrowBefore closeTok = MP.lookAhead (go [closeTok])
   where
     go [] = pure False
     go stack@(expectedClose : rest) = do
@@ -1120,6 +1176,7 @@ hasTopLevelRightArrowBefore closeTok = MP.lookAhead (go [closeTok])
       case lexTokenKind tok of
         TkEOF -> pure False
         TkReservedRightArrow | [_] <- stack -> pure True
+        TkSpecialComma | [_] <- stack -> pure False
         kind
           | kind == expectedClose ->
               case rest of

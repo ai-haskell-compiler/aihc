@@ -181,28 +181,27 @@ dropRootPrefix path =
 
 generatedPerfCases :: [PerfCase]
 generatedPerfCases =
-  [ mkGeneratedPerfCaseXFail "tuple-expression-nested" (mkExprModule (nestedTupleExpr generatedCaseSize)) "times out at size 100 under the current 1 second budget",
+  [ mkGeneratedPerfCase "tuple-expression-nested" (mkExprModule (nestedTupleExpr generatedCaseSize)),
     mkGeneratedPerfCase "tuple-expression-wide" (mkExprModule (wideTupleExpr generatedCaseSize)),
     mkGeneratedPerfCase "expression-list" (mkExprModule (longListExpr generatedCaseSize)),
     mkGeneratedPerfCase "tuple-type-nested" (mkTypeModule (nestedTupleType generatedCaseSize)),
     mkGeneratedPerfCase "tuple-type-wide" (mkTypeModule (wideTupleType generatedCaseSize)),
     mkGeneratedPerfCase "tuple-pattern-nested" (mkPatternModule (nestedTuplePattern generatedCaseSize)),
     mkGeneratedPerfCase "tuple-pattern-wide" (mkPatternModule (wideTuplePattern generatedCaseSize)),
+    mkGeneratedPerfCase "tuple-pattern-function-nested" (mkTuplePatternFunctionModule (nestedTuplePattern generatedCaseSize)),
+    mkGeneratedPerfCase "tuple-pattern-function-wide" (mkTuplePatternFunctionModule (wideTuplePattern generatedCaseSize)),
     mkGeneratedPerfCase "enum-data-constructors" (mkDataModule (enumDataDecl generatedCaseSize)),
     mkGeneratedPerfCase "record-data-fields" (mkDataModule (recordDataDecl generatedCaseSize)),
     mkGeneratedPerfCase "type-right-leaning-terms" (mkTypeModule (rightLeaningType generatedCaseSize)),
     mkGeneratedPerfCase "type-left-leaning-terms" (mkTypeModule (leftLeaningType generatedCaseSize)),
     mkGeneratedPerfCase "type-parameters" (mkTypeModule (typeWithParameters generatedCaseSize)),
-    mkGeneratedPerfCase "string-escapes" (mkExprModule (escapedStringExpr (generatedCaseSize * 100)))
+    mkGeneratedPerfCase "string-escapes" (mkExprModule (escapedStringExpr (generatedCaseSize * 100))),
+    mkGeneratedPerfCase "nested-application" (mkExprModule (nestedAppExpr generatedCaseSize))
   ]
 
 mkGeneratedPerfCase :: String -> Text -> PerfCase
 mkGeneratedPerfCase label inputText =
   mkGeneratedPerfCaseWithStatus label inputText StatusPass ""
-
-mkGeneratedPerfCaseXFail :: String -> Text -> String -> PerfCase
-mkGeneratedPerfCaseXFail label inputText =
-  mkGeneratedPerfCaseWithStatus label inputText StatusXFail
 
 mkGeneratedPerfCaseWithStatus :: String -> Text -> ExpectedStatus -> String -> PerfCase
 mkGeneratedPerfCaseWithStatus label inputText status reason =
@@ -224,6 +223,9 @@ mkTypeModule ty = T.unlines ["module Generated where", "value :: " <> ty, "value
 
 mkPatternModule :: Text -> Text
 mkPatternModule pat = T.unlines ["module Generated where", "value " <> pat <> " = x1", "  where", "    x1 = 1"]
+
+mkTuplePatternFunctionModule :: Text -> Text
+mkTuplePatternFunctionModule pat = T.unlines ["module Generated where", "fn " <> pat <> " = ()"]
 
 mkDataModule :: Text -> Text
 mkDataModule decl = T.unlines ["module Generated where", decl]
@@ -318,3 +320,11 @@ tupleItemsText items =
 
 patternVars :: Int -> [Text]
 patternVars n = [T.pack ("x" <> show ix) | ix <- [1 .. n]]
+
+-- | Generate deeply nested constructor application: A(A(A(...A(a)...)))
+-- This exercises the paren expression parser's performance under deep nesting.
+nestedAppExpr :: Int -> Text
+nestedAppExpr n =
+  case n of
+    0 -> "a"
+    _ -> "A(" <> nestedAppExpr (n - 1) <> ")"

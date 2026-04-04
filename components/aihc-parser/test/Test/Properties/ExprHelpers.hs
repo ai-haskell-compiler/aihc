@@ -54,9 +54,9 @@ genExprSized n
           EListComp span0 <$> genExprSized half <*> genCompStmts half,
           EListCompParallel span0 <$> genExprSized half <*> genParallelCompStmts half,
           EList span0 <$> genListElems (n - 1),
-          ETuple span0 Boxed <$> genTupleElems (n - 1),
-          ETuple span0 Unboxed <$> genUnboxedTupleElems (n - 1),
-          ETupleSection span0 Boxed <$> genTupleSectionElems (n - 1),
+          ETuple span0 Boxed . map Just <$> genTupleElems (n - 1),
+          ETuple span0 Unboxed . map Just <$> genUnboxedTupleElems (n - 1),
+          ETuple span0 Boxed <$> genTupleSectionElems (n - 1),
           genUnboxedSumExpr (n - 1),
           EArithSeq span0 <$> genArithSeq (n - 1),
           ERecordCon span0 <$> genConName <*> genRecordFields (n - 1) <*> pure False,
@@ -92,8 +92,8 @@ genExprLeaf =
       pure (EList span0 []),
       pure (ETuple span0 Boxed []),
       pure (ETuple span0 Unboxed []),
-      ETupleCon span0 Boxed <$> chooseInt (2, 5),
-      ETupleCon span0 Unboxed <$> chooseInt (2, 5)
+      (\n -> ETuple span0 Boxed (replicate n Nothing)) <$> chooseInt (2, 5),
+      (\n -> ETuple span0 Unboxed (replicate n Nothing)) <$> chooseInt (2, 5)
     ]
 
 -- | Generate a quasi-quote name, excluding TH bracket names (e, d, p, t) which
@@ -531,10 +531,7 @@ shrinkExpr expr =
     EList _ elems ->
       [EList span0 elems' | elems' <- shrinkList shrinkExpr elems]
     ETuple _ tupleFlavor elems ->
-      [ETuple span0 tupleFlavor elems' | elems' <- shrinkTupleElems shrinkExpr elems]
-    ETupleSection _ tupleFlavor elems ->
-      [ETupleSection span0 tupleFlavor elems' | elems' <- shrinkTupleSectionElems elems]
-    ETupleCon _ tupleFlavor n -> [ETupleCon span0 tupleFlavor n' | n' <- shrink n, n' >= 2]
+      [ETuple span0 tupleFlavor elems' | elems' <- shrinkTupleElems shrinkMaybeExpr elems]
     EArithSeq _ seq' ->
       [EArithSeq span0 seq'' | seq'' <- shrinkArithSeq seq']
     ERecordCon _ con fields _ ->
@@ -642,14 +639,6 @@ shrinkTupleElems shrinkElem elems =
     _ ->
       [elems' | elems' <- shrinkList shrinkElem elems, length elems' /= 1]
 
-shrinkTupleSectionElems :: [Maybe Expr] -> [[Maybe Expr]]
-shrinkTupleSectionElems elems =
-  [ elems'
-  | elems' <- shrinkList shrinkMaybeExpr elems,
-    length elems' >= 2,
-    Nothing `elem` elems' -- Must have at least one hole
-  ]
-
 shrinkMaybeExpr :: Maybe Expr -> [Maybe Expr]
 shrinkMaybeExpr mExpr =
   case mExpr of
@@ -714,13 +703,7 @@ normalizeExpr expr =
     EListComp _ body stmts -> EListComp span0 (normalizeExpr body) (map normalizeCompStmt stmts)
     EListCompParallel _ body stmtss -> EListCompParallel span0 (normalizeExpr body) (map (map normalizeCompStmt) stmtss)
     EList _ elems -> EList span0 (map normalizeExpr elems)
-    ETuple _ tupleFlavor elems -> ETuple span0 tupleFlavor (map normalizeExpr elems)
-    -- When a tuple section has all holes, it becomes a tuple constructor
-    ETupleSection _ tupleFlavor elems
-      | all (== Nothing) elems -> ETupleSection span0 tupleFlavor elems
-      | otherwise -> ETupleSection span0 tupleFlavor (map (fmap normalizeExpr) elems)
-    -- A tuple constructor is equivalent to a tuple section with all holes
-    ETupleCon _ tupleFlavor n -> ETupleSection span0 tupleFlavor (replicate n Nothing)
+    ETuple _ tupleFlavor elems -> ETuple span0 tupleFlavor (map (fmap normalizeExpr) elems)
     EArithSeq _ seq' -> EArithSeq span0 (normalizeArithSeq seq')
     ERecordCon _ con fields rwc -> ERecordCon span0 con [(name, normalizeExpr e) | (name, e) <- fields] rwc
     ERecordUpd _ target fields -> ERecordUpd span0 (normalizeExpr target) [(name, normalizeExpr e) | (name, e) <- fields]
