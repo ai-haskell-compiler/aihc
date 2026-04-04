@@ -1074,6 +1074,43 @@ startsWithAsPattern =
     _ <- identifierTextParser
     expectedTok TkReservedAt
 
+startsWithContextType :: TokParser Bool
+startsWithContextType = MP.lookAhead (go [])
+  where
+    go :: [LexTokenKind] -> TokParser Bool
+    go [] = do
+      tok <- anySingle
+      case lexTokenKind tok of
+        TkEOF -> pure False
+        TkReservedDoubleArrow -> pure True
+        TkReservedRightArrow -> pure False
+        TkSpecialComma -> pure False
+        TkSpecialSemicolon -> pure False
+        TkReservedPipe -> pure False
+        TkSpecialRParen -> pure False
+        TkSpecialUnboxedRParen -> pure False
+        TkSpecialRBracket -> pure False
+        TkSpecialRBrace -> pure False
+        TkSpecialLParen -> go [TkSpecialRParen]
+        TkSpecialUnboxedLParen -> go [TkSpecialUnboxedRParen]
+        TkSpecialLBracket -> go [TkSpecialRBracket]
+        TkSpecialLBrace -> go [TkSpecialRBrace]
+        _ -> go []
+    go stack@(expectedClose : rest) = do
+      tok <- anySingle
+      case lexTokenKind tok of
+        TkEOF -> pure False
+        kind
+          | kind == expectedClose ->
+              case rest of
+                [] -> go []
+                _ -> go rest
+        TkSpecialLParen -> go (TkSpecialRParen : stack)
+        TkSpecialUnboxedLParen -> go (TkSpecialUnboxedRParen : stack)
+        TkSpecialLBracket -> go (TkSpecialRBracket : stack)
+        TkSpecialLBrace -> go (TkSpecialRBrace : stack)
+        _ -> go stack
+
 hasTopLevelRightArrowBefore :: LexTokenKind -> TokParser Bool
 hasTopLevelRightArrowBefore closeTok = MP.lookAhead (go [closeTok])
   where
@@ -1238,14 +1275,19 @@ simplePatternParser =
 
 typeParser :: TokParser Type
 typeParser =
-  label "type" (MP.try forallTypeParser <|> MP.try contextTypeParser <|> typeFunParser)
+  label "type" (MP.try forallTypeParser <|> contextOrFunTypeParser)
+
+contextOrFunTypeParser :: TokParser Type
+contextOrFunTypeParser = do
+  isContextType <- startsWithContextType
+  if isContextType then contextTypeParser else typeFunParser
 
 forallTypeParser :: TokParser Type
 forallTypeParser = withSpan $ do
   varIdTok "forall"
   binders <- MP.some identifierTextParser
   expectedTok (TkVarSym ".")
-  inner <- MP.try contextTypeParser <|> typeFunParser
+  inner <- contextOrFunTypeParser
   pure (\span' -> TForall span' binders inner)
 
 contextTypeParser :: TokParser Type
