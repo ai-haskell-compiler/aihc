@@ -680,21 +680,10 @@ bolLayout st tok
           eqSemi =
             case currentLayoutIndentMaybe contexts' of
               Just indent
-                | col == indent,
-                  not (blocksVirtualSemicolon tok) ->
+                | col == indent ->
                     [virtualSymbolToken ";" semiAnchor]
               _ -> []
        in (inserted <> eqSemi, st {layoutContexts = contexts'})
-
-blocksVirtualSemicolon :: LexToken -> Bool
-blocksVirtualSemicolon tok =
-  case lexTokenKind tok of
-    TkReservedDoubleArrow -> True -- =>
-    TkReservedRightArrow -> True -- ->
-    TkReservedEquals -> True -- =
-    TkReservedPipe -> True
-    TkReservedDoubleColon -> True -- ::
-    _ -> False
 
 closeImplicitLayouts :: SourceSpan -> (Int -> ImplicitLayoutKind -> Bool) -> [LayoutContext] -> ([LexToken], [LayoutContext])
 closeImplicitLayouts anchor shouldClose = go []
