@@ -431,12 +431,20 @@ buildInfixPattern lhs (op, rhs) =
 
 conOperatorParser :: TokParser Text
 conOperatorParser =
-  tokenSatisfy "constructor operator" $ \tok ->
-    case lexTokenKind tok of
-      TkConSym op -> Just op
-      TkQConSym op -> Just op
-      TkReservedColon -> Just ":"
-      _ -> Nothing
+  symbolicConOp <|> backtickConOp
+  where
+    symbolicConOp =
+      tokenSatisfy "constructor operator" $ \tok ->
+        case lexTokenKind tok of
+          TkConSym op -> Just op
+          TkQConSym op -> Just op
+          TkReservedColon -> Just ":"
+          _ -> Nothing
+    backtickConOp = MP.try $ do
+      expectedTok TkSpecialBacktick
+      name <- constructorIdentifierParser
+      expectedTok TkSpecialBacktick
+      pure name
 
 appPatternParser :: TokParser Pattern
 appPatternParser = do

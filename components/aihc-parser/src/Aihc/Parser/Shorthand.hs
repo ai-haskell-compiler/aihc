@@ -162,6 +162,8 @@ docDecl decl =
   case decl of
     DeclValue _ vdecl -> "DeclValue" <+> parens (docValueDecl vdecl)
     DeclTypeSig _ names ty -> "DeclTypeSig" <+> braces (hsep (punctuate comma [field "names" (docTextList names), field "type" (docType ty)]))
+    DeclPatSyn _ ps -> "DeclPatSyn" <+> parens (docPatSynDecl ps)
+    DeclPatSynSig _ names ty -> "DeclPatSynSig" <+> braces (hsep (punctuate comma [field "names" (docTextList names), field "type" (docType ty)]))
     DeclStandaloneKindSig _ name kind -> "DeclStandaloneKindSig" <+> braces (hsep (punctuate comma [field "name" (docText name), field "kind" (docType kind)]))
     DeclFixity _ assoc mPrec ops -> "DeclFixity" <+> braces (hsep (punctuate comma ([field "assoc" (docFixityAssoc assoc)] <> optionalField "prec" pretty mPrec <> [field "ops" (docTextList ops)])))
     DeclRoleAnnotation _ ann -> "DeclRoleAnnotation" <+> parens (docRoleAnnotation ann)
@@ -184,6 +186,31 @@ docValueDecl vdecl =
   case vdecl of
     FunctionBind _ name matches -> "FunctionBind" <+> docText name <+> brackets (hsep (punctuate comma (map docMatch matches)))
     PatternBind _ pat rhs -> "PatternBind" <+> docPattern pat <+> docRhs rhs
+
+docPatSynDecl :: PatSynDecl -> Doc ann
+docPatSynDecl ps =
+  "PatSynDecl" <+> braces (hsep (punctuate comma fields))
+  where
+    fields =
+      [field "name" (docText (patSynDeclName ps))]
+        <> [field "args" (docPatSynArgs (patSynDeclArgs ps))]
+        <> [field "dir" (docPatSynDir (patSynDeclDir ps))]
+        <> [field "pat" (docPattern (patSynDeclPat ps))]
+
+docPatSynDir :: PatSynDir -> Doc ann
+docPatSynDir dir =
+  case dir of
+    PatSynUnidirectional -> "Unidirectional"
+    PatSynBidirectional -> "Bidirectional"
+    PatSynExplicitBidirectional matches ->
+      "ExplicitBidirectional" <+> brackets (hsep (punctuate comma (map docMatch matches)))
+
+docPatSynArgs :: PatSynArgs -> Doc ann
+docPatSynArgs args =
+  case args of
+    PatSynPrefixArgs vars -> "PrefixArgs" <+> docTextList vars
+    PatSynInfixArgs lhs rhs -> "InfixArgs" <+> docText lhs <+> docText rhs
+    PatSynRecordArgs fields' -> "RecordArgs" <+> docTextList fields'
 
 docMatch :: Match -> Doc ann
 docMatch m =

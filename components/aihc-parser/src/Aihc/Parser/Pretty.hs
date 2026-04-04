@@ -153,6 +153,8 @@ prettyDeclLines decl =
   case decl of
     DeclValue _ valueDecl -> prettyValueDeclLines valueDecl
     DeclTypeSig _ names ty -> [hsep [hsep (punctuate comma (map prettyBinderName names)), "::", prettyType ty]]
+    DeclPatSyn _ patSynDecl -> [prettyPatSynDecl patSynDecl]
+    DeclPatSynSig _ names ty -> [hsep ["pattern", hsep (punctuate comma (map prettyConstructorName names)), "::", prettyType ty]]
     DeclStandaloneKindSig _ name kind -> [hsep ["type", prettyConstructorName name, "::", prettyType kind]]
     DeclFixity _ assoc prec ops ->
       [ hsep
@@ -218,6 +220,39 @@ prettyValueDeclSingleLine valueDecl =
     PatternBind _ pat rhs -> prettyPattern pat <+> prettyRhs rhs
     FunctionBind _ name matches ->
       hsep (punctuate semi (map (prettyFunctionMatch name) matches))
+
+-- | Pretty-print a pattern synonym declaration.
+prettyPatSynDecl :: PatSynDecl -> Doc ann
+prettyPatSynDecl ps =
+  hsep
+    ( ["pattern"]
+        <> prettyPatSynLhs (patSynDeclName ps) (patSynDeclArgs ps)
+        <> [dirArrow (patSynDeclDir ps)]
+        <> [prettyPattern (patSynDeclPat ps)]
+        <> prettyPatSynWhere (patSynDeclName ps) (patSynDeclDir ps)
+    )
+  where
+    dirArrow PatSynBidirectional = "="
+    dirArrow PatSynUnidirectional = "<-"
+    dirArrow (PatSynExplicitBidirectional _) = "<-"
+
+-- | Pretty-print the LHS of a pattern synonym declaration (after @pattern@).
+prettyPatSynLhs :: Text -> PatSynArgs -> [Doc ann]
+prettyPatSynLhs name args =
+  case args of
+    PatSynPrefixArgs vars ->
+      prettyConstructorName name : map pretty vars
+    PatSynInfixArgs lhs rhs ->
+      [pretty lhs, prettyInfixOp name, pretty rhs]
+    PatSynRecordArgs fields ->
+      [prettyConstructorName name <+> braces (hsep (punctuate comma (map pretty fields)))]
+
+-- | Pretty-print the where clause of an explicitly bidirectional pattern synonym.
+prettyPatSynWhere :: Text -> PatSynDir -> [Doc ann]
+prettyPatSynWhere _ PatSynBidirectional = []
+prettyPatSynWhere _ PatSynUnidirectional = []
+prettyPatSynWhere name (PatSynExplicitBidirectional matches) =
+  ["where", braces (hsep (punctuate semi (map (prettyFunctionMatch name) matches)))]
 
 prettyFunctionMatchLines :: Text -> Match -> [Doc ann]
 prettyFunctionMatchLines name match =

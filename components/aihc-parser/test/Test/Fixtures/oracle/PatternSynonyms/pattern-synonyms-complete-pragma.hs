@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail parser support pending -}
+{- ORACLE_TEST xfail COMPLETE/INLINE pragmas not in token stream -}
 {-# LANGUAGE PatternSynonyms #-}
 
 module PatternSynonymsCompletePragma where

@@ -182,7 +182,14 @@ importOperatorParser = operatorTextParser
 
 exportImportNamespaceParser :: TokParser Text
 exportImportNamespaceParser =
-  keywordTok TkKeywordType >> pure "type"
+  (keywordTok TkKeywordType >> pure "type")
+    <|> patternNamespaceParser
+  where
+    patternNamespaceParser = do
+      patSynEnabled <- isExtensionEnabled PatternSynonyms
+      if patSynEnabled
+        then varIdTok "pattern" >> pure "pattern"
+        else MP.empty
 
 declParser :: TokParser Decl
 declParser = do
@@ -224,11 +231,11 @@ declParser = do
         <|> typeSynDeclParser
     TkVarId ident ->
       case ident of
-        "pattern" -> unsupportedDeclParser "pattern synonym declarations are not implemented yet"
+        "pattern" -> patternSynonymParser
         _ -> typeSigOrValueOrSpliceParser
     TkConId ident ->
       case ident of
-        "pattern" -> unsupportedDeclParser "pattern synonym declarations are not implemented yet"
+        "pattern" -> patternSynonymParser
         _ -> typeSigOrValueOrSpliceParser
     TkSpecialLParen -> typeSigOrPatternOrValueOrSpliceParser
     TkSpecialLBracket -> patternOrSpliceParser
@@ -1250,9 +1257,6 @@ constructorOperatorParser =
       expectedTok TkSpecialBacktick
       pure op
 
-unsupportedDeclParser :: String -> TokParser Decl
-unsupportedDeclParser = fail
-
 -- | Parse a pattern binding declaration like @(x, y) = (1, 2)@.
 -- This handles bindings where the LHS is a pattern rather than a function name.
 patternBindDeclParser :: TokParser Decl
@@ -1266,3 +1270,115 @@ valueDeclParser = withSpan $ do
   (headForm, name, pats) <- functionHeadParserWith patternParser simplePatternParser
   rhs <- equationRhsParser
   pure (\span' -> functionBindDecl span' headForm name pats rhs)
+
+-- ---------------------------------------------------------------------------
+-- Pattern synonyms
+
+-- | Parse a pattern synonym declaration or signature.
+-- Dispatches between @pattern Name :: Type@ (signature) and
+-- @pattern Name args = pat@ / @pattern Name args <- pat [where ...]@ (declaration).
+patternSynonymParser :: TokParser Decl
+patternSynonymParser =
+  MP.try patternSynonymSigDeclParser <|> patternSynonymDeclParser
+
+-- | Parse a pattern synonym type signature: @pattern Name1, Name2 :: Type@
+patternSynonymSigDeclParser :: TokParser Decl
+patternSynonymSigDeclParser = withSpan $ do
+  varIdTok "pattern"
+  names <- patSynNameParser `MP.sepBy1` expectedTok TkSpecialComma
+  expectedTok TkReservedDoubleColon
+  ty <- typeParser
+  pure (\span' -> DeclPatSynSig span' names ty)
+
+-- | Parse a pattern synonym name (constructor identifier or parenthesized operator).
+patSynNameParser :: TokParser Text
+patSynNameParser =
+  constructorIdentifierParser <|> parens constructorOperatorParser
+
+-- | Parse a pattern synonym declaration.
+-- Handles prefix, infix, and record forms with all three directionalities.
+patternSynonymDeclParser :: TokParser Decl
+patternSynonymDeclParser = withSpan $ do
+  varIdTok "pattern"
+  (name, args) <- patSynLhsParser
+  (dir, pat) <- patSynDirAndPatParser name
+  pure $ \span' ->
+    DeclPatSyn
+      span'
+      PatSynDecl
+        { patSynDeclSpan = span',
+          patSynDeclName = name,
+          patSynDeclArgs = args,
+          patSynDeclPat = pat,
+          patSynDeclDir = dir
+        }
+
+-- | Parse the LHS of a pattern synonym declaration.
+-- Returns the name and the argument form.
+patSynLhsParser :: TokParser (Text, PatSynArgs)
+patSynLhsParser =
+  MP.try patSynInfixLhsParser <|> patSynRecordOrPrefixLhsParser
+
+-- | Parse an infix pattern synonym LHS: @var ConOp var@ or @var \`Con\` var@
+patSynInfixLhsParser :: TokParser (Text, PatSynArgs)
+patSynInfixLhsParser = do
+  lhs <- lowerIdentifierParser
+  op <- constructorOperatorParser
+  rhs <- lowerIdentifierParser
+  pure (op, PatSynInfixArgs lhs rhs)
+
+-- | Parse a record or prefix pattern synonym LHS.
+-- Record: @Con {field1, field2, ...}@
+-- Prefix: @Con var1 var2 ...@
+patSynRecordOrPrefixLhsParser :: TokParser (Text, PatSynArgs)
+patSynRecordOrPrefixLhsParser = do
+  name <- patSynNameParser
+  mFields <- MP.optional (MP.try patSynRecordFieldsParser)
+  case mFields of
+    Just fields -> pure (name, PatSynRecordArgs fields)
+    Nothing -> do
+      args <- MP.many lowerIdentifierParser
+      pure (name, PatSynPrefixArgs args)
+
+-- | Parse the record fields of a pattern synonym: @{field1, field2, ...}@
+patSynRecordFieldsParser :: TokParser [Text]
+patSynRecordFieldsParser = braces (lowerIdentifierParser `MP.sepEndBy` expectedTok TkSpecialComma)
+
+-- | Parse the direction marker and RHS pattern of a pattern synonym.
+patSynDirAndPatParser :: Text -> TokParser (PatSynDir, Pattern)
+patSynDirAndPatParser name = do
+  tok <- lookAhead anySingle
+  case lexTokenKind tok of
+    TkReservedEquals -> do
+      expectedTok TkReservedEquals
+      pat <- patternParser
+      pure (PatSynBidirectional, pat)
+    TkReservedLeftArrow -> do
+      expectedTok TkReservedLeftArrow
+      pat <- patternParser
+      mMatches <- MP.optional (patSynWhereClauseParser name)
+      case mMatches of
+        Nothing -> pure (PatSynUnidirectional, pat)
+        Just matches -> pure (PatSynExplicitBidirectional matches, pat)
+    _ -> fail "expected '=' or '<-' in pattern synonym declaration"
+
+-- | Parse the where clause of an explicitly bidirectional pattern synonym.
+-- @where { Name pats = expr; ... }@
+patSynWhereClauseParser :: Text -> TokParser [Match]
+patSynWhereClauseParser _name =
+  whereClauseItemsParser
+    (bracedSemiSep patSynWhereMatch)
+    (plainSemiSep1 patSynWhereMatch)
+
+-- | Parse one equation in a pattern synonym where clause.
+patSynWhereMatch :: TokParser Match
+patSynWhereMatch = withSpan $ do
+  (headForm, _name, pats) <- functionHeadParserWith patternParser simplePatternParser
+  rhs <- equationRhsParser
+  pure $ \span' ->
+    Match
+      { matchSpan = span',
+        matchHeadForm = headForm,
+        matchPats = pats,
+        matchRhs = rhs
+      }
