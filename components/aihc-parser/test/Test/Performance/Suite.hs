@@ -27,6 +27,7 @@ import Test.Tasty.HUnit (Assertion, assertFailure, testCase)
 
 data PerfCase = PerfCase
   { perfCaseId :: !String,
+    perfCaseTarget :: !PerfTarget,
     perfCaseSourceName :: !FilePath,
     perfCaseExtensions :: ![Extension],
     perfCaseInput :: !Text,
@@ -34,19 +35,35 @@ data PerfCase = PerfCase
     perfCaseReason :: !String
   }
 
+data PerfTarget
+  = PerfModule
+  | PerfExpr
+  | PerfType
+  | PerfPattern
+
 fixtureRoot :: FilePath
 fixtureRoot = "test/Test/Fixtures/performance/module"
 
 timeoutMicros :: Int
 timeoutMicros = 1000000
 
+nestedTupleExprSize :: Int
+nestedTupleExprSize = 4
+
+generatedCaseSize :: Int
+generatedCaseSize = 100
+
 parserPerformanceTests :: IO TestTree
 parserPerformanceTests = do
-  cases <- loadPerfCases
+  fixtureCases <- loadPerfCases
   pure $
     testGroup
       "performance"
-      [ testGroup "module-parse-under-1s" (map mkPerfCaseTest cases)
+      [ testGroup
+          "parse-under-1s"
+          [ testGroup "fixtures" (map mkPerfCaseTest fixtureCases),
+            testGroup "generated" (map mkPerfCaseTest generatedPerfCases)
+          ]
       ]
 
 mkPerfCaseTest :: PerfCase -> TestTree
@@ -59,12 +76,7 @@ assertPerfCase perfCase = do
     timeout timeoutMicros $
       evaluate $
         force $
-          parseModule
-            defaultConfig
-              { parserSourceName = perfCaseSourceName perfCase,
-                parserExtensions = perfCaseExtensions perfCase
-              }
-            (perfCaseInput perfCase)
+          runPerfCase perfCase
   case (perfCaseStatus perfCase, outcome) of
     (StatusPass, Nothing) ->
       assertFailure
@@ -73,24 +85,42 @@ assertPerfCase perfCase = do
             <> "us for "
             <> perfCaseId perfCase
         )
-    (StatusPass, Just (errs, _))
-      | not (null errs) ->
-          assertFailure
-            ( "expected parse success for performance case "
-                <> perfCaseId perfCase
-                <> ", got parse error: "
-                <> formatParseErrors (perfCaseSourceName perfCase) (Just (perfCaseInput perfCase)) errs
-            )
-    (StatusXFail, Just (errs, _))
-      | null errs ->
-          assertFailure
-            ( "Unexpected pass in xfail performance case "
-                <> perfCaseId perfCase
-                <> " reason="
-                <> perfCaseReason perfCase
-            )
+    (StatusPass, Just False) ->
+      assertFailure
+        ("expected parse success for performance case " <> perfCaseId perfCase)
+    (StatusXFail, Just True) ->
+      assertFailure
+        ( "Unexpected pass in xfail performance case "
+            <> perfCaseId perfCase
+            <> " reason="
+            <> perfCaseReason perfCase
+        )
     (StatusXFail, _) -> pure ()
     _ -> pure ()
+
+runPerfCase :: PerfCase -> Bool
+runPerfCase perfCase =
+  let cfg =
+        defaultConfig
+          { parserSourceName = perfCaseSourceName perfCase,
+            parserExtensions = perfCaseExtensions perfCase
+          }
+   in case perfCaseTarget perfCase of
+        PerfModule ->
+          let (errs, _) = parseModule cfg (perfCaseInput perfCase)
+           in null errs
+        PerfExpr ->
+          case parseExpr cfg (perfCaseInput perfCase) of
+            ParseOk _ -> True
+            ParseErr _ -> False
+        PerfType ->
+          case parseType cfg (perfCaseInput perfCase) of
+            ParseOk _ -> True
+            ParseErr _ -> False
+        PerfPattern ->
+          case parsePattern cfg (perfCaseInput perfCase) of
+            ParseOk _ -> True
+            ParseErr _ -> False
 
 loadPerfCases :: IO [PerfCase]
 loadPerfCases = do
@@ -131,6 +161,7 @@ parsePerfCaseText path source = do
   pure
     PerfCase
       { perfCaseId = dropRootPrefix path,
+        perfCaseTarget = PerfModule,
         perfCaseSourceName = dropRootPrefix path,
         perfCaseExtensions = exts,
         perfCaseInput = inputText,
@@ -171,3 +202,98 @@ dropRootPrefix path =
     (prefix, rest)
       | prefix == fixtureRoot <> "/" -> rest
     _ -> path
+
+generatedPerfCases :: [PerfCase]
+generatedPerfCases =
+  [ mkGeneratedPerfCase PerfExpr "tuple-expression-nested" nestedTupleExprSize (nestedTupleExpr nestedTupleExprSize),
+    mkGeneratedPerfCase PerfExpr "tuple-expression-wide" generatedCaseSize (wideTupleExpr generatedCaseSize),
+    mkGeneratedPerfCase PerfType "tuple-type-nested" generatedCaseSize (nestedTupleType generatedCaseSize),
+    mkGeneratedPerfCase PerfType "tuple-type-wide" generatedCaseSize (wideTupleType generatedCaseSize),
+    mkGeneratedPerfCase PerfPattern "tuple-pattern-nested" generatedCaseSize (nestedTuplePattern generatedCaseSize),
+    mkGeneratedPerfCase PerfPattern "tuple-pattern-wide" generatedCaseSize (wideTuplePattern generatedCaseSize),
+    mkGeneratedPerfCase PerfModule "enum-data-constructors" generatedCaseSize (enumDataDecl generatedCaseSize),
+    mkGeneratedPerfCase PerfModule "record-data-fields" generatedCaseSize (recordDataDecl generatedCaseSize),
+    mkGeneratedPerfCase PerfType "type-right-leaning-terms" generatedCaseSize (rightLeaningType generatedCaseSize),
+    mkGeneratedPerfCase PerfType "type-left-leaning-terms" generatedCaseSize (leftLeaningType generatedCaseSize),
+    mkGeneratedPerfCase PerfType "type-parameters" generatedCaseSize (typeWithParameters generatedCaseSize)
+  ]
+
+mkGeneratedPerfCase :: PerfTarget -> String -> Int -> Text -> PerfCase
+mkGeneratedPerfCase target label size inputText =
+  let caseId = "generated/" <> label <> "-" <> show size <> ".hs"
+   in PerfCase
+        { perfCaseId = caseId,
+          perfCaseTarget = target,
+          perfCaseSourceName = caseId,
+          perfCaseExtensions = [],
+          perfCaseInput = inputText,
+          perfCaseStatus = StatusPass,
+          perfCaseReason = ""
+        }
+
+nestedTupleExpr :: Int -> Text
+nestedTupleExpr n =
+  case n of
+    0 -> "a"
+    _ -> "(" <> "a, " <> nestedTupleExpr (n - 1) <> ")"
+
+wideTupleExpr :: Int -> Text
+wideTupleExpr n = tupleText n "a"
+
+nestedTupleType :: Int -> Text
+nestedTupleType n =
+  case n of
+    0 -> "A"
+    _ -> "(" <> "A, " <> nestedTupleType (n - 1) <> ")"
+
+wideTupleType :: Int -> Text
+wideTupleType n = tupleText n "A"
+
+nestedTuplePattern :: Int -> Text
+nestedTuplePattern n =
+  case n of
+    0 -> "x1"
+    _ -> "(" <> T.pack ("x" <> show (n + 1)) <> ", " <> nestedTuplePattern (n - 1) <> ")"
+
+wideTuplePattern :: Int -> Text
+wideTuplePattern n = tupleItemsText (patternVars n)
+
+enumDataDecl :: Int -> Text
+enumDataDecl n =
+  "data T = "
+    <> T.intercalate " | " [T.pack ("C" <> show ix) | ix <- [1 .. n]]
+
+recordDataDecl :: Int -> Text
+recordDataDecl n =
+  "data T = T\n  { "
+    <> T.intercalate "\n  , " [T.pack ("field" <> show ix) <> " :: A" | ix <- [1 .. n]]
+    <> "\n  }"
+
+rightLeaningType :: Int -> Text
+rightLeaningType n =
+  case n of
+    0 -> "A"
+    1 -> "A"
+    _ -> "A -> (" <> rightLeaningType (n - 1) <> ")"
+
+leftLeaningType :: Int -> Text
+leftLeaningType n =
+  case n of
+    0 -> "A"
+    1 -> "A"
+    _ -> "(" <> leftLeaningType (n - 1) <> " -> A)"
+
+typeWithParameters :: Int -> Text
+typeWithParameters n =
+  T.unwords ("A" : replicate n "a")
+
+tupleText :: Int -> Text -> Text
+tupleText n atom =
+  tupleItemsText (replicate n atom)
+
+tupleItemsText :: [Text] -> Text
+tupleItemsText items =
+  "(" <> T.intercalate ", " items <> ")"
+
+patternVars :: Int -> [Text]
+patternVars n = [T.pack ("x" <> show ix) | ix <- [1 .. n]]
