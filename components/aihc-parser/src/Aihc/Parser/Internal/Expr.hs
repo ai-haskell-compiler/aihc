@@ -692,7 +692,7 @@ parenExprParser = withSpan $ do
     Just () -> pure (\span' -> ETuple span' tupleFlavor [])
     Nothing ->
       if tupleFlavor == Boxed
-        then MP.try (parseNegateParen closeTok) <|> MP.try (parseSection closeTok) <|> parseTupleOrParen tupleFlavor closeTok
+        then MP.try (parseNegateParen closeTok) <|> parseBoxedContent closeTok
         else MP.try (parseUnboxedSumExprLeadingBars closeTok) <|> parseTupleOrParen tupleFlavor closeTok
   where
     parseNegateParen closeTok = do
@@ -721,8 +721,63 @@ parenExprParser = withSpan $ do
             firstEndLine == secondStartLine && firstEndCol == secondStartCol
         _ -> False
 
-    parseSection closeTok = do
-      MP.try parseSectionR <|> parseSectionL
+    -- Parse boxed paren content without backtracking over the inner expression.
+    -- The old approach tried parseSectionL (which called appExprParser), then on
+    -- failure backtracked and re-parsed via parseTupleOrParen — O(2^N) for deeply
+    -- nested applications. This version parses each sub-expression exactly once.
+    parseBoxedContent closeTok =
+      -- Right section (op expr): operator is the first token, quick to detect.
+      MP.try parseSectionR
+        <|> do
+          -- Parse an lexp (do/if/case/let/lambda/application), same base as
+          -- infixExprParserExcept.  No MP.try: once we read a token we commit.
+          mBase <- MP.optional (MP.try negateExprParser <|> lexpParser)
+          case mBase of
+            Nothing ->
+              -- No expression: tuple section with a leading hole, e.g. (,a,b).
+              finishBoxed closeTok Nothing
+            Just base -> do
+              mOp <- MP.optional (infixOperatorParserExcept [])
+              case mOp of
+                Nothing -> do
+                  -- No infix operator: check for type annotation (expr :: type).
+                  mTypeSig <- MP.optional (expectedTok TkReservedDoubleColon *> typeParser)
+                  let typed = case mTypeSig of
+                        Just ty -> ETypeSig (mergeSourceSpans (getSourceSpan base) (getSourceSpan ty)) base ty
+                        Nothing -> base
+                  -- Where clause wraps the entire expression.
+                  mWhere <- MP.optional whereClauseParser
+                  let expr' = case mWhere of
+                        Just decls -> EWhereDecls (mergeSourceSpans (getSourceSpan typed) (sourceSpanEnd decls)) typed decls
+                        Nothing -> typed
+                  finishBoxed closeTok (Just expr')
+                Just op -> do
+                  mClose <- MP.optional (expectedTok closeTok)
+                  case mClose of
+                    Just () ->
+                      -- Left section: (base op).
+                      pure (\span' -> EParen span' (ESectionL span' base op))
+                    Nothing -> do
+                      -- Infix expression: build the full chain, then close.
+                      rhs <- region "after infix operator" lexpParser
+                      more <-
+                        MP.many
+                          ( (,)
+                              <$> infixOperatorParserExcept []
+                              <*> region "after infix operator" lexpParser
+                          )
+                      let fullInfix = foldl buildInfix base ((op, rhs) : more)
+                      -- Type annotation has lower precedence than all infix ops.
+                      mTypeSig <- MP.optional (expectedTok TkReservedDoubleColon *> typeParser)
+                      let typed = case mTypeSig of
+                            Just ty -> ETypeSig (mergeSourceSpans (getSourceSpan fullInfix) (getSourceSpan ty)) fullInfix ty
+                            Nothing -> fullInfix
+                      -- Where clause wraps the entire expression.
+                      mWhere <- MP.optional whereClauseParser
+                      let fullExpr = case mWhere of
+                            Just decls -> EWhereDecls (mergeSourceSpans (getSourceSpan typed) (sourceSpanEnd decls)) typed decls
+                            Nothing -> typed
+                      finishBoxed closeTok (Just fullExpr)
       where
         parseSectionR = do
           op <- infixOperatorParserExcept []
@@ -730,15 +785,19 @@ parenExprParser = withSpan $ do
           expectedTok closeTok
           pure (\span' -> EParen span' (ESectionR span' op rhs))
 
-        parseSectionL = do
-          lhs <- appExprParser
-          op <- infixOperatorParserExcept []
+    finishBoxed closeTok mFirst = do
+      mComma <- MP.optional (expectedTok TkSpecialComma)
+      case (mFirst, mComma) of
+        (Just e, Nothing) -> do
           expectedTok closeTok
-          pure (\span' -> EParen span' (ESectionL span' lhs op))
+          pure (`EParen` e)
+        (_, Just ()) -> do
+          rest <- parseTupleElems closeTok
+          pure (\span' -> ETuple span' Boxed (mFirst : rest))
+        (Nothing, Nothing) ->
+          fail "expected expression or closing paren"
 
-    -- Parse a parenthesised expression, tuple, or tuple section.
-    -- Sections and tuples share a single pass: elements are optional (Nothing
-    -- = hole), followed by ',' to continue or close token to finish.
+    -- Parse a parenthesised unboxed expression, unboxed tuple, or tuple section.
     parseTupleOrParen tupleFlavor closeTok = do
       first <- MP.optional exprParser
       mComma <- MP.optional (expectedTok TkSpecialComma)

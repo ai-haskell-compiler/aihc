@@ -195,7 +195,8 @@ generatedPerfCases =
     mkGeneratedPerfCase "type-right-leaning-terms" (mkTypeModule (rightLeaningType generatedCaseSize)),
     mkGeneratedPerfCase "type-left-leaning-terms" (mkTypeModule (leftLeaningType generatedCaseSize)),
     mkGeneratedPerfCase "type-parameters" (mkTypeModule (typeWithParameters generatedCaseSize)),
-    mkGeneratedPerfCase "string-escapes" (mkExprModule (escapedStringExpr (generatedCaseSize * 100)))
+    mkGeneratedPerfCase "string-escapes" (mkExprModule (escapedStringExpr (generatedCaseSize * 100))),
+    mkGeneratedPerfCase "nested-application" (mkExprModule (nestedAppExpr generatedCaseSize))
   ]
 
 mkGeneratedPerfCase :: String -> Text -> PerfCase
@@ -319,3 +320,11 @@ tupleItemsText items =
 
 patternVars :: Int -> [Text]
 patternVars n = [T.pack ("x" <> show ix) | ix <- [1 .. n]]
+
+-- | Generate deeply nested constructor application: A(A(A(...A(a)...)))
+-- This exercises the paren expression parser's performance under deep nesting.
+nestedAppExpr :: Int -> Text
+nestedAppExpr n =
+  case n of
+    0 -> "a"
+    _ -> "A(" <> nestedAppExpr (n - 1) <> ")"
