@@ -27,7 +27,6 @@ import Test.Tasty.HUnit (Assertion, assertFailure, testCase)
 
 data PerfCase = PerfCase
   { perfCaseId :: !String,
-    perfCaseTarget :: !PerfTarget,
     perfCaseSourceName :: !FilePath,
     perfCaseExtensions :: ![Extension],
     perfCaseInput :: !Text,
@@ -35,20 +34,11 @@ data PerfCase = PerfCase
     perfCaseReason :: !String
   }
 
-data PerfTarget
-  = PerfModule
-  | PerfExpr
-  | PerfType
-  | PerfPattern
-
 fixtureRoot :: FilePath
 fixtureRoot = "test/Test/Fixtures/performance/module"
 
 timeoutMicros :: Int
 timeoutMicros = 1000000
-
-nestedTupleExprSize :: Int
-nestedTupleExprSize = 4
 
 generatedCaseSize :: Int
 generatedCaseSize = 100
@@ -76,7 +66,12 @@ assertPerfCase perfCase = do
     timeout timeoutMicros $
       evaluate $
         force $
-          runPerfCase perfCase
+          parseModule
+            defaultConfig
+              { parserSourceName = perfCaseSourceName perfCase,
+                parserExtensions = perfCaseExtensions perfCase
+              }
+            (perfCaseInput perfCase)
   case (perfCaseStatus perfCase, outcome) of
     (StatusPass, Nothing) ->
       assertFailure
@@ -85,42 +80,25 @@ assertPerfCase perfCase = do
             <> "us for "
             <> perfCaseId perfCase
         )
-    (StatusPass, Just False) ->
-      assertFailure
-        ("expected parse success for performance case " <> perfCaseId perfCase)
-    (StatusXFail, Just True) ->
-      assertFailure
-        ( "Unexpected pass in xfail performance case "
-            <> perfCaseId perfCase
-            <> " reason="
-            <> perfCaseReason perfCase
-        )
+    (StatusPass, Just (errs, _))
+      | not (null errs) ->
+          assertFailure
+            ( "expected parse success for performance case "
+                <> perfCaseId perfCase
+                <> ", got parse error: "
+                <> formatParseErrors (perfCaseSourceName perfCase) (Just (perfCaseInput perfCase)) errs
+            )
+    (StatusXFail, Nothing) -> pure ()
+    (StatusXFail, Just (errs, _))
+      | null errs ->
+          assertFailure
+            ( "Unexpected pass in xfail performance case "
+                <> perfCaseId perfCase
+                <> " reason="
+                <> perfCaseReason perfCase
+            )
     (StatusXFail, _) -> pure ()
     _ -> pure ()
-
-runPerfCase :: PerfCase -> Bool
-runPerfCase perfCase =
-  let cfg =
-        defaultConfig
-          { parserSourceName = perfCaseSourceName perfCase,
-            parserExtensions = perfCaseExtensions perfCase
-          }
-   in case perfCaseTarget perfCase of
-        PerfModule ->
-          let (errs, _) = parseModule cfg (perfCaseInput perfCase)
-           in null errs
-        PerfExpr ->
-          case parseExpr cfg (perfCaseInput perfCase) of
-            ParseOk _ -> True
-            ParseErr _ -> False
-        PerfType ->
-          case parseType cfg (perfCaseInput perfCase) of
-            ParseOk _ -> True
-            ParseErr _ -> False
-        PerfPattern ->
-          case parsePattern cfg (perfCaseInput perfCase) of
-            ParseOk _ -> True
-            ParseErr _ -> False
 
 loadPerfCases :: IO [PerfCase]
 loadPerfCases = do
@@ -161,7 +139,6 @@ parsePerfCaseText path source = do
   pure
     PerfCase
       { perfCaseId = dropRootPrefix path,
-        perfCaseTarget = PerfModule,
         perfCaseSourceName = dropRootPrefix path,
         perfCaseExtensions = exts,
         perfCaseInput = inputText,
@@ -205,31 +182,52 @@ dropRootPrefix path =
 
 generatedPerfCases :: [PerfCase]
 generatedPerfCases =
-  [ mkGeneratedPerfCase PerfExpr "tuple-expression-nested" nestedTupleExprSize (nestedTupleExpr nestedTupleExprSize),
-    mkGeneratedPerfCase PerfExpr "tuple-expression-wide" generatedCaseSize (wideTupleExpr generatedCaseSize),
-    mkGeneratedPerfCase PerfType "tuple-type-nested" generatedCaseSize (nestedTupleType generatedCaseSize),
-    mkGeneratedPerfCase PerfType "tuple-type-wide" generatedCaseSize (wideTupleType generatedCaseSize),
-    mkGeneratedPerfCase PerfPattern "tuple-pattern-nested" generatedCaseSize (nestedTuplePattern generatedCaseSize),
-    mkGeneratedPerfCase PerfPattern "tuple-pattern-wide" generatedCaseSize (wideTuplePattern generatedCaseSize),
-    mkGeneratedPerfCase PerfModule "enum-data-constructors" generatedCaseSize (enumDataDecl generatedCaseSize),
-    mkGeneratedPerfCase PerfModule "record-data-fields" generatedCaseSize (recordDataDecl generatedCaseSize),
-    mkGeneratedPerfCase PerfType "type-right-leaning-terms" generatedCaseSize (rightLeaningType generatedCaseSize),
-    mkGeneratedPerfCase PerfType "type-left-leaning-terms" generatedCaseSize (leftLeaningType generatedCaseSize),
-    mkGeneratedPerfCase PerfType "type-parameters" generatedCaseSize (typeWithParameters generatedCaseSize)
+  [ mkGeneratedPerfCaseXFail "tuple-expression-nested" (mkExprModule (nestedTupleExpr generatedCaseSize)) "times out at size 100 under the current 1 second budget",
+    mkGeneratedPerfCase "tuple-expression-wide" (mkExprModule (wideTupleExpr generatedCaseSize)),
+    mkGeneratedPerfCase "expression-list" (mkExprModule (longListExpr generatedCaseSize)),
+    mkGeneratedPerfCase "tuple-type-nested" (mkTypeModule (nestedTupleType generatedCaseSize)),
+    mkGeneratedPerfCase "tuple-type-wide" (mkTypeModule (wideTupleType generatedCaseSize)),
+    mkGeneratedPerfCase "tuple-pattern-nested" (mkPatternModule (nestedTuplePattern generatedCaseSize)),
+    mkGeneratedPerfCase "tuple-pattern-wide" (mkPatternModule (wideTuplePattern generatedCaseSize)),
+    mkGeneratedPerfCase "enum-data-constructors" (mkDataModule (enumDataDecl generatedCaseSize)),
+    mkGeneratedPerfCase "record-data-fields" (mkDataModule (recordDataDecl generatedCaseSize)),
+    mkGeneratedPerfCase "type-right-leaning-terms" (mkTypeModule (rightLeaningType generatedCaseSize)),
+    mkGeneratedPerfCase "type-left-leaning-terms" (mkTypeModule (leftLeaningType generatedCaseSize)),
+    mkGeneratedPerfCase "type-parameters" (mkTypeModule (typeWithParameters generatedCaseSize)),
+    mkGeneratedPerfCase "string-escapes" (mkExprModule (escapedStringExpr generatedCaseSize))
   ]
 
-mkGeneratedPerfCase :: PerfTarget -> String -> Int -> Text -> PerfCase
-mkGeneratedPerfCase target label size inputText =
-  let caseId = "generated/" <> label <> "-" <> show size <> ".hs"
+mkGeneratedPerfCase :: String -> Text -> PerfCase
+mkGeneratedPerfCase label inputText =
+  mkGeneratedPerfCaseWithStatus label inputText StatusPass ""
+
+mkGeneratedPerfCaseXFail :: String -> Text -> String -> PerfCase
+mkGeneratedPerfCaseXFail label inputText =
+  mkGeneratedPerfCaseWithStatus label inputText StatusXFail
+
+mkGeneratedPerfCaseWithStatus :: String -> Text -> ExpectedStatus -> String -> PerfCase
+mkGeneratedPerfCaseWithStatus label inputText status reason =
+  let caseId = "generated/" <> label <> "-" <> show generatedCaseSize <> ".hs"
    in PerfCase
         { perfCaseId = caseId,
-          perfCaseTarget = target,
           perfCaseSourceName = caseId,
           perfCaseExtensions = [],
           perfCaseInput = inputText,
-          perfCaseStatus = StatusPass,
-          perfCaseReason = ""
+          perfCaseStatus = status,
+          perfCaseReason = reason
         }
+
+mkExprModule :: Text -> Text
+mkExprModule expr = T.unlines ["module Generated where", "value = " <> expr]
+
+mkTypeModule :: Text -> Text
+mkTypeModule ty = T.unlines ["module Generated where", "value :: " <> ty, "value = undefined"]
+
+mkPatternModule :: Text -> Text
+mkPatternModule pat = T.unlines ["module Generated where", "value " <> pat <> " = x1", "  where", "    x1 = 1"]
+
+mkDataModule :: Text -> Text
+mkDataModule decl = T.unlines ["module Generated where", decl]
 
 nestedTupleExpr :: Int -> Text
 nestedTupleExpr n =
@@ -239,6 +237,9 @@ nestedTupleExpr n =
 
 wideTupleExpr :: Int -> Text
 wideTupleExpr n = tupleText n "a"
+
+longListExpr :: Int -> Text
+longListExpr n = "[" <> T.intercalate ", " (replicate n "a") <> "]"
 
 nestedTupleType :: Int -> Text
 nestedTupleType n =
@@ -286,6 +287,10 @@ leftLeaningType n =
 typeWithParameters :: Int -> Text
 typeWithParameters n =
   T.unwords ("A" : replicate n "a")
+
+escapedStringExpr :: Int -> Text
+escapedStringExpr n =
+  T.concat ["\"", T.concat (replicate n "\\n\\t\\\\\\\""), "\""]
 
 tupleText :: Int -> Text -> Text
 tupleText n atom =
