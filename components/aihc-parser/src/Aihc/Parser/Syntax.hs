@@ -1309,9 +1309,7 @@ data Expr
   | EParen SourceSpan Expr
   | EWhereDecls SourceSpan Expr [Decl]
   | EList SourceSpan [Expr]
-  | ETuple SourceSpan TupleFlavor [Expr]
-  | ETupleSection SourceSpan TupleFlavor [Maybe Expr]
-  | ETupleCon SourceSpan TupleFlavor Int
+  | ETuple SourceSpan TupleFlavor [Maybe Expr]
   | EUnboxedSum SourceSpan Int Int Expr
   | ETypeApp SourceSpan Expr Type
   | EApp SourceSpan Expr Expr
@@ -1365,8 +1363,6 @@ instance HasSourceSpan Expr where
       EWhereDecls span' _ _ -> span'
       EList span' _ -> span'
       ETuple span' _ _ -> span'
-      ETupleSection span' _ _ -> span'
-      ETupleCon span' _ _ -> span'
       EUnboxedSum span' _ _ _ -> span'
       ETypeApp span' _ _ -> span'
       EApp span' _ _ -> span'

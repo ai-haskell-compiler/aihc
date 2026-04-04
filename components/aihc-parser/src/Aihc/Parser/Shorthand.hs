@@ -580,13 +580,7 @@ docExpr expr =
     EList _ elems -> "EList" <+> brackets (hsep (punctuate comma (map docExpr elems)))
     ETuple _ tupleFlavor elems ->
       (if tupleFlavor == Boxed then "ETuple" else "ETupleUnboxed")
-        <+> brackets (hsep (punctuate comma (map docExpr elems)))
-    ETupleSection _ tupleFlavor elems ->
-      (if tupleFlavor == Boxed then "ETupleSection" else "ETupleSectionUnboxed")
         <+> brackets (hsep (punctuate comma (map (maybe "_" docExpr) elems)))
-    ETupleCon _ tupleFlavor arity ->
-      (if tupleFlavor == Boxed then "ETupleCon" else "ETupleConUnboxed")
-        <+> pretty arity
     EUnboxedSum _ altIdx arity inner ->
       "EUnboxedSum" <+> pretty altIdx <+> pretty arity <+> docExpr inner
     ETypeApp _ inner ty -> "ETypeApp" <+> parens (docExpr inner) <+> parens (docType ty)

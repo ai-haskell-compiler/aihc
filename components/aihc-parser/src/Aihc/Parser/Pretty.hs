@@ -1090,8 +1090,7 @@ prettyExprPrec prec expr =
         (prec > 0)
         (prettyWhereBody body <+> "where" <+> braces (prettyInlineDecls decls))
     EList _ values -> brackets (hsep (punctuate comma (map (prettyExprPrec 0) values)))
-    ETuple _ tupleFlavor values -> prettyTupleBody tupleFlavor (hsep (punctuate comma (map (prettyExprPrec 0) values)))
-    ETupleSection _ tupleFlavor values ->
+    ETuple _ tupleFlavor values ->
       prettyTupleBody
         tupleFlavor
         ( hsep
@@ -1106,10 +1105,6 @@ prettyExprPrec prec expr =
                 )
             )
         )
-    ETupleCon _ tupleFlavor arity ->
-      case tupleFlavor of
-        Boxed -> parens (pretty (T.replicate (max 1 (arity - 1)) ","))
-        Unboxed -> "(#" <> pretty (T.replicate (max 1 (arity - 1)) ",") <> "#)"
     EUnboxedSum _ altIdx arity inner ->
       let slots = [if i == altIdx then prettyExprPrec 0 inner else mempty | i <- [0 .. arity - 1]]
        in hsep ["(#", hsep (punctuate " |" slots), "#)"]
