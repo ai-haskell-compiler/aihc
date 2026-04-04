@@ -67,14 +67,15 @@ mkPerfCaseTest perfCase =
                 <> "us for "
                 <> perfCaseId perfCase
             )
-        Just (ParseErr err) ->
-          assertFailure
-            ( "expected parse success for performance case "
-                <> perfCaseId perfCase
-                <> ", got parse error: "
-                <> errorBundlePretty (Just (perfCaseInput perfCase)) err
-            )
-        Just (ParseOk _) -> pure ()
+        Just (errs, _)
+          | null errs -> pure ()
+          | otherwise ->
+              assertFailure
+                ( "expected parse success for performance case "
+                    <> perfCaseId perfCase
+                    <> ", got parse error: "
+                    <> formatParseErrors (perfCaseSourceName perfCase) (Just (perfCaseInput perfCase)) errs
+                )
 
 loadPerfCases :: IO [PerfCase]
 loadPerfCases = do

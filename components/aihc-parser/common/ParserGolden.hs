@@ -180,7 +180,7 @@ evaluatePatternCase :: ParserCase -> (Outcome, String)
 evaluatePatternCase meta =
   case parsePattern parserConfig (caseInput meta) of
     ParseOk ast -> classifySuccess meta (show (shorthand ast))
-    ParseErr err -> classifyFailure meta (errorBundlePretty (Just (caseInput meta)) err)
+    ParseErr err -> classifyFailure meta (MPE.errorBundlePretty err)
   where
     parserConfig =
       defaultConfig
