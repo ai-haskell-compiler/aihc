@@ -698,7 +698,7 @@ bolLayout st tok
                 | col == indent && currentLayoutAllowsSemicolon contexts' ->
                     [virtualSymbolToken ";" semiAnchor]
               _ -> []
-        in (inserted <> eqSemi, st {layoutContexts = contexts'})
+       in (inserted <> eqSemi, st {layoutContexts = contexts'})
 
 currentLayoutAllowsSemicolon :: [LayoutContext] -> Bool
 currentLayoutAllowsSemicolon contexts =

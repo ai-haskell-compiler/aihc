@@ -73,12 +73,12 @@ buildTests = do
             testCase "applies COLUMN pragmas in the middle of a line" test_inlineColumnPragmaUpdatesSpan,
             testCase "can lex lazily from chunks" test_lexerChunkLaziness,
             testCase "parser config passes extensions to lexer" test_parserConfigPassesExtensions,
-             testCase "parser config sets source name in parse errors" test_parserConfigSetsSourceName,
-             testCase "parses tab-indented where after else branch" test_tabIndentedWhereAfterElseParses,
-             testCase "parses non-aligned multi-way-if guards" test_nonAlignedMultiWayIfGuardsParse,
-             testCase "generated identifiers reject reserved keyword as" test_generatedIdentifiersRejectReservedAs,
-             testCase "generated identifiers reject standalone underscore" test_generatedIdentifiersRejectStandaloneUnderscore,
-             testCase "shrunk identifiers reject standalone underscore" test_shrunkIdentifiersRejectStandaloneUnderscore,
+            testCase "parser config sets source name in parse errors" test_parserConfigSetsSourceName,
+            testCase "parses tab-indented where after else branch" test_tabIndentedWhereAfterElseParses,
+            testCase "parses non-aligned multi-way-if guards" test_nonAlignedMultiWayIfGuardsParse,
+            testCase "generated identifiers reject reserved keyword as" test_generatedIdentifiersRejectReservedAs,
+            testCase "generated identifiers reject standalone underscore" test_generatedIdentifiersRejectStandaloneUnderscore,
+            testCase "shrunk identifiers reject standalone underscore" test_shrunkIdentifiersRejectStandaloneUnderscore,
             QC.testProperty "generated operators reject dash-only comment starters" prop_generatedOperatorsRejectDashOnlyCommentStarters
           ],
         adjustOption (const tenMinutes) $
@@ -141,7 +141,7 @@ test_tabIndentedWhereAfterElseParses =
               "\t(a,b) = splitDrive file"
             ]
    in let (errs, _) = parseModule defaultConfig source
-        in assertBool ("expected no parse errors, got: " <> show errs) (null errs)
+       in assertBool ("expected no parse errors, got: " <> show errs) (null errs)
 
 test_nonAlignedMultiWayIfGuardsParse :: Assertion
 test_nonAlignedMultiWayIfGuardsParse =
