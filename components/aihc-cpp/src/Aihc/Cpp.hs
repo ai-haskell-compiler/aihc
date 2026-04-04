@@ -56,7 +56,6 @@ import Aihc.Cpp.Types
   )
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
-import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import System.FilePath (takeDirectory, (</>))
@@ -260,7 +259,10 @@ processActiveLine filePath lineNo lineSpan line lineScan restLines stack st k =
         filePath
         restLines
         stack
-        ( advanceLineState nextLineNo (lineScanFinalHsDepth lineScan) (lineScanFinalCDepth lineScan)
+        ( advanceLineState
+            nextLineNo
+            (lineScanFinalHsDepth lineScan)
+            (lineScanFinalCDepth lineScan)
             (emitOutputRecords [expandLineBySpan st (lineScanSpans lineScan)] st)
         )
         k
@@ -269,7 +271,10 @@ processActiveLine filePath lineNo lineSpan line lineScan restLines stack st k =
         filePath
         remainingLines
         stack
-        ( advanceLineState (nextLineNoFor lineNo consumedSpan remainingLines) finalHsDepth finalCDepth
+        ( advanceLineState
+            (nextLineNoFor lineNo consumedSpan remainingLines)
+            finalHsDepth
+            finalCDepth
             (emitConsumedExpansion consumedSpan expanded st)
         )
         k
@@ -286,7 +291,7 @@ advanceLineState nextLineNo hsDepth cDepth st =
 
 nextLineNoFor :: Int -> Int -> [(Int, Int, Text)] -> Int
 nextLineNoFor lineNo consumedSpan remainingLines =
-  fromMaybe (lineNo + consumedSpan) (fst3 <$> safeHead remainingLines)
+  maybe (lineNo + consumedSpan) fst3 (safeHead remainingLines)
 
 gatherMultilineFunctionCall :: EngineState -> Int -> Text -> LineScan -> [(Int, Int, Text)] -> Maybe (Int, Text, [(Int, Int, Text)], Int, Int)
 gatherMultilineFunctionCall st lineSpan line lineScan restLines = do
@@ -304,10 +309,10 @@ gatherMultilineFunctionCall st lineSpan line lineScan restLines = do
       if finalDepth /= 0
         then Nothing
         else
-           let consumed = reverse consumedRev
-               allLines = line : map third3 consumed
-               consumedSpan = sum (lineSpan : map snd3 consumed)
-            in Just (consumedSpan, expandMacros st (T.intercalate "\n" allLines), remainingLines, finalHsDepth, finalCDepth)
+          let consumed = reverse consumedRev
+              allLines = line : map third3 consumed
+              consumedSpan = sum (lineSpan : map snd3 consumed)
+           in Just (consumedSpan, expandMacros st (T.intercalate "\n" allLines), remainingLines, finalHsDepth, finalCDepth)
 
 consumeContinuationLines :: Int -> Int -> Int -> [(Int, Int, Text)] -> [(Int, Int, Text)] -> Maybe ([(Int, Int, Text)], [(Int, Int, Text)], Int, Int, Int)
 consumeContinuationLines depth hsDepth cDepth consumedRev remaining =

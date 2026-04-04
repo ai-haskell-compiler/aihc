@@ -14,10 +14,10 @@ main = do
   cases <- loadManifest
   checks <- mapM mkCase cases
   defaultMain
-        ( testGroup
-            "cpp-oracle"
-            (checks <> [linePragmaTest, dateTimeTest, functionMacroArgumentTest, functionMacroUnclosedCallTest, multilineFunctionMacroArgumentTest, definedConditionSpacingTest])
-        )
+    ( testGroup
+        "cpp-oracle"
+        (checks <> [linePragmaTest, dateTimeTest, functionMacroArgumentTest, functionMacroUnclosedCallTest, multilineFunctionMacroArgumentTest, definedConditionSpacingTest])
+    )
 
 dateTimeTest :: TestTree
 dateTimeTest =
