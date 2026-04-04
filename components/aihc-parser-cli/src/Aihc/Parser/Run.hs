@@ -11,7 +11,7 @@ module Aihc.Parser.Run
   )
 where
 
-import Aihc.Parser (ParseResult (..), ParserConfig (..), defaultConfig, errorBundlePretty, parseModule)
+import Aihc.Parser (ParserConfig (..), defaultConfig, formatParseErrors, parseModule)
 import Aihc.Parser.Lex (lexModuleTokensWithExtensions)
 import Aihc.Parser.Shorthand (Shorthand (..))
 import Aihc.Parser.Syntax (Extension, ExtensionSetting (..), parseExtensionSettingName)
@@ -64,11 +64,10 @@ runCLI args stdin =
 runParseMode :: [Extension] -> Text -> CLIResult
 runParseMode extensions stdin =
   let cfg = defaultConfig {parserExtensions = extensions}
-   in case parseModule cfg stdin of
-        ParseOk modu ->
-          CLIResult ExitSuccess (T.pack (show (shorthand modu)) <> "\n") ""
-        ParseErr bundle ->
-          CLIResult (ExitFailure 1) "" (T.pack (errorBundlePretty (Just stdin) bundle))
+      (errs, modu) = parseModule cfg stdin
+   in if null errs
+        then CLIResult ExitSuccess (T.pack (show (shorthand modu)) <> "\n") ""
+        else CLIResult (ExitFailure 1) "" (T.pack (formatParseErrors (parserSourceName cfg) (Just stdin) errs))
 
 -- | Run in lex mode: tokenize Haskell source and output the token stream.
 runLexMode :: [Extension] -> Text -> CLIResult

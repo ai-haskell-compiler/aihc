@@ -26,14 +26,15 @@ moduleConfig =
 prop_modulePrettyRoundTrip :: Module -> Property
 prop_modulePrettyRoundTrip modu =
   let source = renderStrict (layoutPretty defaultLayoutOptions (pretty modu))
+      (errs, reparsed) = parseModule moduleConfig source
    in counterexample (T.unpack source) $
-        case parseModule moduleConfig source of
-          ParseOk reparsed ->
+        case errs of
+          [] ->
             let expected = normalizeModule modu
                 actual = normalizeModule reparsed
              in counterexample ("expected: " <> show expected <> "\nactual: " <> show actual) (expected == actual)
-          ParseErr err ->
-            counterexample (errorBundlePretty (Just source) err) False
+          _ ->
+            counterexample (formatParseErrors "<quickcheck>" (Just source) errs) False
 
 instance Arbitrary Module where
   arbitrary = do

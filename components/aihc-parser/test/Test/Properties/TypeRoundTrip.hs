@@ -18,6 +18,7 @@ import Prettyprinter.Render.Text (renderStrict)
 import Test.Properties.ExprHelpers (normalizeExpr)
 import Test.Properties.Identifiers (genIdent, shrinkIdent)
 import Test.QuickCheck
+import qualified Text.Megaparsec.Error as MPE
 
 span0 :: SourceSpan
 span0 = noSourceSpan
@@ -37,7 +38,7 @@ prop_typePrettyRoundTrip ty =
           counterexample (T.unpack source) $
             case parseType typeConfig source of
               ParseErr err ->
-                counterexample (errorBundlePretty (Just source) err) False
+                counterexample (MPE.errorBundlePretty err) False
               ParseOk parsed ->
                 let actual = normalizeType parsed
                  in counterexample ("expected: " <> show expected <> "\nactual: " <> show actual) (expected == actual)
