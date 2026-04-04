@@ -3,7 +3,7 @@
 -- | CLI option parsing for stackage-progress using optparse-applicative.
 module StackageProgress.CLI
   ( Options (..),
-    Check (..),
+    Parser (..),
     parseOptionsIO,
     parseOptionsPure,
     summaryOptionsFromOptions,
@@ -14,27 +14,26 @@ import Data.List (nub)
 import qualified Options.Applicative as OA
 import StackageProgress.Summary (SummaryOptions (..))
 
--- | Type of check to perform on each file.
-data Check
-  = CheckParse
-  | CheckRoundtripGhc
-  | CheckHse
-  | CheckGhc
+-- | Type of parser to use on each file.
+data Parser
+  = ParserAihc
+  | ParserHse
+  | ParserGhc
   deriving (Eq, Show)
 
 -- | Command-line options for stackage-progress.
 data Options = Options
   { optSnapshot :: String,
-    optChecks :: [Check],
+    optParsers :: [Parser],
     optJobs :: Maybe Int,
     optOffline :: Bool,
     optPrompt :: Bool,
     optPromptSeed :: Maybe Int,
     optPrintSucceeded :: Bool,
     optPrintFailedTable :: Bool,
-    optSanityCheck :: Bool,
     optGhcErrorsFile :: Maybe FilePath,
-    optGhcErrorsLimit :: Int
+    optGhcErrorsLimit :: Int,
+    optVerbose :: Bool
   }
   deriving (Eq, Show)
 
@@ -64,93 +63,92 @@ parserInfo =
 
 optionsParser :: OA.Parser Options
 optionsParser =
-  postProcessOptions
-    <$> ( Options
-            <$> OA.strOption
-              ( OA.long "snapshot"
-                  <> OA.metavar "SNAPSHOT"
-                  <> OA.value "lts-24.33"
-                  <> OA.showDefault
-                  <> OA.help "Stackage snapshot to test"
-              )
-            <*> checksOption
-            <*> OA.optional
-              ( OA.option
-                  positiveIntReader
-                  ( OA.long "jobs"
-                      <> OA.metavar "N"
-                      <> OA.help "Number of packages to process concurrently (default: CPU cores)"
-                  )
-              )
-            <*> OA.switch
-              ( OA.long "offline"
-                  <> OA.help "Use only cached packages, don't download"
-              )
-            <*> OA.switch
-              ( OA.long "prompt"
-                  <> OA.help "Generate a prompt for a random failing package"
-              )
-            <*> OA.optional
-              ( OA.option
-                  OA.auto
-                  ( OA.long "prompt-seed"
-                      <> OA.metavar "N"
-                      <> OA.help "Seed for selecting random failing package"
-                  )
-              )
-            <*> OA.switch
-              ( OA.long "print-succeeded"
-                  <> OA.help "Print list of succeeded packages"
-              )
-            <*> OA.switch
-              ( OA.long "print-failed-table"
-                  <> OA.help "Print table of failed packages with sizes"
-              )
-            <*> OA.switch
-              ( OA.long "sanity-check"
-                  <> OA.help "Also run HSE and GHC checks for comparison"
-              )
-            <*> OA.optional
-              ( OA.strOption
-                  ( OA.long "ghc-errors-file"
-                      <> OA.metavar "PATH"
-                      <> OA.help "Write GHC errors to file"
-                  )
-              )
-            <*> OA.option
-              OA.auto
-              ( OA.long "ghc-errors-limit"
-                  <> OA.metavar "N"
-                  <> OA.value 100
-                  <> OA.showDefault
-                  <> OA.help "Maximum number of GHC errors to store"
-              )
-        )
+  Options
+    <$> OA.strOption
+      ( OA.long "snapshot"
+          <> OA.metavar "SNAPSHOT"
+          <> OA.value "lts-24.33"
+          <> OA.showDefault
+          <> OA.help "Stackage snapshot to test"
+      )
+    <*> parserOption
+    <*> OA.optional
+      ( OA.option
+          positiveIntReader
+          ( OA.long "jobs"
+              <> OA.metavar "N"
+              <> OA.help "Number of packages to process concurrently (default: CPU cores)"
+          )
+      )
+    <*> OA.switch
+      ( OA.long "offline"
+          <> OA.help "Use only cached packages, don't download"
+      )
+    <*> OA.switch
+      ( OA.long "prompt"
+          <> OA.help "Generate a prompt for a random failing package"
+      )
+    <*> OA.optional
+      ( OA.option
+          OA.auto
+          ( OA.long "prompt-seed"
+              <> OA.metavar "N"
+              <> OA.help "Seed for selecting random failing package"
+          )
+      )
+    <*> OA.switch
+      ( OA.long "print-succeeded"
+          <> OA.help "Print list of succeeded packages"
+      )
+    <*> OA.switch
+      ( OA.long "print-failed-table"
+          <> OA.help "Print table of failed packages with sizes"
+      )
+    <*> OA.optional
+      ( OA.strOption
+          ( OA.long "ghc-errors-file"
+              <> OA.metavar "PATH"
+              <> OA.help "Write GHC errors to file"
+          )
+      )
+    <*> OA.option
+      OA.auto
+      ( OA.long "ghc-errors-limit"
+          <> OA.metavar "N"
+          <> OA.value 100
+          <> OA.showDefault
+          <> OA.help "Maximum number of GHC errors to store"
+      )
+    <*> OA.switch
+      ( OA.long "verbose"
+          <> OA.help "Print verbose progress information"
+      )
 
-checksOption :: OA.Parser [Check]
-checksOption =
+parserOption :: OA.Parser [Parser]
+parserOption =
   OA.option
-    parseChecks
-    ( OA.long "checks"
-        <> OA.metavar "CHECKS"
-        <> OA.value [CheckParse]
-        <> OA.help "Comma-separated list of checks: parse,roundtrip-ghc,source-span"
+    parseParsers
+    ( OA.long "parsers"
+        <> OA.metavar "PARSERS"
+        <> OA.value [ParserAihc]
+        <> OA.help "Comma-separated list of parsers: aihc,hse,ghc"
     )
 
-parseChecks :: OA.ReadM [Check]
-parseChecks = OA.eitherReader $ \raw -> do
-  checks <- mapM parseCheck (splitComma raw)
-  let uniq = nub checks
+parseParsers :: OA.ReadM [Parser]
+parseParsers = OA.eitherReader $ \raw -> do
+  parsers <- mapM parseParser (splitComma raw)
+  let uniq = nub parsers
   if null uniq
-    then Left "--checks cannot be empty"
+    then Left "--parsers cannot be empty"
     else Right uniq
 
-parseCheck :: String -> Either String Check
-parseCheck raw =
+parseParser :: String -> Either String Parser
+parseParser raw =
   case trim raw of
-    "parse" -> Right CheckParse
-    "roundtrip-ghc" -> Right CheckRoundtripGhc
-    other -> Left ("Unknown check: " ++ other)
+    "aihc" -> Right ParserAihc
+    "hse" -> Right ParserHse
+    "ghc" -> Right ParserGhc
+    other -> Left ("Unknown parser: " ++ other)
 
 splitComma :: String -> [String]
 splitComma s =
@@ -169,13 +167,6 @@ positiveIntReader = OA.eitherReader $ \raw ->
   case reads raw of
     [(n, "")] | n > 0 -> Right n
     _ -> Left "must be a positive integer"
-
--- | Post-process options to handle sanity-check flag.
-postProcessOptions :: Options -> Options
-postProcessOptions opts
-  | optSanityCheck opts =
-      opts {optChecks = nub (optChecks opts ++ [CheckHse, CheckGhc])}
-  | otherwise = opts
 
 -- | Convert Options to SummaryOptions.
 summaryOptionsFromOptions :: Options -> SummaryOptions

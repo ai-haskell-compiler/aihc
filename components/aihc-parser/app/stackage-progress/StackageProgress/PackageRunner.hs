@@ -81,7 +81,7 @@ runPackageOrThrow opts spec = do
                 packageFileErrors = []
               }
         else do
-          fileSummary <- foldFilesForPackage (optChecks opts) srcDir emptyFileSummary files
+          fileSummary <- foldFilesForPackage (optParsers opts) (optVerbose opts) srcDir emptyFileSummary files
           let hseOk = packageFileHseOk fileSummary
               ghcOk = packageFileGhcOk fileSummary
               ghcError = packageFileGhcError fileSummary

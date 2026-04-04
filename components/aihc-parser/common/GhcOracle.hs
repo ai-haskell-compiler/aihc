@@ -3,6 +3,7 @@
 
 module GhcOracle
   ( oracleModuleAstFingerprint,
+    oracleModuleAstFingerprintNoCPP,
     toGhcExtension,
     fromGhcExtension,
   )
@@ -50,14 +51,18 @@ oracleModuleAstFingerprint sourceTag edition extNames input =
         if Syntax.CPP `elem` initialExts
           then resultOutput (preprocessForParserWithoutIncludes sourceTag input)
           else input
-      finalPragmas =
-        if Syntax.CPP `elem` initialExts
-          then Lex.readModuleHeaderPragmas preprocessedInput
-          else initialPragmas
-      finalExts = computeEffectiveExtensions edition extNames finalPragmas
-      ghcExts = mapMaybe toGhcExtension finalExts
+   in oracleModuleAstFingerprintNoCPP sourceTag edition extNames preprocessedInput
+
+-- | Compute an AST fingerprint using extension names and a language edition,
+-- reading in-file pragmas to determine the full effective extension set.
+-- This version does not preprocess the input for CPP.
+oracleModuleAstFingerprintNoCPP :: String -> Syntax.LanguageEdition -> [Syntax.ExtensionSetting] -> Text -> Either Text Text
+oracleModuleAstFingerprintNoCPP sourceTag edition extNames input =
+  let pragmas = Lex.readModuleHeaderPragmas input
+      exts = computeEffectiveExtensions edition extNames pragmas
+      ghcExts = mapMaybe toGhcExtension exts
    in do
-        parsed <- parseWithGhcWithExtensions sourceTag ghcExts preprocessedInput
+        parsed <- parseWithGhcWithExtensions sourceTag ghcExts input
         pure (T.pack (showSDocUnsafe (ppr parsed)))
 
 -- | Parse a module with GHC using the given extensions.
