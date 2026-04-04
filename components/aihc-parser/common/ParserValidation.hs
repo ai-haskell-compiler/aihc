@@ -37,58 +37,58 @@ validateParser :: String -> Syntax.LanguageEdition -> [Syntax.ExtensionSetting] 
 validateParser sourceTag edition extensionSettings source =
   let (errs, parsed) = parseModule parserConfig source
    in case errs of
-    _ : _ ->
-      Just
-        ValidationError
-          { validationErrorKind = ValidationParseError,
-            validationErrorMessage = "Parse failed:\n" <> formatParseErrors "parser-validation" (Just source) errs
-          }
-    [] ->
-      let rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty parsed))
-          sourceAst = fingerprint source
-          renderedAst = fingerprint rendered
-       in case (sourceAst, renderedAst) of
-            (Right sourceFp, Right renderedFp)
-              | sourceFp == renderedFp -> Nothing
-              | otherwise ->
+        _ : _ ->
+          Just
+            ValidationError
+              { validationErrorKind = ValidationParseError,
+                validationErrorMessage = "Parse failed:\n" <> formatParseErrors "parser-validation" (Just source) errs
+              }
+        [] ->
+          let rendered = renderStrict (layoutPretty defaultLayoutOptions (pretty parsed))
+              sourceAst = fingerprint source
+              renderedAst = fingerprint rendered
+           in case (sourceAst, renderedAst) of
+                (Right sourceFp, Right renderedFp)
+                  | sourceFp == renderedFp -> Nothing
+                  | otherwise ->
+                      Just
+                        ValidationError
+                          { validationErrorKind = ValidationRoundtripError,
+                            validationErrorMessage = formatFingerprintMismatch sourceFp renderedFp
+                          }
+                (Left sourceErr, Left renderedErr) ->
                   Just
                     ValidationError
                       { validationErrorKind = ValidationRoundtripError,
-                        validationErrorMessage = formatFingerprintMismatch sourceFp renderedFp
+                        validationErrorMessage =
+                          unlines
+                            [ "Roundtrip check failed: GHC rejected both module versions.",
+                              "Original error:",
+                              T.unpack sourceErr,
+                              "Roundtripped error:",
+                              T.unpack renderedErr
+                            ]
                       }
-            (Left sourceErr, Left renderedErr) ->
-              Just
-                ValidationError
-                  { validationErrorKind = ValidationRoundtripError,
-                    validationErrorMessage =
-                      unlines
-                        [ "Roundtrip check failed: GHC rejected both module versions.",
-                          "Original error:",
-                          T.unpack sourceErr,
-                          "Roundtripped error:",
-                          T.unpack renderedErr
-                        ]
-                  }
-            (Left sourceErr, Right _) ->
-              Just
-                ValidationError
-                  { validationErrorKind = ValidationRoundtripError,
-                    validationErrorMessage =
-                      unlines
-                        [ "Roundtrip check failed: GHC rejected the original module.",
-                          T.unpack sourceErr
-                        ]
-                  }
-            (Right _, Left renderedErr) ->
-              Just
-                ValidationError
-                  { validationErrorKind = ValidationRoundtripError,
-                    validationErrorMessage =
-                      unlines
-                        [ "Roundtrip check failed: GHC rejected the roundtripped module.",
-                          T.unpack renderedErr
-                        ]
-                  }
+                (Left sourceErr, Right _) ->
+                  Just
+                    ValidationError
+                      { validationErrorKind = ValidationRoundtripError,
+                        validationErrorMessage =
+                          unlines
+                            [ "Roundtrip check failed: GHC rejected the original module.",
+                              T.unpack sourceErr
+                            ]
+                      }
+                (Right _, Left renderedErr) ->
+                  Just
+                    ValidationError
+                      { validationErrorKind = ValidationRoundtripError,
+                        validationErrorMessage =
+                          unlines
+                            [ "Roundtrip check failed: GHC rejected the roundtripped module.",
+                              T.unpack renderedErr
+                            ]
+                      }
   where
     finalExts = Syntax.effectiveExtensions edition extensionSettings
     fingerprint = GhcOracle.oracleModuleAstFingerprint sourceTag edition extensionSettings

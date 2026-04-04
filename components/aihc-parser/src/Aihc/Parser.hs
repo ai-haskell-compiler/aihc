@@ -33,7 +33,6 @@ where
 import Aihc.Parser.Internal.Common (drainParseErrors, eofTok)
 import Aihc.Parser.Internal.Expr (exprParser, patternParser, typeParser)
 import Aihc.Parser.Internal.Module (moduleParser)
-import Data.Maybe (fromMaybe)
 import Aihc.Parser.Lex
   ( LexToken (..),
     TokenOrigin (..),
@@ -44,6 +43,7 @@ import Aihc.Parser.Types
 import Data.ByteString qualified as BS
 import Data.List qualified as List
 import Data.List.NonEmpty qualified as NE
+import Data.Maybe (fromMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
