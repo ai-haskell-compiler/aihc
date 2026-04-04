@@ -14,20 +14,24 @@ import Data.Aeson.Types (parseEither, withObject)
 import Data.Char (toLower)
 import Data.List (sort)
 import Data.Text (Text)
+import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import qualified Data.Text.IO as TIO
 import qualified Data.Yaml as Y
+import ParserGolden (ExpectedStatus (..))
 import System.Directory (doesDirectoryExist, listDirectory)
 import System.FilePath (takeExtension, (</>))
 import System.Timeout (timeout)
 import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (assertFailure, testCase)
+import Test.Tasty.HUnit (Assertion, assertFailure, testCase)
 
 data PerfCase = PerfCase
   { perfCaseId :: !String,
     perfCaseSourceName :: !FilePath,
     perfCaseExtensions :: ![Extension],
-    perfCaseInput :: !Text
+    perfCaseInput :: !Text,
+    perfCaseStatus :: !ExpectedStatus,
+    perfCaseReason :: !String
   }
 
 fixtureRoot :: FilePath
@@ -47,35 +51,46 @@ parserPerformanceTests = do
 
 mkPerfCaseTest :: PerfCase -> TestTree
 mkPerfCaseTest perfCase =
-  testCase (perfCaseId perfCase) $
-    do
-      outcome <-
-        timeout timeoutMicros $
-          evaluate $
-            force $
-              parseModule
-                defaultConfig
-                  { parserSourceName = perfCaseSourceName perfCase,
-                    parserExtensions = perfCaseExtensions perfCase
-                  }
-                (perfCaseInput perfCase)
-      case outcome of
-        Nothing ->
+  testCase (perfCaseId perfCase) (assertPerfCase perfCase)
+
+assertPerfCase :: PerfCase -> Assertion
+assertPerfCase perfCase = do
+  outcome <-
+    timeout timeoutMicros $
+      evaluate $
+        force $
+          parseModule
+            defaultConfig
+              { parserSourceName = perfCaseSourceName perfCase,
+                parserExtensions = perfCaseExtensions perfCase
+              }
+            (perfCaseInput perfCase)
+  case (perfCaseStatus perfCase, outcome) of
+    (StatusPass, Nothing) ->
+      assertFailure
+        ( "module parse exceeded "
+            <> show timeoutMicros
+            <> "us for "
+            <> perfCaseId perfCase
+        )
+    (StatusPass, Just (errs, _))
+      | not (null errs) ->
           assertFailure
-            ( "module parse exceeded "
-                <> show timeoutMicros
-                <> "us for "
+            ( "expected parse success for performance case "
                 <> perfCaseId perfCase
+                <> ", got parse error: "
+                <> formatParseErrors (perfCaseSourceName perfCase) (Just (perfCaseInput perfCase)) errs
             )
-        Just (errs, _)
-          | null errs -> pure ()
-          | otherwise ->
-              assertFailure
-                ( "expected parse success for performance case "
-                    <> perfCaseId perfCase
-                    <> ", got parse error: "
-                    <> formatParseErrors (perfCaseSourceName perfCase) (Just (perfCaseInput perfCase)) errs
-                )
+    (StatusXFail, Just (errs, _))
+      | null errs ->
+          assertFailure
+            ( "Unexpected pass in xfail performance case "
+                <> perfCaseId perfCase
+                <> " reason="
+                <> perfCaseReason perfCase
+            )
+    (StatusXFail, _) -> pure ()
+    _ -> pure ()
 
 loadPerfCases :: IO [PerfCase]
 loadPerfCases = do
@@ -99,29 +114,39 @@ parsePerfCaseText path source = do
     case Y.decodeEither' (TE.encodeUtf8 source) of
       Left err -> Left ("Invalid performance fixture " <> path <> ": " <> Y.prettyPrintParseException err)
       Right parsed -> Right parsed
-  (extNames, inputText) <-
+  (extNames, inputText, statusText, reasonText) <-
     case parseEither
       ( withObject "performance fixture" $ \obj -> do
           exts <- obj .:? "extensions" .!= []
           inputText <- obj .: "input"
-          pure (exts, inputText)
+          status <- obj .:? "status" .!= "pass"
+          reason <- obj .:? "reason" .!= ""
+          pure (exts, inputText, status, reason)
       )
       value of
       Left err -> Left ("Invalid performance fixture schema in " <> path <> ": " <> err)
       Right parsed -> Right parsed
   exts <- traverse (parseExtension path) extNames
+  status <- parseStatus path statusText
   pure
     PerfCase
       { perfCaseId = dropRootPrefix path,
         perfCaseSourceName = dropRootPrefix path,
         perfCaseExtensions = exts,
-        perfCaseInput = inputText
+        perfCaseInput = inputText,
+        perfCaseStatus = status,
+        perfCaseReason = T.unpack reasonText
       }
   where
     parseExtension fixturePath raw =
       case parseExtensionName raw of
         Just ext -> Right ext
         Nothing -> Left ("Unknown parser extension " <> show raw <> " in " <> fixturePath)
+    parseStatus fixturePath raw =
+      case map toLower (T.unpack (T.strip raw)) of
+        "pass" -> Right StatusPass
+        "xfail" -> Right StatusXFail
+        _ -> Left ("Invalid [status] in " <> fixturePath <> ": " <> T.unpack raw)
 
 listFixtureFiles :: FilePath -> IO [FilePath]
 listFixtureFiles dir = do
