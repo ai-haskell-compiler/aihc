@@ -54,6 +54,9 @@ module Aihc.Parser.Syntax
     WarningText (..),
     NewtypeDecl (..),
     OperatorName,
+    PatSynArgs (..),
+    PatSynDecl (..),
+    PatSynDir (..),
     Pattern (..),
     Role (..),
     RoleAnnotation (..),
@@ -694,6 +697,8 @@ data ImportItem
 data Decl
   = DeclValue SourceSpan ValueDecl
   | DeclTypeSig SourceSpan [BinderName] Type
+  | DeclPatSyn SourceSpan PatSynDecl
+  | DeclPatSynSig SourceSpan [BinderName] Type
   | DeclStandaloneKindSig SourceSpan BinderName Type
   | DeclFixity SourceSpan FixityAssoc (Maybe Int) [OperatorName]
   | DeclRoleAnnotation SourceSpan RoleAnnotation
@@ -718,6 +723,8 @@ instance HasSourceSpan Decl where
     case decl of
       DeclValue span' _ -> span'
       DeclTypeSig span' _ _ -> span'
+      DeclPatSyn span' _ -> span'
+      DeclPatSynSig span' _ _ -> span'
       DeclStandaloneKindSig span' _ _ -> span'
       DeclFixity span' _ _ _ -> span'
       DeclRoleAnnotation span' _ -> span'
@@ -761,6 +768,39 @@ data MatchHeadForm
   = MatchHeadPrefix
   | MatchHeadInfix
   deriving (Data, Eq, Show, Generic, NFData)
+
+-- | Pattern synonym declaration direction.
+data PatSynDir
+  = -- | @pattern P x <- pat@
+    PatSynUnidirectional
+  | -- | @pattern P x = pat@
+    PatSynBidirectional
+  | -- | @pattern P x <- pat where P x = expr@
+    PatSynExplicitBidirectional [Match]
+  deriving (Data, Eq, Show, Generic, NFData)
+
+-- | Pattern synonym argument form.
+data PatSynArgs
+  = -- | @pattern Name arg1 arg2 ...@
+    PatSynPrefixArgs [Text]
+  | -- | @pattern arg1 \`Name\` arg2@ or @pattern arg1 :+: arg2@
+    PatSynInfixArgs Text Text
+  | -- | @pattern Name {field1, field2}@
+    PatSynRecordArgs [Text]
+  deriving (Data, Eq, Show, Generic, NFData)
+
+-- | Pattern synonym declaration.
+data PatSynDecl = PatSynDecl
+  { patSynDeclSpan :: SourceSpan,
+    patSynDeclName :: Text,
+    patSynDeclArgs :: PatSynArgs,
+    patSynDeclPat :: Pattern,
+    patSynDeclDir :: PatSynDir
+  }
+  deriving (Data, Eq, Show, Generic, NFData)
+
+instance HasSourceSpan PatSynDecl where
+  getSourceSpan = patSynDeclSpan
 
 data Rhs
   = UnguardedRhs SourceSpan Expr
