@@ -188,6 +188,8 @@ generatedPerfCases =
     mkGeneratedPerfCase "tuple-type-wide" (mkTypeModule (wideTupleType generatedCaseSize)),
     mkGeneratedPerfCase "tuple-pattern-nested" (mkPatternModule (nestedTuplePattern generatedCaseSize)),
     mkGeneratedPerfCase "tuple-pattern-wide" (mkPatternModule (wideTuplePattern generatedCaseSize)),
+    mkGeneratedPerfCase "tuple-pattern-function-nested" (mkTuplePatternFunctionModule (nestedTuplePattern generatedCaseSize)),
+    mkGeneratedPerfCase "tuple-pattern-function-wide" (mkTuplePatternFunctionModule (wideTuplePattern generatedCaseSize)),
     mkGeneratedPerfCase "enum-data-constructors" (mkDataModule (enumDataDecl generatedCaseSize)),
     mkGeneratedPerfCase "record-data-fields" (mkDataModule (recordDataDecl generatedCaseSize)),
     mkGeneratedPerfCase "type-right-leaning-terms" (mkTypeModule (rightLeaningType generatedCaseSize)),
@@ -220,6 +222,9 @@ mkTypeModule ty = T.unlines ["module Generated where", "value :: " <> ty, "value
 
 mkPatternModule :: Text -> Text
 mkPatternModule pat = T.unlines ["module Generated where", "value " <> pat <> " = x1", "  where", "    x1 = 1"]
+
+mkTuplePatternFunctionModule :: Text -> Text
+mkTuplePatternFunctionModule pat = T.unlines ["module Generated where", "fn " <> pat <> " = ()"]
 
 mkDataModule :: Text -> Text
 mkDataModule decl = T.unlines ["module Generated where", decl]

@@ -988,7 +988,7 @@ parenOrTuplePatternParser = withSpan $ do
     _ -> do
       canBeViewPattern <-
         if tupleFlavor == Boxed
-          then hasTopLevelRightArrowBefore closeTok
+          then hasTopLevelViewPatternArrowBefore closeTok
           else pure False
       if canBeViewPattern
         then MP.try (viewPatternParser tupleFlavor closeTok) <|> tupleOrParenPatternParser tupleFlavor closeTok
@@ -1108,8 +1108,8 @@ startsWithContextType = MP.lookAhead (go [])
         TkSpecialLBrace -> go (TkSpecialRBrace : stack)
         _ -> go stack
 
-hasTopLevelRightArrowBefore :: LexTokenKind -> TokParser Bool
-hasTopLevelRightArrowBefore closeTok = MP.lookAhead (go [closeTok])
+hasTopLevelViewPatternArrowBefore :: LexTokenKind -> TokParser Bool
+hasTopLevelViewPatternArrowBefore closeTok = MP.lookAhead (go [closeTok])
   where
     go [] = pure False
     go stack@(expectedClose : rest) = do
@@ -1117,6 +1117,7 @@ hasTopLevelRightArrowBefore closeTok = MP.lookAhead (go [closeTok])
       case lexTokenKind tok of
         TkEOF -> pure False
         TkReservedRightArrow | [_] <- stack -> pure True
+        TkSpecialComma | [_] <- stack -> pure False
         kind
           | kind == expectedClose ->
               case rest of
