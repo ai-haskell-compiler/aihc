@@ -1269,6 +1269,7 @@ data ForeignDirection
 data CallConv
   = CCall
   | StdCall
+  | CApi
   deriving (Data, Eq, Show, Generic, NFData)
 
 data ForeignSafety

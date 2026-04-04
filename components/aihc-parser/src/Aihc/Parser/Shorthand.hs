@@ -409,6 +409,7 @@ docCallConv cc =
   case cc of
     CCall -> "CCall"
     StdCall -> "StdCall"
+    CApi -> "CApi"
 
 docForeignSafety :: ForeignSafety -> Doc ann
 docForeignSafety fs =

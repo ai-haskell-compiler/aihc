@@ -871,6 +871,7 @@ callConvParser :: TokParser CallConv
 callConvParser =
   (varIdTok "ccall" >> pure CCall)
     <|> (varIdTok "stdcall" >> pure StdCall)
+    <|> (varIdTok "capi" >> pure CApi)
 
 foreignSafetyParser :: TokParser ForeignSafety
 foreignSafetyParser =

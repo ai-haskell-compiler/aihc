@@ -803,6 +803,7 @@ prettyCallConv cc =
   case cc of
     CCall -> "ccall"
     StdCall -> "stdcall"
+    CApi -> "capi"
 
 prettySafety :: ForeignSafety -> Doc ann
 prettySafety safety =
