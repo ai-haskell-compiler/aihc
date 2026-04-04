@@ -20,7 +20,6 @@ module Aihc.Parser
     -- * Parse results
     ParseResult (..),
     ParseErrorBundle,
-    errorBundlePretty,
     formatParseErrors,
 
     -- * Parsing expressions, patterns, and types
@@ -162,8 +161,7 @@ parseModule cfg input =
         Right (errs, modu) ->
           (parseErrorsToSpannedText errs, modu)
 
--- | Convert raw MegaParsec parse errors into @(SourceSpan, Text)@ pairs
--- using the same rendering logic as 'errorBundlePretty'.
+-- | Convert raw MegaParsec parse errors into @(SourceSpan, Text)@ pairs.
 parseErrorsToSpannedText :: [MPE.ParseError TokStream ParserErrorComponent] -> [(SourceSpan, Text)]
 parseErrorsToSpannedText errs =
   [ (fromMaybe NoSourceSpan mSpan, RText.renderStrict (layoutPretty defaultLayoutOptions doc))
@@ -191,10 +189,6 @@ formatParseErrors sourceName mSource errs =
           )
           errs
    in List.intercalate "\n\n" blocks
-
--- | Pretty-print a parse error bundle.
-errorBundlePretty :: Maybe Text -> ParseErrorBundle -> String
-errorBundlePretty = renderErrorBlocks
 
 -- | Turn a Megaparsec 'MPE.ParseError' into message blocks with optional spans.
 --
@@ -264,18 +258,6 @@ tokenDescriptor found =
     InsertedLayout -> "end of input"
     FromSource -> maybe "end of input" show (foundTokenKind found)
 
-renderErrorBlocks :: Maybe Text -> ParseErrorBundle -> String
-renderErrorBlocks mSource bundle =
-  let pst = MPE.bundlePosState bundle
-      sourceName = MP.sourceName (MP.pstateSourcePos pst)
-      errs = NE.toList (MPE.bundleErrors bundle)
-      opts = defaultLayoutOptions
-      blocks =
-        map
-          (renderString . layoutPretty opts . renderErrorBlock sourceName mSource)
-          errs
-   in List.intercalate "\n\n" blocks
-
 -- renderSourceReference "<input>" "x = 1" (SourceSpan 1 5 1 6) = """
 -- <input>:1:5:
 -- 1 | x = 1
@@ -339,11 +321,3 @@ scanForward bytes = go
 isLineBreak :: Word8 -> Bool
 isLineBreak w = w == 10 || w == 13
 
-renderErrorBlock :: FilePath -> Maybe Text -> MPE.ParseError TokStream ParserErrorComponent -> Doc ann
-renderErrorBlock sourceName mSource err =
-  vcat
-    [ case (mbSpan, mSource) of
-        (Just srcSpan, Just source) -> vcat [renderSourceReference sourceName source srcSpan, doc]
-        _ -> vcat [pretty sourceName, doc]
-    | (mbSpan, doc) <- renderParseErrors err
-    ]

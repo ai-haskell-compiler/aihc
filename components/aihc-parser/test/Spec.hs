@@ -24,6 +24,7 @@ import Test.StackageProgress.Summary (stackageProgressSummaryTests)
 import Test.Tasty
 import Test.Tasty.HUnit
 import qualified Test.Tasty.QuickCheck as QC
+import qualified Text.Megaparsec.Error as MPE
 
 tenMinutes :: Timeout
 tenMinutes = Timeout (10 * 60 * 1000000) "10m"
@@ -107,7 +108,7 @@ test_parserConfigPassesExtensions =
   case parseExpr defaultConfig {parserExtensions = [NegativeLiterals]} "-1" of
     ParseOk (EInt _ (-1) _) -> pure ()
     ParseOk other -> assertFailure ("expected negative literal expression, got: " <> show other)
-    ParseErr err -> assertFailure ("expected parse success, got parse error: " <> errorBundlePretty Nothing err)
+    ParseErr err -> assertFailure ("expected parse success, got parse error: " <> MPE.errorBundlePretty err)
 
 test_parserConfigSetsSourceName :: Assertion
 test_parserConfigSetsSourceName =

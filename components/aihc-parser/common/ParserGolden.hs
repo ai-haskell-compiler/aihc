@@ -21,7 +21,6 @@ import Aihc.Parser
   ( ParseResult (..),
     ParserConfig (..),
     defaultConfig,
-    errorBundlePretty,
     formatParseErrors,
     parseExpr,
     parseModule,
@@ -39,6 +38,7 @@ import qualified Data.Text.IO as TIO
 import qualified Data.Yaml as Y
 import System.Directory (doesDirectoryExist, listDirectory)
 import System.FilePath (takeDirectory, takeExtension, (</>))
+import qualified Text.Megaparsec.Error as MPE
 
 data CaseKind = CaseExpr | CaseModule deriving (Eq, Show)
 
@@ -145,7 +145,7 @@ evaluateExprCase :: ParserCase -> (Outcome, String)
 evaluateExprCase meta =
   case parseExpr parserConfig (caseInput meta) of
     ParseOk ast -> classifySuccess meta (show (shorthand ast))
-    ParseErr err -> classifyFailure meta (errorBundlePretty (Just (caseInput meta)) err)
+    ParseErr err -> classifyFailure meta (MPE.errorBundlePretty err)
   where
     parserConfig =
       defaultConfig
