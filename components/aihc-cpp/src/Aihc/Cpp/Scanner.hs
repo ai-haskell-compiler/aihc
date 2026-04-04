@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Aihc.Cpp.Scanner
@@ -8,12 +9,22 @@ module Aihc.Cpp.Scanner
   )
 where
 
+import Aihc.Cpp.Cursor
+  ( Cursor (..),
+    advance,
+    advance2,
+    bufLength,
+    fromText,
+    null,
+    peekByte,
+    peekByte2,
+    sliceText,
+  )
 import Aihc.Cpp.Evaluator (expandMacros)
 import Aihc.Cpp.Types (EngineState)
 import Data.Text (Text)
 import qualified Data.Text as T
-import qualified Data.Text.Lazy as TL
-import qualified Data.Text.Lazy.Builder as TB
+import Prelude hiding (null)
 
 data LineSpan = LineSpan
   { lineSpanInBlockComment :: !Bool,
@@ -34,38 +45,40 @@ expandLineBySpan st =
       | lineSpanInBlockComment lineChunk = lineSpanText lineChunk
       | otherwise = expandMacros st (lineSpanText lineChunk)
 
+-- | Scan a line, tracking comment depths and splitting into spans that are
+-- either inside or outside block comments. Uses a byte-level cursor for
+-- efficient scanning instead of character-by-character T.uncons/T.cons.
+--
+-- The scanner splits the line into 'LineSpan' segments. Each segment is
+-- tagged with whether it is inside a block comment. Code spans (outside
+-- comments) are zero-copy slices of the UTF-8 encoded input. C89 comment
+-- content is replaced with spaces to preserve column alignment.
 scanLine :: Int -> Int -> Text -> LineScan
 scanLine hsDepth0 cDepth0 input =
-  let (spansRev, currentBuilder, hasCurrent, currentInComment, finalHsDepth, finalCDepth) =
-        go hsDepth0 cDepth0 False False False [] mempty False (hsDepth0 > 0 || cDepth0 > 0) input
-      spans = reverse (flushSpan spansRev currentBuilder hasCurrent currentInComment)
+  let cursor0 = fromText input
+      (spans, finalHsDepth, finalCDepth) =
+        go
+          hsDepth0
+          cDepth0
+          False
+          False
+          False
+          []
+          (curPos cursor0)
+          (hsDepth0 > 0 || cDepth0 > 0)
+          cursor0
    in LineScan
-        { lineScanSpans = spans,
+        { lineScanSpans = reverse spans,
           lineScanFinalHsDepth = finalHsDepth,
           lineScanFinalCDepth = finalCDepth
         }
   where
-    flushSpan :: [LineSpan] -> TB.Builder -> Bool -> Bool -> [LineSpan]
-    flushSpan spansRev currentBuilder hasCurrent inComment =
-      if not hasCurrent
-        then spansRev
-        else LineSpan {lineSpanInBlockComment = inComment, lineSpanText = builderToText currentBuilder} : spansRev
-
-    appendWithMode ::
-      [LineSpan] ->
-      TB.Builder ->
-      Bool ->
-      Bool ->
-      Bool ->
-      Text ->
-      ([LineSpan], TB.Builder, Bool, Bool)
-    appendWithMode spansRev currentBuilder hasCurrent currentInComment newInComment chunk
-      | T.null chunk = (spansRev, currentBuilder, hasCurrent, currentInComment)
-      | not hasCurrent = (spansRev, TB.fromText chunk, True, newInComment)
-      | currentInComment == newInComment = (spansRev, currentBuilder <> TB.fromText chunk, True, currentInComment)
-      | otherwise =
-          let spansRev' = flushSpan spansRev currentBuilder hasCurrent currentInComment
-           in (spansRev', TB.fromText chunk, True, newInComment)
+    -- \| Emit a span from @start@ to @end@ if non-empty, prepending to @acc@.
+    emit :: [LineSpan] -> Int -> Int -> Cursor -> Bool -> [LineSpan]
+    emit acc start end cur inComment
+      | start >= end = acc
+      | otherwise = LineSpan inComment (sliceText start end cur) : acc
+    {-# INLINE emit #-}
 
     go ::
       Int ->
@@ -74,92 +87,216 @@ scanLine hsDepth0 cDepth0 input =
       Bool ->
       Bool ->
       [LineSpan] ->
-      TB.Builder ->
+      Int ->
       Bool ->
-      Bool ->
-      Text ->
-      ([LineSpan], TB.Builder, Bool, Bool, Int, Int)
-    go hsDepth cDepth inString inChar escaped spansRev currentBuilder hasCurrent currentInComment remaining =
-      case T.uncons remaining of
-        Nothing -> (spansRev, currentBuilder, hasCurrent, currentInComment, hsDepth, cDepth)
-        Just (c1, rest1) ->
-          case T.uncons rest1 of
-            Nothing ->
-              let outChar = if cDepth > 0 then " " else T.singleton c1
-                  inCommentNow = hsDepth > 0 || cDepth > 0
-                  (spansRev', currentBuilder', hasCurrent', currentInComment') =
-                    appendWithMode spansRev currentBuilder hasCurrent currentInComment inCommentNow outChar
-               in (spansRev', currentBuilder', hasCurrent', currentInComment', hsDepth, cDepth)
-            Just (c2, rest2) ->
-              if cDepth > 0
-                then
-                  if c1 == '*' && c2 == '/'
-                    then
-                      let (spansRev', currentBuilder', hasCurrent', currentInComment') =
-                            appendWithMode spansRev currentBuilder hasCurrent currentInComment True "  "
-                       in go hsDepth 0 False False False spansRev' currentBuilder' hasCurrent' currentInComment' rest2
-                    else
-                      let (spansRev', currentBuilder', hasCurrent', currentInComment') =
-                            appendWithMode spansRev currentBuilder hasCurrent currentInComment True " "
-                       in go hsDepth cDepth False False False spansRev' currentBuilder' hasCurrent' currentInComment' (T.cons c2 rest2)
-                else
-                  if not inString && not inChar && hsDepth == 0 && c1 == '-' && c2 == '-'
-                    then
-                      let lineTail = T.cons c1 (T.cons c2 rest2)
-                          (spansRev', currentBuilder', hasCurrent', currentInComment') =
-                            appendWithMode spansRev currentBuilder hasCurrent currentInComment True lineTail
-                       in (spansRev', currentBuilder', hasCurrent', currentInComment', hsDepth, cDepth)
-                    else
-                      if inString
-                        then
-                          let escaped' = not escaped && c1 == '\\'
-                              inString' = escaped || c1 /= '"'
-                              (spansRev', currentBuilder', hasCurrent', currentInComment') =
-                                appendWithMode spansRev currentBuilder hasCurrent currentInComment (hsDepth > 0) (T.singleton c1)
-                           in go hsDepth cDepth inString' False escaped' spansRev' currentBuilder' hasCurrent' currentInComment' (T.cons c2 rest2)
-                        else
-                          if inChar
-                            then
-                              let escaped' = not escaped && c1 == '\\'
-                                  inChar' = escaped || c1 /= '\''
-                                  (spansRev', currentBuilder', hasCurrent', currentInComment') =
-                                    appendWithMode spansRev currentBuilder hasCurrent currentInComment (hsDepth > 0) (T.singleton c1)
-                               in go hsDepth cDepth False inChar' escaped' spansRev' currentBuilder' hasCurrent' currentInComment' (T.cons c2 rest2)
-                            else
-                              if hsDepth == 0 && c1 == '"'
-                                then
-                                  let (spansRev', currentBuilder', hasCurrent', currentInComment') =
-                                        appendWithMode spansRev currentBuilder hasCurrent currentInComment False (T.singleton c1)
-                                   in go hsDepth cDepth True False False spansRev' currentBuilder' hasCurrent' currentInComment' (T.cons c2 rest2)
-                                else
-                                  if hsDepth == 0 && c1 == '\''
-                                    then
-                                      let (spansRev', currentBuilder', hasCurrent', currentInComment') =
-                                            appendWithMode spansRev currentBuilder hasCurrent currentInComment False (T.singleton c1)
-                                       in go hsDepth cDepth False True False spansRev' currentBuilder' hasCurrent' currentInComment' (T.cons c2 rest2)
-                                    else
-                                      if hsDepth > 0 && c1 == '-' && c2 == '}'
-                                        then
-                                          let (spansRev', currentBuilder', hasCurrent', currentInComment') =
-                                                appendWithMode spansRev currentBuilder hasCurrent currentInComment True "-}"
-                                              hsDepth' = hsDepth - 1
-                                           in go hsDepth' cDepth False False False spansRev' currentBuilder' hasCurrent' currentInComment' rest2
-                                        else
-                                          if c1 == '{' && c2 == '-' && not ("#" `T.isPrefixOf` rest2)
-                                            then
-                                              let (spansRev', currentBuilder', hasCurrent', currentInComment') =
-                                                    appendWithMode spansRev currentBuilder hasCurrent currentInComment True "{-"
-                                               in go (hsDepth + 1) cDepth False False False spansRev' currentBuilder' hasCurrent' currentInComment' rest2
-                                            else
-                                              if hsDepth == 0 && c1 == '/' && c2 == '*'
-                                                then
-                                                  let (spansRev', currentBuilder', hasCurrent', currentInComment') =
-                                                        appendWithMode spansRev currentBuilder hasCurrent currentInComment True "  "
-                                                   in go hsDepth 1 False False False spansRev' currentBuilder' hasCurrent' currentInComment' rest2
-                                                else
-                                                  let (spansRev', currentBuilder', hasCurrent', currentInComment') =
-                                                        appendWithMode spansRev currentBuilder hasCurrent currentInComment (hsDepth > 0) (T.singleton c1)
-                                                   in go hsDepth cDepth False False False spansRev' currentBuilder' hasCurrent' currentInComment' (T.cons c2 rest2)
-
-builderToText :: TB.Builder -> Text
-builderToText = TL.toStrict . TB.toLazyText
+      Cursor ->
+      ([LineSpan], Int, Int)
+    go
+      !hsDepth
+      !cDepth
+      !inString
+      !inChar
+      !escaped
+      !acc
+      !spanStart
+      !spanInComment
+      !cur
+        -- End of input: flush the accumulated span
+        | null cur =
+            (emit acc spanStart (curPos cur) cur spanInComment, hsDepth, cDepth)
+        | otherwise =
+            case peekByte2 cur of
+              Nothing ->
+                -- === Only one byte left ===
+                if cDepth > 0
+                  then
+                    -- In C comment: flush accumulated, emit space
+                    let acc' = emit acc spanStart (curPos cur) cur spanInComment
+                     in (LineSpan True " " : acc', hsDepth, cDepth)
+                  else
+                    -- Include this last byte in the accumulated span
+                    let inCommentNow = hsDepth > 0
+                        cur' = advance cur
+                     in (emit acc spanStart (curPos cur') cur inCommentNow, hsDepth, cDepth)
+              Just (b1, b2) ->
+                -- === C block comment mode ===
+                if cDepth > 0
+                  then
+                    if b1 == 0x2A && b2 == 0x2F -- '*/'
+                      then
+                        let acc' = emit acc spanStart (curPos cur) cur spanInComment
+                            cur' = advance2 cur
+                         in go
+                              hsDepth
+                              0
+                              False
+                              False
+                              False
+                              (LineSpan True "  " : acc')
+                              (curPos cur')
+                              False
+                              cur'
+                      else
+                        let acc' = emit acc spanStart (curPos cur) cur spanInComment
+                            cur' = advance cur
+                         in go
+                              hsDepth
+                              cDepth
+                              False
+                              False
+                              False
+                              (LineSpan True " " : acc')
+                              (curPos cur')
+                              True
+                              cur'
+                  -- === Line comment: -- (outside strings and hs comments) ===
+                  else
+                    if not inString
+                      && not inChar
+                      && hsDepth == 0
+                      && b1 == 0x2D
+                      && b2 == 0x2D -- '--'
+                      then
+                        let acc' = emit acc spanStart (curPos cur) cur spanInComment
+                            restText = sliceText (curPos cur) (bufLength cur) cur
+                         in (LineSpan True restText : acc', hsDepth, cDepth)
+                      -- === Inside string literal ===
+                      else
+                        if inString
+                          then
+                            let escaped' = not escaped && b1 == 0x5C -- '\\'
+                                inString' = escaped || b1 /= 0x22 -- '"'
+                             in go
+                                  hsDepth
+                                  cDepth
+                                  inString'
+                                  False
+                                  escaped'
+                                  acc
+                                  spanStart
+                                  spanInComment
+                                  (advance cur)
+                          -- === Inside char literal ===
+                          else
+                            if inChar
+                              then
+                                let escaped' = not escaped && b1 == 0x5C -- '\\'
+                                    inChar' = escaped || b1 /= 0x27 -- '\''
+                                 in go
+                                      hsDepth
+                                      cDepth
+                                      False
+                                      inChar'
+                                      escaped'
+                                      acc
+                                      spanStart
+                                      spanInComment
+                                      (advance cur)
+                              -- === Start of string literal ===
+                              else
+                                if hsDepth == 0 && b1 == 0x22 -- '"'
+                                  then
+                                    go
+                                      hsDepth
+                                      cDepth
+                                      True
+                                      False
+                                      False
+                                      acc
+                                      spanStart
+                                      spanInComment
+                                      (advance cur)
+                                  -- === Start of char literal ===
+                                  else
+                                    if hsDepth == 0 && b1 == 0x27 -- '\''
+                                      then
+                                        go
+                                          hsDepth
+                                          cDepth
+                                          False
+                                          True
+                                          False
+                                          acc
+                                          spanStart
+                                          spanInComment
+                                          (advance cur)
+                                      -- === End of Haskell block comment: -} ===
+                                      else
+                                        if hsDepth > 0 && b1 == 0x2D && b2 == 0x7D -- '-}'
+                                          then
+                                            let cur' = advance2 cur
+                                                hsDepth' = hsDepth - 1
+                                                -- Flush everything up to and including -} as a comment span
+                                                acc' = emit acc spanStart (curPos cur') cur True
+                                                inCommentAfter = hsDepth' > 0
+                                             in go
+                                                  hsDepth'
+                                                  cDepth
+                                                  False
+                                                  False
+                                                  False
+                                                  acc'
+                                                  (curPos cur')
+                                                  inCommentAfter
+                                                  cur'
+                                          -- === Start of Haskell block comment: {- (but not {-#) ===
+                                          else
+                                            if b1 == 0x7B && b2 == 0x2D -- '{-'
+                                              then
+                                                let cur' = advance2 cur
+                                                 in case peekByte cur' of
+                                                      Just 0x23 ->
+                                                        -- '#' => pragma {-#, not a block comment
+                                                        -- Advance past '{' only, continue in same mode
+                                                        go
+                                                          hsDepth
+                                                          cDepth
+                                                          False
+                                                          False
+                                                          False
+                                                          acc
+                                                          spanStart
+                                                          spanInComment
+                                                          (advance cur)
+                                                      _ ->
+                                                        -- Flush any text before {-, emit {- as comment
+                                                        let acc' = emit acc spanStart (curPos cur) cur spanInComment
+                                                            acc'' = LineSpan True "{-" : acc'
+                                                         in go
+                                                              (hsDepth + 1)
+                                                              cDepth
+                                                              False
+                                                              False
+                                                              False
+                                                              acc''
+                                                              (curPos cur')
+                                                              True
+                                                              cur'
+                                              -- === Start of C block comment: /* ===
+                                              else
+                                                if hsDepth == 0 && b1 == 0x2F && b2 == 0x2A -- '/*'
+                                                  then
+                                                    let acc' = emit acc spanStart (curPos cur) cur spanInComment
+                                                        cur' = advance2 cur
+                                                     in go
+                                                          hsDepth
+                                                          1
+                                                          False
+                                                          False
+                                                          False
+                                                          (LineSpan True "  " : acc')
+                                                          (curPos cur')
+                                                          True
+                                                          cur'
+                                                  -- === Normal byte: just advance ===
+                                                  else
+                                                    go
+                                                      hsDepth
+                                                      cDepth
+                                                      False
+                                                      False
+                                                      False
+                                                      acc
+                                                      spanStart
+                                                      spanInComment
+                                                      (advance cur)

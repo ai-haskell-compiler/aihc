@@ -17,9 +17,11 @@ library
       Aihc.Cpp.Parser
       Aihc.Cpp.Evaluator
       Aihc.Cpp.Scanner
+      Aihc.Cpp.Cursor
   hs-source-dirs:   src
   build-depends:
       base >=4.16 && <5
+    , bytestring
     , text >=1.2
     , containers
     , filepath
