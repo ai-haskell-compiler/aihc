@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail nested multi-way if - known roundtrip issue -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE MultiWayIf #-}
 module Nested where
 

@@ -83,8 +83,19 @@ multiWayIfExprParser = withSpan $ do
   rhss <- bracedAlts <|> plainAlts
   pure (`EMultiWayIf` rhss)
   where
-    plainAlts = plainSemiSep1 multiWayIfAlternative
+    plainAlts = do
+      first <- multiWayIfAlternative
+      let firstCol = sourceSpanStartCol (guardedRhsSpan first)
+      rest <- MP.many (MP.try (skipSemicolons *> alignedAlternative firstCol))
+      skipSemicolons
+      pure (first : rest)
     bracedAlts = bracedSemiSep multiWayIfAlternative
+
+    alignedAlternative col = do
+      tok <- lookAhead anySingle
+      guard (lexTokenKind tok == TkReservedPipe)
+      guard (sourceSpanStartCol (lexTokenSpan tok) == col)
+      multiWayIfAlternative
 
 multiWayIfAlternative :: TokParser GuardedRhs
 multiWayIfAlternative = withSpan $ do
