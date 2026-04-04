@@ -15,8 +15,8 @@
 --
 -- Example:
 --
--- >>> shorthand $ parseModule defaultConfig "module Demo where x = 1"
--- ParseOk (Module {name = "Demo", decls = [DeclValue (FunctionBind "x" [Match {headForm = Prefix, rhs = UnguardedRhs (EInt 1)}])]})
+-- >>> shorthand $ snd $ parseModule defaultConfig "module Demo where x = 1"
+-- Module {name = "Demo", decls = [DeclValue (FunctionBind "x" [Match {headForm = Prefix, rhs = UnguardedRhs (EInt 1)}])]}
 module Aihc.Parser.Shorthand
   ( Shorthand (..),
   )

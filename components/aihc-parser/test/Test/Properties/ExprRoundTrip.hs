@@ -13,6 +13,7 @@ import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.Text (renderStrict)
 import Test.Properties.ExprHelpers (genExpr, normalizeExpr, shrinkExpr)
 import Test.QuickCheck
+import qualified Text.Megaparsec.Error as MPE
 
 exprConfig :: ParserConfig
 exprConfig =
@@ -28,7 +29,7 @@ prop_exprPrettyRoundTrip expr =
         counterexample (T.unpack source) $
           case parseExpr exprConfig source of
             ParseErr err ->
-              counterexample (errorBundlePretty (Just source) err) False
+              counterexample (MPE.errorBundlePretty err) False
             ParseOk parsed ->
               let actual = normalizeExpr parsed
                in counterexample ("expected: " <> show expected <> "\nactual: " <> show actual) (expected == actual)

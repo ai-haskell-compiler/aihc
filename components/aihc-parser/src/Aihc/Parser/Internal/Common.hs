@@ -35,6 +35,7 @@ module Aihc.Parser.Internal.Common
     closeImplicitLayout,
     layoutSepEndBy,
     layoutSepBy1,
+    drainParseErrors,
   )
 where
 
@@ -538,3 +539,14 @@ layoutSep sep =
   MP.try sep <|> do
     closed <- closeImplicitLayout
     if closed then sep else MP.empty
+
+-- | Drain all registered parse errors from the parser state, returning them
+-- and resetting the error list to empty. This prevents 'runParser' from
+-- converting a successful parse into a failure due to registered errors
+-- (from 'MP.registerParseError' / 'MP.withRecovery').
+drainParseErrors :: TokParser [MPE.ParseError TokStream ParserErrorComponent]
+drainParseErrors = do
+  st <- MP.getParserState
+  let errs = MP.stateParseErrors st
+  MP.updateParserState (\s -> s {MP.stateParseErrors = []})
+  pure errs

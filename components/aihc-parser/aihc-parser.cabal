@@ -151,6 +151,7 @@ executable parser-quickcheck-batch
     , bytestring
     , filepath
     , deepseq
+    , megaparsec
     , optparse-applicative
     , time
     , prettyprinter
@@ -198,6 +199,7 @@ executable extension-progress
     , filepath
     , ghc-lib-parser
     , Cabal-syntax
+    , megaparsec
     , prettyprinter
     , yaml
     , aeson

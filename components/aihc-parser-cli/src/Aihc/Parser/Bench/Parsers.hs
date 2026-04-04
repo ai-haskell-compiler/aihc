@@ -72,9 +72,10 @@ parseWithAihcExts :: [String] -> Maybe String -> Text -> ParseResult
 parseWithAihcExts cabalExts langName source =
   let (preprocessedSource, extensions) = prepareSourceAndExtensions cabalExts langName source
       config = Aihc.defaultConfig {Aihc.parserExtensions = extensions}
-   in case Aihc.parseModule config preprocessedSource of
-        Aihc.ParseOk m -> m `deepseq` ParseSuccess
-        Aihc.ParseErr err -> ParseFailure (Aihc.errorBundlePretty (Just preprocessedSource) err)
+      (errs, m) = Aihc.parseModule config preprocessedSource
+   in if null errs
+        then m `deepseq` ParseSuccess
+        else ParseFailure (Aihc.formatParseErrors "<bench>" (Just preprocessedSource) errs)
 
 -- | Lex with aihc-parser using extensions from cabal file (lexer-only mode).
 -- Handles CPP preprocessing if CPP extension is enabled.

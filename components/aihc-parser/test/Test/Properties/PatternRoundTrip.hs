@@ -5,7 +5,7 @@ module Test.Properties.PatternRoundTrip
   )
 where
 
-import Aihc.Parser (ParseResult (..), ParserConfig (..), defaultConfig, errorBundlePretty, parsePattern)
+import Aihc.Parser (ParseResult (..), ParserConfig (..), defaultConfig, parsePattern)
 import Aihc.Parser.Lex (isReservedIdentifier)
 import Aihc.Parser.Syntax
 import Data.Data (dataTypeConstrs, dataTypeOf, showConstr, toConstr)
@@ -17,6 +17,7 @@ import Prettyprinter.Render.Text (renderStrict)
 import Test.Properties.ExprHelpers (normalizeExpr)
 import Test.Properties.Identifiers (genIdent, shrinkIdent)
 import Test.QuickCheck
+import qualified Text.Megaparsec.Error as MPE
 
 span0 :: SourceSpan
 span0 = noSourceSpan
@@ -39,7 +40,7 @@ prop_patternPrettyRoundTrip (GenPattern pat) =
           counterexample (T.unpack source) $
             case parsePattern patternConfig source of
               ParseErr err ->
-                counterexample (errorBundlePretty (Just source) err) False
+                counterexample (MPE.errorBundlePretty err) False
               ParseOk parsed ->
                 let actual = normalizePattern parsed
                  in counterexample ("expected: " <> show expected <> "\nactual: " <> show actual) (expected == actual)
