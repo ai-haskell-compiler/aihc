@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- | File-level validation checks for Haskell source files.
@@ -12,11 +13,6 @@ module StackageProgress.FileChecker
     foldFilesForPackage,
     firstFailureMessage,
     getPackageFileErrors,
-
-    -- * Check predicates
-    needsFullPackageScan,
-    needsParsedModule,
-    shouldStopAfterFailure,
   )
 where
 
@@ -24,10 +20,15 @@ import Aihc.Cpp (Severity (..), diagSeverity, resultDiagnostics, resultOutput)
 import Aihc.Parser (ParseResult (..))
 import qualified Aihc.Parser
 import qualified Aihc.Parser.Syntax as Syntax
+import Control.DeepSeq (deepseq)
+import Control.Exception (evaluate)
+import Control.Monad (when)
 import CppSupport (moduleHeaderPragmas, preprocessForParserIfEnabled)
 import Data.Maybe (fromMaybe, isNothing)
 import Data.Text (Text)
 import qualified Data.Text as T
+import Data.Word (Word64)
+import GHC.Clock (getMonotonicTimeNSec)
 import qualified GhcOracle
 import HackageSupport
   ( FileInfo (..),
@@ -38,9 +39,21 @@ import HackageSupport
   )
 import HseExtensions (fromParserExtensions)
 import qualified Language.Haskell.Exts as HSE
-import ParserValidation (ValidationError (..), ValidationErrorKind (..), validateParser)
-import StackageProgress.CLI (Check (..))
+import StackageProgress.CLI (Parser (..))
 import StackageProgress.Summary (forceString)
+import System.IO (hPutStrLn, stderr)
+import Text.Printf (printf)
+
+-- | Run an @IO@ action and return its result with elapsed monotonic time in nanoseconds.
+withElapsedNanos :: IO a -> IO (a, Word64)
+withElapsedNanos action = do
+  t0 <- getMonotonicTimeNSec
+  x <- action
+  t1 <- getMonotonicTimeNSec
+  pure (x, t1 - t0)
+
+formatNanosMs :: Word64 -> String
+formatNanosMs n = printf "%.3fms" (fromIntegral n / 1e6 :: Double)
 
 -- | Result of checking a single file.
 data FileResult = FileResult
@@ -78,9 +91,9 @@ getPackageFileErrors :: PackageFileSummary -> [(String, String)]
 getPackageFileErrors = packageFileErrorsList
 
 -- | Check a file and accumulate results.
-checkAndAccumulateFile :: [Check] -> FilePath -> PackageFileSummary -> FileInfo -> IO PackageFileSummary
-checkAndAccumulateFile checks packageRoot summary info = do
-  result <- checkFile checks packageRoot info
+checkAndAccumulateFile :: [Parser] -> Bool -> FilePath -> PackageFileSummary -> FileInfo -> IO PackageFileSummary
+checkAndAccumulateFile parsers verbose packageRoot summary info = do
+  result <- checkFile parsers verbose packageRoot info
   let !oursOk = packageFileOursOk summary && fileOursOk result
       !hseOk = packageFileHseOk summary && fileHseOk result
       !ghcOk = packageFileGhcOk summary && fileGhcOk result
@@ -118,35 +131,24 @@ firstFailureMessage summary =
   fromMaybe "unknown failure" (packageFileFirstFailure summary)
 
 -- | Fold over files, checking each and accumulating results.
-foldFilesForPackage :: [Check] -> FilePath -> PackageFileSummary -> [FileInfo] -> IO PackageFileSummary
-foldFilesForPackage _ _ summary [] = pure summary
-foldFilesForPackage checks packageRoot summary (info : rest)
-  | shouldStopAfterFailure checks summary = pure summary
-  | otherwise = do
-      summary' <- checkAndAccumulateFile checks packageRoot summary info
-      foldFilesForPackage checks packageRoot summary' rest
-
--- | Whether to stop checking after a failure.
-shouldStopAfterFailure :: [Check] -> PackageFileSummary -> Bool
-shouldStopAfterFailure checks summary =
-  not (packageFileOursOk summary) && not (needsFullPackageScan checks)
-
--- | Whether we need to check all files in the package.
-needsFullPackageScan :: [Check] -> Bool
-needsFullPackageScan checks =
-  CheckHse `elem` checks || CheckGhc `elem` checks
+foldFilesForPackage :: [Parser] -> Bool -> FilePath -> PackageFileSummary -> [FileInfo] -> IO PackageFileSummary
+foldFilesForPackage _ _ _ summary [] = pure summary
+foldFilesForPackage parsers verbose packageRoot summary (info : rest) =
+  do
+    summary' <- checkAndAccumulateFile parsers verbose packageRoot summary info
+    foldFilesForPackage parsers verbose packageRoot summary' rest
 
 -- | Check a single file.
 -- This uses unified extension handling: the default edition comes from the cabal file,
 -- each file may override the language edition via pragmas, and we use our own mapping
 -- to compute the final set of enabled extensions. This set is used by all parsers.
-checkFile :: [Check] -> FilePath -> FileInfo -> IO FileResult
-checkFile checks packageRoot info = do
+checkFile :: [Parser] -> Bool -> FilePath -> FileInfo -> IO FileResult
+checkFile parsers verbose packageRoot info = do
   let file = fileInfoPath info
-      -- Parse default language edition from cabal file
-      edition = fromMaybe Syntax.Haskell2010Edition (fileInfoLanguage info)
   source <- readTextFileLenient file
-  preprocessed <- preprocessForParserIfEnabled (fileInfoExtensions info) (fileInfoCppOptions info) file (resolveIncludeBestEffort packageRoot file) source
+  (preprocessed, preprocessNanos) <-
+    withElapsedNanos $
+      preprocessForParserIfEnabled (fileInfoExtensions info) (fileInfoCppOptions info) file (resolveIncludeBestEffort packageRoot file) source
   let source' = resultOutput preprocessed
       cppErrors = [diagToText diag | diag <- resultDiagnostics preprocessed, diagSeverity diag == Error]
       cppErrorMsg =
@@ -155,48 +157,65 @@ checkFile checks packageRoot info = do
           else Just (T.intercalate "\n" cppErrors)
       -- Read module header pragmas to get any LANGUAGE pragma overrides
       headerPragmas = moduleHeaderPragmas source'
+      defaultEdition = fromMaybe Syntax.Haskell2010Edition (fileInfoLanguage info)
+      edition = fromMaybe defaultEdition (Syntax.headerLanguageEdition headerPragmas)
       -- Compute the effective extensions using unified extension handling
-      effectiveExts = Syntax.effectiveExtensions edition (fileInfoExtensions info ++ Syntax.headerExtensionSettings headerPragmas)
-      effectiveExtsSettings = map Syntax.EnableExtension effectiveExts
+      extensionSettings = fileInfoExtensions info ++ Syntax.headerExtensionSettings headerPragmas
+      effectiveExts = Syntax.effectiveExtensions edition extensionSettings
       -- Configure parser with computed extensions
       parserConfig =
         Aihc.Parser.defaultConfig
           { Aihc.Parser.parserSourceName = file,
             Aihc.Parser.parserExtensions = effectiveExts
           }
-      oursResult = Aihc.Parser.parseModule parserConfig source'
 
-  oursStatus <- case oursResult of
-    ParseErr err ->
-      if CheckParse `elem` checks || needsParsedModule checks
-        then do
-          let errorDetails = T.pack (Aihc.Parser.errorBundlePretty (Just source') err)
-              errorMsg = prefixCppErrors cppErrorMsg errorDetails
-          pure (Left (T.unpack errorMsg))
-        else pure (Right ())
-    ParseOk _parsed ->
-      if CheckRoundtripGhc `elem` checks
-        then pure (checkRoundtrip edition effectiveExtsSettings file cppErrorMsg source')
-        else pure (Right ())
+  (aihcErrMsg, aihcNanos) <-
+    if ParserAihc `elem` parsers
+      then do
+        (oursResult, parseNanos) <-
+          withElapsedNanos $
+            evaluate (let r = Aihc.Parser.parseModule parserConfig source' in r `deepseq` r)
+        case oursResult of
+          ParseErr err -> do
+            let errorDetails = T.pack (Aihc.Parser.errorBundlePretty (Just source') err)
+                errorMsg = prefixCppErrors cppErrorMsg errorDetails
+            pure (Just (T.unpack errorMsg), parseNanos)
+          ParseOk _parsed ->
+            pure (Nothing, parseNanos)
+      else pure (Nothing, 0)
 
   hseOk <-
-    if CheckHse `elem` checks
+    if ParserHse `elem` parsers
       then pure $ checkHse effectiveExts source'
       else pure True
 
-  ghcErrMsg <-
-    if CheckGhc `elem` checks
-      then pure $ case GhcOracle.oracleModuleAstFingerprint file edition effectiveExtsSettings source' of
-        Right {} -> Nothing
-        Left err -> Just (T.unpack err)
-      else pure Nothing
+  (ghcErrMsg, ghcNanos) <-
+    if ParserGhc `elem` parsers
+      then do
+        let ghcRes = GhcOracle.oracleModuleAstFingerprintNoCPP file edition extensionSettings source'
+        (ghcRes', ns) <- withElapsedNanos (evaluate (ghcRes `deepseq` ghcRes))
+        pure
+          ( case ghcRes' of
+              Right {} -> Nothing
+              Left err -> Just (T.unpack err),
+            ns
+          )
+      else pure (Nothing, 0)
+
+  let timingParts =
+        ["cpp=" ++ formatNanosMs preprocessNanos]
+          ++ ["aihc=" ++ formatNanosMs aihcNanos | ParserAihc `elem` parsers]
+          ++ ["ghc=" ++ formatNanosMs ghcNanos | ParserGhc `elem` parsers]
+  let timelimit = 1_000_000_000 -- 1s
+  when (verbose && (preprocessNanos > timelimit || aihcNanos > timelimit || ghcNanos > timelimit)) $ do
+    hPutStrLn stderr ("stackage-progress: " ++ reverse (take 60 (reverse file)) ++ " " ++ unwords timingParts)
 
   pure
     FileResult
-      { fileOursOk = case oursStatus of Right () -> True; Left _ -> False,
+      { fileOursOk = isNothing aihcErrMsg,
         fileHseOk = hseOk,
         fileGhcOk = isNothing ghcErrMsg,
-        fileError = case oursStatus of Left err -> Just err; Right () -> Nothing,
+        fileError = aihcErrMsg,
         fileGhcError = ghcErrMsg
       }
 
@@ -214,20 +233,3 @@ hseParseMode =
     { HSE.parseFilename = "<stackage-progress>",
       HSE.extensions = []
     }
-
--- | Whether we need a parsed module for the checks.
-needsParsedModule :: [Check] -> Bool
-needsParsedModule checks =
-  CheckRoundtripGhc `elem` checks
-
--- | Check roundtrip via GHC oracle.
-checkRoundtrip :: Syntax.LanguageEdition -> [Syntax.ExtensionSetting] -> FilePath -> Maybe Text -> Text -> Either String ()
-checkRoundtrip edition exts file cppErrorMsg source' =
-  case validateParser file edition exts source' of
-    Nothing -> Right ()
-    Just err ->
-      case validationErrorKind err of
-        ValidationParseError ->
-          Left (T.unpack (prefixCppErrors cppErrorMsg ("parse failed in " <> T.pack file <> ": " <> T.pack (validationErrorMessage err))))
-        ValidationRoundtripError ->
-          Left (T.unpack (prefixCppErrors cppErrorMsg ("roundtrip mismatch in " <> T.pack file <> ": " <> T.pack (validationErrorMessage err))))

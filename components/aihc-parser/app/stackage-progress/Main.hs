@@ -3,8 +3,10 @@
 
 module Main (main) where
 
-import Control.Concurrent.Async (mapConcurrently)
-import Control.Monad (when)
+import Control.Concurrent.Async (replicateConcurrently_)
+import Control.Concurrent.Chan (newChan, readChan, writeChan)
+import Control.Concurrent.MVar (modifyMVar_, newMVar, readMVar)
+import Control.Monad (forM_, replicateM_, when)
 import Data.List (sortBy)
 import Data.Maybe (mapMaybe)
 import qualified Data.Text as T
@@ -12,6 +14,7 @@ import GHC.Clock (getMonotonicTimeNSec)
 import GHC.Conc (getNumProcessors)
 import StackageProgress.CLI
   ( Options (..),
+    Parser (..),
     parseOptionsIO,
     summaryOptionsFromOptions,
   )
@@ -91,9 +94,11 @@ main = do
     putStrLn ""
 
   putStrLn "Parsing success rates:"
-  putStrLn $ "  AIHC: " ++ show successOursN ++ " / " ++ show total ++ " (" ++ show (pct successOursN total) ++ "%)"
-  when (optSanityCheck opts) $ do
+  when (ParserAihc `elem` optParsers opts) $ do
+    putStrLn $ "  AIHC: " ++ show successOursN ++ " / " ++ show total ++ " (" ++ show (pct successOursN total) ++ "%)"
+  when (ParserHse `elem` optParsers opts) $ do
     putStrLn $ "  HSE:  " ++ show successHseN ++ " / " ++ show total ++ " (" ++ show (pct successHseN total) ++ "%)"
+  when (ParserGhc `elem` optParsers opts) $ do
     putStrLn $ "  GHC:  " ++ show successGhcN ++ " / " ++ show total ++ " (" ++ show (pct successGhcN total) ++ "%)"
 
   case optGhcErrorsFile opts of
@@ -145,21 +150,33 @@ foldConcurrentlyChunksWithProgress ::
   Bool ->
   IO (RunSummary, [PromptCandidate])
 foldConcurrentlyChunksWithProgress n action items total showProgress opts collectPromptCandidates =
-  go 0 0 emptySummary [] (chunksOf chunkSize items)
+  do
+    queue <- newChan
+    forM_ items (writeChan queue . Just)
+    replicateM_ workerCount (writeChan queue Nothing)
+    stateVar <- newMVar (0, 0, emptySummary, [])
+    let worker = do
+          next <- readChan queue
+          case next of
+            Nothing -> pure ()
+            Just item -> do
+              result <- action item
+              modifyMVar_ stateVar $ \(done, success, summary, promptCandidatesRev) -> do
+                let done' = done + 1
+                    success' = success + length [() | packageOursOk result]
+                    !summary' = addPackageResults opts [result] summary
+                    !promptCandidatesRev' =
+                      if collectPromptCandidates
+                        then mapMaybe promptCandidateFromResult [result] <> promptCandidatesRev
+                        else promptCandidatesRev
+                when showProgress (putProgressLine (ProgressState done' success' total))
+                pure (done', success', summary', promptCandidatesRev')
+              worker
+    replicateConcurrently_ workerCount worker
+    (_, _, summary, promptCandidatesRev) <- readMVar stateVar
+    pure (finalizeSummary summary, reverse promptCandidatesRev)
   where
-    chunkSize = if n <= 0 then 1 else n
-    go _ _ summary promptCandidatesRev [] = pure (finalizeSummary summary, reverse promptCandidatesRev)
-    go done success summary promptCandidatesRev (chunk : rest) = do
-      batch <- mapConcurrently action chunk
-      let done' = done + length batch
-          success' = success + length [() | result <- batch, packageOursOk result]
-          !summary' = addPackageResults opts batch summary
-          !promptCandidatesRev' =
-            if collectPromptCandidates
-              then reverse (mapMaybe promptCandidateFromResult batch) <> promptCandidatesRev
-              else promptCandidatesRev
-      when showProgress (putProgressLine (ProgressState done' success' total))
-      go done' success' summary' promptCandidatesRev' rest
+    workerCount = max 1 n
 
 pickPromptCandidate :: Maybe Int -> [PromptCandidate] -> IO (Maybe PromptCandidate)
 pickPromptCandidate maybeSeed candidates = do
@@ -192,12 +209,6 @@ findPromptTemplatePath = go
            in if parent == dir
                 then pure Nothing
                 else go parent
-
-chunksOf :: Int -> [a] -> [[a]]
-chunksOf _ [] = []
-chunksOf n xs =
-  let (chunk, rest) = splitAt n xs
-   in chunk : chunksOf n rest
 
 data ProgressState = ProgressState
   { progressDone :: Int,
