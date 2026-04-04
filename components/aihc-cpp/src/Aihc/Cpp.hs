@@ -33,9 +33,9 @@ module Aihc.Cpp
   )
 where
 
-import Aihc.Cpp.Evaluator (evalCondition)
-import Aihc.Cpp.Parser (Directive (..), parseDirective)
-import Aihc.Cpp.Scanner (expandLineBySpan, lineScanFinalCDepth, lineScanFinalHsDepth, lineScanSpans, scanLine)
+import Aihc.Cpp.Evaluator (evalCondition, expandMacros)
+import Aihc.Cpp.Parser (Directive (..), isIdentChar, isIdentStart, parseDirective)
+import Aihc.Cpp.Scanner (LineScan (..), LineSpan (..), expandLineBySpan, lineScanFinalCDepth, lineScanFinalHsDepth, lineScanSpans, scanLine)
 import Aihc.Cpp.Types
   ( CondFrame (..),
     Config (..),
@@ -56,6 +56,7 @@ import Aihc.Cpp.Types
   )
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import System.FilePath (takeDirectory, (</>))
@@ -221,14 +222,14 @@ processFile filePath ((lineNo, lineSpan, line) : restLines) stack st k =
       nextLineNo = case restLines of
         (n, _, _) : _ -> n
         [] -> lineNo + lineSpan
-      advanceLineState st' =
+      advanceCurrentLineState st' =
         st'
           { stCurrentLine = nextLineNo,
             stHsBlockCommentDepth = lineScanFinalHsDepth lineScan,
             stCBlockCommentDepth = lineScanFinalCDepth lineScan
           }
-      continue st' = processFile filePath restLines stack (advanceLineState st') k
-      continueWith stack' st' = processFile filePath restLines stack' (advanceLineState st') k
+      continue st' = processFile filePath restLines stack (advanceCurrentLineState st') k
+      continueWith stack' st' = processFile filePath restLines stack' (advanceCurrentLineState st') k
       ctx =
         LineContext
           { lcFilePath = filePath,
@@ -246,10 +247,168 @@ processFile filePath ((lineNo, lineSpan, line) : restLines) stack st k =
         else case parsedDirective of
           Nothing ->
             if currentActive stack
-              then continue (emitLine (expandLineBySpan st (lineScanSpans lineScan)) st)
+              then processActiveLine filePath lineNo lineSpan line lineScan restLines stack st k
               else continue (emitBlankLines lineSpan st)
           Just directive ->
             handleDirective ctx st directive
+
+processActiveLine :: FilePath -> Int -> Int -> Text -> LineScan -> [(Int, Int, Text)] -> [CondFrame] -> EngineState -> Continuation -> Step
+processActiveLine filePath lineNo lineSpan line lineScan restLines stack st k =
+  case gatherMultilineFunctionCall st lineSpan line lineScan restLines of
+    Nothing ->
+      processFile
+        filePath
+        restLines
+        stack
+        ( advanceLineState nextLineNo (lineScanFinalHsDepth lineScan) (lineScanFinalCDepth lineScan)
+            (emitOutputRecords [expandLineBySpan st (lineScanSpans lineScan)] st)
+        )
+        k
+    Just (consumedSpan, expanded, remainingLines, finalHsDepth, finalCDepth) ->
+      processFile
+        filePath
+        remainingLines
+        stack
+        ( advanceLineState (nextLineNoFor lineNo consumedSpan remainingLines) finalHsDepth finalCDepth
+            (emitConsumedExpansion consumedSpan expanded st)
+        )
+        k
+  where
+    nextLineNo = nextLineNoFor lineNo lineSpan restLines
+
+advanceLineState :: Int -> Int -> Int -> EngineState -> EngineState
+advanceLineState nextLineNo hsDepth cDepth st =
+  st
+    { stCurrentLine = nextLineNo,
+      stHsBlockCommentDepth = hsDepth,
+      stCBlockCommentDepth = cDepth
+    }
+
+nextLineNoFor :: Int -> Int -> [(Int, Int, Text)] -> Int
+nextLineNoFor lineNo consumedSpan remainingLines =
+  fromMaybe (lineNo + consumedSpan) (fst3 <$> safeHead remainingLines)
+
+gatherMultilineFunctionCall :: EngineState -> Int -> Text -> LineScan -> [(Int, Int, Text)] -> Maybe (Int, Text, [(Int, Int, Text)], Int, Int)
+gatherMultilineFunctionCall st lineSpan line lineScan restLines = do
+  depth0 <- unfinishedFunctionCallDepth st lineScan
+  if hasCommentSpans lineScan
+    then Nothing
+    else do
+      (consumedRev, remainingLines, finalDepth, finalHsDepth, finalCDepth) <-
+        consumeContinuationLines
+          depth0
+          (lineScanFinalHsDepth lineScan)
+          (lineScanFinalCDepth lineScan)
+          []
+          restLines
+      if finalDepth /= 0
+        then Nothing
+        else
+           let consumed = reverse consumedRev
+               allLines = line : map third3 consumed
+               consumedSpan = sum (lineSpan : map snd3 consumed)
+            in Just (consumedSpan, expandMacros st (T.intercalate "\n" allLines), remainingLines, finalHsDepth, finalCDepth)
+
+consumeContinuationLines :: Int -> Int -> Int -> [(Int, Int, Text)] -> [(Int, Int, Text)] -> Maybe ([(Int, Int, Text)], [(Int, Int, Text)], Int, Int, Int)
+consumeContinuationLines depth hsDepth cDepth consumedRev remaining =
+  case remaining of
+    [] -> Nothing
+    entry@(_, _, nextLine) : rest ->
+      let nextScan = scanLine hsDepth cDepth nextLine
+       in if hasCommentSpans nextScan
+            then Nothing
+            else
+              let depth' = continueFunctionCallDepth depth nextScan
+                  consumedRev' = entry : consumedRev
+                  finalHsDepth = lineScanFinalHsDepth nextScan
+                  finalCDepth = lineScanFinalCDepth nextScan
+               in if depth' == 0
+                    then Just (consumedRev', rest, depth', finalHsDepth, finalCDepth)
+                    else consumeContinuationLines depth' finalHsDepth finalCDepth consumedRev' rest
+
+unfinishedFunctionCallDepth :: EngineState -> LineScan -> Maybe Int
+unfinishedFunctionCallDepth st lineScan =
+  scanForFunctionCall Nothing False False False (T.concat (map lineSpanTextIfActive (lineScanSpans lineScan)))
+  where
+    macros = stMacros st
+    lineSpanTextIfActive spanChunk
+      | lineSpanInBlockComment spanChunk = ""
+      | otherwise = lineSpanText spanChunk
+
+    scanForFunctionCall :: Maybe Int -> Bool -> Bool -> Bool -> Text -> Maybe Int
+    scanForFunctionCall depth inString inChar escaped txt =
+      case T.uncons txt of
+        Nothing -> depth
+        Just (c, rest)
+          | inString ->
+              let escaped' = c == '\\' && not escaped
+                  inString' = not (c == '"' && not escaped)
+               in scanForFunctionCall depth inString' False escaped' rest
+          | inChar ->
+              let escaped' = c == '\\' && not escaped
+                  inChar' = not (c == '\'' && not escaped)
+               in scanForFunctionCall depth False inChar' escaped' rest
+          | c == '"' -> scanForFunctionCall depth True False False rest
+          | c == '\'' -> scanForFunctionCall depth False True False rest
+          | isIdentStart c ->
+              let (ident, restAfterIdent) = T.span isIdentChar txt
+               in case depth of
+                    Just d -> scanForFunctionCall (Just d) False False False restAfterIdent
+                    Nothing ->
+                      case (M.lookup ident macros, T.uncons restAfterIdent) of
+                        (Just (FunctionMacro _ _), Just ('(', restAfterOpen)) -> scanForFunctionCall (Just 1) False False False restAfterOpen
+                        _ -> scanForFunctionCall Nothing False False False restAfterIdent
+          | otherwise ->
+              case depth of
+                Just d
+                  | c == '(' -> scanForFunctionCall (Just (d + 1)) False False False rest
+                  | c == ')' ->
+                      let depth' = d - 1
+                       in scanForFunctionCall (if depth' == 0 then Nothing else Just depth') False False False rest
+                _ -> scanForFunctionCall depth False False False rest
+
+continueFunctionCallDepth :: Int -> LineScan -> Int
+continueFunctionCallDepth depth0 lineScan =
+  go depth0 False False False (T.concat (map lineSpanTextIfActive (lineScanSpans lineScan)))
+  where
+    lineSpanTextIfActive spanChunk
+      | lineSpanInBlockComment spanChunk = ""
+      | otherwise = lineSpanText spanChunk
+
+    go :: Int -> Bool -> Bool -> Bool -> Text -> Int
+    go depth inString inChar escaped txt =
+      case T.uncons txt of
+        Nothing -> depth
+        Just (c, rest)
+          | inString ->
+              let escaped' = c == '\\' && not escaped
+                  inString' = not (c == '"' && not escaped)
+               in go depth inString' False escaped' rest
+          | inChar ->
+              let escaped' = c == '\\' && not escaped
+                  inChar' = not (c == '\'' && not escaped)
+               in go depth False inChar' escaped' rest
+          | c == '"' -> go depth True False False rest
+          | c == '\'' -> go depth False True False rest
+          | c == '(' -> go (depth + 1) False False False rest
+          | c == ')' -> go (max 0 (depth - 1)) False False False rest
+          | otherwise -> go depth False False False rest
+
+hasCommentSpans :: LineScan -> Bool
+hasCommentSpans = any lineSpanInBlockComment . lineScanSpans
+
+safeHead :: [a] -> Maybe a
+safeHead [] = Nothing
+safeHead (x : _) = Just x
+
+fst3 :: (a, b, c) -> a
+fst3 (x, _, _) = x
+
+snd3 :: (a, b, c) -> b
+snd3 (_, y, _) = y
+
+third3 :: (a, b, c) -> c
+third3 (_, _, z) = z
 
 recoverDanglingElse :: LineContext -> Maybe Directive -> EngineState -> Step
 recoverDanglingElse ctx parsedDirective st =
@@ -439,6 +598,15 @@ handleLineDirective ctx st lineNumber maybePath
 
 emitLine :: Text -> EngineState -> EngineState
 emitLine line st = st {stOutputRev = line : stOutputRev st}
+
+emitOutputRecords :: [Text] -> EngineState -> EngineState
+emitOutputRecords records st = st {stOutputRev = reverse records <> stOutputRev st}
+
+emitConsumedExpansion :: Int -> Text -> EngineState -> EngineState
+emitConsumedExpansion _ expanded =
+  emitOutputRecords expandedLines
+  where
+    expandedLines = T.splitOn "\n" expanded
 
 emitBlankLines :: Int -> EngineState -> EngineState
 emitBlankLines n st

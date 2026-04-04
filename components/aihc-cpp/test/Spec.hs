@@ -14,10 +14,10 @@ main = do
   cases <- loadManifest
   checks <- mapM mkCase cases
   defaultMain
-    ( testGroup
-        "cpp-oracle"
-        (checks <> [linePragmaTest, dateTimeTest, functionMacroArgumentTest, functionMacroUnclosedCallTest, definedConditionSpacingTest])
-    )
+        ( testGroup
+            "cpp-oracle"
+            (checks <> [linePragmaTest, dateTimeTest, functionMacroArgumentTest, functionMacroUnclosedCallTest, multilineFunctionMacroArgumentTest, definedConditionSpacingTest])
+        )
 
 dateTimeTest :: TestTree
 dateTimeTest =
@@ -100,6 +100,14 @@ functionMacroUnclosedCallTest =
     case preprocess defaultConfig "#define ID() replaced\nID(" of
       Done result ->
         resultOutput result @?= "#line 1 \"<input>\"\n\nID(\n"
+      _ -> assertFailure "expected Done"
+
+multilineFunctionMacroArgumentTest :: TestTree
+multilineFunctionMacroArgumentTest =
+  testCase "function-like macro expands across multiple lines" $
+    case preprocess defaultConfig "#define DEBUG(s) {- -}\n\nDEBUG(\"line1\" ++\n      \"line2\" ++\n      \"line3\")" of
+      Done result ->
+        resultOutput result @?= "#line 1 \"<input>\"\n\n\n{- -}\n"
       _ -> assertFailure "expected Done"
 
 definedConditionSpacingTest :: TestTree
