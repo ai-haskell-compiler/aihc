@@ -2,20 +2,17 @@
 
 - Tools: `gh`, `cabal`, `nix` (others via `nix`)
 - A GHC developer environment is available
-- Run tests locally (fast): `cabal test lib:aihc-parser`
+- Run tests locally (fast): `cabal test -v0 all --test-options=--hide-successes`
+- Filter for specific tests: `cabal test -v0 aihc-parser:spec --test-options="--pattern test_name"`
+- Deep fuzzy testing: `cabal test aihc-parser:spec -v0 --test-options="--pattern properties --quickcheck-tests 10000"`
 - Run full test suite (slow, isolated sandbox): `nix flake check`
 - Include changes to progress counts in PR descriptions. Do not update the READMEs, though. They are updated by a cron workflow.
-- Commands:
-  - Parser: `nix run .#parser-progress`
-  - Extensions: `nix run .#parser-extension-progress`
-  - CPP: `nix run .#cpp-progress`
-
 - Create PRs: `gh pr create --base main --head <branch> --title "<title>" --body $(cat <file>)`
 - PR titles should follow the same Conventional Commits format as commit messages (see below)
 
 ## Cheatsheet
 
-- Test whether a snippet is accepted by GHC: `echo snippet | ghci -v0`. Return code 0 means the snippet is valid, non-zero means it is invalid.
+- Test whether a file is accepted by GHC: `ghc -v0 -fno-code -ddump-parsed file.hs`. Return code 0 means the snippet is valid, non-zero means it is invalid.
 - Test whether a snippet is accepted by AIHC: `echo snippet | cabal run -v0 exe:aihc-parser`
 - Test how the lexer interprets a string: `echo string | cabal run -v0 exe:aihc-parser -- --lex`
 
@@ -34,22 +31,22 @@ aihc is developed test-first. Run the full suite with `nix flake check`. When wo
   - Any `FAIL` or unexpected `XPASS` should block merge until handled.
 
 - **`aihc-parser`**
-   - Golden regression tests:
-     - Parser fixtures: `components/aihc-parser/test/Test/Fixtures/golden/`.
-     - Lexer fixtures: `components/aihc-parser/test/Test/Fixtures/lexer/`.
-     - Input/output snapshots with `pass`/`xfail`/`xpass` coverage.
-   - Oracle compliance tests:
-     - Oracle test fixtures with inline comments specifying test parameters.
-     - Oracle is GHC, with parser round-trip/fingerprint validation.
-   - Fuzz completeness tests:
-     - Run `nix run .#parser-fuzz -- ...`.
-     - Generates random modules, finds parser-validation failures, and shrinks to minimal repros.
-     - Promote minimized repros into golden/oracle fixtures.
+  - Golden regression tests:
+    - Parser fixtures: `components/aihc-parser/test/Test/Fixtures/golden/`.
+    - Lexer fixtures: `components/aihc-parser/test/Test/Fixtures/lexer/`.
+    - Input/output snapshots with `pass`/`xfail`/`xpass` coverage.
+  - Oracle compliance tests:
+    - Oracle test fixtures with inline comments specifying test parameters.
+    - Oracle is GHC, with parser round-trip/fingerprint validation.
+  - Fuzz completeness tests:
+    - Run `nix run .#parser-fuzz -- ...`.
+    - Generates random modules, finds parser-validation failures, and shrinks to minimal repros.
+    - Promote minimized repros into golden/oracle fixtures.
 
 - **`aihc-cpp`**
-   - Oracle compliance tests:
-     - Oracle test fixtures with inline comments specifying test parameters.
-     - Oracle is `cpphs`; outputs are compared against `cpphs` behavior.
+  - Oracle compliance tests:
+    - Oracle test fixtures with inline comments specifying test parameters.
+    - Oracle is `cpphs`; outputs are compared against `cpphs` behavior.
 
 ## Pre-PR Review
 
