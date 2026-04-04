@@ -236,9 +236,15 @@ data LayoutContext
 data ImplicitLayoutKind
   = LayoutOrdinary
   | LayoutLetBlock
+  | LayoutMultiWayIf
   | -- | Implicit layout opened after 'then do' or 'else do'.
     -- These blocks can be closed by 'then'/'else' at the same indent level.
     LayoutAfterThenElse
+  deriving (Eq, Show)
+
+data PendingLayout
+  = PendingImplicitLayout !ImplicitLayoutKind
+  | PendingMaybeMultiWayIf
   deriving (Eq, Show)
 
 data ModuleLayoutMode
@@ -251,7 +257,7 @@ data ModuleLayoutMode
 
 data LayoutState = LayoutState
   { layoutContexts :: [LayoutContext],
-    layoutPendingLayout :: !(Maybe ImplicitLayoutKind),
+    layoutPendingLayout :: !(Maybe PendingLayout),
     layoutPrevLine :: !(Maybe Int),
     layoutPrevTokenKind :: !(Maybe LexTokenKind),
     layoutModuleMode :: !ModuleLayoutMode,
@@ -604,7 +610,7 @@ noteModuleLayoutBeforeToken st tok =
         TkPragmaWarning _ -> st
         TkPragmaDeprecated _ -> st
         TkKeywordModule -> st {layoutModuleMode = ModuleLayoutAwaitWhere}
-        _ -> st {layoutModuleMode = ModuleLayoutDone, layoutPendingLayout = Just LayoutOrdinary}
+        _ -> st {layoutModuleMode = ModuleLayoutDone, layoutPendingLayout = Just (PendingImplicitLayout LayoutOrdinary)}
     _ -> st
 
 noteModuleLayoutAfterToken :: LayoutState -> LexToken -> LayoutState
@@ -612,7 +618,7 @@ noteModuleLayoutAfterToken st tok =
   case layoutModuleMode st of
     ModuleLayoutAwaitWhere
       | lexTokenKind tok == TkKeywordWhere ->
-          st {layoutModuleMode = ModuleLayoutAwaitBody, layoutPendingLayout = Just LayoutOrdinary}
+          st {layoutModuleMode = ModuleLayoutAwaitBody, layoutPendingLayout = Just (PendingImplicitLayout LayoutOrdinary)}
     _ -> st
 
 openPendingLayout :: LayoutState -> LexToken -> ([LexToken], LayoutState, Bool)
@@ -620,24 +626,34 @@ openPendingLayout st tok =
   case layoutPendingLayout st of
     Nothing -> ([], st, False)
     Just pending ->
-      case lexTokenKind tok of
-        TkSpecialLBrace -> ([], st {layoutPendingLayout = Nothing}, False)
-        _ ->
-          let col = tokenStartCol tok
-              parentIndent = currentLayoutIndent (layoutContexts st)
-              openTok = virtualSymbolToken "{" (lexTokenSpan tok)
-              closeTok = virtualSymbolToken "}" (lexTokenSpan tok)
-              newContext = LayoutImplicit col pending
-           in if col <= parentIndent
-                then ([openTok, closeTok], st {layoutPendingLayout = Nothing}, False)
-                else
-                  ( [openTok],
-                    st
-                      { layoutPendingLayout = Nothing,
-                        layoutContexts = newContext : layoutContexts st
-                      },
-                    True
-                  )
+      case pending of
+        PendingMaybeMultiWayIf ->
+          case lexTokenKind tok of
+            TkReservedPipe ->
+              openImplicitLayout LayoutMultiWayIf st tok
+            _ -> ([], st {layoutPendingLayout = Nothing}, False)
+        PendingImplicitLayout kind ->
+          case lexTokenKind tok of
+            TkSpecialLBrace -> ([], st {layoutPendingLayout = Nothing}, False)
+            _ -> openImplicitLayout kind st tok
+
+openImplicitLayout :: ImplicitLayoutKind -> LayoutState -> LexToken -> ([LexToken], LayoutState, Bool)
+openImplicitLayout kind st tok =
+  let col = tokenStartCol tok
+      parentIndent = currentLayoutIndent (layoutContexts st)
+      openTok = virtualSymbolToken "{" (lexTokenSpan tok)
+      closeTok = virtualSymbolToken "}" (lexTokenSpan tok)
+      newContext = LayoutImplicit col kind
+   in if col <= parentIndent
+        then ([openTok, closeTok], st {layoutPendingLayout = Nothing}, False)
+        else
+          ( [openTok],
+            st
+              { layoutPendingLayout = Nothing,
+                layoutContexts = newContext : layoutContexts st
+              },
+            True
+          )
 
 closeBeforeToken :: LayoutState -> LexToken -> ([LexToken], LayoutState)
 closeBeforeToken st tok =
@@ -679,10 +695,17 @@ bolLayout st tok
           eqSemi =
             case currentLayoutIndentMaybe contexts' of
               Just indent
-                | col == indent ->
+                | col == indent && currentLayoutAllowsSemicolon contexts' ->
                     [virtualSymbolToken ";" semiAnchor]
               _ -> []
-       in (inserted <> eqSemi, st {layoutContexts = contexts'})
+        in (inserted <> eqSemi, st {layoutContexts = contexts'})
+
+currentLayoutAllowsSemicolon :: [LayoutContext] -> Bool
+currentLayoutAllowsSemicolon contexts =
+  case contexts of
+    LayoutImplicit _ LayoutMultiWayIf : _ -> False
+    LayoutImplicit _ _ : _ -> True
+    _ -> False
 
 closeImplicitLayouts :: SourceSpan -> (Int -> ImplicitLayoutKind -> Bool) -> [LayoutContext] -> ([LexToken], [LayoutContext])
 closeImplicitLayouts anchor shouldClose = go []
@@ -714,15 +737,16 @@ stepTokenContext st tok =
     TkKeywordDo
       | layoutPrevTokenKind st == Just TkKeywordThen
           || layoutPrevTokenKind st == Just TkKeywordElse ->
-          st {layoutPendingLayout = Just LayoutAfterThenElse}
-      | otherwise -> st {layoutPendingLayout = Just LayoutOrdinary}
-    TkKeywordOf -> st {layoutPendingLayout = Just LayoutOrdinary}
+          st {layoutPendingLayout = Just (PendingImplicitLayout LayoutAfterThenElse)}
+      | otherwise -> st {layoutPendingLayout = Just (PendingImplicitLayout LayoutOrdinary)}
+    TkKeywordOf -> st {layoutPendingLayout = Just (PendingImplicitLayout LayoutOrdinary)}
     TkKeywordCase
       | layoutPrevTokenKind st == Just TkReservedBackslash ->
-          st {layoutPendingLayout = Just LayoutOrdinary}
+          st {layoutPendingLayout = Just (PendingImplicitLayout LayoutOrdinary)}
       | otherwise -> st
-    TkKeywordLet -> st {layoutPendingLayout = Just LayoutLetBlock}
-    TkKeywordWhere -> st {layoutPendingLayout = Just LayoutOrdinary}
+    TkKeywordLet -> st {layoutPendingLayout = Just (PendingImplicitLayout LayoutLetBlock)}
+    TkKeywordWhere -> st {layoutPendingLayout = Just (PendingImplicitLayout LayoutOrdinary)}
+    TkKeywordIf -> st {layoutPendingLayout = Just PendingMaybeMultiWayIf}
     kind
       | opensDelimiter kind ->
           st {layoutContexts = LayoutDelimiter : layoutContexts st}
