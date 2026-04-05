@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail hw-hedgehog typed do bind -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE ScopedTypeVariables #-}
 module ScopedTypeVariablesTypedDoBind where
 

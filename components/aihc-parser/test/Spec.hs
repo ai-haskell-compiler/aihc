@@ -81,6 +81,25 @@ buildTests = do
             testCase "shrunk identifiers reject standalone underscore" test_shrunkIdentifiersRejectStandaloneUnderscore,
             QC.testProperty "generated operators reject dash-only comment starters" prop_generatedOperatorsRejectDashOnlyCommentStarters
           ],
+        testGroup
+          "checkPattern (do-bind)"
+          [ testCase "variable pattern: x <- expr" test_doBindVarPattern,
+            testCase "constructor pattern: Just x <- expr" test_doBindConPattern,
+            testCase "wildcard pattern: _ <- expr" test_doBindWildcardPattern,
+            testCase "tuple pattern: (a, b) <- expr" test_doBindTuplePattern,
+            testCase "list pattern: [a, b] <- expr" test_doBindListPattern,
+            testCase "literal pattern: 0 <- expr" test_doBindLitPattern,
+            testCase "negated literal pattern: -1 <- expr" test_doBindNegLitPattern,
+            testCase "nested constructor: Just (Left x) <- expr" test_doBindNestedConPattern,
+            testCase "infix constructor: x : xs <- expr" test_doBindInfixConPattern,
+            testCase "parenthesized pattern: (x) <- expr" test_doBindParenPattern,
+            testCase "bang pattern: !x <- expr" test_doBindBangPattern,
+            testCase "irrefutable pattern: ~(a, b) <- expr" test_doBindIrrefutablePattern,
+            testCase "as pattern: x@(Just _) <- expr" test_doBindAsPattern,
+            testCase "expression statement: expr" test_doExprStmt,
+            testCase "let statement: let x = 5" test_doLetStmt,
+            testCase "rejects if-then-else in pattern context" test_doBindRejectsIfExpr
+          ],
         adjustOption (const tenMinutes) $
           testGroup
             "properties"
@@ -429,3 +448,125 @@ prop_generatedOperatorsRejectDashOnlyCommentStarters =
   QC.forAll (QC.vectorOf 2000 genOperator) $ \ops ->
     let invalid = filter (not . isValidGeneratedOperator) ops
      in QC.counterexample ("invalid generated operators: " <> show invalid) (null invalid)
+
+-- Helper: parse a do-expression and extract the do-statements.
+parseDoStmts :: T.Text -> Either String [DoStmt]
+parseDoStmts src =
+  let fullSrc = "x = " <> src
+      (errs, modu) = parseModule defaultConfig fullSrc
+   in if not (null errs)
+        then Left ("parse errors: " <> show errs)
+        else case moduleDecls modu of
+          [DeclValue _ (FunctionBind _ _ [Match {matchRhs = UnguardedRhs _ (EDo _ stmts)}])] ->
+            Right stmts
+          other ->
+            Left ("unexpected AST: " <> show other)
+
+-- Helper: parse a do-expression with extensions and extract the do-statements.
+parseDoStmtsExt :: [Extension] -> T.Text -> Either String [DoStmt]
+parseDoStmtsExt exts src =
+  let fullSrc = "x = " <> src
+      (errs, modu) = parseModule defaultConfig {parserExtensions = exts} fullSrc
+   in if not (null errs)
+        then Left ("parse errors: " <> show errs)
+        else case moduleDecls modu of
+          [DeclValue _ (FunctionBind _ _ [Match {matchRhs = UnguardedRhs _ (EDo _ stmts)}])] ->
+            Right stmts
+          other ->
+            Left ("unexpected AST: " <> show other)
+
+test_doBindVarPattern :: Assertion
+test_doBindVarPattern =
+  case parseDoStmts "do { x <- return 1; return x }" of
+    Right [DoBind _ (PVar _ "x") _, DoExpr _ _] -> pure ()
+    other -> assertFailure ("expected var bind, got: " <> show other)
+
+test_doBindConPattern :: Assertion
+test_doBindConPattern =
+  case parseDoStmts "do { Just x <- return Nothing; return x }" of
+    Right [DoBind _ (PCon _ "Just" [PVar _ "x"]) _, DoExpr _ _] -> pure ()
+    other -> assertFailure ("expected constructor bind, got: " <> show other)
+
+test_doBindWildcardPattern :: Assertion
+test_doBindWildcardPattern =
+  case parseDoStmts "do { _ <- return 1; return 2 }" of
+    Right [DoBind _ (PWildcard _) _, DoExpr _ _] -> pure ()
+    other -> assertFailure ("expected wildcard bind, got: " <> show other)
+
+test_doBindTuplePattern :: Assertion
+test_doBindTuplePattern =
+  case parseDoStmts "do { (a, b) <- return (1, 2); return a }" of
+    Right [DoBind _ (PTuple _ Boxed [PVar _ "a", PVar _ "b"]) _, DoExpr _ _] -> pure ()
+    other -> assertFailure ("expected tuple bind, got: " <> show other)
+
+test_doBindListPattern :: Assertion
+test_doBindListPattern =
+  case parseDoStmts "do { [a, b] <- return [1, 2]; return a }" of
+    Right [DoBind _ (PList _ [PVar _ "a", PVar _ "b"]) _, DoExpr _ _] -> pure ()
+    other -> assertFailure ("expected list bind, got: " <> show other)
+
+test_doBindLitPattern :: Assertion
+test_doBindLitPattern =
+  case parseDoStmts "do { 0 <- return 1; return 2 }" of
+    Right [DoBind _ (PLit _ (LitInt _ 0 _)) _, DoExpr _ _] -> pure ()
+    other -> assertFailure ("expected literal bind, got: " <> show other)
+
+test_doBindNegLitPattern :: Assertion
+test_doBindNegLitPattern =
+  case parseDoStmts "do { -1 <- return 0; return 2 }" of
+    Right [DoBind _ (PNegLit _ (LitInt _ 1 _)) _, DoExpr _ _] -> pure ()
+    other -> assertFailure ("expected negated literal bind, got: " <> show other)
+
+test_doBindNestedConPattern :: Assertion
+test_doBindNestedConPattern =
+  case parseDoStmts "do { Just (Left x) <- return Nothing; return x }" of
+    Right [DoBind _ (PCon _ "Just" [PParen _ (PCon _ "Left" [PVar _ "x"])]) _, DoExpr _ _] -> pure ()
+    other -> assertFailure ("expected nested constructor bind, got: " <> show other)
+
+test_doBindInfixConPattern :: Assertion
+test_doBindInfixConPattern =
+  case parseDoStmts "do { x : xs <- return [1, 2]; return x }" of
+    Right [DoBind _ (PInfix _ (PVar _ "x") ":" (PVar _ "xs")) _, DoExpr _ _] -> pure ()
+    other -> assertFailure ("expected infix constructor bind, got: " <> show other)
+
+test_doBindParenPattern :: Assertion
+test_doBindParenPattern =
+  case parseDoStmts "do { (x) <- return 1; return x }" of
+    Right [DoBind _ (PParen _ (PVar _ "x")) _, DoExpr _ _] -> pure ()
+    other -> assertFailure ("expected parenthesized bind, got: " <> show other)
+
+test_doBindBangPattern :: Assertion
+test_doBindBangPattern =
+  case parseDoStmtsExt [BangPatterns] "do { !x <- return 1; return x }" of
+    Right [DoBind _ (PStrict _ (PVar _ "x")) _, DoExpr _ _] -> pure ()
+    other -> assertFailure ("expected bang pattern bind, got: " <> show other)
+
+test_doBindIrrefutablePattern :: Assertion
+test_doBindIrrefutablePattern =
+  case parseDoStmts "do { ~(a, b) <- return (1, 2); return a }" of
+    Right [DoBind _ (PIrrefutable _ (PTuple _ Boxed [PVar _ "a", PVar _ "b"])) _, DoExpr _ _] -> pure ()
+    other -> assertFailure ("expected irrefutable pattern bind, got: " <> show other)
+
+test_doBindAsPattern :: Assertion
+test_doBindAsPattern =
+  case parseDoStmts "do { x@(Just _) <- return Nothing; return x }" of
+    Right [DoBind _ (PAs _ "x" (PParen _ (PCon _ "Just" [PWildcard _]))) _, DoExpr _ _] -> pure ()
+    other -> assertFailure ("expected as-pattern bind, got: " <> show other)
+
+test_doExprStmt :: Assertion
+test_doExprStmt =
+  case parseDoStmts "do { putStrLn \"hello\"; return () }" of
+    Right [DoExpr _ _, DoExpr _ _] -> pure ()
+    other -> assertFailure ("expected two expression statements, got: " <> show other)
+
+test_doLetStmt :: Assertion
+test_doLetStmt =
+  case parseDoStmts "do { let { x = 5 }; return x }" of
+    Right [DoLetDecls _ _, DoExpr _ _] -> pure ()
+    other -> assertFailure ("expected let + expr statements, got: " <> show other)
+
+test_doBindRejectsIfExpr :: Assertion
+test_doBindRejectsIfExpr =
+  let src = "x = do { if True then 1 else 2 <- return 3 }"
+      (errs, _) = parseModule defaultConfig src
+   in assertBool "expected parse error for if-then-else in bind pattern" (not (null errs))
