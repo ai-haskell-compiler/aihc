@@ -5,6 +5,7 @@ module Main (main) where
 import Aihc.Cpp (Config (..), Result (..), Step (..), defaultConfig, preprocess)
 import qualified Data.Map.Strict as M
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
 import Test.Progress (CaseMeta (..), Outcome (..), evaluateCase, loadManifest)
 import Test.Tasty (TestTree, defaultMain, testGroup)
 import Test.Tasty.HUnit (Assertion, assertFailure, testCase)
@@ -32,14 +33,14 @@ dateTimeTest =
                         ("__TIME__", "\"12:00:00\"")
                       ]
                 }
-            input = "__DATE__ __TIME__"
+            input = TE.encodeUtf8 "__DATE__ __TIME__"
         case preprocess cfg input of
           Done result ->
             resultOutput result @?= "#line 1 \"<input>\"\n\"Mar 15 2026\" \"12:00:00\"\n"
           _ -> assertFailure "expected Done",
       testCase "defaults to unix epoch" $ do
         let cfg = defaultConfig
-            input = "__DATE__ __TIME__"
+            input = TE.encodeUtf8 "__DATE__ __TIME__"
         case preprocess cfg input of
           Done result ->
             resultOutput result @?= "#line 1 \"<input>\"\n\"Jan  1 1970\" \"00:00:00\"\n"
@@ -74,7 +75,7 @@ assertCase meta = do
 linePragmaTest :: TestTree
 linePragmaTest =
   testCase "include emits line pragmas" $
-    case preprocess defaultConfig {configInputFile = "root.hs"} "before\n#include \"nested.inc\"\nafter" of
+    case preprocess defaultConfig {configInputFile = "root.hs"} (TE.encodeUtf8 "before\n#include \"nested.inc\"\nafter") of
       NeedInclude _ k ->
         case k (Just "inside") of
           Done result -> do
@@ -89,7 +90,7 @@ linePragmaTest =
 functionMacroArgumentTest :: TestTree
 functionMacroArgumentTest =
   testCase "function-like macro keeps nested argument text" $
-    case preprocess defaultConfig "#define PAIR(x,y) x + y\nPAIR((1 + 2), 3)" of
+    case preprocess defaultConfig (TE.encodeUtf8 "#define PAIR(x,y) x + y\nPAIR((1 + 2), 3)") of
       Done result ->
         resultOutput result @?= "#line 1 \"<input>\"\n\n(1 + 2) + 3\n"
       _ -> assertFailure "expected Done"
@@ -97,7 +98,7 @@ functionMacroArgumentTest =
 functionMacroUnclosedCallTest :: TestTree
 functionMacroUnclosedCallTest =
   testCase "unterminated function-like call does not expand macro" $
-    case preprocess defaultConfig "#define ID() replaced\nID(" of
+    case preprocess defaultConfig (TE.encodeUtf8 "#define ID() replaced\nID(") of
       Done result ->
         resultOutput result @?= "#line 1 \"<input>\"\n\nID(\n"
       _ -> assertFailure "expected Done"
@@ -105,7 +106,7 @@ functionMacroUnclosedCallTest =
 definedConditionSpacingTest :: TestTree
 definedConditionSpacingTest =
   testCase "defined handles whitespace around parenthesized name" $
-    case preprocess defaultConfig "#define FLAG 1\n#if defined   ( FLAG )\nok\n#else\nbad\n#endif" of
+    case preprocess defaultConfig (TE.encodeUtf8 "#define FLAG 1\n#if defined   ( FLAG )\nok\n#else\nbad\n#endif") of
       Done result ->
         if "ok\n" `T.isInfixOf` resultOutput result && not ("bad\n" `T.isInfixOf` resultOutput result)
           then pure ()

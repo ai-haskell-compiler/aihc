@@ -11,6 +11,7 @@ where
 
 import Aihc.Cpp (Config (..), Diagnostic (..), IncludeRequest (..), Result (..), Severity (..), Step (..), defaultConfig, preprocess)
 import qualified Control.Exception as E
+import qualified Data.ByteString as BS
 import Data.Char (isDigit, isSpace)
 import Data.List (dropWhileEnd)
 import Data.Maybe (fromMaybe)
@@ -53,7 +54,7 @@ progressSummary outcomes =
 evaluateCase :: CaseMeta -> IO (CaseMeta, Outcome, String)
 evaluateCase meta = do
   let sourcePath = fixtureRoot </> casePath meta
-  source <- TIO.readFile sourcePath
+  source <- BS.readFile sourcePath
   ours <- runOurs sourcePath source
   oracle <- runOracle sourcePath
   let (outcome, details) = classify (caseExpected meta) ours oracle
@@ -162,7 +163,7 @@ parseLinePragma raw =
                             _ -> Nothing
                   _ -> Nothing
 
-runOurs :: FilePath -> Text -> IO (Either String Text)
+runOurs :: FilePath -> BS.ByteString -> IO (Either String Text)
 runOurs sourcePath source = do
   result <- drive (preprocess defaultConfig {configInputFile = sourcePath} source)
   let errors = [diagMessage d | d <- resultDiagnostics result, diagSeverity d == Error]
@@ -174,7 +175,7 @@ runOurs sourcePath source = do
     drive (NeedInclude req k) = do
       let includeAbsPath = resolveIncludePath sourcePath req
       exists <- doesFileExist includeAbsPath
-      content <- if exists then Just <$> TIO.readFile includeAbsPath else pure Nothing
+      content <- if exists then Just <$> BS.readFile includeAbsPath else pure Nothing
       drive (k content)
 
 resolveIncludePath :: FilePath -> IncludeRequest -> FilePath

@@ -32,6 +32,7 @@ import Data.Maybe (fromMaybe, mapMaybe)
 import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
 import System.FilePath (takeDirectory, takeExtension, (</>))
 
 preprocessForParser :: (Monad m) => FilePath -> (IncludeRequest -> m (Maybe Text)) -> Text -> m Result
@@ -47,10 +48,12 @@ preprocessForParserWithCppOptions cppOptions inputFile resolveInclude source = d
           { configInputFile = inputFile,
             configMacros = cppMacrosFromOptions cppOptions
           }
-  drive (preprocess cfg injected)
+  drive (preprocess cfg (TE.encodeUtf8 injected))
   where
     drive (Done result) = pure result
-    drive (NeedInclude req k) = resolveInclude req >>= drive . k
+    drive (NeedInclude req k) = do
+      mbText <- resolveInclude req
+      drive (k (fmap TE.encodeUtf8 mbText))
 
 preprocessForParserWithoutIncludes :: FilePath -> Text -> Result
 preprocessForParserWithoutIncludes inputFile source =

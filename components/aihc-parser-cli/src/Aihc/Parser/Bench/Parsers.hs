@@ -31,6 +31,7 @@ import Data.List qualified as List
 import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
 import GHC.Data.EnumSet qualified as EnumSet
 import GHC.Data.FastString (mkFastString)
 import GHC.Data.StringBuffer (stringToStringBuffer)
@@ -174,7 +175,7 @@ runCppPreprocessor source =
 
 -- | Run CPP without resolving includes (return Nothing for all include requests).
 runCppWithoutIncludes :: Cpp.Config -> Text -> Cpp.Result
-runCppWithoutIncludes cfg source = go (Cpp.preprocess cfg source)
+runCppWithoutIncludes cfg source = go (Cpp.preprocess cfg (TE.encodeUtf8 source))
   where
     go (Cpp.Done result) = result
     go (Cpp.NeedInclude _ k) = go (k Nothing)

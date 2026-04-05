@@ -25,6 +25,14 @@ module Aihc.Cpp.Cursor
     skipWhile,
     skipToInteresting,
     bufLength,
+
+    -- * Line-oriented operations
+    findNewline,
+    skipNewline,
+    lineSlice,
+    startsWithByte,
+    peekByteAt,
+    atEnd,
   )
 where
 
@@ -61,6 +69,11 @@ null :: Cursor -> Bool
 null (Cursor buf pos) = pos >= BS.length buf
 {-# INLINE null #-}
 
+-- | Check whether the cursor is at the end of input (synonym for 'null').
+atEnd :: Cursor -> Bool
+atEnd = null
+{-# INLINE atEnd #-}
+
 -- | Peek at the current byte without advancing. Returns 'Nothing' at end
 -- of input.
 peekByte :: Cursor -> Maybe Word8
@@ -76,6 +89,13 @@ peekByte2 (Cursor buf pos)
   | pos + 1 >= BS.length buf = Nothing
   | otherwise = Just (BS.index buf pos, BS.index buf (pos + 1))
 {-# INLINE peekByte2 #-}
+
+-- | Peek at a byte at an absolute position in the buffer.
+peekByteAt :: Int -> Cursor -> Maybe Word8
+peekByteAt absPos (Cursor buf _)
+  | absPos < 0 || absPos >= BS.length buf = Nothing
+  | otherwise = Just (BS.index buf absPos)
+{-# INLINE peekByteAt #-}
 
 -- | Advance the cursor by one byte.
 advance :: Cursor -> Cursor
@@ -141,3 +161,42 @@ skipToInteresting = go
         || b == 0x7D -- '}'
     {-# INLINE isInteresting #-}
 {-# INLINE skipToInteresting #-}
+
+-- | Find the next newline byte (0x0A) or EOF. Returns a cursor
+-- positioned at the newline (or at EOF). The bytes from the
+-- original position to the returned position form the line content
+-- (without the newline).
+findNewline :: Cursor -> Cursor
+findNewline = go
+  where
+    go !cur = case peekByte cur of
+      Nothing -> cur
+      Just 0x0A -> cur -- '\n'
+      Just _ -> go (advance cur)
+{-# INLINE findNewline #-}
+
+-- | Advance past a newline byte if the cursor is currently on one.
+-- Returns 'Nothing' at EOF, 'Just cursor' after the newline otherwise.
+skipNewline :: Cursor -> Maybe Cursor
+skipNewline cur = case peekByte cur of
+  Just 0x0A -> Just (advance cur) -- '\n'
+  _ -> Nothing
+{-# INLINE skipNewline #-}
+
+-- | Create a cursor that views only the bytes from @curPos cur@ to @end@
+-- (exclusive) in the same buffer. This is a logical "line slice" — a
+-- sub-cursor bounded at @end@.
+--
+-- Implementation: creates a new cursor over a sub-ByteString. The
+-- sub-ByteString shares the underlying memory (zero-copy via 'BS.take'
+-- and 'BS.drop').
+lineSlice :: Int -> Cursor -> Cursor
+lineSlice end (Cursor buf start) =
+  Cursor (BS.take (end - start) (BS.drop start buf)) 0
+{-# INLINE lineSlice #-}
+
+-- | Check if the byte at the cursor's current position matches the
+-- given byte.
+startsWithByte :: Word8 -> Cursor -> Bool
+startsWithByte b cur = peekByte cur == Just b
+{-# INLINE startsWithByte #-}

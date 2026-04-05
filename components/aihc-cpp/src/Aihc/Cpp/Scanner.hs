@@ -15,10 +15,11 @@ import Aihc.Cpp.Cursor
     advance,
     advance2,
     bufLength,
-    fromText,
+    findNewline,
     null,
     peekByte,
     peekByte2,
+    skipNewline,
     skipToInteresting,
     sliceText,
   )
@@ -50,30 +51,42 @@ expandLineBySpan st =
 
 -- | Expand macros in a list of line spans with multi-line lookahead.
 -- When a function macro call spans multiple lines, continuation lines
--- are consumed from @futureCodeLines@.
+-- are consumed from the @futureCursor@ (positioned after the current line).
 -- Returns (expanded text, number of extra lines consumed).
 --
 -- Multi-line expansion is only attempted for lines that consist entirely
 -- of code spans (no inline comments). Mixed code/comment lines use
 -- single-line expansion to preserve comment span positions.
-expandLineBySpanMultiline :: EngineState -> [LineSpan] -> [Text] -> (Text, Int)
-expandLineBySpanMultiline st spans futureCodeLines =
+expandLineBySpanMultiline :: EngineState -> [LineSpan] -> Cursor -> (Text, Int)
+expandLineBySpanMultiline st spans futureCursor =
   let hasCommentSpans = any lineSpanInBlockComment spans
    in if hasCommentSpans
         then -- Mixed line: fall back to single-line expansion
           (expandLineBySpan st spans, 0)
         else -- Pure code line: try multi-line expansion
           let codeText = T.concat [lineSpanText s | s <- spans]
+              futureCodeLines = cursorToLines futureCursor
            in expandMacrosMultiline st codeText futureCodeLines
+
+-- | Extract lines from a cursor as a lazy list of Text values.
+-- Each line is the text up to the next newline (or EOF).
+cursorToLines :: Cursor -> [Text]
+cursorToLines !cur
+  | null cur = []
+  | otherwise =
+      let eol = findNewline cur
+          lineText = sliceText (curPos cur) (curPos eol) cur
+       in lineText : maybe [] cursorToLines (skipNewline eol)
 
 -- | Lightweight scan that only tracks block comment depth changes.
 -- Does not build 'LineSpan' segments or track string/char literals.
 -- Used for inactive conditional branches where only comment depth
 -- tracking is needed (no macro expansion or span splitting).
-scanLineDepthOnly :: Int -> Int -> Text -> (Int, Int)
-scanLineDepthOnly hsDepth0 cDepth0 input =
-  let cursor0 = fromText input
-   in goDepth hsDepth0 cDepth0 cursor0
+--
+-- Accepts a 'Cursor' positioned at the start of the line content.
+-- The cursor should be bounded to the line (e.g., via 'lineSlice').
+scanLineDepthOnly :: Int -> Int -> Cursor -> (Int, Int)
+scanLineDepthOnly = goDepth
   where
     goDepth :: Int -> Int -> Cursor -> (Int, Int)
     goDepth !hsDepth !cDepth !cur
@@ -109,14 +122,16 @@ scanLineDepthOnly hsDepth0 cDepth0 input =
 -- either inside or outside block comments. Uses a byte-level cursor for
 -- efficient scanning instead of character-by-character T.uncons/T.cons.
 --
+-- Accepts a 'Cursor' positioned at the start of the line content.
+-- The cursor should be bounded to the line (e.g., via 'lineSlice').
+--
 -- The scanner splits the line into 'LineSpan' segments. Each segment is
 -- tagged with whether it is inside a block comment. Code spans (outside
 -- comments) are zero-copy slices of the UTF-8 encoded input. C89 comment
 -- content is replaced with spaces to preserve column alignment.
-scanLine :: Int -> Int -> Text -> LineScan
-scanLine hsDepth0 cDepth0 input =
-  let cursor0 = fromText input
-      (spans, finalHsDepth, finalCDepth) =
+scanLine :: Int -> Int -> Cursor -> LineScan
+scanLine hsDepth0 cDepth0 cursor0 =
+  let (spans, finalHsDepth, finalCDepth) =
         go
           hsDepth0
           cDepth0
