@@ -5,7 +5,7 @@ module Aihc.Cpp.Scanner
   ( LineSpan (..),
     LineScan (..),
     scanLine,
-    expandLineBySpan,
+    expandLineBySpanMultiline,
   )
 where
 
@@ -20,7 +20,7 @@ import Aihc.Cpp.Cursor
     peekByte2,
     sliceText,
   )
-import Aihc.Cpp.Evaluator (expandMacros)
+import Aihc.Cpp.Evaluator (expandMacros, expandMacrosMultiline)
 import Aihc.Cpp.Types (EngineState)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -37,6 +37,7 @@ data LineScan = LineScan
     lineScanFinalCDepth :: !Int
   }
 
+-- | Expand macros in a list of line spans (single-line, no lookahead).
 expandLineBySpan :: EngineState -> [LineSpan] -> Text
 expandLineBySpan st =
   T.concat . map expandSpan
@@ -44,6 +45,24 @@ expandLineBySpan st =
     expandSpan lineChunk
       | lineSpanInBlockComment lineChunk = lineSpanText lineChunk
       | otherwise = expandMacros st (lineSpanText lineChunk)
+
+-- | Expand macros in a list of line spans with multi-line lookahead.
+-- When a function macro call spans multiple lines, continuation lines
+-- are consumed from @futureCodeLines@.
+-- Returns (expanded text, number of extra lines consumed).
+--
+-- Multi-line expansion is only attempted for lines that consist entirely
+-- of code spans (no inline comments). Mixed code/comment lines use
+-- single-line expansion to preserve comment span positions.
+expandLineBySpanMultiline :: EngineState -> [LineSpan] -> [Text] -> (Text, Int)
+expandLineBySpanMultiline st spans futureCodeLines =
+  let hasCommentSpans = any lineSpanInBlockComment spans
+   in if hasCommentSpans
+        then -- Mixed line: fall back to single-line expansion
+          (expandLineBySpan st spans, 0)
+        else -- Pure code line: try multi-line expansion
+          let codeText = T.concat [lineSpanText s | s <- spans]
+           in expandMacrosMultiline st codeText futureCodeLines
 
 -- | Scan a line, tracking comment depths and splitting into spans that are
 -- either inside or outside block comments. Uses a byte-level cursor for
