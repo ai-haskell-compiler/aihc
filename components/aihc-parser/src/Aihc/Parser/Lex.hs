@@ -218,8 +218,8 @@ data LexToken = LexToken
   deriving (Eq, Ord, Show, Generic, NFData)
 
 -- | Immutable lexer configuration, constructed once per lex run.
-data LexerEnv = LexerEnv
-  { lexerExtensions :: !(Set Extension)
+newtype LexerEnv = LexerEnv
+  { lexerExtensions :: Set Extension
   }
   deriving (Eq, Show)
 
