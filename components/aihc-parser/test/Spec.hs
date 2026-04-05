@@ -138,6 +138,19 @@ buildTests = do
             testCase "pattern bind wildcard: _ = expr" test_localDeclPatWild,
             testCase "function bind guarded: f x | x > 0 = x" test_localDeclFunGuarded
           ],
+        testGroup
+          "functionHeadParserWith dispatch"
+          [ testCase "prefix: f x y = x + y" test_funHeadPrefix,
+            testCase "prefix no args: f = 5" test_funHeadPrefixNoArgs,
+            testCase "prefix operator name: (+) x y = x" test_funHeadPrefixOp,
+            testCase "infix: x + y = x" test_funHeadInfix,
+            testCase "infix backtick: x `add` y = x" test_funHeadInfixBacktick,
+            testCase "parenthesized infix: (x + y) = x" test_funHeadParenInfix,
+            testCase "parenthesized infix with tail: (x + y) z = x" test_funHeadParenInfixTail,
+            testCase "local prefix: let f x = x" test_funHeadLocalPrefix,
+            testCase "local infix: let x + y = x" test_funHeadLocalInfix,
+            testCase "local paren op name: let (+) x y = x" test_funHeadLocalPrefixOp
+          ],
         adjustOption (const tenMinutes) $
           testGroup
             "properties"
@@ -853,3 +866,73 @@ test_localDeclFunGuarded =
   case parseLetDecls "let { f x | x > 0 = x } in f 1" of
     Right [DeclValue _ (FunctionBind _ "f" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PVar _ "x"], matchRhs = GuardedRhss _ _}])] -> pure ()
     other -> assertFailure ("expected guarded function bind, got: " <> show other)
+
+-- Helper: parse a top-level declaration and extract the ValueDecl.
+parseTopDecl :: T.Text -> Either String Decl
+parseTopDecl src =
+  let (errs, modu) = parseModule defaultConfig src
+   in if not (null errs)
+        then Left ("parse errors: " <> show errs)
+        else case moduleDecls modu of
+          [decl] -> Right decl
+          other -> Left ("expected one decl, got: " <> show (length other))
+
+test_funHeadPrefix :: Assertion
+test_funHeadPrefix =
+  case parseTopDecl "f x y = x + y" of
+    Right (DeclValue _ (FunctionBind _ "f" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PVar _ "x", PVar _ "y"]}])) -> pure ()
+    other -> assertFailure ("expected prefix function bind, got: " <> show other)
+
+test_funHeadPrefixNoArgs :: Assertion
+test_funHeadPrefixNoArgs =
+  case parseTopDecl "f = 5" of
+    Right (DeclValue _ (FunctionBind _ "f" [Match {matchHeadForm = MatchHeadPrefix, matchPats = []}])) -> pure ()
+    other -> assertFailure ("expected prefix function bind with no args, got: " <> show other)
+
+test_funHeadPrefixOp :: Assertion
+test_funHeadPrefixOp =
+  case parseTopDecl "(+) x y = x" of
+    Right (DeclValue _ (FunctionBind _ "+" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PVar _ "x", PVar _ "y"]}])) -> pure ()
+    other -> assertFailure ("expected prefix operator function bind, got: " <> show other)
+
+test_funHeadInfix :: Assertion
+test_funHeadInfix =
+  case parseTopDecl "x + y = x" of
+    Right (DeclValue _ (FunctionBind _ "+" [Match {matchHeadForm = MatchHeadInfix, matchPats = [PVar _ "x", PVar _ "y"]}])) -> pure ()
+    other -> assertFailure ("expected infix function bind, got: " <> show other)
+
+test_funHeadInfixBacktick :: Assertion
+test_funHeadInfixBacktick =
+  case parseTopDecl "x `add` y = x" of
+    Right (DeclValue _ (FunctionBind _ "add" [Match {matchHeadForm = MatchHeadInfix, matchPats = [PVar _ "x", PVar _ "y"]}])) -> pure ()
+    other -> assertFailure ("expected backtick infix function bind, got: " <> show other)
+
+test_funHeadParenInfix :: Assertion
+test_funHeadParenInfix =
+  case parseTopDecl "(x + y) = x" of
+    Right (DeclValue _ (FunctionBind _ "+" [Match {matchHeadForm = MatchHeadInfix, matchPats = [PVar _ "x", PVar _ "y"]}])) -> pure ()
+    other -> assertFailure ("expected parenthesized infix function bind, got: " <> show other)
+
+test_funHeadParenInfixTail :: Assertion
+test_funHeadParenInfixTail =
+  case parseTopDecl "(x + y) z = x" of
+    Right (DeclValue _ (FunctionBind _ "+" [Match {matchHeadForm = MatchHeadInfix, matchPats = [PVar _ "x", PVar _ "y", PVar _ "z"]}])) -> pure ()
+    other -> assertFailure ("expected parenthesized infix with tail, got: " <> show other)
+
+test_funHeadLocalPrefix :: Assertion
+test_funHeadLocalPrefix =
+  case parseLetDecls "let { f x = x } in f 1" of
+    Right [DeclValue _ (FunctionBind _ "f" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PVar _ "x"]}])] -> pure ()
+    other -> assertFailure ("expected local prefix function bind, got: " <> show other)
+
+test_funHeadLocalInfix :: Assertion
+test_funHeadLocalInfix =
+  case parseLetDecls "let { x + y = x } in 1 + 2" of
+    Right [DeclValue _ (FunctionBind _ "+" [Match {matchHeadForm = MatchHeadInfix, matchPats = [PVar _ "x", PVar _ "y"]}])] -> pure ()
+    other -> assertFailure ("expected local infix function bind, got: " <> show other)
+
+test_funHeadLocalPrefixOp :: Assertion
+test_funHeadLocalPrefixOp =
+  case parseLetDecls "let { (+) x y = x } in 1 + 2" of
+    Right [DeclValue _ (FunctionBind _ "+" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PVar _ "x", PVar _ "y"]}])] -> pure ()
+    other -> assertFailure ("expected local prefix operator function bind, got: " <> show other)
