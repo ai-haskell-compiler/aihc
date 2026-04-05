@@ -407,8 +407,15 @@ contextParserWith :: TokParser Type -> TokParser [Constraint]
 contextParserWith = constraintsParserWith
 
 functionHeadParserWith :: TokParser Pattern -> TokParser Pattern -> TokParser (MatchHeadForm, Text, [Pattern])
-functionHeadParserWith fullPatternParser prefixPatternParser =
-  MP.try parenthesizedInfixHeadParser <|> MP.try infixHeadParser <|> prefixHeadParser
+functionHeadParserWith fullPatternParser prefixPatternParser = do
+  isParenInfix <- startsWithParenInfixHead
+  if isParenInfix
+    then parenthesizedInfixHeadParser
+    else do
+      isInfix <- startsWithInfixHead
+      if isInfix
+        then infixHeadParser
+        else prefixHeadParser
   where
     prefixHeadParser = do
       name <- binderNameParser
@@ -429,6 +436,110 @@ functionHeadParserWith fullPatternParser prefixPatternParser =
       expectedTok TkSpecialRParen
       tailPats <- MP.many prefixPatternParser
       pure (MatchHeadInfix, op, [lhsPat, rhsPat] <> tailPats)
+
+-- | Non-consuming lookahead: does the input start with a parenthesized infix
+-- function head @( pat varop pat ) ...@?
+--
+-- Scans inside the outermost parentheses for a variable operator ('TkVarSym')
+-- or backtick-quoted variable at bracket depth 0. Excludes the case where
+-- the parenthesised content is a single operator like @(+)@ — that is a
+-- parenthesised operator name (prefix head), not a parenthesised infix head.
+startsWithParenInfixHead :: TokParser Bool
+startsWithParenInfixHead = MP.lookAhead $ do
+  tok <- anySingle
+  case lexTokenKind tok of
+    TkSpecialLParen -> do
+      -- Peek at the first token inside parens. If it is already a varop,
+      -- this is @(op)@ — a parenthesised operator name, not an infix head.
+      inner <- anySingle
+      case lexTokenKind inner of
+        TkVarSym _ -> pure False -- (op) or (op ...) — treated as prefix name
+        TkSpecialBacktick -> pure False
+        TkEOF -> pure False
+        TkSpecialRParen -> pure False -- empty parens
+        -- First token inside is not an operator → scan for a varop
+        _ -> goInner []
+    _ -> pure False
+  where
+    -- Scan inside the outermost parens (we already consumed '(' and one token).
+    -- We're looking for a TkVarSym or TkSpecialBacktick at depth 0.
+    goInner :: [LexTokenKind] -> TokParser Bool
+    -- At depth 0 (inside the outermost parens)
+    goInner [] = do
+      tok <- anySingle
+      case lexTokenKind tok of
+        TkEOF -> pure False
+        TkSpecialRParen -> pure False -- closed without finding varop
+        TkVarSym _ -> pure True
+        TkSpecialBacktick -> pure True
+        TkSpecialLParen -> goInner [TkSpecialRParen]
+        TkSpecialUnboxedLParen -> goInner [TkSpecialUnboxedRParen]
+        TkSpecialLBracket -> goInner [TkSpecialRBracket]
+        TkSpecialLBrace -> goInner [TkSpecialRBrace]
+        _ -> goInner []
+    -- Inside nested brackets
+    goInner stack@(expectedClose : rest) = do
+      tok <- anySingle
+      case lexTokenKind tok of
+        TkEOF -> pure False
+        kind
+          | kind == expectedClose ->
+              case rest of
+                [] -> goInner []
+                _ -> goInner rest
+        TkSpecialLParen -> goInner (TkSpecialRParen : stack)
+        TkSpecialUnboxedLParen -> goInner (TkSpecialUnboxedRParen : stack)
+        TkSpecialLBracket -> goInner (TkSpecialRBracket : stack)
+        TkSpecialLBrace -> goInner (TkSpecialRBrace : stack)
+        _ -> goInner stack
+
+-- | Non-consuming lookahead: does the input start with an infix function head
+-- @pat varop pat@?
+--
+-- Scans the token stream at bracket depth 0 for a variable operator
+-- ('TkVarSym') or backtick-quoted variable before reaching @=@ or @|@.
+-- Returns 'False' for prefix heads like @f x y = ...@ (no varop before @=@).
+startsWithInfixHead :: TokParser Bool
+startsWithInfixHead = MP.lookAhead (go [])
+  where
+    go :: [LexTokenKind] -> TokParser Bool
+    -- At depth 0
+    go [] = do
+      tok <- anySingle
+      case lexTokenKind tok of
+        TkEOF -> pure False
+        -- Stop tokens: we reached '=' or '|' without finding a varop
+        TkReservedEquals -> pure False
+        TkReservedPipe -> pure False
+        -- Statement/declaration boundaries
+        TkSpecialSemicolon -> pure False
+        TkSpecialRBrace -> pure False
+        TkSpecialRParen -> pure False
+        TkSpecialRBracket -> pure False
+        -- Found a varop at the top level → infix head
+        TkVarSym _ -> pure True
+        TkSpecialBacktick -> pure True
+        -- Nested brackets
+        TkSpecialLParen -> go [TkSpecialRParen]
+        TkSpecialUnboxedLParen -> go [TkSpecialUnboxedRParen]
+        TkSpecialLBracket -> go [TkSpecialRBracket]
+        TkSpecialLBrace -> go [TkSpecialRBrace]
+        _ -> go []
+    -- Inside nested brackets
+    go stack@(expectedClose : rest) = do
+      tok <- anySingle
+      case lexTokenKind tok of
+        TkEOF -> pure False
+        kind
+          | kind == expectedClose ->
+              case rest of
+                [] -> go []
+                _ -> go rest
+        TkSpecialLParen -> go (TkSpecialRParen : stack)
+        TkSpecialUnboxedLParen -> go (TkSpecialUnboxedRParen : stack)
+        TkSpecialLBracket -> go (TkSpecialRBracket : stack)
+        TkSpecialLBrace -> go (TkSpecialRBrace : stack)
+        _ -> go stack
 
 functionBindValue :: SourceSpan -> MatchHeadForm -> Text -> [Pattern] -> Rhs -> ValueDecl
 functionBindValue span' headForm name pats rhs =
