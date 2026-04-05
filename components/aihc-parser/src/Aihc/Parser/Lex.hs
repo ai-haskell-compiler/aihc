@@ -1117,20 +1117,11 @@ lexImplicitParam st
         '?' : c : rest
           | isAsciiLower c || c == '_' ->
               let (tailChars, _) = span isIdentTail rest
-                  ident = T.pack (c : tailChars)
-               in case keywordTokenKind ident of
-                    Just TkKeywordAs -> emit ident
-                    Just TkKeywordQualified -> emit ident
-                    Just TkKeywordHiding -> emit ident
-                    Just _ -> Nothing
-                    Nothing -> emit ident
+                  raw = '?' : c : tailChars
+                  txt = T.pack raw
+                  st' = advanceChars raw st
+               in Just (mkToken st st' txt (TkImplicitParam txt), st')
         _ -> Nothing
-  where
-    emit ident =
-      let raw = "?" <> T.unpack ident
-          txt = T.pack raw
-          st' = advanceChars raw st
-       in Just (mkToken st st' txt (TkImplicitParam txt), st')
 
 -- | Handle minus in the context of NegativeLiterals and LexicalNegation extensions.
 --
