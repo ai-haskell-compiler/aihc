@@ -9,7 +9,7 @@ module Aihc.Parser.Internal.Decl
 where
 
 import Aihc.Parser.Internal.Common
-import Aihc.Parser.Internal.Expr (equationRhsParser, exprParser, patternParser, simplePatternParser, startsWithTypeSig, typeAppParser, typeAtomParser, typeParser)
+import Aihc.Parser.Internal.Expr (equationRhsParser, exprParser, patternParser, simplePatternParser, startsWithContextType, startsWithTypeSig, typeAppParser, typeAtomParser, typeParser)
 import Aihc.Parser.Lex (LexTokenKind (..), lexTokenKind)
 import Aihc.Parser.Syntax
 import Aihc.Parser.Types (ParserErrorComponent (..), mkFoundToken)
@@ -331,6 +331,46 @@ typeSynDeclParser = withSpan $ do
 -- ---------------------------------------------------------------------------
 -- TypeFamilies: shared helpers
 
+-- | Non-consuming lookahead dispatch for optional @forall@ binders.
+-- If the next token is @forall@, runs the given parser; otherwise returns @[]@.
+-- Eliminates 'MP.try' by checking the leading token before committing.
+forallPrefixDispatch :: TokParser [a] -> TokParser [a]
+forallPrefixDispatch forallParser = do
+  tok <- lookAhead anySingle
+  case lexTokenKind tok of
+    TkVarId "forall" -> forallParser
+    _ -> pure []
+
+-- | Non-consuming lookahead dispatch for GADT-vs-traditional data declarations.
+-- @where@ → GADT style, anything else → traditional style.
+-- Eliminates 'MP.try' by checking a single token before committing.
+gadtOrTraditionalDispatch :: TokParser a -> TokParser a -> TokParser a
+gadtOrTraditionalDispatch gadtParser traditionalParser = do
+  tok <- lookAhead anySingle
+  case lexTokenKind tok of
+    TkKeywordWhere -> gadtParser
+    _ -> traditionalParser
+
+-- | Non-consuming lookahead dispatch for optional declaration contexts.
+-- Uses 'startsWithContextType' to probe for @=>@ at top bracket depth.
+-- Returns @Nothing@ when the input doesn't look like a context,
+-- otherwise parses the context and the @=>@ that follows it.
+-- Eliminates 'MP.try' around @declContextParser \<* expectedTok TkReservedDoubleArrow@.
+contextPrefixDispatch :: TokParser (Maybe [Constraint])
+contextPrefixDispatch = do
+  hasContext <- startsWithContextType
+  if hasContext
+    then Just <$> (declContextParser <* expectedTok TkReservedDoubleArrow)
+    else pure Nothing
+
+-- | Like 'contextPrefixDispatch' but returns @[]@ instead of @Nothing@.
+contextPrefixDispatchList :: TokParser [Constraint]
+contextPrefixDispatchList = do
+  hasContext <- startsWithContextType
+  if hasContext
+    then declContextParser <* expectedTok TkReservedDoubleArrow
+    else pure []
+
 -- | Parse an optional explicit forall for type family instances/equations.
 -- Handles @forall a (b :: Kind).@ syntax.
 typeFamilyForallParser :: TokParser [TyVarBinder]
@@ -379,7 +419,7 @@ closedTypeFamilyWhereParser =
 -- | Parse one closed type family equation: @[forall binders.] LhsType = RhsType@
 typeFamilyEqParser :: TokParser TypeFamilyEq
 typeFamilyEqParser = withSpan $ do
-  forallBinders <- MP.option [] (MP.try typeFamilyForallParser)
+  forallBinders <- forallPrefixDispatch typeFamilyForallParser
   lhs <- typeAppParser
   expectedTok TkReservedEquals
   rhs <- typeParser
@@ -420,7 +460,7 @@ typeFamilyInstParser :: TokParser Decl
 typeFamilyInstParser = withSpan $ do
   keywordTok TkKeywordType
   keywordTok TkKeywordInstance
-  forallBinders <- MP.option [] (MP.try typeFamilyForallParser)
+  forallBinders <- forallPrefixDispatch typeFamilyForallParser
   lhs <- typeAppParser
   expectedTok TkReservedEquals
   rhs <- typeParser
@@ -439,9 +479,9 @@ dataFamilyInstParser :: TokParser Decl
 dataFamilyInstParser = withSpan $ do
   keywordTok TkKeywordData
   keywordTok TkKeywordInstance
-  forallBinders <- MP.option [] (MP.try typeFamilyForallParser)
+  forallBinders <- forallPrefixDispatch typeFamilyForallParser
   head' <- typeAppParser
-  (constructors, derivingClauses) <- MP.try gadtStyleDataDecl <|> traditionalStyleDataDecl
+  (constructors, derivingClauses) <- gadtOrTraditionalDispatch gadtStyleDataDecl traditionalStyleDataDecl
   pure $ \span' ->
     DeclDataFamilyInst
       span'
@@ -468,7 +508,7 @@ newtypeFamilyInstParser :: TokParser Decl
 newtypeFamilyInstParser = withSpan $ do
   keywordTok TkKeywordNewtype
   keywordTok TkKeywordInstance
-  forallBinders <- MP.option [] (MP.try typeFamilyForallParser)
+  forallBinders <- forallPrefixDispatch typeFamilyForallParser
   head' <- typeAppParser
   expectedTok TkReservedEquals
   constructor <- newtypeConDeclParser
@@ -531,7 +571,7 @@ classDefaultTypeInstParser :: TokParser ClassDeclItem
 classDefaultTypeInstParser = withSpan $ do
   keywordTok TkKeywordType
   keywordTok TkKeywordInstance
-  forallBinders <- MP.option [] (MP.try typeFamilyForallParser)
+  forallBinders <- forallPrefixDispatch typeFamilyForallParser
   lhs <- typeAppParser
   expectedTok TkReservedEquals
   rhs <- typeParser
@@ -552,7 +592,7 @@ classDefaultTypeInstParser = withSpan $ do
 instanceTypeFamilyInstParser :: TokParser InstanceDeclItem
 instanceTypeFamilyInstParser = withSpan $ do
   keywordTok TkKeywordType
-  forallBinders <- MP.option [] (MP.try typeFamilyForallParser)
+  forallBinders <- forallPrefixDispatch typeFamilyForallParser
   lhs <- typeAppParser
   expectedTok TkReservedEquals
   rhs <- typeParser
@@ -571,7 +611,7 @@ instanceDataFamilyInstParser :: TokParser InstanceDeclItem
 instanceDataFamilyInstParser = withSpan $ do
   keywordTok TkKeywordData
   head' <- typeAppParser
-  (constructors, derivingClauses) <- MP.try gadtStyleDataDecl <|> traditionalStyleDataDecl
+  (constructors, derivingClauses) <- gadtOrTraditionalDispatch gadtStyleDataDecl traditionalStyleDataDecl
   pure $ \span' ->
     InstanceItemDataFamilyInst
       span'
@@ -677,7 +717,7 @@ fixityOperatorParser =
 classDeclParser :: TokParser Decl
 classDeclParser = withSpan $ do
   keywordTok TkKeywordClass
-  context <- MP.optional (MP.try (declContextParser <* expectedTok TkReservedDoubleArrow))
+  context <- contextPrefixDispatch
   className <- constructorIdentifierParser
   classParams <- MP.some typeParamParser
   classFundeps <- MP.option [] (MP.try classFundepsParser)
@@ -774,7 +814,7 @@ instanceDeclParser :: TokParser Decl
 instanceDeclParser = withSpan $ do
   keywordTok TkKeywordInstance
   overlapPragma <- MP.optional instanceOverlapPragmaParser
-  context <- MP.optional (MP.try (declContextParser <* expectedTok TkReservedDoubleArrow))
+  context <- contextPrefixDispatch
   (parenthesizedHead, className, instanceTypes) <- instanceHeadParser
   items <- MP.option [] instanceWhereClauseParser
   pure $ \span' ->
@@ -797,7 +837,7 @@ standaloneDerivingDeclParser = withSpan $ do
   viaTy <- MP.optional (MP.try derivingViaTypeParser)
   keywordTok TkKeywordInstance
   overlapPragma <- MP.optional instanceOverlapPragmaParser
-  context <- MP.optional (MP.try (declContextParser <* expectedTok TkReservedDoubleArrow))
+  context <- contextPrefixDispatch
   (parenthesizedHead, className, instanceTypes) <- instanceHeadParser
   pure $ \span' ->
     DeclStandaloneDeriving
@@ -925,13 +965,13 @@ foreignEntityFromString txt
 dataDeclParser :: TokParser Decl
 dataDeclParser = withSpan $ do
   keywordTok TkKeywordData
-  context <- MP.optional (MP.try (declContextParser <* expectedTok TkReservedDoubleArrow))
+  context <- contextPrefixDispatch
   (typeName, typeParams) <- typeDeclHeadParser
-  -- Try GADT syntax (where) first, then traditional syntax (=)
-  (constructors, derivingClauses) <- MP.try gadtStyleDataDecl <|> traditionalStyleDataDecl
+  -- GADT syntax starts with `where`, traditional syntax starts with `=` or nothing
+  (constructors, derivingClauses) <- gadtOrTraditionalDispatch gadtStyleDataDecl traditionalStyleDataDecl
   pure $ \span' ->
     DeclData
-      span'
+    span'
       DataDecl
         { dataDeclSpan = span',
           dataDeclContext = fromMaybe [] context,
@@ -959,10 +999,10 @@ dataConDeclParser = withSpan $ do
 newtypeDeclParser :: TokParser Decl
 newtypeDeclParser = withSpan $ do
   keywordTok TkKeywordNewtype
-  context <- MP.optional (MP.try (declContextParser <* expectedTok TkReservedDoubleArrow))
+  context <- contextPrefixDispatch
   (typeName, typeParams) <- typeDeclHeadParser
-  -- Try GADT syntax (where) first, then traditional syntax (=)
-  (constructor, derivingClauses) <- MP.try gadtStyleNewtypeDecl <|> traditionalStyleNewtypeDecl
+  -- GADT syntax starts with `where`, traditional syntax starts with `=` or nothing
+  (constructor, derivingClauses) <- gadtOrTraditionalDispatch gadtStyleNewtypeDecl traditionalStyleNewtypeDecl
   pure $ \span' ->
     DeclNewtype
       span'
@@ -1013,7 +1053,7 @@ gadtConDeclParser = withSpan $ do
   -- Parse optional forall
   forallBinders <- MP.option [] gadtForallParser
   -- Parse optional context
-  context <- MP.option [] (MP.try (declContextParser <* expectedTok TkReservedDoubleArrow))
+  context <- contextPrefixDispatchList
   -- Parse the body (record or prefix style)
   body <- gadtBodyParser
   pure $ \span' -> GadtCon span' forallBinders context names body
@@ -1035,8 +1075,13 @@ gadtForallParser = do
 -- | Parse the body of a GADT constructor (after :: and optional forall/context)
 -- Can be either prefix style: @a -> b -> T a@
 -- Or record style: @{ field :: Type } -> T a@
+-- Record style is distinguished by the leading @{@ token.
 gadtBodyParser :: TokParser GadtBody
-gadtBodyParser = MP.try gadtRecordBodyParser <|> gadtPrefixBodyParser
+gadtBodyParser = do
+  tok <- lookAhead anySingle
+  case lexTokenKind tok of
+    TkSpecialLBrace -> gadtRecordBodyParser
+    _ -> gadtPrefixBodyParser
 
 -- | Parse record-style GADT body: @{ field :: Type, ... } -> ResultType@
 gadtRecordBodyParser :: TokParser GadtBody
@@ -1157,9 +1202,9 @@ derivingStrategyParser =
 
 dataConQualifiersParser :: TokParser ([Text], [Constraint])
 dataConQualifiersParser = do
-  mForall <- MP.optional (MP.try forallBindersParser)
-  mContext <- MP.optional (MP.try (declContextParser <* expectedTok TkReservedDoubleArrow))
-  pure (fromMaybe [] mForall, fromMaybe [] mContext)
+  mForall <- forallPrefixDispatch forallBindersParser
+  mContext <- contextPrefixDispatchList
+  pure (mForall, mContext)
 
 forallBindersParser :: TokParser [Text]
 forallBindersParser = do

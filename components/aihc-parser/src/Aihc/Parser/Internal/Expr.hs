@@ -11,6 +11,7 @@ module Aihc.Parser.Internal.Expr
     typeAppParser,
     typeAtomParser,
     startsWithTypeSig,
+    startsWithContextType,
   )
 where
 
@@ -70,7 +71,13 @@ exprCoreParserExcept forbiddenInfix = do
     Nothing -> base
 
 ifExprParser :: TokParser Expr
-ifExprParser = MP.try multiWayIfExprParser <|> classicIfExprParser
+ifExprParser = do
+  -- Multi-way if (@if { | ... }@) is distinguished from classic if by the
+  -- token after @if@ being @{@.
+  nextTok <- lookAhead (anySingle *> anySingle)
+  case lexTokenKind nextTok of
+    TkSpecialLBrace -> multiWayIfExprParser
+    _ -> classicIfExprParser
 
 classicIfExprParser :: TokParser Expr
 classicIfExprParser = withSpan $ do
@@ -1280,6 +1287,7 @@ startsWithContextType = MP.lookAhead (go [])
         TkEOF -> pure False
         TkReservedDoubleArrow -> pure True
         TkReservedRightArrow -> pure False
+        TkReservedEquals -> pure False
         TkSpecialComma -> pure False
         TkSpecialSemicolon -> pure False
         TkReservedPipe -> pure False
@@ -1389,9 +1397,13 @@ thPatQuoteParser = withSpan $ do
   pure (`ETHPatQuote` pat)
 
 -- | Parse Template Haskell splice expressions: $expr, $(expr), $$expr, $$(expr)
+-- The token kind (@TkTHTypedSplice@ vs @TkTHSplice@) fully disambiguates.
 thSpliceExprParser :: TokParser Expr
-thSpliceExprParser =
-  MP.try thTypedSpliceParser <|> thUntypedSpliceParser
+thSpliceExprParser = do
+  tok <- lookAhead anySingle
+  case lexTokenKind tok of
+    TkTHTypedSplice -> thTypedSpliceParser
+    _ -> thUntypedSpliceParser
 
 -- | Parse untyped TH splice: $name or $(expr)
 thUntypedSpliceParser :: TokParser Expr
@@ -1420,9 +1432,13 @@ thSpliceBody =
       pure (`EVar` name)
 
 -- | Parse Template Haskell name quotes: 'name and ''Type
+-- The token kind (@TkTHQuoteTick@ vs @TkTHTypeQuoteTick@) fully disambiguates.
 thNameQuoteExprParser :: TokParser Expr
-thNameQuoteExprParser =
-  MP.try thValueNameQuoteParser <|> thTypeNameQuoteParser
+thNameQuoteExprParser = do
+  tok <- lookAhead anySingle
+  case lexTokenKind tok of
+    TkTHQuoteTick -> thValueNameQuoteParser
+    _ -> thTypeNameQuoteParser
 
 thValueNameQuoteParser :: TokParser Expr
 thValueNameQuoteParser = withSpan $ do
