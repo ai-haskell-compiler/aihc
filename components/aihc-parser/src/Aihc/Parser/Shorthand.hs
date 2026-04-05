@@ -26,6 +26,7 @@ import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..))
 import Aihc.Parser.Syntax
 import Aihc.Parser.Types (ParseResult (..))
 import Data.Text (Text)
+import Data.Text qualified as T
 import Prettyprinter
   ( Doc,
     Pretty (..),
@@ -506,6 +507,9 @@ docTypeLiteral lit =
 docConstraint :: Constraint -> Doc ann
 docConstraint c =
   case c of
+    Constraint _ cls [ty]
+      | "?" `T.isPrefixOf` cls ->
+          "Constraint" <+> braces (hsep (punctuate comma [field "class" (docText cls), field "args" (brackets (docType ty))]))
     Constraint _ cls args ->
       "Constraint" <+> braces (hsep (punctuate comma ([field "class" (docText cls)] <> listField "args" docType args)))
     CParen _ inner ->
@@ -691,6 +695,7 @@ docTokenKind kind =
     TkConId name -> "TkConId" <+> docText name
     TkQVarId name -> "TkQVarId" <+> docText name
     TkQConId name -> "TkQConId" <+> docText name
+    TkImplicitParam name -> "TkImplicitParam" <+> docText name
     TkVarSym name -> "TkVarSym" <+> docText name
     TkConSym name -> "TkConSym" <+> docText name
     TkQVarSym name -> "TkQVarSym" <+> docText name

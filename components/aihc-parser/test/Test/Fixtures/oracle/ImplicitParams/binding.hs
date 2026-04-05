@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail implicit parameter binding -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE ImplicitParams #-}
 module Binding where
 

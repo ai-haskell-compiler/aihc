@@ -136,6 +136,7 @@ data LexTokenKind
   | TkConId Text -- constructor identifier (starts uppercase)
   | TkQVarId Text -- qualified variable identifier
   | TkQConId Text -- qualified constructor identifier
+  | TkImplicitParam Text -- implicit parameter identifier (?x)
   | -- Operators (per Haskell Report Section 2.4)
     TkVarSym Text -- variable symbol (doesn't start with :)
   | TkConSym Text -- constructor symbol (starts with :)
@@ -561,6 +562,7 @@ nextToken st =
         lexBangOrTildeOperator, -- must come before lexOperator
         lexTypeApplication, -- must come before lexOperator
         lexPrefixDollar, -- must come before lexOperator (TH splices)
+        lexImplicitParam, -- must come before lexOperator
         lexOperator
       ]
 
@@ -1106,6 +1108,20 @@ lexIdentifier st =
               if isAsciiUpper firstChar
                 then TkConId ident
                 else TkVarId ident
+
+lexImplicitParam :: LexerState -> Maybe (LexToken, LexerState)
+lexImplicitParam st
+  | ImplicitParams `notElem` lexerExtensions st = Nothing
+  | otherwise =
+      case lexerInput st of
+        '?' : c : rest
+          | isAsciiLower c || c == '_' ->
+              let (tailChars, _) = span isIdentTail rest
+                  raw = '?' : c : tailChars
+                  txt = T.pack raw
+                  st' = advanceChars raw st
+               in Just (mkToken st st' txt (TkImplicitParam txt), st')
+        _ -> Nothing
 
 -- | Handle minus in the context of NegativeLiterals and LexicalNegation extensions.
 --

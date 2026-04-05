@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail let-bindings with implicit params -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE ImplicitParams #-}
 module LetBindings where
 
