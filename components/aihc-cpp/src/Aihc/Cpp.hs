@@ -36,7 +36,7 @@ where
 
 import Aihc.Cpp.Evaluator (evalCondition)
 import Aihc.Cpp.Parser (Directive (..), parseDirective)
-import Aihc.Cpp.Scanner (expandLineBySpanMultiline, lineScanFinalCDepth, lineScanFinalHsDepth, lineScanSpans, scanLine)
+import Aihc.Cpp.Scanner (expandLineBySpanMultiline, lineScanFinalCDepth, lineScanFinalHsDepth, lineScanSpans, scanLine, scanLineDepthOnly)
 import Aihc.Cpp.Types
   ( CondFrame (..),
     Config (..),
@@ -258,73 +258,104 @@ pullContinuation acc remaining
 processFile :: FilePath -> [(Int, Int, Text)] -> [CondFrame] -> EngineState -> Continuation -> Step
 processFile _ [] _ st k = k st
 processFile filePath ((lineNo, lineSpan, line) : restLines) stack st k =
-  let lineScan = scanLine (stHsBlockCommentDepth st) (stCBlockCommentDepth st) line
-      startsInBlockComment = stHsBlockCommentDepth st > 0 || stCBlockCommentDepth st > 0
+  let startsInBlockComment = stHsBlockCommentDepth st > 0 || stCBlockCommentDepth st > 0
       parsedDirective =
         if startsInBlockComment
           then Nothing
           else parseDirective line
-      nextLineNo = case restLines of
-        (n, _, _) : _ -> n
-        [] -> lineNo + lineSpan
-      advanceLineState st' =
-        st'
-          { stCurrentLine = nextLineNo,
-            stHsBlockCommentDepth = lineScanFinalHsDepth lineScan,
-            stCBlockCommentDepth = lineScanFinalCDepth lineScan
-          }
-      continue st' = processFile filePath restLines stack (advanceLineState st') k
-      continueWith stack' st' = processFile filePath restLines stack' (advanceLineState st') k
-      ctx =
-        LineContext
-          { lcFilePath = filePath,
-            lcLineNo = lineNo,
-            lcLineSpan = lineSpan,
-            lcNextLineNo = nextLineNo,
-            lcRestLines = restLines,
-            lcStack = stack,
-            lcContinue = continue,
-            lcContinueWith = continueWith,
-            lcDone = k
-          }
-   in if stSkippingDanglingElse st
-        then recoverDanglingElse ctx parsedDirective st
-        else case parsedDirective of
-          Nothing ->
-            if currentActive stack
-              then
-                -- Try multi-line expansion: look ahead at future lines
-                let futureCodeLines = [l | (_, _, l) <- restLines]
-                    (expanded, extraConsumed) =
-                      expandLineBySpanMultiline st (lineScanSpans lineScan) futureCodeLines
-                 in if extraConsumed > 0
-                      then
-                        -- Skip consumed continuation lines
-                        let consumed = take extraConsumed restLines
-                            remaining = drop extraConsumed restLines
-                            -- Scan consumed lines to update comment depths
-                            (finalHs, finalC) =
-                              foldl'
-                                ( \(!hs, !c) (_, _, l) ->
-                                    let ls = scanLine hs c l
-                                     in (lineScanFinalHsDepth ls, lineScanFinalCDepth ls)
-                                )
-                                (lineScanFinalHsDepth lineScan, lineScanFinalCDepth lineScan)
-                                consumed
-                            nextLineNo' = case remaining of
-                              (n, _, _) : _ -> n
-                              [] -> lineNo + lineSpan + sum [s | (_, s, _) <- consumed]
-                            st' =
-                              (emitLine expanded st)
-                                { stCurrentLine = nextLineNo',
-                                  stHsBlockCommentDepth = finalHs,
-                                  stCBlockCommentDepth = finalC
-                                }
-                         in processFile filePath remaining stack st' k
-                      else continue (emitLine expanded st)
-              else continue (emitBlankLines lineSpan st)
-          Just directive ->
-            handleDirective ctx st directive
+      isActive = currentActive stack
+   in if not isActive && not (stSkippingDanglingElse st)
+        then -- === Fast path for inactive branches ===
+        -- Only track comment depth; skip full span scanning and macro expansion.
+          let (finalHs, finalC) = scanLineDepthOnly (stHsBlockCommentDepth st) (stCBlockCommentDepth st) line
+              nextLineNo = case restLines of
+                (n, _, _) : _ -> n
+                [] -> lineNo + lineSpan
+              advanceSt st' =
+                st'
+                  { stCurrentLine = nextLineNo,
+                    stHsBlockCommentDepth = finalHs,
+                    stCBlockCommentDepth = finalC
+                  }
+              continueInactive st' = processFile filePath restLines stack (advanceSt st') k
+              continueInactiveWith stack' st' = processFile filePath restLines stack' (advanceSt st') k
+           in case parsedDirective of
+                Nothing ->
+                  continueInactive (emitBlankLines lineSpan st)
+                Just directive ->
+                  let ctx =
+                        LineContext
+                          { lcFilePath = filePath,
+                            lcLineNo = lineNo,
+                            lcLineSpan = lineSpan,
+                            lcNextLineNo = nextLineNo,
+                            lcRestLines = restLines,
+                            lcStack = stack,
+                            lcContinue = continueInactive,
+                            lcContinueWith = continueInactiveWith,
+                            lcDone = k
+                          }
+                   in handleDirective ctx st directive
+        else -- === Normal path: full scan + expansion ===
+          let lineScan = scanLine (stHsBlockCommentDepth st) (stCBlockCommentDepth st) line
+              nextLineNo = case restLines of
+                (n, _, _) : _ -> n
+                [] -> lineNo + lineSpan
+              advanceLineState st' =
+                st'
+                  { stCurrentLine = nextLineNo,
+                    stHsBlockCommentDepth = lineScanFinalHsDepth lineScan,
+                    stCBlockCommentDepth = lineScanFinalCDepth lineScan
+                  }
+              continue st' = processFile filePath restLines stack (advanceLineState st') k
+              continueWith stack' st' = processFile filePath restLines stack' (advanceLineState st') k
+              ctx =
+                LineContext
+                  { lcFilePath = filePath,
+                    lcLineNo = lineNo,
+                    lcLineSpan = lineSpan,
+                    lcNextLineNo = nextLineNo,
+                    lcRestLines = restLines,
+                    lcStack = stack,
+                    lcContinue = continue,
+                    lcContinueWith = continueWith,
+                    lcDone = k
+                  }
+           in if stSkippingDanglingElse st
+                then recoverDanglingElse ctx parsedDirective st
+                else case parsedDirective of
+                  Nothing ->
+                    -- Try multi-line expansion: look ahead at future lines
+                    let futureCodeLines = [l | (_, _, l) <- restLines]
+                        (expanded, extraConsumed) =
+                          expandLineBySpanMultiline st (lineScanSpans lineScan) futureCodeLines
+                     in if extraConsumed > 0
+                          then
+                            -- Skip consumed continuation lines
+                            let consumed = take extraConsumed restLines
+                                remaining = drop extraConsumed restLines
+                                -- Scan consumed lines to update comment depths
+                                (finalHs, finalC) =
+                                  foldl'
+                                    ( \(!hs, !c) (_, _, l) ->
+                                        let ls = scanLine hs c l
+                                         in (lineScanFinalHsDepth ls, lineScanFinalCDepth ls)
+                                    )
+                                    (lineScanFinalHsDepth lineScan, lineScanFinalCDepth lineScan)
+                                    consumed
+                                nextLineNo' = case remaining of
+                                  (n, _, _) : _ -> n
+                                  [] -> lineNo + lineSpan + sum [s | (_, s, _) <- consumed]
+                                st' =
+                                  (emitLine expanded st)
+                                    { stCurrentLine = nextLineNo',
+                                      stHsBlockCommentDepth = finalHs,
+                                      stCBlockCommentDepth = finalC
+                                    }
+                             in processFile filePath remaining stack st' k
+                          else continue (emitLine expanded st)
+                  Just directive ->
+                    handleDirective ctx st directive
 
 recoverDanglingElse :: LineContext -> Maybe Directive -> EngineState -> Step
 recoverDanglingElse ctx parsedDirective st =

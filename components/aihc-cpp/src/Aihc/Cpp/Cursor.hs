@@ -23,6 +23,7 @@ module Aihc.Cpp.Cursor
     sliceText,
     sliceSince,
     skipWhile,
+    skipToInteresting,
     bufLength,
   )
 where
@@ -112,3 +113,31 @@ skipWhile p = go
 bufLength :: Cursor -> Int
 bufLength (Cursor buf _) = BS.length buf
 {-# INLINE bufLength #-}
+
+-- | Advance the cursor past bytes that cannot start any CPP-significant
+-- two-character sequence. Stops at: @\"@ (0x22), @\'@ (0x27), @*@ (0x2A),
+-- @-@ (0x2D), @/@ (0x2F), @\\@ (0x5C), @{@ (0x7B), @}@ (0x7D),
+-- or end of input. This allows bulk-copying runs of plain text
+-- (identifiers, whitespace, operators, non-ASCII UTF-8) without
+-- per-byte dispatch.
+skipToInteresting :: Cursor -> Cursor
+skipToInteresting = go
+  where
+    go !cur = case peekByte cur of
+      Nothing -> cur
+      Just b
+        | isInteresting b -> cur
+        | otherwise -> go (advance cur)
+
+    isInteresting :: Word8 -> Bool
+    isInteresting b =
+      b == 0x22 -- '"'
+        || b == 0x27 -- '\''
+        || b == 0x2A -- '*'
+        || b == 0x2D -- '-'
+        || b == 0x2F -- '/'
+        || b == 0x5C -- '\\'
+        || b == 0x7B -- '{'
+        || b == 0x7D -- '}'
+    {-# INLINE isInteresting #-}
+{-# INLINE skipToInteresting #-}
