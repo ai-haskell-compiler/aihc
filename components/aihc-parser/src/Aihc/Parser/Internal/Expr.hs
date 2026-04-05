@@ -1075,7 +1075,18 @@ bracedDeclsParser :: TokParser [Decl]
 bracedDeclsParser = bracedSemiSep1 localDeclParser
 
 localDeclParser :: TokParser Decl
-localDeclParser = MP.try localTypeSigDeclParser <|> MP.try localFunctionDeclParser <|> localPatternDeclParser
+localDeclParser = do
+  isTySig <- startsWithTypeSig
+  if isTySig
+    then -- Type signature: name1, name2 :: type
+    -- No MP.try needed; startsWithTypeSig confirmed '::' follows the names.
+      localTypeSigDeclParser
+    else -- Function or pattern binding.
+    -- MP.try around localFunctionDeclParser needed because function heads
+    -- and pattern binds can overlap (e.g. '(x, y) = expr' can be attempted
+    -- as an infix function head before falling back to pattern bind).
+    -- Phase 4 will address functionHeadParserWith to further reduce this.
+      MP.try localFunctionDeclParser <|> localPatternDeclParser
 
 localTypeSigDeclParser :: TokParser Decl
 localTypeSigDeclParser = withSpan $ do
@@ -1241,6 +1252,17 @@ startsWithAsPattern =
   fmap (either (const False) (const True)) . MP.observing . MP.try . MP.lookAhead $ do
     _ <- identifierTextParser
     expectedTok TkReservedAt
+
+-- | Non-consuming lookahead: does the input start with @name1, name2, ... ::@?
+-- Used by 'localDeclParser' to dispatch to the type-signature path without
+-- 'MP.try', eliminating backtracking over the name list.
+startsWithTypeSig :: TokParser Bool
+startsWithTypeSig =
+  fmap (either (const False) (const True)) . MP.observing . MP.try . MP.lookAhead $ do
+    _ <- binderNameParser
+    let moreNames = (expectedTok TkSpecialComma *> binderNameParser *> moreNames) <|> pure ()
+    moreNames
+    expectedTok TkReservedDoubleColon
 
 startsWithContextType :: TokParser Bool
 startsWithContextType = MP.lookAhead (go [])
