@@ -126,6 +126,18 @@ buildTests = do
             testCase "comp as gen: [y | y@(Just _) <- xs]" test_compAsGen,
             testCase "comp infix gen: [a | a : as <- xs]" test_compInfixGen
           ],
+        testGroup
+          "localDeclParser dispatch"
+          [ testCase "type sig: f :: Int" test_localDeclTypeSig,
+            testCase "type sig multi: f, g :: Int" test_localDeclTypeSigMulti,
+            testCase "type sig operator: (+) :: Int -> Int -> Int" test_localDeclTypeSigOp,
+            testCase "function bind prefix: f x = x" test_localDeclFunPrefix,
+            testCase "function bind no args: f = 5" test_localDeclFunNoArgs,
+            testCase "pattern bind tuple: (x, y) = expr" test_localDeclPatTuple,
+            testCase "pattern bind constructor: Just x = expr" test_localDeclPatCon,
+            testCase "pattern bind wildcard: _ = expr" test_localDeclPatWild,
+            testCase "function bind guarded: f x | x > 0 = x" test_localDeclFunGuarded
+          ],
         adjustOption (const tenMinutes) $
           testGroup
             "properties"
@@ -768,3 +780,76 @@ test_compInfixGen =
   case parseCompStmts "[a | a : as <- xs]" of
     Right [CompGen _ (PInfix _ (PVar _ "a") ":" (PVar _ "as")) _] -> pure ()
     other -> assertFailure ("expected comp infix gen, got: " <> show other)
+
+-- Helper: parse a let-expression and extract the local declarations.
+-- Input: "let { decl1; decl2 } in body"
+parseLetDecls :: T.Text -> Either String [Decl]
+parseLetDecls src =
+  let fullSrc = "x = " <> src
+      (errs, modu) = parseModule defaultConfig fullSrc
+   in if not (null errs)
+        then Left ("parse errors: " <> show errs)
+        else case moduleDecls modu of
+          [DeclValue _ (FunctionBind _ _ [Match {matchRhs = UnguardedRhs _ (ELetDecls _ decls _)}])] ->
+            Right decls
+          other ->
+            Left ("unexpected AST: " <> show other)
+
+test_localDeclTypeSig :: Assertion
+test_localDeclTypeSig =
+  case parseLetDecls "let { f :: Int } in f" of
+    Right [DeclTypeSig _ ["f"] _] -> pure ()
+    other -> assertFailure ("expected type sig, got: " <> show other)
+
+test_localDeclTypeSigMulti :: Assertion
+test_localDeclTypeSigMulti =
+  case parseLetDecls "let { f, g :: Int } in f" of
+    Right [DeclTypeSig _ ["f", "g"] _] -> pure ()
+    other -> assertFailure ("expected multi-name type sig, got: " <> show other)
+
+test_localDeclTypeSigOp :: Assertion
+test_localDeclTypeSigOp =
+  case parseLetDecls "let { (+) :: Int -> Int -> Int } in 1 + 2" of
+    Right [DeclTypeSig _ ["+"] _] -> pure ()
+    other -> assertFailure ("expected operator type sig, got: " <> show other)
+
+test_localDeclFunPrefix :: Assertion
+test_localDeclFunPrefix =
+  case parseLetDecls "let { f x = x } in f 1" of
+    Right [DeclValue _ (FunctionBind _ "f" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PVar _ "x"]}])] -> pure ()
+    other -> assertFailure ("expected prefix function bind, got: " <> show other)
+
+test_localDeclFunNoArgs :: Assertion
+test_localDeclFunNoArgs =
+  case parseLetDecls "let { f = 5 } in f" of
+    Right [DeclValue _ (FunctionBind _ "f" [Match {matchHeadForm = MatchHeadPrefix, matchPats = []}])] -> pure ()
+    other -> assertFailure ("expected no-args function bind, got: " <> show other)
+
+test_localDeclPatTuple :: Assertion
+test_localDeclPatTuple =
+  case parseLetDecls "let { (x, y) = (1, 2) } in x" of
+    Right [DeclValue _ (PatternBind _ (PTuple _ Boxed [PVar _ "x", PVar _ "y"]) _)] -> pure ()
+    other -> assertFailure ("expected tuple pattern bind, got: " <> show other)
+
+test_localDeclPatCon :: Assertion
+test_localDeclPatCon =
+  -- NOTE: GHC parses 'Just x = Nothing' in a let-binding as a PatBind with
+  -- a constructor pattern. Our parser currently treats it as a FunctionBind
+  -- for 'Just' because localFunctionDeclParser is tried before
+  -- localPatternDeclParser. This is a pre-existing issue unrelated to the
+  -- Phase 3 refactoring; fixing it is deferred to Phase 4.
+  case parseLetDecls "let { Just x = Nothing } in x" of
+    Right [DeclValue _ (FunctionBind _ "Just" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PVar _ "x"]}])] -> pure ()
+    other -> assertFailure ("expected function bind for constructor name (pre-existing behaviour), got: " <> show other)
+
+test_localDeclPatWild :: Assertion
+test_localDeclPatWild =
+  case parseLetDecls "let { _ = 5 } in 0" of
+    Right [DeclValue _ (PatternBind _ (PWildcard _) _)] -> pure ()
+    other -> assertFailure ("expected wildcard pattern bind, got: " <> show other)
+
+test_localDeclFunGuarded :: Assertion
+test_localDeclFunGuarded =
+  case parseLetDecls "let { f x | x > 0 = x } in f 1" of
+    Right [DeclValue _ (FunctionBind _ "f" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PVar _ "x"], matchRhs = GuardedRhss _ _}])] -> pure ()
+    other -> assertFailure ("expected guarded function bind, got: " <> show other)
