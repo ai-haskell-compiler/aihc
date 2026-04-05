@@ -152,25 +152,27 @@ emptyTokStream _sourcePath =
 -- | Create a TokStream for parsing expressions/declarations (no module layout).
 mkTokStream :: FilePath -> [Extension] -> Text -> TokStream
 mkTokStream sourceName exts input =
-  TokStream
-    { tokStreamRawTokens = scanAllTokens (mkInitialLexerState sourceName exts input),
-      tokStreamLayoutState = mkInitialLayoutState False,
-      tokStreamPrevToken = Nothing,
-      tokStreamExtensions = exts,
-      tokStreamEOFEmitted = False
-    }
+  let (env, lexSt) = mkInitialLexerState sourceName exts input
+   in TokStream
+        { tokStreamRawTokens = scanAllTokens env lexSt,
+          tokStreamLayoutState = mkInitialLayoutState False,
+          tokStreamPrevToken = Nothing,
+          tokStreamExtensions = exts,
+          tokStreamEOFEmitted = False
+        }
 
 -- | Create a TokStream for parsing full modules (with module-body layout).
 -- Also bootstraps LANGUAGE pragma extensions from the module header.
 mkTokStreamModule :: FilePath -> [Extension] -> Text -> TokStream
 mkTokStreamModule sourceName baseExts input =
-  TokStream
-    { tokStreamRawTokens = scanAllTokens (mkInitialLexerState sourceName effectiveExts input),
-      tokStreamLayoutState = mkInitialLayoutState True,
-      tokStreamPrevToken = Nothing,
-      tokStreamExtensions = effectiveExts,
-      tokStreamEOFEmitted = False
-    }
+  let (env, lexSt) = mkInitialLexerState sourceName effectiveExts input
+   in TokStream
+        { tokStreamRawTokens = scanAllTokens env lexSt,
+          tokStreamLayoutState = mkInitialLayoutState True,
+          tokStreamPrevToken = Nothing,
+          tokStreamExtensions = effectiveExts,
+          tokStreamEOFEmitted = False
+        }
   where
     headerExts = enabledExtensionsFromSettings (readModuleHeaderExtensionsFromChunks [input])
     effectiveExts = baseExts <> [ext | ext <- headerExts, ext `notElem` baseExts]
@@ -179,16 +181,17 @@ mkTokStreamModule sourceName baseExts input =
 -- Layout tokens must already be inserted in the token list.
 mkTokStreamFromTokens :: [LexToken] -> TokStream
 mkTokStreamFromTokens toks =
-  TokStream
-    { tokStreamRawTokens = scanAllTokens (mkInitialLexerState "<tokens>" [] ""),
-      tokStreamLayoutState =
-        (mkInitialLayoutState False)
-          { layoutBuffer = toks
-          },
-      tokStreamPrevToken = Nothing,
-      tokStreamExtensions = [],
-      tokStreamEOFEmitted = False
-    }
+  let (env, lexSt) = mkInitialLexerState "<tokens>" [] ""
+   in TokStream
+        { tokStreamRawTokens = scanAllTokens env lexSt,
+          tokStreamLayoutState =
+            (mkInitialLayoutState False)
+              { layoutBuffer = toks
+              },
+          tokStreamPrevToken = Nothing,
+          tokStreamExtensions = [],
+          tokStreamEOFEmitted = False
+        }
 
 -- | Step one token from the stream. This is the core primitive used by all
 -- Stream methods.
