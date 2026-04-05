@@ -539,9 +539,11 @@ consumeTrivia _env st
                 Nothing ->
                   fmap (Right . markHadTrivia) (consumeUnknownPragma st)
         '{' : '-' : _ ->
-          Just (case consumeBlockCommentOrError st of
-            Right st' -> Right (markHadTrivia st')
-            Left (tok, st') -> Left (tok, markHadTrivia st'))
+          Just
+            ( case consumeBlockCommentOrError st of
+                Right st' -> Right (markHadTrivia st')
+                Left (tok, st') -> Left (tok, markHadTrivia st')
+            )
         _ ->
           case tryConsumeLineDirective st of
             Just (Nothing, st') -> Just (Right (markHadTrivia st'))
@@ -1065,7 +1067,7 @@ lexIdentifier env st =
               firstChunk = c : seg
               (consumed, rest1, isQualified) = gatherQualified hasMagicHash firstChunk rest0
            in -- Check if we have a qualified operator (e.g., Prelude.+)
-               case (isQualified || isConIdStart c, rest1) of
+              case (isQualified || isConIdStart c, rest1) of
                 (True, '.' : opChar : opRest)
                   | isSymbolicOpCharNotDot opChar ->
                       -- This is a qualified operator like Prelude.+ or A.B.C.:++
@@ -1531,7 +1533,8 @@ lexSymbol env st =
                in Just (mkToken st st' (T.pack txt) kind, st')
             else firstJust rest
 
-withOptionalMagicHashSuffix :: LexerEnv ->
+withOptionalMagicHashSuffix ::
+  LexerEnv ->
   LexerState ->
   String ->
   LexTokenKind ->
