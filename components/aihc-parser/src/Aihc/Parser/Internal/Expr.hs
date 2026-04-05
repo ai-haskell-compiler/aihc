@@ -85,8 +85,8 @@ arrowTailParser :: TokParser (Text, Expr)
 arrowTailParser = do
   op <- tokenSatisfy "arrow operator" $ \tok ->
     case lexTokenKind tok of
-      TkVarSym "-<" -> Just "-<"
-      TkVarSym "-<<" -> Just "-<<"
+      TkArrowTail -> Just "-<"
+      TkDoubleArrowTail -> Just "-<<"
       _ -> Nothing
   rhs <- exprParser
   pure (op, rhs)
@@ -237,17 +237,11 @@ doRecStmtParser = withSpan $ do
 
 infixExprParserExcept :: [Text] -> TokParser Expr
 infixExprParserExcept forbidden = do
-  arrowsEnabled <- isExtensionEnabled Arrows
-  -- When Arrows is enabled, exclude -< and -<< from the regular infix chain.
-  -- These are handled at a lower precedence level by arrowTailParser in
-  -- exprCoreParserExcept, matching GHC's arrow command grammar.
-  let arrowForbidden = if arrowsEnabled then ["-<", "-<<"] else []
-  let allForbidden = forbidden <> arrowForbidden
   lhs <- MP.try negateExprParser <|> lexpParser
   rest <-
     MP.many
       ( (,)
-          <$> infixOperatorParserExcept allForbidden
+          <$> infixOperatorParserExcept forbidden
           <*> region "after infix operator" lexpParser
       )
   pure (foldl buildInfix lhs rest)
@@ -867,11 +861,9 @@ parenExprParser = withSpan $ do
     -- The old approach tried parseSectionL (which called appExprParser), then on
     -- failure backtracked and re-parsed via parseTupleOrParen — O(2^N) for deeply
     -- nested applications. This version parses each sub-expression exactly once.
-    parseBoxedContent closeTok = do
-      arrowsEnabled <- isExtensionEnabled Arrows
-      let arrowForbidden = if arrowsEnabled then ["-<", "-<<"] else []
+    parseBoxedContent closeTok =
       -- Right section (op expr): operator is the first token, quick to detect.
-      MP.try (parseSectionR arrowForbidden)
+      MP.try (parseSectionR [])
         <|> do
           -- Parse an lexp (do/if/case/let/lambda/application), same base as
           -- infixExprParserExcept.  No MP.try: once we read a token we commit.
@@ -881,11 +873,11 @@ parenExprParser = withSpan $ do
               -- No expression: tuple section with a leading hole, e.g. (,a,b).
               finishBoxed closeTok Nothing
             Just base -> do
-              mOp <- MP.optional (infixOperatorParserExcept arrowForbidden)
+              mOp <- MP.optional (infixOperatorParserExcept [])
               case mOp of
                 Nothing -> do
                   -- No infix operator: check for arrow tail (-<, -<<) or type annotation.
-                  mArrow <- if arrowsEnabled then MP.optional arrowTailParser else pure Nothing
+                  mArrow <- MP.optional arrowTailParser
                   let withArrow = case mArrow of
                         Just (arrowOp, arrowRhs) -> EInfix (mergeSourceSpans (getSourceSpan base) (getSourceSpan arrowRhs)) base arrowOp arrowRhs
                         Nothing -> base
@@ -912,12 +904,12 @@ parenExprParser = withSpan $ do
                       more <-
                         MP.many
                           ( (,)
-                              <$> infixOperatorParserExcept arrowForbidden
+                              <$> infixOperatorParserExcept []
                               <*> region "after infix operator" lexpParser
                           )
                       let fullInfix = foldl buildInfix base ((op, rhs) : more)
                       -- Arrow tail after infix chain
-                      mArrow <- if arrowsEnabled then MP.optional arrowTailParser else pure Nothing
+                      mArrow <- MP.optional arrowTailParser
                       let withArrow = case mArrow of
                             Just (arrowOp, arrowRhs) -> EInfix (mergeSourceSpans (getSourceSpan fullInfix) (getSourceSpan arrowRhs)) fullInfix arrowOp arrowRhs
                             Nothing -> fullInfix
@@ -933,8 +925,8 @@ parenExprParser = withSpan $ do
                             Nothing -> typed
                       finishBoxed closeTok (Just fullExpr)
       where
-        parseSectionR arrowForbidden = do
-          op <- infixOperatorParserExcept arrowForbidden
+        parseSectionR forbidden = do
+          op <- infixOperatorParserExcept forbidden
           rhs <- exprParser
           expectedTok closeTok
           pure (\span' -> EParen span' (ESectionR span' op rhs))

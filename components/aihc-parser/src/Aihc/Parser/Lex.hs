@@ -136,6 +136,13 @@ data LexTokenKind
   | TkReservedAt -- @
   | -- Note: ~ is NOT reserved; it uses whitespace-sensitive lexing (GHC proposal 0229)
     TkReservedDoubleArrow -- =>
+  | -- Arrow notation reserved operators (Arrows extension)
+    TkArrowTail -- -<
+  | TkArrowTailReverse -- >-
+  | TkDoubleArrowTail -- -<<
+  | TkDoubleArrowTailReverse -- >>-
+  | TkBananaOpen -- (|
+  | TkBananaClose -- |)
   | -- Identifiers (per Haskell Report Section 2.4)
     TkVarId Text -- variable identifier (starts lowercase/_)
   | TkConId Text -- constructor identifier (starts uppercase)
@@ -1462,24 +1469,34 @@ canStartPrefixPatternAtom rest =
 lexOperator :: LexerState -> Maybe (LexToken, LexerState)
 lexOperator st =
   case span isSymbolicOpChar (lexerInput st) of
-    (op@(c : _), _) ->
+    (op@(c : _), rest) ->
       let txt = T.pack op
-          st' = advanceChars op st
-          hasUnicode = UnicodeSyntax `elem` lexerExtensions st
-          kind = case reservedOpTokenKind txt of
-            Just reserved -> reserved
-            Nothing
-              | hasUnicode -> unicodeOpTokenKind txt c
-              | c == ':' -> TkConSym txt
-              | otherwise -> TkVarSym txt
-       in Just (mkToken st st' txt kind, st')
+          hasArrows = Arrows `elem` lexerExtensions st
+       in -- Special case: |) is the banana close bracket when Arrows is enabled.
+          -- The ) is not a symbolic op char, so span stops at |. We check the
+          -- rest to see if ) follows immediately.
+          case (hasArrows, op, rest) of
+            (True, "|", ')' : _) ->
+              let st' = advanceChars "|)" st
+               in Just (mkToken st st' "|)" TkBananaClose, st')
+            _ ->
+              let st' = advanceChars op st
+                  hasUnicode = UnicodeSyntax `elem` lexerExtensions st
+                  kind = case reservedOpTokenKind txt of
+                    Just reserved -> reserved
+                    Nothing
+                      | hasArrows, Just arrowKind <- arrowOpTokenKind txt -> arrowKind
+                      | hasUnicode -> unicodeOpTokenKind hasArrows txt c
+                      | c == ':' -> TkConSym txt
+                      | otherwise -> TkVarSym txt
+               in Just (mkToken st st' txt kind, st')
     _ -> Nothing
 
 -- | Map Unicode operators to their ASCII equivalents when UnicodeSyntax is enabled.
 -- Returns the appropriate token kind for known Unicode operators, or falls back
 -- to TkVarSym/TkConSym based on whether the first character is ':'.
-unicodeOpTokenKind :: Text -> Char -> LexTokenKind
-unicodeOpTokenKind txt firstChar =
+unicodeOpTokenKind :: Bool -> Text -> Char -> LexTokenKind
+unicodeOpTokenKind hasArrows txt firstChar =
   case T.unpack txt of
     "∷" -> TkReservedDoubleColon -- :: (proportion)
     "⇒" -> TkReservedDoubleArrow -- => (rightwards double arrow)
@@ -1487,12 +1504,18 @@ unicodeOpTokenKind txt firstChar =
     "←" -> TkReservedLeftArrow -- <- (leftwards arrow)
     "∀" -> TkVarId "forall" -- forall (for all)
     "★" -> TkVarSym "*" -- star (for kind signatures)
-    "⤙" -> TkVarSym "-<" -- -< (leftwards arrow-tail)
-    "⤚" -> TkVarSym ">-" -- >- (rightwards arrow-tail)
-    "⤛" -> TkVarSym "-<<" -- -<< (leftwards double arrow-tail)
-    "⤜" -> TkVarSym ">>-" -- >>- (rightwards double arrow-tail)
-    "⦇" -> TkVarSym "(|" -- (| left banana bracket
-    "⦈" -> TkVarSym "|)" -- right banana bracket |)
+    "⤙" | hasArrows -> TkArrowTail -- -< (leftwards arrow-tail)
+        | otherwise -> TkVarSym "-<"
+    "⤚" | hasArrows -> TkArrowTailReverse -- >- (rightwards arrow-tail)
+        | otherwise -> TkVarSym ">-"
+    "⤛" | hasArrows -> TkDoubleArrowTail -- -<< (leftwards double arrow-tail)
+        | otherwise -> TkVarSym "-<<"
+    "⤜" | hasArrows -> TkDoubleArrowTailReverse -- >>- (rightwards double arrow-tail)
+        | otherwise -> TkVarSym ">>-"
+    "⦇" | hasArrows -> TkBananaOpen -- (| left banana bracket
+        | otherwise -> TkVarSym "(|"
+    "⦈" | hasArrows -> TkBananaClose -- |) right banana bracket
+        | otherwise -> TkVarSym "|)"
     "⟦" -> TkVarSym "[|" -- [| left semantic bracket
     "⟧" -> TkVarSym "|]" -- right semantic bracket |]
     "⊸" -> TkVarSym "%1->" -- %1-> (linear arrow)
@@ -1509,6 +1532,10 @@ lexSymbol st =
           then [("(#", TkSpecialUnboxedLParen), ("#)", TkSpecialUnboxedRParen)]
           else []
       )
+        <> ( if Arrows `elem` lexerExtensions st
+               then [("(|", TkBananaOpen)]
+               else []
+           )
         <> [ ("(", TkSpecialLParen),
              (")", TkSpecialRParen),
              ("[", TkSpecialLBracket),
@@ -2693,4 +2720,15 @@ reservedOpTokenKind txt = case txt of
   "@" -> Just TkReservedAt
   -- Note: ~ is NOT reserved; it uses whitespace-sensitive lexing (GHC proposal 0229)
   "=>" -> Just TkReservedDoubleArrow
+  _ -> Nothing
+
+-- | Classify arrow notation reserved operators (only active with Arrows extension).
+arrowOpTokenKind :: Text -> Maybe LexTokenKind
+arrowOpTokenKind txt = case txt of
+  "-<" -> Just TkArrowTail
+  ">-" -> Just TkArrowTailReverse
+  "-<<" -> Just TkDoubleArrowTail
+  ">>-" -> Just TkDoubleArrowTailReverse
+  -- Note: (| is handled by lexSymbol, and |) is special-cased in lexOperator,
+  -- because ( and ) are not symbolic operator characters.
   _ -> Nothing
