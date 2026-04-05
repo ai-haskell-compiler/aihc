@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail basic rec block -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE RecursiveDo #-}
 module Rec where
 

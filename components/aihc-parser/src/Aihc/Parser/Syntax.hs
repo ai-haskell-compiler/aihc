@@ -1366,6 +1366,8 @@ data Expr
     ETHSplice SourceSpan Expr
   | -- \$expr or $(expr)
     ETHTypedSplice SourceSpan Expr -- \$$expr or $$(expr)
+  | -- Arrow notation (Arrows extension)
+    EProc SourceSpan Pattern Expr -- proc pat -> cmd
   deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan Expr where
@@ -1416,6 +1418,7 @@ instance HasSourceSpan Expr where
       ETHTypeNameQuote span' _ -> span'
       ETHSplice span' _ -> span'
       ETHTypedSplice span' _ -> span'
+      EProc span' _ _ -> span'
 
 data CaseAlt = CaseAlt
   { caseAltSpan :: SourceSpan,
@@ -1432,6 +1435,7 @@ data DoStmt
   | DoLet SourceSpan [(Text, Expr)]
   | DoLetDecls SourceSpan [Decl]
   | DoExpr SourceSpan Expr
+  | DoRecStmt SourceSpan [DoStmt] -- rec { stmts }
   deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan DoStmt where
@@ -1441,6 +1445,7 @@ instance HasSourceSpan DoStmt where
       DoLet span' _ -> span'
       DoLetDecls span' _ -> span'
       DoExpr span' _ -> span'
+      DoRecStmt span' _ -> span'
 
 data CompStmt
   = CompGen SourceSpan Pattern Expr

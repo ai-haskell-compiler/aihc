@@ -2,6 +2,5 @@ extensions: [Arrows]
 input: |
   serveIndexHtml = proc _request ->
     returnA -< "response"
-ast: ""
-status: xfail
-reason: unexpected arrow in proc notation
+ast: 'Module {decls = [DeclValue (FunctionBind "serveIndexHtml" [Match {headForm = Prefix, rhs = UnguardedRhs (EProc (PVar "_request") (EInfix (EVar "returnA") "-<" (EString "response")))}])]}'
+status: pass

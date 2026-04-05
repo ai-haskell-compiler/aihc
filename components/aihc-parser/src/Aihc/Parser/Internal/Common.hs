@@ -597,6 +597,8 @@ renderKeyword keyword =
     TkKeywordIf -> "'if'"
     TkKeywordThen -> "'then'"
     TkKeywordElse -> "'else'"
+    TkKeywordProc -> "'proc'"
+    TkKeywordRec -> "'rec'"
     _ -> "keyword"
 
 isModuleName :: Text -> Bool

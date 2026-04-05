@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail arrow rec basic -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE Arrows #-}
 module ArrowRecBasic where
 

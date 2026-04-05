@@ -556,6 +556,7 @@ shrinkExpr expr =
     ETHTypeNameQuote {} -> []
     ETHSplice _ body -> body : [ETHSplice span0 body' | body' <- shrinkExpr body]
     ETHTypedSplice _ body -> body : [ETHTypedSplice span0 body' | body' <- shrinkExpr body]
+    EProc _ _ body -> body : [EProc span0 (PVar span0 "x") body' | body' <- shrinkExpr body]
 
 shrinkFloat :: Double -> [Double]
 shrinkFloat value =
@@ -608,6 +609,7 @@ shrinkDoStmt stmt =
     DoLet _ bindings -> [DoLet span0 bindings' | bindings' <- shrinkList shrinkBinding bindings, not (null bindings')]
     DoLetDecls _ decls -> [DoLetDecls span0 decls' | decls' <- shrinkDecls decls, not (null decls')]
     DoExpr _ expr -> [DoExpr span0 expr' | expr' <- shrinkExpr expr]
+    DoRecStmt _ stmts -> [DoRecStmt span0 stmts' | stmts' <- shrinkDoStmts stmts, not (null stmts')]
 
 shrinkBinding :: (Text, Expr) -> [(Text, Expr)]
 shrinkBinding (name, expr) = [(name, expr') | expr' <- shrinkExpr expr]
@@ -720,6 +722,7 @@ normalizeExpr expr =
     ETHTypeNameQuote _ name -> ETHTypeNameQuote span0 name
     ETHSplice _ body -> ETHSplice span0 (normalizeExpr body)
     ETHTypedSplice _ body -> ETHTypedSplice span0 (normalizeExpr body)
+    EProc _ pat body -> EProc span0 (normalizePattern pat) (normalizeExpr body)
 
 normalizeCaseAlt :: CaseAlt -> CaseAlt
 normalizeCaseAlt alt =
@@ -815,6 +818,7 @@ normalizeDoStmt stmt =
     DoLet _ bindings -> DoLet span0 [(name, normalizeExpr e) | (name, e) <- bindings]
     DoLetDecls _ decls -> DoLetDecls span0 (map normalizeDecl decls)
     DoExpr _ e -> DoExpr span0 (normalizeExpr e)
+    DoRecStmt _ stmts -> DoRecStmt span0 (map normalizeDoStmt stmts)
 
 normalizeCompStmt :: CompStmt -> CompStmt
 normalizeCompStmt stmt =

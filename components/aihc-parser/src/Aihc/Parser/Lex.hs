@@ -121,6 +121,9 @@ data LexTokenKind
     TkKeywordQualified
   | TkKeywordAs
   | TkKeywordHiding
+  | -- Extension-conditional keywords
+    TkKeywordProc -- proc (Arrows extension)
+  | TkKeywordRec -- rec (Arrows / RecursiveDo extension)
   | -- Reserved operators (per Haskell Report Section 2.4)
     TkReservedDotDot -- ..
   | TkReservedColon -- :
@@ -749,6 +752,7 @@ stepTokenContext st tok =
           st {layoutPendingLayout = Just (PendingImplicitLayout LayoutOrdinary)}
       | otherwise -> st
     TkKeywordLet -> st {layoutPendingLayout = Just (PendingImplicitLayout LayoutLetBlock)}
+    TkKeywordRec -> st {layoutPendingLayout = Just (PendingImplicitLayout LayoutOrdinary)}
     TkKeywordWhere -> st {layoutPendingLayout = Just (PendingImplicitLayout LayoutOrdinary)}
     TkKeywordIf -> st {layoutPendingLayout = Just PendingMaybeMultiWayIf}
     kind
@@ -1116,9 +1120,13 @@ lexIdentifier st =
           case keywordTokenKind ident of
             Just kw -> kw
             Nothing ->
-              if isAsciiUpper firstChar
-                then TkConId ident
-                else TkVarId ident
+              -- Extension-conditional keywords
+              case extensionKeywordTokenKind (lexerExtensions st) ident of
+                Just kw -> kw
+                Nothing ->
+                  if isAsciiUpper firstChar
+                    then TkConId ident
+                    else TkVarId ident
 
 lexImplicitParam :: LexerState -> Maybe (LexToken, LexerState)
 lexImplicitParam st
@@ -2661,6 +2669,14 @@ keywordTokenKind txt = case txt of
   "qualified" -> Just TkKeywordQualified
   "as" -> Just TkKeywordAs
   "hiding" -> Just TkKeywordHiding
+  _ -> Nothing
+
+-- | Classify extension-conditional keywords.
+-- These are identifiers that become keywords only when certain extensions are enabled.
+extensionKeywordTokenKind :: [Extension] -> Text -> Maybe LexTokenKind
+extensionKeywordTokenKind exts txt = case txt of
+  "proc" | Arrows `elem` exts -> Just TkKeywordProc
+  "rec" | Arrows `elem` exts || RecursiveDo `elem` exts -> Just TkKeywordRec
   _ -> Nothing
 
 -- | Classify reserved operators per Haskell Report Section 2.4.

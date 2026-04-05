@@ -617,6 +617,7 @@ docExpr expr =
       "EUnboxedSum" <+> pretty altIdx <+> pretty arity <+> docExpr inner
     ETypeApp _ inner ty -> "ETypeApp" <+> parens (docExpr inner) <+> parens (docType ty)
     EApp _ f x -> "EApp" <+> parens (docExpr f) <+> parens (docExpr x)
+    EProc _ pat body -> "EProc" <+> parens (docPattern pat) <+> parens (docExpr body)
 
 docCaseAlt :: CaseAlt -> Doc ann
 docCaseAlt (CaseAlt _ pat rhs) =
@@ -629,6 +630,7 @@ docDoStmt stmt =
     DoLet _ bindings -> "DoLet" <+> braces (hsep (punctuate comma [docText name <+> "=" <+> docExpr e | (name, e) <- bindings]))
     DoLetDecls _ decls -> "DoLetDecls" <+> brackets (hsep (punctuate comma (map docDecl decls)))
     DoExpr _ expr -> "DoExpr" <+> parens (docExpr expr)
+    DoRecStmt _ stmts -> "DoRecStmt" <+> brackets (hsep (punctuate comma (map docDoStmt stmts)))
 
 docCompStmt :: CompStmt -> Doc ann
 docCompStmt stmt =
@@ -680,6 +682,8 @@ docTokenKind kind =
     TkKeywordQualified -> "TkKeywordQualified"
     TkKeywordAs -> "TkKeywordAs"
     TkKeywordHiding -> "TkKeywordHiding"
+    TkKeywordProc -> "TkKeywordProc"
+    TkKeywordRec -> "TkKeywordRec"
     TkReservedDotDot -> "TkReservedDotDot"
     TkReservedColon -> "TkReservedColon"
     TkReservedDoubleColon -> "TkReservedDoubleColon"

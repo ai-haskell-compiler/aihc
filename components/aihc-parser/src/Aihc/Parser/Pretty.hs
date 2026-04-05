@@ -866,6 +866,13 @@ prettyInfixOp op
   | isOperatorToken op = pretty op
   | otherwise = "`" <> pretty op <> "`"
 
+-- | Check whether an operator is an arrow tail operator (@-<@ or @-<<@).
+-- These are special-cased in the pretty-printer to have the lowest precedence.
+isArrowTailOp :: Text -> Bool
+isArrowTailOp "-<" = True
+isArrowTailOp "-<<" = True
+isArrowTailOp _ = False
+
 prettyFunctionBinder :: Text -> Doc ann
 prettyFunctionBinder name
   | isOperatorToken name = parens (pretty name)
@@ -949,6 +956,7 @@ isGreedyExpr = \case
   ELetDecls {} -> True
   EWhereDecls {} -> True
   EDo {} -> True
+  EProc {} -> True
   _ -> False
 
 -- | Print an expression in a "guarded" context where greedy expressions
@@ -968,6 +976,7 @@ isOpenEnded = \case
   ELambdaPats {} -> True
   ELetDecls {} -> True
   EWhereDecls {} -> True
+  EProc {} -> True
   EInfix _ _ _ rhs -> isOpenEnded rhs
   _ -> False
 
@@ -1064,10 +1073,17 @@ prettyExprPrec prec expr =
       parenthesize
         (prec > 0)
         ("\\" <> "case" <+> "{" <+> hsep (punctuate semi (map prettyCaseAlt alts)) <+> "}")
-    EInfix _ lhs op rhs ->
-      parenthesize
-        (prec > 1)
-        (prettyExprIn CtxInfixLhs lhs <+> prettyInfixOp op <+> prettyExprIn (CtxInfixRhs (prec == 1)) rhs)
+    EInfix _ lhs op rhs
+      | isArrowTailOp op ->
+          -- Arrow application operators (-<, -<<) have the lowest precedence.
+          -- The RHS is a full expression, so no parenthesization is needed.
+          parenthesize
+            (prec > 0)
+            (prettyExprPrec 1 lhs <+> prettyInfixOp op <+> prettyExprPrec 0 rhs)
+      | otherwise ->
+          parenthesize
+            (prec > 1)
+            (prettyExprIn CtxInfixLhs lhs <+> prettyInfixOp op <+> prettyExprIn (CtxInfixRhs (prec == 1)) rhs)
     ENegate _ inner -> parenthesize (prec > 2) (prettyNegate inner)
     ESectionL _ lhs op -> parens (prettyExprPrec 3 lhs <+> prettyInfixOp op)
     ESectionR _ op rhs -> parens (prettyInfixOp op <+> prettyExprPrec 0 rhs)
@@ -1147,6 +1163,8 @@ prettyExprPrec prec expr =
     EUnboxedSum _ altIdx arity inner ->
       let slots = [if i == altIdx then prettyExprPrec 0 inner else mempty | i <- [0 .. arity - 1]]
        in hsep ["(#", hsep (punctuate " |" slots), "#)"]
+    EProc _ pat body ->
+      parenthesize (prec > 0) ("proc" <+> prettyPattern pat <+> "->" <+> prettyExprPrec 0 body)
 
 prettyTupleBody :: TupleFlavor -> Doc ann -> Doc ann
 prettyTupleBody tupleFlavor inner =
@@ -1201,6 +1219,7 @@ prettyDoStmt stmt =
     DoLet _ bindings -> "let" <+> braces (hsep (punctuate semi (map prettyBinding bindings)))
     DoLetDecls _ decls -> "let" <+> braces (prettyInlineDecls decls)
     DoExpr _ expr -> prettyExprPrec 0 expr
+    DoRecStmt _ stmts -> "rec" <+> "{" <+> hsep (punctuate semi (map prettyDoStmt stmts)) <+> "}"
 
 prettyCompStmt :: CompStmt -> Doc ann
 prettyCompStmt stmt =

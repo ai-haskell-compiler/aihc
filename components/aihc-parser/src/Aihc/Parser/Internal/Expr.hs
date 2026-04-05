@@ -62,13 +62,34 @@ exprCoreParserExcept forbiddenInfix = do
     TkKeywordIf -> ifExprParser
     TkKeywordCase -> caseExprParser
     TkKeywordLet -> letExprParser
+    TkKeywordProc -> procExprParser
     TkReservedBackslash -> lambdaExprParser
     _ -> infixExprParserExcept forbiddenInfix
+  -- Arrow application: expr -< expr / expr -<< expr
+  -- These have lower precedence than all user-defined operators but higher
+  -- than type signatures. Parsing them here ensures that 'g -< x + 1' is
+  -- read as 'g -< (x + 1)', matching GHC's arrow command grammar.
+  afterArrow <- MP.optional arrowTailParser
+  let withArrow = case afterArrow of
+        Just (op, rhs) -> EInfix (mergeSourceSpans (getSourceSpan base) (getSourceSpan rhs)) base op rhs
+        Nothing -> base
   -- Optional type signature: expr :: type
   mTypeSig <- MP.optional (expectedTok TkReservedDoubleColon *> typeParser)
   pure $ case mTypeSig of
-    Just ty -> ETypeSig (mergeSourceSpans (getSourceSpan base) (getSourceSpan ty)) base ty
-    Nothing -> base
+    Just ty -> ETypeSig (mergeSourceSpans (getSourceSpan withArrow) (getSourceSpan ty)) withArrow ty
+    Nothing -> withArrow
+
+-- | Parse an arrow tail operator (@-<@ or @-<<@) followed by its right-hand expression.
+-- Returns the operator name and the right-hand expression.
+arrowTailParser :: TokParser (Text, Expr)
+arrowTailParser = do
+  op <- tokenSatisfy "arrow operator" $ \tok ->
+    case lexTokenKind tok of
+      TkVarSym "-<" -> Just "-<"
+      TkVarSym "-<<" -> Just "-<<"
+      _ -> Nothing
+  rhs <- exprParser
+  pure (op, rhs)
 
 ifExprParser :: TokParser Expr
 ifExprParser = do
@@ -116,6 +137,17 @@ doExprParser = withSpan $ do
   stmts <- bracedStmtListParser doStmtParser
   pure (`EDo` stmts)
 
+-- | Parse a proc expression: @proc pat -> cmd@
+-- The body of a proc is an expression (the arrow command), which may use
+-- @-<@ and @-<<@ operators, @do@ blocks, @if@, @case@, @let@, etc.
+procExprParser :: TokParser Expr
+procExprParser = withSpan $ do
+  keywordTok TkKeywordProc
+  pat <- region "while parsing proc pattern" simplePatternParser
+  expectedTok TkReservedRightArrow
+  body <- region "while parsing proc body" exprParser
+  pure (\span' -> EProc span' pat body)
+
 bracedStmtListParser :: TokParser a -> TokParser [a]
 bracedStmtListParser = bracedSemiSep1
 
@@ -127,6 +159,8 @@ doStmtParser = do
     -- Uses MP.try because 'let ... in ...' is a valid expression that
     -- doLetStmtParser rejects via notFollowedBy.
     TkKeywordLet -> MP.try doLetStmtParser <|> doBindOrExprStmtParser
+    -- 'rec' statement: introduces a recursive block of do-statements.
+    TkKeywordRec -> doRecStmtParser
     -- Pattern-only leading tokens: only valid in bind context.
     -- No MP.try needed since these can only be bind statements.
     TkPrefixBang -> doPatBindStmtParser
@@ -193,13 +227,27 @@ doLetStmtParser = withSpan $ do
   decls <- parseLetDeclsStmtParser
   pure (`DoLetDecls` decls)
 
+-- | Parse a @rec@ statement inside a do-block.
+-- @rec { stmt ; ... ; stmt }@ introduces recursive bindings.
+doRecStmtParser :: TokParser DoStmt
+doRecStmtParser = withSpan $ do
+  keywordTok TkKeywordRec
+  stmts <- bracedStmtListParser doStmtParser
+  pure (`DoRecStmt` stmts)
+
 infixExprParserExcept :: [Text] -> TokParser Expr
 infixExprParserExcept forbidden = do
+  arrowsEnabled <- isExtensionEnabled Arrows
+  -- When Arrows is enabled, exclude -< and -<< from the regular infix chain.
+  -- These are handled at a lower precedence level by arrowTailParser in
+  -- exprCoreParserExcept, matching GHC's arrow command grammar.
+  let arrowForbidden = if arrowsEnabled then ["-<", "-<<"] else []
+  let allForbidden = forbidden <> arrowForbidden
   lhs <- MP.try negateExprParser <|> lexpParser
   rest <-
     MP.many
       ( (,)
-          <$> infixOperatorParserExcept forbidden
+          <$> infixOperatorParserExcept allForbidden
           <*> region "after infix operator" lexpParser
       )
   pure (foldl buildInfix lhs rest)
@@ -214,6 +262,7 @@ lexpParser = do
     TkKeywordIf -> ifExprParser
     TkKeywordCase -> caseExprParser
     TkKeywordLet -> letExprParser
+    TkKeywordProc -> procExprParser
     TkReservedBackslash -> lambdaExprParser
     _ -> appExprParser
 
@@ -396,6 +445,7 @@ atomExprParser = do
         <|> (if blockArgsEnabled then MP.try doExprParser else MP.empty)
         <|> (if blockArgsEnabled then MP.try caseExprParser else MP.empty)
         <|> (if blockArgsEnabled then MP.try ifExprParser else MP.empty)
+        <|> (if blockArgsEnabled then MP.try procExprParser else MP.empty)
         <|> (if thAny then thQuoteExprParser else MP.empty)
         <|> (if thAny then thNameQuoteExprParser else MP.empty)
         <|> (if thFullEnabled then thSpliceExprParser else MP.empty)
@@ -817,9 +867,11 @@ parenExprParser = withSpan $ do
     -- The old approach tried parseSectionL (which called appExprParser), then on
     -- failure backtracked and re-parsed via parseTupleOrParen — O(2^N) for deeply
     -- nested applications. This version parses each sub-expression exactly once.
-    parseBoxedContent closeTok =
+    parseBoxedContent closeTok = do
+      arrowsEnabled <- isExtensionEnabled Arrows
+      let arrowForbidden = if arrowsEnabled then ["-<", "-<<"] else []
       -- Right section (op expr): operator is the first token, quick to detect.
-      MP.try parseSectionR
+      MP.try (parseSectionR arrowForbidden)
         <|> do
           -- Parse an lexp (do/if/case/let/lambda/application), same base as
           -- infixExprParserExcept.  No MP.try: once we read a token we commit.
@@ -829,14 +881,19 @@ parenExprParser = withSpan $ do
               -- No expression: tuple section with a leading hole, e.g. (,a,b).
               finishBoxed closeTok Nothing
             Just base -> do
-              mOp <- MP.optional (infixOperatorParserExcept [])
+              mOp <- MP.optional (infixOperatorParserExcept arrowForbidden)
               case mOp of
                 Nothing -> do
-                  -- No infix operator: check for type annotation (expr :: type).
+                  -- No infix operator: check for arrow tail (-<, -<<) or type annotation.
+                  mArrow <- if arrowsEnabled then MP.optional arrowTailParser else pure Nothing
+                  let withArrow = case mArrow of
+                        Just (arrowOp, arrowRhs) -> EInfix (mergeSourceSpans (getSourceSpan base) (getSourceSpan arrowRhs)) base arrowOp arrowRhs
+                        Nothing -> base
+                  -- Type annotation: expr :: type
                   mTypeSig <- MP.optional (expectedTok TkReservedDoubleColon *> typeParser)
                   let typed = case mTypeSig of
-                        Just ty -> ETypeSig (mergeSourceSpans (getSourceSpan base) (getSourceSpan ty)) base ty
-                        Nothing -> base
+                        Just ty -> ETypeSig (mergeSourceSpans (getSourceSpan withArrow) (getSourceSpan ty)) withArrow ty
+                        Nothing -> withArrow
                   -- Where clause wraps the entire expression.
                   mWhere <- MP.optional whereClauseParser
                   let expr' = case mWhere of
@@ -855,15 +912,20 @@ parenExprParser = withSpan $ do
                       more <-
                         MP.many
                           ( (,)
-                              <$> infixOperatorParserExcept []
+                              <$> infixOperatorParserExcept arrowForbidden
                               <*> region "after infix operator" lexpParser
                           )
                       let fullInfix = foldl buildInfix base ((op, rhs) : more)
+                      -- Arrow tail after infix chain
+                      mArrow <- if arrowsEnabled then MP.optional arrowTailParser else pure Nothing
+                      let withArrow = case mArrow of
+                            Just (arrowOp, arrowRhs) -> EInfix (mergeSourceSpans (getSourceSpan fullInfix) (getSourceSpan arrowRhs)) fullInfix arrowOp arrowRhs
+                            Nothing -> fullInfix
                       -- Type annotation has lower precedence than all infix ops.
                       mTypeSig <- MP.optional (expectedTok TkReservedDoubleColon *> typeParser)
                       let typed = case mTypeSig of
-                            Just ty -> ETypeSig (mergeSourceSpans (getSourceSpan fullInfix) (getSourceSpan ty)) fullInfix ty
-                            Nothing -> fullInfix
+                            Just ty -> ETypeSig (mergeSourceSpans (getSourceSpan withArrow) (getSourceSpan ty)) withArrow ty
+                            Nothing -> withArrow
                       -- Where clause wraps the entire expression.
                       mWhere <- MP.optional whereClauseParser
                       let fullExpr = case mWhere of
@@ -871,8 +933,8 @@ parenExprParser = withSpan $ do
                             Nothing -> typed
                       finishBoxed closeTok (Just fullExpr)
       where
-        parseSectionR = do
-          op <- infixOperatorParserExcept []
+        parseSectionR arrowForbidden = do
+          op <- infixOperatorParserExcept arrowForbidden
           rhs <- exprParser
           expectedTok closeTok
           pure (\span' -> EParen span' (ESectionR span' op rhs))
