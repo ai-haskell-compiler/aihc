@@ -9,7 +9,7 @@ module Aihc.Parser.Internal.Decl
 where
 
 import Aihc.Parser.Internal.Common
-import Aihc.Parser.Internal.Expr (equationRhsParser, exprParser, patternParser, simplePatternParser, typeAppParser, typeAtomParser, typeParser)
+import Aihc.Parser.Internal.Expr (equationRhsParser, exprParser, patternParser, simplePatternParser, startsWithTypeSig, typeAppParser, typeAtomParser, typeParser)
 import Aihc.Parser.Lex (LexTokenKind (..), lexTokenKind)
 import Aihc.Parser.Syntax
 import Aihc.Parser.Types (ParserErrorComponent (..), mkFoundToken)
@@ -63,9 +63,11 @@ exportSpecListParser :: TokParser [ExportSpec]
 exportSpecListParser = parens $ exportSpecParser `MP.sepEndBy` expectedTok TkSpecialComma
 
 exportSpecParser :: TokParser ExportSpec
-exportSpecParser =
-  withSpan $
-    MP.try exportModuleParser <|> exportNameParser
+exportSpecParser = withSpan $ do
+  tok <- lookAhead anySingle
+  case lexTokenKind tok of
+    TkKeywordModule -> exportModuleParser
+    _ -> exportNameParser
 
 exportModuleParser :: TokParser (SourceSpan -> ExportSpec)
 exportModuleParser = do
@@ -208,10 +210,12 @@ declParser = do
       typeSigOrPatternOrValueOrSpliceParser =
         MP.try typeSigDeclParser <|> patternOrSpliceParser <|> valueOrSpliceParser
   case lexTokenKind tok of
-    TkKeywordData ->
-      MP.try dataFamilyDeclParser
-        <|> MP.try dataFamilyInstParser
-        <|> dataDeclParser
+    TkKeywordData -> do
+      nextTok <- lookAhead (anySingle *> anySingle)
+      case lexTokenKind nextTok of
+        TkVarId "family" -> dataFamilyDeclParser
+        TkKeywordInstance -> dataFamilyInstParser
+        _ -> dataDeclParser
     TkKeywordClass -> classDeclParser
     TkKeywordDefault -> defaultDeclParser
     TkKeywordDeriving -> standaloneDerivingDeclParser
@@ -220,15 +224,25 @@ declParser = do
     TkKeywordInfixl -> fixityDeclParser InfixL
     TkKeywordInfixr -> fixityDeclParser InfixR
     TkKeywordInstance -> instanceDeclParser
-    TkKeywordNewtype ->
-      MP.try newtypeFamilyInstParser
-        <|> newtypeDeclParser
-    TkKeywordType ->
-      MP.try roleAnnotationDeclParser
-        <|> MP.try typeFamilyDeclParser
-        <|> MP.try typeFamilyInstParser
-        <|> MP.try standaloneKindSigDeclParser
-        <|> typeSynDeclParser
+    TkKeywordNewtype -> do
+      nextTok <- lookAhead (anySingle *> anySingle)
+      case lexTokenKind nextTok of
+        TkKeywordInstance -> newtypeFamilyInstParser
+        _ -> newtypeDeclParser
+    TkKeywordType -> do
+      nextTok <- lookAhead (anySingle *> anySingle)
+      case lexTokenKind nextTok of
+        TkVarId "role" -> roleAnnotationDeclParser
+        TkVarId "family" -> typeFamilyDeclParser
+        TkKeywordInstance -> typeFamilyInstParser
+        _ -> do
+          -- Disambiguate standalone kind sig (type ConId ::) from type synonym.
+          -- After `type`, constructorIdentifierParser consumes exactly one token,
+          -- so the third token being `::` indicates a standalone kind signature.
+          thirdTok <- lookAhead (anySingle *> anySingle *> anySingle)
+          case lexTokenKind thirdTok of
+            TkReservedDoubleColon -> standaloneKindSigDeclParser
+            _ -> typeSynDeclParser
     TkVarId ident ->
       case ident of
         "pattern" -> patternSynonymParser
@@ -476,14 +490,11 @@ newtypeFamilyInstParser = withSpan $ do
 
 -- | Parse @type Name params [:: Kind]@ as an associated type family in a class.
 -- Note: no @family@ keyword inside class bodies.
+-- Callers must ensure the next token after @type@ is not @instance@
+-- (which is handled by 'classDefaultTypeInstParser' via token dispatch).
 classTypeFamilyDeclParser :: TokParser ClassDeclItem
 classTypeFamilyDeclParser = withSpan $ do
   keywordTok TkKeywordType
-  -- Bail out if the next token is `instance` (handled by classDefaultTypeInstParser).
-  tok <- lookAhead anySingle
-  case lexTokenKind tok of
-    TkKeywordInstance -> MP.empty
-    _ -> pure ()
   name <- constructorIdentifierParser
   params <- MP.many typeParamParser
   kind <- familyResultKindParser
@@ -715,14 +726,22 @@ classItemsBracedParser :: TokParser [ClassDeclItem]
 classItemsBracedParser = bracedSemiSep classDeclItemParser
 
 classDeclItemParser :: TokParser ClassDeclItem
-classDeclItemParser =
-  MP.try classFixityItemParser
-    <|> MP.try classTypeFamilyDeclParser
-    <|> MP.try classDataFamilyDeclParser
-    <|> MP.try classDefaultTypeInstParser
-    <|> MP.try classDefaultSigItemParser
-    <|> MP.try classTypeSigItemParser
-    <|> classDefaultItemParser
+classDeclItemParser = do
+  tok <- lookAhead anySingle
+  case lexTokenKind tok of
+    TkKeywordInfix -> classFixityItemParser
+    TkKeywordInfixl -> classFixityItemParser
+    TkKeywordInfixr -> classFixityItemParser
+    TkKeywordData -> classDataFamilyDeclParser
+    TkKeywordDefault -> classDefaultSigItemParser
+    TkKeywordType -> do
+      nextTok <- lookAhead (anySingle *> anySingle)
+      case lexTokenKind nextTok of
+        TkKeywordInstance -> classDefaultTypeInstParser
+        _ -> classTypeFamilyDeclParser
+    _ -> do
+      isSig <- startsWithTypeSig
+      if isSig then classTypeSigItemParser else classDefaultItemParser
 
 classTypeSigItemParser :: TokParser ClassDeclItem
 classTypeSigItemParser = withSpan $ do
@@ -817,13 +836,18 @@ instanceItemsBracedParser :: TokParser [InstanceDeclItem]
 instanceItemsBracedParser = bracedSemiSep instanceDeclItemParser
 
 instanceDeclItemParser :: TokParser InstanceDeclItem
-instanceDeclItemParser =
-  MP.try instanceFixityItemParser
-    <|> MP.try instanceTypeSigItemParser
-    <|> MP.try instanceTypeFamilyInstParser
-    <|> MP.try instanceDataFamilyInstParser
-    <|> MP.try instanceNewtypeFamilyInstParser
-    <|> instanceValueItemParser
+instanceDeclItemParser = do
+  tok <- lookAhead anySingle
+  case lexTokenKind tok of
+    TkKeywordInfix -> instanceFixityItemParser
+    TkKeywordInfixl -> instanceFixityItemParser
+    TkKeywordInfixr -> instanceFixityItemParser
+    TkKeywordType -> instanceTypeFamilyInstParser
+    TkKeywordData -> instanceDataFamilyInstParser
+    TkKeywordNewtype -> instanceNewtypeFamilyInstParser
+    _ -> do
+      isSig <- startsWithTypeSig
+      if isSig then instanceTypeSigItemParser else instanceValueItemParser
 
 instanceTypeSigItemParser :: TokParser InstanceDeclItem
 instanceTypeSigItemParser = withSpan $ do

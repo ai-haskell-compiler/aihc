@@ -10,6 +10,7 @@ module Aihc.Parser.Internal.Expr
     typeParser,
     typeAppParser,
     typeAtomParser,
+    startsWithTypeSig,
   )
 where
 
@@ -937,11 +938,13 @@ listExprParser = withSpan $ do
       parseListTail first
 
 parseListTail :: Expr -> TokParser (SourceSpan -> Expr)
-parseListTail first =
-  MP.try listCompTailParser
-    <|> MP.try arithFromToTailParser
-    <|> MP.try commaTailParser
-    <|> singletonTailParser
+parseListTail first = do
+  tok <- lookAhead anySingle
+  case lexTokenKind tok of
+    TkReservedPipe -> listCompTailParser
+    TkReservedDotDot -> arithFromToTailParser
+    TkSpecialComma -> commaTailParser
+    _ -> singletonTailParser
   where
     -- Parse list comprehension qualifiers, which can be:
     -- - Regular: [ expr | qual1, qual2, qual3 ]
@@ -970,7 +973,10 @@ parseListTail first =
     commaTailParser = do
       expectedTok TkSpecialComma
       second <- exprParser
-      MP.try (arithFromThenTailParser second) <|> listTailParser second
+      nextTok <- lookAhead anySingle
+      case lexTokenKind nextTok of
+        TkReservedDotDot -> arithFromThenTailParser second
+        _ -> listTailParser second
 
     arithFromThenTailParser second = do
       expectedTok TkReservedDotDot
@@ -1469,8 +1475,11 @@ simplePatternParser =
     <|> patternAtomParser
 
 typeParser :: TokParser Type
-typeParser =
-  label "type" (MP.try forallTypeParser <|> contextOrFunTypeParser)
+typeParser = label "type" $ do
+  tok <- lookAhead anySingle
+  case lexTokenKind tok of
+    TkVarId "forall" -> forallTypeParser
+    _ -> contextOrFunTypeParser
 
 contextOrFunTypeParser :: TokParser Type
 contextOrFunTypeParser = do
