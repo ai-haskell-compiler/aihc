@@ -1,0 +1,6 @@
+extensions: []
+input: "λ123"
+tokens:
+  - 'TkVarId "λ123"'
+  - 'TkEOF'
+status: pass

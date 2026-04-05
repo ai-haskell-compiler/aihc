@@ -1,0 +1,6 @@
+extensions: []
+input: "Džfoo"
+tokens:
+  - 'TkConId "Džfoo"'
+  - 'TkEOF'
+status: pass

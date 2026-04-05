@@ -1,0 +1,6 @@
+extensions: []
+input: "café"
+tokens:
+  - 'TkVarId "café"'
+  - 'TkEOF'
+status: pass
