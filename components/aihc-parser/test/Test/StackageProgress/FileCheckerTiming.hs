@@ -20,8 +20,8 @@ stackageProgressFileCheckerTimingTests =
 test_reportsSpeeds :: Assertion
 test_reportsSpeeds =
   assertEqual
-    "slow parser emits cpp and parser throughput"
-    (Just ["cpp=1250.0KB/s", "aihc=100.0KB/s", "ghc=3.000ms"])
+    "slow parser emits cpp, parser, and ghc throughput"
+    (Just ["cpp=1250.0KB/s", "aihc=100.0KB/s", "ghc=333.3KB/s"])
     (maybeVerboseTimingParts [ParserAihc, ParserGhc] 1000 800_000 10_000_000 3_000_000)
 
 test_hidesFastTimings :: Assertion

@@ -29,12 +29,9 @@ maybeVerboseTimingParts parsers processedBytes preprocessNanos aihcNanos ghcNano
     timingParts =
       cppPart
         ++ ["aihc=" ++ formatSpeed processedBytes aihcNanos | ParserAihc `elem` parsers]
-        ++ ["ghc=" ++ formatNanosMs ghcNanos | ParserGhc `elem` parsers]
+        ++ ["ghc=" ++ formatSpeed processedBytes ghcNanos | ParserGhc `elem` parsers]
     cppPart =
       ["cpp=" ++ formatSpeed processedBytes preprocessNanos | preprocessNanos >= cppMinDisplayNanos]
-
-formatNanosMs :: Word64 -> String
-formatNanosMs n = printf "%.3fms" (fromIntegral n / 1e6 :: Double)
 
 formatSpeed :: Int -> Word64 -> String
 formatSpeed bytes nanos = printf "%.1fKB/s" (speedBytesPerSec bytes nanos / 1000)
