@@ -22,13 +22,13 @@ import Aihc.Parser.Lex
   ( LayoutState (..),
     LexToken (..),
     LexTokenKind (..),
-    LexerState (..),
     TokenOrigin (..),
     enabledExtensionsFromSettings,
+    layoutTransition,
     mkInitialLayoutState,
     mkInitialLexerState,
     readModuleHeaderExtensionsFromChunks,
-    stepNextToken,
+    scanAllTokens,
   )
 import Aihc.Parser.Syntax (Extension, SourceSpan (..))
 import Control.DeepSeq (NFData (..))
@@ -85,14 +85,19 @@ lexerErrorBundle sourcePath message =
         MP.pstateLinePrefix = ""
       }
 
--- | Token stream that lazily produces tokens from the lexer+layout state machine.
+-- | Token stream backed by a shared lazy raw token list and a layout overlay.
 --
--- Instead of holding a pre-computed @[LexToken]@, this type contains the lexer
--- and layout state machines. Tokens are produced on demand via the 'Stream'
--- instance. This allows the parser to influence layout decisions (e.g., by
--- closing implicit layout contexts via 'closeImplicitLayoutContext').
+-- The raw token list (@tokStreamRawTokens@) is produced lazily by scanning the
+-- input once. Backtracking never causes characters to be re-scanned — it only
+-- restores a pointer into this shared list. The layout overlay
+-- (@tokStreamLayoutState@) runs 'layoutTransition' on each raw token to produce
+-- virtual @{@, @;@, @}@ tokens. This allows the parser to influence layout
+-- decisions (e.g., by closing implicit layout contexts via
+-- 'closeImplicitLayoutContext').
 data TokStream = TokStream
-  { tokStreamLexerState :: LexerState,
+  { -- | Shared lazy list of raw tokens (never re-scanned on backtrack).
+    tokStreamRawTokens :: [LexToken],
+    -- | Layout engine state (context stack, pending layout, buffer).
     tokStreamLayoutState :: LayoutState,
     tokStreamPrevToken :: Maybe LexToken,
     tokStreamExtensions :: [Extension],
@@ -101,11 +106,11 @@ data TokStream = TokStream
     tokStreamEOFEmitted :: !Bool
   }
 
--- Manual Eq instance (LexerState, LayoutState have Eq already)
+-- Manual Eq instance — we skip tokStreamRawTokens since list position is not
+-- efficiently comparable and Megaparsec tracks offset separately.
 instance Eq TokStream where
   a == b =
-    tokStreamLexerState a == tokStreamLexerState b
-      && tokStreamLayoutState a == tokStreamLayoutState b
+    tokStreamLayoutState a == tokStreamLayoutState b
       && tokStreamPrevToken a == tokStreamPrevToken b
       && tokStreamExtensions a == tokStreamExtensions b
       && tokStreamEOFEmitted a == tokStreamEOFEmitted b
@@ -126,7 +131,7 @@ instance Show TokStream where
       <> show (tokStreamExtensions ts)
       <> " }"
 
--- Manual NFData instance
+-- Manual NFData instance — don't force the lazy raw token list.
 instance NFData TokStream where
   rnf ts =
     rnf (tokStreamPrevToken ts) `seq`
@@ -135,9 +140,9 @@ instance NFData TokStream where
 
 -- | An empty TokStream for error reporting purposes.
 emptyTokStream :: FilePath -> TokStream
-emptyTokStream sourcePath =
+emptyTokStream _sourcePath =
   TokStream
-    { tokStreamLexerState = mkInitialLexerState sourcePath [] "",
+    { tokStreamRawTokens = [],
       tokStreamLayoutState = mkInitialLayoutState False,
       tokStreamPrevToken = Nothing,
       tokStreamExtensions = [],
@@ -148,7 +153,7 @@ emptyTokStream sourcePath =
 mkTokStream :: FilePath -> [Extension] -> Text -> TokStream
 mkTokStream sourceName exts input =
   TokStream
-    { tokStreamLexerState = mkInitialLexerState sourceName exts input,
+    { tokStreamRawTokens = scanAllTokens (mkInitialLexerState sourceName exts input),
       tokStreamLayoutState = mkInitialLayoutState False,
       tokStreamPrevToken = Nothing,
       tokStreamExtensions = exts,
@@ -160,7 +165,7 @@ mkTokStream sourceName exts input =
 mkTokStreamModule :: FilePath -> [Extension] -> Text -> TokStream
 mkTokStreamModule sourceName baseExts input =
   TokStream
-    { tokStreamLexerState = mkInitialLexerState sourceName effectiveExts input,
+    { tokStreamRawTokens = scanAllTokens (mkInitialLexerState sourceName effectiveExts input),
       tokStreamLayoutState = mkInitialLayoutState True,
       tokStreamPrevToken = Nothing,
       tokStreamExtensions = effectiveExts,
@@ -175,7 +180,7 @@ mkTokStreamModule sourceName baseExts input =
 mkTokStreamFromTokens :: [LexToken] -> TokStream
 mkTokStreamFromTokens toks =
   TokStream
-    { tokStreamLexerState = mkInitialLexerState "<tokens>" [] "",
+    { tokStreamRawTokens = scanAllTokens (mkInitialLexerState "<tokens>" [] ""),
       tokStreamLayoutState =
         (mkInitialLayoutState False)
           { layoutBuffer = toks
@@ -187,23 +192,53 @@ mkTokStreamFromTokens toks =
 
 -- | Step one token from the stream. This is the core primitive used by all
 -- Stream methods.
+--
+-- Tokens are produced in two phases:
+--
+-- 1. Drain any buffered tokens from the layout state (virtual braces/semicolons
+--    from 'layoutTransition' or 'closeImplicitLayoutContext').
+-- 2. Fetch the next raw token from the shared lazy list and run
+--    'layoutTransition' to produce virtual layout tokens and the raw token
+--    itself. The first token is returned; the rest are buffered.
+--
+-- Because the raw token list is a shared lazy list, backtracking to an earlier
+-- stream position is O(1) and never re-scans characters.
 stepOne :: TokStream -> Maybe (LexToken, TokStream)
 stepOne ts
   | tokStreamEOFEmitted ts = Nothing
   | otherwise =
-      case stepNextToken (tokStreamLexerState ts) (tokStreamLayoutState ts) of
-        Nothing -> Nothing
-        Just (tok, lexSt', laySt') ->
-          let isEOF = lexTokenKind tok == TkEOF
-           in Just
-                ( tok,
-                  ts
-                    { tokStreamLexerState = lexSt',
-                      tokStreamLayoutState = laySt',
-                      tokStreamPrevToken = Just tok,
-                      tokStreamEOFEmitted = isEOF
-                    }
-                )
+      let laySt = tokStreamLayoutState ts
+       in case layoutBuffer laySt of
+            -- Drain buffered tokens first (virtual braces/semicolons)
+            tok : rest ->
+              let isEOF = lexTokenKind tok == TkEOF
+               in Just
+                    ( tok,
+                      ts
+                        { tokStreamLayoutState = laySt {layoutBuffer = rest},
+                          tokStreamPrevToken = Just tok,
+                          tokStreamEOFEmitted = isEOF
+                        }
+                    )
+            [] ->
+              -- Fetch next raw token from the shared lazy list
+              case tokStreamRawTokens ts of
+                [] -> Nothing -- input exhausted & EOF already emitted
+                rawTok : rawRest ->
+                  let (allToks, laySt') = layoutTransition laySt rawTok
+                   in case allToks of
+                        [] -> Nothing -- shouldn't happen, but be safe
+                        first : bufRest ->
+                          let isEOF = lexTokenKind first == TkEOF
+                           in Just
+                                ( first,
+                                  ts
+                                    { tokStreamRawTokens = rawRest,
+                                      tokStreamLayoutState = laySt' {layoutBuffer = bufRest},
+                                      tokStreamPrevToken = Just first,
+                                      tokStreamEOFEmitted = isEOF
+                                    }
+                                )
 
 instance Stream TokStream where
   type Token TokStream = LexToken
