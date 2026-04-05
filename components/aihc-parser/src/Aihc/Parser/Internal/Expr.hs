@@ -694,21 +694,51 @@ guardedRhsParser arrowKind = withSpan $ do
       }
 
 guardQualifierParser :: TokParser GuardQualifier
-guardQualifierParser = MP.try guardPatParser <|> MP.try guardLetParser <|> guardExprParser
-  where
-    guardPatParser = withSpan $ do
-      pat <- patternParser
-      expectedTok TkReservedLeftArrow
-      expr <- exprParser
-      pure (\span' -> GuardPat span' pat expr)
+guardQualifierParser = do
+  tok <- lookAhead anySingle
+  case lexTokenKind tok of
+    -- 'let' qualifier: distinguished by leading keyword.
+    -- Uses MP.try because 'let ... in ...' is a valid expression that
+    -- guardLetParser rejects via notFollowedBy.
+    TkKeywordLet -> MP.try guardLetParser <|> guardBindOrExprParser
+    -- Pattern-only leading tokens: only valid in bind context.
+    TkPrefixBang -> guardPatBindParser
+    TkPrefixTilde -> guardPatBindParser
+    -- Common case: parse as expression, check for '<-'.
+    _ -> do
+      isAs <- startsWithAsPattern
+      if isAs
+        then guardPatBindParser
+        else guardBindOrExprParser
 
-    guardLetParser = withSpan $ do
-      decls <- parseLetDeclsStmtParser
-      pure (`GuardLet` decls)
-
-    guardExprParser = withSpan $ do
-      expr <- exprParser
+-- | Parse a guard qualifier that is either a pattern bind (@pat <- expr@)
+-- or a plain expression. We parse the leading expression once and then check
+-- for @<-@ to disambiguate, avoiding backtracking.
+guardBindOrExprParser :: TokParser GuardQualifier
+guardBindOrExprParser = withSpan $ do
+  expr <- exprParser
+  mArrow <- MP.optional (expectedTok TkReservedLeftArrow)
+  case mArrow of
+    Just () -> do
+      pat <- liftCheck (checkPattern expr)
+      rhs <- exprParser
+      pure (\span' -> GuardPat span' pat rhs)
+    Nothing ->
       pure (`GuardExpr` expr)
+
+-- | Fallback for guard pattern binds that the expression-first approach
+-- cannot handle (@!pat@, @~pat@, @x\@pat@).
+guardPatBindParser :: TokParser GuardQualifier
+guardPatBindParser = withSpan $ do
+  pat <- patternParser
+  expectedTok TkReservedLeftArrow
+  expr <- exprParser
+  pure (\span' -> GuardPat span' pat expr)
+
+guardLetParser :: TokParser GuardQualifier
+guardLetParser = withSpan $ do
+  decls <- parseLetDeclsStmtParser
+  pure (`GuardLet` decls)
 
 caseAltParser :: TokParser CaseAlt
 caseAltParser = withSpan $ do
@@ -962,10 +992,42 @@ parseListTail first =
       pure (\span' -> EList span' [first])
 
 compStmtParser :: TokParser CompStmt
-compStmtParser = MP.try compGenStmtParser <|> MP.try compLetStmtParser <|> compGuardStmtParser
+compStmtParser = do
+  tok <- lookAhead anySingle
+  case lexTokenKind tok of
+    -- 'let' statement: distinguished by leading keyword.
+    -- Uses MP.try because 'let ... in ...' is a valid expression that
+    -- compLetStmtParser rejects via notFollowedBy.
+    TkKeywordLet -> MP.try compLetStmtParser <|> compGenOrGuardParser
+    -- Pattern-only leading tokens: only valid in generator context.
+    TkPrefixBang -> compPatGenParser
+    TkPrefixTilde -> compPatGenParser
+    -- Common case: parse as expression, check for '<-'.
+    _ -> do
+      isAs <- startsWithAsPattern
+      if isAs
+        then compPatGenParser
+        else compGenOrGuardParser
 
-compGenStmtParser :: TokParser CompStmt
-compGenStmtParser = withSpan $ do
+-- | Parse a comprehension statement that is either a generator
+-- (@pat <- expr@) or a guard. We parse the leading expression once and
+-- then check for @<-@ to disambiguate, avoiding backtracking.
+compGenOrGuardParser :: TokParser CompStmt
+compGenOrGuardParser = withSpan $ do
+  expr <- exprParser
+  mArrow <- MP.optional (expectedTok TkReservedLeftArrow)
+  case mArrow of
+    Just () -> do
+      pat <- liftCheck (checkPattern expr)
+      rhs <- region "while parsing '<-' generator" exprParser
+      pure (\span' -> CompGen span' pat rhs)
+    Nothing ->
+      pure (`CompGuard` expr)
+
+-- | Fallback for comprehension generators that the expression-first approach
+-- cannot handle (@!pat@, @~pat@, @x\@pat@).
+compPatGenParser :: TokParser CompStmt
+compPatGenParser = withSpan $ do
   pat <- patternParser
   expectedTok TkReservedLeftArrow
   expr <- region "while parsing '<-' generator" exprParser
@@ -1237,11 +1299,6 @@ hasTopLevelViewPatternArrowBefore closeTok = MP.lookAhead (go [closeTok])
         TkSpecialLBracket -> go (TkSpecialRBracket : stack)
         TkSpecialLBrace -> go (TkSpecialRBrace : stack)
         _ -> go stack
-
-compGuardStmtParser :: TokParser CompStmt
-compGuardStmtParser = withSpan $ do
-  expr <- exprParser
-  pure (`CompGuard` expr)
 
 varExprParser :: TokParser Expr
 varExprParser = withSpan $ do
