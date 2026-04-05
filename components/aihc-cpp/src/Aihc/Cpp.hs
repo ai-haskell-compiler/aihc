@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- |
@@ -35,7 +36,7 @@ where
 
 import Aihc.Cpp.Evaluator (evalCondition)
 import Aihc.Cpp.Parser (Directive (..), parseDirective)
-import Aihc.Cpp.Scanner (expandLineBySpan, lineScanFinalCDepth, lineScanFinalHsDepth, lineScanSpans, scanLine)
+import Aihc.Cpp.Scanner (expandLineBySpanMultiline, lineScanFinalCDepth, lineScanFinalHsDepth, lineScanSpans, scanLine)
 import Aihc.Cpp.Types
   ( CondFrame (..),
     Config (..),
@@ -246,7 +247,36 @@ processFile filePath ((lineNo, lineSpan, line) : restLines) stack st k =
         else case parsedDirective of
           Nothing ->
             if currentActive stack
-              then continue (emitLine (expandLineBySpan st (lineScanSpans lineScan)) st)
+              then
+                -- Try multi-line expansion: look ahead at future lines
+                let futureCodeLines = [l | (_, _, l) <- restLines]
+                    (expanded, extraConsumed) =
+                      expandLineBySpanMultiline st (lineScanSpans lineScan) futureCodeLines
+                 in if extraConsumed > 0
+                      then
+                        -- Skip consumed continuation lines
+                        let consumed = take extraConsumed restLines
+                            remaining = drop extraConsumed restLines
+                            -- Scan consumed lines to update comment depths
+                            (finalHs, finalC) =
+                              foldl'
+                                ( \(!hs, !c) (_, _, l) ->
+                                    let ls = scanLine hs c l
+                                     in (lineScanFinalHsDepth ls, lineScanFinalCDepth ls)
+                                )
+                                (lineScanFinalHsDepth lineScan, lineScanFinalCDepth lineScan)
+                                consumed
+                            nextLineNo' = case remaining of
+                              (n, _, _) : _ -> n
+                              [] -> lineNo + lineSpan + sum [s | (_, s, _) <- consumed]
+                            st' =
+                              (emitLine expanded st)
+                                { stCurrentLine = nextLineNo',
+                                  stHsBlockCommentDepth = finalHs,
+                                  stCBlockCommentDepth = finalC
+                                }
+                         in processFile filePath remaining stack st' k
+                      else continue (emitLine expanded st)
               else continue (emitBlankLines lineSpan st)
           Just directive ->
             handleDirective ctx st directive

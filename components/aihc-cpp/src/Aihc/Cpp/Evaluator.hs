@@ -2,7 +2,7 @@
 
 module Aihc.Cpp.Evaluator
   ( expandMacros,
-    expandOnce,
+    expandMacrosMultiline,
     substituteParams,
     evalCondition,
     evalNumeric,
@@ -27,98 +27,193 @@ import Aihc.Cpp.Types (EngineState (..), MacroDef (..))
 import Data.Char (isDigit, isSpace)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
+import Data.Set (Set)
+import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Lazy.Builder as TB
 import qualified Data.Text.Read as TR
 
+-- | Expand macros in a single piece of text using the blue-paint algorithm.
+-- A single pass with a suppression set replaces the previous iterate-up-to-32
+-- fixpoint approach.
 expandMacros :: EngineState -> Text -> Text
-expandMacros st = applyDepth (32 :: Int)
-  where
-    applyDepth 0 t = t
-    applyDepth n t =
-      let next = expandOnce st t
-       in if next == t then t else applyDepth (n - 1) next
+expandMacros st txt =
+  builderToText (expandBlue st S.empty False False False (TB.fromText txt))
 
-expandOnce :: EngineState -> Text -> Text
-expandOnce st = go False False False
+-- | Expand macros with multi-line support. When a function-like macro call
+-- spans multiple lines, continuation lines are consumed from @moreLines@.
+-- Returns the expanded text and the number of extra lines consumed.
+expandMacrosMultiline :: EngineState -> Text -> [Text] -> (Text, Int)
+expandMacrosMultiline st txt moreLines =
+  let extraNeeded = countExtraLinesConsumed st txt moreLines
+   in if extraNeeded == 0
+        then (expandMacros st txt, 0)
+        else
+          let combinedLines = txt : take extraNeeded moreLines
+              combined = T.intercalate "\n" combinedLines
+              expanded = expandMacros st combined
+           in (expanded, extraNeeded)
+
+-- | Count how many extra lines a function macro call consumes.
+-- Scans the first line for an identifier that matches a function macro,
+-- then checks if parseCallArgs needs to span into continuation lines.
+countExtraLinesConsumed :: EngineState -> Text -> [Text] -> Int
+countExtraLinesConsumed st txt moreLines = scanForFunctionMacro False False False txt
   where
     macros = stMacros st
 
-    go :: Bool -> Bool -> Bool -> Text -> Text
-    go _ _ _ txt
-      | T.null txt = ""
-    go inString inChar escaped txt =
-      case T.uncons txt of
-        Nothing -> ""
+    scanForFunctionMacro :: Bool -> Bool -> Bool -> Text -> Int
+    scanForFunctionMacro _ _ _ t | T.null t = 0
+    scanForFunctionMacro inString inChar escaped t =
+      case T.uncons t of
+        Nothing -> 0
         Just (c, rest)
           | inString ->
               let escaped' = c == '\\' && not escaped
                   inString' = not (c == '"' && not escaped)
-               in T.cons c (go inString' False escaped' rest)
+               in scanForFunctionMacro inString' False escaped' rest
           | inChar ->
               let escaped' = c == '\\' && not escaped
                   inChar' = not (c == '\'' && not escaped)
-               in T.cons c (go False inChar' escaped' rest)
-          | c == '"' ->
-              T.cons c (go True False False rest)
-          | c == '\'' ->
-              T.cons c (go False True False rest)
+               in scanForFunctionMacro False inChar' escaped' rest
+          | c == '"' -> scanForFunctionMacro True False False rest
+          | c == '\'' -> scanForFunctionMacro False True False rest
           | isIdentStart c ->
-              expandIdentifier txt
-          | otherwise ->
-              T.cons c (go False False False rest)
+              let (ident, rest') = T.span isIdentChar t
+               in case M.lookup ident macros of
+                    Just (FunctionMacro _ _) ->
+                      case tryMultilineCallArgs rest' of
+                        Just n -> n
+                        Nothing -> scanForFunctionMacro False False False rest'
+                    _ -> scanForFunctionMacro False False False rest'
+          | otherwise -> scanForFunctionMacro False False False rest
 
-    expandIdentifier :: Text -> Text
-    expandIdentifier input =
-      let (ident, rest) = T.span isIdentChar input
-       in case ident of
-            "__LINE__" -> T.pack (show (stCurrentLine st)) <> go False False False rest
-            "__FILE__" -> T.pack (show (stCurrentFile st)) <> go False False False rest
-            _ ->
-              case M.lookup ident macros of
-                Just (ObjectMacro replacement) ->
-                  replacement <> go False False False rest
-                Just (FunctionMacro params body) ->
-                  case parseCallArgs rest of
-                    Nothing -> ident <> go False False False rest
-                    Just (args, restAfter)
-                      | length args == length params ->
-                          let body' = substituteParams (M.fromList (zip params args)) body
-                           in body' <> go False False False restAfter
-                      | otherwise -> ident <> go False False False rest
-                Nothing -> ident <> go False False False rest
+    -- Try to parse function call args, potentially spanning multiple lines.
+    -- Returns Just n if the call spans n extra lines, Nothing if no call.
+    tryMultilineCallArgs :: Text -> Maybe Int
+    tryMultilineCallArgs rest =
+      case T.uncons rest of
+        Just ('(', afterOpen) ->
+          findClosingParen 0 afterOpen 0
+        _ -> Nothing
 
-    parseCallArgs :: Text -> Maybe ([Text], Text)
-    parseCallArgs input = do
-      ('(', rest) <- T.uncons input
-      parseArgs 0 [] mempty rest
-
-    parseArgs :: Int -> [Text] -> TB.Builder -> Text -> Maybe ([Text], Text)
-    parseArgs depth argsRev current remaining =
+    findClosingParen :: Int -> Text -> Int -> Maybe Int
+    findClosingParen depth remaining extraLines =
       case T.uncons remaining of
-        Nothing -> Nothing
+        Nothing ->
+          -- Need more lines
+          case drop extraLines moreLines of
+            [] -> Nothing -- No more lines, unclosed call
+            (nextLine : _) ->
+              findClosingParen depth (T.cons '\n' nextLine) (extraLines + 1)
         Just (ch, rest)
-          | ch == '(' ->
-              parseArgs (depth + 1) argsRev (current <> TB.singleton ch) rest
-          | ch == ')' && depth > 0 ->
-              parseArgs (depth - 1) argsRev (current <> TB.singleton ch) rest
-          | ch == ')' && depth == 0 ->
-              let arg = trimSpacesText (builderToText current)
-                  argsRev' =
-                    if T.null arg && null argsRev
-                      then argsRev
-                      else arg : argsRev
-               in Just (reverse argsRev', rest)
-          | ch == ',' && depth == 0 ->
-              let arg = trimSpacesText (builderToText current)
-               in parseArgs depth (arg : argsRev) mempty rest
-          | otherwise ->
-              parseArgs depth argsRev (current <> TB.singleton ch) rest
+          | ch == '(' -> findClosingParen (depth + 1) rest extraLines
+          | ch == ')' && depth > 0 -> findClosingParen (depth - 1) rest extraLines
+          | ch == ')' -> Just extraLines
+          | otherwise -> findClosingParen depth rest extraLines
+
+-- | Blue-paint macro expansion engine. Uses a suppression set (@painted@)
+-- to prevent infinite recursion instead of iterating to a fixpoint.
+-- Output is accumulated via a lazy 'TB.Builder' for amortized O(n).
+expandBlue :: EngineState -> Set Text -> Bool -> Bool -> Bool -> TB.Builder -> TB.Builder
+expandBlue st painted inString inChar escaped input =
+  let txt = builderToText input
+   in goText st painted inString inChar escaped txt mempty
+
+-- | Walk the input text, expanding macros with blue-paint suppression.
+goText :: EngineState -> Set Text -> Bool -> Bool -> Bool -> Text -> TB.Builder -> TB.Builder
+goText _ _ _ _ _ txt acc | T.null txt = acc
+goText st painted inString inChar escaped txt acc =
+  case T.uncons txt of
+    Nothing -> acc
+    Just (c, rest)
+      | inString ->
+          let escaped' = c == '\\' && not escaped
+              inString' = not (c == '"' && not escaped)
+           in goText st painted inString' False escaped' rest (acc <> TB.singleton c)
+      | inChar ->
+          let escaped' = c == '\\' && not escaped
+              inChar' = not (c == '\'' && not escaped)
+           in goText st painted False inChar' escaped' rest (acc <> TB.singleton c)
+      | c == '"' ->
+          goText st painted True False False rest (acc <> TB.singleton c)
+      | c == '\'' ->
+          goText st painted False True False rest (acc <> TB.singleton c)
+      | isIdentStart c ->
+          expandIdentBlue st painted txt acc
+      | otherwise ->
+          goText st painted False False False rest (acc <> TB.singleton c)
+
+-- | Handle an identifier during blue-paint expansion.
+expandIdentBlue :: EngineState -> Set Text -> Text -> TB.Builder -> TB.Builder
+expandIdentBlue st painted txt acc =
+  let (ident, rest) = T.span isIdentChar txt
+   in if S.member ident painted
+        then -- Blue-painted: copy verbatim, don't expand
+          goText st painted False False False rest (acc <> TB.fromText ident)
+        else case ident of
+          "__LINE__" ->
+            goText st painted False False False rest (acc <> TB.fromString (show (stCurrentLine st)))
+          "__FILE__" ->
+            goText st painted False False False rest (acc <> TB.fromString (show (stCurrentFile st)))
+          _ ->
+            case M.lookup ident (stMacros st) of
+              Just (ObjectMacro replacement) ->
+                let painted' = S.insert ident painted
+                    expanded = builderToText (goText st painted' False False False replacement mempty)
+                 in goText st painted False False False rest (acc <> TB.fromText expanded)
+              Just (FunctionMacro params body) ->
+                case parseCallArgs rest of
+                  Nothing ->
+                    goText st painted False False False rest (acc <> TB.fromText ident)
+                  Just (args, restAfter)
+                    | length args == length params ->
+                        let body' = substituteParamsBuilder (M.fromList (zip params args)) body
+                            painted' = S.insert ident painted
+                            expanded = builderToText (goText st painted' False False False body' mempty)
+                         in goText st painted False False False restAfter (acc <> TB.fromText expanded)
+                    | otherwise ->
+                        goText st painted False False False rest (acc <> TB.fromText ident)
+              Nothing ->
+                goText st painted False False False rest (acc <> TB.fromText ident)
+
+-- | Parse function-like macro call arguments.
+parseCallArgs :: Text -> Maybe ([Text], Text)
+parseCallArgs input = do
+  ('(', rest) <- T.uncons input
+  parseArgs 0 [] mempty rest
+
+parseArgs :: Int -> [Text] -> TB.Builder -> Text -> Maybe ([Text], Text)
+parseArgs depth argsRev current remaining =
+  case T.uncons remaining of
+    Nothing -> Nothing
+    Just (ch, rest)
+      | ch == '(' ->
+          parseArgs (depth + 1) argsRev (current <> TB.singleton ch) rest
+      | ch == ')' && depth > 0 ->
+          parseArgs (depth - 1) argsRev (current <> TB.singleton ch) rest
+      | ch == ')' && depth == 0 ->
+          let arg = trimSpacesText (builderToText current)
+              argsRev' =
+                if T.null arg && null argsRev
+                  then argsRev
+                  else arg : argsRev
+           in Just (reverse argsRev', rest)
+      | ch == ',' && depth == 0 ->
+          let arg = trimSpacesText (builderToText current)
+           in parseArgs depth (arg : argsRev) mempty rest
+      | otherwise ->
+          parseArgs depth argsRev (current <> TB.singleton ch) rest
 
 substituteParams :: Map Text Text -> Text -> Text
-substituteParams subs = go False False False
+substituteParams = substituteParamsBuilder
+
+-- | Builder-based parameter substitution. Replaces identifiers found
+-- in the substitution map, respecting string and char literals.
+substituteParamsBuilder :: Map Text Text -> Text -> Text
+substituteParamsBuilder subs = go False False False
   where
     go :: Bool -> Bool -> Bool -> Text -> Text
     go _ _ _ txt
