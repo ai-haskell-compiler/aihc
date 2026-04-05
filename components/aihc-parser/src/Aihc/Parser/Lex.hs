@@ -74,6 +74,8 @@ module Aihc.Parser.Lex
     LayoutContext (..),
     mkInitialLexerState,
     mkInitialLayoutState,
+    scanAllTokens,
+    layoutTransition,
     stepNextToken,
     closeImplicitLayoutContext,
     enabledExtensionsFromSettings,
@@ -957,6 +959,15 @@ scanOneToken st0 =
                   let (tok, st') = nextToken st
                       st'' = st' {lexerPrevTokenKind = Just (lexTokenKind tok), lexerHadTrivia = False}
                    in Just (tok, st'')
+
+-- | Lazily scan all raw tokens from the lexer state (no layout processing).
+-- The result is a shared lazy list: backtracking to an earlier cons cell
+-- is O(1) and never re-scans characters.
+scanAllTokens :: LexerState -> [LexToken]
+scanAllTokens st =
+  case scanOneToken st of
+    Nothing -> []
+    Just (tok, st') -> tok : scanAllTokens st'
 
 layoutTransition :: LayoutState -> LexToken -> ([LexToken], LayoutState)
 layoutTransition st tok =

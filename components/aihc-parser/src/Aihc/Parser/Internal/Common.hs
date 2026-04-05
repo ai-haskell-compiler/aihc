@@ -39,7 +39,7 @@ module Aihc.Parser.Internal.Common
   )
 where
 
-import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), closeImplicitLayoutContext)
+import Aihc.Parser.Lex (LayoutState (..), LexToken (..), LexTokenKind (..), closeImplicitLayoutContext)
 import Aihc.Parser.Syntax
 import Aihc.Parser.Types (ParserErrorComponent (..), TokStream (..), mkFoundToken)
 import Control.Monad (guard)
@@ -270,11 +270,15 @@ stringTextParser =
 
 withSpan :: TokParser (SourceSpan -> a) -> TokParser a
 withSpan parser = do
-  startToken <- MP.optional (lookAhead anySingle)
+  ts <- fmap MP.stateInput MP.getParserState
+  let startSpan
+        | tokStreamEOFEmitted ts = noSourceSpan
+        | tok : _ <- layoutBuffer (tokStreamLayoutState ts) = lexTokenSpan tok
+        | rawTok : _ <- tokStreamRawTokens ts = lexTokenSpan rawTok
+        | otherwise = noSourceSpan
   out <- parser
   lastToken <- fmap (tokStreamPrevToken . MP.stateInput) MP.getParserState
-  let startSpan = maybe noSourceSpan lexTokenSpan startToken
-      endSpan = maybe noSourceSpan lexTokenSpan lastToken
+  let endSpan = maybe noSourceSpan lexTokenSpan lastToken
       parserSpan = mergeSourceSpans startSpan endSpan
   pure (out parserSpan)
 
