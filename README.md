@@ -16,10 +16,10 @@ Find more information here:
 
 | Name             | Progress                                                                                                                            |
 | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------: |
-| Parser Stackage  | <!-- AUTO-GENERATED: START parser-stackage-progress --> `1992/3390` (`58.76%`) <!-- AUTO-GENERATED: END parser-stackage-progress --> |
-| Parser Tests     | <!-- AUTO-GENERATED: START parser-progress --> `563/686` (`82.07%`) <!-- AUTO-GENERATED: END parser-progress -->                    |
-| Lexer Tests      | <!-- AUTO-GENERATED: START lexer-progress --> `66/67` (`98.50%`) <!-- AUTO-GENERATED: END lexer-progress -->                        |
-| CPP preprocessor | <!-- AUTO-GENERATED: START cpp-progress --> `37/37` (`100.00%`) <!-- AUTO-GENERATED: END cpp-progress -->                           |
+| Parser Stackage  | <!-- AUTO-GENERATED: START parser-stackage-progress --> `2088/3390` (`61.59%`) <!-- AUTO-GENERATED: END parser-stackage-progress --> |
+| Parser Tests     | <!-- AUTO-GENERATED: START parser-progress --> `587/708` (`82.91%`) <!-- AUTO-GENERATED: END parser-progress -->                    |
+| Lexer Tests      | <!-- AUTO-GENERATED: START lexer-progress --> `68/72` (`94.44%`) <!-- AUTO-GENERATED: END lexer-progress -->                        |
+| CPP preprocessor | <!-- AUTO-GENERATED: START cpp-progress --> `38/38` (`100.00%`) <!-- AUTO-GENERATED: END cpp-progress -->                           |
 
 ## Lines of code
 
@@ -27,10 +27,10 @@ Find more information here:
 ```
 | Component       |   Code |   Tests |   Total |
 |-----------------|--------|---------|---------|
-| aihc-cpp        |   1064 |     512 |    1576 |
-| aihc-parser     |   8620 |   13098 |   21718 |
-| aihc-parser-cli |   1873 |     379 |    2252 |
-| **Total**       |  11557 |   13989 |   25546 |
+| aihc-cpp        |   1522 |     525 |    2047 |
+| aihc-parser     |   9537 |   13512 |   23049 |
+| aihc-parser-cli |   1882 |     379 |    2261 |
+| **Total**       |  12941 |   14416 |   27357 |
 ```
 <!-- AUTO-GENERATED: END line-counts -->
 
