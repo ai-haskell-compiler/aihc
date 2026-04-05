@@ -971,7 +971,7 @@ dataDeclParser = withSpan $ do
   (constructors, derivingClauses) <- gadtOrTraditionalDispatch gadtStyleDataDecl traditionalStyleDataDecl
   pure $ \span' ->
     DeclData
-    span'
+      span'
       DataDecl
         { dataDeclSpan = span',
           dataDeclContext = fromMaybe [] context,
