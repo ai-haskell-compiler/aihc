@@ -385,26 +385,30 @@ atomExprParser = do
   thEnabled <- isExtensionEnabled TemplateHaskellQuotes
   thFullEnabled <- isExtensionEnabled TemplateHaskell
   let thAny = thEnabled || thFullEnabled
-  MP.try prefixNegateAtomExprParser
-    <|> MP.try parenOperatorExprParser
-    <|> lambdaExprParser
-    <|> letExprParser
-    <|> (if blockArgsEnabled then MP.try doExprParser else MP.empty)
-    <|> (if blockArgsEnabled then MP.try caseExprParser else MP.empty)
-    <|> (if blockArgsEnabled then MP.try ifExprParser else MP.empty)
-    <|> (if thAny then thQuoteExprParser else MP.empty)
-    <|> (if thAny then thNameQuoteExprParser else MP.empty)
-    <|> (if thFullEnabled then thSpliceExprParser else MP.empty)
-    <|> quasiQuoteExprParser
-    <|> parenExprParser
-    <|> listExprParser
-    <|> intBaseExprParser
-    <|> floatExprParser
-    <|> intExprParser
-    <|> charExprParser
-    <|> stringExprParser
-    <|> wildcardExprParser
-    <|> varExprParser
+  tok <- lookAhead anySingle
+  case lexTokenKind tok of
+    TkVarSym "?" -> implicitParamExprParser
+    _ ->
+      MP.try prefixNegateAtomExprParser
+        <|> MP.try parenOperatorExprParser
+        <|> lambdaExprParser
+        <|> letExprParser
+        <|> (if blockArgsEnabled then MP.try doExprParser else MP.empty)
+        <|> (if blockArgsEnabled then MP.try caseExprParser else MP.empty)
+        <|> (if blockArgsEnabled then MP.try ifExprParser else MP.empty)
+        <|> (if thAny then thQuoteExprParser else MP.empty)
+        <|> (if thAny then thNameQuoteExprParser else MP.empty)
+        <|> (if thFullEnabled then thSpliceExprParser else MP.empty)
+        <|> quasiQuoteExprParser
+        <|> parenExprParser
+        <|> listExprParser
+        <|> intBaseExprParser
+        <|> floatExprParser
+        <|> intExprParser
+        <|> charExprParser
+        <|> stringExprParser
+        <|> wildcardExprParser
+        <|> varExprParser
 
 prefixNegateAtomExprParser :: TokParser Expr
 prefixNegateAtomExprParser = withSpan $ do
@@ -1099,7 +1103,11 @@ localDeclParser = do
     -- and pattern binds can overlap (e.g. '(x, y) = expr' can be attempted
     -- as an infix function head before falling back to pattern bind).
     -- Phase 4 will address functionHeadParserWith to further reduce this.
-      MP.try localFunctionDeclParser <|> localPatternDeclParser
+      do
+        tok <- lookAhead anySingle
+        case lexTokenKind tok of
+          TkVarSym "?" -> implicitParamDeclParser
+          _ -> MP.try localFunctionDeclParser <|> localPatternDeclParser
 
 localTypeSigDeclParser :: TokParser Decl
 localTypeSigDeclParser = withSpan $ do
@@ -1120,6 +1128,13 @@ localPatternDeclParser = withSpan $ do
   expectedTok TkReservedEquals
   rhsExpr <- exprParser
   pure (\span' -> DeclValue span' (PatternBind span' pat (UnguardedRhs span' rhsExpr)))
+
+implicitParamDeclParser :: TokParser Decl
+implicitParamDeclParser = withSpan $ do
+  name <- implicitParamNameParser
+  expectedTok TkReservedEquals
+  rhsExpr <- exprParser
+  pure (\span' -> DeclValue span' (PatternBind span' (PVar span' name) (UnguardedRhs span' rhsExpr)))
 
 varOrConPatternParser :: TokParser Pattern
 varOrConPatternParser = withSpan $ do
@@ -1341,6 +1356,11 @@ varExprParser = withSpan $ do
   name <- identifierTextParser
   pure (`EVar` name)
 
+implicitParamExprParser :: TokParser Expr
+implicitParamExprParser = withSpan $ do
+  name <- implicitParamNameParser
+  pure (`EVar` name)
+
 -- | Parse a wildcard @_@ as an expression. In expression context this is
 -- a typed hole; in pattern context 'checkPattern' converts it to 'PWildcard'.
 -- This allows the unified parse-as-expression strategy to handle do-binds
@@ -1524,7 +1544,7 @@ constraintHeadSpan constraints =
     constraint : _ -> getSourceSpan constraint
 
 constraintsParser :: TokParser [Constraint]
-constraintsParser = constraintsParserWith typeAtomParser
+constraintsParser = constraintsParserWith typeParser typeAtomParser
 
 typeFunParser :: TokParser Type
 typeFunParser = do

@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail complicated type signature with implicit params -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE ImplicitParams #-}
 module ComplicatedType where
 

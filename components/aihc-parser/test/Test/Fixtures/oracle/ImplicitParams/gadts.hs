@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail GADTs with implicit params -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ImplicitParams #-}
 module GADTsImplicitParams where

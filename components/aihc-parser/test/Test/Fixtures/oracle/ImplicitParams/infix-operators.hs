@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail infix operators with implicit params -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE ImplicitParams #-}
 module InfixOperators where
 

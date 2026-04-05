@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail implicit parameter in type -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE ImplicitParams #-}
 module Type where
 

@@ -12,6 +12,7 @@ module Aihc.Parser.Internal.Common
     moduleNameParser,
     identifierTextParser,
     lowerIdentifierParser,
+    implicitParamNameParser,
     constructorIdentifierParser,
     binderNameParser,
     operatorTextParser,
@@ -39,7 +40,7 @@ module Aihc.Parser.Internal.Common
   )
 where
 
-import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), closeImplicitLayoutContext)
+import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), closeImplicitLayoutContext, lexTokenSpan)
 import Aihc.Parser.Syntax
 import Aihc.Parser.Types (ParserErrorComponent (..), TokStream (..), mkFoundToken)
 import Control.Monad (guard)
@@ -211,6 +212,27 @@ lowerIdentifierParser =
       TkKeywordHiding -> Just "hiding"
       _ -> Nothing
 
+implicitParamNameParser :: TokParser Text
+implicitParamNameParser =
+  MP.try $ do
+    questionTok <-
+      tokenSatisfy "operator '?'" $ \tok ->
+        case lexTokenKind tok of
+          TkVarSym "?" -> Just tok
+          _ -> Nothing
+    (nameTok, name) <-
+      tokenSatisfy "implicit parameter name" $ \tok ->
+        case lexTokenKind tok of
+          TkVarId ident -> Just (tok, ident)
+          TkKeywordAs -> Just (tok, "as")
+          TkKeywordQualified -> Just (tok, "qualified")
+          TkKeywordHiding -> Just (tok, "hiding")
+          _ -> Nothing
+    let questionSpan = lexTokenSpan questionTok
+        nameSpan = lexTokenSpan nameTok
+    guard (sourceSpanEndOffset questionSpan == sourceSpanStartOffset nameSpan)
+    pure ("?" <> name)
+
 constructorIdentifierParser :: TokParser Text
 constructorIdentifierParser =
   tokenSatisfy "constructor identifier" $ \tok ->
@@ -332,18 +354,26 @@ bracedSemiSep1 parser =
 plainSemiSep1 :: TokParser a -> TokParser [a]
 plainSemiSep1 parser = MP.some (parser <* skipSemicolons)
 
-constraintParserWith :: TokParser Type -> TokParser Constraint
-constraintParserWith typeAtomParser =
+constraintParserWith :: TokParser Type -> TokParser Type -> TokParser Constraint
+constraintParserWith typeParser typeAtomParser =
   MP.try parenthesizedConstraintParser <|> bareConstraintParser
   where
     bareConstraintParser = withSpan $ do
-      (className, args) <- MP.try infixConstraintParser <|> prefixConstraintParser
+      tok <- lookAhead anySingle
+      (className, args) <- case lexTokenKind tok of
+        TkVarSym "?" -> implicitParamConstraintParser
+        _ -> MP.try infixConstraintParser <|> prefixConstraintParser
       pure $ \span' ->
         Constraint
           { constraintSpan = span',
             constraintClass = className,
             constraintArgs = args
           }
+    implicitParamConstraintParser = do
+      name <- implicitParamNameParser
+      expectedTok TkReservedDoubleColon
+      ty <- typeParser
+      pure (name, [ty])
     prefixConstraintParser = do
       className <- identifierTextParser
       args <- MP.many typeAtomParser
@@ -355,7 +385,7 @@ constraintParserWith typeAtomParser =
       rhs <- constraintTypeParser
       pure (op, [lhs, rhs])
     parenthesizedConstraintParser = withSpan $ do
-      constraint <- parens (constraintParserWith typeAtomParser)
+      constraint <- parens (constraintParserWith typeParser typeAtomParser)
       pure (`CParen` constraint)
     constraintTypeParser = do
       first <- constraintTypeAppParser
@@ -392,18 +422,18 @@ constraintParserWith typeAtomParser =
       expectedTok TkReservedColon
       pure (":", Promoted)
 
-constraintsParserWith :: TokParser Type -> TokParser [Constraint]
-constraintsParserWith typeAtomParser =
-  MP.try parenthesizedConstraintsParser <|> fmap pure (constraintParserWith typeAtomParser)
+constraintsParserWith :: TokParser Type -> TokParser Type -> TokParser [Constraint]
+constraintsParserWith typeParser typeAtomParser =
+  MP.try parenthesizedConstraintsParser <|> fmap pure (constraintParserWith typeParser typeAtomParser)
   where
     parenthesizedConstraintsParser = withSpan $ do
-      constraints <- parens (constraintParserWith typeAtomParser `MP.sepEndBy` expectedTok TkSpecialComma)
+      constraints <- parens (constraintParserWith typeParser typeAtomParser `MP.sepEndBy` expectedTok TkSpecialComma)
       pure $ \span' ->
         case constraints of
           [constraint] -> [CParen span' constraint]
           _ -> constraints
 
-contextParserWith :: TokParser Type -> TokParser [Constraint]
+contextParserWith :: TokParser Type -> TokParser Type -> TokParser [Constraint]
 contextParserWith = constraintsParserWith
 
 functionHeadParserWith :: TokParser Pattern -> TokParser Pattern -> TokParser (MatchHeadForm, Text, [Pattern])

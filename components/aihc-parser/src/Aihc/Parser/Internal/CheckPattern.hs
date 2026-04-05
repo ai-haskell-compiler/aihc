@@ -33,6 +33,7 @@ checkPattern expr = case expr of
   -- Variables and constructors
   EVar sp name
     | name == "_" -> Right (PWildcard sp)
+    | "?" `T.isPrefixOf` name -> Left "implicit parameters are not valid patterns"
     | isConLikeName name -> Right (PCon sp name [])
     | otherwise -> Right (PVar sp name)
   -- Parenthesized expression

@@ -1132,7 +1132,7 @@ gadtResultTypeParser :: TokParser Type
 gadtResultTypeParser = typeParser
 
 declContextParser :: TokParser [Constraint]
-declContextParser = contextParserWith typeAtomParser
+declContextParser = contextParserWith typeParser typeAtomParser
 
 typeDeclHeadParser :: TokParser (Text, [TyVarBinder])
 typeDeclHeadParser =
@@ -1186,8 +1186,8 @@ derivingClauseParser = do
   viaTy <- MP.optional derivingViaTypeParser
   pure (DerivingClause strategy classes viaTy)
   where
-    singleClass = (: []) <$> constraintParserWith typeAtomParser
-    parenClasses = parens $ constraintParserWith typeAtomParser `MP.sepEndBy` expectedTok TkSpecialComma
+    singleClass = (: []) <$> constraintParserWith typeParser typeAtomParser
+    parenClasses = parens $ constraintParserWith typeParser typeAtomParser `MP.sepEndBy` expectedTok TkSpecialComma
 
 derivingViaTypeParser :: TokParser Type
 derivingViaTypeParser = do

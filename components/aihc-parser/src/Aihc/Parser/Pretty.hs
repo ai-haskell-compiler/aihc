@@ -408,6 +408,9 @@ prettyContext constraints =
 prettyConstraint :: Constraint -> Doc ann
 prettyConstraint constraint =
   case constraint of
+    Constraint _ cls [ty]
+      | "?" `T.isPrefixOf` cls ->
+          pretty cls <+> "::" <+> prettyTypePrec 0 ty
     Constraint _ cls [lhs, rhs]
       | cls == "~" ->
           prettyTypeIn CtxTypeFunArg lhs <+> pretty cls <+> prettyTypeIn CtxTypeFunArg rhs
