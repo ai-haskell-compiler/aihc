@@ -85,7 +85,6 @@ import System.FilePath (takeDirectory, (</>))
 -- >>> import qualified Data.Map.Strict as M
 -- >>> import qualified Data.Text as T
 -- >>> import qualified Data.Text.IO as T
--- >>> import qualified Data.Text.Encoding as TE
 
 -- | Preprocess C preprocessor directives in the input.
 --
@@ -102,7 +101,7 @@ import System.FilePath (takeDirectory, (</>))
 --
 -- Object-like macros are expanded in the output:
 --
--- >>> let Done r = preprocess defaultConfig (TE.encodeUtf8 "#define FOO 42\nThe answer is FOO")
+-- >>> let Done r = preprocess defaultConfig "#define FOO 42\nThe answer is FOO"
 -- >>> T.putStr (resultOutput r)
 -- #line 1 "<input>"
 -- <BLANKLINE>
@@ -110,7 +109,7 @@ import System.FilePath (takeDirectory, (</>))
 --
 -- Function-like macros are also supported:
 --
--- >>> let Done r = preprocess defaultConfig (TE.encodeUtf8 "#define MAX(a,b) ((a) > (b) ? (a) : (b))\nMAX(3, 5)")
+-- >>> let Done r = preprocess defaultConfig "#define MAX(a,b) ((a) > (b) ? (a) : (b))\nMAX(3, 5)"
 -- >>> T.putStr (resultOutput r)
 -- #line 1 "<input>"
 -- <BLANKLINE>
@@ -122,7 +121,7 @@ import System.FilePath (takeDirectory, (</>))
 --
 -- >>> :{
 -- let Done r = preprocess defaultConfig
---       (TE.encodeUtf8 "#define DEBUG 1\n#if DEBUG\ndebug mode\n#else\nrelease mode\n#endif")
+--       "#define DEBUG 1\n#if DEBUG\ndebug mode\n#else\nrelease mode\n#endif"
 -- in T.putStr (resultOutput r)
 -- :}
 -- #line 1 "<input>"
@@ -140,7 +139,7 @@ import System.FilePath (takeDirectory, (</>))
 -- file as a 'ByteString':
 --
 -- >>> :{
--- let NeedInclude req k = preprocess defaultConfig (TE.encodeUtf8 "#include \"header.h\"\nmain code")
+-- let NeedInclude req k = preprocess defaultConfig "#include \"header.h\"\nmain code"
 --     Done r = k (Just "-- header content")
 -- in T.putStr (resultOutput r)
 -- :}
@@ -153,7 +152,7 @@ import System.FilePath (takeDirectory, (</>))
 -- If the include file is not found, pass 'Nothing' to emit an error:
 --
 -- >>> :{
--- let NeedInclude _ k = preprocess defaultConfig (TE.encodeUtf8 "#include \"missing.h\"")
+-- let NeedInclude _ k = preprocess defaultConfig "#include \"missing.h\""
 --     Done r = k Nothing
 -- in do
 --   T.putStr (resultOutput r)
@@ -167,7 +166,7 @@ import System.FilePath (takeDirectory, (</>))
 -- The @#warning@ directive emits a warning:
 --
 -- >>> :{
--- let Done r = preprocess defaultConfig (TE.encodeUtf8 "#warning This is a warning")
+-- let Done r = preprocess defaultConfig "#warning This is a warning"
 -- in do
 --   T.putStr (resultOutput r)
 --   mapM_ print (resultDiagnostics r)
@@ -179,7 +178,7 @@ import System.FilePath (takeDirectory, (</>))
 -- The @#error@ directive emits an error and stops preprocessing:
 --
 -- >>> :{
--- let Done r = preprocess defaultConfig (TE.encodeUtf8 "#error Build failed\nthis line is not processed")
+-- let Done r = preprocess defaultConfig "#error Build failed\nthis line is not processed"
 -- in do
 --   T.putStr (resultOutput r)
 --   mapM_ print (resultDiagnostics r)
