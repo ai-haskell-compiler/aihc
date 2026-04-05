@@ -354,12 +354,12 @@ readTextFileLenient filePath = do
   bytes <- BS.readFile filePath
   pure (decodeUtf8With lenientDecode bytes)
 
-resolveIncludeBestEffort :: FilePath -> FilePath -> IncludeRequest -> IO (Maybe Text)
+resolveIncludeBestEffort :: FilePath -> FilePath -> IncludeRequest -> IO (Maybe BS.ByteString)
 resolveIncludeBestEffort packageRoot currentFile req = do
   firstExisting <- firstExistingPath (includeCandidates packageRoot currentFile req)
   case firstExisting of
     Nothing -> pure Nothing
-    Just includeFile -> Just <$> readTextFileLenient includeFile
+    Just includeFile -> Just <$> BS.readFile includeFile
 
 includeCandidates :: FilePath -> FilePath -> IncludeRequest -> [FilePath]
 includeCandidates packageRoot currentFile req =

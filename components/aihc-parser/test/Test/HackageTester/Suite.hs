@@ -12,6 +12,7 @@ import CppSupport (preprocessForParserIfEnabled)
 import qualified Data.ByteString as BS
 import Data.List (isSuffixOf)
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
 import GhcOracle (oracleModuleAstFingerprint)
 import HackageSupport (fileInfoPath, findTargetFilesFromCabal, resolveIncludeBestEffort)
 import HackageTester.CLI (Options (..), parseOptionsPure)
@@ -323,9 +324,9 @@ test_resolveIncludeLenientDecode =
             includeLine = 1
           }
     case mText of
-      Nothing -> assertBool "expected include text to resolve" False
-      Just txt ->
-        assertBool "expected replacement character in decoded text" ("\xFFFD" `T.isInfixOf` txt)
+      Nothing -> assertBool "expected include bytes to resolve" False
+      Just bs ->
+        assertBool "expected raw bytes to be preserved" (bs == BS.pack [65, 10, 255, 66, 10])
 
 test_cppMinVersionBaseTrue :: Assertion
 test_cppMinVersionBaseTrue = do
@@ -423,7 +424,7 @@ preprocessWithIncludes inputFile includeFiles source = do
     preprocessForParserIfEnabled [] [] inputFile resolve source
   pure out
   where
-    resolve req = pure (lookup (includePath req) includeFiles)
+    resolve req = pure (TE.encodeUtf8 <$> lookup (includePath req) includeFiles)
 
 sampleCabal :: String
 sampleCabal =
