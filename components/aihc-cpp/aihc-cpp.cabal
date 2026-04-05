@@ -38,6 +38,7 @@ test-suite spec
   build-depends:
       base >=4.16 && <5
     , aihc-cpp
+    , bytestring
     , cpphs
     , text
     , containers
@@ -58,6 +59,7 @@ executable cpp-progress
   build-depends:
       base >=4.16 && <5
     , aihc-cpp
+    , bytestring
     , cpphs
     , text
     , containers

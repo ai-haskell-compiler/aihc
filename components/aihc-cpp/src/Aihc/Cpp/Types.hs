@@ -22,7 +22,9 @@ module Aihc.Cpp.Types
   )
 where
 
+import Aihc.Cpp.Cursor (Cursor)
 import Control.DeepSeq (NFData)
+import Data.ByteString (ByteString)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
@@ -127,7 +129,7 @@ data Step
   | -- | An @#include@ directive was encountered. The caller must provide
     -- the contents of the included file (or 'Nothing' if not found),
     -- and preprocessing will continue.
-    NeedInclude !IncludeRequest !(Maybe Text -> Step)
+    NeedInclude !IncludeRequest !(Maybe ByteString -> Step)
 
 data EngineState = EngineState
   { stMacros :: !(Map Text MacroDef),
@@ -182,7 +184,8 @@ data LineContext = LineContext
     lcLineNo :: !Int,
     lcLineSpan :: !Int,
     lcNextLineNo :: !Int,
-    lcRestLines :: ![(Int, Int, Text)],
+    -- | Cursor positioned after the current line (past its newline).
+    lcRestCursor :: !Cursor,
     lcStack :: ![CondFrame],
     lcContinue :: EngineState -> Step,
     lcContinueWith :: [CondFrame] -> EngineState -> Step,

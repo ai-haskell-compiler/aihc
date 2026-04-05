@@ -10,8 +10,8 @@
 -- preprocessing Haskell source files that use CPP extensions.
 --
 -- The main entry point is 'preprocess', which takes a 'Config' and
--- source text, returning a 'Step' that either completes with a 'Result'
--- or requests an include file to be resolved.
+-- source 'ByteString', returning a 'Step' that either completes with a
+-- 'Result' or requests an include file to be resolved.
 module Aihc.Cpp
   ( -- * Preprocessing
     preprocess,
@@ -34,6 +34,18 @@ module Aihc.Cpp
   )
 where
 
+import Aihc.Cpp.Cursor
+  ( Cursor (..),
+    atEnd,
+    findNewline,
+    fromByteString,
+    lineSlice,
+    peekByte,
+    peekByteAt,
+    skipNewline,
+    skipWhile,
+    toText,
+  )
 import Aihc.Cpp.Evaluator (evalCondition)
 import Aihc.Cpp.Parser (Directive (..), parseDirective)
 import Aihc.Cpp.Scanner (expandLineBySpanMultiline, lineScanFinalCDepth, lineScanFinalHsDepth, lineScanSpans, scanLine, scanLineDepthOnly)
@@ -55,8 +67,13 @@ import Aihc.Cpp.Types
     emptyState,
     mkFrame,
   )
+import Data.ByteString (ByteString)
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Builder as BSB
+import qualified Data.ByteString.Lazy as BSL
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Lazy as TL
@@ -69,7 +86,7 @@ import System.FilePath (takeDirectory, (</>))
 -- >>> import qualified Data.Text as T
 -- >>> import qualified Data.Text.IO as T
 
--- | Preprocess C preprocessor directives in the input text.
+-- | Preprocess C preprocessor directives in the input.
 --
 -- This function handles:
 --
@@ -119,7 +136,7 @@ import System.FilePath (takeDirectory, (</>))
 --
 -- When an @#include@ directive is encountered, 'preprocess' returns a
 -- 'NeedInclude' step. The caller must provide the contents of the included
--- file:
+-- file as a 'ByteString':
 --
 -- >>> :{
 -- let NeedInclude req k = preprocess defaultConfig "#include \"header.h\"\nmain code"
@@ -169,9 +186,10 @@ import System.FilePath (takeDirectory, (</>))
 -- #line 1 "<input>"
 -- <BLANKLINE>
 -- Diagnostic {diagSeverity = Error, diagMessage = "Build failed", diagFile = "<input>", diagLine = 1}
-preprocess :: Config -> Text -> Step
+preprocess :: Config -> ByteString -> Step
 preprocess cfg input =
-  processFile (configInputFile cfg) (splitInputLines 1 input) [] initialState finish
+  let cursor = fromByteString input
+   in processFile (configInputFile cfg) cursor False [] 1 initialState finish
   where
     initialState =
       let st0 = emitLine (linePragma 1 (configInputFile cfg)) (emptyState (configInputFile cfg))
@@ -191,94 +209,114 @@ preprocess cfg input =
                 resultDiagnostics = reverse (stDiagnosticsRev st)
               }
 
--- | Split input text into lines, joining backslash-continuation lines
--- for directives. Each entry is (lineNo, lineSpan, lineText).
--- Walks the text directly without an intermediate @[Text]@ list.
--- Behaves like @T.lines@ — a trailing newline does NOT produce an
--- empty trailing entry.
-splitInputLines :: Int -> Text -> [(Int, Int, Text)]
-splitInputLines _ txt | T.null txt = []
-splitInputLines n txt =
-  let (line, rest) = T.break (== '\n') txt
-      rest' = if T.null rest then rest else T.drop 1 rest -- skip the '\n'
-   in if "\\" `T.isSuffixOf` line && "#" `T.isPrefixOf` T.stripStart line
-        then
-          let (content, remaining, extraLines) = pullContinuation (T.init line) rest'
-              spanLen = extraLines + 1
-           in (n, spanLen, content) : splitInputLines (n + spanLen) remaining
-        else (n, 1, line) : splitInputLines (n + 1) rest'
+-- | Find the next line in the cursor, handling backslash-continuation
+-- for directive lines. Returns (lineCursor, lineSpan, restCursor) where:
+--   * lineCursor is a sub-cursor bounded to the logical line content
+--   * lineSpan is the number of physical lines consumed (>= 1)
+--   * restCursor is positioned after the line (past the newline)
+--
+-- Backslash-continuation is only applied when the line starts with '#'
+-- (after optional whitespace), matching CPP semantics.
+-- For continuation lines, a new ByteString is allocated with the
+-- backslash-newline sequences removed.
+nextLine :: Cursor -> (Cursor, Int, Cursor)
+nextLine cur =
+  let eol = findNewline cur
+      lineStart = curPos cur
+      lineEnd = curPos eol
+      rest = fromMaybe eol (skipNewline eol)
+   in if lineEnd > lineStart
+        && peekByteAt (lineEnd - 1) cur == Just 0x5C -- '\' at end
+        && isDirectiveLine cur lineEnd
+        then -- Backslash continuation: join lines, stripping '\' and '\n'
+          joinContinuationLines cur lineStart lineEnd rest
+        else (lineSlice lineEnd cur, 1, rest)
 
--- | Like 'splitInputLines' but behaves like @T.splitOn \"\\n\"@ —
--- a trailing newline DOES produce an empty trailing entry.
--- Used for @#include@ file content where the trailing newline represents
--- an additional source line.
-splitIncludeLines :: Int -> Text -> [(Int, Int, Text)]
-splitIncludeLines _ txt | T.null txt = []
-splitIncludeLines n txt =
-  let (line, rest) = T.break (== '\n') txt
-   in if T.null rest
-        then -- No newline found: this is the last segment
-          if "\\" `T.isSuffixOf` line && "#" `T.isPrefixOf` T.stripStart line
-            then
-              let (content, _, extraLines) = pullContinuation (T.init line) T.empty
-                  spanLen = extraLines + 1
-               in [(n, spanLen, content)]
-            else [(n, 1, line)]
-        else
-          let rest' = T.drop 1 rest -- skip the '\n'
-           in if "\\" `T.isSuffixOf` line && "#" `T.isPrefixOf` T.stripStart line
+-- | Check if the bytes from curPos to lineEnd start with '#' after
+-- optional whitespace. This determines whether backslash-continuation
+-- applies.
+isDirectiveLine :: Cursor -> Int -> Bool
+isDirectiveLine cur lineEnd =
+  let trimmed = skipWhile isSpaceOrTab cur
+   in curPos trimmed < lineEnd
+        && peekByte trimmed == Just 0x23 -- '#'
+  where
+    isSpaceOrTab b = b == 0x20 || b == 0x09
+
+-- | Join backslash-continuation lines into a single logical line.
+-- Builds a new ByteString with '\<newline>' sequences removed.
+-- Returns (joinedCursor, physicalLineCount, restCursor).
+joinContinuationLines :: Cursor -> Int -> Int -> Cursor -> (Cursor, Int, Cursor)
+joinContinuationLines origCur lineStart firstLineEnd firstRest =
+  let buf = curBuf origCur
+      -- First segment: from lineStart to firstLineEnd - 1 (exclude '\')
+      firstSegment = BSB.byteString (sliceBS lineStart (firstLineEnd - 1) buf)
+   in go firstSegment 1 firstRest
+  where
+    go !acc !spanCount !rest
+      | atEnd rest =
+          -- No more input; finalize
+          let joined = BSL.toStrict (BSB.toLazyByteString acc)
+           in (fromByteString joined, spanCount, rest)
+      | otherwise =
+          let eol = findNewline rest
+              segStart = curPos rest
+              segEnd = curPos eol
+              rest' = fromMaybe eol (skipNewline eol)
+           in if segEnd > segStart
+                && peekByteAt (segEnd - 1) origCur == Just 0x5C -- ends with '\'
                 then
-                  let (content, remaining, extraLines) = pullContinuation (T.init line) rest'
-                      spanLen = extraLines + 1
-                   in (n, spanLen, content) : splitIncludeLines (n + spanLen) remaining
-                else -- Include the empty trailing entry for a final newline
-                  (n, 1, line) : splitIncludeLinesAfterNewline (n + 1) rest'
+                  -- Another continuation line: append without the trailing '\'
+                  let segment = BSB.byteString (sliceBS segStart (segEnd - 1) (curBuf origCur))
+                   in go (acc <> segment) (spanCount + 1) rest'
+                else
+                  -- Last line of continuation
+                  let segment = BSB.byteString (sliceBS segStart segEnd (curBuf origCur))
+                      joined = BSL.toStrict (BSB.toLazyByteString (acc <> segment))
+                   in (fromByteString joined, spanCount + 1, rest')
 
--- | Helper for 'splitIncludeLines' that handles the case after a
--- newline has been consumed. Unlike the main function, an empty
--- input here produces a single empty entry (representing the line
--- after a trailing newline).
-splitIncludeLinesAfterNewline :: Int -> Text -> [(Int, Int, Text)]
-splitIncludeLinesAfterNewline n txt
-  | T.null txt = [(n, 1, "")]
-  | otherwise = splitIncludeLines n txt
+-- | Slice a ByteString from position @start@ to @end@ (exclusive).
+sliceBS :: Int -> Int -> ByteString -> ByteString
+sliceBS start end bs = BS.take (end - start) (BS.drop start bs)
+{-# INLINE sliceBS #-}
 
-pullContinuation :: Text -> Text -> (Text, Text, Int)
-pullContinuation acc remaining
-  | T.null remaining = (acc, remaining, 0)
-  | otherwise =
-      let (nextLine, rest2) = T.break (== '\n') remaining
-          rest2' = if T.null rest2 then rest2 else T.drop 1 rest2
-       in if "\\" `T.isSuffixOf` nextLine
-            then
-              let (res, r, c) = pullContinuation (acc <> T.init nextLine) rest2'
-               in (res, r, c + 1)
-            else (acc <> nextLine, rest2', 1)
-
-processFile :: FilePath -> [(Int, Int, Text)] -> [CondFrame] -> EngineState -> Continuation -> Step
-processFile _ [] _ st k = k st
-processFile filePath ((lineNo, lineSpan, line) : restLines) stack st k =
-  let startsInBlockComment = stHsBlockCommentDepth st > 0 || stCBlockCommentDepth st > 0
+-- | Process a file from a cursor. The @trailingNewline@ flag controls
+-- whether a trailing newline in the input produces an extra empty line
+-- (used for include files to match @splitOn \"\\n\"@ semantics).
+processFile :: FilePath -> Cursor -> Bool -> [CondFrame] -> Int -> EngineState -> Continuation -> Step
+processFile _ cursor trailingNl _ _ st k
+  | atEnd cursor =
+      if trailingNl
+        then -- Include file: trailing newline produces one more empty line
+          k (emitBlankLines 1 st)
+        else k st
+processFile filePath cursor trailingNl stack !lineNo st k =
+  let (lineCur, lineSpan, restCursor) = nextLine cursor
+      -- Detect if this line was followed by a newline (vs EOF).
+      -- If so and restCursor is at EOF, the file had a trailing newline.
+      hasTrailingNl = trailingNl && not (atEnd restCursor) || (trailingNl && atEnd restCursor)
+      -- Actually: trailingNl flag is set at processFile entry for includes.
+      -- We just propagate it. The check at atEnd above handles the final empty line.
+      lineText = toText lineCur
+      startsInBlockComment = stHsBlockCommentDepth st > 0 || stCBlockCommentDepth st > 0
       parsedDirective =
         if startsInBlockComment
           then Nothing
-          else parseDirective line
+          else parseDirective lineText
       isActive = currentActive stack
+      nextLineNo = lineNo + lineSpan
    in if not isActive && not (stSkippingDanglingElse st)
         then -- === Fast path for inactive branches ===
         -- Only track comment depth; skip full span scanning and macro expansion.
-          let (finalHs, finalC) = scanLineDepthOnly (stHsBlockCommentDepth st) (stCBlockCommentDepth st) line
-              nextLineNo = case restLines of
-                (n, _, _) : _ -> n
-                [] -> lineNo + lineSpan
+          let (finalHs, finalC) = scanLineDepthOnly (stHsBlockCommentDepth st) (stCBlockCommentDepth st) lineCur
               advanceSt st' =
                 st'
                   { stCurrentLine = nextLineNo,
                     stHsBlockCommentDepth = finalHs,
                     stCBlockCommentDepth = finalC
                   }
-              continueInactive st' = processFile filePath restLines stack (advanceSt st') k
-              continueInactiveWith stack' st' = processFile filePath restLines stack' (advanceSt st') k
+              continueInactive st' = processFile filePath restCursor hasTrailingNl stack nextLineNo (advanceSt st') k
+              continueInactiveWith stack' st' = processFile filePath restCursor hasTrailingNl stack' nextLineNo (advanceSt st') k
            in case parsedDirective of
                 Nothing ->
                   continueInactive (emitBlankLines lineSpan st)
@@ -289,7 +327,7 @@ processFile filePath ((lineNo, lineSpan, line) : restLines) stack st k =
                             lcLineNo = lineNo,
                             lcLineSpan = lineSpan,
                             lcNextLineNo = nextLineNo,
-                            lcRestLines = restLines,
+                            lcRestCursor = restCursor,
                             lcStack = stack,
                             lcContinue = continueInactive,
                             lcContinueWith = continueInactiveWith,
@@ -297,25 +335,22 @@ processFile filePath ((lineNo, lineSpan, line) : restLines) stack st k =
                           }
                    in handleDirective ctx st directive
         else -- === Normal path: full scan + expansion ===
-          let lineScan = scanLine (stHsBlockCommentDepth st) (stCBlockCommentDepth st) line
-              nextLineNo = case restLines of
-                (n, _, _) : _ -> n
-                [] -> lineNo + lineSpan
+          let lineScan = scanLine (stHsBlockCommentDepth st) (stCBlockCommentDepth st) lineCur
               advanceLineState st' =
                 st'
                   { stCurrentLine = nextLineNo,
                     stHsBlockCommentDepth = lineScanFinalHsDepth lineScan,
                     stCBlockCommentDepth = lineScanFinalCDepth lineScan
                   }
-              continue st' = processFile filePath restLines stack (advanceLineState st') k
-              continueWith stack' st' = processFile filePath restLines stack' (advanceLineState st') k
+              continue st' = processFile filePath restCursor hasTrailingNl stack nextLineNo (advanceLineState st') k
+              continueWith stack' st' = processFile filePath restCursor hasTrailingNl stack' nextLineNo (advanceLineState st') k
               ctx =
                 LineContext
                   { lcFilePath = filePath,
                     lcLineNo = lineNo,
                     lcLineSpan = lineSpan,
                     lcNextLineNo = nextLineNo,
-                    lcRestLines = restLines,
+                    lcRestCursor = restCursor,
                     lcStack = stack,
                     lcContinue = continue,
                     lcContinueWith = continueWith,
@@ -325,37 +360,57 @@ processFile filePath ((lineNo, lineSpan, line) : restLines) stack st k =
                 then recoverDanglingElse ctx parsedDirective st
                 else case parsedDirective of
                   Nothing ->
-                    -- Try multi-line expansion: look ahead at future lines
-                    let futureCodeLines = [l | (_, _, l) <- restLines]
-                        (expanded, extraConsumed) =
-                          expandLineBySpanMultiline st (lineScanSpans lineScan) futureCodeLines
+                    -- Try multi-line expansion: look ahead at future lines via cursor
+                    let (expanded, extraConsumed) =
+                          expandLineBySpanMultiline st (lineScanSpans lineScan) restCursor
                      in if extraConsumed > 0
                           then
-                            -- Skip consumed continuation lines
-                            let consumed = take extraConsumed restLines
-                                remaining = drop extraConsumed restLines
+                            -- Skip consumed continuation lines by advancing the cursor
+                            let (remainingCursor, totalExtraSpan) =
+                                  skipNLines extraConsumed restCursor
                                 -- Scan consumed lines to update comment depths
                                 (finalHs, finalC) =
-                                  foldl'
-                                    ( \(!hs, !c) (_, _, l) ->
-                                        let ls = scanLine hs c l
-                                         in (lineScanFinalHsDepth ls, lineScanFinalCDepth ls)
-                                    )
-                                    (lineScanFinalHsDepth lineScan, lineScanFinalCDepth lineScan)
-                                    consumed
-                                nextLineNo' = case remaining of
-                                  (n, _, _) : _ -> n
-                                  [] -> lineNo + lineSpan + sum [s | (_, s, _) <- consumed]
+                                  scanConsumedLines
+                                    (lineScanFinalHsDepth lineScan)
+                                    (lineScanFinalCDepth lineScan)
+                                    restCursor
+                                    extraConsumed
+                                nextLineNo' = nextLineNo + totalExtraSpan
                                 st' =
                                   (emitLine expanded st)
                                     { stCurrentLine = nextLineNo',
                                       stHsBlockCommentDepth = finalHs,
                                       stCBlockCommentDepth = finalC
                                     }
-                             in processFile filePath remaining stack st' k
+                             in processFile filePath remainingCursor hasTrailingNl stack nextLineNo' st' k
                           else continue (emitLine expanded st)
                   Just directive ->
                     handleDirective ctx st directive
+
+-- | Skip N lines from a cursor, returning (rest cursor, total lines skipped).
+skipNLines :: Int -> Cursor -> (Cursor, Int)
+skipNLines 0 cur = (cur, 0)
+skipNLines n cur = go 0 0 cur
+  where
+    go !count !consumed !c
+      | count >= n = (c, consumed)
+      | atEnd c = (c, consumed)
+      | otherwise =
+          let eol = findNewline c
+              rest = fromMaybe eol (skipNewline eol)
+           in go (count + 1) (consumed + 1) rest
+
+-- | Scan consumed lines to update comment depths.
+scanConsumedLines :: Int -> Int -> Cursor -> Int -> (Int, Int)
+scanConsumedLines !hsDepth !cDepth _cur 0 = (hsDepth, cDepth)
+scanConsumedLines !hsDepth !cDepth cur remaining
+  | atEnd cur = (hsDepth, cDepth)
+  | otherwise =
+      let eol = findNewline cur
+          lineCur = lineSlice (curPos eol) cur
+          (hsDepth', cDepth') = scanLineDepthOnly hsDepth cDepth lineCur
+          rest = fromMaybe eol (skipNewline eol)
+       in scanConsumedLines hsDepth' cDepth' rest (remaining - 1)
 
 recoverDanglingElse :: LineContext -> Maybe Directive -> EngineState -> Step
 recoverDanglingElse ctx parsedDirective st =
@@ -505,24 +560,30 @@ handleIncludeDirective ctx st kind includeTarget
       lcContinue
         ctx
         (addDiag Error ("missing include: " <> includeTarget) (lcFilePath ctx) (lcLineNo ctx) st)
-    nextStep (Just includeText) =
+    nextStep (Just includeBytes) =
       let includeFilePath =
             case kind of
               IncludeLocal -> takeDirectory (lcFilePath ctx) </> includePathText
               IncludeSystem -> includePathText
+          includeCursor = fromByteString includeBytes
+          -- Include files treat trailing newlines as producing an extra
+          -- empty line (matching splitOn "\n" semantics).
+          includeHasTrailingNl = not (BS.null includeBytes) && BS.last includeBytes == 0x0A
           stWithIncludePragma =
             emitLine (linePragma 1 includeFilePath) (st {stCurrentFile = includeFilePath, stCurrentLine = 1})
           resumeParent stAfterInclude =
             processFile
               (lcFilePath ctx)
-              (lcRestLines ctx)
+              (lcRestCursor ctx)
+              False
               (lcStack ctx)
+              (lcNextLineNo ctx)
               ( emitLine
                   (linePragma (lcNextLineNo ctx) (lcFilePath ctx))
                   (stAfterInclude {stCurrentFile = lcFilePath ctx, stCurrentLine = lcNextLineNo ctx})
               )
               (lcDone ctx)
-       in processFile includeFilePath (splitIncludeLines 1 includeText) [] stWithIncludePragma resumeParent
+       in processFile includeFilePath includeCursor includeHasTrailingNl [] 1 stWithIncludePragma resumeParent
 
 handleLineDirective :: LineContext -> EngineState -> Int -> Maybe FilePath -> Step
 handleLineDirective ctx st lineNumber maybePath
@@ -538,8 +599,10 @@ handleLineDirective ctx st lineNumber maybePath
               (stWithFile {stCurrentLine = lineNumber})
        in processFile
             (lcFilePath ctx)
-            (lcRestLines ctx)
+            (lcRestCursor ctx)
+            False
             (lcStack ctx)
+            lineNumber
             (stWithLinePragma {stCurrentLine = lineNumber})
             (lcDone ctx)
 

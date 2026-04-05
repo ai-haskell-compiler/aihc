@@ -112,6 +112,7 @@ executable parser-progress
       base >=4.16 && <5
     , aihc-parser
     , aihc-cpp
+    , bytestring
     , text
     , containers
     , directory
@@ -305,6 +306,7 @@ executable parser-fuzz
       base >=4.16 && <5
     , aihc-parser
     , aihc-cpp
+    , bytestring
     , deepseq
     , haskell-src-exts
     , QuickCheck

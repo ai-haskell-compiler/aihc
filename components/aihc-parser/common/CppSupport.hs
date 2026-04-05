@@ -25,6 +25,7 @@ import Aihc.Cpp
   )
 import Aihc.Parser.Lex (readModuleHeaderExtensions, readModuleHeaderPragmas)
 import Aihc.Parser.Syntax (Extension (CPP), ExtensionSetting (..), ModuleHeaderPragmas (..))
+import Data.ByteString (ByteString)
 import Data.Char (isAsciiLower, isAsciiUpper, isDigit, toLower)
 import Data.Functor.Identity (Identity (..), runIdentity)
 import qualified Data.Map.Strict as M
@@ -32,13 +33,14 @@ import Data.Maybe (fromMaybe, mapMaybe)
 import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
 import System.FilePath (takeDirectory, takeExtension, (</>))
 
-preprocessForParser :: (Monad m) => FilePath -> (IncludeRequest -> m (Maybe Text)) -> Text -> m Result
+preprocessForParser :: (Monad m) => FilePath -> (IncludeRequest -> m (Maybe ByteString)) -> Text -> m Result
 preprocessForParser inputFile resolveInclude source =
   preprocessForParserWithCppOptions [] inputFile resolveInclude (normalizeSourceForParser inputFile source)
 
-preprocessForParserWithCppOptions :: (Monad m) => [String] -> FilePath -> (IncludeRequest -> m (Maybe Text)) -> Text -> m Result
+preprocessForParserWithCppOptions :: (Monad m) => [String] -> FilePath -> (IncludeRequest -> m (Maybe ByteString)) -> Text -> m Result
 preprocessForParserWithCppOptions cppOptions inputFile resolveInclude source = do
   minVersionMacros <- discoverMinVersionMacros inputFile resolveInclude source
   let injected = injectSyntheticCppMacros cppOptions minVersionMacros source
@@ -47,7 +49,7 @@ preprocessForParserWithCppOptions cppOptions inputFile resolveInclude source = d
           { configInputFile = inputFile,
             configMacros = cppMacrosFromOptions cppOptions
           }
-  drive (preprocess cfg injected)
+  drive (preprocess cfg (TE.encodeUtf8 injected))
   where
     drive (Done result) = pure result
     drive (NeedInclude req k) = resolveInclude req >>= drive . k
@@ -56,7 +58,7 @@ preprocessForParserWithoutIncludes :: FilePath -> Text -> Result
 preprocessForParserWithoutIncludes inputFile source =
   runIdentity (preprocessForParser inputFile (\_ -> Identity Nothing) source)
 
-preprocessForParserIfEnabled :: (Monad m) => [ExtensionSetting] -> [String] -> FilePath -> (IncludeRequest -> m (Maybe Text)) -> Text -> m Result
+preprocessForParserIfEnabled :: (Monad m) => [ExtensionSetting] -> [String] -> FilePath -> (IncludeRequest -> m (Maybe ByteString)) -> Text -> m Result
 preprocessForParserIfEnabled globalExtensionNames cppOptions inputFile resolveInclude source =
   let normalizedSource = normalizeSourceForParser inputFile source
       shouldPreprocess = cppEnabledInSourceWithGlobals globalExtensionNames normalizedSource
@@ -165,7 +167,7 @@ unliterateIfNeeded inputFile source
       | inCode = line : unlitLatex inCode rest
       | otherwise = "" : unlitLatex inCode rest
 
-discoverMinVersionMacros :: (Monad m) => FilePath -> (IncludeRequest -> m (Maybe Text)) -> Text -> m (S.Set Text)
+discoverMinVersionMacros :: (Monad m) => FilePath -> (IncludeRequest -> m (Maybe ByteString)) -> Text -> m (S.Set Text)
 discoverMinVersionMacros inputFile resolveInclude =
   go S.empty S.empty inputFile
   where
@@ -185,12 +187,12 @@ discoverMinVersionMacros inputFile resolveInclude =
       content <- resolveInclude req
       case content of
         Nothing -> pure seenMacros
-        Just includeText ->
+        Just includeBytes ->
           let includeFilePath =
                 case includeKind req of
                   IncludeLocal -> takeDirectory (includeFrom req) </> includePath req
                   IncludeSystem -> includePath req
-           in go seenFiles seenMacros includeFilePath includeText
+           in go seenFiles seenMacros includeFilePath (TE.decodeUtf8 includeBytes)
 
 injectSyntheticCppMacros :: [String] -> S.Set Text -> Text -> Text
 injectSyntheticCppMacros cppOptions minVersionMacroNames source =
