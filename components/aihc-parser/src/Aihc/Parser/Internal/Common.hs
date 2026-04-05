@@ -40,7 +40,7 @@ module Aihc.Parser.Internal.Common
   )
 where
 
-import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), closeImplicitLayoutContext, lexTokenSpan)
+import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), closeImplicitLayoutContext)
 import Aihc.Parser.Syntax
 import Aihc.Parser.Types (ParserErrorComponent (..), TokStream (..), mkFoundToken)
 import Control.Monad (guard)
@@ -162,6 +162,7 @@ renderTokenKind tk = case tk of
   TkTHTypeQuoteTick -> "TH type name quote ''''"
   TkTHSplice -> "TH splice '$'"
   TkTHTypedSplice -> "TH typed splice '$$'"
+  TkImplicitParam name -> "implicit parameter " <> show name
   TkVarSym op -> "operator '" <> show op <> "'"
   TkConSym op -> "operator '" <> show op <> "'"
   _ -> show tk
@@ -214,24 +215,10 @@ lowerIdentifierParser =
 
 implicitParamNameParser :: TokParser Text
 implicitParamNameParser =
-  MP.try $ do
-    questionTok <-
-      tokenSatisfy "operator '?'" $ \tok ->
-        case lexTokenKind tok of
-          TkVarSym "?" -> Just tok
-          _ -> Nothing
-    (nameTok, name) <-
-      tokenSatisfy "implicit parameter name" $ \tok ->
-        case lexTokenKind tok of
-          TkVarId ident -> Just (tok, ident)
-          TkKeywordAs -> Just (tok, "as")
-          TkKeywordQualified -> Just (tok, "qualified")
-          TkKeywordHiding -> Just (tok, "hiding")
-          _ -> Nothing
-    let questionSpan = lexTokenSpan questionTok
-        nameSpan = lexTokenSpan nameTok
-    guard (sourceSpanEndOffset questionSpan == sourceSpanStartOffset nameSpan)
-    pure ("?" <> name)
+  tokenSatisfy "implicit parameter" $ \tok ->
+    case lexTokenKind tok of
+      TkImplicitParam name -> Just name
+      _ -> Nothing
 
 constructorIdentifierParser :: TokParser Text
 constructorIdentifierParser =
@@ -361,7 +348,7 @@ constraintParserWith typeParser typeAtomParser =
     bareConstraintParser = withSpan $ do
       tok <- lookAhead anySingle
       (className, args) <- case lexTokenKind tok of
-        TkVarSym "?" -> implicitParamConstraintParser
+        TkImplicitParam {} -> implicitParamConstraintParser
         _ -> MP.try infixConstraintParser <|> prefixConstraintParser
       pure $ \span' ->
         Constraint

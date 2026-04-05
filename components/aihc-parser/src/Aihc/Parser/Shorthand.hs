@@ -695,6 +695,7 @@ docTokenKind kind =
     TkConId name -> "TkConId" <+> docText name
     TkQVarId name -> "TkQVarId" <+> docText name
     TkQConId name -> "TkQConId" <+> docText name
+    TkImplicitParam name -> "TkImplicitParam" <+> docText name
     TkVarSym name -> "TkVarSym" <+> docText name
     TkConSym name -> "TkConSym" <+> docText name
     TkQVarSym name -> "TkQVarSym" <+> docText name

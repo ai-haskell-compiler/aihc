@@ -387,7 +387,7 @@ atomExprParser = do
   let thAny = thEnabled || thFullEnabled
   tok <- lookAhead anySingle
   case lexTokenKind tok of
-    TkVarSym "?" -> implicitParamExprParser
+    TkImplicitParam {} -> implicitParamExprParser
     _ ->
       MP.try prefixNegateAtomExprParser
         <|> MP.try parenOperatorExprParser
@@ -1106,7 +1106,7 @@ localDeclParser = do
       do
         tok <- lookAhead anySingle
         case lexTokenKind tok of
-          TkVarSym "?" -> implicitParamDeclParser
+          TkImplicitParam {} -> implicitParamDeclParser
           _ -> MP.try localFunctionDeclParser <|> localPatternDeclParser
 
 localTypeSigDeclParser :: TokParser Decl
