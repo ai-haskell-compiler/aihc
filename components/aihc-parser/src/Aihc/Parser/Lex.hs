@@ -228,7 +228,7 @@ hasExt :: Extension -> LexerEnv -> Bool
 hasExt ext env = Set.member ext (lexerExtensions env)
 
 data LexerState = LexerState
-  { lexerInput :: String,
+  { lexerInput :: !Text,
     lexerLogicalSourceName :: !FilePath,
     lexerLine :: !Int,
     lexerCol :: !Int,
@@ -368,7 +368,7 @@ lexChunksWithExtensions enableModuleLayout sourceName exts chunks =
     env = mkLexerEnv exts
     initialLexerState =
       LexerState
-        { lexerInput = concatMap T.unpack chunks,
+        { lexerInput = T.concat chunks,
           lexerLogicalSourceName = sourceName,
           lexerLine = 1,
           lexerCol = 1,
@@ -481,7 +481,7 @@ scanTokens env st0 =
       let st' = st {lexerPrevTokenKind = Just (lexTokenKind tok), lexerHadTrivia = False}
        in tok : scanTokens env st'
     Right st
-      | null (lexerInput st) ->
+      | T.null (lexerInput st) ->
           -- Emit explicit EOF token with span at current position
           let eofSpan =
                 SourceSpan
@@ -521,9 +521,9 @@ skipTrivia env st =
 
 consumeTrivia :: LexerEnv -> LexerState -> Maybe (Either (LexToken, LexerState) LexerState)
 consumeTrivia _env st
-  | null (lexerInput st) = Nothing
+  | T.null (lexerInput st) = Nothing
   | otherwise =
-      case lexerInput st of
+      case T.unpack (lexerInput st) of
         c : _
           | c == ' ' || c == '\t' || c == '\r' -> Just (Right (markHadTrivia (consumeWhile (\x -> x == ' ' || x == '\t' || x == '\r') st)))
           | c == '\n' -> Just (Right (markHadTrivia (advanceChars "\n" st)))
@@ -881,7 +881,7 @@ mkInitialLexerState :: FilePath -> [Extension] -> Text -> (LexerEnv, LexerState)
 mkInitialLexerState sourceName exts input =
   ( mkLexerEnv exts,
     LexerState
-      { lexerInput = T.unpack input,
+      { lexerInput = input,
         lexerLogicalSourceName = sourceName,
         lexerLine = 1,
         lexerCol = 1,
@@ -943,7 +943,7 @@ scanOneToken env st0 =
       let st' = st {lexerPrevTokenKind = Just (lexTokenKind tok), lexerHadTrivia = False}
        in Just (tok, st')
     Right st
-      | null (lexerInput st) ->
+      | T.null (lexerInput st) ->
           -- Check if we should emit EOF or if we already did
           -- We use a sentinel: if prevTokenKind is Just TkEOF, we already emitted it
           case lexerPrevTokenKind st of
@@ -1054,12 +1054,12 @@ lexKnownPragma st
 
 parsePragmaLike :: (String -> Maybe (Int, (Text, LexTokenKind))) -> LexerState -> Maybe ((Text, LexTokenKind), LexerState)
 parsePragmaLike parser st = do
-  (n, out) <- parser (lexerInput st)
-  pure (out, advanceChars (take n (lexerInput st)) st)
+  (n, out) <- parser (T.unpack (lexerInput st))
+  pure (out, advanceN n st)
 
 lexIdentifier :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
 lexIdentifier env st =
-  case lexerInput st of
+  case T.unpack (lexerInput st) of
     c : rest
       | isIdentStart c ->
           let hasMagicHash = hasExt MagicHash env
@@ -1135,7 +1135,7 @@ lexImplicitParam :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
 lexImplicitParam env st
   | not (hasExt ImplicitParams env) = Nothing
   | otherwise =
-      case lexerInput st of
+      case T.unpack (lexerInput st) of
         '?' : c : rest
           | isAsciiLower c || c == '_' ->
               let (tailChars, _) = span isIdentTail rest
@@ -1163,10 +1163,10 @@ lexImplicitParam env st
 lexNegativeLiteralOrMinus :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
 lexNegativeLiteralOrMinus env st
   | not hasNegExt = Nothing
-  | not (isStandaloneMinus (lexerInput st)) = Nothing
+  | not (isStandaloneMinus (T.unpack (lexerInput st))) = Nothing
   | otherwise =
       let prevAllows = allowsMergeOrPrefix (lexerPrevTokenKind st) (lexerHadTrivia st)
-          rest = drop 1 (lexerInput st) -- input after '-'
+          rest = drop 1 (T.unpack (lexerInput st)) -- input after '-'
        in if hasExt NegativeLiterals env && prevAllows
             then case tryLexNumberAfterMinus env st of
               Just result -> Just result
@@ -1321,7 +1321,7 @@ lexTypeApplication :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
 lexTypeApplication env st
   | not (hasExt TypeApplications env) = Nothing
   | otherwise =
-      case lexerInput st of
+      case T.unpack (lexerInput st) of
         '@' : rest
           -- Only handle single @ (not part of multi-char operator like @@)
           | not (isMultiCharOp rest) ->
@@ -1360,7 +1360,7 @@ lexTypeApplication env st
 --   a! b    -- suffix (operator)
 lexBangOrTildeOperator :: LexerState -> Maybe (LexToken, LexerState)
 lexBangOrTildeOperator st =
-  case lexerInput st of
+  case T.unpack (lexerInput st) of
     '!' : rest -> lexPrefixSensitiveOp st '!' "!" TkPrefixBang rest
     '~' : rest -> lexPrefixSensitiveOp st '~' "~" TkPrefixTilde rest
     _ -> Nothing
@@ -1381,7 +1381,7 @@ lexPrefixDollar :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
 lexPrefixDollar env st
   | not (hasExt TemplateHaskell env) = Nothing
   | otherwise =
-      case lexerInput st of
+      case T.unpack (lexerInput st) of
         -- \$$ must be checked before $ (greedy match for typed splice)
         '$' : '$' : rest
           | not (isMultiCharOp rest),
@@ -1464,7 +1464,7 @@ canStartPrefixPatternAtom rest =
 
 lexOperator :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
 lexOperator env st =
-  case span isSymbolicOpChar (lexerInput st) of
+  case span isSymbolicOpChar (T.unpack (lexerInput st)) of
     (op@(c : _), _) ->
       let txt = T.pack op
           st' = advanceChars op st
@@ -1527,7 +1527,7 @@ lexSymbol env st =
       case xs of
         [] -> Nothing
         (txt, kind) : rest ->
-          if txt `List.isPrefixOf` lexerInput st
+          if txt `List.isPrefixOf` T.unpack (lexerInput st)
             then
               let st' = advanceChars txt st
                in Just (mkToken st st' (T.pack txt) kind, st')
@@ -1542,7 +1542,7 @@ withOptionalMagicHashSuffix ::
   (Text, LexTokenKind, LexerState)
 withOptionalMagicHashSuffix env st raw plainKind hashKind =
   let st' = advanceChars raw st
-   in case lexerInput st' of
+   in case T.unpack (lexerInput st') of
         '#' : _
           | hasExt MagicHash env ->
               let rawHash = raw <> "#"
@@ -1552,7 +1552,7 @@ withOptionalMagicHashSuffix env st raw plainKind hashKind =
 
 lexIntBase :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
 lexIntBase env st =
-  case lexerInput st of
+  case T.unpack (lexerInput st) of
     '0' : base : rest
       | base `elem` ("xXoObB" :: String) ->
           let allowUnderscores = hasExt NumericUnderscores env
@@ -1577,7 +1577,7 @@ lexIntBase env st =
 
 lexHexFloat :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
 lexHexFloat env st = do
-  ('0' : x : rest) <- Just (lexerInput st)
+  ('0' : x : rest) <- Just (T.unpack (lexerInput st))
   if x `notElem` ("xX" :: String)
     then Nothing
     else do
@@ -1610,7 +1610,7 @@ lexHexFloat env st = do
 lexFloat :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
 lexFloat env st =
   let allowUnderscores = hasExt NumericUnderscores env
-      (lhsRaw, rest) = takeDigitsWithUnderscores allowUnderscores isDigit (lexerInput st)
+      (lhsRaw, rest) = takeDigitsWithUnderscores allowUnderscores isDigit (T.unpack (lexerInput st))
    in if null lhsRaw
         then Nothing
         else case rest of
@@ -1640,7 +1640,7 @@ lexFloat env st =
 lexInt :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
 lexInt env st =
   let allowUnderscores = hasExt NumericUnderscores env
-      (digitsRaw, _) = takeDigitsWithUnderscores allowUnderscores isDigit (lexerInput st)
+      (digitsRaw, _) = takeDigitsWithUnderscores allowUnderscores isDigit (T.unpack (lexerInput st))
    in if null digitsRaw
         then Nothing
         else
@@ -1654,7 +1654,7 @@ lexPromotedQuote :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
 lexPromotedQuote env st
   | not (hasExt DataKinds env) = Nothing
   | otherwise =
-      case lexerInput st of
+      case T.unpack (lexerInput st) of
         '\'' : rest
           | isValidCharLiteral rest -> Nothing
           | isPromotionStart rest ->
@@ -1679,7 +1679,7 @@ lexPromotedQuote env st
 
 lexChar :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
 lexChar env st =
-  case lexerInput st of
+  case T.unpack (lexerInput st) of
     '\'' : rest ->
       case scanQuoted '\'' rest of
         Right (body, _) ->
@@ -1700,7 +1700,7 @@ lexChar env st =
 
 lexString :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
 lexString env st =
-  case lexerInput st of
+  case T.unpack (lexerInput st) of
     '"' : '"' : '"' : rest | hasExt MultilineStrings env ->
       -- Try multiline string first if extension is enabled
       case scanMultilineString rest of
@@ -1733,7 +1733,7 @@ lexString env st =
 
 lexQuasiQuote :: LexerState -> Maybe (LexToken, LexerState)
 lexQuasiQuote st =
-  case lexerInput st of
+  case T.unpack (lexerInput st) of
     '[' : rest ->
       case parseQuasiQuote rest of
         Just (quoter, body, _) ->
@@ -1761,7 +1761,7 @@ lexTHQuoteBracket :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
 lexTHQuoteBracket env st
   | not (thQuotesEnabled env st) = Nothing
   | otherwise =
-      case lexerInput st of
+      case T.unpack (lexerInput st) of
         '[' : '|' : '|' : _ ->
           let raw = "[||"
               st' = advanceChars raw st
@@ -1798,7 +1798,7 @@ lexTHCloseQuote :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
 lexTHCloseQuote env st
   | not (thQuotesEnabled env st) = Nothing
   | otherwise =
-      case lexerInput st of
+      case T.unpack (lexerInput st) of
         '|' : '|' : ']' : _ ->
           let raw = "||]"
               st' = advanceChars raw st
@@ -1816,7 +1816,7 @@ lexTHNameQuote :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
 lexTHNameQuote env st
   | not (thQuotesEnabled env st) = Nothing
   | otherwise =
-      case lexerInput st of
+      case T.unpack (lexerInput st) of
         '\'' : '\'' : rest ->
           -- '' - type name quote tick (only when followed by an identifier start)
           case rest of
@@ -1849,7 +1849,7 @@ thQuotesEnabled env _st =
 
 lexErrorToken :: LexerState -> Text -> (LexToken, LexerState)
 lexErrorToken st msg =
-  let raw = take 1 (lexerInput st)
+  let raw = take 1 (T.unpack (lexerInput st))
       rawTxt = if null raw then "<eof>" else T.pack raw
       st' = if null raw then st else advanceChars raw st
    in ( mkErrorToken st st' rawTxt msg,
@@ -1864,7 +1864,7 @@ tryConsumeLineDirective :: LexerState -> Maybe (Maybe LexToken, LexerState)
 tryConsumeLineDirective st
   | not (lexerAtLineStart st) = Nothing
   | otherwise =
-      let (spaces, rest) = span (\c -> c == ' ' || c == '\t') (lexerInput st)
+      let (spaces, rest) = span (\c -> c == ' ' || c == '\t') (T.unpack (lexerInput st))
        in case rest of
             '#' : more ->
               let lineText = '#' : takeLineRemainder more
@@ -1879,12 +1879,12 @@ tryConsumeLineDirective st
 
 tryConsumeControlPragma :: LexerState -> Maybe (Maybe LexToken, LexerState)
 tryConsumeControlPragma st =
-  case parseControlPragma (lexerInput st) of
+  case parseControlPragma (T.unpack (lexerInput st)) of
     Just (consumed0, Right update0) ->
       let (consumed, update) =
             case directiveLine update0 of
               Just lineNo ->
-                case drop (length consumed0) (lexerInput st) of
+                case drop (length consumed0) (T.unpack (lexerInput st)) of
                   '\n' : _ ->
                     (consumed0 <> "\n", update0 {directiveLine = Just lineNo, directiveCol = Just 1})
                   _ -> (consumed0, update0)
@@ -1912,14 +1912,14 @@ applyDirectiveAdvance consumed update st =
 consumeLineComment :: LexerState -> LexerState
 consumeLineComment st = advanceChars consumed st
   where
-    consumed = takeCommentRemainder (drop 2 (lexerInput st))
+    consumed = takeCommentRemainder (drop 2 (T.unpack (lexerInput st)))
     prefix = "--"
     takeCommentRemainder xs =
       prefix <> takeWhile (/= '\n') xs
 
 consumeUnknownPragma :: LexerState -> Maybe LexerState
 consumeUnknownPragma st =
-  case breakOnMarker "#-}" (lexerInput st) of
+  case breakOnMarker "#-}" (T.unpack (lexerInput st)) of
     (_, "") -> Nothing
     (body, marker) ->
       let consumed = body <> take 3 marker
@@ -1927,7 +1927,7 @@ consumeUnknownPragma st =
 
 consumeBlockComment :: LexerState -> Maybe LexerState
 consumeBlockComment st =
-  case scanNestedBlockComment 1 (drop 2 (lexerInput st)) of
+  case scanNestedBlockComment 1 (drop 2 (T.unpack (lexerInput st))) of
     Just consumedTail -> Just (advanceChars ("{-" <> consumedTail) st)
     Nothing -> Nothing
 
@@ -1936,7 +1936,7 @@ consumeBlockCommentOrError st =
   case consumeBlockComment st of
     Just st' -> Right st'
     Nothing ->
-      let consumed = lexerInput st
+      let consumed = T.unpack (lexerInput st)
           st' = advanceChars consumed st
           tok = mkToken st st' (T.pack consumed) (TkError "unterminated block comment")
        in Left (tok, st')
@@ -2201,33 +2201,28 @@ mkSpan start end =
     }
 
 advanceChars :: String -> LexerState -> LexerState
-advanceChars chars st = foldl advanceOne st chars
-  where
-    advanceOne acc ch =
-      case ch of
-        '\n' ->
-          acc
-            { lexerInput = drop 1 (lexerInput acc),
-              lexerLine = lexerLine acc + 1,
-              lexerCol = 1,
-              lexerByteOffset = lexerByteOffset acc + 1,
-              lexerAtLineStart = True
-            }
-        '\t' ->
-          let nextTabStop = 8 - ((lexerCol acc - 1) `mod` 8)
-           in acc
-                { lexerInput = drop 1 (lexerInput acc),
-                  lexerCol = lexerCol acc + nextTabStop,
-                  lexerByteOffset = lexerByteOffset acc + 1,
-                  lexerAtLineStart = False
-                }
-        _ ->
-          acc
-            { lexerInput = drop 1 (lexerInput acc),
-              lexerCol = lexerCol acc + 1,
-              lexerByteOffset = lexerByteOffset acc + utf8CharWidth ch,
-              lexerAtLineStart = False
-            }
+advanceChars chars st =
+  let !n = length chars
+      go (!line, !col, !byteOff, !_atLineStart) ch =
+        case ch of
+          '\n' -> (line + 1, 1, byteOff + 1, True)
+          '\t' ->
+            let nextTabStop = 8 - ((col - 1) `mod` 8)
+             in (line, col + nextTabStop, byteOff + 1, False)
+          _ -> (line, col + 1, byteOff + utf8CharWidth ch, False)
+      (!finalLine, !finalCol, !finalByteOff, !finalAtLineStart) =
+        List.foldl' go (lexerLine st, lexerCol st, lexerByteOffset st, lexerAtLineStart st) chars
+   in st
+        { lexerInput = T.drop n (lexerInput st),
+          lexerLine = finalLine,
+          lexerCol = finalCol,
+          lexerByteOffset = finalByteOff,
+          lexerAtLineStart = finalAtLineStart
+        }
+
+-- | Advance by n characters, computing position from the Text being consumed.
+advanceN :: Int -> LexerState -> LexerState
+advanceN n st = advanceChars (T.unpack (T.take n (lexerInput st))) st
 
 utf8CharWidth :: Char -> Int
 utf8CharWidth ch =
@@ -2249,7 +2244,9 @@ parseDirectiveSourceName rest =
     _ -> Nothing
 
 consumeWhile :: (Char -> Bool) -> LexerState -> LexerState
-consumeWhile f st = advanceChars (takeWhile f (lexerInput st)) st
+consumeWhile f st =
+  let consumed = T.takeWhile f (lexerInput st)
+   in advanceChars (T.unpack consumed) st
 
 -- | Take digits with optional underscores.
 --
