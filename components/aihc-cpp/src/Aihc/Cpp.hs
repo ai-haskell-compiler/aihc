@@ -59,6 +59,8 @@ import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.Lazy as TL
+import qualified Data.Text.Lazy.Builder as TB
 import System.FilePath (takeDirectory, (</>))
 
 -- $setup
@@ -169,7 +171,7 @@ import System.FilePath (takeDirectory, (</>))
 -- Diagnostic {diagSeverity = Error, diagMessage = "Build failed", diagFile = "<input>", diagLine = 1}
 preprocess :: Config -> Text -> Step
 preprocess cfg input =
-  processFile (configInputFile cfg) (joinMultiline 1 (T.lines input)) [] initialState finish
+  processFile (configInputFile cfg) (splitInputLines 1 input) [] initialState finish
   where
     initialState =
       let st0 = emitLine (linePragma 1 (configInputFile cfg)) (emptyState (configInputFile cfg))
@@ -178,7 +180,7 @@ preprocess cfg input =
             }
 
     finish st =
-      let out = T.intercalate "\n" (reverse (stOutputRev st))
+      let out = TL.toStrict (TB.toLazyText (stOutput st))
           outWithTrailingNewline =
             if T.null out
               then out
@@ -189,26 +191,69 @@ preprocess cfg input =
                 resultDiagnostics = reverse (stDiagnosticsRev st)
               }
 
-joinMultiline :: Int -> [Text] -> [(Int, Int, Text)]
-joinMultiline _ [] = []
-joinMultiline n (l : ls)
-  | "\\" `T.isSuffixOf` l && "#" `T.isPrefixOf` T.stripStart l =
-      let (content, rest, extraLines) = pull (T.init l) ls
-          spanLen = extraLines + 1
-       in (n, spanLen, content) : joinMultiline (n + spanLen) rest
-  | otherwise = (n, 1, l) : joinMultiline (n + 1) ls
-  where
-    pull acc [] = (acc, [], 0)
-    pull acc (x : xs)
-      | "\\" `T.isSuffixOf` x =
-          let (res, r, c) = pull (acc <> T.init x) xs
-           in (res, r, c + 1)
-      | otherwise = (acc <> x, xs, 1)
+-- | Split input text into lines, joining backslash-continuation lines
+-- for directives. Each entry is (lineNo, lineSpan, lineText).
+-- Walks the text directly without an intermediate @[Text]@ list.
+-- Behaves like @T.lines@ — a trailing newline does NOT produce an
+-- empty trailing entry.
+splitInputLines :: Int -> Text -> [(Int, Int, Text)]
+splitInputLines _ txt | T.null txt = []
+splitInputLines n txt =
+  let (line, rest) = T.break (== '\n') txt
+      rest' = if T.null rest then rest else T.drop 1 rest -- skip the '\n'
+   in if "\\" `T.isSuffixOf` line && "#" `T.isPrefixOf` T.stripStart line
+        then
+          let (content, remaining, extraLines) = pullContinuation (T.init line) rest'
+              spanLen = extraLines + 1
+           in (n, spanLen, content) : splitInputLines (n + spanLen) remaining
+        else (n, 1, line) : splitInputLines (n + 1) rest'
 
-splitLines :: Text -> [Text]
-splitLines txt
-  | T.null txt = []
-  | otherwise = T.splitOn "\n" txt
+-- | Like 'splitInputLines' but behaves like @T.splitOn \"\\n\"@ —
+-- a trailing newline DOES produce an empty trailing entry.
+-- Used for @#include@ file content where the trailing newline represents
+-- an additional source line.
+splitIncludeLines :: Int -> Text -> [(Int, Int, Text)]
+splitIncludeLines _ txt | T.null txt = []
+splitIncludeLines n txt =
+  let (line, rest) = T.break (== '\n') txt
+   in if T.null rest
+        then -- No newline found: this is the last segment
+          if "\\" `T.isSuffixOf` line && "#" `T.isPrefixOf` T.stripStart line
+            then
+              let (content, _, extraLines) = pullContinuation (T.init line) T.empty
+                  spanLen = extraLines + 1
+               in [(n, spanLen, content)]
+            else [(n, 1, line)]
+        else
+          let rest' = T.drop 1 rest -- skip the '\n'
+           in if "\\" `T.isSuffixOf` line && "#" `T.isPrefixOf` T.stripStart line
+                then
+                  let (content, remaining, extraLines) = pullContinuation (T.init line) rest'
+                      spanLen = extraLines + 1
+                   in (n, spanLen, content) : splitIncludeLines (n + spanLen) remaining
+                else -- Include the empty trailing entry for a final newline
+                  (n, 1, line) : splitIncludeLinesAfterNewline (n + 1) rest'
+
+-- | Helper for 'splitIncludeLines' that handles the case after a
+-- newline has been consumed. Unlike the main function, an empty
+-- input here produces a single empty entry (representing the line
+-- after a trailing newline).
+splitIncludeLinesAfterNewline :: Int -> Text -> [(Int, Int, Text)]
+splitIncludeLinesAfterNewline n txt
+  | T.null txt = [(n, 1, "")]
+  | otherwise = splitIncludeLines n txt
+
+pullContinuation :: Text -> Text -> (Text, Text, Int)
+pullContinuation acc remaining
+  | T.null remaining = (acc, remaining, 0)
+  | otherwise =
+      let (nextLine, rest2) = T.break (== '\n') remaining
+          rest2' = if T.null rest2 then rest2 else T.drop 1 rest2
+       in if "\\" `T.isSuffixOf` nextLine
+            then
+              let (res, r, c) = pullContinuation (acc <> T.init nextLine) rest2'
+               in (res, r, c + 1)
+            else (acc <> nextLine, rest2', 1)
 
 processFile :: FilePath -> [(Int, Int, Text)] -> [CondFrame] -> EngineState -> Continuation -> Step
 processFile _ [] _ st k = k st
@@ -446,7 +491,7 @@ handleIncludeDirective ctx st kind includeTarget
                   (stAfterInclude {stCurrentFile = lcFilePath ctx, stCurrentLine = lcNextLineNo ctx})
               )
               (lcDone ctx)
-       in processFile includeFilePath (joinMultiline 1 (splitLines includeText)) [] stWithIncludePragma resumeParent
+       in processFile includeFilePath (splitIncludeLines 1 includeText) [] stWithIncludePragma resumeParent
 
 handleLineDirective :: LineContext -> EngineState -> Int -> Maybe FilePath -> Step
 handleLineDirective ctx st lineNumber maybePath
@@ -468,12 +513,22 @@ handleLineDirective ctx st lineNumber maybePath
             (lcDone ctx)
 
 emitLine :: Text -> EngineState -> EngineState
-emitLine line st = st {stOutputRev = line : stOutputRev st}
+emitLine line st =
+  let sep = if stOutputLineCount st > 0 then TB.singleton '\n' else mempty
+   in st
+        { stOutput = stOutput st <> sep <> TB.fromText line,
+          stOutputLineCount = stOutputLineCount st + 1
+        }
 
 emitBlankLines :: Int -> EngineState -> EngineState
 emitBlankLines n st
   | n <= 0 = st
-  | otherwise = st {stOutputRev = replicate n "" <> stOutputRev st}
+  | otherwise =
+      let newlines = mconcat (replicate n (TB.singleton '\n'))
+       in st
+            { stOutput = stOutput st <> newlines,
+              stOutputLineCount = stOutputLineCount st + n
+            }
 
 addDiag :: Severity -> Text -> FilePath -> Int -> EngineState -> EngineState
 addDiag sev msg filePath lineNo st =

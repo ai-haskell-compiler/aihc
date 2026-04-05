@@ -26,6 +26,7 @@ import Control.DeepSeq (NFData)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
+import qualified Data.Text.Lazy.Builder as TB
 import GHC.Generics (Generic)
 
 -- $setup
@@ -130,7 +131,8 @@ data Step
 
 data EngineState = EngineState
   { stMacros :: !(Map Text MacroDef),
-    stOutputRev :: ![Text],
+    stOutput :: !TB.Builder,
+    stOutputLineCount :: {-# UNPACK #-} !Int,
     stDiagnosticsRev :: ![Diagnostic],
     stSkippingDanglingElse :: !Bool,
     stHsBlockCommentDepth :: !Int,
@@ -143,7 +145,8 @@ emptyState :: FilePath -> EngineState
 emptyState filePath =
   EngineState
     { stMacros = M.empty,
-      stOutputRev = [],
+      stOutput = mempty,
+      stOutputLineCount = 0,
       stDiagnosticsRev = [],
       stSkippingDanglingElse = False,
       stHsBlockCommentDepth = 0,
