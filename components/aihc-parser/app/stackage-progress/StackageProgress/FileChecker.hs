@@ -39,10 +39,10 @@ import HackageSupport
 import HseExtensions (fromParserExtensions)
 import qualified Language.Haskell.Exts as HSE
 import StackageProgress.CLI (Parser (..))
+import StackageProgress.FileCheckerTiming (maybeVerboseTimingParts)
 import StackageProgress.Summary (forceString)
 import System.IO (hPutStrLn, stderr)
 import System.Timeout (timeout)
-import Text.Printf (printf)
 
 -- | Run an @IO@ action and return its result with elapsed monotonic time in nanoseconds.
 withElapsedNanos :: IO a -> IO (a, Word64)
@@ -51,9 +51,6 @@ withElapsedNanos action = do
   x <- action
   t1 <- getMonotonicTimeNSec
   pure (x, t1 - t0)
-
-formatNanosMs :: Word64 -> String
-formatNanosMs n = printf "%.3fms" (fromIntegral n / 1e6 :: Double)
 
 aihcParseTimeoutMicros :: Int
 aihcParseTimeoutMicros = 5 * 60 * 1_000_000
@@ -212,13 +209,13 @@ checkFile parsers verbose packageRoot info = do
           )
       else pure (Nothing, 0)
 
-  let timingParts =
-        ["cpp=" ++ formatNanosMs preprocessNanos]
-          ++ ["aihc=" ++ formatNanosMs aihcNanos | ParserAihc `elem` parsers]
-          ++ ["ghc=" ++ formatNanosMs ghcNanos | ParserGhc `elem` parsers]
-  let timelimit = 1_000_000_000 -- 1s
-  when (verbose && (preprocessNanos > timelimit || aihcNanos > timelimit || ghcNanos > timelimit)) $ do
-    hPutStrLn stderr ("stackage-progress: " ++ reverse (take 60 (reverse file)) ++ " " ++ unwords timingParts)
+  let processedBytes = T.length source'
+  when verbose $
+    case maybeVerboseTimingParts parsers processedBytes preprocessNanos aihcNanos ghcNanos of
+      Just timingParts ->
+        hPutStrLn stderr ("stackage-progress: " ++ reverse (take 60 (reverse file)) ++ " " ++ unwords timingParts)
+      Nothing ->
+        pure ()
 
   pure
     FileResult

@@ -40,6 +40,7 @@ test-suite spec
   type:             exitcode-stdio-1.0
   hs-source-dirs:
       test
+    , app/stackage-progress
     , common
   main-is:          Spec.hs
   other-modules:
@@ -55,7 +56,9 @@ test-suite spec
     , ParserGolden
     , ParserValidation
     , ShrinkUtils
+    , StackageProgress.CLI
     , StackageProgress.Summary
+    , StackageProgress.FileCheckerTiming
     , Test.ErrorMessages.Suite
     , Test.Oracle.Suite
     , Test.Performance.Suite
@@ -70,6 +73,7 @@ test-suite spec
     , Test.Properties.PatternRoundTrip
     , Test.Properties.TypeRoundTrip
     , Test.Parser.Suite
+    , Test.StackageProgress.FileCheckerTiming
     , Test.StackageProgress.Summary
   build-depends:
       base >=4.16 && <5
@@ -263,6 +267,7 @@ executable stackage-progress
     , ShrinkUtils
     , StackageProgress.CLI
     , StackageProgress.FileChecker
+    , StackageProgress.FileCheckerTiming
     , StackageProgress.PackageRunner
     , StackageProgress.Snapshot
     , StackageProgress.Summary
