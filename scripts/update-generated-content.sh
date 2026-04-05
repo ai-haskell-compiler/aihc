@@ -42,7 +42,7 @@ lexer_cmd="${LEXER_PROGRESS_CMD:-nix run .#lexer-progress}"
 extension_markdown_cmd="${PARSER_EXTENSION_PROGRESS_CMD:-nix run .#parser-extension-progress -- --markdown}"
 extension_progress_cmd="${PARSER_EXTENSION_PROGRESS_TEXT_CMD:-nix run .#parser-extension-progress}"
 cpp_cmd="${CPP_PROGRESS_CMD:-nix run .#cpp-progress}"
-stackage_cmd="${PARSER_STACKAGE_PROGRESS_CMD:-nix run .#stackage-progress -- --snapshot lts-24.33 --checks parse}"
+stackage_cmd="${PARSER_STACKAGE_PROGRESS_CMD:-nix run .#stackage-progress -- --snapshot lts-24.33}"
 line_counts_cmd="${LINE_COUNTS_CMD:-nix run .#line-counts}"
 
 tmpdir="$(mktemp -d)"
