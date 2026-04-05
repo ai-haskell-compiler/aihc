@@ -100,6 +100,32 @@ buildTests = do
             testCase "let statement: let x = 5" test_doLetStmt,
             testCase "rejects if-then-else in pattern context" test_doBindRejectsIfExpr
           ],
+        testGroup
+          "checkPattern (guard qualifier)"
+          [ testCase "guard expression: f x | x > 0 = x" test_guardExpr,
+            testCase "guard pattern bind: f x | Just y <- g x = y" test_guardPatBind,
+            testCase "guard let: f x | let y = x + 1 = y" test_guardLet,
+            testCase "guard wildcard bind: f x | _ <- g x = x" test_guardWildcardBind,
+            testCase "guard tuple bind: f x | (a, b) <- g x = a" test_guardTupleBind,
+            testCase "guard constructor bind: f x | Just y <- g x = y" test_guardConBind,
+            testCase "guard bang pattern: f x | !y <- g x = y" test_guardBangBind,
+            testCase "guard irrefutable pattern: f x | ~(a, b) <- g x = a" test_guardIrrefutableBind,
+            testCase "guard as pattern: f x | y@(Just _) <- g x = y" test_guardAsBind,
+            testCase "guard infix pattern: f x | a : as <- g x = a" test_guardInfixBind
+          ],
+        testGroup
+          "checkPattern (list comprehension)"
+          [ testCase "comp guard: [x | x > 0]" test_compGuard,
+            testCase "comp generator: [x | x <- xs]" test_compGen,
+            testCase "comp let: [y | let y = 5]" test_compLet,
+            testCase "comp wildcard gen: [1 | _ <- xs]" test_compWildcardGen,
+            testCase "comp tuple gen: [a | (a, b) <- xs]" test_compTupleGen,
+            testCase "comp constructor gen: [y | Just y <- xs]" test_compConGen,
+            testCase "comp bang gen: [y | !y <- xs]" test_compBangGen,
+            testCase "comp irrefutable gen: [a | ~(a, b) <- xs]" test_compIrrefutableGen,
+            testCase "comp as gen: [y | y@(Just _) <- xs]" test_compAsGen,
+            testCase "comp infix gen: [a | a : as <- xs]" test_compInfixGen
+          ],
         adjustOption (const tenMinutes) $
           testGroup
             "properties"
@@ -570,3 +596,175 @@ test_doBindRejectsIfExpr =
   let src = "x = do { if True then 1 else 2 <- return 3 }"
       (errs, _) = parseModule defaultConfig src
    in assertBool "expected parse error for if-then-else in bind pattern" (not (null errs))
+
+-- Helpers: parse guard qualifiers from a function with guards.
+-- Input: "f x | guard1, guard2 = body"
+parseGuards :: T.Text -> Either String [GuardQualifier]
+parseGuards src =
+  let (errs, modu) = parseModule defaultConfig src
+   in if not (null errs)
+        then Left ("parse errors: " <> show errs)
+        else case moduleDecls modu of
+          [DeclValue _ (FunctionBind _ _ [Match {matchRhs = GuardedRhss _ [GuardedRhs {guardedRhsGuards = guards}]}])] ->
+            Right guards
+          other ->
+            Left ("unexpected AST: " <> show other)
+
+parseGuardsExt :: [Extension] -> T.Text -> Either String [GuardQualifier]
+parseGuardsExt exts src =
+  let (errs, modu) = parseModule defaultConfig {parserExtensions = exts} fullSrc
+   in if not (null errs)
+        then Left ("parse errors: " <> show errs)
+        else case moduleDecls modu of
+          [DeclValue _ (FunctionBind _ _ [Match {matchRhs = GuardedRhss _ [GuardedRhs {guardedRhsGuards = guards}]}])] ->
+            Right guards
+          other ->
+            Left ("unexpected AST: " <> show other)
+  where
+    fullSrc = "{-# LANGUAGE " <> T.intercalate ", " (map (T.pack . show) exts) <> " #-}\n" <> src
+
+test_guardExpr :: Assertion
+test_guardExpr =
+  case parseGuards "f x | x > 0 = x" of
+    Right [GuardExpr _ _] -> pure ()
+    other -> assertFailure ("expected guard expression, got: " <> show other)
+
+test_guardPatBind :: Assertion
+test_guardPatBind =
+  case parseGuards "f x | Just y <- g x = y" of
+    Right [GuardPat _ (PCon _ "Just" [PVar _ "y"]) _] -> pure ()
+    other -> assertFailure ("expected guard pattern bind, got: " <> show other)
+
+test_guardLet :: Assertion
+test_guardLet =
+  case parseGuards "f x | let { y = x } = y" of
+    Right [GuardLet _ _] -> pure ()
+    other -> assertFailure ("expected guard let, got: " <> show other)
+
+test_guardWildcardBind :: Assertion
+test_guardWildcardBind =
+  case parseGuards "f x | _ <- g x = x" of
+    Right [GuardPat _ (PWildcard _) _] -> pure ()
+    other -> assertFailure ("expected guard wildcard bind, got: " <> show other)
+
+test_guardTupleBind :: Assertion
+test_guardTupleBind =
+  case parseGuards "f x | (a, b) <- g x = a" of
+    Right [GuardPat _ (PTuple _ Boxed [PVar _ "a", PVar _ "b"]) _] -> pure ()
+    other -> assertFailure ("expected guard tuple bind, got: " <> show other)
+
+test_guardConBind :: Assertion
+test_guardConBind =
+  case parseGuards "f x | Just y <- g x = y" of
+    Right [GuardPat _ (PCon _ "Just" [PVar _ "y"]) _] -> pure ()
+    other -> assertFailure ("expected guard constructor bind, got: " <> show other)
+
+test_guardBangBind :: Assertion
+test_guardBangBind =
+  case parseGuardsExt [BangPatterns] "f x | !y <- g x = y" of
+    Right [GuardPat _ (PStrict _ (PVar _ "y")) _] -> pure ()
+    other -> assertFailure ("expected guard bang bind, got: " <> show other)
+
+test_guardIrrefutableBind :: Assertion
+test_guardIrrefutableBind =
+  case parseGuards "f x | ~(a, b) <- g x = a" of
+    Right [GuardPat _ (PIrrefutable _ (PTuple _ Boxed [PVar _ "a", PVar _ "b"])) _] -> pure ()
+    other -> assertFailure ("expected guard irrefutable bind, got: " <> show other)
+
+test_guardAsBind :: Assertion
+test_guardAsBind =
+  case parseGuards "f x | y@(Just _) <- g x = y" of
+    Right [GuardPat _ (PAs _ "y" (PParen _ (PCon _ "Just" [PWildcard _]))) _] -> pure ()
+    other -> assertFailure ("expected guard as-pattern bind, got: " <> show other)
+
+test_guardInfixBind :: Assertion
+test_guardInfixBind =
+  case parseGuards "f x | a : as <- g x = a" of
+    Right [GuardPat _ (PInfix _ (PVar _ "a") ":" (PVar _ "as")) _] -> pure ()
+    other -> assertFailure ("expected guard infix bind, got: " <> show other)
+
+-- Helpers: parse list comprehension statements.
+-- Input: "[body | stmt1, stmt2]"
+parseCompStmts :: T.Text -> Either String [CompStmt]
+parseCompStmts src =
+  let fullSrc = "x = " <> src
+      (errs, modu) = parseModule defaultConfig fullSrc
+   in if not (null errs)
+        then Left ("parse errors: " <> show errs)
+        else case moduleDecls modu of
+          [DeclValue _ (FunctionBind _ _ [Match {matchRhs = UnguardedRhs _ (EListComp _ _ stmts)}])] ->
+            Right stmts
+          other ->
+            Left ("unexpected AST: " <> show other)
+
+parseCompStmtsExt :: [Extension] -> T.Text -> Either String [CompStmt]
+parseCompStmtsExt exts src =
+  let fullSrc = "x = " <> src
+      (errs, modu) = parseModule defaultConfig {parserExtensions = exts} fullSrc
+   in if not (null errs)
+        then Left ("parse errors: " <> show errs)
+        else case moduleDecls modu of
+          [DeclValue _ (FunctionBind _ _ [Match {matchRhs = UnguardedRhs _ (EListComp _ _ stmts)}])] ->
+            Right stmts
+          other ->
+            Left ("unexpected AST: " <> show other)
+
+test_compGuard :: Assertion
+test_compGuard =
+  case parseCompStmts "[x | x > 0]" of
+    Right [CompGuard _ _] -> pure ()
+    other -> assertFailure ("expected comp guard, got: " <> show other)
+
+test_compGen :: Assertion
+test_compGen =
+  case parseCompStmts "[x | x <- xs]" of
+    Right [CompGen _ (PVar _ "x") _] -> pure ()
+    other -> assertFailure ("expected comp generator, got: " <> show other)
+
+test_compLet :: Assertion
+test_compLet =
+  case parseCompStmts "[y | let { y = 5 }]" of
+    Right [CompLetDecls _ _] -> pure ()
+    other -> assertFailure ("expected comp let, got: " <> show other)
+
+test_compWildcardGen :: Assertion
+test_compWildcardGen =
+  case parseCompStmts "[1 | _ <- xs]" of
+    Right [CompGen _ (PWildcard _) _] -> pure ()
+    other -> assertFailure ("expected comp wildcard gen, got: " <> show other)
+
+test_compTupleGen :: Assertion
+test_compTupleGen =
+  case parseCompStmts "[a | (a, b) <- xs]" of
+    Right [CompGen _ (PTuple _ Boxed [PVar _ "a", PVar _ "b"]) _] -> pure ()
+    other -> assertFailure ("expected comp tuple gen, got: " <> show other)
+
+test_compConGen :: Assertion
+test_compConGen =
+  case parseCompStmts "[y | Just y <- xs]" of
+    Right [CompGen _ (PCon _ "Just" [PVar _ "y"]) _] -> pure ()
+    other -> assertFailure ("expected comp constructor gen, got: " <> show other)
+
+test_compBangGen :: Assertion
+test_compBangGen =
+  case parseCompStmtsExt [BangPatterns] "[y | !y <- xs]" of
+    Right [CompGen _ (PStrict _ (PVar _ "y")) _] -> pure ()
+    other -> assertFailure ("expected comp bang gen, got: " <> show other)
+
+test_compIrrefutableGen :: Assertion
+test_compIrrefutableGen =
+  case parseCompStmts "[a | ~(a, b) <- xs]" of
+    Right [CompGen _ (PIrrefutable _ (PTuple _ Boxed [PVar _ "a", PVar _ "b"])) _] -> pure ()
+    other -> assertFailure ("expected comp irrefutable gen, got: " <> show other)
+
+test_compAsGen :: Assertion
+test_compAsGen =
+  case parseCompStmts "[y | y@(Just _) <- xs]" of
+    Right [CompGen _ (PAs _ "y" (PParen _ (PCon _ "Just" [PWildcard _]))) _] -> pure ()
+    other -> assertFailure ("expected comp as-pattern gen, got: " <> show other)
+
+test_compInfixGen :: Assertion
+test_compInfixGen =
+  case parseCompStmts "[a | a : as <- xs]" of
+    Right [CompGen _ (PInfix _ (PVar _ "a") ":" (PVar _ "as")) _] -> pure ()
+    other -> assertFailure ("expected comp infix gen, got: " <> show other)
