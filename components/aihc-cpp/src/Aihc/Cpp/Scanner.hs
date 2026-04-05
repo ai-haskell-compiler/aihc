@@ -5,6 +5,7 @@ module Aihc.Cpp.Scanner
   ( LineSpan (..),
     LineScan (..),
     scanLine,
+    scanLineDepthOnly,
     expandLineBySpanMultiline,
   )
 where
@@ -18,6 +19,7 @@ import Aihc.Cpp.Cursor
     null,
     peekByte,
     peekByte2,
+    skipToInteresting,
     sliceText,
   )
 import Aihc.Cpp.Evaluator (expandMacros, expandMacrosMultiline)
@@ -63,6 +65,45 @@ expandLineBySpanMultiline st spans futureCodeLines =
         else -- Pure code line: try multi-line expansion
           let codeText = T.concat [lineSpanText s | s <- spans]
            in expandMacrosMultiline st codeText futureCodeLines
+
+-- | Lightweight scan that only tracks block comment depth changes.
+-- Does not build 'LineSpan' segments or track string/char literals.
+-- Used for inactive conditional branches where only comment depth
+-- tracking is needed (no macro expansion or span splitting).
+scanLineDepthOnly :: Int -> Int -> Text -> (Int, Int)
+scanLineDepthOnly hsDepth0 cDepth0 input =
+  let cursor0 = fromText input
+   in goDepth hsDepth0 cDepth0 cursor0
+  where
+    goDepth :: Int -> Int -> Cursor -> (Int, Int)
+    goDepth !hsDepth !cDepth !cur
+      | null cur = (hsDepth, cDepth)
+      | otherwise =
+          case peekByte2 cur of
+            Nothing ->
+              -- One byte left, no two-char sequence possible
+              (hsDepth, cDepth)
+            Just (b1, b2)
+              | cDepth > 0 ->
+                  if b1 == 0x2A && b2 == 0x2F -- '*/'
+                    then goDepth hsDepth 0 (advance2 cur)
+                    else goDepth hsDepth cDepth (advance cur)
+              | hsDepth > 0 && b1 == 0x2D && b2 == 0x7D -> -- '-}'
+                  goDepth (hsDepth - 1) cDepth (advance2 cur)
+              | b1 == 0x7B && b2 == 0x2D -> -- '{-'
+                  let cur' = advance2 cur
+                   in case peekByte cur' of
+                        Just 0x23 ->
+                          -- {-# is a pragma, not a comment
+                          goDepth hsDepth cDepth (advance cur)
+                        _ ->
+                          goDepth (hsDepth + 1) cDepth cur'
+              | hsDepth == 0 && b1 == 0x2F && b2 == 0x2A -> -- '/*'
+                  goDepth hsDepth 1 (advance2 cur)
+              | hsDepth == 0 && b1 == 0x2D && b2 == 0x2D -> -- '--' line comment
+                  (hsDepth, cDepth)
+              | otherwise ->
+                  goDepth hsDepth cDepth (advance cur)
 
 -- | Scan a line, tracking comment depths and splitting into spans that are
 -- either inside or outside block comments. Uses a byte-level cursor for
@@ -307,15 +348,16 @@ scanLine hsDepth0 cDepth0 input =
                                                           (curPos cur')
                                                           True
                                                           cur'
-                                                  -- === Normal byte: just advance ===
+                                                  -- === Normal byte: bulk-skip non-interesting bytes ===
                                                   else
-                                                    go
-                                                      hsDepth
-                                                      cDepth
-                                                      False
-                                                      False
-                                                      False
-                                                      acc
-                                                      spanStart
-                                                      spanInComment
-                                                      (advance cur)
+                                                    let cur' = skipToInteresting (advance cur)
+                                                     in go
+                                                          hsDepth
+                                                          cDepth
+                                                          False
+                                                          False
+                                                          False
+                                                          acc
+                                                          spanStart
+                                                          spanInComment
+                                                          cur'
