@@ -1,0 +1,10 @@
+extensions:
+  - Arrows
+input: "(|| True)"
+tokens:
+  - 'TkSpecialLParen'
+  - 'TkVarSym "||"'
+  - 'TkConId "True"'
+  - 'TkSpecialRParen'
+  - 'TkEOF'
+status: pass
