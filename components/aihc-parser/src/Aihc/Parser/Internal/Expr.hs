@@ -180,8 +180,9 @@ cmdParser = do
     TkReservedBackslash -> cmdOperandThenInfix cmdLamParser
     TkSpecialLParen -> cmdOperandThenInfix cmdParenParser
     _ -> do
-      -- Not a keyword command: parse as exp10 and look for arrow tail.
-      expr <- appExprParser
+      -- Not a keyword command: parse the left side as an expression while
+      -- leaving -< / -<< available for command parsing.
+      expr <- exprParserNoArrowTail
       mArrowTail <- MP.optional cmdArrTailParser
       case mArrowTail of
         Just (appType, rhs) ->
@@ -292,7 +293,7 @@ cmdStmtParser = do
     TkKeywordIf -> cmdBodyStmtParser
     TkKeywordCase -> cmdBodyStmtParser
     TkReservedBackslash -> cmdBodyStmtParser
-    TkSpecialLParen -> cmdBodyStmtParser
+    TkSpecialLParen -> MP.try cmdBindOrBodyStmtParser <|> cmdBodyStmtParser
     -- Pattern-only leading tokens: only valid in bind context.
     TkPrefixBang -> cmdBindStmtParser
     TkPrefixTilde -> cmdBindStmtParser
@@ -1112,22 +1113,26 @@ parenExprParser = withSpan $ do
               mOp <- MP.optional (infixOperatorParserExcept [])
               case mOp of
                 Nothing -> do
-                  -- No infix operator: check for arrow tail (-<, -<<) or type annotation.
-                  mArrow <- MP.optional arrowTailParser
-                  let withArrow = case mArrow of
-                        Just (arrowOp, arrowRhs) -> EInfix (mergeSourceSpans (getSourceSpan base) (getSourceSpan arrowRhs)) base arrowOp arrowRhs
-                        Nothing -> base
-                  -- Type annotation: expr :: type
-                  mTypeSig <- MP.optional (expectedTok TkReservedDoubleColon *> typeParser)
-                  let typed = case mTypeSig of
-                        Just ty -> ETypeSig (mergeSourceSpans (getSourceSpan withArrow) (getSourceSpan ty)) withArrow ty
-                        Nothing -> withArrow
-                  -- Where clause wraps the entire expression.
-                  mWhere <- MP.optional whereClauseParser
-                  let expr' = case mWhere of
-                        Just decls -> EWhereDecls (mergeSourceSpans (getSourceSpan typed) (sourceSpanEnd decls)) typed decls
-                        Nothing -> typed
-                  finishBoxed closeTok (Just expr')
+                  mArrowSection <- MP.optional (MP.try (arrowSectionOperatorParser <* expectedTok closeTok))
+                  case mArrowSection of
+                    Just op ->
+                      pure (\span' -> EParen span' (ESectionL span' base op))
+                    Nothing -> do
+                      mArrow <- MP.optional arrowTailParser
+                      let withArrow = case mArrow of
+                            Just (arrowOp, arrowRhs) -> EInfix (mergeSourceSpans (getSourceSpan base) (getSourceSpan arrowRhs)) base arrowOp arrowRhs
+                            Nothing -> base
+                      -- Type annotation: expr :: type
+                      mTypeSig <- MP.optional (expectedTok TkReservedDoubleColon *> typeParser)
+                      let typed = case mTypeSig of
+                            Just ty -> ETypeSig (mergeSourceSpans (getSourceSpan withArrow) (getSourceSpan ty)) withArrow ty
+                            Nothing -> withArrow
+                      -- Where clause wraps the entire expression.
+                      mWhere <- MP.optional whereClauseParser
+                      let expr' = case mWhere of
+                            Just decls -> EWhereDecls (mergeSourceSpans (getSourceSpan typed) (sourceSpanEnd decls)) typed decls
+                            Nothing -> typed
+                      finishBoxed closeTok (Just expr')
                 Just op -> do
                   mClose <- MP.optional (expectedTok closeTok)
                   case mClose of
@@ -1162,10 +1167,17 @@ parenExprParser = withSpan $ do
                       finishBoxed closeTok (Just fullExpr)
       where
         parseSectionR forbidden = do
-          op <- infixOperatorParserExcept forbidden
+          op <- infixOperatorParserExcept forbidden <|> arrowSectionOperatorParser
           rhs <- exprParser
           expectedTok closeTok
           pure (\span' -> EParen span' (ESectionR span' op rhs))
+
+        arrowSectionOperatorParser =
+          tokenSatisfy "operator" $ \tok ->
+            case lexTokenKind tok of
+              TkArrowTail -> Just "-<"
+              TkDoubleArrowTail -> Just "-<<"
+              _ -> Nothing
 
     finishBoxed closeTok mFirst = do
       mComma <- MP.optional (expectedTok TkSpecialComma)
