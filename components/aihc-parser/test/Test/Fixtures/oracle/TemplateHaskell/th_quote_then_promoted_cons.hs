@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail polysemy-fs template haskell quote before promoted cons -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeOperators #-}
