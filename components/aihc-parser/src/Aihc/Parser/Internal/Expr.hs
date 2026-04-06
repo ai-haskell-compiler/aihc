@@ -1886,7 +1886,12 @@ typeInfixOperatorParser =
           _ -> Nothing
 
     promotedInfixOperatorParser = MP.try $ do
-      expectedTok (TkVarSym "'")
+      -- Accept both TkVarSym "'" and TkTHQuoteTick for promoted cons
+      tok <- lookAhead anySingle
+      _ <- case lexTokenKind tok of
+        TkVarSym "'" -> anySingle
+        TkTHQuoteTick -> anySingle
+        _ -> fail "expected quote for promoted cons"
       expectedTok TkReservedColon
       pure (":", Promoted)
 
@@ -1932,7 +1937,13 @@ typeLiteralTypeParser = withSpan $ do
 
 promotedTypeParser :: TokParser Type
 promotedTypeParser = withSpan $ do
-  expectedTok (TkVarSym "'")
+  -- Accept both TkVarSym "'" and TkTHQuoteTick for promoted types
+  -- This handles ambiguity between TH value quotes and promoted types
+  tok <- lookAhead anySingle
+  _ <- case lexTokenKind tok of
+    TkVarSym "'" -> anySingle
+    TkTHQuoteTick -> anySingle
+    _ -> fail "expected quote for promotion"
   promotedTy <- MP.try promotedStructuredTypeParser <|> promotedRawTypeParser
   pure (`setTypeSpan` promotedTy)
 
