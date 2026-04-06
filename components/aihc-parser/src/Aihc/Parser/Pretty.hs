@@ -420,6 +420,8 @@ prettyConstraint constraint =
       hsep (pretty cls : map (prettyTypeIn CtxTypeAtom) args)
     CParen _ inner ->
       parens (prettyConstraint inner)
+    CWildcard _ ->
+      "_"
 
 isSymbolicTypeOperator :: Text -> Bool
 isSymbolicTypeOperator op =

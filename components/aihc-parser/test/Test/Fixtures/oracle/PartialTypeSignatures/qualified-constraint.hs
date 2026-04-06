@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail wildcard in qualified constraint -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE PartialTypeSignatures #-}
 module QualifiedConstraint where
 

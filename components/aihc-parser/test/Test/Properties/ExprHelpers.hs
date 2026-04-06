@@ -868,3 +868,5 @@ normalizeConstraint c =
         }
     CParen _ inner ->
       CParen span0 (normalizeConstraint inner)
+    CWildcard _ ->
+      CWildcard span0

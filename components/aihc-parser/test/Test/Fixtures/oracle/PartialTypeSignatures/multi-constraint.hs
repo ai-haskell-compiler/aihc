@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail wildcard in multi-constraint -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE PartialTypeSignatures #-}
 module MultiConstraint where
 

@@ -81,6 +81,7 @@ constraintTypeCtorNames constraint =
   case constraint of
     Constraint _ _ args -> mconcat (map typeCtorNames args)
     CParen _ inner -> constraintTypeCtorNames inner
+    CWildcard _ -> mempty
 
 instance Arbitrary Type where
   arbitrary = sized (genType . min 6)
@@ -187,6 +188,8 @@ shrinkConstraint constraint =
       ]
     CParen _ inner ->
       inner : [CParen span0 shrunk | shrunk <- shrinkConstraint inner]
+    CWildcard _ ->
+      []
 
 genType :: Int -> Gen Type
 genType depth
@@ -475,3 +478,5 @@ normalizeConstraint constraint =
         }
     CParen _ inner ->
       CParen span0 (normalizeConstraint inner)
+    CWildcard _ ->
+      CWildcard span0
