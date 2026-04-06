@@ -617,13 +617,13 @@ docExpr expr =
       "EUnboxedSum" <+> pretty altIdx <+> pretty arity <+> docExpr inner
     ETypeApp _ inner ty -> "ETypeApp" <+> parens (docExpr inner) <+> parens (docType ty)
     EApp _ f x -> "EApp" <+> parens (docExpr f) <+> parens (docExpr x)
-    EProc _ pat body -> "EProc" <+> parens (docPattern pat) <+> parens (docExpr body)
+    EProc _ pat body -> "EProc" <+> parens (docPattern pat) <+> parens (docCmd body)
 
 docCaseAlt :: CaseAlt -> Doc ann
 docCaseAlt (CaseAlt _ pat rhs) =
   "CaseAlt" <+> parens (docPattern pat) <+> parens (docRhs rhs)
 
-docDoStmt :: DoStmt -> Doc ann
+docDoStmt :: DoStmt Expr -> Doc ann
 docDoStmt stmt =
   case stmt of
     DoBind _ pat expr -> "DoBind" <+> parens (docPattern pat) <+> parens (docExpr expr)
@@ -639,6 +639,33 @@ docCompStmt stmt =
     CompGuard _ expr -> "CompGuard" <+> parens (docExpr expr)
     CompLet _ bindings -> "CompLet" <+> braces (hsep (punctuate comma [docText name <+> "=" <+> docExpr e | (name, e) <- bindings]))
     CompLetDecls _ decls -> "CompLetDecls" <+> brackets (hsep (punctuate comma (map docDecl decls)))
+
+docCmd :: Cmd -> Doc ann
+docCmd cmd =
+  case cmd of
+    CmdArrApp _ lhs HsFirstOrderApp rhs -> "CmdArrApp" <+> parens (docExpr lhs) <+> "HsFirstOrderApp" <+> parens (docExpr rhs)
+    CmdArrApp _ lhs HsHigherOrderApp rhs -> "CmdArrApp" <+> parens (docExpr lhs) <+> "HsHigherOrderApp" <+> parens (docExpr rhs)
+    CmdInfix _ l op r -> "CmdInfix" <+> parens (docCmd l) <+> docText op <+> parens (docCmd r)
+    CmdDo _ stmts -> "CmdDo" <+> brackets (hsep (punctuate comma (map docCmdStmt stmts)))
+    CmdIf _ cond yes no -> "CmdIf" <+> parens (docExpr cond) <+> parens (docCmd yes) <+> parens (docCmd no)
+    CmdCase _ scrut alts -> "CmdCase" <+> parens (docExpr scrut) <+> brackets (hsep (punctuate comma (map docCmdCaseAlt alts)))
+    CmdLet _ decls body -> "CmdLet" <+> brackets (hsep (punctuate comma (map docDecl decls))) <+> parens (docCmd body)
+    CmdLam _ pats body -> "CmdLam" <+> brackets (hsep (punctuate comma (map docPattern pats))) <+> parens (docCmd body)
+    CmdApp _ c e -> "CmdApp" <+> parens (docCmd c) <+> parens (docExpr e)
+    CmdPar _ c -> "CmdPar" <+> parens (docCmd c)
+
+docCmdStmt :: DoStmt Cmd -> Doc ann
+docCmdStmt stmt =
+  case stmt of
+    DoBind _ pat cmd' -> "DoBind" <+> parens (docPattern pat) <+> parens (docCmd cmd')
+    DoLet _ bindings -> "DoLet" <+> braces (hsep (punctuate comma [docText name <+> "=" <+> docExpr e | (name, e) <- bindings]))
+    DoLetDecls _ decls -> "DoLetDecls" <+> brackets (hsep (punctuate comma (map docDecl decls)))
+    DoExpr _ cmd' -> "DoExpr" <+> parens (docCmd cmd')
+    DoRecStmt _ stmts -> "DoRecStmt" <+> brackets (hsep (punctuate comma (map docCmdStmt stmts)))
+
+docCmdCaseAlt :: CmdCaseAlt -> Doc ann
+docCmdCaseAlt alt =
+  "CmdCaseAlt" <+> parens (docPattern (cmdCaseAltPat alt)) <+> parens (docCmd (cmdCaseAltBody alt))
 
 docArithSeq :: ArithSeq -> Doc ann
 docArithSeq seqInfo =

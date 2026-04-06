@@ -9,12 +9,15 @@
 -- Abstract Syntax Tree (AST) covering Haskell2010 plus all language extensions.
 module Aihc.Parser.Syntax
   ( ArithSeq (..),
+    ArrAppType (..),
     BangType (..),
     BinderName,
     CallConv (..),
     CaseAlt (..),
     ClassDecl (..),
     ClassDeclItem (..),
+    Cmd (..),
+    CmdCaseAlt (..),
     CompStmt (..),
     Constraint (..),
     FunctionalDependency (..),
@@ -1340,7 +1343,7 @@ data Expr
   | ESectionR SourceSpan Text Expr
   | ELetDecls SourceSpan [Decl] Expr
   | ECase SourceSpan Expr [CaseAlt]
-  | EDo SourceSpan [DoStmt]
+  | EDo SourceSpan [DoStmt Expr]
   | EListComp SourceSpan Expr [CompStmt]
   | EListCompParallel SourceSpan Expr [[CompStmt]]
   | EArithSeq SourceSpan ArithSeq
@@ -1367,7 +1370,7 @@ data Expr
   | -- \$expr or $(expr)
     ETHTypedSplice SourceSpan Expr -- \$$expr or $$(expr)
   | -- Arrow notation (Arrows extension)
-    EProc SourceSpan Pattern Expr -- proc pat -> cmd
+    EProc SourceSpan Pattern Cmd -- proc pat -> cmd
   deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan Expr where
@@ -1430,15 +1433,15 @@ data CaseAlt = CaseAlt
 instance HasSourceSpan CaseAlt where
   getSourceSpan = caseAltSpan
 
-data DoStmt
-  = DoBind SourceSpan Pattern Expr
+data DoStmt body
+  = DoBind SourceSpan Pattern body
   | DoLet SourceSpan [(Text, Expr)]
   | DoLetDecls SourceSpan [Decl]
-  | DoExpr SourceSpan Expr
-  | DoRecStmt SourceSpan [DoStmt] -- rec { stmts }
+  | DoExpr SourceSpan body
+  | DoRecStmt SourceSpan [DoStmt body] -- rec { stmts }
   deriving (Data, Eq, Show, Generic, NFData)
 
-instance HasSourceSpan DoStmt where
+instance HasSourceSpan (DoStmt body) where
   getSourceSpan doStmt =
     case doStmt of
       DoBind span' _ _ -> span'
@@ -1446,6 +1449,49 @@ instance HasSourceSpan DoStmt where
       DoLetDecls span' _ -> span'
       DoExpr span' _ -> span'
       DoRecStmt span' _ -> span'
+
+-- | Arrow command type (used inside 'proc' expressions).
+-- Commands mirror expressions but live in a separate namespace so the
+-- pretty-printer knows not to parenthesise @do { … }@ as an infix LHS.
+data Cmd
+  = CmdArrApp SourceSpan Expr ArrAppType Expr -- ^ @exp -\< exp@ or @exp -\<\< exp@
+  | CmdInfix SourceSpan Cmd Text Cmd -- ^ Command-level infix: @cmd1 op cmd2@
+  | CmdDo SourceSpan [DoStmt Cmd] -- ^ @do { cstmts }@
+  | CmdIf SourceSpan Expr Cmd Cmd -- ^ @if exp then cmd else cmd@
+  | CmdCase SourceSpan Expr [CmdCaseAlt] -- ^ @case exp of { calts }@
+  | CmdLet SourceSpan [Decl] Cmd -- ^ @let decls in cmd@
+  | CmdLam SourceSpan [Pattern] Cmd -- ^ @\\pats -> cmd@
+  | CmdApp SourceSpan Cmd Expr -- ^ Command application: @cmd exp@
+  | CmdPar SourceSpan Cmd -- ^ Parenthesised command: @(cmd)@
+  deriving (Data, Eq, Show, Generic, NFData)
+
+-- | Arrow application type: first-order (@-\<@) or higher-order (@-\<\<@).
+data ArrAppType = HsFirstOrderApp | HsHigherOrderApp
+  deriving (Data, Eq, Show, Generic, NFData)
+
+instance HasSourceSpan Cmd where
+  getSourceSpan cmd =
+    case cmd of
+      CmdArrApp span' _ _ _ -> span'
+      CmdInfix span' _ _ _ -> span'
+      CmdDo span' _ -> span'
+      CmdIf span' _ _ _ -> span'
+      CmdCase span' _ _ -> span'
+      CmdLet span' _ _ -> span'
+      CmdLam span' _ _ -> span'
+      CmdApp span' _ _ -> span'
+      CmdPar span' _ -> span'
+
+-- | Case alternative with a command body (used in arrow @case@ commands).
+data CmdCaseAlt = CmdCaseAlt
+  { cmdCaseAltSpan :: SourceSpan,
+    cmdCaseAltPat :: Pattern,
+    cmdCaseAltBody :: Cmd
+  }
+  deriving (Data, Eq, Show, Generic, NFData)
+
+instance HasSourceSpan CmdCaseAlt where
+  getSourceSpan = cmdCaseAltSpan
 
 data CompStmt
   = CompGen SourceSpan Pattern Expr

@@ -260,7 +260,7 @@ genValueDecls n = do
     ]
 
 -- | Generate do statements
-genDoStmts :: Int -> Gen [DoStmt]
+genDoStmts :: Int -> Gen [DoStmt Expr]
 genDoStmts n = do
   count <- chooseInt (1, 3)
   let perStmt = n `div` count
@@ -269,7 +269,7 @@ genDoStmts n = do
   lastExpr <- genExprSized perStmt
   pure (stmts <> [DoExpr span0 lastExpr])
 
-genDoStmt :: Int -> Gen DoStmt
+genDoStmt :: Int -> Gen (DoStmt Expr)
 genDoStmt n =
   oneof
     [ DoBind span0 <$> genPattern half <*> genExprSized half,
@@ -556,7 +556,7 @@ shrinkExpr expr =
     ETHTypeNameQuote {} -> []
     ETHSplice _ body -> body : [ETHSplice span0 body' | body' <- shrinkExpr body]
     ETHTypedSplice _ body -> body : [ETHTypedSplice span0 body' | body' <- shrinkExpr body]
-    EProc _ _ body -> body : [EProc span0 (PVar span0 "x") body' | body' <- shrinkExpr body]
+    EProc _ _ _ -> []
 
 shrinkFloat :: Double -> [Double]
 shrinkFloat value =
@@ -596,13 +596,13 @@ shrinkDecl decl =
       ]
     _ -> []
 
-shrinkDoStmts :: [DoStmt] -> [[DoStmt]]
+shrinkDoStmts :: [DoStmt Expr] -> [[DoStmt Expr]]
 shrinkDoStmts stmts =
   case stmts of
     [_] -> [] -- Can't shrink a single-element do block
     _ -> shrinkList shrinkDoStmt stmts
 
-shrinkDoStmt :: DoStmt -> [DoStmt]
+shrinkDoStmt :: DoStmt Expr -> [DoStmt Expr]
 shrinkDoStmt stmt =
   case stmt of
     DoBind _ pat expr -> [DoBind span0 pat expr' | expr' <- shrinkExpr expr]
@@ -722,7 +722,7 @@ normalizeExpr expr =
     ETHTypeNameQuote _ name -> ETHTypeNameQuote span0 name
     ETHSplice _ body -> ETHSplice span0 (normalizeExpr body)
     ETHTypedSplice _ body -> ETHTypedSplice span0 (normalizeExpr body)
-    EProc _ pat body -> EProc span0 (normalizePattern pat) (normalizeExpr body)
+    EProc _ pat body -> EProc span0 (normalizePattern pat) body
 
 normalizeCaseAlt :: CaseAlt -> CaseAlt
 normalizeCaseAlt alt =
@@ -811,7 +811,7 @@ normalizeMatch m =
       matchRhs = normalizeRhs (matchRhs m)
     }
 
-normalizeDoStmt :: DoStmt -> DoStmt
+normalizeDoStmt :: DoStmt Expr -> DoStmt Expr
 normalizeDoStmt stmt =
   case stmt of
     DoBind _ pat e -> DoBind span0 (normalizePattern pat) (normalizeExpr e)

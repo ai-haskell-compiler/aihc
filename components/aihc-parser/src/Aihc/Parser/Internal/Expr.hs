@@ -146,86 +146,243 @@ procExprParser = withSpan $ do
   keywordTok TkKeywordProc
   pat <- region "while parsing proc pattern" simplePatternParser
   expectedTok TkReservedRightArrow
-  body <- region "while parsing proc body" commandExprParser
+  body <- region "while parsing proc body" cmdParser
   pure (\span' -> EProc span' pat body)
 
--- | Parse a command expression (the body of a @proc@ abstraction).
---
--- Commands have the same surface syntax as expressions but allow infix
--- operators between command sub-expressions (e.g. @do {..} \<+\> do {..}@).
--- This parser handles the command-level infix chain and arrow tail
--- operators.
+-- | Parse a command (the body of a @proc@ abstraction).
 --
 -- Grammar (simplified):
 --
 -- @
--- cmd   = exp -\< exp | exp -\<\< exp | cmd0
+-- cmd   = exp10 -\< exp | exp10 -\<\< exp | cmd0
 -- cmd0  = cmd10 (op cmd10)*
--- cmd10 = do { cstmts } | if … | case … | let … | \\pats -> cmd | fexp
+-- cmd10 = do { cstmts } | if … | case … | let … | \\pats -> cmd | (cmd)
 -- @
-commandExprParser :: TokParser Expr
-commandExprParser = do
-  -- Parse the first command operand.
-  lhs <- commandOperandParser
-  -- Check for arrow tail operators (-<, -<<).  These have the lowest
-  -- precedence in the command grammar: @exp -< exp@ is a complete command,
-  -- not an operand of the infix chain.
-  mArrowTail <- MP.optional arrowTailParser
-  case mArrowTail of
-    Just (op, rhs) ->
-      -- Arrow tail found: this is an arrow application command.
-      -- Build the result and check for command-level infix.
-      let arrowExpr = EInfix (mergeSourceSpans (getSourceSpan lhs) (getSourceSpan rhs)) lhs op rhs
-       in commandInfixChain arrowExpr
-    Nothing ->
-      -- No arrow tail: check for command-level infix chain.
-      commandInfixChain lhs
+cmdParser :: TokParser Cmd
+cmdParser = do
+  tok <- lookAhead anySingle
+  case lexTokenKind tok of
+    -- Keyword commands parse as cmd10, then check for infix chain.
+    TkKeywordDo -> cmdOperandThenInfix cmdDoParser
+    TkKeywordIf -> cmdOperandThenInfix cmdIfParser
+    TkKeywordCase -> cmdOperandThenInfix cmdCaseParser
+    TkKeywordLet ->
+      -- 'let decls in cmd' is a command; 'let decls' (without 'in') inside
+      -- a do-block is a statement, not handled here.
+      cmdOperandThenInfix cmdLetParser
+    TkReservedBackslash -> cmdOperandThenInfix cmdLamParser
+    TkSpecialLParen -> cmdOperandThenInfix cmdParenParser
+    _ -> do
+      -- Not a keyword command: parse as exp10 and look for arrow tail.
+      expr <- appExprParser
+      mArrowTail <- MP.optional cmdArrTailParser
+      case mArrowTail of
+        Just (appType, rhs) ->
+          let span' = mergeSourceSpans (getSourceSpan expr) (getSourceSpan rhs)
+           in cmdInfixChain (CmdArrApp span' expr appType rhs)
+        Nothing ->
+          fail "expected arrow command (-< or -<<)"
+
+-- | Parse a cmd10 operand, then check for command-level infix.
+cmdOperandThenInfix :: TokParser Cmd -> TokParser Cmd
+cmdOperandThenInfix p = do
+  lhs <- p
+  cmdInfixChain lhs
+
+-- | Parse an arrow tail operator in command context, returning the
+-- application type and the right-hand expression.
+cmdArrTailParser :: TokParser (ArrAppType, Expr)
+cmdArrTailParser = do
+  appType <- tokenSatisfy "arrow operator" $ \tok ->
+    case lexTokenKind tok of
+      TkArrowTail -> Just HsFirstOrderApp
+      TkDoubleArrowTail -> Just HsHigherOrderApp
+      _ -> Nothing
+  rhs <- exprParser
+  pure (appType, rhs)
 
 -- | Parse the command-level infix chain: @cmd (op cmd)*@.
--- Each operand on the right of an operator is itself a full command
--- (which may contain its own arrow tail or infix chain).
-commandInfixChain :: Expr -> TokParser Expr
-commandInfixChain lhs = do
+cmdInfixChain :: Cmd -> TokParser Cmd
+cmdInfixChain lhs = do
   rest <-
     MP.many
       ( (,)
           <$> infixOperatorParserExcept []
-          <*> commandOperandWithArrow
+          <*> cmdParser
       )
-  let result = foldl buildInfix lhs rest
-  -- Optional type signature.
-  mTypeSig <- MP.optional (expectedTok TkReservedDoubleColon *> typeParser)
-  pure $ case mTypeSig of
-    Just ty -> ETypeSig (mergeSourceSpans (getSourceSpan result) (getSourceSpan ty)) result ty
-    Nothing -> result
+  pure (foldl buildCmdInfix lhs rest)
+  where
+    buildCmdInfix l (op, r) = CmdInfix (mergeSourceSpans (getSourceSpan l) (getSourceSpan r)) l op r
 
--- | Parse a command operand optionally followed by an arrow tail.
-commandOperandWithArrow :: TokParser Expr
-commandOperandWithArrow = do
-  base <- commandOperandParser
-  mArrowTail <- MP.optional arrowTailParser
-  case mArrowTail of
-    Just (op, rhs) -> pure $ EInfix (mergeSourceSpans (getSourceSpan base) (getSourceSpan rhs)) base op rhs
-    Nothing -> pure base
+-- | Parse a command do-block: @do { cstmt ; ... }@
+cmdDoParser :: TokParser Cmd
+cmdDoParser = withSpan $ do
+  keywordTok TkKeywordDo
+  stmts <- bracedStmtListParser cmdStmtParser
+  pure (`CmdDo` stmts)
 
--- | Parse a single command operand: a keyword expression (do, if, case,
--- let, lambda, proc) or an application expression.
-commandOperandParser :: TokParser Expr
-commandOperandParser = do
+-- | Parse a command if-then-else: @if exp then cmd else cmd@
+cmdIfParser :: TokParser Cmd
+cmdIfParser = withSpan $ do
+  keywordTok TkKeywordIf
+  cond <- region "while parsing if condition" exprParser
+  skipSemicolons
+  keywordTok TkKeywordThen
+  yes <- region "while parsing then branch" cmdParser
+  skipSemicolons
+  keywordTok TkKeywordElse
+  no <- region "while parsing else branch" cmdParser
+  pure (\span' -> CmdIf span' cond yes no)
+
+-- | Parse a command case: @case exp of { calts }@
+cmdCaseParser :: TokParser Cmd
+cmdCaseParser = withSpan $ do
+  keywordTok TkKeywordCase
+  scrut <- region "while parsing case scrutinee" exprParser
+  keywordTok TkKeywordOf
+  alts <- bracedSemiSep1 cmdCaseAltParser
+  pure (\span' -> CmdCase span' scrut alts)
+
+cmdCaseAltParser :: TokParser CmdCaseAlt
+cmdCaseAltParser = withSpan $ do
+  pat <- patternParser
+  expectedTok TkReservedRightArrow
+  body <- cmdParser
+  pure (\span' -> CmdCaseAlt span' pat body)
+
+-- | Parse a command let: @let decls in cmd@
+cmdLetParser :: TokParser Cmd
+cmdLetParser = withSpan $ do
+  decls <- parseLetDeclsParser
+  keywordTok TkKeywordIn
+  body <- cmdParser
+  pure (\span' -> CmdLet span' decls body)
+
+-- | Parse a command lambda: @\\pats -> cmd@
+cmdLamParser :: TokParser Cmd
+cmdLamParser = withSpan $ do
+  expectedTok TkReservedBackslash
+  pats <- MP.some simplePatternParser
+  expectedTok TkReservedRightArrow
+  body <- cmdParser
+  pure (\span' -> CmdLam span' pats body)
+
+-- | Parse a parenthesised command: @( cmd )@
+cmdParenParser :: TokParser Cmd
+cmdParenParser = withSpan $ do
+  expectedTok TkSpecialLParen
+  cmd <- cmdParser
+  expectedTok TkSpecialRParen
+  pure (`CmdPar` cmd)
+
+-- | Parse a do-statement in command context (arrow do).
+cmdStmtParser :: TokParser (DoStmt Cmd)
+cmdStmtParser = do
   tok <- lookAhead anySingle
   case lexTokenKind tok of
+    TkKeywordLet -> MP.try cmdLetStmtParser <|> cmdBodyStmtParser
+    TkKeywordRec -> cmdRecStmtParser
+    -- Keyword commands: parse as command body statements.
+    TkKeywordDo -> cmdBodyStmtParser
+    TkKeywordIf -> cmdBodyStmtParser
+    TkKeywordCase -> cmdBodyStmtParser
+    TkReservedBackslash -> cmdBodyStmtParser
+    TkSpecialLParen -> cmdBodyStmtParser
+    -- Pattern-only leading tokens: only valid in bind context.
+    TkPrefixBang -> cmdBindStmtParser
+    TkPrefixTilde -> cmdBindStmtParser
+    _ -> do
+      isAs <- startsWithAsPattern
+      if isAs
+        then cmdBindStmtParser
+        else cmdBindOrBodyStmtParser
+
+-- | Parse a command do-statement: @cmd@ or @pat <- cmd@.
+-- Uses the expression-first approach: parse as expression, check for @<-@.
+cmdBindOrBodyStmtParser :: TokParser (DoStmt Cmd)
+cmdBindOrBodyStmtParser = withSpan $ do
+  -- Parse the LHS as an expression WITHOUT consuming arrow tails.
+  -- Arrow tails (-<, -<<) belong to the command level, not the expression.
+  expr <- exprParserNoArrowTail
+  mArrow <- MP.optional (expectedTok TkReservedLeftArrow)
+  case mArrow of
+    Just () -> do
+      pat <- liftCheck (checkPattern expr)
+      rhs <- region "while parsing '<-' binding" cmdParser
+      pure (\span' -> DoBind span' pat rhs)
+    Nothing -> do
+      -- No bind arrow: this is a body statement.  Check for arrow tail.
+      mArrTail <- MP.optional cmdArrTailParser
+      case mArrTail of
+        Just (appType, rhs) ->
+          let cmd = CmdArrApp (mergeSourceSpans (getSourceSpan expr) (getSourceSpan rhs)) expr appType rhs
+           in pure (`DoExpr` cmd)
+        Nothing ->
+          fail "expected arrow command (-< or -<<) in do statement"
+
+-- | Parse an expression without consuming arrow tail operators.
+-- Used in command contexts where -< / -<< should be left for the
+-- command parser.
+exprParserNoArrowTail :: TokParser Expr
+exprParserNoArrowTail =
+  label "expression" $ do
+    core <- exprCoreParserNoArrowTail
+    mWhere <- MP.optional whereClauseParser
+    pure $
+      case mWhere of
+        Just decls -> EWhereDecls (mergeSourceSpans (getSourceSpan core) (sourceSpanEnd decls)) core decls
+        Nothing -> core
+
+exprCoreParserNoArrowTail :: TokParser Expr
+exprCoreParserNoArrowTail = do
+  tok <- lookAhead anySingle
+  base <- case lexTokenKind tok of
     TkKeywordDo -> doExprParser
     TkKeywordIf -> ifExprParser
     TkKeywordCase -> caseExprParser
     TkKeywordLet -> letExprParser
     TkKeywordProc -> procExprParser
     TkReservedBackslash -> lambdaExprParser
-    _ -> appExprParser
+    _ -> infixExprParserExcept []
+  -- No arrow tail check here — leave -< / -<< for the command parser.
+  -- Optional type signature: expr :: type
+  mTypeSig <- MP.optional (expectedTok TkReservedDoubleColon *> typeParser)
+  pure $ case mTypeSig of
+    Just ty -> ETypeSig (mergeSourceSpans (getSourceSpan base) (getSourceSpan ty)) base ty
+    Nothing -> base
+
+-- | Parse a command bind statement where the pattern is unambiguously a
+-- pattern (starts with !, ~, or x@).
+cmdBindStmtParser :: TokParser (DoStmt Cmd)
+cmdBindStmtParser = withSpan $ do
+  pat <- patternParser
+  expectedTok TkReservedLeftArrow
+  cmd <- region "while parsing '<-' binding" cmdParser
+  pure (\span' -> DoBind span' pat cmd)
+
+-- | Parse a body-only command statement (fallback from cmdStmtParser).
+cmdBodyStmtParser :: TokParser (DoStmt Cmd)
+cmdBodyStmtParser = withSpan $ do
+  cmd <- cmdParser
+  pure (`DoExpr` cmd)
+
+-- | Parse a command let-statement: @let decls@
+cmdLetStmtParser :: TokParser (DoStmt Cmd)
+cmdLetStmtParser = withSpan $ do
+  decls <- parseLetDeclsStmtParser
+  pure (`DoLetDecls` decls)
+
+-- | Parse a command rec-statement: @rec { cstmts }@
+cmdRecStmtParser :: TokParser (DoStmt Cmd)
+cmdRecStmtParser = withSpan $ do
+  keywordTok TkKeywordRec
+  stmts <- bracedStmtListParser cmdStmtParser
+  pure (`DoRecStmt` stmts)
 
 bracedStmtListParser :: TokParser a -> TokParser [a]
 bracedStmtListParser = bracedSemiSep1
 
-doStmtParser :: TokParser DoStmt
+doStmtParser :: TokParser (DoStmt Expr)
 doStmtParser = do
   tok <- lookAhead anySingle
   case lexTokenKind tok of
@@ -256,7 +413,7 @@ doStmtParser = do
 -- This handles the common case where the leading syntax is valid as both
 -- an expression and a pattern (variables, constructors, applications,
 -- literals, tuples, lists, etc.).
-doBindOrExprStmtParser :: TokParser DoStmt
+doBindOrExprStmtParser :: TokParser (DoStmt Expr)
 doBindOrExprStmtParser = withSpan $ do
   expr <- exprParser
   mArrow <- MP.optional (expectedTok TkReservedLeftArrow)
@@ -278,7 +435,7 @@ doBindOrExprStmtParser = withSpan $ do
 --
 -- In the common case 'doBindOrExprStmtParser' handles the statement in a
 -- single pass, so this fallback is rarely reached.
-doPatBindStmtParser :: TokParser DoStmt
+doPatBindStmtParser :: TokParser (DoStmt Expr)
 doPatBindStmtParser = withSpan $ do
   pat <- patternParser
   expectedTok TkReservedLeftArrow
@@ -296,14 +453,14 @@ parseLetDeclsStmtParser = do
   MP.notFollowedBy (keywordTok TkKeywordIn)
   pure decls
 
-doLetStmtParser :: TokParser DoStmt
+doLetStmtParser :: TokParser (DoStmt Expr)
 doLetStmtParser = withSpan $ do
   decls <- parseLetDeclsStmtParser
   pure (`DoLetDecls` decls)
 
 -- | Parse a @rec@ statement inside a do-block.
 -- @rec { stmt ; ... ; stmt }@ introduces recursive bindings.
-doRecStmtParser :: TokParser DoStmt
+doRecStmtParser :: TokParser (DoStmt Expr)
 doRecStmtParser = withSpan $ do
   keywordTok TkKeywordRec
   stmts <- bracedStmtListParser doStmtParser

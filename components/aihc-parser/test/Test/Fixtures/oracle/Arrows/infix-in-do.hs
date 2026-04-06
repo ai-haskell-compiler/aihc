@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail command-level infix pretty-printing adds parens -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE Arrows #-}
 module ArrowInfixInDo where
 

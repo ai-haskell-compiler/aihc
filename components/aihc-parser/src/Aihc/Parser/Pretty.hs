@@ -1165,7 +1165,7 @@ prettyExprPrec prec expr =
       let slots = [if i == altIdx then prettyExprPrec 0 inner else mempty | i <- [0 .. arity - 1]]
        in hsep ["(#", hsep (punctuate " |" slots), "#)"]
     EProc _ pat body ->
-      parenthesize (prec > 0) ("proc" <+> prettyPattern pat <+> "->" <+> prettyExprPrec 0 body)
+      parenthesize (prec > 0) ("proc" <+> prettyPattern pat <+> "->" <+> prettyCmd body)
 
 prettyTupleBody :: TupleFlavor -> Doc ann -> Doc ann
 prettyTupleBody tupleFlavor inner =
@@ -1213,7 +1213,7 @@ prettyGuardQualifier qualifier =
 -- | Pretty print a do statement.
 -- Since do blocks are always rendered with explicit braces and semicolons,
 -- statement boundaries are clear and greedy expressions don't need parens.
-prettyDoStmt :: DoStmt -> Doc ann
+prettyDoStmt :: DoStmt Expr -> Doc ann
 prettyDoStmt stmt =
   case stmt of
     DoBind _ pat expr -> prettyPattern pat <+> "<-" <+> prettyExprPrec 0 expr
@@ -1221,6 +1221,46 @@ prettyDoStmt stmt =
     DoLetDecls _ decls -> "let" <+> braces (prettyInlineDecls decls)
     DoExpr _ expr -> prettyExprPrec 0 expr
     DoRecStmt _ stmts -> "rec" <+> "{" <+> hsep (punctuate semi (map prettyDoStmt stmts)) <+> "}"
+
+-- | Pretty-print an arrow command.
+prettyCmd :: Cmd -> Doc ann
+prettyCmd cmd =
+  case cmd of
+    CmdArrApp _ lhs HsFirstOrderApp rhs ->
+      prettyExprPrec 1 lhs <+> "-<" <+> prettyExprPrec 0 rhs
+    CmdArrApp _ lhs HsHigherOrderApp rhs ->
+      prettyExprPrec 1 lhs <+> "-<<" <+> prettyExprPrec 0 rhs
+    CmdInfix _ l op r ->
+      prettyCmd l <+> prettyInfixOp op <+> prettyCmd r
+    CmdDo _ stmts ->
+      "do" <+> "{" <+> hsep (punctuate semi (map prettyCmdStmt stmts)) <+> "}"
+    CmdIf _ cond yes no ->
+      "if" <+> prettyExprPrec 0 cond <+> "then" <+> prettyCmd yes <+> "else" <+> prettyCmd no
+    CmdCase _ scrut alts ->
+      "case" <+> prettyExprPrec 0 scrut <+> "of" <+> "{" <+> hsep (punctuate semi (map prettyCmdCaseAlt alts)) <+> "}"
+    CmdLet _ decls body ->
+      "let" <+> braces (prettyInlineDecls decls) <+> "in" <+> prettyCmd body
+    CmdLam _ pats body ->
+      "\\" <+> hsep (map prettyPatternAtom pats) <+> "->" <+> prettyCmd body
+    CmdApp _ c e ->
+      prettyCmd c <+> prettyExprPrec 3 e
+    CmdPar _ c ->
+      parens (prettyCmd c)
+
+-- | Pretty-print a do-statement in command context.
+prettyCmdStmt :: DoStmt Cmd -> Doc ann
+prettyCmdStmt stmt =
+  case stmt of
+    DoBind _ pat cmd' -> prettyPattern pat <+> "<-" <+> prettyCmd cmd'
+    DoLet _ bindings -> "let" <+> braces (hsep (punctuate semi (map prettyBinding bindings)))
+    DoLetDecls _ decls -> "let" <+> braces (prettyInlineDecls decls)
+    DoExpr _ cmd' -> prettyCmd cmd'
+    DoRecStmt _ stmts -> "rec" <+> "{" <+> hsep (punctuate semi (map prettyCmdStmt stmts)) <+> "}"
+
+-- | Pretty-print a command case alternative.
+prettyCmdCaseAlt :: CmdCaseAlt -> Doc ann
+prettyCmdCaseAlt alt =
+  prettyPattern (cmdCaseAltPat alt) <+> "->" <+> prettyCmd (cmdCaseAltBody alt)
 
 prettyCompStmt :: CompStmt -> Doc ann
 prettyCompStmt stmt =

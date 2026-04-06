@@ -1,5 +1,5 @@
 extensions: [Arrows]
 input: |
   proc x -> returnA -< x
-ast: 'EProc (PVar "x") (EInfix (EVar "returnA") "-<" (EVar "x"))'
+ast: 'EProc (PVar "x") (CmdArrApp (EVar "returnA") HsFirstOrderApp (EVar "x"))'
 status: pass
