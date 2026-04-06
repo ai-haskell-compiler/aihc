@@ -353,7 +353,7 @@ plainSemiSep1 parser = MP.some (parser <* skipSemicolons)
 
 constraintParserWith :: TokParser Type -> TokParser Type -> TokParser Constraint
 constraintParserWith typeParser typeAtomParser =
-  MP.try parenthesizedConstraintParser <|> bareConstraintParser
+  MP.try parenthesizedConstraintParser <|> MP.try kindSigConstraintParser <|> bareConstraintParser
   where
     bareConstraintParser = withSpan $ do
       tok <- lookAhead anySingle
@@ -393,8 +393,52 @@ constraintParserWith typeParser typeAtomParser =
       rhs <- constraintTypeParser
       pure (op, [lhs, rhs])
     parenthesizedConstraintParser = withSpan $ do
-      constraint <- parens (constraintParserWith typeParser typeAtomParser)
+      expectedTok TkSpecialLParen
+      constraint <- constraintParserWith typeParser typeAtomParser
+      expectedTok TkSpecialRParen
       pure (`CParen` constraint)
+    -- | Parse a type followed by `::` and another type (kind annotation).
+    -- This handles cases like `(c :: Type -> Constraint)` in superclass contexts,
+    -- both as standalone parenthesized constraints and as items in comma-separated lists.
+    -- Uses lookahead to check for `::` at top bracket depth to avoid ambiguity.
+    -- IMPORTANT: Uses `constraintTypeAppParser` (not `typeParser`) for the left side
+    -- to avoid a parsing cycle: typeParser -> contextTypeParser -> constraintsParserWith
+    -- -> constraintParserWith -> kindSigConstraintParser -> typeParser.
+    kindSigConstraintParser :: TokParser Constraint
+    kindSigConstraintParser = withSpan $ do
+      guard =<< hasKindSignatureAtTopLevel
+      ty <- constraintTypeAppParser
+      expectedTok TkReservedDoubleColon
+      kind <- kindTypeParser
+      let resultTy = TKindSig (mergeSourceSpans (getSourceSpan ty) (getSourceSpan kind)) ty kind
+      pure (`CKindSig` resultTy)
+
+    -- | Lookahead: check if there's a `::` at the top bracket depth.
+    -- This avoids ambiguity with the bare constraint parser.
+    hasKindSignatureAtTopLevel :: TokParser Bool
+    hasKindSignatureAtTopLevel = MP.lookAhead (go 0)
+      where
+        go :: Int -> TokParser Bool
+        go depth = do
+          tok <- anySingle
+          case lexTokenKind tok of
+            TkEOF -> pure False
+            TkReservedDoubleColon | depth == 0 -> pure True
+            TkReservedRightArrow | depth == 0 -> pure False
+            TkSpecialComma | depth == 0 -> pure False
+            TkSpecialLParen -> go (depth + 1)
+            TkSpecialRParen
+              | depth > 0 -> go (depth - 1)
+              | otherwise -> pure False
+            TkSpecialUnboxedLParen -> go (depth + 1)
+            TkSpecialUnboxedRParen
+              | depth > 0 -> go (depth - 1)
+              | otherwise -> pure False
+            TkSpecialLBracket -> go (depth + 1)
+            TkSpecialRBracket
+              | depth > 0 -> go (depth - 1)
+              | otherwise -> pure False
+            _ -> go depth
     constraintTypeParser = do
       first <- constraintTypeAppParser
       rest <- MP.many ((,) <$> constraintTypeInfixOperatorParser <*> constraintTypeAppParser)
@@ -405,6 +449,17 @@ constraintParserWith typeParser typeAtomParser =
       pure (foldl buildTypeApp first rest)
     buildTypeApp lhs rhs =
       TApp (mergeSourceSpans (getSourceSpan lhs) (getSourceSpan rhs)) lhs rhs
+    -- | Parse a type expression that can appear as a kind annotation.
+    -- Handles function types (e.g., Type -> Constraint) and type applications,
+    -- but NOT context types (C a => ...) to avoid parsing cycles.
+    kindTypeParser = do
+      first <- constraintTypeAppParser
+      rest <- MP.many ((,) <$> constraintTypeInfixOperatorParser <*> constraintTypeAppParser)
+      let baseType = foldl buildInfixType first rest
+      mRhs <- MP.optional (expectedTok TkReservedRightArrow *> kindTypeParser)
+      case mRhs of
+        Just rhs -> pure (TFun (mergeSourceSpans (getSourceSpan baseType) (getSourceSpan rhs)) baseType rhs)
+        Nothing -> pure baseType
     buildInfixType lhs ((op, promoted), rhs) =
       let span' = mergeSourceSpans (getSourceSpan lhs) (getSourceSpan rhs)
           opType = TCon span' op promoted

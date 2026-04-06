@@ -403,6 +403,48 @@ prettyTypePrec prec ty =
     TSplice _ body -> prettySplice "$" body
     TWildcard _ -> "_"
 
+-- | Print a type as it appears in a constraint context.
+-- Unlike 'prettyTypePrec', this does not add extra parens around 'TKindSig',
+-- since the enclosing 'CParen' already provides them.
+prettyConstraintType :: Type -> Doc ann
+prettyConstraintType ty =
+  case ty of
+    TVar _ name -> pretty name
+    TCon _ name promoted ->
+      let base
+            | isSymbolicTypeOperator name = parens (pretty name)
+            | otherwise = pretty name
+       in if promoted == Promoted then "'" <> base else base
+    TTypeLit _ lit -> prettyTypeLiteral lit
+    TStar _ -> "*"
+    TForall _ binders inner ->
+      parenthesize True ("forall" <+> hsep (map pretty binders) <> "." <+> prettyConstraintType inner)
+    TApp _ (TApp _ (TCon _ op promoted) lhs) rhs
+      | isSymbolicTypeOperator op && op /= "->" ->
+          prettyConstraintType lhs
+            <+> (if promoted == Promoted then "'" else mempty)
+            <> pretty op
+            <+> prettyConstraintType rhs
+    TApp _ f x ->
+      prettyConstraintType f <+> prettyConstraintType x
+    TFun _ a b ->
+      prettyConstraintType a <+> "->" <+> prettyConstraintType b
+    TTuple _ tupleFlavor promoted elems ->
+      let tupleDoc = prettyTupleBody tupleFlavor (hsep (punctuate comma (map prettyConstraintType elems)))
+       in if promoted == Promoted then "'" <> tupleDoc else tupleDoc
+    TList _ promoted inner ->
+      let listDoc = brackets (prettyConstraintType inner)
+       in if promoted == Promoted then "'" <> listDoc else listDoc
+    TParen _ inner -> parens (prettyConstraintType inner)
+    TKindSig _ ty' kind -> prettyConstraintType ty' <+> "::" <+> prettyConstraintType kind
+    TContext _ constraints inner ->
+      parenthesize True (prettyContext constraints <+> "=>" <+> prettyConstraintType inner)
+    TSplice _ body -> prettySplice "$" body
+    TWildcard _ -> "_"
+    TUnboxedSum _ elems ->
+      hsep ["(#", hsep (punctuate " |" (map prettyConstraintType elems)), "#)"]
+    TQuasiQuote _ quoter body -> prettyQuasiQuote quoter body
+
 prettyContext :: [Constraint] -> Doc ann
 prettyContext constraints =
   case constraints of
@@ -424,6 +466,8 @@ prettyConstraint constraint =
       parens (prettyConstraint inner)
     CWildcard _ ->
       "_"
+    CKindSig _ ty ->
+      prettyConstraintType ty
 
 isSymbolicTypeOperator :: Text -> Bool
 isSymbolicTypeOperator op =

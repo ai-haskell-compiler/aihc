@@ -877,3 +877,5 @@ normalizeConstraint c =
       CParen span0 (normalizeConstraint inner)
     CWildcard _ ->
       CWildcard span0
+    CKindSig _ ty ->
+      CKindSig span0 (normalizeType ty)

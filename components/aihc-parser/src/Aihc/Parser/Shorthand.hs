@@ -522,6 +522,8 @@ docConstraint c =
       "CParen" <+> parens (docConstraint inner)
     CWildcard _ ->
       "CWildcard"
+    CKindSig _ ty ->
+      "CKindSig" <+> parens (docType ty)
 
 docTyVarBinder :: TyVarBinder -> Doc ann
 docTyVarBinder tvb =
