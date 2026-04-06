@@ -92,7 +92,7 @@ import Data.List qualified as List
 import Data.Maybe (fromMaybe, isJust, mapMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
-import Data.Text (Text, pattern (:<), pattern Empty)
+import Data.Text (Text, pattern Empty, pattern (:<))
 import Data.Text qualified as T
 import GHC.Generics (Generic)
 import Numeric (readHex, readInt, readOct)
@@ -556,7 +556,8 @@ consumeTrivia _env st =
           | isHaskellWhitespace c -> Just (Right (markHadTrivia (consumeWhile isHaskellWhitespace st)))
           | c == '\n' -> Just (Right (markHadTrivia (advanceN 1 st)))
         _ | Just rest <- T.stripPrefix "--" inp, isLineComment rest -> Just (Right (markHadTrivia (consumeLineComment st)))
-        _ | "{-#" `T.isPrefixOf` inp ->
+        _
+          | "{-#" `T.isPrefixOf` inp ->
               case tryConsumeControlPragma st of
                 Just (Nothing, st') -> Just (Right (markHadTrivia st'))
                 Just (Just tok, st') -> Just (Left (tok, markHadTrivia st'))
@@ -1101,7 +1102,7 @@ lexIdentifier env st =
               firstChunk = T.take (1 + T.length seg) (lexerInput st)
               (consumed, rest1, isQualified) = gatherQualified hasMagicHash firstChunk rest0
            in -- Check if we have a qualified operator (e.g., Prelude.+)
-               case (isQualified || isConIdStart c, rest1) of
+              case (isQualified || isConIdStart c, rest1) of
                 (True, '.' :< dotRest@(opChar :< _))
                   | isSymbolicOpCharNotDot opChar ->
                       -- This is a qualified operator like Prelude.+ or A.B.C.:++
