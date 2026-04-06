@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail INLINABLE pragma not preserved in pretty-printer roundtrip -}
+{- ORACLE_TEST pass -}
 module SpecializeImportedDef (lookupLike) where
 
 lookupLike :: Eq a => [(a, b)] -> a -> Maybe b

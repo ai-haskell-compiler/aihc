@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail MINIMAL pragma not preserved in pretty-printer roundtrip -}
+{- ORACLE_TEST pass -}
 module MinimalPragma where
 
 class PartialEq a where

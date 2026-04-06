@@ -720,6 +720,8 @@ data Decl
   | DeclDataFamilyDecl SourceSpan DataFamilyDecl
   | DeclTypeFamilyInst SourceSpan TypeFamilyInst
   | DeclDataFamilyInst SourceSpan DataFamilyInst
+  | -- pragma declaration (e.g. {-# INLINE f #-}, {-# SPECIALIZE ... #-})
+    DeclPragma SourceSpan Text
   deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan Decl where
@@ -746,6 +748,7 @@ instance HasSourceSpan Decl where
       DeclDataFamilyDecl span' _ -> span'
       DeclTypeFamilyInst span' _ -> span'
       DeclDataFamilyInst span' _ -> span'
+      DeclPragma span' _ -> span'
 
 data ValueDecl
   = FunctionBind SourceSpan BinderName [Match]
@@ -1232,6 +1235,8 @@ data ClassDeclItem
   | ClassItemTypeFamilyDecl SourceSpan TypeFamilyDecl
   | ClassItemDataFamilyDecl SourceSpan DataFamilyDecl
   | ClassItemDefaultTypeInst SourceSpan TypeFamilyInst
+  | -- pragma inside class body
+    ClassItemPragma SourceSpan Text
   deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan ClassDeclItem where
@@ -1244,6 +1249,7 @@ instance HasSourceSpan ClassDeclItem where
       ClassItemTypeFamilyDecl span' _ -> span'
       ClassItemDataFamilyDecl span' _ -> span'
       ClassItemDefaultTypeInst span' _ -> span'
+      ClassItemPragma span' _ -> span'
 
 data InstanceDecl = InstanceDecl
   { instanceDeclSpan :: SourceSpan,
@@ -1273,6 +1279,8 @@ data InstanceDeclItem
   | InstanceItemFixity SourceSpan FixityAssoc (Maybe Int) [OperatorName]
   | InstanceItemTypeFamilyInst SourceSpan TypeFamilyInst
   | InstanceItemDataFamilyInst SourceSpan DataFamilyInst
+  | -- pragma inside instance body (e.g. {-# SPECIALIZE instance ... #-})
+    InstanceItemPragma SourceSpan Text
   deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan InstanceDeclItem where
@@ -1283,6 +1291,7 @@ instance HasSourceSpan InstanceDeclItem where
       InstanceItemFixity span' _ _ _ -> span'
       InstanceItemTypeFamilyInst span' _ -> span'
       InstanceItemDataFamilyInst span' _ -> span'
+      InstanceItemPragma span' _ -> span'
 
 data FixityAssoc
   = Infix

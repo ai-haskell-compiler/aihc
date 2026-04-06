@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail NOINLINE pragmas not preserved in pretty-printer roundtrip -}
+{- ORACLE_TEST pass -}
 module NoInlinePragmas where
 
 neverInline :: Int -> Int
