@@ -492,6 +492,7 @@ prettyPatternAtom pat =
     PView {} -> prettyPattern pat
     PAs {} -> prettyPattern pat
     PSplice {} -> prettyPattern pat
+    PCon _ _ [] -> prettyPattern pat
     _ -> parens (prettyPattern pat)
 
 -- | Pretty print a pattern atom after @ or as the operand of ! or ~.
