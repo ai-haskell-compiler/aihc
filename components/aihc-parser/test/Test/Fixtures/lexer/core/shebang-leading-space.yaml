@@ -4,5 +4,4 @@ input: " #!/usr/bin/env runghc\nmain\n"
 tokens:
   - 'TkVarId "main"'
   - 'TkEOF'
-status: xfail
-reason: "lexer currently routes space-prefixed #! through line-directive handling instead of skipping it as whitespace"
+status: pass

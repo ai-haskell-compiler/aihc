@@ -4,7 +4,7 @@
 module Main (main) where
 
 import Aihc.Parser
-import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokens, lexTokensFromChunks, readModuleHeaderExtensions, readModuleHeaderExtensionsFromChunks)
+import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokens, lexTokensFromChunks, lexTokensWithExtensions, readModuleHeaderExtensions, readModuleHeaderExtensionsFromChunks)
 import Aihc.Parser.Syntax
 import Data.List (isInfixOf)
 import qualified Data.Text as T
@@ -69,6 +69,10 @@ buildTests = do
             testCase "emits lexer error token for unterminated block comments" test_unterminatedBlockCommentProducesErrorToken,
             testCase "applies hash line directives to subsequent tokens" test_hashLineDirectiveUpdatesSpan,
             testCase "applies gcc-style hash line directives to subsequent tokens" test_gccHashLineDirectiveUpdatesSpan,
+            testCase "skips leading shebang lines as trivia" test_leadingShebangIsSkipped,
+            testCase "skips space-prefixed shebang lines as trivia" test_spacedLeadingShebangIsSkipped,
+            testCase "skips mid-stream shebang lines as trivia" test_midStreamShebangIsSkipped,
+            testCase "does not misclassify line-start #) as a directive" test_lineStartHashTokenIsNotDirective,
             testCase "applies LINE pragmas to subsequent tokens" test_linePragmaUpdatesSpan,
             testCase "applies COLUMN pragmas to subsequent tokens" test_columnPragmaUpdatesSpan,
             testCase "applies COLUMN pragmas in the middle of a line" test_inlineColumnPragmaUpdatesSpan,
@@ -430,6 +434,41 @@ test_gccHashLineDirectiveUpdatesSpan =
     [LexToken {lexTokenKind = TkVarId "x", lexTokenSpan = span'}, LexToken {lexTokenKind = TkEOF}] ->
       assertSourceSpan "generated.h" 42 1 42 2 19 20 span'
     other -> assertFailure ("expected identifier at line 42 from gcc-style directive, got: " <> show other)
+
+test_leadingShebangIsSkipped :: Assertion
+test_leadingShebangIsSkipped =
+  case lexTokens "#!/usr/bin/env runghc\nmain\n" of
+    [LexToken {lexTokenKind = TkVarId "main", lexTokenSpan = span'}, LexToken {lexTokenKind = TkEOF}] ->
+      assertSourceSpan "<input>" 2 1 2 5 22 26 span'
+    other -> assertFailure ("expected leading shebang to be skipped, got: " <> show other)
+
+test_spacedLeadingShebangIsSkipped :: Assertion
+test_spacedLeadingShebangIsSkipped =
+  case lexTokens " #!/usr/bin/env runghc\nmain\n" of
+    [LexToken {lexTokenKind = TkVarId "main", lexTokenSpan = span'}, LexToken {lexTokenKind = TkEOF}] ->
+      assertSourceSpan "<input>" 2 1 2 5 23 27 span'
+    other -> assertFailure ("expected spaced leading shebang to be skipped, got: " <> show other)
+
+test_midStreamShebangIsSkipped :: Assertion
+test_midStreamShebangIsSkipped =
+  case lexTokens "x\n#!/usr/bin/env runghc\ny" of
+    [ LexToken {lexTokenKind = TkVarId "x", lexTokenSpan = xSpan},
+      LexToken {lexTokenKind = TkVarId "y", lexTokenSpan = ySpan},
+      LexToken {lexTokenKind = TkEOF}
+      ] -> do
+        assertSourceSpan "<input>" 1 1 1 2 0 1 xSpan
+        assertSourceSpan "<input>" 3 1 3 2 24 25 ySpan
+    other -> assertFailure ("expected mid-stream shebang to be skipped, got: " <> show other)
+
+test_lineStartHashTokenIsNotDirective :: Assertion
+test_lineStartHashTokenIsNotDirective =
+  case lexTokensWithExtensions [UnboxedTuples] "(#\n  x\n  #)" of
+    [ LexToken {lexTokenKind = TkSpecialUnboxedLParen},
+      LexToken {lexTokenKind = TkVarId "x"},
+      LexToken {lexTokenKind = TkSpecialUnboxedRParen},
+      LexToken {lexTokenKind = TkEOF}
+      ] -> pure ()
+    other -> assertFailure ("expected line-start #) to lex as an unboxed tuple token, got: " <> show other)
 
 test_linePragmaUpdatesSpan :: Assertion
 test_linePragmaUpdatesSpan =
