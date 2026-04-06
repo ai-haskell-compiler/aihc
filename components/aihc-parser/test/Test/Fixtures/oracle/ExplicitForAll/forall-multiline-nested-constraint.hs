@@ -1,21 +1,12 @@
-{- ORACLE_TEST xfail data-compat multiline forall with nested constraint applications -}
+{- ORACLE_TEST xfail data-compat parenthesized constraint family application in context -}
 {-# LANGUAGE ConstraintKinds #-}
-{-# LANGUAGE ExplicitForAll #-}
 {-# LANGUAGE TypeFamilies #-}
 
 module ForallMultilineNestedConstraint where
 
 import Data.Kind (Constraint, Type)
 
-class Compat a where
-  type CompatConstraint a :: Type -> Constraint
-  type CompatF a :: Type -> Type
+type family D a :: Type -> Constraint
 
-getCompatible
-    :: forall a.
-       ( Compat a
-       , (CompatConstraint a) a
-       )
-    => (forall c. (Compat c, (CompatConstraint a) c) => (CompatF a) c)
-    -> (CompatF a) a
-getCompatible = undefined
+f :: ((D a) a) => ()
+f = ()
