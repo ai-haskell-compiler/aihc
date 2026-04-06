@@ -515,6 +515,8 @@ docConstraint c =
       "Constraint" <+> braces (hsep (punctuate comma ([field "class" (docText cls)] <> listField "args" docType args)))
     CParen _ inner ->
       "CParen" <+> parens (docConstraint inner)
+    CWildcard _ ->
+      "CWildcard"
 
 docTyVarBinder :: TyVarBinder -> Doc ann
 docTyVarBinder tvb =

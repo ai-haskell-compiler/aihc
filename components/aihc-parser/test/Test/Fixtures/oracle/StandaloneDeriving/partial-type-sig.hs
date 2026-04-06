@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail wildcard in deriving instance -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE PartialTypeSignatures #-}
 module PartialTypeSigDeriving where

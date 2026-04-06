@@ -357,15 +357,26 @@ constraintParserWith typeParser typeAtomParser =
   where
     bareConstraintParser = withSpan $ do
       tok <- lookAhead anySingle
-      (className, args) <- case lexTokenKind tok of
-        TkImplicitParam {} -> implicitParamConstraintParser
-        _ -> MP.try infixConstraintParser <|> prefixConstraintParser
-      pure $ \span' ->
-        Constraint
-          { constraintSpan = span',
-            constraintClass = className,
-            constraintArgs = args
-          }
+      case lexTokenKind tok of
+        TkImplicitParam {} -> do
+          (className, args) <- implicitParamConstraintParser
+          pure $ \span' ->
+            Constraint
+              { constraintSpan = span',
+                constraintClass = className,
+                constraintArgs = args
+              }
+        TkKeywordUnderscore -> do
+          _ <- anySingle
+          pure CWildcard
+        _ -> do
+          (className, args) <- MP.try infixConstraintParser <|> prefixConstraintParser
+          pure $ \span' ->
+            Constraint
+              { constraintSpan = span',
+                constraintClass = className,
+                constraintArgs = args
+              }
     implicitParamConstraintParser = do
       name <- implicitParamNameParser
       expectedTok TkReservedDoubleColon

@@ -977,6 +977,9 @@ data Constraint
       { constraintSpan :: SourceSpan,
         constraintInner :: Constraint
       }
+  | CWildcard
+      { constraintSpan :: SourceSpan
+      }
   deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan Constraint where
