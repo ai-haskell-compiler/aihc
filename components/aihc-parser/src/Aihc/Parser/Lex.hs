@@ -537,6 +537,14 @@ skipTrivia env st =
     Just (Left tokAndState) -> Left tokAndState
     Just (Right st') -> skipTrivia env st'
 
+-- | Check if a character is Haskell whitespace per the 2010 Report:
+-- whitechar -> newline | vertab | space | tab | uniWhite
+-- newline   -> return linefeed | return | linefeed | formfeed
+-- This includes: space, tab, carriage return, form feed, vertical tab, and Unicode whitespace
+isHaskellWhitespace :: Char -> Bool
+isHaskellWhitespace c =
+  c == ' ' || c == '\t' || c == '\r' || c == '\f' || c == '\v' || isSpace c
+
 consumeTrivia :: LexerEnv -> LexerState -> Maybe (Either (LexToken, LexerState) LexerState)
 consumeTrivia _env st
   | T.null (lexerInput st) = Nothing
@@ -544,7 +552,7 @@ consumeTrivia _env st
       let inp = lexerInput st
        in case T.head inp of
             c
-              | c == ' ' || c == '\t' || c == '\r' -> Just (Right (markHadTrivia (consumeWhile (\x -> x == ' ' || x == '\t' || x == '\r') st)))
+              | isHaskellWhitespace c -> Just (Right (markHadTrivia (consumeWhile isHaskellWhitespace st)))
               | c == '\n' -> Just (Right (markHadTrivia (advanceN 1 st)))
             '-' | Just rest <- T.stripPrefix "--" inp, isLineComment rest -> Just (Right (markHadTrivia (consumeLineComment st)))
             '{'
