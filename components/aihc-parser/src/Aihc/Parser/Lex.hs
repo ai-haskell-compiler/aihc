@@ -544,7 +544,7 @@ consumeTrivia _env st
       let inp = lexerInput st
        in case T.head inp of
             c
-              | c == ' ' || c == '\t' || c == '\r' -> Just (Right (markHadTrivia (consumeWhile (\x -> x == ' ' || x == '\t' || x == '\r') st)))
+              | c == ' ' || c == '\t' || c == '\r' || c == '\f' -> Just (Right (markHadTrivia (consumeWhile (\x -> x == ' ' || x == '\t' || x == '\r' || x == '\f') st)))
               | c == '\n' -> Just (Right (markHadTrivia (advanceN 1 st)))
             '-' | Just rest <- T.stripPrefix "--" inp, isLineComment rest -> Just (Right (markHadTrivia (consumeLineComment st)))
             '{'

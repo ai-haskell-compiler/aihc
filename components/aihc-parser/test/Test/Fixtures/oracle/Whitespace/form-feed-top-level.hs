@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail stringable form-feed between module header and binding -}
+{- ORACLE_TEST pass -}
 module FormFeedTopLevel where
 
 x = 1
