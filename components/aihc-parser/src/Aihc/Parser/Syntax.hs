@@ -706,6 +706,7 @@ data Decl
   | DeclFixity SourceSpan FixityAssoc (Maybe Int) [OperatorName]
   | DeclRoleAnnotation SourceSpan RoleAnnotation
   | DeclTypeSyn SourceSpan TypeSynDecl
+  | DeclTypeData SourceSpan DataDecl
   | DeclData SourceSpan DataDecl
   | DeclNewtype SourceSpan NewtypeDecl
   | DeclClass SourceSpan ClassDecl
@@ -732,6 +733,7 @@ instance HasSourceSpan Decl where
       DeclFixity span' _ _ _ -> span'
       DeclRoleAnnotation span' _ -> span'
       DeclTypeSyn span' _ -> span'
+      DeclTypeData span' _ -> span'
       DeclData span' _ -> span'
       DeclNewtype span' _ -> span'
       DeclClass span' _ -> span'

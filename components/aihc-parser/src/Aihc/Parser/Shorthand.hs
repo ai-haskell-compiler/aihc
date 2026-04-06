@@ -170,6 +170,7 @@ docDecl decl =
     DeclRoleAnnotation _ ann -> "DeclRoleAnnotation" <+> parens (docRoleAnnotation ann)
     DeclTypeSyn _ syn -> "DeclTypeSyn" <+> parens (docTypeSynDecl syn)
     DeclData _ dd -> "DeclData" <+> parens (docDataDecl dd)
+    DeclTypeData _ dd -> "DeclTypeData" <+> parens (docDataDecl dd)
     DeclNewtype _ nd -> "DeclNewtype" <+> parens (docNewtypeDecl nd)
     DeclClass _ cd -> "DeclClass" <+> parens (docClassDecl cd)
     DeclInstance _ inst -> "DeclInstance" <+> parens (docInstanceDecl inst)

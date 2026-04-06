@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail basic type data declarations -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE TypeData #-}
 module Basic where
 
