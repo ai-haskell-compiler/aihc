@@ -69,9 +69,11 @@ module Aihc.Parser.Lex
     lexModuleTokens,
 
     -- * Incremental lexer/layout state for parser-driven layout
+    LexerEnv (..),
     LexerState (..),
     LayoutState (..),
     LayoutContext (..),
+    mkLexerEnv,
     mkInitialLexerState,
     mkInitialLayoutState,
     scanAllTokens,
@@ -84,9 +86,11 @@ where
 
 import Aihc.Parser.Syntax
 import Control.DeepSeq (NFData)
-import Data.Char (GeneralCategory (..), digitToInt, generalCategory, isAlphaNum, isAsciiLower, isAsciiUpper, isDigit, isHexDigit, isOctDigit, isSpace, ord, toUpper)
+import Data.Char (GeneralCategory (..), digitToInt, generalCategory, isAscii, isAsciiLower, isAsciiUpper, isDigit, isHexDigit, isOctDigit, isSpace, ord, toUpper)
 import Data.List qualified as List
 import Data.Maybe (fromMaybe, isJust, mapMaybe)
+import Data.Set (Set)
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import GHC.Generics (Generic)
@@ -223,6 +227,16 @@ data LexToken = LexToken
   }
   deriving (Eq, Ord, Show, Generic, NFData)
 
+-- | Immutable lexer configuration, constructed once per lex run.
+newtype LexerEnv = LexerEnv
+  { lexerExtensions :: Set Extension
+  }
+  deriving (Eq, Show)
+
+-- | Check whether an extension is enabled in the lexer environment.
+hasExt :: Extension -> LexerEnv -> Bool
+hasExt ext env = Set.member ext (lexerExtensions env)
+
 data LexerState = LexerState
   { lexerInput :: String,
     lexerLogicalSourceName :: !FilePath,
@@ -230,8 +244,6 @@ data LexerState = LexerState
     lexerCol :: !Int,
     lexerByteOffset :: !Int,
     lexerAtLineStart :: !Bool,
-    lexerPending :: [LexToken],
-    lexerExtensions :: [Extension],
     -- | The kind of the previous non-trivia token (for NegativeLiterals/LexicalNegation)
     lexerPrevTokenKind :: !(Maybe LexTokenKind),
     -- | Whether trivia (whitespace/comments) was skipped since the last token
@@ -290,6 +302,12 @@ data DirectiveUpdate = DirectiveUpdate
     directiveCol :: !(Maybe Int),
     directiveSourceName :: !(Maybe FilePath)
   }
+  deriving (Eq, Show)
+
+data HashLineTrivia
+  = HashLineDirective !DirectiveUpdate
+  | HashLineShebang
+  | HashLineMalformed
   deriving (Eq, Show)
 
 -- | Convenience lexer entrypoint: no extensions, parse as expression/declaration stream.
@@ -361,8 +379,9 @@ lexTokensFromChunksWithExtensions = lexChunksWithExtensions False "<input>"
 -- handling, then the resulting token stream is passed through the layout insertion step.
 lexChunksWithExtensions :: Bool -> FilePath -> [Extension] -> [Text] -> [LexToken]
 lexChunksWithExtensions enableModuleLayout sourceName exts chunks =
-  applyLayoutTokens enableModuleLayout (scanTokens initialLexerState)
+  applyLayoutTokens enableModuleLayout (scanTokens env initialLexerState)
   where
+    env = mkLexerEnv exts
     initialLexerState =
       LexerState
         { lexerInput = concatMap T.unpack chunks,
@@ -371,8 +390,6 @@ lexChunksWithExtensions enableModuleLayout sourceName exts chunks =
           lexerCol = 1,
           lexerByteOffset = 0,
           lexerAtLineStart = True,
-          lexerPending = [],
-          lexerExtensions = exts,
           lexerPrevTokenKind = Nothing,
           lexerHadTrivia = True -- Start of file is treated as having leading trivia
         }
@@ -473,109 +490,111 @@ enabledExtensionsFromSettings = List.foldl' apply []
 --
 -- The lexer tracks the previous token kind and whether trivia was consumed between
 -- tokens, which enables inline handling of LexicalNegation and NegativeLiterals.
-scanTokens :: LexerState -> [LexToken]
-scanTokens st0 =
-  case lexerPending st0 of
-    tok : rest ->
-      let st0' = st0 {lexerPending = rest, lexerPrevTokenKind = Just (lexTokenKind tok), lexerHadTrivia = False}
-       in tok : scanTokens st0'
-    [] ->
-      let st = skipTrivia st0
-       in case lexerPending st of
-            tok : rest ->
-              let st' = st {lexerPending = rest, lexerPrevTokenKind = Just (lexTokenKind tok), lexerHadTrivia = False}
-               in tok : scanTokens st'
-            []
-              | null (lexerInput st) ->
-                  -- Emit explicit EOF token with span at current position
-                  let eofSpan =
-                        SourceSpan
-                          { sourceSpanSourceName = lexerLogicalSourceName st,
-                            sourceSpanStartLine = lexerLine st,
-                            sourceSpanStartCol = lexerCol st,
-                            sourceSpanEndLine = lexerLine st,
-                            sourceSpanEndCol = lexerCol st,
-                            sourceSpanStartOffset = lexerByteOffset st,
-                            sourceSpanEndOffset = lexerByteOffset st
-                          }
-                      eofToken =
-                        LexToken
-                          { lexTokenKind = TkEOF,
-                            lexTokenText = "",
-                            lexTokenSpan = eofSpan,
-                            lexTokenOrigin = FromSource
-                          }
-                   in [eofToken]
-              | otherwise ->
-                  -- Reset hadTrivia flag is already set by skipTrivia; we just lex the token
-                  let (tok, st') = nextToken st
-                      st'' = st' {lexerPrevTokenKind = Just (lexTokenKind tok), lexerHadTrivia = False}
-                   in tok : scanTokens st''
+scanTokens :: LexerEnv -> LexerState -> [LexToken]
+scanTokens env st0 =
+  case skipTrivia env st0 of
+    Left (tok, st) ->
+      let st' = st {lexerPrevTokenKind = Just (lexTokenKind tok), lexerHadTrivia = False}
+       in tok : scanTokens env st'
+    Right st
+      | null (lexerInput st) ->
+          -- Emit explicit EOF token with span at current position
+          let eofSpan =
+                SourceSpan
+                  { sourceSpanSourceName = lexerLogicalSourceName st,
+                    sourceSpanStartLine = lexerLine st,
+                    sourceSpanStartCol = lexerCol st,
+                    sourceSpanEndLine = lexerLine st,
+                    sourceSpanEndCol = lexerCol st,
+                    sourceSpanStartOffset = lexerByteOffset st,
+                    sourceSpanEndOffset = lexerByteOffset st
+                  }
+              eofToken =
+                LexToken
+                  { lexTokenKind = TkEOF,
+                    lexTokenText = "",
+                    lexTokenSpan = eofSpan,
+                    lexTokenOrigin = FromSource
+                  }
+           in [eofToken]
+      | otherwise ->
+          -- Reset hadTrivia flag is already set by skipTrivia; we just lex the token
+          let (tok, st') = nextToken env st
+              st'' = st' {lexerPrevTokenKind = Just (lexTokenKind tok), lexerHadTrivia = False}
+           in tok : scanTokens env st''
 
 -- | Skip ignorable trivia until the next token boundary.
 --
 -- Control directives are treated specially: valid directives update lexer position
 -- state without emitting a token, while malformed directives enqueue 'TkError'
 -- tokens for later emission.
-skipTrivia :: LexerState -> LexerState
-skipTrivia st = maybe st skipTrivia (consumeTrivia st)
+skipTrivia :: LexerEnv -> LexerState -> Either (LexToken, LexerState) LexerState
+skipTrivia env st =
+  case consumeTrivia env st of
+    Nothing -> Right st
+    Just (Left tokAndState) -> Left tokAndState
+    Just (Right st') -> skipTrivia env st'
 
-consumeTrivia :: LexerState -> Maybe LexerState
-consumeTrivia st
+consumeTrivia :: LexerEnv -> LexerState -> Maybe (Either (LexToken, LexerState) LexerState)
+consumeTrivia _env st
   | null (lexerInput st) = Nothing
   | otherwise =
       case lexerInput st of
         c : _
-          | c == ' ' || c == '\t' || c == '\r' -> Just (markHadTrivia (consumeWhile (\x -> x == ' ' || x == '\t' || x == '\r') st))
-          | c == '\n' -> Just (markHadTrivia (advanceChars "\n" st))
+          | c == ' ' || c == '\t' || c == '\r' -> Just (Right (markHadTrivia (consumeWhile (\x -> x == ' ' || x == '\t' || x == '\r') st)))
+          | c == '\n' -> Just (Right (markHadTrivia (advanceChars "\n" st)))
         '-' : '-' : rest
-          | isLineComment rest -> Just (markHadTrivia (consumeLineComment st))
+          | isLineComment rest -> Just (Right (markHadTrivia (consumeLineComment st)))
         '{' : '-' : '#' : _ ->
           case tryConsumeControlPragma st of
-            Just (Nothing, st') -> Just (markHadTrivia st')
-            Just (Just tok, st') -> Just (markHadTrivia st' {lexerPending = lexerPending st' <> [tok]})
+            Just (Nothing, st') -> Just (Right (markHadTrivia st'))
+            Just (Just tok, st') -> Just (Left (tok, markHadTrivia st'))
             Nothing ->
               case tryConsumeKnownPragma st of
                 Just _ -> Nothing
                 Nothing ->
-                  markHadTrivia <$> consumeUnknownPragma st
+                  fmap (Right . markHadTrivia) (consumeUnknownPragma st)
         '{' : '-' : _ ->
-          Just (markHadTrivia (consumeBlockCommentOrError st))
+          Just
+            ( case consumeBlockCommentOrError st of
+                Right st' -> Right (markHadTrivia st')
+                Left (tok, st') -> Left (tok, markHadTrivia st')
+            )
         _ ->
           case tryConsumeLineDirective st of
-            Just (Nothing, st') -> Just (markHadTrivia st')
-            Just (Just tok, st') -> Just (markHadTrivia st' {lexerPending = lexerPending st' <> [tok]})
+            Just (Nothing, st') -> Just (Right (markHadTrivia st'))
+            Just (Just tok, st') -> Just (Left (tok, markHadTrivia st'))
             Nothing -> Nothing
 
 -- | Mark that trivia was consumed
 markHadTrivia :: LexerState -> LexerState
 markHadTrivia st = st {lexerHadTrivia = True}
 
-nextToken :: LexerState -> (LexToken, LexerState)
-nextToken st =
+nextToken :: LexerEnv -> LexerState -> (LexToken, LexerState)
+nextToken env st =
   fromMaybe (lexErrorToken st "unexpected character") (firstJust tokenParsers)
   where
     tokenParsers =
       [ lexKnownPragma,
-        lexTHQuoteBracket, -- must come before lexQuasiQuote to handle [| [|| [e| etc.
+        lexTHQuoteBracket env, -- must come before lexQuasiQuote to handle [| [|| [e| etc.
         lexQuasiQuote,
-        lexHexFloat,
-        lexFloat,
-        lexIntBase,
-        lexInt,
-        lexTHNameQuote, -- must come before lexPromotedQuote and lexChar
-        lexPromotedQuote,
-        lexChar,
-        lexString,
-        lexTHCloseQuote, -- must come before lexSymbol to handle |] and ||]
-        lexSymbol,
-        lexIdentifier,
-        lexNegativeLiteralOrMinus,
+        lexHexFloat env,
+        lexFloat env,
+        lexIntBase env,
+        lexInt env,
+        lexTHNameQuote env, -- must come before lexPromotedQuote and lexChar
+        lexPromotedQuote env,
+        lexChar env,
+        lexString env,
+        lexTHCloseQuote env, -- must come before lexSymbol to handle |] and ||]
+        lexSymbol env,
+        lexIdentifier env,
+        lexNegativeLiteralOrMinus env,
         lexBangOrTildeOperator, -- must come before lexOperator
-        lexTypeApplication, -- must come before lexOperator
-        lexPrefixDollar, -- must come before lexOperator (TH splices)
-        lexImplicitParam, -- must come before lexOperator
-        lexOperator
+        lexTypeApplication env, -- must come before lexOperator
+        lexPrefixDollar env, -- must come before lexOperator (TH splices)
+        lexImplicitParam env, -- must come before lexOperator
+        lexOperator env
       ]
 
     firstJust [] = Nothing
@@ -870,21 +889,25 @@ virtualSymbolToken sym span' =
 -- Incremental lexer/layout API for parser-driven layout
 -- ---------------------------------------------------------------------------
 
+-- | Create an immutable lexer environment from a list of extensions.
+mkLexerEnv :: [Extension] -> LexerEnv
+mkLexerEnv exts = LexerEnv {lexerExtensions = Set.fromList exts}
+
 -- | Create an initial lexer state for incremental scanning.
-mkInitialLexerState :: FilePath -> [Extension] -> Text -> LexerState
+mkInitialLexerState :: FilePath -> [Extension] -> Text -> (LexerEnv, LexerState)
 mkInitialLexerState sourceName exts input =
-  LexerState
-    { lexerInput = T.unpack input,
-      lexerLogicalSourceName = sourceName,
-      lexerLine = 1,
-      lexerCol = 1,
-      lexerByteOffset = 0,
-      lexerAtLineStart = True,
-      lexerPending = [],
-      lexerExtensions = exts,
-      lexerPrevTokenKind = Nothing,
-      lexerHadTrivia = True -- Start of file is treated as having leading trivia
-    }
+  ( mkLexerEnv exts,
+    LexerState
+      { lexerInput = T.unpack input,
+        lexerLogicalSourceName = sourceName,
+        lexerLine = 1,
+        lexerCol = 1,
+        lexerByteOffset = 0,
+        lexerAtLineStart = True,
+        lexerPrevTokenKind = Nothing,
+        lexerHadTrivia = True -- Start of file is treated as having leading trivia
+      }
+  )
 
 -- | Create an initial layout state.
 mkInitialLayoutState :: Bool -> LayoutState
@@ -911,15 +934,15 @@ mkInitialLayoutState enableModuleLayout =
 -- Returns @Nothing@ when input is exhausted and all closing tokens have been
 -- emitted (i.e., after the 'TkEOF' token has already been returned by a
 -- previous call).
-stepNextToken :: LexerState -> LayoutState -> Maybe (LexToken, LexerState, LayoutState)
-stepNextToken lexSt laySt =
+stepNextToken :: LexerEnv -> LexerState -> LayoutState -> Maybe (LexToken, LexerState, LayoutState)
+stepNextToken env lexSt laySt =
   case layoutBuffer laySt of
     -- Drain buffered tokens first
     tok : rest ->
       Just (tok, lexSt, laySt {layoutBuffer = rest})
     [] ->
       -- Scan next raw token, run layout engine, buffer results
-      case scanOneToken lexSt of
+      case scanOneToken env lexSt of
         Nothing -> Nothing -- input exhausted & EOF already emitted
         Just (rawTok, lexSt') ->
           let (allToks, laySt') = layoutTransition laySt rawTok
@@ -930,57 +953,51 @@ stepNextToken lexSt laySt =
 
 -- | Scan exactly one raw token from the lexer state (no layout processing).
 -- Returns @Nothing@ when the lexer is past EOF (i.e., EOF token was already emitted).
-scanOneToken :: LexerState -> Maybe (LexToken, LexerState)
-scanOneToken st0 =
-  case lexerPending st0 of
-    tok : rest ->
-      let st0' = st0 {lexerPending = rest, lexerPrevTokenKind = Just (lexTokenKind tok), lexerHadTrivia = False}
-       in Just (tok, st0')
-    [] ->
-      let st = skipTrivia st0
-       in case lexerPending st of
-            tok : rest ->
-              let st' = st {lexerPending = rest, lexerPrevTokenKind = Just (lexTokenKind tok), lexerHadTrivia = False}
-               in Just (tok, st')
-            []
-              | null (lexerInput st) ->
-                  -- Check if we should emit EOF or if we already did
-                  -- We use a sentinel: if prevTokenKind is Just TkEOF, we already emitted it
-                  case lexerPrevTokenKind st of
-                    Just TkEOF -> Nothing
-                    _ ->
-                      let eofSpan =
-                            SourceSpan
-                              { sourceSpanSourceName = lexerLogicalSourceName st,
-                                sourceSpanStartLine = lexerLine st,
-                                sourceSpanStartCol = lexerCol st,
-                                sourceSpanEndLine = lexerLine st,
-                                sourceSpanEndCol = lexerCol st,
-                                sourceSpanStartOffset = lexerByteOffset st,
-                                sourceSpanEndOffset = lexerByteOffset st
-                              }
-                          eofToken =
-                            LexToken
-                              { lexTokenKind = TkEOF,
-                                lexTokenText = "",
-                                lexTokenSpan = eofSpan,
-                                lexTokenOrigin = FromSource
-                              }
-                          st' = st {lexerPrevTokenKind = Just TkEOF, lexerHadTrivia = False}
-                       in Just (eofToken, st')
-              | otherwise ->
-                  let (tok, st') = nextToken st
-                      st'' = st' {lexerPrevTokenKind = Just (lexTokenKind tok), lexerHadTrivia = False}
-                   in Just (tok, st'')
+scanOneToken :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
+scanOneToken env st0 =
+  case skipTrivia env st0 of
+    Left (tok, st) ->
+      let st' = st {lexerPrevTokenKind = Just (lexTokenKind tok), lexerHadTrivia = False}
+       in Just (tok, st')
+    Right st
+      | null (lexerInput st) ->
+          -- Check if we should emit EOF or if we already did
+          -- We use a sentinel: if prevTokenKind is Just TkEOF, we already emitted it
+          case lexerPrevTokenKind st of
+            Just TkEOF -> Nothing
+            _ ->
+              let eofSpan =
+                    SourceSpan
+                      { sourceSpanSourceName = lexerLogicalSourceName st,
+                        sourceSpanStartLine = lexerLine st,
+                        sourceSpanStartCol = lexerCol st,
+                        sourceSpanEndLine = lexerLine st,
+                        sourceSpanEndCol = lexerCol st,
+                        sourceSpanStartOffset = lexerByteOffset st,
+                        sourceSpanEndOffset = lexerByteOffset st
+                      }
+                  eofToken =
+                    LexToken
+                      { lexTokenKind = TkEOF,
+                        lexTokenText = "",
+                        lexTokenSpan = eofSpan,
+                        lexTokenOrigin = FromSource
+                      }
+                  st' = st {lexerPrevTokenKind = Just TkEOF, lexerHadTrivia = False}
+               in Just (eofToken, st')
+      | otherwise ->
+          let (tok, st') = nextToken env st
+              st'' = st' {lexerPrevTokenKind = Just (lexTokenKind tok), lexerHadTrivia = False}
+           in Just (tok, st'')
 
 -- | Lazily scan all raw tokens from the lexer state (no layout processing).
 -- The result is a shared lazy list: backtracking to an earlier cons cell
 -- is O(1) and never re-scans characters.
-scanAllTokens :: LexerState -> [LexToken]
-scanAllTokens st =
-  case scanOneToken st of
+scanAllTokens :: LexerEnv -> LexerState -> [LexToken]
+scanAllTokens env st =
+  case scanOneToken env st of
     Nothing -> []
-    Just (tok, st') -> tok : scanAllTokens st'
+    Just (tok, st') -> tok : scanAllTokens env st'
 
 layoutTransition :: LayoutState -> LexToken -> ([LexToken], LayoutState)
 layoutTransition st tok =
@@ -1062,17 +1079,17 @@ parsePragmaLike parser st = do
   (n, out) <- parser (lexerInput st)
   pure (out, advanceChars (take n (lexerInput st)) st)
 
-lexIdentifier :: LexerState -> Maybe (LexToken, LexerState)
-lexIdentifier st =
+lexIdentifier :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
+lexIdentifier env st =
   case lexerInput st of
     c : rest
       | isIdentStart c ->
-          let exts = lexerExtensions st
-              (seg, rest0) = consumeIdentTail exts rest
+          let hasMagicHash = hasExt MagicHash env
+              (seg, rest0) = consumeIdentTail hasMagicHash rest
               firstChunk = c : seg
-              (consumed, rest1, isQualified) = gatherQualified exts firstChunk rest0
+              (consumed, rest1, isQualified) = gatherQualified hasMagicHash firstChunk rest0
            in -- Check if we have a qualified operator (e.g., Prelude.+)
-              case (isQualified || isAsciiUpper c, rest1) of
+              case (isQualified || isConIdStart c, rest1) of
                 (True, '.' : opChar : opRest)
                   | isSymbolicOpCharNotDot opChar ->
                       -- This is a qualified operator like Prelude.+ or A.B.C.:++
@@ -1094,21 +1111,21 @@ lexIdentifier st =
     _ -> Nothing
   where
     -- Returns (consumed, remaining, isQualified)
-    gatherQualified exts acc chars =
+    gatherQualified hasMH acc chars =
       case chars of
         '.' : c' : more
           | isIdentStart c' && not (endsWithHash acc) ->
-              let (seg, rest) = consumeIdentTail exts more
-               in gatherQualified exts (acc <> "." <> [c'] <> seg) rest
+              let (seg, rest) = consumeIdentTail hasMH more
+               in gatherQualified hasMH (acc <> "." <> [c'] <> seg) rest
         _ -> (acc, chars, '.' `elem` acc)
 
-    consumeIdentTail exts = go []
+    consumeIdentTail hasMH = go []
       where
         go acc chars =
           case chars of
             c' : more
               | isIdentTail c' -> go (c' : acc) more
-              | c' == '#' && MagicHash `elem` exts -> (reverse ('#' : acc), more)
+              | c' == '#' && hasMH -> (reverse ('#' : acc), more)
             _ -> (reverse acc, chars)
 
     endsWithHash s =
@@ -1124,7 +1141,7 @@ lexIdentifier st =
           -- Qualified name: use final part to determine var/con
           let finalPart = T.takeWhileEnd (/= '.') ident
               firstCharFinal = T.head finalPart
-           in if isAsciiUpper firstCharFinal
+           in if isConIdStart firstCharFinal
                 then TkQConId ident
                 else TkQVarId ident
       | otherwise =
@@ -1133,16 +1150,16 @@ lexIdentifier st =
             Just kw -> kw
             Nothing ->
               -- Extension-conditional keywords
-              case extensionKeywordTokenKind (lexerExtensions st) ident of
+              case extensionKeywordTokenKind env ident of
                 Just kw -> kw
                 Nothing ->
-                  if isAsciiUpper firstChar
+                  if isConIdStart firstChar
                     then TkConId ident
                     else TkVarId ident
 
-lexImplicitParam :: LexerState -> Maybe (LexToken, LexerState)
-lexImplicitParam st
-  | ImplicitParams `notElem` lexerExtensions st = Nothing
+lexImplicitParam :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
+lexImplicitParam env st
+  | not (hasExt ImplicitParams env) = Nothing
   | otherwise =
       case lexerInput st of
         '?' : c : rest
@@ -1169,22 +1186,22 @@ lexImplicitParam st
 -- on position.
 --
 -- Otherwise, return Nothing and let lexOperator handle it.
-lexNegativeLiteralOrMinus :: LexerState -> Maybe (LexToken, LexerState)
-lexNegativeLiteralOrMinus st
+lexNegativeLiteralOrMinus :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
+lexNegativeLiteralOrMinus env st
   | not hasNegExt = Nothing
   | not (isStandaloneMinus (lexerInput st)) = Nothing
   | otherwise =
       let prevAllows = allowsMergeOrPrefix (lexerPrevTokenKind st) (lexerHadTrivia st)
           rest = drop 1 (lexerInput st) -- input after '-'
-       in if NegativeLiterals `elem` lexerExtensions st && prevAllows
-            then case tryLexNumberAfterMinus st of
+       in if hasExt NegativeLiterals env && prevAllows
+            then case tryLexNumberAfterMinus env st of
               Just result -> Just result
-              Nothing -> lexMinusOperator st rest prevAllows
-            else lexMinusOperator st rest prevAllows
+              Nothing -> lexMinusOperator env st rest prevAllows
+            else lexMinusOperator env st rest prevAllows
   where
     hasNegExt =
-      NegativeLiterals `elem` lexerExtensions st
-        || LexicalNegation `elem` lexerExtensions st
+      hasExt NegativeLiterals env
+        || hasExt LexicalNegation env
 
 -- | Check if input starts with a standalone '-' (not part of ->, -<, etc.)
 isStandaloneMinus :: String -> Bool
@@ -1196,8 +1213,8 @@ isStandaloneMinus input =
 
 -- | Try to lex a negative number by delegating to existing number lexers.
 -- Consumes '-', runs number lexers on remainder, negates result if successful.
-tryLexNumberAfterMinus :: LexerState -> Maybe (LexToken, LexerState)
-tryLexNumberAfterMinus st = do
+tryLexNumberAfterMinus :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
+tryLexNumberAfterMinus env st = do
   -- Create a temporary state positioned after the '-'
   let stAfterMinus = advanceChars "-" st
   -- Try existing number lexers in order (most specific first)
@@ -1205,7 +1222,7 @@ tryLexNumberAfterMinus st = do
   -- Build combined negative token
   Just (negateToken st numTok, stFinal)
   where
-    numberLexers = [lexHexFloat, lexFloat, lexIntBase, lexInt]
+    numberLexers = [lexHexFloat env, lexFloat env, lexIntBase env, lexInt env]
 
     firstJust [] _ = Nothing
     firstJust (f : fs) s = case f s of
@@ -1246,9 +1263,9 @@ negateToken stBefore numTok =
       NoSourceSpan -> NoSourceSpan
 
 -- | Emit TkPrefixMinus or TkMinusOperator based on LexicalNegation rules.
-lexMinusOperator :: LexerState -> String -> Bool -> Maybe (LexToken, LexerState)
-lexMinusOperator st rest prevAllows
-  | LexicalNegation `notElem` lexerExtensions st = Nothing
+lexMinusOperator :: LexerEnv -> LexerState -> String -> Bool -> Maybe (LexToken, LexerState)
+lexMinusOperator env st rest prevAllows
+  | not (hasExt LexicalNegation env) = Nothing
   | otherwise =
       let st' = advanceChars "-" st
           kind =
@@ -1326,9 +1343,9 @@ canStartNegatedAtom rest =
 -- This must come before lexOperator in the tokenizer chain so that @ can be
 -- classified as TkTypeApp or TkVarSym before lexOperator turns it into
 -- TkReservedAt.
-lexTypeApplication :: LexerState -> Maybe (LexToken, LexerState)
-lexTypeApplication st
-  | TypeApplications `notElem` lexerExtensions st = Nothing
+lexTypeApplication :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
+lexTypeApplication env st
+  | not (hasExt TypeApplications env) = Nothing
   | otherwise =
       case lexerInput st of
         '@' : rest
@@ -1386,9 +1403,9 @@ lexBangOrTildeOperator st =
 --   $$(e)   -- typed splice (TkTHTypedSplice)
 --   $ x     -- regular operator (TkVarSym "$")
 --   f $ x   -- regular operator (TkVarSym "$")
-lexPrefixDollar :: LexerState -> Maybe (LexToken, LexerState)
-lexPrefixDollar st
-  | TemplateHaskell `notElem` lexerExtensions st = Nothing
+lexPrefixDollar :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
+lexPrefixDollar env st
+  | not (hasExt TemplateHaskell env) = Nothing
   | otherwise =
       case lexerInput st of
         -- \$$ must be checked before $ (greedy match for typed splice)
@@ -1471,12 +1488,12 @@ canStartPrefixPatternAtom rest =
       | c == '$' -> True -- TH splice
       | otherwise -> False
 
-lexOperator :: LexerState -> Maybe (LexToken, LexerState)
-lexOperator st =
+lexOperator :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
+lexOperator env st =
   case span isSymbolicOpChar (lexerInput st) of
     (op@(c : _), rest) ->
       let txt = T.pack op
-          hasArrows = Arrows `elem` lexerExtensions st
+          hasArrows = hasExt Arrows env
        in -- Special case: |) is the banana close bracket when Arrows is enabled.
           -- The ) is not a symbolic op char, so span stops at |. We check the
           -- rest to see if ) follows immediately.
@@ -1486,7 +1503,7 @@ lexOperator st =
                in Just (mkToken st st' "|)" TkBananaClose, st')
             _ ->
               let st' = advanceChars op st
-                  hasUnicode = UnicodeSyntax `elem` lexerExtensions st
+                  hasUnicode = hasExt UnicodeSyntax env
                   kind = case reservedOpTokenKind txt of
                     Just reserved -> reserved
                     Nothing
@@ -1528,16 +1545,16 @@ unicodeOpTokenKind hasArrows txt firstChar =
       | firstChar == ':' -> TkConSym txt
       | otherwise -> TkVarSym txt
 
-lexSymbol :: LexerState -> Maybe (LexToken, LexerState)
-lexSymbol st =
+lexSymbol :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
+lexSymbol env st =
   firstJust symbols
   where
     symbols =
-      ( if UnboxedTuples `elem` lexerExtensions st || UnboxedSums `elem` lexerExtensions st
+      ( if hasExt UnboxedTuples env || hasExt UnboxedSums env
           then [("(#", TkSpecialUnboxedLParen), ("#)", TkSpecialUnboxedRParen)]
           else []
       )
-        <> ( if Arrows `elem` lexerExtensions st
+        <> ( if hasExt Arrows env
                then [("(|", TkBananaOpen)]
                else []
            )
@@ -1563,27 +1580,28 @@ lexSymbol st =
             else firstJust rest
 
 withOptionalMagicHashSuffix ::
+  LexerEnv ->
   LexerState ->
   String ->
   LexTokenKind ->
   (Text -> LexTokenKind) ->
   (Text, LexTokenKind, LexerState)
-withOptionalMagicHashSuffix st raw plainKind hashKind =
+withOptionalMagicHashSuffix env st raw plainKind hashKind =
   let st' = advanceChars raw st
    in case lexerInput st' of
         '#' : _
-          | MagicHash `elem` lexerExtensions st ->
+          | hasExt MagicHash env ->
               let rawHash = raw <> "#"
                   txtHash = T.pack rawHash
                in (txtHash, hashKind txtHash, advanceChars "#" st')
         _ -> (T.pack raw, plainKind, st')
 
-lexIntBase :: LexerState -> Maybe (LexToken, LexerState)
-lexIntBase st =
+lexIntBase :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
+lexIntBase env st =
   case lexerInput st of
     '0' : base : rest
       | base `elem` ("xXoObB" :: String) ->
-          let allowUnderscores = NumericUnderscores `elem` lexerExtensions st
+          let allowUnderscores = hasExt NumericUnderscores env
               isDigitChar
                 | base `elem` ("xX" :: String) = isHexDigit
                 | base `elem` ("oO" :: String) = isOctDigit
@@ -1599,12 +1617,12 @@ lexIntBase st =
                         | base `elem` ("oO" :: String) = readOctLiteral txt
                         | otherwise = readBinLiteral txt
                       (tokTxt, tokKind, st') =
-                        withOptionalMagicHashSuffix st raw (TkIntegerBase n txt) (TkIntegerBaseHash n)
+                        withOptionalMagicHashSuffix env st raw (TkIntegerBase n txt) (TkIntegerBaseHash n)
                    in Just (mkToken st st' tokTxt tokKind, st')
     _ -> Nothing
 
-lexHexFloat :: LexerState -> Maybe (LexToken, LexerState)
-lexHexFloat st = do
+lexHexFloat :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
+lexHexFloat env st = do
   ('0' : x : rest) <- Just (lexerInput st)
   if x `notElem` ("xX" :: String)
     then Nothing
@@ -1632,12 +1650,12 @@ lexHexFloat st = do
                   txt = T.pack raw
                   value = parseHexFloatLiteral intDigits fracDigits expo
                   (tokTxt, tokKind, st') =
-                    withOptionalMagicHashSuffix st raw (TkFloat value txt) (TkFloatHash value)
+                    withOptionalMagicHashSuffix env st raw (TkFloat value txt) (TkFloatHash value)
                in Just (mkToken st st' tokTxt tokKind, st')
 
-lexFloat :: LexerState -> Maybe (LexToken, LexerState)
-lexFloat st =
-  let allowUnderscores = NumericUnderscores `elem` lexerExtensions st
+lexFloat :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
+lexFloat env st =
+  let allowUnderscores = hasExt NumericUnderscores env
       (lhsRaw, rest) = takeDigitsWithUnderscores allowUnderscores isDigit (lexerInput st)
    in if null lhsRaw
         then Nothing
@@ -1651,7 +1669,7 @@ lexFloat st =
                     normalized = filter (/= '_') raw
                     value = read normalized
                     (tokTxt, tokKind, st') =
-                      withOptionalMagicHashSuffix st raw (TkFloat value txt) (TkFloatHash value)
+                      withOptionalMagicHashSuffix env st raw (TkFloat value txt) (TkFloatHash value)
                  in Just (mkToken st st' tokTxt tokKind, st')
           _ ->
             case takeExponent allowUnderscores rest of
@@ -1662,12 +1680,12 @@ lexFloat st =
                     normalized = filter (/= '_') raw
                     value = read normalized
                     (tokTxt, tokKind, st') =
-                      withOptionalMagicHashSuffix st raw (TkFloat value txt) (TkFloatHash value)
+                      withOptionalMagicHashSuffix env st raw (TkFloat value txt) (TkFloatHash value)
                  in Just (mkToken st st' tokTxt tokKind, st')
 
-lexInt :: LexerState -> Maybe (LexToken, LexerState)
-lexInt st =
-  let allowUnderscores = NumericUnderscores `elem` lexerExtensions st
+lexInt :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
+lexInt env st =
+  let allowUnderscores = hasExt NumericUnderscores env
       (digitsRaw, _) = takeDigitsWithUnderscores allowUnderscores isDigit (lexerInput st)
    in if null digitsRaw
         then Nothing
@@ -1675,12 +1693,12 @@ lexInt st =
           let digits = filter (/= '_') digitsRaw
               n = read digits
               (tokTxt, tokKind, st') =
-                withOptionalMagicHashSuffix st digitsRaw (TkInteger n) (TkIntegerHash n)
+                withOptionalMagicHashSuffix env st digitsRaw (TkInteger n) (TkIntegerHash n)
            in Just (mkToken st st' tokTxt tokKind, st')
 
-lexPromotedQuote :: LexerState -> Maybe (LexToken, LexerState)
-lexPromotedQuote st
-  | DataKinds `notElem` lexerExtensions st = Nothing
+lexPromotedQuote :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
+lexPromotedQuote env st
+  | not (hasExt DataKinds env) = Nothing
   | otherwise =
       case lexerInput st of
         '\'' : rest
@@ -1702,11 +1720,11 @@ lexPromotedQuote st
           | c == '[' -> True
           | c == '(' -> True
           | c == ':' -> True
-          | isAsciiUpper c -> True
+          | isConIdStart c -> True
         _ -> False
 
-lexChar :: LexerState -> Maybe (LexToken, LexerState)
-lexChar st =
+lexChar :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
+lexChar env st =
   case lexerInput st of
     '\'' : rest ->
       case scanQuoted '\'' rest of
@@ -1715,7 +1733,7 @@ lexChar st =
            in case readMaybeChar raw of
                 Just c ->
                   let (tokTxt, tokKind, st') =
-                        withOptionalMagicHashSuffix st raw (TkChar c) (TkCharHash c)
+                        withOptionalMagicHashSuffix env st raw (TkChar c) (TkCharHash c)
                    in Just (mkToken st st' tokTxt tokKind, st')
                 Nothing ->
                   let st' = advanceChars raw st
@@ -1726,17 +1744,17 @@ lexChar st =
            in Just (mkErrorToken st st' (T.pack full) "unterminated char literal", st')
     _ -> Nothing
 
-lexString :: LexerState -> Maybe (LexToken, LexerState)
-lexString st =
+lexString :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
+lexString env st =
   case lexerInput st of
-    '"' : '"' : '"' : rest | MultilineStrings `elem` lexerExtensions st ->
+    '"' : '"' : '"' : rest | hasExt MultilineStrings env ->
       -- Try multiline string first if extension is enabled
       case scanMultilineString rest of
         Right (body, _) ->
           let raw = "\"\"\"" <> body <> "\"\"\""
               decoded = T.pack (processMultilineString body)
               (tokTxt, tokKind, st') =
-                withOptionalMagicHashSuffix st raw (TkString decoded) (TkStringHash decoded)
+                withOptionalMagicHashSuffix env st raw (TkString decoded) (TkStringHash decoded)
            in Just (mkToken st st' tokTxt tokKind, st')
         Left raw ->
           let full = "\"\"\"" <> raw
@@ -1751,7 +1769,7 @@ lexString st =
                   [(str, "")] -> T.pack str
                   _ -> T.pack body
               (tokTxt, tokKind, st') =
-                withOptionalMagicHashSuffix st raw (TkString decoded) (TkStringHash decoded)
+                withOptionalMagicHashSuffix env st raw (TkString decoded) (TkStringHash decoded)
            in Just (mkToken st st' tokTxt tokKind, st')
         Left raw ->
           let full = '"' : raw
@@ -1785,9 +1803,9 @@ lexQuasiQuote st =
 -- | Lex Template Haskell opening quote brackets: [| [e| [|| [e|| [d| [t| [p|
 -- Must be tried before lexQuasiQuote so that [e|...] is not misinterpreted
 -- as a quasi-quote with quoter "e".
-lexTHQuoteBracket :: LexerState -> Maybe (LexToken, LexerState)
-lexTHQuoteBracket st
-  | not (thQuotesEnabled st) = Nothing
+lexTHQuoteBracket :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
+lexTHQuoteBracket env st
+  | not (thQuotesEnabled env st) = Nothing
   | otherwise =
       case lexerInput st of
         '[' : '|' : '|' : _ ->
@@ -1822,9 +1840,9 @@ lexTHQuoteBracket st
 
 -- | Lex Template Haskell closing quote brackets: |] and ||]
 -- Must be tried before lexSymbol.
-lexTHCloseQuote :: LexerState -> Maybe (LexToken, LexerState)
-lexTHCloseQuote st
-  | not (thQuotesEnabled st) = Nothing
+lexTHCloseQuote :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
+lexTHCloseQuote env st
+  | not (thQuotesEnabled env st) = Nothing
   | otherwise =
       case lexerInput st of
         '|' : '|' : ']' : _ ->
@@ -1840,9 +1858,9 @@ lexTHCloseQuote st
 -- | Lex Template Haskell name quote ticks: ' and ''
 -- Must be tried before lexPromotedQuote and lexChar.
 -- Produces standalone tick tokens; the parser combines with the following name.
-lexTHNameQuote :: LexerState -> Maybe (LexToken, LexerState)
-lexTHNameQuote st
-  | not (thQuotesEnabled st) = Nothing
+lexTHNameQuote :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
+lexTHNameQuote env st
+  | not (thQuotesEnabled env st) = Nothing
   | otherwise =
       case lexerInput st of
         '\'' : '\'' : rest ->
@@ -1870,10 +1888,10 @@ lexTHNameQuote st
         Left _ -> False
 
 -- | Check if TemplateHaskellQuotes or TemplateHaskell is enabled
-thQuotesEnabled :: LexerState -> Bool
-thQuotesEnabled st =
-  TemplateHaskellQuotes `elem` lexerExtensions st
-    || TemplateHaskell `elem` lexerExtensions st
+thQuotesEnabled :: LexerEnv -> LexerState -> Bool
+thQuotesEnabled env _st =
+  hasExt TemplateHaskellQuotes env
+    || hasExt TemplateHaskell env
 
 lexErrorToken :: LexerState -> Text -> (LexToken, LexerState)
 lexErrorToken st msg =
@@ -1897,12 +1915,16 @@ tryConsumeLineDirective st
             '#' : more ->
               let lineText = '#' : takeLineRemainder more
                   consumed = spaces <> lineText
-               in case parseHashLineDirective lineText of
-                    Just update ->
+               in case classifyHashLineTrivia lineText of
+                    Just (HashLineDirective update) ->
                       Just (Nothing, applyDirectiveAdvance consumed update st)
-                    Nothing ->
+                    Just HashLineShebang ->
+                      let st' = advanceChars consumed st
+                       in Just (Nothing, st')
+                    Just HashLineMalformed ->
                       let st' = advanceChars consumed st
                        in Just (Just (mkToken st st' (T.pack consumed) (TkError "malformed line directive")), st')
+                    Nothing -> Nothing
             _ -> Nothing
 
 tryConsumeControlPragma :: LexerState -> Maybe (Maybe LexToken, LexerState)
@@ -1959,15 +1981,15 @@ consumeBlockComment st =
     Just consumedTail -> Just (advanceChars ("{-" <> consumedTail) st)
     Nothing -> Nothing
 
-consumeBlockCommentOrError :: LexerState -> LexerState
+consumeBlockCommentOrError :: LexerState -> Either (LexToken, LexerState) LexerState
 consumeBlockCommentOrError st =
   case consumeBlockComment st of
-    Just st' -> st'
+    Just st' -> Right st'
     Nothing ->
       let consumed = lexerInput st
           st' = advanceChars consumed st
           tok = mkToken st st' (T.pack consumed) (TkError "unterminated block comment")
-       in st' {lexerPending = lexerPending st' <> [tok]}
+       in Left (tok, st')
 
 scanNestedBlockComment :: Int -> String -> Maybe String
 scanNestedBlockComment depth chars
@@ -2157,6 +2179,15 @@ pragmaWords txt = go [] [] Nothing (T.unpack txt)
         [] -> acc
         token -> T.pack token : acc
 
+classifyHashLineTrivia :: String -> Maybe HashLineTrivia
+classifyHashLineTrivia raw
+  | isHashBangLine raw = Just HashLineShebang
+  | looksLikeHashLineDirective raw =
+      case parseHashLineDirective raw of
+        Just update -> Just (HashLineDirective update)
+        Nothing -> Just HashLineMalformed
+  | otherwise = Nothing
+
 parseHashLineDirective :: String -> Maybe DirectiveUpdate
 parseHashLineDirective raw =
   let trimmed = trimLeft (drop 1 (trimLeft raw))
@@ -2174,6 +2205,18 @@ parseHashLineDirective raw =
                 directiveCol = Just 1,
                 directiveSourceName = parseDirectiveSourceName rest
               }
+
+isHashBangLine :: String -> Bool
+isHashBangLine raw =
+  case trimLeft raw of
+    '#' : '!' : _ -> True
+    _ -> False
+
+looksLikeHashLineDirective :: String -> Bool
+looksLikeHashLineDirective raw =
+  case trimLeft (drop 1 (trimLeft raw)) of
+    c : _ | isDigit c -> True
+    rest -> "line" `List.isPrefixOf` rest
 
 parseControlPragma :: String -> Maybe (String, Either Text DirectiveUpdate)
 parseControlPragma input
@@ -2247,8 +2290,15 @@ advanceChars chars st = foldl advanceOne st chars
                 { lexerInput = drop 1 (lexerInput acc),
                   lexerCol = lexerCol acc + nextTabStop,
                   lexerByteOffset = lexerByteOffset acc + 1,
-                  lexerAtLineStart = False
+                  lexerAtLineStart = lexerAtLineStart acc
                 }
+        ' ' ->
+          acc
+            { lexerInput = drop 1 (lexerInput acc),
+              lexerCol = lexerCol acc + 1,
+              lexerByteOffset = lexerByteOffset acc + 1,
+              lexerAtLineStart = lexerAtLineStart acc
+            }
         _ ->
           acc
             { lexerInput = drop 1 (lexerInput acc),
@@ -2607,11 +2657,33 @@ exponentValue expo =
     _ : ds -> read ds
     _ -> 0
 
+-- | Check if a character can start an identifier per Haskell 2010 Report §2.2.
+--
+-- Accepts ASCII letters, underscore, and Unicode letters:
+-- * uniSmall — Unicode general category Ll (lowercase letters like α, β, ñ)
+-- * uniLarge — Unicode general categories Lu + Lt (uppercase/titlecase like Α, Σ, Dž)
 isIdentStart :: Char -> Bool
-isIdentStart c = isAsciiUpper c || isAsciiLower c || c == '_'
+isIdentStart c = isAsciiUpper c || isAsciiLower c || c == '_' || isUniSmall c || isUniLarge c
 
+-- | Check if a character can continue an identifier per Haskell 2010 Report §2.2.
+--
+-- Identifier tails are: small | large | digit | uniDigit | '
 isIdentTail :: Char -> Bool
-isIdentTail c = isAlphaNum c || c == '_' || c == '\''
+isIdentTail c = isIdentStart c || isDigit c || c == '\''
+
+-- | Check if a character starts a constructor identifier (conid).
+--
+-- Per the Haskell 2010 Report, constructors start with an uppercase or titlecase letter.
+isConIdStart :: Char -> Bool
+isConIdStart c = isAsciiUpper c || isUniLarge c
+
+-- | Unicode lowercase letter (general category Ll), excluding ASCII.
+isUniSmall :: Char -> Bool
+isUniSmall c = not (isAscii c) && generalCategory c == LowercaseLetter
+
+-- | Unicode uppercase or titlecase letter (general categories Lu, Lt), excluding ASCII.
+isUniLarge :: Char -> Bool
+isUniLarge c = not (isAscii c) && generalCategory c `elem` [UppercaseLetter, TitlecaseLetter]
 
 isSymbolicOpChar :: Char -> Bool
 isSymbolicOpChar c = c `elem` (":!#$%&*+./<=>?@\\^|-~" :: String) || isUnicodeSymbol c
@@ -2667,7 +2739,7 @@ isLineComment rest =
       | otherwise -> True -- Non-symbol char means comment
 
 isIdentTailOrStart :: Char -> Bool
-isIdentTailOrStart c = isAlphaNum c || c == '_' || c == '\''
+isIdentTailOrStart = isIdentTail
 
 isReservedIdentifier :: Text -> Bool
 isReservedIdentifier = isJust . keywordTokenKind
@@ -2705,10 +2777,10 @@ keywordTokenKind txt = case txt of
 
 -- | Classify extension-conditional keywords.
 -- These are identifiers that become keywords only when certain extensions are enabled.
-extensionKeywordTokenKind :: [Extension] -> Text -> Maybe LexTokenKind
-extensionKeywordTokenKind exts txt = case txt of
-  "proc" | Arrows `elem` exts -> Just TkKeywordProc
-  "rec" | Arrows `elem` exts || RecursiveDo `elem` exts -> Just TkKeywordRec
+extensionKeywordTokenKind :: LexerEnv -> Text -> Maybe LexTokenKind
+extensionKeywordTokenKind env txt = case txt of
+  "proc" | hasExt Arrows env -> Just TkKeywordProc
+  "rec" | hasExt Arrows env || hasExt RecursiveDo env -> Just TkKeywordRec
   _ -> Nothing
 
 -- | Classify reserved operators per Haskell Report Section 2.4.

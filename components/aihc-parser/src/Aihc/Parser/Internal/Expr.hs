@@ -270,9 +270,7 @@ cmdLamParser = withSpan $ do
 -- | Parse a parenthesised command: @( cmd )@
 cmdParenParser :: TokParser Cmd
 cmdParenParser = withSpan $ do
-  expectedTok TkSpecialLParen
-  cmd <- cmdParser
-  expectedTok TkSpecialRParen
+  cmd <- parens cmdParser
   pure (`CmdPar` cmd)
 
 -- | Parse a do-statement in command context (arrow do).
@@ -1371,18 +1369,19 @@ whereClauseParser = do
   bracedDeclsParser <|> plainDeclsParser
 
 plainDeclsParser :: TokParser [Decl]
-plainDeclsParser = plainSemiSep1 localDeclParser
+plainDeclsParser = concat <$> plainSemiSep1 localDeclsParser
 
 bracedDeclsParser :: TokParser [Decl]
-bracedDeclsParser = bracedSemiSep1 localDeclParser
+bracedDeclsParser = concat <$> bracedSemiSep1 localDeclsParser
 
-localDeclParser :: TokParser Decl
-localDeclParser = do
+-- Some local declaration items lower to a single binding carrying an inline
+-- type signature, so the parser emits a declaration group rather than a
+-- one-item-at-a-time stream.
+localDeclsParser :: TokParser [Decl]
+localDeclsParser = do
   isTySig <- startsWithTypeSig
   if isTySig
-    then -- Type signature: name1, name2 :: type
-    -- No MP.try needed; startsWithTypeSig confirmed '::' follows the names.
-      localTypeSigDeclParser
+    then localTypeSigDeclsParser
     else -- Function or pattern binding.
     -- MP.try around localFunctionDeclParser needed because function heads
     -- and pattern binds can overlap (e.g. '(x, y) = expr' can be attempted
@@ -1391,8 +1390,25 @@ localDeclParser = do
       do
         tok <- lookAhead anySingle
         case lexTokenKind tok of
-          TkImplicitParam {} -> implicitParamDeclParser
-          _ -> MP.try localFunctionDeclParser <|> localPatternDeclParser
+          TkImplicitParam {} -> pure <$> implicitParamDeclParser
+          _ -> pure <$> (MP.try localFunctionDeclParser <|> localPatternDeclParser)
+
+localTypeSigDeclsParser :: TokParser [Decl]
+localTypeSigDeclsParser = do
+  sig@(DeclTypeSig sigSpan names ty) <- localTypeSigDeclParser
+  mEq <- MP.optional (expectedTok TkReservedEquals)
+  case mEq of
+    Nothing -> pure [sig]
+    Just () ->
+      case names of
+        [name] -> do
+          rhsExpr <- exprParser
+          let bindSpan = mergeSourceSpans sigSpan (getSourceSpan rhsExpr)
+              pat = PTypeSig sigSpan (PVar sigSpan name) ty
+              rhs = UnguardedRhs bindSpan rhsExpr
+          pure [DeclValue bindSpan (PatternBind bindSpan pat rhs)]
+        _ ->
+          fail "local typed bindings with '=' require exactly one binder"
 
 localTypeSigDeclParser :: TokParser Decl
 localTypeSigDeclParser = withSpan $ do
@@ -1683,7 +1699,7 @@ thTypedQuoteParser = withSpan $ do
 thDeclQuoteParser :: TokParser Expr
 thDeclQuoteParser = withSpan $ do
   expectedTok TkTHDeclQuoteOpen
-  decls <- bracedSemiSep1 localDeclParser <|> plainSemiSep1 localDeclParser
+  decls <- (concat <$> bracedSemiSep1 localDeclsParser) <|> (concat <$> plainSemiSep1 localDeclsParser)
   expectedTok TkTHExpQuoteClose
   pure (`ETHDeclQuote` decls)
 
@@ -2028,27 +2044,33 @@ typeParenOrTupleParser = withSpan $ do
 
     parenthesizedTypeOrTupleParser tupleFlavor closeTok = do
       first <- typeParser
-      mComma <- MP.optional (expectedTok TkSpecialComma)
-      case mComma of
-        Nothing -> do
-          -- Check for pipe (unboxed sum type)
-          mPipe <- if tupleFlavor == Unboxed then MP.optional (expectedTok TkReservedPipe) else pure Nothing
-          case mPipe of
-            Just () -> do
-              -- (# Type1 | Type2 | ... #) - unboxed sum type
-              rest <- typeParser `MP.sepBy1` expectedTok TkReservedPipe
-              expectedTok closeTok
-              pure (\span' -> TUnboxedSum span' (first : rest))
-            Nothing -> do
-              expectedTok closeTok
-              if tupleFlavor == Boxed
-                then pure (`TParen` first)
-                else fail "not an unboxed tuple type"
-        Just () -> do
-          second <- typeParser
-          more <- MP.many (expectedTok TkSpecialComma *> typeParser)
+      mKind <- if tupleFlavor == Boxed then MP.optional (expectedTok TkReservedDoubleColon *> typeParser) else pure Nothing
+      case mKind of
+        Just kind -> do
           expectedTok closeTok
-          pure (\span' -> TTuple span' tupleFlavor Unpromoted (first : second : more))
+          pure (\span' -> TKindSig span' first kind)
+        Nothing -> do
+          mComma <- MP.optional (expectedTok TkSpecialComma)
+          case mComma of
+            Nothing -> do
+              -- Check for pipe (unboxed sum type)
+              mPipe <- if tupleFlavor == Unboxed then MP.optional (expectedTok TkReservedPipe) else pure Nothing
+              case mPipe of
+                Just () -> do
+                  -- (# Type1 | Type2 | ... #) - unboxed sum type
+                  rest <- typeParser `MP.sepBy1` expectedTok TkReservedPipe
+                  expectedTok closeTok
+                  pure (\span' -> TUnboxedSum span' (first : rest))
+                Nothing -> do
+                  expectedTok closeTok
+                  if tupleFlavor == Boxed
+                    then pure (`TParen` first)
+                    else fail "not an unboxed tuple type"
+            Just () -> do
+              second <- typeParser
+              more <- MP.many (expectedTok TkSpecialComma *> typeParser)
+              expectedTok closeTok
+              pure (\span' -> TTuple span' tupleFlavor Unpromoted (first : second : more))
 
 markTypePromoted :: Type -> Maybe Type
 markTypePromoted ty =
@@ -2073,6 +2095,7 @@ setTypeSpan span' ty =
     TUnboxedSum _ elems -> TUnboxedSum span' elems
     TList _ promoted inner -> TList span' promoted inner
     TParen _ inner -> TParen span' inner
+    TKindSig _ inner kind -> TKindSig span' inner kind
     TContext _ constraints inner -> TContext span' constraints inner
     TSplice _ body -> TSplice span' body
     TWildcard _ -> TWildcard span'

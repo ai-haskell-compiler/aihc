@@ -493,6 +493,7 @@ docType ty =
       (if promoted == Promoted then "TListPromoted" else "TList")
         <+> parens (docType inner)
     TParen _ inner -> "TParen" <+> parens (docType inner)
+    TKindSig _ ty' kind -> "TKindSig" <+> parens (docType ty') <+> parens (docType kind)
     TContext _ constraints inner -> "TContext" <+> brackets (hsep (punctuate comma (map docConstraint constraints))) <+> parens (docType inner)
     TSplice _ body -> "TSplice" <+> parens (docExpr body)
     TWildcard _ -> "TWildcard"

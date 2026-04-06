@@ -851,6 +851,7 @@ normalizeType ty =
     TList _ promoted inner -> TList span0 promoted (normalizeType inner)
     -- Remove redundant parentheses from types
     TParen _ inner -> normalizeType inner
+    TKindSig _ inner kind -> TKindSig span0 (normalizeType inner) (normalizeType kind)
     TUnboxedSum _ elems -> TUnboxedSum span0 (map normalizeType elems)
     TContext _ constraints inner -> TContext span0 (map normalizeConstraint constraints) (normalizeType inner)
     TSplice _ body -> TSplice span0 (normalizeExpr body)

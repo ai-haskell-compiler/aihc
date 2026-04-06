@@ -928,6 +928,7 @@ data Type
   | TUnboxedSum SourceSpan [Type]
   | TList SourceSpan TypePromotion Type
   | TParen SourceSpan Type
+  | TKindSig SourceSpan Type Type
   | TContext SourceSpan [Constraint] Type
   | TSplice SourceSpan Expr
   | -- \$typ or $(typ) (TH type splice)
@@ -950,6 +951,7 @@ instance HasSourceSpan Type where
       TUnboxedSum span' _ -> span'
       TList span' _ _ -> span'
       TParen span' _ -> span'
+      TKindSig span' _ _ -> span'
       TContext span' _ _ -> span'
       TSplice span' _ -> span'
       TWildcard span' -> span'
