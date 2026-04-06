@@ -86,6 +86,7 @@ buildTests = do
             testCase "generated identifiers reject reserved keyword as" test_generatedIdentifiersRejectReservedAs,
             testCase "generated identifiers reject standalone underscore" test_generatedIdentifiersRejectStandaloneUnderscore,
             testCase "shrunk identifiers reject standalone underscore" test_shrunkIdentifiersRejectStandaloneUnderscore,
+            testCase "generated operators reject arrow tail spellings" test_generatedOperatorsRejectArrowTailSpellings,
             testCase "parses parenthesized kind signature type atoms" test_typeParsesParenthesizedKindSignature,
             testCase "parses parenthesized kind signatures in application heads" test_typeParsesKindSignatureApplicationHead,
             testCase "parses GADT constructor arguments with kind signatures" test_gadtConstructorParsesKindAnnotatedArgument,
@@ -587,6 +588,11 @@ test_shrunkIdentifiersRejectStandaloneUnderscore :: Assertion
 test_shrunkIdentifiersRejectStandaloneUnderscore =
   assertBool "standalone underscore must not be produced by shrinking" $
     "_" `notElem` shrinkIdent "__"
+
+test_generatedOperatorsRejectArrowTailSpellings :: Assertion
+test_generatedOperatorsRejectArrowTailSpellings =
+  assertBool "arrow-tail operators must not be treated as valid generated operators" $
+    not (any isValidGeneratedOperator ["-<", ">-", "-<<", ">>-"])
 
 prop_generatedOperatorsRejectDashOnlyCommentStarters :: QC.Property
 prop_generatedOperatorsRejectDashOnlyCommentStarters =

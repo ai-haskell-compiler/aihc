@@ -162,7 +162,9 @@ genCustomOperator = do
 
 isValidGeneratedOperator :: Text -> Bool
 isValidGeneratedOperator candidate =
-  let reserved = candidate `elem` ["..", "::", "=", "\\", "|", "<-", "->", "~", "=>", "--"]
+  let reserved =
+        candidate
+          `elem` ["..", "::", "=", "\\", "|", "<-", "->", "~", "=>", "--", "-<", ">-", "-<<", ">>-"]
       dashOnly = T.length candidate >= 2 && T.all (== '-') candidate
    in not reserved && not dashOnly
 
