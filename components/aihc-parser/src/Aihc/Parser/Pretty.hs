@@ -1106,9 +1106,12 @@ prettyExprPrec prec expr =
           -- Arrow application operators (-<, -<<) are command-level syntax
           -- in GHC.  The LHS is a command (which may be a greedy do/if/case)
           -- and the RHS is a full expression.
+          -- Always parenthesize the whole expression to avoid ambiguity.
+          -- Also parenthesize the LHS to prevent constructs like `where` from
+          -- capturing the `-<` operator.
           parenthesize
-            (prec > 1)
-            (prettyExprPrec 0 lhs <+> prettyInfixOp op <+> prettyExprPrec 0 rhs)
+            True
+            (parens (prettyExprPrec 0 lhs) <+> prettyInfixOp op <+> prettyExprPrec 0 rhs)
       | otherwise ->
           parenthesize
             (prec > 1)

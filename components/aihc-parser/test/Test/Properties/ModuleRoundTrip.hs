@@ -50,7 +50,7 @@ instance Arbitrary Module where
       Module
         { moduleSpan = span0,
           moduleHead = mHead,
-          moduleLanguagePragmas = [],
+          moduleLanguagePragmas = [EnableExtension Arrows, EnableExtension UnboxedTuples, EnableExtension UnboxedSums, EnableExtension TemplateHaskell],
           moduleImports = imports,
           moduleDecls = decls
         }
@@ -352,7 +352,7 @@ normalizeModule modu =
   Module
     { moduleSpan = span0,
       moduleHead = fmap normalizeModuleHead (moduleHead modu),
-      moduleLanguagePragmas = [],
+      moduleLanguagePragmas = moduleLanguagePragmas modu,
       moduleImports = map normalizeImportDecl (moduleImports modu),
       moduleDecls = map normalizeDecl (moduleDecls modu)
     }
