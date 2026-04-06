@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail Mantissa boxed Word# literal with 0## -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE MagicHash #-}
 
 module WordLiteralDoubleHash where

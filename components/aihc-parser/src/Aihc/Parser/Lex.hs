@@ -1582,20 +1582,25 @@ lexSymbol env st =
             else firstJust rest
 
 withOptionalMagicHashSuffix ::
+  Int ->
   LexerEnv ->
   LexerState ->
   Text ->
   LexTokenKind ->
   (Text -> LexTokenKind) ->
   (Text, LexTokenKind, LexerState)
-withOptionalMagicHashSuffix env st raw plainKind hashKind =
+withOptionalMagicHashSuffix maxHashes env st raw plainKind hashKind =
   let st' = advanceChars raw st
-   in case T.uncons (lexerInput st') of
-        Just ('#', _)
-          | hasExt MagicHash env ->
-              let rawHash = raw <> "#"
-               in (rawHash, hashKind rawHash, advanceChars "#" st')
-        _ -> (raw, plainKind, st')
+      hashCount =
+        if hasExt MagicHash env
+          then min maxHashes (T.length (T.takeWhile (== '#') (lexerInput st')))
+          else 0
+   in case hashCount of
+        0 -> (raw, plainKind, st')
+        _ ->
+          let hashes = T.replicate hashCount "#"
+              rawHash = raw <> hashes
+           in (rawHash, hashKind rawHash, advanceChars hashes st')
 
 lexIntBase :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
 lexIntBase env st =
@@ -1618,7 +1623,7 @@ lexIntBase env st =
                         | base `elem` ("oO" :: String) = readOctLiteral raw
                         | otherwise = readBinLiteral raw
                       (tokTxt, tokKind, st') =
-                        withOptionalMagicHashSuffix env st raw (TkIntegerBase n raw) (TkIntegerBaseHash n)
+                        withOptionalMagicHashSuffix 2 env st raw (TkIntegerBase n raw) (TkIntegerBaseHash n)
                    in Just (mkToken st st' tokTxt tokKind, st')
     _ -> Nothing
 
@@ -1655,7 +1660,7 @@ lexHexFloat env st = do
                       raw = "0" <> T.singleton x <> intDigits <> dotAndFrac <> expo
                       value = parseHexFloatLiteral (T.unpack intDigits) (T.unpack fracDigits) (T.unpack expo)
                       (tokTxt, tokKind, st') =
-                        withOptionalMagicHashSuffix env st raw (TkFloat value raw) (TkFloatHash value)
+                        withOptionalMagicHashSuffix 2 env st raw (TkFloat value raw) (TkFloatHash value)
                    in Just (mkToken st st' tokTxt tokKind, st')
 
 lexFloat :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
@@ -1674,7 +1679,7 @@ lexFloat env st =
                     normalized = T.filter (/= '_') raw
                     value = read (T.unpack normalized) :: Double
                     (tokTxt, tokKind, st') =
-                      withOptionalMagicHashSuffix env st raw (TkFloat value raw) (TkFloatHash value)
+                      withOptionalMagicHashSuffix 2 env st raw (TkFloat value raw) (TkFloatHash value)
                  in Just (mkToken st st' tokTxt tokKind, st')
           _ ->
             case takeExponent allowUnderscores rest of
@@ -1685,7 +1690,7 @@ lexFloat env st =
                         normalized = T.filter (/= '_') raw
                         value = read (T.unpack normalized) :: Double
                         (tokTxt, tokKind, st') =
-                          withOptionalMagicHashSuffix env st raw (TkFloat value raw) (TkFloatHash value)
+                          withOptionalMagicHashSuffix 2 env st raw (TkFloat value raw) (TkFloatHash value)
                      in Just (mkToken st st' tokTxt tokKind, st')
 
 lexInt :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
@@ -1698,7 +1703,7 @@ lexInt env st =
           let digits = T.filter (/= '_') digitsRaw
               n = read (T.unpack digits) :: Integer
               (tokTxt, tokKind, st') =
-                withOptionalMagicHashSuffix env st digitsRaw (TkInteger n) (TkIntegerHash n)
+                withOptionalMagicHashSuffix 2 env st digitsRaw (TkInteger n) (TkIntegerHash n)
            in Just (mkToken st st' tokTxt tokKind, st')
 
 lexPromotedQuote :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
@@ -1738,7 +1743,7 @@ lexChar env st =
            in case readMaybeChar rawT of
                 Just c ->
                   let (tokTxt, tokKind, st') =
-                        withOptionalMagicHashSuffix env st rawT (TkChar c) (TkCharHash c)
+                        withOptionalMagicHashSuffix 1 env st rawT (TkChar c) (TkCharHash c)
                    in Just (mkToken st st' tokTxt tokKind, st')
                 Nothing ->
                   let st' = advanceChars rawT st
@@ -1760,7 +1765,7 @@ lexString env st =
                   let raw = "\"\"\"" <> body <> "\"\"\""
                       decoded = T.pack (processMultilineString (T.unpack body))
                       (tokTxt, tokKind, st') =
-                        withOptionalMagicHashSuffix env st raw (TkString decoded) (TkStringHash decoded)
+                        withOptionalMagicHashSuffix 1 env st raw (TkString decoded) (TkStringHash decoded)
                    in Just (mkToken st st' tokTxt tokKind, st')
                 Left raw ->
                   let full = "\"\"\"" <> raw
@@ -1776,7 +1781,7 @@ lexString env st =
                         [(str, "")] -> T.pack str
                         _ -> body
                     (tokTxt, tokKind, st') =
-                      withOptionalMagicHashSuffix env st rawT (TkString decoded) (TkStringHash decoded)
+                      withOptionalMagicHashSuffix 1 env st rawT (TkString decoded) (TkStringHash decoded)
                  in Just (mkToken st st' tokTxt tokKind, st')
               Left raw ->
                 let full = "\"" <> raw
