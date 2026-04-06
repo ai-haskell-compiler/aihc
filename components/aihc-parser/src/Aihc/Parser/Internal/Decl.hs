@@ -719,7 +719,7 @@ classDeclParser = withSpan $ do
   keywordTok TkKeywordClass
   context <- contextPrefixDispatch
   className <- constructorIdentifierParser
-  classParams <- MP.some typeParamParser
+  classParams <- MP.many typeParamParser
   classFundeps <- MP.option [] (MP.try classFundepsParser)
   items <- MP.option [] classWhereClauseParser
   pure $ \span' ->
