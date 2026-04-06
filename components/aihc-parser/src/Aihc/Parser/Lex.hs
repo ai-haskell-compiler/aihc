@@ -294,6 +294,12 @@ data DirectiveUpdate = DirectiveUpdate
   }
   deriving (Eq, Show)
 
+data HashLineTrivia
+  = HashLineDirective !DirectiveUpdate
+  | HashLineShebang
+  | HashLineMalformed
+  deriving (Eq, Show)
+
 -- | Convenience lexer entrypoint: no extensions, parse as expression/declaration stream.
 --
 -- This variant consumes a single strict 'Text' chunk and returns a lazy list of
@@ -1888,12 +1894,16 @@ tryConsumeLineDirective st
             Just ('#', more) ->
               let lineText = "#" <> takeLineRemainder more
                   consumed = spaces <> lineText
-               in case parseHashLineDirective lineText of
-                    Just update ->
+               in case classifyHashLineTrivia lineText of
+                    Just (HashLineDirective update) ->
                       Just (Nothing, applyDirectiveAdvance consumed update st)
-                    Nothing ->
+                    Just HashLineShebang ->
+                      let st' = advanceChars consumed st
+                       in Just (Nothing, st')
+                    Just HashLineMalformed ->
                       let st' = advanceChars consumed st
                        in Just (Just (mkToken st st' consumed (TkError "malformed line directive")), st')
+                    Nothing -> Nothing
             _ -> Nothing
 
 tryConsumeControlPragma :: LexerState -> Maybe (Maybe LexToken, LexerState)
@@ -2153,6 +2163,15 @@ pragmaWords txt = go [] [] Nothing (T.unpack txt)
         [] -> acc
         token -> T.pack token : acc
 
+classifyHashLineTrivia :: Text -> Maybe HashLineTrivia
+classifyHashLineTrivia raw
+  | isHashBangLine raw = Just HashLineShebang
+  | looksLikeHashLineDirective raw =
+      case parseHashLineDirective raw of
+        Just update -> Just (HashLineDirective update)
+        Nothing -> Just HashLineMalformed
+  | otherwise = Nothing
+
 parseHashLineDirective :: Text -> Maybe DirectiveUpdate
 parseHashLineDirective raw =
   let trimmed = T.dropWhile isSpace (T.drop 1 (T.dropWhile isSpace raw))
@@ -2170,6 +2189,17 @@ parseHashLineDirective raw =
                 directiveCol = Just 1,
                 directiveSourceName = parseDirectiveSourceName rest
               }
+
+isHashBangLine :: Text -> Bool
+isHashBangLine raw =
+  "#!" `T.isPrefixOf` T.dropWhile isSpace raw
+
+looksLikeHashLineDirective :: Text -> Bool
+looksLikeHashLineDirective raw =
+  let afterHash = T.dropWhile isSpace (T.drop 1 (T.dropWhile isSpace raw))
+   in case T.uncons afterHash of
+        Just (c, _) | isDigit c -> True
+        _ -> "line" `T.isPrefixOf` afterHash
 
 parseControlPragma :: Text -> Maybe (Text, Either Text DirectiveUpdate)
 parseControlPragma input
@@ -2227,12 +2257,13 @@ mkSpan start end =
 advanceChars :: Text -> LexerState -> LexerState
 advanceChars consumed st =
   let !n = T.length consumed
-      go (!line, !col, !byteOff, !_atLineStart) ch =
+      go (!line, !col, !byteOff, !atLineStart) ch =
         case ch of
           '\n' -> (line + 1, 1, byteOff + 1, True)
           '\t' ->
             let nextTabStop = 8 - ((col - 1) `mod` 8)
-             in (line, col + nextTabStop, byteOff + 1, False)
+             in (line, col + nextTabStop, byteOff + 1, atLineStart)
+          ' ' -> (line, col + 1, byteOff + 1, atLineStart)
           _ -> (line, col + 1, byteOff + utf8CharWidth ch, False)
       (!finalLine, !finalCol, !finalByteOff, !finalAtLineStart) =
         T.foldl' go (lexerLine st, lexerCol st, lexerByteOffset st, lexerAtLineStart st) consumed

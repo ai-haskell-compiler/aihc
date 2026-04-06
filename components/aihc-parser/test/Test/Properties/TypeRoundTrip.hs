@@ -69,6 +69,7 @@ typeCtorNames ty =
         TTuple _ _ _ elems -> here <> mconcat (map typeCtorNames elems)
         TList _ _ inner -> here <> typeCtorNames inner
         TParen _ inner -> here <> typeCtorNames inner
+        TKindSig _ ty' kind -> here <> typeCtorNames ty' <> typeCtorNames kind
         TUnboxedSum _ elems -> here <> mconcat (map typeCtorNames elems)
         TContext _ constraints inner ->
           here <> mconcat (map constraintTypeCtorNames constraints) <> typeCtorNames inner
@@ -117,6 +118,10 @@ shrinkType ty =
       [inner] <> [TList span0 Unpromoted inner' | inner' <- shrinkType inner]
     TParen _ inner ->
       [inner] <> [TParen span0 inner' | inner' <- shrinkType inner]
+    TKindSig _ ty' kind ->
+      [canonicalKindSigSubject ty', canonicalKindSigKind kind]
+        <> [TKindSig span0 (canonicalKindSigSubject ty'') (canonicalKindSigKind kind) | ty'' <- shrinkType ty']
+        <> [TKindSig span0 (canonicalKindSigSubject ty') (canonicalKindSigKind kind') | kind' <- shrinkType kind]
     TUnboxedSum _ elems ->
       [TUnboxedSum span0 elems' | elems' <- shrinkList shrinkType elems, length elems' >= 2]
     TContext _ constraints inner ->
@@ -272,6 +277,13 @@ genUnboxedSumElems depth = do
 genTypeAtom :: Int -> Gen Type
 genTypeAtom depth =
   oneof
+    [ genSimpleTypeAtom depth,
+      TKindSig span0 <$> genKindSigSubject depth <*> genKindSigKind depth
+    ]
+
+genSimpleTypeAtom :: Int -> Gen Type
+genSimpleTypeAtom depth =
+  oneof
     [ TVar span0 <$> genTypeVarName,
       (\name -> TCon span0 name Unpromoted) <$> genTypeConName,
       TTypeLit span0 <$> genTypeLiteral,
@@ -331,6 +343,30 @@ canonicalAppArg ty =
     TFun {} -> TParen span0 ty
     TContext {} -> TParen span0 ty
     _ -> ty
+
+canonicalKindSigSubject :: Type -> Type
+canonicalKindSigSubject ty =
+  case ty of
+    TTuple {} -> ty
+    TUnboxedSum {} -> ty
+    TList {} -> ty
+    TParen {} -> ty
+    _ -> TParen span0 ty
+
+canonicalKindSigKind :: Type -> Type
+canonicalKindSigKind = id
+
+genKindSigSubject :: Int -> Gen Type
+genKindSigSubject depth = do
+  subject <- genSimpleTypeAtom depth
+  pure (canonicalKindSigSubject subject)
+
+genKindSigKind :: Int -> Gen Type
+genKindSigKind depth =
+  frequency
+    [ (3, genSimpleTypeAtom depth),
+      (1, TFun span0 <$> genSimpleTypeAtom depth <*> genSimpleTypeAtom depth)
+    ]
 
 canonicalConstraintArg :: Type -> Type
 canonicalConstraintArg ty =
@@ -423,6 +459,7 @@ normalizeType ty =
     TTuple _ tupleFlavor promoted elems -> TTuple span0 tupleFlavor promoted (map normalizeType elems)
     TList _ promoted inner -> TList span0 promoted (normalizeType inner)
     TParen _ inner -> TParen span0 (normalizeType inner)
+    TKindSig _ ty' kind -> TKindSig span0 (normalizeType ty') (normalizeType kind)
     TUnboxedSum _ elems -> TUnboxedSum span0 (map normalizeType elems)
     TContext _ constraints inner -> TContext span0 (map normalizeConstraint constraints) (normalizeType inner)
     TSplice _ body -> TSplice span0 (normalizeExpr body)

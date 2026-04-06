@@ -14,5 +14,4 @@ tokens:
   - 'TkInteger 2'
   - 'TkSpecialRBrace'
   - 'TkEOF'
-status: xfail
-reason: "lexer currently emits a malformed line directive for mid-module shebang lines instead of skipping them as whitespace"
+status: pass

@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail poly-arity gadt constructor kind binder -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE KindSignatures #-}
 module GadtConstructorKindBinder where
