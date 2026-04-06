@@ -1367,9 +1367,9 @@ lexTypeApplication env st
                in Just (mkToken st st' "@" kind, st')
         _ -> Nothing
   where
-    isMultiCharOpT t = case T.uncons t of
-      Just (c, _) -> isSymbolicOpChar c
-      Nothing -> False
+    isMultiCharOpT t = case t of
+      c T.:< _ -> isSymbolicOpChar c
+      _ -> False
 
     -- Check if the given input could start a type atom (for type applications).
     canStartTypeAtomT :: Text -> Bool
@@ -1436,9 +1436,9 @@ lexPrefixDollar env st
                 _ -> Nothing
             _ -> Nothing
   where
-    isMultiCharOpT t = case T.uncons t of
-      Just (c, _) -> isSymbolicOpChar c
-      Nothing -> False
+    isMultiCharOpT t = case t of
+      c T.:< _ -> isSymbolicOpChar c
+      _ -> False
     isPrefixPosition =
       case lexerPrevTokenKind st of
         Nothing -> True
@@ -1470,9 +1470,9 @@ lexPrefixSensitiveOp st opChar opStr prefixKind rest
   | otherwise = Nothing
   where
     -- Check if rest starts with another symbolic operator char (making this a multi-char op)
-    isMultiCharOpT t = case T.uncons t of
-      Just (c, _) -> isSymbolicOpChar c
-      Nothing -> False
+    isMultiCharOpT t = case t of
+      c T.:< _ -> isSymbolicOpChar c
+      _ -> False
     -- Prefix position is allowed when:
     -- - There is no previous token (start of input)
     -- - There was whitespace/trivia before the operator
@@ -1772,21 +1772,20 @@ lexChar env st =
 lexString :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
 lexString env st =
   let inp = lexerInput st
-   in if "\"\"\"" `T.isPrefixOf` inp && hasExt MultilineStrings env
-        then -- Try multiline string first if extension is enabled
-          let restText = T.drop 3 inp
-           in case scanMultilineString restText of
-                Right (body, _) ->
-                  let raw = "\"\"\"" <> body <> "\"\"\""
-                      decoded = T.pack (processMultilineString (T.unpack body))
-                      (tokTxt, tokKind, st') =
-                        withOptionalMagicHashSuffix 1 env st raw (TkString decoded) (TkStringHash decoded)
-                   in Just (mkToken st st' tokTxt tokKind, st')
-                Left raw ->
-                  let full = "\"\"\"" <> raw
-                      st' = advanceChars full st
-                   in Just (mkErrorToken st st' full "unterminated multiline string literal", st')
-        else case T.uncons inp of
+   in case T.stripPrefix "\"\"\"" inp of
+        Just restText | hasExt MultilineStrings env ->
+          case scanMultilineString restText of
+            Right (body, _) ->
+              let raw = "\"\"\"" <> body <> "\"\"\""
+                  decoded = T.pack (processMultilineString (T.unpack body))
+                  (tokTxt, tokKind, st') =
+                    withOptionalMagicHashSuffix 1 env st raw (TkString decoded) (TkStringHash decoded)
+               in Just (mkToken st st' tokTxt tokKind, st')
+            Left raw ->
+              let full = "\"\"\"" <> raw
+                  st' = advanceChars full st
+               in Just (mkErrorToken st st' full "unterminated multiline string literal", st')
+        _ -> case T.uncons inp of
           Just ('"', rest) ->
             case scanQuoted '"' rest of
               Right (body, _) ->
