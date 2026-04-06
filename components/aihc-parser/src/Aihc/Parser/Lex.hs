@@ -549,34 +549,33 @@ isHaskellWhitespace c =
 
 consumeTrivia :: LexerEnv -> LexerState -> Maybe (Either (LexToken, LexerState) LexerState)
 consumeTrivia _env st =
-  case lexerInput st of
-    Empty -> Nothing
-    inp -> case T.head inp of
-      c
-        | isHaskellWhitespace c -> Just (Right (markHadTrivia (consumeWhile isHaskellWhitespace st)))
-        | c == '\n' -> Just (Right (markHadTrivia (advanceN 1 st)))
-      '-' | Just rest <- T.stripPrefix "--" inp, isLineComment rest -> Just (Right (markHadTrivia (consumeLineComment st)))
-      '{'
-        | Just _ <- T.stripPrefix "{-#" inp ->
-            case tryConsumeControlPragma st of
-              Just (Nothing, st') -> Just (Right (markHadTrivia st'))
-              Just (Just tok, st') -> Just (Left (tok, markHadTrivia st'))
-              Nothing ->
-                case tryConsumeKnownPragma st of
-                  Just _ -> Nothing
-                  Nothing ->
-                    fmap (Right . markHadTrivia) (consumeUnknownPragma st)
-        | Just _ <- T.stripPrefix "{-" inp ->
-            Just
-              ( case consumeBlockCommentOrError st of
-                  Right st' -> Right (markHadTrivia st')
-                  Left (tok, st') -> Left (tok, markHadTrivia st')
-              )
-      _ ->
-        case tryConsumeLineDirective st of
-          Just (Nothing, st') -> Just (Right (markHadTrivia st'))
-          Just (Just tok, st') -> Just (Left (tok, markHadTrivia st'))
-          Nothing -> Nothing
+  let inp = lexerInput st
+   in case inp of
+        Empty -> Nothing
+        c :< _
+          | isHaskellWhitespace c -> Just (Right (markHadTrivia (consumeWhile isHaskellWhitespace st)))
+          | c == '\n' -> Just (Right (markHadTrivia (advanceN 1 st)))
+        _ | Just rest <- T.stripPrefix "--" inp, isLineComment rest -> Just (Right (markHadTrivia (consumeLineComment st)))
+        _ | "{-#" `T.isPrefixOf` inp ->
+              case tryConsumeControlPragma st of
+                Just (Nothing, st') -> Just (Right (markHadTrivia st'))
+                Just (Just tok, st') -> Just (Left (tok, markHadTrivia st'))
+                Nothing ->
+                  case tryConsumeKnownPragma st of
+                    Just _ -> Nothing
+                    Nothing ->
+                      fmap (Right . markHadTrivia) (consumeUnknownPragma st)
+          | "{-" `T.isPrefixOf` inp ->
+              Just
+                ( case consumeBlockCommentOrError st of
+                    Right st' -> Right (markHadTrivia st')
+                    Left (tok, st') -> Left (tok, markHadTrivia st')
+                )
+        _ ->
+          case tryConsumeLineDirective st of
+            Just (Nothing, st') -> Just (Right (markHadTrivia st'))
+            Just (Just tok, st') -> Just (Left (tok, markHadTrivia st'))
+            Nothing -> Nothing
 
 -- | Mark that trivia was consumed
 markHadTrivia :: LexerState -> LexerState
@@ -1102,10 +1101,9 @@ lexIdentifier env st =
               firstChunk = T.take (1 + T.length seg) (lexerInput st)
               (consumed, rest1, isQualified) = gatherQualified hasMagicHash firstChunk rest0
            in -- Check if we have a qualified operator (e.g., Prelude.+)
-              case (isQualified || isConIdStart c, rest1) of
-                (True, '.' :< dotRest)
-                  | opChar :< _ <- dotRest,
-                    isSymbolicOpCharNotDot opChar ->
+               case (isQualified || isConIdStart c, rest1) of
+                (True, '.' :< dotRest@(opChar :< _))
+                  | isSymbolicOpCharNotDot opChar ->
                       -- This is a qualified operator like Prelude.+ or A.B.C.:++
                       let opChars = T.takeWhile isSymbolicOpChar dotRest
                           fullOp = consumed <> "." <> opChars
@@ -1126,9 +1124,8 @@ lexIdentifier env st =
     gatherQualified :: Bool -> Text -> Text -> (Text, Text, Bool)
     gatherQualified hasMH acc chars =
       case chars of
-        '.' :< dotRest
-          | c' :< more <- dotRest,
-            isIdentStart c',
+        '.' :< dotRest@(c' :< more)
+          | isIdentStart c',
             not (T.isSuffixOf "#" acc) ->
               let (seg, rest) = consumeIdentTail hasMH more
                   segWithHead = T.take (1 + T.length seg) dotRest
@@ -1148,11 +1145,9 @@ lexIdentifier env st =
     classifyIdentifier firstChar isQualified ident
       | isQualified =
           -- Qualified name: use final part to determine var/con
-          let finalPart = T.takeWhileEnd (/= '.') ident
-              firstCharFinal = T.head finalPart
-           in if isConIdStart firstCharFinal
-                then TkQConId ident
-                else TkQVarId ident
+          case T.takeWhileEnd (/= '.') ident of
+            firstCharFinal :< _ | isConIdStart firstCharFinal -> TkQConId ident
+            _ -> TkQVarId ident
       | otherwise =
           -- Unqualified: check for keyword first
           case keywordTokenKind ident of
@@ -1171,9 +1166,8 @@ lexImplicitParam env st
   | not (hasExt ImplicitParams env) = Nothing
   | otherwise =
       case lexerInput st of
-        '?' :< rest0
-          | c :< _ <- rest0,
-            isAsciiLower c || c == '_' ->
+        '?' :< rest0@(c :< _)
+          | isAsciiLower c || c == '_' ->
               let tailChars = T.takeWhile isIdentTail (T.tail rest0)
                   txt = T.take (2 + T.length tailChars) (lexerInput st)
                   st' = advanceChars txt st
@@ -1216,10 +1210,8 @@ lexNegativeLiteralOrMinus env st
 isStandaloneMinus :: Text -> Bool
 isStandaloneMinus input =
   case input of
-    '-' :< rest ->
-      case rest of
-        c :< _ | isSymbolicOpChar c && c /= '-' -> False -- part of multi-char op
-        _ -> True
+    '-' :< (c :< _) | isSymbolicOpChar c && c /= '-' -> False -- part of multi-char op
+    '-' :< _ -> True
     _ -> False
 
 -- | Try to lex a negative number by delegating to existing number lexers.
@@ -1415,21 +1407,18 @@ lexPrefixDollar env st
   | not (hasExt TemplateHaskell env) = Nothing
   | otherwise =
       case lexerInput st of
-        '$' :< rest0 ->
-          case rest0 of
-            '$' :< rest
-              | not (startsWithSymOp rest),
-                isPrefixPosition,
-                canStartSpliceAtomT rest ->
-                  let st' = advanceChars "$$" st
-                   in Just (mkToken st st' "$$" TkTHTypedSplice, st')
-            _
-              | not (startsWithSymOp rest0),
-                isPrefixPosition,
-                canStartSpliceAtomT rest0 ->
-                  let st' = advanceChars "$" st
-                   in Just (mkToken st st' "$" TkTHSplice, st')
-            _ -> Nothing
+        '$' :< ('$' :< rest)
+          | not (startsWithSymOp rest),
+            isPrefixPosition,
+            canStartSpliceAtomT rest ->
+              let st' = advanceChars "$$" st
+               in Just (mkToken st st' "$$" TkTHTypedSplice, st')
+        '$' :< rest
+          | not (startsWithSymOp rest),
+            isPrefixPosition,
+            canStartSpliceAtomT rest ->
+              let st' = advanceChars "$" st
+               in Just (mkToken st st' "$" TkTHSplice, st')
         _ -> Nothing
   where
     isPrefixPosition =
@@ -1497,29 +1486,28 @@ lexOperator env st =
   let inp = lexerInput st
       opText = T.takeWhile isSymbolicOpChar inp
       hasArrows = hasExt Arrows env
-   in if T.null opText
-        then Nothing
-        else
-          let c = T.head opText
-           in -- Special case: |) is the banana close bracket when Arrows is enabled.
-              -- The ) is not a symbolic op char, so takeWhile stops at |. We check
-              -- the rest to see if ) follows immediately.
-              case (hasArrows, T.unpack opText, T.drop (T.length opText) inp) of
-                (True, "|", ')' :< _) ->
-                  let bananaText = "|)"
-                      st' = advanceChars bananaText st
-                   in Just (mkToken st st' bananaText TkBananaClose, st')
-                _ ->
-                  let st' = advanceChars opText st
-                      hasUnicode = hasExt UnicodeSyntax env
-                      kind = case reservedOpTokenKind opText of
-                        Just reserved -> reserved
-                        Nothing
-                          | hasArrows, Just arrowKind <- arrowOpTokenKind opText -> arrowKind
-                          | hasUnicode -> unicodeOpTokenKind hasArrows opText c
-                          | c == ':' -> TkConSym opText
-                          | otherwise -> TkVarSym opText
-                   in Just (mkToken st st' opText kind, st')
+   in case opText of
+        Empty -> Nothing
+        c :< _ ->
+          -- Special case: |) is the banana close bracket when Arrows is enabled.
+          -- The ) is not a symbolic op char, so takeWhile stops at |. We check
+          -- the rest to see if ) follows immediately.
+          case (hasArrows, T.unpack opText, T.drop (T.length opText) inp) of
+            (True, "|", ')' :< _) ->
+              let bananaText = "|)"
+                  st' = advanceChars bananaText st
+               in Just (mkToken st st' bananaText TkBananaClose, st')
+            _ ->
+              let st' = advanceChars opText st
+                  hasUnicode = hasExt UnicodeSyntax env
+                  kind = case reservedOpTokenKind opText of
+                    Just reserved -> reserved
+                    Nothing
+                      | hasArrows, Just arrowKind <- arrowOpTokenKind opText -> arrowKind
+                      | hasUnicode -> unicodeOpTokenKind hasArrows opText c
+                      | c == ':' -> TkConSym opText
+                      | otherwise -> TkVarSym opText
+               in Just (mkToken st st' opText kind, st')
 
 -- | Map Unicode operators to their ASCII equivalents when UnicodeSyntax is enabled.
 -- Returns the appropriate token kind for known Unicode operators, or falls back
@@ -1578,11 +1566,11 @@ lexSymbol env st =
       case xs of
         [] -> Nothing
         (sym, kind) : rest ->
-          case T.stripPrefix sym (lexerInput st) of
-            Just _ ->
+          if sym `T.isPrefixOf` lexerInput st
+            then
               let st' = advanceChars sym st
                in Just (mkToken st st' sym kind, st')
-            Nothing -> firstJust rest
+            else firstJust rest
 
 withOptionalMagicHashSuffix ::
   Int ->
@@ -1608,9 +1596,8 @@ withOptionalMagicHashSuffix maxHashes env st raw plainKind hashKind =
 lexIntBase :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
 lexIntBase env st =
   case lexerInput st of
-    '0' :< rest0
-      | base :< rest <- rest0,
-        base `elem` ("xXoObB" :: String) ->
+    '0' :< (base :< rest)
+      | base `elem` ("xXoObB" :: String) ->
           let allowUnderscores = hasExt NumericUnderscores env
               isDigitChar
                 | base `elem` ("xX" :: String) = isHexDigit
@@ -1666,9 +1653,8 @@ lexFloat env st =
    in if T.null lhsRaw
         then Nothing
         else case rest of
-          '.' :< dotRest
-            | d :< _ <- dotRest,
-              isDigit d ->
+          '.' :< dotRest@(d :< _)
+            | isDigit d ->
                 let (rhsRaw, rest') = takeDigitsWithUnderscores allowUnderscores isDigit dotRest
                     (expo, _) = takeExponent allowUnderscores rest'
                     raw = lhsRaw <> "." <> rhsRaw <> expo
@@ -1833,7 +1819,7 @@ lexTHQuoteBracket env st
       ]
     firstJust [] = Nothing
     firstJust ((sym, kind) : rest)
-      | Just _ <- T.stripPrefix sym (lexerInput st) =
+      | sym `T.isPrefixOf` lexerInput st =
           let st' = advanceChars sym st
            in Just (mkToken st st' sym kind, st')
       | otherwise = firstJust rest
@@ -1843,11 +1829,11 @@ lexTHQuoteBracket env st
 lexTHCloseQuote :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
 lexTHCloseQuote env st
   | not (thQuotesEnabled env st) = Nothing
-  | Just _ <- T.stripPrefix "||]" (lexerInput st) =
+  | "||]" `T.isPrefixOf` lexerInput st =
       let raw = "||]"
           st' = advanceChars raw st
        in Just (mkToken st st' raw TkTHTypedQuoteClose, st')
-  | Just _ <- T.stripPrefix "|]" (lexerInput st) =
+  | "|]" `T.isPrefixOf` lexerInput st =
       let raw = "|]"
           st' = advanceChars raw st
        in Just (mkToken st st' raw TkTHExpQuoteClose, st')
@@ -1861,25 +1847,18 @@ lexTHNameQuote env st
   | not (thQuotesEnabled env st) = Nothing
   | otherwise =
       case lexerInput st of
-        '\'' :< rest0 ->
-          case rest0 of
-            '\'' :< rest1 ->
-              -- '' - type name quote tick (only when followed by an identifier start)
-              case rest1 of
-                c :< _
-                  | isIdentStart c ->
-                      let raw = "''"
-                          st' = advanceChars raw st
-                       in Just (mkToken st st' raw TkTHTypeQuoteTick, st')
-                _ -> Nothing
-            _ ->
-              -- ' - value name quote tick (NOT a char literal)
-              if isValidCharLiteral rest0
-                then Nothing
-                else
-                  let raw = "'"
-                      st' = advanceChars raw st
-                   in Just (mkToken st st' raw TkTHQuoteTick, st')
+        -- '' - type name quote tick (only when followed by an identifier start)
+        '\'' :< ('\'' :< (c :< _))
+          | isIdentStart c ->
+              let raw = "''"
+                  st' = advanceChars raw st
+               in Just (mkToken st st' raw TkTHTypeQuoteTick, st')
+        -- ' - value name quote tick (NOT a char literal)
+        '\'' :< rest0
+          | not (isValidCharLiteral rest0) ->
+              let raw = "'"
+                  st' = advanceChars raw st
+               in Just (mkToken st st' raw TkTHQuoteTick, st')
         _ -> Nothing
   where
     isValidCharLiteral chars =
@@ -2579,9 +2558,8 @@ takeQuoter input =
   where
     go !n chars =
       case chars of
-        '.' :< dotRest
-          | c' :< more <- dotRest,
-            isIdentStart c' ->
+        '.' :< (c' :< more)
+          | isIdentStart c' ->
               let tailChars = T.takeWhile isIdentTailOrStart more
                   segLen = 1 + 1 + T.length tailChars -- dot + c' + tailChars
                in go (n + segLen) (T.drop (T.length tailChars) more)
