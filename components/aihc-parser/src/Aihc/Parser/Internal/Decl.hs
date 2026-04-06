@@ -380,6 +380,15 @@ typeFamilyForallParser = do
   expectedTok (TkVarSym ".")
   pure binders
 
+-- | Parse an optional explicit forall for instance heads.
+-- Handles @forall a (b :: Kind).@ syntax.
+instanceForallParser :: TokParser [TyVarBinder]
+instanceForallParser = do
+  varIdTok "forall"
+  binders <- MP.some typeParamParser
+  expectedTok (TkVarSym ".")
+  pure binders
+
 -- | Parse the optional @:: Kind@ result annotation on a type/data family head.
 familyResultKindParser :: TokParser (Maybe Type)
 familyResultKindParser =
@@ -814,6 +823,7 @@ instanceDeclParser :: TokParser Decl
 instanceDeclParser = withSpan $ do
   keywordTok TkKeywordInstance
   overlapPragma <- MP.optional instanceOverlapPragmaParser
+  forallBinders <- MP.optional instanceForallParser
   context <- contextPrefixDispatch
   (parenthesizedHead, className, instanceTypes) <- instanceHeadParser
   items <- MP.option [] instanceWhereClauseParser
@@ -823,6 +833,7 @@ instanceDeclParser = withSpan $ do
       InstanceDecl
         { instanceDeclSpan = span',
           instanceDeclOverlapPragma = overlapPragma,
+          instanceDeclForall = fromMaybe [] forallBinders,
           instanceDeclContext = fromMaybe [] context,
           instanceDeclParenthesizedHead = parenthesizedHead,
           instanceDeclClassName = className,
@@ -837,6 +848,7 @@ standaloneDerivingDeclParser = withSpan $ do
   viaTy <- MP.optional (MP.try derivingViaTypeParser)
   keywordTok TkKeywordInstance
   overlapPragma <- MP.optional instanceOverlapPragmaParser
+  forallBinders <- MP.optional instanceForallParser
   context <- contextPrefixDispatch
   (parenthesizedHead, className, instanceTypes) <- instanceHeadParser
   pure $ \span' ->
@@ -846,6 +858,7 @@ standaloneDerivingDeclParser = withSpan $ do
         { standaloneDerivingSpan = span',
           standaloneDerivingStrategy = strategy,
           standaloneDerivingOverlapPragma = overlapPragma,
+          standaloneDerivingForall = fromMaybe [] forallBinders,
           standaloneDerivingContext = fromMaybe [] context,
           standaloneDerivingParenthesizedHead = parenthesizedHead,
           standaloneDerivingClassName = className,

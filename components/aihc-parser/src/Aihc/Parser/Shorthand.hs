@@ -378,6 +378,7 @@ docInstanceDecl inst =
   where
     fields =
       optionalField "overlapPragma" docInstanceOverlapPragma (instanceDeclOverlapPragma inst)
+        <> listField "forall" docTyVarBinder (instanceDeclForall inst)
         <> boolField "parenthesizedHead" (instanceDeclParenthesizedHead inst)
         <> [field "className" (docText (instanceDeclClassName inst))]
         <> listField "context" docConstraint (instanceDeclContext inst)

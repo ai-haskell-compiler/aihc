@@ -1187,6 +1187,7 @@ data StandaloneDerivingDecl = StandaloneDerivingDecl
   { standaloneDerivingSpan :: SourceSpan,
     standaloneDerivingStrategy :: Maybe DerivingStrategy,
     standaloneDerivingOverlapPragma :: Maybe InstanceOverlapPragma,
+    standaloneDerivingForall :: [TyVarBinder],
     standaloneDerivingContext :: [Constraint],
     standaloneDerivingParenthesizedHead :: Bool,
     standaloneDerivingClassName :: Text,
@@ -1245,6 +1246,7 @@ instance HasSourceSpan ClassDeclItem where
 data InstanceDecl = InstanceDecl
   { instanceDeclSpan :: SourceSpan,
     instanceDeclOverlapPragma :: Maybe InstanceOverlapPragma,
+    instanceDeclForall :: [TyVarBinder],
     instanceDeclContext :: [Constraint],
     instanceDeclParenthesizedHead :: Bool,
     instanceDeclClassName :: Text,
