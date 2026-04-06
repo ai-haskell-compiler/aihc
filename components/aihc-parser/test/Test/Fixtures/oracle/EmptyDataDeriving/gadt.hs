@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail gadt empty data deriving -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE EmptyDataDeriving #-}
 module GADT where

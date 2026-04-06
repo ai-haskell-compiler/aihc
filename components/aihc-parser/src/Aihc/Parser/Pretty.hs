@@ -1075,11 +1075,12 @@ prettyExprPrec prec expr =
         ("\\" <> "case" <+> "{" <+> hsep (punctuate semi (map prettyCaseAlt alts)) <+> "}")
     EInfix _ lhs op rhs
       | isArrowTailOp op ->
-          -- Arrow application operators (-<, -<<) have the lowest precedence.
-          -- The RHS is a full expression, so no parenthesization is needed.
+          -- Arrow application operators (-<, -<<) are command-level syntax
+          -- in GHC.  The LHS is a command (which may be a greedy do/if/case)
+          -- and the RHS is a full expression.
           parenthesize
-            (prec > 0)
-            (prettyExprPrec 1 lhs <+> prettyInfixOp op <+> prettyExprPrec 0 rhs)
+            (prec > 1)
+            (prettyExprPrec 0 lhs <+> prettyInfixOp op <+> prettyExprPrec 0 rhs)
       | otherwise ->
           parenthesize
             (prec > 1)

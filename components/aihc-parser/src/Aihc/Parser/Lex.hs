@@ -1040,7 +1040,12 @@ closeImplicitLayoutContext st =
     closeWith rest =
       st
         { layoutContexts = rest,
-          layoutBuffer = layoutBuffer st <> [virtualSymbolToken "}" anchor]
+          -- Prepend the virtual } before any tokens already in the buffer.
+          -- This is important when the buffer contains tokens from a layout
+          -- transition (e.g. [; tok] where tok triggered a parse error) —
+          -- the } must come before tok so the parser sees the close-brace
+          -- first.
+          layoutBuffer = virtualSymbolToken "}" anchor : layoutBuffer st
         }
 
 lexKnownPragma :: LexerState -> Maybe (LexToken, LexerState)

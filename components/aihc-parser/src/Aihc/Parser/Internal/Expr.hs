@@ -138,15 +138,89 @@ doExprParser = withSpan $ do
   pure (`EDo` stmts)
 
 -- | Parse a proc expression: @proc pat -> cmd@
--- The body of a proc is an expression (the arrow command), which may use
--- @-<@ and @-<<@ operators, @do@ blocks, @if@, @case@, @let@, etc.
+-- The body of a proc is a command, not a regular expression. Commands
+-- support infix operators between command sub-expressions (e.g.
+-- @do { cmd1 } \<+\> do { cmd2 }@) and arrow application (@-<@, @-<<@).
 procExprParser :: TokParser Expr
 procExprParser = withSpan $ do
   keywordTok TkKeywordProc
   pat <- region "while parsing proc pattern" simplePatternParser
   expectedTok TkReservedRightArrow
-  body <- region "while parsing proc body" exprParser
+  body <- region "while parsing proc body" commandExprParser
   pure (\span' -> EProc span' pat body)
+
+-- | Parse a command expression (the body of a @proc@ abstraction).
+--
+-- Commands have the same surface syntax as expressions but allow infix
+-- operators between command sub-expressions (e.g. @do {..} \<+\> do {..}@).
+-- This parser handles the command-level infix chain and arrow tail
+-- operators.
+--
+-- Grammar (simplified):
+--
+-- @
+-- cmd   = exp -\< exp | exp -\<\< exp | cmd0
+-- cmd0  = cmd10 (op cmd10)*
+-- cmd10 = do { cstmts } | if … | case … | let … | \\pats -> cmd | fexp
+-- @
+commandExprParser :: TokParser Expr
+commandExprParser = do
+  -- Parse the first command operand.
+  lhs <- commandOperandParser
+  -- Check for arrow tail operators (-<, -<<).  These have the lowest
+  -- precedence in the command grammar: @exp -< exp@ is a complete command,
+  -- not an operand of the infix chain.
+  mArrowTail <- MP.optional arrowTailParser
+  case mArrowTail of
+    Just (op, rhs) ->
+      -- Arrow tail found: this is an arrow application command.
+      -- Build the result and check for command-level infix.
+      let arrowExpr = EInfix (mergeSourceSpans (getSourceSpan lhs) (getSourceSpan rhs)) lhs op rhs
+       in commandInfixChain arrowExpr
+    Nothing ->
+      -- No arrow tail: check for command-level infix chain.
+      commandInfixChain lhs
+
+-- | Parse the command-level infix chain: @cmd (op cmd)*@.
+-- Each operand on the right of an operator is itself a full command
+-- (which may contain its own arrow tail or infix chain).
+commandInfixChain :: Expr -> TokParser Expr
+commandInfixChain lhs = do
+  rest <-
+    MP.many
+      ( (,)
+          <$> infixOperatorParserExcept []
+          <*> commandOperandWithArrow
+      )
+  let result = foldl buildInfix lhs rest
+  -- Optional type signature.
+  mTypeSig <- MP.optional (expectedTok TkReservedDoubleColon *> typeParser)
+  pure $ case mTypeSig of
+    Just ty -> ETypeSig (mergeSourceSpans (getSourceSpan result) (getSourceSpan ty)) result ty
+    Nothing -> result
+
+-- | Parse a command operand optionally followed by an arrow tail.
+commandOperandWithArrow :: TokParser Expr
+commandOperandWithArrow = do
+  base <- commandOperandParser
+  mArrowTail <- MP.optional arrowTailParser
+  case mArrowTail of
+    Just (op, rhs) -> pure $ EInfix (mergeSourceSpans (getSourceSpan base) (getSourceSpan rhs)) base op rhs
+    Nothing -> pure base
+
+-- | Parse a single command operand: a keyword expression (do, if, case,
+-- let, lambda, proc) or an application expression.
+commandOperandParser :: TokParser Expr
+commandOperandParser = do
+  tok <- lookAhead anySingle
+  case lexTokenKind tok of
+    TkKeywordDo -> doExprParser
+    TkKeywordIf -> ifExprParser
+    TkKeywordCase -> caseExprParser
+    TkKeywordLet -> letExprParser
+    TkKeywordProc -> procExprParser
+    TkReservedBackslash -> lambdaExprParser
+    _ -> appExprParser
 
 bracedStmtListParser :: TokParser a -> TokParser [a]
 bracedStmtListParser = bracedSemiSep1
