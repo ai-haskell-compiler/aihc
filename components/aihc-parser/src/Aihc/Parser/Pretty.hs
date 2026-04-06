@@ -1136,10 +1136,14 @@ prettyExprPrec prec expr =
             <+> hsep (punctuate semi (map prettyCaseAlt alts))
             <+> "}"
         )
-    EDo _ stmts ->
+    EDo _ stmts isMdo ->
       parenthesize
         (prec > 0)
-        ("do" <+> "{" <+> hsep (punctuate semi (map prettyDoStmt stmts)) <+> "}")
+        ( (if isMdo then "mdo" else "do")
+            <+> "{"
+            <+> hsep (punctuate semi (map prettyDoStmt stmts))
+            <+> "}"
+        )
     EListComp _ body quals ->
       -- Brace-terminated expressions in the body don't capture the |
       brackets

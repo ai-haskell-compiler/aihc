@@ -605,7 +605,7 @@ docExpr expr =
     ESectionR _ op rhs -> "ESectionR" <+> docText op <+> parens (docExpr rhs)
     ELetDecls _ decls body -> "ELetDecls" <+> brackets (hsep (punctuate comma (map docDecl decls))) <+> parens (docExpr body)
     ECase _ scrutinee alts -> "ECase" <+> parens (docExpr scrutinee) <+> brackets (hsep (punctuate comma (map docCaseAlt alts)))
-    EDo _ stmts -> "EDo" <+> brackets (hsep (punctuate comma (map docDoStmt stmts)))
+    EDo _ stmts _ -> "EDo" <+> brackets (hsep (punctuate comma (map docDoStmt stmts)))
     EListComp _ body quals -> "EListComp" <+> parens (docExpr body) <+> brackets (hsep (punctuate comma (map docCompStmt quals)))
     EListCompParallel _ body qualGroups -> "EListCompParallel" <+> parens (docExpr body) <+> brackets (hsep (punctuate "|" [brackets (hsep (punctuate comma (map docCompStmt qs))) | qs <- qualGroups]))
     EArithSeq _ seqInfo -> "EArithSeq" <+> parens (docArithSeq seqInfo)
@@ -716,6 +716,7 @@ docTokenKind kind =
     TkKeywordHiding -> "TkKeywordHiding"
     TkKeywordProc -> "TkKeywordProc"
     TkKeywordRec -> "TkKeywordRec"
+    TkKeywordMdo -> "TkKeywordMdo"
     TkArrowTail -> "TkArrowTail"
     TkArrowTailReverse -> "TkArrowTailReverse"
     TkDoubleArrowTail -> "TkDoubleArrowTail"
