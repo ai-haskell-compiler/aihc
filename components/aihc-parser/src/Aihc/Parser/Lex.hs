@@ -1582,9 +1582,9 @@ lexSymbol env st =
     -- Disambiguate banana open from operators like (|| by requiring the next
     -- character after (| to stop the symbolic operator run.
     bananaOpenAllowed =
-      case T.unpack (T.drop 2 (lexerInput st)) of
-        c : _ -> not (isSymbolicOpChar c)
-        [] -> True
+      case T.drop 2 (lexerInput st) of
+        c T.:< _ -> not (isSymbolicOpChar c)
+        _ -> True
 
     firstJust xs =
       case xs of
