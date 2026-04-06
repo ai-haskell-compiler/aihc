@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail dependent-sum explicit forall in instance head -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module ForallInstanceHead where

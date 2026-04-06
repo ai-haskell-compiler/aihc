@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail path explicit forall instance -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 module ExplicitForAllInstance where

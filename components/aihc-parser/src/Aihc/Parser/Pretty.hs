@@ -603,6 +603,11 @@ contextPrefix constraints =
     [] -> []
     _ -> [prettyContext constraints, "=>"]
 
+-- | Render a forall prefix for [TyVarBinder]
+forallTyVarBinderPrefix :: [TyVarBinder] -> [Doc ann]
+forallTyVarBinderPrefix [] = []
+forallTyVarBinderPrefix binders = ["forall", hsep (map prettyTyVarBinder binders) <> "."]
+
 prettyDataCon :: DataConDecl -> Doc ann
 prettyDataCon ctor =
   case ctor of
@@ -754,7 +759,7 @@ prettyClassItem item =
 prettyInstanceDecl :: InstanceDecl -> Doc ann
 prettyInstanceDecl decl =
   let headDoc =
-        hsep (["instance"] <> maybe [] (\pragma' -> [prettyInstanceOverlapPragma pragma']) (instanceDeclOverlapPragma decl) <> contextPrefix (instanceDeclContext decl) <> [instanceHeadDoc decl])
+        hsep (["instance"] <> maybe [] (\pragma' -> [prettyInstanceOverlapPragma pragma']) (instanceDeclOverlapPragma decl) <> forallTyVarBinderPrefix (instanceDeclForall decl) <> contextPrefix (instanceDeclContext decl) <> [instanceHeadDoc decl])
    in case instanceDeclItems decl of
         [] -> headDoc
         items -> headDoc <+> "where" <+> braces (hsep (punctuate semi (map prettyInstanceItem items)))
@@ -767,6 +772,7 @@ prettyStandaloneDeriving decl =
         <> maybe [] (\ty -> ["via", prettyType ty]) (standaloneDerivingViaType decl)
         <> ["instance"]
         <> maybe [] (\pragma' -> [prettyInstanceOverlapPragma pragma']) (standaloneDerivingOverlapPragma decl)
+        <> forallTyVarBinderPrefix (standaloneDerivingForall decl)
         <> contextPrefix (standaloneDerivingContext decl)
         <> [standaloneDerivingHeadDoc decl]
     )
