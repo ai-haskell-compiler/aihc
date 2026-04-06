@@ -125,6 +125,9 @@ data LexTokenKind
     TkKeywordQualified
   | TkKeywordAs
   | TkKeywordHiding
+  | -- Extension-conditional keywords
+    TkKeywordProc -- proc (Arrows extension)
+  | TkKeywordRec -- rec (Arrows / RecursiveDo extension)
   | -- Reserved operators (per Haskell Report Section 2.4)
     TkReservedDotDot -- ..
   | TkReservedColon -- :
@@ -137,7 +140,16 @@ data LexTokenKind
   | TkReservedAt -- @
   | -- Note: ~ is NOT reserved; it uses whitespace-sensitive lexing (GHC proposal 0229)
     TkReservedDoubleArrow -- =>
+  | -- Arrow notation reserved operators (Arrows extension)
+    TkArrowTail -- -<
+  | TkArrowTailReverse -- >-
+  | TkDoubleArrowTail -- -<<
+  | TkDoubleArrowTailReverse -- >>-
+  | TkBananaOpen -- (|
+  | TkBananaClose
   | -- Identifiers (per Haskell Report Section 2.4)
+
+    -- | )
     TkVarId Text -- variable identifier (starts lowercase/_)
   | TkConId Text -- constructor identifier (starts uppercase)
   | TkQVarId Text -- qualified variable identifier
@@ -769,6 +781,7 @@ stepTokenContext st tok =
           st {layoutPendingLayout = Just (PendingImplicitLayout LayoutOrdinary)}
       | otherwise -> st
     TkKeywordLet -> st {layoutPendingLayout = Just (PendingImplicitLayout LayoutLetBlock)}
+    TkKeywordRec -> st {layoutPendingLayout = Just (PendingImplicitLayout LayoutOrdinary)}
     TkKeywordWhere -> st {layoutPendingLayout = Just (PendingImplicitLayout LayoutOrdinary)}
     TkKeywordIf -> st {layoutPendingLayout = Just PendingMaybeMultiWayIf}
     kind
@@ -1047,7 +1060,12 @@ closeImplicitLayoutContext st =
     closeWith rest =
       st
         { layoutContexts = rest,
-          layoutBuffer = layoutBuffer st <> [virtualSymbolToken "}" anchor]
+          -- Prepend the virtual } before any tokens already in the buffer.
+          -- This is important when the buffer contains tokens from a layout
+          -- transition (e.g. [; tok] where tok triggered a parse error) —
+          -- the } must come before tok so the parser sees the close-brace
+          -- first.
+          layoutBuffer = virtualSymbolToken "}" anchor : layoutBuffer st
         }
 
 lexKnownPragma :: LexerState -> Maybe (LexToken, LexerState)
@@ -1130,9 +1148,13 @@ lexIdentifier env st =
           case keywordTokenKind ident of
             Just kw -> kw
             Nothing ->
-              if isConIdStart firstChar
-                then TkConId ident
-                else TkVarId ident
+              -- Extension-conditional keywords
+              case extensionKeywordTokenKind env ident of
+                Just kw -> kw
+                Nothing ->
+                  if isConIdStart firstChar
+                    then TkConId ident
+                    else TkVarId ident
 
 lexImplicitParam :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
 lexImplicitParam env st
@@ -1477,37 +1499,50 @@ lexOperator :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
 lexOperator env st =
   let inp = lexerInput st
       opText = T.takeWhile isSymbolicOpChar inp
+      hasArrows = hasExt Arrows env
    in if T.null opText
         then Nothing
         else
           let c = T.head opText
-              st' = advanceChars opText st
-              hasUnicode = hasExt UnicodeSyntax env
-              kind = case reservedOpTokenKind opText of
-                Just reserved -> reserved
-                Nothing
-                  | hasUnicode -> unicodeOpTokenKind opText c
-                  | c == ':' -> TkConSym opText
-                  | otherwise -> TkVarSym opText
-           in Just (mkToken st st' opText kind, st')
+           in -- Special case: |) is the banana close bracket when Arrows is enabled.
+              -- The ) is not a symbolic op char, so takeWhile stops at |. We check
+              -- the rest to see if ) follows immediately.
+              case (hasArrows, T.unpack opText, T.drop (T.length opText) inp) of
+                (True, "|", rest)
+                  | Just (')', _) <- T.uncons rest ->
+                      let bananaText = "|)"
+                          st' = advanceChars bananaText st
+                       in Just (mkToken st st' bananaText TkBananaClose, st')
+                _ ->
+                  let st' = advanceChars opText st
+                      hasUnicode = hasExt UnicodeSyntax env
+                      kind = case reservedOpTokenKind opText of
+                        Just reserved -> reserved
+                        Nothing
+                          | hasArrows, Just arrowKind <- arrowOpTokenKind opText -> arrowKind
+                          | hasUnicode -> unicodeOpTokenKind hasArrows opText c
+                          | c == ':' -> TkConSym opText
+                          | otherwise -> TkVarSym opText
+                   in Just (mkToken st st' opText kind, st')
 
 -- | Map Unicode operators to their ASCII equivalents when UnicodeSyntax is enabled.
 -- Returns the appropriate token kind for known Unicode operators, or falls back
 -- to TkVarSym/TkConSym based on whether the first character is ':'.
-unicodeOpTokenKind :: Text -> Char -> LexTokenKind
-unicodeOpTokenKind txt firstChar
+unicodeOpTokenKind :: Bool -> Text -> Char -> LexTokenKind
+unicodeOpTokenKind hasArrows txt firstChar
   | txt == "∷" = TkReservedDoubleColon -- :: (proportion)
   | txt == "⇒" = TkReservedDoubleArrow -- => (rightwards double arrow)
   | txt == "→" = TkReservedRightArrow -- -> (rightwards arrow)
   | txt == "←" = TkReservedLeftArrow -- <- (leftwards arrow)
   | txt == "∀" = TkVarId "forall" -- forall (for all)
   | txt == "★" = TkVarSym "*" -- star (for kind signatures)
-  | txt == "⤙" = TkVarSym "-<" -- -< (leftwards arrow-tail)
-  | txt == "⤚" = TkVarSym ">-" -- >- (rightwards arrow-tail)
-  | txt == "⤛" = TkVarSym "-<<" -- -<< (leftwards double arrow-tail)
-  | txt == "⤜" = TkVarSym ">>-" -- >>- (rightwards double arrow-tail)
-  | txt == "⦇" = TkVarSym "(|" -- (| left banana bracket
-  | txt == "⦈" = TkVarSym "|)" -- right banana bracket |)
+  | txt == "⤙" = if hasArrows then TkArrowTail else TkVarSym "-<" -- -< (leftwards arrow-tail)
+  | txt == "⤚" = if hasArrows then TkArrowTailReverse else TkVarSym ">-" -- >- (rightwards arrow-tail)
+  | txt == "⤛" = if hasArrows then TkDoubleArrowTail else TkVarSym "-<<" -- -<< (leftwards double arrow-tail)
+  | txt == "⤜" = if hasArrows then TkDoubleArrowTailReverse else TkVarSym ">>-" -- >>- (rightwards double arrow-tail)
+  | txt == "⦇" = if hasArrows then TkBananaOpen else TkVarSym "(|" -- (| left banana bracket
+  | txt == "⦈" = if hasArrows then TkBananaClose else TkVarSym "|)"
+  -- \|) right banana bracket
   | txt == "⟦" = TkVarSym "[|" -- [| left semantic bracket
   | txt == "⟧" = TkVarSym "|]" -- right semantic bracket |]
   | txt == "⊸" = TkVarSym "%1->" -- %1-> (linear arrow)
@@ -1524,6 +1559,7 @@ lexSymbol env st =
           then [("(#", TkSpecialUnboxedLParen), ("#)", TkSpecialUnboxedRParen)]
           else []
       )
+        <> [("(|", TkBananaOpen) | hasExt Arrows env]
         <> [ ("(", TkSpecialLParen),
              (")", TkSpecialRParen),
              ("[", TkSpecialLBracket),
@@ -2737,6 +2773,14 @@ keywordTokenKind txt = case txt of
   "hiding" -> Just TkKeywordHiding
   _ -> Nothing
 
+-- | Classify extension-conditional keywords.
+-- These are identifiers that become keywords only when certain extensions are enabled.
+extensionKeywordTokenKind :: LexerEnv -> Text -> Maybe LexTokenKind
+extensionKeywordTokenKind env txt = case txt of
+  "proc" | hasExt Arrows env -> Just TkKeywordProc
+  "rec" | hasExt Arrows env || hasExt RecursiveDo env -> Just TkKeywordRec
+  _ -> Nothing
+
 -- | Classify reserved operators per Haskell Report Section 2.4.
 reservedOpTokenKind :: Text -> Maybe LexTokenKind
 reservedOpTokenKind txt = case txt of
@@ -2751,4 +2795,15 @@ reservedOpTokenKind txt = case txt of
   "@" -> Just TkReservedAt
   -- Note: ~ is NOT reserved; it uses whitespace-sensitive lexing (GHC proposal 0229)
   "=>" -> Just TkReservedDoubleArrow
+  _ -> Nothing
+
+-- | Classify arrow notation reserved operators (only active with Arrows extension).
+arrowOpTokenKind :: Text -> Maybe LexTokenKind
+arrowOpTokenKind txt = case txt of
+  "-<" -> Just TkArrowTail
+  ">-" -> Just TkArrowTailReverse
+  "-<<" -> Just TkDoubleArrowTail
+  ">>-" -> Just TkDoubleArrowTailReverse
+  -- Note: (| is handled by lexSymbol, and |) is special-cased in lexOperator,
+  -- because ( and ) are not symbolic operator characters.
   _ -> Nothing

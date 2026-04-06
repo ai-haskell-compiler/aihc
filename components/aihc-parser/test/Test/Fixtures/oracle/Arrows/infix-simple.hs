@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail arrow infix operator simple -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE Arrows #-}
 module ArrowInfixSimple where
 

@@ -106,6 +106,7 @@ checkPattern expr = case expr of
   ETHNameQuote {} -> Left "unexpected Template Haskell name quote in pattern"
   ETHTypeNameQuote {} -> Left "unexpected Template Haskell type name quote in pattern"
   ETHTypedSplice {} -> Left "unexpected typed Template Haskell splice in pattern"
+  EProc {} -> Left "unexpected proc expression in pattern"
 
 -- | Convert a list of expressions into patterns.
 checkPatterns :: [Expr] -> Either Text [Pattern]

@@ -1,6 +1,5 @@
 extensions: [Arrows]
 input: |
   proc x -> returnA -< x
-ast: ""
-status: xfail
-reason: unexpected proc keyword in expression
+ast: 'EProc (PVar "x") (CmdArrApp (EVar "returnA") HsFirstOrderApp (EVar "x"))'
+status: pass

@@ -9,12 +9,15 @@
 -- Abstract Syntax Tree (AST) covering Haskell2010 plus all language extensions.
 module Aihc.Parser.Syntax
   ( ArithSeq (..),
+    ArrAppType (..),
     BangType (..),
     BinderName,
     CallConv (..),
     CaseAlt (..),
     ClassDecl (..),
     ClassDeclItem (..),
+    Cmd (..),
+    CmdCaseAlt (..),
     CompStmt (..),
     Constraint (..),
     FunctionalDependency (..),
@@ -1342,7 +1345,7 @@ data Expr
   | ESectionR SourceSpan Text Expr
   | ELetDecls SourceSpan [Decl] Expr
   | ECase SourceSpan Expr [CaseAlt]
-  | EDo SourceSpan [DoStmt]
+  | EDo SourceSpan [DoStmt Expr]
   | EListComp SourceSpan Expr [CompStmt]
   | EListCompParallel SourceSpan Expr [[CompStmt]]
   | EArithSeq SourceSpan ArithSeq
@@ -1368,6 +1371,8 @@ data Expr
     ETHSplice SourceSpan Expr
   | -- \$expr or $(expr)
     ETHTypedSplice SourceSpan Expr -- \$$expr or $$(expr)
+  | -- Arrow notation (Arrows extension)
+    EProc SourceSpan Pattern Cmd -- proc pat -> cmd
   deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan Expr where
@@ -1418,6 +1423,7 @@ instance HasSourceSpan Expr where
       ETHTypeNameQuote span' _ -> span'
       ETHSplice span' _ -> span'
       ETHTypedSplice span' _ -> span'
+      EProc span' _ _ -> span'
 
 data CaseAlt = CaseAlt
   { caseAltSpan :: SourceSpan,
@@ -1429,20 +1435,74 @@ data CaseAlt = CaseAlt
 instance HasSourceSpan CaseAlt where
   getSourceSpan = caseAltSpan
 
-data DoStmt
-  = DoBind SourceSpan Pattern Expr
+data DoStmt body
+  = DoBind SourceSpan Pattern body
   | DoLet SourceSpan [(Text, Expr)]
   | DoLetDecls SourceSpan [Decl]
-  | DoExpr SourceSpan Expr
+  | DoExpr SourceSpan body
+  | DoRecStmt SourceSpan [DoStmt body] -- rec { stmts }
   deriving (Data, Eq, Show, Generic, NFData)
 
-instance HasSourceSpan DoStmt where
+instance HasSourceSpan (DoStmt body) where
   getSourceSpan doStmt =
     case doStmt of
       DoBind span' _ _ -> span'
       DoLet span' _ -> span'
       DoLetDecls span' _ -> span'
       DoExpr span' _ -> span'
+      DoRecStmt span' _ -> span'
+
+-- | Arrow command type (used inside 'proc' expressions).
+-- Commands mirror expressions but live in a separate namespace so the
+-- pretty-printer knows not to parenthesise @do { … }@ as an infix LHS.
+data Cmd
+  = -- | @exp -\< exp@ or @exp -\<\< exp@
+    CmdArrApp SourceSpan Expr ArrAppType Expr
+  | -- | Command-level infix: @cmd1 op cmd2@
+    CmdInfix SourceSpan Cmd Text Cmd
+  | -- | @do { cstmts }@
+    CmdDo SourceSpan [DoStmt Cmd]
+  | -- | @if exp then cmd else cmd@
+    CmdIf SourceSpan Expr Cmd Cmd
+  | -- | @case exp of { calts }@
+    CmdCase SourceSpan Expr [CmdCaseAlt]
+  | -- | @let decls in cmd@
+    CmdLet SourceSpan [Decl] Cmd
+  | -- | @\\pats -> cmd@
+    CmdLam SourceSpan [Pattern] Cmd
+  | -- | Command application: @cmd exp@
+    CmdApp SourceSpan Cmd Expr
+  | -- | Parenthesised command: @(cmd)@
+    CmdPar SourceSpan Cmd
+  deriving (Data, Eq, Show, Generic, NFData)
+
+-- | Arrow application type: first-order (@-\<@) or higher-order (@-\<\<@).
+data ArrAppType = HsFirstOrderApp | HsHigherOrderApp
+  deriving (Data, Eq, Show, Generic, NFData)
+
+instance HasSourceSpan Cmd where
+  getSourceSpan cmd =
+    case cmd of
+      CmdArrApp span' _ _ _ -> span'
+      CmdInfix span' _ _ _ -> span'
+      CmdDo span' _ -> span'
+      CmdIf span' _ _ _ -> span'
+      CmdCase span' _ _ -> span'
+      CmdLet span' _ _ -> span'
+      CmdLam span' _ _ -> span'
+      CmdApp span' _ _ -> span'
+      CmdPar span' _ -> span'
+
+-- | Case alternative with a command body (used in arrow @case@ commands).
+data CmdCaseAlt = CmdCaseAlt
+  { cmdCaseAltSpan :: SourceSpan,
+    cmdCaseAltPat :: Pattern,
+    cmdCaseAltBody :: Cmd
+  }
+  deriving (Data, Eq, Show, Generic, NFData)
+
+instance HasSourceSpan CmdCaseAlt where
+  getSourceSpan = cmdCaseAltSpan
 
 data CompStmt
   = CompGen SourceSpan Pattern Expr

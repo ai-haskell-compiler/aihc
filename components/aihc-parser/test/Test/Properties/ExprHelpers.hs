@@ -260,7 +260,7 @@ genValueDecls n = do
     ]
 
 -- | Generate do statements
-genDoStmts :: Int -> Gen [DoStmt]
+genDoStmts :: Int -> Gen [DoStmt Expr]
 genDoStmts n = do
   count <- chooseInt (1, 3)
   let perStmt = n `div` count
@@ -269,7 +269,7 @@ genDoStmts n = do
   lastExpr <- genExprSized perStmt
   pure (stmts <> [DoExpr span0 lastExpr])
 
-genDoStmt :: Int -> Gen DoStmt
+genDoStmt :: Int -> Gen (DoStmt Expr)
 genDoStmt n =
   oneof
     [ DoBind span0 <$> genPattern half <*> genExprSized half,
@@ -556,6 +556,7 @@ shrinkExpr expr =
     ETHTypeNameQuote {} -> []
     ETHSplice _ body -> body : [ETHSplice span0 body' | body' <- shrinkExpr body]
     ETHTypedSplice _ body -> body : [ETHTypedSplice span0 body' | body' <- shrinkExpr body]
+    EProc {} -> []
 
 shrinkFloat :: Double -> [Double]
 shrinkFloat value =
@@ -595,19 +596,20 @@ shrinkDecl decl =
       ]
     _ -> []
 
-shrinkDoStmts :: [DoStmt] -> [[DoStmt]]
+shrinkDoStmts :: [DoStmt Expr] -> [[DoStmt Expr]]
 shrinkDoStmts stmts =
   case stmts of
     [_] -> [] -- Can't shrink a single-element do block
     _ -> shrinkList shrinkDoStmt stmts
 
-shrinkDoStmt :: DoStmt -> [DoStmt]
+shrinkDoStmt :: DoStmt Expr -> [DoStmt Expr]
 shrinkDoStmt stmt =
   case stmt of
     DoBind _ pat expr -> [DoBind span0 pat expr' | expr' <- shrinkExpr expr]
     DoLet _ bindings -> [DoLet span0 bindings' | bindings' <- shrinkList shrinkBinding bindings, not (null bindings')]
     DoLetDecls _ decls -> [DoLetDecls span0 decls' | decls' <- shrinkDecls decls, not (null decls')]
     DoExpr _ expr -> [DoExpr span0 expr' | expr' <- shrinkExpr expr]
+    DoRecStmt _ stmts -> [DoRecStmt span0 stmts' | stmts' <- shrinkDoStmts stmts, not (null stmts')]
 
 shrinkBinding :: (Text, Expr) -> [(Text, Expr)]
 shrinkBinding (name, expr) = [(name, expr') | expr' <- shrinkExpr expr]
@@ -720,6 +722,7 @@ normalizeExpr expr =
     ETHTypeNameQuote _ name -> ETHTypeNameQuote span0 name
     ETHSplice _ body -> ETHSplice span0 (normalizeExpr body)
     ETHTypedSplice _ body -> ETHTypedSplice span0 (normalizeExpr body)
+    EProc _ pat body -> EProc span0 (normalizePattern pat) body
 
 normalizeCaseAlt :: CaseAlt -> CaseAlt
 normalizeCaseAlt alt =
@@ -808,13 +811,14 @@ normalizeMatch m =
       matchRhs = normalizeRhs (matchRhs m)
     }
 
-normalizeDoStmt :: DoStmt -> DoStmt
+normalizeDoStmt :: DoStmt Expr -> DoStmt Expr
 normalizeDoStmt stmt =
   case stmt of
     DoBind _ pat e -> DoBind span0 (normalizePattern pat) (normalizeExpr e)
     DoLet _ bindings -> DoLet span0 [(name, normalizeExpr e) | (name, e) <- bindings]
     DoLetDecls _ decls -> DoLetDecls span0 (map normalizeDecl decls)
     DoExpr _ e -> DoExpr span0 (normalizeExpr e)
+    DoRecStmt _ stmts -> DoRecStmt span0 (map normalizeDoStmt stmts)
 
 normalizeCompStmt :: CompStmt -> CompStmt
 normalizeCompStmt stmt =

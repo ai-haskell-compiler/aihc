@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail arrow operator fat arrow left -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE Arrows #-}
 module ArrowOperatorFatArrowLeft where
 

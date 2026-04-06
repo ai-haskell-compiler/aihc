@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail arrow unicode fat arrow right -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE Arrows, UnicodeSyntax #-}
 module ArrowUnicodeFatArrowRight where
 

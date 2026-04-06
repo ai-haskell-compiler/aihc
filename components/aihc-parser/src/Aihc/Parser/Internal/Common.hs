@@ -148,6 +148,12 @@ renderTokenKind tk = case tk of
   TkReservedRightArrow -> "operator '->'"
   TkReservedAt -> "operator '@'"
   TkReservedDoubleArrow -> "operator '=>'"
+  TkArrowTail -> "operator '-<'"
+  TkArrowTailReverse -> "operator '>-'"
+  TkDoubleArrowTail -> "operator '-<<'"
+  TkDoubleArrowTailReverse -> "operator '>>-'"
+  TkBananaOpen -> "operator '(|'"
+  TkBananaClose -> "operator '|)'"
   TkPrefixBang -> "bang pattern '!'"
   TkPrefixTilde -> "irrefutable pattern '~'"
   TkTypeApp -> "type application '@'"
@@ -597,6 +603,8 @@ renderKeyword keyword =
     TkKeywordIf -> "'if'"
     TkKeywordThen -> "'then'"
     TkKeywordElse -> "'else'"
+    TkKeywordProc -> "'proc'"
+    TkKeywordRec -> "'rec'"
     _ -> "keyword"
 
 isModuleName :: Text -> Bool

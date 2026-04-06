@@ -569,7 +569,7 @@ prop_generatedOperatorsRejectDashOnlyCommentStarters =
      in QC.counterexample ("invalid generated operators: " <> show invalid) (null invalid)
 
 -- Helper: parse a do-expression and extract the do-statements.
-parseDoStmts :: T.Text -> Either String [DoStmt]
+parseDoStmts :: T.Text -> Either String [DoStmt Expr]
 parseDoStmts src =
   let fullSrc = "x = " <> src
       (errs, modu) = parseModule defaultConfig fullSrc
@@ -582,7 +582,7 @@ parseDoStmts src =
             Left ("unexpected AST: " <> show other)
 
 -- Helper: parse a do-expression with extensions and extract the do-statements.
-parseDoStmtsExt :: [Extension] -> T.Text -> Either String [DoStmt]
+parseDoStmtsExt :: [Extension] -> T.Text -> Either String [DoStmt Expr]
 parseDoStmtsExt exts src =
   let fullSrc = "x = " <> src
       (errs, modu) = parseModule defaultConfig {parserExtensions = exts} fullSrc
