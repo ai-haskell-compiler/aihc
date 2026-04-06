@@ -234,6 +234,7 @@ declParser = do
       case lexTokenKind nextTok of
         TkVarId "role" -> roleAnnotationDeclParser
         TkVarId "family" -> typeFamilyDeclParser
+        TkKeywordData -> typeDataDeclParser
         TkKeywordInstance -> typeFamilyInstParser
         _ -> do
           -- Disambiguate standalone kind sig (type ConId ::) from type synonym.
@@ -990,6 +991,94 @@ dataDeclParser = withSpan $ do
       constructors <- gadtWhereClauseParser
       derivingClauses <- MP.many derivingClauseParser
       pure (constructors, derivingClauses)
+
+-- | Parse a @type data@ declaration.
+-- Similar to @data@ but with restrictions:
+--   - No datatype context
+--   - No labelled fields in constructors
+--   - No strictness annotations in constructors
+--   - No deriving clause
+typeDataDeclParser :: TokParser Decl
+typeDataDeclParser = withSpan $ do
+  keywordTok TkKeywordType
+  keywordTok TkKeywordData
+  -- type data may not have a datatype context
+  (typeName, typeParams) <- typeDeclHeadParser
+  -- GADT syntax starts with `where`, traditional syntax starts with `=` or nothing
+  constructors <- gadtOrTraditionalDispatch gadtStyleTypeDataDecl traditionalStyleTypeDataDecl
+  -- type data may not have a deriving clause
+  pure $ \span' ->
+    DeclTypeData
+      span'
+      DataDecl
+        { dataDeclSpan = span',
+          dataDeclContext = [],
+          dataDeclName = typeName,
+          dataDeclParams = typeParams,
+          dataDeclConstructors = constructors,
+          dataDeclDeriving = []
+        }
+  where
+    traditionalStyleTypeDataDecl =
+      fromMaybe [] <$> MP.optional (expectedTok TkReservedEquals *> typeDataConDeclParser `MP.sepBy1` expectedTok TkReservedPipe)
+
+    gadtStyleTypeDataDecl = gadtTypeDataWhereClauseParser
+
+-- | Parse constructors for type data (traditional style, after `=`)
+-- No labelled fields, no strictness annotations
+typeDataConDeclParser :: TokParser DataConDecl
+typeDataConDeclParser = withSpan $ do
+  (_forallVars, context) <- dataConQualifiersParser
+  -- Parse constructor name
+  conName <- constructorIdentifierParser
+  -- Parse arguments (no strictness, no records)
+  args <- MP.many $ (\ty -> BangType noSourceSpan False ty) <$> typeAppParser
+  pure $ \span' -> PrefixCon span' [] context conName args
+
+-- | Parse GADT-style constructors for type data (after `where`)
+-- No labelled fields, no strictness annotations
+gadtTypeDataWhereClauseParser :: TokParser [DataConDecl]
+gadtTypeDataWhereClauseParser = whereClauseItemsParser gadtTypeDataConsBracedParser gadtTypeDataConsPlainParser
+
+gadtTypeDataConsPlainParser :: TokParser [DataConDecl]
+gadtTypeDataConsPlainParser = plainSemiSep1 gadtTypeDataConDeclParser
+
+gadtTypeDataConsBracedParser :: TokParser [DataConDecl]
+gadtTypeDataConsBracedParser = bracedSemiSep gadtTypeDataConDeclParser
+
+-- | Parse a GADT constructor for type data
+-- Only equality constraints permitted, no strictness, no records
+gadtTypeDataConDeclParser :: TokParser DataConDecl
+gadtTypeDataConDeclParser = withSpan $ do
+  -- Parse constructor names (can be multiple separated by commas)
+  names <- gadtConNameParser `MP.sepBy1` expectedTok TkSpecialComma
+  expectedTok TkReservedDoubleColon
+  -- Parse optional forall
+  forallBinders <- MP.option [] gadtForallParser
+  -- Parse context (only equality constraints permitted, but we parse generally)
+  context <- contextPrefixDispatchList
+  -- Parse the body (prefix only for type data - no record style)
+  body <- gadtTypeDataBodyParser
+  pure $ \span' -> GadtCon span' forallBinders context names body
+
+-- | Parse the body of a GADT constructor for type data
+-- Only prefix style allowed (no records), no strictness annotations
+gadtTypeDataBodyParser :: TokParser GadtBody
+gadtTypeDataBodyParser = do
+  -- Parse types separated by arrows
+  -- Each component is a type application (no strictness annotations)
+  firstTy <- typeAppParser
+  moreArgs <- MP.many $ expectedTok TkReservedRightArrow *> typeAppParser
+  -- Build list of all types
+  let allTypes = firstTy : moreArgs
+  -- If there's more than one type, all but last are argument types, last is result
+  -- If there's only one type, it's just the result type with no arguments
+  case allTypes of
+    [resultTy] -> pure (GadtPrefixBody [] resultTy)
+    _ ->
+      let argTypes = map (\ty -> BangType noSourceSpan False ty) (init allTypes)
+          resultTy = last allTypes
+       in pure (GadtPrefixBody argTypes resultTy)
 
 dataConDeclParser :: TokParser DataConDecl
 dataConDeclParser = withSpan $ do

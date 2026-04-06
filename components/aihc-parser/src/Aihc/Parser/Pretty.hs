@@ -174,6 +174,7 @@ prettyDeclLines decl =
           ]
       ]
     DeclData _ dataDecl -> [prettyDataDecl dataDecl]
+    DeclTypeData _ dataDecl -> [prettyTypeDataDecl dataDecl]
     DeclNewtype _ newtypeDecl -> [prettyNewtypeDecl newtypeDecl]
     DeclClass _ classDecl -> [prettyClassDecl classDecl]
     DeclInstance _ instanceDecl -> [prettyInstanceDecl instanceDecl]
@@ -531,6 +532,22 @@ prettyDataDecl decl =
       ]
         <> ctorPart
         <> derivingParts (dataDeclDeriving decl)
+    )
+  where
+    ctorPart =
+      case dataDeclConstructors decl of
+        [] -> []
+        ctors
+          | any isGadtCon ctors -> ["where", braces (hsep (punctuate semi (map prettyDataCon ctors)))]
+          | otherwise -> ["=", hsep (punctuate " |" (map prettyDataCon ctors))]
+
+prettyTypeDataDecl :: DataDecl -> Doc ann
+prettyTypeDataDecl decl =
+  hsep
+    ( [ "type data",
+        prettyDeclHead (dataDeclContext decl) (dataDeclName decl) (dataDeclParams decl)
+      ]
+        <> ctorPart
     )
   where
     ctorPart =
