@@ -846,7 +846,7 @@ irrefutablePatternParser = withSpan $ do
   pure (`PIrrefutable` inner)
 
 negativeLiteralPatternParser :: TokParser Pattern
-negativeLiteralPatternParser = withSpan $ do
+negativeLiteralPatternParser = MP.try $ withSpan $ do
   expectedTok (TkVarSym "-")
   lit <- literalParser
   pure (`PNegLit` lit)

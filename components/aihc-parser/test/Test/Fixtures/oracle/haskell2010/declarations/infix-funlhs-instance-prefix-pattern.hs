@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail infix instance method with prefix constructor patterns -}
+{- ORACLE_TEST pass -}
 module InfixFunlhsInstancePrefixPattern where
 
 data P = Z | S P
