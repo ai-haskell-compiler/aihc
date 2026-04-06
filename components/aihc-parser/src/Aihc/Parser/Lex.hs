@@ -86,7 +86,7 @@ where
 
 import Aihc.Parser.Syntax
 import Control.DeepSeq (NFData)
-import Data.Char (GeneralCategory (..), digitToInt, generalCategory, isAscii, isAsciiLower, isAsciiUpper, isDigit, isHexDigit, isOctDigit, isSpace, ord, toUpper)
+import Data.Char (GeneralCategory (..), digitToInt, generalCategory, isAscii, isAsciiLower, isAsciiUpper, isDigit, isHexDigit, isOctDigit, isSpace, ord)
 import Data.List qualified as List
 import Data.Maybe (fromMaybe, isJust, mapMaybe)
 import Data.Set (Set)
@@ -146,8 +146,10 @@ data LexTokenKind
   | TkDoubleArrowTail -- -<<
   | TkDoubleArrowTailReverse -- >>-
   | TkBananaOpen -- (|
-  | TkBananaClose -- |)
+  | TkBananaClose
   | -- Identifiers (per Haskell Report Section 2.4)
+
+    -- | )
     TkVarId Text -- variable identifier (starts lowercase/_)
   | TkConId Text -- constructor identifier (starts uppercase)
   | TkQVarId Text -- qualified variable identifier
@@ -238,7 +240,7 @@ hasExt :: Extension -> LexerEnv -> Bool
 hasExt ext env = Set.member ext (lexerExtensions env)
 
 data LexerState = LexerState
-  { lexerInput :: String,
+  { lexerInput :: !Text,
     lexerLogicalSourceName :: !FilePath,
     lexerLine :: !Int,
     lexerCol :: !Int,
@@ -384,7 +386,7 @@ lexChunksWithExtensions enableModuleLayout sourceName exts chunks =
     env = mkLexerEnv exts
     initialLexerState =
       LexerState
-        { lexerInput = concatMap T.unpack chunks,
+        { lexerInput = T.concat chunks,
           lexerLogicalSourceName = sourceName,
           lexerLine = 1,
           lexerCol = 1,
@@ -497,7 +499,7 @@ scanTokens env st0 =
       let st' = st {lexerPrevTokenKind = Just (lexTokenKind tok), lexerHadTrivia = False}
        in tok : scanTokens env st'
     Right st
-      | null (lexerInput st) ->
+      | T.null (lexerInput st) ->
           -- Emit explicit EOF token with span at current position
           let eofSpan =
                 SourceSpan
@@ -537,34 +539,35 @@ skipTrivia env st =
 
 consumeTrivia :: LexerEnv -> LexerState -> Maybe (Either (LexToken, LexerState) LexerState)
 consumeTrivia _env st
-  | null (lexerInput st) = Nothing
+  | T.null (lexerInput st) = Nothing
   | otherwise =
-      case lexerInput st of
-        c : _
-          | c == ' ' || c == '\t' || c == '\r' -> Just (Right (markHadTrivia (consumeWhile (\x -> x == ' ' || x == '\t' || x == '\r') st)))
-          | c == '\n' -> Just (Right (markHadTrivia (advanceChars "\n" st)))
-        '-' : '-' : rest
-          | isLineComment rest -> Just (Right (markHadTrivia (consumeLineComment st)))
-        '{' : '-' : '#' : _ ->
-          case tryConsumeControlPragma st of
-            Just (Nothing, st') -> Just (Right (markHadTrivia st'))
-            Just (Just tok, st') -> Just (Left (tok, markHadTrivia st'))
-            Nothing ->
-              case tryConsumeKnownPragma st of
-                Just _ -> Nothing
-                Nothing ->
-                  fmap (Right . markHadTrivia) (consumeUnknownPragma st)
-        '{' : '-' : _ ->
-          Just
-            ( case consumeBlockCommentOrError st of
-                Right st' -> Right (markHadTrivia st')
-                Left (tok, st') -> Left (tok, markHadTrivia st')
-            )
-        _ ->
-          case tryConsumeLineDirective st of
-            Just (Nothing, st') -> Just (Right (markHadTrivia st'))
-            Just (Just tok, st') -> Just (Left (tok, markHadTrivia st'))
-            Nothing -> Nothing
+      let inp = lexerInput st
+       in case T.head inp of
+            c
+              | c == ' ' || c == '\t' || c == '\r' -> Just (Right (markHadTrivia (consumeWhile (\x -> x == ' ' || x == '\t' || x == '\r') st)))
+              | c == '\n' -> Just (Right (markHadTrivia (advanceN 1 st)))
+            '-' | Just rest <- T.stripPrefix "--" inp, isLineComment rest -> Just (Right (markHadTrivia (consumeLineComment st)))
+            '{'
+              | "{-#" `T.isPrefixOf` inp ->
+                  case tryConsumeControlPragma st of
+                    Just (Nothing, st') -> Just (Right (markHadTrivia st'))
+                    Just (Just tok, st') -> Just (Left (tok, markHadTrivia st'))
+                    Nothing ->
+                      case tryConsumeKnownPragma st of
+                        Just _ -> Nothing
+                        Nothing ->
+                          fmap (Right . markHadTrivia) (consumeUnknownPragma st)
+              | "{-" `T.isPrefixOf` inp ->
+                  Just
+                    ( case consumeBlockCommentOrError st of
+                        Right st' -> Right (markHadTrivia st')
+                        Left (tok, st') -> Left (tok, markHadTrivia st')
+                    )
+            _ ->
+              case tryConsumeLineDirective st of
+                Just (Nothing, st') -> Just (Right (markHadTrivia st'))
+                Just (Just tok, st') -> Just (Left (tok, markHadTrivia st'))
+                Nothing -> Nothing
 
 -- | Mark that trivia was consumed
 markHadTrivia :: LexerState -> LexerState
@@ -898,7 +901,7 @@ mkInitialLexerState :: FilePath -> [Extension] -> Text -> (LexerEnv, LexerState)
 mkInitialLexerState sourceName exts input =
   ( mkLexerEnv exts,
     LexerState
-      { lexerInput = T.unpack input,
+      { lexerInput = input,
         lexerLogicalSourceName = sourceName,
         lexerLine = 1,
         lexerCol = 1,
@@ -960,7 +963,7 @@ scanOneToken env st0 =
       let st' = st {lexerPrevTokenKind = Just (lexTokenKind tok), lexerHadTrivia = False}
        in Just (tok, st')
     Right st
-      | null (lexerInput st) ->
+      | T.null (lexerInput st) ->
           -- Check if we should emit EOF or if we already did
           -- We use a sentinel: if prevTokenKind is Just TkEOF, we already emitted it
           case lexerPrevTokenKind st of
@@ -1074,64 +1077,60 @@ lexKnownPragma st
   | Just ((raw, kind), st') <- parsePragmaLike parseDeprecatedPragma st = Just (mkToken st st' raw kind, st')
   | otherwise = Nothing
 
-parsePragmaLike :: (String -> Maybe (Int, (Text, LexTokenKind))) -> LexerState -> Maybe ((Text, LexTokenKind), LexerState)
+parsePragmaLike :: (Text -> Maybe (Int, (Text, LexTokenKind))) -> LexerState -> Maybe ((Text, LexTokenKind), LexerState)
 parsePragmaLike parser st = do
   (n, out) <- parser (lexerInput st)
-  pure (out, advanceChars (take n (lexerInput st)) st)
+  pure (out, advanceN n st)
 
 lexIdentifier :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
 lexIdentifier env st =
-  case lexerInput st of
-    c : rest
+  case T.uncons (lexerInput st) of
+    Just (c, rest)
       | isIdentStart c ->
           let hasMagicHash = hasExt MagicHash env
               (seg, rest0) = consumeIdentTail hasMagicHash rest
-              firstChunk = c : seg
+              firstChunk = T.take (1 + T.length seg) (lexerInput st)
               (consumed, rest1, isQualified) = gatherQualified hasMagicHash firstChunk rest0
            in -- Check if we have a qualified operator (e.g., Prelude.+)
-              case (isQualified || isConIdStart c, rest1) of
-                (True, '.' : opChar : opRest)
-                  | isSymbolicOpCharNotDot opChar ->
+              case (isQualified || isConIdStart c, T.uncons rest1) of
+                (True, Just ('.', dotRest))
+                  | Just (opChar, _) <- T.uncons dotRest,
+                    isSymbolicOpCharNotDot opChar ->
                       -- This is a qualified operator like Prelude.+ or A.B.C.:++
-                      let (opChars, _) = span isSymbolicOpChar (opChar : opRest)
+                      let opChars = T.takeWhile isSymbolicOpChar dotRest
                           fullOp = consumed <> "." <> opChars
-                          opTxt = T.pack fullOp
                           kind =
                             if opChar == ':'
-                              then TkQConSym opTxt
-                              else TkQVarSym opTxt
+                              then TkQConSym fullOp
+                              else TkQVarSym fullOp
                           st' = advanceChars fullOp st
-                       in Just (mkToken st st' opTxt kind, st')
+                       in Just (mkToken st st' fullOp kind, st')
                 _ ->
                   -- Regular identifier
-                  let ident = T.pack consumed
-                      kind = classifyIdentifier c isQualified ident
+                  let kind = classifyIdentifier c isQualified consumed
                       st' = advanceChars consumed st
-                   in Just (mkToken st st' ident kind, st')
+                   in Just (mkToken st st' consumed kind, st')
     _ -> Nothing
   where
     -- Returns (consumed, remaining, isQualified)
+    gatherQualified :: Bool -> Text -> Text -> (Text, Text, Bool)
     gatherQualified hasMH acc chars =
-      case chars of
-        '.' : c' : more
-          | isIdentStart c' && not (endsWithHash acc) ->
+      case T.uncons chars of
+        Just ('.', dotRest)
+          | Just (c', more) <- T.uncons dotRest,
+            isIdentStart c',
+            not (T.isSuffixOf "#" acc) ->
               let (seg, rest) = consumeIdentTail hasMH more
-               in gatherQualified hasMH (acc <> "." <> [c'] <> seg) rest
-        _ -> (acc, chars, '.' `elem` acc)
+                  segWithHead = T.take (1 + T.length seg) dotRest
+               in gatherQualified hasMH (acc <> "." <> segWithHead) rest
+        _ -> (acc, chars, T.any (== '.') acc)
 
-    consumeIdentTail hasMH = go []
-      where
-        go acc chars =
-          case chars of
-            c' : more
-              | isIdentTail c' -> go (c' : acc) more
-              | c' == '#' && hasMH -> (reverse ('#' : acc), more)
-            _ -> (reverse acc, chars)
-
-    endsWithHash s =
-      case reverse s of
-        '#' : _ -> True
-        _ -> False
+    consumeIdentTail :: Bool -> Text -> (Text, Text)
+    consumeIdentTail hasMH inp =
+      let (tailPart, rest) = T.span isIdentTail inp
+       in case T.uncons rest of
+            Just ('#', rest') | hasMH -> (tailPart <> "#", rest')
+            _ -> (tailPart, rest)
 
     -- Check for symbol char that is not '.' to avoid consuming module path dots
     isSymbolicOpCharNotDot c = isSymbolicOpChar c && c /= '.'
@@ -1161,13 +1160,13 @@ lexImplicitParam :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
 lexImplicitParam env st
   | not (hasExt ImplicitParams env) = Nothing
   | otherwise =
-      case lexerInput st of
-        '?' : c : rest
-          | isAsciiLower c || c == '_' ->
-              let (tailChars, _) = span isIdentTail rest
-                  raw = '?' : c : tailChars
-                  txt = T.pack raw
-                  st' = advanceChars raw st
+      case T.uncons (lexerInput st) of
+        Just ('?', rest0)
+          | Just (c, _) <- T.uncons rest0,
+            isAsciiLower c || c == '_' ->
+              let tailChars = T.takeWhile isIdentTail (T.tail rest0)
+                  txt = T.take (2 + T.length tailChars) (lexerInput st)
+                  st' = advanceChars txt st
                in Just (mkToken st st' txt (TkImplicitParam txt), st')
         _ -> Nothing
 
@@ -1192,7 +1191,7 @@ lexNegativeLiteralOrMinus env st
   | not (isStandaloneMinus (lexerInput st)) = Nothing
   | otherwise =
       let prevAllows = allowsMergeOrPrefix (lexerPrevTokenKind st) (lexerHadTrivia st)
-          rest = drop 1 (lexerInput st) -- input after '-'
+          rest = T.drop 1 (lexerInput st) -- input after '-'
        in if hasExt NegativeLiterals env && prevAllows
             then case tryLexNumberAfterMinus env st of
               Just result -> Just result
@@ -1204,11 +1203,13 @@ lexNegativeLiteralOrMinus env st
         || hasExt LexicalNegation env
 
 -- | Check if input starts with a standalone '-' (not part of ->, -<, etc.)
-isStandaloneMinus :: String -> Bool
+isStandaloneMinus :: Text -> Bool
 isStandaloneMinus input =
-  case input of
-    '-' : c : _ | isSymbolicOpChar c && c /= '-' -> False -- part of multi-char op
-    '-' : _ -> True
+  case T.uncons input of
+    Just ('-', rest) ->
+      case T.uncons rest of
+        Just (c, _) | isSymbolicOpChar c && c /= '-' -> False -- part of multi-char op
+        _ -> True
     _ -> False
 
 -- | Try to lex a negative number by delegating to existing number lexers.
@@ -1263,7 +1264,7 @@ negateToken stBefore numTok =
       NoSourceSpan -> NoSourceSpan
 
 -- | Emit TkPrefixMinus or TkMinusOperator based on LexicalNegation rules.
-lexMinusOperator :: LexerEnv -> LexerState -> String -> Bool -> Maybe (LexToken, LexerState)
+lexMinusOperator :: LexerEnv -> LexerState -> Text -> Bool -> Maybe (LexToken, LexerState)
 lexMinusOperator env st rest prevAllows
   | not (hasExt LexicalNegation env) = Nothing
   | otherwise =
@@ -1314,11 +1315,11 @@ prevTokenAllowsTightPrefix kind =
     _ -> False
 
 -- | Check if the given input could start a negated atom (for LexicalNegation).
-canStartNegatedAtom :: String -> Bool
+canStartNegatedAtom :: Text -> Bool
 canStartNegatedAtom rest =
-  case rest of
-    [] -> False
-    c : _
+  case T.uncons rest of
+    Nothing -> False
+    Just (c, _)
       | isIdentStart c -> True -- identifier
       | isDigit c -> True -- number
       | c == '\'' -> True -- char literal
@@ -1347,31 +1348,32 @@ lexTypeApplication :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
 lexTypeApplication env st
   | not (hasExt TypeApplications env) = Nothing
   | otherwise =
-      case lexerInput st of
-        '@' : rest
+      case T.uncons (lexerInput st) of
+        Just ('@', rest)
           -- Only handle single @ (not part of multi-char operator like @@)
-          | not (isMultiCharOp rest) ->
+          | not (isMultiCharOpT rest) ->
               let st' = advanceChars "@" st
                   kind
-                    | canStartTypeAtom rest = TkTypeApp
+                    | canStartTypeAtomT rest = TkTypeApp
                     | otherwise = TkVarSym "@"
                in Just (mkToken st st' "@" kind, st')
         _ -> Nothing
   where
-    isMultiCharOp (c : _) = isSymbolicOpChar c
-    isMultiCharOp [] = False
+    isMultiCharOpT t = case T.uncons t of
+      Just (c, _) -> isSymbolicOpChar c
+      Nothing -> False
 
     -- Check if the given input could start a type atom (for type applications).
-    -- The character immediately after @ must be able to start a type without whitespace.
-    canStartTypeAtom :: String -> Bool
-    canStartTypeAtom [] = False
-    canStartTypeAtom (c : _)
-      | isIdentStart c = True -- type variable or constructor
-      | c == '(' = True -- parenthesized type or tuple
-      | c == '[' = True -- list type
-      | c == '_' = True -- wildcard type
-      | c == '\'' = True -- promoted data constructor (DataKinds)
-      | otherwise = False
+    canStartTypeAtomT :: Text -> Bool
+    canStartTypeAtomT t = case T.uncons t of
+      Nothing -> False
+      Just (c, _)
+        | isIdentStart c -> True
+        | c == '(' -> True
+        | c == '[' -> True
+        | c == '_' -> True
+        | c == '\'' -> True
+        | otherwise -> False
 
 -- | Whitespace-sensitive lexing for ! and ~ operators (GHC proposal 0229).
 --
@@ -1386,9 +1388,9 @@ lexTypeApplication env st
 --   a! b    -- suffix (operator)
 lexBangOrTildeOperator :: LexerState -> Maybe (LexToken, LexerState)
 lexBangOrTildeOperator st =
-  case lexerInput st of
-    '!' : rest -> lexPrefixSensitiveOp st '!' "!" TkPrefixBang rest
-    '~' : rest -> lexPrefixSensitiveOp st '~' "~" TkPrefixTilde rest
+  case T.uncons (lexerInput st) of
+    Just ('!', rest) -> lexPrefixSensitiveOp st '!' "!" TkPrefixBang rest
+    Just ('~', rest) -> lexPrefixSensitiveOp st '~' "~" TkPrefixTilde rest
     _ -> Nothing
 
 -- | Lex a prefix $ or $$ for Template Haskell splices.
@@ -1407,24 +1409,28 @@ lexPrefixDollar :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
 lexPrefixDollar env st
   | not (hasExt TemplateHaskell env) = Nothing
   | otherwise =
-      case lexerInput st of
-        -- \$$ must be checked before $ (greedy match for typed splice)
-        '$' : '$' : rest
-          | not (isMultiCharOp rest),
-            isPrefixPosition,
-            canStartSpliceAtom rest ->
-              let st' = advanceChars "$$" st
-               in Just (mkToken st st' "$$" TkTHTypedSplice, st')
-        '$' : rest
-          | not (isMultiCharOp rest),
-            isPrefixPosition,
-            canStartSpliceAtom rest ->
-              let st' = advanceChars "$" st
-               in Just (mkToken st st' "$" TkTHSplice, st')
-        _ -> Nothing
+      let inp = lexerInput st
+       in case T.uncons inp of
+            Just ('$', rest0) ->
+              case T.uncons rest0 of
+                Just ('$', rest)
+                  | not (isMultiCharOpT rest),
+                    isPrefixPosition,
+                    canStartSpliceAtomT rest ->
+                      let st' = advanceChars "$$" st
+                       in Just (mkToken st st' "$$" TkTHTypedSplice, st')
+                _
+                  | not (isMultiCharOpT rest0),
+                    isPrefixPosition,
+                    canStartSpliceAtomT rest0 ->
+                      let st' = advanceChars "$" st
+                       in Just (mkToken st st' "$" TkTHSplice, st')
+                _ -> Nothing
+            _ -> Nothing
   where
-    isMultiCharOp (c : _) = isSymbolicOpChar c
-    isMultiCharOp [] = False
+    isMultiCharOpT t = case T.uncons t of
+      Just (c, _) -> isSymbolicOpChar c
+      Nothing -> False
     isPrefixPosition =
       case lexerPrevTokenKind st of
         Nothing -> True
@@ -1432,9 +1438,9 @@ lexPrefixDollar env st
           | lexerHadTrivia st -> True
           | otherwise -> prevTokenAllowsTightPrefix prevKind
     -- A splice can be followed by an identifier or a parenthesized expression
-    canStartSpliceAtom [] = False
-    canStartSpliceAtom (c : _) =
-      isIdentStart c || c == '('
+    canStartSpliceAtomT t = case T.uncons t of
+      Nothing -> False
+      Just (c, _) -> isIdentStart c || c == '('
 
 -- | Lex a whitespace-sensitive prefix operator.
 -- Returns TkPrefixBang/TkPrefixTilde if in prefix position, otherwise Nothing
@@ -1444,10 +1450,10 @@ lexPrefixDollar env st
 --   - Whitespace before the operator, OR
 --   - Previous token is an opening bracket/punctuation that allows tight prefix
 -- AND no whitespace after (next char can start a pattern atom).
-lexPrefixSensitiveOp :: LexerState -> Char -> String -> LexTokenKind -> String -> Maybe (LexToken, LexerState)
+lexPrefixSensitiveOp :: LexerState -> Char -> Text -> LexTokenKind -> Text -> Maybe (LexToken, LexerState)
 lexPrefixSensitiveOp st opChar opStr prefixKind rest
   -- Only handle single-character ! or ~ (not part of multi-char operator like !=)
-  | isMultiCharOp rest = Nothing
+  | isMultiCharOpT rest = Nothing
   -- Prefix position: (whitespace before OR opening token before) AND next char can start a pattern atom
   | isPrefixPosition && canStartPrefixPatternAtom rest =
       let st' = advanceChars opStr st
@@ -1456,8 +1462,9 @@ lexPrefixSensitiveOp st opChar opStr prefixKind rest
   | otherwise = Nothing
   where
     -- Check if rest starts with another symbolic operator char (making this a multi-char op)
-    isMultiCharOp (c : _) = isSymbolicOpChar c
-    isMultiCharOp [] = False
+    isMultiCharOpT t = case T.uncons t of
+      Just (c, _) -> isSymbolicOpChar c
+      Nothing -> False
     -- Prefix position is allowed when:
     -- - There is no previous token (start of input)
     -- - There was whitespace/trivia before the operator
@@ -1471,11 +1478,11 @@ lexPrefixSensitiveOp st opChar opStr prefixKind rest
 
 -- | Check if the given input could start a pattern atom (for prefix ! and ~).
 -- This is similar to canStartNegatedAtom but tailored for patterns.
-canStartPrefixPatternAtom :: String -> Bool
+canStartPrefixPatternAtom :: Text -> Bool
 canStartPrefixPatternAtom rest =
-  case rest of
-    [] -> False
-    c : _
+  case T.uncons rest of
+    Nothing -> False
+    Just (c, _)
       | isIdentStart c -> True -- identifier (variable or constructor)
       | isDigit c -> True -- numeric literal
       | c == '\'' -> True -- char literal
@@ -1490,74 +1497,69 @@ canStartPrefixPatternAtom rest =
 
 lexOperator :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
 lexOperator env st =
-  case span isSymbolicOpChar (lexerInput st) of
-    (op@(c : _), rest) ->
-      let txt = T.pack op
-          hasArrows = hasExt Arrows env
-       in -- Special case: |) is the banana close bracket when Arrows is enabled.
-          -- The ) is not a symbolic op char, so span stops at |. We check the
-          -- rest to see if ) follows immediately.
-          case (hasArrows, op, rest) of
-            (True, "|", ')' : _) ->
-              let st' = advanceChars "|)" st
-               in Just (mkToken st st' "|)" TkBananaClose, st')
-            _ ->
-              let st' = advanceChars op st
-                  hasUnicode = hasExt UnicodeSyntax env
-                  kind = case reservedOpTokenKind txt of
-                    Just reserved -> reserved
-                    Nothing
-                      | hasArrows, Just arrowKind <- arrowOpTokenKind txt -> arrowKind
-                      | hasUnicode -> unicodeOpTokenKind hasArrows txt c
-                      | c == ':' -> TkConSym txt
-                      | otherwise -> TkVarSym txt
-               in Just (mkToken st st' txt kind, st')
-    _ -> Nothing
+  let inp = lexerInput st
+      opText = T.takeWhile isSymbolicOpChar inp
+      hasArrows = hasExt Arrows env
+   in if T.null opText
+        then Nothing
+        else
+          let c = T.head opText
+           in -- Special case: |) is the banana close bracket when Arrows is enabled.
+              -- The ) is not a symbolic op char, so takeWhile stops at |. We check
+              -- the rest to see if ) follows immediately.
+              case (hasArrows, T.unpack opText, T.drop (T.length opText) inp) of
+                (True, "|", rest)
+                  | Just (')', _) <- T.uncons rest ->
+                      let bananaText = "|)"
+                          st' = advanceChars bananaText st
+                       in Just (mkToken st st' bananaText TkBananaClose, st')
+                _ ->
+                  let st' = advanceChars opText st
+                      hasUnicode = hasExt UnicodeSyntax env
+                      kind = case reservedOpTokenKind opText of
+                        Just reserved -> reserved
+                        Nothing
+                          | hasArrows, Just arrowKind <- arrowOpTokenKind opText -> arrowKind
+                          | hasUnicode -> unicodeOpTokenKind hasArrows opText c
+                          | c == ':' -> TkConSym opText
+                          | otherwise -> TkVarSym opText
+                   in Just (mkToken st st' opText kind, st')
 
 -- | Map Unicode operators to their ASCII equivalents when UnicodeSyntax is enabled.
 -- Returns the appropriate token kind for known Unicode operators, or falls back
 -- to TkVarSym/TkConSym based on whether the first character is ':'.
 unicodeOpTokenKind :: Bool -> Text -> Char -> LexTokenKind
-unicodeOpTokenKind hasArrows txt firstChar =
-  case T.unpack txt of
-    "∷" -> TkReservedDoubleColon -- :: (proportion)
-    "⇒" -> TkReservedDoubleArrow -- => (rightwards double arrow)
-    "→" -> TkReservedRightArrow -- -> (rightwards arrow)
-    "←" -> TkReservedLeftArrow -- <- (leftwards arrow)
-    "∀" -> TkVarId "forall" -- forall (for all)
-    "★" -> TkVarSym "*" -- star (for kind signatures)
-    "⤙" | hasArrows -> TkArrowTail -- -< (leftwards arrow-tail)
-        | otherwise -> TkVarSym "-<"
-    "⤚" | hasArrows -> TkArrowTailReverse -- >- (rightwards arrow-tail)
-        | otherwise -> TkVarSym ">-"
-    "⤛" | hasArrows -> TkDoubleArrowTail -- -<< (leftwards double arrow-tail)
-        | otherwise -> TkVarSym "-<<"
-    "⤜" | hasArrows -> TkDoubleArrowTailReverse -- >>- (rightwards double arrow-tail)
-        | otherwise -> TkVarSym ">>-"
-    "⦇" | hasArrows -> TkBananaOpen -- (| left banana bracket
-        | otherwise -> TkVarSym "(|"
-    "⦈" | hasArrows -> TkBananaClose -- |) right banana bracket
-        | otherwise -> TkVarSym "|)"
-    "⟦" -> TkVarSym "[|" -- [| left semantic bracket
-    "⟧" -> TkVarSym "|]" -- right semantic bracket |]
-    "⊸" -> TkVarSym "%1->" -- %1-> (linear arrow)
-    _
-      | firstChar == ':' -> TkConSym txt
-      | otherwise -> TkVarSym txt
+unicodeOpTokenKind hasArrows txt firstChar
+  | txt == "∷" = TkReservedDoubleColon -- :: (proportion)
+  | txt == "⇒" = TkReservedDoubleArrow -- => (rightwards double arrow)
+  | txt == "→" = TkReservedRightArrow -- -> (rightwards arrow)
+  | txt == "←" = TkReservedLeftArrow -- <- (leftwards arrow)
+  | txt == "∀" = TkVarId "forall" -- forall (for all)
+  | txt == "★" = TkVarSym "*" -- star (for kind signatures)
+  | txt == "⤙" = if hasArrows then TkArrowTail else TkVarSym "-<" -- -< (leftwards arrow-tail)
+  | txt == "⤚" = if hasArrows then TkArrowTailReverse else TkVarSym ">-" -- >- (rightwards arrow-tail)
+  | txt == "⤛" = if hasArrows then TkDoubleArrowTail else TkVarSym "-<<" -- -<< (leftwards double arrow-tail)
+  | txt == "⤜" = if hasArrows then TkDoubleArrowTailReverse else TkVarSym ">>-" -- >>- (rightwards double arrow-tail)
+  | txt == "⦇" = if hasArrows then TkBananaOpen else TkVarSym "(|" -- (| left banana bracket
+  | txt == "⦈" = if hasArrows then TkBananaClose else TkVarSym "|)"
+  -- \|) right banana bracket
+  | txt == "⟦" = TkVarSym "[|" -- [| left semantic bracket
+  | txt == "⟧" = TkVarSym "|]" -- right semantic bracket |]
+  | txt == "⊸" = TkVarSym "%1->" -- %1-> (linear arrow)
+  | firstChar == ':' = TkConSym txt
+  | otherwise = TkVarSym txt
 
 lexSymbol :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
 lexSymbol env st =
   firstJust symbols
   where
+    symbols :: [(Text, LexTokenKind)]
     symbols =
       ( if hasExt UnboxedTuples env || hasExt UnboxedSums env
           then [("(#", TkSpecialUnboxedLParen), ("#)", TkSpecialUnboxedRParen)]
           else []
       )
-        <> ( if hasExt Arrows env
-               then [("(|", TkBananaOpen)]
-               else []
-           )
+        <> [("(|", TkBananaOpen) | hasExt Arrows env]
         <> [ ("(", TkSpecialLParen),
              (")", TkSpecialRParen),
              ("[", TkSpecialLBracket),
@@ -1572,126 +1574,129 @@ lexSymbol env st =
     firstJust xs =
       case xs of
         [] -> Nothing
-        (txt, kind) : rest ->
-          if txt `List.isPrefixOf` lexerInput st
+        (sym, kind) : rest ->
+          if sym `T.isPrefixOf` lexerInput st
             then
-              let st' = advanceChars txt st
-               in Just (mkToken st st' (T.pack txt) kind, st')
+              let st' = advanceChars sym st
+               in Just (mkToken st st' sym kind, st')
             else firstJust rest
 
 withOptionalMagicHashSuffix ::
   LexerEnv ->
   LexerState ->
-  String ->
+  Text ->
   LexTokenKind ->
   (Text -> LexTokenKind) ->
   (Text, LexTokenKind, LexerState)
 withOptionalMagicHashSuffix env st raw plainKind hashKind =
   let st' = advanceChars raw st
-   in case lexerInput st' of
-        '#' : _
+   in case T.uncons (lexerInput st') of
+        Just ('#', _)
           | hasExt MagicHash env ->
               let rawHash = raw <> "#"
-                  txtHash = T.pack rawHash
-               in (txtHash, hashKind txtHash, advanceChars "#" st')
-        _ -> (T.pack raw, plainKind, st')
+               in (rawHash, hashKind rawHash, advanceChars "#" st')
+        _ -> (raw, plainKind, st')
 
 lexIntBase :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
 lexIntBase env st =
-  case lexerInput st of
-    '0' : base : rest
-      | base `elem` ("xXoObB" :: String) ->
+  case T.uncons (lexerInput st) of
+    Just ('0', rest0)
+      | Just (base, rest) <- T.uncons rest0,
+        base `elem` ("xXoObB" :: String) ->
           let allowUnderscores = hasExt NumericUnderscores env
               isDigitChar
                 | base `elem` ("xX" :: String) = isHexDigit
                 | base `elem` ("oO" :: String) = isOctDigit
                 | otherwise = (`elem` ("01" :: String))
               (digitsRaw, _) = takeDigitsWithLeadingUnderscores allowUnderscores isDigitChar rest
-           in if null digitsRaw
+           in if T.null digitsRaw
                 then Nothing
                 else
-                  let raw = '0' : base : digitsRaw
-                      txt = T.pack raw
+                  let raw = "0" <> T.singleton base <> digitsRaw
                       n
-                        | base `elem` ("xX" :: String) = readHexLiteral txt
-                        | base `elem` ("oO" :: String) = readOctLiteral txt
-                        | otherwise = readBinLiteral txt
+                        | base `elem` ("xX" :: String) = readHexLiteral raw
+                        | base `elem` ("oO" :: String) = readOctLiteral raw
+                        | otherwise = readBinLiteral raw
                       (tokTxt, tokKind, st') =
-                        withOptionalMagicHashSuffix env st raw (TkIntegerBase n txt) (TkIntegerBaseHash n)
+                        withOptionalMagicHashSuffix env st raw (TkIntegerBase n raw) (TkIntegerBaseHash n)
                    in Just (mkToken st st' tokTxt tokKind, st')
     _ -> Nothing
 
 lexHexFloat :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
 lexHexFloat env st = do
-  ('0' : x : rest) <- Just (lexerInput st)
-  if x `notElem` ("xX" :: String)
+  let inp = lexerInput st
+  (zero, rest0) <- T.uncons inp
+  if zero /= '0'
     then Nothing
     else do
-      let (intDigits, rest1) = span isHexDigit rest
-      if null intDigits
+      (x, rest1) <- T.uncons rest0
+      if x `notElem` ("xX" :: String)
         then Nothing
         else do
-          let (mFracDigits, rest2) =
-                case rest1 of
-                  '.' : more ->
-                    let (frac, rest') = span isHexDigit more
-                     in (Just frac, rest')
-                  _ -> (Nothing, rest1)
-          expo@(_ : expoRest) <- takeHexExponent rest2
-          let fracDigits = fromMaybe "" mFracDigits
-          if null expoRest
+          let (intDigits, rest2) = T.span isHexDigit rest1
+          if T.null intDigits
             then Nothing
-            else
-              let dotAndFrac =
-                    case mFracDigits of
-                      Just ds -> '.' : ds
-                      Nothing -> ""
-                  raw = '0' : x : intDigits <> dotAndFrac <> expo
-                  txt = T.pack raw
-                  value = parseHexFloatLiteral intDigits fracDigits expo
-                  (tokTxt, tokKind, st') =
-                    withOptionalMagicHashSuffix env st raw (TkFloat value txt) (TkFloatHash value)
-               in Just (mkToken st st' tokTxt tokKind, st')
+            else do
+              let (mFracDigits, rest3) =
+                    case T.uncons rest2 of
+                      Just ('.', more) ->
+                        let (frac, rest') = T.span isHexDigit more
+                         in (Just frac, rest')
+                      _ -> (Nothing, rest2)
+              expo <- takeHexExponent rest3
+              if T.length expo <= 1
+                then Nothing
+                else
+                  let dotAndFrac =
+                        case mFracDigits of
+                          Just ds -> "." <> ds
+                          Nothing -> ""
+                      fracDigits = fromMaybe "" mFracDigits
+                      raw = "0" <> T.singleton x <> intDigits <> dotAndFrac <> expo
+                      value = parseHexFloatLiteral (T.unpack intDigits) (T.unpack fracDigits) (T.unpack expo)
+                      (tokTxt, tokKind, st') =
+                        withOptionalMagicHashSuffix env st raw (TkFloat value raw) (TkFloatHash value)
+                   in Just (mkToken st st' tokTxt tokKind, st')
 
 lexFloat :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
 lexFloat env st =
   let allowUnderscores = hasExt NumericUnderscores env
       (lhsRaw, rest) = takeDigitsWithUnderscores allowUnderscores isDigit (lexerInput st)
-   in if null lhsRaw
+   in if T.null lhsRaw
         then Nothing
-        else case rest of
-          '.' : d : more
-            | isDigit d ->
-                let (rhsRaw, rest') = takeDigitsWithUnderscores allowUnderscores isDigit (d : more)
+        else case T.uncons rest of
+          Just ('.', dotRest)
+            | Just (d, _) <- T.uncons dotRest,
+              isDigit d ->
+                let (rhsRaw, rest') = takeDigitsWithUnderscores allowUnderscores isDigit dotRest
                     (expo, _) = takeExponent allowUnderscores rest'
                     raw = lhsRaw <> "." <> rhsRaw <> expo
-                    txt = T.pack raw
-                    normalized = filter (/= '_') raw
-                    value = read normalized
+                    normalized = T.filter (/= '_') raw
+                    value = read (T.unpack normalized) :: Double
                     (tokTxt, tokKind, st') =
-                      withOptionalMagicHashSuffix env st raw (TkFloat value txt) (TkFloatHash value)
+                      withOptionalMagicHashSuffix env st raw (TkFloat value raw) (TkFloatHash value)
                  in Just (mkToken st st' tokTxt tokKind, st')
           _ ->
             case takeExponent allowUnderscores rest of
-              ("", _) -> Nothing
-              (expo, _) ->
-                let raw = lhsRaw <> expo
-                    txt = T.pack raw
-                    normalized = filter (/= '_') raw
-                    value = read normalized
-                    (tokTxt, tokKind, st') =
-                      withOptionalMagicHashSuffix env st raw (TkFloat value txt) (TkFloatHash value)
-                 in Just (mkToken st st' tokTxt tokKind, st')
+              (expo, _)
+                | T.null expo -> Nothing
+                | otherwise ->
+                    let raw = lhsRaw <> expo
+                        normalized = T.filter (/= '_') raw
+                        value = read (T.unpack normalized) :: Double
+                        (tokTxt, tokKind, st') =
+                          withOptionalMagicHashSuffix env st raw (TkFloat value raw) (TkFloatHash value)
+                     in Just (mkToken st st' tokTxt tokKind, st')
 
 lexInt :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
 lexInt env st =
   let allowUnderscores = hasExt NumericUnderscores env
       (digitsRaw, _) = takeDigitsWithUnderscores allowUnderscores isDigit (lexerInput st)
-   in if null digitsRaw
+   in if T.null digitsRaw
         then Nothing
         else
-          let digits = filter (/= '_') digitsRaw
-              n = read digits
+          let digits = T.filter (/= '_') digitsRaw
+              n = read (T.unpack digits) :: Integer
               (tokTxt, tokKind, st') =
                 withOptionalMagicHashSuffix env st digitsRaw (TkInteger n) (TkIntegerHash n)
            in Just (mkToken st st' tokTxt tokKind, st')
@@ -1700,8 +1705,8 @@ lexPromotedQuote :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
 lexPromotedQuote env st
   | not (hasExt DataKinds env) = Nothing
   | otherwise =
-      case lexerInput st of
-        '\'' : rest
+      case T.uncons (lexerInput st) of
+        Just ('\'', rest)
           | isValidCharLiteral rest -> Nothing
           | isPromotionStart rest ->
               let st' = advanceChars "'" st
@@ -1711,12 +1716,12 @@ lexPromotedQuote env st
   where
     isValidCharLiteral chars =
       case scanQuoted '\'' chars of
-        Right (body, _) -> isJust (readMaybeChar ('\'' : body <> "'"))
+        Right (body, _) -> isJust (readMaybeChar ("\'" <> body <> "\'"))
         Left _ -> False
 
     isPromotionStart chars =
-      case chars of
-        c : _
+      case T.uncons chars of
+        Just (c, _)
           | c == '[' -> True
           | c == '(' -> True
           | c == ':' -> True
@@ -1725,80 +1730,83 @@ lexPromotedQuote env st
 
 lexChar :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
 lexChar env st =
-  case lexerInput st of
-    '\'' : rest ->
+  case T.uncons (lexerInput st) of
+    Just ('\'', rest) ->
       case scanQuoted '\'' rest of
         Right (body, _) ->
-          let raw = '\'' : body <> "'"
-           in case readMaybeChar raw of
+          let rawT = "\'" <> body <> "\'"
+           in case readMaybeChar rawT of
                 Just c ->
                   let (tokTxt, tokKind, st') =
-                        withOptionalMagicHashSuffix env st raw (TkChar c) (TkCharHash c)
+                        withOptionalMagicHashSuffix env st rawT (TkChar c) (TkCharHash c)
                    in Just (mkToken st st' tokTxt tokKind, st')
                 Nothing ->
-                  let st' = advanceChars raw st
-                   in Just (mkErrorToken st st' (T.pack raw) "invalid char literal", st')
+                  let st' = advanceChars rawT st
+                   in Just (mkErrorToken st st' rawT "invalid char literal", st')
         Left raw ->
-          let full = '\'' : raw
+          let full = "\'" <> raw
               st' = advanceChars full st
-           in Just (mkErrorToken st st' (T.pack full) "unterminated char literal", st')
+           in Just (mkErrorToken st st' full "unterminated char literal", st')
     _ -> Nothing
 
 lexString :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
 lexString env st =
-  case lexerInput st of
-    '"' : '"' : '"' : rest | hasExt MultilineStrings env ->
-      -- Try multiline string first if extension is enabled
-      case scanMultilineString rest of
-        Right (body, _) ->
-          let raw = "\"\"\"" <> body <> "\"\"\""
-              decoded = T.pack (processMultilineString body)
-              (tokTxt, tokKind, st') =
-                withOptionalMagicHashSuffix env st raw (TkString decoded) (TkStringHash decoded)
-           in Just (mkToken st st' tokTxt tokKind, st')
-        Left raw ->
-          let full = "\"\"\"" <> raw
-              st' = advanceChars full st
-           in Just (mkErrorToken st st' (T.pack full) "unterminated multiline string literal", st')
-    '"' : rest ->
-      case scanQuoted '"' rest of
-        Right (body, _) ->
-          let raw = "\"" <> body <> "\""
-              decoded =
-                case reads raw of
-                  [(str, "")] -> T.pack str
-                  _ -> T.pack body
-              (tokTxt, tokKind, st') =
-                withOptionalMagicHashSuffix env st raw (TkString decoded) (TkStringHash decoded)
-           in Just (mkToken st st' tokTxt tokKind, st')
-        Left raw ->
-          let full = '"' : raw
-              st' = advanceChars full st
-           in Just (mkErrorToken st st' (T.pack full) "unterminated string literal", st')
-    _ -> Nothing
+  let inp = lexerInput st
+   in if "\"\"\"" `T.isPrefixOf` inp && hasExt MultilineStrings env
+        then -- Try multiline string first if extension is enabled
+          let restText = T.drop 3 inp
+           in case scanMultilineString restText of
+                Right (body, _) ->
+                  let raw = "\"\"\"" <> body <> "\"\"\""
+                      decoded = T.pack (processMultilineString (T.unpack body))
+                      (tokTxt, tokKind, st') =
+                        withOptionalMagicHashSuffix env st raw (TkString decoded) (TkStringHash decoded)
+                   in Just (mkToken st st' tokTxt tokKind, st')
+                Left raw ->
+                  let full = "\"\"\"" <> raw
+                      st' = advanceChars full st
+                   in Just (mkErrorToken st st' full "unterminated multiline string literal", st')
+        else case T.uncons inp of
+          Just ('"', rest) ->
+            case scanQuoted '"' rest of
+              Right (body, _) ->
+                let rawT = "\"" <> body <> "\""
+                    decoded =
+                      case reads (T.unpack rawT) of
+                        [(str, "")] -> T.pack str
+                        _ -> body
+                    (tokTxt, tokKind, st') =
+                      withOptionalMagicHashSuffix env st rawT (TkString decoded) (TkStringHash decoded)
+                 in Just (mkToken st st' tokTxt tokKind, st')
+              Left raw ->
+                let full = "\"" <> raw
+                    st' = advanceChars full st
+                 in Just (mkErrorToken st st' full "unterminated string literal", st')
+          _ -> Nothing
 
 lexQuasiQuote :: LexerState -> Maybe (LexToken, LexerState)
 lexQuasiQuote st =
-  case lexerInput st of
-    '[' : rest ->
+  case T.uncons (lexerInput st) of
+    Just ('[', rest) ->
       case parseQuasiQuote rest of
-        Just (quoter, body, _) ->
+        Just (quoter, body) ->
           let raw = "[" <> quoter <> "|" <> body <> "|]"
               st' = advanceChars raw st
-           in Just (mkToken st st' (T.pack raw) (TkQuasiQuote (T.pack quoter) (T.pack body)), st')
+           in Just (mkToken st st' raw (TkQuasiQuote quoter body), st')
         Nothing -> Nothing
     _ -> Nothing
   where
     parseQuasiQuote chars =
       let (quoter, rest0) = takeQuoter chars
-       in case rest0 of
-            '|' : rest1
-              | not (null quoter) ->
-                  let (body, rest2) = breakOnMarker "|]" rest1
-                   in case rest2 of
-                        '|' : ']' : _ -> Just (quoter, body, take (length body + 2) rest1)
-                        _ -> Nothing
-            _ -> Nothing
+       in if T.null quoter
+            then Nothing
+            else case T.uncons rest0 of
+              Just ('|', rest1) ->
+                let (body, rest2) = T.breakOn "|]" rest1
+                 in if T.null rest2
+                      then Nothing
+                      else Just (quoter, body)
+              _ -> Nothing
 
 -- | Lex Template Haskell opening quote brackets: [| [e| [|| [e|| [d| [t| [p|
 -- Must be tried before lexQuasiQuote so that [e|...] is not misinterpreted
@@ -1807,35 +1815,36 @@ lexTHQuoteBracket :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
 lexTHQuoteBracket env st
   | not (thQuotesEnabled env st) = Nothing
   | otherwise =
-      case lexerInput st of
-        '[' : '|' : '|' : _ ->
-          let raw = "[||"
-              st' = advanceChars raw st
-           in Just (mkToken st st' (T.pack raw) TkTHTypedQuoteOpen, st')
-        '[' : 'e' : '|' : '|' : _ ->
-          let raw = "[e||"
-              st' = advanceChars raw st
-           in Just (mkToken st st' (T.pack raw) TkTHTypedQuoteOpen, st')
-        '[' : '|' : _ ->
-          let raw = "[|"
-              st' = advanceChars raw st
-           in Just (mkToken st st' (T.pack raw) TkTHExpQuoteOpen, st')
-        '[' : 'e' : '|' : _ ->
-          let raw = "[e|"
-              st' = advanceChars raw st
-           in Just (mkToken st st' (T.pack raw) TkTHExpQuoteOpen, st')
-        '[' : 'd' : '|' : _ ->
-          let raw = "[d|"
-              st' = advanceChars raw st
-           in Just (mkToken st st' (T.pack raw) TkTHDeclQuoteOpen, st')
-        '[' : 't' : '|' : _ ->
-          let raw = "[t|"
-              st' = advanceChars raw st
-           in Just (mkToken st st' (T.pack raw) TkTHTypeQuoteOpen, st')
-        '[' : 'p' : '|' : _ ->
-          let raw = "[p|"
-              st' = advanceChars raw st
-           in Just (mkToken st st' (T.pack raw) TkTHPatQuoteOpen, st')
+      case T.uncons (lexerInput st) of
+        Just ('[', _)
+          | "[||" `T.isPrefixOf` lexerInput st ->
+              let raw = "[||" :: Text
+                  st' = advanceChars raw st
+               in Just (mkToken st st' raw TkTHTypedQuoteOpen, st')
+          | "[e||" `T.isPrefixOf` lexerInput st ->
+              let raw = "[e||" :: Text
+                  st' = advanceChars raw st
+               in Just (mkToken st st' raw TkTHTypedQuoteOpen, st')
+          | "[|" `T.isPrefixOf` lexerInput st ->
+              let raw = "[|" :: Text
+                  st' = advanceChars raw st
+               in Just (mkToken st st' raw TkTHExpQuoteOpen, st')
+          | "[e|" `T.isPrefixOf` lexerInput st ->
+              let raw = "[e|" :: Text
+                  st' = advanceChars raw st
+               in Just (mkToken st st' raw TkTHExpQuoteOpen, st')
+          | "[d|" `T.isPrefixOf` lexerInput st ->
+              let raw = "[d|" :: Text
+                  st' = advanceChars raw st
+               in Just (mkToken st st' raw TkTHDeclQuoteOpen, st')
+          | "[t|" `T.isPrefixOf` lexerInput st ->
+              let raw = "[t|" :: Text
+                  st' = advanceChars raw st
+               in Just (mkToken st st' raw TkTHTypeQuoteOpen, st')
+          | "[p|" `T.isPrefixOf` lexerInput st ->
+              let raw = "[p|" :: Text
+                  st' = advanceChars raw st
+               in Just (mkToken st st' raw TkTHPatQuoteOpen, st')
         _ -> Nothing
 
 -- | Lex Template Haskell closing quote brackets: |] and ||]
@@ -1844,15 +1853,17 @@ lexTHCloseQuote :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
 lexTHCloseQuote env st
   | not (thQuotesEnabled env st) = Nothing
   | otherwise =
-      case lexerInput st of
-        '|' : '|' : ']' : _ ->
-          let raw = "||]"
-              st' = advanceChars raw st
-           in Just (mkToken st st' (T.pack raw) TkTHTypedQuoteClose, st')
-        '|' : ']' : _ ->
-          let raw = "|]"
-              st' = advanceChars raw st
-           in Just (mkToken st st' (T.pack raw) TkTHExpQuoteClose, st')
+      case T.uncons (lexerInput st) of
+        Just ('|', rest0)
+          | Just ('|', rest1) <- T.uncons rest0,
+            Just (']', _) <- T.uncons rest1 ->
+              let raw = "||]" :: Text
+                  st' = advanceChars raw st
+               in Just (mkToken st st' raw TkTHTypedQuoteClose, st')
+          | Just (']', _) <- T.uncons rest0 ->
+              let raw = "|]" :: Text
+                  st' = advanceChars raw st
+               in Just (mkToken st st' raw TkTHExpQuoteClose, st')
         _ -> Nothing
 
 -- | Lex Template Haskell name quote ticks: ' and ''
@@ -1862,29 +1873,31 @@ lexTHNameQuote :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
 lexTHNameQuote env st
   | not (thQuotesEnabled env st) = Nothing
   | otherwise =
-      case lexerInput st of
-        '\'' : '\'' : rest ->
-          -- '' - type name quote tick (only when followed by an identifier start)
-          case rest of
-            c : _
-              | isIdentStart c ->
-                  let raw = "''"
+      case T.uncons (lexerInput st) of
+        Just ('\'', rest0) ->
+          case T.uncons rest0 of
+            Just ('\'', rest1) ->
+              -- '' - type name quote tick (only when followed by an identifier start)
+              case T.uncons rest1 of
+                Just (c, _)
+                  | isIdentStart c ->
+                      let raw = "''" :: Text
+                          st' = advanceChars raw st
+                       in Just (mkToken st st' raw TkTHTypeQuoteTick, st')
+                _ -> Nothing
+            _ ->
+              -- ' - value name quote tick (NOT a char literal)
+              if isValidCharLiteral rest0
+                then Nothing
+                else
+                  let raw = "'" :: Text
                       st' = advanceChars raw st
-                   in Just (mkToken st st' (T.pack raw) TkTHTypeQuoteTick, st')
-            _ -> Nothing
-        '\'' : rest ->
-          -- ' - value name quote tick (NOT a char literal)
-          if isValidCharLiteral rest
-            then Nothing
-            else
-              let raw = "'"
-                  st' = advanceChars raw st
-               in Just (mkToken st st' (T.pack raw) TkTHQuoteTick, st')
+                   in Just (mkToken st st' raw TkTHQuoteTick, st')
         _ -> Nothing
   where
     isValidCharLiteral chars =
       case scanQuoted '\'' chars of
-        Right (body, _) -> isJust (readMaybeChar ('\'' : body <> "'"))
+        Right (body, _) -> isJust (readMaybeChar ("\'" <> body <> "\'"))
         Left _ -> False
 
 -- | Check if TemplateHaskellQuotes or TemplateHaskell is enabled
@@ -1895,9 +1908,10 @@ thQuotesEnabled env _st =
 
 lexErrorToken :: LexerState -> Text -> (LexToken, LexerState)
 lexErrorToken st msg =
-  let raw = take 1 (lexerInput st)
-      rawTxt = if null raw then "<eof>" else T.pack raw
-      st' = if null raw then st else advanceChars raw st
+  let rawTxt = case T.uncons (lexerInput st) of
+        Just (c, _) -> T.singleton c
+        Nothing -> "<eof>"
+      st' = if T.null rawTxt || rawTxt == "<eof>" then st else advanceChars rawTxt st
    in ( mkErrorToken st st' rawTxt msg,
         st'
       )
@@ -1910,10 +1924,11 @@ tryConsumeLineDirective :: LexerState -> Maybe (Maybe LexToken, LexerState)
 tryConsumeLineDirective st
   | not (lexerAtLineStart st) = Nothing
   | otherwise =
-      let (spaces, rest) = span (\c -> c == ' ' || c == '\t') (lexerInput st)
-       in case rest of
-            '#' : more ->
-              let lineText = '#' : takeLineRemainder more
+      let inp = lexerInput st
+          (spaces, rest) = T.span (\c -> c == ' ' || c == '\t') inp
+       in case T.uncons rest of
+            Just ('#', more) ->
+              let lineText = "#" <> takeLineRemainder more
                   consumed = spaces <> lineText
                in case classifyHashLineTrivia lineText of
                     Just (HashLineDirective update) ->
@@ -1923,34 +1938,32 @@ tryConsumeLineDirective st
                        in Just (Nothing, st')
                     Just HashLineMalformed ->
                       let st' = advanceChars consumed st
-                       in Just (Just (mkToken st st' (T.pack consumed) (TkError "malformed line directive")), st')
+                       in Just (Just (mkToken st st' consumed (TkError "malformed line directive")), st')
                     Nothing -> Nothing
             _ -> Nothing
 
 tryConsumeControlPragma :: LexerState -> Maybe (Maybe LexToken, LexerState)
 tryConsumeControlPragma st =
-  case parseControlPragma (lexerInput st) of
-    Just (consumed0, Right update0) ->
-      let (consumed, update) =
-            case directiveLine update0 of
-              Just lineNo ->
-                case drop (length consumed0) (lexerInput st) of
-                  '\n' : _ ->
-                    (consumed0 <> "\n", update0 {directiveLine = Just lineNo, directiveCol = Just 1})
-                  _ -> (consumed0, update0)
-              Nothing -> (consumed0, update0)
-       in Just (Nothing, applyDirectiveAdvance consumed update st)
-    Just (consumed, Left msg) ->
-      let st' = advanceChars consumed st
-       in Just (Just (mkToken st st' (T.pack consumed) (TkError msg)), st')
-    Nothing -> Nothing
+  let inp = lexerInput st
+   in case parseControlPragma inp of
+        Just (consumedT, Right update0) ->
+          let (consumedT', update) =
+                case directiveLine update0 of
+                  Just lineNo ->
+                    case T.uncons (T.drop (T.length consumedT) (lexerInput st)) of
+                      Just ('\n', _) ->
+                        (consumedT <> "\n", update0 {directiveLine = Just lineNo, directiveCol = Just 1})
+                      _ -> (consumedT, update0)
+                  Nothing -> (consumedT, update0)
+           in Just (Nothing, applyDirectiveAdvance consumedT' update st)
+        Just (consumedT, Left msg) ->
+          let st' = advanceChars consumedT st
+           in Just (Just (mkToken st st' consumedT (TkError msg)), st')
+        Nothing -> Nothing
 
-applyDirectiveAdvance :: String -> DirectiveUpdate -> LexerState -> LexerState
+applyDirectiveAdvance :: Text -> DirectiveUpdate -> LexerState -> LexerState
 applyDirectiveAdvance consumed update st =
-  let hasTrailingNewline =
-        case reverse consumed of
-          '\n' : _ -> True
-          _ -> False
+  let hasTrailingNewline = T.isSuffixOf "\n" consumed
       st' = advanceChars consumed st
    in st'
         { lexerLogicalSourceName = fromMaybe (lexerLogicalSourceName st') (directiveSourceName update),
@@ -1960,24 +1973,25 @@ applyDirectiveAdvance consumed update st =
         }
 
 consumeLineComment :: LexerState -> LexerState
-consumeLineComment st = advanceChars consumed st
-  where
-    consumed = takeCommentRemainder (drop 2 (lexerInput st))
-    prefix = "--"
-    takeCommentRemainder xs =
-      prefix <> takeWhile (/= '\n') xs
+consumeLineComment st =
+  let inp = lexerInput st
+      rest = T.drop 2 inp
+      consumed = "--" <> T.takeWhile (/= '\n') rest
+   in advanceChars consumed st
 
 consumeUnknownPragma :: LexerState -> Maybe LexerState
 consumeUnknownPragma st =
-  case breakOnMarker "#-}" (lexerInput st) of
-    (_, "") -> Nothing
-    (body, marker) ->
-      let consumed = body <> take 3 marker
-       in Just (advanceChars consumed st)
+  let inp = lexerInput st
+      (_, suffix) = T.breakOn "#-}" inp
+   in if T.null suffix
+        then Nothing
+        else
+          let consumed = T.take (T.length inp - T.length suffix + 3) inp
+           in Just (advanceChars consumed st)
 
 consumeBlockComment :: LexerState -> Maybe LexerState
 consumeBlockComment st =
-  case scanNestedBlockComment 1 (drop 2 (lexerInput st)) of
+  case scanNestedBlockComment 1 (T.drop 2 (lexerInput st)) of
     Just consumedTail -> Just (advanceChars ("{-" <> consumedTail) st)
     Nothing -> Nothing
 
@@ -1988,21 +2002,25 @@ consumeBlockCommentOrError st =
     Nothing ->
       let consumed = lexerInput st
           st' = advanceChars consumed st
-          tok = mkToken st st' (T.pack consumed) (TkError "unterminated block comment")
+          tok = mkToken st st' consumed (TkError "unterminated block comment")
        in Left (tok, st')
 
-scanNestedBlockComment :: Int -> String -> Maybe String
-scanNestedBlockComment depth chars
-  | depth <= 0 = Just ""
-  | otherwise =
-      case chars of
-        [] -> Nothing
-        '{' : '-' : rest -> ("{-" <>) <$> scanNestedBlockComment (depth + 1) rest
-        '-' : '}' : rest ->
-          if depth == 1
-            then Just "-}"
-            else ("-}" <>) <$> scanNestedBlockComment (depth - 1) rest
-        c : rest -> (c :) <$> scanNestedBlockComment depth rest
+scanNestedBlockComment :: Int -> Text -> Maybe Text
+scanNestedBlockComment depth0 input = go depth0 0 input
+  where
+    go depth !n remaining
+      | depth <= 0 = Just (T.take n input)
+      | otherwise =
+          case T.uncons remaining of
+            Nothing -> Nothing
+            Just ('{', rest)
+              | Just ('-', rest') <- T.uncons rest -> go (depth + 1) (n + 2) rest'
+            Just ('-', rest)
+              | Just ('}', rest') <- T.uncons rest ->
+                  if depth == 1
+                    then Just (T.take (n + 2) input)
+                    else go (depth - 1) (n + 2) rest'
+            Just (_, rest) -> go depth (n + 1) rest
 
 tryConsumeKnownPragma :: LexerState -> Maybe ()
 tryConsumeKnownPragma st =
@@ -2010,14 +2028,14 @@ tryConsumeKnownPragma st =
     Just _ -> Just ()
     Nothing -> Nothing
 
-parseLanguagePragma :: String -> Maybe (Int, (Text, LexTokenKind))
+parseLanguagePragma :: Text -> Maybe (Int, (Text, LexTokenKind))
 parseLanguagePragma input = do
   (_, body, consumed) <- stripNamedPragma ["LANGUAGE"] input
-  let names = parseLanguagePragmaNames (T.pack body)
-      raw = "{-# LANGUAGE " <> T.unpack (T.intercalate ", " (map extensionSettingName names)) <> " #-}"
-  pure (length consumed, (T.pack raw, TkPragmaLanguage names))
+  let names = parseLanguagePragmaNames body
+      raw = "{-# LANGUAGE " <> T.intercalate ", " (map extensionSettingName names) <> " #-}"
+  pure (T.length consumed, (raw, TkPragmaLanguage names))
 
-parseInstanceOverlapPragma :: String -> Maybe (Int, (Text, LexTokenKind))
+parseInstanceOverlapPragma :: Text -> Maybe (Int, (Text, LexTokenKind))
 parseInstanceOverlapPragma input = do
   (pragmaName, _, consumed) <- stripNamedPragma ["OVERLAPPING", "OVERLAPPABLE", "OVERLAPS", "INCOHERENT"] input
   overlapPragma <-
@@ -2028,62 +2046,64 @@ parseInstanceOverlapPragma input = do
       "INCOHERENT" -> Just Incoherent
       _ -> Nothing
   let raw = "{-# " <> pragmaName <> " #-}"
-  pure (length consumed, (T.pack raw, TkPragmaInstanceOverlap overlapPragma))
+  pure (T.length consumed, (raw, TkPragmaInstanceOverlap overlapPragma))
 
-parseOptionsPragma :: String -> Maybe (Int, (Text, LexTokenKind))
+parseOptionsPragma :: Text -> Maybe (Int, (Text, LexTokenKind))
 parseOptionsPragma input = do
   (pragmaName, body, consumed) <- stripNamedPragma ["OPTIONS_GHC", "OPTIONS"] input
-  let settings = parseOptionsPragmaSettings (T.pack body)
-      raw = "{-# " <> pragmaName <> " " <> T.unpack (T.strip (T.pack body)) <> " #-}"
-  pure (length consumed, (T.pack raw, TkPragmaLanguage settings))
+  let settings = parseOptionsPragmaSettings body
+      raw = "{-# " <> pragmaName <> " " <> T.stripEnd body <> " #-}"
+  pure (T.length consumed, (raw, TkPragmaLanguage settings))
 
-parseWarningPragma :: String -> Maybe (Int, (Text, LexTokenKind))
+parseWarningPragma :: Text -> Maybe (Int, (Text, LexTokenKind))
 parseWarningPragma input = do
   (_, body, consumed) <- stripNamedPragma ["WARNING"] input
-  let txt = T.strip (T.pack body)
+  let txt = T.strip body
       (msg, rawMsg) =
-        case body of
-          '"' : _ ->
-            case reads body of
-              [(decoded, "")] -> (T.pack decoded, T.pack body)
+        case T.uncons body of
+          Just ('"', _) ->
+            case reads (T.unpack body) of
+              [(decoded, "")] -> (T.pack decoded, body)
               _ -> (txt, txt)
           _ -> (txt, txt)
       raw = "{-# WARNING " <> rawMsg <> " #-}"
-  pure (length consumed, (raw, TkPragmaWarning msg))
+  pure (T.length consumed, (raw, TkPragmaWarning msg))
 
-parseDeprecatedPragma :: String -> Maybe (Int, (Text, LexTokenKind))
+parseDeprecatedPragma :: Text -> Maybe (Int, (Text, LexTokenKind))
 parseDeprecatedPragma input = do
   (_, body, consumed) <- stripNamedPragma ["DEPRECATED"] input
-  let txt = T.strip (T.pack body)
+  let txt = T.strip body
       (msg, rawMsg) =
-        case body of
-          '"' : _ ->
-            case reads body of
-              [(decoded, "")] -> (T.pack decoded, T.pack body)
+        case T.uncons body of
+          Just ('"', _) ->
+            case reads (T.unpack body) of
+              [(decoded, "")] -> (T.pack decoded, body)
               _ -> (txt, txt)
           _ -> (txt, txt)
       raw = "{-# DEPRECATED " <> rawMsg <> " #-}"
-  pure (length consumed, (raw, TkPragmaDeprecated msg))
+  pure (T.length consumed, (raw, TkPragmaDeprecated msg))
 
-stripPragma :: String -> String -> Maybe String
+stripPragma :: Text -> Text -> Maybe Text
 stripPragma name input = (\(_, body, _) -> body) <$> stripNamedPragma [name] input
 
-stripNamedPragma :: [String] -> String -> Maybe (String, String, String)
+stripNamedPragma :: [Text] -> Text -> Maybe (Text, Text, Text)
 stripNamedPragma names input = do
-  rest0 <- List.stripPrefix "{-#" input
-  let rest1 = dropWhile isSpace rest0
+  rest0 <- T.stripPrefix "{-#" input
+  let rest1 = T.dropWhile isSpace rest0
   (name, rest2) <- firstMatchingPragmaName rest1 names
-  let rest3 = dropWhile isSpace rest2
-      (body, marker) = breakOnMarker "#-}" rest3
-  guardPrefix "#-}" marker
-  let consumedLen = length input - length (drop 3 marker)
-  pure (name, trimRight body, take consumedLen input)
+  let rest3 = T.dropWhile isSpace rest2
+      (body, marker) = T.breakOn "#-}" rest3
+  if T.null marker
+    then Nothing
+    else
+      let consumedLen = T.length input - T.length (T.drop 3 marker)
+       in Just (name, T.stripEnd body, T.take consumedLen input)
 
-firstMatchingPragmaName :: String -> [String] -> Maybe (String, String)
+firstMatchingPragmaName :: Text -> [Text] -> Maybe (Text, Text)
 firstMatchingPragmaName _ [] = Nothing
 firstMatchingPragmaName input (name : names) =
-  let (candidate, rest) = splitAt (length name) input
-   in if map toUpper candidate == map toUpper name
+  let (candidate, rest) = T.splitAt (T.length name) input
+   in if T.toUpper candidate == T.toUpper name
         then Just (name, rest)
         else firstMatchingPragmaName input names
 
@@ -2179,7 +2199,7 @@ pragmaWords txt = go [] [] Nothing (T.unpack txt)
         [] -> acc
         token -> T.pack token : acc
 
-classifyHashLineTrivia :: String -> Maybe HashLineTrivia
+classifyHashLineTrivia :: Text -> Maybe HashLineTrivia
 classifyHashLineTrivia raw
   | isHashBangLine raw = Just HashLineShebang
   | looksLikeHashLineDirective raw =
@@ -2188,67 +2208,66 @@ classifyHashLineTrivia raw
         Nothing -> Just HashLineMalformed
   | otherwise = Nothing
 
-parseHashLineDirective :: String -> Maybe DirectiveUpdate
+parseHashLineDirective :: Text -> Maybe DirectiveUpdate
 parseHashLineDirective raw =
-  let trimmed = trimLeft (drop 1 (trimLeft raw))
+  let trimmed = T.dropWhile isSpace (T.drop 1 (T.dropWhile isSpace raw))
       trimmed' =
-        if "line" `List.isPrefixOf` trimmed
-          then dropWhile isSpace (drop 4 trimmed)
-          else trimmed
-      (digits, rest) = span isDigit trimmed'
-   in if null digits
+        case T.stripPrefix "line" trimmed of
+          Just afterLine -> T.dropWhile isSpace afterLine
+          Nothing -> trimmed
+      (digits, rest) = T.span isDigit trimmed'
+   in if T.null digits
         then Nothing
         else
           Just
             DirectiveUpdate
-              { directiveLine = Just (read digits),
+              { directiveLine = Just (read (T.unpack digits)),
                 directiveCol = Just 1,
                 directiveSourceName = parseDirectiveSourceName rest
               }
 
-isHashBangLine :: String -> Bool
+isHashBangLine :: Text -> Bool
 isHashBangLine raw =
-  case trimLeft raw of
-    '#' : '!' : _ -> True
-    _ -> False
+  "#!" `T.isPrefixOf` T.dropWhile isSpace raw
 
-looksLikeHashLineDirective :: String -> Bool
+looksLikeHashLineDirective :: Text -> Bool
 looksLikeHashLineDirective raw =
-  case trimLeft (drop 1 (trimLeft raw)) of
-    c : _ | isDigit c -> True
-    rest -> "line" `List.isPrefixOf` rest
+  let afterHash = T.dropWhile isSpace (T.drop 1 (T.dropWhile isSpace raw))
+   in case T.uncons afterHash of
+        Just (c, _) | isDigit c -> True
+        _ -> "line" `T.isPrefixOf` afterHash
 
-parseControlPragma :: String -> Maybe (String, Either Text DirectiveUpdate)
+parseControlPragma :: Text -> Maybe (Text, Either Text DirectiveUpdate)
 parseControlPragma input
   | Just body <- stripPragma "LINE" input =
-      let trimmed = words body
-       in case trimmed of
+      let ws = T.words body
+       in case ws of
             lineNo : _
-              | all isDigit lineNo ->
+              | T.all isDigit lineNo ->
                   Just
                     ( fullPragmaConsumed "LINE" body,
                       Right
                         DirectiveUpdate
-                          { directiveLine = Just (read lineNo),
+                          { directiveLine = Just (read (T.unpack lineNo)),
                             directiveCol = Just 1,
-                            directiveSourceName = parseDirectiveSourceName (dropWhile isSpace (drop (length lineNo) body))
+                            directiveSourceName = parseDirectiveSourceName (T.dropWhile isSpace (T.drop (T.length lineNo) body))
                           }
                     )
             _ -> Just (fullPragmaConsumed "LINE" body, Left "malformed LINE pragma")
   | Just body <- stripPragma "COLUMN" input =
-      let trimmed = words body
-       in case trimmed of
+      let ws = T.words body
+       in case ws of
             colNo : _
-              | all isDigit colNo ->
+              | T.all isDigit colNo ->
                   Just
                     ( fullPragmaConsumed "COLUMN" body,
-                      Right DirectiveUpdate {directiveLine = Nothing, directiveCol = Just (read colNo), directiveSourceName = Nothing}
+                      Right DirectiveUpdate {directiveLine = Nothing, directiveCol = Just (read (T.unpack colNo)), directiveSourceName = Nothing}
                     )
             _ -> Just (fullPragmaConsumed "COLUMN" body, Left "malformed COLUMN pragma")
   | otherwise = Nothing
 
-fullPragmaConsumed :: String -> String -> String
-fullPragmaConsumed name body = "{-# " <> name <> " " <> trimRight body <> " #-}"
+fullPragmaConsumed :: Text -> Text -> Text
+fullPragmaConsumed name body = "{-# " <> name <> " " <> T.stripEnd body <> " #-}"
 
 mkToken :: LexerState -> LexerState -> Text -> LexTokenKind -> LexToken
 mkToken start end tokTxt kind =
@@ -2271,41 +2290,30 @@ mkSpan start end =
       sourceSpanEndOffset = lexerByteOffset end
     }
 
-advanceChars :: String -> LexerState -> LexerState
-advanceChars chars st = foldl advanceOne st chars
-  where
-    advanceOne acc ch =
-      case ch of
-        '\n' ->
-          acc
-            { lexerInput = drop 1 (lexerInput acc),
-              lexerLine = lexerLine acc + 1,
-              lexerCol = 1,
-              lexerByteOffset = lexerByteOffset acc + 1,
-              lexerAtLineStart = True
-            }
-        '\t' ->
-          let nextTabStop = 8 - ((lexerCol acc - 1) `mod` 8)
-           in acc
-                { lexerInput = drop 1 (lexerInput acc),
-                  lexerCol = lexerCol acc + nextTabStop,
-                  lexerByteOffset = lexerByteOffset acc + 1,
-                  lexerAtLineStart = lexerAtLineStart acc
-                }
-        ' ' ->
-          acc
-            { lexerInput = drop 1 (lexerInput acc),
-              lexerCol = lexerCol acc + 1,
-              lexerByteOffset = lexerByteOffset acc + 1,
-              lexerAtLineStart = lexerAtLineStart acc
-            }
-        _ ->
-          acc
-            { lexerInput = drop 1 (lexerInput acc),
-              lexerCol = lexerCol acc + 1,
-              lexerByteOffset = lexerByteOffset acc + utf8CharWidth ch,
-              lexerAtLineStart = False
-            }
+advanceChars :: Text -> LexerState -> LexerState
+advanceChars consumed st =
+  let !n = T.length consumed
+      go (!line, !col, !byteOff, !atLineStart) ch =
+        case ch of
+          '\n' -> (line + 1, 1, byteOff + 1, True)
+          '\t' ->
+            let nextTabStop = 8 - ((col - 1) `mod` 8)
+             in (line, col + nextTabStop, byteOff + 1, atLineStart)
+          ' ' -> (line, col + 1, byteOff + 1, atLineStart)
+          _ -> (line, col + 1, byteOff + utf8CharWidth ch, False)
+      (!finalLine, !finalCol, !finalByteOff, !finalAtLineStart) =
+        T.foldl' go (lexerLine st, lexerCol st, lexerByteOffset st, lexerAtLineStart st) consumed
+   in st
+        { lexerInput = T.drop n (lexerInput st),
+          lexerLine = finalLine,
+          lexerCol = finalCol,
+          lexerByteOffset = finalByteOff,
+          lexerAtLineStart = finalAtLineStart
+        }
+
+-- | Advance by n characters, computing position from the Text being consumed.
+advanceN :: Int -> LexerState -> LexerState
+advanceN n st = advanceChars (T.take n (lexerInput st)) st
 
 utf8CharWidth :: Char -> Int
 utf8CharWidth ch =
@@ -2316,18 +2324,21 @@ utf8CharWidth ch =
       | code <= 0xFFFF -> 3
       | otherwise -> 4
 
-parseDirectiveSourceName :: String -> Maybe FilePath
+parseDirectiveSourceName :: Text -> Maybe FilePath
 parseDirectiveSourceName rest =
-  case dropWhile isSpace rest of
-    '"' : more ->
-      let (name, trailing) = span (/= '"') more
-       in case trailing of
-            '"' : _ -> Just name
-            _ -> Nothing
-    _ -> Nothing
+  let rest' = T.dropWhile isSpace rest
+   in case T.uncons rest' of
+        Just ('"', more) ->
+          let (name, trailing) = T.break (== '"') more
+           in case T.uncons trailing of
+                Just ('"', _) -> Just (T.unpack name)
+                _ -> Nothing
+        _ -> Nothing
 
 consumeWhile :: (Char -> Bool) -> LexerState -> LexerState
-consumeWhile f st = advanceChars (takeWhile f (lexerInput st)) st
+consumeWhile f st =
+  let consumed = T.takeWhile f (lexerInput st)
+   in advanceChars consumed st
 
 -- | Take digits with optional underscores.
 --
@@ -2338,10 +2349,10 @@ consumeWhile f st = advanceChars (takeWhile f (lexerInput st)) st
 --
 -- When @allowUnderscores@ is False:
 --   - No underscores are accepted; only digits are consumed
-takeDigitsWithUnderscores :: Bool -> (Char -> Bool) -> String -> (String, String)
+takeDigitsWithUnderscores :: Bool -> (Char -> Bool) -> Text -> (Text, Text)
 takeDigitsWithUnderscores allowUnderscores isDigitChar chars =
-  let (firstChunk, rest) = span isDigitChar chars
-   in if null firstChunk
+  let (firstChunk, rest) = T.span isDigitChar chars
+   in if T.null firstChunk
         then ("", chars)
         else
           if allowUnderscores
@@ -2349,15 +2360,14 @@ takeDigitsWithUnderscores allowUnderscores isDigitChar chars =
             else (firstChunk, rest)
   where
     go acc xs =
-      case xs of
-        '_' : rest ->
+      case T.uncons xs of
+        Just ('_', _) ->
           -- Consume consecutive underscores
-          let (underscores, rest') = span (== '_') rest
-              allUnderscores = '_' : underscores
-              (chunk, rest'') = span isDigitChar rest'
-           in if null chunk
+          let (underscores, rest') = T.span (== '_') xs
+              (chunk, rest'') = T.span isDigitChar rest'
+           in if T.null chunk
                 then (acc, xs) -- Trailing underscore(s), stop here
-                else go (acc <> allUnderscores <> chunk) rest''
+                else go (acc <> underscores <> chunk) rest''
         _ -> (acc, xs)
 
 -- | Take digits with optional leading underscores after a base prefix.
@@ -2369,28 +2379,27 @@ takeDigitsWithUnderscores allowUnderscores isDigitChar chars =
 --
 -- When @allowUnderscores@ is False:
 --   - No underscores are accepted; only digits are consumed
-takeDigitsWithLeadingUnderscores :: Bool -> (Char -> Bool) -> String -> (String, String)
+takeDigitsWithLeadingUnderscores :: Bool -> (Char -> Bool) -> Text -> (Text, Text)
 takeDigitsWithLeadingUnderscores allowUnderscores isDigitChar chars
   | not allowUnderscores =
-      let (digits, rest) = span isDigitChar chars
+      let (digits, rest) = T.span isDigitChar chars
        in (digits, rest)
   | otherwise =
       -- With NumericUnderscores, leading underscores are allowed
-      let (leadingUnderscores, rest0) = span (== '_') chars
-          (firstChunk, rest1) = span isDigitChar rest0
-       in if null firstChunk
+      let (leadingUnderscores, rest0) = T.span (== '_') chars
+          (firstChunk, rest1) = T.span isDigitChar rest0
+       in if T.null firstChunk
             then ("", chars) -- Must have at least one digit somewhere
             else go (leadingUnderscores <> firstChunk) rest1
   where
     go acc xs =
-      case xs of
-        '_' : rest ->
-          let (underscores, rest') = span (== '_') rest
-              allUnderscores = '_' : underscores
-              (chunk, rest'') = span isDigitChar rest'
-           in if null chunk
+      case T.uncons xs of
+        Just ('_', _) ->
+          let (underscores, rest') = T.span (== '_') xs
+              (chunk, rest'') = T.span isDigitChar rest'
+           in if T.null chunk
                 then (acc, xs)
-                else go (acc <> allUnderscores <> chunk) rest''
+                else go (acc <> underscores <> chunk) rest''
         _ -> (acc, xs)
 
 -- | Parse the exponent part of a float literal (e.g., "e+10", "E-5").
@@ -2402,78 +2411,83 @@ takeDigitsWithLeadingUnderscores allowUnderscores isDigitChar chars
 --
 -- When @allowUnderscores@ is False:
 --   - Only digits are accepted in the exponent
-takeExponent :: Bool -> String -> (String, String)
+takeExponent :: Bool -> Text -> (Text, Text)
 takeExponent allowUnderscores chars =
-  case chars of
+  case T.uncons chars of
     -- Handle leading underscores before 'e'/'E' when NumericUnderscores enabled
-    '_' : rest
+    Just ('_', _)
       | allowUnderscores ->
-          let (underscores, rest') = span (== '_') rest
-              allUnderscores = '_' : underscores
-           in case rest' of
-                marker : rest2
+          let (_allUnderscores, rest') = T.span (== '_') chars
+           in case T.uncons rest' of
+                Just (marker, rest2)
                   | marker `elem` ("eE" :: String) ->
-                      let (signPart, rest3) =
-                            case rest2 of
-                              sign : more | sign `elem` ("+-" :: String) -> ([sign], more)
+                      let (_signPart, rest3) =
+                            case T.uncons rest2 of
+                              Just (sign, more) | sign `elem` ("+-" :: String) -> (T.singleton sign, more)
                               _ -> ("", rest2)
                           (digits, rest4) = takeDigitsWithUnderscores allowUnderscores isDigit rest3
-                       in if null digits
+                       in if T.null digits
                             then ("", chars)
-                            else (allUnderscores <> [marker] <> signPart <> digits, rest4)
+                            else
+                              let consumed = T.take (T.length chars - T.length rest4) chars
+                               in (consumed, rest4)
                 _ -> ("", chars)
-    marker : rest
+    Just (marker, rest)
       | marker `elem` ("eE" :: String) ->
-          let (signPart, rest1) =
-                case rest of
-                  sign : more | sign `elem` ("+-" :: String) -> ([sign], more)
+          let (_signPart, rest1) =
+                case T.uncons rest of
+                  Just (sign, more) | sign `elem` ("+-" :: String) -> (T.singleton sign, more)
                   _ -> ("", rest)
               (digits, rest2) = takeDigitsWithUnderscores allowUnderscores isDigit rest1
-           in if null digits then ("", chars) else (marker : signPart <> digits, rest2)
+           in if T.null digits then ("", chars) else let consumed = T.take (T.length chars - T.length rest2) chars in (consumed, rest2)
     _ -> ("", chars)
 
-takeHexExponent :: String -> Maybe String
+takeHexExponent :: Text -> Maybe Text
 takeHexExponent chars =
-  case chars of
-    marker : rest
+  case T.uncons chars of
+    Just (marker, rest)
       | marker `elem` ("pP" :: String) ->
-          let (signPart, rest1) =
-                case rest of
-                  sign : more | sign `elem` ("+-" :: String) -> ([sign], more)
+          let (_signPart, rest1) =
+                case T.uncons rest of
+                  Just (sign, more) | sign `elem` ("+-" :: String) -> (T.singleton sign, more)
                   _ -> ("", rest)
-              (digits, _) = span isDigit rest1
-           in if null digits then Nothing else Just (marker : signPart <> digits)
+              (digits, _) = T.span isDigit rest1
+           in if T.null digits then Nothing else Just (T.take (T.length chars - T.length rest1 + T.length digits) chars)
     _ -> Nothing
 
-scanQuoted :: Char -> String -> Either String (String, String)
-scanQuoted endCh = go []
+scanQuoted :: Char -> Text -> Either Text (Text, Text)
+scanQuoted endCh input = go 0 input
   where
-    go acc chars =
-      case chars of
-        [] -> Left (reverse acc)
-        c : rest
-          | c == endCh -> Right (reverse acc, rest)
+    go !n remaining =
+      case T.uncons remaining of
+        Nothing -> Left (T.take n input)
+        Just (c, rest)
+          | c == endCh -> Right (T.take n input, rest)
           | c == '\\' ->
-              case rest of
-                escaped : rest' -> go (escaped : c : acc) rest'
-                [] -> Left (reverse (c : acc))
-          | otherwise -> go (c : acc) rest
+              case T.uncons rest of
+                Just (_, rest') -> go (n + 2) rest'
+                Nothing -> Left (T.take (n + 1) input)
+          | otherwise -> go (n + 1) rest
 
 -- | Scan a multiline string delimited by """ (closing marker is three consecutive quotes)
 -- Preserves all characters including newlines, spaces, and escape sequences.
 -- Backslash-escaped characters are skipped to prevent escaped quotes from
 -- being mistaken for the closing delimiter (e.g. \""" embeds three quotes).
-scanMultilineString :: String -> Either String (String, String)
-scanMultilineString = go []
+scanMultilineString :: Text -> Either Text (Text, Text)
+scanMultilineString input = go 0 input
   where
-    go acc chars =
-      case chars of
-        [] -> Left (reverse acc)
-        '"' : '"' : '"' : rest -> Right (reverse acc, rest)
-        '\\' : c : rest -> go (c : '\\' : acc) rest
-        ['\\'] -> Left (reverse ('\\' : acc))
-        c : rest ->
-          go (c : acc) rest
+    go !n remaining =
+      case T.uncons remaining of
+        Nothing -> Left (T.take n input)
+        Just ('"', rest)
+          | Just ('"', rest') <- T.uncons rest,
+            Just ('"', rest'') <- T.uncons rest' ->
+              Right (T.take n input, rest'')
+        Just ('\\', rest) ->
+          case T.uncons rest of
+            Just (_, rest') -> go (n + 2) rest'
+            Nothing -> Left (T.take (n + 1) input)
+        Just (_, rest) -> go (n + 1) rest
 
 -- | Process the raw body of a multiline string literal according to GHC's
 -- MultilineStrings specification.  The processing pipeline is:
@@ -2570,53 +2584,37 @@ resolveEscapes s =
     [(str, "")] -> str
     _ -> s
 
-takeQuoter :: String -> (String, String)
-takeQuoter chars =
-  case chars of
-    c : rest
+takeQuoter :: Text -> (Text, Text)
+takeQuoter input =
+  case T.uncons input of
+    Just (c, rest)
       | isIdentStart c ->
-          let (tailChars, rest0) = span isIdentTailOrStart rest
-           in go (c : tailChars) rest0
-    _ -> ("", chars)
+          let tailChars = T.takeWhile isIdentTailOrStart rest
+              firstSeg = T.take (1 + T.length tailChars) input
+              rest0 = T.drop (T.length tailChars) rest
+           in go (T.length firstSeg) rest0
+    _ -> ("", input)
   where
-    go acc chars' =
-      case chars' of
-        '.' : c : rest
-          | isIdentStart c ->
-              let (tailChars, rest0) = span isIdentTailOrStart rest
-               in go (acc <> "." <> [c] <> tailChars) rest0
-        _ -> (acc, chars')
+    go !n chars =
+      case T.uncons chars of
+        Just ('.', dotRest)
+          | Just (c', more) <- T.uncons dotRest,
+            isIdentStart c' ->
+              let tailChars = T.takeWhile isIdentTailOrStart more
+                  segLen = 1 + 1 + T.length tailChars -- dot + c' + tailChars
+               in go (n + segLen) (T.drop (T.length tailChars) more)
+        _ -> (T.take n input, chars)
 
-breakOnMarker :: String -> String -> (String, String)
-breakOnMarker marker = go []
-  where
-    go acc chars
-      | marker `List.isPrefixOf` chars = (reverse acc, chars)
-      | otherwise =
-          case chars of
-            [] -> (reverse acc, [])
-            c : rest -> go (c : acc) rest
-
-takeLineRemainder :: String -> String
+takeLineRemainder :: Text -> Text
 takeLineRemainder chars =
-  let (prefix, rest) = break (== '\n') chars
-   in prefix <> take 1 rest
+  let (prefix, rest) = T.break (== '\n') chars
+   in case T.uncons rest of
+        Just ('\n', _) -> prefix <> "\n"
+        _ -> prefix
 
-trimLeft :: String -> String
-trimLeft = dropWhile isSpace
-
-trimRight :: String -> String
-trimRight = reverse . dropWhile isSpace . reverse
-
-guardPrefix :: (Eq a) => [a] -> [a] -> Maybe ()
-guardPrefix prefix actual =
-  if prefix `List.isPrefixOf` actual
-    then Just ()
-    else Nothing
-
-readMaybeChar :: String -> Maybe Char
+readMaybeChar :: Text -> Maybe Char
 readMaybeChar raw =
-  case reads raw of
+  case reads (T.unpack raw) of
     [(c, "")] -> Just c
     _ -> Nothing
 
@@ -2729,12 +2727,12 @@ isUnicodeSymbolCategory c = case generalCategory c of
 -- Per Haskell Report: '--' starts a comment only if the entire symbol sequence
 -- consists solely of dashes, or is not followed by any symbol character.
 -- E.g., '-- foo' is a comment, '---' is a comment, but '-->' is an operator.
-isLineComment :: String -> Bool
+isLineComment :: Text -> Bool
 isLineComment rest =
-  case rest of
-    [] -> True -- Just '--' followed by nothing or whitespace
-    c : _
-      | c == '-' -> isLineComment (dropWhile (== '-') rest) -- More dashes, keep checking
+  case T.uncons rest of
+    Nothing -> True -- Just '--' followed by nothing or whitespace
+    Just (c, _)
+      | c == '-' -> isLineComment (T.dropWhile (== '-') rest) -- More dashes, keep checking
       | isSymbolicOpChar c -> False -- Non-dash symbol char means it's an operator
       | otherwise -> True -- Non-symbol char means comment
 

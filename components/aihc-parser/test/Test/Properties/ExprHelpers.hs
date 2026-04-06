@@ -556,7 +556,7 @@ shrinkExpr expr =
     ETHTypeNameQuote {} -> []
     ETHSplice _ body -> body : [ETHSplice span0 body' | body' <- shrinkExpr body]
     ETHTypedSplice _ body -> body : [ETHTypedSplice span0 body' | body' <- shrinkExpr body]
-    EProc _ _ _ -> []
+    EProc {} -> []
 
 shrinkFloat :: Double -> [Double]
 shrinkFloat value =

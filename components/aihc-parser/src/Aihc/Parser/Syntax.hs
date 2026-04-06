@@ -1456,15 +1456,24 @@ instance HasSourceSpan (DoStmt body) where
 -- Commands mirror expressions but live in a separate namespace so the
 -- pretty-printer knows not to parenthesise @do { … }@ as an infix LHS.
 data Cmd
-  = CmdArrApp SourceSpan Expr ArrAppType Expr -- ^ @exp -\< exp@ or @exp -\<\< exp@
-  | CmdInfix SourceSpan Cmd Text Cmd -- ^ Command-level infix: @cmd1 op cmd2@
-  | CmdDo SourceSpan [DoStmt Cmd] -- ^ @do { cstmts }@
-  | CmdIf SourceSpan Expr Cmd Cmd -- ^ @if exp then cmd else cmd@
-  | CmdCase SourceSpan Expr [CmdCaseAlt] -- ^ @case exp of { calts }@
-  | CmdLet SourceSpan [Decl] Cmd -- ^ @let decls in cmd@
-  | CmdLam SourceSpan [Pattern] Cmd -- ^ @\\pats -> cmd@
-  | CmdApp SourceSpan Cmd Expr -- ^ Command application: @cmd exp@
-  | CmdPar SourceSpan Cmd -- ^ Parenthesised command: @(cmd)@
+  = -- | @exp -\< exp@ or @exp -\<\< exp@
+    CmdArrApp SourceSpan Expr ArrAppType Expr
+  | -- | Command-level infix: @cmd1 op cmd2@
+    CmdInfix SourceSpan Cmd Text Cmd
+  | -- | @do { cstmts }@
+    CmdDo SourceSpan [DoStmt Cmd]
+  | -- | @if exp then cmd else cmd@
+    CmdIf SourceSpan Expr Cmd Cmd
+  | -- | @case exp of { calts }@
+    CmdCase SourceSpan Expr [CmdCaseAlt]
+  | -- | @let decls in cmd@
+    CmdLet SourceSpan [Decl] Cmd
+  | -- | @\\pats -> cmd@
+    CmdLam SourceSpan [Pattern] Cmd
+  | -- | Command application: @cmd exp@
+    CmdApp SourceSpan Cmd Expr
+  | -- | Parenthesised command: @(cmd)@
+    CmdPar SourceSpan Cmd
   deriving (Data, Eq, Show, Generic, NFData)
 
 -- | Arrow application type: first-order (@-\<@) or higher-order (@-\<\<@).
