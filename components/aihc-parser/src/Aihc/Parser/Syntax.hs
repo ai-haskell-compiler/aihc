@@ -1348,7 +1348,7 @@ data Expr
   | ESectionR SourceSpan Text Expr
   | ELetDecls SourceSpan [Decl] Expr
   | ECase SourceSpan Expr [CaseAlt]
-  | EDo SourceSpan [DoStmt Expr]
+  | EDo SourceSpan [DoStmt Expr] Bool -- Bool: True = mdo, False = do
   | EListComp SourceSpan Expr [CompStmt]
   | EListCompParallel SourceSpan Expr [[CompStmt]]
   | EArithSeq SourceSpan ArithSeq
@@ -1403,7 +1403,7 @@ instance HasSourceSpan Expr where
       ESectionR span' _ _ -> span'
       ELetDecls span' _ _ -> span'
       ECase span' _ _ -> span'
-      EDo span' _ -> span'
+      EDo span' _ _ -> span'
       EListComp span' _ _ -> span'
       EListCompParallel span' _ _ -> span'
       EArithSeq span' _ -> span'

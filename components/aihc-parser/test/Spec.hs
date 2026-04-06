@@ -602,7 +602,7 @@ parseDoStmts src =
    in if not (null errs)
         then Left ("parse errors: " <> show errs)
         else case moduleDecls modu of
-          [DeclValue _ (FunctionBind _ _ [Match {matchRhs = UnguardedRhs _ (EDo _ stmts)}])] ->
+          [DeclValue _ (FunctionBind _ _ [Match {matchRhs = UnguardedRhs _ (EDo _ stmts _)}])] ->
             Right stmts
           other ->
             Left ("unexpected AST: " <> show other)
@@ -615,7 +615,7 @@ parseDoStmtsExt exts src =
    in if not (null errs)
         then Left ("parse errors: " <> show errs)
         else case moduleDecls modu of
-          [DeclValue _ (FunctionBind _ _ [Match {matchRhs = UnguardedRhs _ (EDo _ stmts)}])] ->
+          [DeclValue _ (FunctionBind _ _ [Match {matchRhs = UnguardedRhs _ (EDo _ stmts _)}])] ->
             Right stmts
           other ->
             Left ("unexpected AST: " <> show other)

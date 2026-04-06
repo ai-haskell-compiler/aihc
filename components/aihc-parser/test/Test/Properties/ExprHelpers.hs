@@ -50,7 +50,7 @@ genExprSized n
           ELambdaCase span0 <$> genCaseAlts (n - 1),
           ELetDecls span0 <$> genValueDecls half <*> genExprSized half,
           EWhereDecls span0 <$> genExprSized half <*> genValueDecls half,
-          EDo span0 <$> genDoStmts (n - 1),
+          EDo span0 <$> genDoStmts (n - 1) <*> pure False,
           EListComp span0 <$> genExprSized half <*> genCompStmts half,
           EListCompParallel span0 <$> genExprSized half <*> genParallelCompStmts half,
           EList span0 <$> genListElems (n - 1),
@@ -517,8 +517,8 @@ shrinkExpr expr =
       body
         : [EWhereDecls span0 body' decls | body' <- shrinkExpr body]
           <> [EWhereDecls span0 body decls' | decls' <- shrinkDecls decls, not (null decls')]
-    EDo _ stmts ->
-      [EDo span0 stmts' | stmts' <- shrinkDoStmts stmts, not (null stmts')]
+    EDo _ stmts _ ->
+      [EDo span0 stmts' False | stmts' <- shrinkDoStmts stmts, not (null stmts')]
     EListComp _ body stmts ->
       body
         : [EListComp span0 body' stmts | body' <- shrinkExpr body]
@@ -701,7 +701,7 @@ normalizeExpr expr =
     ELambdaCase _ alts -> ELambdaCase span0 (map normalizeCaseAlt alts)
     ELetDecls _ decls body -> ELetDecls span0 (map normalizeDecl decls) (normalizeExpr body)
     EWhereDecls _ body decls -> EWhereDecls span0 (normalizeExpr body) (map normalizeDecl decls)
-    EDo _ stmts -> EDo span0 (map normalizeDoStmt stmts)
+    EDo _ stmts isMdo -> EDo span0 (map normalizeDoStmt stmts) isMdo
     EListComp _ body stmts -> EListComp span0 (normalizeExpr body) (map normalizeCompStmt stmts)
     EListCompParallel _ body stmtss -> EListCompParallel span0 (normalizeExpr body) (map (map normalizeCompStmt) stmtss)
     EList _ elems -> EList span0 (map normalizeExpr elems)

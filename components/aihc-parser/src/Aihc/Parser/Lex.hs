@@ -128,6 +128,7 @@ data LexTokenKind
   | -- Extension-conditional keywords
     TkKeywordProc -- proc (Arrows extension)
   | TkKeywordRec -- rec (Arrows / RecursiveDo extension)
+  | TkKeywordMdo -- mdo (RecursiveDo extension)
   | -- Reserved operators (per Haskell Report Section 2.4)
     TkReservedDotDot -- ..
   | TkReservedColon -- :
@@ -783,6 +784,7 @@ stepTokenContext st tok =
           || layoutPrevTokenKind st == Just TkKeywordElse ->
           st {layoutPendingLayout = Just (PendingImplicitLayout LayoutAfterThenElse)}
       | otherwise -> st {layoutPendingLayout = Just (PendingImplicitLayout LayoutOrdinary)}
+    TkKeywordMdo -> st {layoutPendingLayout = Just (PendingImplicitLayout LayoutOrdinary)}
     TkKeywordOf -> st {layoutPendingLayout = Just (PendingImplicitLayout LayoutOrdinary)}
     TkKeywordCase
       | layoutPrevTokenKind st == Just TkReservedBackslash ->
@@ -1567,7 +1569,7 @@ lexSymbol env st =
           then [("(#", TkSpecialUnboxedLParen), ("#)", TkSpecialUnboxedRParen)]
           else []
       )
-        <> [("(|", TkBananaOpen) | hasExt Arrows env]
+        <> [("(|", TkBananaOpen) | hasExt Arrows env, bananaOpenAllowed]
         <> [ ("(", TkSpecialLParen),
              (")", TkSpecialRParen),
              ("[", TkSpecialLBracket),
@@ -1578,6 +1580,13 @@ lexSymbol env st =
              (";", TkSpecialSemicolon),
              ("`", TkSpecialBacktick)
            ]
+
+    -- Disambiguate banana open from operators like (|| by requiring the next
+    -- character after (| to stop the symbolic operator run.
+    bananaOpenAllowed =
+      case T.drop 2 (lexerInput st) of
+        c T.:< _ -> not (isSymbolicOpChar c)
+        _ -> True
 
     firstJust xs =
       case xs of
@@ -2792,6 +2801,7 @@ extensionKeywordTokenKind :: LexerEnv -> Text -> Maybe LexTokenKind
 extensionKeywordTokenKind env txt = case txt of
   "proc" | hasExt Arrows env -> Just TkKeywordProc
   "rec" | hasExt Arrows env || hasExt RecursiveDo env -> Just TkKeywordRec
+  "mdo" | hasExt RecursiveDo env -> Just TkKeywordMdo
   _ -> Nothing
 
 -- | Classify reserved operators per Haskell Report Section 2.4.

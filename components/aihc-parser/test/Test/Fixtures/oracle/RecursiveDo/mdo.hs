@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail basic mdo block -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE RecursiveDo #-}
 module MDo where
 
