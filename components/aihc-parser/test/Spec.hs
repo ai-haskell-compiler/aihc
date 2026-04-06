@@ -80,6 +80,9 @@ buildTests = do
             testCase "generated identifiers reject reserved keyword as" test_generatedIdentifiersRejectReservedAs,
             testCase "generated identifiers reject standalone underscore" test_generatedIdentifiersRejectStandaloneUnderscore,
             testCase "shrunk identifiers reject standalone underscore" test_shrunkIdentifiersRejectStandaloneUnderscore,
+            testCase "parses parenthesized kind signature type atoms" test_typeParsesParenthesizedKindSignature,
+            testCase "parses parenthesized kind signatures in application heads" test_typeParsesKindSignatureApplicationHead,
+            testCase "parses GADT constructor arguments with kind signatures" test_gadtConstructorParsesKindAnnotatedArgument,
             QC.testProperty "generated operators reject dash-only comment starters" prop_generatedOperatorsRejectDashOnlyCommentStarters
           ],
         testGroup
@@ -176,6 +179,30 @@ test_moduleParsesDecls =
           [ DeclValue _ (FunctionBind _ "x" [Match {matchPats = [], matchRhs = UnguardedRhs _ (EIf _ (EVar _ "y") (EVar _ "z") (EVar _ "w"))}])
             ] ->
               pure ()
+          other ->
+            assertFailure ("unexpected parsed declarations: " <> show other)
+
+test_typeParsesParenthesizedKindSignature :: Assertion
+test_typeParsesParenthesizedKindSignature =
+  case parseType defaultConfig {parserExtensions = [KindSignatures]} "(x :: *)" of
+    ParseOk (TKindSig _ (TVar _ "x") (TStar _)) -> pure ()
+    other -> assertFailure ("expected parenthesized kind signature type, got: " <> show other)
+
+test_typeParsesKindSignatureApplicationHead :: Assertion
+test_typeParsesKindSignatureApplicationHead =
+  case parseType defaultConfig {parserExtensions = [KindSignatures]} "(f :: Type -> Type) a" of
+    ParseOk (TApp _ (TKindSig _ (TVar _ "f") (TFun _ (TCon _ "Type" Unpromoted) (TCon _ "Type" Unpromoted))) (TVar _ "a")) -> pure ()
+    other -> assertFailure ("expected kind-signature application head, got: " <> show other)
+
+test_gadtConstructorParsesKindAnnotatedArgument :: Assertion
+test_gadtConstructorParsesKindAnnotatedArgument =
+  let src = T.unlines ["data T where", "  C :: (x :: *) -> T"]
+      (errs, modu) = parseModule defaultConfig {parserExtensions = [GADTs, KindSignatures]} src
+   in do
+        assertBool ("expected no parse errors, got: " <> show errs) (null errs)
+        case moduleDecls modu of
+          [DeclData _ DataDecl {dataDeclConstructors = [GadtCon _ [] [] ["C"] (GadtPrefixBody [BangType {bangType = TKindSig _ (TVar _ "x") (TStar _)}] (TCon _ "T" Unpromoted))]}] ->
+            pure ()
           other ->
             assertFailure ("unexpected parsed declarations: " <> show other)
 

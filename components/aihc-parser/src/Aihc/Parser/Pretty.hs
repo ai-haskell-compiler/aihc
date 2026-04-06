@@ -350,6 +350,7 @@ needsTypeParens ctx ty =
         TTuple {} -> False
         TUnboxedSum {} -> False
         TParen {} -> False
+        TKindSig {} -> False
         TWildcard {} -> False
         _ -> True
 
@@ -392,6 +393,7 @@ prettyTypePrec prec ty =
       let listDoc = brackets (prettyTypePrec 0 inner)
        in if promoted == Promoted then "'" <> listDoc else listDoc
     TParen _ inner -> parens (prettyTypePrec 0 inner)
+    TKindSig _ ty' kind -> parens (prettyTypePrec 0 ty' <+> "::" <+> prettyTypePrec 0 kind)
     TContext _ constraints inner ->
       parenthesize
         (prec > 0)
