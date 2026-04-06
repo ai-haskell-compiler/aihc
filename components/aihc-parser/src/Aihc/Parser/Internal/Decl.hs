@@ -1032,7 +1032,7 @@ typeDataConDeclParser = withSpan $ do
   -- Parse constructor name
   conName <- constructorIdentifierParser
   -- Parse arguments (no strictness, no records)
-  args <- MP.many $ (\ty -> BangType noSourceSpan False ty) <$> typeAppParser
+  args <- MP.many $ BangType noSourceSpan False <$> typeAppParser
   pure $ \span' -> PrefixCon span' [] context conName args
 
 -- | Parse GADT-style constructors for type data (after `where`)
@@ -1076,7 +1076,7 @@ gadtTypeDataBodyParser = do
   case allTypes of
     [resultTy] -> pure (GadtPrefixBody [] resultTy)
     _ ->
-      let argTypes = map (\ty -> BangType noSourceSpan False ty) (init allTypes)
+      let argTypes = map (BangType noSourceSpan False) (init allTypes)
           resultTy = last allTypes
        in pure (GadtPrefixBody argTypes resultTy)
 
