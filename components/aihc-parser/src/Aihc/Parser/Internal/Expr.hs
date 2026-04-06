@@ -1086,18 +1086,19 @@ whereClauseParser = do
   bracedDeclsParser <|> plainDeclsParser
 
 plainDeclsParser :: TokParser [Decl]
-plainDeclsParser = plainSemiSep1 localDeclParser
+plainDeclsParser = concat <$> plainSemiSep1 localDeclsParser
 
 bracedDeclsParser :: TokParser [Decl]
-bracedDeclsParser = bracedSemiSep1 localDeclParser
+bracedDeclsParser = concat <$> bracedSemiSep1 localDeclsParser
 
-localDeclParser :: TokParser Decl
-localDeclParser = do
+-- Some local declaration items lower to a single binding carrying an inline
+-- type signature, so the parser emits a declaration group rather than a
+-- one-item-at-a-time stream.
+localDeclsParser :: TokParser [Decl]
+localDeclsParser = do
   isTySig <- startsWithTypeSig
   if isTySig
-    then -- Type signature: name1, name2 :: type
-    -- No MP.try needed; startsWithTypeSig confirmed '::' follows the names.
-      localTypeSigDeclParser
+    then localTypeSigDeclsParser
     else -- Function or pattern binding.
     -- MP.try around localFunctionDeclParser needed because function heads
     -- and pattern binds can overlap (e.g. '(x, y) = expr' can be attempted
@@ -1106,8 +1107,25 @@ localDeclParser = do
       do
         tok <- lookAhead anySingle
         case lexTokenKind tok of
-          TkImplicitParam {} -> implicitParamDeclParser
-          _ -> MP.try localFunctionDeclParser <|> localPatternDeclParser
+          TkImplicitParam {} -> pure <$> implicitParamDeclParser
+          _ -> pure <$> (MP.try localFunctionDeclParser <|> localPatternDeclParser)
+
+localTypeSigDeclsParser :: TokParser [Decl]
+localTypeSigDeclsParser = do
+  sig@(DeclTypeSig sigSpan names ty) <- localTypeSigDeclParser
+  mEq <- MP.optional (expectedTok TkReservedEquals)
+  case mEq of
+    Nothing -> pure [sig]
+    Just () ->
+      case names of
+        [name] -> do
+          rhsExpr <- exprParser
+          let bindSpan = mergeSourceSpans sigSpan (getSourceSpan rhsExpr)
+              pat = PTypeSig sigSpan (PVar sigSpan name) ty
+              rhs = UnguardedRhs bindSpan rhsExpr
+          pure [DeclValue bindSpan (PatternBind bindSpan pat rhs)]
+        _ ->
+          fail "local typed bindings with '=' require exactly one binder"
 
 localTypeSigDeclParser :: TokParser Decl
 localTypeSigDeclParser = withSpan $ do
@@ -1398,7 +1416,7 @@ thTypedQuoteParser = withSpan $ do
 thDeclQuoteParser :: TokParser Expr
 thDeclQuoteParser = withSpan $ do
   expectedTok TkTHDeclQuoteOpen
-  decls <- bracedSemiSep1 localDeclParser <|> plainSemiSep1 localDeclParser
+  decls <- (concat <$> bracedSemiSep1 localDeclsParser) <|> (concat <$> plainSemiSep1 localDeclsParser)
   expectedTok TkTHExpQuoteClose
   pure (`ETHDeclQuote` decls)
 
