@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail servant-auth-client nullary class declaration -}
+{- ORACLE_TEST pass -}
 module NullaryClass where
 
 class BearerAuthNotEnabled

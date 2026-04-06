@@ -52,6 +52,8 @@ buildTests = do
         testGroup
           "parser"
           [ testCase "module parses declaration list" test_moduleParsesDecls,
+            testCase "module parses nullary class declaration" test_moduleParsesNullaryClassDecl,
+            testCase "module parses nullary class declaration with where block" test_moduleParsesNullaryClassDeclWithWhere,
             testCase "reads header LANGUAGE pragmas" test_readsHeaderLanguagePragmas,
             testCase "reads header LANGUAGE pragmas case-insensitively" test_readsHeaderLanguagePragmasCaseInsensitive,
             testCase "reads chunked header LANGUAGE pragmas" test_readsChunkedHeaderLanguagePragmas,
@@ -183,6 +185,30 @@ test_moduleParsesDecls =
           [ DeclValue _ (FunctionBind _ "x" [Match {matchPats = [], matchRhs = UnguardedRhs _ (EIf _ (EVar _ "y") (EVar _ "z") (EVar _ "w"))}])
             ] ->
               pure ()
+          other ->
+            assertFailure ("unexpected parsed declarations: " <> show other)
+
+test_moduleParsesNullaryClassDecl :: Assertion
+test_moduleParsesNullaryClassDecl =
+  let source = T.unlines ["module M where", "class C"]
+      (errs, modu) = parseModule defaultConfig source
+   in do
+        assertBool ("expected no parse errors, got: " <> show errs) (null errs)
+        case moduleDecls modu of
+          [DeclClass _ ClassDecl {classDeclName = "C", classDeclParams = [], classDeclItems = []}] ->
+            pure ()
+          other ->
+            assertFailure ("unexpected parsed declarations: " <> show other)
+
+test_moduleParsesNullaryClassDeclWithWhere :: Assertion
+test_moduleParsesNullaryClassDeclWithWhere =
+  let source = T.unlines ["module M where", "class C where", "  method :: Int"]
+      (errs, modu) = parseModule defaultConfig source
+   in do
+        assertBool ("expected no parse errors, got: " <> show errs) (null errs)
+        case moduleDecls modu of
+          [DeclClass _ ClassDecl {classDeclName = "C", classDeclParams = [], classDeclItems = [ClassItemTypeSig _ ["method"] (TCon _ "Int" Unpromoted)]}] ->
+            pure ()
           other ->
             assertFailure ("unexpected parsed declarations: " <> show other)
 
