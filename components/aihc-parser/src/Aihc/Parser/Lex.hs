@@ -1567,7 +1567,7 @@ lexSymbol env st =
           then [("(#", TkSpecialUnboxedLParen), ("#)", TkSpecialUnboxedRParen)]
           else []
       )
-        <> [("(|", TkBananaOpen) | hasExt Arrows env]
+        <> [("(|", TkBananaOpen) | hasExt Arrows env, bananaOpenAllowed]
         <> [ ("(", TkSpecialLParen),
              (")", TkSpecialRParen),
              ("[", TkSpecialLBracket),
@@ -1578,6 +1578,13 @@ lexSymbol env st =
              (";", TkSpecialSemicolon),
              ("`", TkSpecialBacktick)
            ]
+
+    -- Disambiguate banana open from operators like (|| by requiring the next
+    -- character after (| to stop the symbolic operator run.
+    bananaOpenAllowed =
+      case T.unpack (T.drop 2 (lexerInput st)) of
+        c : _ -> not (isSymbolicOpChar c)
+        [] -> True
 
     firstJust xs =
       case xs of
