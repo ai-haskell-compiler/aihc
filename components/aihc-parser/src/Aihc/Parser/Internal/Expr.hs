@@ -1743,27 +1743,33 @@ typeParenOrTupleParser = withSpan $ do
 
     parenthesizedTypeOrTupleParser tupleFlavor closeTok = do
       first <- typeParser
-      mComma <- MP.optional (expectedTok TkSpecialComma)
-      case mComma of
-        Nothing -> do
-          -- Check for pipe (unboxed sum type)
-          mPipe <- if tupleFlavor == Unboxed then MP.optional (expectedTok TkReservedPipe) else pure Nothing
-          case mPipe of
-            Just () -> do
-              -- (# Type1 | Type2 | ... #) - unboxed sum type
-              rest <- typeParser `MP.sepBy1` expectedTok TkReservedPipe
-              expectedTok closeTok
-              pure (\span' -> TUnboxedSum span' (first : rest))
-            Nothing -> do
-              expectedTok closeTok
-              if tupleFlavor == Boxed
-                then pure (`TParen` first)
-                else fail "not an unboxed tuple type"
-        Just () -> do
-          second <- typeParser
-          more <- MP.many (expectedTok TkSpecialComma *> typeParser)
+      mKind <- if tupleFlavor == Boxed then MP.optional (expectedTok TkReservedDoubleColon *> typeParser) else pure Nothing
+      case mKind of
+        Just kind -> do
           expectedTok closeTok
-          pure (\span' -> TTuple span' tupleFlavor Unpromoted (first : second : more))
+          pure (\span' -> TKindSig span' first kind)
+        Nothing -> do
+          mComma <- MP.optional (expectedTok TkSpecialComma)
+          case mComma of
+            Nothing -> do
+              -- Check for pipe (unboxed sum type)
+              mPipe <- if tupleFlavor == Unboxed then MP.optional (expectedTok TkReservedPipe) else pure Nothing
+              case mPipe of
+                Just () -> do
+                  -- (# Type1 | Type2 | ... #) - unboxed sum type
+                  rest <- typeParser `MP.sepBy1` expectedTok TkReservedPipe
+                  expectedTok closeTok
+                  pure (\span' -> TUnboxedSum span' (first : rest))
+                Nothing -> do
+                  expectedTok closeTok
+                  if tupleFlavor == Boxed
+                    then pure (`TParen` first)
+                    else fail "not an unboxed tuple type"
+            Just () -> do
+              second <- typeParser
+              more <- MP.many (expectedTok TkSpecialComma *> typeParser)
+              expectedTok closeTok
+              pure (\span' -> TTuple span' tupleFlavor Unpromoted (first : second : more))
 
 markTypePromoted :: Type -> Maybe Type
 markTypePromoted ty =
@@ -1788,6 +1794,7 @@ setTypeSpan span' ty =
     TUnboxedSum _ elems -> TUnboxedSum span' elems
     TList _ promoted inner -> TList span' promoted inner
     TParen _ inner -> TParen span' inner
+    TKindSig _ inner kind -> TKindSig span' inner kind
     TContext _ constraints inner -> TContext span' constraints inner
     TSplice _ body -> TSplice span' body
     TWildcard _ -> TWildcard span'
