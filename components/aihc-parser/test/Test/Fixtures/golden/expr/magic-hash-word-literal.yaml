@@ -1,0 +1,5 @@
+extensions: [MagicHash]
+input: |
+  0##
+ast: EIntHash 0 "0##"
+status: pass
