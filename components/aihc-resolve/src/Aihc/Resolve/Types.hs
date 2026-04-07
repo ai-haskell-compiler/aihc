@@ -6,7 +6,7 @@ where
 
 import Aihc.Parser.Syntax (Module)
 
-data ResolveError
+newtype ResolveError
   = ResolveNotImplemented String
   deriving (Eq, Show)
 
