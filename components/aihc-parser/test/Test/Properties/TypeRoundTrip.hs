@@ -177,7 +177,6 @@ genType depth
           TList span0 Unpromoted <$> genTypeListElems 0,
           TParen span0 <$> genTypeAtom 0,
           TUnboxedSum span0 <$> genUnboxedSumElems 0,
-          TImplicitParam span0 <$> genImplicitParamName <*> genImplicitParamType 0,
           pure (TConstraintWildcard span0),
           TConstraintKindSig span0 <$> genTypeAtom 0
         ]
@@ -199,7 +198,6 @@ genType depth
           (3, TParen span0 <$> genType (depth - 1)),
           (3, TContext span0 <$> genConstraints (depth - 1) <*> genContextInner (depth - 1)),
           (2, TSplice span0 <$> genTypeSpliceBody),
-          (1, TImplicitParam span0 <$> genImplicitParamName <*> genImplicitParamType (depth - 1)),
           (1, pure (TConstraintWildcard span0)),
           (1, TConstraintKindSig span0 <$> genType (depth - 1))
         ]
