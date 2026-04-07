@@ -1036,7 +1036,9 @@ instance HasSourceSpan TypeSynDecl where
 -- Used for top-level @type family F a@ and associated @type F a :: Kind@ in class bodies.
 data TypeFamilyDecl = TypeFamilyDecl
   { typeFamilyDeclSpan :: SourceSpan,
-    typeFamilyDeclName :: Text,
+    -- | Family head type. For simple families like @type family F a@, this is @TCon "F"@.
+    -- For infix families like @type family l `And` r@, this is the full infix type.
+    typeFamilyDeclHead :: Type,
     typeFamilyDeclParams :: [TyVarBinder],
     -- | Optional result kind annotation (@:: Kind@)
     typeFamilyDeclKind :: Maybe Type,

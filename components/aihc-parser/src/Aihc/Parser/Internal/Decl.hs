@@ -412,7 +412,9 @@ typeFamilyDeclParser :: TokParser Decl
 typeFamilyDeclParser = withSpan $ do
   keywordTok TkKeywordType
   varIdTok "family"
-  name <- constructorIdentifierParser
+  headType <- withSpan $ do
+    name <- constructorIdentifierParser
+    pure (\span' -> TCon span' name Unpromoted)
   params <- MP.many typeParamParser
   kind <- familyResultKindParser
   -- A closed type family has a `where` clause with equations.
@@ -422,7 +424,7 @@ typeFamilyDeclParser = withSpan $ do
       span'
       TypeFamilyDecl
         { typeFamilyDeclSpan = span',
-          typeFamilyDeclName = name,
+          typeFamilyDeclHead = headType,
           typeFamilyDeclParams = params,
           typeFamilyDeclKind = kind,
           typeFamilyDeclEquations = equations
@@ -554,7 +556,9 @@ newtypeFamilyInstParser = withSpan $ do
 classTypeFamilyDeclParser :: TokParser ClassDeclItem
 classTypeFamilyDeclParser = withSpan $ do
   keywordTok TkKeywordType
-  name <- constructorIdentifierParser
+  headType <- withSpan $ do
+    name <- constructorIdentifierParser
+    pure (\span' -> TCon span' name Unpromoted)
   params <- MP.many typeParamParser
   kind <- familyResultKindParser
   pure $ \span' ->
@@ -562,7 +566,7 @@ classTypeFamilyDeclParser = withSpan $ do
       span'
       TypeFamilyDecl
         { typeFamilyDeclSpan = span',
-          typeFamilyDeclName = name,
+          typeFamilyDeclHead = headType,
           typeFamilyDeclParams = params,
           typeFamilyDeclKind = kind,
           typeFamilyDeclEquations = Nothing

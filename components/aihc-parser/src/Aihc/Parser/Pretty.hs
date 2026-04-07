@@ -1416,7 +1416,7 @@ prettySplice prefix body =
 prettyTypeFamilyDecl :: TypeFamilyDecl -> Doc ann
 prettyTypeFamilyDecl tf =
   hsep $
-    ["type", "family", pretty (typeFamilyDeclName tf)]
+    ["type", "family", prettyType (typeFamilyDeclHead tf)]
       <> map prettyTyVarBinder (typeFamilyDeclParams tf)
       <> kindPart (typeFamilyDeclKind tf)
       <> eqsPart (typeFamilyDeclEquations tf)
@@ -1480,7 +1480,7 @@ prettyTopDataFamilyInst dfi =
 prettyAssocTypeFamilyDecl :: TypeFamilyDecl -> Doc ann
 prettyAssocTypeFamilyDecl tf =
   hsep $
-    ["type", pretty (typeFamilyDeclName tf)]
+    ["type", prettyType (typeFamilyDeclHead tf)]
       <> map prettyTyVarBinder (typeFamilyDeclParams tf)
       <> kindPart (typeFamilyDeclKind tf)
   where

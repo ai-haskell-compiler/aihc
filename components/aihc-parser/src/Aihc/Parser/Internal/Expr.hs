@@ -8,6 +8,9 @@ module Aihc.Parser.Internal.Expr
     appPatternParser,
     patternParser,
     typeParser,
+    typeInfixParser,
+    typeInfixOperatorParser,
+    typeHeadInfixParser,
     typeAppParser,
     typeAtomParser,
     startsWithTypeSig,
@@ -1896,6 +1899,20 @@ typeInfixParser = do
   rest <- MP.many ((,) <$> typeInfixOperatorParser <*> typeAppParser)
   pure (foldl buildInfixType lhs rest)
 
+-- | Parse a type head that may contain infix operators but NOT type applications.
+-- Used for type family heads like @type family l `And` r@ where the head is
+-- an infix type, but we don't want to consume trailing type parameters.
+typeHeadInfixParser :: TokParser Type
+typeHeadInfixParser = do
+  lhs <- typeAtomParser
+  foldl buildInfixType lhs <$> typeHeadInfixLoopParser
+
+typeHeadInfixLoopParser :: TokParser [((Text, TypePromotion), Type)]
+typeHeadInfixLoopParser = MP.many $ MP.try $ do
+  op <- typeInfixOperatorParser
+  atom <- typeAtomParser
+  pure (op, atom)
+
 buildInfixType :: Type -> ((Text, TypePromotion), Type) -> Type
 buildInfixType lhs ((op, promoted), rhs) =
   let span' = mergeSourceSpans (getSourceSpan lhs) (getSourceSpan rhs)
@@ -1904,7 +1921,9 @@ buildInfixType lhs ((op, promoted), rhs) =
 
 typeInfixOperatorParser :: TokParser (Text, TypePromotion)
 typeInfixOperatorParser =
-  promotedInfixOperatorParser <|> unpromotedInfixOperatorParser
+  promotedInfixOperatorParser
+    <|> backtickTypeOperatorParser
+    <|> unpromotedInfixOperatorParser
   where
     unpromotedInfixOperatorParser =
       tokenSatisfy "type infix operator" $ \tok ->
@@ -1917,6 +1936,19 @@ typeInfixOperatorParser =
           TkConSym op -> Just (op, Unpromoted)
           TkQVarSym op -> Just (op, Unpromoted)
           TkQConSym op -> Just (op, Unpromoted)
+          _ -> Nothing
+
+    backtickTypeOperatorParser = MP.try $ do
+      expectedTok TkSpecialBacktick
+      op <- typeOperatorIdentifierParser
+      expectedTok TkSpecialBacktick
+      pure (op, Unpromoted)
+
+    typeOperatorIdentifierParser =
+      tokenSatisfy "type operator identifier" $ \tok ->
+        case lexTokenKind tok of
+          TkVarId name -> Just name
+          TkConId name -> Just name
           _ -> Nothing
 
     promotedInfixOperatorParser = MP.try $ do

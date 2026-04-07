@@ -829,7 +829,7 @@ docTypeFamilyDecl tf =
   "TypeFamilyDecl" <+> braces (hsep (punctuate comma fields))
   where
     fields =
-      [field "name" (docText (typeFamilyDeclName tf))]
+      [field "head" (docType (typeFamilyDeclHead tf))]
         <> listField "params" docTyVarBinder (typeFamilyDeclParams tf)
         <> optionalField "kind" docType (typeFamilyDeclKind tf)
         <> case typeFamilyDeclEquations tf of
