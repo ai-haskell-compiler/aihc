@@ -447,7 +447,7 @@ prettyPattern pat =
     PQuasiQuote _ quoter body -> prettyQuasiQuote quoter body
     PTuple _ tupleFlavor elems -> prettyTupleBody tupleFlavor (hsep (punctuate comma (map prettyPatternInTuple elems)))
     PUnboxedSum _ altIdx arity inner ->
-      let slots = [if i == altIdx then prettyPatternInTuple inner else mempty | i <- [0 .. arity - 1]]
+      let slots = [if i == altIdx then prettyPattern inner else mempty | i <- [0 .. arity - 1]]
        in hsep ["(#", hsep (punctuate " |" slots), "#)"]
     PList _ elems -> brackets (hsep (punctuate comma (map prettyPattern elems)))
     PCon _ con args -> hsep (pretty con : map prettyPatternAtom args)
