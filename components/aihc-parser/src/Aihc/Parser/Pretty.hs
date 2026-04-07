@@ -1119,6 +1119,7 @@ prettyExprPrec prec expr =
     ECharHash _ _ repr -> pretty repr
     EString _ _ repr -> pretty repr
     EStringHash _ _ repr -> pretty repr
+    EOverloadedLabel _ _ raw -> pretty raw
     EQuasiQuote _ quoter body -> prettyQuasiQuote quoter body
     ETHExpQuote _ body -> "[|" <+> prettyExprPrec 0 body <+> "|]"
     ETHTypedQuote _ body -> "[||" <+> prettyExprPrec 0 body <+> "||]"

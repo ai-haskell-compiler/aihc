@@ -15,6 +15,7 @@ where
 
 import Aihc.Parser.Lex (isReservedIdentifier)
 import Aihc.Parser.Syntax
+import Data.Char (isSpace)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Test.Properties.Identifiers (genIdent, shrinkIdent)
@@ -469,6 +470,16 @@ renderIntBaseHash value
   | value < 0 = "-0x" <> T.pack (showHex (abs value)) <> "#"
   | otherwise = "0x" <> T.pack (showHex value) <> "#"
 
+shrinkOverloadedLabel :: Text -> Text -> [String]
+shrinkOverloadedLabel value raw
+  | Just unquoted <- T.stripPrefix "#" raw,
+    not ("\"" `T.isPrefixOf` unquoted) =
+      [shrunk | shrunk <- shrink (T.unpack value), not (null shrunk), T.all isUnquotedLabelChar (T.pack shrunk)]
+  | otherwise = []
+  where
+    isUnquotedLabelChar c =
+      not (isSpace c) && c `notElem` ("()[]{},;`#\"" :: String)
+
 -- | Create an integer expression with canonical representation.
 mkIntExpr :: Integer -> Expr
 mkIntExpr value = EInt span0 value (T.pack (show value))
@@ -488,6 +499,8 @@ shrinkExpr expr =
     ECharHash {} -> []
     EString _ value _ -> [mkStringExpr (T.pack shrunk) | shrunk <- shrink (T.unpack value)]
     EStringHash _ value _ -> [EStringHash span0 (T.pack shrunk) (T.pack (show shrunk) <> "#") | shrunk <- shrink (T.unpack value)]
+    EOverloadedLabel _ value raw ->
+      [EOverloadedLabel span0 (T.pack shrunk) ("#" <> T.pack shrunk) | shrunk <- shrinkOverloadedLabel value raw]
     EQuasiQuote _ quoter body ->
       [EQuasiQuote span0 quoter (T.pack shrunk) | shrunk <- shrink (T.unpack body)]
     EApp _ fn arg ->
@@ -696,6 +709,7 @@ normalizeExpr expr =
     ECharHash _ value repr -> ECharHash span0 value repr
     EString _ value repr -> EString span0 value repr
     EStringHash _ value repr -> EStringHash span0 value repr
+    EOverloadedLabel _ value repr -> EOverloadedLabel span0 value repr
     EQuasiQuote _ quoter body -> EQuasiQuote span0 quoter body
     EApp _ fn arg -> EApp span0 (normalizeExpr fn) (normalizeExpr arg)
     EInfix _ lhs op rhs -> EInfix span0 (normalizeExpr lhs) op (normalizeExpr rhs)

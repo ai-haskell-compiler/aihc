@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail yggdrasil-schema infix overloaded label after operator -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}

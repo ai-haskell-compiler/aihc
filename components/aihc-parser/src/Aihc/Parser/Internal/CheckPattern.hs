@@ -79,6 +79,7 @@ checkPattern expr = case expr of
   ECharHash sp c repr -> Right (PLit sp (LitCharHash sp c repr))
   EString sp s repr -> Right (PLit sp (LitString sp s repr))
   EStringHash sp s repr -> Right (PLit sp (LitStringHash sp s repr))
+  EOverloadedLabel {} -> Left "unexpected overloaded label in pattern"
   -- TH splice
   ETHSplice sp body -> Right (PSplice sp body)
   -- Quasi-quote

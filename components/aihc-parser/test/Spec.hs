@@ -75,6 +75,9 @@ buildTests = do
             testCase "skips space-prefixed shebang lines as trivia" test_spacedLeadingShebangIsSkipped,
             testCase "skips mid-stream shebang lines as trivia" test_midStreamShebangIsSkipped,
             testCase "does not misclassify line-start #) as a directive" test_lineStartHashTokenIsNotDirective,
+            testCase "lexes overloaded labels as single tokens" test_overloadedLabelLexesAsSingleToken,
+            testCase "lexes quoted overloaded labels" test_quotedOverloadedLabelLexes,
+            testCase "parses overloaded label expressions" test_overloadedLabelExprParses,
             testCase "applies LINE pragmas to subsequent tokens" test_linePragmaUpdatesSpan,
             testCase "applies COLUMN pragmas to subsequent tokens" test_columnPragmaUpdatesSpan,
             testCase "applies COLUMN pragmas in the middle of a line" test_inlineColumnPragmaUpdatesSpan,
@@ -523,6 +526,30 @@ test_lineStartHashTokenIsNotDirective =
       LexToken {lexTokenKind = TkEOF}
       ] -> pure ()
     other -> assertFailure ("expected line-start #) to lex as an unboxed tuple token, got: " <> show other)
+
+test_overloadedLabelLexesAsSingleToken :: Assertion
+test_overloadedLabelLexesAsSingleToken =
+  case lexTokensWithExtensions [OverloadedLabels] "#typeUrl" of
+    [LexToken {lexTokenKind = TkOverloadedLabel "typeUrl" "#typeUrl"}, LexToken {lexTokenKind = TkEOF}] -> pure ()
+    other -> assertFailure ("expected overloaded label token, got: " <> show other)
+
+test_quotedOverloadedLabelLexes :: Assertion
+test_quotedOverloadedLabelLexes =
+  case lexTokensWithExtensions [OverloadedLabels] "#\"The quick brown fox\"" of
+    [LexToken {lexTokenKind = TkOverloadedLabel "The quick brown fox" "#\"The quick brown fox\""}, LexToken {lexTokenKind = TkEOF}] -> pure ()
+    other -> assertFailure ("expected quoted overloaded label token, got: " <> show other)
+
+test_overloadedLabelExprParses :: Assertion
+test_overloadedLabelExprParses =
+  let source = T.unlines ["{-# LANGUAGE OverloadedLabels #-}", "module M where", "x = #typeUrl", "y = #\"The quick brown fox\""]
+      (errs, modu) = parseModule defaultConfig source
+   in do
+        assertBool ("expected no parse errors, got: " <> show errs) (null errs)
+        case moduleDecls modu of
+          [ DeclValue _ (FunctionBind _ _ [Match {matchRhs = UnguardedRhs _ (EOverloadedLabel _ "typeUrl" "#typeUrl")}]),
+            DeclValue _ (FunctionBind _ _ [Match {matchRhs = UnguardedRhs _ (EOverloadedLabel _ "The quick brown fox" "#\"The quick brown fox\"")}])
+            ] -> pure ()
+          other -> assertFailure ("expected overloaded label expressions in AST, got: " <> show other)
 
 test_linePragmaUpdatesSpan :: Assertion
 test_linePragmaUpdatesSpan =
