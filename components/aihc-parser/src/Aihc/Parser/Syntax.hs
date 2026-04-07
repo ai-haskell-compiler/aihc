@@ -985,6 +985,10 @@ data Constraint
   | CWildcard
       { constraintSpan :: SourceSpan
       }
+  | CKindSig
+      { constraintSpan :: SourceSpan,
+        constraintType :: Type
+      }
   deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan Constraint where
