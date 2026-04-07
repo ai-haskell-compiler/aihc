@@ -2129,3 +2129,4 @@ setTypeSpan span' ty =
     TContext _ constraints inner -> TContext span' constraints inner
     TSplice _ body -> TSplice span' body
     TWildcard _ -> TWildcard span'
+    TAnn ann sub -> TAnn ann (setTypeSpan span' sub)

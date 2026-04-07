@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module Test.Properties.PatternRoundTrip
   ( prop_patternPrettyRoundTrip,
@@ -8,12 +9,11 @@ where
 import Aihc.Parser (ParseResult (..), ParserConfig (..), defaultConfig, parsePattern)
 import Aihc.Parser.Lex (isReservedIdentifier)
 import Aihc.Parser.Syntax
-import Data.Data (dataTypeConstrs, dataTypeOf, showConstr, toConstr)
-import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as T
 import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.Text (renderStrict)
+import Test.Properties.Coverage (assertCtorCoverage)
 import Test.Properties.ExprHelpers (normalizeExpr)
 import Test.Properties.Identifiers (genIdent, shrinkIdent)
 import Test.QuickCheck
@@ -36,7 +36,7 @@ prop_patternPrettyRoundTrip (GenPattern pat) =
   let source = renderStrict (layoutPretty defaultLayoutOptions (pretty pat))
       expected = normalizePattern pat
    in checkCoverage $
-        applyCoverage (patternCtorCoverage pat) $
+        assertCtorCoverage ["PAnn"] pat $
           counterexample (T.unpack source) $
             case parsePattern patternConfig source of
               ParseErr err ->
@@ -45,40 +45,6 @@ prop_patternPrettyRoundTrip (GenPattern pat) =
                 let actual = normalizePattern parsed
                  in counterexample ("expected: " <> show expected <> "\nactual: " <> show actual) (expected == actual)
 
-patternCtorCoverage :: Pattern -> [Property -> Property]
-patternCtorCoverage pat =
-  let allCtors = map showConstr (dataTypeConstrs (dataTypeOf (undefined :: Pattern)))
-      -- Exclude constructors that cannot be round-tripped through the parser yet
-      coverableCtors = allCtors
-      seenCtors = patternCtorNames pat
-   in [cover 1 (ctor `Set.member` seenCtors) ctor | ctor <- coverableCtors]
-
-applyCoverage :: [Property -> Property] -> Property -> Property
-applyCoverage wrappers prop = foldr (\wrap acc -> wrap acc) prop wrappers
-
-patternCtorNames :: Pattern -> Set.Set String
-patternCtorNames pat =
-  let here = Set.singleton (showConstr (toConstr pat))
-   in case pat of
-        PVar {} -> here
-        PWildcard {} -> here
-        PLit {} -> here
-        PQuasiQuote {} -> here
-        PTuple _ _ elems -> here <> mconcat (map patternCtorNames elems)
-        PList _ elems -> here <> mconcat (map patternCtorNames elems)
-        PCon _ _ args -> here <> mconcat (map patternCtorNames args)
-        PInfix _ lhs _ rhs -> here <> patternCtorNames lhs <> patternCtorNames rhs
-        PView _ _ inner -> here <> patternCtorNames inner
-        PAs _ _ inner -> here <> patternCtorNames inner
-        PStrict _ inner -> here <> patternCtorNames inner
-        PIrrefutable _ inner -> here <> patternCtorNames inner
-        PNegLit {} -> here
-        PParen _ inner -> here <> patternCtorNames inner
-        PUnboxedSum _ _ _ inner -> here <> patternCtorNames inner
-        PRecord _ _ fields _ -> here <> mconcat [patternCtorNames fieldPat | (_, fieldPat) <- fields]
-        PTypeSig _ inner _ -> here <> patternCtorNames inner
-        PSplice {} -> here
-
 instance Arbitrary GenPattern where
   arbitrary = GenPattern <$> sized (genPattern . min 3)
   shrink (GenPattern pat) = GenPattern <$> shrinkPattern pat
@@ -86,6 +52,7 @@ instance Arbitrary GenPattern where
 shrinkPattern :: Pattern -> [Pattern]
 shrinkPattern pat =
   case pat of
+    PAnn _ sub -> shrinkPattern sub
     PVar _ name ->
       [PVar span0 shrunk | shrunk <- shrinkIdent name]
     PWildcard _ -> []
@@ -437,6 +404,7 @@ showHex value
 normalizePattern :: Pattern -> Pattern
 normalizePattern pat =
   case pat of
+    PAnn _ sub -> normalizePattern sub
     PVar _ name -> PVar span0 name
     PWildcard _ -> PWildcard span0
     PLit _ lit -> PLit span0 (normalizeLiteral lit)
@@ -476,6 +444,7 @@ normalizeTypeSpan ty =
     TUnboxedSum _ elems -> TUnboxedSum span0 (map normalizeTypeSpan elems)
     TSplice _ body -> TSplice span0 (normalizeExpr body)
     TWildcard _ -> TWildcard span0
+    TAnn ann sub -> TAnn ann (normalizeTypeSpan sub)
 
 normalizeLiteral :: Literal -> Literal
 normalizeLiteral lit =

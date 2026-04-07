@@ -87,6 +87,7 @@ prettyExportSpecList specs =
 prettyExportSpec :: ExportSpec -> Doc ann
 prettyExportSpec spec =
   case spec of
+    ExportAnn _ sub -> prettyExportSpec sub
     ExportModule _ modName -> "module" <+> pretty modName
     ExportVar _ namespace name -> prettyNamespacePrefix namespace <> prettyBinderName name
     ExportAbs _ namespace name -> prettyNamespacePrefix namespace <> prettyConstructorName name
@@ -186,6 +187,7 @@ prettyDeclLines decl =
     DeclDataFamilyDecl _ df -> [prettyDataFamilyDecl df]
     DeclTypeFamilyInst _ tfi -> [prettyTopTypeFamilyInst tfi]
     DeclDataFamilyInst _ dfi -> [prettyTopDataFamilyInst dfi]
+    DeclAnn _ sub -> prettyDeclLines sub
 
 prettyRoleAnnotation :: RoleAnnotation -> Doc ann
 prettyRoleAnnotation ann =
@@ -401,6 +403,7 @@ prettyTypePrec prec ty =
         (prettyContext constraints <+> "=>" <+> prettyTypePrec 0 inner)
     TSplice _ body -> prettySplice "$" body
     TWildcard _ -> "_"
+    TAnn _ sub -> prettyTypePrec prec sub
 
 prettyContext :: [Constraint] -> Doc ann
 prettyContext constraints =
@@ -440,6 +443,7 @@ prettyTypeLiteral lit =
 prettyPattern :: Pattern -> Doc ann
 prettyPattern pat =
   case pat of
+    PAnn _ sub -> prettyPattern sub
     PVar _ name -> pretty name
     PWildcard _ -> "_"
     PLit _ lit -> prettyLiteral lit
@@ -1201,6 +1205,7 @@ prettyExprPrec prec expr =
        in hsep ["(#", hsep (punctuate " |" slots), "#)"]
     EProc _ pat body ->
       parenthesize (prec > 0) ("proc" <+> prettyPattern pat <+> "->" <+> prettyCmd body)
+    EAnn _ sub -> prettyExprPrec prec sub
 
 prettyTupleBody :: TupleFlavor -> Doc ann -> Doc ann
 prettyTupleBody tupleFlavor inner =
