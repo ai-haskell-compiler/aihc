@@ -448,6 +448,8 @@ normalizeType ty =
     TParen _ (TParen _ inner) -> normalizeType inner
     -- TParen around TKindSig comes from constraint pretty printing
     TParen _ (TKindSig _ ty' kind) -> TKindSig span0 (normalizeType ty') (normalizeType kind)
+    -- TParen around TConstraintKindSig - strip and normalize inner
+    TParen _ (TConstraintKindSig _ innerTy) -> normalizeType (TConstraintKindSig span0 innerTy)
     TParen _ inner -> TParen span0 (normalizeType inner)
     TKindSig _ ty' kind -> TKindSig span0 (normalizeType ty') (normalizeType kind)
     TUnboxedSum _ elems -> TUnboxedSum span0 (map normalizeType elems)
