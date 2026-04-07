@@ -285,7 +285,7 @@ genSimpleTypeAtom depth =
 genConstraints :: Int -> Gen [Type]
 genConstraints depth = do
   n <- chooseInt (1, 3)
-  vectorOf n (genConstraintType depth)
+  vectorOf n (genSimpleConstraintType depth)
 
 genConstraintType :: Int -> Gen Type
 genConstraintType depth = do
@@ -402,14 +402,27 @@ genImplicitParamName = do
   rest <- vectorOf restLen (elements (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> "_'"))
   pure (T.pack ('?' : first : rest))
 
--- Generate a simple type suitable for implicit parameter constraints (avoid complex type literals)
+-- Generate a simple type suitable for implicit parameter constraints (avoid complex types)
 genImplicitParamType :: Int -> Gen Type
 genImplicitParamType depth =
   oneof
     [ TVar span0 <$> genTypeVarName,
       (\name -> TCon span0 name Unpromoted) <$> genTypeConName,
-      pure (TStar span0),
-      TFun span0 <$> genSimpleTypeAtom (depth - 1) <*> genSimpleTypeAtom (depth - 1)
+      pure (TStar span0)
+    ]
+
+-- Generate simpler constraint types suitable for nested contexts (avoid TContext, TUnboxedSum, etc.)
+genSimpleConstraintType :: Int -> Gen Type
+genSimpleConstraintType depth =
+  oneof
+    [ TVar span0 <$> genTypeVarName,
+      (\name -> TCon span0 name Unpromoted) <$> genTypeConName,
+      TFun span0 <$> genSimpleTypeAtom (depth - 1) <*> genSimpleTypeAtom (depth - 1),
+      TApp span0
+        <$> ((\name -> TCon span0 name Unpromoted) <$> genTypeConName)
+        <*> genSimpleTypeAtom (depth - 1),
+      pure (TConstraintWildcard span0),
+      TParen span0 <$> genSimpleConstraintType (depth - 1)
     ]
 
 genQuasiBody :: Gen Text
