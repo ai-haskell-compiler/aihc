@@ -450,8 +450,8 @@ normalizeType ty =
     TParen _ (TKindSig _ ty' kind) -> TKindSig span0 (normalizeType ty') (normalizeType kind)
     -- TParen around TConstraintKindSig - strip and normalize inner
     TParen _ (TConstraintKindSig _ innerTy) -> normalizeType (TConstraintKindSig span0 innerTy)
-    -- TParen around TSplice - strip
-    TParen _ (TSplice _ body) -> TSplice span0 body
+    -- TParen around TSplice - strip and normalize expression
+    TParen _ (TSplice _ body) -> TSplice span0 (normalizeExpr body)
     TParen _ inner -> TParen span0 (normalizeType inner)
     TKindSig _ ty' kind -> TKindSig span0 (normalizeType ty') (normalizeType kind)
     TUnboxedSum _ elems -> TUnboxedSum span0 (map normalizeType elems)
