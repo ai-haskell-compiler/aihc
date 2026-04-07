@@ -1073,7 +1073,7 @@ typeDataConDeclParser = withSpan $ do
   -- Parse constructor name
   conName <- constructorIdentifierParser
   -- Parse arguments (no strictness, no records)
-  args <- MP.many $ BangType noSourceSpan False <$> typeAppParser
+  args <- MP.many $ BangType noSourceSpan NoSourceUnpackedness False <$> typeAppParser
   pure $ \span' -> PrefixCon span' [] context conName args
 
 -- | Parse GADT-style constructors for type data (after `where`)
@@ -1117,7 +1117,7 @@ gadtTypeDataBodyParser = do
   case allTypes of
     [resultTy] -> pure (GadtPrefixBody [] resultTy)
     _ ->
-      let argTypes = map (BangType noSourceSpan False) (init allTypes)
+      let argTypes = map (BangType noSourceSpan NoSourceUnpackedness False) (init allTypes)
           resultTy = last allTypes
        in pure (GadtPrefixBody argTypes resultTy)
 
@@ -1247,11 +1247,13 @@ gadtPrefixBodyParser = do
 -- This handles strictness annotations on both simple and complex (parenthesized) types.
 gadtBangTypeParser :: TokParser BangType
 gadtBangTypeParser = withSpan $ do
+  unpackedness <- MP.option NoSourceUnpackedness sourceUnpackednessPragmaParser
   strict <- MP.option False (expectedTok TkPrefixBang >> pure True)
   ty <- typeAppParser
   pure $ \span' ->
     BangType
       { bangSpan = span',
+        bangSourceUnpackedness = unpackedness,
         bangStrict = strict,
         bangType = ty
       }
@@ -1394,11 +1396,13 @@ infixConstructorArgParser :: TokParser BangType
 infixConstructorArgParser = MP.try $ do
   MP.notFollowedBy derivingKeywordParser
   withSpan $ do
+    unpackedness <- MP.option NoSourceUnpackedness sourceUnpackednessPragmaParser
     strict <- MP.option False (expectedTok TkPrefixBang >> pure True)
     ty <- typeAppParser
     pure $ \span' ->
       BangType
         { bangSpan = span',
+          bangSourceUnpackedness = unpackedness,
           bangStrict = strict,
           bangType = ty
         }
@@ -1412,25 +1416,48 @@ derivingKeywordParser =
 
 bangTypeParser :: TokParser BangType
 bangTypeParser = withSpan $ do
+  unpackedness <- MP.option NoSourceUnpackedness sourceUnpackednessPragmaParser
   strict <- MP.option False (expectedTok TkPrefixBang >> pure True)
   ty <- typeAtomParser
   pure $ \span' ->
     BangType
       { bangSpan = span',
+        bangSourceUnpackedness = unpackedness,
         bangStrict = strict,
         bangType = ty
       }
 
 recordFieldBangTypeParser :: TokParser BangType
 recordFieldBangTypeParser = withSpan $ do
+  unpackedness <- MP.option NoSourceUnpackedness sourceUnpackednessPragmaParser
   strict <- MP.option False (expectedTok TkPrefixBang >> pure True)
   ty <- constructorFieldTypeParser
   pure $ \span' ->
     BangType
       { bangSpan = span',
+        bangSourceUnpackedness = unpackedness,
         bangStrict = strict,
         bangType = ty
       }
+
+sourceUnpackednessPragmaParser :: TokParser SourceUnpackedness
+sourceUnpackednessPragmaParser =
+  tokenSatisfy "source unpack pragma" $ \tok ->
+    case lexTokenKind tok of
+      TkPragmaDeclaration text -> parseSourceUnpackednessPragma text
+      _ -> Nothing
+
+parseSourceUnpackednessPragma :: Text -> Maybe SourceUnpackedness
+parseSourceUnpackednessPragma text =
+  case fmap T.toUpper (T.words body) of
+    ["UNPACK"] -> Just SourceUnpack
+    ["NOUNPACK"] -> Just SourceNoUnpack
+    _ -> Nothing
+  where
+    body =
+      fromMaybe text $
+        T.stripSuffix "#-}"
+          =<< T.stripPrefix "{-#" (T.strip text)
 
 -- | Parse a type in a constructor field position.
 -- This supports function types (Int -> Int) and type applications (Maybe Int).
