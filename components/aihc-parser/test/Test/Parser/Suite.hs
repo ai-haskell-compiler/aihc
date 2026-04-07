@@ -10,7 +10,7 @@ import qualified Data.Text as T
 import qualified ParserGolden as PG
 import System.FilePath (takeExtension)
 import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (Assertion, assertFailure, testCase)
+import Test.Tasty.HUnit (Assertion, assertFailure, testCase, testCaseInfo)
 
 parserGoldenTests :: IO TestTree
 parserGoldenTests = do
@@ -39,13 +39,19 @@ parserGoldenTests = do
     )
 
 mkExprCaseTest :: PG.ParserCase -> IO TestTree
-mkExprCaseTest meta = pure $ testCase (PG.caseId meta) (assertExprCase meta)
+mkExprCaseTest meta = pure $ case PG.caseStatus meta of
+  PG.StatusXFail -> testCaseInfo (PG.caseId meta) (assertExprCase meta >> pure "Known failure - to be fixed")
+  _ -> testCase (PG.caseId meta) (assertExprCase meta)
 
 mkModuleCaseTest :: PG.ParserCase -> IO TestTree
-mkModuleCaseTest meta = pure $ testCase (PG.caseId meta) (assertModuleCase meta)
+mkModuleCaseTest meta = pure $ case PG.caseStatus meta of
+  PG.StatusXFail -> testCaseInfo (PG.caseId meta) (assertModuleCase meta >> pure "Known failure - to be fixed")
+  _ -> testCase (PG.caseId meta) (assertModuleCase meta)
 
 mkPatternCaseTest :: PG.ParserCase -> IO TestTree
-mkPatternCaseTest meta = pure $ testCase (PG.caseId meta) (assertPatternCase meta)
+mkPatternCaseTest meta = pure $ case PG.caseStatus meta of
+  PG.StatusXFail -> testCaseInfo (PG.caseId meta) (assertPatternCase meta >> pure "Known failure - to be fixed")
+  _ -> testCase (PG.caseId meta) (assertPatternCase meta)
 
 mkSummaryTest :: String -> (PG.ParserCase -> (PG.Outcome, String)) -> [PG.ParserCase] -> IO TestTree
 mkSummaryTest label evaluateCase cases = do

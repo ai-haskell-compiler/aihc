@@ -18,7 +18,7 @@ import ExtensionSupport
     loadOracleCases,
   )
 import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (Assertion, assertFailure, testCase)
+import Test.Tasty.HUnit (Assertion, assertFailure, testCase, testCaseInfo)
 
 oracleTests :: IO TestTree
 oracleTests = do
@@ -31,7 +31,9 @@ oracleTests = do
 mkCaseTest :: CaseMeta -> IO TestTree
 mkCaseTest meta = do
   source <- TIO.readFile (caseSourcePath meta)
-  pure $ testCase (caseId meta) (assertCase meta source)
+  pure $ case caseExpected meta of
+    ExpectXFail -> testCaseInfo (caseId meta) (assertCase meta source >> pure "Known failure - to be fixed")
+    _ -> testCase (caseId meta) (assertCase meta source)
 
 mkSummaryTest :: [CaseMeta] -> IO TestTree
 mkSummaryTest cases = do

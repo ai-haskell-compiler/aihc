@@ -10,7 +10,7 @@ import qualified Data.Text as T
 import qualified LexerGolden as LG
 import System.FilePath (takeExtension)
 import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (Assertion, assertFailure, testCase)
+import Test.Tasty.HUnit (Assertion, assertFailure, testCase, testCaseInfo)
 
 lexerTests :: IO TestTree
 lexerTests = do
@@ -20,7 +20,9 @@ lexerTests = do
   pure (testGroup "lexer-golden" ([fixtureValidationTests] <> checks <> [summary]))
 
 mkCaseTest :: LG.LexerCase -> IO TestTree
-mkCaseTest meta = pure $ testCase (LG.caseId meta) (assertCase meta)
+mkCaseTest meta = pure $ case LG.caseStatus meta of
+  LG.StatusXFail -> testCaseInfo (LG.caseId meta) (assertCase meta >> pure "Known failure - to be fixed")
+  _ -> testCase (LG.caseId meta) (assertCase meta)
 
 mkSummaryTest :: [LG.LexerCase] -> IO TestTree
 mkSummaryTest cases = do
