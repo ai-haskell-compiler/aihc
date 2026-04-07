@@ -351,7 +351,7 @@ bracedSemiSep1 parser =
 plainSemiSep1 :: TokParser a -> TokParser [a]
 plainSemiSep1 parser = MP.some (parser <* skipSemicolons)
 
-constraintParserWith :: TokParser Type -> TokParser Type -> TokParser Constraint
+constraintParserWith :: TokParser Type -> TokParser Type -> TokParser Type
 constraintParserWith typeParser typeAtomParser =
   MP.try parenthesizedConstraintParser <|> MP.try kindSigConstraintParser <|> bareConstraintParser
   where
@@ -361,18 +361,14 @@ constraintParserWith typeParser typeAtomParser =
         TkImplicitParam {} -> do
           (name, ty) <- implicitParamConstraintParser
           pure $ \span' ->
-            CImplicitParam
-              { constraintSpan = span',
-                constraintName = name,
-                constraintValueType = ty
-              }
+            TImplicitParam span' name ty
         TkKeywordUnderscore -> do
           _ <- anySingle
-          pure CWildcard
+          pure TConstraintWildcard
         _ -> do
           ty <- constraintTypeParser
           guard (not (isConstraintTupleType ty))
-          pure (`CType` ty)
+          pure (\_ -> ty)
     implicitParamConstraintParser = do
       name <- implicitParamNameParser
       expectedTok TkReservedDoubleColon
@@ -383,7 +379,7 @@ constraintParserWith typeParser typeAtomParser =
       constraint <- constraintParserWith typeParser typeAtomParser
       expectedTok TkSpecialRParen
       MP.notFollowedBy typeAtomParser
-      pure (`CParen` constraint)
+      pure (\span' -> TParen span' constraint)
     -- \| Parse a type followed by `::` and another type (kind annotation).
     -- This handles cases like `(c :: Type -> Constraint)` in superclass contexts,
     -- both as standalone parenthesized constraints and as items in comma-separated lists.
@@ -391,14 +387,14 @@ constraintParserWith typeParser typeAtomParser =
     -- IMPORTANT: Uses `constraintTypeAppParser` (not `typeParser`) for the left side
     -- to avoid a parsing cycle: typeParser -> contextTypeParser -> constraintsParserWith
     -- -> constraintParserWith -> kindSigConstraintParser -> typeParser.
-    kindSigConstraintParser :: TokParser Constraint
+    kindSigConstraintParser :: TokParser Type
     kindSigConstraintParser = withSpan $ do
       guard =<< hasKindSignatureAtTopLevel
       ty <- constraintTypeAppParser
       expectedTok TkReservedDoubleColon
       kind <- kindTypeParser
       let resultTy = TKindSig (mergeSourceSpans (getSourceSpan ty) (getSourceSpan kind)) ty kind
-      pure (`CKindSig` resultTy)
+      pure (`TConstraintKindSig` resultTy)
 
     -- \| Lookahead: check if there's a `::` at the top bracket depth.
     -- This avoids ambiguity with the bare constraint parser.
@@ -475,7 +471,7 @@ constraintParserWith typeParser typeAtomParser =
       expectedTok TkReservedColon
       pure (":", Promoted)
 
-constraintsParserWith :: TokParser Type -> TokParser Type -> TokParser [Constraint]
+constraintsParserWith :: TokParser Type -> TokParser Type -> TokParser [Type]
 constraintsParserWith typeParser typeAtomParser =
   MP.try parenthesizedConstraintsParser <|> fmap pure (constraintParserWith typeParser typeAtomParser)
   where
@@ -483,10 +479,10 @@ constraintsParserWith typeParser typeAtomParser =
       constraints <- parens (constraintParserWith typeParser typeAtomParser `MP.sepEndBy` expectedTok TkSpecialComma)
       pure $ \span' ->
         case constraints of
-          [constraint] -> [CParen span' constraint]
+          [constraint] -> [TParen span' constraint]
           _ -> constraints
 
-contextParserWith :: TokParser Type -> TokParser Type -> TokParser [Constraint]
+contextParserWith :: TokParser Type -> TokParser Type -> TokParser [Type]
 contextParserWith = constraintsParserWith
 
 functionHeadParserWith :: TokParser Pattern -> TokParser Pattern -> TokParser (MatchHeadForm, Text, [Pattern])

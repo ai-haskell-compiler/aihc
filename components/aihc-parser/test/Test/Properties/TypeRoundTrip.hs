@@ -92,6 +92,12 @@ shrinkType ty =
       []
     TWildcard _ ->
       []
+    TImplicitParam _ name innerTy ->
+      [TImplicitParam span0 name shrunk | shrunk <- shrinkType innerTy]
+    TConstraintWildcard _ ->
+      []
+    TConstraintKindSig _ innerTy ->
+      [TConstraintKindSig span0 shrunk | shrunk <- shrinkType innerTy]
     TAnn _ sub -> shrinkType sub
 
 canonicalForallInner :: Type -> Type
@@ -132,22 +138,22 @@ shrinkTupleElems tupleFlavor elems =
       _ -> [TTuple span0 tupleFlavor Unpromoted shrunk]
   ]
 
-shrinkConstraints :: [Constraint] -> [[Constraint]]
-shrinkConstraints = shrinkList shrinkConstraint
+shrinkConstraints :: [Type] -> [[Type]]
+shrinkConstraints = shrinkList shrinkConstraintType
 
-shrinkConstraint :: Constraint -> [Constraint]
-shrinkConstraint constraint =
-  case constraint of
-    CType _ ty ->
-      [CType span0 shrunk | shrunk <- shrinkType ty]
-    CImplicitParam _ name ty ->
-      [CImplicitParam span0 name shrunk | shrunk <- shrinkType ty]
-    CParen _ inner ->
-      inner : [CParen span0 shrunk | shrunk <- shrinkConstraint inner]
-    CWildcard _ ->
+shrinkConstraintType :: Type -> [Type]
+shrinkConstraintType ty =
+  case ty of
+    TParen _ inner ->
+      inner : [TParen span0 shrunk | shrunk <- shrinkConstraintType inner]
+    TImplicitParam _ name innerTy ->
+      [TImplicitParam span0 name shrunk | shrunk <- shrinkType innerTy]
+    TConstraintWildcard _ ->
       []
-    CKindSig _ ty ->
-      [CKindSig span0 shrunk | shrunk <- shrinkType ty]
+    TConstraintKindSig _ innerTy ->
+      [TConstraintKindSig span0 shrunk | shrunk <- shrinkType innerTy]
+    _ ->
+      [shrunk | shrunk <- shrinkType ty]
 
 genType :: Int -> Gen Type
 genType depth
@@ -263,17 +269,17 @@ genSimpleTypeAtom depth =
       TParen span0 <$> genType depth
     ]
 
-genConstraints :: Int -> Gen [Constraint]
+genConstraints :: Int -> Gen [Type]
 genConstraints depth = do
   n <- chooseInt (1, 3)
-  vectorOf n (genConstraint depth)
+  vectorOf n (genConstraintType depth)
 
-genConstraint :: Int -> Gen Constraint
-genConstraint depth = do
+genConstraintType :: Int -> Gen Type
+genConstraintType depth = do
   cls <- genTypeConName
   argCount <- chooseInt (0, 2)
   args <- vectorOf argCount (genConstraintArg depth)
-  pure (CType span0 (foldl (TApp span0) (TCon span0 cls Unpromoted) args))
+  pure (foldl (TApp span0) (TCon span0 cls Unpromoted) args)
 
 genConstraintArg :: Int -> Gen Type
 genConstraintArg depth = do
@@ -422,20 +428,9 @@ normalizeType ty =
     TParen _ inner -> TParen span0 (normalizeType inner)
     TKindSig _ ty' kind -> TKindSig span0 (normalizeType ty') (normalizeType kind)
     TUnboxedSum _ elems -> TUnboxedSum span0 (map normalizeType elems)
-    TContext _ constraints inner -> TContext span0 (map normalizeConstraint constraints) (normalizeType inner)
+    TContext _ constraints inner -> TContext span0 (map normalizeType constraints) (normalizeType inner)
+    TImplicitParam _ name innerTy -> TImplicitParam span0 name (normalizeType innerTy)
+    TConstraintWildcard _ -> TConstraintWildcard span0
+    TConstraintKindSig _ innerTy -> TConstraintKindSig span0 (normalizeType innerTy)
     TSplice _ body -> TSplice span0 (normalizeExpr body)
     TAnn ann sub -> TAnn ann (normalizeType sub)
-
-normalizeConstraint :: Constraint -> Constraint
-normalizeConstraint constraint =
-  case constraint of
-    CType _ ty ->
-      CType span0 (normalizeType ty)
-    CImplicitParam _ name ty ->
-      CImplicitParam span0 name (normalizeType ty)
-    CParen _ inner ->
-      CParen span0 (normalizeConstraint inner)
-    CWildcard _ ->
-      CWildcard span0
-    CKindSig _ ty ->
-      CKindSig span0 (normalizeType ty)

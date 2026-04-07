@@ -19,7 +19,6 @@ module Aihc.Parser.Syntax
     Cmd (..),
     CmdCaseAlt (..),
     CompStmt (..),
-    Constraint (..),
     FunctionalDependency (..),
     DataConDecl (..),
     DataDecl (..),
@@ -941,7 +940,10 @@ data Type
   | TList SourceSpan TypePromotion [Type]
   | TParen SourceSpan Type
   | TKindSig SourceSpan Type Type
-  | TContext SourceSpan [Constraint] Type
+  | TContext SourceSpan [Type] Type
+  | TImplicitParam SourceSpan Text Type
+  | TConstraintWildcard SourceSpan
+  | TConstraintKindSig SourceSpan Type
   | TSplice SourceSpan Expr
   | -- \$typ or $(typ) (TH type splice)
     -- \_ (wildcard type, used in type family instance patterns)
@@ -966,6 +968,9 @@ instance HasSourceSpan Type where
       TParen span' _ -> span'
       TKindSig span' _ _ -> span'
       TContext span' _ _ -> span'
+      TImplicitParam span' _ _ -> span'
+      TConstraintWildcard span' -> span'
+      TConstraintKindSig span' _ -> span'
       TSplice span' _ -> span'
       TWildcard span' -> span'
 
@@ -979,32 +984,6 @@ data TypePromotion
   = Unpromoted
   | Promoted
   deriving (Data, Eq, Show, Generic, NFData)
-
-data Constraint
-  = CType
-      { constraintSpan :: SourceSpan,
-        constraintType :: Type
-      }
-  | CImplicitParam
-      { constraintSpan :: SourceSpan,
-        constraintName :: Text,
-        constraintValueType :: Type
-      }
-  | CParen
-      { constraintSpan :: SourceSpan,
-        constraintInner :: Constraint
-      }
-  | CWildcard
-      { constraintSpan :: SourceSpan
-      }
-  | CKindSig
-      { constraintSpan :: SourceSpan,
-        constraintType :: Type
-      }
-  deriving (Data, Eq, Show, Generic, NFData)
-
-instance HasSourceSpan Constraint where
-  getSourceSpan = constraintSpan
 
 data TyVarBinder = TyVarBinder
   { tyVarBinderSpan :: SourceSpan,
@@ -1117,7 +1096,7 @@ instance HasSourceSpan DataFamilyInst where
 
 data DataDecl = DataDecl
   { dataDeclSpan :: SourceSpan,
-    dataDeclContext :: [Constraint],
+    dataDeclContext :: [Type],
     dataDeclName :: Text,
     dataDeclParams :: [TyVarBinder],
     dataDeclConstructors :: [DataConDecl],
@@ -1130,7 +1109,7 @@ instance HasSourceSpan DataDecl where
 
 data NewtypeDecl = NewtypeDecl
   { newtypeDeclSpan :: SourceSpan,
-    newtypeDeclContext :: [Constraint],
+    newtypeDeclContext :: [Type],
     newtypeDeclName :: Text,
     newtypeDeclParams :: [TyVarBinder],
     newtypeDeclConstructor :: Maybe DataConDecl,
@@ -1142,12 +1121,12 @@ instance HasSourceSpan NewtypeDecl where
   getSourceSpan = newtypeDeclSpan
 
 data DataConDecl
-  = PrefixCon SourceSpan [Text] [Constraint] Text [BangType]
-  | InfixCon SourceSpan [Text] [Constraint] BangType Text BangType
-  | RecordCon SourceSpan [Text] [Constraint] Text [FieldDecl]
+  = PrefixCon SourceSpan [Text] [Type] Text [BangType]
+  | InfixCon SourceSpan [Text] [Type] BangType Text BangType
+  | RecordCon SourceSpan [Text] [Type] Text [FieldDecl]
   | -- | GADT-style constructor: @Con :: forall a. Ctx => Type@
     -- The list of names supports multiple constructors: @T1, T2 :: Type@
-    GadtCon SourceSpan [TyVarBinder] [Constraint] [Text] GadtBody
+    GadtCon SourceSpan [TyVarBinder] [Type] [Text] GadtBody
   deriving (Data, Eq, Show, Generic, NFData)
 
 -- | Body of a GADT constructor after the @::@ and optional forall/context
@@ -1195,7 +1174,7 @@ instance HasSourceSpan FieldDecl where
 
 data DerivingClause = DerivingClause
   { derivingStrategy :: Maybe DerivingStrategy,
-    derivingClasses :: [Constraint],
+    derivingClasses :: [Type],
     derivingViaType :: Maybe Type
   }
   deriving (Data, Eq, Show, Generic, NFData)
@@ -1211,7 +1190,7 @@ data StandaloneDerivingDecl = StandaloneDerivingDecl
     standaloneDerivingStrategy :: Maybe DerivingStrategy,
     standaloneDerivingOverlapPragma :: Maybe InstanceOverlapPragma,
     standaloneDerivingForall :: [TyVarBinder],
-    standaloneDerivingContext :: [Constraint],
+    standaloneDerivingContext :: [Type],
     standaloneDerivingParenthesizedHead :: Bool,
     standaloneDerivingClassName :: Text,
     standaloneDerivingTypes :: [Type],
@@ -1224,7 +1203,7 @@ instance HasSourceSpan StandaloneDerivingDecl where
 
 data ClassDecl = ClassDecl
   { classDeclSpan :: SourceSpan,
-    classDeclContext :: Maybe [Constraint],
+    classDeclContext :: Maybe [Type],
     classDeclName :: Text,
     classDeclParams :: [TyVarBinder],
     classDeclFundeps :: [FunctionalDependency],
@@ -1273,7 +1252,7 @@ data InstanceDecl = InstanceDecl
   { instanceDeclSpan :: SourceSpan,
     instanceDeclOverlapPragma :: Maybe InstanceOverlapPragma,
     instanceDeclForall :: [TyVarBinder],
-    instanceDeclContext :: [Constraint],
+    instanceDeclContext :: [Type],
     instanceDeclParenthesizedHead :: Bool,
     instanceDeclClassName :: Text,
     instanceDeclTypes :: [Type],

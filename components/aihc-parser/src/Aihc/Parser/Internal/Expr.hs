@@ -1876,13 +1876,13 @@ contextTypeParser = do
   inner <- typeParser
   pure (TContext (mergeSourceSpans (constraintHeadSpan constraints) (getSourceSpan inner)) constraints inner)
 
-constraintHeadSpan :: [Constraint] -> SourceSpan
+constraintHeadSpan :: [Type] -> SourceSpan
 constraintHeadSpan constraints =
   case constraints of
     [] -> NoSourceSpan
     constraint : _ -> getSourceSpan constraint
 
-constraintsParser :: TokParser [Constraint]
+constraintsParser :: TokParser [Type]
 constraintsParser = constraintsParserWith typeParser typeAtomParser
 
 typeFunParser :: TokParser Type
@@ -2175,6 +2175,9 @@ setTypeSpan span' ty =
     TParen _ inner -> TParen span' inner
     TKindSig _ inner kind -> TKindSig span' inner kind
     TContext _ constraints inner -> TContext span' constraints inner
+    TImplicitParam _ name innerTy -> TImplicitParam span' name innerTy
+    TConstraintWildcard _ -> TConstraintWildcard span'
+    TConstraintKindSig _ innerTy -> TConstraintKindSig span' innerTy
     TSplice _ body -> TSplice span' body
     TWildcard _ -> TWildcard span'
     TAnn ann sub -> TAnn ann (setTypeSpan span' sub)

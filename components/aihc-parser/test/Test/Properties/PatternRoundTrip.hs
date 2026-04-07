@@ -440,7 +440,10 @@ normalizeTypeSpan ty =
     TList _ promoted elems -> TList span0 promoted (map normalizeTypeSpan elems)
     TParen _ inner -> TParen span0 (normalizeTypeSpan inner)
     TKindSig _ inner kind -> TKindSig span0 (normalizeTypeSpan inner) (normalizeTypeSpan kind)
-    TContext _ constraints inner -> TContext span0 constraints (normalizeTypeSpan inner)
+    TContext _ constraints inner -> TContext span0 (map normalizeTypeSpan constraints) (normalizeTypeSpan inner)
+    TImplicitParam _ name innerTy -> TImplicitParam span0 name (normalizeTypeSpan innerTy)
+    TConstraintWildcard _ -> TConstraintWildcard span0
+    TConstraintKindSig _ innerTy -> TConstraintKindSig span0 (normalizeTypeSpan innerTy)
     TUnboxedSum _ elems -> TUnboxedSum span0 (map normalizeTypeSpan elems)
     TSplice _ body -> TSplice span0 (normalizeExpr body)
     TWildcard _ -> TWildcard span0

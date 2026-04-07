@@ -280,7 +280,7 @@ docDataDecl dd =
   where
     fields =
       [field "name" (docText (dataDeclName dd))]
-        <> listField "context" docConstraint (dataDeclContext dd)
+        <> listField "context" docConstraintType (dataDeclContext dd)
         <> listField "params" docTyVarBinder (dataDeclParams dd)
         <> listField "constructors" docDataConDecl (dataDeclConstructors dd)
         <> listField "deriving" docDerivingClause (dataDeclDeriving dd)
@@ -291,7 +291,7 @@ docNewtypeDecl nd =
   where
     fields =
       [field "name" (docText (newtypeDeclName nd))]
-        <> listField "context" docConstraint (newtypeDeclContext nd)
+        <> listField "context" docConstraintType (newtypeDeclContext nd)
         <> listField "params" docTyVarBinder (newtypeDeclParams nd)
         <> optionalField "constructor" docDataConDecl (newtypeDeclConstructor nd)
         <> listField "deriving" docDerivingClause (newtypeDeclDeriving nd)
@@ -300,13 +300,13 @@ docDataConDecl :: DataConDecl -> Doc ann
 docDataConDecl dcd =
   case dcd of
     PrefixCon _ forallVars constraints name fields' ->
-      "PrefixCon" <+> braces (hsep (punctuate comma ([field "name" (docText name)] <> listField "forallVars" docText forallVars <> listField "constraints" docConstraint constraints <> listField "fields" docBangType fields')))
+      "PrefixCon" <+> braces (hsep (punctuate comma ([field "name" (docText name)] <> listField "forallVars" docText forallVars <> listField "constraints" docConstraintType constraints <> listField "fields" docBangType fields')))
     InfixCon _ forallVars constraints lhs op rhs ->
-      "InfixCon" <+> braces (hsep (punctuate comma ([field "op" (docText op), field "lhs" (docBangType lhs), field "rhs" (docBangType rhs)] <> listField "forallVars" docText forallVars <> listField "constraints" docConstraint constraints)))
+      "InfixCon" <+> braces (hsep (punctuate comma ([field "op" (docText op), field "lhs" (docBangType lhs), field "rhs" (docBangType rhs)] <> listField "forallVars" docText forallVars <> listField "constraints" docConstraintType constraints)))
     RecordCon _ forallVars constraints name fields' ->
-      "RecordCon" <+> braces (hsep (punctuate comma ([field "name" (docText name)] <> listField "forallVars" docText forallVars <> listField "constraints" docConstraint constraints <> listField "fields" docFieldDecl fields')))
+      "RecordCon" <+> braces (hsep (punctuate comma ([field "name" (docText name)] <> listField "forallVars" docText forallVars <> listField "constraints" docConstraintType constraints <> listField "fields" docFieldDecl fields')))
     GadtCon _ forallBinders constraints names body ->
-      "GadtCon" <+> braces (hsep (punctuate comma (listField "names" docText names <> listField "forallBinders" docTyVarBinder forallBinders <> listField "constraints" docConstraint constraints <> [field "body" (docGadtBody body)])))
+      "GadtCon" <+> braces (hsep (punctuate comma (listField "names" docText names <> listField "forallBinders" docTyVarBinder forallBinders <> listField "constraints" docConstraintType constraints <> [field "body" (docGadtBody body)])))
 
 -- | Document a GADT body
 docGadtBody :: GadtBody -> Doc ann
@@ -335,7 +335,7 @@ docDerivingClause dc =
   where
     fields =
       optionalField "strategy" docDerivingStrategy (derivingStrategy dc)
-        <> listField "classes" docConstraint (derivingClasses dc)
+        <> listField "classes" docConstraintType (derivingClasses dc)
         <> optionalField "viaType" docType (derivingViaType dc)
 
 docDerivingStrategy :: DerivingStrategy -> Doc ann
@@ -351,7 +351,7 @@ docClassDecl cd =
   where
     fields =
       [field "name" (docText (classDeclName cd))]
-        <> optionalField "context" (brackets . hsep . punctuate comma . map docConstraint) (classDeclContext cd)
+        <> optionalField "context" (brackets . hsep . punctuate comma . map docConstraintType) (classDeclContext cd)
         <> listField "params" docTyVarBinder (classDeclParams cd)
         <> listField "fundeps" docFunctionalDependency (classDeclFundeps cd)
         <> listField "items" docClassDeclItem (classDeclItems cd)
@@ -385,7 +385,7 @@ docInstanceDecl inst =
         <> listField "forall" docTyVarBinder (instanceDeclForall inst)
         <> boolField "parenthesizedHead" (instanceDeclParenthesizedHead inst)
         <> [field "className" (docText (instanceDeclClassName inst))]
-        <> listField "context" docConstraint (instanceDeclContext inst)
+        <> listField "context" docConstraintType (instanceDeclContext inst)
         <> [field "types" (brackets (hsep (punctuate comma (map docType (instanceDeclTypes inst)))))]
         <> listField "items" docInstanceDeclItem (instanceDeclItems inst)
 
@@ -408,7 +408,7 @@ docStandaloneDerivingDecl sd =
         <> boolField "parenthesizedHead" (standaloneDerivingParenthesizedHead sd)
         <> [field "className" (docText (standaloneDerivingClassName sd))]
         <> optionalField "strategy" docDerivingStrategy (standaloneDerivingStrategy sd)
-        <> listField "context" docConstraint (standaloneDerivingContext sd)
+        <> listField "context" docConstraintType (standaloneDerivingContext sd)
         <> [field "types" (brackets (hsep (punctuate comma (map docType (standaloneDerivingTypes sd)))))]
         <> optionalField "viaType" docType (standaloneDerivingViaType sd)
 
@@ -500,7 +500,10 @@ docType ty =
         <+> brackets (hsep (punctuate comma (map docType elems)))
     TParen _ inner -> "TParen" <+> parens (docType inner)
     TKindSig _ ty' kind -> "TKindSig" <+> parens (docType ty') <+> parens (docType kind)
-    TContext _ constraints inner -> "TContext" <+> brackets (hsep (punctuate comma (map docConstraint constraints))) <+> parens (docType inner)
+    TContext _ constraints inner -> "TContext" <+> brackets (hsep (punctuate comma (map docConstraintType constraints))) <+> parens (docType inner)
+    TImplicitParam _ name innerTy -> "TImplicitParam" <+> braces (hsep (punctuate comma [field "name" (docText name), field "type" (docType innerTy)]))
+    TConstraintWildcard _ -> "TConstraintWildcard"
+    TConstraintKindSig _ innerTy -> "TConstraintKindSig" <+> parens (docType innerTy)
     TSplice _ body -> "TSplice" <+> parens (docExpr body)
     TWildcard _ -> "TWildcard"
     TAnn _ sub -> docType sub
@@ -512,19 +515,15 @@ docTypeLiteral lit =
     TypeLitSymbol s _ -> "TypeLitSymbol" <+> docText s
     TypeLitChar c _ -> "TypeLitChar" <+> pretty (show c)
 
-docConstraint :: Constraint -> Doc ann
-docConstraint c =
-  case c of
-    CType _ ty ->
-      "CType" <+> parens (docType ty)
-    CImplicitParam _ name ty ->
-      "CImplicitParam" <+> braces (hsep (punctuate comma [field "name" (docText name), field "type" (docType ty)]))
-    CParen _ inner ->
-      "CParen" <+> parens (docConstraint inner)
-    CWildcard _ ->
-      "CWildcard"
-    CKindSig _ ty ->
-      "CKindSig" <+> parens (docType ty)
+docConstraintType :: Type -> Doc ann
+docConstraintType ty =
+  case ty of
+    TParen _ inner -> "TParen" <+> parens (docConstraintType inner)
+    TImplicitParam _ name inner ->
+      "TImplicitParam" <+> braces (hsep (punctuate comma [field "name" (docText name), field "type" (docType inner)]))
+    TConstraintWildcard _ -> "TConstraintWildcard"
+    TConstraintKindSig _ inner -> "TConstraintKindSig" <+> parens (docType inner)
+    _ -> docType ty
 
 docTyVarBinder :: TyVarBinder -> Doc ann
 docTyVarBinder tvb =
