@@ -494,9 +494,9 @@ docType ty =
     TUnboxedSum _ elems ->
       "TUnboxedSum"
         <+> brackets (hsep (punctuate comma (map docType elems)))
-    TList _ promoted inner ->
+    TList _ promoted elems ->
       (if promoted == Promoted then "TListPromoted" else "TList")
-        <+> parens (docType inner)
+        <+> brackets (hsep (punctuate comma (map docType elems)))
     TParen _ inner -> "TParen" <+> parens (docType inner)
     TKindSig _ ty' kind -> "TKindSig" <+> parens (docType ty') <+> parens (docType kind)
     TContext _ constraints inner -> "TContext" <+> brackets (hsep (punctuate comma (map docConstraint constraints))) <+> parens (docType inner)

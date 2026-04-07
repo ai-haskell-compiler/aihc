@@ -2046,9 +2046,9 @@ typeStarParser = withSpan $ do
 typeListParser :: TokParser Type
 typeListParser = withSpan $ do
   expectedTok TkSpecialLBracket
-  inner <- typeParser
+  elems <- typeParser `MP.sepBy1` expectedTok TkSpecialComma
   expectedTok TkSpecialRBracket
-  pure (\span' -> TList span' Unpromoted inner)
+  pure (\span' -> TList span' Unpromoted elems)
 
 typeParenOrTupleParser :: TokParser Type
 typeParenOrTupleParser = withSpan $ do
@@ -2106,7 +2106,7 @@ markTypePromoted :: Type -> Maybe Type
 markTypePromoted ty =
   case ty of
     TCon span' name _ -> Just (TCon span' name Promoted)
-    TList span' _ inner -> Just (TList span' Promoted inner)
+    TList span' _ elems -> Just (TList span' Promoted elems)
     TTuple span' tupleFlavor _ elems -> Just (TTuple span' tupleFlavor Promoted elems)
     _ -> Nothing
 
@@ -2123,7 +2123,7 @@ setTypeSpan span' ty =
     TFun _ lhs rhs -> TFun span' lhs rhs
     TTuple _ tupleFlavor promoted elems -> TTuple span' tupleFlavor promoted elems
     TUnboxedSum _ elems -> TUnboxedSum span' elems
-    TList _ promoted inner -> TList span' promoted inner
+    TList _ promoted elems -> TList span' promoted elems
     TParen _ inner -> TParen span' inner
     TKindSig _ inner kind -> TKindSig span' inner kind
     TContext _ constraints inner -> TContext span' constraints inner

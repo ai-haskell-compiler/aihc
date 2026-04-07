@@ -931,7 +931,7 @@ data Type
   | TFun SourceSpan Type Type
   | TTuple SourceSpan TupleFlavor TypePromotion [Type]
   | TUnboxedSum SourceSpan [Type]
-  | TList SourceSpan TypePromotion Type
+  | TList SourceSpan TypePromotion [Type]
   | TParen SourceSpan Type
   | TKindSig SourceSpan Type Type
   | TContext SourceSpan [Constraint] Type

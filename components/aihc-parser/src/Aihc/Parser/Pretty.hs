@@ -391,8 +391,8 @@ prettyTypePrec prec ty =
        in if promoted == Promoted then "'" <> tupleDoc else tupleDoc
     TUnboxedSum _ elems ->
       hsep ["(#", hsep (punctuate " |" (map (prettyTypePrec 0) elems)), "#)"]
-    TList _ promoted inner ->
-      let listDoc = brackets (prettyTypePrec 0 inner)
+    TList _ promoted elems ->
+      let listDoc = brackets (hsep (punctuate comma (map (prettyTypePrec 0) elems)))
        in if promoted == Promoted then "'" <> listDoc else listDoc
     TParen _ inner -> parens (prettyTypePrec 0 inner)
     TKindSig _ ty' kind -> parens (prettyTypePrec 0 ty' <+> "::" <+> prettyTypePrec 0 kind)

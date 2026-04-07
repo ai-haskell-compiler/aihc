@@ -391,7 +391,7 @@ genType n
         [ genTypeLeaf,
           TApp span0 <$> genType half <*> genType half,
           TFun span0 <$> genType half <*> genType half,
-          TList span0 Unpromoted <$> genType (n - 1),
+          TList span0 Unpromoted <$> genTypeListElems (n - 1),
           TTuple span0 Boxed Unpromoted <$> genTypeTupleElems (n - 1),
           TParen span0 <$> genType (n - 1)
         ]
@@ -414,6 +414,11 @@ genTypeTupleElems n = do
     else do
       count <- chooseInt (2, 3)
       vectorOf count (genType (n `div` count))
+
+genTypeListElems :: Int -> Gen [Type]
+genTypeListElems n = do
+  count <- chooseInt (1, 4)
+  vectorOf count (genType (n `div` count))
 
 genTypeVarName :: Gen Text
 genTypeVarName = do
@@ -850,7 +855,7 @@ normalizeType ty =
     TApp _ fn arg -> TApp span0 (normalizeType fn) (normalizeType arg)
     TFun _ lhs rhs -> TFun span0 (normalizeType lhs) (normalizeType rhs)
     TTuple _ tupleFlavor promoted elems -> TTuple span0 tupleFlavor promoted (map normalizeType elems)
-    TList _ promoted inner -> TList span0 promoted (normalizeType inner)
+    TList _ promoted elems -> TList span0 promoted (map normalizeType elems)
     -- Remove redundant parentheses from types
     TParen _ inner -> normalizeType inner
     TKindSig _ inner kind -> TKindSig span0 (normalizeType inner) (normalizeType kind)

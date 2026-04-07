@@ -67,7 +67,7 @@ typeCtorNames ty =
         TApp _ f x -> here <> typeCtorNames f <> typeCtorNames x
         TFun _ a b -> here <> typeCtorNames a <> typeCtorNames b
         TTuple _ _ _ elems -> here <> mconcat (map typeCtorNames elems)
-        TList _ _ inner -> here <> typeCtorNames inner
+        TList _ _ elems -> here <> mconcat (map typeCtorNames elems)
         TParen _ inner -> here <> typeCtorNames inner
         TKindSig _ ty' kind -> here <> typeCtorNames ty' <> typeCtorNames kind
         TUnboxedSum _ elems -> here <> mconcat (map typeCtorNames elems)
@@ -115,8 +115,8 @@ shrinkType ty =
         <> [TFun span0 (canonicalFunLeft lhs) rhs' | rhs' <- shrinkType rhs]
     TTuple _ tupleFlavor _ elems ->
       shrinkTupleElems tupleFlavor elems
-    TList _ _ inner ->
-      [inner] <> [TList span0 Unpromoted inner' | inner' <- shrinkType inner]
+    TList _ _ elems ->
+      [TList span0 Unpromoted elems' | elems' <- shrinkList shrinkType elems, not (null elems')]
     TParen _ inner ->
       [inner] <> [TParen span0 inner' | inner' <- shrinkType inner]
     TKindSig _ ty' kind ->
@@ -203,7 +203,7 @@ genType depth
           TQuasiQuote span0 <$> genQuoterName <*> genQuasiBody,
           TTuple span0 Boxed Unpromoted <$> elements [[], [TVar span0 "a", TCon span0 "B" Unpromoted]],
           TTuple span0 Unboxed Unpromoted <$> elements [[], [TVar span0 "a", TCon span0 "B" Unpromoted]],
-          TList span0 Unpromoted <$> genTypeAtom 0,
+          TList span0 Unpromoted <$> genTypeListElems 0,
           TParen span0 <$> genTypeAtom 0,
           TUnboxedSum span0 <$> genUnboxedSumElems 0
         ]
@@ -221,7 +221,7 @@ genType depth
           (3, TTuple span0 Boxed Unpromoted <$> genTypeTupleElems (depth - 1)),
           (2, TTuple span0 Unboxed Unpromoted <$> genTypeTupleElems (depth - 1)),
           (2, TUnboxedSum span0 <$> genUnboxedSumElems (depth - 1)),
-          (3, TList span0 Unpromoted <$> genType (depth - 1)),
+          (3, TList span0 Unpromoted <$> genTypeListElems (depth - 1)),
           (3, TParen span0 <$> genType (depth - 1)),
           (3, TContext span0 <$> genConstraints (depth - 1) <*> genContextInner (depth - 1)),
           (2, TSplice span0 <$> genTypeSpliceBody)
@@ -272,6 +272,11 @@ genTypeTupleElems depth = do
       n <- chooseInt (2, 4)
       vectorOf n (genType depth)
 
+genTypeListElems :: Int -> Gen [Type]
+genTypeListElems depth = do
+  n <- chooseInt (1, 4)
+  vectorOf n (genType depth)
+
 genUnboxedSumElems :: Int -> Gen [Type]
 genUnboxedSumElems depth = do
   n <- chooseInt (2, 4)
@@ -296,7 +301,7 @@ genSimpleTypeAtom depth =
       TTuple span0 Boxed Unpromoted <$> genTypeTupleElems depth,
       TTuple span0 Unboxed Unpromoted <$> genTypeTupleElems depth,
       TUnboxedSum span0 <$> genUnboxedSumElems depth,
-      TList span0 Unpromoted <$> genType depth,
+      TList span0 Unpromoted <$> genTypeListElems depth,
       TParen span0 <$> genType depth
     ]
 
@@ -460,7 +465,7 @@ normalizeType ty =
     TApp _ f x -> TApp span0 (normalizeType f) (normalizeType x)
     TFun _ a b -> TFun span0 (normalizeType a) (normalizeType b)
     TTuple _ tupleFlavor promoted elems -> TTuple span0 tupleFlavor promoted (map normalizeType elems)
-    TList _ promoted inner -> TList span0 promoted (normalizeType inner)
+    TList _ promoted elems -> TList span0 promoted (map normalizeType elems)
     TParen _ inner -> TParen span0 (normalizeType inner)
     TKindSig _ ty' kind -> TKindSig span0 (normalizeType ty') (normalizeType kind)
     TUnboxedSum _ elems -> TUnboxedSum span0 (map normalizeType elems)
