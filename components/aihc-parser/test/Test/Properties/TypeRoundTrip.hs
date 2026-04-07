@@ -170,7 +170,7 @@ genType depth
           TList span0 Unpromoted <$> genTypeListElems 0,
           TParen span0 <$> genTypeAtom 0,
           TUnboxedSum span0 <$> genUnboxedSumElems 0,
-          TImplicitParam span0 <$> genImplicitParamName <*> genTypeAtom 0,
+          TImplicitParam span0 <$> genImplicitParamName <*> genImplicitParamType 0,
           pure (TConstraintWildcard span0),
           TConstraintKindSig span0 <$> genTypeAtom 0
         ]
@@ -192,7 +192,7 @@ genType depth
           (3, TParen span0 <$> genType (depth - 1)),
           (3, TContext span0 <$> genConstraints (depth - 1) <*> genContextInner (depth - 1)),
           (2, TSplice span0 <$> genTypeSpliceBody),
-          (1, TImplicitParam span0 <$> genImplicitParamName <*> genType (depth - 1)),
+          (1, TImplicitParam span0 <$> genImplicitParamName <*> genImplicitParamType (depth - 1)),
           (1, pure (TConstraintWildcard span0)),
           (1, TConstraintKindSig span0 <$> genType (depth - 1))
         ]
@@ -394,6 +394,16 @@ genImplicitParamName = do
   restLen <- chooseInt (0, 4)
   rest <- vectorOf restLen (elements (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> "_'"))
   pure (T.pack ('?' : first : rest))
+
+-- Generate a simple type suitable for implicit parameter constraints (avoid complex type literals)
+genImplicitParamType :: Int -> Gen Type
+genImplicitParamType depth =
+  oneof
+    [ TVar span0 <$> genTypeVarName,
+      (\name -> TCon span0 name Unpromoted) <$> genTypeConName,
+      pure (TStar span0),
+      TFun span0 <$> genSimpleTypeAtom (depth - 1) <*> genSimpleTypeAtom (depth - 1)
+    ]
 
 genQuasiBody :: Gen Text
 genQuasiBody = do
