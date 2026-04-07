@@ -443,10 +443,12 @@ normalizeType ty =
     TUnboxedSum _ elems -> TUnboxedSum span0 (map normalizeType elems)
     TContext _ constraints inner -> TContext span0 (map normalizeType constraints) (normalizeType inner)
     TImplicitParam _ name innerTy -> TImplicitParam span0 name (normalizeType innerTy)
-    TConstraintWildcard _ -> TConstraintWildcard span0
+    -- TConstraintWildcard and TWildcard both pretty-print as "_", treat as equivalent
+    TConstraintWildcard _ -> TWildcard span0
     -- TConstraintKindSig (TKindSig ...) pretty-prints as (ty :: kind) which parses as TParen (TKindSig ...)
     TConstraintKindSig _ (TKindSig _ inner kind) ->
       TParen span0 (TKindSig span0 (normalizeType inner) (normalizeType kind))
     TConstraintKindSig _ innerTy -> TConstraintKindSig span0 (normalizeType innerTy)
     TSplice _ body -> TSplice span0 (normalizeExpr body)
+    TWildcard _ -> TWildcard span0
     TAnn ann sub -> TAnn ann (normalizeType sub)
