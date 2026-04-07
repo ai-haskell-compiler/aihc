@@ -20,6 +20,7 @@ Find more information here:
 | Parser Tests     | <!-- AUTO-GENERATED: START parser-progress --> `642/737` (`87.11%`) <!-- AUTO-GENERATED: END parser-progress -->                    |
 | Lexer Tests      | <!-- AUTO-GENERATED: START lexer-progress --> `79/80` (`98.75%`) <!-- AUTO-GENERATED: END lexer-progress -->                        |
 | CPP preprocessor | <!-- AUTO-GENERATED: START cpp-progress --> `38/38` (`100.00%`) <!-- AUTO-GENERATED: END cpp-progress -->                           |
+| Resolve Tests    | <!-- AUTO-GENERATED: START resolve-progress --> `0/4` (`0.00%`) <!-- AUTO-GENERATED: END resolve-progress -->                       |
 
 ## Lines of code
 

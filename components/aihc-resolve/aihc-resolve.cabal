@@ -1,0 +1,69 @@
+cabal-version:      3.8
+name:               aihc-resolve
+version:            0.1.0.0
+build-type:         Simple
+license:            NONE
+license-file:       LICENSE
+author:             David Himmelstrup
+maintainer:         lemmih@gmail.com
+category:           Compilers
+synopsis:           Name resolution for parsed Haskell modules
+
+library
+  exposed-modules:
+      Aihc.Resolve
+    , Aihc.Resolve.Types
+  hs-source-dirs:   src
+  build-depends:
+      base >=4.16 && <5
+    , aihc-parser
+    , text >=1.2
+    , containers
+  ghc-options:        -Wall -Werror
+  default-language: GHC2021
+
+executable resolve-progress
+  hs-source-dirs:
+      app/resolve-progress
+    , common
+  main-is:          Main.hs
+  other-modules:
+      ResolverGolden
+  build-depends:
+      base >=4.16 && <5
+    , aihc-resolve
+    , aihc-parser
+    , text
+    , containers
+    , directory
+    , filepath
+    , aeson
+    , bytestring
+    , yaml
+  ghc-options:        -Wall -Werror
+  default-language: Haskell2010
+
+test-suite spec
+  type:             exitcode-stdio-1.0
+  hs-source-dirs:
+      test
+    , common
+  main-is:          Spec.hs
+  other-modules:
+      ResolverGolden
+    , Test.Resolver.Suite
+  build-depends:
+      base >=4.16 && <5
+    , aihc-resolve
+    , aihc-parser
+    , text
+    , containers
+    , directory
+    , filepath
+    , tasty
+    , tasty-hunit
+    , aeson
+    , bytestring
+    , yaml
+  ghc-options:        -Wall -Werror -threaded -rtsopts -with-rtsopts=-N
+  default-language: Haskell2010
