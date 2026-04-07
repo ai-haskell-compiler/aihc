@@ -418,8 +418,8 @@ genSimpleConstraintType depth =
     [ TVar span0 <$> genTypeVarName,
       (\name -> TCon span0 name Unpromoted) <$> genTypeConName,
       TFun span0 <$> genSimpleTypeAtom (depth - 1) <*> genSimpleTypeAtom (depth - 1),
-      TApp span0
-        <$> ((\name -> TCon span0 name Unpromoted) <$> genTypeConName)
+      (TApp span0 . (\name -> TCon span0 name Unpromoted))
+        <$> genTypeConName
         <*> genSimpleTypeAtom (depth - 1),
       pure (TConstraintWildcard span0),
       TParen span0 <$> genSimpleConstraintType (depth - 1)
