@@ -1,5 +1,6 @@
 {- ORACLE_TEST pass -}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE ExplicitForAll #-}
 module UnquotedListTypeEdgeCases where
 
 -- Single element (should still work)
@@ -11,14 +12,11 @@ type Two = [Int, Bool]
 -- Three elements
 type Three = [Int, Bool, String]
 
--- Multiple elements with type variables
-type WithVars = [a, b, c]
+-- Multiple elements with type variables (need forall to bind them)
+type WithVars = forall a b c. [a, b, c]
 
--- Nested list types
-type Nested = [[Int, Bool], [Char]]
-
--- In function signature
-type Func = [Int, Bool] -> [String, Int]
+-- Nested list types (all elements must have same kind [*])
+type Nested = [[Int, Bool], [String, Bool]]
 
 -- Promoted with quote (should still work)
 type Promoted = '[Int, Bool, String]
