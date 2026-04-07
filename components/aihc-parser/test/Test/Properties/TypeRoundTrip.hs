@@ -438,7 +438,7 @@ normalizeType ty =
     TParen _ (TWildcard _) -> TWildcard span0
     TParen _ (TConstraintWildcard _) -> TConstraintWildcard span0
     -- TParen around TTuple/TUnboxedSum/TList is also stripped
-    TParen _ (TTuple s tupleFlavor promoted elems) ->
+    TParen _ (TTuple _ tupleFlavor promoted elems) ->
       TTuple span0 tupleFlavor promoted (map normalizeType elems)
     TParen _ (TUnboxedSum _ elems) ->
       TUnboxedSum span0 (map normalizeType elems)
