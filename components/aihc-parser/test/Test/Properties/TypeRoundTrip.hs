@@ -436,7 +436,7 @@ normalizeType ty =
     TParen _ (TStar _) -> TStar span0
     TParen _ (TQuasiQuote _ quoter body) -> TQuasiQuote span0 quoter body
     TParen _ (TWildcard _) -> TWildcard span0
-    TParen _ (TConstraintWildcard _) -> TConstraintWildcard span0
+    TParen _ (TConstraintWildcard _) -> TWildcard span0
     -- TParen around TTuple/TUnboxedSum/TList is also stripped
     TParen _ (TTuple _ tupleFlavor promoted elems) ->
       TTuple span0 tupleFlavor promoted (map normalizeType elems)
