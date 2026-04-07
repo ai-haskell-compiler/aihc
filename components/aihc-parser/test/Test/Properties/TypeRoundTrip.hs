@@ -423,6 +423,12 @@ normalizeType ty =
     TFun _ a b -> TFun span0 (normalizeType a) (normalizeType b)
     TTuple _ tupleFlavor promoted elems -> TTuple span0 tupleFlavor promoted (map normalizeType elems)
     TList _ promoted elems -> TList span0 promoted (map normalizeType elems)
+    -- TParen around TFun/TContext/TForall is added by pretty printer for disambiguation
+    -- Normalize these away for round-trip comparison
+    TParen _ (TFun _ a b) -> TFun span0 (normalizeType a) (normalizeType b)
+    TParen _ (TContext _ constraints inner) ->
+      TContext span0 (map normalizeType constraints) (normalizeType inner)
+    TParen _ (TForall _ binders inner) -> TForall span0 binders (normalizeType inner)
     TParen _ inner -> TParen span0 (normalizeType inner)
     TKindSig _ ty' kind -> TKindSig span0 (normalizeType ty') (normalizeType kind)
     TUnboxedSum _ elems -> TUnboxedSum span0 (map normalizeType elems)
