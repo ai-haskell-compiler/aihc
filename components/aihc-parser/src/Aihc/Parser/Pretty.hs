@@ -313,14 +313,12 @@ prettyType = prettyTypePrec 0
 -- CtxTypeFunArg: LHS of -> or function position of type application (same rules).
 -- CtxTypeAppArg: argument position of type application.
 -- CtxTypeAtom: must be syntactically atomic (e.g., constraint args, instance heads).
+-- CtxKindSig: kind-annotation type inside a constraint (TKindSig omits its parens).
 data TypeCtx
   = CtxTypeFunArg
   | CtxTypeAppArg
   | CtxTypeAtom
-
-prettyTypeIn :: TypeCtx -> Type -> Doc ann
-prettyTypeIn ctx ty =
-  parenthesize (needsTypeParens ctx ty) (prettyTypePrec 0 ty)
+  | CtxKindSig
 
 needsTypeParens :: TypeCtx -> Type -> Bool
 needsTypeParens ctx ty =
@@ -355,101 +353,89 @@ needsTypeParens ctx ty =
         TKindSig {} -> False
         TWildcard {} -> False
         _ -> True
+    CtxKindSig ->
+      case ty of
+        TKindSig {} -> False
+        _ -> True
+
+-- | Shared type pretty-printer parameterized by context.
+-- CtxTypeAtom is equivalent to the original 'prettyTypePrec'.
+-- CtxKindSig omits parens around TKindSig (used for kind annotations in constraints).
+prettyTypeShared :: TypeCtx -> Int -> Type -> Doc ann
+prettyTypeShared ctx prec ty =
+  let atom = prettyTypeShared CtxTypeAtom
+   in case ty of
+        TVar _ name -> pretty name
+        TCon _ name promoted ->
+          let base
+                | isSymbolicTypeOperator name = parens (pretty name)
+                | otherwise = pretty name
+           in if promoted == Promoted then "'" <> base else base
+        TTypeLit _ lit -> prettyTypeLiteral lit
+        TStar _ -> "*"
+        TQuasiQuote _ quoter body -> prettyQuasiQuote quoter body
+        TForall _ binders inner ->
+          parenthesize (prec > 0) ("forall" <+> hsep (map pretty binders) <> "." <+> atom 0 inner)
+        TApp _ (TApp _ (TCon _ op promoted) lhs) rhs
+          | isSymbolicTypeOperator op && op /= "->" ->
+              atom 0 lhs
+                <+> (if promoted == Promoted then "'" else mempty)
+                <> pretty op
+                <+> atom 0 rhs
+        TApp _ f x ->
+          parenthesize (prec > 2) (prettyTypeIn CtxTypeFunArg f <+> prettyTypeIn CtxTypeAppArg x)
+        TFun _ a b ->
+          parenthesize (prec > 0) (prettyTypeIn CtxTypeFunArg a <+> "->" <+> atom 0 b)
+        TTuple _ tupleFlavor promoted elems ->
+          let tupleDoc = prettyTupleBody tupleFlavor (hsep (punctuate comma (map (atom 0) elems)))
+           in if promoted == Promoted then "'" <> tupleDoc else tupleDoc
+        TUnboxedSum _ elems ->
+          hsep ["(#", hsep (punctuate " |" (map (atom 0) elems)), "#)"]
+        TList _ promoted elems ->
+          let listDoc = brackets (hsep (punctuate comma (map (atom 0) elems)))
+           in if promoted == Promoted then "'" <> listDoc else listDoc
+        TParen _ inner -> parens (atom 0 inner)
+        TKindSig _ ty' kind ->
+          let doc = atom 0 ty' <+> "::" <+> atom 0 kind
+           in case ctx of
+                CtxKindSig -> doc
+                _ -> parens doc
+        TContext _ constraints inner ->
+          parenthesize (prec > 0) (prettyContext constraints <+> "=>" <+> atom 0 inner)
+        TSplice _ body -> prettySplice "$" body
+        TWildcard _ -> "_"
 
 prettyTypePrec :: Int -> Type -> Doc ann
-prettyTypePrec prec ty =
-  case ty of
-    TVar _ name -> pretty name
-    TCon _ name promoted ->
-      let base
-            | isSymbolicTypeOperator name = parens (pretty name)
-            | otherwise = pretty name
-       in if promoted == Promoted then "'" <> base else base
-    TTypeLit _ lit -> prettyTypeLiteral lit
-    TStar _ -> "*"
-    TQuasiQuote _ quoter body -> prettyQuasiQuote quoter body
-    TForall _ binders inner ->
-      parenthesize
-        (prec > 0)
-        ("forall" <+> hsep (map pretty binders) <> "." <+> prettyTypePrec 0 inner)
-    TApp _ (TApp _ (TCon _ op promoted) lhs) rhs
-      | isSymbolicTypeOperator op && op /= "->" ->
-          prettyTypePrec 0 lhs
-            <+> (if promoted == Promoted then "'" else mempty)
-            <> pretty op
-            <+> prettyTypePrec 0 rhs
-    TApp _ f x ->
-      parenthesize
-        (prec > 2)
-        (prettyTypeIn CtxTypeFunArg f <+> prettyTypeIn CtxTypeAppArg x)
-    TFun _ a b ->
-      parenthesize
-        (prec > 0)
-        (prettyTypeIn CtxTypeFunArg a <+> "->" <+> prettyTypePrec 0 b)
-    TTuple _ tupleFlavor promoted elems ->
-      let tupleDoc = prettyTupleBody tupleFlavor (hsep (punctuate comma (map (prettyTypePrec 0) elems)))
-       in if promoted == Promoted then "'" <> tupleDoc else tupleDoc
-    TUnboxedSum _ elems ->
-      hsep ["(#", hsep (punctuate " |" (map (prettyTypePrec 0) elems)), "#)"]
-    TList _ promoted elems ->
-      let listDoc = brackets (hsep (punctuate comma (map (prettyTypePrec 0) elems)))
-       in if promoted == Promoted then "'" <> listDoc else listDoc
-    TParen _ inner -> parens (prettyTypePrec 0 inner)
-    TKindSig _ ty' kind -> parens (prettyTypePrec 0 ty' <+> "::" <+> prettyTypePrec 0 kind)
-    TContext _ constraints inner ->
-      parenthesize
-        (prec > 0)
-        (prettyContext constraints <+> "=>" <+> prettyTypePrec 0 inner)
-    TSplice _ body -> prettySplice "$" body
-    TWildcard _ -> "_"
+prettyTypePrec = prettyTypeShared CtxTypeAtom
 
--- | Print a type as it appears in a constraint context.
--- Unlike 'prettyTypePrec', this does not add extra parens around 'TKindSig',
--- since the enclosing 'CParen' already provides them.
+prettyTypeIn :: TypeCtx -> Type -> Doc ann
+prettyTypeIn ctx ty =
+  parenthesize (needsTypeParens ctx ty) (prettyTypeShared ctx 0 ty)
+
+-- | Print a type as it appears in a constraint kind-annotation context.
+-- Omits parens around TKindSig; the enclosing 'CParen' or
+-- 'prettyConstraintTypeParens' provides them.
 prettyConstraintType :: Type -> Doc ann
-prettyConstraintType ty =
-  case ty of
-    TVar _ name -> pretty name
-    TCon _ name promoted ->
-      let base
-            | isSymbolicTypeOperator name = parens (pretty name)
-            | otherwise = pretty name
-       in if promoted == Promoted then "'" <> base else base
-    TTypeLit _ lit -> prettyTypeLiteral lit
-    TStar _ -> "*"
-    TForall _ binders inner ->
-      parenthesize True ("forall" <+> hsep (map pretty binders) <> "." <+> prettyConstraintType inner)
-    TApp _ (TApp _ (TCon _ op promoted) lhs) rhs
-      | isSymbolicTypeOperator op && op /= "->" ->
-          prettyConstraintType lhs
-            <+> (if promoted == Promoted then "'" else mempty)
-            <> pretty op
-            <+> prettyConstraintType rhs
-    TApp _ f x ->
-      prettyConstraintType f <+> prettyConstraintType x
-    TFun _ a b ->
-      prettyConstraintType a <+> "->" <+> prettyConstraintType b
-    TTuple _ tupleFlavor promoted elems ->
-      let tupleDoc = prettyTupleBody tupleFlavor (hsep (punctuate comma (map prettyConstraintType elems)))
-       in if promoted == Promoted then "'" <> tupleDoc else tupleDoc
-    TList _ promoted inner ->
-      let listDoc = brackets (prettyConstraintType inner)
-       in if promoted == Promoted then "'" <> listDoc else listDoc
-    TParen _ inner -> parens (prettyConstraintType inner)
-    TKindSig _ ty' kind -> prettyConstraintType ty' <+> "::" <+> prettyConstraintType kind
-    TContext _ constraints inner ->
-      parenthesize True (prettyContext constraints <+> "=>" <+> prettyConstraintType inner)
-    TSplice _ body -> prettySplice "$" body
-    TWildcard _ -> "_"
-    TUnboxedSum _ elems ->
-      hsep ["(#", hsep (punctuate " |" (map prettyConstraintType elems)), "#)"]
-    TQuasiQuote _ quoter body -> prettyQuasiQuote quoter body
+prettyConstraintType = prettyTypeShared CtxKindSig 0
+
+-- | Like 'prettyConstraintType' but always wraps the result in parens.
+-- Used for 'CKindSig' which always needs parens in constraint position.
+prettyConstraintTypeParens :: Type -> Doc ann
+prettyConstraintTypeParens ty = parens (prettyTypeShared CtxKindSig 0 ty)
 
 prettyContext :: [Constraint] -> Doc ann
 prettyContext constraints =
   case constraints of
     [single] -> prettyConstraint single
-    _ -> parens (hsep (punctuate comma (map prettyConstraint constraints)))
+    _ -> parens (hsep (punctuate comma (map prettyContextConstraint constraints)))
+  where
+    -- Like prettyConstraint but without extra parens for CKindSig,
+    -- since the outer parens from prettyContext already cover the list.
+    prettyContextConstraint :: Constraint -> Doc ann
+    prettyContextConstraint c =
+      case c of
+        CKindSig _ ty -> prettyConstraintType ty
+        _ -> prettyConstraint c
 
 prettyConstraint :: Constraint -> Doc ann
 prettyConstraint constraint =
@@ -462,12 +448,17 @@ prettyConstraint constraint =
           prettyTypeIn CtxTypeFunArg lhs <+> pretty cls <+> prettyTypeIn CtxTypeFunArg rhs
     Constraint _ cls args ->
       hsep (pretty cls : map (prettyTypeIn CtxTypeAtom) args)
+    CParen _ (CKindSig _ ty) ->
+      -- CKindSig already includes its own parens, so don't double-wrap.
+      prettyConstraintTypeParens ty
     CParen _ inner ->
       parens (prettyConstraint inner)
     CWildcard _ ->
       "_"
     CKindSig _ ty ->
-      prettyConstraintType ty
+      -- Always parenthesize: @c :: Kind@ is not valid Haskell without parens
+      -- in a superclass context.
+      prettyConstraintTypeParens ty
 
 isSymbolicTypeOperator :: Text -> Bool
 isSymbolicTypeOperator op =

@@ -397,7 +397,7 @@ constraintParserWith typeParser typeAtomParser =
       constraint <- constraintParserWith typeParser typeAtomParser
       expectedTok TkSpecialRParen
       pure (`CParen` constraint)
-    -- | Parse a type followed by `::` and another type (kind annotation).
+    -- \| Parse a type followed by `::` and another type (kind annotation).
     -- This handles cases like `(c :: Type -> Constraint)` in superclass contexts,
     -- both as standalone parenthesized constraints and as items in comma-separated lists.
     -- Uses lookahead to check for `::` at top bracket depth to avoid ambiguity.
@@ -413,7 +413,7 @@ constraintParserWith typeParser typeAtomParser =
       let resultTy = TKindSig (mergeSourceSpans (getSourceSpan ty) (getSourceSpan kind)) ty kind
       pure (`CKindSig` resultTy)
 
-    -- | Lookahead: check if there's a `::` at the top bracket depth.
+    -- \| Lookahead: check if there's a `::` at the top bracket depth.
     -- This avoids ambiguity with the bare constraint parser.
     hasKindSignatureAtTopLevel :: TokParser Bool
     hasKindSignatureAtTopLevel = MP.lookAhead (go 0)
@@ -449,7 +449,7 @@ constraintParserWith typeParser typeAtomParser =
       pure (foldl buildTypeApp first rest)
     buildTypeApp lhs rhs =
       TApp (mergeSourceSpans (getSourceSpan lhs) (getSourceSpan rhs)) lhs rhs
-    -- | Parse a type expression that can appear as a kind annotation.
+    -- \| Parse a type expression that can appear as a kind annotation.
     -- Handles function types (e.g., Type -> Constraint) and type applications,
     -- but NOT context types (C a => ...) to avoid parsing cycles.
     kindTypeParser = do
