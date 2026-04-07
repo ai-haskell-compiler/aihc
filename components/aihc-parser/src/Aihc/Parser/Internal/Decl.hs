@@ -236,14 +236,7 @@ declParser = do
         TkVarId "family" -> typeFamilyDeclParser
         TkKeywordData -> typeDataDeclParser
         TkKeywordInstance -> typeFamilyInstParser
-        _ -> do
-          -- Disambiguate standalone kind sig (type ConId ::) from type synonym.
-          -- After `type`, constructorIdentifierParser consumes exactly one token,
-          -- so the third token being `::` indicates a standalone kind signature.
-          thirdTok <- lookAhead (anySingle *> anySingle *> anySingle)
-          case lexTokenKind thirdTok of
-            TkReservedDoubleColon -> standaloneKindSigDeclParser
-            _ -> typeSynDeclParser
+        _ -> typeDeclarationParser
     TkVarId ident ->
       case ident of
         "pattern" -> patternSynonymParser
@@ -291,13 +284,38 @@ implicitSpliceDeclParser = withSpan $ do
   body <- exprParser
   pure (`DeclSplice` body)
 
-standaloneKindSigDeclParser :: TokParser Decl
-standaloneKindSigDeclParser = withSpan $ do
+-- | Parse a @type@ declaration after the @type@ keyword has been consumed.
+-- Uses 'typeDeclHeadParser' to handle both prefix and infix type heads,
+-- then dispatches based on the next token:
+-- - @::@ → standalone kind signature (must have zero type parameters)
+-- - @=@ → type synonym
+typeDeclarationParser :: TokParser Decl
+typeDeclarationParser = withSpan $ do
   keywordTok TkKeywordType
-  typeName <- constructorIdentifierParser
-  expectedTok TkReservedDoubleColon
-  kind <- typeParser
-  pure (\span' -> DeclStandaloneKindSig span' typeName kind)
+  (typeName, typeParams) <- typeDeclHeadParser
+  nextTok <- anySingle
+  case lexTokenKind nextTok of
+    TkReservedDoubleColon -> do
+      -- Standalone kind signature: cannot have type parameters
+      if null typeParams
+        then do
+          kind <- typeParser
+          pure (\span' -> DeclStandaloneKindSig span' typeName kind)
+        else
+          fail "Standalone kind signatures cannot have type parameters."
+    TkReservedEquals -> do
+      body <- typeParser
+      pure $ \span' ->
+        DeclTypeSyn
+          span'
+          TypeSynDecl
+            { typeSynSpan = span',
+              typeSynName = typeName,
+              typeSynParams = typeParams,
+              typeSynBody = body
+            }
+    _ ->
+      fail "expected '::' or '=' after type declaration head"
 
 roleAnnotationDeclParser :: TokParser Decl
 roleAnnotationDeclParser = withSpan $ do
@@ -320,23 +338,6 @@ roleParser =
     <|> (varIdTok "representational" >> pure RoleRepresentational)
     <|> (varIdTok "phantom" >> pure RolePhantom)
     <|> (keywordTok TkKeywordUnderscore >> pure RoleInfer)
-
-typeSynDeclParser :: TokParser Decl
-typeSynDeclParser = withSpan $ do
-  keywordTok TkKeywordType
-  typeName <- constructorIdentifierParser
-  typeParams <- MP.many typeParamParser
-  expectedTok TkReservedEquals
-  body <- typeParser
-  pure $ \span' ->
-    DeclTypeSyn
-      span'
-      TypeSynDecl
-        { typeSynSpan = span',
-          typeSynName = typeName,
-          typeSynParams = typeParams,
-          typeSynBody = body
-        }
 
 -- ---------------------------------------------------------------------------
 -- TypeFamilies: shared helpers
@@ -1264,7 +1265,7 @@ typeDeclHeadParser =
   MP.try infixHeadParser <|> prefixHeadParser
   where
     prefixHeadParser = do
-      name <- constructorIdentifierParser
+      name <- constructorIdentifierParser <|> parens constructorOperatorParser
       params <- MP.many typeParamParser
       pure (name, params)
 

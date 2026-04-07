@@ -167,8 +167,7 @@ prettyDeclLines decl =
     DeclTypeSyn _ synDecl ->
       [ hsep
           [ "type",
-            pretty (typeSynName synDecl),
-            hsep (map prettyTyVarBinder (typeSynParams synDecl)),
+            prettyDeclHead [] (typeSynName synDecl) (typeSynParams synDecl),
             "=",
             prettyType (typeSynBody synDecl)
           ]
@@ -648,9 +647,18 @@ prettyDeclHead :: [Constraint] -> Text -> [TyVarBinder] -> Doc ann
 prettyDeclHead constraints name params =
   hsep
     ( contextPrefix constraints
-        <> [pretty name]
-        <> map prettyTyVarBinder params
+        <> prettyDeclHeadNameAndParams name params
     )
+  where
+    -- Detect infix form: when name is an operator and there are exactly 2 params
+    prettyDeclHeadNameAndParams nm prms = case prms of
+      [lhs, rhs]
+        | isOperatorToken nm ->
+            [pretty (tyVarBinderName lhs), pretty nm, pretty (tyVarBinderName rhs)]
+        | otherwise ->
+            [prettyConstructorName nm] <> map prettyTyVarBinder prms
+      _ ->
+        [prettyConstructorName nm] <> map prettyTyVarBinder prms
 
 prettyTyVarBinder :: TyVarBinder -> Doc ann
 prettyTyVarBinder binder =
