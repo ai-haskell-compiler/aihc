@@ -9,6 +9,31 @@ module Aihc.Parser.Internal.Decl
 where
 
 import Aihc.Parser.Internal.Common
+  ( TokParser,
+    binderNameParser,
+    bracedSemiSep,
+    braces,
+    constraintParserWith,
+    constructorIdentifierParser,
+    contextParserWith,
+    expectedTok,
+    functionBindDecl,
+    functionBindValue,
+    functionHeadParserWith,
+    identifierTextParser,
+    isExtensionEnabled,
+    keywordTok,
+    lowerIdentifierParser,
+    moduleNameParser,
+    operatorTextParser,
+    parens,
+    plainSemiSep1,
+    region,
+    stringTextParser,
+    tokenSatisfy,
+    varIdTok,
+    withSpan,
+  )
 import {-# SOURCE #-} Aihc.Parser.Internal.Expr (equationRhsParser, exprParser, patternParser, simplePatternParser, startsWithContextType, startsWithTypeSig, typeAppParser, typeAtomParser, typeParser)
 import Aihc.Parser.Lex (LexTokenKind (..), lexTokenKind)
 import Aihc.Parser.Syntax
@@ -253,6 +278,14 @@ declParser = do
     TkPragmaDeclaration _ -> pragmaDeclParser
     _ -> typeSigOrValueOrSpliceParser
 
+-- | Parse a pragma declaration (e.g. {-# INLINE f #-}, {-# SPECIALIZE ... #-})
+pragmaDeclParser :: TokParser Decl
+pragmaDeclParser = withSpan $ do
+  tokenSatisfy "pragma declaration" $ \tok ->
+    case lexTokenKind tok of
+      TkPragmaDeclaration text -> Just (`DeclPragma` text)
+      _ -> Nothing
+
 -- | Parse a top-level Template Haskell declaration splice: $expr or $(expr)
 spliceDeclParser :: TokParser Decl
 spliceDeclParser = withSpan $ do
@@ -267,14 +300,6 @@ spliceDeclParser = withSpan $ do
     bareSpliceBody = withSpan $ do
       name <- identifierTextParser
       pure (`EVar` name)
-
--- | Parse a pragma declaration (e.g. {-# INLINE f #-}, {-# SPECIALIZE ... #-})
-pragmaDeclParser :: TokParser Decl
-pragmaDeclParser = withSpan $ do
-  tokenSatisfy "pragma declaration" $ \tok ->
-    case lexTokenKind tok of
-      TkPragmaDeclaration text -> Just (`DeclPragma` text)
-      _ -> Nothing
 
 -- | Parse an implicit top-level Template Haskell declaration splice: @expr@.
 -- GHC accepts bare declaration splices under TemplateHaskell and also pretty-prints

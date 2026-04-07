@@ -37,6 +37,7 @@ module Aihc.Parser.Internal.Common
     layoutSepEndBy,
     layoutSepBy1,
     drainParseErrors,
+    optionalPragma,
   )
 where
 
@@ -756,3 +757,17 @@ drainParseErrors = do
   let errs = MP.stateParseErrors st
   MP.updateParserState (\s -> s {MP.stateParseErrors = []})
   pure errs
+
+-- | Optionally consume a pragma token (TkPragmaDeclaration) from the stream.
+--
+-- Pragma tokens are present in the token stream but should be ignored by default.
+-- This function explicitly consumes a pragma when one is present.
+--
+-- Returns the pragma text if a pragma was consumed, or Nothing otherwise.
+optionalPragma :: TokParser (Maybe Text)
+optionalPragma =
+  MP.optional $
+    tokenSatisfy "pragma declaration" $ \tok ->
+      case lexTokenKind tok of
+        TkPragmaDeclaration text -> Just text
+        _ -> Nothing
