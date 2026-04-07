@@ -182,6 +182,7 @@ docDecl decl =
     DeclDataFamilyDecl _ df -> "DeclDataFamilyDecl" <+> parens (docDataFamilyDecl df)
     DeclTypeFamilyInst _ tfi -> "DeclTypeFamilyInst" <+> parens (docTypeFamilyInst tfi)
     DeclDataFamilyInst _ dfi -> "DeclDataFamilyInst" <+> parens (docDataFamilyInst dfi)
+    DeclPragma _ pragmaText -> "DeclPragma" <+> docText pragmaText
 
 docValueDecl :: ValueDecl -> Doc ann
 docValueDecl vdecl =
@@ -372,6 +373,7 @@ docClassDeclItem item =
     ClassItemTypeFamilyDecl _ tf -> "ClassItemTypeFamilyDecl" <+> parens (docTypeFamilyDecl tf)
     ClassItemDataFamilyDecl _ df -> "ClassItemDataFamilyDecl" <+> parens (docDataFamilyDecl df)
     ClassItemDefaultTypeInst _ tfi -> "ClassItemDefaultTypeInst" <+> parens (docTypeFamilyInst tfi)
+    ClassItemPragma _ pragmaText -> "ClassItemPragma" <+> docText pragmaText
 
 docInstanceDecl :: InstanceDecl -> Doc ann
 docInstanceDecl inst =
@@ -394,6 +396,7 @@ docInstanceDeclItem item =
     InstanceItemFixity _ assoc mPrec ops -> "InstanceItemFixity" <+> braces (hsep (punctuate comma ([field "assoc" (docFixityAssoc assoc)] <> optionalField "prec" pretty mPrec <> [field "ops" (docTextList ops)])))
     InstanceItemTypeFamilyInst _ tfi -> "InstanceItemTypeFamilyInst" <+> parens (docTypeFamilyInst tfi)
     InstanceItemDataFamilyInst _ dfi -> "InstanceItemDataFamilyInst" <+> parens (docDataFamilyInst dfi)
+    InstanceItemPragma _ pragmaText -> "InstanceItemPragma" <+> docText pragmaText
 
 docStandaloneDerivingDecl :: StandaloneDerivingDecl -> Doc ann
 docStandaloneDerivingDecl sd =
@@ -772,6 +775,7 @@ docTokenKind kind =
     TkPragmaInstanceOverlap pragma' -> "TkPragmaInstanceOverlap" <+> docInstanceOverlapPragma pragma'
     TkPragmaWarning msg -> "TkPragmaWarning" <+> docText msg
     TkPragmaDeprecated msg -> "TkPragmaDeprecated" <+> docText msg
+    TkPragmaDeclaration text -> "TkPragmaDeclaration" <+> docText text
     TkQuasiQuote quoter body -> "TkQuasiQuote" <+> docText quoter <+> docText body
     TkTHExpQuoteOpen -> "TkTHExpQuoteOpen"
     TkTHExpQuoteClose -> "TkTHExpQuoteClose"

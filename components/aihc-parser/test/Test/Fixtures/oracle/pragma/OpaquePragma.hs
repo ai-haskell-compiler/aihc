@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail OPAQUE pragma not preserved in pretty-printer roundtrip -}
+{- ORACLE_TEST pass -}
 module OpaquePragma where
 
 opaqueFun :: Int -> Int

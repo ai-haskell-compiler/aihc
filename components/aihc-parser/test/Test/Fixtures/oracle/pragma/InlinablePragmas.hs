@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail INLINABLE and INLINEABLE pragmas not preserved in pretty-printer roundtrip -}
+{- ORACLE_TEST pass -}
 module InlinablePragmas where
 
 biggish :: Int -> Int

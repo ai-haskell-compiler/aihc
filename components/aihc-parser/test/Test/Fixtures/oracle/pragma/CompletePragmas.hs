@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail COMPLETE pragmas not preserved in pretty-printer roundtrip -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}

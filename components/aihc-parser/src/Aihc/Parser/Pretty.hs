@@ -186,6 +186,7 @@ prettyDeclLines decl =
     DeclDataFamilyDecl _ df -> [prettyDataFamilyDecl df]
     DeclTypeFamilyInst _ tfi -> [prettyTopTypeFamilyInst tfi]
     DeclDataFamilyInst _ dfi -> [prettyTopDataFamilyInst dfi]
+    DeclPragma _ pragmaText -> [pretty pragmaText]
 
 prettyRoleAnnotation :: RoleAnnotation -> Doc ann
 prettyRoleAnnotation ann =
@@ -772,6 +773,7 @@ prettyClassItem item =
     ClassItemTypeFamilyDecl _ tf -> prettyAssocTypeFamilyDecl tf
     ClassItemDataFamilyDecl _ df -> prettyAssocDataFamilyDecl df
     ClassItemDefaultTypeInst _ tfi -> prettyDefaultTypeInst tfi
+    ClassItemPragma _ pragmaText -> pretty pragmaText
 
 prettyInstanceDecl :: InstanceDecl -> Doc ann
 prettyInstanceDecl decl =
@@ -837,6 +839,7 @@ prettyInstanceItem item =
         )
     InstanceItemTypeFamilyInst _ tfi -> prettyInstTypeFamilyInst tfi
     InstanceItemDataFamilyInst _ dfi -> prettyInstDataFamilyInst dfi
+    InstanceItemPragma _ pragmaText -> pretty pragmaText
 
 prettyFixityAssoc :: FixityAssoc -> Doc ann
 prettyFixityAssoc assoc =
