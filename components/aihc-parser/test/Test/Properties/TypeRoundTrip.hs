@@ -153,7 +153,14 @@ shrinkConstraintType ty =
     TConstraintKindSig _ innerTy ->
       map (TConstraintKindSig span0) (shrinkType innerTy)
     _ ->
-      shrinkType ty
+      -- Filter out types that aren't valid as standalone constraints
+      filter isValidConstraintType (shrinkType ty)
+  where
+    -- Empty tuples and similar constructs don't parse correctly as constraints
+    isValidConstraintType t =
+      case t of
+        TTuple _ _ _ [] -> False -- Empty tuple () is not a valid constraint
+        _ -> True
 
 genType :: Int -> Gen Type
 genType depth
