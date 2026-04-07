@@ -6,7 +6,7 @@
 ## Problem
 
 AIHC needs a dedicated name-resolution component that captures the name
-resolution rules of Haskell 2010 plus supported GHC extensions. Today the
+resolution rules of Haskell 2010 plus supported Haskell language extensions. Today the
 parser produces `[Module]` from `Aihc.Parser.Syntax`, but later phases need a
 resolved view of the same program: each definition site should have a unique
 identity, and each use site should point at the definition it refers to.
@@ -23,7 +23,7 @@ implicit names are resolved.
 ## Goals
 
 - Implement Haskell 2010 name-resolution rules.
-- Extend those rules with supported GHC extensions that affect name
+- Extend those rules with supported Haskell language extensions that affect name
   resolution.
 - Resolve mutually recursive groups of modules without boot files.
 - Preserve the parser AST and only add annotations.
