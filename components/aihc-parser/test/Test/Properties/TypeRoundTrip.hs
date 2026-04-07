@@ -374,15 +374,6 @@ genImplicitParamName = do
   rest <- vectorOf restLen (elements (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> "_'"))
   pure (T.pack ('?' : first : rest))
 
--- Generate a simple type suitable for implicit parameter constraints (avoid complex types)
-genImplicitParamType :: Int -> Gen Type
-genImplicitParamType _depth =
-  oneof
-    [ TVar span0 <$> genTypeVarName,
-      (\name -> TCon span0 name Unpromoted) <$> genTypeConName,
-      pure (TStar span0)
-    ]
-
 -- Generate simpler constraint types suitable for nested contexts (avoid TContext, TUnboxedSum, etc.)
 genSimpleConstraintType :: Int -> Gen Type
 genSimpleConstraintType depth =
