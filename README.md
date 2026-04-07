@@ -16,9 +16,9 @@ Find more information here:
 
 | Name             | Progress                                                                                                                            |
 | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------: |
-| Parser Stackage  | <!-- AUTO-GENERATED: START parser-stackage-progress --> `2095/3390` (`61.80%`) <!-- AUTO-GENERATED: END parser-stackage-progress --> |
-| Parser Tests     | <!-- AUTO-GENERATED: START parser-progress --> `590/710` (`83.10%`) <!-- AUTO-GENERATED: END parser-progress -->                    |
-| Lexer Tests      | <!-- AUTO-GENERATED: START lexer-progress --> `74/78` (`94.87%`) <!-- AUTO-GENERATED: END lexer-progress -->                        |
+| Parser Stackage  | <!-- AUTO-GENERATED: START parser-stackage-progress --> `2175/3390` (`64.16%`) <!-- AUTO-GENERATED: END parser-stackage-progress --> |
+| Parser Tests     | <!-- AUTO-GENERATED: START parser-progress --> `642/737` (`87.11%`) <!-- AUTO-GENERATED: END parser-progress -->                    |
+| Lexer Tests      | <!-- AUTO-GENERATED: START lexer-progress --> `79/80` (`98.75%`) <!-- AUTO-GENERATED: END lexer-progress -->                        |
 | CPP preprocessor | <!-- AUTO-GENERATED: START cpp-progress --> `38/38` (`100.00%`) <!-- AUTO-GENERATED: END cpp-progress -->                           |
 
 ## Lines of code
@@ -28,9 +28,9 @@ Find more information here:
 | Component       |   Code |   Tests |   Total |
 |-----------------|--------|---------|---------|
 | aihc-cpp        |   1522 |     525 |    2047 |
-| aihc-parser     |   9553 |   13557 |   23110 |
+| aihc-parser     |   8334 |   13982 |   22316 |
 | aihc-parser-cli |   1882 |     379 |    2261 |
-| **Total**       |  12957 |   14461 |   27418 |
+| **Total**       |  11738 |   14886 |   26624 |
 ```
 <!-- AUTO-GENERATED: END line-counts -->
 
