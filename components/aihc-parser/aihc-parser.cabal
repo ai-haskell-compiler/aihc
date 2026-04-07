@@ -140,6 +140,7 @@ executable parser-quickcheck-batch
     , ParserQuickCheck.Registry
     , ParserQuickCheck.Runner
     , ParserQuickCheck.Types
+    , Test.Properties.Coverage
     , Test.Properties.ExprHelpers
     , Test.Properties.ExprRoundTrip
     , Test.Properties.ModuleRoundTrip

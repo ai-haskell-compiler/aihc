@@ -1350,7 +1350,7 @@ newtype Annotation = Annotation Dynamic
   deriving (Show, Generic)
 
 instance Data Annotation where
-  gfoldl _ z annotation = z annotation
+  gfoldl _ z = z
   gunfold _ z _ = z (Annotation (toDyn ()))
   toConstr _ = annotationConstr
   dataTypeOf _ = annotationDataType
