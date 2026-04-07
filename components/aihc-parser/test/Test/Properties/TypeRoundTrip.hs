@@ -434,13 +434,12 @@ normalizeType ty =
     TUnboxedSum _ elems -> TUnboxedSum span0 (map normalizeType elems)
     TContext _ constraints inner -> TContext span0 (map normalizeType constraints) (normalizeType inner)
     TImplicitParam _ name innerTy -> TImplicitParam span0 name (normalizeType innerTy)
-    -- TConstraintKindSig pretty-prints with parens around inner type
-    -- If inner is TKindSig, it prints as (ty :: kind) which parses as TParen (TKindSig ...)
-    -- Otherwise it prints as (inner) which parses as TParen inner
+    -- TConstraintKindSig pretty-prints as the inner type without extra parens
+    -- For TKindSig, it prints as (ty :: kind) which parses as TKindSig or TParen (TKindSig ...)
+    -- For atomic types, it prints without parens, so parses as just the inner type
     TConstraintKindSig _ (TKindSig _ inner kind) ->
-      TParen span0 (TKindSig span0 (normalizeType inner) (normalizeType kind))
-    TConstraintKindSig _ innerTy ->
-      TParen span0 (normalizeType innerTy)
+      TKindSig span0 (normalizeType inner) (normalizeType kind)
+    TConstraintKindSig _ innerTy -> normalizeType innerTy
     TSplice _ body -> TSplice span0 (normalizeExpr body)
     -- TConstraintWildcard and TWildcard both pretty-print as "_", treat as equivalent
     TConstraintWildcard _ -> TWildcard span0
