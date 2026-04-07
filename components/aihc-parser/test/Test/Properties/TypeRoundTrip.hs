@@ -446,6 +446,8 @@ normalizeType ty =
       TList span0 promoted (map normalizeType elems)
     -- Recursively strip nested TParen
     TParen _ (TParen _ inner) -> normalizeType inner
+    -- TParen around TKindSig comes from constraint pretty printing
+    TParen _ (TKindSig _ ty' kind) -> TKindSig span0 (normalizeType ty') (normalizeType kind)
     TParen _ inner -> TParen span0 (normalizeType inner)
     TKindSig _ ty' kind -> TKindSig span0 (normalizeType ty') (normalizeType kind)
     TUnboxedSum _ elems -> TUnboxedSum span0 (map normalizeType elems)
