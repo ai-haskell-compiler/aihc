@@ -23,7 +23,7 @@ import System.Directory (doesDirectoryExist, listDirectory)
 import System.FilePath (takeExtension, (</>))
 import System.Timeout (timeout)
 import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (Assertion, assertFailure, testCase)
+import Test.Tasty.HUnit (Assertion, assertFailure, testCase, testCaseInfo)
 
 data PerfCase = PerfCase
   { perfCaseId :: !String,
@@ -57,8 +57,9 @@ parserPerformanceTests = do
       ]
 
 mkPerfCaseTest :: PerfCase -> TestTree
-mkPerfCaseTest perfCase =
-  testCase (perfCaseId perfCase) (assertPerfCase perfCase)
+mkPerfCaseTest perfCase = case perfCaseStatus perfCase of
+  StatusXFail -> testCaseInfo (perfCaseId perfCase) (assertPerfCase perfCase >> pure "Known failure - to be fixed")
+  _ -> testCase (perfCaseId perfCase) (assertPerfCase perfCase)
 
 assertPerfCase :: PerfCase -> Assertion
 assertPerfCase perfCase = do
