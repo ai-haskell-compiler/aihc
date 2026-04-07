@@ -834,7 +834,7 @@ docTypeFamilyDecl tf =
   "TypeFamilyDecl" <+> braces (hsep (punctuate comma fields))
   where
     fields =
-      [field "head" (docType (typeFamilyDeclHead tf))]
+      [field "headForm" (pretty (show (typeFamilyDeclHeadForm tf))), field "head" (docType (typeFamilyDeclHead tf))]
         <> listField "params" docTyVarBinder (typeFamilyDeclParams tf)
         <> optionalField "kind" docType (typeFamilyDeclKind tf)
         <> case typeFamilyDeclEquations tf of
@@ -847,6 +847,7 @@ docTypeFamilyEq eq =
   where
     fields =
       listField "forall" docTyVarBinder (typeFamilyEqForall eq)
+        <> [field "lhsForm" (pretty (show (typeFamilyEqLhsForm eq)))]
         <> [field "lhs" (docType (typeFamilyEqLhs eq)), field "rhs" (docType (typeFamilyEqRhs eq))]
 
 docDataFamilyDecl :: DataFamilyDecl -> Doc ann
@@ -864,6 +865,7 @@ docTypeFamilyInst tfi =
   where
     fields =
       listField "forall" docTyVarBinder (typeFamilyInstForall tfi)
+        <> [field "lhsForm" (pretty (show (typeFamilyInstLhsForm tfi)))]
         <> [field "lhs" (docType (typeFamilyInstLhs tfi)), field "rhs" (docType (typeFamilyInstRhs tfi))]
 
 docDataFamilyInst :: DataFamilyInst -> Doc ann

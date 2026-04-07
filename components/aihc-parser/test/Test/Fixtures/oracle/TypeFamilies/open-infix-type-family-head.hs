@@ -2,7 +2,6 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 
-module InfixTypeFamilyHead where
+module OpenInfixTypeFamilyHead where
 
-type family l `And` r where
-  l `And` r = l
+type family a `Compose` b

@@ -1429,8 +1429,7 @@ prettySplice prefix body =
 prettyTypeFamilyDecl :: TypeFamilyDecl -> Doc ann
 prettyTypeFamilyDecl tf =
   hsep $
-    ["type", "family", prettyType (typeFamilyDeclHead tf)]
-      <> map prettyTyVarBinder (typeFamilyDeclParams tf)
+    ["type", "family", prettyTypeFamilyHead (typeFamilyDeclHeadForm tf) (typeFamilyDeclHead tf) (typeFamilyDeclParams tf)]
       <> kindPart (typeFamilyDeclKind tf)
       <> eqsPart (typeFamilyDeclEquations tf)
   where
@@ -1443,7 +1442,7 @@ prettyTypeFamilyEq :: TypeFamilyEq -> Doc ann
 prettyTypeFamilyEq eq =
   hsep $
     forallPart (typeFamilyEqForall eq)
-      <> [prettyType (typeFamilyEqLhs eq), "=", prettyType (typeFamilyEqRhs eq)]
+      <> [prettyTypeFamilyLhs (typeFamilyEqLhsForm eq) (typeFamilyEqLhs eq), "=", prettyType (typeFamilyEqRhs eq)]
   where
     forallPart [] = []
     forallPart binders = ["forall", hsep (map prettyTyVarBinder binders) <> "."]
@@ -1465,7 +1464,7 @@ prettyTopTypeFamilyInst tfi =
   hsep $
     ["type", "instance"]
       <> forallPart (typeFamilyInstForall tfi)
-      <> [prettyType (typeFamilyInstLhs tfi), "=", prettyType (typeFamilyInstRhs tfi)]
+      <> [prettyTypeFamilyLhs (typeFamilyInstLhsForm tfi) (typeFamilyInstLhs tfi), "=", prettyType (typeFamilyInstRhs tfi)]
   where
     forallPart [] = []
     forallPart binders = ["forall", hsep (map prettyTyVarBinder binders) <> "."]
@@ -1493,12 +1492,32 @@ prettyTopDataFamilyInst dfi =
 prettyAssocTypeFamilyDecl :: TypeFamilyDecl -> Doc ann
 prettyAssocTypeFamilyDecl tf =
   hsep $
-    ["type", prettyType (typeFamilyDeclHead tf)]
-      <> map prettyTyVarBinder (typeFamilyDeclParams tf)
+    ["type", prettyTypeFamilyHead (typeFamilyDeclHeadForm tf) (typeFamilyDeclHead tf) (typeFamilyDeclParams tf)]
       <> kindPart (typeFamilyDeclKind tf)
   where
     kindPart Nothing = []
     kindPart (Just k) = ["::", prettyType k]
+
+prettyTypeFamilyHead :: TypeHeadForm -> Type -> [TyVarBinder] -> Doc ann
+prettyTypeFamilyHead headForm headType params =
+  case headForm of
+    TypeHeadInfix -> prettyTypeFamilyLhs TypeHeadInfix headType
+    TypeHeadPrefix -> hsep (prettyType headType : map prettyTyVarBinder params)
+
+prettyTypeFamilyLhs :: TypeHeadForm -> Type -> Doc ann
+prettyTypeFamilyLhs headForm lhs =
+  case (headForm, lhs) of
+    (TypeHeadInfix, TApp _ (TApp _ (TCon _ op promoted) lhsArg) rhsArg)
+      | promoted == Unpromoted ->
+          prettyTypeIn CtxTypeAtom lhsArg
+            <+> prettyFamilyHeadOperator op
+            <+> prettyTypeIn CtxTypeAtom rhsArg
+    _ -> prettyType lhs
+
+prettyFamilyHeadOperator :: Text -> Doc ann
+prettyFamilyHeadOperator op
+  | isSymbolicTypeOperator op = pretty op
+  | otherwise = "`" <> pretty op <> "`"
 
 -- | @data Name params [:: Kind]@ (associated data family inside a class, no @family@ keyword)
 prettyAssocDataFamilyDecl :: DataFamilyDecl -> Doc ann
@@ -1517,7 +1536,7 @@ prettyDefaultTypeInst tfi =
   hsep $
     ["type", "instance"]
       <> forallPart (typeFamilyInstForall tfi)
-      <> [prettyType (typeFamilyInstLhs tfi), "=", prettyType (typeFamilyInstRhs tfi)]
+      <> [prettyTypeFamilyLhs (typeFamilyInstLhsForm tfi) (typeFamilyInstLhs tfi), "=", prettyType (typeFamilyInstRhs tfi)]
   where
     forallPart [] = []
     forallPart binders = ["forall", hsep (map prettyTyVarBinder binders) <> "."]
@@ -1528,7 +1547,7 @@ prettyInstTypeFamilyInst tfi =
   hsep $
     ["type"]
       <> forallPart (typeFamilyInstForall tfi)
-      <> [prettyType (typeFamilyInstLhs tfi), "=", prettyType (typeFamilyInstRhs tfi)]
+      <> [prettyTypeFamilyLhs (typeFamilyInstLhsForm tfi) (typeFamilyInstLhs tfi), "=", prettyType (typeFamilyInstRhs tfi)]
   where
     forallPart [] = []
     forallPart binders = ["forall", hsep (map prettyTyVarBinder binders) <> "."]

@@ -405,6 +405,52 @@ familyResultKindParser :: TokParser (Maybe Type)
 familyResultKindParser =
   MP.optional (expectedTok TkReservedDoubleColon *> typeParser)
 
+-- | Parse a type family head in either prefix form (@F a b@) or infix form
+-- (@a `Op` b@) while keeping the head separate from any trailing result kind.
+typeFamilyHeadParser :: TokParser (TypeHeadForm, Type, [TyVarBinder])
+typeFamilyHeadParser =
+  MP.try infixHeadParser <|> prefixHeadParser
+  where
+    prefixHeadParser = do
+      headType <- withSpan $ do
+        name <- constructorIdentifierParser
+        pure (\span' -> TCon span' name Unpromoted)
+      params <- MP.many typeParamParser
+      pure (TypeHeadPrefix, headType, params)
+
+    infixHeadParser = do
+      lhs <- typeParamParser
+      op <- constructorOperatorParser
+      rhs <- typeParamParser
+      let span' = mergeSourceSpans (getSourceSpan lhs) (getSourceSpan rhs)
+          opType = TCon span' op Unpromoted
+          headType = TApp span' (TApp span' opType (tyVarBinderAsType lhs)) (tyVarBinderAsType rhs)
+      pure (TypeHeadInfix, headType, [])
+
+-- | Parse a type-family left-hand side, including infix family applications.
+-- This is narrower than a full type parser but broader than plain application,
+-- which is what closed-family equations and instances need.
+typeFamilyLhsParser :: TokParser (TypeHeadForm, Type)
+typeFamilyLhsParser =
+  MP.try infixLhsParser <|> prefixLhsParser
+  where
+    prefixLhsParser = do
+      lhs <- typeAppParser
+      pure (TypeHeadPrefix, lhs)
+    infixLhsParser = do
+      lhs <- typeAppParser
+      op <- constructorOperatorParser
+      rhs <- typeAppParser
+      let span' = mergeSourceSpans (getSourceSpan lhs) (getSourceSpan rhs)
+          opType = TCon span' op Unpromoted
+      pure (TypeHeadInfix, TApp span' (TApp span' opType lhs) rhs)
+
+tyVarBinderAsType :: TyVarBinder -> Type
+tyVarBinderAsType binder =
+  case tyVarBinderKind binder of
+    Nothing -> TVar (getSourceSpan binder) (tyVarBinderName binder)
+    Just kind -> TKindSig (getSourceSpan binder) (TVar (getSourceSpan binder) (tyVarBinderName binder)) kind
+
 -- ---------------------------------------------------------------------------
 -- TypeFamilies: top-level type family declaration
 
@@ -413,10 +459,7 @@ typeFamilyDeclParser :: TokParser Decl
 typeFamilyDeclParser = withSpan $ do
   keywordTok TkKeywordType
   varIdTok "family"
-  headType <- withSpan $ do
-    name <- constructorIdentifierParser
-    pure (\span' -> TCon span' name Unpromoted)
-  params <- MP.many typeParamParser
+  (headForm, headType, params) <- typeFamilyHeadParser
   kind <- familyResultKindParser
   -- A closed type family has a `where` clause with equations.
   equations <- MP.optional (MP.try closedTypeFamilyWhereParser)
@@ -425,6 +468,7 @@ typeFamilyDeclParser = withSpan $ do
       span'
       TypeFamilyDecl
         { typeFamilyDeclSpan = span',
+          typeFamilyDeclHeadForm = headForm,
           typeFamilyDeclHead = headType,
           typeFamilyDeclParams = params,
           typeFamilyDeclKind = kind,
@@ -442,13 +486,14 @@ closedTypeFamilyWhereParser =
 typeFamilyEqParser :: TokParser TypeFamilyEq
 typeFamilyEqParser = withSpan $ do
   forallBinders <- forallPrefixDispatch typeFamilyForallParser
-  lhs <- typeAppParser
+  (lhsForm, lhs) <- typeFamilyLhsParser
   expectedTok TkReservedEquals
   rhs <- typeParser
   pure $ \span' ->
     TypeFamilyEq
       { typeFamilyEqSpan = span',
         typeFamilyEqForall = forallBinders,
+        typeFamilyEqLhsForm = lhsForm,
         typeFamilyEqLhs = lhs,
         typeFamilyEqRhs = rhs
       }
@@ -483,7 +528,7 @@ typeFamilyInstParser = withSpan $ do
   keywordTok TkKeywordType
   keywordTok TkKeywordInstance
   forallBinders <- forallPrefixDispatch typeFamilyForallParser
-  lhs <- typeAppParser
+  (lhsForm, lhs) <- typeFamilyLhsParser
   expectedTok TkReservedEquals
   rhs <- typeParser
   pure $ \span' ->
@@ -492,6 +537,7 @@ typeFamilyInstParser = withSpan $ do
       TypeFamilyInst
         { typeFamilyInstSpan = span',
           typeFamilyInstForall = forallBinders,
+          typeFamilyInstLhsForm = lhsForm,
           typeFamilyInstLhs = lhs,
           typeFamilyInstRhs = rhs
         }
@@ -557,16 +603,14 @@ newtypeFamilyInstParser = withSpan $ do
 classTypeFamilyDeclParser :: TokParser ClassDeclItem
 classTypeFamilyDeclParser = withSpan $ do
   keywordTok TkKeywordType
-  headType <- withSpan $ do
-    name <- constructorIdentifierParser
-    pure (\span' -> TCon span' name Unpromoted)
-  params <- MP.many typeParamParser
+  (headForm, headType, params) <- typeFamilyHeadParser
   kind <- familyResultKindParser
   pure $ \span' ->
     ClassItemTypeFamilyDecl
       span'
       TypeFamilyDecl
         { typeFamilyDeclSpan = span',
+          typeFamilyDeclHeadForm = headForm,
           typeFamilyDeclHead = headType,
           typeFamilyDeclParams = params,
           typeFamilyDeclKind = kind,
@@ -596,7 +640,7 @@ classDefaultTypeInstParser = withSpan $ do
   keywordTok TkKeywordType
   keywordTok TkKeywordInstance
   forallBinders <- forallPrefixDispatch typeFamilyForallParser
-  lhs <- typeAppParser
+  (lhsForm, lhs) <- typeFamilyLhsParser
   expectedTok TkReservedEquals
   rhs <- typeParser
   pure $ \span' ->
@@ -605,6 +649,7 @@ classDefaultTypeInstParser = withSpan $ do
       TypeFamilyInst
         { typeFamilyInstSpan = span',
           typeFamilyInstForall = forallBinders,
+          typeFamilyInstLhsForm = lhsForm,
           typeFamilyInstLhs = lhs,
           typeFamilyInstRhs = rhs
         }
@@ -617,7 +662,7 @@ instanceTypeFamilyInstParser :: TokParser InstanceDeclItem
 instanceTypeFamilyInstParser = withSpan $ do
   keywordTok TkKeywordType
   forallBinders <- forallPrefixDispatch typeFamilyForallParser
-  lhs <- typeAppParser
+  (lhsForm, lhs) <- typeFamilyLhsParser
   expectedTok TkReservedEquals
   rhs <- typeParser
   pure $ \span' ->
@@ -626,6 +671,7 @@ instanceTypeFamilyInstParser = withSpan $ do
       TypeFamilyInst
         { typeFamilyInstSpan = span',
           typeFamilyInstForall = forallBinders,
+          typeFamilyInstLhsForm = lhsForm,
           typeFamilyInstLhs = lhs,
           typeFamilyInstRhs = rhs
         }

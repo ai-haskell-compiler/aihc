@@ -33,6 +33,12 @@ typeAppParser :: TokParser Type
 -- | Parse a type atom (single type, not an application)
 typeAtomParser :: TokParser Type
 
+-- | Parse a type-family head that may use infix syntax.
+typeHeadInfixParser :: TokParser Type
+
+-- | Parse a type with top-level infix operators.
+typeInfixParser :: TokParser Type
+
 -- | Lookahead check: does the input start with a type signature?
 startsWithTypeSig :: TokParser Bool
 

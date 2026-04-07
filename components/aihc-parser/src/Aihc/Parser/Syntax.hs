@@ -73,6 +73,7 @@ module Aihc.Parser.Syntax
     TypePromotion (..),
     TyVarBinder (..),
     TypeSynDecl (..),
+    TypeHeadForm (..),
     TypeFamilyDecl (..),
     TypeFamilyEq (..),
     DataFamilyDecl (..),
@@ -1042,8 +1043,14 @@ instance HasSourceSpan TypeSynDecl where
 
 -- | Open or closed type synonym family declaration.
 -- Used for top-level @type family F a@ and associated @type F a :: Kind@ in class bodies.
+data TypeHeadForm
+  = TypeHeadPrefix
+  | TypeHeadInfix
+  deriving (Data, Eq, Show, Generic, NFData)
+
 data TypeFamilyDecl = TypeFamilyDecl
   { typeFamilyDeclSpan :: SourceSpan,
+    typeFamilyDeclHeadForm :: TypeHeadForm,
     -- | Family head type. For simple families like @type family F a@, this is @TCon "F"@.
     -- For infix families like @type family l `And` r@, this is the full infix type.
     typeFamilyDeclHead :: Type,
@@ -1062,6 +1069,7 @@ instance HasSourceSpan TypeFamilyDecl where
 data TypeFamilyEq = TypeFamilyEq
   { typeFamilyEqSpan :: SourceSpan,
     typeFamilyEqForall :: [TyVarBinder],
+    typeFamilyEqLhsForm :: TypeHeadForm,
     typeFamilyEqLhs :: Type,
     typeFamilyEqRhs :: Type
   }
@@ -1087,6 +1095,7 @@ instance HasSourceSpan DataFamilyDecl where
 data TypeFamilyInst = TypeFamilyInst
   { typeFamilyInstSpan :: SourceSpan,
     typeFamilyInstForall :: [TyVarBinder],
+    typeFamilyInstLhsForm :: TypeHeadForm,
     typeFamilyInstLhs :: Type,
     typeFamilyInstRhs :: Type
   }
