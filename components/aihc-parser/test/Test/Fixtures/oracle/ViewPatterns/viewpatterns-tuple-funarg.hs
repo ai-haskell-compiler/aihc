@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail tuple argument with view pattern element -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE ViewPatterns #-}
 
 module ViewPatternsTupleFunArg where

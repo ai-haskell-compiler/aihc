@@ -1537,8 +1537,21 @@ parenOrTuplePatternParser = withSpan $ do
         then pure (\span' -> PView span' viewExpr inner)
         else fail "not an unboxed tuple pattern"
 
+    -- \| Parse a single tuple element that might be a view pattern.
+    -- View patterns have the form: expr -> pattern
+    -- We need to try this before falling back to regular pattern parsing.
+    tupleElementParser :: TokParser Pattern
+    tupleElementParser =
+      MP.try viewElementParser <|> patternParser
+      where
+        viewElementParser = withSpan $ do
+          viewExpr <- exprParser
+          expectedTok TkReservedRightArrow
+          inner <- patternParser
+          pure (\span' -> PView span' viewExpr inner)
+
     tupleOrParenPatternParser tupleFlavor closeTok = do
-      first <- patternParser
+      first <- tupleElementParser
       mComma <- MP.optional (expectedTok TkSpecialComma)
       case mComma of
         Nothing -> do
@@ -1566,8 +1579,8 @@ parenOrTuplePatternParser = withSpan $ do
                     then pure (`PParen` first)
                     else fail "not an unboxed tuple pattern"
         Just () -> do
-          second <- patternParser
-          more <- MP.many (expectedTok TkSpecialComma *> patternParser)
+          second <- tupleElementParser
+          more <- MP.many (expectedTok TkSpecialComma *> tupleElementParser)
           expectedTok closeTok
           pure (\span' -> PTuple span' tupleFlavor (first : second : more))
 
@@ -1658,8 +1671,10 @@ hasTopLevelViewPatternArrowBefore closeTok = MP.lookAhead (go [closeTok])
       tok <- anySingle
       case lexTokenKind tok of
         TkEOF -> pure False
-        TkReservedRightArrow | [_] <- stack -> pure True
+        -- If we see a comma at the top level, this is a tuple, not a view pattern
         TkSpecialComma | [_] <- stack -> pure False
+        -- If we see an arrow at the top level AND no comma has been seen, it's a view pattern
+        TkReservedRightArrow | [_] <- stack -> pure True
         kind
           | kind == expectedClose ->
               case rest of
