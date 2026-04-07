@@ -429,6 +429,14 @@ normalizeType ty =
     TParen _ (TContext _ constraints inner) ->
       TContext span0 (map normalizeType constraints) (normalizeType inner)
     TParen _ (TForall _ binders inner) -> TForall span0 binders (normalizeType inner)
+    -- TParen around atomic types is often stripped by the parser; normalize away
+    TParen _ (TVar _ name) -> TVar span0 name
+    TParen _ (TCon _ name promoted) -> TCon span0 name promoted
+    TParen _ (TTypeLit _ lit) -> TTypeLit span0 lit
+    TParen _ (TStar _) -> TStar span0
+    TParen _ (TQuasiQuote _ quoter body) -> TQuasiQuote span0 quoter body
+    TParen _ (TWildcard _) -> TWildcard span0
+    TParen _ (TConstraintWildcard _) -> TConstraintWildcard span0
     TParen _ inner -> TParen span0 (normalizeType inner)
     TKindSig _ ty' kind -> TKindSig span0 (normalizeType ty') (normalizeType kind)
     TUnboxedSum _ elems -> TUnboxedSum span0 (map normalizeType elems)
