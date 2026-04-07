@@ -103,8 +103,9 @@ module Aihc.Parser.Syntax
 where
 
 import Control.Applicative ((<|>))
-import Control.DeepSeq (NFData)
-import Data.Data (Data)
+import Control.DeepSeq (NFData (..))
+import Data.Data (Constr, Data (..), DataType, Fixity (Prefix), mkConstr, mkDataType)
+import Data.Dynamic
 import Data.List (sort)
 import Data.Maybe (mapMaybe)
 import Data.Text (Text)
@@ -653,7 +654,8 @@ moduleExports :: Module -> Maybe [ExportSpec]
 moduleExports modu = moduleHeadExports =<< moduleHead modu
 
 data ExportSpec
-  = ExportModule SourceSpan Text
+  = ExportAnn Annotation ExportSpec
+  | ExportModule SourceSpan Text
   | ExportVar SourceSpan (Maybe Text) Text
   | ExportAbs SourceSpan (Maybe Text) Text
   | ExportAll SourceSpan (Maybe Text) Text
@@ -698,7 +700,8 @@ data ImportItem
   deriving (Eq, Show, Generic, NFData)
 
 data Decl
-  = DeclValue SourceSpan ValueDecl
+  = DeclAnn Annotation Decl
+  | DeclValue SourceSpan ValueDecl
   | DeclTypeSig SourceSpan [BinderName] Type
   | DeclPatSyn SourceSpan PatSynDecl
   | DeclPatSynSig SourceSpan [BinderName] Type
@@ -727,6 +730,7 @@ data Decl
 instance HasSourceSpan Decl where
   getSourceSpan decl =
     case decl of
+      DeclAnn _ sub -> getSourceSpan sub
       DeclValue span' _ -> span'
       DeclTypeSig span' _ _ -> span'
       DeclPatSyn span' _ -> span'
@@ -877,7 +881,8 @@ data TupleFlavor
   deriving (Data, Eq, Show, Generic, NFData)
 
 data Pattern
-  = PVar SourceSpan Text
+  = PAnn Annotation Pattern
+  | PVar SourceSpan Text
   | PWildcard SourceSpan
   | PLit SourceSpan Literal
   | PQuasiQuote SourceSpan Text Text
@@ -901,6 +906,7 @@ data Pattern
 instance HasSourceSpan Pattern where
   getSourceSpan pat =
     case pat of
+      PAnn _ sub -> getSourceSpan sub
       PVar span' _ -> span'
       PWildcard span' -> span'
       PLit span' _ -> span'
@@ -921,7 +927,8 @@ instance HasSourceSpan Pattern where
       PSplice span' _ -> span'
 
 data Type
-  = TVar SourceSpan Text
+  = TAnn Annotation Type
+  | TVar SourceSpan Text
   | TCon SourceSpan Text TypePromotion
   | TTypeLit SourceSpan TypeLiteral
   | TStar SourceSpan
@@ -944,6 +951,7 @@ data Type
 instance HasSourceSpan Type where
   getSourceSpan ty =
     case ty of
+      TAnn _ sub -> getSourceSpan sub
       TVar span' _ -> span'
       TCon span' _ _ -> span'
       TTypeLit span' _ -> span'
@@ -1342,8 +1350,30 @@ data ForeignSafety
   | Unsafe
   deriving (Data, Eq, Show, Generic, NFData)
 
+newtype Annotation = Annotation Dynamic
+  deriving (Show, Generic)
+
+instance Data Annotation where
+  gfoldl _ z = z
+  gunfold _ z _ = z (Annotation (toDyn ()))
+  toConstr _ = annotationConstr
+  dataTypeOf _ = annotationDataType
+
+annotationConstr :: Constr
+annotationConstr = mkConstr annotationDataType "Annotation" [] Prefix
+
+annotationDataType :: DataType
+annotationDataType = mkDataType "Aihc.Parser.Syntax.Annotation" [annotationConstr]
+
+instance Eq Annotation where
+  _ == _ = True
+
+instance NFData Annotation where
+  rnf (Annotation _) = ()
+
 data Expr
-  = EVar SourceSpan Text
+  = EAnn Annotation Expr
+  | EVar SourceSpan Text
   | EInt SourceSpan Integer Text
   | EIntHash SourceSpan Integer Text
   | EIntBase SourceSpan Integer Text
@@ -1444,6 +1474,7 @@ instance HasSourceSpan Expr where
       ETHSplice span' _ -> span'
       ETHTypedSplice span' _ -> span'
       EProc span' _ _ -> span'
+      EAnn _ sub -> getSourceSpan sub
 
 data CaseAlt = CaseAlt
   { caseAltSpan :: SourceSpan,

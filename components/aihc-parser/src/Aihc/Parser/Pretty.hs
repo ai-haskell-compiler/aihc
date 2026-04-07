@@ -87,6 +87,7 @@ prettyExportSpecList specs =
 prettyExportSpec :: ExportSpec -> Doc ann
 prettyExportSpec spec =
   case spec of
+    ExportAnn _ sub -> prettyExportSpec sub
     ExportModule _ modName -> "module" <+> pretty modName
     ExportVar _ namespace name -> prettyNamespacePrefix namespace <> prettyBinderName name
     ExportAbs _ namespace name -> prettyNamespacePrefix namespace <> prettyConstructorName name
@@ -151,6 +152,7 @@ prettyNamespacePrefix namespace =
 prettyDeclLines :: Decl -> [Doc ann]
 prettyDeclLines decl =
   case decl of
+    DeclAnn _ sub -> prettyDeclLines sub
     DeclValue _ valueDecl -> prettyValueDeclLines valueDecl
     DeclTypeSig _ names ty -> [hsep [hsep (punctuate comma (map prettyBinderName names)), "::", prettyType ty]]
     DeclPatSyn _ patSynDecl -> [prettyPatSynDecl patSynDecl]
@@ -365,6 +367,7 @@ prettyTypeShared :: TypeCtx -> Int -> Type -> Doc ann
 prettyTypeShared ctx prec ty =
   let atom = prettyTypeShared CtxTypeAtom
    in case ty of
+        TAnn _ sub -> prettyTypeShared ctx prec sub
         TVar _ name -> pretty name
         TCon _ name promoted ->
           let base
@@ -476,6 +479,7 @@ prettyTypeLiteral lit =
 prettyPattern :: Pattern -> Doc ann
 prettyPattern pat =
   case pat of
+    PAnn _ sub -> prettyPattern sub
     PVar _ name -> pretty name
     PWildcard _ -> "_"
     PLit _ lit -> prettyLiteral lit
@@ -1247,6 +1251,7 @@ prettyExprPrec prec expr =
        in hsep ["(#", hsep (punctuate " |" slots), "#)"]
     EProc _ pat body ->
       parenthesize (prec > 0) ("proc" <+> prettyPattern pat <+> "->" <+> prettyCmd body)
+    EAnn _ sub -> prettyExprPrec prec sub
 
 prettyTupleBody :: TupleFlavor -> Doc ann -> Doc ann
 prettyTupleBody tupleFlavor inner =

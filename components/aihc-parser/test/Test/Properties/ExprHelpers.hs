@@ -564,6 +564,7 @@ shrinkExpr expr =
     ETHSplice _ body -> body : [ETHSplice span0 body' | body' <- shrinkExpr body]
     ETHTypedSplice _ body -> body : [ETHTypedSplice span0 body' | body' <- shrinkExpr body]
     EProc {} -> []
+    EAnn _ sub -> shrinkExpr sub
 
 shrinkFloat :: Double -> [Double]
 shrinkFloat value =
@@ -730,6 +731,7 @@ normalizeExpr expr =
     ETHSplice _ body -> ETHSplice span0 (normalizeExpr body)
     ETHTypedSplice _ body -> ETHTypedSplice span0 (normalizeExpr body)
     EProc _ pat body -> EProc span0 (normalizePattern pat) body
+    EAnn ann sub -> EAnn ann (normalizeExpr sub)
 
 normalizeCaseAlt :: CaseAlt -> CaseAlt
 normalizeCaseAlt alt =
@@ -763,6 +765,7 @@ normalizeGuardQualifier qual =
 normalizePattern :: Pattern -> Pattern
 normalizePattern pat =
   case pat of
+    PAnn _ sub -> normalizePattern sub
     PVar _ name -> PVar span0 name
     PWildcard _ -> PWildcard span0
     PLit _ lit -> PLit span0 (normalizeLiteral lit)
@@ -863,6 +866,7 @@ normalizeType ty =
     TContext _ constraints inner -> TContext span0 (map normalizeConstraint constraints) (normalizeType inner)
     TSplice _ body -> TSplice span0 (normalizeExpr body)
     TWildcard _ -> TWildcard span0
+    TAnn ann sub -> TAnn ann (normalizeType sub)
 
 normalizeConstraint :: Constraint -> Constraint
 normalizeConstraint c =

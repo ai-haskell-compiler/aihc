@@ -30,6 +30,7 @@ import Data.Text qualified as T
 -- interpreted as a valid pattern.
 checkPattern :: Expr -> Either Text Pattern
 checkPattern expr = case expr of
+  EAnn _ sub -> checkPattern sub
   -- Variables and constructors
   EVar sp name
     | name == "_" -> Right (PWildcard sp)

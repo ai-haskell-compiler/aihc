@@ -11,6 +11,7 @@ import Aihc.Parser.Syntax
 import qualified Data.Text as T
 import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.Text (renderStrict)
+import Test.Properties.Coverage (assertCtorCoverage)
 import Test.Properties.ExprHelpers (genExpr, normalizeExpr, shrinkExpr)
 import Test.QuickCheck
 import qualified Text.Megaparsec.Error as MPE
@@ -25,7 +26,7 @@ prop_exprPrettyRoundTrip :: Expr -> Property
 prop_exprPrettyRoundTrip expr =
   let source = renderStrict (layoutPretty defaultLayoutOptions (pretty expr))
       expected = normalizeExpr expr
-   in withMaxSuccess 1000 $
+   in assertCtorCoverage ["EAnn"] expr $
         counterexample (T.unpack source) $
           case parseExpr exprConfig source of
             ParseErr err ->

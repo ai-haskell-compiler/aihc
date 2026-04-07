@@ -107,6 +107,7 @@ docExtensionSetting setting =
 docExportSpec :: ExportSpec -> Doc ann
 docExportSpec spec =
   case spec of
+    ExportAnn _ sub -> docExportSpec sub
     ExportModule _ name -> "ExportModule" <+> docText name
     ExportVar _ mNamespace name ->
       "ExportVar" <> braces (hsep (punctuate comma (optionalField "namespace" docText mNamespace <> [field "name" (docText name)])))
@@ -161,6 +162,7 @@ docImportItem item =
 docDecl :: Decl -> Doc ann
 docDecl decl =
   case decl of
+    DeclAnn _ sub -> docDecl sub
     DeclValue _ vdecl -> "DeclValue" <+> parens (docValueDecl vdecl)
     DeclTypeSig _ names ty -> "DeclTypeSig" <+> braces (hsep (punctuate comma [field "names" (docTextList names), field "type" (docType ty)]))
     DeclPatSyn _ ps -> "DeclPatSyn" <+> parens (docPatSynDecl ps)
@@ -502,6 +504,7 @@ docType ty =
     TContext _ constraints inner -> "TContext" <+> brackets (hsep (punctuate comma (map docConstraint constraints))) <+> parens (docType inner)
     TSplice _ body -> "TSplice" <+> parens (docExpr body)
     TWildcard _ -> "TWildcard"
+    TAnn _ sub -> docType sub
 
 docTypeLiteral :: TypeLiteral -> Doc ann
 docTypeLiteral lit =
@@ -538,6 +541,7 @@ docTyVarBinder tvb =
 docPattern :: Pattern -> Doc ann
 docPattern pat =
   case pat of
+    PAnn _ sub -> docPattern sub
     PVar _ name -> "PVar" <+> docText name
     PWildcard _ -> "PWildcard"
     PLit _ lit -> "PLit" <+> parens (docLiteral lit)
@@ -628,6 +632,7 @@ docExpr expr =
     ETypeApp _ inner ty -> "ETypeApp" <+> parens (docExpr inner) <+> parens (docType ty)
     EApp _ f x -> "EApp" <+> parens (docExpr f) <+> parens (docExpr x)
     EProc _ pat body -> "EProc" <+> parens (docPattern pat) <+> parens (docCmd body)
+    EAnn _ sub -> docExpr sub
 
 docCaseAlt :: CaseAlt -> Doc ann
 docCaseAlt (CaseAlt _ pat rhs) =

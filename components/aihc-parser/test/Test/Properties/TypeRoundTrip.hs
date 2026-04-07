@@ -9,12 +9,11 @@ where
 import Aihc.Parser
 import Aihc.Parser.Lex (isReservedIdentifier)
 import Aihc.Parser.Syntax
-import Data.Data (dataTypeConstrs, dataTypeOf, showConstr, toConstr)
-import qualified Data.Set as Set
 import Data.Text (Text)
 import qualified Data.Text as T
 import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.Text (renderStrict)
+import Test.Properties.Coverage (assertCtorCoverage)
 import Test.Properties.ExprHelpers (normalizeExpr)
 import Test.Properties.Identifiers (genIdent, shrinkIdent)
 import Test.QuickCheck
@@ -34,7 +33,7 @@ prop_typePrettyRoundTrip ty =
   let source = renderStrict (layoutPretty defaultLayoutOptions (pretty ty))
       expected = normalizeType ty
    in checkCoverage $
-        applyCoverage (typeCtorCoverage ty) $
+        assertCtorCoverage ["TAnn"] ty $
           counterexample (T.unpack source) $
             case parseType typeConfig source of
               ParseErr err ->
@@ -42,47 +41,6 @@ prop_typePrettyRoundTrip ty =
               ParseOk parsed ->
                 let actual = normalizeType parsed
                  in counterexample ("expected: " <> show expected <> "\nactual: " <> show actual) (expected == actual)
-
-typeCtorCoverage :: Type -> [Property -> Property]
-typeCtorCoverage ty =
-  let allCtors = map showConstr (dataTypeConstrs (dataTypeOf (undefined :: Type)))
-      -- Exclude constructors that cannot be round-tripped through the parser yet
-      coverableCtors = allCtors
-      seenCtors = typeCtorNames ty
-   in [cover 1 (ctor `Set.member` seenCtors) ctor | ctor <- coverableCtors]
-
-applyCoverage :: [Property -> Property] -> Property -> Property
-applyCoverage wrappers prop = foldr (\wrap acc -> wrap acc) prop wrappers
-
-typeCtorNames :: Type -> Set.Set String
-typeCtorNames ty =
-  let here = Set.singleton (showConstr (toConstr ty))
-   in case ty of
-        TVar {} -> here
-        TCon {} -> here
-        TTypeLit {} -> here
-        TStar {} -> here
-        TQuasiQuote {} -> here
-        TForall _ _ inner -> here <> typeCtorNames inner
-        TApp _ f x -> here <> typeCtorNames f <> typeCtorNames x
-        TFun _ a b -> here <> typeCtorNames a <> typeCtorNames b
-        TTuple _ _ _ elems -> here <> mconcat (map typeCtorNames elems)
-        TList _ _ elems -> here <> mconcat (map typeCtorNames elems)
-        TParen _ inner -> here <> typeCtorNames inner
-        TKindSig _ ty' kind -> here <> typeCtorNames ty' <> typeCtorNames kind
-        TUnboxedSum _ elems -> here <> mconcat (map typeCtorNames elems)
-        TContext _ constraints inner ->
-          here <> mconcat (map constraintTypeCtorNames constraints) <> typeCtorNames inner
-        TSplice {} -> here
-        TWildcard {} -> here
-
-constraintTypeCtorNames :: Constraint -> Set.Set String
-constraintTypeCtorNames constraint =
-  case constraint of
-    Constraint _ _ args -> mconcat (map typeCtorNames args)
-    CParen _ inner -> constraintTypeCtorNames inner
-    CWildcard _ -> mempty
-    CKindSig _ ty -> typeCtorNames ty
 
 instance Arbitrary Type where
   arbitrary = sized (genType . min 6)
@@ -134,6 +92,7 @@ shrinkType ty =
       []
     TWildcard _ ->
       []
+    TAnn _ sub -> shrinkType sub
 
 canonicalForallInner :: Type -> Type
 canonicalForallInner ty =
@@ -474,6 +433,7 @@ normalizeType ty =
     TUnboxedSum _ elems -> TUnboxedSum span0 (map normalizeType elems)
     TContext _ constraints inner -> TContext span0 (map normalizeConstraint constraints) (normalizeType inner)
     TSplice _ body -> TSplice span0 (normalizeExpr body)
+    TAnn ann sub -> TAnn ann (normalizeType sub)
 
 normalizeConstraint :: Constraint -> Constraint
 normalizeConstraint constraint =

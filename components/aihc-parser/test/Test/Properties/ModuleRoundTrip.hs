@@ -188,6 +188,7 @@ instance Arbitrary ExportSpec where
 
   shrink spec =
     case spec of
+      ExportAnn _ sub -> shrink sub
       ExportModule _ modName ->
         [ExportModule span0 shrunk | shrunk <- shrinkModuleName modName]
       ExportVar _ namespace name ->
@@ -369,6 +370,7 @@ normalizeModuleHead head' =
 normalizeExportSpec :: ExportSpec -> ExportSpec
 normalizeExportSpec spec =
   case spec of
+    ExportAnn _ sub -> normalizeExportSpec sub
     ExportModule _ modName -> ExportModule span0 modName
     ExportVar _ namespace name -> ExportVar span0 namespace name
     ExportAbs _ namespace name -> ExportAbs span0 namespace name
