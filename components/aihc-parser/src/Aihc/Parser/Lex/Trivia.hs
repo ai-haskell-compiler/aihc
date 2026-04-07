@@ -143,17 +143,16 @@ parseHashLineDirective raw =
           Just afterLine -> T.dropWhile isSpace afterLine
           Nothing -> trimmed
       (digits, rest) = T.span isDigit trimmed'
-       in if T.null digits
-            then Nothing
-            else
-              do
-                lineNo <- readBoundedInt digits
-                Just
-                  DirectiveUpdate
-                    { directiveLine = Just lineNo,
-                      directiveCol = Just 1,
-                      directiveSourceName = parseDirectiveSourceName rest
-                    }
+   in if T.null digits
+        then Nothing
+        else do
+          lineNo <- readBoundedInt digits
+          Just
+            DirectiveUpdate
+              { directiveLine = Just lineNo,
+                directiveCol = Just 1,
+                directiveSourceName = parseDirectiveSourceName rest
+              }
 
 isHashBangLine :: Text -> Bool
 isHashBangLine raw =
