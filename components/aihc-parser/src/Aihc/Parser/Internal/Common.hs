@@ -368,7 +368,7 @@ constraintParserWith typeParser typeAtomParser =
         _ -> do
           ty <- constraintTypeParser
           guard (not (isConstraintTupleType ty))
-          pure (\_ -> ty)
+          pure (const ty)
     implicitParamConstraintParser = do
       name <- implicitParamNameParser
       expectedTok TkReservedDoubleColon
@@ -379,7 +379,7 @@ constraintParserWith typeParser typeAtomParser =
       constraint <- constraintParserWith typeParser typeAtomParser
       expectedTok TkSpecialRParen
       MP.notFollowedBy typeAtomParser
-      pure (\span' -> TParen span' constraint)
+      pure (`TParen` constraint)
     -- \| Parse a type followed by `::` and another type (kind annotation).
     -- This handles cases like `(c :: Type -> Constraint)` in superclass contexts,
     -- both as standalone parenthesized constraints and as items in comma-separated lists.

@@ -93,11 +93,11 @@ shrinkType ty =
     TWildcard _ ->
       []
     TImplicitParam _ name innerTy ->
-      [TImplicitParam span0 name shrunk | shrunk <- shrinkType innerTy]
+      map (TImplicitParam span0 name) (shrinkType innerTy)
     TConstraintWildcard _ ->
       []
     TConstraintKindSig _ innerTy ->
-      [TConstraintKindSig span0 shrunk | shrunk <- shrinkType innerTy]
+      map (TConstraintKindSig span0) (shrinkType innerTy)
     TAnn _ sub -> shrinkType sub
 
 canonicalForallInner :: Type -> Type
