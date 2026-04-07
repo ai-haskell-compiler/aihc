@@ -442,14 +442,10 @@ prettyContext constraints =
 prettyConstraint :: Constraint -> Doc ann
 prettyConstraint constraint =
   case constraint of
-    Constraint _ cls [ty]
-      | "?" `T.isPrefixOf` cls ->
-          pretty cls <+> "::" <+> prettyTypePrec 0 ty
-    Constraint _ cls [lhs, rhs]
-      | cls == "~" ->
-          prettyTypeIn CtxTypeFunArg lhs <+> pretty cls <+> prettyTypeIn CtxTypeFunArg rhs
-    Constraint _ cls args ->
-      hsep (pretty cls : map (prettyTypeIn CtxTypeAtom) args)
+    CType _ ty ->
+      prettyConstraintType ty
+    CImplicitParam _ name ty ->
+      pretty name <+> "::" <+> prettyTypePrec 0 ty
     CParen _ (CKindSig _ ty) ->
       -- CKindSig already includes its own parens, so don't double-wrap.
       prettyConstraintTypeParens ty

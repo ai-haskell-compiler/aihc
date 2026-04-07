@@ -871,12 +871,10 @@ normalizeType ty =
 normalizeConstraint :: Constraint -> Constraint
 normalizeConstraint c =
   case c of
-    Constraint _ cls args ->
-      Constraint
-        { constraintSpan = span0,
-          constraintClass = cls,
-          constraintArgs = map normalizeType args
-        }
+    CType _ ty ->
+      CType span0 (normalizeType ty)
+    CImplicitParam _ name ty ->
+      CImplicitParam span0 name (normalizeType ty)
     CParen _ inner ->
       CParen span0 (normalizeConstraint inner)
     CWildcard _ ->

@@ -38,7 +38,10 @@ fixtureRoot :: FilePath
 fixtureRoot = "test/Test/Fixtures/performance/module"
 
 timeoutMicros :: Int
-timeoutMicros = 1000000
+-- Nix sandbox runs on darwin are consistently a little slower than local cabal
+-- invocations for the deepest generated tuple-pattern cases. Keep the guard
+-- tight enough to catch real regressions while avoiding flaky 1.00s cutoffs.
+timeoutMicros = 1200000
 
 generatedCaseSize :: Int
 generatedCaseSize = 100

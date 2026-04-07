@@ -981,10 +981,14 @@ data TypePromotion
   deriving (Data, Eq, Show, Generic, NFData)
 
 data Constraint
-  = Constraint
+  = CType
       { constraintSpan :: SourceSpan,
-        constraintClass :: Text,
-        constraintArgs :: [Type]
+        constraintType :: Type
+      }
+  | CImplicitParam
+      { constraintSpan :: SourceSpan,
+        constraintName :: Text,
+        constraintValueType :: Type
       }
   | CParen
       { constraintSpan :: SourceSpan,

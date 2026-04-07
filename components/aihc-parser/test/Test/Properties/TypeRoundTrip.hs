@@ -138,14 +138,10 @@ shrinkConstraints = shrinkList shrinkConstraint
 shrinkConstraint :: Constraint -> [Constraint]
 shrinkConstraint constraint =
   case constraint of
-    Constraint _ cls args ->
-      [ Constraint
-          { constraintSpan = span0,
-            constraintClass = cls,
-            constraintArgs = shrunk
-          }
-      | shrunk <- shrinkList shrinkType args
-      ]
+    CType _ ty ->
+      [CType span0 shrunk | shrunk <- shrinkType ty]
+    CImplicitParam _ name ty ->
+      [CImplicitParam span0 name shrunk | shrunk <- shrinkType ty]
     CParen _ inner ->
       inner : [CParen span0 shrunk | shrunk <- shrinkConstraint inner]
     CWildcard _ ->
@@ -277,12 +273,7 @@ genConstraint depth = do
   cls <- genTypeConName
   argCount <- chooseInt (0, 2)
   args <- vectorOf argCount (genConstraintArg depth)
-  pure $
-    Constraint
-      { constraintSpan = span0,
-        constraintClass = cls,
-        constraintArgs = args
-      }
+  pure (CType span0 (foldl (TApp span0) (TCon span0 cls Unpromoted) args))
 
 genConstraintArg :: Int -> Gen Type
 genConstraintArg depth = do
@@ -438,12 +429,10 @@ normalizeType ty =
 normalizeConstraint :: Constraint -> Constraint
 normalizeConstraint constraint =
   case constraint of
-    Constraint _ cls args ->
-      Constraint
-        { constraintSpan = span0,
-          constraintClass = cls,
-          constraintArgs = map normalizeType args
-        }
+    CType _ ty ->
+      CType span0 (normalizeType ty)
+    CImplicitParam _ name ty ->
+      CImplicitParam span0 name (normalizeType ty)
     CParen _ inner ->
       CParen span0 (normalizeConstraint inner)
     CWildcard _ ->

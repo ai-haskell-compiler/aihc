@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail parenthesized type-operator constraint -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE DataKinds, TypeOperators #-}
 module TypeOperatorQualifiedConstraint where
 

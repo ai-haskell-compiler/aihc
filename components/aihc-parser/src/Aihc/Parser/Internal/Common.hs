@@ -359,43 +359,30 @@ constraintParserWith typeParser typeAtomParser =
       tok <- lookAhead anySingle
       case lexTokenKind tok of
         TkImplicitParam {} -> do
-          (className, args) <- implicitParamConstraintParser
+          (name, ty) <- implicitParamConstraintParser
           pure $ \span' ->
-            Constraint
+            CImplicitParam
               { constraintSpan = span',
-                constraintClass = className,
-                constraintArgs = args
+                constraintName = name,
+                constraintValueType = ty
               }
         TkKeywordUnderscore -> do
           _ <- anySingle
           pure CWildcard
         _ -> do
-          (className, args) <- MP.try infixConstraintParser <|> prefixConstraintParser
-          pure $ \span' ->
-            Constraint
-              { constraintSpan = span',
-                constraintClass = className,
-                constraintArgs = args
-              }
+          ty <- constraintTypeParser
+          guard (not (isConstraintTupleType ty))
+          pure (`CType` ty)
     implicitParamConstraintParser = do
       name <- implicitParamNameParser
       expectedTok TkReservedDoubleColon
       ty <- typeParser
-      pure (name, [ty])
-    prefixConstraintParser = do
-      className <- identifierTextParser
-      args <- MP.many typeAtomParser
-      pure (className, args)
-    infixConstraintParser = do
-      lhs <- constraintTypeParser
-      op <- operatorTextParser
-      guard (op == "~")
-      rhs <- constraintTypeParser
-      pure (op, [lhs, rhs])
+      pure (name, ty)
     parenthesizedConstraintParser = withSpan $ do
       expectedTok TkSpecialLParen
       constraint <- constraintParserWith typeParser typeAtomParser
       expectedTok TkSpecialRParen
+      MP.notFollowedBy typeAtomParser
       pure (`CParen` constraint)
     -- \| Parse a type followed by `::` and another type (kind annotation).
     -- This handles cases like `(c :: Type -> Constraint)` in superclass contexts,
@@ -464,6 +451,11 @@ constraintParserWith typeParser typeAtomParser =
       let span' = mergeSourceSpans (getSourceSpan lhs) (getSourceSpan rhs)
           opType = TCon span' op promoted
        in TApp span' (TApp span' opType lhs) rhs
+    isConstraintTupleType ty =
+      case ty of
+        TTuple {} -> True
+        TAnn _ sub -> isConstraintTupleType sub
+        _ -> False
     constraintTypeInfixOperatorParser =
       MP.try promotedInfixOperatorParser <|> unpromotedInfixOperatorParser
     unpromotedInfixOperatorParser =
@@ -472,12 +464,10 @@ constraintParserWith typeParser typeAtomParser =
           TkVarSym op
             | op /= "."
                 && op /= "!"
-                && op /= "-"
-                && op /= "~" ->
+                && op /= "-" ->
                 Just (op, Unpromoted)
           TkConSym op -> Just (op, Unpromoted)
-          TkQVarSym op
-            | op /= "~" -> Just (op, Unpromoted)
+          TkQVarSym op -> Just (op, Unpromoted)
           TkQConSym op -> Just (op, Unpromoted)
           _ -> Nothing
     promotedInfixOperatorParser = do
