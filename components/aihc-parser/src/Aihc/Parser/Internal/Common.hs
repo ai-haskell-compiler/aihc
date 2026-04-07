@@ -38,12 +38,13 @@ module Aihc.Parser.Internal.Common
     layoutSepBy1,
     drainParseErrors,
     optionalPragma,
+    skipPragmas,
   )
 where
 
 import Aihc.Parser.Lex (LayoutState (..), LexToken (..), LexTokenKind (..), closeImplicitLayoutContext)
 import Aihc.Parser.Syntax
-import Aihc.Parser.Types (ParserErrorComponent (..), TokStream (..), mkFoundToken)
+import Aihc.Parser.Types (ParserErrorComponent (..), TokStream (..), mkFoundToken, stepOneNoFilter)
 import Control.Monad (guard)
 import Data.Char (isUpper)
 import Data.List.NonEmpty qualified as NE
@@ -760,14 +761,28 @@ drainParseErrors = do
 
 -- | Optionally consume a pragma token (TkPragmaDeclaration) from the stream.
 --
--- Pragma tokens are present in the token stream but should be ignored by default.
--- This function explicitly consumes a pragma when one is present.
+-- By default, pragma tokens are present in the token stream but should be ignored
+-- except at specific locations. This function uses 'stepOneNoFilter' to access
+-- the raw token stream and consume a pragma if one is present.
 --
 -- Returns the pragma text if a pragma was consumed, or Nothing otherwise.
 optionalPragma :: TokParser (Maybe Text)
-optionalPragma =
-  MP.optional $
-    tokenSatisfy "pragma declaration" $ \tok ->
-      case lexTokenKind tok of
-        TkPragmaDeclaration text -> Just text
-        _ -> Nothing
+optionalPragma = do
+  ts <- fmap MP.stateInput MP.getParserState
+  case stepOneNoFilter ts of
+    Just (tok, ts')
+      | TkPragmaDeclaration text <- lexTokenKind tok -> do
+          MP.updateParserState (\s -> s {MP.stateInput = ts'})
+          pure (Just text)
+    _ -> pure Nothing
+
+-- | Skip any pragma tokens at the current position.
+-- This is used in contexts where pragmas should be ignored (e.g., expressions).
+skipPragmas :: TokParser ()
+skipPragmas = go
+  where
+    go = do
+      mPragma <- optionalPragma
+      case mPragma of
+        Just _ -> go
+        Nothing -> pure ()

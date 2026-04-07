@@ -26,6 +26,7 @@ import Aihc.Parser.Internal.Common
     lowerIdentifierParser,
     moduleNameParser,
     operatorTextParser,
+    optionalPragma,
     parens,
     plainSemiSep1,
     region,
@@ -220,6 +221,14 @@ exportImportNamespaceParser =
 
 declParser :: TokParser Decl
 declParser = do
+  -- Try to consume a pragma before it gets filtered by stepOne
+  mPragma <- optionalPragma
+  case mPragma of
+    Just text -> withSpan (pure (`DeclPragma` text))
+    Nothing -> declParserDispatch
+
+declParserDispatch :: TokParser Decl
+declParserDispatch = do
   tok <- lookAhead anySingle
   thFullEnabled <- isExtensionEnabled TemplateHaskell
   let valueOrSpliceParser =
@@ -275,16 +284,7 @@ declParser = do
     TkPrefixTilde -> patternOrSpliceParser
     TkKeywordUnderscore -> patternOrSpliceParser
     TkTHSplice -> spliceDeclParser
-    TkPragmaDeclaration _ -> pragmaDeclParser
     _ -> typeSigOrValueOrSpliceParser
-
--- | Parse a pragma declaration (e.g. {-# INLINE f #-}, {-# SPECIALIZE ... #-})
-pragmaDeclParser :: TokParser Decl
-pragmaDeclParser = withSpan $ do
-  tokenSatisfy "pragma declaration" $ \tok ->
-    case lexTokenKind tok of
-      TkPragmaDeclaration text -> Just (`DeclPragma` text)
-      _ -> Nothing
 
 -- | Parse a top-level Template Haskell declaration splice: $expr or $(expr)
 spliceDeclParser :: TokParser Decl
@@ -816,6 +816,14 @@ classItemsBracedParser = bracedSemiSep classDeclItemParser
 
 classDeclItemParser :: TokParser ClassDeclItem
 classDeclItemParser = do
+  -- Try to consume a pragma before it gets filtered by stepOne
+  mPragma <- optionalPragma
+  case mPragma of
+    Just text -> withSpan (pure (`ClassItemPragma` text))
+    Nothing -> classDeclItemParserDispatch
+
+classDeclItemParserDispatch :: TokParser ClassDeclItem
+classDeclItemParserDispatch = do
   tok <- lookAhead anySingle
   case lexTokenKind tok of
     TkKeywordInfix -> classFixityItemParser
@@ -828,13 +836,6 @@ classDeclItemParser = do
       case lexTokenKind nextTok of
         TkKeywordInstance -> classDefaultTypeInstParser
         _ -> classTypeFamilyDeclParser
-    TkPragmaDeclaration _ -> withSpan $ do
-      pragmaText <-
-        tokenSatisfy "pragma declaration" $ \pTok ->
-          case lexTokenKind pTok of
-            TkPragmaDeclaration text -> Just text
-            _ -> Nothing
-      pure (`ClassItemPragma` pragmaText)
     _ -> do
       isSig <- startsWithTypeSig
       if isSig then classTypeSigItemParser else classDefaultItemParser
@@ -937,6 +938,14 @@ instanceItemsBracedParser = bracedSemiSep instanceDeclItemParser
 
 instanceDeclItemParser :: TokParser InstanceDeclItem
 instanceDeclItemParser = do
+  -- Try to consume a pragma before it gets filtered by stepOne
+  mPragma <- optionalPragma
+  case mPragma of
+    Just text -> withSpan (pure (`InstanceItemPragma` text))
+    Nothing -> instanceDeclItemParserDispatch
+
+instanceDeclItemParserDispatch :: TokParser InstanceDeclItem
+instanceDeclItemParserDispatch = do
   tok <- lookAhead anySingle
   case lexTokenKind tok of
     TkKeywordInfix -> instanceFixityItemParser
@@ -945,13 +954,6 @@ instanceDeclItemParser = do
     TkKeywordType -> instanceTypeFamilyInstParser
     TkKeywordData -> instanceDataFamilyInstParser
     TkKeywordNewtype -> instanceNewtypeFamilyInstParser
-    TkPragmaDeclaration _ -> withSpan $ do
-      pragmaText <-
-        tokenSatisfy "pragma declaration" $ \pTok ->
-          case lexTokenKind pTok of
-            TkPragmaDeclaration text -> Just text
-            _ -> Nothing
-      pure (`InstanceItemPragma` pragmaText)
     _ -> do
       isSig <- startsWithTypeSig
       if isSig then instanceTypeSigItemParser else instanceValueItemParser
@@ -1466,11 +1468,14 @@ recordFieldBangTypeParser = withSpan $ do
       }
 
 sourceUnpackednessPragmaParser :: TokParser SourceUnpackedness
-sourceUnpackednessPragmaParser =
-  tokenSatisfy "source unpack pragma" $ \tok ->
-    case lexTokenKind tok of
-      TkPragmaDeclaration text -> parseSourceUnpackednessPragma text
-      _ -> Nothing
+sourceUnpackednessPragmaParser = do
+  mPragma <- optionalPragma
+  case mPragma of
+    Just text ->
+      case parseSourceUnpackednessPragma text of
+        Just unpackedness -> pure unpackedness
+        Nothing -> MP.empty
+    Nothing -> MP.empty
 
 parseSourceUnpackednessPragma :: Text -> Maybe SourceUnpackedness
 parseSourceUnpackednessPragma text =

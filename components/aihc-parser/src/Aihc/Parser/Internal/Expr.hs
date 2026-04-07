@@ -673,6 +673,8 @@ recordFieldBindingParser = withSpan $ do
 
 atomExprParser :: TokParser Expr
 atomExprParser = do
+  -- Skip pragmas in expression context (they're silently ignored)
+  skipPragmas
   blockArgsEnabled <- isExtensionEnabled BlockArguments
   thEnabled <- isExtensionEnabled TemplateHaskellQuotes
   thFullEnabled <- isExtensionEnabled TemplateHaskell

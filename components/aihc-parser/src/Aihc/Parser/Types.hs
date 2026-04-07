@@ -15,6 +15,8 @@ module Aihc.Parser.Types
     lexerErrorBundle,
     ParseResult (..),
     ParserConfig (..),
+    stepOne,
+    stepOneNoFilter,
   )
 where
 
@@ -242,6 +244,10 @@ stepOne ts
                                       tokStreamEOFEmitted = isEOF
                                     }
                                 )
+
+-- | Step one token from the stream (same as stepOne, kept for API compatibility).
+stepOneNoFilter :: TokStream -> Maybe (LexToken, TokStream)
+stepOneNoFilter = stepOne
 
 instance Stream TokStream where
   type Token TokStream = LexToken
