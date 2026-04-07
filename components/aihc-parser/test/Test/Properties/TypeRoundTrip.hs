@@ -145,15 +145,15 @@ shrinkConstraintType :: Type -> [Type]
 shrinkConstraintType ty =
   case ty of
     TParen _ inner ->
-      inner : [TParen span0 shrunk | shrunk <- shrinkConstraintType inner]
+      inner : map (TParen span0) (shrinkConstraintType inner)
     TImplicitParam _ name innerTy ->
-      [TImplicitParam span0 name shrunk | shrunk <- shrinkType innerTy]
+      map (TImplicitParam span0 name) (shrinkType innerTy)
     TConstraintWildcard _ ->
       []
     TConstraintKindSig _ innerTy ->
-      [TConstraintKindSig span0 shrunk | shrunk <- shrinkType innerTy]
+      map (TConstraintKindSig span0) (shrinkType innerTy)
     _ ->
-      [shrunk | shrunk <- shrinkType ty]
+      shrinkType ty
 
 genType :: Int -> Gen Type
 genType depth
