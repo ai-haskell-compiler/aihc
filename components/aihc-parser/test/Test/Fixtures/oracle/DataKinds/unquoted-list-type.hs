@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail webgear-swagger-ui unquoted DataKinds list type -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE DataKinds #-}
 module UnquotedListType where
 

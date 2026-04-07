@@ -469,7 +469,7 @@ normalizeTypeSpan ty =
     TApp _ lhs rhs -> TApp span0 (normalizeTypeSpan lhs) (normalizeTypeSpan rhs)
     TFun _ lhs rhs -> TFun span0 (normalizeTypeSpan lhs) (normalizeTypeSpan rhs)
     TTuple _ tupleFlavor promoted elems -> TTuple span0 tupleFlavor promoted (map normalizeTypeSpan elems)
-    TList _ promoted inner -> TList span0 promoted (normalizeTypeSpan inner)
+    TList _ promoted elems -> TList span0 promoted (map normalizeTypeSpan elems)
     TParen _ inner -> TParen span0 (normalizeTypeSpan inner)
     TKindSig _ inner kind -> TKindSig span0 (normalizeTypeSpan inner) (normalizeTypeSpan kind)
     TContext _ constraints inner -> TContext span0 constraints (normalizeTypeSpan inner)
