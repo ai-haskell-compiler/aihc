@@ -1394,6 +1394,7 @@ data Expr
   | ECharHash SourceSpan Char Text
   | EString SourceSpan Text Text
   | EStringHash SourceSpan Text Text
+  | EOverloadedLabel SourceSpan Text Text
   | EQuasiQuote SourceSpan Text Text
   | EIf SourceSpan Expr Expr Expr
   | EMultiWayIf SourceSpan [GuardedRhs]
@@ -1449,6 +1450,7 @@ instance HasSourceSpan Expr where
       ECharHash span' _ _ -> span'
       EString span' _ _ -> span'
       EStringHash span' _ _ -> span'
+      EOverloadedLabel span' _ _ -> span'
       EQuasiQuote span' _ _ -> span'
       EIf span' _ _ _ -> span'
       EMultiWayIf span' _ -> span'

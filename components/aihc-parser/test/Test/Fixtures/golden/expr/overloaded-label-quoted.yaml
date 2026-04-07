@@ -1,0 +1,5 @@
+extensions: [OverloadedLabels]
+input: |
+  #"The quick brown fox"
+ast: 'EOverloadedLabel "The quick brown fox" "#"The quick brown fox""'
+status: pass

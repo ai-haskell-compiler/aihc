@@ -573,6 +573,14 @@ stringExprParser = withSpan $ do
       _ -> Nothing
   pure (\span' -> ctor span' s repr)
 
+overloadedLabelExprParser :: TokParser Expr
+overloadedLabelExprParser = withSpan $ do
+  (labelName, raw) <- tokenSatisfy "overloaded label" $ \tok ->
+    case lexTokenKind tok of
+      TkOverloadedLabel lbl repr -> Just (lbl, repr)
+      _ -> Nothing
+  pure (\span' -> EOverloadedLabel span' labelName raw)
+
 appExprParser :: TokParser Expr
 appExprParser = withSpan $ do
   typeAppsEnabled <- isExtensionEnabled TypeApplications
@@ -692,6 +700,7 @@ atomExprParser = do
         <|> intExprParser
         <|> charExprParser
         <|> stringExprParser
+        <|> overloadedLabelExprParser
         <|> wildcardExprParser
         <|> varExprParser
 

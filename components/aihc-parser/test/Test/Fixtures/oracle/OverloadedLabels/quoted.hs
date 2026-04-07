@@ -3,14 +3,14 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedLabels #-}
-module OverloadedLabelsBasic where
+module OverloadedLabelsQuoted where
 
 import GHC.OverloadedLabels (IsLabel (..))
 
 data Label = Label
 
-instance IsLabel "typeUrl" Label where
+instance IsLabel "The quick brown fox" Label where
   fromLabel = Label
 
 x :: Label
-x = #typeUrl
+x = #"The quick brown fox"
