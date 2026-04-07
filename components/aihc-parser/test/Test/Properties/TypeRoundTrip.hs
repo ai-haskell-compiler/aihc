@@ -287,18 +287,6 @@ genConstraints depth = do
   n <- chooseInt (1, 3)
   vectorOf n (genSimpleConstraintType depth)
 
-genConstraintType :: Int -> Gen Type
-genConstraintType depth = do
-  cls <- genTypeConName
-  argCount <- chooseInt (0, 2)
-  args <- vectorOf argCount (genConstraintArg depth)
-  pure (foldl (TApp span0) (TCon span0 cls Unpromoted) args)
-
-genConstraintArg :: Int -> Gen Type
-genConstraintArg depth = do
-  arg <- genType depth
-  pure (canonicalConstraintArg arg)
-
 canonicalFunLeft :: Type -> Type
 canonicalFunLeft ty =
   case ty of
@@ -348,20 +336,6 @@ genKindSigKind depth =
       (1, TFun span0 <$> genSimpleTypeAtom depth <*> genSimpleTypeAtom depth)
     ]
 
-canonicalConstraintArg :: Type -> Type
-canonicalConstraintArg ty =
-  case ty of
-    TVar {} -> ty
-    TCon {} -> ty
-    TTypeLit {} -> ty
-    TStar {} -> ty
-    TQuasiQuote {} -> ty
-    TList {} -> ty
-    TTuple {} -> ty
-    TUnboxedSum {} -> ty
-    TParen {} -> ty
-    _ -> TParen span0 ty
-
 genTypeBinders :: Gen [Text]
 genTypeBinders = do
   n <- chooseInt (1, 3)
@@ -404,7 +378,7 @@ genImplicitParamName = do
 
 -- Generate a simple type suitable for implicit parameter constraints (avoid complex types)
 genImplicitParamType :: Int -> Gen Type
-genImplicitParamType depth =
+genImplicitParamType _depth =
   oneof
     [ TVar span0 <$> genTypeVarName,
       (\name -> TCon span0 name Unpromoted) <$> genTypeConName,
