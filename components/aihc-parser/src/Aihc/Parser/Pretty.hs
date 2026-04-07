@@ -427,11 +427,16 @@ prettyConstraintType = prettyTypeShared CtxKindSig 0
 
 -- | Pretty print a single constraint type item for context display.
 -- Preserves explicit parentheses from the source.
+-- Adds parentheses for types that would be ambiguous when parsed back as constraints.
 prettyConstraintTypeItem :: Type -> Doc ann
 prettyConstraintTypeItem ty =
   case ty of
     TConstraintKindSig _ inner -> prettyConstraintType inner
     TParen _ inner -> parens (prettyConstraintTypeItem inner)
+    -- These types need parens in constraint position to avoid ambiguity
+    TFun {} -> parens (prettyConstraintType ty)
+    TContext {} -> parens (prettyConstraintType ty)
+    TForall {} -> parens (prettyConstraintType ty)
     _ -> prettyConstraintType ty
 
 prettyContext :: [Type] -> Doc ann
