@@ -1,14 +1,12 @@
 extensions: []
 modules:
-  - name: Lib
-    input: |
-      module Lib where
-      helper = 42
-  - name: Main
-    input: |
-      module Main where
-      import Lib
-      x = helper
+  - |
+    module Lib where
+    helper = 42
+  - |
+    module Main where
+    import Lib
+    x = helper
 expected: ~
 status: xfail
 reason: Name resolution not yet implemented

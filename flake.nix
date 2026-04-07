@@ -635,6 +635,7 @@
       extensionProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser "extension-progress";
       parserFuzzExe = pkgs.lib.getExe' hsPkgs.aihc-parser "parser-fuzz";
       cppProgressExe = pkgs.lib.getExe' hsPkgs.aihc-cpp "cpp-progress";
+      resolveProgressExe = pkgs.lib.getExe' hsPkgs.aihc-resolve "resolve-progress";
       hackageTesterExe = pkgs.lib.getExe' hsPkgs.aihc-parser "hackage-tester";
       stackageProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser "stackage-progress";
       aihcParserExe = pkgs.lib.getExe' hsPkgs.aihc-parser-cli "aihc-parser";
@@ -874,6 +875,26 @@
         }
         cd components/aihc-cpp
         ${cppProgressExe} --strict "$@"
+      '';
+
+      resolve-progress = mkApp "resolve-progress" ''
+        set -euo pipefail
+        test -d components/aihc-resolve || {
+          echo "Run this app from the repository root." >&2
+          exit 1
+        }
+        cd components/aihc-resolve
+        ${resolveProgressExe} "$@"
+      '';
+
+      resolve-progress-strict = mkApp "resolve-progress-strict" ''
+        set -euo pipefail
+        test -d components/aihc-resolve || {
+          echo "Run this app from the repository root." >&2
+          exit 1
+        }
+        cd components/aihc-resolve
+        ${resolveProgressExe} --strict "$@"
       '';
 
       generate-reports = mkReportsApp "generate-reports" ''

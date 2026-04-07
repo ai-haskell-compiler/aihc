@@ -51,7 +51,7 @@ data ResolverCase = ResolverCase
     caseCategory :: !String,
     casePath :: !FilePath,
     caseExtensions :: ![Extension],
-    caseModules :: ![(Text, Text)],
+    caseModules :: ![Text],
     caseExpected :: !String,
     caseStatus :: !ExpectedStatus,
     caseReason :: !String
@@ -102,7 +102,7 @@ parseResolverCaseText path source = do
         caseReason = reason
       }
 
-parseYamlFixture :: FilePath -> Y.Value -> Either String ([Text], [(Text, Text)], Text, Text, Text)
+parseYamlFixture :: FilePath -> Y.Value -> Either String ([Text], [Text], Text, Text, Text)
 parseYamlFixture path value =
   case parseEither
     ( withObject "resolver fixture" $ \obj -> do
@@ -117,15 +117,13 @@ parseYamlFixture path value =
     Left err -> Left ("Invalid resolver fixture schema in " <> path <> ": " <> err)
     Right parsed -> Right parsed
 
-parseModules :: Y.Value -> Y.Parser [(Text, Text)]
+parseModules :: Y.Value -> Y.Parser [Text]
 parseModules = withArray "modules" $ \arr ->
   mapM parseModuleEntry (toList arr)
   where
     toList = foldr (:) []
-    parseModuleEntry = withObject "module" $ \obj -> do
-      name <- obj .: "name"
-      input <- obj .: "input"
-      pure (name, input)
+    parseModuleEntry (Y.String t) = pure t
+    parseModuleEntry _ = fail "each module must be a string"
 
 evaluateResolverCase :: ResolverCase -> (Outcome, String)
 evaluateResolverCase meta =
@@ -138,16 +136,16 @@ evaluateResolverCase meta =
                 then classifySuccess meta (showResolved result)
                 else classifyFailure meta (showErrors result)
   where
-    parserConfig name =
+    parserConfig input =
       defaultConfig
-        { parserSourceName = T.unpack name,
+        { parserSourceName = T.unpack (T.takeWhile (/= '\n') input),
           parserExtensions = caseExtensions meta
         }
-    parseOne (name, input) =
-      let (errs, ast) = parseModule (parserConfig name) input
+    parseOne input =
+      let (errs, ast) = parseModule (parserConfig input) input
        in if null errs
             then Right ast
-            else Left (formatParseErrors (T.unpack name) (Just input) errs)
+            else Left (formatParseErrors (T.unpack (T.takeWhile (/= '\n') input)) (Just input) errs)
     showResolved result = show (resolvedModules result)
     showErrors result = unlines (map show (resolveErrors result))
 

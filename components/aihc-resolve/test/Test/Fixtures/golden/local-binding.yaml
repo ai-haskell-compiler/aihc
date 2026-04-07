@@ -1,9 +1,8 @@
 extensions: []
 modules:
-  - name: Main
-    input: |
-      module Main where
-      f = let y = 10 in y
+  - |
+    module Main where
+    f = let y = 10 in y
 expected: ~
 status: xfail
 reason: Name resolution not yet implemented
