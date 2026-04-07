@@ -431,7 +431,7 @@ prettyConstraintType = prettyTypeShared CtxKindSig 0
 prettyConstraintTypeItem :: Type -> Doc ann
 prettyConstraintTypeItem ty =
   case ty of
-    TConstraintKindSig _ inner -> prettyConstraintType inner
+    TConstraintKindSig _ inner -> parens (prettyConstraintType inner)
     TParen _ inner -> parens (prettyConstraintTypeItem inner)
     -- These types need parens in constraint position to avoid ambiguity
     TFun {} -> parens (prettyConstraintType ty)
