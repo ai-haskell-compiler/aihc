@@ -323,8 +323,16 @@ docBangType bt =
   "BangType" <+> braces (hsep (punctuate comma fields))
   where
     fields =
-      boolField "strict" (bangStrict bt)
+      sourceUnpackednessField (bangSourceUnpackedness bt)
+        <> boolField "strict" (bangStrict bt)
         <> [field "type" (docType (bangType bt))]
+
+sourceUnpackednessField :: SourceUnpackedness -> [Doc ann]
+sourceUnpackednessField unpackedness =
+  case unpackedness of
+    NoSourceUnpackedness -> []
+    SourceUnpack -> [field "unpackedness" "\"UNPACK\""]
+    SourceNoUnpack -> [field "unpackedness" "\"NOUNPACK\""]
 
 docFieldDecl :: FieldDecl -> Doc ann
 docFieldDecl fd =

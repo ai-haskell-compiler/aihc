@@ -8,6 +8,7 @@ import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokens, lexTokensFr
 import Aihc.Parser.Syntax
 import Data.List (isInfixOf)
 import qualified Data.Text as T
+import ParserValidation (validateParser)
 import Test.ErrorMessages.Suite (errorMessageTests)
 import Test.ExtensionMapping.Suite (extensionMappingTests)
 import Test.HackageTester.Suite (hackageTesterTests)
@@ -90,6 +91,8 @@ buildTests = do
             testCase "parses parenthesized kind signature type atoms" test_typeParsesParenthesizedKindSignature,
             testCase "parses parenthesized kind signatures in application heads" test_typeParsesKindSignatureApplicationHead,
             testCase "parses GADT constructor arguments with kind signatures" test_gadtConstructorParsesKindAnnotatedArgument,
+            testCase "preserves source unpack pragmas on constructor fields" test_constructorFieldsPreserveSourceUnpackedness,
+            testCase "roundtrips source unpackedness through pretty-printing" test_sourceUnpackednessRoundtrip,
             QC.testProperty "generated operators reject dash-only comment starters" prop_generatedOperatorsRejectDashOnlyCommentStarters
           ],
         testGroup
@@ -236,6 +239,44 @@ test_gadtConstructorParsesKindAnnotatedArgument =
             pure ()
           other ->
             assertFailure ("unexpected parsed declarations: " <> show other)
+
+test_constructorFieldsPreserveSourceUnpackedness :: Assertion
+test_constructorFieldsPreserveSourceUnpackedness =
+  let source =
+        T.unlines
+          [ "{-# LANGUAGE GADTs #-}",
+            "module M where",
+            "data Prefix = Prefix {-# UNPACK #-} !Int",
+            "data Infix = {-# NOUNPACK #-} !(Int, Int) :*: Int",
+            "data Record = Record { field :: {-# UNPACK #-} !Int }",
+            "data G where",
+            "  G :: {-# UNPACK #-} !Int -> G"
+          ]
+      (errs, modu) = parseModule defaultConfig {parserExtensions = [GADTs]} source
+   in do
+        assertBool ("expected no parse errors, got: " <> show errs) (null errs)
+        case moduleDecls modu of
+          [ DeclData _ DataDecl {dataDeclConstructors = [PrefixCon _ [] [] "Prefix" [BangType {bangSourceUnpackedness = SourceUnpack, bangStrict = True, bangType = TCon _ "Int" Unpromoted}]]},
+            DeclData _ DataDecl {dataDeclConstructors = [InfixCon _ [] [] BangType {bangSourceUnpackedness = SourceNoUnpack, bangStrict = True, bangType = TTuple _ Boxed Unpromoted [TCon _ "Int" Unpromoted, TCon _ "Int" Unpromoted]} ":*:" BangType {bangSourceUnpackedness = NoSourceUnpackedness, bangStrict = False, bangType = TCon _ "Int" Unpromoted}]},
+            DeclData _ DataDecl {dataDeclConstructors = [RecordCon _ [] [] "Record" [FieldDecl {fieldType = BangType {bangSourceUnpackedness = SourceUnpack, bangStrict = True, bangType = TCon _ "Int" Unpromoted}}]]},
+            DeclData _ DataDecl {dataDeclConstructors = [GadtCon _ [] [] ["G"] (GadtPrefixBody [BangType {bangSourceUnpackedness = SourceUnpack, bangStrict = True, bangType = TCon _ "Int" Unpromoted}] (TCon _ "G" Unpromoted))]}
+            ] -> pure ()
+          other ->
+            assertFailure ("unexpected parsed declarations: " <> show other)
+
+test_sourceUnpackednessRoundtrip :: Assertion
+test_sourceUnpackednessRoundtrip =
+  let source =
+        T.unlines
+          [ "{-# LANGUAGE GADTs #-}",
+            "module M where",
+            "data Pair = Pair {-# UNPACK #-} !Int {-# NOUNPACK #-} !(Int, Int)",
+            "data G where",
+            "  G :: {-# UNPACK #-} !Int -> G"
+          ]
+   in case validateParser "SourceUnpackedness.hs" Haskell2010Edition [EnableExtension GADTs] source of
+        Nothing -> pure ()
+        Just err -> assertFailure ("expected source unpackedness roundtrip to validate, got: " <> show err)
 
 test_parserConfigPassesExtensions :: Assertion
 test_parserConfigPassesExtensions =

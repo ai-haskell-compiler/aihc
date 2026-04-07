@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail NOUNPACK pragma not preserved in pretty-printer roundtrip -}
+{- ORACLE_TEST pass -}
 module NoUnpackPragma where
 
 data NoUnpack = NoUnpack {-# NOUNPACK #-} !(Int, Int)
