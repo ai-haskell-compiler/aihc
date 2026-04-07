@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail parser support pending -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE TypeOperators #-}
 
 module TypeOperatorDataInfix where
