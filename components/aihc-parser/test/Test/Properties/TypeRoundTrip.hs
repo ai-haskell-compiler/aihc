@@ -437,13 +437,15 @@ normalizeType ty =
     TParen _ (TQuasiQuote _ quoter body) -> TQuasiQuote span0 quoter body
     TParen _ (TWildcard _) -> TWildcard span0
     TParen _ (TConstraintWildcard _) -> TWildcard span0
-    -- TParen around TTuple/TUnboxedSum/TList is also stripped
+    -- TParen around TTuple/TUnboxedSum/TList is also stripped (recursively)
     TParen _ (TTuple _ tupleFlavor promoted elems) ->
       TTuple span0 tupleFlavor promoted (map normalizeType elems)
     TParen _ (TUnboxedSum _ elems) ->
       TUnboxedSum span0 (map normalizeType elems)
     TParen _ (TList _ promoted elems) ->
       TList span0 promoted (map normalizeType elems)
+    -- Recursively strip nested TParen
+    TParen _ (TParen _ inner) -> normalizeType inner
     TParen _ inner -> TParen span0 (normalizeType inner)
     TKindSig _ ty' kind -> TKindSig span0 (normalizeType ty') (normalizeType kind)
     TUnboxedSum _ elems -> TUnboxedSum span0 (map normalizeType elems)
