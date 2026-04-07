@@ -5,6 +5,7 @@ module Main (main) where
 import qualified Aihc.Parser.Syntax as Syntax
 import Data.List (sortOn)
 import qualified Data.Map.Strict as M
+import qualified Data.Text as T
 import ExtensionSupport
 import qualified ParserGolden as PG
 import System.Environment (getArgs)
@@ -124,7 +125,7 @@ mkExtensionResult (name, outcomes) =
         | failN == 0 && xfailN == 0 && xpassN == 0 = Supported
         | otherwise = InProgress
    in ExtensionResult
-        { erName = show (Syntax.extensionName name),
+        { erName = T.unpack (Syntax.extensionName name),
           erStatus = status,
           erPassN = passN,
           erXFailN = xfailN,
@@ -219,27 +220,53 @@ renderMarkdown results =
         "",
         "## Extension Status",
         "",
-        "| Extension | Status | Tests Passing |",
-        "|-----------|--------|---------------|"
+        renderTableHeader col1W col2W col3W,
+        renderTableSep col1W col2W col3W
       ]
-        <> map renderResultRow results
+        <> map (renderResultRow col1W col2W col3W) results
     )
   where
     supportedN = length [() | result <- results, erStatus result == Supported]
     inProgressN = length [() | result <- results, erStatus result == InProgress]
     totalN = length results
+    col1W = maximum $ length ("Extension" :: String) : map (length . erName) results
+    col2W = maximum $ length ("Status" :: String) : map (length . statusEmoji) results
+    col3W = maximum $ length ("Tests Passing" :: String) : map (length . testsPassingStr) results
+    testsPassingStr result = show (erPassN result) <> "/" <> show (erTotalN result)
 
-renderResultRow :: ExtensionResult -> String
-renderResultRow result =
+padRight :: Int -> String -> String
+padRight n s = s <> replicate (n - length s) ' '
+
+padCenter :: Int -> String -> String
+padCenter n s =
+  let total = n - length s
+      left = total `div` 2
+      right = total - left
+   in replicate left ' ' <> s <> replicate right ' '
+
+renderTableHeader :: Int -> Int -> Int -> String
+renderTableHeader w1 w2 w3 =
+  "| " <> padRight w1 "Extension" <> " | " <> padCenter w2 "Status" <> " | " <> padRight w3 "Tests Passing" <> " |"
+
+renderTableSep :: Int -> Int -> Int -> String
+renderTableSep w1 w2 w3 =
+  "|" <> replicate (w1 + 2) '-' <> "|:" <> replicate w2 '-' <> ":|" <> replicate (w3 + 2) '-' <> "|"
+
+renderResultRow :: Int -> Int -> Int -> ExtensionResult -> String
+renderResultRow w1 w2 w3 result =
   "| "
-    <> erName result
+    <> padRight w1 (erName result)
     <> " | "
-    <> statusText (erStatus result)
+    <> padCenter w2 (statusEmoji result)
     <> " | "
-    <> show (erPassN result)
-    <> "/"
-    <> show (erTotalN result)
+    <> padRight w3 (show (erPassN result) <> "/" <> show (erTotalN result))
     <> " |"
+
+statusEmoji :: ExtensionResult -> String
+statusEmoji result
+  | erPassN result == erTotalN result = "🟢"
+  | erTotalN result > 0 && fromIntegral (erPassN result) / fromIntegral (erTotalN result) >= (0.9 :: Double) = "🟡"
+  | otherwise = "🔴"
 
 statusText :: SupportStatus -> String
 statusText status =

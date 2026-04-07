@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail SPECIALIZE pragmas not preserved in pretty-printer roundtrip -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE TypeApplications #-}
 
 module SpecializePragmas where

@@ -162,6 +162,7 @@ docImportItem item =
 docDecl :: Decl -> Doc ann
 docDecl decl =
   case decl of
+    DeclAnn _ sub -> docDecl sub
     DeclValue _ vdecl -> "DeclValue" <+> parens (docValueDecl vdecl)
     DeclTypeSig _ names ty -> "DeclTypeSig" <+> braces (hsep (punctuate comma [field "names" (docTextList names), field "type" (docType ty)]))
     DeclPatSyn _ ps -> "DeclPatSyn" <+> parens (docPatSynDecl ps)
@@ -183,7 +184,7 @@ docDecl decl =
     DeclDataFamilyDecl _ df -> "DeclDataFamilyDecl" <+> parens (docDataFamilyDecl df)
     DeclTypeFamilyInst _ tfi -> "DeclTypeFamilyInst" <+> parens (docTypeFamilyInst tfi)
     DeclDataFamilyInst _ dfi -> "DeclDataFamilyInst" <+> parens (docDataFamilyInst dfi)
-    DeclAnn _ sub -> docDecl sub
+    DeclPragma _ pragmaText -> "DeclPragma" <+> docText pragmaText
 
 docValueDecl :: ValueDecl -> Doc ann
 docValueDecl vdecl =
@@ -374,6 +375,7 @@ docClassDeclItem item =
     ClassItemTypeFamilyDecl _ tf -> "ClassItemTypeFamilyDecl" <+> parens (docTypeFamilyDecl tf)
     ClassItemDataFamilyDecl _ df -> "ClassItemDataFamilyDecl" <+> parens (docDataFamilyDecl df)
     ClassItemDefaultTypeInst _ tfi -> "ClassItemDefaultTypeInst" <+> parens (docTypeFamilyInst tfi)
+    ClassItemPragma _ pragmaText -> "ClassItemPragma" <+> docText pragmaText
 
 docInstanceDecl :: InstanceDecl -> Doc ann
 docInstanceDecl inst =
@@ -396,6 +398,7 @@ docInstanceDeclItem item =
     InstanceItemFixity _ assoc mPrec ops -> "InstanceItemFixity" <+> braces (hsep (punctuate comma ([field "assoc" (docFixityAssoc assoc)] <> optionalField "prec" pretty mPrec <> [field "ops" (docTextList ops)])))
     InstanceItemTypeFamilyInst _ tfi -> "InstanceItemTypeFamilyInst" <+> parens (docTypeFamilyInst tfi)
     InstanceItemDataFamilyInst _ dfi -> "InstanceItemDataFamilyInst" <+> parens (docDataFamilyInst dfi)
+    InstanceItemPragma _ pragmaText -> "InstanceItemPragma" <+> docText pragmaText
 
 docStandaloneDerivingDecl :: StandaloneDerivingDecl -> Doc ann
 docStandaloneDerivingDecl sd =
@@ -493,9 +496,9 @@ docType ty =
     TUnboxedSum _ elems ->
       "TUnboxedSum"
         <+> brackets (hsep (punctuate comma (map docType elems)))
-    TList _ promoted inner ->
+    TList _ promoted elems ->
       (if promoted == Promoted then "TListPromoted" else "TList")
-        <+> parens (docType inner)
+        <+> brackets (hsep (punctuate comma (map docType elems)))
     TParen _ inner -> "TParen" <+> parens (docType inner)
     TKindSig _ ty' kind -> "TKindSig" <+> parens (docType ty') <+> parens (docType kind)
     TContext _ constraints inner -> "TContext" <+> brackets (hsep (punctuate comma (map docConstraint constraints))) <+> parens (docType inner)
@@ -777,6 +780,7 @@ docTokenKind kind =
     TkPragmaInstanceOverlap pragma' -> "TkPragmaInstanceOverlap" <+> docInstanceOverlapPragma pragma'
     TkPragmaWarning msg -> "TkPragmaWarning" <+> docText msg
     TkPragmaDeprecated msg -> "TkPragmaDeprecated" <+> docText msg
+    TkPragmaDeclaration text -> "TkPragmaDeclaration" <+> docText text
     TkQuasiQuote quoter body -> "TkQuasiQuote" <+> docText quoter <+> docText body
     TkTHExpQuoteOpen -> "TkTHExpQuoteOpen"
     TkTHExpQuoteClose -> "TkTHExpQuoteClose"

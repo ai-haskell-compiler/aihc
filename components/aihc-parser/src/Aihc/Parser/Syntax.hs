@@ -723,11 +723,14 @@ data Decl
   | DeclDataFamilyDecl SourceSpan DataFamilyDecl
   | DeclTypeFamilyInst SourceSpan TypeFamilyInst
   | DeclDataFamilyInst SourceSpan DataFamilyInst
+  | -- pragma declaration (e.g. {-# INLINE f #-}, {-# SPECIALIZE ... #-})
+    DeclPragma SourceSpan Text
   deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan Decl where
   getSourceSpan decl =
     case decl of
+      DeclAnn _ sub -> getSourceSpan sub
       DeclValue span' _ -> span'
       DeclTypeSig span' _ _ -> span'
       DeclPatSyn span' _ -> span'
@@ -749,7 +752,7 @@ instance HasSourceSpan Decl where
       DeclDataFamilyDecl span' _ -> span'
       DeclTypeFamilyInst span' _ -> span'
       DeclDataFamilyInst span' _ -> span'
-      DeclAnn _ sub -> getSourceSpan sub
+      DeclPragma span' _ -> span'
 
 data ValueDecl
   = FunctionBind SourceSpan BinderName [Match]
@@ -935,7 +938,7 @@ data Type
   | TFun SourceSpan Type Type
   | TTuple SourceSpan TupleFlavor TypePromotion [Type]
   | TUnboxedSum SourceSpan [Type]
-  | TList SourceSpan TypePromotion Type
+  | TList SourceSpan TypePromotion [Type]
   | TParen SourceSpan Type
   | TKindSig SourceSpan Type Type
   | TContext SourceSpan [Constraint] Type
@@ -1240,6 +1243,8 @@ data ClassDeclItem
   | ClassItemTypeFamilyDecl SourceSpan TypeFamilyDecl
   | ClassItemDataFamilyDecl SourceSpan DataFamilyDecl
   | ClassItemDefaultTypeInst SourceSpan TypeFamilyInst
+  | -- pragma inside class body
+    ClassItemPragma SourceSpan Text
   deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan ClassDeclItem where
@@ -1252,6 +1257,7 @@ instance HasSourceSpan ClassDeclItem where
       ClassItemTypeFamilyDecl span' _ -> span'
       ClassItemDataFamilyDecl span' _ -> span'
       ClassItemDefaultTypeInst span' _ -> span'
+      ClassItemPragma span' _ -> span'
 
 data InstanceDecl = InstanceDecl
   { instanceDeclSpan :: SourceSpan,
@@ -1281,6 +1287,8 @@ data InstanceDeclItem
   | InstanceItemFixity SourceSpan FixityAssoc (Maybe Int) [OperatorName]
   | InstanceItemTypeFamilyInst SourceSpan TypeFamilyInst
   | InstanceItemDataFamilyInst SourceSpan DataFamilyInst
+  | -- pragma inside instance body (e.g. {-# SPECIALIZE instance ... #-})
+    InstanceItemPragma SourceSpan Text
   deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan InstanceDeclItem where
@@ -1291,6 +1299,7 @@ instance HasSourceSpan InstanceDeclItem where
       InstanceItemFixity span' _ _ _ -> span'
       InstanceItemTypeFamilyInst span' _ -> span'
       InstanceItemDataFamilyInst span' _ -> span'
+      InstanceItemPragma span' _ -> span'
 
 data FixityAssoc
   = Infix

@@ -257,6 +257,7 @@ declParser = do
     TkPrefixTilde -> patternOrSpliceParser
     TkKeywordUnderscore -> patternOrSpliceParser
     TkTHSplice -> spliceDeclParser
+    TkPragmaDeclaration _ -> pragmaDeclParser
     _ -> typeSigOrValueOrSpliceParser
 
 -- | Parse a top-level Template Haskell declaration splice: $expr or $(expr)
@@ -273,6 +274,14 @@ spliceDeclParser = withSpan $ do
     bareSpliceBody = withSpan $ do
       name <- identifierTextParser
       pure (`EVar` name)
+
+-- | Parse a pragma declaration (e.g. {-# INLINE f #-}, {-# SPECIALIZE ... #-})
+pragmaDeclParser :: TokParser Decl
+pragmaDeclParser = withSpan $ do
+  tokenSatisfy "pragma declaration" $ \tok ->
+    case lexTokenKind tok of
+      TkPragmaDeclaration text -> Just (`DeclPragma` text)
+      _ -> Nothing
 
 -- | Parse an implicit top-level Template Haskell declaration splice: @expr@.
 -- GHC accepts bare declaration splices under TemplateHaskell and also pretty-prints
@@ -789,6 +798,13 @@ classDeclItemParser = do
       case lexTokenKind nextTok of
         TkKeywordInstance -> classDefaultTypeInstParser
         _ -> classTypeFamilyDeclParser
+    TkPragmaDeclaration _ -> withSpan $ do
+      pragmaText <-
+        tokenSatisfy "pragma declaration" $ \pTok ->
+          case lexTokenKind pTok of
+            TkPragmaDeclaration text -> Just text
+            _ -> Nothing
+      pure (`ClassItemPragma` pragmaText)
     _ -> do
       isSig <- startsWithTypeSig
       if isSig then classTypeSigItemParser else classDefaultItemParser
@@ -899,6 +915,13 @@ instanceDeclItemParser = do
     TkKeywordType -> instanceTypeFamilyInstParser
     TkKeywordData -> instanceDataFamilyInstParser
     TkKeywordNewtype -> instanceNewtypeFamilyInstParser
+    TkPragmaDeclaration _ -> withSpan $ do
+      pragmaText <-
+        tokenSatisfy "pragma declaration" $ \pTok ->
+          case lexTokenKind pTok of
+            TkPragmaDeclaration text -> Just text
+            _ -> Nothing
+      pure (`InstanceItemPragma` pragmaText)
     _ -> do
       isSig <- startsWithTypeSig
       if isSig then instanceTypeSigItemParser else instanceValueItemParser

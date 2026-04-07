@@ -152,6 +152,7 @@ prettyNamespacePrefix namespace =
 prettyDeclLines :: Decl -> [Doc ann]
 prettyDeclLines decl =
   case decl of
+    DeclAnn _ sub -> prettyDeclLines sub
     DeclValue _ valueDecl -> prettyValueDeclLines valueDecl
     DeclTypeSig _ names ty -> [hsep [hsep (punctuate comma (map prettyBinderName names)), "::", prettyType ty]]
     DeclPatSyn _ patSynDecl -> [prettyPatSynDecl patSynDecl]
@@ -187,7 +188,7 @@ prettyDeclLines decl =
     DeclDataFamilyDecl _ df -> [prettyDataFamilyDecl df]
     DeclTypeFamilyInst _ tfi -> [prettyTopTypeFamilyInst tfi]
     DeclDataFamilyInst _ dfi -> [prettyTopDataFamilyInst dfi]
-    DeclAnn _ sub -> prettyDeclLines sub
+    DeclPragma _ pragmaText -> [pretty pragmaText]
 
 prettyRoleAnnotation :: RoleAnnotation -> Doc ann
 prettyRoleAnnotation ann =
@@ -392,8 +393,8 @@ prettyTypePrec prec ty =
        in if promoted == Promoted then "'" <> tupleDoc else tupleDoc
     TUnboxedSum _ elems ->
       hsep ["(#", hsep (punctuate " |" (map (prettyTypePrec 0) elems)), "#)"]
-    TList _ promoted inner ->
-      let listDoc = brackets (prettyTypePrec 0 inner)
+    TList _ promoted elems ->
+      let listDoc = brackets (hsep (punctuate comma (map (prettyTypePrec 0) elems)))
        in if promoted == Promoted then "'" <> listDoc else listDoc
     TParen _ inner -> parens (prettyTypePrec 0 inner)
     TKindSig _ ty' kind -> parens (prettyTypePrec 0 ty' <+> "::" <+> prettyTypePrec 0 kind)
@@ -448,7 +449,7 @@ prettyPattern pat =
     PWildcard _ -> "_"
     PLit _ lit -> prettyLiteral lit
     PQuasiQuote _ quoter body -> prettyQuasiQuote quoter body
-    PTuple _ tupleFlavor elems -> prettyTupleBody tupleFlavor (hsep (punctuate comma (map prettyPattern elems)))
+    PTuple _ tupleFlavor elems -> prettyTupleBody tupleFlavor (hsep (punctuate comma (map prettyPatternInTuple elems)))
     PUnboxedSum _ altIdx arity inner ->
       let slots = [if i == altIdx then prettyPattern inner else mempty | i <- [0 .. arity - 1]]
        in hsep ["(#", hsep (punctuate " |" slots), "#)"]
@@ -474,6 +475,14 @@ prettyPattern pat =
           )
     PTypeSig _ inner ty -> prettyPattern inner <+> "::" <+> prettyType ty
     PSplice _ body -> prettySplice "$" body
+
+-- | Pretty print a pattern that appears as a tuple element.
+-- View patterns don't need extra parens when they're already inside a tuple's parens.
+prettyPatternInTuple :: Pattern -> Doc ann
+prettyPatternInTuple pat =
+  case pat of
+    PView _ viewExpr inner -> prettyExprPrec 0 viewExpr <+> "->" <+> prettyPattern inner
+    _ -> prettyPattern pat
 
 -- | Pretty print a pattern field binding.
 -- Supports NamedFieldPuns: if pattern is a variable with the same name as the field,
@@ -776,6 +785,7 @@ prettyClassItem item =
     ClassItemTypeFamilyDecl _ tf -> prettyAssocTypeFamilyDecl tf
     ClassItemDataFamilyDecl _ df -> prettyAssocDataFamilyDecl df
     ClassItemDefaultTypeInst _ tfi -> prettyDefaultTypeInst tfi
+    ClassItemPragma _ pragmaText -> pretty pragmaText
 
 prettyInstanceDecl :: InstanceDecl -> Doc ann
 prettyInstanceDecl decl =
@@ -841,6 +851,7 @@ prettyInstanceItem item =
         )
     InstanceItemTypeFamilyInst _ tfi -> prettyInstTypeFamilyInst tfi
     InstanceItemDataFamilyInst _ dfi -> prettyInstDataFamilyInst dfi
+    InstanceItemPragma _ pragmaText -> pretty pragmaText
 
 prettyFixityAssoc :: FixityAssoc -> Doc ann
 prettyFixityAssoc assoc =

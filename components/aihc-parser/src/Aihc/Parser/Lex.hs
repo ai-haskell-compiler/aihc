@@ -198,6 +198,9 @@ data LexTokenKind
   | TkPragmaInstanceOverlap InstanceOverlapPragma
   | TkPragmaWarning Text
   | TkPragmaDeprecated Text
+  | -- Generic pragma for round-trip support of declaration pragmas
+    -- Captures the full pragma text including {-# and #-}
+    TkPragmaDeclaration Text
   | -- TemplateHaskellQuotes bracket tokens
     TkTHExpQuoteOpen
   | TkTHExpQuoteClose
@@ -565,7 +568,9 @@ consumeTrivia _env st =
                   case tryConsumeKnownPragma st of
                     Just _ -> Nothing
                     Nothing ->
-                      fmap (Right . markHadTrivia) (consumeUnknownPragma st)
+                      case consumeUnknownPragmaAsToken st of
+                        Just (tok, st') -> Just (Left (tok, markHadTrivia st'))
+                        Nothing -> Nothing
           | "{-" `T.isPrefixOf` inp ->
               Just
                 ( case consumeBlockCommentOrError st of
@@ -654,6 +659,7 @@ noteModuleLayoutBeforeToken st tok =
         TkPragmaInstanceOverlap _ -> st
         TkPragmaWarning _ -> st
         TkPragmaDeprecated _ -> st
+        TkPragmaDeclaration _ -> st
         TkKeywordModule -> st {layoutModuleMode = ModuleLayoutAwaitWhere}
         _ -> st {layoutModuleMode = ModuleLayoutDone, layoutPendingLayout = Just (PendingImplicitLayout LayoutOrdinary)}
     _ -> st
@@ -1946,15 +1952,18 @@ consumeLineComment st =
       consumed = "--" <> T.takeWhile (/= '\n') rest
    in advanceChars consumed st
 
-consumeUnknownPragma :: LexerState -> Maybe LexerState
-consumeUnknownPragma st =
+-- | Consume an unknown pragma and emit it as a token for round-trip support.
+consumeUnknownPragmaAsToken :: LexerState -> Maybe (LexToken, LexerState)
+consumeUnknownPragmaAsToken st =
   let inp = lexerInput st
       (_, suffix) = T.breakOn "#-}" inp
    in if T.null suffix
         then Nothing
         else
           let consumed = T.take (T.length inp - T.length suffix + 3) inp
-           in Just (advanceChars consumed st)
+              st' = advanceChars consumed st
+              tok = mkToken st st' consumed (TkPragmaDeclaration consumed)
+           in Just (tok, st')
 
 consumeBlockComment :: LexerState -> Maybe LexerState
 consumeBlockComment st =

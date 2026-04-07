@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail RULES pragma not preserved in pretty-printer roundtrip -}
+{- ORACLE_TEST pass -}
 module RulesPragma where
 
 {-# RULES
