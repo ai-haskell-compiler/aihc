@@ -27,7 +27,7 @@
         filter = path: type: let
           baseName = baseNameOf path;
           # Include Haskell sources, cabal file, and test fixtures
-          isHaskell = pkgs.lib.hasSuffix ".hs" baseName;
+          isHaskell = pkgs.lib.hasSuffix ".hs" baseName || pkgs.lib.hasSuffix ".hs-boot" baseName;
           isCabal = pkgs.lib.hasSuffix ".cabal" baseName;
           isYaml = pkgs.lib.hasSuffix ".yaml" baseName || pkgs.lib.hasSuffix ".yml" baseName;
           isTsv = pkgs.lib.hasSuffix ".tsv" baseName;
