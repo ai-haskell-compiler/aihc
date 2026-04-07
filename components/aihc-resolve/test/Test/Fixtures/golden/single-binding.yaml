@@ -1,0 +1,9 @@
+extensions: []
+modules:
+  - name: Main
+    input: |
+      module Main where
+      x = 1
+expected: ~
+status: xfail
+reason: Name resolution not yet implemented
