@@ -866,6 +866,9 @@ normalizeType ty =
     TContext _ constraints inner -> TContext span0 (map normalizeType constraints) (normalizeType inner)
     TImplicitParam _ name innerTy -> TImplicitParam span0 name (normalizeType innerTy)
     TConstraintWildcard _ -> TConstraintWildcard span0
+    -- TConstraintKindSig normalizes to just the inner TKindSig (they're semantically equivalent)
+    TConstraintKindSig _ (TKindSig _ inner kind) ->
+      TKindSig span0 (normalizeType inner) (normalizeType kind)
     TConstraintKindSig _ innerTy -> TConstraintKindSig span0 (normalizeType innerTy)
     TSplice _ body -> TSplice span0 (normalizeExpr body)
     TWildcard _ -> TWildcard span0
