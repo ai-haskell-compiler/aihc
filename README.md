@@ -14,13 +14,14 @@ Find more information here:
 
 ## Progress
 
-| Name             | Progress                                                                                                                            |
-| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------: |
+| Name             | Progress                                                                                                                             |
+| ---------------- | -----------------------------------------------------------------------------------------------------------------------------------: |
+| Resolve Stackage | `0/3390` (`0.00%`)                                                                                                                   |
 | Parser Stackage  | <!-- AUTO-GENERATED: START parser-stackage-progress --> `2175/3390` (`64.16%`) <!-- AUTO-GENERATED: END parser-stackage-progress --> |
-| Parser Tests     | <!-- AUTO-GENERATED: START parser-progress --> `642/737` (`87.11%`) <!-- AUTO-GENERATED: END parser-progress -->                    |
-| Lexer Tests      | <!-- AUTO-GENERATED: START lexer-progress --> `79/80` (`98.75%`) <!-- AUTO-GENERATED: END lexer-progress -->                        |
-| CPP preprocessor | <!-- AUTO-GENERATED: START cpp-progress --> `38/38` (`100.00%`) <!-- AUTO-GENERATED: END cpp-progress -->                           |
-| Resolve Tests    | <!-- AUTO-GENERATED: START resolve-progress --> `0/4` (`0.00%`) <!-- AUTO-GENERATED: END resolve-progress -->                       |
+| Resolve Tests    | <!-- AUTO-GENERATED: START resolve-progress --> `0/4` (`0.00%`) <!-- AUTO-GENERATED: END resolve-progress -->                        |
+| Parser Tests     | <!-- AUTO-GENERATED: START parser-progress --> `642/737` (`87.11%`) <!-- AUTO-GENERATED: END parser-progress -->                     |
+| Lexer Tests      | <!-- AUTO-GENERATED: START lexer-progress --> `79/80` (`98.75%`) <!-- AUTO-GENERATED: END lexer-progress -->                         |
+| CPP Tests        | <!-- AUTO-GENERATED: START cpp-progress --> `38/38` (`100.00%`) <!-- AUTO-GENERATED: END cpp-progress -->                            |
 
 ## Lines of code
 
