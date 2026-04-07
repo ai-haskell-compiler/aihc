@@ -367,12 +367,11 @@ genQuoterName = do
     then genQuoterName
     else pure candidate
 
-genImplicitParamName :: Gen Text
-genImplicitParamName = do
-  first <- elements (['a' .. 'z'] <> ['_'])
-  restLen <- chooseInt (0, 4)
-  rest <- vectorOf restLen (elements (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> "_'"))
-  pure (T.pack ('?' : first : rest))
+genQuasiBody :: Gen Text
+genQuasiBody = do
+  len <- chooseInt (0, 12)
+  chars <- vectorOf len (elements (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> " +-*/_()"))
+  pure (T.pack chars)
 
 -- Generate simpler constraint types suitable for nested contexts (avoid TContext, TUnboxedSum, etc.)
 genSimpleConstraintType :: Int -> Gen Type
@@ -387,12 +386,6 @@ genSimpleConstraintType depth =
       pure (TConstraintWildcard span0),
       TParen span0 <$> genSimpleConstraintType (depth - 1)
     ]
-
-genQuasiBody :: Gen Text
-genQuasiBody = do
-  len <- chooseInt (0, 12)
-  chars <- vectorOf len (elements (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> " +-*/_()"))
-  pure (T.pack chars)
 
 genTypeLiteral :: Gen TypeLiteral
 genTypeLiteral =
