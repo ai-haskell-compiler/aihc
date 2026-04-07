@@ -41,7 +41,7 @@ timeoutMicros :: Int
 timeoutMicros = 1000000
 
 generatedCaseSize :: Int
-generatedCaseSize = 100
+generatedCaseSize = 1000
 
 parserPerformanceTests :: IO TestTree
 parserPerformanceTests = do
