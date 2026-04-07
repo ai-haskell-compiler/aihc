@@ -17,6 +17,7 @@ where
 
 import Aihc.Parser.Internal.CheckPattern (checkPattern)
 import Aihc.Parser.Internal.Common
+import Aihc.Parser.Internal.Decl (declParser)
 import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokenKind, lexTokenSpan, lexTokenText)
 import Aihc.Parser.Syntax
 import Control.Monad (guard)
@@ -1718,7 +1719,7 @@ thTypedQuoteParser = withSpan $ do
 thDeclQuoteParser :: TokParser Expr
 thDeclQuoteParser = withSpan $ do
   expectedTok TkTHDeclQuoteOpen
-  decls <- (concat <$> bracedSemiSep1 localDeclsParser) <|> (concat <$> plainSemiSep1 localDeclsParser)
+  decls <- plainSemiSep1 declParser
   expectedTok TkTHExpQuoteClose
   pure (`ETHDeclQuote` decls)
 
