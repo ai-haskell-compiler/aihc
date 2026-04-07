@@ -230,30 +230,43 @@ renderMarkdown results =
     inProgressN = length [() | result <- results, erStatus result == InProgress]
     totalN = length results
     col1W = maximum $ length ("Extension" :: String) : map (length . erName) results
-    col2W = maximum $ length ("Status" :: String) : map (length . statusText . erStatus) results
+    col2W = maximum $ length ("Status" :: String) : map (length . statusEmoji) results
     col3W = maximum $ length ("Tests Passing" :: String) : map (length . testsPassingStr) results
     testsPassingStr result = show (erPassN result) <> "/" <> show (erTotalN result)
 
 padRight :: Int -> String -> String
 padRight n s = s <> replicate (n - length s) ' '
 
+padCenter :: Int -> String -> String
+padCenter n s =
+  let total = n - length s
+      left = total `div` 2
+      right = total - left
+   in replicate left ' ' <> s <> replicate right ' '
+
 renderTableHeader :: Int -> Int -> Int -> String
 renderTableHeader w1 w2 w3 =
-  "| " <> padRight w1 "Extension" <> " | " <> padRight w2 "Status" <> " | " <> padRight w3 "Tests Passing" <> " |"
+  "| " <> padRight w1 "Extension" <> " | " <> padCenter w2 "Status" <> " | " <> padRight w3 "Tests Passing" <> " |"
 
 renderTableSep :: Int -> Int -> Int -> String
 renderTableSep w1 w2 w3 =
-  "|" <> replicate (w1 + 2) '-' <> "|" <> replicate (w2 + 2) '-' <> "|" <> replicate (w3 + 2) '-' <> "|"
+  "|" <> replicate (w1 + 2) '-' <> "|:" <> replicate w2 '-' <> ":|" <> replicate (w3 + 2) '-' <> "|"
 
 renderResultRow :: Int -> Int -> Int -> ExtensionResult -> String
 renderResultRow w1 w2 w3 result =
   "| "
     <> padRight w1 (erName result)
     <> " | "
-    <> padRight w2 (statusText (erStatus result))
+    <> padCenter w2 (statusEmoji result)
     <> " | "
     <> padRight w3 (show (erPassN result) <> "/" <> show (erTotalN result))
     <> " |"
+
+statusEmoji :: ExtensionResult -> String
+statusEmoji result
+  | erPassN result == erTotalN result = "🟢"
+  | erTotalN result > 0 && fromIntegral (erPassN result) / fromIntegral (erTotalN result) >= (0.9 :: Double) = "🟡"
+  | otherwise = "🔴"
 
 statusText :: SupportStatus -> String
 statusText status =
