@@ -1173,7 +1173,7 @@ prettyAppsChain prec expr =
 prettyExprPrec :: Int -> Expr -> Doc ann
 prettyExprPrec prec expr =
   case expr of
-    EApp _ _ _ -> prettyAppsChain prec expr
+    EApp {} -> prettyAppsChain prec expr
     ETypeApp _ fn ty ->
       parenthesize (prec > 2) (prettyExprApp fn <+> "@" <> prettyTypeIn CtxTypeAtom ty)
     EVar _ name
