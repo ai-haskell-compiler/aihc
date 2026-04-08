@@ -1880,19 +1880,19 @@ forallTypeParser = withSpan $ do
 
 contextTypeParser :: TokParser Type
 contextTypeParser = do
-  constraints <- constraintsParser
+  constraints <- contextItemsParser
   expectedTok TkReservedDoubleArrow
   inner <- typeParser
   pure (TContext (mergeSourceSpans (constraintHeadSpan constraints) (getSourceSpan inner)) constraints inner)
 
-constraintHeadSpan :: [Constraint] -> SourceSpan
+constraintHeadSpan :: [Type] -> SourceSpan
 constraintHeadSpan constraints =
   case constraints of
     [] -> NoSourceSpan
     constraint : _ -> getSourceSpan constraint
 
-constraintsParser :: TokParser [Constraint]
-constraintsParser = constraintsParserWith typeParser typeAtomParser
+contextItemsParser :: TokParser [Type]
+contextItemsParser = contextItemsParserWith typeParser typeAtomParser
 
 typeFunParser :: TokParser Type
 typeFunParser = do
@@ -2172,6 +2172,7 @@ setTypeSpan span' ty =
   case ty of
     TVar _ name -> TVar span' name
     TCon _ name promoted -> TCon span' name promoted
+    TImplicitParam _ name inner -> TImplicitParam span' name inner
     TTypeLit _ lit -> TTypeLit span' lit
     TStar _ -> TStar span'
     TQuasiQuote _ quoter body -> TQuasiQuote span' quoter body

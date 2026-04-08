@@ -367,7 +367,7 @@ gadtOrTraditionalDispatch gadtParser traditionalParser = do
 -- Returns @Nothing@ when the input doesn't look like a context,
 -- otherwise parses the context and the @=>@ that follows it.
 -- Eliminates 'MP.try' around @declContextParser \<* expectedTok TkReservedDoubleArrow@.
-contextPrefixDispatch :: TokParser (Maybe [Constraint])
+contextPrefixDispatch :: TokParser (Maybe [Type])
 contextPrefixDispatch = do
   hasContext <- startsWithContextType
   if hasContext
@@ -375,7 +375,7 @@ contextPrefixDispatch = do
     else pure Nothing
 
 -- | Like 'contextPrefixDispatch' but returns @[]@ instead of @Nothing@.
-contextPrefixDispatchList :: TokParser [Constraint]
+contextPrefixDispatchList :: TokParser [Type]
 contextPrefixDispatchList = do
   hasContext <- startsWithContextType
   if hasContext
@@ -1263,7 +1263,7 @@ gadtBangTypeParser = withSpan $ do
 gadtResultTypeParser :: TokParser Type
 gadtResultTypeParser = typeParser
 
-declContextParser :: TokParser [Constraint]
+declContextParser :: TokParser [Type]
 declContextParser = contextParserWith typeParser typeAtomParser
 
 typeDeclHeadParser :: TokParser (Text, [TyVarBinder])
@@ -1318,8 +1318,8 @@ derivingClauseParser = do
   viaTy <- MP.optional derivingViaTypeParser
   pure (DerivingClause strategy classes viaTy)
   where
-    singleClass = (: []) <$> constraintParserWith typeParser typeAtomParser
-    parenClasses = parens $ constraintParserWith typeParser typeAtomParser `MP.sepEndBy` expectedTok TkSpecialComma
+    singleClass = (: []) <$> contextItemParserWith typeParser typeAtomParser
+    parenClasses = parens $ contextItemParserWith typeParser typeAtomParser `MP.sepEndBy` expectedTok TkSpecialComma
 
 derivingViaTypeParser :: TokParser Type
 derivingViaTypeParser = do
@@ -1332,7 +1332,7 @@ derivingStrategyParser =
     <|> (keywordTok TkKeywordNewtype >> pure DerivingNewtype)
     <|> (varIdTok "anyclass" >> pure DerivingAnyclass)
 
-dataConQualifiersParser :: TokParser ([Text], [Constraint])
+dataConQualifiersParser :: TokParser ([Text], [Type])
 dataConQualifiersParser = do
   mForall <- forallPrefixDispatch forallBindersParser
   mContext <- contextPrefixDispatchList
@@ -1345,7 +1345,7 @@ forallBindersParser = do
   expectedTok (TkVarSym ".")
   pure (map tyVarBinderName binders)
 
-dataConRecordOrPrefixParser :: [Text] -> [Constraint] -> TokParser (SourceSpan -> DataConDecl)
+dataConRecordOrPrefixParser :: [Text] -> [Type] -> TokParser (SourceSpan -> DataConDecl)
 dataConRecordOrPrefixParser forallVars context = do
   name <- constructorNameParser
   mRecordFields <- MP.optional (MP.try recordFieldsParserAfterLayoutSemicolon)
@@ -1365,7 +1365,7 @@ dataConRecordOrPrefixParser forallVars context = do
       recordFieldsParser
         <|> (expectedTok TkSpecialSemicolon *> recordFieldsParser)
 
-dataConInfixParser :: [Text] -> [Constraint] -> TokParser (SourceSpan -> DataConDecl)
+dataConInfixParser :: [Text] -> [Type] -> TokParser (SourceSpan -> DataConDecl)
 dataConInfixParser forallVars context = do
   lhs <- infixConstructorArgParser
   op <- constructorOperatorParser

@@ -430,6 +430,7 @@ normalizeTypeSpan ty =
   case ty of
     TVar _ name -> TVar span0 name
     TCon _ name promoted -> TCon span0 name promoted
+    TImplicitParam _ name inner -> TImplicitParam span0 name (normalizeTypeSpan inner)
     TTypeLit _ lit -> TTypeLit span0 lit
     TStar _ -> TStar span0
     TQuasiQuote _ quoter body -> TQuasiQuote span0 quoter body
@@ -440,7 +441,7 @@ normalizeTypeSpan ty =
     TList _ promoted elems -> TList span0 promoted (map normalizeTypeSpan elems)
     TParen _ inner -> TParen span0 (normalizeTypeSpan inner)
     TKindSig _ inner kind -> TKindSig span0 (normalizeTypeSpan inner) (normalizeTypeSpan kind)
-    TContext _ constraints inner -> TContext span0 constraints (normalizeTypeSpan inner)
+    TContext _ constraints inner -> TContext span0 (map normalizeTypeSpan constraints) (normalizeTypeSpan inner)
     TUnboxedSum _ elems -> TUnboxedSum span0 (map normalizeTypeSpan elems)
     TSplice _ body -> TSplice span0 (normalizeExpr body)
     TWildcard _ -> TWildcard span0

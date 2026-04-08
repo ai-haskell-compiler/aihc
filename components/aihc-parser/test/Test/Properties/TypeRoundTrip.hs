@@ -31,16 +31,49 @@ typeConfig =
 prop_typePrettyRoundTrip :: Type -> Property
 prop_typePrettyRoundTrip ty =
   let source = renderStrict (layoutPretty defaultLayoutOptions (pretty ty))
-      expected = normalizeType ty
+      expected = normalizeType (canonicalTopLevelType ty)
    in checkCoverage $
-        assertCtorCoverage ["TAnn"] ty $
-          counterexample (T.unpack source) $
-            case parseType typeConfig source of
-              ParseErr err ->
-                counterexample (MPE.errorBundlePretty err) False
-              ParseOk parsed ->
-                let actual = normalizeType parsed
-                 in counterexample ("expected: " <> show expected <> "\nactual: " <> show actual) (expected == actual)
+        withMaxShrinks 100 $
+          assertCtorCoverage ["TAnn", "TContext", "TImplicitParam"] ty $
+            counterexample (T.unpack source) $
+              case parseType typeConfig source of
+                ParseErr err ->
+                  counterexample (MPE.errorBundlePretty err) False
+                ParseOk parsed ->
+                  let actual = normalizeType parsed
+                   in counterexample ("expected: " <> show expected <> "\nactual: " <> show actual) (expected == actual)
+
+canonicalTopLevelType :: Type -> Type
+canonicalTopLevelType ty =
+  case ty of
+    TContext _ constraints inner -> canonicalContextType constraints inner
+    _ -> canonicalTypeSplice ty
+
+canonicalContextType :: [Type] -> Type -> Type
+canonicalContextType constraints = TContext span0 (canonicalContextItems constraints)
+
+canonicalContextItems :: [Type] -> [Type]
+canonicalContextItems constraints =
+  case map canonicalContextItem constraints of
+    [TTuple _ Boxed Unpromoted []] -> []
+    [TParen _ (TTuple _ Boxed Unpromoted [])] -> []
+    items -> items
+
+canonicalContextItem :: Type -> Type
+canonicalContextItem ty =
+  case ty of
+    TParen _ inner@(TParen _ (TKindSig {})) -> TParen span0 (canonicalContextItem inner)
+    TParen _ inner -> TParen span0 (canonicalContextItem inner)
+    TKindSig _ inner kind -> TParen span0 (TKindSig span0 (canonicalKindSigSubject inner) (canonicalKindSigKind kind))
+    TTuple _ Boxed Unpromoted [] -> TParen span0 (TTuple span0 Boxed Unpromoted [])
+    TContext _ constraints inner -> canonicalContextType constraints inner
+    _ -> canonicalTypeSplice ty
+
+canonicalTypeSplice :: Type -> Type
+canonicalTypeSplice ty =
+  case ty of
+    TSplice _ (EVar _ name) -> TSplice span0 (EParen span0 (EVar span0 name))
+    _ -> ty
 
 instance Arbitrary Type where
   arbitrary = sized (genType . min 6)
@@ -53,6 +86,10 @@ shrinkType ty =
       [TVar span0 shrunk | shrunk <- shrinkIdent name]
     TCon _ name promoted ->
       [TCon span0 shrunk promoted | shrunk <- shrinkTypeConName name]
+    TImplicitParam _ name inner ->
+      [inner]
+        <> [TImplicitParam span0 name' (canonicalImplicitParamType inner) | name' <- shrinkImplicitParamName name]
+        <> [TImplicitParam span0 name (canonicalImplicitParamType inner') | inner' <- shrinkType inner]
     TTypeLit {} ->
       []
     TStar _ ->
@@ -86,8 +123,8 @@ shrinkType ty =
       [TUnboxedSum span0 elems' | elems' <- shrinkList shrinkType elems, length elems' >= 2]
     TContext _ constraints inner ->
       [inner]
-        <> [TContext span0 constraints' inner | constraints' <- shrinkConstraints constraints]
-        <> [TContext span0 constraints inner' | inner' <- shrinkType inner]
+        <> [canonicalContextType constraints' inner | constraints' <- shrinkContextItems constraints]
+        <> [canonicalContextType constraints inner' | inner' <- shrinkType inner]
     TSplice {} ->
       []
     TWildcard _ ->
@@ -132,26 +169,23 @@ shrinkTupleElems tupleFlavor elems =
       _ -> [TTuple span0 tupleFlavor Unpromoted shrunk]
   ]
 
-shrinkConstraints :: [Constraint] -> [[Constraint]]
-shrinkConstraints = shrinkList shrinkConstraint
+shrinkContextItems :: [Type] -> [[Type]]
+shrinkContextItems = shrinkList shrinkContextItem
 
-shrinkConstraint :: Constraint -> [Constraint]
-shrinkConstraint constraint =
-  case constraint of
-    Constraint _ cls args ->
-      [ Constraint
-          { constraintSpan = span0,
-            constraintClass = cls,
-            constraintArgs = shrunk
-          }
-      | shrunk <- shrinkList shrinkType args
-      ]
-    CParen _ inner ->
-      inner : [CParen span0 shrunk | shrunk <- shrinkConstraint inner]
-    CWildcard _ ->
-      []
-    CKindSig _ ty ->
-      [CKindSig span0 shrunk | shrunk <- shrinkType ty]
+shrinkContextItem :: Type -> [Type]
+shrinkContextItem ty =
+  case ty of
+    TImplicitParam _ name inner ->
+      [inner]
+        <> [TImplicitParam span0 name' (canonicalImplicitParamType inner) | name' <- shrinkImplicitParamName name]
+        <> [TImplicitParam span0 name (canonicalImplicitParamType inner') | inner' <- shrinkType inner]
+    TParen _ inner ->
+      inner : [TParen span0 inner' | inner' <- shrinkContextItem inner]
+    TKindSig _ subj kind ->
+      [canonicalKindSigSubject subj, canonicalKindSigKind kind]
+        <> [canonicalContextItem (TKindSig span0 subj' (canonicalKindSigKind kind)) | subj' <- shrinkType subj]
+        <> [TKindSig span0 (canonicalKindSigSubject subj) (canonicalKindSigKind kind') | kind' <- shrinkType kind]
+    _ -> shrinkType ty
 
 genType :: Int -> Gen Type
 genType depth
@@ -185,7 +219,6 @@ genType depth
           (2, TUnboxedSum span0 <$> genUnboxedSumElems (depth - 1)),
           (3, TList span0 Unpromoted <$> genTypeListElems (depth - 1)),
           (3, TParen span0 <$> genType (depth - 1)),
-          (3, TContext span0 <$> genConstraints (depth - 1) <*> genContextInner (depth - 1)),
           (2, TSplice span0 <$> genTypeSpliceBody)
         ]
 
@@ -207,14 +240,6 @@ genForallInner depth = do
   pure $
     case inner of
       TForall {} -> TParen span0 inner
-      _ -> inner
-
-genContextInner :: Int -> Gen Type
-genContextInner depth = do
-  inner <- genType depth
-  pure $
-    case inner of
-      TContext {} -> TParen span0 inner
       _ -> inner
 
 -- | Generate the body of a TH type splice: either a bare variable or a parenthesized expression.
@@ -267,27 +292,11 @@ genSimpleTypeAtom depth =
       TParen span0 <$> genType depth
     ]
 
-genConstraints :: Int -> Gen [Constraint]
-genConstraints depth = do
-  n <- chooseInt (1, 3)
-  vectorOf n (genConstraint depth)
-
-genConstraint :: Int -> Gen Constraint
-genConstraint depth = do
-  cls <- genTypeConName
-  argCount <- chooseInt (0, 2)
-  args <- vectorOf argCount (genConstraintArg depth)
-  pure $
-    Constraint
-      { constraintSpan = span0,
-        constraintClass = cls,
-        constraintArgs = args
-      }
-
-genConstraintArg :: Int -> Gen Type
-genConstraintArg depth = do
-  arg <- genType depth
-  pure (canonicalConstraintArg arg)
+shrinkImplicitParamName :: Text -> [Text]
+shrinkImplicitParamName name =
+  case T.stripPrefix "?" name of
+    Nothing -> []
+    Just inner -> ["?" <> candidate | candidate <- shrinkIdent inner]
 
 canonicalFunLeft :: Type -> Type
 canonicalFunLeft ty =
@@ -338,19 +347,12 @@ genKindSigKind depth =
       (1, TFun span0 <$> genSimpleTypeAtom depth <*> genSimpleTypeAtom depth)
     ]
 
-canonicalConstraintArg :: Type -> Type
-canonicalConstraintArg ty =
+canonicalImplicitParamType :: Type -> Type
+canonicalImplicitParamType ty =
   case ty of
-    TVar {} -> ty
-    TCon {} -> ty
-    TTypeLit {} -> ty
-    TStar {} -> ty
-    TQuasiQuote {} -> ty
-    TList {} -> ty
-    TTuple {} -> ty
-    TUnboxedSum {} -> ty
-    TParen {} -> ty
-    _ -> TParen span0 ty
+    TForall {} -> TParen span0 ty
+    TContext {} -> TParen span0 ty
+    _ -> ty
 
 genTypeBinders :: Gen [Text]
 genTypeBinders = do
@@ -419,6 +421,7 @@ normalizeType ty =
   case ty of
     TVar _ name -> TVar span0 name
     TCon _ name promoted -> TCon span0 name promoted
+    TImplicitParam _ name inner -> TImplicitParam span0 name (normalizeType inner)
     TTypeLit _ lit -> TTypeLit span0 lit
     TStar _ -> TStar span0
     TWildcard _ -> TWildcard span0
@@ -431,22 +434,6 @@ normalizeType ty =
     TParen _ inner -> TParen span0 (normalizeType inner)
     TKindSig _ ty' kind -> TKindSig span0 (normalizeType ty') (normalizeType kind)
     TUnboxedSum _ elems -> TUnboxedSum span0 (map normalizeType elems)
-    TContext _ constraints inner -> TContext span0 (map normalizeConstraint constraints) (normalizeType inner)
+    TContext _ constraints inner -> canonicalContextType (map normalizeType constraints) (normalizeType inner)
     TSplice _ body -> TSplice span0 (normalizeExpr body)
     TAnn ann sub -> TAnn ann (normalizeType sub)
-
-normalizeConstraint :: Constraint -> Constraint
-normalizeConstraint constraint =
-  case constraint of
-    Constraint _ cls args ->
-      Constraint
-        { constraintSpan = span0,
-          constraintClass = cls,
-          constraintArgs = map normalizeType args
-        }
-    CParen _ inner ->
-      CParen span0 (normalizeConstraint inner)
-    CWildcard _ ->
-      CWildcard span0
-    CKindSig _ ty ->
-      CKindSig span0 (normalizeType ty)

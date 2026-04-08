@@ -865,6 +865,7 @@ normalizeType ty =
   case ty of
     TVar _ name -> TVar span0 name
     TCon _ name promoted -> TCon span0 name promoted
+    TImplicitParam _ name inner -> TImplicitParam span0 name (normalizeType inner)
     TTypeLit _ lit -> TTypeLit span0 lit
     TStar _ -> TStar span0
     TQuasiQuote _ quoter body -> TQuasiQuote span0 quoter body
@@ -877,23 +878,7 @@ normalizeType ty =
     TParen _ inner -> normalizeType inner
     TKindSig _ inner kind -> TKindSig span0 (normalizeType inner) (normalizeType kind)
     TUnboxedSum _ elems -> TUnboxedSum span0 (map normalizeType elems)
-    TContext _ constraints inner -> TContext span0 (map normalizeConstraint constraints) (normalizeType inner)
+    TContext _ constraints inner -> TContext span0 (map normalizeType constraints) (normalizeType inner)
     TSplice _ body -> TSplice span0 (normalizeExpr body)
     TWildcard _ -> TWildcard span0
     TAnn ann sub -> TAnn ann (normalizeType sub)
-
-normalizeConstraint :: Constraint -> Constraint
-normalizeConstraint c =
-  case c of
-    Constraint _ cls args ->
-      Constraint
-        { constraintSpan = span0,
-          constraintClass = cls,
-          constraintArgs = map normalizeType args
-        }
-    CParen _ inner ->
-      CParen span0 (normalizeConstraint inner)
-    CWildcard _ ->
-      CWildcard span0
-    CKindSig _ ty ->
-      CKindSig span0 (normalizeType ty)

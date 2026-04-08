@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail data-compat multiline forall with nested constraint applications -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE ExplicitForAll #-}
 {-# LANGUAGE TypeFamilies #-}
