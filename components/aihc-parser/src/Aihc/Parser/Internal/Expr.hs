@@ -491,7 +491,7 @@ infixExprParserExcept forbidden = do
 -- This is used on both sides of infix operators per the Haskell Report grammar.
 lexpParser :: TokParser Expr
 lexpParser =
-  doExprParser <|> ifExprParser <|> caseExprParser <|> letExprParser <|> procExprParser <|> lambdaExprParser <|> appExprParser
+  doExprParser <|> ifExprParser <|> caseExprParser <|> letExprParser <|> procExprParser <|> lambdaExprParser <|> MP.try negateExprParser <|> appExprParser
 
 buildInfix :: Expr -> (Text, Expr) -> Expr
 buildInfix lhs (op, rhs) =
