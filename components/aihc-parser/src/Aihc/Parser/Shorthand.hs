@@ -193,7 +193,7 @@ docDecl decl =
     DeclPatSyn _ ps -> "DeclPatSyn" <+> parens (docPatSynDecl ps)
     DeclPatSynSig _ names ty -> "DeclPatSynSig" <+> braces (hsep (punctuate comma [field "names" (docTextList names), field "type" (docType ty)]))
     DeclStandaloneKindSig _ name kind -> "DeclStandaloneKindSig" <+> braces (hsep (punctuate comma [field "name" (docText name), field "kind" (docType kind)]))
-    DeclFixity _ assoc mPrec ops -> "DeclFixity" <+> braces (hsep (punctuate comma ([field "assoc" (docFixityAssoc assoc)] <> optionalField "prec" pretty mPrec <> [field "ops" (docTextList ops)])))
+    DeclFixity _ assoc mNamespace mPrec ops -> "DeclFixity" <+> braces (hsep (punctuate comma ([field "assoc" (docFixityAssoc assoc)] <> optionalField "namespace" docIENamespace mNamespace <> optionalField "prec" pretty mPrec <> [field "ops" (docTextList ops)])))
     DeclRoleAnnotation _ ann -> "DeclRoleAnnotation" <+> parens (docRoleAnnotation ann)
     DeclTypeSyn _ syn -> "DeclTypeSyn" <+> parens (docTypeSynDecl syn)
     DeclData _ dd -> "DeclData" <+> parens (docDataDecl dd)
@@ -403,7 +403,7 @@ docClassDeclItem item =
   case item of
     ClassItemTypeSig _ names ty -> "ClassItemTypeSig" <+> braces (hsep (punctuate comma [field "names" (docTextList names), field "type" (docType ty)]))
     ClassItemDefaultSig _ name ty -> "ClassItemDefaultSig" <+> braces (hsep (punctuate comma [field "name" (docText name), field "type" (docType ty)]))
-    ClassItemFixity _ assoc mPrec ops -> "ClassItemFixity" <+> braces (hsep (punctuate comma ([field "assoc" (docFixityAssoc assoc)] <> optionalField "prec" pretty mPrec <> [field "ops" (docTextList ops)])))
+    ClassItemFixity _ assoc mNamespace mPrec ops -> "ClassItemFixity" <+> braces (hsep (punctuate comma ([field "assoc" (docFixityAssoc assoc)] <> optionalField "namespace" docIENamespace mNamespace <> optionalField "prec" pretty mPrec <> [field "ops" (docTextList ops)])))
     ClassItemDefault _ vdecl -> "ClassItemDefault" <+> parens (docValueDecl vdecl)
     ClassItemTypeFamilyDecl _ tf -> "ClassItemTypeFamilyDecl" <+> parens (docTypeFamilyDecl tf)
     ClassItemDataFamilyDecl _ df -> "ClassItemDataFamilyDecl" <+> parens (docDataFamilyDecl df)
@@ -428,7 +428,7 @@ docInstanceDeclItem item =
   case item of
     InstanceItemBind _ vdecl -> "InstanceItemBind" <+> parens (docValueDecl vdecl)
     InstanceItemTypeSig _ names ty -> "InstanceItemTypeSig" <+> braces (hsep (punctuate comma [field "names" (docTextList names), field "type" (docType ty)]))
-    InstanceItemFixity _ assoc mPrec ops -> "InstanceItemFixity" <+> braces (hsep (punctuate comma ([field "assoc" (docFixityAssoc assoc)] <> optionalField "prec" pretty mPrec <> [field "ops" (docTextList ops)])))
+    InstanceItemFixity _ assoc mNamespace mPrec ops -> "InstanceItemFixity" <+> braces (hsep (punctuate comma ([field "assoc" (docFixityAssoc assoc)] <> optionalField "namespace" docIENamespace mNamespace <> optionalField "prec" pretty mPrec <> [field "ops" (docTextList ops)])))
     InstanceItemTypeFamilyInst _ tfi -> "InstanceItemTypeFamilyInst" <+> parens (docTypeFamilyInst tfi)
     InstanceItemDataFamilyInst _ dfi -> "InstanceItemDataFamilyInst" <+> parens (docDataFamilyInst dfi)
     InstanceItemPragma _ pragma -> "InstanceItemPragma" <+> docPragma pragma
