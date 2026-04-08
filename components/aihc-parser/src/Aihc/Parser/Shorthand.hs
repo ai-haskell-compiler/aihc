@@ -106,16 +106,16 @@ docExtensionSetting setting =
 docExportSpec :: ExportSpec -> Doc ann
 docExportSpec spec =
   case spec of
-    ExportAnn _ sub -> docExportSpec sub
-    ExportModule _ name -> "ExportModule" <+> docText name
-    ExportVar _ mNamespace name ->
-      "ExportVar" <> braces (hsep (punctuate comma (optionalField "namespace" docText mNamespace <> [field "name" (docText name)])))
-    ExportAbs _ mNamespace name ->
-      "ExportAbs" <> braces (hsep (punctuate comma (optionalField "namespace" docText mNamespace <> [field "name" (docText name)])))
-    ExportAll _ mNamespace name ->
-      "ExportAll" <> braces (hsep (punctuate comma (optionalField "namespace" docText mNamespace <> [field "name" (docText name)])))
-    ExportWith _ mNamespace name members ->
-      "ExportWith" <> braces (hsep (punctuate comma (optionalField "namespace" docText mNamespace <> [field "name" (docText name), field "members" (docTextList members)])))
+    ExportModule _ mWarning name ->
+      "ExportModule" <> braces (hsep (punctuate comma (optionalField "warningText" docWarningText mWarning <> [field "name" (docText name)])))
+    ExportVar _ mWarning mNamespace name ->
+      "ExportVar" <> braces (hsep (punctuate comma (optionalField "warningText" docWarningText mWarning <> optionalField "namespace" docText mNamespace <> [field "name" (docText name)])))
+    ExportAbs _ mWarning mNamespace name ->
+      "ExportAbs" <> braces (hsep (punctuate comma (optionalField "warningText" docWarningText mWarning <> optionalField "namespace" docText mNamespace <> [field "name" (docText name)])))
+    ExportAll _ mWarning mNamespace name ->
+      "ExportAll" <> braces (hsep (punctuate comma (optionalField "warningText" docWarningText mWarning <> optionalField "namespace" docText mNamespace <> [field "name" (docText name)])))
+    ExportWith _ mWarning mNamespace name members ->
+      "ExportWith" <> braces (hsep (punctuate comma (optionalField "warningText" docWarningText mWarning <> optionalField "namespace" docText mNamespace <> [field "name" (docText name), field "members" (docTextList members)])))
 
 docImportDecl :: ImportDecl -> Doc ann
 docImportDecl decl =

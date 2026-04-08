@@ -99,6 +99,9 @@ buildTests = do
             testCase "ignores unexpected pragmas without parse failure" test_ignoresUnexpectedPragmas,
             testCase "captures known pragmas after ignored unknown pragmas" test_knownPragmaStillParsesAfterIgnoredUnknownPragma,
             testCase "roundtrips source unpackedness through pretty-printing" test_sourceUnpackednessRoundtrip,
+            testCase "parses warned export reexports" test_warnedExportReexportParses,
+            testCase "roundtrips warned export reexports" test_warnedExportReexportRoundtrip,
+            testCase "parses warned export module reexports" test_warnedExportModuleReexportParses,
             QC.testProperty "generated operators reject dash-only comment starters" prop_generatedOperatorsRejectDashOnlyCommentStarters
           ],
         testGroup
@@ -314,6 +317,55 @@ test_sourceUnpackednessRoundtrip =
    in case validateParser "SourceUnpackedness.hs" Haskell2010Edition [EnableExtension GADTs] source of
         Nothing -> pure ()
         Just err -> assertFailure ("expected source unpackedness roundtrip to validate, got: " <> show err)
+
+test_warnedExportReexportParses :: Assertion
+test_warnedExportReexportParses =
+  let source =
+        T.unlines
+          [ "module M",
+            "  ( {-# DEPRECATED \"Import g from A instead\" #-} g",
+            "  ) where",
+            "import A (g)"
+          ]
+      (errs, modu) = parseModule defaultConfig source
+   in do
+        assertBool ("expected no parse errors, got: " <> show errs) (null errs)
+        case moduleExports modu of
+          Just [ExportVar _ (Just (DeprText _ "Import g from A instead")) Nothing "g"] -> pure ()
+          other -> assertFailure ("unexpected exports: " <> show other)
+
+test_warnedExportReexportRoundtrip :: Assertion
+test_warnedExportReexportRoundtrip =
+  let source =
+        T.unlines
+          [ "module M",
+            "  ( {-# DEPRECATED \"Import g from A instead\" #-} g",
+            "  , {-# WARNING \"Use T carefully\" #-} T(..)",
+            "  , {-# DEPRECATED \"Moved to B\" #-} module B",
+            "  ) where",
+            "import A (g, T(..))",
+            "import B"
+          ]
+   in case validateParser "WarnedExportReexport.hs" Haskell2010Edition [] source of
+        Nothing -> pure ()
+        Just err -> assertFailure ("expected warned exports roundtrip to validate, got: " <> show err)
+
+test_warnedExportModuleReexportParses :: Assertion
+test_warnedExportModuleReexportParses =
+  let source =
+        T.unlines
+          [ "module M",
+            "  ( {-# DEPRECATED \"Moved to B\" #-}",
+            "      module B",
+            "  ) where",
+            "import B"
+          ]
+      (errs, modu) = parseModule defaultConfig source
+   in do
+        assertBool ("expected no parse errors, got: " <> show errs) (null errs)
+        case moduleExports modu of
+          Just [ExportModule _ (Just (DeprText _ "Moved to B")) "B"] -> pure ()
+          other -> assertFailure ("unexpected exports: " <> show other)
 
 test_parserConfigPassesExtensions :: Assertion
 test_parserConfigPassesExtensions =

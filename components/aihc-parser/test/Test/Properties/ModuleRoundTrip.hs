@@ -179,29 +179,32 @@ shrinkDecl decl =
 instance Arbitrary ExportSpec where
   arbitrary =
     oneof
-      [ ExportModule span0 <$> genModuleName,
-        ExportVar span0 Nothing <$> genIdent,
-        ExportAbs span0 <$> genTypeNamespace <*> genTypeName,
-        ExportAll span0 <$> genTypeNamespace <*> genTypeName,
-        ExportWith span0 <$> genTypeNamespace <*> genTypeName <*> genExportMembers
+      [ ExportModule span0 Nothing <$> genModuleName,
+        ExportVar span0 Nothing Nothing <$> genIdent,
+        ExportAbs span0 Nothing <$> genTypeNamespace <*> genTypeName,
+        ExportAll span0 Nothing <$> genTypeNamespace <*> genTypeName,
+        ExportWith span0 Nothing <$> genTypeNamespace <*> genTypeName <*> genExportMembers
       ]
 
   shrink spec =
     case spec of
-      ExportAnn _ sub -> shrink sub
-      ExportModule _ modName ->
-        [ExportModule span0 shrunk | shrunk <- shrinkModuleName modName]
-      ExportVar _ namespace name ->
-        [ExportVar span0 namespace shrunk | shrunk <- shrinkIdent name]
-      ExportAbs _ namespace name ->
-        [ExportAbs span0 namespace shrunk | shrunk <- shrinkTypeName name]
-      ExportAll _ namespace name ->
-        [ExportAbs span0 namespace name]
-          <> [ExportAll span0 namespace shrunk | shrunk <- shrinkTypeName name]
-      ExportWith _ namespace name members ->
-        [ExportAbs span0 namespace name | not (null members)]
-          <> [ExportWith span0 namespace shrunk members | shrunk <- shrinkTypeName name]
-          <> [ExportWith span0 namespace name shrunk | shrunk <- shrinkList shrinkIdent members, not (null shrunk)]
+      ExportModule _ _ modName ->
+        [ExportModule span0 Nothing shrunk | shrunk <- shrinkModuleName modName]
+      ExportVar _ mWarning namespace name ->
+        [ExportVar span0 Nothing namespace name | Just _ <- [mWarning]]
+          <> [ExportVar span0 mWarning namespace shrunk | shrunk <- shrinkIdent name]
+      ExportAbs _ mWarning namespace name ->
+        [ExportAbs span0 Nothing namespace name | Just _ <- [mWarning]]
+          <> [ExportAbs span0 mWarning namespace shrunk | shrunk <- shrinkTypeName name]
+      ExportAll _ mWarning namespace name ->
+        [ExportAbs span0 mWarning namespace name]
+          <> [ExportAll span0 Nothing namespace name | Just _ <- [mWarning]]
+          <> [ExportAll span0 mWarning namespace shrunk | shrunk <- shrinkTypeName name]
+      ExportWith _ mWarning namespace name members ->
+        [ExportAbs span0 mWarning namespace name | not (null members)]
+          <> [ExportWith span0 Nothing namespace name members | Just _ <- [mWarning]]
+          <> [ExportWith span0 mWarning namespace shrunk members | shrunk <- shrinkTypeName name]
+          <> [ExportWith span0 mWarning namespace name shrunk | shrunk <- shrinkList shrinkIdent members, not (null shrunk)]
 
 instance Arbitrary ImportSpec where
   arbitrary =
@@ -370,12 +373,17 @@ normalizeModuleHead head' =
 normalizeExportSpec :: ExportSpec -> ExportSpec
 normalizeExportSpec spec =
   case spec of
-    ExportAnn _ sub -> normalizeExportSpec sub
-    ExportModule _ modName -> ExportModule span0 modName
-    ExportVar _ namespace name -> ExportVar span0 namespace name
-    ExportAbs _ namespace name -> ExportAbs span0 namespace name
-    ExportAll _ namespace name -> ExportAll span0 namespace name
-    ExportWith _ namespace name members -> ExportWith span0 namespace name members
+    ExportModule _ mWarning modName -> ExportModule span0 (normalizeWarningText <$> mWarning) modName
+    ExportVar _ mWarning namespace name -> ExportVar span0 (normalizeWarningText <$> mWarning) namespace name
+    ExportAbs _ mWarning namespace name -> ExportAbs span0 (normalizeWarningText <$> mWarning) namespace name
+    ExportAll _ mWarning namespace name -> ExportAll span0 (normalizeWarningText <$> mWarning) namespace name
+    ExportWith _ mWarning namespace name members -> ExportWith span0 (normalizeWarningText <$> mWarning) namespace name members
+
+normalizeWarningText :: WarningText -> WarningText
+normalizeWarningText warningText =
+  case warningText of
+    DeprText _ msg -> DeprText span0 msg
+    WarnText _ msg -> WarnText span0 msg
 
 normalizeImportDecl :: ImportDecl -> ImportDecl
 normalizeImportDecl decl =
