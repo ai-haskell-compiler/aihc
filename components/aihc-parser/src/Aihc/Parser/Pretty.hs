@@ -116,6 +116,7 @@ prettyImportDecl decl =
             <> ["qualified" | importDeclQualified decl && not renderPostQualified]
             <> maybe [] (\level -> [prettyImportLevel level]) (importDeclLevel decl)
             <> maybe [] (\pkg -> [prettyQuotedText pkg]) (importDeclPackage decl)
+            <> ["{-# SOURCE #-}" | importDeclSource decl]
             <> [pretty (importDeclModule decl)]
             <> ["qualified" | importDeclQualified decl && renderPostQualified]
             <> maybe [] (\alias -> ["as", pretty alias]) (importDeclAs decl)
