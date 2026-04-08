@@ -22,7 +22,7 @@ module Aihc.Parser.Shorthand
   )
 where
 
-import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), Pragma (..))
+import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..))
 import Aihc.Parser.Syntax
 import Aihc.Parser.Types (ParseResult (..))
 import Data.Text (Text)
@@ -183,7 +183,7 @@ docDecl decl =
     DeclDataFamilyDecl _ df -> "DeclDataFamilyDecl" <+> parens (docDataFamilyDecl df)
     DeclTypeFamilyInst _ tfi -> "DeclTypeFamilyInst" <+> parens (docTypeFamilyInst tfi)
     DeclDataFamilyInst _ dfi -> "DeclDataFamilyInst" <+> parens (docDataFamilyInst dfi)
-    DeclPragma _ pragmaText -> "DeclPragma" <+> docText pragmaText
+    DeclPragma _ pragma -> "DeclPragma" <+> docPragma pragma
 
 docValueDecl :: ValueDecl -> Doc ann
 docValueDecl vdecl =
@@ -382,7 +382,7 @@ docClassDeclItem item =
     ClassItemTypeFamilyDecl _ tf -> "ClassItemTypeFamilyDecl" <+> parens (docTypeFamilyDecl tf)
     ClassItemDataFamilyDecl _ df -> "ClassItemDataFamilyDecl" <+> parens (docDataFamilyDecl df)
     ClassItemDefaultTypeInst _ tfi -> "ClassItemDefaultTypeInst" <+> parens (docTypeFamilyInst tfi)
-    ClassItemPragma _ pragmaText -> "ClassItemPragma" <+> docText pragmaText
+    ClassItemPragma _ pragma -> "ClassItemPragma" <+> docPragma pragma
 
 docInstanceDecl :: InstanceDecl -> Doc ann
 docInstanceDecl inst =
@@ -405,7 +405,7 @@ docInstanceDeclItem item =
     InstanceItemFixity _ assoc mPrec ops -> "InstanceItemFixity" <+> braces (hsep (punctuate comma ([field "assoc" (docFixityAssoc assoc)] <> optionalField "prec" pretty mPrec <> [field "ops" (docTextList ops)])))
     InstanceItemTypeFamilyInst _ tfi -> "InstanceItemTypeFamilyInst" <+> parens (docTypeFamilyInst tfi)
     InstanceItemDataFamilyInst _ dfi -> "InstanceItemDataFamilyInst" <+> parens (docDataFamilyInst dfi)
-    InstanceItemPragma _ pragmaText -> "InstanceItemPragma" <+> docText pragmaText
+    InstanceItemPragma _ pragma -> "InstanceItemPragma" <+> docPragma pragma
 
 docStandaloneDerivingDecl :: StandaloneDerivingDecl -> Doc ann
 docStandaloneDerivingDecl sd =
@@ -427,6 +427,24 @@ docInstanceOverlapPragma pragma' =
     Overlappable -> "Overlappable"
     Overlaps -> "Overlaps"
     Incoherent -> "Incoherent"
+
+docPragmaUnpackKind :: PragmaUnpackKind -> Doc ann
+docPragmaUnpackKind kind =
+  case kind of
+    UnpackPragma -> "UnpackPragma"
+    NoUnpackPragma -> "NoUnpackPragma"
+
+docPragma :: Pragma -> Doc ann
+docPragma pragma =
+  case pragma of
+    PragmaLanguage settings -> "PragmaLanguage" <+> brackets (hsep (punctuate comma (map docExtensionSetting settings)))
+    PragmaInstanceOverlap overlapPragma -> "PragmaInstanceOverlap" <+> docInstanceOverlapPragma overlapPragma
+    PragmaWarning msg -> "PragmaWarning" <+> docText msg
+    PragmaDeprecated msg -> "PragmaDeprecated" <+> docText msg
+    PragmaInline kind body -> "PragmaInline" <+> docText kind <+> docText body
+    PragmaUnpack unpackKind -> "PragmaUnpack" <+> docPragmaUnpackKind unpackKind
+    PragmaSource sourceText _ -> "PragmaSource" <+> docText sourceText
+    PragmaUnknown text -> "PragmaUnknown" <+> docText text
 
 docForeignDecl :: ForeignDecl -> Doc ann
 docForeignDecl fd =
@@ -779,6 +797,9 @@ docTokenKind kind =
         PragmaInstanceOverlap overlapPragma -> "TkPragma" <+> ("PragmaInstanceOverlap" <+> docInstanceOverlapPragma overlapPragma)
         PragmaWarning msg -> "TkPragma" <+> ("PragmaWarning" <+> docText msg)
         PragmaDeprecated msg -> "TkPragma" <+> ("PragmaDeprecated" <+> docText msg)
+        PragmaInline inlineKind body -> "TkPragma" <+> ("PragmaInline" <+> docText inlineKind <+> docText body)
+        PragmaUnpack unpackKind -> "TkPragma" <+> ("PragmaUnpack" <+> docPragmaUnpackKind unpackKind)
+        PragmaSource sourceText _ -> "TkPragma" <+> ("PragmaSource" <+> docText sourceText)
         PragmaUnknown text -> "TkPragma" <+> ("PragmaUnknown" <+> docText text)
     TkQuasiQuote quoter body -> "TkQuasiQuote" <+> docText quoter <+> docText body
     TkTHExpQuoteOpen -> "TkTHExpQuoteOpen"

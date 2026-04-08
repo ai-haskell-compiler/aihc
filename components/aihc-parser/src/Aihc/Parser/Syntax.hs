@@ -60,6 +60,8 @@ module Aihc.Parser.Syntax
     PatSynDecl (..),
     PatSynDir (..),
     Pattern (..),
+    Pragma (..),
+    PragmaUnpackKind (..),
     Role (..),
     RoleAnnotation (..),
     Rhs (..),
@@ -272,12 +274,12 @@ data Extension
   | UnsafeHaskell
   | ViewPatterns
   | XmlSyntax
-  deriving (Eq, Ord, Show, Read, Enum, Bounded, Generic, NFData)
+  deriving (Data, Eq, Ord, Show, Read, Enum, Bounded, Generic, NFData)
 
 data ExtensionSetting
   = EnableExtension Extension
   | DisableExtension Extension
-  deriving (Eq, Ord, Show, Read, Generic, NFData)
+  deriving (Data, Eq, Ord, Show, Read, Generic, NFData)
 
 -- | The Haskell language edition/standard.
 -- Each edition implies a set of language extensions.
@@ -615,6 +617,22 @@ data WarningText
   | WarnText SourceSpan Text
   deriving (Eq, Show, Generic, NFData)
 
+data PragmaUnpackKind
+  = UnpackPragma
+  | NoUnpackPragma
+  deriving (Data, Eq, Ord, Show, Read, Generic, NFData)
+
+data Pragma
+  = PragmaLanguage [ExtensionSetting]
+  | PragmaInstanceOverlap InstanceOverlapPragma
+  | PragmaWarning Text
+  | PragmaDeprecated Text
+  | PragmaInline Text Text
+  | PragmaUnpack PragmaUnpackKind
+  | PragmaSource Text Text
+  | PragmaUnknown Text
+  deriving (Data, Eq, Ord, Show, Read, Generic, NFData)
+
 instance HasSourceSpan WarningText where
   getSourceSpan warningText =
     case warningText of
@@ -724,7 +742,7 @@ data Decl
   | DeclTypeFamilyInst SourceSpan TypeFamilyInst
   | DeclDataFamilyInst SourceSpan DataFamilyInst
   | -- pragma declaration (e.g. {-# INLINE f #-}, {-# SPECIALIZE ... #-})
-    DeclPragma SourceSpan Text
+    DeclPragma SourceSpan Pragma
   deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan Decl where
@@ -1237,7 +1255,7 @@ data ClassDeclItem
   | ClassItemDataFamilyDecl SourceSpan DataFamilyDecl
   | ClassItemDefaultTypeInst SourceSpan TypeFamilyInst
   | -- pragma inside class body
-    ClassItemPragma SourceSpan Text
+    ClassItemPragma SourceSpan Pragma
   deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan ClassDeclItem where
@@ -1281,7 +1299,7 @@ data InstanceDeclItem
   | InstanceItemTypeFamilyInst SourceSpan TypeFamilyInst
   | InstanceItemDataFamilyInst SourceSpan DataFamilyInst
   | -- pragma inside instance body (e.g. {-# SPECIALIZE instance ... #-})
-    InstanceItemPragma SourceSpan Text
+    InstanceItemPragma SourceSpan Pragma
   deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan InstanceDeclItem where
