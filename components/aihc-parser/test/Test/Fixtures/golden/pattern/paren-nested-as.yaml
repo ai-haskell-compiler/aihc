@@ -1,0 +1,5 @@
+extensions: []
+input: |
+  (Con x@(Con' y _))
+ast: PParen (PCon "Con" [PAs "x" (PParen (PCon "Con'" [PVar "y", PWildcard]))])
+status: pass

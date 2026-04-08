@@ -1,0 +1,5 @@
+extensions: [ViewPatterns]
+input: |
+  (a, fn arg -> Just (v -> t@Nothing), _)
+ast: PTuple [PVar "a", PView (EApp (EVar "fn") (EVar "arg")) (PCon "Just" [PView (EVar "v") (PAs "t" (PCon "Nothing" []))]), PWildcard]
+status: pass

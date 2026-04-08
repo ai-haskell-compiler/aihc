@@ -1,0 +1,5 @@
+extensions: []
+input: |
+  (!a, ~b)
+ast: PTuple [PStrict (PVar "a"), PIrrefutable (PVar "b")]
+status: pass

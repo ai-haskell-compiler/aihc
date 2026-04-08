@@ -1,0 +1,5 @@
+extensions: [UnboxedSums]
+input: |
+  (# | _ | #)
+ast: PUnboxedSum 1 3 PWildcard
+status: pass

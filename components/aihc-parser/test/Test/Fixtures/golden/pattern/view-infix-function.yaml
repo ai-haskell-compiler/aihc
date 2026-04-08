@@ -1,0 +1,5 @@
+extensions: [ViewPatterns]
+input: |
+  (f . g -> x)
+ast: PView (EInfix (EVar "f") "." (EVar "g")) (PVar "x")
+status: pass

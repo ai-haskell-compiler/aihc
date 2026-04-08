@@ -1,0 +1,5 @@
+extensions: []
+input: |
+  (Con -5)
+ast: PParen (PCon "Con" [PNegLit (LitInt 5)])
+status: pass

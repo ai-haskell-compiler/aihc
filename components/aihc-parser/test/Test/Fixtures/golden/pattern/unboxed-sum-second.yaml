@@ -1,0 +1,5 @@
+extensions: [UnboxedSums]
+input: |
+  (# | a #)
+ast: PUnboxedSum 1 2 PVar "a"
+status: pass
