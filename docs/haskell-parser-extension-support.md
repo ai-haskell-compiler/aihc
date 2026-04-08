@@ -3,8 +3,8 @@
 ## Summary
 
 - Total Extensions: 74
-- Supported: 54
-- In Progress: 20
+- Supported: 61
+- In Progress: 13
 
 ## Extension Status
 
@@ -18,7 +18,7 @@
 | ConstrainedClassMethods    |   🟢    | 1/1           |
 | ConstraintKinds            |   🔴    | 1/2           |
 | CPP                        |   🟢    | 5/5           |
-| DataKinds                  |   🔴    | 10/14         |
+| DataKinds                  |   🟡    | 15/16         |
 | DefaultSignatures          |   🟢    | 3/3           |
 | DeriveAnyClass             |   🟢    | 1/1           |
 | DerivingStrategies         |   🟢    | 8/8           |
@@ -28,15 +28,15 @@
 | EmptyDataDecls             |   🟢    | 7/7           |
 | EmptyDataDeriving          |   🟢    | 3/3           |
 | ExistentialQuantification  |   🟢    | 7/7           |
-| ExplicitForAll             |   🟡    | 11/12         |
+| ExplicitForAll             |   🟡    | 12/13         |
 | ExplicitLevelImports       |   🟢    | 4/4           |
 | ExplicitNamespaces         |   🔴    | 6/9           |
 | ExtendedLiterals           |   🟢    | 2/2           |
 | FlexibleContexts           |   🟢    | 4/4           |
-| FlexibleInstances          |   🔴    | 10/13         |
+| FlexibleInstances          |   🟡    | 13/14         |
 | ForeignFunctionInterface   |   🟢    | 40/40         |
 | FunctionalDependencies     |   🟢    | 7/7           |
-| GADTs                      |   🟢    | 9/9           |
+| GADTs                      |   🟢    | 10/10         |
 | GADTSyntax                 |   🟢    | 9/9           |
 | GeneralizedNewtypeDeriving |   🟢    | 1/1           |
 | GHC2021                    |   🔴    | 0/1           |
@@ -46,20 +46,20 @@
 | ImportQualifiedPost        |   🟢    | 4/4           |
 | IncoherentInstances        |   🟢    | 1/1           |
 | InstanceSigs               |   🟢    | 5/5           |
-| KindSignatures             |   🟡    | 11/12         |
+| KindSignatures             |   🟢    | 13/13         |
 | LambdaCase                 |   🟢    | 5/5           |
 | MagicHash                  |   🟢    | 6/6           |
 | MultilineStrings           |   🟢    | 6/6           |
-| MultiParamTypeClasses      |   🔴    | 16/18         |
+| MultiParamTypeClasses      |   🟢    | 19/19         |
 | MultiWayIf                 |   🟢    | 5/5           |
 | NamedFieldPuns             |   🟢    | 5/5           |
 | NamedWildCards             |   🟢    | 5/5           |
 | NumericUnderscores         |   🟢    | 4/4           |
-| OverloadedLabels           |   🔴    | 0/2           |
+| OverloadedLabels           |   🟢    | 3/3           |
 | PackageImports             |   🟢    | 4/4           |
 | PartialTypeSignatures      |   🟢    | 11/11         |
 | PatternGuards              |   🟢    | 5/5           |
-| PatternSynonyms            |   🔴    | 16/22         |
+| PatternSynonyms            |   🔴    | 19/22         |
 | PolyKinds                  |   🟢    | 3/3           |
 | QualifiedDo                |   🟢    | 1/1           |
 | QuasiQuotes                |   🟢    | 4/4           |
@@ -70,18 +70,18 @@
 | RoleAnnotations            |   🟢    | 5/5           |
 | ScopedTypeVariables        |   🟢    | 15/15         |
 | StandaloneDeriving         |   🟡    | 15/16         |
-| StandaloneKindSignatures   |   🔴    | 5/6           |
+| StandaloneKindSignatures   |   🟢    | 6/6           |
 | StarIsType                 |   🟢    | 1/1           |
-| TemplateHaskell            |   🟡    | 11/12         |
+| TemplateHaskell            |   🟢    | 17/17         |
 | TemplateHaskellQuotes      |   🟢    | 8/8           |
 | TupleSections              |   🟢    | 4/4           |
-| TypeApplications           |   🔴    | 6/7           |
+| TypeApplications           |   🟢    | 7/7           |
 | TypeData                   |   🟢    | 1/1           |
-| TypeFamilies               |   🔴    | 19/22         |
-| TypeOperators              |   🔴    | 7/14          |
+| TypeFamilies               |   🟡    | 21/23         |
+| TypeOperators              |   🔴    | 13/16         |
 | TypeSynonymInstances       |   🟢    | 1/1           |
 | UnboxedSums                |   🟢    | 3/3           |
 | UnboxedTuples              |   🟢    | 7/7           |
 | UnicodeSyntax              |   🟢    | 9/9           |
-| ViewPatterns               |   🔴    | 3/5           |
+| ViewPatterns               |   🟢    | 9/9           |
 
