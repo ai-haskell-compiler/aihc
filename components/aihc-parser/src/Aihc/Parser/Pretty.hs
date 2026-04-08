@@ -187,7 +187,7 @@ prettyDeclLines decl =
     DeclDataFamilyDecl _ df -> [prettyDataFamilyDecl df]
     DeclTypeFamilyInst _ tfi -> [prettyTopTypeFamilyInst tfi]
     DeclDataFamilyInst _ dfi -> [prettyTopDataFamilyInst dfi]
-    DeclPragma _ pragmaText -> [pretty pragmaText]
+    DeclPragma _ pragma -> [prettyPragma pragma]
 
 prettyRoleAnnotation :: RoleAnnotation -> Doc ann
 prettyRoleAnnotation ann =
@@ -827,7 +827,7 @@ prettyClassItem item =
     ClassItemTypeFamilyDecl _ tf -> prettyAssocTypeFamilyDecl tf
     ClassItemDataFamilyDecl _ df -> prettyAssocDataFamilyDecl df
     ClassItemDefaultTypeInst _ tfi -> prettyDefaultTypeInst tfi
-    ClassItemPragma _ pragmaText -> pretty pragmaText
+    ClassItemPragma _ pragma -> prettyPragma pragma
 
 prettyInstanceDecl :: InstanceDecl -> Doc ann
 prettyInstanceDecl decl =
@@ -873,6 +873,21 @@ prettyInstanceOverlapPragma pragma' =
     Overlaps -> "{-# OVERLAPS #-}"
     Incoherent -> "{-# INCOHERENT #-}"
 
+prettyPragma :: Pragma -> Doc ann
+prettyPragma pragma =
+  case pragma of
+    PragmaLanguage settings -> "{-# LANGUAGE " <> hsep (punctuate comma (map (pretty . extensionSettingName) settings)) <> " #-}"
+    PragmaInstanceOverlap overlapPragma -> prettyInstanceOverlapPragma overlapPragma
+    PragmaWarning msg -> "{-# WARNING " <> pretty msg <> " #-}"
+    PragmaDeprecated msg -> "{-# DEPRECATED " <> pretty msg <> " #-}"
+    PragmaInline kind body -> "{-# " <> pretty kind <> " " <> pretty body <> " #-}"
+    PragmaUnpack unpackKind ->
+      case unpackKind of
+        UnpackPragma -> "{-# UNPACK #-}"
+        NoUnpackPragma -> "{-# NOUNPACK #-}"
+    PragmaSource sourceText _ -> "{-# SOURCE " <> pretty sourceText <> " #-}"
+    PragmaUnknown text -> pretty text
+
 prettyDerivingStrategy :: DerivingStrategy -> Doc ann
 prettyDerivingStrategy strategy =
   case strategy of
@@ -893,7 +908,7 @@ prettyInstanceItem item =
         )
     InstanceItemTypeFamilyInst _ tfi -> prettyInstTypeFamilyInst tfi
     InstanceItemDataFamilyInst _ dfi -> prettyInstDataFamilyInst dfi
-    InstanceItemPragma _ pragmaText -> pretty pragmaText
+    InstanceItemPragma _ pragma -> prettyPragma pragma
 
 prettyFixityAssoc :: FixityAssoc -> Doc ann
 prettyFixityAssoc assoc =
@@ -979,6 +994,10 @@ data ExprCtx
   | CtxInfixLhs
   | CtxWhereBody
   | CtxAppFun
+  | -- | Last argument position in an application chain
+    CtxAppArg
+  | -- | Last argument position with block expr (no parens needed)
+    CtxAppArgNoParens
   | CtxTypeSigBody
   | CtxGuarded
 
@@ -995,6 +1014,8 @@ exprCtxPrec ctx expr =
     CtxInfixLhs -> 1
     CtxWhereBody -> 0
     CtxAppFun -> 2
+    CtxAppArg -> 3
+    CtxAppArgNoParens -> 0 -- Precedence 0 so EIf/ECase/etc don't add parens
     CtxTypeSigBody -> 1
     CtxGuarded -> 0
 
@@ -1013,7 +1034,7 @@ needsExprParens ctx expr =
       case expr of
         ETypeSig {} -> True
         ENegate {} -> True
-        _ -> False
+        _ -> isOpenEnded expr
     CtxWhereBody ->
       case expr of
         ENegate {} -> True
@@ -1022,16 +1043,43 @@ needsExprParens ctx expr =
       case expr of
         ENegate {} -> True
         _ -> False
+    CtxAppArg ->
+      -- Block arguments don't need parentheses in the last argument position.
+      -- EParen adds its own parentheses in prettyExprPrec, so don't double-wrap.
+      case expr of
+        _ | isBlockExpr expr -> False
+        _ -> False
+    CtxAppArgNoParens ->
+      -- Never add parentheses - this is only used for block expressions in last arg position.
+      False
     CtxTypeSigBody ->
       case expr of
         ENegate {} -> True
         ETypeSig {} -> True
         ELambdaPats {} -> True
-        _ -> False
+        _ -> isOpenEnded expr
     CtxGuarded -> isGreedyExpr expr
+
+-- | Check if an expression is a "block expression" that can appear without
+-- parentheses as a function argument when BlockArguments is enabled.
+-- Note: EWhereDecls is NOT included because its where clause needs to be
+-- clearly delimited when wrapping open-ended expressions.
+isBlockExpr :: Expr -> Bool
+isBlockExpr = \case
+  EIf {} -> True
+  EMultiWayIf {} -> True
+  ECase {} -> True
+  EDo {} -> True
+  ELambdaPats {} -> True
+  ELambdaCase {} -> True
+  ELetDecls {} -> True
+  _ -> False
 
 -- | Check if an expression is "greedy" - i.e., it could consume trailing syntax.
 -- These expressions may need special handling in certain contexts.
+-- With BlockArguments, an application whose last argument is an open-ended
+-- block expression is itself greedy, because the argument is printed without
+-- parens and its rightmost component can capture trailing syntax.
 isGreedyExpr :: Expr -> Bool
 isGreedyExpr = \case
   ECase {} -> True
@@ -1042,6 +1090,7 @@ isGreedyExpr = \case
   EWhereDecls {} -> True
   EDo {} -> True
   EProc {} -> True
+  EApp _ _ arg | isBlockExpr arg -> isOpenEnded arg
   _ -> False
 
 -- | Print an expression in a "guarded" context where greedy expressions
@@ -1053,6 +1102,9 @@ prettyExprGuarded = prettyExprIn CtxGuarded
 -- capture a trailing where clause. This includes:
 -- - Directly open-ended expressions (if, lambda, let)
 -- - Infix expressions whose RHS is open-ended (recursively)
+-- - Application chains whose last argument is a block expression that is
+--   itself open-ended (with BlockArguments, the last arg is printed without
+--   parens, so its open-endedness propagates to the application)
 -- Brace-terminated expressions (do, case, \case) are NOT open-ended because
 -- their explicit braces delimit them.
 isOpenEnded :: Expr -> Bool
@@ -1063,6 +1115,7 @@ isOpenEnded = \case
   EWhereDecls {} -> True
   EProc {} -> True
   EInfix _ _ _ rhs -> isOpenEnded rhs
+  EApp _ _ arg | isBlockExpr arg -> isOpenEnded arg
   _ -> False
 
 -- | Print the body of a where expression.
@@ -1098,11 +1151,38 @@ prettyNegate inner =
 prettyTypeSigBody :: Expr -> Doc ann
 prettyTypeSigBody = prettyExprIn CtxTypeSigBody
 
+-- | Flatten a left-nested application chain into (root, args).
+-- For example, @f x y z@ (parsed as @(((f x) y) z)@) becomes @(f, [x, y, z])@.
+flattenApps :: Expr -> (Expr, [Expr])
+flattenApps = go []
+  where
+    go args (EApp _ fn arg) = go (arg : args) fn
+    go args root = (root, args)
+
+-- | Pretty-print a chain of applications.
+-- The last argument can use BlockArguments (no parentheses for block expressions).
+-- Intermediate arguments always need parentheses for block expressions.
+prettyAppsChain :: Int -> Expr -> Doc ann
+prettyAppsChain prec expr =
+  let (root, args) = flattenApps expr
+      rootDoc = prettyExprApp root
+      argDocs = map (\(isLast, a) -> prettyExprIn (argCtx isLast a) a) (markLast args)
+   in parenthesize (prec > 2) (hsep (rootDoc : argDocs))
+  where
+    -- For the last argument, if it's a block expression, use precedence 0 to avoid
+    -- parentheses from the expression's own parenthesization logic.
+    argCtx True a | isBlockExpr a = CtxAppArgNoParens
+    argCtx True _ = CtxAppArg
+    argCtx False _ = CtxAppArg
+
+    markLast [] = []
+    markLast [x] = [(True, x)]
+    markLast (x : xs) = (False, x) : markLast xs
+
 prettyExprPrec :: Int -> Expr -> Doc ann
 prettyExprPrec prec expr =
   case expr of
-    EApp _ fn arg ->
-      parenthesize (prec > 2) (prettyExprApp fn <+> prettyExprPrec 3 arg)
+    EApp {} -> prettyAppsChain prec expr
     ETypeApp _ fn ty ->
       parenthesize (prec > 2) (prettyExprApp fn <+> "@" <> prettyTypeIn CtxTypeAtom ty)
     EVar _ name

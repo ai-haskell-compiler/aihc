@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail io-memoize deprecated prime identifier pragma -}
+{- ORACLE_TEST pass -}
 module PragmaDeprecatedPrimeName where
 
 ioMemo' :: ()

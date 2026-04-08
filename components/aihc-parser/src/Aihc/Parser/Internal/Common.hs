@@ -42,7 +42,7 @@ module Aihc.Parser.Internal.Common
   )
 where
 
-import Aihc.Parser.Lex (LayoutState (..), LexToken (..), LexTokenKind (..), Pragma, closeImplicitLayoutContext)
+import Aihc.Parser.Lex (LayoutState (..), LexToken (..), LexTokenKind (..), closeImplicitLayoutContext)
 import Aihc.Parser.Syntax
 import Aihc.Parser.Types (ParserErrorComponent (..), TokStream (..), mkFoundToken)
 import Control.Monad (guard)

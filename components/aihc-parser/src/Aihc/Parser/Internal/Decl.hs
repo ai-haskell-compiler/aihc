@@ -11,7 +11,7 @@ where
 
 import Aihc.Parser.Internal.Common
 import {-# SOURCE #-} Aihc.Parser.Internal.Expr (equationRhsParser, exprParser, patternParser, simplePatternParser, startsWithContextType, startsWithTypeSig, typeAppParser, typeAtomParser, typeParser)
-import Aihc.Parser.Lex (LexTokenKind (..), Pragma (..), lexTokenKind)
+import Aihc.Parser.Lex (LexTokenKind (..), lexTokenKind)
 import Aihc.Parser.Syntax
 import Aihc.Parser.Types (ParserErrorComponent (..), mkFoundToken)
 import Control.Monad (when)
@@ -33,6 +33,9 @@ instanceOverlapPragmaParser =
   hiddenPragma "instance overlap pragma" $ \case
     PragmaInstanceOverlap overlapPragma -> Just overlapPragma
     _ -> Nothing
+
+anyPragmaParser :: String -> TokParser Pragma
+anyPragmaParser expectedLabel = hiddenPragma expectedLabel Just
 
 moduleHeaderParser :: TokParser ModuleHead
 moduleHeaderParser = withSpan $ do
@@ -258,11 +261,8 @@ ordinaryDeclParser = do
 -- | Parse a pragma declaration (e.g. {-# INLINE f #-}, {-# SPECIALIZE ... #-})
 pragmaDeclParser :: TokParser Decl
 pragmaDeclParser = withSpan $ do
-  pragmaText <-
-    hiddenPragma "pragma declaration" $ \case
-      PragmaUnknown text -> Just text
-      _ -> Nothing
-  pure (`DeclPragma` pragmaText)
+  pragma <- anyPragmaParser "pragma declaration"
+  pure (`DeclPragma` pragma)
 
 -- | Parse a top-level Template Haskell declaration splice: $expr or $(expr)
 spliceDeclParser :: TokParser Decl
@@ -817,11 +817,8 @@ ordinaryClassDeclItemParser = do
 
 classPragmaItemParser :: TokParser ClassDeclItem
 classPragmaItemParser = withSpan $ do
-  pragmaText <-
-    hiddenPragma "pragma declaration" $ \case
-      PragmaUnknown text -> Just text
-      _ -> Nothing
-  pure (`ClassItemPragma` pragmaText)
+  pragma <- anyPragmaParser "pragma declaration"
+  pure (`ClassItemPragma` pragma)
 
 classTypeSigItemParser :: TokParser ClassDeclItem
 classTypeSigItemParser = withSpan $ do
@@ -940,11 +937,8 @@ ordinaryInstanceDeclItemParser = do
 
 instancePragmaItemParser :: TokParser InstanceDeclItem
 instancePragmaItemParser = withSpan $ do
-  pragmaText <-
-    hiddenPragma "pragma declaration" $ \case
-      PragmaUnknown text -> Just text
-      _ -> Nothing
-  pure (`InstanceItemPragma` pragmaText)
+  pragma <- anyPragmaParser "pragma declaration"
+  pure (`InstanceItemPragma` pragma)
 
 instanceTypeSigItemParser :: TokParser InstanceDeclItem
 instanceTypeSigItemParser = withSpan $ do
@@ -1458,20 +1452,9 @@ recordFieldBangTypeParser = withSpan $ do
 sourceUnpackednessPragmaParser :: TokParser SourceUnpackedness
 sourceUnpackednessPragmaParser =
   hiddenPragma "source unpack pragma" $ \case
-    PragmaUnknown text -> parseSourceUnpackednessPragma text
+    PragmaUnpack UnpackPragma -> Just SourceUnpack
+    PragmaUnpack NoUnpackPragma -> Just SourceNoUnpack
     _ -> Nothing
-
-parseSourceUnpackednessPragma :: Text -> Maybe SourceUnpackedness
-parseSourceUnpackednessPragma text =
-  case fmap T.toUpper (T.words body) of
-    ["UNPACK"] -> Just SourceUnpack
-    ["NOUNPACK"] -> Just SourceNoUnpack
-    _ -> Nothing
-  where
-    body =
-      fromMaybe text $
-        T.stripSuffix "#-}"
-          =<< T.stripPrefix "{-#" (T.strip text)
 
 -- | Parse a type in a constructor field position.
 -- This supports function types (Int -> Int) and type applications (Maybe Int).

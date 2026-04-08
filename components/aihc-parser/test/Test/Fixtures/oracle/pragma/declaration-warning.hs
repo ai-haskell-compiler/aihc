@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail tasty-focus declaration warning after binding -}
+{- ORACLE_TEST pass -}
 module DeclarationWarning where
 
 x = ()

@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail DEPRECATED pragma with multiple declarations not supported by parser -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE ExplicitNamespaces #-}
 {-# LANGUAGE PatternSynonyms #-}
 

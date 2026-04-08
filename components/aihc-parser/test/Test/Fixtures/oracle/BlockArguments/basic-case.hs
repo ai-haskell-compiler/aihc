@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail parser accepts but pretty-printer roundtrip formatting differs -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE BlockArguments #-}
 module BasicCase where
 

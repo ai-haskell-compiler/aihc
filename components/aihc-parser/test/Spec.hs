@@ -88,6 +88,7 @@ buildTests = do
             testCase "parses tab-indented where after else branch" test_tabIndentedWhereAfterElseParses,
             testCase "parses non-aligned multi-way-if guards" test_nonAlignedMultiWayIfGuardsParse,
             testCase "generated identifiers reject reserved keyword as" test_generatedIdentifiersRejectReservedAs,
+            testCase "generated identifiers reject extension keyword rec" test_generatedIdentifiersRejectExtensionKeywordRec,
             testCase "generated identifiers reject standalone underscore" test_generatedIdentifiersRejectStandaloneUnderscore,
             testCase "shrunk identifiers reject standalone underscore" test_shrunkIdentifiersRejectStandaloneUnderscore,
             testCase "generated operators reject arrow tail spellings" test_generatedOperatorsRejectArrowTailSpellings,
@@ -679,6 +680,11 @@ test_generatedIdentifiersRejectReservedAs :: Assertion
 test_generatedIdentifiersRejectReservedAs =
   assertBool "reserved keyword 'as' must not be treated as a valid generated identifier" $
     not (isValidGeneratedIdent "as")
+
+test_generatedIdentifiersRejectExtensionKeywordRec :: Assertion
+test_generatedIdentifiersRejectExtensionKeywordRec =
+  assertBool "extension keyword 'rec' must not be treated as a valid generated identifier" $
+    not (isValidGeneratedIdent "rec")
 
 test_generatedIdentifiersRejectStandaloneUnderscore :: Assertion
 test_generatedIdentifiersRejectStandaloneUnderscore =

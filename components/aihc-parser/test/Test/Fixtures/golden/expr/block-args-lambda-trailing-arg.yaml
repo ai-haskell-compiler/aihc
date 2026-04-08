@@ -1,0 +1,5 @@
+extensions: [BlockArguments]
+input: |
+  f (\x -> x) arg2
+ast: EApp (EApp (EVar "f") (EParen (ELambdaPats [PVar "x"] (EVar "x")))) (EVar "arg2")
+status: pass

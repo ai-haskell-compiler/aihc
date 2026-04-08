@@ -5,7 +5,6 @@
 
 module Aihc.Parser.Lex.Types
   ( LexTokenKind (..),
-    Pragma (..),
     TokenOrigin (..),
     LexToken (..),
     LexerEnv (..),
@@ -155,14 +154,6 @@ data LexTokenKind
     TkQuasiQuote Text Text
   | TkError Text
   | TkEOF
-  deriving (Eq, Ord, Show, Read, Generic, NFData)
-
-data Pragma
-  = PragmaLanguage [ExtensionSetting]
-  | PragmaInstanceOverlap InstanceOverlapPragma
-  | PragmaWarning Text
-  | PragmaDeprecated Text
-  | PragmaUnknown Text
   deriving (Eq, Ord, Show, Read, Generic, NFData)
 
 data TokenOrigin

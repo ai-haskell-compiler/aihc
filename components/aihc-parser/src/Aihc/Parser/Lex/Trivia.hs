@@ -5,7 +5,6 @@
 module Aihc.Parser.Lex.Trivia
   ( consumeBlockCommentOrError,
     consumeLineComment,
-    consumeUnknownPragmaAsToken,
     isHaskellWhitespace,
     isLineComment,
     tryConsumeControlPragma,
@@ -72,18 +71,6 @@ consumeLineComment st =
       rest = T.drop 2 inp
       consumed = "--" <> T.takeWhile (/= '\n') rest
    in advanceChars consumed st
-
-consumeUnknownPragmaAsToken :: LexerState -> Maybe (LexToken, LexerState)
-consumeUnknownPragmaAsToken st =
-  let inp = lexerInput st
-      (_, suffix) = T.breakOn "#-}" inp
-   in if T.null suffix
-        then Nothing
-        else
-          let consumed = T.take (T.length inp - T.length suffix + 3) inp
-              st' = advanceChars consumed st
-              tok = mkToken st st' consumed (TkPragma (PragmaUnknown consumed))
-           in Just (tok, st')
 
 consumeBlockComment :: LexerState -> Maybe LexerState
 consumeBlockComment st =
