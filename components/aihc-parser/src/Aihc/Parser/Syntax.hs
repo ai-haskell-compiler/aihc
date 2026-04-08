@@ -60,6 +60,8 @@ module Aihc.Parser.Syntax
     PatSynDecl (..),
     PatSynDir (..),
     Pattern (..),
+    Pragma (..),
+    PragmaUnpackKind (..),
     Role (..),
     RoleAnnotation (..),
     Rhs (..),
@@ -112,6 +114,8 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import GHC.Generics (Generic)
 import Text.Read (readMaybe)
+
+import Aihc.Parser.Lex.Types (Pragma (..), PragmaUnpackKind (..))
 
 data Extension
   = AllowAmbiguousTypes
@@ -724,7 +728,7 @@ data Decl
   | DeclTypeFamilyInst SourceSpan TypeFamilyInst
   | DeclDataFamilyInst SourceSpan DataFamilyInst
   | -- pragma declaration (e.g. {-# INLINE f #-}, {-# SPECIALIZE ... #-})
-    DeclPragma SourceSpan Text
+    DeclPragma SourceSpan Pragma
   deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan Decl where
@@ -1237,7 +1241,7 @@ data ClassDeclItem
   | ClassItemDataFamilyDecl SourceSpan DataFamilyDecl
   | ClassItemDefaultTypeInst SourceSpan TypeFamilyInst
   | -- pragma inside class body
-    ClassItemPragma SourceSpan Text
+    ClassItemPragma SourceSpan Pragma
   deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan ClassDeclItem where
@@ -1281,7 +1285,7 @@ data InstanceDeclItem
   | InstanceItemTypeFamilyInst SourceSpan TypeFamilyInst
   | InstanceItemDataFamilyInst SourceSpan DataFamilyInst
   | -- pragma inside instance body (e.g. {-# SPECIALIZE instance ... #-})
-    InstanceItemPragma SourceSpan Text
+    InstanceItemPragma SourceSpan Pragma
   deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan InstanceDeclItem where

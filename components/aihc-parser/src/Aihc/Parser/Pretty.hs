@@ -187,7 +187,7 @@ prettyDeclLines decl =
     DeclDataFamilyDecl _ df -> [prettyDataFamilyDecl df]
     DeclTypeFamilyInst _ tfi -> [prettyTopTypeFamilyInst tfi]
     DeclDataFamilyInst _ dfi -> [prettyTopDataFamilyInst dfi]
-    DeclPragma _ pragmaText -> [pretty pragmaText]
+    DeclPragma _ pragma -> [prettyPragma pragma]
 
 prettyRoleAnnotation :: RoleAnnotation -> Doc ann
 prettyRoleAnnotation ann =
@@ -827,7 +827,7 @@ prettyClassItem item =
     ClassItemTypeFamilyDecl _ tf -> prettyAssocTypeFamilyDecl tf
     ClassItemDataFamilyDecl _ df -> prettyAssocDataFamilyDecl df
     ClassItemDefaultTypeInst _ tfi -> prettyDefaultTypeInst tfi
-    ClassItemPragma _ pragmaText -> pretty pragmaText
+    ClassItemPragma _ pragma -> prettyPragma pragma
 
 prettyInstanceDecl :: InstanceDecl -> Doc ann
 prettyInstanceDecl decl =
@@ -873,6 +873,21 @@ prettyInstanceOverlapPragma pragma' =
     Overlaps -> "{-# OVERLAPS #-}"
     Incoherent -> "{-# INCOHERENT #-}"
 
+prettyPragma :: Pragma -> Doc ann
+prettyPragma pragma =
+  case pragma of
+    PragmaLanguage settings -> "{-# LANGUAGE " <> hsep (punctuate comma (map prettyExtensionSetting settings)) <> " #-}"
+    PragmaInstanceOverlap overlapPragma -> prettyInstanceOverlapPragma overlapPragma
+    PragmaWarning msg -> "{-# WARNING " <> pretty msg <> " #-}"
+    PragmaDeprecated msg -> "{-# DEPRECATED " <> pretty msg <> " #-}"
+    PragmaInline kind body -> "{-# " <> pretty kind <> " " <> pretty body <> " #-}"
+    PragmaUnpack unpackKind ->
+      case unpackKind of
+        UnpackPragma -> "{-# UNPACK #-}"
+        NoUnpackPragma -> "{-# NOUNPACK #-}"
+    PragmaSource sourceText _ -> "{-# SOURCE " <> pretty sourceText <> " #-}"
+    PragmaUnknown text -> pretty text
+
 prettyDerivingStrategy :: DerivingStrategy -> Doc ann
 prettyDerivingStrategy strategy =
   case strategy of
@@ -893,7 +908,7 @@ prettyInstanceItem item =
         )
     InstanceItemTypeFamilyInst _ tfi -> prettyInstTypeFamilyInst tfi
     InstanceItemDataFamilyInst _ dfi -> prettyInstDataFamilyInst dfi
-    InstanceItemPragma _ pragmaText -> pretty pragmaText
+    InstanceItemPragma _ pragma -> prettyPragma pragma
 
 prettyFixityAssoc :: FixityAssoc -> Doc ann
 prettyFixityAssoc assoc =

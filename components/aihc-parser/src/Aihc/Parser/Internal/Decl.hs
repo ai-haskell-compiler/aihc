@@ -258,15 +258,17 @@ ordinaryDeclParser = do
 -- | Parse a pragma declaration (e.g. {-# INLINE f #-}, {-# SPECIALIZE ... #-})
 pragmaDeclParser :: TokParser Decl
 pragmaDeclParser = withSpan $ do
-  pragmaText <-
+  pragma <-
     hiddenPragma "pragma declaration" $ \case
-      PragmaUnknown text -> Just text
-      PragmaInline kind body -> Just ("{-# " <> kind <> " " <> body <> " #-}")
-      PragmaUnpack UnpackPragma -> Just "{-# UNPACK #-}"
-      PragmaUnpack NoUnpackPragma -> Just "{-# NOUNPACK #-}"
-      PragmaSource sourceText _ -> Just ("{-# SOURCE " <> sourceText <> " #-}")
-      _ -> Nothing
-  pure (`DeclPragma` pragmaText)
+      pragma@(PragmaLanguage _) -> Just pragma
+      pragma@(PragmaInstanceOverlap _) -> Just pragma
+      pragma@(PragmaWarning _) -> Just pragma
+      pragma@(PragmaDeprecated _) -> Just pragma
+      pragma@(PragmaInline _ _) -> Just pragma
+      pragma@(PragmaUnpack _) -> Just pragma
+      pragma@(PragmaSource _ _) -> Just pragma
+      pragma@(PragmaUnknown _) -> Just pragma
+  pure (`DeclPragma` pragma)
 
 -- | Parse a top-level Template Haskell declaration splice: $expr or $(expr)
 spliceDeclParser :: TokParser Decl
@@ -821,15 +823,17 @@ ordinaryClassDeclItemParser = do
 
 classPragmaItemParser :: TokParser ClassDeclItem
 classPragmaItemParser = withSpan $ do
-  pragmaText <-
+  pragma <-
     hiddenPragma "pragma declaration" $ \case
-      PragmaUnknown text -> Just text
-      PragmaInline kind body -> Just ("{-# " <> kind <> " " <> body <> " #-}")
-      PragmaUnpack UnpackPragma -> Just "{-# UNPACK #-}"
-      PragmaUnpack NoUnpackPragma -> Just "{-# NOUNPACK #-}"
-      PragmaSource sourceText _ -> Just ("{-# SOURCE " <> sourceText <> " #-}")
-      _ -> Nothing
-  pure (`ClassItemPragma` pragmaText)
+      pragma@(PragmaLanguage _) -> Just pragma
+      pragma@(PragmaInstanceOverlap _) -> Just pragma
+      pragma@(PragmaWarning _) -> Just pragma
+      pragma@(PragmaDeprecated _) -> Just pragma
+      pragma@(PragmaInline _ _) -> Just pragma
+      pragma@(PragmaUnpack _) -> Just pragma
+      pragma@(PragmaSource _ _) -> Just pragma
+      pragma@(PragmaUnknown _) -> Just pragma
+  pure (`ClassItemPragma` pragma)
 
 classTypeSigItemParser :: TokParser ClassDeclItem
 classTypeSigItemParser = withSpan $ do
@@ -948,15 +952,17 @@ ordinaryInstanceDeclItemParser = do
 
 instancePragmaItemParser :: TokParser InstanceDeclItem
 instancePragmaItemParser = withSpan $ do
-  pragmaText <-
+  pragma <-
     hiddenPragma "pragma declaration" $ \case
-      PragmaUnknown text -> Just text
-      PragmaInline kind body -> Just ("{-# " <> kind <> " " <> body <> " #-}")
-      PragmaUnpack UnpackPragma -> Just "{-# UNPACK #-}"
-      PragmaUnpack NoUnpackPragma -> Just "{-# NOUNPACK #-}"
-      PragmaSource sourceText _ -> Just ("{-# SOURCE " <> sourceText <> " #-}")
-      _ -> Nothing
-  pure (`InstanceItemPragma` pragmaText)
+      pragma@(PragmaLanguage _) -> Just pragma
+      pragma@(PragmaInstanceOverlap _) -> Just pragma
+      pragma@(PragmaWarning _) -> Just pragma
+      pragma@(PragmaDeprecated _) -> Just pragma
+      pragma@(PragmaInline _ _) -> Just pragma
+      pragma@(PragmaUnpack _) -> Just pragma
+      pragma@(PragmaSource _ _) -> Just pragma
+      pragma@(PragmaUnknown _) -> Just pragma
+  pure (`InstanceItemPragma` pragma)
 
 instanceTypeSigItemParser :: TokParser InstanceDeclItem
 instanceTypeSigItemParser = withSpan $ do

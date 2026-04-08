@@ -3,6 +3,7 @@
 
 module Aihc.Parser.Lex.Pragmas
   ( tryParsePragma,
+    parsePragma,
     parseControlPragma,
   )
 where
@@ -25,157 +26,153 @@ import Data.Text qualified as T
 import Text.Read (readMaybe)
 
 -- | Single entry point for pragma parsing.
--- Consumes "{-# ... #-}" and attempts to parse it into structured data.
+-- Scans "{-# ... #-}" once, then parses the body to determine which Pragma it is.
 tryParsePragma :: LexerState -> Maybe (LexToken, LexerState)
-tryParsePragma st
-  | Just ((raw, kind), st') <- parsePragmaLike parseLanguagePragma st = Just (mkToken st st' raw kind, st')
-  | Just ((raw, kind), st') <- parsePragmaLike parseInstanceOverlapPragma st = Just (mkToken st st' raw kind, st')
-  | Just ((raw, kind), st') <- parsePragmaLike parseOptionsPragma st = Just (mkToken st st' raw kind, st')
-  | Just ((raw, kind), st') <- parsePragmaLike parseWarningPragma st = Just (mkToken st st' raw kind, st')
-  | Just ((raw, kind), st') <- parsePragmaLike parseDeprecatedPragma st = Just (mkToken st st' raw kind, st')
-  | Just ((raw, kind), st') <- parsePragmaLike parseInlinePragma st = Just (mkToken st st' raw kind, st')
-  | Just ((raw, kind), st') <- parsePragmaLike parseUnpackPragma st = Just (mkToken st st' raw kind, st')
-  | Just ((raw, kind), st') <- parsePragmaLike parseSourcePragma st = Just (mkToken st st' raw kind, st')
-  | Just ((raw, kind), st') <- parsePragmaLike parseUnknownPragma st = Just (mkToken st st' raw kind, st')
-  | otherwise = Nothing
+tryParsePragma st = do
+  (rawBody, consumedLen) <- extractPragmaBody (lexerInput st)
+  let pragma = parsePragma rawBody
+      fullText = "{-#" <> rawBody <> "#-}"
+      st' = advanceN consumedLen st
+  Just (mkToken st st' fullText (TkPragma pragma), st')
 
-parsePragmaLike :: (Text -> Maybe (Int, (Text, LexTokenKind))) -> LexerState -> Maybe ((Text, LexTokenKind), LexerState)
-parsePragmaLike parser st = do
-  (n, out) <- parser (lexerInput st)
-  pure (out, advanceN n st)
-
-parseLanguagePragma :: Text -> Maybe (Int, (Text, LexTokenKind))
-parseLanguagePragma input = do
-  (_, body, consumed) <- stripNamedPragma ["LANGUAGE"] input
-  let names = parseLanguagePragmaNames body
-      raw = "{-# LANGUAGE " <> T.intercalate ", " (map extensionSettingName names) <> " #-}"
-  pure (T.length consumed, (raw, TkPragma (PragmaLanguage names)))
-
-parseInstanceOverlapPragma :: Text -> Maybe (Int, (Text, LexTokenKind))
-parseInstanceOverlapPragma input = do
-  (pragmaName, _, consumed) <- stripNamedPragma ["OVERLAPPING", "OVERLAPPABLE", "OVERLAPS", "INCOHERENT"] input
-  overlapPragma <-
-    case pragmaName of
-      "OVERLAPPING" -> Just Overlapping
-      "OVERLAPPABLE" -> Just Overlappable
-      "OVERLAPS" -> Just Overlaps
-      "INCOHERENT" -> Just Incoherent
-      _ -> Nothing
-  let raw = "{-# " <> pragmaName <> " #-}"
-  pure (T.length consumed, (raw, TkPragma (PragmaInstanceOverlap overlapPragma)))
-
-parseOptionsPragma :: Text -> Maybe (Int, (Text, LexTokenKind))
-parseOptionsPragma input = do
-  (pragmaName, body, consumed) <- stripNamedPragma ["OPTIONS_GHC", "OPTIONS"] input
-  let settings = parseOptionsPragmaSettings body
-      raw = "{-# " <> pragmaName <> " " <> T.stripEnd body <> " #-}"
-  pure (T.length consumed, (raw, TkPragma (PragmaLanguage settings)))
-
-parseWarningPragma :: Text -> Maybe (Int, (Text, LexTokenKind))
-parseWarningPragma input = do
-  (_, body, consumed) <- stripNamedPragma ["WARNING"] input
-  let txt = T.strip body
-      (msg, rawMsg) =
-        case body of
-          '"' :< _ ->
-            case reads (T.unpack body) of
-              [(decoded, "")] -> (T.pack decoded, body)
-              _ -> (txt, txt)
-          _ -> (txt, txt)
-      raw = "{-# WARNING " <> rawMsg <> " #-}"
-  pure (T.length consumed, (raw, TkPragma (PragmaWarning msg)))
-
-parseDeprecatedPragma :: Text -> Maybe (Int, (Text, LexTokenKind))
-parseDeprecatedPragma input = do
-  (_, body, consumed) <- stripNamedPragma ["DEPRECATED"] input
-  let txt = T.strip body
-      (msg, rawMsg) =
-        case body of
-          '"' :< _ ->
-            case reads (T.unpack body) of
-              [(decoded, "")] -> (T.pack decoded, body)
-              _ -> (txt, txt)
-          _ -> (txt, txt)
-      raw = "{-# DEPRECATED " <> rawMsg <> " #-}"
-  pure (T.length consumed, (raw, TkPragma (PragmaDeprecated msg)))
-
-parseInlinePragma :: Text -> Maybe (Int, (Text, LexTokenKind))
-parseInlinePragma input = do
-  -- Check longer names first to avoid prefix matching issues
-  (pragmaName, body, consumed) <- stripNamedPragma ["INLINEABLE", "NOINLINEABLE", "INLINE", "NOINLINE", "CONLIKE"] input
-  let fullBody = T.stripEnd body
-      raw = "{-# " <> pragmaName <> " " <> fullBody <> " #-}"
-      pragmaKind =
-        case pragmaName of
-          "INLINE" -> PragmaInline "INLINE" fullBody
-          "INLINEABLE" -> PragmaInline "INLINEABLE" fullBody
-          "NOINLINE" -> PragmaInline "NOINLINE" fullBody
-          "NOINLINEABLE" -> PragmaInline "NOINLINEABLE" fullBody
-          "CONLIKE" -> PragmaInline "CONLIKE" fullBody
-          _ -> error "impossible"
-  pure (T.length consumed, (raw, TkPragma pragmaKind))
-
-parseUnpackPragma :: Text -> Maybe (Int, (Text, LexTokenKind))
-parseUnpackPragma input = do
-  (pragmaName, _, consumed) <- stripNamedPragma ["UNPACK", "NOUNPACK"] input
-  let raw = "{-# " <> pragmaName <> " #-}"
-      unpackKind =
-        case pragmaName of
-          "UNPACK" -> UnpackPragma
-          "NOUNPACK" -> NoUnpackPragma
-          _ -> error "impossible"
-      pragmaKind = PragmaUnpack unpackKind
-  pure (T.length consumed, (raw, TkPragma pragmaKind))
-
-parseSourcePragma :: Text -> Maybe (Int, (Text, LexTokenKind))
-parseSourcePragma input = do
-  (_, body, consumed) <- stripNamedPragma ["SOURCE"] input
-  let txt = T.strip body
-      raw = "{-# SOURCE " <> txt <> " #-}"
-  pure (T.length consumed, (raw, TkPragma (PragmaSource txt txt)))
-
-parseUnknownPragma :: Text -> Maybe (Int, (Text, LexTokenKind))
-parseUnknownPragma input =
-  let (before, after) = T.breakOn "#-}" input
-   in if T.null after
-        then Nothing
-        else
-          let fullConsumed = T.take (T.length before + 3) input
-           in pure (T.length fullConsumed, (fullConsumed, TkPragma (PragmaUnknown fullConsumed)))
-
-stripPragma :: Text -> Text -> Maybe Text
-stripPragma name input = (\(_, body, _) -> body) <$> stripNamedPragma [name] input
-
-stripNamedPragma :: [Text] -> Text -> Maybe (Text, Text, Text)
-stripNamedPragma names input = do
+-- | Extract the raw body text between "{-#" and "#-}".
+-- Returns (body_text, total_consumed_length) where total includes "{-#" and "#-}".
+extractPragmaBody :: Text -> Maybe (Text, Int)
+extractPragmaBody input = do
   rest0 <- T.stripPrefix "{-#" input
-  let rest1 = T.dropWhile isSpace rest0
-  (name, rest2) <- firstMatchingPragmaName rest1 names
-  let rest3 = T.dropWhile isSpace rest2
-      (body, marker) = T.breakOn "#-}" rest3
+  let (body, marker) = T.breakOn "#-}" rest0
   if T.null marker
     then Nothing
     else
       let consumedLen = T.length input - T.length (T.drop 3 marker)
-       in Just (name, T.stripEnd body, T.take consumedLen input)
+       in Just (body, consumedLen)
 
-firstMatchingPragmaName :: Text -> [Text] -> Maybe (Text, Text)
-firstMatchingPragmaName _ [] = Nothing
-firstMatchingPragmaName input (name : names) =
-  let (candidate, rest) = T.splitAt (T.length name) input
-   in if T.toUpper candidate == T.toUpper name
-        then
-          -- Ensure it's followed by whitespace, '#' (start of '#-}'), or end of input
-          case rest of
-            Empty -> Just (name, rest)
-            c :< _ | isSpace c || c == '#' -> Just (name, rest)
-            _ -> firstMatchingPragmaName input names
-        else firstMatchingPragmaName input names
+-- | Parse pragma body text into a structured Pragma.
+-- The body is the text between "{-#" and "#-}" (not including the delimiters).
+parsePragma :: Text -> Pragma
+parsePragma rawBody =
+  let trimmed = T.strip rawBody
+      upperBody = T.toUpper trimmed
+   in case tryParseNamedPragma trimmed upperBody of
+        Just pragma -> pragma
+        Nothing -> PragmaUnknown ("{-#" <> rawBody <> "#-}")
 
+tryParseNamedPragma :: Text -> Text -> Maybe Pragma
+tryParseNamedPragma body upperBody
+  | Just pragma <- parseLanguagePragma body upperBody = Just pragma
+  | Just pragma <- parseInstanceOverlapPragma body upperBody = Just pragma
+  | Just pragma <- parseOptionsPragma body upperBody = Just pragma
+  | Just pragma <- parseWarningPragma body upperBody = Just pragma
+  | Just pragma <- parseDeprecatedPragma body upperBody = Just pragma
+  | Just pragma <- parseInlinePragma body upperBody = Just pragma
+  | Just pragma <- parseUnpackPragma body upperBody = Just pragma
+  | Just pragma <- parseSourcePragma body upperBody = Just pragma
+  | otherwise = Nothing
+
+parseLanguagePragma :: Text -> Text -> Maybe Pragma
+parseLanguagePragma body upperBody
+  | Just rest <- T.stripPrefix "LANGUAGE" upperBody, isPragmaBodyEnd rest =
+      let names = parseLanguagePragmaNames (T.drop (length "LANGUAGE") body)
+       in Just (PragmaLanguage names)
+  | otherwise = Nothing
+
+parseInstanceOverlapPragma :: Text -> Text -> Maybe Pragma
+parseInstanceOverlapPragma _body upperBody
+  | Just rest <- T.stripPrefix "OVERLAPPING" upperBody, isPragmaBodyEnd rest =
+      Just (PragmaInstanceOverlap Overlapping)
+  | Just rest <- T.stripPrefix "OVERLAPPABLE" upperBody, isPragmaBodyEnd rest =
+      Just (PragmaInstanceOverlap Overlappable)
+  | Just rest <- T.stripPrefix "OVERLAPS" upperBody, isPragmaBodyEnd rest =
+      Just (PragmaInstanceOverlap Overlaps)
+  | Just rest <- T.stripPrefix "INCOHERENT" upperBody, isPragmaBodyEnd rest =
+      Just (PragmaInstanceOverlap Incoherent)
+  | otherwise = Nothing
+
+parseOptionsPragma :: Text -> Text -> Maybe Pragma
+parseOptionsPragma body upperBody
+  | Just rest <- T.stripPrefix "OPTIONS_GHC" upperBody, isPragmaBodyEnd rest =
+      let settings = parseOptionsPragmaSettings (T.drop (length "OPTIONS_GHC") body)
+       in Just (PragmaLanguage settings)
+  | Just rest <- T.stripPrefix "OPTIONS" upperBody, isPragmaBodyEnd rest =
+      let settings = parseOptionsPragmaSettings (T.drop (length "OPTIONS") body)
+       in Just (PragmaLanguage settings)
+  | otherwise = Nothing
+
+parseWarningPragma :: Text -> Text -> Maybe Pragma
+parseWarningPragma body upperBody
+  | Just rest <- T.stripPrefix "WARNING" upperBody, isPragmaBodyEnd rest =
+      let msgBody = T.drop (length "WARNING") body
+          txt = T.strip msgBody
+          msg = extractPragmaMessage txt
+       in Just (PragmaWarning msg)
+  | otherwise = Nothing
+
+parseDeprecatedPragma :: Text -> Text -> Maybe Pragma
+parseDeprecatedPragma body upperBody
+  | Just rest <- T.stripPrefix "DEPRECATED" upperBody, isPragmaBodyEnd rest =
+      let msgBody = T.drop (length "DEPRECATED") body
+          txt = T.strip msgBody
+          msg = extractPragmaMessage txt
+       in Just (PragmaDeprecated msg)
+  | otherwise = Nothing
+
+parseInlinePragma :: Text -> Text -> Maybe Pragma
+parseInlinePragma body upperBody
+  | Just rest <- T.stripPrefix "INLINEABLE" upperBody, isPragmaBodyEnd rest =
+      let fullBody = T.strip (T.drop (length "INLINEABLE") body)
+       in Just (PragmaInline "INLINEABLE" fullBody)
+  | Just rest <- T.stripPrefix "NOINLINEABLE" upperBody, isPragmaBodyEnd rest =
+      let fullBody = T.strip (T.drop (length "NOINLINEABLE") body)
+       in Just (PragmaInline "NOINLINEABLE" fullBody)
+  | Just rest <- T.stripPrefix "INLINE" upperBody, isPragmaBodyEnd rest =
+      let fullBody = T.strip (T.drop (length "INLINE") body)
+       in Just (PragmaInline "INLINE" fullBody)
+  | Just rest <- T.stripPrefix "NOINLINE" upperBody, isPragmaBodyEnd rest =
+      let fullBody = T.strip (T.drop (length "NOINLINE") body)
+       in Just (PragmaInline "NOINLINE" fullBody)
+  | Just rest <- T.stripPrefix "CONLIKE" upperBody, isPragmaBodyEnd rest =
+      let fullBody = T.strip (T.drop (length "CONLIKE") body)
+       in Just (PragmaInline "CONLIKE" fullBody)
+  | otherwise = Nothing
+
+parseUnpackPragma :: Text -> Text -> Maybe Pragma
+parseUnpackPragma _body upperBody
+  | Just rest <- T.stripPrefix "UNPACK" upperBody, isPragmaBodyEnd rest =
+      Just (PragmaUnpack UnpackPragma)
+  | Just rest <- T.stripPrefix "NOUNPACK" upperBody, isPragmaBodyEnd rest =
+      Just (PragmaUnpack NoUnpackPragma)
+  | otherwise = Nothing
+
+parseSourcePragma :: Text -> Text -> Maybe Pragma
+parseSourcePragma body upperBody
+  | Just rest <- T.stripPrefix "SOURCE" upperBody, isPragmaBodyEnd rest =
+      let fullBody = T.strip (T.drop (length "SOURCE") body)
+       in Just (PragmaSource fullBody fullBody)
+  | otherwise = Nothing
+
+-- | Check if the remaining text after a pragma name is valid (whitespace or end).
+isPragmaBodyEnd :: Text -> Bool
+isPragmaBodyEnd text =
+  case text of
+    Empty -> True
+    c :< _ -> isSpace c
+
+-- | Extract message text from pragma body, handling quoted strings.
+extractPragmaMessage :: Text -> Text
+extractPragmaMessage txt =
+  case txt of
+    '"' :< _ ->
+      case reads (T.unpack txt) of
+        [(decoded, "")] -> T.pack decoded
+        _ -> txt
+    _ -> txt
+
+-- | Parse the body of a LANGUAGE pragma into extension settings.
 parseLanguagePragmaNames :: Text -> [ExtensionSetting]
 parseLanguagePragmaNames body =
   mapMaybe (parseExtensionSettingName . T.strip . T.takeWhile (/= '#')) (T.splitOn "," body)
 
+-- | Parse the body of an OPTIONS pragma into extension settings.
 parseOptionsPragmaSettings :: Text -> [ExtensionSetting]
 parseOptionsPragmaSettings body = go (pragmaWords body)
   where
@@ -231,6 +228,7 @@ glasgowExtsSettings =
       UnliftedFFITypes
     ]
 
+-- | Split pragma text into words, respecting quoted strings.
 pragmaWords :: Text -> [Text]
 pragmaWords txt = go [] [] Nothing (T.unpack txt)
   where
@@ -265,42 +263,47 @@ pragmaWords txt = go [] [] Nothing (T.unpack txt)
         token -> T.pack token : acc
 
 parseControlPragma :: Text -> Maybe (Text, Either Text DirectiveUpdate)
-parseControlPragma input
-  | Just body <- stripPragma "LINE" input =
-      let ws = T.words body
-       in case ws of
-            lineNo : _
-              | T.all isDigit lineNo ->
-                  case readBoundedInt lineNo of
-                    Just parsedLine ->
-                      Just
-                        ( fullPragmaConsumed "LINE" body,
-                          Right
-                            DirectiveUpdate
-                              { directiveLine = Just parsedLine,
-                                directiveCol = Just 1,
-                                directiveSourceName = parseDirectiveSourceName (T.dropWhile isSpace (T.drop (T.length lineNo) body))
-                              }
-                        )
-                    Nothing -> Just (fullPragmaConsumed "LINE" body, Left "malformed LINE pragma")
-            _ -> Just (fullPragmaConsumed "LINE" body, Left "malformed LINE pragma")
-  | Just body <- stripPragma "COLUMN" input =
-      let ws = T.words body
-       in case ws of
-            colNo : _
-              | T.all isDigit colNo ->
-                  case readBoundedInt colNo of
-                    Just parsedCol ->
-                      Just
-                        ( fullPragmaConsumed "COLUMN" body,
-                          Right DirectiveUpdate {directiveLine = Nothing, directiveCol = Just parsedCol, directiveSourceName = Nothing}
-                        )
-                    Nothing -> Just (fullPragmaConsumed "COLUMN" body, Left "malformed COLUMN pragma")
-            _ -> Just (fullPragmaConsumed "COLUMN" body, Left "malformed COLUMN pragma")
-  | otherwise = Nothing
-
-fullPragmaConsumed :: Text -> Text -> Text
-fullPragmaConsumed name body = "{-# " <> name <> " " <> T.stripEnd body <> " #-}"
+parseControlPragma input = do
+  (body, _) <- extractPragmaBody input
+  let trimmed = T.strip body
+      upperBody = T.toUpper trimmed
+  case () of
+    _
+      | Just rest <- T.stripPrefix "LINE" upperBody, isPragmaBodyEnd rest ->
+          let bodyAfter = T.drop (length "LINE") body
+              ws = T.words bodyAfter
+           in case ws of
+                lineNo : _
+                  | T.all isDigit lineNo ->
+                      case readBoundedInt lineNo of
+                        Just parsedLine ->
+                          Just
+                            ( "{-#" <> body <> "#-}",
+                              Right
+                                DirectiveUpdate
+                                  { directiveLine = Just parsedLine,
+                                    directiveCol = Just 1,
+                                    directiveSourceName = parseDirectiveSourceName (T.dropWhile isSpace (T.drop (T.length lineNo) bodyAfter))
+                                  }
+                            )
+                        Nothing -> Just ("{-#" <> body <> "#-}", Left "malformed LINE pragma")
+                _ -> Just ("{-#" <> body <> "#-}", Left "malformed LINE pragma")
+    _
+      | Just rest <- T.stripPrefix "COLUMN" upperBody, isPragmaBodyEnd rest ->
+          let bodyAfter = T.drop (length "COLUMN") body
+              ws = T.words bodyAfter
+           in case ws of
+                colNo : _
+                  | T.all isDigit colNo ->
+                      case readBoundedInt colNo of
+                        Just parsedCol ->
+                          Just
+                            ( "{-#" <> body <> "#-}",
+                              Right DirectiveUpdate {directiveLine = Nothing, directiveCol = Just parsedCol, directiveSourceName = Nothing}
+                            )
+                        Nothing -> Just ("{-#" <> body <> "#-}", Left "malformed COLUMN pragma")
+                _ -> Just ("{-#" <> body <> "#-}", Left "malformed COLUMN pragma")
+    _ -> Nothing
 
 parseDirectiveSourceName :: Text -> Maybe FilePath
 parseDirectiveSourceName rest =
