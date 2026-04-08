@@ -1555,12 +1555,13 @@ parenOrTuplePatternParser = withSpan $ do
     -- \| Try to parse as expression, then check for view pattern arrow or
     -- reclassify via checkPattern. exprParser stops before '->'
     -- (TkReservedRightArrow is not an infix op), so when it succeeds we
-    -- can branch without backtracking. When exprParser fails or does not
-    -- consume the full element (e.g., pattern-only syntax like @\@@, @!@,
-    -- or nested view patterns), fall back to patternParser.
+    -- can branch without backtracking. When exprParser fails, does not
+    -- consume the full element (e.g., '@' from an as-pattern), or
+    -- checkPattern rejects it (e.g., variable operator in infix position),
+    -- fall back to patternParser.
     exprThenReclassify :: TokParser Pattern
     exprThenReclassify = do
-      mExpr <- MP.optional . MP.try $ do
+      mResult <- MP.optional . MP.try $ do
         expr <- exprParser
         -- Verify the expression consumed the full element: the next token
         -- must be a valid delimiter in paren/tuple/sum context. If not
@@ -1568,22 +1569,21 @@ parenOrTuplePatternParser = withSpan $ do
         -- too early and we should backtrack to patternParser.
         tok <- lookAhead anySingle
         case lexTokenKind tok of
-          TkReservedRightArrow -> pure expr
-          TkSpecialComma -> pure expr
-          TkSpecialRParen -> pure expr
-          TkSpecialUnboxedRParen -> pure expr
-          TkReservedPipe -> pure expr
+          TkReservedRightArrow -> pure (Left expr) -- view pattern: defer arrow handling
+          TkSpecialComma -> Right <$> liftCheck (checkPattern expr)
+          TkSpecialRParen -> Right <$> liftCheck (checkPattern expr)
+          TkSpecialUnboxedRParen -> Right <$> liftCheck (checkPattern expr)
+          TkReservedPipe -> Right <$> liftCheck (checkPattern expr)
           _ -> fail "incomplete element parse"
-      case mExpr of
-        Just expr -> do
-          mArrow <- MP.optional (expectedTok TkReservedRightArrow)
-          case mArrow of
-            Just () -> do
-              inner <- patternParser
-              let sp = mergeSourceSpans (getSourceSpan expr) (getSourceSpan inner)
-              pure (PView sp expr inner)
-            Nothing ->
-              liftCheck (checkPattern expr)
+      case mResult of
+        Just (Left expr) -> do
+          -- View pattern: expr -> pattern
+          expectedTok TkReservedRightArrow
+          inner <- patternParser
+          let sp = mergeSourceSpans (getSourceSpan expr) (getSourceSpan inner)
+          pure (PView sp expr inner)
+        Just (Right pat) ->
+          pure pat
         Nothing ->
           patternParser
 
