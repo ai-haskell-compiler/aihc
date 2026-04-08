@@ -1580,30 +1580,17 @@ parenOrTuplePatternParser = withSpan $ do
         TkSpecialLBracket -> Left <$> patternParser
         TkConId {} -> Left <$> patternParser
         TkQConId {} -> Left <$> patternParser
-        TkChar {} -> singletonLiteralHeadParser closeTok
-        TkCharHash {} -> singletonLiteralHeadParser closeTok
-        TkString {} -> singletonLiteralHeadParser closeTok
-        TkStringHash {} -> singletonLiteralHeadParser closeTok
-        TkInteger {} -> singletonLiteralHeadParser closeTok
-        TkIntegerHash {} -> singletonLiteralHeadParser closeTok
-        TkIntegerBase {} -> singletonLiteralHeadParser closeTok
-        TkIntegerBaseHash {} -> singletonLiteralHeadParser closeTok
-        TkFloat {} -> singletonLiteralHeadParser closeTok
-        TkFloatHash {} -> singletonLiteralHeadParser closeTok
         TkPrefixBang -> Left <$> patternParser
         TkPrefixTilde -> Left <$> patternParser
         _ -> do
           isAsPattern <- startsWithAsPattern
           if isAsPattern
             then Left <$> patternParser
-            else Right <$> exprParser
-
-    singletonLiteralHeadParser :: LexTokenKind -> TokParser (Either Pattern Expr)
-    singletonLiteralHeadParser closeTok = do
-      canBeViewPattern <- hasTopLevelViewPatternArrowBefore closeTok
-      if canBeViewPattern
-        then Right <$> exprParser
-        else Left <$> patternParser
+            else do
+              canBeViewPattern <- hasTopLevelViewPatternArrowBefore closeTok
+              if canBeViewPattern
+                then Right <$> exprParser
+                else Left <$> patternParser
 
     tupleOrParenPatternParser tupleFlavor closeTok = do
       firstHead <-
