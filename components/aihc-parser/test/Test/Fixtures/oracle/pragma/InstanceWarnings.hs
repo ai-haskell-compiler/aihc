@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail DEPRECATED and WARNING pragmas on instances not supported by parser -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE StandaloneDeriving #-}
 
 module InstanceWarnings where

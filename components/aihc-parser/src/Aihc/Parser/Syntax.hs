@@ -616,7 +616,7 @@ type OperatorName = Text
 data WarningText
   = DeprText SourceSpan Text
   | WarnText SourceSpan Text
-  deriving (Eq, Show, Generic, NFData)
+  deriving (Data, Eq, Show, Generic, NFData)
 
 data PragmaUnpackKind
   = UnpackPragma
@@ -1228,13 +1228,14 @@ data DerivingStrategy
 data StandaloneDerivingDecl = StandaloneDerivingDecl
   { standaloneDerivingSpan :: SourceSpan,
     standaloneDerivingStrategy :: Maybe DerivingStrategy,
+    standaloneDerivingViaType :: Maybe Type,
     standaloneDerivingOverlapPragma :: Maybe InstanceOverlapPragma,
+    standaloneDerivingWarning :: Maybe WarningText,
     standaloneDerivingForall :: [TyVarBinder],
     standaloneDerivingContext :: [Type],
     standaloneDerivingParenthesizedHead :: Bool,
     standaloneDerivingClassName :: Text,
-    standaloneDerivingTypes :: [Type],
-    standaloneDerivingViaType :: Maybe Type
+    standaloneDerivingTypes :: [Type]
   }
   deriving (Data, Eq, Show, Generic, NFData)
 
@@ -1292,6 +1293,7 @@ instance HasSourceSpan ClassDeclItem where
 data InstanceDecl = InstanceDecl
   { instanceDeclSpan :: SourceSpan,
     instanceDeclOverlapPragma :: Maybe InstanceOverlapPragma,
+    instanceDeclWarning :: Maybe WarningText,
     instanceDeclForall :: [TyVarBinder],
     instanceDeclContext :: [Type],
     instanceDeclParenthesizedHead :: Bool,

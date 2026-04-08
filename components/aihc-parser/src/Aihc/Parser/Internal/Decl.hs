@@ -7,6 +7,7 @@ module Aihc.Parser.Internal.Decl
     importDeclParser,
     moduleHeaderParser,
     languagePragmaParser,
+    pragmaDeclParser,
   )
 where
 
@@ -829,6 +830,7 @@ instanceDeclParser :: TokParser Decl
 instanceDeclParser = withSpan $ do
   expectedTok TkKeywordInstance
   overlapPragma <- MP.optional instanceOverlapPragmaParser
+  warningText <- MP.optional warningTextParser
   forallBinders <- MP.optional instanceForallParser
   context <- contextPrefixDispatch
   (parenthesizedHead, className, instanceTypes) <- instanceHeadParser
@@ -839,6 +841,7 @@ instanceDeclParser = withSpan $ do
       InstanceDecl
         { instanceDeclSpan = span',
           instanceDeclOverlapPragma = overlapPragma,
+          instanceDeclWarning = warningText,
           instanceDeclForall = fromMaybe [] forallBinders,
           instanceDeclContext = fromMaybe [] context,
           instanceDeclParenthesizedHead = parenthesizedHead,
@@ -854,6 +857,7 @@ standaloneDerivingDeclParser = withSpan $ do
   viaTy <- MP.optional (MP.try derivingViaTypeParser)
   expectedTok TkKeywordInstance
   overlapPragma <- MP.optional instanceOverlapPragmaParser
+  warningText <- MP.optional warningTextParser
   forallBinders <- MP.optional instanceForallParser
   context <- contextPrefixDispatch
   (parenthesizedHead, className, instanceTypes) <- instanceHeadParser
@@ -863,13 +867,14 @@ standaloneDerivingDeclParser = withSpan $ do
       StandaloneDerivingDecl
         { standaloneDerivingSpan = span',
           standaloneDerivingStrategy = strategy,
+          standaloneDerivingViaType = viaTy,
           standaloneDerivingOverlapPragma = overlapPragma,
+          standaloneDerivingWarning = warningText,
           standaloneDerivingForall = fromMaybe [] forallBinders,
           standaloneDerivingContext = fromMaybe [] context,
           standaloneDerivingParenthesizedHead = parenthesizedHead,
           standaloneDerivingClassName = className,
-          standaloneDerivingTypes = instanceTypes,
-          standaloneDerivingViaType = viaTy
+          standaloneDerivingTypes = instanceTypes
         }
 
 instanceHeadParser :: TokParser (Bool, Text, [Type])

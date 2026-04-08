@@ -20,7 +20,7 @@ where
 
 import Aihc.Parser.Internal.CheckPattern (checkPattern)
 import Aihc.Parser.Internal.Common
-import Aihc.Parser.Internal.Decl (declParser)
+import Aihc.Parser.Internal.Decl (declParser, pragmaDeclParser)
 import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokenKind, lexTokenSpan, lexTokenText)
 import Aihc.Parser.Syntax
 import Control.Monad (guard)
@@ -1399,19 +1399,24 @@ bracedDeclsParser = concat <$> bracedSemiSep1 localDeclsParser
 -- one-item-at-a-time stream.
 localDeclsParser :: TokParser [Decl]
 localDeclsParser = do
-  isTySig <- startsWithTypeSig
-  if isTySig
-    then localTypeSigDeclsParser
-    else -- Function or pattern binding.
-    -- MP.try around localFunctionDeclParser needed because function heads
-    -- and pattern binds can overlap (e.g. '(x, y) = expr' can be attempted
-    -- as an infix function head before falling back to pattern bind).
-    -- Phase 4 will address functionHeadParserWith to further reduce this.
-      do
-        tok <- lookAhead anySingle
-        case lexTokenKind tok of
-          TkImplicitParam {} -> pure <$> implicitParamDeclParser
-          _ -> pure <$> (MP.try localFunctionDeclParser <|> localPatternDeclParser)
+  -- First try to parse a pragma declaration (e.g. {-# INLINE f #-})
+  mPragma <- MP.optional pragmaDeclParser
+  case mPragma of
+    Just pragmaDecl -> pure [pragmaDecl]
+    Nothing -> do
+      isTySig <- startsWithTypeSig
+      if isTySig
+        then localTypeSigDeclsParser
+        else -- Function or pattern binding.
+        -- MP.try around localFunctionDeclParser needed because function heads
+        -- and pattern binds can overlap (e.g. '(x, y) = expr' can be attempted
+        -- as an infix function head before falling back to pattern bind).
+        -- Phase 4 will address functionHeadParserWith to further reduce this.
+          do
+            tok <- lookAhead anySingle
+            case lexTokenKind tok of
+              TkImplicitParam {} -> pure <$> implicitParamDeclParser
+              _ -> pure <$> (MP.try localFunctionDeclParser <|> localPatternDeclParser)
 
 localTypeSigDeclsParser :: TokParser [Decl]
 localTypeSigDeclsParser = do
