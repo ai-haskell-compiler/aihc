@@ -876,7 +876,7 @@ prettyInstanceOverlapPragma pragma' =
 prettyPragma :: Pragma -> Doc ann
 prettyPragma pragma =
   case pragma of
-    PragmaLanguage settings -> "{-# LANGUAGE " <> hsep (punctuate comma (map prettyExtensionSetting settings)) <> " #-}"
+    PragmaLanguage settings -> "{-# LANGUAGE " <> hsep (punctuate comma (map (pretty . extensionSettingName) settings)) <> " #-}"
     PragmaInstanceOverlap overlapPragma -> prettyInstanceOverlapPragma overlapPragma
     PragmaWarning msg -> "{-# WARNING " <> pretty msg <> " #-}"
     PragmaDeprecated msg -> "{-# DEPRECATED " <> pretty msg <> " #-}"

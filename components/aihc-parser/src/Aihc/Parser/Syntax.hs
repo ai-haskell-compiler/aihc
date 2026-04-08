@@ -115,8 +115,6 @@ import Data.Text qualified as T
 import GHC.Generics (Generic)
 import Text.Read (readMaybe)
 
-import Aihc.Parser.Lex.Types (Pragma (..), PragmaUnpackKind (..))
-
 data Extension
   = AllowAmbiguousTypes
   | AlternativeLayoutRule
@@ -276,12 +274,12 @@ data Extension
   | UnsafeHaskell
   | ViewPatterns
   | XmlSyntax
-  deriving (Eq, Ord, Show, Read, Enum, Bounded, Generic, NFData)
+  deriving (Data, Eq, Ord, Show, Read, Enum, Bounded, Generic, NFData)
 
 data ExtensionSetting
   = EnableExtension Extension
   | DisableExtension Extension
-  deriving (Eq, Ord, Show, Read, Generic, NFData)
+  deriving (Data, Eq, Ord, Show, Read, Generic, NFData)
 
 -- | The Haskell language edition/standard.
 -- Each edition implies a set of language extensions.
@@ -618,6 +616,22 @@ data WarningText
   = DeprText SourceSpan Text
   | WarnText SourceSpan Text
   deriving (Eq, Show, Generic, NFData)
+
+data PragmaUnpackKind
+  = UnpackPragma
+  | NoUnpackPragma
+  deriving (Data, Eq, Ord, Show, Read, Generic, NFData)
+
+data Pragma
+  = PragmaLanguage [ExtensionSetting]
+  | PragmaInstanceOverlap InstanceOverlapPragma
+  | PragmaWarning Text
+  | PragmaDeprecated Text
+  | PragmaInline Text Text
+  | PragmaUnpack PragmaUnpackKind
+  | PragmaSource Text Text
+  | PragmaUnknown Text
+  deriving (Data, Eq, Ord, Show, Read, Generic, NFData)
 
 instance HasSourceSpan WarningText where
   getSourceSpan warningText =

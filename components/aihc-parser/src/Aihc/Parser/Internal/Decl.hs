@@ -11,7 +11,7 @@ where
 
 import Aihc.Parser.Internal.Common
 import {-# SOURCE #-} Aihc.Parser.Internal.Expr (equationRhsParser, exprParser, patternParser, simplePatternParser, startsWithContextType, startsWithTypeSig, typeAppParser, typeAtomParser, typeParser)
-import Aihc.Parser.Lex (LexTokenKind (..), Pragma (..), PragmaUnpackKind (..), lexTokenKind)
+import Aihc.Parser.Lex (LexTokenKind (..), lexTokenKind)
 import Aihc.Parser.Syntax
 import Aihc.Parser.Types (ParserErrorComponent (..), mkFoundToken)
 import Control.Monad (when)
@@ -33,6 +33,9 @@ instanceOverlapPragmaParser =
   hiddenPragma "instance overlap pragma" $ \case
     PragmaInstanceOverlap overlapPragma -> Just overlapPragma
     _ -> Nothing
+
+anyPragmaParser :: String -> TokParser Pragma
+anyPragmaParser expectedLabel = hiddenPragma expectedLabel Just
 
 moduleHeaderParser :: TokParser ModuleHead
 moduleHeaderParser = withSpan $ do
@@ -258,16 +261,7 @@ ordinaryDeclParser = do
 -- | Parse a pragma declaration (e.g. {-# INLINE f #-}, {-# SPECIALIZE ... #-})
 pragmaDeclParser :: TokParser Decl
 pragmaDeclParser = withSpan $ do
-  pragma <-
-    hiddenPragma "pragma declaration" $ \case
-      pragma@(PragmaLanguage _) -> Just pragma
-      pragma@(PragmaInstanceOverlap _) -> Just pragma
-      pragma@(PragmaWarning _) -> Just pragma
-      pragma@(PragmaDeprecated _) -> Just pragma
-      pragma@(PragmaInline _ _) -> Just pragma
-      pragma@(PragmaUnpack _) -> Just pragma
-      pragma@(PragmaSource _ _) -> Just pragma
-      pragma@(PragmaUnknown _) -> Just pragma
+  pragma <- anyPragmaParser "pragma declaration"
   pure (`DeclPragma` pragma)
 
 -- | Parse a top-level Template Haskell declaration splice: $expr or $(expr)
@@ -823,16 +817,7 @@ ordinaryClassDeclItemParser = do
 
 classPragmaItemParser :: TokParser ClassDeclItem
 classPragmaItemParser = withSpan $ do
-  pragma <-
-    hiddenPragma "pragma declaration" $ \case
-      pragma@(PragmaLanguage _) -> Just pragma
-      pragma@(PragmaInstanceOverlap _) -> Just pragma
-      pragma@(PragmaWarning _) -> Just pragma
-      pragma@(PragmaDeprecated _) -> Just pragma
-      pragma@(PragmaInline _ _) -> Just pragma
-      pragma@(PragmaUnpack _) -> Just pragma
-      pragma@(PragmaSource _ _) -> Just pragma
-      pragma@(PragmaUnknown _) -> Just pragma
+  pragma <- anyPragmaParser "pragma declaration"
   pure (`ClassItemPragma` pragma)
 
 classTypeSigItemParser :: TokParser ClassDeclItem
@@ -952,16 +937,7 @@ ordinaryInstanceDeclItemParser = do
 
 instancePragmaItemParser :: TokParser InstanceDeclItem
 instancePragmaItemParser = withSpan $ do
-  pragma <-
-    hiddenPragma "pragma declaration" $ \case
-      pragma@(PragmaLanguage _) -> Just pragma
-      pragma@(PragmaInstanceOverlap _) -> Just pragma
-      pragma@(PragmaWarning _) -> Just pragma
-      pragma@(PragmaDeprecated _) -> Just pragma
-      pragma@(PragmaInline _ _) -> Just pragma
-      pragma@(PragmaUnpack _) -> Just pragma
-      pragma@(PragmaSource _ _) -> Just pragma
-      pragma@(PragmaUnknown _) -> Just pragma
+  pragma <- anyPragmaParser "pragma declaration"
   pure (`InstanceItemPragma` pragma)
 
 instanceTypeSigItemParser :: TokParser InstanceDeclItem

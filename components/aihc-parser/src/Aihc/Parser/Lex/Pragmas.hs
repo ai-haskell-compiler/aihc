@@ -13,8 +13,6 @@ import Aihc.Parser.Lex.Types
     LexToken (..),
     LexTokenKind (..),
     LexerState (..),
-    Pragma (..),
-    PragmaUnpackKind (..),
     advanceN,
     mkToken,
   )
@@ -71,37 +69,45 @@ tryParseNamedPragma body upperBody
 
 parseLanguagePragma :: Text -> Text -> Maybe Pragma
 parseLanguagePragma body upperBody
-  | Just rest <- T.stripPrefix "LANGUAGE" upperBody, isPragmaBodyEnd rest =
-      let names = parseLanguagePragmaNames (T.drop (length "LANGUAGE") body)
+  | Just rest <- T.stripPrefix "LANGUAGE" upperBody,
+    isPragmaBodyEnd rest =
+      let names = parseLanguagePragmaNames (dropPragmaName "LANGUAGE" body)
        in Just (PragmaLanguage names)
   | otherwise = Nothing
 
 parseInstanceOverlapPragma :: Text -> Text -> Maybe Pragma
 parseInstanceOverlapPragma _body upperBody
-  | Just rest <- T.stripPrefix "OVERLAPPING" upperBody, isPragmaBodyEnd rest =
+  | Just rest <- T.stripPrefix "OVERLAPPING" upperBody,
+    isPragmaBodyEnd rest =
       Just (PragmaInstanceOverlap Overlapping)
-  | Just rest <- T.stripPrefix "OVERLAPPABLE" upperBody, isPragmaBodyEnd rest =
+  | Just rest <- T.stripPrefix "OVERLAPPABLE" upperBody,
+    isPragmaBodyEnd rest =
       Just (PragmaInstanceOverlap Overlappable)
-  | Just rest <- T.stripPrefix "OVERLAPS" upperBody, isPragmaBodyEnd rest =
+  | Just rest <- T.stripPrefix "OVERLAPS" upperBody,
+    isPragmaBodyEnd rest =
       Just (PragmaInstanceOverlap Overlaps)
-  | Just rest <- T.stripPrefix "INCOHERENT" upperBody, isPragmaBodyEnd rest =
+  | Just rest <- T.stripPrefix "INCOHERENT" upperBody,
+    isPragmaBodyEnd rest =
       Just (PragmaInstanceOverlap Incoherent)
   | otherwise = Nothing
 
 parseOptionsPragma :: Text -> Text -> Maybe Pragma
 parseOptionsPragma body upperBody
-  | Just rest <- T.stripPrefix "OPTIONS_GHC" upperBody, isPragmaBodyEnd rest =
-      let settings = parseOptionsPragmaSettings (T.drop (length "OPTIONS_GHC") body)
+  | Just rest <- T.stripPrefix "OPTIONS_GHC" upperBody,
+    isPragmaBodyEnd rest =
+      let settings = parseOptionsPragmaSettings (dropPragmaName "OPTIONS_GHC" body)
        in Just (PragmaLanguage settings)
-  | Just rest <- T.stripPrefix "OPTIONS" upperBody, isPragmaBodyEnd rest =
-      let settings = parseOptionsPragmaSettings (T.drop (length "OPTIONS") body)
+  | Just rest <- T.stripPrefix "OPTIONS" upperBody,
+    isPragmaBodyEnd rest =
+      let settings = parseOptionsPragmaSettings (dropPragmaName "OPTIONS" body)
        in Just (PragmaLanguage settings)
   | otherwise = Nothing
 
 parseWarningPragma :: Text -> Text -> Maybe Pragma
 parseWarningPragma body upperBody
-  | Just rest <- T.stripPrefix "WARNING" upperBody, isPragmaBodyEnd rest =
-      let msgBody = T.drop (length "WARNING") body
+  | Just rest <- T.stripPrefix "WARNING" upperBody,
+    isPragmaBodyEnd rest =
+      let msgBody = dropPragmaName "WARNING" body
           txt = T.strip msgBody
           msg = extractPragmaMessage txt
        in Just (PragmaWarning msg)
@@ -109,8 +115,9 @@ parseWarningPragma body upperBody
 
 parseDeprecatedPragma :: Text -> Text -> Maybe Pragma
 parseDeprecatedPragma body upperBody
-  | Just rest <- T.stripPrefix "DEPRECATED" upperBody, isPragmaBodyEnd rest =
-      let msgBody = T.drop (length "DEPRECATED") body
+  | Just rest <- T.stripPrefix "DEPRECATED" upperBody,
+    isPragmaBodyEnd rest =
+      let msgBody = dropPragmaName "DEPRECATED" body
           txt = T.strip msgBody
           msg = extractPragmaMessage txt
        in Just (PragmaDeprecated msg)
@@ -118,37 +125,48 @@ parseDeprecatedPragma body upperBody
 
 parseInlinePragma :: Text -> Text -> Maybe Pragma
 parseInlinePragma body upperBody
-  | Just rest <- T.stripPrefix "INLINEABLE" upperBody, isPragmaBodyEnd rest =
-      let fullBody = T.strip (T.drop (length "INLINEABLE") body)
+  | Just rest <- T.stripPrefix "INLINEABLE" upperBody,
+    isPragmaBodyEnd rest =
+      let fullBody = T.strip (dropPragmaName "INLINEABLE" body)
        in Just (PragmaInline "INLINEABLE" fullBody)
-  | Just rest <- T.stripPrefix "NOINLINEABLE" upperBody, isPragmaBodyEnd rest =
-      let fullBody = T.strip (T.drop (length "NOINLINEABLE") body)
+  | Just rest <- T.stripPrefix "NOINLINEABLE" upperBody,
+    isPragmaBodyEnd rest =
+      let fullBody = T.strip (dropPragmaName "NOINLINEABLE" body)
        in Just (PragmaInline "NOINLINEABLE" fullBody)
-  | Just rest <- T.stripPrefix "INLINE" upperBody, isPragmaBodyEnd rest =
-      let fullBody = T.strip (T.drop (length "INLINE") body)
+  | Just rest <- T.stripPrefix "INLINE" upperBody,
+    isPragmaBodyEnd rest =
+      let fullBody = T.strip (dropPragmaName "INLINE" body)
        in Just (PragmaInline "INLINE" fullBody)
-  | Just rest <- T.stripPrefix "NOINLINE" upperBody, isPragmaBodyEnd rest =
-      let fullBody = T.strip (T.drop (length "NOINLINE") body)
+  | Just rest <- T.stripPrefix "NOINLINE" upperBody,
+    isPragmaBodyEnd rest =
+      let fullBody = T.strip (dropPragmaName "NOINLINE" body)
        in Just (PragmaInline "NOINLINE" fullBody)
-  | Just rest <- T.stripPrefix "CONLIKE" upperBody, isPragmaBodyEnd rest =
-      let fullBody = T.strip (T.drop (length "CONLIKE") body)
+  | Just rest <- T.stripPrefix "CONLIKE" upperBody,
+    isPragmaBodyEnd rest =
+      let fullBody = T.strip (dropPragmaName "CONLIKE" body)
        in Just (PragmaInline "CONLIKE" fullBody)
   | otherwise = Nothing
 
 parseUnpackPragma :: Text -> Text -> Maybe Pragma
 parseUnpackPragma _body upperBody
-  | Just rest <- T.stripPrefix "UNPACK" upperBody, isPragmaBodyEnd rest =
+  | Just rest <- T.stripPrefix "UNPACK" upperBody,
+    isPragmaBodyEnd rest =
       Just (PragmaUnpack UnpackPragma)
-  | Just rest <- T.stripPrefix "NOUNPACK" upperBody, isPragmaBodyEnd rest =
+  | Just rest <- T.stripPrefix "NOUNPACK" upperBody,
+    isPragmaBodyEnd rest =
       Just (PragmaUnpack NoUnpackPragma)
   | otherwise = Nothing
 
 parseSourcePragma :: Text -> Text -> Maybe Pragma
 parseSourcePragma body upperBody
-  | Just rest <- T.stripPrefix "SOURCE" upperBody, isPragmaBodyEnd rest =
-      let fullBody = T.strip (T.drop (length "SOURCE") body)
+  | Just rest <- T.stripPrefix "SOURCE" upperBody,
+    isPragmaBodyEnd rest =
+      let fullBody = T.strip (dropPragmaName "SOURCE" body)
        in Just (PragmaSource fullBody fullBody)
   | otherwise = Nothing
+
+dropPragmaName :: Text -> Text -> Text
+dropPragmaName name = T.drop (T.length name)
 
 -- | Check if the remaining text after a pragma name is valid (whitespace or end).
 isPragmaBodyEnd :: Text -> Bool
@@ -269,8 +287,9 @@ parseControlPragma input = do
       upperBody = T.toUpper trimmed
   case () of
     _
-      | Just rest <- T.stripPrefix "LINE" upperBody, isPragmaBodyEnd rest ->
-          let bodyAfter = T.drop (length "LINE") body
+      | Just rest <- T.stripPrefix "LINE" upperBody,
+        isPragmaBodyEnd rest ->
+          let bodyAfter = dropPragmaName "LINE" trimmed
               ws = T.words bodyAfter
            in case ws of
                 lineNo : _
@@ -289,8 +308,9 @@ parseControlPragma input = do
                         Nothing -> Just ("{-#" <> body <> "#-}", Left "malformed LINE pragma")
                 _ -> Just ("{-#" <> body <> "#-}", Left "malformed LINE pragma")
     _
-      | Just rest <- T.stripPrefix "COLUMN" upperBody, isPragmaBodyEnd rest ->
-          let bodyAfter = T.drop (length "COLUMN") body
+      | Just rest <- T.stripPrefix "COLUMN" upperBody,
+        isPragmaBodyEnd rest ->
+          let bodyAfter = dropPragmaName "COLUMN" trimmed
               ws = T.words bodyAfter
            in case ws of
                 colNo : _

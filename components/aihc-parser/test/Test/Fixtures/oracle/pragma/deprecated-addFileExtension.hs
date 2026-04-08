@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail path deprecated declaration pragma -}
+{- ORACLE_TEST pass -}
 module PragmaDeprecatedAddFileExtension where
 
 addFileExtension :: ()
