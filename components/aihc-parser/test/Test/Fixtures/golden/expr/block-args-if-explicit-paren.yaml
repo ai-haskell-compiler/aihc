@@ -1,0 +1,5 @@
+extensions: [BlockArguments]
+input: |
+  f (if x then y else z)
+ast: EApp (EVar "f") (EParen (EIf (EVar "x") (EVar "y") (EVar "z")))
+status: pass

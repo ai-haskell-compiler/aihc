@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail block argument lambda with as-pattern binder -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE GHC2021, BlockArguments #-}
 module AsPatternLambda where
 

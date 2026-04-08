@@ -25,7 +25,7 @@ span0 = noSourceSpan
 typeConfig :: ParserConfig
 typeConfig =
   defaultConfig
-    { parserExtensions = [UnboxedTuples, UnboxedSums, TemplateHaskell]
+    { parserExtensions = [BlockArguments, UnboxedTuples, UnboxedSums, TemplateHaskell]
     }
 
 prop_typePrettyRoundTrip :: Type -> Property
