@@ -50,7 +50,7 @@ instance Arbitrary Module where
       Module
         { moduleSpan = span0,
           moduleHead = mHead,
-          moduleLanguagePragmas = [EnableExtension Arrows, EnableExtension UnboxedTuples, EnableExtension UnboxedSums, EnableExtension TemplateHaskell],
+          moduleLanguagePragmas = [EnableExtension BlockArguments, EnableExtension Arrows, EnableExtension UnboxedTuples, EnableExtension UnboxedSums, EnableExtension TemplateHaskell],
           moduleImports = imports,
           moduleDecls = decls
         }
