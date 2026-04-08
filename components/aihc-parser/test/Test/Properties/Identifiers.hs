@@ -37,5 +37,9 @@ isValidGeneratedIdent ident =
       ident /= "_"
         && (first `elem` (['a' .. 'z'] <> ['_']))
         && T.all (`elem` (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> "_'")) rest
+        && ident `notElem` extensionReservedIdentifiers
         && not (isReservedIdentifier ident)
     Nothing -> False
+
+extensionReservedIdentifiers :: [Text]
+extensionReservedIdentifiers = ["mdo", "proc", "rec"]
