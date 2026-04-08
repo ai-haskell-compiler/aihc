@@ -5,6 +5,7 @@
 module Aihc.Parser.Lex
   ( TokenOrigin (..),
     Pragma (..),
+    PragmaUnpackKind (..),
     LexToken (..),
     LexTokenKind (..),
     isReservedIdentifier,
@@ -52,7 +53,7 @@ import Aihc.Parser.Lex.Numbers
     lexIntBase,
     withOptionalMagicHashSuffix,
   )
-import Aihc.Parser.Lex.Pragmas (lexKnownPragma, tryConsumeKnownPragma)
+import Aihc.Parser.Lex.Pragmas (tryParsePragma)
 import Aihc.Parser.Lex.Quoted
   ( processMultilineString,
     readMaybeChar,
@@ -62,7 +63,6 @@ import Aihc.Parser.Lex.Quoted
 import Aihc.Parser.Lex.Trivia
   ( consumeBlockCommentOrError,
     consumeLineComment,
-    consumeUnknownPragmaAsToken,
     isHaskellWhitespace,
     isLineComment,
     tryConsumeControlPragma,
@@ -164,12 +164,15 @@ consumeTrivia _env st =
                 Just (Nothing, st') -> Just (Right (markHadTrivia st'))
                 Just (Just tok, st') -> Just (Left (tok, markHadTrivia st'))
                 Nothing ->
-                  case tryConsumeKnownPragma st of
-                    Just _ -> Nothing
+                  -- tryParsePragma handles all pragma parsing, including unknown pragmas
+                  case tryParsePragma st of
+                    Just (tok, st') -> Just (Left (tok, markHadTrivia st'))
                     Nothing ->
-                      case consumeUnknownPragmaAsToken st of
-                        Just (tok, st') -> Just (Left (tok, markHadTrivia st'))
-                        Nothing -> Nothing
+                      -- This can happen if pragma is malformed (no closing "#-}")
+                      let consumed = lexerInput st
+                          st' = advanceChars consumed st
+                          tok = mkToken st st' consumed (TkError "malformed pragma")
+                       in Just (Left (tok, markHadTrivia st'))
           | "{-" `T.isPrefixOf` inp ->
               Just
                 ( case consumeBlockCommentOrError st of
@@ -190,8 +193,7 @@ nextToken env st =
   fromMaybe (lexErrorToken st "unexpected character") (firstJust tokenParsers)
   where
     tokenParsers =
-      [ lexKnownPragma,
-        lexTHQuoteBracket env,
+      [ lexTHQuoteBracket env,
         lexQuasiQuote,
         lexHexFloat env,
         lexFloat env,

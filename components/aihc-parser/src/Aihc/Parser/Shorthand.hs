@@ -22,7 +22,7 @@ module Aihc.Parser.Shorthand
   )
 where
 
-import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), Pragma (..))
+import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), Pragma (..), PragmaUnpackKind (..))
 import Aihc.Parser.Syntax
 import Aihc.Parser.Types (ParseResult (..))
 import Data.Text (Text)
@@ -428,6 +428,12 @@ docInstanceOverlapPragma pragma' =
     Overlaps -> "Overlaps"
     Incoherent -> "Incoherent"
 
+docPragmaUnpackKind :: PragmaUnpackKind -> Doc ann
+docPragmaUnpackKind kind =
+  case kind of
+    UnpackPragma -> "UnpackPragma"
+    NoUnpackPragma -> "NoUnpackPragma"
+
 docForeignDecl :: ForeignDecl -> Doc ann
 docForeignDecl fd =
   "ForeignDecl" <+> braces (hsep (punctuate comma fields))
@@ -779,6 +785,9 @@ docTokenKind kind =
         PragmaInstanceOverlap overlapPragma -> "TkPragma" <+> ("PragmaInstanceOverlap" <+> docInstanceOverlapPragma overlapPragma)
         PragmaWarning msg -> "TkPragma" <+> ("PragmaWarning" <+> docText msg)
         PragmaDeprecated msg -> "TkPragma" <+> ("PragmaDeprecated" <+> docText msg)
+        PragmaInline inlineKind body -> "TkPragma" <+> ("PragmaInline" <+> docText inlineKind <+> docText body)
+        PragmaUnpack unpackKind targetName -> "TkPragma" <+> ("PragmaUnpack" <+> docPragmaUnpackKind unpackKind <+> docText targetName)
+        PragmaSource sourceText _ -> "TkPragma" <+> ("PragmaSource" <+> docText sourceText)
         PragmaUnknown text -> "TkPragma" <+> ("PragmaUnknown" <+> docText text)
     TkQuasiQuote quoter body -> "TkQuasiQuote" <+> docText quoter <+> docText body
     TkTHExpQuoteOpen -> "TkTHExpQuoteOpen"

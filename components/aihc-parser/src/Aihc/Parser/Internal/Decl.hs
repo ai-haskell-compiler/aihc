@@ -11,7 +11,7 @@ where
 
 import Aihc.Parser.Internal.Common
 import {-# SOURCE #-} Aihc.Parser.Internal.Expr (equationRhsParser, exprParser, patternParser, simplePatternParser, startsWithContextType, startsWithTypeSig, typeAppParser, typeAtomParser, typeParser)
-import Aihc.Parser.Lex (LexTokenKind (..), Pragma (..), lexTokenKind)
+import Aihc.Parser.Lex (LexTokenKind (..), Pragma (..), PragmaUnpackKind (..), lexTokenKind)
 import Aihc.Parser.Syntax
 import Aihc.Parser.Types (ParserErrorComponent (..), mkFoundToken)
 import Control.Monad (when)
@@ -261,6 +261,10 @@ pragmaDeclParser = withSpan $ do
   pragmaText <-
     hiddenPragma "pragma declaration" $ \case
       PragmaUnknown text -> Just text
+      PragmaInline kind body -> Just ("{-# " <> kind <> " " <> body <> " #-}")
+      PragmaUnpack UnpackPragma target -> Just ("{-# UNPACK " <> target <> " #-}")
+      PragmaUnpack NoUnpackPragma target -> Just ("{-# NOUNPACK " <> target <> " #-}")
+      PragmaSource sourceText _ -> Just ("{-# SOURCE " <> sourceText <> " #-}")
       _ -> Nothing
   pure (`DeclPragma` pragmaText)
 
@@ -820,6 +824,10 @@ classPragmaItemParser = withSpan $ do
   pragmaText <-
     hiddenPragma "pragma declaration" $ \case
       PragmaUnknown text -> Just text
+      PragmaInline kind body -> Just ("{-# " <> kind <> " " <> body <> " #-}")
+      PragmaUnpack UnpackPragma target -> Just ("{-# UNPACK " <> target <> " #-}")
+      PragmaUnpack NoUnpackPragma target -> Just ("{-# NOUNPACK " <> target <> " #-}")
+      PragmaSource sourceText _ -> Just ("{-# SOURCE " <> sourceText <> " #-}")
       _ -> Nothing
   pure (`ClassItemPragma` pragmaText)
 
@@ -943,6 +951,10 @@ instancePragmaItemParser = withSpan $ do
   pragmaText <-
     hiddenPragma "pragma declaration" $ \case
       PragmaUnknown text -> Just text
+      PragmaInline kind body -> Just ("{-# " <> kind <> " " <> body <> " #-}")
+      PragmaUnpack UnpackPragma target -> Just ("{-# UNPACK " <> target <> " #-}")
+      PragmaUnpack NoUnpackPragma target -> Just ("{-# NOUNPACK " <> target <> " #-}")
+      PragmaSource sourceText _ -> Just ("{-# SOURCE " <> sourceText <> " #-}")
       _ -> Nothing
   pure (`InstanceItemPragma` pragmaText)
 
@@ -1458,20 +1470,9 @@ recordFieldBangTypeParser = withSpan $ do
 sourceUnpackednessPragmaParser :: TokParser SourceUnpackedness
 sourceUnpackednessPragmaParser =
   hiddenPragma "source unpack pragma" $ \case
-    PragmaUnknown text -> parseSourceUnpackednessPragma text
+    PragmaUnpack UnpackPragma _targetName -> Just SourceUnpack
+    PragmaUnpack NoUnpackPragma _targetName -> Just SourceNoUnpack
     _ -> Nothing
-
-parseSourceUnpackednessPragma :: Text -> Maybe SourceUnpackedness
-parseSourceUnpackednessPragma text =
-  case fmap T.toUpper (T.words body) of
-    ["UNPACK"] -> Just SourceUnpack
-    ["NOUNPACK"] -> Just SourceNoUnpack
-    _ -> Nothing
-  where
-    body =
-      fromMaybe text $
-        T.stripSuffix "#-}"
-          =<< T.stripPrefix "{-#" (T.strip text)
 
 -- | Parse a type in a constructor field position.
 -- This supports function types (Int -> Int) and type applications (Maybe Int).

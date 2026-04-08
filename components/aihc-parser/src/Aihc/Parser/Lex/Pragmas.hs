@@ -2,34 +2,42 @@
 {-# LANGUAGE PatternSynonyms #-}
 
 module Aihc.Parser.Lex.Pragmas
-  ( lexKnownPragma,
+  ( tryParsePragma,
     parseControlPragma,
-    tryConsumeKnownPragma,
   )
 where
 
 import Aihc.Parser.Lex.Types
+  ( Pragma (..),
+    PragmaUnpackKind (..),
+    LexerState (..),
+    LexTokenKind (..),
+    LexToken (..),
+    DirectiveUpdate (..),
+    advanceN,
+    mkToken
+  )
 import Aihc.Parser.Syntax
 import Data.Char (isDigit, isSpace)
 import Data.Maybe (mapMaybe)
-import Data.Text (Text, pattern (:<))
+import Data.Text (Text, pattern Empty, pattern (:<))
 import Data.Text qualified as T
 import Text.Read (readMaybe)
 
-lexKnownPragma :: LexerState -> Maybe (LexToken, LexerState)
-lexKnownPragma st
+-- | Single entry point for pragma parsing.
+-- Consumes "{-# ... #-}" and attempts to parse it into structured data.
+tryParsePragma :: LexerState -> Maybe (LexToken, LexerState)
+tryParsePragma st
   | Just ((raw, kind), st') <- parsePragmaLike parseLanguagePragma st = Just (mkToken st st' raw kind, st')
   | Just ((raw, kind), st') <- parsePragmaLike parseInstanceOverlapPragma st = Just (mkToken st st' raw kind, st')
   | Just ((raw, kind), st') <- parsePragmaLike parseOptionsPragma st = Just (mkToken st st' raw kind, st')
   | Just ((raw, kind), st') <- parsePragmaLike parseWarningPragma st = Just (mkToken st st' raw kind, st')
   | Just ((raw, kind), st') <- parsePragmaLike parseDeprecatedPragma st = Just (mkToken st st' raw kind, st')
+  | Just ((raw, kind), st') <- parsePragmaLike parseInlinePragma st = Just (mkToken st st' raw kind, st')
+  | Just ((raw, kind), st') <- parsePragmaLike parseUnpackPragma st = Just (mkToken st st' raw kind, st')
+  | Just ((raw, kind), st') <- parsePragmaLike parseSourcePragma st = Just (mkToken st st' raw kind, st')
+  | Just ((raw, kind), st') <- parsePragmaLike parseUnknownPragma st = Just (mkToken st st' raw kind, st')
   | otherwise = Nothing
-
-tryConsumeKnownPragma :: LexerState -> Maybe ()
-tryConsumeKnownPragma st =
-  case lexKnownPragma st of
-    Just _ -> Just ()
-    Nothing -> Nothing
 
 parsePragmaLike :: (Text -> Maybe (Int, (Text, LexTokenKind))) -> LexerState -> Maybe ((Text, LexTokenKind), LexerState)
 parsePragmaLike parser st = do
@@ -91,6 +99,51 @@ parseDeprecatedPragma input = do
       raw = "{-# DEPRECATED " <> rawMsg <> " #-}"
   pure (T.length consumed, (raw, TkPragma (PragmaDeprecated msg)))
 
+parseInlinePragma :: Text -> Maybe (Int, (Text, LexTokenKind))
+parseInlinePragma input = do
+  -- Check longer names first to avoid prefix matching issues
+  (pragmaName, body, consumed) <- stripNamedPragma ["INLINEABLE", "NOINLINEABLE", "INLINE", "NOINLINE", "CONLIKE"] input
+  let fullBody = T.stripEnd body
+      raw = "{-# " <> pragmaName <> " " <> fullBody <> " #-}"
+      pragmaKind =
+        case pragmaName of
+          "INLINE" -> PragmaInline "INLINE" fullBody
+          "INLINEABLE" -> PragmaInline "INLINEABLE" fullBody
+          "NOINLINE" -> PragmaInline "NOINLINE" fullBody
+          "NOINLINEABLE" -> PragmaInline "NOINLINEABLE" fullBody
+          "CONLIKE" -> PragmaInline "CONLIKE" fullBody
+          _ -> error "impossible"
+  pure (T.length consumed, (raw, TkPragma pragmaKind))
+
+parseUnpackPragma :: Text -> Maybe (Int, (Text, LexTokenKind))
+parseUnpackPragma input = do
+  (pragmaName, body, consumed) <- stripNamedPragma ["UNPACK", "NOUNPACK"] input
+  let targetName = T.strip body
+      raw = "{-# " <> pragmaName <> " " <> T.stripEnd body <> " #-}"
+      unpackKind =
+        case pragmaName of
+          "UNPACK" -> UnpackPragma
+          "NOUNPACK" -> NoUnpackPragma
+          _ -> error "impossible"
+      pragmaKind = PragmaUnpack unpackKind targetName
+  pure (T.length consumed, (raw, TkPragma pragmaKind))
+
+parseSourcePragma :: Text -> Maybe (Int, (Text, LexTokenKind))
+parseSourcePragma input = do
+  (_, body, consumed) <- stripNamedPragma ["SOURCE"] input
+  let txt = T.strip body
+      raw = "{-# SOURCE " <> txt <> " #-}"
+  pure (T.length consumed, (raw, TkPragma (PragmaSource txt txt)))
+
+parseUnknownPragma :: Text -> Maybe (Int, (Text, LexTokenKind))
+parseUnknownPragma input =
+  let (before, after) = T.breakOn "#-}" input
+   in if T.null after
+        then Nothing
+        else
+          let fullConsumed = T.take (T.length before + 3) input
+           in pure (T.length fullConsumed, (fullConsumed, TkPragma (PragmaUnknown fullConsumed)))
+
 stripPragma :: Text -> Text -> Maybe Text
 stripPragma name input = (\(_, body, _) -> body) <$> stripNamedPragma [name] input
 
@@ -112,7 +165,12 @@ firstMatchingPragmaName _ [] = Nothing
 firstMatchingPragmaName input (name : names) =
   let (candidate, rest) = T.splitAt (T.length name) input
    in if T.toUpper candidate == T.toUpper name
-        then Just (name, rest)
+        then
+          -- Ensure it's followed by whitespace or end of input (word boundary)
+          case rest of
+            Empty -> Just (name, rest)
+            c :< _ | isSpace c -> Just (name, rest)
+            _ -> firstMatchingPragmaName input names
         else firstMatchingPragmaName input names
 
 parseLanguagePragmaNames :: Text -> [ExtensionSetting]
