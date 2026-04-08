@@ -1534,7 +1534,7 @@ parenOrTuplePatternParser = withSpan $ do
       expectedTok closeTok
       pure (\span' -> PTuple span' tupleFlavor [])
 
-    -- | Parse a single element inside a paren/tuple/unboxed-sum pattern.
+    -- \| Parse a single element inside a paren/tuple/unboxed-sum pattern.
     -- Uses "parse as expression, then reclassify" to avoid backtracking
     -- for the common case. Pattern-only prefixes (!, ~, @) are dispatched
     -- to patternParser directly. When exprParser fails (e.g., nested parens
@@ -1552,7 +1552,7 @@ parenOrTuplePatternParser = withSpan $ do
             then patternParser
             else exprThenReclassify
 
-    -- | Try to parse as expression, then check for view pattern arrow or
+    -- \| Try to parse as expression, then check for view pattern arrow or
     -- reclassify via checkPattern. exprParser stops before '->'
     -- (TkReservedRightArrow is not an infix op), so when it succeeds we
     -- can branch without backtracking. When exprParser fails or does not
@@ -1693,7 +1693,6 @@ startsWithContextType = MP.lookAhead (go [])
         TkSpecialLBracket -> go (TkSpecialRBracket : stack)
         TkSpecialLBrace -> go (TkSpecialRBrace : stack)
         _ -> go stack
-
 
 varExprParser :: TokParser Expr
 varExprParser = withSpan $ do
