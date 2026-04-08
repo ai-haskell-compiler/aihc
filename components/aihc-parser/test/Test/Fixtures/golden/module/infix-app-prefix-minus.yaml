@@ -1,0 +1,7 @@
+extensions: []
+input: |
+  module Demo where
+  f = id $ - 1
+ast: Module {name = "Demo", decls = [DeclValue (FunctionBind "f" [Match {headForm = Prefix, rhs = UnguardedRhs (EApp (EVar "id") (ENegate (EInt 1)))}])]}
+status: xfail
+reason: Parser fails to recognize $ - as application of negated expression
