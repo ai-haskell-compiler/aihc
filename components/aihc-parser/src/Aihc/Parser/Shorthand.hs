@@ -359,7 +359,7 @@ docClassDecl cd =
   "ClassDecl" <+> braces (hsep (punctuate comma fields))
   where
     fields =
-      [field "name" (docText (classDeclName cd))]
+      [field "headForm" (docTypeHeadForm (classDeclHeadForm cd)), field "name" (docText (classDeclName cd))]
         <> optionalField "context" (brackets . hsep . punctuate comma . map docType) (classDeclContext cd)
         <> listField "params" docTyVarBinder (classDeclParams cd)
         <> listField "fundeps" docFunctionalDependency (classDeclFundeps cd)
@@ -854,7 +854,7 @@ docTypeFamilyDecl tf =
   "TypeFamilyDecl" <+> braces (hsep (punctuate comma fields))
   where
     fields =
-      [field "head" (docType (typeFamilyDeclHead tf))]
+      [field "headForm" (docTypeHeadForm (typeFamilyDeclHeadForm tf)), field "head" (docType (typeFamilyDeclHead tf))]
         <> listField "params" docTyVarBinder (typeFamilyDeclParams tf)
         <> optionalField "kind" docType (typeFamilyDeclKind tf)
         <> case typeFamilyDeclEquations tf of
@@ -867,7 +867,7 @@ docTypeFamilyEq eq =
   where
     fields =
       listField "forall" docTyVarBinder (typeFamilyEqForall eq)
-        <> [field "lhs" (docType (typeFamilyEqLhs eq)), field "rhs" (docType (typeFamilyEqRhs eq))]
+        <> [field "headForm" (docTypeHeadForm (typeFamilyEqHeadForm eq)), field "lhs" (docType (typeFamilyEqLhs eq)), field "rhs" (docType (typeFamilyEqRhs eq))]
 
 docDataFamilyDecl :: DataFamilyDecl -> Doc ann
 docDataFamilyDecl df =
@@ -884,7 +884,13 @@ docTypeFamilyInst tfi =
   where
     fields =
       listField "forall" docTyVarBinder (typeFamilyInstForall tfi)
-        <> [field "lhs" (docType (typeFamilyInstLhs tfi)), field "rhs" (docType (typeFamilyInstRhs tfi))]
+        <> [field "headForm" (docTypeHeadForm (typeFamilyInstHeadForm tfi)), field "lhs" (docType (typeFamilyInstLhs tfi)), field "rhs" (docType (typeFamilyInstRhs tfi))]
+
+docTypeHeadForm :: TypeHeadForm -> Doc ann
+docTypeHeadForm headForm =
+  case headForm of
+    TypeHeadPrefix -> "TypeHeadPrefix"
+    TypeHeadInfix -> "TypeHeadInfix"
 
 docDataFamilyInst :: DataFamilyInst -> Doc ann
 docDataFamilyInst dfi =
