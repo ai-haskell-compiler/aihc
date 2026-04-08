@@ -1,0 +1,5 @@
+extensions: [UnboxedSums, UnboxedTuples, ViewPatterns]
+input: |
+  (# | projectUnit -> y@(# #) #)
+ast: PUnboxedSum 1 2 PView (EVar "projectUnit") (PAs "y" (PTupleUnboxed []))
+status: pass

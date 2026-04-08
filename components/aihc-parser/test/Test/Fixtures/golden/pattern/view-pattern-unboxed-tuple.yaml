@@ -1,0 +1,5 @@
+extensions: [UnboxedTuples, ViewPatterns]
+input: |
+  (# project -> y #)
+ast: PTupleUnboxed [PView (EVar "project") (PVar "y")]
+status: pass

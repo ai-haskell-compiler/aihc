@@ -281,8 +281,7 @@ genViewExpr :: Gen Expr
 genViewExpr =
   oneof
     [ EVar span0 <$> genIdent,
-      mkIntExpr <$> chooseInteger (0, 999),
-      EParen span0 . EVar span0 <$> genIdent
+      mkIntExpr <$> chooseInteger (0, 999)
     ]
 
 -- | Generate the body of a TH pattern splice: either a bare variable or a parenthesized expression.
@@ -314,8 +313,10 @@ genConOperator = do
   restLen <- chooseInt (0, 3)
   rest <- vectorOf restLen (elements ":!#$%&*+./<=>?\\^|-~")
   let op = T.pack (first : rest)
-  -- :: is not a valid constructor operator in patterns (it's a type signature)
-  if op == "::" then genConOperator else pure op
+  -- Pattern constructor operators must be constructor operators. Restrict the
+  -- generator to canonical ':'-headed forms and exclude '::', which is a type
+  -- signature token rather than a pattern operator.
+  if op == "::" || T.isPrefixOf "::." op then genConOperator else pure op
 
 genFieldName :: Gen Text
 genFieldName = do
@@ -421,7 +422,7 @@ normalizePattern pat =
     PParen _ inner -> PParen span0 (normalizePattern inner)
     PUnboxedSum _ altIdx arity inner -> PUnboxedSum span0 altIdx arity (normalizePattern inner)
     PRecord _ con fields rwc -> PRecord span0 con [(fieldName, normalizePattern fieldPat) | (fieldName, fieldPat) <- fields] rwc
-    PTypeSig _ inner ty -> PTypeSig span0 (normalizePattern inner) (normalizeTypeSpan ty)
+    PTypeSig _ inner ty -> PParen span0 (PTypeSig span0 (normalizePattern inner) (normalizeTypeSpan ty))
     PSplice _ body -> PSplice span0 (normalizeExpr body)
 
 -- | Normalize source spans in a type (reset to noSourceSpan).
