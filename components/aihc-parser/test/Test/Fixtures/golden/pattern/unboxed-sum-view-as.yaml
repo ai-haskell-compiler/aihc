@@ -1,0 +1,5 @@
+extensions: [UnboxedSums, ViewPatterns]
+input: |
+  (# | a -> b@c | #)
+ast: PUnboxedSum 1 3 PView (EVar "a") (PAs "b" (PVar "c"))
+status: pass

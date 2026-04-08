@@ -1,0 +1,5 @@
+extensions: []
+input: |
+  (a,b)
+ast: PTuple [PVar "a", PVar "b"]
+status: pass
