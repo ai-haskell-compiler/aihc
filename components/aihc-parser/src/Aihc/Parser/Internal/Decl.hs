@@ -1253,15 +1253,25 @@ typeDeclHeadParser =
   MP.try infixDeclHeadParser <|> prefixDeclHeadParser
   where
     prefixDeclHeadParser = do
-      name <- constructorIdentifierParser <|> parens constructorOperatorParser
+      name <- constructorIdentifierParser <|> parens operatorTextParser
       params <- MP.many typeParamParser
       pure (name, params)
 
     infixDeclHeadParser = do
       lhs <- typeParamParser
-      op <- constructorOperatorParser
+      op <- typeSynonymOperatorParser
       rhs <- typeParamParser
       pure (op, [lhs, rhs])
+
+typeSynonymOperatorParser :: TokParser Text
+typeSynonymOperatorParser =
+  operatorTextParser <|> backtickTypeSynonymIdentifierParser
+  where
+    backtickTypeSynonymIdentifierParser = do
+      expectedTok TkSpecialBacktick
+      op <- identifierTextParser
+      expectedTok TkSpecialBacktick
+      pure op
 
 typeFamilyHeadParser :: TokParser (TypeHeadForm, Type, [TyVarBinder])
 typeFamilyHeadParser =
