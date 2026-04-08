@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Aihc.Parser.Internal.Decl
@@ -10,7 +11,7 @@ where
 
 import Aihc.Parser.Internal.Common
 import {-# SOURCE #-} Aihc.Parser.Internal.Expr (equationRhsParser, exprParser, patternParser, simplePatternParser, startsWithContextType, startsWithTypeSig, typeAppParser, typeAtomParser, typeParser)
-import Aihc.Parser.Lex (LexTokenKind (..), lexTokenKind)
+import Aihc.Parser.Lex (LexTokenKind (..), Pragma (..), lexTokenKind)
 import Aihc.Parser.Syntax
 import Aihc.Parser.Types (ParserErrorComponent (..), mkFoundToken)
 import Control.Monad (when)
@@ -23,17 +24,15 @@ import Text.Megaparsec qualified as MP
 
 languagePragmaParser :: TokParser [ExtensionSetting]
 languagePragmaParser =
-  tokenSatisfy "LANGUAGE pragma" $ \tok ->
-    case lexTokenKind tok of
-      TkPragmaLanguage names -> Just names
-      _ -> Nothing
+  hiddenPragma "LANGUAGE pragma" $ \case
+    PragmaLanguage names -> Just names
+    _ -> Nothing
 
 instanceOverlapPragmaParser :: TokParser InstanceOverlapPragma
 instanceOverlapPragmaParser =
-  tokenSatisfy "instance overlap pragma" $ \tok ->
-    case lexTokenKind tok of
-      TkPragmaInstanceOverlap pragma' -> Just pragma'
-      _ -> Nothing
+  hiddenPragma "instance overlap pragma" $ \case
+    PragmaInstanceOverlap overlapPragma -> Just overlapPragma
+    _ -> Nothing
 
 moduleHeaderParser :: TokParser ModuleHead
 moduleHeaderParser = withSpan $ do
@@ -53,11 +52,10 @@ moduleHeaderParser = withSpan $ do
 warningTextParser :: TokParser WarningText
 warningTextParser =
   withSpan $
-    tokenSatisfy "warning pragma" $ \tok ->
-      case lexTokenKind tok of
-        TkPragmaWarning msg -> Just (`WarnText` msg)
-        TkPragmaDeprecated msg -> Just (`DeprText` msg)
-        _ -> Nothing
+    hiddenPragma "warning pragma" $ \case
+      PragmaWarning msg -> Just (`WarnText` msg)
+      PragmaDeprecated msg -> Just (`DeprText` msg)
+      _ -> Nothing
 
 exportSpecListParser :: TokParser [ExportSpec]
 exportSpecListParser = parens $ exportSpecParser `MP.sepEndBy` expectedTok TkSpecialComma
@@ -195,6 +193,11 @@ exportImportNamespaceParser =
 
 declParser :: TokParser Decl
 declParser = do
+  mPragmaDecl <- MP.optional pragmaDeclParser
+  maybe ordinaryDeclParser pure mPragmaDecl
+
+ordinaryDeclParser :: TokParser Decl
+ordinaryDeclParser = do
   tok <- lookAhead anySingle
   thFullEnabled <- isExtensionEnabled TemplateHaskell
   let valueOrSpliceParser =
@@ -250,8 +253,16 @@ declParser = do
     TkPrefixTilde -> patternOrSpliceParser
     TkKeywordUnderscore -> patternOrSpliceParser
     TkTHSplice -> spliceDeclParser
-    TkPragmaDeclaration _ -> pragmaDeclParser
     _ -> typeSigOrValueOrSpliceParser
+
+-- | Parse a pragma declaration (e.g. {-# INLINE f #-}, {-# SPECIALIZE ... #-})
+pragmaDeclParser :: TokParser Decl
+pragmaDeclParser = withSpan $ do
+  pragmaText <-
+    hiddenPragma "pragma declaration" $ \case
+      PragmaUnknown text -> Just text
+      _ -> Nothing
+  pure (`DeclPragma` pragmaText)
 
 -- | Parse a top-level Template Haskell declaration splice: $expr or $(expr)
 spliceDeclParser :: TokParser Decl
@@ -267,14 +278,6 @@ spliceDeclParser = withSpan $ do
     bareSpliceBody = withSpan $ do
       name <- identifierTextParser
       pure (`EVar` name)
-
--- | Parse a pragma declaration (e.g. {-# INLINE f #-}, {-# SPECIALIZE ... #-})
-pragmaDeclParser :: TokParser Decl
-pragmaDeclParser = withSpan $ do
-  tokenSatisfy "pragma declaration" $ \tok ->
-    case lexTokenKind tok of
-      TkPragmaDeclaration text -> Just (`DeclPragma` text)
-      _ -> Nothing
 
 -- | Parse an implicit top-level Template Haskell declaration splice: @expr@.
 -- GHC accepts bare declaration splices under TemplateHaskell and also pretty-prints
@@ -791,6 +794,11 @@ classItemsBracedParser = bracedSemiSep classDeclItemParser
 
 classDeclItemParser :: TokParser ClassDeclItem
 classDeclItemParser = do
+  mPragmaItem <- MP.optional classPragmaItemParser
+  maybe ordinaryClassDeclItemParser pure mPragmaItem
+
+ordinaryClassDeclItemParser :: TokParser ClassDeclItem
+ordinaryClassDeclItemParser = do
   tok <- lookAhead anySingle
   case lexTokenKind tok of
     TkKeywordInfix -> classFixityItemParser
@@ -803,16 +811,17 @@ classDeclItemParser = do
       case lexTokenKind nextTok of
         TkKeywordInstance -> classDefaultTypeInstParser
         _ -> classTypeFamilyDeclParser
-    TkPragmaDeclaration _ -> withSpan $ do
-      pragmaText <-
-        tokenSatisfy "pragma declaration" $ \pTok ->
-          case lexTokenKind pTok of
-            TkPragmaDeclaration text -> Just text
-            _ -> Nothing
-      pure (`ClassItemPragma` pragmaText)
     _ -> do
       isSig <- startsWithTypeSig
       if isSig then classTypeSigItemParser else classDefaultItemParser
+
+classPragmaItemParser :: TokParser ClassDeclItem
+classPragmaItemParser = withSpan $ do
+  pragmaText <-
+    hiddenPragma "pragma declaration" $ \case
+      PragmaUnknown text -> Just text
+      _ -> Nothing
+  pure (`ClassItemPragma` pragmaText)
 
 classTypeSigItemParser :: TokParser ClassDeclItem
 classTypeSigItemParser = withSpan $ do
@@ -912,6 +921,11 @@ instanceItemsBracedParser = bracedSemiSep instanceDeclItemParser
 
 instanceDeclItemParser :: TokParser InstanceDeclItem
 instanceDeclItemParser = do
+  mPragmaItem <- MP.optional instancePragmaItemParser
+  maybe ordinaryInstanceDeclItemParser pure mPragmaItem
+
+ordinaryInstanceDeclItemParser :: TokParser InstanceDeclItem
+ordinaryInstanceDeclItemParser = do
   tok <- lookAhead anySingle
   case lexTokenKind tok of
     TkKeywordInfix -> instanceFixityItemParser
@@ -920,16 +934,17 @@ instanceDeclItemParser = do
     TkKeywordType -> instanceTypeFamilyInstParser
     TkKeywordData -> instanceDataFamilyInstParser
     TkKeywordNewtype -> instanceNewtypeFamilyInstParser
-    TkPragmaDeclaration _ -> withSpan $ do
-      pragmaText <-
-        tokenSatisfy "pragma declaration" $ \pTok ->
-          case lexTokenKind pTok of
-            TkPragmaDeclaration text -> Just text
-            _ -> Nothing
-      pure (`InstanceItemPragma` pragmaText)
     _ -> do
       isSig <- startsWithTypeSig
       if isSig then instanceTypeSigItemParser else instanceValueItemParser
+
+instancePragmaItemParser :: TokParser InstanceDeclItem
+instancePragmaItemParser = withSpan $ do
+  pragmaText <-
+    hiddenPragma "pragma declaration" $ \case
+      PragmaUnknown text -> Just text
+      _ -> Nothing
+  pure (`InstanceItemPragma` pragmaText)
 
 instanceTypeSigItemParser :: TokParser InstanceDeclItem
 instanceTypeSigItemParser = withSpan $ do
@@ -1442,10 +1457,9 @@ recordFieldBangTypeParser = withSpan $ do
 
 sourceUnpackednessPragmaParser :: TokParser SourceUnpackedness
 sourceUnpackednessPragmaParser =
-  tokenSatisfy "source unpack pragma" $ \tok ->
-    case lexTokenKind tok of
-      TkPragmaDeclaration text -> parseSourceUnpackednessPragma text
-      _ -> Nothing
+  hiddenPragma "source unpack pragma" $ \case
+    PragmaUnknown text -> parseSourceUnpackednessPragma text
+    _ -> Nothing
 
 parseSourceUnpackednessPragma :: Text -> Maybe SourceUnpackedness
 parseSourceUnpackednessPragma text =

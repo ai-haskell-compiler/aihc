@@ -22,6 +22,7 @@ import Aihc.Parser.Lex
   ( LayoutState (..),
     LexToken (..),
     LexTokenKind (..),
+    Pragma,
     TokenOrigin (..),
     enabledExtensionsFromSettings,
     layoutTransition,
@@ -99,6 +100,10 @@ data TokStream = TokStream
     tokStreamRawTokens :: [LexToken],
     -- | Layout engine state (context stack, pending layout, buffer).
     tokStreamLayoutState :: LayoutState,
+    -- | Hidden pragmas that appeared before the next source token.
+    -- Parsers may inspect these explicitly, but they never participate in the
+    -- ordinary token stream.
+    tokStreamPendingPragmas :: [Pragma],
     tokStreamPrevToken :: Maybe LexToken,
     tokStreamExtensions :: [Extension],
     -- | Whether this stream has already emitted TkEOF.
@@ -111,6 +116,7 @@ data TokStream = TokStream
 instance Eq TokStream where
   a == b =
     tokStreamLayoutState a == tokStreamLayoutState b
+      && tokStreamPendingPragmas a == tokStreamPendingPragmas b
       && tokStreamPrevToken a == tokStreamPrevToken b
       && tokStreamExtensions a == tokStreamExtensions b
       && tokStreamEOFEmitted a == tokStreamEOFEmitted b
@@ -125,6 +131,8 @@ instance Show TokStream where
   show ts =
     "TokStream { eofEmitted = "
       <> show (tokStreamEOFEmitted ts)
+      <> ", pendingPragmas = "
+      <> show (length (tokStreamPendingPragmas ts))
       <> ", prevToken = "
       <> show (tokStreamPrevToken ts)
       <> ", extensions = "
@@ -134,9 +142,10 @@ instance Show TokStream where
 -- Manual NFData instance — don't force the lazy raw token list.
 instance NFData TokStream where
   rnf ts =
-    rnf (tokStreamPrevToken ts) `seq`
-      rnf (tokStreamExtensions ts) `seq`
-        rnf (tokStreamEOFEmitted ts)
+    rnf (tokStreamPendingPragmas ts) `seq`
+      rnf (tokStreamPrevToken ts) `seq`
+        rnf (tokStreamExtensions ts) `seq`
+          rnf (tokStreamEOFEmitted ts)
 
 -- | An empty TokStream for error reporting purposes.
 emptyTokStream :: FilePath -> TokStream
@@ -144,6 +153,7 @@ emptyTokStream _sourcePath =
   TokStream
     { tokStreamRawTokens = [],
       tokStreamLayoutState = mkInitialLayoutState False,
+      tokStreamPendingPragmas = [],
       tokStreamPrevToken = Nothing,
       tokStreamExtensions = [],
       tokStreamEOFEmitted = True
@@ -153,26 +163,30 @@ emptyTokStream _sourcePath =
 mkTokStream :: FilePath -> [Extension] -> Text -> TokStream
 mkTokStream sourceName exts input =
   let (env, lexSt) = mkInitialLexerState sourceName exts input
-   in TokStream
-        { tokStreamRawTokens = scanAllTokens env lexSt,
-          tokStreamLayoutState = mkInitialLayoutState False,
-          tokStreamPrevToken = Nothing,
-          tokStreamExtensions = exts,
-          tokStreamEOFEmitted = False
-        }
+   in normalizeTokStream
+        TokStream
+          { tokStreamRawTokens = scanAllTokens env lexSt,
+            tokStreamLayoutState = mkInitialLayoutState False,
+            tokStreamPendingPragmas = [],
+            tokStreamPrevToken = Nothing,
+            tokStreamExtensions = exts,
+            tokStreamEOFEmitted = False
+          }
 
 -- | Create a TokStream for parsing full modules (with module-body layout).
 -- Also bootstraps LANGUAGE pragma extensions from the module header.
 mkTokStreamModule :: FilePath -> [Extension] -> Text -> TokStream
 mkTokStreamModule sourceName baseExts input =
   let (env, lexSt) = mkInitialLexerState sourceName effectiveExts input
-   in TokStream
-        { tokStreamRawTokens = scanAllTokens env lexSt,
-          tokStreamLayoutState = mkInitialLayoutState True,
-          tokStreamPrevToken = Nothing,
-          tokStreamExtensions = effectiveExts,
-          tokStreamEOFEmitted = False
-        }
+   in normalizeTokStream
+        TokStream
+          { tokStreamRawTokens = scanAllTokens env lexSt,
+            tokStreamLayoutState = mkInitialLayoutState True,
+            tokStreamPendingPragmas = [],
+            tokStreamPrevToken = Nothing,
+            tokStreamExtensions = effectiveExts,
+            tokStreamEOFEmitted = False
+          }
   where
     headerExts = enabledExtensionsFromSettings (readModuleHeaderExtensionsFromChunks [input])
     effectiveExts = baseExts <> [ext | ext <- headerExts, ext `notElem` baseExts]
@@ -182,16 +196,47 @@ mkTokStreamModule sourceName baseExts input =
 mkTokStreamFromTokens :: [LexToken] -> TokStream
 mkTokStreamFromTokens toks =
   let (env, lexSt) = mkInitialLexerState "<tokens>" [] ""
-   in TokStream
-        { tokStreamRawTokens = scanAllTokens env lexSt,
-          tokStreamLayoutState =
-            (mkInitialLayoutState False)
-              { layoutBuffer = toks
-              },
-          tokStreamPrevToken = Nothing,
-          tokStreamExtensions = [],
-          tokStreamEOFEmitted = False
-        }
+   in normalizeTokStream
+        TokStream
+          { tokStreamRawTokens = scanAllTokens env lexSt,
+            tokStreamLayoutState =
+              (mkInitialLayoutState False)
+                { layoutBuffer = toks
+                },
+            tokStreamPendingPragmas = [],
+            tokStreamPrevToken = Nothing,
+            tokStreamExtensions = [],
+            tokStreamEOFEmitted = False
+          }
+
+pragmaFromToken :: LexToken -> Maybe Pragma
+pragmaFromToken tok =
+  case lexTokenKind tok of
+    TkPragma pragma' -> Just pragma'
+    _ -> Nothing
+
+normalizeTokStream :: TokStream -> TokStream
+normalizeTokStream ts0
+  | tokStreamEOFEmitted ts0 = ts0
+  | otherwise = go ts0
+  where
+    go ts =
+      case layoutBuffer (tokStreamLayoutState ts) of
+        tok : rest
+          | Just pragma' <- pragmaFromToken tok ->
+              go
+                ts
+                  { tokStreamLayoutState = (tokStreamLayoutState ts) {layoutBuffer = rest},
+                    tokStreamPendingPragmas = tokStreamPendingPragmas ts <> [pragma']
+                  }
+          | otherwise -> ts
+        [] ->
+          case tokStreamRawTokens ts of
+            [] -> ts
+            rawTok : rawRest ->
+              let (allToks, laySt') = layoutTransition (tokStreamLayoutState ts) rawTok
+                  laySt'' = laySt' {layoutBuffer = allToks}
+               in go ts {tokStreamRawTokens = rawRest, tokStreamLayoutState = laySt''}
 
 -- | Step one token from the stream. This is the core primitive used by all
 -- Stream methods.
@@ -210,38 +255,27 @@ stepOne :: TokStream -> Maybe (LexToken, TokStream)
 stepOne ts
   | tokStreamEOFEmitted ts = Nothing
   | otherwise =
-      let laySt = tokStreamLayoutState ts
+      let ts0 = normalizeTokStream ts
+          laySt = tokStreamLayoutState ts0
        in case layoutBuffer laySt of
             -- Drain buffered tokens first (virtual braces/semicolons)
             tok : rest ->
               let isEOF = lexTokenKind tok == TkEOF
+                  pendingPragmas =
+                    case lexTokenOrigin tok of
+                      InsertedLayout -> tokStreamPendingPragmas ts0
+                      FromSource -> []
+                  ts' =
+                    ts0
+                      { tokStreamLayoutState = laySt {layoutBuffer = rest},
+                        tokStreamPendingPragmas = pendingPragmas,
+                        tokStreamPrevToken = Just tok,
+                        tokStreamEOFEmitted = isEOF
+                      }
                in Just
-                    ( tok,
-                      ts
-                        { tokStreamLayoutState = laySt {layoutBuffer = rest},
-                          tokStreamPrevToken = Just tok,
-                          tokStreamEOFEmitted = isEOF
-                        }
-                    )
+                    (tok, normalizeTokStream ts')
             [] ->
-              -- Fetch next raw token from the shared lazy list
-              case tokStreamRawTokens ts of
-                [] -> Nothing -- input exhausted & EOF already emitted
-                rawTok : rawRest ->
-                  let (allToks, laySt') = layoutTransition laySt rawTok
-                   in case allToks of
-                        [] -> Nothing -- shouldn't happen, but be safe
-                        first : bufRest ->
-                          let isEOF = lexTokenKind first == TkEOF
-                           in Just
-                                ( first,
-                                  ts
-                                    { tokStreamRawTokens = rawRest,
-                                      tokStreamLayoutState = laySt' {layoutBuffer = bufRest},
-                                      tokStreamPrevToken = Just first,
-                                      tokStreamEOFEmitted = isEOF
-                                    }
-                                )
+              Nothing
 
 instance Stream TokStream where
   type Token TokStream = LexToken

@@ -44,11 +44,7 @@ noteModuleLayoutBeforeToken st tok =
     ModuleLayoutAwaitBody -> st {layoutModuleMode = ModuleLayoutDone}
     ModuleLayoutSeekStart ->
       case lexTokenKind tok of
-        TkPragmaLanguage _ -> st
-        TkPragmaInstanceOverlap _ -> st
-        TkPragmaWarning _ -> st
-        TkPragmaDeprecated _ -> st
-        TkPragmaDeclaration _ -> st
+        TkPragma _ -> st
         TkKeywordModule -> st {layoutModuleMode = ModuleLayoutAwaitWhere}
         _ -> st {layoutModuleMode = ModuleLayoutDone, layoutPendingLayout = Just (PendingImplicitLayout LayoutOrdinary)}
     _ -> st

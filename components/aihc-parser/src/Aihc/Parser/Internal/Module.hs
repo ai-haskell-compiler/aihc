@@ -10,7 +10,7 @@ module Aihc.Parser.Internal.Module
   )
 where
 
-import Aihc.Parser.Internal.Common (TokParser, braces, expectedTok, skipSemicolons, tokenSatisfy, withSpan)
+import Aihc.Parser.Internal.Common (TokParser, braces, expectedTok, skipSemicolons, withSpan)
 import Aihc.Parser.Internal.Decl (declParser, importDeclParser, languagePragmaParser, moduleHeaderParser)
 import Aihc.Parser.Lex (LexTokenKind (..), lexTokenKind)
 import Aihc.Parser.Syntax (Decl, ImportDecl, Module (..))
@@ -24,13 +24,7 @@ data RecoverParseStep a
 
 moduleParser :: TokParser Module
 moduleParser = withSpan $ do
-  -- Skip any non-LANGUAGE pragmas before the module header (e.g. INCLUDE, OPTIONS_GHC)
-  -- These are captured as TkPragmaDeclaration tokens but belong in the file header,
-  -- not the declaration stream.
-  _ <- MP.many skipPragmaDeclToken
   languagePragmas <- MP.many (languagePragmaParser <* MP.many (expectedTok TkSpecialSemicolon))
-  -- Also skip pragmas between LANGUAGE pragmas and the module header
-  _ <- MP.many skipPragmaDeclToken
   mHeader <- MP.optional (moduleHeaderParser <* MP.many (expectedTok TkSpecialSemicolon))
   (imports, decls) <- moduleBodyParser
   pure $ \span' ->
@@ -41,15 +35,6 @@ moduleParser = withSpan $ do
         moduleImports = imports,
         moduleDecls = decls
       }
-
--- | Skip a pragma declaration token (used for file-header pragmas that aren't LANGUAGE)
-skipPragmaDeclToken :: TokParser ()
-skipPragmaDeclToken = do
-  void $
-    tokenSatisfy "pragma declaration (header)" $ \tok ->
-      case lexTokenKind tok of
-        TkPragmaDeclaration _ -> Just ()
-        _ -> Nothing
 
 moduleBodyParser :: TokParser ([ImportDecl], [Decl])
 moduleBodyParser = braces $ do

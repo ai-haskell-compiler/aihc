@@ -14,9 +14,10 @@ readModuleHeaderExtensionsFromTokens = go
   where
     go toks =
       case toks of
-        LexToken {lexTokenKind = TkPragmaLanguage settings} : rest -> settings <> go rest
-        LexToken {lexTokenKind = TkPragmaWarning _} : rest -> go rest
-        LexToken {lexTokenKind = TkPragmaDeprecated _} : rest -> go rest
+        LexToken {lexTokenKind = TkPragma (PragmaLanguage settings)} : rest -> settings <> go rest
+        LexToken {lexTokenKind = TkPragma (PragmaWarning _)} : rest -> go rest
+        LexToken {lexTokenKind = TkPragma (PragmaDeprecated _)} : rest -> go rest
+        LexToken {lexTokenKind = TkPragma (PragmaUnknown _)} : rest -> go rest
         LexToken {lexTokenKind = TkError _} : _ -> []
         _ -> []
 

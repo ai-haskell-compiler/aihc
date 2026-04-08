@@ -4,6 +4,7 @@
 
 module Aihc.Parser.Lex
   ( TokenOrigin (..),
+    Pragma (..),
     LexToken (..),
     LexTokenKind (..),
     isReservedIdentifier,

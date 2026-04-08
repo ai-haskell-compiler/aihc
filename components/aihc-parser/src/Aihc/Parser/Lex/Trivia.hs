@@ -82,7 +82,7 @@ consumeUnknownPragmaAsToken st =
         else
           let consumed = T.take (T.length inp - T.length suffix + 3) inp
               st' = advanceChars consumed st
-              tok = mkToken st st' consumed (TkPragmaDeclaration consumed)
+              tok = mkToken st st' consumed (TkPragma (PragmaUnknown consumed))
            in Just (tok, st')
 
 consumeBlockComment :: LexerState -> Maybe LexerState
