@@ -1,0 +1,264 @@
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
+
+module Aihc.Parser.Lex.Pragmas
+  ( lexKnownPragma,
+    parseControlPragma,
+    tryConsumeKnownPragma,
+  )
+where
+
+import Aihc.Parser.Lex.Types
+import Aihc.Parser.Syntax
+import Data.Char (isDigit, isSpace)
+import Data.Maybe (mapMaybe)
+import Data.Text (Text, pattern (:<))
+import Data.Text qualified as T
+import Text.Read (readMaybe)
+
+lexKnownPragma :: LexerState -> Maybe (LexToken, LexerState)
+lexKnownPragma st
+  | Just ((raw, kind), st') <- parsePragmaLike parseLanguagePragma st = Just (mkToken st st' raw kind, st')
+  | Just ((raw, kind), st') <- parsePragmaLike parseInstanceOverlapPragma st = Just (mkToken st st' raw kind, st')
+  | Just ((raw, kind), st') <- parsePragmaLike parseOptionsPragma st = Just (mkToken st st' raw kind, st')
+  | Just ((raw, kind), st') <- parsePragmaLike parseWarningPragma st = Just (mkToken st st' raw kind, st')
+  | Just ((raw, kind), st') <- parsePragmaLike parseDeprecatedPragma st = Just (mkToken st st' raw kind, st')
+  | otherwise = Nothing
+
+tryConsumeKnownPragma :: LexerState -> Maybe ()
+tryConsumeKnownPragma st =
+  case lexKnownPragma st of
+    Just _ -> Just ()
+    Nothing -> Nothing
+
+parsePragmaLike :: (Text -> Maybe (Int, (Text, LexTokenKind))) -> LexerState -> Maybe ((Text, LexTokenKind), LexerState)
+parsePragmaLike parser st = do
+  (n, out) <- parser (lexerInput st)
+  pure (out, advanceN n st)
+
+parseLanguagePragma :: Text -> Maybe (Int, (Text, LexTokenKind))
+parseLanguagePragma input = do
+  (_, body, consumed) <- stripNamedPragma ["LANGUAGE"] input
+  let names = parseLanguagePragmaNames body
+      raw = "{-# LANGUAGE " <> T.intercalate ", " (map extensionSettingName names) <> " #-}"
+  pure (T.length consumed, (raw, TkPragmaLanguage names))
+
+parseInstanceOverlapPragma :: Text -> Maybe (Int, (Text, LexTokenKind))
+parseInstanceOverlapPragma input = do
+  (pragmaName, _, consumed) <- stripNamedPragma ["OVERLAPPING", "OVERLAPPABLE", "OVERLAPS", "INCOHERENT"] input
+  overlapPragma <-
+    case pragmaName of
+      "OVERLAPPING" -> Just Overlapping
+      "OVERLAPPABLE" -> Just Overlappable
+      "OVERLAPS" -> Just Overlaps
+      "INCOHERENT" -> Just Incoherent
+      _ -> Nothing
+  let raw = "{-# " <> pragmaName <> " #-}"
+  pure (T.length consumed, (raw, TkPragmaInstanceOverlap overlapPragma))
+
+parseOptionsPragma :: Text -> Maybe (Int, (Text, LexTokenKind))
+parseOptionsPragma input = do
+  (pragmaName, body, consumed) <- stripNamedPragma ["OPTIONS_GHC", "OPTIONS"] input
+  let settings = parseOptionsPragmaSettings body
+      raw = "{-# " <> pragmaName <> " " <> T.stripEnd body <> " #-}"
+  pure (T.length consumed, (raw, TkPragmaLanguage settings))
+
+parseWarningPragma :: Text -> Maybe (Int, (Text, LexTokenKind))
+parseWarningPragma input = do
+  (_, body, consumed) <- stripNamedPragma ["WARNING"] input
+  let txt = T.strip body
+      (msg, rawMsg) =
+        case body of
+          '"' :< _ ->
+            case reads (T.unpack body) of
+              [(decoded, "")] -> (T.pack decoded, body)
+              _ -> (txt, txt)
+          _ -> (txt, txt)
+      raw = "{-# WARNING " <> rawMsg <> " #-}"
+  pure (T.length consumed, (raw, TkPragmaWarning msg))
+
+parseDeprecatedPragma :: Text -> Maybe (Int, (Text, LexTokenKind))
+parseDeprecatedPragma input = do
+  (_, body, consumed) <- stripNamedPragma ["DEPRECATED"] input
+  let txt = T.strip body
+      (msg, rawMsg) =
+        case body of
+          '"' :< _ ->
+            case reads (T.unpack body) of
+              [(decoded, "")] -> (T.pack decoded, body)
+              _ -> (txt, txt)
+          _ -> (txt, txt)
+      raw = "{-# DEPRECATED " <> rawMsg <> " #-}"
+  pure (T.length consumed, (raw, TkPragmaDeprecated msg))
+
+stripPragma :: Text -> Text -> Maybe Text
+stripPragma name input = (\(_, body, _) -> body) <$> stripNamedPragma [name] input
+
+stripNamedPragma :: [Text] -> Text -> Maybe (Text, Text, Text)
+stripNamedPragma names input = do
+  rest0 <- T.stripPrefix "{-#" input
+  let rest1 = T.dropWhile isSpace rest0
+  (name, rest2) <- firstMatchingPragmaName rest1 names
+  let rest3 = T.dropWhile isSpace rest2
+      (body, marker) = T.breakOn "#-}" rest3
+  if T.null marker
+    then Nothing
+    else
+      let consumedLen = T.length input - T.length (T.drop 3 marker)
+       in Just (name, T.stripEnd body, T.take consumedLen input)
+
+firstMatchingPragmaName :: Text -> [Text] -> Maybe (Text, Text)
+firstMatchingPragmaName _ [] = Nothing
+firstMatchingPragmaName input (name : names) =
+  let (candidate, rest) = T.splitAt (T.length name) input
+   in if T.toUpper candidate == T.toUpper name
+        then Just (name, rest)
+        else firstMatchingPragmaName input names
+
+parseLanguagePragmaNames :: Text -> [ExtensionSetting]
+parseLanguagePragmaNames body =
+  mapMaybe (parseExtensionSettingName . T.strip . T.takeWhile (/= '#')) (T.splitOn "," body)
+
+parseOptionsPragmaSettings :: Text -> [ExtensionSetting]
+parseOptionsPragmaSettings body = go (pragmaWords body)
+  where
+    go ws =
+      case ws of
+        [] -> []
+        "-cpp" : rest -> EnableExtension CPP : go rest
+        "-fffi" : rest -> EnableExtension ForeignFunctionInterface : go rest
+        "-fglasgow-exts" : rest -> glasgowExtsSettings <> go rest
+        opt : rest
+          | Just ext <- T.stripPrefix "-X" opt,
+            not (T.null ext) ->
+              case parseExtensionSettingName ext of
+                Just setting -> setting : go rest
+                Nothing -> go rest
+        _ : rest -> go rest
+
+glasgowExtsSettings :: [ExtensionSetting]
+glasgowExtsSettings =
+  map
+    EnableExtension
+    [ ConstrainedClassMethods,
+      DeriveDataTypeable,
+      DeriveFoldable,
+      DeriveFunctor,
+      DeriveGeneric,
+      DeriveTraversable,
+      EmptyDataDecls,
+      ExistentialQuantification,
+      ExplicitNamespaces,
+      FlexibleContexts,
+      FlexibleInstances,
+      ForeignFunctionInterface,
+      FunctionalDependencies,
+      GeneralizedNewtypeDeriving,
+      ImplicitParams,
+      InterruptibleFFI,
+      KindSignatures,
+      LiberalTypeSynonyms,
+      MagicHash,
+      MultiParamTypeClasses,
+      ParallelListComp,
+      PatternGuards,
+      PostfixOperators,
+      RankNTypes,
+      RecursiveDo,
+      ScopedTypeVariables,
+      StandaloneDeriving,
+      TypeOperators,
+      TypeSynonymInstances,
+      UnboxedTuples,
+      UnicodeSyntax,
+      UnliftedFFITypes
+    ]
+
+pragmaWords :: Text -> [Text]
+pragmaWords txt = go [] [] Nothing (T.unpack txt)
+  where
+    go acc current quote chars =
+      case chars of
+        [] ->
+          let acc' = pushCurrent acc current
+           in reverse acc'
+        c : rest ->
+          case quote of
+            Just q
+              | c == q -> go acc current Nothing rest
+              | c == '\\' ->
+                  case rest of
+                    escaped : rest' -> go acc (escaped : current) quote rest'
+                    [] -> go acc current quote []
+              | otherwise -> go acc (c : current) quote rest
+            Nothing
+              | c == '"' || c == '\'' -> go acc current (Just c) rest
+              | c == '\\' ->
+                  case rest of
+                    escaped : rest' -> go acc (escaped : current) Nothing rest'
+                    [] -> go acc current Nothing []
+              | c `elem` [' ', '\n', '\r', '\t'] ->
+                  let acc' = pushCurrent acc current
+                   in go acc' [] Nothing rest
+              | otherwise -> go acc (c : current) Nothing rest
+
+    pushCurrent acc current =
+      case reverse current of
+        [] -> acc
+        token -> T.pack token : acc
+
+parseControlPragma :: Text -> Maybe (Text, Either Text DirectiveUpdate)
+parseControlPragma input
+  | Just body <- stripPragma "LINE" input =
+      let ws = T.words body
+       in case ws of
+            lineNo : _
+              | T.all isDigit lineNo ->
+                  case readBoundedInt lineNo of
+                    Just parsedLine ->
+                      Just
+                        ( fullPragmaConsumed "LINE" body,
+                          Right
+                            DirectiveUpdate
+                              { directiveLine = Just parsedLine,
+                                directiveCol = Just 1,
+                                directiveSourceName = parseDirectiveSourceName (T.dropWhile isSpace (T.drop (T.length lineNo) body))
+                              }
+                        )
+                    Nothing -> Just (fullPragmaConsumed "LINE" body, Left "malformed LINE pragma")
+            _ -> Just (fullPragmaConsumed "LINE" body, Left "malformed LINE pragma")
+  | Just body <- stripPragma "COLUMN" input =
+      let ws = T.words body
+       in case ws of
+            colNo : _
+              | T.all isDigit colNo ->
+                  case readBoundedInt colNo of
+                    Just parsedCol ->
+                      Just
+                        ( fullPragmaConsumed "COLUMN" body,
+                          Right DirectiveUpdate {directiveLine = Nothing, directiveCol = Just parsedCol, directiveSourceName = Nothing}
+                        )
+                    Nothing -> Just (fullPragmaConsumed "COLUMN" body, Left "malformed COLUMN pragma")
+            _ -> Just (fullPragmaConsumed "COLUMN" body, Left "malformed COLUMN pragma")
+  | otherwise = Nothing
+
+fullPragmaConsumed :: Text -> Text -> Text
+fullPragmaConsumed name body = "{-# " <> name <> " " <> T.stripEnd body <> " #-}"
+
+parseDirectiveSourceName :: Text -> Maybe FilePath
+parseDirectiveSourceName rest =
+  let rest' = T.dropWhile isSpace rest
+   in case rest' of
+        '"' :< more ->
+          let (name, trailing) = T.break (== '"') more
+           in case trailing of
+                '"' :< _ -> Just (T.unpack name)
+                _ -> Nothing
+        _ -> Nothing
+
+readBoundedInt :: Text -> Maybe Int
+readBoundedInt txt = do
+  n <- readMaybe (T.unpack txt) :: Maybe Integer
+  if n >= fromIntegral (minBound :: Int) && n <= fromIntegral (maxBound :: Int)
+    then Just (fromInteger n)
+    else Nothing

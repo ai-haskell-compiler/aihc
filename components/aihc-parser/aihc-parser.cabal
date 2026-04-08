@@ -19,6 +19,13 @@ library
   other-modules:
       Aihc.Parser.Pretty
     , Aihc.Parser.Types
+    , Aihc.Parser.Lex.Header
+    , Aihc.Parser.Lex.Layout
+    , Aihc.Parser.Lex.Numbers
+    , Aihc.Parser.Lex.Pragmas
+    , Aihc.Parser.Lex.Quoted
+    , Aihc.Parser.Lex.Trivia
+    , Aihc.Parser.Lex.Types
     , Aihc.Parser.Internal.CheckPattern
     , Aihc.Parser.Internal.Common
     , Aihc.Parser.Internal.Expr
