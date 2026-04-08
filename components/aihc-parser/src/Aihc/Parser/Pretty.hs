@@ -993,8 +993,10 @@ data ExprCtx
   | CtxInfixLhs
   | CtxWhereBody
   | CtxAppFun
-  | CtxAppArg  -- ^ Last argument position in an application chain
-  | CtxAppArgNoParens  -- ^ Last argument position with block expr (no parens needed)
+  | -- | Last argument position in an application chain
+    CtxAppArg
+  | -- | Last argument position with block expr (no parens needed)
+    CtxAppArgNoParens
   | CtxTypeSigBody
   | CtxGuarded
 
@@ -1012,7 +1014,7 @@ exprCtxPrec ctx expr =
     CtxWhereBody -> 0
     CtxAppFun -> 2
     CtxAppArg -> 3
-    CtxAppArgNoParens -> 0  -- Precedence 0 so EIf/ECase/etc don't add parens
+    CtxAppArgNoParens -> 0 -- Precedence 0 so EIf/ECase/etc don't add parens
     CtxTypeSigBody -> 1
     CtxGuarded -> 0
 
