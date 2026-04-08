@@ -1019,7 +1019,7 @@ needsExprParens ctx expr =
       case expr of
         ETypeSig {} -> True
         ENegate {} -> True
-        _ -> False
+        _ -> isOpenEnded expr
     CtxWhereBody ->
       case expr of
         ENegate {} -> True
@@ -1042,7 +1042,7 @@ needsExprParens ctx expr =
         ENegate {} -> True
         ETypeSig {} -> True
         ELambdaPats {} -> True
-        _ -> False
+        _ -> isOpenEnded expr
     CtxGuarded -> isGreedyExpr expr
 
 -- | Check if an expression is a "block expression" that can appear without
@@ -1062,6 +1062,9 @@ isBlockExpr = \case
 
 -- | Check if an expression is "greedy" - i.e., it could consume trailing syntax.
 -- These expressions may need special handling in certain contexts.
+-- With BlockArguments, an application whose last argument is an open-ended
+-- block expression is itself greedy, because the argument is printed without
+-- parens and its rightmost component can capture trailing syntax.
 isGreedyExpr :: Expr -> Bool
 isGreedyExpr = \case
   ECase {} -> True
@@ -1072,6 +1075,7 @@ isGreedyExpr = \case
   EWhereDecls {} -> True
   EDo {} -> True
   EProc {} -> True
+  EApp _ _ arg | isBlockExpr arg -> isOpenEnded arg
   _ -> False
 
 -- | Print an expression in a "guarded" context where greedy expressions
@@ -1083,6 +1087,9 @@ prettyExprGuarded = prettyExprIn CtxGuarded
 -- capture a trailing where clause. This includes:
 -- - Directly open-ended expressions (if, lambda, let)
 -- - Infix expressions whose RHS is open-ended (recursively)
+-- - Application chains whose last argument is a block expression that is
+--   itself open-ended (with BlockArguments, the last arg is printed without
+--   parens, so its open-endedness propagates to the application)
 -- Brace-terminated expressions (do, case, \case) are NOT open-ended because
 -- their explicit braces delimit them.
 isOpenEnded :: Expr -> Bool
@@ -1093,6 +1100,7 @@ isOpenEnded = \case
   EWhereDecls {} -> True
   EProc {} -> True
   EInfix _ _ _ rhs -> isOpenEnded rhs
+  EApp _ _ arg | isBlockExpr arg -> isOpenEnded arg
   _ -> False
 
 -- | Print the body of a where expression.
@@ -1150,7 +1158,7 @@ prettyAppsChain prec expr =
     -- parentheses from the expression's own parenthesization logic.
     argCtx True a | isBlockExpr a = CtxAppArgNoParens
     argCtx True _ = CtxAppArg
-    argCtx False _ = CtxAppFun
+    argCtx False _ = CtxAppArg
 
     markLast [] = []
     markLast [x] = [(True, x)]
