@@ -8,6 +8,10 @@ module Aihc.Parser.Lex
     PragmaUnpackKind (..),
     LexToken (..),
     LexTokenKind (..),
+    pattern TkVarRole,
+    pattern TkVarFamily,
+    pattern TkVarPattern,
+    pattern TkVarInstance,
     isReservedIdentifier,
     readModuleHeaderExtensions,
     readModuleHeaderExtensionsFromChunks,
@@ -629,7 +633,7 @@ unicodeOpTokenKind hasArrows txt firstChar
   | txt == "⇒" = TkReservedDoubleArrow
   | txt == "→" = TkReservedRightArrow
   | txt == "←" = TkReservedLeftArrow
-  | txt == "∀" = TkVarId "forall"
+  | txt == "∀" = TkKeywordForall
   | txt == "★" = TkVarSym "*"
   | txt == "⤙" = if hasArrows then TkArrowTail else TkVarSym "-<"
   | txt == "⤚" = if hasArrows then TkArrowTailReverse else TkVarSym ">-"
@@ -966,6 +970,7 @@ keywordTokenKind txt =
     "deriving" -> Just TkKeywordDeriving
     "do" -> Just TkKeywordDo
     "else" -> Just TkKeywordElse
+    "forall" -> Just TkKeywordForall
     "foreign" -> Just TkKeywordForeign
     "if" -> Just TkKeywordIf
     "import" -> Just TkKeywordImport

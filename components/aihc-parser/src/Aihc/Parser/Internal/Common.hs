@@ -4,7 +4,6 @@ module Aihc.Parser.Internal.Common
   ( TokParser,
     label,
     region,
-    keywordTok,
     expectedTok,
     eofTok,
     varIdTok,
@@ -99,11 +98,6 @@ region context =
               MPE.ErrorCustom (UnexpectedTokenExpecting found expecting (contexts <> [context]))
         _ -> fancyErr
 
-keywordTok :: LexTokenKind -> TokParser ()
-keywordTok expected =
-  tokenSatisfy ("keyword " <> renderKeyword expected) $ \tok ->
-    if lexTokenKind tok == expected then Just () else Nothing
-
 -- | Match a specific token kind exactly.
 expectedTok :: LexTokenKind -> TokParser ()
 expectedTok expected =
@@ -173,6 +167,23 @@ renderTokenKind tk = case tk of
   TkImplicitParam name -> "implicit parameter " <> show name
   TkVarSym op -> "operator '" <> show op <> "'"
   TkConSym op -> "operator '" <> show op <> "'"
+  TkKeywordModule -> "keyword 'module'"
+  TkKeywordWhere -> "keyword 'where'"
+  TkKeywordDo -> "keyword 'do'"
+  TkKeywordData -> "keyword 'data'"
+  TkKeywordImport -> "keyword 'import'"
+  TkKeywordQualified -> "keyword 'qualified'"
+  TkKeywordAs -> "keyword 'as'"
+  TkKeywordHiding -> "keyword 'hiding'"
+  TkKeywordCase -> "keyword 'case'"
+  TkKeywordOf -> "keyword 'of'"
+  TkKeywordLet -> "keyword 'let'"
+  TkKeywordIn -> "keyword 'in'"
+  TkKeywordIf -> "keyword 'if'"
+  TkKeywordThen -> "keyword 'then'"
+  TkKeywordElse -> "keyword 'else'"
+  TkKeywordProc -> "keyword 'proc'"
+  TkKeywordRec -> "keyword 'rec'"
   _ -> show tk
 
 tokenSatisfy :: String -> (LexToken -> Maybe a) -> TokParser a
@@ -680,28 +691,6 @@ functionBindValue span' headForm name pats rhs =
 functionBindDecl :: SourceSpan -> MatchHeadForm -> Text -> [Pattern] -> Rhs -> Decl
 functionBindDecl span' headForm name pats rhs =
   DeclValue span' (functionBindValue span' headForm name pats rhs)
-
-renderKeyword :: LexTokenKind -> String
-renderKeyword keyword =
-  case keyword of
-    TkKeywordModule -> "'module'"
-    TkKeywordWhere -> "'where'"
-    TkKeywordDo -> "'do'"
-    TkKeywordData -> "'data'"
-    TkKeywordImport -> "'import'"
-    TkKeywordQualified -> "'qualified'"
-    TkKeywordAs -> "'as'"
-    TkKeywordHiding -> "'hiding'"
-    TkKeywordCase -> "'case'"
-    TkKeywordOf -> "'of'"
-    TkKeywordLet -> "'let'"
-    TkKeywordIn -> "'in'"
-    TkKeywordIf -> "'if'"
-    TkKeywordThen -> "'then'"
-    TkKeywordElse -> "'else'"
-    TkKeywordProc -> "'proc'"
-    TkKeywordRec -> "'rec'"
-    _ -> "keyword"
 
 isModuleName :: Text -> Bool
 isModuleName name =

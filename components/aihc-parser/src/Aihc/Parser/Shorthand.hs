@@ -717,6 +717,7 @@ docTokenKind kind =
     TkKeywordDeriving -> "TkKeywordDeriving"
     TkKeywordDo -> "TkKeywordDo"
     TkKeywordElse -> "TkKeywordElse"
+    TkKeywordForall -> "TkKeywordForall"
     TkKeywordForeign -> "TkKeywordForeign"
     TkKeywordIf -> "TkKeywordIf"
     TkKeywordImport -> "TkKeywordImport"

@@ -107,19 +107,19 @@ ifExprParser = do
 
 classicIfExprParser :: TokParser Expr
 classicIfExprParser = withSpan $ do
-  keywordTok TkKeywordIf
+  expectedTok TkKeywordIf
   cond <- region "while parsing if condition" exprParser
   skipSemicolons
-  keywordTok TkKeywordThen
+  expectedTok TkKeywordThen
   yes <- region "while parsing then branch" exprParser
   skipSemicolons
-  keywordTok TkKeywordElse
+  expectedTok TkKeywordElse
   no <- region "while parsing else branch" exprParser
   pure (\span' -> EIf span' cond yes no)
 
 multiWayIfExprParser :: TokParser Expr
 multiWayIfExprParser = withSpan $ do
-  keywordTok TkKeywordIf
+  expectedTok TkKeywordIf
   rhss <- braces (MP.some multiWayIfAlternative)
   pure (`EMultiWayIf` rhss)
 
@@ -138,13 +138,13 @@ multiWayIfAlternative = withSpan $ do
 
 doExprParser :: TokParser Expr
 doExprParser = withSpan $ do
-  keywordTok TkKeywordDo
+  expectedTok TkKeywordDo
   stmts <- bracedStmtListParser doStmtParser
   pure (\span' -> EDo span' stmts False)
 
 mdoExprParser :: TokParser Expr
 mdoExprParser = withSpan $ do
-  keywordTok TkKeywordMdo
+  expectedTok TkKeywordMdo
   stmts <- bracedStmtListParser doStmtParser
   pure (\span' -> EDo span' stmts True)
 
@@ -154,7 +154,7 @@ mdoExprParser = withSpan $ do
 -- @do { cmd1 } \<+\> do { cmd2 }@) and arrow application (@-<@, @-<<@).
 procExprParser :: TokParser Expr
 procExprParser = withSpan $ do
-  keywordTok TkKeywordProc
+  expectedTok TkKeywordProc
   pat <- region "while parsing proc pattern" simplePatternParser
   expectedTok TkReservedRightArrow
   body <- region "while parsing proc body" cmdParser
@@ -229,29 +229,29 @@ cmdInfixChain lhs = do
 -- | Parse a command do-block: @do { cstmt ; ... }@
 cmdDoParser :: TokParser Cmd
 cmdDoParser = withSpan $ do
-  keywordTok TkKeywordDo
+  expectedTok TkKeywordDo
   stmts <- bracedStmtListParser cmdStmtParser
   pure (`CmdDo` stmts)
 
 -- | Parse a command if-then-else: @if exp then cmd else cmd@
 cmdIfParser :: TokParser Cmd
 cmdIfParser = withSpan $ do
-  keywordTok TkKeywordIf
+  expectedTok TkKeywordIf
   cond <- region "while parsing if condition" exprParser
   skipSemicolons
-  keywordTok TkKeywordThen
+  expectedTok TkKeywordThen
   yes <- region "while parsing then branch" cmdParser
   skipSemicolons
-  keywordTok TkKeywordElse
+  expectedTok TkKeywordElse
   no <- region "while parsing else branch" cmdParser
   pure (\span' -> CmdIf span' cond yes no)
 
 -- | Parse a command case: @case exp of { calts }@
 cmdCaseParser :: TokParser Cmd
 cmdCaseParser = withSpan $ do
-  keywordTok TkKeywordCase
+  expectedTok TkKeywordCase
   scrut <- region "while parsing case scrutinee" exprParser
-  keywordTok TkKeywordOf
+  expectedTok TkKeywordOf
   alts <- bracedSemiSep1 cmdCaseAltParser
   pure (\span' -> CmdCase span' scrut alts)
 
@@ -266,7 +266,7 @@ cmdCaseAltParser = withSpan $ do
 cmdLetParser :: TokParser Cmd
 cmdLetParser = withSpan $ do
   decls <- parseLetDeclsParser
-  keywordTok TkKeywordIn
+  expectedTok TkKeywordIn
   body <- cmdParser
   pure (\span' -> CmdLet span' decls body)
 
@@ -385,7 +385,7 @@ cmdLetStmtParser = withSpan $ do
 -- | Parse a command rec-statement: @rec { cstmts }@
 cmdRecStmtParser :: TokParser (DoStmt Cmd)
 cmdRecStmtParser = withSpan $ do
-  keywordTok TkKeywordRec
+  expectedTok TkKeywordRec
   stmts <- bracedStmtListParser cmdStmtParser
   pure (`DoRecStmt` stmts)
 
@@ -454,13 +454,13 @@ doPatBindStmtParser = withSpan $ do
 
 parseLetDeclsParser :: TokParser [Decl]
 parseLetDeclsParser = do
-  keywordTok TkKeywordLet
+  expectedTok TkKeywordLet
   bracedDeclsParser <|> plainDeclsParser
 
 parseLetDeclsStmtParser :: TokParser [Decl]
 parseLetDeclsStmtParser = do
   decls <- parseLetDeclsParser
-  MP.notFollowedBy (keywordTok TkKeywordIn)
+  MP.notFollowedBy (expectedTok TkKeywordIn)
   pure decls
 
 doLetStmtParser :: TokParser (DoStmt Expr)
@@ -472,7 +472,7 @@ doLetStmtParser = withSpan $ do
 -- @rec { stmt ; ... ; stmt }@ introduces recursive bindings.
 doRecStmtParser :: TokParser (DoStmt Expr)
 doRecStmtParser = withSpan $ do
-  keywordTok TkKeywordRec
+  expectedTok TkKeywordRec
   stmts <- bracedStmtListParser doStmtParser
   pure (`DoRecStmt` stmts)
 
@@ -490,16 +490,8 @@ infixExprParserExcept forbidden = do
 -- | Parse an lexp (left-expression) - includes do, if, case, let, lambda, and fexp.
 -- This is used on both sides of infix operators per the Haskell Report grammar.
 lexpParser :: TokParser Expr
-lexpParser = do
-  tok <- lookAhead anySingle
-  case lexTokenKind tok of
-    TkKeywordDo -> doExprParser
-    TkKeywordIf -> ifExprParser
-    TkKeywordCase -> caseExprParser
-    TkKeywordLet -> letExprParser
-    TkKeywordProc -> procExprParser
-    TkReservedBackslash -> lambdaExprParser
-    _ -> appExprParser
+lexpParser =
+  doExprParser <|> ifExprParser <|> caseExprParser <|> letExprParser <|> procExprParser <|> lambdaExprParser <|> appExprParser
 
 buildInfix :: Expr -> (Text, Expr) -> Expr
 buildInfix lhs (op, rhs) =
@@ -879,7 +871,7 @@ negativeLiteralPatternParser = MP.try $ withSpan $ do
 
 wildcardPatternParser :: TokParser Pattern
 wildcardPatternParser = withSpan $ do
-  keywordTok TkKeywordUnderscore
+  expectedTok TkKeywordUnderscore
   pure PWildcard
 
 literalPatternParser :: TokParser Pattern
@@ -1064,9 +1056,9 @@ caseAltParser = withSpan $ do
 
 caseExprParser :: TokParser Expr
 caseExprParser = withSpan $ do
-  keywordTok TkKeywordCase
+  expectedTok TkKeywordCase
   scrutinee <- region "while parsing case expression" exprParser
-  keywordTok TkKeywordOf
+  expectedTok TkKeywordOf
   alts <- bracedAlts <|> plainAlts
   pure $ \span' -> ECase span' scrutinee alts
   where
@@ -1269,13 +1261,7 @@ listExprParser = withSpan $ do
       parseListTail first
 
 parseListTail :: Expr -> TokParser (SourceSpan -> Expr)
-parseListTail first = do
-  tok <- lookAhead anySingle
-  case lexTokenKind tok of
-    TkReservedPipe -> listCompTailParser
-    TkReservedDotDot -> arithFromToTailParser
-    TkSpecialComma -> commaTailParser
-    _ -> singletonTailParser
+parseListTail first = listCompTailParser <|> arithFromToTailParser <|> commaTailParser <|> singletonTailParser
   where
     -- Parse list comprehension qualifiers, which can be:
     -- - Regular: [ expr | qual1, qual2, qual3 ]
@@ -1304,10 +1290,7 @@ parseListTail first = do
     commaTailParser = do
       expectedTok TkSpecialComma
       second <- exprParser
-      nextTok <- lookAhead anySingle
-      case lexTokenKind nextTok of
-        TkReservedDotDot -> arithFromThenTailParser second
-        _ -> listTailParser second
+      arithFromThenTailParser second <|> listTailParser second
 
     arithFromThenTailParser second = do
       expectedTok TkReservedDotDot
@@ -1381,7 +1364,7 @@ lambdaExprParser = withSpan $ do
   lambdaCaseParser <|> lambdaPatsParser
   where
     lambdaCaseParser = do
-      keywordTok TkKeywordCase
+      expectedTok TkKeywordCase
       alts <- bracedAlts
       pure (`ELambdaCase` alts)
 
@@ -1396,13 +1379,13 @@ lambdaExprParser = withSpan $ do
 letExprParser :: TokParser Expr
 letExprParser = withSpan $ do
   decls <- parseLetDeclsParser
-  keywordTok TkKeywordIn
+  expectedTok TkKeywordIn
   body <- exprParser
   pure (\span' -> ELetDecls span' decls body)
 
 whereClauseParser :: TokParser [Decl]
 whereClauseParser = do
-  keywordTok TkKeywordWhere
+  expectedTok TkKeywordWhere
   bracedDeclsParser <|> plainDeclsParser
 
 plainDeclsParser :: TokParser [Decl]
@@ -1735,7 +1718,7 @@ implicitParamExprParser = withSpan $ do
 -- like @_ <- action@ without falling back to a separate pattern parser.
 wildcardExprParser :: TokParser Expr
 wildcardExprParser = withSpan $ do
-  keywordTok TkKeywordUnderscore
+  expectedTok TkKeywordUnderscore
   pure (`EVar` "_")
 
 -- | Parse Template Haskell quote brackets:
@@ -1787,11 +1770,7 @@ thPatQuoteParser = withSpan $ do
 -- | Parse Template Haskell splice expressions: $expr, $(expr), $$expr, $$(expr)
 -- The token kind (@TkTHTypedSplice@ vs @TkTHSplice@) fully disambiguates.
 thSpliceExprParser :: TokParser Expr
-thSpliceExprParser = do
-  tok <- lookAhead anySingle
-  case lexTokenKind tok of
-    TkTHTypedSplice -> thTypedSpliceParser
-    _ -> thUntypedSpliceParser
+thSpliceExprParser = thTypedSpliceParser <|> thUntypedSpliceParser
 
 -- | Parse untyped TH splice: $name or $(expr)
 thUntypedSpliceParser :: TokParser Expr
@@ -1822,11 +1801,7 @@ thSpliceBody =
 -- | Parse Template Haskell name quotes: 'name and ''Type
 -- The token kind (@TkTHQuoteTick@ vs @TkTHTypeQuoteTick@) fully disambiguates.
 thNameQuoteExprParser :: TokParser Expr
-thNameQuoteExprParser = do
-  tok <- lookAhead anySingle
-  case lexTokenKind tok of
-    TkTHQuoteTick -> thValueNameQuoteParser
-    _ -> thTypeNameQuoteParser
+thNameQuoteExprParser = thValueNameQuoteParser <|> thTypeNameQuoteParser
 
 thValueNameQuoteParser :: TokParser Expr
 thValueNameQuoteParser = withSpan $ do
@@ -1879,11 +1854,7 @@ simplePatternParser =
     <|> patternAtomParser
 
 typeParser :: TokParser Type
-typeParser = label "type" $ do
-  tok <- lookAhead anySingle
-  case lexTokenKind tok of
-    TkVarId "forall" -> forallTypeParser
-    _ -> contextOrFunTypeParser
+typeParser = label "type" $ forallTypeParser <|> contextOrFunTypeParser
 
 contextOrFunTypeParser :: TokParser Type
 contextOrFunTypeParser = do
@@ -1892,7 +1863,7 @@ contextOrFunTypeParser = do
 
 forallTypeParser :: TokParser Type
 forallTypeParser = withSpan $ do
-  varIdTok "forall"
+  expectedTok TkKeywordForall
   binders <- MP.some identifierTextParser
   expectedTok (TkVarSym ".")
   inner <- contextOrFunTypeParser
@@ -1983,11 +1954,7 @@ typeInfixOperatorParser =
 
     promotedInfixOperatorParser = MP.try $ do
       -- Accept both TkVarSym "'" and TkTHQuoteTick for promoted cons
-      tok <- lookAhead anySingle
-      _ <- case lexTokenKind tok of
-        TkVarSym "'" -> anySingle
-        TkTHQuoteTick -> anySingle
-        _ -> fail "expected quote for promoted cons"
+      expectedTok (TkVarSym "'") <|> expectedTok TkTHQuoteTick <|> fail "expected quote for promoted cons"
       expectedTok TkReservedColon
       pure (":", Promoted)
 
@@ -2035,11 +2002,7 @@ promotedTypeParser :: TokParser Type
 promotedTypeParser = withSpan $ do
   -- Accept both TkVarSym "'" and TkTHQuoteTick for promoted types
   -- This handles ambiguity between TH value quotes and promoted types
-  tok <- lookAhead anySingle
-  _ <- case lexTokenKind tok of
-    TkVarSym "'" -> anySingle
-    TkTHQuoteTick -> anySingle
-    _ -> fail "expected quote for promotion"
+  expectedTok (TkVarSym "'") <|> expectedTok TkTHQuoteTick <|> fail "expected quote for promotion"
   promotedTy <- MP.try promotedStructuredTypeParser <|> promotedRawTypeParser
   pure (`setTypeSpan` promotedTy)
 

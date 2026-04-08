@@ -1,5 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 module Aihc.Parser.Internal.Decl
   ( declParser,
@@ -11,7 +12,7 @@ where
 
 import Aihc.Parser.Internal.Common
 import {-# SOURCE #-} Aihc.Parser.Internal.Expr (equationRhsParser, exprParser, patternParser, simplePatternParser, startsWithContextType, startsWithTypeSig, typeAppParser, typeAtomParser, typeParser)
-import Aihc.Parser.Lex (LexTokenKind (..), lexTokenKind)
+import Aihc.Parser.Lex (LexTokenKind (..), lexTokenKind, pattern TkVarFamily, pattern TkVarPattern, pattern TkVarRole)
 import Aihc.Parser.Syntax
 import Aihc.Parser.Types (ParserErrorComponent (..), mkFoundToken)
 import Control.Monad (when)
@@ -39,11 +40,11 @@ anyPragmaParser expectedLabel = hiddenPragma expectedLabel Just
 
 moduleHeaderParser :: TokParser ModuleHead
 moduleHeaderParser = withSpan $ do
-  keywordTok TkKeywordModule
+  expectedTok TkKeywordModule
   name <- moduleNameParser
   mWarning <- MP.optional warningTextParser
   exports <- MP.optional exportSpecListParser
-  keywordTok TkKeywordWhere
+  expectedTok TkKeywordWhere
   pure $ \span' ->
     ModuleHead
       { moduleHeadSpan = span',
@@ -66,14 +67,11 @@ exportSpecListParser = parens $ exportSpecParser `MP.sepEndBy` expectedTok TkSpe
 exportSpecParser :: TokParser ExportSpec
 exportSpecParser = withSpan $ do
   mWarning <- MP.optional warningTextParser
-  tok <- lookAhead anySingle
-  case lexTokenKind tok of
-    TkKeywordModule -> exportModuleParser mWarning
-    _ -> exportNameParser mWarning
+  exportModuleParser mWarning <|> exportNameParser mWarning
 
 exportModuleParser :: Maybe WarningText -> TokParser (SourceSpan -> ExportSpec)
 exportModuleParser mWarning = do
-  keywordTok TkKeywordModule
+  expectedTok TkKeywordModule
   modName <- moduleNameParser
   pure $ \span' -> ExportModule span' mWarning modName
 
@@ -112,9 +110,9 @@ isTypeName txt =
 
 importDeclParser :: TokParser ImportDecl
 importDeclParser = withSpan $ do
-  keywordTok TkKeywordImport
+  expectedTok TkKeywordImport
   preQualified <-
-    MP.option False (keywordTok TkKeywordQualified >> pure True)
+    MP.option False (expectedTok TkKeywordQualified >> pure True)
   importedLevel <- MP.optional importLevelParser
   importedPackage <- MP.optional packageNameParser
   importedModule <- moduleNameParser
@@ -129,7 +127,7 @@ importDeclParser = withSpan $ do
           unexpectedExpecting = "import declaration without duplicate 'qualified'",
           unexpectedContext = []
         }
-  importAlias <- MP.optional (keywordTok TkKeywordAs *> moduleNameParser)
+  importAlias <- MP.optional (expectedTok TkKeywordAs *> moduleNameParser)
   importSpec <- MP.optional importSpecParser
   let isQualified = preQualified || isJust postQualified
   pure $ \span' ->
@@ -155,7 +153,7 @@ packageNameParser = stringTextParser
 importSpecParser :: TokParser ImportSpec
 importSpecParser = withSpan $ do
   isHiding <-
-    MP.option False (keywordTok TkKeywordHiding >> pure True)
+    MP.option False (expectedTok TkKeywordHiding >> pure True)
   items <- parens $ importItemParser `MP.sepEndBy` expectedTok TkSpecialComma
   pure $ \span' ->
     ImportSpec
@@ -188,13 +186,13 @@ importOperatorParser = operatorTextParser
 
 exportImportNamespaceParser :: TokParser Text
 exportImportNamespaceParser =
-  (keywordTok TkKeywordType >> pure "type")
+  (expectedTok TkKeywordType >> pure "type")
     <|> patternNamespaceParser
   where
     patternNamespaceParser = do
       patSynEnabled <- isExtensionEnabled PatternSynonyms
       if patSynEnabled
-        then varIdTok "pattern" >> pure "pattern"
+        then expectedTok TkVarPattern >> pure "pattern"
         else MP.empty
 
 declParser :: TokParser Decl
@@ -204,7 +202,7 @@ declParser = do
 
 ordinaryDeclParser :: TokParser Decl
 ordinaryDeclParser = do
-  tok <- lookAhead anySingle
+  (tok, nextTok) <- lookAhead ((,) <$> anySingle <*> anySingle)
   thFullEnabled <- isExtensionEnabled TemplateHaskell
   let valueOrSpliceParser =
         if thFullEnabled
@@ -219,10 +217,9 @@ ordinaryDeclParser = do
       typeSigOrPatternOrValueOrSpliceParser =
         MP.try typeSigDeclParser <|> patternOrSpliceParser <|> valueOrSpliceParser
   case lexTokenKind tok of
-    TkKeywordData -> do
-      nextTok <- lookAhead (anySingle *> anySingle)
+    TkKeywordData ->
       case lexTokenKind nextTok of
-        TkVarId "family" -> dataFamilyDeclParser
+        TkVarFamily -> dataFamilyDeclParser
         TkKeywordInstance -> dataFamilyInstParser
         _ -> dataDeclParser
     TkKeywordClass -> classDeclParser
@@ -233,27 +230,17 @@ ordinaryDeclParser = do
     TkKeywordInfixl -> fixityDeclParser InfixL
     TkKeywordInfixr -> fixityDeclParser InfixR
     TkKeywordInstance -> instanceDeclParser
-    TkKeywordNewtype -> do
-      nextTok <- lookAhead (anySingle *> anySingle)
+    TkKeywordNewtype
+      | lexTokenKind nextTok == TkKeywordInstance -> newtypeFamilyInstParser
+    TkKeywordNewtype -> newtypeDeclParser
+    TkKeywordType ->
       case lexTokenKind nextTok of
-        TkKeywordInstance -> newtypeFamilyInstParser
-        _ -> newtypeDeclParser
-    TkKeywordType -> do
-      nextTok <- lookAhead (anySingle *> anySingle)
-      case lexTokenKind nextTok of
-        TkVarId "role" -> roleAnnotationDeclParser
-        TkVarId "family" -> typeFamilyDeclParser
+        TkVarRole -> roleAnnotationDeclParser
+        TkVarFamily -> typeFamilyDeclParser
         TkKeywordData -> typeDataDeclParser
         TkKeywordInstance -> typeFamilyInstParser
         _ -> typeDeclarationParser
-    TkVarId ident ->
-      case ident of
-        "pattern" -> patternSynonymParser
-        _ -> typeSigOrValueOrSpliceParser
-    TkConId ident ->
-      case ident of
-        "pattern" -> patternSynonymParser
-        _ -> typeSigOrValueOrSpliceParser
+    TkVarPattern -> patternSynonymParser
     TkSpecialLParen -> typeSigOrPatternOrValueOrSpliceParser
     TkSpecialLBracket -> patternOrSpliceParser
     TkPrefixTilde -> patternOrSpliceParser
@@ -297,7 +284,7 @@ implicitSpliceDeclParser = withSpan $ do
 -- - @=@ → type synonym
 typeDeclarationParser :: TokParser Decl
 typeDeclarationParser = withSpan $ do
-  keywordTok TkKeywordType
+  expectedTok TkKeywordType
   (typeName, typeParams) <- typeDeclHeadParser
   nextTok <- anySingle
   case lexTokenKind nextTok of
@@ -325,8 +312,8 @@ typeDeclarationParser = withSpan $ do
 
 roleAnnotationDeclParser :: TokParser Decl
 roleAnnotationDeclParser = withSpan $ do
-  keywordTok TkKeywordType
-  varIdTok "role"
+  expectedTok TkKeywordType
+  expectedTok TkVarRole
   typeName <- constructorIdentifierParser
   roles <- MP.some roleParser
   pure $ \span' ->
@@ -343,30 +330,13 @@ roleParser =
   (varIdTok "nominal" >> pure RoleNominal)
     <|> (varIdTok "representational" >> pure RoleRepresentational)
     <|> (varIdTok "phantom" >> pure RolePhantom)
-    <|> (keywordTok TkKeywordUnderscore >> pure RoleInfer)
+    <|> (expectedTok TkKeywordUnderscore >> pure RoleInfer)
 
 -- ---------------------------------------------------------------------------
 -- TypeFamilies: shared helpers
 
--- | Non-consuming lookahead dispatch for optional @forall@ binders.
--- If the next token is @forall@, runs the given parser; otherwise returns @[]@.
--- Eliminates 'MP.try' by checking the leading token before committing.
 forallPrefixDispatch :: TokParser [a] -> TokParser [a]
-forallPrefixDispatch forallParser = do
-  tok <- lookAhead anySingle
-  case lexTokenKind tok of
-    TkVarId "forall" -> forallParser
-    _ -> pure []
-
--- | Non-consuming lookahead dispatch for GADT-vs-traditional data declarations.
--- @where@ → GADT style, anything else → traditional style.
--- Eliminates 'MP.try' by checking a single token before committing.
-gadtOrTraditionalDispatch :: TokParser a -> TokParser a -> TokParser a
-gadtOrTraditionalDispatch gadtParser traditionalParser = do
-  tok <- lookAhead anySingle
-  case lexTokenKind tok of
-    TkKeywordWhere -> gadtParser
-    _ -> traditionalParser
+forallPrefixDispatch forallParser = forallParser <|> pure []
 
 -- | Non-consuming lookahead dispatch for optional declaration contexts.
 -- Uses 'startsWithContextType' to probe for @=>@ at top bracket depth.
@@ -392,7 +362,7 @@ contextPrefixDispatchList = do
 -- Handles @forall a (b :: Kind).@ syntax.
 typeFamilyForallParser :: TokParser [TyVarBinder]
 typeFamilyForallParser = do
-  varIdTok "forall"
+  expectedTok TkKeywordForall
   binders <- MP.some typeParamParser
   expectedTok (TkVarSym ".")
   pure binders
@@ -401,7 +371,7 @@ typeFamilyForallParser = do
 -- Handles @forall a (b :: Kind).@ syntax.
 instanceForallParser :: TokParser [TyVarBinder]
 instanceForallParser = do
-  varIdTok "forall"
+  expectedTok TkKeywordForall
   binders <- MP.some typeParamParser
   expectedTok (TkVarSym ".")
   pure binders
@@ -417,8 +387,8 @@ familyResultKindParser =
 -- | Parse @type family Name params [:: Kind] [where { equations }]@
 typeFamilyDeclParser :: TokParser Decl
 typeFamilyDeclParser = withSpan $ do
-  keywordTok TkKeywordType
-  varIdTok "family"
+  expectedTok TkKeywordType
+  expectedTok TkVarFamily
   headType <- withSpan $ do
     name <- constructorIdentifierParser
     pure (\span' -> TCon span' name Unpromoted)
@@ -465,7 +435,7 @@ typeFamilyEqParser = withSpan $ do
 -- | Parse @data family Name params [:: Kind]@
 dataFamilyDeclParser :: TokParser Decl
 dataFamilyDeclParser = withSpan $ do
-  keywordTok TkKeywordData
+  expectedTok TkKeywordData
   varIdTok "family"
   name <- constructorIdentifierParser
   params <- MP.many typeParamParser
@@ -486,8 +456,8 @@ dataFamilyDeclParser = withSpan $ do
 -- | Parse @type instance [forall binders.] LhsType = RhsType@
 typeFamilyInstParser :: TokParser Decl
 typeFamilyInstParser = withSpan $ do
-  keywordTok TkKeywordType
-  keywordTok TkKeywordInstance
+  expectedTok TkKeywordType
+  expectedTok TkKeywordInstance
   forallBinders <- forallPrefixDispatch typeFamilyForallParser
   lhs <- typeAppParser
   expectedTok TkReservedEquals
@@ -505,11 +475,11 @@ typeFamilyInstParser = withSpan $ do
 -- | Parse @data instance [forall binders.] HeadType = Cons | ...@ (also GADT style)
 dataFamilyInstParser :: TokParser Decl
 dataFamilyInstParser = withSpan $ do
-  keywordTok TkKeywordData
-  keywordTok TkKeywordInstance
+  expectedTok TkKeywordData
+  expectedTok TkKeywordInstance
   forallBinders <- forallPrefixDispatch typeFamilyForallParser
   head' <- typeAppParser
-  (constructors, derivingClauses) <- gadtOrTraditionalDispatch gadtStyleDataDecl traditionalStyleDataDecl
+  (constructors, derivingClauses) <- gadtStyleDataDecl <|> traditionalStyleDataDecl
   pure $ \span' ->
     DeclDataFamilyInst
       span'
@@ -534,8 +504,8 @@ dataFamilyInstParser = withSpan $ do
 -- | Parse @newtype instance [forall binders.] HeadType = Constructor@
 newtypeFamilyInstParser :: TokParser Decl
 newtypeFamilyInstParser = withSpan $ do
-  keywordTok TkKeywordNewtype
-  keywordTok TkKeywordInstance
+  expectedTok TkKeywordNewtype
+  expectedTok TkKeywordInstance
   forallBinders <- forallPrefixDispatch typeFamilyForallParser
   head' <- typeAppParser
   expectedTok TkReservedEquals
@@ -562,7 +532,7 @@ newtypeFamilyInstParser = withSpan $ do
 -- (which is handled by 'classDefaultTypeInstParser' via token dispatch).
 classTypeFamilyDeclParser :: TokParser ClassDeclItem
 classTypeFamilyDeclParser = withSpan $ do
-  keywordTok TkKeywordType
+  expectedTok TkKeywordType
   headType <- withSpan $ do
     name <- constructorIdentifierParser
     pure (\span' -> TCon span' name Unpromoted)
@@ -582,7 +552,7 @@ classTypeFamilyDeclParser = withSpan $ do
 -- | Parse @data Name params [:: Kind]@ as an associated data family in a class.
 classDataFamilyDeclParser :: TokParser ClassDeclItem
 classDataFamilyDeclParser = withSpan $ do
-  keywordTok TkKeywordData
+  expectedTok TkKeywordData
   name <- constructorIdentifierParser
   params <- MP.many typeParamParser
   kind <- familyResultKindParser
@@ -599,8 +569,8 @@ classDataFamilyDeclParser = withSpan $ do
 -- | Parse @type instance LhsType = RhsType@ as a default type family instance in a class.
 classDefaultTypeInstParser :: TokParser ClassDeclItem
 classDefaultTypeInstParser = withSpan $ do
-  keywordTok TkKeywordType
-  keywordTok TkKeywordInstance
+  expectedTok TkKeywordType
+  expectedTok TkKeywordInstance
   forallBinders <- forallPrefixDispatch typeFamilyForallParser
   lhs <- typeAppParser
   expectedTok TkReservedEquals
@@ -621,7 +591,7 @@ classDefaultTypeInstParser = withSpan $ do
 -- | Parse @type LhsType = RhsType@ inside an instance body (no @instance@ keyword here).
 instanceTypeFamilyInstParser :: TokParser InstanceDeclItem
 instanceTypeFamilyInstParser = withSpan $ do
-  keywordTok TkKeywordType
+  expectedTok TkKeywordType
   forallBinders <- forallPrefixDispatch typeFamilyForallParser
   lhs <- typeAppParser
   expectedTok TkReservedEquals
@@ -639,9 +609,9 @@ instanceTypeFamilyInstParser = withSpan $ do
 -- | Parse @data HeadType = Cons | ...@ (or GADT style) inside an instance body.
 instanceDataFamilyInstParser :: TokParser InstanceDeclItem
 instanceDataFamilyInstParser = withSpan $ do
-  keywordTok TkKeywordData
+  expectedTok TkKeywordData
   head' <- typeAppParser
-  (constructors, derivingClauses) <- gadtOrTraditionalDispatch gadtStyleDataDecl traditionalStyleDataDecl
+  (constructors, derivingClauses) <- gadtStyleDataDecl <|> traditionalStyleDataDecl
   pure $ \span' ->
     InstanceItemDataFamilyInst
       span'
@@ -666,7 +636,7 @@ instanceDataFamilyInstParser = withSpan $ do
 -- | Parse @newtype HeadType = Constructor@ inside an instance body.
 instanceNewtypeFamilyInstParser :: TokParser InstanceDeclItem
 instanceNewtypeFamilyInstParser = withSpan $ do
-  keywordTok TkKeywordNewtype
+  expectedTok TkKeywordNewtype
   head' <- typeAppParser
   expectedTok TkReservedEquals
   constructor <- newtypeConDeclParser
@@ -694,7 +664,7 @@ typeSigDeclParser = withSpan $ do
 
 defaultDeclParser :: TokParser Decl
 defaultDeclParser = withSpan $ do
-  keywordTok TkKeywordDefault
+  expectedTok TkKeywordDefault
   tys <- parens (typeParser `MP.sepEndBy1` expectedTok TkSpecialComma)
   pure (`DeclDefault` tys)
 
@@ -714,9 +684,9 @@ fixityDeclPartsParser = do
 
 fixityAssocParser :: TokParser FixityAssoc
 fixityAssocParser =
-  (keywordTok TkKeywordInfix >> pure Infix)
-    <|> (keywordTok TkKeywordInfixl >> pure InfixL)
-    <|> (keywordTok TkKeywordInfixr >> pure InfixR)
+  (expectedTok TkKeywordInfix >> pure Infix)
+    <|> (expectedTok TkKeywordInfixl >> pure InfixL)
+    <|> (expectedTok TkKeywordInfixr >> pure InfixR)
 
 fixityPrecedenceParser :: TokParser Int
 fixityPrecedenceParser =
@@ -746,7 +716,7 @@ fixityOperatorParser =
 
 classDeclParser :: TokParser Decl
 classDeclParser = withSpan $ do
-  keywordTok TkKeywordClass
+  expectedTok TkKeywordClass
   context <- contextPrefixDispatch
   className <- constructorIdentifierParser
   classParams <- MP.many typeParamParser
@@ -786,7 +756,7 @@ classWhereClauseParser = whereClauseItemsParser classItemsBracedParser classItem
 
 whereClauseItemsParser :: TokParser [item] -> TokParser [item] -> TokParser [item]
 whereClauseItemsParser bracedParser plainParser = do
-  keywordTok TkKeywordWhere
+  expectedTok TkKeywordWhere
   bracedParser <|> plainParser <|> pure []
 
 classItemsPlainParser :: TokParser [ClassDeclItem]
@@ -802,18 +772,16 @@ classDeclItemParser = do
 
 ordinaryClassDeclItemParser :: TokParser ClassDeclItem
 ordinaryClassDeclItemParser = do
-  tok <- lookAhead anySingle
+  (tok, nextTok) <- lookAhead ((,) <$> anySingle <*> anySingle)
   case lexTokenKind tok of
     TkKeywordInfix -> classFixityItemParser
     TkKeywordInfixl -> classFixityItemParser
     TkKeywordInfixr -> classFixityItemParser
     TkKeywordData -> classDataFamilyDeclParser
     TkKeywordDefault -> classDefaultSigItemParser
-    TkKeywordType -> do
-      nextTok <- lookAhead (anySingle *> anySingle)
-      case lexTokenKind nextTok of
-        TkKeywordInstance -> classDefaultTypeInstParser
-        _ -> classTypeFamilyDeclParser
+    TkKeywordType
+      | lexTokenKind nextTok == TkKeywordInstance -> classDefaultTypeInstParser
+    TkKeywordType -> classTypeFamilyDeclParser
     _ -> do
       isSig <- startsWithTypeSig
       if isSig then classTypeSigItemParser else classDefaultItemParser
@@ -832,7 +800,7 @@ classTypeSigItemParser = withSpan $ do
 
 classDefaultSigItemParser :: TokParser ClassDeclItem
 classDefaultSigItemParser = withSpan $ do
-  keywordTok TkKeywordDefault
+  expectedTok TkKeywordDefault
   name <- binderNameParser
   expectedTok TkReservedDoubleColon
   ty <- typeParser
@@ -852,7 +820,7 @@ classDefaultItemParser = withSpan $ do
 
 instanceDeclParser :: TokParser Decl
 instanceDeclParser = withSpan $ do
-  keywordTok TkKeywordInstance
+  expectedTok TkKeywordInstance
   overlapPragma <- MP.optional instanceOverlapPragmaParser
   forallBinders <- MP.optional instanceForallParser
   context <- contextPrefixDispatch
@@ -874,10 +842,10 @@ instanceDeclParser = withSpan $ do
 
 standaloneDerivingDeclParser :: TokParser Decl
 standaloneDerivingDeclParser = withSpan $ do
-  keywordTok TkKeywordDeriving
+  expectedTok TkKeywordDeriving
   strategy <- MP.optional derivingStrategyParser
   viaTy <- MP.optional (MP.try derivingViaTypeParser)
-  keywordTok TkKeywordInstance
+  expectedTok TkKeywordInstance
   overlapPragma <- MP.optional instanceOverlapPragmaParser
   forallBinders <- MP.optional instanceForallParser
   context <- contextPrefixDispatch
@@ -925,18 +893,17 @@ instanceDeclItemParser = do
   maybe ordinaryInstanceDeclItemParser pure mPragmaItem
 
 ordinaryInstanceDeclItemParser :: TokParser InstanceDeclItem
-ordinaryInstanceDeclItemParser = do
-  tok <- lookAhead anySingle
-  case lexTokenKind tok of
-    TkKeywordInfix -> instanceFixityItemParser
-    TkKeywordInfixl -> instanceFixityItemParser
-    TkKeywordInfixr -> instanceFixityItemParser
-    TkKeywordType -> instanceTypeFamilyInstParser
-    TkKeywordData -> instanceDataFamilyInstParser
-    TkKeywordNewtype -> instanceNewtypeFamilyInstParser
-    _ -> do
-      isSig <- startsWithTypeSig
-      if isSig then instanceTypeSigItemParser else instanceValueItemParser
+ordinaryInstanceDeclItemParser =
+  instanceFixityItemParser
+    <|> instanceFixityItemParser
+    <|> instanceFixityItemParser
+    <|> instanceTypeFamilyInstParser
+    <|> instanceDataFamilyInstParser
+    <|> instanceNewtypeFamilyInstParser
+    <|> ( do
+            isSig <- startsWithTypeSig
+            if isSig then instanceTypeSigItemParser else instanceValueItemParser
+        )
 
 instancePragmaItemParser :: TokParser InstanceDeclItem
 instancePragmaItemParser = withSpan $ do
@@ -963,7 +930,7 @@ instanceValueItemParser = withSpan $ do
 
 foreignDeclParser :: TokParser Decl
 foreignDeclParser = withSpan $ do
-  keywordTok TkKeywordForeign
+  expectedTok TkKeywordForeign
   direction <- foreignDirectionParser
   callConv <- callConvParser
   safety <-
@@ -989,7 +956,7 @@ foreignDeclParser = withSpan $ do
 
 foreignDirectionParser :: TokParser ForeignDirection
 foreignDirectionParser =
-  (keywordTok TkKeywordImport >> pure ForeignImport)
+  (expectedTok TkKeywordImport >> pure ForeignImport)
     <|> (varIdTok "export" >> pure ForeignExport)
 
 callConvParser :: TokParser CallConv
@@ -1018,11 +985,11 @@ foreignEntityFromString txt
 
 dataDeclParser :: TokParser Decl
 dataDeclParser = withSpan $ do
-  keywordTok TkKeywordData
+  expectedTok TkKeywordData
   context <- contextPrefixDispatch
   (typeName, typeParams) <- typeDeclHeadParser
   -- GADT syntax starts with `where`, traditional syntax starts with `=` or nothing
-  (constructors, derivingClauses) <- gadtOrTraditionalDispatch gadtStyleDataDecl traditionalStyleDataDecl
+  (constructors, derivingClauses) <- gadtStyleDataDecl <|> traditionalStyleDataDecl
   pure $ \span' ->
     DeclData
       span'
@@ -1053,12 +1020,12 @@ dataDeclParser = withSpan $ do
 --   - No deriving clause
 typeDataDeclParser :: TokParser Decl
 typeDataDeclParser = withSpan $ do
-  keywordTok TkKeywordType
-  keywordTok TkKeywordData
+  expectedTok TkKeywordType
+  expectedTok TkKeywordData
   -- type data may not have a datatype context
   (typeName, typeParams) <- typeDeclHeadParser
   -- GADT syntax starts with `where`, traditional syntax starts with `=` or nothing
-  constructors <- gadtOrTraditionalDispatch gadtStyleTypeDataDecl traditionalStyleTypeDataDecl
+  constructors <- gadtStyleTypeDataDecl <|> traditionalStyleTypeDataDecl
   -- type data may not have a deriving clause
   pure $ \span' ->
     DeclTypeData
@@ -1140,11 +1107,11 @@ dataConDeclParser = withSpan $ do
 
 newtypeDeclParser :: TokParser Decl
 newtypeDeclParser = withSpan $ do
-  keywordTok TkKeywordNewtype
+  expectedTok TkKeywordNewtype
   context <- contextPrefixDispatch
   (typeName, typeParams) <- typeDeclHeadParser
   -- GADT syntax starts with `where`, traditional syntax starts with `=` or nothing
-  (constructor, derivingClauses) <- gadtOrTraditionalDispatch gadtStyleNewtypeDecl traditionalStyleNewtypeDecl
+  (constructor, derivingClauses) <- gadtStyleNewtypeDecl <|> traditionalStyleNewtypeDecl
   pure $ \span' ->
     DeclNewtype
       span'
@@ -1209,7 +1176,7 @@ gadtConNameParser =
 -- | Parse forall in GADT context: @forall a b.@
 gadtForallParser :: TokParser [TyVarBinder]
 gadtForallParser = do
-  varIdTok "forall"
+  expectedTok TkKeywordForall
   binders <- MP.some typeParamParser
   expectedTok (TkVarSym ".")
   pure binders
@@ -1219,11 +1186,7 @@ gadtForallParser = do
 -- Or record style: @{ field :: Type } -> T a@
 -- Record style is distinguished by the leading @{@ token.
 gadtBodyParser :: TokParser GadtBody
-gadtBodyParser = do
-  tok <- lookAhead anySingle
-  case lexTokenKind tok of
-    TkSpecialLBrace -> gadtRecordBodyParser
-    _ -> gadtPrefixBodyParser
+gadtBodyParser = gadtRecordBodyParser <|> gadtPrefixBodyParser
 
 -- | Parse record-style GADT body: @{ field :: Type, ... } -> ResultType@
 gadtRecordBodyParser :: TokParser GadtBody
@@ -1301,8 +1264,7 @@ typeParamParser =
           tokenSatisfy "type parameter binder" $ \tok ->
             case lexTokenKind tok of
               TkVarId name
-                | name /= "deriving",
-                  isTypeVarName name ->
+                | isTypeVarName name ->
                     Just name
               _ -> Nothing
         pure (\span' -> TyVarBinder span' ident Nothing)
@@ -1324,7 +1286,7 @@ isTypeVarName name =
 
 derivingClauseParser :: TokParser DerivingClause
 derivingClauseParser = do
-  keywordTok TkKeywordDeriving
+  expectedTok TkKeywordDeriving
   strategy <- MP.optional derivingStrategyParser
   classes <- parenClasses <|> singleClass
   viaTy <- MP.optional derivingViaTypeParser
@@ -1341,7 +1303,7 @@ derivingViaTypeParser = do
 derivingStrategyParser :: TokParser DerivingStrategy
 derivingStrategyParser =
   (varIdTok "stock" >> pure DerivingStock)
-    <|> (keywordTok TkKeywordNewtype >> pure DerivingNewtype)
+    <|> (expectedTok TkKeywordNewtype >> pure DerivingNewtype)
     <|> (varIdTok "anyclass" >> pure DerivingAnyclass)
 
 dataConQualifiersParser :: TokParser ([Text], [Type])
@@ -1352,7 +1314,7 @@ dataConQualifiersParser = do
 
 forallBindersParser :: TokParser [Text]
 forallBindersParser = do
-  varIdTok "forall"
+  expectedTok TkKeywordForall
   binders <- MP.some typeParamParser
   expectedTok (TkVarSym ".")
   pure (map tyVarBinderName binders)
@@ -1511,7 +1473,7 @@ patternSynonymParser =
 -- | Parse a pattern synonym type signature: @pattern Name1, Name2 :: Type@
 patternSynonymSigDeclParser :: TokParser Decl
 patternSynonymSigDeclParser = withSpan $ do
-  varIdTok "pattern"
+  expectedTok TkVarPattern
   names <- patSynNameParser `MP.sepBy1` expectedTok TkSpecialComma
   expectedTok TkReservedDoubleColon
   ty <- typeParser
@@ -1526,7 +1488,7 @@ patSynNameParser =
 -- Handles prefix, infix, and record forms with all three directionalities.
 patternSynonymDeclParser :: TokParser Decl
 patternSynonymDeclParser = withSpan $ do
-  varIdTok "pattern"
+  expectedTok TkVarPattern
   (name, args) <- patSynLhsParser
   (dir, pat) <- patSynDirAndPatParser name
   pure $ \span' ->
@@ -1573,21 +1535,21 @@ patSynRecordFieldsParser = braces (lowerIdentifierParser `MP.sepEndBy` expectedT
 
 -- | Parse the direction marker and RHS pattern of a pattern synonym.
 patSynDirAndPatParser :: Text -> TokParser (PatSynDir, Pattern)
-patSynDirAndPatParser name = do
-  tok <- lookAhead anySingle
-  case lexTokenKind tok of
-    TkReservedEquals -> do
+patSynDirAndPatParser name =
+  ( do
       expectedTok TkReservedEquals
       pat <- patternParser
       pure (PatSynBidirectional, pat)
-    TkReservedLeftArrow -> do
-      expectedTok TkReservedLeftArrow
-      pat <- patternParser
-      mMatches <- MP.optional (patSynWhereClauseParser name)
-      case mMatches of
-        Nothing -> pure (PatSynUnidirectional, pat)
-        Just matches -> pure (PatSynExplicitBidirectional matches, pat)
-    _ -> fail "expected '=' or '<-' in pattern synonym declaration"
+  )
+    <|> ( do
+            expectedTok TkReservedLeftArrow
+            pat <- patternParser
+            mMatches <- MP.optional (patSynWhereClauseParser name)
+            case mMatches of
+              Nothing -> pure (PatSynUnidirectional, pat)
+              Just matches -> pure (PatSynExplicitBidirectional matches, pat)
+        )
+    <|> fail "expected '=' or '<-' in pattern synonym declaration"
 
 -- | Parse the where clause of an explicitly bidirectional pattern synonym.
 -- @where { Name pats = expr; ... }@
