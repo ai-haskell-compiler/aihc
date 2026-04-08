@@ -1,4 +1,5 @@
 {-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 -- |
 --
@@ -108,16 +109,15 @@ module Aihc.Parser.Syntax
   )
 where
 
-import Control.Applicative ((<|>))
 import Control.DeepSeq (NFData (..))
 import Data.Data (Constr, Data (..), DataType, Fixity (Prefix), mkConstr, mkDataType)
 import Data.Dynamic
 import Data.List (sort)
+import Data.Map qualified as Map
 import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import GHC.Generics (Generic)
-import Text.Read (readMaybe)
 
 data Extension
   = AllowAmbiguousTypes
@@ -320,8 +320,10 @@ extensionSettingName setting =
 
 parseExtensionName :: Text -> Maybe Extension
 parseExtensionName raw =
-  readMaybe (T.unpack trimmed) <|> lookup (T.unpack trimmed) aliases
+  Map.lookup trimmed extensionMap
   where
+    extensionMap :: Map.Map Text Extension
+    extensionMap = Map.fromList $ aliases ++ [(T.pack (show ext), ext) | ext <- [minBound .. maxBound]]
     trimmed = T.strip raw
     aliases =
       [ ("Cpp", CPP),
