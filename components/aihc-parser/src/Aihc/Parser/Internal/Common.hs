@@ -9,6 +9,8 @@ module Aihc.Parser.Internal.Common
     eofTok,
     varIdTok,
     tokenSatisfy,
+    hiddenPragma,
+    optionalHiddenPragma,
     moduleNameParser,
     identifierTextParser,
     lowerIdentifierParser,
@@ -182,6 +184,39 @@ tokenSatisfy expectedLabel f =
         if null expectedLabel
           then MPE.EndOfInput
           else MPE.Label (NE.fromList expectedLabel)
+
+hiddenPragma :: String -> (LexToken -> Maybe a) -> TokParser a
+hiddenPragma expectedLabel f = do
+  mResult <- optionalHiddenPragma f
+  case mResult of
+    Just result -> pure result
+    Nothing -> fail expectedLabel
+
+optionalHiddenPragma :: (LexToken -> Maybe a) -> TokParser (Maybe a)
+optionalHiddenPragma f = do
+  pst <- MP.getParserState
+  case spanNoMatch (tokStreamPendingPragmas (MP.stateInput pst)) of
+    (_, pragmaTok : rest)
+      | Just result <- f pragmaTok -> do
+          MP.updateParserState $ \st ->
+            st
+              { MP.stateInput =
+                  (MP.stateInput st)
+                    { tokStreamPendingPragmas = rest
+                    }
+              }
+          pure (Just result)
+      | otherwise -> pure Nothing
+    _ -> pure Nothing
+  where
+    spanNoMatch pragmas =
+      case pragmas of
+        pragmaTok : rest
+          | Just _ <- f pragmaTok -> ([], pragmaTok : rest)
+          | otherwise ->
+              let (ignored, remaining) = spanNoMatch rest
+               in (pragmaTok : ignored, remaining)
+        [] -> ([], [])
 
 moduleNameParser :: TokParser Text
 moduleNameParser =

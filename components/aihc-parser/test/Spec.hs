@@ -95,6 +95,8 @@ buildTests = do
             testCase "parses parenthesized kind signatures in application heads" test_typeParsesKindSignatureApplicationHead,
             testCase "parses GADT constructor arguments with kind signatures" test_gadtConstructorParsesKindAnnotatedArgument,
             testCase "preserves source unpack pragmas on constructor fields" test_constructorFieldsPreserveSourceUnpackedness,
+            testCase "ignores unexpected pragmas without parse failure" test_ignoresUnexpectedPragmas,
+            testCase "captures known pragmas after ignored unknown pragmas" test_knownPragmaStillParsesAfterIgnoredUnknownPragma,
             testCase "roundtrips source unpackedness through pretty-printing" test_sourceUnpackednessRoundtrip,
             QC.testProperty "generated operators reject dash-only comment starters" prop_generatedOperatorsRejectDashOnlyCommentStarters
           ],
@@ -266,6 +268,37 @@ test_constructorFieldsPreserveSourceUnpackedness =
             ] -> pure ()
           other ->
             assertFailure ("unexpected parsed declarations: " <> show other)
+
+test_ignoresUnexpectedPragmas :: Assertion
+test_ignoresUnexpectedPragmas =
+  let source =
+        T.unlines
+          [ "module M where",
+            "x = {-# UNKNOWN #-} 1",
+            "y = ({-# INLINE #-} 2)",
+            "data T = T {-# BAD #-} Int"
+          ]
+      (errs, modu) = parseModule defaultConfig source
+   in do
+        assertBool ("expected no parse errors, got: " <> show errs) (null errs)
+        case moduleDecls modu of
+          [DeclValue {}, DeclValue {}, DeclData {}] -> pure ()
+          other -> assertFailure ("unexpected parsed declarations: " <> show other)
+
+test_knownPragmaStillParsesAfterIgnoredUnknownPragma :: Assertion
+test_knownPragmaStillParsesAfterIgnoredUnknownPragma =
+  let source =
+        T.unlines
+          [ "module M where",
+            "data T = T {-# UNKNOWN #-} {-# UNPACK #-} !Int"
+          ]
+      (errs, modu) = parseModule defaultConfig source
+   in do
+        assertBool ("expected no parse errors, got: " <> show errs) (null errs)
+        case moduleDecls modu of
+          [DeclData _ DataDecl {dataDeclConstructors = [PrefixCon _ [] [] "T" [BangType {bangSourceUnpackedness = SourceUnpack, bangStrict = True, bangType = TCon _ "Int" Unpromoted}]]}] ->
+            pure ()
+          other -> assertFailure ("unexpected parsed declarations: " <> show other)
 
 test_sourceUnpackednessRoundtrip :: Assertion
 test_sourceUnpackednessRoundtrip =
