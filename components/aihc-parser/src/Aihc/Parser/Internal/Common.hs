@@ -196,13 +196,13 @@ optionalHiddenPragma :: (LexToken -> Maybe a) -> TokParser (Maybe a)
 optionalHiddenPragma f = do
   pst <- MP.getParserState
   case spanNoMatch (tokStreamPendingPragmas (MP.stateInput pst)) of
-    (_, pragmaTok : rest)
+    (ignored, pragmaTok : rest)
       | Just result <- f pragmaTok -> do
           MP.updateParserState $ \st ->
             st
               { MP.stateInput =
                   (MP.stateInput st)
-                    { tokStreamPendingPragmas = rest
+                    { tokStreamPendingPragmas = ignored <> rest
                     }
               }
           pure (Just result)
