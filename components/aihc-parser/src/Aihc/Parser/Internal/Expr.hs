@@ -1551,8 +1551,16 @@ parenOrTuplePatternParser = withSpan $ do
           if isAsPattern
             then patternParser
             else do
-              expr <- exprParser
-              finalizeTupleElement (Right expr)
+              prefixExpr <- MP.try negateExprParser <|> appExprParser
+              mArrow <- MP.optional (expectedTok TkReservedRightArrow)
+              case mArrow of
+                Just () -> do
+                  inner <- patternParser
+                  pure (PView (mergeSourceSpans (getSourceSpan prefixExpr) (getSourceSpan inner)) prefixExpr inner)
+                Nothing -> do
+                  lhs <- liftCheck (checkPattern prefixExpr)
+                  rest <- MP.many ((,) <$> conOperatorParser <*> asOrAppPatternParser)
+                  pure (foldl buildInfixPattern lhs rest)
 
     -- Parse the shared prefix once only in the single-element parenthesized
     -- case, where we can decide between view pattern and parenthesized pattern

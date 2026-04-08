@@ -11,3 +11,4 @@ projectId x = x
 
 f :: (Maybe a, ()) -> (a, ())
 f (projectMaybe -> Just (projectId -> y), ()) = (y, ())
+f (Nothing, ()) = error "fixture"

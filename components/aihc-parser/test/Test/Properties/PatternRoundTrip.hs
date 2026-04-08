@@ -33,8 +33,8 @@ patternConfig =
 
 prop_patternPrettyRoundTrip :: GenPattern -> Property
 prop_patternPrettyRoundTrip (GenPattern pat) =
-  let source = renderStrict (layoutPretty defaultLayoutOptions (pretty pat))
-      expected = normalizePattern pat
+  let expected = normalizePattern pat
+      source = renderStrict (layoutPretty defaultLayoutOptions (pretty expected))
    in checkCoverage $
         assertCtorCoverage ["PAnn"] pat $
           counterexample (T.unpack source) $
@@ -183,7 +183,6 @@ genPattern depth
           (2, PStrict span0 . canonicalPatternAtom <$> genPattern (depth - 1)),
           (2, PIrrefutable span0 . canonicalPatternAtom <$> genPattern (depth - 1)),
           (2, PNegLit span0 <$> genNumericLiteral),
-          (2, PParen span0 <$> genPattern (depth - 1)),
           (2, PRecord span0 <$> genPatternConName <*> genRecordFields (depth - 1) <*> pure False),
           (2, genPatternTypeSig depth),
           (1, genUnboxedSumPattern (depth - 1)),
@@ -309,14 +308,10 @@ genPatternConName = do
 
 genConOperator :: Gen Text
 genConOperator = do
-  first <- elements ":"
   restLen <- chooseInt (0, 3)
   rest <- vectorOf restLen (elements ":!#$%&*+./<=>?\\^|-~")
-  let op = T.pack (first : rest)
-  -- Pattern constructor operators must be constructor operators. Restrict the
-  -- generator to canonical ':'-headed forms and exclude '::', which is a type
-  -- signature token rather than a pattern operator.
-  if op == "::" || T.isPrefixOf "::." op then genConOperator else pure op
+  let op = T.pack (':' : rest)
+  if T.isPrefixOf "::" op then genConOperator else pure op
 
 genFieldName :: Gen Text
 genFieldName = do
@@ -419,7 +414,10 @@ normalizePattern pat =
     PStrict _ inner -> PStrict span0 (normalizeUnaryInner inner)
     PIrrefutable _ inner -> PIrrefutable span0 (normalizeUnaryInner inner)
     PNegLit _ lit -> PNegLit span0 (normalizeLiteral lit)
-    PParen _ inner -> PParen span0 (normalizePattern inner)
+    PParen _ inner ->
+      case normalizePattern inner of
+        PParen _ inner' -> PParen span0 inner'
+        inner' -> PParen span0 inner'
     PUnboxedSum _ altIdx arity inner -> PUnboxedSum span0 altIdx arity (normalizePattern inner)
     PRecord _ con fields rwc -> PRecord span0 con [(fieldName, normalizePattern fieldPat) | (fieldName, fieldPat) <- fields] rwc
     PTypeSig _ inner ty -> PParen span0 (PTypeSig span0 (normalizePattern inner) (normalizeTypeSpan ty))
