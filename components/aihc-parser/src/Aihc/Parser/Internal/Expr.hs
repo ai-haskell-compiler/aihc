@@ -25,7 +25,6 @@ import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokenKind, lexToken
 import Aihc.Parser.Syntax
 import Control.Monad (guard)
 import Data.Char (isLower, isUpper)
-import Data.Foldable (traverse_)
 import Data.Functor (($>))
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -1539,8 +1538,7 @@ parenOrTuplePatternParser = withSpan $ do
     tupleElementParser = do
       tok <- lookAhead anySingle
       case lexTokenKind tok of
-        TkSpecialLParen -> do
-          patternParser
+        TkSpecialLParen -> patternParser
         TkSpecialUnboxedLParen -> patternParser
         TkSpecialLBracket -> patternParser
         TkConId {} -> patternParser
@@ -1563,59 +1561,43 @@ parenOrTuplePatternParser = withSpan $ do
                   rest <- MP.many ((,) <$> conOperatorParser <*> asOrAppPatternParser)
                   pure (foldl buildInfixPattern lhs rest)
 
-    -- Parse the shared prefix once only in the single-element parenthesized
-    -- case, where we can decide between view pattern and parenthesized pattern
-    -- from the next token. Nested tuple elements still use patternParser so
-    -- they can contain view patterns in nested tuple/list/record syntax.
-    singletonParenHeadParser :: LexTokenKind -> TokParser (Either Pattern Expr)
-    singletonParenHeadParser closeTok = do
+    firstTupleElementParserWithViewFlag :: TokParser (Pattern, Bool)
+    firstTupleElementParserWithViewFlag = do
       tok <- lookAhead anySingle
       case lexTokenKind tok of
         TkSpecialLParen -> do
-          canBeViewPattern <- hasTopLevelViewPatternArrowBefore closeTok
-          if canBeViewPattern
-            then Right <$> exprParser
-            else Left <$> patternParser
-        TkSpecialUnboxedLParen -> Left <$> patternParser
-        TkSpecialLBracket -> Left <$> patternParser
-        TkConId {} -> Left <$> patternParser
-        TkQConId {} -> Left <$> patternParser
-        TkPrefixBang -> Left <$> patternParser
-        TkPrefixTilde -> Left <$> patternParser
+          MP.try parenLeadingViewPatternParser <|> ((,False) <$> patternParser)
+        TkSpecialUnboxedLParen -> (,False) <$> patternParser
+        TkSpecialLBracket -> (,False) <$> patternParser
+        TkConId {} -> (,False) <$> patternParser
+        TkQConId {} -> (,False) <$> patternParser
+        TkPrefixBang -> (,False) <$> patternParser
+        TkPrefixTilde -> (,False) <$> patternParser
         _ -> do
           isAsPattern <- startsWithAsPattern
           if isAsPattern
-            then Left <$> patternParser
+            then (,False) <$> patternParser
             else do
-              canBeViewPattern <- hasTopLevelViewPatternArrowBefore closeTok
-              if canBeViewPattern
-                then Right <$> exprParser
-                else Left <$> patternParser
+              prefixExpr <- MP.try negateExprParser <|> appExprParser
+              mArrow <- MP.optional (expectedTok TkReservedRightArrow)
+              case mArrow of
+                Just () -> do
+                  inner <- patternParser
+                  pure (PView (mergeSourceSpans (getSourceSpan prefixExpr) (getSourceSpan inner)) prefixExpr inner, True)
+                Nothing -> do
+                  lhs <- liftCheck (checkPattern prefixExpr)
+                  rest <- MP.many ((,) <$> conOperatorParser <*> asOrAppPatternParser)
+                  pure (foldl buildInfixPattern lhs rest, False)
+
+    parenLeadingViewPatternParser :: TokParser (Pattern, Bool)
+    parenLeadingViewPatternParser = do
+      viewExpr <- exprParser
+      expectedTok TkReservedRightArrow
+      inner <- patternParser
+      pure (PView (mergeSourceSpans (getSourceSpan viewExpr) (getSourceSpan inner)) viewExpr inner, True)
 
     tupleOrParenPatternParser tupleFlavor closeTok = do
-      firstHead <-
-        if tupleFlavor == Boxed
-          then singletonParenHeadParser closeTok
-          else do
-            tok <- lookAhead anySingle
-            case lexTokenKind tok of
-              TkSpecialLParen -> Left <$> patternParser
-              TkSpecialUnboxedLParen -> Left <$> patternParser
-              TkSpecialLBracket -> Left <$> patternParser
-              TkConId {} -> Left <$> patternParser
-              TkQConId {} -> Left <$> patternParser
-              TkPrefixBang -> Left <$> patternParser
-              TkPrefixTilde -> Left <$> patternParser
-              _ -> do
-                isAsPattern <- startsWithAsPattern
-                if isAsPattern
-                  then Left <$> patternParser
-                  else do
-                    canBeViewPattern <- hasTopLevelViewPatternArrowBefore closeTok
-                    if canBeViewPattern
-                      then Right <$> exprParser
-                      else Left <$> patternParser
-      first <- finalizeTupleElement firstHead
+      (first, firstIsViewPattern) <- firstTupleElementParserWithViewFlag
       tok <- lookAhead anySingle
       case lexTokenKind tok of
         TkSpecialComma -> do
@@ -1638,97 +1620,19 @@ parenOrTuplePatternParser = withSpan $ do
           | kind == closeTok -> do
               expectedTok closeTok
               pure $ \span' ->
-                case (tupleFlavor, firstHead, first) of
-                  (Boxed, Right _, PView {}) -> first
-                  (Boxed, _, _) -> PParen span' first
-                  (Unboxed, _, _) -> PTuple span' Unboxed [first]
+                case tupleFlavor of
+                  Boxed
+                    | firstIsViewPattern -> first
+                    | otherwise -> PParen span' first
+                  Unboxed -> PTuple span' Unboxed [first]
         _ -> fail "expected tuple separator or closing delimiter"
-
-    finalizeTupleElement :: Either Pattern Expr -> TokParser Pattern
-    finalizeTupleElement head' =
-      case head' of
-        Left pat -> pure pat
-        Right viewExpr -> do
-          mArrow <- MP.optional (expectedTok TkReservedRightArrow)
-          case mArrow of
-            Just () -> do
-              inner <- patternParser
-              pure (PView (mergeSourceSpans (getSourceSpan viewExpr) (getSourceSpan inner)) viewExpr inner)
-            Nothing -> liftCheck (checkParenPatternExpr viewExpr)
-
-    checkParenPatternExpr :: Expr -> Either Text Pattern
-    checkParenPatternExpr expr = do
-      validatePatternInfixOps expr
-      checkPattern expr
-
-    validatePatternInfixOps :: Expr -> Either Text ()
-    validatePatternInfixOps expr =
-      case expr of
-        EAnn _ sub -> validatePatternInfixOps sub
-        EParen _ sub -> validatePatternInfixOps sub
-        ETuple _ _ elems -> traverse_ (traverse_ validatePatternInfixOps) elems
-        EUnboxedSum _ _ _ inner -> validatePatternInfixOps inner
-        EList _ elems -> traverse_ validatePatternInfixOps elems
-        EInfix _ lhs op rhs
-          | isPatternInfixOp op -> validatePatternInfixOps lhs *> validatePatternInfixOps rhs
-          | otherwise -> Left "unexpected infix operator in pattern"
-        ETypeSig _ inner _ -> validatePatternInfixOps inner
-        ENegate {} -> Right ()
-        EApp _ fn arg -> validatePatternInfixOps fn *> validatePatternInfixOps arg
-        ERecordCon _ _ fields _ -> traverse_ (validatePatternInfixOps . snd) fields
-        _ -> Right ()
-
-    isPatternInfixOp :: Text -> Bool
-    isPatternInfixOp op =
-      case T.uncons (qualifiedNameTail op) of
-        Just (':', _) -> True
-        Just (c, _) -> isUpper c
-        Nothing -> False
-
-    qualifiedNameTail :: Text -> Text
-    qualifiedNameTail name =
-      case T.breakOnEnd "." name of
-        ("", suffix) -> suffix
-        (_, suffix)
-          | T.null suffix -> name
-          | otherwise -> suffix
-
-    hasTopLevelViewPatternArrowBefore :: LexTokenKind -> TokParser Bool
-    hasTopLevelViewPatternArrowBefore finalCloseTok = MP.lookAhead (go [finalCloseTok])
-      where
-        go [] = pure False
-        go stack@(expectedClose : rest) = do
-          tok <- anySingle
-          case lexTokenKind tok of
-            TkEOF -> pure False
-            TkSpecialComma | [_] <- stack -> pure False
-            TkReservedRightArrow | [_] <- stack -> pure True
-            kind
-              | kind == expectedClose ->
-                  case rest of
-                    [] -> pure False
-                    _ -> go rest
-            TkSpecialLParen -> go (TkSpecialRParen : stack)
-            TkSpecialUnboxedLParen -> go (TkSpecialUnboxedRParen : stack)
-            TkSpecialLBracket -> go (TkSpecialRBracket : stack)
-            TkSpecialLBrace -> go (TkSpecialRBrace : stack)
-            _ -> go stack
 
     parseUnboxedSumPatLeadingBars closeTok = do
       -- Parse (# | | ... | pat | ... | #) where pattern is not in first slot
       _ <- expectedTok TkReservedPipe
       leadingBars <- MP.many (MP.try (expectedTok TkReservedPipe))
       let altIdx = 1 + length leadingBars
-      inner <-
-        if closeTok == TkSpecialRParen
-          then patternParser
-          else do
-            tok <- lookAhead anySingle
-            case lexTokenKind tok of
-              TkSpecialLParen -> do
-                head' <- singletonParenHeadParser closeTok
-                finalizeTupleElement head'
-              _ -> tupleElementParser
+      inner <- fst <$> firstTupleElementParserWithViewFlag
       trailingBars <- MP.many (expectedTok TkReservedPipe)
       expectedTok closeTok
       let arity = altIdx + 1 + length trailingBars
