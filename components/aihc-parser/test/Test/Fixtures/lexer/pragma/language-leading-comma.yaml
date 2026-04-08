@@ -7,6 +7,6 @@ input: |
     , OverloadedStrings
     #-}
 tokens:
-  - 'TkPragmaLanguage [EnableExtension DataKinds, EnableExtension DeriveGeneric, EnableExtension DeriveDataTypeable, EnableExtension OverloadedStrings]'
+  - 'TkPragma (PragmaLanguage [EnableExtension DataKinds, EnableExtension DeriveGeneric, EnableExtension DeriveDataTypeable, EnableExtension OverloadedStrings])'
   - 'TkEOF'
 status: pass

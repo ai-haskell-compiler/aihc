@@ -10,7 +10,7 @@ where
 
 import Aihc.Parser.Internal.Common
 import {-# SOURCE #-} Aihc.Parser.Internal.Expr (equationRhsParser, exprParser, patternParser, simplePatternParser, startsWithContextType, startsWithTypeSig, typeAppParser, typeAtomParser, typeParser)
-import Aihc.Parser.Lex (LexTokenKind (..), lexTokenKind)
+import Aihc.Parser.Lex (LexTokenKind (..), Pragma (..), lexTokenKind)
 import Aihc.Parser.Syntax
 import Aihc.Parser.Types (ParserErrorComponent (..), mkFoundToken)
 import Control.Monad (when)
@@ -25,14 +25,14 @@ languagePragmaParser :: TokParser [ExtensionSetting]
 languagePragmaParser =
   hiddenPragma "LANGUAGE pragma" $ \tok ->
     case lexTokenKind tok of
-      TkPragmaLanguage names -> Just names
+      TkPragma (PragmaLanguage names) -> Just names
       _ -> Nothing
 
 instanceOverlapPragmaParser :: TokParser InstanceOverlapPragma
 instanceOverlapPragmaParser =
   hiddenPragma "instance overlap pragma" $ \tok ->
     case lexTokenKind tok of
-      TkPragmaInstanceOverlap pragma' -> Just pragma'
+      TkPragma (PragmaInstanceOverlap pragma') -> Just pragma'
       _ -> Nothing
 
 moduleHeaderParser :: TokParser ModuleHead
@@ -55,8 +55,8 @@ warningTextParser =
   withSpan $
     hiddenPragma "warning pragma" $ \tok ->
       case lexTokenKind tok of
-        TkPragmaWarning msg -> Just (`WarnText` msg)
-        TkPragmaDeprecated msg -> Just (`DeprText` msg)
+        TkPragma (PragmaWarning msg) -> Just (`WarnText` msg)
+        TkPragma (PragmaDeprecated msg) -> Just (`DeprText` msg)
         _ -> Nothing
 
 exportSpecListParser :: TokParser [ExportSpec]
@@ -263,7 +263,7 @@ pragmaDeclParser = withSpan $ do
   pragmaText <-
     hiddenPragma "pragma declaration" $ \tok ->
       case lexTokenKind tok of
-        TkPragmaDeclaration text -> Just text
+        TkPragma (PragmaUnknown text) -> Just text
         _ -> Nothing
   pure (`DeclPragma` pragmaText)
 
@@ -823,7 +823,7 @@ classPragmaItemParser = withSpan $ do
   pragmaText <-
     hiddenPragma "pragma declaration" $ \tok ->
       case lexTokenKind tok of
-        TkPragmaDeclaration text -> Just text
+        TkPragma (PragmaUnknown text) -> Just text
         _ -> Nothing
   pure (`ClassItemPragma` pragmaText)
 
@@ -947,7 +947,7 @@ instancePragmaItemParser = withSpan $ do
   pragmaText <-
     hiddenPragma "pragma declaration" $ \tok ->
       case lexTokenKind tok of
-        TkPragmaDeclaration text -> Just text
+        TkPragma (PragmaUnknown text) -> Just text
         _ -> Nothing
   pure (`InstanceItemPragma` pragmaText)
 
@@ -1464,7 +1464,7 @@ sourceUnpackednessPragmaParser :: TokParser SourceUnpackedness
 sourceUnpackednessPragmaParser =
   hiddenPragma "source unpack pragma" $ \tok ->
     case lexTokenKind tok of
-      TkPragmaDeclaration text -> parseSourceUnpackednessPragma text
+      TkPragma (PragmaUnknown text) -> parseSourceUnpackednessPragma text
       _ -> Nothing
 
 parseSourceUnpackednessPragma :: Text -> Maybe SourceUnpackedness

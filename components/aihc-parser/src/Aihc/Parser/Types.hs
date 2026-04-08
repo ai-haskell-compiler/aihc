@@ -211,11 +211,7 @@ mkTokStreamFromTokens toks =
 isHiddenPragmaToken :: LexToken -> Bool
 isHiddenPragmaToken tok =
   case lexTokenKind tok of
-    TkPragmaLanguage _ -> True
-    TkPragmaInstanceOverlap _ -> True
-    TkPragmaWarning _ -> True
-    TkPragmaDeprecated _ -> True
-    TkPragmaDeclaration _ -> True
+    TkPragma _ -> True
     _ -> False
 
 normalizeTokStream :: TokStream -> TokStream

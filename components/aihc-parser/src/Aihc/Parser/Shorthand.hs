@@ -22,7 +22,7 @@ module Aihc.Parser.Shorthand
   )
 where
 
-import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..))
+import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), Pragma (..))
 import Aihc.Parser.Syntax
 import Aihc.Parser.Types (ParseResult (..))
 import Data.Text (Text)
@@ -788,11 +788,13 @@ docTokenKind kind =
     TkPrefixMinus -> "TkPrefixMinus"
     TkPrefixBang -> "TkPrefixBang"
     TkPrefixTilde -> "TkPrefixTilde"
-    TkPragmaLanguage settings -> "TkPragmaLanguage" <+> brackets (hsep (punctuate comma (map docExtensionSetting settings)))
-    TkPragmaInstanceOverlap pragma' -> "TkPragmaInstanceOverlap" <+> docInstanceOverlapPragma pragma'
-    TkPragmaWarning msg -> "TkPragmaWarning" <+> docText msg
-    TkPragmaDeprecated msg -> "TkPragmaDeprecated" <+> docText msg
-    TkPragmaDeclaration text -> "TkPragmaDeclaration" <+> docText text
+    TkPragma pragma' ->
+      case pragma' of
+        PragmaLanguage settings -> "TkPragma" <+> ("PragmaLanguage" <+> brackets (hsep (punctuate comma (map docExtensionSetting settings))))
+        PragmaInstanceOverlap overlapPragma -> "TkPragma" <+> ("PragmaInstanceOverlap" <+> docInstanceOverlapPragma overlapPragma)
+        PragmaWarning msg -> "TkPragma" <+> ("PragmaWarning" <+> docText msg)
+        PragmaDeprecated msg -> "TkPragma" <+> ("PragmaDeprecated" <+> docText msg)
+        PragmaUnknown text -> "TkPragma" <+> ("PragmaUnknown" <+> docText text)
     TkQuasiQuote quoter body -> "TkQuasiQuote" <+> docText quoter <+> docText body
     TkTHExpQuoteOpen -> "TkTHExpQuoteOpen"
     TkTHExpQuoteClose -> "TkTHExpQuoteClose"

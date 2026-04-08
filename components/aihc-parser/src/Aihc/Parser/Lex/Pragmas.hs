@@ -41,7 +41,7 @@ parseLanguagePragma input = do
   (_, body, consumed) <- stripNamedPragma ["LANGUAGE"] input
   let names = parseLanguagePragmaNames body
       raw = "{-# LANGUAGE " <> T.intercalate ", " (map extensionSettingName names) <> " #-}"
-  pure (T.length consumed, (raw, TkPragmaLanguage names))
+  pure (T.length consumed, (raw, TkPragma (PragmaLanguage names)))
 
 parseInstanceOverlapPragma :: Text -> Maybe (Int, (Text, LexTokenKind))
 parseInstanceOverlapPragma input = do
@@ -54,14 +54,14 @@ parseInstanceOverlapPragma input = do
       "INCOHERENT" -> Just Incoherent
       _ -> Nothing
   let raw = "{-# " <> pragmaName <> " #-}"
-  pure (T.length consumed, (raw, TkPragmaInstanceOverlap overlapPragma))
+  pure (T.length consumed, (raw, TkPragma (PragmaInstanceOverlap overlapPragma)))
 
 parseOptionsPragma :: Text -> Maybe (Int, (Text, LexTokenKind))
 parseOptionsPragma input = do
   (pragmaName, body, consumed) <- stripNamedPragma ["OPTIONS_GHC", "OPTIONS"] input
   let settings = parseOptionsPragmaSettings body
       raw = "{-# " <> pragmaName <> " " <> T.stripEnd body <> " #-}"
-  pure (T.length consumed, (raw, TkPragmaLanguage settings))
+  pure (T.length consumed, (raw, TkPragma (PragmaLanguage settings)))
 
 parseWarningPragma :: Text -> Maybe (Int, (Text, LexTokenKind))
 parseWarningPragma input = do
@@ -75,7 +75,7 @@ parseWarningPragma input = do
               _ -> (txt, txt)
           _ -> (txt, txt)
       raw = "{-# WARNING " <> rawMsg <> " #-}"
-  pure (T.length consumed, (raw, TkPragmaWarning msg))
+  pure (T.length consumed, (raw, TkPragma (PragmaWarning msg)))
 
 parseDeprecatedPragma :: Text -> Maybe (Int, (Text, LexTokenKind))
 parseDeprecatedPragma input = do
@@ -89,7 +89,7 @@ parseDeprecatedPragma input = do
               _ -> (txt, txt)
           _ -> (txt, txt)
       raw = "{-# DEPRECATED " <> rawMsg <> " #-}"
-  pure (T.length consumed, (raw, TkPragmaDeprecated msg))
+  pure (T.length consumed, (raw, TkPragma (PragmaDeprecated msg)))
 
 stripPragma :: Text -> Text -> Maybe Text
 stripPragma name input = (\(_, body, _) -> body) <$> stripNamedPragma [name] input
