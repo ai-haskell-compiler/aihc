@@ -8,14 +8,14 @@ module Aihc.Parser.Lex.Pragmas
 where
 
 import Aihc.Parser.Lex.Types
-  ( Pragma (..),
-    PragmaUnpackKind (..),
-    LexerState (..),
-    LexTokenKind (..),
+  ( DirectiveUpdate (..),
     LexToken (..),
-    DirectiveUpdate (..),
+    LexTokenKind (..),
+    LexerState (..),
+    Pragma (..),
+    PragmaUnpackKind (..),
     advanceN,
-    mkToken
+    mkToken,
   )
 import Aihc.Parser.Syntax
 import Data.Char (isDigit, isSpace)
