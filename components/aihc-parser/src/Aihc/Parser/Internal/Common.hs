@@ -386,7 +386,7 @@ bracedSemiSep :: TokParser a -> TokParser [a]
 bracedSemiSep parser =
   braces $ do
     skipSemicolons
-    parser `MP.sepEndBy` expectedTok TkSpecialSemicolon
+    MP.many (parser <* skipSemicolons)
 
 bracedSemiSep1 :: TokParser a -> TokParser [a]
 bracedSemiSep1 parser =
