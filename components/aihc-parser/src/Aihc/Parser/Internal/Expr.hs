@@ -1528,72 +1528,90 @@ parenOrTuplePatternParser = withSpan $ do
     Just nextKind
       | nextKind == closeTok -> unitPatternParser tupleFlavor closeTok
       | tupleFlavor == Unboxed && nextKind == TkReservedPipe -> parseUnboxedSumPatLeadingBars closeTok
-    _ -> do
-      canBeViewPattern <-
-        if tupleFlavor == Boxed
-          then hasTopLevelViewPatternArrowBefore closeTok
-          else pure False
-      if canBeViewPattern
-        then MP.try (viewPatternParser tupleFlavor closeTok) <|> tupleOrParenPatternParser tupleFlavor closeTok
-        else tupleOrParenPatternParser tupleFlavor closeTok
+    _ -> tupleOrParenPatternParser tupleFlavor closeTok
   where
     unitPatternParser tupleFlavor closeTok = do
       expectedTok closeTok
       pure (\span' -> PTuple span' tupleFlavor [])
 
-    viewPatternParser tupleFlavor closeTok = do
-      viewExpr <- exprParser
-      expectedTok TkReservedRightArrow
-      inner <- patternParser
-      expectedTok closeTok
-      if tupleFlavor == Boxed
-        then pure (\span' -> PView span' viewExpr inner)
-        else fail "not an unboxed tuple pattern"
+    -- | Parse a single element inside a paren/tuple/unboxed-sum pattern.
+    -- Uses "parse as expression, then reclassify" to avoid backtracking
+    -- for the common case. Pattern-only prefixes (!, ~, @) are dispatched
+    -- to patternParser directly. When exprParser fails (e.g., nested parens
+    -- containing pattern-only syntax like as-patterns or view patterns),
+    -- we fall back to patternParser.
+    parenPatElementParser :: TokParser Pattern
+    parenPatElementParser = do
+      tok <- lookAhead anySingle
+      case lexTokenKind tok of
+        TkPrefixBang -> patternParser
+        TkPrefixTilde -> patternParser
+        _ -> do
+          isAs <- startsWithAsPattern
+          if isAs
+            then patternParser
+            else exprThenReclassify
 
-    -- \| Parse a single tuple element that might be a view pattern.
-    -- View patterns have the form: expr -> pattern
-    -- We need to try this before falling back to regular pattern parsing.
-    tupleElementParser :: TokParser Pattern
-    tupleElementParser =
-      MP.try viewElementParser <|> patternParser
-      where
-        viewElementParser = withSpan $ do
-          viewExpr <- exprParser
-          expectedTok TkReservedRightArrow
-          inner <- patternParser
-          pure (\span' -> PView span' viewExpr inner)
+    -- | Try to parse as expression, then check for view pattern arrow or
+    -- reclassify via checkPattern. exprParser stops before '->'
+    -- (TkReservedRightArrow is not an infix op), so when it succeeds we
+    -- can branch without backtracking. When exprParser fails or does not
+    -- consume the full element (e.g., pattern-only syntax like @\@@, @!@,
+    -- or nested view patterns), fall back to patternParser.
+    exprThenReclassify :: TokParser Pattern
+    exprThenReclassify = do
+      mExpr <- MP.optional . MP.try $ do
+        expr <- exprParser
+        -- Verify the expression consumed the full element: the next token
+        -- must be a valid delimiter in paren/tuple/sum context. If not
+        -- (e.g., '@' from an as-pattern), the expression parser stopped
+        -- too early and we should backtrack to patternParser.
+        tok <- lookAhead anySingle
+        case lexTokenKind tok of
+          TkReservedRightArrow -> pure expr
+          TkSpecialComma -> pure expr
+          TkSpecialRParen -> pure expr
+          TkSpecialUnboxedRParen -> pure expr
+          TkReservedPipe -> pure expr
+          _ -> fail "incomplete element parse"
+      case mExpr of
+        Just expr -> do
+          mArrow <- MP.optional (expectedTok TkReservedRightArrow)
+          case mArrow of
+            Just () -> do
+              inner <- patternParser
+              let sp = mergeSourceSpans (getSourceSpan expr) (getSourceSpan inner)
+              pure (PView sp expr inner)
+            Nothing ->
+              liftCheck (checkPattern expr)
+        Nothing ->
+          patternParser
 
     tupleOrParenPatternParser tupleFlavor closeTok = do
-      first <- tupleElementParser
+      first <- parenPatElementParser
       mComma <- MP.optional (expectedTok TkSpecialComma)
       case mComma of
         Nothing -> do
-          -- Check for pattern type signature: (pat :: type)
-          mTypeSig <- MP.optional (expectedTok TkReservedDoubleColon *> typeParser)
-          case mTypeSig of
-            Just ty -> do
+          -- Check for pipe (unboxed sum: pattern in first slot)
+          mPipe <- if tupleFlavor == Unboxed then MP.optional (expectedTok TkReservedPipe) else pure Nothing
+          case mPipe of
+            Just () -> do
+              -- (# pat | ... #) - pattern in first slot of sum
+              trailingBars <- MP.many (expectedTok TkReservedPipe)
               expectedTok closeTok
-              if tupleFlavor == Boxed
-                then pure (\span' -> PParen span' (PTypeSig span' first ty))
-                else fail "not an unboxed tuple pattern"
+              let arity = 2 + length trailingBars
+              pure (\span' -> PUnboxedSum span' 0 arity first)
             Nothing -> do
-              -- Check for pipe (unboxed sum: pattern in first slot)
-              mPipe <- if tupleFlavor == Unboxed then MP.optional (expectedTok TkReservedPipe) else pure Nothing
-              case mPipe of
-                Just () -> do
-                  -- (# pat | ... #) - pattern in first slot of sum
-                  trailingBars <- MP.many (expectedTok TkReservedPipe)
-                  expectedTok closeTok
-                  let arity = 2 + length trailingBars
-                  pure (\span' -> PUnboxedSum span' 0 arity first)
-                Nothing -> do
-                  expectedTok closeTok
-                  if tupleFlavor == Boxed
-                    then pure (`PParen` first)
-                    else fail "not an unboxed tuple pattern"
+              expectedTok closeTok
+              case (tupleFlavor, first) of
+                -- View patterns are not wrapped in PParen — they are
+                -- self-contained with their own span.
+                (Boxed, PView {}) -> pure (const first)
+                (Boxed, _) -> pure (`PParen` first)
+                _ -> fail "not an unboxed tuple pattern"
         Just () -> do
-          second <- tupleElementParser
-          more <- MP.many (expectedTok TkSpecialComma *> tupleElementParser)
+          second <- parenPatElementParser
+          more <- MP.many (expectedTok TkSpecialComma *> parenPatElementParser)
           expectedTok closeTok
           pure (\span' -> PTuple span' tupleFlavor (first : second : more))
 
@@ -1602,7 +1620,7 @@ parenOrTuplePatternParser = withSpan $ do
       _ <- expectedTok TkReservedPipe
       leadingBars <- MP.many (MP.try (expectedTok TkReservedPipe))
       let altIdx = 1 + length leadingBars
-      inner <- patternParser
+      inner <- parenPatElementParser
       trailingBars <- MP.many (expectedTok TkReservedPipe)
       expectedTok closeTok
       let arity = altIdx + 1 + length trailingBars
@@ -1676,28 +1694,6 @@ startsWithContextType = MP.lookAhead (go [])
         TkSpecialLBrace -> go (TkSpecialRBrace : stack)
         _ -> go stack
 
-hasTopLevelViewPatternArrowBefore :: LexTokenKind -> TokParser Bool
-hasTopLevelViewPatternArrowBefore closeTok = MP.lookAhead (go [closeTok])
-  where
-    go [] = pure False
-    go stack@(expectedClose : rest) = do
-      tok <- anySingle
-      case lexTokenKind tok of
-        TkEOF -> pure False
-        -- If we see a comma at the top level, this is a tuple, not a view pattern
-        TkSpecialComma | [_] <- stack -> pure False
-        -- If we see an arrow at the top level AND no comma has been seen, it's a view pattern
-        TkReservedRightArrow | [_] <- stack -> pure True
-        kind
-          | kind == expectedClose ->
-              case rest of
-                [] -> pure False
-                _ -> go rest
-        TkSpecialLParen -> go (TkSpecialRParen : stack)
-        TkSpecialUnboxedLParen -> go (TkSpecialUnboxedRParen : stack)
-        TkSpecialLBracket -> go (TkSpecialRBracket : stack)
-        TkSpecialLBrace -> go (TkSpecialRBrace : stack)
-        _ -> go stack
 
 varExprParser :: TokParser Expr
 varExprParser = withSpan $ do

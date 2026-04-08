@@ -46,11 +46,13 @@ checkPattern expr = case expr of
   EList sp elems -> PList sp <$> traverse checkPattern elems
   -- Unboxed sum
   EUnboxedSum sp i n e -> PUnboxedSum sp i n <$> checkPattern e
-  -- Infix
-  EInfix sp l op r -> do
-    lPat <- checkPattern l
-    rPat <- checkPattern r
-    Right (PInfix sp lPat op rPat)
+  -- Infix: only constructor operators (starting with ':') are valid in patterns
+  EInfix sp l op r
+    | isConLikeOp op -> do
+        lPat <- checkPattern l
+        rPat <- checkPattern r
+        Right (PInfix sp lPat op rPat)
+    | otherwise -> Left ("unexpected variable operator '" <> op <> "' in pattern")
   -- Type signature
   ETypeSig sp e ty -> do
     pat <- checkPattern e
@@ -136,3 +138,13 @@ isConLikeName name =
   case T.uncons name of
     Just (c, _) -> isUpper c
     Nothing -> False
+
+-- | Check whether an operator is a constructor operator (starts with ':').
+-- Constructor operators and backtick-quoted constructors are valid in patterns;
+-- variable operators like @+@ or @*@ are not.
+isConLikeOp :: Text -> Bool
+isConLikeOp op =
+  case T.uncons op of
+    Just (':', _) -> True
+    Just (c, _) -> isUpper c -- backtick-quoted constructor
+    _ -> False
