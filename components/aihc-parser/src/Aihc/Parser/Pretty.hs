@@ -97,7 +97,7 @@ prettyExportSpec spec =
     ExportWith _ mWarning namespace name members ->
       prettyExportWarning
         mWarning
-        (prettyNamespacePrefix namespace <> prettyConstructorName name <> parens (hsep (punctuate comma (map prettyBinderName members))))
+        (prettyNamespacePrefix namespace <> prettyConstructorName name <> parens (hsep (punctuate comma (map prettyExportMember members))))
 
 prettyExportWarning :: Maybe WarningText -> Doc ann -> Doc ann
 prettyExportWarning mWarning doc =
@@ -153,13 +153,35 @@ prettyImportItem item =
     ImportItemAbs _ namespace name -> prettyNamespacePrefix namespace <> prettyConstructorName name
     ImportItemAll _ namespace name -> prettyNamespacePrefix namespace <> prettyConstructorName name <> "(..)"
     ImportItemWith _ namespace name members ->
-      prettyNamespacePrefix namespace <> prettyConstructorName name <> parens (hsep (punctuate comma (map prettyBinderName members)))
+      prettyNamespacePrefix namespace <> prettyConstructorName name <> parens (hsep (punctuate comma (map prettyExportMember members)))
 
-prettyNamespacePrefix :: Maybe Text -> Doc ann
+prettyExportMember :: ExportMember -> Doc ann
+prettyExportMember (ExportMember namespace name) =
+  prettyMemberNamespacePrefix namespace <> prettyBinderName name
+
+prettyNamespacePrefix :: Maybe ExportNamespace -> Doc ann
 prettyNamespacePrefix namespace =
   case namespace of
-    Just ns -> pretty ns <> " "
+    Just ns -> prettyNamespace ns <> " "
     Nothing -> mempty
+
+prettyNamespace :: ExportNamespace -> Doc ann
+prettyNamespace namespace =
+  case namespace of
+    ExportNamespaceType -> "type"
+    ExportNamespacePattern -> "pattern"
+    ExportNamespaceData -> "data"
+
+prettyMemberNamespacePrefix :: Maybe ExportMemberNamespace -> Doc ann
+prettyMemberNamespacePrefix namespace =
+  case namespace of
+    Just ns -> prettyMemberNamespace ns <> " "
+    Nothing -> mempty
+
+prettyMemberNamespace :: ExportMemberNamespace -> Doc ann
+prettyMemberNamespace namespace =
+  case namespace of
+    ExportMemberNamespaceData -> "data"
 
 prettyDeclLines :: Decl -> [Doc ann]
 prettyDeclLines decl =

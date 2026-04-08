@@ -30,6 +30,9 @@ module Aihc.Parser.Syntax
     Extension (..),
     ExtensionSetting (..),
     ExportSpec (..),
+    ExportNamespace (..),
+    ExportMemberNamespace (..),
+    ExportMember (..),
     FieldDecl (..),
     FixityAssoc (..),
     ForeignDecl (..),
@@ -671,12 +674,28 @@ moduleWarningText modu = moduleHeadWarningText =<< moduleHead modu
 moduleExports :: Module -> Maybe [ExportSpec]
 moduleExports modu = moduleHeadExports =<< moduleHead modu
 
+data ExportNamespace
+  = ExportNamespaceType
+  | ExportNamespacePattern
+  | ExportNamespaceData
+  deriving (Data, Eq, Show, Generic, NFData)
+
+data ExportMemberNamespace
+  = ExportMemberNamespaceData
+  deriving (Data, Eq, Show, Generic, NFData)
+
+data ExportMember = ExportMember
+  { exportMemberNamespace :: Maybe ExportMemberNamespace,
+    exportMemberName :: Text
+  }
+  deriving (Data, Eq, Show, Generic, NFData)
+
 data ExportSpec
   = ExportModule SourceSpan (Maybe WarningText) Text
-  | ExportVar SourceSpan (Maybe WarningText) (Maybe Text) Text
-  | ExportAbs SourceSpan (Maybe WarningText) (Maybe Text) Text
-  | ExportAll SourceSpan (Maybe WarningText) (Maybe Text) Text
-  | ExportWith SourceSpan (Maybe WarningText) (Maybe Text) Text [Text]
+  | ExportVar SourceSpan (Maybe WarningText) (Maybe ExportNamespace) Text
+  | ExportAbs SourceSpan (Maybe WarningText) (Maybe ExportNamespace) Text
+  | ExportAll SourceSpan (Maybe WarningText) (Maybe ExportNamespace) Text
+  | ExportWith SourceSpan (Maybe WarningText) (Maybe ExportNamespace) Text [ExportMember]
   deriving (Eq, Show, Generic, NFData)
 
 instance HasSourceSpan ExportSpec where
@@ -720,10 +739,10 @@ instance HasSourceSpan ImportSpec where
   getSourceSpan = importSpecSpan
 
 data ImportItem
-  = ImportItemVar SourceSpan (Maybe Text) Text
-  | ImportItemAbs SourceSpan (Maybe Text) Text
-  | ImportItemAll SourceSpan (Maybe Text) Text
-  | ImportItemWith SourceSpan (Maybe Text) Text [Text]
+  = ImportItemVar SourceSpan (Maybe ExportNamespace) Text
+  | ImportItemAbs SourceSpan (Maybe ExportNamespace) Text
+  | ImportItemAll SourceSpan (Maybe ExportNamespace) Text
+  | ImportItemWith SourceSpan (Maybe ExportNamespace) Text [ExportMember]
   deriving (Eq, Show, Generic, NFData)
 
 data Decl
