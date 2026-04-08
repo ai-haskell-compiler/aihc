@@ -3,5 +3,5 @@ input: |
   id do
     pure ()
 ast: ~
-status: xfail
+status: fail
 reason: BlockArguments extension not enabled
