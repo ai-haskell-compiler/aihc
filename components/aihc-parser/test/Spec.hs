@@ -94,6 +94,9 @@ buildTests = do
             testCase "generated operators reject arrow tail spellings" test_generatedOperatorsRejectArrowTailSpellings,
             testCase "parses parenthesized kind signature type atoms" test_typeParsesParenthesizedKindSignature,
             testCase "parses parenthesized kind signatures in application heads" test_typeParsesKindSignatureApplicationHead,
+            testCase "parses empty list type constructor" test_typeParsesEmptyListConstructor,
+            testCase "parses promoted empty list type constructor" test_typeParsesPromotedEmptyListConstructor,
+            testCase "parses parenthesized empty list in instance heads" test_instanceParsesParenthesizedEmptyListType,
             testCase "parses GADT constructor arguments with kind signatures" test_gadtConstructorParsesKindAnnotatedArgument,
             testCase "preserves source unpack pragmas on constructor fields" test_constructorFieldsPreserveSourceUnpackedness,
             testCase "ignores unexpected pragmas without parse failure" test_ignoresUnexpectedPragmas,
@@ -236,6 +239,36 @@ test_typeParsesKindSignatureApplicationHead =
   case parseType defaultConfig {parserExtensions = [KindSignatures]} "(f :: Type -> Type) a" of
     ParseOk (TApp _ (TKindSig _ (TVar _ "f") (TFun _ (TCon _ "Type" Unpromoted) (TCon _ "Type" Unpromoted))) (TVar _ "a")) -> pure ()
     other -> assertFailure ("expected kind-signature application head, got: " <> show other)
+
+test_typeParsesEmptyListConstructor :: Assertion
+test_typeParsesEmptyListConstructor =
+  case parseType defaultConfig "[]" of
+    ParseOk (TCon _ "[]" Unpromoted) -> pure ()
+    other -> assertFailure ("expected empty list type constructor, got: " <> show other)
+
+test_typeParsesPromotedEmptyListConstructor :: Assertion
+test_typeParsesPromotedEmptyListConstructor =
+  case parseType defaultConfig {parserExtensions = [DataKinds]} "'[]" of
+    ParseOk (TCon _ "[]" Promoted) -> pure ()
+    other -> assertFailure ("expected promoted empty list type constructor, got: " <> show other)
+
+test_instanceParsesParenthesizedEmptyListType :: Assertion
+test_instanceParsesParenthesizedEmptyListType =
+  let source =
+        T.unlines
+          [ "{-# LANGUAGE FlexibleInstances #-}",
+            "module M where",
+            "class C a",
+            "instance C ([])"
+          ]
+      (errs, modu) = parseModule defaultConfig source
+   in do
+        assertBool ("expected no parse errors, got: " <> show errs) (null errs)
+        case moduleDecls modu of
+          [ DeclClass _ ClassDecl {classDeclName = "C", classDeclParams = [_]},
+            DeclInstance _ InstanceDecl {instanceDeclClassName = "C", instanceDeclTypes = [TParen _ (TCon _ "[]" Unpromoted)]}
+            ] -> pure ()
+          other -> assertFailure ("unexpected parsed declarations: " <> show other)
 
 test_gadtConstructorParsesKindAnnotatedArgument :: Assertion
 test_gadtConstructorParsesKindAnnotatedArgument =

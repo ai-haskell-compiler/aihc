@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail transformers-base parenthesized empty-list instance head parsed as promotion -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE FlexibleInstances #-}
 module ParenthesizedEmptyListInstance where
 
