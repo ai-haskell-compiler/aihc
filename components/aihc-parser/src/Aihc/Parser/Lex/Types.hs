@@ -2,9 +2,14 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 module Aihc.Parser.Lex.Types
   ( LexTokenKind (..),
+    pattern TkVarRole,
+    pattern TkVarFamily,
+    pattern TkVarPattern,
+    pattern TkVarInstance,
     TokenOrigin (..),
     LexToken (..),
     LexerEnv (..),
@@ -50,6 +55,7 @@ data LexTokenKind
   | TkKeywordDeriving
   | TkKeywordDo
   | TkKeywordElse
+  | TkKeywordForall
   | TkKeywordForeign
   | TkKeywordIf
   | TkKeywordImport
@@ -155,6 +161,18 @@ data LexTokenKind
   | TkError Text
   | TkEOF
   deriving (Eq, Ord, Show, Read, Generic, NFData)
+
+pattern TkVarRole :: LexTokenKind
+pattern TkVarRole = TkVarId "role"
+
+pattern TkVarFamily :: LexTokenKind
+pattern TkVarFamily = TkVarId "family"
+
+pattern TkVarPattern :: LexTokenKind
+pattern TkVarPattern = TkVarId "pattern"
+
+pattern TkVarInstance :: LexTokenKind
+pattern TkVarInstance = TkVarId "instance"
 
 data TokenOrigin
   = FromSource

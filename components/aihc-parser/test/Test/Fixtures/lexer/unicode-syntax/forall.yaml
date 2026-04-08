@@ -2,7 +2,7 @@ extensions:
   - UnicodeSyntax
 input: "∀ a"
 tokens:
-  - 'TkVarId "forall"'
+  - "TkKeywordForall"
   - 'TkVarId "a"'
-  - 'TkEOF'
+  - "TkEOF"
 status: pass

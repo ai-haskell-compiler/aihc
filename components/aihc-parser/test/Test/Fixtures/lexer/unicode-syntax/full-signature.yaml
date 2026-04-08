@@ -3,12 +3,12 @@ extensions:
 input: "id ∷ ∀ a . a → a"
 tokens:
   - 'TkVarId "id"'
-  - 'TkReservedDoubleColon'
-  - 'TkVarId "forall"'
+  - "TkReservedDoubleColon"
+  - "TkKeywordForall"
   - 'TkVarId "a"'
   - 'TkVarSym "."'
   - 'TkVarId "a"'
-  - 'TkReservedRightArrow'
+  - "TkReservedRightArrow"
   - 'TkVarId "a"'
-  - 'TkEOF'
+  - "TkEOF"
 status: pass
