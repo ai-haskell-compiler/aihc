@@ -105,6 +105,8 @@ buildTests = do
             testCase "parses warned export reexports" test_warnedExportReexportParses,
             testCase "roundtrips warned export reexports" test_warnedExportReexportRoundtrip,
             testCase "parses warned export module reexports" test_warnedExportModuleReexportParses,
+            testCase "parses infix class heads" test_infixClassHeadParses,
+            testCase "parses and roundtrips infix type family heads" test_infixTypeFamilyHeadRoundtrip,
             QC.testProperty "generated operators reject dash-only comment starters" prop_generatedOperatorsRejectDashOnlyCommentStarters
           ],
         testGroup
@@ -399,6 +401,45 @@ test_warnedExportModuleReexportParses =
         case moduleExports modu of
           Just [ExportModule _ (Just (DeprText _ "Moved to B")) "B"] -> pure ()
           other -> assertFailure ("unexpected exports: " <> show other)
+
+test_infixClassHeadParses :: Assertion
+test_infixClassHeadParses =
+  let source =
+        T.unlines
+          [ "{-# LANGUAGE TypeOperators #-}",
+            "module M where",
+            "infix 4 :=:",
+            "class a :=: b where",
+            "  proof :: a -> b -> ()"
+          ]
+      (errs, modu) = parseModule defaultConfig source
+   in do
+        assertBool ("expected no parse errors, got: " <> show errs) (null errs)
+        case moduleDecls modu of
+          [ DeclFixity {},
+            DeclClass _ ClassDecl {classDeclHeadForm = TypeHeadInfix, classDeclName = ":=:", classDeclParams = [TyVarBinder _ "a" Nothing, TyVarBinder _ "b" Nothing], classDeclItems = [ClassItemTypeSig _ ["proof"] _]}
+            ] -> pure ()
+          other -> assertFailure ("unexpected parsed declarations: " <> show other)
+
+test_infixTypeFamilyHeadRoundtrip :: Assertion
+test_infixTypeFamilyHeadRoundtrip =
+  let source =
+        T.unlines
+          [ "{-# LANGUAGE TypeFamilies #-}",
+            "{-# LANGUAGE TypeOperators #-}",
+            "module M where",
+            "type family l `And` r where",
+            "  l `And` r = l"
+          ]
+      (errs, modu) = parseModule defaultConfig source
+   in do
+        assertBool ("expected no parse errors, got: " <> show errs) (null errs)
+        case moduleDecls modu of
+          [DeclTypeFamilyDecl _ TypeFamilyDecl {typeFamilyDeclHeadForm = TypeHeadInfix, typeFamilyDeclHead = TApp _ (TApp _ (TCon _ "And" Unpromoted) (TVar _ "l")) (TVar _ "r"), typeFamilyDeclParams = [TyVarBinder _ "l" Nothing, TyVarBinder _ "r" Nothing], typeFamilyDeclEquations = Just [TypeFamilyEq {typeFamilyEqHeadForm = TypeHeadInfix, typeFamilyEqLhs = TApp _ (TApp _ (TCon _ "And" Unpromoted) (TVar _ "l")) (TVar _ "r"), typeFamilyEqRhs = TVar _ "l"}]}] -> pure ()
+          other -> assertFailure ("unexpected parsed declarations: " <> show other)
+        case validateParser "InfixTypeFamilyHead.hs" Haskell2010Edition [EnableExtension TypeFamilies, EnableExtension TypeOperators] source of
+          Nothing -> pure ()
+          Just err -> assertFailure ("expected infix type family head roundtrip to validate, got: " <> show err)
 
 test_parserConfigPassesExtensions :: Assertion
 test_parserConfigPassesExtensions =

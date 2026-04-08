@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail infix-type-family-head parser support pending for infix type family head syntax -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 

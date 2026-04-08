@@ -20,6 +20,7 @@ module Aihc.Parser.Syntax
     CmdCaseAlt (..),
     CompStmt (..),
     FunctionalDependency (..),
+    TypeHeadForm (..),
     DataConDecl (..),
     DataDecl (..),
     Decl (..),
@@ -1019,6 +1020,11 @@ data TyVarBinder = TyVarBinder
 instance HasSourceSpan TyVarBinder where
   getSourceSpan = tyVarBinderSpan
 
+data TypeHeadForm
+  = TypeHeadPrefix
+  | TypeHeadInfix
+  deriving (Data, Eq, Show, Generic, NFData)
+
 data Role
   = RoleNominal
   | RoleRepresentational
@@ -1051,6 +1057,7 @@ instance HasSourceSpan TypeSynDecl where
 -- Used for top-level @type family F a@ and associated @type F a :: Kind@ in class bodies.
 data TypeFamilyDecl = TypeFamilyDecl
   { typeFamilyDeclSpan :: SourceSpan,
+    typeFamilyDeclHeadForm :: TypeHeadForm,
     -- | Family head type. For simple families like @type family F a@, this is @TCon "F"@.
     -- For infix families like @type family l `And` r@, this is the full infix type.
     typeFamilyDeclHead :: Type,
@@ -1069,6 +1076,7 @@ instance HasSourceSpan TypeFamilyDecl where
 data TypeFamilyEq = TypeFamilyEq
   { typeFamilyEqSpan :: SourceSpan,
     typeFamilyEqForall :: [TyVarBinder],
+    typeFamilyEqHeadForm :: TypeHeadForm,
     typeFamilyEqLhs :: Type,
     typeFamilyEqRhs :: Type
   }
@@ -1094,6 +1102,7 @@ instance HasSourceSpan DataFamilyDecl where
 data TypeFamilyInst = TypeFamilyInst
   { typeFamilyInstSpan :: SourceSpan,
     typeFamilyInstForall :: [TyVarBinder],
+    typeFamilyInstHeadForm :: TypeHeadForm,
     typeFamilyInstLhs :: Type,
     typeFamilyInstRhs :: Type
   }
@@ -1235,6 +1244,7 @@ instance HasSourceSpan StandaloneDerivingDecl where
 data ClassDecl = ClassDecl
   { classDeclSpan :: SourceSpan,
     classDeclContext :: Maybe [Type],
+    classDeclHeadForm :: TypeHeadForm,
     classDeclName :: Text,
     classDeclParams :: [TyVarBinder],
     classDeclFundeps :: [FunctionalDependency],

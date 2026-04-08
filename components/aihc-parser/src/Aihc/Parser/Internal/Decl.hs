@@ -11,7 +11,7 @@ module Aihc.Parser.Internal.Decl
 where
 
 import Aihc.Parser.Internal.Common
-import {-# SOURCE #-} Aihc.Parser.Internal.Expr (equationRhsParser, exprParser, patternParser, simplePatternParser, startsWithContextType, startsWithTypeSig, typeAppParser, typeAtomParser, typeParser)
+import {-# SOURCE #-} Aihc.Parser.Internal.Expr (equationRhsParser, exprParser, patternParser, simplePatternParser, startsWithContextType, startsWithTypeSig, typeAppParser, typeAtomParser, typeInfixOperatorParser, typeParser)
 import Aihc.Parser.Lex (LexTokenKind (..), lexTokenKind, pattern TkVarFamily, pattern TkVarPattern, pattern TkVarRole)
 import Aihc.Parser.Syntax
 import Aihc.Parser.Types (ParserErrorComponent (..), mkFoundToken)
@@ -396,10 +396,7 @@ typeFamilyDeclParser :: TokParser Decl
 typeFamilyDeclParser = withSpan $ do
   expectedTok TkKeywordType
   expectedTok TkVarFamily
-  headType <- withSpan $ do
-    name <- constructorIdentifierParser
-    pure (\span' -> TCon span' name Unpromoted)
-  params <- MP.many typeParamParser
+  (headForm, headType, params) <- typeFamilyHeadParser
   kind <- familyResultKindParser
   -- A closed type family has a `where` clause with equations.
   equations <- MP.optional (MP.try closedTypeFamilyWhereParser)
@@ -408,6 +405,7 @@ typeFamilyDeclParser = withSpan $ do
       span'
       TypeFamilyDecl
         { typeFamilyDeclSpan = span',
+          typeFamilyDeclHeadForm = headForm,
           typeFamilyDeclHead = headType,
           typeFamilyDeclParams = params,
           typeFamilyDeclKind = kind,
@@ -425,13 +423,14 @@ closedTypeFamilyWhereParser =
 typeFamilyEqParser :: TokParser TypeFamilyEq
 typeFamilyEqParser = withSpan $ do
   forallBinders <- forallPrefixDispatch typeFamilyForallParser
-  lhs <- typeAppParser
+  (headForm, lhs) <- typeFamilyLhsParser
   expectedTok TkReservedEquals
   rhs <- typeParser
   pure $ \span' ->
     TypeFamilyEq
       { typeFamilyEqSpan = span',
         typeFamilyEqForall = forallBinders,
+        typeFamilyEqHeadForm = headForm,
         typeFamilyEqLhs = lhs,
         typeFamilyEqRhs = rhs
       }
@@ -466,7 +465,7 @@ typeFamilyInstParser = withSpan $ do
   expectedTok TkKeywordType
   expectedTok TkKeywordInstance
   forallBinders <- forallPrefixDispatch typeFamilyForallParser
-  lhs <- typeAppParser
+  (headForm, lhs) <- typeFamilyLhsParser
   expectedTok TkReservedEquals
   rhs <- typeParser
   pure $ \span' ->
@@ -475,6 +474,7 @@ typeFamilyInstParser = withSpan $ do
       TypeFamilyInst
         { typeFamilyInstSpan = span',
           typeFamilyInstForall = forallBinders,
+          typeFamilyInstHeadForm = headForm,
           typeFamilyInstLhs = lhs,
           typeFamilyInstRhs = rhs
         }
@@ -540,16 +540,14 @@ newtypeFamilyInstParser = withSpan $ do
 classTypeFamilyDeclParser :: TokParser ClassDeclItem
 classTypeFamilyDeclParser = withSpan $ do
   expectedTok TkKeywordType
-  headType <- withSpan $ do
-    name <- constructorIdentifierParser
-    pure (\span' -> TCon span' name Unpromoted)
-  params <- MP.many typeParamParser
+  (headForm, headType, params) <- typeFamilyHeadParser
   kind <- familyResultKindParser
   pure $ \span' ->
     ClassItemTypeFamilyDecl
       span'
       TypeFamilyDecl
         { typeFamilyDeclSpan = span',
+          typeFamilyDeclHeadForm = headForm,
           typeFamilyDeclHead = headType,
           typeFamilyDeclParams = params,
           typeFamilyDeclKind = kind,
@@ -579,7 +577,7 @@ classDefaultTypeInstParser = withSpan $ do
   expectedTok TkKeywordType
   expectedTok TkKeywordInstance
   forallBinders <- forallPrefixDispatch typeFamilyForallParser
-  lhs <- typeAppParser
+  (headForm, lhs) <- typeFamilyLhsParser
   expectedTok TkReservedEquals
   rhs <- typeParser
   pure $ \span' ->
@@ -588,6 +586,7 @@ classDefaultTypeInstParser = withSpan $ do
       TypeFamilyInst
         { typeFamilyInstSpan = span',
           typeFamilyInstForall = forallBinders,
+          typeFamilyInstHeadForm = headForm,
           typeFamilyInstLhs = lhs,
           typeFamilyInstRhs = rhs
         }
@@ -600,7 +599,7 @@ instanceTypeFamilyInstParser :: TokParser InstanceDeclItem
 instanceTypeFamilyInstParser = withSpan $ do
   expectedTok TkKeywordType
   forallBinders <- forallPrefixDispatch typeFamilyForallParser
-  lhs <- typeAppParser
+  (headForm, lhs) <- typeFamilyLhsParser
   expectedTok TkReservedEquals
   rhs <- typeParser
   pure $ \span' ->
@@ -609,6 +608,7 @@ instanceTypeFamilyInstParser = withSpan $ do
       TypeFamilyInst
         { typeFamilyInstSpan = span',
           typeFamilyInstForall = forallBinders,
+          typeFamilyInstHeadForm = headForm,
           typeFamilyInstLhs = lhs,
           typeFamilyInstRhs = rhs
         }
@@ -725,8 +725,7 @@ classDeclParser :: TokParser Decl
 classDeclParser = withSpan $ do
   expectedTok TkKeywordClass
   context <- contextPrefixDispatch
-  className <- constructorIdentifierParser
-  classParams <- MP.many typeParamParser
+  (headForm, className, classParams) <- classHeadParser
   classFundeps <- MP.option [] (MP.try classFundepsParser)
   items <- MP.option [] classWhereClauseParser
   pure $ \span' ->
@@ -735,6 +734,7 @@ classDeclParser = withSpan $ do
       ClassDecl
         { classDeclSpan = span',
           classDeclContext = context,
+          classDeclHeadForm = headForm,
           classDeclName = className,
           classDeclParams = classParams,
           classDeclFundeps = classFundeps,
@@ -1250,18 +1250,80 @@ declContextParser = contextParserWith typeParser typeAtomParser
 
 typeDeclHeadParser :: TokParser (Text, [TyVarBinder])
 typeDeclHeadParser =
-  MP.try infixHeadParser <|> prefixHeadParser
+  MP.try infixDeclHeadParser <|> prefixDeclHeadParser
   where
-    prefixHeadParser = do
+    prefixDeclHeadParser = do
       name <- constructorIdentifierParser <|> parens constructorOperatorParser
       params <- MP.many typeParamParser
       pure (name, params)
+
+    infixDeclHeadParser = do
+      lhs <- typeParamParser
+      op <- constructorOperatorParser
+      rhs <- typeParamParser
+      pure (op, [lhs, rhs])
+
+typeFamilyHeadParser :: TokParser (TypeHeadForm, Type, [TyVarBinder])
+typeFamilyHeadParser =
+  MP.try infixHeadParser <|> prefixHeadParser
+  where
+    prefixHeadParser = do
+      headType <- withSpan $ do
+        name <- constructorIdentifierParser
+        pure (\span' -> TCon span' name Unpromoted)
+      params <- MP.many typeParamParser
+      pure (TypeHeadPrefix, headType, params)
 
     infixHeadParser = do
       lhs <- typeParamParser
       op <- constructorOperatorParser
       rhs <- typeParamParser
-      pure (op, [lhs, rhs])
+      let lhsType = TVar (tyVarBinderSpan lhs) (tyVarBinderName lhs)
+          rhsType = TVar (tyVarBinderSpan rhs) (tyVarBinderName rhs)
+      headType <- withSpan $ do
+        pure $ \span' ->
+          TApp span' (TApp span' (TCon span' op Unpromoted) lhsType) rhsType
+      pure (TypeHeadInfix, headType, [lhs, rhs])
+
+typeFamilyLhsParser :: TokParser (TypeHeadForm, Type)
+typeFamilyLhsParser = do
+  lhs <- typeAtomParser
+  hasInfixTail <- MP.optional (lookAhead typeInfixOperatorParser)
+  case hasInfixTail of
+    Just _ -> do
+      rest <- typeHeadInfixTailParser
+      pure (TypeHeadInfix, foldl buildInfixType lhs rest)
+    Nothing -> do
+      rest <- MP.many typeAtomParser
+      pure (TypeHeadPrefix, foldl buildTypeApp lhs rest)
+  where
+    typeHeadInfixTailParser = MP.many $ MP.try $ do
+      op <- typeInfixOperatorParser
+      atom <- typeAtomParser
+      pure (op, atom)
+
+    buildInfixType left ((op, promoted), right) =
+      let span' = mergeSourceSpans (getSourceSpan left) (getSourceSpan right)
+          opType = TCon span' op promoted
+       in TApp span' (TApp span' opType left) right
+
+    buildTypeApp left right =
+      TApp (mergeSourceSpans (getSourceSpan left) (getSourceSpan right)) left right
+
+classHeadParser :: TokParser (TypeHeadForm, Text, [TyVarBinder])
+classHeadParser =
+  MP.try infixDeclHeadParser <|> prefixDeclHeadParser
+  where
+    prefixDeclHeadParser = do
+      name <- constructorIdentifierParser
+      params <- MP.many typeParamParser
+      pure (TypeHeadPrefix, name, params)
+
+    infixDeclHeadParser = do
+      lhs <- typeParamParser
+      op <- constructorOperatorParser
+      rhs <- typeParamParser
+      pure (TypeHeadInfix, op, [lhs, rhs])
 
 typeParamParser :: TokParser TyVarBinder
 typeParamParser =
