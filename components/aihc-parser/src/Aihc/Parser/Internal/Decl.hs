@@ -114,6 +114,12 @@ importDeclParser = withSpan $ do
     MP.option False (keywordTok TkKeywordQualified >> pure True)
   importedLevel <- MP.optional importLevelParser
   importedPackage <- MP.optional packageNameParser
+  let isSourcePragma :: Pragma -> Maybe Bool
+      isSourcePragma = \case
+        PragmaSource {} -> Just True
+        _ -> Nothing
+  importedSource <-
+    fromMaybe False <$> optionalHiddenPragma isSourcePragma
   importedModule <- moduleNameParser
   postQualified <-
     MP.optional $
@@ -134,6 +140,7 @@ importDeclParser = withSpan $ do
       { importDeclSpan = span',
         importDeclLevel = importedLevel,
         importDeclPackage = importedPackage,
+        importDeclSource = importedSource,
         importDeclQualified = isQualified,
         importDeclQualifiedPost = isJust postQualified,
         importDeclModule = importedModule,

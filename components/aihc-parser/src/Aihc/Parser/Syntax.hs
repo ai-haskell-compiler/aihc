@@ -684,6 +684,7 @@ data ImportDecl = ImportDecl
   { importDeclSpan :: SourceSpan,
     importDeclLevel :: Maybe ImportLevel,
     importDeclPackage :: Maybe Text,
+    importDeclSource :: Bool,
     importDeclQualified :: Bool,
     importDeclQualifiedPost :: Bool,
     importDeclModule :: Text,

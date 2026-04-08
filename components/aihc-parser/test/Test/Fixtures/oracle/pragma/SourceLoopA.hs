@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail SOURCE pragma in import not preserved in pretty-printer roundtrip -}
+{- ORACLE_TEST pass -}
 module SourceLoopA where
 
 import {-# SOURCE #-} SourceLoopB
