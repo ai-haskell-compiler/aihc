@@ -2086,9 +2086,13 @@ typeStarParser = withSpan $ do
 typeListParser :: TokParser Type
 typeListParser = withSpan $ do
   expectedTok TkSpecialLBracket
-  elems <- typeParser `MP.sepBy1` expectedTok TkSpecialComma
-  expectedTok TkSpecialRBracket
-  pure (\span' -> TList span' Unpromoted elems)
+  mClosed <- MP.optional (expectedTok TkSpecialRBracket)
+  case mClosed of
+    Just () -> pure (\span' -> TCon span' "[]" Unpromoted)
+    Nothing -> do
+      elems <- typeParser `MP.sepBy1` expectedTok TkSpecialComma
+      expectedTok TkSpecialRBracket
+      pure (\span' -> TList span' Unpromoted elems)
 
 typeParenOrTupleParser :: TokParser Type
 typeParenOrTupleParser = withSpan $ do
