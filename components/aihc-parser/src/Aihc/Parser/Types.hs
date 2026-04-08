@@ -22,6 +22,7 @@ import Aihc.Parser.Lex
   ( LayoutState (..),
     LexToken (..),
     LexTokenKind (..),
+    Pragma,
     TokenOrigin (..),
     enabledExtensionsFromSettings,
     layoutTransition,
@@ -99,10 +100,10 @@ data TokStream = TokStream
     tokStreamRawTokens :: [LexToken],
     -- | Layout engine state (context stack, pending layout, buffer).
     tokStreamLayoutState :: LayoutState,
-    -- | Hidden pragma tokens that appeared before the next source token.
+    -- | Hidden pragmas that appeared before the next source token.
     -- Parsers may inspect these explicitly, but they never participate in the
     -- ordinary token stream.
-    tokStreamPendingPragmas :: [LexToken],
+    tokStreamPendingPragmas :: [Pragma],
     tokStreamPrevToken :: Maybe LexToken,
     tokStreamExtensions :: [Extension],
     -- | Whether this stream has already emitted TkEOF.
@@ -208,11 +209,11 @@ mkTokStreamFromTokens toks =
             tokStreamEOFEmitted = False
           }
 
-isHiddenPragmaToken :: LexToken -> Bool
-isHiddenPragmaToken tok =
+pragmaFromToken :: LexToken -> Maybe Pragma
+pragmaFromToken tok =
   case lexTokenKind tok of
-    TkPragma _ -> True
-    _ -> False
+    TkPragma pragma' -> Just pragma'
+    _ -> Nothing
 
 normalizeTokStream :: TokStream -> TokStream
 normalizeTokStream ts0
@@ -222,11 +223,11 @@ normalizeTokStream ts0
     go ts =
       case layoutBuffer (tokStreamLayoutState ts) of
         tok : rest
-          | isHiddenPragmaToken tok ->
+          | Just pragma' <- pragmaFromToken tok ->
               go
                 ts
                   { tokStreamLayoutState = (tokStreamLayoutState ts) {layoutBuffer = rest},
-                    tokStreamPendingPragmas = tokStreamPendingPragmas ts <> [tok]
+                    tokStreamPendingPragmas = tokStreamPendingPragmas ts <> [pragma']
                   }
           | otherwise -> ts
         [] ->

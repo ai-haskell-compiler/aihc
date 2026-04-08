@@ -42,7 +42,7 @@ module Aihc.Parser.Internal.Common
   )
 where
 
-import Aihc.Parser.Lex (LayoutState (..), LexToken (..), LexTokenKind (..), closeImplicitLayoutContext)
+import Aihc.Parser.Lex (LayoutState (..), LexToken (..), LexTokenKind (..), Pragma, closeImplicitLayoutContext)
 import Aihc.Parser.Syntax
 import Aihc.Parser.Types (ParserErrorComponent (..), TokStream (..), mkFoundToken)
 import Control.Monad (guard)
@@ -185,14 +185,14 @@ tokenSatisfy expectedLabel f =
           then MPE.EndOfInput
           else MPE.Label (NE.fromList expectedLabel)
 
-hiddenPragma :: String -> (LexToken -> Maybe a) -> TokParser a
+hiddenPragma :: String -> (Pragma -> Maybe a) -> TokParser a
 hiddenPragma expectedLabel f = do
   mResult <- optionalHiddenPragma f
   case mResult of
     Just result -> pure result
     Nothing -> fail expectedLabel
 
-optionalHiddenPragma :: (LexToken -> Maybe a) -> TokParser (Maybe a)
+optionalHiddenPragma :: (Pragma -> Maybe a) -> TokParser (Maybe a)
 optionalHiddenPragma f = do
   pst <- MP.getParserState
   case spanNoMatch (tokStreamPendingPragmas (MP.stateInput pst)) of
