@@ -1610,7 +1610,11 @@ parenOrTuplePatternParser = withSpan $ do
                 isAsPattern <- startsWithAsPattern
                 if isAsPattern
                   then Left <$> patternParser
-                  else Right <$> exprParser
+                  else do
+                    canBeViewPattern <- hasTopLevelViewPatternArrowBefore closeTok
+                    if canBeViewPattern
+                      then Right <$> exprParser
+                      else Left <$> patternParser
       first <- finalizeTupleElement firstHead
       tok <- lookAhead anySingle
       case lexTokenKind tok of
