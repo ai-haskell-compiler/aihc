@@ -1,0 +1,4 @@
+input: |
+  f = id $ - 1
+ast: EApp (EVar "id") (ENegate (EInt 1))
+status: xfail
