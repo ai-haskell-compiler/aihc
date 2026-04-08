@@ -117,15 +117,14 @@ parseInlinePragma input = do
 
 parseUnpackPragma :: Text -> Maybe (Int, (Text, LexTokenKind))
 parseUnpackPragma input = do
-  (pragmaName, body, consumed) <- stripNamedPragma ["UNPACK", "NOUNPACK"] input
-  let targetName = T.strip body
-      raw = "{-# " <> pragmaName <> " " <> T.stripEnd body <> " #-}"
+  (pragmaName, _, consumed) <- stripNamedPragma ["UNPACK", "NOUNPACK"] input
+  let raw = "{-# " <> pragmaName <> " #-}"
       unpackKind =
         case pragmaName of
           "UNPACK" -> UnpackPragma
           "NOUNPACK" -> NoUnpackPragma
           _ -> error "impossible"
-      pragmaKind = PragmaUnpack unpackKind targetName
+      pragmaKind = PragmaUnpack unpackKind
   pure (T.length consumed, (raw, TkPragma pragmaKind))
 
 parseSourcePragma :: Text -> Maybe (Int, (Text, LexTokenKind))
@@ -166,10 +165,10 @@ firstMatchingPragmaName input (name : names) =
   let (candidate, rest) = T.splitAt (T.length name) input
    in if T.toUpper candidate == T.toUpper name
         then
-          -- Ensure it's followed by whitespace or end of input (word boundary)
+          -- Ensure it's followed by whitespace, '#' (start of '#-}'), or end of input
           case rest of
             Empty -> Just (name, rest)
-            c :< _ | isSpace c -> Just (name, rest)
+            c :< _ | isSpace c || c == '#' -> Just (name, rest)
             _ -> firstMatchingPragmaName input names
         else firstMatchingPragmaName input names
 

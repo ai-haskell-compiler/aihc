@@ -169,7 +169,7 @@ data Pragma
   | PragmaWarning Text
   | PragmaDeprecated Text
   | PragmaInline Text Text
-  | PragmaUnpack PragmaUnpackKind Text
+  | PragmaUnpack PragmaUnpackKind
   | PragmaSource Text Text
   | PragmaUnknown Text
   deriving (Eq, Ord, Show, Read, Generic, NFData)

@@ -262,8 +262,8 @@ pragmaDeclParser = withSpan $ do
     hiddenPragma "pragma declaration" $ \case
       PragmaUnknown text -> Just text
       PragmaInline kind body -> Just ("{-# " <> kind <> " " <> body <> " #-}")
-      PragmaUnpack UnpackPragma target -> Just ("{-# UNPACK " <> target <> " #-}")
-      PragmaUnpack NoUnpackPragma target -> Just ("{-# NOUNPACK " <> target <> " #-}")
+      PragmaUnpack UnpackPragma -> Just "{-# UNPACK #-}"
+      PragmaUnpack NoUnpackPragma -> Just "{-# NOUNPACK #-}"
       PragmaSource sourceText _ -> Just ("{-# SOURCE " <> sourceText <> " #-}")
       _ -> Nothing
   pure (`DeclPragma` pragmaText)
@@ -825,8 +825,8 @@ classPragmaItemParser = withSpan $ do
     hiddenPragma "pragma declaration" $ \case
       PragmaUnknown text -> Just text
       PragmaInline kind body -> Just ("{-# " <> kind <> " " <> body <> " #-}")
-      PragmaUnpack UnpackPragma target -> Just ("{-# UNPACK " <> target <> " #-}")
-      PragmaUnpack NoUnpackPragma target -> Just ("{-# NOUNPACK " <> target <> " #-}")
+      PragmaUnpack UnpackPragma -> Just "{-# UNPACK #-}"
+      PragmaUnpack NoUnpackPragma -> Just "{-# NOUNPACK #-}"
       PragmaSource sourceText _ -> Just ("{-# SOURCE " <> sourceText <> " #-}")
       _ -> Nothing
   pure (`ClassItemPragma` pragmaText)
@@ -952,8 +952,8 @@ instancePragmaItemParser = withSpan $ do
     hiddenPragma "pragma declaration" $ \case
       PragmaUnknown text -> Just text
       PragmaInline kind body -> Just ("{-# " <> kind <> " " <> body <> " #-}")
-      PragmaUnpack UnpackPragma target -> Just ("{-# UNPACK " <> target <> " #-}")
-      PragmaUnpack NoUnpackPragma target -> Just ("{-# NOUNPACK " <> target <> " #-}")
+      PragmaUnpack UnpackPragma -> Just "{-# UNPACK #-}"
+      PragmaUnpack NoUnpackPragma -> Just "{-# NOUNPACK #-}"
       PragmaSource sourceText _ -> Just ("{-# SOURCE " <> sourceText <> " #-}")
       _ -> Nothing
   pure (`InstanceItemPragma` pragmaText)
@@ -1470,8 +1470,8 @@ recordFieldBangTypeParser = withSpan $ do
 sourceUnpackednessPragmaParser :: TokParser SourceUnpackedness
 sourceUnpackednessPragmaParser =
   hiddenPragma "source unpack pragma" $ \case
-    PragmaUnpack UnpackPragma _targetName -> Just SourceUnpack
-    PragmaUnpack NoUnpackPragma _targetName -> Just SourceNoUnpack
+    PragmaUnpack UnpackPragma -> Just SourceUnpack
+    PragmaUnpack NoUnpackPragma -> Just SourceNoUnpack
     _ -> Nothing
 
 -- | Parse a type in a constructor field position.

@@ -786,7 +786,7 @@ docTokenKind kind =
         PragmaWarning msg -> "TkPragma" <+> ("PragmaWarning" <+> docText msg)
         PragmaDeprecated msg -> "TkPragma" <+> ("PragmaDeprecated" <+> docText msg)
         PragmaInline inlineKind body -> "TkPragma" <+> ("PragmaInline" <+> docText inlineKind <+> docText body)
-        PragmaUnpack unpackKind targetName -> "TkPragma" <+> ("PragmaUnpack" <+> docPragmaUnpackKind unpackKind <+> docText targetName)
+        PragmaUnpack unpackKind -> "TkPragma" <+> ("PragmaUnpack" <+> docPragmaUnpackKind unpackKind)
         PragmaSource sourceText _ -> "TkPragma" <+> ("PragmaSource" <+> docText sourceText)
         PragmaUnknown text -> "TkPragma" <+> ("PragmaUnknown" <+> docText text)
     TkQuasiQuote quoter body -> "TkQuasiQuote" <+> docText quoter <+> docText body
