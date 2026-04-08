@@ -192,10 +192,11 @@ prettyDeclLines decl =
     DeclPatSyn _ patSynDecl -> [prettyPatSynDecl patSynDecl]
     DeclPatSynSig _ names ty -> [hsep ["pattern", hsep (punctuate comma (map prettyConstructorName names)), "::", prettyType ty]]
     DeclStandaloneKindSig _ name kind -> [hsep ["type", prettyConstructorName name, "::", prettyType kind]]
-    DeclFixity _ assoc prec ops ->
+    DeclFixity _ assoc mNamespace prec ops ->
       [ hsep
           ( [prettyFixityAssoc assoc]
               <> maybe [] (pure . pretty . show) prec
+              <> maybe [] (pure . prettyNamespace) mNamespace
               <> map prettyInfixOp ops
           )
       ]
@@ -850,10 +851,11 @@ prettyClassItem item =
   case item of
     ClassItemTypeSig _ names ty -> hsep [hsep (punctuate comma (map prettyBinderName names)), "::", prettyType ty]
     ClassItemDefaultSig _ name ty -> hsep ["default", prettyBinderName name, "::", prettyType ty]
-    ClassItemFixity _ assoc prec ops ->
+    ClassItemFixity _ assoc mNamespace prec ops ->
       hsep
         ( [prettyFixityAssoc assoc]
             <> maybe [] (pure . pretty . show) prec
+            <> maybe [] (pure . prettyNamespace) mNamespace
             <> map prettyInfixOp ops
         )
     ClassItemDefault _ valueDecl -> prettyValueDeclSingleLine valueDecl
@@ -945,10 +947,11 @@ prettyInstanceItem item =
   case item of
     InstanceItemBind _ valueDecl -> prettyValueDeclSingleLine valueDecl
     InstanceItemTypeSig _ names ty -> hsep [hsep (punctuate comma (map prettyBinderName names)), "::", prettyType ty]
-    InstanceItemFixity _ assoc prec ops ->
+    InstanceItemFixity _ assoc mNamespace prec ops ->
       hsep
         ( [prettyFixityAssoc assoc]
             <> maybe [] (pure . pretty . show) prec
+            <> maybe [] (pure . prettyNamespace) mNamespace
             <> map prettyInfixOp ops
         )
     InstanceItemTypeFamilyInst _ tfi -> prettyInstTypeFamilyInst tfi

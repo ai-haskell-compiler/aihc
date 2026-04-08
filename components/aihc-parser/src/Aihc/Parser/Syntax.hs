@@ -753,7 +753,7 @@ data Decl
   | DeclPatSyn SourceSpan PatSynDecl
   | DeclPatSynSig SourceSpan [BinderName] Type
   | DeclStandaloneKindSig SourceSpan BinderName Type
-  | DeclFixity SourceSpan FixityAssoc (Maybe Int) [OperatorName]
+  | DeclFixity SourceSpan FixityAssoc (Maybe IEEntityNamespace) (Maybe Int) [OperatorName]
   | DeclRoleAnnotation SourceSpan RoleAnnotation
   | DeclTypeSyn SourceSpan TypeSynDecl
   | DeclTypeData SourceSpan DataDecl
@@ -783,7 +783,7 @@ instance HasSourceSpan Decl where
       DeclPatSyn span' _ -> span'
       DeclPatSynSig span' _ _ -> span'
       DeclStandaloneKindSig span' _ _ -> span'
-      DeclFixity span' _ _ _ -> span'
+      DeclFixity span' _ _ _ _ -> span'
       DeclRoleAnnotation span' _ -> span'
       DeclTypeSyn span' _ -> span'
       DeclTypeData span' _ -> span'
@@ -1288,7 +1288,7 @@ instance HasSourceSpan FunctionalDependency where
 data ClassDeclItem
   = ClassItemTypeSig SourceSpan [BinderName] Type
   | ClassItemDefaultSig SourceSpan BinderName Type
-  | ClassItemFixity SourceSpan FixityAssoc (Maybe Int) [OperatorName]
+  | ClassItemFixity SourceSpan FixityAssoc (Maybe IEEntityNamespace) (Maybe Int) [OperatorName]
   | ClassItemDefault SourceSpan ValueDecl
   | ClassItemTypeFamilyDecl SourceSpan TypeFamilyDecl
   | ClassItemDataFamilyDecl SourceSpan DataFamilyDecl
@@ -1302,7 +1302,7 @@ instance HasSourceSpan ClassDeclItem where
     case classDeclItem of
       ClassItemTypeSig span' _ _ -> span'
       ClassItemDefaultSig span' _ _ -> span'
-      ClassItemFixity span' _ _ _ -> span'
+      ClassItemFixity span' _ _ _ _ -> span'
       ClassItemDefault span' _ -> span'
       ClassItemTypeFamilyDecl span' _ -> span'
       ClassItemDataFamilyDecl span' _ -> span'
@@ -1335,7 +1335,7 @@ data InstanceOverlapPragma
 data InstanceDeclItem
   = InstanceItemBind SourceSpan ValueDecl
   | InstanceItemTypeSig SourceSpan [BinderName] Type
-  | InstanceItemFixity SourceSpan FixityAssoc (Maybe Int) [OperatorName]
+  | InstanceItemFixity SourceSpan FixityAssoc (Maybe IEEntityNamespace) (Maybe Int) [OperatorName]
   | InstanceItemTypeFamilyInst SourceSpan TypeFamilyInst
   | InstanceItemDataFamilyInst SourceSpan DataFamilyInst
   | -- pragma inside instance body (e.g. {-# SPECIALIZE instance ... #-})
@@ -1347,7 +1347,7 @@ instance HasSourceSpan InstanceDeclItem where
     case instanceDeclItem of
       InstanceItemBind span' _ -> span'
       InstanceItemTypeSig span' _ _ -> span'
-      InstanceItemFixity span' _ _ _ -> span'
+      InstanceItemFixity span' _ _ _ _ -> span'
       InstanceItemTypeFamilyInst span' _ -> span'
       InstanceItemDataFamilyInst span' _ -> span'
       InstanceItemPragma span' _ -> span'

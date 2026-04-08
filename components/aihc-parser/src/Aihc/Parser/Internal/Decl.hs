@@ -686,17 +686,23 @@ defaultDeclParser = withSpan $ do
 
 fixityDeclParser :: FixityAssoc -> TokParser Decl
 fixityDeclParser assoc = withSpan $ do
-  (parsedAssoc, prec, ops) <- fixityDeclPartsParser
+  (parsedAssoc, prec, mNamespace, ops) <- fixityDeclPartsParser
   when (assoc /= parsedAssoc) $
     fail "internal fixity dispatch mismatch"
-  pure (\span' -> DeclFixity span' parsedAssoc prec ops)
+  pure (\span' -> DeclFixity span' parsedAssoc mNamespace prec ops)
 
-fixityDeclPartsParser :: TokParser (FixityAssoc, Maybe Int, [Text])
+fixityDeclPartsParser :: TokParser (FixityAssoc, Maybe Int, Maybe IEEntityNamespace, [Text])
 fixityDeclPartsParser = do
   assoc <- fixityAssocParser
   prec <- MP.optional fixityPrecedenceParser
+  mNamespace <- MP.optional fixityNamespaceParser
   ops <- fixityOperatorParser `MP.sepBy1` expectedTok TkSpecialComma
-  pure (assoc, prec, ops)
+  pure (assoc, prec, mNamespace, ops)
+
+fixityNamespaceParser :: TokParser IEEntityNamespace
+fixityNamespaceParser =
+  (expectedTok TkKeywordType >> pure IEEntityNamespaceType)
+    <|> (expectedTok TkKeywordData >> pure IEEntityNamespaceData)
 
 fixityAssocParser :: TokParser FixityAssoc
 fixityAssocParser =
@@ -824,8 +830,8 @@ classDefaultSigItemParser = withSpan $ do
 
 classFixityItemParser :: TokParser ClassDeclItem
 classFixityItemParser = withSpan $ do
-  (assoc, prec, ops) <- fixityDeclPartsParser
-  pure (\span' -> ClassItemFixity span' assoc prec ops)
+  (assoc, prec, mNamespace, ops) <- fixityDeclPartsParser
+  pure (\span' -> ClassItemFixity span' assoc mNamespace prec ops)
 
 classDefaultItemParser :: TokParser ClassDeclItem
 classDefaultItemParser = withSpan $ do
@@ -939,8 +945,8 @@ instanceTypeSigItemParser = withSpan $ do
 
 instanceFixityItemParser :: TokParser InstanceDeclItem
 instanceFixityItemParser = withSpan $ do
-  (assoc, prec, ops) <- fixityDeclPartsParser
-  pure (\span' -> InstanceItemFixity span' assoc prec ops)
+  (assoc, prec, mNamespace, ops) <- fixityDeclPartsParser
+  pure (\span' -> InstanceItemFixity span' assoc mNamespace prec ops)
 
 instanceValueItemParser :: TokParser InstanceDeclItem
 instanceValueItemParser = withSpan $ do
