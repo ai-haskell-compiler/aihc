@@ -20,7 +20,7 @@ import Test.QuickCheck
 moduleConfig :: ParserConfig
 moduleConfig =
   defaultConfig
-    { parserExtensions = [Arrows, UnboxedTuples, UnboxedSums, TemplateHaskell]
+    { parserExtensions = [BlockArguments, Arrows, UnboxedTuples, UnboxedSums, TemplateHaskell]
     }
 
 prop_modulePrettyRoundTrip :: Module -> Property

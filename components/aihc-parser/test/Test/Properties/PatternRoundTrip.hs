@@ -28,7 +28,7 @@ newtype GenPattern = GenPattern {unGenPattern :: Pattern}
 patternConfig :: ParserConfig
 patternConfig =
   defaultConfig
-    { parserExtensions = [UnboxedTuples, UnboxedSums, TemplateHaskell]
+    { parserExtensions = [BlockArguments, UnboxedTuples, UnboxedSums, TemplateHaskell]
     }
 
 prop_patternPrettyRoundTrip :: GenPattern -> Property

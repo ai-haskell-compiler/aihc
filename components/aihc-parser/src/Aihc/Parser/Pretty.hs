@@ -993,6 +993,8 @@ data ExprCtx
   | CtxInfixLhs
   | CtxWhereBody
   | CtxAppFun
+  | CtxAppArg  -- ^ Last argument position in an application chain
+  | CtxAppArgNoParens  -- ^ Last argument position with block expr (no parens needed)
   | CtxTypeSigBody
   | CtxGuarded
 
@@ -1009,6 +1011,8 @@ exprCtxPrec ctx expr =
     CtxInfixLhs -> 1
     CtxWhereBody -> 0
     CtxAppFun -> 2
+    CtxAppArg -> 3
+    CtxAppArgNoParens -> 0  -- Precedence 0 so EIf/ECase/etc don't add parens
     CtxTypeSigBody -> 1
     CtxGuarded -> 0
 
@@ -1036,6 +1040,15 @@ needsExprParens ctx expr =
       case expr of
         ENegate {} -> True
         _ -> False
+    CtxAppArg ->
+      -- Block arguments don't need parentheses in the last argument position.
+      -- EParen adds its own parentheses in prettyExprPrec, so don't double-wrap.
+      case expr of
+        _ | isBlockExpr expr -> False
+        _ -> False
+    CtxAppArgNoParens ->
+      -- Never add parentheses - this is only used for block expressions in last arg position.
+      False
     CtxTypeSigBody ->
       case expr of
         ENegate {} -> True
@@ -1043,6 +1056,21 @@ needsExprParens ctx expr =
         ELambdaPats {} -> True
         _ -> False
     CtxGuarded -> isGreedyExpr expr
+
+-- | Check if an expression is a "block expression" that can appear without
+-- parentheses as a function argument when BlockArguments is enabled.
+-- Note: EWhereDecls is NOT included because its where clause needs to be
+-- clearly delimited when wrapping open-ended expressions.
+isBlockExpr :: Expr -> Bool
+isBlockExpr = \case
+  EIf {} -> True
+  EMultiWayIf {} -> True
+  ECase {} -> True
+  EDo {} -> True
+  ELambdaPats {} -> True
+  ELambdaCase {} -> True
+  ELetDecls {} -> True
+  _ -> False
 
 -- | Check if an expression is "greedy" - i.e., it could consume trailing syntax.
 -- These expressions may need special handling in certain contexts.
@@ -1112,11 +1140,38 @@ prettyNegate inner =
 prettyTypeSigBody :: Expr -> Doc ann
 prettyTypeSigBody = prettyExprIn CtxTypeSigBody
 
+-- | Flatten a left-nested application chain into (root, args).
+-- For example, @f x y z@ (parsed as @(((f x) y) z)@) becomes @(f, [x, y, z])@.
+flattenApps :: Expr -> (Expr, [Expr])
+flattenApps = go []
+  where
+    go args (EApp _ fn arg) = go (arg : args) fn
+    go args root = (root, args)
+
+-- | Pretty-print a chain of applications.
+-- The last argument can use BlockArguments (no parentheses for block expressions).
+-- Intermediate arguments always need parentheses for block expressions.
+prettyAppsChain :: Int -> Expr -> Doc ann
+prettyAppsChain prec expr =
+  let (root, args) = flattenApps expr
+      rootDoc = prettyExprApp root
+      argDocs = map (\(isLast, a) -> prettyExprIn (argCtx isLast a) a) (markLast args)
+   in parenthesize (prec > 2) (hsep (rootDoc : argDocs))
+  where
+    -- For the last argument, if it's a block expression, use precedence 0 to avoid
+    -- parentheses from the expression's own parenthesization logic.
+    argCtx True a | isBlockExpr a = CtxAppArgNoParens
+    argCtx True _ = CtxAppArg
+    argCtx False _ = CtxAppFun
+
+    markLast [] = []
+    markLast [x] = [(True, x)]
+    markLast (x : xs) = (False, x) : markLast xs
+
 prettyExprPrec :: Int -> Expr -> Doc ann
 prettyExprPrec prec expr =
   case expr of
-    EApp _ fn arg ->
-      parenthesize (prec > 2) (prettyExprApp fn <+> prettyExprPrec 3 arg)
+    EApp _ _ _ -> prettyAppsChain prec expr
     ETypeApp _ fn ty ->
       parenthesize (prec > 2) (prettyExprApp fn <+> "@" <> prettyTypeIn CtxTypeAtom ty)
     EVar _ name

@@ -1,0 +1,5 @@
+extensions: [BlockArguments]
+input: |
+  f if x then g if y then a else b else c
+ast: EApp (EVar "f") (EIf (EVar "x") (EApp (EVar "g") (EIf (EVar "y") (EVar "a") (EVar "b"))) (EVar "c"))
+status: pass
