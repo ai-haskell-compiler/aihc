@@ -155,33 +155,33 @@ prettyImportItem item =
     ImportItemWith _ namespace name members ->
       prettyNamespacePrefix namespace <> prettyConstructorName name <> parens (hsep (punctuate comma (map prettyExportMember members)))
 
-prettyExportMember :: ExportMember -> Doc ann
-prettyExportMember (ExportMember namespace name) =
+prettyExportMember :: IEBundledMember -> Doc ann
+prettyExportMember (IEBundledMember namespace name) =
   prettyMemberNamespacePrefix namespace <> prettyBinderName name
 
-prettyNamespacePrefix :: Maybe ExportNamespace -> Doc ann
+prettyNamespacePrefix :: Maybe IEEntityNamespace -> Doc ann
 prettyNamespacePrefix namespace =
   case namespace of
     Just ns -> prettyNamespace ns <> " "
     Nothing -> mempty
 
-prettyNamespace :: ExportNamespace -> Doc ann
+prettyNamespace :: IEEntityNamespace -> Doc ann
 prettyNamespace namespace =
   case namespace of
-    ExportNamespaceType -> "type"
-    ExportNamespacePattern -> "pattern"
-    ExportNamespaceData -> "data"
+    IEEntityNamespaceType -> "type"
+    IEEntityNamespacePattern -> "pattern"
+    IEEntityNamespaceData -> "data"
 
-prettyMemberNamespacePrefix :: Maybe ExportMemberNamespace -> Doc ann
+prettyMemberNamespacePrefix :: Maybe IEBundledNamespace -> Doc ann
 prettyMemberNamespacePrefix namespace =
   case namespace of
     Just ns -> prettyMemberNamespace ns <> " "
     Nothing -> mempty
 
-prettyMemberNamespace :: ExportMemberNamespace -> Doc ann
+prettyMemberNamespace :: IEBundledNamespace -> Doc ann
 prettyMemberNamespace namespace =
   case namespace of
-    ExportMemberNamespaceData -> "data"
+    IEBundledNamespaceData -> "data"
 
 prettyDeclLines :: Decl -> [Doc ann]
 prettyDeclLines decl =

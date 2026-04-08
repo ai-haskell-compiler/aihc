@@ -20,7 +20,7 @@ import Test.QuickCheck
 prop_modulePrettyRoundTrip :: Module -> Property
 prop_modulePrettyRoundTrip modu =
   let source = renderStrict (layoutPretty defaultLayoutOptions (pretty modu))
-      (errs, reparsed) = parseModule (moduleConfigFor modu) source
+      (errs, reparsed) = parseModule moduleConfig source
    in counterexample (T.unpack source) $
         case errs of
           [] ->
@@ -30,10 +30,10 @@ prop_modulePrettyRoundTrip modu =
           _ ->
             counterexample (formatParseErrors "<quickcheck>" (Just source) errs) False
 
-moduleConfigFor :: Module -> ParserConfig
-moduleConfigFor modu =
+moduleConfig :: ParserConfig
+moduleConfig =
   defaultConfig
-    { parserExtensions = effectiveExtensions Haskell2010Edition (moduleLanguagePragmas modu)
+    { parserExtensions = [BlockArguments, Arrows, UnboxedTuples, UnboxedSums, TemplateHaskell, ExplicitNamespaces, PatternSynonyms]
     }
 
 instance Arbitrary Module where
@@ -50,7 +50,7 @@ instance Arbitrary Module where
       Module
         { moduleSpan = span0,
           moduleHead = mHead,
-          moduleLanguagePragmas = baseModuleLanguagePragmas <> extraModuleLanguagePragmas mHead imports,
+          moduleLanguagePragmas = baseModuleLanguagePragmas,
           moduleImports = imports,
           moduleDecls = decls
         }
@@ -110,55 +110,10 @@ baseModuleLanguagePragmas =
     EnableExtension Arrows,
     EnableExtension UnboxedTuples,
     EnableExtension UnboxedSums,
-    EnableExtension TemplateHaskell
+    EnableExtension TemplateHaskell,
+    EnableExtension ExplicitNamespaces,
+    EnableExtension PatternSynonyms
   ]
-
-extraModuleLanguagePragmas :: Maybe ModuleHead -> [ImportDecl] -> [ExtensionSetting]
-extraModuleLanguagePragmas mHead imports =
-  maybe [] exportSpecExtensions (moduleHeadExports =<< mHead)
-    ++ concatMap importDeclExtensions imports
-
-exportSpecExtensions :: [ExportSpec] -> [ExtensionSetting]
-exportSpecExtensions = concatMap exportSpecRequiredExtensions
-
-exportSpecRequiredExtensions :: ExportSpec -> [ExtensionSetting]
-exportSpecRequiredExtensions spec =
-  case spec of
-    ExportModule {} -> []
-    ExportVar _ _ namespace _ -> namespaceRequiredExtensions namespace
-    ExportAbs _ _ namespace _ -> namespaceRequiredExtensions namespace
-    ExportAll _ _ namespace _ -> namespaceRequiredExtensions namespace
-    ExportWith _ _ namespace _ members ->
-      namespaceRequiredExtensions namespace <> concatMap exportMemberRequiredExtensions members
-
-importDeclExtensions :: ImportDecl -> [ExtensionSetting]
-importDeclExtensions decl =
-  case importDeclSpec decl of
-    Nothing -> []
-    Just spec -> concatMap importItemRequiredExtensions (importSpecItems spec)
-
-importItemRequiredExtensions :: ImportItem -> [ExtensionSetting]
-importItemRequiredExtensions item =
-  case item of
-    ImportItemVar _ namespace _ -> namespaceRequiredExtensions namespace
-    ImportItemAbs _ namespace _ -> namespaceRequiredExtensions namespace
-    ImportItemAll _ namespace _ -> namespaceRequiredExtensions namespace
-    ImportItemWith _ namespace _ members ->
-      namespaceRequiredExtensions namespace <> concatMap exportMemberRequiredExtensions members
-
-namespaceRequiredExtensions :: Maybe ExportNamespace -> [ExtensionSetting]
-namespaceRequiredExtensions namespace =
-  case namespace of
-    Nothing -> []
-    Just ExportNamespaceType -> [EnableExtension ExplicitNamespaces]
-    Just ExportNamespaceData -> [EnableExtension ExplicitNamespaces]
-    Just ExportNamespacePattern -> [EnableExtension ExplicitNamespaces, EnableExtension PatternSynonyms]
-
-exportMemberRequiredExtensions :: ExportMember -> [ExtensionSetting]
-exportMemberRequiredExtensions (ExportMember namespace _) =
-  case namespace of
-    Nothing -> []
-    Just ExportMemberNamespaceData -> [EnableExtension ExplicitNamespaces]
 
 -- | Generate an optional module head.
 -- Most modules have explicit headers, but implicit modules (Nothing) are also valid.
@@ -262,21 +217,21 @@ instance Arbitrary ExportSpec where
           <> [ExportWith span0 mWarning namespace shrunk members | shrunk <- shrinkTypeName name]
           <> [ExportWith span0 mWarning namespace name shrunk | shrunk <- shrinkList shrink members, not (null shrunk)]
 
-instance Arbitrary ExportNamespace where
-  arbitrary = elements [ExportNamespaceType, ExportNamespacePattern, ExportNamespaceData]
+instance Arbitrary IEEntityNamespace where
+  arbitrary = elements [IEEntityNamespaceType, IEEntityNamespacePattern, IEEntityNamespaceData]
 
   shrink namespace =
     case namespace of
-      ExportNamespaceType -> []
-      ExportNamespacePattern -> [ExportNamespaceType]
-      ExportNamespaceData -> [ExportNamespaceType]
+      IEEntityNamespaceType -> []
+      IEEntityNamespacePattern -> [IEEntityNamespaceType]
+      IEEntityNamespaceData -> [IEEntityNamespaceType]
 
-instance Arbitrary ExportMemberNamespace where
-  arbitrary = pure ExportMemberNamespaceData
+instance Arbitrary IEBundledNamespace where
+  arbitrary = pure IEBundledNamespaceData
 
   shrink namespace =
     case namespace of
-      ExportMemberNamespaceData -> []
+      IEBundledNamespaceData -> []
 
 instance Arbitrary ImportSpec where
   arbitrary =
@@ -311,15 +266,15 @@ instance Arbitrary ImportItem where
           <> [ImportItemWith span0 namespace shrunk members | shrunk <- shrinkTypeName name]
           <> [ImportItemWith span0 namespace name shrunk | shrunk <- shrinkList shrink members, not (null shrunk)]
 
-instance Arbitrary ExportMember where
+instance Arbitrary IEBundledMember where
   arbitrary = do
     namespace <- genMemberNamespace
     name <- genMemberNameFor namespace
-    pure (ExportMember namespace name)
+    pure (IEBundledMember namespace name)
 
-  shrink (ExportMember namespace name) =
-    [ExportMember shrunkNamespace name | shrunkNamespace <- shrink namespace]
-      <> [ExportMember namespace shrunkName | shrunkName <- shrinkMemberNameFor namespace name]
+  shrink (IEBundledMember namespace name) =
+    [IEBundledMember shrunkNamespace name | shrunkNamespace <- shrink namespace]
+      <> [IEBundledMember namespace shrunkName | shrunkName <- shrinkMemberNameFor namespace name]
 
 instance Arbitrary ImportDecl where
   arbitrary = do
@@ -398,31 +353,31 @@ isValidTypeName name =
         && T.all (`elem` (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> "_'")) rest
     Nothing -> False
 
-genExportMembers :: Gen [ExportMember]
+genExportMembers :: Gen [IEBundledMember]
 genExportMembers = do
   n <- chooseInt (1, 3)
   vectorOf n arbitrary
 
-genTypeNamespace :: Gen (Maybe ExportNamespace)
+genTypeNamespace :: Gen (Maybe IEEntityNamespace)
 genTypeNamespace =
   frequency
     [ (3, pure Nothing),
-      (1, pure (Just ExportNamespaceType)),
-      (1, pure (Just ExportNamespaceData))
+      (1, pure (Just IEEntityNamespaceType)),
+      (1, pure (Just IEEntityNamespaceData))
     ]
 
-genBundledNamespace :: Gen (Maybe ExportNamespace)
+genBundledNamespace :: Gen (Maybe IEEntityNamespace)
 genBundledNamespace =
   frequency
     [ (5, pure Nothing),
-      (1, pure (Just ExportNamespacePattern))
+      (1, pure (Just IEEntityNamespacePattern))
     ]
 
-genMemberNamespace :: Gen (Maybe ExportMemberNamespace)
+genMemberNamespace :: Gen (Maybe IEBundledNamespace)
 genMemberNamespace =
   frequency
     [ (4, pure Nothing),
-      (1, pure (Just ExportMemberNamespaceData))
+      (1, pure (Just IEBundledNamespaceData))
     ]
 
 genMemberName :: Gen Text
@@ -430,13 +385,13 @@ genMemberName =
   oneof
     [genIdent, genTypeName]
 
-genMemberNameFor :: Maybe ExportMemberNamespace -> Gen Text
+genMemberNameFor :: Maybe IEBundledNamespace -> Gen Text
 genMemberNameFor namespace =
   case namespace of
     Nothing -> genMemberName
     Just _ -> genTypeName
 
-shrinkMemberNameFor :: Maybe ExportMemberNamespace -> Text -> [Text]
+shrinkMemberNameFor :: Maybe IEBundledNamespace -> Text -> [Text]
 shrinkMemberNameFor namespace name =
   case namespace of
     Nothing -> shrinkIdent name <> shrinkTypeName name
@@ -489,8 +444,8 @@ normalizeExportSpec spec =
     ExportAll _ mWarning namespace name -> ExportAll span0 (normalizeWarningText <$> mWarning) namespace name
     ExportWith _ mWarning namespace name members -> ExportWith span0 (normalizeWarningText <$> mWarning) namespace name (map normalizeExportMember members)
 
-normalizeExportMember :: ExportMember -> ExportMember
-normalizeExportMember (ExportMember namespace name) = ExportMember namespace name
+normalizeExportMember :: IEBundledMember -> IEBundledMember
+normalizeExportMember (IEBundledMember namespace name) = IEBundledMember namespace name
 
 normalizeWarningText :: WarningText -> WarningText
 normalizeWarningText warningText =

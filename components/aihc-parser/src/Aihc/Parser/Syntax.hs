@@ -30,9 +30,9 @@ module Aihc.Parser.Syntax
     Extension (..),
     ExtensionSetting (..),
     ExportSpec (..),
-    ExportNamespace (..),
-    ExportMemberNamespace (..),
-    ExportMember (..),
+    IEEntityNamespace (..),
+    IEBundledNamespace (..),
+    IEBundledMember (..),
     FieldDecl (..),
     FixityAssoc (..),
     ForeignDecl (..),
@@ -674,28 +674,28 @@ moduleWarningText modu = moduleHeadWarningText =<< moduleHead modu
 moduleExports :: Module -> Maybe [ExportSpec]
 moduleExports modu = moduleHeadExports =<< moduleHead modu
 
-data ExportNamespace
-  = ExportNamespaceType
-  | ExportNamespacePattern
-  | ExportNamespaceData
+data IEEntityNamespace
+  = IEEntityNamespaceType
+  | IEEntityNamespacePattern
+  | IEEntityNamespaceData
   deriving (Data, Eq, Show, Generic, NFData)
 
-data ExportMemberNamespace
-  = ExportMemberNamespaceData
+data IEBundledNamespace
+  = IEBundledNamespaceData
   deriving (Data, Eq, Show, Generic, NFData)
 
-data ExportMember = ExportMember
-  { exportMemberNamespace :: Maybe ExportMemberNamespace,
-    exportMemberName :: Text
+data IEBundledMember = IEBundledMember
+  { ieBundledMemberNamespace :: Maybe IEBundledNamespace,
+    ieBundledMemberName :: Text
   }
   deriving (Data, Eq, Show, Generic, NFData)
 
 data ExportSpec
   = ExportModule SourceSpan (Maybe WarningText) Text
-  | ExportVar SourceSpan (Maybe WarningText) (Maybe ExportNamespace) Text
-  | ExportAbs SourceSpan (Maybe WarningText) (Maybe ExportNamespace) Text
-  | ExportAll SourceSpan (Maybe WarningText) (Maybe ExportNamespace) Text
-  | ExportWith SourceSpan (Maybe WarningText) (Maybe ExportNamespace) Text [ExportMember]
+  | ExportVar SourceSpan (Maybe WarningText) (Maybe IEEntityNamespace) Text
+  | ExportAbs SourceSpan (Maybe WarningText) (Maybe IEEntityNamespace) Text
+  | ExportAll SourceSpan (Maybe WarningText) (Maybe IEEntityNamespace) Text
+  | ExportWith SourceSpan (Maybe WarningText) (Maybe IEEntityNamespace) Text [IEBundledMember]
   deriving (Eq, Show, Generic, NFData)
 
 instance HasSourceSpan ExportSpec where
@@ -739,10 +739,10 @@ instance HasSourceSpan ImportSpec where
   getSourceSpan = importSpecSpan
 
 data ImportItem
-  = ImportItemVar SourceSpan (Maybe ExportNamespace) Text
-  | ImportItemAbs SourceSpan (Maybe ExportNamespace) Text
-  | ImportItemAll SourceSpan (Maybe ExportNamespace) Text
-  | ImportItemWith SourceSpan (Maybe ExportNamespace) Text [ExportMember]
+  = ImportItemVar SourceSpan (Maybe IEEntityNamespace) Text
+  | ImportItemAbs SourceSpan (Maybe IEEntityNamespace) Text
+  | ImportItemAll SourceSpan (Maybe IEEntityNamespace) Text
+  | ImportItemWith SourceSpan (Maybe IEEntityNamespace) Text [IEBundledMember]
   deriving (Eq, Show, Generic, NFData)
 
 data Decl

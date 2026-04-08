@@ -109,17 +109,17 @@ docExportSpec spec =
     ExportModule _ mWarning name ->
       "ExportModule" <> braces (hsep (punctuate comma (optionalField "warningText" docWarningText mWarning <> [field "name" (docText name)])))
     ExportVar _ mWarning mNamespace name ->
-      "ExportVar" <> braces (hsep (punctuate comma (optionalField "warningText" docWarningText mWarning <> optionalField "namespace" docExportNamespace mNamespace <> [field "name" (docText name)])))
+      "ExportVar" <> braces (hsep (punctuate comma (optionalField "warningText" docWarningText mWarning <> optionalField "namespace" docIENamespace mNamespace <> [field "name" (docText name)])))
     ExportAbs _ mWarning mNamespace name ->
-      "ExportAbs" <> braces (hsep (punctuate comma (optionalField "warningText" docWarningText mWarning <> optionalField "namespace" docExportNamespace mNamespace <> [field "name" (docText name)])))
+      "ExportAbs" <> braces (hsep (punctuate comma (optionalField "warningText" docWarningText mWarning <> optionalField "namespace" docIENamespace mNamespace <> [field "name" (docText name)])))
     ExportAll _ mWarning mNamespace name ->
-      "ExportAll" <> braces (hsep (punctuate comma (optionalField "warningText" docWarningText mWarning <> optionalField "namespace" docExportNamespace mNamespace <> [field "name" (docText name)])))
+      "ExportAll" <> braces (hsep (punctuate comma (optionalField "warningText" docWarningText mWarning <> optionalField "namespace" docIENamespace mNamespace <> [field "name" (docText name)])))
     ExportWith _ mWarning mNamespace name members ->
       "ExportWith" <> braces (hsep (punctuate comma fields))
       where
         fields =
           optionalField "warningText" docWarningText mWarning
-            <> optionalField "namespace" docExportNamespace mNamespace
+            <> optionalField "namespace" docIENamespace mNamespace
             <> [field "name" (docText name), field "members" (brackets (hsep (punctuate comma (map docExportMember members))))]
 
 docImportDecl :: ImportDecl -> Doc ann
@@ -154,33 +154,33 @@ docImportItem :: ImportItem -> Doc ann
 docImportItem item =
   case item of
     ImportItemVar _ mNamespace name ->
-      "ImportItemVar" <> braces (hsep (punctuate comma (optionalField "namespace" docExportNamespace mNamespace <> [field "name" (docText name)])))
+      "ImportItemVar" <> braces (hsep (punctuate comma (optionalField "namespace" docIENamespace mNamespace <> [field "name" (docText name)])))
     ImportItemAbs _ mNamespace name ->
-      "ImportItemAbs" <> braces (hsep (punctuate comma (optionalField "namespace" docExportNamespace mNamespace <> [field "name" (docText name)])))
+      "ImportItemAbs" <> braces (hsep (punctuate comma (optionalField "namespace" docIENamespace mNamespace <> [field "name" (docText name)])))
     ImportItemAll _ mNamespace name ->
-      "ImportItemAll" <> braces (hsep (punctuate comma (optionalField "namespace" docExportNamespace mNamespace <> [field "name" (docText name)])))
+      "ImportItemAll" <> braces (hsep (punctuate comma (optionalField "namespace" docIENamespace mNamespace <> [field "name" (docText name)])))
     ImportItemWith _ mNamespace name members ->
       "ImportItemWith" <> braces (hsep (punctuate comma fields))
       where
         fields =
-          optionalField "namespace" docExportNamespace mNamespace
+          optionalField "namespace" docIENamespace mNamespace
             <> [field "name" (docText name), field "members" (brackets (hsep (punctuate comma (map docExportMember members))))]
 
-docExportNamespace :: ExportNamespace -> Doc ann
-docExportNamespace namespace =
+docIENamespace :: IEEntityNamespace -> Doc ann
+docIENamespace namespace =
   case namespace of
-    ExportNamespaceType -> docText "type"
-    ExportNamespacePattern -> docText "pattern"
-    ExportNamespaceData -> docText "data"
+    IEEntityNamespaceType -> docText "type"
+    IEEntityNamespacePattern -> docText "pattern"
+    IEEntityNamespaceData -> docText "data"
 
-docExportMemberNamespace :: ExportMemberNamespace -> Doc ann
-docExportMemberNamespace namespace =
+docIEBundledNamespace :: IEBundledNamespace -> Doc ann
+docIEBundledNamespace namespace =
   case namespace of
-    ExportMemberNamespaceData -> docText "data"
+    IEBundledNamespaceData -> docText "data"
 
-docExportMember :: ExportMember -> Doc ann
-docExportMember (ExportMember mNamespace name) =
-  "ExportMember" <> braces (hsep (punctuate comma (optionalField "namespace" docExportMemberNamespace mNamespace <> [field "name" (docText name)])))
+docExportMember :: IEBundledMember -> Doc ann
+docExportMember (IEBundledMember mNamespace name) =
+  "ExportMember" <> braces (hsep (punctuate comma (optionalField "namespace" docIEBundledNamespace mNamespace <> [field "name" (docText name)])))
 
 -- Declarations
 
