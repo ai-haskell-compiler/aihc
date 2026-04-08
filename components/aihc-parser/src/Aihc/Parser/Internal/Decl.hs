@@ -85,18 +85,21 @@ exportNameParser mWarning = do
       Just Nothing -> ExportAll span' mWarning namespace name
       Just (Just names) -> ExportWith span' mWarning namespace name names
       Nothing
-        | namespace == Just "type" || isTypeName name ->
+        | namespace == Just IEEntityNamespaceType || isTypeName name ->
             ExportAbs span' mWarning namespace name
         | otherwise ->
             ExportVar span' mWarning namespace name
 
-exportMembersParser :: TokParser (Maybe [Text])
+exportMembersParser :: TokParser (Maybe [IEBundledMember])
 exportMembersParser =
   parens $
     (expectedTok TkReservedDotDot >> pure Nothing)
       <|> (Just <$> (memberNameParser `MP.sepEndBy` expectedTok TkSpecialComma))
   where
-    memberNameParser = identifierTextParser <|> parens operatorTextParser
+    memberNameParser = do
+      namespace <- MP.optional bundledNamespaceParser
+      name <- identifierTextParser <|> parens operatorTextParser
+      pure (IEBundledMember namespace name)
 
 -- | Checks if a name refers to a type/class (as opposed to a variable/function).
 -- In Haskell:
@@ -185,22 +188,27 @@ importItemParser = withSpan $ do
       Just Nothing -> ImportItemAll span' effectiveNamespace itemName
       Just (Just names) -> ImportItemWith span' effectiveNamespace itemName names
       Nothing
-        | effectiveNamespace == Just "type" || isTypeName itemName -> ImportItemAbs span' effectiveNamespace itemName
+        | effectiveNamespace == Just IEEntityNamespaceType || isTypeName itemName -> ImportItemAbs span' effectiveNamespace itemName
         | otherwise -> ImportItemVar span' effectiveNamespace itemName
 
 importOperatorParser :: TokParser Text
 importOperatorParser = operatorTextParser
 
-exportImportNamespaceParser :: TokParser Text
+exportImportNamespaceParser :: TokParser IEEntityNamespace
 exportImportNamespaceParser =
-  (expectedTok TkKeywordType >> pure "type")
+  (expectedTok TkKeywordType >> pure IEEntityNamespaceType)
+    <|> (expectedTok TkKeywordData >> pure IEEntityNamespaceData)
     <|> patternNamespaceParser
   where
     patternNamespaceParser = do
       patSynEnabled <- isExtensionEnabled PatternSynonyms
       if patSynEnabled
-        then expectedTok TkVarPattern >> pure "pattern"
+        then expectedTok TkVarPattern >> pure IEEntityNamespacePattern
         else MP.empty
+
+bundledNamespaceParser :: TokParser IEBundledNamespace
+bundledNamespaceParser =
+  expectedTok TkKeywordData >> pure IEBundledNamespaceData
 
 declParser :: TokParser Decl
 declParser = do

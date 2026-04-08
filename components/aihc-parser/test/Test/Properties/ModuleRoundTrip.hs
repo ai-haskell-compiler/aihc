@@ -17,12 +17,6 @@ import Test.Properties.ExprHelpers (genExpr, normalizeExpr, shrinkExpr, span0)
 import Test.Properties.Identifiers (genIdent, shrinkIdent)
 import Test.QuickCheck
 
-moduleConfig :: ParserConfig
-moduleConfig =
-  defaultConfig
-    { parserExtensions = [BlockArguments, Arrows, UnboxedTuples, UnboxedSums, TemplateHaskell]
-    }
-
 prop_modulePrettyRoundTrip :: Module -> Property
 prop_modulePrettyRoundTrip modu =
   let source = renderStrict (layoutPretty defaultLayoutOptions (pretty modu))
@@ -35,6 +29,12 @@ prop_modulePrettyRoundTrip modu =
              in counterexample ("expected: " <> show expected <> "\nactual: " <> show actual) (expected == actual)
           _ ->
             counterexample (formatParseErrors "<quickcheck>" (Just source) errs) False
+
+moduleConfig :: ParserConfig
+moduleConfig =
+  defaultConfig
+    { parserExtensions = [BlockArguments, Arrows, UnboxedTuples, UnboxedSums, TemplateHaskell, ExplicitNamespaces, PatternSynonyms]
+    }
 
 instance Arbitrary Module where
   arbitrary = do
@@ -50,7 +50,7 @@ instance Arbitrary Module where
       Module
         { moduleSpan = span0,
           moduleHead = mHead,
-          moduleLanguagePragmas = [EnableExtension BlockArguments, EnableExtension Arrows, EnableExtension UnboxedTuples, EnableExtension UnboxedSums, EnableExtension TemplateHaskell],
+          moduleLanguagePragmas = baseModuleLanguagePragmas,
           moduleImports = imports,
           moduleDecls = decls
         }
@@ -103,6 +103,17 @@ genFunctionDecl (name, expr) = do
                   }
               ]
           )
+
+baseModuleLanguagePragmas :: [ExtensionSetting]
+baseModuleLanguagePragmas =
+  [ EnableExtension BlockArguments,
+    EnableExtension Arrows,
+    EnableExtension UnboxedTuples,
+    EnableExtension UnboxedSums,
+    EnableExtension TemplateHaskell,
+    EnableExtension ExplicitNamespaces,
+    EnableExtension PatternSynonyms
+  ]
 
 -- | Generate an optional module head.
 -- Most modules have explicit headers, but implicit modules (Nothing) are also valid.
@@ -183,7 +194,7 @@ instance Arbitrary ExportSpec where
         ExportVar span0 Nothing Nothing <$> genIdent,
         ExportAbs span0 Nothing <$> genTypeNamespace <*> genTypeName,
         ExportAll span0 Nothing <$> genTypeNamespace <*> genTypeName,
-        ExportWith span0 Nothing <$> genTypeNamespace <*> genTypeName <*> genExportMembers
+        ExportWith span0 Nothing <$> genBundledNamespace <*> genTypeName <*> genExportMembers
       ]
 
   shrink spec =
@@ -204,7 +215,23 @@ instance Arbitrary ExportSpec where
         [ExportAbs span0 mWarning namespace name | not (null members)]
           <> [ExportWith span0 Nothing namespace name members | Just _ <- [mWarning]]
           <> [ExportWith span0 mWarning namespace shrunk members | shrunk <- shrinkTypeName name]
-          <> [ExportWith span0 mWarning namespace name shrunk | shrunk <- shrinkList shrinkIdent members, not (null shrunk)]
+          <> [ExportWith span0 mWarning namespace name shrunk | shrunk <- shrinkList shrink members, not (null shrunk)]
+
+instance Arbitrary IEEntityNamespace where
+  arbitrary = elements [IEEntityNamespaceType, IEEntityNamespacePattern, IEEntityNamespaceData]
+
+  shrink namespace =
+    case namespace of
+      IEEntityNamespaceType -> []
+      IEEntityNamespacePattern -> [IEEntityNamespaceType]
+      IEEntityNamespaceData -> [IEEntityNamespaceType]
+
+instance Arbitrary IEBundledNamespace where
+  arbitrary = pure IEBundledNamespaceData
+
+  shrink namespace =
+    case namespace of
+      IEBundledNamespaceData -> []
 
 instance Arbitrary ImportSpec where
   arbitrary =
@@ -222,7 +249,7 @@ instance Arbitrary ImportItem where
       [ ImportItemVar span0 Nothing <$> genIdent,
         ImportItemAbs span0 <$> genTypeNamespace <*> genTypeName,
         ImportItemAll span0 <$> genTypeNamespace <*> genTypeName,
-        ImportItemWith span0 <$> genTypeNamespace <*> genTypeName <*> genExportMembers
+        ImportItemWith span0 <$> genBundledNamespace <*> genTypeName <*> genExportMembers
       ]
 
   shrink item =
@@ -237,7 +264,17 @@ instance Arbitrary ImportItem where
       ImportItemWith _ namespace name members ->
         [ImportItemAbs span0 namespace name | not (null members)]
           <> [ImportItemWith span0 namespace shrunk members | shrunk <- shrinkTypeName name]
-          <> [ImportItemWith span0 namespace name shrunk | shrunk <- shrinkList shrinkIdent members, not (null shrunk)]
+          <> [ImportItemWith span0 namespace name shrunk | shrunk <- shrinkList shrink members, not (null shrunk)]
+
+instance Arbitrary IEBundledMember where
+  arbitrary = do
+    namespace <- genMemberNamespace
+    name <- genMemberNameFor namespace
+    pure (IEBundledMember namespace name)
+
+  shrink (IEBundledMember namespace name) =
+    [IEBundledMember shrunkNamespace name | shrunkNamespace <- shrink namespace]
+      <> [IEBundledMember namespace shrunkName | shrunkName <- shrinkMemberNameFor namespace name]
 
 instance Arbitrary ImportDecl where
   arbitrary = do
@@ -316,22 +353,49 @@ isValidTypeName name =
         && T.all (`elem` (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> "_'")) rest
     Nothing -> False
 
-genExportMembers :: Gen [Text]
+genExportMembers :: Gen [IEBundledMember]
 genExportMembers = do
   n <- chooseInt (1, 3)
-  vectorOf n genMemberName
+  vectorOf n arbitrary
 
-genTypeNamespace :: Gen (Maybe Text)
+genTypeNamespace :: Gen (Maybe IEEntityNamespace)
 genTypeNamespace =
   frequency
     [ (3, pure Nothing),
-      (1, pure (Just "type"))
+      (1, pure (Just IEEntityNamespaceType)),
+      (1, pure (Just IEEntityNamespaceData))
+    ]
+
+genBundledNamespace :: Gen (Maybe IEEntityNamespace)
+genBundledNamespace =
+  frequency
+    [ (5, pure Nothing),
+      (1, pure (Just IEEntityNamespacePattern))
+    ]
+
+genMemberNamespace :: Gen (Maybe IEBundledNamespace)
+genMemberNamespace =
+  frequency
+    [ (4, pure Nothing),
+      (1, pure (Just IEBundledNamespaceData))
     ]
 
 genMemberName :: Gen Text
 genMemberName =
   oneof
     [genIdent, genTypeName]
+
+genMemberNameFor :: Maybe IEBundledNamespace -> Gen Text
+genMemberNameFor namespace =
+  case namespace of
+    Nothing -> genMemberName
+    Just _ -> genTypeName
+
+shrinkMemberNameFor :: Maybe IEBundledNamespace -> Text -> [Text]
+shrinkMemberNameFor namespace name =
+  case namespace of
+    Nothing -> shrinkIdent name <> shrinkTypeName name
+    Just _ -> shrinkTypeName name
 
 genImportItems :: Gen [ImportItem]
 genImportItems = do
@@ -378,7 +442,10 @@ normalizeExportSpec spec =
     ExportVar _ mWarning namespace name -> ExportVar span0 (normalizeWarningText <$> mWarning) namespace name
     ExportAbs _ mWarning namespace name -> ExportAbs span0 (normalizeWarningText <$> mWarning) namespace name
     ExportAll _ mWarning namespace name -> ExportAll span0 (normalizeWarningText <$> mWarning) namespace name
-    ExportWith _ mWarning namespace name members -> ExportWith span0 (normalizeWarningText <$> mWarning) namespace name members
+    ExportWith _ mWarning namespace name members -> ExportWith span0 (normalizeWarningText <$> mWarning) namespace name (map normalizeExportMember members)
+
+normalizeExportMember :: IEBundledMember -> IEBundledMember
+normalizeExportMember (IEBundledMember namespace name) = IEBundledMember namespace name
 
 normalizeWarningText :: WarningText -> WarningText
 normalizeWarningText warningText =
@@ -414,7 +481,7 @@ normalizeImportItem item =
     ImportItemVar _ namespace name -> ImportItemVar span0 namespace name
     ImportItemAbs _ namespace name -> ImportItemAbs span0 namespace name
     ImportItemAll _ namespace name -> ImportItemAll span0 namespace name
-    ImportItemWith _ namespace name members -> ImportItemWith span0 namespace name members
+    ImportItemWith _ namespace name members -> ImportItemWith span0 namespace name (map normalizeExportMember members)
 
 normalizeDecl :: Decl -> Decl
 normalizeDecl decl =

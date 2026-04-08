@@ -31,6 +31,9 @@ module Aihc.Parser.Syntax
     Extension (..),
     ExtensionSetting (..),
     ExportSpec (..),
+    IEEntityNamespace (..),
+    IEBundledNamespace (..),
+    IEBundledMember (..),
     FieldDecl (..),
     FixityAssoc (..),
     ForeignDecl (..),
@@ -672,12 +675,28 @@ moduleWarningText modu = moduleHeadWarningText =<< moduleHead modu
 moduleExports :: Module -> Maybe [ExportSpec]
 moduleExports modu = moduleHeadExports =<< moduleHead modu
 
+data IEEntityNamespace
+  = IEEntityNamespaceType
+  | IEEntityNamespacePattern
+  | IEEntityNamespaceData
+  deriving (Data, Eq, Show, Generic, NFData)
+
+data IEBundledNamespace
+  = IEBundledNamespaceData
+  deriving (Data, Eq, Show, Generic, NFData)
+
+data IEBundledMember = IEBundledMember
+  { ieBundledMemberNamespace :: Maybe IEBundledNamespace,
+    ieBundledMemberName :: Text
+  }
+  deriving (Data, Eq, Show, Generic, NFData)
+
 data ExportSpec
   = ExportModule SourceSpan (Maybe WarningText) Text
-  | ExportVar SourceSpan (Maybe WarningText) (Maybe Text) Text
-  | ExportAbs SourceSpan (Maybe WarningText) (Maybe Text) Text
-  | ExportAll SourceSpan (Maybe WarningText) (Maybe Text) Text
-  | ExportWith SourceSpan (Maybe WarningText) (Maybe Text) Text [Text]
+  | ExportVar SourceSpan (Maybe WarningText) (Maybe IEEntityNamespace) Text
+  | ExportAbs SourceSpan (Maybe WarningText) (Maybe IEEntityNamespace) Text
+  | ExportAll SourceSpan (Maybe WarningText) (Maybe IEEntityNamespace) Text
+  | ExportWith SourceSpan (Maybe WarningText) (Maybe IEEntityNamespace) Text [IEBundledMember]
   deriving (Eq, Show, Generic, NFData)
 
 instance HasSourceSpan ExportSpec where
@@ -721,10 +740,10 @@ instance HasSourceSpan ImportSpec where
   getSourceSpan = importSpecSpan
 
 data ImportItem
-  = ImportItemVar SourceSpan (Maybe Text) Text
-  | ImportItemAbs SourceSpan (Maybe Text) Text
-  | ImportItemAll SourceSpan (Maybe Text) Text
-  | ImportItemWith SourceSpan (Maybe Text) Text [Text]
+  = ImportItemVar SourceSpan (Maybe IEEntityNamespace) Text
+  | ImportItemAbs SourceSpan (Maybe IEEntityNamespace) Text
+  | ImportItemAll SourceSpan (Maybe IEEntityNamespace) Text
+  | ImportItemWith SourceSpan (Maybe IEEntityNamespace) Text [IEBundledMember]
   deriving (Eq, Show, Generic, NFData)
 
 data Decl
