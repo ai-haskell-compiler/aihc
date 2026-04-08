@@ -672,13 +672,21 @@ moduleExports :: Module -> Maybe [ExportSpec]
 moduleExports modu = moduleHeadExports =<< moduleHead modu
 
 data ExportSpec
-  = ExportAnn Annotation ExportSpec
-  | ExportModule SourceSpan Text
-  | ExportVar SourceSpan (Maybe Text) Text
-  | ExportAbs SourceSpan (Maybe Text) Text
-  | ExportAll SourceSpan (Maybe Text) Text
-  | ExportWith SourceSpan (Maybe Text) Text [Text]
+  = ExportModule SourceSpan (Maybe WarningText) Text
+  | ExportVar SourceSpan (Maybe WarningText) (Maybe Text) Text
+  | ExportAbs SourceSpan (Maybe WarningText) (Maybe Text) Text
+  | ExportAll SourceSpan (Maybe WarningText) (Maybe Text) Text
+  | ExportWith SourceSpan (Maybe WarningText) (Maybe Text) Text [Text]
   deriving (Eq, Show, Generic, NFData)
+
+instance HasSourceSpan ExportSpec where
+  getSourceSpan spec =
+    case spec of
+      ExportModule span' _ _ -> span'
+      ExportVar span' _ _ _ -> span'
+      ExportAbs span' _ _ _ -> span'
+      ExportAll span' _ _ _ -> span'
+      ExportWith span' _ _ _ _ -> span'
 
 data ImportDecl = ImportDecl
   { importDeclSpan :: SourceSpan,

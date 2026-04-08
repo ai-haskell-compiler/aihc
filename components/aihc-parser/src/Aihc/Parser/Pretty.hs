@@ -87,13 +87,24 @@ prettyExportSpecList specs =
 prettyExportSpec :: ExportSpec -> Doc ann
 prettyExportSpec spec =
   case spec of
-    ExportAnn _ sub -> prettyExportSpec sub
-    ExportModule _ modName -> "module" <+> pretty modName
-    ExportVar _ namespace name -> prettyNamespacePrefix namespace <> prettyBinderName name
-    ExportAbs _ namespace name -> prettyNamespacePrefix namespace <> prettyConstructorName name
-    ExportAll _ namespace name -> prettyNamespacePrefix namespace <> prettyConstructorName name <> "(..)"
-    ExportWith _ namespace name members ->
-      prettyNamespacePrefix namespace <> prettyConstructorName name <> parens (hsep (punctuate comma (map prettyBinderName members)))
+    ExportModule _ mWarning modName -> prettyExportWarning mWarning ("module" <+> pretty modName)
+    ExportVar _ mWarning namespace name ->
+      prettyExportWarning mWarning (prettyNamespacePrefix namespace <> prettyBinderName name)
+    ExportAbs _ mWarning namespace name ->
+      prettyExportWarning mWarning (prettyNamespacePrefix namespace <> prettyConstructorName name)
+    ExportAll _ mWarning namespace name ->
+      prettyExportWarning mWarning (prettyNamespacePrefix namespace <> prettyConstructorName name <> "(..)")
+    ExportWith _ mWarning namespace name members ->
+      prettyExportWarning
+        mWarning
+        (prettyNamespacePrefix namespace <> prettyConstructorName name <> parens (hsep (punctuate comma (map prettyBinderName members))))
+
+prettyExportWarning :: Maybe WarningText -> Doc ann -> Doc ann
+prettyExportWarning mWarning doc =
+  case mWarning of
+    Nothing -> doc
+    Just (DeprText _ msg) -> hsep ["{-# DEPRECATED", pretty (show msg), "#-}", doc]
+    Just (WarnText _ msg) -> hsep ["{-# WARNING", pretty (show msg), "#-}", doc]
 
 prettyImportDecl :: ImportDecl -> Doc ann
 prettyImportDecl decl =

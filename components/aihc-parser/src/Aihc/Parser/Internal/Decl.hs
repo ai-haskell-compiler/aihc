@@ -65,29 +65,32 @@ exportSpecListParser = parens $ exportSpecParser `MP.sepEndBy` expectedTok TkSpe
 
 exportSpecParser :: TokParser ExportSpec
 exportSpecParser = withSpan $ do
+  mWarning <- MP.optional warningTextParser
   tok <- lookAhead anySingle
   case lexTokenKind tok of
-    TkKeywordModule -> exportModuleParser
-    _ -> exportNameParser
+    TkKeywordModule -> exportModuleParser mWarning
+    _ -> exportNameParser mWarning
 
-exportModuleParser :: TokParser (SourceSpan -> ExportSpec)
-exportModuleParser = do
+exportModuleParser :: Maybe WarningText -> TokParser (SourceSpan -> ExportSpec)
+exportModuleParser mWarning = do
   keywordTok TkKeywordModule
   modName <- moduleNameParser
-  pure (`ExportModule` modName)
+  pure $ \span' -> ExportModule span' mWarning modName
 
-exportNameParser :: TokParser (SourceSpan -> ExportSpec)
-exportNameParser = do
+exportNameParser :: Maybe WarningText -> TokParser (SourceSpan -> ExportSpec)
+exportNameParser mWarning = do
   namespace <- MP.optional exportImportNamespaceParser
   name <- identifierTextParser <|> parens operatorTextParser
   members <- MP.optional exportMembersParser
   pure $ \span' ->
     case members of
-      Just Nothing -> ExportAll span' namespace name
-      Just (Just names) -> ExportWith span' namespace name names
+      Just Nothing -> ExportAll span' mWarning namespace name
+      Just (Just names) -> ExportWith span' mWarning namespace name names
       Nothing
-        | namespace == Just "type" || isTypeName name -> ExportAbs span' namespace name
-        | otherwise -> ExportVar span' namespace name
+        | namespace == Just "type" || isTypeName name ->
+            ExportAbs span' mWarning namespace name
+        | otherwise ->
+            ExportVar span' mWarning namespace name
 
 exportMembersParser :: TokParser (Maybe [Text])
 exportMembersParser =

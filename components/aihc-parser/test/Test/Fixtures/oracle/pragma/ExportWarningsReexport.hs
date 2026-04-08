@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail DEPRECATED pragma in export list not supported by parser -}
+{- ORACLE_TEST pass -}
 module ExportWarningsReexport
   ( {-# DEPRECATED "Import g from ExportWarningsImport instead" #-} g
   ) where

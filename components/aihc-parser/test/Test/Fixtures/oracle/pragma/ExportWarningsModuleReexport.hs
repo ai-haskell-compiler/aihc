@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail DEPRECATED pragma in export list not supported by parser -}
+{- ORACLE_TEST pass -}
 module ExportWarningsModuleReexport
   ( {-# DEPRECATED "This declaration has moved to ExportWarningsModuleSource" #-}
       module ExportWarningsModuleSource
