@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail INLINE pragmas not preserved in pretty-printer roundtrip -}
+{- ORACLE_TEST pass -}
 module InlinePragmas where
 
 inlineTop :: Int -> Int

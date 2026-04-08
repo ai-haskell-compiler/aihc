@@ -865,10 +865,21 @@ prettyClassItem item =
 prettyInstanceDecl :: InstanceDecl -> Doc ann
 prettyInstanceDecl decl =
   let headDoc =
-        hsep (["instance"] <> maybe [] (\pragma' -> [prettyInstanceOverlapPragma pragma']) (instanceDeclOverlapPragma decl) <> forallTyVarBinderPrefix (instanceDeclForall decl) <> contextPrefix (instanceDeclContext decl) <> [instanceHeadDoc decl])
+        hsep
+          ( ["instance"]
+              <> maybe [] (\pragma' -> [prettyInstanceOverlapPragma pragma']) (instanceDeclOverlapPragma decl)
+              <> maybe [] (\w -> [prettyInstanceWarning w]) (instanceDeclWarning decl)
+              <> forallTyVarBinderPrefix (instanceDeclForall decl)
+              <> contextPrefix (instanceDeclContext decl)
+              <> [instanceHeadDoc decl]
+          )
    in case instanceDeclItems decl of
         [] -> headDoc
         items -> headDoc <+> "where" <+> braces (hsep (punctuate semi (map prettyInstanceItem items)))
+
+prettyInstanceWarning :: WarningText -> Doc ann
+prettyInstanceWarning (DeprText _ msg) = "{-# DEPRECATED " <> pretty (show msg) <> " #-}"
+prettyInstanceWarning (WarnText _ msg) = "{-# WARNING " <> pretty (show msg) <> " #-}"
 
 prettyStandaloneDeriving :: StandaloneDerivingDecl -> Doc ann
 prettyStandaloneDeriving decl =
@@ -878,6 +889,7 @@ prettyStandaloneDeriving decl =
         <> maybe [] (\ty -> ["via", prettyType ty]) (standaloneDerivingViaType decl)
         <> ["instance"]
         <> maybe [] (\pragma' -> [prettyInstanceOverlapPragma pragma']) (standaloneDerivingOverlapPragma decl)
+        <> maybe [] (\w -> [prettyInstanceWarning w]) (standaloneDerivingWarning decl)
         <> forallTyVarBinderPrefix (standaloneDerivingForall decl)
         <> contextPrefix (standaloneDerivingContext decl)
         <> [standaloneDerivingHeadDoc decl]
