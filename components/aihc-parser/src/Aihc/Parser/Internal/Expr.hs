@@ -1550,7 +1550,7 @@ parenOrTuplePatternParser = withSpan $ do
       expectedTok closeTok
       pure (\span' -> PTuple span' tupleFlavor [])
 
-    -- | Try to parse the paren content as a view pattern: expr -> pat.
+    -- Try to parse the paren content as a view pattern: expr -> pat.
     -- Uses exprParser which stops before '->', then checks for the arrow.
     -- Returns Nothing if the content is not a view pattern.
     viewPatternParser :: LexTokenKind -> TokParser (Maybe (SourceSpan -> Pattern))
@@ -1562,7 +1562,7 @@ parenOrTuplePatternParser = withSpan $ do
       let sp = mergeSourceSpans (getSourceSpan expr) (getSourceSpan inner)
       pure (const (PView sp expr inner))
 
-    -- | Parse a single element inside a paren/tuple/unboxed-sum pattern.
+    -- Parse a single element inside a paren/tuple/unboxed-sum pattern.
     -- Uses "parse as expression, then reclassify" to avoid backtracking
     -- for the common case. Pattern-only prefixes (!, ~, @) are dispatched
     -- to patternParser directly. When exprParser fails (e.g., nested parens
@@ -1580,7 +1580,7 @@ parenOrTuplePatternParser = withSpan $ do
             then patternParser
             else exprThenReclassify
 
-    -- | Try to parse as expression, then reclassify via checkPattern.
+    -- Try to parse as expression, then reclassify via checkPattern.
     -- When exprParser fails, does not consume the full element (e.g.,
     -- '@' from an as-pattern), or checkPattern rejects it (e.g., variable
     -- operator in infix position), fall back to patternParser.
