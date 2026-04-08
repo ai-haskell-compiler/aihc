@@ -313,8 +313,8 @@ prettyType = prettyTypePrec 0
 -- | Type context for parenthesization decisions.
 -- CtxTypeFunArg: LHS of -> or function position of type application (same rules).
 -- CtxTypeAppArg: argument position of type application.
--- CtxTypeAtom: must be syntactically atomic (e.g., constraint args, instance heads).
--- CtxKindSig: kind-annotation type inside a constraint (TKindSig omits its parens).
+-- CtxTypeAtom: must be syntactically atomic (e.g., context args, instance heads).
+-- CtxKindSig: kind-annotation type inside a context item (TKindSig omits its parens).
 data TypeCtx
   = CtxTypeFunArg
   | CtxTypeAppArg
@@ -344,6 +344,7 @@ needsTypeParens ctx ty =
       case ty of
         TVar {} -> False
         TCon {} -> False
+        TImplicitParam {} -> False
         TTypeLit {} -> False
         TStar {} -> False
         TQuasiQuote {} -> False
@@ -361,7 +362,7 @@ needsTypeParens ctx ty =
 
 -- | Shared type pretty-printer parameterized by context.
 -- CtxTypeAtom is equivalent to the original 'prettyTypePrec'.
--- CtxKindSig omits parens around TKindSig (used for kind annotations in constraints).
+-- CtxKindSig omits parens around TKindSig (used for kind annotations in context items).
 prettyTypeShared :: TypeCtx -> Int -> Type -> Doc ann
 prettyTypeShared ctx prec ty =
   let atom = prettyTypeShared CtxTypeAtom
@@ -373,6 +374,7 @@ prettyTypeShared ctx prec ty =
                 | isSymbolicTypeOperator name = parens (pretty name)
                 | otherwise = pretty name
            in if promoted == Promoted then "'" <> base else base
+        TImplicitParam _ name inner -> pretty name <+> "::" <+> prettyTypePrec 0 inner
         TTypeLit _ lit -> prettyTypeLiteral lit
         TStar _ -> "*"
         TQuasiQuote _ quoter body -> prettyQuasiQuote quoter body
@@ -414,53 +416,37 @@ prettyTypeIn :: TypeCtx -> Type -> Doc ann
 prettyTypeIn ctx ty =
   parenthesize (needsTypeParens ctx ty) (prettyTypeShared ctx 0 ty)
 
--- | Print a type as it appears in a constraint kind-annotation context.
--- Omits parens around TKindSig; the enclosing 'CParen' or
+-- | Print a type as it appears in a context kind-annotation position.
+-- Omits parens around TKindSig; the enclosing 'TParen' or
 -- 'prettyConstraintTypeParens' provides them.
 prettyConstraintType :: Type -> Doc ann
 prettyConstraintType = prettyTypeShared CtxKindSig 0
 
 -- | Like 'prettyConstraintType' but always wraps the result in parens.
--- Used for 'CKindSig' which always needs parens in constraint position.
+-- Used for kind signatures that need parens in context position.
 prettyConstraintTypeParens :: Type -> Doc ann
 prettyConstraintTypeParens ty = parens (prettyTypeShared CtxKindSig 0 ty)
 
-prettyContext :: [Constraint] -> Doc ann
+prettyContext :: [Type] -> Doc ann
 prettyContext constraints =
   case constraints of
-    [single] -> prettyConstraint single
-    _ -> parens (hsep (punctuate comma (map prettyContextConstraint constraints)))
+    [single] -> prettyContextItem single
+    _ -> parens (hsep (punctuate comma (map prettyContextItemNoOuterParens constraints)))
   where
-    -- Like prettyConstraint but without extra parens for CKindSig,
-    -- since the outer parens from prettyContext already cover the list.
-    prettyContextConstraint :: Constraint -> Doc ann
-    prettyContextConstraint c =
-      case c of
-        CKindSig _ ty -> prettyConstraintType ty
-        _ -> prettyConstraint c
+    prettyContextItemNoOuterParens :: Type -> Doc ann
+    prettyContextItemNoOuterParens ty =
+      case ty of
+        TKindSig {} -> prettyConstraintType ty
+        TParen _ inner@(TKindSig {}) -> prettyConstraintType inner
+        _ -> prettyContextItem ty
 
-prettyConstraint :: Constraint -> Doc ann
-prettyConstraint constraint =
-  case constraint of
-    Constraint _ cls [ty]
-      | "?" `T.isPrefixOf` cls ->
-          pretty cls <+> "::" <+> prettyTypePrec 0 ty
-    Constraint _ cls [lhs, rhs]
-      | cls == "~" ->
-          prettyTypeIn CtxTypeFunArg lhs <+> pretty cls <+> prettyTypeIn CtxTypeFunArg rhs
-    Constraint _ cls args ->
-      hsep (pretty cls : map (prettyTypeIn CtxTypeAtom) args)
-    CParen _ (CKindSig _ ty) ->
-      -- CKindSig already includes its own parens, so don't double-wrap.
-      prettyConstraintTypeParens ty
-    CParen _ inner ->
-      parens (prettyConstraint inner)
-    CWildcard _ ->
-      "_"
-    CKindSig _ ty ->
-      -- Always parenthesize: @c :: Kind@ is not valid Haskell without parens
-      -- in a superclass context.
-      prettyConstraintTypeParens ty
+prettyContextItem :: Type -> Doc ann
+prettyContextItem ty =
+  case ty of
+    TKindSig {} -> prettyConstraintTypeParens ty
+    TParen _ inner@(TKindSig {}) -> prettyConstraintTypeParens inner
+    TParen _ inner -> parens (prettyContextItem inner)
+    _ -> prettyConstraintType ty
 
 isSymbolicTypeOperator :: Text -> Bool
 isSymbolicTypeOperator op =
@@ -640,14 +626,14 @@ derivingPart (DerivingClause strategy classes viaTy) =
 
     classesPart [] = ["()"]
     classesPart [single]
-      | Just DerivingStock <- strategy = [parens (prettyConstraint single)]
-      | otherwise = [prettyConstraint single]
-    classesPart _ = [parens (hsep (punctuate comma (map prettyConstraint classes)))]
+      | Just DerivingStock <- strategy = [parens (prettyContextItem single)]
+      | otherwise = [prettyContextItem single]
+    classesPart _ = [parens (hsep (punctuate comma (map prettyContextItem classes)))]
 
     viaPart Nothing = []
     viaPart (Just ty) = ["via", prettyType ty]
 
-prettyDeclHead :: [Constraint] -> Text -> [TyVarBinder] -> Doc ann
+prettyDeclHead :: [Type] -> Text -> [TyVarBinder] -> Doc ann
 prettyDeclHead constraints name params =
   hsep
     ( contextPrefix constraints
@@ -670,7 +656,7 @@ prettyTyVarBinder binder =
     Nothing -> pretty (tyVarBinderName binder)
     Just kind -> parens (pretty (tyVarBinderName binder) <+> "::" <+> prettyType kind)
 
-contextPrefix :: [Constraint] -> [Doc ann]
+contextPrefix :: [Type] -> [Doc ann]
 contextPrefix constraints =
   case constraints of
     [] -> []
@@ -710,7 +696,7 @@ prettyDataCon ctor =
       prettyGadtCon forallBinders constraints names body
 
 -- | Pretty print a GADT constructor in GADT syntax: @Con :: forall a. Ctx => Type@
-prettyGadtCon :: [TyVarBinder] -> [Constraint] -> [Text] -> GadtBody -> Doc ann
+prettyGadtCon :: [TyVarBinder] -> [Type] -> [Text] -> GadtBody -> Doc ann
 prettyGadtCon forallBinders constraints names body =
   hsep
     ( [hsep (punctuate comma (map prettyConstructorName names)), "::"]
@@ -752,7 +738,7 @@ prettyRecordFields fields =
         ]
     )
 
-dataConQualifierPrefix :: [Text] -> [Constraint] -> [Doc ann]
+dataConQualifierPrefix :: [Text] -> [Type] -> [Doc ann]
 dataConQualifierPrefix forallVars constraints = forallPrefix forallVars <> contextPrefix constraints
   where
     forallPrefix [] = []
@@ -820,7 +806,7 @@ prettyFunctionalDependency dep =
       hsep (map pretty (functionalDependencyDetermined dep))
     ]
 
-maybeContextPrefix :: Maybe [Constraint] -> [Doc ann]
+maybeContextPrefix :: Maybe [Type] -> [Doc ann]
 maybeContextPrefix maybeConstraints =
   case maybeConstraints of
     Nothing -> []
