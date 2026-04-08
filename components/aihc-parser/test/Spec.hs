@@ -8,6 +8,7 @@ import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokens, lexTokensFr
 import Aihc.Parser.Syntax
 import Data.List (isInfixOf)
 import qualified Data.Text as T
+import ParserValidation (validateParser)
 import Test.ErrorMessages.Suite (errorMessageTests)
 import Test.ExtensionMapping.Suite (extensionMappingTests)
 import Test.HackageTester.Suite (hackageTesterTests)
@@ -75,6 +76,9 @@ buildTests = do
             testCase "skips space-prefixed shebang lines as trivia" test_spacedLeadingShebangIsSkipped,
             testCase "skips mid-stream shebang lines as trivia" test_midStreamShebangIsSkipped,
             testCase "does not misclassify line-start #) as a directive" test_lineStartHashTokenIsNotDirective,
+            testCase "lexes overloaded labels as single tokens" test_overloadedLabelLexesAsSingleToken,
+            testCase "lexes quoted overloaded labels" test_quotedOverloadedLabelLexes,
+            testCase "parses overloaded label expressions" test_overloadedLabelExprParses,
             testCase "applies LINE pragmas to subsequent tokens" test_linePragmaUpdatesSpan,
             testCase "applies COLUMN pragmas to subsequent tokens" test_columnPragmaUpdatesSpan,
             testCase "applies COLUMN pragmas in the middle of a line" test_inlineColumnPragmaUpdatesSpan,
@@ -90,6 +94,8 @@ buildTests = do
             testCase "parses parenthesized kind signature type atoms" test_typeParsesParenthesizedKindSignature,
             testCase "parses parenthesized kind signatures in application heads" test_typeParsesKindSignatureApplicationHead,
             testCase "parses GADT constructor arguments with kind signatures" test_gadtConstructorParsesKindAnnotatedArgument,
+            testCase "preserves source unpack pragmas on constructor fields" test_constructorFieldsPreserveSourceUnpackedness,
+            testCase "roundtrips source unpackedness through pretty-printing" test_sourceUnpackednessRoundtrip,
             QC.testProperty "generated operators reject dash-only comment starters" prop_generatedOperatorsRejectDashOnlyCommentStarters
           ],
         testGroup
@@ -236,6 +242,44 @@ test_gadtConstructorParsesKindAnnotatedArgument =
             pure ()
           other ->
             assertFailure ("unexpected parsed declarations: " <> show other)
+
+test_constructorFieldsPreserveSourceUnpackedness :: Assertion
+test_constructorFieldsPreserveSourceUnpackedness =
+  let source =
+        T.unlines
+          [ "{-# LANGUAGE GADTs #-}",
+            "module M where",
+            "data Prefix = Prefix {-# UNPACK #-} !Int",
+            "data Infix = {-# NOUNPACK #-} !(Int, Int) :*: Int",
+            "data Record = Record { field :: {-# UNPACK #-} !Int }",
+            "data G where",
+            "  G :: {-# UNPACK #-} !Int -> G"
+          ]
+      (errs, modu) = parseModule defaultConfig {parserExtensions = [GADTs]} source
+   in do
+        assertBool ("expected no parse errors, got: " <> show errs) (null errs)
+        case moduleDecls modu of
+          [ DeclData _ DataDecl {dataDeclConstructors = [PrefixCon _ [] [] "Prefix" [BangType {bangSourceUnpackedness = SourceUnpack, bangStrict = True, bangType = TCon _ "Int" Unpromoted}]]},
+            DeclData _ DataDecl {dataDeclConstructors = [InfixCon _ [] [] BangType {bangSourceUnpackedness = SourceNoUnpack, bangStrict = True, bangType = TTuple _ Boxed Unpromoted [TCon _ "Int" Unpromoted, TCon _ "Int" Unpromoted]} ":*:" BangType {bangSourceUnpackedness = NoSourceUnpackedness, bangStrict = False, bangType = TCon _ "Int" Unpromoted}]},
+            DeclData _ DataDecl {dataDeclConstructors = [RecordCon _ [] [] "Record" [FieldDecl {fieldType = BangType {bangSourceUnpackedness = SourceUnpack, bangStrict = True, bangType = TCon _ "Int" Unpromoted}}]]},
+            DeclData _ DataDecl {dataDeclConstructors = [GadtCon _ [] [] ["G"] (GadtPrefixBody [BangType {bangSourceUnpackedness = SourceUnpack, bangStrict = True, bangType = TCon _ "Int" Unpromoted}] (TCon _ "G" Unpromoted))]}
+            ] -> pure ()
+          other ->
+            assertFailure ("unexpected parsed declarations: " <> show other)
+
+test_sourceUnpackednessRoundtrip :: Assertion
+test_sourceUnpackednessRoundtrip =
+  let source =
+        T.unlines
+          [ "{-# LANGUAGE GADTs #-}",
+            "module M where",
+            "data Pair = Pair {-# UNPACK #-} !Int {-# NOUNPACK #-} !(Int, Int)",
+            "data G where",
+            "  G :: {-# UNPACK #-} !Int -> G"
+          ]
+   in case validateParser "SourceUnpackedness.hs" Haskell2010Edition [EnableExtension GADTs] source of
+        Nothing -> pure ()
+        Just err -> assertFailure ("expected source unpackedness roundtrip to validate, got: " <> show err)
 
 test_parserConfigPassesExtensions :: Assertion
 test_parserConfigPassesExtensions =
@@ -523,6 +567,30 @@ test_lineStartHashTokenIsNotDirective =
       LexToken {lexTokenKind = TkEOF}
       ] -> pure ()
     other -> assertFailure ("expected line-start #) to lex as an unboxed tuple token, got: " <> show other)
+
+test_overloadedLabelLexesAsSingleToken :: Assertion
+test_overloadedLabelLexesAsSingleToken =
+  case lexTokensWithExtensions [OverloadedLabels] "#typeUrl" of
+    [LexToken {lexTokenKind = TkOverloadedLabel "typeUrl" "#typeUrl"}, LexToken {lexTokenKind = TkEOF}] -> pure ()
+    other -> assertFailure ("expected overloaded label token, got: " <> show other)
+
+test_quotedOverloadedLabelLexes :: Assertion
+test_quotedOverloadedLabelLexes =
+  case lexTokensWithExtensions [OverloadedLabels] "#\"The quick brown fox\"" of
+    [LexToken {lexTokenKind = TkOverloadedLabel "The quick brown fox" "#\"The quick brown fox\""}, LexToken {lexTokenKind = TkEOF}] -> pure ()
+    other -> assertFailure ("expected quoted overloaded label token, got: " <> show other)
+
+test_overloadedLabelExprParses :: Assertion
+test_overloadedLabelExprParses =
+  let source = T.unlines ["{-# LANGUAGE OverloadedLabels #-}", "module M where", "x = #typeUrl", "y = #\"The quick brown fox\""]
+      (errs, modu) = parseModule defaultConfig source
+   in do
+        assertBool ("expected no parse errors, got: " <> show errs) (null errs)
+        case moduleDecls modu of
+          [ DeclValue _ (FunctionBind _ _ [Match {matchRhs = UnguardedRhs _ (EOverloadedLabel _ "typeUrl" "#typeUrl")}]),
+            DeclValue _ (FunctionBind _ _ [Match {matchRhs = UnguardedRhs _ (EOverloadedLabel _ "The quick brown fox" "#\"The quick brown fox\"")}])
+            ] -> pure ()
+          other -> assertFailure ("expected overloaded label expressions in AST, got: " <> show other)
 
 test_linePragmaUpdatesSpan :: Assertion
 test_linePragmaUpdatesSpan =

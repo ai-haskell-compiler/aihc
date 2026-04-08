@@ -66,6 +66,7 @@ module Aihc.Parser.Syntax
     Rhs (..),
     HasSourceSpan (..),
     SourceSpan (..),
+    SourceUnpackedness (..),
     StandaloneDerivingDecl (..),
     Type (..),
     TupleFlavor (..),
@@ -1171,6 +1172,7 @@ instance HasSourceSpan DataConDecl where
 
 data BangType = BangType
   { bangSpan :: SourceSpan,
+    bangSourceUnpackedness :: SourceUnpackedness,
     bangStrict :: Bool,
     bangType :: Type
   }
@@ -1178,6 +1180,12 @@ data BangType = BangType
 
 instance HasSourceSpan BangType where
   getSourceSpan = bangSpan
+
+data SourceUnpackedness
+  = NoSourceUnpackedness
+  | SourceUnpack
+  | SourceNoUnpack
+  deriving (Data, Eq, Show, Generic, NFData)
 
 data FieldDecl = FieldDecl
   { fieldSpan :: SourceSpan,
@@ -1386,6 +1394,7 @@ data Expr
   | ECharHash SourceSpan Char Text
   | EString SourceSpan Text Text
   | EStringHash SourceSpan Text Text
+  | EOverloadedLabel SourceSpan Text Text
   | EQuasiQuote SourceSpan Text Text
   | EIf SourceSpan Expr Expr Expr
   | EMultiWayIf SourceSpan [GuardedRhs]
@@ -1441,6 +1450,7 @@ instance HasSourceSpan Expr where
       ECharHash span' _ _ -> span'
       EString span' _ _ -> span'
       EStringHash span' _ _ -> span'
+      EOverloadedLabel span' _ _ -> span'
       EQuasiQuote span' _ _ -> span'
       EIf span' _ _ _ -> span'
       EMultiWayIf span' _ -> span'

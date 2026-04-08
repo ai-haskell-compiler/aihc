@@ -764,20 +764,33 @@ dataConQualifierPrefix forallVars constraints = forallPrefix forallVars <> conte
 -- For non-strict types, we use function-LHS context rendering since only function types,
 -- foralls, and contexts need parentheses before -> in GADT syntax.
 prettyBangType :: BangType -> Doc ann
-prettyBangType bt
-  | bangStrict bt = "!" <> prettyTypeIn CtxTypeAtom (bangType bt)
-  | otherwise = prettyTypeIn CtxTypeFunArg (bangType bt)
+prettyBangType bt =
+  hsep (prettySourceUnpackedness (bangSourceUnpackedness bt) <> [strictDoc])
+  where
+    strictDoc
+      | bangStrict bt = "!" <> prettyTypeIn CtxTypeAtom (bangType bt)
+      | otherwise = prettyTypeIn CtxTypeFunArg (bangType bt)
 
 prettyRecordFieldBangType :: BangType -> Doc ann
-prettyRecordFieldBangType bt
-  | bangStrict bt = "!" <> prettyType (bangType bt)
-  | otherwise = prettyType (bangType bt)
+prettyRecordFieldBangType bt =
+  hsep (prettySourceUnpackedness (bangSourceUnpackedness bt) <> [strictDoc])
+  where
+    strictDoc
+      | bangStrict bt = "!" <> prettyType (bangType bt)
+      | otherwise = prettyType (bangType bt)
 
 -- | Pretty print a BangType as an atom (e.g., for infix data constructors).
 -- Wraps the entire bang type in parens if the underlying type needs it.
 prettyBangTypeAtom :: BangType -> Doc ann
 prettyBangTypeAtom bt =
   parenthesize (needsTypeParens CtxTypeFunArg (bangType bt)) (prettyBangType bt)
+
+prettySourceUnpackedness :: SourceUnpackedness -> [Doc ann]
+prettySourceUnpackedness unpackedness =
+  case unpackedness of
+    NoSourceUnpackedness -> []
+    SourceUnpack -> ["{-# UNPACK #-}"]
+    SourceNoUnpack -> ["{-# NOUNPACK #-}"]
 
 prettyClassDecl :: ClassDecl -> Doc ann
 prettyClassDecl decl =
@@ -1119,6 +1132,7 @@ prettyExprPrec prec expr =
     ECharHash _ _ repr -> pretty repr
     EString _ _ repr -> pretty repr
     EStringHash _ _ repr -> pretty repr
+    EOverloadedLabel _ _ raw -> pretty raw
     EQuasiQuote _ quoter body -> prettyQuasiQuote quoter body
     ETHExpQuote _ body -> "[|" <+> prettyExprPrec 0 body <+> "|]"
     ETHTypedQuote _ body -> "[||" <+> prettyExprPrec 0 body <+> "||]"

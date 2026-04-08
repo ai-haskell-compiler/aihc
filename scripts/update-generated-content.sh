@@ -42,6 +42,7 @@ lexer_cmd="${LEXER_PROGRESS_CMD:-nix run .#lexer-progress}"
 extension_markdown_cmd="${PARSER_EXTENSION_PROGRESS_CMD:-nix run .#parser-extension-progress -- --markdown}"
 extension_progress_cmd="${PARSER_EXTENSION_PROGRESS_TEXT_CMD:-nix run .#parser-extension-progress}"
 cpp_cmd="${CPP_PROGRESS_CMD:-nix run .#cpp-progress}"
+resolve_cmd="${RESOLVE_PROGRESS_CMD:-nix run .#resolve-progress}"
 stackage_cmd="${PARSER_STACKAGE_PROGRESS_CMD:-nix run .#stackage-progress -- --snapshot lts-24.33}"
 line_counts_cmd="${LINE_COUNTS_CMD:-nix run .#line-counts}"
 
@@ -56,6 +57,7 @@ lexer_out="$tmpdir/lexer-progress.txt"
 extension_out="$tmpdir/extension-progress.md"
 extension_progress_out="$tmpdir/extension-progress.txt"
 cpp_out="$tmpdir/cpp-progress.txt"
+resolve_out="$tmpdir/resolve-progress.txt"
 stackage_out="$tmpdir/stackage-progress.txt"
 line_counts_out="$tmpdir/line-counts.txt"
 
@@ -64,6 +66,7 @@ run_cmd "$lexer_cmd" >"$lexer_out"
 run_cmd "$extension_markdown_cmd" | sed -n '/^# Haskell Parser Extension Support Status/,$p' >"$extension_out"
 run_cmd "$extension_progress_cmd" >"$extension_progress_out"
 run_cmd "$cpp_cmd" >"$cpp_out"
+run_cmd "$resolve_cmd" >"$resolve_out"
 run_cmd "$stackage_cmd" >"$stackage_out" || true
 run_cmd "$line_counts_cmd" >"$line_counts_out"
 
@@ -199,6 +202,18 @@ cpp_total="${cpp_vals[4]}"
 cpp_implemented="${cpp_vals[5]}"
 cpp_complete="${cpp_vals[6]}"
 
+resolve_vals=($(parse_progress "$resolve_out")) || {
+	echo "update-generated-content.sh: could not parse resolve-progress summary (expected PASS/XFAIL/XPASS/FAIL/TOTAL/COMPLETE on stdout)." >&2
+	exit 2
+}
+resolve_pass="${resolve_vals[0]}"
+resolve_xfail="${resolve_vals[1]}"
+resolve_xpass="${resolve_vals[2]}"
+resolve_fail="${resolve_vals[3]}"
+resolve_total="${resolve_vals[4]}"
+resolve_implemented="${resolve_vals[5]}"
+resolve_complete="${resolve_vals[6]}"
+
 ext_vals=($(parse_extension_summary "$extension_out")) || {
 	echo "update-generated-content.sh: could not parse extension markdown summary (expected Total Extensions, Supported, In Progress lines after --markdown)." >&2
 	exit 2
@@ -244,6 +259,10 @@ EOF2
 
 cat >"$tmpdir/readme-root-lexer.txt" <<EOF2
 \`${lexer_implemented}/${lexer_total}\` (\`${lexer_complete}%\`)
+EOF2
+
+cat >"$tmpdir/readme-root-resolve.txt" <<EOF2
+\`${resolve_implemented}/${resolve_total}\` (\`${resolve_complete}%\`)
 EOF2
 
 cat >"$tmpdir/readme-parser-h2010.txt" <<EOF2
@@ -368,6 +387,7 @@ replace_marker_inline README.md "parser-progress" "$tmpdir/readme-root-parser.tx
 replace_marker_inline README.md "lexer-progress" "$tmpdir/readme-root-lexer.txt"
 replace_marker_inline README.md "parser-stackage-progress" "$tmpdir/readme-root-stackage.txt"
 replace_marker_inline README.md "cpp-progress" "$tmpdir/readme-root-cpp.txt"
+replace_marker_inline README.md "resolve-progress" "$tmpdir/readme-root-resolve.txt"
 replace_marker_block README.md "line-counts" "$line_counts_out"
 replace_marker_block components/aihc-parser/README.md "haskell2010-progress" "$tmpdir/readme-parser-h2010.txt"
 replace_marker_block components/aihc-parser/README.md "extension-progress" "$tmpdir/readme-parser-extension.txt"

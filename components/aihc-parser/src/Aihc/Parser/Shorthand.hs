@@ -323,8 +323,16 @@ docBangType bt =
   "BangType" <+> braces (hsep (punctuate comma fields))
   where
     fields =
-      boolField "strict" (bangStrict bt)
+      sourceUnpackednessField (bangSourceUnpackedness bt)
+        <> boolField "strict" (bangStrict bt)
         <> [field "type" (docType (bangType bt))]
+
+sourceUnpackednessField :: SourceUnpackedness -> [Doc ann]
+sourceUnpackednessField unpackedness =
+  case unpackedness of
+    NoSourceUnpackedness -> []
+    SourceUnpack -> [field "unpackedness" "\"UNPACK\""]
+    SourceNoUnpack -> [field "unpackedness" "\"NOUNPACK\""]
 
 docFieldDecl :: FieldDecl -> Doc ann
 docFieldDecl fd =
@@ -594,6 +602,7 @@ docExpr expr =
     ECharHash _ c repr -> "ECharHash" <+> pretty (show c) <+> docText repr
     EString _ s _ -> "EString" <+> docText s
     EStringHash _ s repr -> "EStringHash" <+> docText s <+> docText repr
+    EOverloadedLabel _ label raw -> "EOverloadedLabel" <+> docText label <+> docText raw
     EQuasiQuote _ quoter body -> "EQuasiQuote" <+> docText quoter <+> docText body
     ETHExpQuote _ body -> "ETHExpQuote" <+> parens (docExpr body)
     ETHTypedQuote _ body -> "ETHTypedQuote" <+> parens (docExpr body)
@@ -763,6 +772,7 @@ docTokenKind kind =
     TkCharHash c repr -> "TkCharHash" <+> pretty (show c) <+> docText repr
     TkString s -> "TkString" <+> docText s
     TkStringHash s repr -> "TkStringHash" <+> docText s <+> docText repr
+    TkOverloadedLabel label raw -> "TkOverloadedLabel" <+> docText label <+> docText raw
     TkSpecialLParen -> "TkSpecialLParen"
     TkSpecialRParen -> "TkSpecialRParen"
     TkSpecialUnboxedLParen -> "TkSpecialUnboxedLParen"

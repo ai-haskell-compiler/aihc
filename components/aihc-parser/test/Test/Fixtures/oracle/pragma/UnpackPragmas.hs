@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail UNPACK pragmas not preserved in pretty-printer roundtrip -}
+{- ORACLE_TEST pass -}
 module UnpackPragmas where
 
 import Data.Word (Word8, Word32)

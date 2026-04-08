@@ -68,6 +68,20 @@
           isDir || isHaskell || isCabal || isYaml || isLicense;
       };
 
+    resolveSrc = pkgs:
+      pkgs.lib.cleanSourceWith {
+        src = ./components/aihc-resolve;
+        filter = path: type: let
+          baseName = baseNameOf path;
+          isHaskell = pkgs.lib.hasSuffix ".hs" baseName;
+          isCabal = pkgs.lib.hasSuffix ".cabal" baseName;
+          isYaml = pkgs.lib.hasSuffix ".yaml" baseName || pkgs.lib.hasSuffix ".yml" baseName;
+          isLicense = baseName == "LICENSE";
+          isDir = type == "directory";
+        in
+          isDir || isHaskell || isCabal || isYaml || isLicense;
+      };
+
     # Filtered source for nix linting - only nix files
     nixSrc = pkgs:
       pkgs.lib.cleanSourceWith {
@@ -151,6 +165,11 @@
             )
           );
           aihc-cpp = pkgs.haskell.lib.dontCheck (final.callCabal2nix "aihc-cpp" (cppSrc pkgs) {});
+          aihc-resolve = pkgs.haskell.lib.dontCheck (
+            pkgs.haskell.lib.disableExecutableProfiling (
+              pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-resolve" (resolveSrc pkgs) {})
+            )
+          );
         };
       };
     mkHsPkgsForChecks = pkgs:
@@ -173,6 +192,13 @@
             )
           );
           aihc-cpp = pkgs.haskell.lib.dontCheck (final.callCabal2nix "aihc-cpp" (cppSrc pkgs) {});
+          aihc-resolve = pkgs.haskell.lib.dontCheck (
+            pkgs.haskell.lib.disableOptimization (
+              pkgs.haskell.lib.disableExecutableProfiling (
+                pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-resolve" (resolveSrc pkgs) {})
+              )
+            )
+          );
         };
       };
     # Haskell packages with tests enabled
@@ -201,6 +227,15 @@
           aihc-cpp =
             pkgs.haskell.lib.overrideCabal
             (final.callCabal2nix "aihc-cpp" (cppSrc pkgs) {})
+            (old: {
+              # Hide passing tests so failures are visible in Nix's truncated output
+              testFlags = (old.testFlags or []) ++ ["--hide-successes"];
+            });
+          aihc-resolve =
+            pkgs.haskell.lib.overrideCabal
+            (pkgs.haskell.lib.disableExecutableProfiling (
+              pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-resolve" (resolveSrc pkgs) {})
+            ))
             (old: {
               # Hide passing tests so failures are visible in Nix's truncated output
               testFlags = (old.testFlags or []) ++ ["--hide-successes"];
@@ -240,6 +275,17 @@
               # Hide passing tests so failures are visible in Nix's truncated output
               testFlags = (old.testFlags or []) ++ ["--hide-successes"];
             });
+          aihc-resolve =
+            pkgs.haskell.lib.overrideCabal
+            (pkgs.haskell.lib.disableOptimization (
+              pkgs.haskell.lib.disableExecutableProfiling (
+                pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-resolve" (resolveSrc pkgs) {})
+              )
+            ))
+            (old: {
+              # Hide passing tests so failures are visible in Nix's truncated output
+              testFlags = (old.testFlags or []) ++ ["--hide-successes"];
+            });
         };
       };
     # Haskell packages with Haddock enabled for documentation generation
@@ -262,6 +308,13 @@
             )
           );
           aihc-cpp = pkgs.haskell.lib.dontCheck (pkgs.haskell.lib.doHaddock (final.callCabal2nix "aihc-cpp" (cppSrc pkgs) {}));
+          aihc-resolve = pkgs.haskell.lib.dontCheck (
+            pkgs.haskell.lib.dontHaddock (
+              pkgs.haskell.lib.disableExecutableProfiling (
+                pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-resolve" (resolveSrc pkgs) {})
+              )
+            )
+          );
         };
       };
     mkHsPkgsWithHaddockForChecks = pkgs:
@@ -287,6 +340,15 @@
             )
           );
           aihc-cpp = pkgs.haskell.lib.dontCheck (pkgs.haskell.lib.doHaddock (final.callCabal2nix "aihc-cpp" (cppSrc pkgs) {}));
+          aihc-resolve = pkgs.haskell.lib.dontCheck (
+            pkgs.haskell.lib.dontHaddock (
+              pkgs.haskell.lib.disableOptimization (
+                pkgs.haskell.lib.disableExecutableProfiling (
+                  pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-resolve" (resolveSrc pkgs) {})
+                )
+              )
+            )
+          );
         };
       };
     # Combined Haddock documentation derivation
@@ -380,6 +442,12 @@
           );
           # CPP with coverage enabled
           aihc-cpp = enableCoverageWithExport (final.callCabal2nix "aihc-cpp" (cppSrc pkgs) {});
+          # Resolve - no coverage needed yet, just make it available
+          aihc-resolve = pkgs.haskell.lib.dontCheck (
+            pkgs.haskell.lib.disableExecutableProfiling (
+              pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-resolve" (resolveSrc pkgs) {})
+            )
+          );
         };
       };
     # Combined coverage report derivation
@@ -567,6 +635,7 @@
       extensionProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser "extension-progress";
       parserFuzzExe = pkgs.lib.getExe' hsPkgs.aihc-parser "parser-fuzz";
       cppProgressExe = pkgs.lib.getExe' hsPkgs.aihc-cpp "cpp-progress";
+      resolveProgressExe = pkgs.lib.getExe' hsPkgs.aihc-resolve "resolve-progress";
       hackageTesterExe = pkgs.lib.getExe' hsPkgs.aihc-parser "hackage-tester";
       stackageProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser "stackage-progress";
       aihcParserExe = pkgs.lib.getExe' hsPkgs.aihc-parser-cli "aihc-parser";
@@ -808,6 +877,26 @@
         ${cppProgressExe} --strict "$@"
       '';
 
+      resolve-progress = mkApp "resolve-progress" ''
+        set -euo pipefail
+        test -d components/aihc-resolve || {
+          echo "Run this app from the repository root." >&2
+          exit 1
+        }
+        cd components/aihc-resolve
+        ${resolveProgressExe} "$@"
+      '';
+
+      resolve-progress-strict = mkApp "resolve-progress-strict" ''
+        set -euo pipefail
+        test -d components/aihc-resolve || {
+          echo "Run this app from the repository root." >&2
+          exit 1
+        }
+        cd components/aihc-resolve
+        ${resolveProgressExe} --strict "$@"
+      '';
+
       generate-reports = mkReportsApp "generate-reports" ''
         set -euo pipefail
         test -d components/aihc-parser || {
@@ -890,6 +979,7 @@
       parserTests = pkgs.haskell.lib.doCheck (pkgs.haskell.lib.dontHaddock hsPkgsWithTests.aihc-parser);
       parserCliTests = pkgs.haskell.lib.doCheck (pkgs.haskell.lib.dontHaddock hsPkgsWithTests.aihc-parser-cli);
       cppTests = pkgs.haskell.lib.doCheck (pkgs.haskell.lib.dontHaddock hsPkgsWithTests.aihc-cpp);
+      resolveTests = pkgs.haskell.lib.doCheck (pkgs.haskell.lib.dontHaddock hsPkgsWithTests.aihc-resolve);
       nixLint =
         pkgs.runCommand "aihc-nix-lint" {
           src = nixSrc pkgs;
@@ -1040,6 +1130,7 @@
       parser-tests = parserTests;
       parser-cli-tests = parserCliTests;
       cpp-tests = cppTests;
+      resolve-tests = resolveTests;
       cpp-doctest = cppDoctest;
       parser-doctest = parserDoctest;
       haddock-docs = haddockDocs;
@@ -1065,6 +1156,10 @@
         {
           name = "cpp-tests";
           path = cppTests;
+        }
+        {
+          name = "resolve-tests";
+          path = resolveTests;
         }
         {
           name = "cpp-doctest";

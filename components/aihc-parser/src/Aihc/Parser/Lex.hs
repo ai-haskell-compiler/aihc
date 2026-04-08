@@ -2,9 +2,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
 
--- |
--- Module      : Aihc.Parser.Lex
--- Description : Lex Haskell source into span-annotated tokens with inline extension handling
 module Aihc.Parser.Lex
   ( TokenOrigin (..),
     LexToken (..),
@@ -72,7 +69,7 @@ import Aihc.Parser.Lex.Trivia
   )
 import Aihc.Parser.Lex.Types
 import Aihc.Parser.Syntax
-import Data.Char (GeneralCategory (..), generalCategory, isAscii, isAsciiLower, isAsciiUpper, isDigit)
+import Data.Char (GeneralCategory (..), generalCategory, isAscii, isAsciiLower, isAsciiUpper, isDigit, isSpace)
 import Data.Maybe (fromMaybe, isJust)
 import Data.Text (Text, pattern Empty, pattern (:<))
 import Data.Text qualified as T
@@ -209,6 +206,7 @@ nextToken env st =
         lexNegativeLiteralOrMinus env,
         lexBangOrTildeOperator,
         lexTypeApplication env,
+        lexOverloadedLabel env,
         lexPrefixDollar env,
         lexImplicitParam env,
         lexOperator env
@@ -485,6 +483,46 @@ lexTypeApplication env st
           | c == '_' -> True
           | c == '\'' -> True
         _ -> False
+
+lexOverloadedLabel :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
+lexOverloadedLabel env st
+  | not (hasExt OverloadedLabels env) = Nothing
+  | otherwise =
+      case lexerInput st of
+        '#' :< rest
+          | Just (label, raw) <- parseOverloadedLabel rest ->
+              let fullRaw = "#" <> raw
+                  st' = advanceChars fullRaw st
+               in Just (mkToken st st' fullRaw (TkOverloadedLabel label fullRaw), st')
+          | "\"" `T.isPrefixOf` rest ->
+              let consumed = "#" <> takeMalformedString rest
+                  st' = advanceChars consumed st
+               in Just (mkErrorToken st st' consumed "invalid overloaded label", st')
+        _ -> Nothing
+  where
+    parseOverloadedLabel chars =
+      case chars of
+        '"' :< rest ->
+          case scanQuoted '"' rest of
+            Right (body, _) ->
+              let raw = "\"" <> body <> "\""
+                  decoded =
+                    case reads (T.unpack raw) of
+                      [(str, "")] | not (null str) -> Just (T.pack str)
+                      _ -> Nothing
+               in (,raw) <$> decoded
+            Left _ -> Nothing
+        _ ->
+          let (label, _) = T.span isUnquotedLabelChar chars
+           in if T.null label then Nothing else Just (label, label)
+
+    isUnquotedLabelChar c =
+      not (isSpace c) && c `notElem` ("()[]{},;`#\"" :: String)
+
+    takeMalformedString chars =
+      case scanQuoted '"' (T.drop 1 chars) of
+        Right (body, _) -> "\"" <> body <> "\""
+        Left raw -> "\"" <> raw
 
 lexBangOrTildeOperator :: LexerState -> Maybe (LexToken, LexerState)
 lexBangOrTildeOperator st =

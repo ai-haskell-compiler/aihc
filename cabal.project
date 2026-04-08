@@ -2,5 +2,6 @@ packages:
   components/aihc-cpp
   components/aihc-parser
   components/aihc-parser-cli
+  components/aihc-resolve
 
 tests: True

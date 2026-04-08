@@ -114,6 +114,7 @@ data LexTokenKind
   | TkCharHash Char Text
   | TkString Text
   | TkStringHash Text Text
+  | TkOverloadedLabel Text Text
   | -- Special characters (per Haskell Report Section 2.2)
     TkSpecialLParen
   | TkSpecialRParen
