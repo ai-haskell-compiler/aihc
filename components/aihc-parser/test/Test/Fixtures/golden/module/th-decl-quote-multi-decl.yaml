@@ -1,0 +1,13 @@
+extensions: [TemplateHaskell, QuasiQuotes]
+input: |
+  {-# LANGUAGE TemplateHaskell, QuasiQuotes #-}
+  module TH_Decl_Quote_MultiDecl where
+
+  $(undefined [d|
+    data Nat = Z | S Nat
+    f x = x
+    |])
+ast: |
+  Module {name = "TH_Decl_Quote_MultiDecl", languagePragmas = [EnableExtension TemplateHaskell, EnableExtension QuasiQuotes], decls = [DeclSplice (EParen (EApp (EVar "undefined") (ETHDeclQuote [DeclData (DataDecl {name = "Nat", constructors = [PrefixCon {name = "Z"}, PrefixCon {name = "S", fields = [BangType {type = TCon "Nat"}]}]})))]))]}
+status: xfail
+reason: TH declaration quotes cannot parse value declarations after data declarations
