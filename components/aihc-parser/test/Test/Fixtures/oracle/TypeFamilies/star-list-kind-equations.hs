@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail type family with [*] kind parameter and equations fails to parse -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE DataKinds, TypeFamilies #-}
 module StarListKindTypeFamily where
 
