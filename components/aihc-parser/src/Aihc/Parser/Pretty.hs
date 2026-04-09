@@ -22,7 +22,7 @@ module Aihc.Parser.Pretty
 where
 
 import Aihc.Parser.Syntax
-import Data.Char (GeneralCategory (..), generalCategory)
+import Data.Char (GeneralCategory (..), generalCategory, isAlphaNum)
 import Data.Maybe (catMaybes)
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -1524,7 +1524,33 @@ prettyQuasiQuote quoter body = "[" <> pretty quoter <> "|" <> pretty body <> "|]
 
 isOperatorToken :: Text -> Bool
 isOperatorToken tok =
-  not (T.null tok) && T.all isSymbolicOpChar tok
+  not (T.null tok)
+    && (T.all isSymbolicOpChar tok || isQualifiedOperator tok)
+  where
+    -- | Detect qualified operators like "M..&.", "Data.Map..|.", "M.!", etc.
+    -- These have the pattern: module.path.operator where the part after the
+    -- last "." is all symbolic operator characters.
+    isQualifiedOperator t =
+      let lastDotPos = findLastDot t
+       in case lastDotPos of
+            Nothing -> False
+            Just idx ->
+              let modulePart = T.take idx t
+                  op = T.drop (idx + 1) t
+               in not (T.null modulePart)
+                    && not (T.null op)
+                    && T.all isSymbolicOpChar op
+                    && isValidModulePrefix modulePart
+    findLastDot txt = go (T.length txt - 1)
+      where
+        go i
+          | i < 0 = Nothing
+          | T.index txt i == '.' =
+              -- Only consider this dot if there's content after it
+              if i + 1 < T.length txt then Just i else go (i - 1)
+          | otherwise = go (i - 1)
+    isValidModulePrefix p =
+      not (T.null p) && T.all (\c -> isAlphaNum c || c == '_' || c == '.') p
 
 -- | Matches operator characters per Haskell 2010 §2.2: ASCII symbol chars
 -- plus Unicode characters with general category Sm, Sc, Sk, or So.

@@ -1,8 +1,11 @@
 {- ORACLE_TEST pass -}
 {-# LANGUAGE GHC2021 #-}
 
-module ExportQualifiedOperator (
-    (M..&.)
+module ExportQualifiedOperatorDot (
+    (M..|.)
 ) where
 
 import qualified Data.Bits as M
+
+(.|.) :: Int -> Int -> Int
+x .|. y = x

@@ -276,7 +276,7 @@ lexIdentifier env st =
               (consumed, rest1, isQualified) = gatherQualified hasMagicHash firstChunk rest0
            in case (isQualified || isConIdStart c, rest1) of
                 (True, '.' :< dotRest@(opChar :< _))
-                  | isSymbolicOpCharNotDot opChar ->
+                  | isSymbolicOpChar opChar ->
                       let opChars = T.takeWhile isSymbolicOpChar dotRest
                           fullOp = consumed <> "." <> opChars
                           kind =
@@ -308,8 +308,6 @@ lexIdentifier env st =
        in case rest of
             '#' :< rest' | hasMH -> (tailPart <> "#", rest')
             _ -> (tailPart, rest)
-
-    isSymbolicOpCharNotDot c = isSymbolicOpChar c && c /= '.'
 
     classifyIdentifier firstChar isQualified ident
       | isQualified =
