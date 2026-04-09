@@ -1,0 +1,5 @@
+extensions: [GHC2021, BlockArguments]
+input: |
+  f = g \x@(Y a) -> z
+status: xfail
+reason: As-pattern in lambda passed as argument with BlockArguments and GHC2021.
