@@ -1,0 +1,6 @@
+extensions: [DataKinds, TypeFamilies]
+input: |
+  type family F (xs :: [*]) (r :: *) :: * where
+    F '[] r = r
+status: xfail
+reason: Type family with [*] kind parameter, additional * parameter, return kind, and equations fails to parse.
