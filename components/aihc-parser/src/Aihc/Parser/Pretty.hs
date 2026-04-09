@@ -1527,7 +1527,7 @@ isOperatorToken tok =
   not (T.null tok)
     && (T.all isSymbolicOpChar tok || isQualifiedOperator tok)
   where
-    -- | Detect qualified operators like "M..&.", "Data.Map..|.", "M.!", etc.
+    -- Detect qualified operators like "M..&.", "Data.Map..|.", "M.!", etc.
     -- These have the pattern: module.path.operator where the part after the
     -- last "." is all symbolic operator characters.
     isQualifiedOperator t =
