@@ -1365,7 +1365,7 @@ typeParamParser =
                 | isTypeVarName name ->
                     Just name
               _ -> Nothing
-        pure (\span' -> TyVarBinder span' ident Nothing)
+        pure (\span' -> TyVarBinder span' ident Nothing TyVarBSpecified)
     )
       <|> ( do
               expectedTok TkSpecialLParen
@@ -1373,7 +1373,7 @@ typeParamParser =
               expectedTok TkReservedDoubleColon
               kind <- typeParser
               expectedTok TkSpecialRParen
-              pure (\span' -> TyVarBinder span' ident (Just kind))
+              pure (\span' -> TyVarBinder span' ident (Just kind) TyVarBSpecified)
           )
 
 isTypeVarName :: Text -> Bool
