@@ -1961,7 +1961,8 @@ typeInfixOperatorParser =
           TkVarSym op
             | op /= "."
                 && op /= "!"
-                && op /= "-" ->
+                && op /= "-"
+                && op /= "'" ->
                 Just (op, Unpromoted)
           TkConSym op -> Just (op, Unpromoted)
           TkQVarSym op -> Just (op, Unpromoted)
