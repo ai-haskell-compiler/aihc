@@ -226,7 +226,7 @@ ordinaryDeclParser = do
           else valueDeclParser
       patternOrSpliceParser =
         if thFullEnabled
-          then MP.try patternBindDeclParser <|> implicitSpliceDeclParser
+          then MP.try patternBindDeclParser <|> MP.try valueDeclParser <|> implicitSpliceDeclParser
           else MP.try patternBindDeclParser
       typeSigOrValueOrSpliceParser =
         MP.try typeSigDeclParser <|> valueOrSpliceParser
