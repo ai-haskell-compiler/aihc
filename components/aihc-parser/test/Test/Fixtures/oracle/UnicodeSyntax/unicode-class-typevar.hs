@@ -1,7 +1,7 @@
-{- ORACLE_TEST xfail Unicode type variable in class declaration head fails to parse -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE UnicodeSyntax #-}
 
--- Unicode type variables in class heads are not handled correctly.
+-- Unicode type variables in class heads are now handled correctly.
 
 module UnicodeClassTypeVar where
 
