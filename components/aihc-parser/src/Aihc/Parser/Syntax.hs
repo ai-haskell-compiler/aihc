@@ -61,6 +61,8 @@ module Aihc.Parser.Syntax
     WarningText (..),
     NewtypeDecl (..),
     OperatorName,
+    Name (..),
+    NameType (..),
     PatSynArgs (..),
     PatSynDecl (..),
     PatSynDir (..),
@@ -118,6 +120,33 @@ import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import GHC.Generics (Generic)
+
+-- | A qualified or unqualified name with type information.
+--
+-- The 'nameQualifier' is the module path (e.g., \"Data.List\"), and
+-- 'nameText' is the local name (e.g., \"map\"). For unqualified names,
+-- 'nameQualifier' is 'Nothing'.
+data Name = Name
+  { nameQualifier :: Maybe Text,
+    -- ^ Module qualifier (e.g., @\"Data.List\"@ for @Data.List.map@)
+    nameType :: NameType,
+    -- ^ Whether this is a variable, constructor, or operator
+    nameText :: Text
+    -- ^ The local name (e.g., @\"map\"@, @\".+.\"@)
+  }
+  deriving (Eq, Show, Generic, NFData, Data)
+
+-- | The syntactic category of a name.
+data NameType
+  = -- | Variable identifier (e.g., @x@, @map@, @Data.List.map@)
+    NameVarId
+  | -- | Constructor identifier (e.g., @Just@, @Data.Maybe.Maybe@)
+    NameConId
+  | -- | Variable operator (e.g., @+@, @Data.Bits..&.@)
+    NameVarSym
+  | -- | Constructor operator (e.g., @:@, @Data.List.:++@)
+    NameConSym
+  deriving (Eq, Show, Generic, NFData, Enum, Bounded, Data)
 
 data Extension
   = AllowAmbiguousTypes
@@ -614,9 +643,11 @@ sourceSpanEnd xs =
     [] -> NoSourceSpan
     x : _ -> getSourceSpan x
 
-type BinderName = Text
+-- | A name that binds a value or pattern (always unqualified).
+type BinderName = Name
 
-type OperatorName = Text
+-- | An operator name (always unqualified in fixity/infix contexts).
+type OperatorName = Name
 
 data WarningText
   = DeprText SourceSpan Text
@@ -689,16 +720,16 @@ data IEBundledNamespace
 
 data IEBundledMember = IEBundledMember
   { ieBundledMemberNamespace :: Maybe IEBundledNamespace,
-    ieBundledMemberName :: Text
+    ieBundledMemberName :: Name
   }
   deriving (Data, Eq, Show, Generic, NFData)
 
 data ExportSpec
   = ExportModule SourceSpan (Maybe WarningText) Text
-  | ExportVar SourceSpan (Maybe WarningText) (Maybe IEEntityNamespace) Text
-  | ExportAbs SourceSpan (Maybe WarningText) (Maybe IEEntityNamespace) Text
-  | ExportAll SourceSpan (Maybe WarningText) (Maybe IEEntityNamespace) Text
-  | ExportWith SourceSpan (Maybe WarningText) (Maybe IEEntityNamespace) Text [IEBundledMember]
+  | ExportVar SourceSpan (Maybe WarningText) (Maybe IEEntityNamespace) Name
+  | ExportAbs SourceSpan (Maybe WarningText) (Maybe IEEntityNamespace) Name
+  | ExportAll SourceSpan (Maybe WarningText) (Maybe IEEntityNamespace) Name
+  | ExportWith SourceSpan (Maybe WarningText) (Maybe IEEntityNamespace) Name [IEBundledMember]
   deriving (Eq, Show, Generic, NFData)
 
 instance HasSourceSpan ExportSpec where
@@ -742,10 +773,10 @@ instance HasSourceSpan ImportSpec where
   getSourceSpan = importSpecSpan
 
 data ImportItem
-  = ImportItemVar SourceSpan (Maybe IEEntityNamespace) Text
-  | ImportItemAbs SourceSpan (Maybe IEEntityNamespace) Text
-  | ImportItemAll SourceSpan (Maybe IEEntityNamespace) Text
-  | ImportItemWith SourceSpan (Maybe IEEntityNamespace) Text [IEBundledMember]
+  = ImportItemVar SourceSpan (Maybe IEEntityNamespace) Name
+  | ImportItemAbs SourceSpan (Maybe IEEntityNamespace) Name
+  | ImportItemAll SourceSpan (Maybe IEEntityNamespace) Name
+  | ImportItemWith SourceSpan (Maybe IEEntityNamespace) Name [IEBundledMember]
   deriving (Eq, Show, Generic, NFData)
 
 data Decl
@@ -843,17 +874,17 @@ data PatSynDir
 -- | Pattern synonym argument form.
 data PatSynArgs
   = -- | @pattern Name arg1 arg2 ...@
-    PatSynPrefixArgs [Text]
+    PatSynPrefixArgs [Name]
   | -- | @pattern arg1 \`Name\` arg2@ or @pattern arg1 :+: arg2@
-    PatSynInfixArgs Text Text
+    PatSynInfixArgs Name Name
   | -- | @pattern Name {field1, field2}@
-    PatSynRecordArgs [Text]
+    PatSynRecordArgs [Name]
   deriving (Data, Eq, Show, Generic, NFData)
 
 -- | Pattern synonym declaration.
 data PatSynDecl = PatSynDecl
   { patSynDeclSpan :: SourceSpan,
-    patSynDeclName :: Text,
+    patSynDeclName :: Name,
     patSynDeclArgs :: PatSynArgs,
     patSynDeclPat :: Pattern,
     patSynDeclDir :: PatSynDir
@@ -931,22 +962,22 @@ data TupleFlavor
 
 data Pattern
   = PAnn Annotation Pattern
-  | PVar SourceSpan Text
+  | PVar SourceSpan Name
   | PWildcard SourceSpan
   | PLit SourceSpan Literal
   | PQuasiQuote SourceSpan Text Text
   | PTuple SourceSpan TupleFlavor [Pattern]
   | PUnboxedSum SourceSpan Int Int Pattern
   | PList SourceSpan [Pattern]
-  | PCon SourceSpan Text [Pattern]
-  | PInfix SourceSpan Pattern Text Pattern
+  | PCon SourceSpan Name [Pattern]
+  | PInfix SourceSpan Pattern Name Pattern
   | PView SourceSpan Expr Pattern
-  | PAs SourceSpan Text Pattern
+  | PAs SourceSpan Name Pattern
   | PStrict SourceSpan Pattern
   | PIrrefutable SourceSpan Pattern
   | PNegLit SourceSpan Literal
   | PParen SourceSpan Pattern
-  | PRecord SourceSpan Text [(Text, Pattern)] Bool -- Bool: wildcard present
+  | PRecord SourceSpan Name [(Name, Pattern)] Bool -- Bool: wildcard present
   | PTypeSig SourceSpan Pattern Type
   | PSplice SourceSpan Expr
   -- \$pat or $(pat) (TH pattern splice)
@@ -977,9 +1008,9 @@ instance HasSourceSpan Pattern where
 
 data Type
   = TAnn Annotation Type
-  | TVar SourceSpan Text
-  | TCon SourceSpan Text TypePromotion
-  | TImplicitParam SourceSpan Text Type
+  | TVar SourceSpan Name
+  | TCon SourceSpan Name TypePromotion
+  | TImplicitParam SourceSpan Name Type
   | TTypeLit SourceSpan TypeLiteral
   | TStar SourceSpan
   | TQuasiQuote SourceSpan Text Text
@@ -1055,7 +1086,7 @@ data Role
 
 data RoleAnnotation = RoleAnnotation
   { roleAnnotationSpan :: SourceSpan,
-    roleAnnotationName :: Text,
+    roleAnnotationName :: Name,
     roleAnnotationRoles :: [Role]
   }
   deriving (Data, Eq, Show, Generic, NFData)
@@ -1065,7 +1096,7 @@ instance HasSourceSpan RoleAnnotation where
 
 data TypeSynDecl = TypeSynDecl
   { typeSynSpan :: SourceSpan,
-    typeSynName :: Text,
+    typeSynName :: Name,
     typeSynParams :: [TyVarBinder],
     typeSynBody :: Type
   }
@@ -1109,7 +1140,7 @@ instance HasSourceSpan TypeFamilyEq where
 -- | Data family declaration (standalone or associated in a class body).
 data DataFamilyDecl = DataFamilyDecl
   { dataFamilyDeclSpan :: SourceSpan,
-    dataFamilyDeclName :: Text,
+    dataFamilyDeclName :: Name,
     dataFamilyDeclParams :: [TyVarBinder],
     -- | Optional result kind annotation (@:: Kind@)
     dataFamilyDeclKind :: Maybe Type
@@ -1151,7 +1182,7 @@ instance HasSourceSpan DataFamilyInst where
 data DataDecl = DataDecl
   { dataDeclSpan :: SourceSpan,
     dataDeclContext :: [Type],
-    dataDeclName :: Text,
+    dataDeclName :: Name,
     dataDeclParams :: [TyVarBinder],
     dataDeclConstructors :: [DataConDecl],
     dataDeclDeriving :: [DerivingClause]
@@ -1164,7 +1195,7 @@ instance HasSourceSpan DataDecl where
 data NewtypeDecl = NewtypeDecl
   { newtypeDeclSpan :: SourceSpan,
     newtypeDeclContext :: [Type],
-    newtypeDeclName :: Text,
+    newtypeDeclName :: Name,
     newtypeDeclParams :: [TyVarBinder],
     newtypeDeclConstructor :: Maybe DataConDecl,
     newtypeDeclDeriving :: [DerivingClause]
@@ -1175,12 +1206,12 @@ instance HasSourceSpan NewtypeDecl where
   getSourceSpan = newtypeDeclSpan
 
 data DataConDecl
-  = PrefixCon SourceSpan [Text] [Type] Text [BangType]
-  | InfixCon SourceSpan [Text] [Type] BangType Text BangType
-  | RecordCon SourceSpan [Text] [Type] Text [FieldDecl]
+  = PrefixCon SourceSpan [Text] [Type] Name [BangType]
+  | InfixCon SourceSpan [Text] [Type] BangType Name BangType
+  | RecordCon SourceSpan [Text] [Type] Name [FieldDecl]
   | -- | GADT-style constructor: @Con :: forall a. Ctx => Type@
     -- The list of names supports multiple constructors: @T1, T2 :: Type@
-    GadtCon SourceSpan [TyVarBinder] [Type] [Text] GadtBody
+    GadtCon SourceSpan [TyVarBinder] [Type] [Name] GadtBody
   deriving (Data, Eq, Show, Generic, NFData)
 
 -- | Body of a GADT constructor after the @::@ and optional forall/context
@@ -1225,7 +1256,7 @@ data SourceUnpackedness
 
 data FieldDecl = FieldDecl
   { fieldSpan :: SourceSpan,
-    fieldNames :: [Text],
+    fieldNames :: [Name],
     fieldType :: BangType
   }
   deriving (Data, Eq, Show, Generic, NFData)
@@ -1255,7 +1286,7 @@ data StandaloneDerivingDecl = StandaloneDerivingDecl
     standaloneDerivingForall :: [TyVarBinder],
     standaloneDerivingContext :: [Type],
     standaloneDerivingParenthesizedHead :: Bool,
-    standaloneDerivingClassName :: Text,
+    standaloneDerivingClassName :: Name,
     standaloneDerivingTypes :: [Type]
   }
   deriving (Data, Eq, Show, Generic, NFData)
@@ -1267,7 +1298,7 @@ data ClassDecl = ClassDecl
   { classDeclSpan :: SourceSpan,
     classDeclContext :: Maybe [Type],
     classDeclHeadForm :: TypeHeadForm,
-    classDeclName :: Text,
+    classDeclName :: Name,
     classDeclParams :: [TyVarBinder],
     classDeclFundeps :: [FunctionalDependency],
     classDeclItems :: [ClassDeclItem]
@@ -1318,7 +1349,7 @@ data InstanceDecl = InstanceDecl
     instanceDeclForall :: [TyVarBinder],
     instanceDeclContext :: [Type],
     instanceDeclParenthesizedHead :: Bool,
-    instanceDeclClassName :: Text,
+    instanceDeclClassName :: Name,
     instanceDeclTypes :: [Type],
     instanceDeclItems :: [InstanceDeclItem]
   }
@@ -1366,7 +1397,7 @@ data ForeignDecl = ForeignDecl
     foreignCallConv :: CallConv,
     foreignSafety :: Maybe ForeignSafety,
     foreignEntity :: ForeignEntitySpec,
-    foreignName :: Text,
+    foreignName :: Name,
     foreignType :: Type
   }
   deriving (Data, Eq, Show, Generic, NFData)
@@ -1422,7 +1453,7 @@ instance NFData Annotation where
 
 data Expr
   = EAnn Annotation Expr
-  | EVar SourceSpan Text
+  | EVar SourceSpan Name
   | EInt SourceSpan Integer Text
   | EIntHash SourceSpan Integer Text
   | EIntBase SourceSpan Integer Text
@@ -1439,18 +1470,18 @@ data Expr
   | EMultiWayIf SourceSpan [GuardedRhs]
   | ELambdaPats SourceSpan [Pattern] Expr
   | ELambdaCase SourceSpan [CaseAlt]
-  | EInfix SourceSpan Expr Text Expr
+  | EInfix SourceSpan Expr Name Expr
   | ENegate SourceSpan Expr
-  | ESectionL SourceSpan Expr Text
-  | ESectionR SourceSpan Text Expr
+  | ESectionL SourceSpan Expr Name
+  | ESectionR SourceSpan Name Expr
   | ELetDecls SourceSpan [Decl] Expr
   | ECase SourceSpan Expr [CaseAlt]
   | EDo SourceSpan [DoStmt Expr] Bool -- Bool: True = mdo, False = do
   | EListComp SourceSpan Expr [CompStmt]
   | EListCompParallel SourceSpan Expr [[CompStmt]]
   | EArithSeq SourceSpan ArithSeq
-  | ERecordCon SourceSpan Text [(Text, Expr)] Bool -- Bool: wildcard present
-  | ERecordUpd SourceSpan Expr [(Text, Expr)]
+  | ERecordCon SourceSpan Name [(Name, Expr)] Bool -- Bool: wildcard present
+  | ERecordUpd SourceSpan Expr [(Name, Expr)]
   | ETypeSig SourceSpan Expr Type
   | EParen SourceSpan Expr
   | EWhereDecls SourceSpan Expr [Decl]
@@ -1636,7 +1667,7 @@ instance HasSourceSpan ArithSeq where
       ArithSeqFromTo span' _ _ -> span'
       ArithSeqFromThenTo span' _ _ _ -> span'
 
-valueDeclBinderName :: ValueDecl -> Maybe Text
+valueDeclBinderName :: ValueDecl -> Maybe Name
 valueDeclBinderName vdecl =
   case vdecl of
     FunctionBind _ name _ -> Just name
@@ -1645,7 +1676,7 @@ valueDeclBinderName vdecl =
         PVar _ name -> Just name
         _ -> Nothing
 
-declValueBinderNames :: Decl -> [Text]
+declValueBinderNames :: Decl -> [Name]
 declValueBinderNames decl =
   case decl of
     DeclValue _ vdecl ->

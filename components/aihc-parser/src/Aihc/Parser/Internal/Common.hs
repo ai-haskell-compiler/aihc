@@ -11,11 +11,16 @@ module Aihc.Parser.Internal.Common
     hiddenPragma,
     optionalHiddenPragma,
     moduleNameParser,
+    identifierNameParser,
     identifierTextParser,
+    lowerIdentifierNameParser,
     lowerIdentifierParser,
     implicitParamNameParser,
+    constructorNameParser,
     constructorIdentifierParser,
     binderNameParser,
+    binderTextParser,
+    operatorNameParser,
     operatorTextParser,
     infixOperatorNameParser,
     stringTextParser,
@@ -238,32 +243,38 @@ moduleNameParser =
         TkQConId ident | isModuleName ident -> Just ident
         _ -> Nothing
 
-identifierTextParser :: TokParser Text
-identifierTextParser =
+identifierNameParser :: TokParser Name
+identifierNameParser =
   tokenSatisfy "identifier" $ \tok ->
     case lexTokenKind tok of
-      TkVarId ident -> Just ident
-      TkConId ident -> Just ident
-      TkQVarId ident -> Just ident
-      TkQConId ident -> Just ident
+      TkVarId ident -> Just (Name Nothing NameVarId ident)
+      TkConId ident -> Just (Name Nothing NameConId ident)
+      TkQVarId qual ident -> Just (Name (Just qual) NameVarId ident)
+      TkQConId qual ident -> Just (Name (Just qual) NameConId ident)
       -- Context-sensitive keywords that can be used as identifiers
       -- (not reserved per Haskell Report §2.4)
-      TkKeywordAs -> Just "as"
-      TkKeywordQualified -> Just "qualified"
-      TkKeywordHiding -> Just "hiding"
+      TkKeywordAs -> Just (Name Nothing NameVarId "as")
+      TkKeywordQualified -> Just (Name Nothing NameVarId "qualified")
+      TkKeywordHiding -> Just (Name Nothing NameVarId "hiding")
+      _ -> Nothing
+
+identifierTextParser :: TokParser Text
+identifierTextParser = nameText <$> identifierNameParser
+
+lowerIdentifierNameParser :: TokParser Name
+lowerIdentifierNameParser =
+  tokenSatisfy "lowercase identifier" $ \tok ->
+    case lexTokenKind tok of
+      TkVarId ident -> Just (Name Nothing NameVarId ident)
+      TkQVarId qual ident -> Just (Name (Just qual) NameVarId ident)
+      -- Context-sensitive keywords that can be used as identifiers
+      TkKeywordAs -> Just (Name Nothing NameVarId "as")
+      TkKeywordQualified -> Just (Name Nothing NameVarId "qualified")
+      TkKeywordHiding -> Just (Name Nothing NameVarId "hiding")
       _ -> Nothing
 
 lowerIdentifierParser :: TokParser Text
-lowerIdentifierParser =
-  tokenSatisfy "lowercase identifier" $ \tok ->
-    case lexTokenKind tok of
-      TkVarId ident -> Just ident
-      TkQVarId ident -> Just ident
-      -- Context-sensitive keywords that can be used as identifiers
-      TkKeywordAs -> Just "as"
-      TkKeywordQualified -> Just "qualified"
-      TkKeywordHiding -> Just "hiding"
-      _ -> Nothing
+lowerIdentifierParser = nameText <$> lowerIdentifierNameParser
 
 implicitParamNameParser :: TokParser Text
 implicitParamNameParser =
@@ -272,28 +283,37 @@ implicitParamNameParser =
       TkImplicitParam name -> Just name
       _ -> Nothing
 
-constructorIdentifierParser :: TokParser Text
-constructorIdentifierParser =
+constructorNameParser :: TokParser Name
+constructorNameParser =
   tokenSatisfy "constructor identifier" $ \tok ->
     case lexTokenKind tok of
-      TkConId ident -> Just ident
-      TkQConId ident -> Just ident
+      TkConId ident -> Just (Name Nothing NameConId ident)
+      TkQConId qual ident -> Just (Name (Just qual) NameConId ident)
       _ -> Nothing
 
-binderNameParser :: TokParser Text
-binderNameParser =
-  identifierTextParser
-    <|> parens operatorTextParser
+constructorIdentifierParser :: TokParser Text
+constructorIdentifierParser = nameText <$> constructorNameParser
 
-operatorTextParser :: TokParser Text
-operatorTextParser =
+binderNameParser :: TokParser Name
+binderNameParser =
+  identifierNameParser
+    <|> parens operatorNameParser
+
+binderTextParser :: TokParser Text
+binderTextParser = nameText <$> binderNameParser
+
+operatorNameParser :: TokParser Name
+operatorNameParser =
   tokenSatisfy "operator" $ \tok ->
     case lexTokenKind tok of
-      TkVarSym op -> Just op
-      TkConSym op -> Just op
-      TkQVarSym op -> Just op
-      TkQConSym op -> Just op
+      TkVarSym op -> Just (Name Nothing NameVarSym op)
+      TkConSym op -> Just (Name Nothing NameConSym op)
+      TkQVarSym qual op -> Just (Name (Just qual) NameVarSym op)
+      TkQConSym qual op -> Just (Name (Just qual) NameConSym op)
       _ -> Nothing
+
+operatorTextParser :: TokParser Text
+operatorTextParser = nameText <$> operatorNameParser
 
 -- | Parse an infix operator name (varop) for function definitions.
 -- Per Haskell Report section 4.4.3, funlhs uses 'varop' which is:

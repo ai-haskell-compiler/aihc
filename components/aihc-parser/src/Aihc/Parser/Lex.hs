@@ -279,10 +279,11 @@ lexIdentifier env st =
                   | isSymbolicOpChar opChar ->
                       let opChars = T.takeWhile isSymbolicOpChar dotRest
                           fullOp = consumed <> "." <> opChars
+                          (qual, opName) = splitQualified fullOp
                           kind =
                             if opChar == ':'
-                              then TkQConSym fullOp
-                              else TkQVarSym fullOp
+                              then TkQConSym qual opName
+                              else TkQVarSym qual opName
                           st' = advanceChars fullOp st
                        in Just (mkToken st st' fullOp kind, st')
                 _ ->
@@ -291,6 +292,13 @@ lexIdentifier env st =
                    in Just (mkToken st st' consumed kind, st')
     _ -> Nothing
   where
+    -- Split a qualified name like "Data.List.map" into ("Data.List", "map")
+    splitQualified :: Text -> (Text, Text)
+    splitQualified txt =
+      let localName = T.takeWhileEnd (/= '.') txt
+          qual = T.dropEnd (T.length localName + 1) txt
+       in if T.null localName then (T.empty, txt) else (qual, localName)
+
     gatherQualified :: Bool -> Text -> Text -> (Text, Text, Bool)
     gatherQualified hasMH acc chars =
       case chars of
@@ -309,11 +317,19 @@ lexIdentifier env st =
             '#' :< rest' | hasMH -> (tailPart <> "#", rest')
             _ -> (tailPart, rest)
 
+    -- Split a qualified identifier like "Data.List.Foo" into ("Data.List", "Foo")
+    splitQualIdent :: Text -> (Text, Text)
+    splitQualIdent txt =
+      let localName = T.takeWhileEnd (/= '.') txt
+          qual = T.dropEnd (T.length localName + 1) txt
+       in if T.null localName then (T.empty, txt) else (T.dropEnd 1 qual, localName)
+
     classifyIdentifier firstChar isQualified ident
       | isQualified =
-          case T.takeWhileEnd (/= '.') ident of
-            firstCharFinal :< _ | isConIdStart firstCharFinal -> TkQConId ident
-            _ -> TkQVarId ident
+          let (qual, localName) = splitQualIdent ident
+           in case T.uncons localName of
+                Just (firstCharFinal, _) | isConIdStart firstCharFinal -> TkQConId qual localName
+                _ -> TkQVarId qual localName
       | otherwise =
           case keywordTokenKind ident of
             Just kw -> kw
@@ -437,8 +453,8 @@ prevTokenAllowsTightPrefix kind =
     TkSpecialSemicolon -> True
     TkVarSym _ -> True
     TkConSym _ -> True
-    TkQVarSym _ -> True
-    TkQConSym _ -> True
+    TkQVarSym _ _ -> True
+    TkQConSym _ _ -> True
     TkMinusOperator -> True
     TkPrefixMinus -> True
     TkReservedEquals -> True

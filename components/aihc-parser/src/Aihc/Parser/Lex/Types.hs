@@ -101,14 +101,14 @@ data LexTokenKind
   | -- Identifiers (per Haskell Report Section 2.4)
     TkVarId Text
   | TkConId Text
-  | TkQVarId Text
-  | TkQConId Text
+  | TkQVarId Text Text  -- (module qualifier, local name)
+  | TkQConId Text Text
   | TkImplicitParam Text
   | -- Operators (per Haskell Report Section 2.4)
     TkVarSym Text
   | TkConSym Text
-  | TkQVarSym Text
-  | TkQConSym Text
+  | TkQVarSym Text Text  -- (module qualifier, local name)
+  | TkQConSym Text Text
   | -- Literals
     TkInteger Integer
   | TkIntegerHash Integer Text

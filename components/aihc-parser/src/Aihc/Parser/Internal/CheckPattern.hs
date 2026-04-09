@@ -33,7 +33,7 @@ checkPattern expr = case expr of
   EAnn _ sub -> checkPattern sub
   -- Variables and constructors
   EVar sp name
-    | name == "_" -> Right (PWildcard sp)
+    | nameText name == "_" -> Right (PWildcard sp)
     | isConLikeName name -> Right (PCon sp name [])
     | otherwise -> Right (PVar sp name)
   -- Parenthesized expression
@@ -52,7 +52,7 @@ checkPattern expr = case expr of
         lPat <- checkPattern l
         rPat <- checkPattern r
         Right (PInfix sp lPat op rPat)
-    | otherwise -> Left ("unexpected variable operator '" <> op <> "' in pattern")
+    | otherwise -> Left ("unexpected variable operator '" <> nameText op <> "' in pattern")
   -- Type signature
   ETypeSig sp e ty -> do
     pat <- checkPattern e
@@ -133,18 +133,22 @@ checkNegLitPattern sp inner = case inner of
   _ -> Left "negation in pattern requires a numeric literal"
 
 -- | Check whether a name looks like a constructor (starts with uppercase).
-isConLikeName :: Text -> Bool
+isConLikeName :: Name -> Bool
 isConLikeName name =
-  case T.uncons name of
+  case T.uncons (nameText name) of
     Just (c, _) -> isUpper c
     Nothing -> False
 
 -- | Check whether an operator is a constructor operator (starts with ':').
 -- Constructor operators and backtick-quoted constructors are valid in patterns;
 -- variable operators like @+@ or @*@ are not.
-isConLikeOp :: Text -> Bool
+isConLikeOp :: Name -> Bool
 isConLikeOp op =
-  case T.uncons op of
-    Just (':', _) -> True
-    Just (c, _) -> isUpper c -- backtick-quoted constructor
-    _ -> False
+  case nameType op of
+    NameConSym -> True
+    NameConId -> True
+    _ ->
+      case T.uncons (nameText op) of
+        Just (':', _) -> True
+        Just (c, _) -> isUpper c -- backtick-quoted constructor
+        _ -> False
