@@ -8,5 +8,5 @@ aihc: |
   test.hs:2:26:
   2 | import qualified Prelude qualified
     |                          ^^^^^^^^^
-  unexpected TkKeywordQualified
+  unexpected TkVarId "qualified"
   expecting import declaration without duplicate 'qualified'

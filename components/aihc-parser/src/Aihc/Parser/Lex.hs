@@ -12,6 +12,9 @@ module Aihc.Parser.Lex
     pattern TkVarFamily,
     pattern TkVarPattern,
     pattern TkVarInstance,
+    pattern TkVarAs,
+    pattern TkVarHiding,
+    pattern TkVarQualified,
     isReservedIdentifier,
     readModuleHeaderExtensions,
     readModuleHeaderExtensionsFromChunks,
@@ -610,7 +613,7 @@ lexOperator env st =
    in case opText of
         Empty -> Nothing
         c :< _ ->
-          case (hasArrows, T.unpack opText, T.drop (T.length opText) inp) of
+          case (hasArrows, opText, T.drop (T.length opText) inp) of
             (True, "|", ')' :< _) ->
               let bananaText = "|)"
                   st' = advanceChars bananaText st
@@ -988,9 +991,6 @@ keywordTokenKind txt =
     "type" -> Just TkKeywordType
     "where" -> Just TkKeywordWhere
     "_" -> Just TkKeywordUnderscore
-    "qualified" -> Just TkKeywordQualified
-    "as" -> Just TkKeywordAs
-    "hiding" -> Just TkKeywordHiding
     _ -> Nothing
 
 extensionKeywordTokenKind :: LexerEnv -> Text -> Maybe LexTokenKind

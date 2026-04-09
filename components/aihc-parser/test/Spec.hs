@@ -87,7 +87,6 @@ buildTests = do
             testCase "parser config sets source name in parse errors" test_parserConfigSetsSourceName,
             testCase "parses tab-indented where after else branch" test_tabIndentedWhereAfterElseParses,
             testCase "parses non-aligned multi-way-if guards" test_nonAlignedMultiWayIfGuardsParse,
-            testCase "generated identifiers reject reserved keyword as" test_generatedIdentifiersRejectReservedAs,
             testCase "generated identifiers reject extension keyword rec" test_generatedIdentifiersRejectExtensionKeywordRec,
             testCase "generated identifiers reject standalone underscore" test_generatedIdentifiersRejectStandaloneUnderscore,
             testCase "shrunk identifiers reject standalone underscore" test_shrunkIdentifiersRejectStandaloneUnderscore,
@@ -801,11 +800,6 @@ test_lexerChunkLaziness =
   case take 1 (lexTokensFromChunks ["x"]) of
     [LexToken {lexTokenKind = TkVarId "x"}] -> pure ()
     other -> assertFailure ("expected lazy first token from chunks, got: " <> show other)
-
-test_generatedIdentifiersRejectReservedAs :: Assertion
-test_generatedIdentifiersRejectReservedAs =
-  assertBool "reserved keyword 'as' must not be treated as a valid generated identifier" $
-    not (isValidGeneratedIdent "as")
 
 test_generatedIdentifiersRejectExtensionKeywordRec :: Assertion
 test_generatedIdentifiersRejectExtensionKeywordRec =
