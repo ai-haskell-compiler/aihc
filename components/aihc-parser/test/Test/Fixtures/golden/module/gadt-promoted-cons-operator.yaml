@@ -1,0 +1,6 @@
+extensions: [GHC2021, TypeOperators, GADTSyntax]
+input: |
+  data Union f as where
+    This :: !(f a) -> Union f (a : as)
+status: xfail
+reason: Promoted type-level cons operator (:) in GADT constructor return type. Parser fails to handle promoted type operator in type application position within GADT syntax.

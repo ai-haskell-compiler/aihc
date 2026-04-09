@@ -1,0 +1,5 @@
+extensions: [GHC2021, RoleAnnotations]
+input: |
+  type role (:=) nominal nominal
+status: xfail
+reason: Type role annotation with parenthesized operator type constructor. Parser expects constructor identifier but encounters opening parenthesis.
