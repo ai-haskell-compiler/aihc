@@ -13,7 +13,7 @@ where
 
 import Aihc.Parser.Internal.Common
 import {-# SOURCE #-} Aihc.Parser.Internal.Expr (equationRhsParser, exprParser, patternParser, simplePatternParser, startsWithContextType, startsWithTypeSig, typeAppParser, typeAtomParser, typeInfixOperatorParser, typeParser)
-import Aihc.Parser.Lex (LexTokenKind (..), lexTokenKind, pattern TkVarFamily, pattern TkVarPattern, pattern TkVarRole)
+import Aihc.Parser.Lex (LexTokenKind (..), lexTokenKind, pattern TkVarAs, pattern TkVarFamily, pattern TkVarHiding, pattern TkVarPattern, pattern TkVarQualified, pattern TkVarRole)
 import Aihc.Parser.Syntax
 import Aihc.Parser.Types (ParserErrorComponent (..), mkFoundToken)
 import Control.Monad (when)
@@ -116,7 +116,7 @@ importDeclParser :: TokParser ImportDecl
 importDeclParser = withSpan $ do
   expectedTok TkKeywordImport
   preQualified <-
-    MP.option False (expectedTok TkKeywordQualified >> pure True)
+    MP.option False (expectedTok TkVarQualified >> pure True)
   importedLevel <- MP.optional importLevelParser
   importedPackage <- MP.optional packageNameParser
   let isSourcePragma :: Pragma -> Maybe Bool
@@ -128,8 +128,8 @@ importDeclParser = withSpan $ do
   importedModule <- moduleNameParser
   postQualified <-
     MP.optional $
-      tokenSatisfy "keyword 'qualified'" $ \tok ->
-        if lexTokenKind tok == TkKeywordQualified then Just (mkFoundToken tok) else Nothing
+      tokenSatisfy "'qualified'" $ \tok ->
+        if lexTokenKind tok == TkVarQualified then Just (mkFoundToken tok) else Nothing
   when (preQualified && isJust postQualified) $
     MP.customFailure
       UnexpectedTokenExpecting
@@ -137,7 +137,7 @@ importDeclParser = withSpan $ do
           unexpectedExpecting = "import declaration without duplicate 'qualified'",
           unexpectedContext = []
         }
-  importAlias <- MP.optional (expectedTok TkKeywordAs *> moduleNameParser)
+  importAlias <- MP.optional (expectedTok TkVarAs *> moduleNameParser)
   importSpec <- MP.optional importSpecParser
   let isQualified = preQualified || isJust postQualified
   pure $ \span' ->
@@ -164,7 +164,7 @@ packageNameParser = stringTextParser
 importSpecParser :: TokParser ImportSpec
 importSpecParser = withSpan $ do
   isHiding <-
-    MP.option False (expectedTok TkKeywordHiding >> pure True)
+    MP.option False (expectedTok TkVarHiding >> pure True)
   items <- parens $ importItemParser `MP.sepEndBy` expectedTok TkSpecialComma
   pure $ \span' ->
     ImportSpec
