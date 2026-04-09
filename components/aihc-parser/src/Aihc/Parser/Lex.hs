@@ -450,6 +450,7 @@ prevTokenAllowsTightPrefix kind =
     TkReservedDoubleColon -> True
     TkReservedPipe -> True
     TkReservedBackslash -> True
+    TkPragma _ -> True
     _ -> False
 
 canStartNegatedAtom :: Text -> Bool
