@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail - infix funlhs with TemplateHaskell causes parse error -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE TemplateHaskell #-}
 module InfixFunlhsThCpp where
 infixr 5 </>
