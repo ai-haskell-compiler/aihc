@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail UNPACK pragma in record field -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE NamedFieldPuns #-}
 
 data BQueue a = BQueue
