@@ -434,7 +434,7 @@ normalizeTypeSpan ty =
     TTypeLit _ lit -> TTypeLit span0 lit
     TStar _ -> TStar span0
     TQuasiQuote _ quoter body -> TQuasiQuote span0 quoter body
-    TForall _ binders inner -> TForall span0 binders (normalizeTypeSpan inner)
+    TForall _ binders inner -> TForall span0 (map normalizeTyVarBinderSpan binders) (normalizeTypeSpan inner)
     TApp _ lhs rhs -> TApp span0 (normalizeTypeSpan lhs) (normalizeTypeSpan rhs)
     TFun _ lhs rhs -> TFun span0 (normalizeTypeSpan lhs) (normalizeTypeSpan rhs)
     TTuple _ tupleFlavor promoted elems -> TTuple span0 tupleFlavor promoted (map normalizeTypeSpan elems)
@@ -488,3 +488,10 @@ normalizeAsInner pat =
     PParen _ inner@(PStrict {}) -> inner
     PParen _ inner@(PIrrefutable {}) -> inner
     other -> other
+
+normalizeTyVarBinderSpan :: TyVarBinder -> TyVarBinder
+normalizeTyVarBinderSpan tvb =
+  tvb
+    { tyVarBinderSpan = span0,
+      tyVarBinderKind = fmap normalizeTypeSpan (tyVarBinderKind tvb)
+    }

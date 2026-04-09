@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail parenthesized kind-annotated type variable in forall -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE PolyKinds, TypeApplications, AllowAmbiguousTypes, ExplicitForAll #-}
 
 module ParenKindForall where

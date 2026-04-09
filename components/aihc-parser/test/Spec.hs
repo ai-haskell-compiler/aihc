@@ -417,7 +417,7 @@ test_infixClassHeadParses =
         assertBool ("expected no parse errors, got: " <> show errs) (null errs)
         case moduleDecls modu of
           [ DeclFixity {},
-            DeclClass _ ClassDecl {classDeclHeadForm = TypeHeadInfix, classDeclName = ":=:", classDeclParams = [TyVarBinder _ "a" Nothing, TyVarBinder _ "b" Nothing], classDeclItems = [ClassItemTypeSig _ ["proof"] _]}
+            DeclClass _ ClassDecl {classDeclHeadForm = TypeHeadInfix, classDeclName = ":=:", classDeclParams = [TyVarBinder _ "a" Nothing TyVarBSpecified, TyVarBinder _ "b" Nothing TyVarBSpecified], classDeclItems = [ClassItemTypeSig _ ["proof"] _]}
             ] -> pure ()
           other -> assertFailure ("unexpected parsed declarations: " <> show other)
 
@@ -435,7 +435,7 @@ test_infixTypeFamilyHeadRoundtrip =
    in do
         assertBool ("expected no parse errors, got: " <> show errs) (null errs)
         case moduleDecls modu of
-          [DeclTypeFamilyDecl _ TypeFamilyDecl {typeFamilyDeclHeadForm = TypeHeadInfix, typeFamilyDeclHead = TApp _ (TApp _ (TCon _ "And" Unpromoted) (TVar _ "l")) (TVar _ "r"), typeFamilyDeclParams = [TyVarBinder _ "l" Nothing, TyVarBinder _ "r" Nothing], typeFamilyDeclEquations = Just [TypeFamilyEq {typeFamilyEqHeadForm = TypeHeadInfix, typeFamilyEqLhs = TApp _ (TApp _ (TCon _ "And" Unpromoted) (TVar _ "l")) (TVar _ "r"), typeFamilyEqRhs = TVar _ "l"}]}] -> pure ()
+          [DeclTypeFamilyDecl _ TypeFamilyDecl {typeFamilyDeclHeadForm = TypeHeadInfix, typeFamilyDeclHead = TApp _ (TApp _ (TCon _ "And" Unpromoted) (TVar _ "l")) (TVar _ "r"), typeFamilyDeclParams = [TyVarBinder _ "l" Nothing TyVarBSpecified, TyVarBinder _ "r" Nothing TyVarBSpecified], typeFamilyDeclEquations = Just [TypeFamilyEq {typeFamilyEqHeadForm = TypeHeadInfix, typeFamilyEqLhs = TApp _ (TApp _ (TCon _ "And" Unpromoted) (TVar _ "l")) (TVar _ "r"), typeFamilyEqRhs = TVar _ "l"}]}] -> pure ()
           other -> assertFailure ("unexpected parsed declarations: " <> show other)
         case validateParser "InfixTypeFamilyHead.hs" Haskell2010Edition [EnableExtension TypeFamilies, EnableExtension TypeOperators] source of
           Nothing -> pure ()

@@ -869,7 +869,7 @@ normalizeType ty =
     TTypeLit _ lit -> TTypeLit span0 lit
     TStar _ -> TStar span0
     TQuasiQuote _ quoter body -> TQuasiQuote span0 quoter body
-    TForall _ binders inner -> TForall span0 binders (normalizeType inner)
+    TForall _ binders inner -> TForall span0 (map normalizeTyVarBinder binders) (normalizeType inner)
     TApp _ fn arg -> TApp span0 (normalizeType fn) (normalizeType arg)
     TFun _ lhs rhs -> TFun span0 (normalizeType lhs) (normalizeType rhs)
     TTuple _ tupleFlavor promoted elems -> TTuple span0 tupleFlavor promoted (map normalizeType elems)
@@ -882,3 +882,10 @@ normalizeType ty =
     TSplice _ body -> TSplice span0 (normalizeExpr body)
     TWildcard _ -> TWildcard span0
     TAnn ann sub -> TAnn ann (normalizeType sub)
+
+normalizeTyVarBinder :: TyVarBinder -> TyVarBinder
+normalizeTyVarBinder tvb =
+  tvb
+    { tyVarBinderSpan = span0,
+      tyVarBinderKind = fmap normalizeType (tyVarBinderKind tvb)
+    }
