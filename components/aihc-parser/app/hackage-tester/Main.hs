@@ -127,7 +127,7 @@ processFile :: Options -> FilePath -> FileInfo -> IO FileResult
 processFile opts packageRoot info = do
   let file = fileInfoPath info
   source <- readTextFileLenient file
-  preprocessed <- preprocessForParserIfEnabled (fileInfoExtensions info) (fileInfoCppOptions info) file (resolveIncludeBestEffort packageRoot file) source
+  preprocessed <- preprocessForParserIfEnabled (fileInfoExtensions info) (fileInfoCppOptions info) file (fileInfoDependencies info) (resolveIncludeBestEffort packageRoot file) source
   let source' = resultOutput preprocessed
       cppErrs = [diagToText diag | diag <- resultDiagnostics preprocessed, diagSeverity diag == Error]
       headerPragmas = readModuleHeaderPragmas source'

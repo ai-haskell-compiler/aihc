@@ -330,7 +330,7 @@ test_resolveIncludeLenientDecode =
 
 test_cppMinVersionBaseTrue :: Assertion
 test_cppMinVersionBaseTrue = do
-  out <- preprocessWithIncludes "A.hs" mempty source
+  out <- preprocessWithIncludes "A.hs" ["base"] [] source
   assertBool "expected true branch for MIN_VERSION_base" ("hit\n" `T.isInfixOf` out)
   where
     source =
@@ -345,7 +345,7 @@ test_cppMinVersionBaseTrue = do
 
 test_cppMinVersionGhcTrue :: Assertion
 test_cppMinVersionGhcTrue = do
-  out <- preprocessWithIncludes "A.hs" mempty source
+  out <- preprocessWithIncludes "A.hs" [] [] source
   assertBool "expected true branch for MIN_VERSION_ghc" ("hit\n" `T.isInfixOf` out)
   where
     source =
@@ -360,7 +360,7 @@ test_cppMinVersionGhcTrue = do
 
 test_cppNegatedMinVersionGhcFalse :: Assertion
 test_cppNegatedMinVersionGhcFalse = do
-  out <- preprocessWithIncludes "A.hs" mempty source
+  out <- preprocessWithIncludes "A.hs" [] [] source
   assertBool "expected negated branch to be false for MIN_VERSION_ghc" ("miss\n" `T.isInfixOf` out)
   where
     source =
@@ -375,7 +375,7 @@ test_cppNegatedMinVersionGhcFalse = do
 
 test_cppMinVersionGlasgowHaskellTrue :: Assertion
 test_cppMinVersionGlasgowHaskellTrue = do
-  out <- preprocessWithIncludes "A.hs" mempty source
+  out <- preprocessWithIncludes "A.hs" [] [] source
   assertBool "expected true branch for MIN_VERSION_GLASGOW_HASKELL" ("hit\n" `T.isInfixOf` out)
   where
     source =
@@ -390,7 +390,7 @@ test_cppMinVersionGlasgowHaskellTrue = do
 
 test_cppUnknownMinVersionFromIncludeTrue :: Assertion
 test_cppUnknownMinVersionFromIncludeTrue = do
-  out <- preprocessWithIncludes "A.hs" includes source
+  out <- preprocessWithIncludes "A.hs" ["custompkg"] includes source
   assertBool "expected true branch for unknown MIN_VERSION in include" ("hit\n" `T.isInfixOf` out)
   where
     source =
@@ -405,7 +405,7 @@ test_cppUnknownMinVersionFromIncludeTrue = do
 test_cppOptionsWithoutCppExtensionDoNotPreprocess :: Assertion
 test_cppOptionsWithoutCppExtensionDoNotPreprocess = do
   Result {resultOutput = out} <-
-    preprocessForParserIfEnabled [] ["-DTEST=1"] "A.hs" (\_ -> pure Nothing) source
+    preprocessForParserIfEnabled [] ["-DTEST=1"] "A.hs" [] (\_ -> pure Nothing) source
   assertEqual "expected source to remain unchanged when CPP extension is not enabled" source out
   where
     source =
@@ -418,10 +418,10 @@ test_cppOptionsWithoutCppExtensionDoNotPreprocess = do
           "#endif"
         ]
 
-preprocessWithIncludes :: FilePath -> [(FilePath, T.Text)] -> T.Text -> IO T.Text
-preprocessWithIncludes inputFile includeFiles source = do
+preprocessWithIncludes :: FilePath -> [T.Text] -> [(FilePath, T.Text)] -> T.Text -> IO T.Text
+preprocessWithIncludes inputFile deps includeFiles source = do
   Result {resultOutput = out} <-
-    preprocessForParserIfEnabled [] [] inputFile resolve source
+    preprocessForParserIfEnabled [] [] inputFile deps resolve source
   pure out
   where
     resolve req = pure (TE.encodeUtf8 <$> lookup (includePath req) includeFiles)

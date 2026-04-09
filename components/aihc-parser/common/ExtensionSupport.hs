@@ -83,6 +83,7 @@ evaluateCaseText meta source =
               (caseExtensions meta)
               []
               (casePath meta)
+              []
               source
           )
       oracleOk = either Just (const Nothing) (oracleModuleAstFingerprint (casePath meta) Syntax.Haskell2010Edition exts source')

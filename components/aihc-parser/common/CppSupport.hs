@@ -13,20 +13,16 @@ where
 
 import Aihc.Cpp
   ( Config (..),
-    IncludeKind (..),
     IncludeRequest (..),
     Result (..),
     Step (..),
     defaultConfig,
-    includeFrom,
-    includeKind,
-    includePath,
     preprocess,
   )
 import Aihc.Parser.Lex (readModuleHeaderExtensions, readModuleHeaderPragmas)
 import Aihc.Parser.Syntax (Extension (CPP), ExtensionSetting (..), ModuleHeaderPragmas (..))
 import Data.ByteString (ByteString)
-import Data.Char (isAsciiLower, isAsciiUpper, isDigit, toLower)
+import Data.Char (toLower)
 import Data.Functor.Identity (Identity (..), runIdentity)
 import qualified Data.Map.Strict as M
 import Data.Maybe (fromMaybe, mapMaybe)
@@ -34,15 +30,15 @@ import qualified Data.Set as S
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
-import System.FilePath (takeDirectory, takeExtension, (</>))
+import System.FilePath (takeExtension)
 
-preprocessForParser :: (Monad m) => FilePath -> (IncludeRequest -> m (Maybe ByteString)) -> Text -> m Result
-preprocessForParser inputFile resolveInclude source =
-  preprocessForParserWithCppOptions [] inputFile resolveInclude (normalizeSourceForParser inputFile source)
+preprocessForParser :: (Monad m) => FilePath -> [Text] -> (IncludeRequest -> m (Maybe ByteString)) -> Text -> m Result
+preprocessForParser inputFile deps resolveInclude source =
+  preprocessForParserWithCppOptions [] inputFile deps resolveInclude (normalizeSourceForParser inputFile source)
 
-preprocessForParserWithCppOptions :: (Monad m) => [String] -> FilePath -> (IncludeRequest -> m (Maybe ByteString)) -> Text -> m Result
-preprocessForParserWithCppOptions cppOptions inputFile resolveInclude source = do
-  minVersionMacros <- discoverMinVersionMacros inputFile resolveInclude source
+preprocessForParserWithCppOptions :: (Monad m) => [String] -> FilePath -> [Text] -> (IncludeRequest -> m (Maybe ByteString)) -> Text -> m Result
+preprocessForParserWithCppOptions cppOptions inputFile deps resolveInclude source = do
+  let minVersionMacros = minVersionMacroNamesFromDeps deps
   let injected = injectSyntheticCppMacros cppOptions minVersionMacros source
   let cfg =
         defaultConfig
@@ -54,21 +50,21 @@ preprocessForParserWithCppOptions cppOptions inputFile resolveInclude source = d
     drive (Done result) = pure result
     drive (NeedInclude req k) = resolveInclude req >>= drive . k
 
-preprocessForParserWithoutIncludes :: FilePath -> Text -> Result
-preprocessForParserWithoutIncludes inputFile source =
-  runIdentity (preprocessForParser inputFile (\_ -> Identity Nothing) source)
+preprocessForParserWithoutIncludes :: FilePath -> [Text] -> Text -> Result
+preprocessForParserWithoutIncludes inputFile deps source =
+  runIdentity (preprocessForParser inputFile deps (\_ -> Identity Nothing) source)
 
-preprocessForParserIfEnabled :: (Monad m) => [ExtensionSetting] -> [String] -> FilePath -> (IncludeRequest -> m (Maybe ByteString)) -> Text -> m Result
-preprocessForParserIfEnabled globalExtensionNames cppOptions inputFile resolveInclude source =
+preprocessForParserIfEnabled :: (Monad m) => [ExtensionSetting] -> [String] -> FilePath -> [Text] -> (IncludeRequest -> m (Maybe ByteString)) -> Text -> m Result
+preprocessForParserIfEnabled globalExtensionNames cppOptions inputFile deps resolveInclude source =
   let normalizedSource = normalizeSourceForParser inputFile source
       shouldPreprocess = cppEnabledInSourceWithGlobals globalExtensionNames normalizedSource
    in if shouldPreprocess
-        then preprocessForParserWithCppOptions cppOptions inputFile resolveInclude normalizedSource
+        then preprocessForParserWithCppOptions cppOptions inputFile deps resolveInclude normalizedSource
         else pure Result {resultOutput = normalizedSource, resultDiagnostics = []}
 
-preprocessForParserWithoutIncludesIfEnabled :: [ExtensionSetting] -> [String] -> FilePath -> Text -> Result
-preprocessForParserWithoutIncludesIfEnabled globalExtensionNames cppOptions inputFile source =
-  runIdentity (preprocessForParserIfEnabled globalExtensionNames cppOptions inputFile (\_ -> Identity Nothing) source)
+preprocessForParserWithoutIncludesIfEnabled :: [ExtensionSetting] -> [String] -> FilePath -> [Text] -> Text -> Result
+preprocessForParserWithoutIncludesIfEnabled globalExtensionNames cppOptions inputFile deps source =
+  runIdentity (preprocessForParserIfEnabled globalExtensionNames cppOptions inputFile deps (\_ -> Identity Nothing) source)
 
 moduleHeaderExtensionSettings :: Text -> [ExtensionSetting]
 moduleHeaderExtensionSettings = readModuleHeaderExtensions
@@ -167,32 +163,12 @@ unliterateIfNeeded inputFile source
       | inCode = line : unlitLatex inCode rest
       | otherwise = "" : unlitLatex inCode rest
 
-discoverMinVersionMacros :: (Monad m) => FilePath -> (IncludeRequest -> m (Maybe ByteString)) -> Text -> m (S.Set Text)
-discoverMinVersionMacros inputFile resolveInclude =
-  go S.empty S.empty inputFile
+minVersionMacroNamesFromDeps :: [Text] -> S.Set Text
+minVersionMacroNamesFromDeps = S.fromList . map toMinVersionMacroName
   where
-    go seenFiles seenMacros filePath txt
-      | filePath `S.member` seenFiles = pure seenMacros
-      | otherwise = do
-          let seenFiles' = S.insert filePath seenFiles
-              found = extractMinVersionMacroNames txt
-              includeReqs = extractIncludeRequests filePath txt
-              seenMacros' = S.union seenMacros found
-          foldl
-            (\acc req -> acc >>= \curr -> collectInclude seenFiles' curr req)
-            (pure seenMacros')
-            includeReqs
-
-    collectInclude seenFiles seenMacros req = do
-      content <- resolveInclude req
-      case content of
-        Nothing -> pure seenMacros
-        Just includeBytes ->
-          let includeFilePath =
-                case includeKind req of
-                  IncludeLocal -> takeDirectory (includeFrom req) </> includePath req
-                  IncludeSystem -> includePath req
-           in go seenFiles seenMacros includeFilePath (TE.decodeUtf8 includeBytes)
+    toMinVersionMacroName pkg = "MIN_VERSION_" <> T.map sanitizePkgChar pkg
+    sanitizePkgChar '-' = '_'
+    sanitizePkgChar c = c
 
 injectSyntheticCppMacros :: [String] -> S.Set Text -> Text -> Text
 injectSyntheticCppMacros cppOptions minVersionMacroNames source =
@@ -226,66 +202,3 @@ cppDefinedOrUndefinedFromOptions =
       case option of
         CppDefine name _ -> S.insert name acc
         CppUndef name -> S.insert name acc
-
-extractMinVersionMacroNames :: Text -> S.Set Text
-extractMinVersionMacroNames = go S.empty
-  where
-    prefix = "MIN_VERSION_"
-    go acc txt =
-      case T.breakOn prefix txt of
-        (_, "") -> acc
-        (_, rest) ->
-          let candidateWithPrefix = T.takeWhile isMinVersionIdentChar rest
-              suffix = T.drop (T.length candidateWithPrefix) rest
-              acc' =
-                if T.length candidateWithPrefix > T.length prefix
-                  && case T.uncons suffix of
-                    Just ('(', _) -> True
-                    _ -> False
-                  then S.insert candidateWithPrefix acc
-                  else acc
-              nextTxt =
-                if T.null rest
-                  then ""
-                  else T.drop 1 rest
-           in go acc' nextTxt
-
-    isMinVersionIdentChar c = c == '_' || isAsciiAlphaNum c
-    isAsciiAlphaNum c = isAsciiLower c || isAsciiUpper c || isDigit c
-
-extractIncludeRequests :: FilePath -> Text -> [IncludeRequest]
-extractIncludeRequests filePath =
-  mapMaybe parseIncludeLine . T.lines
-  where
-    parseIncludeLine raw =
-      let line = T.stripStart raw
-       in case T.stripPrefix "#include" line of
-            Nothing -> Nothing
-            Just rest ->
-              let stripped = T.stripStart rest
-               in case T.uncons stripped of
-                    Just ('"', t1) ->
-                      let (path, t2) = T.breakOn "\"" t1
-                       in if T.null path || T.null t2
-                            then Nothing
-                            else
-                              Just
-                                IncludeRequest
-                                  { includePath = T.unpack path,
-                                    includeKind = IncludeLocal,
-                                    includeFrom = filePath,
-                                    includeLine = 1
-                                  }
-                    Just ('<', t1) ->
-                      let (path, t2) = T.breakOn ">" t1
-                       in if T.null path || T.null t2
-                            then Nothing
-                            else
-                              Just
-                                IncludeRequest
-                                  { includePath = T.unpack path,
-                                    includeKind = IncludeSystem,
-                                    includeFrom = filePath,
-                                    includeLine = 1
-                                  }
-                    _ -> Nothing
