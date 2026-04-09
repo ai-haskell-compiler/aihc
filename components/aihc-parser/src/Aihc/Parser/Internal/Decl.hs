@@ -17,7 +17,7 @@ import Aihc.Parser.Lex (LexTokenKind (..), lexTokenKind, pattern TkVarAs, patter
 import Aihc.Parser.Syntax
 import Aihc.Parser.Types (ParserErrorComponent (..), mkFoundToken)
 import Control.Monad (when)
-import Data.Char (isAsciiLower, isUpper)
+import Data.Char (isLower, isUpper)
 import Data.Maybe (fromMaybe, isJust)
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -1379,7 +1379,7 @@ typeParamParser =
 isTypeVarName :: Text -> Bool
 isTypeVarName name =
   case T.uncons name of
-    Just (c, _) -> c == '_' || isAsciiLower c
+    Just (c, _) -> c == '_' || isLower c
     Nothing -> False
 
 derivingClauseParser :: TokParser DerivingClause
