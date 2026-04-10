@@ -129,6 +129,7 @@ docImportDecl decl =
     fields =
       [field "module" (docText (importDeclModule decl))]
         <> boolField "source" (importDeclSource decl)
+        <> boolField "safe" (importDeclSafe decl)
         <> boolField "qualified" (importDeclQualified decl)
         <> boolField "qualifiedPost" (importDeclQualifiedPost decl)
         <> optionalField "level" docImportLevel (importDeclLevel decl)

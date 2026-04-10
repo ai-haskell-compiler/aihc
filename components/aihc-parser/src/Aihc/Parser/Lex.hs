@@ -15,6 +15,7 @@ module Aihc.Parser.Lex
     pattern TkVarAs,
     pattern TkVarHiding,
     pattern TkVarQualified,
+    pattern TkVarSafe,
     isReservedIdentifier,
     readModuleHeaderExtensions,
     readModuleHeaderExtensionsFromChunks,
@@ -483,11 +484,19 @@ lexTypeApplication env st
       case lexerInput st of
         '@' :< rest
           | not (startsWithSymOp rest) ->
-              let st' = advanceChars "@" st
-                  kind
-                    | canStartTypeAtomT rest = TkTypeApp
-                    | otherwise = TkVarSym "@"
-               in Just (mkToken st st' "@" kind, st')
+              -- GHC requires whitespace before @ in type applications.
+              -- Without whitespace, @ is the as-pattern operator (TkReservedAt).
+              -- With whitespace, it can be a type application (TkTypeApp).
+              if lexerHadTrivia st
+                then
+                  let st' = advanceChars "@" st
+                      kind
+                        | canStartTypeAtomT rest = TkTypeApp
+                        | otherwise = TkVarSym "@"
+                   in Just (mkToken st st' "@" kind, st')
+                else
+                  let st' = advanceChars "@" st
+                   in Just (mkToken st st' "@" TkReservedAt, st')
         _ -> Nothing
   where
     canStartTypeAtomT t =

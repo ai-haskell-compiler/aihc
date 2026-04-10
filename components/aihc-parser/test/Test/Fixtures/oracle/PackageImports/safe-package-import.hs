@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail parser does not recognize 'safe' keyword in import declaration -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE Safe, PackageImports #-}
 
 module SafePackageImport where

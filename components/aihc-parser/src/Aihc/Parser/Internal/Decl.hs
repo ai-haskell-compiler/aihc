@@ -13,7 +13,7 @@ where
 
 import Aihc.Parser.Internal.Common
 import {-# SOURCE #-} Aihc.Parser.Internal.Expr (equationRhsParser, exprParser, patternParser, simplePatternParser, startsWithContextType, startsWithTypeSig, typeAppParser, typeAtomParser, typeInfixOperatorParser, typeParser)
-import Aihc.Parser.Lex (LexTokenKind (..), lexTokenKind, pattern TkVarAs, pattern TkVarFamily, pattern TkVarHiding, pattern TkVarPattern, pattern TkVarQualified, pattern TkVarRole)
+import Aihc.Parser.Lex (LexTokenKind (..), lexTokenKind, pattern TkVarAs, pattern TkVarFamily, pattern TkVarHiding, pattern TkVarPattern, pattern TkVarQualified, pattern TkVarRole, pattern TkVarSafe)
 import Aihc.Parser.Syntax
 import Aihc.Parser.Types (ParserErrorComponent (..), mkFoundToken)
 import Control.Monad (when)
@@ -115,6 +115,8 @@ isTypeName txt =
 importDeclParser :: TokParser ImportDecl
 importDeclParser = withSpan $ do
   expectedTok TkKeywordImport
+  importedSafe <-
+    MP.option False (expectedTok TkVarSafe >> pure True)
   preQualified <-
     MP.option False (expectedTok TkVarQualified >> pure True)
   importedLevel <- MP.optional importLevelParser
@@ -146,6 +148,7 @@ importDeclParser = withSpan $ do
         importDeclLevel = importedLevel,
         importDeclPackage = importedPackage,
         importDeclSource = importedSource,
+        importDeclSafe = importedSafe,
         importDeclQualified = isQualified,
         importDeclQualifiedPost = isJust postQualified,
         importDeclModule = importedModule,
@@ -330,7 +333,7 @@ roleAnnotationDeclParser :: TokParser Decl
 roleAnnotationDeclParser = withSpan $ do
   expectedTok TkKeywordType
   expectedTok TkVarRole
-  typeName <- constructorIdentifierParser
+  typeName <- constructorIdentifierParser <|> parens constructorOperatorParser
   roles <- MP.some roleParser
   pure $ \span' ->
     DeclRoleAnnotation
