@@ -54,7 +54,7 @@ shrinkPattern pat =
   case pat of
     PAnn _ sub -> shrinkPattern sub
     PVar _ name ->
-      [PVar span0 (name {nameText = shrunk}) | shrunk <- shrinkIdent (nameText name)]
+      [PVar span0 (name {unqualifiedNameText = shrunk}) | shrunk <- shrinkIdent (unqualifiedNameText name)]
     PWildcard _ -> []
     PLit _ lit ->
       [PLit span0 shrunk | shrunk <- shrinkLiteral lit]
@@ -156,12 +156,12 @@ genPattern :: Int -> Gen Pattern
 genPattern depth
   | depth <= 0 =
       oneof
-        [ PVar span0 <$> genPatternVarName,
+        [ PVar span0 <$> genPatternUnqualVarName,
           pure (PWildcard span0),
           PLit span0 <$> genLiteral,
           PQuasiQuote span0 <$> genQuoterName <*> genQuasiBody,
-          PTuple span0 Boxed <$> elements [[], [PVar span0 (qualifyName Nothing (mkUnqualifiedName NameVarId "x")), PWildcard span0]],
-          PTuple span0 Unboxed <$> elements [[], [PVar span0 (qualifyName Nothing (mkUnqualifiedName NameVarId "x")), PWildcard span0]],
+          PTuple span0 Boxed <$> elements [[], [PVar span0 (mkUnqualifiedName NameVarId "x"), PWildcard span0]],
+          PTuple span0 Unboxed <$> elements [[], [PVar span0 (mkUnqualifiedName NameVarId "x"), PWildcard span0]],
           pure (PList span0 []),
           PCon span0 <$> genPatternConAstName <*> pure [],
           PNegLit span0 <$> genNumericLiteral,
@@ -169,7 +169,7 @@ genPattern depth
         ]
   | otherwise =
       frequency
-        [ (3, PVar span0 <$> genPatternVarName),
+        [ (3, PVar span0 <$> genPatternUnqualVarName),
           (2, pure (PWildcard span0)),
           (3, PLit span0 <$> genLiteral),
           (2, PQuasiQuote span0 <$> genQuoterName <*> genQuasiBody),
@@ -319,6 +319,9 @@ genConOperator = do
 
 genPatternVarName :: Gen Name
 genPatternVarName = qualifyName Nothing . mkUnqualifiedName NameVarId <$> genIdent
+
+genPatternUnqualVarName :: Gen UnqualifiedName
+genPatternUnqualVarName = mkUnqualifiedName NameVarId <$> genIdent
 
 genPatternConAstName :: Gen Name
 genPatternConAstName = qualifyName Nothing . mkUnqualifiedName NameConId <$> genPatternConName

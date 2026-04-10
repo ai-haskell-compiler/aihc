@@ -1441,7 +1441,7 @@ dataConRecordOrPrefixParser forallVars context = do
 dataConInfixParser :: [Text] -> [Type] -> TokParser (SourceSpan -> DataConDecl)
 dataConInfixParser forallVars context = do
   lhs <- infixConstructorArgParser
-  op <- constructorOperatorUnqualifiedNameParser <|> (backtickConstructorUnqualifiedParser)
+  op <- constructorOperatorUnqualifiedNameParser <|> backtickConstructorUnqualifiedParser
   rhs <- infixConstructorArgParser
   pure (\span' -> InfixCon span' forallVars context lhs op rhs)
   where

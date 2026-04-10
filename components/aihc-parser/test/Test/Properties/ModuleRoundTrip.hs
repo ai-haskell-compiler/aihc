@@ -84,8 +84,8 @@ genFunctionDecl (name, expr) = do
                   { matchSpan = span0,
                     matchHeadForm = MatchHeadInfix,
                     matchPats =
-                      [ PVar span0 (qualifyName Nothing (mkUnqualifiedName NameVarId lhs)),
-                        PVar span0 (qualifyName Nothing (mkUnqualifiedName NameVarId rhs))
+                      [ PVar span0 (mkUnqualifiedName NameVarId lhs),
+                        PVar span0 (mkUnqualifiedName NameVarId rhs)
                       ],
                     matchRhs = UnguardedRhs span0 expr
                   }

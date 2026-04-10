@@ -323,7 +323,6 @@ lexIdentifier env st =
             '#' :< rest' | hasMH -> (tailPart <> "#", rest')
             _ -> (tailPart, rest)
 
-
     -- Split a qualified identifier into (module part, name part).
     -- E.g. "Data.Maybe." ++ "++" -> ("Data.Maybe", "++")
     splitQualified :: Text -> Text -> (Text, Text)

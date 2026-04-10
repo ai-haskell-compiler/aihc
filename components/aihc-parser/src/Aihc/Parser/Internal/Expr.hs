@@ -218,8 +218,8 @@ cmdInfixChain :: Cmd -> TokParser Cmd
 cmdInfixChain lhs = do
   rest <-
     MP.many
-      ( (,)
-          <$> (renderName <$> infixOperatorParserExcept [])
+      ( (,) . renderName
+          <$> infixOperatorParserExcept []
           <*> cmdParser
       )
   pure (foldl buildCmdInfix lhs rest)
@@ -823,8 +823,6 @@ buildPatternApp :: Pattern -> Pattern -> Pattern
 buildPatternApp lhs rhs =
   case lhs of
     PCon lSpan name args -> PCon (mergeSourceSpans lSpan (getSourceSpan rhs)) name (args <> [rhs])
-    PVar lSpan name
-      | isConLikeName name -> PCon (mergeSourceSpans lSpan (getSourceSpan rhs)) name [rhs]
     _ -> lhs
 
 patternAtomParser :: TokParser Pattern
@@ -1452,7 +1450,7 @@ localTypeSigDeclsParser = do
         [name] -> do
           rhsExpr <- exprParser
           let bindSpan = mergeSourceSpans sigSpan (getSourceSpan rhsExpr)
-              pat = PTypeSig sigSpan (PVar sigSpan (qualifyName Nothing name)) ty
+              pat = PTypeSig sigSpan (PVar sigSpan name) ty
               rhs = UnguardedRhs bindSpan rhsExpr
           pure [DeclValue bindSpan (PatternBind bindSpan pat rhs)]
         _ ->
@@ -1483,7 +1481,7 @@ implicitParamDeclParser = withSpan $ do
   name <- implicitParamNameParser
   expectedTok TkReservedEquals
   rhsExpr <- exprParser
-  pure (\span' -> DeclValue span' (PatternBind span' (PVar span' (qualifyName Nothing (mkUnqualifiedName NameVarId name))) (UnguardedRhs span' rhsExpr)))
+  pure (\span' -> DeclValue span' (PatternBind span' (PVar span' (mkUnqualifiedName NameVarId name)) (UnguardedRhs span' rhsExpr)))
 
 varOrConPatternParser :: TokParser Pattern
 varOrConPatternParser = withSpan $ do
@@ -1498,7 +1496,7 @@ varOrConPatternParser = withSpan $ do
       pure $ \span' ->
         if isConLikeName name
           then PCon span' name []
-          else PVar span' name
+          else PVar span' (mkUnqualifiedName (nameType name) (nameText name))
 
 recordFieldPatternParser :: TokParser (Name, Pattern)
 recordFieldPatternParser = withSpan $ do
@@ -1510,7 +1508,7 @@ recordFieldPatternParser = withSpan $ do
       pure $ const (field, pat)
     Nothing -> do
       -- NamedFieldPuns: just "field" means "field = field"
-      pure $ \srcSpan -> (field, PVar srcSpan field)
+      pure $ \srcSpan -> (field, PVar srcSpan (mkUnqualifiedName (nameType field) (nameText field)))
 
 -- | Parse the contents of record pattern braces, supporting RecordWildCards ".."
 recordPatternFieldListParser :: TokParser ([(Name, Pattern)], Bool)
@@ -1663,11 +1661,12 @@ parenOrTuplePatternParser = withSpan $ do
       pure (\span' -> PUnboxedSum span' altIdx arity inner)
 
 isConLikeName :: Name -> Bool
-isConLikeName name =
-  case nameType name of
-    NameConId -> True
-    NameConSym -> True
-    _ -> False
+isConLikeName = isConLikeNameType . nameType
+
+isConLikeNameType :: NameType -> Bool
+isConLikeNameType NameConId = True
+isConLikeNameType NameConSym = True
+isConLikeNameType _ = False
 
 qualifiedVarName :: Text -> Name
 qualifiedVarName ident =
@@ -1680,7 +1679,7 @@ isPatternAppHead :: Pattern -> Bool
 isPatternAppHead pat =
   case pat of
     PCon {} -> True
-    PVar _ name -> isConLikeName name
+    PVar _ name -> isConLikeNameType (unqualifiedNameType name)
     _ -> False
 
 startsWithAsPattern :: TokParser Bool

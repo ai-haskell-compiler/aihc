@@ -122,7 +122,7 @@ genTypedSpliceBody n =
 genSimplePattern :: Gen Pattern
 genSimplePattern =
   oneof
-    [ PVar span0 <$> genVarName,
+    [ PVar span0 <$> genUnqualVarName,
       pure (PWildcard span0),
       PCon span0 <$> genConAstName <*> pure []
     ]
@@ -183,6 +183,9 @@ genConName = do
 genVarName :: Gen Name
 genVarName = qualifyName Nothing . mkUnqualifiedName NameVarId <$> genIdent
 
+genUnqualVarName :: Gen UnqualifiedName
+genUnqualVarName = mkUnqualifiedName NameVarId <$> genIdent
+
 genConAstName :: Gen Name
 genConAstName = qualifyName Nothing . mkUnqualifiedName NameConId <$> genConName
 
@@ -209,7 +212,7 @@ genPattern n
 genPatternLeaf :: Gen Pattern
 genPatternLeaf =
   oneof
-    [ PVar span0 <$> genVarName,
+    [ PVar span0 <$> genUnqualVarName,
       pure (PWildcard span0)
     ]
 

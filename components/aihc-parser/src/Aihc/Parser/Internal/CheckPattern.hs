@@ -34,7 +34,7 @@ checkPattern expr = case expr of
   EVar sp name
     | nameText name == "_" -> Right (PWildcard sp)
     | isConLikeName name -> Right (PCon sp name [])
-    | isJust (nameQualifier name) -> Left ("unexpected qualified name in pattern")
+    | isJust (nameQualifier name) -> Left "unexpected qualified name in pattern"
     | otherwise -> Right (PVar sp (mkUnqualifiedName (nameType name) (nameText name)))
   -- Parenthesized expression
   EParen sp inner -> PParen sp <$> checkPattern inner

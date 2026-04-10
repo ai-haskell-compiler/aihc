@@ -1355,9 +1355,12 @@ prettyExprPrec prec expr =
             (prettyExprIn CtxInfixLhs lhs <+> prettyNameInfixOp op <+> prettyExprIn (CtxInfixRhs (prec == 1)) rhs)
     ENegate _ inner -> parenthesize (prec > 2) (prettyNegate inner)
     ESectionL _ lhs op ->
-      -- Type signatures need extra parens in section LHS to avoid ambiguity
+      -- Expressions that can capture trailing syntax need extra parens in section
+      -- LHS to prevent the parser from interpreting trailing operators as part of
+      -- the expression rather than as the section operator
       let lhsDoc = case lhs of
             ETypeSig {} -> parens (prettyExprPrec 0 lhs)
+            _ | isGreedyExpr lhs -> parens (prettyExprPrec 0 lhs)
             _ -> prettyExprPrec 1 lhs
        in parens (lhsDoc <+> prettyInfixOp (renderName op))
     ESectionR _ op rhs -> parens (prettyInfixOp (renderName op) <+> prettyExprPrec 0 rhs)

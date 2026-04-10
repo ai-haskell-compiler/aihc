@@ -122,6 +122,7 @@ module Aihc.Parser.Syntax
 where
 
 import Control.DeepSeq (NFData (..))
+import Data.Char (isAsciiLower, isAsciiUpper, isDigit)
 import Data.Data (Constr, Data (..), DataType, Fixity (Prefix), mkConstr, mkDataType)
 import Data.Dynamic
 import Data.List (sort)
@@ -706,12 +707,12 @@ nameFromText txt =
 
     isModuleSegment segment =
       case T.uncons segment of
-        Just (c, rest) -> isUpperAscii c && T.all isIdentChar rest
+        Just (c, rest) -> isAsciiUpper c && T.all isIdentChar rest
         Nothing -> False
 
     isIdentifierSegment segment =
       case T.uncons segment of
-        Just (c, rest) -> (isUpperAscii c || isLowerAscii c || c == '_') && T.all isIdentChar rest
+        Just (c, rest) -> (isAsciiUpper c || isAsciiLower c || c == '_') && T.all isIdentChar rest
         Nothing -> False
 
 unqualifiedNameFromText :: Text -> UnqualifiedName
@@ -725,21 +726,12 @@ inferNameType localName
         else NameVarSym
   | otherwise =
       case T.uncons localName of
-        Just (c, _) | isUpperAscii c -> NameConId
-        Just (c, _) | isLowerAscii c || c == '_' -> NameVarId
+        Just (c, _) | isAsciiUpper c -> NameConId
+        Just (c, _) | isAsciiLower c || c == '_' -> NameVarId
         _ -> NameConId
 
-isUpperAscii :: Char -> Bool
-isUpperAscii c = c >= 'A' && c <= 'Z'
-
-isLowerAscii :: Char -> Bool
-isLowerAscii c = c >= 'a' && c <= 'z'
-
-isDigitAscii :: Char -> Bool
-isDigitAscii c = c >= '0' && c <= '9'
-
 isIdentChar :: Char -> Bool
-isIdentChar c = isUpperAscii c || isLowerAscii c || isDigitAscii c || c == '_' || c == '\''
+isIdentChar c = isAsciiUpper c || isAsciiLower c || isDigit c || c == '_' || c == '\''
 
 isOperatorLikeText :: Text -> Bool
 isOperatorLikeText op =
