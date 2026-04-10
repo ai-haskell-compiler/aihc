@@ -24,10 +24,10 @@ import Data.Aeson.Types (parseEither, withObject)
 import Data.Char (isSpace, toLower)
 import Data.List (dropWhileEnd, isPrefixOf, sort)
 import Data.Text (Text)
-import qualified Data.Text as T
+import Data.Text qualified as T
 import Data.Text.Encoding (encodeUtf8)
-import qualified Data.Text.IO.Utf8 as Utf8
-import qualified Data.Yaml as Y
+import Data.Text.IO.Utf8 qualified as Utf8
+import Data.Yaml qualified as Y
 import System.Directory (doesDirectoryExist, listDirectory)
 import System.FilePath (takeDirectory, takeExtension, (</>))
 import Text.Read (readMaybe)

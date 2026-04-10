@@ -10,7 +10,7 @@ import Aihc.Parser
 import Aihc.Parser.Syntax
 import Data.List (nub)
 import Data.Text (Text)
-import qualified Data.Text as T
+import Data.Text qualified as T
 import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.Text (renderStrict)
 import Test.Properties.ExprHelpers (genExpr, normalizeExpr, shrinkExpr, span0)

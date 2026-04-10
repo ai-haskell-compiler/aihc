@@ -32,12 +32,12 @@ import Aihc.Parser.Lex
     lexTokens,
   )
 import Aihc.Parser.Syntax (ExtensionSetting (..), SourceSpan (..))
-import qualified Aihc.Parser.Syntax as Syntax
+import Aihc.Parser.Syntax qualified as Syntax
 import Control.DeepSeq (NFData (..), force)
 import Control.Exception (SomeException, evaluate, try)
 import CppSupport (preprocessForParserWithoutIncludes)
 import Data.Text (Text)
-import qualified Data.Text as T
+import Data.Text qualified as T
 import Test.QuickCheck
 
 prop_preprocessorArbitraryTextNoExceptions :: Property
@@ -131,9 +131,6 @@ genLexTokenKind =
       pure TkKeywordDo,
       pure TkKeywordData,
       pure TkKeywordImport,
-      pure TkKeywordQualified,
-      pure TkKeywordAs,
-      pure TkKeywordHiding,
       pure TkKeywordCase,
       pure TkKeywordOf,
       pure TkKeywordLet,

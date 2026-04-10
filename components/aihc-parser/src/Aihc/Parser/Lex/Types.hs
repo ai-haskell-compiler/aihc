@@ -10,6 +10,9 @@ module Aihc.Parser.Lex.Types
     pattern TkVarFamily,
     pattern TkVarPattern,
     pattern TkVarInstance,
+    pattern TkVarAs,
+    pattern TkVarHiding,
+    pattern TkVarQualified,
     TokenOrigin (..),
     LexToken (..),
     LexerEnv (..),
@@ -72,10 +75,6 @@ data LexTokenKind
   | TkKeywordType
   | TkKeywordWhere
   | TkKeywordUnderscore
-  | -- Context-sensitive keywords (not strictly reserved per Report, but needed for imports)
-    TkKeywordQualified
-  | TkKeywordAs
-  | TkKeywordHiding
   | -- Extension-conditional keywords
     TkKeywordProc
   | TkKeywordRec
@@ -173,6 +172,15 @@ pattern TkVarPattern = TkVarId "pattern"
 
 pattern TkVarInstance :: LexTokenKind
 pattern TkVarInstance = TkVarId "instance"
+
+pattern TkVarAs :: LexTokenKind
+pattern TkVarAs = TkVarId "as"
+
+pattern TkVarHiding :: LexTokenKind
+pattern TkVarHiding = TkVarId "hiding"
+
+pattern TkVarQualified :: LexTokenKind
+pattern TkVarQualified = TkVarId "qualified"
 
 data TokenOrigin
   = FromSource

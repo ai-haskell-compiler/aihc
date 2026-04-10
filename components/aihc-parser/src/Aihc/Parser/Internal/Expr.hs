@@ -1869,10 +1869,34 @@ contextOrFunTypeParser = do
 forallTypeParser :: TokParser Type
 forallTypeParser = withSpan $ do
   expectedTok TkKeywordForall
-  binders <- MP.some identifierTextParser
+  binders <- MP.some forallBinderParser
   expectedTok (TkVarSym ".")
   inner <- contextOrFunTypeParser
   pure (\span' -> TForall span' binders inner)
+
+-- | Parse a single forall binder: {k} | (k :: *) | k
+forallBinderParser :: TokParser TyVarBinder
+forallBinderParser =
+  withSpan $
+    -- Inferred binder: {k}
+    ( do
+        expectedTok TkSpecialLBrace
+        ident <- lowerIdentifierParser
+        expectedTok TkSpecialRBrace
+        pure (\span' -> TyVarBinder span' ident Nothing TyVarBInferred)
+    )
+      <|> ( do
+              expectedTok TkSpecialLParen
+              ident <- lowerIdentifierParser
+              expectedTok TkReservedDoubleColon
+              kind <- typeParser
+              expectedTok TkSpecialRParen
+              pure (\span' -> TyVarBinder span' ident (Just kind) TyVarBSpecified)
+          )
+      <|> ( do
+              ident <- lowerIdentifierParser
+              pure (\span' -> TyVarBinder span' ident Nothing TyVarBSpecified)
+          )
 
 contextTypeParser :: TokParser Type
 contextTypeParser = do
@@ -1937,7 +1961,8 @@ typeInfixOperatorParser =
           TkVarSym op
             | op /= "."
                 && op /= "!"
-                && op /= "-" ->
+                && op /= "-"
+                && op /= "'" ->
                 Just (op, Unpromoted)
           TkConSym op -> Just (op, Unpromoted)
           TkQVarSym op -> Just (op, Unpromoted)

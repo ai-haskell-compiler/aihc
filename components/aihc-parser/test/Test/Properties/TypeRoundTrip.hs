@@ -10,14 +10,14 @@ import Aihc.Parser
 import Aihc.Parser.Lex (isReservedIdentifier)
 import Aihc.Parser.Syntax
 import Data.Text (Text)
-import qualified Data.Text as T
+import Data.Text qualified as T
 import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.Text (renderStrict)
 import Test.Properties.Coverage (assertCtorCoverage)
 import Test.Properties.ExprHelpers (normalizeExpr)
 import Test.Properties.Identifiers (genIdent, shrinkIdent)
 import Test.QuickCheck
-import qualified Text.Megaparsec.Error as MPE
+import Text.Megaparsec.Error qualified as MPE
 
 span0 :: SourceSpan
 span0 = noSourceSpan
@@ -137,12 +137,16 @@ canonicalForallInner ty =
     TForall {} -> TParen span0 ty
     _ -> ty
 
-shrinkTypeBinders :: [Text] -> [[Text]]
+shrinkTypeBinders :: [TyVarBinder] -> [[TyVarBinder]]
 shrinkTypeBinders binders =
   [ shrunk
-  | shrunk <- shrinkList shrinkIdent binders,
+  | shrunk <- shrinkList shrinkTyVarBinder binders,
     not (null shrunk)
   ]
+
+shrinkTyVarBinder :: TyVarBinder -> [TyVarBinder]
+shrinkTyVarBinder tvb =
+  [tvb {tyVarBinderName = name'} | name' <- shrinkIdent (tyVarBinderName tvb)]
 
 shrinkTypeConName :: Text -> [Text]
 shrinkTypeConName name =
@@ -354,10 +358,15 @@ canonicalImplicitParamType ty =
     TContext {} -> TParen span0 ty
     _ -> ty
 
-genTypeBinders :: Gen [Text]
+genTypeBinders :: Gen [TyVarBinder]
 genTypeBinders = do
   n <- chooseInt (1, 3)
-  vectorOf n genTypeVarName
+  vectorOf n genTyVarBinder
+
+genTyVarBinder :: Gen TyVarBinder
+genTyVarBinder = do
+  name <- genTypeVarName
+  pure (TyVarBinder span0 name Nothing TyVarBSpecified)
 
 genTypeVarName :: Gen Text
 genTypeVarName = do
@@ -426,7 +435,7 @@ normalizeType ty =
     TStar _ -> TStar span0
     TWildcard _ -> TWildcard span0
     TQuasiQuote _ quoter body -> TQuasiQuote span0 quoter body
-    TForall _ binders inner -> TForall span0 binders (normalizeType inner)
+    TForall _ binders inner -> TForall span0 (map normalizeTyVarBinder binders) (normalizeType inner)
     TApp _ f x -> TApp span0 (normalizeType f) (normalizeType x)
     TFun _ a b -> TFun span0 (normalizeType a) (normalizeType b)
     TTuple _ tupleFlavor promoted elems -> TTuple span0 tupleFlavor promoted (map normalizeType elems)
@@ -437,3 +446,10 @@ normalizeType ty =
     TContext _ constraints inner -> canonicalContextType (map normalizeType constraints) (normalizeType inner)
     TSplice _ body -> TSplice span0 (normalizeExpr body)
     TAnn ann sub -> TAnn ann (normalizeType sub)
+
+normalizeTyVarBinder :: TyVarBinder -> TyVarBinder
+normalizeTyVarBinder tvb =
+  tvb
+    { tyVarBinderSpan = span0,
+      tyVarBinderKind = fmap normalizeType (tyVarBinderKind tvb)
+    }

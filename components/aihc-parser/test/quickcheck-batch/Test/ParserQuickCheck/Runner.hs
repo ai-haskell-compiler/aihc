@@ -6,7 +6,7 @@ module Test.ParserQuickCheck.Runner
   )
 where
 
-import qualified Data.Aeson as Aeson
+import Data.Aeson qualified as Aeson
 import Data.Text (Text)
 import Data.Time.Calendar (fromGregorian)
 import Data.Time.Clock (UTCTime (..))

@@ -14,18 +14,18 @@ module HackageSupport
 where
 
 import Aihc.Cpp (Diagnostic (..), IncludeKind (..), IncludeRequest (..), Severity (..))
-import qualified Aihc.Parser.Syntax as Syntax
+import Aihc.Parser.Syntax qualified as Syntax
 import Control.Monad (forM, when)
-import qualified Data.ByteString as BS
+import Data.ByteString qualified as BS
 import Data.Char (toLower)
 import Data.List (isPrefixOf, isSuffixOf, nub, sortOn)
-import qualified Data.Map.Strict as Map
+import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes, mapMaybe)
 import Data.Text (Text)
-import qualified Data.Text as T
+import Data.Text qualified as T
 import Data.Text.Encoding (decodeUtf8With)
 import Data.Text.Encoding.Error (lenientDecode)
-import qualified Data.Version as DV
+import Data.Version qualified as DV
 import Distribution.Compiler (CompilerFlavor (..))
 import Distribution.ModuleName (ModuleName, toFilePath)
 import Distribution.PackageDescription

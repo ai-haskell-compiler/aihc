@@ -7,7 +7,7 @@ import Aihc.Parser
 import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokens, lexTokensFromChunks, lexTokensWithExtensions, readModuleHeaderExtensions, readModuleHeaderExtensionsFromChunks)
 import Aihc.Parser.Syntax
 import Data.List (isInfixOf)
-import qualified Data.Text as T
+import Data.Text qualified as T
 import ParserValidation (validateParser)
 import Test.ErrorMessages.Suite (errorMessageTests)
 import Test.ExtensionMapping.Suite (extensionMappingTests)
@@ -26,8 +26,8 @@ import Test.StackageProgress.FileCheckerTiming (stackageProgressFileCheckerTimin
 import Test.StackageProgress.Summary (stackageProgressSummaryTests)
 import Test.Tasty
 import Test.Tasty.HUnit
-import qualified Test.Tasty.QuickCheck as QC
-import qualified Text.Megaparsec.Error as MPE
+import Test.Tasty.QuickCheck qualified as QC
+import Text.Megaparsec.Error qualified as MPE
 
 tenMinutes :: Timeout
 tenMinutes = Timeout (10 * 60 * 1000000) "10m"
@@ -87,7 +87,6 @@ buildTests = do
             testCase "parser config sets source name in parse errors" test_parserConfigSetsSourceName,
             testCase "parses tab-indented where after else branch" test_tabIndentedWhereAfterElseParses,
             testCase "parses non-aligned multi-way-if guards" test_nonAlignedMultiWayIfGuardsParse,
-            testCase "generated identifiers reject reserved keyword as" test_generatedIdentifiersRejectReservedAs,
             testCase "generated identifiers reject extension keyword rec" test_generatedIdentifiersRejectExtensionKeywordRec,
             testCase "generated identifiers reject standalone underscore" test_generatedIdentifiersRejectStandaloneUnderscore,
             testCase "shrunk identifiers reject standalone underscore" test_shrunkIdentifiersRejectStandaloneUnderscore,
@@ -417,7 +416,7 @@ test_infixClassHeadParses =
         assertBool ("expected no parse errors, got: " <> show errs) (null errs)
         case moduleDecls modu of
           [ DeclFixity {},
-            DeclClass _ ClassDecl {classDeclHeadForm = TypeHeadInfix, classDeclName = ":=:", classDeclParams = [TyVarBinder _ "a" Nothing, TyVarBinder _ "b" Nothing], classDeclItems = [ClassItemTypeSig _ ["proof"] _]}
+            DeclClass _ ClassDecl {classDeclHeadForm = TypeHeadInfix, classDeclName = ":=:", classDeclParams = [TyVarBinder _ "a" Nothing TyVarBSpecified, TyVarBinder _ "b" Nothing TyVarBSpecified], classDeclItems = [ClassItemTypeSig _ ["proof"] _]}
             ] -> pure ()
           other -> assertFailure ("unexpected parsed declarations: " <> show other)
 
@@ -435,7 +434,7 @@ test_infixTypeFamilyHeadRoundtrip =
    in do
         assertBool ("expected no parse errors, got: " <> show errs) (null errs)
         case moduleDecls modu of
-          [DeclTypeFamilyDecl _ TypeFamilyDecl {typeFamilyDeclHeadForm = TypeHeadInfix, typeFamilyDeclHead = TApp _ (TApp _ (TCon _ "And" Unpromoted) (TVar _ "l")) (TVar _ "r"), typeFamilyDeclParams = [TyVarBinder _ "l" Nothing, TyVarBinder _ "r" Nothing], typeFamilyDeclEquations = Just [TypeFamilyEq {typeFamilyEqHeadForm = TypeHeadInfix, typeFamilyEqLhs = TApp _ (TApp _ (TCon _ "And" Unpromoted) (TVar _ "l")) (TVar _ "r"), typeFamilyEqRhs = TVar _ "l"}]}] -> pure ()
+          [DeclTypeFamilyDecl _ TypeFamilyDecl {typeFamilyDeclHeadForm = TypeHeadInfix, typeFamilyDeclHead = TApp _ (TApp _ (TCon _ "And" Unpromoted) (TVar _ "l")) (TVar _ "r"), typeFamilyDeclParams = [TyVarBinder _ "l" Nothing TyVarBSpecified, TyVarBinder _ "r" Nothing TyVarBSpecified], typeFamilyDeclEquations = Just [TypeFamilyEq {typeFamilyEqHeadForm = TypeHeadInfix, typeFamilyEqLhs = TApp _ (TApp _ (TCon _ "And" Unpromoted) (TVar _ "l")) (TVar _ "r"), typeFamilyEqRhs = TVar _ "l"}]}] -> pure ()
           other -> assertFailure ("unexpected parsed declarations: " <> show other)
         case validateParser "InfixTypeFamilyHead.hs" Haskell2010Edition [EnableExtension TypeFamilies, EnableExtension TypeOperators] source of
           Nothing -> pure ()
@@ -801,11 +800,6 @@ test_lexerChunkLaziness =
   case take 1 (lexTokensFromChunks ["x"]) of
     [LexToken {lexTokenKind = TkVarId "x"}] -> pure ()
     other -> assertFailure ("expected lazy first token from chunks, got: " <> show other)
-
-test_generatedIdentifiersRejectReservedAs :: Assertion
-test_generatedIdentifiersRejectReservedAs =
-  assertBool "reserved keyword 'as' must not be treated as a valid generated identifier" $
-    not (isValidGeneratedIdent "as")
 
 test_generatedIdentifiersRejectExtensionKeywordRec :: Assertion
 test_generatedIdentifiersRejectExtensionKeywordRec =

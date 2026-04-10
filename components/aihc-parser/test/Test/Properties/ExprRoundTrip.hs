@@ -8,13 +8,13 @@ where
 
 import Aihc.Parser
 import Aihc.Parser.Syntax
-import qualified Data.Text as T
+import Data.Text qualified as T
 import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.Text (renderStrict)
 import Test.Properties.Coverage (assertCtorCoverage)
 import Test.Properties.ExprHelpers (genExpr, normalizeExpr, shrinkExpr)
 import Test.QuickCheck
-import qualified Text.Megaparsec.Error as MPE
+import Text.Megaparsec.Error qualified as MPE
 
 exprConfig :: ParserConfig
 exprConfig =

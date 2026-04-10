@@ -111,7 +111,7 @@ generateParser =
     <$> strOption
       ( long "snapshot"
           <> metavar "NAME"
-          <> value "lts-22.43"
+          <> value "lts-24.36"
           <> showDefault
           <> help "Stackage snapshot name"
       )

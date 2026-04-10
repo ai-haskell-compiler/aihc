@@ -1,7 +1,7 @@
-{- ORACLE_TEST xfail reserved keyword 'as' used as record field name in construction -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE OverloadedRecordDot #-}
 
-data Node = Node { as :: Int }
+data Node = Node {as :: Int}
 
 f :: Node
-f = Node { as = 1 }
+f = Node {as = 1}

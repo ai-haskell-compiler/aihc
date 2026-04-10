@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail dependent kind variable {k} in forall -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE StandaloneKindSignatures, PolyKinds, ExplicitForAll #-}
 
 module DependentKindVariable where

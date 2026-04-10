@@ -694,9 +694,11 @@ prettyDeclHead constraints name params =
 
 prettyTyVarBinder :: TyVarBinder -> Doc ann
 prettyTyVarBinder binder =
-  case tyVarBinderKind binder of
-    Nothing -> pretty (tyVarBinderName binder)
-    Just kind -> parens (pretty (tyVarBinderName binder) <+> "::" <+> prettyType kind)
+  case (tyVarBinderSpecificity binder, tyVarBinderKind binder) of
+    (TyVarBInferred, Nothing) -> braces (pretty (tyVarBinderName binder))
+    (TyVarBInferred, Just kind) -> braces (pretty (tyVarBinderName binder) <+> "::" <+> prettyType kind)
+    (TyVarBSpecified, Nothing) -> pretty (tyVarBinderName binder)
+    (TyVarBSpecified, Just kind) -> parens (pretty (tyVarBinderName binder) <+> "::" <+> prettyType kind)
 
 contextPrefix :: [Type] -> [Doc ann]
 contextPrefix constraints =

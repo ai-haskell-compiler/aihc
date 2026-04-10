@@ -6,8 +6,8 @@ module Test.Parser.Suite
 where
 
 import Control.Monad (unless, when)
-import qualified Data.Text as T
-import qualified ParserGolden as PG
+import Data.Text qualified as T
+import ParserGolden qualified as PG
 import System.FilePath (takeExtension)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertFailure, testCase, testCaseInfo)

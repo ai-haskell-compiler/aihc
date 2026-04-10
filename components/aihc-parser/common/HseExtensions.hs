@@ -9,10 +9,10 @@ module HseExtensions
   )
 where
 
-import qualified Aihc.Parser.Syntax as Syntax
+import Aihc.Parser.Syntax qualified as Syntax
 import Data.Maybe (listToMaybe, mapMaybe)
-import qualified Data.Text as T
-import qualified Language.Haskell.Exts as HSE
+import Data.Text qualified as T
+import Language.Haskell.Exts qualified as HSE
 import Text.Read (readMaybe)
 
 toHseExtension :: Syntax.Extension -> Maybe HSE.Extension

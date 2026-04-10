@@ -80,6 +80,7 @@ module Aihc.Parser.Syntax
     TupleFlavor (..),
     TypeLiteral (..),
     TypePromotion (..),
+    TyVarBSpecificity (..),
     TyVarBinder (..),
     TypeSynDecl (..),
     TypeFamilyDecl (..),
@@ -1014,7 +1015,7 @@ data Type
   | TTypeLit SourceSpan TypeLiteral
   | TStar SourceSpan
   | TQuasiQuote SourceSpan Text Text
-  | TForall SourceSpan [Text] Type
+  | TForall SourceSpan [TyVarBinder] Type
   | TApp SourceSpan Type Type
   | TFun SourceSpan Type Type
   | TTuple SourceSpan TupleFlavor TypePromotion [Type]
@@ -1062,10 +1063,16 @@ data TypePromotion
   | Promoted
   deriving (Data, Eq, Show, Generic, NFData)
 
+data TyVarBSpecificity
+  = TyVarBInferred
+  | TyVarBSpecified
+  deriving (Data, Eq, Show, Generic, NFData)
+
 data TyVarBinder = TyVarBinder
   { tyVarBinderSpan :: SourceSpan,
     tyVarBinderName :: Text,
-    tyVarBinderKind :: Maybe Type
+    tyVarBinderKind :: Maybe Type,
+    tyVarBinderSpecificity :: TyVarBSpecificity
   }
   deriving (Data, Eq, Show, Generic, NFData)
 

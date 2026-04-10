@@ -16,7 +16,7 @@ where
 import Data.Char (ord)
 import Data.List (find)
 import Data.Text (Text)
-import qualified Data.Text as T
+import Data.Text qualified as T
 import Data.Time.Clock (UTCTime)
 import Data.Time.Clock.POSIX (getPOSIXTime)
 import Data.Time.Format (defaultTimeLocale, formatTime)

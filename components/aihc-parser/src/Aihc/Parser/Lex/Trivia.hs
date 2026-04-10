@@ -16,7 +16,7 @@ import Aihc.Parser.Lex.Pragmas (parseControlPragma)
 import Aihc.Parser.Lex.Types
 import Data.Char (GeneralCategory (..), generalCategory, isDigit, isSpace)
 import Data.Maybe (fromMaybe)
-import Data.Text (Text, pattern Empty, pattern (:<))
+import Data.Text (Text, pattern (:<))
 import Data.Text qualified as T
 import Text.Read (readMaybe)
 
@@ -91,16 +91,29 @@ consumeBlockCommentOrError st =
 scanNestedBlockComment :: Int -> Text -> Maybe Text
 scanNestedBlockComment depth0 input = go depth0 0 input
   where
+    -- Skip characters that can't start a nesting change in bulk, then
+    -- inspect the stopping character.  Allocation is O(nesting changes)
+    -- instead of O(length).
     go depth !n remaining
       | depth <= 0 = Just (T.take n input)
       | otherwise =
-          case remaining of
-            '{' :< ('-' :< rest') -> go (depth + 1) (n + 2) rest'
-            '-' :< ('}' :< rest')
-              | depth == 1 -> Just (T.take (n + 2) input)
-              | otherwise -> go (depth - 1) (n + 2) rest'
-            _ :< rest -> go depth (n + 1) rest
-            Empty -> Nothing
+          let (prefix, rest0) = T.span (\c -> c /= '{' && c /= '-') remaining
+              n' = n + T.length prefix
+           in case T.uncons rest0 of
+                Nothing -> Nothing
+                Just (c, rest1) ->
+                  case T.uncons rest1 of
+                    Nothing -> Nothing -- truncated escape sequence, unterminated
+                    Just (c2, rest2)
+                      | c == '{' && c2 == '-' -> go (depth + 1) (n' + 2) rest2
+                      | c == '-' && c2 == '}' ->
+                          if depth == 1
+                            then Just (T.take (n' + 2) input)
+                            else go (depth - 1) (n' + 2) rest2
+                      | otherwise ->
+                          -- c was '{' or '-' but not a nesting pair; advance by 1
+                          -- and re-examine rest1 (which still starts with c2)
+                          go depth (n' + 1) rest1
 
 applyDirectiveAdvance :: Text -> DirectiveUpdate -> LexerState -> LexerState
 applyDirectiveAdvance consumed update st =

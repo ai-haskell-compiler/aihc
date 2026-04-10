@@ -10,14 +10,14 @@ import Aihc.Parser (ParseResult (..), ParserConfig (..), defaultConfig, parsePat
 import Aihc.Parser.Lex (isReservedIdentifier)
 import Aihc.Parser.Syntax
 import Data.Text (Text)
-import qualified Data.Text as T
+import Data.Text qualified as T
 import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.Text (renderStrict)
 import Test.Properties.Coverage (assertCtorCoverage)
 import Test.Properties.ExprHelpers (normalizeExpr)
 import Test.Properties.Identifiers (genIdent, shrinkIdent)
 import Test.QuickCheck
-import qualified Text.Megaparsec.Error as MPE
+import Text.Megaparsec.Error qualified as MPE
 
 span0 :: SourceSpan
 span0 = noSourceSpan
@@ -434,7 +434,7 @@ normalizeTypeSpan ty =
     TTypeLit _ lit -> TTypeLit span0 lit
     TStar _ -> TStar span0
     TQuasiQuote _ quoter body -> TQuasiQuote span0 quoter body
-    TForall _ binders inner -> TForall span0 binders (normalizeTypeSpan inner)
+    TForall _ binders inner -> TForall span0 (map normalizeTyVarBinderSpan binders) (normalizeTypeSpan inner)
     TApp _ lhs rhs -> TApp span0 (normalizeTypeSpan lhs) (normalizeTypeSpan rhs)
     TFun _ lhs rhs -> TFun span0 (normalizeTypeSpan lhs) (normalizeTypeSpan rhs)
     TTuple _ tupleFlavor promoted elems -> TTuple span0 tupleFlavor promoted (map normalizeTypeSpan elems)
@@ -488,3 +488,10 @@ normalizeAsInner pat =
     PParen _ inner@(PStrict {}) -> inner
     PParen _ inner@(PIrrefutable {}) -> inner
     other -> other
+
+normalizeTyVarBinderSpan :: TyVarBinder -> TyVarBinder
+normalizeTyVarBinderSpan tvb =
+  tvb
+    { tyVarBinderSpan = span0,
+      tyVarBinderKind = fmap normalizeTypeSpan (tyVarBinderKind tvb)
+    }

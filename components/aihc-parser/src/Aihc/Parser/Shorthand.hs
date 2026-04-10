@@ -536,7 +536,7 @@ docType ty =
     TTypeLit _ lit -> "TTypeLit" <+> docTypeLiteral lit
     TStar _ -> "TStar"
     TQuasiQuote _ quoter body -> "TQuasiQuote" <+> docText quoter <+> docText body
-    TForall _ binders inner -> "TForall" <+> brackets (hsep (punctuate comma (map docText binders))) <+> parens (docType inner)
+    TForall _ binders inner -> "TForall" <+> brackets (hsep (punctuate comma (map docTyVarBinder binders))) <+> parens (docType inner)
     TApp _ f x -> "TApp" <+> parens (docType f) <+> parens (docType x)
     TFun _ a b -> "TFun" <+> parens (docType a) <+> parens (docType b)
     TTuple _ tupleFlavor promoted elems ->
@@ -762,9 +762,6 @@ docTokenKind kind =
     TkKeywordType -> "TkKeywordType"
     TkKeywordWhere -> "TkKeywordWhere"
     TkKeywordUnderscore -> "TkKeywordUnderscore"
-    TkKeywordQualified -> "TkKeywordQualified"
-    TkKeywordAs -> "TkKeywordAs"
-    TkKeywordHiding -> "TkKeywordHiding"
     TkKeywordProc -> "TkKeywordProc"
     TkKeywordRec -> "TkKeywordRec"
     TkKeywordMdo -> "TkKeywordMdo"

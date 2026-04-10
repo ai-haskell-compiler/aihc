@@ -14,7 +14,7 @@ import Aihc.Parser.Bench.CLI
     parseOptionsIO,
   )
 import Aihc.Parser.Bench.Metrics (computeMetrics, formatBytes, formatCsv, formatCsvHeader, formatHuman, formatJson)
-import Aihc.Parser.Bench.Tarball (FilterReason (..), GenerateResult (..), generateTarball)
+import Aihc.Parser.Bench.Tarball (FilterReason (..), GenerateResult (..), PackageSpec (..), formatPackage, generateTarball)
 import Control.Monad (when)
 import Data.ByteString.Lazy.Char8 qualified as LBS8
 import System.Exit (exitFailure, exitSuccess)
@@ -67,9 +67,9 @@ printGenerateSummary opts summary = do
             "  ... and " ++ show (length filtered - 20) ++ " more"
 
 -- | Print why a package was filtered.
-printFilteredPackage :: GenerateOptions -> (a, FilterReason) -> IO ()
-printFilteredPackage _ (_, reason) =
-  putStrLn $ "  " ++ reasonToString reason
+printFilteredPackage :: GenerateOptions -> (PackageSpec, FilterReason) -> IO ()
+printFilteredPackage _ (pkg, reason) =
+  putStrLn $ "  " ++ formatPackage pkg ++ ": " ++ reasonToString reason
 
 reasonToString :: FilterReason -> String
 reasonToString (FilterAihcFailed path _) = "aihc-parser failed: " ++ path
