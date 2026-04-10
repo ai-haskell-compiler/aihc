@@ -13,6 +13,7 @@ module Aihc.Parser.Lex.Types
     pattern TkVarAs,
     pattern TkVarHiding,
     pattern TkVarQualified,
+    pattern TkVarSafe,
     TokenOrigin (..),
     LexToken (..),
     LexerEnv (..),
@@ -181,6 +182,9 @@ pattern TkVarHiding = TkVarId "hiding"
 
 pattern TkVarQualified :: LexTokenKind
 pattern TkVarQualified = TkVarId "qualified"
+
+pattern TkVarSafe :: LexTokenKind
+pattern TkVarSafe = TkVarId "safe"
 
 data TokenOrigin
   = FromSource
