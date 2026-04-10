@@ -83,7 +83,7 @@ shrinkType :: Type -> [Type]
 shrinkType ty =
   case ty of
     TVar _ name ->
-      [TVar span0 shrunk | shrunk <- shrinkIdent name]
+      [TVar span0 (mkUnqualifiedName NameVarId shrunk) | shrunk <- shrinkIdent (renderUnqualifiedName name)]
     TCon _ name promoted ->
       [TCon span0 (name {nameText = shrunk}) promoted | shrunk <- shrinkTypeConName (nameText name)]
     TImplicitParam _ name inner ->
@@ -201,8 +201,8 @@ genType depth
           pure (TStar span0),
           pure (TWildcard span0),
           TQuasiQuote span0 <$> genQuoterName <*> genQuasiBody,
-          TTuple span0 Boxed Unpromoted <$> elements [[], [TVar span0 "a", TCon span0 (mkUnqualifiedName NameConId "B") Unpromoted]],
-          TTuple span0 Unboxed Unpromoted <$> elements [[], [TVar span0 "a", TCon span0 (mkUnqualifiedName NameConId "B") Unpromoted]],
+          TTuple span0 Boxed Unpromoted <$> elements [[], [TVar span0 "a", TCon span0 (qualifyName Nothing (mkUnqualifiedName NameConId "B")) Unpromoted]],
+          TTuple span0 Unboxed Unpromoted <$> elements [[], [TVar span0 "a", TCon span0 (qualifyName Nothing (mkUnqualifiedName NameConId "B")) Unpromoted]],
           TList span0 Unpromoted <$> genTypeListElems 0,
           TParen span0 <$> genTypeAtom 0,
           TUnboxedSum span0 <$> genUnboxedSumElems 0
@@ -303,10 +303,10 @@ shrinkImplicitParamName name =
     Just inner -> ["?" <> candidate | candidate <- shrinkIdent inner]
 
 genTypeConAstName :: Gen Name
-genTypeConAstName = mkUnqualifiedName NameConId <$> genTypeConName
+genTypeConAstName = qualifyName Nothing . mkUnqualifiedName NameConId <$> genTypeConName
 
 genTypeVarExprName :: Gen Name
-genTypeVarExprName = mkUnqualifiedName NameVarId <$> genIdent
+genTypeVarExprName = qualifyName Nothing . mkUnqualifiedName NameVarId <$> genIdent
 
 canonicalFunLeft :: Type -> Type
 canonicalFunLeft ty =
@@ -372,9 +372,9 @@ genTypeBinders = do
 genTyVarBinder :: Gen TyVarBinder
 genTyVarBinder = do
   name <- genTypeVarName
-  pure (TyVarBinder span0 name Nothing TyVarBSpecified)
+  pure (TyVarBinder span0 (renderUnqualifiedName name) Nothing TyVarBSpecified)
 
-genTypeVarName :: Gen Text
+genTypeVarName :: Gen UnqualifiedName
 genTypeVarName = do
   first <- elements (['a' .. 'z'] <> ['_'])
   restLen <- chooseInt (0, 5)
@@ -382,7 +382,7 @@ genTypeVarName = do
   let candidate = T.pack (first : rest)
   if isReservedIdentifier candidate
     then genTypeVarName
-    else pure candidate
+    else pure (mkUnqualifiedName NameVarId candidate)
 
 genTypeConName :: Gen Text
 genTypeConName = do

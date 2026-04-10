@@ -90,8 +90,8 @@ arrowTailParser :: TokParser (Name, Expr)
 arrowTailParser = do
   op <- tokenSatisfy "arrow operator" $ \tok ->
     case lexTokenKind tok of
-      TkArrowTail -> Just (mkUnqualifiedName NameVarSym "-<")
-      TkDoubleArrowTail -> Just (mkUnqualifiedName NameVarSym "-<<")
+      TkArrowTail -> Just (qualifyName Nothing (mkUnqualifiedName NameVarSym "-<"))
+      TkDoubleArrowTail -> Just (qualifyName Nothing (mkUnqualifiedName NameVarSym "-<<"))
       _ -> Nothing
   rhs <- exprParser
   pure (op, rhs)
@@ -507,10 +507,10 @@ infixOperatorParserExcept forbidden =
       tokenSatisfy "infix operator" $ \tok ->
         case lexTokenKind tok of
           TkVarSym op ->
-            let name = mkUnqualifiedName NameVarSym op
+            let name = qualifyName Nothing (mkUnqualifiedName NameVarSym op)
              in if allowed name then Just name else Nothing
           TkConSym op ->
-            let name = mkUnqualifiedName NameConSym op
+            let name = qualifyName Nothing (mkUnqualifiedName NameConSym op)
              in if allowed name then Just name else Nothing
           TkQVarSym modName op ->
             let name = mkName (Just modName) NameVarSym op
@@ -520,11 +520,11 @@ infixOperatorParserExcept forbidden =
              in if allowed name then Just name else Nothing
           -- TkMinusOperator is minus when LexicalNegation is enabled but used as infix
           TkMinusOperator ->
-            let name = mkUnqualifiedName NameVarSym "-"
+            let name = qualifyName Nothing (mkUnqualifiedName NameVarSym "-")
              in if allowed name then Just name else Nothing
           -- Reserved operators that can be used as infix operators
           TkReservedColon ->
-            let name = mkUnqualifiedName NameConSym ":"
+            let name = qualifyName Nothing (mkUnqualifiedName NameConSym ":")
              in if allowed name then Just name else Nothing
           _ -> Nothing
 
@@ -743,19 +743,19 @@ parenOperatorExprParser = withSpan $ do
   expectedTok TkSpecialLParen
   op <- tokenSatisfy "operator" $ \tok ->
     case lexTokenKind tok of
-      TkVarSym sym -> Just (mkUnqualifiedName NameVarSym sym)
-      TkConSym sym -> Just (mkUnqualifiedName NameConSym sym)
+      TkVarSym sym -> Just (qualifyName Nothing (mkUnqualifiedName NameVarSym sym))
+      TkConSym sym -> Just (qualifyName Nothing (mkUnqualifiedName NameConSym sym))
       TkQVarSym modName sym -> Just (mkName (Just modName) NameVarSym sym)
       TkQConSym modName sym -> Just (mkName (Just modName) NameConSym sym)
-      TkMinusOperator -> Just (mkUnqualifiedName NameVarSym "-")
-      TkReservedColon -> Just (mkUnqualifiedName NameConSym ":")
-      TkReservedDoubleColon -> Just (mkUnqualifiedName NameVarSym "::")
-      TkReservedEquals -> Just (mkUnqualifiedName NameVarSym "=")
-      TkReservedPipe -> Just (mkUnqualifiedName NameVarSym "|")
-      TkReservedLeftArrow -> Just (mkUnqualifiedName NameVarSym "<-")
-      TkReservedRightArrow -> Just (mkUnqualifiedName NameVarSym "->")
-      TkReservedDoubleArrow -> Just (mkUnqualifiedName NameVarSym "=>")
-      TkReservedDotDot -> Just (mkUnqualifiedName NameVarSym "..")
+      TkMinusOperator -> Just (qualifyName Nothing (mkUnqualifiedName NameVarSym "-"))
+      TkReservedColon -> Just (qualifyName Nothing (mkUnqualifiedName NameConSym ":"))
+      TkReservedDoubleColon -> Just (qualifyName Nothing (mkUnqualifiedName NameVarSym "::"))
+      TkReservedEquals -> Just (qualifyName Nothing (mkUnqualifiedName NameVarSym "="))
+      TkReservedPipe -> Just (qualifyName Nothing (mkUnqualifiedName NameVarSym "|"))
+      TkReservedLeftArrow -> Just (qualifyName Nothing (mkUnqualifiedName NameVarSym "<-"))
+      TkReservedRightArrow -> Just (qualifyName Nothing (mkUnqualifiedName NameVarSym "->"))
+      TkReservedDoubleArrow -> Just (qualifyName Nothing (mkUnqualifiedName NameVarSym "=>"))
+      TkReservedDotDot -> Just (qualifyName Nothing (mkUnqualifiedName NameVarSym ".."))
       -- Note: ~ is now lexed as TkVarSym "~" so TkVarSym case handles it
       _ -> Nothing
   expectedTok TkSpecialRParen
@@ -800,9 +800,9 @@ conOperatorParser =
     symbolicConOp =
       tokenSatisfy "constructor operator" $ \tok ->
         case lexTokenKind tok of
-          TkConSym op -> Just (mkUnqualifiedName NameConSym op)
+          TkConSym op -> Just (qualifyName Nothing (mkUnqualifiedName NameConSym op))
           TkQConSym modName op -> Just (mkName (Just modName) NameConSym op)
-          TkReservedColon -> Just (mkUnqualifiedName NameConSym ":")
+          TkReservedColon -> Just (qualifyName Nothing (mkUnqualifiedName NameConSym ":"))
           _ -> Nothing
     backtickConOp = MP.try $ do
       expectedTok TkSpecialBacktick
@@ -1199,8 +1199,8 @@ parenExprParser = withSpan $ do
         arrowSectionOperatorParser =
           tokenSatisfy "operator" $ \tok ->
             case lexTokenKind tok of
-              TkArrowTail -> Just (mkUnqualifiedName NameVarSym "-<")
-              TkDoubleArrowTail -> Just (mkUnqualifiedName NameVarSym "-<<")
+              TkArrowTail -> Just (qualifyName Nothing (mkUnqualifiedName NameVarSym "-<"))
+              TkDoubleArrowTail -> Just (qualifyName Nothing (mkUnqualifiedName NameVarSym "-<<"))
               _ -> Nothing
 
     finishBoxed closeTok mFirst = do
@@ -1443,7 +1443,7 @@ localTypeSigDeclsParser = do
         [name] -> do
           rhsExpr <- exprParser
           let bindSpan = mergeSourceSpans sigSpan (getSourceSpan rhsExpr)
-              pat = PTypeSig sigSpan (PVar sigSpan (mkUnqualifiedName NameVarId name)) ty
+              pat = PTypeSig sigSpan (PVar sigSpan (qualifyName Nothing (mkUnqualifiedName NameVarId name))) ty
               rhs = UnguardedRhs bindSpan rhsExpr
           pure [DeclValue bindSpan (PatternBind bindSpan pat rhs)]
         _ ->
@@ -1474,7 +1474,7 @@ implicitParamDeclParser = withSpan $ do
   name <- implicitParamNameParser
   expectedTok TkReservedEquals
   rhsExpr <- exprParser
-  pure (\span' -> DeclValue span' (PatternBind span' (PVar span' (mkUnqualifiedName NameVarId name)) (UnguardedRhs span' rhsExpr)))
+  pure (\span' -> DeclValue span' (PatternBind span' (PVar span' (qualifyName Nothing (mkUnqualifiedName NameVarId name))) (UnguardedRhs span' rhsExpr)))
 
 varOrConPatternParser :: TokParser Pattern
 varOrConPatternParser = withSpan $ do
@@ -1484,16 +1484,16 @@ varOrConPatternParser = withSpan $ do
     Just nextTok
       | isConLikeName name && lexTokenKind nextTok == TkSpecialLBrace -> do
           (fields, hasWildcard) <- braces recordPatternFieldListParser
-          pure (\span' -> PRecord span' (renderName name) fields hasWildcard)
+          pure (\span' -> PRecord span' name fields hasWildcard)
     _ ->
       pure $ \span' ->
         if isConLikeName name
           then PCon span' name []
           else PVar span' name
 
-recordFieldPatternParser :: TokParser (Text, Pattern)
+recordFieldPatternParser :: TokParser (Name, Pattern)
 recordFieldPatternParser = withSpan $ do
-  field <- identifierTextParser
+  field <- identifierNameParser
   mEq <- MP.optional (expectedTok TkReservedEquals)
   case mEq of
     Just () -> do
@@ -1501,10 +1501,10 @@ recordFieldPatternParser = withSpan $ do
       pure $ const (field, pat)
     Nothing -> do
       -- NamedFieldPuns: just "field" means "field = field"
-      pure $ \srcSpan -> (field, PVar srcSpan (qualifiedVarName field))
+      pure $ \srcSpan -> (field, PVar srcSpan field)
 
 -- | Parse the contents of record pattern braces, supporting RecordWildCards ".."
-recordPatternFieldListParser :: TokParser ([(Text, Pattern)], Bool)
+recordPatternFieldListParser :: TokParser ([(Name, Pattern)], Bool)
 recordPatternFieldListParser = do
   rwcEnabled <- isExtensionEnabled RecordWildCards
   fields <- recordFieldPatternParser `MP.sepEndBy` expectedTok TkSpecialComma
@@ -1663,7 +1663,7 @@ isConLikeName name =
 qualifiedVarName :: Text -> Name
 qualifiedVarName ident =
   case T.breakOnEnd "." ident of
-    ("", _) -> mkUnqualifiedName NameVarId ident
+    ("", _) -> qualifyName Nothing (mkUnqualifiedName NameVarId ident)
     (qualifierWithDot, localName) ->
       mkName (Just (T.dropEnd 1 qualifierWithDot)) NameVarId localName
 
@@ -1737,7 +1737,7 @@ varExprParser = withSpan $ do
 implicitParamExprParser :: TokParser Expr
 implicitParamExprParser = withSpan $ do
   name <- implicitParamNameParser
-  pure (\span' -> EVar span' (mkUnqualifiedName NameVarId name))
+  pure (\span' -> EVar span' (qualifyName Nothing (mkUnqualifiedName NameVarId name)))
 
 -- | Parse a wildcard @_@ as an expression. In expression context this is
 -- a typed hole; in pattern context 'checkPattern' converts it to 'PWildcard'.
@@ -1746,7 +1746,7 @@ implicitParamExprParser = withSpan $ do
 wildcardExprParser :: TokParser Expr
 wildcardExprParser = withSpan $ do
   expectedTok TkKeywordUnderscore
-  pure (\span' -> EVar span' (mkUnqualifiedName NameVarId "_"))
+  pure (\span' -> EVar span' (qualifyName Nothing (mkUnqualifiedName NameVarId "_")))
 
 -- | Parse Template Haskell quote brackets:
 -- [| expr |], [e| expr |], [|| expr ||], [e|| expr ||],
@@ -1985,8 +1985,8 @@ typeInfixOperatorParser =
                 && op /= "!"
                 && op /= "-"
                 && op /= "'" ->
-                Just (mkUnqualifiedName NameVarSym op, Unpromoted)
-          TkConSym op -> Just (mkUnqualifiedName NameConSym op, Unpromoted)
+                Just (qualifyName Nothing (mkUnqualifiedName NameVarSym op), Unpromoted)
+          TkConSym op -> Just (qualifyName Nothing (mkUnqualifiedName NameConSym op), Unpromoted)
           TkQVarSym modName op -> Just (mkName (Just modName) NameVarSym op, Unpromoted)
           TkQConSym modName op -> Just (mkName (Just modName) NameConSym op, Unpromoted)
           _ -> Nothing
@@ -2000,15 +2000,15 @@ typeInfixOperatorParser =
     typeOperatorIdentifierParser =
       tokenSatisfy "type operator identifier" $ \tok ->
         case lexTokenKind tok of
-          TkVarId name -> Just (mkUnqualifiedName NameVarId name)
-          TkConId name -> Just (mkUnqualifiedName NameConId name)
+          TkVarId name -> Just (qualifyName Nothing (mkUnqualifiedName NameVarId name))
+          TkConId name -> Just (qualifyName Nothing (mkUnqualifiedName NameConId name))
           _ -> Nothing
 
     promotedInfixOperatorParser = MP.try $ do
       -- Accept both TkVarSym "'" and TkTHQuoteTick for promoted cons
       expectedTok (TkVarSym "'") <|> expectedTok TkTHQuoteTick <|> fail "expected quote for promoted cons"
       expectedTok TkReservedColon
-      pure (mkUnqualifiedName NameConSym ":", Promoted)
+      pure (qualifyName Nothing (mkUnqualifiedName NameConSym ":"), Promoted)
 
 typeAppParser :: TokParser Type
 typeAppParser = do
@@ -2070,7 +2070,7 @@ promotedStructuredTypeParser = do
 promotedRawTypeParser :: TokParser Type
 promotedRawTypeParser = withSpan $ do
   suffix <- promotedBracketedSuffixParser <|> promotedParenthesizedSuffixParser
-  pure (\span' -> TCon span' (mkUnqualifiedName NameConId suffix) Promoted)
+  pure (\span' -> TCon span' (qualifyName Nothing (mkUnqualifiedName NameConId suffix)) Promoted)
 
 promotedBracketedSuffixParser :: TokParser Text
 promotedBracketedSuffixParser = collectDelimitedRaw TkSpecialLBracket TkSpecialRBracket
@@ -2104,12 +2104,12 @@ typeParenOperatorParser = withSpan $ do
   expectedTok TkSpecialLParen
   op <- tokenSatisfy "type operator" $ \tok ->
     case lexTokenKind tok of
-      TkVarSym sym | sym /= "*" -> Just (mkUnqualifiedName NameVarSym sym)
-      TkConSym sym | sym /= "*" -> Just (mkUnqualifiedName NameConSym sym)
+      TkVarSym sym | sym /= "*" -> Just (qualifyName Nothing (mkUnqualifiedName NameVarSym sym))
+      TkConSym sym | sym /= "*" -> Just (qualifyName Nothing (mkUnqualifiedName NameConSym sym))
       TkQVarSym modName sym -> Just (mkName (Just modName) NameVarSym sym)
       TkQConSym modName sym -> Just (mkName (Just modName) NameConSym sym)
       -- Handle reserved operators that can be used as type constructors
-      TkReservedRightArrow -> Just (mkUnqualifiedName NameVarSym "->")
+      TkReservedRightArrow -> Just (qualifyName Nothing (mkUnqualifiedName NameVarSym "->"))
       -- Note: ~ is now lexed as TkVarSym "~" so TkVarSym case handles it
       _ -> Nothing
   expectedTok TkSpecialRParen
@@ -2127,7 +2127,7 @@ typeIdentifierParser = withSpan $ do
   name <- identifierNameParser
   pure $ \span' ->
     case (nameQualifier name, nameType name, T.uncons (nameText name)) of
-      (Nothing, NameVarId, Just (c, _)) | isLower c || c == '_' -> TVar span' (nameText name)
+      (Nothing, NameVarId, Just (c, _)) | isLower c || c == '_' -> TVar span' (mkUnqualifiedName NameVarId (nameText name))
       _ -> TCon span' name Unpromoted
 
 typeStarParser :: TokParser Type
@@ -2140,7 +2140,7 @@ typeListParser = withSpan $ do
   expectedTok TkSpecialLBracket
   mClosed <- MP.optional (expectedTok TkSpecialRBracket)
   case mClosed of
-    Just () -> pure (\span' -> TCon span' (mkUnqualifiedName NameConId "[]") Unpromoted)
+    Just () -> pure (\span' -> TCon span' (qualifyName Nothing (mkUnqualifiedName NameConId "[]")) Unpromoted)
     Nothing -> do
       elems <- typeParser `MP.sepBy1` expectedTok TkSpecialComma
       expectedTok TkSpecialRBracket
@@ -2166,7 +2166,7 @@ typeParenOrTupleParser = withSpan $ do
             case tupleFlavor of
               Boxed -> "(" <> T.replicate (arity - 1) "," <> ")"
               Unboxed -> "(#" <> T.replicate (arity - 1) "," <> "#)"
-      pure (\span' -> TCon span' (mkUnqualifiedName NameConId tupleConName) Unpromoted)
+      pure (\span' -> TCon span' (qualifyName Nothing (mkUnqualifiedName NameConId tupleConName)) Unpromoted)
 
     parenthesizedTypeOrTupleParser tupleFlavor closeTok = do
       first <- typeParser

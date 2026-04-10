@@ -60,6 +60,7 @@ module Aihc.Parser.Syntax
     ModuleHeaderPragmas (..),
     Name (..),
     NameType (..),
+    UnqualifiedName (..),
     WarningText (..),
     NewtypeDecl (..),
     OperatorName,
@@ -101,13 +102,18 @@ module Aihc.Parser.Syntax
     editionFromExtensionSettings,
     mergeSourceSpans,
     mkName,
+    mkQualifiedName,
     mkUnqualifiedName,
     noSourceSpan,
+    nameFromText,
     parseExtensionName,
     parseExtensionSettingName,
     parseLanguageEdition,
+    qualifyName,
     renderName,
+    renderUnqualifiedName,
     sourceSpanEnd,
+    unqualifiedNameFromText,
     valueDeclBinderName,
     moduleName,
     moduleWarningText,
@@ -636,6 +642,12 @@ data Name = Name
   }
   deriving (Eq, Show, Generic, NFData, Data)
 
+data UnqualifiedName = UnqualifiedName
+  { unqualifiedNameType :: NameType,
+    unqualifiedNameText :: Text
+  }
+  deriving (Eq, Show, Generic, NFData, Data)
+
 -- | The syntactic category of a name.
 data NameType
   = -- | Variable identifier (e.g., @x@, @map@, @Data.List.map@)
@@ -651,8 +663,16 @@ data NameType
 mkName :: Maybe Text -> NameType -> Text -> Name
 mkName = Name
 
-mkUnqualifiedName :: NameType -> Text -> Name
-mkUnqualifiedName = Name Nothing
+mkQualifiedName :: UnqualifiedName -> Maybe Text -> Name
+mkQualifiedName name qualifier =
+  Name qualifier (unqualifiedNameType name) (unqualifiedNameText name)
+
+qualifyName :: Maybe Text -> UnqualifiedName -> Name
+qualifyName qualifier name =
+  Name qualifier (unqualifiedNameType name) (unqualifiedNameText name)
+
+mkUnqualifiedName :: NameType -> Text -> UnqualifiedName
+mkUnqualifiedName = UnqualifiedName
 
 renderName :: Name -> Text
 renderName name =
@@ -660,8 +680,14 @@ renderName name =
     Just qualifier -> qualifier <> "." <> nameText name
     Nothing -> nameText name
 
+renderUnqualifiedName :: UnqualifiedName -> Text
+renderUnqualifiedName = unqualifiedNameText
+
 instance IsString Name where
   fromString = nameFromText . T.pack
+
+instance IsString UnqualifiedName where
+  fromString = unqualifiedNameFromText . T.pack
 
 nameFromText :: Text -> Name
 nameFromText txt =
@@ -688,24 +714,36 @@ nameFromText txt =
         Just (c, rest) -> (isUpperAscii c || isLowerAscii c || c == '_') && T.all isIdentChar rest
         Nothing -> False
 
-    isUpperAscii c = c >= 'A' && c <= 'Z'
-    isLowerAscii c = c >= 'a' && c <= 'z'
-    isDigitAscii c = c >= '0' && c <= '9'
-    isIdentChar c = isUpperAscii c || isLowerAscii c || isDigitAscii c || c == '_' || c == '\''
+unqualifiedNameFromText :: Text -> UnqualifiedName
+unqualifiedNameFromText txt = UnqualifiedName (inferNameType txt) txt
 
-    inferNameType localName
-      | isOperatorLikeText localName =
-          if T.isPrefixOf ":" localName
-            then NameConSym
-            else NameVarSym
-      | otherwise =
-          case T.uncons localName of
-            Just (c, _) | isUpperAscii c -> NameConId
-            Just (c, _) | isLowerAscii c || c == '_' -> NameVarId
-            _ -> NameConId
+inferNameType :: Text -> NameType
+inferNameType localName
+  | isOperatorLikeText localName =
+      if T.isPrefixOf ":" localName
+        then NameConSym
+        else NameVarSym
+  | otherwise =
+      case T.uncons localName of
+        Just (c, _) | isUpperAscii c -> NameConId
+        Just (c, _) | isLowerAscii c || c == '_' -> NameVarId
+        _ -> NameConId
 
-    isOperatorLikeText op =
-      not (T.null op) && T.all (`elem` (":!#$%&*+./<=>?@\\^|-~" :: String)) op
+isUpperAscii :: Char -> Bool
+isUpperAscii c = c >= 'A' && c <= 'Z'
+
+isLowerAscii :: Char -> Bool
+isLowerAscii c = c >= 'a' && c <= 'z'
+
+isDigitAscii :: Char -> Bool
+isDigitAscii c = c >= '0' && c <= '9'
+
+isIdentChar :: Char -> Bool
+isIdentChar c = isUpperAscii c || isLowerAscii c || isDigitAscii c || c == '_' || c == '\''
+
+isOperatorLikeText :: Text -> Bool
+isOperatorLikeText op =
+  not (T.null op) && T.all (`elem` (":!#$%&*+./<=>?@\\^|-~" :: String)) op
 
 type BinderName = Text
 
@@ -782,16 +820,16 @@ data IEBundledNamespace
 
 data IEBundledMember = IEBundledMember
   { ieBundledMemberNamespace :: Maybe IEBundledNamespace,
-    ieBundledMemberName :: Text
+    ieBundledMemberName :: UnqualifiedName
   }
   deriving (Data, Eq, Show, Generic, NFData)
 
 data ExportSpec
   = ExportModule SourceSpan (Maybe WarningText) Text
-  | ExportVar SourceSpan (Maybe WarningText) (Maybe IEEntityNamespace) Text
-  | ExportAbs SourceSpan (Maybe WarningText) (Maybe IEEntityNamespace) Text
-  | ExportAll SourceSpan (Maybe WarningText) (Maybe IEEntityNamespace) Text
-  | ExportWith SourceSpan (Maybe WarningText) (Maybe IEEntityNamespace) Text [IEBundledMember]
+  | ExportVar SourceSpan (Maybe WarningText) (Maybe IEEntityNamespace) UnqualifiedName
+  | ExportAbs SourceSpan (Maybe WarningText) (Maybe IEEntityNamespace) UnqualifiedName
+  | ExportAll SourceSpan (Maybe WarningText) (Maybe IEEntityNamespace) UnqualifiedName
+  | ExportWith SourceSpan (Maybe WarningText) (Maybe IEEntityNamespace) UnqualifiedName [IEBundledMember]
   deriving (Eq, Show, Generic, NFData)
 
 instance HasSourceSpan ExportSpec where
@@ -836,10 +874,10 @@ instance HasSourceSpan ImportSpec where
   getSourceSpan = importSpecSpan
 
 data ImportItem
-  = ImportItemVar SourceSpan (Maybe IEEntityNamespace) Text
-  | ImportItemAbs SourceSpan (Maybe IEEntityNamespace) Text
-  | ImportItemAll SourceSpan (Maybe IEEntityNamespace) Text
-  | ImportItemWith SourceSpan (Maybe IEEntityNamespace) Text [IEBundledMember]
+  = ImportItemVar SourceSpan (Maybe IEEntityNamespace) UnqualifiedName
+  | ImportItemAbs SourceSpan (Maybe IEEntityNamespace) UnqualifiedName
+  | ImportItemAll SourceSpan (Maybe IEEntityNamespace) UnqualifiedName
+  | ImportItemWith SourceSpan (Maybe IEEntityNamespace) UnqualifiedName [IEBundledMember]
   deriving (Eq, Show, Generic, NFData)
 
 data Decl
@@ -947,7 +985,7 @@ data PatSynArgs
 -- | Pattern synonym declaration.
 data PatSynDecl = PatSynDecl
   { patSynDeclSpan :: SourceSpan,
-    patSynDeclName :: Text,
+    patSynDeclName :: UnqualifiedName,
     patSynDeclArgs :: PatSynArgs,
     patSynDeclPat :: Pattern,
     patSynDeclDir :: PatSynDir
@@ -1040,7 +1078,7 @@ data Pattern
   | PIrrefutable SourceSpan Pattern
   | PNegLit SourceSpan Literal
   | PParen SourceSpan Pattern
-  | PRecord SourceSpan Text [(Text, Pattern)] Bool -- Bool: wildcard present
+  | PRecord SourceSpan Name [(Name, Pattern)] Bool -- Bool: wildcard present
   | PTypeSig SourceSpan Pattern Type
   | PSplice SourceSpan Expr
   -- \$pat or $(pat) (TH pattern splice)
@@ -1071,7 +1109,7 @@ instance HasSourceSpan Pattern where
 
 data Type
   = TAnn Annotation Type
-  | TVar SourceSpan Text
+  | TVar SourceSpan UnqualifiedName
   | TCon SourceSpan Name TypePromotion
   | TImplicitParam SourceSpan Text Type
   | TTypeLit SourceSpan TypeLiteral
@@ -1209,7 +1247,7 @@ instance HasSourceSpan TypeFamilyEq where
 -- | Data family declaration (standalone or associated in a class body).
 data DataFamilyDecl = DataFamilyDecl
   { dataFamilyDeclSpan :: SourceSpan,
-    dataFamilyDeclName :: Text,
+    dataFamilyDeclName :: UnqualifiedName,
     dataFamilyDeclParams :: [TyVarBinder],
     -- | Optional result kind annotation (@:: Kind@)
     dataFamilyDeclKind :: Maybe Type

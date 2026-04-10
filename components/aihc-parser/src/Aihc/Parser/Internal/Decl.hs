@@ -79,7 +79,7 @@ exportModuleParser mWarning = do
 exportNameParser :: Maybe WarningText -> TokParser (SourceSpan -> ExportSpec)
 exportNameParser mWarning = do
   namespace <- MP.optional exportImportNamespaceParser
-  name <- identifierTextParser <|> parens operatorTextParser
+  name <- identifierUnqualifiedNameParser <|> parens operatorUnqualifiedNameParser
   members <- MP.optional exportMembersParser
   pure $ \span' ->
     case members of
@@ -99,16 +99,16 @@ exportMembersParser =
   where
     memberNameParser = do
       namespace <- MP.optional bundledNamespaceParser
-      name <- identifierTextParser <|> parens operatorTextParser
+      name <- identifierUnqualifiedNameParser <|> parens operatorUnqualifiedNameParser
       pure (IEBundledMember namespace name)
 
 -- | Checks if a name refers to a type/class (as opposed to a variable/function).
 -- In Haskell:
 -- - Identifiers starting with uppercase letters are type constructors/classes
 -- - Symbolic operators starting with ':' are constructor operators (type-level)
-isTypeName :: Text -> Bool
+isTypeName :: UnqualifiedName -> Bool
 isTypeName txt =
-  case T.uncons txt of
+  case T.uncons (renderUnqualifiedName txt) of
     Just (c, _) -> isUpper c || c == ':'
     Nothing -> False
 
@@ -179,7 +179,7 @@ importSpecParser = withSpan $ do
 importItemParser :: TokParser ImportItem
 importItemParser = withSpan $ do
   namespace <- MP.optional exportImportNamespaceParser
-  itemName <- identifierTextParser <|> parens importOperatorParser
+  itemName <- identifierUnqualifiedNameParser <|> parens importOperatorParser
   -- When there's no explicit namespace, we still need to try parsing members
   -- for type constructors and type classes (uppercase names or parenthesized operators)
   let shouldTryMembers = case namespace of
@@ -195,8 +195,8 @@ importItemParser = withSpan $ do
         | effectiveNamespace == Just IEEntityNamespaceType || isTypeName itemName -> ImportItemAbs span' effectiveNamespace itemName
         | otherwise -> ImportItemVar span' effectiveNamespace itemName
 
-importOperatorParser :: TokParser Text
-importOperatorParser = operatorTextParser
+importOperatorParser :: TokParser UnqualifiedName
+importOperatorParser = operatorUnqualifiedNameParser
 
 exportImportNamespaceParser :: TokParser IEEntityNamespace
 exportImportNamespaceParser =
@@ -455,7 +455,7 @@ dataFamilyDeclParser :: TokParser Decl
 dataFamilyDeclParser = withSpan $ do
   expectedTok TkKeywordData
   varIdTok "family"
-  name <- constructorIdentifierParser
+  name <- constructorUnqualifiedNameParser
   params <- MP.many typeParamParser
   kind <- familyResultKindParser
   pure $ \span' ->
@@ -570,7 +570,7 @@ classTypeFamilyDeclParser = withSpan $ do
 classDataFamilyDeclParser :: TokParser ClassDeclItem
 classDataFamilyDeclParser = withSpan $ do
   expectedTok TkKeywordData
-  name <- constructorIdentifierParser
+  name <- constructorUnqualifiedNameParser
   params <- MP.many typeParamParser
   kind <- familyResultKindParser
   pure $ \span' ->
@@ -1309,8 +1309,8 @@ typeFamilyHeadParser =
       lhs <- typeParamParser
       op <- constructorOperatorParser
       rhs <- typeParamParser
-      let lhsType = TVar (tyVarBinderSpan lhs) (tyVarBinderName lhs)
-          rhsType = TVar (tyVarBinderSpan rhs) (tyVarBinderName rhs)
+      let lhsType = TVar (tyVarBinderSpan lhs) (mkUnqualifiedName NameVarId (tyVarBinderName lhs))
+          rhsType = TVar (tyVarBinderSpan rhs) (mkUnqualifiedName NameVarId (tyVarBinderName rhs))
       headType <- withSpan $ do
         pure $ \span' ->
           TApp span' (TApp span' (TCon span' op Unpromoted) lhsType) rhsType
@@ -1534,9 +1534,9 @@ constructorOperatorParser =
     symbolicConstructorOperatorParser =
       tokenSatisfy "constructor operator" $ \tok ->
         case lexTokenKind tok of
-          TkConSym op -> Just (mkUnqualifiedName NameConSym op)
+          TkConSym op -> Just (qualifyName Nothing (mkUnqualifiedName NameConSym op))
           TkQConSym modName op -> Just (mkName (Just modName) NameConSym op)
-          TkReservedColon -> Just (mkUnqualifiedName NameConSym ":")
+          TkReservedColon -> Just (qualifyName Nothing (mkUnqualifiedName NameConSym ":"))
           _ -> Nothing
     backtickConstructorIdentifierParser = do
       expectedTok TkSpecialBacktick
@@ -1572,15 +1572,22 @@ patternSynonymParser =
 patternSynonymSigDeclParser :: TokParser Decl
 patternSynonymSigDeclParser = withSpan $ do
   expectedTok TkVarPattern
-  names <- patSynNameParser `MP.sepBy1` expectedTok TkSpecialComma
+  names <- patSynNameTextParser `MP.sepBy1` expectedTok TkSpecialComma
   expectedTok TkReservedDoubleColon
   ty <- typeParser
   pure (\span' -> DeclPatSynSig span' names ty)
 
 -- | Parse a pattern synonym name (constructor identifier or parenthesized operator).
-patSynNameParser :: TokParser Text
+patSynNameTextParser :: TokParser Text
+patSynNameTextParser =
+  renderUnqualifiedName <$> patSynNameParser
+
+patSynNameParser :: TokParser UnqualifiedName
 patSynNameParser =
-  constructorIdentifierParser <|> (renderName <$> parens constructorOperatorParser)
+  constructorUnqualifiedNameParser
+    <|> do
+      op <- parens constructorOperatorParser
+      pure (mkUnqualifiedName (nameType op) (nameText op))
 
 -- | Parse a pattern synonym declaration.
 -- Handles prefix, infix, and record forms with all three directionalities.
@@ -1602,22 +1609,22 @@ patternSynonymDeclParser = withSpan $ do
 
 -- | Parse the LHS of a pattern synonym declaration.
 -- Returns the name and the argument form.
-patSynLhsParser :: TokParser (Text, PatSynArgs)
+patSynLhsParser :: TokParser (UnqualifiedName, PatSynArgs)
 patSynLhsParser =
   MP.try patSynInfixLhsParser <|> patSynRecordOrPrefixLhsParser
 
 -- | Parse an infix pattern synonym LHS: @var ConOp var@ or @var \`Con\` var@
-patSynInfixLhsParser :: TokParser (Text, PatSynArgs)
+patSynInfixLhsParser :: TokParser (UnqualifiedName, PatSynArgs)
 patSynInfixLhsParser = do
   lhs <- lowerIdentifierParser
   op <- constructorOperatorParser
   rhs <- lowerIdentifierParser
-  pure (renderName op, PatSynInfixArgs lhs rhs)
+  pure (mkUnqualifiedName (nameType op) (nameText op), PatSynInfixArgs lhs rhs)
 
 -- | Parse a record or prefix pattern synonym LHS.
 -- Record: @Con {field1, field2, ...}@
 -- Prefix: @Con var1 var2 ...@
-patSynRecordOrPrefixLhsParser :: TokParser (Text, PatSynArgs)
+patSynRecordOrPrefixLhsParser :: TokParser (UnqualifiedName, PatSynArgs)
 patSynRecordOrPrefixLhsParser = do
   name <- patSynNameParser
   mFields <- MP.optional (MP.try patSynRecordFieldsParser)
@@ -1632,7 +1639,7 @@ patSynRecordFieldsParser :: TokParser [Text]
 patSynRecordFieldsParser = braces (lowerIdentifierParser `MP.sepEndBy` expectedTok TkSpecialComma)
 
 -- | Parse the direction marker and RHS pattern of a pattern synonym.
-patSynDirAndPatParser :: Text -> TokParser (PatSynDir, Pattern)
+patSynDirAndPatParser :: UnqualifiedName -> TokParser (PatSynDir, Pattern)
 patSynDirAndPatParser name =
   ( do
       expectedTok TkReservedEquals
@@ -1642,7 +1649,7 @@ patSynDirAndPatParser name =
     <|> ( do
             expectedTok TkReservedLeftArrow
             pat <- patternParser
-            mMatches <- MP.optional (patSynWhereClauseParser name)
+            mMatches <- MP.optional (patSynWhereClauseParser (renderUnqualifiedName name))
             case mMatches of
               Nothing -> pure (PatSynUnidirectional, pat)
               Just matches -> pure (PatSynExplicitBidirectional matches, pat)

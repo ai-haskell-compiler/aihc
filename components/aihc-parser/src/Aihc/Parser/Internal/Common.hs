@@ -12,13 +12,16 @@ module Aihc.Parser.Internal.Common
     optionalHiddenPragma,
     moduleNameParser,
     identifierNameParser,
+    identifierUnqualifiedNameParser,
     identifierTextParser,
     lowerIdentifierParser,
     implicitParamNameParser,
     constructorNameParser,
+    constructorUnqualifiedNameParser,
     constructorIdentifierParser,
     binderNameParser,
     operatorNameParser,
+    operatorUnqualifiedNameParser,
     operatorTextParser,
     infixOperatorNameParser,
     stringTextParser,
@@ -242,10 +245,18 @@ identifierNameParser :: TokParser Name
 identifierNameParser =
   tokenSatisfy "identifier" $ \tok ->
     case lexTokenKind tok of
-      TkVarId ident -> Just (mkUnqualifiedName NameVarId ident)
-      TkConId ident -> Just (mkUnqualifiedName NameConId ident)
+      TkVarId ident -> Just (qualifyName Nothing (mkUnqualifiedName NameVarId ident))
+      TkConId ident -> Just (qualifyName Nothing (mkUnqualifiedName NameConId ident))
       TkQVarId modName ident -> Just (mkName (Just modName) NameVarId ident)
       TkQConId modName ident -> Just (mkName (Just modName) NameConId ident)
+      _ -> Nothing
+
+identifierUnqualifiedNameParser :: TokParser UnqualifiedName
+identifierUnqualifiedNameParser =
+  tokenSatisfy "unqualified identifier" $ \tok ->
+    case lexTokenKind tok of
+      TkVarId ident -> Just (mkUnqualifiedName NameVarId ident)
+      TkConId ident -> Just (mkUnqualifiedName NameConId ident)
       _ -> Nothing
 
 identifierTextParser :: TokParser Text
@@ -273,8 +284,15 @@ constructorNameParser :: TokParser Name
 constructorNameParser =
   tokenSatisfy "constructor identifier" $ \tok ->
     case lexTokenKind tok of
-      TkConId ident -> Just (mkUnqualifiedName NameConId ident)
+      TkConId ident -> Just (qualifyName Nothing (mkUnqualifiedName NameConId ident))
       TkQConId modName ident -> Just (mkName (Just modName) NameConId ident)
+      _ -> Nothing
+
+constructorUnqualifiedNameParser :: TokParser UnqualifiedName
+constructorUnqualifiedNameParser =
+  tokenSatisfy "unqualified constructor identifier" $ \tok ->
+    case lexTokenKind tok of
+      TkConId ident -> Just (mkUnqualifiedName NameConId ident)
       _ -> Nothing
 
 binderNameParser :: TokParser Text
@@ -289,10 +307,18 @@ operatorNameParser :: TokParser Name
 operatorNameParser =
   tokenSatisfy "operator" $ \tok ->
     case lexTokenKind tok of
-      TkVarSym op -> Just (mkUnqualifiedName NameVarSym op)
-      TkConSym op -> Just (mkUnqualifiedName NameConSym op)
+      TkVarSym op -> Just (qualifyName Nothing (mkUnqualifiedName NameVarSym op))
+      TkConSym op -> Just (qualifyName Nothing (mkUnqualifiedName NameConSym op))
       TkQVarSym modName op -> Just (mkName (Just modName) NameVarSym op)
       TkQConSym modName op -> Just (mkName (Just modName) NameConSym op)
+      _ -> Nothing
+
+operatorUnqualifiedNameParser :: TokParser UnqualifiedName
+operatorUnqualifiedNameParser =
+  tokenSatisfy "unqualified operator" $ \tok ->
+    case lexTokenKind tok of
+      TkVarSym op -> Just (mkUnqualifiedName NameVarSym op)
+      TkConSym op -> Just (mkUnqualifiedName NameConSym op)
       _ -> Nothing
 
 -- | Parse an infix operator name (varop) for function definitions.
@@ -495,8 +521,8 @@ contextItemParserWith typeParser typeAtomParser =
             | op /= "."
                 && op /= "!"
                 && op /= "-" ->
-                Just (mkUnqualifiedName NameVarSym op, Unpromoted)
-          TkConSym op -> Just (mkUnqualifiedName NameConSym op, Unpromoted)
+                Just (qualifyName Nothing (mkUnqualifiedName NameVarSym op), Unpromoted)
+          TkConSym op -> Just (qualifyName Nothing (mkUnqualifiedName NameConSym op), Unpromoted)
           TkQVarSym modName op ->
             Just (mkName (Just modName) NameVarSym op, Unpromoted)
           TkQConSym modName op -> Just (mkName (Just modName) NameConSym op, Unpromoted)
@@ -504,7 +530,7 @@ contextItemParserWith typeParser typeAtomParser =
     promotedInfixOperatorParser = do
       expectedTok (TkVarSym "'")
       expectedTok TkReservedColon
-      pure (mkUnqualifiedName NameConSym ":", Promoted)
+      pure (qualifyName Nothing (mkUnqualifiedName NameConSym ":"), Promoted)
 
     setContextItemSpan span' ty =
       case ty of

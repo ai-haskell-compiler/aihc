@@ -147,7 +147,7 @@ genOperator =
     ]
 
 genOperatorName :: Gen Name
-genOperatorName = mkUnqualifiedName NameVarSym <$> genOperator
+genOperatorName = qualifyName Nothing . mkUnqualifiedName NameVarSym <$> genOperator
 
 -- | Generate a custom operator
 -- Only uses valid operator characters (matching isOperatorToken in Pretty.hs)
@@ -181,10 +181,10 @@ genConName = do
   pure (T.pack (first : rest))
 
 genVarName :: Gen Name
-genVarName = mkUnqualifiedName NameVarId <$> genIdent
+genVarName = qualifyName Nothing . mkUnqualifiedName NameVarId <$> genIdent
 
 genConAstName :: Gen Name
-genConAstName = mkUnqualifiedName NameConId <$> genConName
+genConAstName = qualifyName Nothing . mkUnqualifiedName NameConId <$> genConName
 
 -- | Generate simple patterns for lambdas
 genPatterns :: Int -> Gen [Pattern]
@@ -430,7 +430,7 @@ genTypeListElems n = do
   count <- chooseInt (1, 4)
   vectorOf count (genType (n `div` count))
 
-genTypeVarName :: Gen Text
+genTypeVarName :: Gen UnqualifiedName
 genTypeVarName = do
   first <- elements ['a' .. 'z']
   restLen <- chooseInt (0, 3)
@@ -438,7 +438,7 @@ genTypeVarName = do
   let candidate = T.pack (first : rest)
   if isReservedIdentifier candidate
     then genTypeVarName
-    else pure candidate
+    else pure (mkUnqualifiedName NameVarId candidate)
 
 -- | Literal expression generators
 mkHexExpr :: Integer -> Expr
@@ -570,9 +570,9 @@ shrinkExpr expr =
         : [ERecordUpd span0 target' fields | target' <- shrinkExpr target]
           <> [ERecordUpd span0 target fields' | fields' <- shrinkRecordFields fields]
     ETypeSig _ inner _ ->
-      inner : [ETypeSig span0 inner' (TCon span0 (mkUnqualifiedName NameConId "T") Unpromoted) | inner' <- shrinkExpr inner]
+      inner : [ETypeSig span0 inner' (TCon span0 (qualifyName Nothing (mkUnqualifiedName NameConId "T")) Unpromoted) | inner' <- shrinkExpr inner]
     ETypeApp _ inner _ ->
-      inner : [ETypeApp span0 inner' (TCon span0 (mkUnqualifiedName NameConId "T") Unpromoted) | inner' <- shrinkExpr inner]
+      inner : [ETypeApp span0 inner' (TCon span0 (qualifyName Nothing (mkUnqualifiedName NameConId "T")) Unpromoted) | inner' <- shrinkExpr inner]
     EUnboxedSum _ altIdx arity inner ->
       [EUnboxedSum span0 altIdx arity inner' | inner' <- shrinkExpr inner]
     EParen _ inner -> inner : [EParen span0 inner' | inner' <- shrinkExpr inner]

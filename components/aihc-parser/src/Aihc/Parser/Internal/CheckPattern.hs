@@ -66,8 +66,8 @@ checkPattern expr = case expr of
       _ -> Left "invalid pattern: application of non-constructor"
   -- Record construction -> record pattern
   ERecordCon sp name fields wc -> do
-    patFields <- traverse (\(n, e) -> (n,) <$> checkPattern e) fields
-    Right (PRecord sp name patFields wc)
+    patFields <- traverse (\(n, e) -> (nameFromText n,) <$> checkPattern e) fields
+    Right (PRecord sp (nameFromText name) patFields wc)
   -- Literals
   EInt sp n repr -> Right (PLit sp (LitInt sp n repr))
   EIntHash sp n repr -> Right (PLit sp (LitIntHash sp n repr))

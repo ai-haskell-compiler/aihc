@@ -112,7 +112,7 @@ shrinkTupleElems tupleFlavor elems =
       _ -> [PTuple span0 tupleFlavor shrunk]
   ]
 
-shrinkField :: (Text, Pattern) -> [(Text, Pattern)]
+shrinkField :: (Name, Pattern) -> [(Name, Pattern)]
 shrinkField (fieldName, fieldPat) =
   [(fieldName, shrunk) | shrunk <- shrinkPattern fieldPat]
 
@@ -160,8 +160,8 @@ genPattern depth
           pure (PWildcard span0),
           PLit span0 <$> genLiteral,
           PQuasiQuote span0 <$> genQuoterName <*> genQuasiBody,
-          PTuple span0 Boxed <$> elements [[], [PVar span0 (mkUnqualifiedName NameVarId "x"), PWildcard span0]],
-          PTuple span0 Unboxed <$> elements [[], [PVar span0 (mkUnqualifiedName NameVarId "x"), PWildcard span0]],
+          PTuple span0 Boxed <$> elements [[], [PVar span0 (qualifyName Nothing (mkUnqualifiedName NameVarId "x")), PWildcard span0]],
+          PTuple span0 Unboxed <$> elements [[], [PVar span0 (qualifyName Nothing (mkUnqualifiedName NameVarId "x")), PWildcard span0]],
           pure (PList span0 []),
           PCon span0 <$> genPatternConAstName <*> pure [],
           PNegLit span0 <$> genNumericLiteral,
@@ -184,7 +184,7 @@ genPattern depth
           (2, PIrrefutable span0 . canonicalPatternAtom <$> genPattern (depth - 1)),
           (2, PNegLit span0 <$> genNumericLiteral),
           (2, PParen span0 <$> genPattern (depth - 1)),
-          (2, PRecord span0 <$> genPatternConName <*> genRecordFields (depth - 1) <*> pure False),
+          (2, PRecord span0 <$> genPatternConAstName <*> genRecordFields (depth - 1) <*> pure False),
           (2, genPatternTypeSig depth),
           (1, genUnboxedSumPattern (depth - 1)),
           (2, PSplice span0 <$> genPatSpliceBody)
@@ -206,7 +206,7 @@ genPatternTypeSig depth = do
 genPatternType :: Gen Type
 genPatternType =
   oneof
-    [ TVar span0 <$> genIdent,
+    [ TVar span0 . mkUnqualifiedName NameVarId <$> genIdent,
       (\name -> TCon span0 name Unpromoted) <$> genPatternConAstName
     ]
 
@@ -238,12 +238,12 @@ genListElems depth = do
   n <- chooseInt (0, 4)
   vectorOf n (genPattern depth)
 
-genRecordFields :: Int -> Gen [(Text, Pattern)]
+genRecordFields :: Int -> Gen [(Name, Pattern)]
 genRecordFields depth = do
   n <- chooseInt (0, 3)
   names <- vectorOf n genFieldName
   pats <- vectorOf n (genPattern depth)
-  pure (zip names pats)
+  pure (zip (map (qualifyName Nothing . mkUnqualifiedName NameVarId) names) pats)
 
 genLiteral :: Gen Literal
 genLiteral =
@@ -318,13 +318,13 @@ genConOperator = do
   if op == "::" then genConOperator else pure op
 
 genPatternVarName :: Gen Name
-genPatternVarName = mkUnqualifiedName NameVarId <$> genIdent
+genPatternVarName = qualifyName Nothing . mkUnqualifiedName NameVarId <$> genIdent
 
 genPatternConAstName :: Gen Name
-genPatternConAstName = mkUnqualifiedName NameConId <$> genPatternConName
+genPatternConAstName = qualifyName Nothing . mkUnqualifiedName NameConId <$> genPatternConName
 
 genConOperatorName :: Gen Name
-genConOperatorName = mkUnqualifiedName NameConSym <$> genConOperator
+genConOperatorName = qualifyName Nothing . mkUnqualifiedName NameConSym <$> genConOperator
 
 genFieldName :: Gen Text
 genFieldName = do

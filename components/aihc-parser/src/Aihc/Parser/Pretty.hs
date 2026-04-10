@@ -59,6 +59,9 @@ instance Pretty Type where
 instance Pretty Name where
   pretty = pretty . renderName
 
+instance Pretty UnqualifiedName where
+  pretty = pretty . renderUnqualifiedName
+
 prettyModuleDoc :: Module -> Doc ann
 prettyModuleDoc modu =
   vsep (pragmaLines <> headerLines <> importLines <> declLines)
@@ -92,15 +95,15 @@ prettyExportSpec spec =
   case spec of
     ExportModule _ mWarning modName -> prettyExportWarning mWarning ("module" <+> pretty modName)
     ExportVar _ mWarning namespace name ->
-      prettyExportWarning mWarning (prettyNamespacePrefix namespace <> prettyBinderName name)
+      prettyExportWarning mWarning (prettyNamespacePrefix namespace <> prettyBinderUName name)
     ExportAbs _ mWarning namespace name ->
-      prettyExportWarning mWarning (prettyNamespacePrefix namespace <> prettyConstructorName name)
+      prettyExportWarning mWarning (prettyNamespacePrefix namespace <> prettyConstructorUName name)
     ExportAll _ mWarning namespace name ->
-      prettyExportWarning mWarning (prettyNamespacePrefix namespace <> prettyConstructorName name <> "(..)")
+      prettyExportWarning mWarning (prettyNamespacePrefix namespace <> prettyConstructorUName name <> "(..)")
     ExportWith _ mWarning namespace name members ->
       prettyExportWarning
         mWarning
-        (prettyNamespacePrefix namespace <> prettyConstructorName name <> parens (hsep (punctuate comma (map prettyExportMember members))))
+        (prettyNamespacePrefix namespace <> prettyConstructorUName name <> parens (hsep (punctuate comma (map prettyExportMember members))))
 
 prettyExportWarning :: Maybe WarningText -> Doc ann -> Doc ann
 prettyExportWarning mWarning doc =
@@ -153,15 +156,15 @@ prettyImportSpec spec =
 prettyImportItem :: ImportItem -> Doc ann
 prettyImportItem item =
   case item of
-    ImportItemVar _ namespace name -> prettyNamespacePrefix namespace <> prettyBinderName name
-    ImportItemAbs _ namespace name -> prettyNamespacePrefix namespace <> prettyConstructorName name
-    ImportItemAll _ namespace name -> prettyNamespacePrefix namespace <> prettyConstructorName name <> "(..)"
+    ImportItemVar _ namespace name -> prettyNamespacePrefix namespace <> prettyBinderUName name
+    ImportItemAbs _ namespace name -> prettyNamespacePrefix namespace <> prettyConstructorUName name
+    ImportItemAll _ namespace name -> prettyNamespacePrefix namespace <> prettyConstructorUName name <> "(..)"
     ImportItemWith _ namespace name members ->
-      prettyNamespacePrefix namespace <> prettyConstructorName name <> parens (hsep (punctuate comma (map prettyExportMember members)))
+      prettyNamespacePrefix namespace <> prettyConstructorUName name <> parens (hsep (punctuate comma (map prettyExportMember members)))
 
 prettyExportMember :: IEBundledMember -> Doc ann
 prettyExportMember (IEBundledMember namespace name) =
-  prettyMemberNamespacePrefix namespace <> prettyBinderName name
+  prettyMemberNamespacePrefix namespace <> prettyBinderUName name
 
 prettyNamespacePrefix :: Maybe IEEntityNamespace -> Doc ann
 prettyNamespacePrefix namespace =
@@ -279,22 +282,22 @@ prettyPatSynDecl ps =
     dirArrow (PatSynExplicitBidirectional _) = "<-"
 
 -- | Pretty-print the LHS of a pattern synonym declaration (after @pattern@).
-prettyPatSynLhs :: Text -> PatSynArgs -> [Doc ann]
+prettyPatSynLhs :: UnqualifiedName -> PatSynArgs -> [Doc ann]
 prettyPatSynLhs name args =
   case args of
     PatSynPrefixArgs vars ->
-      prettyConstructorName name : map pretty vars
+      prettyConstructorUName name : map pretty vars
     PatSynInfixArgs lhs rhs ->
-      [pretty lhs, prettyInfixOp name, pretty rhs]
+      [pretty lhs, prettyInfixOp (renderUnqualifiedName name), pretty rhs]
     PatSynRecordArgs fields ->
-      [prettyConstructorName name <+> braces (hsep (punctuate comma (map pretty fields)))]
+      [prettyConstructorUName name <+> braces (hsep (punctuate comma (map pretty fields)))]
 
 -- | Pretty-print the where clause of an explicitly bidirectional pattern synonym.
-prettyPatSynWhere :: Text -> PatSynDir -> [Doc ann]
+prettyPatSynWhere :: UnqualifiedName -> PatSynDir -> [Doc ann]
 prettyPatSynWhere _ PatSynBidirectional = []
 prettyPatSynWhere _ PatSynUnidirectional = []
 prettyPatSynWhere name (PatSynExplicitBidirectional matches) =
-  ["where", braces (hsep (punctuate semi (map (prettyFunctionMatch name) matches)))]
+  ["where", braces (hsep (punctuate semi (map (prettyFunctionMatch (renderUnqualifiedName name)) matches)))]
 
 prettyFunctionMatchLines :: Text -> Match -> [Doc ann]
 prettyFunctionMatchLines name match =
@@ -517,7 +520,7 @@ prettyPattern pat =
     PNegLit _ lit -> "-" <> prettyLiteral lit
     PParen _ inner -> parens (prettyPattern inner)
     PRecord _ con fields hasWildcard ->
-      pretty con
+      prettyPrefixName con
         <+> braces
           ( hsep
               ( punctuate
@@ -542,10 +545,10 @@ prettyPatternInTuple pat =
 -- Supports NamedFieldPuns: if pattern is a variable with the same name as the field,
 -- print just the field name (punned form).
 -- Pattern fields are comma-separated, so greedy patterns don't need parens.
-prettyPatternFieldBinding :: Text -> Pattern -> Doc ann
+prettyPatternFieldBinding :: Name -> Pattern -> Doc ann
 prettyPatternFieldBinding fieldName fieldPat =
   case fieldPat of
-    PVar _ varName | renderName varName == fieldName -> pretty fieldName -- NamedFieldPuns: punned form
+    PVar _ varName | renderName varName == renderName fieldName -> pretty fieldName -- NamedFieldPuns: punned form
     _ -> pretty fieldName <+> "=" <+> prettyPattern fieldPat
 
 prettyPatternAtom :: Pattern -> Doc ann
@@ -1052,10 +1055,16 @@ prettyFunctionBinder name
 prettyBinderName :: Text -> Doc ann
 prettyBinderName = prettyFunctionBinder
 
+prettyBinderUName :: UnqualifiedName -> Doc ann
+prettyBinderUName = prettyFunctionBinder . renderUnqualifiedName
+
 prettyConstructorName :: Text -> Doc ann
 prettyConstructorName name
   | isOperatorToken name = parens (pretty name)
   | otherwise = pretty name
+
+prettyConstructorUName :: UnqualifiedName -> Doc ann
+prettyConstructorUName = prettyConstructorName . renderUnqualifiedName
 
 -- | Print an expression in a context-sensitive slot.
 -- Nested infix expressions need context-sensitive parenthesization, not just
