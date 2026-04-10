@@ -330,7 +330,7 @@ roleAnnotationDeclParser :: TokParser Decl
 roleAnnotationDeclParser = withSpan $ do
   expectedTok TkKeywordType
   expectedTok TkVarRole
-  typeName <- constructorIdentifierParser
+  typeName <- constructorIdentifierParser <|> parens constructorOperatorParser
   roles <- MP.some roleParser
   pure $ \span' ->
     DeclRoleAnnotation
