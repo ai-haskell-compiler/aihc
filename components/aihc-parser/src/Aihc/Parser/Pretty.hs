@@ -601,10 +601,12 @@ prettyDataDecl decl =
     ( [ "data",
         prettyDeclHead (dataDeclContext decl) (dataDeclName decl) (dataDeclParams decl)
       ]
+        <> kindPart
         <> ctorPart
         <> derivingParts (dataDeclDeriving decl)
     )
   where
+    kindPart = maybe [] (\k -> ["::", prettyType k]) (dataDeclKind decl)
     ctorPart =
       case dataDeclConstructors decl of
         [] -> []
@@ -618,9 +620,11 @@ prettyTypeDataDecl decl =
     ( [ "type data",
         prettyDeclHead (dataDeclContext decl) (dataDeclName decl) (dataDeclParams decl)
       ]
+        <> kindPart
         <> ctorPart
     )
   where
+    kindPart = maybe [] (\k -> ["::", prettyType k]) (dataDeclKind decl)
     ctorPart =
       case dataDeclConstructors decl of
         [] -> []
@@ -639,10 +643,12 @@ prettyNewtypeDecl decl =
     ( [ "newtype",
         prettyDeclHead (newtypeDeclContext decl) (newtypeDeclName decl) (newtypeDeclParams decl)
       ]
+        <> kindPart
         <> ctorPart
         <> derivingParts (newtypeDeclDeriving decl)
     )
   where
+    kindPart = maybe [] (\k -> ["::", prettyType k]) (newtypeDeclKind decl)
     ctorPart =
       case newtypeDeclConstructor decl of
         Nothing -> []

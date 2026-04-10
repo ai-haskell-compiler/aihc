@@ -1014,6 +1014,8 @@ dataDeclParser = withSpan $ do
   expectedTok TkKeywordData
   context <- contextPrefixDispatch
   (typeName, typeParams) <- typeDeclHeadParser
+  -- Parse optional inline kind signature: @:: Kind@
+  inlineKind <- MP.optional (expectedTok TkReservedDoubleColon *> typeParser)
   -- GADT syntax starts with `where`, traditional syntax starts with `=` or nothing
   (constructors, derivingClauses) <- gadtStyleDataDecl <|> traditionalStyleDataDecl
   pure $ \span' ->
@@ -1024,6 +1026,7 @@ dataDeclParser = withSpan $ do
           dataDeclContext = fromMaybe [] context,
           dataDeclName = typeName,
           dataDeclParams = typeParams,
+          dataDeclKind = inlineKind,
           dataDeclConstructors = constructors,
           dataDeclDeriving = derivingClauses
         }
@@ -1050,6 +1053,8 @@ typeDataDeclParser = withSpan $ do
   expectedTok TkKeywordData
   -- type data may not have a datatype context
   (typeName, typeParams) <- typeDeclHeadParser
+  -- Parse optional inline kind signature: @:: Kind@
+  inlineKind <- MP.optional (expectedTok TkReservedDoubleColon *> typeParser)
   -- GADT syntax starts with `where`, traditional syntax starts with `=` or nothing
   constructors <- gadtStyleTypeDataDecl <|> traditionalStyleTypeDataDecl
   -- type data may not have a deriving clause
@@ -1061,6 +1066,7 @@ typeDataDeclParser = withSpan $ do
           dataDeclContext = [],
           dataDeclName = typeName,
           dataDeclParams = typeParams,
+          dataDeclKind = inlineKind,
           dataDeclConstructors = constructors,
           dataDeclDeriving = []
         }
@@ -1136,6 +1142,8 @@ newtypeDeclParser = withSpan $ do
   expectedTok TkKeywordNewtype
   context <- contextPrefixDispatch
   (typeName, typeParams) <- typeDeclHeadParser
+  -- Parse optional inline kind signature: @:: Kind@
+  inlineKind <- MP.optional (expectedTok TkReservedDoubleColon *> typeParser)
   -- GADT syntax starts with `where`, traditional syntax starts with `=` or nothing
   (constructor, derivingClauses) <- gadtStyleNewtypeDecl <|> traditionalStyleNewtypeDecl
   pure $ \span' ->
@@ -1146,6 +1154,7 @@ newtypeDeclParser = withSpan $ do
           newtypeDeclContext = fromMaybe [] context,
           newtypeDeclName = typeName,
           newtypeDeclParams = typeParams,
+          newtypeDeclKind = inlineKind,
           newtypeDeclConstructor = constructor,
           newtypeDeclDeriving = derivingClauses
         }

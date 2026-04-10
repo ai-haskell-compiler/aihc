@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail inline kind signature on GADT-style newtype -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE DataKinds, StandaloneKindSignatures #-}
 
 module InlineKindSignatureGADT where
