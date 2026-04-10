@@ -521,9 +521,14 @@ contextItemsParserWith typeParser typeAtomParser =
   where
     parenthesizedContextItemsParser = do
       items <- parens (contextItemParserWith typeParser typeAtomParser `MP.sepEndBy` expectedTok TkSpecialComma)
-      pure $ case items of
-        [item] -> [TParen (getSourceSpan item) item]
-        _ -> items
+      -- Fail if no items were parsed: empty parens () in a constraint context should be
+      -- handled by contextItemParserWith (which parses () as a tuple type), not treated
+      -- as an empty constraint list. This allows constraints like () ~ () => a to parse
+      -- correctly, where () ~ () is a single type-equality constraint.
+      case items of
+        [] -> fail "empty constraint list in parens"
+        [item] -> pure [TParen (getSourceSpan item) item]
+        _ -> pure items
 
 contextParserWith :: TokParser Type -> TokParser Type -> TokParser [Type]
 contextParserWith = contextItemsParserWith
