@@ -1,2 +1,2 @@
-{- ORACLE_TEST xfail parser rejects operator symbol as record field name -}
+{- ORACLE_TEST pass -}
 newtype T = MkT { ($$) :: Int }
