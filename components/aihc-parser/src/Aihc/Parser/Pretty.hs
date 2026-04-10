@@ -95,15 +95,15 @@ prettyExportSpec spec =
   case spec of
     ExportModule _ mWarning modName -> prettyExportWarning mWarning ("module" <+> pretty modName)
     ExportVar _ mWarning namespace name ->
-      prettyExportWarning mWarning (prettyNamespacePrefix namespace <> prettyBinderUName name)
+      prettyExportWarning mWarning (prettyNamespacePrefix namespace <> prettyName name)
     ExportAbs _ mWarning namespace name ->
-      prettyExportWarning mWarning (prettyNamespacePrefix namespace <> prettyConstructorUName name)
+      prettyExportWarning mWarning (prettyNamespacePrefix namespace <> prettyName name)
     ExportAll _ mWarning namespace name ->
-      prettyExportWarning mWarning (prettyNamespacePrefix namespace <> prettyConstructorUName name <> "(..)")
+      prettyExportWarning mWarning (prettyNamespacePrefix namespace <> prettyName name <> "(..)")
     ExportWith _ mWarning namespace name members ->
       prettyExportWarning
         mWarning
-        (prettyNamespacePrefix namespace <> prettyConstructorUName name <> parens (hsep (punctuate comma (map prettyExportMember members))))
+        (prettyNamespacePrefix namespace <> prettyName name <> parens (hsep (punctuate comma (map prettyExportMember members))))
 
 prettyExportWarning :: Maybe WarningText -> Doc ann -> Doc ann
 prettyExportWarning mWarning doc =
@@ -197,21 +197,21 @@ prettyDeclLines decl =
     DeclValue _ valueDecl -> prettyValueDeclLines valueDecl
     DeclTypeSig _ names ty -> [hsep [hsep (punctuate comma (map prettyBinderName names)), "::", prettyType ty]]
     DeclPatSyn _ patSynDecl -> [prettyPatSynDecl patSynDecl]
-    DeclPatSynSig _ names ty -> [hsep ["pattern", hsep (punctuate comma (map prettyConstructorName names)), "::", prettyType ty]]
-    DeclStandaloneKindSig _ name kind -> [hsep ["type", prettyConstructorName name, "::", prettyType kind]]
+    DeclPatSynSig _ names ty -> [hsep ["pattern", hsep (punctuate comma (map prettyConstructorUName names)), "::", prettyType ty]]
+    DeclStandaloneKindSig _ name kind -> [hsep ["type", prettyConstructorUName name, "::", prettyType kind]]
     DeclFixity _ assoc mNamespace prec ops ->
       [ hsep
           ( [prettyFixityAssoc assoc]
               <> maybe [] (pure . pretty . show) prec
               <> maybe [] (pure . prettyNamespace) mNamespace
-              <> map prettyInfixOp ops
+              <> map (prettyInfixOp . renderUnqualifiedName) ops
           )
       ]
     DeclRoleAnnotation _ ann -> [prettyRoleAnnotation ann]
     DeclTypeSyn _ synDecl ->
       [ hsep
           [ "type",
-            prettyDeclHead [] (typeSynName synDecl) (typeSynParams synDecl),
+            prettyDeclHead [] (unqualifiedNameFromText (typeSynName synDecl)) (typeSynParams synDecl),
             "=",
             prettyType (typeSynBody synDecl)
           ]
@@ -297,9 +297,9 @@ prettyPatSynWhere :: UnqualifiedName -> PatSynDir -> [Doc ann]
 prettyPatSynWhere _ PatSynBidirectional = []
 prettyPatSynWhere _ PatSynUnidirectional = []
 prettyPatSynWhere name (PatSynExplicitBidirectional matches) =
-  ["where", braces (hsep (punctuate semi (map (prettyFunctionMatch (renderUnqualifiedName name)) matches)))]
+  ["where", braces (hsep (punctuate semi (map (prettyFunctionMatch name) matches)))]
 
-prettyFunctionMatchLines :: Text -> Match -> [Doc ann]
+prettyFunctionMatchLines :: UnqualifiedName -> Match -> [Doc ann]
 prettyFunctionMatchLines name match =
   case matchRhs match of
     UnguardedRhs _ _ -> [prettyFunctionMatch name match]
@@ -312,24 +312,24 @@ prettyFunctionMatchLines name match =
           | grhs <- grhss
           ]
 
-prettyFunctionMatch :: Text -> Match -> Doc ann
+prettyFunctionMatch :: UnqualifiedName -> Match -> Doc ann
 prettyFunctionMatch name match =
   prettyFunctionHead name (matchHeadForm match) (matchPats match) <+> prettyRhs (matchRhs match)
 
-prettyFunctionHead :: Text -> MatchHeadForm -> [Pattern] -> Doc ann
+prettyFunctionHead :: UnqualifiedName -> MatchHeadForm -> [Pattern] -> Doc ann
 prettyFunctionHead name headForm pats =
   case headForm of
     MatchHeadPrefix ->
-      hsep (prettyFunctionBinder name : map prettyPattern pats)
+      hsep (prettyBinderUName name : map prettyPattern pats)
     MatchHeadInfix ->
       case pats of
         lhs : rhsPat : tailPats ->
-          let infixHead = prettyPattern lhs <+> prettyInfixOp name <+> prettyPattern rhsPat
+          let infixHead = prettyPattern lhs <+> prettyInfixOp (renderUnqualifiedName name) <+> prettyPattern rhsPat
            in case tailPats of
                 [] -> infixHead
                 _ -> hsep (parens infixHead : map prettyPattern tailPats)
         _ ->
-          hsep (prettyFunctionBinder name : map prettyPattern pats)
+          hsep (prettyBinderUName name : map prettyPattern pats)
 
 prettyRhs :: Rhs -> Doc ann
 prettyRhs rhs =
@@ -670,7 +670,7 @@ derivingPart (DerivingClause strategy classes viaTy) =
     viaPart Nothing = []
     viaPart (Just ty) = ["via", prettyType ty]
 
-prettyDeclHead :: [Type] -> Text -> [TyVarBinder] -> Doc ann
+prettyDeclHead :: [Type] -> UnqualifiedName -> [TyVarBinder] -> Doc ann
 prettyDeclHead constraints name params =
   hsep
     ( contextPrefix constraints
@@ -680,12 +680,12 @@ prettyDeclHead constraints name params =
     -- Detect infix form: when name is an operator and there are exactly 2 params
     prettyDeclHeadNameAndParams nm prms = case prms of
       [lhs, rhs]
-        | isOperatorToken nm ->
+        | isOperatorToken (renderUnqualifiedName nm) ->
             [pretty (tyVarBinderName lhs), pretty nm, pretty (tyVarBinderName rhs)]
         | otherwise ->
-            [prettyConstructorName nm] <> map prettyTyVarBinder prms
+            [prettyConstructorUName nm] <> map prettyTyVarBinder prms
       _ ->
-        [prettyConstructorName nm] <> map prettyTyVarBinder prms
+        [prettyConstructorUName nm] <> map prettyTyVarBinder prms
 
 prettyTyVarBinder :: TyVarBinder -> Doc ann
 prettyTyVarBinder binder =
@@ -710,14 +710,14 @@ prettyDataCon :: DataConDecl -> Doc ann
 prettyDataCon ctor =
   case ctor of
     PrefixCon _ forallVars constraints name fields ->
-      hsep (dataConQualifierPrefix forallVars constraints <> [prettyConstructorName name] <> map prettyBangType fields)
+      hsep (dataConQualifierPrefix forallVars constraints <> [prettyConstructorUName name] <> map prettyBangType fields)
     InfixCon _ forallVars constraints lhs op rhs ->
       hsep
         ( dataConQualifierPrefix forallVars constraints
-            <> [prettyBangTypeAtom lhs, prettyInfixOp op, prettyBangTypeAtom rhs]
+            <> [prettyBangTypeAtom lhs, prettyInfixOp (renderUnqualifiedName op), prettyBangTypeAtom rhs]
         )
     RecordCon _ forallVars constraints name fields ->
-      hsep (dataConQualifierPrefix forallVars constraints <> [prettyConstructorName name])
+      hsep (dataConQualifierPrefix forallVars constraints <> [prettyConstructorUName name])
         <+> braces
           ( hsep
               ( punctuate
@@ -735,10 +735,10 @@ prettyDataCon ctor =
       prettyGadtCon forallBinders constraints names body
 
 -- | Pretty print a GADT constructor in GADT syntax: @Con :: forall a. Ctx => Type@
-prettyGadtCon :: [TyVarBinder] -> [Type] -> [Text] -> GadtBody -> Doc ann
+prettyGadtCon :: [TyVarBinder] -> [Type] -> [UnqualifiedName] -> GadtBody -> Doc ann
 prettyGadtCon forallBinders constraints names body =
   hsep
-    ( [hsep (punctuate comma (map prettyConstructorName names)), "::"]
+    ( [hsep (punctuate comma (map prettyConstructorUName names)), "::"]
         <> forallPart
         <> contextPart
         <> [prettyGadtBody body]
@@ -860,7 +860,7 @@ prettyClassItem item =
         ( [prettyFixityAssoc assoc]
             <> maybe [] (pure . pretty . show) prec
             <> maybe [] (pure . prettyNamespace) mNamespace
-            <> map prettyInfixOp ops
+            <> map (prettyInfixOp . renderUnqualifiedName) ops
         )
     ClassItemDefault _ valueDecl -> prettyValueDeclSingleLine valueDecl
     ClassItemTypeFamilyDecl _ tf -> prettyAssocTypeFamilyDecl tf
@@ -956,7 +956,7 @@ prettyInstanceItem item =
         ( [prettyFixityAssoc assoc]
             <> maybe [] (pure . pretty . show) prec
             <> maybe [] (pure . prettyNamespace) mNamespace
-            <> map prettyInfixOp ops
+            <> map (prettyInfixOp . renderUnqualifiedName) ops
         )
     InstanceItemTypeFamilyInst _ tfi -> prettyInstTypeFamilyInst tfi
     InstanceItemDataFamilyInst _ dfi -> prettyInstDataFamilyInst dfi
@@ -1052,11 +1052,17 @@ prettyFunctionBinder name
   | isOperatorToken name = parens (pretty name)
   | otherwise = pretty name
 
-prettyBinderName :: Text -> Doc ann
-prettyBinderName = prettyFunctionBinder
+prettyBinderName :: UnqualifiedName -> Doc ann
+prettyBinderName = prettyFunctionBinder . renderUnqualifiedName
 
 prettyBinderUName :: UnqualifiedName -> Doc ann
 prettyBinderUName = prettyFunctionBinder . renderUnqualifiedName
+
+-- | Pretty-print a Name, wrapping operators in parentheses regardless of qualification.
+prettyName :: Name -> Doc ann
+prettyName name
+  | nameType name == NameVarSym || nameType name == NameConSym = parens (pretty (renderName name))
+  | otherwise = pretty (renderName name)
 
 prettyConstructorName :: Text -> Doc ann
 prettyConstructorName name

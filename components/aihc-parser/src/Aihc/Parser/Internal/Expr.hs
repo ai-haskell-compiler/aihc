@@ -1443,7 +1443,7 @@ localTypeSigDeclsParser = do
         [name] -> do
           rhsExpr <- exprParser
           let bindSpan = mergeSourceSpans sigSpan (getSourceSpan rhsExpr)
-              pat = PTypeSig sigSpan (PVar sigSpan (qualifyName Nothing (mkUnqualifiedName NameVarId name))) ty
+              pat = PTypeSig sigSpan (PVar sigSpan (qualifyName Nothing name)) ty
               rhs = UnguardedRhs bindSpan rhsExpr
           pure [DeclValue bindSpan (PatternBind bindSpan pat rhs)]
         _ ->

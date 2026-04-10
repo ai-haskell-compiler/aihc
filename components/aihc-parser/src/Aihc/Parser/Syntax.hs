@@ -745,9 +745,9 @@ isOperatorLikeText :: Text -> Bool
 isOperatorLikeText op =
   not (T.null op) && T.all (`elem` (":!#$%&*+./<=>?@\\^|-~" :: String)) op
 
-type BinderName = Text
+type BinderName = UnqualifiedName
 
-type OperatorName = Text
+type OperatorName = UnqualifiedName
 
 data WarningText
   = DeprText SourceSpan Text
@@ -826,10 +826,10 @@ data IEBundledMember = IEBundledMember
 
 data ExportSpec
   = ExportModule SourceSpan (Maybe WarningText) Text
-  | ExportVar SourceSpan (Maybe WarningText) (Maybe IEEntityNamespace) UnqualifiedName
-  | ExportAbs SourceSpan (Maybe WarningText) (Maybe IEEntityNamespace) UnqualifiedName
-  | ExportAll SourceSpan (Maybe WarningText) (Maybe IEEntityNamespace) UnqualifiedName
-  | ExportWith SourceSpan (Maybe WarningText) (Maybe IEEntityNamespace) UnqualifiedName [IEBundledMember]
+  | ExportVar SourceSpan (Maybe WarningText) (Maybe IEEntityNamespace) Name
+  | ExportAbs SourceSpan (Maybe WarningText) (Maybe IEEntityNamespace) Name
+  | ExportAll SourceSpan (Maybe WarningText) (Maybe IEEntityNamespace) Name
+  | ExportWith SourceSpan (Maybe WarningText) (Maybe IEEntityNamespace) Name [IEBundledMember]
   deriving (Eq, Show, Generic, NFData)
 
 instance HasSourceSpan ExportSpec where
@@ -1289,7 +1289,7 @@ instance HasSourceSpan DataFamilyInst where
 data DataDecl = DataDecl
   { dataDeclSpan :: SourceSpan,
     dataDeclContext :: [Type],
-    dataDeclName :: Text,
+    dataDeclName :: UnqualifiedName,
     dataDeclParams :: [TyVarBinder],
     dataDeclConstructors :: [DataConDecl],
     dataDeclDeriving :: [DerivingClause]
@@ -1302,7 +1302,7 @@ instance HasSourceSpan DataDecl where
 data NewtypeDecl = NewtypeDecl
   { newtypeDeclSpan :: SourceSpan,
     newtypeDeclContext :: [Type],
-    newtypeDeclName :: Text,
+    newtypeDeclName :: UnqualifiedName,
     newtypeDeclParams :: [TyVarBinder],
     newtypeDeclConstructor :: Maybe DataConDecl,
     newtypeDeclDeriving :: [DerivingClause]
@@ -1313,12 +1313,12 @@ instance HasSourceSpan NewtypeDecl where
   getSourceSpan = newtypeDeclSpan
 
 data DataConDecl
-  = PrefixCon SourceSpan [Text] [Type] Text [BangType]
-  | InfixCon SourceSpan [Text] [Type] BangType Text BangType
-  | RecordCon SourceSpan [Text] [Type] Text [FieldDecl]
+  = PrefixCon SourceSpan [Text] [Type] UnqualifiedName [BangType]
+  | InfixCon SourceSpan [Text] [Type] BangType UnqualifiedName BangType
+  | RecordCon SourceSpan [Text] [Type] UnqualifiedName [FieldDecl]
   | -- | GADT-style constructor: @Con :: forall a. Ctx => Type@
     -- The list of names supports multiple constructors: @T1, T2 :: Type@
-    GadtCon SourceSpan [TyVarBinder] [Type] [Text] GadtBody
+    GadtCon SourceSpan [TyVarBinder] [Type] [UnqualifiedName] GadtBody
   deriving (Data, Eq, Show, Generic, NFData)
 
 -- | Body of a GADT constructor after the @::@ and optional forall/context
@@ -1363,7 +1363,7 @@ data SourceUnpackedness
 
 data FieldDecl = FieldDecl
   { fieldSpan :: SourceSpan,
-    fieldNames :: [Text],
+    fieldNames :: [UnqualifiedName],
     fieldType :: BangType
   }
   deriving (Data, Eq, Show, Generic, NFData)
@@ -1393,7 +1393,7 @@ data StandaloneDerivingDecl = StandaloneDerivingDecl
     standaloneDerivingForall :: [TyVarBinder],
     standaloneDerivingContext :: [Type],
     standaloneDerivingParenthesizedHead :: Bool,
-    standaloneDerivingClassName :: Text,
+    standaloneDerivingClassName :: UnqualifiedName,
     standaloneDerivingTypes :: [Type]
   }
   deriving (Data, Eq, Show, Generic, NFData)
@@ -1774,16 +1774,16 @@ instance HasSourceSpan ArithSeq where
       ArithSeqFromTo span' _ _ -> span'
       ArithSeqFromThenTo span' _ _ _ -> span'
 
-valueDeclBinderName :: ValueDecl -> Maybe Text
+valueDeclBinderName :: ValueDecl -> Maybe UnqualifiedName
 valueDeclBinderName vdecl =
   case vdecl of
     FunctionBind _ name _ -> Just name
     PatternBind _ pat _ ->
       case pat of
-        PVar _ name -> Just (renderName name)
+        PVar _ name -> Just (mkUnqualifiedName (nameType name) (nameText name))
         _ -> Nothing
 
-declValueBinderNames :: Decl -> [Text]
+declValueBinderNames :: Decl -> [UnqualifiedName]
 declValueBinderNames decl =
   case decl of
     DeclValue _ vdecl ->

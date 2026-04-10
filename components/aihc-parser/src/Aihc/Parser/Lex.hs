@@ -285,7 +285,11 @@ lexIdentifier env st =
               (consumed, rest1, isQualified) = gatherQualified hasMagicHash firstChunk rest0
            in case (isQualified || isConIdStart c, rest1) of
                 (True, '.' :< dotRest@(opChar :< _))
-                  | isSymbolicOpCharNotDot opChar ->
+                  | isSymbolicOpChar opChar,
+                    -- When the first op char is '.', require at least one more
+                    -- non-dot symbolic char (e.g. ".&." in M..&.) to avoid
+                    -- consuming the ".." range token in expressions like [A..Z].
+                    opChar /= '.' || T.any (\ch -> isSymbolicOpChar ch && ch /= '.') dotRest ->
                       let opChars = T.takeWhile isSymbolicOpChar dotRest
                           fullOp = consumed <> "." <> opChars
                           (modName, opName) = splitQualified (consumed <> ".") opChars
@@ -319,7 +323,6 @@ lexIdentifier env st =
             '#' :< rest' | hasMH -> (tailPart <> "#", rest')
             _ -> (tailPart, rest)
 
-    isSymbolicOpCharNotDot c = isSymbolicOpChar c && c /= '.'
 
     -- Split a qualified identifier into (module part, name part).
     -- E.g. "Data.Maybe." ++ "++" -> ("Data.Maybe", "++")

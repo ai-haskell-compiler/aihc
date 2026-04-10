@@ -252,7 +252,7 @@ genCaseAlt n = do
 genValueDecls :: Int -> Gen [Decl]
 genValueDecls n = do
   count <- chooseInt (1, 3)
-  names <- vectorOf count genIdent
+  names <- vectorOf count (mkUnqualifiedName NameVarId <$> genIdent)
   exprs <- vectorOf count (genExprSized (n `div` count))
   pure
     [ DeclValue

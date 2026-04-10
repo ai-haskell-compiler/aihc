@@ -18,6 +18,7 @@ module Aihc.Parser.Internal.Common
     implicitParamNameParser,
     constructorNameParser,
     constructorUnqualifiedNameParser,
+    constructorOperatorUnqualifiedNameParser,
     constructorIdentifierParser,
     binderNameParser,
     operatorNameParser,
@@ -295,10 +296,18 @@ constructorUnqualifiedNameParser =
       TkConId ident -> Just (mkUnqualifiedName NameConId ident)
       _ -> Nothing
 
-binderNameParser :: TokParser Text
+constructorOperatorUnqualifiedNameParser :: TokParser UnqualifiedName
+constructorOperatorUnqualifiedNameParser =
+  tokenSatisfy "unqualified constructor operator" $ \tok ->
+    case lexTokenKind tok of
+      TkConSym op -> Just (mkUnqualifiedName NameConSym op)
+      TkReservedColon -> Just (mkUnqualifiedName NameConSym ":")
+      _ -> Nothing
+
+binderNameParser :: TokParser UnqualifiedName
 binderNameParser =
-  identifierTextParser
-    <|> parens operatorTextParser
+  identifierUnqualifiedNameParser
+    <|> parens operatorUnqualifiedNameParser
 
 operatorTextParser :: TokParser Text
 operatorTextParser = renderName <$> operatorNameParser
@@ -328,20 +337,20 @@ operatorUnqualifiedNameParser =
 -- Note: Whitespace-sensitive lexing (GHC proposal 0229) now distinguishes
 -- TkVarSym "!" (infix operator) from TkPrefixBang (bang pattern), so we
 -- can accept all VarSym operators here.
-infixOperatorNameParser :: TokParser Text
+infixOperatorNameParser :: TokParser UnqualifiedName
 infixOperatorNameParser =
   symbolicOperatorParser <|> backtickIdentifierParser
   where
     symbolicOperatorParser =
       tokenSatisfy "variable operator" $ \tok ->
         case lexTokenKind tok of
-          TkVarSym op -> Just op
+          TkVarSym op -> Just (mkUnqualifiedName NameVarSym op)
           _ -> Nothing
     backtickIdentifierParser = do
       expectedTok TkSpecialBacktick
       op <- varIdTextParser
       expectedTok TkSpecialBacktick
-      pure op
+      pure (mkUnqualifiedName NameVarId op)
     varIdTextParser =
       tokenSatisfy "variable identifier" $ \tok ->
         case lexTokenKind tok of
@@ -566,7 +575,7 @@ contextItemsParserWith typeParser typeAtomParser =
 contextParserWith :: TokParser Type -> TokParser Type -> TokParser [Type]
 contextParserWith = contextItemsParserWith
 
-functionHeadParserWith :: TokParser Pattern -> TokParser Pattern -> TokParser (MatchHeadForm, Text, [Pattern])
+functionHeadParserWith :: TokParser Pattern -> TokParser Pattern -> TokParser (MatchHeadForm, UnqualifiedName, [Pattern])
 functionHeadParserWith fullPatternParser prefixPatternParser = do
   isParenInfix <- startsWithParenInfixHead
   if isParenInfix
@@ -701,7 +710,7 @@ startsWithInfixHead = MP.lookAhead (go [])
         TkSpecialLBrace -> go (TkSpecialRBrace : stack)
         _ -> go stack
 
-functionBindValue :: SourceSpan -> MatchHeadForm -> Text -> [Pattern] -> Rhs -> ValueDecl
+functionBindValue :: SourceSpan -> MatchHeadForm -> UnqualifiedName -> [Pattern] -> Rhs -> ValueDecl
 functionBindValue span' headForm name pats rhs =
   FunctionBind
     span'
@@ -714,7 +723,7 @@ functionBindValue span' headForm name pats rhs =
         }
     ]
 
-functionBindDecl :: SourceSpan -> MatchHeadForm -> Text -> [Pattern] -> Rhs -> Decl
+functionBindDecl :: SourceSpan -> MatchHeadForm -> UnqualifiedName -> [Pattern] -> Rhs -> Decl
 functionBindDecl span' headForm name pats rhs =
   DeclValue span' (functionBindValue span' headForm name pats rhs)
 
