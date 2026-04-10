@@ -15,7 +15,6 @@ library
     , Aihc.Parser.Syntax
     , Aihc.Parser.Lex
     , Aihc.Parser.Shorthand
-    , Aihc.Parser.Internal.FromTokens
   other-modules:
       Aihc.Parser.Pretty
     , Aihc.Parser.Types
@@ -31,6 +30,7 @@ library
     , Aihc.Parser.Internal.Expr
     , Aihc.Parser.Internal.Decl
     , Aihc.Parser.Internal.Module
+    , Aihc.Parser.Internal.FromTokens
   hs-source-dirs:   src
   build-depends:
       base >=4.16 && <5
@@ -49,9 +49,29 @@ test-suite spec
       test
     , app/stackage-progress
     , common
+    , src
   main-is:          Spec.hs
   other-modules:
-      CppSupport
+      Aihc.Parser
+    , Aihc.Parser.Syntax
+    , Aihc.Parser.Lex
+    , Aihc.Parser.Shorthand
+    , Aihc.Parser.Pretty
+    , Aihc.Parser.Types
+    , Aihc.Parser.Lex.Header
+    , Aihc.Parser.Lex.Layout
+    , Aihc.Parser.Lex.Numbers
+    , Aihc.Parser.Lex.Pragmas
+    , Aihc.Parser.Lex.Quoted
+    , Aihc.Parser.Lex.Trivia
+    , Aihc.Parser.Lex.Types
+    , Aihc.Parser.Internal.CheckPattern
+    , Aihc.Parser.Internal.Common
+    , Aihc.Parser.Internal.Expr
+    , Aihc.Parser.Internal.Decl
+    , Aihc.Parser.Internal.Module
+    , Aihc.Parser.Internal.FromTokens
+    , CppSupport
     , ExtensionSupport
     , GhcOracle
     , HackageSupport
@@ -85,7 +105,6 @@ test-suite spec
     , Test.StackageProgress.Summary
   build-depends:
       base >=4.16 && <5
-    , aihc-parser
     , aihc-cpp
     , megaparsec
     , text
@@ -108,7 +127,7 @@ test-suite spec
     , optparse-applicative
     , template-haskell
   ghc-options:        -Wall -Werror -threaded -rtsopts -with-rtsopts=-N
-  default-language: Haskell2010
+  default-language: GHC2021
 
 executable parser-progress
   hs-source-dirs:
@@ -140,9 +159,29 @@ executable parser-quickcheck-batch
       app/parser-quickcheck-batch
     , common
     , test
+    , src
   main-is:          Main.hs
   other-modules:
-      CppSupport
+      Aihc.Parser
+    , Aihc.Parser.Syntax
+    , Aihc.Parser.Lex
+    , Aihc.Parser.Shorthand
+    , Aihc.Parser.Pretty
+    , Aihc.Parser.Types
+    , Aihc.Parser.Lex.Header
+    , Aihc.Parser.Lex.Layout
+    , Aihc.Parser.Lex.Numbers
+    , Aihc.Parser.Lex.Pragmas
+    , Aihc.Parser.Lex.Quoted
+    , Aihc.Parser.Lex.Trivia
+    , Aihc.Parser.Lex.Types
+    , Aihc.Parser.Internal.CheckPattern
+    , Aihc.Parser.Internal.Common
+    , Aihc.Parser.Internal.Expr
+    , Aihc.Parser.Internal.Decl
+    , Aihc.Parser.Internal.Module
+    , Aihc.Parser.Internal.FromTokens
+    , CppSupport
     , ParserQuickCheck.CLI
     , ParserQuickCheck.Registry
     , ParserQuickCheck.Runner
@@ -157,7 +196,6 @@ executable parser-quickcheck-batch
     , Test.Properties.TypeRoundTrip
   build-depends:
       base >=4.16 && <5
-    , aihc-parser
     , aihc-cpp
     , text
     , aeson
@@ -171,7 +209,7 @@ executable parser-quickcheck-batch
     , time
     , prettyprinter
   ghc-options:        -Wall -Werror
-  default-language: Haskell2010
+  default-language: GHC2021
 
 executable lexer-progress
   hs-source-dirs:
