@@ -49,7 +49,7 @@ oracleModuleAstFingerprint sourceTag edition extNames input =
       initialExts = computeEffectiveExtensions edition extNames initialPragmas
       preprocessedInput =
         if Syntax.CPP `elem` initialExts
-          then resultOutput (preprocessForParserWithoutIncludes sourceTag input)
+          then resultOutput (preprocessForParserWithoutIncludes sourceTag [] input)
           else input
    in oracleModuleAstFingerprintNoCPP sourceTag edition extNames preprocessedInput
 

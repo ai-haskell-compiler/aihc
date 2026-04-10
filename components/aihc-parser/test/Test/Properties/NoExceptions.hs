@@ -46,7 +46,7 @@ prop_preprocessorArbitraryTextNoExceptions =
     ioProperty $
       noExceptionProperty
         "preprocessForParserWithoutIncludes"
-        (preprocessForParserWithoutIncludes "QuickCheck.hs" source)
+        (preprocessForParserWithoutIncludes "QuickCheck.hs" [] source)
 
 prop_lexerArbitraryTextNoExceptions :: Property
 prop_lexerArbitraryTextNoExceptions =

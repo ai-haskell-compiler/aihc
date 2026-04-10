@@ -28,6 +28,7 @@ import Data.Text.Encoding.Error (lenientDecode)
 import Data.Version qualified as DV
 import Distribution.Compiler (CompilerFlavor (..))
 import Distribution.ModuleName (ModuleName, toFilePath)
+import Distribution.Package (unPackageName)
 import Distribution.PackageDescription
   ( BuildInfo,
     Executable,
@@ -55,12 +56,14 @@ import Distribution.PackageDescription
 import Distribution.PackageDescription.Parsec (parseGenericPackageDescription, runParseResult)
 import Distribution.Pretty (prettyShow)
 import Distribution.System (buildArch, buildOS)
+import Distribution.Types.BuildInfo (targetBuildDepends)
 import Distribution.Types.CondTree
   ( CondBranch (CondBranch),
     CondTree (condTreeComponents, condTreeData),
   )
 import Distribution.Types.Condition (Condition (..))
 import Distribution.Types.ConfVar (ConfVar (..))
+import Distribution.Types.Dependency (depPkgName)
 import Distribution.Types.GenericPackageDescription (GenericPackageDescription, genPackageFlags)
 import Distribution.Utils.Path (getSymbolicPath)
 import Distribution.Version (mkVersion, withinRange)
@@ -137,7 +140,8 @@ data FileInfo = FileInfo
   { fileInfoPath :: FilePath,
     fileInfoExtensions :: [Syntax.ExtensionSetting],
     fileInfoCppOptions :: [String],
-    fileInfoLanguage :: Maybe Syntax.LanguageEdition
+    fileInfoLanguage :: Maybe Syntax.LanguageEdition,
+    fileInfoDependencies :: [Text]
   }
   deriving (Show)
 
@@ -198,11 +202,12 @@ libraryFilesFor evalCond packageRoot tree = do
       exts = extractExtensions build
       cppOpts = cppOptions build
       lang = extractLanguage build
+      deps = extractDependencies build
   if not (buildable build)
     then pure []
     else do
       paths <- moduleFilesForBuildInfo packageRoot build moduleNames
-      pure [FileInfo path exts cppOpts lang | path <- paths]
+      pure [FileInfo path exts cppOpts lang deps | path <- paths]
 
 executableFilesFor :: (Condition ConfVar -> Bool) -> FilePath -> CondTree ConfVar c Executable -> IO [FileInfo]
 executableFilesFor evalCond packageRoot tree = do
@@ -213,12 +218,13 @@ executableFilesFor evalCond packageRoot tree = do
       exts = extractExtensions build
       cppOpts = cppOptions build
       lang = extractLanguage build
+      deps = extractDependencies build
   if not (buildable build)
     then pure []
     else do
       moduleFiles <- moduleFilesForBuildInfo packageRoot build moduleNames
       mainFiles <- existingPaths [dir </> mainPath | dir <- sourceDirs packageRoot build]
-      pure [FileInfo path exts cppOpts lang | path <- moduleFiles <> mainFiles]
+      pure [FileInfo path exts cppOpts lang deps | path <- moduleFiles <> mainFiles]
 
 extractExtensions :: BuildInfo -> [Syntax.ExtensionSetting]
 extractExtensions bi = mapMaybe (Syntax.parseExtensionSettingName . T.pack) (nub (map prettyShow (defaultExtensions bi <> oldExtensions bi)))
@@ -228,6 +234,10 @@ extractLanguage bi =
   case defaultLanguage bi of
     Just lang -> Syntax.parseLanguageEdition (T.pack (prettyShow lang))
     Nothing -> Nothing
+
+extractDependencies :: BuildInfo -> [Text]
+extractDependencies bi =
+  map (T.pack . unPackageName . depPkgName) (targetBuildDepends bi)
 
 collectCondTreeData :: (Condition v -> Bool) -> CondTree v c a -> [a]
 collectCondTreeData evalCond tree =

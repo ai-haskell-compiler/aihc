@@ -148,7 +148,7 @@ checkFile parsers verbose packageRoot info = do
   source <- readTextFileLenient file
   (preprocessed, preprocessNanos) <-
     withElapsedNanos $
-      preprocessForParserIfEnabled (fileInfoExtensions info) (fileInfoCppOptions info) file (resolveIncludeBestEffort packageRoot file) source
+      preprocessForParserIfEnabled (fileInfoExtensions info) (fileInfoCppOptions info) file (fileInfoDependencies info) (resolveIncludeBestEffort packageRoot file) source
   let source' = resultOutput preprocessed
       cppErrors = [diagToText diag | diag <- resultDiagnostics preprocessed, diagSeverity diag == Error]
       cppErrorMsg =
