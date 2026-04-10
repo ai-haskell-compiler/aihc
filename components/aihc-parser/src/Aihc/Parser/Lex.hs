@@ -119,7 +119,7 @@ lexTokensFromChunksWithExtensions = lexChunksWithExtensions False "<input>"
 
 lexChunksWithExtensions :: Bool -> FilePath -> [Extension] -> [Text] -> [LexToken]
 lexChunksWithExtensions enableModuleLayout sourceName exts chunks =
-  applyLayoutTokens enableModuleLayout (scanTokens env initialLexerState)
+  applyLayoutTokens enableModuleLayout exts (scanTokens env initialLexerState)
   where
     (env, initialLexerState) = mkInitialLexerState sourceName exts (T.concat chunks)
 

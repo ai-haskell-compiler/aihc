@@ -1,8 +1,8 @@
-{- ORACLE_TEST xfail NondecreasingIndentation with nested do blocks in lambda fails to parse -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE NondecreasingIndentation #-}
 
 -- NondecreasingIndentation allows nested do blocks at the same indentation level,
--- but the parser fails to handle this correctly with nested lambdas.
+-- including with nested lambdas.
 
 module NondecreasingNestedDo where
 
