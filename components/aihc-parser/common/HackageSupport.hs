@@ -53,10 +53,10 @@ import Distribution.PackageDescription
     oldExtensions,
     otherModules,
   )
-import Distribution.Types.BuildInfo (targetBuildDepends)
 import Distribution.PackageDescription.Parsec (parseGenericPackageDescription, runParseResult)
 import Distribution.Pretty (prettyShow)
 import Distribution.System (buildArch, buildOS)
+import Distribution.Types.BuildInfo (targetBuildDepends)
 import Distribution.Types.CondTree
   ( CondBranch (CondBranch),
     CondTree (condTreeComponents, condTreeData),
