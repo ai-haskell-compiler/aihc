@@ -1,0 +1,6 @@
+extensions: []
+input: '"a\"b"'
+tokens:
+  - 'TkString "a\"b"'
+  - 'TkEOF'
+status: pass

@@ -9,11 +9,9 @@ module Aihc.Parser.Lex.Quoted
   )
 where
 
-import Control.Monad.ST (runST)
 import Data.Char (chr, digitToInt, isDigit, isHexDigit, isSpace, ord)
 import Data.List qualified as List
 import Data.Maybe (mapMaybe)
-import Data.STRef.Strict (newSTRef, readSTRef, writeSTRef)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Lazy qualified as TL
@@ -22,63 +20,69 @@ import Data.Text.Lazy.Builder qualified as TLB
 -- | Scan a quoted string body (after the opening delimiter) until the
 -- unescaped closing character.  Returns @Right (body, rest)@ on success or
 -- @Left body@ if the input ends without a closing delimiter.
---
--- The predicate is stateful (tracking whether the previous character was an
--- unescaped backslash) via an STRef, so the only allocation is the single
--- @(Text, Text)@ pair produced by 'T.spanM'.
 scanQuoted :: Char -> Text -> Either Text (Text, Text)
-scanQuoted endCh input = runST $ do
-  escapedRef <- newSTRef False
-  (body, rest) <- T.spanM (step escapedRef) input
-  pure $ case T.uncons rest of
-    Just (_, rest') -> Right (body, rest')
-    Nothing -> Left body
+scanQuoted endCh input = go 0 input
   where
-    step escapedRef c = do
-      escaped <- readSTRef escapedRef
-      if escaped
-        then writeSTRef escapedRef False >> pure True
-        else
-          if c == endCh
-            then pure False
-            else writeSTRef escapedRef (c == '\\') >> pure True
+    go consumed rest =
+      case T.findIndex (\c -> c == '\\' || c == endCh) rest of
+        Nothing -> Left (T.take (consumed + T.length rest) input)
+        Just i ->
+          let consumed' = consumed + i
+              special = T.drop i rest
+           in if T.null special
+                then Left (T.take consumed' input)
+                else case T.head special of
+                  c
+                    | c == endCh -> Right (T.take consumed' input, T.drop 1 special)
+                    | otherwise ->
+                        case consumedEscapeTail (T.drop 1 special) of
+                          Just tailLen -> go (consumed' + 1 + tailLen) (T.drop tailLen (T.drop 1 special))
+                          Nothing -> Left (T.take (consumed' + 1) input)
 
 -- | Scan a multiline string body (after the opening @\"\"\"@) until an
 -- unescaped closing @\"\"\"@.  Returns @Right (body, rest)@ on success or
 -- @Left body@ if the input ends without a closing delimiter.
---
--- Two STRefs track the escape flag and the count of consecutive unescaped
--- @\"@ characters seen so far (0, 1, or 2).  'T.spanM' stops when the third
--- @\"@ is encountered; the two accumulated quotes are stripped from the body
--- tail with 'T.dropEnd'.
 scanMultilineString :: Text -> Either Text (Text, Text)
-scanMultilineString input = runST $ do
-  escapedRef <- newSTRef False
-  quotesRef <- newSTRef (0 :: Int)
-  (body, rest) <- T.spanM (step escapedRef quotesRef) input
-  pure $
-    if T.null rest
-      then Left body
-      else Right (T.dropEnd 2 body, T.tail rest)
+scanMultilineString input = go 0 input
   where
-    step escapedRef quotesRef c = do
-      escaped <- readSTRef escapedRef
-      if escaped
-        then do
-          writeSTRef escapedRef False
-          writeSTRef quotesRef 0
-          pure True
-        else case c of
-          '\\' -> do
-            writeSTRef escapedRef True
-            writeSTRef quotesRef 0
-            pure True
-          '"' -> do
-            q <- readSTRef quotesRef
-            if q == 2
-              then pure False
-              else writeSTRef quotesRef (q + 1) >> pure True
-          _ -> writeSTRef quotesRef 0 >> pure True
+    go consumed rest =
+      case T.findIndex (\c -> c == '\\' || c == '"') rest of
+        Nothing -> Left (T.take (consumed + T.length rest) input)
+        Just i ->
+          let consumed' = consumed + i
+              special = T.drop i rest
+           in if T.null special
+                then Left (T.take consumed' input)
+                else case T.head special of
+                  '\\' ->
+                    case consumedEscapeTail (T.drop 1 special) of
+                      Just tailLen -> go (consumed' + 1 + tailLen) (T.drop tailLen (T.drop 1 special))
+                      Nothing -> Left (T.take (consumed' + 1) input)
+                  '"' ->
+                    if "\"\"\"" `T.isPrefixOf` special
+                      then Right (T.take consumed' input, T.drop 3 special)
+                      else
+                        if "\"\"" `T.isPrefixOf` special
+                          then go (consumed' + 2) (T.drop 2 special)
+                          else go (consumed' + 1) (T.drop 1 special)
+                  _ -> error "unreachable: findIndex only returns backslash or quote"
+
+-- | Determine how much text after a backslash belongs to the current
+-- escape-like sequence for delimiter scanning purposes.
+--
+-- We intentionally recognize string gaps here so a gap-closing backslash does
+-- not incorrectly escape the following quote.
+consumedEscapeTail :: Text -> Maybe Int
+consumedEscapeTail rest =
+  if T.null rest
+    then Nothing
+    else
+      let c = T.head rest
+       in if isSpace c
+            then case T.findIndex (not . isSpace) rest of
+              Just i | T.index rest i == '\\' -> Just (i + 1)
+              _ -> Just 1
+            else Just 1
 
 -- | Decode the body of a Haskell string literal (content between the quotes,
 -- without the surrounding @\"@ characters) natively on 'Text', avoiding the
