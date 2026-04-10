@@ -1,5 +1,5 @@
 # Testing: 1e+_23 (invalid - underscore after sign in exponent)
-# Per GHC docs, this should be invalid
+# Per GHC docs, this should be invalid. Lexer splits it into separate tokens.
 extensions:
   - NumericUnderscores
 input: "1e+_23"
@@ -9,5 +9,4 @@ tokens:
   - 'TkVarSym "+"'
   - 'TkVarId "_23"'
   - "TkEOF"
-status: xfail
-reason: "lexer accepts underscore after sign in exponent"
+status: pass

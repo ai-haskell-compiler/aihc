@@ -1,0 +1,10 @@
+# Testing: 1e_23 (invalid - underscore directly after exponent marker)
+# GHC parses this as 1 followed by variable e_23, not a float.
+extensions:
+  - NumericUnderscores
+input: "1e_23"
+tokens:
+  - "TkInteger 1"
+  - 'TkVarId "e_23"'
+  - "TkEOF"
+status: pass

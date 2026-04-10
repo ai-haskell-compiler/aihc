@@ -1,5 +1,5 @@
 # Testing: 0._0001
-# Match GHC by splitting this as 0 . _0001 rather than a float token.
+# GHC splits this as 0 . _0001 rather than a float token.
 extensions:
   - NumericUnderscores
 input: "0._0001"
@@ -8,5 +8,4 @@ tokens:
   - 'TkVarSym "."'
   - 'TkVarId "_0001"'
   - "TkEOF"
-status: xfail
-reason: "lexer accepts underscore after decimal point"
+status: pass
