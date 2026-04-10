@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail parser rejects tilde in constrained type with zero-arity constraint -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE GHC2021 #-}
 
 f :: (() ~ () => a) -> a
