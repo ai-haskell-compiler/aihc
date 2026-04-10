@@ -1298,7 +1298,9 @@ typeFamilyHeadParser =
   where
     prefixHeadParser = do
       headType <- withSpan $ do
-        name <- constructorNameParser
+        name <-
+          constructorNameParser
+            <|> (qualifyName Nothing <$> parens operatorUnqualifiedNameParser)
         pure (\span' -> TCon span' name Unpromoted)
       params <- MP.many typeParamParser
       pure (TypeHeadPrefix, headType, params)

@@ -1,7 +1,7 @@
-{- ORACLE_TEST xfail TypeFamilies with TypeOperators fails to parse operator as type family name -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE TypeOperators, TypeFamilies #-}
 
--- Type families with operator names are not supported by the parser.
+-- Type families with operator names are supported.
 
 module TypeFamilyOperator where
 
