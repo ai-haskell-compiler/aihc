@@ -16,6 +16,6 @@ qc:
 
 # Run full CI check: format, lint, then tests
 check:
-  nix develop -c ormolu --mode check $(find . -name '*.hs' -not -path './dist-*/*')
-  nix develop -c hlint .
+  nix develop --command bash -c 'ormolu --mode check $(find components -name "*.hs" -not -path "*/test/Test/Fixtures/*")'
+  nix develop --command bash -c 'hlint $(find components -name "*.hs" -not -path "*/test/Test/Fixtures/*")'
   cabal test -v0 all --test-options='--hide-successes'
