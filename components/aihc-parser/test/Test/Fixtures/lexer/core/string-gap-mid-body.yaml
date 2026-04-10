@@ -1,5 +1,6 @@
 extensions: []
-input: "\"ab\\\n\\cd\""
+input: '"ab\
+  \cd"'
 tokens:
   - 'TkString "abcd"'
   - 'TkEOF'

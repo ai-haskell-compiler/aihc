@@ -1,5 +1,6 @@
 extensions: []
-input: "\"\\\n\\\""
+input: '"\
+  \"'
 tokens:
   - 'TkString ""'
   - 'TkEOF'

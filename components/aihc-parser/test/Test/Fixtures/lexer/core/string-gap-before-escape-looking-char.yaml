@@ -1,5 +1,6 @@
 extensions: []
-input: "\"\\\n\\c\""
+input: '"\
+  \c"'
 tokens:
   - 'TkString "c"'
   - 'TkEOF'

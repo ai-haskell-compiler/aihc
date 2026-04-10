@@ -1,5 +1,5 @@
 extensions: []
-input: "\"a\\\"b\""
+input: '"a\"b"'
 tokens:
   - 'TkString "a\"b"'
   - 'TkEOF'
