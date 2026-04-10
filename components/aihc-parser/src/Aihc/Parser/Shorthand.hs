@@ -372,6 +372,7 @@ docDerivingClause dc =
       optionalField "strategy" docDerivingStrategy (derivingStrategy dc)
         <> listField "classes" docType (derivingClasses dc)
         <> optionalField "viaType" docType (derivingViaType dc)
+        <> boolField "parenthesized" (derivingParenthesized dc)
 
 docDerivingStrategy :: DerivingStrategy -> Doc ann
 docDerivingStrategy ds =

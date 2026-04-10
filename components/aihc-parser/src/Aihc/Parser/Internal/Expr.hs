@@ -1168,27 +1168,36 @@ parenExprParser = withSpan $ do
                       rhs <- region "after infix operator" lexpParser
                       more <-
                         MP.many
-                          ( (,)
-                              <$> infixOperatorParserExcept []
-                              <*> region "after infix operator" lexpParser
+                          ( MP.try
+                              ( (,)
+                                  <$> infixOperatorParserExcept []
+                                  <*> region "after infix operator" lexpParser
+                              )
                           )
                       let fullInfix = foldl buildInfix base ((op, rhs) : more)
-                      -- Arrow tail after infix chain
-                      mArrow <- MP.optional arrowTailParser
-                      let withArrow = case mArrow of
-                            Just (arrowOp, arrowRhs) -> EInfix (mergeSourceSpans (getSourceSpan fullInfix) (getSourceSpan arrowRhs)) fullInfix arrowOp arrowRhs
-                            Nothing -> fullInfix
-                      -- Type annotation has lower precedence than all infix ops.
-                      mTypeSig <- MP.optional (expectedTok TkReservedDoubleColon *> typeParser)
-                      let typed = case mTypeSig of
-                            Just ty -> ETypeSig (mergeSourceSpans (getSourceSpan withArrow) (getSourceSpan ty)) withArrow ty
-                            Nothing -> withArrow
-                      -- Where clause wraps the entire expression.
-                      mWhere <- MP.optional whereClauseParser
-                      let fullExpr = case mWhere of
-                            Just decls -> EWhereDecls (mergeSourceSpans (getSourceSpan typed) (sourceSpanEnd decls)) typed decls
-                            Nothing -> typed
-                      finishBoxed closeTok (Just fullExpr)
+                      -- Check for trailing operator to form a left section: (expr1 op1 expr2 op2)
+                      mTrailingOp <- MP.optional (infixOperatorParserExcept [])
+                      case mTrailingOp of
+                        Just trailOp -> do
+                          expectedTok closeTok
+                          pure (\span' -> EParen span' (ESectionL span' fullInfix trailOp))
+                        Nothing -> do
+                          -- Arrow tail after infix chain
+                          mArrow <- MP.optional arrowTailParser
+                          let withArrow = case mArrow of
+                                Just (arrowOp, arrowRhs) -> EInfix (mergeSourceSpans (getSourceSpan fullInfix) (getSourceSpan arrowRhs)) fullInfix arrowOp arrowRhs
+                                Nothing -> fullInfix
+                          -- Type annotation has lower precedence than all infix ops.
+                          mTypeSig <- MP.optional (expectedTok TkReservedDoubleColon *> typeParser)
+                          let typed = case mTypeSig of
+                                Just ty -> ETypeSig (mergeSourceSpans (getSourceSpan withArrow) (getSourceSpan ty)) withArrow ty
+                                Nothing -> withArrow
+                          -- Where clause wraps the entire expression.
+                          mWhere <- MP.optional whereClauseParser
+                          let fullExpr = case mWhere of
+                                Just decls -> EWhereDecls (mergeSourceSpans (getSourceSpan typed) (sourceSpanEnd decls)) typed decls
+                                Nothing -> typed
+                          finishBoxed closeTok (Just fullExpr)
       where
         parseSectionR forbidden = do
           op <- infixOperatorParserExcept forbidden <|> arrowSectionOperatorParser

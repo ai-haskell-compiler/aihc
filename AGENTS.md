@@ -10,6 +10,19 @@
 - Create PRs: `gh pr create --base main --head <branch> --title "<title>" --body $(cat <file>)`
 - PR titles should follow the same Conventional Commits format as commit messages (see below)
 
+## Just Commands
+
+This project uses [Just](https://just.systems) as a command runner. Common commands:
+
+- `just test` — Run all tests with hidden successes
+- `just replay "<seed>"` — Replay a specific QuickCheck test case (e.g., `just replay "(SMGen 6995563131902519991 12189532712049121349,3)"`)
+- `just qc` — Run QuickCheck with 10,000 tests in an infinite loop until failure
+- `just check` — Run ormolu format check, hlint, then full test suite (useful before opening a PR)
+
+## Branch Policy
+
+**Pushes to `main` are blocked.** All work should be done in feature branches. Create a feature branch for any changes, then open a PR to merge into `main`.
+
 ## Cheatsheet
 
 - Test whether a file is accepted by GHC: `ghc -v0 -fno-code -ddump-parsed file.hs`. Return code 0 means the snippet is valid, non-zero means it is invalid.

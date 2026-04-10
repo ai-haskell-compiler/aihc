@@ -33,6 +33,7 @@ import Prettyprinter
     brackets,
     comma,
     hsep,
+    nest,
     parens,
     punctuate,
     semi,
@@ -653,7 +654,7 @@ derivingParts :: [DerivingClause] -> [Doc ann]
 derivingParts = concatMap derivingPart
 
 derivingPart :: DerivingClause -> [Doc ann]
-derivingPart (DerivingClause strategy classes viaTy) =
+derivingPart (DerivingClause strategy classes viaTy parenthesized) =
   ["deriving"] <> strategyPart strategy <> classesPart classes <> viaPart viaTy
   where
     strategyPart Nothing = []
@@ -663,7 +664,7 @@ derivingPart (DerivingClause strategy classes viaTy) =
 
     classesPart [] = ["()"]
     classesPart [single]
-      | Just DerivingStock <- strategy = [parens (prettyContextItem single)]
+      | parenthesized = [parens (prettyContextItem single)]
       | otherwise = [prettyContextItem single]
     classesPart _ = [parens (hsep (punctuate comma (map prettyContextItem classes)))]
 
@@ -723,7 +724,7 @@ prettyDataCon ctor =
               ( punctuate
                   comma
                   [ hsep
-                      [ hsep (punctuate comma (map pretty (fieldNames fld))),
+                      [ hsep (punctuate comma (map prettyFieldName (fieldNames fld))),
                         "::",
                         prettyRecordFieldBangType (fieldType fld)
                       ]
@@ -731,6 +732,12 @@ prettyDataCon ctor =
                   ]
               )
           )
+      where
+        -- Wrap operator names in parentheses for correct parsing
+        prettyFieldName :: Text -> Doc ann
+        prettyFieldName fieldName
+          | isOperatorToken fieldName = parens (pretty fieldName)
+          | otherwise = pretty fieldName
     GadtCon _ forallBinders constraints names body ->
       prettyGadtCon forallBinders constraints names body
 
@@ -769,13 +776,19 @@ prettyRecordFields fields =
     ( punctuate
         comma
         [ hsep
-            [ hsep (punctuate comma (map pretty (fieldNames fld))),
+            [ hsep (punctuate comma (map prettyFieldName (fieldNames fld))),
               "::",
               prettyRecordFieldBangType (fieldType fld)
             ]
         | fld <- fields
         ]
     )
+  where
+    -- Wrap operator names in parentheses for correct parsing
+    prettyFieldName :: Text -> Doc ann
+    prettyFieldName name
+      | isOperatorToken name = parens (pretty name)
+      | otherwise = pretty name
 
 dataConQualifierPrefix :: [Text] -> [Type] -> [Doc ann]
 dataConQualifierPrefix forallVars constraints = forallPrefix forallVars <> contextPrefix constraints
@@ -881,7 +894,7 @@ prettyInstanceDecl decl =
           )
    in case instanceDeclItems decl of
         [] -> headDoc
-        items -> headDoc <+> "where" <+> braces (hsep (punctuate semi (map prettyInstanceItem items)))
+        items -> vsep [headDoc <+> "where", nest 2 (braces (vsep (punctuate semi (map prettyInstanceItem items))))]
 
 prettyInstanceWarning :: WarningText -> Doc ann
 prettyInstanceWarning (DeprText _ msg) = "{-# DEPRECATED " <> pretty (show msg) <> " #-}"
@@ -1341,8 +1354,13 @@ prettyExprPrec prec expr =
             (prec > 1)
             (prettyExprIn CtxInfixLhs lhs <+> prettyNameInfixOp op <+> prettyExprIn (CtxInfixRhs (prec == 1)) rhs)
     ENegate _ inner -> parenthesize (prec > 2) (prettyNegate inner)
-    ESectionL _ lhs op -> parens (prettyExprPrec 3 lhs <+> prettyNameInfixOp op)
-    ESectionR _ op rhs -> parens (prettyNameInfixOp op <+> prettyExprPrec 0 rhs)
+    ESectionL _ lhs op ->
+      -- Type signatures need extra parens in section LHS to avoid ambiguity
+      let lhsDoc = case lhs of
+            ETypeSig {} -> parens (prettyExprPrec 0 lhs)
+            _ -> prettyExprPrec 1 lhs
+       in parens (lhsDoc <+> prettyInfixOp op)
+    ESectionR _ op rhs -> parens (prettyInfixOp op <+> prettyExprPrec 0 rhs)
     ELetDecls _ decls body ->
       parenthesize
         (prec > 0)

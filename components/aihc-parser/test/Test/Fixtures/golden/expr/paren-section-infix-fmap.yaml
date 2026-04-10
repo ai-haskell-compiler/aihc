@@ -1,0 +1,5 @@
+extensions: [GHC2021]
+input: |
+  (a . b <$>)
+ast: EParen (ESectionL (EInfix (EVar "a") "." (EVar "b")) "<$>")
+status: pass
