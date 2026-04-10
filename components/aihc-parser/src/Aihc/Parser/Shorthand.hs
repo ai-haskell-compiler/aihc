@@ -583,7 +583,7 @@ docPattern :: Pattern -> Doc ann
 docPattern pat =
   case pat of
     PAnn _ sub -> docPattern sub
-    PVar _ name -> "PVar" <+> docName name
+    PVar _ name -> "PVar" <+> docUnqualifiedName name
     PWildcard _ -> "PWildcard"
     PLit _ lit -> "PLit" <+> parens (docLiteral lit)
     PQuasiQuote _ quoter body -> "PQuasiQuote" <+> docText quoter <+> docText body

@@ -549,7 +549,7 @@ prettyPatternInTuple pat =
 prettyPatternFieldBinding :: Name -> Pattern -> Doc ann
 prettyPatternFieldBinding fieldName fieldPat =
   case fieldPat of
-    PVar _ varName | renderName varName == renderName fieldName -> pretty fieldName -- NamedFieldPuns: punned form
+    PVar _ varName | renderUnqualifiedName varName == renderName fieldName -> pretty fieldName -- NamedFieldPuns: punned form
     _ -> pretty fieldName <+> "=" <+> prettyPattern fieldPat
 
 prettyPatternAtom :: Pattern -> Doc ann

@@ -21,6 +21,7 @@ module Aihc.Parser.Internal.CheckPattern
 where
 
 import Aihc.Parser.Syntax
+import Data.Maybe (isJust)
 import Data.Text (Text)
 
 -- | Convert an expression tree into a pattern.
@@ -31,9 +32,10 @@ checkPattern expr = case expr of
   EAnn _ sub -> checkPattern sub
   -- Variables and constructors
   EVar sp name
-    | renderName name == "_" -> Right (PWildcard sp)
+    | nameText name == "_" -> Right (PWildcard sp)
     | isConLikeName name -> Right (PCon sp name [])
-    | otherwise -> Right (PVar sp name)
+    | isJust (nameQualifier name) -> Left ("unexpected qualified name in pattern")
+    | otherwise -> Right (PVar sp (mkUnqualifiedName (nameType name) (nameText name)))
   -- Parenthesized expression
   EParen sp inner -> PParen sp <$> checkPattern inner
   -- Tuple

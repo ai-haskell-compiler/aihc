@@ -1063,7 +1063,7 @@ data TupleFlavor
 
 data Pattern
   = PAnn Annotation Pattern
-  | PVar SourceSpan Name
+  | PVar SourceSpan UnqualifiedName
   | PWildcard SourceSpan
   | PLit SourceSpan Literal
   | PQuasiQuote SourceSpan Text Text
@@ -1781,7 +1781,7 @@ valueDeclBinderName vdecl =
     FunctionBind _ name _ -> Just name
     PatternBind _ pat _ ->
       case pat of
-        PVar _ name -> Just (mkUnqualifiedName (nameType name) (nameText name))
+        PVar _ name -> Just name
         _ -> Nothing
 
 declValueBinderNames :: Decl -> [UnqualifiedName]
