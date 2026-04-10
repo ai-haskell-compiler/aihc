@@ -78,6 +78,7 @@ buildTests = do
             testCase "does not misclassify line-start #) as a directive" test_lineStartHashTokenIsNotDirective,
             testCase "lexes overloaded labels as single tokens" test_overloadedLabelLexesAsSingleToken,
             testCase "lexes quoted overloaded labels" test_quotedOverloadedLabelLexes,
+            testCase "lexes string gaps before a closing quote" test_stringGapBeforeClosingQuoteLexes,
             testCase "parses overloaded label expressions" test_overloadedLabelExprParses,
             testCase "applies LINE pragmas to subsequent tokens" test_linePragmaUpdatesSpan,
             testCase "applies COLUMN pragmas to subsequent tokens" test_columnPragmaUpdatesSpan,
@@ -738,6 +739,15 @@ test_quotedOverloadedLabelLexes =
   case lexTokensWithExtensions [OverloadedLabels] "#\"The quick brown fox\"" of
     [LexToken {lexTokenKind = TkOverloadedLabel "The quick brown fox" "#\"The quick brown fox\""}, LexToken {lexTokenKind = TkEOF}] -> pure ()
     other -> assertFailure ("expected quoted overloaded label token, got: " <> show other)
+
+test_stringGapBeforeClosingQuoteLexes :: Assertion
+test_stringGapBeforeClosingQuoteLexes = do
+  case lexTokens (T.pack "\"\\\n\\\"") of
+    [LexToken {lexTokenKind = TkString ""}, LexToken {lexTokenKind = TkEOF}] -> pure ()
+    other -> assertFailure ("expected empty string token after string gap, got: " <> show other)
+  case lexTokens (T.pack "\"\\\n\\c\"") of
+    [LexToken {lexTokenKind = TkString "c"}, LexToken {lexTokenKind = TkEOF}] -> pure ()
+    other -> assertFailure ("expected string token with literal c after string gap, got: " <> show other)
 
 test_overloadedLabelExprParses :: Assertion
 test_overloadedLabelExprParses =

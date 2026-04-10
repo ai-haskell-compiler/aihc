@@ -1,0 +1,12 @@
+extensions: [MultilineStrings]
+input: |
+  """
+  Line 1
+  Line 2
+  Line 3\
+  \"""
+ast: "EString \"Line 1\nLine 2\nLine 3\""
+status: pass
+comment: |
+  A string gap can appear immediately before the closing multiline delimiter.
+  The gap is collapsed before delimiter detection, so the trailing newline is omitted.
