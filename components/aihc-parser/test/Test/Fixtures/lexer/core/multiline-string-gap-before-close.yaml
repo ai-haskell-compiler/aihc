@@ -1,0 +1,11 @@
+extensions: [MultilineStrings]
+input: |
+  """
+  Line 1
+  Line 2
+  Line 3\
+  \"""
+tokens:
+  - 'TkString "Line 1\nLine 2\nLine 3"'
+  - 'TkEOF'
+status: pass

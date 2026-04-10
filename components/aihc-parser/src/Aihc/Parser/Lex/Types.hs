@@ -42,6 +42,7 @@ module Aihc.Parser.Lex.Types
 where
 
 import Aihc.Parser.Syntax
+import Aihc.Parser.Syntax qualified as Syntax
 import Control.DeepSeq (NFData)
 import Data.Char (ord)
 import Data.Set (Set)
@@ -252,7 +253,8 @@ data LayoutState = LayoutState
     layoutPrevTokenKind :: !(Maybe LexTokenKind),
     layoutModuleMode :: !ModuleLayoutMode,
     layoutPrevTokenEndSpan :: !(Maybe SourceSpan),
-    layoutBuffer :: [LexToken]
+    layoutBuffer :: [LexToken],
+    layoutNondecreasingIndent :: !Bool
   }
   deriving (Eq, Show)
 
@@ -287,8 +289,8 @@ mkInitialLexerState sourceName exts input =
       }
   )
 
-mkInitialLayoutState :: Bool -> LayoutState
-mkInitialLayoutState enableModuleLayout =
+mkInitialLayoutState :: Bool -> [Extension] -> LayoutState
+mkInitialLayoutState enableModuleLayout exts =
   LayoutState
     { layoutContexts = [],
       layoutPendingLayout = Nothing,
@@ -299,7 +301,8 @@ mkInitialLayoutState enableModuleLayout =
           then ModuleLayoutSeekStart
           else ModuleLayoutOff,
       layoutPrevTokenEndSpan = Nothing,
-      layoutBuffer = []
+      layoutBuffer = [],
+      layoutNondecreasingIndent = Syntax.NondecreasingIndentation `elem` exts
     }
 
 mkToken :: LexerState -> LexerState -> Text -> LexTokenKind -> LexToken

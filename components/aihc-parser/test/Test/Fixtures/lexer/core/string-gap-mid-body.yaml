@@ -1,0 +1,7 @@
+extensions: []
+input: '"ab\
+  \cd"'
+tokens:
+  - 'TkString "abcd"'
+  - 'TkEOF'
+status: pass

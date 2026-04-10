@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail guarded patterns in class method bodies fail to parse -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE GHC2021 #-}
 
 class C a where

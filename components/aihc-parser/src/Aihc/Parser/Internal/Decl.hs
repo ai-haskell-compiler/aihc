@@ -261,9 +261,9 @@ ordinaryDeclParser = do
         _ -> typeDeclarationParser
     TkVarPattern -> patternSynonymParser
     TkSpecialLParen -> typeSigOrPatternOrValueOrSpliceParser
-    TkSpecialLBracket -> patternOrSpliceParser
-    TkPrefixTilde -> patternOrSpliceParser
-    TkKeywordUnderscore -> patternOrSpliceParser
+    TkSpecialLBracket -> typeSigOrPatternOrValueOrSpliceParser
+    TkPrefixTilde -> typeSigOrPatternOrValueOrSpliceParser
+    TkKeywordUnderscore -> typeSigOrPatternOrValueOrSpliceParser
     TkTHSplice -> spliceDeclParser
     _ -> typeSigOrValueOrSpliceParser
 
@@ -839,9 +839,8 @@ classFixityItemParser = withSpan $ do
 classDefaultItemParser :: TokParser ClassDeclItem
 classDefaultItemParser = withSpan $ do
   (headForm, name, pats) <- functionHeadParserWith patternParser simplePatternParser
-  expectedTok TkReservedEquals
-  rhsExpr <- exprParser
-  pure (\span' -> ClassItemDefault span' (functionBindValue span' headForm name pats (UnguardedRhs span' rhsExpr)))
+  rhs <- equationRhsParser
+  pure (\span' -> ClassItemDefault span' (functionBindValue span' headForm name pats rhs))
 
 instanceDeclParser :: TokParser Decl
 instanceDeclParser = withSpan $ do

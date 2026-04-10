@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail multiline string with escaped quote and backslash-newline continuation -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE OverloadedStrings #-}
 
 x = [

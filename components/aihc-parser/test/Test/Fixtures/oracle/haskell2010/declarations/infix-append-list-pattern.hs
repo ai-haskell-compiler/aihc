@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail reason="infix function definition with list pattern not handled" -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE GHC2021 #-}
 module InfixAppendListPattern where
 
