@@ -1,5 +1,5 @@
 extensions: [GHC2021]
 input: |
-  map (n-1-) ks
-status: xfail
-reason: Operator section with trailing minus in parentheses. Parser emits TkSpecialRParen after partial section, failing to recognize (n-1-) as a valid operator section.
+  (n-1-)
+ast: EParen (ESectionL (EInfix (EVar "n") "-" (EInt 1)) "-")
+status: pass

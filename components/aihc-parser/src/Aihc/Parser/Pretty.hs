@@ -1306,7 +1306,12 @@ prettyExprPrec prec expr =
             (prec > 1)
             (prettyExprIn CtxInfixLhs lhs <+> prettyInfixOp op <+> prettyExprIn (CtxInfixRhs (prec == 1)) rhs)
     ENegate _ inner -> parenthesize (prec > 2) (prettyNegate inner)
-    ESectionL _ lhs op -> parens (prettyExprPrec 3 lhs <+> prettyInfixOp op)
+    ESectionL _ lhs op ->
+      -- Type signatures need extra parens in section LHS to avoid ambiguity
+      let lhsDoc = case lhs of
+            ETypeSig {} -> parens (prettyExprPrec 0 lhs)
+            _ -> prettyExprPrec 1 lhs
+       in parens (lhsDoc <+> prettyInfixOp op)
     ESectionR _ op rhs -> parens (prettyInfixOp op <+> prettyExprPrec 0 rhs)
     ELetDecls _ decls body ->
       parenthesize

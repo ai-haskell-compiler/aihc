@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail reason="parenthesized section with fmap operator not handled" -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE GHC2021 #-}
 module ParenSectionFmap where
 
