@@ -1244,7 +1244,8 @@ instance HasSourceSpan FieldDecl where
 data DerivingClause = DerivingClause
   { derivingStrategy :: Maybe DerivingStrategy,
     derivingClasses :: [Type],
-    derivingViaType :: Maybe Type
+    derivingViaType :: Maybe Type,
+    derivingParenthesized :: Bool
   }
   deriving (Data, Eq, Show, Generic, NFData)
 

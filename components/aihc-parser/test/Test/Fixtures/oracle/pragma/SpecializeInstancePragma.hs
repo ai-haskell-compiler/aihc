@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail SPECIALIZE instance pragma not preserved in pretty-printer roundtrip -}
+{- ORACLE_TEST pass -}
 module SpecializeInstancePragma where
 
 data Foo a = Foo a

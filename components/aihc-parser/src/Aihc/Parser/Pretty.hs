@@ -33,6 +33,7 @@ import Prettyprinter
     brackets,
     comma,
     hsep,
+    nest,
     parens,
     punctuate,
     semi,
@@ -652,7 +653,7 @@ derivingParts :: [DerivingClause] -> [Doc ann]
 derivingParts = concatMap derivingPart
 
 derivingPart :: DerivingClause -> [Doc ann]
-derivingPart (DerivingClause strategy classes viaTy) =
+derivingPart (DerivingClause strategy classes viaTy parenthesized) =
   ["deriving"] <> strategyPart strategy <> classesPart classes <> viaPart viaTy
   where
     strategyPart Nothing = []
@@ -662,7 +663,7 @@ derivingPart (DerivingClause strategy classes viaTy) =
 
     classesPart [] = ["()"]
     classesPart [single]
-      | Just DerivingStock <- strategy = [parens (prettyContextItem single)]
+      | parenthesized = [parens (prettyContextItem single)]
       | otherwise = [prettyContextItem single]
     classesPart _ = [parens (hsep (punctuate comma (map prettyContextItem classes)))]
 
@@ -880,7 +881,7 @@ prettyInstanceDecl decl =
           )
    in case instanceDeclItems decl of
         [] -> headDoc
-        items -> headDoc <+> "where" <+> braces (hsep (punctuate semi (map prettyInstanceItem items)))
+        items -> vsep [headDoc <+> "where", nest 2 (braces (vsep (punctuate semi (map prettyInstanceItem items))))]
 
 prettyInstanceWarning :: WarningText -> Doc ann
 prettyInstanceWarning (DeprText _ msg) = "{-# DEPRECATED " <> pretty (show msg) <> " #-}"

@@ -1388,12 +1388,12 @@ derivingClauseParser :: TokParser DerivingClause
 derivingClauseParser = do
   expectedTok TkKeywordDeriving
   strategy <- MP.optional derivingStrategyParser
-  classes <- parenClasses <|> singleClass
+  (classes, parenthesized) <- parenClasses <|> singleClass
   viaTy <- MP.optional derivingViaTypeParser
-  pure (DerivingClause strategy classes viaTy)
+  pure (DerivingClause strategy classes viaTy parenthesized)
   where
-    singleClass = (: []) <$> contextItemParserWith typeParser typeAtomParser
-    parenClasses = parens $ contextItemParserWith typeParser typeAtomParser `MP.sepEndBy` expectedTok TkSpecialComma
+    singleClass = (\c -> ([c], False)) <$> contextItemParserWith typeParser typeAtomParser
+    parenClasses = fmap (,True) $ parens $ contextItemParserWith typeParser typeAtomParser `MP.sepEndBy` expectedTok TkSpecialComma
 
 derivingViaTypeParser :: TokParser Type
 derivingViaTypeParser = do
