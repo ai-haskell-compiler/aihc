@@ -62,7 +62,8 @@ import Aihc.Parser.Lex.Numbers
   )
 import Aihc.Parser.Lex.Pragmas (tryParsePragma)
 import Aihc.Parser.Lex.Quoted
-  ( processMultilineString,
+  ( decodeStringBody,
+    processMultilineString,
     readMaybeChar,
     scanMultilineString,
     scanQuoted,
@@ -78,6 +79,7 @@ import Aihc.Parser.Lex.Trivia
 import Aihc.Parser.Lex.Types
 import Aihc.Parser.Syntax
 import Data.Char (GeneralCategory (..), generalCategory, isAscii, isAsciiLower, isAsciiUpper, isDigit, isSpace)
+import Control.Applicative ((<|>))
 import Data.Maybe (fromMaybe, isJust)
 import Data.Text (Text, pattern Empty, pattern (:<))
 import Data.Text qualified as T
@@ -139,94 +141,94 @@ readModuleHeaderPragmasFromChunks chunks =
 scanTokens :: LexerEnv -> LexerState -> [LexToken]
 scanTokens env st0 =
   case skipTrivia env st0 of
-    Left (tok, st) ->
+    SkipToken tok st ->
       let st' = st {lexerPrevTokenKind = Just (lexTokenKind tok), lexerHadTrivia = False}
        in tok : scanTokens env st'
-    Right st
+    SkipDone st
       | T.null (lexerInput st) -> [eofToken st]
       | otherwise ->
           let (tok, st') = nextToken env st
               st'' = st' {lexerPrevTokenKind = Just (lexTokenKind tok), lexerHadTrivia = False}
            in tok : scanTokens env st''
 
-skipTrivia :: LexerEnv -> LexerState -> Either (LexToken, LexerState) LexerState
-skipTrivia env st =
-  case consumeTrivia env st of
-    Nothing -> Right st
-    Just (Left tokAndState) -> Left tokAndState
-    Just (Right st') -> skipTrivia env st'
+data SkipResult = SkipDone !LexerState | SkipToken !LexToken !LexerState
 
-consumeTrivia :: LexerEnv -> LexerState -> Maybe (Either (LexToken, LexerState) LexerState)
-consumeTrivia _env st =
-  let inp = lexerInput st
-   in case inp of
-        Empty -> Nothing
-        c :< _
-          | isHaskellWhitespace c -> Just (Right (markHadTrivia (consumeWhile isHaskellWhitespace st)))
-          | c == '\n' -> Just (Right (markHadTrivia (advanceN 1 st)))
-        _ | Just rest <- T.stripPrefix "--" inp, isLineComment rest -> Just (Right (markHadTrivia (consumeLineComment st)))
-        _
-          | "{-#" `T.isPrefixOf` inp ->
-              case tryConsumeControlPragma st of
-                Just (Nothing, st') -> Just (Right (markHadTrivia st'))
-                Just (Just tok, st') -> Just (Left (tok, markHadTrivia st'))
-                Nothing ->
-                  -- tryParsePragma handles all pragma parsing, including unknown pragmas
-                  case tryParsePragma st of
-                    Just (tok, st') -> Just (Left (tok, markHadTrivia st'))
-                    Nothing ->
-                      -- This can happen if pragma is malformed (no closing "#-}")
-                      let consumed = lexerInput st
-                          st' = advanceChars consumed st
-                          tok = mkToken st st' consumed (TkError "malformed pragma")
-                       in Just (Left (tok, markHadTrivia st'))
-          | "{-" `T.isPrefixOf` inp ->
-              Just
-                ( case consumeBlockCommentOrError st of
-                    Right st' -> Right (markHadTrivia st')
-                    Left (tok, st') -> Left (tok, markHadTrivia st')
-                )
-        _ ->
-          case tryConsumeLineDirective st of
-            Just (Nothing, st') -> Just (Right (markHadTrivia st'))
-            Just (Just tok, st') -> Just (Left (tok, markHadTrivia st'))
-            Nothing -> Nothing
+-- | Skip whitespace, line comments, block comments, and control pragmas ({-# LINE/COLUMN #-}).
+-- Regular pragmas ({-# ... #-}) are left for 'nextToken' to handle.
+-- Returns 'SkipToken' only for error tokens from malformed/unterminated constructs.
+skipTrivia :: LexerEnv -> LexerState -> SkipResult
+skipTrivia _env st0 = go st0
+  where
+    go st =
+      let inp = lexerInput st
+       in case inp of
+            Empty -> SkipDone st
+            c :< _
+              | isHaskellWhitespace c ->
+                  go (markHadTrivia (consumeWhile isHaskellWhitespace st))
+            _ | Just rest <- T.stripPrefix "--" inp, isLineComment rest ->
+                  go (markHadTrivia (consumeLineComment st))
+            -- Check {-# before {- so control pragmas are handled first and
+            -- block comment handler does not eat pragma tokens.
+            _ | "{-#" `T.isPrefixOf` inp ->
+                  case tryConsumeControlPragma st of
+                    Just (Nothing, st') -> go (markHadTrivia st')
+                    Just (Just tok, st') -> SkipToken tok (markHadTrivia st')
+                    Nothing -> SkipDone st -- not a control pragma; let nextToken handle it
+              | "{-" `T.isPrefixOf` inp ->
+                  case consumeBlockCommentOrError st of
+                    Right st' -> go (markHadTrivia st')
+                    Left (tok, st') -> SkipToken tok (markHadTrivia st')
+            _ ->
+              case tryConsumeLineDirective st of
+                Just (Nothing, st') -> go (markHadTrivia st')
+                Just (Just tok, st') -> SkipToken tok (markHadTrivia st')
+                Nothing -> SkipDone st
 
 markHadTrivia :: LexerState -> LexerState
 markHadTrivia st = st {lexerHadTrivia = True}
 
+-- | Lex a regular pragma token ({-# ... #-}).
+-- Control pragmas (LINE, COLUMN) are handled in 'skipTrivia' and never reach here.
+-- Falls back to a 'TkError' token when the pragma has no closing "#-}".
+lexPragma :: LexerState -> Maybe (LexToken, LexerState)
+lexPragma st
+  | "{-#" `T.isPrefixOf` lexerInput st =
+      Just $ case tryParsePragma st of
+        Just result -> result
+        Nothing ->
+          -- Malformed pragma with no closing "#-}"
+          let consumed = lexerInput st
+              st' = advanceChars consumed st
+           in (mkToken st st' consumed (TkError "malformed pragma"), st')
+  | otherwise = Nothing
+
 nextToken :: LexerEnv -> LexerState -> (LexToken, LexerState)
 nextToken env st =
-  fromMaybe (lexErrorToken st "unexpected character") (firstJust tokenParsers)
-  where
-    tokenParsers =
-      [ lexTHQuoteBracket env,
-        lexQuasiQuote,
-        lexHexFloat env,
-        lexFloat env,
-        lexIntBase env,
-        lexInt env,
-        lexTHNameQuote env,
-        lexPromotedQuote env,
-        lexChar env,
-        lexString env,
-        lexTHCloseQuote env,
-        lexSymbol env,
-        lexIdentifier env,
-        lexNegativeLiteralOrMinus env,
-        lexBangOrTildeOperator,
-        lexTypeApplication env,
-        lexOverloadedLabel env,
-        lexPrefixDollar env,
-        lexImplicitParam env,
-        lexOperator env
-      ]
-
-    firstJust [] = Nothing
-    firstJust (parser : rest) =
-      case parser st of
-        Just out -> Just out
-        Nothing -> firstJust rest
+  -- Inline chain of alternatives with no intermediate list or closure allocation.
+  -- (<|>) for Maybe short-circuits on the first Just without allocating.
+  fromMaybe (lexErrorToken st "unexpected character") $
+    lexPragma st
+      <|> lexTHQuoteBracket env st
+      <|> lexQuasiQuote st
+      <|> lexHexFloat env st
+      <|> lexFloat env st
+      <|> lexIntBase env st
+      <|> lexInt env st
+      <|> lexTHNameQuote env st
+      <|> lexPromotedQuote env st
+      <|> lexChar env st
+      <|> lexString env st
+      <|> lexTHCloseQuote env st
+      <|> lexSymbol env st
+      <|> lexIdentifier env st
+      <|> lexNegativeLiteralOrMinus env st
+      <|> lexBangOrTildeOperator st
+      <|> lexTypeApplication env st
+      <|> lexOverloadedLabel env st
+      <|> lexPrefixDollar env st
+      <|> lexImplicitParam env st
+      <|> lexOperator env st
 
 stepNextToken :: LexerEnv -> LexerState -> LayoutState -> Maybe (LexToken, LexerState, LayoutState)
 stepNextToken env lexSt laySt =
@@ -240,16 +242,16 @@ stepNextToken env lexSt laySt =
           let (allToks, laySt') = layoutTransition laySt rawTok
            in case allToks of
                 [] -> Just (rawTok, lexSt', laySt')
-                first : rest ->
-                  Just (first, lexSt', laySt' {layoutBuffer = rest})
+                first : [] -> Just (first, lexSt', laySt')
+                first : rest -> Just (first, lexSt', laySt' {layoutBuffer = rest})
 
 scanOneToken :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
 scanOneToken env st0 =
   case skipTrivia env st0 of
-    Left (tok, st) ->
+    SkipToken tok st ->
       let st' = st {lexerPrevTokenKind = Just (lexTokenKind tok), lexerHadTrivia = False}
        in Just (tok, st')
-    Right st
+    SkipDone st
       | T.null (lexerInput st) ->
           case lexerPrevTokenKind st of
             Just TkEOF -> Nothing
@@ -757,10 +759,9 @@ lexString env st =
               case scanQuoted '"' rest of
                 Right (body, _) ->
                   let rawT = "\"" <> body <> "\""
-                      decoded =
-                        case reads (T.unpack rawT) of
-                          [(str, "")] -> T.pack str
-                          _ -> body
+                      decoded = case decodeStringBody body of
+                        Just d -> d
+                        Nothing -> body
                       (tokTxt, tokKind, st') =
                         withOptionalMagicHashSuffix 1 env st rawT (TkString decoded) (TkStringHash decoded)
                    in Just (mkToken st st' tokTxt tokKind, st')

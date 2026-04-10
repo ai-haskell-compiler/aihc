@@ -8,6 +8,7 @@ module Aihc.Parser.Bench.Tarball
     GenerateResult (..),
     PackageSpec (..),
     PackageInfo (..),
+    formatPackage,
     isCabalEntry,
     isHaskellEntry,
 

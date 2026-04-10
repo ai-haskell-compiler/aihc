@@ -50,7 +50,7 @@ lexIntBase env st =
                 | base `elem` ("xX" :: String) = isHexDigit
                 | base `elem` ("oO" :: String) = isOctDigit
                 | otherwise = (`elem` ("01" :: String))
-              (digitsRaw, _) = takeDigitsWithLeadingUnderscores allowUnderscores isDigitChar rest
+              (digitsRaw, _) = takeDigitsWithUnderscores allowUnderscores isDigitChar rest
            in if T.null digitsRaw
                 then Nothing
                 else
@@ -135,47 +135,26 @@ lexInt env st =
                 withOptionalMagicHashSuffix 2 env st digitsRaw (TkInteger n) (TkIntegerHash n)
            in Just (mkToken st st' tokTxt tokKind, st')
 
+-- Scan [digit]([_]*[digit])* and return a zero-copy split.
+-- Uses T.span (which tracks the byte offset while scanning, no second pass)
+-- rather than computing a character count and calling T.splitAt (which would
+-- invoke _hs_text_measure_off to re-scan for the byte offset).
+-- Trailing underscores are never consumed (e.g. "1000_" → ("1000", "_")).
+{-# INLINE takeDigitsWithUnderscores #-}
 takeDigitsWithUnderscores :: Bool -> (Char -> Bool) -> Text -> (Text, Text)
-takeDigitsWithUnderscores allowUnderscores isDigitChar chars =
-  let (firstChunk, rest) = T.span isDigitChar chars
-   in if T.null firstChunk
-        then ("", chars)
-        else
-          if allowUnderscores
-            then go firstChunk rest
-            else (firstChunk, rest)
-  where
-    go acc xs =
-      case xs of
-        '_' :< _ ->
-          let (underscores, rest') = T.span (== '_') xs
-              (chunk, rest'') = T.span isDigitChar rest'
-           in if T.null chunk
-                then (acc, xs)
-                else go (acc <> underscores <> chunk) rest''
-        _ -> (acc, xs)
+takeDigitsWithUnderscores False isDigitChar = T.span isDigitChar
+takeDigitsWithUnderscores True isDigitChar = \chars ->
+  case chars of
+    c :< _ | not (isDigitChar c) -> ("", chars)
+    _ ->
+      -- T.span finds the byte-level split point while scanning, no FFI needed.
+      let (consumed, rest) = T.span (\c -> isDigitChar c || c == '_') chars
+       in if T.last consumed /= '_'
+            then (consumed, rest)
+            else -- Rare: trailing underscores (invalid syntax). Trim them off.
+              let trimmed = T.dropWhileEnd (== '_') consumed
+               in (trimmed, T.drop (T.length trimmed) chars)
 
-takeDigitsWithLeadingUnderscores :: Bool -> (Char -> Bool) -> Text -> (Text, Text)
-takeDigitsWithLeadingUnderscores allowUnderscores isDigitChar chars
-  | not allowUnderscores =
-      let (digits, rest) = T.span isDigitChar chars
-       in (digits, rest)
-  | otherwise =
-      let (leadingUnderscores, rest0) = T.span (== '_') chars
-          (firstChunk, rest1) = T.span isDigitChar rest0
-       in if T.null firstChunk
-            then ("", chars)
-            else go (leadingUnderscores <> firstChunk) rest1
-  where
-    go acc xs =
-      case xs of
-        '_' :< _ ->
-          let (underscores, rest') = T.span (== '_') xs
-              (chunk, rest'') = T.span isDigitChar rest'
-           in if T.null chunk
-                then (acc, xs)
-                else go (acc <> underscores <> chunk) rest''
-        _ -> (acc, xs)
 
 takeExponent :: Bool -> Text -> (Text, Text)
 takeExponent allowUnderscores chars =
