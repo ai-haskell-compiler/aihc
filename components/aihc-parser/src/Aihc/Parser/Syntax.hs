@@ -1283,6 +1283,8 @@ data DataDecl = DataDecl
     dataDeclContext :: [Type],
     dataDeclName :: UnqualifiedName,
     dataDeclParams :: [TyVarBinder],
+    -- | Optional inline kind annotation (@:: Kind@) before @=@ or @where@
+    dataDeclKind :: Maybe Type,
     dataDeclConstructors :: [DataConDecl],
     dataDeclDeriving :: [DerivingClause]
   }
@@ -1296,6 +1298,8 @@ data NewtypeDecl = NewtypeDecl
     newtypeDeclContext :: [Type],
     newtypeDeclName :: UnqualifiedName,
     newtypeDeclParams :: [TyVarBinder],
+    -- | Optional inline kind annotation (@:: Kind@) before @=@ or @where@
+    newtypeDeclKind :: Maybe Type,
     newtypeDeclConstructor :: Maybe DataConDecl,
     newtypeDeclDeriving :: [DerivingClause]
   }

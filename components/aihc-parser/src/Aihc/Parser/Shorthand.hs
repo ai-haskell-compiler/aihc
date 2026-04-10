@@ -309,6 +309,7 @@ docDataDecl dd =
       [field "name" (docUnqualifiedName (dataDeclName dd))]
         <> listField "context" docType (dataDeclContext dd)
         <> listField "params" docTyVarBinder (dataDeclParams dd)
+        <> optionalField "kind" docType (dataDeclKind dd)
         <> listField "constructors" docDataConDecl (dataDeclConstructors dd)
         <> listField "deriving" docDerivingClause (dataDeclDeriving dd)
 
@@ -320,6 +321,7 @@ docNewtypeDecl nd =
       [field "name" (docUnqualifiedName (newtypeDeclName nd))]
         <> listField "context" docType (newtypeDeclContext nd)
         <> listField "params" docTyVarBinder (newtypeDeclParams nd)
+        <> optionalField "kind" docType (newtypeDeclKind nd)
         <> optionalField "constructor" docDataConDecl (newtypeDeclConstructor nd)
         <> listField "deriving" docDerivingClause (newtypeDeclDeriving nd)
 
