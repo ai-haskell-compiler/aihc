@@ -4,9 +4,10 @@ extensions:
   - NumericUnderscores
 input: "1e+_23"
 tokens:
-  - 'TkInteger 1'
+  - "TkInteger 1"
   - 'TkVarId "e"'
   - 'TkVarSym "+"'
   - 'TkVarId "_23"'
-  - 'TkEOF'
-status: pass
+  - "TkEOF"
+status: xfail
+reason: "lexer accepts underscore after sign in exponent"

@@ -38,6 +38,7 @@ finalizeModuleLayoutAtEOF st anchor =
       )
     _ -> ([], st)
 
+{-# INLINE noteModuleLayoutBeforeToken #-}
 noteModuleLayoutBeforeToken :: LayoutState -> LexToken -> LayoutState
 noteModuleLayoutBeforeToken st tok =
   case layoutModuleMode st of
@@ -49,6 +50,7 @@ noteModuleLayoutBeforeToken st tok =
         _ -> st {layoutModuleMode = ModuleLayoutDone, layoutPendingLayout = Just (PendingImplicitLayout LayoutOrdinary)}
     _ -> st
 
+{-# INLINE noteModuleLayoutAfterToken #-}
 noteModuleLayoutAfterToken :: LayoutState -> LexToken -> LayoutState
 noteModuleLayoutAfterToken st tok =
   case layoutModuleMode st of
@@ -57,6 +59,7 @@ noteModuleLayoutAfterToken st tok =
           st {layoutModuleMode = ModuleLayoutAwaitBody, layoutPendingLayout = Just (PendingImplicitLayout LayoutOrdinary)}
     _ -> st
 
+{-# INLINE openPendingLayout #-}
 openPendingLayout :: LayoutState -> LexToken -> ([LexToken], LayoutState, Bool)
 openPendingLayout st tok =
   case layoutPendingLayout st of
@@ -90,6 +93,7 @@ openImplicitLayout kind st tok =
             True
           )
 
+{-# INLINE closeBeforeToken #-}
 closeBeforeToken :: LayoutState -> LexToken -> ([LexToken], LayoutState)
 closeBeforeToken st tok =
   closeWith $
@@ -115,6 +119,7 @@ closeBeforeToken st tok =
 
     noLayoutClosures contexts = ([], contexts)
 
+{-# INLINE bolLayout #-}
 bolLayout :: LayoutState -> LexToken -> ([LexToken], LayoutState)
 bolLayout st tok
   | not (isBOL st tok) = ([], st)
@@ -158,6 +163,7 @@ closeLeadingImplicitLet anchor contexts =
     LayoutImplicit _ LayoutLetBlock : rest -> ([virtualSymbolToken "}" anchor], rest)
     _ -> ([], contexts)
 
+{-# INLINE stepTokenContext #-}
 stepTokenContext :: LayoutState -> LexToken -> LayoutState
 stepTokenContext st tok =
   case lexTokenKind tok of
