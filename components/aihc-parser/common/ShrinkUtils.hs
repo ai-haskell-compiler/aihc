@@ -24,7 +24,7 @@ where
 
 import Data.Char (isAlphaNum, isUpper)
 import Data.List (intercalate)
-import qualified Language.Haskell.Exts as HSE
+import Language.Haskell.Exts qualified as HSE
 
 candidateTransformsWith :: (String -> [String]) -> HSE.Module HSE.SrcSpanInfo -> [HSE.Module HSE.SrcSpanInfo]
 candidateTransformsWith shrinkSegment modu =

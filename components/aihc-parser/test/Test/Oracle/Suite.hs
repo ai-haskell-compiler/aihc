@@ -7,7 +7,7 @@ where
 
 import Control.Monad (when)
 import Data.Text (Text)
-import qualified Data.Text.IO as TIO
+import Data.Text.IO qualified as TIO
 import ExtensionSupport
   ( CaseMeta (..),
     Expected (..),

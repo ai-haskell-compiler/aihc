@@ -26,7 +26,7 @@ module StackageProgress.Summary
 where
 
 import Data.Char (isSpace)
-import qualified Data.List as List
+import Data.List qualified as List
 
 data PackageSpec = PackageSpec
   { pkgName :: String,

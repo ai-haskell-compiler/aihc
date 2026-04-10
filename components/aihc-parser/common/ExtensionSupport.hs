@@ -15,13 +15,13 @@ module ExtensionSupport
 where
 
 import Aihc.Cpp (resultOutput)
-import qualified Aihc.Parser.Syntax as Syntax
+import Aihc.Parser.Syntax qualified as Syntax
 import CppSupport (moduleHeaderExtensionSettings, preprocessForParserWithoutIncludesIfEnabled)
 import Data.Char (isSpace)
 import Data.List (dropWhileEnd, sort, sortOn)
 import Data.Text (Text)
-import qualified Data.Text as T
-import qualified Data.Text.IO.Utf8 as Utf8
+import Data.Text qualified as T
+import Data.Text.IO.Utf8 qualified as Utf8
 import GhcOracle (oracleModuleAstFingerprint)
 import ParserValidation (validateParser)
 import System.Directory (doesDirectoryExist, listDirectory)

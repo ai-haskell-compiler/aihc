@@ -15,9 +15,9 @@ where
 import Data.Aeson (FromJSON, ToJSON)
 import Data.Bits (xor)
 import Data.Char (ord)
-import qualified Data.List as List
+import Data.List qualified as List
 import Data.Text (Text)
-import qualified Data.Text as T
+import Data.Text qualified as T
 import Data.Word (Word64)
 import GHC.Generics (Generic)
 

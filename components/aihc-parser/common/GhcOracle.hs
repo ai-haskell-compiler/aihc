@@ -10,18 +10,18 @@ module GhcOracle
 where
 
 import Aihc.Cpp (resultOutput)
-import qualified Aihc.Parser.Lex as Lex
-import qualified Aihc.Parser.Syntax as Syntax
+import Aihc.Parser.Lex qualified as Lex
+import Aihc.Parser.Syntax qualified as Syntax
 import Control.Exception (catch, displayException, evaluate)
 import CppSupport (preprocessForParserWithoutIncludes)
 import Data.Maybe (mapMaybe)
 import Data.Text (Text)
-import qualified Data.Text as T
-import qualified GHC.Data.EnumSet as EnumSet
+import Data.Text qualified as T
+import GHC.Data.EnumSet qualified as EnumSet
 import GHC.Data.FastString (mkFastString)
 import GHC.Data.StringBuffer (stringToStringBuffer)
 import GHC.Hs (GhcPs, HsModule)
-import qualified GHC.LanguageExtensions.Type as GHC
+import GHC.LanguageExtensions.Type qualified as GHC
 import GHC.Parser (parseModule)
 import GHC.Parser.Lexer
   ( PState,

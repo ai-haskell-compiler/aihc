@@ -2,12 +2,12 @@
 
 module Main (main) where
 
-import qualified Aihc.Parser.Syntax as Syntax
+import Aihc.Parser.Syntax qualified as Syntax
 import Data.List (sortOn)
-import qualified Data.Map.Strict as M
-import qualified Data.Text as T
+import Data.Map.Strict qualified as M
+import Data.Text qualified as T
 import ExtensionSupport
-import qualified ParserGolden as PG
+import ParserGolden qualified as PG
 import System.Environment (getArgs)
 import System.Exit (exitFailure, exitSuccess)
 

@@ -1,9 +1,9 @@
 module Main (main) where
 
-import qualified Data.Aeson as Aeson
-import qualified Data.ByteString.Lazy.Char8 as BL8
+import Data.Aeson qualified as Aeson
+import Data.ByteString.Lazy.Char8 qualified as BL8
 import Data.Maybe (fromMaybe)
-import qualified Data.Text as T
+import Data.Text qualified as T
 import Data.Time.Clock (getCurrentTime)
 import ParserQuickCheck.CLI (optMaxSuccess, optProperty, optSeed, parseOptionsIO)
 import ParserQuickCheck.Registry (registeredParserProperties)

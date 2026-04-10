@@ -10,14 +10,14 @@ import Aihc.Parser
 import Aihc.Parser.Lex (isReservedIdentifier)
 import Aihc.Parser.Syntax
 import Data.Text (Text)
-import qualified Data.Text as T
+import Data.Text qualified as T
 import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.Text (renderStrict)
 import Test.Properties.Coverage (assertCtorCoverage)
 import Test.Properties.ExprHelpers (normalizeExpr)
 import Test.Properties.Identifiers (genIdent, shrinkIdent)
 import Test.QuickCheck
-import qualified Text.Megaparsec.Error as MPE
+import Text.Megaparsec.Error qualified as MPE
 
 span0 :: SourceSpan
 span0 = noSourceSpan

@@ -24,12 +24,12 @@ import Aihc.Parser.Syntax (Extension (CPP), ExtensionSetting (..), ModuleHeaderP
 import Data.ByteString (ByteString)
 import Data.Char (toLower)
 import Data.Functor.Identity (Identity (..), runIdentity)
-import qualified Data.Map.Strict as M
+import Data.Map.Strict qualified as M
 import Data.Maybe (fromMaybe, mapMaybe)
-import qualified Data.Set as S
+import Data.Set qualified as S
 import Data.Text (Text)
-import qualified Data.Text as T
-import qualified Data.Text.Encoding as TE
+import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
 import System.FilePath (takeExtension)
 
 preprocessForParser :: (Monad m) => FilePath -> [Text] -> (IncludeRequest -> m (Maybe ByteString)) -> Text -> m Result

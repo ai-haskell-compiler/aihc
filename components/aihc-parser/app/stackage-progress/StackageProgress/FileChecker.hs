@@ -17,18 +17,18 @@ module StackageProgress.FileChecker
 where
 
 import Aihc.Cpp (Severity (..), diagSeverity, resultDiagnostics, resultOutput)
-import qualified Aihc.Parser
-import qualified Aihc.Parser.Syntax as Syntax
+import Aihc.Parser qualified
+import Aihc.Parser.Syntax qualified as Syntax
 import Control.DeepSeq (deepseq)
 import Control.Exception (evaluate)
 import Control.Monad (when)
 import CppSupport (moduleHeaderPragmas, preprocessForParserIfEnabled)
 import Data.Maybe (fromMaybe, isNothing)
 import Data.Text (Text)
-import qualified Data.Text as T
+import Data.Text qualified as T
 import Data.Word (Word64)
 import GHC.Clock (getMonotonicTimeNSec)
-import qualified GhcOracle
+import GhcOracle qualified
 import HackageSupport
   ( FileInfo (..),
     diagToText,
@@ -37,7 +37,7 @@ import HackageSupport
     resolveIncludeBestEffort,
   )
 import HseExtensions (fromParserExtensions)
-import qualified Language.Haskell.Exts as HSE
+import Language.Haskell.Exts qualified as HSE
 import StackageProgress.CLI (Parser (..))
 import StackageProgress.FileCheckerTiming (maybeVerboseTimingParts)
 import StackageProgress.Summary (forceString)

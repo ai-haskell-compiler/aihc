@@ -17,7 +17,7 @@ import Aihc.Parser.Lex (isReservedIdentifier)
 import Aihc.Parser.Syntax
 import Data.Char (isSpace)
 import Data.Text (Text)
-import qualified Data.Text as T
+import Data.Text qualified as T
 import Test.Properties.Identifiers (genIdent, shrinkIdent)
 import Test.QuickCheck
 
