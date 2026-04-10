@@ -261,9 +261,9 @@ ordinaryDeclParser = do
         _ -> typeDeclarationParser
     TkVarPattern -> patternSynonymParser
     TkSpecialLParen -> typeSigOrPatternOrValueOrSpliceParser
-    TkSpecialLBracket -> patternOrSpliceParser
-    TkPrefixTilde -> patternOrSpliceParser
-    TkKeywordUnderscore -> patternOrSpliceParser
+    TkSpecialLBracket -> typeSigOrPatternOrValueOrSpliceParser
+    TkPrefixTilde -> typeSigOrPatternOrValueOrSpliceParser
+    TkKeywordUnderscore -> typeSigOrPatternOrValueOrSpliceParser
     TkTHSplice -> spliceDeclParser
     _ -> typeSigOrValueOrSpliceParser
 
