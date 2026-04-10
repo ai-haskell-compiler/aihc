@@ -11,7 +11,7 @@ module StackageProgress.CLI
 where
 
 import Data.List (nub)
-import qualified Options.Applicative as OA
+import Options.Applicative qualified as OA
 import StackageProgress.Summary (SummaryOptions (..))
 
 -- | Type of parser to use on each file.

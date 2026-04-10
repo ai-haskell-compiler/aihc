@@ -5,7 +5,7 @@ module HackageTester.CLI
   )
 where
 
-import qualified Options.Applicative as OA
+import Options.Applicative qualified as OA
 
 data Options = Options
   { optPackage :: String,

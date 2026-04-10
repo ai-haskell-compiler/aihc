@@ -9,7 +9,7 @@ import Control.Concurrent.MVar (modifyMVar_, newMVar, readMVar)
 import Control.Monad (forM_, replicateM_, when)
 import Data.List (sortBy)
 import Data.Maybe (mapMaybe)
-import qualified Data.Text as T
+import Data.Text qualified as T
 import GHC.Clock (getMonotonicTimeNSec)
 import GHC.Conc (getNumProcessors)
 import StackageProgress.CLI

@@ -4,25 +4,25 @@ module Main (main) where
 
 import Aihc.Cpp (Severity (..), diagSeverity, resultDiagnostics, resultOutput)
 import Aihc.Parser.Lex (readModuleHeaderPragmas)
-import qualified Aihc.Parser.Syntax as Syntax
+import Aihc.Parser.Syntax qualified as Syntax
 import ConcurrentProgress (mapConcurrentlyBounded)
 import Control.Exception (SomeException, displayException, try)
 import Control.Monad (unless, when)
 import CppSupport (preprocessForParserIfEnabled)
-import qualified Data.Aeson as Aeson
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Lazy as LBS
-import qualified Data.ByteString.Lazy.Char8 as LBS8
+import Data.Aeson qualified as Aeson
+import Data.ByteString qualified as BS
+import Data.ByteString.Lazy qualified as LBS
+import Data.ByteString.Lazy.Char8 qualified as LBS8
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
-import qualified Data.Text as T
-import qualified Data.Text.IO as TIO
+import Data.Text qualified as T
+import Data.Text.IO qualified as TIO
 import Distribution.Package (packageId, pkgVersion)
 import Distribution.PackageDescription (GenericPackageDescription (..))
 import Distribution.PackageDescription.Parsec (parseGenericPackageDescription, runParseResult)
 import Distribution.Pretty (prettyShow)
 import GHC.Conc (getNumProcessors)
-import qualified GhcOracle
+import GhcOracle qualified
 import HackageSupport
   ( FileInfo (..),
     diagToText,

@@ -152,7 +152,7 @@ executable parser-progress
     , Cabal-syntax
     , prettyprinter
   ghc-options:        -Wall -Werror
-  default-language: Haskell2010
+  default-language: GHC2021
 
 executable parser-quickcheck-batch
   hs-source-dirs:
@@ -229,7 +229,7 @@ executable lexer-progress
     , aeson
     , yaml
   ghc-options:        -Wall -Werror
-  default-language: Haskell2010
+  default-language: GHC2021
 
 executable extension-progress
   hs-source-dirs:
@@ -258,7 +258,7 @@ executable extension-progress
     , aeson
     , bytestring
   ghc-options:        -Wall -Werror
-  default-language: Haskell2010
+  default-language: GHC2021
 
 executable hackage-tester
   hs-source-dirs:
@@ -297,7 +297,7 @@ executable hackage-tester
     , haskell-src-exts
     , prettyprinter
   ghc-options:        -Wall -Werror -threaded -rtsopts -with-rtsopts=-N
-  default-language: Haskell2010
+  default-language: GHC2021
 
 executable stackage-progress
   hs-source-dirs:
@@ -337,7 +337,7 @@ executable stackage-progress
     , optparse-applicative
     , prettyprinter
   ghc-options:        -Wall -Werror -threaded -rtsopts -with-rtsopts=-N
-  default-language: Haskell2010
+  default-language: GHC2021
 
 executable parser-fuzz
   hs-source-dirs:
@@ -396,4 +396,4 @@ test-suite parser-quickcheck-tests
     , time
     , optparse-applicative
   ghc-options:        -Wall -Werror -threaded -rtsopts -with-rtsopts=-N
-  default-language: Haskell2010
+  default-language: GHC2021

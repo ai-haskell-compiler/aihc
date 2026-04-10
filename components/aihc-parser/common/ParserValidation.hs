@@ -8,10 +8,10 @@ module ParserValidation
 where
 
 import Aihc.Parser (ParserConfig (..), defaultConfig, formatParseErrors, parseModule)
-import qualified Aihc.Parser.Syntax as Syntax
+import Aihc.Parser.Syntax qualified as Syntax
 import Data.Text (Text)
-import qualified Data.Text as T
-import qualified GhcOracle
+import Data.Text qualified as T
+import GhcOracle qualified
 import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.Text (renderStrict)
 
