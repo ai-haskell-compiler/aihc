@@ -734,9 +734,9 @@ prettyDataCon ctor =
           )
       where
         -- Wrap operator names in parentheses for correct parsing
-        prettyFieldName :: Text -> Doc ann
+        prettyFieldName :: UnqualifiedName -> Doc ann
         prettyFieldName fieldName
-          | isOperatorToken fieldName = parens (pretty fieldName)
+          | isOperatorToken (renderUnqualifiedName fieldName) = parens (pretty fieldName)
           | otherwise = pretty fieldName
     GadtCon _ forallBinders constraints names body ->
       prettyGadtCon forallBinders constraints names body
@@ -785,9 +785,9 @@ prettyRecordFields fields =
     )
   where
     -- Wrap operator names in parentheses for correct parsing
-    prettyFieldName :: Text -> Doc ann
+    prettyFieldName :: UnqualifiedName -> Doc ann
     prettyFieldName name
-      | isOperatorToken name = parens (pretty name)
+      | isOperatorToken (renderUnqualifiedName name) = parens (pretty name)
       | otherwise = pretty name
 
 dataConQualifierPrefix :: [Text] -> [Type] -> [Doc ann]
@@ -1359,8 +1359,8 @@ prettyExprPrec prec expr =
       let lhsDoc = case lhs of
             ETypeSig {} -> parens (prettyExprPrec 0 lhs)
             _ -> prettyExprPrec 1 lhs
-       in parens (lhsDoc <+> prettyInfixOp op)
-    ESectionR _ op rhs -> parens (prettyInfixOp op <+> prettyExprPrec 0 rhs)
+       in parens (lhsDoc <+> prettyInfixOp (renderName op))
+    ESectionR _ op rhs -> parens (prettyInfixOp (renderName op) <+> prettyExprPrec 0 rhs)
     ELetDecls _ decls body ->
       parenthesize
         (prec > 0)
