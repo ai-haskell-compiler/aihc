@@ -41,10 +41,10 @@ genExprSized n
           genExprLeaf,
           -- Recursive expressions (reduce size for subexpressions)
           EApp span0 <$> genExprSized half <*> genExprSized half,
-          EInfix span0 <$> genExprSized half <*> genOperator <*> genExprSized half,
+          EInfix span0 <$> genExprSized half <*> genOperatorName <*> genExprSized half,
           ENegate span0 <$> genExprSized (n - 1),
-          ESectionL span0 <$> genExprSized (n - 1) <*> genOperator,
-          ESectionR span0 <$> genOperator <*> genExprSized (n - 1),
+          ESectionL span0 <$> genExprSized (n - 1) <*> genOperatorName,
+          ESectionR span0 <$> genOperatorName <*> genExprSized (n - 1),
           EIf span0 <$> genExprSized third <*> genExprSized third <*> genExprSized third,
           ECase span0 <$> genExprSized half <*> genCaseAlts half,
           ELambdaPats span0 <$> genPatterns half <*> genExprSized half,
@@ -83,7 +83,7 @@ genExprSized n
 genExprLeaf :: Gen Expr
 genExprLeaf =
   oneof
-    [ EVar span0 <$> genIdent,
+    [ EVar span0 <$> genVarName,
       mkIntExpr <$> chooseInteger (0, 999),
       mkHexExpr <$> chooseInteger (0, 255),
       mkFloatExpr <$> genTenths,
@@ -107,7 +107,7 @@ genQuasiQuoteName = suchThat genIdent (`notElem` ["e", "d", "p", "t"])
 genSpliceBody :: Int -> Gen Expr
 genSpliceBody n =
   oneof
-    [ EVar span0 <$> genIdent,
+    [ EVar span0 <$> genVarName,
       EParen span0 <$> genExprSized (max 0 (n - 1))
     ]
 
@@ -122,9 +122,9 @@ genTypedSpliceBody n =
 genSimplePattern :: Gen Pattern
 genSimplePattern =
   oneof
-    [ PVar span0 <$> genIdent,
+    [ PVar span0 <$> genVarName,
       pure (PWildcard span0),
-      PCon span0 <$> genConName <*> pure []
+      PCon span0 <$> genConAstName <*> pure []
     ]
 
 -- | Generate an identifier safe for TH name quotes ('name).
@@ -145,6 +145,9 @@ genOperator =
     [ elements ["+", "-", "*", "/", "<", ">", "<=", ">=", "==", "/=", "&&", "||", "++", ">>", ">>=", "."],
       genCustomOperator
     ]
+
+genOperatorName :: Gen Name
+genOperatorName = mkUnqualifiedName NameVarSym <$> genOperator
 
 -- | Generate a custom operator
 -- Only uses valid operator characters (matching isOperatorToken in Pretty.hs)
@@ -177,6 +180,12 @@ genConName = do
   rest <- vectorOf restLen (elements (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> "_'"))
   pure (T.pack (first : rest))
 
+genVarName :: Gen Name
+genVarName = mkUnqualifiedName NameVarId <$> genIdent
+
+genConAstName :: Gen Name
+genConAstName = mkUnqualifiedName NameConId <$> genConName
+
 -- | Generate simple patterns for lambdas
 genPatterns :: Int -> Gen [Pattern]
 genPatterns n = do
@@ -200,7 +209,7 @@ genPattern n
 genPatternLeaf :: Gen Pattern
 genPatternLeaf =
   oneof
-    [ PVar span0 <$> genIdent,
+    [ PVar span0 <$> genVarName,
       pure (PWildcard span0)
     ]
 
@@ -404,7 +413,7 @@ genTypeLeaf :: Gen Type
 genTypeLeaf =
   oneof
     [ TVar span0 <$> genTypeVarName,
-      (\name -> TCon span0 name Unpromoted) <$> genConName
+      (\name -> TCon span0 name Unpromoted) <$> genConAstName
     ]
 
 genTypeTupleElems :: Int -> Gen [Type]
@@ -488,7 +497,7 @@ mkIntExpr value = EInt span0 value (T.pack (show value))
 shrinkExpr :: Expr -> [Expr]
 shrinkExpr expr =
   case expr of
-    EVar _ name -> [EVar span0 shrunk | shrunk <- shrinkIdent name]
+    EVar _ name -> [EVar span0 (name {nameText = shrunk}) | shrunk <- shrinkIdent (nameText name)]
     EInt _ value _ -> [mkIntExpr shrunk | shrunk <- shrinkIntegral value]
     EIntHash _ value _ -> [EIntHash span0 shrunk (T.pack (show shrunk) <> "#") | shrunk <- shrinkIntegral value]
     EIntBase _ value _ -> [mkIntExpr shrunk | shrunk <- shrinkIntegral value]
@@ -561,9 +570,9 @@ shrinkExpr expr =
         : [ERecordUpd span0 target' fields | target' <- shrinkExpr target]
           <> [ERecordUpd span0 target fields' | fields' <- shrinkRecordFields fields]
     ETypeSig _ inner _ ->
-      inner : [ETypeSig span0 inner' (TCon span0 "T" Unpromoted) | inner' <- shrinkExpr inner]
+      inner : [ETypeSig span0 inner' (TCon span0 (mkUnqualifiedName NameConId "T") Unpromoted) | inner' <- shrinkExpr inner]
     ETypeApp _ inner _ ->
-      inner : [ETypeApp span0 inner' (TCon span0 "T" Unpromoted) | inner' <- shrinkExpr inner]
+      inner : [ETypeApp span0 inner' (TCon span0 (mkUnqualifiedName NameConId "T") Unpromoted) | inner' <- shrinkExpr inner]
     EUnboxedSum _ altIdx arity inner ->
       [EUnboxedSum span0 altIdx arity inner' | inner' <- shrinkExpr inner]
     EParen _ inner -> inner : [EParen span0 inner' | inner' <- shrinkExpr inner]

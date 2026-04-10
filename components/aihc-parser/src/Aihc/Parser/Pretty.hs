@@ -56,6 +56,9 @@ instance Pretty Pattern where
 instance Pretty Type where
   pretty = prettyType
 
+instance Pretty Name where
+  pretty = pretty . renderName
+
 prettyModuleDoc :: Module -> Doc ann
 prettyModuleDoc modu =
   vsep (pragmaLines <> headerLines <> importLines <> declLines)
@@ -369,7 +372,7 @@ needsTypeParens ctx ty =
     CtxTypeAppArg ->
       case ty of
         TApp _ (TApp _ (TCon _ op _) _) _
-          | isSymbolicTypeOperator op && op /= "->" -> False
+          | isSymbolicTypeName op && renderName op /= "->" -> False
         TQuasiQuote {} -> False
         TApp {} -> True
         TForall {} -> True
@@ -406,9 +409,10 @@ prettyTypeShared ctx prec ty =
         TAnn _ sub -> prettyTypeShared ctx prec sub
         TVar _ name -> pretty name
         TCon _ name promoted ->
-          let base
-                | isSymbolicTypeOperator name = parens (pretty name)
-                | otherwise = pretty name
+          let rendered = renderName name
+              base
+                | isSymbolicTypeName name = parens (pretty rendered)
+                | otherwise = pretty rendered
            in if promoted == Promoted then "'" <> base else base
         TImplicitParam _ name inner -> pretty name <+> "::" <+> prettyTypePrec 0 inner
         TTypeLit _ lit -> prettyTypeLiteral lit
@@ -417,10 +421,10 @@ prettyTypeShared ctx prec ty =
         TForall _ binders inner ->
           parenthesize (prec > 0) ("forall" <+> hsep (map prettyTyVarBinder binders) <> "." <+> atom 0 inner)
         TApp _ (TApp _ (TCon _ op promoted) lhs) rhs
-          | isSymbolicTypeOperator op && op /= "->" ->
+          | isSymbolicTypeName op && renderName op /= "->" ->
               atom 0 lhs
                 <+> (if promoted == Promoted then "'" else mempty)
-                <> pretty op
+                <> prettyNameInfixOp op
                 <+> atom 0 rhs
         TApp _ f x ->
           parenthesize (prec > 2) (prettyTypeIn CtxTypeFunArg f <+> prettyTypeIn CtxTypeAppArg x)
@@ -484,12 +488,6 @@ prettyContextItem ty =
     TParen _ inner -> parens (prettyContextItem inner)
     _ -> prettyConstraintType ty
 
-isSymbolicTypeOperator :: Text -> Bool
-isSymbolicTypeOperator op =
-  case T.uncons op of
-    Nothing -> False
-    Just _ -> T.all (`elem` (":!#$%&*+./<=>?\\^|-~" :: String)) op
-
 prettyTypeLiteral :: TypeLiteral -> Doc ann
 prettyTypeLiteral lit =
   case lit of
@@ -510,8 +508,8 @@ prettyPattern pat =
       let slots = [if i == altIdx then prettyPattern inner else mempty | i <- [0 .. arity - 1]]
        in hsep ["(#", hsep (punctuate " |" slots), "#)"]
     PList _ elems -> brackets (hsep (punctuate comma (map prettyPattern elems)))
-    PCon _ con args -> hsep (pretty con : map prettyPatternAtom args)
-    PInfix _ lhs op rhs -> prettyPatternAtom lhs <+> prettyInfixOp op <+> prettyPatternAtom rhs
+    PCon _ con args -> hsep (prettyPrefixName con : map prettyPatternAtom args)
+    PInfix _ lhs op rhs -> prettyPatternAtom lhs <+> prettyNameInfixOp op <+> prettyPatternAtom rhs
     PView _ viewExpr inner -> parens (prettyExprPrec 0 viewExpr <+> "->" <+> prettyPattern inner)
     PAs _ name inner -> pretty name <> "@" <> prettyPatternAtomStrict inner
     PStrict _ inner -> "!" <> prettyPatternAtomStrict inner
@@ -547,7 +545,7 @@ prettyPatternInTuple pat =
 prettyPatternFieldBinding :: Text -> Pattern -> Doc ann
 prettyPatternFieldBinding fieldName fieldPat =
   case fieldPat of
-    PVar _ varName | varName == fieldName -> pretty fieldName -- NamedFieldPuns: punned form
+    PVar _ varName | renderName varName == fieldName -> pretty fieldName -- NamedFieldPuns: punned form
     _ -> pretty fieldName <+> "=" <+> prettyPattern fieldPat
 
 prettyPatternAtom :: Pattern -> Doc ann
@@ -1017,6 +1015,28 @@ prettyInfixOp op
   | isOperatorToken op = pretty op
   | otherwise = "`" <> pretty op <> "`"
 
+prettyNameInfixOp :: Name -> Doc ann
+prettyNameInfixOp name
+  | isSymbolicName name = pretty (renderName name)
+  | otherwise = "`" <> pretty (renderName name) <> "`"
+
+prettyPrefixName :: Name -> Doc ann
+prettyPrefixName name
+  | isSymbolicName name = parens (pretty rendered)
+  | otherwise = pretty rendered
+  where
+    rendered = renderName name
+
+isSymbolicName :: Name -> Bool
+isSymbolicName name =
+  case nameType name of
+    NameVarSym -> True
+    NameConSym -> True
+    _ -> False
+
+isSymbolicTypeName :: Name -> Bool
+isSymbolicTypeName = isSymbolicName
+
 -- | Check whether an operator is an arrow tail operator (@-<@ or @-<<@).
 -- These are special-cased in the pretty-printer to have the lowest precedence.
 isArrowTailOp :: Text -> Bool
@@ -1237,7 +1257,7 @@ prettyExprPrec prec expr =
     ETypeApp _ fn ty ->
       parenthesize (prec > 2) (prettyExprApp fn <+> "@" <> prettyTypeIn CtxTypeAtom ty)
     EVar _ name
-      | isOperatorToken name -> parens (pretty name)
+      | isSymbolicName name -> parens (pretty (renderName name))
       | otherwise -> pretty name
     EInt _ _ repr -> pretty repr
     EIntHash _ _ repr -> pretty repr
@@ -1291,7 +1311,7 @@ prettyExprPrec prec expr =
         (prec > 0)
         ("\\" <> "case" <+> "{" <+> hsep (punctuate semi (map prettyCaseAlt alts)) <+> "}")
     EInfix _ lhs op rhs
-      | isArrowTailOp op ->
+      | isArrowTailOp (renderName op) ->
           -- Arrow application operators (-<, -<<) are command-level syntax
           -- in GHC.  The LHS is a command (which may be a greedy do/if/case)
           -- and the RHS is a full expression.
@@ -1300,14 +1320,14 @@ prettyExprPrec prec expr =
           -- capturing the `-<` operator.
           parenthesize
             True
-            (parens (prettyExprPrec 0 lhs) <+> prettyInfixOp op <+> prettyExprPrec 0 rhs)
+            (parens (prettyExprPrec 0 lhs) <+> prettyNameInfixOp op <+> prettyExprPrec 0 rhs)
       | otherwise ->
           parenthesize
             (prec > 1)
-            (prettyExprIn CtxInfixLhs lhs <+> prettyInfixOp op <+> prettyExprIn (CtxInfixRhs (prec == 1)) rhs)
+            (prettyExprIn CtxInfixLhs lhs <+> prettyNameInfixOp op <+> prettyExprIn (CtxInfixRhs (prec == 1)) rhs)
     ENegate _ inner -> parenthesize (prec > 2) (prettyNegate inner)
-    ESectionL _ lhs op -> parens (prettyExprPrec 3 lhs <+> prettyInfixOp op)
-    ESectionR _ op rhs -> parens (prettyInfixOp op <+> prettyExprPrec 0 rhs)
+    ESectionL _ lhs op -> parens (prettyExprPrec 3 lhs <+> prettyNameInfixOp op)
+    ESectionR _ op rhs -> parens (prettyNameInfixOp op <+> prettyExprPrec 0 rhs)
     ELetDecls _ decls body ->
       parenthesize
         (prec > 0)
@@ -1406,7 +1426,7 @@ prettyTupleBody tupleFlavor inner =
 prettyBinding :: (Text, Expr) -> Doc ann
 prettyBinding (name, value) =
   case value of
-    EVar _ varName | varName == name -> pretty name -- NamedFieldPuns: punned form
+    EVar _ varName | renderName varName == name -> pretty name -- NamedFieldPuns: punned form
     _ -> pretty name <+> "=" <+> prettyExprPrec 0 value
 
 -- | Pretty print a case alternative.
@@ -1692,7 +1712,7 @@ prettyTypeFamilyInfix ty =
     TApp _ (TApp _ (TCon _ op promoted) lhs) rhs ->
       prettyTypeIn CtxTypeAtom lhs
         <+> (if promoted == Promoted then "'" else mempty)
-        <> prettyInfixOp op
+        <> prettyNameInfixOp op
         <+> prettyTypeIn CtxTypeAtom rhs
     _ -> prettyType ty
 

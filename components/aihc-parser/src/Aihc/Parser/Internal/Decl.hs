@@ -285,7 +285,7 @@ spliceDeclParser = withSpan $ do
       body <- parens exprParser
       pure (`EParen` body)
     bareSpliceBody = withSpan $ do
-      name <- identifierTextParser
+      name <- identifierNameParser
       pure (`EVar` name)
 
 -- | Parse an implicit top-level Template Haskell declaration splice: @expr@.
@@ -333,7 +333,7 @@ roleAnnotationDeclParser :: TokParser Decl
 roleAnnotationDeclParser = withSpan $ do
   expectedTok TkKeywordType
   expectedTok TkVarRole
-  typeName <- constructorIdentifierParser <|> parens constructorOperatorParser
+  typeName <- constructorIdentifierParser <|> (renderName <$> parens constructorOperatorParser)
   roles <- MP.some roleParser
   pure $ \span' ->
     DeclRoleAnnotation
@@ -1199,7 +1199,7 @@ gadtConDeclParser = withSpan $ do
 gadtConNameParser :: TokParser Text
 gadtConNameParser =
   constructorIdentifierParser
-    <|> parens constructorOperatorParser
+    <|> (renderName <$> parens constructorOperatorParser)
 
 -- | Parse forall in GADT context: @forall a b.@
 gadtForallParser :: TokParser [TyVarBinder]
@@ -1300,7 +1300,7 @@ typeFamilyHeadParser =
   where
     prefixHeadParser = do
       headType <- withSpan $ do
-        name <- constructorIdentifierParser
+        name <- constructorNameParser
         pure (\span' -> TCon span' name Unpromoted)
       params <- MP.many typeParamParser
       pure (TypeHeadPrefix, headType, params)
@@ -1328,6 +1328,7 @@ typeFamilyLhsParser = do
       rest <- MP.many typeAtomParser
       pure (TypeHeadPrefix, foldl buildTypeApp lhs rest)
   where
+    typeHeadInfixTailParser :: TokParser [((Name, TypePromotion), Type)]
     typeHeadInfixTailParser = MP.many $ MP.try $ do
       op <- typeInfixOperatorParser
       atom <- typeAtomParser
@@ -1354,7 +1355,7 @@ classHeadParser =
       lhs <- typeParamParser
       op <- constructorOperatorParser
       rhs <- typeParamParser
-      pure (TypeHeadInfix, op, [lhs, rhs])
+      pure (TypeHeadInfix, renderName op, [lhs, rhs])
 
 typeParamParser :: TokParser TyVarBinder
 typeParamParser =
@@ -1424,14 +1425,14 @@ dataConRecordOrPrefixParser forallVars context = do
   name <- constructorNameParser
   mRecordFields <- MP.optional (MP.try recordFieldsParserAfterLayoutSemicolon)
   case mRecordFields of
-    Just fields -> pure (\span' -> RecordCon span' forallVars context name fields)
+    Just fields -> pure (\span' -> RecordCon span' forallVars context (renderName name) fields)
     Nothing -> do
       args <- MP.many constructorArgParser
       -- Ensure we're not leaving a constructor operator unconsumed.
       -- If there's a constructor operator next, this is actually an infix form
       -- and we should backtrack to let dataConInfixParser handle it.
       MP.notFollowedBy constructorOperatorParser
-      pure (\span' -> PrefixCon span' forallVars context name args)
+      pure (\span' -> PrefixCon span' forallVars context (renderName name) args)
   where
     -- Layout may inject a virtual ';' before a newline-started record field block.
     -- Accept it as part of the constructor declaration.
@@ -1444,7 +1445,7 @@ dataConInfixParser forallVars context = do
   lhs <- infixConstructorArgParser
   op <- constructorOperatorParser
   rhs <- infixConstructorArgParser
-  pure (\span' -> InfixCon span' forallVars context lhs op rhs)
+  pure (\span' -> InfixCon span' forallVars context lhs (renderName op) rhs)
 
 recordFieldsParser :: TokParser [FieldDecl]
 recordFieldsParser = braces (recordFieldDeclParser `MP.sepEndBy` expectedTok TkSpecialComma)
@@ -1526,23 +1527,20 @@ sourceUnpackednessPragmaParser =
 constructorFieldTypeParser :: TokParser Type
 constructorFieldTypeParser = typeParser
 
-constructorNameParser :: TokParser Text
-constructorNameParser = constructorIdentifierParser
-
-constructorOperatorParser :: TokParser Text
+constructorOperatorParser :: TokParser Name
 constructorOperatorParser =
   symbolicConstructorOperatorParser <|> backtickConstructorIdentifierParser
   where
     symbolicConstructorOperatorParser =
       tokenSatisfy "constructor operator" $ \tok ->
         case lexTokenKind tok of
-          TkConSym op -> Just op
-          TkQConSym modName op -> Just (modName <> "." <> op)
-          TkReservedColon -> Just ":"
+          TkConSym op -> Just (mkUnqualifiedName NameConSym op)
+          TkQConSym modName op -> Just (mkName (Just modName) NameConSym op)
+          TkReservedColon -> Just (mkUnqualifiedName NameConSym ":")
           _ -> Nothing
     backtickConstructorIdentifierParser = do
       expectedTok TkSpecialBacktick
-      op <- constructorIdentifierParser
+      op <- constructorNameParser
       expectedTok TkSpecialBacktick
       pure op
 
@@ -1582,7 +1580,7 @@ patternSynonymSigDeclParser = withSpan $ do
 -- | Parse a pattern synonym name (constructor identifier or parenthesized operator).
 patSynNameParser :: TokParser Text
 patSynNameParser =
-  constructorIdentifierParser <|> parens constructorOperatorParser
+  constructorIdentifierParser <|> (renderName <$> parens constructorOperatorParser)
 
 -- | Parse a pattern synonym declaration.
 -- Handles prefix, infix, and record forms with all three directionalities.
@@ -1614,7 +1612,7 @@ patSynInfixLhsParser = do
   lhs <- lowerIdentifierParser
   op <- constructorOperatorParser
   rhs <- lowerIdentifierParser
-  pure (op, PatSynInfixArgs lhs rhs)
+  pure (renderName op, PatSynInfixArgs lhs rhs)
 
 -- | Parse a record or prefix pattern synonym LHS.
 -- Record: @Con {field1, field2, ...}@

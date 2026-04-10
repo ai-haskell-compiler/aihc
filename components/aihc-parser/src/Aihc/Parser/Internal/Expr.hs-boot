@@ -10,8 +10,7 @@
 module Aihc.Parser.Internal.Expr where
 
 import Aihc.Parser.Internal.Common (TokParser)
-import Aihc.Parser.Syntax (Expr, Pattern, Rhs, Type, TypePromotion)
-import Data.Text (Text)
+import Aihc.Parser.Syntax (Expr, Name, Pattern, Rhs, Type, TypePromotion)
 
 -- | Parse a full expression
 exprParser :: TokParser Expr
@@ -35,7 +34,7 @@ typeAppParser :: TokParser Type
 typeHeadInfixParser :: TokParser Type
 
 -- | Parse a type infix operator token
-typeInfixOperatorParser :: TokParser (Text, TypePromotion)
+typeInfixOperatorParser :: TokParser (Name, TypePromotion)
 
 -- | Parse a type atom (single type, not an application)
 typeAtomParser :: TokParser Type

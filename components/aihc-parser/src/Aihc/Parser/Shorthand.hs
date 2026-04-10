@@ -531,8 +531,8 @@ docType ty =
     TVar _ name -> "TVar" <+> docText name
     TCon _ name promoted ->
       if promoted == Promoted
-        then "TConPromoted" <+> docText name
-        else "TCon" <+> docText name
+        then "TConPromoted" <+> docName name
+        else "TCon" <+> docName name
     TImplicitParam _ name inner -> "TImplicitParam" <+> docText name <+> parens (docType inner)
     TTypeLit _ lit -> "TTypeLit" <+> docTypeLiteral lit
     TStar _ -> "TStar"
@@ -582,7 +582,7 @@ docPattern :: Pattern -> Doc ann
 docPattern pat =
   case pat of
     PAnn _ sub -> docPattern sub
-    PVar _ name -> "PVar" <+> docText name
+    PVar _ name -> "PVar" <+> docName name
     PWildcard _ -> "PWildcard"
     PLit _ lit -> "PLit" <+> parens (docLiteral lit)
     PQuasiQuote _ quoter body -> "PQuasiQuote" <+> docText quoter <+> docText body
@@ -592,8 +592,8 @@ docPattern pat =
     PUnboxedSum _ altIdx arity inner ->
       "PUnboxedSum" <+> pretty altIdx <+> pretty arity <+> docPattern inner
     PList _ elems -> "PList" <+> brackets (hsep (punctuate comma (map docPattern elems)))
-    PCon _ name args -> "PCon" <+> docText name <+> brackets (hsep (punctuate comma (map docPattern args)))
-    PInfix _ lhs op rhs -> "PInfix" <+> parens (docPattern lhs) <+> docText op <+> parens (docPattern rhs)
+    PCon _ name args -> "PCon" <+> docName name <+> brackets (hsep (punctuate comma (map docPattern args)))
+    PInfix _ lhs op rhs -> "PInfix" <+> parens (docPattern lhs) <+> docName op <+> parens (docPattern rhs)
     PView _ expr inner -> "PView" <+> parens (docExpr expr) <+> parens (docPattern inner)
     PAs _ name inner -> "PAs" <+> docText name <+> parens (docPattern inner)
     PStrict _ inner -> "PStrict" <+> parens (docPattern inner)
@@ -623,7 +623,7 @@ docLiteral lit =
 docExpr :: Expr -> Doc ann
 docExpr expr =
   case expr of
-    EVar _ name -> "EVar" <+> docText name
+    EVar _ name -> "EVar" <+> docName name
     EInt _ n _ -> "EInt" <+> pretty n
     EIntHash _ n repr -> "EIntHash" <+> pretty n <+> docText repr
     EIntBase _ n repr -> "EIntBase" <+> pretty n <+> docText repr
@@ -649,10 +649,10 @@ docExpr expr =
     EMultiWayIf _ rhss -> "EMultiWayIf" <+> brackets (hsep (punctuate comma (map docGuardedRhs rhss)))
     ELambdaPats _ pats body -> "ELambdaPats" <+> brackets (hsep (punctuate comma (map docPattern pats))) <+> parens (docExpr body)
     ELambdaCase _ alts -> "ELambdaCase" <+> brackets (hsep (punctuate comma (map docCaseAlt alts)))
-    EInfix _ lhs op rhs -> "EInfix" <+> parens (docExpr lhs) <+> docText op <+> parens (docExpr rhs)
+    EInfix _ lhs op rhs -> "EInfix" <+> parens (docExpr lhs) <+> docName op <+> parens (docExpr rhs)
     ENegate _ inner -> "ENegate" <+> parens (docExpr inner)
-    ESectionL _ lhs op -> "ESectionL" <+> parens (docExpr lhs) <+> docText op
-    ESectionR _ op rhs -> "ESectionR" <+> docText op <+> parens (docExpr rhs)
+    ESectionL _ lhs op -> "ESectionL" <+> parens (docExpr lhs) <+> docName op
+    ESectionR _ op rhs -> "ESectionR" <+> docName op <+> parens (docExpr rhs)
     ELetDecls _ decls body -> "ELetDecls" <+> brackets (hsep (punctuate comma (map docDecl decls))) <+> parens (docExpr body)
     ECase _ scrutinee alts -> "ECase" <+> parens (docExpr scrutinee) <+> brackets (hsep (punctuate comma (map docCaseAlt alts)))
     EDo _ stmts _ -> "EDo" <+> brackets (hsep (punctuate comma (map docDoStmt stmts)))
@@ -870,6 +870,9 @@ boolField name True = [field name "True"]
 
 docText :: Text -> Doc ann
 docText t = dquotes (pretty t)
+
+docName :: Name -> Doc ann
+docName = docText . renderName
 
 docTextList :: [Text] -> Doc ann
 docTextList ts = brackets (hsep (punctuate comma (map docText ts)))

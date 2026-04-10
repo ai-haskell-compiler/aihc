@@ -11,11 +11,14 @@ module Aihc.Parser.Internal.Common
     hiddenPragma,
     optionalHiddenPragma,
     moduleNameParser,
+    identifierNameParser,
     identifierTextParser,
     lowerIdentifierParser,
     implicitParamNameParser,
+    constructorNameParser,
     constructorIdentifierParser,
     binderNameParser,
+    operatorNameParser,
     operatorTextParser,
     infixOperatorNameParser,
     stringTextParser,
@@ -235,15 +238,18 @@ moduleNameParser =
         TkQConId modName name | isModuleName (modName <> "." <> name) -> Just (modName <> "." <> name)
         _ -> Nothing
 
-identifierTextParser :: TokParser Text
-identifierTextParser =
+identifierNameParser :: TokParser Name
+identifierNameParser =
   tokenSatisfy "identifier" $ \tok ->
     case lexTokenKind tok of
-      TkVarId ident -> Just ident
-      TkConId ident -> Just ident
-      TkQVarId modName ident -> Just (modName <> "." <> ident)
-      TkQConId modName ident -> Just (modName <> "." <> ident)
+      TkVarId ident -> Just (mkUnqualifiedName NameVarId ident)
+      TkConId ident -> Just (mkUnqualifiedName NameConId ident)
+      TkQVarId modName ident -> Just (mkName (Just modName) NameVarId ident)
+      TkQConId modName ident -> Just (mkName (Just modName) NameConId ident)
       _ -> Nothing
+
+identifierTextParser :: TokParser Text
+identifierTextParser = renderName <$> identifierNameParser
 
 lowerIdentifierParser :: TokParser Text
 lowerIdentifierParser =
@@ -261,11 +267,14 @@ implicitParamNameParser =
       _ -> Nothing
 
 constructorIdentifierParser :: TokParser Text
-constructorIdentifierParser =
+constructorIdentifierParser = renderName <$> constructorNameParser
+
+constructorNameParser :: TokParser Name
+constructorNameParser =
   tokenSatisfy "constructor identifier" $ \tok ->
     case lexTokenKind tok of
-      TkConId ident -> Just ident
-      TkQConId modName ident -> Just (modName <> "." <> ident)
+      TkConId ident -> Just (mkUnqualifiedName NameConId ident)
+      TkQConId modName ident -> Just (mkName (Just modName) NameConId ident)
       _ -> Nothing
 
 binderNameParser :: TokParser Text
@@ -274,13 +283,16 @@ binderNameParser =
     <|> parens operatorTextParser
 
 operatorTextParser :: TokParser Text
-operatorTextParser =
+operatorTextParser = renderName <$> operatorNameParser
+
+operatorNameParser :: TokParser Name
+operatorNameParser =
   tokenSatisfy "operator" $ \tok ->
     case lexTokenKind tok of
-      TkVarSym op -> Just op
-      TkConSym op -> Just op
-      TkQVarSym modName op -> Just (modName <> "." <> op)
-      TkQConSym modName op -> Just (modName <> "." <> op)
+      TkVarSym op -> Just (mkUnqualifiedName NameVarSym op)
+      TkConSym op -> Just (mkUnqualifiedName NameConSym op)
+      TkQVarSym modName op -> Just (mkName (Just modName) NameVarSym op)
+      TkQConSym modName op -> Just (mkName (Just modName) NameConSym op)
       _ -> Nothing
 
 -- | Parse an infix operator name (varop) for function definitions.
@@ -483,16 +495,16 @@ contextItemParserWith typeParser typeAtomParser =
             | op /= "."
                 && op /= "!"
                 && op /= "-" ->
-                Just (op, Unpromoted)
-          TkConSym op -> Just (op, Unpromoted)
+                Just (mkUnqualifiedName NameVarSym op, Unpromoted)
+          TkConSym op -> Just (mkUnqualifiedName NameConSym op, Unpromoted)
           TkQVarSym modName op ->
-            Just (modName <> "." <> op, Unpromoted)
-          TkQConSym modName op -> Just (modName <> "." <> op, Unpromoted)
+            Just (mkName (Just modName) NameVarSym op, Unpromoted)
+          TkQConSym modName op -> Just (mkName (Just modName) NameConSym op, Unpromoted)
           _ -> Nothing
     promotedInfixOperatorParser = do
       expectedTok (TkVarSym "'")
       expectedTok TkReservedColon
-      pure (":", Promoted)
+      pure (mkUnqualifiedName NameConSym ":", Promoted)
 
     setContextItemSpan span' ty =
       case ty of

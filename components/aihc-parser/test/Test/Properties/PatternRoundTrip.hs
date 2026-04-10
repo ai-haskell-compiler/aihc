@@ -54,7 +54,7 @@ shrinkPattern pat =
   case pat of
     PAnn _ sub -> shrinkPattern sub
     PVar _ name ->
-      [PVar span0 shrunk | shrunk <- shrinkIdent name]
+      [PVar span0 (name {nameText = shrunk}) | shrunk <- shrinkIdent (nameText name)]
     PWildcard _ -> []
     PLit _ lit ->
       [PLit span0 shrunk | shrunk <- shrinkLiteral lit]
@@ -156,20 +156,20 @@ genPattern :: Int -> Gen Pattern
 genPattern depth
   | depth <= 0 =
       oneof
-        [ PVar span0 <$> genIdent,
+        [ PVar span0 <$> genPatternVarName,
           pure (PWildcard span0),
           PLit span0 <$> genLiteral,
           PQuasiQuote span0 <$> genQuoterName <*> genQuasiBody,
-          PTuple span0 Boxed <$> elements [[], [PVar span0 "x", PWildcard span0]],
-          PTuple span0 Unboxed <$> elements [[], [PVar span0 "x", PWildcard span0]],
+          PTuple span0 Boxed <$> elements [[], [PVar span0 (mkUnqualifiedName NameVarId "x"), PWildcard span0]],
+          PTuple span0 Unboxed <$> elements [[], [PVar span0 (mkUnqualifiedName NameVarId "x"), PWildcard span0]],
           pure (PList span0 []),
-          PCon span0 <$> genPatternConName <*> pure [],
+          PCon span0 <$> genPatternConAstName <*> pure [],
           PNegLit span0 <$> genNumericLiteral,
           genUnboxedSumPattern 0
         ]
   | otherwise =
       frequency
-        [ (3, PVar span0 <$> genIdent),
+        [ (3, PVar span0 <$> genPatternVarName),
           (2, pure (PWildcard span0)),
           (3, PLit span0 <$> genLiteral),
           (2, PQuasiQuote span0 <$> genQuoterName <*> genQuasiBody),
@@ -192,7 +192,7 @@ genPattern depth
 
 genPatternCon :: Int -> Gen Pattern
 genPatternCon depth = do
-  con <- genPatternConName
+  con <- genPatternConAstName
   argCount <- chooseInt (0, 3)
   args <- vectorOf argCount (canonicalPatternAtom <$> genPattern (depth - 1))
   pure (PCon span0 con args)
@@ -207,13 +207,13 @@ genPatternType :: Gen Type
 genPatternType =
   oneof
     [ TVar span0 <$> genIdent,
-      (\name -> TCon span0 name Unpromoted) <$> genPatternConName
+      (\name -> TCon span0 name Unpromoted) <$> genPatternConAstName
     ]
 
 genPatternInfix :: Int -> Gen Pattern
 genPatternInfix depth = do
   lhs <- canonicalPatternAtom <$> genPattern (depth - 1)
-  op <- genConOperator
+  op <- genConOperatorName
   rhs <- canonicalPatternAtom <$> genPattern (depth - 1)
   pure (PInfix span0 lhs op rhs)
 
@@ -280,23 +280,23 @@ genStringValue = do
 genViewExpr :: Gen Expr
 genViewExpr =
   oneof
-    [ EVar span0 <$> genIdent,
+    [ EVar span0 <$> genPatternVarName,
       mkIntExpr <$> chooseInteger (0, 999),
-      EParen span0 . EVar span0 <$> genIdent
+      EParen span0 . EVar span0 <$> genPatternVarName
     ]
 
 -- | Generate the body of a TH pattern splice: either a bare variable or a parenthesized expression.
 genPatSpliceBody :: Gen Expr
 genPatSpliceBody =
   oneof
-    [ EVar span0 <$> genIdent,
-      EParen span0 . EVar span0 <$> genIdent
+    [ EVar span0 <$> genPatternVarName,
+      EParen span0 . EVar span0 <$> genPatternVarName
     ]
 
 shrinkViewExpr :: Expr -> [Expr]
 shrinkViewExpr expr =
   case expr of
-    EVar _ name -> [EVar span0 shrunk | shrunk <- shrinkIdent name]
+    EVar _ name -> [EVar span0 (name {nameText = shrunk}) | shrunk <- shrinkIdent (nameText name)]
     EInt _ value _ -> [mkIntExpr shrunk | shrunk <- shrinkIntegral value]
     EParen _ inner -> inner : [EParen span0 inner' | inner' <- shrinkViewExpr inner]
     _ -> []
@@ -316,6 +316,15 @@ genConOperator = do
   let op = T.pack (first : rest)
   -- :: is not a valid constructor operator in patterns (it's a type signature)
   if op == "::" then genConOperator else pure op
+
+genPatternVarName :: Gen Name
+genPatternVarName = mkUnqualifiedName NameVarId <$> genIdent
+
+genPatternConAstName :: Gen Name
+genPatternConAstName = mkUnqualifiedName NameConId <$> genPatternConName
+
+genConOperatorName :: Gen Name
+genConOperatorName = mkUnqualifiedName NameConSym <$> genConOperator
 
 genFieldName :: Gen Text
 genFieldName = do

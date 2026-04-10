@@ -58,6 +58,8 @@ module Aihc.Parser.Syntax
     Module (..),
     ModuleHead (..),
     ModuleHeaderPragmas (..),
+    Name (..),
+    NameType (..),
     WarningText (..),
     NewtypeDecl (..),
     OperatorName,
@@ -98,10 +100,13 @@ module Aihc.Parser.Syntax
     languageEditionExtensions,
     editionFromExtensionSettings,
     mergeSourceSpans,
+    mkName,
+    mkUnqualifiedName,
     noSourceSpan,
     parseExtensionName,
     parseExtensionSettingName,
     parseLanguageEdition,
+    renderName,
     sourceSpanEnd,
     valueDeclBinderName,
     moduleName,
@@ -116,6 +121,7 @@ import Data.Dynamic
 import Data.List (sort)
 import Data.Map qualified as Map
 import Data.Maybe (mapMaybe)
+import Data.String (IsString (..))
 import Data.Text (Text)
 import Data.Text qualified as T
 import GHC.Generics (Generic)
@@ -642,6 +648,65 @@ data NameType
     NameConSym
   deriving (Eq, Show, Generic, NFData, Enum, Bounded, Data)
 
+mkName :: Maybe Text -> NameType -> Text -> Name
+mkName = Name
+
+mkUnqualifiedName :: NameType -> Text -> Name
+mkUnqualifiedName = Name Nothing
+
+renderName :: Name -> Text
+renderName name =
+  case nameQualifier name of
+    Just qualifier -> qualifier <> "." <> nameText name
+    Nothing -> nameText name
+
+instance IsString Name where
+  fromString = nameFromText . T.pack
+
+nameFromText :: Text -> Name
+nameFromText txt =
+  let (qualifier, localName) = splitQualifiedIdentifierText txt
+   in Name qualifier (inferNameType localName) localName
+  where
+    splitQualifiedIdentifierText fullName =
+      case T.splitOn "." fullName of
+        [] -> (Nothing, fullName)
+        [_] -> (Nothing, fullName)
+        parts
+          | all isModuleSegment (init parts) && isIdentifierSegment (last parts) ->
+              (Just (T.intercalate "." (init parts)), last parts)
+          | otherwise ->
+              (Nothing, fullName)
+
+    isModuleSegment segment =
+      case T.uncons segment of
+        Just (c, rest) -> isUpperAscii c && T.all isIdentChar rest
+        Nothing -> False
+
+    isIdentifierSegment segment =
+      case T.uncons segment of
+        Just (c, rest) -> (isUpperAscii c || isLowerAscii c || c == '_') && T.all isIdentChar rest
+        Nothing -> False
+
+    isUpperAscii c = c >= 'A' && c <= 'Z'
+    isLowerAscii c = c >= 'a' && c <= 'z'
+    isDigitAscii c = c >= '0' && c <= '9'
+    isIdentChar c = isUpperAscii c || isLowerAscii c || isDigitAscii c || c == '_' || c == '\''
+
+    inferNameType localName
+      | isOperatorLikeText localName =
+          if T.isPrefixOf ":" localName
+            then NameConSym
+            else NameVarSym
+      | otherwise =
+          case T.uncons localName of
+            Just (c, _) | isUpperAscii c -> NameConId
+            Just (c, _) | isLowerAscii c || c == '_' -> NameVarId
+            _ -> NameConId
+
+    isOperatorLikeText op =
+      not (T.null op) && T.all (`elem` (":!#$%&*+./<=>?@\\^|-~" :: String)) op
+
 type BinderName = Text
 
 type OperatorName = Text
@@ -960,15 +1025,15 @@ data TupleFlavor
 
 data Pattern
   = PAnn Annotation Pattern
-  | PVar SourceSpan Text
+  | PVar SourceSpan Name
   | PWildcard SourceSpan
   | PLit SourceSpan Literal
   | PQuasiQuote SourceSpan Text Text
   | PTuple SourceSpan TupleFlavor [Pattern]
   | PUnboxedSum SourceSpan Int Int Pattern
   | PList SourceSpan [Pattern]
-  | PCon SourceSpan Text [Pattern]
-  | PInfix SourceSpan Pattern Text Pattern
+  | PCon SourceSpan Name [Pattern]
+  | PInfix SourceSpan Pattern Name Pattern
   | PView SourceSpan Expr Pattern
   | PAs SourceSpan Text Pattern
   | PStrict SourceSpan Pattern
@@ -1007,7 +1072,7 @@ instance HasSourceSpan Pattern where
 data Type
   = TAnn Annotation Type
   | TVar SourceSpan Text
-  | TCon SourceSpan Text TypePromotion
+  | TCon SourceSpan Name TypePromotion
   | TImplicitParam SourceSpan Text Type
   | TTypeLit SourceSpan TypeLiteral
   | TStar SourceSpan
@@ -1457,7 +1522,7 @@ instance NFData Annotation where
 
 data Expr
   = EAnn Annotation Expr
-  | EVar SourceSpan Text
+  | EVar SourceSpan Name
   | EInt SourceSpan Integer Text
   | EIntHash SourceSpan Integer Text
   | EIntBase SourceSpan Integer Text
@@ -1474,10 +1539,10 @@ data Expr
   | EMultiWayIf SourceSpan [GuardedRhs]
   | ELambdaPats SourceSpan [Pattern] Expr
   | ELambdaCase SourceSpan [CaseAlt]
-  | EInfix SourceSpan Expr Text Expr
+  | EInfix SourceSpan Expr Name Expr
   | ENegate SourceSpan Expr
-  | ESectionL SourceSpan Expr Text
-  | ESectionR SourceSpan Text Expr
+  | ESectionL SourceSpan Expr Name
+  | ESectionR SourceSpan Name Expr
   | ELetDecls SourceSpan [Decl] Expr
   | ECase SourceSpan Expr [CaseAlt]
   | EDo SourceSpan [DoStmt Expr] Bool -- Bool: True = mdo, False = do
@@ -1677,7 +1742,7 @@ valueDeclBinderName vdecl =
     FunctionBind _ name _ -> Just name
     PatternBind _ pat _ ->
       case pat of
-        PVar _ name -> Just name
+        PVar _ name -> Just (renderName name)
         _ -> Nothing
 
 declValueBinderNames :: Decl -> [Text]
