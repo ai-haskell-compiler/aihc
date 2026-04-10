@@ -113,6 +113,7 @@ prettyImportDecl decl =
           && importDeclQualified decl
    in hsep
         ( ["import"]
+            <> ["safe" | importDeclSafe decl]
             <> ["qualified" | importDeclQualified decl && not renderPostQualified]
             <> maybe [] (\level -> [prettyImportLevel level]) (importDeclLevel decl)
             <> maybe [] (\pkg -> [prettyQuotedText pkg]) (importDeclPackage decl)

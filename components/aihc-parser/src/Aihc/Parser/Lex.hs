@@ -15,6 +15,7 @@ module Aihc.Parser.Lex
     pattern TkVarAs,
     pattern TkVarHiding,
     pattern TkVarQualified,
+    pattern TkVarSafe,
     isReservedIdentifier,
     readModuleHeaderExtensions,
     readModuleHeaderExtensionsFromChunks,

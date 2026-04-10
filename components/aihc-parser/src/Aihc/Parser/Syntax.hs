@@ -716,6 +716,7 @@ data ImportDecl = ImportDecl
     importDeclLevel :: Maybe ImportLevel,
     importDeclPackage :: Maybe Text,
     importDeclSource :: Bool,
+    importDeclSafe :: Bool,
     importDeclQualified :: Bool,
     importDeclQualifiedPost :: Bool,
     importDeclModule :: Text,
