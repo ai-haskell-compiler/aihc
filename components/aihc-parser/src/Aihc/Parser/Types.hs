@@ -152,7 +152,7 @@ emptyTokStream :: FilePath -> TokStream
 emptyTokStream _sourcePath =
   TokStream
     { tokStreamRawTokens = [],
-      tokStreamLayoutState = mkInitialLayoutState False,
+      tokStreamLayoutState = mkInitialLayoutState False [],
       tokStreamPendingPragmas = [],
       tokStreamPrevToken = Nothing,
       tokStreamExtensions = [],
@@ -166,7 +166,7 @@ mkTokStream sourceName exts input =
    in normalizeTokStream
         TokStream
           { tokStreamRawTokens = scanAllTokens env lexSt,
-            tokStreamLayoutState = mkInitialLayoutState False,
+            tokStreamLayoutState = mkInitialLayoutState False exts,
             tokStreamPendingPragmas = [],
             tokStreamPrevToken = Nothing,
             tokStreamExtensions = exts,
@@ -181,7 +181,7 @@ mkTokStreamModule sourceName baseExts input =
    in normalizeTokStream
         TokStream
           { tokStreamRawTokens = scanAllTokens env lexSt,
-            tokStreamLayoutState = mkInitialLayoutState True,
+            tokStreamLayoutState = mkInitialLayoutState True effectiveExts,
             tokStreamPendingPragmas = [],
             tokStreamPrevToken = Nothing,
             tokStreamExtensions = effectiveExts,
@@ -200,7 +200,7 @@ mkTokStreamFromTokens toks =
         TokStream
           { tokStreamRawTokens = scanAllTokens env lexSt,
             tokStreamLayoutState =
-              (mkInitialLayoutState False)
+              (mkInitialLayoutState False [])
                 { layoutBuffer = toks
                 },
             tokStreamPendingPragmas = [],

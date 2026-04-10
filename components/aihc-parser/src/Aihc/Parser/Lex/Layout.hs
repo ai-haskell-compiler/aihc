@@ -8,12 +8,12 @@ module Aihc.Parser.Lex.Layout
 where
 
 import Aihc.Parser.Lex.Types
-import Aihc.Parser.Syntax (SourceSpan (..))
+import Aihc.Parser.Syntax (Extension, SourceSpan (..))
 import Data.Maybe (fromMaybe)
 
-applyLayoutTokens :: Bool -> [LexToken] -> [LexToken]
-applyLayoutTokens enableModuleLayout =
-  go (mkInitialLayoutState enableModuleLayout)
+applyLayoutTokens :: Bool -> [Extension] -> [LexToken] -> [LexToken]
+applyLayoutTokens enableModuleLayout exts =
+  go (mkInitialLayoutState enableModuleLayout exts)
   where
     go st toks =
       case toks of
@@ -82,7 +82,10 @@ openImplicitLayout kind st tok =
       openTok = virtualSymbolToken "{" (lexTokenSpan tok)
       closeTok = virtualSymbolToken "}" (lexTokenSpan tok)
       newContext = LayoutImplicit col kind
-   in if col <= parentIndent
+      -- Under NondecreasingIndentation, a nested context at the same level
+      -- as its parent is allowed (produces normal layout, not empty {}).
+      opensEmpty = if layoutNondecreasingIndent st then col < parentIndent else col <= parentIndent
+   in if opensEmpty
         then ([openTok, closeTok], st {layoutPendingLayout = Nothing}, False)
         else
           ( [openTok],
