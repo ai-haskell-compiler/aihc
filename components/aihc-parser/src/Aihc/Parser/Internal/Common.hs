@@ -232,7 +232,7 @@ moduleNameParser =
     tokenSatisfy "module name" $ \tok ->
       case lexTokenKind tok of
         TkConId ident | isModuleName ident -> Just ident
-        TkQConId ident | isModuleName ident -> Just ident
+        TkQConId modName name | isModuleName (modName <> "." <> name) -> Just (modName <> "." <> name)
         _ -> Nothing
 
 identifierTextParser :: TokParser Text
@@ -241,8 +241,8 @@ identifierTextParser =
     case lexTokenKind tok of
       TkVarId ident -> Just ident
       TkConId ident -> Just ident
-      TkQVarId ident -> Just ident
-      TkQConId ident -> Just ident
+      TkQVarId modName ident -> Just (modName <> "." <> ident)
+      TkQConId modName ident -> Just (modName <> "." <> ident)
       _ -> Nothing
 
 lowerIdentifierParser :: TokParser Text
@@ -250,7 +250,7 @@ lowerIdentifierParser =
   tokenSatisfy "lowercase identifier" $ \tok ->
     case lexTokenKind tok of
       TkVarId ident -> Just ident
-      TkQVarId ident -> Just ident
+      TkQVarId modName ident -> Just (modName <> "." <> ident)
       _ -> Nothing
 
 implicitParamNameParser :: TokParser Text
@@ -265,7 +265,7 @@ constructorIdentifierParser =
   tokenSatisfy "constructor identifier" $ \tok ->
     case lexTokenKind tok of
       TkConId ident -> Just ident
-      TkQConId ident -> Just ident
+      TkQConId modName ident -> Just (modName <> "." <> ident)
       _ -> Nothing
 
 binderNameParser :: TokParser Text
@@ -279,8 +279,8 @@ operatorTextParser =
     case lexTokenKind tok of
       TkVarSym op -> Just op
       TkConSym op -> Just op
-      TkQVarSym op -> Just op
-      TkQConSym op -> Just op
+      TkQVarSym modName op -> Just (modName <> "." <> op)
+      TkQConSym modName op -> Just (modName <> "." <> op)
       _ -> Nothing
 
 -- | Parse an infix operator name (varop) for function definitions.
@@ -485,9 +485,9 @@ contextItemParserWith typeParser typeAtomParser =
                 && op /= "-" ->
                 Just (op, Unpromoted)
           TkConSym op -> Just (op, Unpromoted)
-          TkQVarSym op ->
-            Just (op, Unpromoted)
-          TkQConSym op -> Just (op, Unpromoted)
+          TkQVarSym modName op ->
+            Just (modName <> "." <> op, Unpromoted)
+          TkQConSym modName op -> Just (modName <> "." <> op, Unpromoted)
           _ -> Nothing
     promotedInfixOperatorParser = do
       expectedTok (TkVarSym "'")

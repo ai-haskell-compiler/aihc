@@ -730,8 +730,8 @@ fixityOperatorParser =
         case lexTokenKind tok of
           TkVarSym op -> Just op
           TkConSym op -> Just op
-          TkQVarSym op -> Just op
-          TkQConSym op -> Just op
+          TkQVarSym modName op -> Just (modName <> "." <> op)
+          TkQConSym modName op -> Just (modName <> "." <> op)
           _ -> Nothing
     backtickIdentifierParser = do
       expectedTok TkSpecialBacktick
@@ -1538,7 +1538,7 @@ constructorOperatorParser =
       tokenSatisfy "constructor operator" $ \tok ->
         case lexTokenKind tok of
           TkConSym op -> Just op
-          TkQConSym op -> Just op
+          TkQConSym modName op -> Just (modName <> "." <> op)
           TkReservedColon -> Just ":"
           _ -> Nothing
     backtickConstructorIdentifierParser = do

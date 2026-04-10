@@ -1,6 +1,6 @@
 extensions: []
 input: "Prelude.+"
 tokens:
-  - 'TkQVarSym "Prelude.+"'
+  - 'TkQVarSym "Prelude" "+"'
   - 'TkEOF'
 status: pass

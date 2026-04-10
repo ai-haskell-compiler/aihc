@@ -785,13 +785,13 @@ docTokenKind kind =
     TkTypeApp -> "TkTypeApp"
     TkVarId name -> "TkVarId" <+> docText name
     TkConId name -> "TkConId" <+> docText name
-    TkQVarId name -> "TkQVarId" <+> docText name
-    TkQConId name -> "TkQConId" <+> docText name
+    TkQVarId modName name -> "TkQVarId" <+> docText modName <+> docText name
+    TkQConId modName name -> "TkQConId" <+> docText modName <+> docText name
     TkImplicitParam name -> "TkImplicitParam" <+> docText name
     TkVarSym name -> "TkVarSym" <+> docText name
     TkConSym name -> "TkConSym" <+> docText name
-    TkQVarSym name -> "TkQVarSym" <+> docText name
-    TkQConSym name -> "TkQConSym" <+> docText name
+    TkQVarSym modName name -> "TkQVarSym" <+> docText modName <+> docText name
+    TkQConSym modName name -> "TkQConSym" <+> docText modName <+> docText name
     TkInteger n -> "TkInteger" <+> pretty n
     TkIntegerHash n repr -> "TkIntegerHash" <+> pretty n <+> docText repr
     TkIntegerBase n repr -> "TkIntegerBase" <+> pretty n <+> docText repr

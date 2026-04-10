@@ -288,10 +288,11 @@ lexIdentifier env st =
                   | isSymbolicOpCharNotDot opChar ->
                       let opChars = T.takeWhile isSymbolicOpChar dotRest
                           fullOp = consumed <> "." <> opChars
+                          (modName, opName) = splitQualified (consumed <> ".") opChars
                           kind =
                             if opChar == ':'
-                              then TkQConSym fullOp
-                              else TkQVarSym fullOp
+                              then TkQConSym modName opName
+                              else TkQVarSym modName opName
                           st' = advanceChars fullOp st
                        in Just (mkToken st st' fullOp kind, st')
                 _ ->
@@ -320,11 +321,22 @@ lexIdentifier env st =
 
     isSymbolicOpCharNotDot c = isSymbolicOpChar c && c /= '.'
 
+    -- Split a qualified identifier into (module part, name part).
+    -- E.g. "Data.Maybe." ++ "++" -> ("Data.Maybe", "++")
+    splitQualified :: Text -> Text -> (Text, Text)
+    splitQualified modWithDot name =
+      (T.dropEnd 1 modWithDot, name)
+
     classifyIdentifier firstChar isQualified ident
       | isQualified =
-          case T.takeWhileEnd (/= '.') ident of
-            firstCharFinal :< _ | isConIdStart firstCharFinal -> TkQConId ident
-            _ -> TkQVarId ident
+          let rev = T.reverse ident
+              (revName, revRest) = T.span (/= '.') rev
+              modName = T.reverse (T.drop 1 revRest)
+              name = T.reverse revName
+           in case T.uncons name of
+                Just (c', _) | isConIdStart c' -> TkQConId modName name
+                Just _ -> TkQVarId modName name
+                Nothing -> TkQVarId modName name
       | otherwise =
           case keywordTokenKind ident of
             Just kw -> kw
@@ -448,8 +460,8 @@ prevTokenAllowsTightPrefix kind =
     TkSpecialSemicolon -> True
     TkVarSym _ -> True
     TkConSym _ -> True
-    TkQVarSym _ -> True
-    TkQConSym _ -> True
+    TkQVarSym _ _ -> True
+    TkQConSym _ _ -> True
     TkMinusOperator -> True
     TkPrefixMinus -> True
     TkReservedEquals -> True

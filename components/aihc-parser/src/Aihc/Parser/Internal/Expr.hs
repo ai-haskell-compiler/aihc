@@ -506,8 +506,8 @@ infixOperatorParserExcept forbidden =
         case lexTokenKind tok of
           TkVarSym op | op `notElem` forbidden -> Just op
           TkConSym op | op `notElem` forbidden -> Just op
-          TkQVarSym op | op `notElem` forbidden -> Just op
-          TkQConSym op | op `notElem` forbidden -> Just op
+          TkQVarSym modName op | op `notElem` forbidden -> Just (modName <> "." <> op)
+          TkQConSym modName op | op `notElem` forbidden -> Just (modName <> "." <> op)
           -- TkMinusOperator is minus when LexicalNegation is enabled but used as infix
           TkMinusOperator | "-" `notElem` forbidden -> Just "-"
           -- Reserved operators that can be used as infix operators
@@ -658,7 +658,7 @@ recordFieldBindingParser = withSpan $ do
   fieldName <- tokenSatisfy "field name" $ \tok ->
     case lexTokenKind tok of
       TkVarId name -> Just name
-      TkQVarId name -> Just name
+      TkQVarId modName name -> Just (modName <> "." <> name)
       _ -> Nothing
   mAssign <- MP.optional (expectedTok TkReservedEquals *> exprParser)
   pure (fieldName,mAssign,)
@@ -731,8 +731,8 @@ parenOperatorExprParser = withSpan $ do
     case lexTokenKind tok of
       TkVarSym sym -> Just sym
       TkConSym sym -> Just sym
-      TkQVarSym sym -> Just sym
-      TkQConSym sym -> Just sym
+      TkQVarSym modName sym -> Just (modName <> "." <> sym)
+      TkQConSym modName sym -> Just (modName <> "." <> sym)
       TkMinusOperator -> Just "-"
       TkReservedColon -> Just ":"
       TkReservedDoubleColon -> Just "::"
@@ -787,7 +787,7 @@ conOperatorParser =
       tokenSatisfy "constructor operator" $ \tok ->
         case lexTokenKind tok of
           TkConSym op -> Just op
-          TkQConSym op -> Just op
+          TkQConSym modName op -> Just (modName <> "." <> op)
           TkReservedColon -> Just ":"
           _ -> Nothing
     backtickConOp = MP.try $ do
@@ -1965,8 +1965,8 @@ typeInfixOperatorParser =
                 && op /= "'" ->
                 Just (op, Unpromoted)
           TkConSym op -> Just (op, Unpromoted)
-          TkQVarSym op -> Just (op, Unpromoted)
-          TkQConSym op -> Just (op, Unpromoted)
+          TkQVarSym modName op -> Just (modName <> "." <> op, Unpromoted)
+          TkQConSym modName op -> Just (modName <> "." <> op, Unpromoted)
           _ -> Nothing
 
     backtickTypeOperatorParser = MP.try $ do
@@ -2084,8 +2084,8 @@ typeParenOperatorParser = withSpan $ do
     case lexTokenKind tok of
       TkVarSym sym | sym /= "*" -> Just sym
       TkConSym sym | sym /= "*" -> Just sym
-      TkQVarSym sym -> Just sym
-      TkQConSym sym -> Just sym
+      TkQVarSym modName sym -> Just (modName <> "." <> sym)
+      TkQConSym modName sym -> Just (modName <> "." <> sym)
       -- Handle reserved operators that can be used as type constructors
       TkReservedRightArrow -> Just "->"
       -- Note: ~ is now lexed as TkVarSym "~" so TkVarSym case handles it
