@@ -96,8 +96,14 @@ lexHexFloat env st =
 lexFloat :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
 lexFloat env st =
   let allowUnderscores = hasExt NumericUnderscores env
-      (lhsRaw, rest) = takeDigitsWithUnderscores allowUnderscores isDigit (lexerInput st)
-   in if T.null lhsRaw
+      input = lexerInput st
+      -- Reject if input starts with underscore (e.g. _123 is not a number)
+      startsWithUnderscore =
+        case input of
+          '_' :< _ -> True
+          _ -> False
+      (lhsRaw, rest) = takeDigitsWithUnderscores allowUnderscores isDigit input
+   in if T.null lhsRaw || startsWithUnderscore
         then Nothing
         else case rest of
           '.' :< dotRest@(d :< _)
@@ -125,8 +131,14 @@ lexFloat env st =
 lexInt :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
 lexInt env st =
   let allowUnderscores = hasExt NumericUnderscores env
-      (digitsRaw, _) = takeDigitsWithUnderscores allowUnderscores isDigit (lexerInput st)
-   in if T.null digitsRaw
+      input = lexerInput st
+      -- Reject if input starts with underscore (e.g. _123 is not a number)
+      startsWithUnderscore =
+        case input of
+          '_' :< _ -> True
+          _ -> False
+      (digitsRaw, _) = takeDigitsWithUnderscores allowUnderscores isDigit input
+   in if T.null digitsRaw || startsWithUnderscore
         then Nothing
         else
           let digits = T.filter (/= '_') digitsRaw
@@ -161,8 +173,13 @@ takeExponent allowUnderscores chars =
                             case rest2 of
                               sign :< more | sign `elem` ("+-" :: String) -> (T.singleton sign, more)
                               _ -> ("", rest2)
+                          -- Reject underscore after exponent sign (e.g. 1e+_23)
+                          digitsStartWithUnderscore =
+                            case rest3 of
+                              '_' :< _ -> True
+                              _ -> False
                           (digits, rest4) = takeDigitsWithUnderscores allowUnderscores isDigit rest3
-                       in if T.null digits
+                       in if T.null digits || digitsStartWithUnderscore
                             then ("", chars)
                             else
                               let consumed = T.take (T.length chars - T.length rest4) chars
@@ -174,8 +191,13 @@ takeExponent allowUnderscores chars =
                 case rest of
                   sign :< more | sign `elem` ("+-" :: String) -> (T.singleton sign, more)
                   _ -> ("", rest)
+              -- Reject underscore after exponent sign (e.g. 1e+_23 or 1e_23)
+              digitsStartWithUnderscore =
+                case rest1 of
+                  '_' :< _ -> True
+                  _ -> False
               (digits, rest2) = takeDigitsWithUnderscores allowUnderscores isDigit rest1
-           in if T.null digits then ("", chars) else let consumed = T.take (T.length chars - T.length rest2) chars in (consumed, rest2)
+           in if T.null digits || digitsStartWithUnderscore then ("", chars) else let consumed = T.take (T.length chars - T.length rest2) chars in (consumed, rest2)
     _ -> ("", chars)
 
 takeHexExponent :: Text -> Maybe Text

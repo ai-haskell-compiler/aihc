@@ -1,0 +1,9 @@
+# Testing: _0001 (invalid - leading underscore on integer)
+# GHC treats this as a variable/hole, not a number.
+extensions:
+  - NumericUnderscores
+input: "_0001"
+tokens:
+  - 'TkVarId "_0001"'
+  - "TkEOF"
+status: pass
