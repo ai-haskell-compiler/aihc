@@ -78,8 +78,8 @@ import Aihc.Parser.Lex.Trivia
   )
 import Aihc.Parser.Lex.Types
 import Aihc.Parser.Syntax
-import Data.Char (GeneralCategory (..), generalCategory, isAscii, isAsciiLower, isAsciiUpper, isDigit, isSpace)
 import Control.Applicative ((<|>))
+import Data.Char (GeneralCategory (..), generalCategory, isAscii, isAsciiLower, isAsciiUpper, isDigit, isSpace)
 import Data.Maybe (fromMaybe, isJust)
 import Data.Text (Text, pattern Empty, pattern (:<))
 import Data.Text qualified as T
@@ -140,7 +140,7 @@ readModuleHeaderPragmasFromChunks chunks =
 
 scanTokens :: LexerEnv -> LexerState -> [LexToken]
 scanTokens env st0 =
-  case skipTrivia env st0 of
+  case skipTrivia st0 of
     SkipToken tok st ->
       let st' = st {lexerPrevTokenKind = Just (lexTokenKind tok), lexerHadTrivia = False}
        in tok : scanTokens env st'
@@ -156,8 +156,8 @@ data SkipResult = SkipDone !LexerState | SkipToken !LexToken !LexerState
 -- | Skip whitespace, line comments, block comments, and control pragmas ({-# LINE/COLUMN #-}).
 -- Regular pragmas ({-# ... #-}) are left for 'nextToken' to handle.
 -- Returns 'SkipToken' only for error tokens from malformed/unterminated constructs.
-skipTrivia :: LexerEnv -> LexerState -> SkipResult
-skipTrivia _env st0 = go st0
+skipTrivia :: LexerState -> SkipResult
+skipTrivia = go
   where
     go st =
       let inp = lexerInput st
@@ -166,11 +166,14 @@ skipTrivia _env st0 = go st0
             c :< _
               | isHaskellWhitespace c ->
                   go (markHadTrivia (consumeWhile isHaskellWhitespace st))
-            _ | Just rest <- T.stripPrefix "--" inp, isLineComment rest ->
+            _
+              | Just rest <- T.stripPrefix "--" inp,
+                isLineComment rest ->
                   go (markHadTrivia (consumeLineComment st))
             -- Check {-# before {- so control pragmas are handled first and
             -- block comment handler does not eat pragma tokens.
-            _ | "{-#" `T.isPrefixOf` inp ->
+            _
+              | "{-#" `T.isPrefixOf` inp ->
                   case tryConsumeControlPragma st of
                     Just (Nothing, st') -> go (markHadTrivia st')
                     Just (Just tok, st') -> SkipToken tok (markHadTrivia st')
@@ -242,12 +245,12 @@ stepNextToken env lexSt laySt =
           let (allToks, laySt') = layoutTransition laySt rawTok
            in case allToks of
                 [] -> Just (rawTok, lexSt', laySt')
-                first : [] -> Just (first, lexSt', laySt')
+                [first] -> Just (first, lexSt', laySt')
                 first : rest -> Just (first, lexSt', laySt' {layoutBuffer = rest})
 
 scanOneToken :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
 scanOneToken env st0 =
-  case skipTrivia env st0 of
+  case skipTrivia st0 of
     SkipToken tok st ->
       let st' = st {lexerPrevTokenKind = Just (lexTokenKind tok), lexerHadTrivia = False}
        in Just (tok, st')
@@ -759,9 +762,7 @@ lexString env st =
               case scanQuoted '"' rest of
                 Right (body, _) ->
                   let rawT = "\"" <> body <> "\""
-                      decoded = case decodeStringBody body of
-                        Just d -> d
-                        Nothing -> body
+                      decoded = fromMaybe body (decodeStringBody body)
                       (tokTxt, tokKind, st') =
                         withOptionalMagicHashSuffix 1 env st rawT (TkString decoded) (TkStringHash decoded)
                    in Just (mkToken st st' tokTxt tokKind, st')

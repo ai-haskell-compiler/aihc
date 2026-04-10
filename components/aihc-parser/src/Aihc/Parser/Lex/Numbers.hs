@@ -135,26 +135,18 @@ lexInt env st =
                 withOptionalMagicHashSuffix 2 env st digitsRaw (TkInteger n) (TkIntegerHash n)
            in Just (mkToken st st' tokTxt tokKind, st')
 
--- Scan [digit]([_]*[digit])* and return a zero-copy split.
+-- Scan ([_]*[digit])* and return a zero-copy split.
 -- Uses T.span (which tracks the byte offset while scanning, no second pass)
--- rather than computing a character count and calling T.splitAt (which would
--- invoke _hs_text_measure_off to re-scan for the byte offset).
--- Trailing underscores are never consumed (e.g. "1000_" → ("1000", "_")).
-{-# INLINE takeDigitsWithUnderscores #-}
+-- rather than computing a character count and calling T.splitAt.
 takeDigitsWithUnderscores :: Bool -> (Char -> Bool) -> Text -> (Text, Text)
 takeDigitsWithUnderscores False isDigitChar = T.span isDigitChar
 takeDigitsWithUnderscores True isDigitChar = \chars ->
-  case chars of
-    c :< _ | not (isDigitChar c) -> ("", chars)
-    _ ->
-      -- T.span finds the byte-level split point while scanning, no FFI needed.
-      let (consumed, rest) = T.span (\c -> isDigitChar c || c == '_') chars
-       in if T.last consumed /= '_'
-            then (consumed, rest)
-            else -- Rare: trailing underscores (invalid syntax). Trim them off.
-              let trimmed = T.dropWhileEnd (== '_') consumed
-               in (trimmed, T.drop (T.length trimmed) chars)
-
+  let (consumed, rest) = T.span (\c -> isDigitChar c || c == '_') chars
+   in if T.null consumed || T.last consumed /= '_'
+        then (consumed, rest)
+        else -- Rare: trailing underscores (invalid syntax). Trim them off.
+          let trimmed = T.dropWhileEnd (== '_') consumed
+           in (trimmed, T.drop (T.length trimmed) chars)
 
 takeExponent :: Bool -> Text -> (Text, Text)
 takeExponent allowUnderscores chars =
