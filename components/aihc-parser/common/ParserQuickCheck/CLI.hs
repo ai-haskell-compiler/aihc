@@ -5,7 +5,7 @@ module ParserQuickCheck.CLI
   )
 where
 
-import qualified Options.Applicative as OA
+import Options.Applicative qualified as OA
 
 data Options = Options
   { optMaxSuccess :: Int,

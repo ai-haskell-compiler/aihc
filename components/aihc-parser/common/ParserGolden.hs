@@ -36,13 +36,13 @@ import Data.Aeson.Types (parseEither, withObject)
 import Data.Char (isSpace, toLower)
 import Data.List (dropWhileEnd, sort)
 import Data.Text (Text)
-import qualified Data.Text as T
+import Data.Text qualified as T
 import Data.Text.Encoding (encodeUtf8)
-import qualified Data.Text.IO as TIO
-import qualified Data.Yaml as Y
+import Data.Text.IO qualified as TIO
+import Data.Yaml qualified as Y
 import System.Directory (doesDirectoryExist, listDirectory)
 import System.FilePath (takeDirectory, takeExtension, (</>))
-import qualified Text.Megaparsec.Error as MPE
+import Text.Megaparsec.Error qualified as MPE
 
 data CaseKind = CaseExpr | CaseModule | CasePattern deriving (Eq, Show)
 

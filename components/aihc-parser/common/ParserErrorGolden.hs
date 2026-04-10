@@ -12,18 +12,18 @@ module ParserErrorGolden
 where
 
 import Aihc.Parser (ParserConfig (..), defaultConfig, formatParseErrors, parseModule)
-import qualified Aihc.Parser.Syntax as Syntax
+import Aihc.Parser.Syntax qualified as Syntax
 import Data.Aeson ((.:))
-import qualified Data.Aeson.Key as Key
-import qualified Data.Aeson.KeyMap as KeyMap
+import Data.Aeson.Key qualified as Key
+import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Aeson.Types (parseEither, withObject)
 import Data.Char (toLower)
 import Data.List (sort)
 import Data.Text (Text)
-import qualified Data.Text as T
+import Data.Text qualified as T
 import Data.Text.Encoding (encodeUtf8)
-import qualified Data.Text.IO as TIO
-import qualified Data.Yaml as Y
+import Data.Text.IO qualified as TIO
+import Data.Yaml qualified as Y
 import GhcOracle (oracleModuleAstFingerprint)
 import System.Directory (doesDirectoryExist, listDirectory)
 import System.FilePath (makeRelative, takeDirectory, takeExtension, (</>))

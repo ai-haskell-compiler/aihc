@@ -6,8 +6,8 @@ module Test.Lexer.Suite
 where
 
 import Control.Monad (unless, when)
-import qualified Data.Text as T
-import qualified LexerGolden as LG
+import Data.Text qualified as T
+import LexerGolden qualified as LG
 import System.FilePath (takeExtension)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertFailure, testCase, testCaseInfo)

@@ -3,15 +3,15 @@ module Test.ExtensionMapping.Suite
   )
 where
 
-import qualified Aihc.Parser.Syntax as Syntax
+import Aihc.Parser.Syntax qualified as Syntax
 import Data.List (intercalate, sort)
 import Data.Maybe (isNothing)
-import qualified Data.Set as Set
-import qualified Data.Text as T
-import qualified GHC.Driver.DynFlags as DynFlags
-import qualified GHC.LanguageExtensions.Type as GHC
-import qualified Language.Haskell.Extension as Cabal
-import qualified Language.Haskell.TH.Syntax as TH
+import Data.Set qualified as Set
+import Data.Text qualified as T
+import GHC.Driver.DynFlags qualified as DynFlags
+import GHC.LanguageExtensions.Type qualified as GHC
+import Language.Haskell.Extension qualified as Cabal
+import Language.Haskell.TH.Syntax qualified as TH
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertFailure, testCase)
 
