@@ -6,13 +6,13 @@ module Test.HackageTester.Suite
 where
 
 import Aihc.Cpp (IncludeKind (..), IncludeRequest (..), Result (..))
-import qualified Aihc.Parser.Syntax as Syntax
+import Aihc.Parser.Syntax qualified as Syntax
 import Control.Exception (bracket)
 import CppSupport (preprocessForParserIfEnabled)
-import qualified Data.ByteString as BS
+import Data.ByteString qualified as BS
 import Data.List (isSuffixOf)
-import qualified Data.Text as T
-import qualified Data.Text.Encoding as TE
+import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
 import GhcOracle (oracleModuleAstFingerprint)
 import HackageSupport (fileInfoPath, findTargetFilesFromCabal, resolveIncludeBestEffort)
 import HackageTester.CLI (Options (..), parseOptionsPure)

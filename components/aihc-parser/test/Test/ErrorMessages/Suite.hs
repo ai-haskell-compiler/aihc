@@ -6,8 +6,8 @@ module Test.ErrorMessages.Suite
 where
 
 import Control.Monad (unless, when)
-import qualified Data.Text as T
-import qualified ParserErrorGolden as PEG
+import Data.Text qualified as T
+import ParserErrorGolden qualified as PEG
 import System.FilePath (takeExtension)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertFailure, testCase)

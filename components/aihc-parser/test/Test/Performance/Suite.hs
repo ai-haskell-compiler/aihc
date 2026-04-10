@@ -14,10 +14,10 @@ import Data.Aeson.Types (parseEither, withObject)
 import Data.Char (chr, toLower)
 import Data.List (sort)
 import Data.Text (Text)
-import qualified Data.Text as T
-import qualified Data.Text.Encoding as TE
-import qualified Data.Text.IO as TIO
-import qualified Data.Yaml as Y
+import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
+import Data.Text.IO qualified as TIO
+import Data.Yaml qualified as Y
 import ParserGolden (ExpectedStatus (..))
 import System.Directory (doesDirectoryExist, listDirectory)
 import System.FilePath (takeExtension, (</>))

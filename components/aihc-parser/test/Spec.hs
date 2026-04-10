@@ -7,7 +7,7 @@ import Aihc.Parser
 import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokens, lexTokensFromChunks, lexTokensWithExtensions, readModuleHeaderExtensions, readModuleHeaderExtensionsFromChunks)
 import Aihc.Parser.Syntax
 import Data.List (isInfixOf)
-import qualified Data.Text as T
+import Data.Text qualified as T
 import ParserValidation (validateParser)
 import Test.ErrorMessages.Suite (errorMessageTests)
 import Test.ExtensionMapping.Suite (extensionMappingTests)
@@ -26,8 +26,8 @@ import Test.StackageProgress.FileCheckerTiming (stackageProgressFileCheckerTimin
 import Test.StackageProgress.Summary (stackageProgressSummaryTests)
 import Test.Tasty
 import Test.Tasty.HUnit
-import qualified Test.Tasty.QuickCheck as QC
-import qualified Text.Megaparsec.Error as MPE
+import Test.Tasty.QuickCheck qualified as QC
+import Text.Megaparsec.Error qualified as MPE
 
 tenMinutes :: Timeout
 tenMinutes = Timeout (10 * 60 * 1000000) "10m"
