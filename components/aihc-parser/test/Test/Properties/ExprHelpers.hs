@@ -18,7 +18,7 @@ import Aihc.Parser.Syntax
 import Data.Char (isSpace)
 import Data.Text (Text)
 import Data.Text qualified as T
-import Test.Properties.Identifiers (genIdent, shrinkIdent)
+import Test.Properties.Identifiers (extensionReservedIdentifiers, genIdent, shrinkIdent)
 import Test.QuickCheck
 
 -- | Canonical empty source span for normalization.
@@ -439,7 +439,7 @@ genTypeVarName = do
   restLen <- chooseInt (0, 3)
   rest <- vectorOf restLen (elements (['a' .. 'z'] <> ['0' .. '9']))
   let candidate = T.pack (first : rest)
-  if isReservedIdentifier candidate
+  if isReservedIdentifier candidate || candidate `elem` extensionReservedIdentifiers
     then genTypeVarName
     else pure (mkUnqualifiedName NameVarId candidate)
 
