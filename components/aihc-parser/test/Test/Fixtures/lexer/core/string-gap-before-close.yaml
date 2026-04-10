@@ -1,0 +1,6 @@
+extensions: []
+input: "\"\\\n\\\""
+tokens:
+  - 'TkString ""'
+  - 'TkEOF'
+status: pass

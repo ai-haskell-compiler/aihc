@@ -24,16 +24,20 @@ scanQuoted :: Char -> Text -> Either Text (Text, Text)
 scanQuoted endCh input = go 0 input
   where
     go consumed rest =
-      let (plain, special) = T.break (\c -> c == '\\' || c == endCh) rest
-          consumed' = consumed + T.length plain
-       in case T.uncons special of
-            Nothing -> Left (T.take consumed' input)
-            Just (c, tailText)
-              | c == endCh -> Right (T.take consumed' input, tailText)
-              | otherwise ->
-                  case consumedEscapeTail tailText of
-                    Just tailLen -> go (consumed' + 1 + tailLen) (T.drop tailLen tailText)
-                    Nothing -> Left (T.take (consumed' + 1) input)
+      case T.findIndex (\c -> c == '\\' || c == endCh) rest of
+        Nothing -> Left (T.take (consumed + T.length rest) input)
+        Just i ->
+          let consumed' = consumed + i
+              special = T.drop i rest
+           in if T.null special
+                then Left (T.take consumed' input)
+                else case T.head special of
+                  c
+                    | c == endCh -> Right (T.take consumed' input, T.drop 1 special)
+                    | otherwise ->
+                        case consumedEscapeTail (T.drop 1 special) of
+                          Just tailLen -> go (consumed' + 1 + tailLen) (T.drop tailLen (T.drop 1 special))
+                          Nothing -> Left (T.take (consumed' + 1) input)
 
 -- | Scan a multiline string body (after the opening @\"\"\"@) until an
 -- unescaped closing @\"\"\"@.  Returns @Right (body, rest)@ on success or
@@ -42,20 +46,26 @@ scanMultilineString :: Text -> Either Text (Text, Text)
 scanMultilineString input = go 0 input
   where
     go consumed rest =
-      let (plain, special) = T.break (\c -> c == '\\' || c == '"') rest
-          consumed' = consumed + T.length plain
-       in case T.uncons special of
-            Nothing -> Left (T.take consumed' input)
-            Just ('\\', tailText) ->
-              case consumedEscapeTail tailText of
-                Just tailLen -> go (consumed' + 1 + tailLen) (T.drop tailLen tailText)
-                Nothing -> Left (T.take (consumed' + 1) input)
-            Just ('"', _) ->
-              let (quotes, tailText) = T.span (== '"') special
-               in if T.length quotes >= 3
-                    then Right (T.take consumed' input, T.drop 3 tailText)
-                    else go (consumed' + T.length quotes) tailText
-            Just _ -> error "unreachable: break predicate only matches backslash or quote"
+      case T.findIndex (\c -> c == '\\' || c == '"') rest of
+        Nothing -> Left (T.take (consumed + T.length rest) input)
+        Just i ->
+          let consumed' = consumed + i
+              special = T.drop i rest
+           in if T.null special
+                then Left (T.take consumed' input)
+                else case T.head special of
+                  '\\' ->
+                    case consumedEscapeTail (T.drop 1 special) of
+                      Just tailLen -> go (consumed' + 1 + tailLen) (T.drop tailLen (T.drop 1 special))
+                      Nothing -> Left (T.take (consumed' + 1) input)
+                  '"' ->
+                    if "\"\"\"" `T.isPrefixOf` special
+                      then Right (T.take consumed' input, T.drop 3 special)
+                      else
+                        if "\"\"" `T.isPrefixOf` special
+                          then go (consumed' + 2) (T.drop 2 special)
+                          else go (consumed' + 1) (T.drop 1 special)
+                  _ -> error "unreachable: findIndex only returns backslash or quote"
 
 -- | Determine how much text after a backslash belongs to the current
 -- escape-like sequence for delimiter scanning purposes.
@@ -64,15 +74,15 @@ scanMultilineString input = go 0 input
 -- not incorrectly escape the following quote.
 consumedEscapeTail :: Text -> Maybe Int
 consumedEscapeTail rest =
-  case T.uncons rest of
-    Nothing -> Nothing
-    Just (c, _)
-      | isSpace c ->
-          let (ws, suffix) = T.span isSpace rest
-           in case T.uncons suffix of
-                Just ('\\', _) -> Just (T.length ws + 1)
-                _ -> Just 1
-      | otherwise -> Just 1
+  if T.null rest
+    then Nothing
+    else
+      let c = T.head rest
+       in if isSpace c
+            then case T.findIndex (not . isSpace) rest of
+              Just i | T.index rest i == '\\' -> Just (i + 1)
+              _ -> Just 1
+            else Just 1
 
 -- | Decode the body of a Haskell string literal (content between the quotes,
 -- without the surrounding @\"@ characters) natively on 'Text', avoiding the
