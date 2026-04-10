@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail SPECIALIZE pragma not preserved in pretty-printer roundtrip -}
+{- ORACLE_TEST pass -}
 module SpecializeImportedUse where
 
 import SpecializeImportedDef (lookupLike)
