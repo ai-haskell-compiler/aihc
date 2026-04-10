@@ -740,6 +740,7 @@ lexPromotedQuote env st
           | c == '(' -> True
           | c == ':' -> True
           | isConIdStart c -> True
+          | isSymbolicOpChar c -> True
         _ -> False
 
 lexChar :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)

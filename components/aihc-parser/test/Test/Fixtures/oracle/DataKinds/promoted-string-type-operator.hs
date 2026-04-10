@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail promoted type operator with string literals -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE DataKinds, TypeOperators #-}
 
 module PromotedTypeOperatorWithStrings where
