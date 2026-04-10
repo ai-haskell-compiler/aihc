@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail type-level subtraction operator in constraint fails to parse -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE GHC2021 #-}
 {-# LANGUAGE DataKinds #-}
 

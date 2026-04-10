@@ -1991,7 +1991,6 @@ typeInfixOperatorParser =
           TkVarSym op
             | op /= "."
                 && op /= "!"
-                && op /= "-"
                 && op /= "'" ->
                 Just (qualifyName Nothing (mkUnqualifiedName NameVarSym op), Unpromoted)
           TkConSym op -> Just (qualifyName Nothing (mkUnqualifiedName NameConSym op), Unpromoted)
