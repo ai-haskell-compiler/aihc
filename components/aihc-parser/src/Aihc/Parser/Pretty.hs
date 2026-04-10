@@ -722,7 +722,7 @@ prettyDataCon ctor =
               ( punctuate
                   comma
                   [ hsep
-                      [ hsep (punctuate comma (map pretty (fieldNames fld))),
+                      [ hsep (punctuate comma (map prettyFieldName (fieldNames fld))),
                         "::",
                         prettyRecordFieldBangType (fieldType fld)
                       ]
@@ -730,6 +730,12 @@ prettyDataCon ctor =
                   ]
               )
           )
+      where
+        -- Wrap operator names in parentheses for correct parsing
+        prettyFieldName :: Text -> Doc ann
+        prettyFieldName fieldName
+          | isOperatorToken fieldName = parens (pretty fieldName)
+          | otherwise = pretty fieldName
     GadtCon _ forallBinders constraints names body ->
       prettyGadtCon forallBinders constraints names body
 
@@ -768,13 +774,19 @@ prettyRecordFields fields =
     ( punctuate
         comma
         [ hsep
-            [ hsep (punctuate comma (map pretty (fieldNames fld))),
+            [ hsep (punctuate comma (map prettyFieldName (fieldNames fld))),
               "::",
               prettyRecordFieldBangType (fieldType fld)
             ]
         | fld <- fields
         ]
     )
+  where
+    -- Wrap operator names in parentheses for correct parsing
+    prettyFieldName :: Text -> Doc ann
+    prettyFieldName name
+      | isOperatorToken name = parens (pretty name)
+      | otherwise = pretty name
 
 dataConQualifierPrefix :: [Text] -> [Type] -> [Doc ann]
 dataConQualifierPrefix forallVars constraints = forallPrefix forallVars <> contextPrefix constraints

@@ -1451,7 +1451,7 @@ recordFieldsParser = braces (recordFieldDeclParser `MP.sepEndBy` expectedTok TkS
 
 recordFieldDeclParser :: TokParser FieldDecl
 recordFieldDeclParser = withSpan $ do
-  names <- identifierTextParser `MP.sepBy1` expectedTok TkSpecialComma
+  names <- binderNameParser `MP.sepBy1` expectedTok TkSpecialComma
   expectedTok TkReservedDoubleColon
   fieldTy <- recordFieldBangTypeParser
   pure $ \span' ->
