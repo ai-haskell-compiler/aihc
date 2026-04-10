@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail infix function pattern -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE GHC2021 #-}
 
 module InfixFunctionPattern where
