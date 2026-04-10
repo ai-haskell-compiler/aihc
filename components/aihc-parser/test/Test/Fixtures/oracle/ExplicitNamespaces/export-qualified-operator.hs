@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail parser does not accept qualified module prefix in export list -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE GHC2021 #-}
 
 module ExportQualifiedOperator (

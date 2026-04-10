@@ -11,11 +11,18 @@ module Aihc.Parser.Internal.Common
     hiddenPragma,
     optionalHiddenPragma,
     moduleNameParser,
+    identifierNameParser,
+    identifierUnqualifiedNameParser,
     identifierTextParser,
     lowerIdentifierParser,
     implicitParamNameParser,
+    constructorNameParser,
+    constructorUnqualifiedNameParser,
+    constructorOperatorUnqualifiedNameParser,
     constructorIdentifierParser,
     binderNameParser,
+    operatorNameParser,
+    operatorUnqualifiedNameParser,
     operatorTextParser,
     infixOperatorNameParser,
     stringTextParser,
@@ -232,25 +239,36 @@ moduleNameParser =
     tokenSatisfy "module name" $ \tok ->
       case lexTokenKind tok of
         TkConId ident | isModuleName ident -> Just ident
-        TkQConId ident | isModuleName ident -> Just ident
+        TkQConId modName name | isModuleName (modName <> "." <> name) -> Just (modName <> "." <> name)
         _ -> Nothing
 
-identifierTextParser :: TokParser Text
-identifierTextParser =
+identifierNameParser :: TokParser Name
+identifierNameParser =
   tokenSatisfy "identifier" $ \tok ->
     case lexTokenKind tok of
-      TkVarId ident -> Just ident
-      TkConId ident -> Just ident
-      TkQVarId ident -> Just ident
-      TkQConId ident -> Just ident
+      TkVarId ident -> Just (qualifyName Nothing (mkUnqualifiedName NameVarId ident))
+      TkConId ident -> Just (qualifyName Nothing (mkUnqualifiedName NameConId ident))
+      TkQVarId modName ident -> Just (mkName (Just modName) NameVarId ident)
+      TkQConId modName ident -> Just (mkName (Just modName) NameConId ident)
       _ -> Nothing
+
+identifierUnqualifiedNameParser :: TokParser UnqualifiedName
+identifierUnqualifiedNameParser =
+  tokenSatisfy "unqualified identifier" $ \tok ->
+    case lexTokenKind tok of
+      TkVarId ident -> Just (mkUnqualifiedName NameVarId ident)
+      TkConId ident -> Just (mkUnqualifiedName NameConId ident)
+      _ -> Nothing
+
+identifierTextParser :: TokParser Text
+identifierTextParser = renderName <$> identifierNameParser
 
 lowerIdentifierParser :: TokParser Text
 lowerIdentifierParser =
   tokenSatisfy "lowercase identifier" $ \tok ->
     case lexTokenKind tok of
       TkVarId ident -> Just ident
-      TkQVarId ident -> Just ident
+      TkQVarId modName ident -> Just (modName <> "." <> ident)
       _ -> Nothing
 
 implicitParamNameParser :: TokParser Text
@@ -261,26 +279,55 @@ implicitParamNameParser =
       _ -> Nothing
 
 constructorIdentifierParser :: TokParser Text
-constructorIdentifierParser =
+constructorIdentifierParser = renderName <$> constructorNameParser
+
+constructorNameParser :: TokParser Name
+constructorNameParser =
   tokenSatisfy "constructor identifier" $ \tok ->
     case lexTokenKind tok of
-      TkConId ident -> Just ident
-      TkQConId ident -> Just ident
+      TkConId ident -> Just (qualifyName Nothing (mkUnqualifiedName NameConId ident))
+      TkQConId modName ident -> Just (mkName (Just modName) NameConId ident)
       _ -> Nothing
 
-binderNameParser :: TokParser Text
+constructorUnqualifiedNameParser :: TokParser UnqualifiedName
+constructorUnqualifiedNameParser =
+  tokenSatisfy "unqualified constructor identifier" $ \tok ->
+    case lexTokenKind tok of
+      TkConId ident -> Just (mkUnqualifiedName NameConId ident)
+      _ -> Nothing
+
+constructorOperatorUnqualifiedNameParser :: TokParser UnqualifiedName
+constructorOperatorUnqualifiedNameParser =
+  tokenSatisfy "unqualified constructor operator" $ \tok ->
+    case lexTokenKind tok of
+      TkConSym op -> Just (mkUnqualifiedName NameConSym op)
+      TkReservedColon -> Just (mkUnqualifiedName NameConSym ":")
+      _ -> Nothing
+
+binderNameParser :: TokParser UnqualifiedName
 binderNameParser =
-  identifierTextParser
-    <|> parens operatorTextParser
+  identifierUnqualifiedNameParser
+    <|> parens operatorUnqualifiedNameParser
 
 operatorTextParser :: TokParser Text
-operatorTextParser =
+operatorTextParser = renderName <$> operatorNameParser
+
+operatorNameParser :: TokParser Name
+operatorNameParser =
   tokenSatisfy "operator" $ \tok ->
     case lexTokenKind tok of
-      TkVarSym op -> Just op
-      TkConSym op -> Just op
-      TkQVarSym op -> Just op
-      TkQConSym op -> Just op
+      TkVarSym op -> Just (qualifyName Nothing (mkUnqualifiedName NameVarSym op))
+      TkConSym op -> Just (qualifyName Nothing (mkUnqualifiedName NameConSym op))
+      TkQVarSym modName op -> Just (mkName (Just modName) NameVarSym op)
+      TkQConSym modName op -> Just (mkName (Just modName) NameConSym op)
+      _ -> Nothing
+
+operatorUnqualifiedNameParser :: TokParser UnqualifiedName
+operatorUnqualifiedNameParser =
+  tokenSatisfy "unqualified operator" $ \tok ->
+    case lexTokenKind tok of
+      TkVarSym op -> Just (mkUnqualifiedName NameVarSym op)
+      TkConSym op -> Just (mkUnqualifiedName NameConSym op)
       _ -> Nothing
 
 -- | Parse an infix operator name (varop) for function definitions.
@@ -290,20 +337,20 @@ operatorTextParser =
 -- Note: Whitespace-sensitive lexing (GHC proposal 0229) now distinguishes
 -- TkVarSym "!" (infix operator) from TkPrefixBang (bang pattern), so we
 -- can accept all VarSym operators here.
-infixOperatorNameParser :: TokParser Text
+infixOperatorNameParser :: TokParser UnqualifiedName
 infixOperatorNameParser =
   symbolicOperatorParser <|> backtickIdentifierParser
   where
     symbolicOperatorParser =
       tokenSatisfy "variable operator" $ \tok ->
         case lexTokenKind tok of
-          TkVarSym op -> Just op
+          TkVarSym op -> Just (mkUnqualifiedName NameVarSym op)
           _ -> Nothing
     backtickIdentifierParser = do
       expectedTok TkSpecialBacktick
       op <- varIdTextParser
       expectedTok TkSpecialBacktick
-      pure op
+      pure (mkUnqualifiedName NameVarId op)
     varIdTextParser =
       tokenSatisfy "variable identifier" $ \tok ->
         case lexTokenKind tok of
@@ -483,16 +530,16 @@ contextItemParserWith typeParser typeAtomParser =
             | op /= "."
                 && op /= "!"
                 && op /= "-" ->
-                Just (op, Unpromoted)
-          TkConSym op -> Just (op, Unpromoted)
-          TkQVarSym op ->
-            Just (op, Unpromoted)
-          TkQConSym op -> Just (op, Unpromoted)
+                Just (qualifyName Nothing (mkUnqualifiedName NameVarSym op), Unpromoted)
+          TkConSym op -> Just (qualifyName Nothing (mkUnqualifiedName NameConSym op), Unpromoted)
+          TkQVarSym modName op ->
+            Just (mkName (Just modName) NameVarSym op, Unpromoted)
+          TkQConSym modName op -> Just (mkName (Just modName) NameConSym op, Unpromoted)
           _ -> Nothing
     promotedInfixOperatorParser = do
       expectedTok (TkVarSym "'")
       expectedTok TkReservedColon
-      pure (":", Promoted)
+      pure (qualifyName Nothing (mkUnqualifiedName NameConSym ":"), Promoted)
 
     setContextItemSpan span' ty =
       case ty of
@@ -533,7 +580,7 @@ contextItemsParserWith typeParser typeAtomParser =
 contextParserWith :: TokParser Type -> TokParser Type -> TokParser [Type]
 contextParserWith = contextItemsParserWith
 
-functionHeadParserWith :: TokParser Pattern -> TokParser Pattern -> TokParser (MatchHeadForm, Text, [Pattern])
+functionHeadParserWith :: TokParser Pattern -> TokParser Pattern -> TokParser (MatchHeadForm, UnqualifiedName, [Pattern])
 functionHeadParserWith fullPatternParser prefixPatternParser = do
   isParenInfix <- startsWithParenInfixHead
   if isParenInfix
@@ -668,7 +715,7 @@ startsWithInfixHead = MP.lookAhead (go [])
         TkSpecialLBrace -> go (TkSpecialRBrace : stack)
         _ -> go stack
 
-functionBindValue :: SourceSpan -> MatchHeadForm -> Text -> [Pattern] -> Rhs -> ValueDecl
+functionBindValue :: SourceSpan -> MatchHeadForm -> UnqualifiedName -> [Pattern] -> Rhs -> ValueDecl
 functionBindValue span' headForm name pats rhs =
   FunctionBind
     span'
@@ -681,7 +728,7 @@ functionBindValue span' headForm name pats rhs =
         }
     ]
 
-functionBindDecl :: SourceSpan -> MatchHeadForm -> Text -> [Pattern] -> Rhs -> Decl
+functionBindDecl :: SourceSpan -> MatchHeadForm -> UnqualifiedName -> [Pattern] -> Rhs -> Decl
 functionBindDecl span' headForm name pats rhs =
   DeclValue span' (functionBindValue span' headForm name pats rhs)
 

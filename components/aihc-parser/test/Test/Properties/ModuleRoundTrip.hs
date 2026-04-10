@@ -45,7 +45,7 @@ instance Arbitrary Module where
     exprs <- vectorOf (length names) (resize 4 genExpr)
     imports <- genImportDecls
     mHead <- genMaybeModuleHead
-    decls <- mapM genFunctionDecl (zip names exprs)
+    decls <- mapM genFunctionDecl (zip (map (mkUnqualifiedName NameVarId) names) exprs)
     pure $
       Module
         { moduleSpan = span0,
@@ -67,7 +67,7 @@ instance Arbitrary Module where
          | shrunk <- shrinkMaybeModuleHead (moduleHead modu)
          ]
 
-genFunctionDecl :: (Text, Expr) -> Gen Decl
+genFunctionDecl :: (UnqualifiedName, Expr) -> Gen Decl
 genFunctionDecl (name, expr) = do
   infixHead <- arbitrary
   if infixHead
@@ -83,7 +83,10 @@ genFunctionDecl (name, expr) = do
               [ Match
                   { matchSpan = span0,
                     matchHeadForm = MatchHeadInfix,
-                    matchPats = [PVar span0 lhs, PVar span0 rhs],
+                    matchPats =
+                      [ PVar span0 (mkUnqualifiedName NameVarId lhs),
+                        PVar span0 (mkUnqualifiedName NameVarId rhs)
+                      ],
                     matchRhs = UnguardedRhs span0 expr
                   }
               ]
@@ -179,7 +182,7 @@ shrinkDecl decl =
       case matchRhs match of
         UnguardedRhs _ expr ->
           [ DeclValue span0 (FunctionBind span0 name' [match {matchRhs = UnguardedRhs span0 expr}])
-          | name' <- shrinkIdent name
+          | name' <- shrinkUnqualifiedVarName name
           ]
             <> [ DeclValue span0 (FunctionBind span0 name [match {matchRhs = UnguardedRhs span0 expr'}])
                | expr' <- shrinkExpr expr
@@ -187,14 +190,28 @@ shrinkDecl decl =
         _ -> []
     _ -> []
 
+genExportVarName :: Gen Name
+genExportVarName = qualifyName Nothing <$> genUnqualifiedVarName
+
+genExportTypeName :: Gen Name
+genExportTypeName = qualifyName Nothing <$> genTypeName
+
+shrinkExportVarName :: Name -> [Name]
+shrinkExportVarName name =
+  [qualifyName Nothing n | n <- shrinkUnqualifiedVarName (mkUnqualifiedName (nameType name) (nameText name))]
+
+shrinkExportTypeName :: Name -> [Name]
+shrinkExportTypeName name =
+  [qualifyName Nothing n | n <- shrinkTypeName (mkUnqualifiedName (nameType name) (nameText name))]
+
 instance Arbitrary ExportSpec where
   arbitrary =
     oneof
       [ ExportModule span0 Nothing <$> genModuleName,
-        ExportVar span0 Nothing Nothing <$> genIdent,
-        ExportAbs span0 Nothing <$> genTypeNamespace <*> genTypeName,
-        ExportAll span0 Nothing <$> genTypeNamespace <*> genTypeName,
-        ExportWith span0 Nothing <$> genBundledNamespace <*> genTypeName <*> genExportMembers
+        ExportVar span0 Nothing Nothing <$> genExportVarName,
+        ExportAbs span0 Nothing <$> genTypeNamespace <*> genExportTypeName,
+        ExportAll span0 Nothing <$> genTypeNamespace <*> genExportTypeName,
+        ExportWith span0 Nothing <$> genBundledNamespace <*> genExportTypeName <*> genExportMembers
       ]
 
   shrink spec =
@@ -203,18 +220,18 @@ instance Arbitrary ExportSpec where
         [ExportModule span0 Nothing shrunk | shrunk <- shrinkModuleName modName]
       ExportVar _ mWarning namespace name ->
         [ExportVar span0 Nothing namespace name | Just _ <- [mWarning]]
-          <> [ExportVar span0 mWarning namespace shrunk | shrunk <- shrinkIdent name]
+          <> [ExportVar span0 mWarning namespace shrunk | shrunk <- shrinkExportVarName name]
       ExportAbs _ mWarning namespace name ->
         [ExportAbs span0 Nothing namespace name | Just _ <- [mWarning]]
-          <> [ExportAbs span0 mWarning namespace shrunk | shrunk <- shrinkTypeName name]
+          <> [ExportAbs span0 mWarning namespace shrunk | shrunk <- shrinkExportTypeName name]
       ExportAll _ mWarning namespace name ->
         [ExportAbs span0 mWarning namespace name]
           <> [ExportAll span0 Nothing namespace name | Just _ <- [mWarning]]
-          <> [ExportAll span0 mWarning namespace shrunk | shrunk <- shrinkTypeName name]
+          <> [ExportAll span0 mWarning namespace shrunk | shrunk <- shrinkExportTypeName name]
       ExportWith _ mWarning namespace name members ->
         [ExportAbs span0 mWarning namespace name | not (null members)]
           <> [ExportWith span0 Nothing namespace name members | Just _ <- [mWarning]]
-          <> [ExportWith span0 mWarning namespace shrunk members | shrunk <- shrinkTypeName name]
+          <> [ExportWith span0 mWarning namespace shrunk members | shrunk <- shrinkExportTypeName name]
           <> [ExportWith span0 mWarning namespace name shrunk | shrunk <- shrinkList shrink members, not (null shrunk)]
 
 instance Arbitrary IEEntityNamespace where
@@ -246,7 +263,7 @@ instance Arbitrary ImportSpec where
 instance Arbitrary ImportItem where
   arbitrary =
     oneof
-      [ ImportItemVar span0 Nothing <$> genIdent,
+      [ ImportItemVar span0 Nothing <$> genUnqualifiedVarName,
         ImportItemAbs span0 <$> genTypeNamespace <*> genTypeName,
         ImportItemAll span0 <$> genTypeNamespace <*> genTypeName,
         ImportItemWith span0 <$> genBundledNamespace <*> genTypeName <*> genExportMembers
@@ -255,7 +272,7 @@ instance Arbitrary ImportItem where
   shrink item =
     case item of
       ImportItemVar _ namespace name ->
-        [ImportItemVar span0 namespace shrunk | shrunk <- shrinkIdent name]
+        [ImportItemVar span0 namespace shrunk | shrunk <- shrinkUnqualifiedVarName name]
       ImportItemAbs _ namespace name ->
         [ImportItemAbs span0 namespace shrunk | shrunk <- shrinkTypeName name]
       ImportItemAll _ namespace name ->
@@ -332,17 +349,17 @@ isValidModuleName name =
         && T.all (`elem` (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> "_'")) rest
     Nothing -> False
 
-genTypeName :: Gen Text
+genTypeName :: Gen UnqualifiedName
 genTypeName = do
   first <- elements ['A' .. 'Z']
   restLen <- chooseInt (0, 5)
   rest <- vectorOf restLen (elements (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> "_'"))
-  pure (T.pack (first : rest))
+  pure (mkUnqualifiedName NameConId (T.pack (first : rest)))
 
-shrinkTypeName :: Text -> [Text]
+shrinkTypeName :: UnqualifiedName -> [UnqualifiedName]
 shrinkTypeName name =
-  [ candidate
-  | candidate <- map T.pack (shrink (T.unpack name)),
+  [ mkUnqualifiedName NameConId candidate
+  | candidate <- map T.pack (shrink (T.unpack (renderUnqualifiedName name))),
     isValidTypeName candidate
   ]
 
@@ -381,21 +398,29 @@ genMemberNamespace =
       (1, pure (Just IEBundledNamespaceData))
     ]
 
-genMemberName :: Gen Text
-genMemberName =
-  oneof
-    [genIdent, genTypeName]
+genUnqualifiedVarName :: Gen UnqualifiedName
+genUnqualifiedVarName = mkUnqualifiedName NameVarId <$> genIdent
 
-genMemberNameFor :: Maybe IEBundledNamespace -> Gen Text
+shrinkUnqualifiedVarName :: UnqualifiedName -> [UnqualifiedName]
+shrinkUnqualifiedVarName name =
+  [ mkUnqualifiedName NameVarId candidate
+  | candidate <- shrinkIdent (renderUnqualifiedName name)
+  ]
+
+genMemberName :: Gen UnqualifiedName
+genMemberName =
+  oneof [genUnqualifiedVarName, genTypeName]
+
+genMemberNameFor :: Maybe IEBundledNamespace -> Gen UnqualifiedName
 genMemberNameFor namespace =
   case namespace of
     Nothing -> genMemberName
     Just _ -> genTypeName
 
-shrinkMemberNameFor :: Maybe IEBundledNamespace -> Text -> [Text]
+shrinkMemberNameFor :: Maybe IEBundledNamespace -> UnqualifiedName -> [UnqualifiedName]
 shrinkMemberNameFor namespace name =
   case namespace of
-    Nothing -> shrinkIdent name <> shrinkTypeName name
+    Nothing -> shrinkUnqualifiedVarName name <> shrinkTypeName name
     Just _ -> shrinkTypeName name
 
 genImportItems :: Gen [ImportItem]

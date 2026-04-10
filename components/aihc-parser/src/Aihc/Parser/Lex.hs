@@ -285,13 +285,18 @@ lexIdentifier env st =
               (consumed, rest1, isQualified) = gatherQualified hasMagicHash firstChunk rest0
            in case (isQualified || isConIdStart c, rest1) of
                 (True, '.' :< dotRest@(opChar :< _))
-                  | isSymbolicOpCharNotDot opChar ->
+                  | isSymbolicOpChar opChar,
+                    -- When the first op char is '.', require at least one more
+                    -- non-dot symbolic char (e.g. ".&." in M..&.) to avoid
+                    -- consuming the ".." range token in expressions like [A..Z].
+                    opChar /= '.' || T.any (\ch -> isSymbolicOpChar ch && ch /= '.') dotRest ->
                       let opChars = T.takeWhile isSymbolicOpChar dotRest
                           fullOp = consumed <> "." <> opChars
+                          (modName, opName) = splitQualified (consumed <> ".") opChars
                           kind =
                             if opChar == ':'
-                              then TkQConSym fullOp
-                              else TkQVarSym fullOp
+                              then TkQConSym modName opName
+                              else TkQVarSym modName opName
                           st' = advanceChars fullOp st
                        in Just (mkToken st st' fullOp kind, st')
                 _ ->
@@ -318,13 +323,22 @@ lexIdentifier env st =
             '#' :< rest' | hasMH -> (tailPart <> "#", rest')
             _ -> (tailPart, rest)
 
-    isSymbolicOpCharNotDot c = isSymbolicOpChar c && c /= '.'
+    -- Split a qualified identifier into (module part, name part).
+    -- E.g. "Data.Maybe." ++ "++" -> ("Data.Maybe", "++")
+    splitQualified :: Text -> Text -> (Text, Text)
+    splitQualified modWithDot name =
+      (T.dropEnd 1 modWithDot, name)
 
     classifyIdentifier firstChar isQualified ident
       | isQualified =
-          case T.takeWhileEnd (/= '.') ident of
-            firstCharFinal :< _ | isConIdStart firstCharFinal -> TkQConId ident
-            _ -> TkQVarId ident
+          let rev = T.reverse ident
+              (revName, revRest) = T.span (/= '.') rev
+              modName = T.reverse (T.drop 1 revRest)
+              name = T.reverse revName
+           in case T.uncons name of
+                Just (c', _) | isConIdStart c' -> TkQConId modName name
+                Just _ -> TkQVarId modName name
+                Nothing -> TkQVarId modName name
       | otherwise =
           case keywordTokenKind ident of
             Just kw -> kw
@@ -448,8 +462,8 @@ prevTokenAllowsTightPrefix kind =
     TkSpecialSemicolon -> True
     TkVarSym _ -> True
     TkConSym _ -> True
-    TkQVarSym _ -> True
-    TkQConSym _ -> True
+    TkQVarSym _ _ -> True
+    TkQConSym _ _ -> True
     TkMinusOperator -> True
     TkPrefixMinus -> True
     TkReservedEquals -> True

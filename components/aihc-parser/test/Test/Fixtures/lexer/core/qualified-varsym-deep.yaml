@@ -1,6 +1,6 @@
 extensions: []
 input: "A.B.C.++"
 tokens:
-  - 'TkQVarSym "A.B.C.++"'
+  - 'TkQVarSym "A.B.C" "++"'
   - 'TkEOF'
 status: pass

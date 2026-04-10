@@ -8,7 +8,7 @@ test:
 # Replay a specific QuickCheck test case
 # Usage: just replay "<replay-string>"
 replay ARGUMENT:
-  cabal test aihc-parser:spec -v0 --test-options="--pattern properties --quickcheck-replay={{ARGUMENT}}"
+  cabal test aihc-parser:spec -v0 --test-options='--pattern properties --quickcheck-replay="{{ARGUMENT}}"'
 
 # Run QuickCheck with 10000 tests in a loop until failure
 qc:

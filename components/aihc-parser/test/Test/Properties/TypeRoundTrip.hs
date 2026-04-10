@@ -83,9 +83,9 @@ shrinkType :: Type -> [Type]
 shrinkType ty =
   case ty of
     TVar _ name ->
-      [TVar span0 shrunk | shrunk <- shrinkIdent name]
+      [TVar span0 (mkUnqualifiedName NameVarId shrunk) | shrunk <- shrinkIdent (renderUnqualifiedName name)]
     TCon _ name promoted ->
-      [TCon span0 shrunk promoted | shrunk <- shrinkTypeConName name]
+      [TCon span0 (name {nameText = shrunk}) promoted | shrunk <- shrinkTypeConName (nameText name)]
     TImplicitParam _ name inner ->
       [inner]
         <> [TImplicitParam span0 name' (canonicalImplicitParamType inner) | name' <- shrinkImplicitParamName name]
@@ -196,13 +196,13 @@ genType depth
   | depth <= 0 =
       oneof
         [ TVar span0 <$> genTypeVarName,
-          (\name -> TCon span0 name Unpromoted) <$> genTypeConName,
+          (\name -> TCon span0 name Unpromoted) <$> genTypeConAstName,
           TTypeLit span0 <$> genTypeLiteral,
           pure (TStar span0),
           pure (TWildcard span0),
           TQuasiQuote span0 <$> genQuoterName <*> genQuasiBody,
-          TTuple span0 Boxed Unpromoted <$> elements [[], [TVar span0 "a", TCon span0 "B" Unpromoted]],
-          TTuple span0 Unboxed Unpromoted <$> elements [[], [TVar span0 "a", TCon span0 "B" Unpromoted]],
+          TTuple span0 Boxed Unpromoted <$> elements [[], [TVar span0 "a", TCon span0 (qualifyName Nothing (mkUnqualifiedName NameConId "B")) Unpromoted]],
+          TTuple span0 Unboxed Unpromoted <$> elements [[], [TVar span0 "a", TCon span0 (qualifyName Nothing (mkUnqualifiedName NameConId "B")) Unpromoted]],
           TList span0 Unpromoted <$> genTypeListElems 0,
           TParen span0 <$> genTypeAtom 0,
           TUnboxedSum span0 <$> genUnboxedSumElems 0
@@ -210,7 +210,7 @@ genType depth
   | otherwise =
       frequency
         [ (3, TVar span0 <$> genTypeVarName),
-          (3, (\name -> TCon span0 name Unpromoted) <$> genTypeConName),
+          (3, (\name -> TCon span0 name Unpromoted) <$> genTypeConAstName),
           (1, TTypeLit span0 <$> genTypeLiteral),
           (1, pure (TStar span0)),
           (1, pure (TWildcard span0)),
@@ -250,8 +250,8 @@ genForallInner depth = do
 genTypeSpliceBody :: Gen Expr
 genTypeSpliceBody =
   oneof
-    [ EVar span0 <$> genIdent,
-      EParen span0 . EVar span0 <$> genIdent
+    [ EVar span0 <$> genTypeVarExprName,
+      EParen span0 . EVar span0 <$> genTypeVarExprName
     ]
 
 genTypeTupleElems :: Int -> Gen [Type]
@@ -284,7 +284,7 @@ genSimpleTypeAtom :: Int -> Gen Type
 genSimpleTypeAtom depth =
   oneof
     [ TVar span0 <$> genTypeVarName,
-      (\name -> TCon span0 name Unpromoted) <$> genTypeConName,
+      (\name -> TCon span0 name Unpromoted) <$> genTypeConAstName,
       TTypeLit span0 <$> genTypeLiteral,
       pure (TStar span0),
       pure (TWildcard span0),
@@ -301,6 +301,12 @@ shrinkImplicitParamName name =
   case T.stripPrefix "?" name of
     Nothing -> []
     Just inner -> ["?" <> candidate | candidate <- shrinkIdent inner]
+
+genTypeConAstName :: Gen Name
+genTypeConAstName = qualifyName Nothing . mkUnqualifiedName NameConId <$> genTypeConName
+
+genTypeVarExprName :: Gen Name
+genTypeVarExprName = qualifyName Nothing . mkUnqualifiedName NameVarId <$> genIdent
 
 canonicalFunLeft :: Type -> Type
 canonicalFunLeft ty =
@@ -366,9 +372,9 @@ genTypeBinders = do
 genTyVarBinder :: Gen TyVarBinder
 genTyVarBinder = do
   name <- genTypeVarName
-  pure (TyVarBinder span0 name Nothing TyVarBSpecified)
+  pure (TyVarBinder span0 (renderUnqualifiedName name) Nothing TyVarBSpecified)
 
-genTypeVarName :: Gen Text
+genTypeVarName :: Gen UnqualifiedName
 genTypeVarName = do
   first <- elements (['a' .. 'z'] <> ['_'])
   restLen <- chooseInt (0, 5)
@@ -376,7 +382,7 @@ genTypeVarName = do
   let candidate = T.pack (first : rest)
   if isReservedIdentifier candidate
     then genTypeVarName
-    else pure candidate
+    else pure (mkUnqualifiedName NameVarId candidate)
 
 genTypeConName :: Gen Text
 genTypeConName = do
