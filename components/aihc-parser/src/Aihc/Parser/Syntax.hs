@@ -615,6 +615,33 @@ sourceSpanEnd xs =
     [] -> NoSourceSpan
     x : _ -> getSourceSpan x
 
+-- | A qualified or unqualified name with type information.
+--
+-- The 'nameQualifier' is the module path (e.g., \"Data.List\"), and
+-- 'nameText' is the local name (e.g., \"map\"). For unqualified names,
+-- 'nameQualifier' is 'Nothing'.
+data Name = Name
+  { -- | Module qualifier (e.g., @\"Data.List\"@ for @Data.List.map@)
+    nameQualifier :: Maybe Text,
+    -- | Whether this is a variable, constructor, or operator
+    nameType :: NameType,
+    -- | The local name (e.g., @\"map\"@, @\".+.\"@)
+    nameText :: Text
+  }
+  deriving (Eq, Show, Generic, NFData, Data)
+
+-- | The syntactic category of a name.
+data NameType
+  = -- | Variable identifier (e.g., @x@, @map@, @Data.List.map@)
+    NameVarId
+  | -- | Constructor identifier (e.g., @Just@, @Data.Maybe.Maybe@)
+    NameConId
+  | -- | Variable operator (e.g., @+@, @Data.Bits..&.@)
+    NameVarSym
+  | -- | Constructor operator (e.g., @:@, @Data.List.:++@)
+    NameConSym
+  deriving (Eq, Show, Generic, NFData, Enum, Bounded, Data)
+
 type BinderName = Text
 
 type OperatorName = Text
