@@ -139,6 +139,7 @@ typeInfixOperatorParser =
     unpromotedInfixOperatorParser =
       tokenSatisfy "type infix operator" $ \tok ->
         case lexTokenKind tok of
+          TkReservedColon -> Just (qualifyName Nothing (mkUnqualifiedName NameConSym ":"), Unpromoted)
           TkVarSym op
             | op /= "."
                 && op /= "!"
