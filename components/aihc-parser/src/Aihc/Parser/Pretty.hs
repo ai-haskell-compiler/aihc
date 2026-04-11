@@ -511,9 +511,9 @@ prettyPattern pat =
     PWildcard _ -> "_"
     PLit _ lit -> prettyLiteral lit
     PQuasiQuote _ quoter body -> prettyQuasiQuote quoter body
-    PTuple _ tupleFlavor elems -> prettyTupleBody tupleFlavor (hsep (punctuate comma (map prettyPatternInTuple elems)))
+    PTuple _ tupleFlavor elems -> prettyTupleBody tupleFlavor (hsep (punctuate comma (map prettyPatternInDelimited elems)))
     PUnboxedSum _ altIdx arity inner ->
-      let slots = [if i == altIdx then prettyPattern inner else mempty | i <- [0 .. arity - 1]]
+      let slots = [if i == altIdx then prettyPatternInDelimited inner else mempty | i <- [0 .. arity - 1]]
        in hsep ["(#", hsep (punctuate " |" slots), "#)"]
     PList _ elems -> brackets (hsep (punctuate comma (map prettyPattern elems)))
     PCon _ con args -> hsep (prettyPrefixName con : map prettyPatternAtom args)
@@ -542,10 +542,11 @@ prettyPattern pat =
     PTypeSig _ inner ty -> prettyPattern inner <+> "::" <+> prettyType ty
     PSplice _ body -> prettySplice "$" body
 
--- | Pretty print a pattern that appears as a tuple element.
--- View patterns don't need extra parens when they're already inside a tuple's parens.
-prettyPatternInTuple :: Pattern -> Doc ann
-prettyPatternInTuple pat =
+-- | Pretty print a pattern that appears inside a delimited context (tuples,
+-- unboxed sums, etc.).  View patterns don't need extra parens when they're
+-- already inside a delimiter's parens.
+prettyPatternInDelimited :: Pattern -> Doc ann
+prettyPatternInDelimited pat =
   case pat of
     PView _ viewExpr inner -> prettyExprPrec 2 viewExpr <+> "->" <+> prettyPattern inner
     _ -> prettyPattern pat
