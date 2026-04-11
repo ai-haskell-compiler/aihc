@@ -10,6 +10,7 @@ module Aihc.Resolve
     resolve,
     ResolveError (..),
     ResolveResult (..),
+    ResolutionNamespace (..),
     ResolvedName (..),
     ResolutionAnnotation (..),
     renderResolveResult,
@@ -181,7 +182,7 @@ resolveExpr scope nextLocal expr =
     EVar span' name ->
       ( nextLocal,
         annotateExpr
-          (ResolutionAnnotation span' (nameText name) (resolveTermName scope name))
+          (ResolutionAnnotation span' (nameText name) ResolutionNamespaceTerm (resolveTermName scope name))
           (EVar span' name)
       )
     EIf span' cond trueBranch falseBranch ->
@@ -249,7 +250,7 @@ bindPattern nextLocal pat =
     PAnn _ inner -> bindPattern nextLocal inner
     PVar span' name ->
       let resolvedName = ResolvedLocal nextLocal name
-          annotation = ResolutionAnnotation span' (renderUnqualifiedName name) resolvedName
+          annotation = ResolutionAnnotation span' (renderUnqualifiedName name) ResolutionNamespaceTerm resolvedName
        in (nextLocal + 1, Scope (Map.singleton (renderUnqualifiedName name) resolvedName) Map.empty, annotatePattern annotation (PVar span' name))
     PTuple span' flavor pats ->
       let (nextLocal', scope, pats') = bindPatterns nextLocal pats
@@ -270,7 +271,7 @@ bindPattern nextLocal pat =
     PAs span' alias inner ->
       let aliasName = mkUnqualifiedName NameVarId alias
           aliasResolved = ResolvedLocal nextLocal aliasName
-          aliasAnnotation = ResolutionAnnotation (spanStartNameSpan span' alias) alias aliasResolved
+          aliasAnnotation = ResolutionAnnotation (spanStartNameSpan span' alias) alias ResolutionNamespaceTerm aliasResolved
           (nextLocal', innerScope, inner') = bindPattern (nextLocal + 1) inner
           aliasScope = Scope (Map.singleton alias aliasResolved) Map.empty
        in (nextLocal', unionScope innerScope aliasScope, annotatePattern aliasAnnotation (PAs span' alias inner'))
@@ -338,7 +339,7 @@ resolveType scope ty =
     TAnn _ inner -> resolveType scope inner
     TCon span' name promoted ->
       annotateType
-        (ResolutionAnnotation span' (nameText name) (resolveTypeName scope name))
+        (ResolutionAnnotation span' (nameText name) ResolutionNamespaceType (resolveTypeName scope name))
         (TCon span' name promoted)
     TImplicitParam span' name inner ->
       TImplicitParam span' name (resolveType scope inner)
@@ -373,7 +374,7 @@ allocateLocalDeclBinders nextLocal =
         Just (span', name) ->
           let resolvedName = ResolvedLocal currentId name
               key = renderUnqualifiedName name
-              annotation = ResolutionAnnotation span' (renderUnqualifiedName name) resolvedName
+              annotation = ResolutionAnnotation span' (renderUnqualifiedName name) ResolutionNamespaceTerm resolvedName
            in ( currentId + 1,
                 Map.insert key annotation annotations,
                 insertTerm key resolvedName scope
@@ -391,7 +392,7 @@ topLevelBinderAnnotation decl scope =
   case declBinderCandidate decl of
     Just (span', name) ->
       let rendered = renderUnqualifiedName name
-       in Just (ResolutionAnnotation span' rendered (lookupTerm rendered scope))
+       in Just (ResolutionAnnotation span' rendered ResolutionNamespaceTerm (lookupTerm rendered scope))
     Nothing -> Nothing
 
 declBinderCandidate :: Decl -> Maybe (SourceSpan, UnqualifiedName)
@@ -418,6 +419,7 @@ topLevelDeclAnnotations decl scope =
             ResolutionAnnotation
               (declKeywordNameSpan "newtype " (newtypeDeclSpan newtypeDecl) (renderUnqualifiedName (newtypeDeclName newtypeDecl)))
               (renderUnqualifiedName (newtypeDeclName newtypeDecl))
+              ResolutionNamespaceType
               (resolveTopLevelType scope (newtypeDeclName newtypeDecl))
           constructorAnnotations =
             maybe [] (\ctor -> [dataConAnnotation scope ctor]) (newtypeDeclConstructor newtypeDecl)
@@ -429,6 +431,7 @@ topLevelDeclAnnotations decl scope =
             ResolutionAnnotation
               (declKeywordNameSpan keyword (dataDeclSpan dataDecl) (renderUnqualifiedName (dataDeclName dataDecl)))
               (renderUnqualifiedName (dataDeclName dataDecl))
+              ResolutionNamespaceType
               (resolveTopLevelType scope (dataDeclName dataDecl))
        in typeAnnotation : map (dataConAnnotation scope) (dataDeclConstructors dataDecl)
 
@@ -438,6 +441,7 @@ classAnnotation scope classDecl =
    in ResolutionAnnotation
         (declKeywordNameSpan "class " (classDeclSpan classDecl) (classDeclName classDecl))
         (classDeclName classDecl)
+        ResolutionNamespaceType
         (resolveTopLevelType scope className)
 
 resolveTopLevelType :: Scope -> UnqualifiedName -> ResolvedName
@@ -458,13 +462,14 @@ dataConAnnotation scope dataConDecl =
     GadtCon span' _ _ names _ ->
       case names of
         name : _ -> topLevelNameAnnotation scope span' name
-        [] -> ResolutionAnnotation NoSourceSpan "" (ResolvedError "missing GADT constructor name")
+        [] -> ResolutionAnnotation NoSourceSpan "" ResolutionNamespaceTerm (ResolvedError "missing GADT constructor name")
 
 topLevelNameAnnotation :: Scope -> SourceSpan -> UnqualifiedName -> ResolutionAnnotation
 topLevelNameAnnotation scope span' name =
   ResolutionAnnotation
     (spanStartNameSpan span' (renderUnqualifiedName name))
     (renderUnqualifiedName name)
+    ResolutionNamespaceTerm
     (resolveTopLevelTerm scope name)
 
 collectModuleExports :: [Module] -> ModuleExports

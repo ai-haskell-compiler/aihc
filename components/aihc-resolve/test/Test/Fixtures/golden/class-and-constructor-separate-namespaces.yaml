@@ -8,13 +8,13 @@ modules:
     fn _ = ClsName
 expected:
   Main:
-    - "2:7-2:14 ClsName => Main.ClsName"
-    - "3:6-3:14 DataType => Main.DataType"
-    - "3:17-3:24 ClsName => Main.ClsName"
-    - "4:1-4:3 fn => Main.fn"
-    - "4:7-4:14 ClsName => Main.ClsName"
-    - "4:25-4:33 DataType => Main.DataType"
-    - "5:1-5:3 fn => Main.fn"
-    - "5:8-5:15 ClsName => Main.ClsName"
+    - "2:7-2:14 ClsName => (type) Main.ClsName"
+    - "3:6-3:14 DataType => (type) Main.DataType"
+    - "3:17-3:24 ClsName => (value) Main.ClsName"
+    - "4:1-4:3 fn => (value) Main.fn"
+    - "4:7-4:14 ClsName => (type) Main.ClsName"
+    - "4:25-4:33 DataType => (type) Main.DataType"
+    - "5:1-5:3 fn => (value) Main.fn"
+    - "5:8-5:15 ClsName => (value) Main.ClsName"
 status: pass
 reason: ""
