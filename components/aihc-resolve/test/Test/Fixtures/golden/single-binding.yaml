@@ -5,6 +5,6 @@ modules:
     x = 1
 expected:
   Main:
-    - "2:1-2:2 x => Main.x"
+    - "2:1-2:2 x => (value) Main.x"
 status: pass
 reason: ""

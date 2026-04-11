@@ -10,6 +10,7 @@ module Aihc.Resolve
     resolve,
     ResolveError (..),
     ResolveResult (..),
+    ResolutionNamespace (..),
     ResolvedName (..),
     ResolutionAnnotation (..),
     renderResolveResult,
@@ -18,6 +19,7 @@ where
 
 import Aihc.Parser.Syntax
   ( BangType (..),
+    ClassDecl (..),
     DataConDecl (..),
     DataDecl (..),
     Decl (..),
@@ -53,7 +55,10 @@ import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 
-type Scope = Map.Map Text ResolvedName
+data Scope = Scope
+  { scopeTerms :: Map.Map Text ResolvedName,
+    scopeTypes :: Map.Map Text ResolvedName
+  }
 
 type ModuleExports = Map.Map Text Scope
 
@@ -125,7 +130,7 @@ resolveDecl scope nextLocal decl =
 resolveMatch :: Scope -> Int -> Match -> (Int, Match)
 resolveMatch scope nextLocal match =
   let (nextLocal', patScope, pats') = bindPatterns nextLocal (matchPats match)
-      scoped = patScope `Map.union` scope
+      scoped = unionScope patScope scope
       (nextLocal'', rhs') = resolveRhs scoped nextLocal' (matchRhs match)
    in (nextLocal'', match {matchPats = pats', matchRhs = rhs'})
 
@@ -163,10 +168,10 @@ resolveGuardQualifier scope nextLocal qualifier =
     GuardPat span' pat expr ->
       let (nextLocal', expr') = resolveExpr scope nextLocal expr
           (nextLocal'', patScope, pat') = bindPattern nextLocal' pat
-       in (nextLocal'', patScope `Map.union` scope, GuardPat span' pat' expr')
+       in (nextLocal'', unionScope patScope scope, GuardPat span' pat' expr')
     GuardLet span' decls ->
       let (nextLocal', binderAnnotations, localScope) = allocateLocalDeclBinders nextLocal decls
-          scoped = localScope `Map.union` scope
+          scoped = unionScope localScope scope
           (nextLocal'', decls') = mapAccumL (resolveBoundDecl scoped binderAnnotations) nextLocal' decls
        in (nextLocal'', scoped, GuardLet span' decls')
 
@@ -177,7 +182,7 @@ resolveExpr scope nextLocal expr =
     EVar span' name ->
       ( nextLocal,
         annotateExpr
-          (ResolutionAnnotation span' (nameText name) (resolveName scope name))
+          (ResolutionAnnotation span' (nameText name) ResolutionNamespaceTerm (resolveTermName scope name))
           (EVar span' name)
       )
     EIf span' cond trueBranch falseBranch ->
@@ -200,7 +205,7 @@ resolveExpr scope nextLocal expr =
        in (nextLocal', ESectionR span' op inner')
     ELetDecls span' decls body ->
       let (nextLocal', binderAnnotations, localScope) = allocateLocalDeclBinders nextLocal decls
-          scoped = localScope `Map.union` scope
+          scoped = unionScope localScope scope
           (nextLocal'', decls') = mapAccumL (resolveBoundDecl scoped binderAnnotations) nextLocal' decls
           (nextLocal''', body') = resolveExpr scoped nextLocal'' body
        in (nextLocal''', ELetDecls span' decls' body')
@@ -213,7 +218,7 @@ resolveExpr scope nextLocal expr =
     EWhereDecls span' inner decls ->
       let (nextLocal', inner') = resolveExpr scope nextLocal inner
           (nextLocal'', binderAnnotations, localScope) = allocateLocalDeclBinders nextLocal' decls
-          scoped = localScope `Map.union` scope
+          scoped = unionScope localScope scope
           (nextLocal''', decls') = mapAccumL (resolveBoundDecl scoped binderAnnotations) nextLocal'' decls
        in (nextLocal''', EWhereDecls span' inner' decls')
     ETypeApp span' fun ty ->
@@ -233,11 +238,11 @@ resolveBoundDecl scope binderAnnotations nextLocal decl =
 bindPatterns :: Int -> [Pattern] -> (Int, Scope, [Pattern])
 bindPatterns nextLocal pats =
   let (nextLocal', scopedEntries, pats') = foldl' step (nextLocal, [], []) pats
-   in (nextLocal', Map.fromList scopedEntries, reverse pats')
+   in (nextLocal', Scope (Map.fromList scopedEntries) Map.empty, reverse pats')
   where
     step (currentId, entries, acc) pat =
       let (nextId, scope, pat') = bindPattern currentId pat
-       in (nextId, Map.toList scope <> entries, pat' : acc)
+       in (nextId, Map.toList (scopeTerms scope) <> entries, pat' : acc)
 
 bindPattern :: Int -> Pattern -> (Int, Scope, Pattern)
 bindPattern nextLocal pat =
@@ -245,8 +250,8 @@ bindPattern nextLocal pat =
     PAnn _ inner -> bindPattern nextLocal inner
     PVar span' name ->
       let resolvedName = ResolvedLocal nextLocal name
-          annotation = ResolutionAnnotation span' (renderUnqualifiedName name) resolvedName
-       in (nextLocal + 1, Map.singleton (renderUnqualifiedName name) resolvedName, annotatePattern annotation (PVar span' name))
+          annotation = ResolutionAnnotation span' (renderUnqualifiedName name) ResolutionNamespaceTerm resolvedName
+       in (nextLocal + 1, Scope (Map.singleton (renderUnqualifiedName name) resolvedName) Map.empty, annotatePattern annotation (PVar span' name))
     PTuple span' flavor pats ->
       let (nextLocal', scope, pats') = bindPatterns nextLocal pats
        in (nextLocal', scope, PTuple span' flavor pats')
@@ -259,17 +264,17 @@ bindPattern nextLocal pat =
     PInfix span' left name right ->
       let (nextLocal', leftScope, left') = bindPattern nextLocal left
           (nextLocal'', rightScope, right') = bindPattern nextLocal' right
-       in (nextLocal'', rightScope `Map.union` leftScope, PInfix span' left' name right')
+       in (nextLocal'', unionScope rightScope leftScope, PInfix span' left' name right')
     PView span' expr inner ->
       let (nextLocal', scope, inner') = bindPattern nextLocal inner
        in (nextLocal', scope, PView span' expr inner')
     PAs span' alias inner ->
       let aliasName = mkUnqualifiedName NameVarId alias
           aliasResolved = ResolvedLocal nextLocal aliasName
-          aliasAnnotation = ResolutionAnnotation (spanStartNameSpan span' alias) alias aliasResolved
+          aliasAnnotation = ResolutionAnnotation (spanStartNameSpan span' alias) alias ResolutionNamespaceTerm aliasResolved
           (nextLocal', innerScope, inner') = bindPattern (nextLocal + 1) inner
-          aliasScope = Map.singleton alias aliasResolved
-       in (nextLocal', innerScope `Map.union` aliasScope, annotatePattern aliasAnnotation (PAs span' alias inner'))
+          aliasScope = Scope (Map.singleton alias aliasResolved) Map.empty
+       in (nextLocal', unionScope innerScope aliasScope, annotatePattern aliasAnnotation (PAs span' alias inner'))
     PStrict span' inner ->
       let (nextLocal', scope, inner') = bindPattern nextLocal inner
        in (nextLocal', scope, PStrict span' inner')
@@ -284,15 +289,15 @@ bindPattern nextLocal pat =
             foldl'
               ( \(currentId, currentEntries, acc) (fieldName, fieldPat) ->
                   let (nextId, fieldScope, fieldPat') = bindPattern currentId fieldPat
-                   in (nextId, Map.toList fieldScope <> currentEntries, (fieldName, fieldPat') : acc)
+                   in (nextId, Map.toList (scopeTerms fieldScope) <> currentEntries, (fieldName, fieldPat') : acc)
               )
               (nextLocal, [], [])
               fields
-       in (nextLocal', Map.fromList entries, PRecord span' name (reverse fields') wildcard)
+       in (nextLocal', Scope (Map.fromList entries) Map.empty, PRecord span' name (reverse fields') wildcard)
     PTypeSig span' inner ty ->
       let (nextLocal', scope, inner') = bindPattern nextLocal inner
        in (nextLocal', scope, PTypeSig span' inner' (resolveType scope ty))
-    _ -> (nextLocal, Map.empty, pat)
+    _ -> (nextLocal, emptyScope, pat)
 
 resolveDataDecl :: Scope -> DataDecl -> DataDecl
 resolveDataDecl scope dataDecl =
@@ -334,7 +339,7 @@ resolveType scope ty =
     TAnn _ inner -> resolveType scope inner
     TCon span' name promoted ->
       annotateType
-        (ResolutionAnnotation span' (nameText name) (resolveName scope name))
+        (ResolutionAnnotation span' (nameText name) ResolutionNamespaceType (resolveTypeName scope name))
         (TCon span' name promoted)
     TImplicitParam span' name inner ->
       TImplicitParam span' name (resolveType scope inner)
@@ -362,17 +367,17 @@ resolveType scope ty =
 
 allocateLocalDeclBinders :: Int -> [Decl] -> (Int, Map.Map Text ResolutionAnnotation, Scope)
 allocateLocalDeclBinders nextLocal =
-  foldl' step (nextLocal, Map.empty, Map.empty)
+  foldl' step (nextLocal, Map.empty, emptyScope)
   where
     step (currentId, annotations, scope) decl =
       case declBinderCandidate decl of
         Just (span', name) ->
           let resolvedName = ResolvedLocal currentId name
               key = renderUnqualifiedName name
-              annotation = ResolutionAnnotation span' key resolvedName
+              annotation = ResolutionAnnotation span' (renderUnqualifiedName name) ResolutionNamespaceTerm resolvedName
            in ( currentId + 1,
                 Map.insert key annotation annotations,
-                Map.insert key resolvedName scope
+                insertTerm key resolvedName scope
               )
         Nothing -> (currentId, annotations, scope)
 
@@ -386,8 +391,8 @@ topLevelBinderAnnotation :: Decl -> Scope -> Maybe ResolutionAnnotation
 topLevelBinderAnnotation decl scope =
   case declBinderCandidate decl of
     Just (span', name) ->
-      let key = renderUnqualifiedName name
-       in Just (ResolutionAnnotation span' key (fromMaybe (ResolvedError ("missing top-level binding for " <> T.unpack key)) (Map.lookup key scope)))
+      let rendered = renderUnqualifiedName name
+       in Just (ResolutionAnnotation span' rendered ResolutionNamespaceTerm (lookupTerm rendered scope))
     Nothing -> Nothing
 
 declBinderCandidate :: Decl -> Maybe (SourceSpan, UnqualifiedName)
@@ -406,6 +411,7 @@ declBinderCandidate decl =
 topLevelDeclAnnotations :: Decl -> Scope -> [ResolutionAnnotation]
 topLevelDeclAnnotations decl scope =
   case decl of
+    DeclClass _ classDecl -> [classAnnotation scope classDecl]
     DeclTypeData _ dataDecl -> dataDeclAnnotations "type data " dataDecl
     DeclData _ dataDecl -> dataDeclAnnotations "data " dataDecl
     DeclNewtype _ newtypeDecl ->
@@ -413,7 +419,8 @@ topLevelDeclAnnotations decl scope =
             ResolutionAnnotation
               (declKeywordNameSpan "newtype " (newtypeDeclSpan newtypeDecl) (renderUnqualifiedName (newtypeDeclName newtypeDecl)))
               (renderUnqualifiedName (newtypeDeclName newtypeDecl))
-              (resolveTopLevel scope (newtypeDeclName newtypeDecl))
+              ResolutionNamespaceType
+              (resolveTopLevelType scope (newtypeDeclName newtypeDecl))
           constructorAnnotations =
             maybe [] (\ctor -> [dataConAnnotation scope ctor]) (newtypeDeclConstructor newtypeDecl)
        in typeAnnotation : constructorAnnotations
@@ -424,14 +431,24 @@ topLevelDeclAnnotations decl scope =
             ResolutionAnnotation
               (declKeywordNameSpan keyword (dataDeclSpan dataDecl) (renderUnqualifiedName (dataDeclName dataDecl)))
               (renderUnqualifiedName (dataDeclName dataDecl))
-              (resolveTopLevel scope (dataDeclName dataDecl))
+              ResolutionNamespaceType
+              (resolveTopLevelType scope (dataDeclName dataDecl))
        in typeAnnotation : map (dataConAnnotation scope) (dataDeclConstructors dataDecl)
 
-resolveTopLevel :: Scope -> UnqualifiedName -> ResolvedName
-resolveTopLevel scope name =
-  fromMaybe
-    (ResolvedError ("missing top-level binding for " <> T.unpack (renderUnqualifiedName name)))
-    (Map.lookup (renderUnqualifiedName name) scope)
+classAnnotation :: Scope -> ClassDecl -> ResolutionAnnotation
+classAnnotation scope classDecl =
+  let className = mkUnqualifiedName NameConId (classDeclName classDecl)
+   in ResolutionAnnotation
+        (declKeywordNameSpan "class " (classDeclSpan classDecl) (classDeclName classDecl))
+        (classDeclName classDecl)
+        ResolutionNamespaceType
+        (resolveTopLevelType scope className)
+
+resolveTopLevelType :: Scope -> UnqualifiedName -> ResolvedName
+resolveTopLevelType scope name = lookupType (renderUnqualifiedName name) scope
+
+resolveTopLevelTerm :: Scope -> UnqualifiedName -> ResolvedName
+resolveTopLevelTerm scope name = lookupTerm (renderUnqualifiedName name) scope
 
 dataConAnnotation :: Scope -> DataConDecl -> ResolutionAnnotation
 dataConAnnotation scope dataConDecl =
@@ -445,14 +462,15 @@ dataConAnnotation scope dataConDecl =
     GadtCon span' _ _ names _ ->
       case names of
         name : _ -> topLevelNameAnnotation scope span' name
-        [] -> ResolutionAnnotation NoSourceSpan "" (ResolvedError "missing GADT constructor name")
+        [] -> ResolutionAnnotation NoSourceSpan "" ResolutionNamespaceTerm (ResolvedError "missing GADT constructor name")
 
 topLevelNameAnnotation :: Scope -> SourceSpan -> UnqualifiedName -> ResolutionAnnotation
 topLevelNameAnnotation scope span' name =
   ResolutionAnnotation
     (spanStartNameSpan span' (renderUnqualifiedName name))
     (renderUnqualifiedName name)
-    (resolveTopLevel scope name)
+    ResolutionNamespaceTerm
+    (resolveTopLevelTerm scope name)
 
 collectModuleExports :: [Module] -> ModuleExports
 collectModuleExports modules =
@@ -463,30 +481,34 @@ collectModuleExports modules =
 
 topLevelScope :: Module -> Scope
 topLevelScope modu =
-  Map.fromList
-    [ (key, ResolvedTopLevel (mkQualifiedName name (Just moduleKeyText)))
-    | decl <- moduleDecls modu,
-      name <- declExportedNames decl,
-      let key = renderUnqualifiedName name,
-      let moduleKeyText = moduleKey modu
-    ]
+  foldl' addDecl emptyScope (moduleDecls modu)
+  where
+    moduleKeyText = moduleKey modu
+    qualify = ResolvedTopLevel . (`mkQualifiedName` Just moduleKeyText)
+    addDecl scope decl =
+      let (termNames, typeNames) = declExportedNames decl
+          scope' = foldl' (\acc name -> insertTerm (renderUnqualifiedName name) (qualify name) acc) scope termNames
+       in foldl' (\acc name -> insertType (renderUnqualifiedName name) (qualify name) acc) scope' typeNames
 
-declExportedNames :: Decl -> [UnqualifiedName]
+declExportedNames :: Decl -> ([UnqualifiedName], [UnqualifiedName])
 declExportedNames decl =
   case decl of
     DeclValue _ valueDecl ->
       case valueDecl of
-        FunctionBind _ name _ -> [name]
+        FunctionBind _ name _ -> ([name], [])
         PatternBind _ pat _ ->
           case pat of
-            PVar _ name -> [name]
-            _ -> []
-    DeclTypeSig _ names _ -> names
-    DeclTypeData _ dataDecl -> dataDeclName dataDecl : dataDeclConstructorNames (dataDeclConstructors dataDecl)
-    DeclData _ dataDecl -> dataDeclName dataDecl : dataDeclConstructorNames (dataDeclConstructors dataDecl)
+            PVar _ name -> ([name], [])
+            _ -> ([], [])
+    DeclTypeSig _ names _ -> (names, [])
+    DeclClass _ classDecl -> ([], [mkUnqualifiedName NameConId (classDeclName classDecl)])
+    DeclTypeData _ dataDecl -> (dataDeclConstructorNames (dataDeclConstructors dataDecl), [dataDeclName dataDecl])
+    DeclData _ dataDecl -> (dataDeclConstructorNames (dataDeclConstructors dataDecl), [dataDeclName dataDecl])
     DeclNewtype _ newtypeDecl ->
-      newtypeDeclName newtypeDecl : maybe [] dataConDeclNames (newtypeDeclConstructor newtypeDecl)
-    _ -> []
+      ( maybe [] dataConDeclNames (newtypeDeclConstructor newtypeDecl),
+        [newtypeDeclName newtypeDecl]
+      )
+    _ -> ([], [])
 
 dataDeclConstructorNames :: [DataConDecl] -> [UnqualifiedName]
 dataDeclConstructorNames = concatMap dataConDeclNames
@@ -501,28 +523,28 @@ dataConDeclNames dataConDecl =
 
 moduleScope :: ModuleExports -> Module -> Scope
 moduleScope exports modu =
-  ownScope `Map.union` importedScope exports modu
+  ownScope `unionScope` importedScope exports modu
   where
-    ownScope = Map.findWithDefault Map.empty (moduleKey modu) exports
+    ownScope = Map.findWithDefault emptyScope (moduleKey modu) exports
 
 importedScope :: ModuleExports -> Module -> Scope
 importedScope exports modu =
-  foldl' addImport Map.empty (moduleImports modu)
+  foldl' addImport emptyScope (moduleImports modu)
   where
     addImport acc importDecl
       | importDeclQualified importDecl || importDeclQualifiedPost importDecl = acc
       | otherwise =
-          let imported = Map.findWithDefault Map.empty (importDeclModule importDecl) exports
-           in Map.union acc (filterImportSpec (importDeclSpec importDecl) imported)
+          let imported = Map.findWithDefault emptyScope (importDeclModule importDecl) exports
+           in unionScope acc (filterImportSpec (importDeclSpec importDecl) imported)
 
 filterImportSpec :: Maybe ImportSpec -> Scope -> Scope
 filterImportSpec maybeSpec scope =
   case maybeSpec of
     Nothing -> scope
     Just ImportSpec {importSpecHiding = False, importSpecItems} ->
-      Map.filterWithKey (\name _ -> name `elem` allowedNames importSpecItems) scope
+      filterScopeByNames (`elem` allowedNames importSpecItems) scope
     Just ImportSpec {importSpecHiding = True, importSpecItems} ->
-      Map.filterWithKey (\name _ -> name `notElem` allowedNames importSpecItems) scope
+      filterScopeByNames (`notElem` allowedNames importSpecItems) scope
 
 allowedNames :: [ImportItem] -> [Text]
 allowedNames items =
@@ -535,19 +557,61 @@ allowedNames items =
       ImportItemWith _ _ itemName _ -> [renderUnqualifiedName itemName]
   ]
 
-resolveName :: Scope -> Name -> ResolvedName
-resolveName scope name =
+resolveTermName :: Scope -> Name -> ResolvedName
+resolveTermName scope name =
   case nameQualifier name of
     Just qualifier ->
       ResolvedTopLevel (name {nameQualifier = Just qualifier})
     Nothing ->
-      Map.findWithDefault
-        (ResolvedError ("unbound name: " <> T.unpack (nameText name)))
-        (nameText name)
-        scope
+      lookupTerm (nameText name) scope
+
+resolveTypeName :: Scope -> Name -> ResolvedName
+resolveTypeName scope name =
+  case nameQualifier name of
+    Just qualifier ->
+      ResolvedTopLevel (name {nameQualifier = Just qualifier})
+    Nothing ->
+      lookupType (nameText name) scope
 
 moduleKey :: Module -> Text
 moduleKey modu = fromMaybe (T.pack "Main") (moduleName modu)
+
+emptyScope :: Scope
+emptyScope = Scope Map.empty Map.empty
+
+unionScope :: Scope -> Scope -> Scope
+unionScope left right =
+  Scope
+    { scopeTerms = scopeTerms left `Map.union` scopeTerms right,
+      scopeTypes = scopeTypes left `Map.union` scopeTypes right
+    }
+
+insertTerm :: Text -> ResolvedName -> Scope -> Scope
+insertTerm name resolved scope = scope {scopeTerms = Map.insert name resolved (scopeTerms scope)}
+
+insertType :: Text -> ResolvedName -> Scope -> Scope
+insertType name resolved scope = scope {scopeTypes = Map.insert name resolved (scopeTypes scope)}
+
+lookupTerm :: Text -> Scope -> ResolvedName
+lookupTerm name scope =
+  Map.findWithDefault
+    (ResolvedError ("unbound name: " <> T.unpack name))
+    name
+    (scopeTerms scope)
+
+lookupType :: Text -> Scope -> ResolvedName
+lookupType name scope =
+  Map.findWithDefault
+    (ResolvedError ("unbound name: " <> T.unpack name))
+    name
+    (scopeTypes scope)
+
+filterScopeByNames :: (Text -> Bool) -> Scope -> Scope
+filterScopeByNames keep scope =
+  Scope
+    { scopeTerms = Map.filterWithKey (\name _ -> keep name) (scopeTerms scope),
+      scopeTypes = Map.filterWithKey (\name _ -> keep name) (scopeTypes scope)
+    }
 
 spanStartNameSpan :: SourceSpan -> Text -> SourceSpan
 spanStartNameSpan span' name =

@@ -7,6 +7,7 @@ module Aihc.Resolve.Types
     pattern EResolution,
     pattern PResolution,
     pattern TResolution,
+    ResolutionNamespace (..),
     ResolvedName (..),
     ResolutionAnnotation (..),
     ResolveError (..),
@@ -44,9 +45,15 @@ data ResolvedName
   | ResolvedError String
   deriving (Eq, Show, Typeable)
 
+data ResolutionNamespace
+  = ResolutionNamespaceTerm
+  | ResolutionNamespaceType
+  deriving (Eq, Show, Typeable)
+
 data ResolutionAnnotation = ResolutionAnnotation
   { resolutionSpan :: !SourceSpan,
     resolutionName :: !Text,
+    resolutionNamespace :: !ResolutionNamespace,
     resolutionTarget :: !ResolvedName
   }
   deriving (Eq, Show, Typeable)
@@ -91,7 +98,15 @@ renderResolutionAnnotation ann =
     <> " "
     <> T.unpack (resolutionName ann)
     <> " => "
+    <> renderResolutionNamespace (resolutionNamespace ann)
+    <> " "
     <> renderResolvedName (resolutionTarget ann)
+
+renderResolutionNamespace :: ResolutionNamespace -> String
+renderResolutionNamespace namespace =
+  case namespace of
+    ResolutionNamespaceTerm -> "(value)"
+    ResolutionNamespaceType -> "(type)"
 
 annotationKey :: ResolutionAnnotation -> (Int, Int, Int, Int, Text)
 annotationKey ann =

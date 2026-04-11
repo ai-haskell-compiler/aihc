@@ -7,11 +7,11 @@ modules:
     fn = B
 expected:
   Main:
-    - "2:6-2:7 A => Main.A"
-    - "2:10-2:11 B => Main.B"
-    - "3:1-3:3 fn => Main.fn"
-    - "3:7-3:8 A => Main.A"
-    - "4:1-4:3 fn => Main.fn"
-    - "4:6-4:7 B => Main.B"
+    - "2:6-2:7 A => (type) Main.A"
+    - "2:10-2:11 B => (value) Main.B"
+    - "3:1-3:3 fn => (value) Main.fn"
+    - "3:7-3:8 A => (type) Main.A"
+    - "4:1-4:3 fn => (value) Main.fn"
+    - "4:6-4:7 B => (value) Main.B"
 status: pass
 reason: ""

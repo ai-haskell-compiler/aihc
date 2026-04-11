@@ -6,8 +6,8 @@ modules:
     y = x
 expected:
   Main:
-    - "2:1-2:2 x => Main.x"
-    - "3:1-3:2 y => Main.y"
-    - "3:5-3:6 x => Main.x"
+    - "2:1-2:2 x => (value) Main.x"
+    - "3:1-3:2 y => (value) Main.y"
+    - "3:5-3:6 x => (value) Main.x"
 status: pass
 reason: ""

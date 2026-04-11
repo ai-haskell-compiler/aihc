@@ -9,9 +9,9 @@ modules:
     x = helper
 expected:
   Lib:
-    - "2:1-2:7 helper => Lib.helper"
+    - "2:1-2:7 helper => (value) Lib.helper"
   Main:
-    - "3:1-3:2 x => Main.x"
-    - "3:5-3:11 helper => Lib.helper"
+    - "3:1-3:2 x => (value) Main.x"
+    - "3:5-3:11 helper => (value) Lib.helper"
 status: pass
 reason: ""
