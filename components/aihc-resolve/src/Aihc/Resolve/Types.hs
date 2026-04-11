@@ -32,6 +32,7 @@ import Aihc.Parser.Syntax
   )
 import Data.Data (Data, cast, gmapQ)
 import Data.List (intercalate, sortOn)
+import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -56,6 +57,7 @@ newtype ResolveError
 
 data ResolveResult = ResolveResult
   { resolvedModules :: [Module],
+    resolvedAnnotations :: [(Text, [ResolutionAnnotation])],
     resolveErrors :: [ResolveError]
   }
   deriving (Show)
@@ -74,7 +76,7 @@ pattern EResolution resolution <- EAnn (fromAnnotation -> Just resolution) _
 
 renderResolveResult :: ResolveResult -> String
 renderResolveResult result =
-  intercalate "\n" (map renderModuleAnnotations (sortOn fst (collectModules (resolvedModules result))))
+  intercalate "\n" (map renderModuleAnnotations (sortOn fst (mergeModules (collectModules (resolvedModules result) <> resolvedAnnotations result))))
 
 renderResolvedName :: ResolvedName -> String
 renderResolvedName resolvedName =
@@ -114,6 +116,10 @@ renderSourceSpan span' =
 
 collectModules :: [Module] -> [(Text, [ResolutionAnnotation])]
 collectModules = map collectModuleAnnotations
+
+mergeModules :: [(Text, [ResolutionAnnotation])] -> [(Text, [ResolutionAnnotation])]
+mergeModules modules =
+  Map.toList (Map.fromListWith (<>) modules)
 
 collectModuleAnnotations :: Module -> (Text, [ResolutionAnnotation])
 collectModuleAnnotations modu =
