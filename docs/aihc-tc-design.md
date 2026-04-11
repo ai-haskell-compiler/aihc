@@ -1,0 +1,777 @@
+# aihc-tc: Type Checker Design
+
+High-level design for the aihc type checker component, based on the
+OutsideIn(X) algorithm.
+
+---
+
+## 1. Goals and non-goals
+
+### Goals
+
+- Implement OutsideIn(X)-style type inference with support for
+  polymorphism, type classes, GADTs, and type families.
+- Annotate the existing surface AST (`Aihc.Parser.Syntax`) with typing
+  information: inferred types, type applications, type abstractions,
+  coercions, and evidence bindings.
+- Produce enough information for a downstream desugaring pass to construct
+  an explicit System FC core, without performing that desugaring itself.
+- Provide clear, provenance-tracked error messages.
+
+### Non-goals
+
+- No desugaring to core IR (that is `aihc-desugar`).
+- No code generation.
+- No runtime representation decisions.
+- No deriving mechanism implementation (the TC accepts derived instances as
+  given).
+
+---
+
+## 2. Place in the pipeline
+
+```
+source
+  -> aihc-cpp      (preprocessing)
+  -> aihc-parser   (lexing + parsing -> surface AST)
+  -> aihc-resolve  (name resolution -> annotated AST)
+  -> aihc-tc       (type checking -> annotated AST with types/evidence)
+  -> aihc-desugar  (future: explicit System FC core)
+```
+
+The type checker consumes a name-resolved AST and produces the same AST
+annotated with typing information. It does not transform the tree structure.
+
+---
+
+## 3. Output model: annotations, not a new AST
+
+Following the pattern established by `aihc-resolve`, the type checker
+attaches its results as `Annotation` values on AST nodes using the existing
+`DeclAnn`/`EAnn`/`PAnn`/`TAnn` wrappers and `Dynamic`-typed `Annotation`.
+
+This means:
+
+- The surface AST type (`Module`, `Decl`, `Expr`, etc.) is unchanged.
+- Typing information is retrievable via pattern synonyms (like
+  `EResolution` in `aihc-resolve`).
+- Downstream passes can extract typing information without depending on a
+  separate typed AST type.
+
+### 3.1 What the annotations carry
+
+Each annotated node carries a `TcAnnotation` record that includes whichever
+of the following are applicable:
+
+```haskell
+data TcAnnotation = TcAnnotation
+  { tcAnnType       :: !Type           -- inferred/checked type of this node
+  , tcAnnEvidence   :: ![EvBinding]    -- evidence bindings scoped here
+  , tcAnnCoercions  :: ![CoercionInfo] -- coercions needed at this node
+  , tcAnnTyApps     :: ![TcType]       -- explicit type applications
+  , tcAnnTyAbs      :: ![TyVar]        -- type variables abstracted here
+  , tcAnnDictAbs    :: ![EvVar]        -- dictionary parameters abstracted here
+  , tcAnnOrigin     :: !CtOrigin       -- provenance for error reporting
+  }
+```
+
+Not every field is populated for every node. A variable reference gets a
+type and possibly type applications; a top-level binding gets type/dict
+abstractions; a case branch gets coercion evidence from GADT refinement.
+
+### 3.2 What downstream desugaring needs
+
+The annotations must carry enough information for `aihc-desugar` to
+produce an explicitly typed core term. Specifically:
+
+| Surface construct       | TC annotation provides                              |
+|-------------------------|-----------------------------------------------------|
+| Polymorphic binding     | Quantified type vars, dictionary params to abstract  |
+| Variable reference      | Instantiation types, evidence arguments              |
+| Function application    | Result type                                          |
+| Lambda / match          | Argument types, result type                          |
+| Let binding             | Monomorphic type or generalized scheme               |
+| Case scrutinee          | Scrutinee type                                       |
+| Case branch (GADT)      | Skolem vars, given equalities, given dictionaries    |
+| Type family application | Coercion evidence for reduction                      |
+| Type annotation         | Checked type, coercion if subsumption needed         |
+
+---
+
+## 4. Internal type representation
+
+The TC needs its own type representation that is richer than the surface
+`Aihc.Parser.Syntax.Type`. Surface types are syntax; internal types are
+semantic.
+
+```haskell
+-- Semantic types used during type checking
+data TcType
+  = TcTyVar   TyVar              -- rigid (skolem) or flexible (meta)
+  | TcTyCon   TyCon [TcType]     -- saturated or partially applied
+  | TcFunTy   TcType TcType      -- function type
+  | TcForAllTy TyVar TcType      -- universal quantification
+  | TcQualTy  [Pred] TcType      -- qualified type (constraints =>)
+  | TcLitTy   TyLit              -- type-level literals
+  | TcAppTy   TcType TcType      -- unsaturated type application
+
+data TyVar = TyVar
+  { tvName    :: !Name
+  , tvUnique  :: !Unique
+  , tvKind    :: !TcType
+  , tvFlavor  :: !TyVarFlavor
+  }
+
+data TyVarFlavor
+  = SkolemTv          -- rigid, from quantification or GADT match
+  | MetaTv !MetaRef   -- unification variable (mutable cell)
+  | RuntimeTv         -- bound at runtime (lambda-bound type var)
+
+type MetaRef = IORef (Maybe TcType)
+
+data TypeScheme = ForAll [TyVar] [Pred] TcType
+```
+
+### 4.1 Conversion from surface types
+
+A function `surfaceToTcType :: Aihc.Parser.Syntax.Type -> TcM TcType`
+converts parsed type syntax into the internal representation during kind
+checking. This runs before or as part of constraint generation.
+
+---
+
+## 5. Predicates, evidence, and coercions
+
+### 5.1 Predicates
+
+```haskell
+data Pred
+  = ClassPred ClassName [TcType]    -- e.g. Eq a
+  | EqPred    TcType TcType         -- e.g. a ~ Bool
+  | IParam    Text TcType           -- implicit parameters (later)
+```
+
+### 5.2 Evidence
+
+```haskell
+data EvTerm
+  = EvVar      EvVar                -- reference to evidence variable
+  | EvDict     ClassName [TcType] [EvTerm]  -- dictionary construction
+  | EvSuperClass EvTerm Int         -- superclass selection
+  | EvCoercion Coercion             -- coercion as evidence
+  | EvCast     EvTerm Coercion      -- cast evidence
+  | EvLit      EvLiteral            -- known-at-compile-time evidence
+
+data EvBinding = EvBinding
+  { evBindVar  :: !EvVar
+  , evBindTerm :: !EvTerm
+  }
+```
+
+### 5.3 Coercions
+
+```haskell
+data Coercion
+  = CoVar       CoVar               -- coercion variable
+  | Refl        TcType              -- reflexivity
+  | Sym         Coercion            -- symmetry
+  | Trans       Coercion Coercion   -- transitivity
+  | TyConAppCo  TyCon [Coercion]    -- lift through type constructor
+  | AppCo       Coercion Coercion   -- application
+  | ForAllCo    TyVar Coercion Coercion  -- under forall
+  | AxiomInstCo AxiomName [TcType]  -- type family / newtype axiom
+  | NthCo       Int Coercion        -- projection
+  | SubCo       Coercion            -- nominal -> representational
+```
+
+---
+
+## 6. Constraints
+
+```haskell
+data Ct = Ct
+  { ctPred     :: !Pred
+  , ctFlavor   :: !CtFlavor
+  , ctEvidence :: !CtEvidence
+  , ctOrigin   :: !CtOrigin
+  , ctLoc      :: !SourceSpan
+  }
+
+data CtFlavor
+  = Given       -- from GADT match or user annotation
+  | Wanted      -- must be solved
+  | Derived     -- inferred, no evidence needed
+
+data CtEvidence = CtEvidence
+  { ctevPred :: !Pred
+  , ctevDest :: !EvDest
+  }
+
+data EvDest
+  = EvBind EvVar        -- fill this variable with evidence
+  | EvHole EvVar        -- evidence hole (to be filled later)
+
+data Implication = Implication
+  { implSkols     :: ![TyVar]       -- skolem type variables
+  , implGivenEvs  :: ![EvVar]       -- evidence variables for givens
+  , implGivenCts  :: ![Ct]          -- given constraints
+  , implWantedCts :: ![Ct]          -- wanted constraints
+  , implTcLevel   :: !TcLevel       -- nesting level
+  , implInfo      :: !ImplOrigin    -- what caused this implication
+  }
+```
+
+### 6.1 Constraint origins
+
+```haskell
+data CtOrigin
+  = OccurrenceOf Name               -- using a name
+  | AppOrigin SourceSpan             -- function application
+  | LambdaOrigin SourceSpan          -- lambda binding
+  | PatternOrigin SourceSpan         -- pattern match
+  | CaseBranchOrigin SourceSpan      -- GADT branch
+  | SigOrigin SourceSpan             -- type signature check
+  | InstOrigin ClassName [TcType]    -- instance resolution
+  | DerivOrigin                      -- deriving
+  | DefaultOrigin                    -- defaulting
+```
+
+These are carried on every constraint and used for error reporting.
+
+---
+
+## 7. Environments
+
+### 7.1 Global environment
+
+Built once per module (or set of modules) from the parsed declarations:
+
+```haskell
+data GlobalEnv = GlobalEnv
+  { geTyCons       :: !(Map TyConName TyConInfo)
+  , geDataCons     :: !(Map DataConName DataConInfo)
+  , geClasses      :: !(Map ClassName ClassInfo)
+  , geInstances    :: ![InstanceInfo]
+  , geFamAxioms    :: ![FamAxiom]
+  , geTypeSynonyms :: !(Map Name TypeSynInfo)
+  }
+```
+
+`DataConInfo` is particularly important for GADTs:
+
+```haskell
+data DataConInfo = DataConInfo
+  { dciName        :: !Name
+  , dciUnivTyVars  :: ![TyVar]     -- universally quantified
+  , dciExTyVars    :: ![TyVar]     -- existentially quantified
+  , dciTheta       :: ![Pred]      -- constructor constraints (given on match)
+  , dciArgTys      :: ![TcType]    -- field types
+  , dciResTy       :: !TcType      -- result type (may mention univs)
+  , dciOrigResTy   :: !TcType      -- original result type from decl
+  }
+```
+
+### 7.2 Local environment
+
+```haskell
+data TcEnv = TcEnv
+  { tcEnvTerms     :: !(Map Name TcBinder)
+  , tcEnvTypes     :: !(Map Name TcType)    -- type variables in scope
+  , tcEnvGivenEvs  :: ![EvVar]              -- given evidence in scope
+  , tcEnvTcLevel   :: !TcLevel              -- current implication depth
+  }
+
+data TcBinder
+  = TcId Name TypeScheme      -- polymorphic binding
+  | TcMonoId Name TcType      -- monomorphic binding (lambda, pattern)
+```
+
+---
+
+## 8. The TcM monad
+
+```haskell
+newtype TcM a = TcM (ReaderT TcEnv (StateT TcState IO) a)
+
+data TcState = TcState
+  { tcsUniques    :: !UniqueSupply
+  , tcsEvBinds    :: !EvBindMap         -- evidence bindings accumulated
+  , tcsMetaVars   :: !(Map Unique MetaRef)  -- all created meta vars
+  , tcsDiagnostics :: ![TcDiagnostic]   -- errors and warnings
+  , tcsAnnotations :: ![TcNodeAnnotation] -- collected annotations
+  }
+```
+
+Using `IO` for mutable meta-variable cells (`IORef`) is deliberate: the
+unification-variable approach requires mutability for efficient occurs-check
+and substitution propagation. A pure alternative (explicit substitution
+maps) is possible but significantly more complex.
+
+### 8.1 Key monadic operations
+
+```haskell
+-- Fresh names and variables
+newUnique     :: TcM Unique
+newMetaTv     :: TcType -> TcM TyVar         -- fresh unification variable
+newSkolemTv   :: Name -> TcType -> TcM TyVar  -- fresh rigid variable
+newEvVar      :: Pred -> TcM EvVar
+
+-- Environment
+lookupTerm    :: Name -> TcM TcBinder
+extendTermEnv :: Name -> TcBinder -> TcM a -> TcM a
+extendTyEnv   :: Name -> TcType -> TcM a -> TcM a
+getTcLevel    :: TcM TcLevel
+pushTcLevel   :: TcM a -> TcM a
+
+-- Evidence
+bindEvidence  :: EvVar -> EvTerm -> TcM ()
+lookupEvidence :: EvVar -> TcM (Maybe EvTerm)
+
+-- Annotations
+annotateNode  :: HasSourceSpan n => n -> TcAnnotation -> TcM ()
+
+-- Errors
+emitError     :: SourceSpan -> TcErrorKind -> TcM ()
+emitWarning   :: SourceSpan -> TcWarningKind -> TcM ()
+```
+
+---
+
+## 9. Module structure
+
+```
+Aihc/
+  Tc.hs                    -- entry point: typecheck :: GlobalEnv -> Module -> TcResult
+  Tc/
+    Types.hs               -- TcType, TyVar, Pred, TypeScheme, etc.
+    Evidence.hs            -- EvTerm, Coercion, EvBinding
+    Constraint.hs          -- Ct, Implication, CtFlavor, CtOrigin
+    Monad.hs               -- TcM, TcState, TcEnv
+    Env.hs                 -- GlobalEnv, DataConInfo, ClassInfo, etc.
+    Annotations.hs         -- TcAnnotation, TcNodeAnnotation, pattern synonyms
+
+    Generate.hs            -- constraint generation (bidirectional)
+    Generate/
+      Expr.hs              -- inferExpr, checkExpr
+      Pattern.hs           -- checkPattern, inferPattern
+      Decl.hs              -- tcTopBind, tcLocalLet
+      Type.hs              -- kind checking, surface-to-TcType
+
+    Solve.hs               -- top-level solver entry point
+    Solve/
+      Worklist.hs          -- WorkList data type and operations
+      InertSet.hs          -- InertSet data type and operations
+      Canonicalize.hs      -- constraint canonicalization
+      Interact.hs          -- interaction rules (inert + work item)
+      Equality.hs          -- equality solver (unification, decomposition)
+      Dict.hs              -- class constraint solver (instance lookup)
+      Implication.hs       -- implication solver
+      Flatten.hs           -- type family flattening
+      Defaulting.hs        -- ambiguity resolution and defaulting
+
+    Zonk.hs                -- zonking: replace meta vars with solutions
+    Generalize.hs          -- let-generalization
+    Unify.hs               -- unification (meta variable solving)
+    Instantiate.hs         -- scheme instantiation
+    Subsumption.hs         -- subsumption checking (for higher-rank)
+    Error.hs               -- error message construction
+    Error/
+      Messages.hs          -- user-facing error formatting
+      Origins.hs           -- CtOrigin rendering
+```
+
+---
+
+## 10. Algorithm outline
+
+### 10.1 Top-level entry
+
+```haskell
+typecheck :: GlobalEnv -> Module -> IO TcResult
+
+data TcResult = TcResult
+  { tcResultModule      :: !Module          -- annotated AST
+  , tcResultAnnotations :: ![TcNodeAnnotation]
+  , tcResultDiagnostics :: ![TcDiagnostic]
+  }
+```
+
+1. Build `GlobalEnv` from module declarations (data types, classes,
+   instances, type families).
+2. Kind-check all type declarations.
+3. Type-check each top-level binding group (respecting dependency order):
+   a. Generate constraints (producing wanted constraints and evidence
+      holes).
+   b. Solve wanted constraints.
+   c. Generalize residual constraints into type schemes.
+   d. Zonk meta-variables.
+   e. Attach `TcAnnotation` to AST nodes.
+4. Collect and report unsolved constraints as errors.
+
+### 10.2 Constraint generation (bidirectional)
+
+```haskell
+inferExpr :: Expr -> TcM (Expr, TcType, [Ct])
+checkExpr :: Expr -> TcType -> TcM (Expr, [Ct])
+```
+
+The generator walks the AST and returns:
+
+- The (possibly re-annotated) AST node
+- The inferred type (for infer mode)
+- A list of wanted constraints
+
+Key rules:
+
+- **Variable**: look up scheme, instantiate, emit wanted constraints for
+  the scheme's predicates, record type applications.
+- **Application**: infer function type, check argument, emit equality
+  between function domain and argument type.
+- **Lambda**: fresh meta for argument, extend env, infer body.
+- **Let**: for unannotated local lets, infer monomorphically. For
+  annotated lets, check against signature. For top-level, generalize.
+- **Case**: infer scrutinee, for each branch introduce GADT givens as an
+  `Implication`.
+- **Type annotation**: check expression against the given type.
+
+### 10.3 GADT branch handling
+
+For each case alternative matching a GADT constructor:
+
+1. Look up `DataConInfo`.
+2. Instantiate universal type variables with fresh metas.
+3. Introduce existential type variables as fresh skolems.
+4. Emit equality between scrutinee type and instantiated result type.
+5. Add constructor constraints (`dciTheta`) as givens.
+6. Type-check branch body under these givens.
+7. Package all branch-local wanted constraints into an `Implication`.
+
+This is the core of OutsideIn(X): branch-local reasoning is scoped inside
+implications and cannot leak to the outer level.
+
+### 10.4 Solver
+
+The solver uses the worklist/inert-set architecture:
+
+```
+while worklist is non-empty:
+  pop constraint from worklist
+  canonicalize it
+  interact with inert set
+  either:
+    - solve it (fill evidence)
+    - add to inert set
+    - emit new work items
+```
+
+#### Canonicalization
+
+- Orient equalities: meta on left, skolem on right.
+- Flatten type family applications: `F a` becomes `beta` with wanted
+  `F a ~ beta`.
+- Normalize class predicates.
+
+#### Equality solving
+
+- Unify touchable meta variables (respecting `TcLevel`).
+- Decompose type constructor equalities:
+  `T a1 a2 ~ T b1 b2` becomes `a1 ~ b1, a2 ~ b2`.
+- Apply type family axioms.
+- Build coercion evidence for each step.
+
+#### Dictionary solving
+
+- Match wanted against given dictionaries.
+- Match against instance declarations, emitting sub-goals.
+- Construct evidence dictionaries.
+
+#### Implication solving
+
+- Enter new solver scope.
+- Extend environment with skolems and givens.
+- Solve inner wanteds.
+- Enforce untouchability: inner branches cannot unify outer-level
+  meta-variables using local-only information.
+- Return residual unsolved constraints.
+
+### 10.5 Generalization
+
+For top-level bindings:
+
+1. Solve all wanted constraints as far as possible.
+2. Identify free meta-variables not in the environment.
+3. Quantify over them.
+4. Abstract over residual class constraints as dictionary parameters.
+5. Record the resulting `TypeScheme` and the abstraction (type lambdas +
+   dictionary lambdas) in the annotation.
+
+For local `let` without a type signature: monomorphic (no generalization)
+per OutsideIn(X) recommendation.
+
+For local `let` with a type signature: check against the signature, using
+an implication to scope the signature's quantified variables.
+
+### 10.6 Zonking
+
+After solving, replace all meta-variables with their solutions throughout
+the type annotations. Any remaining unsolved meta-variables become
+ambiguity errors or are defaulted.
+
+---
+
+## 11. Incremental implementation plan
+
+Build in this order, each stage adding to the previous:
+
+### Stage 1: Monomorphic lambda calculus
+
+- `TcType` with `TcTyVar`, `TcTyCon`, `TcFunTy` only.
+- Unification of meta-variables.
+- Constraint generation for: variables, application, lambda, let, literals,
+  if-then-else.
+- Simple worklist solver (equalities only).
+- Zonking.
+- Annotations on expressions with inferred types.
+- **Test**: infer types for simple programs without polymorphism.
+
+### Stage 2: Hindley-Milner polymorphism
+
+- Add `TcForAllTy`.
+- `TypeScheme`, instantiation, generalization.
+- Top-level let-generalization.
+- **Test**: infer polymorphic types, check against signatures.
+
+### Stage 3: Type classes
+
+- Add `Pred` (class predicates only).
+- `TcQualTy`, `EvTerm`, `EvVar`, `EvBinding`.
+- Dictionary solver: instance lookup, superclass selection.
+- Evidence annotations on nodes.
+- **Test**: resolve `Eq`, `Show`, `Num` constraints; multi-parameter type
+  classes.
+
+### Stage 4: Equality constraints and GADTs
+
+- Add `EqPred`.
+- `Coercion` type.
+- `Implication` constraints.
+- GADT pattern matching: skolems, given equalities, branch implications.
+- Implication solver with untouchability.
+- Coercion evidence in annotations.
+- **Test**: GADT pattern matching with refinement, existentials.
+
+### Stage 5: Type families
+
+- `FamAxiom` representation.
+- Flattening in canonicalization.
+- Axiom-based equality solving.
+- **Test**: open and closed type families, family + GADT interaction.
+
+### Stage 6: Polish
+
+- Defaulting and ambiguity resolution.
+- Higher-rank polymorphism (subsumption).
+- Error message quality.
+- Performance.
+
+---
+
+## 12. Testing strategy
+
+### 12.1 Golden tests
+
+Place fixtures in `components/aihc-tc/test/Test/Fixtures/golden/`.
+
+Each fixture is a `.hs` file containing a Haskell snippet. The expected
+output is the annotated type information for each binding and sub-expression,
+rendered in a deterministic text format.
+
+**Format**: for each annotated node, emit one line:
+
+```
+<span> <construct> :: <type> [evidence: <evidence>] [coercions: <coercions>]
+```
+
+Fixtures should cover:
+
+- Simple monomorphic functions
+- Polymorphic functions (inferred and annotated)
+- Type class usage (dictionary passing)
+- GADT pattern matching (coercion evidence)
+- Type family applications (axiom coercions)
+- Let-generalization vs. monomorphism
+- Error cases (type mismatches, ambiguity, untouchable violations)
+
+### 12.2 Oracle tests
+
+Use GHC as the oracle, similar to `aihc-parser`'s oracle suite.
+
+For each test case:
+
+1. Parse and type-check with `aihc-tc`.
+2. Compile with GHC (using `-ddump-types` or `-ddump-tc-trace`).
+3. Compare:
+   - Does aihc-tc accept/reject the same programs as GHC?
+   - Do inferred type signatures match?
+
+**Outcome model** (same as parser):
+
+| aihc-tc | GHC     | Status |
+|---------|---------|--------|
+| accept  | accept  | PASS (if types match) |
+| reject  | reject  | PASS   |
+| accept  | reject  | XPASS  |
+| reject  | accept  | FAIL   |
+| accept  | accept  | FAIL (if types differ) |
+
+### 12.3 Property tests (QuickCheck)
+
+- **Zonking idempotence**: zonking a fully-zonked type is a no-op.
+- **Instantiation/generalization roundtrip**: generalizing an instantiated
+  scheme produces an alpha-equivalent scheme.
+- **Coercion well-typedness**: every constructed coercion `co : t1 ~ t2`
+  has matching endpoints.
+- **Solver completeness**: for generated constraint sets from well-typed
+  programs, the solver should produce no residual unsolved wanted
+  constraints.
+- **Evidence well-formedness**: every filled evidence hole has the correct
+  predicate type.
+
+### 12.4 Error-message tests
+
+Separate golden fixtures for error cases, capturing the full diagnostic
+output. This ensures error messages remain stable and helpful.
+
+### 12.5 Stackage progress tracking
+
+Like the parser, track what percentage of Stackage packages can be
+type-checked successfully. This gives a continuous measure of real-world
+coverage.
+
+---
+
+## 13. Package structure
+
+```
+components/aihc-tc/
+  aihc-tc.cabal
+  src/
+    Aihc/
+      Tc.hs
+      Tc/
+        Types.hs
+        Evidence.hs
+        Constraint.hs
+        Monad.hs
+        Env.hs
+        Annotations.hs
+        Generate.hs
+        Generate/
+          Expr.hs
+          Pattern.hs
+          Decl.hs
+          Type.hs
+        Solve.hs
+        Solve/
+          Worklist.hs
+          InertSet.hs
+          Canonicalize.hs
+          Interact.hs
+          Equality.hs
+          Dict.hs
+          Implication.hs
+          Flatten.hs
+          Defaulting.hs
+        Zonk.hs
+        Generalize.hs
+        Unify.hs
+        Instantiate.hs
+        Subsumption.hs
+        Error.hs
+        Error/
+          Messages.hs
+          Origins.hs
+  test/
+    Spec.hs
+    Test/
+      Tc/
+        Suite.hs        -- golden test runner
+        Oracle.hs       -- GHC oracle comparison
+        Properties.hs   -- QuickCheck properties
+      Fixtures/
+        golden/         -- .hs input files + .expected output
+        oracle/         -- oracle test fixtures
+```
+
+### 13.1 Dependencies
+
+```
+aihc-tc
+  depends on:
+    aihc-parser    (surface AST, SourceSpan, Annotation)
+    aihc-resolve   (ResolvedName, for linking names to definitions)
+    containers
+    text
+    mtl            (or transformers)
+```
+
+The type checker does *not* depend on `aihc-cpp` or `aihc-parser-cli`.
+
+---
+
+## 14. Key design decisions
+
+### 14.1 Annotate, don't transform
+
+The TC does not produce a new AST type. It annotates the existing surface
+AST. This keeps the interface surface small and avoids a large duplication
+of the AST definition. The downstream desugarer reads annotations to build
+core.
+
+### 14.2 Evidence is real from day one
+
+Every wanted constraint gets an evidence variable. The solver fills it.
+Annotations record the binding. This is essential for the desugarer to
+produce dictionary-passing and coercion-carrying core.
+
+### 14.3 Mutable meta-variables
+
+Using `IORef`-backed meta-variables is the standard approach for efficient
+unification in an OutsideIn(X) implementation. The solver mutates cells
+in-place rather than threading substitution maps.
+
+### 14.4 Separate constraint generation and solving
+
+Constraint generation walks the AST and accumulates wanted constraints.
+The solver is a separate subsystem. This matches the OutsideIn(X) paper's
+architecture and keeps the two concerns cleanly separated.
+
+### 14.5 TcLevel for untouchability
+
+Each implication has a `TcLevel`. Meta-variables created at level N cannot
+be unified by the solver when processing constraints at level N+1 (unless
+the solution involves only types visible at level N). This enforces the
+OutsideIn discipline.
+
+### 14.6 Monomorphic local lets by default
+
+Unannotated local `let` bindings are not generalized, following
+OutsideIn(X). This simplifies the implementation and matches GHC behavior
+with `MonoLocalBinds` (which is implied by `GADTs` and `TypeFamilies`).
+
+---
+
+## 15. Practical simplifications for v1
+
+- Only nominal equality (no representational/phantom).
+- Only top-level instances (no local instances).
+- No overlapping instances.
+- No functional dependencies initially.
+- No quantified constraints.
+- No implicit parameters initially.
+- Eager flattening of all type family applications.
+- No kind polymorphism initially (monomorphic kinds, `Type` only).
+- No type-level literals initially.
+
+These can all be added incrementally without restructuring the core
+architecture.
