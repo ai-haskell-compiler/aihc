@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail reason="Bare let in do block without bindings not handled" -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE Haskell2010 #-}
 
 module BareLetInDo where

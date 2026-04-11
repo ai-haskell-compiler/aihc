@@ -1439,7 +1439,7 @@ plainDeclsParser :: TokParser [Decl]
 plainDeclsParser = concat <$> plainSemiSep1 localDeclsParser
 
 bracedDeclsParser :: TokParser [Decl]
-bracedDeclsParser = concat <$> bracedSemiSep1 localDeclsParser
+bracedDeclsParser = concat <$> bracedSemiSep localDeclsParser
 
 -- Some local declaration items lower to a single binding carrying an inline
 -- type signature, so the parser emits a declaration group rather than a
@@ -1845,7 +1845,7 @@ thTypedQuoteParser = withSpan $ do
 thDeclQuoteParser :: TokParser Expr
 thDeclQuoteParser = withSpan $ do
   expectedTok TkTHDeclQuoteOpen
-  decls <- plainSemiSep1 declParser
+  decls <- plainSemiSep declParser
   expectedTok TkTHExpQuoteClose
   pure (`ETHDeclQuote` decls)
 
