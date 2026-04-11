@@ -423,17 +423,43 @@ doStmtParser = do
 -- This handles the common case where the leading syntax is valid as both
 -- an expression and a pattern (variables, constructors, applications,
 -- literals, tuples, lists, etc.).
+--
+-- When the expression parser produces a result followed by @<-@, we
+-- reclassify the expression as a pattern via 'checkPattern'. If the next
+-- token after the expression is @'@'@ (as-pattern operator), the expression
+-- parser stopped early because @'@'@ is not valid in expression context.
+-- In that case we fall back to pattern parsing to handle nested as-patterns
+-- like @(a, b\@T {..})@.
 doBindOrExprStmtParser :: TokParser (DoStmt Expr)
 doBindOrExprStmtParser = withSpan $ do
-  expr <- exprParser
-  mArrow <- MP.optional (expectedTok TkReservedLeftArrow)
-  case mArrow of
-    Just () -> do
-      pat <- liftCheck (checkPattern expr)
+  mExpr <- MP.optional . MP.try $ exprParser
+  case mExpr of
+    Nothing -> do
+      -- Expression parser failed, likely due to pattern-only syntax (as-patterns,
+      -- view patterns, etc.). Fall back to pattern parsing.
+      pat <- patternParser
+      expectedTok TkReservedLeftArrow
       rhs <- region "while parsing '<-' binding" exprParser
       pure (\span' -> DoBind span' pat rhs)
-    Nothing ->
-      pure (`DoExpr` expr)
+    Just expr -> do
+      tok <- lookAhead anySingle
+      case lexTokenKind tok of
+        -- Expression parser stopped at an as-pattern operator. Fall back to
+        -- pattern parsing to handle nested as-patterns in tuples/parens.
+        TkReservedAt -> do
+          pat <- patternParser
+          expectedTok TkReservedLeftArrow
+          rhs <- region "while parsing '<-' binding" exprParser
+          pure (\span' -> DoBind span' pat rhs)
+        _ -> do
+          mArrow <- MP.optional (expectedTok TkReservedLeftArrow)
+          case mArrow of
+            Just () -> do
+              pat <- liftCheck (checkPattern expr)
+              rhs <- region "while parsing '<-' binding" exprParser
+              pure (\span' -> DoBind span' pat rhs)
+            Nothing ->
+              pure (`DoExpr` expr)
 
 -- | Fallback for do-bind statements that the expression-first approach
 -- cannot handle. This covers:

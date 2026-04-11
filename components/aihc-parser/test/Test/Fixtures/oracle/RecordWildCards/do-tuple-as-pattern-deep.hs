@@ -1,9 +1,10 @@
 {- ORACLE_TEST pass -}
 {-# LANGUAGE RecordWildCards #-}
-module DoTupleAsPattern where
+{- Test deeply nested as-pattern in tuple -}
+module DoTupleAsPatternDeep where
 
 data T = T { field :: Int }
 
 f mx = do
-  (a, b@T {..}) <- mx
+  (a, (b, c@T {..}), d) <- mx
   return undefined
