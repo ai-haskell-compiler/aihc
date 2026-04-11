@@ -23,6 +23,7 @@ library
   build-depends:
       base >=4.16 && <5
     , aihc-cpp
+    , aihc-hackage
     , aihc-parser
     , text >=1.2
     , optparse-applicative
@@ -38,7 +39,6 @@ library
     , haskell-src-exts
     , http-client
     , http-client-tls
-    , http-types
     , tar
     , time
     , zlib

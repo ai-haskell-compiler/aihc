@@ -1,5 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
+-- | Thin adapter over "Aihc.Hackage" that converts string-typed results
+-- to the rich types used by @aihc-parser@ executables and tests.
 module HackageSupport
   ( downloadPackage,
     downloadPackageQuiet,
@@ -14,128 +16,41 @@ module HackageSupport
 where
 
 import Aihc.Cpp (Diagnostic (..), IncludeKind (..), IncludeRequest (..), Severity (..))
+import Aihc.Hackage.Cabal qualified as HC
+import Aihc.Hackage.Download qualified as HD
+import Aihc.Hackage.Types qualified as HT
+import Aihc.Hackage.Util qualified as HU
 import Aihc.Parser.Syntax qualified as Syntax
-import Control.Monad (forM, when)
 import Data.ByteString qualified as BS
-import Data.Char (toLower)
-import Data.List (isPrefixOf, isSuffixOf, nub, sortOn)
-import Data.Map.Strict qualified as Map
-import Data.Maybe (catMaybes, mapMaybe)
+import Data.List (nub)
+import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
-import Data.Text.Encoding (decodeUtf8With)
-import Data.Text.Encoding.Error (lenientDecode)
-import Data.Version qualified as DV
-import Distribution.Compiler (CompilerFlavor (..))
-import Distribution.ModuleName (ModuleName, toFilePath)
-import Distribution.Package (unPackageName)
-import Distribution.PackageDescription
-  ( BuildInfo,
-    Executable,
-    FlagName,
-    Library,
-    autogenModules,
-    buildInfo,
-    buildable,
-    condExecutables,
-    condLibrary,
-    condSubLibraries,
-    cppOptions,
-    defaultExtensions,
-    defaultLanguage,
-    exeModules,
-    exposedModules,
-    flagDefault,
-    flagName,
-    hsSourceDirs,
-    libBuildInfo,
-    modulePath,
-    oldExtensions,
-    otherModules,
-  )
 import Distribution.PackageDescription.Parsec (parseGenericPackageDescription, runParseResult)
-import Distribution.Pretty (prettyShow)
-import Distribution.System (buildArch, buildOS)
-import Distribution.Types.BuildInfo (targetBuildDepends)
-import Distribution.Types.CondTree
-  ( CondBranch (CondBranch),
-    CondTree (condTreeComponents, condTreeData),
-  )
-import Distribution.Types.Condition (Condition (..))
-import Distribution.Types.ConfVar (ConfVar (..))
-import Distribution.Types.Dependency (depPkgName)
-import Distribution.Types.GenericPackageDescription (GenericPackageDescription, genPackageFlags)
-import Distribution.Utils.Path (getSymbolicPath)
-import Distribution.Version (mkVersion, withinRange)
-import System.Directory
-  ( XdgDirectory (XdgCache),
-    createDirectoryIfMissing,
-    doesDirectoryExist,
-    doesFileExist,
-    getXdgDirectory,
-    listDirectory,
-    removeDirectoryRecursive,
-    removeFile,
-    renameDirectory,
-  )
-import System.FilePath (isAbsolute, makeRelative, normalise, splitDirectories, takeDirectory, takeFileName, (<.>), (</>))
-import System.Info (compilerName, compilerVersion)
-import System.Process (callCommand)
+import System.Directory (doesFileExist)
+import System.FilePath (isAbsolute, makeRelative, normalise, splitDirectories, takeDirectory, (</>))
 
+-- | Download a Hackage package with verbose logging.
 downloadPackage :: String -> String -> IO FilePath
-downloadPackage = downloadPackageWithLogs True
+downloadPackage name version =
+  HD.downloadPackage (HT.PackageSpec name version)
 
+-- | Download a Hackage package silently.
 downloadPackageQuiet :: String -> String -> IO FilePath
-downloadPackageQuiet = downloadPackageWithLogs False
+downloadPackageQuiet name version =
+  HD.downloadPackageQuiet (HT.PackageSpec name version)
 
+-- | Download a Hackage package, controlling network access.
 downloadPackageQuietWithNetwork :: Bool -> String -> String -> IO FilePath
-downloadPackageQuietWithNetwork = downloadPackageWithMode False
+downloadPackageQuietWithNetwork allowNetwork name version =
+  HD.downloadPackageWithOptions
+    HD.defaultDownloadOptions
+      { HD.downloadVerbose = False,
+        HD.downloadAllowNetwork = allowNetwork
+      }
+    (HT.PackageSpec name version)
 
-downloadPackageWithLogs :: Bool -> String -> String -> IO FilePath
-downloadPackageWithLogs withLogs = downloadPackageWithMode withLogs True
-
-downloadPackageWithMode :: Bool -> Bool -> String -> String -> IO FilePath
-downloadPackageWithMode withLogs allowNetwork packageName version = do
-  cacheDir <- getCacheDir
-  let pkgDir = cacheDir </> packageName ++ "-" ++ version
-      markerFile = pkgDir </> ".complete"
-  markerExists <- doesFileExist markerFile
-  if markerExists
-    then do
-      when withLogs $ putStrLn ("Cache hit: " ++ packageName ++ "-" ++ version)
-      pure pkgDir
-    else
-      if not allowNetwork
-        then ioError (userError ("Package missing from cache in offline mode: " ++ packageName ++ "-" ++ version))
-        else do
-          createDirectoryIfMissing True cacheDir
-          when withLogs $ putStrLn ("Downloading " ++ packageName ++ "-" ++ version ++ " from Hackage...")
-          let url = "https://hackage.haskell.org/package/" ++ packageName ++ "-" ++ version ++ "/" ++ packageName ++ "-" ++ version ++ ".tar.gz"
-          let tarball = cacheDir </> packageName ++ "-" ++ version ++ ".tar.gz"
-          let tempDir = cacheDir </> packageName ++ "-" ++ version ++ ".tmp"
-          downloadFile url tarball
-          extractTarball tarball tempDir
-          removeFile tarball
-          dirExists <- doesDirectoryExist pkgDir
-          when dirExists $ removeDirectoryRecursive pkgDir
-          renameDirectory tempDir pkgDir
-          writeFile markerFile ""
-          pure pkgDir
-
-downloadFile :: String -> FilePath -> IO ()
-downloadFile url dest =
-  callCommand ("curl -s -f -o " ++ show dest ++ " " ++ show url)
-
-extractTarball :: FilePath -> FilePath -> IO ()
-extractTarball tarball destDir = do
-  createDirectoryIfMissing True destDir
-  callCommand ("tar -xzf " ++ show tarball ++ " -C " ++ show destDir)
-
-getCacheDir :: IO FilePath
-getCacheDir = do
-  cacheBase <- getXdgDirectory XdgCache "aihc"
-  pure (cacheBase </> "hackage")
-
+-- | Rich file info with parser-typed extensions and language.
 data FileInfo = FileInfo
   { fileInfoPath :: FilePath,
     fileInfoExtensions :: [Syntax.ExtensionSetting],
@@ -145,9 +60,13 @@ data FileInfo = FileInfo
   }
   deriving (Show)
 
+-- | Find target Haskell source files from a @.cabal@ file.
+--
+-- Delegates to 'Aihc.Hackage.Cabal.collectComponentFiles' and then converts
+-- the string-typed results to the rich types used by @aihc-parser@.
 findTargetFilesFromCabal :: FilePath -> IO [FileInfo]
 findTargetFilesFromCabal extractedRoot = do
-  cabalFiles <- findCabalFiles extractedRoot
+  cabalFiles <- HU.findCabalFiles extractedRoot
   cabalFile <-
     case cabalFiles of
       [file] -> pure file
@@ -156,7 +75,7 @@ findTargetFilesFromCabal extractedRoot = do
           ( userError
               ("No .cabal file found under extracted package root: " ++ extractedRoot)
           )
-      files -> pure (chooseBestCabalFile extractedRoot files)
+      files -> pure (HU.chooseBestCabalFile extractedRoot files)
   cabalBytes <- BS.readFile cabalFile
   let (_, parseResult) = runParseResult (parseGenericPackageDescription cabalBytes)
   gpd <-
@@ -167,202 +86,22 @@ findTargetFilesFromCabal extractedRoot = do
           ( userError
               ("Failed to parse cabal file " ++ cabalFile ++ ": " ++ show errs)
           )
-  collectComponentFiles gpd cabalFile
+  rawFiles <- HC.collectComponentFiles gpd (takeDirectory cabalFile)
+  pure (map convertFileInfo rawFiles)
 
-collectComponentFiles :: GenericPackageDescription -> FilePath -> IO [FileInfo]
-collectComponentFiles gpd cabalFile = do
-  let packageRoot = takeDirectory cabalFile
-      evalCond = conditionEvaluator gpd
-      -- We flatten the GPD to get a fixed set of components. This isn't perfect
-      -- as it might pick branches that aren't usually active, but it's better
-      -- than trying to resolve conditions without a proper environment.
-      libraryTrees = maybe [] pure (condLibrary gpd) <> map snd (condSubLibraries gpd)
-      executableTrees = map snd (condExecutables gpd)
-
-  -- We use the flattened PD to get the actual components but they don't
-  -- easily map back to the files. Let's try to extract info from the CondTree
-  -- but also carry the BuildInfo.
-
-  libraryFiles <- fmap concat (forM libraryTrees (libraryFilesFor evalCond packageRoot))
-  executableFiles <- fmap concat (forM executableTrees (executableFilesFor evalCond packageRoot))
-
-  -- Dedupe by checking the path
-  let allFiles = libraryFiles <> executableFiles
-  pure (dedupeFiles allFiles)
-
-dedupeFiles :: [FileInfo] -> [FileInfo]
-dedupeFiles [] = []
-dedupeFiles (f : fs) = f : dedupeFiles (filter (\x -> fileInfoPath x /= fileInfoPath f) fs)
-
-libraryFilesFor :: (Condition ConfVar -> Bool) -> FilePath -> CondTree ConfVar c Library -> IO [FileInfo]
-libraryFilesFor evalCond packageRoot tree = do
-  let library = condTreeData tree
-      build = collectMergedBuildInfo evalCond libBuildInfo tree
-      moduleNames = exposedModules library <> otherModules build <> autogenModules build
-      exts = extractExtensions build
-      cppOpts = cppOptions build
-      lang = extractLanguage build
-      deps = extractDependencies build
-  if not (buildable build)
-    then pure []
-    else do
-      paths <- moduleFilesForBuildInfo packageRoot build moduleNames
-      pure [FileInfo path exts cppOpts lang deps | path <- paths]
-
-executableFilesFor :: (Condition ConfVar -> Bool) -> FilePath -> CondTree ConfVar c Executable -> IO [FileInfo]
-executableFilesFor evalCond packageRoot tree = do
-  let executable = condTreeData tree
-      build = collectMergedBuildInfo evalCond buildInfo tree
-      moduleNames = otherModules build <> exeModules executable <> autogenModules build
-      mainPath = modulePath executable
-      exts = extractExtensions build
-      cppOpts = cppOptions build
-      lang = extractLanguage build
-      deps = extractDependencies build
-  if not (buildable build)
-    then pure []
-    else do
-      moduleFiles <- moduleFilesForBuildInfo packageRoot build moduleNames
-      mainFiles <- existingPaths [dir </> mainPath | dir <- sourceDirs packageRoot build]
-      pure [FileInfo path exts cppOpts lang deps | path <- moduleFiles <> mainFiles]
-
-extractExtensions :: BuildInfo -> [Syntax.ExtensionSetting]
-extractExtensions bi = mapMaybe (Syntax.parseExtensionSettingName . T.pack) (nub (map prettyShow (defaultExtensions bi <> oldExtensions bi)))
-
-extractLanguage :: BuildInfo -> Maybe Syntax.LanguageEdition
-extractLanguage bi =
-  case defaultLanguage bi of
-    Just lang -> Syntax.parseLanguageEdition (T.pack (prettyShow lang))
-    Nothing -> Nothing
-
-extractDependencies :: BuildInfo -> [Text]
-extractDependencies bi =
-  map (T.pack . unPackageName . depPkgName) (targetBuildDepends bi)
-
-collectCondTreeData :: (Condition v -> Bool) -> CondTree v c a -> [a]
-collectCondTreeData evalCond tree =
-  condTreeData tree : concatMap collectBranch (condTreeComponents tree)
-  where
-    collectBranch (CondBranch cond thenTree elseTree) =
-      if evalCond cond
-        then collectCondTreeData evalCond thenTree
-        else maybe [] (collectCondTreeData evalCond) elseTree
-
-collectMergedBuildInfo :: (Monoid b) => (Condition v -> Bool) -> (a -> b) -> CondTree v c a -> b
-collectMergedBuildInfo evalCond toBuildInfo =
-  mconcat . map toBuildInfo . collectCondTreeData evalCond
-
-conditionEvaluator :: GenericPackageDescription -> Condition ConfVar -> Bool
-conditionEvaluator gpd = eval
-  where
-    defaultFlags :: Map.Map FlagName Bool
-    defaultFlags =
-      Map.fromList [(flagName flag, flagDefault flag) | flag <- genPackageFlags gpd]
-
-    compilerFlavor :: CompilerFlavor
-    compilerFlavor =
-      case compilerName of
-        "ghc" -> GHC
-        "ghcjs" -> GHCJS
-        other -> OtherCompiler other
-
-    compilerVer = mkVersion (DV.versionBranch compilerVersion)
-
-    eval (Var confVar) =
-      case confVar of
-        OS os -> os == buildOS
-        Arch arch -> arch == buildArch
-        PackageFlag flag -> Map.findWithDefault False flag defaultFlags
-        Impl flavor range -> flavor == compilerFlavor && withinRange compilerVer range
-    eval (Lit b) = b
-    eval (CNot c) = not (eval c)
-    eval (COr a b) = eval a || eval b
-    eval (CAnd a b) = eval a && eval b
-
-moduleFilesForBuildInfo :: FilePath -> BuildInfo -> [ModuleName] -> IO [FilePath]
-moduleFilesForBuildInfo packageRoot build modules = do
-  let dirs = sourceDirs packageRoot build
-      moduleCandidates =
-        [ dir </> toFilePath modu <.> ext
-        | dir <- dirs,
-          modu <- modules,
-          ext <- ["hs", "lhs"]
-        ]
-  dedupeExistingFiles moduleCandidates
-
-sourceDirs :: FilePath -> BuildInfo -> [FilePath]
-sourceDirs packageRoot build =
-  case map getSymbolicPath (hsSourceDirs build) of
-    [] -> [packageRoot]
-    dirs -> [packageRoot </> dir | dir <- dirs]
-
-findCabalFiles :: FilePath -> IO [FilePath]
-findCabalFiles dir = do
-  entries <- listDirectory dir
-  paths <- fmap concat $
-    forM entries $ \entry -> do
-      let fullPath = dir </> entry
-      isDir <- doesDirectoryExist fullPath
-      if isDir
-        then
-          if ".git" `isPrefixOf` entry
-            then pure []
-            else findCabalFiles fullPath
-        else
-          if ".cabal" `isSuffixOf` entry
-            then pure [fullPath]
-            else pure []
-  pure (nub (map normalise paths))
-
-existingPaths :: [FilePath] -> IO [FilePath]
-existingPaths candidates = do
-  existing <- forM candidates $ \candidate -> do
-    fileExists <- doesFileExist candidate
-    pure (if fileExists then Just (normalise candidate) else Nothing)
-  pure (catMaybes existing)
-
-dedupeExistingFiles :: [FilePath] -> IO [FilePath]
-dedupeExistingFiles files = fmap nub (existingPaths files)
-
-chooseBestCabalFile :: FilePath -> [FilePath] -> FilePath
-chooseBestCabalFile extractedRoot files =
-  case sortOn rank files of
-    best : _ -> best
-    [] -> error ("chooseBestCabalFile: no .cabal files found under " ++ extractedRoot)
-  where
-    rank file =
-      let rel = splitDirectories (makeRelative extractedRoot file)
-          dirParts = case reverse rel of
-            _fileName : restRev -> reverse restRev
-            [] -> []
-          lowerDirParts = map (map toLower) dirParts
-          isLikelyFixtureDir = any (`elem` fixtureDirNames) lowerDirParts
-       in ( if isLikelyFixtureDir then (1 :: Int) else 0,
-            length rel,
-            length dirParts,
-            scoreByFileName (map toLower (takeFileName file)),
-            file
-          )
-
-    scoreByFileName fileNameLower
-      | "test-" `isPrefixOf` fileNameLower = 1 :: Int
-      | "example-" `isPrefixOf` fileNameLower = 1
-      | otherwise = 0
-
-    fixtureDirNames =
-      [ "test",
-        "tests",
-        "testing",
-        "example",
-        "examples",
-        "benchmark",
-        "benchmarks"
-      ]
+-- | Convert a string-typed 'HC.FileInfo' to the rich-typed local 'FileInfo'.
+convertFileInfo :: HC.FileInfo -> FileInfo
+convertFileInfo raw =
+  FileInfo
+    { fileInfoPath = HC.fileInfoPath raw,
+      fileInfoExtensions = mapMaybe (Syntax.parseExtensionSettingName . T.pack) (HC.fileInfoExtensions raw),
+      fileInfoCppOptions = HC.fileInfoCppOptions raw,
+      fileInfoLanguage = HC.fileInfoLanguage raw >>= Syntax.parseLanguageEdition . T.pack,
+      fileInfoDependencies = HC.fileInfoDependencies raw
+    }
 
 readTextFileLenient :: FilePath -> IO Text
-readTextFileLenient filePath = do
-  bytes <- BS.readFile filePath
-  pure (decodeUtf8With lenientDecode bytes)
+readTextFileLenient = HU.readTextFileLenient
 
 resolveIncludeBestEffort :: FilePath -> FilePath -> IncludeRequest -> IO (Maybe BS.ByteString)
 resolveIncludeBestEffort packageRoot currentFile req = do

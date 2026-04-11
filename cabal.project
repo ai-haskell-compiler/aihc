@@ -3,5 +3,6 @@ packages:
   components/aihc-parser
   components/aihc-parser-cli
   components/aihc-resolve
+  tooling/aihc-hackage
 
 tests: True

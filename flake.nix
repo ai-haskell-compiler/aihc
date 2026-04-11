@@ -82,6 +82,19 @@
           isDir || isHaskell || isCabal || isYaml || isLicense;
       };
 
+    hackageSrc = pkgs:
+      pkgs.lib.cleanSourceWith {
+        src = ./tooling/aihc-hackage;
+        filter = path: type: let
+          baseName = baseNameOf path;
+          isHaskell = pkgs.lib.hasSuffix ".hs" baseName;
+          isCabal = pkgs.lib.hasSuffix ".cabal" baseName;
+          isLicense = baseName == "LICENSE";
+          isDir = type == "directory";
+        in
+          isDir || isHaskell || isCabal || isLicense;
+      };
+
     # Filtered source for nix linting - only nix files
     nixSrc = pkgs:
       pkgs.lib.cleanSourceWith {
@@ -93,11 +106,11 @@
           type == "directory" || isNix;
       };
 
-    # Filtered source for Haskell linting/formatting - .hs files and .cabal files in components
+    # Filtered source for Haskell linting/formatting - .hs files and .cabal files in components and tooling
     # (.cabal files needed for ormolu to detect language settings like GHC2021)
     haskellSrc = pkgs:
       pkgs.lib.cleanSourceWith {
-        src = ./components;
+        src = ./.;
         filter = path: type: let
           baseName = baseNameOf path;
           isHaskell = pkgs.lib.hasSuffix ".hs" baseName;
@@ -105,8 +118,12 @@
           # Exclude test fixtures from linting
           pathStr = toString path;
           isFixture = pkgs.lib.hasInfix "/test/Test/Fixtures/" pathStr;
+          # Only include files under components/ or tooling/
+          inComponents = pkgs.lib.hasInfix "/components/" pathStr;
+          inTooling = pkgs.lib.hasInfix "/tooling/" pathStr;
+          isRelevant = inComponents || inTooling;
         in
-          type == "directory" || isCabal || (isHaskell && !isFixture);
+          type == "directory" || (isRelevant && (isCabal || (isHaskell && !isFixture)));
       };
 
     # Filtered source for scripts - only shell scripts
@@ -132,7 +149,8 @@
           inComponents =
             pkgs.lib.hasInfix "/components/aihc-parser/" pathStr
             || pkgs.lib.hasInfix "/components/aihc-parser-cli/" pathStr
-            || pkgs.lib.hasInfix "/components/aihc-cpp/" pathStr;
+            || pkgs.lib.hasInfix "/components/aihc-cpp/" pathStr
+            || pkgs.lib.hasInfix "/tooling/aihc-hackage/" pathStr;
           isHaskell = pkgs.lib.hasSuffix ".hs" baseName;
           isCabal = pkgs.lib.hasSuffix ".cabal" baseName;
           isYaml = pkgs.lib.hasSuffix ".yaml" baseName || pkgs.lib.hasSuffix ".yml" baseName;
@@ -153,6 +171,7 @@
       pkgs.haskellPackages.override {
         overrides = final: prev: {
           ghc-lib-parser = pkgs.haskell.lib.dontHaddock final.ghc-lib-parser_9_14_1_20251220;
+          aihc-hackage = pkgs.haskell.lib.dontCheck (pkgs.haskell.lib.dontHaddock (final.callCabal2nix "aihc-hackage" (hackageSrc pkgs) {}));
           # Disable tests by default - tests are run explicitly via the checks
           aihc-parser = pkgs.haskell.lib.dontCheck (
             pkgs.haskell.lib.disableExecutableProfiling (
@@ -176,6 +195,7 @@
       pkgs.haskellPackages.override {
         overrides = final: prev: {
           ghc-lib-parser = pkgs.haskell.lib.dontHaddock final.ghc-lib-parser_9_14_1_20251220;
+          aihc-hackage = pkgs.haskell.lib.dontCheck (pkgs.haskell.lib.dontHaddock (final.callCabal2nix "aihc-hackage" (hackageSrc pkgs) {}));
           # Checks should compile quickly; keep profiling disabled and optimization off.
           aihc-parser = pkgs.haskell.lib.dontCheck (
             pkgs.haskell.lib.disableOptimization (
@@ -206,6 +226,7 @@
       pkgs.haskellPackages.override {
         overrides = final: prev: {
           ghc-lib-parser = pkgs.haskell.lib.dontHaddock final.ghc-lib-parser_9_14_1_20251220;
+          aihc-hackage = pkgs.haskell.lib.dontCheck (pkgs.haskell.lib.dontHaddock (final.callCabal2nix "aihc-hackage" (hackageSrc pkgs) {}));
           aihc-parser =
             pkgs.haskell.lib.overrideCabal
             (pkgs.haskell.lib.disableExecutableProfiling (
@@ -246,6 +267,7 @@
       pkgs.haskellPackages.override {
         overrides = final: prev: {
           ghc-lib-parser = pkgs.haskell.lib.dontHaddock final.ghc-lib-parser_9_14_1_20251220;
+          aihc-hackage = pkgs.haskell.lib.dontCheck (pkgs.haskell.lib.dontHaddock (final.callCabal2nix "aihc-hackage" (hackageSrc pkgs) {}));
           aihc-parser =
             pkgs.haskell.lib.overrideCabal
             (pkgs.haskell.lib.disableOptimization (
@@ -293,6 +315,7 @@
       pkgs.haskellPackages.override {
         overrides = final: prev: {
           ghc-lib-parser = pkgs.haskell.lib.dontHaddock final.ghc-lib-parser_9_14_1_20251220;
+          aihc-hackage = pkgs.haskell.lib.dontCheck (pkgs.haskell.lib.dontHaddock (final.callCabal2nix "aihc-hackage" (hackageSrc pkgs) {}));
           aihc-parser = pkgs.haskell.lib.dontCheck (
             pkgs.haskell.lib.doHaddock (
               pkgs.haskell.lib.disableExecutableProfiling (
@@ -321,6 +344,7 @@
       pkgs.haskellPackages.override {
         overrides = final: prev: {
           ghc-lib-parser = pkgs.haskell.lib.dontHaddock final.ghc-lib-parser_9_14_1_20251220;
+          aihc-hackage = pkgs.haskell.lib.dontCheck (pkgs.haskell.lib.dontHaddock (final.callCabal2nix "aihc-hackage" (hackageSrc pkgs) {}));
           aihc-parser = pkgs.haskell.lib.dontCheck (
             pkgs.haskell.lib.doHaddock (
               pkgs.haskell.lib.disableOptimization (
@@ -428,6 +452,7 @@
       pkgs.haskellPackages.override {
         overrides = final: prev: {
           ghc-lib-parser = pkgs.haskell.lib.dontHaddock final.ghc-lib-parser_9_14_1_20251220;
+          aihc-hackage = pkgs.haskell.lib.dontCheck (pkgs.haskell.lib.dontHaddock (final.callCabal2nix "aihc-hackage" (hackageSrc pkgs) {}));
           # Parser with coverage enabled
           aihc-parser = enableCoverageWithExport (
             pkgs.haskell.lib.disableExecutableProfiling (

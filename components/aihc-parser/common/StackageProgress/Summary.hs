@@ -25,14 +25,9 @@ module StackageProgress.Summary
   )
 where
 
+import Aihc.Hackage.Types (PackageSpec (..), formatPackage)
 import Data.Char (isSpace)
 import Data.List qualified as List
-
-data PackageSpec = PackageSpec
-  { pkgName :: String,
-    pkgVersion :: String
-  }
-  deriving (Eq, Show)
 
 data PackageResult = PackageResult
   { package :: PackageSpec,
@@ -138,9 +133,6 @@ summaryFailedPackages = summaryFailedPackagesAcc
 
 summaryGhcErrors :: RunSummary -> [(String, String)]
 summaryGhcErrors = summaryGhcErrorsAcc
-
-formatPackage :: PackageSpec -> String
-formatPackage spec = pkgName spec ++ "-" ++ pkgVersion spec
 
 packageParserFailed :: PackageResult -> Bool
 packageParserFailed result = not (packageOursOk result) && packageSourceSize result > 0
