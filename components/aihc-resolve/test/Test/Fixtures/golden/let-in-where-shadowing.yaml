@@ -1,0 +1,16 @@
+extensions: []
+modules:
+  - |
+    module Main where
+    fn x = let x = x in x where x = x
+expected:
+  Main:
+    - "2:1-2:3 fn => Main.fn"
+    - "2:4-2:5 x => Local 0 x"
+    - "2:12-2:13 x => Local 1 x"
+    - "2:16-2:17 x => Local 1 x"
+    - "2:21-2:22 x => Local 1 x"
+    - "2:29-2:30 x => Local 2 x"
+    - "2:33-2:34 x => Local 2 x"
+status: pass
+reason: ""
