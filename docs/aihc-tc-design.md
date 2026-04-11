@@ -105,36 +105,39 @@ The TC needs its own type representation that is richer than the surface
 semantic.
 
 ```haskell
--- Semantic types used during type checking
-data TcType
-  = TcTyVar   TyVar              -- rigid (skolem) or flexible (meta)
-  | TcTyCon   TyCon [TcType]     -- saturated or partially applied
-  | TcFunTy   TcType TcType      -- function type
-  | TcForAllTy TyVar TcType      -- universal quantification
-  | TcQualTy  [Pred] TcType      -- qualified type (constraints =>)
-  | TcLitTy   TyLit              -- type-level literals
-  | TcAppTy   TcType TcType      -- unsaturated type application
+-- Semantic types used during type checking.
+-- The 's' parameter threads from STRef through every type that
+-- transitively contains a meta-variable.  It is confined to the
+-- internals of the TC; output types are 's'-free after zonking.
+data TcType s
+  = TcTyVar   (TyVar s)                  -- rigid (skolem) or flexible (meta)
+  | TcTyCon   TyCon [TcType s]           -- saturated or partially applied
+  | TcFunTy   (TcType s) (TcType s)      -- function type
+  | TcForAllTy (TyVar s) (TcType s)      -- universal quantification
+  | TcQualTy  [Pred s] (TcType s)        -- qualified type (constraints =>)
+  | TcLitTy   TyLit                      -- type-level literals
+  | TcAppTy   (TcType s) (TcType s)      -- unsaturated type application
 
-data TyVar = TyVar
+data TyVar s = TyVar
   { tvName    :: !Name
   , tvUnique  :: !Unique
-  , tvKind    :: !TcType
-  , tvFlavor  :: !TyVarFlavor
+  , tvKind    :: !(TcType s)
+  , tvFlavor  :: !(TyVarFlavor s)
   }
 
-data TyVarFlavor
+data TyVarFlavor s
   = SkolemTv          -- rigid, from quantification or GADT match
-  | MetaTv !MetaRef   -- unification variable (mutable cell)
+  | MetaTv !(MetaRef s)  -- unification variable (mutable cell)
   | RuntimeTv         -- bound at runtime (lambda-bound type var)
 
-type MetaRef = IORef (Maybe TcType)
+type MetaRef s = STRef s (Maybe (TcType s))
 
-data TypeScheme = ForAll [TyVar] [Pred] TcType
+data TypeScheme s = ForAll [TyVar s] [Pred s] (TcType s)
 ```
 
 ### 4.1 Conversion from surface types
 
-A function `surfaceToTcType :: Aihc.Parser.Syntax.Type -> TcM TcType`
+A function `surfaceToTcType :: Aihc.Parser.Syntax.Type -> TcM s (TcType s)`
 converts parsed type syntax into the internal representation during kind
 checking. This runs before or as part of constraint generation.
 
@@ -145,43 +148,43 @@ checking. This runs before or as part of constraint generation.
 ### 5.1 Predicates
 
 ```haskell
-data Pred
-  = ClassPred ClassName [TcType]    -- e.g. Eq a
-  | EqPred    TcType TcType         -- e.g. a ~ Bool
-  | IParam    Text TcType           -- implicit parameters (later)
+data Pred s
+  = ClassPred ClassName [TcType s]    -- e.g. Eq a
+  | EqPred    (TcType s) (TcType s)   -- e.g. a ~ Bool
+  | IParam    Text (TcType s)         -- implicit parameters (later)
 ```
 
 ### 5.2 Evidence
 
 ```haskell
-data EvTerm
-  = EvVar      EvVar                -- reference to evidence variable
-  | EvDict     ClassName [TcType] [EvTerm]  -- dictionary construction
-  | EvSuperClass EvTerm Int         -- superclass selection
-  | EvCoercion Coercion             -- coercion as evidence
-  | EvCast     EvTerm Coercion      -- cast evidence
-  | EvLit      EvLiteral            -- known-at-compile-time evidence
+data EvTerm s
+  = EvVar      EvVar                          -- reference to evidence variable
+  | EvDict     ClassName [TcType s] [EvTerm s]  -- dictionary construction
+  | EvSuperClass (EvTerm s) Int               -- superclass selection
+  | EvCoercion (Coercion s)                   -- coercion as evidence
+  | EvCast     (EvTerm s) (Coercion s)        -- cast evidence
+  | EvLit      EvLiteral                      -- known-at-compile-time evidence
 
-data EvBinding = EvBinding
+data EvBinding s = EvBinding
   { evBindVar  :: !EvVar
-  , evBindTerm :: !EvTerm
+  , evBindTerm :: !(EvTerm s)
   }
 ```
 
 ### 5.3 Coercions
 
 ```haskell
-data Coercion
-  = CoVar       CoVar               -- coercion variable
-  | Refl        TcType              -- reflexivity
-  | Sym         Coercion            -- symmetry
-  | Trans       Coercion Coercion   -- transitivity
-  | TyConAppCo  TyCon [Coercion]    -- lift through type constructor
-  | AppCo       Coercion Coercion   -- application
-  | ForAllCo    TyVar Coercion Coercion  -- under forall
-  | AxiomInstCo AxiomName [TcType]  -- type family / newtype axiom
-  | NthCo       Int Coercion        -- projection
-  | SubCo       Coercion            -- nominal -> representational
+data Coercion s
+  = CoVar       CoVar                           -- coercion variable
+  | Refl        (TcType s)                      -- reflexivity
+  | Sym         (Coercion s)                    -- symmetry
+  | Trans       (Coercion s) (Coercion s)       -- transitivity
+  | TyConAppCo  TyCon [Coercion s]              -- lift through type constructor
+  | AppCo       (Coercion s) (Coercion s)       -- application
+  | ForAllCo    (TyVar s) (Coercion s) (Coercion s)  -- under forall
+  | AxiomInstCo AxiomName [TcType s]            -- type family / newtype axiom
+  | NthCo       Int (Coercion s)                -- projection
+  | SubCo       (Coercion s)                    -- nominal -> representational
 ```
 
 ---
@@ -189,10 +192,10 @@ data Coercion
 ## 6. Constraints
 
 ```haskell
-data Ct = Ct
-  { ctPred     :: !Pred
+data Ct s = Ct
+  { ctPred     :: !(Pred s)
   , ctFlavor   :: !CtFlavor
-  , ctEvidence :: !CtEvidence
+  , ctEvidence :: !(CtEvidence s)
   , ctOrigin   :: !CtOrigin
   , ctLoc      :: !SourceSpan
   }
@@ -202,8 +205,8 @@ data CtFlavor
   | Wanted      -- must be solved
   | Derived     -- inferred, no evidence needed
 
-data CtEvidence = CtEvidence
-  { ctevPred :: !Pred
+data CtEvidence s = CtEvidence
+  { ctevPred :: !(Pred s)
   , ctevDest :: !EvDest
   }
 
@@ -211,13 +214,13 @@ data EvDest
   = EvBind EvVar        -- fill this variable with evidence
   | EvHole EvVar        -- evidence hole (to be filled later)
 
-data Implication = Implication
-  { implSkols     :: ![TyVar]       -- skolem type variables
-  , implGivenEvs  :: ![EvVar]       -- evidence variables for givens
-  , implGivenCts  :: ![Ct]          -- given constraints
-  , implWantedCts :: ![Ct]          -- wanted constraints
-  , implTcLevel   :: !TcLevel       -- nesting level
-  , implInfo      :: !ImplOrigin    -- what caused this implication
+data Implication s = Implication
+  { implSkols     :: ![TyVar s]       -- skolem type variables
+  , implGivenEvs  :: ![EvVar]         -- evidence variables for givens
+  , implGivenCts  :: ![Ct s]          -- given constraints
+  , implWantedCts :: ![Ct s]          -- wanted constraints
+  , implTcLevel   :: !TcLevel         -- nesting level
+  , implInfo      :: !ImplOrigin      -- what caused this implication
   }
 ```
 
@@ -231,7 +234,7 @@ data CtOrigin
   | PatternOrigin SourceSpan         -- pattern match
   | CaseBranchOrigin SourceSpan      -- GADT branch
   | SigOrigin SourceSpan             -- type signature check
-  | InstOrigin ClassName [TcType]    -- instance resolution
+  | InstOrigin ClassName             -- instance resolution
   | DerivOrigin                      -- deriving
   | DefaultOrigin                    -- defaulting
 ```
@@ -247,43 +250,43 @@ These are carried on every constraint and used for error reporting.
 Built once per module (or set of modules) from the parsed declarations:
 
 ```haskell
-data GlobalEnv = GlobalEnv
+data GlobalEnv s = GlobalEnv
   { geTyCons       :: !(Map TyConName TyConInfo)
-  , geDataCons     :: !(Map DataConName DataConInfo)
-  , geClasses      :: !(Map ClassName ClassInfo)
-  , geInstances    :: ![InstanceInfo]
-  , geFamAxioms    :: ![FamAxiom]
-  , geTypeSynonyms :: !(Map Name TypeSynInfo)
+  , geDataCons     :: !(Map DataConName (DataConInfo s))
+  , geClasses      :: !(Map ClassName (ClassInfo s))
+  , geInstances    :: ![InstanceInfo s]
+  , geFamAxioms    :: ![FamAxiom s]
+  , geTypeSynonyms :: !(Map Name (TypeSynInfo s))
   }
 ```
 
 `DataConInfo` is particularly important for GADTs:
 
 ```haskell
-data DataConInfo = DataConInfo
+data DataConInfo s = DataConInfo
   { dciName        :: !Name
-  , dciUnivTyVars  :: ![TyVar]     -- universally quantified
-  , dciExTyVars    :: ![TyVar]     -- existentially quantified
-  , dciTheta       :: ![Pred]      -- constructor constraints (given on match)
-  , dciArgTys      :: ![TcType]    -- field types
-  , dciResTy       :: !TcType      -- result type (may mention univs)
-  , dciOrigResTy   :: !TcType      -- original result type from decl
+  , dciUnivTyVars  :: ![TyVar s]     -- universally quantified
+  , dciExTyVars    :: ![TyVar s]     -- existentially quantified
+  , dciTheta       :: ![Pred s]      -- constructor constraints (given on match)
+  , dciArgTys      :: ![TcType s]    -- field types
+  , dciResTy       :: !(TcType s)    -- result type (may mention univs)
+  , dciOrigResTy   :: !(TcType s)    -- original result type from decl
   }
 ```
 
 ### 7.2 Local environment
 
 ```haskell
-data TcEnv = TcEnv
-  { tcEnvTerms     :: !(Map Name TcBinder)
-  , tcEnvTypes     :: !(Map Name TcType)    -- type variables in scope
-  , tcEnvGivenEvs  :: ![EvVar]              -- given evidence in scope
-  , tcEnvTcLevel   :: !TcLevel              -- current implication depth
+data TcEnv s = TcEnv
+  { tcEnvTerms     :: !(Map Name (TcBinder s))
+  , tcEnvTypes     :: !(Map Name (TcType s))  -- type variables in scope
+  , tcEnvGivenEvs  :: ![EvVar]                -- given evidence in scope
+  , tcEnvTcLevel   :: !TcLevel                -- current implication depth
   }
 
-data TcBinder
-  = TcId Name TypeScheme      -- polymorphic binding
-  | TcMonoId Name TcType      -- monomorphic binding (lambda, pattern)
+data TcBinder s
+  = TcId Name (TypeScheme s)      -- polymorphic binding
+  | TcMonoId Name (TcType s)      -- monomorphic binding (lambda, pattern)
 ```
 
 ---
@@ -291,48 +294,50 @@ data TcBinder
 ## 8. The TcM monad
 
 ```haskell
-newtype TcM a = TcM (ReaderT TcEnv (StateT TcState IO) a)
+newtype TcM s a = TcM (ReaderT (TcEnv s) (StateT (TcState s) (ST s)) a)
 
-data TcState = TcState
+data TcState s = TcState
   { tcsUniques    :: !UniqueSupply
-  , tcsEvBinds    :: !EvBindMap         -- evidence bindings accumulated
-  , tcsMetaVars   :: !(Map Unique MetaRef)  -- all created meta vars
-  , tcsDiagnostics :: ![TcDiagnostic]   -- errors and warnings
-  , tcsAnnotations :: ![TcNodeAnnotation] -- collected annotations
+  , tcsEvBinds    :: !(EvBindMap s)         -- evidence bindings accumulated
+  , tcsMetaVars   :: !(Map Unique (MetaRef s))  -- all created meta vars
+  , tcsDiagnostics :: ![TcDiagnostic]       -- errors and warnings
+  , tcsAnnotations :: ![TcNodeAnnotation]   -- collected annotations
   }
 ```
 
-Using `IO` for mutable meta-variable cells (`IORef`) is deliberate: the
-unification-variable approach requires mutability for efficient occurs-check
-and substitution propagation. A pure alternative (explicit substitution
-maps) is possible but significantly more complex.
+Using `ST s` with `STRef s`-backed meta-variable cells gives the solver
+efficient mutable unification variables while keeping the overall entry
+point pure (`runST`). The `s` parameter propagates through all internal
+types that transitively contain a `MetaRef s`, but it is confined to the
+TC internals — output types (`TcAnnotation`, `TcResult`) are `s`-free
+because zonking resolves all meta-variables before results are returned.
 
 ### 8.1 Key monadic operations
 
 ```haskell
 -- Fresh names and variables
-newUnique     :: TcM Unique
-newMetaTv     :: TcType -> TcM TyVar         -- fresh unification variable
-newSkolemTv   :: Name -> TcType -> TcM TyVar  -- fresh rigid variable
-newEvVar      :: Pred -> TcM EvVar
+newUnique     :: TcM s Unique
+newMetaTv     :: TcType s -> TcM s (TyVar s)       -- fresh unification variable
+newSkolemTv   :: Name -> TcType s -> TcM s (TyVar s)  -- fresh rigid variable
+newEvVar      :: Pred s -> TcM s EvVar
 
 -- Environment
-lookupTerm    :: Name -> TcM TcBinder
-extendTermEnv :: Name -> TcBinder -> TcM a -> TcM a
-extendTyEnv   :: Name -> TcType -> TcM a -> TcM a
-getTcLevel    :: TcM TcLevel
-pushTcLevel   :: TcM a -> TcM a
+lookupTerm    :: Name -> TcM s (TcBinder s)
+extendTermEnv :: Name -> TcBinder s -> TcM s a -> TcM s a
+extendTyEnv   :: Name -> TcType s -> TcM s a -> TcM s a
+getTcLevel    :: TcM s TcLevel
+pushTcLevel   :: TcM s a -> TcM s a
 
 -- Evidence
-bindEvidence  :: EvVar -> EvTerm -> TcM ()
-lookupEvidence :: EvVar -> TcM (Maybe EvTerm)
+bindEvidence  :: EvVar -> EvTerm s -> TcM s ()
+lookupEvidence :: EvVar -> TcM s (Maybe (EvTerm s))
 
 -- Annotations
-annotateNode  :: HasSourceSpan n => n -> TcAnnotation -> TcM ()
+annotateNode  :: HasSourceSpan n => n -> TcAnnotation -> TcM s ()
 
 -- Errors
-emitError     :: SourceSpan -> TcErrorKind -> TcM ()
-emitWarning   :: SourceSpan -> TcWarningKind -> TcM ()
+emitError     :: SourceSpan -> TcErrorKind -> TcM s ()
+emitWarning   :: SourceSpan -> TcWarningKind -> TcM s ()
 ```
 
 ---
@@ -341,7 +346,7 @@ emitWarning   :: SourceSpan -> TcWarningKind -> TcM ()
 
 ```
 Aihc/
-  Tc.hs                    -- entry point: typecheck :: GlobalEnv -> Module -> TcResult
+    Tc.hs                    -- entry point: typecheck :: [Module] -> TcResult
   Tc/
     Types.hs               -- TcType, TyVar, Pred, TypeScheme, etc.
     Evidence.hs            -- EvTerm, Coercion, EvBinding
@@ -387,7 +392,8 @@ Aihc/
 ### 10.1 Top-level entry
 
 ```haskell
-typecheck :: GlobalEnv -> Module -> IO TcResult
+-- Pure entry point; ST is internal
+typecheck :: [Module] -> TcResult
 
 data TcResult = TcResult
   { tcResultModule      :: !Module          -- annotated AST
@@ -396,7 +402,11 @@ data TcResult = TcResult
   }
 ```
 
-1. Build `GlobalEnv` from module declarations (data types, classes,
+Internally `typecheck` runs `runST $ do ...`, building the `GlobalEnv s`
+from the surface declarations inside the ST computation. The `s` parameter
+never appears in the public API.
+
+1. Build `GlobalEnv s` from module declarations (data types, classes,
    instances, type families).
 2. Kind-check all type declarations.
 3. Type-check each top-level binding group (respecting dependency order):
@@ -411,8 +421,8 @@ data TcResult = TcResult
 ### 10.2 Constraint generation (bidirectional)
 
 ```haskell
-inferExpr :: Expr -> TcM (Expr, TcType, [Ct])
-checkExpr :: Expr -> TcType -> TcM (Expr, [Ct])
+inferExpr :: Expr -> TcM s (Expr, TcType s, [Ct s])
+checkExpr :: Expr -> TcType s -> TcM s (Expr, [Ct s])
 ```
 
 The generator walks the AST and returns:
@@ -734,11 +744,13 @@ Every wanted constraint gets an evidence variable. The solver fills it.
 Annotations record the binding. This is essential for the desugarer to
 produce dictionary-passing and coercion-carrying core.
 
-### 14.3 Mutable meta-variables
+### 14.3 Mutable meta-variables via ST
 
-Using `IORef`-backed meta-variables is the standard approach for efficient
-unification in an OutsideIn(X) implementation. The solver mutates cells
-in-place rather than threading substitution maps.
+Using `STRef`-backed meta-variables gives the solver efficient in-place
+mutation for unification while keeping the public API pure (`runST`). The
+`s` parameter propagates through all internal types (`TcType s`, `Pred s`,
+`Ct s`, `TcEnv s`, etc.) but is confined to the TC internals — output
+types are `s`-free after zonking.
 
 ### 14.4 Separate constraint generation and solving
 
