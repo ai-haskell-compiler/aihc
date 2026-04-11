@@ -252,7 +252,7 @@ renderConciseOrigin :: ResolvedName -> String
 renderConciseOrigin resolvedName =
   case resolvedName of
     ResolvedTopLevel name -> T.unpack (fromMaybe (renderName name) (nameQualifier name))
-    ResolvedLocal {} -> "local"
+    ResolvedLocal uniqueId _ -> show uniqueId
     ResolvedError msg -> "Error " <> msg
 
 -- | Render annotation lines for a group of annotations on the same source line.

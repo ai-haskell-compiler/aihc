@@ -16,12 +16,8 @@ annotated:
   - |
     module Main where
     fn x = let x = x in x where x = x
-    │  │       │   │    │       │   └─ v local
-    │  │       │   │    │       └─ v local
-    │  │       │   │    └─ v local
-    │  │       │   └─ v local
-    │  │       └─ v local
-    │  └─ v local
-    └─ v Main
+    │  └─ v 0  │   │    └─ v 1  │   └─ v 2
+    └─ v Main  │   └─ v 1       └─ v 2
+               └─ v 1
 status: pass
 reason: ""
