@@ -139,6 +139,7 @@ typeInfixOperatorParser =
     unpromotedInfixOperatorParser =
       tokenSatisfy "type infix operator" $ \tok ->
         case lexTokenKind tok of
+          TkReservedColon -> Just (qualifyName Nothing (mkUnqualifiedName NameConSym ":"), Unpromoted)
           TkVarSym op
             | op /= "."
                 && op /= "!"
@@ -147,9 +148,6 @@ typeInfixOperatorParser =
           TkConSym op -> Just (qualifyName Nothing (mkUnqualifiedName NameConSym op), Unpromoted)
           TkQVarSym modName op -> Just (mkName (Just modName) NameVarSym op, Unpromoted)
           TkQConSym modName op -> Just (mkName (Just modName) NameConSym op, Unpromoted)
-          -- Allow unpromoted colon as type-level cons operator (e.g., `a : as`)
-          -- GHC automatically promotes it in DataKinds contexts
-          TkReservedColon -> Just (qualifyName Nothing (mkUnqualifiedName NameConSym ":"), Unpromoted)
           _ -> Nothing
 
     backtickTypeOperatorParser = MP.try $ do
