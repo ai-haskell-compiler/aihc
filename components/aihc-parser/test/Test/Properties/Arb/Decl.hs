@@ -401,8 +401,8 @@ genSimpleType =
     [ TVar span0 . mkUnqualifiedName NameVarId <$> genIdent,
       (\n -> TCon span0 (qualifyName Nothing (mkUnqualifiedName NameConId n)) Unpromoted) <$> genTypeConName,
       ( TFun span0 . TVar span0 . mkUnqualifiedName NameVarId
-         <$> genIdent
-     )
+          <$> genIdent
+      )
         <*> (TVar span0 . mkUnqualifiedName NameVarId <$> genIdent)
     ]
 
