@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail reason="promoted cons operator colon in GADT type not parsed as type-level list cons" -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE NoListTuplePuns #-}
 {-# LANGUAGE TypeFamilies #-}

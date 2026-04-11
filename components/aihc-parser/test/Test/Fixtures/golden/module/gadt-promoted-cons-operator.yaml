@@ -2,5 +2,6 @@ extensions: [GHC2021, TypeOperators, GADTSyntax]
 input: |
   data Union f as where
     This :: !(f a) -> Union f (a : as)
-status: xfail
-reason: Promoted type-level cons operator (:) in GADT constructor return type. Parser fails to handle promoted type operator in type application position within GADT syntax.
+ast: |
+  Module {decls = [DeclData (DataDecl {name = "Union", params = [TyVarBinder {name = "f"}, TyVarBinder {name = "as"}], constructors = [GadtCon {names = ["This"], body = GadtPrefixBody {args = [BangType {strict = True, type = TParen (TApp (TVar "f") (TVar "a"))}], result = TApp (TApp (TCon "Union") (TVar "f")) (TParen (TApp (TApp (TCon ":") (TVar "a")) (TVar "as")))}}]})]}
+status: pass
