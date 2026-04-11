@@ -1577,17 +1577,52 @@ parenOrTuplePatternParser = withSpan $ do
     -- to patternParser directly. When exprParser fails (e.g., nested parens
     -- containing pattern-only syntax like as-patterns or view patterns),
     -- we fall back to patternParser.
+    --
+    -- Operator tokens (TkVarSym, TkConSym, etc.) are handled directly here
+    -- because they are valid patterns (binding the operator as a variable or
+    -- constructor) but may not parse as expressions on their own.
     parenPatElementParser :: TokParser Pattern
     parenPatElementParser = do
       tok <- lookAhead anySingle
       case lexTokenKind tok of
         TkPrefixBang -> patternParser
         TkPrefixTilde -> patternParser
+        -- Operator tokens can be valid patterns when they appear alone in parentheses.
+        -- Examples: (+) in "f (+) = ...", (??) in "foldl' (??) z xs = ..."
+        -- We detect this by checking if an operator is followed by a closing delimiter.
+        TkVarSym {} -> operatorOrExprPatternParser
+        TkConSym {} -> operatorOrExprPatternParser
         _ -> do
           isAs <- startsWithAsPattern
           if isAs
             then patternParser
             else exprThenReclassify
+      where
+        -- Try to parse an operator as a pattern if it's alone (followed by closing delim),
+        -- otherwise fall back to parsing as an expression.
+        operatorOrExprPatternParser :: TokParser Pattern
+        operatorOrExprPatternParser = do
+          -- Look ahead to check what comes after the operator
+          mNext <- MP.optional . lookAhead . MP.try $ do
+            _ <- anySingle -- skip the operator token itself
+            lookAhead anySingle
+          case fmap lexTokenKind mNext of
+            -- If followed by closing delimiters, parse as operator pattern
+            Just TkSpecialRParen -> operatorPatternParser
+            Just TkSpecialUnboxedRParen -> operatorPatternParser
+            Just TkSpecialComma -> operatorPatternParser
+            Just TkReservedPipe -> operatorPatternParser
+            -- Otherwise, try parsing as expression (for cases like (x + y))
+            _ -> exprThenReclassify
+
+        -- Parse an operator token as a variable or constructor pattern.
+        operatorPatternParser :: TokParser Pattern
+        operatorPatternParser = withSpan $ do
+          tok' <- anySingle
+          case lexTokenKind tok' of
+            TkVarSym op -> pure (\span' -> PVar span' (mkUnqualifiedName NameVarSym op))
+            TkConSym op -> pure (\span' -> PCon span' (qualifyName Nothing (mkUnqualifiedName NameConSym op)) [])
+            _ -> fail "expected operator token"
 
     -- Try to parse as expression, then reclassify via checkPattern.
     -- When exprParser fails, does not consume the full element (e.g.,

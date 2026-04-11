@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail reason="Operator section in pattern position not handled" -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE Haskell2010 #-}
 
 module OperatorSectionInPattern where
