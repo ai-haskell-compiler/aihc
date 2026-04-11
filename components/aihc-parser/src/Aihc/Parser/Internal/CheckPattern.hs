@@ -20,6 +20,7 @@ module Aihc.Parser.Internal.CheckPattern
   )
 where
 
+import Aihc.Parser.Internal.Common (isConLikeName)
 import Aihc.Parser.Syntax
 import Data.Maybe (isJust)
 import Data.Text (Text)
@@ -132,20 +133,8 @@ checkNegLitPattern sp inner = case inner of
   EFloatHash _ x repr -> Right (PNegLit sp (LitFloatHash sp x repr))
   _ -> Left "negation in pattern requires a numeric literal"
 
--- | Check whether a name looks like a constructor (starts with uppercase).
-isConLikeName :: Name -> Bool
-isConLikeName name =
-  case nameType name of
-    NameConId -> True
-    NameConSym -> True
-    _ -> False
-
 -- | Check whether an operator is a constructor operator (starts with ':').
 -- Constructor operators and backtick-quoted constructors are valid in patterns;
 -- variable operators like @+@ or @*@ are not.
 isConLikeOp :: Name -> Bool
-isConLikeOp op =
-  case nameType op of
-    NameConId -> True
-    NameConSym -> True
-    _ -> False
+isConLikeOp = isConLikeName

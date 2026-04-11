@@ -4,31 +4,24 @@
 
 module Aihc.Parser.Internal.Decl
   ( declParser,
-    importDeclParser,
-    moduleHeaderParser,
-    languagePragmaParser,
     pragmaDeclParser,
   )
 where
 
 import Aihc.Parser.Internal.Common
-import {-# SOURCE #-} Aihc.Parser.Internal.Expr (equationRhsParser, exprParser, patternParser, simplePatternParser, startsWithContextType, startsWithTypeSig, typeAppParser, typeAtomParser, typeInfixOperatorParser, typeParser)
-import Aihc.Parser.Lex (LexTokenKind (..), lexTokenKind, pattern TkVarAs, pattern TkVarFamily, pattern TkVarHiding, pattern TkVarPattern, pattern TkVarQualified, pattern TkVarRole, pattern TkVarSafe)
+import {-# SOURCE #-} Aihc.Parser.Internal.Expr (equationRhsParser, exprParser)
+import Aihc.Parser.Internal.Import (warningTextParser)
+import Aihc.Parser.Internal.Pattern (patternParser, simplePatternParser)
+import Aihc.Parser.Internal.Type (typeAppParser, typeAtomParser, typeInfixOperatorParser, typeParser)
+import Aihc.Parser.Lex (LexTokenKind (..), lexTokenKind, pattern TkVarFamily, pattern TkVarPattern, pattern TkVarRole)
 import Aihc.Parser.Syntax
-import Aihc.Parser.Types (ParserErrorComponent (..), mkFoundToken)
 import Control.Monad (when)
-import Data.Char (isLower, isUpper)
-import Data.Maybe (fromMaybe, isJust)
+import Data.Char (isLower)
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Text.Megaparsec (anySingle, lookAhead, (<|>))
 import Text.Megaparsec qualified as MP
-
-languagePragmaParser :: TokParser [ExtensionSetting]
-languagePragmaParser =
-  hiddenPragma "LANGUAGE pragma" $ \case
-    PragmaLanguage names -> Just names
-    _ -> Nothing
 
 instanceOverlapPragmaParser :: TokParser InstanceOverlapPragma
 instanceOverlapPragmaParser =
@@ -38,181 +31,6 @@ instanceOverlapPragmaParser =
 
 anyPragmaParser :: String -> TokParser Pragma
 anyPragmaParser expectedLabel = hiddenPragma expectedLabel Just
-
-moduleHeaderParser :: TokParser ModuleHead
-moduleHeaderParser = withSpan $ do
-  expectedTok TkKeywordModule
-  name <- moduleNameParser
-  mWarning <- MP.optional warningTextParser
-  exports <- MP.optional exportSpecListParser
-  expectedTok TkKeywordWhere
-  pure $ \span' ->
-    ModuleHead
-      { moduleHeadSpan = span',
-        moduleHeadName = name,
-        moduleHeadWarningText = mWarning,
-        moduleHeadExports = exports
-      }
-
-warningTextParser :: TokParser WarningText
-warningTextParser =
-  withSpan $
-    hiddenPragma "warning pragma" $ \case
-      PragmaWarning msg -> Just (`WarnText` msg)
-      PragmaDeprecated msg -> Just (`DeprText` msg)
-      _ -> Nothing
-
-exportSpecListParser :: TokParser [ExportSpec]
-exportSpecListParser = parens $ exportSpecParser `MP.sepEndBy` expectedTok TkSpecialComma
-
-exportSpecParser :: TokParser ExportSpec
-exportSpecParser = withSpan $ do
-  mWarning <- MP.optional warningTextParser
-  exportModuleParser mWarning <|> exportNameParser mWarning
-
-exportModuleParser :: Maybe WarningText -> TokParser (SourceSpan -> ExportSpec)
-exportModuleParser mWarning = do
-  expectedTok TkKeywordModule
-  modName <- moduleNameParser
-  pure $ \span' -> ExportModule span' mWarning modName
-
-exportNameParser :: Maybe WarningText -> TokParser (SourceSpan -> ExportSpec)
-exportNameParser mWarning = do
-  namespace <- MP.optional exportImportNamespaceParser
-  name <- identifierNameParser <|> parens operatorNameParser
-  members <- MP.optional exportMembersParser
-  pure $ \span' ->
-    case members of
-      Just Nothing -> ExportAll span' mWarning namespace name
-      Just (Just names) -> ExportWith span' mWarning namespace name names
-      Nothing
-        | namespace == Just IEEntityNamespaceType || isTypeName name ->
-            ExportAbs span' mWarning namespace name
-        | otherwise ->
-            ExportVar span' mWarning namespace name
-
-exportMembersParser :: TokParser (Maybe [IEBundledMember])
-exportMembersParser =
-  parens $
-    (expectedTok TkReservedDotDot >> pure Nothing)
-      <|> (Just <$> (memberNameParser `MP.sepEndBy` expectedTok TkSpecialComma))
-  where
-    memberNameParser = do
-      namespace <- MP.optional bundledNamespaceParser
-      name <- identifierNameParser <|> parens operatorNameParser
-      pure (IEBundledMember namespace name)
-
--- | Checks if a name refers to a type/class (as opposed to a variable/function).
--- In Haskell:
--- - Identifiers starting with uppercase letters are type constructors/classes
--- - Symbolic operators starting with ':' are constructor operators (type-level)
-isTypeName :: Name -> Bool
-isTypeName name =
-  case T.uncons (nameText name) of
-    Just (c, _) -> isUpper c || c == ':'
-    Nothing -> False
-
-importDeclParser :: TokParser ImportDecl
-importDeclParser = withSpan $ do
-  expectedTok TkKeywordImport
-  importedSafe <-
-    MP.option False (expectedTok TkVarSafe >> pure True)
-  preQualified <-
-    MP.option False (expectedTok TkVarQualified >> pure True)
-  importedLevel <- MP.optional importLevelParser
-  importedPackage <- MP.optional packageNameParser
-  let isSourcePragma :: Pragma -> Maybe Bool
-      isSourcePragma = \case
-        PragmaSource {} -> Just True
-        _ -> Nothing
-  importedSource <-
-    fromMaybe False <$> optionalHiddenPragma isSourcePragma
-  importedModule <- moduleNameParser
-  postQualified <-
-    MP.optional $
-      tokenSatisfy "'qualified'" $ \tok ->
-        if lexTokenKind tok == TkVarQualified then Just (mkFoundToken tok) else Nothing
-  when (preQualified && isJust postQualified) $
-    MP.customFailure
-      UnexpectedTokenExpecting
-        { unexpectedFound = postQualified,
-          unexpectedExpecting = "import declaration without duplicate 'qualified'",
-          unexpectedContext = []
-        }
-  importAlias <- MP.optional (expectedTok TkVarAs *> moduleNameParser)
-  importSpec <- MP.optional importSpecParser
-  let isQualified = preQualified || isJust postQualified
-  pure $ \span' ->
-    ImportDecl
-      { importDeclSpan = span',
-        importDeclLevel = importedLevel,
-        importDeclPackage = importedPackage,
-        importDeclSource = importedSource,
-        importDeclSafe = importedSafe,
-        importDeclQualified = isQualified,
-        importDeclQualifiedPost = isJust postQualified,
-        importDeclModule = importedModule,
-        importDeclAs = importAlias,
-        importDeclSpec = importSpec
-      }
-
-importLevelParser :: TokParser ImportLevel
-importLevelParser =
-  (varIdTok "quote" >> pure ImportLevelQuote)
-    <|> (varIdTok "splice" >> pure ImportLevelSplice)
-
-packageNameParser :: TokParser Text
-packageNameParser = stringTextParser
-
-importSpecParser :: TokParser ImportSpec
-importSpecParser = withSpan $ do
-  isHiding <-
-    MP.option False (expectedTok TkVarHiding >> pure True)
-  items <- parens $ importItemParser `MP.sepEndBy` expectedTok TkSpecialComma
-  pure $ \span' ->
-    ImportSpec
-      { importSpecSpan = span',
-        importSpecHiding = isHiding,
-        importSpecItems = items
-      }
-
-importItemParser :: TokParser ImportItem
-importItemParser = withSpan $ do
-  namespace <- MP.optional exportImportNamespaceParser
-  itemName <- identifierUnqualifiedNameParser <|> parens importOperatorParser
-  -- When there's no explicit namespace, we still need to try parsing members
-  -- for type constructors and type classes (uppercase names or parenthesized operators)
-  let shouldTryMembers = case namespace of
-        Just _ -> True
-        Nothing -> isTypeName (qualifyName Nothing itemName)
-  members <- if shouldTryMembers then MP.optional exportMembersParser else pure Nothing
-  let effectiveNamespace = namespace
-  pure $ \span' ->
-    case members of
-      Just Nothing -> ImportItemAll span' effectiveNamespace itemName
-      Just (Just names) -> ImportItemWith span' effectiveNamespace itemName names
-      Nothing
-        | effectiveNamespace == Just IEEntityNamespaceType || isTypeName (qualifyName Nothing itemName) -> ImportItemAbs span' effectiveNamespace itemName
-        | otherwise -> ImportItemVar span' effectiveNamespace itemName
-
-importOperatorParser :: TokParser UnqualifiedName
-importOperatorParser = operatorUnqualifiedNameParser
-
-exportImportNamespaceParser :: TokParser IEEntityNamespace
-exportImportNamespaceParser =
-  (expectedTok TkKeywordType >> pure IEEntityNamespaceType)
-    <|> (expectedTok TkKeywordData >> pure IEEntityNamespaceData)
-    <|> patternNamespaceParser
-  where
-    patternNamespaceParser = do
-      patSynEnabled <- isExtensionEnabled PatternSynonyms
-      if patSynEnabled
-        then expectedTok TkVarPattern >> pure IEEntityNamespacePattern
-        else MP.empty
-
-bundledNamespaceParser :: TokParser IEBundledNamespace
-bundledNamespaceParser =
-  expectedTok TkKeywordData >> pure IEBundledNamespaceData
 
 declParser :: TokParser Decl
 declParser = do

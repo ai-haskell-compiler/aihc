@@ -26,10 +26,14 @@ library
     , Aihc.Parser.Lex.Trivia
     , Aihc.Parser.Lex.Types
     , Aihc.Parser.Internal.CheckPattern
+    , Aihc.Parser.Internal.Cmd
     , Aihc.Parser.Internal.Common
     , Aihc.Parser.Internal.Expr
     , Aihc.Parser.Internal.Decl
+    , Aihc.Parser.Internal.Import
     , Aihc.Parser.Internal.Module
+    , Aihc.Parser.Internal.Pattern
+    , Aihc.Parser.Internal.Type
     , Aihc.Parser.Internal.FromTokens
   hs-source-dirs:   src
   build-depends:
@@ -66,10 +70,14 @@ test-suite spec
     , Aihc.Parser.Lex.Trivia
     , Aihc.Parser.Lex.Types
     , Aihc.Parser.Internal.CheckPattern
+    , Aihc.Parser.Internal.Cmd
     , Aihc.Parser.Internal.Common
     , Aihc.Parser.Internal.Expr
     , Aihc.Parser.Internal.Decl
+    , Aihc.Parser.Internal.Import
     , Aihc.Parser.Internal.Module
+    , Aihc.Parser.Internal.Pattern
+    , Aihc.Parser.Internal.Type
     , Aihc.Parser.Internal.FromTokens
     , CppSupport
     , ExtensionSupport
@@ -176,10 +184,14 @@ executable parser-quickcheck-batch
     , Aihc.Parser.Lex.Trivia
     , Aihc.Parser.Lex.Types
     , Aihc.Parser.Internal.CheckPattern
+    , Aihc.Parser.Internal.Cmd
     , Aihc.Parser.Internal.Common
     , Aihc.Parser.Internal.Expr
     , Aihc.Parser.Internal.Decl
+    , Aihc.Parser.Internal.Import
     , Aihc.Parser.Internal.Module
+    , Aihc.Parser.Internal.Pattern
+    , Aihc.Parser.Internal.Type
     , Aihc.Parser.Internal.FromTokens
     , CppSupport
     , ParserQuickCheck.CLI
