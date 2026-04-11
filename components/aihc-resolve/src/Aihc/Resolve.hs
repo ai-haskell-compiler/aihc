@@ -1,4 +1,5 @@
 {-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms #-}
 
 module Aihc.Resolve
@@ -16,8 +17,13 @@ module Aihc.Resolve
 where
 
 import Aihc.Parser.Syntax
-  ( Decl (..),
+  ( BangType (..),
+    DataConDecl (..),
+    DataDecl (..),
+    Decl (..),
     Expr (..),
+    FieldDecl (..),
+    GadtBody (..),
     GuardQualifier (..),
     GuardedRhs (..),
     ImportDecl (..),
@@ -27,9 +33,11 @@ import Aihc.Parser.Syntax
     Module (..),
     Name (..),
     NameType (..),
+    NewtypeDecl (..),
     Pattern (..),
     Rhs (..),
     SourceSpan (..),
+    Type (..),
     UnqualifiedName,
     ValueDecl (..),
     mkAnnotation,
@@ -52,22 +60,33 @@ type ModuleExports = Map.Map Text Scope
 resolve :: [Module] -> ResolveResult
 resolve modules =
   ResolveResult
-    { resolvedModules = snd (mapAccumL (resolveModule exports) 0 modules),
+    { resolvedModules = modules',
+      resolvedAnnotations = extraAnnotations,
       resolveErrors = []
     }
   where
+    step currentNextLocal modu =
+      let (nextLocal', annotations, modu') = resolveModule exports currentNextLocal modu
+       in (nextLocal', (annotations, modu'))
+    (_, resolved) = mapAccumL step 0 modules
+    modules' = map snd resolved
+    extraAnnotations = map (\(annotations, modu) -> (moduleKey modu, annotations)) resolved
     exports = collectModuleExports modules
 
-resolveModule :: ModuleExports -> Int -> Module -> (Int, Module)
+resolveModule :: ModuleExports -> Int -> Module -> (Int, [ResolutionAnnotation], Module)
 resolveModule exports nextLocal modu =
   let scope = moduleScope exports modu
-      (nextLocal', decls') = mapAccumL (resolveTopLevelDecl scope) nextLocal (moduleDecls modu)
-   in (nextLocal', modu {moduleDecls = decls'})
+      (nextLocal', resolvedDecls) = mapAccumL (resolveTopLevelDecl scope) nextLocal (moduleDecls modu)
+      decls' = map snd resolvedDecls
+      annotations = concatMap fst resolvedDecls
+   in (nextLocal', annotations, modu {moduleDecls = decls'})
 
-resolveTopLevelDecl :: Scope -> Int -> Decl -> (Int, Decl)
+resolveTopLevelDecl :: Scope -> Int -> Decl -> (Int, ([ResolutionAnnotation], Decl))
 resolveTopLevelDecl scope nextLocal decl =
   let (nextLocal', decl') = resolveDecl scope nextLocal decl
-   in (nextLocal', maybe decl' (`annotateDecl` decl') (topLevelBinderAnnotation decl scope))
+      extras = topLevelDeclAnnotations decl scope
+      decl'' = maybe decl' (`annotateDecl` decl') (topLevelBinderAnnotation decl scope)
+   in (nextLocal', (extras, decl''))
 
 resolveDecl :: Scope -> Int -> Decl -> (Int, Decl)
 resolveDecl scope nextLocal decl =
@@ -81,9 +100,26 @@ resolveDecl scope nextLocal decl =
         PatternBind bindSpan pat rhs ->
           let (nextLocal', rhs') = resolveRhs scope nextLocal rhs
            in (nextLocal', DeclValue span' (PatternBind bindSpan pat rhs'))
+    DeclTypeSig span' names ty ->
+      let ty' = resolveType scope ty
+       in (nextLocal, DeclTypeSig span' names ty')
+    DeclTypeData span' dataDecl ->
+      (nextLocal, DeclTypeData span' (resolveDataDecl scope dataDecl))
+    DeclData span' dataDecl ->
+      (nextLocal, DeclData span' (resolveDataDecl scope dataDecl))
     DeclSplice span' expr ->
       let (nextLocal', expr') = resolveExpr scope nextLocal expr
        in (nextLocal', DeclSplice span' expr')
+    DeclNewtype span' newtypeDecl ->
+      ( nextLocal,
+        DeclNewtype
+          span'
+          ( newtypeDecl
+              { newtypeDeclKind = fmap (resolveType scope) (newtypeDeclKind newtypeDecl),
+                newtypeDeclConstructor = fmap (resolveDataConDecl scope) (newtypeDeclConstructor newtypeDecl)
+              }
+          )
+      )
     _ -> (nextLocal, decl)
 
 resolveMatch :: Scope -> Int -> Match -> (Int, Match)
@@ -170,7 +206,7 @@ resolveExpr scope nextLocal expr =
        in (nextLocal''', ELetDecls span' decls' body')
     ETypeSig span' inner ty ->
       let (nextLocal', inner') = resolveExpr scope nextLocal inner
-       in (nextLocal', ETypeSig span' inner' ty)
+       in (nextLocal', ETypeSig span' inner' (resolveType scope ty))
     EParen span' inner ->
       let (nextLocal', inner') = resolveExpr scope nextLocal inner
        in (nextLocal', EParen span' inner')
@@ -255,8 +291,74 @@ bindPattern nextLocal pat =
        in (nextLocal', Map.fromList entries, PRecord span' name (reverse fields') wildcard)
     PTypeSig span' inner ty ->
       let (nextLocal', scope, inner') = bindPattern nextLocal inner
-       in (nextLocal', scope, PTypeSig span' inner' ty)
+       in (nextLocal', scope, PTypeSig span' inner' (resolveType scope ty))
     _ -> (nextLocal, Map.empty, pat)
+
+resolveDataDecl :: Scope -> DataDecl -> DataDecl
+resolveDataDecl scope dataDecl =
+  dataDecl
+    { dataDeclContext = map (resolveType scope) (dataDeclContext dataDecl),
+      dataDeclKind = fmap (resolveType scope) (dataDeclKind dataDecl),
+      dataDeclConstructors = map (resolveDataConDecl scope) (dataDeclConstructors dataDecl)
+    }
+
+resolveDataConDecl :: Scope -> DataConDecl -> DataConDecl
+resolveDataConDecl scope dataConDecl =
+  case dataConDecl of
+    PrefixCon span' forallVars context name bangTypes ->
+      PrefixCon span' forallVars (map (resolveType scope) context) name (map resolveBangType bangTypes)
+    InfixCon span' forallVars context lhs name rhs ->
+      InfixCon span' forallVars (map (resolveType scope) context) (resolveBangType lhs) name (resolveBangType rhs)
+    RecordCon span' forallVars context name fields ->
+      RecordCon span' forallVars (map (resolveType scope) context) name (map resolveFieldDecl fields)
+    GadtCon span' forallVars context names body ->
+      GadtCon span' forallVars (map (resolveType scope) context) names (resolveGadtBody scope body)
+  where
+    resolveBangType bt = bt {bangType = resolveType scope (bangType bt)}
+    resolveFieldDecl fieldDecl = fieldDecl {fieldType = resolveBangType (fieldType fieldDecl)}
+
+resolveGadtBody :: Scope -> GadtBody -> GadtBody
+resolveGadtBody scope body =
+  case body of
+    GadtPrefixBody bangTypes ty ->
+      GadtPrefixBody (map resolveBangType bangTypes) (resolveType scope ty)
+    GadtRecordBody fields ty ->
+      GadtRecordBody (map resolveFieldDecl fields) (resolveType scope ty)
+  where
+    resolveBangType bt = bt {bangType = resolveType scope (bangType bt)}
+    resolveFieldDecl fieldDecl = fieldDecl {fieldType = resolveBangType (fieldType fieldDecl)}
+
+resolveType :: Scope -> Type -> Type
+resolveType scope ty =
+  case ty of
+    TAnn _ inner -> resolveType scope inner
+    TCon span' name promoted ->
+      annotateType
+        (ResolutionAnnotation span' (nameText name) (resolveName scope name))
+        (TCon span' name promoted)
+    TImplicitParam span' name inner ->
+      TImplicitParam span' name (resolveType scope inner)
+    TForall span' binders inner ->
+      TForall span' binders (resolveType scope inner)
+    TApp span' left right ->
+      TApp span' (resolveType scope left) (resolveType scope right)
+    TFun span' left right ->
+      TFun span' (resolveType scope left) (resolveType scope right)
+    TTuple span' flavor promoted items ->
+      TTuple span' flavor promoted (map (resolveType scope) items)
+    TUnboxedSum span' items ->
+      TUnboxedSum span' (map (resolveType scope) items)
+    TList span' promoted items ->
+      TList span' promoted (map (resolveType scope) items)
+    TParen span' inner ->
+      TParen span' (resolveType scope inner)
+    TKindSig span' inner kind ->
+      TKindSig span' (resolveType scope inner) (resolveType scope kind)
+    TContext span' constraints inner ->
+      TContext span' (map (resolveType scope) constraints) (resolveType scope inner)
+    TSplice span' expr ->
+      TSplice span' (snd (resolveExpr scope 0 expr))
+    _ -> ty
 
 allocateLocalDeclBinders :: Int -> [Decl] -> (Int, Map.Map Text ResolutionAnnotation, Scope)
 allocateLocalDeclBinders nextLocal =
@@ -298,7 +400,59 @@ declBinderCandidate decl =
           case pat of
             PVar span' name -> Just (span', name)
             _ -> Nothing
+    DeclTypeSig span' [name] _ -> Just (spanStartNameSpan span' (renderUnqualifiedName name), name)
     _ -> Nothing
+
+topLevelDeclAnnotations :: Decl -> Scope -> [ResolutionAnnotation]
+topLevelDeclAnnotations decl scope =
+  case decl of
+    DeclTypeData _ dataDecl -> dataDeclAnnotations "type data " dataDecl
+    DeclData _ dataDecl -> dataDeclAnnotations "data " dataDecl
+    DeclNewtype _ newtypeDecl ->
+      let typeAnnotation =
+            ResolutionAnnotation
+              (declKeywordNameSpan "newtype " (newtypeDeclSpan newtypeDecl) (renderUnqualifiedName (newtypeDeclName newtypeDecl)))
+              (renderUnqualifiedName (newtypeDeclName newtypeDecl))
+              (resolveTopLevel scope (newtypeDeclName newtypeDecl))
+          constructorAnnotations =
+            maybe [] (\ctor -> [dataConAnnotation scope ctor]) (newtypeDeclConstructor newtypeDecl)
+       in typeAnnotation : constructorAnnotations
+    _ -> []
+  where
+    dataDeclAnnotations keyword dataDecl =
+      let typeAnnotation =
+            ResolutionAnnotation
+              (declKeywordNameSpan keyword (dataDeclSpan dataDecl) (renderUnqualifiedName (dataDeclName dataDecl)))
+              (renderUnqualifiedName (dataDeclName dataDecl))
+              (resolveTopLevel scope (dataDeclName dataDecl))
+       in typeAnnotation : map (dataConAnnotation scope) (dataDeclConstructors dataDecl)
+
+resolveTopLevel :: Scope -> UnqualifiedName -> ResolvedName
+resolveTopLevel scope name =
+  fromMaybe
+    (ResolvedError ("missing top-level binding for " <> T.unpack (renderUnqualifiedName name)))
+    (Map.lookup (renderUnqualifiedName name) scope)
+
+dataConAnnotation :: Scope -> DataConDecl -> ResolutionAnnotation
+dataConAnnotation scope dataConDecl =
+  case dataConDecl of
+    PrefixCon span' _ _ name _ ->
+      topLevelNameAnnotation scope span' name
+    RecordCon span' _ _ name _ ->
+      topLevelNameAnnotation scope span' name
+    InfixCon span' _ _ _ name _ ->
+      topLevelNameAnnotation scope span' name
+    GadtCon span' _ _ names _ ->
+      case names of
+        name : _ -> topLevelNameAnnotation scope span' name
+        [] -> ResolutionAnnotation NoSourceSpan "" (ResolvedError "missing GADT constructor name")
+
+topLevelNameAnnotation :: Scope -> SourceSpan -> UnqualifiedName -> ResolutionAnnotation
+topLevelNameAnnotation scope span' name =
+  ResolutionAnnotation
+    (spanStartNameSpan span' (renderUnqualifiedName name))
+    (renderUnqualifiedName name)
+    (resolveTopLevel scope name)
 
 collectModuleExports :: [Module] -> ModuleExports
 collectModuleExports modules =
@@ -312,10 +466,38 @@ topLevelScope modu =
   Map.fromList
     [ (key, ResolvedTopLevel (mkQualifiedName name (Just moduleKeyText)))
     | decl <- moduleDecls modu,
-      Just (_, name) <- [declBinderCandidate decl],
+      name <- declExportedNames decl,
       let key = renderUnqualifiedName name,
       let moduleKeyText = moduleKey modu
     ]
+
+declExportedNames :: Decl -> [UnqualifiedName]
+declExportedNames decl =
+  case decl of
+    DeclValue _ valueDecl ->
+      case valueDecl of
+        FunctionBind _ name _ -> [name]
+        PatternBind _ pat _ ->
+          case pat of
+            PVar _ name -> [name]
+            _ -> []
+    DeclTypeSig _ names _ -> names
+    DeclTypeData _ dataDecl -> dataDeclName dataDecl : dataDeclConstructorNames (dataDeclConstructors dataDecl)
+    DeclData _ dataDecl -> dataDeclName dataDecl : dataDeclConstructorNames (dataDeclConstructors dataDecl)
+    DeclNewtype _ newtypeDecl ->
+      newtypeDeclName newtypeDecl : maybe [] dataConDeclNames (newtypeDeclConstructor newtypeDecl)
+    _ -> []
+
+dataDeclConstructorNames :: [DataConDecl] -> [UnqualifiedName]
+dataDeclConstructorNames = concatMap dataConDeclNames
+
+dataConDeclNames :: DataConDecl -> [UnqualifiedName]
+dataConDeclNames dataConDecl =
+  case dataConDecl of
+    PrefixCon _ _ _ name _ -> [name]
+    InfixCon _ _ _ _ name _ -> [name]
+    RecordCon _ _ _ name _ -> [name]
+    GadtCon _ _ _ names _ -> names
 
 moduleScope :: ModuleExports -> Module -> Scope
 moduleScope exports modu =
@@ -390,3 +572,23 @@ annotateExpr annotation = EAnn (mkAnnotation annotation)
 
 annotatePattern :: ResolutionAnnotation -> Pattern -> Pattern
 annotatePattern annotation = PAnn (mkAnnotation annotation)
+
+annotateType :: ResolutionAnnotation -> Type -> Type
+annotateType annotation = TAnn (mkAnnotation annotation)
+
+declKeywordNameSpan :: Text -> SourceSpan -> Text -> SourceSpan
+declKeywordNameSpan keyword span' name =
+  case span' of
+    SourceSpan sourceName startLine startCol _ _ startOffset endOffset ->
+      let keywordWidth = T.length keyword
+          shifted =
+            SourceSpan
+              sourceName
+              startLine
+              (startCol + keywordWidth)
+              startLine
+              (startCol + keywordWidth)
+              (startOffset + keywordWidth)
+              endOffset
+       in spanStartNameSpan shifted name
+    NoSourceSpan -> NoSourceSpan
