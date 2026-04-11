@@ -12,8 +12,8 @@ annotated:
   - |
     module Main where
     f = let y = 10 in y
-    │       │         └─ (value) Local 0 y
-    │       └─ (value) Local 0 y
-    └─ (value) Main.f
+    │       │         └─ v local
+    │       └─ v local
+    └─ v Main
 status: pass
 reason: ""

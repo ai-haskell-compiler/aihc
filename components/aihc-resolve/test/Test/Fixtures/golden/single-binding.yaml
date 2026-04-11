@@ -10,6 +10,6 @@ annotated:
   - |
     module Main where
     x = 1
-    └─ (value) Main.x
+    └─ v Main
 status: pass
 reason: ""

@@ -16,12 +16,12 @@ annotated:
   - |
     module Main where
     fn x = let x = x in x where x = x
-    │  │       │   │    │       │   └─ (value) Local 2 x
-    │  │       │   │    │       └─ (value) Local 2 x
-    │  │       │   │    └─ (value) Local 1 x
-    │  │       │   └─ (value) Local 1 x
-    │  │       └─ (value) Local 1 x
-    │  └─ (value) Local 0 x
-    └─ (value) Main.fn
+    │  │       │   │    │       │   └─ v local
+    │  │       │   │    │       └─ v local
+    │  │       │   │    └─ v local
+    │  │       │   └─ v local
+    │  │       └─ v local
+    │  └─ v local
+    └─ v Main
 status: pass
 reason: ""

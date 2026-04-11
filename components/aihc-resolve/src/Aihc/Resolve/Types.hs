@@ -23,7 +23,7 @@ import Aihc.Parser.Syntax
   ( Decl (..),
     Expr (..),
     Module (..),
-    Name,
+    Name (..),
     Pattern (..),
     SourceSpan (..),
     Type (..),
@@ -234,12 +234,26 @@ annotationStartCol ann =
     SourceSpan _ _ startCol _ _ _ _ -> startCol
     NoSourceSpan -> maxBound
 
--- | Render the annotation label: "(namespace) target"
+-- | Render a concise annotation label: "v Module" or "t Module" for top-level
+-- names, "v local" or "t local" for local bindings.
 annotationLabel :: ResolutionAnnotation -> String
 annotationLabel ann =
-  renderResolutionNamespace (resolutionNamespace ann)
+  renderConciseNamespace (resolutionNamespace ann)
     <> " "
-    <> renderResolvedName (resolutionTarget ann)
+    <> renderConciseOrigin (resolutionTarget ann)
+
+renderConciseNamespace :: ResolutionNamespace -> String
+renderConciseNamespace namespace =
+  case namespace of
+    ResolutionNamespaceTerm -> "v"
+    ResolutionNamespaceType -> "t"
+
+renderConciseOrigin :: ResolvedName -> String
+renderConciseOrigin resolvedName =
+  case resolvedName of
+    ResolvedTopLevel name -> T.unpack (fromMaybe (renderName name) (nameQualifier name))
+    ResolvedLocal {} -> "local"
+    ResolvedError msg -> "Error " <> msg
 
 -- | Render annotation lines for a group of annotations on the same source line.
 --
@@ -291,7 +305,8 @@ packLine (rightmost : rest) =
         -- It occupies columns [col .. col + 3 + length label - 1].
         let annotEnd = col + 3 + length label
             -- Check: annotation text must end before the nearest placed item
-            fitsBeforePlaced = annotEnd <= minCol
+            -- (with at least one space gap)
+            fitsBeforePlaced = annotEnd < minCol
             -- Check: annotation text must not cross any deferred column
             crossesDeferred = any ((\d -> d > col && d < annotEnd) . fst) deferred
          in if fitsBeforePlaced && not crossesDeferred

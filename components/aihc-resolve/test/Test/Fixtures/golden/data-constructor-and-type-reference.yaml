@@ -17,13 +17,13 @@ annotated:
   - |
     module Main where
     data A = B
-         │   └─ (value) Main.B
-         └─ (type) Main.A
+         │   └─ v Main
+         └─ t Main
     fn :: A
-    │     └─ (type) Main.A
-    └─ (value) Main.fn
+    │     └─ t Main
+    └─ v Main
     fn = B
-    │    └─ (value) Main.B
-    └─ (value) Main.fn
+    │    └─ v Main
+    └─ v Main
 status: pass
 reason: ""

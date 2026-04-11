@@ -13,9 +13,9 @@ annotated:
   - |
     module Main where
     x = 1
-    └─ (value) Main.x
+    └─ v Main
     y = x
-    │   └─ (value) Main.x
-    └─ (value) Main.y
+    │   └─ v Main
+    └─ v Main
 status: pass
 reason: ""

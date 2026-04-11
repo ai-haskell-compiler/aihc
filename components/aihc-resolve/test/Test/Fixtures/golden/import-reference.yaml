@@ -17,12 +17,12 @@ annotated:
   - |
     module Lib where
     helper = 42
-    └─ (value) Lib.helper
+    └─ v Lib
   - |
     module Main where
     import Lib
     x = helper
-    │   └─ (value) Lib.helper
-    └─ (value) Main.x
+    │   └─ v Lib
+    └─ v Main
 status: pass
 reason: ""

@@ -20,16 +20,14 @@ annotated:
   - |
     module Main where
     class ClsName a
-          └─ (type) Main.ClsName
+          └─ t Main
     data DataType = ClsName
-         │          └─ (value) Main.ClsName
-         └─ (type) Main.DataType
+         └─ t Main  └─ v Main
     fn :: ClsName a => a -> DataType
-    │     │                 └─ (type) Main.DataType
-    │     └─ (type) Main.ClsName
-    └─ (value) Main.fn
+    │     └─ t Main         └─ t Main
+    └─ v Main
     fn _ = ClsName
-    │      └─ (value) Main.ClsName
-    └─ (value) Main.fn
+    │      └─ v Main
+    └─ v Main
 status: pass
 reason: ""
