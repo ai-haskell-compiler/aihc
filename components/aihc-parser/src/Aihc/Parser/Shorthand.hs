@@ -181,7 +181,7 @@ docIEBundledNamespace namespace =
 
 docExportMember :: IEBundledMember -> Doc ann
 docExportMember (IEBundledMember mNamespace name) =
-  "ExportMember" <> braces (hsep (punctuate comma (optionalField "namespace" docIEBundledNamespace mNamespace <> [field "name" (docUnqualifiedName name)])))
+  "ExportMember" <> braces (hsep (punctuate comma (optionalField "namespace" docIEBundledNamespace mNamespace <> [field "name" (docName name)])))
 
 -- Declarations
 

@@ -165,7 +165,7 @@ prettyImportItem item =
 
 prettyExportMember :: IEBundledMember -> Doc ann
 prettyExportMember (IEBundledMember namespace name) =
-  prettyMemberNamespacePrefix namespace <> prettyBinderUName name
+  prettyMemberNamespacePrefix namespace <> prettyName name
 
 prettyNamespacePrefix :: Maybe IEEntityNamespace -> Doc ann
 prettyNamespacePrefix namespace =

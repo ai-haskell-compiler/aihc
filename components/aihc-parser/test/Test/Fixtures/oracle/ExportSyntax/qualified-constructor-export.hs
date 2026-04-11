@@ -1,9 +1,9 @@
-{- ORACLE_TEST xfail reason="qualified constructor names in export list not handled" -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE GHC2021 #-}
 
 module QualifiedConstructorExport (
-  M.C(M.A)
+  M.C(M.A1, M.A2)
   ) where
 
-data M = C A | B
-data A
+import M
+

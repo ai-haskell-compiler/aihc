@@ -99,7 +99,7 @@ exportMembersParser =
   where
     memberNameParser = do
       namespace <- MP.optional bundledNamespaceParser
-      name <- identifierUnqualifiedNameParser <|> parens operatorUnqualifiedNameParser
+      name <- identifierNameParser <|> parens operatorNameParser
       pure (IEBundledMember namespace name)
 
 -- | Checks if a name refers to a type/class (as opposed to a variable/function).

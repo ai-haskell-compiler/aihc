@@ -812,7 +812,7 @@ data IEBundledNamespace
 
 data IEBundledMember = IEBundledMember
   { ieBundledMemberNamespace :: Maybe IEBundledNamespace,
-    ieBundledMemberName :: UnqualifiedName
+    ieBundledMemberName :: Name
   }
   deriving (Data, Eq, Show, Generic, NFData)
 
