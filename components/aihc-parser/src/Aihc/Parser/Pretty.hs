@@ -579,6 +579,7 @@ prettyPatternAtomStrict pat =
     PNegLit {} -> parens (prettyPattern pat)
     PStrict {} -> parens (prettyPattern pat)
     PIrrefutable {} -> parens (prettyPattern pat)
+    PRecord {} -> prettyPattern pat
     _ -> prettyPatternAtom pat
 
 prettyLiteral :: Literal -> Doc ann
