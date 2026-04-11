@@ -39,7 +39,7 @@ normalizeExpr expr =
     EIf _ cond thenE elseE -> EIf span0 (normalizeExpr cond) (normalizeExpr thenE) (normalizeExpr elseE)
     EMultiWayIf _ rhss -> EMultiWayIf span0 (map normalizeGuardedRhs rhss)
     ECase _ scrutinee alts -> ECase span0 (normalizeExpr scrutinee) (map normalizeCaseAlt alts)
-    ELambdaPats _ pats body -> ELambdaPats span0 (map normalizePattern pats) (normalizeExpr body)
+    ELambdaPats _ pats body -> ELambdaPats span0 (map normalizeLambdaPat pats) (normalizeExpr body)
     ELambdaCase _ alts -> ELambdaCase span0 (map normalizeCaseAlt alts)
     ELetDecls _ decls body -> ELetDecls span0 (map normalizeDecl decls) (normalizeExpr body)
     EWhereDecls _ body decls -> EWhereDecls span0 (normalizeExpr body) (map normalizeDecl decls)
@@ -109,15 +109,43 @@ normalizePattern pat =
     PCon _ con args -> PCon span0 con (map normalizePattern args)
     PInfix _ lhs op rhs -> PInfix span0 (normalizePattern lhs) op (normalizePattern rhs)
     PView _ e inner -> PView span0 (normalizeExpr e) (normalizePattern inner)
-    PAs _ name inner -> PAs span0 name (normalizePattern inner)
-    PStrict _ inner -> PStrict span0 (normalizePattern inner)
-    PIrrefutable _ inner -> PIrrefutable span0 (normalizePattern inner)
+    PAs _ name inner -> PAs span0 name (normalizeUnaryPatInner inner)
+    PStrict _ inner -> PStrict span0 (normalizeUnaryPatInner inner)
+    PIrrefutable _ inner -> PIrrefutable span0 (normalizeUnaryPatInner inner)
     PNegLit _ lit -> PNegLit span0 (normalizeLiteral lit)
     PParen _ inner -> PParen span0 (normalizePattern inner)
     PUnboxedSum _ altIdx arity inner -> PUnboxedSum span0 altIdx arity (normalizePattern inner)
     PRecord _ con fields rwc -> PRecord span0 con [(name, normalizePattern p) | (name, p) <- fields] rwc
     PTypeSig _ inner ty -> PTypeSig span0 (normalizePattern inner) (normalizeType ty)
     PSplice _ body -> PSplice span0 (normalizeExpr body)
+
+-- | Normalize a pattern in lambda argument position.
+-- The pretty-printer uses prettyLambdaPatternAtom for lambda patterns, which
+-- wraps certain patterns in PParen beyond what prettyPatternAtom does:
+-- PNegLit (ambiguous with subtraction) and nullary PCon (greedily absorbs
+-- next argument). It also inherits prettyPatternAtom's parenthesization of
+-- non-atomic patterns like PCon with args, PInfix, PTypeSig, PRecord.
+-- Strip that added PParen so generated and parsed forms match.
+normalizeLambdaPat :: Pattern -> Pattern
+normalizeLambdaPat pat =
+  case normalizePattern pat of
+    PParen _ inner@(PNegLit {}) -> inner
+    PParen _ inner@(PCon {}) -> inner
+    PParen _ inner@(PInfix {}) -> inner
+    PParen _ inner@(PTypeSig {}) -> inner
+    PParen _ inner@(PRecord {}) -> inner
+    other -> other
+
+-- | Normalize the inner pattern of a strict (!) or irrefutable (~) pattern.
+-- The pretty-printer's prettyPatternAtomStrict adds PParen around PNegLit,
+-- PStrict, and PIrrefutable to avoid ambiguity. Strip those added parens.
+normalizeUnaryPatInner :: Pattern -> Pattern
+normalizeUnaryPatInner pat =
+  case normalizePattern pat of
+    PParen _ inner@(PNegLit {}) -> inner
+    PParen _ inner@(PStrict {}) -> inner
+    PParen _ inner@(PIrrefutable {}) -> inner
+    other -> other
 
 normalizeLiteral :: Literal -> Literal
 normalizeLiteral lit =

@@ -48,7 +48,7 @@ normalizePattern pat =
     PList _ elems -> PList span0 (map normalizePattern elems)
     PCon _ con args -> PCon span0 con (map normalizePattern args)
     PInfix _ lhs op rhs -> PInfix span0 (normalizePattern lhs) op (normalizePattern rhs)
-    PView _ expr inner -> PView span0 (normalizeViewExpr expr) (normalizePattern inner)
+    PView _ expr inner -> PView span0 (normalizeExpr expr) (normalizePattern inner)
     PAs _ name inner -> PAs span0 name (normalizeAsInner inner)
     PStrict _ inner -> PStrict span0 (normalizeUnaryInner inner)
     PIrrefutable _ inner -> PIrrefutable span0 (normalizeUnaryInner inner)
@@ -95,14 +95,6 @@ normalizeLiteral lit =
     LitCharHash _ value repr -> LitCharHash span0 value repr
     LitString _ value repr -> LitString span0 value repr
     LitStringHash _ value repr -> LitStringHash span0 value repr
-
-normalizeViewExpr :: Expr -> Expr
-normalizeViewExpr expr =
-  case expr of
-    EVar _ name -> EVar span0 name
-    EInt _ value repr -> EInt span0 value repr
-    EParen _ inner -> EParen span0 (normalizeViewExpr inner)
-    _ -> expr
 
 normalizeUnaryInner :: Pattern -> Pattern
 normalizeUnaryInner pat =

@@ -14,9 +14,11 @@ where
 import Aihc.Parser.Lex (isReservedIdentifier)
 import Aihc.Parser.Syntax
 import Data.Char (isSpace)
+import Data.Maybe (isJust)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Test.Properties.Arb.Identifiers (extensionReservedIdentifiers, genIdent, shrinkIdent)
+import Test.Properties.Arb.Pattern qualified as Pat
 import Test.QuickCheck
 
 -- | Canonical empty source span for normalization.
@@ -56,6 +58,7 @@ genExprSized n
           ETuple span0 Boxed . map Just <$> genTupleElems (n - 1),
           ETuple span0 Unboxed . map Just <$> genUnboxedTupleElems (n - 1),
           ETuple span0 Boxed <$> genTupleSectionElems (n - 1),
+          ETuple span0 Unboxed <$> genTupleSectionElems (n - 1),
           genUnboxedSumExpr (n - 1),
           EArithSeq span0 <$> genArithSeq (n - 1),
           ERecordCon span0 <$> genConName <*> genRecordFields (n - 1) <*> pure False,
@@ -68,7 +71,7 @@ genExprSized n
           ETHExpQuote span0 <$> genExprSized (n - 1),
           ETHTypedQuote span0 <$> genExprSized (n - 1),
           ETHDeclQuote span0 <$> genValueDecls (n - 1),
-          ETHPatQuote span0 <$> genSimplePattern,
+          ETHPatQuote span0 <$> genSimplePattern (n - 1),
           ETHTypeQuote span0 <$> genType (n - 1),
           ETHNameQuote span0 <$> genNameQuoteIdent,
           ETHTypeNameQuote span0 <$> genConName
@@ -115,15 +118,10 @@ genTypedSpliceBody :: Int -> Gen Expr
 genTypedSpliceBody n =
   EParen span0 <$> genExprSized (max 0 (n - 1))
 
--- | Generate a simple pattern for TH pattern quotes [p| pat |].
--- Only generates patterns that don't require additional extensions.
-genSimplePattern :: Gen Pattern
-genSimplePattern =
-  oneof
-    [ PVar span0 <$> genUnqualVarName,
-      pure (PWildcard span0),
-      PCon span0 <$> genConAstName <*> pure []
-    ]
+-- | Generate a pattern for TH pattern quotes [p| pat |].
+-- Any pattern is valid inside [p| |], so use the full pattern generator.
+genSimplePattern :: Int -> Gen Pattern
+genSimplePattern = Pat.genPattern
 
 -- | Generate an identifier safe for TH name quotes ('name).
 -- Avoids identifiers where the second character is a single quote,
@@ -144,8 +142,39 @@ genOperator =
       genCustomOperator
     ]
 
+-- | Generate an optional module qualifier (e.g., Nothing or Just "Data.List").
+-- Biased towards Nothing to keep most names unqualified.
+genOptionalQualifier :: Gen (Maybe Text)
+genOptionalQualifier =
+  frequency
+    [ (3, pure Nothing),
+      (1, Just <$> genModuleQualifier)
+    ]
+
+-- | Generate a module qualifier like "Data.List" or "Prelude".
+genModuleQualifier :: Gen Text
+genModuleQualifier = do
+  segCount <- chooseInt (1, 3)
+  segs <- vectorOf segCount genModuleSegment
+  pure (T.intercalate "." segs)
+
+-- | Generate a single module name segment (starts with uppercase).
+genModuleSegment :: Gen Text
+genModuleSegment = do
+  first <- elements ['A' .. 'Z']
+  restLen <- chooseInt (0, 5)
+  rest <- vectorOf restLen (elements (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9']))
+  pure (T.pack (first : rest))
+
 genOperatorName :: Gen Name
-genOperatorName = qualifyName Nothing . mkUnqualifiedName NameVarSym <$> genOperator
+genOperatorName = do
+  qual <- genOptionalQualifier
+  op <- mkUnqualifiedName NameVarSym <$> genOperator
+  -- NOTE: Qualified "." creates "Module.." which the lexer sees as ".." (range).
+  -- Skip qualified "." until the pretty-printer handles this case.
+  if isJust qual && unqualifiedNameText op == "."
+    then genOperatorName
+    else pure (qualifyName qual op)
 
 -- | Generate a custom operator
 -- Only uses valid operator characters (matching isOperatorToken in Pretty.hs)
@@ -179,13 +208,10 @@ genConName = do
   pure (T.pack (first : rest))
 
 genVarName :: Gen Name
-genVarName = qualifyName Nothing . mkUnqualifiedName NameVarId <$> genIdent
-
-genUnqualVarName :: Gen UnqualifiedName
-genUnqualVarName = mkUnqualifiedName NameVarId <$> genIdent
+genVarName = qualifyName <$> genOptionalQualifier <*> (mkUnqualifiedName NameVarId <$> genIdent)
 
 genConAstName :: Gen Name
-genConAstName = qualifyName Nothing . mkUnqualifiedName NameConId <$> genConName
+genConAstName = qualifyName <$> genOptionalQualifier <*> (mkUnqualifiedName NameConId <$> genConName)
 
 -- | Generate simple patterns for lambdas
 genPatterns :: Int -> Gen [Pattern]
@@ -193,40 +219,9 @@ genPatterns n = do
   count <- chooseInt (1, 3)
   vectorOf count (genPattern n)
 
--- | Generate a pattern (simple version for use inside expressions)
+-- | Generate a pattern using the full pattern generator from the Pattern module.
 genPattern :: Int -> Gen Pattern
-genPattern n
-  | n <= 0 = genPatternLeaf
-  | otherwise =
-      oneof
-        [ genPatternLeaf,
-          PTuple span0 Boxed <$> genPatternTupleElems half,
-          PList span0 <$> genPatternListElems half
-        ]
-  where
-    half = n `div` 2
-
--- | Generate a leaf pattern
-genPatternLeaf :: Gen Pattern
-genPatternLeaf =
-  oneof
-    [ PVar span0 <$> genUnqualVarName,
-      pure (PWildcard span0)
-    ]
-
-genPatternTupleElems :: Int -> Gen [Pattern]
-genPatternTupleElems n = do
-  isUnit <- arbitrary
-  if isUnit
-    then pure []
-    else do
-      count <- chooseInt (2, 3)
-      vectorOf count (genPattern n)
-
-genPatternListElems :: Int -> Gen [Pattern]
-genPatternListElems n = do
-  count <- chooseInt (0, 3)
-  vectorOf count (genPattern n)
+genPattern = Pat.genPattern
 
 -- | Generate case alternatives
 genCaseAlts :: Int -> Gen [CaseAlt]
@@ -237,13 +232,56 @@ genCaseAlts n = do
 genCaseAlt :: Int -> Gen CaseAlt
 genCaseAlt n = do
   pat <- genPattern half
-  expr <- genExprSized half
+  rhs <- genRhs half
   pure $
     CaseAlt
       { caseAltSpan = span0,
         caseAltPattern = pat,
-        caseAltRhs = UnguardedRhs span0 expr
+        caseAltRhs = rhs
       }
+  where
+    half = n `div` 2
+
+-- | Generate a right-hand side: either unguarded or guarded.
+genRhs :: Int -> Gen Rhs
+genRhs n =
+  oneof
+    [ UnguardedRhs span0 <$> genExprSized n,
+      GuardedRhss span0 <$> genGuardedRhsList n
+    ]
+
+-- | Generate a non-empty list of guarded RHS clauses.
+genGuardedRhsList :: Int -> Gen [GuardedRhs]
+genGuardedRhsList n = do
+  count <- chooseInt (1, 3)
+  vectorOf count (genGuardedRhs (n `div` count))
+
+-- | Generate a single guarded RHS: guards and body expression.
+genGuardedRhs :: Int -> Gen GuardedRhs
+genGuardedRhs n = do
+  guardCount <- chooseInt (1, 2)
+  guards <- vectorOf guardCount (genGuardQualifier (half `div` guardCount))
+  body <- genExprSized half
+  pure $
+    GuardedRhs
+      { guardedRhsSpan = span0,
+        guardedRhsGuards = guards,
+        guardedRhsBody = body
+      }
+  where
+    half = n `div` 2
+
+-- | Generate a guard qualifier.
+genGuardQualifier :: Int -> Gen GuardQualifier
+genGuardQualifier n =
+  oneof
+    [ -- Boolean guard: | expr = ...
+      GuardExpr span0 <$> genExprSized n,
+      -- Pattern guard: | pat <- expr = ...
+      GuardPat span0 <$> genPattern half <*> genExprSized half,
+      -- Let guard: | let decls = ...
+      GuardLet span0 <$> genValueDecls n
+    ]
   where
     half = n `div` 2
 
@@ -329,11 +367,14 @@ genTupleElems n = do
       count <- chooseInt (2, 4)
       vectorOf count (genExprSized (n `div` count))
 
--- | Generate elements for an unboxed tuple (always 2+ elements, no unit)
+-- | Generate elements for an unboxed tuple (0 or 2-4 elements).
+-- Unlike boxed tuples, unboxed tuples with 0 elements are valid Haskell.
+-- NOTE: 1-element unboxed tuples are valid Haskell but the parser doesn't
+-- accept them yet, so we skip generating them for now.
 genUnboxedTupleElems :: Int -> Gen [Expr]
 genUnboxedTupleElems n = do
-  count <- chooseInt (2, 4)
-  vectorOf count (genExprSized (n `div` count))
+  count <- chooseInt (0, 4)
+  if count == 1 then pure [] else vectorOf count (genExprSized (n `div` max 1 count))
 
 -- | Generate an unboxed sum expression
 genUnboxedSumExpr :: Int -> Gen Expr
@@ -600,7 +641,10 @@ shrinkCaseAlt alt =
   case caseAltRhs alt of
     UnguardedRhs _ expr ->
       [alt {caseAltRhs = UnguardedRhs span0 expr'} | expr' <- shrinkExpr expr]
-    _ -> []
+    GuardedRhss _ rhss ->
+      -- Shrink to unguarded using the first guard's body
+      [alt {caseAltRhs = UnguardedRhs span0 (guardedRhsBody firstRhs)} | firstRhs : _ <- [rhss]]
+        <> [alt {caseAltRhs = GuardedRhss span0 rhss'} | rhss' <- shrinkList shrinkGuardedRhs rhss, not (null rhss')]
 
 shrinkGuardedRhs :: GuardedRhs -> [GuardedRhs]
 shrinkGuardedRhs grhs =

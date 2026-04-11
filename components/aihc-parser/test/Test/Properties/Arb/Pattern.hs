@@ -12,6 +12,7 @@ import Aihc.Parser.Lex (isReservedIdentifier)
 import Aihc.Parser.Syntax
 import Data.Text (Text)
 import Data.Text qualified as T
+import {-# SOURCE #-} Test.Properties.Arb.Expr (genExpr, shrinkExpr)
 import Test.Properties.Arb.Identifiers (genIdent, shrinkIdent)
 import Test.QuickCheck
 
@@ -44,11 +45,11 @@ genPattern depth
           (3, PLit span0 <$> genLiteral),
           (2, PQuasiQuote span0 <$> genQuoterName <*> genQuasiBody),
           (2, PTuple span0 Boxed <$> genTupleElems (depth - 1)),
-          (1, PTuple span0 Unboxed <$> genTupleElems (depth - 1)),
+          (1, PTuple span0 Unboxed <$> genUnboxedTupleElems (depth - 1)),
           (2, PList span0 <$> genListElems (depth - 1)),
           (3, genPatternCon depth),
           (2, genPatternInfix depth),
-          (2, PView span0 <$> genViewExpr <*> genPattern (depth - 1)),
+          (2, PView span0 <$> resize 2 genExpr <*> genPattern (depth - 1)),
           (2, PAs span0 <$> genIdent <*> (canonicalPatternAtom <$> genPattern (depth - 1))),
           (2, PStrict span0 . canonicalPatternAtom <$> genPattern (depth - 1)),
           (2, PIrrefutable span0 . canonicalPatternAtom <$> genPattern (depth - 1)),
@@ -95,6 +96,15 @@ genTupleElems depth = do
     else do
       n <- chooseInt (2, 4)
       vectorOf n (genPattern depth)
+
+-- | Generate elements for an unboxed tuple pattern (0 or 2-4 elements).
+-- Unlike boxed tuples, unboxed tuples with 0 elements are valid Haskell.
+-- NOTE: 1-element unboxed tuples are valid Haskell but the parser doesn't
+-- accept them yet, so we skip generating them for now.
+genUnboxedTupleElems :: Int -> Gen [Pattern]
+genUnboxedTupleElems depth = do
+  n <- chooseInt (0, 4)
+  if n == 1 then pure [] else vectorOf n (genPattern depth)
 
 genUnboxedSumPattern :: Int -> Gen Pattern
 genUnboxedSumPattern depth = do
@@ -147,14 +157,6 @@ genStringValue = do
   len <- chooseInt (0, 8)
   T.pack <$> vectorOf len genCharValue
 
-genViewExpr :: Gen Expr
-genViewExpr =
-  oneof
-    [ EVar span0 <$> genPatternVarName,
-      (\v -> EInt span0 v (T.pack (show v))) <$> chooseInteger (0, 999),
-      EParen span0 . EVar span0 <$> genPatternVarName
-    ]
-
 -- | Generate the body of a TH pattern splice: either a bare variable or a parenthesized expression.
 genPatSpliceBody :: Gen Expr
 genPatSpliceBody =
@@ -185,11 +187,35 @@ genPatternVarName = qualifyName Nothing . mkUnqualifiedName NameVarId <$> genIde
 genPatternUnqualVarName :: Gen UnqualifiedName
 genPatternUnqualVarName = mkUnqualifiedName NameVarId <$> genIdent
 
+-- | Generate an optional module qualifier (e.g., Nothing or Just "Data.List").
+-- Biased towards Nothing to keep most names unqualified.
+genOptionalQualifier :: Gen (Maybe Text)
+genOptionalQualifier =
+  frequency
+    [ (3, pure Nothing),
+      (1, Just <$> genModuleQualifier)
+    ]
+
+-- | Generate a module qualifier like "Data.List" or "Prelude".
+genModuleQualifier :: Gen Text
+genModuleQualifier = do
+  segCount <- chooseInt (1, 3)
+  segs <- vectorOf segCount genModuleSegment
+  pure (T.intercalate "." segs)
+
+-- | Generate a single module name segment (starts with uppercase).
+genModuleSegment :: Gen Text
+genModuleSegment = do
+  first <- elements ['A' .. 'Z']
+  restLen <- chooseInt (0, 5)
+  rest <- vectorOf restLen (elements (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9']))
+  pure (T.pack (first : rest))
+
 genPatternConAstName :: Gen Name
-genPatternConAstName = qualifyName Nothing . mkUnqualifiedName NameConId <$> genPatternConName
+genPatternConAstName = qualifyName <$> genOptionalQualifier <*> (mkUnqualifiedName NameConId <$> genPatternConName)
 
 genConOperatorName :: Gen Name
-genConOperatorName = qualifyName Nothing . mkUnqualifiedName NameConSym <$> genConOperator
+genConOperatorName = qualifyName <$> genOptionalQualifier <*> (mkUnqualifiedName NameConSym <$> genConOperator)
 
 genFieldName :: Gen Text
 genFieldName = do
@@ -248,6 +274,7 @@ isPatternAtom pat =
     PView {} -> True
     PAs {} -> True
     PUnboxedSum {} -> True
+    PCon _ _ [] -> True
     _ -> False
 
 mkIntLiteral :: Integer -> Literal
@@ -297,7 +324,7 @@ shrinkPattern pat =
         <> [PInfix span0 (canonicalPatternAtom lhs) op (canonicalPatternAtom rhs') | rhs' <- shrinkPattern rhs]
     PView _ expr inner ->
       [inner]
-        <> [PView span0 expr' inner | expr' <- shrinkViewExpr expr]
+        <> [PView span0 expr' inner | expr' <- shrinkExpr expr]
         <> [PView span0 expr inner' | inner' <- shrinkPattern inner]
     PAs _ name inner ->
       [canonicalPatternAtom inner]
@@ -374,11 +401,3 @@ shrinkQuoterName name =
   | candidate <- map T.pack (shrink (T.unpack name)),
     isValidQuoterName candidate
   ]
-
-shrinkViewExpr :: Expr -> [Expr]
-shrinkViewExpr expr =
-  case expr of
-    EVar _ name -> [EVar span0 (name {nameText = shrunk}) | shrunk <- shrinkIdent (nameText name)]
-    EInt _ value _ -> [EInt span0 shrunk (T.pack (show shrunk)) | shrunk <- shrinkIntegral value]
-    EParen _ inner -> inner : [EParen span0 inner' | inner' <- shrinkViewExpr inner]
-    _ -> []
