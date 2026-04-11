@@ -1,46 +1,28 @@
 {-# LANGUAGE Haskell2010 #-}
 
 -- | Boot file for Aihc.Parser.Internal.Expr
--- This breaks the circular dependency between Expr.hs and Decl.hs.
--- Decl.hs imports this boot file, and Expr.hs imports Decl.hs.
--- GHC resolves the cycle by compiling the boot file first.
+-- This breaks circular dependencies between Expr.hs and modules that
+-- depend on it (Decl.hs, Type.hs, Pattern.hs, Cmd.hs).
 --
 -- IMPORTANT: When adding or changing exported function signatures in Expr.hs,
 -- this boot file must be updated accordingly.
 module Aihc.Parser.Internal.Expr where
 
 import Aihc.Parser.Internal.Common (TokParser)
-import Aihc.Parser.Syntax (Expr, Name, Pattern, Rhs, Type, TypePromotion)
+import Aihc.Parser.Syntax (Decl, Expr, Rhs)
 
 -- | Parse a full expression
 exprParser :: TokParser Expr
 
--- | Parse a type expression
-typeParser :: TokParser Type
-
--- | Parse a pattern
-patternParser :: TokParser Pattern
+-- | Parse an expression without consuming arrow tail operators.
+-- Used in command contexts where -< / -<< should be left for the command parser.
+exprParserNoArrowTail :: TokParser Expr
 
 -- | Parse the right-hand side of an equation (guarded or unguarded)
 equationRhsParser :: TokParser Rhs
 
--- | Parse a simple pattern (no top-level context or where clause)
-simplePatternParser :: TokParser Pattern
+-- | Parse let declarations (keyword 'let' followed by braced or plain decls)
+parseLetDeclsParser :: TokParser [Decl]
 
--- | Parse a type application (type followed by type arguments)
-typeAppParser :: TokParser Type
-
--- | Parse a type head including infix operators but excluding trailing type applications
-typeHeadInfixParser :: TokParser Type
-
--- | Parse a type infix operator token
-typeInfixOperatorParser :: TokParser (Name, TypePromotion)
-
--- | Parse a type atom (single type, not an application)
-typeAtomParser :: TokParser Type
-
--- | Lookahead check: does the input start with a type signature?
-startsWithTypeSig :: TokParser Bool
-
--- | Lookahead check: does the input start with a context (=>)?
-startsWithContextType :: TokParser Bool
+-- | Parse let declarations for statement context (no 'in' following)
+parseLetDeclsStmtParser :: TokParser [Decl]
