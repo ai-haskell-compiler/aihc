@@ -1,5 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 module Test.Properties.Identifiers
   ( module Test.Properties.Arb.Identifiers,
   )

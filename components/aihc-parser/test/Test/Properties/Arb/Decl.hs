@@ -95,8 +95,7 @@ genFunctionDecl (name, expr) = do
 genDeclTypeSig :: Gen Decl
 genDeclTypeSig = do
   name <- mkUnqualifiedName NameVarId <$> genIdent
-  ty <- genSimpleType
-  pure $ DeclTypeSig span0 [name] ty
+  DeclTypeSig span0 [name] <$> genSimpleType
 
 genDeclFixity :: Gen Decl
 genDeclFixity = do
@@ -120,8 +119,7 @@ genDeclTypeSyn :: Gen Decl
 genDeclTypeSyn = do
   name <- genTypeConName
   params <- genSimpleTyVarBinders
-  body <- genSimpleType
-  pure $ DeclTypeSyn span0 (TypeSynDecl span0 name params body)
+  DeclTypeSyn span0 . TypeSynDecl span0 name params <$> genSimpleType
 
 genDeclData :: Gen Decl
 genDeclData = DeclData span0 <$> genSimpleDataDecl
@@ -368,8 +366,7 @@ genFamilyLhsType = do
 genDeclPragma :: Gen Decl
 genDeclPragma = do
   kind <- elements ["INLINE", "NOINLINE", "INLINABLE"]
-  name <- genIdent
-  pure $ DeclPragma span0 (PragmaInline kind name)
+  DeclPragma span0 . PragmaInline kind <$> genIdent
 
 genDeclPatSyn :: Gen Decl
 genDeclPatSyn = do
@@ -384,14 +381,12 @@ genDeclPatSyn = do
 genDeclPatSynSig :: Gen Decl
 genDeclPatSynSig = do
   name <- mkUnqualifiedName NameConId <$> genTypeConName
-  ty <- genSimpleType
-  pure $ DeclPatSynSig span0 [name] ty
+  DeclPatSynSig span0 [name] <$> genSimpleType
 
 genDeclStandaloneKindSig :: Gen Decl
 genDeclStandaloneKindSig = do
   name <- mkUnqualifiedName NameConId <$> genTypeConName
-  kind <- genSimpleType
-  pure $ DeclStandaloneKindSig span0 name kind
+  DeclStandaloneKindSig span0 name <$> genSimpleType
 
 -- | Generate simple type variable binders (0-2 params).
 genSimpleTyVarBinders :: Gen [TyVarBinder]
@@ -405,8 +400,9 @@ genSimpleType =
   oneof
     [ TVar span0 . mkUnqualifiedName NameVarId <$> genIdent,
       (\n -> TCon span0 (qualifyName Nothing (mkUnqualifiedName NameConId n)) Unpromoted) <$> genTypeConName,
-      TFun span0
-        <$> (TVar span0 . mkUnqualifiedName NameVarId <$> genIdent)
+      ( TFun span0 . TVar span0 . mkUnqualifiedName NameVarId
+         <$> genIdent
+     )
         <*> (TVar span0 . mkUnqualifiedName NameVarId <$> genIdent)
     ]
 

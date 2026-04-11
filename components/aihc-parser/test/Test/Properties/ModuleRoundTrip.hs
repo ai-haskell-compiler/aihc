@@ -101,4 +101,3 @@ normalizeImportItem item =
     ImportItemAbs _ namespace name -> ImportItemAbs span0 namespace name
     ImportItemAll _ namespace name -> ImportItemAll span0 namespace name
     ImportItemWith _ namespace name members -> ImportItemWith span0 namespace name (map normalizeExportMember members)
-

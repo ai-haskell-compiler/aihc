@@ -65,4 +65,3 @@ normalizeTyVarBinder tvb =
     { tyVarBinderSpan = span0,
       tyVarBinderKind = fmap normalizeType (tyVarBinderKind tvb)
     }
-
