@@ -14,7 +14,6 @@ where
 import Aihc.Parser.Lex (isReservedIdentifier)
 import Aihc.Parser.Syntax
 import Data.Char (isSpace)
-import Data.Maybe (isJust)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Test.Properties.Arb.Identifiers (extensionReservedIdentifiers, genIdent, shrinkIdent)
@@ -170,11 +169,7 @@ genOperatorName :: Gen Name
 genOperatorName = do
   qual <- genOptionalQualifier
   op <- mkUnqualifiedName NameVarSym <$> genOperator
-  -- NOTE: Qualified "." creates "Module.." which the lexer sees as ".." (range).
-  -- Skip qualified "." until the pretty-printer handles this case.
-  if isJust qual && unqualifiedNameText op == "."
-    then genOperatorName
-    else pure (qualifyName qual op)
+  pure (qualifyName qual op)
 
 -- | Generate a custom operator
 -- Only uses valid operator characters (matching isOperatorToken in Pretty.hs)
