@@ -1,0 +1,6 @@
+extensions: []
+input: |
+  default ()
+ast: |
+  Module {decls = [DeclDefault []]}
+status: pass

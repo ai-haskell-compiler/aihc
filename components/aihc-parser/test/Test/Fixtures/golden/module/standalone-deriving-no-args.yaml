@@ -1,0 +1,6 @@
+extensions: []
+input: |
+  deriving instance Foo
+ast: |
+  Module {decls = [DeclStandaloneDeriving (StandaloneDerivingDecl {className = "Foo", types = []})]}
+status: pass

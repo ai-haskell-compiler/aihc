@@ -100,11 +100,18 @@ test-suite spec
     , Test.ExtensionMapping.Suite
     , Test.HackageTester.Suite
     , Test.Lexer.Suite
+    , Test.Properties.Arb.Decl
+    , Test.Properties.Arb.Expr
+    , Test.Properties.Arb.Identifiers
+    , Test.Properties.Arb.Module
+    , Test.Properties.Arb.Pattern
+    , Test.Properties.Arb.Type
     , Test.Properties.Coverage
+    , Test.Properties.DeclRoundTrip
     , Test.Properties.ExprHelpers
     , Test.Properties.ExprRoundTrip
-    , Test.Properties.ModuleRoundTrip
     , Test.Properties.Identifiers
+    , Test.Properties.ModuleRoundTrip
     , Test.Properties.NoExceptions
     , Test.Properties.PatternRoundTrip
     , Test.Properties.TypeRoundTrip
@@ -158,67 +165,6 @@ executable parser-progress
     , filepath
     , ghc-lib-parser
     , Cabal-syntax
-    , prettyprinter
-  ghc-options:        -Wall -Werror
-  default-language: GHC2021
-
-executable parser-quickcheck-batch
-  hs-source-dirs:
-      app/parser-quickcheck-batch
-    , common
-    , test
-    , src
-  main-is:          Main.hs
-  other-modules:
-      Aihc.Parser
-    , Aihc.Parser.Syntax
-    , Aihc.Parser.Lex
-    , Aihc.Parser.Shorthand
-    , Aihc.Parser.Pretty
-    , Aihc.Parser.Types
-    , Aihc.Parser.Lex.Header
-    , Aihc.Parser.Lex.Layout
-    , Aihc.Parser.Lex.Numbers
-    , Aihc.Parser.Lex.Pragmas
-    , Aihc.Parser.Lex.Quoted
-    , Aihc.Parser.Lex.Trivia
-    , Aihc.Parser.Lex.Types
-    , Aihc.Parser.Internal.CheckPattern
-    , Aihc.Parser.Internal.Cmd
-    , Aihc.Parser.Internal.Common
-    , Aihc.Parser.Internal.Expr
-    , Aihc.Parser.Internal.Decl
-    , Aihc.Parser.Internal.Import
-    , Aihc.Parser.Internal.Module
-    , Aihc.Parser.Internal.Pattern
-    , Aihc.Parser.Internal.Type
-    , Aihc.Parser.Internal.FromTokens
-    , CppSupport
-    , ParserQuickCheck.CLI
-    , ParserQuickCheck.Registry
-    , ParserQuickCheck.Runner
-    , ParserQuickCheck.Types
-    , Test.Properties.Coverage
-    , Test.Properties.ExprHelpers
-    , Test.Properties.ExprRoundTrip
-    , Test.Properties.ModuleRoundTrip
-    , Test.Properties.Identifiers
-    , Test.Properties.NoExceptions
-    , Test.Properties.PatternRoundTrip
-    , Test.Properties.TypeRoundTrip
-  build-depends:
-      base >=4.16 && <5
-    , aihc-cpp
-    , text
-    , aeson
-    , QuickCheck
-    , containers
-    , bytestring
-    , filepath
-    , deepseq
-    , megaparsec
-    , optparse-applicative
-    , time
     , prettyprinter
   ghc-options:        -Wall -Werror
   default-language: GHC2021
@@ -348,64 +294,5 @@ executable stackage-progress
     , haskell-src-exts
     , optparse-applicative
     , prettyprinter
-  ghc-options:        -Wall -Werror -threaded -rtsopts -with-rtsopts=-N
-  default-language: GHC2021
-
-executable parser-fuzz
-  hs-source-dirs:
-      app/parser-fuzz
-    , common
-  main-is:          Main.hs
-  other-modules:
-      CppSupport
-    , GhcOracle
-    , HseExtensions
-    , ParserValidation
-    , ShrinkUtils
-    , ParserFuzz.CLI
-    , ParserFuzz.Testing
-    , ParserFuzz.Types
-    , ParserFuzz.Arbitrary
-  build-depends:
-      base >=4.16 && <5
-    , aihc-parser
-    , aihc-cpp
-    , bytestring
-    , deepseq
-    , haskell-src-exts
-    , QuickCheck
-    , optparse-applicative
-    , random
-    , text
-    , containers
-    , filepath
-    , ghc-lib-parser
-    , Cabal-syntax
-    , prettyprinter
-  ghc-options:        -Wall -Werror
-  default-language: GHC2021
-
-test-suite parser-quickcheck-tests
-  type:             exitcode-stdio-1.0
-  hs-source-dirs:
-      test/quickcheck-batch
-    , common
-  main-is:          Spec.hs
-  other-modules:
-      ParserQuickCheck.CLI
-    , ParserQuickCheck.Runner
-    , ParserQuickCheck.Types
-    , Test.ParserQuickCheck.CLI
-    , Test.ParserQuickCheck.Runner
-  build-depends:
-      base >=4.16 && <5
-    , aeson
-    , QuickCheck
-    , containers
-    , tasty
-    , tasty-hunit
-    , text
-    , time
-    , optparse-applicative
   ghc-options:        -Wall -Werror -threaded -rtsopts -with-rtsopts=-N
   default-language: GHC2021

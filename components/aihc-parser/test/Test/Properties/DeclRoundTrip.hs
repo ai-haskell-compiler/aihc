@@ -1,36 +1,36 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Test.Properties.ExprRoundTrip
-  ( prop_exprPrettyRoundTrip,
+module Test.Properties.DeclRoundTrip
+  ( prop_declPrettyRoundTrip,
   )
 where
 
-import Aihc.Parser
+import Aihc.Parser (ParseResult (..), ParserConfig (..), defaultConfig, parseDecl)
+import Aihc.Parser.Pretty ()
 import Aihc.Parser.Syntax
 import Data.Text qualified as T
 import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.Text (renderStrict)
-import Test.Properties.Arb.Expr ()
 import Test.Properties.Coverage (assertCtorCoverage)
-import Test.Properties.ExprHelpers (normalizeExpr)
+import Test.Properties.ExprHelpers (normalizeDecl)
 import Test.QuickCheck
 import Text.Megaparsec.Error qualified as MPE
 
-exprConfig :: ParserConfig
-exprConfig =
+declConfig :: ParserConfig
+declConfig =
   defaultConfig
     { parserExtensions = [BlockArguments, UnboxedTuples, UnboxedSums, TemplateHaskell]
     }
 
-prop_exprPrettyRoundTrip :: Expr -> Property
-prop_exprPrettyRoundTrip expr =
-  let source = renderStrict (layoutPretty defaultLayoutOptions (pretty expr))
-      expected = normalizeExpr expr
-   in assertCtorCoverage ["EAnn"] expr $
+prop_declPrettyRoundTrip :: Decl -> Property
+prop_declPrettyRoundTrip decl =
+  let source = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
+      expected = normalizeDecl decl
+   in assertCtorCoverage ["DeclAnn"] decl $
         counterexample (T.unpack source) $
-          case parseExpr exprConfig source of
+          case parseDecl declConfig source of
             ParseErr err ->
               counterexample (MPE.errorBundlePretty err) False
             ParseOk parsed ->
-              let actual = normalizeExpr parsed
+              let actual = normalizeDecl parsed
                in counterexample ("expected: " <> show expected <> "\nactual: " <> show actual) (expected == actual)

@@ -129,10 +129,18 @@ parseInlinePragma body upperBody
     isPragmaBodyEnd rest =
       let fullBody = T.strip (dropPragmaName "INLINEABLE" body)
        in Just (PragmaInline "INLINEABLE" fullBody)
+  | Just rest <- T.stripPrefix "INLINABLE" upperBody,
+    isPragmaBodyEnd rest =
+      let fullBody = T.strip (dropPragmaName "INLINABLE" body)
+       in Just (PragmaInline "INLINABLE" fullBody)
   | Just rest <- T.stripPrefix "NOINLINEABLE" upperBody,
     isPragmaBodyEnd rest =
       let fullBody = T.strip (dropPragmaName "NOINLINEABLE" body)
        in Just (PragmaInline "NOINLINEABLE" fullBody)
+  | Just rest <- T.stripPrefix "NOINLINABLE" upperBody,
+    isPragmaBodyEnd rest =
+      let fullBody = T.strip (dropPragmaName "NOINLINABLE" body)
+       in Just (PragmaInline "NOINLINABLE" fullBody)
   | Just rest <- T.stripPrefix "INLINE" upperBody,
     isPragmaBodyEnd rest =
       let fullBody = T.strip (dropPragmaName "INLINE" body)

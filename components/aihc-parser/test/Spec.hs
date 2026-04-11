@@ -16,7 +16,8 @@ import Test.Lexer.Suite (lexerTests)
 import Test.Oracle.Suite (oracleTests)
 import Test.Parser.Suite (parserGoldenTests)
 import Test.Performance.Suite (parserPerformanceTests)
-import Test.Properties.ExprHelpers (genOperator, isValidGeneratedOperator)
+import Test.Properties.Arb.Expr (genOperator, isValidGeneratedOperator)
+import Test.Properties.DeclRoundTrip (prop_declPrettyRoundTrip)
 import Test.Properties.ExprRoundTrip (prop_exprPrettyRoundTrip)
 import Test.Properties.Identifiers (isValidGeneratedIdent, shrinkIdent)
 import Test.Properties.ModuleRoundTrip (prop_modulePrettyRoundTrip)
@@ -183,6 +184,7 @@ buildTests = do
           testGroup
             "properties"
             [ QC.testProperty "generated expr AST pretty-printer round-trip" prop_exprPrettyRoundTrip,
+              QC.testProperty "generated decl AST pretty-printer round-trip" prop_declPrettyRoundTrip,
               QC.testProperty "generated module AST pretty-printer round-trip" prop_modulePrettyRoundTrip,
               QC.testProperty "generated pattern AST pretty-printer round-trip" prop_patternPrettyRoundTrip,
               QC.testProperty "generated type AST pretty-printer round-trip" prop_typePrettyRoundTrip
