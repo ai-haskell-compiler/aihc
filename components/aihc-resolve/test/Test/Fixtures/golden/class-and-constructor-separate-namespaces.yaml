@@ -25,8 +25,9 @@ annotated:
          │          └─ (value) Main.ClsName
          └─ (type) Main.DataType
     fn :: ClsName a => a -> DataType
-    └─ (value) Main.fn      └─ (type) Main.DataType
-          └─ (type) Main.ClsName
+    │     │                 └─ (type) Main.DataType
+    │     └─ (type) Main.ClsName
+    └─ (value) Main.fn
     fn _ = ClsName
     │      └─ (value) Main.ClsName
     └─ (value) Main.fn

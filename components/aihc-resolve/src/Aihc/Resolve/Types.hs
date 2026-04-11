@@ -277,6 +277,11 @@ layoutAnnotationLines items =
 -- | Try to pack annotations onto one line, processing right-to-left.
 -- Returns (annotations that fit on this line, annotations deferred to next lines).
 -- Both lists are in left-to-right order (by column).
+--
+-- An annotation fits on the current line only if:
+--   1. Its rendered text ends before the nearest placed annotation to its right.
+--   2. Its rendered text does not cross through the column of any deferred annotation
+--      (which would need a │ vertical bar on this line).
 packLine :: [AnnotationItem] -> ([AnnotationItem], [AnnotationItem])
 packLine [] = ([], [])
 packLine (rightmost : rest) =
@@ -284,9 +289,12 @@ packLine (rightmost : rest) =
       go minCol (item@(col, label) : remaining) fitted deferred =
         -- The annotation marker is "└─ " (3 chars) followed by the label.
         -- It occupies columns [col .. col + 3 + length label - 1].
-        -- To fit, the end of this annotation must be < minCol (with a gap).
         let annotEnd = col + 3 + length label
-         in if annotEnd <= minCol
+            -- Check: annotation text must end before the nearest placed item
+            fitsBeforePlaced = annotEnd <= minCol
+            -- Check: annotation text must not cross any deferred column
+            crossesDeferred = any ((\d -> d > col && d < annotEnd) . fst) deferred
+         in if fitsBeforePlaced && not crossesDeferred
               then go col remaining (item : fitted) deferred
               else go minCol remaining fitted (item : deferred)
    in go (fst rightmost) rest [rightmost] []
