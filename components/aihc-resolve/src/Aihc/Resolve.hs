@@ -1,7 +1,12 @@
 {-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 module Aihc.Resolve
-  ( resolve,
+  ( pattern DeclResolution,
+    pattern EResolution,
+    pattern PResolution,
+    pattern TResolution,
+    resolve,
     ResolveError (..),
     ResolveResult (..),
     ResolvedName (..),

@@ -778,7 +778,7 @@ data Module = Module
     moduleImports :: [ImportDecl],
     moduleDecls :: [Decl]
   }
-  deriving (Eq, Show, Generic, NFData)
+  deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan Module where
   getSourceSpan = moduleSpan
@@ -789,7 +789,7 @@ data ModuleHead = ModuleHead
     moduleHeadWarningText :: Maybe WarningText,
     moduleHeadExports :: Maybe [ExportSpec]
   }
-  deriving (Eq, Show, Generic, NFData)
+  deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan ModuleHead where
   getSourceSpan = moduleHeadSpan
@@ -825,7 +825,7 @@ data ExportSpec
   | ExportAbs SourceSpan (Maybe WarningText) (Maybe IEEntityNamespace) Name
   | ExportAll SourceSpan (Maybe WarningText) (Maybe IEEntityNamespace) Name
   | ExportWith SourceSpan (Maybe WarningText) (Maybe IEEntityNamespace) Name [IEBundledMember]
-  deriving (Eq, Show, Generic, NFData)
+  deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan ExportSpec where
   getSourceSpan spec =
@@ -848,7 +848,7 @@ data ImportDecl = ImportDecl
     importDeclAs :: Maybe Text,
     importDeclSpec :: Maybe ImportSpec
   }
-  deriving (Eq, Show, Generic, NFData)
+  deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan ImportDecl where
   getSourceSpan = importDeclSpan
@@ -856,14 +856,14 @@ instance HasSourceSpan ImportDecl where
 data ImportLevel
   = ImportLevelQuote
   | ImportLevelSplice
-  deriving (Eq, Show, Generic, NFData)
+  deriving (Data, Eq, Show, Generic, NFData)
 
 data ImportSpec = ImportSpec
   { importSpecSpan :: SourceSpan,
     importSpecHiding :: Bool,
     importSpecItems :: [ImportItem]
   }
-  deriving (Eq, Show, Generic, NFData)
+  deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan ImportSpec where
   getSourceSpan = importSpecSpan
@@ -873,7 +873,7 @@ data ImportItem
   | ImportItemAbs SourceSpan (Maybe IEEntityNamespace) UnqualifiedName
   | ImportItemAll SourceSpan (Maybe IEEntityNamespace) UnqualifiedName
   | ImportItemWith SourceSpan (Maybe IEEntityNamespace) UnqualifiedName [IEBundledMember]
-  deriving (Eq, Show, Generic, NFData)
+  deriving (Data, Eq, Show, Generic, NFData)
 
 data Decl
   = DeclAnn Annotation Decl

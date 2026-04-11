@@ -5,8 +5,9 @@ modules:
     x = 1
     y = x
 expected:
-  - "2:1-2:2 x => Main.x"
-  - "3:1-3:2 y => Main.y"
-  - "3:5-3:6 x => Main.x"
+  Main:
+    - "2:1-2:2 x => Main.x"
+    - "3:1-3:2 y => Main.y"
+    - "3:5-3:6 x => Main.x"
 status: pass
 reason: ""

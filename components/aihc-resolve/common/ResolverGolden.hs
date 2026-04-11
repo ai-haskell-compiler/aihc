@@ -21,9 +21,11 @@ import Aihc.Parser
 import Aihc.Parser.Syntax (Extension, parseExtensionName)
 import Aihc.Resolve (ResolveResult (..), renderResolveResult, resolve)
 import Data.Aeson ((.!=), (.:), (.:?))
+import qualified Data.Aeson.Key as Key
+import qualified Data.Aeson.KeyMap as KeyMap
 import Data.Aeson.Types (parseEither, withArray, withObject)
 import Data.Char (isSpace, toLower)
-import Data.List (dropWhileEnd, sort)
+import Data.List (dropWhileEnd, sort, sortOn)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Text.Encoding (encodeUtf8)
@@ -130,9 +132,18 @@ parseExpectedValue value =
   case value of
     Y.String txt -> pure txt
     Y.Array arr -> T.intercalate "\n" <$> mapM parseExpectedLine (toList arr)
+    Y.Object obj ->
+      T.intercalate "\n"
+        <$> mapM parseExpectedModule (sortOn (Key.toText . fst) (KeyMap.toList obj))
     _ -> fail "expected must be a string or a list of strings"
   where
     toList = foldr (:) []
+    parseExpectedModule (moduleName, moduleValue) = do
+      moduleLines <- parseExpectedModuleLines moduleValue
+      pure (Key.toText moduleName <> ":\n" <> T.intercalate "\n" (map ("  " <>) moduleLines))
+    parseExpectedModuleLines (Y.String txt) = pure [txt]
+    parseExpectedModuleLines (Y.Array arr) = mapM parseExpectedLine (toList arr)
+    parseExpectedModuleLines _ = fail "each expected module value must be a string or a list of strings"
     parseExpectedLine (Y.String txt) = pure txt
     parseExpectedLine _ = fail "each expected list entry must be a string"
 

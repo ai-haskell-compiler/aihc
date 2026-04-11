@@ -1,7 +1,13 @@
 {-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE ViewPatterns #-}
 
 module Aihc.Resolve.Types
-  ( ResolvedName (..),
+  ( pattern DeclResolution,
+    pattern EResolution,
+    pattern PResolution,
+    pattern TResolution,
+    ResolvedName (..),
     ResolutionAnnotation (..),
     ResolveError (..),
     ResolveResult (..),
@@ -11,20 +17,22 @@ module Aihc.Resolve.Types
 where
 
 import Aihc.Parser.Syntax
-  ( Annotation,
-    Decl (..),
+  ( Decl (..),
     Expr (..),
     Module (..),
     Name,
     Pattern (..),
     SourceSpan (..),
+    Type (..),
     UnqualifiedName,
     fromAnnotation,
+    moduleName,
     renderName,
     renderUnqualifiedName,
   )
 import Data.Data (Data, cast, gmapQ)
 import Data.List (intercalate, sortOn)
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Typeable (Typeable)
@@ -52,9 +60,21 @@ data ResolveResult = ResolveResult
   }
   deriving (Show)
 
+pattern DeclResolution :: ResolutionAnnotation -> Decl
+pattern DeclResolution resolution <- DeclAnn (fromAnnotation -> Just resolution) _
+
+pattern PResolution :: ResolutionAnnotation -> Pattern
+pattern PResolution resolution <- PAnn (fromAnnotation -> Just resolution) _
+
+pattern TResolution :: ResolutionAnnotation -> Type
+pattern TResolution resolution <- TAnn (fromAnnotation -> Just resolution) _
+
+pattern EResolution :: ResolutionAnnotation -> Expr
+pattern EResolution resolution <- EAnn (fromAnnotation -> Just resolution) _
+
 renderResolveResult :: ResolveResult -> String
 renderResolveResult result =
-  intercalate "\n" (map renderResolutionAnnotation (sortOn annotationKey (collectModules (resolvedModules result))))
+  intercalate "\n" (map renderModuleAnnotations (sortOn fst (collectModules (resolvedModules result))))
 
 renderResolvedName :: ResolvedName -> String
 renderResolvedName resolvedName =
@@ -71,13 +91,13 @@ renderResolutionAnnotation ann =
     <> " => "
     <> renderResolvedName (resolutionTarget ann)
 
-annotationKey :: ResolutionAnnotation -> (FilePath, Int, Int, Int, Int, Text)
+annotationKey :: ResolutionAnnotation -> (Int, Int, Int, Int, Text)
 annotationKey ann =
   case resolutionSpan ann of
-    SourceSpan path startLine startCol endLine endCol _ _ ->
-      (path, startLine, startCol, endLine, endCol, resolutionName ann)
+    SourceSpan _ startLine startCol endLine endCol _ _ ->
+      (startLine, startCol, endLine, endCol, resolutionName ann)
     NoSourceSpan ->
-      ("", maxBound, maxBound, maxBound, maxBound, resolutionName ann)
+      (maxBound, maxBound, maxBound, maxBound, resolutionName ann)
 
 renderSourceSpan :: SourceSpan -> String
 renderSourceSpan span' =
@@ -92,8 +112,12 @@ renderSourceSpan span' =
         <> show endCol
     NoSourceSpan -> "<no-source>"
 
-collectModules :: [Module] -> [ResolutionAnnotation]
-collectModules = concatMap (concatMap collectAnnotations . moduleDecls)
+collectModules :: [Module] -> [(Text, [ResolutionAnnotation])]
+collectModules = map collectModuleAnnotations
+
+collectModuleAnnotations :: Module -> (Text, [ResolutionAnnotation])
+collectModuleAnnotations modu =
+  (moduleDisplayName modu, collectAnnotations modu)
 
 collectAnnotations :: (Data a) => a -> [ResolutionAnnotation]
 collectAnnotations node =
@@ -101,27 +125,40 @@ collectAnnotations node =
 
 ownAnnotation :: (Data a) => a -> [ResolutionAnnotation]
 ownAnnotation node =
-  case cast node of
-    Just decl ->
-      case decl of
-        DeclAnn ann _ -> maybeAnnotation ann
-        _ -> []
-    Nothing ->
-      case cast node of
-        Just pat ->
-          case pat of
-            PAnn ann _ -> maybeAnnotation ann
-            _ -> []
-        Nothing ->
-          case cast node of
-            Just expr ->
-              case expr of
-                EAnn ann _ -> maybeAnnotation ann
-                _ -> []
-            Nothing -> []
+  declResolution (cast node)
+    <> patternResolution (cast node)
+    <> typeResolution (cast node)
+    <> exprResolution (cast node)
 
-maybeAnnotation :: Annotation -> [ResolutionAnnotation]
-maybeAnnotation ann =
-  case fromAnnotation ann :: Maybe ResolutionAnnotation of
-    Just resolution -> [resolution]
-    Nothing -> []
+declResolution :: Maybe Decl -> [ResolutionAnnotation]
+declResolution maybeDecl =
+  case maybeDecl of
+    Just (DeclResolution resolution) -> [resolution]
+    _ -> []
+
+patternResolution :: Maybe Pattern -> [ResolutionAnnotation]
+patternResolution maybePattern =
+  case maybePattern of
+    Just (PResolution resolution) -> [resolution]
+    _ -> []
+
+typeResolution :: Maybe Type -> [ResolutionAnnotation]
+typeResolution maybeType =
+  case maybeType of
+    Just (TResolution resolution) -> [resolution]
+    _ -> []
+
+exprResolution :: Maybe Expr -> [ResolutionAnnotation]
+exprResolution maybeExpr =
+  case maybeExpr of
+    Just (EResolution resolution) -> [resolution]
+    _ -> []
+
+renderModuleAnnotations :: (Text, [ResolutionAnnotation]) -> String
+renderModuleAnnotations (moduleNameText, annotations) =
+  T.unpack moduleNameText
+    <> ":\n"
+    <> intercalate "\n" (map (("  " <>) . renderResolutionAnnotation) (sortOn annotationKey annotations))
+
+moduleDisplayName :: Module -> Text
+moduleDisplayName modu = fromMaybe (T.pack "<unnamed>") (moduleName modu)
