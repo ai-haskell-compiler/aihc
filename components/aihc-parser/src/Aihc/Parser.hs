@@ -22,14 +22,16 @@ module Aihc.Parser
     ParseErrorBundle,
     formatParseErrors,
 
-    -- * Parsing expressions, patterns, and types
+    -- * Parsing expressions, patterns, types, and declarations
     parseExpr,
     parseType,
     parsePattern,
+    parseDecl,
   )
 where
 
 import Aihc.Parser.Internal.Common (drainParseErrors, eofTok)
+import Aihc.Parser.Internal.Decl (declParser)
 import Aihc.Parser.Internal.Expr (exprParser, patternParser, typeParser)
 import Aihc.Parser.Internal.Module (moduleParser)
 import Aihc.Parser.Lex
@@ -37,7 +39,7 @@ import Aihc.Parser.Lex
     TokenOrigin (..),
   )
 import Aihc.Parser.Pretty ()
-import Aihc.Parser.Syntax (Expr, Module (..), Pattern, SourceSpan (..), Type)
+import Aihc.Parser.Syntax (Decl, Expr, Module (..), Pattern, SourceSpan (..), Type)
 import Aihc.Parser.Types
 import Data.ByteString qualified as BS
 import Data.List qualified as List
@@ -125,6 +127,17 @@ parseType cfg input =
    in case runParser (typeParser <* eofTok) (parserSourceName cfg) ts of
         Left bundle -> ParseErr bundle
         Right ty -> ParseOk ty
+
+-- | Parse a single Haskell declaration.
+--
+-- >>> shorthand $ parseDecl defaultConfig "f x = x + 1"
+-- ParseOk (DeclValue (FunctionBind "f" [Match {headForm = Prefix, pats = [PVar "x"], rhs = UnguardedRhs (EInfix (EVar "x") "+" (EInt 1))}]))
+parseDecl :: ParserConfig -> Text -> ParseResult Decl
+parseDecl cfg input =
+  let ts = mkTokStream (parserSourceName cfg) (parserExtensions cfg) input
+   in case runParser (declParser <* eofTok) (parserSourceName cfg) ts of
+        Left bundle -> ParseErr bundle
+        Right decl -> ParseOk decl
 
 -- | Parse a complete Haskell module.
 --

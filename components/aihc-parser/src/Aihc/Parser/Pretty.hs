@@ -53,6 +53,10 @@ instance Pretty Expr where
 instance Pretty Pattern where
   pretty = prettyPattern
 
+-- | Pretty instance for Decl - renders to valid Haskell source code.
+instance Pretty Decl where
+  pretty decl = vsep (prettyDeclLines decl)
+
 -- | Pretty instance for Type - renders to valid Haskell source code.
 instance Pretty Type where
   pretty = prettyType
@@ -1505,7 +1509,6 @@ prettyDoStmt :: DoStmt Expr -> Doc ann
 prettyDoStmt stmt =
   case stmt of
     DoBind _ pat expr -> prettyPattern pat <+> "<-" <+> prettyExprPrec 0 expr
-    DoLet _ bindings -> "let" <+> braces (hsep (punctuate semi (map prettyBinding bindings)))
     DoLetDecls _ decls -> "let" <+> braces (prettyInlineDecls decls)
     DoExpr _ expr -> prettyExprPrec 0 expr
     DoRecStmt _ stmts -> "rec" <+> "{" <+> hsep (punctuate semi (map prettyDoStmt stmts)) <+> "}"
@@ -1540,7 +1543,6 @@ prettyCmdStmt :: DoStmt Cmd -> Doc ann
 prettyCmdStmt stmt =
   case stmt of
     DoBind _ pat cmd' -> prettyPattern pat <+> "<-" <+> prettyCmd cmd'
-    DoLet _ bindings -> "let" <+> braces (hsep (punctuate semi (map prettyBinding bindings)))
     DoLetDecls _ decls -> "let" <+> braces (prettyInlineDecls decls)
     DoExpr _ cmd' -> prettyCmd cmd'
     DoRecStmt _ stmts -> "rec" <+> "{" <+> hsep (punctuate semi (map prettyCmdStmt stmts)) <+> "}"
