@@ -230,12 +230,13 @@ data ImplicitLayoutKind
   = LayoutOrdinary
   | LayoutLetBlock
   | LayoutMultiWayIf
-  | LayoutAfterThenElse
+  | LayoutAfterThenElse !Int !Int -- if column + then/do column (for body indentation)
   deriving (Eq, Show)
 
 data PendingLayout
   = PendingImplicitLayout !ImplicitLayoutKind
   | PendingMaybeMultiWayIf
+  | PendingThenElseLayout !ImplicitLayoutKind !Int -- layout kind + line where then/else was
   deriving (Eq, Show)
 
 data ModuleLayoutMode
@@ -254,7 +255,9 @@ data LayoutState = LayoutState
     layoutModuleMode :: !ModuleLayoutMode,
     layoutPrevTokenEndSpan :: !(Maybe SourceSpan),
     layoutBuffer :: [LexToken],
-    layoutNondecreasingIndent :: !Bool
+    layoutNondecreasingIndent :: !Bool,
+    layoutIfColumnStack :: ![Int], -- stack of 'if' columns awaiting 'then'
+    layoutThenColumn :: !(Maybe Int) -- column of most recent 'then' awaiting 'do'/'else'
   }
   deriving (Eq, Show)
 
@@ -302,7 +305,9 @@ mkInitialLayoutState enableModuleLayout exts =
           else ModuleLayoutOff,
       layoutPrevTokenEndSpan = Nothing,
       layoutBuffer = [],
-      layoutNondecreasingIndent = Syntax.NondecreasingIndentation `elem` exts
+      layoutNondecreasingIndent = Syntax.NondecreasingIndentation `elem` exts,
+      layoutIfColumnStack = [],
+      layoutThenColumn = Nothing
     }
 
 mkToken :: LexerState -> LexerState -> Text -> LexTokenKind -> LexToken

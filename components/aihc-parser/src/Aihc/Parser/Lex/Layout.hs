@@ -74,6 +74,21 @@ openPendingLayout st tok =
           case lexTokenKind tok of
             TkSpecialLBrace -> ([], st {layoutPendingLayout = Nothing}, False)
             _ -> openImplicitLayout kind st tok
+        PendingThenElseLayout kind thenLine ->
+          -- Only open layout if the next token is on a different line than 'then'/'else'.
+          -- This handles 'then do' (newline) vs 'then x' (same line).
+          -- Also skip if the next token is a keyword that sets its own layout (do, let, if).
+          case lexTokenKind tok of
+            TkSpecialLBrace -> ([], st {layoutPendingLayout = Nothing}, False)
+            TkKeywordDo -> ([], st {layoutPendingLayout = Nothing}, False)
+            TkKeywordLet -> ([], st {layoutPendingLayout = Nothing}, False)
+            TkKeywordIf -> ([], st {layoutPendingLayout = Nothing}, False)
+            TkKeywordCase -> ([], st {layoutPendingLayout = Nothing}, False)
+            _
+              | tokenStartLine tok > thenLine ->
+                  openImplicitLayout kind st tok
+              | otherwise ->
+                  ([], st {layoutPendingLayout = Nothing}, False)
 
 openImplicitLayout :: ImplicitLayoutKind -> LayoutState -> LexToken -> ([LexToken], LayoutState, Bool)
 openImplicitLayout kind st tok =
@@ -111,10 +126,36 @@ closeBeforeToken st tok =
         closeImplicitLayouts (lexTokenSpan tok) (\indent _ -> tokenStartCol tok <= indent)
       _ -> noLayoutClosures
   where
+    isLayoutAfterThenElse :: ImplicitLayoutKind -> Bool
+    isLayoutAfterThenElse LayoutAfterThenElse {} = True
+    isLayoutAfterThenElse _ = False
+
+    getThenColumn :: ImplicitLayoutKind -> Int
+    getThenColumn (LayoutAfterThenElse _ c) = c
+    getThenColumn _ = 0
+
     closeBeforeThenElse =
       let col = tokenStartCol tok
-       in closeImplicitLayouts (lexTokenSpan tok) $
-            \indent kind -> col < indent || (kind == LayoutAfterThenElse && col <= indent)
+          anchor = lexTokenSpan tok
+          closeTok = virtualSymbolToken "}" anchor
+          -- Close non-LayoutAfterThenElse contexts with col < indent (normal behavior).
+          -- Then close at most ONE LayoutAfterThenElse, but only if col == thenCol
+          -- (else is at the same column as its matching 'then'). This prevents nested
+          -- if-then-else from incorrectly closing outer then-do layouts.
+          go ctxs =
+            case ctxs of
+              LayoutImplicit indent kind : rest
+                | col < indent && not (isLayoutAfterThenElse kind) ->
+                    let (inserted, rest') = go rest
+                     in (closeTok : inserted, rest')
+                | isLayoutAfterThenElse kind && col <= getThenColumn kind ->
+                    -- Close this LayoutAfterThenElse: else is at or less indented than the then body.
+                    -- This handles both same-level if-then-else and nested cases.
+                    ([closeTok], rest)
+                | otherwise ->
+                    ([], ctxs)
+              _ -> ([], ctxs)
+       in go
 
     closeWith closeContexts =
       let (inserted, contexts') = closeContexts (layoutContexts st)
@@ -173,7 +214,14 @@ stepTokenContext st tok =
     TkKeywordDo
       | layoutPrevTokenKind st == Just TkKeywordThen
           || layoutPrevTokenKind st == Just TkKeywordElse ->
-          st {layoutPendingLayout = Just (PendingImplicitLayout LayoutAfterThenElse)}
+          -- do after then/else: use LayoutAfterThenElse with ifCol and the then column
+          let ifCol = case layoutIfColumnStack st of (c : _) -> c; [] -> 0
+              thenCol = fromMaybe 1 (layoutThenColumn st)
+           in st
+            { layoutPendingLayout = Just (PendingImplicitLayout (LayoutAfterThenElse ifCol thenCol)),
+              layoutIfColumnStack = drop 1 (layoutIfColumnStack st),
+              layoutThenColumn = Nothing
+            }
       | otherwise -> st {layoutPendingLayout = Just (PendingImplicitLayout LayoutOrdinary)}
     TkKeywordMdo -> st {layoutPendingLayout = Just (PendingImplicitLayout LayoutOrdinary)}
     TkKeywordOf -> st {layoutPendingLayout = Just (PendingImplicitLayout LayoutOrdinary)}
@@ -184,7 +232,18 @@ stepTokenContext st tok =
     TkKeywordLet -> st {layoutPendingLayout = Just (PendingImplicitLayout LayoutLetBlock)}
     TkKeywordRec -> st {layoutPendingLayout = Just (PendingImplicitLayout LayoutOrdinary)}
     TkKeywordWhere -> st {layoutPendingLayout = Just (PendingImplicitLayout LayoutOrdinary)}
-    TkKeywordIf -> st {layoutPendingLayout = Just PendingMaybeMultiWayIf}
+    TkKeywordIf -> st {layoutPendingLayout = Just PendingMaybeMultiWayIf, layoutIfColumnStack = tokenStartCol tok : layoutIfColumnStack st}
+    TkKeywordThen ->
+      -- then at end of line: set pending LayoutAfterThenElse so the body (on next line) gets tracked.
+      -- Use PendingThenElseLayout to track the line number; openPendingLayout only opens
+      -- layout if the next token is on a different line.
+      let ifCol = case layoutIfColumnStack st of (c : _) -> c; [] -> 0
+          thenCol = tokenStartCol tok
+       in st
+        { layoutPendingLayout = Just (PendingThenElseLayout (LayoutAfterThenElse ifCol thenCol) (tokenStartLine tok)),
+          layoutIfColumnStack = drop 1 (layoutIfColumnStack st),
+          layoutThenColumn = Just thenCol
+        }
     kind
       | opensDelimiter kind ->
           st {layoutContexts = LayoutDelimiter : layoutContexts st}
