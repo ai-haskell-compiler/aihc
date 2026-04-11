@@ -62,6 +62,7 @@ module Aihc.Parser.Syntax
     NameType (..),
     UnqualifiedName (..),
     WarningText (..),
+    Annotation,
     NewtypeDecl (..),
     OperatorName,
     PatSynArgs (..),
@@ -118,13 +119,15 @@ module Aihc.Parser.Syntax
     moduleName,
     moduleWarningText,
     moduleExports,
+    mkAnnotation,
+    fromAnnotation,
   )
 where
 
 import Control.DeepSeq (NFData (..))
 import Data.Char (isAsciiLower, isAsciiUpper, isDigit)
 import Data.Data (Constr, Data (..), DataType, Fixity (Prefix), mkConstr, mkDataType)
-import Data.Dynamic
+import Data.Dynamic (Dynamic, Typeable, fromDynamic, toDyn)
 import Data.List (sort)
 import Data.Map qualified as Map
 import Data.Maybe (mapMaybe)
@@ -1536,6 +1539,12 @@ data ForeignSafety
 
 newtype Annotation = Annotation Dynamic
   deriving (Show, Generic)
+
+mkAnnotation :: (Typeable a) => a -> Annotation
+mkAnnotation = Annotation . toDyn
+
+fromAnnotation :: (Typeable a) => Annotation -> Maybe a
+fromAnnotation (Annotation value) = fromDynamic value
 
 instance Data Annotation where
   gfoldl _ z = z
