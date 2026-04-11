@@ -3,8 +3,8 @@
 ## Summary
 
 - Total Extensions: 79
-- Supported: 64
-- In Progress: 15
+- Supported: 70
+- In Progress: 9
 
 ## Extension Status
 
@@ -14,12 +14,12 @@
 | Arrows                     |   🟢    | 17/17         |
 | BangPatterns               |   🟢    | 8/8           |
 | BinaryLiterals             |   🟢    | 3/3           |
-| BlockArguments             |   🟢    | 5/5           |
+| BlockArguments             |   🟢    | 6/6           |
 | CApiFFI                    |   🟢    | 1/1           |
 | ConstrainedClassMethods    |   🟢    | 1/1           |
 | ConstraintKinds            |   🟢    | 2/2           |
 | CPP                        |   🟢    | 7/7           |
-| DataKinds                  |   🔴    | 19/22         |
+| DataKinds                  |   🟡    | 27/28         |
 | DefaultSignatures          |   🟢    | 3/3           |
 | DeriveAnyClass             |   🟢    | 1/1           |
 | DerivingStrategies         |   🟢    | 8/8           |
@@ -31,7 +31,7 @@
 | ExistentialQuantification  |   🟢    | 7/7           |
 | ExplicitForAll             |   🟢    | 16/16         |
 | ExplicitLevelImports       |   🟢    | 4/4           |
-| ExplicitNamespaces         |   🟢    | 21/21         |
+| ExplicitNamespaces         |   🟢    | 22/22         |
 | ExtendedLiterals           |   🟢    | 2/2           |
 | FlexibleContexts           |   🟢    | 4/4           |
 | FlexibleInstances          |   🟢    | 14/14         |
@@ -40,7 +40,7 @@
 | GADTs                      |   🟢    | 10/10         |
 | GADTSyntax                 |   🟡    | 9/10          |
 | GeneralizedNewtypeDeriving |   🟢    | 1/1           |
-| GHC2021                    |   🔴    | 1/12          |
+| GHC2021                    |   🔴    | 17/22         |
 | Haskell2010                |   🟢    | 1/1           |
 | HexFloatLiterals           |   🟢    | 3/3           |
 | ImplicitParams             |   🟢    | 7/7           |
@@ -55,12 +55,12 @@
 | MultiWayIf                 |   🟢    | 5/5           |
 | NamedFieldPuns             |   🟢    | 6/6           |
 | NamedWildCards             |   🟢    | 5/5           |
-| NondecreasingIndentation   |   🔴    | 0/1           |
+| NondecreasingIndentation   |   🟢    | 3/3           |
 | NumericUnderscores         |   🟢    | 4/4           |
 | OverloadedLabels           |   🟢    | 3/3           |
 | OverloadedRecordDot        |   🟢    | 1/1           |
-| OverloadedStrings          |   🔴    | 0/1           |
-| PackageImports             |   🔴    | 4/5           |
+| OverloadedStrings          |   🟢    | 1/1           |
+| PackageImports             |   🟢    | 6/6           |
 | PartialTypeSignatures      |   🟢    | 11/11         |
 | PatternGuards              |   🟢    | 5/5           |
 | PatternSynonyms            |   🟢    | 24/24         |
@@ -71,19 +71,19 @@
 | RecordWildCards            |   🟢    | 5/5           |
 | RecursiveDo                |   🟢    | 2/2           |
 | RequiredTypeArguments      |   🔴    | 0/2           |
-| RoleAnnotations            |   🔴    | 5/6           |
-| Safe                       |   🔴    | 0/1           |
+| RoleAnnotations            |   🟢    | 7/7           |
+| Safe                       |   🟢    | 2/2           |
 | ScopedTypeVariables        |   🟢    | 15/15         |
 | StandaloneDeriving         |   🟢    | 16/16         |
-| StandaloneKindSignatures   |   🔴    | 7/8           |
+| StandaloneKindSignatures   |   🟢    | 10/10         |
 | StarIsType                 |   🟢    | 1/1           |
-| TemplateHaskell            |   🔴    | 21/24         |
+| TemplateHaskell            |   🔴    | 21/25         |
 | TemplateHaskellQuotes      |   🟢    | 8/8           |
 | TupleSections              |   🟢    | 4/4           |
 | TypeApplications           |   🟢    | 8/8           |
 | TypeData                   |   🟢    | 1/1           |
-| TypeFamilies               |   🟡    | 25/26         |
-| TypeOperators              |   🔴    | 20/23         |
+| TypeFamilies               |   🟡    | 27/28         |
+| TypeOperators              |   🟡    | 29/30         |
 | TypeSynonymInstances       |   🟢    | 1/1           |
 | UnboxedSums                |   🟢    | 3/3           |
 | UnboxedTuples              |   🟢    | 7/7           |
