@@ -30,8 +30,10 @@ module Aihc.Parser
 where
 
 import Aihc.Parser.Internal.Common (drainParseErrors, eofTok)
-import Aihc.Parser.Internal.Expr (exprParser, patternParser, typeParser)
+import Aihc.Parser.Internal.Expr (exprParser)
 import Aihc.Parser.Internal.Module (moduleParser)
+import Aihc.Parser.Internal.Pattern (patternParser)
+import Aihc.Parser.Internal.Type (typeParser)
 import Aihc.Parser.Lex
   ( LexToken (..),
     TokenOrigin (..),
