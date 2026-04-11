@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail multiple operator patterns in function definition -}
+{- ORACLE_TEST pass -}
 module MultipleOperatorPatterns where
 
 data Expr a = Const a | Plus a a | Minus a a | Times a a | Divide a a
