@@ -2012,10 +2012,20 @@ typeInfixOperatorParser =
           _ -> Nothing
 
     promotedInfixOperatorParser = MP.try $ do
-      -- Accept both TkVarSym "'" and TkTHQuoteTick for promoted cons
-      expectedTok (TkVarSym "'") <|> expectedTok TkTHQuoteTick <|> fail "expected quote for promoted cons"
-      expectedTok TkReservedColon
-      pure (qualifyName Nothing (mkUnqualifiedName NameConSym ":"), Promoted)
+      -- Accept both TkVarSym "'" and TkTHQuoteTick for promoted operators
+      expectedTok (TkVarSym "'") <|> expectedTok TkTHQuoteTick
+      -- After the quote, accept any symbolic infix operator (e.g., ': for promoted cons,
+      -- or ':$$: for a promoted user-defined type operator)
+      tokenSatisfy "promoted type infix operator" $ \tok ->
+        case lexTokenKind tok of
+          TkReservedColon -> Just (qualifyName Nothing (mkUnqualifiedName NameConSym ":"), Promoted)
+          TkVarSym sym
+            | sym /= "." && sym /= "!" ->
+                Just (qualifyName Nothing (mkUnqualifiedName NameVarSym sym), Promoted)
+          TkConSym sym -> Just (qualifyName Nothing (mkUnqualifiedName NameConSym sym), Promoted)
+          TkQVarSym modName sym -> Just (mkName (Just modName) NameVarSym sym, Promoted)
+          TkQConSym modName sym -> Just (mkName (Just modName) NameConSym sym, Promoted)
+          _ -> Nothing
 
 typeAppParser :: TokParser Type
 typeAppParser = do
