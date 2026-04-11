@@ -230,13 +230,12 @@ data ImplicitLayoutKind
   = LayoutOrdinary
   | LayoutLetBlock
   | LayoutMultiWayIf
-  | LayoutAfterThenElse !Int !Int -- if column + then/do column (for body indentation)
+  | LayoutAfterThenElse !Int -- column of the 'then'/'else' keyword that opened this do-block
   deriving (Eq, Show)
 
 data PendingLayout
   = PendingImplicitLayout !ImplicitLayoutKind
   | PendingMaybeMultiWayIf
-  | PendingThenElseLayout !ImplicitLayoutKind !Int -- layout kind + line where then/else was
   deriving (Eq, Show)
 
 data ModuleLayoutMode
@@ -256,8 +255,7 @@ data LayoutState = LayoutState
     layoutPrevTokenEndSpan :: !(Maybe SourceSpan),
     layoutBuffer :: [LexToken],
     layoutNondecreasingIndent :: !Bool,
-    layoutIfColumnStack :: ![Int], -- stack of 'if' columns awaiting 'then'
-    layoutThenColumn :: !(Maybe Int) -- column of most recent 'then' awaiting 'do'/'else'
+    layoutThenColumn :: !(Maybe Int) -- column of most recent 'then'/'else' awaiting 'do'
   }
   deriving (Eq, Show)
 
@@ -306,7 +304,6 @@ mkInitialLayoutState enableModuleLayout exts =
       layoutPrevTokenEndSpan = Nothing,
       layoutBuffer = [],
       layoutNondecreasingIndent = Syntax.NondecreasingIndentation `elem` exts,
-      layoutIfColumnStack = [],
       layoutThenColumn = Nothing
     }
 
