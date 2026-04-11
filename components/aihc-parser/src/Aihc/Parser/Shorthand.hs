@@ -76,6 +76,9 @@ instance Shorthand Module where
           <> listField "imports" docImportDecl (moduleImports modu)
           <> listField "decls" docDecl (moduleDecls modu)
 
+instance Shorthand Decl where
+  shorthand = docDecl
+
 instance Shorthand Expr where
   shorthand = docExpr
 
@@ -686,7 +689,6 @@ docDoStmt :: DoStmt Expr -> Doc ann
 docDoStmt stmt =
   case stmt of
     DoBind _ pat expr -> "DoBind" <+> parens (docPattern pat) <+> parens (docExpr expr)
-    DoLet _ bindings -> "DoLet" <+> braces (hsep (punctuate comma [docText name <+> "=" <+> docExpr e | (name, e) <- bindings]))
     DoLetDecls _ decls -> "DoLetDecls" <+> brackets (hsep (punctuate comma (map docDecl decls)))
     DoExpr _ expr -> "DoExpr" <+> parens (docExpr expr)
     DoRecStmt _ stmts -> "DoRecStmt" <+> brackets (hsep (punctuate comma (map docDoStmt stmts)))
@@ -717,7 +719,6 @@ docCmdStmt :: DoStmt Cmd -> Doc ann
 docCmdStmt stmt =
   case stmt of
     DoBind _ pat cmd' -> "DoBind" <+> parens (docPattern pat) <+> parens (docCmd cmd')
-    DoLet _ bindings -> "DoLet" <+> braces (hsep (punctuate comma [docText name <+> "=" <+> docExpr e | (name, e) <- bindings]))
     DoLetDecls _ decls -> "DoLetDecls" <+> brackets (hsep (punctuate comma (map docDecl decls)))
     DoExpr _ cmd' -> "DoExpr" <+> parens (docCmd cmd')
     DoRecStmt _ stmts -> "DoRecStmt" <+> brackets (hsep (punctuate comma (map docCmdStmt stmts)))

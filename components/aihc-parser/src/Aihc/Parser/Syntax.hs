@@ -1683,7 +1683,6 @@ instance HasSourceSpan CaseAlt where
 
 data DoStmt body
   = DoBind SourceSpan Pattern body
-  | DoLet SourceSpan [(Text, Expr)]
   | DoLetDecls SourceSpan [Decl]
   | DoExpr SourceSpan body
   | DoRecStmt SourceSpan [DoStmt body] -- rec { stmts }
@@ -1693,7 +1692,6 @@ instance HasSourceSpan (DoStmt body) where
   getSourceSpan doStmt =
     case doStmt of
       DoBind span' _ _ -> span'
-      DoLet span' _ -> span'
       DoLetDecls span' _ -> span'
       DoExpr span' _ -> span'
       DoRecStmt span' _ -> span'

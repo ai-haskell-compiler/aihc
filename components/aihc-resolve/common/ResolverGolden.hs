@@ -19,7 +19,7 @@ import Aihc.Parser
     parseModule,
   )
 import Aihc.Parser.Syntax (Extension, parseExtensionName)
-import Aihc.Resolve (ResolveResult (..), renderResolveResult, resolve)
+import Aihc.Resolve (ResolveResult (..), renderAnnotatedResolveResult, renderResolveResult, resolve)
 import Data.Aeson ((.!=), (.:), (.:?))
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KeyMap
@@ -55,6 +55,7 @@ data ResolverCase = ResolverCase
     caseExtensions :: ![Extension],
     caseModules :: ![Text],
     caseExpected :: !String,
+    caseAnnotated :: ![String],
     caseStatus :: !ExpectedStatus,
     caseReason :: !String
   }
@@ -85,13 +86,14 @@ parseResolverCaseText path source = do
     case Y.decodeEither' (encodeUtf8 source) of
       Left err -> Left ("Invalid YAML fixture " <> path <> ": " <> Y.prettyPrintParseException err)
       Right parsed -> Right parsed
-  (extNames, modules, expectedText, statusText, reasonText) <- parseYamlFixture path value
+  (extNames, modules, expectedText, annotatedTexts, statusText, reasonText) <- parseYamlFixture path value
   exts <- validateExtensions path extNames
   status <- parseStatus path statusText
   reason <- validateReason path status (T.unpack reasonText)
   expected <- validateExpected path status (T.unpack expectedText)
   let relPath = dropRootPrefix path
       category = categoryFromPath relPath
+      annotated = map (trim . T.unpack) annotatedTexts
   pure
     ResolverCase
       { caseId = relPath,
@@ -100,20 +102,22 @@ parseResolverCaseText path source = do
         caseExtensions = exts,
         caseModules = modules,
         caseExpected = expected,
+        caseAnnotated = annotated,
         caseStatus = status,
         caseReason = reason
       }
 
-parseYamlFixture :: FilePath -> Y.Value -> Either String ([Text], [Text], Text, Text, Text)
+parseYamlFixture :: FilePath -> Y.Value -> Either String ([Text], [Text], Text, [Text], Text, Text)
 parseYamlFixture path value =
   case parseEither
     ( withObject "resolver fixture" $ \obj -> do
         exts <- obj .: "extensions"
         modules <- obj .: "modules" >>= parseModules
         expectedText <- (obj .:? "expected" >>= traverse parseExpectedValue) .!= ""
+        annotatedList <- (obj .:? "annotated" >>= traverse parseAnnotatedList) .!= []
         statusText <- obj .: "status"
         reasonText <- obj .:? "reason" .!= ""
-        pure (exts, modules, expectedText, statusText, reasonText)
+        pure (exts, modules, expectedText, annotatedList, statusText, reasonText)
     )
     value of
     Left err -> Left ("Invalid resolver fixture schema in " <> path <> ": " <> err)
@@ -126,6 +130,13 @@ parseModules = withArray "modules" $ \arr ->
     toList = foldr (:) []
     parseModuleEntry (Y.String t) = pure t
     parseModuleEntry _ = fail "each module must be a string"
+
+parseAnnotatedList :: Y.Value -> Y.Parser [Text]
+parseAnnotatedList = withArray "annotated" $ \arr ->
+  mapM parseAnnotatedEntry (foldr (:) [] arr)
+  where
+    parseAnnotatedEntry (Y.String t) = pure t
+    parseAnnotatedEntry _ = fail "each annotated entry must be a string"
 
 parseExpectedValue :: Y.Value -> Y.Parser Text
 parseExpectedValue value =
@@ -155,7 +166,7 @@ evaluateResolverCase meta =
         Right modules ->
           let result = resolve modules
            in if null (resolveErrors result)
-                then classifySuccess meta (showResolved result)
+                then classifySuccess meta (showResolved result) (showAnnotated result)
                 else classifyFailure meta (showErrors result)
   where
     parserConfig input =
@@ -169,17 +180,22 @@ evaluateResolverCase meta =
             then Right ast
             else Left (formatParseErrors (T.unpack (T.takeWhile (/= '\n') input)) (Just input) errs)
     showResolved = renderResolveResult
+    showAnnotated = renderAnnotatedResolveResult (caseModules meta)
     showErrors result = unlines (map show (resolveErrors result))
 
-classifySuccess :: ResolverCase -> String -> (Outcome, String)
-classifySuccess meta actual =
+classifySuccess :: ResolverCase -> String -> [String] -> (Outcome, String)
+classifySuccess meta actual actualAnnotated =
   case caseStatus meta of
     StatusPass
-      | actual == caseExpected meta -> (OutcomePass, "")
-      | otherwise ->
+      | actual /= caseExpected meta ->
           ( OutcomeFail,
             "output mismatch (expected=" <> show (caseExpected meta) <> ", actual=" <> show actual <> ")"
           )
+      | not (null (caseAnnotated meta)) && actualAnnotated /= caseAnnotated meta ->
+          ( OutcomeFail,
+            "annotated mismatch (expected=" <> show (caseAnnotated meta) <> ", actual=" <> show actualAnnotated <> ")"
+          )
+      | otherwise -> (OutcomePass, "")
     StatusFail ->
       ( OutcomeFail,
         "expected failure but resolver succeeded"

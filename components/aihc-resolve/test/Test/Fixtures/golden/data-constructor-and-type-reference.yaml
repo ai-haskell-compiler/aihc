@@ -1,0 +1,29 @@
+extensions: []
+modules:
+  - |
+    module Main where
+    data A = B
+    fn :: A
+    fn = B
+expected:
+  Main:
+    - "2:6-2:7 A => (type) Main.A"
+    - "2:10-2:11 B => (value) Main.B"
+    - "3:1-3:3 fn => (value) Main.fn"
+    - "3:7-3:8 A => (type) Main.A"
+    - "4:1-4:3 fn => (value) Main.fn"
+    - "4:6-4:7 B => (value) Main.B"
+annotated:
+  - |
+    module Main where
+    data A = B
+         │   └─ v Main
+         └─ t Main
+    fn :: A
+    │     └─ t Main
+    └─ v Main
+    fn = B
+    │    └─ v Main
+    └─ v Main
+status: pass
+reason: ""

@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail operator pattern in function definition -}
+{- ORACLE_TEST pass -}
 
 module OperatorPattern where
 

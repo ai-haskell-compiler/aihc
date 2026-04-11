@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail reason="nested if-then-do in where clause not handled" -}
+{- ORACLE_TEST pass -}
 -- Test: do block with where clause containing nested if-then-do with let and nested if
 module DoWhereIfThenDoNested where
 

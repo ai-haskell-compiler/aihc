@@ -5,8 +5,14 @@ modules:
     f = let y = 10 in y
 expected:
   Main:
-    - "2:1-2:2 f => Main.f"
-    - "2:9-2:10 y => Local 0 y"
-    - "2:19-2:20 y => Local 0 y"
+    - "2:1-2:2 f => (value) Main.f"
+    - "2:9-2:10 y => (value) Local 0 y"
+    - "2:19-2:20 y => (value) Local 0 y"
+annotated:
+  - |
+    module Main where
+    f = let y = 10 in y
+    │       └─ v 0    └─ v 0
+    └─ v Main
 status: pass
 reason: ""

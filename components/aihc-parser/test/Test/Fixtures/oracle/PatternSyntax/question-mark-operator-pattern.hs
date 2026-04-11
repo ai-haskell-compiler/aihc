@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail operator pattern with question marks -}
+{- ORACLE_TEST pass -}
 module QuestionMarkOperatorPattern where
 
 foldl' (??) z xs = (foldr (?!) id xs) z

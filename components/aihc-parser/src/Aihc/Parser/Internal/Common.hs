@@ -46,6 +46,14 @@ module Aihc.Parser.Internal.Common
     layoutSepEndBy,
     layoutSepBy1,
     drainParseErrors,
+    startsWithContextType,
+    startsWithTypeSig,
+    startsWithAsPattern,
+    isConLikeName,
+    isConLikeNameType,
+    qualifiedVarName,
+    liftCheck,
+    infixOperatorParserExcept,
   )
 where
 
@@ -430,13 +438,13 @@ bracedSemiSep1 parser =
     skipSemicolons
     parser `MP.sepEndBy1` expectedTok TkSpecialSemicolon
 
-plainSemiSep1 :: TokParser a -> TokParser [a]
-plainSemiSep1 parser = MP.some (parser <* skipSemicolons)
-
--- | Parse semicolon-separated items (possibly empty).
--- Used for constructs that allow empty lists, like @let@ bindings.
+-- | Zero-or-more variant of 'plainSemiSep1'.
+-- Parses zero or more items separated by semicolons (no surrounding braces).
 plainSemiSep :: TokParser a -> TokParser [a]
 plainSemiSep parser = MP.many (parser <* skipSemicolons)
+
+plainSemiSep1 :: TokParser a -> TokParser [a]
+plainSemiSep1 parser = MP.some (parser <* skipSemicolons)
 
 contextItemParserWith :: TokParser Type -> TokParser Type -> TokParser Type
 contextItemParserWith typeParser typeAtomParser =
@@ -820,3 +828,123 @@ drainParseErrors = do
   let errs = MP.stateParseErrors st
   MP.updateParserState (\s -> s {MP.stateParseErrors = []})
   pure errs
+
+-- | Non-consuming lookahead dispatch for optional context types.
+-- Uses scanning to probe for @=>@ at top bracket depth.
+-- Returns 'True' when the input looks like a context.
+startsWithContextType :: TokParser Bool
+startsWithContextType = MP.lookAhead (go [])
+  where
+    go :: [LexTokenKind] -> TokParser Bool
+    go [] = do
+      tok <- anySingle
+      case lexTokenKind tok of
+        TkEOF -> pure False
+        TkReservedDoubleArrow -> pure True
+        TkReservedRightArrow -> pure False
+        TkReservedEquals -> pure False
+        TkSpecialComma -> pure False
+        TkSpecialSemicolon -> pure False
+        TkReservedPipe -> pure False
+        TkSpecialRParen -> pure False
+        TkSpecialUnboxedRParen -> pure False
+        TkSpecialRBracket -> pure False
+        TkSpecialRBrace -> pure False
+        TkSpecialLParen -> go [TkSpecialRParen]
+        TkSpecialUnboxedLParen -> go [TkSpecialUnboxedRParen]
+        TkSpecialLBracket -> go [TkSpecialRBracket]
+        TkSpecialLBrace -> go [TkSpecialRBrace]
+        _ -> go []
+    go stack@(expectedClose : rest) = do
+      tok <- anySingle
+      case lexTokenKind tok of
+        TkEOF -> pure False
+        kind
+          | kind == expectedClose ->
+              case rest of
+                [] -> go []
+                _ -> go rest
+        TkSpecialLParen -> go (TkSpecialRParen : stack)
+        TkSpecialUnboxedLParen -> go (TkSpecialUnboxedRParen : stack)
+        TkSpecialLBracket -> go (TkSpecialRBracket : stack)
+        TkSpecialLBrace -> go (TkSpecialRBrace : stack)
+        _ -> go stack
+
+-- | Non-consuming lookahead: does the input start with @name1, name2, ... ::@?
+-- Used by declaration parsers to dispatch to the type-signature path without
+-- 'MP.try', eliminating backtracking over the name list.
+startsWithTypeSig :: TokParser Bool
+startsWithTypeSig =
+  fmap (either (const False) (const True)) . MP.observing . MP.try . MP.lookAhead $ do
+    _ <- binderNameParser
+    let moreNames = (expectedTok TkSpecialComma *> binderNameParser *> moreNames) <|> pure ()
+    moreNames
+    expectedTok TkReservedDoubleColon
+
+-- | Non-consuming lookahead: does the input start with @name \@@?
+startsWithAsPattern :: TokParser Bool
+startsWithAsPattern =
+  fmap (either (const False) (const True)) . MP.observing . MP.try . MP.lookAhead $ do
+    _ <- identifierTextParser
+    expectedTok TkReservedAt
+
+-- | Check whether a name looks like a constructor (starts with uppercase or ':').
+isConLikeName :: Name -> Bool
+isConLikeName = isConLikeNameType . nameType
+
+-- | Check whether a name type is constructor-like.
+isConLikeNameType :: NameType -> Bool
+isConLikeNameType NameConId = True
+isConLikeNameType NameConSym = True
+isConLikeNameType _ = False
+
+-- | Reconstruct a possibly-qualified variable name from its textual representation.
+qualifiedVarName :: Text -> Name
+qualifiedVarName ident =
+  case T.breakOnEnd "." ident of
+    ("", _) -> qualifyName Nothing (mkUnqualifiedName NameVarId ident)
+    (qualifierWithDot, localName) ->
+      mkName (Just (T.dropEnd 1 qualifierWithDot)) NameVarId localName
+
+-- | Lift an @Either Text a@ into the parser, converting @Left@ into a parse error.
+liftCheck :: Either Text a -> TokParser a
+liftCheck (Right a) = pure a
+liftCheck (Left msg) = fail (T.unpack msg)
+
+-- | Parse an infix operator, optionally excluding specified operators.
+infixOperatorParserExcept :: [Text] -> TokParser Name
+infixOperatorParserExcept forbidden =
+  symbolicOperatorParser <|> backtickIdentifierOperatorParser
+  where
+    allowed op = renderName op `notElem` forbidden
+
+    symbolicOperatorParser =
+      tokenSatisfy "infix operator" $ \tok ->
+        case lexTokenKind tok of
+          TkVarSym op ->
+            let name = qualifyName Nothing (mkUnqualifiedName NameVarSym op)
+             in if allowed name then Just name else Nothing
+          TkConSym op ->
+            let name = qualifyName Nothing (mkUnqualifiedName NameConSym op)
+             in if allowed name then Just name else Nothing
+          TkQVarSym modName op ->
+            let name = mkName (Just modName) NameVarSym op
+             in if allowed name then Just name else Nothing
+          TkQConSym modName op ->
+            let name = mkName (Just modName) NameConSym op
+             in if allowed name then Just name else Nothing
+          -- TkMinusOperator is minus when LexicalNegation is enabled but used as infix
+          TkMinusOperator ->
+            let name = qualifyName Nothing (mkUnqualifiedName NameVarSym "-")
+             in if allowed name then Just name else Nothing
+          -- Reserved operators that can be used as infix operators
+          TkReservedColon ->
+            let name = qualifyName Nothing (mkUnqualifiedName NameConSym ":")
+             in if allowed name then Just name else Nothing
+          _ -> Nothing
+
+    backtickIdentifierOperatorParser = do
+      expectedTok TkSpecialBacktick
+      op <- identifierNameParser
+      expectedTok TkSpecialBacktick
+      if allowed op then pure op else fail "forbidden infix operator"

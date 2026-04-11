@@ -1,0 +1,33 @@
+extensions: []
+modules:
+  - |
+    module Main where
+    class ClsName a
+    data DataType = ClsName
+    fn :: ClsName a => a -> DataType
+    fn _ = ClsName
+expected:
+  Main:
+    - "2:7-2:14 ClsName => (type) Main.ClsName"
+    - "3:6-3:14 DataType => (type) Main.DataType"
+    - "3:17-3:24 ClsName => (value) Main.ClsName"
+    - "4:1-4:3 fn => (value) Main.fn"
+    - "4:7-4:14 ClsName => (type) Main.ClsName"
+    - "4:25-4:33 DataType => (type) Main.DataType"
+    - "5:1-5:3 fn => (value) Main.fn"
+    - "5:8-5:15 ClsName => (value) Main.ClsName"
+annotated:
+  - |
+    module Main where
+    class ClsName a
+          └─ t Main
+    data DataType = ClsName
+         └─ t Main  └─ v Main
+    fn :: ClsName a => a -> DataType
+    │     └─ t Main         └─ t Main
+    └─ v Main
+    fn _ = ClsName
+    │      └─ v Main
+    └─ v Main
+status: pass
+reason: ""

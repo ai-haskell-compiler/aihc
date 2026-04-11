@@ -11,7 +11,8 @@ module Aihc.Parser.Internal.Module
 where
 
 import Aihc.Parser.Internal.Common (TokParser, braces, expectedTok, skipSemicolons, withSpan)
-import Aihc.Parser.Internal.Decl (declParser, importDeclParser, languagePragmaParser, moduleHeaderParser)
+import Aihc.Parser.Internal.Decl (declParser)
+import Aihc.Parser.Internal.Import (importDeclParser, languagePragmaParser, moduleHeaderParser)
 import Aihc.Parser.Lex (LexTokenKind (..), lexTokenKind)
 import Aihc.Parser.Syntax (Decl, ImportDecl, Module (..))
 import Control.Monad (void)

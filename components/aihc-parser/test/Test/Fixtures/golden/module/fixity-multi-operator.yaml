@@ -1,0 +1,6 @@
+extensions: []
+input: |
+  infix ^, +
+ast: |
+  Module {decls = [DeclFixity {assoc = Infix, ops = ["^", "+"]}]}
+status: pass
