@@ -1,9 +1,10 @@
 {- ORACLE_TEST pass -}
 {-# LANGUAGE Haskell2010 #-}
 
-module BareLetInDo where
+module BareLetInDoExplicit where
 
+-- Explicit empty braces in do block
 test = do
-  let
+  let {}
   x <- undefined
   return ()

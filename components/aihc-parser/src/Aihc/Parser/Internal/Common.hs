@@ -33,6 +33,7 @@ module Aihc.Parser.Internal.Common
     skipSemicolons,
     bracedSemiSep,
     bracedSemiSep1,
+    plainSemiSep,
     plainSemiSep1,
     contextItemParserWith,
     contextItemsParserWith,
@@ -431,6 +432,11 @@ bracedSemiSep1 parser =
 
 plainSemiSep1 :: TokParser a -> TokParser [a]
 plainSemiSep1 parser = MP.some (parser <* skipSemicolons)
+
+-- | Parse semicolon-separated items (possibly empty).
+-- Used for constructs that allow empty lists, like @let@ bindings.
+plainSemiSep :: TokParser a -> TokParser [a]
+plainSemiSep parser = MP.many (parser <* skipSemicolons)
 
 contextItemParserWith :: TokParser Type -> TokParser Type -> TokParser Type
 contextItemParserWith typeParser typeAtomParser =
