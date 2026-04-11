@@ -33,6 +33,7 @@ module Aihc.Parser.Internal.Common
     skipSemicolons,
     bracedSemiSep,
     bracedSemiSep1,
+    plainSemiSep,
     plainSemiSep1,
     contextItemParserWith,
     contextItemsParserWith,
@@ -428,6 +429,11 @@ bracedSemiSep1 parser =
   braces $ do
     skipSemicolons
     parser `MP.sepEndBy1` expectedTok TkSpecialSemicolon
+
+-- | Zero-or-more variant of 'plainSemiSep1'.
+-- Parses zero or more items separated by semicolons (no surrounding braces).
+plainSemiSep :: TokParser a -> TokParser [a]
+plainSemiSep parser = MP.many (parser <* skipSemicolons)
 
 plainSemiSep1 :: TokParser a -> TokParser [a]
 plainSemiSep1 parser = MP.some (parser <* skipSemicolons)

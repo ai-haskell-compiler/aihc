@@ -254,7 +254,7 @@ genCaseAlt n = do
 -- variable bindings like `x = e`.
 genValueDecls :: Int -> Gen [Decl]
 genValueDecls n = do
-  count <- chooseInt (1, 3)
+  count <- chooseInt (0, 3)
   names <- vectorOf count (mkUnqualifiedName NameVarId <$> genIdent)
   exprs <- vectorOf count (genExprSized (n `div` count))
   pure
