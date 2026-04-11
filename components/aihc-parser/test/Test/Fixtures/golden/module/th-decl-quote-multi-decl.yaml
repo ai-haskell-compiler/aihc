@@ -8,6 +8,5 @@ input: |
     f x = x
     |])
 ast: |
-  Module {name = "TH_Decl_Quote_MultiDecl", languagePragmas = [EnableExtension TemplateHaskell, EnableExtension QuasiQuotes], decls = [DeclSplice (EParen (EApp (EVar "undefined") (ETHDeclQuote [DeclData (DataDecl {name = "Nat", constructors = [PrefixCon {name = "Z"}, PrefixCon {name = "S", fields = [BangType {type = TCon "Nat"}]}]})))]))]}
-status: xfail
-reason: TH declaration quotes cannot parse value declarations after data declarations
+  Module {name = "TH_Decl_Quote_MultiDecl", languagePragmas = [EnableExtension TemplateHaskell, EnableExtension QuasiQuotes], decls = [DeclSplice (EParen (EApp (EVar "undefined") (ETHDeclQuote [DeclData (DataDecl {name = "Nat", constructors = [PrefixCon {name = "Z"}, PrefixCon {name = "S", fields = [BangType {type = TCon "Nat"}]}]}), DeclValue (FunctionBind "f" [Match {headForm = Prefix, pats = [PVar "x"], rhs = UnguardedRhs (EVar "x")}])])))]}
+status: pass

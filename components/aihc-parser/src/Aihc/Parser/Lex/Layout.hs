@@ -73,6 +73,14 @@ openPendingLayout st tok =
         PendingImplicitLayout kind ->
           case lexTokenKind tok of
             TkSpecialLBrace -> ([], st {layoutPendingLayout = Nothing}, False)
+            tkKind
+              | closesDelimiter tkKind ->
+                  -- Closing delimiter immediately after layout-opener (e.g. [d| |])
+                  -- produces empty implicit layout {}, then the closer proceeds normally.
+                  let anchor = lexTokenSpan tok
+                      openTok = virtualSymbolToken "{" anchor
+                      closeTok = virtualSymbolToken "}" anchor
+                   in ([openTok, closeTok], st {layoutPendingLayout = Nothing}, False)
             _ -> openImplicitLayout kind st tok
 
 openImplicitLayout :: ImplicitLayoutKind -> LayoutState -> LexToken -> ([LexToken], LayoutState, Bool)
@@ -205,6 +213,11 @@ stepTokenContext st tok =
     TkKeywordIf -> st {layoutPendingLayout = Just PendingMaybeMultiWayIf}
     TkKeywordThen -> st {layoutThenColumn = Just (tokenStartCol tok)}
     TkKeywordElse -> st {layoutThenColumn = Just (tokenStartCol tok)}
+    TkTHDeclQuoteOpen ->
+      st
+        { layoutContexts = LayoutDelimiter : layoutContexts st,
+          layoutPendingLayout = Just (PendingImplicitLayout LayoutOrdinary)
+        }
     kind
       | opensDelimiter kind ->
           st {layoutContexts = LayoutDelimiter : layoutContexts st}
