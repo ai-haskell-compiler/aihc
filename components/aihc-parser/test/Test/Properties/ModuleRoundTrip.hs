@@ -8,6 +8,7 @@ where
 
 import Aihc.Parser
 import Aihc.Parser.Syntax
+import Data.Char (isUpper)
 import Data.List (nub)
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -293,6 +294,47 @@ instance Arbitrary IEBundledMember where
     [IEBundledMember shrunkNamespace name | shrunkNamespace <- shrink namespace]
       <> [IEBundledMember namespace shrunkName | shrunkName <- shrinkMemberNameFor namespace name]
 
+genMemberName :: Gen Name
+genMemberName =
+  frequency
+    [ (3, qualifyName Nothing <$> genUnqualifiedMemberName),
+      (1, genQualifiedMemberName)
+    ]
+
+genUnqualifiedMemberName :: Gen UnqualifiedName
+genUnqualifiedMemberName =
+  oneof [genUnqualifiedVarName, genTypeName]
+
+genQualifiedMemberName :: Gen Name
+genQualifiedMemberName = do
+  modName <- genModuleName
+  qualifyName (Just modName) <$> genTypeName
+
+genMemberNameFor :: Maybe IEBundledNamespace -> Gen Name
+genMemberNameFor namespace =
+  case namespace of
+    Nothing -> genMemberName
+    Just _ -> qualifyName Nothing <$> genTypeName
+
+shrinkMemberNameFor :: Maybe IEBundledNamespace -> Name -> [Name]
+shrinkMemberNameFor namespace name =
+  case namespace of
+    Nothing -> shrinkUnqualifiedVarNameFor name <> shrinkTypeNameFor name
+    Just _ -> shrinkTypeNameFor name
+  where
+    shrinkUnqualifiedVarNameFor n =
+      [ qualifyName (nameQualifier n) (mkUnqualifiedName NameVarId candidate)
+      | nameType n == NameVarId,
+        candidate <- shrinkIdent (nameText n)
+      ]
+    shrinkTypeNameFor n =
+      [ qualifyName (nameQualifier n) (mkUnqualifiedName NameConId candidate)
+      | nameType n == NameConId,
+        candidate <- map T.pack (shrink (T.unpack (nameText n))),
+        not (T.null candidate),
+        isUpper (T.head candidate)
+      ]
+
 instance Arbitrary ImportDecl where
   arbitrary = do
     modName <- genModuleName
@@ -406,22 +448,6 @@ shrinkUnqualifiedVarName name =
   [ mkUnqualifiedName NameVarId candidate
   | candidate <- shrinkIdent (renderUnqualifiedName name)
   ]
-
-genMemberName :: Gen UnqualifiedName
-genMemberName =
-  oneof [genUnqualifiedVarName, genTypeName]
-
-genMemberNameFor :: Maybe IEBundledNamespace -> Gen UnqualifiedName
-genMemberNameFor namespace =
-  case namespace of
-    Nothing -> genMemberName
-    Just _ -> genTypeName
-
-shrinkMemberNameFor :: Maybe IEBundledNamespace -> UnqualifiedName -> [UnqualifiedName]
-shrinkMemberNameFor namespace name =
-  case namespace of
-    Nothing -> shrinkUnqualifiedVarName name <> shrinkTypeName name
-    Just _ -> shrinkTypeName name
 
 genImportItems :: Gen [ImportItem]
 genImportItems = do
