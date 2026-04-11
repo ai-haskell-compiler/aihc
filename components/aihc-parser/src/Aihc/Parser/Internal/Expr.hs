@@ -1006,7 +1006,7 @@ thTypedQuoteParser = withSpan $ do
 thDeclQuoteParser :: TokParser Expr
 thDeclQuoteParser = withSpan $ do
   expectedTok TkTHDeclQuoteOpen
-  decls <- plainSemiSep declParser
+  decls <- bracedSemiSep declParser <|> plainSemiSep declParser
   expectedTok TkTHExpQuoteClose
   pure (`ETHDeclQuote` decls)
 
