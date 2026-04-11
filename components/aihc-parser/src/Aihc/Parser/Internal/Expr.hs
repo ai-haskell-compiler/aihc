@@ -237,13 +237,23 @@ doPatBindStmtParser = withSpan $ do
 parseLetDeclsParser :: TokParser [Decl]
 parseLetDeclsParser = do
   expectedTok TkKeywordLet
-  bracedDeclsParser <|> plainDeclsParser
+  bracedDeclsMaybeEmpty <|> plainDeclsMaybeEmpty
 
 parseLetDeclsStmtParser :: TokParser [Decl]
 parseLetDeclsStmtParser = do
   decls <- parseLetDeclsParser
   MP.notFollowedBy (expectedTok TkKeywordIn)
   pure decls
+
+-- | Parse let bindings that may be empty.
+-- Unlike @where@ clauses and @case@ alternatives, @let@ bindings can be
+-- empty (e.g. @let {}@ or a bare @let@ with layout). GHC accepts these
+-- syntactically, even though they are semantically useless.
+bracedDeclsMaybeEmpty :: TokParser [Decl]
+bracedDeclsMaybeEmpty = concat <$> bracedSemiSep localDeclsParser
+
+plainDeclsMaybeEmpty :: TokParser [Decl]
+plainDeclsMaybeEmpty = concat <$> plainSemiSep localDeclsParser
 
 doLetStmtParser :: TokParser (DoStmt Expr)
 doLetStmtParser = withSpan $ do
@@ -898,13 +908,7 @@ letExprParser = withSpan $ do
 whereClauseParser :: TokParser [Decl]
 whereClauseParser = do
   expectedTok TkKeywordWhere
-  bracedDeclsParser <|> plainDeclsParser
-
-plainDeclsParser :: TokParser [Decl]
-plainDeclsParser = concat <$> plainSemiSep1 localDeclsParser
-
-bracedDeclsParser :: TokParser [Decl]
-bracedDeclsParser = concat <$> bracedSemiSep localDeclsParser
+  bracedDeclsMaybeEmpty <|> plainDeclsMaybeEmpty
 
 localDeclsParser :: TokParser [Decl]
 localDeclsParser = do

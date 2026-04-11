@@ -15,5 +15,5 @@ aihc: |
   2 | x = let
     |     ^^^
   unexpected end of input
-  expecting pattern
+  expecting expression
   context: while parsing equation right-hand side
