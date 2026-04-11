@@ -1,0 +1,6 @@
+extensions: []
+input: |
+  type role M
+ast: |
+  Module {decls = [DeclRoleAnnotation (RoleAnnotation {name = "M", roles = []})]}
+status: pass

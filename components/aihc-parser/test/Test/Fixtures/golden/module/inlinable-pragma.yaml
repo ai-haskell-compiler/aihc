@@ -1,0 +1,6 @@
+extensions: []
+input: |
+  {-# INLINABLE w #-}
+ast: |
+  Module {decls = [DeclPragma PragmaInline "INLINABLE" "w"]}
+status: pass

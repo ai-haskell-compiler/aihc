@@ -209,7 +209,7 @@ prettyDeclLines decl =
           ( [prettyFixityAssoc assoc]
               <> maybe [] (pure . pretty . show) prec
               <> maybe [] (pure . prettyNamespace) mNamespace
-              <> map (prettyInfixOp . renderUnqualifiedName) ops
+              <> punctuate comma (map (prettyInfixOp . renderUnqualifiedName) ops)
           )
       ]
     DeclRoleAnnotation _ ann -> [prettyRoleAnnotation ann]

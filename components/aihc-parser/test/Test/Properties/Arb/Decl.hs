@@ -23,7 +23,27 @@ genDecl :: Gen Decl
 genDecl = sized $ \n ->
   oneof
     [ genDeclValue n,
-      genDeclTypeSig
+      genDeclTypeSig,
+      genDeclFixity,
+      genDeclRoleAnnotation,
+      genDeclTypeSyn,
+      genDeclData,
+      genDeclTypeData,
+      genDeclNewtype,
+      genDeclClass,
+      genDeclInstance,
+      genDeclStandaloneDeriving,
+      genDeclDefault,
+      genDeclSplice,
+      genDeclForeign,
+      genDeclTypeFamilyDecl,
+      genDeclDataFamilyDecl,
+      genDeclTypeFamilyInst,
+      genDeclDataFamilyInst,
+      genDeclPragma,
+      genDeclPatSyn,
+      genDeclPatSynSig,
+      genDeclStandaloneKindSig
     ]
 
 genDeclValue :: Int -> Gen Decl
@@ -78,7 +98,308 @@ genDeclTypeSig = do
   ty <- genSimpleType
   pure $ DeclTypeSig span0 [name] ty
 
--- | Generate a simple type for type signatures.
+genDeclFixity :: Gen Decl
+genDeclFixity = do
+  assoc <- elements [Infix, InfixL, InfixR]
+  prec <- elements [Nothing, Just 0, Just 6, Just 9]
+  n <- chooseInt (1, 2)
+  ops <- vectorOf n (mkUnqualifiedName NameVarSym <$> genSymbolicOp)
+  pure $ DeclFixity span0 assoc Nothing prec ops
+
+genSymbolicOp :: Gen Text
+genSymbolicOp = elements ["+", "<>", "&&", "||", "**", "^", ">>"]
+
+genDeclRoleAnnotation :: Gen Decl
+genDeclRoleAnnotation = do
+  name <- genTypeConName
+  n <- chooseInt (0, 3)
+  roles <- vectorOf n (elements [RoleNominal, RoleRepresentational, RolePhantom, RoleInfer])
+  pure $ DeclRoleAnnotation span0 (RoleAnnotation span0 name roles)
+
+genDeclTypeSyn :: Gen Decl
+genDeclTypeSyn = do
+  name <- genTypeConName
+  params <- genSimpleTyVarBinders
+  body <- genSimpleType
+  pure $ DeclTypeSyn span0 (TypeSynDecl span0 name params body)
+
+genDeclData :: Gen Decl
+genDeclData = DeclData span0 <$> genSimpleDataDecl
+
+genDeclTypeData :: Gen Decl
+genDeclTypeData = do
+  -- FIXME: type data constructors with multiple fields round-trip incorrectly
+  -- because the parser treats adjacent type atoms as type application rather
+  -- than separate constructor fields (e.g. "KFj A B" parses as "KFj (A B)"
+  -- instead of two fields). Restrict to at most 1 field until the parser or
+  -- pretty-printer is fixed.
+  name <- mkUnqualifiedName NameConId <$> genTypeConName
+  params <- genSimpleTyVarBinders
+  ctors <- genTypeDataCons
+  pure $
+    DeclTypeData span0 $
+      DataDecl
+        { dataDeclSpan = span0,
+          dataDeclContext = [],
+          dataDeclName = name,
+          dataDeclParams = params,
+          dataDeclKind = Nothing,
+          dataDeclConstructors = ctors,
+          dataDeclDeriving = []
+        }
+  where
+    genTypeDataCons = do
+      n <- chooseInt (1, 3)
+      vectorOf n genTypeDataCon
+    genTypeDataCon = do
+      conName <- mkUnqualifiedName NameConId <$> genTypeConName
+      n <- chooseInt (0, 1)
+      fields <- vectorOf n genSimpleBangType
+      pure $ PrefixCon span0 [] [] conName fields
+
+genSimpleDataDecl :: Gen DataDecl
+genSimpleDataDecl = do
+  name <- mkUnqualifiedName NameConId <$> genTypeConName
+  params <- genSimpleTyVarBinders
+  ctors <- genSimpleDataCons
+  pure $
+    DataDecl
+      { dataDeclSpan = span0,
+        dataDeclContext = [],
+        dataDeclName = name,
+        dataDeclParams = params,
+        dataDeclKind = Nothing,
+        dataDeclConstructors = ctors,
+        dataDeclDeriving = []
+      }
+
+genSimpleDataCons :: Gen [DataConDecl]
+genSimpleDataCons = do
+  n <- chooseInt (1, 3)
+  vectorOf n genSimpleDataCon
+
+genSimpleDataCon :: Gen DataConDecl
+genSimpleDataCon = do
+  name <- mkUnqualifiedName NameConId <$> genTypeConName
+  n <- chooseInt (0, 2)
+  fields <- vectorOf n genSimpleBangType
+  pure $ PrefixCon span0 [] [] name fields
+
+genSimpleBangType :: Gen BangType
+genSimpleBangType = do
+  ty <- genSimpleType
+  pure $
+    BangType
+      { bangSpan = span0,
+        bangSourceUnpackedness = NoSourceUnpackedness,
+        bangStrict = False,
+        bangType = ty
+      }
+
+genDeclNewtype :: Gen Decl
+genDeclNewtype = do
+  name <- mkUnqualifiedName NameConId <$> genTypeConName
+  params <- genSimpleTyVarBinders
+  conName <- mkUnqualifiedName NameConId <$> genTypeConName
+  ty <- genSimpleType
+  let ctor = PrefixCon span0 [] [] conName [BangType span0 NoSourceUnpackedness False ty]
+  pure $
+    DeclNewtype span0 $
+      NewtypeDecl
+        { newtypeDeclSpan = span0,
+          newtypeDeclContext = [],
+          newtypeDeclName = name,
+          newtypeDeclParams = params,
+          newtypeDeclKind = Nothing,
+          newtypeDeclConstructor = Just ctor,
+          newtypeDeclDeriving = []
+        }
+
+genDeclClass :: Gen Decl
+genDeclClass = do
+  name <- genTypeConName
+  params <- genSimpleTyVarBinders
+  pure $
+    DeclClass span0 $
+      ClassDecl
+        { classDeclSpan = span0,
+          classDeclContext = Nothing,
+          classDeclHeadForm = TypeHeadPrefix,
+          classDeclName = name,
+          classDeclParams = params,
+          classDeclFundeps = [],
+          classDeclItems = []
+        }
+
+genDeclInstance :: Gen Decl
+genDeclInstance = do
+  className <- genTypeConName
+  n <- chooseInt (0, 2)
+  types <- vectorOf n genSimpleType
+  pure $
+    DeclInstance span0 $
+      InstanceDecl
+        { instanceDeclSpan = span0,
+          instanceDeclOverlapPragma = Nothing,
+          instanceDeclWarning = Nothing,
+          instanceDeclForall = [],
+          instanceDeclContext = [],
+          instanceDeclParenthesizedHead = False,
+          instanceDeclClassName = className,
+          instanceDeclTypes = types,
+          instanceDeclItems = []
+        }
+
+genDeclStandaloneDeriving :: Gen Decl
+genDeclStandaloneDeriving = do
+  className <- mkUnqualifiedName NameConId <$> genTypeConName
+  n <- chooseInt (0, 2)
+  types <- vectorOf n genSimpleType
+  pure $
+    DeclStandaloneDeriving span0 $
+      StandaloneDerivingDecl
+        { standaloneDerivingSpan = span0,
+          standaloneDerivingStrategy = Nothing,
+          standaloneDerivingViaType = Nothing,
+          standaloneDerivingOverlapPragma = Nothing,
+          standaloneDerivingWarning = Nothing,
+          standaloneDerivingForall = [],
+          standaloneDerivingContext = [],
+          standaloneDerivingParenthesizedHead = False,
+          standaloneDerivingClassName = className,
+          standaloneDerivingTypes = types
+        }
+
+genDeclDefault :: Gen Decl
+genDeclDefault = do
+  n <- chooseInt (0, 3)
+  types <- vectorOf n genSimpleType
+  pure $ DeclDefault span0 types
+
+genDeclSplice :: Gen Decl
+genDeclSplice = do
+  name <- qualifyName Nothing . mkUnqualifiedName NameVarId <$> genIdent
+  pure $ DeclSplice span0 (EVar span0 name)
+
+genDeclForeign :: Gen Decl
+genDeclForeign = do
+  callConv <- elements [CCall, StdCall]
+  name <- genIdent
+  ty <- genSimpleType
+  pure $
+    DeclForeign span0 $
+      ForeignDecl
+        { foreignDeclSpan = span0,
+          foreignDirection = ForeignImport,
+          foreignCallConv = callConv,
+          foreignSafety = Nothing,
+          foreignEntity = ForeignEntityOmitted,
+          foreignName = name,
+          foreignType = ty
+        }
+
+genDeclTypeFamilyDecl :: Gen Decl
+genDeclTypeFamilyDecl = do
+  name <- genTypeConName
+  let headType = TCon span0 (qualifyName Nothing (mkUnqualifiedName NameConId name)) Unpromoted
+  params <- genSimpleTyVarBinders
+  pure $
+    DeclTypeFamilyDecl span0 $
+      TypeFamilyDecl
+        { typeFamilyDeclSpan = span0,
+          typeFamilyDeclHeadForm = TypeHeadPrefix,
+          typeFamilyDeclHead = headType,
+          typeFamilyDeclParams = params,
+          typeFamilyDeclKind = Nothing,
+          typeFamilyDeclEquations = Nothing
+        }
+
+genDeclDataFamilyDecl :: Gen Decl
+genDeclDataFamilyDecl = do
+  name <- mkUnqualifiedName NameConId <$> genTypeConName
+  params <- genSimpleTyVarBinders
+  pure $
+    DeclDataFamilyDecl span0 $
+      DataFamilyDecl
+        { dataFamilyDeclSpan = span0,
+          dataFamilyDeclName = name,
+          dataFamilyDeclParams = params,
+          dataFamilyDeclKind = Nothing
+        }
+
+genDeclTypeFamilyInst :: Gen Decl
+genDeclTypeFamilyInst = do
+  lhs <- genFamilyLhsType
+  rhs <- genSimpleType
+  pure $
+    DeclTypeFamilyInst span0 $
+      TypeFamilyInst
+        { typeFamilyInstSpan = span0,
+          typeFamilyInstForall = [],
+          typeFamilyInstHeadForm = TypeHeadPrefix,
+          typeFamilyInstLhs = lhs,
+          typeFamilyInstRhs = rhs
+        }
+
+genDeclDataFamilyInst :: Gen Decl
+genDeclDataFamilyInst = do
+  head' <- genFamilyLhsType
+  ctors <- genSimpleDataCons
+  pure $
+    DeclDataFamilyInst span0 $
+      DataFamilyInst
+        { dataFamilyInstSpan = span0,
+          dataFamilyInstIsNewtype = False,
+          dataFamilyInstForall = [],
+          dataFamilyInstHead = head',
+          dataFamilyInstConstructors = ctors,
+          dataFamilyInstDeriving = []
+        }
+
+-- | Generate a type family LHS: a type constructor applied to a type constructor argument.
+genFamilyLhsType :: Gen Type
+genFamilyLhsType = do
+  familyName <- genTypeConName
+  argName <- genTypeConName
+  let familyCon = TCon span0 (qualifyName Nothing (mkUnqualifiedName NameConId familyName)) Unpromoted
+      argCon = TCon span0 (qualifyName Nothing (mkUnqualifiedName NameConId argName)) Unpromoted
+  pure $ TApp span0 familyCon argCon
+
+genDeclPragma :: Gen Decl
+genDeclPragma = do
+  kind <- elements ["INLINE", "NOINLINE", "INLINABLE"]
+  name <- genIdent
+  pure $ DeclPragma span0 (PragmaInline kind name)
+
+genDeclPatSyn :: Gen Decl
+genDeclPatSyn = do
+  synName <- mkUnqualifiedName NameConId <$> genTypeConName
+  argName <- genIdent
+  conName <- qualifyName Nothing . mkUnqualifiedName NameConId <$> genTypeConName
+  let args = PatSynPrefixArgs [argName]
+      pat = PCon span0 conName [PVar span0 (mkUnqualifiedName NameVarId argName)]
+  dir <- elements [PatSynBidirectional, PatSynUnidirectional]
+  pure $ DeclPatSyn span0 (PatSynDecl span0 synName args pat dir)
+
+genDeclPatSynSig :: Gen Decl
+genDeclPatSynSig = do
+  name <- mkUnqualifiedName NameConId <$> genTypeConName
+  ty <- genSimpleType
+  pure $ DeclPatSynSig span0 [name] ty
+
+genDeclStandaloneKindSig :: Gen Decl
+genDeclStandaloneKindSig = do
+  name <- mkUnqualifiedName NameConId <$> genTypeConName
+  kind <- genSimpleType
+  pure $ DeclStandaloneKindSig span0 name kind
+
+-- | Generate simple type variable binders (0-2 params).
+genSimpleTyVarBinders :: Gen [TyVarBinder]
+genSimpleTyVarBinders = do
+  n <- chooseInt (0, 2)
+  vectorOf n (TyVarBinder span0 <$> genIdent <*> pure Nothing <*> pure TyVarBSpecified)
+
+-- | Generate a simple type for use in declaration contexts.
 genSimpleType :: Gen Type
 genSimpleType =
   oneof

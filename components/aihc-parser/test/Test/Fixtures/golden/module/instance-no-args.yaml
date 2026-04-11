@@ -1,0 +1,8 @@
+extensions: []
+input: |
+  module Inst where
+  class Foo
+  instance Foo
+ast: |
+  Module {name = "Inst", decls = [DeclClass (ClassDecl {headForm = TypeHeadPrefix, name = "Foo"}), DeclInstance (InstanceDecl {className = "Foo", types = []})]}
+status: pass

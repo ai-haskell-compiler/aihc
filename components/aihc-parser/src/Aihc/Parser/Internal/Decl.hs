@@ -334,7 +334,7 @@ roleAnnotationDeclParser = withSpan $ do
   expectedTok TkKeywordType
   expectedTok TkVarRole
   typeName <- constructorIdentifierParser <|> (renderName <$> parens constructorOperatorParser)
-  roles <- MP.some roleParser
+  roles <- MP.many roleParser
   pure $ \span' ->
     DeclRoleAnnotation
       span'
@@ -684,7 +684,7 @@ typeSigDeclParser = withSpan $ do
 defaultDeclParser :: TokParser Decl
 defaultDeclParser = withSpan $ do
   expectedTok TkKeywordDefault
-  tys <- parens (typeParser `MP.sepEndBy1` expectedTok TkSpecialComma)
+  tys <- parens (typeParser `MP.sepEndBy` expectedTok TkSpecialComma)
   pure (`DeclDefault` tys)
 
 fixityDeclParser :: FixityAssoc -> TokParser Decl
@@ -901,7 +901,7 @@ instanceHeadParser =
   where
     bareInstanceHeadParser = do
       className <- constructorIdentifierParser
-      instanceTypes <- MP.some typeAtomParser
+      instanceTypes <- MP.many typeAtomParser
       pure (className, instanceTypes)
 
 instanceWhereClauseParser :: TokParser [InstanceDeclItem]

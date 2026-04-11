@@ -138,9 +138,29 @@ normalizeLiteral lit =
 normalizeDecl :: Decl -> Decl
 normalizeDecl decl =
   case decl of
+    DeclAnn ann sub -> DeclAnn ann (normalizeDecl sub)
     DeclValue _ vdecl -> DeclValue span0 (normalizeValueDecl vdecl)
     DeclTypeSig _ names ty -> DeclTypeSig span0 names (normalizeType ty)
-    _ -> decl
+    DeclPatSyn _ ps -> DeclPatSyn span0 (normalizePatSynDecl ps)
+    DeclPatSynSig _ names ty -> DeclPatSynSig span0 names (normalizeType ty)
+    DeclStandaloneKindSig _ name kind -> DeclStandaloneKindSig span0 name (normalizeType kind)
+    DeclFixity _ assoc mNs prec ops -> DeclFixity span0 assoc mNs prec ops
+    DeclRoleAnnotation _ ann -> DeclRoleAnnotation span0 (normalizeRoleAnnotation ann)
+    DeclTypeSyn _ synDecl -> DeclTypeSyn span0 (normalizeTypeSynDecl synDecl)
+    DeclTypeData _ dataDecl -> DeclTypeData span0 (normalizeDataDecl dataDecl)
+    DeclData _ dataDecl -> DeclData span0 (normalizeDataDecl dataDecl)
+    DeclNewtype _ newtypeDecl -> DeclNewtype span0 (normalizeNewtypeDecl newtypeDecl)
+    DeclClass _ classDecl -> DeclClass span0 (normalizeClassDecl classDecl)
+    DeclInstance _ instanceDecl -> DeclInstance span0 (normalizeInstanceDecl instanceDecl)
+    DeclStandaloneDeriving _ derivingDecl -> DeclStandaloneDeriving span0 (normalizeStandaloneDerivingDecl derivingDecl)
+    DeclDefault _ tys -> DeclDefault span0 (map normalizeType tys)
+    DeclForeign _ foreignDecl -> DeclForeign span0 (normalizeForeignDecl foreignDecl)
+    DeclSplice _ body -> DeclSplice span0 (normalizeExpr body)
+    DeclTypeFamilyDecl _ tf -> DeclTypeFamilyDecl span0 (normalizeTypeFamilyDecl tf)
+    DeclDataFamilyDecl _ df -> DeclDataFamilyDecl span0 (normalizeDataFamilyDecl df)
+    DeclTypeFamilyInst _ tfi -> DeclTypeFamilyInst span0 (normalizeTypeFamilyInst tfi)
+    DeclDataFamilyInst _ dfi -> DeclDataFamilyInst span0 (normalizeDataFamilyInst dfi)
+    DeclPragma _ pragma -> DeclPragma span0 pragma
 
 normalizeValueDecl :: ValueDecl -> ValueDecl
 normalizeValueDecl vdecl =
@@ -209,4 +229,236 @@ normalizeTyVarBinder tvb =
   tvb
     { tyVarBinderSpan = span0,
       tyVarBinderKind = fmap normalizeType (tyVarBinderKind tvb)
+    }
+
+normalizeWarningText :: WarningText -> WarningText
+normalizeWarningText wt =
+  case wt of
+    DeprText _ msg -> DeprText span0 msg
+    WarnText _ msg -> WarnText span0 msg
+
+normalizePatSynDecl :: PatSynDecl -> PatSynDecl
+normalizePatSynDecl ps =
+  PatSynDecl
+    { patSynDeclSpan = span0,
+      patSynDeclName = patSynDeclName ps,
+      patSynDeclArgs = patSynDeclArgs ps,
+      patSynDeclPat = normalizePattern (patSynDeclPat ps),
+      patSynDeclDir = normalizePatSynDir (patSynDeclDir ps)
+    }
+
+normalizePatSynDir :: PatSynDir -> PatSynDir
+normalizePatSynDir dir =
+  case dir of
+    PatSynUnidirectional -> PatSynUnidirectional
+    PatSynBidirectional -> PatSynBidirectional
+    PatSynExplicitBidirectional matches -> PatSynExplicitBidirectional (map normalizeMatch matches)
+
+normalizeRoleAnnotation :: RoleAnnotation -> RoleAnnotation
+normalizeRoleAnnotation ann = ann {roleAnnotationSpan = span0}
+
+normalizeTypeSynDecl :: TypeSynDecl -> TypeSynDecl
+normalizeTypeSynDecl decl =
+  TypeSynDecl
+    { typeSynSpan = span0,
+      typeSynName = typeSynName decl,
+      typeSynParams = map normalizeTyVarBinder (typeSynParams decl),
+      typeSynBody = normalizeType (typeSynBody decl)
+    }
+
+normalizeDataDecl :: DataDecl -> DataDecl
+normalizeDataDecl decl =
+  DataDecl
+    { dataDeclSpan = span0,
+      dataDeclContext = map normalizeType (dataDeclContext decl),
+      dataDeclName = dataDeclName decl,
+      dataDeclParams = map normalizeTyVarBinder (dataDeclParams decl),
+      dataDeclKind = fmap normalizeType (dataDeclKind decl),
+      dataDeclConstructors = map normalizeDataConDecl (dataDeclConstructors decl),
+      dataDeclDeriving = map normalizeDerivingClause (dataDeclDeriving decl)
+    }
+
+normalizeNewtypeDecl :: NewtypeDecl -> NewtypeDecl
+normalizeNewtypeDecl decl =
+  NewtypeDecl
+    { newtypeDeclSpan = span0,
+      newtypeDeclContext = map normalizeType (newtypeDeclContext decl),
+      newtypeDeclName = newtypeDeclName decl,
+      newtypeDeclParams = map normalizeTyVarBinder (newtypeDeclParams decl),
+      newtypeDeclKind = fmap normalizeType (newtypeDeclKind decl),
+      newtypeDeclConstructor = fmap normalizeDataConDecl (newtypeDeclConstructor decl),
+      newtypeDeclDeriving = map normalizeDerivingClause (newtypeDeclDeriving decl)
+    }
+
+normalizeDataConDecl :: DataConDecl -> DataConDecl
+normalizeDataConDecl con =
+  case con of
+    PrefixCon _ forallVars constraints name fields ->
+      PrefixCon span0 forallVars (map normalizeType constraints) name (map normalizeBangType fields)
+    InfixCon _ forallVars constraints lhs op rhs ->
+      InfixCon span0 forallVars (map normalizeType constraints) (normalizeBangType lhs) op (normalizeBangType rhs)
+    RecordCon _ forallVars constraints name fields ->
+      RecordCon span0 forallVars (map normalizeType constraints) name (map normalizeFieldDecl fields)
+    GadtCon _ forallBinders constraints names body ->
+      GadtCon span0 (map normalizeTyVarBinder forallBinders) (map normalizeType constraints) names (normalizeGadtBody body)
+
+normalizeBangType :: BangType -> BangType
+normalizeBangType bt =
+  BangType
+    { bangSpan = span0,
+      bangSourceUnpackedness = bangSourceUnpackedness bt,
+      bangStrict = bangStrict bt,
+      bangType = normalizeType (bangType bt)
+    }
+
+normalizeFieldDecl :: FieldDecl -> FieldDecl
+normalizeFieldDecl fd =
+  FieldDecl
+    { fieldSpan = span0,
+      fieldNames = fieldNames fd,
+      fieldType = normalizeBangType (fieldType fd)
+    }
+
+normalizeGadtBody :: GadtBody -> GadtBody
+normalizeGadtBody body =
+  case body of
+    GadtPrefixBody fields resultTy -> GadtPrefixBody (map normalizeBangType fields) (normalizeType resultTy)
+    GadtRecordBody fields resultTy -> GadtRecordBody (map normalizeFieldDecl fields) (normalizeType resultTy)
+
+normalizeDerivingClause :: DerivingClause -> DerivingClause
+normalizeDerivingClause dc =
+  DerivingClause
+    { derivingStrategy = derivingStrategy dc,
+      derivingClasses = map normalizeType (derivingClasses dc),
+      derivingViaType = fmap normalizeType (derivingViaType dc),
+      derivingParenthesized = derivingParenthesized dc
+    }
+
+normalizeClassDecl :: ClassDecl -> ClassDecl
+normalizeClassDecl decl =
+  ClassDecl
+    { classDeclSpan = span0,
+      classDeclContext = fmap (map normalizeType) (classDeclContext decl),
+      classDeclHeadForm = classDeclHeadForm decl,
+      classDeclName = classDeclName decl,
+      classDeclParams = map normalizeTyVarBinder (classDeclParams decl),
+      classDeclFundeps = map normalizeFunctionalDependency (classDeclFundeps decl),
+      classDeclItems = map normalizeClassDeclItem (classDeclItems decl)
+    }
+
+normalizeFunctionalDependency :: FunctionalDependency -> FunctionalDependency
+normalizeFunctionalDependency dep = dep {functionalDependencySpan = span0}
+
+normalizeClassDeclItem :: ClassDeclItem -> ClassDeclItem
+normalizeClassDeclItem item =
+  case item of
+    ClassItemTypeSig _ names ty -> ClassItemTypeSig span0 names (normalizeType ty)
+    ClassItemDefaultSig _ name ty -> ClassItemDefaultSig span0 name (normalizeType ty)
+    ClassItemFixity _ assoc mNs prec ops -> ClassItemFixity span0 assoc mNs prec ops
+    ClassItemDefault _ vdecl -> ClassItemDefault span0 (normalizeValueDecl vdecl)
+    ClassItemTypeFamilyDecl _ tf -> ClassItemTypeFamilyDecl span0 (normalizeTypeFamilyDecl tf)
+    ClassItemDataFamilyDecl _ df -> ClassItemDataFamilyDecl span0 (normalizeDataFamilyDecl df)
+    ClassItemDefaultTypeInst _ tfi -> ClassItemDefaultTypeInst span0 (normalizeTypeFamilyInst tfi)
+    ClassItemPragma _ pragma -> ClassItemPragma span0 pragma
+
+normalizeInstanceDecl :: InstanceDecl -> InstanceDecl
+normalizeInstanceDecl decl =
+  InstanceDecl
+    { instanceDeclSpan = span0,
+      instanceDeclOverlapPragma = instanceDeclOverlapPragma decl,
+      instanceDeclWarning = fmap normalizeWarningText (instanceDeclWarning decl),
+      instanceDeclForall = map normalizeTyVarBinder (instanceDeclForall decl),
+      instanceDeclContext = map normalizeType (instanceDeclContext decl),
+      instanceDeclParenthesizedHead = instanceDeclParenthesizedHead decl,
+      instanceDeclClassName = instanceDeclClassName decl,
+      instanceDeclTypes = map normalizeType (instanceDeclTypes decl),
+      instanceDeclItems = map normalizeInstanceDeclItem (instanceDeclItems decl)
+    }
+
+normalizeInstanceDeclItem :: InstanceDeclItem -> InstanceDeclItem
+normalizeInstanceDeclItem item =
+  case item of
+    InstanceItemBind _ vdecl -> InstanceItemBind span0 (normalizeValueDecl vdecl)
+    InstanceItemTypeSig _ names ty -> InstanceItemTypeSig span0 names (normalizeType ty)
+    InstanceItemFixity _ assoc mNs prec ops -> InstanceItemFixity span0 assoc mNs prec ops
+    InstanceItemTypeFamilyInst _ tfi -> InstanceItemTypeFamilyInst span0 (normalizeTypeFamilyInst tfi)
+    InstanceItemDataFamilyInst _ dfi -> InstanceItemDataFamilyInst span0 (normalizeDataFamilyInst dfi)
+    InstanceItemPragma _ pragma -> InstanceItemPragma span0 pragma
+
+normalizeStandaloneDerivingDecl :: StandaloneDerivingDecl -> StandaloneDerivingDecl
+normalizeStandaloneDerivingDecl decl =
+  StandaloneDerivingDecl
+    { standaloneDerivingSpan = span0,
+      standaloneDerivingStrategy = standaloneDerivingStrategy decl,
+      standaloneDerivingViaType = fmap normalizeType (standaloneDerivingViaType decl),
+      standaloneDerivingOverlapPragma = standaloneDerivingOverlapPragma decl,
+      standaloneDerivingWarning = fmap normalizeWarningText (standaloneDerivingWarning decl),
+      standaloneDerivingForall = map normalizeTyVarBinder (standaloneDerivingForall decl),
+      standaloneDerivingContext = map normalizeType (standaloneDerivingContext decl),
+      standaloneDerivingParenthesizedHead = standaloneDerivingParenthesizedHead decl,
+      standaloneDerivingClassName = standaloneDerivingClassName decl,
+      standaloneDerivingTypes = map normalizeType (standaloneDerivingTypes decl)
+    }
+
+normalizeForeignDecl :: ForeignDecl -> ForeignDecl
+normalizeForeignDecl decl =
+  ForeignDecl
+    { foreignDeclSpan = span0,
+      foreignDirection = foreignDirection decl,
+      foreignCallConv = foreignCallConv decl,
+      foreignSafety = foreignSafety decl,
+      foreignEntity = foreignEntity decl,
+      foreignName = foreignName decl,
+      foreignType = normalizeType (foreignType decl)
+    }
+
+normalizeTypeFamilyDecl :: TypeFamilyDecl -> TypeFamilyDecl
+normalizeTypeFamilyDecl tf =
+  TypeFamilyDecl
+    { typeFamilyDeclSpan = span0,
+      typeFamilyDeclHeadForm = typeFamilyDeclHeadForm tf,
+      typeFamilyDeclHead = normalizeType (typeFamilyDeclHead tf),
+      typeFamilyDeclParams = map normalizeTyVarBinder (typeFamilyDeclParams tf),
+      typeFamilyDeclKind = fmap normalizeType (typeFamilyDeclKind tf),
+      typeFamilyDeclEquations = fmap (map normalizeTypeFamilyEq) (typeFamilyDeclEquations tf)
+    }
+
+normalizeTypeFamilyEq :: TypeFamilyEq -> TypeFamilyEq
+normalizeTypeFamilyEq eq =
+  TypeFamilyEq
+    { typeFamilyEqSpan = span0,
+      typeFamilyEqForall = map normalizeTyVarBinder (typeFamilyEqForall eq),
+      typeFamilyEqHeadForm = typeFamilyEqHeadForm eq,
+      typeFamilyEqLhs = normalizeType (typeFamilyEqLhs eq),
+      typeFamilyEqRhs = normalizeType (typeFamilyEqRhs eq)
+    }
+
+normalizeDataFamilyDecl :: DataFamilyDecl -> DataFamilyDecl
+normalizeDataFamilyDecl df =
+  DataFamilyDecl
+    { dataFamilyDeclSpan = span0,
+      dataFamilyDeclName = dataFamilyDeclName df,
+      dataFamilyDeclParams = map normalizeTyVarBinder (dataFamilyDeclParams df),
+      dataFamilyDeclKind = fmap normalizeType (dataFamilyDeclKind df)
+    }
+
+normalizeTypeFamilyInst :: TypeFamilyInst -> TypeFamilyInst
+normalizeTypeFamilyInst tfi =
+  TypeFamilyInst
+    { typeFamilyInstSpan = span0,
+      typeFamilyInstForall = map normalizeTyVarBinder (typeFamilyInstForall tfi),
+      typeFamilyInstHeadForm = typeFamilyInstHeadForm tfi,
+      typeFamilyInstLhs = normalizeType (typeFamilyInstLhs tfi),
+      typeFamilyInstRhs = normalizeType (typeFamilyInstRhs tfi)
+    }
+
+normalizeDataFamilyInst :: DataFamilyInst -> DataFamilyInst
+normalizeDataFamilyInst dfi =
+  DataFamilyInst
+    { dataFamilyInstSpan = span0,
+      dataFamilyInstIsNewtype = dataFamilyInstIsNewtype dfi,
+      dataFamilyInstForall = map normalizeTyVarBinder (dataFamilyInstForall dfi),
+      dataFamilyInstHead = normalizeType (dataFamilyInstHead dfi),
+      dataFamilyInstConstructors = map normalizeDataConDecl (dataFamilyInstConstructors dfi),
+      dataFamilyInstDeriving = map normalizeDerivingClause (dataFamilyInstDeriving dfi)
     }
