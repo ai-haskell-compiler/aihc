@@ -12,5 +12,12 @@ expected:
     - "2:21-2:22 x => (value) Local 1 x"
     - "2:29-2:30 x => (value) Local 2 x"
     - "2:33-2:34 x => (value) Local 2 x"
+annotated:
+  - |
+    module Main where
+    fn x = let x = x in x where x = x
+    │  └─ v 0  │   │    └─ v 1  │   └─ v 2
+    └─ v Main  │   └─ v 1       └─ v 2
+               └─ v 1
 status: pass
 reason: ""

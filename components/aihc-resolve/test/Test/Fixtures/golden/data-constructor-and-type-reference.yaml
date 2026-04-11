@@ -13,5 +13,17 @@ expected:
     - "3:7-3:8 A => (type) Main.A"
     - "4:1-4:3 fn => (value) Main.fn"
     - "4:6-4:7 B => (value) Main.B"
+annotated:
+  - |
+    module Main where
+    data A = B
+         │   └─ v Main
+         └─ t Main
+    fn :: A
+    │     └─ t Main
+    └─ v Main
+    fn = B
+    │    └─ v Main
+    └─ v Main
 status: pass
 reason: ""
