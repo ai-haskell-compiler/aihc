@@ -16,5 +16,19 @@ expected:
     - "4:25-4:33 DataType => (type) Main.DataType"
     - "5:1-5:3 fn => (value) Main.fn"
     - "5:8-5:15 ClsName => (value) Main.ClsName"
+annotated:
+  - |
+    module Main where
+    class ClsName a
+          └─ (type) Main.ClsName
+    data DataType = ClsName
+         │          └─ (value) Main.ClsName
+         └─ (type) Main.DataType
+    fn :: ClsName a => a -> DataType
+    └─ (value) Main.fn      └─ (type) Main.DataType
+          └─ (type) Main.ClsName
+    fn _ = ClsName
+    │      └─ (value) Main.ClsName
+    └─ (value) Main.fn
 status: pass
 reason: ""

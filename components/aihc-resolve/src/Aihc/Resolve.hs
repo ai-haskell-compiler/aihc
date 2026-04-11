@@ -14,6 +14,7 @@ module Aihc.Resolve
     ResolvedName (..),
     ResolutionAnnotation (..),
     renderResolveResult,
+    renderAnnotatedResolveResult,
   )
 where
 

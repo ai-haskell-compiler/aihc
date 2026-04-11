@@ -6,5 +6,10 @@ modules:
 expected:
   Main:
     - "2:1-2:2 x => (value) Main.x"
+annotated:
+  - |
+    module Main where
+    x = 1
+    └─ (value) Main.x
 status: pass
 reason: ""
