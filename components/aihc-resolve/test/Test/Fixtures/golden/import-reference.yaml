@@ -7,6 +7,11 @@ modules:
     module Main where
     import Lib
     x = helper
-expected: ~
-status: xfail
-reason: Name resolution not yet implemented
+expected:
+  Lib:
+    - "2:1-2:7 helper => Lib.helper"
+  Main:
+    - "3:1-3:2 x => Main.x"
+    - "3:5-3:11 helper => Lib.helper"
+status: pass
+reason: ""

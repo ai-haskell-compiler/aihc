@@ -19,11 +19,13 @@ import Aihc.Parser
     parseModule,
   )
 import Aihc.Parser.Syntax (Extension, parseExtensionName)
-import Aihc.Resolve (ResolveResult (..), resolve)
+import Aihc.Resolve (ResolveResult (..), renderResolveResult, resolve)
 import Data.Aeson ((.!=), (.:), (.:?))
+import qualified Data.Aeson.Key as Key
+import qualified Data.Aeson.KeyMap as KeyMap
 import Data.Aeson.Types (parseEither, withArray, withObject)
 import Data.Char (isSpace, toLower)
-import Data.List (dropWhileEnd, sort)
+import Data.List (dropWhileEnd, sort, sortOn)
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Text.Encoding (encodeUtf8)
@@ -108,7 +110,7 @@ parseYamlFixture path value =
     ( withObject "resolver fixture" $ \obj -> do
         exts <- obj .: "extensions"
         modules <- obj .: "modules" >>= parseModules
-        expectedText <- obj .:? "expected" .!= ""
+        expectedText <- (obj .:? "expected" >>= traverse parseExpectedValue) .!= ""
         statusText <- obj .: "status"
         reasonText <- obj .:? "reason" .!= ""
         pure (exts, modules, expectedText, statusText, reasonText)
@@ -124,6 +126,26 @@ parseModules = withArray "modules" $ \arr ->
     toList = foldr (:) []
     parseModuleEntry (Y.String t) = pure t
     parseModuleEntry _ = fail "each module must be a string"
+
+parseExpectedValue :: Y.Value -> Y.Parser Text
+parseExpectedValue value =
+  case value of
+    Y.String txt -> pure txt
+    Y.Array arr -> T.intercalate "\n" <$> mapM parseExpectedLine (toList arr)
+    Y.Object obj ->
+      T.intercalate "\n"
+        <$> mapM parseExpectedModule (sortOn (Key.toText . fst) (KeyMap.toList obj))
+    _ -> fail "expected must be a string or a list of strings"
+  where
+    toList = foldr (:) []
+    parseExpectedModule (moduleName, moduleValue) = do
+      moduleLines <- parseExpectedModuleLines moduleValue
+      pure (Key.toText moduleName <> ":\n" <> T.intercalate "\n" (map ("  " <>) moduleLines))
+    parseExpectedModuleLines (Y.String txt) = pure [txt]
+    parseExpectedModuleLines (Y.Array arr) = mapM parseExpectedLine (toList arr)
+    parseExpectedModuleLines _ = fail "each expected module value must be a string or a list of strings"
+    parseExpectedLine (Y.String txt) = pure txt
+    parseExpectedLine _ = fail "each expected list entry must be a string"
 
 evaluateResolverCase :: ResolverCase -> (Outcome, String)
 evaluateResolverCase meta =
@@ -146,7 +168,7 @@ evaluateResolverCase meta =
        in if null errs
             then Right ast
             else Left (formatParseErrors (T.unpack (T.takeWhile (/= '\n') input)) (Just input) errs)
-    showResolved result = show (resolvedModules result)
+    showResolved = renderResolveResult
     showErrors result = unlines (map show (resolveErrors result))
 
 classifySuccess :: ResolverCase -> String -> (Outcome, String)

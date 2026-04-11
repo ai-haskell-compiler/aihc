@@ -62,6 +62,7 @@ module Aihc.Parser.Syntax
     NameType (..),
     UnqualifiedName (..),
     WarningText (..),
+    Annotation,
     NewtypeDecl (..),
     OperatorName,
     PatSynArgs (..),
@@ -118,13 +119,15 @@ module Aihc.Parser.Syntax
     moduleName,
     moduleWarningText,
     moduleExports,
+    mkAnnotation,
+    fromAnnotation,
   )
 where
 
 import Control.DeepSeq (NFData (..))
 import Data.Char (isAsciiLower, isAsciiUpper, isDigit)
 import Data.Data (Constr, Data (..), DataType, Fixity (Prefix), mkConstr, mkDataType)
-import Data.Dynamic
+import Data.Dynamic (Dynamic, Typeable, fromDynamic, toDyn)
 import Data.List (sort)
 import Data.Map qualified as Map
 import Data.Maybe (mapMaybe)
@@ -775,7 +778,7 @@ data Module = Module
     moduleImports :: [ImportDecl],
     moduleDecls :: [Decl]
   }
-  deriving (Eq, Show, Generic, NFData)
+  deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan Module where
   getSourceSpan = moduleSpan
@@ -786,7 +789,7 @@ data ModuleHead = ModuleHead
     moduleHeadWarningText :: Maybe WarningText,
     moduleHeadExports :: Maybe [ExportSpec]
   }
-  deriving (Eq, Show, Generic, NFData)
+  deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan ModuleHead where
   getSourceSpan = moduleHeadSpan
@@ -822,7 +825,7 @@ data ExportSpec
   | ExportAbs SourceSpan (Maybe WarningText) (Maybe IEEntityNamespace) Name
   | ExportAll SourceSpan (Maybe WarningText) (Maybe IEEntityNamespace) Name
   | ExportWith SourceSpan (Maybe WarningText) (Maybe IEEntityNamespace) Name [IEBundledMember]
-  deriving (Eq, Show, Generic, NFData)
+  deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan ExportSpec where
   getSourceSpan spec =
@@ -845,7 +848,7 @@ data ImportDecl = ImportDecl
     importDeclAs :: Maybe Text,
     importDeclSpec :: Maybe ImportSpec
   }
-  deriving (Eq, Show, Generic, NFData)
+  deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan ImportDecl where
   getSourceSpan = importDeclSpan
@@ -853,14 +856,14 @@ instance HasSourceSpan ImportDecl where
 data ImportLevel
   = ImportLevelQuote
   | ImportLevelSplice
-  deriving (Eq, Show, Generic, NFData)
+  deriving (Data, Eq, Show, Generic, NFData)
 
 data ImportSpec = ImportSpec
   { importSpecSpan :: SourceSpan,
     importSpecHiding :: Bool,
     importSpecItems :: [ImportItem]
   }
-  deriving (Eq, Show, Generic, NFData)
+  deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan ImportSpec where
   getSourceSpan = importSpecSpan
@@ -870,7 +873,7 @@ data ImportItem
   | ImportItemAbs SourceSpan (Maybe IEEntityNamespace) UnqualifiedName
   | ImportItemAll SourceSpan (Maybe IEEntityNamespace) UnqualifiedName
   | ImportItemWith SourceSpan (Maybe IEEntityNamespace) UnqualifiedName [IEBundledMember]
-  deriving (Eq, Show, Generic, NFData)
+  deriving (Data, Eq, Show, Generic, NFData)
 
 data Decl
   = DeclAnn Annotation Decl
@@ -1536,6 +1539,12 @@ data ForeignSafety
 
 newtype Annotation = Annotation Dynamic
   deriving (Show, Generic)
+
+mkAnnotation :: (Typeable a) => a -> Annotation
+mkAnnotation = Annotation . toDyn
+
+fromAnnotation :: (Typeable a) => Annotation -> Maybe a
+fromAnnotation (Annotation value) = fromDynamic value
 
 instance Data Annotation where
   gfoldl _ z = z
