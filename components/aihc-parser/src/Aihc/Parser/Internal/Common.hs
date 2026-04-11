@@ -548,6 +548,8 @@ contextItemParserWith typeParser typeAtomParser =
           TkQVarSym modName op ->
             Just (mkName (Just modName) NameVarSym op, Unpromoted)
           TkQConSym modName op -> Just (mkName (Just modName) NameConSym op, Unpromoted)
+          -- Allow unpromoted colon as type-level cons operator in constraint contexts
+          TkReservedColon -> Just (qualifyName Nothing (mkUnqualifiedName NameConSym ":"), Unpromoted)
           _ -> Nothing
     promotedInfixOperatorParser = do
       expectedTok (TkVarSym "'")

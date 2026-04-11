@@ -113,8 +113,22 @@ closeBeforeToken st tok =
   where
     closeBeforeThenElse =
       let col = tokenStartCol tok
-       in closeImplicitLayouts (lexTokenSpan tok) $
-            \indent kind -> col < indent || (kind == LayoutAfterThenElse && col <= indent)
+          anchor = lexTokenSpan tok
+          closeTok = virtualSymbolToken "}" anchor
+          -- Close non-LayoutAfterThenElse contexts with col < indent (normal),
+          -- then close at most ONE matching LayoutAfterThenElse with col <= thenCol
+          -- and stop. This prevents a nested else from closing outer then-do layouts.
+          go ctxs =
+            case ctxs of
+              LayoutImplicit indent kind : rest
+                | LayoutAfterThenElse thenCol <- kind,
+                  col <= thenCol ->
+                    ([closeTok], rest)
+                | col < indent ->
+                    let (inserted, rest') = go rest
+                     in (closeTok : inserted, rest')
+              _ -> ([], ctxs)
+       in go
 
     closeWith closeContexts =
       let (inserted, contexts') = closeContexts (layoutContexts st)
@@ -173,7 +187,11 @@ stepTokenContext st tok =
     TkKeywordDo
       | layoutPrevTokenKind st == Just TkKeywordThen
           || layoutPrevTokenKind st == Just TkKeywordElse ->
-          st {layoutPendingLayout = Just (PendingImplicitLayout LayoutAfterThenElse)}
+          let thenCol = fromMaybe 1 (layoutThenColumn st)
+           in st
+                { layoutPendingLayout = Just (PendingImplicitLayout (LayoutAfterThenElse thenCol)),
+                  layoutThenColumn = Nothing
+                }
       | otherwise -> st {layoutPendingLayout = Just (PendingImplicitLayout LayoutOrdinary)}
     TkKeywordMdo -> st {layoutPendingLayout = Just (PendingImplicitLayout LayoutOrdinary)}
     TkKeywordOf -> st {layoutPendingLayout = Just (PendingImplicitLayout LayoutOrdinary)}
@@ -185,6 +203,8 @@ stepTokenContext st tok =
     TkKeywordRec -> st {layoutPendingLayout = Just (PendingImplicitLayout LayoutOrdinary)}
     TkKeywordWhere -> st {layoutPendingLayout = Just (PendingImplicitLayout LayoutOrdinary)}
     TkKeywordIf -> st {layoutPendingLayout = Just PendingMaybeMultiWayIf}
+    TkKeywordThen -> st {layoutThenColumn = Just (tokenStartCol tok)}
+    TkKeywordElse -> st {layoutThenColumn = Just (tokenStartCol tok)}
     kind
       | opensDelimiter kind ->
           st {layoutContexts = LayoutDelimiter : layoutContexts st}
