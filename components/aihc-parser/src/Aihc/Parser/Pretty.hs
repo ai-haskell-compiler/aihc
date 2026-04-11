@@ -518,7 +518,11 @@ prettyPattern pat =
     PList _ elems -> brackets (hsep (punctuate comma (map prettyPattern elems)))
     PCon _ con args -> hsep (prettyPrefixName con : map prettyPatternAtom args)
     PInfix _ lhs op rhs -> prettyPatternAtom lhs <+> prettyNameInfixOp op <+> prettyPatternAtom rhs
-    PView _ viewExpr inner -> parens (prettyExprPrec 0 viewExpr <+> "->" <+> prettyPattern inner)
+    PView _ viewExpr inner ->
+      -- Use precedence 2 for the view expression so that ETypeSig gets
+      -- parenthesized. Without this, "expr :: ty -> pat" is ambiguous
+      -- because "->" could be parsed as part of the type.
+      parens (prettyExprPrec 2 viewExpr <+> "->" <+> prettyPattern inner)
     PAs _ name inner -> pretty name <> "@" <> prettyPatternAtomStrict inner
     PStrict _ inner -> "!" <> prettyPatternAtomStrict inner
     PIrrefutable _ inner -> "~" <> prettyPatternAtomStrict inner
@@ -543,7 +547,7 @@ prettyPattern pat =
 prettyPatternInTuple :: Pattern -> Doc ann
 prettyPatternInTuple pat =
   case pat of
-    PView _ viewExpr inner -> prettyExprPrec 0 viewExpr <+> "->" <+> prettyPattern inner
+    PView _ viewExpr inner -> prettyExprPrec 2 viewExpr <+> "->" <+> prettyPattern inner
     _ -> prettyPattern pat
 
 -- | Pretty print a pattern field binding.
@@ -569,11 +573,23 @@ prettyPatternAtom pat =
     PUnboxedSum {} -> prettyPattern pat
     PParen _ _ -> prettyPattern pat
     PStrict _ _ -> prettyPattern pat
+    PIrrefutable _ _ -> prettyPattern pat
     PView {} -> prettyPattern pat
     PAs {} -> prettyPattern pat
     PSplice {} -> prettyPattern pat
     PCon _ _ [] -> prettyPattern pat
     _ -> parens (prettyPattern pat)
+
+-- | Pretty print a pattern atom in lambda argument position.
+-- In addition to the normal non-atomic patterns, this also parenthesizes
+-- nullary constructors (which would greedily absorb the next argument) and
+-- negative literals (ambiguous with subtraction).
+prettyLambdaPatternAtom :: Pattern -> Doc ann
+prettyLambdaPatternAtom pat =
+  case pat of
+    PNegLit {} -> parens (prettyPattern pat)
+    PCon _ _ [] -> parens (prettyPattern pat)
+    _ -> prettyPatternAtom pat
 
 -- | Pretty print a pattern atom after @ or as the operand of ! or ~.
 -- Negative literals and nested strictness/irrefutability need parens.
@@ -1344,7 +1360,7 @@ prettyExprPrec prec expr =
             <+> "}"
         )
     ELambdaPats _ pats body ->
-      parenthesize (prec > 0) ("\\" <+> hsep (map prettyPattern pats) <+> "->" <+> prettyExprPrec 0 body)
+      parenthesize (prec > 0) ("\\" <+> hsep (map prettyLambdaPatternAtom pats) <+> "->" <+> prettyExprPrec 0 body)
     ELambdaCase _ alts ->
       parenthesize
         (prec > 0)
@@ -1373,8 +1389,8 @@ prettyExprPrec prec expr =
             ETypeSig {} -> parens (prettyExprPrec 0 lhs)
             _ | isGreedyExpr lhs -> parens (prettyExprPrec 0 lhs)
             _ -> prettyExprPrec 1 lhs
-       in parens (lhsDoc <+> prettyInfixOp (renderName op))
-    ESectionR _ op rhs -> parens (prettyInfixOp (renderName op) <+> prettyExprPrec 0 rhs)
+       in parens (lhsDoc <+> prettyNameInfixOp op)
+    ESectionR _ op rhs -> parens (prettyNameInfixOp op <+> prettyExprPrec 0 rhs)
     ELetDecls _ decls body ->
       parenthesize
         (prec > 0)
