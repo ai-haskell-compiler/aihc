@@ -76,6 +76,9 @@ instance Shorthand Module where
           <> listField "imports" docImportDecl (moduleImports modu)
           <> listField "decls" docDecl (moduleDecls modu)
 
+instance Shorthand Decl where
+  shorthand = docDecl
+
 instance Shorthand Expr where
   shorthand = docExpr
 
