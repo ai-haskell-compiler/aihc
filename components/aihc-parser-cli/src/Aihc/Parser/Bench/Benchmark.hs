@@ -156,7 +156,7 @@ enrichEntry packageInfos entry =
                           "src/" ++ relPath,
                           "lib/" ++ relPath
                         ]
-                      lookupResult = firstJust (map (`Map.lookup` (packageInfoFiles info)) pathsToTry)
+                      lookupResult = firstJust (map (`Map.lookup` packageInfoFiles info) pathsToTry)
                    in case lookupResult of
                         Just (exts, cppOpts, lang, deps) ->
                           entry {entryExtensions = exts, entryCppOptions = cppOpts, entryLanguage = lang, entryDependencies = deps}

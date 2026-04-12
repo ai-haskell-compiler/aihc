@@ -116,4 +116,3 @@ unliterateIfNeeded inputFile source
       | T.strip line == "\\end{code}" = "" : unlitLatex False rest
       | inCode = line : unlitLatex inCode rest
       | otherwise = "" : unlitLatex inCode rest
-
