@@ -1,0 +1,71 @@
+cabal-version:      3.8
+name:               aihc-base-api
+version:            0.1.0.0
+build-type:         Simple
+license:            Unlicense
+license-file:       ../../LICENSE
+author:             David Himmelstrup
+maintainer:         lemmih@gmail.com
+category:           Compilers
+synopsis:           Extract base API data from GHC interface files
+
+library
+  exposed-modules:
+      Aihc.BaseApi.Extractor
+  other-modules:
+      Aihc.BaseApi.Extractor.Bindist
+    , Aihc.BaseApi.Extractor.PackageConf
+  hs-source-dirs:   src
+  build-depends:
+      base >=4.16 && <5
+    , aeson
+    , containers
+    , directory
+    , filepath
+    , ghc
+    , optparse-applicative
+    , process
+    , text
+  ghc-options:      -Wall -Werror
+  default-language: GHC2021
+
+executable aihc-base-api
+  hs-source-dirs:   app
+  main-is:          Main.hs
+  build-depends:
+      base >=4.16 && <5
+    , aihc-base-api
+    , aeson
+    , bytestring
+    , filepath
+    , optparse-applicative
+    , text
+  ghc-options:      -Wall -Werror
+  default-language: GHC2021
+
+test-suite spec
+  type:             exitcode-stdio-1.0
+  hs-source-dirs:
+      test
+    , src
+  main-is:          Spec.hs
+  other-modules:
+      Aihc.BaseApi.Extractor
+    , Test.Extractor.Suite
+    , Aihc.BaseApi.Extractor.Bindist
+    , Aihc.BaseApi.Extractor.PackageConf
+  build-depends:
+      base >=4.16 && <5
+    , aihc-base-api
+    , aeson
+    , bytestring
+    , containers
+    , directory
+    , filepath
+    , ghc
+    , process
+    , tasty
+    , tasty-hunit
+    , text
+  ghc-options:      -Wall -Werror -threaded -rtsopts -with-rtsopts=-N
+  default-language: GHC2021

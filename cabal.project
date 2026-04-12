@@ -5,5 +5,6 @@ packages:
   components/aihc-resolve
   components/aihc-tc
   tooling/aihc-hackage
+  tooling/aihc-base-api
 
 tests: True
