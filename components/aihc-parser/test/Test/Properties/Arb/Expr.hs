@@ -59,7 +59,6 @@ genExprSizedWith allowTHQuotes n
         ELambdaPats span0 <$> genPatterns half <*> genExprSizedWith allowTHQuotes half,
         ELambdaCase span0 <$> genCaseAltsWith allowTHQuotes (n - 1),
         ELetDecls span0 <$> genValueDeclsWith allowTHQuotes half <*> genExprSizedWith allowTHQuotes half,
-        EWhereDecls span0 <$> genExprSizedWith allowTHQuotes half <*> genValueDeclsWith allowTHQuotes half,
         EDo span0 <$> genDoStmtsWith allowTHQuotes (n - 1) <*> pure False,
         EListComp span0 <$> genExprSizedWith allowTHQuotes half <*> genCompStmtsWith allowTHQuotes half,
         EListCompParallel span0 <$> genExprSizedWith allowTHQuotes half <*> genParallelCompStmtsWith allowTHQuotes half,
@@ -256,7 +255,7 @@ genCaseAltWith allowTHQuotes n = do
 genRhsWith :: Bool -> Int -> Gen Rhs
 genRhsWith allowTHQuotes n =
   oneof
-    [ UnguardedRhs span0 <$> genExprSizedWith allowTHQuotes n,
+    [ UnguardedRhs span0 <$> genBindingExprWith allowTHQuotes n,
       GuardedRhss span0 <$> genGuardedRhsListWith allowTHQuotes n
     ]
 
@@ -269,7 +268,7 @@ genGuardedRhsWith :: Bool -> Int -> Gen GuardedRhs
 genGuardedRhsWith allowTHQuotes n = do
   guardCount <- chooseInt (1, 2)
   guards <- vectorOf guardCount (genGuardQualifierWith allowTHQuotes (half `div` guardCount))
-  body <- genExprSizedWith allowTHQuotes half
+  body <- genBindingExprWith allowTHQuotes half
   pure $
     GuardedRhs
       { guardedRhsSpan = span0,
@@ -312,7 +311,7 @@ genValueDeclsWith :: Bool -> Int -> Gen [Decl]
 genValueDeclsWith allowTHQuotes n = do
   count <- chooseInt (0, 3)
   names <- vectorOf count (mkUnqualifiedName NameVarId <$> genIdent)
-  exprs <- vectorOf count (genExprSizedWith allowTHQuotes (n `div` max 1 count))
+  exprs <- vectorOf count (genBindingExprWith allowTHQuotes (n `div` max 1 count))
   pure
     [ DeclValue
         span0
@@ -329,6 +328,17 @@ genValueDeclsWith allowTHQuotes n = do
         )
     | (name, expr) <- zip names exprs
     ]
+
+genBindingExprWith :: Bool -> Int -> Gen Expr
+genBindingExprWith allowTHQuotes n
+  | n <= 0 = genExprLeaf
+  | otherwise =
+      frequency
+        [ (4, genExprSizedWith allowTHQuotes n),
+          (1, EWhereDecls span0 <$> genExprSizedWith allowTHQuotes half <*> genValueDeclsWith allowTHQuotes half)
+        ]
+  where
+    half = n `div` 2
 
 genDoStmtsWith :: Bool -> Int -> Gen [DoStmt Expr]
 genDoStmtsWith allowTHQuotes n = do
