@@ -27,6 +27,7 @@ library
     , aihc-parser
     , text >=1.2
     , optparse-applicative
+    , prettyprinter
     -- Dependencies for bench modules:
     , aeson
     , bytestring

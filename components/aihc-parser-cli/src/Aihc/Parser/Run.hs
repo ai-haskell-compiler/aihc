@@ -14,12 +14,14 @@ where
 import Aihc.Parser (ParserConfig (..), defaultConfig, formatParseErrors, parseModule)
 import Aihc.Parser.Lex (lexModuleTokensWithExtensions, readModuleHeaderPragmas)
 import Aihc.Parser.Shorthand (Shorthand (..))
-import Aihc.Parser.Syntax (ExtensionSetting (..), parseExtensionSettingName)
+import Aihc.Parser.Syntax (ExtensionSetting (..), Module, parseExtensionSettingName)
 import Aihc.Parser.Syntax qualified as Syntax
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Options.Applicative
+import Prettyprinter (defaultLayoutOptions, layoutPretty, pretty)
+import Prettyprinter.Render.String (renderString)
 import System.Exit (ExitCode (..))
 
 -- | Result of running a CLI command.
@@ -34,8 +36,13 @@ data CLIResult = CLIResult
 data Mode = ModeParse | ModeLex
   deriving (Eq, Show)
 
+-- | Output format: AST shorthand (default) or pretty-printed source.
+data OutputFormat = OutputShorthand | OutputPretty
+  deriving (Eq, Show)
+
 data Options = Options
   { optMode :: !Mode,
+    optOutputFormat :: !OutputFormat,
     optExtensions :: ![ExtensionSetting]
   }
 
@@ -52,7 +59,7 @@ runCLI args stdin =
     Success opts ->
       let extensions = optExtensions opts
        in case optMode opts of
-            ModeParse -> runParseMode extensions stdin
+            ModeParse -> runParseMode (optOutputFormat opts) extensions stdin
             ModeLex -> runLexMode extensions stdin
     Failure failure ->
       let (msg, exitCode) = renderFailure failure "aihc-parser"
@@ -63,11 +70,11 @@ runCLI args stdin =
       CLIResult ExitSuccess "" ""
 
 -- | Run in parse mode: parse a Haskell module and output the AST.
-runParseMode :: [ExtensionSetting] -> Text -> CLIResult
-runParseMode extensionSettings stdin =
+runParseMode :: OutputFormat -> [ExtensionSetting] -> Text -> CLIResult
+runParseMode outputFormat extensionSettings stdin =
   let (errs, modu) = parseModule cfg stdin
    in if null errs
-        then CLIResult ExitSuccess (T.pack (show (shorthand modu)) <> "\n") ""
+        then CLIResult ExitSuccess (formatOutput outputFormat modu <> "\n") ""
         else CLIResult (ExitFailure 1) "" (T.pack (formatParseErrors (parserSourceName cfg) (Just stdin) errs))
   where
     headerPragmas = readModuleHeaderPragmas stdin
@@ -75,6 +82,10 @@ runParseMode extensionSettings stdin =
     edition = fromMaybe defaultEdition (Syntax.headerLanguageEdition headerPragmas)
     finalExts = Syntax.effectiveExtensions edition (extensionSettings ++ Syntax.headerExtensionSettings headerPragmas)
     cfg = defaultConfig {parserExtensions = finalExts, parserSourceName = "<stdin>"}
+
+formatOutput :: OutputFormat -> Module -> Text
+formatOutput OutputShorthand modu = T.pack (show (shorthand modu))
+formatOutput OutputPretty modu = T.pack (renderString (layoutPretty defaultLayoutOptions (pretty modu)))
 
 -- | Run in lex mode: tokenize Haskell source and output the token stream.
 runLexMode :: [ExtensionSetting] -> Text -> CLIResult
@@ -98,6 +109,7 @@ optionsP :: Parser Options
 optionsP =
   Options
     <$> modeOption
+    <*> outputFormatOption
     <*> many extensionOption
     <* optional (argument (str :: ReadM String) (metavar "FILE" <> help "Input file (reads stdin if omitted)"))
 
@@ -108,6 +120,15 @@ modeOption =
     ModeLex
     ( long "lex"
         <> help "Lex only, do not parse (output token stream)"
+    )
+
+outputFormatOption :: Parser OutputFormat
+outputFormatOption =
+  flag
+    OutputShorthand
+    OutputPretty
+    ( long "pretty"
+        <> help "Pretty-print the parsed module (output Haskell source code instead of AST shorthand)"
     )
 
 extensionOption :: Parser ExtensionSetting
