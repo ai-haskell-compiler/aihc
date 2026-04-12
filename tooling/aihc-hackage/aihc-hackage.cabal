@@ -13,6 +13,7 @@ library
   exposed-modules:
       Aihc.Hackage.Types
     , Aihc.Hackage.Cache
+    , Aihc.Hackage.Cpp
     , Aihc.Hackage.Download
     , Aihc.Hackage.Stackage
     , Aihc.Hackage.Cabal
