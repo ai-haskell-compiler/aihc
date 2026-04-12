@@ -19,6 +19,7 @@ module Aihc.Parser.Bench.Tarball
     -- * Filtering
     checkPackageFilters,
     FilterReason (..),
+    isIncludeEntry,
 
     -- * Tarball I/O
     writeTarball,
@@ -32,7 +33,7 @@ import Aihc.Hackage.Stackage qualified as HS
 import Aihc.Hackage.Types (PackageSpec (..), formatPackage)
 import Aihc.Hackage.Util qualified as HU
 import Aihc.Parser.Bench.CLI (FilterOptions (..), GenerateOptions (..))
-import Aihc.Parser.Bench.Parsers (ParseResult (..), parseWithAihcExts, parseWithGhcExts, parseWithHseExts)
+import Aihc.Parser.Bench.Parsers (ParseResult (..), collectCppIncludes, parseWithAihcExts, parseWithGhcExts, parseWithHseExts)
 import Codec.Archive.Tar qualified as Tar
 import Codec.Archive.Tar.Entry qualified as Tar
 import Codec.Compression.GZip qualified as GZip
@@ -103,6 +104,10 @@ isHaskellEntry :: TarballEntry -> Bool
 isHaskellEntry e =
   let ext = takeExtension (entryFilePath e)
    in ext == ".hs" || ext == ".lhs"
+
+-- | Check if an entry is a CPP include file (not .hs/.lhs and not .cabal)
+isIncludeEntry :: TarballEntry -> Bool
+isIncludeEntry e = not (isCabalEntry e) && not (isHaskellEntry e)
 
 -- | Why a package was filtered out.
 data FilterReason
@@ -236,12 +241,16 @@ processPackage manager opts pkg = do
                       entryLanguage = lang
                     }
 
-              -- Check filters (only for Haskell files)
-              filterResult <- checkPackageFilters (genFilters opts) entries
+              -- Collect CPP include files for all Haskell entries
+              includeFileMap <- collectIncludeFiles pkgDir pkg entries
+              let includeEntries = buildIncludeEntries pkg includeFileMap
+
+              -- Check filters (only for Haskell files, with include map for CPP)
+              filterResult <- checkPackageFilters includeFileMap (genFilters opts) entries
               case filterResult of
                 Just reason -> pure (Left (pkg, reason))
-                -- Include the .cabal file along with the Haskell files
-                Nothing -> pure (Right (cabalEntry : entries))
+                -- Include the .cabal file along with the Haskell files and include files
+                Nothing -> pure (Right (cabalEntry : entries ++ includeEntries))
 
 -- | Find and read the .cabal file, returning the entry and a map of file paths to their extensions
 findAndReadCabalFile :: FilePath -> PackageSpec -> IO (TarballEntry, Map.Map FilePath ([String], Maybe String))
@@ -286,10 +295,34 @@ parseCabalForExtensions pkgDir cabalFile = do
           | fi <- fileInfos
           ]
 
+-- | Collect CPP include files for a list of Haskell tarball entries.
+-- Returns a map from tarball-relative path to file contents.
+collectIncludeFiles :: FilePath -> PackageSpec -> [TarballEntry] -> IO (Map.Map FilePath Text)
+collectIncludeFiles pkgDir pkg entries = do
+  includeLists <- forM (filter isHaskellEntry entries) $ \e -> do
+    let absFile = pkgDir </> makeRelative (formatPackage pkg) (entryFilePath e)
+    pairs <- collectCppIncludes absFile (entryExtensions e) (entryLanguage e) (entryContents e)
+    pure [(formatPackage pkg </> makeRelative pkgDir absPath, text) | (absPath, text) <- pairs]
+  pure $ Map.fromList (concat includeLists)
+
+-- | Build TarballEntry items from a map of include files.
+buildIncludeEntries :: PackageSpec -> Map.Map FilePath Text -> [TarballEntry]
+buildIncludeEntries pkg includeMap =
+  [ TarballEntry
+      { entryPackage = pkg,
+        entryFilePath = tarPath,
+        entryContents = contents,
+        entryByteSize = BS.length (encodeUtf8 contents),
+        entryExtensions = [],
+        entryLanguage = Nothing
+      }
+  | (tarPath, contents) <- Map.toList includeMap
+  ]
+
 -- | Check if a package passes all filters.
 -- Returns the first filter failure reason, or Nothing if all pass.
-checkPackageFilters :: FilterOptions -> [TarballEntry] -> IO (Maybe FilterReason)
-checkPackageFilters opts entries
+checkPackageFilters :: Map.Map FilePath Text -> FilterOptions -> [TarballEntry] -> IO (Maybe FilterReason)
+checkPackageFilters includeMap opts entries
   | not (filterAihc opts || filterHse opts || filterGhc opts) = pure Nothing
   | otherwise = pure $ listToMaybe $ mapMaybe checkEntry (filter isHaskellEntry entries)
   where
@@ -300,17 +333,17 @@ checkPackageFilters opts entries
           lang = entryLanguage e
           checks =
             [ if filterAihc opts
-                then case parseWithAihcExts exts lang source of
+                then case parseWithAihcExts includeMap path exts lang source of
                   ParseSuccess -> Nothing
                   ParseFailure err -> Just (FilterAihcFailed path err)
                 else Nothing,
               if filterHse opts
-                then case parseWithHseExts exts lang source of
+                then case parseWithHseExts includeMap path exts lang source of
                   ParseSuccess -> Nothing
                   ParseFailure err -> Just (FilterHseFailed path err)
                 else Nothing,
               if filterGhc opts
-                then case parseWithGhcExts exts lang source of
+                then case parseWithGhcExts includeMap path exts lang source of
                   ParseSuccess -> Nothing
                   ParseFailure err -> Just (FilterGhcFailed path err)
                 else Nothing

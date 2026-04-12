@@ -8,26 +8,26 @@
 module Aihc.Parser.Bench.Parsers
   ( ParseResult (..),
 
+    -- * CPP include collection
+    collectCppIncludes,
+
     -- * Parsing with explicit extensions (from cabal files)
     parseWithAihcExts,
     parseWithHseExts,
     parseWithGhcExts,
     lexWithAihcExts,
-
-    -- * Legacy: parsing without cabal extensions (uses defaults)
-    parseWithAihc,
-    parseWithHse,
-    parseWithGhc,
-    lexWithAihc,
   )
 where
 
 import Aihc.Cpp qualified as Cpp
+import Aihc.Hackage.Util qualified as HU
 import Aihc.Parser qualified as Aihc
 import Aihc.Parser.Lex qualified as AihcLex
 import Aihc.Parser.Syntax qualified as Syntax
 import Control.DeepSeq (NFData (..), deepseq)
 import Data.List qualified as List
+import Data.Map.Strict (Map)
+import Data.Map.Strict qualified as Map
 import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -51,6 +51,8 @@ import GHC.Types.SrcLoc (mkRealSrcLoc)
 import GHC.Utils.Error (emptyDiagOpts, pprMessages)
 import GHC.Utils.Outputable (showSDocUnsafe)
 import Language.Haskell.Exts qualified as HSE
+import System.Directory (doesFileExist)
+import System.FilePath (normalise, takeDirectory, (</>))
 import Text.Read (readMaybe)
 
 -- | Result of attempting to parse a file.
@@ -69,9 +71,9 @@ instance NFData ParseResult where
 
 -- | Parse with aihc-parser using extensions from cabal file.
 -- Handles CPP preprocessing if CPP extension is enabled.
-parseWithAihcExts :: [String] -> Maybe String -> Text -> ParseResult
-parseWithAihcExts cabalExts langName source =
-  let (preprocessedSource, extensions) = prepareSourceAndExtensions cabalExts langName source
+parseWithAihcExts :: Map FilePath Text -> FilePath -> [String] -> Maybe String -> Text -> ParseResult
+parseWithAihcExts includeMap filePath cabalExts langName source =
+  let (preprocessedSource, extensions) = prepareSourceAndExtensions includeMap filePath cabalExts langName source
       config = Aihc.defaultConfig {Aihc.parserExtensions = extensions}
       (errs, m) = Aihc.parseModule config preprocessedSource
    in if null errs
@@ -80,17 +82,17 @@ parseWithAihcExts cabalExts langName source =
 
 -- | Lex with aihc-parser using extensions from cabal file (lexer-only mode).
 -- Handles CPP preprocessing if CPP extension is enabled.
-lexWithAihcExts :: [String] -> Maybe String -> Text -> ParseResult
-lexWithAihcExts cabalExts langName source =
-  let (preprocessedSource, extensions) = prepareSourceAndExtensions cabalExts langName source
+lexWithAihcExts :: Map FilePath Text -> FilePath -> [String] -> Maybe String -> Text -> ParseResult
+lexWithAihcExts includeMap filePath cabalExts langName source =
+  let (preprocessedSource, extensions) = prepareSourceAndExtensions includeMap filePath cabalExts langName source
       tokens = AihcLex.lexModuleTokensWithExtensions extensions preprocessedSource
    in tokens `deepseq` ParseSuccess
 
 -- | Parse with haskell-src-exts using extensions from cabal file.
 -- Handles CPP preprocessing if CPP extension is enabled.
-parseWithHseExts :: [String] -> Maybe String -> Text -> ParseResult
-parseWithHseExts cabalExts langName source =
-  let (preprocessedSource, extensions) = prepareSourceAndExtensions cabalExts langName source
+parseWithHseExts :: Map FilePath Text -> FilePath -> [String] -> Maybe String -> Text -> ParseResult
+parseWithHseExts includeMap filePath cabalExts langName source =
+  let (preprocessedSource, extensions) = prepareSourceAndExtensions includeMap filePath cabalExts langName source
       hseExts = toHseExtensions extensions
       langExts = languageToHseExtensions langName
       baseLang = languageToHseLanguage langName
@@ -106,9 +108,9 @@ parseWithHseExts cabalExts langName source =
 -- | Parse with ghc-lib-parser using extensions from cabal file.
 -- Handles CPP preprocessing if CPP extension is enabled.
 -- Note: GHC can return POk with errors, so we check for errors even on success.
-parseWithGhcExts :: [String] -> Maybe String -> Text -> ParseResult
-parseWithGhcExts cabalExts langName source =
-  let (preprocessedSource, extensions) = prepareSourceAndExtensions cabalExts langName source
+parseWithGhcExts :: Map FilePath Text -> FilePath -> [String] -> Maybe String -> Text -> ParseResult
+parseWithGhcExts includeMap filePath cabalExts langName source =
+  let (preprocessedSource, extensions) = prepareSourceAndExtensions includeMap filePath cabalExts langName source
       -- Start with language base extensions
       langExts = languageToGhcExtensions langName
       baseExtSet = EnumSet.fromList langExts :: EnumSet.EnumSet GHC.Extension
@@ -143,8 +145,8 @@ parseWithGhcExts cabalExts langName source =
 -- 1. Check if CPP is enabled (from cabal extensions or initial LANGUAGE pragmas)
 -- 2. If CPP is enabled, preprocess the source
 -- 3. Re-scan the (possibly preprocessed) source for final LANGUAGE pragmas
-prepareSourceAndExtensions :: [String] -> Maybe String -> Text -> (Text, [Syntax.Extension])
-prepareSourceAndExtensions cabalExts langName source =
+prepareSourceAndExtensions :: Map FilePath Text -> FilePath -> [String] -> Maybe String -> Text -> (Text, [Syntax.Extension])
+prepareSourceAndExtensions includeMap filePath cabalExts langName source =
   let -- Convert cabal extension names to settings
       cabalSettings = extensionNamesToSettings cabalExts
       -- Get initial extensions from LANGUAGE pragmas (before CPP)
@@ -157,7 +159,7 @@ prepareSourceAndExtensions cabalExts langName source =
       -- Preprocess if CPP is enabled
       preprocessedSource =
         if cppEnabled
-          then runCppPreprocessor source
+          then runCppWithIncludes includeMap filePath source
           else source
       -- Re-scan for extensions after preprocessing (CPP can affect LANGUAGE pragmas)
       finalHeaderSettings = AihcLex.readModuleHeaderExtensions preprocessedSource
@@ -165,40 +167,48 @@ prepareSourceAndExtensions cabalExts langName source =
       finalExtensions = applyExtensionSettings finalSettings baseExts
    in (preprocessedSource, finalExtensions)
 
--- | Run CPP preprocessor on source, ignoring includes.
--- For benchmarking purposes, we don't resolve includes - just process the source.
-runCppPreprocessor :: Text -> Text
-runCppPreprocessor source =
-  let cfg = Cpp.defaultConfig {Cpp.configInputFile = "<bench>"}
-      result = runCppWithoutIncludes cfg source
-   in Cpp.resultOutput result
-
--- | Run CPP without resolving includes (return Nothing for all include requests).
-runCppWithoutIncludes :: Cpp.Config -> Text -> Cpp.Result
-runCppWithoutIncludes cfg source = go (Cpp.preprocess cfg (TE.encodeUtf8 source))
+-- | Run CPP preprocessor on source, resolving includes from the provided map.
+-- Include paths not found in the map are treated as missing.
+runCppWithIncludes :: Map FilePath Text -> FilePath -> Text -> Text
+runCppWithIncludes includeMap filePath source =
+  let cfg = Cpp.defaultConfig {Cpp.configInputFile = filePath}
+   in Cpp.resultOutput (go (Cpp.preprocess cfg (TE.encodeUtf8 source)))
   where
     go (Cpp.Done result) = result
-    go (Cpp.NeedInclude _ k) = go (k Nothing)
+    go (Cpp.NeedInclude req k) =
+      let resolved = normalise (takeDirectory (Cpp.includeFrom req) </> Cpp.includePath req)
+          mContents = fmap TE.encodeUtf8 (Map.lookup resolved includeMap)
+       in go (k mContents)
 
---------------------------------------------------------------------------------
--- Legacy functions (no cabal extensions)
---------------------------------------------------------------------------------
-
--- | Parse with aihc-parser using only LANGUAGE pragmas from source.
-parseWithAihc :: Text -> ParseResult
-parseWithAihc = parseWithAihcExts [] Nothing
-
--- | Lex with aihc-parser (lexer-only mode).
-lexWithAihc :: Text -> ParseResult
-lexWithAihc = lexWithAihcExts [] Nothing
-
--- | Parse with haskell-src-exts using only LANGUAGE pragmas from source.
-parseWithHse :: Text -> ParseResult
-parseWithHse = parseWithHseExts [] Nothing
-
--- | Parse with ghc-lib-parser using only LANGUAGE pragmas from source.
-parseWithGhc :: Text -> ParseResult
-parseWithGhc = parseWithGhcExts [] Nothing
+-- | Collect all CPP include files needed by a Haskell source file.
+-- Only runs CPP if the CPP extension is enabled for this file.
+-- Returns (absolutePath, content) for all transitively included files.
+collectCppIncludes :: FilePath -> [String] -> Maybe String -> Text -> IO [(FilePath, Text)]
+collectCppIncludes absFile cabalExts langName source = do
+  let cabalSettings = extensionNamesToSettings cabalExts
+      initialHeaderSettings = AihcLex.readModuleHeaderExtensions source
+      initialSettings = cabalSettings <> initialHeaderSettings
+      baseExts = languageBaseExtensions langName
+      initialExtensions = applyExtensionSettings initialSettings baseExts
+      cppEnabled = Syntax.CPP `elem` initialExtensions
+  if not cppEnabled
+    then pure []
+    else
+      let cfg = Cpp.defaultConfig {Cpp.configInputFile = absFile}
+       in Map.toList <$> go Map.empty (Cpp.preprocess cfg (TE.encodeUtf8 source))
+  where
+    go acc (Cpp.Done _) = pure acc
+    go acc (Cpp.NeedInclude req k) = do
+      let resolved = normalise (takeDirectory (Cpp.includeFrom req) </> Cpp.includePath req)
+      case Map.lookup resolved acc of
+        Just contents -> go acc (k (Just (TE.encodeUtf8 contents)))
+        Nothing -> do
+          exists <- doesFileExist resolved
+          if not exists
+            then go acc (k Nothing)
+            else do
+              contents <- HU.readTextFileLenient resolved
+              go (Map.insert resolved contents acc) (k (Just (TE.encodeUtf8 contents)))
 
 --------------------------------------------------------------------------------
 -- Extension conversion utilities
