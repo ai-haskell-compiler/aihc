@@ -23,7 +23,7 @@ where
 
 import Aihc.Parser.Syntax
 import Data.Char (GeneralCategory (..), generalCategory)
-import Data.Maybe (catMaybes)
+import Data.Maybe (catMaybes, isJust)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Prettyprinter
@@ -307,8 +307,8 @@ prettyPatSynWhere name (PatSynExplicitBidirectional matches) =
 prettyFunctionMatchLines :: UnqualifiedName -> Match -> [Doc ann]
 prettyFunctionMatchLines name match =
   case matchRhs match of
-    UnguardedRhs _ _ -> [prettyFunctionMatch name match]
-    GuardedRhss _ grhss ->
+    UnguardedRhs {} -> [prettyFunctionMatch name match]
+    GuardedRhss _ grhss mWhereDecls ->
       prettyFunctionHead name (matchHeadForm match) (matchPats match)
         : [ "  |"
               <+> hsep (punctuate comma (map prettyGuardQualifier (guardedRhsGuards grhs)))
@@ -316,6 +316,7 @@ prettyFunctionMatchLines name match =
               <+> prettyExprPrec 0 (guardedRhsBody grhs)
           | grhs <- grhss
           ]
+          <> [prettyWhereClause mWhereDecls | isJust mWhereDecls]
 
 prettyFunctionMatch :: UnqualifiedName -> Match -> Doc ann
 prettyFunctionMatch name match =
@@ -340,12 +341,15 @@ prettyRhs :: Rhs -> Doc ann
 prettyRhs rhs =
   case rhs of
     -- For UnguardedRhs, nothing follows the expression, so no parens needed
-    UnguardedRhs _ expr -> "=" <+> prettyExprPrec 0 expr
+    UnguardedRhs _ expr whereDecls ->
+      "="
+        <+> prettyExprPrec 0 expr
+        <> prettyWhereClause whereDecls
     -- For GuardedRhss, multiple guards can follow, but brace-terminated
     -- expressions (do, case, \case) are safe. Open-ended expressions
     -- (if, lambda, let, where) could capture trailing guards with layout,
     -- but our pretty-printer doesn't use layout for guards.
-    GuardedRhss _ guards ->
+    GuardedRhss _ guards whereDecls ->
       hsep
         [ "|"
             <+> hsep (punctuate comma (map prettyGuardQualifier (guardedRhsGuards grhs)))
@@ -353,6 +357,12 @@ prettyRhs rhs =
             <+> prettyExprPrec 0 (guardedRhsBody grhs)
         | grhs <- guards
         ]
+        <> prettyWhereClause whereDecls
+
+prettyWhereClause :: Maybe [Decl] -> Doc ann
+prettyWhereClause Nothing = mempty
+prettyWhereClause (Just []) = " where" <+> braces mempty
+prettyWhereClause (Just decls) = " where" <+> braces (prettyInlineDecls decls)
 
 prettyType :: Type -> Doc ann
 prettyType = prettyTypePrec 0
@@ -1119,7 +1129,6 @@ prettyConstructorUName = prettyConstructorName . renderUnqualifiedName
 data ExprCtx
   = CtxInfixRhs Bool
   | CtxInfixLhs
-  | CtxWhereBody
   | CtxAppFun
   | -- | Last argument position in an application chain
     CtxAppArg
@@ -1139,7 +1148,6 @@ exprCtxPrec ctx expr =
       | isGreedyExpr expr -> 0
       | otherwise -> 1
     CtxInfixLhs -> 1
-    CtxWhereBody -> 0
     CtxAppFun -> 2
     CtxAppArg -> 3
     CtxAppArgNoParens -> 0 -- Precedence 0 so EIf/ECase/etc don't add parens
@@ -1154,16 +1162,11 @@ needsExprParens ctx expr =
         EInfix {} -> True
         ETypeSig {} -> True
         ENegate {} -> True
-        EWhereDecls {} -> True
         _ | protectOpenEnded && isOpenEnded expr -> True
         _ -> False
     CtxInfixLhs ->
       case expr of
         ETypeSig {} -> True
-        ENegate {} -> True
-        _ -> isOpenEnded expr
-    CtxWhereBody ->
-      case expr of
         ENegate {} -> True
         _ -> isOpenEnded expr
     CtxAppFun ->
@@ -1189,8 +1192,7 @@ needsExprParens ctx expr =
 
 -- | Check if an expression is a "block expression" that can appear without
 -- parentheses as a function argument when BlockArguments is enabled.
--- Note: EWhereDecls is NOT included because its where clause needs to be
--- clearly delimited when wrapping open-ended expressions.
+-- Where clauses are attached to Rhs, not to block expressions.
 isBlockExpr :: Expr -> Bool
 isBlockExpr = \case
   EIf {} -> True
@@ -1214,7 +1216,6 @@ isGreedyExpr = \case
   ELambdaPats {} -> True
   ELambdaCase {} -> True
   ELetDecls {} -> True
-  EWhereDecls {} -> True
   EDo {} -> True
   EProc {} -> True
   EApp _ _ arg | isBlockExpr arg -> isOpenEnded arg
@@ -1239,15 +1240,10 @@ isOpenEnded = \case
   EIf {} -> True
   ELambdaPats {} -> True
   ELetDecls {} -> True
-  EWhereDecls {} -> True
   EProc {} -> True
   EInfix _ _ _ rhs -> isOpenEnded rhs
   EApp _ _ arg | isBlockExpr arg -> isOpenEnded arg
   _ -> False
-
--- | Print the body of a where expression.
-prettyWhereBody :: Expr -> Doc ann
-prettyWhereBody = prettyExprIn CtxWhereBody
 
 -- | Print an expression used as the function in an application.
 prettyExprApp :: Expr -> Doc ann
@@ -1282,9 +1278,8 @@ prettyIfBranch :: Expr -> Doc ann
 prettyIfBranch expr =
   case expr of
     -- Branch delimiters handle most greedy expressions, but postfix forms like
-    -- type signatures and where-clauses need parens to stay inside the branch.
+    -- type signatures need parens to stay inside the branch.
     ETypeSig {} -> parens (prettyExprPrec 0 expr)
-    EWhereDecls {} -> parens (prettyExprPrec 0 expr)
     _ -> prettyExprPrec 0 expr
 
 -- | Flatten a left-nested application chain into (root, args).
@@ -1460,10 +1455,6 @@ prettyExprPrec prec expr =
         ESectionL {} -> prettyExprPrec 0 inner
         ESectionR {} -> prettyExprPrec 0 inner
         _ -> parens (prettyExprPrec 0 inner)
-    EWhereDecls _ body decls ->
-      parenthesize
-        (prec > 0)
-        (prettyWhereBody body <+> "where" <+> braces (prettyInlineDecls decls))
     EList _ values -> brackets (hsep (punctuate comma (map (prettyExprPrec 0) values)))
     ETuple _ tupleFlavor values ->
       prettyTupleBody
@@ -1510,8 +1501,12 @@ prettyBinding (name, value) =
 prettyCaseAlt :: CaseAlt -> Doc ann
 prettyCaseAlt (CaseAlt _ pat rhs) =
   case rhs of
-    UnguardedRhs _ expr -> prettyPattern pat <+> "->" <+> prettyExprPrec 0 expr
-    GuardedRhss _ grhss ->
+    UnguardedRhs _ expr whereDecls ->
+      prettyPattern pat
+        <+> "->"
+        <+> prettyExprPrec 0 expr
+        <> prettyWhereClause whereDecls
+    GuardedRhss _ grhss whereDecls ->
       hsep
         [ prettyPattern pat,
           hsep
@@ -1522,6 +1517,7 @@ prettyCaseAlt (CaseAlt _ pat rhs) =
             | grhs <- grhss
             ]
         ]
+        <> prettyWhereClause whereDecls
 
 prettyGuardQualifier :: GuardQualifier -> Doc ann
 prettyGuardQualifier qualifier =

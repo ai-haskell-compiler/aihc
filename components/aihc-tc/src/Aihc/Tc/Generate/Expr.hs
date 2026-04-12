@@ -202,8 +202,8 @@ resultType ty = ty
 
 -- | Infer the type of a right-hand side (for case alternatives).
 inferRhs :: Rhs -> TcM (TcType, [Ct])
-inferRhs (UnguardedRhs _sp expr) = inferExpr expr
-inferRhs (GuardedRhss _sp _guards) = do
+inferRhs (UnguardedRhs _sp expr _decls) = inferExpr expr
+inferRhs (GuardedRhss _sp _guards _decls) = do
   ty <- freshMetaTv
   pure (ty, [])
 

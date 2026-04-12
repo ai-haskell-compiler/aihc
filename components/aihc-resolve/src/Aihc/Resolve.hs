@@ -166,12 +166,22 @@ resolveMatch scope nextLocal match =
 resolveRhs :: Scope -> Int -> Rhs -> (Int, Rhs)
 resolveRhs scope nextLocal rhs =
   case rhs of
-    UnguardedRhs span' expr ->
+    UnguardedRhs span' expr mDecls ->
       let (nextLocal', expr') = resolveExpr scope nextLocal expr
-       in (nextLocal', UnguardedRhs span' expr')
-    GuardedRhss span' guardedRhss ->
+          (nextLocal'', mDecls') = resolveWhereDecls scope nextLocal' mDecls
+       in (nextLocal'', UnguardedRhs span' expr' mDecls')
+    GuardedRhss span' guardedRhss mDecls ->
       let (nextLocal', guardedRhss') = mapAccumL (resolveGuardedRhs scope) nextLocal guardedRhss
-       in (nextLocal', GuardedRhss span' guardedRhss')
+          (nextLocal'', mDecls') = resolveWhereDecls scope nextLocal' mDecls
+       in (nextLocal'', GuardedRhss span' guardedRhss' mDecls')
+
+resolveWhereDecls :: Scope -> Int -> Maybe [Decl] -> (Int, Maybe [Decl])
+resolveWhereDecls _ nextLocal Nothing = (nextLocal, Nothing)
+resolveWhereDecls scope nextLocal (Just decls) =
+  let (nextLocal', binderAnnotations, localScope) = allocateLocalDeclBinders nextLocal decls
+      scoped = unionScope localScope scope
+      (nextLocal'', decls') = resolveBoundDecls scoped binderAnnotations nextLocal' Map.empty decls
+   in (nextLocal'', Just decls')
 
 resolveGuardedRhs :: Scope -> Int -> GuardedRhs -> (Int, GuardedRhs)
 resolveGuardedRhs scope nextLocal guardedRhs =
@@ -244,12 +254,6 @@ resolveExpr scope nextLocal expr =
     EParen span' inner ->
       let (nextLocal', inner') = resolveExpr scope nextLocal inner
        in (nextLocal', EParen span' inner')
-    EWhereDecls span' inner decls ->
-      let (nextLocal', inner') = resolveExpr scope nextLocal inner
-          (nextLocal'', binderAnnotations, localScope) = allocateLocalDeclBinders nextLocal' decls
-          scoped = unionScope localScope scope
-          (nextLocal''', decls') = resolveBoundDecls scoped binderAnnotations nextLocal'' Map.empty decls
-       in (nextLocal''', EWhereDecls span' inner' decls')
     ETypeApp span' fun ty ->
       let (nextLocal', fun') = resolveExpr scope nextLocal fun
        in (nextLocal', ETypeApp span' fun' ty)

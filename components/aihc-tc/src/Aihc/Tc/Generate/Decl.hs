@@ -299,18 +299,18 @@ withPatBindings ((name, ty) : rest) m =
 
 -- | Infer the type of a right-hand side expression.
 inferRhsExpr :: Rhs -> TcM (TcType, [Ct])
-inferRhsExpr (UnguardedRhs _sp expr) = inferExpr expr
-inferRhsExpr (GuardedRhss _sp _guards) = do
+inferRhsExpr (UnguardedRhs _sp expr _decls) = inferExpr expr
+inferRhsExpr (GuardedRhss _sp _guards _decls) = do
   ty <- freshMetaTv
   pure (ty, [])
 
 -- | Type-check a right-hand side (solving constraints immediately).
 tcRhs :: Rhs -> TcM TcType
-tcRhs (UnguardedRhs _sp expr) = do
+tcRhs (UnguardedRhs _sp expr _decls) = do
   (ty, cts) <- inferExpr expr
   _ <- solveConstraints cts
   pure ty
-tcRhs (GuardedRhss _sp _guards) =
+tcRhs (GuardedRhss _sp _guards _decls) =
   -- Guarded RHS not handled in MVP.
   freshMetaTv
 

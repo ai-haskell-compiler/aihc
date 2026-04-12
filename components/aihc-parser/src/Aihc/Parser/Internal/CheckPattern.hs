@@ -104,7 +104,6 @@ checkPattern expr = case expr of
   ELambdaPats {} -> Left "unexpected lambda in pattern"
   ELambdaCase {} -> Left "unexpected lambda-case in pattern"
   ELetDecls {} -> Left "unexpected let expression in pattern"
-  EWhereDecls {} -> Left "unexpected where clause in pattern"
   EArithSeq {} -> Left "unexpected arithmetic sequence in pattern"
   EListComp {} -> Left "unexpected list comprehension in pattern"
   EListCompParallel {} -> Left "unexpected parallel list comprehension in pattern"

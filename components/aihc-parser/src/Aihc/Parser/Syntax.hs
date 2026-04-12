@@ -991,15 +991,15 @@ instance HasSourceSpan PatSynDecl where
   getSourceSpan = patSynDeclSpan
 
 data Rhs
-  = UnguardedRhs SourceSpan Expr
-  | GuardedRhss SourceSpan [GuardedRhs]
+  = UnguardedRhs SourceSpan Expr (Maybe [Decl])
+  | GuardedRhss SourceSpan [GuardedRhs] (Maybe [Decl])
   deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan Rhs where
   getSourceSpan rhs =
     case rhs of
-      UnguardedRhs span' _ -> span'
-      GuardedRhss span' _ -> span'
+      UnguardedRhs span' _ _ -> span'
+      GuardedRhss span' _ _ -> span'
 
 data GuardedRhs = GuardedRhs
   { guardedRhsSpan :: SourceSpan,
@@ -1597,7 +1597,6 @@ data Expr
   | ERecordUpd SourceSpan Expr [(Text, Expr)]
   | ETypeSig SourceSpan Expr Type
   | EParen SourceSpan Expr
-  | EWhereDecls SourceSpan Expr [Decl]
   | EList SourceSpan [Expr]
   | ETuple SourceSpan TupleFlavor [Maybe Expr]
   | EUnboxedSum SourceSpan Int Int Expr
@@ -1653,7 +1652,6 @@ instance HasSourceSpan Expr where
       ERecordUpd span' _ _ -> span'
       ETypeSig span' _ _ -> span'
       EParen span' _ -> span'
-      EWhereDecls span' _ _ -> span'
       EList span' _ -> span'
       ETuple span' _ _ -> span'
       EUnboxedSum span' _ _ _ -> span'

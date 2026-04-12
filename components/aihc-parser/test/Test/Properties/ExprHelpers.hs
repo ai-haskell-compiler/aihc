@@ -42,7 +42,6 @@ normalizeExpr expr =
     ELambdaPats _ pats body -> ELambdaPats span0 (map normalizeLambdaPat pats) (normalizeExpr body)
     ELambdaCase _ alts -> ELambdaCase span0 (map normalizeCaseAlt alts)
     ELetDecls _ decls body -> ELetDecls span0 (map normalizeDecl decls) (normalizeExpr body)
-    EWhereDecls _ body decls -> EWhereDecls span0 (normalizeExpr body) (map normalizeDecl decls)
     EDo _ stmts isMdo -> EDo span0 (map normalizeDoStmt stmts) isMdo
     EListComp _ body stmts -> EListComp span0 (normalizeExpr body) (map normalizeCompStmt stmts)
     EListCompParallel _ body stmtss -> EListCompParallel span0 (normalizeExpr body) (map (map normalizeCompStmt) stmtss)
@@ -78,8 +77,8 @@ normalizeCaseAlt alt =
 normalizeRhs :: Rhs -> Rhs
 normalizeRhs rhs =
   case rhs of
-    UnguardedRhs _ body -> UnguardedRhs span0 (normalizeExpr body)
-    GuardedRhss _ guards -> GuardedRhss span0 (map normalizeGuardedRhs guards)
+    UnguardedRhs _ body mDecls -> UnguardedRhs span0 (normalizeExpr body) (fmap (map normalizeDecl) mDecls)
+    GuardedRhss _ guards mDecls -> GuardedRhss span0 (map normalizeGuardedRhs guards) (fmap (map normalizeDecl) mDecls)
 
 normalizeGuardedRhs :: GuardedRhs -> GuardedRhs
 normalizeGuardedRhs grhs =
