@@ -4,11 +4,11 @@ src: |
 ghc: |
   test.hs:2:26: error: [GHC-05661]
       Multiple occurrences of 'qualified'
-  test.hs:2:26: error: [GHC-87491]
-      Found `qualified' in postpositive position.
     |
   2 | import qualified Prelude qualified
     |                          ^^^^^^^^^
+  test.hs:2:26: error: [GHC-87491]
+      Found `qualified' in postpositive position.
     |
   2 | import qualified Prelude qualified
     |                          ^^^^^^^^^

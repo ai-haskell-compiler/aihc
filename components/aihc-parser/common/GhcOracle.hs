@@ -14,6 +14,7 @@ import Aihc.Parser.Lex qualified as Lex
 import Aihc.Parser.Syntax qualified as Syntax
 import Control.Exception (bracket, catch, displayException, evaluate)
 import CppSupport (preprocessForParserWithoutIncludes)
+import Data.List (foldl')
 import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -160,26 +161,56 @@ renderParserErrors source st =
     renderWithCarets :: PState -> IO Text
     renderWithCarets pState = do
       let (_, errorMsgs) = getPsMessages pState
-          envelopes = getMessages errorMsgs
-          envelopeList = Bag.bagToList envelopes
-      -- Get the full error messages from pprMessages
-      let rawError = T.pack (showSDocUnsafe (pprMessages NoDiagnosticOpts (getPsErrorMessages pState)))
-      -- Get the caret visualizations
+          envelopeList = Bag.bagToList (getMessages errorMsgs)
+          rawError = T.pack (showSDocUnsafe (pprMessages NoDiagnosticOpts (getPsErrorMessages pState)))
+      -- Get the caret visualizations for each error
       carets <- mapM renderEnvelope envelopeList
-      -- Combine: for each error, take the header from rawError and append the caret
-      pure (combineErrors rawError carets)
+      -- Parse the raw error to extract individual error blocks and combine with carets
+      pure (combineErrorsWithCarets rawError carets)
 
-    combineErrors :: Text -> [Text] -> Text
-    combineErrors rawError carets =
-      -- Simply append the carets after the error message
-      rawError <> "\n" <> T.intercalate "\n" carets
+    combineErrorsWithCarets :: Text -> [Text] -> Text
+    combineErrorsWithCarets rawError carets =
+      -- Split rawError by error location patterns and interleave with carets
+      let errorBlocks = splitErrorBlocks rawError
+          -- Strip trailing whitespace from each block and combine with caret
+          combined = zipWith (\block caret -> T.stripEnd block <> "\n" <> caret) errorBlocks carets
+       in T.intercalate "\n" combined
+      where
+        splitErrorBlocks :: Text -> [Text]
+        splitErrorBlocks text =
+          let textLines = T.lines text
+              -- Extract filename prefix from first line (e.g., "test.hs:" or "ghc-error123-0.hs:")
+              fileNamePrefix =
+                case textLines of
+                  [] -> ""
+                  (first : _) ->
+                    case T.takeWhile (/= ':') first of
+                      "" -> ""
+                      fileName -> fileName <> ":"
+              (blocks, currentBlock, _) = foldl' (accumulate fileNamePrefix) ([], [], 0) textLines
+              finalBlock = reverse (dropWhile T.null (reverse currentBlock))
+           in case finalBlock of
+                [] -> blocks
+                _ -> blocks <> [T.unlines finalBlock]
+
+        accumulate :: Text -> ([Text], [Text], Int) -> Text -> ([Text], [Text], Int)
+        accumulate fileNamePrefix (blocks, current, idx) line =
+          case T.stripPrefix fileNamePrefix line of
+            Just _ ->
+              -- New error location, finalize current block (strip trailing blank lines)
+              let stripped = reverse (dropWhile T.null (reverse current))
+                  newBlocks = if null stripped then blocks else blocks <> [T.unlines stripped]
+               in (newBlocks, [line], idx + 1)
+            Nothing ->
+              -- Continuation of current error
+              (blocks, current <> [line], idx)
 
     renderEnvelope env = do
       let srcSpan = errMsgSpan env
           reason = diagnosticReason (errMsgDiagnostic env)
           code = diagnosticCode (errMsgDiagnostic env)
           messageClass = mkMCDiagnostic emptyDiagOpts reason code
-      -- Get the caret visualization
+      -- Get the caret visualization (includes | separator, source line, and caret line)
       caretDoc <- getCaretDiagnostic messageClass srcSpan
       pure (T.pack (showSDocUnsafe caretDoc))
 
