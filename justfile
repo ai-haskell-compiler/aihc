@@ -12,10 +12,10 @@ replay ARGUMENT:
 
 # Run QuickCheck with 10000 tests in a loop until failure
 qc:
-  while true; do cabal test aihc-parser:spec -v0 --test-options="--pattern properties --quickcheck-tests 10000"; done
+  while true; do cabal test aihc-parser:spec -v0 --test-options="--pattern properties --quickcheck-tests 10000" || break; done
 
 # Run full CI check: format, lint, then tests
 check:
-  nix develop --command bash -c 'ormolu --mode check $(find components -name "*.hs" -not -path "*/test/Test/Fixtures/*")'
-  nix develop --command bash -c 'hlint $(find components -name "*.hs" -not -path "*/test/Test/Fixtures/*")'
-  cabal test -v0 all --test-options='--hide-successes'
+  nix develop --quiet --command bash -c 'ormolu --mode check $(find components -name "*.hs" -not -path "*/dist-newstyle/*" -not -path "*/test/Test/Fixtures/*")'
+  nix develop --quiet --command bash -c 'hlint $(find components -name "*.hs" -not -path "*/dist-newstyle/*" -not -path "*/test/Test/Fixtures/*")'
+  just test

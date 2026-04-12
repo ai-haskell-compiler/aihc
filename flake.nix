@@ -1178,13 +1178,6 @@
           pkgs.ormolu
           pkgs.hlint
         ];
-        shellHook = ''
-          echo "aihc development shell"
-          echo "  - GHC with project dependencies"
-          echo "  - cabal-install"
-          echo "  - ormolu"
-          echo "  - hlint"
-        '';
       };
     });
   };
