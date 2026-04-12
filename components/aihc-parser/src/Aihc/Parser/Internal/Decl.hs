@@ -902,7 +902,9 @@ typeDataConDeclParser = withSpan $ do
   -- Parse constructor name
   conName <- constructorUnqualifiedNameParser
   -- Parse arguments (no strictness, no records)
-  args <- MP.many $ BangType noSourceSpan NoSourceUnpackedness False <$> typeAppParser
+  -- Use typeAtomParser to parse individual type atoms as separate fields,
+  -- rather than typeAppParser which would treat them as type application.
+  args <- MP.many $ BangType noSourceSpan NoSourceUnpackedness False <$> typeAtomParser
   pure $ \span' -> PrefixCon span' [] context conName args
 
 -- | Parse GADT-style constructors for type data (after `where`)
