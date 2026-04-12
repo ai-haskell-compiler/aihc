@@ -1,5 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 -- | Entry point for the aihc type checker.
 --
 -- The type checker consumes a parsed (and optionally name-resolved) AST

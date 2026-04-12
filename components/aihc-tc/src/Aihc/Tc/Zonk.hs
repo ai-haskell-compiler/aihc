@@ -19,9 +19,7 @@ zonkType ty = case ty of
     mSol <- readMetaTv u
     case mSol of
       Nothing -> pure ty
-      Just sol -> do
-        sol' <- zonkType sol
-        pure sol'
+      Just sol -> zonkType sol
   TcTyVar _ -> pure ty
   TcTyCon tc args -> TcTyCon tc <$> mapM zonkType args
   TcFunTy a b -> TcFunTy <$> zonkType a <*> zonkType b

@@ -27,4 +27,4 @@ data DictResult
 --   2. Match against instance declarations, emitting sub-goals.
 --   3. Construct evidence dictionaries.
 solveDict :: Ct -> DictResult
-solveDict ct = DictStuck ct
+solveDict = DictStuck

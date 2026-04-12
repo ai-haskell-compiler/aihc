@@ -126,9 +126,7 @@ freshUnique = lift $ do
 
 -- | Allocate a fresh meta (unification) type variable.
 freshMetaTv :: TcM TcType
-freshMetaTv = do
-  u <- freshUnique
-  pure (TcMetaTv u)
+freshMetaTv = TcMetaTv <$> freshUnique
 
 -- | Allocate a fresh skolem (rigid) type variable.
 freshSkolemTv :: Text -> TcM TyVarId
@@ -138,9 +136,7 @@ freshSkolemTv name = do
 
 -- | Allocate a fresh evidence variable.
 freshEvVar :: TcM EvVar
-freshEvVar = do
-  u <- freshUnique
-  pure (EvVar u)
+freshEvVar = EvVar <$> freshUnique
 
 -- | Record the solution for a meta-variable.
 writeMetaTv :: Unique -> TcType -> TcM ()

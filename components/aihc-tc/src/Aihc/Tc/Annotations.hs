@@ -41,9 +41,9 @@ import Data.Typeable (Typeable)
 --
 -- Not every field is populated for every node. A variable reference gets
 -- a type; a top-level binding gets the generalized scheme, etc.
-data TcAnnotation = TcAnnotation
+newtype TcAnnotation = TcAnnotation
   { -- | The inferred/checked type of this node.
-    tcAnnType :: !TcType
+    tcAnnType :: TcType
   }
   deriving (Eq, Show, Typeable)
 

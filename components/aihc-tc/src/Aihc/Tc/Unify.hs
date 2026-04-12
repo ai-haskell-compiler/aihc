@@ -13,6 +13,7 @@ import Aihc.Tc.Error (TcErrorKind (..))
 import Aihc.Tc.Monad
 import Aihc.Tc.Types
 import Aihc.Tc.Zonk (zonkType)
+import Control.Monad (zipWithM)
 
 -- | Unify two types, recording the solution and emitting an error if
 -- they are incompatible.
@@ -38,7 +39,7 @@ unifyTypes (TcTyVar v1) (TcTyVar v2)
 unifyTypes (TcTyCon tc1 args1) (TcTyCon tc2 args2)
   | tc1 == tc2,
     length args1 == length args2 = do
-      results <- mapM (uncurry unifyTypes) (zip args1 args2)
+      results <- zipWithM unifyTypes args1 args2
       pure $ sequence_ results
 unifyTypes (TcFunTy a1 b1) (TcFunTy a2 b2) = do
   r1 <- unifyTypes a1 a2
@@ -50,9 +51,6 @@ unifyTypes (TcAppTy f1 a1) (TcAppTy f2 a2) = do
   pure $ r1 >> r2
 unifyTypes t1 t2 =
   pure $ Left $ UnificationError t1 t2 (UnifyOrigin NoSourceSpan)
-  where
-
--- Placeholder SourceSpan; the caller passes the real one via `unify`.
 
 -- | Unify a meta-variable with a type, performing the occurs check.
 unifyMetaTv :: Unique -> TcType -> TcM (Either TcErrorKind ())
