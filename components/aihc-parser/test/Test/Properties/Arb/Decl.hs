@@ -54,23 +54,47 @@ genDeclValue n = do
 
 genFunctionDecl :: (UnqualifiedName, Expr) -> Gen Decl
 genFunctionDecl (name, expr) = do
-  -- TODO: Restore MatchHeadInfix generation once the standalone declaration parser
-  -- (parseDecl) supports infix function bindings. Currently, infix bindings like
-  -- `x \`f\` y = ...` only parse at the module level, not via parseDecl.
-  pure $
-    DeclValue
-      span0
-      ( FunctionBind
+  headForm <- elements [MatchHeadPrefix, MatchHeadInfix]
+  case headForm of
+    MatchHeadPrefix ->
+      pure $
+        DeclValue
           span0
-          name
-          [ Match
-              { matchSpan = span0,
-                matchHeadForm = MatchHeadPrefix,
-                matchPats = [],
-                matchRhs = UnguardedRhs span0 expr
-              }
+          ( FunctionBind
+              span0
+              name
+              [ Match
+                  { matchSpan = span0,
+                    matchHeadForm = MatchHeadPrefix,
+                    matchPats = [],
+                    matchRhs = UnguardedRhs span0 expr
+                  }
+              ]
+          )
+    MatchHeadInfix -> do
+      -- For infix bindings, generate an operator name and two PVar patterns.
+      -- Symbolic operators: x + y = ..., backtick identifiers: x `f` y = ...
+      opName <-
+        oneof
+          [ mkUnqualifiedName NameVarSym <$> genSymbolicOp,
+            mkUnqualifiedName NameVarId <$> genIdent
           ]
-      )
+      lhsPat <- PVar span0 . mkUnqualifiedName NameVarId <$> genIdent
+      rhsPat <- PVar span0 . mkUnqualifiedName NameVarId <$> genIdent
+      pure $
+        DeclValue
+          span0
+          ( FunctionBind
+              span0
+              opName
+              [ Match
+                  { matchSpan = span0,
+                    matchHeadForm = MatchHeadInfix,
+                    matchPats = [lhsPat, rhsPat],
+                    matchRhs = UnguardedRhs span0 expr
+                  }
+              ]
+          )
 
 genDeclTypeSig :: Gen Decl
 genDeclTypeSig = do
