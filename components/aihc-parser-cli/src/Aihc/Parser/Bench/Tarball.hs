@@ -36,18 +36,24 @@ import Aihc.Hackage.Types (PackageSpec (..), formatPackage)
 import Aihc.Hackage.Util qualified as HU
 import Aihc.Parser.Bench.CLI (FilterOptions (..), GenerateOptions (..))
 import Aihc.Parser.Bench.Parsers (ParseResult (..), collectCppIncludes, parseWithAihcExts, parseWithGhcExts, parseWithHseExts)
-import Aihc.Parser.Lex qualified as AihcLex
-import Aihc.Parser.Syntax qualified as Syntax
+import Aihc.Parser.Lex (readModuleHeaderExtensions)
+import Aihc.Parser.Syntax
+  ( Extension (CPP),
+    applyExtensionSetting,
+    editionFromExtensionSettings,
+    languageEditionExtensions,
+    parseExtensionSettingName,
+    parseLanguageEdition,
+  )
 import Codec.Archive.Tar qualified as Tar
 import Codec.Archive.Tar.Entry qualified as Tar
 import Codec.Compression.GZip qualified as GZip
 import Control.Exception (SomeException, displayException, try)
-import Control.Monad (forM, when)
+import Control.Monad (forM, mplus, when)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
 import Data.Char (isAlphaNum)
 import Data.List (isPrefixOf, isSuffixOf)
-import Data.List qualified as List
 import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes, listToMaybe, mapMaybe)
 import Data.Text (Text)
@@ -379,13 +385,19 @@ buildIncludeEntries pkg includeMap =
 -- Uses the same logic as the benchmark parsers.
 preprocessSource :: PackageSpec -> [String] -> [String] -> Maybe String -> [Text] -> Text -> Text
 preprocessSource _pkg cabalExts cppOptions langName deps source =
-  let -- Check if CPP is enabled
-      cabalSettings = extensionNamesToSettings cabalExts
-      initialHeaderSettings = AihcLex.readModuleHeaderExtensions source
-      initialSettings = cabalSettings <> initialHeaderSettings
-      baseExts = languageBaseExtensions langName
-      initialExtensions = applyExtensionSettings initialSettings baseExts
-      cppEnabled = Syntax.CPP `elem` initialExtensions
+  let -- Get extension settings from cabal and header
+      cabalSettings = mapMaybe (parseExtensionSettingName . T.pack) cabalExts
+      headerSettings = readModuleHeaderExtensions source
+      allSettings = cabalSettings <> headerSettings
+      -- Determine the language edition: LANGUAGE pragmas override cabal language
+      headerEdition = editionFromExtensionSettings allSettings
+      cabalEdition = langName >>= parseLanguageEdition . T.pack
+      effectiveEdition = headerEdition `mplus` cabalEdition
+      -- Get base extensions for the edition
+      baseExts = maybe [] languageEditionExtensions effectiveEdition
+      -- Apply settings to get final extensions
+      finalExtensions = foldr applyExtensionSetting baseExts allSettings
+      cppEnabled = CPP `elem` finalExtensions
    in if cppEnabled
         then runCppPreprocess cppOptions deps source
         else source
@@ -413,84 +425,6 @@ runCppPreprocess cppOptions deps source =
       -- For tarball preprocessing, we don't resolve includes separately
       -- They should be inlined by the preprocessor if they exist
       go (k Nothing)
-
--- | Extension names to settings (imported from Parsers module logic)
-extensionNamesToSettings :: [String] -> [Syntax.ExtensionSetting]
-extensionNamesToSettings = mapMaybe (Syntax.parseExtensionSettingName . T.pack)
-
--- | Apply extension settings to a base list
-applyExtensionSettings :: [Syntax.ExtensionSetting] -> [Syntax.Extension] -> [Syntax.Extension]
-applyExtensionSettings settings baseExts = List.foldl' applySetting baseExts settings
-  where
-    applySetting exts (Syntax.EnableExtension ext) = ext : filter (/= ext) exts
-    applySetting exts (Syntax.DisableExtension ext) = filter (/= ext) exts
-
--- | Get base extensions for a language
-languageBaseExtensions :: Maybe String -> [Syntax.Extension]
-languageBaseExtensions langName =
-  case langName of
-    Just "GHC2024" -> ghc2024Extensions
-    Just "GHC2021" -> ghc2021Extensions
-    Just "Haskell2010" -> []
-    Just "Haskell98" -> []
-    _ -> []
-
--- GHC2021 and GHC2024 extensions (copied from Parsers.hs)
-ghc2021Extensions :: [Syntax.Extension]
-ghc2021Extensions =
-  [ Syntax.BangPatterns,
-    Syntax.BinaryLiterals,
-    Syntax.ConstrainedClassMethods,
-    Syntax.ConstraintKinds,
-    Syntax.DeriveDataTypeable,
-    Syntax.DeriveFoldable,
-    Syntax.DeriveFunctor,
-    Syntax.DeriveGeneric,
-    Syntax.DeriveLift,
-    Syntax.DeriveTraversable,
-    Syntax.DoAndIfThenElse,
-    Syntax.EmptyCase,
-    Syntax.EmptyDataDecls,
-    Syntax.EmptyDataDeriving,
-    Syntax.ExistentialQuantification,
-    Syntax.ExplicitForAll,
-    Syntax.FlexibleContexts,
-    Syntax.FlexibleInstances,
-    Syntax.ForeignFunctionInterface,
-    Syntax.GADTSyntax,
-    Syntax.GeneralizedNewtypeDeriving,
-    Syntax.HexFloatLiterals,
-    Syntax.ImportQualifiedPost,
-    Syntax.InstanceSigs,
-    Syntax.KindSignatures,
-    Syntax.MultiParamTypeClasses,
-    Syntax.NamedFieldPuns,
-    Syntax.NamedWildCards,
-    Syntax.NumericUnderscores,
-    Syntax.PolyKinds,
-    Syntax.PostfixOperators,
-    Syntax.RankNTypes,
-    Syntax.ScopedTypeVariables,
-    Syntax.StandaloneDeriving,
-    Syntax.StandaloneKindSignatures,
-    Syntax.TupleSections,
-    Syntax.TypeApplications,
-    Syntax.TypeOperators,
-    Syntax.TypeSynonymInstances
-  ]
-
-ghc2024Extensions :: [Syntax.Extension]
-ghc2024Extensions =
-  ghc2021Extensions
-    <> [ Syntax.DataKinds,
-         Syntax.DerivingStrategies,
-         Syntax.DisambiguateRecordFields,
-         Syntax.ExplicitNamespaces,
-         Syntax.GADTs,
-         Syntax.MonoLocalBinds,
-         Syntax.LambdaCase,
-         Syntax.RoleAnnotations
-       ]
 
 -- | Check if a package passes all filters (without include map).
 -- Used when preprocessing is enabled during tarball generation.
