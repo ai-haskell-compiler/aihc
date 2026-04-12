@@ -1,0 +1,15 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    data Bool = True | False
+    not True = False
+    not False = True
+expected:
+  - "Bool :: *"
+  - "True :: Bool"
+  - "False :: Bool"
+  - "not :: Bool"
+  - "not :: Bool"
+status: pass
+reason: "tcMatches ignores patterns and uses only the first equation's RHS (`False :: Bool`), so `not` gets type `Bool` instead of the correct `Bool -> Bool`; update to `Bool -> Bool` once pattern binding and multi-equation matching are implemented"
