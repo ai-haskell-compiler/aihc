@@ -28,6 +28,7 @@ module Aihc.Tc.Monad
     emptyTcEnv,
     lookupTerm,
     extendTermEnv,
+    extendTermEnvPermanent,
     getTcLevel,
     withTcLevel,
 
@@ -102,7 +103,9 @@ data TcState = TcState
     -- | Evidence bindings accumulated during solving.
     tcsEvBinds :: !(Map Unique EvTerm),
     -- | Diagnostics (errors and warnings) collected.
-    tcsDiagnostics :: ![TcDiagnostic]
+    tcsDiagnostics :: ![TcDiagnostic],
+    -- | Global term bindings (accumulated by top-level declarations).
+    tcsGlobalTerms :: !(Map Text TcBinder)
   }
   deriving (Show)
 
@@ -113,7 +116,8 @@ initTcState =
     { tcsNextUnique = 0,
       tcsMetaSolutions = Map.empty,
       tcsEvBinds = Map.empty,
-      tcsDiagnostics = []
+      tcsDiagnostics = [],
+      tcsGlobalTerms = Map.empty
     }
 
 -- | Allocate a fresh 'Unique'.
@@ -158,10 +162,13 @@ lookupEvidence :: EvVar -> TcM (Maybe EvTerm)
 lookupEvidence (EvVar u) = lift $ gets $ \s ->
   Map.lookup u (tcsEvBinds s)
 
--- | Look up a term in the environment.
+-- | Look up a term in the environment (local first, then global state).
 lookupTerm :: Text -> TcM (Maybe TcBinder)
-lookupTerm name = asks $ \env ->
-  Map.lookup name (tcEnvTerms env)
+lookupTerm name = do
+  localResult <- asks $ \env -> Map.lookup name (tcEnvTerms env)
+  case localResult of
+    Just _ -> pure localResult
+    Nothing -> lift $ gets $ \s -> Map.lookup name (tcsGlobalTerms s)
 
 -- | Extend the term environment with a new binding for the duration
 -- of the given computation.
@@ -169,6 +176,12 @@ extendTermEnv :: Text -> TcBinder -> TcM a -> TcM a
 extendTermEnv name binder =
   local $ \env ->
     env {tcEnvTerms = Map.insert name binder (tcEnvTerms env)}
+
+-- | Permanently extend the global term environment (for top-level
+-- declarations like data constructors and top-level bindings).
+extendTermEnvPermanent :: Text -> TcBinder -> TcM ()
+extendTermEnvPermanent name binder = lift $ modify' $ \s ->
+  s {tcsGlobalTerms = Map.insert name binder (tcsGlobalTerms s)}
 
 -- | Get the current implication nesting level.
 getTcLevel :: TcM TcLevel

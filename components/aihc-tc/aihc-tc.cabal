@@ -19,6 +19,7 @@ library
     , Aihc.Tc.Env
     , Aihc.Tc.Annotations
     , Aihc.Tc.Generate.Expr
+    , Aihc.Tc.Generate.Decl
     , Aihc.Tc.Solve
     , Aihc.Tc.Solve.Worklist
     , Aihc.Tc.Solve.InertSet

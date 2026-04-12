@@ -1,8 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | Unit tests for the type checker.
 module Test.Tc.Suite
   ( tcTests,
+    tcGoldenTests,
   )
 where
 
@@ -10,8 +10,9 @@ import Aihc.Parser (ParseResult (..), ParserConfig (..), defaultConfig, parseExp
 import Aihc.Parser.Syntax (Expr)
 import Aihc.Tc
 import Data.Text (Text)
+import qualified TcGolden as TG
 import Test.Tasty (TestTree, testGroup)
-import Test.Tasty.HUnit (assertBool, assertEqual, testCase)
+import Test.Tasty.HUnit (assertBool, assertEqual, assertFailure, testCase)
 
 tcTests :: TestTree
 tcTests =
@@ -24,6 +25,34 @@ tcTests =
       testGroup "variables" variableTests,
       testGroup "error-cases" errorTests
     ]
+
+-- | Build the golden test tree from YAML fixtures.
+tcGoldenTests :: IO TestTree
+tcGoldenTests = do
+  cases <- TG.loadTcCases
+  let tests = map mkGoldenTest cases
+  pure (testGroup "tc-golden" tests)
+
+mkGoldenTest :: TG.TcCase -> TestTree
+mkGoldenTest tcase = testCase (TG.caseId tcase) $ do
+  let (outcome, details) = TG.evaluateTcCase tcase
+  case outcome of
+    TG.OutcomePass -> pure ()
+    TG.OutcomeXFail -> pure () -- known failure, expected
+    TG.OutcomeFail ->
+      assertFailure
+        ( "TC golden test failed: "
+            <> TG.caseId tcase
+            <> " details="
+            <> details
+        )
+    TG.OutcomeXPass ->
+      assertFailure
+        ( "Unexpected pass in TC golden test: "
+            <> TG.caseId tcase
+            <> " details="
+            <> details
+        )
 
 -- | Parse an expression from text.
 parseE :: Text -> Expr
@@ -72,10 +101,7 @@ literalTests =
 applicationTests :: [TestTree]
 applicationTests =
   [ testCase "application infers result type" $ do
-      -- Applying a function to an argument should produce the result type.
-      -- For now, test that it doesn't crash and produces a type.
       let result = tc "f x"
-      -- f and x are unbound, so we get errors but still a type.
       assertBool "should have errors (unbound)" (not (tcResultSuccess result))
   ]
 
@@ -84,8 +110,6 @@ ifTests :: [TestTree]
 ifTests =
   [ testCase "if-then-else with matching branches" $ do
       let result = tc "if True then 1 else 2"
-      -- True is unbound in MVP, but the structure should work.
-      -- We check that it produces a type (even if there are errors).
       let ty = tcResultType result
       assertBool "should produce a type" (ty /= TcMetaTv (Unique (-1)))
   ]

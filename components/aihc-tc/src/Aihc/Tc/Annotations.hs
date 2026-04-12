@@ -35,6 +35,7 @@ import Aihc.Parser.Syntax
     mkAnnotation,
   )
 import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..), Unique (..))
+import Data.Text qualified as T
 import Data.Typeable (Typeable)
 
 -- | Annotation attached to AST nodes by the type checker.
@@ -76,18 +77,18 @@ renderTcType :: TcType -> String
 renderTcType = go False
   where
     go :: Bool -> TcType -> String
-    go _ (TcTyVar tv) = show (tvName tv)
+    go _ (TcTyVar tv) = T.unpack (tvName tv)
     go _ (TcMetaTv (Unique u)) = "?" ++ show u
-    go _ (TcTyCon tc []) = show (tyConName tc)
+    go _ (TcTyCon tc []) = T.unpack (tyConName tc)
     go parens (TcTyCon tc args) =
       paren parens $
-        unwords (show (tyConName tc) : map (go True) args)
+        unwords (T.unpack (tyConName tc) : map (go True) args)
     go parens (TcFunTy a b) =
       paren parens $
         go True a ++ " -> " ++ go False b
     go parens (TcForAllTy tv body) =
       paren parens $
-        "forall " ++ show (tvName tv) ++ ". " ++ go False body
+        "forall " ++ T.unpack (tvName tv) ++ ". " ++ go False body
     go parens (TcQualTy preds body) =
       paren parens $
         "(" ++ unwords (map showPred preds) ++ ") => " ++ go False body
@@ -96,7 +97,7 @@ renderTcType = go False
         go True f ++ " " ++ go True a
 
     showPred (ClassPred cls args) =
-      show cls ++ " " ++ unwords (map (go True) args)
+      T.unpack cls ++ " " ++ unwords (map (go True) args)
     showPred (EqPred t1 t2) =
       go True t1 ++ " ~ " ++ go True t2
 

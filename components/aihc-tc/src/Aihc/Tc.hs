@@ -14,9 +14,12 @@ module Aihc.Tc
   ( -- * Entry point
     typecheck,
     typecheckExpr,
+    typecheckModule,
 
     -- * Result types
     TcResult (..),
+    TcModuleResult (..),
+    TcBindingResult (..),
 
     -- * Re-exports for convenience
     TcType (..),
@@ -36,6 +39,7 @@ where
 import Aihc.Parser.Syntax (Expr, Module (..))
 import Aihc.Tc.Annotations (TcAnnotation (..), renderTcType)
 import Aihc.Tc.Error (TcDiagnostic (..), TcErrorKind (..), TcSeverity (..))
+import Aihc.Tc.Generate.Decl (TcBindingResult (..), tcModule)
 import Aihc.Tc.Generate.Expr (inferExpr)
 import Aihc.Tc.Monad
 import Aihc.Tc.Solve (solveConstraints)
@@ -87,11 +91,39 @@ typecheckExprM expr = do
   -- 3. Zonk the result type.
   zonkType ty
 
--- | Type-check a module.
---
--- For the MVP, this is a stub that returns empty diagnostics.
--- The full implementation will process all top-level binding groups.
-typecheck :: [Module] -> [TcResult]
-typecheck _modules =
-  -- TODO: iterate over modules and binding groups.
-  []
+-- | Result of type-checking a module.
+data TcModuleResult = TcModuleResult
+  { -- | Inferred types for each top-level binding.
+    tcmBindings :: ![TcBindingResult],
+    -- | Diagnostics (errors and warnings) produced.
+    tcmDiagnostics :: ![TcDiagnostic],
+    -- | Whether type checking succeeded (no errors).
+    tcmSuccess :: !Bool
+  }
+  deriving (Show)
+
+-- | Type-check a single module, processing data declarations and
+-- value bindings.
+typecheckModule :: Module -> TcModuleResult
+typecheckModule m =
+  case runTcM emptyTcEnv initTcState (tcModule m) of
+    Left _abort ->
+      TcModuleResult
+        { tcmBindings = [],
+          tcmDiagnostics = [],
+          tcmSuccess = False
+        }
+    Right (bindings, st) ->
+      let diags = reverse (tcsDiagnostics st)
+          hasErrors = any isError diags
+       in TcModuleResult
+            { tcmBindings = bindings,
+              tcmDiagnostics = diags,
+              tcmSuccess = not hasErrors
+            }
+  where
+    isError d = diagSeverity d == TcError
+
+-- | Type-check a list of modules.
+typecheck :: [Module] -> [TcModuleResult]
+typecheck = map typecheckModule
