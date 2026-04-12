@@ -212,7 +212,7 @@ test_moduleParsesDecls =
    in do
         assertBool ("expected no parse errors, got: " <> show errs) (null errs)
         case moduleDecls modu of
-          [ DeclValue _ (FunctionBind _ "x" [Match {matchPats = [], matchRhs = UnguardedRhs _ (EIf _ (EVar _ "y") (EVar _ "z") (EVar _ "w"))}])
+          [ DeclValue _ (FunctionBind _ "x" [Match {matchPats = [], matchRhs = UnguardedRhs _ (EIf _ (EVar _ "y") (EVar _ "z") (EVar _ "w")) _}])
             ] ->
               pure ()
           other ->
@@ -436,10 +436,7 @@ test_infixClassHeadParses =
 test_ifElseWhereBranchRoundtrip :: Assertion
 test_ifElseWhereBranchRoundtrip =
   let elseBranch =
-        EWhereDecls
-          span0
-          (ETypeSig span0 (ETuple span0 Boxed []) (TTuple span0 Boxed Unpromoted []))
-          []
+        ETypeSig span0 (ETuple span0 Boxed []) (TTuple span0 Boxed Unpromoted [])
       expectedDecl =
         DeclValue
           span0
@@ -450,7 +447,7 @@ test_ifElseWhereBranchRoundtrip =
                   { matchSpan = span0,
                     matchHeadForm = MatchHeadPrefix,
                     matchPats = [],
-                    matchRhs = UnguardedRhs span0 (EIf span0 (EVar span0 "b") (ETuple span0 Boxed []) elseBranch)
+                    matchRhs = UnguardedRhs span0 (EIf span0 (EVar span0 "b") (ETuple span0 Boxed []) elseBranch) Nothing
                   }
               ]
           )
@@ -805,8 +802,8 @@ test_overloadedLabelExprParses =
    in do
         assertBool ("expected no parse errors, got: " <> show errs) (null errs)
         case moduleDecls modu of
-          [ DeclValue _ (FunctionBind _ _ [Match {matchRhs = UnguardedRhs _ (EOverloadedLabel _ "typeUrl" "#typeUrl")}]),
-            DeclValue _ (FunctionBind _ _ [Match {matchRhs = UnguardedRhs _ (EOverloadedLabel _ "The quick brown fox" "#\"The quick brown fox\"")}])
+          [ DeclValue _ (FunctionBind _ _ [Match {matchRhs = UnguardedRhs _ (EOverloadedLabel _ "typeUrl" "#typeUrl") _}]),
+            DeclValue _ (FunctionBind _ _ [Match {matchRhs = UnguardedRhs _ (EOverloadedLabel _ "The quick brown fox" "#\"The quick brown fox\"") _}])
             ] -> pure ()
           other -> assertFailure ("expected overloaded label expressions in AST, got: " <> show other)
 
@@ -894,7 +891,7 @@ parseDoStmts src =
    in if not (null errs)
         then Left ("parse errors: " <> show errs)
         else case moduleDecls modu of
-          [DeclValue _ (FunctionBind _ _ [Match {matchRhs = UnguardedRhs _ (EDo _ stmts _)}])] ->
+          [DeclValue _ (FunctionBind _ _ [Match {matchRhs = UnguardedRhs _ (EDo _ stmts _) _}])] ->
             Right stmts
           other ->
             Left ("unexpected AST: " <> show other)
@@ -907,7 +904,7 @@ parseDoStmtsExt exts src =
    in if not (null errs)
         then Left ("parse errors: " <> show errs)
         else case moduleDecls modu of
-          [DeclValue _ (FunctionBind _ _ [Match {matchRhs = UnguardedRhs _ (EDo _ stmts _)}])] ->
+          [DeclValue _ (FunctionBind _ _ [Match {matchRhs = UnguardedRhs _ (EDo _ stmts _) _}])] ->
             Right stmts
           other ->
             Left ("unexpected AST: " <> show other)
@@ -1016,7 +1013,7 @@ parseGuards src =
    in if not (null errs)
         then Left ("parse errors: " <> show errs)
         else case moduleDecls modu of
-          [DeclValue _ (FunctionBind _ _ [Match {matchRhs = GuardedRhss _ [GuardedRhs {guardedRhsGuards = guards}]}])] ->
+          [DeclValue _ (FunctionBind _ _ [Match {matchRhs = GuardedRhss _ [GuardedRhs {guardedRhsGuards = guards}] _}])] ->
             Right guards
           other ->
             Left ("unexpected AST: " <> show other)
@@ -1027,7 +1024,7 @@ parseGuardsExt exts src =
    in if not (null errs)
         then Left ("parse errors: " <> show errs)
         else case moduleDecls modu of
-          [DeclValue _ (FunctionBind _ _ [Match {matchRhs = GuardedRhss _ [GuardedRhs {guardedRhsGuards = guards}]}])] ->
+          [DeclValue _ (FunctionBind _ _ [Match {matchRhs = GuardedRhss _ [GuardedRhs {guardedRhsGuards = guards}] _}])] ->
             Right guards
           other ->
             Left ("unexpected AST: " <> show other)
@@ -1052,7 +1049,7 @@ test_prettyGuardLambdaRoundTrip = do
                   { matchSpan = span0,
                     matchHeadForm = MatchHeadPrefix,
                     matchPats = [PVar span0 "x"],
-                    matchRhs = UnguardedRhs span0 caseExpr
+                    matchRhs = UnguardedRhs span0 caseExpr Nothing
                   }
               ]
           )
@@ -1080,6 +1077,7 @@ test_prettyGuardLambdaRoundTrip = do
                           guardedRhsBody = EVar span0 "x"
                         }
                     ]
+                    Nothing
               }
           ]
       source = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
@@ -1114,7 +1112,7 @@ test_prettyGuardLetFormatting = do
                                         span0
                                         [ DeclValue
                                             span0
-                                            (FunctionBind span0 "x" [Match span0 MatchHeadPrefix [] (UnguardedRhs span0 (EInt span0 1 "1"))])
+                                            (FunctionBind span0 "x" [Match span0 MatchHeadPrefix [] (UnguardedRhs span0 (EInt span0 1 "1") Nothing)])
                                         ]
                                         (EInfix span0 (EVar span0 "x") (qualifyName Nothing ">") (EInt span0 0 "0"))
                                     )
@@ -1122,6 +1120,7 @@ test_prettyGuardLetFormatting = do
                               guardedRhsBody = EVar span0 "n"
                             }
                         ]
+                        Nothing
                   }
               ]
           )
@@ -1191,7 +1190,7 @@ parseCompStmts src =
    in if not (null errs)
         then Left ("parse errors: " <> show errs)
         else case moduleDecls modu of
-          [DeclValue _ (FunctionBind _ _ [Match {matchRhs = UnguardedRhs _ (EListComp _ _ stmts)}])] ->
+          [DeclValue _ (FunctionBind _ _ [Match {matchRhs = UnguardedRhs _ (EListComp _ _ stmts) _}])] ->
             Right stmts
           other ->
             Left ("unexpected AST: " <> show other)
@@ -1203,7 +1202,7 @@ parseCompStmtsExt exts src =
    in if not (null errs)
         then Left ("parse errors: " <> show errs)
         else case moduleDecls modu of
-          [DeclValue _ (FunctionBind _ _ [Match {matchRhs = UnguardedRhs _ (EListComp _ _ stmts)}])] ->
+          [DeclValue _ (FunctionBind _ _ [Match {matchRhs = UnguardedRhs _ (EListComp _ _ stmts) _}])] ->
             Right stmts
           other ->
             Left ("unexpected AST: " <> show other)
@@ -1277,7 +1276,7 @@ parseLetDecls src =
    in if not (null errs)
         then Left ("parse errors: " <> show errs)
         else case moduleDecls modu of
-          [DeclValue _ (FunctionBind _ _ [Match {matchRhs = UnguardedRhs _ (ELetDecls _ decls _)}])] ->
+          [DeclValue _ (FunctionBind _ _ [Match {matchRhs = UnguardedRhs _ (ELetDecls _ decls _) _}])] ->
             Right decls
           other ->
             Left ("unexpected AST: " <> show other)
@@ -1338,7 +1337,7 @@ test_localDeclPatWild =
 test_localDeclFunGuarded :: Assertion
 test_localDeclFunGuarded =
   case parseLetDecls "let { f x | x > 0 = x } in f 1" of
-    Right [DeclValue _ (FunctionBind _ "f" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PVar _ "x"], matchRhs = GuardedRhss _ _}])] -> pure ()
+    Right [DeclValue _ (FunctionBind _ "f" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PVar _ "x"], matchRhs = GuardedRhss _ _ _}])] -> pure ()
     other -> assertFailure ("expected guarded function bind, got: " <> show other)
 
 -- Helper: parse a top-level declaration and extract the ValueDecl.

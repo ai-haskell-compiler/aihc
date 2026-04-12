@@ -67,7 +67,7 @@ genFunctionDecl (name, expr) = do
                   { matchSpan = span0,
                     matchHeadForm = MatchHeadPrefix,
                     matchPats = [],
-                    matchRhs = UnguardedRhs span0 expr
+                    matchRhs = UnguardedRhs span0 expr Nothing
                   }
               ]
           )
@@ -91,7 +91,7 @@ genFunctionDecl (name, expr) = do
                   { matchSpan = span0,
                     matchHeadForm = MatchHeadInfix,
                     matchPats = [lhsPat, rhsPat],
-                    matchRhs = UnguardedRhs span0 expr
+                    matchRhs = UnguardedRhs span0 expr Nothing
                   }
               ]
           )
@@ -586,19 +586,19 @@ genTypeConName = do
 shrinkDecl :: Decl -> [Decl]
 shrinkDecl decl =
   case decl of
-    DeclValue _ (PatternBind _ pat (UnguardedRhs _ expr)) ->
-      [DeclValue span0 (PatternBind span0 pat (UnguardedRhs span0 expr')) | expr' <- shrinkExpr expr]
-    DeclValue _ (FunctionBind _ name [match@Match {matchRhs = UnguardedRhs _ expr}]) ->
+    DeclValue _ (PatternBind _ pat (UnguardedRhs _ expr _)) ->
+      [DeclValue span0 (PatternBind span0 pat (UnguardedRhs span0 expr' Nothing)) | expr' <- shrinkExpr expr]
+    DeclValue _ (FunctionBind _ name [match@Match {matchRhs = UnguardedRhs _ expr _}]) ->
       [ DeclValue
           span0
           ( FunctionBind
               span0
               name
-              [match {matchSpan = span0, matchRhs = UnguardedRhs span0 expr'}]
+              [match {matchSpan = span0, matchRhs = UnguardedRhs span0 expr' Nothing}]
           )
       | expr' <- shrinkExpr expr
       ]
-        <> [DeclValue span0 (FunctionBind span0 name' [match {matchSpan = span0, matchRhs = UnguardedRhs span0 expr}]) | name' <- shrinkUnqualifiedVarName name]
+        <> [DeclValue span0 (FunctionBind span0 name' [match {matchSpan = span0, matchRhs = UnguardedRhs span0 expr Nothing}]) | name' <- shrinkUnqualifiedVarName name]
     DeclTypeSig _ names ty ->
       [DeclTypeSig span0 names' ty | names' <- shrinkList shrinkBinderName names, not (null names')]
     _ -> []

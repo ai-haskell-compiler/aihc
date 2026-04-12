@@ -265,8 +265,10 @@ docMatchHeadForm headForm =
 docRhs :: Rhs -> Doc ann
 docRhs rhs =
   case rhs of
-    UnguardedRhs _ expr -> "UnguardedRhs" <+> parens (docExpr expr)
-    GuardedRhss _ grhss -> "GuardedRhss" <+> brackets (hsep (punctuate comma (map docGuardedRhs grhss)))
+    UnguardedRhs _ expr Nothing -> "UnguardedRhs" <+> parens (docExpr expr)
+    UnguardedRhs _ expr (Just decls) -> "UnguardedRhs" <+> parens (docExpr expr) <+> "where" <+> brackets (hsep (punctuate comma (map docDecl decls)))
+    GuardedRhss _ grhss Nothing -> "GuardedRhss" <+> brackets (hsep (punctuate comma (map docGuardedRhs grhss)))
+    GuardedRhss _ grhss (Just decls) -> "GuardedRhss" <+> brackets (hsep (punctuate comma (map docGuardedRhs grhss))) <+> "where" <+> brackets (hsep (punctuate comma (map docDecl decls)))
 
 docGuardedRhs :: GuardedRhs -> Doc ann
 docGuardedRhs grhs =
@@ -669,7 +671,6 @@ docExpr expr =
     ERecordUpd _ base fields' -> "ERecordUpd" <+> parens (docExpr base) <+> braces (hsep (punctuate comma [docText fn <+> "=" <+> docExpr fv | (fn, fv) <- fields']))
     ETypeSig _ inner ty -> "ETypeSig" <+> parens (docExpr inner) <+> parens (docType ty)
     EParen _ inner -> "EParen" <+> parens (docExpr inner)
-    EWhereDecls _ body decls -> "EWhereDecls" <+> parens (docExpr body) <+> brackets (hsep (punctuate comma (map docDecl decls)))
     EList _ elems -> "EList" <+> brackets (hsep (punctuate comma (map docExpr elems)))
     ETuple _ tupleFlavor elems ->
       (if tupleFlavor == Boxed then "ETuple" else "ETupleUnboxed")

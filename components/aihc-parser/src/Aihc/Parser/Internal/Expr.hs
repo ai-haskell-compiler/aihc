@@ -46,32 +46,17 @@ exprParser =
 
 exprParserWithTypeSigParser :: TokParser Type -> TokParser Expr
 exprParserWithTypeSigParser typeSigParser =
-  label "expression" $ do
-    core <- exprCoreParserWithTypeSigParserExcept typeSigParser []
-    mWhere <- MP.optional whereClauseParser
-    pure $
-      case mWhere of
-        Just decls -> EWhereDecls (mergeSourceSpans (getSourceSpan core) (sourceSpanEnd decls)) core decls
-        Nothing -> core
+  label "expression" $
+    exprCoreParserWithTypeSigParserExcept typeSigParser []
 
 exprParserExcept :: [Text] -> TokParser Expr
-exprParserExcept forbiddenInfix = do
-  core <- exprCoreParserWithTypeSigParserExcept typeParser forbiddenInfix
-  mWhere <- MP.optional whereClauseParser
-  pure $
-    case mWhere of
-      Just decls -> EWhereDecls (mergeSourceSpans (getSourceSpan core) (sourceSpanEnd decls)) core decls
-      Nothing -> core
+exprParserExcept forbiddenInfix =
+  exprCoreParserWithTypeSigParserExcept typeParser forbiddenInfix
 
 exprParserNoTopLevelTypeSig :: TokParser Expr
 exprParserNoTopLevelTypeSig =
-  label "expression" $ do
-    core <- exprCoreParserWithoutTypeSigExcept []
-    mWhere <- MP.optional whereClauseParser
-    pure $
-      case mWhere of
-        Just decls -> EWhereDecls (mergeSourceSpans (getSourceSpan core) (sourceSpanEnd decls)) core decls
-        Nothing -> core
+  label "expression" $
+    exprCoreParserWithoutTypeSigExcept []
 
 exprCoreParserWithoutTypeSigExcept :: [Text] -> TokParser Expr
 exprCoreParserWithoutTypeSigExcept forbiddenInfix = do
@@ -198,13 +183,8 @@ procExprParser = withSpan $ do
 -- command parser.
 exprParserNoArrowTail :: TokParser Expr
 exprParserNoArrowTail =
-  label "expression" $ do
-    core <- exprCoreParserNoArrowTail
-    mWhere <- MP.optional whereClauseParser
-    pure $
-      case mWhere of
-        Just decls -> EWhereDecls (mergeSourceSpans (getSourceSpan core) (sourceSpanEnd decls)) core decls
-        Nothing -> core
+  label "expression" $
+    exprCoreParserNoArrowTail
 
 exprCoreParserNoArrowTail :: TokParser Expr
 exprCoreParserNoArrowTail = do
@@ -569,7 +549,8 @@ unguardedRhsParser :: RhsArrowKind -> TokParser Rhs
 unguardedRhsParser arrowKind = withSpan $ do
   rhsArrowTok arrowKind
   body <- region (rhsContextText arrowKind) exprParser
-  pure (`UnguardedRhs` body)
+  whereDecls <- MP.optional whereClauseParser
+  pure (\span' -> UnguardedRhs span' body whereDecls)
 
 rhsContextText :: RhsArrowKind -> Text
 rhsContextText RhsArrowCase = "while parsing case alternative right-hand side"
@@ -578,7 +559,8 @@ rhsContextText RhsArrowEquation = "while parsing equation right-hand side"
 guardedRhssParser :: RhsArrowKind -> TokParser Rhs
 guardedRhssParser arrowKind = withSpan $ do
   grhss <- MP.some (guardedRhsParser arrowKind)
-  pure (`GuardedRhss` grhss)
+  whereDecls <- MP.optional whereClauseParser
+  pure (\span' -> GuardedRhss span' grhss whereDecls)
 
 guardedRhsParser :: RhsArrowKind -> TokParser GuardedRhs
 guardedRhsParser arrowKind = withSpan $ do
@@ -715,12 +697,8 @@ parenExprParser = withSpan $ do
                       let typed = case mTypeSig of
                             Just ty -> ETypeSig (mergeSourceSpans (getSourceSpan withArrow) (getSourceSpan ty)) withArrow ty
                             Nothing -> withArrow
-                      mWhere <- MP.optional whereClauseParser
-                      let expr' = case mWhere of
-                            Just decls -> EWhereDecls (mergeSourceSpans (getSourceSpan typed) (sourceSpanEnd decls)) typed decls
-                            Nothing -> typed
                       -- View pattern arrow: expr -> expr (inside parentheses)
-                      finalExpr <- maybeViewPattern expr'
+                      finalExpr <- maybeViewPattern typed
                       finishBoxed closeTok (Just finalExpr)
                 Just op -> do
                   mClose <- MP.optional (expectedTok closeTok)
@@ -752,12 +730,8 @@ parenExprParser = withSpan $ do
                           let typed = case mTypeSig of
                                 Just ty -> ETypeSig (mergeSourceSpans (getSourceSpan withArrow) (getSourceSpan ty)) withArrow ty
                                 Nothing -> withArrow
-                          mWhere <- MP.optional whereClauseParser
-                          let fullExpr = case mWhere of
-                                Just decls -> EWhereDecls (mergeSourceSpans (getSourceSpan typed) (sourceSpanEnd decls)) typed decls
-                                Nothing -> typed
                           -- View pattern arrow: expr -> expr (inside parentheses)
-                          finalExpr <- maybeViewPattern fullExpr
+                          finalExpr <- maybeViewPattern typed
                           finishBoxed closeTok (Just finalExpr)
       where
         parseSectionR forbidden = do
@@ -979,9 +953,10 @@ localTypeSigDeclsParser = do
       case names of
         [name] -> do
           rhsExpr <- exprParser
+          whereDecls <- MP.optional whereClauseParser
           let bindSpan = mergeSourceSpans sigSpan (getSourceSpan rhsExpr)
               pat = PTypeSig sigSpan (PVar sigSpan name) ty
-              rhs = UnguardedRhs bindSpan rhsExpr
+              rhs = UnguardedRhs bindSpan rhsExpr whereDecls
           pure [DeclValue bindSpan (PatternBind bindSpan pat rhs)]
         _ ->
           fail "local typed bindings with '=' require exactly one binder"
@@ -1004,14 +979,16 @@ localPatternDeclParser = withSpan $ do
   pat <- patternParser
   expectedTok TkReservedEquals
   rhsExpr <- exprParser
-  pure (\span' -> DeclValue span' (PatternBind span' pat (UnguardedRhs span' rhsExpr)))
+  whereDecls <- MP.optional whereClauseParser
+  pure (\span' -> DeclValue span' (PatternBind span' pat (UnguardedRhs span' rhsExpr whereDecls)))
 
 implicitParamDeclParser :: TokParser Decl
 implicitParamDeclParser = withSpan $ do
   name <- implicitParamNameParser
   expectedTok TkReservedEquals
   rhsExpr <- exprParser
-  pure (\span' -> DeclValue span' (PatternBind span' (PVar span' (mkUnqualifiedName NameVarId name)) (UnguardedRhs span' rhsExpr)))
+  whereDecls <- MP.optional whereClauseParser
+  pure (\span' -> DeclValue span' (PatternBind span' (PVar span' (mkUnqualifiedName NameVarId name)) (UnguardedRhs span' rhsExpr whereDecls)))
 
 varExprParser :: TokParser Expr
 varExprParser = withSpan $ do

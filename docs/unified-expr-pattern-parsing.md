@@ -167,7 +167,6 @@ checkPattern = \case
   ELambdaPats {}    -> Left "unexpected lambda in pattern"
   ELambdaCase {}    -> Left "unexpected lambda-case in pattern"
   ELetDecls {}      -> Left "unexpected let expression in pattern"
-  EWhereDecls {}    -> Left "unexpected where clause in pattern"
   EArithSeq {}      -> Left "unexpected arithmetic sequence in pattern"
   EListComp {}      -> Left "unexpected list comprehension in pattern"
   ESectionL {}      -> Left "unexpected left section in pattern"
