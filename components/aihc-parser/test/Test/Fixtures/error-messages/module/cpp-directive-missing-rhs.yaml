@@ -1,0 +1,13 @@
+src: |
+  {-# LANGUAGE CPP #-}
+  #define Short MuchLongerType
+  fn :: Short ->
+ghc: |
+  test.hs:6:1: error: [GHC-58481]
+      parse error (possibly incorrect indentation or mismatched brackets)
+aihc: |
+  test.hs:2:1:
+  2 | #define Short MuchLongerType
+    | ^
+  unexpected #
+  expecting end of input
