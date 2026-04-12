@@ -82,6 +82,20 @@
           isDir || isHaskell || isCabal || isYaml || isLicense;
       };
 
+    tcSrc = pkgs:
+      pkgs.lib.cleanSourceWith {
+        src = ./components/aihc-tc;
+        filter = path: type: let
+          baseName = baseNameOf path;
+          isHaskell = pkgs.lib.hasSuffix ".hs" baseName;
+          isCabal = pkgs.lib.hasSuffix ".cabal" baseName;
+          isYaml = pkgs.lib.hasSuffix ".yaml" baseName || pkgs.lib.hasSuffix ".yml" baseName;
+          isLicense = baseName == "LICENSE";
+          isDir = type == "directory";
+        in
+          isDir || isHaskell || isCabal || isYaml || isLicense;
+      };
+
     hackageSrc = pkgs:
       pkgs.lib.cleanSourceWith {
         src = ./tooling/aihc-hackage;
@@ -189,6 +203,11 @@
               pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-resolve" (resolveSrc pkgs) {})
             )
           );
+          aihc-tc = pkgs.haskell.lib.dontCheck (
+            pkgs.haskell.lib.disableExecutableProfiling (
+              pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-tc" (tcSrc pkgs) {})
+            )
+          );
         };
       };
     mkHsPkgsForChecks = pkgs:
@@ -216,6 +235,13 @@
             pkgs.haskell.lib.disableOptimization (
               pkgs.haskell.lib.disableExecutableProfiling (
                 pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-resolve" (resolveSrc pkgs) {})
+              )
+            )
+          );
+          aihc-tc = pkgs.haskell.lib.dontCheck (
+            pkgs.haskell.lib.disableOptimization (
+              pkgs.haskell.lib.disableExecutableProfiling (
+                pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-tc" (tcSrc pkgs) {})
               )
             )
           );
@@ -256,6 +282,15 @@
             pkgs.haskell.lib.overrideCabal
             (pkgs.haskell.lib.disableExecutableProfiling (
               pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-resolve" (resolveSrc pkgs) {})
+            ))
+            (old: {
+              # Hide passing tests so failures are visible in Nix's truncated output
+              testFlags = (old.testFlags or []) ++ ["--hide-successes"];
+            });
+          aihc-tc =
+            pkgs.haskell.lib.overrideCabal
+            (pkgs.haskell.lib.disableExecutableProfiling (
+              pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-tc" (tcSrc pkgs) {})
             ))
             (old: {
               # Hide passing tests so failures are visible in Nix's truncated output
@@ -308,6 +343,17 @@
               # Hide passing tests so failures are visible in Nix's truncated output
               testFlags = (old.testFlags or []) ++ ["--hide-successes"];
             });
+          aihc-tc =
+            pkgs.haskell.lib.overrideCabal
+            (pkgs.haskell.lib.disableOptimization (
+              pkgs.haskell.lib.disableExecutableProfiling (
+                pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-tc" (tcSrc pkgs) {})
+              )
+            ))
+            (old: {
+              # Hide passing tests so failures are visible in Nix's truncated output
+              testFlags = (old.testFlags or []) ++ ["--hide-successes"];
+            });
         };
       };
     # Haskell packages with Haddock enabled for documentation generation
@@ -335,6 +381,13 @@
             pkgs.haskell.lib.dontHaddock (
               pkgs.haskell.lib.disableExecutableProfiling (
                 pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-resolve" (resolveSrc pkgs) {})
+              )
+            )
+          );
+          aihc-tc = pkgs.haskell.lib.dontCheck (
+            pkgs.haskell.lib.dontHaddock (
+              pkgs.haskell.lib.disableExecutableProfiling (
+                pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-tc" (tcSrc pkgs) {})
               )
             )
           );
@@ -369,6 +422,15 @@
               pkgs.haskell.lib.disableOptimization (
                 pkgs.haskell.lib.disableExecutableProfiling (
                   pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-resolve" (resolveSrc pkgs) {})
+                )
+              )
+            )
+          );
+          aihc-tc = pkgs.haskell.lib.dontCheck (
+            pkgs.haskell.lib.dontHaddock (
+              pkgs.haskell.lib.disableOptimization (
+                pkgs.haskell.lib.disableExecutableProfiling (
+                  pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-tc" (tcSrc pkgs) {})
                 )
               )
             )
@@ -471,6 +533,12 @@
           aihc-resolve = pkgs.haskell.lib.dontCheck (
             pkgs.haskell.lib.disableExecutableProfiling (
               pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-resolve" (resolveSrc pkgs) {})
+            )
+          );
+          # TC - no coverage needed yet, just make it available
+          aihc-tc = pkgs.haskell.lib.dontCheck (
+            pkgs.haskell.lib.disableExecutableProfiling (
+              pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-tc" (tcSrc pkgs) {})
             )
           );
         };
@@ -972,6 +1040,7 @@
       parserCliTests = pkgs.haskell.lib.doCheck (pkgs.haskell.lib.dontHaddock hsPkgsWithTests.aihc-parser-cli);
       cppTests = pkgs.haskell.lib.doCheck (pkgs.haskell.lib.dontHaddock hsPkgsWithTests.aihc-cpp);
       resolveTests = pkgs.haskell.lib.doCheck (pkgs.haskell.lib.dontHaddock hsPkgsWithTests.aihc-resolve);
+      tcTests = pkgs.haskell.lib.doCheck (pkgs.haskell.lib.dontHaddock hsPkgsWithTests.aihc-tc);
       nixLint =
         pkgs.runCommand "aihc-nix-lint" {
           src = nixSrc pkgs;
@@ -1092,6 +1161,7 @@
       parser-cli-tests = parserCliTests;
       cpp-tests = cppTests;
       resolve-tests = resolveTests;
+      tc-tests = tcTests;
       cpp-doctest = cppDoctest;
       parser-doctest = parserDoctest;
       haddock-docs = haddockDocs;
@@ -1119,6 +1189,10 @@
         {
           name = "resolve-tests";
           path = resolveTests;
+        }
+        {
+          name = "tc-tests";
+          path = tcTests;
         }
         {
           name = "cpp-doctest";
