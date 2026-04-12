@@ -1,0 +1,12 @@
+src: |
+  {-# LANGUAGE CPP #-}
+  #define BadCPPMacro module
+  fn :: BadCPPMacro -> IO ()
+ghc: |
+  test.hs:5:7: error: [GHC-58481] parse error on input `module'
+aihc: |
+  test.hs:5:7:
+  5 | fn :: module -> IO ()
+    |       ^^^^^^
+  unexpected 'module'
+  expecting type
