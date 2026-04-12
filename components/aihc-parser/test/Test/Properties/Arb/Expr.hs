@@ -57,7 +57,7 @@ genExprSizedWith allowTHQuotes n
         EIf span0 <$> genExprSizedWith allowTHQuotes third <*> genExprSizedWith allowTHQuotes third <*> genExprSizedWith allowTHQuotes third,
         ECase span0 <$> genExprSizedWith allowTHQuotes half <*> genCaseAltsWith allowTHQuotes half,
         ELambdaPats span0 <$> genPatterns half <*> genExprSizedWith allowTHQuotes half,
-        ELambdaCase span0 <$> genCaseAltsWith allowTHQuotes (n - 1),
+        ELambdaCase span0 <$> genNonEmptyCaseAltsWith allowTHQuotes (n - 1),
         ELetDecls span0 <$> genValueDeclsWith allowTHQuotes half <*> genExprSizedWith allowTHQuotes half,
         EDo span0 <$> genDoStmtsWith allowTHQuotes (n - 1) <*> pure False,
         EListComp span0 <$> genExprSizedWith allowTHQuotes half <*> genCompStmtsWith allowTHQuotes half,
@@ -82,7 +82,7 @@ genExprSizedWith allowTHQuotes n
           [ ETHExpQuote span0 <$> genExprSizedWith False (n - 1),
             ETHTypedQuote span0 <$> genExprSizedWith False (n - 1),
             ETHDeclQuote span0 <$> genValueDeclsWith False (n - 1),
-            ETHPatQuote span0 <$> genSimplePattern (n - 1),
+            ETHPatQuote span0 <$> Pat.genPattern (n - 1),
             ETHTypeQuote span0 <$> genTypeWith False (n - 1),
             ETHNameQuote span0 <$> genNameQuoteIdent,
             ETHTypeNameQuote span0 <$> genConName
@@ -128,11 +128,6 @@ genTypedSpliceBody :: Int -> Gen Expr
 genTypedSpliceBody n =
   EParen span0 <$> genExprSized (max 0 (n - 1))
 
--- | Generate a pattern for TH pattern quotes [p| pat |].
--- Any pattern is valid inside [p| |], so use the full pattern generator.
-genSimplePattern :: Int -> Gen Pattern
-genSimplePattern = Pat.genPattern
-
 -- | Generate an identifier safe for TH name quotes ('name).
 -- Avoids identifiers where the second character is a single quote,
 -- as 'x'y would be parsed as char literal 'x' followed by identifier y.
@@ -156,9 +151,11 @@ genOperator =
 -- Biased towards Nothing to keep most names unqualified.
 genOptionalQualifier :: Gen (Maybe Text)
 genOptionalQualifier =
-  frequency
-    [ (3, pure Nothing),
-      (1, Just <$> genModuleQualifier)
+  oneof
+    [ pure Nothing,
+      pure Nothing,
+      pure Nothing,
+      Just <$> genModuleQualifier
     ]
 
 -- | Generate a module qualifier like "Data.List" or "Prelude".
@@ -223,11 +220,7 @@ genConAstName = qualifyName <$> genOptionalQualifier <*> (mkUnqualifiedName Name
 genPatterns :: Int -> Gen [Pattern]
 genPatterns n = do
   count <- chooseInt (1, 3)
-  vectorOf count (genPattern n)
-
--- | Generate a pattern using the full pattern generator from the Pattern module.
-genPattern :: Int -> Gen Pattern
-genPattern = Pat.genPattern
+  vectorOf count (Pat.genPattern n)
 
 -- | Generate a pattern safe for comprehension/guard contexts.
 -- Excludes PView, PIrrefutable, PStrict, and PAs at all depths.
@@ -236,12 +229,17 @@ genPatternNoView = Pat.genPatternNoView
 
 genCaseAltsWith :: Bool -> Int -> Gen [CaseAlt]
 genCaseAltsWith allowTHQuotes n = do
+  count <- chooseInt (0, 3)
+  vectorOf count (genCaseAltWith allowTHQuotes n)
+
+genNonEmptyCaseAltsWith :: Bool -> Int -> Gen [CaseAlt]
+genNonEmptyCaseAltsWith allowTHQuotes n = do
   count <- chooseInt (1, 3)
   vectorOf count (genCaseAltWith allowTHQuotes n)
 
 genCaseAltWith :: Bool -> Int -> Gen CaseAlt
 genCaseAltWith allowTHQuotes n = do
-  pat <- genPattern half
+  pat <- Pat.genPattern half
   rhs <- genRhsWith allowTHQuotes half
   pure $
     CaseAlt
@@ -344,7 +342,7 @@ genDoStmtsWith allowTHQuotes n = do
 genDoStmtWith :: Bool -> Int -> Gen (DoStmt Expr)
 genDoStmtWith allowTHQuotes n =
   oneof
-    [ DoBind span0 <$> genPattern half <*> genExprSizedWith allowTHQuotes half,
+    [ DoBind span0 <$> Pat.genPattern half <*> genExprSizedWith allowTHQuotes half,
       DoLetDecls span0 <$> genValueDeclsWith allowTHQuotes (n - 1),
       DoExpr span0 <$> genExprSizedWith allowTHQuotes (n - 1)
     ]
@@ -381,22 +379,20 @@ genListElemsWith allowTHQuotes n = do
 
 -- | Generate tuple elements
 genTupleElemsWith :: Bool -> Int -> Gen [Expr]
-genTupleElemsWith allowTHQuotes n = do
-  isUnit <- arbitrary
-  if isUnit
-    then pure []
-    else do
-      count <- chooseInt (2, 4)
-      vectorOf count (genExprSizedWith allowTHQuotes (n `div` count))
+genTupleElemsWith allowTHQuotes n =
+  oneof
+    [ pure [],
+      do
+        count <- chooseInt (2, 4)
+        vectorOf count (genExprSizedWith allowTHQuotes (n `div` count))
+    ]
 
--- | Generate elements for an unboxed tuple (0 or 2-4 elements).
+-- | Generate elements for an unboxed tuple (0-4 elements).
 -- Unlike boxed tuples, unboxed tuples with 0 elements are valid Haskell.
--- NOTE: 1-element unboxed tuples are valid Haskell but the parser doesn't
--- accept them yet, so we skip generating them for now.
 genUnboxedTupleElemsWith :: Bool -> Int -> Gen [Expr]
 genUnboxedTupleElemsWith allowTHQuotes n = do
   count <- chooseInt (0, 4)
-  if count == 1 then pure [] else vectorOf count (genExprSizedWith allowTHQuotes (n `div` max 1 count))
+  vectorOf count (genExprSizedWith allowTHQuotes (n `div` max 1 count))
 
 genUnboxedSumExprWith :: Bool -> Int -> Gen Expr
 genUnboxedSumExprWith allowTHQuotes n = do
@@ -476,13 +472,13 @@ genTypeLeaf =
     ]
 
 genTypeTupleElemsWith :: Bool -> Int -> Gen [Type]
-genTypeTupleElemsWith allowTHQuotes n = do
-  isUnit <- arbitrary
-  if isUnit
-    then pure []
-    else do
-      count <- chooseInt (2, 3)
-      vectorOf count (genTypeWith allowTHQuotes (n `div` count))
+genTypeTupleElemsWith allowTHQuotes n =
+  oneof
+    [ pure [],
+      do
+        count <- chooseInt (2, 3)
+        vectorOf count (genTypeWith allowTHQuotes (n `div` count))
+    ]
 
 genTypeListElemsWith :: Bool -> Int -> Gen [Type]
 genTypeListElemsWith allowTHQuotes n = do
