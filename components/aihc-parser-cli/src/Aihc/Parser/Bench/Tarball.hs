@@ -59,6 +59,7 @@ import Distribution.PackageDescription
     condExecutables,
     condLibrary,
     condSubLibraries,
+    cppOptions,
     exeModules,
     exposedModules,
     hsSourceDirs,
@@ -90,8 +91,12 @@ data TarballEntry = TarballEntry
     entryByteSize :: !Int,
     -- | Extension names from cabal file (empty for .cabal files themselves)
     entryExtensions :: ![String],
+    -- | CPP options from the @cpp-options@ cabal field (empty for non-Haskell entries)
+    entryCppOptions :: ![String],
     -- | Default language from cabal file (Nothing for .cabal files)
-    entryLanguage :: !(Maybe String)
+    entryLanguage :: !(Maybe String),
+    -- | Build dependency package names (empty for non-Haskell entries)
+    entryDependencies :: ![Text]
   }
   deriving (Show)
 
@@ -132,8 +137,8 @@ data GenerateResult = GenerateResult
 -- | Package info extracted from .cabal files in the tarball
 data PackageInfo = PackageInfo
   { packageInfoSpec :: !PackageSpec,
-    -- | Map from relative file paths to (extensions, language)
-    packageInfoFiles :: !(Map.Map FilePath ([String], Maybe String))
+    -- | Map from relative file paths to (extensions, cppOptions, language, dependencies)
+    packageInfoFiles :: !(Map.Map FilePath ([String], [String], Maybe String, [Text]))
   }
   deriving (Show)
 
@@ -229,8 +234,10 @@ processPackage manager opts pkg = do
                 let relPath = formatPackage pkg </> makeRelative pkgDir file
                     -- Look up extension info for this file
                     info = Map.lookup (makeRelative pkgDir file) fileInfoMap
-                    exts = maybe [] fst info
-                    lang = info >>= snd
+                    exts = maybe [] (\(e, _, _, _) -> e) info
+                    cppOpts = maybe [] (\(_, c, _, _) -> c) info
+                    lang = info >>= \(_, _, l, _) -> l
+                    deps = maybe [] (\(_, _, _, d) -> d) info
                 pure
                   TarballEntry
                     { entryPackage = pkg,
@@ -238,7 +245,9 @@ processPackage manager opts pkg = do
                       entryContents = contents,
                       entryByteSize = BS.length (encodeUtf8 contents),
                       entryExtensions = exts,
-                      entryLanguage = lang
+                      entryCppOptions = cppOpts,
+                      entryLanguage = lang,
+                      entryDependencies = deps
                     }
 
               -- Collect CPP include files for all Haskell entries
@@ -253,7 +262,7 @@ processPackage manager opts pkg = do
                 Nothing -> pure (Right (cabalEntry : entries ++ includeEntries))
 
 -- | Find and read the .cabal file, returning the entry and a map of file paths to their extensions
-findAndReadCabalFile :: FilePath -> PackageSpec -> IO (TarballEntry, Map.Map FilePath ([String], Maybe String))
+findAndReadCabalFile :: FilePath -> PackageSpec -> IO (TarballEntry, Map.Map FilePath ([String], [String], Maybe String, [Text]))
 findAndReadCabalFile pkgDir pkg = do
   cabalFiles <- findCabalFilesFlat pkgDir
   cabalFile <- case cabalFiles of
@@ -269,15 +278,17 @@ findAndReadCabalFile pkgDir pkg = do
             entryContents = contents,
             entryByteSize = BS.length (encodeUtf8 contents),
             entryExtensions = [],
-            entryLanguage = Nothing
+            entryCppOptions = [],
+            entryLanguage = Nothing,
+            entryDependencies = []
           }
 
   -- Parse the cabal file to get extension info for each source file
   fileInfoMap <- parseCabalForExtensions pkgDir cabalFile
   pure (cabalEntry, fileInfoMap)
 
--- | Parse a cabal file and return a map from file paths to (extensions, language)
-parseCabalForExtensions :: FilePath -> FilePath -> IO (Map.Map FilePath ([String], Maybe String))
+-- | Parse a cabal file and return a map from file paths to (extensions, cppOptions, language, dependencies)
+parseCabalForExtensions :: FilePath -> FilePath -> IO (Map.Map FilePath ([String], [String], Maybe String, [Text]))
 parseCabalForExtensions pkgDir cabalFile = do
   cabalBytes <- BS.readFile cabalFile
   let parseResult = Cabal.runParseResult (Cabal.parseGenericPackageDescription cabalBytes)
@@ -288,10 +299,12 @@ parseCabalForExtensions pkgDir cabalFile = do
       pure Map.empty
     Right gpd -> do
       fileInfos <- HC.collectComponentFiles gpd (takeDirectory cabalFile)
-      -- Build map from relative paths to their extensions
+      -- Build map from relative paths to their (extensions, cppOptions, language, dependencies)
       pure $
         Map.fromList
-          [ (makeRelative pkgDir (HC.fileInfoPath fi), (HC.fileInfoExtensions fi, HC.fileInfoLanguage fi))
+          [ ( makeRelative pkgDir (HC.fileInfoPath fi),
+              (HC.fileInfoExtensions fi, HC.fileInfoCppOptions fi, HC.fileInfoLanguage fi, HC.fileInfoDependencies fi)
+            )
           | fi <- fileInfos
           ]
 
@@ -301,7 +314,7 @@ collectIncludeFiles :: FilePath -> PackageSpec -> [TarballEntry] -> IO (Map.Map 
 collectIncludeFiles pkgDir pkg entries = do
   includeLists <- forM (filter isHaskellEntry entries) $ \e -> do
     let absFile = pkgDir </> makeRelative (formatPackage pkg) (entryFilePath e)
-    pairs <- collectCppIncludes absFile (entryExtensions e) (entryLanguage e) (entryContents e)
+    pairs <- collectCppIncludes absFile (entryExtensions e) (entryCppOptions e) (entryLanguage e) (entryDependencies e) (entryContents e)
     pure [(formatPackage pkg </> makeRelative pkgDir absPath, text) | (absPath, text) <- pairs]
   pure $ Map.fromList (concat includeLists)
 
@@ -314,7 +327,9 @@ buildIncludeEntries pkg includeMap =
         entryContents = contents,
         entryByteSize = BS.length (encodeUtf8 contents),
         entryExtensions = [],
-        entryLanguage = Nothing
+        entryCppOptions = [],
+        entryLanguage = Nothing,
+        entryDependencies = []
       }
   | (tarPath, contents) <- Map.toList includeMap
   ]
@@ -330,20 +345,22 @@ checkPackageFilters includeMap opts entries
       let source = entryContents e
           path = entryFilePath e
           exts = entryExtensions e
+          cppOpts = entryCppOptions e
           lang = entryLanguage e
+          deps = entryDependencies e
           checks =
             [ if filterAihc opts
-                then case parseWithAihcExts includeMap path exts lang source of
+                then case parseWithAihcExts includeMap path exts cppOpts lang deps source of
                   ParseSuccess -> Nothing
                   ParseFailure err -> Just (FilterAihcFailed path err)
                 else Nothing,
               if filterHse opts
-                then case parseWithHseExts includeMap path exts lang source of
+                then case parseWithHseExts includeMap path exts cppOpts lang deps source of
                   ParseSuccess -> Nothing
                   ParseFailure err -> Just (FilterHseFailed path err)
                 else Nothing,
               if filterGhc opts
-                then case parseWithGhcExts includeMap path exts lang source of
+                then case parseWithGhcExts includeMap path exts cppOpts lang deps source of
                   ParseSuccess -> Nothing
                   ParseFailure err -> Just (FilterGhcFailed path err)
                 else Nothing
@@ -417,9 +434,11 @@ extractEntriesWithCabal = go [] []
                     entryFilePath = filePath,
                     entryContents = text,
                     entryByteSize = fromIntegral (LBS.length content),
-                    -- Extensions will be filled in later from .cabal parsing
+                    -- Extensions/cpp info will be filled in later from .cabal parsing
                     entryExtensions = [],
-                    entryLanguage = Nothing
+                    entryCppOptions = [],
+                    entryLanguage = Nothing,
+                    entryDependencies = []
                   }
            in if ".cabal" `isSuffixOf` filePath
                 then go (tarEntry : entries) ((pkg, filePath, text) : cabals) rest
@@ -469,7 +488,7 @@ parseSingleCabal pkg cabalPath content =
 -- This variant works on in-memory tarball paths (with forward slashes) rather
 -- than filesystem paths, so it does NOT use the IO-based file-discovery in
 -- 'HC.collectComponentFiles'.
-extractFileInfoFromGPD :: GenericPackageDescription -> String -> Map.Map FilePath ([String], Maybe String)
+extractFileInfoFromGPD :: GenericPackageDescription -> String -> Map.Map FilePath ([String], [String], Maybe String, [Text])
 extractFileInfoFromGPD gpd pkgRoot =
   let evalCond = HC.conditionEvaluator gpd
       libraryTrees = maybe [] pure (condLibrary gpd) <> map snd (condSubLibraries gpd)
@@ -479,45 +498,49 @@ extractFileInfoFromGPD gpd pkgRoot =
       executableInfos = concatMap (executableFileInfos evalCond pkgRoot) executableTrees
    in Map.fromList (libraryInfos <> executableInfos)
 
-libraryFileInfos :: (Condition ConfVar -> Bool) -> String -> CondTree ConfVar c Library -> [(FilePath, ([String], Maybe String))]
+libraryFileInfos :: (Condition ConfVar -> Bool) -> String -> CondTree ConfVar c Library -> [(FilePath, ([String], [String], Maybe String, [Text]))]
 libraryFileInfos evalCond pkgRoot tree =
   let library = condTreeData tree
       build = HC.collectMergedBuildInfo evalCond libBuildInfo tree
       moduleNames = exposedModules library <> otherModules build <> autogenModules build
       exts = HC.extractExtensions build
+      cppOpts = cppOptions build
       lang = HC.extractLanguage build
+      deps = HC.extractDependencies build
       dirs = case map getSymbolicPath (hsSourceDirs build) of
         [] -> [""]
         ds -> ds
    in if not (buildable build)
         then []
         else
-          [ (pkgRoot ++ dir ++ (if null dir then "" else "/") ++ toFilePath modu ++ ext, (exts, lang))
+          [ (pkgRoot ++ dir ++ (if null dir then "" else "/") ++ toFilePath modu ++ ext, (exts, cppOpts, lang, deps))
           | dir <- dirs,
             modu <- moduleNames,
             ext <- [".hs", ".lhs"]
           ]
 
-executableFileInfos :: (Condition ConfVar -> Bool) -> String -> CondTree ConfVar c Executable -> [(FilePath, ([String], Maybe String))]
+executableFileInfos :: (Condition ConfVar -> Bool) -> String -> CondTree ConfVar c Executable -> [(FilePath, ([String], [String], Maybe String, [Text]))]
 executableFileInfos evalCond pkgRoot tree =
   let executable = condTreeData tree
       build = HC.collectMergedBuildInfo evalCond buildInfo tree
       moduleNames = otherModules build <> exeModules executable <> autogenModules build
       mainPath = modulePath executable
       exts = HC.extractExtensions build
+      cppOpts = cppOptions build
       lang = HC.extractLanguage build
+      deps = HC.extractDependencies build
       dirs = case map getSymbolicPath (hsSourceDirs build) of
         [] -> [""]
         ds -> ds
    in if not (buildable build)
         then []
         else
-          [ (pkgRoot ++ dir ++ (if null dir then "" else "/") ++ toFilePath modu ++ ext, (exts, lang))
+          [ (pkgRoot ++ dir ++ (if null dir then "" else "/") ++ toFilePath modu ++ ext, (exts, cppOpts, lang, deps))
           | dir <- dirs,
             modu <- moduleNames,
             ext <- [".hs", ".lhs"]
           ]
-            ++ [(pkgRoot ++ dir ++ (if null dir then "" else "/") ++ mainPath, (exts, lang)) | dir <- dirs]
+            ++ [(pkgRoot ++ dir ++ (if null dir then "" else "/") ++ mainPath, (exts, cppOpts, lang, deps)) | dir <- dirs]
 
 -- | Parse package name from tarball path.
 parsePackageFromPath :: FilePath -> PackageSpec

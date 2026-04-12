@@ -158,9 +158,11 @@ enrichEntry packageInfos entry =
                         ]
                       lookupResult = firstJust (map (`Map.lookup` packageInfoFiles info) pathsToTry)
                    in case lookupResult of
-                        Just (exts, lang) -> entry {entryExtensions = exts, entryLanguage = lang}
+                        Just (exts, cppOpts, lang, deps) ->
+                          entry {entryExtensions = exts, entryCppOptions = cppOpts, entryLanguage = lang, entryDependencies = deps}
                         Nothing -> entry
-                Just (exts, lang) -> entry {entryExtensions = exts, entryLanguage = lang}
+                Just (exts, cppOpts, lang, deps) ->
+                  entry {entryExtensions = exts, entryCppOptions = cppOpts, entryLanguage = lang, entryDependencies = deps}
   where
     dropPrefix prefix s =
       if prefix `isPrefixOf` s
@@ -179,10 +181,10 @@ enrichEntry packageInfos entry =
 selectParser :: Map.Map FilePath Text -> BenchOptions -> (TarballEntry -> ParseResult)
 selectParser includeMap opts =
   case (benchParser opts, benchLexerOnly opts) of
-    (ParserAihc, True) -> \e -> lexWithAihcExts includeMap (entryFilePath e) (entryExtensions e) (entryLanguage e) (entryContents e)
-    (ParserAihc, False) -> \e -> parseWithAihcExts includeMap (entryFilePath e) (entryExtensions e) (entryLanguage e) (entryContents e)
-    (ParserHse, _) -> \e -> parseWithHseExts includeMap (entryFilePath e) (entryExtensions e) (entryLanguage e) (entryContents e)
-    (ParserGhc, _) -> \e -> parseWithGhcExts includeMap (entryFilePath e) (entryExtensions e) (entryLanguage e) (entryContents e)
+    (ParserAihc, True) -> \e -> lexWithAihcExts includeMap (entryFilePath e) (entryExtensions e) (entryCppOptions e) (entryLanguage e) (entryDependencies e) (entryContents e)
+    (ParserAihc, False) -> \e -> parseWithAihcExts includeMap (entryFilePath e) (entryExtensions e) (entryCppOptions e) (entryLanguage e) (entryDependencies e) (entryContents e)
+    (ParserHse, _) -> \e -> parseWithHseExts includeMap (entryFilePath e) (entryExtensions e) (entryCppOptions e) (entryLanguage e) (entryDependencies e) (entryContents e)
+    (ParserGhc, _) -> \e -> parseWithGhcExts includeMap (entryFilePath e) (entryExtensions e) (entryCppOptions e) (entryLanguage e) (entryDependencies e) (entryContents e)
 
 -- | Run a single benchmark iteration.
 runSingleIteration :: (TarballEntry -> ParseResult) -> [TarballEntry] -> IO IterationResult
@@ -228,5 +230,5 @@ forceEntries :: [TarballEntry] -> [TarballEntry]
 forceEntries = foldr forceAndCons []
   where
     forceAndCons e !acc =
-      let !_ = entryContents e `seq` entryByteSize e `seq` entryExtensions e `seq` entryLanguage e
+      let !_ = entryContents e `seq` entryByteSize e `seq` entryExtensions e `seq` entryCppOptions e `seq` entryLanguage e `seq` entryDependencies e
        in e : acc

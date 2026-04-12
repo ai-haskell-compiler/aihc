@@ -159,6 +159,7 @@ executable parser-progress
       base >=4.16 && <5
     , aihc-parser
     , aihc-cpp
+    , aihc-hackage
     , bytestring
     , text
     , containers
@@ -205,6 +206,7 @@ executable extension-progress
       base >=4.16 && <5
     , aihc-parser
     , aihc-cpp
+    , aihc-hackage
     , text
     , containers
     , directory
