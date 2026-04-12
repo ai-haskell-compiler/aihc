@@ -1,0 +1,15 @@
+extensions:
+  - LambdaCase
+modules:
+  - |
+    module Test where
+    data Bool = True | False
+    not = \case True -> False
+                False -> True
+expected:
+  - "Bool :: *"
+  - "True :: Bool"
+  - "False :: Bool"
+  - "not :: Bool -> Bool"
+status: xfail
+reason: "ELambdaCase is not handled in inferExpr (falls through to the unsupported-expression error path)"

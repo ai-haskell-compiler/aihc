@@ -178,8 +178,9 @@ classifySuccess tc actual =
           )
     StatusFail ->
       (OutcomeFail, "expected failure but TC succeeded")
-    StatusXFail ->
-      (OutcomeFail, "expected xfail but TC succeeded")
+    StatusXFail
+      | trim actual == trim (caseExpected tc) -> (OutcomeXPass, "")
+      | otherwise -> (OutcomeXFail, "")
     StatusXPass
       | trim actual == trim (caseExpected tc) -> (OutcomeXPass, "known bug still passes")
       | otherwise ->
