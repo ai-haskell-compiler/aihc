@@ -5,6 +5,7 @@
 - Run tests locally (fast): `cabal test -v0 all --test-options=--hide-successes`
 - Filter for specific tests: `cabal test -v0 aihc-parser:spec --test-options="--pattern test_name"`
 - Deep fuzzy testing: `cabal test aihc-parser:spec -v0 --test-options="--pattern properties --quickcheck-tests 10000"`
+- Run full test suite (fast): `just check`
 - Run full test suite (slow, isolated sandbox): `nix flake check`
 - Include changes to progress counts in PR descriptions. Do not update the READMEs, though. They are updated by a cron workflow.
 - Create PRs: `gh pr create --base main --head <branch> --title "<title>" --body $(cat <file>)`
@@ -31,13 +32,13 @@ This project uses [Just](https://just.systems) as a command runner. Common comma
 
 ## Gotchas
 
-- CI checks the PR merge commit (`pull/<n>/merge`), not only the branch HEAD. If local passes but CI fails, merge or rebase `origin/main` locally and rerun `nix flake check`.
+- CI checks the PR merge commit (`pull/<n>/merge`), not only the branch HEAD. If local passes but CI fails, merge or rebase `origin/main` locally and rerun `just check`.
 - Golden AST strings are sensitive to upstream AST/shorthand changes (for example, `Match` now printing `headForm = Prefix`), so new fixtures must match current `main` formatting.
 - In parser oracle suites, `pass` means both oracle acceptance and AST roundtrip-fingerprint equality. A case can parse successfully and still fail as `roundtrip mismatch against oracle AST`.
 
 ## Testing (TDD)
 
-aihc is developed test-first. Run the full suite with `nix flake check`. When working on new features, always include tests that cover expected use plus a few corner cases. When fixing bugs, always include regression tests.
+aihc is developed test-first. Run the full suite with `just check`. When working on new features, always include tests that cover expected use plus a few corner cases. When fixing bugs, always include regression tests.
 
 - **Common status model**
   - Outcomes: `PASS`, `XFAIL`, `FAIL`, `XPASS`.
@@ -51,10 +52,6 @@ aihc is developed test-first. Run the full suite with `nix flake check`. When wo
   - Oracle compliance tests:
     - Oracle test fixtures with inline comments specifying test parameters.
     - Oracle is GHC, with parser round-trip/fingerprint validation.
-  - Fuzz completeness tests:
-    - Run `nix run .#parser-fuzz -- ...`.
-    - Generates random modules, finds parser-validation failures, and shrinks to minimal repros.
-    - Promote minimized repros into golden/oracle fixtures.
 
 - **`aihc-cpp`**
   - Oracle compliance tests:
@@ -63,7 +60,7 @@ aihc is developed test-first. Run the full suite with `nix flake check`. When wo
 
 ## Pre-PR Review
 
-- Run `coderabbit review --prompt-only` after local checks pass (including `nix flake check`) and before `gh pr create`.
+- Run `coderabbit review --prompt-only` after local checks pass (including `just check`) and before `gh pr create`.
 - If CodeRabbit is offline or rate-limited, skip the review and open the PR.
 - Resolve findings or explicitly justify remaining findings in the PR description.
 
