@@ -13,13 +13,14 @@ where
 
 import Aihc.Parser.Bench.CLI (BenchOptions (..), ParserChoice (..))
 import Aihc.Parser.Bench.Parsers (ParseResult (..), lexWithAihcExts, parseWithAihcExts, parseWithGhcExts, parseWithHseExts)
-import Aihc.Parser.Bench.Tarball (PackageInfo (..), PackageSpec (..), TarballEntry (..), isHaskellEntry, streamTarball)
+import Aihc.Parser.Bench.Tarball (PackageInfo (..), PackageSpec (..), TarballEntry (..), isHaskellEntry, isIncludeEntry, streamTarball)
 import Control.DeepSeq (rnf)
 import Control.Exception (evaluate)
 import Control.Monad (replicateM)
 import Data.List (isPrefixOf)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes, listToMaybe)
+import Data.Text (Text)
 import GHC.Clock (getMonotonicTimeNSec)
 import GHC.Stats qualified as Stats
 import System.IO (hFlush, hPutStr, hPutStrLn, stderr)
@@ -60,6 +61,10 @@ runBenchmark opts = do
   hPutStrLn stderr $ "Loading tarball: " ++ benchTarball opts
   (rawEntries, packageInfos) <- streamTarball (benchTarball opts)
 
+  -- Build include map from non-Haskell, non-cabal entries
+  let includeEntries = filter isIncludeEntry rawEntries
+      includeMap = Map.fromList [(entryFilePath e, entryContents e) | e <- includeEntries]
+
   -- Filter to only Haskell files and enrich with extension info
   let hsEntries = filter isHaskellEntry rawEntries
       enrichedEntries = map (enrichEntry packageInfos) hsEntries
@@ -72,7 +77,7 @@ runBenchmark opts = do
   let !forcedEntries = forceEntries enrichedEntries
   hPutStrLn stderr " done"
 
-  let parser = selectParser opts
+  let parser = selectParser includeMap opts
       numWarmup = benchWarmup opts
       numMain = benchIterations opts
 
@@ -170,14 +175,14 @@ enrichEntry packageInfos entry =
     firstJust = listToMaybe . catMaybes
 
 -- | Select the parser function based on options.
--- Now uses the entry's extensions and language.
-selectParser :: BenchOptions -> (TarballEntry -> ParseResult)
-selectParser opts =
+-- Now uses the entry's extensions, language, and include map for CPP resolution.
+selectParser :: Map.Map FilePath Text -> BenchOptions -> (TarballEntry -> ParseResult)
+selectParser includeMap opts =
   case (benchParser opts, benchLexerOnly opts) of
-    (ParserAihc, True) -> \e -> lexWithAihcExts (entryExtensions e) (entryLanguage e) (entryContents e)
-    (ParserAihc, False) -> \e -> parseWithAihcExts (entryExtensions e) (entryLanguage e) (entryContents e)
-    (ParserHse, _) -> \e -> parseWithHseExts (entryExtensions e) (entryLanguage e) (entryContents e)
-    (ParserGhc, _) -> \e -> parseWithGhcExts (entryExtensions e) (entryLanguage e) (entryContents e)
+    (ParserAihc, True) -> \e -> lexWithAihcExts includeMap (entryFilePath e) (entryExtensions e) (entryLanguage e) (entryContents e)
+    (ParserAihc, False) -> \e -> parseWithAihcExts includeMap (entryFilePath e) (entryExtensions e) (entryLanguage e) (entryContents e)
+    (ParserHse, _) -> \e -> parseWithHseExts includeMap (entryFilePath e) (entryExtensions e) (entryLanguage e) (entryContents e)
+    (ParserGhc, _) -> \e -> parseWithGhcExts includeMap (entryFilePath e) (entryExtensions e) (entryLanguage e) (entryContents e)
 
 -- | Run a single benchmark iteration.
 runSingleIteration :: (TarballEntry -> ParseResult) -> [TarballEntry] -> IO IterationResult
