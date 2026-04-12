@@ -173,6 +173,11 @@ buildTests = do
             testCase "function bind guarded: f x | x > 0 = x" test_localDeclFunGuarded
           ],
         testGroup
+          "pretty"
+          [ testCase "guard lambda round-trips with parentheses" test_prettyGuardLambdaRoundTrip,
+            testCase "guard let expression stays unparenthesized" test_prettyGuardLetFormatting
+          ],
+        testGroup
           "functionHeadParserWith dispatch"
           [ testCase "prefix: f x y = x + y" test_funHeadPrefix,
             testCase "prefix no args: f = 5" test_funHeadPrefixNoArgs,
@@ -1034,6 +1039,94 @@ test_guardExpr =
   case parseGuards "f x | x > 0 = x" of
     Right [GuardExpr _ _] -> pure ()
     other -> assertFailure ("expected guard expression, got: " <> show other)
+
+test_prettyGuardLambdaRoundTrip :: Assertion
+test_prettyGuardLambdaRoundTrip = do
+  let decl =
+        DeclValue
+          span0
+          ( FunctionBind
+              span0
+              "f"
+              [ Match
+                  { matchSpan = span0,
+                    matchHeadForm = MatchHeadPrefix,
+                    matchPats = [PVar span0 "x"],
+                    matchRhs = UnguardedRhs span0 caseExpr
+                  }
+              ]
+          )
+      caseExpr =
+        ECase
+          span0
+          (EVar span0 "x")
+          [ CaseAlt
+              { caseAltSpan = span0,
+                caseAltPattern = PVar span0 "y",
+                caseAltRhs =
+                  GuardedRhss
+                    span0
+                    [ GuardedRhs
+                        { guardedRhsSpan = span0,
+                          guardedRhsGuards =
+                            [ GuardExpr
+                                span0
+                                ( ELambdaPats
+                                    span0
+                                    [PVar span0 "z"]
+                                    (EVar span0 "z")
+                                )
+                            ],
+                          guardedRhsBody = EVar span0 "x"
+                        }
+                    ]
+              }
+          ]
+      source = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
+      expected = normalizeDecl decl
+  case parseDecl defaultConfig source of
+    ParseOk parsed ->
+      normalizeDecl parsed @?= expected
+    ParseErr err ->
+      assertFailure ("expected pretty-printed guard lambda to parse, got:\n" <> MPE.errorBundlePretty err <> "\nsource:\n" <> T.unpack source)
+
+test_prettyGuardLetFormatting :: Assertion
+test_prettyGuardLetFormatting = do
+  let decl =
+        DeclValue
+          span0
+          ( FunctionBind
+              span0
+              "f"
+              [ Match
+                  { matchSpan = span0,
+                    matchHeadForm = MatchHeadPrefix,
+                    matchPats = [PVar span0 "n"],
+                    matchRhs =
+                      GuardedRhss
+                        span0
+                        [ GuardedRhs
+                            { guardedRhsSpan = span0,
+                              guardedRhsGuards =
+                                [ GuardExpr
+                                    span0
+                                    ( ELetDecls
+                                        span0
+                                        [ DeclValue
+                                            span0
+                                            (FunctionBind span0 "x" [Match span0 MatchHeadPrefix [] (UnguardedRhs span0 (EInt span0 1 "1"))])
+                                        ]
+                                        (EInfix span0 (EVar span0 "x") (qualifyName Nothing ">") (EInt span0 0 "0"))
+                                    )
+                                ],
+                              guardedRhsBody = EVar span0 "n"
+                            }
+                        ]
+                  }
+              ]
+          )
+      source = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
+  assertBool ("expected guard let expression without extra parens, got:\n" <> T.unpack source) (not ("| (let" `T.isInfixOf` source))
 
 test_guardPatBind :: Assertion
 test_guardPatBind =
