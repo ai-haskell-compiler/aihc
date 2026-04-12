@@ -131,7 +131,7 @@ processFile opts packageRoot info = do
   let source' = resultOutput preprocessed
       cppErrs = [diagToText diag | diag <- resultDiagnostics preprocessed, diagSeverity diag == Error]
       headerPragmas = readModuleHeaderPragmas source'
-      defaultEdition = fromMaybe Syntax.Haskell2010Edition (fileInfoLanguage info)
+      defaultEdition = fromMaybe Syntax.Haskell98Edition (fileInfoLanguage info)
       edition = fromMaybe defaultEdition (Syntax.headerLanguageEdition headerPragmas)
       extensionSettings = fileInfoExtensions info ++ Syntax.headerExtensionSettings headerPragmas
       ghcResult = GhcOracle.oracleModuleAstFingerprint file edition extensionSettings source'

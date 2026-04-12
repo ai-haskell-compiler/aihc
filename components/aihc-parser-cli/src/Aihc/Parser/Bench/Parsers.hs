@@ -31,6 +31,7 @@ import Aihc.Parser.Lex (readModuleHeaderExtensions)
 import Aihc.Parser.Lex qualified as AihcLex
 import Aihc.Parser.Syntax
   ( Extension (CPP),
+    LanguageEdition (Haskell98Edition),
     applyExtensionSetting,
     editionFromExtensionSettings,
     extensionName,
@@ -44,7 +45,7 @@ import Control.Monad (mplus)
 import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (mapMaybe)
+import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
@@ -189,7 +190,8 @@ prepareSourceAndExtensionsWithCpp noCpp includeMap filePath cabalExts cppOptions
       headerEdition = editionFromExtensionSettings initialSettings
       cabalEdition = langName >>= parseLanguageEdition . T.pack
       initialEdition = headerEdition `mplus` cabalEdition
-      baseExts = maybe [] languageEditionExtensions initialEdition
+      -- Get base extensions for the edition, defaulting to Haskell98 per Cabal spec
+      baseExts = languageEditionExtensions (fromMaybe Haskell98Edition initialEdition)
       initialExtensions = foldr applyExtensionSetting baseExts initialSettings
       cppEnabled = CPP `elem` initialExtensions
       -- Preprocess if CPP is enabled and noCpp is False
@@ -201,7 +203,8 @@ prepareSourceAndExtensionsWithCpp noCpp includeMap filePath cabalExts cppOptions
       finalHeaderSettings = readModuleHeaderExtensions preprocessedSource
       finalSettings = cabalSettings <> finalHeaderSettings
       finalEdition = editionFromExtensionSettings finalSettings `mplus` (langName >>= parseLanguageEdition . T.pack)
-      finalBaseExts = maybe [] languageEditionExtensions finalEdition
+      -- Get base extensions for the edition, defaulting to Haskell98 per Cabal spec
+      finalBaseExts = languageEditionExtensions (fromMaybe Haskell98Edition finalEdition)
       finalExtensions = foldr applyExtensionSetting finalBaseExts finalSettings
    in (preprocessedSource, finalExtensions)
 
@@ -235,7 +238,8 @@ collectCppIncludes absFile cabalExts cppOptions langName deps source = do
       initialHeaderSettings = readModuleHeaderExtensions source
       initialSettings = cabalSettings <> initialHeaderSettings
       initialEdition = editionFromExtensionSettings initialSettings `mplus` (langName >>= parseLanguageEdition . T.pack)
-      baseExts = maybe [] languageEditionExtensions initialEdition
+      -- Get base extensions for the edition, defaulting to Haskell98 per Cabal spec
+      baseExts = languageEditionExtensions (fromMaybe Haskell98Edition initialEdition)
       initialExtensions = foldr applyExtensionSetting baseExts initialSettings
       cppEnabled = CPP `elem` initialExtensions
   if not cppEnabled

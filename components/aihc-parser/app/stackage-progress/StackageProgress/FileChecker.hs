@@ -157,7 +157,7 @@ checkFile parsers verbose packageRoot info = do
           else Just (T.intercalate "\n" cppErrors)
       -- Read module header pragmas to get any LANGUAGE pragma overrides
       headerPragmas = moduleHeaderPragmas source'
-      defaultEdition = fromMaybe Syntax.Haskell2010Edition (fileInfoLanguage info)
+      defaultEdition = fromMaybe Syntax.Haskell98Edition (fileInfoLanguage info)
       edition = fromMaybe defaultEdition (Syntax.headerLanguageEdition headerPragmas)
       -- Compute the effective extensions using unified extension handling
       extensionSettings = fileInfoExtensions info ++ Syntax.headerExtensionSettings headerPragmas

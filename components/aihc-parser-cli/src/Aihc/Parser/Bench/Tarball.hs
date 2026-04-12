@@ -39,6 +39,7 @@ import Aihc.Parser.Bench.Parsers (ParseResult (..), collectCppIncludes, parseWit
 import Aihc.Parser.Lex (readModuleHeaderExtensions)
 import Aihc.Parser.Syntax
   ( Extension (CPP),
+    LanguageEdition (Haskell98Edition),
     applyExtensionSetting,
     editionFromExtensionSettings,
     languageEditionExtensions,
@@ -55,7 +56,7 @@ import Data.ByteString.Lazy qualified as LBS
 import Data.Char (isAlphaNum)
 import Data.List (isPrefixOf, isSuffixOf)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (catMaybes, listToMaybe, mapMaybe)
+import Data.Maybe (catMaybes, fromMaybe, listToMaybe, mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding (decodeUtf8With, encodeUtf8)
@@ -393,8 +394,8 @@ preprocessSource _pkg cabalExts cppOptions langName deps source =
       headerEdition = editionFromExtensionSettings allSettings
       cabalEdition = langName >>= parseLanguageEdition . T.pack
       effectiveEdition = headerEdition `mplus` cabalEdition
-      -- Get base extensions for the edition
-      baseExts = maybe [] languageEditionExtensions effectiveEdition
+      -- Get base extensions for the edition, defaulting to Haskell98 per Cabal spec
+      baseExts = languageEditionExtensions (fromMaybe Haskell98Edition effectiveEdition)
       -- Apply settings to get final extensions
       finalExtensions = foldr applyExtensionSetting baseExts allSettings
       cppEnabled = CPP `elem` finalExtensions
