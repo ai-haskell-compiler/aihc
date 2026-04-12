@@ -913,7 +913,7 @@ lambdaExprParser = withSpan $ do
       body <- region "while parsing lambda body" exprParser
       pure (\span' -> ELambdaPats span' pats body)
 
-    bracedAlts = bracedSemiSep1 caseAltParser
+    bracedAlts = bracedSemiSep caseAltParser
 
 letExprParser :: TokParser Expr
 letExprParser = withSpan $ do

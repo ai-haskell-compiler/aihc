@@ -41,42 +41,40 @@ genPatternNoView = genPatternWith False
 -- are allowed. When @allowAll@ is False, PView, PIrrefutable, PStrict, and PAs
 -- are excluded at all depths (for use in comprehension/guard contexts).
 genPatternWith :: Bool -> Int -> Gen Pattern
-genPatternWith allowAll depth
-  | depth <= 0 =
-      oneof
-        [ PVar span0 <$> genPatternUnqualVarName,
-          pure (PWildcard span0),
-          PLit span0 <$> genLiteral,
-          PQuasiQuote span0 <$> genQuoterName <*> genQuasiBody,
-          PTuple span0 Boxed <$> elements [[], [PVar span0 (mkUnqualifiedName NameVarId "x"), PWildcard span0]],
-          PTuple span0 Unboxed <$> elements [[], [PVar span0 (mkUnqualifiedName NameVarId "x"), PWildcard span0]],
-          pure (PList span0 []),
-          PCon span0 <$> genPatternConAstName <*> pure [],
-          PNegLit span0 <$> genNumericLiteral,
-          genUnboxedSumPatternWith allowAll 0
-        ]
-  | otherwise =
-      frequency $
-        [ (3, PVar span0 <$> genPatternUnqualVarName),
-          (2, pure (PWildcard span0)),
-          (3, PLit span0 <$> genLiteral),
-          (2, PQuasiQuote span0 <$> genQuoterName <*> genQuasiBody),
-          (2, PTuple span0 Boxed <$> genTupleElemsWith allowAll (depth - 1)),
-          (1, PTuple span0 Unboxed <$> genUnboxedTupleElemsWith allowAll (depth - 1)),
-          (2, PList span0 <$> genListElemsWith allowAll (depth - 1)),
-          (3, genPatternConWith allowAll depth),
-          (2, genPatternInfixWith allowAll depth),
-          (2, PNegLit span0 <$> genNumericLiteral),
-          (2, PParen span0 <$> genPatternWith allowAll (depth - 1)),
-          (2, PRecord span0 <$> genPatternConAstName <*> genRecordFieldsWith allowAll (depth - 1) <*> pure False),
-          (2, genPatternTypeSigWith allowAll depth),
-          (1, genUnboxedSumPatternWith allowAll (depth - 1)),
-          (2, PSplice span0 <$> genPatSpliceBody)
-        ]
-          <> [(2, PView span0 <$> resize 2 genExpr <*> genPatternWith allowAll (depth - 1)) | allowAll]
-          <> [(2, PAs span0 <$> genIdent <*> (canonicalPatternAtom <$> genPatternWith allowAll (depth - 1))) | allowAll]
-          <> [(2, PStrict span0 . canonicalPatternAtom <$> genPatternWith allowAll (depth - 1)) | allowAll]
-          <> [(2, PIrrefutable span0 . canonicalPatternAtom <$> genPatternWith allowAll (depth - 1)) | allowAll]
+genPatternWith allowAll depth =
+  oneof (leafGenerators <> recursiveGenerators)
+  where
+    allowRecursive = depth > 0
+    nextDepth = depth - 1
+    leafGenerators =
+      [ PVar span0 <$> genPatternUnqualVarName,
+        pure (PWildcard span0),
+        PLit span0 <$> genLiteral,
+        PQuasiQuote span0 <$> genQuoterName <*> genQuasiBody,
+        PNegLit span0 <$> genNumericLiteral,
+        PSplice span0 <$> genPatSpliceBody,
+        PTuple span0 Boxed <$> elements [[], [PVar span0 (mkUnqualifiedName NameVarId "x"), PWildcard span0]],
+        PTuple span0 Unboxed <$> elements [[], [PVar span0 (mkUnqualifiedName NameVarId "x"), PWildcard span0]],
+        pure (PList span0 []),
+        PCon span0 <$> genPatternConAstName <*> pure [],
+        genUnboxedSumPatternWith allowAll 0
+      ]
+    recursiveGenerators =
+      [ PTuple span0 Boxed <$> genTupleElemsWith allowAll nextDepth
+      | allowRecursive
+      ]
+        <> [PTuple span0 Unboxed <$> genUnboxedTupleElemsWith allowAll nextDepth | allowRecursive]
+        <> [PList span0 <$> genListElemsWith allowAll nextDepth | allowRecursive]
+        <> [genPatternConWith allowAll depth | allowRecursive]
+        <> [genPatternInfixWith allowAll depth | allowRecursive]
+        <> [PParen span0 <$> genPatternWith allowAll nextDepth | allowRecursive]
+        <> [PRecord span0 <$> genPatternConAstName <*> genRecordFieldsWith allowAll nextDepth <*> pure False | allowRecursive]
+        <> [genPatternTypeSigWith allowAll depth | allowRecursive]
+        <> [genUnboxedSumPatternWith allowAll nextDepth | allowRecursive]
+        <> [PView span0 <$> resize 2 genExpr <*> genPatternWith allowAll nextDepth | allowRecursive, allowAll]
+        <> [PAs span0 <$> genIdent <*> (canonicalPatternAtom <$> genPatternWith allowAll nextDepth) | allowRecursive, allowAll]
+        <> [PStrict span0 . canonicalPatternAtom <$> genPatternWith allowAll nextDepth | allowRecursive, allowAll]
+        <> [PIrrefutable span0 . canonicalPatternAtom <$> genPatternWith allowAll nextDepth | allowRecursive, allowAll]
 
 genPatternConWith :: Bool -> Int -> Gen Pattern
 genPatternConWith allowView depth = do
@@ -223,9 +221,9 @@ genPatternUnqualVarName = mkUnqualifiedName NameVarId <$> genIdent
 -- Biased towards Nothing to keep most names unqualified.
 genOptionalQualifier :: Gen (Maybe Text)
 genOptionalQualifier =
-  frequency
-    [ (3, pure Nothing),
-      (1, Just <$> genModuleQualifier)
+  oneof
+    [ pure Nothing,
+      Just <$> genModuleQualifier
     ]
 
 -- | Generate a module qualifier like "Data.List" or "Prelude".
