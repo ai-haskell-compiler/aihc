@@ -121,6 +121,7 @@ test-suite spec
   build-depends:
       base >=4.16 && <5
     , aihc-cpp
+    , aihc-hackage
     , megaparsec
     , text
     , containers
@@ -237,16 +238,15 @@ executable hackage-tester
       base >=4.16 && <5
     , aihc-parser
     , aihc-cpp
+    , aihc-hackage
     , text
     , containers
     , deepseq
     , directory
     , filepath
     , ghc-lib-parser
-    , Cabal
     , Cabal-syntax
     , bytestring
-    , process
     , async
     , aeson
     , http-client
@@ -280,15 +280,14 @@ executable stackage-progress
       base >=4.16 && <5
     , aihc-parser
     , aihc-cpp
+    , aihc-hackage
     , text
     , containers
     , deepseq
     , directory
     , filepath
     , ghc-lib-parser
-    , process
     , async
-    , Cabal
     , Cabal-syntax
     , bytestring
     , haskell-src-exts

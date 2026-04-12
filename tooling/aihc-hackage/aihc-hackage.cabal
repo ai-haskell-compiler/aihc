@@ -1,0 +1,35 @@
+cabal-version:      3.8
+name:               aihc-hackage
+version:            0.1.0.0
+build-type:         Simple
+license:            MIT
+license-file:       LICENSE
+author:             David Himmelstrup
+maintainer:         lemmih@gmail.com
+category:           Development
+synopsis:           Shared Hackage/Stackage download and cabal-file utilities
+
+library
+  exposed-modules:
+      Aihc.Hackage.Types
+    , Aihc.Hackage.Cache
+    , Aihc.Hackage.Download
+    , Aihc.Hackage.Stackage
+    , Aihc.Hackage.Cabal
+    , Aihc.Hackage.Util
+  hs-source-dirs:   src
+  build-depends:
+      base >=4.16 && <5
+    , bytestring
+    , Cabal-syntax
+    , containers
+    , directory
+    , filepath
+    , http-client
+    , http-client-tls
+    , http-types
+    , tar
+    , text
+    , zlib
+  ghc-options:        -Wall -Werror
+  default-language: GHC2021

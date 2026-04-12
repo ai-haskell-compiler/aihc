@@ -26,6 +26,11 @@ module Aihc.Parser.Bench.Tarball
   )
 where
 
+import Aihc.Hackage.Cabal qualified as HC
+import Aihc.Hackage.Download qualified as HD
+import Aihc.Hackage.Stackage qualified as HS
+import Aihc.Hackage.Types (PackageSpec (..), formatPackage)
+import Aihc.Hackage.Util qualified as HU
 import Aihc.Parser.Bench.CLI (FilterOptions (..), GenerateOptions (..))
 import Aihc.Parser.Bench.Parsers (ParseResult (..), parseWithAihcExts, parseWithGhcExts, parseWithHseExts)
 import Codec.Archive.Tar qualified as Tar
@@ -35,23 +40,17 @@ import Control.Exception (SomeException, displayException, try)
 import Control.Monad (forM, when)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
-import Data.Char (isAlphaNum, isSpace)
-import Data.List (isPrefixOf, isSuffixOf, nub)
+import Data.Char (isAlphaNum)
+import Data.List (isPrefixOf, isSuffixOf)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes, listToMaybe, mapMaybe)
 import Data.Text (Text)
 import Data.Text.Encoding (decodeUtf8With, encodeUtf8)
 import Data.Text.Encoding.Error (lenientDecode)
-import Data.Text.Lazy qualified as TL
-import Data.Text.Lazy.Encoding qualified as TLE
 import Data.Time.Clock.POSIX (getPOSIXTime)
-import Data.Version qualified as DV
-import Distribution.Compiler (CompilerFlavor (..))
-import Distribution.ModuleName (ModuleName, toFilePath)
+import Distribution.ModuleName (toFilePath)
 import Distribution.PackageDescription
-  ( BuildInfo,
-    Executable,
-    FlagName,
+  ( Executable,
     Library,
     autogenModules,
     buildInfo,
@@ -59,52 +58,27 @@ import Distribution.PackageDescription
     condExecutables,
     condLibrary,
     condSubLibraries,
-    defaultExtensions,
-    defaultLanguage,
     exeModules,
     exposedModules,
-    flagDefault,
-    flagName,
     hsSourceDirs,
     libBuildInfo,
     modulePath,
-    oldExtensions,
     otherModules,
   )
 import Distribution.PackageDescription.Parsec qualified as Cabal
-import Distribution.Pretty (prettyShow)
-import Distribution.System (buildArch, buildOS)
-import Distribution.Types.CondTree
-  ( CondBranch (CondBranch),
-    CondTree (condTreeComponents, condTreeData),
-  )
-import Distribution.Types.Condition (Condition (..))
-import Distribution.Types.ConfVar (ConfVar (..))
-import Distribution.Types.GenericPackageDescription (GenericPackageDescription, genPackageFlags)
+import Distribution.Types.CondTree (CondTree (condTreeData))
+import Distribution.Types.Condition (Condition)
+import Distribution.Types.ConfVar (ConfVar)
+import Distribution.Types.GenericPackageDescription (GenericPackageDescription)
 import Distribution.Utils.Path (getSymbolicPath)
-import Distribution.Version (mkVersion, withinRange)
-import Network.HTTP.Client (Manager, httpLbs, newManager, parseRequest, responseBody, responseStatus)
+import Network.HTTP.Client (Manager, newManager)
 import Network.HTTP.Client.TLS (tlsManagerSettings)
-import Network.HTTP.Types.Status (statusCode)
 import System.Directory
-  ( XdgDirectory (XdgCache),
-    createDirectoryIfMissing,
-    doesDirectoryExist,
-    doesFileExist,
-    getXdgDirectory,
+  ( doesDirectoryExist,
     listDirectory,
-    removeDirectoryRecursive,
   )
-import System.FilePath (makeRelative, normalise, takeDirectory, takeExtension, (<.>), (</>))
+import System.FilePath (makeRelative, takeDirectory, takeExtension, (</>))
 import System.IO (hPutStrLn, stderr)
-import System.Info (compilerName, compilerVersion)
-
--- | A package specification.
-data PackageSpec = PackageSpec
-  { pkgName :: !String,
-    pkgVersion :: !String
-  }
-  deriving (Eq, Show)
 
 -- | An entry to be written to the tarball.
 -- This can be either a Haskell source file or a .cabal file.
@@ -163,7 +137,7 @@ generateTarball :: GenerateOptions -> IO (Either String GenerateResult)
 generateTarball opts = do
   -- Create a single HTTP manager to reuse for all requests
   manager <- newManager tlsManagerSettings
-  snapshotResult <- loadStackageSnapshot manager (genSnapshot opts) (genOffline opts)
+  snapshotResult <- HS.loadStackageSnapshot (Just manager) (genSnapshot opts) (genOffline opts)
   case snapshotResult of
     Left err -> pure (Left err)
     Right packages -> do
@@ -209,6 +183,13 @@ generateTarball opts = do
           writeTarball outputPath allEntries
           pure (Right summary)
 
+sanitizeName :: String -> String
+sanitizeName = map sanitizeChar
+  where
+    sanitizeChar c
+      | isAlphaNum c || c == '-' || c == '_' = c
+      | otherwise = '_'
+
 -- | Process all packages sequentially.
 processPackages :: Manager -> GenerateOptions -> [PackageSpec] -> IO [Either (PackageSpec, FilterReason) [TarballEntry]]
 processPackages manager opts packages = forM packages (processPackage manager opts)
@@ -216,7 +197,13 @@ processPackages manager opts packages = forM packages (processPackage manager op
 -- | Process a single package.
 processPackage :: Manager -> GenerateOptions -> PackageSpec -> IO (Either (PackageSpec, FilterReason) [TarballEntry])
 processPackage manager opts pkg = do
-  downloadResult <- try $ downloadPackage manager (genOffline opts) pkg
+  let dlOpts =
+        HD.defaultDownloadOptions
+          { HD.downloadVerbose = False,
+            HD.downloadAllowNetwork = not (genOffline opts),
+            HD.downloadManager = Just manager
+          }
+  downloadResult <- try $ HD.downloadPackageWithOptions dlOpts pkg
   case downloadResult of
     Left (err :: SomeException) ->
       pure (Left (pkg, FilterDownloadFailed (displayException err)))
@@ -233,7 +220,7 @@ processPackage manager opts pkg = do
             else do
               -- Read all files with their extension info from the cabal file
               entries <- forM hsFiles $ \file -> do
-                contents <- readTextFileLenient file
+                contents <- HU.readTextFileLenient file
                 let relPath = formatPackage pkg </> makeRelative pkgDir file
                     -- Look up extension info for this file
                     info = Map.lookup (makeRelative pkgDir file) fileInfoMap
@@ -259,12 +246,12 @@ processPackage manager opts pkg = do
 -- | Find and read the .cabal file, returning the entry and a map of file paths to their extensions
 findAndReadCabalFile :: FilePath -> PackageSpec -> IO (TarballEntry, Map.Map FilePath ([String], Maybe String))
 findAndReadCabalFile pkgDir pkg = do
-  cabalFiles <- findCabalFiles pkgDir
+  cabalFiles <- findCabalFilesFlat pkgDir
   cabalFile <- case cabalFiles of
     [f] -> pure f
     [] -> ioError (userError ("No .cabal file found in " ++ pkgDir))
     (f : _) -> pure f -- Take first one if multiple
-  contents <- readTextFileLenient cabalFile
+  contents <- HU.readTextFileLenient cabalFile
   let relPath = formatPackage pkg </> makeRelative pkgDir cabalFile
       cabalEntry =
         TarballEntry
@@ -291,129 +278,13 @@ parseCabalForExtensions pkgDir cabalFile = do
       hPutStrLn stderr $ "Warning: Failed to parse " ++ cabalFile ++ ": " ++ show errs
       pure Map.empty
     Right gpd -> do
-      fileInfos <- collectComponentFilesSimple gpd (takeDirectory cabalFile)
+      fileInfos <- HC.collectComponentFiles gpd (takeDirectory cabalFile)
       -- Build map from relative paths to their extensions
       pure $
         Map.fromList
-          [ (makeRelative pkgDir path, (exts, lang))
-          | (path, exts, lang) <- fileInfos
+          [ (makeRelative pkgDir (HC.fileInfoPath fi), (HC.fileInfoExtensions fi, HC.fileInfoLanguage fi))
+          | fi <- fileInfos
           ]
-
--- | Simplified version of collectComponentFiles that just gets paths and extensions
-collectComponentFilesSimple :: GenericPackageDescription -> FilePath -> IO [(FilePath, [String], Maybe String)]
-collectComponentFilesSimple gpd packageRoot = do
-  let evalCond = conditionEvaluator gpd
-      libraryTrees = maybe [] pure (condLibrary gpd) <> map snd (condSubLibraries gpd)
-      executableTrees = map snd (condExecutables gpd)
-
-  libraryFiles <- fmap concat (forM libraryTrees (libraryFilesSimple evalCond packageRoot))
-  executableFiles <- fmap concat (forM executableTrees (executableFilesSimple evalCond packageRoot))
-
-  pure (libraryFiles <> executableFiles)
-
-libraryFilesSimple :: (Condition ConfVar -> Bool) -> FilePath -> CondTree ConfVar c Library -> IO [(FilePath, [String], Maybe String)]
-libraryFilesSimple evalCond packageRoot tree = do
-  let library = condTreeData tree
-      build = collectMergedBuildInfo evalCond libBuildInfo tree
-      moduleNames = exposedModules library <> otherModules build <> autogenModules build
-      exts = extractExtensions build
-      lang = extractLanguage build
-  if not (buildable build)
-    then pure []
-    else do
-      paths <- moduleFilesForBuildInfo packageRoot build moduleNames
-      pure [(path, exts, lang) | path <- paths]
-
-executableFilesSimple :: (Condition ConfVar -> Bool) -> FilePath -> CondTree ConfVar c Executable -> IO [(FilePath, [String], Maybe String)]
-executableFilesSimple evalCond packageRoot tree = do
-  let executable = condTreeData tree
-      build = collectMergedBuildInfo evalCond buildInfo tree
-      moduleNames = otherModules build <> exeModules executable <> autogenModules build
-      mainPath = modulePath executable
-      exts = extractExtensions build
-      lang = extractLanguage build
-  if not (buildable build)
-    then pure []
-    else do
-      moduleFiles <- moduleFilesForBuildInfo packageRoot build moduleNames
-      mainFiles <- existingPaths [dir </> mainPath | dir <- sourceDirs packageRoot build]
-      pure [(path, exts, lang) | path <- moduleFiles <> mainFiles]
-
-extractExtensions :: BuildInfo -> [String]
-extractExtensions bi = nub (map prettyShow (defaultExtensions bi <> oldExtensions bi))
-
-extractLanguage :: BuildInfo -> Maybe String
-extractLanguage bi =
-  case defaultLanguage bi of
-    Just lang -> Just (prettyShow lang)
-    Nothing -> Nothing -- Don't default, let the parser decide
-
-collectCondTreeData :: (Condition v -> Bool) -> CondTree v c a -> [a]
-collectCondTreeData evalCond tree =
-  condTreeData tree : concatMap collectBranch (condTreeComponents tree)
-  where
-    collectBranch (CondBranch cond thenTree elseTree) =
-      if evalCond cond
-        then collectCondTreeData evalCond thenTree
-        else maybe [] (collectCondTreeData evalCond) elseTree
-
-collectMergedBuildInfo :: (Monoid b) => (Condition v -> Bool) -> (a -> b) -> CondTree v c a -> b
-collectMergedBuildInfo evalCond toBuildInfo =
-  mconcat . map toBuildInfo . collectCondTreeData evalCond
-
-conditionEvaluator :: GenericPackageDescription -> Condition ConfVar -> Bool
-conditionEvaluator gpd = eval
-  where
-    defaultFlags :: Map.Map FlagName Bool
-    defaultFlags =
-      Map.fromList [(flagName flag, flagDefault flag) | flag <- genPackageFlags gpd]
-
-    compilerFlavor :: CompilerFlavor
-    compilerFlavor =
-      case compilerName of
-        "ghc" -> GHC
-        "ghcjs" -> GHCJS
-        other -> OtherCompiler other
-
-    compilerVer = mkVersion (DV.versionBranch compilerVersion)
-
-    eval (Var confVar) =
-      case confVar of
-        OS os -> os == buildOS
-        Arch arch -> arch == buildArch
-        PackageFlag flag -> Map.findWithDefault False flag defaultFlags
-        Impl flavor range -> flavor == compilerFlavor && withinRange compilerVer range
-    eval (Lit b) = b
-    eval (CNot c) = not (eval c)
-    eval (COr a b) = eval a || eval b
-    eval (CAnd a b) = eval a && eval b
-
-moduleFilesForBuildInfo :: FilePath -> BuildInfo -> [ModuleName] -> IO [FilePath]
-moduleFilesForBuildInfo packageRoot build modules = do
-  let dirs = sourceDirs packageRoot build
-      moduleCandidates =
-        [ dir </> toFilePath modu <.> ext
-        | dir <- dirs,
-          modu <- modules,
-          ext <- ["hs", "lhs"]
-        ]
-  dedupeExistingFiles moduleCandidates
-
-sourceDirs :: FilePath -> BuildInfo -> [FilePath]
-sourceDirs packageRoot build =
-  case map getSymbolicPath (hsSourceDirs build) of
-    [] -> [packageRoot]
-    dirs -> [packageRoot </> dir | dir <- dirs]
-
-existingPaths :: [FilePath] -> IO [FilePath]
-existingPaths candidates = do
-  existing <- forM candidates $ \candidate -> do
-    fileExists <- doesFileExist candidate
-    pure (if fileExists then Just (normalise candidate) else Nothing)
-  pure (catMaybes existing)
-
-dedupeExistingFiles :: [FilePath] -> IO [FilePath]
-dedupeExistingFiles files = fmap nub (existingPaths files)
 
 -- | Check if a package passes all filters.
 -- Returns the first filter failure reason, or Nothing if all pass.
@@ -560,10 +431,14 @@ parseSingleCabal pkg cabalPath content =
         then drop (length prefix) s
         else s
 
--- | Extract file info from a parsed GenericPackageDescription
+-- | Extract file info from a parsed GenericPackageDescription.
+--
+-- This variant works on in-memory tarball paths (with forward slashes) rather
+-- than filesystem paths, so it does NOT use the IO-based file-discovery in
+-- 'HC.collectComponentFiles'.
 extractFileInfoFromGPD :: GenericPackageDescription -> String -> Map.Map FilePath ([String], Maybe String)
 extractFileInfoFromGPD gpd pkgRoot =
-  let evalCond = conditionEvaluator gpd
+  let evalCond = HC.conditionEvaluator gpd
       libraryTrees = maybe [] pure (condLibrary gpd) <> map snd (condSubLibraries gpd)
       executableTrees = map snd (condExecutables gpd)
 
@@ -574,10 +449,10 @@ extractFileInfoFromGPD gpd pkgRoot =
 libraryFileInfos :: (Condition ConfVar -> Bool) -> String -> CondTree ConfVar c Library -> [(FilePath, ([String], Maybe String))]
 libraryFileInfos evalCond pkgRoot tree =
   let library = condTreeData tree
-      build = collectMergedBuildInfo evalCond libBuildInfo tree
+      build = HC.collectMergedBuildInfo evalCond libBuildInfo tree
       moduleNames = exposedModules library <> otherModules build <> autogenModules build
-      exts = extractExtensions build
-      lang = extractLanguage build
+      exts = HC.extractExtensions build
+      lang = HC.extractLanguage build
       dirs = case map getSymbolicPath (hsSourceDirs build) of
         [] -> [""]
         ds -> ds
@@ -593,11 +468,11 @@ libraryFileInfos evalCond pkgRoot tree =
 executableFileInfos :: (Condition ConfVar -> Bool) -> String -> CondTree ConfVar c Executable -> [(FilePath, ([String], Maybe String))]
 executableFileInfos evalCond pkgRoot tree =
   let executable = condTreeData tree
-      build = collectMergedBuildInfo evalCond buildInfo tree
+      build = HC.collectMergedBuildInfo evalCond buildInfo tree
       moduleNames = otherModules build <> exeModules executable <> autogenModules build
       mainPath = modulePath executable
-      exts = extractExtensions build
-      lang = extractLanguage build
+      exts = HC.extractExtensions build
+      lang = HC.extractLanguage build
       dirs = case map getSymbolicPath (hsSourceDirs build) of
         [] -> [""]
         ds -> ds
@@ -626,157 +501,9 @@ breakOnLast c s =
         [] -> (s, "")
         _ : rest -> (reverse rest, reverse after)
 
--- | Load a Stackage snapshot.
-loadStackageSnapshot :: Manager -> String -> Bool -> IO (Either String [PackageSpec])
-loadStackageSnapshot manager snapshot offline = do
-  cacheFile <- snapshotCacheFile snapshot
-  hasCache <- doesFileExist cacheFile
-  if hasCache
-    then do
-      cachedBody <- readFile cacheFile
-      pure (parseSnapshotConstraints cachedBody)
-    else
-      if offline
-        then pure (Left ("Snapshot missing from cache in offline mode: " ++ snapshot))
-        else do
-          let url = "https://www.stackage.org/" ++ snapshot ++ "/cabal.config"
-          fetched <- httpGetString manager url
-          case fetched of
-            Left err -> pure (Left err)
-            Right body ->
-              case parseSnapshotConstraints body of
-                Left parseErr -> pure (Left parseErr)
-                Right specs -> do
-                  writeFile cacheFile body
-                  pure (Right specs)
-
-snapshotCacheFile :: String -> IO FilePath
-snapshotCacheFile snapshot = do
-  base <- getXdgDirectory XdgCache "aihc"
-  let dir = base </> "stackage"
-      file = sanitizeName snapshot ++ "-cabal.config"
-  createDirectoryIfMissing True dir
-  pure (dir </> file)
-
-sanitizeName :: String -> String
-sanitizeName = map sanitizeChar
-  where
-    sanitizeChar c
-      | isAlphaNum c || c == '-' || c == '_' = c
-      | otherwise = '_'
-
-parseSnapshotConstraints :: String -> Either String [PackageSpec]
-parseSnapshotConstraints content = do
-  let section = constraintLines (lines content)
-      entries = map trim (splitComma (concat section))
-      specs = mapMaybe parseConstraint entries
-  if null specs
-    then Left "No package constraints found"
-    else Right specs
-
-constraintLines :: [String] -> [String]
-constraintLines ls =
-  case break (isPrefixOf "constraints:" . trimLeft) ls of
-    (_, []) -> []
-    (_, firstRaw : restRaw) ->
-      let firstLine = trimLeft firstRaw
-          start = [drop 12 firstLine]
-          cont = [trimLeft line | line <- takeWhile isConstraintContinuation restRaw]
-       in start <> cont
-
-isConstraintContinuation :: String -> Bool
-isConstraintContinuation line =
-  case line of
-    c : _ -> isSpace c
-    [] -> False
-
-trimLeft :: String -> String
-trimLeft = dropWhile isSpace
-
-parseConstraint :: String -> Maybe PackageSpec
-parseConstraint entry
-  | null entry = Nothing
-  | "--" `isPrefixOf` trim entry = Nothing
-  | otherwise =
-      case breakOn "==" entry of
-        Just (name, ver) -> Just (PackageSpec (trim name) (trim ver))
-        Nothing ->
-          let ws = words entry
-           in case ws of
-                [_, "installed"] -> Nothing
-                _ -> Nothing
-
-breakOn :: String -> String -> Maybe (String, String)
-breakOn needle haystack =
-  case findNeedle needle haystack of
-    Nothing -> Nothing
-    Just i ->
-      let (left, right) = splitAt i haystack
-       in Just (left, drop (length needle) right)
-
-findNeedle :: String -> String -> Maybe Int
-findNeedle needle = go 0
-  where
-    go _ [] = Nothing
-    go i xs
-      | needle `isPrefixOf` xs = Just i
-      | otherwise = go (i + 1) (drop 1 xs)
-
-splitComma :: String -> [String]
-splitComma s =
-  case break (== ',') s of
-    (chunk, []) -> [chunk]
-    (chunk, _ : rest) -> chunk : splitComma rest
-
-trim :: String -> String
-trim = dropWhileEnd isSpace . dropWhile isSpace
-  where
-    dropWhileEnd p = reverse . dropWhile p . reverse
-
--- | Download a package from Hackage.
-downloadPackage :: Manager -> Bool -> PackageSpec -> IO FilePath
-downloadPackage manager offline pkg = do
-  cacheDir <- getCacheDir
-  let pkgDir = cacheDir </> formatPackage pkg
-      markerFile = pkgDir </> ".complete"
-  markerExists <- doesFileExist markerFile
-  if markerExists
-    then pure pkgDir
-    else
-      if offline
-        then ioError (userError ("Package missing from cache in offline mode: " ++ formatPackage pkg))
-        else do
-          createDirectoryIfMissing True cacheDir
-          let url =
-                "https://hackage.haskell.org/package/"
-                  ++ formatPackage pkg
-                  ++ "/"
-                  ++ formatPackage pkg
-                  ++ ".tar.gz"
-          -- Download tarball
-          tarballBytes <- httpGetLBS manager url
-          case tarballBytes of
-            Left err -> ioError (userError ("Failed to download " ++ formatPackage pkg ++ ": " ++ err))
-            Right lbs -> do
-              -- Extract using Codec.Archive.Tar
-              let entries = Tar.read (GZip.decompress lbs)
-              pkgDirExists <- doesDirectoryExist pkgDir
-              when pkgDirExists $ removeDirectoryRecursive pkgDir
-              Tar.unpack cacheDir entries
-              writeFile markerFile ""
-              pure pkgDir
-
-getCacheDir :: IO FilePath
-getCacheDir = do
-  cacheBase <- getXdgDirectory XdgCache "aihc"
-  pure (cacheBase </> "hackage")
-
-formatPackage :: PackageSpec -> String
-formatPackage pkg = pkgName pkg ++ "-" ++ pkgVersion pkg
-
--- | Find all .cabal files in a directory.
-findCabalFiles :: FilePath -> IO [FilePath]
-findCabalFiles dir = do
+-- | Find all .cabal files in a directory (non-recursive, top-level only).
+findCabalFilesFlat :: FilePath -> IO [FilePath]
+findCabalFilesFlat dir = do
   entries <- listDirectory dir
   paths <- forM entries $ \entry -> do
     let fullPath = dir </> entry
@@ -807,12 +534,6 @@ findHaskellFiles dir = do
           else pure []
   pure (concat paths)
 
--- | Read a file as Text with lenient UTF-8 decoding.
-readTextFileLenient :: FilePath -> IO Text
-readTextFileLenient path = do
-  bytes <- BS.readFile path
-  pure (decodeUtf8With lenientDecode bytes)
-
 -- | Partition results into successes and failures.
 partitionResults :: [Either (PackageSpec, FilterReason) [TarballEntry]] -> ([[TarballEntry]], [(PackageSpec, FilterReason)])
 partitionResults = go [] []
@@ -820,28 +541,3 @@ partitionResults = go [] []
     go successes failures [] = (reverse successes, reverse failures)
     go successes failures (Left f : rest) = go successes (f : failures) rest
     go successes failures (Right s : rest) = go (s : successes) failures rest
-
---------------------------------------------------------------------------------
--- HTTP utilities
---------------------------------------------------------------------------------
-
--- | Perform an HTTP GET request and return the response body as a String.
--- Uses lenient UTF-8 decoding to handle malformed sequences.
-httpGetString :: Manager -> String -> IO (Either String String)
-httpGetString manager url = do
-  result <- httpGetLBS manager url
-  pure $ fmap (TL.unpack . TLE.decodeUtf8With lenientDecode) result
-
--- | Perform an HTTP GET request and return the response body as lazy ByteString.
-httpGetLBS :: Manager -> String -> IO (Either String LBS.ByteString)
-httpGetLBS manager url = do
-  result <- try $ do
-    request <- parseRequest url
-    response <- httpLbs request manager
-    let status = statusCode (responseStatus response)
-    if status >= 200 && status < 300
-      then pure (Right (responseBody response))
-      else pure (Left ("HTTP " ++ show status ++ " for " ++ url))
-  case result of
-    Left (err :: SomeException) -> pure (Left (displayException err))
-    Right r -> pure r
