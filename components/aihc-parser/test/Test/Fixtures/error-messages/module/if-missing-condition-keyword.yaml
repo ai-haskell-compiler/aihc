@@ -1,7 +1,11 @@
 src: |
   x = if then 1 else 2
 ghc: |
-  test.hs:1:8: error: [GHC-58481] parse error on input `then'
+  test.hs:1:8: error: [GHC-58481]
+      parse error on input `then'
+    |
+  1 | x = if then 1 else 2
+    |        ^^^^
 aihc: |
   test.hs:1:8:
   1 | x = if then 1 else 2

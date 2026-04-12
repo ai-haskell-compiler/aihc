@@ -1,7 +1,11 @@
 src: |
   import prelude
 ghc: |
-  test.hs:1:8: error: [GHC-58481] parse error on input `prelude'
+  test.hs:1:8: error: [GHC-58481]
+      parse error on input `prelude'
+    |
+  1 | import prelude
+    |        ^^^^^^^
 aihc: |
   test.hs:1:8:
   1 | import prelude

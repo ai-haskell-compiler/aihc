@@ -4,6 +4,9 @@ src: |
 ghc: |
   test.hs:2:1: error: [GHC-58481]
       parse error (possibly incorrect indentation or mismatched brackets)
+    |
+  2 | y = 20 +
+    | ^
 aihc: |
   test.hs:1:5:
   1 | x = case

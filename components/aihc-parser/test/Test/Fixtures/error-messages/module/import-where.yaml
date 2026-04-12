@@ -1,7 +1,11 @@
 src: |
   import where
 ghc: |
-  test.hs:1:8: error: [GHC-58481] parse error on input `where'
+  test.hs:1:8: error: [GHC-58481]
+      parse error on input `where'
+    |
+  1 | import where
+    |        ^^^^^
 aihc: |
   test.hs:1:8:
   1 | import where

@@ -12,11 +12,12 @@ where
 import Aihc.Cpp (resultOutput)
 import Aihc.Parser.Lex qualified as Lex
 import Aihc.Parser.Syntax qualified as Syntax
-import Control.Exception (catch, displayException, evaluate)
+import Control.Exception (bracket, catch, displayException, evaluate)
 import CppSupport (preprocessForParserWithoutIncludes)
 import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
+import GHC.Data.Bag qualified as Bag
 import GHC.Data.EnumSet qualified as EnumSet
 import GHC.Data.FastString (mkFastString)
 import GHC.Data.StringBuffer (stringToStringBuffer)
@@ -28,16 +29,37 @@ import GHC.Parser.Lexer
     ParseResult (..),
     Token (..),
     getPsErrorMessages,
+    getPsMessages,
     initParserState,
     lexer,
     mkParserOpts,
     unP,
   )
-import GHC.Types.Error (NoDiagnosticOpts (NoDiagnosticOpts), errorsFound)
+import GHC.Types.Error
+  ( NoDiagnosticOpts (NoDiagnosticOpts),
+    diagnosticCode,
+    diagnosticReason,
+    errMsgDiagnostic,
+    errMsgSpan,
+    errorsFound,
+    getMessages,
+  )
 import GHC.Types.SourceError (SourceError)
-import GHC.Types.SrcLoc (Located, mkRealSrcLoc, unLoc)
-import GHC.Utils.Error (emptyDiagOpts, pprMessages)
+import GHC.Types.SrcLoc
+  ( Located,
+    mkRealSrcLoc,
+    unLoc,
+  )
+import GHC.Utils.Error
+  ( emptyDiagOpts,
+    getCaretDiagnostic,
+    mkMCDiagnostic,
+    pprMessages,
+  )
 import GHC.Utils.Outputable (ppr, showSDocUnsafe)
+import System.Directory (removeFile)
+import System.FilePath (takeFileName)
+import System.IO (hClose, hPutStr, openTempFile)
 import System.IO.Unsafe (unsafePerformIO)
 import Prelude hiding (foldl')
 
@@ -77,7 +99,7 @@ parseWithGhcWithExtensions sourceTag exts input =
    in case catchPureExceptionText $ case unP parseModule (initParserState opts buffer start) of
         POk st modu ->
           if not (parserStateHasErrors st)
-            then case firstSignificantTokenAfterModule st of
+            then case firstSignificantTokenAfterModule input st of
               Right tok ->
                 case unLoc tok of
                   ITeof -> Right (unLoc modu)
@@ -91,25 +113,75 @@ parseWithGhcWithExtensions sourceTag exts input =
                   ( "GHC lexer failed while checking for trailing tokens: "
                       <> lexErr
                   )
-            else Left (renderParserErrors st)
+            else Left (renderParserErrors input st)
         PFailed st ->
-          let rendered = showSDocUnsafe (pprMessages NoDiagnosticOpts (getPsErrorMessages st))
-           in Left (T.pack rendered) of
+          Left (renderParserErrors input st) of
         Left err -> Left ("GHC parser exception: " <> err)
         Right result -> result
 
-firstSignificantTokenAfterModule :: PState -> Either Text (Located Token)
-firstSignificantTokenAfterModule st =
+firstSignificantTokenAfterModule :: Text -> PState -> Either Text (Located Token)
+firstSignificantTokenAfterModule input st =
   case unP (lexer False pure) st of
     POk st' tok
-      | isIgnorableToken (unLoc tok) -> firstSignificantTokenAfterModule st'
+      | isIgnorableToken (unLoc tok) -> firstSignificantTokenAfterModule input st'
       | otherwise -> Right tok
     PFailed st' ->
-      Left (T.pack (showSDocUnsafe (pprMessages NoDiagnosticOpts (getPsErrorMessages st'))))
+      Left (renderParserErrors input st')
 
-renderParserErrors :: PState -> Text
-renderParserErrors st =
-  T.pack (showSDocUnsafe (pprMessages NoDiagnosticOpts (getPsErrorMessages st)))
+renderParserErrors :: Text -> PState -> Text
+renderParserErrors source st =
+  unsafePerformIO $ do
+    -- Write source to a temporary file so getCaretDiagnostic can access it
+    bracket
+      (openTempFile "." "ghc-error.hs")
+      (\(path, handle) -> hClose handle >> removeFile path)
+      ( \(path, handle) -> do
+          hPutStr handle (T.unpack source)
+          hClose handle
+          -- Re-parse from the temp file to get SrcSpans pointing to it
+          let opts = mkParserOpts (EnumSet.fromList []) emptyDiagOpts False False False True
+              buffer = stringToStringBuffer (T.unpack source)
+              start = mkRealSrcLoc (mkFastString path) 1 1
+          case unP parseModule (initParserState opts buffer start) of
+            POk tempSt _ ->
+              if parserStateHasErrors tempSt
+                then do
+                  result <- renderWithCarets tempSt
+                  -- Replace temp file name with "test.hs" for consistent output
+                  let fileName = takeFileName path
+                  pure (T.replace (T.pack fileName) "test.hs" result)
+                else pure (T.pack (showSDocUnsafe (pprMessages NoDiagnosticOpts (getPsErrorMessages st))))
+            PFailed tempSt -> do
+              result <- renderWithCarets tempSt
+              let fileName = takeFileName path
+              pure (T.replace (T.pack fileName) "test.hs" result)
+      )
+  where
+    renderWithCarets :: PState -> IO Text
+    renderWithCarets pState = do
+      let (_, errorMsgs) = getPsMessages pState
+          envelopes = getMessages errorMsgs
+          envelopeList = Bag.bagToList envelopes
+      -- Get the full error messages from pprMessages
+      let rawError = T.pack (showSDocUnsafe (pprMessages NoDiagnosticOpts (getPsErrorMessages pState)))
+      -- Get the caret visualizations
+      carets <- mapM renderEnvelope envelopeList
+      -- Combine: for each error, take the header from rawError and append the caret
+      pure (combineErrors rawError carets)
+
+    combineErrors :: Text -> [Text] -> Text
+    combineErrors rawError carets =
+      -- Simply append the carets after the error message
+      rawError <> "\n" <> T.intercalate "\n" carets
+
+    renderEnvelope env = do
+      let srcSpan = errMsgSpan env
+          reason = diagnosticReason (errMsgDiagnostic env)
+          code = diagnosticCode (errMsgDiagnostic env)
+          messageClass = mkMCDiagnostic emptyDiagOpts reason code
+      -- Get the caret visualization
+      caretDoc <- getCaretDiagnostic messageClass srcSpan
+      pure (T.pack (showSDocUnsafe caretDoc))
 
 parserStateHasErrors :: PState -> Bool
 parserStateHasErrors st = errorsFound (getPsErrorMessages st)

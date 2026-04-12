@@ -1,7 +1,11 @@
 src: |
   x = do { _ <- }
 ghc: |
-  test.hs:1:15: error: [GHC-58481] parse error on input `}'
+  test.hs:1:15: error: [GHC-58481]
+      parse error on input `}'
+    |
+  1 | x = do { _ <- }
+    |               ^
 aihc: |
   test.hs:1:15:
   1 | x = do { _ <- }
