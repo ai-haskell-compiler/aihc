@@ -66,4 +66,46 @@ test-suite spec
     , bytestring
     , yaml
   ghc-options:        -Wall -Werror -threaded -rtsopts -with-rtsopts=-N
-  default-language: Haskell2010
+  default-language: GHC2021
+
+executable tc-progress
+  hs-source-dirs:
+      app/tc-progress
+    , common
+  main-is:          Main.hs
+  other-modules:
+      TcGolden
+  build-depends:
+      base >=4.16 && <5
+    , aihc-tc
+    , aihc-parser
+    , text
+    , containers
+    , directory
+    , filepath
+    , yaml
+    , aeson
+    , bytestring
+  ghc-options:        -Wall -Werror
+  default-language: GHC2021
+
+executable tc-extension-progress
+  hs-source-dirs:
+      app/tc-extension-progress
+    , common
+  main-is:          Main.hs
+  other-modules:
+      TcGolden
+  build-depends:
+      base >=4.16 && <5
+    , aihc-tc
+    , aihc-parser
+    , text
+    , containers
+    , directory
+    , filepath
+    , yaml
+    , aeson
+    , bytestring
+  ghc-options:        -Wall -Werror
+  default-language: GHC2021

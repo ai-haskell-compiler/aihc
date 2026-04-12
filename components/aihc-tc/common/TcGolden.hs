@@ -24,14 +24,14 @@ import Aihc.Parser
 import Aihc.Parser.Syntax (Extension, parseExtensionName)
 import Aihc.Tc (TcBindingResult (..), TcModuleResult (..), renderTcType, typecheckModule)
 import Data.Aeson ((.!=), (.:), (.:?))
-import qualified Data.Aeson.Key as Key
-import qualified Data.Aeson.KeyMap as KeyMap
+import Data.Aeson.Key qualified as Key
+import Data.Aeson.KeyMap qualified as KeyMap
 import Data.Aeson.Types (parseEither, withArray, withObject)
 import Data.Char (isSpace, toLower)
 import Data.List (dropWhileEnd, sort, sortOn)
 import Data.Text (Text)
-import qualified Data.Text as T
-import qualified Data.Yaml as Y
+import Data.Text qualified as T
+import Data.Yaml qualified as Y
 import System.Directory (doesDirectoryExist, listDirectory)
 import System.FilePath (takeDirectory, takeExtension, (</>))
 

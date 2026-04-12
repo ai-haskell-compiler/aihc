@@ -10,7 +10,9 @@ Can gpt-5.4, Claude Opus 4.5 and Qwen-3.6 write a Haskell compiler? Probably not
 Find more information here:
 - [**aihc-cpp** README](https://github.com/ai-haskell-compiler/aihc/tree/main/components/aihc-cpp#readme)
 - [**aihc-parser** README](https://github.com/ai-haskell-compiler/aihc/tree/main/components/aihc-parser#readme)
+- [**aihc-tc** README](https://github.com/ai-haskell-compiler/aihc/tree/main/components/aihc-tc#readme)
 - [Supported extensions](https://github.com/ai-haskell-compiler/aihc/blob/main/docs/haskell-parser-extension-support.md)
+- [TC supported extensions](https://github.com/ai-haskell-compiler/aihc/blob/main/docs/aihc-tc-supported-extensions.md)
 
 ## Progress
 
@@ -22,6 +24,7 @@ Find more information here:
 | Parser Tests     | <!-- AUTO-GENERATED: START parser-progress --> `798/821` (`97.20%`) <!-- AUTO-GENERATED: END parser-progress -->                     |
 | Lexer Tests      | <!-- AUTO-GENERATED: START lexer-progress --> `90/90` (`100.00%`) <!-- AUTO-GENERATED: END lexer-progress -->                         |
 | CPP Tests        | <!-- AUTO-GENERATED: START cpp-progress --> `38/38` (`100.00%`) <!-- AUTO-GENERATED: END cpp-progress -->                            |
+| TC Tests         | <!-- AUTO-GENERATED: START tc-progress --> `6/6` (`100.00%`) <!-- AUTO-GENERATED: END tc-progress -->                                  |
 
 ## Lines of code
 
@@ -59,10 +62,13 @@ nix flake check
 | ------------------------------------- | ----------------------------------------- |
 | `nix run .#parser-test`               | Run parser test suite                     |
 | `nix run .#cpp-test`                  | Run CPP preprocessor test suite           |
+| `nix run .#tc-test`                   | Run type checker test suite               |
 | `nix run .#parser-progress`           | Show parser oracle test progress          |
 | `nix run .#lexer-progress`            | Show lexer oracle test progress           |
 | `nix run .#parser-extension-progress` | Show parser extension test progress       |
 | `nix run .#cpp-progress`              | Show CPP preprocessor test progress       |
+| `nix run .#tc-progress`               | Show type checker test progress           |
+| `nix run .#tc-extension-progress`     | Show type checker extension test progress |
 | `nix run .#stackage-progress`         | Show parser progress on Stackage packages |
 | `nix run .#prompt`                    | Generate a prompt for contributing        |
 | `nix run .#hackage-tester`            | Test parser against Hackage packages      |
@@ -70,4 +76,4 @@ nix flake check
 | `nix run .#generate-reports`          | Update generated README content           |
 | `nix run .#check-reports`             | Check if generated content is up-to-date  |
 
-Strict variants (fail on unexpected results): `parser-progress-strict`, `lexer-progress-strict`, `parser-extension-progress-strict`, `cpp-progress-strict`.
+Strict variants (fail on unexpected results): `parser-progress-strict`, `lexer-progress-strict`, `parser-extension-progress-strict`, `cpp-progress-strict`, `tc-progress-strict`.
