@@ -10,7 +10,7 @@ import Aihc.Parser (ParseResult (..), ParserConfig (..), defaultConfig, parseExp
 import Aihc.Parser.Syntax (Expr)
 import Aihc.Tc
 import Data.Text (Text)
-import qualified TcGolden as TG
+import TcGolden qualified as TG
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, assertEqual, assertFailure, testCase)
 
