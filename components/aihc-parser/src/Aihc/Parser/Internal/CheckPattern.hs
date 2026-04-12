@@ -38,7 +38,12 @@ checkPattern expr = case expr of
     | isJust (nameQualifier name) -> Left "unexpected qualified name in pattern"
     | otherwise -> Right (PVar sp (mkUnqualifiedName (nameType name) (nameText name)))
   -- Parenthesized expression
-  EParen sp inner -> PParen sp <$> checkPattern inner
+  -- When the inner expression is a view-pattern arrow (@expr -> expr@), strip
+  -- the EParen wrapper so that @(f -> pat)@ maps to @PView f pat@ directly,
+  -- matching the AST shape produced by the dedicated pattern parser.
+  EParen _sp inner
+    | Just vp <- asViewPat inner -> Right vp
+    | otherwise -> PParen _sp <$> checkPattern inner
   -- Tuple
   ETuple sp fl elems -> do
     pats <- traverse checkTupleElement elems
@@ -47,8 +52,12 @@ checkPattern expr = case expr of
   EList sp elems -> PList sp <$> traverse checkPattern elems
   -- Unboxed sum
   EUnboxedSum sp i n e -> PUnboxedSum sp i n <$> checkPattern e
-  -- Infix: only constructor operators (starting with ':') are valid in patterns
+  -- Infix: only constructor operators (starting with ':') or the view-pattern
+  -- arrow @->@ are valid in patterns.
   EInfix sp l op r
+    | renderName op == "->" -> do
+        rPat <- checkPattern r
+        Right (PView sp l rPat)
     | isConLikeOp op -> do
         lPat <- checkPattern l
         rPat <- checkPattern r
@@ -138,3 +147,16 @@ checkNegLitPattern sp inner = case inner of
 -- variable operators like @+@ or @*@ are not.
 isConLikeOp :: Name -> Bool
 isConLikeOp = isConLikeName
+
+-- | Try to interpret an expression as a view pattern @expr -> expr@.
+-- Returns 'Just' the corresponding 'PView' when the expression is an
+-- 'EInfix' with @->@; 'Nothing' otherwise.  Used by the 'EParen' case of
+-- 'checkPattern' to strip the outer parentheses and produce @PView@
+-- directly (matching the AST shape that the dedicated pattern parser
+-- produces).
+asViewPat :: Expr -> Maybe Pattern
+asViewPat (EInfix sp l op r)
+  | renderName op == "->" = case checkPattern r of
+      Right rPat -> Just (PView sp l rPat)
+      Left _ -> Nothing
+asViewPat _ = Nothing

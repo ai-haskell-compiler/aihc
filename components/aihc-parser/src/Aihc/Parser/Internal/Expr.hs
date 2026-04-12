@@ -85,6 +85,30 @@ exprCoreParserExcept forbiddenInfix = do
     Just ty -> ETypeSig (mergeSourceSpans (getSourceSpan withArrow) (getSourceSpan ty)) withArrow ty
     Nothing -> withArrow
 
+-- | The operator name used to represent @->@ in view-pattern expressions.
+viewPatArrowName :: Name
+viewPatArrowName = qualifyName Nothing (mkUnqualifiedName NameVarSym "->")
+
+-- | Optionally consume a @->@ token and parse the right-hand side as a
+-- view-pattern expression.  Returns the original expression unchanged when
+-- no @->@ follows.
+maybeViewPattern :: Expr -> TokParser Expr
+maybeViewPattern lhs = do
+  mArrow <- MP.optional (expectedTok TkReservedRightArrow)
+  case mArrow of
+    Just () -> do
+      viewRhs <- texprParser
+      let sp = mergeSourceSpans (getSourceSpan lhs) (getSourceSpan viewRhs)
+      pure (EInfix sp lhs viewPatArrowName viewRhs)
+    Nothing -> pure lhs
+
+-- | Like 'exprParser' but also allows the view-pattern arrow @->@ at the
+-- top level.  This corresponds to GHC\'s @texp@ production, which is used
+-- inside delimited contexts such as parentheses @(…)@ and unboxed parens
+-- @(# … #)@.
+texprParser :: TokParser Expr
+texprParser = exprParser >>= maybeViewPattern
+
 -- | Parse an arrow tail operator (@-<@ or @-<<@) followed by its right-hand expression.
 arrowTailParser :: TokParser (Name, Expr)
 arrowTailParser = do
@@ -681,7 +705,9 @@ parenExprParser = withSpan $ do
                       let expr' = case mWhere of
                             Just decls -> EWhereDecls (mergeSourceSpans (getSourceSpan typed) (sourceSpanEnd decls)) typed decls
                             Nothing -> typed
-                      finishBoxed closeTok (Just expr')
+                      -- View pattern arrow: expr -> expr (inside parentheses)
+                      finalExpr <- maybeViewPattern expr'
+                      finishBoxed closeTok (Just finalExpr)
                 Just op -> do
                   mClose <- MP.optional (expectedTok closeTok)
                   case mClose of
@@ -716,7 +742,9 @@ parenExprParser = withSpan $ do
                           let fullExpr = case mWhere of
                                 Just decls -> EWhereDecls (mergeSourceSpans (getSourceSpan typed) (sourceSpanEnd decls)) typed decls
                                 Nothing -> typed
-                          finishBoxed closeTok (Just fullExpr)
+                          -- View pattern arrow: expr -> expr (inside parentheses)
+                          finalExpr <- maybeViewPattern fullExpr
+                          finishBoxed closeTok (Just finalExpr)
       where
         parseSectionR forbidden = do
           op <- infixOperatorParserExcept forbidden <|> arrowSectionOperatorParser
@@ -744,7 +772,7 @@ parenExprParser = withSpan $ do
           fail "expected expression or closing paren"
 
     parseTupleOrParen tupleFlavor closeTok = do
-      first <- MP.optional exprParser
+      first <- MP.optional texprParser
       mComma <- MP.optional (expectedTok TkSpecialComma)
       case (first, mComma) of
         (Just e, Nothing) ->
@@ -770,7 +798,7 @@ parenExprParser = withSpan $ do
           fail "expected expression or closing paren"
 
     parseTupleElems closeTok = do
-      e <- MP.optional exprParser
+      e <- MP.optional texprParser
       mComma <- MP.optional (expectedTok TkSpecialComma)
       case mComma of
         Just () -> (e :) <$> parseTupleElems closeTok
@@ -782,7 +810,7 @@ parenExprParser = withSpan $ do
       _ <- expectedTok TkReservedPipe
       leadingBars <- MP.many (MP.try (expectedTok TkReservedPipe))
       let altIdx = 1 + length leadingBars
-      inner <- exprParser
+      inner <- texprParser
       trailingBars <- MP.many (expectedTok TkReservedPipe)
       expectedTok closeTok
       let arity = altIdx + 1 + length trailingBars
