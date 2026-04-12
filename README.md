@@ -10,13 +10,14 @@ Can gpt-5.4, Claude Opus 4.5 and Qwen-3.6 write a Haskell compiler? Probably not
 Find more information here:
 - [**aihc-cpp** README](https://github.com/ai-haskell-compiler/aihc/tree/main/components/aihc-cpp#readme)
 - [**aihc-parser** README](https://github.com/ai-haskell-compiler/aihc/tree/main/components/aihc-parser#readme) - [Supported extensions](https://github.com/ai-haskell-compiler/aihc/blob/main/docs/aihc-parser-supported-extensions.md)
+- [**aihc-resolve** README](https://github.com/ai-haskell-compiler/aihc/tree/main/components/aihc-resolve#readme) - [Supported extensions](https://github.com/ai-haskell-compiler/aihc/blob/main/docs/aihc-resolve-supported-extensions.md)
 - [**aihc-tc** README](https://github.com/ai-haskell-compiler/aihc/tree/main/components/aihc-tc#readme) - [Supported extensions](https://github.com/ai-haskell-compiler/aihc/blob/main/docs/aihc-tc-supported-extensions.md)
 
 ## Progress
 
 | Name               | Progress                                                                                                                             |
 | ------------------ | -----------------------------------------------------------------------------------------------------------------------------------: |
-| TypeCHeck Stackage | `0/3390` (`0.00%`)                                                                                                                   |
+| TypeCheck Stackage | `0/3390` (`0.00%`)                                                                                                                   |
 | Resolve Stackage   | `0/3390` (`0.00%`)                                                                                                                   |
 | Parser Stackage    | <!-- AUTO-GENERATED: START parser-stackage-progress --> `2847/3390` (`83.98%`) <!-- AUTO-GENERATED: END parser-stackage-progress --> |
 | TypeCheck Tests    | <!-- AUTO-GENERATED: START tc-progress --> `9/28` (`32.14%`) <!-- AUTO-GENERATED: END tc-progress -->                                |
