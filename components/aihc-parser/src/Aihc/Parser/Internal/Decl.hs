@@ -1251,7 +1251,7 @@ forallBindersParser = do
 
 dataConRecordOrPrefixParser :: [Text] -> [Type] -> TokParser (SourceSpan -> DataConDecl)
 dataConRecordOrPrefixParser forallVars context = do
-  name <- constructorUnqualifiedNameParser
+  name <- constructorUnqualifiedNameParser <|> parens operatorUnqualifiedNameParser
   mRecordFields <- MP.optional (MP.try recordFieldsParserAfterLayoutSemicolon)
   case mRecordFields of
     Just fields -> pure (\span' -> RecordCon span' forallVars context name fields)

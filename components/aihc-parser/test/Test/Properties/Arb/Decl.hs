@@ -126,10 +126,34 @@ genDeclTypeSyn = do
   DeclTypeSyn span0 . TypeSynDecl span0 name params <$> genSimpleType
 
 genDeclData :: Gen Decl
-genDeclData = DeclData span0 <$> genSimpleDataDecl
+genDeclData =
+  oneof
+    [ DeclData span0 <$> genSimpleDataDecl,
+      genDeclDataGadt
+    ]
+
+genDeclDataGadt :: Gen Decl
+genDeclDataGadt = do
+  name <- mkUnqualifiedName NameConId <$> genTypeConName
+  params <- genSimpleTyVarBinders
+  ctors <- genGadtDataCons
+  pure $
+    DeclData span0 $
+      DataDecl
+        { dataDeclSpan = span0,
+          dataDeclContext = [],
+          dataDeclName = name,
+          dataDeclParams = params,
+          dataDeclKind = Nothing,
+          dataDeclConstructors = ctors,
+          dataDeclDeriving = []
+        }
 
 genDeclTypeData :: Gen Decl
-genDeclTypeData = do
+genDeclTypeData = genDeclTypeDataPrefix
+
+genDeclTypeDataPrefix :: Gen Decl
+genDeclTypeDataPrefix = do
   name <- mkUnqualifiedName NameConId <$> genTypeConName
   params <- genSimpleTyVarBinders
   ctors <- genTypeDataCons
@@ -144,10 +168,12 @@ genDeclTypeData = do
           dataDeclConstructors = ctors,
           dataDeclDeriving = []
         }
+
+genTypeDataCons :: Gen [DataConDecl]
+genTypeDataCons = do
+  n <- chooseInt (0, 3)
+  vectorOf n genTypeDataCon
   where
-    genTypeDataCons = do
-      n <- chooseInt (1, 3)
-      vectorOf n genTypeDataCon
     genTypeDataCon = do
       conName <- mkUnqualifiedName NameConId <$> genTypeConName
       n <- chooseInt (0, 3)
@@ -172,15 +198,120 @@ genSimpleDataDecl = do
 
 genSimpleDataCons :: Gen [DataConDecl]
 genSimpleDataCons = do
-  n <- chooseInt (1, 3)
-  vectorOf n genSimpleDataCon
+  n <- chooseInt (0, 3)
+  vectorOf n genMixedDataCon
 
-genSimpleDataCon :: Gen DataConDecl
-genSimpleDataCon = do
-  name <- mkUnqualifiedName NameConId <$> genTypeConName
+genMixedDataCon :: Gen DataConDecl
+genMixedDataCon =
+  oneof
+    [ genPrefixCon,
+      genInfixCon,
+      genRecordCon
+    ]
+
+genPrefixCon :: Gen DataConDecl
+genPrefixCon = do
+  -- Prefix constructors can be alphabetic (Cons) or symbolic ((:+))
+  name <-
+    oneof
+      [ mkUnqualifiedName NameConId <$> genTypeConName,
+        mkUnqualifiedName NameConSym <$> genPrefixSymConName
+      ]
   n <- chooseInt (0, 2)
   fields <- vectorOf n genSimpleBangType
   pure $ PrefixCon span0 [] [] name fields
+
+-- | Generate symbolic names for prefix constructors: colon followed by symbols.
+-- Examples: :+, :*, :==
+genPrefixSymConName :: Gen Text
+genPrefixSymConName = do
+  symLen <- chooseInt (1, 3)
+  syms <- vectorOf symLen (elements ['+', '*', '-', '=', '!', '<', '>', '&', '|'])
+  pure (T.pack (':' : syms))
+
+genInfixCon :: Gen DataConDecl
+genInfixCon = do
+  -- Infix constructors can be symbolic (:+) or alphabetic (`Cons`)
+  opName <-
+    oneof
+      [ mkUnqualifiedName NameConSym <$> genInfixSymConName,
+        mkUnqualifiedName NameConId <$> genTypeConName
+      ]
+  lhs <- genSimpleBangTypeWithoutFun
+  InfixCon span0 [] [] lhs opName <$> genSimpleBangTypeWithoutFun
+
+-- | Generate infix symbolic constructor names: colon followed by at least one symbol.
+-- Examples: :+, :*, :==, :->, :||
+genInfixSymConName :: Gen Text
+genInfixSymConName = do
+  symLen <- chooseInt (1, 3)
+  syms <- vectorOf symLen (elements ['+', '*', '-', '=', '!', '<', '>', '&', '|'])
+  pure (T.pack (':' : syms))
+
+genRecordCon :: Gen DataConDecl
+genRecordCon = do
+  conName <- mkUnqualifiedName NameConId <$> genTypeConName
+  n <- chooseInt (0, 3)
+  fields <- vectorOf n genFieldDecl
+  pure $ RecordCon span0 [] [] conName fields
+
+genFieldDecl :: Gen FieldDecl
+genFieldDecl = do
+  fieldName <- mkUnqualifiedName NameVarId <$> genIdent
+  FieldDecl span0 [fieldName] <$> genSimpleBangType
+
+genGadtDataCons :: Gen [DataConDecl]
+genGadtDataCons = do
+  n <- chooseInt (1, 3)
+  vectorOf n genGadtCon
+
+genGadtCon :: Gen DataConDecl
+genGadtCon = do
+  n <- chooseInt (1, 2)
+  names <- vectorOf n (mkUnqualifiedName NameConId <$> genTypeConName)
+  GadtCon span0 [] [] names <$> genGadtBody
+
+genGadtBody :: Gen GadtBody
+genGadtBody =
+  oneof
+    [ genGadtPrefixBody,
+      genGadtRecordBody
+    ]
+
+genGadtPrefixBody :: Gen GadtBody
+genGadtPrefixBody = do
+  n <- chooseInt (0, 2)
+  -- Use simple types (not function types) for GADT args to avoid ambiguity
+  args <- vectorOf n genSimpleBangTypeWithoutFun
+  -- Result type should also not be a function type to avoid parsing ambiguity
+  GadtPrefixBody args <$> genSimpleTypeWithoutFun
+
+-- | Generate a BangType without function types at the top level.
+genSimpleBangTypeWithoutFun :: Gen BangType
+genSimpleBangTypeWithoutFun = do
+  ty <- genSimpleTypeWithoutFun
+  pure $
+    BangType
+      { bangSpan = span0,
+        bangSourceUnpackedness = NoSourceUnpackedness,
+        bangStrict = False,
+        bangType = ty
+      }
+
+-- | Generate a simple type without function types at the top level.
+genSimpleTypeWithoutFun :: Gen Type
+genSimpleTypeWithoutFun =
+  oneof
+    [ TVar span0 . mkUnqualifiedName NameVarId <$> genIdent,
+      (\n -> TCon span0 (qualifyName Nothing (mkUnqualifiedName NameConId n)) Unpromoted) <$> genTypeConName
+    ]
+
+genGadtRecordBody :: Gen GadtBody
+genGadtRecordBody = do
+  n <- chooseInt (1, 3)
+  fields <- vectorOf n genFieldDecl
+  -- Result type should not be a function type to avoid parsing ambiguity
+  GadtRecordBody fields <$> genSimpleTypeWithoutFun
 
 genSimpleBangType :: Gen BangType
 genSimpleBangType = do
@@ -197,9 +328,7 @@ genDeclNewtype :: Gen Decl
 genDeclNewtype = do
   name <- mkUnqualifiedName NameConId <$> genTypeConName
   params <- genSimpleTyVarBinders
-  conName <- mkUnqualifiedName NameConId <$> genTypeConName
-  ty <- genSimpleType
-  let ctor = PrefixCon span0 [] [] conName [BangType span0 NoSourceUnpackedness False ty]
+  ctor <- genNewtypeCon
   pure $
     DeclNewtype span0 $
       NewtypeDecl
@@ -211,6 +340,26 @@ genDeclNewtype = do
           newtypeDeclConstructor = Just ctor,
           newtypeDeclDeriving = []
         }
+
+genNewtypeCon :: Gen DataConDecl
+genNewtypeCon =
+  oneof
+    [ genNewtypePrefixCon,
+      genNewtypeRecordCon
+    ]
+
+genNewtypePrefixCon :: Gen DataConDecl
+genNewtypePrefixCon = do
+  conName <- mkUnqualifiedName NameConId <$> genTypeConName
+  ty <- genSimpleType
+  pure $ PrefixCon span0 [] [] conName [BangType span0 NoSourceUnpackedness False ty]
+
+genNewtypeRecordCon :: Gen DataConDecl
+genNewtypeRecordCon = do
+  conName <- mkUnqualifiedName NameConId <$> genTypeConName
+  fieldName <- mkUnqualifiedName NameVarId <$> genIdent
+  ty <- genSimpleType
+  pure $ RecordCon span0 [] [] conName [FieldDecl span0 [fieldName] (BangType span0 NoSourceUnpackedness False ty)]
 
 genDeclClass :: Gen Decl
 genDeclClass = do
@@ -339,9 +488,31 @@ genDeclTypeFamilyInst = do
         }
 
 genDeclDataFamilyInst :: Gen Decl
-genDeclDataFamilyInst = do
+genDeclDataFamilyInst =
+  oneof
+    [ genDeclDataFamilyInstPrefix,
+      genDeclDataFamilyInstGadt
+    ]
+
+genDeclDataFamilyInstPrefix :: Gen Decl
+genDeclDataFamilyInstPrefix = do
   head' <- genFamilyLhsType
   ctors <- genSimpleDataCons
+  pure $
+    DeclDataFamilyInst span0 $
+      DataFamilyInst
+        { dataFamilyInstSpan = span0,
+          dataFamilyInstIsNewtype = False,
+          dataFamilyInstForall = [],
+          dataFamilyInstHead = head',
+          dataFamilyInstConstructors = ctors,
+          dataFamilyInstDeriving = []
+        }
+
+genDeclDataFamilyInstGadt :: Gen Decl
+genDeclDataFamilyInstGadt = do
+  head' <- genFamilyLhsType
+  ctors <- genGadtDataCons
   pure $
     DeclDataFamilyInst span0 $
       DataFamilyInst
