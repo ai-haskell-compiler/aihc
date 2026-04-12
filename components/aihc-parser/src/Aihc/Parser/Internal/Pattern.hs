@@ -423,7 +423,7 @@ parenOrTuplePatternParser = withSpan $ do
               expectedTok closeTok
               if tupleFlavor == Boxed
                 then pure (`PParen` first)
-                else fail "not an unboxed tuple pattern"
+                else pure (\span' -> PTuple span' Unboxed [first])
         Just () -> do
           second <- parenPatElementParser
           more <- MP.many (expectedTok TkSpecialComma *> parenPatElementParser)

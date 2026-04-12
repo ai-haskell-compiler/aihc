@@ -760,7 +760,9 @@ parenExprParser = withSpan $ do
                   expectedTok closeTok
                   let arity = 2 + length trailingBars
                   pure (\span' -> EUnboxedSum span' 0 arity e)
-                Nothing -> fail "not an unboxed tuple"
+                Nothing -> do
+                  expectedTok closeTok
+                  pure (\span' -> ETuple span' Unboxed [Just e])
         (_, Just ()) -> do
           rest <- parseTupleElems closeTok
           pure (\span' -> ETuple span' tupleFlavor (first : rest))
