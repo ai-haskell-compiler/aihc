@@ -35,35 +35,42 @@ data TcBindingResult = TcBindingResult
   deriving (Show)
 
 -- | Type-check a module, returning the inferred types for each
--- top-level binding.
+-- top-level declaration: type constructors (with their kinds),
+-- data constructors (with their types), and value bindings.
 tcModule :: Module -> TcM [TcBindingResult]
 tcModule m = do
-  -- Phase 1: collect data declarations and register constructors.
-  mapM_ registerDecl (moduleDecls m)
+  -- Phase 1: collect data declarations, register constructors,
+  --          and report their types.
+  dataResults <- concat <$> mapM registerDecl (moduleDecls m)
   -- Phase 2: type-check value bindings.
-  results <- mapM tcDecl (moduleDecls m)
-  pure (concat results)
+  valueResults <- concat <$> mapM tcDecl (moduleDecls m)
+  pure (dataResults ++ valueResults)
 
 -- | Register a declaration in the environment (data types, etc.).
--- Only data declarations are processed; other decls are skipped.
-registerDecl :: Decl -> TcM ()
+-- Returns binding results for the declared names.
+registerDecl :: Decl -> TcM [TcBindingResult]
 registerDecl (DeclData _sp dd) = registerDataDecl dd
 registerDecl (DeclAnn _ inner) = registerDecl inner
-registerDecl _ = pure ()
+registerDecl _ = pure []
 
--- | Register a data declaration's constructors in the environment.
+-- | Register a data declaration's type constructor and data constructors.
 --
--- For @data Bool = True | False@, this registers:
+-- For @data Bool = True | False@, this produces:
+--   - @Bool :: *@
 --   - @True :: Bool@
 --   - @False :: Bool@
-registerDataDecl :: DataDecl -> TcM ()
+registerDataDecl :: DataDecl -> TcM [TcBindingResult]
 registerDataDecl dd = do
   let tyName = unqualifiedNameText (dataDeclName dd)
       resTy = TcTyCon (TyCon tyName 0) []
-  mapM_ (registerDataCon resTy) (dataDeclConstructors dd)
+      starKind = TcTyCon (TyCon "*" 0) []
+      tyConResult = TcBindingResult tyName starKind
+  conResults <- mapM (registerDataCon resTy) (dataDeclConstructors dd)
+  pure (tyConResult : conResults)
 
 -- | Register a single data constructor as a polymorphic binding.
-registerDataCon :: TcType -> DataConDecl -> TcM ()
+-- Returns the binding result for the constructor.
+registerDataCon :: TcType -> DataConDecl -> TcM TcBindingResult
 registerDataCon resTy con = case con of
   PrefixCon _sp _docs _ctx conName args ->
     let name = unqualifiedNameText conName
@@ -74,14 +81,22 @@ registerDataCon resTy con = case con of
         scheme
           | null args = ForAll [] [] resTy
           | otherwise = ForAll [] [] resTy -- TODO: parse arg types
-     in extendTermEnvPermanent name (TcIdBinder name scheme)
+     in do
+          extendTermEnvPermanent name (TcIdBinder name scheme)
+          pure (TcBindingResult name resTy)
   InfixCon _sp _docs _ctx _lhs conName _rhs ->
     let name = unqualifiedNameText conName
-     in extendTermEnvPermanent name (TcIdBinder name (ForAll [] [] resTy))
+     in do
+          extendTermEnvPermanent name (TcIdBinder name (ForAll [] [] resTy))
+          pure (TcBindingResult name resTy)
   RecordCon _sp _docs _ctx conName _fields ->
     let name = unqualifiedNameText conName
-     in extendTermEnvPermanent name (TcIdBinder name (ForAll [] [] resTy))
-  GadtCon {} -> pure () -- GADTs not handled in MVP
+     in do
+          extendTermEnvPermanent name (TcIdBinder name (ForAll [] [] resTy))
+          pure (TcBindingResult name resTy)
+  GadtCon {} ->
+    -- GADTs not handled in MVP.
+    pure (TcBindingResult "<gadt>" resTy)
 
 -- | Type-check a declaration, returning binding results for value bindings.
 tcDecl :: Decl -> TcM [TcBindingResult]
