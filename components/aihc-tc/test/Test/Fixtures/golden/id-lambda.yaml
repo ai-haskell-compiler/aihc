@@ -5,5 +5,5 @@ modules:
     id = \x -> x
 expected:
   - "id :: forall a. a -> a"
-status: xfail
-reason: "inferLambda does not bind pattern variables into the environment, so `x` in the body is unbound"
+status: pass
+reason: ""

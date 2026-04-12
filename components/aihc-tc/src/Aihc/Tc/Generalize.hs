@@ -28,8 +28,9 @@ generalize ty preds = do
   preds' <- mapM zonkPred preds
   let freeMetaVars = collectMetaVars ty' ++ concatMap predMetaVars preds'
       uniqueMetaVars = nubOrd freeMetaVars
-  -- Create a skolem for each free meta-variable and substitute.
-  tvs <- mapM metaToTyVar uniqueMetaVars
+  -- Create a type variable for each free meta-variable, naming them
+  -- sequentially starting from 'a'.
+  tvs <- sequence [metaToTyVar i u | (i, u) <- zip [0 ..] uniqueMetaVars]
   let subst = zip uniqueMetaVars (map TcTyVar tvs)
   let ty'' = substMetas subst ty'
   let preds'' = map (substMetasPred subst) preds'
@@ -50,9 +51,11 @@ predMetaVars :: Pred -> [Unique]
 predMetaVars (ClassPred _ args) = concatMap collectMetaVars args
 predMetaVars (EqPred a b) = collectMetaVars a ++ collectMetaVars b
 
--- | Create a type variable from a meta-variable unique.
-metaToTyVar :: Unique -> TcM TyVarId
-metaToTyVar (Unique n) = freshSkolemTv (mkName n)
+-- | Create a type variable from a meta-variable unique, using a
+-- sequential index for naming (so the first generalized variable is
+-- 'a', the second 'b', etc.).
+metaToTyVar :: Int -> Unique -> TcM TyVarId
+metaToTyVar idx _u = freshSkolemTv (mkName idx)
   where
     mkName i =
       let c = toEnum (fromEnum 'a' + i `mod` 26)

@@ -11,5 +11,5 @@ expected:
   - "True :: Bool"
   - "False :: Bool"
   - "not :: Bool -> Bool"
-status: xfail
-reason: "ELambdaCase is not handled in inferExpr (falls through to the unsupported-expression error path)"
+status: pass
+reason: ""

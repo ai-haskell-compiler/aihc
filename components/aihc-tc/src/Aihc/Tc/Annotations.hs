@@ -87,8 +87,9 @@ renderTcType = go False
       paren parens $
         go True a ++ " -> " ++ go False b
     go parens (TcForAllTy tv body) =
-      paren parens $
-        "forall " ++ T.unpack (tvName tv) ++ ". " ++ go False body
+      let (tvs, inner) = collectForAlls body
+       in paren parens $
+            "forall " ++ unwords (map (T.unpack . tvName) (tv : tvs)) ++ ". " ++ go False inner
     go parens (TcQualTy preds body) =
       paren parens $
         "(" ++ unwords (map showPred preds) ++ ") => " ++ go False body
@@ -103,3 +104,10 @@ renderTcType = go False
 
     paren False s = s
     paren True s = "(" ++ s ++ ")"
+
+-- | Collect nested forall binders into a list.
+collectForAlls :: TcType -> ([TyVarId], TcType)
+collectForAlls (TcForAllTy tv body) =
+  let (tvs, inner) = collectForAlls body
+   in (tv : tvs, inner)
+collectForAlls ty = ([], ty)

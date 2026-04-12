@@ -5,5 +5,5 @@ modules:
     id x = x
 expected:
   - "id :: forall a. a -> a"
-status: xfail
-reason: "Function argument patterns are not yet bound into the environment (tcMatches ignores Match patterns)"
+status: pass
+reason: ""
