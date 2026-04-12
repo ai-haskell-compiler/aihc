@@ -27,57 +27,69 @@ span0 = noSourceSpan
 -- | Generate a random expression. Uses QuickCheck's size parameter
 -- to control recursion depth.
 genExpr :: Gen Expr
-genExpr = sized genExprSized
+genExpr = sized (genExprSizedWith True)
 
 -- | Generate an expression with a given size budget.
 -- When size is 0, only generate non-recursive (leaf) expressions.
 genExprSized :: Int -> Gen Expr
-genExprSized n
+genExprSized = genExprSizedWith True
+
+-- | Generate an expression, optionally allowing Template Haskell quote forms.
+-- Nested TH brackets are rejected by GHC unless separated by splices, so quote
+-- bodies disable further quote generation.
+genExprSizedWith :: Bool -> Int -> Gen Expr
+genExprSizedWith allowTHQuotes n
   | n <= 0 = genExprLeaf
   | otherwise =
-      oneof
-        [ -- Leaf expressions
-          genExprLeaf,
-          -- Recursive expressions (reduce size for subexpressions)
-          EApp span0 <$> genExprSized half <*> genExprSized half,
-          EInfix span0 <$> genExprSized half <*> genOperatorName <*> genExprSized half,
-          ENegate span0 <$> genExprSized (n - 1),
-          ESectionL span0 <$> genExprSized (n - 1) <*> genOperatorName,
-          ESectionR span0 <$> genOperatorName <*> genExprSized (n - 1),
-          EIf span0 <$> genExprSized third <*> genExprSized third <*> genExprSized third,
-          ECase span0 <$> genExprSized half <*> genCaseAlts half,
-          ELambdaPats span0 <$> genPatterns half <*> genExprSized half,
-          ELambdaCase span0 <$> genCaseAlts (n - 1),
-          ELetDecls span0 <$> genValueDecls half <*> genExprSized half,
-          EWhereDecls span0 <$> genExprSized half <*> genValueDecls half,
-          EDo span0 <$> genDoStmts (n - 1) <*> pure False,
-          EListComp span0 <$> genExprSized half <*> genCompStmts half,
-          EListCompParallel span0 <$> genExprSized half <*> genParallelCompStmts half,
-          EList span0 <$> genListElems (n - 1),
-          ETuple span0 Boxed . map Just <$> genTupleElems (n - 1),
-          ETuple span0 Unboxed . map Just <$> genUnboxedTupleElems (n - 1),
-          ETuple span0 Boxed <$> genTupleSectionElems (n - 1),
-          ETuple span0 Unboxed <$> genTupleSectionElems (n - 1),
-          genUnboxedSumExpr (n - 1),
-          EArithSeq span0 <$> genArithSeq (n - 1),
-          ERecordCon span0 <$> genConName <*> genRecordFields (n - 1) <*> pure False,
-          ERecordUpd span0 <$> genExprSized half <*> genRecordFields half,
-          ETypeSig span0 <$> genExprSized half <*> genType half,
-          EParen span0 <$> genExprSized (n - 1),
-          -- Template Haskell splices and quotes
-          ETHSplice span0 <$> genSpliceBody (n - 1),
-          ETHTypedSplice span0 <$> genTypedSpliceBody (n - 1),
-          ETHExpQuote span0 <$> genExprSized (n - 1),
-          ETHTypedQuote span0 <$> genExprSized (n - 1),
-          ETHDeclQuote span0 <$> genValueDecls (n - 1),
-          ETHPatQuote span0 <$> genSimplePattern (n - 1),
-          ETHTypeQuote span0 <$> genType (n - 1),
-          ETHNameQuote span0 <$> genNameQuoteIdent,
-          ETHTypeNameQuote span0 <$> genConName
-        ]
+      oneof (baseGenerators <> quoteGenerators)
   where
     half = n `div` 2
     third = n `div` 3
+    baseGenerators =
+      [ -- Leaf expressions
+        genExprLeaf,
+        -- Recursive expressions (reduce size for subexpressions)
+        EApp span0 <$> genExprSizedWith allowTHQuotes half <*> genExprSizedWith allowTHQuotes half,
+        EInfix span0 <$> genExprSizedWith allowTHQuotes half <*> genOperatorName <*> genExprSizedWith allowTHQuotes half,
+        ENegate span0 <$> genExprSizedWith allowTHQuotes (n - 1),
+        ESectionL span0 <$> genExprSizedWith allowTHQuotes (n - 1) <*> genOperatorName,
+        ESectionR span0 <$> genOperatorName <*> genExprSizedWith allowTHQuotes (n - 1),
+        EIf span0 <$> genExprSizedWith allowTHQuotes third <*> genExprSizedWith allowTHQuotes third <*> genExprSizedWith allowTHQuotes third,
+        ECase span0 <$> genExprSizedWith allowTHQuotes half <*> genCaseAltsWith allowTHQuotes half,
+        ELambdaPats span0 <$> genPatterns half <*> genExprSizedWith allowTHQuotes half,
+        ELambdaCase span0 <$> genCaseAltsWith allowTHQuotes (n - 1),
+        ELetDecls span0 <$> genValueDeclsWith allowTHQuotes half <*> genExprSizedWith allowTHQuotes half,
+        EWhereDecls span0 <$> genExprSizedWith allowTHQuotes half <*> genValueDeclsWith allowTHQuotes half,
+        EDo span0 <$> genDoStmtsWith allowTHQuotes (n - 1) <*> pure False,
+        EListComp span0 <$> genExprSizedWith allowTHQuotes half <*> genCompStmtsWith allowTHQuotes half,
+        EListCompParallel span0 <$> genExprSizedWith allowTHQuotes half <*> genParallelCompStmtsWith allowTHQuotes half,
+        EList span0 <$> genListElemsWith allowTHQuotes (n - 1),
+        ETuple span0 Boxed . map Just <$> genTupleElemsWith allowTHQuotes (n - 1),
+        ETuple span0 Unboxed . map Just <$> genUnboxedTupleElemsWith allowTHQuotes (n - 1),
+        ETuple span0 Boxed <$> genTupleSectionElemsWith allowTHQuotes (n - 1),
+        ETuple span0 Unboxed <$> genTupleSectionElemsWith allowTHQuotes (n - 1),
+        genUnboxedSumExprWith allowTHQuotes (n - 1),
+        EArithSeq span0 <$> genArithSeqWith allowTHQuotes (n - 1),
+        ERecordCon span0 <$> genConName <*> genRecordFieldsWith allowTHQuotes (n - 1) <*> pure False,
+        ERecordUpd span0 <$> genExprSizedWith allowTHQuotes half <*> genRecordFieldsWith allowTHQuotes half,
+        ETypeSig span0 <$> genExprSizedWith allowTHQuotes half <*> genTypeWith allowTHQuotes half,
+        EParen span0 <$> genExprSizedWith allowTHQuotes (n - 1),
+        -- Template Haskell splices are valid inside quote bodies.
+        ETHSplice span0 <$> genSpliceBody (n - 1),
+        ETHTypedSplice span0 <$> genTypedSpliceBody (n - 1)
+      ]
+    quoteGenerators
+      | allowTHQuotes =
+          [ ETHExpQuote span0 <$> genExprSizedWith False (n - 1),
+            ETHTypedQuote span0 <$> genExprSizedWith False (n - 1),
+            ETHDeclQuote span0 <$> genValueDeclsWith False (n - 1),
+            ETHPatQuote span0 <$> genSimplePattern (n - 1),
+            ETHTypeQuote span0 <$> genTypeWith False (n - 1),
+            ETHNameQuote span0 <$> genNameQuoteIdent,
+            ETHTypeNameQuote span0 <$> genConName
+          ]
+      | otherwise =
+          []
 
 -- | Generate a leaf (non-recursive) expression.
 genExprLeaf :: Gen Expr
@@ -223,16 +235,15 @@ genPattern = Pat.genPattern
 genPatternNoView :: Int -> Gen Pattern
 genPatternNoView = Pat.genPatternNoView
 
--- | Generate case alternatives
-genCaseAlts :: Int -> Gen [CaseAlt]
-genCaseAlts n = do
+genCaseAltsWith :: Bool -> Int -> Gen [CaseAlt]
+genCaseAltsWith allowTHQuotes n = do
   count <- chooseInt (1, 3)
-  vectorOf count (genCaseAlt n)
+  vectorOf count (genCaseAltWith allowTHQuotes n)
 
-genCaseAlt :: Int -> Gen CaseAlt
-genCaseAlt n = do
+genCaseAltWith :: Bool -> Int -> Gen CaseAlt
+genCaseAltWith allowTHQuotes n = do
   pat <- genPattern half
-  rhs <- genRhs half
+  rhs <- genRhsWith allowTHQuotes half
   pure $
     CaseAlt
       { caseAltSpan = span0,
@@ -242,26 +253,23 @@ genCaseAlt n = do
   where
     half = n `div` 2
 
--- | Generate a right-hand side: either unguarded or guarded.
-genRhs :: Int -> Gen Rhs
-genRhs n =
+genRhsWith :: Bool -> Int -> Gen Rhs
+genRhsWith allowTHQuotes n =
   oneof
-    [ UnguardedRhs span0 <$> genExprSized n,
-      GuardedRhss span0 <$> genGuardedRhsList n
+    [ UnguardedRhs span0 <$> genExprSizedWith allowTHQuotes n,
+      GuardedRhss span0 <$> genGuardedRhsListWith allowTHQuotes n
     ]
 
--- | Generate a non-empty list of guarded RHS clauses.
-genGuardedRhsList :: Int -> Gen [GuardedRhs]
-genGuardedRhsList n = do
+genGuardedRhsListWith :: Bool -> Int -> Gen [GuardedRhs]
+genGuardedRhsListWith allowTHQuotes n = do
   count <- chooseInt (1, 3)
-  vectorOf count (genGuardedRhs (n `div` count))
+  vectorOf count (genGuardedRhsWith allowTHQuotes (n `div` count))
 
--- | Generate a single guarded RHS: guards and body expression.
-genGuardedRhs :: Int -> Gen GuardedRhs
-genGuardedRhs n = do
+genGuardedRhsWith :: Bool -> Int -> Gen GuardedRhs
+genGuardedRhsWith allowTHQuotes n = do
   guardCount <- chooseInt (1, 2)
-  guards <- vectorOf guardCount (genGuardQualifier (half `div` guardCount))
-  body <- genExprSized half
+  guards <- vectorOf guardCount (genGuardQualifierWith allowTHQuotes (half `div` guardCount))
+  body <- genExprSizedWith allowTHQuotes half
   pure $
     GuardedRhs
       { guardedRhsSpan = span0,
@@ -272,24 +280,24 @@ genGuardedRhs n = do
     half = n `div` 2
 
 -- | Generate a guard qualifier.
-genGuardQualifier :: Int -> Gen GuardQualifier
-genGuardQualifier n =
+genGuardQualifierWith :: Bool -> Int -> Gen GuardQualifier
+genGuardQualifierWith allowTHQuotes n =
   oneof
     [ -- Boolean guard: | expr = ...
       -- TODO: Restore bare genExprSized here once the parser/pretty-printer handles
       -- ETypeSig in guard expressions. Currently, an unparenthesized type signature
       -- like `| expr :: Type -> body` makes the parser interpret `Type -> body` as
       -- a function type rather than the guard's arrow.
-      GuardExpr span0 . parenTypeSig <$> genExprSized n,
+      GuardExpr span0 . parenTypeSig <$> genExprSizedWith allowTHQuotes n,
       -- Pattern guard: | pat <- expr = ...
       -- TODO: Restore genPattern here once the parser supports view patterns inside
       -- guard qualifiers. Currently, the '->' in view patterns (PView) conflicts
       -- with guard/case-alternative syntax and causes parse failures.
       -- The expression is also parenthesized if it's an ETypeSig, since
       -- `| pat <- expr :: Type -> body` has the same ambiguity.
-      GuardPat span0 <$> genPatternNoView half <*> (parenTypeSig <$> genExprSized half),
+      GuardPat span0 <$> genPatternNoView half <*> (parenTypeSig <$> genExprSizedWith allowTHQuotes half),
       -- Let guard: | let decls = ...
-      GuardLet span0 <$> genValueDecls n
+      GuardLet span0 <$> genValueDeclsWith allowTHQuotes n
     ]
   where
     half = n `div` 2
@@ -297,14 +305,14 @@ genGuardQualifier n =
     parenTypeSig e@(ETypeSig {}) = EParen span0 e
     parenTypeSig e = e
 
--- | Generate value declarations for let/where
+-- | Generate value declarations for let/where.
 -- We use FunctionBind format because that's what the parser produces for simple
 -- variable bindings like `x = e`.
-genValueDecls :: Int -> Gen [Decl]
-genValueDecls n = do
+genValueDeclsWith :: Bool -> Int -> Gen [Decl]
+genValueDeclsWith allowTHQuotes n = do
   count <- chooseInt (0, 3)
   names <- vectorOf count (mkUnqualifiedName NameVarId <$> genIdent)
-  exprs <- vectorOf count (genExprSized (n `div` count))
+  exprs <- vectorOf count (genExprSizedWith allowTHQuotes (n `div` max 1 count))
   pure
     [ DeclValue
         span0
@@ -322,89 +330,83 @@ genValueDecls n = do
     | (name, expr) <- zip names exprs
     ]
 
--- | Generate do statements
-genDoStmts :: Int -> Gen [DoStmt Expr]
-genDoStmts n = do
+genDoStmtsWith :: Bool -> Int -> Gen [DoStmt Expr]
+genDoStmtsWith allowTHQuotes n = do
   count <- chooseInt (1, 3)
   let perStmt = n `div` count
-  stmts <- vectorOf (count - 1) (genDoStmt perStmt)
+  stmts <- vectorOf (count - 1) (genDoStmtWith allowTHQuotes perStmt)
   -- Last statement must be DoExpr
-  lastExpr <- genExprSized perStmt
+  lastExpr <- genExprSizedWith allowTHQuotes perStmt
   pure (stmts <> [DoExpr span0 lastExpr])
 
-genDoStmt :: Int -> Gen (DoStmt Expr)
-genDoStmt n =
+genDoStmtWith :: Bool -> Int -> Gen (DoStmt Expr)
+genDoStmtWith allowTHQuotes n =
   oneof
-    [ DoBind span0 <$> genPattern half <*> genExprSized half,
-      DoLetDecls span0 <$> genValueDecls (n - 1),
-      DoExpr span0 <$> genExprSized (n - 1)
+    [ DoBind span0 <$> genPattern half <*> genExprSizedWith allowTHQuotes half,
+      DoLetDecls span0 <$> genValueDeclsWith allowTHQuotes (n - 1),
+      DoExpr span0 <$> genExprSizedWith allowTHQuotes (n - 1)
     ]
   where
     half = n `div` 2
 
--- | Generate list comprehension statements
-genCompStmts :: Int -> Gen [CompStmt]
-genCompStmts n = do
+genCompStmtsWith :: Bool -> Int -> Gen [CompStmt]
+genCompStmtsWith allowTHQuotes n = do
   count <- chooseInt (1, 3)
-  vectorOf count (genCompStmt (n `div` count))
+  vectorOf count (genCompStmtWith allowTHQuotes (n `div` count))
 
-genCompStmt :: Int -> Gen CompStmt
-genCompStmt n =
+genCompStmtWith :: Bool -> Int -> Gen CompStmt
+genCompStmtWith allowTHQuotes n =
   oneof
     [ -- TODO: Restore genPattern here once the parser supports all pattern
       -- constructors inside list comprehension generators. Currently, PView (->),
       -- PIrrefutable (~), PStrict (!), and PAs (@) fail when nested inside
       -- compound patterns (PList, PTuple, PCon args) in comprehension contexts.
-      CompGen span0 <$> genPatternNoView half <*> genExprSized half,
-      CompGuard span0 <$> genExprSized (n - 1)
+      CompGen span0 <$> genPatternNoView half <*> genExprSizedWith allowTHQuotes half,
+      CompGuard span0 <$> genExprSizedWith allowTHQuotes (n - 1)
     ]
   where
     half = n `div` 2
 
--- | Generate parallel list comprehension statements
-genParallelCompStmts :: Int -> Gen [[CompStmt]]
-genParallelCompStmts n = do
+genParallelCompStmtsWith :: Bool -> Int -> Gen [[CompStmt]]
+genParallelCompStmtsWith allowTHQuotes n = do
   count <- chooseInt (2, 3)
-  vectorOf count (genCompStmts (n `div` count))
+  vectorOf count (genCompStmtsWith allowTHQuotes (n `div` count))
 
--- | Generate list elements
-genListElems :: Int -> Gen [Expr]
-genListElems n = do
+genListElemsWith :: Bool -> Int -> Gen [Expr]
+genListElemsWith allowTHQuotes n = do
   count <- chooseInt (0, 4)
-  vectorOf count (genExprSized (n `div` max 1 count))
+  vectorOf count (genExprSizedWith allowTHQuotes (n `div` max 1 count))
 
 -- | Generate tuple elements
-genTupleElems :: Int -> Gen [Expr]
-genTupleElems n = do
+genTupleElemsWith :: Bool -> Int -> Gen [Expr]
+genTupleElemsWith allowTHQuotes n = do
   isUnit <- arbitrary
   if isUnit
     then pure []
     else do
       count <- chooseInt (2, 4)
-      vectorOf count (genExprSized (n `div` count))
+      vectorOf count (genExprSizedWith allowTHQuotes (n `div` count))
 
 -- | Generate elements for an unboxed tuple (0 or 2-4 elements).
 -- Unlike boxed tuples, unboxed tuples with 0 elements are valid Haskell.
 -- NOTE: 1-element unboxed tuples are valid Haskell but the parser doesn't
 -- accept them yet, so we skip generating them for now.
-genUnboxedTupleElems :: Int -> Gen [Expr]
-genUnboxedTupleElems n = do
+genUnboxedTupleElemsWith :: Bool -> Int -> Gen [Expr]
+genUnboxedTupleElemsWith allowTHQuotes n = do
   count <- chooseInt (0, 4)
-  if count == 1 then pure [] else vectorOf count (genExprSized (n `div` max 1 count))
+  if count == 1 then pure [] else vectorOf count (genExprSizedWith allowTHQuotes (n `div` max 1 count))
 
--- | Generate an unboxed sum expression
-genUnboxedSumExpr :: Int -> Gen Expr
-genUnboxedSumExpr n = do
+genUnboxedSumExprWith :: Bool -> Int -> Gen Expr
+genUnboxedSumExprWith allowTHQuotes n = do
   arity <- chooseInt (2, 4)
   altIdx <- chooseInt (0, arity - 1)
-  inner <- genExprSized n
+  inner <- genExprSizedWith allowTHQuotes n
   pure (EUnboxedSum span0 altIdx arity inner)
 
--- | Generate tuple section elements
-genTupleSectionElems :: Int -> Gen [Maybe Expr]
-genTupleSectionElems n = do
+genTupleSectionElemsWith :: Bool -> Int -> Gen [Maybe Expr]
+genTupleSectionElemsWith allowTHQuotes n = do
   count <- chooseInt (2, 4)
-  elems <- vectorOf count (genMaybeExpr (n `div` count))
+  elems <- vectorOf count (genMaybeExprWith allowTHQuotes (n `div` count))
   -- Ensure at least one Nothing (otherwise it's just a tuple)
   if Nothing `notElem` elems
     then do
@@ -412,32 +414,30 @@ genTupleSectionElems n = do
       pure (take idx elems <> [Nothing] <> drop (idx + 1) elems)
     else pure elems
 
-genMaybeExpr :: Int -> Gen (Maybe Expr)
-genMaybeExpr n =
+genMaybeExprWith :: Bool -> Int -> Gen (Maybe Expr)
+genMaybeExprWith allowTHQuotes n =
   oneof
-    [ Just <$> genExprSized n,
+    [ Just <$> genExprSizedWith allowTHQuotes n,
       pure Nothing
     ]
 
--- | Generate arithmetic sequences
-genArithSeq :: Int -> Gen ArithSeq
-genArithSeq n =
+genArithSeqWith :: Bool -> Int -> Gen ArithSeq
+genArithSeqWith allowTHQuotes n =
   oneof
-    [ ArithSeqFrom span0 <$> genExprSized n,
-      ArithSeqFromThen span0 <$> genExprSized half <*> genExprSized half,
-      ArithSeqFromTo span0 <$> genExprSized half <*> genExprSized half,
-      ArithSeqFromThenTo span0 <$> genExprSized third <*> genExprSized third <*> genExprSized third
+    [ ArithSeqFrom span0 <$> genExprSizedWith allowTHQuotes n,
+      ArithSeqFromThen span0 <$> genExprSizedWith allowTHQuotes half <*> genExprSizedWith allowTHQuotes half,
+      ArithSeqFromTo span0 <$> genExprSizedWith allowTHQuotes half <*> genExprSizedWith allowTHQuotes half,
+      ArithSeqFromThenTo span0 <$> genExprSizedWith allowTHQuotes third <*> genExprSizedWith allowTHQuotes third <*> genExprSizedWith allowTHQuotes third
     ]
   where
     half = n `div` 2
     third = n `div` 3
 
--- | Generate record fields
-genRecordFields :: Int -> Gen [(Text, Expr)]
-genRecordFields n = do
+genRecordFieldsWith :: Bool -> Int -> Gen [(Text, Expr)]
+genRecordFieldsWith allowTHQuotes n = do
   count <- chooseInt (0, 3)
   names <- vectorOf count genFieldName
-  exprs <- vectorOf count (genExprSized (n `div` max 1 count))
+  exprs <- vectorOf count (genExprSizedWith allowTHQuotes (n `div` max 1 count))
   pure (zip names exprs)
 
 genFieldName :: Gen Text
@@ -446,22 +446,22 @@ genFieldName = do
   restLen <- chooseInt (0, 5)
   rest <- vectorOf restLen (elements (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> "_'"))
   let candidate = T.pack (first : rest)
-  if isReservedIdentifier candidate
+  if isReservedIdentifier candidate || candidate `elem` extensionReservedIdentifiers
     then genFieldName
     else pure candidate
 
--- | Generate a type (simple version for use inside expressions)
-genType :: Int -> Gen Type
-genType n
+-- | Generate a type (simple version for use inside expressions).
+genTypeWith :: Bool -> Int -> Gen Type
+genTypeWith allowTHQuotes n
   | n <= 0 = genTypeLeaf
   | otherwise =
       oneof
         [ genTypeLeaf,
-          TApp span0 <$> genType half <*> genType half,
-          TFun span0 <$> genType half <*> genType half,
-          TList span0 Unpromoted <$> genTypeListElems (n - 1),
-          TTuple span0 Boxed Unpromoted <$> genTypeTupleElems (n - 1),
-          TParen span0 <$> genType (n - 1)
+          TApp span0 <$> genTypeWith allowTHQuotes half <*> genTypeWith allowTHQuotes half,
+          TFun span0 <$> genTypeWith allowTHQuotes half <*> genTypeWith allowTHQuotes half,
+          TList span0 Unpromoted <$> genTypeListElemsWith allowTHQuotes (n - 1),
+          TTuple span0 Boxed Unpromoted <$> genTypeTupleElemsWith allowTHQuotes (n - 1),
+          TParen span0 <$> genTypeWith allowTHQuotes (n - 1)
         ]
   where
     half = n `div` 2
@@ -473,19 +473,19 @@ genTypeLeaf =
       (\name -> TCon span0 name Unpromoted) <$> genConAstName
     ]
 
-genTypeTupleElems :: Int -> Gen [Type]
-genTypeTupleElems n = do
+genTypeTupleElemsWith :: Bool -> Int -> Gen [Type]
+genTypeTupleElemsWith allowTHQuotes n = do
   isUnit <- arbitrary
   if isUnit
     then pure []
     else do
       count <- chooseInt (2, 3)
-      vectorOf count (genType (n `div` count))
+      vectorOf count (genTypeWith allowTHQuotes (n `div` count))
 
-genTypeListElems :: Int -> Gen [Type]
-genTypeListElems n = do
+genTypeListElemsWith :: Bool -> Int -> Gen [Type]
+genTypeListElemsWith allowTHQuotes n = do
   count <- chooseInt (1, 4)
-  vectorOf count (genType (n `div` count))
+  vectorOf count (genTypeWith allowTHQuotes (n `div` count))
 
 genTypeVarName :: Gen UnqualifiedName
 genTypeVarName = do
