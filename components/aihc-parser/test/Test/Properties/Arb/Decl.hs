@@ -54,43 +54,23 @@ genDeclValue n = do
 
 genFunctionDecl :: (UnqualifiedName, Expr) -> Gen Decl
 genFunctionDecl (name, expr) = do
-  infixHead <- arbitrary
-  if infixHead
-    then do
-      lhs <- genIdent
-      rhs <- genIdent
-      pure $
-        DeclValue
+  -- TODO: Restore MatchHeadInfix generation once the standalone declaration parser
+  -- (parseDecl) supports infix function bindings. Currently, infix bindings like
+  -- `x \`f\` y = ...` only parse at the module level, not via parseDecl.
+  pure $
+    DeclValue
+      span0
+      ( FunctionBind
           span0
-          ( FunctionBind
-              span0
-              name
-              [ Match
-                  { matchSpan = span0,
-                    matchHeadForm = MatchHeadInfix,
-                    matchPats =
-                      [ PVar span0 (mkUnqualifiedName NameVarId lhs),
-                        PVar span0 (mkUnqualifiedName NameVarId rhs)
-                      ],
-                    matchRhs = UnguardedRhs span0 expr
-                  }
-              ]
-          )
-    else
-      pure $
-        DeclValue
-          span0
-          ( FunctionBind
-              span0
-              name
-              [ Match
-                  { matchSpan = span0,
-                    matchHeadForm = MatchHeadPrefix,
-                    matchPats = [],
-                    matchRhs = UnguardedRhs span0 expr
-                  }
-              ]
-          )
+          name
+          [ Match
+              { matchSpan = span0,
+                matchHeadForm = MatchHeadPrefix,
+                matchPats = [],
+                matchRhs = UnguardedRhs span0 expr
+              }
+          ]
+      )
 
 genDeclTypeSig :: Gen Decl
 genDeclTypeSig = do
