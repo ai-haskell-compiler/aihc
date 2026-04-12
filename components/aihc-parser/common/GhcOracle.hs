@@ -17,6 +17,7 @@ import CppSupport (preprocessForParserWithoutIncludes)
 import Data.Maybe (mapMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
+import GHC.Data.Bag (bagToList)
 import GHC.Data.EnumSet qualified as EnumSet
 import GHC.Data.FastString (mkFastString)
 import GHC.Data.StringBuffer (stringToStringBuffer)
@@ -33,8 +34,7 @@ import GHC.Parser.Lexer
     mkParserOpts,
     unP,
   )
-import GHC.Data.Bag (bagToList)
-import GHC.Types.Error (Diagnostic (..), DiagnosticCode, NoDiagnosticOpts (NoDiagnosticOpts), errorsFound, getMessages, errMsgDiagnostic)
+import GHC.Types.Error (Diagnostic (..), DiagnosticCode, NoDiagnosticOpts (NoDiagnosticOpts), errMsgDiagnostic, errorsFound, getMessages)
 import GHC.Types.SourceError (SourceError)
 import GHC.Types.SrcLoc (Located, mkRealSrcLoc, unLoc)
 import GHC.Utils.Error (emptyDiagOpts, pprMessages)
@@ -70,12 +70,15 @@ injectErrorCodes baseMsg codes =
                     Nothing -> ""
                   alreadyHasCode = not (T.null codeText) && codeText `T.isInfixOf` rest
                   rest' = T.drop (T.length "error:") rest
-                  codeSuffix = if alreadyHasCode then "" else case code of
-                    Just c -> " [" <> T.pack (show c) <> "]"
-                    Nothing -> ""
+                  codeSuffix =
+                    if alreadyHasCode
+                      then ""
+                      else case code of
+                        Just c -> " [" <> T.pack (show c) <> "]"
+                        Nothing -> ""
                in T.stripEnd prefix <> " error:" <> codeSuffix <> rest'
           | otherwise -> baseMsg
-    _ -> baseMsg  -- Multi-line or multi-error: keep as-is
+    _ -> baseMsg -- Multi-line or multi-error: keep as-is
 
 -- | Compute an AST fingerprint using extension names and a language edition,
 -- reading in-file pragmas to determine the full effective extension set.
@@ -144,8 +147,7 @@ firstSignificantTokenAfterModule st =
       Left (renderErrorsWithCaret "test.hs" st')
 
 renderParserErrors :: PState -> Text
-renderParserErrors st =
-  renderErrorsWithCaret "test.hs" st
+renderParserErrors = renderErrorsWithCaret "test.hs"
 
 parserStateHasErrors :: PState -> Bool
 parserStateHasErrors st = errorsFound (getPsErrorMessages st)
