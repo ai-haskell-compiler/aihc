@@ -5,5 +5,8 @@ src: |
 ghc: |
   test.hs:5:25: error: [GHC-58481] parse error on input `module'
 aihc: |
-  test.hs
-  expected quote for promotion
+  test.hs:5:25:
+  5 | fn :: MuchLongerType -> module
+    |                         ^^^^^^
+  unexpected 'module'
+  expecting type
