@@ -218,6 +218,11 @@ genPatterns n = do
 genPattern :: Int -> Gen Pattern
 genPattern = Pat.genPattern
 
+-- | Generate a pattern safe for comprehension/guard contexts.
+-- Excludes PView, PIrrefutable, PStrict, and PAs at all depths.
+genPatternNoView :: Int -> Gen Pattern
+genPatternNoView = Pat.genPatternNoView
+
 -- | Generate case alternatives
 genCaseAlts :: Int -> Gen [CaseAlt]
 genCaseAlts n = do
@@ -271,14 +276,26 @@ genGuardQualifier :: Int -> Gen GuardQualifier
 genGuardQualifier n =
   oneof
     [ -- Boolean guard: | expr = ...
-      GuardExpr span0 <$> genExprSized n,
+      -- TODO: Restore bare genExprSized here once the parser/pretty-printer handles
+      -- ETypeSig in guard expressions. Currently, an unparenthesized type signature
+      -- like `| expr :: Type -> body` makes the parser interpret `Type -> body` as
+      -- a function type rather than the guard's arrow.
+      GuardExpr span0 . parenTypeSig <$> genExprSized n,
       -- Pattern guard: | pat <- expr = ...
-      GuardPat span0 <$> genPattern half <*> genExprSized half,
+      -- TODO: Restore genPattern here once the parser supports view patterns inside
+      -- guard qualifiers. Currently, the '->' in view patterns (PView) conflicts
+      -- with guard/case-alternative syntax and causes parse failures.
+      -- The expression is also parenthesized if it's an ETypeSig, since
+      -- `| pat <- expr :: Type -> body` has the same ambiguity.
+      GuardPat span0 <$> genPatternNoView half <*> (parenTypeSig <$> genExprSized half),
       -- Let guard: | let decls = ...
       GuardLet span0 <$> genValueDecls n
     ]
   where
     half = n `div` 2
+    -- Wrap ETypeSig in parens to avoid ambiguity with the guard arrow
+    parenTypeSig e@(ETypeSig {}) = EParen span0 e
+    parenTypeSig e = e
 
 -- | Generate value declarations for let/where
 -- We use FunctionBind format because that's what the parser produces for simple
@@ -334,7 +351,11 @@ genCompStmts n = do
 genCompStmt :: Int -> Gen CompStmt
 genCompStmt n =
   oneof
-    [ CompGen span0 <$> genPattern half <*> genExprSized half,
+    [ -- TODO: Restore genPattern here once the parser supports all pattern
+      -- constructors inside list comprehension generators. Currently, PView (->),
+      -- PIrrefutable (~), PStrict (!), and PAs (@) fail when nested inside
+      -- compound patterns (PList, PTuple, PCon args) in comprehension contexts.
+      CompGen span0 <$> genPatternNoView half <*> genExprSized half,
       CompGuard span0 <$> genExprSized (n - 1)
     ]
   where

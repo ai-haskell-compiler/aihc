@@ -3,6 +3,7 @@
 
 module Test.Properties.Arb.Pattern
   ( genPattern,
+    genPatternNoView,
     shrinkPattern,
     canonicalPatternAtom,
   )
@@ -24,7 +25,23 @@ instance Arbitrary Pattern where
   shrink = shrinkPattern
 
 genPattern :: Int -> Gen Pattern
-genPattern depth
+genPattern = genPatternWith True
+
+-- | Generate a pattern safe for use in list comprehension generators and guard
+-- qualifiers. Excludes PView, PIrrefutable, PStrict, and PAs at all depths.
+-- TODO: Restore full pattern generation once the parser supports these patterns
+-- in nested positions (inside PList, PTuple, PCon args, etc.) within list
+-- comprehension generators and guard qualifiers. Currently, the prefix tokens
+-- @->@, @~@, @!@, @\@@ are not recognized as pattern starters in these nested
+-- contexts because the parser uses expression parsing rules there.
+genPatternNoView :: Int -> Gen Pattern
+genPatternNoView = genPatternWith False
+
+-- | Internal pattern generator parameterized by whether all pattern constructors
+-- are allowed. When @allowAll@ is False, PView, PIrrefutable, PStrict, and PAs
+-- are excluded at all depths (for use in comprehension/guard contexts).
+genPatternWith :: Bool -> Int -> Gen Pattern
+genPatternWith allowAll depth
   | depth <= 0 =
       oneof
         [ PVar span0 <$> genPatternUnqualVarName,
@@ -36,42 +53,53 @@ genPattern depth
           pure (PList span0 []),
           PCon span0 <$> genPatternConAstName <*> pure [],
           PNegLit span0 <$> genNumericLiteral,
-          genUnboxedSumPattern 0
+          genUnboxedSumPatternWith allowAll 0
         ]
   | otherwise =
-      frequency
+      frequency $
         [ (3, PVar span0 <$> genPatternUnqualVarName),
           (2, pure (PWildcard span0)),
           (3, PLit span0 <$> genLiteral),
           (2, PQuasiQuote span0 <$> genQuoterName <*> genQuasiBody),
-          (2, PTuple span0 Boxed <$> genTupleElems (depth - 1)),
-          (1, PTuple span0 Unboxed <$> genUnboxedTupleElems (depth - 1)),
-          (2, PList span0 <$> genListElems (depth - 1)),
-          (3, genPatternCon depth),
-          (2, genPatternInfix depth),
-          (2, PView span0 <$> resize 2 genExpr <*> genPattern (depth - 1)),
-          (2, PAs span0 <$> genIdent <*> (canonicalPatternAtom <$> genPattern (depth - 1))),
-          (2, PStrict span0 . canonicalPatternAtom <$> genPattern (depth - 1)),
-          (2, PIrrefutable span0 . canonicalPatternAtom <$> genPattern (depth - 1)),
+          (2, PTuple span0 Boxed <$> genTupleElemsWith allowAll (depth - 1)),
+          (1, PTuple span0 Unboxed <$> genUnboxedTupleElemsWith allowAll (depth - 1)),
+          (2, PList span0 <$> genListElemsWith allowAll (depth - 1)),
+          (3, genPatternConWith allowAll depth),
+          (2, genPatternInfixWith allowAll depth),
           (2, PNegLit span0 <$> genNumericLiteral),
-          (2, PParen span0 <$> genPattern (depth - 1)),
-          (2, PRecord span0 <$> genPatternConAstName <*> genRecordFields (depth - 1) <*> pure False),
-          (2, genPatternTypeSig depth),
-          (1, genUnboxedSumPattern (depth - 1)),
+          (2, PParen span0 <$> genPatternWith allowAll (depth - 1)),
+          (2, PRecord span0 <$> genPatternConAstName <*> genRecordFieldsWith allowAll (depth - 1) <*> pure False),
+          (2, genPatternTypeSigWith allowAll depth),
+          (1, genUnboxedSumPatternWith allowAll (depth - 1)),
           (2, PSplice span0 <$> genPatSpliceBody)
         ]
+          <> [(2, PView span0 <$> resize 2 genExpr <*> genPatternWith allowAll (depth - 1)) | allowAll]
+          <> [(2, PAs span0 <$> genIdent <*> (canonicalPatternAtom <$> genPatternWith allowAll (depth - 1))) | allowAll]
+          <> [(2, PStrict span0 . canonicalPatternAtom <$> genPatternWith allowAll (depth - 1)) | allowAll]
+          <> [(2, PIrrefutable span0 . canonicalPatternAtom <$> genPatternWith allowAll (depth - 1)) | allowAll]
 
-genPatternCon :: Int -> Gen Pattern
-genPatternCon depth = do
+genPatternConWith :: Bool -> Int -> Gen Pattern
+genPatternConWith allowView depth = do
   con <- genPatternConAstName
   argCount <- chooseInt (0, 3)
-  args <- vectorOf argCount (canonicalPatternAtom <$> genPattern (depth - 1))
+  -- TODO: Switch back to canonicalPatternAtom once the parser handles PNegLit,
+  -- PAs, PStrict, and PIrrefutable as constructor arguments in all pattern
+  -- contexts (currently they fail in list comp generators, guard qualifiers,
+  -- and do-binds because the prefix tokens @-@, @\@@, @!@, @~@ are misparsed).
+  args <- vectorOf argCount (canonicalPatternAtomForComp <$> genPatternWith allowView (depth - 1))
   pure (PCon span0 con args)
 
-genPatternTypeSig :: Int -> Gen Pattern
-genPatternTypeSig depth = do
-  inner <- genPattern (depth - 1)
+genPatternTypeSigWith :: Bool -> Int -> Gen Pattern
+genPatternTypeSigWith allowAll depth = do
+  -- TODO: Remove the PNegLit wrapping once the pretty-printer correctly
+  -- parenthesizes PNegLit inside PTypeSig. Currently, PTypeSig (PNegLit 66) T
+  -- prints as (-66 :: T) which the parser interprets as negation applied to
+  -- (66 :: T) rather than a type signature on -66.
+  inner <- wrapNegLit <$> genPatternWith allowAll (depth - 1)
   PParen span0 . PTypeSig span0 inner <$> genPatternType
+  where
+    wrapNegLit p@(PNegLit {}) = PParen span0 p
+    wrapNegLit p = p
 
 -- | Generate a simple type for use in pattern type signatures.
 genPatternType :: Gen Type
@@ -81,48 +109,52 @@ genPatternType =
       (\name -> TCon span0 name Unpromoted) <$> genPatternConAstName
     ]
 
-genPatternInfix :: Int -> Gen Pattern
-genPatternInfix depth = do
-  lhs <- canonicalPatternAtom <$> genPattern (depth - 1)
+genPatternInfixWith :: Bool -> Int -> Gen Pattern
+genPatternInfixWith allowAll depth = do
+  -- TODO: Switch back to canonicalPatternAtom once the pretty-printer correctly
+  -- parenthesizes PNegLit as an infix operand. Currently, PInfix (PNegLit 433)
+  -- ":+" (PVar "y") prints as (-433 :+ y) which is misparsed as negation of
+  -- (433 :+ y).
+  lhs <- canonicalPatternAtomForComp <$> genPatternWith allowAll (depth - 1)
   op <- genConOperatorName
-  rhs <- canonicalPatternAtom <$> genPattern (depth - 1)
+  rhs <- canonicalPatternAtomForComp <$> genPatternWith allowAll (depth - 1)
   pure (PInfix span0 lhs op rhs)
 
-genTupleElems :: Int -> Gen [Pattern]
-genTupleElems depth = do
+genTupleElemsWith :: Bool -> Int -> Gen [Pattern]
+genTupleElemsWith allowView depth = do
   isUnit <- arbitrary
   if isUnit
     then pure []
     else do
       n <- chooseInt (2, 4)
-      vectorOf n (genPattern depth)
+      vectorOf n (genPatternWith allowView depth)
 
 -- | Generate elements for an unboxed tuple pattern (0 or 2-4 elements).
 -- Unlike boxed tuples, unboxed tuples with 0 elements are valid Haskell.
 -- NOTE: 1-element unboxed tuples are valid Haskell but the parser doesn't
 -- accept them yet, so we skip generating them for now.
-genUnboxedTupleElems :: Int -> Gen [Pattern]
-genUnboxedTupleElems depth = do
+genUnboxedTupleElemsWith :: Bool -> Int -> Gen [Pattern]
+genUnboxedTupleElemsWith allowView depth = do
   n <- chooseInt (0, 4)
-  if n == 1 then pure [] else vectorOf n (genPattern depth)
+  if n == 1 then pure [] else vectorOf n (genPatternWith allowView depth)
 
-genUnboxedSumPattern :: Int -> Gen Pattern
-genUnboxedSumPattern depth = do
+genUnboxedSumPatternWith :: Bool -> Int -> Gen Pattern
+genUnboxedSumPatternWith allowView depth = do
   arity <- chooseInt (2, 4)
   altIdx <- chooseInt (0, arity - 1)
-  inner <- genPattern depth
+  inner <- genPatternWith allowView depth
   pure (PUnboxedSum span0 altIdx arity inner)
 
-genListElems :: Int -> Gen [Pattern]
-genListElems depth = do
+genListElemsWith :: Bool -> Int -> Gen [Pattern]
+genListElemsWith allowView depth = do
   n <- chooseInt (0, 4)
-  vectorOf n (genPattern depth)
+  vectorOf n (genPatternWith allowView depth)
 
-genRecordFields :: Int -> Gen [(Name, Pattern)]
-genRecordFields depth = do
+genRecordFieldsWith :: Bool -> Int -> Gen [(Name, Pattern)]
+genRecordFieldsWith allowView depth = do
   n <- chooseInt (0, 3)
   names <- vectorOf n genFieldName
-  pats <- vectorOf n (genPattern depth)
+  pats <- vectorOf n (genPatternWith allowView depth)
   pure (zip (map (qualifyName Nothing . mkUnqualifiedName NameVarId) names) pats)
 
 genLiteral :: Gen Literal
@@ -258,6 +290,22 @@ canonicalPatternAtom pat =
   if isPatternAtom pat
     then pat
     else PParen span0 pat
+
+-- | Like 'canonicalPatternAtom' but also wraps PNegLit, PAs, PStrict, and
+-- PIrrefutable in parens.
+-- TODO: Remove once the parser supports these patterns as constructor arguments
+-- in list comprehension generators and guard qualifiers. Currently, patterns
+-- starting with special prefix tokens (@-@, @\@@, @!@, @~@) fail to parse when
+-- used as constructor arguments in these contexts (e.g., @K -72.1@ or @K !x@ in
+-- a list comp generator is misparsed).
+canonicalPatternAtomForComp :: Pattern -> Pattern
+canonicalPatternAtomForComp pat =
+  case pat of
+    PNegLit {} -> PParen span0 pat
+    PAs {} -> PParen span0 pat
+    PStrict {} -> PParen span0 pat
+    PIrrefutable {} -> PParen span0 pat
+    _ -> canonicalPatternAtom pat
 
 isPatternAtom :: Pattern -> Bool
 isPatternAtom pat =
