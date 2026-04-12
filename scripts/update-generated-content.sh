@@ -43,6 +43,7 @@ extension_markdown_cmd="${PARSER_EXTENSION_PROGRESS_CMD:-nix run .#parser-extens
 extension_progress_cmd="${PARSER_EXTENSION_PROGRESS_TEXT_CMD:-nix run .#parser-extension-progress}"
 cpp_cmd="${CPP_PROGRESS_CMD:-nix run .#cpp-progress}"
 resolve_cmd="${RESOLVE_PROGRESS_CMD:-nix run .#resolve-progress}"
+resolve_extension_markdown_cmd="${RESOLVE_EXTENSION_PROGRESS_CMD:-nix run .#resolve-extension-progress -- --markdown}"
 tc_cmd="${TC_PROGRESS_CMD:-nix run .#tc-progress}"
 tc_extension_markdown_cmd="${TC_EXTENSION_PROGRESS_CMD:-nix run .#tc-extension-progress}"
 stackage_cmd="${PARSER_STACKAGE_PROGRESS_CMD:-nix run .#stackage-progress -- --snapshot lts-24.33}"
@@ -60,6 +61,7 @@ extension_out="$tmpdir/extension-progress.md"
 extension_progress_out="$tmpdir/extension-progress.txt"
 cpp_out="$tmpdir/cpp-progress.txt"
 resolve_out="$tmpdir/resolve-progress.txt"
+resolve_extension_out="$tmpdir/resolve-extension-progress.md"
 tc_out="$tmpdir/tc-progress.txt"
 tc_extension_out="$tmpdir/tc-extension-progress.md"
 stackage_out="$tmpdir/stackage-progress.txt"
@@ -71,6 +73,7 @@ run_cmd "$extension_markdown_cmd" | sed -n '/^# Haskell Parser Extension Support
 run_cmd "$extension_progress_cmd" >"$extension_progress_out"
 run_cmd "$cpp_cmd" >"$cpp_out"
 run_cmd "$resolve_cmd" >"$resolve_out"
+run_cmd "$resolve_extension_markdown_cmd" | sed -n '/^# Name Resolver Extension Support Status/,$p' >"$resolve_extension_out"
 run_cmd "$tc_cmd" >"$tc_out"
 run_cmd "$tc_extension_markdown_cmd" | sed -n '/^# Type Checker Extension Support Status/,$p' >"$tc_extension_out"
 run_cmd "$stackage_cmd" >"$stackage_out" || true
@@ -410,6 +413,15 @@ if [ "$mode" = "--update" ]; then
 else
 	if ! cmp -s docs/aihc-tc-supported-extensions.md "$tc_extension_out"; then
 		echo "Generated file out of date: docs/aihc-tc-supported-extensions.md" >&2
+		stale=1
+	fi
+fi
+
+if [ "$mode" = "--update" ]; then
+	cp "$resolve_extension_out" docs/aihc-resolve-supported-extensions.md
+else
+	if ! cmp -s docs/aihc-resolve-supported-extensions.md "$resolve_extension_out"; then
+		echo "Generated file out of date: docs/aihc-resolve-supported-extensions.md" >&2
 		stale=1
 	fi
 fi
