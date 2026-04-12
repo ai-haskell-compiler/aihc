@@ -11,8 +11,10 @@ module ParserErrorGolden
   )
 where
 
+import Aihc.Cpp (Result (..))
 import Aihc.Parser (ParserConfig (..), defaultConfig, formatParseErrors, parseModule)
 import Aihc.Parser.Syntax qualified as Syntax
+import CppSupport (cppEnabledInSource, preprocessForParserWithoutIncludes)
 import Data.Aeson ((.:))
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KeyMap
@@ -131,9 +133,14 @@ ghcMismatch meta =
 
 renderAihcMessage :: ErrorMessageCase -> Either String Text
 renderAihcMessage meta =
-  let (errs, _) = parseModule defaultConfig {parserSourceName = sourceName} (caseSource meta)
+  let source = caseSource meta
+      preprocessed =
+        if cppEnabledInSource source
+          then resultOutput (preprocessForParserWithoutIncludes sourceName [] source)
+          else source
+      (errs, _) = parseModule defaultConfig {parserSourceName = sourceName} preprocessed
    in case errs of
-        _ : _ -> Right (normalizeText (T.pack (formatParseErrors sourceName (Just (caseSource meta)) errs)))
+        _ : _ -> Right (normalizeText (T.pack (formatParseErrors sourceName (Just preprocessed) errs)))
         [] -> Left "aihc parser accepted the input"
 
 progressSummary :: [(ErrorMessageCase, Outcome, String)] -> (Int, Int)
