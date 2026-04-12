@@ -9,19 +9,20 @@ Can gpt-5.4, Claude Opus 4.5 and Qwen-3.6 write a Haskell compiler? Probably not
 
 Find more information here:
 - [**aihc-cpp** README](https://github.com/ai-haskell-compiler/aihc/tree/main/components/aihc-cpp#readme)
-- [**aihc-parser** README](https://github.com/ai-haskell-compiler/aihc/tree/main/components/aihc-parser#readme) - [Supported extensions](https://github.com/ai-haskell-compiler/aihc/blob/main/docs/haskell-parser-extension-support.md)
+- [**aihc-parser** README](https://github.com/ai-haskell-compiler/aihc/tree/main/components/aihc-parser#readme) - [Supported extensions](https://github.com/ai-haskell-compiler/aihc/blob/main/docs/aihc-parser-supported-extensions.md)
+- [**aihc-resolve** README](https://github.com/ai-haskell-compiler/aihc/tree/main/components/aihc-resolve#readme) - [Supported extensions](https://github.com/ai-haskell-compiler/aihc/blob/main/docs/aihc-resolve-supported-extensions.md)
 - [**aihc-tc** README](https://github.com/ai-haskell-compiler/aihc/tree/main/components/aihc-tc#readme) - [Supported extensions](https://github.com/ai-haskell-compiler/aihc/blob/main/docs/aihc-tc-supported-extensions.md)
 
 ## Progress
 
 | Name               | Progress                                                                                                                             |
 | ------------------ | -----------------------------------------------------------------------------------------------------------------------------------: |
-| TypeCHeck Stackage | `0/3390` (`0.00%`)                                                                                                                   |
+| TypeCheck Stackage | `0/3390` (`0.00%`)                                                                                                                   |
 | Resolve Stackage   | `0/3390` (`0.00%`)                                                                                                                   |
-| Parser Stackage    | <!-- AUTO-GENERATED: START parser-stackage-progress --> `2831/3390` (`83.51%`) <!-- AUTO-GENERATED: END parser-stackage-progress --> |
-| TypeCheck Tests    | <!-- AUTO-GENERATED: START tc-progress --> `6/6` (`100.00%`) <!-- AUTO-GENERATED: END tc-progress -->                                |
+| Parser Stackage    | <!-- AUTO-GENERATED: START parser-stackage-progress --> `2847/3390` (`83.98%`) <!-- AUTO-GENERATED: END parser-stackage-progress --> |
+| TypeCheck Tests    | <!-- AUTO-GENERATED: START tc-progress --> `9/28` (`32.14%`) <!-- AUTO-GENERATED: END tc-progress -->                                |
 | Resolve Tests      | <!-- AUTO-GENERATED: START resolve-progress --> `8/8` (`100.00%`) <!-- AUTO-GENERATED: END resolve-progress -->                      |
-| Parser Tests       | <!-- AUTO-GENERATED: START parser-progress --> `798/821` (`97.20%`) <!-- AUTO-GENERATED: END parser-progress -->                     |
+| Parser Tests       | <!-- AUTO-GENERATED: START parser-progress --> `800/832` (`96.15%`) <!-- AUTO-GENERATED: END parser-progress -->                     |
 | Lexer Tests        | <!-- AUTO-GENERATED: START lexer-progress --> `90/90` (`100.00%`) <!-- AUTO-GENERATED: END lexer-progress -->                        |
 | CPP Tests          | <!-- AUTO-GENERATED: START cpp-progress --> `38/38` (`100.00%`) <!-- AUTO-GENERATED: END cpp-progress -->                            |
 
@@ -32,10 +33,11 @@ Find more information here:
 | Component       |   Code |   Tests |   Total |
 |-----------------|--------|---------|---------|
 | aihc-cpp        |   1522 |     525 |    2047 |
-| aihc-parser     |  10582 |   14079 |   24661 |
-| aihc-parser-cli |   1624 |     379 |    2003 |
-| aihc-resolve    |   1012 |     583 |    1595 |
-| **Total**       |  14740 |   15566 |   30306 |
+| aihc-parser     |  10584 |   14265 |   24849 |
+| aihc-parser-cli |   1785 |     379 |    2164 |
+| aihc-resolve    |   1035 |     697 |    1732 |
+| aihc-tc         |   1538 |     976 |    2514 |
+| **Total**       |  16464 |   16842 |   33306 |
 ```
 <!-- AUTO-GENERATED: END line-counts -->
 

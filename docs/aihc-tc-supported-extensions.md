@@ -11,3 +11,4 @@
 | Extension  | Status | Tests Passing |
 |------------|:------:|---------------|
 | LambdaCase |   🟢    | 1/1           |
+

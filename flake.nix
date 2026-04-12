@@ -727,6 +727,7 @@
       extensionProgressExe = pkgs.lib.getExe' hsPkgs.aihc-parser "extension-progress";
       cppProgressExe = pkgs.lib.getExe' hsPkgs.aihc-cpp "cpp-progress";
       resolveProgressExe = pkgs.lib.getExe' hsPkgs.aihc-resolve "resolve-progress";
+      resolveExtensionProgressExe = pkgs.lib.getExe' hsPkgs.aihc-resolve "resolve-extension-progress";
       tcProgressExe = pkgs.lib.getExe' hsPkgs.aihc-tc "tc-progress";
       tcExtensionProgressExe = pkgs.lib.getExe' hsPkgs.aihc-tc "tc-extension-progress";
       hackageTesterExe = pkgs.lib.getExe' hsPkgs.aihc-parser "hackage-tester";
@@ -957,6 +958,16 @@
         }
         cd components/aihc-resolve
         ${resolveProgressExe} --strict "$@"
+      '';
+
+      resolve-extension-progress = mkApp "resolve-extension-progress" ''
+        set -euo pipefail
+        test -d components/aihc-resolve || {
+          echo "Run this app from the repository root." >&2
+          exit 1
+        }
+        cd components/aihc-resolve
+        ${resolveExtensionProgressExe} "$@"
       '';
 
       tc-progress = mkApp "tc-progress" ''
