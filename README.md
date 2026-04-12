@@ -5,7 +5,7 @@
 
 # AI-written Haskell Compiler (aihc)
 
-Can gpt-5.3-codex, Claude Opus 4.5 and Gemini 3 write a Haskell compiler? Probably not but let's find out. We'll need preprocessing, parsing, name resolution, type checking, desugaring, and code generation. Progress will be tracked as a percentage of stackage for each component.
+Can gpt-5.4, Claude Opus 4.5 and Qwen-3.6 write a Haskell compiler? Probably not but let's find out. We'll need preprocessing, parsing, name resolution, type checking, desugaring, and code generation. Progress will be tracked as a percentage of stackage for each component.
 
 Find more information here:
 - [**aihc-cpp** README](https://github.com/ai-haskell-compiler/aihc/tree/main/components/aihc-cpp#readme)
@@ -66,9 +66,6 @@ nix flake check
 | `nix run .#stackage-progress`         | Show parser progress on Stackage packages |
 | `nix run .#prompt`                    | Generate a prompt for contributing        |
 | `nix run .#hackage-tester`            | Test parser against Hackage packages      |
-| `nix run .#parser-fuzz`               | Fuzz test the parser                      |
-| `nix run .#parser-quickcheck-batch`   | Run QuickCheck property tests             |
-| `nix run .#parser-quickcheck-soak`    | Run QuickCheck soak tests                 |
 | `nix run .#line-counts`               | Show line counts per component            |
 | `nix run .#generate-reports`          | Update generated README content           |
 | `nix run .#check-reports`             | Check if generated content is up-to-date  |
