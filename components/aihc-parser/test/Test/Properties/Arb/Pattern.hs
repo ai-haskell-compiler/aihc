@@ -48,56 +48,32 @@ genPatternWith allowAll depth =
     nextDepth = depth - 1
     leafGenerators =
       [ PVar span0 <$> genPatternUnqualVarName,
-        PVar span0 <$> genPatternUnqualVarName,
-        PVar span0 <$> genPatternUnqualVarName,
-        pure (PWildcard span0),
         pure (PWildcard span0),
         PLit span0 <$> genLiteral,
-        PLit span0 <$> genLiteral,
-        PLit span0 <$> genLiteral,
         PQuasiQuote span0 <$> genQuoterName <*> genQuasiBody,
-        PQuasiQuote span0 <$> genQuoterName <*> genQuasiBody,
-        PNegLit span0 <$> genNumericLiteral,
         PNegLit span0 <$> genNumericLiteral,
         PSplice span0 <$> genPatSpliceBody,
-        PSplice span0 <$> genPatSpliceBody
+        PTuple span0 Boxed <$> elements [[], [PVar span0 (mkUnqualifiedName NameVarId "x"), PWildcard span0]],
+        PTuple span0 Unboxed <$> elements [[], [PVar span0 (mkUnqualifiedName NameVarId "x"), PWildcard span0]],
+        pure (PList span0 []),
+        PCon span0 <$> genPatternConAstName <*> pure [],
+        genUnboxedSumPatternWith allowAll 0
       ]
-        <> [ PTuple span0 Boxed <$> elements [[], [PVar span0 (mkUnqualifiedName NameVarId "x"), PWildcard span0]]
-           | not allowRecursive
-           ]
-        <> [ PTuple span0 Unboxed <$> elements [[], [PVar span0 (mkUnqualifiedName NameVarId "x"), PWildcard span0]]
-           | not allowRecursive
-           ]
-        <> [pure (PList span0 []) | not allowRecursive]
-        <> [PCon span0 <$> genPatternConAstName <*> pure [] | not allowRecursive]
-        <> [genUnboxedSumPatternWith allowAll 0 | not allowRecursive]
     recursiveGenerators =
       [ PTuple span0 Boxed <$> genTupleElemsWith allowAll nextDepth
       | allowRecursive
       ]
-        <> [PTuple span0 Boxed <$> genTupleElemsWith allowAll nextDepth | allowRecursive]
         <> [PTuple span0 Unboxed <$> genUnboxedTupleElemsWith allowAll nextDepth | allowRecursive]
         <> [PList span0 <$> genListElemsWith allowAll nextDepth | allowRecursive]
-        <> [PList span0 <$> genListElemsWith allowAll nextDepth | allowRecursive]
-        <> [genPatternConWith allowAll depth | allowRecursive]
-        <> [genPatternConWith allowAll depth | allowRecursive]
         <> [genPatternConWith allowAll depth | allowRecursive]
         <> [genPatternInfixWith allowAll depth | allowRecursive]
-        <> [genPatternInfixWith allowAll depth | allowRecursive]
-        <> [PParen span0 <$> genPatternWith allowAll nextDepth | allowRecursive]
         <> [PParen span0 <$> genPatternWith allowAll nextDepth | allowRecursive]
         <> [PRecord span0 <$> genPatternConAstName <*> genRecordFieldsWith allowAll nextDepth <*> pure False | allowRecursive]
-        <> [PRecord span0 <$> genPatternConAstName <*> genRecordFieldsWith allowAll nextDepth <*> pure False | allowRecursive]
-        <> [genPatternTypeSigWith allowAll depth | allowRecursive]
         <> [genPatternTypeSigWith allowAll depth | allowRecursive]
         <> [genUnboxedSumPatternWith allowAll nextDepth | allowRecursive]
         <> [PView span0 <$> resize 2 genExpr <*> genPatternWith allowAll nextDepth | allowRecursive, allowAll]
-        <> [PView span0 <$> resize 2 genExpr <*> genPatternWith allowAll nextDepth | allowRecursive, allowAll]
-        <> [PAs span0 <$> genIdent <*> (canonicalPatternAtom <$> genPatternWith allowAll nextDepth) | allowRecursive, allowAll]
         <> [PAs span0 <$> genIdent <*> (canonicalPatternAtom <$> genPatternWith allowAll nextDepth) | allowRecursive, allowAll]
         <> [PStrict span0 . canonicalPatternAtom <$> genPatternWith allowAll nextDepth | allowRecursive, allowAll]
-        <> [PStrict span0 . canonicalPatternAtom <$> genPatternWith allowAll nextDepth | allowRecursive, allowAll]
-        <> [PIrrefutable span0 . canonicalPatternAtom <$> genPatternWith allowAll nextDepth | allowRecursive, allowAll]
         <> [PIrrefutable span0 . canonicalPatternAtom <$> genPatternWith allowAll nextDepth | allowRecursive, allowAll]
 
 genPatternConWith :: Bool -> Int -> Gen Pattern
@@ -247,8 +223,6 @@ genOptionalQualifier :: Gen (Maybe Text)
 genOptionalQualifier =
   oneof
     [ pure Nothing,
-      pure Nothing,
-      pure Nothing,
       Just <$> genModuleQualifier
     ]
 

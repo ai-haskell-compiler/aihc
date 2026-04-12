@@ -17,6 +17,7 @@ import Data.Char (isSpace)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Test.Properties.Arb.Identifiers (extensionReservedIdentifiers, genIdent, shrinkIdent)
+import Test.Properties.Arb.Pattern (genPattern)
 import Test.Properties.Arb.Pattern qualified as Pat
 import Test.QuickCheck
 
@@ -82,7 +83,7 @@ genExprSizedWith allowTHQuotes n
           [ ETHExpQuote span0 <$> genExprSizedWith False (n - 1),
             ETHTypedQuote span0 <$> genExprSizedWith False (n - 1),
             ETHDeclQuote span0 <$> genValueDeclsWith False (n - 1),
-            ETHPatQuote span0 <$> Pat.genPattern (n - 1),
+            ETHPatQuote span0 <$> genPattern (n - 1),
             ETHTypeQuote span0 <$> genTypeWith False (n - 1),
             ETHNameQuote span0 <$> genNameQuoteIdent,
             ETHTypeNameQuote span0 <$> genConName
@@ -153,8 +154,6 @@ genOptionalQualifier :: Gen (Maybe Text)
 genOptionalQualifier =
   oneof
     [ pure Nothing,
-      pure Nothing,
-      pure Nothing,
       Just <$> genModuleQualifier
     ]
 
@@ -220,7 +219,7 @@ genConAstName = qualifyName <$> genOptionalQualifier <*> (mkUnqualifiedName Name
 genPatterns :: Int -> Gen [Pattern]
 genPatterns n = do
   count <- chooseInt (1, 3)
-  vectorOf count (Pat.genPattern n)
+  vectorOf count (genPattern n)
 
 -- | Generate a pattern safe for comprehension/guard contexts.
 -- Excludes PView, PIrrefutable, PStrict, and PAs at all depths.
@@ -239,7 +238,7 @@ genNonEmptyCaseAltsWith allowTHQuotes n = do
 
 genCaseAltWith :: Bool -> Int -> Gen CaseAlt
 genCaseAltWith allowTHQuotes n = do
-  pat <- Pat.genPattern half
+  pat <- genPattern half
   rhs <- genRhsWith allowTHQuotes half
   pure $
     CaseAlt
@@ -342,7 +341,7 @@ genDoStmtsWith allowTHQuotes n = do
 genDoStmtWith :: Bool -> Int -> Gen (DoStmt Expr)
 genDoStmtWith allowTHQuotes n =
   oneof
-    [ DoBind span0 <$> Pat.genPattern half <*> genExprSizedWith allowTHQuotes half,
+    [ DoBind span0 <$> genPattern half <*> genExprSizedWith allowTHQuotes half,
       DoLetDecls span0 <$> genValueDeclsWith allowTHQuotes (n - 1),
       DoExpr span0 <$> genExprSizedWith allowTHQuotes (n - 1)
     ]
