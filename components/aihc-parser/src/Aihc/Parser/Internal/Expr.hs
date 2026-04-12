@@ -42,8 +42,12 @@ import Text.Megaparsec qualified as MP
 
 exprParser :: TokParser Expr
 exprParser =
+  exprParserWithTypeSigParser typeParser
+
+exprParserWithTypeSigParser :: TokParser Type -> TokParser Expr
+exprParserWithTypeSigParser typeSigParser =
   label "expression" $ do
-    core <- exprCoreParser
+    core <- exprCoreParserWithTypeSigParserExcept typeSigParser []
     mWhere <- MP.optional whereClauseParser
     pure $
       case mWhere of
@@ -52,18 +56,25 @@ exprParser =
 
 exprParserExcept :: [Text] -> TokParser Expr
 exprParserExcept forbiddenInfix = do
-  core <- exprCoreParserExcept forbiddenInfix
+  core <- exprCoreParserWithTypeSigParserExcept typeParser forbiddenInfix
   mWhere <- MP.optional whereClauseParser
   pure $
     case mWhere of
       Just decls -> EWhereDecls (mergeSourceSpans (getSourceSpan core) (sourceSpanEnd decls)) core decls
       Nothing -> core
 
-exprCoreParser :: TokParser Expr
-exprCoreParser = exprCoreParserExcept []
+exprParserNoTopLevelTypeSig :: TokParser Expr
+exprParserNoTopLevelTypeSig =
+  label "expression" $ do
+    core <- exprCoreParserWithoutTypeSigExcept []
+    mWhere <- MP.optional whereClauseParser
+    pure $
+      case mWhere of
+        Just decls -> EWhereDecls (mergeSourceSpans (getSourceSpan core) (sourceSpanEnd decls)) core decls
+        Nothing -> core
 
-exprCoreParserExcept :: [Text] -> TokParser Expr
-exprCoreParserExcept forbiddenInfix = do
+exprCoreParserWithoutTypeSigExcept :: [Text] -> TokParser Expr
+exprCoreParserWithoutTypeSigExcept forbiddenInfix = do
   tok <- lookAhead anySingle
   base <- case lexTokenKind tok of
     TkKeywordDo -> doExprParser
@@ -74,13 +85,16 @@ exprCoreParserExcept forbiddenInfix = do
     TkKeywordProc -> procExprParser
     TkReservedBackslash -> lambdaExprParser
     _ -> infixExprParserExcept forbiddenInfix
-  -- Arrow application: expr -< expr / expr -<< expr
   afterArrow <- MP.optional arrowTailParser
-  let withArrow = case afterArrow of
-        Just (op, rhs) -> EInfix (mergeSourceSpans (getSourceSpan base) (getSourceSpan rhs)) base op rhs
-        Nothing -> base
+  pure $ case afterArrow of
+    Just (op, rhs) -> EInfix (mergeSourceSpans (getSourceSpan base) (getSourceSpan rhs)) base op rhs
+    Nothing -> base
+
+exprCoreParserWithTypeSigParserExcept :: TokParser Type -> [Text] -> TokParser Expr
+exprCoreParserWithTypeSigParserExcept typeSigParser forbiddenInfix = do
+  withArrow <- exprCoreParserWithoutTypeSigExcept forbiddenInfix
   -- Optional type signature: expr :: type
-  mTypeSig <- MP.optional (expectedTok TkReservedDoubleColon *> typeParser)
+  mTypeSig <- MP.optional (expectedTok TkReservedDoubleColon *> typeSigParser)
   pure $ case mTypeSig of
     Just ty -> ETypeSig (mergeSourceSpans (getSourceSpan withArrow) (getSourceSpan ty)) withArrow ty
     Nothing -> withArrow
@@ -133,10 +147,10 @@ classicIfExprParser = withSpan $ do
   cond <- region "while parsing if condition" exprParser
   skipSemicolons
   expectedTok TkKeywordThen
-  yes <- region "while parsing then branch" exprParser
+  yes <- region "while parsing then branch" exprParserNoTopLevelTypeSig
   skipSemicolons
   expectedTok TkKeywordElse
-  no <- region "while parsing else branch" exprParser
+  no <- region "while parsing else branch" exprParserNoTopLevelTypeSig
   pure (\span' -> EIf span' cond yes no)
 
 multiWayIfExprParser :: TokParser Expr
@@ -594,7 +608,7 @@ guardQualifierParser = do
 
 guardBindOrExprParser :: TokParser GuardQualifier
 guardBindOrExprParser = withSpan $ do
-  expr <- exprParser
+  expr <- exprParserWithTypeSigParser typeInfixParser
   mArrow <- MP.optional (expectedTok TkReservedLeftArrow)
   case mArrow of
     Just () -> do

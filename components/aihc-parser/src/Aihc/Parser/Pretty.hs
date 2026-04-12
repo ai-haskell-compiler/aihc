@@ -1278,6 +1278,12 @@ prettyNegate inner =
 prettyTypeSigBody :: Expr -> Doc ann
 prettyTypeSigBody = prettyExprIn CtxTypeSigBody
 
+prettyIfBranch :: Expr -> Doc ann
+prettyIfBranch expr =
+  case expr of
+    ETypeSig {} -> parens (prettyExprPrec 0 expr)
+    _ -> prettyExprPrec 0 expr
+
 -- | Flatten a left-nested application chain into (root, args).
 -- For example, @f x y z@ (parsed as @(((f x) y) z)@) becomes @(f, [x, y, z])@.
 flattenApps :: Expr -> (Expr, [Expr])
@@ -1343,9 +1349,11 @@ prettyExprPrec prec expr =
     EIf _ cond yes no ->
       -- The 'then' keyword delimits the condition, and 'else' delimits the then-branch,
       -- so greedy expressions in those positions don't need parentheses.
+      -- Type signatures are different: without parens, `else x :: T` binds to
+      -- the whole `if`, not just the branch expression.
       parenthesize
         (prec > 0)
-        ("if" <+> prettyExprPrec 0 cond <+> "then" <+> prettyExprPrec 0 yes <+> "else" <+> prettyExprPrec 0 no)
+        ("if" <+> prettyExprPrec 0 cond <+> "then" <+> prettyIfBranch yes <+> "else" <+> prettyIfBranch no)
     EMultiWayIf _ rhss ->
       parenthesize
         (prec > 0)
