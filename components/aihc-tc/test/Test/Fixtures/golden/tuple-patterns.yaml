@@ -1,0 +1,15 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    data Bool = True | False
+    fst (a, b) = a
+    snd (a, b) = b
+expected:
+  - "Bool :: *"
+  - "True :: Bool"
+  - "False :: Bool"
+  - "fst :: forall a b. (a, b) -> a"
+  - "snd :: forall a b. (a, b) -> b"
+status: xfail
+reason: "tuple patterns not yet supported in type checker"

@@ -1,0 +1,13 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    data Bool = True | False
+    f x | True = x
+expected:
+  - "Bool :: *"
+  - "True :: Bool"
+  - "False :: Bool"
+  - "f :: forall a. a -> a"
+status: xfail
+reason: "pattern guards not yet supported in type checker"

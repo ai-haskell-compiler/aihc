@@ -1,0 +1,14 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    data Bool = True | False
+    asPattern xs@(x:rest) = xs
+    (:) a b = a
+expected:
+  - "Bool :: *"
+  - "True :: Bool"
+  - "False :: Bool"
+  - "asPattern :: forall a. [a] -> [a]"
+status: xfail
+reason: "as-patterns not yet supported"

@@ -1,0 +1,16 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    infixr 9 .
+    (.) f g x = f (g x)
+    f x = x
+    g x = x
+    h = f . g
+expected:
+  - "(.) :: forall a b c. (b -> c) -> (a -> b) -> a -> c"
+  - "f :: forall a. a -> a"
+  - "g :: forall a. a -> a"
+  - "h :: forall a. a -> a"
+status: xfail
+reason: "infix operator definitions not yet fully supported"

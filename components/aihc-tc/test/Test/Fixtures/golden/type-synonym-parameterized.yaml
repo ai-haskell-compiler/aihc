@@ -1,0 +1,15 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    data Bool = True | False
+    type Pair a b = (a, b)
+    p = (True, False)
+expected:
+  - "Bool :: *"
+  - "True :: Bool"
+  - "False :: Bool"
+  - "Pair :: forall a b. * -> * -> *"
+  - "p :: (Bool, Bool)"
+status: xfail
+reason: "parameterized type synonyms not yet supported"
