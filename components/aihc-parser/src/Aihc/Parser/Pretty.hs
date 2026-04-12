@@ -1281,7 +1281,10 @@ prettyTypeSigBody = prettyExprIn CtxTypeSigBody
 prettyIfBranch :: Expr -> Doc ann
 prettyIfBranch expr =
   case expr of
+    -- Branch delimiters handle most greedy expressions, but postfix forms like
+    -- type signatures and where-clauses need parens to stay inside the branch.
     ETypeSig {} -> parens (prettyExprPrec 0 expr)
+    EWhereDecls {} -> parens (prettyExprPrec 0 expr)
     _ -> prettyExprPrec 0 expr
 
 -- | Flatten a left-nested application chain into (root, args).
