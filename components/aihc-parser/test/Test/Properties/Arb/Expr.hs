@@ -330,7 +330,7 @@ genValueDeclsWith allowTHQuotes n = do
     ]
 
 genBindingExprWith :: Bool -> Int -> Gen Expr
-genBindingExprWith allowTHQuotes n = genExprSizedWith allowTHQuotes n
+genBindingExprWith = genExprSizedWith
 
 genDoStmtsWith :: Bool -> Int -> Gen [DoStmt Expr]
 genDoStmtsWith allowTHQuotes n = do

@@ -23,7 +23,7 @@ where
 
 import Aihc.Parser.Syntax
 import Data.Char (GeneralCategory (..), generalCategory)
-import Data.Maybe (catMaybes)
+import Data.Maybe (catMaybes, isJust)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Prettyprinter
@@ -307,7 +307,7 @@ prettyPatSynWhere name (PatSynExplicitBidirectional matches) =
 prettyFunctionMatchLines :: UnqualifiedName -> Match -> [Doc ann]
 prettyFunctionMatchLines name match =
   case matchRhs match of
-    UnguardedRhs _ _ _ -> [prettyFunctionMatch name match]
+    UnguardedRhs {} -> [prettyFunctionMatch name match]
     GuardedRhss _ grhss mWhereDecls ->
       prettyFunctionHead name (matchHeadForm match) (matchPats match)
         : [ "  |"
@@ -316,7 +316,7 @@ prettyFunctionMatchLines name match =
               <+> prettyExprPrec 0 (guardedRhsBody grhs)
           | grhs <- grhss
           ]
-          <> [prettyWhereClause mWhereDecls | mWhereDecls /= Nothing]
+          <> [prettyWhereClause mWhereDecls | isJust mWhereDecls]
 
 prettyFunctionMatch :: UnqualifiedName -> Match -> Doc ann
 prettyFunctionMatch name match =
@@ -342,7 +342,8 @@ prettyRhs rhs =
   case rhs of
     -- For UnguardedRhs, nothing follows the expression, so no parens needed
     UnguardedRhs _ expr whereDecls ->
-      "=" <+> prettyExprPrec 0 expr
+      "="
+        <+> prettyExprPrec 0 expr
         <> prettyWhereClause whereDecls
     -- For GuardedRhss, multiple guards can follow, but brace-terminated
     -- expressions (do, case, \case) are safe. Open-ended expressions
@@ -1501,7 +1502,9 @@ prettyCaseAlt :: CaseAlt -> Doc ann
 prettyCaseAlt (CaseAlt _ pat rhs) =
   case rhs of
     UnguardedRhs _ expr whereDecls ->
-      prettyPattern pat <+> "->" <+> prettyExprPrec 0 expr
+      prettyPattern pat
+        <+> "->"
+        <+> prettyExprPrec 0 expr
         <> prettyWhereClause whereDecls
     GuardedRhss _ grhss whereDecls ->
       hsep

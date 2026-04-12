@@ -1337,7 +1337,7 @@ test_localDeclPatWild =
 test_localDeclFunGuarded :: Assertion
 test_localDeclFunGuarded =
   case parseLetDecls "let { f x | x > 0 = x } in f 1" of
-    Right [DeclValue _ (FunctionBind _ "f" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PVar _ "x"], matchRhs = GuardedRhss _ _ _}])] -> pure ()
+    Right [DeclValue _ (FunctionBind _ "f" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PVar _ "x"], matchRhs = GuardedRhss {}}])] -> pure ()
     other -> assertFailure ("expected guarded function bind, got: " <> show other)
 
 -- Helper: parse a top-level declaration and extract the ValueDecl.

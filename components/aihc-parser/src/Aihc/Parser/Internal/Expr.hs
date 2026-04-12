@@ -50,8 +50,8 @@ exprParserWithTypeSigParser typeSigParser =
     exprCoreParserWithTypeSigParserExcept typeSigParser []
 
 exprParserExcept :: [Text] -> TokParser Expr
-exprParserExcept forbiddenInfix =
-  exprCoreParserWithTypeSigParserExcept typeParser forbiddenInfix
+exprParserExcept =
+  exprCoreParserWithTypeSigParserExcept typeParser
 
 exprParserNoTopLevelTypeSig :: TokParser Expr
 exprParserNoTopLevelTypeSig =
@@ -183,8 +183,7 @@ procExprParser = withSpan $ do
 -- command parser.
 exprParserNoArrowTail :: TokParser Expr
 exprParserNoArrowTail =
-  label "expression" $
-    exprCoreParserNoArrowTail
+  label "expression" exprCoreParserNoArrowTail
 
 exprCoreParserNoArrowTail :: TokParser Expr
 exprCoreParserNoArrowTail = do
