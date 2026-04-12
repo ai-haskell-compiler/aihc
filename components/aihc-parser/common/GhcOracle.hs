@@ -33,13 +33,49 @@ import GHC.Parser.Lexer
     mkParserOpts,
     unP,
   )
-import GHC.Types.Error (NoDiagnosticOpts (NoDiagnosticOpts), errorsFound)
+import GHC.Data.Bag (bagToList)
+import GHC.Types.Error (Diagnostic (..), DiagnosticCode, NoDiagnosticOpts (NoDiagnosticOpts), errorsFound, getMessages, errMsgDiagnostic)
 import GHC.Types.SourceError (SourceError)
 import GHC.Types.SrcLoc (Located, mkRealSrcLoc, unLoc)
 import GHC.Utils.Error (emptyDiagOpts, pprMessages)
 import GHC.Utils.Outputable (ppr, showSDocUnsafe)
 import System.IO.Unsafe (unsafePerformIO)
 import Prelude hiding (foldl')
+
+-- | Render parser error messages with error codes included.
+-- This enhances the standard pprMessages output by injecting GHC error codes
+-- (e.g., [GHC-58481]) to match GHCi's error message format.
+renderErrorsWithCaret :: String -> PState -> Text
+renderErrorsWithCaret _sourceName st =
+  let msgs = getPsErrorMessages st
+      baseMsg = T.pack (showSDocUnsafe (pprMessages NoDiagnosticOpts msgs))
+      envelopes = getMessages msgs
+      envList = bagToList envelopes
+      -- Collect error codes from all envelopes
+      codes = [diagnosticCode (errMsgDiagnostic env) | env <- envList]
+   in injectErrorCodes baseMsg codes
+
+-- | Inject error codes into a base error message string
+injectErrorCodes :: Text -> [Maybe DiagnosticCode] -> Text
+injectErrorCodes baseMsg codes =
+  case (codes, T.lines baseMsg) of
+    ([code], [line]) ->
+      -- Single error, single line: inject code after "error:" if not already present
+      case T.breakOn "error:" line of
+        (prefix, rest)
+          | not (T.null rest) ->
+              -- Check if code is already in the message
+              let codeText = case code of
+                    Just c -> T.pack (show c)
+                    Nothing -> ""
+                  alreadyHasCode = not (T.null codeText) && codeText `T.isInfixOf` rest
+                  rest' = T.drop (T.length "error:") rest
+                  codeSuffix = if alreadyHasCode then "" else case code of
+                    Just c -> " [" <> T.pack (show c) <> "]"
+                    Nothing -> ""
+               in T.stripEnd prefix <> " error:" <> codeSuffix <> rest'
+          | otherwise -> baseMsg
+    _ -> baseMsg  -- Multi-line or multi-error: keep as-is
 
 -- | Compute an AST fingerprint using extension names and a language edition,
 -- reading in-file pragmas to determine the full effective extension set.
@@ -93,8 +129,8 @@ parseWithGhcWithExtensions sourceTag exts input =
                   )
             else Left (renderParserErrors st)
         PFailed st ->
-          let rendered = showSDocUnsafe (pprMessages NoDiagnosticOpts (getPsErrorMessages st))
-           in Left (T.pack rendered) of
+          let rendered = renderErrorsWithCaret sourceTag st
+           in Left rendered of
         Left err -> Left ("GHC parser exception: " <> err)
         Right result -> result
 
@@ -105,11 +141,11 @@ firstSignificantTokenAfterModule st =
       | isIgnorableToken (unLoc tok) -> firstSignificantTokenAfterModule st'
       | otherwise -> Right tok
     PFailed st' ->
-      Left (T.pack (showSDocUnsafe (pprMessages NoDiagnosticOpts (getPsErrorMessages st'))))
+      Left (renderErrorsWithCaret "test.hs" st')
 
 renderParserErrors :: PState -> Text
 renderParserErrors st =
-  T.pack (showSDocUnsafe (pprMessages NoDiagnosticOpts (getPsErrorMessages st)))
+  renderErrorsWithCaret "test.hs" st
 
 parserStateHasErrors :: PState -> Bool
 parserStateHasErrors st = errorsFound (getPsErrorMessages st)
