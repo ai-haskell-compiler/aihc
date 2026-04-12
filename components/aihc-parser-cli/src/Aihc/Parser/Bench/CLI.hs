@@ -45,7 +45,8 @@ data GenerateOptions = GenerateOptions
     genCacheDir :: !(Maybe FilePath),
     genOffline :: !Bool,
     genVerbose :: !Bool,
-    genDryRun :: !Bool
+    genDryRun :: !Bool,
+    genPreprocess :: !Bool
   }
   deriving (Eq, Show)
 
@@ -57,7 +58,8 @@ data BenchOptions = BenchOptions
     benchWarmup :: !Int,
     benchIterations :: !Int,
     benchOutput :: !OutputFormat,
-    benchGcStats :: !Bool
+    benchGcStats :: !Bool,
+    benchNoCpp :: !Bool
   }
   deriving (Eq, Show)
 
@@ -144,6 +146,10 @@ generateParser =
       ( long "dry-run"
           <> help "List packages without downloading or creating tarball"
       )
+    <*> switch
+      ( long "preprocess"
+          <> help "Preprocess sources with CPP before adding to tarball"
+      )
 
 filterOptionsParser :: Parser FilterOptions
 filterOptionsParser =
@@ -213,6 +219,10 @@ benchOptionsParser =
     <*> switch
       ( long "gc-stats"
           <> help "Include GC statistics (requires +RTS -T)"
+      )
+    <*> switch
+      ( long "no-cpp"
+          <> help "Suppress CPP preprocessing even if CPP is enabled in sources"
       )
 
 parseParserChoice :: ReadM ParserChoice

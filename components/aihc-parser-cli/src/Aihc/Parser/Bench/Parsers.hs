@@ -13,9 +13,13 @@ module Aihc.Parser.Bench.Parsers
 
     -- * Parsing with explicit extensions (from cabal files)
     parseWithAihcExts,
+    parseWithAihcExtsWithCpp,
     parseWithHseExts,
+    parseWithHseExtsWithCpp,
     parseWithGhcExts,
+    parseWithGhcExtsWithCpp,
     lexWithAihcExts,
+    lexWithAihcExtsWithCpp,
   )
 where
 
@@ -71,10 +75,14 @@ instance NFData ParseResult where
 --------------------------------------------------------------------------------
 
 -- | Parse with aihc-parser using extensions from cabal file.
--- Handles CPP preprocessing if CPP extension is enabled.
+-- Handles CPP preprocessing if CPP extension is enabled and noCpp is False.
 parseWithAihcExts :: Map FilePath Text -> FilePath -> [String] -> [String] -> Maybe String -> [Text] -> Text -> ParseResult
-parseWithAihcExts includeMap filePath cabalExts cppOptions langName deps source =
-  let (preprocessedSource, extensions) = prepareSourceAndExtensions includeMap filePath cabalExts cppOptions langName deps source
+parseWithAihcExts = parseWithAihcExtsWithCpp False
+
+-- | Parse with aihc-parser, with control over CPP preprocessing.
+parseWithAihcExtsWithCpp :: Bool -> Map FilePath Text -> FilePath -> [String] -> [String] -> Maybe String -> [Text] -> Text -> ParseResult
+parseWithAihcExtsWithCpp noCpp includeMap filePath cabalExts cppOptions langName deps source =
+  let (preprocessedSource, extensions) = prepareSourceAndExtensionsWithCpp noCpp includeMap filePath cabalExts cppOptions langName deps source
       config = Aihc.defaultConfig {Aihc.parserExtensions = extensions}
       (errs, m) = Aihc.parseModule config preprocessedSource
    in if null errs
@@ -84,16 +92,24 @@ parseWithAihcExts includeMap filePath cabalExts cppOptions langName deps source 
 -- | Lex with aihc-parser using extensions from cabal file (lexer-only mode).
 -- Handles CPP preprocessing if CPP extension is enabled.
 lexWithAihcExts :: Map FilePath Text -> FilePath -> [String] -> [String] -> Maybe String -> [Text] -> Text -> ParseResult
-lexWithAihcExts includeMap filePath cabalExts cppOptions langName deps source =
-  let (preprocessedSource, extensions) = prepareSourceAndExtensions includeMap filePath cabalExts cppOptions langName deps source
+lexWithAihcExts = lexWithAihcExtsWithCpp False
+
+-- | Lex with aihc-parser, with control over CPP preprocessing.
+lexWithAihcExtsWithCpp :: Bool -> Map FilePath Text -> FilePath -> [String] -> [String] -> Maybe String -> [Text] -> Text -> ParseResult
+lexWithAihcExtsWithCpp noCpp includeMap filePath cabalExts cppOptions langName deps source =
+  let (preprocessedSource, extensions) = prepareSourceAndExtensionsWithCpp noCpp includeMap filePath cabalExts cppOptions langName deps source
       tokens = AihcLex.lexModuleTokensWithExtensions extensions preprocessedSource
    in tokens `deepseq` ParseSuccess
 
 -- | Parse with haskell-src-exts using extensions from cabal file.
 -- Handles CPP preprocessing if CPP extension is enabled.
 parseWithHseExts :: Map FilePath Text -> FilePath -> [String] -> [String] -> Maybe String -> [Text] -> Text -> ParseResult
-parseWithHseExts includeMap filePath cabalExts cppOptions langName deps source =
-  let (preprocessedSource, extensions) = prepareSourceAndExtensions includeMap filePath cabalExts cppOptions langName deps source
+parseWithHseExts = parseWithHseExtsWithCpp False
+
+-- | Parse with haskell-src-exts, with control over CPP preprocessing.
+parseWithHseExtsWithCpp :: Bool -> Map FilePath Text -> FilePath -> [String] -> [String] -> Maybe String -> [Text] -> Text -> ParseResult
+parseWithHseExtsWithCpp noCpp includeMap filePath cabalExts cppOptions langName deps source =
+  let (preprocessedSource, extensions) = prepareSourceAndExtensionsWithCpp noCpp includeMap filePath cabalExts cppOptions langName deps source
       hseExts = toHseExtensions extensions
       langExts = languageToHseExtensions langName
       baseLang = languageToHseLanguage langName
@@ -110,8 +126,12 @@ parseWithHseExts includeMap filePath cabalExts cppOptions langName deps source =
 -- Handles CPP preprocessing if CPP extension is enabled.
 -- Note: GHC can return POk with errors, so we check for errors even on success.
 parseWithGhcExts :: Map FilePath Text -> FilePath -> [String] -> [String] -> Maybe String -> [Text] -> Text -> ParseResult
-parseWithGhcExts includeMap filePath cabalExts cppOptions langName deps source =
-  let (preprocessedSource, extensions) = prepareSourceAndExtensions includeMap filePath cabalExts cppOptions langName deps source
+parseWithGhcExts = parseWithGhcExtsWithCpp False
+
+-- | Parse with ghc-lib-parser, with control over CPP preprocessing.
+parseWithGhcExtsWithCpp :: Bool -> Map FilePath Text -> FilePath -> [String] -> [String] -> Maybe String -> [Text] -> Text -> ParseResult
+parseWithGhcExtsWithCpp noCpp includeMap filePath cabalExts cppOptions langName deps source =
+  let (preprocessedSource, extensions) = prepareSourceAndExtensionsWithCpp noCpp includeMap filePath cabalExts cppOptions langName deps source
       -- Start with language base extensions
       langExts = languageToGhcExtensions langName
       baseExtSet = EnumSet.fromList langExts :: EnumSet.EnumSet GHC.Extension
@@ -141,13 +161,13 @@ parseWithGhcExts includeMap filePath cabalExts cppOptions langName deps source =
 -- Source preparation with CPP preprocessing
 --------------------------------------------------------------------------------
 
--- | Prepare source for parsing: check for CPP, preprocess if needed, collect extensions.
+-- | Prepare source for parsing, with control over CPP preprocessing.
 -- This implements the two-step extension scanning:
 -- 1. Check if CPP is enabled (from cabal extensions or initial LANGUAGE pragmas)
--- 2. If CPP is enabled, preprocess the source
+-- 2. If CPP is enabled and noCpp is False, preprocess the source
 -- 3. Re-scan the (possibly preprocessed) source for final LANGUAGE pragmas
-prepareSourceAndExtensions :: Map FilePath Text -> FilePath -> [String] -> [String] -> Maybe String -> [Text] -> Text -> (Text, [Syntax.Extension])
-prepareSourceAndExtensions includeMap filePath cabalExts cppOptions langName deps source =
+prepareSourceAndExtensionsWithCpp :: Bool -> Map FilePath Text -> FilePath -> [String] -> [String] -> Maybe String -> [Text] -> Text -> (Text, [Syntax.Extension])
+prepareSourceAndExtensionsWithCpp noCpp includeMap filePath cabalExts cppOptions langName deps source =
   let -- Convert cabal extension names to settings
       cabalSettings = extensionNamesToSettings cabalExts
       -- Get initial extensions from LANGUAGE pragmas (before CPP)
@@ -157,9 +177,9 @@ prepareSourceAndExtensions includeMap filePath cabalExts cppOptions langName dep
       baseExts = languageBaseExtensions langName
       initialExtensions = applyExtensionSettings initialSettings baseExts
       cppEnabled = Syntax.CPP `elem` initialExtensions
-      -- Preprocess if CPP is enabled
+      -- Preprocess if CPP is enabled and noCpp is False
       preprocessedSource =
-        if cppEnabled
+        if cppEnabled && not noCpp
           then runCppWithIncludes includeMap filePath cppOptions deps source
           else source
       -- Re-scan for extensions after preprocessing (CPP can affect LANGUAGE pragmas)

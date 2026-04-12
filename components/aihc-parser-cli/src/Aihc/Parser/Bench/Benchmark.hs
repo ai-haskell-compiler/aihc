@@ -12,7 +12,13 @@ module Aihc.Parser.Bench.Benchmark
 where
 
 import Aihc.Parser.Bench.CLI (BenchOptions (..), ParserChoice (..))
-import Aihc.Parser.Bench.Parsers (ParseResult (..), lexWithAihcExts, parseWithAihcExts, parseWithGhcExts, parseWithHseExts)
+import Aihc.Parser.Bench.Parsers
+  ( ParseResult (..),
+    lexWithAihcExtsWithCpp,
+    parseWithAihcExtsWithCpp,
+    parseWithGhcExtsWithCpp,
+    parseWithHseExtsWithCpp,
+  )
 import Aihc.Parser.Bench.Tarball (PackageInfo (..), PackageSpec (..), TarballEntry (..), isHaskellEntry, isIncludeEntry, streamTarball)
 import Control.DeepSeq (rnf)
 import Control.Exception (evaluate)
@@ -180,11 +186,12 @@ enrichEntry packageInfos entry =
 -- Now uses the entry's extensions, language, and include map for CPP resolution.
 selectParser :: Map.Map FilePath Text -> BenchOptions -> (TarballEntry -> ParseResult)
 selectParser includeMap opts =
-  case (benchParser opts, benchLexerOnly opts) of
-    (ParserAihc, True) -> \e -> lexWithAihcExts includeMap (entryFilePath e) (entryExtensions e) (entryCppOptions e) (entryLanguage e) (entryDependencies e) (entryContents e)
-    (ParserAihc, False) -> \e -> parseWithAihcExts includeMap (entryFilePath e) (entryExtensions e) (entryCppOptions e) (entryLanguage e) (entryDependencies e) (entryContents e)
-    (ParserHse, _) -> \e -> parseWithHseExts includeMap (entryFilePath e) (entryExtensions e) (entryCppOptions e) (entryLanguage e) (entryDependencies e) (entryContents e)
-    (ParserGhc, _) -> \e -> parseWithGhcExts includeMap (entryFilePath e) (entryExtensions e) (entryCppOptions e) (entryLanguage e) (entryDependencies e) (entryContents e)
+  let noCpp = benchNoCpp opts
+   in case (benchParser opts, benchLexerOnly opts) of
+        (ParserAihc, True) -> \e -> lexWithAihcExtsWithCpp noCpp includeMap (entryFilePath e) (entryExtensions e) (entryCppOptions e) (entryLanguage e) (entryDependencies e) (entryContents e)
+        (ParserAihc, False) -> \e -> parseWithAihcExtsWithCpp noCpp includeMap (entryFilePath e) (entryExtensions e) (entryCppOptions e) (entryLanguage e) (entryDependencies e) (entryContents e)
+        (ParserHse, _) -> \e -> parseWithHseExtsWithCpp noCpp includeMap (entryFilePath e) (entryExtensions e) (entryCppOptions e) (entryLanguage e) (entryDependencies e) (entryContents e)
+        (ParserGhc, _) -> \e -> parseWithGhcExtsWithCpp noCpp includeMap (entryFilePath e) (entryExtensions e) (entryCppOptions e) (entryLanguage e) (entryDependencies e) (entryContents e)
 
 -- | Run a single benchmark iteration.
 runSingleIteration :: (TarballEntry -> ParseResult) -> [TarballEntry] -> IO IterationResult
