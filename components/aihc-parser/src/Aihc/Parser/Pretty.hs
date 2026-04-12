@@ -1526,9 +1526,18 @@ prettyCaseAlt (CaseAlt _ pat rhs) =
 prettyGuardQualifier :: GuardQualifier -> Doc ann
 prettyGuardQualifier qualifier =
   case qualifier of
-    GuardExpr _ expr -> prettyExprPrec 0 expr
+    GuardExpr _ expr
+      | guardExprNeedsParens expr -> parens (prettyExprPrec 0 expr)
+      | otherwise -> prettyExprPrec 0 expr
     GuardPat _ pat expr -> prettyPattern pat <+> "<-" <+> prettyExprPrec 0 expr
     GuardLet _ decls -> "let" <+> braces (prettyInlineDecls decls)
+
+guardExprNeedsParens :: Expr -> Bool
+guardExprNeedsParens = \case
+  ELambdaPats {} -> True
+  EProc {} -> True
+  EApp _ _ arg | isBlockExpr arg -> guardExprNeedsParens arg
+  _ -> False
 
 -- | Pretty print a do statement.
 -- Since do blocks are always rendered with explicit braces and semicolons,
