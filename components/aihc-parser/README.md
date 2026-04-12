@@ -38,7 +38,7 @@ Current extension baseline:
 <!-- AUTO-GENERATED: END extension-progress -->
 
 Generated report:
-- `../../docs/haskell-parser-extension-support.md`
+- `../../docs/aihc-parser-supported-extensions.md`
 
 ## Commands
 

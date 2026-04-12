@@ -400,10 +400,10 @@ replace_marker_inline() {
 stale=0
 
 if [ "$mode" = "--update" ]; then
-	cp "$extension_out" docs/haskell-parser-extension-support.md
+	cp "$extension_out" docs/aihc-parser-supported-extensions.md
 else
-	if ! cmp -s docs/haskell-parser-extension-support.md "$extension_out"; then
-		echo "Generated file out of date: docs/haskell-parser-extension-support.md" >&2
+	if ! cmp -s docs/aihc-parser-supported-extensions.md "$extension_out"; then
+		echo "Generated file out of date: docs/aihc-parser-supported-extensions.md" >&2
 		stale=1
 	fi
 fi
