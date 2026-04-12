@@ -285,11 +285,7 @@ lexIdentifier env st =
               (consumed, rest1, isQualified) = gatherQualified hasMagicHash firstChunk rest0
            in case (isQualified || isConIdStart c, rest1) of
                 (True, '.' :< dotRest@(opChar :< _))
-                  | isSymbolicOpChar opChar,
-                    -- When the first op char is '.', require at least one more
-                    -- non-dot symbolic char (e.g. ".&." in M..&.) to avoid
-                    -- consuming the ".." range token in expressions like [A..Z].
-                    opChar /= '.' || T.any (\ch -> isSymbolicOpChar ch && ch /= '.') dotRest ->
+                  | isSymbolicOpChar opChar ->
                       let opChars = T.takeWhile isSymbolicOpChar dotRest
                           fullOp = consumed <> "." <> opChars
                           (modName, opName) = splitQualified (consumed <> ".") opChars
