@@ -130,11 +130,6 @@ genDeclData = DeclData span0 <$> genSimpleDataDecl
 
 genDeclTypeData :: Gen Decl
 genDeclTypeData = do
-  -- FIXME: type data constructors with multiple fields round-trip incorrectly
-  -- because the parser treats adjacent type atoms as type application rather
-  -- than separate constructor fields (e.g. "KFj A B" parses as "KFj (A B)"
-  -- instead of two fields). Restrict to at most 1 field until the parser or
-  -- pretty-printer is fixed.
   name <- mkUnqualifiedName NameConId <$> genTypeConName
   params <- genSimpleTyVarBinders
   ctors <- genTypeDataCons
@@ -155,7 +150,7 @@ genDeclTypeData = do
       vectorOf n genTypeDataCon
     genTypeDataCon = do
       conName <- mkUnqualifiedName NameConId <$> genTypeConName
-      n <- chooseInt (0, 1)
+      n <- chooseInt (0, 3)
       fields <- vectorOf n genSimpleBangType
       pure $ PrefixCon span0 [] [] conName fields
 
