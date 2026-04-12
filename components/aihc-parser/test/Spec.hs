@@ -5,10 +5,13 @@ module Main (main) where
 
 import Aihc.Parser
 import Aihc.Parser.Lex (LexToken (..), LexTokenKind (..), lexTokens, lexTokensFromChunks, lexTokensWithExtensions, readModuleHeaderExtensions, readModuleHeaderExtensionsFromChunks)
+import Aihc.Parser.Pretty ()
 import Aihc.Parser.Syntax
 import Data.List (isInfixOf)
 import Data.Text qualified as T
 import ParserValidation (validateParser)
+import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
+import Prettyprinter.Render.Text (renderStrict)
 import Test.ErrorMessages.Suite (errorMessageTests)
 import Test.ExtensionMapping.Suite (extensionMappingTests)
 import Test.HackageTester.Suite (hackageTesterTests)
@@ -18,6 +21,7 @@ import Test.Parser.Suite (parserGoldenTests)
 import Test.Performance.Suite (parserPerformanceTests)
 import Test.Properties.Arb.Expr (genOperator, isValidGeneratedOperator)
 import Test.Properties.DeclRoundTrip (prop_declPrettyRoundTrip)
+import Test.Properties.ExprHelpers (normalizeDecl, span0)
 import Test.Properties.ExprRoundTrip (prop_exprPrettyRoundTrip)
 import Test.Properties.Identifiers (isValidGeneratedIdent, shrinkIdent)
 import Test.Properties.ModuleRoundTrip (prop_modulePrettyRoundTrip)
@@ -107,6 +111,7 @@ buildTests = do
             testCase "roundtrips warned export reexports" test_warnedExportReexportRoundtrip,
             testCase "parses warned export module reexports" test_warnedExportModuleReexportParses,
             testCase "parses infix class heads" test_infixClassHeadParses,
+            testCase "roundtrips else branches with local where clauses" test_ifElseWhereBranchRoundtrip,
             testCase "parses and roundtrips infix type family heads" test_infixTypeFamilyHeadRoundtrip,
             QC.testProperty "generated operators reject dash-only comment starters" prop_generatedOperatorsRejectDashOnlyCommentStarters
           ],
@@ -422,6 +427,43 @@ test_infixClassHeadParses =
             DeclClass _ ClassDecl {classDeclHeadForm = TypeHeadInfix, classDeclName = ":=:", classDeclParams = [TyVarBinder _ "a" Nothing TyVarBSpecified, TyVarBinder _ "b" Nothing TyVarBSpecified], classDeclItems = [ClassItemTypeSig _ ["proof"] _]}
             ] -> pure ()
           other -> assertFailure ("unexpected parsed declarations: " <> show other)
+
+test_ifElseWhereBranchRoundtrip :: Assertion
+test_ifElseWhereBranchRoundtrip =
+  let elseBranch =
+        EWhereDecls
+          span0
+          (ETypeSig span0 (ETuple span0 Boxed []) (TTuple span0 Boxed Unpromoted []))
+          []
+      expectedDecl =
+        DeclValue
+          span0
+          ( FunctionBind
+              span0
+              "x"
+              [ Match
+                  { matchSpan = span0,
+                    matchHeadForm = MatchHeadPrefix,
+                    matchPats = [],
+                    matchRhs = UnguardedRhs span0 (EIf span0 (EVar span0 "b") (ETuple span0 Boxed []) elseBranch)
+                  }
+              ]
+          )
+      source =
+        renderStrict . layoutPretty defaultLayoutOptions . pretty $
+          Module
+            { moduleSpan = span0,
+              moduleHead = Nothing,
+              moduleLanguagePragmas = [],
+              moduleImports = [],
+              moduleDecls = [expectedDecl]
+            }
+      (errs, modu) = parseModule defaultConfig source
+   in do
+        assertBool ("expected no parse errors, got: " <> show errs <> "\nsource:\n" <> T.unpack source) (null errs)
+        case map normalizeDecl (moduleDecls modu) of
+          [actualDecl] -> assertEqual "roundtripped declaration" (normalizeDecl expectedDecl) actualDecl
+          other -> assertFailure ("unexpected parsed declarations: " <> show other <> "\nsource:\n" <> T.unpack source)
 
 test_infixTypeFamilyHeadRoundtrip :: Assertion
 test_infixTypeFamilyHeadRoundtrip =
