@@ -17,9 +17,9 @@ Find more information here:
 | Name             | Progress                                                                                                                             |
 | ---------------- | -----------------------------------------------------------------------------------------------------------------------------------: |
 | Resolve Stackage | `0/3390` (`0.00%`)                                                                                                                   |
-| Parser Stackage  | <!-- AUTO-GENERATED: START parser-stackage-progress --> `2709/3390` (`79.91%`) <!-- AUTO-GENERATED: END parser-stackage-progress --> |
-| Resolve Tests    | <!-- AUTO-GENERATED: START resolve-progress --> `0/4` (`0.00%`) <!-- AUTO-GENERATED: END resolve-progress -->                        |
-| Parser Tests     | <!-- AUTO-GENERATED: START parser-progress --> `769/798` (`96.37%`) <!-- AUTO-GENERATED: END parser-progress -->                     |
+| Parser Stackage  | <!-- AUTO-GENERATED: START parser-stackage-progress --> `2831/3390` (`83.51%`) <!-- AUTO-GENERATED: END parser-stackage-progress --> |
+| Resolve Tests    | <!-- AUTO-GENERATED: START resolve-progress --> `8/8` (`100.00%`) <!-- AUTO-GENERATED: END resolve-progress -->                        |
+| Parser Tests     | <!-- AUTO-GENERATED: START parser-progress --> `798/821` (`97.20%`) <!-- AUTO-GENERATED: END parser-progress -->                     |
 | Lexer Tests      | <!-- AUTO-GENERATED: START lexer-progress --> `90/90` (`100.00%`) <!-- AUTO-GENERATED: END lexer-progress -->                         |
 | CPP Tests        | <!-- AUTO-GENERATED: START cpp-progress --> `38/38` (`100.00%`) <!-- AUTO-GENERATED: END cpp-progress -->                            |
 
@@ -30,10 +30,10 @@ Find more information here:
 | Component       |   Code |   Tests |   Total |
 |-----------------|--------|---------|---------|
 | aihc-cpp        |   1522 |     525 |    2047 |
-| aihc-parser     |  10464 |   14989 |   25453 |
-| aihc-parser-cli |   1883 |     379 |    2262 |
-| aihc-resolve    |     94 |     399 |     493 |
-| **Total**       |  13963 |   16292 |   30255 |
+| aihc-parser     |  10582 |   14079 |   24661 |
+| aihc-parser-cli |   1624 |     379 |    2003 |
+| aihc-resolve    |   1012 |     583 |    1595 |
+| **Total**       |  14740 |   15566 |   30306 |
 ```
 <!-- AUTO-GENERATED: END line-counts -->
 

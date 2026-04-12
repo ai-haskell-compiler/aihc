@@ -2,9 +2,9 @@
 
 ## Summary
 
-- Total Extensions: 79
-- Supported: 70
-- In Progress: 9
+- Total Extensions: 80
+- Supported: 73
+- In Progress: 7
 
 ## Extension Status
 
@@ -19,7 +19,7 @@
 | ConstrainedClassMethods    |   🟢    | 1/1           |
 | ConstraintKinds            |   🟢    | 2/2           |
 | CPP                        |   🟢    | 7/7           |
-| DataKinds                  |   🟡    | 27/28         |
+| DataKinds                  |   🟡    | 28/30         |
 | DefaultSignatures          |   🟢    | 3/3           |
 | DeriveAnyClass             |   🟢    | 1/1           |
 | DerivingStrategies         |   🟢    | 8/8           |
@@ -31,17 +31,17 @@
 | ExistentialQuantification  |   🟢    | 7/7           |
 | ExplicitForAll             |   🟢    | 16/16         |
 | ExplicitLevelImports       |   🟢    | 4/4           |
-| ExplicitNamespaces         |   🟢    | 22/22         |
+| ExplicitNamespaces         |   🟢    | 23/23         |
 | ExtendedLiterals           |   🟢    | 2/2           |
 | FlexibleContexts           |   🟢    | 4/4           |
 | FlexibleInstances          |   🟢    | 14/14         |
 | ForeignFunctionInterface   |   🟢    | 40/40         |
 | FunctionalDependencies     |   🟢    | 7/7           |
 | GADTs                      |   🟢    | 10/10         |
-| GADTSyntax                 |   🟡    | 9/10          |
+| GADTSyntax                 |   🟢    | 10/10         |
 | GeneralizedNewtypeDeriving |   🟢    | 1/1           |
-| GHC2021                    |   🔴    | 17/22         |
-| Haskell2010                |   🟢    | 1/1           |
+| GHC2021                    |   🔴    | 19/23         |
+| Haskell2010                |   🟢    | 6/6           |
 | HexFloatLiterals           |   🟢    | 3/3           |
 | ImplicitParams             |   🟢    | 7/7           |
 | ImportQualifiedPost        |   🟢    | 4/4           |
@@ -61,14 +61,15 @@
 | OverloadedRecordDot        |   🟢    | 1/1           |
 | OverloadedStrings          |   🟢    | 1/1           |
 | PackageImports             |   🟢    | 6/6           |
+| ParallelListComp           |   🟢    | 2/2           |
 | PartialTypeSignatures      |   🟢    | 11/11         |
 | PatternGuards              |   🟢    | 5/5           |
 | PatternSynonyms            |   🟢    | 24/24         |
 | PolyKinds                  |   🟢    | 6/6           |
 | QualifiedDo                |   🟢    | 1/1           |
-| QuasiQuotes                |   🔴    | 4/5           |
+| QuasiQuotes                |   🟢    | 5/5           |
 | RankNTypes                 |   🟢    | 2/2           |
-| RecordWildCards            |   🟢    | 5/5           |
+| RecordWildCards            |   🟢    | 8/8           |
 | RecursiveDo                |   🟢    | 2/2           |
 | RequiredTypeArguments      |   🔴    | 0/2           |
 | RoleAnnotations            |   🟢    | 7/7           |
@@ -77,16 +78,16 @@
 | StandaloneDeriving         |   🟢    | 16/16         |
 | StandaloneKindSignatures   |   🟢    | 10/10         |
 | StarIsType                 |   🟢    | 1/1           |
-| TemplateHaskell            |   🔴    | 21/25         |
-| TemplateHaskellQuotes      |   🟢    | 8/8           |
+| TemplateHaskell            |   🟡    | 28/30         |
+| TemplateHaskellQuotes      |   🔴    | 8/9           |
 | TupleSections              |   🟢    | 4/4           |
 | TypeApplications           |   🟢    | 8/8           |
 | TypeData                   |   🟢    | 1/1           |
-| TypeFamilies               |   🟡    | 27/28         |
-| TypeOperators              |   🟡    | 29/30         |
+| TypeFamilies               |   🟢    | 28/28         |
+| TypeOperators              |   🟡    | 30/31         |
 | TypeSynonymInstances       |   🟢    | 1/1           |
-| UnboxedSums                |   🟢    | 3/3           |
-| UnboxedTuples              |   🟢    | 7/7           |
+| UnboxedSums                |   🟢    | 5/5           |
+| UnboxedTuples              |   🟢    | 9/9           |
 | UnicodeSyntax              |   🟢    | 15/15         |
-| ViewPatterns               |   🟢    | 9/9           |
+| ViewPatterns               |   🟢    | 11/11         |
 
