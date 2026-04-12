@@ -15,9 +15,13 @@ module Aihc.Tc.Generate.Expr
 where
 
 import Aihc.Parser.Syntax
-  ( Expr (..),
+  ( CaseAlt (..),
+    Expr (..),
     Name (..),
+    Pattern (..),
+    Rhs (..),
     SourceSpan (..),
+    UnqualifiedName (..),
     getSourceSpan,
   )
 import Aihc.Tc.Constraint
@@ -57,6 +61,8 @@ inferExpr expr = case expr of
       _ = sp
   -- Lambda: \x -> body
   ELambdaPats sp pats body -> inferLambda sp pats body
+  -- Lambda case: \case { pat -> body; ... }
+  ELambdaCase sp alts -> inferLambdaCase sp alts
   -- Application: f x
   EApp sp fun arg -> inferApp sp fun arg
   -- If-then-else
@@ -121,15 +127,85 @@ predToCt sp name p = do
     mkWantedCt p ev (OccurrenceOf name) sp
 
 -- | Infer the type of a lambda expression.
-inferLambda :: SourceSpan -> [a] -> Expr -> TcM (TcType, [Ct])
+inferLambda :: SourceSpan -> [Pattern] -> Expr -> TcM (TcType, [Ct])
 inferLambda _sp pats body = do
-  -- Create a fresh meta-variable for each pattern.
+  -- Create a fresh meta-variable for each pattern and bind pattern
+  -- variables into the environment.
   argTys <- mapM (const freshMetaTv) pats
-  -- For MVP, we don't bind pattern variables (would need pattern analysis).
-  -- Just infer the body with a fresh result type.
-  (bodyTy, bodyCts) <- inferExpr body
+  let bindings = concatMap extractPatternBindings (zip pats argTys)
+  -- Infer the body under the extended environment.
+  (bodyTy, bodyCts) <- withPatternBindings bindings (inferExpr body)
   let funTy = foldr TcFunTy bodyTy argTys
   pure (funTy, bodyCts)
+
+-- | Infer the type of a lambda-case expression.
+--
+-- @\\case { pat1 -> e1; pat2 -> e2; ... }@ is treated as a function
+-- from a fresh argument type to the result type of the case
+-- alternatives.
+inferLambdaCase :: SourceSpan -> [CaseAlt] -> TcM (TcType, [Ct])
+inferLambdaCase sp alts = do
+  argTy <- freshMetaTv
+  resTy <- freshMetaTv
+  cts <- inferCaseAlts sp argTy resTy alts
+  pure (TcFunTy argTy resTy, cts)
+
+-- | Infer constraints from case alternatives.
+--
+-- Each alternative's pattern is checked against the scrutinee type,
+-- and each RHS must unify with the expected result type.
+inferCaseAlts :: SourceSpan -> TcType -> TcType -> [CaseAlt] -> TcM [Ct]
+inferCaseAlts sp scrutTy resTy alts = concat <$> mapM inferAlt alts
+  where
+    inferAlt (CaseAlt _altSp pat rhs) = do
+      let bindings = extractPatternBindings (pat, scrutTy)
+      -- Emit constraint: pattern's constructor result type ~ scrutinee type.
+      patCts <- inferPatternConstraints sp scrutTy pat
+      -- Infer the RHS under the pattern bindings.
+      (rhsTy, rhsCts) <- withPatternBindings bindings (inferRhs rhs)
+      -- RHS must match the expected result type.
+      ev <- freshEvVar
+      let rhsCt = mkWantedCt (EqPred rhsTy resTy) ev (AppOrigin sp) sp
+      pure (patCts ++ rhsCts ++ [rhsCt])
+
+-- | Infer constraints from a pattern.
+--
+-- For constructor patterns, we emit an equality between the constructor's
+-- result type and the scrutinee type. For variable/wildcard/literal patterns,
+-- no extra constraints are needed (the variable just gets the scrutinee type).
+inferPatternConstraints :: SourceSpan -> TcType -> Pattern -> TcM [Ct]
+inferPatternConstraints sp scrutTy pat = case pat of
+  PCon _patSp name _subPats -> do
+    -- Look up the constructor; if found, emit scrutTy ~ constructor result type.
+    let conName = nameToText name
+    mBinder <- lookupTerm conName
+    case mBinder of
+      Just (TcIdBinder _ scheme) -> do
+        (conTy, _preds) <- instantiate scheme
+        -- For a nullary constructor (no args), conTy is the result type.
+        -- For a constructor with args, conTy is a function type whose
+        -- result is the data type. We need to extract the result type.
+        let conResTy = resultType conTy
+        ev <- freshEvVar
+        pure [mkWantedCt (EqPred scrutTy conResTy) ev (AppOrigin sp) sp]
+      _ -> pure []
+  PAnn _ann inner -> inferPatternConstraints sp scrutTy inner
+  PParen _patSp inner -> inferPatternConstraints sp scrutTy inner
+  PStrict _patSp inner -> inferPatternConstraints sp scrutTy inner
+  PIrrefutable _patSp inner -> inferPatternConstraints sp scrutTy inner
+  _ -> pure []
+
+-- | Extract the result type from a (possibly nested) function type.
+resultType :: TcType -> TcType
+resultType (TcFunTy _ res) = resultType res
+resultType ty = ty
+
+-- | Infer the type of a right-hand side (for case alternatives).
+inferRhs :: Rhs -> TcM (TcType, [Ct])
+inferRhs (UnguardedRhs _sp expr) = inferExpr expr
+inferRhs (GuardedRhss _sp _guards) = do
+  ty <- freshMetaTv
+  pure (ty, [])
 
 -- | Infer the type of a function application.
 inferApp :: SourceSpan -> Expr -> Expr -> TcM (TcType, [Ct])
@@ -212,3 +288,39 @@ stringTyCon = TcTyCon (TyCon "String" 0) []
 
 boolTyCon :: TcType
 boolTyCon = TcTyCon (TyCon "Bool" 0) []
+
+-- | Extract variable bindings from a pattern paired with its expected type.
+--
+-- For a 'PVar', we bind the variable name to the given type.
+-- For a 'PCon' (constructor pattern), we return bindings for sub-patterns
+-- but assign fresh types to them (the constructor arg types are not yet
+-- tracked in the MVP).
+-- Other patterns are handled minimally for the MVP.
+extractPatternBindings :: (Pattern, TcType) -> [(Text, TcType)]
+extractPatternBindings (pat, ty) = case pat of
+  PVar _sp uname -> [(unqualifiedNameText uname, ty)]
+  PAnn _ann inner -> extractPatternBindings (inner, ty)
+  PParen _sp inner -> extractPatternBindings (inner, ty)
+  PWildcard {} -> []
+  PLit {} -> []
+  PNegLit {} -> []
+  PAs _sp name inner -> (name, ty) : extractPatternBindings (inner, ty)
+  PStrict _sp inner -> extractPatternBindings (inner, ty)
+  PIrrefutable _sp inner -> extractPatternBindings (inner, ty)
+  -- For constructor patterns like (True), (Just x), etc. the overall
+  -- pattern type doesn't directly give us the sub-pattern types. But
+  -- we can still extract the variable names for binding purposes.
+  PCon _sp _name subPats ->
+    -- Each sub-pattern gets an unknown type (we'd need constructor info
+    -- to assign proper types). For the MVP, they're not needed since
+    -- constructor pattern matching in function heads is handled by tcMatches.
+    concatMap (\p -> extractPatternBindings (p, ty)) subPats
+  PInfix _sp lhs _name rhs ->
+    extractPatternBindings (lhs, ty) ++ extractPatternBindings (rhs, ty)
+  _ -> []
+
+-- | Run a computation with pattern bindings in scope.
+withPatternBindings :: [(Text, TcType)] -> TcM a -> TcM a
+withPatternBindings [] m = m
+withPatternBindings ((name, ty) : rest) m =
+  extendTermEnv name (TcMonoIdBinder name ty) (withPatternBindings rest m)

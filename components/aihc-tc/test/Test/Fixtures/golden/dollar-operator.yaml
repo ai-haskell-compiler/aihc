@@ -4,6 +4,6 @@ modules:
     module Test where
     f $ x = f x
 expected:
-  - "($) :: (a -> b) -> a -> b"
-status: xfail
-reason: "tcMatches ignores function argument patterns, so `f` and `x` in the RHS are unbound variables"
+  - "($) :: forall a b. (a -> b) -> a -> b"
+status: pass
+reason: ""
