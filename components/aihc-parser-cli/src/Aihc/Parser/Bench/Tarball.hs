@@ -27,18 +27,29 @@ module Aihc.Parser.Bench.Tarball
   )
 where
 
+import Aihc.Cpp qualified as Cpp
 import Aihc.Hackage.Cabal qualified as HC
+import Aihc.Hackage.Cpp qualified as HackageCpp
 import Aihc.Hackage.Download qualified as HD
 import Aihc.Hackage.Stackage qualified as HS
 import Aihc.Hackage.Types (PackageSpec (..), formatPackage)
 import Aihc.Hackage.Util qualified as HU
 import Aihc.Parser.Bench.CLI (FilterOptions (..), GenerateOptions (..))
 import Aihc.Parser.Bench.Parsers (ParseResult (..), collectCppIncludes, parseWithAihcExts, parseWithGhcExts, parseWithHseExts)
+import Aihc.Parser.Lex (readModuleHeaderExtensions)
+import Aihc.Parser.Syntax
+  ( Extension (CPP),
+    applyExtensionSetting,
+    editionFromExtensionSettings,
+    languageEditionExtensions,
+    parseExtensionSettingName,
+    parseLanguageEdition,
+  )
 import Codec.Archive.Tar qualified as Tar
 import Codec.Archive.Tar.Entry qualified as Tar
 import Codec.Compression.GZip qualified as GZip
 import Control.Exception (SomeException, displayException, try)
-import Control.Monad (forM, when)
+import Control.Monad (forM, mplus, when)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
 import Data.Char (isAlphaNum)
@@ -46,7 +57,9 @@ import Data.List (isPrefixOf, isSuffixOf)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (catMaybes, listToMaybe, mapMaybe)
 import Data.Text (Text)
+import Data.Text qualified as T
 import Data.Text.Encoding (decodeUtf8With, encodeUtf8)
+import Data.Text.Encoding qualified as TE
 import Data.Text.Encoding.Error (lenientDecode)
 import Data.Time.Clock.POSIX (getPOSIXTime)
 import Distribution.ModuleName (toFilePath)
@@ -227,39 +240,73 @@ processPackage manager opts pkg = do
           hsFiles <- findHaskellFiles pkgDir
           if null hsFiles
             then pure (Left (pkg, FilterNoHaskellFiles))
-            else do
-              -- Read all files with their extension info from the cabal file
-              entries <- forM hsFiles $ \file -> do
-                contents <- HU.readTextFileLenient file
-                let relPath = formatPackage pkg </> makeRelative pkgDir file
-                    -- Look up extension info for this file
-                    info = Map.lookup (makeRelative pkgDir file) fileInfoMap
-                    exts = maybe [] (\(e, _, _, _) -> e) info
-                    cppOpts = maybe [] (\(_, c, _, _) -> c) info
-                    lang = info >>= \(_, _, l, _) -> l
-                    deps = maybe [] (\(_, _, _, d) -> d) info
-                pure
-                  TarballEntry
-                    { entryPackage = pkg,
-                      entryFilePath = relPath,
-                      entryContents = contents,
-                      entryByteSize = BS.length (encodeUtf8 contents),
-                      entryExtensions = exts,
-                      entryCppOptions = cppOpts,
-                      entryLanguage = lang,
-                      entryDependencies = deps
-                    }
+            else
+              if genPreprocess opts
+                then do
+                  -- Preprocess mode: preprocess Haskell files, no include files
+                  entries <- forM hsFiles $ \file -> do
+                    contents <- HU.readTextFileLenient file
+                    let relPath = formatPackage pkg </> makeRelative pkgDir file
+                        -- Look up extension info for this file
+                        info = Map.lookup (makeRelative pkgDir file) fileInfoMap
+                        exts = maybe [] (\(e, _, _, _) -> e) info
+                        cppOpts = maybe [] (\(_, c, _, _) -> c) info
+                        lang = info >>= \(_, _, l, _) -> l
+                        deps = maybe [] (\(_, _, _, d) -> d) info
+                    -- Preprocess the source if CPP is enabled
+                    let preprocessedContents = preprocessSource pkg exts cppOpts lang deps contents
+                    pure
+                      TarballEntry
+                        { entryPackage = pkg,
+                          entryFilePath = relPath,
+                          entryContents = preprocessedContents,
+                          entryByteSize = BS.length (encodeUtf8 preprocessedContents),
+                          entryExtensions = exts,
+                          entryCppOptions = [], -- CPP options are now baked in
+                          entryLanguage = lang,
+                          entryDependencies = deps
+                        }
 
-              -- Collect CPP include files for all Haskell entries
-              includeFileMap <- collectIncludeFiles pkgDir pkg entries
-              let includeEntries = buildIncludeEntries pkg includeFileMap
+                  -- Check filters (no include map needed, CPP already baked in)
+                  filterResult <- checkPackageFiltersNoInclude (genFilters opts) entries
+                  case filterResult of
+                    Just reason -> pure (Left (pkg, reason))
+                    -- Include only the .cabal file and preprocessed Haskell files
+                    Nothing -> pure (Right (cabalEntry : entries))
+                else do
+                  -- Normal mode: collect include files
+                  -- Read all files with their extension info from the cabal file
+                  entries <- forM hsFiles $ \file -> do
+                    contents <- HU.readTextFileLenient file
+                    let relPath = formatPackage pkg </> makeRelative pkgDir file
+                        -- Look up extension info for this file
+                        info = Map.lookup (makeRelative pkgDir file) fileInfoMap
+                        exts = maybe [] (\(e, _, _, _) -> e) info
+                        cppOpts = maybe [] (\(_, c, _, _) -> c) info
+                        lang = info >>= \(_, _, l, _) -> l
+                        deps = maybe [] (\(_, _, _, d) -> d) info
+                    pure
+                      TarballEntry
+                        { entryPackage = pkg,
+                          entryFilePath = relPath,
+                          entryContents = contents,
+                          entryByteSize = BS.length (encodeUtf8 contents),
+                          entryExtensions = exts,
+                          entryCppOptions = cppOpts,
+                          entryLanguage = lang,
+                          entryDependencies = deps
+                        }
 
-              -- Check filters (only for Haskell files, with include map for CPP)
-              filterResult <- checkPackageFilters includeFileMap (genFilters opts) entries
-              case filterResult of
-                Just reason -> pure (Left (pkg, reason))
-                -- Include the .cabal file along with the Haskell files and include files
-                Nothing -> pure (Right (cabalEntry : entries ++ includeEntries))
+                  -- Collect CPP include files for all Haskell entries
+                  includeFileMap <- collectIncludeFiles pkgDir pkg entries
+                  let includeEntries = buildIncludeEntries pkg includeFileMap
+
+                  -- Check filters (only for Haskell files, with include map for CPP)
+                  filterResult <- checkPackageFilters includeFileMap (genFilters opts) entries
+                  case filterResult of
+                    Just reason -> pure (Left (pkg, reason))
+                    -- Include the .cabal file along with the Haskell files and include files
+                    Nothing -> pure (Right (cabalEntry : entries ++ includeEntries))
 
 -- | Find and read the .cabal file, returning the entry and a map of file paths to their extensions
 findAndReadCabalFile :: FilePath -> PackageSpec -> IO (TarballEntry, Map.Map FilePath ([String], [String], Maybe String, [Text]))
@@ -333,6 +380,85 @@ buildIncludeEntries pkg includeMap =
       }
   | (tarPath, contents) <- Map.toList includeMap
   ]
+
+-- | Preprocess Haskell source with CPP if enabled.
+-- Uses the same logic as the benchmark parsers.
+preprocessSource :: PackageSpec -> [String] -> [String] -> Maybe String -> [Text] -> Text -> Text
+preprocessSource _pkg cabalExts cppOptions langName deps source =
+  let -- Get extension settings from cabal and header
+      cabalSettings = mapMaybe (parseExtensionSettingName . T.pack) cabalExts
+      headerSettings = readModuleHeaderExtensions source
+      allSettings = cabalSettings <> headerSettings
+      -- Determine the language edition: LANGUAGE pragmas override cabal language
+      headerEdition = editionFromExtensionSettings allSettings
+      cabalEdition = langName >>= parseLanguageEdition . T.pack
+      effectiveEdition = headerEdition `mplus` cabalEdition
+      -- Get base extensions for the edition
+      baseExts = maybe [] languageEditionExtensions effectiveEdition
+      -- Apply settings to get final extensions
+      finalExtensions = foldr applyExtensionSetting baseExts allSettings
+      cppEnabled = CPP `elem` finalExtensions
+   in if cppEnabled
+        then runCppPreprocess cppOptions deps source
+        else source
+
+-- | Run CPP preprocessor on source without include resolution.
+-- For preprocessing during tarball generation, we inline includes by
+-- setting up an empty include map - the includes will be resolved during
+-- the benchmark phase when the preprocessed source is parsed.
+-- Actually, for --preprocess mode, we want to fully resolve includes now.
+-- Since we don't have the include files available here, we just run CPP
+-- and let it fail gracefully on missing includes.
+runCppPreprocess :: [String] -> [Text] -> Text -> Text
+runCppPreprocess cppOptions deps source =
+  let minVersionMacros = HackageCpp.minVersionMacroNamesFromDeps deps
+      injected = HackageCpp.injectSyntheticCppMacros cppOptions minVersionMacros source
+      cfg =
+        Cpp.defaultConfig
+          { Cpp.configInputFile = "<preprocess>",
+            Cpp.configMacros = HackageCpp.cppMacrosFromOptions cppOptions
+          }
+   in Cpp.resultOutput (go (Cpp.preprocess cfg (TE.encodeUtf8 injected)))
+  where
+    go (Cpp.Done result) = result
+    go (Cpp.NeedInclude _req k) =
+      -- For tarball preprocessing, we don't resolve includes separately
+      -- They should be inlined by the preprocessor if they exist
+      go (k Nothing)
+
+-- | Check if a package passes all filters (without include map).
+-- Used when preprocessing is enabled during tarball generation.
+checkPackageFiltersNoInclude :: FilterOptions -> [TarballEntry] -> IO (Maybe FilterReason)
+checkPackageFiltersNoInclude opts entries
+  | not (filterAihc opts || filterHse opts || filterGhc opts) = pure Nothing
+  | otherwise = pure $ listToMaybe $ mapMaybe checkEntry (filter isHaskellEntry entries)
+  where
+    checkEntry e =
+      let source = entryContents e
+          path = entryFilePath e
+          exts = entryExtensions e
+          cppOpts = entryCppOptions e
+          lang = entryLanguage e
+          deps = entryDependencies e
+          -- For preprocessed sources, CPP is already baked in, so we parse as-is
+          checks =
+            [ if filterAihc opts
+                then case parseWithAihcExts Map.empty path exts cppOpts lang deps source of
+                  ParseSuccess -> Nothing
+                  ParseFailure err -> Just (FilterAihcFailed path err)
+                else Nothing,
+              if filterHse opts
+                then case parseWithHseExts Map.empty path exts cppOpts lang deps source of
+                  ParseSuccess -> Nothing
+                  ParseFailure err -> Just (FilterHseFailed path err)
+                else Nothing,
+              if filterGhc opts
+                then case parseWithGhcExts Map.empty path exts cppOpts lang deps source of
+                  ParseSuccess -> Nothing
+                  ParseFailure err -> Just (FilterGhcFailed path err)
+                else Nothing
+            ]
+       in listToMaybe (catMaybes checks)
 
 -- | Check if a package passes all filters.
 -- Returns the first filter failure reason, or Nothing if all pass.

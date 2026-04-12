@@ -13,9 +13,13 @@ module Aihc.Parser.Bench.Parsers
 
     -- * Parsing with explicit extensions (from cabal files)
     parseWithAihcExts,
+    parseWithAihcExtsWithCpp,
     parseWithHseExts,
+    parseWithHseExtsWithCpp,
     parseWithGhcExts,
+    parseWithGhcExtsWithCpp,
     lexWithAihcExts,
+    lexWithAihcExtsWithCpp,
   )
 where
 
@@ -23,9 +27,20 @@ import Aihc.Cpp qualified as Cpp
 import Aihc.Hackage.Cpp qualified as HackageCpp
 import Aihc.Hackage.Util qualified as HU
 import Aihc.Parser qualified as Aihc
+import Aihc.Parser.Lex (readModuleHeaderExtensions)
 import Aihc.Parser.Lex qualified as AihcLex
-import Aihc.Parser.Syntax qualified as Syntax
+import Aihc.Parser.Syntax
+  ( Extension (CPP),
+    applyExtensionSetting,
+    editionFromExtensionSettings,
+    extensionName,
+    languageEditionExtensions,
+    parseExtensionSettingName,
+    parseLanguageEdition,
+  )
+import Aihc.Parser.Syntax qualified as AihcSyntax
 import Control.DeepSeq (NFData (..), deepseq)
+import Control.Monad (mplus)
 import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -71,10 +86,14 @@ instance NFData ParseResult where
 --------------------------------------------------------------------------------
 
 -- | Parse with aihc-parser using extensions from cabal file.
--- Handles CPP preprocessing if CPP extension is enabled.
+-- Handles CPP preprocessing if CPP extension is enabled and noCpp is False.
 parseWithAihcExts :: Map FilePath Text -> FilePath -> [String] -> [String] -> Maybe String -> [Text] -> Text -> ParseResult
-parseWithAihcExts includeMap filePath cabalExts cppOptions langName deps source =
-  let (preprocessedSource, extensions) = prepareSourceAndExtensions includeMap filePath cabalExts cppOptions langName deps source
+parseWithAihcExts = parseWithAihcExtsWithCpp False
+
+-- | Parse with aihc-parser, with control over CPP preprocessing.
+parseWithAihcExtsWithCpp :: Bool -> Map FilePath Text -> FilePath -> [String] -> [String] -> Maybe String -> [Text] -> Text -> ParseResult
+parseWithAihcExtsWithCpp noCpp includeMap filePath cabalExts cppOptions langName deps source =
+  let (preprocessedSource, extensions) = prepareSourceAndExtensionsWithCpp noCpp includeMap filePath cabalExts cppOptions langName deps source
       config = Aihc.defaultConfig {Aihc.parserExtensions = extensions}
       (errs, m) = Aihc.parseModule config preprocessedSource
    in if null errs
@@ -84,16 +103,24 @@ parseWithAihcExts includeMap filePath cabalExts cppOptions langName deps source 
 -- | Lex with aihc-parser using extensions from cabal file (lexer-only mode).
 -- Handles CPP preprocessing if CPP extension is enabled.
 lexWithAihcExts :: Map FilePath Text -> FilePath -> [String] -> [String] -> Maybe String -> [Text] -> Text -> ParseResult
-lexWithAihcExts includeMap filePath cabalExts cppOptions langName deps source =
-  let (preprocessedSource, extensions) = prepareSourceAndExtensions includeMap filePath cabalExts cppOptions langName deps source
+lexWithAihcExts = lexWithAihcExtsWithCpp False
+
+-- | Lex with aihc-parser, with control over CPP preprocessing.
+lexWithAihcExtsWithCpp :: Bool -> Map FilePath Text -> FilePath -> [String] -> [String] -> Maybe String -> [Text] -> Text -> ParseResult
+lexWithAihcExtsWithCpp noCpp includeMap filePath cabalExts cppOptions langName deps source =
+  let (preprocessedSource, extensions) = prepareSourceAndExtensionsWithCpp noCpp includeMap filePath cabalExts cppOptions langName deps source
       tokens = AihcLex.lexModuleTokensWithExtensions extensions preprocessedSource
    in tokens `deepseq` ParseSuccess
 
 -- | Parse with haskell-src-exts using extensions from cabal file.
 -- Handles CPP preprocessing if CPP extension is enabled.
 parseWithHseExts :: Map FilePath Text -> FilePath -> [String] -> [String] -> Maybe String -> [Text] -> Text -> ParseResult
-parseWithHseExts includeMap filePath cabalExts cppOptions langName deps source =
-  let (preprocessedSource, extensions) = prepareSourceAndExtensions includeMap filePath cabalExts cppOptions langName deps source
+parseWithHseExts = parseWithHseExtsWithCpp False
+
+-- | Parse with haskell-src-exts, with control over CPP preprocessing.
+parseWithHseExtsWithCpp :: Bool -> Map FilePath Text -> FilePath -> [String] -> [String] -> Maybe String -> [Text] -> Text -> ParseResult
+parseWithHseExtsWithCpp noCpp includeMap filePath cabalExts cppOptions langName deps source =
+  let (preprocessedSource, extensions) = prepareSourceAndExtensionsWithCpp noCpp includeMap filePath cabalExts cppOptions langName deps source
       hseExts = toHseExtensions extensions
       langExts = languageToHseExtensions langName
       baseLang = languageToHseLanguage langName
@@ -110,8 +137,12 @@ parseWithHseExts includeMap filePath cabalExts cppOptions langName deps source =
 -- Handles CPP preprocessing if CPP extension is enabled.
 -- Note: GHC can return POk with errors, so we check for errors even on success.
 parseWithGhcExts :: Map FilePath Text -> FilePath -> [String] -> [String] -> Maybe String -> [Text] -> Text -> ParseResult
-parseWithGhcExts includeMap filePath cabalExts cppOptions langName deps source =
-  let (preprocessedSource, extensions) = prepareSourceAndExtensions includeMap filePath cabalExts cppOptions langName deps source
+parseWithGhcExts = parseWithGhcExtsWithCpp False
+
+-- | Parse with ghc-lib-parser, with control over CPP preprocessing.
+parseWithGhcExtsWithCpp :: Bool -> Map FilePath Text -> FilePath -> [String] -> [String] -> Maybe String -> [Text] -> Text -> ParseResult
+parseWithGhcExtsWithCpp noCpp includeMap filePath cabalExts cppOptions langName deps source =
+  let (preprocessedSource, extensions) = prepareSourceAndExtensionsWithCpp noCpp includeMap filePath cabalExts cppOptions langName deps source
       -- Start with language base extensions
       langExts = languageToGhcExtensions langName
       baseExtSet = EnumSet.fromList langExts :: EnumSet.EnumSet GHC.Extension
@@ -119,7 +150,7 @@ parseWithGhcExts includeMap filePath cabalExts cppOptions langName deps source =
       ghcSettings = map toGhcExtensionSetting extensions
       finalExtSet = List.foldl' applyGhcExtensionSetting baseExtSet ghcSettings
       -- Apply implied extensions
-      extSet = applyImpliedExtensions finalExtSet
+      extSet = applyGhcImpliedExtensions finalExtSet
       opts = mkParserOpts extSet emptyDiagOpts False False False True
       buffer = stringToStringBuffer (T.unpack preprocessedSource)
       start = mkRealSrcLoc (mkFastString "<bench>") 1 1
@@ -141,31 +172,37 @@ parseWithGhcExts includeMap filePath cabalExts cppOptions langName deps source =
 -- Source preparation with CPP preprocessing
 --------------------------------------------------------------------------------
 
--- | Prepare source for parsing: check for CPP, preprocess if needed, collect extensions.
+-- | Prepare source for parsing, with control over CPP preprocessing.
 -- This implements the two-step extension scanning:
 -- 1. Check if CPP is enabled (from cabal extensions or initial LANGUAGE pragmas)
--- 2. If CPP is enabled, preprocess the source
+-- 2. If CPP is enabled and noCpp is False, preprocess the source
 -- 3. Re-scan the (possibly preprocessed) source for final LANGUAGE pragmas
-prepareSourceAndExtensions :: Map FilePath Text -> FilePath -> [String] -> [String] -> Maybe String -> [Text] -> Text -> (Text, [Syntax.Extension])
-prepareSourceAndExtensions includeMap filePath cabalExts cppOptions langName deps source =
+prepareSourceAndExtensionsWithCpp :: Bool -> Map FilePath Text -> FilePath -> [String] -> [String] -> Maybe String -> [Text] -> Text -> (Text, [AihcSyntax.Extension])
+prepareSourceAndExtensionsWithCpp noCpp includeMap filePath cabalExts cppOptions langName deps source =
   let -- Convert cabal extension names to settings
-      cabalSettings = extensionNamesToSettings cabalExts
+      cabalSettings = mapMaybe (parseExtensionSettingName . T.pack) cabalExts
       -- Get initial extensions from LANGUAGE pragmas (before CPP)
-      initialHeaderSettings = AihcLex.readModuleHeaderExtensions source
+      initialHeaderSettings = readModuleHeaderExtensions source
       -- Combine to check if CPP is enabled
       initialSettings = cabalSettings <> initialHeaderSettings
-      baseExts = languageBaseExtensions langName
-      initialExtensions = applyExtensionSettings initialSettings baseExts
-      cppEnabled = Syntax.CPP `elem` initialExtensions
-      -- Preprocess if CPP is enabled
+      -- Determine the language edition: LANGUAGE pragmas override cabal language
+      headerEdition = editionFromExtensionSettings initialSettings
+      cabalEdition = langName >>= parseLanguageEdition . T.pack
+      initialEdition = headerEdition `mplus` cabalEdition
+      baseExts = maybe [] languageEditionExtensions initialEdition
+      initialExtensions = foldr applyExtensionSetting baseExts initialSettings
+      cppEnabled = CPP `elem` initialExtensions
+      -- Preprocess if CPP is enabled and noCpp is False
       preprocessedSource =
-        if cppEnabled
+        if cppEnabled && not noCpp
           then runCppWithIncludes includeMap filePath cppOptions deps source
           else source
       -- Re-scan for extensions after preprocessing (CPP can affect LANGUAGE pragmas)
-      finalHeaderSettings = AihcLex.readModuleHeaderExtensions preprocessedSource
+      finalHeaderSettings = readModuleHeaderExtensions preprocessedSource
       finalSettings = cabalSettings <> finalHeaderSettings
-      finalExtensions = applyExtensionSettings finalSettings baseExts
+      finalEdition = editionFromExtensionSettings finalSettings `mplus` (langName >>= parseLanguageEdition . T.pack)
+      finalBaseExts = maybe [] languageEditionExtensions finalEdition
+      finalExtensions = foldr applyExtensionSetting finalBaseExts finalSettings
    in (preprocessedSource, finalExtensions)
 
 -- | Run CPP preprocessor on source, resolving includes from the provided map.
@@ -194,12 +231,13 @@ runCppWithIncludes includeMap filePath cppOptions deps source =
 -- Uses the same GHC version macros and MIN_VERSION_* injection as stackage-progress.
 collectCppIncludes :: FilePath -> [String] -> [String] -> Maybe String -> [Text] -> Text -> IO [(FilePath, Text)]
 collectCppIncludes absFile cabalExts cppOptions langName deps source = do
-  let cabalSettings = extensionNamesToSettings cabalExts
-      initialHeaderSettings = AihcLex.readModuleHeaderExtensions source
+  let cabalSettings = mapMaybe (parseExtensionSettingName . T.pack) cabalExts
+      initialHeaderSettings = readModuleHeaderExtensions source
       initialSettings = cabalSettings <> initialHeaderSettings
-      baseExts = languageBaseExtensions langName
-      initialExtensions = applyExtensionSettings initialSettings baseExts
-      cppEnabled = Syntax.CPP `elem` initialExtensions
+      initialEdition = editionFromExtensionSettings initialSettings `mplus` (langName >>= parseLanguageEdition . T.pack)
+      baseExts = maybe [] languageEditionExtensions initialEdition
+      initialExtensions = foldr applyExtensionSetting baseExts initialSettings
+      cppEnabled = CPP `elem` initialExtensions
   if not cppEnabled
     then pure []
     else
@@ -226,105 +264,22 @@ collectCppIncludes absFile cabalExts cppOptions langName deps source = do
               go (Map.insert resolved contents acc) (k (Just (TE.encodeUtf8 contents)))
 
 --------------------------------------------------------------------------------
--- Extension conversion utilities
---------------------------------------------------------------------------------
-
--- | Convert extension names (from cabal files) to ExtensionSettings.
-extensionNamesToSettings :: [String] -> [Syntax.ExtensionSetting]
-extensionNamesToSettings = mapMaybe (Syntax.parseExtensionSettingName . T.pack)
-
--- | Apply extension settings to a base list of extensions.
-applyExtensionSettings :: [Syntax.ExtensionSetting] -> [Syntax.Extension] -> [Syntax.Extension]
-applyExtensionSettings settings baseExts = List.foldl' applySetting baseExts settings
-  where
-    applySetting exts (Syntax.EnableExtension ext) = ext : filter (/= ext) exts
-    applySetting exts (Syntax.DisableExtension ext) = filter (/= ext) exts
-
--- | Get base extensions for a language.
-languageBaseExtensions :: Maybe String -> [Syntax.Extension]
-languageBaseExtensions langName =
-  case langName of
-    Just "GHC2024" -> ghc2024Extensions
-    Just "GHC2021" -> ghc2021Extensions
-    Just "Haskell2010" -> []
-    Just "Haskell98" -> []
-    _ -> [] -- Default to no extensions
-
--- | GHC2021 extensions in Syntax.Extension form
-ghc2021Extensions :: [Syntax.Extension]
-ghc2021Extensions =
-  [ Syntax.BangPatterns,
-    Syntax.BinaryLiterals,
-    Syntax.ConstrainedClassMethods,
-    Syntax.ConstraintKinds,
-    Syntax.DeriveDataTypeable,
-    Syntax.DeriveFoldable,
-    Syntax.DeriveFunctor,
-    Syntax.DeriveGeneric,
-    Syntax.DeriveLift,
-    Syntax.DeriveTraversable,
-    Syntax.DoAndIfThenElse,
-    Syntax.EmptyCase,
-    Syntax.EmptyDataDecls,
-    Syntax.EmptyDataDeriving,
-    Syntax.ExistentialQuantification,
-    Syntax.ExplicitForAll,
-    Syntax.FlexibleContexts,
-    Syntax.FlexibleInstances,
-    Syntax.ForeignFunctionInterface,
-    Syntax.GADTSyntax,
-    Syntax.GeneralizedNewtypeDeriving,
-    Syntax.HexFloatLiterals,
-    Syntax.ImportQualifiedPost,
-    Syntax.InstanceSigs,
-    Syntax.KindSignatures,
-    Syntax.MultiParamTypeClasses,
-    Syntax.NamedFieldPuns,
-    Syntax.NamedWildCards,
-    Syntax.NumericUnderscores,
-    Syntax.PolyKinds,
-    Syntax.PostfixOperators,
-    Syntax.RankNTypes,
-    Syntax.ScopedTypeVariables,
-    Syntax.StandaloneDeriving,
-    Syntax.StandaloneKindSignatures,
-    Syntax.TupleSections,
-    Syntax.TypeApplications,
-    Syntax.TypeOperators,
-    Syntax.TypeSynonymInstances
-  ]
-
--- | GHC2024 extensions (GHC2021 + extras)
-ghc2024Extensions :: [Syntax.Extension]
-ghc2024Extensions =
-  ghc2021Extensions
-    <> [ Syntax.DataKinds,
-         Syntax.DerivingStrategies,
-         Syntax.DisambiguateRecordFields,
-         Syntax.ExplicitNamespaces,
-         Syntax.GADTs,
-         Syntax.MonoLocalBinds,
-         Syntax.LambdaCase,
-         Syntax.RoleAnnotations
-       ]
-
---------------------------------------------------------------------------------
 -- HSE extension conversion
 --------------------------------------------------------------------------------
 
 -- | Convert a list of aihc Extensions to HSE extensions.
-toHseExtensions :: [Syntax.Extension] -> [HSE.Extension]
+toHseExtensions :: [AihcSyntax.Extension] -> [HSE.Extension]
 toHseExtensions = mapMaybe toHseExtension
 
-toHseExtension :: Syntax.Extension -> Maybe HSE.Extension
+toHseExtension :: AihcSyntax.Extension -> Maybe HSE.Extension
 toHseExtension ext = HSE.EnableExtension <$> toHseKnownExtension ext
 
-toHseKnownExtension :: Syntax.Extension -> Maybe HSE.KnownExtension
+toHseKnownExtension :: AihcSyntax.Extension -> Maybe HSE.KnownExtension
 toHseKnownExtension ext =
   case ext of
-    Syntax.CPP -> Just HSE.CPP
-    Syntax.GeneralizedNewtypeDeriving -> Just HSE.GeneralizedNewtypeDeriving
-    _ -> readMaybe (T.unpack (Syntax.extensionName ext))
+    AihcSyntax.CPP -> Just HSE.CPP
+    AihcSyntax.GeneralizedNewtypeDeriving -> Just HSE.GeneralizedNewtypeDeriving
+    _ -> readMaybe (T.unpack (extensionName ext))
 
 -- | Get HSE Language for a language name.
 -- HSE has native support for Haskell98 and Haskell2010.
@@ -399,23 +354,23 @@ languageToHseExtensions langName =
 --------------------------------------------------------------------------------
 
 -- | Convert an aihc Extension to an ExtensionSetting (always enabled).
-toGhcExtensionSetting :: Syntax.Extension -> Syntax.ExtensionSetting
-toGhcExtensionSetting = Syntax.EnableExtension
+toGhcExtensionSetting :: AihcSyntax.Extension -> AihcSyntax.ExtensionSetting
+toGhcExtensionSetting = AihcSyntax.EnableExtension
 
 -- | Apply an ExtensionSetting to a GHC extension set.
-applyGhcExtensionSetting :: EnumSet.EnumSet GHC.Extension -> Syntax.ExtensionSetting -> EnumSet.EnumSet GHC.Extension
+applyGhcExtensionSetting :: EnumSet.EnumSet GHC.Extension -> AihcSyntax.ExtensionSetting -> EnumSet.EnumSet GHC.Extension
 applyGhcExtensionSetting exts setting =
   case setting of
-    Syntax.EnableExtension ext ->
+    AihcSyntax.EnableExtension ext ->
       maybe exts (`EnumSet.insert` exts) (toGhcExtension ext)
-    Syntax.DisableExtension ext ->
+    AihcSyntax.DisableExtension ext ->
       maybe exts (`EnumSet.delete` exts) (toGhcExtension ext)
 
 -- | Convert an aihc Extension to a GHC Extension.
-toGhcExtension :: Syntax.Extension -> Maybe GHC.Extension
+toGhcExtension :: AihcSyntax.Extension -> Maybe GHC.Extension
 toGhcExtension ext =
   case ext of
-    Syntax.NondecreasingIndentation ->
+    AihcSyntax.NondecreasingIndentation ->
       lookupAny ["NondecreasingIndentation", "AlternativeLayoutRule", "AlternativeLayoutRuleTransitional", "RelaxedLayout"]
     _ ->
       lookupAny [toGhcExtensionName ext]
@@ -426,14 +381,14 @@ toGhcExtension ext =
         Just ghcExt -> Just ghcExt
         Nothing -> lookupAny names
 
-    toGhcExtensionName Syntax.CPP = "Cpp"
-    toGhcExtensionName Syntax.GeneralizedNewtypeDeriving = "GeneralisedNewtypeDeriving"
-    toGhcExtensionName Syntax.SafeHaskell = "Safe"
-    toGhcExtensionName Syntax.Trustworthy = "Trustworthy"
-    toGhcExtensionName Syntax.UnsafeHaskell = "Unsafe"
-    toGhcExtensionName Syntax.Rank2Types = "RankNTypes"
-    toGhcExtensionName Syntax.PolymorphicComponents = "RankNTypes"
-    toGhcExtensionName other = T.unpack (Syntax.extensionName other)
+    toGhcExtensionName AihcSyntax.CPP = "Cpp"
+    toGhcExtensionName AihcSyntax.GeneralizedNewtypeDeriving = "GeneralisedNewtypeDeriving"
+    toGhcExtensionName AihcSyntax.SafeHaskell = "Safe"
+    toGhcExtensionName AihcSyntax.Trustworthy = "Trustworthy"
+    toGhcExtensionName AihcSyntax.UnsafeHaskell = "Unsafe"
+    toGhcExtensionName AihcSyntax.Rank2Types = "RankNTypes"
+    toGhcExtensionName AihcSyntax.PolymorphicComponents = "RankNTypes"
+    toGhcExtensionName other = T.unpack (extensionName other)
 
 -- | Lookup table mapping extension names to GHC extensions.
 -- Lifted to top-level to avoid recomputing on every call.
@@ -456,8 +411,8 @@ languageToGhcExtensions langName =
         _ -> Nothing
 
 -- | Apply implied extensions (like GHC does).
-applyImpliedExtensions :: EnumSet.EnumSet GHC.Extension -> EnumSet.EnumSet GHC.Extension
-applyImpliedExtensions = go
+applyGhcImpliedExtensions :: EnumSet.EnumSet GHC.Extension -> EnumSet.EnumSet GHC.Extension
+applyGhcImpliedExtensions = go
   where
     go exts =
       let next = List.foldl' apply exts DynFlags.impliedXFlags
