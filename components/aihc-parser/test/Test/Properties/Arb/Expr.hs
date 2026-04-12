@@ -58,7 +58,7 @@ genExprSizedWith allowTHQuotes n
         EIf span0 <$> genExprSizedWith allowTHQuotes third <*> genExprSizedWith allowTHQuotes third <*> genExprSizedWith allowTHQuotes third,
         ECase span0 <$> genExprSizedWith allowTHQuotes half <*> genCaseAltsWith allowTHQuotes half,
         ELambdaPats span0 <$> genPatterns half <*> genExprSizedWith allowTHQuotes half,
-        ELambdaCase span0 <$> genNonEmptyCaseAltsWith allowTHQuotes (n - 1),
+        ELambdaCase span0 <$> genCaseAltsWith allowTHQuotes (n - 1),
         ELetDecls span0 <$> genValueDeclsWith allowTHQuotes half <*> genExprSizedWith allowTHQuotes half,
         EDo span0 <$> genDoStmtsWith allowTHQuotes (n - 1) <*> pure False,
         EListComp span0 <$> genExprSizedWith allowTHQuotes half <*> genCompStmtsWith allowTHQuotes half,
@@ -229,11 +229,6 @@ genPatternNoView = Pat.genPatternNoView
 genCaseAltsWith :: Bool -> Int -> Gen [CaseAlt]
 genCaseAltsWith allowTHQuotes n = do
   count <- chooseInt (0, 3)
-  vectorOf count (genCaseAltWith allowTHQuotes n)
-
-genNonEmptyCaseAltsWith :: Bool -> Int -> Gen [CaseAlt]
-genNonEmptyCaseAltsWith allowTHQuotes n = do
-  count <- chooseInt (1, 3)
   vectorOf count (genCaseAltWith allowTHQuotes n)
 
 genCaseAltWith :: Bool -> Int -> Gen CaseAlt

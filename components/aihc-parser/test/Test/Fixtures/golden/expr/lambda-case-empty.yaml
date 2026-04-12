@@ -1,0 +1,7 @@
+extensions:
+  - LambdaCase
+input: |
+  \case {}
+ast: |
+  ELambdaCase []
+status: pass
