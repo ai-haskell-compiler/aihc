@@ -6,11 +6,11 @@ aihc: |
   test.hs:1:17:
   1 | import qualified; import qualified; x = 1
     |                 ^
-  unexpected TkSpecialSemicolon
+  unexpected ';'
   expecting module name
 
   test.hs:1:35:
   1 | import qualified; import qualified; x = 1
     |                                   ^
-  unexpected TkSpecialSemicolon
+  unexpected ';'
   expecting module name

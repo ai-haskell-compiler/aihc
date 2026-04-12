@@ -223,7 +223,7 @@ promotedTypeParser :: TokParser Type
 promotedTypeParser = withSpan $ do
   -- Accept both TkVarSym "'" and TkTHQuoteTick for promoted types
   -- This handles ambiguity between TH value quotes and promoted types
-  expectedTok (TkVarSym "'") <|> expectedTok TkTHQuoteTick <|> fail "expected quote for promotion"
+  expectedTok (TkVarSym "'") <|> expectedTok TkTHQuoteTick
   promotedTy <- MP.try promotedStructuredTypeParser <|> promotedRawTypeParser
   pure (`setTypeSpan` promotedTy)
 

@@ -1,0 +1,12 @@
+src: |
+  {-# LANGUAGE CPP #-}
+  #define Short MuchLongerType
+  fn :: Short -> module
+ghc: |
+  test.hs:5:25: error: [GHC-58481] parse error on input `module'
+aihc: |
+  test.hs:5:25:
+  5 | fn :: MuchLongerType -> module
+    |                         ^^^^^^
+  unexpected 'module'
+  expecting type

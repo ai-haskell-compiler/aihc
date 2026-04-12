@@ -271,7 +271,8 @@ tokenDescriptor :: FoundToken -> String
 tokenDescriptor found =
   case foundTokenOrigin found of
     InsertedLayout -> "end of input"
-    FromSource -> maybe "end of input" show (foundTokenKind found)
+    FromSource ->
+      "'" <> T.unpack (foundTokenText found) <> "'"
 
 -- renderSourceReference "<input>" "x = 1" (SourceSpan 1 5 1 6) = """
 -- <input>:1:5:

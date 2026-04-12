@@ -6,7 +6,7 @@ aihc: |
   test.hs:1:15:
   1 | x = do { _ <- }
     |               ^
-  unexpected TkSpecialRBrace
+  unexpected '}'
   expecting expression
   context: while parsing '<-' binding
   context: while parsing equation right-hand side
