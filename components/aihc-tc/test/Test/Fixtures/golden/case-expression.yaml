@@ -1,0 +1,15 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    data Bool = True | False
+    f x = case x of
+      True -> True
+      False -> False
+expected:
+  - "Bool :: *"
+  - "True :: Bool"
+  - "False :: Bool"
+  - "f :: Bool -> Bool"
+status: xfail
+reason: "case expressions not yet supported in type checker"

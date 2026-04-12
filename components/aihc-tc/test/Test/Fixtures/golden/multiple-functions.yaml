@@ -1,0 +1,15 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    data Bool = True | False
+    id x = x
+    const x y = x
+expected:
+  - "Bool :: *"
+  - "True :: Bool"
+  - "False :: Bool"
+  - "id :: forall a. a -> a"
+  - "const :: forall a b. a -> b -> a"
+status: pass
+reason: ""

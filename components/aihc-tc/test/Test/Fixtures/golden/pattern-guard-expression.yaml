@@ -1,0 +1,15 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    data Bool = True | False
+    f x | x == x = x
+    (==) a b = True
+expected:
+  - "Bool :: *"
+  - "True :: Bool"
+  - "False :: Bool"
+  - "f :: forall a. a -> a"
+  - "(==) :: forall a. a -> a -> Bool"
+status: xfail
+reason: "pattern guards with expressions not yet supported"

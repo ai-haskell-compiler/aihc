@@ -1,0 +1,11 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    f x = x
+    g y = f (f y)
+expected:
+  - "f :: forall a. a -> a"
+  - "g :: forall a. a -> a"
+status: pass
+reason: ""

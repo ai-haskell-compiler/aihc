@@ -1,0 +1,14 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    data Bool = True | False
+    f True = True
+    f False = False
+expected:
+  - "Bool :: *"
+  - "True :: Bool"
+  - "False :: Bool"
+  - "f :: Bool -> Bool"
+status: pass
+reason: ""

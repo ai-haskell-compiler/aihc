@@ -1,0 +1,16 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    data Bool = True | False
+    f x y = x + y
+      where
+        (+) a b = a
+        zero = True
+expected:
+  - "Bool :: *"
+  - "True :: Bool"
+  - "False :: Bool"
+  - "f :: forall a. a -> a -> a"
+status: xfail
+reason: "where-clauses with multiple bindings not yet supported"

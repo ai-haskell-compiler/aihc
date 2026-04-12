@@ -1,0 +1,13 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    data Bool = True | False
+    f x = x :: Bool
+expected:
+  - "Bool :: *"
+  - "True :: Bool"
+  - "False :: Bool"
+  - "f :: Bool -> Bool"
+status: xfail
+reason: "type annotations not yet supported in type checker"

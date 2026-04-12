@@ -1,0 +1,15 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    data Bool = True | False
+    f x = let y = x + one in y
+    (+) a b = a
+    one = True
+expected:
+  - "Bool :: *"
+  - "True :: Bool"
+  - "False :: Bool"
+  - "f :: forall a. a -> a"
+status: xfail
+reason: "let with operators not yet supported"

@@ -1,0 +1,9 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    f ~x = x
+expected:
+  - "f :: forall a. a -> a"
+status: pass
+reason: ""

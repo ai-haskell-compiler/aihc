@@ -1,0 +1,14 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    data Bool = True | False
+    f (x, y) = x + y
+    (+) a b = a
+expected:
+  - "Bool :: *"
+  - "True :: Bool"
+  - "False :: Bool"
+  - "f :: forall a. (a, a) -> a"
+status: xfail
+reason: "tuple patterns with operators not yet supported"

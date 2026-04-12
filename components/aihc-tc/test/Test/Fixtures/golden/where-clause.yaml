@@ -1,0 +1,16 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    data Bool = True | False
+    f x = x + one
+      where
+        (+) a b = a
+        one = True
+expected:
+  - "Bool :: *"
+  - "True :: Bool"
+  - "False :: Bool"
+  - "f :: forall a. a -> a"
+status: xfail
+reason: "where-clauses not yet supported in type checker"

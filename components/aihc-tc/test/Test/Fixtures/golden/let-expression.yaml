@@ -1,0 +1,9 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    f x = let y = x in y
+expected:
+  - "f :: forall a. a -> a"
+status: xfail
+reason: "let-expressions not yet supported in type checker"

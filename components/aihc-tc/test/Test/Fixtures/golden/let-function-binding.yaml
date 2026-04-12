@@ -1,0 +1,9 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    f x = let g y = y in g x
+expected:
+  - "f :: forall a. a -> a"
+status: xfail
+reason: "let with function binding not yet supported"

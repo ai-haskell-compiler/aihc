@@ -1,0 +1,9 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    f x = let y = let z = x in z in y
+expected:
+  - "f :: forall a. a -> a"
+status: xfail
+reason: "nested let-expressions not yet supported"

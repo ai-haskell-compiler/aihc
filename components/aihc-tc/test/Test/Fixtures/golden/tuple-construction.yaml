@@ -1,0 +1,13 @@
+extensions: []
+modules:
+  - |
+    module Test where
+    data Bool = True | False
+    f x = (x, x)
+expected:
+  - "Bool :: *"
+  - "True :: Bool"
+  - "False :: Bool"
+  - "f :: forall a. a -> (a, a)"
+status: xfail
+reason: "tuple construction not yet supported"
