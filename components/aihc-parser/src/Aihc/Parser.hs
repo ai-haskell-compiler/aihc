@@ -38,7 +38,6 @@ import Aihc.Parser.Internal.Pattern (patternParser)
 import Aihc.Parser.Internal.Type (typeParser)
 import Aihc.Parser.Lex
   ( LexToken (..),
-    LexTokenKind (..),
     TokenOrigin (..),
   )
 import Aihc.Parser.Pretty ()
@@ -273,45 +272,7 @@ tokenDescriptor found =
   case foundTokenOrigin found of
     InsertedLayout -> "end of input"
     FromSource ->
-      case foundTokenKind found of
-        -- For keywords and reserved words, show the actual text
-        Just kind | isKeywordToken kind ->
-          "'" <> T.unpack (foundTokenText found) <> "'"
-        -- For other tokens, show the kind
-        _ -> maybe "end of input" show (foundTokenKind found)
-
--- | Check if a token kind is a keyword or reserved word that should be displayed as text.
-isKeywordToken :: LexTokenKind -> Bool
-isKeywordToken kind =
-  case kind of
-    TkKeywordCase -> True
-    TkKeywordClass -> True
-    TkKeywordData -> True
-    TkKeywordDefault -> True
-    TkKeywordDeriving -> True
-    TkKeywordDo -> True
-    TkKeywordElse -> True
-    TkKeywordForall -> True
-    TkKeywordForeign -> True
-    TkKeywordIf -> True
-    TkKeywordImport -> True
-    TkKeywordIn -> True
-    TkKeywordInfix -> True
-    TkKeywordInfixl -> True
-    TkKeywordInfixr -> True
-    TkKeywordInstance -> True
-    TkKeywordLet -> True
-    TkKeywordModule -> True
-    TkKeywordNewtype -> True
-    TkKeywordOf -> True
-    TkKeywordThen -> True
-    TkKeywordType -> True
-    TkKeywordWhere -> True
-    TkKeywordUnderscore -> True
-    TkKeywordProc -> True
-    TkKeywordRec -> True
-    TkKeywordMdo -> True
-    _ -> False
+      "'" <> T.unpack (foundTokenText found) <> "'"
 
 -- renderSourceReference "<input>" "x = 1" (SourceSpan 1 5 1 6) = """
 -- <input>:1:5:
