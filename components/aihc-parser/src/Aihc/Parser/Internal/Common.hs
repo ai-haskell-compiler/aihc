@@ -746,6 +746,12 @@ startsWithContextType = MP.lookAhead (go [])
         TkSpecialUnboxedLParen -> go [TkSpecialUnboxedRParen]
         TkSpecialLBracket -> go [TkSpecialRBracket]
         TkSpecialLBrace -> go [TkSpecialRBrace]
+        -- Keywords that cannot appear inside a type expression: stop scanning.
+        TkKeywordInstance -> pure False
+        TkKeywordWhere -> pure False
+        TkKeywordClass -> pure False
+        TkKeywordData -> pure False
+        TkKeywordNewtype -> pure False
         _ -> go []
     go stack@(expectedClose : rest) = do
       tok <- anySingle

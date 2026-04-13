@@ -9,6 +9,7 @@ module Test.Properties.Arb.Decl
 where
 
 import Aihc.Parser.Syntax
+import Data.Char (isAlpha)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Test.Properties.Arb.Expr (genOperator, genRhsWith, isValidGeneratedOperator, shrinkExpr)
@@ -324,21 +325,25 @@ genGadtPrefixBody = do
 -- | Generate a BangType for GADT prefix body arg position.
 -- Uses the full type generator with canonicalFunLeft applied, since the parser
 -- uses typeInfixParser (which cannot parse bare forall/->/(=>) without parens).
--- Does not generate lazy/strict annotations on kind-like types (TStar, etc.) since
--- GHC rejects those (e.g., ~* or !* are treated as operators).
+-- Does not generate lazy/strict annotations on types that start with symbolic
+-- characters (TStar, TTHSplice, TTuple, etc.) since the lexer treats ~! or !*
+-- as single operator tokens.
 genGadtBangType :: Gen BangType
 genGadtBangType = do
   ty <- canonicalFunLeft . canonicalTopLevelType <$> sized (genType . min 6)
-  -- Only generate lazy/strict annotations on non-kind types
-  let canAnnotate = case ty of
-        TStar {} -> False
-        TKindSig {} -> False
-        _ -> True
+  -- Only generate lazy/strict annotations on types that start with alphabetic characters
+  let canAnnotate = typeStartsWithAlpha ty
   annotation <- if canAnnotate then elements [NoAnnotation, StrictAnnotation, LazyAnnotation] else pure NoAnnotation
   case annotation of
     NoAnnotation -> pure $ BangType span0 NoSourceUnpackedness False False ty
     StrictAnnotation -> pure $ BangType span0 NoSourceUnpackedness True False ty
     LazyAnnotation -> pure $ BangType span0 NoSourceUnpackedness False True ty
+  where
+    typeStartsWithAlpha :: Type -> Bool
+    typeStartsWithAlpha (TVar _ _) = True
+    typeStartsWithAlpha (TCon _ n _) = let txt = nameText n in not (T.null txt) && isAlpha (T.head txt)
+    typeStartsWithAlpha (TParen _ inner) = typeStartsWithAlpha inner
+    typeStartsWithAlpha _ = False
 
 -- | Generate a BangType without function types at the top level.
 -- Does not generate lazy/strict annotations on kind-like types (TStar, etc.) since

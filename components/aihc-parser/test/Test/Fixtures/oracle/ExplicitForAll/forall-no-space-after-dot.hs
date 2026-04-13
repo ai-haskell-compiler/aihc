@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail reason="lexer does not handle 'forall a.Floating' without space after dot" -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE Haskell2010, ExplicitForAll, RankNTypes #-}
 module ForallNoSpaceAfterDot where
 
