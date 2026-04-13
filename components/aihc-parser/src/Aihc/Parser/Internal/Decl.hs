@@ -1159,16 +1159,8 @@ typeFamilyHeadParser =
 -- and variable symbols (@**@), since type families can use either.
 typeFamilyOperatorParser :: TokParser Name
 typeFamilyOperatorParser =
-  symbolicTypeFamilyOperatorParser <|> backtickTypeFamilyIdentifierParser
+  operatorNameParser <|> backtickTypeFamilyIdentifierParser
   where
-    symbolicTypeFamilyOperatorParser =
-      tokenSatisfy "type family operator" $ \tok ->
-        case lexTokenKind tok of
-          TkConSym op -> Just (qualifyName Nothing (mkUnqualifiedName NameConSym op))
-          TkVarSym op -> Just (qualifyName Nothing (mkUnqualifiedName NameVarSym op))
-          TkQConSym modName op -> Just (mkName (Just modName) NameConSym op)
-          TkQVarSym modName op -> Just (mkName (Just modName) NameVarSym op)
-          _ -> Nothing
     backtickTypeFamilyIdentifierParser = do
       expectedTok TkSpecialBacktick
       op <- constructorNameParser
