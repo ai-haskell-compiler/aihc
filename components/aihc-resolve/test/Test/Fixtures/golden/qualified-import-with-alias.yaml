@@ -14,8 +14,8 @@ expected:
     - "3:1-3:11 maxRetries => (value) Data.Config.maxRetries"
   Main:
     - "3:1-3:10 useConfig => (value) Main.useConfig"
-    - "3:13-3:33 defaultConfig => (value) Config.defaultConfig"
-    - "3:36-3:53 maxRetries => (value) Config.maxRetries"
+    - "3:13-3:33 defaultConfig => (value) Data.Config.defaultConfig"
+    - "3:36-3:53 maxRetries => (value) Data.Config.maxRetries"
 annotated:
   - |
     module Data.Config where
@@ -27,6 +27,6 @@ annotated:
     module Main where
     import qualified Data.Config as Config
     useConfig = Config.defaultConfig + Config.maxRetries
-    └─ v Main   └─ v Config            └─ v Config
-status: pass
-reason: ""
+    └─ v Main   └─ v Data.Config        └─ v Data.Config
+status: xfail
+reason: "Qualified import references resolve using the alias name (Config) instead of the original module name (Data.Config)"

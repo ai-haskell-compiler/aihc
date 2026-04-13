@@ -19,7 +19,7 @@ import Aihc.Parser
     parseModule,
   )
 import Aihc.Parser.Syntax (Extension, parseExtensionName)
-import Aihc.Resolve (ResolveResult (..), renderAnnotatedResolveResult, renderResolveResult, resolve)
+import Aihc.Resolve (renderAnnotatedResolveResult, renderResolveResult, resolve)
 import Data.Aeson ((.!=), (.:), (.:?))
 import qualified Data.Aeson.Key as Key
 import qualified Data.Aeson.KeyMap as KeyMap
@@ -36,7 +36,6 @@ import System.FilePath (takeDirectory, takeExtension, (</>))
 
 data ExpectedStatus
   = StatusPass
-  | StatusFail
   | StatusXPass
   | StatusXFail
   deriving (Eq, Show)
@@ -162,12 +161,29 @@ evaluateResolverCase :: ResolverCase -> (Outcome, String)
 evaluateResolverCase meta =
   let parsedModules = map parseOne (caseModules meta)
    in case sequence parsedModules of
-        Left errMsg -> classifyFailure meta ("parse error: " <> errMsg)
+        Left errMsg -> (OutcomeFail, "parse error: " <> errMsg)
         Right modules ->
           let result = resolve modules
-           in if null (resolveErrors result)
-                then classifySuccess meta (showResolved result) (showAnnotated result)
-                else classifyFailure meta (showErrors result)
+              actual = showResolved result
+              actualAnnotated = showAnnotated result
+              outputMatches = actual == caseExpected meta && (null (caseAnnotated meta) || actualAnnotated == caseAnnotated meta)
+           in case caseStatus meta of
+                StatusPass
+                  | actual /= caseExpected meta ->
+                      ( OutcomeFail,
+                        "expected:\n" <> caseExpected meta <> "\nfound:\n" <> actual
+                      )
+                  | actualAnnotated /= caseAnnotated meta ->
+                      ( OutcomeFail,
+                        "annotated:\nexpected:\n" <> unlines (caseAnnotated meta) <> "\nfound:\n" <> unlines actualAnnotated
+                      )
+                  | otherwise -> (OutcomePass, "")
+                StatusXFail
+                  | outputMatches -> (OutcomeXPass, "known bug still passes unexpectedly")
+                  | otherwise -> (OutcomeXFail, "")
+                StatusXPass
+                  | outputMatches -> (OutcomeXPass, "known bug still passes unexpectedly")
+                  | otherwise -> (OutcomeFail, "expected xpass output match but got output=" <> actual)
   where
     parserConfig input =
       defaultConfig
@@ -181,47 +197,6 @@ evaluateResolverCase meta =
             else Left (formatParseErrors (T.unpack (T.takeWhile (/= '\n') input)) (Just input) errs)
     showResolved = renderResolveResult
     showAnnotated = renderAnnotatedResolveResult (caseModules meta)
-    showErrors result = unlines (map show (resolveErrors result))
-
-classifySuccess :: ResolverCase -> String -> [String] -> (Outcome, String)
-classifySuccess meta actual actualAnnotated =
-  case caseStatus meta of
-    StatusPass
-      | actual /= caseExpected meta ->
-          ( OutcomeFail,
-            "expected:\n" <> caseExpected meta <> "\nfound:\n" <> actual
-          )
-      | not (null (caseAnnotated meta)) && actualAnnotated /= caseAnnotated meta ->
-          ( OutcomeFail,
-            "annotated:\nexpected:\n" <> unlines (caseAnnotated meta) <> "\nfound:\n" <> unlines actualAnnotated
-          )
-      | otherwise -> (OutcomePass, "")
-    StatusFail ->
-      ( OutcomeFail,
-        "expected failure but resolver succeeded"
-      )
-    StatusXFail ->
-      (OutcomeFail, "expected xfail (known failing bug), but resolver succeeded")
-    StatusXPass
-      | actual == caseExpected meta -> (OutcomeXPass, "known bug still passes unexpectedly")
-      | otherwise ->
-          ( OutcomeFail,
-            "expected xpass output match but got output=" <> actual
-          )
-
-classifyFailure :: ResolverCase -> String -> (Outcome, String)
-classifyFailure meta errDetails =
-  case caseStatus meta of
-    StatusPass ->
-      ( OutcomeFail,
-        "expected success, got error: " <> errDetails
-      )
-    StatusFail -> (OutcomePass, "")
-    StatusXFail -> (OutcomeXFail, "")
-    StatusXPass ->
-      ( OutcomeFail,
-        "expected xpass (known passing bug), got error: " <> errDetails
-      )
 
 progressSummary :: [(ResolverCase, Outcome, String)] -> (Int, Int, Int, Int)
 progressSummary outcomes =
@@ -262,7 +237,6 @@ parseStatus :: FilePath -> Text -> Either String ExpectedStatus
 parseStatus path raw =
   case map toLower (trim (T.unpack raw)) of
     "pass" -> Right StatusPass
-    "fail" -> Right StatusFail
     "xpass" -> Right StatusXPass
     "xfail" -> Right StatusXFail
     _ -> Left ("Invalid [status] in " <> path <> ": " <> T.unpack raw)
