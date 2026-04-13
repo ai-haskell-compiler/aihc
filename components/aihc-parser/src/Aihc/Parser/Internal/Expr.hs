@@ -607,10 +607,7 @@ guardPatBindParser :: TokParser GuardQualifier
 guardPatBindParser = withSpan $ do
   pat <- patternParser
   expectedTok TkReservedLeftArrow
-  -- Use typeInfixParser so that '->' is not consumed as a function type arrow.
-  -- In guard context, '->' is the guard arrow that separates guards from the body.
-  -- This matches the behavior of guardBindOrExprParser (line 594).
-  expr <- exprParserWithTypeSigParser typeInfixParser
+  expr <- exprParser
   pure (\span' -> GuardPat span' pat expr)
 
 guardLetParser :: TokParser GuardQualifier
