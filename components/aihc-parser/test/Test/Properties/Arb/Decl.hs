@@ -13,6 +13,7 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Test.Properties.Arb.Expr (genExpr, shrinkExpr, span0)
 import Test.Properties.Arb.Identifiers (genIdent, shrinkIdent)
+import Test.Properties.Arb.Type (canonicalTopLevelType, genType)
 import Test.QuickCheck
 
 instance Arbitrary Decl where
@@ -583,7 +584,8 @@ genDeclPatSynSig = do
 genDeclStandaloneKindSig :: Gen Decl
 genDeclStandaloneKindSig = do
   name <- mkUnqualifiedName NameConId <$> genTypeConName
-  DeclStandaloneKindSig span0 name <$> genSimpleType
+  kind <- sized (genType . min 6)
+  pure $ DeclStandaloneKindSig span0 name (canonicalTopLevelType kind)
 
 -- | Generate simple type variable binders (0-2 params).
 genSimpleTyVarBinders :: Gen [TyVarBinder]
