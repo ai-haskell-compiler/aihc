@@ -205,14 +205,28 @@ genTypeDataCons = do
     genTypeDataCon = do
       conName <- mkUnqualifiedName NameConId <$> genConIdent
       n <- chooseInt (0, 3)
-      fields <- vectorOf n genSimpleBangType
+      -- Type data constructors don't support strictness annotations
+      fields <- vectorOf n genNonStrictBangType
       pure $ PrefixCon span0 [] [] conName fields
+
+-- | Generate a BangType that is never strict (for type data constructors).
+genNonStrictBangType :: Gen BangType
+genNonStrictBangType = do
+  ty <- genSimpleType
+  pure $
+    BangType
+      { bangSpan = span0,
+        bangSourceUnpackedness = NoSourceUnpackedness,
+        bangStrict = False,
+        bangType = ty
+      }
 
 genSimpleDataDecl :: Gen DataDecl
 genSimpleDataDecl = do
   name <- mkUnqualifiedName NameConId <$> genConIdent
   params <- genSimpleTyVarBinders
   ctors <- genSimpleDataCons
+  deriving' <- genDerivingClauses
   pure $
     DataDecl
       { dataDeclSpan = span0,
@@ -222,7 +236,7 @@ genSimpleDataDecl = do
         dataDeclParams = params,
         dataDeclKind = Nothing,
         dataDeclConstructors = ctors,
-        dataDeclDeriving = []
+        dataDeclDeriving = deriving'
       }
 
 genSimpleDataCons :: Gen [DataConDecl]
@@ -345,11 +359,12 @@ genGadtFieldDecl = do
 genSimpleBangType :: Gen BangType
 genSimpleBangType = do
   ty <- genSimpleType
+  strict <- elements [False, False, False, True]
   pure $
     BangType
       { bangSpan = span0,
         bangSourceUnpackedness = NoSourceUnpackedness,
-        bangStrict = False,
+        bangStrict = strict,
         bangType = ty
       }
 
@@ -358,6 +373,7 @@ genDeclNewtype = do
   name <- mkUnqualifiedName NameConId <$> genConIdent
   params <- genSimpleTyVarBinders
   ctor <- genNewtypeCon
+  deriving' <- genDerivingClauses
   pure $
     DeclNewtype span0 $
       NewtypeDecl
@@ -368,7 +384,7 @@ genDeclNewtype = do
           newtypeDeclParams = params,
           newtypeDeclKind = Nothing,
           newtypeDeclConstructor = Just ctor,
-          newtypeDeclDeriving = []
+          newtypeDeclDeriving = deriving'
         }
 
 genNewtypeCon :: Gen DataConDecl
@@ -395,11 +411,12 @@ genDeclClass :: Gen Decl
 genDeclClass = do
   name <- genConIdent
   params <- genSimpleTyVarBinders
+  ctx <- genOptionalSimpleContext
   pure $
     DeclClass span0 $
       ClassDecl
         { classDeclSpan = span0,
-          classDeclContext = Nothing,
+          classDeclContext = ctx,
           classDeclHeadForm = TypeHeadPrefix,
           classDeclName = name,
           classDeclParams = params,
@@ -412,6 +429,7 @@ genDeclInstance = do
   className <- genConIdent
   n <- chooseInt (0, 2)
   types <- vectorOf n genSimpleType
+  ctx <- genSimpleContext
   pure $
     DeclInstance span0 $
       InstanceDecl
@@ -419,7 +437,7 @@ genDeclInstance = do
           instanceDeclOverlapPragma = Nothing,
           instanceDeclWarning = Nothing,
           instanceDeclForall = [],
-          instanceDeclContext = [],
+          instanceDeclContext = ctx,
           instanceDeclParenthesizedHead = False,
           instanceDeclClassName = className,
           instanceDeclTypes = types,
@@ -431,16 +449,18 @@ genDeclStandaloneDeriving = do
   className <- mkUnqualifiedName NameConId <$> genConIdent
   n <- chooseInt (0, 2)
   types <- vectorOf n genSimpleType
+  strategy <- elements [Nothing, Just DerivingStock, Just DerivingNewtype, Just DerivingAnyclass]
+  ctx <- genSimpleContext
   pure $
     DeclStandaloneDeriving span0 $
       StandaloneDerivingDecl
         { standaloneDerivingSpan = span0,
-          standaloneDerivingStrategy = Nothing,
+          standaloneDerivingStrategy = strategy,
           standaloneDerivingViaType = Nothing,
           standaloneDerivingOverlapPragma = Nothing,
           standaloneDerivingWarning = Nothing,
           standaloneDerivingForall = [],
-          standaloneDerivingContext = [],
+          standaloneDerivingContext = ctx,
           standaloneDerivingParenthesizedHead = False,
           standaloneDerivingClassName = className,
           standaloneDerivingTypes = types
@@ -459,16 +479,21 @@ genDeclSplice = do
 
 genDeclForeign :: Gen Decl
 genDeclForeign = do
-  callConv <- elements [CCall, StdCall]
+  callConv <- elements [CCall, StdCall, CApi]
+  direction <- elements [ForeignImport, ForeignExport]
+  -- Safety is only valid for imports, not exports
+  safety <- case direction of
+    ForeignImport -> elements [Nothing, Just Safe, Just Unsafe]
+    ForeignExport -> pure Nothing
   name <- genIdent
   ty <- genSimpleType
   pure $
     DeclForeign span0 $
       ForeignDecl
         { foreignDeclSpan = span0,
-          foreignDirection = ForeignImport,
+          foreignDirection = direction,
           foreignCallConv = callConv,
-          foreignSafety = Nothing,
+          foreignSafety = safety,
           foreignEntity = ForeignEntityOmitted,
           foreignName = name,
           foreignType = ty
@@ -606,6 +631,54 @@ genSimpleType =
       )
         <*> (TVar span0 . mkUnqualifiedName NameVarId <$> genIdent)
     ]
+
+-- | Generate deriving clauses (0-2).
+genDerivingClauses :: Gen [DerivingClause]
+genDerivingClauses = do
+  n <- frequency [(3, pure 0), (2, pure 1), (1, pure 2)]
+  vectorOf n genDerivingClause
+
+genDerivingClause :: Gen DerivingClause
+genDerivingClause = do
+  strategy <- elements [Nothing, Just DerivingStock]
+  n <- chooseInt (0, 3)
+  classes <- vectorOf n genSimpleConType
+  pure $
+    DerivingClause
+      { derivingStrategy = strategy,
+        derivingClasses = classes,
+        derivingViaType = Nothing,
+        derivingParenthesized = n /= 1
+      }
+
+-- | Generate a simple constructor type (used in deriving/context).
+genSimpleConType :: Gen Type
+genSimpleConType =
+  (\n -> TCon span0 (qualifyName Nothing (mkUnqualifiedName NameConId n)) Unpromoted) <$> genConIdent
+
+-- | Generate a simple constraint context (0-2 constraints).
+-- For instance contexts, 0 constraints means no context at all.
+genSimpleContext :: Gen [Type]
+genSimpleContext = do
+  n <- frequency [(3, pure 0), (2, pure 1), (1, pure 2)]
+  vectorOf n genSimpleConstraint
+
+-- | Generate an optional context (Nothing or Just [constraints]).
+-- Never generates Just [] since that prints as () => which roundtrips
+-- to a unit tuple in the constraint list.
+genOptionalSimpleContext :: Gen (Maybe [Type])
+genOptionalSimpleContext =
+  frequency
+    [ (3, pure Nothing),
+      (1, Just <$> do n <- chooseInt (1, 2); vectorOf n genSimpleConstraint)
+    ]
+
+-- | Generate a simple constraint: ClassName tyvar
+genSimpleConstraint :: Gen Type
+genSimpleConstraint =
+  TApp span0
+    <$> genSimpleConType
+    <*> (TVar span0 . mkUnqualifiedName NameVarId <$> genIdent)
 
 shrinkDecl :: Decl -> [Decl]
 shrinkDecl decl =
