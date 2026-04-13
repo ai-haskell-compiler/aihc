@@ -769,6 +769,7 @@ docTokenKind kind =
     TkKeywordWhere -> "TkKeywordWhere"
     TkKeywordUnderscore -> "TkKeywordUnderscore"
     TkKeywordProc -> "TkKeywordProc"
+    TkKeywordPattern -> "TkKeywordPattern"
     TkKeywordRec -> "TkKeywordRec"
     TkKeywordMdo -> "TkKeywordMdo"
     TkArrowTail -> "TkArrowTail"

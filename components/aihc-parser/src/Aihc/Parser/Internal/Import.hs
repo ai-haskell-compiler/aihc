@@ -11,7 +11,7 @@ module Aihc.Parser.Internal.Import
 where
 
 import Aihc.Parser.Internal.Common
-import Aihc.Parser.Lex (LexTokenKind (..), lexTokenKind, pattern TkVarAs, pattern TkVarHiding, pattern TkVarPattern, pattern TkVarQualified, pattern TkVarSafe)
+import Aihc.Parser.Lex (LexTokenKind (..), lexTokenKind, pattern TkVarAs, pattern TkVarHiding, pattern TkVarQualified, pattern TkVarSafe)
 import Aihc.Parser.Syntax
 import Aihc.Parser.Types (ParserErrorComponent (..), mkFoundToken)
 import Control.Monad (when)
@@ -196,7 +196,7 @@ exportImportNamespaceParser =
     patternNamespaceParser = do
       patSynEnabled <- isExtensionEnabled PatternSynonyms
       if patSynEnabled
-        then expectedTok TkVarPattern >> pure IEEntityNamespacePattern
+        then expectedTok TkKeywordPattern >> pure IEEntityNamespacePattern
         else MP.empty
 
 bundledNamespaceParser :: TokParser IEBundledNamespace

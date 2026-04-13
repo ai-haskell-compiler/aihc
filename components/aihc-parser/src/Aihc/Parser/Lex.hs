@@ -10,7 +10,6 @@ module Aihc.Parser.Lex
     LexTokenKind (..),
     pattern TkVarRole,
     pattern TkVarFamily,
-    pattern TkVarPattern,
     pattern TkVarInstance,
     pattern TkVarAs,
     pattern TkVarHiding,
@@ -1021,6 +1020,7 @@ extensionKeywordTokenKind env txt =
     "proc" | hasExt Arrows env -> Just TkKeywordProc
     "rec" | hasExt Arrows env || hasExt RecursiveDo env -> Just TkKeywordRec
     "mdo" | hasExt RecursiveDo env -> Just TkKeywordMdo
+    "pattern" | hasExt PatternSynonyms env -> Just TkKeywordPattern
     _ -> Nothing
 
 reservedOpTokenKind :: Text -> Maybe LexTokenKind

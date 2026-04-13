@@ -8,7 +8,6 @@ module Aihc.Parser.Lex.Types
   ( LexTokenKind (..),
     pattern TkVarRole,
     pattern TkVarFamily,
-    pattern TkVarPattern,
     pattern TkVarInstance,
     pattern TkVarAs,
     pattern TkVarHiding,
@@ -81,6 +80,7 @@ data LexTokenKind
     TkKeywordProc
   | TkKeywordRec
   | TkKeywordMdo
+  | TkKeywordPattern
   | -- Reserved operators (per Haskell Report Section 2.4)
     TkReservedDotDot
   | TkReservedColon
@@ -168,9 +168,6 @@ pattern TkVarRole = TkVarId "role"
 
 pattern TkVarFamily :: LexTokenKind
 pattern TkVarFamily = TkVarId "family"
-
-pattern TkVarPattern :: LexTokenKind
-pattern TkVarPattern = TkVarId "pattern"
 
 pattern TkVarInstance :: LexTokenKind
 pattern TkVarInstance = TkVarId "instance"

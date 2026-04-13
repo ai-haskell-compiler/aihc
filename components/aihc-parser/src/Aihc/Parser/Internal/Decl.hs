@@ -13,7 +13,7 @@ import {-# SOURCE #-} Aihc.Parser.Internal.Expr (equationRhsParser, exprParser)
 import Aihc.Parser.Internal.Import (warningTextParser)
 import Aihc.Parser.Internal.Pattern (patternParser, simplePatternParser)
 import Aihc.Parser.Internal.Type (typeAppParser, typeAtomParser, typeInfixOperatorParser, typeInfixParser, typeParser)
-import Aihc.Parser.Lex (LexTokenKind (..), lexTokenKind, pattern TkVarFamily, pattern TkVarPattern, pattern TkVarRole)
+import Aihc.Parser.Lex (LexTokenKind (..), lexTokenKind, pattern TkVarFamily, pattern TkVarRole)
 import Aihc.Parser.Syntax
 import Control.Monad (when)
 import Data.Char (isLower)
@@ -77,7 +77,7 @@ ordinaryDeclParser = do
         TkKeywordData -> typeDataDeclParser
         TkKeywordInstance -> typeFamilyInstParser
         _ -> typeDeclarationParser
-    TkVarPattern -> patternSynonymParser
+    TkKeywordPattern -> patternSynonymParser
     TkSpecialLParen -> typeSigOrPatternOrValueOrSpliceParser
     TkSpecialLBracket -> typeSigOrPatternOrValueOrSpliceParser
     TkPrefixTilde -> typeSigOrPatternOrValueOrSpliceParser
@@ -1412,7 +1412,7 @@ patternSynonymParser =
 -- | Parse a pattern synonym type signature: @pattern Name1, Name2 :: Type@
 patternSynonymSigDeclParser :: TokParser Decl
 patternSynonymSigDeclParser = withSpan $ do
-  expectedTok TkVarPattern
+  expectedTok TkKeywordPattern
   names <- patSynNameParser `MP.sepBy1` expectedTok TkSpecialComma
   expectedTok TkReservedDoubleColon
   ty <- typeParser
@@ -1429,7 +1429,7 @@ patSynNameParser =
 -- Handles prefix, infix, and record forms with all three directionalities.
 patternSynonymDeclParser :: TokParser Decl
 patternSynonymDeclParser = withSpan $ do
-  expectedTok TkVarPattern
+  expectedTok TkKeywordPattern
   (name, args) <- patSynLhsParser
   (dir, pat) <- patSynDirAndPatParser name
   pure $ \span' ->
