@@ -307,8 +307,8 @@ addDeclParens decl =
 addDeclSpliceParens :: Expr -> Expr
 addDeclSpliceParens body =
   case body of
-    EVar {} -> addExprParens body
-    EParen {} -> addExprParens body
+    EVar {} -> body
+    EParen sp inner -> EParen sp (addExprParens inner)
     _ -> addExprParens body
 
 addValueDeclParens :: ValueDecl -> ValueDecl
@@ -697,9 +697,21 @@ getAppSpans = reverse . go
 addSpliceBodyParens :: Expr -> Expr
 addSpliceBodyParens body =
   case body of
+    -- EParen around a section: the pretty-printer's EParen transparency
+    -- means this would print as just the section's parens. We need an
+    -- extra EParen so the splice delimiter parens are not swallowed.
+    EParen sp inner@(ESectionL {}) -> EParen sp (EParen noSourceSpan (addExprParens inner))
+    EParen sp inner@(ESectionR {}) -> EParen sp (EParen noSourceSpan (addExprParens inner))
     EParen sp inner -> EParen sp (addExprParens inner)
     EVar {} -> body
-    _ -> addExprParens body
+    -- Sections print their own parens via prettyExpr, and EParen is
+    -- transparent around them in the pretty-printer (to avoid double parens
+    -- in normal code like `x = (+1)`). For splices, we need the EParen to
+    -- actually produce parens, so we double-wrap.
+    ESectionL {} -> EParen noSourceSpan (EParen noSourceSpan (addExprParens body))
+    ESectionR {} -> EParen noSourceSpan (EParen noSourceSpan (addExprParens body))
+    -- Any other body needs to be wrapped in EParen so it prints as $(expr).
+    _ -> EParen noSourceSpan (addExprParens body)
 
 addNegateParens :: Expr -> Expr
 addNegateParens inner =

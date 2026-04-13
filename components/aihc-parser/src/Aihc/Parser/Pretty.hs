@@ -148,11 +148,13 @@ prettyImportLevel level =
     ImportLevelQuote -> "quote"
     ImportLevelSplice -> "splice"
 
-prettyDeclSplice :: Expr -> Doc ann
-prettyDeclSplice body =
+-- | Pretty-print a top-level declaration splice.
+-- EVar and EParen get a @$@ prefix; other expressions are bare.
+prettyDeclSpliceExpr :: Expr -> Doc ann
+prettyDeclSpliceExpr body =
   case body of
-    EVar {} -> prettySplice "$" body
-    EParen {} -> prettySplice "$" body
+    EVar {} -> "$" <> prettyExpr body
+    EParen {} -> "$" <> prettyExpr body
     _ -> prettyExpr body
 
 prettyQuotedText :: Text -> Doc ann
@@ -237,7 +239,7 @@ prettyDeclLines decl =
     DeclStandaloneDeriving _ derivingDecl -> [prettyStandaloneDeriving derivingDecl]
     DeclDefault _ tys -> ["default" <+> parens (hsep (punctuate comma (map prettyType tys)))]
     DeclForeign _ foreignDecl -> [prettyForeignDecl foreignDecl]
-    DeclSplice _ body -> [prettyDeclSplice body]
+    DeclSplice _ body -> [prettyDeclSpliceExpr body]
     DeclTypeFamilyDecl _ tf -> [prettyTypeFamilyDecl tf]
     DeclDataFamilyDecl _ df -> [prettyDataFamilyDecl df]
     DeclTypeFamilyInst _ tfi -> [prettyTopTypeFamilyInst tfi]
@@ -405,7 +407,7 @@ prettyType ty =
       prettyType ty' <+> "::" <+> prettyType kind
     TContext _ constraints inner ->
       prettyContext constraints <+> "=>" <+> prettyType inner
-    TSplice _ body -> prettySplice "$" body
+    TSplice _ body -> "$" <> prettyExpr body
     TWildcard _ -> "_"
 
 prettyContext :: [Type] -> Doc ann
@@ -457,7 +459,7 @@ prettyPattern pat =
               )
           )
     PTypeSig _ inner ty -> prettyPattern inner <+> "::" <+> prettyType ty
-    PSplice _ body -> prettySplice "$" body
+    PSplice _ body -> "$" <> prettyExpr body
 
 -- | Pretty print a pattern field binding.
 prettyPatternFieldBinding :: Name -> Pattern -> Doc ann
@@ -980,8 +982,8 @@ prettyExpr expr =
     ETHTypeNameQuote _ name
       | isOperatorToken name -> "''" <> parens (pretty name)
       | otherwise -> "''" <> pretty name
-    ETHSplice _ body -> prettySplice "$" body
-    ETHTypedSplice _ body -> prettySplice "$$" body
+    ETHSplice _ body -> "$" <> prettyExpr body
+    ETHTypedSplice _ body -> "$$" <> prettyExpr body
     EIf _ cond yes no ->
       "if" <+> prettyExpr cond <+> "then" <+> prettyExpr yes <+> "else" <+> prettyExpr no
     EMultiWayIf _ rhss ->
@@ -1204,14 +1206,6 @@ isUnicodeSymbolCategory c = case generalCategory c of
   OtherSymbol -> True
   OtherPunctuation -> not (isAscii c)
   _ -> False
-
--- | Pretty-print a TH splice with the given prefix ("$" or "$$").
-prettySplice :: Doc ann -> Expr -> Doc ann
-prettySplice prefix body =
-  case body of
-    EParen _ inner -> prefix <> parens (prettyExpr inner)
-    EVar {} -> prefix <> prettyExpr body
-    _ -> prefix <> parens (prettyExpr body)
 
 -- ---------------------------------------------------------------------------
 -- TypeFamilies pretty-printing helpers
