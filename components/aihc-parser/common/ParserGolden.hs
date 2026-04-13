@@ -30,7 +30,7 @@ import Aihc.Parser
     parsePattern,
   )
 import Aihc.Parser.Shorthand (Shorthand (..))
-import Aihc.Parser.Syntax (Extension, parseExtensionName)
+import Aihc.Parser.Syntax (Extension, ExtensionSetting (DisableExtension, EnableExtension), parseExtensionSettingName)
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withObject)
 import Data.Char (isSpace, toLower)
@@ -49,7 +49,6 @@ data CaseKind = CaseExpr | CaseModule | CasePattern deriving (Eq, Show)
 data ExpectedStatus
   = StatusPass
   | StatusFail
-  | StatusXPass
   | StatusXFail
   deriving (Eq, Show)
 
@@ -65,7 +64,7 @@ data ParserCase = ParserCase
     caseId :: !String,
     caseCategory :: !String,
     casePath :: !FilePath,
-    caseExtensions :: ![Extension],
+    caseExtensions :: ![ExtensionSetting],
     caseInput :: !Text,
     caseAst :: !String,
     caseStatus :: !ExpectedStatus,
@@ -158,10 +157,11 @@ evaluateExprCase meta =
     ParseErr err -> classifyFailure meta (MPE.errorBundlePretty err)
   where
     parserConfig =
-      defaultConfig
-        { parserSourceName = casePath meta,
-          parserExtensions = caseExtensions meta
-        }
+      ( defaultConfig
+          { parserSourceName = casePath meta,
+            parserExtensions = extensionsToEnabled (caseExtensions meta)
+          }
+      )
 
 evaluateModuleCase :: ParserCase -> (Outcome, String)
 evaluateModuleCase meta =
@@ -171,10 +171,11 @@ evaluateModuleCase meta =
         else classifyFailure meta (formatParseErrors (casePath meta) (Just (caseInput meta)) errs)
   where
     parserConfig =
-      defaultConfig
-        { parserSourceName = casePath meta,
-          parserExtensions = caseExtensions meta
-        }
+      ( defaultConfig
+          { parserSourceName = casePath meta,
+            parserExtensions = extensionsToEnabled (caseExtensions meta)
+          }
+      )
 
 evaluatePatternCase :: ParserCase -> (Outcome, String)
 evaluatePatternCase meta =
@@ -183,10 +184,19 @@ evaluatePatternCase meta =
     ParseErr err -> classifyFailure meta (MPE.errorBundlePretty err)
   where
     parserConfig =
-      defaultConfig
-        { parserSourceName = casePath meta,
-          parserExtensions = caseExtensions meta
-        }
+      ( defaultConfig
+          { parserSourceName = casePath meta,
+            parserExtensions = extensionsToEnabled (caseExtensions meta)
+          }
+      )
+
+extensionsToEnabled :: [ExtensionSetting] -> [Extension]
+extensionsToEnabled = foldr applySetting (parserExtensions defaultConfig)
+  where
+    applySetting setting exts =
+      case setting of
+        EnableExtension ext -> ext : filter (/= ext) exts
+        DisableExtension ext -> filter (/= ext) exts
 
 classifySuccess :: ParserCase -> String -> (Outcome, String)
 classifySuccess meta actualAst =
@@ -201,13 +211,15 @@ classifySuccess meta actualAst =
       ( OutcomeFail,
         "expected parse failure but parser succeeded with AST=" <> actualAst
       )
-    StatusXFail ->
-      (OutcomeFail, "expected xfail (known failing bug), but parser succeeded")
-    StatusXPass
-      | actualAst == caseAst meta -> (OutcomeXPass, "known bug still passes unexpectedly")
+    StatusXFail
+      | null (caseAst meta) ->
+          ( OutcomeXFail,
+            "expected xfail (known failing bug), but parser succeeded"
+          )
+      | actualAst == caseAst meta -> (OutcomeXPass, "expected xfail (known failing bug), but parser now produces correct AST")
       | otherwise ->
-          ( OutcomeFail,
-            "expected xpass AST match but got AST=" <> actualAst
+          ( OutcomeXFail,
+            "known bug still present: AST mismatch (expected=" <> show (caseAst meta) <> ", actual=" <> show actualAst <> ")"
           )
 
 classifyFailure :: ParserCase -> String -> (Outcome, String)
@@ -219,10 +231,6 @@ classifyFailure meta errDetails =
       )
     StatusFail -> (OutcomePass, "")
     StatusXFail -> (OutcomeXFail, "")
-    StatusXPass ->
-      ( OutcomeFail,
-        "expected xpass (known passing bug), got parse error: " <> errDetails
-      )
 
 progressSummary :: [(ParserCase, Outcome, String)] -> (Int, Int, Int, Int)
 progressSummary outcomes =
@@ -251,12 +259,12 @@ listFixtureFiles dir = do
       )
       entries
 
-validateExtensions :: FilePath -> [Text] -> Either String [Extension]
+validateExtensions :: FilePath -> [Text] -> Either String [ExtensionSetting]
 validateExtensions path = traverse parseOne
   where
     parseOne raw =
-      case parseExtensionName raw of
-        Just ext -> Right ext
+      case parseExtensionSettingName raw of
+        Just setting -> Right setting
         Nothing -> Left ("Unknown parser extension " <> show raw <> " in " <> path)
 
 parseStatus :: FilePath -> Text -> Either String ExpectedStatus
@@ -264,8 +272,8 @@ parseStatus path raw =
   case map toLower (trim (T.unpack raw)) of
     "pass" -> Right StatusPass
     "fail" -> Right StatusFail
-    "xpass" -> Right StatusXPass
     "xfail" -> Right StatusXFail
+    "xpass" -> Left ("xpass is not allowed in " <> path <> ": use xfail instead")
     _ -> Left ("Invalid [status] in " <> path <> ": " <> T.unpack raw)
 
 validateReason :: FilePath -> ExpectedStatus -> String -> Either String String
@@ -273,7 +281,6 @@ validateReason path status reason =
   let trimmed = trim reason
    in case status of
         StatusXFail | null trimmed -> Left ("[reason] is required for xfail status in " <> path)
-        StatusXPass | null trimmed -> Left ("[reason] is required for xpass status in " <> path)
         _ -> Right trimmed
 
 validateAst :: FilePath -> ExpectedStatus -> String -> Either String String
@@ -281,7 +288,6 @@ validateAst path status ast =
   let trimmed = trim ast
    in case status of
         StatusPass | null trimmed -> Left ("[ast] is required for pass status in " <> path)
-        StatusXPass | null trimmed -> Left ("[ast] is required for xpass status in " <> path)
         _ -> Right trimmed
 
 dropRootPrefix :: FilePath -> FilePath
