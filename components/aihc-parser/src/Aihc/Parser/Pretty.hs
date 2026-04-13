@@ -312,7 +312,7 @@ prettyFunctionMatchLines name match =
     GuardedRhss _ grhss mWhereDecls ->
       prettyFunctionHead name (matchHeadForm match) (matchPats match)
         : [ "  |"
-              <+> hsep (punctuate comma (map prettyGuardQualifier (guardedRhsGuards grhs)))
+              <+> hsep (punctuate comma (map (prettyGuardQualifier GuardEquals) (guardedRhsGuards grhs)))
               <+> "="
               <+> prettyExprPrec 0 (guardedRhsBody grhs)
           | grhs <- grhss
@@ -353,7 +353,7 @@ prettyRhs rhs =
     GuardedRhss _ guards whereDecls ->
       hsep
         [ "|"
-            <+> hsep (punctuate comma (map prettyGuardQualifier (guardedRhsGuards grhs)))
+            <+> hsep (punctuate comma (map (prettyGuardQualifier GuardEquals) (guardedRhsGuards grhs)))
             <+> "="
             <+> prettyExprPrec 0 (guardedRhsBody grhs)
         | grhs <- guards
@@ -1407,7 +1407,7 @@ prettyExprPrec prec expr =
             <+> "{"
             <+> hsep
               [ "|"
-                  <+> hsep (punctuate comma (map prettyGuardQualifier (guardedRhsGuards grhs)))
+                  <+> hsep (punctuate comma (map (prettyGuardQualifier GuardArrow) (guardedRhsGuards grhs)))
                   <+> "->"
                   <+> prettyExprPrec 0 (guardedRhsBody grhs)
               | grhs <- rhss
@@ -1559,7 +1559,7 @@ prettyCaseAlt (CaseAlt _ pat rhs) =
         [ prettyPattern pat,
           hsep
             [ "|"
-                <+> hsep (punctuate comma (map prettyGuardQualifier (guardedRhsGuards grhs)))
+                <+> hsep (punctuate comma (map (prettyGuardQualifier GuardArrow) (guardedRhsGuards grhs)))
                 <+> "->"
                 <+> prettyExprPrec 0 (guardedRhsBody grhs)
             | grhs <- grhss
@@ -1567,21 +1567,36 @@ prettyCaseAlt (CaseAlt _ pat rhs) =
         ]
         <> prettyWhereClause whereDecls
 
-prettyGuardQualifier :: GuardQualifier -> Doc ann
-prettyGuardQualifier qualifier =
+-- | Context for guard qualifiers: whether the guard is followed by @->@ or @=@.
+-- When followed by @->@, expressions ending with a type signature need
+-- parenthesization because @->@ is valid in types and would be absorbed.
+data GuardArrow = GuardArrow | GuardEquals
+
+prettyGuardQualifier :: GuardArrow -> GuardQualifier -> Doc ann
+prettyGuardQualifier arrow qualifier =
   case qualifier of
-    GuardExpr _ expr
-      | guardExprNeedsParens expr -> parens (prettyExprPrec 0 expr)
-      | otherwise -> prettyExprPrec 0 expr
-    GuardPat _ pat expr -> prettyPattern pat <+> "<-" <+> prettyExprPrec 0 expr
+    GuardExpr _ expr -> prettyGuardExpr arrow expr
+    GuardPat _ pat expr -> prettyPattern pat <+> "<-" <+> prettyGuardExpr arrow expr
     GuardLet _ decls -> "let" <+> braces (prettyInlineDecls decls)
 
-guardExprNeedsParens :: Expr -> Bool
-guardExprNeedsParens = \case
+-- | Pretty-print an expression in a guard qualifier position.
+-- In @->@ contexts (multi-way if, case alternatives), expressions ending with
+-- a type signature need parenthesization because the arrow would be absorbed
+-- into the type.  For example, @| () <- 262 :: T -> ()@ must be printed as
+-- @| () <- (262 :: T) -> ()@.
+prettyGuardExpr :: GuardArrow -> Expr -> Doc ann
+prettyGuardExpr arrow expr
+  | guardExprNeedsParens arrow expr = parens (prettyExprPrec 0 expr)
+  | otherwise = prettyExprPrec 0 expr
+
+guardExprNeedsParens :: GuardArrow -> Expr -> Bool
+guardExprNeedsParens arrow = \case
   ELambdaPats {} -> True
   EProc {} -> True
-  EApp _ _ arg | isBlockExpr arg -> guardExprNeedsParens arg
-  _ -> False
+  EApp _ _ arg | isBlockExpr arg -> guardExprNeedsParens arrow arg
+  expr -> case arrow of
+    GuardArrow -> endsWithTypeSig expr
+    GuardEquals -> False
 
 -- | Pretty print a do statement.
 -- Since do blocks are always rendered with explicit braces and semicolons,
