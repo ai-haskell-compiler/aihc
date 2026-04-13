@@ -190,6 +190,7 @@ exprCoreParserNoArrowTail = do
   tok <- lookAhead anySingle
   base <- case lexTokenKind tok of
     TkKeywordDo -> doExprParser
+    TkKeywordMdo -> mdoExprParser
     TkKeywordIf -> ifExprParser
     TkKeywordCase -> caseExprParser
     TkKeywordLet -> letExprParser
@@ -302,7 +303,7 @@ infixExprParserExcept forbidden = do
 -- | Parse an lexp (left-expression) - includes do, if, case, let, lambda, and fexp.
 lexpParser :: TokParser Expr
 lexpParser =
-  doExprParser <|> ifExprParser <|> caseExprParser <|> letExprParser <|> procExprParser <|> lambdaExprParser <|> MP.try negateExprParser <|> appExprParser
+  doExprParser <|> mdoExprParser <|> ifExprParser <|> caseExprParser <|> letExprParser <|> procExprParser <|> lambdaExprParser <|> MP.try negateExprParser <|> appExprParser
 
 buildInfix :: Expr -> (Name, Expr) -> Expr
 buildInfix lhs (op, rhs) =
@@ -455,6 +456,7 @@ atomExprParser = do
         <|> lambdaExprParser
         <|> letExprParser
         <|> (if blockArgsEnabled then MP.try doExprParser else MP.empty)
+        <|> (if blockArgsEnabled then MP.try mdoExprParser else MP.empty)
         <|> (if blockArgsEnabled then MP.try caseExprParser else MP.empty)
         <|> (if blockArgsEnabled then MP.try ifExprParser else MP.empty)
         <|> (if blockArgsEnabled then MP.try procExprParser else MP.empty)

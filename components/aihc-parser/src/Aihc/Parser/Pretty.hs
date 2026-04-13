@@ -528,10 +528,7 @@ prettyPattern pat =
     PCon _ con args -> hsep (prettyPrefixName con : map prettyPatternAtom args)
     PInfix _ lhs op rhs -> prettyPatternAtom lhs <+> prettyNameInfixOp op <+> prettyPatternAtom rhs
     PView _ viewExpr inner ->
-      -- Use precedence 2 for the view expression so that ETypeSig gets
-      -- parenthesized. Without this, "expr :: ty -> pat" is ambiguous
-      -- because "->" could be parsed as part of the type.
-      parens (prettyExprPrec 2 viewExpr <+> "->" <+> prettyPattern inner)
+      parens (prettyViewExpr viewExpr <+> "->" <+> prettyPattern inner)
     PAs _ name inner -> pretty name <> "@" <> prettyPatternAtomStrict inner
     PStrict _ inner -> "!" <> prettyPatternAtomStrict inner
     PIrrefutable _ inner -> "~" <> prettyPatternAtomStrict inner
@@ -556,11 +553,19 @@ prettyPattern pat =
 prettyPatternInDelimited :: Pattern -> Doc ann
 prettyPatternInDelimited pat =
   case pat of
-    PView _ viewExpr inner -> prettyExprPrec 2 viewExpr <+> "->" <+> prettyPattern inner
+    PView _ viewExpr inner -> prettyViewExpr viewExpr <+> "->" <+> prettyPattern inner
     PAs _ name inner -> pretty name <> "@" <> prettyPatternAtomStrict inner
     PStrict _ inner -> "!" <> prettyPatternAtomStrict inner
     PIrrefutable _ inner -> "~" <> prettyPatternAtomStrict inner
     _ -> prettyPattern pat
+
+prettyViewExpr :: Expr -> Doc ann
+prettyViewExpr expr =
+  case expr of
+    -- Keep type signatures parenthesized so the view-pattern arrow cannot be
+    -- parsed as part of the signature's result type.
+    ETypeSig {} -> parens (prettyExprPrec 0 expr)
+    _ -> prettyExprPrec 0 expr
 
 -- | Pretty print a pattern field binding.
 -- Supports NamedFieldPuns: if pattern is a variable with the same name as the field,

@@ -27,6 +27,8 @@ import Test.Properties.Identifiers (isValidGeneratedIdent, shrinkIdent)
 import Test.Properties.ModuleRoundTrip (prop_modulePrettyRoundTrip)
 import Test.Properties.PatternRoundTrip (prop_patternPrettyRoundTrip)
 import Test.Properties.TypeRoundTrip (prop_typePrettyRoundTrip)
+import Test.QuickCheck.Gen qualified as QGen
+import Test.QuickCheck.Random qualified as QRandom
 import Test.StackageProgress.FileCheckerTiming (stackageProgressFileCheckerTimingTests)
 import Test.StackageProgress.Summary (stackageProgressSummaryTests)
 import Test.Tasty
@@ -98,6 +100,7 @@ buildTests = do
             testCase "generated identifiers reject standalone underscore" test_generatedIdentifiersRejectStandaloneUnderscore,
             testCase "shrunk identifiers reject standalone underscore" test_shrunkIdentifiersRejectStandaloneUnderscore,
             testCase "generated operators reject arrow tail spellings" test_generatedOperatorsRejectArrowTailSpellings,
+            testCase "generated expressions can include mdo" test_generatedExpressionsCanIncludeMdo,
             testCase "parses parenthesized kind signature type atoms" test_typeParsesParenthesizedKindSignature,
             testCase "parses parenthesized kind signatures in application heads" test_typeParsesKindSignatureApplicationHead,
             testCase "parses empty list type constructor" test_typeParsesEmptyListConstructor,
@@ -113,6 +116,8 @@ buildTests = do
             testCase "parses warned export module reexports" test_warnedExportModuleReexportParses,
             testCase "parses infix class heads" test_infixClassHeadParses,
             testCase "roundtrips else branches with local where clauses" test_ifElseWhereBranchRoundtrip,
+            testCase "parses standalone mdo expressions" test_standaloneMdoExprParses,
+            testCase "parses mdo view patterns" test_mdoViewPatternParses,
             testCase "parses and roundtrips infix type family heads" test_infixTypeFamilyHeadRoundtrip,
             QC.testProperty "generated operators reject dash-only comment starters" prop_generatedOperatorsRejectDashOnlyCommentStarters,
             QC.testProperty "generated operators can produce unicode asterism" prop_generatedOperatorsCanProduceUnicodeAsterism
@@ -485,6 +490,28 @@ test_ifElseWhereBranchRoundtrip =
         case map normalizeDecl (moduleDecls modu) of
           [actualDecl] -> assertEqual "roundtripped declaration" (normalizeDecl expectedDecl) actualDecl
           other -> assertFailure ("unexpected parsed declarations: " <> show other <> "\nsource:\n" <> T.unpack source)
+
+test_standaloneMdoExprParses :: Assertion
+test_standaloneMdoExprParses =
+  case parseExpr defaultConfig {parserExtensions = [RecursiveDo]} "mdo { pure x }" of
+    ParseOk (EDo _ [DoExpr _ (EApp _ (EVar _ "pure") (EVar _ "x"))] True) -> pure ()
+    other -> assertFailure ("expected standalone mdo expression, got: " <> show other)
+
+test_mdoViewPatternParses :: Assertion
+test_mdoViewPatternParses =
+  let source =
+        T.unlines
+          [ "{-# LANGUAGE RecursiveDo #-}",
+            "{-# LANGUAGE ViewPatterns #-}",
+            "module M where",
+            "f (mdo { pure x } -> y) = y"
+          ]
+      (errs, modu) = parseModule defaultConfig source
+   in do
+        assertBool ("expected no parse errors, got: " <> show errs) (null errs)
+        case moduleDecls modu of
+          [DeclValue _ (FunctionBind _ "f" [Match {matchPats = [PView _ (EDo _ [DoExpr _ (EApp _ (EVar _ "pure") (EVar _ "x"))] True) (PVar _ "y")], matchRhs = UnguardedRhs _ (EVar _ "y") _}])] -> pure ()
+          other -> assertFailure ("unexpected parsed declarations: " <> show other)
 
 test_infixTypeFamilyHeadRoundtrip :: Assertion
 test_infixTypeFamilyHeadRoundtrip =
@@ -914,6 +941,15 @@ test_generatedOperatorsRejectArrowTailSpellings :: Assertion
 test_generatedOperatorsRejectArrowTailSpellings =
   assertBool "arrow-tail operators must not be treated as valid generated operators" $
     not (any isValidGeneratedOperator ["-<", ">-", "-<<", ">>-"])
+
+test_generatedExpressionsCanIncludeMdo :: Assertion
+test_generatedExpressionsCanIncludeMdo =
+  let samples = QGen.unGen (QC.vectorOf 4000 (QC.resize 5 (QC.arbitrary :: QC.Gen Expr))) (QRandom.mkQCGen 737) 5
+   in assertBool "expected expression generator to include at least one mdo expression" $
+        any isMdo samples
+  where
+    isMdo (EDo _ _ True) = True
+    isMdo _ = False
 
 prop_generatedOperatorsRejectDashOnlyCommentStarters :: QC.Property
 prop_generatedOperatorsRejectDashOnlyCommentStarters =

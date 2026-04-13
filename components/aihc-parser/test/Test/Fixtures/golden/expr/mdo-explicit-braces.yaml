@@ -1,0 +1,5 @@
+extensions: [RecursiveDo]
+input: |
+  mdo { pure x }
+ast: EMdo [DoExpr (EApp (EVar "pure") (EVar "x"))]
+status: pass

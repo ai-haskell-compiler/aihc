@@ -1,0 +1,5 @@
+extensions: [RecursiveDo, ViewPatterns]
+input: |
+  (mdo { pure x } -> y)
+ast: PView (EMdo [DoExpr (EApp (EVar "pure") (EVar "x"))]) (PVar "y")
+status: pass
