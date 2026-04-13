@@ -81,6 +81,8 @@ import Aihc.Parser.Syntax
 import Control.Applicative ((<|>))
 import Data.Char (GeneralCategory (..), generalCategory, isAscii, isAsciiLower, isAsciiUpper, isDigit, isSpace)
 import Data.Maybe (fromMaybe, isJust)
+import Data.Set (Set)
+import Data.Set qualified as Set
 import Data.Text (Text, pattern Empty, pattern (:<))
 import Data.Text qualified as T
 
@@ -335,15 +337,11 @@ lexIdentifier env st =
                 Just _ -> TkQVarId modName name
                 Nothing -> TkQVarId modName name
       | otherwise =
-          case keywordTokenKind ident of
+          case keywordTokenKind (lexerExtensions env) ident of
             Just kw -> kw
-            Nothing ->
-              case extensionKeywordTokenKind env ident of
-                Just kw -> kw
-                Nothing ->
-                  if isConIdStart firstChar
-                    then TkConId ident
-                    else TkVarId ident
+            Nothing
+              | isConIdStart firstChar -> TkConId ident
+              | otherwise -> TkVarId ident
 
 lexImplicitParam :: LexerEnv -> LexerState -> Maybe (LexToken, LexerState)
 lexImplicitParam env st
@@ -983,11 +981,13 @@ isUnicodeSymbolCategory c =
 isIdentTailOrStart :: Char -> Bool
 isIdentTailOrStart = isIdentTail
 
-isReservedIdentifier :: Text -> Bool
-isReservedIdentifier = isJust . keywordTokenKind
+-- | Check if an identifier is reserved given a set of enabled extensions.
+-- This includes both base keywords and extension-specific keywords.
+isReservedIdentifier :: Set Extension -> Text -> Bool
+isReservedIdentifier exts txt = isJust (keywordTokenKind exts txt)
 
-keywordTokenKind :: Text -> Maybe LexTokenKind
-keywordTokenKind txt =
+keywordTokenKind :: Set Extension -> Text -> Maybe LexTokenKind
+keywordTokenKind exts txt =
   case txt of
     "case" -> Just TkKeywordCase
     "class" -> Just TkKeywordClass
@@ -1013,15 +1013,10 @@ keywordTokenKind txt =
     "type" -> Just TkKeywordType
     "where" -> Just TkKeywordWhere
     "_" -> Just TkKeywordUnderscore
-    _ -> Nothing
-
-extensionKeywordTokenKind :: LexerEnv -> Text -> Maybe LexTokenKind
-extensionKeywordTokenKind env txt =
-  case txt of
-    "proc" | hasExt Arrows env -> Just TkKeywordProc
-    "rec" | hasExt Arrows env || hasExt RecursiveDo env -> Just TkKeywordRec
-    "mdo" | hasExt RecursiveDo env -> Just TkKeywordMdo
-    "pattern" | hasExt PatternSynonyms env -> Just TkKeywordPattern
+    "proc" | Set.member Arrows exts -> Just TkKeywordProc
+    "rec" | Set.member Arrows exts || Set.member RecursiveDo exts -> Just TkKeywordRec
+    "mdo" | Set.member RecursiveDo exts -> Just TkKeywordMdo
+    "pattern" | Set.member PatternSynonyms exts -> Just TkKeywordPattern
     _ -> Nothing
 
 reservedOpTokenKind :: Text -> Maybe LexTokenKind

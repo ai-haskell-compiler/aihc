@@ -18,6 +18,7 @@ where
 
 import Aihc.Parser.Lex (isReservedIdentifier)
 import Aihc.Parser.Syntax
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Test.Properties.Arb.Identifiers
@@ -32,6 +33,10 @@ import Test.Properties.Arb.Identifiers
     span0,
   )
 import Test.QuickCheck
+
+-- | All extensions enabled for maximum keyword coverage in testing.
+allExtensions :: Set.Set Extension
+allExtensions = Set.fromList allKnownExtensions
 
 instance Arbitrary Type where
   arbitrary = sized (genType . min 6)
@@ -259,7 +264,7 @@ genTypeVarName = do
   restLen <- chooseInt (0, 5)
   rest <- vectorOf restLen (elements (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> "_'"))
   let candidate = T.pack (first : rest)
-  if isReservedIdentifier candidate
+  if isReservedIdentifier allExtensions candidate
     then genTypeVarName
     else pure (mkUnqualifiedName NameVarId candidate)
 
