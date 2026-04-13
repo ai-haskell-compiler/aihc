@@ -977,6 +977,7 @@ isUnicodeSymbolCategory c =
     CurrencySymbol -> True
     ModifierSymbol -> True
     OtherSymbol -> True
+    OtherPunctuation -> not (isAscii c)
     _ -> False
 
 isIdentTailOrStart :: Char -> Bool

@@ -9,6 +9,7 @@ module StackageProgress.PackageRunner
   )
 where
 
+import Aihc.Hackage.VersionResolver (getLatestVersion)
 import Control.Exception (IOException, SomeException, displayException, try)
 import HackageSupport
   ( FileInfo (..),
@@ -50,21 +51,35 @@ runPackage opts spec = do
 -- | Process a package, potentially throwing exceptions.
 runPackageOrThrow :: Options -> PackageSpec -> IO PackageResult
 runPackageOrThrow opts spec = do
-  if pkgVersion spec == "installed"
-    then
-      pure
-        PackageResult
-          { package = spec,
-            packageOursOk = False,
-            packageHseOk = False,
-            packageGhcOk = False,
-            packageReason = "installed package has no downloadable snapshot version",
-            packageGhcError = Nothing,
-            packageSourceSize = 0,
-            packageFileErrors = []
-          }
-    else do
-      srcDir <- downloadPackageQuietWithNetwork (not (optOffline opts)) (pkgName spec) (pkgVersion spec)
+  versionResult <- resolveVersion
+  case versionResult of
+    Left errResult -> pure errResult
+    Right version -> runWithVersion version
+  where
+    resolveVersion :: IO (Either PackageResult String)
+    resolveVersion =
+      if pkgVersion spec == "installed"
+        then do
+          latestResult <- getLatestVersion Nothing (pkgName spec)
+          pure $ case latestResult of
+            Left err ->
+              Left
+                PackageResult
+                  { package = spec,
+                    packageOursOk = False,
+                    packageHseOk = False,
+                    packageGhcOk = False,
+                    packageReason = "failed to resolve latest version for installed package: " ++ err,
+                    packageGhcError = Nothing,
+                    packageSourceSize = 0,
+                    packageFileErrors = []
+                  }
+            Right ver -> Right ver
+        else pure (Right (pkgVersion spec))
+
+    runWithVersion :: String -> IO PackageResult
+    runWithVersion version = do
+      srcDir <- downloadPackageQuietWithNetwork (not (optOffline opts)) (pkgName spec) version
       files <- findTargetFilesFromCabal srcDir
       totalSize <- if optPrintFailedTable opts then totalSourceSize files else pure 0
       if null files

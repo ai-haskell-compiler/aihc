@@ -11,9 +11,9 @@ where
 import Aihc.Parser.Syntax
 import Data.Text (Text)
 import Data.Text qualified as T
-import Test.Properties.Arb.Expr (genExpr, shrinkExpr, span0)
+import Test.Properties.Arb.Expr (genExpr, genOperator, isValidGeneratedOperator, shrinkExpr, span0)
 import Test.Properties.Arb.Identifiers (genIdent, shrinkIdent)
-import Test.Properties.Arb.Type (canonicalTopLevelType, genType)
+import Test.Properties.Arb.Type (canonicalFunLeft, canonicalTopLevelType, genType)
 import Test.QuickCheck
 
 instance Arbitrary Decl where
@@ -50,7 +50,7 @@ genDecl = sized $ \n ->
 
 genDeclValue :: Int -> Gen Decl
 genDeclValue n = do
-  name <- mkUnqualifiedName NameVarId <$> genIdent
+  name <- genVarBinderName
   expr <- resize n genExpr
   genFunctionDecl (name, expr)
 
@@ -59,28 +59,32 @@ genFunctionDecl (name, expr) = do
   headForm <- elements [MatchHeadPrefix, MatchHeadInfix]
   case headForm of
     MatchHeadPrefix ->
-      pure $
-        DeclValue
-          span0
-          ( FunctionBind
-              span0
-              name
-              [ Match
-                  { matchSpan = span0,
-                    matchHeadForm = MatchHeadPrefix,
-                    matchPats = [],
-                    matchRhs = UnguardedRhs span0 expr Nothing
-                  }
-              ]
-          )
+      do
+        pats <-
+          case unqualifiedNameType name of
+            NameVarSym -> do
+              patCount <- chooseInt (1, 2)
+              vectorOf patCount (PVar span0 . mkUnqualifiedName NameVarId <$> genIdent)
+            _ -> pure []
+        pure $
+          DeclValue
+            span0
+            ( FunctionBind
+                span0
+                name
+                [ Match
+                    { matchSpan = span0,
+                      matchHeadForm = MatchHeadPrefix,
+                      matchPats = pats,
+                      matchRhs = UnguardedRhs span0 expr Nothing
+                    }
+                ]
+            )
     MatchHeadInfix -> do
       -- For infix bindings, generate an operator name and two PVar patterns.
       -- Symbolic operators: x + y = ..., backtick identifiers: x `f` y = ...
       opName <-
-        oneof
-          [ mkUnqualifiedName NameVarSym <$> genSymbolicOp,
-            mkUnqualifiedName NameVarId <$> genIdent
-          ]
+        genVarBinderName
       lhsPat <- PVar span0 . mkUnqualifiedName NameVarId <$> genIdent
       rhsPat <- PVar span0 . mkUnqualifiedName NameVarId <$> genIdent
       pure $
@@ -100,8 +104,16 @@ genFunctionDecl (name, expr) = do
 
 genDeclTypeSig :: Gen Decl
 genDeclTypeSig = do
-  name <- mkUnqualifiedName NameVarId <$> genIdent
-  DeclTypeSig span0 [name] <$> genSimpleType
+  nameCount <- chooseInt (1, 3)
+  names <- vectorOf nameCount genVarBinderName
+  DeclTypeSig span0 names <$> genSimpleType
+
+genVarBinderName :: Gen UnqualifiedName
+genVarBinderName =
+  oneof
+    [ mkUnqualifiedName NameVarId <$> genIdent,
+      mkUnqualifiedName NameVarSym <$> genOperator
+    ]
 
 genDeclFixity :: Gen Decl
 genDeclFixity = do
@@ -267,8 +279,9 @@ genRecordCon = do
 
 genFieldDecl :: Gen FieldDecl
 genFieldDecl = do
-  fieldName <- mkUnqualifiedName NameVarId <$> genIdent
-  FieldDecl span0 [fieldName] <$> genSimpleBangType
+  fieldCount <- chooseInt (1, 3)
+  fieldNames <- vectorOf fieldCount genVarBinderName
+  FieldDecl span0 fieldNames <$> genSimpleBangType
 
 genGadtDataCons :: Gen [DataConDecl]
 genGadtDataCons = do
@@ -291,26 +304,16 @@ genGadtBody =
 genGadtPrefixBody :: Gen GadtBody
 genGadtPrefixBody = do
   n <- chooseInt (0, 2)
-  args <- vectorOf n (oneof [genSimpleBangType, genInfixBangType])
-  -- Result type should not be a function type to avoid parsing ambiguity
-  GadtPrefixBody args <$> genSimpleTypeWithoutFun
+  args <- vectorOf n genGadtBangType
+  result <- canonicalFunLeft . canonicalTopLevelType <$> sized (genType . min 6)
+  pure $ GadtPrefixBody args result
 
--- | Generate an infix type operator application as a bang type,
--- e.g. @a :+: b@ or @a :== b@.
-genInfixBangType :: Gen BangType
-genInfixBangType = do
-  lhs <- genSimpleTypeWithoutFun
-  op <- genConSymName
-  rhs <- genSimpleTypeWithoutFun
-  let ty =
-        TApp
-          span0
-          ( TApp
-              span0
-              (TCon span0 (qualifyName Nothing (mkUnqualifiedName NameConSym op)) Unpromoted)
-              lhs
-          )
-          rhs
+-- | Generate a BangType for GADT prefix body arg position.
+-- Uses the full type generator with canonicalFunLeft applied, since the parser
+-- uses typeInfixParser (which cannot parse bare forall/->/(=>) without parens).
+genGadtBangType :: Gen BangType
+genGadtBangType = do
+  ty <- canonicalFunLeft . canonicalTopLevelType <$> sized (genType . min 6)
   pure $ BangType span0 NoSourceUnpackedness False ty
 
 -- | Generate a BangType without function types at the top level.
@@ -336,9 +339,17 @@ genSimpleTypeWithoutFun =
 genGadtRecordBody :: Gen GadtBody
 genGadtRecordBody = do
   n <- chooseInt (1, 3)
-  fields <- vectorOf n genFieldDecl
-  -- Result type should not be a function type to avoid parsing ambiguity
-  GadtRecordBody fields <$> genSimpleTypeWithoutFun
+  fields <- vectorOf n genGadtFieldDecl
+  result <- canonicalTopLevelType <$> sized (genType . min 6)
+  pure $ GadtRecordBody fields result
+
+-- | Generate a field declaration for GADT record body position.
+-- Uses the full type generator since record field types are parsed by typeParser.
+genGadtFieldDecl :: Gen FieldDecl
+genGadtFieldDecl = do
+  fieldName <- mkUnqualifiedName NameVarId <$> genIdent
+  ty <- canonicalTopLevelType <$> sized (genType . min 6)
+  pure $ FieldDecl span0 [fieldName] (BangType span0 NoSourceUnpackedness False ty)
 
 genSimpleBangType :: Gen BangType
 genSimpleBangType = do
@@ -385,7 +396,7 @@ genNewtypePrefixCon = do
 genNewtypeRecordCon :: Gen DataConDecl
 genNewtypeRecordCon = do
   conName <- mkUnqualifiedName NameConId <$> genTypeConName
-  fieldName <- mkUnqualifiedName NameVarId <$> genIdent
+  fieldName <- genVarBinderName
   ty <- genSimpleType
   pure $ RecordCon span0 [] [] conName [FieldDecl span0 [fieldName] (BangType span0 NoSourceUnpackedness False ty)]
 
@@ -634,7 +645,23 @@ shrinkDecl decl =
 
 shrinkUnqualifiedVarName :: UnqualifiedName -> [UnqualifiedName]
 shrinkUnqualifiedVarName name =
-  [mkUnqualifiedName NameVarId candidate | candidate <- shrinkIdent (renderUnqualifiedName name)]
+  [mkUnqualifiedName (unqualifiedNameType name) candidate | candidate <- shrinkBinderText name]
+
+shrinkBinderText :: UnqualifiedName -> [Text]
+shrinkBinderText name =
+  case unqualifiedNameType name of
+    NameVarId -> shrinkIdent (renderUnqualifiedName name)
+    NameVarSym -> shrinkSymbolicName (renderUnqualifiedName name)
+    _ -> []
+
+shrinkSymbolicName :: Text -> [Text]
+shrinkSymbolicName txt =
+  filter (not . T.null) $
+    shrinkList noShrink (T.unpack txt) >>= \chars ->
+      let candidate = T.pack chars
+       in [candidate | isValidGeneratedOperator candidate]
+  where
+    noShrink _ = []
 
 shrinkBinderName :: BinderName -> [BinderName]
 shrinkBinderName = shrinkUnqualifiedVarName

@@ -14,7 +14,7 @@ where
 
 import Aihc.Parser.Lex.Pragmas (parseControlPragma)
 import Aihc.Parser.Lex.Types
-import Data.Char (GeneralCategory (..), generalCategory, isDigit, isSpace)
+import Data.Char (GeneralCategory (..), generalCategory, isAscii, isDigit, isSpace)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text, pattern (:<))
 import Data.Text qualified as T
@@ -220,6 +220,7 @@ isUnicodeSymbolCategory c =
     CurrencySymbol -> True
     ModifierSymbol -> True
     OtherSymbol -> True
+    OtherPunctuation -> not (isAscii c)
     _ -> False
 
 readBoundedInt :: Text -> Maybe Int
