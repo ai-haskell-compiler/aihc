@@ -1248,6 +1248,23 @@ isGreedyExpr = \case
   EApp _ _ arg | isBlockExpr arg -> isOpenEnded arg
   _ -> False
 
+-- | Check if an expression ends with a type signature (@:: type@) when rendered.
+-- In guard contexts where @->@ follows the expression, the parser would greedily
+-- consume @->@ as a function type arrow inside the type signature. Expressions
+-- matching this predicate need parenthesization to prevent this ambiguity.
+exprEndsWithTypeSig :: Expr -> Bool
+exprEndsWithTypeSig = \case
+  ETypeSig {} -> True
+  -- Open-ended expressions whose trailing subexpression is the issue:
+  ELetDecls _ _ body -> exprEndsWithTypeSig body
+  EIf _ _ _ elseE -> exprEndsWithTypeSig elseE
+  -- Infix: the RHS is the trailing part; if it has a type sig that's at the
+  -- top level of exprParser, it shows up as ETypeSig wrapping the whole infix.
+  -- But the pretty-printer renders EInfix at prec 1 so ETypeSig (prec > 1)
+  -- won't add parens. Check the RHS too.
+  EInfix _ _ _ rhs -> exprEndsWithTypeSig rhs
+  _ -> False
+
 -- | Print an expression in a "guarded" context where greedy expressions
 -- need parentheses to prevent them from consuming trailing syntax.
 prettyExprGuarded :: Expr -> Doc ann
@@ -1573,7 +1590,13 @@ prettyGuardQualifier qualifier =
     GuardExpr _ expr
       | guardExprNeedsParens expr -> parens (prettyExprPrec 0 expr)
       | otherwise -> prettyExprPrec 0 expr
-    GuardPat _ pat expr -> prettyPattern pat <+> "<-" <+> prettyExprPrec 0 expr
+    GuardPat _ pat expr
+      -- In guard context, '->' follows the expression as the guard arrow.
+      -- If the expression ends with a type signature (e.g. 'let {..} in x :: v'),
+      -- the '->' would be consumed as a function type arrow by the parser.
+      -- Parenthesize such expressions to prevent this ambiguity.
+      | exprEndsWithTypeSig expr -> prettyPattern pat <+> "<-" <+> parens (prettyExprPrec 0 expr)
+      | otherwise -> prettyPattern pat <+> "<-" <+> prettyExprPrec 0 expr
     GuardLet _ decls -> "let" <+> braces (prettyInlineDecls decls)
 
 guardExprNeedsParens :: Expr -> Bool
