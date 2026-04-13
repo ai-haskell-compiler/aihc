@@ -383,7 +383,7 @@ addPatSynDirParens name (PatSynExplicitBidirectional matches) =
 addDataDeclParens :: DataDecl -> DataDecl
 addDataDeclParens decl =
   decl
-    { dataDeclContext = map addTypeParens (dataDeclContext decl),
+    { dataDeclContext = addContextConstraints (dataDeclContext decl),
       dataDeclKind = fmap addTypeParens (dataDeclKind decl),
       dataDeclConstructors = map addDataConDeclParens (dataDeclConstructors decl),
       dataDeclDeriving = map addDerivingClauseParens (dataDeclDeriving decl)
@@ -392,7 +392,7 @@ addDataDeclParens decl =
 addNewtypeDeclParens :: NewtypeDecl -> NewtypeDecl
 addNewtypeDeclParens decl =
   decl
-    { newtypeDeclContext = map addTypeParens (newtypeDeclContext decl),
+    { newtypeDeclContext = addContextConstraints (newtypeDeclContext decl),
       newtypeDeclKind = fmap addTypeParens (newtypeDeclKind decl),
       newtypeDeclConstructor = fmap addDataConDeclParens (newtypeDeclConstructor decl),
       newtypeDeclDeriving = map addDerivingClauseParens (newtypeDeclDeriving decl)
@@ -409,13 +409,13 @@ addDataConDeclParens :: DataConDecl -> DataConDecl
 addDataConDeclParens con =
   case con of
     PrefixCon sp forallVars constraints name fields ->
-      PrefixCon sp forallVars (map addTypeParens constraints) name (map addBangTypeParens fields)
+      PrefixCon sp forallVars (addContextConstraints constraints) name (map addBangTypeParens fields)
     InfixCon sp forallVars constraints lhs op rhs ->
-      InfixCon sp forallVars (map addTypeParens constraints) (addBangTypeAtomParens lhs) op (addBangTypeAtomParens rhs)
+      InfixCon sp forallVars (addContextConstraints constraints) (addBangTypeAtomParens lhs) op (addBangTypeAtomParens rhs)
     RecordCon sp forallVars constraints name fields ->
-      RecordCon sp forallVars (map addTypeParens constraints) name (map addRecordFieldDeclParens fields)
+      RecordCon sp forallVars (addContextConstraints constraints) name (map addRecordFieldDeclParens fields)
     GadtCon sp forallBinders constraints names body ->
-      GadtCon sp forallBinders (map addTypeParens constraints) names (addGadtBodyParens body)
+      GadtCon sp forallBinders (addContextConstraints constraints) names (addGadtBodyParens body)
 
 addBangTypeParens :: BangType -> BangType
 addBangTypeParens bt =
@@ -457,7 +457,7 @@ addGadtBodyParens body =
 addClassDeclParens :: ClassDecl -> ClassDecl
 addClassDeclParens decl =
   decl
-    { classDeclContext = fmap (map addTypeParens) (classDeclContext decl),
+    { classDeclContext = fmap addContextConstraints (classDeclContext decl),
       classDeclItems = map addClassItemParens (classDeclItems decl)
     }
 
@@ -476,7 +476,7 @@ addClassItemParens item =
 addInstanceDeclParens :: InstanceDecl -> InstanceDecl
 addInstanceDeclParens decl =
   decl
-    { instanceDeclContext = map addTypeParens (instanceDeclContext decl),
+    { instanceDeclContext = addContextConstraints (instanceDeclContext decl),
       instanceDeclTypes = map (addTypeIn CtxTypeAtom) (instanceDeclTypes decl),
       instanceDeclItems = map addInstanceItemParens (instanceDeclItems decl)
     }
@@ -495,7 +495,7 @@ addStandaloneDerivingParens :: StandaloneDerivingDecl -> StandaloneDerivingDecl
 addStandaloneDerivingParens decl =
   decl
     { standaloneDerivingViaType = fmap addTypeParens (standaloneDerivingViaType decl),
-      standaloneDerivingContext = map addTypeParens (standaloneDerivingContext decl),
+      standaloneDerivingContext = addContextConstraints (standaloneDerivingContext decl),
       standaloneDerivingTypes = map (addTypeIn CtxTypeAtom) (standaloneDerivingTypes decl)
     }
 
@@ -792,13 +792,17 @@ addTypeParensShared ctx prec ty =
           TTuple sp tupleFlavor promoted (map (atom 0) elems)
         TUnboxedSum sp elems -> TUnboxedSum sp (map (atom 0) elems)
         TList sp promoted elems -> TList sp promoted (map (atom 0) elems)
-        TParen sp inner -> TParen sp (atom 0 inner)
+        -- Inside an explicit TParen, the delimiter is already present, so we
+        -- process the inner type at prec 0 without adding extra wrapping.
+        -- Using CtxKindSig prevents double-wrapping TKindSig (which the
+        -- outer TParen already handles).
+        TParen sp inner -> TParen sp (addTypeParensInner inner)
         TKindSig sp ty' kind ->
           case ctx of
             CtxKindSig -> TKindSig sp (atom 0 ty') (atom 0 kind)
             _ -> wrapTy True (TKindSig sp (atom 0 ty') (atom 0 kind))
         TContext sp constraints inner ->
-          wrapTy (prec > 0) (TContext sp (map addTypeParens constraints) (atom 0 inner))
+          wrapTy (prec > 0) (TContext sp (addContextConstraints constraints) (atom 0 inner))
         TSplice sp body -> TSplice sp (addSpliceBodyParens body)
         TWildcard {} -> ty
   where
@@ -813,6 +817,44 @@ addTypeParensShared ctx prec ty =
 addTyVarBinderParens :: TyVarBinder -> TyVarBinder
 addTyVarBinderParens tvb =
   tvb {tyVarBinderKind = fmap addTypeParens (tyVarBinderKind tvb)}
+
+-- | Process a type inside explicit delimiters (TParen, TTuple, etc.).
+-- TKindSig does not need wrapping here because the enclosing delimiter
+-- already provides the necessary parenthesization.
+addTypeParensInner :: Type -> Type
+addTypeParensInner ty =
+  case ty of
+    TKindSig sp ty' kind ->
+      TKindSig sp (addTypeParensShared CtxTypeAtom 0 ty') (addTypeParensShared CtxTypeAtom 0 kind)
+    _ -> addTypeParensShared CtxTypeAtom 0 ty
+
+-- | Process constraint types in a TContext.
+-- In multi-constraint contexts, TKindSig doesn't need individual parens
+-- (commas delimit). In single-constraint contexts, TKindSig needs parens.
+addContextConstraints :: [Type] -> [Type]
+addContextConstraints constraints =
+  case constraints of
+    [single] -> [addContextConstraintSingle single]
+    _ -> map addContextConstraintMulti constraints
+
+-- | Add parens to a single constraint in a context.
+-- TKindSig needs wrapping here because there's no comma delimiter.
+addContextConstraintSingle :: Type -> Type
+addContextConstraintSingle = addTypeParens
+
+-- | Add parens to a constraint in a multi-constraint context.
+-- TKindSig doesn't need extra wrapping because commas delimit.
+-- Strip TParen around TKindSig since it's unnecessary here.
+addContextConstraintMulti :: Type -> Type
+addContextConstraintMulti ty =
+  case ty of
+    TKindSig sp ty' kind ->
+      -- In multi-constraint context, TKindSig doesn't need wrapping
+      TKindSig sp (addTypeParensShared CtxTypeAtom 0 ty') (addTypeParensShared CtxTypeAtom 0 kind)
+    TParen _ inner@(TKindSig {}) ->
+      -- Strip TParen around TKindSig in multi-constraint context
+      addContextConstraintMulti inner
+    _ -> addTypeParens ty
 
 -- ---------------------------------------------------------------------------
 -- Patterns
@@ -833,7 +875,7 @@ addPatternParens pat =
     PCon sp con args -> PCon sp con (map addPatternAtomParens args)
     PInfix sp lhs op rhs -> PInfix sp (addPatternAtomParens lhs) op (addPatternAtomParens rhs)
     PView sp viewExpr inner ->
-      PView sp (addViewExprParens viewExpr) (addPatternParens inner)
+      wrapPat True (PView sp (addViewExprParens viewExpr) (addPatternParens inner))
     PAs sp name inner -> PAs sp name (addPatternAtomStrictParens inner)
     PStrict sp inner -> PStrict sp (addPatternAtomStrictParens inner)
     PIrrefutable sp inner -> PIrrefutable sp (addPatternAtomStrictParens inner)
