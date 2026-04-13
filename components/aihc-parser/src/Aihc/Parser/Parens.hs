@@ -804,15 +804,15 @@ addTypeParensShared ctx prec ty =
           TTuple sp tupleFlavor promoted (map (atom 0) elems)
         TUnboxedSum sp elems -> TUnboxedSum sp (map (atom 0) elems)
         TList sp promoted elems -> TList sp promoted (map (atom 0) elems)
-        -- Inside an explicit TParen, the delimiter is already present, so we
-        -- process the inner type at prec 0 without adding extra wrapping.
-        -- Using CtxKindSig prevents double-wrapping TKindSig (which the
-        -- outer TParen already handles).
+        -- Inside an explicit TParen, TKindSig does not need an additional
+        -- TParen wrapper since the enclosing delimiter already provides it.
         TParen sp inner -> TParen sp (addTypeParensInner inner)
+        -- TKindSig always needs parens in most contexts. The parser absorbs
+        -- (ty :: kind) as TKindSig directly, so the TParen is not preserved
+        -- through roundtrips. The pretty-printer relies on the TParen wrapper
+        -- to produce the required parentheses.
         TKindSig sp ty' kind ->
-          case ctx of
-            CtxKindSig -> TKindSig sp (atom 0 ty') (atom 0 kind)
-            _ -> wrapTy True (TKindSig sp (atom 0 ty') (atom 0 kind))
+          wrapTy True (TKindSig sp (atom 0 ty') (atom 0 kind))
         TContext sp constraints inner ->
           wrapTy (prec > 0) (TContext sp (addContextConstraints constraints) (atom 0 inner))
         TSplice sp body -> TSplice sp (addSpliceBodyParens body)
