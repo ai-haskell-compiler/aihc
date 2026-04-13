@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail reason="'pattern' treated as reserved keyword but should be valid identifier in Haskell2010 without PatternSynonyms" -}
+{- ORACLE_TEST pass -}
 module PatternAsIdentifier where
 
 pattern :: Int -> Int

@@ -1,0 +1,12 @@
+src: |
+  {-# LANGUAGE PatternSynonyms #-}
+  id :: pattern -> pattern
+  id x = x
+ghc: |
+  test.hs:2:7: error: [GHC-58481] parse error on input `pattern'
+aihc: |
+  test.hs:2:7:
+  2 | id :: pattern -> pattern
+    |       ^^^^^^^
+  unexpected 'pattern'
+  expecting type
