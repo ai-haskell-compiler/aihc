@@ -11,7 +11,7 @@ where
 import Aihc.Parser.Syntax
 import Data.Text (Text)
 import Data.Text qualified as T
-import Test.Properties.Arb.Expr (genExpr, genOperator, genRhsWith, isValidGeneratedOperator, shrinkExpr)
+import Test.Properties.Arb.Expr (genOperator, genRhsWith, isValidGeneratedOperator, shrinkExpr)
 import Test.Properties.Arb.Identifiers
   ( genConIdent,
     genConSym,
@@ -61,13 +61,12 @@ genDecl = sized $ \n ->
     ]
 
 genDeclValue :: Int -> Gen Decl
-genDeclValue n = do
+genDeclValue _ = do
   name <- genVarBinderName
-  expr <- resize n genExpr
-  genFunctionDecl (name, expr)
+  genFunctionDecl name
 
-genFunctionDecl :: (UnqualifiedName, Expr) -> Gen Decl
-genFunctionDecl (name, _expr) = do
+genFunctionDecl :: UnqualifiedName -> Gen Decl
+genFunctionDecl name = do
   headForm <- elements [MatchHeadPrefix, MatchHeadInfix]
   case headForm of
     MatchHeadPrefix ->
