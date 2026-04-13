@@ -1626,7 +1626,7 @@ isOperatorToken tok =
 -- plus Unicode characters with general category Sm, Sc, Sk, or So.
 isSymbolicOpChar :: Char -> Bool
 isSymbolicOpChar c =
-  c `elem` (":!#$%&*+./<=>?@\\^|-~" :: String) || isUnicodeSymbolCategory c || isUnicodeOperatorExtra c
+  c `elem` (":!#$%&*+./<=>?@\\^|-~" :: String) || isUnicodeSymbolCategory c
 
 isUnicodeSymbolCategory :: Char -> Bool
 isUnicodeSymbolCategory c = case generalCategory c of
@@ -1636,11 +1636,6 @@ isUnicodeSymbolCategory c = case generalCategory c of
   OtherSymbol -> True
   OtherPunctuation -> not (isAscii c)
   _ -> False
-
-isUnicodeOperatorExtra :: Char -> Bool
-isUnicodeOperatorExtra c =
-  c == '⁂'
-    || c == '‼'
 
 -- | Pretty-print a TH splice with the given prefix ("$" or "$$").
 -- If the body is a parenthesized expression, print as $(expr) or $$(expr).

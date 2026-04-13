@@ -242,6 +242,7 @@ extraUnicodeOperatorChars =
 unicodeOperatorRanges :: [(Char, Char)]
 unicodeOperatorRanges =
   [ ('\x00A2', '\x00A9'),
+    ('\x2000', '\x206F'),
     ('\x02C2', '\x02DF'),
     ('\x20A0', '\x20CF'),
     ('\x2100', '\x214F'),
