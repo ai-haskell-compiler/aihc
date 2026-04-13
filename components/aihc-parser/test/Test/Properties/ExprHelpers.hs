@@ -286,6 +286,7 @@ normalizeTypeSynDecl :: TypeSynDecl -> TypeSynDecl
 normalizeTypeSynDecl decl =
   TypeSynDecl
     { typeSynSpan = span0,
+      typeSynHeadForm = typeSynHeadForm decl,
       typeSynName = typeSynName decl,
       typeSynParams = map normalizeTyVarBinder (typeSynParams decl),
       typeSynBody = normalizeType (typeSynBody decl)
@@ -295,6 +296,7 @@ normalizeDataDecl :: DataDecl -> DataDecl
 normalizeDataDecl decl =
   DataDecl
     { dataDeclSpan = span0,
+      dataDeclHeadForm = dataDeclHeadForm decl,
       dataDeclContext = map normalizeType (dataDeclContext decl),
       dataDeclName = dataDeclName decl,
       dataDeclParams = map normalizeTyVarBinder (dataDeclParams decl),
@@ -307,6 +309,7 @@ normalizeNewtypeDecl :: NewtypeDecl -> NewtypeDecl
 normalizeNewtypeDecl decl =
   NewtypeDecl
     { newtypeDeclSpan = span0,
+      newtypeDeclHeadForm = newtypeDeclHeadForm decl,
       newtypeDeclContext = map normalizeType (newtypeDeclContext decl),
       newtypeDeclName = newtypeDeclName decl,
       newtypeDeclParams = map normalizeTyVarBinder (newtypeDeclParams decl),

@@ -27,6 +27,7 @@ genDecl = sized $ \n ->
       genDeclFixity,
       genDeclRoleAnnotation,
       genDeclTypeSyn,
+      genDeclTypeSynInfix,
       genDeclData,
       genDeclTypeData,
       genDeclNewtype,
@@ -123,7 +124,19 @@ genDeclTypeSyn :: Gen Decl
 genDeclTypeSyn = do
   name <- genTypeConName
   params <- genSimpleTyVarBinders
-  DeclTypeSyn span0 . TypeSynDecl span0 name params <$> genSimpleType
+  DeclTypeSyn span0 . TypeSynDecl span0 TypeHeadPrefix name params <$> genSimpleType
+
+-- | Generate an infix type synonym, covering both symbolic operators
+-- (e.g. @type a :+: b = (a, b)@) and backtick-wrapped identifiers
+-- (e.g. @type a \`Plus\` b = (a, b)@).
+genDeclTypeSynInfix :: Gen Decl
+genDeclTypeSynInfix = do
+  name <- oneof [genConSymName, genTypeConName]
+  lhsName <- genIdent
+  rhsName <- genIdent
+  let lhs = TyVarBinder span0 lhsName Nothing TyVarBSpecified
+      rhs = TyVarBinder span0 rhsName Nothing TyVarBSpecified
+  DeclTypeSyn span0 . TypeSynDecl span0 TypeHeadInfix name [lhs, rhs] <$> genSimpleType
 
 genDeclData :: Gen Decl
 genDeclData =
@@ -141,6 +154,7 @@ genDeclDataGadt = do
     DeclData span0 $
       DataDecl
         { dataDeclSpan = span0,
+          dataDeclHeadForm = TypeHeadPrefix,
           dataDeclContext = [],
           dataDeclName = name,
           dataDeclParams = params,
@@ -161,6 +175,7 @@ genDeclTypeDataPrefix = do
     DeclTypeData span0 $
       DataDecl
         { dataDeclSpan = span0,
+          dataDeclHeadForm = TypeHeadPrefix,
           dataDeclContext = [],
           dataDeclName = name,
           dataDeclParams = params,
@@ -188,6 +203,7 @@ genSimpleDataDecl = do
   pure $
     DataDecl
       { dataDeclSpan = span0,
+        dataDeclHeadForm = TypeHeadPrefix,
         dataDeclContext = [],
         dataDeclName = name,
         dataDeclParams = params,
@@ -215,35 +231,28 @@ genPrefixCon = do
   name <-
     oneof
       [ mkUnqualifiedName NameConId <$> genTypeConName,
-        mkUnqualifiedName NameConSym <$> genPrefixSymConName
+        mkUnqualifiedName NameConSym <$> genConSymName
       ]
   n <- chooseInt (0, 2)
   fields <- vectorOf n genSimpleBangType
   pure $ PrefixCon span0 [] [] name fields
-
--- | Generate symbolic names for prefix constructors: colon followed by symbols.
--- Examples: :+, :*, :==
-genPrefixSymConName :: Gen Text
-genPrefixSymConName = do
-  symLen <- chooseInt (1, 3)
-  syms <- vectorOf symLen (elements ['+', '*', '-', '=', '!', '<', '>', '&', '|'])
-  pure (T.pack (':' : syms))
 
 genInfixCon :: Gen DataConDecl
 genInfixCon = do
   -- Infix constructors can be symbolic (:+) or alphabetic (`Cons`)
   opName <-
     oneof
-      [ mkUnqualifiedName NameConSym <$> genInfixSymConName,
+      [ mkUnqualifiedName NameConSym <$> genConSymName,
         mkUnqualifiedName NameConId <$> genTypeConName
       ]
   lhs <- genSimpleBangTypeWithoutFun
   InfixCon span0 [] [] lhs opName <$> genSimpleBangTypeWithoutFun
 
--- | Generate infix symbolic constructor names: colon followed by at least one symbol.
--- Examples: :+, :*, :==, :->, :||
-genInfixSymConName :: Gen Text
-genInfixSymConName = do
+-- | Generate constructor symbol names: colon followed by 1–3 symbol characters.
+-- Valid for both type-level and value-level constructor operators.
+-- Examples: @:+@, @:*@, @:==@, @:+:@
+genConSymName :: Gen Text
+genConSymName = do
   symLen <- chooseInt (1, 3)
   syms <- vectorOf symLen (elements ['+', '*', '-', '=', '!', '<', '>', '&', '|'])
   pure (T.pack (':' : syms))
@@ -281,10 +290,27 @@ genGadtBody =
 genGadtPrefixBody :: Gen GadtBody
 genGadtPrefixBody = do
   n <- chooseInt (0, 2)
-  -- Use simple types (not function types) for GADT args to avoid ambiguity
-  args <- vectorOf n genSimpleBangTypeWithoutFun
-  -- Result type should also not be a function type to avoid parsing ambiguity
+  args <- vectorOf n (oneof [genSimpleBangType, genInfixBangType])
+  -- Result type should not be a function type to avoid parsing ambiguity
   GadtPrefixBody args <$> genSimpleTypeWithoutFun
+
+-- | Generate an infix type operator application as a bang type,
+-- e.g. @a :+: b@ or @a :== b@.
+genInfixBangType :: Gen BangType
+genInfixBangType = do
+  lhs <- genSimpleTypeWithoutFun
+  op <- genConSymName
+  rhs <- genSimpleTypeWithoutFun
+  let ty =
+        TApp
+          span0
+          ( TApp
+              span0
+              (TCon span0 (qualifyName Nothing (mkUnqualifiedName NameConSym op)) Unpromoted)
+              lhs
+          )
+          rhs
+  pure $ BangType span0 NoSourceUnpackedness False ty
 
 -- | Generate a BangType without function types at the top level.
 genSimpleBangTypeWithoutFun :: Gen BangType
@@ -333,6 +359,7 @@ genDeclNewtype = do
     DeclNewtype span0 $
       NewtypeDecl
         { newtypeDeclSpan = span0,
+          newtypeDeclHeadForm = TypeHeadPrefix,
           newtypeDeclContext = [],
           newtypeDeclName = name,
           newtypeDeclParams = params,

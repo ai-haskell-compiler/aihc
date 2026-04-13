@@ -1198,6 +1198,7 @@ instance HasSourceSpan RoleAnnotation where
 
 data TypeSynDecl = TypeSynDecl
   { typeSynSpan :: SourceSpan,
+    typeSynHeadForm :: TypeHeadForm,
     typeSynName :: Text,
     typeSynParams :: [TyVarBinder],
     typeSynBody :: Type
@@ -1283,6 +1284,7 @@ instance HasSourceSpan DataFamilyInst where
 
 data DataDecl = DataDecl
   { dataDeclSpan :: SourceSpan,
+    dataDeclHeadForm :: TypeHeadForm,
     dataDeclContext :: [Type],
     dataDeclName :: UnqualifiedName,
     dataDeclParams :: [TyVarBinder],
@@ -1298,6 +1300,7 @@ instance HasSourceSpan DataDecl where
 
 data NewtypeDecl = NewtypeDecl
   { newtypeDeclSpan :: SourceSpan,
+    newtypeDeclHeadForm :: TypeHeadForm,
     newtypeDeclContext :: [Type],
     newtypeDeclName :: UnqualifiedName,
     newtypeDeclParams :: [TyVarBinder],

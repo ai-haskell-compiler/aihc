@@ -214,13 +214,14 @@ prettyDeclLines decl =
       ]
     DeclRoleAnnotation _ ann -> [prettyRoleAnnotation ann]
     DeclTypeSyn _ synDecl ->
-      [ hsep
-          [ "type",
-            prettyDeclHead [] (unqualifiedNameFromText (typeSynName synDecl)) (typeSynParams synDecl),
-            "=",
-            prettyType (typeSynBody synDecl)
-          ]
-      ]
+      let headDocs = case (typeSynHeadForm synDecl, typeSynParams synDecl) of
+            (TypeHeadInfix, [lhs, rhs]) ->
+              let name = typeSynName synDecl
+               in if isOperatorToken name
+                    then [pretty (tyVarBinderName lhs), pretty name, pretty (tyVarBinderName rhs)]
+                    else [pretty (tyVarBinderName lhs), "`" <> pretty name <> "`", pretty (tyVarBinderName rhs)]
+            _ -> [prettyDeclHead TypeHeadPrefix [] (unqualifiedNameFromText (typeSynName synDecl)) (typeSynParams synDecl)]
+       in [hsep (["type"] <> headDocs <> ["=", prettyType (typeSynBody synDecl)])]
     DeclData _ dataDecl -> [prettyDataDecl dataDecl]
     DeclTypeData _ dataDecl -> [prettyTypeDataDecl dataDecl]
     DeclNewtype _ newtypeDecl -> [prettyNewtypeDecl newtypeDecl]
@@ -389,8 +390,6 @@ needsTypeParens ctx ty =
         _ -> False
     CtxTypeAppArg ->
       case ty of
-        TApp _ (TApp _ (TCon _ op _) _) _
-          | isSymbolicTypeName op && renderName op /= "->" -> False
         TQuasiQuote {} -> False
         TApp {} -> True
         TForall {} -> True
@@ -631,7 +630,7 @@ prettyDataDecl :: DataDecl -> Doc ann
 prettyDataDecl decl =
   hsep
     ( [ "data",
-        prettyDeclHead (dataDeclContext decl) (dataDeclName decl) (dataDeclParams decl)
+        prettyDeclHead (dataDeclHeadForm decl) (dataDeclContext decl) (dataDeclName decl) (dataDeclParams decl)
       ]
         <> kindPart
         <> ctorPart
@@ -650,7 +649,7 @@ prettyTypeDataDecl :: DataDecl -> Doc ann
 prettyTypeDataDecl decl =
   hsep
     ( [ "type data",
-        prettyDeclHead (dataDeclContext decl) (dataDeclName decl) (dataDeclParams decl)
+        prettyDeclHead (dataDeclHeadForm decl) (dataDeclContext decl) (dataDeclName decl) (dataDeclParams decl)
       ]
         <> kindPart
         <> ctorPart
@@ -673,7 +672,7 @@ prettyNewtypeDecl :: NewtypeDecl -> Doc ann
 prettyNewtypeDecl decl =
   hsep
     ( [ "newtype",
-        prettyDeclHead (newtypeDeclContext decl) (newtypeDeclName decl) (newtypeDeclParams decl)
+        prettyDeclHead (newtypeDeclHeadForm decl) (newtypeDeclContext decl) (newtypeDeclName decl) (newtypeDeclParams decl)
       ]
         <> kindPart
         <> ctorPart
@@ -709,20 +708,16 @@ derivingPart (DerivingClause strategy classes viaTy parenthesized) =
     viaPart Nothing = []
     viaPart (Just ty) = ["via", prettyType ty]
 
-prettyDeclHead :: [Type] -> UnqualifiedName -> [TyVarBinder] -> Doc ann
-prettyDeclHead constraints name params =
+prettyDeclHead :: TypeHeadForm -> [Type] -> UnqualifiedName -> [TyVarBinder] -> Doc ann
+prettyDeclHead headForm constraints name params =
   hsep
     ( contextPrefix constraints
         <> prettyDeclHeadNameAndParams name params
     )
   where
-    -- Detect infix form: when name is an operator and there are exactly 2 params
-    prettyDeclHeadNameAndParams nm prms = case prms of
-      [lhs, rhs]
-        | isOperatorToken (renderUnqualifiedName nm) ->
-            [pretty (tyVarBinderName lhs), pretty nm, pretty (tyVarBinderName rhs)]
-        | otherwise ->
-            [prettyConstructorUName nm] <> map prettyTyVarBinder prms
+    prettyDeclHeadNameAndParams nm prms = case (headForm, prms) of
+      (TypeHeadInfix, [lhs, rhs]) ->
+        [pretty (tyVarBinderName lhs), pretty nm, pretty (tyVarBinderName rhs)]
       _ ->
         [prettyConstructorUName nm] <> map prettyTyVarBinder prms
 
