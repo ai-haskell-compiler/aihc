@@ -980,7 +980,7 @@ prettyExpr expr =
       | isOperatorToken name -> "'" <> parens (pretty name)
       | otherwise -> "'" <> pretty name
     ETHTypeNameQuote _ name
-      | isOperatorToken name -> "''" <> parens (pretty name)
+      | isOperatorName name -> "''" <> parens (pretty name)
       | otherwise -> "''" <> pretty name
     ETHSplice _ body -> "$" <> prettyExpr body
     ETHTypedSplice _ body -> "$$" <> prettyExpr body
@@ -1189,6 +1189,11 @@ quoted txt = pretty (show (T.unpack txt))
 
 prettyQuasiQuote :: Text -> Text -> Doc ann
 prettyQuasiQuote quoter body = "[" <> pretty quoter <> "|" <> pretty body <> "|]"
+
+isOperatorName :: Name -> Bool
+isOperatorName name =
+  let ty = nameType name
+   in ty == NameVarSym || ty == NameConSym
 
 isOperatorToken :: Text -> Bool
 isOperatorToken tok =

@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail TH quote tick with parenthesized operator -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE GHC2021 #-}
 {-# LANGUAGE TemplateHaskell #-}
 

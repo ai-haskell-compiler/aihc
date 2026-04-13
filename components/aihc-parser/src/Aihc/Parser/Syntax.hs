@@ -1615,7 +1615,7 @@ data Expr
   | ETHTypeQuote SourceSpan Type -- [t| type |]
   | ETHPatQuote SourceSpan Pattern -- [p| pat |]
   | ETHNameQuote SourceSpan Text -- 'name
-  | ETHTypeNameQuote SourceSpan Text -- ''Name
+  | ETHTypeNameQuote SourceSpan Name -- ''Name
   | -- Template Haskell splices
     ETHSplice SourceSpan Expr
   | -- \$expr or $(expr)
