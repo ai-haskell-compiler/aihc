@@ -75,9 +75,7 @@ genType depth
           (3, TParen span0 <$> genType (depth - 1)),
           (2, TSplice span0 <$> genTypeSpliceBody),
           (2, genTypeContext depth),
-          -- TODO: Generate TImplicitParam once the type parser supports ?name :: Type
-          -- in standalone type contexts. Currently only supported in declaration-level
-          -- type signatures.
+          (2, genTypeImplicitParam depth),
           (2, TKindSig span0 <$> genKindSigSubject (depth - 1) <*> genKindSigKind (depth - 1))
         ]
 
@@ -131,13 +129,11 @@ genConstraintType depth = do
       TApp span0 className . TParen span0 <$> genType (max 0 depth)
     ]
 
--- TODO: Generate TImplicitParam once the type parser supports ?name :: Type
--- in standalone type contexts.
--- genTypeImplicitParam :: Int -> Gen Type
--- genTypeImplicitParam depth = do
---   name <- ("?" <>) <$> genIdent
---   inner <- canonicalImplicitParamType <$> genType (depth - 1)
---   pure $ TParen span0 (TImplicitParam span0 name inner)
+genTypeImplicitParam :: Int -> Gen Type
+genTypeImplicitParam depth = do
+  name <- ("?" <>) <$> genIdent
+  inner <- canonicalImplicitParamType <$> genType (depth - 1)
+  pure $ TParen span0 (TImplicitParam span0 name inner)
 
 genTypeTupleElems :: Int -> Gen [Type]
 genTypeTupleElems depth = do

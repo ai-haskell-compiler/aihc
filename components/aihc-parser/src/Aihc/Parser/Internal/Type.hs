@@ -193,16 +193,26 @@ buildTypeApp lhs rhs =
 typeAtomParser :: TokParser Type
 typeAtomParser = do
   thFullEnabled <- isExtensionEnabled TemplateHaskell
+  ipEnabled <- isExtensionEnabled ImplicitParams
   MP.try promotedTypeParser
     <|> typeLiteralTypeParser
     <|> typeQuasiQuoteParser
     <|> (if thFullEnabled then thSpliceTypeParser else MP.empty)
+    <|> (if ipEnabled then typeImplicitParamParser else MP.empty)
     <|> typeListParser
     <|> MP.try typeParenOperatorParser
     <|> typeParenOrTupleParser
     <|> typeStarParser
     <|> typeWildcardParser
     <|> typeIdentifierParser
+
+-- | Parse an implicit parameter type: @?name :: Type@
+typeImplicitParamParser :: TokParser Type
+typeImplicitParamParser = withSpan $ do
+  name <- implicitParamNameParser
+  expectedTok TkReservedDoubleColon
+  ty <- typeParser
+  pure $ \span' -> TImplicitParam span' name ty
 
 typeWildcardParser :: TokParser Type
 typeWildcardParser = withSpan $ do
