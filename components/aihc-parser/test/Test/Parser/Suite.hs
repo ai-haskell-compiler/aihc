@@ -91,23 +91,14 @@ assertCaseWith evaluateCase meta =
             <> " details="
             <> details
         )
-    (PG.OutcomeXPass, details) ->
-      assertFailure
-        ( "Unexpected pass in xfail parser case "
-            <> PG.caseId meta
-            <> " reason="
-            <> PG.caseReason meta
-            <> " details="
-            <> details
-        )
     _ -> pure ()
 
 assertNoRegressions :: String -> [(PG.ParserCase, PG.Outcome, String)] -> Assertion
 assertNoRegressions label outcomes = do
-  let (passN, xfailN, xpassN, failN) = PG.progressSummary outcomes
-      totalN = passN + xfailN + xpassN + failN
+  let (passN, xfailN, failN) = PG.progressSummary outcomes
+      totalN = passN + xfailN + failN
       completion = pct passN totalN
-  when (failN > 0 || xpassN > 0) $
+  when (failN > 0) $
     assertFailure
       ( label
           <> " regressions found. "
@@ -115,8 +106,6 @@ assertNoRegressions label outcomes = do
           <> show passN
           <> " xfail="
           <> show xfailN
-          <> " xpass="
-          <> show xpassN
           <> " fail="
           <> show failN
           <> " completion="

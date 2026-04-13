@@ -18,7 +18,6 @@ data ExtensionResult = ExtensionResult
     erStatus :: !SupportStatus,
     erPassN :: !Int,
     erXFailN :: !Int,
-    erXPassN :: !Int,
     erFailN :: !Int,
     erTotalN :: !Int,
     erOutcomes :: ![(CaseMeta, Outcome, String)]
@@ -48,8 +47,7 @@ main = do
     else printTextSummary results
 
   let failN = sum [erFailN result | result <- results]
-      xpassN = sum [erXPassN result | result <- results]
-  if failN == 0 && (not strict || xpassN == 0)
+  if failN == 0
     then exitSuccess
     else exitFailure
 
@@ -116,18 +114,16 @@ mkExtensionResult :: (Syntax.Extension, [(CaseMeta, Outcome, String)]) -> Extens
 mkExtensionResult (name, outcomes) =
   let passN = countOutcome OutcomePass outcomes
       xfailN = countOutcome OutcomeXFail outcomes
-      xpassN = countOutcome OutcomeXPass outcomes
       failN = countOutcome OutcomeFail outcomes
-      totalN = passN + xfailN + xpassN + failN
+      totalN = passN + xfailN + failN
       status
-        | failN == 0 && xfailN == 0 && xpassN == 0 = Supported
+        | failN == 0 && xfailN == 0 = Supported
         | otherwise = InProgress
    in ExtensionResult
         { erName = T.unpack (Syntax.extensionName name),
           erStatus = status,
           erPassN = passN,
           erXFailN = xfailN,
-          erXPassN = xpassN,
           erFailN = failN,
           erTotalN = totalN,
           erOutcomes = outcomes
@@ -154,14 +150,8 @@ printTextSummary results = do
         | result <- results,
           (meta, OutcomeFail, details) <- erOutcomes result
         ]
-      xpasses =
-        [ (erName result, meta, details)
-        | result <- results,
-          (meta, OutcomeXPass, details) <- erOutcomes result
-        ]
 
   mapM_ printRegression regressions
-  mapM_ printXPass xpasses
 
 printExtensionLine :: ExtensionResult -> IO ()
 printExtensionLine result =
@@ -173,8 +163,6 @@ printExtensionLine result =
         <> show (erPassN result)
         <> " XFAIL="
         <> show (erXFailN result)
-        <> " XPASS="
-        <> show (erXPassN result)
         <> " FAIL="
         <> show (erFailN result)
     )
@@ -183,19 +171,6 @@ printRegression :: (String, CaseMeta, String) -> IO ()
 printRegression (ext, meta, details) =
   putStrLn
     ( "FAIL "
-        <> ext
-        <> "/"
-        <> caseId meta
-        <> " ["
-        <> caseCategory meta
-        <> "] "
-        <> details
-    )
-
-printXPass :: (String, CaseMeta, String) -> IO ()
-printXPass (ext, meta, details) =
-  putStrLn
-    ( "XPASS "
         <> ext
         <> "/"
         <> caseId meta

@@ -55,7 +55,6 @@ data ExpectedStatus
 data Outcome
   = OutcomePass
   | OutcomeXFail
-  | OutcomeXPass
   | OutcomeFail
   deriving (Eq, Show)
 
@@ -213,10 +212,10 @@ classifySuccess meta actualAst =
       )
     StatusXFail
       | null (caseAst meta) ->
-          ( OutcomeXFail,
+          ( OutcomeFail,
             "expected xfail (known failing bug), but parser succeeded"
           )
-      | actualAst == caseAst meta -> (OutcomeXPass, "expected xfail (known failing bug), but parser now produces correct AST")
+      | actualAst == caseAst meta -> (OutcomeFail, "expected xfail (known failing bug), but parser now produces correct AST")
       | otherwise ->
           ( OutcomeXFail,
             "known bug still present: AST mismatch (expected=" <> show (caseAst meta) <> ", actual=" <> show actualAst <> ")"
@@ -232,11 +231,10 @@ classifyFailure meta errDetails =
     StatusFail -> (OutcomePass, "")
     StatusXFail -> (OutcomeXFail, "")
 
-progressSummary :: [(ParserCase, Outcome, String)] -> (Int, Int, Int, Int)
+progressSummary :: [(ParserCase, Outcome, String)] -> (Int, Int, Int)
 progressSummary outcomes =
   ( count OutcomePass,
     count OutcomeXFail,
-    count OutcomeXPass,
     count OutcomeFail
   )
   where
