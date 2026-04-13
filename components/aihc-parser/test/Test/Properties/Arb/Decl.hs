@@ -13,7 +13,7 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Test.Properties.Arb.Expr (genExpr, genOperator, isValidGeneratedOperator, shrinkExpr, span0)
 import Test.Properties.Arb.Identifiers (genIdent, shrinkIdent)
-import Test.Properties.Arb.Pattern (genPattern)
+import Test.Properties.Arb.Pattern (canonicalPatternAtomForComp, genPattern)
 import Test.Properties.Arb.Type (canonicalFunLeft, canonicalTopLevelType, genType)
 import Test.QuickCheck
 
@@ -79,8 +79,8 @@ genFunctionDecl (name, expr) = do
             )
     MatchHeadInfix ->
       do
-        lhsPat <- sized (genPattern . min 3)
-        rhsPat <- sized (genPattern . min 3)
+        lhsPat <- canonicalPatternAtomForComp <$> sized (genPattern . min 3)
+        rhsPat <- canonicalPatternAtomForComp <$> sized (genPattern . min 3)
         pure $
           DeclValue
             span0

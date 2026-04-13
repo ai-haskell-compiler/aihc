@@ -6,6 +6,7 @@ module Test.Properties.Arb.Pattern
     genPatternNoView,
     shrinkPattern,
     canonicalPatternAtom,
+    canonicalPatternAtomForComp,
   )
 where
 
