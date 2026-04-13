@@ -139,6 +139,7 @@ buildTests = do
           "checkPattern (guard qualifier)"
           [ testCase "guard expression: f x | x > 0 = x" test_guardExpr,
             testCase "guard pattern bind: f x | Just y <- g x = y" test_guardPatBind,
+            testCase "guard view pattern bind: f x | (view -> Just y) <- x = y" test_guardViewPatternBind,
             testCase "guard let: f x | let y = x + 1 = y" test_guardLet,
             testCase "guard wildcard bind: f x | _ <- g x = x" test_guardWildcardBind,
             testCase "guard tuple bind: f x | (a, b) <- g x = a" test_guardTupleBind,
@@ -1225,6 +1226,12 @@ test_guardPatBind =
   case parseGuards "f x | Just y <- g x = y" of
     Right [GuardPat _ (PCon _ "Just" [PVar _ "y"]) _] -> pure ()
     other -> assertFailure ("expected guard pattern bind, got: " <> show other)
+
+test_guardViewPatternBind :: Assertion
+test_guardViewPatternBind =
+  case parseGuardsExt [PatternGuards, ViewPatterns] "f x | (view -> Just y) <- x = y" of
+    Right [GuardPat _ (PView _ (EVar _ "view") (PCon _ "Just" [PVar _ "y"])) (EVar _ "x")] -> pure ()
+    other -> assertFailure ("expected guard view-pattern bind, got: " <> show other)
 
 test_guardLet :: Assertion
 test_guardLet =

@@ -363,12 +363,11 @@ genGuardQualifierWith allowTHQuotes n =
       -- a function type rather than the guard's arrow.
       GuardExpr span0 . parenTypeSig <$> genExprSizedWith allowTHQuotes n,
       -- Pattern guard: | pat <- expr = ...
-      -- TODO: Restore genPattern here once the parser supports view patterns inside
-      -- guard qualifiers. Currently, the '->' in view patterns (PView) conflicts
-      -- with guard/case-alternative syntax and causes parse failures.
+      -- Guard qualifiers now support parenthesized top-level view patterns, but
+      -- still avoid other pattern forms that remain fragile in qualifier contexts.
       -- The expression is also parenthesized if it's an ETypeSig, since
       -- `| pat <- expr :: Type -> body` has the same ambiguity.
-      GuardPat span0 <$> genPatternNoView half <*> (parenTypeSig <$> genExprSizedWith allowTHQuotes half),
+      GuardPat span0 <$> genGuardQualifierPattern half <*> (parenTypeSig <$> genExprSizedWith allowTHQuotes half),
       -- Let guard: | let decls = ...
       GuardLet span0 <$> genValueDeclsWith allowTHQuotes n
     ]
@@ -377,6 +376,19 @@ genGuardQualifierWith allowTHQuotes n =
     -- Wrap ETypeSig in parens to avoid ambiguity with the guard arrow
     parenTypeSig e@(ETypeSig {}) = EParen span0 e
     parenTypeSig e = e
+
+genGuardQualifierPattern :: Int -> Gen Pattern
+genGuardQualifierPattern n =
+  frequency
+    [ (5, genPatternNoView n),
+      (1, genGuardQualifierViewPattern n)
+    ]
+
+genGuardQualifierViewPattern :: Int -> Gen Pattern
+genGuardQualifierViewPattern n = do
+  viewExpr <- resize 2 genExpr
+  inner <- Pat.genPattern (max 0 (n - 1))
+  pure (PView span0 viewExpr inner)
 
 -- | Generate value declarations for let/where.
 -- Zero-argument bindings are generated as PatternBind so they keep the same

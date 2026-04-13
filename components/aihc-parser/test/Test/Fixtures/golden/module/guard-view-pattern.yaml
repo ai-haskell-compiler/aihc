@@ -1,0 +1,6 @@
+extensions: [PatternGuards, ViewPatterns]
+input: |
+  module GuardViewPattern where
+  f x | (view -> Just y) <- x = y
+ast: Module {name = "GuardViewPattern", decls = [DeclValue (FunctionBind "f" [Match {headForm = Prefix, pats = [PVar "x"], rhs = GuardedRhss [GuardedRhs {guards = [GuardPat (PView (EVar "view") (PCon "Just" [PVar "y"])) (EVar "x")], body = EVar "y"}]}])]}
+status: pass
