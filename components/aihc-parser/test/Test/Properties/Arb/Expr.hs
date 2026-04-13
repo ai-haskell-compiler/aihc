@@ -353,23 +353,14 @@ genGuardQualifierWith :: Bool -> Int -> Gen GuardQualifier
 genGuardQualifierWith allowTHQuotes n =
   oneof
     [ -- Boolean guard: | expr = ...
-      -- TODO: Restore bare genExprSized here once the parser/pretty-printer handles
-      -- ETypeSig in guard expressions. Currently, an unparenthesized type signature
-      -- like `| expr :: Type -> body` makes the parser interpret `Type -> body` as
-      -- a function type rather than the guard's arrow.
-      GuardExpr span0 . parenTypeSig <$> genExprSizedWith allowTHQuotes n,
+      GuardExpr span0 <$> genExprSizedWith allowTHQuotes n,
       -- Pattern guard: | pat <- expr = ...
-      -- The expression is also parenthesized if it's an ETypeSig, since
-      -- `| pat <- expr :: Type -> body` has the same ambiguity.
-      GuardPat span0 <$> genPattern half <*> (parenTypeSig <$> genExprSizedWith allowTHQuotes half),
+      GuardPat span0 <$> genPattern half <*> genExprSizedWith allowTHQuotes half,
       -- Let guard: | let decls = ...
       GuardLet span0 <$> genValueDeclsWith allowTHQuotes n
     ]
   where
     half = n `div` 2
-    -- Wrap ETypeSig in parens to avoid ambiguity with the guard arrow
-    parenTypeSig e@(ETypeSig {}) = EParen span0 e
-    parenTypeSig e = e
 
 -- | Generate value declarations for let/where.
 -- Zero-argument bindings are generated as PatternBind so they keep the same
