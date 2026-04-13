@@ -193,7 +193,8 @@ buildTests = do
             testCase "prefix function head record pattern stays bare" test_prettyPrefixFunctionHeadRecordPattern,
             testCase "infix function head constructor applications stay bare" test_prettyInfixFunctionHeadConstructorPatterns,
             testCase "infix function head irrefutable patterns stay bare" test_prettyInfixFunctionHeadIrrefutablePatterns,
-            testCase "view pattern with let-typed expr gets parenthesized" test_prettyViewLetTypeSigParens
+            testCase "view pattern with let-typed expr gets parenthesized" test_prettyViewLetTypeSigParens,
+            testCase "guard pattern with type sig gets parenthesized" test_prettyGuardPatTypeSigParens
           ],
         testGroup
           "functionHeadParserWith dispatch"
@@ -1333,6 +1334,27 @@ test_prettyViewLetTypeSigParens = do
   assertBool
     ("expected parenthesized let-expression in view pattern, got:\n" <> T.unpack source)
     ("((let {x = (#  #)} in (#  #) :: T) -> [])" == source)
+
+-- | Regression test: a guard pattern whose expression ends with a type
+-- signature must parenthesize the expression so the multi-way if arrow @->@
+-- is not absorbed into the type.
+-- Without the fix, this would produce @if { | () <- 262 :: T -> () }@
+-- which GHC rejects because @:: T -> ()@ is parsed as a function type.
+test_prettyGuardPatTypeSigParens :: Assertion
+test_prettyGuardPatTypeSigParens = do
+  let tyCon = TCon span0 (qualifyName Nothing (mkUnqualifiedName NameConId "T")) Unpromoted
+      guardExpr = ETypeSig span0 (EInt span0 262 "262") tyCon
+      grhs =
+        GuardedRhs
+          { guardedRhsSpan = span0,
+            guardedRhsGuards = [GuardPat span0 (PTuple span0 Boxed []) guardExpr],
+            guardedRhsBody = ETuple span0 Boxed []
+          }
+      expr = EMultiWayIf span0 [grhs]
+      source = renderStrict (layoutPretty defaultLayoutOptions (pretty expr))
+  assertBool
+    ("expected parenthesized type sig in guard pattern, got:\n" <> T.unpack source)
+    ("if { | () <- (262 :: T) -> () }" == source)
 
 test_guardPatBind :: Assertion
 test_guardPatBind =
