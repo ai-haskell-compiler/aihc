@@ -30,7 +30,7 @@ prop_modulePrettyRoundTrip modu =
 moduleConfig :: ParserConfig
 moduleConfig =
   defaultConfig
-    { parserExtensions = [BlockArguments, Arrows, UnboxedTuples, UnboxedSums, TemplateHaskell, UnicodeSyntax, LambdaCase, QuasiQuotes, ExplicitNamespaces, PatternSynonyms, MagicHash, OverloadedLabels, MultiWayIf, RecursiveDo, TypeApplications, TupleSections, DerivingStrategies, CApiFFI]
+    { parserExtensions = [BlockArguments, Arrows, UnboxedTuples, UnboxedSums, TemplateHaskell, UnicodeSyntax, LambdaCase, QuasiQuotes, ExplicitNamespaces, PatternSynonyms, MagicHash, OverloadedLabels, MultiWayIf, RecursiveDo, TypeApplications, TupleSections, DerivingStrategies, CApiFFI, ImplicitParams]
     }
 
 -- Module normalization

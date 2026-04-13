@@ -31,7 +31,7 @@ prop_typePrettyRoundTrip ty =
    in checkCoverage $
         withMaxShrinks 100 $
           cover 1 hasKindedInferredBinder "kinded inferred forall binder" $
-            assertCtorCoverage ["TAnn", "TImplicitParam"] ty $
+            assertCtorCoverage ["TAnn"] ty $
               counterexample (T.unpack source) $
                 case parseType typeConfig source of
                   ParseErr err ->
