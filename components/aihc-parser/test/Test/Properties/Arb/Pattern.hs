@@ -67,7 +67,7 @@ genPatternWith allowAll depth =
         PNegLit span0 <$> genNumericLiteral,
         PSplice span0 <$> genPatSpliceBody,
         PTuple span0 Boxed <$> elements [[], [PVar span0 (mkUnqualifiedName NameVarId "x"), PWildcard span0]],
-        PTuple span0 Unboxed <$> elements [[], [PVar span0 (mkUnqualifiedName NameVarId "x"), PWildcard span0]],
+        PTuple span0 Unboxed <$> elements [[], [PVar span0 (mkUnqualifiedName NameVarId "x")], [PVar span0 (mkUnqualifiedName NameVarId "x"), PWildcard span0]],
         pure (PList span0 []),
         PCon span0 <$> genPatternConAstName <*> pure [],
         genUnboxedSumPatternWith allowAll 0
@@ -140,14 +140,12 @@ genTupleElemsWith allowView depth = do
       n <- chooseInt (2, 4)
       vectorOf n (genPatternWith allowView depth)
 
--- | Generate elements for an unboxed tuple pattern (0 or 2-4 elements).
+-- | Generate elements for an unboxed tuple pattern (0-4 elements).
 -- Unlike boxed tuples, unboxed tuples with 0 elements are valid Haskell.
--- NOTE: 1-element unboxed tuples are valid Haskell but the parser doesn't
--- accept them yet, so we skip generating them for now.
 genUnboxedTupleElemsWith :: Bool -> Int -> Gen [Pattern]
 genUnboxedTupleElemsWith allowView depth = do
   n <- chooseInt (0, 4)
-  if n == 1 then pure [] else vectorOf n (genPatternWith allowView depth)
+  vectorOf n (genPatternWith allowView depth)
 
 genUnboxedSumPatternWith :: Bool -> Int -> Gen Pattern
 genUnboxedSumPatternWith allowView depth = do
@@ -320,7 +318,7 @@ shrinkPatternTupleElems tupleFlavor elems =
   | shrunk <- shrinkList shrinkPattern elems,
     candidate <- case shrunk of
       [] -> [PTuple span0 tupleFlavor []]
-      [_] -> []
+      [_] -> [PTuple span0 tupleFlavor shrunk | tupleFlavor == Unboxed]
       _ -> [PTuple span0 tupleFlavor shrunk]
   ]
 
