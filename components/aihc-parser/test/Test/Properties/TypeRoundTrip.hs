@@ -11,7 +11,7 @@ import Data.Maybe (isJust)
 import Data.Text qualified as T
 import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.Text (renderStrict)
-import Test.Properties.Arb.Type (canonicalContextType, canonicalTopLevelType)
+import Test.Properties.Arb.Type (canonicalTopLevelType)
 import Test.Properties.Coverage (assertCtorCoverage)
 import Test.Properties.ExprHelpers (normalizeExpr, span0)
 import Test.QuickCheck
@@ -40,6 +40,10 @@ prop_typePrettyRoundTrip ty =
                     let actual = normalizeType parsed
                      in counterexample ("expected: " <> show expected <> "\nactual: " <> show actual) (expected == actual)
 
+-- | Normalize a type by stripping source spans.
+-- TParen nodes are preserved as-is, except TParen around TKindSig is
+-- stripped because the parser absorbs @(ty :: kind)@ as @TKindSig ty kind@
+-- without a TParen wrapper.
 normalizeType :: Type -> Type
 normalizeType ty =
   case ty of
@@ -55,10 +59,16 @@ normalizeType ty =
     TFun _ a b -> TFun span0 (normalizeType a) (normalizeType b)
     TTuple _ tupleFlavor promoted elems -> TTuple span0 tupleFlavor promoted (map normalizeType elems)
     TList _ promoted elems -> TList span0 promoted (map normalizeType elems)
-    TParen _ inner -> TParen span0 (normalizeType inner)
+    -- Strip TParen around TKindSig: the parser absorbs (ty :: kind) parens
+    -- into the TKindSig node itself. Normalize the inner first to collapse
+    -- any chain of TParens, then strip if TKindSig is underneath.
+    TParen _ inner ->
+      case normalizeType inner of
+        result@(TKindSig {}) -> result
+        result -> TParen span0 result
     TKindSig _ ty' kind -> TKindSig span0 (normalizeType ty') (normalizeType kind)
     TUnboxedSum _ elems -> TUnboxedSum span0 (map normalizeType elems)
-    TContext _ constraints inner -> canonicalContextType (map normalizeType constraints) (normalizeType inner)
+    TContext _ constraints inner -> TContext span0 (map normalizeType constraints) (normalizeType inner)
     TSplice _ body -> TSplice span0 (normalizeExpr body)
     TAnn ann sub -> TAnn ann (normalizeType sub)
 
