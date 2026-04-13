@@ -191,6 +191,8 @@ normalizeValueDecl :: ValueDecl -> ValueDecl
 normalizeValueDecl vdecl =
   case vdecl of
     PatternBind _ pat rhs -> PatternBind span0 (normalizePattern pat) (normalizeRhs rhs)
+    FunctionBind _ name [Match {matchHeadForm = MatchHeadPrefix, matchPats = [], matchRhs = rhs}] ->
+      PatternBind span0 (PVar span0 name) (normalizeRhs rhs)
     FunctionBind _ name matches -> FunctionBind span0 name (map normalizeMatch matches)
 
 normalizeMatch :: Match -> Match

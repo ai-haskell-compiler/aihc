@@ -61,7 +61,7 @@ genFunctionDecl (name, expr) = do
   case headForm of
     MatchHeadPrefix ->
       do
-        patCount <- chooseInt (0, 3)
+        patCount <- chooseInt (1, 3)
         pats <- vectorOf patCount (sized (genPattern . min 3))
         pure $
           DeclValue
