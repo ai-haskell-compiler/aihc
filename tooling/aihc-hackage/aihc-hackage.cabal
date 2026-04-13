@@ -18,6 +18,7 @@ library
     , Aihc.Hackage.Stackage
     , Aihc.Hackage.Cabal
     , Aihc.Hackage.Util
+    , Aihc.Hackage.VersionResolver
   hs-source-dirs:   src
   build-depends:
       base >=4.16 && <5

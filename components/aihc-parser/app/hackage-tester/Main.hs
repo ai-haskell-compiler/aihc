@@ -3,6 +3,7 @@
 module Main (main) where
 
 import Aihc.Cpp (Severity (..), diagSeverity, resultDiagnostics, resultOutput)
+import Aihc.Hackage.VersionResolver (getLatestVersion)
 import Aihc.Parser.Lex (readModuleHeaderPragmas)
 import Aihc.Parser.Syntax qualified as Syntax
 import ConcurrentProgress (mapConcurrentlyBounded)
@@ -10,17 +11,12 @@ import Control.Exception (SomeException, displayException, try)
 import Control.Monad (unless, when)
 import CppSupport (preprocessForParserIfEnabled)
 import Data.Aeson qualified as Aeson
-import Data.ByteString qualified as BS
-import Data.ByteString.Lazy qualified as LBS
+import Data.Bifunctor (first)
 import Data.ByteString.Lazy.Char8 qualified as LBS8
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as TIO
-import Distribution.Package (packageId, pkgVersion)
-import Distribution.PackageDescription (GenericPackageDescription (..))
-import Distribution.PackageDescription.Parsec (parseGenericPackageDescription, runParseResult)
-import Distribution.Pretty (prettyShow)
 import GHC.Conc (getNumProcessors)
 import GhcOracle qualified
 import HackageSupport
@@ -33,8 +29,6 @@ import HackageSupport
   )
 import HackageTester.CLI (Options (..), parseOptionsIO)
 import HackageTester.Model (FileResult (..), Outcome (..), Summary (..), failureLabel, shouldFailSummary, summarizeResults)
-import Network.HTTP.Client (HttpException, Manager, Request (responseTimeout), httpLbs, newManager, parseRequest, responseBody, responseTimeoutMicro)
-import Network.HTTP.Client.TLS (tlsManagerSettings)
 import ParserValidation (ValidationError (..), ValidationErrorKind (..), validateParser)
 import System.Exit (exitFailure, exitSuccess)
 import System.FilePath (takeFileName)
@@ -66,7 +60,9 @@ runTester opts = do
   versionResult <-
     case optVersion opts of
       Just forced -> pure (Right forced)
-      Nothing -> getLatestVersion (optPackage opts)
+      Nothing -> do
+        result <- getLatestVersion Nothing (optPackage opts)
+        pure (first T.pack result)
 
   case versionResult of
     Left err -> pure (Left err)
@@ -94,30 +90,6 @@ runTesterWithVersion opts version = do
       let summary = summarizeResults results
       emitSummary opts (RunInfo (optPackage opts) version summary)
       pure (Right (not (shouldFailSummary summary)))
-
-getLatestVersion :: String -> IO (Either Text String)
-getLatestVersion packageName = do
-  manager <- newManager tlsManagerSettings
-  let url = "https://hackage.haskell.org/package/" ++ packageName ++ "/" ++ packageName ++ ".cabal"
-  requestResult <- try (parseRequest url)
-  case requestResult of
-    Left err -> pure (Left ("Failed to build Hackage request: " <> T.pack (displayException (err :: HttpException))))
-    Right request -> do
-      fetchResult <- try (fetchCabalFile manager request)
-      case fetchResult of
-        Left err -> pure (Left ("Failed to fetch package metadata from Hackage: " <> T.pack (displayException (err :: HttpException))))
-        Right cabalBytes ->
-          case runParseResult (parseGenericPackageDescription (LBS.toStrict cabalBytes :: BS.ByteString)) of
-            (_, Left (_, errs)) -> pure (Left ("Failed to parse Hackage cabal file: " <> T.pack (show errs)))
-            (_, Right gpd) ->
-              let ver = pkgVersion (packageId (packageDescription gpd))
-               in pure (Right (prettyShow ver))
-
-fetchCabalFile :: Manager -> Request -> IO LBS.ByteString
-fetchCabalFile manager request = do
-  let request' = request {responseTimeout = responseTimeoutMicro (30 * 1000 * 1000)}
-  response <- httpLbs request' manager
-  pure (responseBody response)
 
 processFiles :: Options -> Int -> FilePath -> [FileInfo] -> IO [FileResult]
 processFiles opts jobs packageRoot =
