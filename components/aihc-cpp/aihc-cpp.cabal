@@ -46,6 +46,7 @@ test-suite spec
     , filepath
     , tasty
     , tasty-hunit
+    , tasty-quickcheck
   ghc-options:        -Wall -Werror
   default-language: Haskell2010
 

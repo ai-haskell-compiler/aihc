@@ -1,9 +1,9 @@
 # Test runner for aihc project
 # See https://just.systems for Just documentation
 
-# Run all tests with hidden successes
+# Run all tests with hidden successes (1000 QuickCheck tests per property)
 test:
-  cabal test -v0 all --test-options='--hide-successes' --test-show-details=failures
+  cabal test -v0 all --test-options='--hide-successes --quickcheck-tests 1000' --test-show-details=failures
 
 # Replay a specific QuickCheck test case
 # Usage: just replay "<replay-string>"
