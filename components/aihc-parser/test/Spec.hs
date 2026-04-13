@@ -113,7 +113,8 @@ buildTests = do
             testCase "parses infix class heads" test_infixClassHeadParses,
             testCase "roundtrips else branches with local where clauses" test_ifElseWhereBranchRoundtrip,
             testCase "parses and roundtrips infix type family heads" test_infixTypeFamilyHeadRoundtrip,
-            QC.testProperty "generated operators reject dash-only comment starters" prop_generatedOperatorsRejectDashOnlyCommentStarters
+            QC.testProperty "generated operators reject dash-only comment starters" prop_generatedOperatorsRejectDashOnlyCommentStarters,
+            QC.testProperty "generated operators can produce unicode asterism" prop_generatedOperatorsCanProduceUnicodeAsterism
           ],
         testGroup
           "checkPattern (do-bind)"
@@ -882,6 +883,13 @@ prop_generatedOperatorsRejectDashOnlyCommentStarters =
   QC.forAll (QC.vectorOf 2000 genOperator) $ \ops ->
     let invalid = filter (not . isValidGeneratedOperator) ops
      in QC.counterexample ("invalid generated operators: " <> show invalid) (null invalid)
+
+prop_generatedOperatorsCanProduceUnicodeAsterism :: QC.Property
+prop_generatedOperatorsCanProduceUnicodeAsterism =
+  QC.withMaxSuccess 25 $
+    QC.forAll (QC.vectorOf 2000 genOperator) $ \ops ->
+      QC.counterexample "expected generator to include ⁂ in sampled operators" $
+        "⁂" `elem` ops
 
 -- Helper: parse a do-expression and extract the do-statements.
 parseDoStmts :: T.Text -> Either String [DoStmt Expr]

@@ -13,7 +13,7 @@ where
 
 import Aihc.Parser.Lex (isReservedIdentifier)
 import Aihc.Parser.Syntax
-import Data.Char (isSpace)
+import Data.Char (GeneralCategory (..), generalCategory, isSpace)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Test.Properties.Arb.Identifiers (extensionReservedIdentifiers, genIdent, shrinkIdent)
@@ -175,23 +175,97 @@ genModuleSegment = do
 genOperatorName :: Gen Name
 genOperatorName = do
   qual <- genOptionalQualifier
-  op <- mkUnqualifiedName NameVarSym <$> genOperator
+  op <- mkUnqualifiedName NameVarSym <$> genRoundTripOperator
   pure (qualifyName qual op)
+
+genRoundTripOperator :: Gen Text
+genRoundTripOperator =
+  oneof
+    [ elements ["+", "-", "*", "/", "<", ">", "<=", ">=", "==", "/=", "&&", "||", "++", ">>", ">>=", "."],
+      genAsciiCustomOperator
+    ]
 
 -- | Generate a custom operator
 -- Only uses valid operator characters (matching isOperatorToken in Pretty.hs)
 genCustomOperator :: Gen Text
 genCustomOperator = do
   len <- chooseInt (1, 3)
-  -- Note: matches ":!#$%&*+./<=>?\\^|-~" from Pretty.hs isOperatorToken
-  -- Excluding ':' since that's for constructor operators
-  -- Excluding '#' because it conflicts with (# and #) tokens when UnboxedTuples/UnboxedSums is enabled
-  chars <- vectorOf len (elements "!$%&*+./<=>?\\^|-~")
+  chars <- vectorOf len genOperatorChar
   let candidate = T.pack chars
   -- Avoid reserved operators and symbols that lex as comments.
   if isValidGeneratedOperator candidate
     then pure candidate
     else genCustomOperator
+
+genAsciiCustomOperator :: Gen Text
+genAsciiCustomOperator = do
+  len <- chooseInt (1, 3)
+  chars <- vectorOf len (elements asciiOperatorChars)
+  let candidate = T.pack chars
+  if isValidGeneratedOperator candidate
+    then pure candidate
+    else genAsciiCustomOperator
+
+genOperatorChar :: Gen Char
+genOperatorChar =
+  frequency
+    [ (5, elements asciiOperatorChars),
+      (3, elements curatedUnicodeOperatorChars),
+      (2, elements unicodeOperatorChars)
+    ]
+
+asciiOperatorChars :: [Char]
+asciiOperatorChars = "!$%&*+./<=>?\\^|-~"
+
+curatedUnicodeOperatorChars :: [Char]
+curatedUnicodeOperatorChars =
+  [ '⁂',
+    '∘',
+    '⊕',
+    '⋆',
+    '¤',
+    '₿',
+    'ˆ',
+    'ˇ',
+    '©',
+    '※'
+  ]
+
+unicodeOperatorChars :: [Char]
+unicodeOperatorChars =
+  filter isAllowedUnicodeOperatorChar [minBound .. maxBound]
+
+isAllowedUnicodeOperatorChar :: Char -> Bool
+isAllowedUnicodeOperatorChar c =
+  isTargetUnicodeOperatorCategory c
+    && c `notElem` bannedUnicodeOperatorChars
+
+isTargetUnicodeOperatorCategory :: Char -> Bool
+isTargetUnicodeOperatorCategory c =
+  case generalCategory c of
+    MathSymbol -> True
+    CurrencySymbol -> True
+    ModifierSymbol -> True
+    OtherSymbol -> True
+    _ -> False
+
+bannedUnicodeOperatorChars :: [Char]
+bannedUnicodeOperatorChars =
+  [ '→',
+    '←',
+    '⇒',
+    '∷',
+    '∀',
+    '⤙',
+    '⤚',
+    '⤛',
+    '⤜',
+    '⦇',
+    '⦈',
+    '⟦',
+    '⟧',
+    '⊸'
+  ]
 
 isValidGeneratedOperator :: Text -> Bool
 isValidGeneratedOperator candidate =
