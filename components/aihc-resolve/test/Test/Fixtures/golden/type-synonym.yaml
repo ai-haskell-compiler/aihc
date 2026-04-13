@@ -1,0 +1,23 @@
+extensions: []
+modules:
+  - |
+    module Main where
+    type String = [Char]
+    hello :: String
+    hello = "hello"
+expected:
+  Main:
+    - "3:1-3:6 hello => (value) Main.hello"
+    - "3:10-3:16 String => (type) Error unbound"
+    - "4:1-4:6 hello => (value) Main.hello"
+annotated:
+  - |
+    module Main where
+    type String = [Char]
+    hello :: String
+    │        └─ t Error unbound
+    └─ v Main
+    hello = "hello"
+    └─ v Main
+status: pass
+reason: ""

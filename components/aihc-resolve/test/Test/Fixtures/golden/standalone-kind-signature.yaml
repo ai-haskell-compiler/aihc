@@ -1,0 +1,28 @@
+extensions:
+  - StandaloneKindSignatures
+modules:
+  - |
+    module Main where
+    type Identity :: Type -> Type
+    type Identity a = a
+    x :: Identity Int
+    x = 42
+expected:
+  Main:
+    - "4:1-4:2 x => (value) Main.x"
+    - "4:6-4:14 Identity => (type) Error unbound"
+    - "4:15-4:18 Int => (type) Error unbound"
+    - "5:1-5:2 x => (value) Main.x"
+annotated:
+  - |
+    module Main where
+    type Identity :: Type -> Type
+    type Identity a = a
+    x :: Identity Int
+    │    │        └─ t Error unbound
+    │    └─ t Error unbound
+    └─ v Main
+    x = 42
+    └─ v Main
+status: pass
+reason: ""
