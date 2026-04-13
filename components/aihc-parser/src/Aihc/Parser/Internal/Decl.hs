@@ -1168,7 +1168,6 @@ typeFamilyOperatorParser =
           TkVarSym op -> Just (qualifyName Nothing (mkUnqualifiedName NameVarSym op))
           TkQConSym modName op -> Just (mkName (Just modName) NameConSym op)
           TkQVarSym modName op -> Just (mkName (Just modName) NameVarSym op)
-          TkReservedColon -> Just (qualifyName Nothing (mkUnqualifiedName NameConSym ":"))
           _ -> Nothing
     backtickTypeFamilyIdentifierParser = do
       expectedTok TkSpecialBacktick
