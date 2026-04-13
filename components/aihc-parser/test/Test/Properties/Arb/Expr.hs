@@ -452,9 +452,7 @@ genLiteralForBind =
 -- | Generate a numeric literal for PatternBind.
 genNumericLiteralForBind :: Gen Literal
 genNumericLiteralForBind =
-  oneof
-    [ mkIntLiteral <$> chooseInteger (0, 999)
-    ]
+  mkIntLiteral <$> chooseInteger (0, 999)
 
 -- Helper functions for creating literals
 mkIntLiteral :: Integer -> Literal
@@ -502,15 +500,17 @@ genRecordPatternForBind depth = do
 genPatternTypeSigForBind :: Int -> Gen Pattern
 genPatternTypeSigForBind depth = do
   inner <- genPatternBindSafe depth
-  ty <- genPatternTypeForBind
-  pure (PTypeSig span0 inner ty)
+  PTypeSig span0 inner <$> genPatternTypeForBind
 
 -- | Generate a simple type for use in pattern type signatures.
 genPatternTypeForBind :: Gen Type
 genPatternTypeForBind =
   oneof
     [ TVar span0 . mkUnqualifiedName NameVarId <$> genIdent,
-      (\name -> TCon span0 name Unpromoted) <$> (qualifyName Nothing . mkUnqualifiedName NameConId <$> genConIdent)
+      (\name -> TCon span0 name Unpromoted)
+        . qualifyName Nothing
+        . mkUnqualifiedName NameConId
+        <$> genConIdent
     ]
 
 -- | Generate a function binding: name pat1 pat2 ... = expr
