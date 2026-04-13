@@ -3,10 +3,8 @@
 
 module Test.Properties.Arb.Pattern
   ( genPattern,
-    genPatternNoView,
     shrinkPattern,
     canonicalPatternAtom,
-    canonicalPatternAtomForComp,
   )
 where
 
@@ -39,16 +37,6 @@ instance Arbitrary Pattern where
 
 genPattern :: Int -> Gen Pattern
 genPattern = genPatternWith True
-
--- | Generate a pattern safe for use in list comprehension generators and guard
--- qualifiers. Excludes PView, PIrrefutable, PStrict, and PAs at all depths.
--- TODO: Restore full pattern generation once the parser supports these patterns
--- in nested positions (inside PList, PTuple, PCon args, etc.) within list
--- comprehension generators and guard qualifiers. Currently, the prefix tokens
--- @->@, @~@, @!@, @\@@ are not recognized as pattern starters in these nested
--- contexts because the parser uses expression parsing rules there.
-genPatternNoView :: Int -> Gen Pattern
-genPatternNoView = genPatternWith False
 
 -- | Internal pattern generator parameterized by whether all pattern constructors
 -- are allowed. When @allowAll@ is False, PView, PIrrefutable, PStrict, and PAs
@@ -93,11 +81,7 @@ genPatternConWith :: Bool -> Int -> Gen Pattern
 genPatternConWith allowView depth = do
   con <- genPatternConAstName
   argCount <- chooseInt (0, 3)
-  -- TODO: Switch back to canonicalPatternAtom once the parser handles PNegLit,
-  -- PAs, PStrict, and PIrrefutable as constructor arguments in all pattern
-  -- contexts (currently they fail in list comp generators, guard qualifiers,
-  -- and do-binds because the prefix tokens @-@, @\@@, @!@, @~@ are misparsed).
-  args <- vectorOf argCount (canonicalPatternAtomForComp <$> genPatternWith allowView (depth - 1))
+  args <- vectorOf argCount (canonicalPatternAtom <$> genPatternWith allowView (depth - 1))
   pure (PCon span0 con args)
 
 genPatternTypeSigWith :: Bool -> Int -> Gen Pattern
@@ -126,9 +110,9 @@ genPatternInfixWith allowAll depth = do
   -- parenthesizes PNegLit as an infix operand. Currently, PInfix (PNegLit 433)
   -- ":+" (PVar "y") prints as (-433 :+ y) which is misparsed as negation of
   -- (433 :+ y).
-  lhs <- canonicalPatternAtomForComp <$> genPatternWith allowAll (depth - 1)
+  lhs <- canonicalPatternAtom <$> genPatternWith allowAll (depth - 1)
   op <- genConOperatorName
-  rhs <- canonicalPatternAtomForComp <$> genPatternWith allowAll (depth - 1)
+  rhs <- canonicalPatternAtom <$> genPatternWith allowAll (depth - 1)
   pure (PInfix span0 lhs op rhs)
 
 genTupleElemsWith :: Bool -> Int -> Gen [Pattern]
@@ -209,22 +193,6 @@ canonicalPatternAtom pat =
   if isPatternAtom pat
     then pat
     else PParen span0 pat
-
--- | Like 'canonicalPatternAtom' but also wraps PNegLit, PAs, PStrict, and
--- PIrrefutable in parens.
--- TODO: Remove once the parser supports these patterns as constructor arguments
--- in list comprehension generators and guard qualifiers. Currently, patterns
--- starting with special prefix tokens (@-@, @\@@, @!@, @~@) fail to parse when
--- used as constructor arguments in these contexts (e.g., @K -72.1@ or @K !x@ in
--- a list comp generator is misparsed).
-canonicalPatternAtomForComp :: Pattern -> Pattern
-canonicalPatternAtomForComp pat =
-  case pat of
-    PNegLit {} -> PParen span0 pat
-    PAs {} -> PParen span0 pat
-    PStrict {} -> PParen span0 pat
-    PIrrefutable {} -> PParen span0 pat
-    _ -> canonicalPatternAtom pat
 
 isPatternAtom :: Pattern -> Bool
 isPatternAtom pat =
