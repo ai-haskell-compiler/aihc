@@ -292,7 +292,7 @@ genGadtPrefixBody :: Gen GadtBody
 genGadtPrefixBody = do
   n <- chooseInt (0, 2)
   args <- vectorOf n genGadtBangType
-  result <- (canonicalFunLeft . canonicalTopLevelType) <$> sized (genType . min 6)
+  result <- canonicalFunLeft . canonicalTopLevelType <$> sized (genType . min 6)
   pure $ GadtPrefixBody args result
 
 -- | Generate a BangType for GADT prefix body arg position.
@@ -300,7 +300,7 @@ genGadtPrefixBody = do
 -- uses typeInfixParser (which cannot parse bare forall/->/(=>) without parens).
 genGadtBangType :: Gen BangType
 genGadtBangType = do
-  ty <- (canonicalFunLeft . canonicalTopLevelType) <$> sized (genType . min 6)
+  ty <- canonicalFunLeft . canonicalTopLevelType <$> sized (genType . min 6)
   pure $ BangType span0 NoSourceUnpackedness False ty
 
 -- | Generate a BangType without function types at the top level.
