@@ -1353,6 +1353,7 @@ data BangType = BangType
   { bangSpan :: SourceSpan,
     bangSourceUnpackedness :: SourceUnpackedness,
     bangStrict :: Bool,
+    bangLazy :: Bool,
     bangType :: Type
   }
   deriving (Data, Eq, Show, Generic, NFData)

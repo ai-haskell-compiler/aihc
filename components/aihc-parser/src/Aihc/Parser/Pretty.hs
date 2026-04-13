@@ -868,18 +868,20 @@ dataConQualifierPrefix forallVars constraints = forallPrefix forallVars <> conte
 -- foralls, and contexts need parentheses before -> in GADT syntax.
 prettyBangType :: BangType -> Doc ann
 prettyBangType bt =
-  hsep (prettySourceUnpackedness (bangSourceUnpackedness bt) <> [strictDoc])
+  hsep (prettySourceUnpackedness (bangSourceUnpackedness bt) <> [strictOrLazyDoc])
   where
-    strictDoc
+    strictOrLazyDoc
       | bangStrict bt = "!" <> prettyTypeIn CtxTypeAtom (bangType bt)
+      | bangLazy bt = "~" <> prettyTypeIn CtxTypeAtom (bangType bt)
       | otherwise = prettyTypeIn CtxTypeFunArg (bangType bt)
 
 prettyRecordFieldBangType :: BangType -> Doc ann
 prettyRecordFieldBangType bt =
-  hsep (prettySourceUnpackedness (bangSourceUnpackedness bt) <> [strictDoc])
+  hsep (prettySourceUnpackedness (bangSourceUnpackedness bt) <> [strictOrLazyDoc])
   where
-    strictDoc
+    strictOrLazyDoc
       | bangStrict bt = "!" <> prettyType (bangType bt)
+      | bangLazy bt = "~" <> prettyType (bangType bt)
       | otherwise = prettyType (bangType bt)
 
 -- | Pretty print a BangType as an atom (e.g., for infix data constructors).

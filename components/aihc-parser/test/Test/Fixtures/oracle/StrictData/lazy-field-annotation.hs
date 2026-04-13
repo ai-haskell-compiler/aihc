@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail reason="lazy field annotation in data constructor not parsed" -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE StrictData #-}
 
 module LazyFieldAnnotation where

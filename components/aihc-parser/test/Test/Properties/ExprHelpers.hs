@@ -353,6 +353,7 @@ normalizeBangType bt =
     { bangSpan = span0,
       bangSourceUnpackedness = bangSourceUnpackedness bt,
       bangStrict = bangStrict bt,
+      bangLazy = bangLazy bt,
       bangType = normalizeType (bangType bt)
     }
 
