@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail reason="view patterns in case alternatives not parsed correctly" -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE ViewPatterns #-}
 
 module ViewPatternCaseAlternative where

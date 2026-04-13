@@ -524,7 +524,7 @@ prettyPattern pat =
     PUnboxedSum _ altIdx arity inner ->
       let slots = [if i == altIdx then prettyPatternInDelimited inner else mempty | i <- [0 .. arity - 1]]
        in hsep ["(#", hsep (punctuate " |" slots), "#)"]
-    PList _ elems -> brackets (hsep (punctuate comma (map prettyPattern elems)))
+    PList _ elems -> brackets (hsep (punctuate comma (map prettyPatternInDelimited elems)))
     PCon _ con args -> hsep (prettyPrefixName con : map prettyPatternAtom args)
     PInfix _ lhs op rhs -> prettyPatternAtom lhs <+> prettyNameInfixOp op <+> prettyPatternAtom rhs
     PView _ viewExpr inner ->
@@ -552,8 +552,7 @@ prettyPattern pat =
     PSplice _ body -> prettySplice "$" body
 
 -- | Pretty print a pattern that appears inside a delimited context (tuples,
--- unboxed sums, etc.).  View patterns don't need extra parens when they're
--- already inside a delimiter's parens.
+-- lists, unboxed sums, etc.). View patterns don't need extra parens there.
 prettyPatternInDelimited :: Pattern -> Doc ann
 prettyPatternInDelimited pat =
   case pat of

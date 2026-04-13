@@ -359,6 +359,8 @@ genGuardQualifierWith allowTHQuotes n =
       -- a function type rather than the guard's arrow.
       GuardExpr span0 . parenTypeSig <$> genExprSizedWith allowTHQuotes n,
       -- Pattern guard: | pat <- expr = ...
+      -- The guarded-qualifier parser now accepts the full pattern generator,
+      -- which includes parenthesized view patterns such as `(view -> pat)`.
       -- The expression is also parenthesized if it's an ETypeSig, since
       -- `| pat <- expr :: Type -> body` has the same ambiguity.
       GuardPat span0 <$> genPattern half <*> (parenTypeSig <$> genExprSizedWith allowTHQuotes half),
