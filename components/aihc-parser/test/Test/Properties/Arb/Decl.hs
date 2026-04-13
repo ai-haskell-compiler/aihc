@@ -11,8 +11,14 @@ where
 import Aihc.Parser.Syntax
 import Data.Text (Text)
 import Data.Text qualified as T
-import Test.Properties.Arb.Expr (genExpr, genOperator, isValidGeneratedOperator, shrinkExpr, span0)
-import Test.Properties.Arb.Identifiers (genIdent, shrinkIdent)
+import Test.Properties.Arb.Expr (genExpr, genOperator, isValidGeneratedOperator, shrinkExpr)
+import Test.Properties.Arb.Identifiers
+  ( genConIdent,
+    genConSym,
+    genIdent,
+    shrinkIdent,
+    span0,
+  )
 import Test.Properties.Arb.Pattern (canonicalPatternAtomForComp, genPattern)
 import Test.Properties.Arb.Type (canonicalFunLeft, canonicalTopLevelType, genType)
 import Test.QuickCheck
@@ -122,14 +128,14 @@ genSymbolicOp = elements ["+", "<>", "&&", "||", "**", "^", ">>"]
 
 genDeclRoleAnnotation :: Gen Decl
 genDeclRoleAnnotation = do
-  name <- genTypeConName
+  name <- genConIdent
   n <- chooseInt (0, 3)
   roles <- vectorOf n (elements [RoleNominal, RoleRepresentational, RolePhantom, RoleInfer])
   pure $ DeclRoleAnnotation span0 (RoleAnnotation span0 name roles)
 
 genDeclTypeSyn :: Gen Decl
 genDeclTypeSyn = do
-  name <- genTypeConName
+  name <- genConIdent
   params <- genSimpleTyVarBinders
   DeclTypeSyn span0 . TypeSynDecl span0 TypeHeadPrefix name params <$> genSimpleType
 
@@ -138,7 +144,7 @@ genDeclTypeSyn = do
 -- (e.g. @type a \`Plus\` b = (a, b)@).
 genDeclTypeSynInfix :: Gen Decl
 genDeclTypeSynInfix = do
-  name <- oneof [genConSymName, genTypeConName]
+  name <- oneof [genConSym, genConIdent]
   lhsName <- genIdent
   rhsName <- genIdent
   let lhs = TyVarBinder span0 lhsName Nothing TyVarBSpecified
@@ -154,7 +160,7 @@ genDeclData =
 
 genDeclDataGadt :: Gen Decl
 genDeclDataGadt = do
-  name <- mkUnqualifiedName NameConId <$> genTypeConName
+  name <- mkUnqualifiedName NameConId <$> genConIdent
   params <- genSimpleTyVarBinders
   ctors <- genGadtDataCons
   pure $
@@ -175,7 +181,7 @@ genDeclTypeData = genDeclTypeDataPrefix
 
 genDeclTypeDataPrefix :: Gen Decl
 genDeclTypeDataPrefix = do
-  name <- mkUnqualifiedName NameConId <$> genTypeConName
+  name <- mkUnqualifiedName NameConId <$> genConIdent
   params <- genSimpleTyVarBinders
   ctors <- genTypeDataCons
   pure $
@@ -197,14 +203,14 @@ genTypeDataCons = do
   vectorOf n genTypeDataCon
   where
     genTypeDataCon = do
-      conName <- mkUnqualifiedName NameConId <$> genTypeConName
+      conName <- mkUnqualifiedName NameConId <$> genConIdent
       n <- chooseInt (0, 3)
       fields <- vectorOf n genSimpleBangType
       pure $ PrefixCon span0 [] [] conName fields
 
 genSimpleDataDecl :: Gen DataDecl
 genSimpleDataDecl = do
-  name <- mkUnqualifiedName NameConId <$> genTypeConName
+  name <- mkUnqualifiedName NameConId <$> genConIdent
   params <- genSimpleTyVarBinders
   ctors <- genSimpleDataCons
   pure $
@@ -237,8 +243,8 @@ genPrefixCon = do
   -- Prefix constructors can be alphabetic (Cons) or symbolic ((:+))
   name <-
     oneof
-      [ mkUnqualifiedName NameConId <$> genTypeConName,
-        mkUnqualifiedName NameConSym <$> genConSymName
+      [ mkUnqualifiedName NameConId <$> genConIdent,
+        mkUnqualifiedName NameConSym <$> genConSym
       ]
   n <- chooseInt (0, 2)
   fields <- vectorOf n genSimpleBangType
@@ -249,24 +255,15 @@ genInfixCon = do
   -- Infix constructors can be symbolic (:+) or alphabetic (`Cons`)
   opName <-
     oneof
-      [ mkUnqualifiedName NameConSym <$> genConSymName,
-        mkUnqualifiedName NameConId <$> genTypeConName
+      [ mkUnqualifiedName NameConSym <$> genConSym,
+        mkUnqualifiedName NameConId <$> genConIdent
       ]
   lhs <- genSimpleBangTypeWithoutFun
   InfixCon span0 [] [] lhs opName <$> genSimpleBangTypeWithoutFun
 
--- | Generate constructor symbol names: colon followed by 1–3 symbol characters.
--- Valid for both type-level and value-level constructor operators.
--- Examples: @:+@, @:*@, @:==@, @:+:@
-genConSymName :: Gen Text
-genConSymName = do
-  symLen <- chooseInt (1, 3)
-  syms <- vectorOf symLen (elements ['+', '*', '-', '=', '!', '<', '>', '&', '|'])
-  pure (T.pack (':' : syms))
-
 genRecordCon :: Gen DataConDecl
 genRecordCon = do
-  conName <- mkUnqualifiedName NameConId <$> genTypeConName
+  conName <- mkUnqualifiedName NameConId <$> genConIdent
   n <- chooseInt (0, 3)
   fields <- vectorOf n genFieldDecl
   pure $ RecordCon span0 [] [] conName fields
@@ -285,7 +282,7 @@ genGadtDataCons = do
 genGadtCon :: Gen DataConDecl
 genGadtCon = do
   n <- chooseInt (1, 2)
-  names <- vectorOf n (mkUnqualifiedName NameConId <$> genTypeConName)
+  names <- vectorOf n (mkUnqualifiedName NameConId <$> genConIdent)
   GadtCon span0 [] [] names <$> genGadtBody
 
 genGadtBody :: Gen GadtBody
@@ -327,7 +324,7 @@ genSimpleTypeWithoutFun :: Gen Type
 genSimpleTypeWithoutFun =
   oneof
     [ TVar span0 . mkUnqualifiedName NameVarId <$> genIdent,
-      (\n -> TCon span0 (qualifyName Nothing (mkUnqualifiedName NameConId n)) Unpromoted) <$> genTypeConName
+      (\n -> TCon span0 (qualifyName Nothing (mkUnqualifiedName NameConId n)) Unpromoted) <$> genConIdent
     ]
 
 genGadtRecordBody :: Gen GadtBody
@@ -358,7 +355,7 @@ genSimpleBangType = do
 
 genDeclNewtype :: Gen Decl
 genDeclNewtype = do
-  name <- mkUnqualifiedName NameConId <$> genTypeConName
+  name <- mkUnqualifiedName NameConId <$> genConIdent
   params <- genSimpleTyVarBinders
   ctor <- genNewtypeCon
   pure $
@@ -383,20 +380,20 @@ genNewtypeCon =
 
 genNewtypePrefixCon :: Gen DataConDecl
 genNewtypePrefixCon = do
-  conName <- mkUnqualifiedName NameConId <$> genTypeConName
+  conName <- mkUnqualifiedName NameConId <$> genConIdent
   ty <- genSimpleType
   pure $ PrefixCon span0 [] [] conName [BangType span0 NoSourceUnpackedness False ty]
 
 genNewtypeRecordCon :: Gen DataConDecl
 genNewtypeRecordCon = do
-  conName <- mkUnqualifiedName NameConId <$> genTypeConName
+  conName <- mkUnqualifiedName NameConId <$> genConIdent
   fieldName <- genVarBinderName
   ty <- genSimpleType
   pure $ RecordCon span0 [] [] conName [FieldDecl span0 [fieldName] (BangType span0 NoSourceUnpackedness False ty)]
 
 genDeclClass :: Gen Decl
 genDeclClass = do
-  name <- genTypeConName
+  name <- genConIdent
   params <- genSimpleTyVarBinders
   pure $
     DeclClass span0 $
@@ -412,7 +409,7 @@ genDeclClass = do
 
 genDeclInstance :: Gen Decl
 genDeclInstance = do
-  className <- genTypeConName
+  className <- genConIdent
   n <- chooseInt (0, 2)
   types <- vectorOf n genSimpleType
   pure $
@@ -431,7 +428,7 @@ genDeclInstance = do
 
 genDeclStandaloneDeriving :: Gen Decl
 genDeclStandaloneDeriving = do
-  className <- mkUnqualifiedName NameConId <$> genTypeConName
+  className <- mkUnqualifiedName NameConId <$> genConIdent
   n <- chooseInt (0, 2)
   types <- vectorOf n genSimpleType
   pure $
@@ -479,7 +476,7 @@ genDeclForeign = do
 
 genDeclTypeFamilyDecl :: Gen Decl
 genDeclTypeFamilyDecl = do
-  name <- genTypeConName
+  name <- genConIdent
   let headType = TCon span0 (qualifyName Nothing (mkUnqualifiedName NameConId name)) Unpromoted
   params <- genSimpleTyVarBinders
   pure $
@@ -495,7 +492,7 @@ genDeclTypeFamilyDecl = do
 
 genDeclDataFamilyDecl :: Gen Decl
 genDeclDataFamilyDecl = do
-  name <- mkUnqualifiedName NameConId <$> genTypeConName
+  name <- mkUnqualifiedName NameConId <$> genConIdent
   params <- genSimpleTyVarBinders
   pure $
     DeclDataFamilyDecl span0 $
@@ -560,8 +557,8 @@ genDeclDataFamilyInstGadt = do
 -- | Generate a type family LHS: a type constructor applied to a type constructor argument.
 genFamilyLhsType :: Gen Type
 genFamilyLhsType = do
-  familyName <- genTypeConName
-  argName <- genTypeConName
+  familyName <- genConIdent
+  argName <- genConIdent
   let familyCon = TCon span0 (qualifyName Nothing (mkUnqualifiedName NameConId familyName)) Unpromoted
       argCon = TCon span0 (qualifyName Nothing (mkUnqualifiedName NameConId argName)) Unpromoted
   pure $ TApp span0 familyCon argCon
@@ -573,9 +570,9 @@ genDeclPragma = do
 
 genDeclPatSyn :: Gen Decl
 genDeclPatSyn = do
-  synName <- mkUnqualifiedName NameConId <$> genTypeConName
+  synName <- mkUnqualifiedName NameConId <$> genConIdent
   argName <- genIdent
-  conName <- qualifyName Nothing . mkUnqualifiedName NameConId <$> genTypeConName
+  conName <- qualifyName Nothing . mkUnqualifiedName NameConId <$> genConIdent
   let args = PatSynPrefixArgs [argName]
       pat = PCon span0 conName [PVar span0 (mkUnqualifiedName NameVarId argName)]
   dir <- elements [PatSynBidirectional, PatSynUnidirectional]
@@ -583,12 +580,12 @@ genDeclPatSyn = do
 
 genDeclPatSynSig :: Gen Decl
 genDeclPatSynSig = do
-  name <- mkUnqualifiedName NameConId <$> genTypeConName
+  name <- mkUnqualifiedName NameConId <$> genConIdent
   DeclPatSynSig span0 [name] <$> genSimpleType
 
 genDeclStandaloneKindSig :: Gen Decl
 genDeclStandaloneKindSig = do
-  name <- mkUnqualifiedName NameConId <$> genTypeConName
+  name <- mkUnqualifiedName NameConId <$> genConIdent
   kind <- sized (genType . min 6)
   pure $ DeclStandaloneKindSig span0 name (canonicalTopLevelType kind)
 
@@ -603,19 +600,12 @@ genSimpleType :: Gen Type
 genSimpleType =
   oneof
     [ TVar span0 . mkUnqualifiedName NameVarId <$> genIdent,
-      (\n -> TCon span0 (qualifyName Nothing (mkUnqualifiedName NameConId n)) Unpromoted) <$> genTypeConName,
+      (\n -> TCon span0 (qualifyName Nothing (mkUnqualifiedName NameConId n)) Unpromoted) <$> genConIdent,
       ( TFun span0 . TVar span0 . mkUnqualifiedName NameVarId
           <$> genIdent
       )
         <*> (TVar span0 . mkUnqualifiedName NameVarId <$> genIdent)
     ]
-
-genTypeConName :: Gen Text
-genTypeConName = do
-  first <- elements ['A' .. 'Z']
-  restLen <- chooseInt (0, 4)
-  rest <- vectorOf restLen (elements (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9']))
-  pure (T.pack (first : rest))
 
 shrinkDecl :: Decl -> [Decl]
 shrinkDecl decl =

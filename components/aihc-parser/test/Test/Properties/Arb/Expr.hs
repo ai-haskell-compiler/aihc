@@ -11,19 +11,26 @@ module Test.Properties.Arb.Expr
   )
 where
 
-import Aihc.Parser.Lex (isReservedIdentifier)
 import Aihc.Parser.Syntax
 import Data.Char (GeneralCategory (..), generalCategory, isAscii, isSpace)
 import Data.Text (Text)
 import Data.Text qualified as T
-import Test.Properties.Arb.Identifiers (extensionReservedIdentifiers, genIdent, shrinkIdent)
+import Test.Properties.Arb.Identifiers
+  ( genCharValue,
+    genConIdent,
+    genFieldName,
+    genIdent,
+    genOptionalQualifier,
+    genStringValue,
+    genTenths,
+    showHex,
+    shrinkFloat,
+    shrinkIdent,
+    span0,
+  )
 import Test.Properties.Arb.Pattern (genPattern)
 import Test.Properties.Arb.Pattern qualified as Pat
 import Test.QuickCheck
-
--- | Canonical empty source span for normalization.
-span0 :: SourceSpan
-span0 = noSourceSpan
 
 -- | Generate a random expression. Uses QuickCheck's size parameter
 -- to control recursion depth.
@@ -56,11 +63,15 @@ genExprSizedWith allowTHQuotes n
         ESectionL span0 <$> genExprSizedWith allowTHQuotes (n - 1) <*> genOperatorName,
         ESectionR span0 <$> genOperatorName <*> genExprSizedWith allowTHQuotes (n - 1),
         EIf span0 <$> genExprSizedWith allowTHQuotes third <*> genExprSizedWith allowTHQuotes third <*> genExprSizedWith allowTHQuotes third,
+        EMultiWayIf span0 <$> genGuardedRhsListWith allowTHQuotes (n - 1),
         ECase span0 <$> genExprSizedWith allowTHQuotes half <*> genCaseAltsWith allowTHQuotes half,
         ELambdaPats span0 <$> genPatterns half <*> genExprSizedWith allowTHQuotes half,
         ELambdaCase span0 <$> genCaseAltsWith allowTHQuotes (n - 1),
         ELetDecls span0 <$> genValueDeclsWith allowTHQuotes half <*> genExprSizedWith allowTHQuotes half,
         EDo span0 <$> genDoStmtsWith allowTHQuotes (n - 1) <*> pure False,
+        -- TODO: Generate EDo with mdo=True once the parser supports mdo in
+        -- standalone expression and pattern (view pattern) contexts. Currently
+        -- mdo only works in declaration-level RHS positions.
         EListComp span0 <$> genExprSizedWith allowTHQuotes half <*> genCompStmtsWith allowTHQuotes half,
         EListCompParallel span0 <$> genExprSizedWith allowTHQuotes half <*> genParallelCompStmtsWith allowTHQuotes half,
         EList span0 <$> genListElemsWith allowTHQuotes (n - 1),
@@ -73,6 +84,7 @@ genExprSizedWith allowTHQuotes n
         ERecordCon span0 <$> genConName <*> genRecordFieldsWith allowTHQuotes (n - 1) <*> pure False,
         ERecordUpd span0 <$> genExprSizedWith allowTHQuotes half <*> genRecordFieldsWith allowTHQuotes half,
         ETypeSig span0 <$> genExprSizedWith allowTHQuotes half <*> genTypeWith allowTHQuotes half,
+        ETypeApp span0 . canonicalTypeAppExpr <$> genExprSizedWith allowTHQuotes half <*> genTypeWith allowTHQuotes half,
         EParen span0 <$> genExprSizedWith allowTHQuotes (n - 1),
         -- Template Haskell splices are valid inside quote bodies.
         ETHSplice span0 <$> genSpliceBody (n - 1),
@@ -101,6 +113,15 @@ genExprLeaf =
       mkFloatExpr <$> genTenths,
       mkCharExpr <$> genCharValue,
       mkStringExpr <$> genStringValue,
+      -- MagicHash literals
+      (\v -> EIntHash span0 v (T.pack (show v) <> "#")) <$> chooseInteger (0, 999),
+      (\v -> EFloatHash span0 v (T.pack (show v) <> "#")) <$> genTenths,
+      (\v -> ECharHash span0 v (T.pack (show v) <> "#")) <$> genCharValue,
+      (\v -> EStringHash span0 v (T.pack (show (T.unpack v)) <> "#")) <$> genStringValue,
+      -- TODO: Generate EOverloadedLabel once the pretty-printer handles the
+      -- (#label ambiguity. Currently, (#label is lexed as unboxed tuple opener
+      -- (# followed by identifier, so overloaded labels as the first element
+      -- of boxed tuples, lists, or after ( cause parse failures.
       EQuasiQuote span0 <$> genQuasiQuoteName <*> genStringValue,
       pure (EList span0 []),
       pure (ETuple span0 Boxed []),
@@ -147,30 +168,6 @@ genOperator =
     [ elements ["+", "-", "*", "/", "<", ">", "<=", ">=", "==", "/=", "&&", "||", "++", ">>", ">>=", "."],
       genCustomOperator
     ]
-
--- | Generate an optional module qualifier (e.g., Nothing or Just "Data.List").
--- Biased towards Nothing to keep most names unqualified.
-genOptionalQualifier :: Gen (Maybe Text)
-genOptionalQualifier =
-  oneof
-    [ pure Nothing,
-      Just <$> genModuleQualifier
-    ]
-
--- | Generate a module qualifier like "Data.List" or "Prelude".
-genModuleQualifier :: Gen Text
-genModuleQualifier = do
-  segCount <- chooseInt (1, 3)
-  segs <- vectorOf segCount genModuleSegment
-  pure (T.intercalate "." segs)
-
--- | Generate a single module name segment (starts with uppercase).
-genModuleSegment :: Gen Text
-genModuleSegment = do
-  first <- elements ['A' .. 'Z']
-  restLen <- chooseInt (0, 5)
-  rest <- vectorOf restLen (elements (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9']))
-  pure (T.pack (first : rest))
 
 genOperatorName :: Gen Name
 genOperatorName = do
@@ -292,17 +289,13 @@ isValidGeneratedOperator candidate =
 
 -- | Generate a data constructor name
 genConName :: Gen Text
-genConName = do
-  first <- elements ['A' .. 'Z']
-  restLen <- chooseInt (0, 5)
-  rest <- vectorOf restLen (elements (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> "_'"))
-  pure (T.pack (first : rest))
+genConName = genConIdent
 
 genVarName :: Gen Name
 genVarName = qualifyName <$> genOptionalQualifier <*> (mkUnqualifiedName NameVarId <$> genIdent)
 
 genConAstName :: Gen Name
-genConAstName = qualifyName <$> genOptionalQualifier <*> (mkUnqualifiedName NameConId <$> genConName)
+genConAstName = qualifyName <$> genOptionalQualifier <*> (mkUnqualifiedName NameConId <$> genConIdent)
 
 -- | Generate simple patterns for lambdas
 genPatterns :: Int -> Gen [Pattern]
@@ -421,10 +414,24 @@ genDoStmtWith allowTHQuotes n =
   oneof
     [ DoBind span0 <$> genPattern half <*> genExprSizedWith allowTHQuotes half,
       DoLetDecls span0 <$> genValueDeclsWith allowTHQuotes (n - 1),
-      DoExpr span0 <$> genExprSizedWith allowTHQuotes (n - 1)
+      DoExpr span0 <$> genExprSizedWith allowTHQuotes (n - 1),
+      DoRecStmt span0 <$> genRecDoStmtsWith allowTHQuotes (n - 1)
     ]
   where
     half = n `div` 2
+
+-- | Generate statements for a @rec@ block inside @mdo@/@do@.
+-- At least one statement is required.
+genRecDoStmtsWith :: Bool -> Int -> Gen [DoStmt Expr]
+genRecDoStmtsWith allowTHQuotes n = do
+  count <- chooseInt (1, 3)
+  let perStmt = n `div` count
+  vectorOf count $
+    oneof
+      [ DoBind span0 <$> genPattern (perStmt `div` 2) <*> genExprSizedWith allowTHQuotes (perStmt `div` 2),
+        DoLetDecls span0 <$> genValueDeclsWith allowTHQuotes perStmt,
+        DoExpr span0 <$> genExprSizedWith allowTHQuotes perStmt
+      ]
 
 genCompStmtsWith :: Bool -> Int -> Gen [CompStmt]
 genCompStmtsWith allowTHQuotes n = do
@@ -439,7 +446,8 @@ genCompStmtWith allowTHQuotes n =
       -- PIrrefutable (~), PStrict (!), and PAs (@) fail when nested inside
       -- compound patterns (PList, PTuple, PCon args) in comprehension contexts.
       CompGen span0 <$> genPatternNoView half <*> genExprSizedWith allowTHQuotes half,
-      CompGuard span0 <$> genExprSizedWith allowTHQuotes (n - 1)
+      CompGuard span0 <$> genExprSizedWith allowTHQuotes (n - 1),
+      CompLetDecls span0 <$> genValueDeclsWith allowTHQuotes (n - 1)
     ]
   where
     half = n `div` 2
@@ -515,16 +523,6 @@ genRecordFieldsWith allowTHQuotes n = do
   exprs <- vectorOf count (genExprSizedWith allowTHQuotes (n `div` max 1 count))
   pure (zip names exprs)
 
-genFieldName :: Gen Text
-genFieldName = do
-  first <- elements (['a' .. 'z'] <> ['_'])
-  restLen <- chooseInt (0, 5)
-  rest <- vectorOf restLen (elements (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> "_'"))
-  let candidate = T.pack (first : rest)
-  if isReservedIdentifier candidate || candidate `elem` extensionReservedIdentifiers
-    then genFieldName
-    else pure candidate
-
 -- | Generate a type (simple version for use inside expressions).
 genTypeWith :: Bool -> Int -> Gen Type
 genTypeWith allowTHQuotes n
@@ -563,14 +561,43 @@ genTypeListElemsWith allowTHQuotes n = do
   vectorOf count (genTypeWith allowTHQuotes (n `div` count))
 
 genTypeVarName :: Gen UnqualifiedName
-genTypeVarName = do
-  first <- elements ['a' .. 'z']
-  restLen <- chooseInt (0, 3)
-  rest <- vectorOf restLen (elements (['a' .. 'z'] <> ['0' .. '9']))
-  let candidate = T.pack (first : rest)
-  if isReservedIdentifier candidate || candidate `elem` extensionReservedIdentifiers
-    then genTypeVarName
-    else pure (mkUnqualifiedName NameVarId candidate)
+genTypeVarName = mkUnqualifiedName NameVarId <$> genIdent
+
+-- | Wrap an expression in parens if it's not suitable as the LHS of a type
+-- application (@expr \@Type@). Type application has the same precedence as
+-- function application, so lambda, let, if, case, do, and other open-ended
+-- expressions need parens. Even EApp needs parens if its argument is
+-- open-ended (e.g., @f let x = 1 in x \@T@ is ambiguous).
+canonicalTypeAppExpr :: Expr -> Expr
+canonicalTypeAppExpr e = case e of
+  EVar {} -> e
+  EParen {} -> e
+  EList {} -> e
+  ETuple {} -> e
+  EUnboxedSum {} -> e
+  ERecordCon {} -> e
+  EInt {} -> e
+  EIntHash {} -> e
+  EIntBase {} -> e
+  EIntBaseHash {} -> e
+  EFloat {} -> e
+  EFloatHash {} -> e
+  EChar {} -> e
+  ECharHash {} -> e
+  EString {} -> e
+  EStringHash {} -> e
+  EQuasiQuote {} -> e
+  EOverloadedLabel {} -> e
+  ETHExpQuote {} -> e
+  ETHTypedQuote {} -> e
+  ETHDeclQuote {} -> e
+  ETHTypeQuote {} -> e
+  ETHPatQuote {} -> e
+  ETHNameQuote {} -> e
+  ETHTypeNameQuote {} -> e
+  ETHSplice {} -> e
+  ETHTypedSplice {} -> e
+  _ -> EParen span0 e
 
 -- | Literal expression constructors
 mkHexExpr :: Integer -> Expr
@@ -585,26 +612,9 @@ mkCharExpr value = EChar span0 value (T.pack (show value))
 mkStringExpr :: Text -> Expr
 mkStringExpr value = EString span0 value (T.pack (show (T.unpack value)))
 
-genTenths :: Gen Double
-genTenths = do
-  whole <- chooseInteger (0, 99)
-  frac <- chooseInteger (0, 9)
-  pure (fromInteger whole + fromInteger frac / 10)
-
-genCharValue :: Gen Char
-genCharValue = elements (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> " _")
-
-genStringValue :: Gen Text
-genStringValue = do
-  len <- chooseInt (0, 8)
-  T.pack <$> vectorOf len genCharValue
-
-showHex :: Integer -> String
-showHex value
-  | value < 16 = [hexDigit value]
-  | otherwise = showHex (value `div` 16) <> [hexDigit (value `mod` 16)]
-  where
-    hexDigit x = "0123456789abcdef" !! fromInteger x
+-- | Create an integer expression with canonical representation.
+mkIntExpr :: Integer -> Expr
+mkIntExpr value = EInt span0 value (T.pack (show value))
 
 renderIntBaseHash :: Integer -> Text
 renderIntBaseHash value
@@ -615,15 +625,17 @@ shrinkOverloadedLabel :: Text -> Text -> [String]
 shrinkOverloadedLabel value raw
   | Just unquoted <- T.stripPrefix "#" raw,
     not ("\"" `T.isPrefixOf` unquoted) =
-      [shrunk | shrunk <- shrink (T.unpack value), not (null shrunk), T.all isUnquotedLabelChar (T.pack shrunk)]
+      [shrunk | shrunk <- shrink (T.unpack value), not (null shrunk), isValidLabelName (T.pack shrunk)]
   | otherwise = []
   where
+    isValidLabelName name =
+      case T.uncons name of
+        Just (first, rest) ->
+          (first `elem` (['a' .. 'z'] <> ['A' .. 'Z'] <> ['_']))
+            && T.all isUnquotedLabelChar rest
+        Nothing -> False
     isUnquotedLabelChar c =
       not (isSpace c) && c `notElem` ("()[]{},;`#\"" :: String)
-
--- | Create an integer expression with canonical representation.
-mkIntExpr :: Integer -> Expr
-mkIntExpr value = EInt span0 value (T.pack (show value))
 
 -- | Shrink an expression for QuickCheck counterexample minimization.
 shrinkExpr :: Expr -> [Expr]
@@ -715,10 +727,6 @@ shrinkExpr expr =
     ETHTypedSplice _ body -> body : [ETHTypedSplice span0 body' | body' <- shrinkExpr body]
     EProc {} -> []
     EAnn _ sub -> shrinkExpr sub
-
-shrinkFloat :: Double -> [Double]
-shrinkFloat value =
-  [fromInteger shrunk / 10 | shrunk <- shrinkIntegral (round (value * 10 :: Double) :: Integer), shrunk >= 0]
 
 shrinkCaseAlts :: [CaseAlt] -> [[CaseAlt]]
 shrinkCaseAlts = shrinkList shrinkCaseAlt

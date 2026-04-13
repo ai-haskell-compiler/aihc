@@ -1461,7 +1461,7 @@ prettyExprPrec prec expr =
             <+> "|"
             <+> hsep
               ( punctuate
-                  "|"
+                  " |"
                   (map (hsep . punctuate comma . map prettyCompStmt) qualifierGroups)
               )
         )
