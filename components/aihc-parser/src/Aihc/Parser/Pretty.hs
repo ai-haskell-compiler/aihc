@@ -12,6 +12,12 @@
 -- The 'Pretty' instances from 'Prettyprinter' are provided for the main
 -- AST types, allowing direct use of 'pretty' from @Prettyprinter@.
 --
+-- __Parenthesization__ is handled by the 'Aihc.Parser.Parens' module, which
+-- inserts 'EParen', 'PParen', 'TParen', and 'CmdPar' nodes at all required
+-- positions. The Pretty instances call the paren-insertion pass before
+-- formatting, so the formatting code here does not need to worry about
+-- operator precedence or context-sensitive parenthesization.
+--
 -- This module has an empty export list because it only provides typeclass
 -- instances. Import it to bring the 'Pretty' instances into scope.
 --
@@ -21,6 +27,7 @@ module Aihc.Parser.Pretty
   )
 where
 
+import Aihc.Parser.Parens (addDeclParens, addExprParens, addModuleParens, addPatternParens, addTypeParens)
 import Aihc.Parser.Syntax
 import Data.Char (GeneralCategory (..), generalCategory, isAscii)
 import Data.Maybe (catMaybes, isJust)
@@ -43,23 +50,23 @@ import Prettyprinter
 
 -- | Pretty instance for Module - renders to valid Haskell source code.
 instance Pretty Module where
-  pretty = prettyModuleDoc
+  pretty = prettyModuleDoc . addModuleParens
 
 -- | Pretty instance for Expr - renders to valid Haskell source code.
 instance Pretty Expr where
-  pretty = prettyExprPrec 0
+  pretty = prettyExpr . addExprParens
 
 -- | Pretty instance for Pattern - renders to valid Haskell source code.
 instance Pretty Pattern where
-  pretty = prettyPattern
+  pretty = prettyPattern . addPatternParens
 
 -- | Pretty instance for Decl - renders to valid Haskell source code.
 instance Pretty Decl where
-  pretty decl = vsep (prettyDeclLines decl)
+  pretty decl = vsep (prettyDeclLines (addDeclParens decl))
 
 -- | Pretty instance for Type - renders to valid Haskell source code.
 instance Pretty Type where
-  pretty = prettyType
+  pretty = prettyType . addTypeParens
 
 instance Pretty Name where
   pretty = pretty . renderName
@@ -141,12 +148,14 @@ prettyImportLevel level =
     ImportLevelQuote -> "quote"
     ImportLevelSplice -> "splice"
 
-prettyDeclSplice :: Expr -> Doc ann
-prettyDeclSplice body =
+-- | Pretty-print a top-level declaration splice.
+-- EVar and EParen get a @$@ prefix; other expressions are bare.
+prettyDeclSpliceExpr :: Expr -> Doc ann
+prettyDeclSpliceExpr body =
   case body of
-    EVar {} -> prettySplice "$" body
-    EParen {} -> prettySplice "$" body
-    _ -> prettyExprPrec 0 body
+    EVar {} -> "$" <> prettyExpr body
+    EParen {} -> "$" <> prettyExpr body
+    _ -> prettyExpr body
 
 prettyQuotedText :: Text -> Doc ann
 prettyQuotedText txt = "\"" <> pretty txt <> "\""
@@ -230,7 +239,7 @@ prettyDeclLines decl =
     DeclStandaloneDeriving _ derivingDecl -> [prettyStandaloneDeriving derivingDecl]
     DeclDefault _ tys -> ["default" <+> parens (hsep (punctuate comma (map prettyType tys)))]
     DeclForeign _ foreignDecl -> [prettyForeignDecl foreignDecl]
-    DeclSplice _ body -> [prettyDeclSplice body]
+    DeclSplice _ body -> [prettyDeclSpliceExpr body]
     DeclTypeFamilyDecl _ tf -> [prettyTypeFamilyDecl tf]
     DeclDataFamilyDecl _ df -> [prettyDataFamilyDecl df]
     DeclTypeFamilyInst _ tfi -> [prettyTopTypeFamilyInst tfi]
@@ -263,8 +272,6 @@ prettyValueDeclLines valueDecl =
       concatMap (prettyFunctionMatchLines name) matches
 
 -- | Pretty-print a value declaration on a single line.
--- For function binds with multiple matches, each match becomes a semicolon-separated item.
--- For function binds with guards, the guards are space-separated.
 prettyValueDeclSingleLine :: ValueDecl -> Doc ann
 prettyValueDeclSingleLine valueDecl =
   case valueDecl of
@@ -287,7 +294,6 @@ prettyPatSynDecl ps =
     dirArrow PatSynUnidirectional = "<-"
     dirArrow (PatSynExplicitBidirectional _) = "<-"
 
--- | Pretty-print the LHS of a pattern synonym declaration (after @pattern@).
 prettyPatSynLhs :: UnqualifiedName -> PatSynArgs -> [Doc ann]
 prettyPatSynLhs name args =
   case args of
@@ -298,7 +304,6 @@ prettyPatSynLhs name args =
     PatSynRecordArgs fields ->
       [prettyConstructorUName name <+> braces (hsep (punctuate comma (map pretty fields)))]
 
--- | Pretty-print the where clause of an explicitly bidirectional pattern synonym.
 prettyPatSynWhere :: UnqualifiedName -> PatSynDir -> [Doc ann]
 prettyPatSynWhere _ PatSynBidirectional = []
 prettyPatSynWhere _ PatSynUnidirectional = []
@@ -312,9 +317,9 @@ prettyFunctionMatchLines name match =
     GuardedRhss _ grhss mWhereDecls ->
       prettyFunctionHead name (matchHeadForm match) (matchPats match)
         : [ "  |"
-              <+> hsep (punctuate comma (map (prettyGuardQualifier GuardEquals) (guardedRhsGuards grhs)))
+              <+> hsep (punctuate comma (map prettyGuardQualifier (guardedRhsGuards grhs)))
               <+> "="
-              <+> prettyExprPrec 0 (guardedRhsBody grhs)
+              <+> prettyExpr (guardedRhsBody grhs)
           | grhs <- grhss
           ]
           <> [prettyWhereClause mWhereDecls | isJust mWhereDecls]
@@ -327,35 +332,30 @@ prettyFunctionHead :: UnqualifiedName -> MatchHeadForm -> [Pattern] -> Doc ann
 prettyFunctionHead name headForm pats =
   case headForm of
     MatchHeadPrefix ->
-      hsep (prettyBinderUName name : map prettyFunctionHeadPatternAtom pats)
+      hsep (prettyBinderUName name : map prettyPattern pats)
     MatchHeadInfix ->
       case pats of
         lhs : rhsPat : tailPats ->
-          let infixHead = prettyInfixFunctionHeadPatternAtom lhs <+> prettyInfixOp (renderUnqualifiedName name) <+> prettyInfixFunctionHeadPatternAtom rhsPat
+          let infixHead = prettyPattern lhs <+> prettyInfixOp (renderUnqualifiedName name) <+> prettyPattern rhsPat
            in case tailPats of
                 [] -> infixHead
-                _ -> hsep (parens infixHead : map prettyFunctionHeadPatternAtom tailPats)
+                _ -> hsep (parens infixHead : map prettyPattern tailPats)
         _ ->
-          hsep (prettyBinderUName name : map prettyFunctionHeadPatternAtom pats)
+          hsep (prettyBinderUName name : map prettyPattern pats)
 
 prettyRhs :: Rhs -> Doc ann
 prettyRhs rhs =
   case rhs of
-    -- For UnguardedRhs, nothing follows the expression, so no parens needed
     UnguardedRhs _ expr whereDecls ->
       "="
-        <+> prettyExprPrec 0 expr
+        <+> prettyExpr expr
         <> prettyWhereClause whereDecls
-    -- For GuardedRhss, multiple guards can follow, but brace-terminated
-    -- expressions (do, case, \case) are safe. Open-ended expressions
-    -- (if, lambda, let, where) could capture trailing guards with layout,
-    -- but our pretty-printer doesn't use layout for guards.
     GuardedRhss _ guards whereDecls ->
       hsep
         [ "|"
-            <+> hsep (punctuate comma (map (prettyGuardQualifier GuardEquals) (guardedRhsGuards grhs)))
+            <+> hsep (punctuate comma (map prettyGuardQualifier (guardedRhsGuards grhs)))
             <+> "="
-            <+> prettyExprPrec 0 (guardedRhsBody grhs)
+            <+> prettyExpr (guardedRhsBody grhs)
         | grhs <- guards
         ]
         <> prettyWhereClause whereDecls
@@ -365,145 +365,56 @@ prettyWhereClause Nothing = mempty
 prettyWhereClause (Just []) = " where" <+> braces mempty
 prettyWhereClause (Just decls) = " where" <+> braces (prettyInlineDecls decls)
 
+-- | Pretty-print a type. The AST is assumed to already have TParen nodes
+-- in the correct positions (inserted by 'addTypeParens').
 prettyType :: Type -> Doc ann
-prettyType = prettyTypePrec 0
-
--- | Type context for parenthesization decisions.
--- CtxTypeFunArg: LHS of -> or function position of type application (same rules).
--- CtxTypeAppArg: argument position of type application.
--- CtxTypeAtom: must be syntactically atomic (e.g., context args, instance heads).
--- CtxKindSig: kind-annotation type inside a context item (TKindSig omits its parens).
-data TypeCtx
-  = CtxTypeFunArg
-  | CtxTypeAppArg
-  | CtxTypeAtom
-  | CtxKindSig
-
-needsTypeParens :: TypeCtx -> Type -> Bool
-needsTypeParens ctx ty =
-  case ctx of
-    CtxTypeFunArg ->
-      case ty of
-        TForall {} -> True
-        TFun {} -> True
-        TContext {} -> True
-        _ -> False
-    CtxTypeAppArg ->
-      case ty of
-        TQuasiQuote {} -> False
-        TApp {} -> True
-        TForall {} -> True
-        TFun {} -> True
-        TContext {} -> True
-        _ -> False
-    CtxTypeAtom ->
-      case ty of
-        TVar {} -> False
-        TCon {} -> False
-        TImplicitParam {} -> False
-        TTypeLit {} -> False
-        TStar {} -> False
-        TQuasiQuote {} -> False
-        TList {} -> False
-        TTuple {} -> False
-        TUnboxedSum {} -> False
-        TParen {} -> False
-        TKindSig {} -> False
-        TWildcard {} -> False
-        _ -> True
-    CtxKindSig ->
-      case ty of
-        TKindSig {} -> False
-        _ -> True
-
--- | Shared type pretty-printer parameterized by context.
--- CtxTypeAtom is equivalent to the original 'prettyTypePrec'.
--- CtxKindSig omits parens around TKindSig (used for kind annotations in context items).
-prettyTypeShared :: TypeCtx -> Int -> Type -> Doc ann
-prettyTypeShared ctx prec ty =
-  let atom = prettyTypeShared CtxTypeAtom
-   in case ty of
-        TAnn _ sub -> prettyTypeShared ctx prec sub
-        TVar _ name -> pretty name
-        TCon _ name promoted ->
-          let rendered = renderName name
-              base
-                | isSymbolicTypeName name = parens (pretty rendered)
-                | otherwise = pretty rendered
-           in if promoted == Promoted then "'" <> base else base
-        TImplicitParam _ name inner -> pretty name <+> "::" <+> prettyTypePrec 0 inner
-        TTypeLit _ lit -> prettyTypeLiteral lit
-        TStar _ -> "*"
-        TQuasiQuote _ quoter body -> prettyQuasiQuote quoter body
-        TForall _ binders inner ->
-          parenthesize (prec > 0) ("forall" <+> hsep (map prettyTyVarBinder binders) <> "." <+> atom 0 inner)
-        TApp _ (TApp _ (TCon _ op promoted) lhs) rhs
-          | isSymbolicTypeName op && renderName op /= "->" ->
-              atom 0 lhs
-                <+> (if promoted == Promoted then "'" else mempty)
-                <> prettyNameInfixOp op
-                <+> atom 0 rhs
-        TApp _ f x ->
-          parenthesize (prec > 2) (prettyTypeIn CtxTypeFunArg f <+> prettyTypeIn CtxTypeAppArg x)
-        TFun _ a b ->
-          parenthesize (prec > 0) (prettyTypeIn CtxTypeFunArg a <+> "->" <+> atom 0 b)
-        TTuple _ tupleFlavor promoted elems ->
-          let tupleDoc = prettyTupleBody tupleFlavor (hsep (punctuate comma (map (atom 0) elems)))
-           in if promoted == Promoted then "'" <> tupleDoc else tupleDoc
-        TUnboxedSum _ elems ->
-          hsep ["(#", hsep (punctuate " |" (map (atom 0) elems)), "#)"]
-        TList _ promoted elems ->
-          let listDoc = brackets (hsep (punctuate comma (map (atom 0) elems)))
-           in if promoted == Promoted then "'" <> listDoc else listDoc
-        TParen _ inner -> parens (atom 0 inner)
-        TKindSig _ ty' kind ->
-          let doc = atom 0 ty' <+> "::" <+> atom 0 kind
-           in case ctx of
-                CtxKindSig -> doc
-                _ -> parens doc
-        TContext _ constraints inner ->
-          parenthesize (prec > 0) (prettyContext constraints <+> "=>" <+> atom 0 inner)
-        TSplice _ body -> prettySplice "$" body
-        TWildcard _ -> "_"
-
-prettyTypePrec :: Int -> Type -> Doc ann
-prettyTypePrec = prettyTypeShared CtxTypeAtom
-
-prettyTypeIn :: TypeCtx -> Type -> Doc ann
-prettyTypeIn ctx ty =
-  parenthesize (needsTypeParens ctx ty) (prettyTypeShared ctx 0 ty)
-
--- | Print a type as it appears in a context kind-annotation position.
--- Omits parens around TKindSig; the enclosing 'TParen' or
--- 'prettyConstraintTypeParens' provides them.
-prettyConstraintType :: Type -> Doc ann
-prettyConstraintType = prettyTypeShared CtxKindSig 0
-
--- | Like 'prettyConstraintType' but always wraps the result in parens.
--- Used for kind signatures that need parens in context position.
-prettyConstraintTypeParens :: Type -> Doc ann
-prettyConstraintTypeParens ty = parens (prettyTypeShared CtxKindSig 0 ty)
+prettyType ty =
+  case ty of
+    TAnn _ sub -> prettyType sub
+    TVar _ name -> pretty name
+    TCon _ name promoted ->
+      let rendered = renderName name
+          base
+            | isSymbolicTypeName name = parens (pretty rendered)
+            | otherwise = pretty rendered
+       in if promoted == Promoted then "'" <> base else base
+    TImplicitParam _ name inner -> pretty name <+> "::" <+> prettyType inner
+    TTypeLit _ lit -> prettyTypeLiteral lit
+    TStar _ -> "*"
+    TQuasiQuote _ quoter body -> prettyQuasiQuote quoter body
+    TForall _ binders inner ->
+      "forall" <+> hsep (map prettyTyVarBinder binders) <> "." <+> prettyType inner
+    TApp _ (TApp _ (TCon _ op promoted) lhs) rhs
+      | isSymbolicTypeName op && renderName op /= "->" ->
+          prettyType lhs
+            <+> (if promoted == Promoted then "'" else mempty)
+            <> prettyNameInfixOp op
+            <+> prettyType rhs
+    TApp _ f x ->
+      prettyType f <+> prettyType x
+    TFun _ a b ->
+      prettyType a <+> "->" <+> prettyType b
+    TTuple _ tupleFlavor promoted elems ->
+      let tupleDoc = prettyTupleBody tupleFlavor (hsep (punctuate comma (map prettyType elems)))
+       in if promoted == Promoted then "'" <> tupleDoc else tupleDoc
+    TUnboxedSum _ elems ->
+      hsep ["(#", hsep (punctuate " |" (map prettyType elems)), "#)"]
+    TList _ promoted elems ->
+      let listDoc = brackets (hsep (punctuate comma (map prettyType elems)))
+       in if promoted == Promoted then "'" <> listDoc else listDoc
+    TParen _ inner -> parens (prettyType inner)
+    TKindSig _ ty' kind ->
+      prettyType ty' <+> "::" <+> prettyType kind
+    TContext _ constraints inner ->
+      prettyContext constraints <+> "=>" <+> prettyType inner
+    TSplice _ body -> "$" <> prettyExpr body
+    TWildcard _ -> "_"
 
 prettyContext :: [Type] -> Doc ann
 prettyContext constraints =
   case constraints of
-    [single] -> prettyContextItem single
-    _ -> parens (hsep (punctuate comma (map prettyContextItemNoOuterParens constraints)))
-  where
-    prettyContextItemNoOuterParens :: Type -> Doc ann
-    prettyContextItemNoOuterParens ty =
-      case ty of
-        TKindSig {} -> prettyConstraintType ty
-        TParen _ inner@(TKindSig {}) -> prettyConstraintType inner
-        _ -> prettyContextItem ty
-
-prettyContextItem :: Type -> Doc ann
-prettyContextItem ty =
-  case ty of
-    TKindSig {} -> prettyConstraintTypeParens ty
-    TParen _ inner@(TKindSig {}) -> prettyConstraintTypeParens inner
-    TParen _ inner -> parens (prettyContextItem inner)
-    _ -> prettyConstraintType ty
+    [single] -> prettyType single
+    _ -> parens (hsep (punctuate comma (map prettyType constraints)))
 
 prettyTypeLiteral :: TypeLiteral -> Doc ann
 prettyTypeLiteral lit =
@@ -512,6 +423,8 @@ prettyTypeLiteral lit =
     TypeLitSymbol _ repr -> pretty repr
     TypeLitChar _ repr -> pretty repr
 
+-- | Pretty-print a pattern. The AST is assumed to already have PParen nodes
+-- in the correct positions (inserted by 'addPatternParens').
 prettyPattern :: Pattern -> Doc ann
 prettyPattern pat =
   case pat of
@@ -520,18 +433,18 @@ prettyPattern pat =
     PWildcard _ -> "_"
     PLit _ lit -> prettyLiteral lit
     PQuasiQuote _ quoter body -> prettyQuasiQuote quoter body
-    PTuple _ tupleFlavor elems -> prettyTupleBody tupleFlavor (hsep (punctuate comma (map prettyPatternInDelimited elems)))
+    PTuple _ tupleFlavor elems -> prettyTupleBody tupleFlavor (hsep (punctuate comma (map prettyPattern elems)))
     PUnboxedSum _ altIdx arity inner ->
-      let slots = [if i == altIdx then prettyPatternInDelimited inner else mempty | i <- [0 .. arity - 1]]
+      let slots = [if i == altIdx then prettyPattern inner else mempty | i <- [0 .. arity - 1]]
        in hsep ["(#", hsep (punctuate " |" slots), "#)"]
-    PList _ elems -> brackets (hsep (punctuate comma (map prettyPatternInDelimited elems)))
-    PCon _ con args -> hsep (prettyPrefixName con : map prettyPatternAtom args)
-    PInfix _ lhs op rhs -> prettyPatternAtom lhs <+> prettyNameInfixOp op <+> prettyPatternAtom rhs
+    PList _ elems -> brackets (hsep (punctuate comma (map prettyPattern elems)))
+    PCon _ con args -> hsep (prettyPrefixName con : map prettyPattern args)
+    PInfix _ lhs op rhs -> prettyPattern lhs <+> prettyNameInfixOp op <+> prettyPattern rhs
     PView _ viewExpr inner ->
-      parens (prettyViewExpr viewExpr <+> "->" <+> prettyPattern inner)
-    PAs _ name inner -> pretty name <> "@" <> prettyPatternAtomStrict inner
-    PStrict _ inner -> "!" <> prettyPatternAtomStrict inner
-    PIrrefutable _ inner -> "~" <> prettyPatternAtomStrict inner
+      prettyExpr viewExpr <+> "->" <+> prettyPattern inner
+    PAs _ name inner -> pretty name <> "@" <> prettyPattern inner
+    PStrict _ inner -> "!" <> prettyPattern inner
+    PIrrefutable _ inner -> "~" <> prettyPattern inner
     PNegLit _ lit -> "-" <> prettyLiteral lit
     PParen _ inner -> parens (prettyPattern inner)
     PRecord _ con fields hasWildcard ->
@@ -546,103 +459,14 @@ prettyPattern pat =
               )
           )
     PTypeSig _ inner ty -> prettyPattern inner <+> "::" <+> prettyType ty
-    PSplice _ body -> prettySplice "$" body
-
--- | Pretty print a pattern that appears inside a delimited context (tuples,
--- lists, unboxed sums, etc.). View patterns don't need extra parens there.
-prettyPatternInDelimited :: Pattern -> Doc ann
-prettyPatternInDelimited pat =
-  case pat of
-    PView _ viewExpr inner -> prettyViewExpr viewExpr <+> "->" <+> prettyPattern inner
-    PAs _ name inner -> pretty name <> "@" <> prettyPatternAtomStrict inner
-    PStrict _ inner -> "!" <> prettyPatternAtomStrict inner
-    PIrrefutable _ inner -> "~" <> prettyPatternAtomStrict inner
-    _ -> prettyPattern pat
-
-prettyViewExpr :: Expr -> Doc ann
-prettyViewExpr expr
-  -- Keep expressions that end with a type signature parenthesized so the
-  -- view-pattern arrow cannot be parsed as part of the signature's result type.
-  -- For example, @let {x = y} in z :: T -> p@ must be printed as
-  -- @(let {x = y} in z :: T) -> p@ to prevent @->@ from being absorbed into
-  -- the type @T -> …@.
-  | endsWithTypeSig expr = parens (prettyExprPrec 0 expr)
-  | otherwise = prettyExprPrec 0 expr
+    PSplice _ body -> "$" <> prettyExpr body
 
 -- | Pretty print a pattern field binding.
--- Supports NamedFieldPuns: if pattern is a variable with the same name as the field,
--- print just the field name (punned form).
--- Pattern fields are comma-separated, so greedy patterns don't need parens.
 prettyPatternFieldBinding :: Name -> Pattern -> Doc ann
 prettyPatternFieldBinding fieldName fieldPat =
   case fieldPat of
-    PVar _ varName | renderUnqualifiedName varName == renderName fieldName -> pretty fieldName -- NamedFieldPuns: punned form
+    PVar _ varName | renderUnqualifiedName varName == renderName fieldName -> pretty fieldName
     _ -> pretty fieldName <+> "=" <+> prettyPattern fieldPat
-
-prettyPatternAtom :: Pattern -> Doc ann
-prettyPatternAtom pat =
-  case pat of
-    PVar _ _ -> prettyPattern pat
-    PWildcard _ -> prettyPattern pat
-    PLit _ _ -> prettyPattern pat
-    PQuasiQuote {} -> prettyPattern pat
-    PNegLit _ _ -> prettyPattern pat
-    PList _ _ -> prettyPattern pat
-    PTuple {} -> prettyPattern pat
-    PUnboxedSum {} -> prettyPattern pat
-    PParen _ _ -> prettyPattern pat
-    PStrict _ _ -> prettyPattern pat
-    PIrrefutable _ _ -> prettyPattern pat
-    PView {} -> prettyPattern pat
-    PAs {} -> prettyPattern pat
-    PSplice {} -> prettyPattern pat
-    PCon _ _ [] -> prettyPattern pat
-    _ -> parens (prettyPattern pat)
-
--- | Pretty print a pattern atom in lambda argument position.
--- In addition to the normal non-atomic patterns, this also parenthesizes
--- nullary constructors (which would greedily absorb the next argument) and
--- negative literals (ambiguous with subtraction).
-prettyLambdaPatternAtom :: Pattern -> Doc ann
-prettyLambdaPatternAtom pat =
-  case pat of
-    PNegLit {} -> parens (prettyPattern pat)
-    PCon _ _ [] -> parens (prettyPattern pat)
-    _ -> prettyPatternAtom pat
-
--- | Pretty print a pattern in function-head argument position.
--- Function heads need the same nullary-constructor protection as lambda
--- patterns, and also need constructor applications parenthesized so they do not
--- get split into multiple head arguments by the parser.
-prettyFunctionHeadPatternAtom :: Pattern -> Doc ann
-prettyFunctionHeadPatternAtom pat =
-  case pat of
-    PNegLit {} -> parens (prettyPattern pat)
-    PCon _ _ (_ : _) -> parens (prettyPattern pat)
-    PRecord {} -> prettyPattern pat
-    _ -> prettyPatternAtom pat
-
--- | Pretty print a pattern as an infix function-head operand.
--- Infix operands are already delimited by the operator, so constructor
--- applications and unary-pattern forms can stay bare. Only negative literals
--- still need parens to avoid being read as subtraction.
-prettyInfixFunctionHeadPatternAtom :: Pattern -> Doc ann
-prettyInfixFunctionHeadPatternAtom pat =
-  case pat of
-    PNegLit {} -> parens (prettyPattern pat)
-    _ -> prettyPattern pat
-
--- | Pretty print a pattern atom after @ or as the operand of ! or ~.
--- Negative literals and nested strictness/irrefutability need parens.
-prettyPatternAtomStrict :: Pattern -> Doc ann
-prettyPatternAtomStrict pat =
-  case pat of
-    PNegLit {} -> parens (prettyPattern pat)
-    PCon _ _ [] -> parens (prettyPattern pat)
-    PStrict {} -> parens (prettyPattern pat)
-    PIrrefutable {} -> parens (prettyPattern pat)
-    PRecord {} -> prettyPattern pat
-    _ -> prettyPatternAtom pat
 
 prettyLiteral :: Literal -> Doc ann
 prettyLiteral lit =
@@ -695,7 +519,6 @@ prettyTypeDataDecl decl =
           | any isGadtCon ctors -> ["where", braces (hsep (punctuate semi (map prettyDataCon ctors)))]
           | otherwise -> ["=", hsep (punctuate " |" (map prettyDataCon ctors))]
 
--- | Check if a constructor uses GADT syntax
 isGadtCon :: DataConDecl -> Bool
 isGadtCon (GadtCon {}) = True
 isGadtCon _ = False
@@ -733,9 +556,9 @@ derivingPart (DerivingClause strategy classes viaTy parenthesized) =
 
     classesPart [] = ["()"]
     classesPart [single]
-      | parenthesized = [parens (prettyContextItem single)]
-      | otherwise = [prettyContextItem single]
-    classesPart _ = [parens (hsep (punctuate comma (map prettyContextItem classes)))]
+      | parenthesized = [parens (prettyType single)]
+      | otherwise = [prettyType single]
+    classesPart _ = [parens (hsep (punctuate comma (map prettyType classes)))]
 
     viaPart Nothing = []
     viaPart (Just ty) = ["via", prettyType ty]
@@ -767,7 +590,6 @@ contextPrefix constraints =
     [] -> []
     _ -> [prettyContext constraints, "=>"]
 
--- | Render a forall prefix for [TyVarBinder]
 forallTyVarBinderPrefix :: [TyVarBinder] -> [Doc ann]
 forallTyVarBinderPrefix [] = []
 forallTyVarBinderPrefix binders = ["forall", hsep (map prettyTyVarBinder binders) <> "."]
@@ -780,7 +602,7 @@ prettyDataCon ctor =
     InfixCon _ forallVars constraints lhs op rhs ->
       hsep
         ( dataConQualifierPrefix forallVars constraints
-            <> [prettyBangTypeAtom lhs, prettyInfixOp (renderUnqualifiedName op), prettyBangTypeAtom rhs]
+            <> [prettyBangType lhs, prettyInfixOp (renderUnqualifiedName op), prettyBangType rhs]
         )
     RecordCon _ forallVars constraints name fields ->
       hsep (dataConQualifierPrefix forallVars constraints <> [prettyConstructorUName name])
@@ -798,7 +620,6 @@ prettyDataCon ctor =
               )
           )
       where
-        -- Wrap operator names in parentheses for correct parsing
         prettyFieldName :: UnqualifiedName -> Doc ann
         prettyFieldName fieldName
           | isOperatorToken (renderUnqualifiedName fieldName) = parens (pretty fieldName)
@@ -806,7 +627,6 @@ prettyDataCon ctor =
     GadtCon _ forallBinders constraints names body ->
       prettyGadtCon forallBinders constraints names body
 
--- | Pretty print a GADT constructor in GADT syntax: @Con :: forall a. Ctx => Type@
 prettyGadtCon :: [TyVarBinder] -> [Type] -> [UnqualifiedName] -> GadtBody -> Doc ann
 prettyGadtCon forallBinders constraints names body =
   hsep
@@ -823,7 +643,6 @@ prettyGadtCon forallBinders constraints names body =
       | null constraints = []
       | otherwise = [prettyContext constraints, "=>"]
 
--- | Pretty print the body of a GADT constructor
 prettyGadtBody :: GadtBody -> Doc ann
 prettyGadtBody body =
   case body of
@@ -834,7 +653,6 @@ prettyGadtBody body =
     GadtRecordBody fields resultTy ->
       braces (prettyRecordFields fields) <+> "->" <+> prettyType resultTy
 
--- | Pretty print record fields for GADT body
 prettyRecordFields :: [FieldDecl] -> Doc ann
 prettyRecordFields fields =
   hsep
@@ -849,7 +667,6 @@ prettyRecordFields fields =
         ]
     )
   where
-    -- Wrap operator names in parentheses for correct parsing
     prettyFieldName :: UnqualifiedName -> Doc ann
     prettyFieldName name
       | isOperatorToken (renderUnqualifiedName name) = parens (pretty name)
@@ -861,18 +678,14 @@ dataConQualifierPrefix forallVars constraints = forallPrefix forallVars <> conte
     forallPrefix [] = []
     forallPrefix binders = ["forall", hsep (map pretty binders) <> "."]
 
--- | Pretty print a BangType in GADT prefix body context.
--- For strict types (!Type), we use atomic type rendering to ensure the type is atomic
--- (e.g., !Int or !(Term a), not !Term a which would be parsed as (!Term) a).
--- For non-strict types, we use function-LHS context rendering since only function types,
--- foralls, and contexts need parentheses before -> in GADT syntax.
+-- | Pretty print a BangType. The type already has TParen nodes where needed.
 prettyBangType :: BangType -> Doc ann
 prettyBangType bt =
   hsep (prettySourceUnpackedness (bangSourceUnpackedness bt) <> [strictDoc])
   where
     strictDoc
-      | bangStrict bt = "!" <> prettyTypeIn CtxTypeAtom (bangType bt)
-      | otherwise = prettyTypeIn CtxTypeFunArg (bangType bt)
+      | bangStrict bt = "!" <> prettyType (bangType bt)
+      | otherwise = prettyType (bangType bt)
 
 prettyRecordFieldBangType :: BangType -> Doc ann
 prettyRecordFieldBangType bt =
@@ -881,12 +694,6 @@ prettyRecordFieldBangType bt =
     strictDoc
       | bangStrict bt = "!" <> prettyType (bangType bt)
       | otherwise = prettyType (bangType bt)
-
--- | Pretty print a BangType as an atom (e.g., for infix data constructors).
--- Wraps the entire bang type in parens if the underlying type needs it.
-prettyBangTypeAtom :: BangType -> Doc ann
-prettyBangTypeAtom bt =
-  parenthesize (needsTypeParens CtxTypeFunArg (bangType bt)) (prettyBangType bt)
 
 prettySourceUnpackedness :: SourceUnpackedness -> [Doc ann]
 prettySourceUnpackedness unpackedness =
@@ -982,12 +789,12 @@ prettyStandaloneDeriving decl =
 instanceHeadDoc :: InstanceDecl -> Doc ann
 instanceHeadDoc decl =
   maybeParenthesize (instanceDeclParenthesizedHead decl) $
-    hsep ([pretty (instanceDeclClassName decl)] <> map (prettyTypeIn CtxTypeAtom) (instanceDeclTypes decl))
+    hsep ([pretty (instanceDeclClassName decl)] <> map prettyType (instanceDeclTypes decl))
 
 standaloneDerivingHeadDoc :: StandaloneDerivingDecl -> Doc ann
 standaloneDerivingHeadDoc decl =
   maybeParenthesize (standaloneDerivingParenthesizedHead decl) $
-    hsep ([pretty (standaloneDerivingClassName decl)] <> map (prettyTypeIn CtxTypeAtom) (standaloneDerivingTypes decl))
+    hsep ([pretty (standaloneDerivingClassName decl)] <> map prettyType (standaloneDerivingTypes decl))
 
 maybeParenthesize :: Bool -> Doc ann -> Doc ann
 maybeParenthesize shouldParen doc
@@ -1118,13 +925,6 @@ isSymbolicName name =
 isSymbolicTypeName :: Name -> Bool
 isSymbolicTypeName = isSymbolicName
 
--- | Check whether an operator is an arrow tail operator (@-<@ or @-<<@).
--- These are special-cased in the pretty-printer to have the lowest precedence.
-isArrowTailOp :: Text -> Bool
-isArrowTailOp "-<" = True
-isArrowTailOp "-<<" = True
-isArrowTailOp _ = False
-
 prettyFunctionBinder :: UnqualifiedName -> Doc ann
 prettyFunctionBinder name
   | unqualifiedNameType name == NameVarSym || unqualifiedNameType name == NameConSym = parens (pretty (renderUnqualifiedName name))
@@ -1136,7 +936,6 @@ prettyBinderName = prettyFunctionBinder
 prettyBinderUName :: UnqualifiedName -> Doc ann
 prettyBinderUName = prettyFunctionBinder
 
--- | Pretty-print a Name, wrapping operators in parentheses regardless of qualification.
 prettyName :: Name -> Doc ann
 prettyName name
   | nameType name == NameVarSym || nameType name == NameConSym = parens (pretty (renderName name))
@@ -1150,223 +949,13 @@ prettyConstructorName name
 prettyConstructorUName :: UnqualifiedName -> Doc ann
 prettyConstructorUName = prettyConstructorName . renderUnqualifiedName
 
--- | Print an expression in a context-sensitive slot.
--- Nested infix expressions need context-sensitive parenthesization, not just
--- operator precedence. We model these slots explicitly.
-data ExprCtx
-  = CtxInfixRhs Bool
-  | CtxInfixLhs
-  | CtxAppFun
-  | -- | Last argument position in an application chain
-    CtxAppArg
-  | -- | Last argument position with block expr (no parens needed)
-    CtxAppArgNoParens
-  | CtxTypeSigBody
-  | CtxGuarded
-
-prettyExprIn :: ExprCtx -> Expr -> Doc ann
-prettyExprIn ctx expr =
-  parenthesize (needsExprParens ctx expr) (prettyExprPrec (exprCtxPrec ctx expr) expr)
-
-exprCtxPrec :: ExprCtx -> Expr -> Int
-exprCtxPrec ctx expr =
-  case ctx of
-    CtxInfixRhs _
-      | isGreedyExpr expr -> 0
-      | otherwise -> 1
-    CtxInfixLhs -> 1
-    CtxAppFun -> 2
-    CtxAppArg -> 3
-    CtxAppArgNoParens -> 0 -- Precedence 0 so EIf/ECase/etc don't add parens
-    CtxTypeSigBody -> 1
-    CtxGuarded -> 0
-
-needsExprParens :: ExprCtx -> Expr -> Bool
-needsExprParens ctx expr =
-  case ctx of
-    CtxInfixRhs protectOpenEnded ->
-      case expr of
-        EInfix {} -> True
-        ETypeSig {} -> True
-        ENegate {} -> True
-        _ | protectOpenEnded && isOpenEnded expr -> True
-        _ -> False
-    CtxInfixLhs ->
-      case expr of
-        ETypeSig {} -> True
-        ENegate {} -> True
-        _ -> isOpenEnded expr
-    CtxAppFun ->
-      case expr of
-        ENegate {} -> True
-        _ -> False
-    CtxAppArg ->
-      -- Block arguments don't need parentheses in the last argument position.
-      -- EParen adds its own parentheses in prettyExprPrec, so don't double-wrap.
-      case expr of
-        _ | isBlockExpr expr -> False
-        _ -> False
-    CtxAppArgNoParens ->
-      -- Never add parentheses - this is only used for block expressions in last arg position.
-      False
-    CtxTypeSigBody ->
-      case expr of
-        ENegate {} -> True
-        ETypeSig {} -> True
-        ELambdaPats {} -> True
-        _ -> isOpenEnded expr
-    CtxGuarded -> isGreedyExpr expr
-
--- | Check if an expression is a "block expression" that can appear without
--- parentheses as a function argument when BlockArguments is enabled.
--- Where clauses are attached to Rhs, not to block expressions.
-isBlockExpr :: Expr -> Bool
-isBlockExpr = \case
-  EIf {} -> True
-  EMultiWayIf {} -> True
-  ECase {} -> True
-  EDo {} -> True
-  ELambdaPats {} -> True
-  ELambdaCase {} -> True
-  ELetDecls {} -> True
-  _ -> False
-
--- | Check if an expression is "greedy" - i.e., it could consume trailing syntax.
--- These expressions may need special handling in certain contexts.
--- With BlockArguments, an application whose last argument is an open-ended
--- block expression is itself greedy, because the argument is printed without
--- parens and its rightmost component can capture trailing syntax.
-isGreedyExpr :: Expr -> Bool
-isGreedyExpr = \case
-  ECase {} -> True
-  EIf {} -> True
-  ELambdaPats {} -> True
-  ELambdaCase {} -> True
-  ELetDecls {} -> True
-  EDo {} -> True
-  EProc {} -> True
-  EApp _ _ arg | isBlockExpr arg -> isOpenEnded arg
-  _ -> False
-
--- | Print an expression in a "guarded" context where greedy expressions
--- need parentheses to prevent them from consuming trailing syntax.
-prettyExprGuarded :: Expr -> Doc ann
-prettyExprGuarded = prettyExprIn CtxGuarded
-
-startsWithOverloadedLabel :: Expr -> Bool
-startsWithOverloadedLabel = \case
-  EOverloadedLabel {} -> True
-  EAnn _ sub -> startsWithOverloadedLabel sub
-  EApp _ fn _ -> startsWithOverloadedLabel fn
-  EInfix _ lhs _ _ -> startsWithOverloadedLabel lhs
-  ERecordUpd _ base _ -> startsWithOverloadedLabel base
-  ETypeSig _ inner _ -> startsWithOverloadedLabel inner
-  ETypeApp _ fn _ -> startsWithOverloadedLabel fn
-  _ -> False
-
--- | Check if an expression is "open-ended" - its rightmost component can
--- capture a trailing where clause. This includes:
--- - Directly open-ended expressions (if, lambda, let)
--- - Infix expressions whose RHS is open-ended (recursively)
--- - Application chains whose last argument is a block expression that is
---   itself open-ended (with BlockArguments, the last arg is printed without
---   parens, so its open-endedness propagates to the application)
--- Brace-terminated expressions (do, case, \case) are NOT open-ended because
--- their explicit braces delimit them.
-isOpenEnded :: Expr -> Bool
-isOpenEnded = \case
-  EIf {} -> True
-  ELambdaPats {} -> True
-  ELetDecls {} -> True
-  EProc {} -> True
-  EInfix _ _ _ rhs -> isOpenEnded rhs
-  EApp _ _ arg | isBlockExpr arg -> isOpenEnded arg
-  _ -> False
-
--- | Does the pretty-printed form of an expression end with @:: Type@?
--- Such expressions need parenthesization in contexts where a following @->@
--- would be absorbed into the type (e.g. the view expression of a view pattern).
-endsWithTypeSig :: Expr -> Bool
-endsWithTypeSig = \case
-  ETypeSig {} -> True
-  ELetDecls _ _ body -> endsWithTypeSig body
-  ELambdaPats _ _ body -> endsWithTypeSig body
-  EInfix _ _ _ rhs -> endsWithTypeSig rhs
-  _ -> False
-
--- | Print an expression used as the function in an application.
-prettyExprApp :: Expr -> Doc ann
-prettyExprApp = prettyExprIn CtxAppFun
-
--- | Check whether an expression's pretty-printed form starts with '$'.
--- This matters for negation: -$x lexes as the operator -$ rather than
--- negate applied to a splice.
-startsWithDollar :: Expr -> Bool
-startsWithDollar (ETHSplice {}) = True
-startsWithDollar (ETHTypedSplice {}) = True
-startsWithDollar (ERecordUpd _ base _) = startsWithDollar base
-startsWithDollar (EApp _ fn _) = startsWithDollar fn
-startsWithDollar _ = False
-
--- | Print a negation expression.
-prettyNegate :: Expr -> Doc ann
-prettyNegate inner =
-  -- Splices start with $ which is a symbolic operator character.
-  -- Without parens, -$x lexes as the operator -$ followed by x,
-  -- and - $x lexes as a right section. The same applies when a splice
-  -- is the leading subexpression of a record update or application.
-  if startsWithDollar inner || startsWithOverloadedLabel inner
-    then "-" <> parens (prettyExprPrec 0 inner)
-    else "-" <> prettyExprPrec 3 inner
-
--- | Print the body of a type signature expression.
-prettyTypeSigBody :: Expr -> Doc ann
-prettyTypeSigBody = prettyExprIn CtxTypeSigBody
-
-prettyIfBranch :: Expr -> Doc ann
-prettyIfBranch expr =
+-- | Pretty-print an expression. The AST is assumed to already have EParen
+-- nodes in the correct positions (inserted by 'addExprParens').
+prettyExpr :: Expr -> Doc ann
+prettyExpr expr =
   case expr of
-    -- Branch delimiters handle most greedy expressions, but postfix forms like
-    -- type signatures need parens to stay inside the branch.
-    -- Use endsWithTypeSig to also catch indirect cases like infix expressions
-    -- whose RHS is a type signature (e.g. @a + b :: T@).
-    _ | endsWithTypeSig expr -> parens (prettyExprPrec 0 expr)
-    _ -> prettyExprPrec 0 expr
-
--- | Flatten a left-nested application chain into (root, args).
--- For example, @f x y z@ (parsed as @(((f x) y) z)@) becomes @(f, [x, y, z])@.
-flattenApps :: Expr -> (Expr, [Expr])
-flattenApps = go []
-  where
-    go args (EApp _ fn arg) = go (arg : args) fn
-    go args root = (root, args)
-
--- | Pretty-print a chain of applications.
--- The last argument can use BlockArguments (no parentheses for block expressions).
--- Intermediate arguments always need parentheses for block expressions.
-prettyAppsChain :: Int -> Expr -> Doc ann
-prettyAppsChain prec expr =
-  let (root, args) = flattenApps expr
-      rootDoc = prettyExprApp root
-      argDocs = map (\(isLast, a) -> prettyExprIn (argCtx isLast a) a) (markLast args)
-   in parenthesize (prec > 2) (hsep (rootDoc : argDocs))
-  where
-    -- For the last argument, if it's a block expression, use precedence 0 to avoid
-    -- parentheses from the expression's own parenthesization logic.
-    argCtx True a | isBlockExpr a = CtxAppArgNoParens
-    argCtx True _ = CtxAppArg
-    argCtx False _ = CtxAppArg
-
-    markLast [] = []
-    markLast [x] = [(True, x)]
-    markLast (x : xs) = (False, x) : markLast xs
-
-prettyExprPrec :: Int -> Expr -> Doc ann
-prettyExprPrec prec expr =
-  case expr of
-    EApp {} -> prettyAppsChain prec expr
-    ETypeApp _ fn ty ->
-      parenthesize (prec > 2) (prettyExprApp fn <+> "@" <> prettyTypeIn CtxTypeAtom ty)
+    EApp _ fn arg -> prettyExpr fn <+> prettyExpr arg
+    ETypeApp _ fn ty -> prettyExpr fn <+> "@" <> prettyType ty
     EVar _ name
       | isSymbolicName name -> parens (pretty (renderName name))
       | otherwise -> pretty name
@@ -1382,8 +971,8 @@ prettyExprPrec prec expr =
     EStringHash _ _ repr -> pretty repr
     EOverloadedLabel _ _ raw -> pretty (" " <> raw)
     EQuasiQuote _ quoter body -> prettyQuasiQuote quoter body
-    ETHExpQuote _ body -> "[|" <+> prettyExprPrec 0 body <+> "|]"
-    ETHTypedQuote _ body -> "[||" <+> prettyExprPrec 0 body <+> "||]"
+    ETHExpQuote _ body -> "[|" <+> prettyExpr body <+> "|]"
+    ETHTypedQuote _ body -> "[||" <+> prettyExpr body <+> "||]"
     ETHDeclQuote _ decls -> "[d|" <+> prettyInlineDecls decls <+> "|]"
     ETHTypeQuote _ ty -> "[t|" <+> prettyType ty <+> "|]"
     ETHPatQuote _ pat -> "[p|" <+> prettyPattern pat <+> "|]"
@@ -1393,101 +982,57 @@ prettyExprPrec prec expr =
     ETHTypeNameQuote _ name
       | isOperatorToken name -> "''" <> parens (pretty name)
       | otherwise -> "''" <> pretty name
-    ETHSplice _ body -> prettySplice "$" body
-    ETHTypedSplice _ body -> prettySplice "$$" body
+    ETHSplice _ body -> "$" <> prettyExpr body
+    ETHTypedSplice _ body -> "$$" <> prettyExpr body
     EIf _ cond yes no ->
-      -- The 'then' keyword delimits the condition, and 'else' delimits the then-branch,
-      -- so greedy expressions in those positions don't need parentheses.
-      -- Type signatures are different: without parens, `else x :: T` binds to
-      -- the whole `if`, not just the branch expression.
-      parenthesize
-        (prec > 0)
-        ("if" <+> prettyExprPrec 0 cond <+> "then" <+> prettyIfBranch yes <+> "else" <+> prettyIfBranch no)
+      "if" <+> prettyExpr cond <+> "then" <+> prettyExpr yes <+> "else" <+> prettyExpr no
     EMultiWayIf _ rhss ->
-      parenthesize
-        (prec > 0)
-        ( "if"
-            <+> "{"
-            <+> hsep
-              [ "|"
-                  <+> hsep (punctuate comma (map (prettyGuardQualifier GuardArrow) (guardedRhsGuards grhs)))
-                  <+> "->"
-                  <+> prettyExprPrec 0 (guardedRhsBody grhs)
-              | grhs <- rhss
-              ]
-            <+> "}"
-        )
+      "if"
+        <+> "{"
+        <+> hsep
+          [ "|"
+              <+> hsep (punctuate comma (map prettyGuardQualifier (guardedRhsGuards grhs)))
+              <+> "->"
+              <+> prettyExpr (guardedRhsBody grhs)
+          | grhs <- rhss
+          ]
+        <+> "}"
     ELambdaPats _ pats body ->
-      parenthesize (prec > 0) ("\\" <+> hsep (map prettyLambdaPatternAtom pats) <+> "->" <+> prettyExprPrec 0 body)
+      "\\" <+> hsep (map prettyPattern pats) <+> "->" <+> prettyExpr body
     ELambdaCase _ alts ->
-      parenthesize
-        (prec > 0)
-        ("\\" <> "case" <+> "{" <+> hsep (punctuate semi (map prettyCaseAlt alts)) <+> "}")
-    EInfix _ lhs op rhs
-      | isArrowTailOp (renderName op) ->
-          -- Arrow application operators (-<, -<<) are command-level syntax
-          -- in GHC.  The LHS is a command (which may be a greedy do/if/case)
-          -- and the RHS is a full expression.
-          -- Always parenthesize the whole expression to avoid ambiguity.
-          -- Also parenthesize the LHS to prevent constructs like `where` from
-          -- capturing the `-<` operator.
-          parenthesize
-            True
-            (parens (prettyExprPrec 0 lhs) <+> prettyNameInfixOp op <+> prettyExprPrec 0 rhs)
-      | otherwise ->
-          parenthesize
-            (prec > 1)
-            (prettyExprIn CtxInfixLhs lhs <+> prettyNameInfixOp op <+> prettyExprIn (CtxInfixRhs (prec == 1)) rhs)
-    ENegate _ inner -> parenthesize (prec > 2) (prettyNegate inner)
+      "\\" <> "case" <+> "{" <+> hsep (punctuate semi (map prettyCaseAlt alts)) <+> "}"
+    EInfix _ lhs op rhs ->
+      prettyExpr lhs <+> prettyNameInfixOp op <+> prettyExpr rhs
+    ENegate _ inner -> "-" <> prettyExpr inner
     ESectionL _ lhs op ->
-      -- Expressions that can capture trailing syntax need extra parens in section
-      -- LHS to prevent the parser from interpreting trailing operators as part of
-      -- the expression rather than as the section operator
-      let lhsDoc = case lhs of
-            ETypeSig {} -> parens (prettyExprPrec 0 lhs)
-            _ | isGreedyExpr lhs -> parens (prettyExprPrec 0 lhs)
-            _ -> prettyExprPrec 1 lhs
-       in parens (lhsDoc <+> prettyNameInfixOp op)
-    ESectionR _ op rhs -> parens (prettyNameInfixOp op <+> prettyExprPrec 0 rhs)
+      parens (prettyExpr lhs <+> prettyNameInfixOp op)
+    ESectionR _ op rhs -> parens (prettyNameInfixOp op <+> prettyExpr rhs)
     ELetDecls _ decls body ->
-      parenthesize
-        (prec > 0)
-        ( "let"
-            <+> braces (prettyInlineDecls decls)
-            <+> "in"
-            <+> prettyExprPrec 0 body
-        )
+      "let"
+        <+> braces (prettyInlineDecls decls)
+        <+> "in"
+        <+> prettyExpr body
     ECase _ scrutinee alts ->
-      -- The 'of' keyword delimits the scrutinee, so greedy expressions don't need parens
-      -- Use "{ " instead of braces to avoid {- being lexed as block comment start
-      parenthesize
-        (prec > 0)
-        ( "case"
-            <+> prettyExprPrec 0 scrutinee
-            <+> "of"
-            <+> "{"
-            <+> hsep (punctuate semi (map prettyCaseAlt alts))
-            <+> "}"
-        )
+      "case"
+        <+> prettyExpr scrutinee
+        <+> "of"
+        <+> "{"
+        <+> hsep (punctuate semi (map prettyCaseAlt alts))
+        <+> "}"
     EDo _ stmts isMdo ->
-      parenthesize
-        (prec > 0)
-        ( (if isMdo then "mdo" else "do")
-            <+> "{"
-            <+> hsep (punctuate semi (map prettyDoStmt stmts))
-            <+> "}"
-        )
+      (if isMdo then "mdo" else "do")
+        <+> "{"
+        <+> hsep (punctuate semi (map prettyDoStmt stmts))
+        <+> "}"
     EListComp _ body quals ->
-      -- Brace-terminated expressions in the body don't capture the |
       brackets
-        ( prettyExprPrec 0 body
+        ( prettyExpr body
             <+> "|"
             <+> hsep (punctuate comma (map prettyCompStmt quals))
         )
     EListCompParallel _ body qualifierGroups ->
-      -- Brace-terminated expressions in the body don't capture the |
       brackets
-        ( prettyExprPrec 0 body
+        ( prettyExpr body
             <+> "|"
             <+> hsep
               ( punctuate
@@ -1499,14 +1044,14 @@ prettyExprPrec prec expr =
     ERecordCon _ name fields hasWildcard ->
       pretty name <+> braces (hsep (punctuate comma (map prettyBinding fields ++ [".." | hasWildcard])))
     ERecordUpd _ base fields ->
-      prettyExprPrec 3 base <+> braces (hsep (punctuate comma (map prettyBinding fields)))
-    ETypeSig _ inner ty -> parenthesize (prec > 1) (prettyTypeSigBody inner <+> "::" <+> prettyType ty)
+      prettyExpr base <+> braces (hsep (punctuate comma (map prettyBinding fields)))
+    ETypeSig _ inner ty -> prettyExpr inner <+> "::" <+> prettyType ty
     EParen _ inner ->
       case inner of
-        ESectionL {} -> prettyExprPrec 0 inner
-        ESectionR {} -> prettyExprPrec 0 inner
-        _ -> parens (prettyExprPrec 0 inner)
-    EList _ values -> brackets (hsep (punctuate comma (map (prettyExprPrec 0) values)))
+        ESectionL {} -> prettyExpr inner
+        ESectionR {} -> prettyExpr inner
+        _ -> parens (prettyExpr inner)
+    EList _ values -> brackets (hsep (punctuate comma (map prettyExpr values)))
     ETuple _ tupleFlavor values ->
       prettyTupleBody
         tupleFlavor
@@ -1515,7 +1060,7 @@ prettyExprPrec prec expr =
                 comma
                 ( map
                     ( \case
-                        Just val -> prettyExprPrec 0 val
+                        Just val -> prettyExpr val
                         Nothing -> mempty
                     )
                     values
@@ -1523,11 +1068,11 @@ prettyExprPrec prec expr =
             )
         )
     EUnboxedSum _ altIdx arity inner ->
-      let slots = [if i == altIdx then prettyExprPrec 0 inner else mempty | i <- [0 .. arity - 1]]
+      let slots = [if i == altIdx then prettyExpr inner else mempty | i <- [0 .. arity - 1]]
        in hsep ["(#", hsep (punctuate " |" slots), "#)"]
     EProc _ pat body ->
-      parenthesize (prec > 0) ("proc" <+> prettyPattern pat <+> "->" <+> prettyCmd body)
-    EAnn _ sub -> prettyExprPrec prec sub
+      "proc" <+> prettyPattern pat <+> "->" <+> prettyCmd body
+    EAnn _ sub -> prettyExpr sub
 
 prettyTupleBody :: TupleFlavor -> Doc ann -> Doc ann
 prettyTupleBody tupleFlavor inner =
@@ -1535,81 +1080,46 @@ prettyTupleBody tupleFlavor inner =
     Boxed -> parens inner
     Unboxed -> hsep ["(#", inner, "#)"]
 
--- | Pretty print a record field binding.
--- Supports NamedFieldPuns: if value is a variable with the same name as the field,
--- print just the field name (punned form).
--- Supports RecordWildCards: if name is "..", print just "..".
--- Record fields are comma-separated, so greedy expressions don't need parens.
 prettyBinding :: (Text, Expr) -> Doc ann
 prettyBinding (name, value) =
   case value of
-    EVar _ varName | renderName varName == name -> pretty name -- NamedFieldPuns: punned form
-    _ -> pretty name <+> "=" <+> prettyExprPrec 0 value
+    EVar _ varName | renderName varName == name -> pretty name
+    _ -> pretty name <+> "=" <+> prettyExpr value
 
--- | Pretty print a case alternative.
--- Since case alternatives are separated by semicolons (in explicit brace syntax),
--- greedy expressions in the body don't need parentheses.
 prettyCaseAlt :: CaseAlt -> Doc ann
 prettyCaseAlt (CaseAlt _ pat rhs) =
   case rhs of
-    UnguardedRhs _ expr whereDecls ->
+    UnguardedRhs _ body whereDecls ->
       prettyPattern pat
         <+> "->"
-        <+> prettyExprPrec 0 expr
+        <+> prettyExpr body
         <> prettyWhereClause whereDecls
     GuardedRhss _ grhss whereDecls ->
       hsep
         [ prettyPattern pat,
           hsep
             [ "|"
-                <+> hsep (punctuate comma (map (prettyGuardQualifier GuardArrow) (guardedRhsGuards grhs)))
+                <+> hsep (punctuate comma (map prettyGuardQualifier (guardedRhsGuards grhs)))
                 <+> "->"
-                <+> prettyExprPrec 0 (guardedRhsBody grhs)
+                <+> prettyExpr (guardedRhsBody grhs)
             | grhs <- grhss
             ]
         ]
         <> prettyWhereClause whereDecls
 
--- | Context for guard qualifiers: whether the guard is followed by @->@ or @=@.
--- When followed by @->@, expressions ending with a type signature need
--- parenthesization because @->@ is valid in types and would be absorbed.
-data GuardArrow = GuardArrow | GuardEquals
-
-prettyGuardQualifier :: GuardArrow -> GuardQualifier -> Doc ann
-prettyGuardQualifier arrow qualifier =
+prettyGuardQualifier :: GuardQualifier -> Doc ann
+prettyGuardQualifier qualifier =
   case qualifier of
-    GuardExpr _ expr -> prettyGuardExpr arrow expr
-    GuardPat _ pat expr -> prettyPattern pat <+> "<-" <+> prettyGuardExpr arrow expr
+    GuardExpr _ expr -> prettyExpr expr
+    GuardPat _ pat expr -> prettyPattern pat <+> "<-" <+> prettyExpr expr
     GuardLet _ decls -> "let" <+> braces (prettyInlineDecls decls)
 
--- | Pretty-print an expression in a guard qualifier position.
--- In @->@ contexts (multi-way if, case alternatives), expressions ending with
--- a type signature need parenthesization because the arrow would be absorbed
--- into the type.  For example, @| () <- 262 :: T -> ()@ must be printed as
--- @| () <- (262 :: T) -> ()@.
-prettyGuardExpr :: GuardArrow -> Expr -> Doc ann
-prettyGuardExpr arrow expr
-  | guardExprNeedsParens arrow expr = parens (prettyExprPrec 0 expr)
-  | otherwise = prettyExprPrec 0 expr
-
-guardExprNeedsParens :: GuardArrow -> Expr -> Bool
-guardExprNeedsParens arrow = \case
-  ELambdaPats {} -> True
-  EProc {} -> True
-  EApp _ _ arg | isBlockExpr arg -> guardExprNeedsParens arrow arg
-  expr -> case arrow of
-    GuardArrow -> endsWithTypeSig expr
-    GuardEquals -> False
-
--- | Pretty print a do statement.
--- Since do blocks are always rendered with explicit braces and semicolons,
--- statement boundaries are clear and greedy expressions don't need parens.
 prettyDoStmt :: DoStmt Expr -> Doc ann
 prettyDoStmt stmt =
   case stmt of
-    DoBind _ pat expr -> prettyPattern pat <+> "<-" <+> prettyExprPrec 0 expr
+    DoBind _ pat expr -> prettyPattern pat <+> "<-" <+> prettyExpr expr
     DoLetDecls _ decls -> "let" <+> braces (prettyInlineDecls decls)
-    DoExpr _ expr -> prettyExprPrec 0 expr
+    DoExpr _ expr -> prettyExpr expr
     DoRecStmt _ stmts -> "rec" <+> "{" <+> hsep (punctuate semi (map prettyDoStmt stmts)) <+> "}"
 
 -- | Pretty-print an arrow command.
@@ -1617,27 +1127,26 @@ prettyCmd :: Cmd -> Doc ann
 prettyCmd cmd =
   case cmd of
     CmdArrApp _ lhs HsFirstOrderApp rhs ->
-      prettyExprPrec 1 lhs <+> "-<" <+> prettyExprPrec 0 rhs
+      prettyExpr lhs <+> "-<" <+> prettyExpr rhs
     CmdArrApp _ lhs HsHigherOrderApp rhs ->
-      prettyExprPrec 1 lhs <+> "-<<" <+> prettyExprPrec 0 rhs
+      prettyExpr lhs <+> "-<<" <+> prettyExpr rhs
     CmdInfix _ l op r ->
       prettyCmd l <+> prettyInfixOp op <+> prettyCmd r
     CmdDo _ stmts ->
       "do" <+> "{" <+> hsep (punctuate semi (map prettyCmdStmt stmts)) <+> "}"
     CmdIf _ cond yes no ->
-      "if" <+> prettyExprPrec 0 cond <+> "then" <+> prettyCmd yes <+> "else" <+> prettyCmd no
+      "if" <+> prettyExpr cond <+> "then" <+> prettyCmd yes <+> "else" <+> prettyCmd no
     CmdCase _ scrut alts ->
-      "case" <+> prettyExprPrec 0 scrut <+> "of" <+> "{" <+> hsep (punctuate semi (map prettyCmdCaseAlt alts)) <+> "}"
+      "case" <+> prettyExpr scrut <+> "of" <+> "{" <+> hsep (punctuate semi (map prettyCmdCaseAlt alts)) <+> "}"
     CmdLet _ decls body ->
       "let" <+> braces (prettyInlineDecls decls) <+> "in" <+> prettyCmd body
     CmdLam _ pats body ->
-      "\\" <+> hsep (map prettyPatternAtom pats) <+> "->" <+> prettyCmd body
+      "\\" <+> hsep (map prettyPattern pats) <+> "->" <+> prettyCmd body
     CmdApp _ c e ->
-      prettyCmd c <+> prettyExprPrec 3 e
+      prettyCmd c <+> prettyExpr e
     CmdPar _ c ->
       parens (prettyCmd c)
 
--- | Pretty-print a do-statement in command context.
 prettyCmdStmt :: DoStmt Cmd -> Doc ann
 prettyCmdStmt stmt =
   case stmt of
@@ -1646,7 +1155,6 @@ prettyCmdStmt stmt =
     DoExpr _ cmd' -> prettyCmd cmd'
     DoRecStmt _ stmts -> "rec" <+> "{" <+> hsep (punctuate semi (map prettyCmdStmt stmts)) <+> "}"
 
--- | Pretty-print a command case alternative.
 prettyCmdCaseAlt :: CmdCaseAlt -> Doc ann
 prettyCmdCaseAlt alt =
   prettyPattern (cmdCaseAltPat alt) <+> "->" <+> prettyCmd (cmdCaseAltBody alt)
@@ -1654,8 +1162,8 @@ prettyCmdCaseAlt alt =
 prettyCompStmt :: CompStmt -> Doc ann
 prettyCompStmt stmt =
   case stmt of
-    CompGen _ pat expr -> prettyPattern pat <+> "<-" <+> prettyExprPrec 0 expr
-    CompGuard _ expr -> prettyExprPrec 0 expr
+    CompGen _ pat expr -> prettyPattern pat <+> "<-" <+> prettyExpr expr
+    CompGuard _ expr -> prettyExpr expr
     CompLet _ bindings -> "let" <+> hsep (punctuate semi (map prettyBinding bindings))
     CompLetDecls _ decls -> "let" <+> braces (prettyInlineDecls decls)
 
@@ -1663,8 +1171,6 @@ prettyInlineDecls :: [Decl] -> Doc ann
 prettyInlineDecls decls =
   hsep (punctuate semi (map prettyInlineDecl decls))
   where
-    -- For value declarations, use single-line form to keep guarded bindings together.
-    -- For other declarations, join their lines with spaces.
     prettyInlineDecl decl = case decl of
       DeclValue _ valueDecl -> prettyValueDeclSingleLine valueDecl
       _ -> hsep (prettyDeclLines decl)
@@ -1672,16 +1178,11 @@ prettyInlineDecls decls =
 prettyArithSeq :: ArithSeq -> Doc ann
 prettyArithSeq seqInfo =
   case seqInfo of
-    ArithSeqFrom _ fromExpr -> brackets (prettyExprGuarded fromExpr <> " ..")
-    ArithSeqFromThen _ fromExpr thenExpr -> brackets (prettyExprGuarded fromExpr <> ", " <> prettyExprGuarded thenExpr <> " ..")
-    ArithSeqFromTo _ fromExpr toExpr -> brackets (prettyExprGuarded fromExpr <> " .. " <> prettyExprPrec 0 toExpr)
+    ArithSeqFrom _ fromExpr -> brackets (prettyExpr fromExpr <> " ..")
+    ArithSeqFromThen _ fromExpr thenExpr -> brackets (prettyExpr fromExpr <> ", " <> prettyExpr thenExpr <> " ..")
+    ArithSeqFromTo _ fromExpr toExpr -> brackets (prettyExpr fromExpr <> " .. " <> prettyExpr toExpr)
     ArithSeqFromThenTo _ fromExpr thenExpr toExpr ->
-      brackets (prettyExprGuarded fromExpr <> ", " <> prettyExprGuarded thenExpr <> " .. " <> prettyExprPrec 0 toExpr)
-
-parenthesize :: Bool -> Doc ann -> Doc ann
-parenthesize shouldWrap doc
-  | shouldWrap = parens doc
-  | otherwise = doc
+      brackets (prettyExpr fromExpr <> ", " <> prettyExpr thenExpr <> " .. " <> prettyExpr toExpr)
 
 quoted :: Text -> Doc ann
 quoted txt = pretty (show (T.unpack txt))
@@ -1693,8 +1194,6 @@ isOperatorToken :: Text -> Bool
 isOperatorToken tok =
   not (T.null tok) && T.all isSymbolicOpChar tok
 
--- | Matches operator characters per Haskell 2010 §2.2: ASCII symbol chars
--- plus Unicode characters with general category Sm, Sc, Sk, or So.
 isSymbolicOpChar :: Char -> Bool
 isSymbolicOpChar c =
   c `elem` (":!#$%&*+./<=>?@\\^|-~" :: String) || isUnicodeSymbolCategory c
@@ -1708,20 +1207,9 @@ isUnicodeSymbolCategory c = case generalCategory c of
   OtherPunctuation -> not (isAscii c)
   _ -> False
 
--- | Pretty-print a TH splice with the given prefix ("$" or "$$").
--- If the body is a parenthesized expression, print as $(expr) or $$(expr).
--- If the body is a bare variable, print as $name or $$name.
-prettySplice :: Doc ann -> Expr -> Doc ann
-prettySplice prefix body =
-  case body of
-    EParen _ inner -> prefix <> parens (prettyExprPrec 0 inner)
-    EVar {} -> prefix <> prettyExprPrec 11 body
-    _ -> prefix <> parens (prettyExprPrec 0 body)
-
 -- ---------------------------------------------------------------------------
 -- TypeFamilies pretty-printing helpers
 
--- | @type family Name params [:: Kind] [where { equations }]@
 prettyTypeFamilyDecl :: TypeFamilyDecl -> Doc ann
 prettyTypeFamilyDecl tf =
   hsep $
@@ -1745,7 +1233,6 @@ prettyTypeFamilyEq eq =
     forallPart [] = []
     forallPart binders = ["forall", hsep (map prettyTyVarBinder binders) <> "."]
 
--- | @data family Name params [:: Kind]@
 prettyDataFamilyDecl :: DataFamilyDecl -> Doc ann
 prettyDataFamilyDecl df =
   hsep $
@@ -1756,7 +1243,6 @@ prettyDataFamilyDecl df =
     kindPart Nothing = []
     kindPart (Just k) = ["::", prettyType k]
 
--- | @type instance [forall.] LhsType = RhsType@ (top-level)
 prettyTopTypeFamilyInst :: TypeFamilyInst -> Doc ann
 prettyTopTypeFamilyInst tfi =
   hsep $
@@ -1768,7 +1254,6 @@ prettyTopTypeFamilyInst tfi =
     forallPart [] = []
     forallPart binders = ["forall", hsep (map prettyTyVarBinder binders) <> "."]
 
--- | @(data|newtype) instance [forall.] HeadType = Cons@ (top-level)
 prettyTopDataFamilyInst :: DataFamilyInst -> Doc ann
 prettyTopDataFamilyInst dfi =
   hsep $
@@ -1787,7 +1272,6 @@ prettyTopDataFamilyInst dfi =
       | dataFamilyInstIsNewtype dfi = ["=", prettyDataCon c]
       | otherwise = ["=", hsep (punctuate " |" (map prettyDataCon ctors))]
 
--- | @type Name params [:: Kind]@ (associated type family inside a class, no @family@ keyword)
 prettyAssocTypeFamilyDecl :: TypeFamilyDecl -> Doc ann
 prettyAssocTypeFamilyDecl tf =
   hsep $
@@ -1810,7 +1294,6 @@ prettyTypeFamilyLhs headForm lhs =
     TypeHeadPrefix -> [prettyType lhs]
     TypeHeadInfix -> [prettyTypeFamilyInfix lhs]
 
--- | @data Name params [:: Kind]@ (associated data family inside a class, no @family@ keyword)
 prettyAssocDataFamilyDecl :: DataFamilyDecl -> Doc ann
 prettyAssocDataFamilyDecl df =
   hsep $
@@ -1821,7 +1304,6 @@ prettyAssocDataFamilyDecl df =
     kindPart Nothing = []
     kindPart (Just k) = ["::", prettyType k]
 
--- | @type instance LhsType = RhsType@ (default type instance inside a class)
 prettyDefaultTypeInst :: TypeFamilyInst -> Doc ann
 prettyDefaultTypeInst tfi =
   hsep $
@@ -1833,7 +1315,6 @@ prettyDefaultTypeInst tfi =
     forallPart [] = []
     forallPart binders = ["forall", hsep (map prettyTyVarBinder binders) <> "."]
 
--- | @type LhsType = RhsType@ inside an instance body (no @instance@ keyword)
 prettyInstTypeFamilyInst :: TypeFamilyInst -> Doc ann
 prettyInstTypeFamilyInst tfi =
   hsep $
@@ -1855,13 +1336,12 @@ prettyTypeFamilyInfix :: Type -> Doc ann
 prettyTypeFamilyInfix ty =
   case ty of
     TApp _ (TApp _ (TCon _ op promoted) lhs) rhs ->
-      prettyTypeIn CtxTypeAtom lhs
+      prettyType lhs
         <+> (if promoted == Promoted then "'" else mempty)
         <> prettyNameInfixOp op
-        <+> prettyTypeIn CtxTypeAtom rhs
+        <+> prettyType rhs
     _ -> prettyType ty
 
--- | @(data|newtype) HeadType = Cons@ inside an instance body
 prettyInstDataFamilyInst :: DataFamilyInst -> Doc ann
 prettyInstDataFamilyInst dfi =
   hsep $
