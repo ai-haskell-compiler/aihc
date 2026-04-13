@@ -274,9 +274,21 @@ recordPatternFieldListParser = do
 listPatternParser :: TokParser Pattern
 listPatternParser = withSpan $ do
   expectedTok TkSpecialLBracket
-  elems <- patternParser `MP.sepBy` expectedTok TkSpecialComma
+  elems <- listPatternElementParser `MP.sepBy` expectedTok TkSpecialComma
   expectedTok TkSpecialRBracket
   pure (`PList` elems)
+  where
+    -- List elements can contain bare view patterns such as [id -> x].
+    -- Try the expr -> pattern form first, then fall back to normal patterns.
+    listPatternElementParser :: TokParser Pattern
+    listPatternElementParser = do
+      mView <- MP.optional . MP.try $ do
+        expr <- exprParser
+        expectedTok TkReservedRightArrow
+        inner <- patternParser
+        let sp = mergeSourceSpans (getSourceSpan expr) (getSourceSpan inner)
+        pure (PView sp expr inner)
+      maybe patternParser pure mView
 
 parenOrTuplePatternParser :: TokParser Pattern
 parenOrTuplePatternParser = withSpan $ do
