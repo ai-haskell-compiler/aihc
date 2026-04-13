@@ -12,7 +12,7 @@ import Aihc.Parser.Internal.Common
 import {-# SOURCE #-} Aihc.Parser.Internal.Expr (equationRhsParser, exprParser)
 import Aihc.Parser.Internal.Import (warningTextParser)
 import Aihc.Parser.Internal.Pattern (patternParser, simplePatternParser)
-import Aihc.Parser.Internal.Type (typeAppParser, typeAtomParser, typeInfixOperatorParser, typeParser)
+import Aihc.Parser.Internal.Type (typeAppParser, typeAtomParser, typeInfixOperatorParser, typeInfixParser, typeParser)
 import Aihc.Parser.Lex (LexTokenKind (..), lexTokenKind, pattern TkVarFamily, pattern TkVarPattern, pattern TkVarRole)
 import Aihc.Parser.Syntax
 import Control.Monad (when)
@@ -122,7 +122,7 @@ implicitSpliceDeclParser = withSpan $ do
 typeDeclarationParser :: TokParser Decl
 typeDeclarationParser = withSpan $ do
   expectedTok TkKeywordType
-  (typeName, typeParams) <- typeDeclHeadParser
+  (headForm, typeName, typeParams) <- typeDeclHeadParser
   nextTok <- anySingle
   case lexTokenKind nextTok of
     TkReservedDoubleColon -> do
@@ -140,6 +140,7 @@ typeDeclarationParser = withSpan $ do
           span'
           TypeSynDecl
             { typeSynSpan = span',
+              typeSynHeadForm = headForm,
               typeSynName = renderUnqualifiedName typeName,
               typeSynParams = typeParams,
               typeSynBody = body
@@ -831,7 +832,7 @@ dataDeclParser :: TokParser Decl
 dataDeclParser = withSpan $ do
   expectedTok TkKeywordData
   context <- contextPrefixDispatch
-  (typeName, typeParams) <- typeDeclHeadParser
+  (headForm, typeName, typeParams) <- typeDeclHeadParser
   -- Parse optional inline kind signature: @:: Kind@
   inlineKind <- MP.optional (expectedTok TkReservedDoubleColon *> typeParser)
   -- GADT syntax starts with `where`, traditional syntax starts with `=` or nothing
@@ -841,6 +842,7 @@ dataDeclParser = withSpan $ do
       span'
       DataDecl
         { dataDeclSpan = span',
+          dataDeclHeadForm = headForm,
           dataDeclContext = fromMaybe [] context,
           dataDeclName = typeName,
           dataDeclParams = typeParams,
@@ -870,7 +872,7 @@ typeDataDeclParser = withSpan $ do
   expectedTok TkKeywordType
   expectedTok TkKeywordData
   -- type data may not have a datatype context
-  (typeName, typeParams) <- typeDeclHeadParser
+  (headForm, typeName, typeParams) <- typeDeclHeadParser
   -- Parse optional inline kind signature: @:: Kind@
   inlineKind <- MP.optional (expectedTok TkReservedDoubleColon *> typeParser)
   -- GADT syntax starts with `where`, traditional syntax starts with `=` or nothing
@@ -881,6 +883,7 @@ typeDataDeclParser = withSpan $ do
       span'
       DataDecl
         { dataDeclSpan = span',
+          dataDeclHeadForm = headForm,
           dataDeclContext = [],
           dataDeclName = typeName,
           dataDeclParams = typeParams,
@@ -961,7 +964,7 @@ newtypeDeclParser :: TokParser Decl
 newtypeDeclParser = withSpan $ do
   expectedTok TkKeywordNewtype
   context <- contextPrefixDispatch
-  (typeName, typeParams) <- typeDeclHeadParser
+  (headForm, typeName, typeParams) <- typeDeclHeadParser
   -- Parse optional inline kind signature: @:: Kind@
   inlineKind <- MP.optional (expectedTok TkReservedDoubleColon *> typeParser)
   -- GADT syntax starts with `where`, traditional syntax starts with `=` or nothing
@@ -971,6 +974,7 @@ newtypeDeclParser = withSpan $ do
       span'
       NewtypeDecl
         { newtypeDeclSpan = span',
+          newtypeDeclHeadForm = headForm,
           newtypeDeclContext = fromMaybe [] context,
           newtypeDeclName = typeName,
           newtypeDeclParams = typeParams,
@@ -1075,11 +1079,13 @@ gadtPrefixBodyParser = do
 
 -- | Parse a potentially strict type for GADT prefix body: @!Type@ or @Type@
 -- This handles strictness annotations on both simple and complex (parenthesized) types.
+-- Uses 'typeInfixParser' so that infix type operators (e.g. @key := v@) are
+-- accepted as argument types without requiring parentheses.
 gadtBangTypeParser :: TokParser BangType
 gadtBangTypeParser = withSpan $ do
   unpackedness <- MP.option NoSourceUnpackedness sourceUnpackednessPragmaParser
   strict <- MP.option False (expectedTok TkPrefixBang >> pure True)
-  ty <- typeAppParser
+  ty <- typeInfixParser
   pure $ \span' ->
     BangType
       { bangSpan = span',
@@ -1096,20 +1102,20 @@ gadtResultTypeParser = typeParser
 declContextParser :: TokParser [Type]
 declContextParser = contextParserWith typeParser typeAtomParser
 
-typeDeclHeadParser :: TokParser (UnqualifiedName, [TyVarBinder])
+typeDeclHeadParser :: TokParser (TypeHeadForm, UnqualifiedName, [TyVarBinder])
 typeDeclHeadParser =
   MP.try infixDeclHeadParser <|> prefixDeclHeadParser
   where
     prefixDeclHeadParser = do
       name <- constructorUnqualifiedNameParser <|> parens operatorUnqualifiedNameParser
       params <- MP.many typeParamParser
-      pure (name, params)
+      pure (TypeHeadPrefix, name, params)
 
     infixDeclHeadParser = do
       lhs <- typeParamParser
       op <- unqualifiedNameFromText <$> typeSynonymOperatorParser
       rhs <- typeParamParser
-      pure (op, [lhs, rhs])
+      pure (TypeHeadInfix, op, [lhs, rhs])
 
 typeSynonymOperatorParser :: TokParser Text
 typeSynonymOperatorParser =

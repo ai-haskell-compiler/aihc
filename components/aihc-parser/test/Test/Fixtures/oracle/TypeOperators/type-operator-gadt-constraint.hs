@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail GADT constructor with type operator after constraint -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TypeOperators #-}
 module TypeLevelKVList where
