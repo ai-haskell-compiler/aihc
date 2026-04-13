@@ -11,7 +11,7 @@ where
 import Aihc.Parser.Syntax
 import Data.Text (Text)
 import Data.Text qualified as T
-import Test.Properties.Arb.Expr (genExpr, genOperator, isValidGeneratedOperator, shrinkExpr)
+import Test.Properties.Arb.Expr (genExpr, genOperator, genRhsWith, isValidGeneratedOperator, shrinkExpr)
 import Test.Properties.Arb.Identifiers
   ( genConIdent,
     genConSym,
@@ -67,13 +67,14 @@ genDeclValue n = do
   genFunctionDecl (name, expr)
 
 genFunctionDecl :: (UnqualifiedName, Expr) -> Gen Decl
-genFunctionDecl (name, expr) = do
+genFunctionDecl (name, _expr) = do
   headForm <- elements [MatchHeadPrefix, MatchHeadInfix]
   case headForm of
     MatchHeadPrefix ->
       do
         patCount <- chooseInt (1, 3)
         pats <- vectorOf patCount (sized (genPattern . min 3))
+        rhs <- sized (\n -> genRhsWith False (min n 4))
         pure $
           DeclValue
             span0
@@ -84,7 +85,7 @@ genFunctionDecl (name, expr) = do
                     { matchSpan = span0,
                       matchHeadForm = MatchHeadPrefix,
                       matchPats = pats,
-                      matchRhs = UnguardedRhs span0 expr Nothing
+                      matchRhs = rhs
                     }
                 ]
             )
@@ -92,6 +93,7 @@ genFunctionDecl (name, expr) = do
       do
         lhsPat <- canonicalPatternAtom <$> sized (genPattern . min 3)
         rhsPat <- canonicalPatternAtom <$> sized (genPattern . min 3)
+        rhs <- sized (\n -> genRhsWith False (min n 4))
         pure $
           DeclValue
             span0
@@ -102,7 +104,7 @@ genFunctionDecl (name, expr) = do
                     { matchSpan = span0,
                       matchHeadForm = MatchHeadInfix,
                       matchPats = [lhsPat, rhsPat],
-                      matchRhs = UnguardedRhs span0 expr Nothing
+                      matchRhs = rhs
                     }
                 ]
             )

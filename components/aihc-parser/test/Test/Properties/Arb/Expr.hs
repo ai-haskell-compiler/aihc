@@ -8,6 +8,9 @@ module Test.Properties.Arb.Expr
     mkIntExpr,
     shrinkExpr,
     span0,
+    genRhsWith,
+    genGuardedRhsListWith,
+    genGuardedRhsWith,
   )
 where
 
@@ -28,7 +31,7 @@ import Test.Properties.Arb.Identifiers
     shrinkIdent,
     span0,
   )
-import Test.Properties.Arb.Pattern (genPattern)
+import Test.Properties.Arb.Pattern (canonicalPatternAtom, genPattern)
 import Test.QuickCheck
 
 -- | Generate a random expression. Uses QuickCheck's size parameter
@@ -333,8 +336,14 @@ genCaseAltWith allowTHQuotes n = do
 genRhsWith :: Bool -> Int -> Gen Rhs
 genRhsWith allowTHQuotes n =
   oneof
-    [ (\e -> UnguardedRhs span0 e Nothing) <$> genBindingExprWith allowTHQuotes n,
-      (\gs -> GuardedRhss span0 gs Nothing) <$> genGuardedRhsListWith allowTHQuotes n
+    [ do
+        expr <- genBindingExprWith allowTHQuotes n
+        whereDecls <- genOptionalWhereDeclsWith allowTHQuotes n
+        pure (UnguardedRhs span0 expr whereDecls),
+      do
+        gs <- genGuardedRhsListWith allowTHQuotes n
+        whereDecls <- genOptionalWhereDeclsWith allowTHQuotes n
+        pure (GuardedRhss span0 gs whereDecls)
     ]
 
 genGuardedRhsListWith :: Bool -> Int -> Gen [GuardedRhs]
@@ -366,30 +375,183 @@ genGuardQualifierWith allowTHQuotes n =
       -- The guarded-qualifier parser now accepts the full pattern generator,
       -- which includes parenthesized view patterns such as `(view -> pat)`.
       GuardPat span0 <$> genPattern half <*> genExprSizedWith allowTHQuotes half,
-      -- Let guard: | let decls = ...
-      GuardLet span0 <$> genValueDeclsWith allowTHQuotes n
+      -- Let guard: | let decls = ... (only when we have size budget)
+      if n > 0
+        then GuardLet span0 <$> genValueDeclsWith allowTHQuotes (n `div` 3)
+        else GuardExpr span0 <$> genExprSizedWith allowTHQuotes n
     ]
   where
     half = n `div` 2
 
 -- | Generate value declarations for let/where.
--- Zero-argument bindings are generated as PatternBind so they keep the same
--- AST shape after pretty-print/parser roundtrip.
+-- Generates both PatternBind (zero-argument patterns) and FunctionBind (multi-argument functions).
+-- PatternBind can have complex patterns (tuples, constructors, etc.) and both unguarded/guarded RHS.
 genValueDeclsWith :: Bool -> Int -> Gen [Decl]
 genValueDeclsWith allowTHQuotes n = do
   count <- chooseInt (0, 3)
-  names <- vectorOf count (mkUnqualifiedName NameVarId <$> genIdent)
-  exprs <- vectorOf count (genBindingExprWith allowTHQuotes (n `div` max 1 count))
-  pure
-    [ DeclValue
-        span0
-        ( PatternBind
-            span0
-            (PVar span0 name)
-            (UnguardedRhs span0 expr Nothing)
-        )
-    | (name, expr) <- zip names exprs
+  vectorOf count (genValueDeclWith allowTHQuotes (n `div` max 1 count))
+
+-- | Generate a single value declaration for let/where.
+-- Generates either PatternBind with complex patterns or FunctionBind.
+genValueDeclWith :: Bool -> Int -> Gen Decl
+genValueDeclWith allowTHQuotes n =
+  frequency
+    [ (2, genPatternBindWith allowTHQuotes n),
+      (1, genFunctionBindWith allowTHQuotes n)
     ]
+
+-- | Generate a pattern binding: pat = expr or pat | guards = expr
+-- Only generates patterns that round-trip correctly as PatternBind.
+-- Avoids PCon with arguments and PInfix which get parsed as FunctionBind.
+genPatternBindWith :: Bool -> Int -> Gen Decl
+genPatternBindWith allowTHQuotes n = do
+  pat <- genPatternBindSafe (min 3 3)
+  rhs <- genRhsWith allowTHQuotes n
+  pure $
+    DeclValue
+      span0
+      (PatternBind span0 pat rhs)
+
+-- | Generate patterns safe for use in PatternBind.
+-- Avoids PCon with arguments and PInfix which parse as FunctionBind.
+genPatternBindSafe :: Int -> Gen Pattern
+genPatternBindSafe depth
+  | depth <= 0 = genPatternBindLeaf
+  | otherwise =
+      oneof
+        [ genPatternBindLeaf,
+          PTuple span0 Boxed <$> genTupleElemsForBind (depth - 1),
+          PTuple span0 Unboxed <$> genUnboxedTupleElemsForBind (depth - 1),
+          PList span0 <$> genListElemsForBind (depth - 1),
+          PParen span0 <$> genPatternBindSafe (depth - 1),
+          PStrict span0 . canonicalPatternAtom <$> genPatternBindSafe (depth - 1),
+          PIrrefutable span0 . canonicalPatternAtom <$> genPatternBindSafe (depth - 1),
+          genRecordPatternForBind (depth - 1),
+          genPatternTypeSigForBind (depth - 1)
+        ]
+
+-- | Generate leaf patterns for PatternBind (no recursion).
+genPatternBindLeaf :: Gen Pattern
+genPatternBindLeaf =
+  oneof
+    [ PVar span0 . mkUnqualifiedName NameVarId <$> genIdent,
+      pure (PWildcard span0),
+      PLit span0 <$> genLiteralForBind,
+      PNegLit span0 <$> genNumericLiteralForBind
+    ]
+
+-- | Generate a literal for PatternBind.
+genLiteralForBind :: Gen Literal
+genLiteralForBind =
+  oneof
+    [ mkIntLiteral <$> chooseInteger (0, 999),
+      mkCharLiteral <$> genCharValue,
+      mkStringLiteral <$> genStringValue
+    ]
+
+-- | Generate a numeric literal for PatternBind.
+genNumericLiteralForBind :: Gen Literal
+genNumericLiteralForBind =
+  oneof
+    [ mkIntLiteral <$> chooseInteger (0, 999)
+    ]
+
+-- Helper functions for creating literals
+mkIntLiteral :: Integer -> Literal
+mkIntLiteral value = LitInt span0 value (T.pack (show value))
+
+mkCharLiteral :: Char -> Literal
+mkCharLiteral value = LitChar span0 value (T.pack (show value))
+
+mkStringLiteral :: Text -> Literal
+mkStringLiteral value = LitString span0 value (T.pack (show (T.unpack value)))
+
+-- | Generate tuple elements safe for PatternBind.
+genTupleElemsForBind :: Int -> Gen [Pattern]
+genTupleElemsForBind depth = do
+  isUnit <- arbitrary
+  if isUnit
+    then pure []
+    else do
+      n <- chooseInt (2, 4)
+      vectorOf n (genPatternBindSafe depth)
+
+-- | Generate unboxed tuple elements safe for PatternBind.
+genUnboxedTupleElemsForBind :: Int -> Gen [Pattern]
+genUnboxedTupleElemsForBind depth = do
+  n <- chooseInt (0, 4)
+  vectorOf n (genPatternBindSafe depth)
+
+-- | Generate list elements safe for PatternBind.
+genListElemsForBind :: Int -> Gen [Pattern]
+genListElemsForBind depth = do
+  n <- chooseInt (0, 4)
+  vectorOf n (genPatternBindSafe depth)
+
+-- | Generate record pattern safe for PatternBind.
+genRecordPatternForBind :: Int -> Gen Pattern
+genRecordPatternForBind depth = do
+  conName <- qualifyName Nothing . mkUnqualifiedName NameConId <$> genConIdent
+  n <- chooseInt (0, 3)
+  fieldNames <- vectorOf n genFieldName
+  pats <- vectorOf n (genPatternBindSafe depth)
+  let fields = zip (map (qualifyName Nothing . mkUnqualifiedName NameVarId) fieldNames) pats
+  pure (PRecord span0 conName fields False)
+
+-- | Generate type signature pattern safe for PatternBind.
+genPatternTypeSigForBind :: Int -> Gen Pattern
+genPatternTypeSigForBind depth = do
+  inner <- genPatternBindSafe depth
+  ty <- genPatternTypeForBind
+  pure (PTypeSig span0 inner ty)
+
+-- | Generate a simple type for use in pattern type signatures.
+genPatternTypeForBind :: Gen Type
+genPatternTypeForBind =
+  oneof
+    [ TVar span0 . mkUnqualifiedName NameVarId <$> genIdent,
+      (\name -> TCon span0 name Unpromoted) <$> (qualifyName Nothing . mkUnqualifiedName NameConId <$> genConIdent)
+    ]
+
+-- | Generate a function binding: name pat1 pat2 ... = expr
+genFunctionBindWith :: Bool -> Int -> Gen Decl
+genFunctionBindWith allowTHQuotes n = do
+  name <- mkUnqualifiedName NameVarId <$> genIdent
+  patCount <- chooseInt (1, 2)
+  pats <- vectorOf patCount (sized (\s -> genPattern (min s 2)))
+  rhs <- genRhsWith allowTHQuotes n
+  pure $
+    DeclValue
+      span0
+      ( FunctionBind
+          span0
+          name
+          [ Match
+              { matchSpan = span0,
+                matchHeadForm = MatchHeadPrefix,
+                matchPats = pats,
+                matchRhs = rhs
+              }
+          ]
+      )
+
+-- | Generate optional where clause declarations.
+-- Only generates where clauses when size budget allows (n > 0).
+-- Never generates Just [] since that prints as `where {}` which is invalid.
+genOptionalWhereDeclsWith :: Bool -> Int -> Gen (Maybe [Decl])
+genOptionalWhereDeclsWith allowTHQuotes n
+  | n <= 0 = pure Nothing -- No budget left, don't generate where clauses
+  | otherwise =
+      frequency
+        [ (4, pure Nothing),
+          ( 1,
+            do
+              decls <- genValueDeclsWith allowTHQuotes (n `div` 3)
+              if null decls
+                then pure Nothing
+                else pure (Just decls)
+          )
+        ]
 
 genBindingExprWith :: Bool -> Int -> Gen Expr
 genBindingExprWith = genExprSizedWith
