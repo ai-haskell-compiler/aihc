@@ -67,10 +67,7 @@ genExprSizedWith allowTHQuotes n
         ELambdaPats span0 <$> genPatterns half <*> genExprSizedWith allowTHQuotes half,
         ELambdaCase span0 <$> genCaseAltsWith allowTHQuotes (n - 1),
         ELetDecls span0 <$> genValueDeclsWith allowTHQuotes half <*> genExprSizedWith allowTHQuotes half,
-        EDo span0 <$> genDoStmtsWith allowTHQuotes (n - 1) <*> pure False,
-        -- TODO: Generate EDo with mdo=True once the parser supports mdo in
-        -- standalone expression and pattern (view pattern) contexts. Currently
-        -- mdo only works in declaration-level RHS positions.
+        EDo span0 <$> genDoStmtsWith allowTHQuotes (n - 1) <*> arbitrary,
         EListComp span0 <$> genExprSizedWith allowTHQuotes half <*> genCompStmtsWith allowTHQuotes half,
         EListCompParallel span0 <$> genExprSizedWith allowTHQuotes half <*> genParallelCompStmtsWith allowTHQuotes half,
         EList span0 <$> genListElemsWith allowTHQuotes (n - 1),
@@ -675,8 +672,8 @@ shrinkExpr expr =
       body
         : [ELetDecls span0 decls body' | body' <- shrinkExpr body]
           <> [ELetDecls span0 decls' body | decls' <- shrinkDecls decls, not (null decls')]
-    EDo _ stmts _ ->
-      [EDo span0 stmts' False | stmts' <- shrinkDoStmts stmts, not (null stmts')]
+    EDo _ stmts isMdo ->
+      [EDo span0 stmts' isMdo | stmts' <- shrinkDoStmts stmts, not (null stmts')]
     EListComp _ body stmts ->
       body
         : [EListComp span0 body' stmts | body' <- shrinkExpr body]
