@@ -20,8 +20,16 @@ import Aihc.Parser.Lex (isReservedIdentifier)
 import Aihc.Parser.Syntax
 import Data.Text (Text)
 import Data.Text qualified as T
-import Test.Properties.Arb.Expr (span0)
-import Test.Properties.Arb.Identifiers (genIdent, shrinkIdent)
+import Test.Properties.Arb.Identifiers
+  ( genCharValue,
+    genConIdent,
+    genIdent,
+    genQuasiBody,
+    genQuoterName,
+    shrinkConIdent,
+    shrinkIdent,
+    span0,
+  )
 import Test.QuickCheck
 
 instance Arbitrary Type where
@@ -165,35 +173,11 @@ genTypeVarName = do
     then genTypeVarName
     else pure (mkUnqualifiedName NameVarId candidate)
 
-genTypeConName :: Gen Text
-genTypeConName = do
-  first <- elements ['A' .. 'Z']
-  restLen <- chooseInt (0, 5)
-  rest <- vectorOf restLen (elements (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> "_'"))
-  pure (T.pack (first : rest))
-
 genTypeConAstName :: Gen Name
-genTypeConAstName = qualifyName Nothing . mkUnqualifiedName NameConId <$> genTypeConName
+genTypeConAstName = qualifyName Nothing . mkUnqualifiedName NameConId <$> genConIdent
 
 genTypeVarExprName :: Gen Name
 genTypeVarExprName = qualifyName Nothing . mkUnqualifiedName NameVarId <$> genIdent
-
-genQuoterName :: Gen Text
-genQuoterName = do
-  first <- elements (['a' .. 'z'] <> ['_'])
-  restLen <- chooseInt (0, 4)
-  rest <- vectorOf restLen (elements (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> "_'"))
-  let candidate = T.pack (first : rest)
-  -- Exclude names that clash with TH quote brackets when TemplateHaskell is enabled
-  if candidate `elem` ["e", "t", "d", "p"]
-    then genQuoterName
-    else pure candidate
-
-genQuasiBody :: Gen Text
-genQuasiBody = do
-  len <- chooseInt (0, 12)
-  chars <- vectorOf len (elements (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> " +-*/_()"))
-  pure (T.pack chars)
 
 genTypeLiteral :: Gen TypeLiteral
 genTypeLiteral =
@@ -205,18 +189,15 @@ genTypeLiteral =
         txt <- genSymbolText
         pure (TypeLitSymbol txt (T.pack (show (T.unpack txt)))),
       do
-        c <- genTypeLiteralChar
+        c <- genCharValue
         pure (TypeLitChar c (T.pack (show c)))
     ]
 
 genSymbolText :: Gen Text
 genSymbolText = do
   len <- chooseInt (0, 8)
-  chars <- vectorOf len genTypeLiteralChar
+  chars <- vectorOf len genCharValue
   pure (T.pack chars)
-
-genTypeLiteralChar :: Gen Char
-genTypeLiteralChar = elements (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> " _")
 
 canonicalTopLevelType :: Type -> Type
 canonicalTopLevelType ty =
@@ -306,7 +287,7 @@ shrinkType ty =
     TVar _ name ->
       [TVar span0 (mkUnqualifiedName NameVarId shrunk) | shrunk <- shrinkIdent (renderUnqualifiedName name)]
     TCon _ name promoted ->
-      [TCon span0 (name {nameText = shrunk}) promoted | shrunk <- shrinkTypeConName (nameText name)]
+      [TCon span0 (name {nameText = shrunk}) promoted | shrunk <- shrinkConIdent (nameText name)]
     TImplicitParam _ name inner ->
       [inner]
         <> [TImplicitParam span0 name' (canonicalImplicitParamType inner) | name' <- shrinkImplicitParamName name]
@@ -362,21 +343,6 @@ shrinkTypeBinders binders =
 shrinkTyVarBinder :: TyVarBinder -> [TyVarBinder]
 shrinkTyVarBinder tvb =
   [tvb {tyVarBinderName = name'} | name' <- shrinkIdent (tyVarBinderName tvb)]
-
-shrinkTypeConName :: Text -> [Text]
-shrinkTypeConName name =
-  [ candidate
-  | candidate <- map T.pack (shrink (T.unpack name)),
-    isValidTypeConName candidate
-  ]
-
-isValidTypeConName :: Text -> Bool
-isValidTypeConName ident =
-  case T.uncons ident of
-    Just (first, rest) ->
-      (first `elem` ['A' .. 'Z'])
-        && T.all (`elem` (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> "_'")) rest
-    Nothing -> False
 
 shrinkTypeTupleElems :: TupleFlavor -> [Type] -> [Type]
 shrinkTypeTupleElems tupleFlavor elems =

@@ -19,7 +19,7 @@ import Text.Megaparsec.Error qualified as MPE
 exprConfig :: ParserConfig
 exprConfig =
   defaultConfig
-    { parserExtensions = [BlockArguments, UnboxedTuples, UnboxedSums, TemplateHaskell]
+    { parserExtensions = [BlockArguments, UnboxedTuples, UnboxedSums, TemplateHaskell, MagicHash, OverloadedLabels, MultiWayIf, RecursiveDo, TypeApplications, TupleSections]
     }
 
 prop_exprPrettyRoundTrip :: Expr -> Property
