@@ -1,4 +1,5 @@
-extensions: []
+extensions:
+  - RecordWildCards
 modules:
   - |
     module Main where

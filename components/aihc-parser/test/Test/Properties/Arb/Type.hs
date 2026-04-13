@@ -20,8 +20,17 @@ import Aihc.Parser.Lex (isReservedIdentifier)
 import Aihc.Parser.Syntax
 import Data.Text (Text)
 import Data.Text qualified as T
-import Test.Properties.Arb.Expr (span0)
-import Test.Properties.Arb.Identifiers (genIdent, shrinkIdent)
+import Test.Properties.Arb.Identifiers
+  ( genCharValue,
+    genConIdent,
+    genIdent,
+    genOptionalQualifier,
+    genQuasiBody,
+    genQuoterName,
+    shrinkConIdent,
+    shrinkIdent,
+    span0,
+  )
 import Test.QuickCheck
 
 instance Arbitrary Type where
@@ -34,6 +43,7 @@ genType depth
       oneof
         [ TVar span0 <$> genTypeVarName,
           (\name -> TCon span0 name Unpromoted) <$> genTypeConAstName,
+          (\name -> TCon span0 name Promoted) <$> genPromotableTypeConName,
           TTypeLit span0 <$> genTypeLiteral,
           pure (TStar span0),
           pure (TWildcard span0),
@@ -48,6 +58,7 @@ genType depth
       frequency
         [ (3, TVar span0 <$> genTypeVarName),
           (3, (\name -> TCon span0 name Unpromoted) <$> genTypeConAstName),
+          (1, (\name -> TCon span0 name Promoted) <$> genPromotableTypeConName),
           (1, TTypeLit span0 <$> genTypeLiteral),
           (1, pure (TStar span0)),
           (1, pure (TWildcard span0)),
@@ -56,11 +67,18 @@ genType depth
           (4, genTypeApp depth),
           (4, genTypeFun depth),
           (3, TTuple span0 Boxed Unpromoted <$> genTypeTupleElems (depth - 1)),
+          (1, TTuple span0 Boxed Promoted <$> genPromotedTupleElems),
           (2, TTuple span0 Unboxed Unpromoted <$> genTypeTupleElems (depth - 1)),
           (2, TUnboxedSum span0 <$> genUnboxedSumElems (depth - 1)),
           (3, TList span0 Unpromoted <$> genTypeListElems (depth - 1)),
+          (1, TList span0 Promoted <$> genPromotedListElems),
           (3, TParen span0 <$> genType (depth - 1)),
-          (2, TSplice span0 <$> genTypeSpliceBody)
+          (2, TSplice span0 <$> genTypeSpliceBody),
+          (2, genTypeContext depth),
+          -- TODO: Generate TImplicitParam once the type parser supports ?name :: Type
+          -- in standalone type contexts. Currently only supported in declaration-level
+          -- type signatures.
+          (2, TKindSig span0 <$> genKindSigSubject (depth - 1) <*> genKindSigKind (depth - 1))
         ]
 
 genTypeApp :: Int -> Gen Type
@@ -91,6 +109,36 @@ genTypeSpliceBody =
       EParen span0 . EVar span0 <$> genTypeVarExprName
     ]
 
+-- | Generate a type with a context (constraints => type).
+-- Always wrapped in parens because constraints => type is a top-level
+-- form that needs parens in sub-type positions.
+genTypeContext :: Int -> Gen Type
+genTypeContext depth = do
+  n <- chooseInt (1, 3)
+  constraints <- vectorOf n (genConstraintType (depth - 1))
+  inner <- genType (depth - 1)
+  pure $ TParen span0 (canonicalContextType (map canonicalContextItem constraints) inner)
+
+-- | Generate a constraint type (used in contexts).
+-- Typically a type constructor applied to some arguments.
+genConstraintType :: Int -> Gen Type
+genConstraintType depth = do
+  className <- (\n -> TCon span0 n Unpromoted) <$> genTypeConAstName
+  oneof
+    [ -- Simple constraint: ClassName tyvar
+      TApp span0 className . TVar span0 <$> genTypeVarName,
+      -- Applied constraint: ClassName (Type)
+      TApp span0 className . TParen span0 <$> genType (max 0 depth)
+    ]
+
+-- TODO: Generate TImplicitParam once the type parser supports ?name :: Type
+-- in standalone type contexts.
+-- genTypeImplicitParam :: Int -> Gen Type
+-- genTypeImplicitParam depth = do
+--   name <- ("?" <>) <$> genIdent
+--   inner <- canonicalImplicitParamType <$> genType (depth - 1)
+--   pure $ TParen span0 (TImplicitParam span0 name inner)
+
 genTypeTupleElems :: Int -> Gen [Type]
 genTypeTupleElems depth = do
   isUnit <- arbitrary
@@ -109,6 +157,47 @@ genUnboxedSumElems :: Int -> Gen [Type]
 genUnboxedSumElems depth = do
   n <- chooseInt (2, 4)
   vectorOf n (genType depth)
+
+-- | Generate elements for a promoted tuple or list. Uses simple types only
+-- to avoid nesting ambiguities with kind signatures and unboxed tuples
+-- inside promoted containers.
+genPromotedTupleElems :: Gen [Type]
+genPromotedTupleElems = do
+  isUnit <- arbitrary
+  if isUnit
+    then pure []
+    else do
+      n <- chooseInt (2, 3)
+      vectorOf n genPromotedElem
+
+genPromotedListElems :: Gen [Type]
+genPromotedListElems = do
+  n <- chooseInt (1, 3)
+  vectorOf n genPromotedElem
+
+-- | Generate a simple type suitable for use inside promoted tuples/lists.
+-- Avoids character type literals since 'c' conflicts with the promotion tick.
+genPromotedElem :: Gen Type
+genPromotedElem =
+  oneof
+    [ TVar span0 <$> genTypeVarName,
+      (\name -> TCon span0 name Unpromoted) <$> genTypeConAstName,
+      genPromotedSafeTypeLiteral,
+      pure (TStar span0)
+    ]
+
+-- | Generate type literals safe for use in promoted contexts (no char literals).
+genPromotedSafeTypeLiteral :: Gen Type
+genPromotedSafeTypeLiteral =
+  TTypeLit span0
+    <$> oneof
+      [ do
+          n <- chooseInteger (0, 1000)
+          pure (TypeLitInteger n (T.pack (show n))),
+        do
+          txt <- genSymbolText
+          pure (TypeLitSymbol txt (T.pack (show (T.unpack txt))))
+      ]
 
 genTypeAtom :: Int -> Gen Type
 genTypeAtom depth =
@@ -153,7 +242,17 @@ genTypeBinders = do
 genTyVarBinder :: Gen TyVarBinder
 genTyVarBinder = do
   name <- genTypeVarName
-  pure (TyVarBinder span0 (renderUnqualifiedName name) Nothing TyVarBSpecified)
+  oneof
+    [ -- Plain specified binder: a
+      pure (TyVarBinder span0 (renderUnqualifiedName name) Nothing TyVarBSpecified),
+      -- Plain inferred binder: {a}
+      pure (TyVarBinder span0 (renderUnqualifiedName name) Nothing TyVarBInferred),
+      -- Kinded specified binder: (a :: Kind)
+      -- NOTE: Kinded inferred binders ({a :: Kind}) are not supported by the parser.
+      do
+        kind <- genSimpleTypeAtom 0
+        pure (TyVarBinder span0 (renderUnqualifiedName name) (Just kind) TyVarBSpecified)
+    ]
 
 genTypeVarName :: Gen UnqualifiedName
 genTypeVarName = do
@@ -165,35 +264,19 @@ genTypeVarName = do
     then genTypeVarName
     else pure (mkUnqualifiedName NameVarId candidate)
 
-genTypeConName :: Gen Text
-genTypeConName = do
-  first <- elements ['A' .. 'Z']
-  restLen <- chooseInt (0, 5)
-  rest <- vectorOf restLen (elements (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> "_'"))
-  pure (T.pack (first : rest))
-
 genTypeConAstName :: Gen Name
-genTypeConAstName = qualifyName Nothing . mkUnqualifiedName NameConId <$> genTypeConName
+genTypeConAstName = qualifyName <$> genOptionalQualifier <*> (mkUnqualifiedName NameConId <$> genConIdent)
+
+-- | Generate a type constructor name that is safe for promotion with @'@.
+-- Avoids names containing @'@ since @'Name'rest@ would be lexed as
+-- a character literal @'N'@ followed by @amerest@.
+genPromotableTypeConName :: Gen Name
+genPromotableTypeConName = do
+  name <- suchThat genConIdent (\n -> T.length n >= 2 && not (T.any (== '\'') n))
+  pure (qualifyName Nothing (mkUnqualifiedName NameConId name))
 
 genTypeVarExprName :: Gen Name
 genTypeVarExprName = qualifyName Nothing . mkUnqualifiedName NameVarId <$> genIdent
-
-genQuoterName :: Gen Text
-genQuoterName = do
-  first <- elements (['a' .. 'z'] <> ['_'])
-  restLen <- chooseInt (0, 4)
-  rest <- vectorOf restLen (elements (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> "_'"))
-  let candidate = T.pack (first : rest)
-  -- Exclude names that clash with TH quote brackets when TemplateHaskell is enabled
-  if candidate `elem` ["e", "t", "d", "p"]
-    then genQuoterName
-    else pure candidate
-
-genQuasiBody :: Gen Text
-genQuasiBody = do
-  len <- chooseInt (0, 12)
-  chars <- vectorOf len (elements (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> " +-*/_()"))
-  pure (T.pack chars)
 
 genTypeLiteral :: Gen TypeLiteral
 genTypeLiteral =
@@ -205,18 +288,15 @@ genTypeLiteral =
         txt <- genSymbolText
         pure (TypeLitSymbol txt (T.pack (show (T.unpack txt)))),
       do
-        c <- genTypeLiteralChar
+        c <- genCharValue
         pure (TypeLitChar c (T.pack (show c)))
     ]
 
 genSymbolText :: Gen Text
 genSymbolText = do
   len <- chooseInt (0, 8)
-  chars <- vectorOf len genTypeLiteralChar
+  chars <- vectorOf len genCharValue
   pure (T.pack chars)
-
-genTypeLiteralChar :: Gen Char
-genTypeLiteralChar = elements (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> " _")
 
 canonicalTopLevelType :: Type -> Type
 canonicalTopLevelType ty =
@@ -262,6 +342,7 @@ canonicalFunLeft ty =
     TForall {} -> TParen span0 ty
     TFun {} -> TParen span0 ty
     TContext {} -> TParen span0 ty
+    TImplicitParam {} -> TParen span0 ty
     _ -> ty
 
 canonicalAppHead :: Type -> Type
@@ -270,6 +351,7 @@ canonicalAppHead ty =
     TForall {} -> TParen span0 ty
     TFun {} -> TParen span0 ty
     TContext {} -> TParen span0 ty
+    TImplicitParam {} -> TParen span0 ty
     _ -> ty
 
 canonicalAppArg :: Type -> Type
@@ -279,6 +361,7 @@ canonicalAppArg ty =
     TForall {} -> TParen span0 ty
     TFun {} -> TParen span0 ty
     TContext {} -> TParen span0 ty
+    TImplicitParam {} -> TParen span0 ty
     _ -> ty
 
 canonicalKindSigSubject :: Type -> Type
@@ -300,13 +383,30 @@ canonicalImplicitParamType ty =
     TContext {} -> TParen span0 ty
     _ -> ty
 
+-- | Types that require parentheses when appearing inside compound types
+-- (tuples, lists, application arguments, etc.). These are "top-level" type
+-- forms whose syntax is ambiguous without parens.
+needsParensInSubPosition :: Type -> Bool
+needsParensInSubPosition ty =
+  case ty of
+    TImplicitParam {} -> True
+    TContext {} -> True
+    TForall {} -> True
+    TFun {} -> True
+    _ -> False
+
 shrinkType :: Type -> [Type]
 shrinkType ty =
   case ty of
     TVar _ name ->
       [TVar span0 (mkUnqualifiedName NameVarId shrunk) | shrunk <- shrinkIdent (renderUnqualifiedName name)]
     TCon _ name promoted ->
-      [TCon span0 (name {nameText = shrunk}) promoted | shrunk <- shrinkTypeConName (nameText name)]
+      [ TCon span0 (name {nameText = shrunk}) promoted
+      | shrunk <- shrinkConIdent (nameText name),
+        -- For promoted constructors, avoid names that cause ambiguity
+        -- with character literals (e.g., 'A'x lexed as char 'A' + var x)
+        promoted == Unpromoted || (T.length shrunk >= 2 && not (T.any (== '\'') shrunk))
+      ]
     TImplicitParam _ name inner ->
       [inner]
         <> [TImplicitParam span0 name' (canonicalImplicitParamType inner) | name' <- shrinkImplicitParamName name]
@@ -335,7 +435,9 @@ shrinkType ty =
     TList _ _ elems ->
       [TList span0 Unpromoted elems' | elems' <- shrinkList shrinkType elems, not (null elems')]
     TParen _ inner ->
-      [inner] <> [TParen span0 inner' | inner' <- shrinkType inner]
+      -- Don't unwrap parens around types that require them in sub-type positions
+      [inner | not (needsParensInSubPosition inner)]
+        <> [TParen span0 inner' | inner' <- shrinkType inner]
     TKindSig _ ty' kind ->
       [canonicalKindSigSubject ty', canonicalKindSigKind kind]
         <> [TKindSig span0 (canonicalKindSigSubject ty'') (canonicalKindSigKind kind) | ty'' <- shrinkType ty']
@@ -362,21 +464,6 @@ shrinkTypeBinders binders =
 shrinkTyVarBinder :: TyVarBinder -> [TyVarBinder]
 shrinkTyVarBinder tvb =
   [tvb {tyVarBinderName = name'} | name' <- shrinkIdent (tyVarBinderName tvb)]
-
-shrinkTypeConName :: Text -> [Text]
-shrinkTypeConName name =
-  [ candidate
-  | candidate <- map T.pack (shrink (T.unpack name)),
-    isValidTypeConName candidate
-  ]
-
-isValidTypeConName :: Text -> Bool
-isValidTypeConName ident =
-  case T.uncons ident of
-    Just (first, rest) ->
-      (first `elem` ['A' .. 'Z'])
-        && T.all (`elem` (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> "_'")) rest
-    Nothing -> False
 
 shrinkTypeTupleElems :: TupleFlavor -> [Type] -> [Type]
 shrinkTypeTupleElems tupleFlavor elems =

@@ -23,8 +23,24 @@ resolverGoldenTests = do
 
 mkResolverCaseTest :: RG.ResolverCase -> IO TestTree
 mkResolverCaseTest meta = pure $ case RG.caseStatus meta of
-  RG.StatusXFail -> testCaseInfo (RG.caseId meta) (assertResolverCase meta >> pure "Known failure - to be fixed")
+  RG.StatusXFail -> testCaseInfo (RG.caseId meta) (assertXFailResolverCase meta >> pure "Known failure - to be fixed")
+  RG.StatusXPass -> testCaseInfo (RG.caseId meta) (assertResolverCase meta >> pure "Known bug - to be fixed")
   _ -> testCase (RG.caseId meta) (assertResolverCase meta)
+
+assertXFailResolverCase :: RG.ResolverCase -> Assertion
+assertXFailResolverCase meta =
+  case RG.evaluateResolverCase meta of
+    (RG.OutcomeXFail, _details) -> pure ()
+    (RG.OutcomeXPass, details) ->
+      assertFailure
+        ( "Unexpected pass in xfail resolver case "
+            <> RG.caseId meta
+            <> " reason="
+            <> RG.caseReason meta
+            <> " details="
+            <> details
+        )
+    _ -> pure ()
 
 assertResolverCase :: RG.ResolverCase -> Assertion
 assertResolverCase meta =

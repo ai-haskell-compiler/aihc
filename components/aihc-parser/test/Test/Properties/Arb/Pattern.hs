@@ -10,16 +10,28 @@ module Test.Properties.Arb.Pattern
   )
 where
 
-import Aihc.Parser.Lex (isReservedIdentifier)
 import Aihc.Parser.Syntax
 import Data.Text (Text)
 import Data.Text qualified as T
 import {-# SOURCE #-} Test.Properties.Arb.Expr (genExpr, shrinkExpr)
-import Test.Properties.Arb.Identifiers (genIdent, shrinkIdent)
+import Test.Properties.Arb.Identifiers
+  ( genCharValue,
+    genConIdent,
+    genConSym,
+    genFieldName,
+    genIdent,
+    genOptionalQualifier,
+    genQuasiBody,
+    genQuoterName,
+    genStringValue,
+    genTenths,
+    isValidQuoterName,
+    showHex,
+    shrinkFloat,
+    shrinkIdent,
+    span0,
+  )
 import Test.QuickCheck
-
-span0 :: SourceSpan
-span0 = noSourceSpan
 
 instance Arbitrary Pattern where
   arbitrary = sized (genPattern . min 3)
@@ -174,20 +186,6 @@ genNumericLiteral =
       mkFloatLiteral <$> genTenths
     ]
 
-genTenths :: Gen Double
-genTenths = do
-  whole <- chooseInteger (0, 99)
-  frac <- chooseInteger (0, 9)
-  pure (fromInteger whole + fromInteger frac / 10)
-
-genCharValue :: Gen Char
-genCharValue = elements (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> " _")
-
-genStringValue :: Gen Text
-genStringValue = do
-  len <- chooseInt (0, 8)
-  T.pack <$> vectorOf len genCharValue
-
 -- | Generate the body of a TH pattern splice: either a bare variable or a parenthesized expression.
 genPatSpliceBody :: Gen Expr
 genPatSpliceBody =
@@ -196,21 +194,8 @@ genPatSpliceBody =
       EParen span0 . EVar span0 <$> genPatternVarName
     ]
 
-genPatternConName :: Gen Text
-genPatternConName = do
-  first <- elements ['A' .. 'Z']
-  restLen <- chooseInt (0, 5)
-  rest <- vectorOf restLen (elements (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> "_'"))
-  pure (T.pack (first : rest))
-
-genConOperator :: Gen Text
-genConOperator = do
-  first <- elements ":"
-  restLen <- chooseInt (0, 3)
-  rest <- vectorOf restLen (elements ":!#$%&*+./<=>?\\^|-~")
-  let op = T.pack (first : rest)
-  -- :: is not a valid constructor operator in patterns (it's a type signature)
-  if op == "::" then genConOperator else pure op
+genConOperatorName :: Gen Name
+genConOperatorName = qualifyName <$> genOptionalQualifier <*> (mkUnqualifiedName NameConSym <$> genConSym)
 
 genPatternVarName :: Gen Name
 genPatternVarName = qualifyName Nothing . mkUnqualifiedName NameVarId <$> genIdent
@@ -218,71 +203,8 @@ genPatternVarName = qualifyName Nothing . mkUnqualifiedName NameVarId <$> genIde
 genPatternUnqualVarName :: Gen UnqualifiedName
 genPatternUnqualVarName = mkUnqualifiedName NameVarId <$> genIdent
 
--- | Generate an optional module qualifier (e.g., Nothing or Just "Data.List").
--- Biased towards Nothing to keep most names unqualified.
-genOptionalQualifier :: Gen (Maybe Text)
-genOptionalQualifier =
-  oneof
-    [ pure Nothing,
-      Just <$> genModuleQualifier
-    ]
-
--- | Generate a module qualifier like "Data.List" or "Prelude".
-genModuleQualifier :: Gen Text
-genModuleQualifier = do
-  segCount <- chooseInt (1, 3)
-  segs <- vectorOf segCount genModuleSegment
-  pure (T.intercalate "." segs)
-
--- | Generate a single module name segment (starts with uppercase).
-genModuleSegment :: Gen Text
-genModuleSegment = do
-  first <- elements ['A' .. 'Z']
-  restLen <- chooseInt (0, 5)
-  rest <- vectorOf restLen (elements (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9']))
-  pure (T.pack (first : rest))
-
 genPatternConAstName :: Gen Name
-genPatternConAstName = qualifyName <$> genOptionalQualifier <*> (mkUnqualifiedName NameConId <$> genPatternConName)
-
-genConOperatorName :: Gen Name
-genConOperatorName = qualifyName <$> genOptionalQualifier <*> (mkUnqualifiedName NameConSym <$> genConOperator)
-
-genFieldName :: Gen Text
-genFieldName = do
-  first <- elements (['a' .. 'z'] <> ['_'])
-  restLen <- chooseInt (0, 5)
-  rest <- vectorOf restLen (elements (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> "_'"))
-  let candidate = T.pack (first : rest)
-  if isReservedIdentifier candidate
-    then genFieldName
-    else pure candidate
-
-genQuoterName :: Gen Text
-genQuoterName = do
-  first <- elements (['a' .. 'z'] <> ['_'])
-  restLen <- chooseInt (0, 4)
-  rest <- vectorOf restLen (elements (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> "_'"))
-  let candidate = T.pack (first : rest)
-  if isValidQuoterName candidate
-    then pure candidate
-    else genQuoterName
-
-isValidQuoterName :: Text -> Bool
-isValidQuoterName name =
-  case T.uncons name of
-    Just (first, rest) ->
-      (first `elem` (['a' .. 'z'] <> ['_']))
-        && T.all (`elem` (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> "_'.")) rest
-        -- Exclude names that clash with TH quote brackets when TemplateHaskell is enabled
-        && name `notElem` ["e", "t", "d", "p"]
-    Nothing -> False
-
-genQuasiBody :: Gen Text
-genQuasiBody = do
-  len <- chooseInt (0, 10)
-  chars <- vectorOf len (elements (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> " +-*/_()"))
-  pure (T.pack chars)
+genPatternConAstName = qualifyName <$> genOptionalQualifier <*> (mkUnqualifiedName NameConId <$> genConIdent)
 
 canonicalPatternAtom :: Pattern -> Pattern
 canonicalPatternAtom pat =
@@ -338,13 +260,6 @@ mkCharLiteral value = LitChar span0 value (T.pack (show value))
 
 mkStringLiteral :: Text -> Literal
 mkStringLiteral value = LitString span0 value (T.pack (show (T.unpack value)))
-
-showHex :: Integer -> String
-showHex value
-  | value < 16 = [hexDigit value]
-  | otherwise = showHex (value `div` 16) <> [hexDigit (value `mod` 16)]
-  where
-    hexDigit n = "0123456789abcdef" !! fromInteger n
 
 shrinkPattern :: Pattern -> [Pattern]
 shrinkPattern pat =
@@ -437,10 +352,6 @@ shrinkNumericLiteral lit =
     LitFloat {} -> shrinkLiteral lit
     LitFloatHash {} -> shrinkLiteral lit
     _ -> []
-
-shrinkFloat :: Double -> [Double]
-shrinkFloat value =
-  [fromInteger shrunk / 10 | shrunk <- shrinkIntegral (round (value * 10 :: Double) :: Integer), shrunk >= 0]
 
 shrinkQuoterName :: Text -> [Text]
 shrinkQuoterName name =
