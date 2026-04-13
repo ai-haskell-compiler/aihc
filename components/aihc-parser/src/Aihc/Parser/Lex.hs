@@ -307,7 +307,8 @@ lexIdentifier env st =
       case chars of
         '.' :< dotRest@(c' :< more)
           | isIdentStart c',
-            not (T.isSuffixOf "#" acc) ->
+            not (T.isSuffixOf "#" acc),
+            isConIdStart (T.head acc) ->
               let (seg, rest) = consumeIdentTail hasMH more
                   segWithHead = T.take (1 + T.length seg) dotRest
                in gatherQualified hasMH (acc <> "." <> segWithHead) rest
