@@ -28,3 +28,6 @@ notes/
 result
 result-*
 .direnv/
+
+# Qwen Code
+.qwen/
