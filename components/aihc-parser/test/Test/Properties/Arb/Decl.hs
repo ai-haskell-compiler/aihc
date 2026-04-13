@@ -520,49 +520,26 @@ genDeclTypeFamilyDecl = do
 -- (e.g. @type family a ** b@) and backtick-wrapped identifiers
 -- (e.g. @type family a \`And\` b@).
 genDeclTypeFamilyDeclInfix :: Gen Decl
-genDeclTypeFamilyDeclInfix =
-  oneof
-    [ -- Symbolic operator: type family a ** b
-      do
-        name <- genConSym
-        lhsName <- genIdent
-        rhsName <- genIdent
-        let lhs = TyVarBinder span0 lhsName Nothing TyVarBSpecified
-            rhs = TyVarBinder span0 rhsName Nothing TyVarBSpecified
-            lhsType = TVar span0 (mkUnqualifiedName NameVarId lhsName)
-            rhsType = TVar span0 (mkUnqualifiedName NameVarId rhsName)
-            headType = TApp span0 (TApp span0 (TCon span0 (qualifyName Nothing (mkUnqualifiedName NameConSym name)) Unpromoted) lhsType) rhsType
-        pure $
-          DeclTypeFamilyDecl span0 $
-            TypeFamilyDecl
-              { typeFamilyDeclSpan = span0,
-                typeFamilyDeclHeadForm = TypeHeadInfix,
-                typeFamilyDeclHead = headType,
-                typeFamilyDeclParams = [lhs, rhs],
-                typeFamilyDeclKind = Nothing,
-                typeFamilyDeclEquations = Nothing
-              },
-      -- Backtick-wrapped identifier: type family a `And` b
-      do
-        name <- genConIdent
-        lhsName <- genIdent
-        rhsName <- genIdent
-        let lhs = TyVarBinder span0 lhsName Nothing TyVarBSpecified
-            rhs = TyVarBinder span0 rhsName Nothing TyVarBSpecified
-            lhsType = TVar span0 (mkUnqualifiedName NameVarId lhsName)
-            rhsType = TVar span0 (mkUnqualifiedName NameVarId rhsName)
-            headType = TApp span0 (TApp span0 (TCon span0 (qualifyName Nothing (mkUnqualifiedName NameConId name)) Unpromoted) lhsType) rhsType
-        pure $
-          DeclTypeFamilyDecl span0 $
-            TypeFamilyDecl
-              { typeFamilyDeclSpan = span0,
-                typeFamilyDeclHeadForm = TypeHeadInfix,
-                typeFamilyDeclHead = headType,
-                typeFamilyDeclParams = [lhs, rhs],
-                typeFamilyDeclKind = Nothing,
-                typeFamilyDeclEquations = Nothing
-              }
-    ]
+genDeclTypeFamilyDeclInfix = do
+  (nameType, nameText) <- elements [(NameConSym, genConSym), (NameConId, genConIdent)]
+  name <- nameText
+  lhsName <- genIdent
+  rhsName <- genIdent
+  let lhs = TyVarBinder span0 lhsName Nothing TyVarBSpecified
+      rhs = TyVarBinder span0 rhsName Nothing TyVarBSpecified
+      lhsType = TVar span0 (mkUnqualifiedName NameVarId lhsName)
+      rhsType = TVar span0 (mkUnqualifiedName NameVarId rhsName)
+      headType = TApp span0 (TApp span0 (TCon span0 (qualifyName Nothing (mkUnqualifiedName nameType name)) Unpromoted) lhsType) rhsType
+  pure $
+    DeclTypeFamilyDecl span0 $
+      TypeFamilyDecl
+        { typeFamilyDeclSpan = span0,
+          typeFamilyDeclHeadForm = TypeHeadInfix,
+          typeFamilyDeclHead = headType,
+          typeFamilyDeclParams = [lhs, rhs],
+          typeFamilyDeclKind = Nothing,
+          typeFamilyDeclEquations = Nothing
+        }
 
 genDeclDataFamilyDecl :: Gen Decl
 genDeclDataFamilyDecl = do
