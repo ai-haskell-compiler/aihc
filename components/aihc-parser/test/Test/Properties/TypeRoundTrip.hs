@@ -7,6 +7,7 @@ where
 
 import Aihc.Parser
 import Aihc.Parser.Syntax
+import Data.Maybe (isJust)
 import Data.Text qualified as T
 import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.Text (renderStrict)
@@ -26,16 +27,18 @@ prop_typePrettyRoundTrip :: Type -> Property
 prop_typePrettyRoundTrip ty =
   let source = renderStrict (layoutPretty defaultLayoutOptions (pretty ty))
       expected = normalizeType (canonicalTopLevelType ty)
+      hasKindedInferredBinder = containsKindedInferredBinder ty
    in checkCoverage $
         withMaxShrinks 100 $
-          assertCtorCoverage ["TAnn", "TImplicitParam"] ty $
-            counterexample (T.unpack source) $
-              case parseType typeConfig source of
-                ParseErr err ->
-                  counterexample (MPE.errorBundlePretty err) False
-                ParseOk parsed ->
-                  let actual = normalizeType parsed
-                   in counterexample ("expected: " <> show expected <> "\nactual: " <> show actual) (expected == actual)
+          cover 1 hasKindedInferredBinder "kinded inferred forall binder" $
+            assertCtorCoverage ["TAnn", "TImplicitParam"] ty $
+              counterexample (T.unpack source) $
+                case parseType typeConfig source of
+                  ParseErr err ->
+                    counterexample (MPE.errorBundlePretty err) False
+                  ParseOk parsed ->
+                    let actual = normalizeType parsed
+                     in counterexample ("expected: " <> show expected <> "\nactual: " <> show actual) (expected == actual)
 
 normalizeType :: Type -> Type
 normalizeType ty =
@@ -65,3 +68,24 @@ normalizeTyVarBinder tvb =
     { tyVarBinderSpan = span0,
       tyVarBinderKind = fmap normalizeType (tyVarBinderKind tvb)
     }
+
+containsKindedInferredBinder :: Type -> Bool
+containsKindedInferredBinder ty =
+  case ty of
+    TForall _ binders inner -> any isKindedInferredBinder binders || containsKindedInferredBinder inner
+    TImplicitParam _ _ inner -> containsKindedInferredBinder inner
+    TApp _ f x -> containsKindedInferredBinder f || containsKindedInferredBinder x
+    TFun _ a b -> containsKindedInferredBinder a || containsKindedInferredBinder b
+    TTuple _ _ _ elems -> any containsKindedInferredBinder elems
+    TList _ _ elems -> any containsKindedInferredBinder elems
+    TParen _ inner -> containsKindedInferredBinder inner
+    TKindSig _ ty' kind -> containsKindedInferredBinder ty' || containsKindedInferredBinder kind
+    TUnboxedSum _ elems -> any containsKindedInferredBinder elems
+    TContext _ constraints inner -> any containsKindedInferredBinder constraints || containsKindedInferredBinder inner
+    TSplice _ _ -> False
+    TAnn _ sub -> containsKindedInferredBinder sub
+    _ -> False
+
+isKindedInferredBinder :: TyVarBinder -> Bool
+isKindedInferredBinder binder =
+  tyVarBinderSpecificity binder == TyVarBInferred && isJust (tyVarBinderKind binder)

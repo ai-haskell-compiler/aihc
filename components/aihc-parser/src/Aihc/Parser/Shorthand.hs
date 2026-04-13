@@ -582,7 +582,19 @@ docTyVarBinder tvb =
   where
     fields =
       [field "name" (docText (tyVarBinderName tvb))]
+        <> optionalField "specificity" docTyVarBSpecificity (specificityField tvb)
         <> optionalField "kind" docType (tyVarBinderKind tvb)
+
+    specificityField binder =
+      case tyVarBinderSpecificity binder of
+        TyVarBSpecified -> Nothing
+        specificity -> Just specificity
+
+docTyVarBSpecificity :: TyVarBSpecificity -> Doc ann
+docTyVarBSpecificity specificity =
+  case specificity of
+    TyVarBInferred -> "TyVarBInferred"
+    TyVarBSpecified -> "TyVarBSpecified"
 
 -- Patterns
 

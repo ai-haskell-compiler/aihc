@@ -247,8 +247,11 @@ genTyVarBinder = do
       pure (TyVarBinder span0 (renderUnqualifiedName name) Nothing TyVarBSpecified),
       -- Plain inferred binder: {a}
       pure (TyVarBinder span0 (renderUnqualifiedName name) Nothing TyVarBInferred),
+      -- Kinded inferred binder: {a :: Kind}
+      do
+        kind <- genSimpleTypeAtom 0
+        pure (TyVarBinder span0 (renderUnqualifiedName name) (Just kind) TyVarBInferred),
       -- Kinded specified binder: (a :: Kind)
-      -- NOTE: Kinded inferred binders ({a :: Kind}) are not supported by the parser.
       do
         kind <- genSimpleTypeAtom 0
         pure (TyVarBinder span0 (renderUnqualifiedName name) (Just kind) TyVarBSpecified)

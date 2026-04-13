@@ -1,0 +1,13 @@
+extensions:
+  - ExplicitForAll
+  - KindSignatures
+input: |
+  module ForallKindedInferredBinder where
+
+  import Data.Kind (Type)
+
+  f :: forall {a :: Type}. a -> a
+  f x = x
+status: pass
+ast: |
+  Module {name = "ForallKindedInferredBinder", imports = [ImportDecl {module = "Data.Kind", spec = ImportSpec {items = [ImportItemAbs{name = "Type"}]}}], decls = [DeclTypeSig {names = ["f"], type = TForall [TyVarBinder {name = "a", specificity = TyVarBInferred, kind = TCon "Type"}] (TFun (TVar "a") (TVar "a"))}, DeclValue (FunctionBind "f" [Match {headForm = Prefix, pats = [PVar "x"], rhs = UnguardedRhs (EVar "x")}])]} 

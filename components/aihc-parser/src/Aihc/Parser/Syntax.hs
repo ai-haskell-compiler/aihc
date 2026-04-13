@@ -1166,7 +1166,10 @@ data TyVarBSpecificity
 data TyVarBinder = TyVarBinder
   { tyVarBinderSpan :: SourceSpan,
     tyVarBinderName :: Text,
+    -- | Optional kind annotation. Examples: @(a :: Type)@ and @{a :: Type}@.
     tyVarBinderKind :: Maybe Type,
+    -- | Whether the binder was written as specified (@a@, @(a :: k)@)
+    -- or inferred (@{a}@, @{a :: k}@).
     tyVarBinderSpecificity :: TyVarBSpecificity
   }
   deriving (Data, Eq, Show, Generic, NFData)
