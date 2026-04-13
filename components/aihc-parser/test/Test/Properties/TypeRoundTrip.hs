@@ -19,7 +19,7 @@ import Text.Megaparsec.Error qualified as MPE
 typeConfig :: ParserConfig
 typeConfig =
   defaultConfig
-    { parserExtensions = [BlockArguments, UnboxedTuples, UnboxedSums, TemplateHaskell]
+    { parserExtensions = [BlockArguments, UnboxedTuples, UnboxedSums, TemplateHaskell, DataKinds, ImplicitParams, KindSignatures, ExplicitForAll, RankNTypes]
     }
 
 prop_typePrettyRoundTrip :: Type -> Property
@@ -28,7 +28,7 @@ prop_typePrettyRoundTrip ty =
       expected = normalizeType (canonicalTopLevelType ty)
    in checkCoverage $
         withMaxShrinks 100 $
-          assertCtorCoverage ["TAnn", "TContext", "TImplicitParam"] ty $
+          assertCtorCoverage ["TAnn", "TImplicitParam"] ty $
             counterexample (T.unpack source) $
               case parseType typeConfig source of
                 ParseErr err ->
