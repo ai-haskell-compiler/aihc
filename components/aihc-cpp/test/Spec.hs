@@ -9,6 +9,7 @@ import qualified Data.Text.Encoding as TE
 import Test.Progress (CaseMeta (..), Outcome (..), evaluateCase, loadManifest)
 import Test.Tasty (TestTree, defaultMain, testGroup)
 import Test.Tasty.HUnit (Assertion, assertFailure, testCase)
+import qualified Test.Tasty.QuickCheck as QC
 
 main :: IO ()
 main = do
@@ -17,8 +18,16 @@ main = do
   defaultMain
     ( testGroup
         "cpp-oracle"
-        (checks <> [linePragmaTest, dateTimeTest, functionMacroArgumentTest, functionMacroUnclosedCallTest, definedConditionSpacingTest])
+        ( checks
+            <> [linePragmaTest, dateTimeTest, functionMacroArgumentTest, functionMacroUnclosedCallTest, definedConditionSpacingTest]
+            <> [QC.testProperty "dummy quickcheck property" prop_dummy]
+        )
     )
+
+-- | Dummy QuickCheck property that always passes.
+-- Added so that --quickcheck-tests flag is accepted by the test suite.
+prop_dummy :: Bool
+prop_dummy = True
 
 dateTimeTest :: TestTree
 dateTimeTest =

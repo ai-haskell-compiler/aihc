@@ -83,6 +83,7 @@ test-suite spec
     , filepath
     , tasty
     , tasty-hunit
+    , tasty-quickcheck
     , aeson
     , bytestring
     , yaml
