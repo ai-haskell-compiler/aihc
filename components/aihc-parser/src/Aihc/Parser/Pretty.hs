@@ -681,18 +681,20 @@ dataConQualifierPrefix forallVars constraints = forallPrefix forallVars <> conte
 -- | Pretty print a BangType. The type already has TParen nodes where needed.
 prettyBangType :: BangType -> Doc ann
 prettyBangType bt =
-  hsep (prettySourceUnpackedness (bangSourceUnpackedness bt) <> [strictDoc])
+  hsep (prettySourceUnpackedness (bangSourceUnpackedness bt) <> [strictOrLazyDoc])
   where
-    strictDoc
+    strictOrLazyDoc
       | bangStrict bt = "!" <> prettyType (bangType bt)
+      | bangLazy bt = "~" <> prettyType (bangType bt)
       | otherwise = prettyType (bangType bt)
 
 prettyRecordFieldBangType :: BangType -> Doc ann
 prettyRecordFieldBangType bt =
-  hsep (prettySourceUnpackedness (bangSourceUnpackedness bt) <> [strictDoc])
+  hsep (prettySourceUnpackedness (bangSourceUnpackedness bt) <> [strictOrLazyDoc])
   where
-    strictDoc
+    strictOrLazyDoc
       | bangStrict bt = "!" <> prettyType (bangType bt)
+      | bangLazy bt = "~" <> prettyType (bangType bt)
       | otherwise = prettyType (bangType bt)
 
 prettySourceUnpackedness :: SourceUnpackedness -> [Doc ann]

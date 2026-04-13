@@ -23,6 +23,10 @@ import Test.Properties.Arb.Pattern (canonicalPatternAtom, genPattern)
 import Test.Properties.Arb.Type (canonicalFunLeft, canonicalTopLevelType, genType)
 import Test.QuickCheck
 
+-- | Annotation choices for BangType
+data FieldAnnotation = NoAnnotation | StrictAnnotation | LazyAnnotation
+  deriving (Eq, Ord, Enum, Bounded)
+
 instance Arbitrary Decl where
   arbitrary = genDecl
   shrink = shrinkDecl
@@ -210,6 +214,7 @@ genTypeDataCons = do
       pure $ PrefixCon span0 [] [] conName fields
 
 -- | Generate a BangType that is never strict (for type data constructors).
+-- Type data constructors don't support strictness or lazy annotations.
 genNonStrictBangType :: Gen BangType
 genNonStrictBangType = do
   ty <- genSimpleType
@@ -218,6 +223,7 @@ genNonStrictBangType = do
       { bangSpan = span0,
         bangSourceUnpackedness = NoSourceUnpackedness,
         bangStrict = False,
+        bangLazy = False,
         bangType = ty
       }
 
@@ -316,22 +322,58 @@ genGadtPrefixBody = do
 -- | Generate a BangType for GADT prefix body arg position.
 -- Uses the full type generator with canonicalFunLeft applied, since the parser
 -- uses typeInfixParser (which cannot parse bare forall/->/(=>) without parens).
+-- Does not generate lazy/strict annotations on kind-like types (TStar, etc.) since
+-- GHC rejects those (e.g., ~* or !* are treated as operators).
 genGadtBangType :: Gen BangType
 genGadtBangType = do
   ty <- canonicalFunLeft . canonicalTopLevelType <$> sized (genType . min 6)
-  pure $ BangType span0 NoSourceUnpackedness False ty
+  -- Only generate lazy/strict annotations on non-kind types
+  let canAnnotate = case ty of
+        TStar {} -> False
+        TKindSig {} -> False
+        _ -> True
+  annotation <- if canAnnotate then elements [NoAnnotation, StrictAnnotation, LazyAnnotation] else pure NoAnnotation
+  case annotation of
+    NoAnnotation -> pure $ BangType span0 NoSourceUnpackedness False False ty
+    StrictAnnotation -> pure $ BangType span0 NoSourceUnpackedness True False ty
+    LazyAnnotation -> pure $ BangType span0 NoSourceUnpackedness False True ty
 
 -- | Generate a BangType without function types at the top level.
+-- Does not generate lazy/strict annotations on kind-like types (TStar, etc.) since
+-- GHC rejects those (e.g., ~* or !* are treated as operators).
 genSimpleBangTypeWithoutFun :: Gen BangType
 genSimpleBangTypeWithoutFun = do
   ty <- genSimpleTypeWithoutFun
-  pure $
-    BangType
-      { bangSpan = span0,
-        bangSourceUnpackedness = NoSourceUnpackedness,
-        bangStrict = False,
-        bangType = ty
-      }
+  -- genSimpleTypeWithoutFun only generates TVar and TCon, which are safe for annotations
+  annotation <- elements [NoAnnotation, StrictAnnotation, LazyAnnotation]
+  case annotation of
+    NoAnnotation ->
+      pure $
+        BangType
+          { bangSpan = span0,
+            bangSourceUnpackedness = NoSourceUnpackedness,
+            bangStrict = False,
+            bangLazy = False,
+            bangType = ty
+          }
+    StrictAnnotation ->
+      pure $
+        BangType
+          { bangSpan = span0,
+            bangSourceUnpackedness = NoSourceUnpackedness,
+            bangStrict = True,
+            bangLazy = False,
+            bangType = ty
+          }
+    LazyAnnotation ->
+      pure $
+        BangType
+          { bangSpan = span0,
+            bangSourceUnpackedness = NoSourceUnpackedness,
+            bangStrict = False,
+            bangLazy = True,
+            bangType = ty
+          }
 
 -- | Generate a simple type without function types at the top level.
 genSimpleTypeWithoutFun :: Gen Type
@@ -354,19 +396,41 @@ genGadtFieldDecl :: Gen FieldDecl
 genGadtFieldDecl = do
   fieldName <- mkUnqualifiedName NameVarId <$> genIdent
   ty <- canonicalTopLevelType <$> sized (genType . min 6)
-  pure $ FieldDecl span0 [fieldName] (BangType span0 NoSourceUnpackedness False ty)
+  pure $ FieldDecl span0 [fieldName] (BangType span0 NoSourceUnpackedness False False ty)
 
 genSimpleBangType :: Gen BangType
 genSimpleBangType = do
   ty <- genSimpleType
-  strict <- elements [False, False, False, True]
-  pure $
-    BangType
-      { bangSpan = span0,
-        bangSourceUnpackedness = NoSourceUnpackedness,
-        bangStrict = strict,
-        bangType = ty
-      }
+  -- genSimpleType only generates TVar and TCon, which are safe for lazy annotations
+  annotation <- elements [NoAnnotation, StrictAnnotation, LazyAnnotation]
+  case annotation of
+    NoAnnotation ->
+      pure $
+        BangType
+          { bangSpan = span0,
+            bangSourceUnpackedness = NoSourceUnpackedness,
+            bangStrict = False,
+            bangLazy = False,
+            bangType = ty
+          }
+    StrictAnnotation ->
+      pure $
+        BangType
+          { bangSpan = span0,
+            bangSourceUnpackedness = NoSourceUnpackedness,
+            bangStrict = True,
+            bangLazy = False,
+            bangType = ty
+          }
+    LazyAnnotation ->
+      pure $
+        BangType
+          { bangSpan = span0,
+            bangSourceUnpackedness = NoSourceUnpackedness,
+            bangStrict = False,
+            bangLazy = True,
+            bangType = ty
+          }
 
 genDeclNewtype :: Gen Decl
 genDeclNewtype = do
@@ -398,14 +462,14 @@ genNewtypePrefixCon :: Gen DataConDecl
 genNewtypePrefixCon = do
   conName <- mkUnqualifiedName NameConId <$> genConIdent
   ty <- genSimpleType
-  pure $ PrefixCon span0 [] [] conName [BangType span0 NoSourceUnpackedness False ty]
+  pure $ PrefixCon span0 [] [] conName [BangType span0 NoSourceUnpackedness False False ty]
 
 genNewtypeRecordCon :: Gen DataConDecl
 genNewtypeRecordCon = do
   conName <- mkUnqualifiedName NameConId <$> genConIdent
   fieldName <- genVarBinderName
   ty <- genSimpleType
-  pure $ RecordCon span0 [] [] conName [FieldDecl span0 [fieldName] (BangType span0 NoSourceUnpackedness False ty)]
+  pure $ RecordCon span0 [] [] conName [FieldDecl span0 [fieldName] (BangType span0 NoSourceUnpackedness False False ty)]
 
 genDeclClass :: Gen Decl
 genDeclClass = do

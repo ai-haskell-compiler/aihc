@@ -358,6 +358,7 @@ docBangType bt =
     fields =
       sourceUnpackednessField (bangSourceUnpackedness bt)
         <> boolField "strict" (bangStrict bt)
+        <> boolField "lazy" (bangLazy bt)
         <> [field "type" (docType (bangType bt))]
 
 sourceUnpackednessField :: SourceUnpackedness -> [Doc ann]

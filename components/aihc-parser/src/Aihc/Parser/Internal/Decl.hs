@@ -910,7 +910,7 @@ typeDataConDeclParser = withSpan $ do
   -- Parse arguments (no strictness, no records)
   -- Use typeAtomParser to parse individual type atoms as separate fields,
   -- rather than typeAppParser which would treat them as type application.
-  args <- MP.many $ BangType noSourceSpan NoSourceUnpackedness False <$> typeAtomParser
+  args <- MP.many $ BangType noSourceSpan NoSourceUnpackedness False False <$> typeAtomParser
   pure $ \span' -> PrefixCon span' [] context conName args
 
 -- | Parse GADT-style constructors for type data (after `where`)
@@ -954,7 +954,7 @@ gadtTypeDataBodyParser = do
   case allTypes of
     [resultTy] -> pure (GadtPrefixBody [] resultTy)
     _ ->
-      let argTypes = map (BangType noSourceSpan NoSourceUnpackedness False) (init allTypes)
+      let argTypes = map (BangType noSourceSpan NoSourceUnpackedness False False) (init allTypes)
           resultTy = last allTypes
        in pure (GadtPrefixBody argTypes resultTy)
 
@@ -1088,12 +1088,14 @@ gadtBangTypeParser :: TokParser BangType
 gadtBangTypeParser = withSpan $ do
   unpackedness <- MP.option NoSourceUnpackedness sourceUnpackednessPragmaParser
   strict <- MP.option False (expectedTok TkPrefixBang >> pure True)
+  lazy <- MP.option False (expectedTok TkPrefixTilde >> pure True)
   ty <- typeInfixParser
   pure $ \span' ->
     BangType
       { bangSpan = span',
         bangSourceUnpackedness = unpackedness,
         bangStrict = strict,
+        bangLazy = lazy,
         bangType = ty
       }
 
@@ -1317,12 +1319,14 @@ infixConstructorArgParser = MP.try $ do
   withSpan $ do
     unpackedness <- MP.option NoSourceUnpackedness sourceUnpackednessPragmaParser
     strict <- MP.option False (expectedTok TkPrefixBang >> pure True)
+    lazy <- MP.option False (expectedTok TkPrefixTilde >> pure True)
     ty <- typeAppParser
     pure $ \span' ->
       BangType
         { bangSpan = span',
           bangSourceUnpackedness = unpackedness,
           bangStrict = strict,
+          bangLazy = lazy,
           bangType = ty
         }
 
@@ -1337,12 +1341,14 @@ bangTypeParser :: TokParser BangType
 bangTypeParser = withSpan $ do
   unpackedness <- MP.option NoSourceUnpackedness sourceUnpackednessPragmaParser
   strict <- MP.option False (expectedTok TkPrefixBang >> pure True)
+  lazy <- MP.option False (expectedTok TkPrefixTilde >> pure True)
   ty <- typeAtomParser
   pure $ \span' ->
     BangType
       { bangSpan = span',
         bangSourceUnpackedness = unpackedness,
         bangStrict = strict,
+        bangLazy = lazy,
         bangType = ty
       }
 
@@ -1350,12 +1356,14 @@ recordFieldBangTypeParser :: TokParser BangType
 recordFieldBangTypeParser = withSpan $ do
   unpackedness <- MP.option NoSourceUnpackedness sourceUnpackednessPragmaParser
   strict <- MP.option False (expectedTok TkPrefixBang >> pure True)
+  lazy <- MP.option False (expectedTok TkPrefixTilde >> pure True)
   ty <- constructorFieldTypeParser
   pure $ \span' ->
     BangType
       { bangSpan = span',
         bangSourceUnpackedness = unpackedness,
         bangStrict = strict,
+        bangLazy = lazy,
         bangType = ty
       }
 
