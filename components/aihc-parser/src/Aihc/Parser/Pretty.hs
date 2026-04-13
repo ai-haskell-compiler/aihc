@@ -1291,6 +1291,7 @@ endsWithTypeSig = \case
   ETypeSig {} -> True
   ELetDecls _ _ body -> endsWithTypeSig body
   ELambdaPats _ _ body -> endsWithTypeSig body
+  EInfix _ _ _ rhs -> endsWithTypeSig rhs
   _ -> False
 
 -- | Print an expression used as the function in an application.
@@ -1327,7 +1328,9 @@ prettyIfBranch expr =
   case expr of
     -- Branch delimiters handle most greedy expressions, but postfix forms like
     -- type signatures need parens to stay inside the branch.
-    ETypeSig {} -> parens (prettyExprPrec 0 expr)
+    -- Use endsWithTypeSig to also catch indirect cases like infix expressions
+    -- whose RHS is a type signature (e.g. @a + b :: T@).
+    _ | endsWithTypeSig expr -> parens (prettyExprPrec 0 expr)
     _ -> prettyExprPrec 0 expr
 
 -- | Flatten a left-nested application chain into (root, args).
