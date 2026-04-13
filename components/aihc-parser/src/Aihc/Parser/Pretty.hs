@@ -1160,10 +1160,7 @@ data ExprCtx
 
 prettyExprIn :: ExprCtx -> Expr -> Doc ann
 prettyExprIn ctx expr =
-  let prec = exprCtxPrec ctx expr
-   in if needsExprParens ctx expr
-        then parens (prettyExprAfterOpeningDelimiter prec expr)
-        else prettyExprPrec prec expr
+  parenthesize (needsExprParens ctx expr) (prettyExprPrec (exprCtxPrec ctx expr) expr)
 
 exprCtxPrec :: ExprCtx -> Expr -> Int
 exprCtxPrec ctx expr =
@@ -1250,46 +1247,6 @@ isGreedyExpr = \case
 prettyExprGuarded :: Expr -> Doc ann
 prettyExprGuarded = prettyExprIn CtxGuarded
 
--- | Pretty print an expression inside a delimited context that already emitted
--- the opening delimiter. Overloaded labels need a leading space here so `(#a`
--- is not lexed as an unboxed tuple opener.
-prettyExprAfterOpeningDelimiter :: Int -> Expr -> Doc ann
-prettyExprAfterOpeningDelimiter prec expr =
-  if startsWithOverloadedLabel expr
-    then " " <> prettyExprPrec prec expr
-    else prettyExprPrec prec expr
-
-prettyExprInAfterOpeningDelimiter :: ExprCtx -> Expr -> Doc ann
-prettyExprInAfterOpeningDelimiter ctx expr =
-  if startsWithOverloadedLabel expr
-    then " " <> prettyExprIn ctx expr
-    else prettyExprIn ctx expr
-
-startsWithOverloadedLabel :: Expr -> Bool
-startsWithOverloadedLabel = \case
-  EOverloadedLabel {} -> True
-  EAnn _ sub -> startsWithOverloadedLabel sub
-  EApp _ fn _ -> startsWithOverloadedLabel fn
-  EInfix _ lhs _ _ -> startsWithOverloadedLabel lhs
-  ERecordUpd _ base _ -> startsWithOverloadedLabel base
-  ETypeSig _ inner _ -> startsWithOverloadedLabel inner
-  ETypeApp _ fn _ -> startsWithOverloadedLabel fn
-  _ -> False
-
-prettyDelimitedExprs :: [Expr] -> [Doc ann]
-prettyDelimitedExprs [] = []
-prettyDelimitedExprs (expr : rest) = prettyExprAfterOpeningDelimiter 0 expr : map (prettyExprPrec 0) rest
-
-prettyDelimitedTupleExprs :: [Maybe Expr] -> [Doc ann]
-prettyDelimitedTupleExprs [] = []
-prettyDelimitedTupleExprs (Just expr : rest) = prettyExprAfterOpeningDelimiter 0 expr : map prettyTupleExpr rest
-prettyDelimitedTupleExprs (Nothing : rest) = mempty : map prettyTupleExpr rest
-
-prettyTupleExpr :: Maybe Expr -> Doc ann
-prettyTupleExpr = \case
-  Just expr -> prettyExprPrec 0 expr
-  Nothing -> mempty
-
 -- | Check if an expression is "open-ended" - its rightmost component can
 -- capture a trailing where clause. This includes:
 -- - Directly open-ended expressions (if, lambda, let)
@@ -1330,8 +1287,8 @@ prettyNegate inner =
   -- Without parens, -$x lexes as the operator -$ followed by x,
   -- and - $x lexes as a right section. The same applies when a splice
   -- is the leading subexpression of a record update or application.
-  if startsWithDollar inner || startsWithOverloadedLabel inner
-    then "-" <> parens (prettyExprAfterOpeningDelimiter 0 inner)
+  if startsWithDollar inner
+    then "-" <> parens (prettyExprPrec 0 inner)
     else "-" <> prettyExprPrec 3 inner
 
 -- | Print the body of a type signature expression.
@@ -1362,7 +1319,7 @@ prettyAppsChain prec expr =
   let (root, args) = flattenApps expr
       rootDoc = prettyExprApp root
       argDocs = map (\(isLast, a) -> prettyExprIn (argCtx isLast a) a) (markLast args)
-   in parenthesizeExpr (prec > 2) expr (hsep (rootDoc : argDocs))
+   in parenthesize (prec > 2) (hsep (rootDoc : argDocs))
   where
     -- For the last argument, if it's a block expression, use precedence 0 to avoid
     -- parentheses from the expression's own parenthesization logic.
@@ -1379,7 +1336,7 @@ prettyExprPrec prec expr =
   case expr of
     EApp {} -> prettyAppsChain prec expr
     ETypeApp _ fn ty ->
-      parenthesizeExpr (prec > 2) expr (prettyExprApp fn <+> "@" <> prettyTypeIn CtxTypeAtom ty)
+      parenthesize (prec > 2) (prettyExprApp fn <+> "@" <> prettyTypeIn CtxTypeAtom ty)
     EVar _ name
       | isSymbolicName name -> parens (pretty (renderName name))
       | otherwise -> pretty name
@@ -1393,7 +1350,7 @@ prettyExprPrec prec expr =
     ECharHash _ _ repr -> pretty repr
     EString _ _ repr -> pretty repr
     EStringHash _ _ repr -> pretty repr
-    EOverloadedLabel _ _ raw -> pretty raw
+    EOverloadedLabel _ _ raw -> pretty (" " <> raw)
     EQuasiQuote _ quoter body -> prettyQuasiQuote quoter body
     ETHExpQuote _ body -> "[|" <+> prettyExprPrec 0 body <+> "|]"
     ETHTypedQuote _ body -> "[||" <+> prettyExprPrec 0 body <+> "||]"
@@ -1431,7 +1388,7 @@ prettyExprPrec prec expr =
             <+> "}"
         )
     ELambdaPats _ pats body ->
-      parenthesizeExpr (prec > 0) expr ("\\" <+> hsep (map prettyLambdaPatternAtom pats) <+> "->" <+> prettyExprPrec 0 body)
+      parenthesize (prec > 0) ("\\" <+> hsep (map prettyLambdaPatternAtom pats) <+> "->" <+> prettyExprPrec 0 body)
     ELambdaCase _ alts ->
       parenthesize
         (prec > 0)
@@ -1446,23 +1403,20 @@ prettyExprPrec prec expr =
           -- capturing the `-<` operator.
           parenthesize
             True
-            (parens (prettyExprAfterOpeningDelimiter 0 lhs) <+> prettyNameInfixOp op <+> prettyExprPrec 0 rhs)
+            (parens (prettyExprPrec 0 lhs) <+> prettyNameInfixOp op <+> prettyExprPrec 0 rhs)
       | otherwise ->
-          let lhsDoc
-                | prec > 1 = prettyExprInAfterOpeningDelimiter CtxInfixLhs lhs
-                | otherwise = prettyExprIn CtxInfixLhs lhs
-           in parenthesize
-                (prec > 1)
-                (lhsDoc <+> prettyNameInfixOp op <+> prettyExprIn (CtxInfixRhs (prec == 1)) rhs)
-    ENegate _ inner -> parenthesizeExpr (prec > 2) expr (prettyNegate inner)
+          parenthesize
+            (prec > 1)
+            (prettyExprIn CtxInfixLhs lhs <+> prettyNameInfixOp op <+> prettyExprIn (CtxInfixRhs (prec == 1)) rhs)
+    ENegate _ inner -> parenthesize (prec > 2) (prettyNegate inner)
     ESectionL _ lhs op ->
       -- Expressions that can capture trailing syntax need extra parens in section
       -- LHS to prevent the parser from interpreting trailing operators as part of
       -- the expression rather than as the section operator
       let lhsDoc = case lhs of
-            ETypeSig {} -> parens (prettyExprAfterOpeningDelimiter 0 lhs)
-            _ | isGreedyExpr lhs -> parens (prettyExprAfterOpeningDelimiter 0 lhs)
-            _ -> prettyExprAfterOpeningDelimiter 1 lhs
+            ETypeSig {} -> parens (prettyExprPrec 0 lhs)
+            _ | isGreedyExpr lhs -> parens (prettyExprPrec 0 lhs)
+            _ -> prettyExprPrec 1 lhs
        in parens (lhsDoc <+> prettyNameInfixOp op)
     ESectionR _ op rhs -> parens (prettyNameInfixOp op <+> prettyExprPrec 0 rhs)
     ELetDecls _ decls body ->
@@ -1516,27 +1470,33 @@ prettyExprPrec prec expr =
       pretty name <+> braces (hsep (punctuate comma (map prettyBinding fields ++ [".." | hasWildcard])))
     ERecordUpd _ base fields ->
       prettyExprPrec 3 base <+> braces (hsep (punctuate comma (map prettyBinding fields)))
-    ETypeSig _ inner ty -> parenthesizeExpr (prec > 1) expr (prettyTypeSigBody inner <+> "::" <+> prettyType ty)
+    ETypeSig _ inner ty -> parenthesize (prec > 1) (prettyTypeSigBody inner <+> "::" <+> prettyType ty)
     EParen _ inner ->
       case inner of
         ESectionL {} -> prettyExprPrec 0 inner
         ESectionR {} -> prettyExprPrec 0 inner
-        _ -> parens (prettyExprAfterOpeningDelimiter 0 inner)
-    EList _ values -> brackets (hsep (punctuate comma (prettyDelimitedExprs values)))
+        _ -> parens (prettyExprPrec 0 inner)
+    EList _ values -> brackets (hsep (punctuate comma (map (prettyExprPrec 0) values)))
     ETuple _ tupleFlavor values ->
       prettyTupleBody
         tupleFlavor
         ( hsep
             ( punctuate
                 comma
-                (prettyDelimitedTupleExprs values)
+                ( map
+                    ( \case
+                        Just val -> prettyExprPrec 0 val
+                        Nothing -> mempty
+                    )
+                    values
+                )
             )
         )
     EUnboxedSum _ altIdx arity inner ->
       let slots = [if i == altIdx then prettyExprPrec 0 inner else mempty | i <- [0 .. arity - 1]]
        in hsep ["(#", hsep (punctuate " |" slots), "#)"]
     EProc _ pat body ->
-      parenthesizeExpr (prec > 0) expr ("proc" <+> prettyPattern pat <+> "->" <+> prettyCmd body)
+      parenthesize (prec > 0) ("proc" <+> prettyPattern pat <+> "->" <+> prettyCmd body)
     EAnn _ sub -> prettyExprPrec prec sub
 
 prettyTupleBody :: TupleFlavor -> Doc ann -> Doc ann
@@ -1584,7 +1544,7 @@ prettyGuardQualifier :: GuardQualifier -> Doc ann
 prettyGuardQualifier qualifier =
   case qualifier of
     GuardExpr _ expr
-      | guardExprNeedsParens expr -> parens (prettyExprAfterOpeningDelimiter 0 expr)
+      | guardExprNeedsParens expr -> parens (prettyExprPrec 0 expr)
       | otherwise -> prettyExprPrec 0 expr
     GuardPat _ pat expr -> prettyPattern pat <+> "<-" <+> prettyExprPrec 0 expr
     GuardLet _ decls -> "let" <+> braces (prettyInlineDecls decls)
@@ -1669,18 +1629,12 @@ prettyArithSeq seqInfo =
   case seqInfo of
     ArithSeqFrom _ fromExpr -> brackets (prettyExprGuarded fromExpr <> " ..")
     ArithSeqFromThen _ fromExpr thenExpr -> brackets (prettyExprGuarded fromExpr <> ", " <> prettyExprGuarded thenExpr <> " ..")
-    ArithSeqFromTo _ fromExpr toExpr -> brackets (prettyExprAfterOpeningDelimiter 0 fromExpr <> " .. " <> prettyExprPrec 0 toExpr)
+    ArithSeqFromTo _ fromExpr toExpr -> brackets (prettyExprGuarded fromExpr <> " .. " <> prettyExprPrec 0 toExpr)
     ArithSeqFromThenTo _ fromExpr thenExpr toExpr ->
-      brackets (prettyExprAfterOpeningDelimiter 0 fromExpr <> ", " <> prettyExprGuarded thenExpr <> " .. " <> prettyExprPrec 0 toExpr)
+      brackets (prettyExprGuarded fromExpr <> ", " <> prettyExprGuarded thenExpr <> " .. " <> prettyExprPrec 0 toExpr)
 
 parenthesize :: Bool -> Doc ann -> Doc ann
 parenthesize shouldWrap doc
-  | shouldWrap = parens doc
-  | otherwise = doc
-
-parenthesizeExpr :: Bool -> Expr -> Doc ann -> Doc ann
-parenthesizeExpr shouldWrap expr doc
-  | shouldWrap && startsWithOverloadedLabel expr = parens (" " <> doc)
   | shouldWrap = parens doc
   | otherwise = doc
 
@@ -1715,9 +1669,9 @@ isUnicodeSymbolCategory c = case generalCategory c of
 prettySplice :: Doc ann -> Expr -> Doc ann
 prettySplice prefix body =
   case body of
-    EParen _ inner -> prefix <> parens (prettyExprAfterOpeningDelimiter 0 inner)
+    EParen _ inner -> prefix <> parens (prettyExprPrec 0 inner)
     EVar {} -> prefix <> prettyExprPrec 11 body
-    _ -> prefix <> parens (prettyExprAfterOpeningDelimiter 0 body)
+    _ -> prefix <> parens (prettyExprPrec 0 body)
 
 -- ---------------------------------------------------------------------------
 -- TypeFamilies pretty-printing helpers
