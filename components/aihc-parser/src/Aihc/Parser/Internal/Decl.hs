@@ -1145,7 +1145,7 @@ typeFamilyHeadParser =
 
     infixHeadParser = do
       lhs <- typeParamParser
-      op <- constructorOperatorParser
+      op <- typeFamilyOperatorParser
       rhs <- typeParamParser
       let lhsType = TVar (tyVarBinderSpan lhs) (mkUnqualifiedName NameVarId (tyVarBinderName lhs))
           rhsType = TVar (tyVarBinderSpan rhs) (mkUnqualifiedName NameVarId (tyVarBinderName rhs))
@@ -1153,6 +1153,28 @@ typeFamilyHeadParser =
         pure $ \span' ->
           TApp span' (TApp span' (TCon span' op Unpromoted) lhsType) rhsType
       pure (TypeHeadInfix, headType, [lhs, rhs])
+
+-- | Parse an operator for type family declarations.
+-- Unlike 'constructorOperatorParser', this accepts both constructor symbols (@:+:@)
+-- and variable symbols (@**@), since type families can use either.
+typeFamilyOperatorParser :: TokParser Name
+typeFamilyOperatorParser =
+  symbolicTypeFamilyOperatorParser <|> backtickTypeFamilyIdentifierParser
+  where
+    symbolicTypeFamilyOperatorParser =
+      tokenSatisfy "type family operator" $ \tok ->
+        case lexTokenKind tok of
+          TkConSym op -> Just (qualifyName Nothing (mkUnqualifiedName NameConSym op))
+          TkVarSym op -> Just (qualifyName Nothing (mkUnqualifiedName NameVarSym op))
+          TkQConSym modName op -> Just (mkName (Just modName) NameConSym op)
+          TkQVarSym modName op -> Just (mkName (Just modName) NameVarSym op)
+          TkReservedColon -> Just (qualifyName Nothing (mkUnqualifiedName NameConSym ":"))
+          _ -> Nothing
+    backtickTypeFamilyIdentifierParser = do
+      expectedTok TkSpecialBacktick
+      op <- constructorNameParser
+      expectedTok TkSpecialBacktick
+      pure op
 
 typeFamilyLhsParser :: TokParser (TypeHeadForm, Type)
 typeFamilyLhsParser = do
