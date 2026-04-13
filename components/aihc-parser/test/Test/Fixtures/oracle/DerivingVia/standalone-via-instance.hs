@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail reason="standalone deriving via with context constraint not parsed correctly" -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE DerivingVia #-}
 
 module StandaloneViaInstance where
