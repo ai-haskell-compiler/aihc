@@ -701,14 +701,14 @@ insertType name resolved scope = scope {scopeTypes = Map.insert name resolved (s
 lookupTerm :: Text -> Scope -> ResolvedName
 lookupTerm name scope =
   Map.findWithDefault
-    (ResolvedError ("unbound name: " <> T.unpack name))
+    (ResolvedError "unbound")
     name
     (scopeTerms scope)
 
 lookupType :: Text -> Scope -> ResolvedName
 lookupType name scope =
   Map.findWithDefault
-    (ResolvedError ("unbound name: " <> T.unpack name))
+    (ResolvedError "unbound")
     name
     (scopeTypes scope)
 

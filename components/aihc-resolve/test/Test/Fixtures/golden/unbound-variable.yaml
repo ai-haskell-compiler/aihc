@@ -1,0 +1,17 @@
+extensions: []
+modules:
+  - |
+    module Main where
+    x = unknownVar
+expected:
+  Main:
+    - "2:1-2:2 x => (value) Main.x"
+    - "2:5-2:15 unknownVar => (value) Error unbound"
+annotated:
+  - |
+    module Main where
+    x = unknownVar
+    │   └─ v Error unbound
+    └─ v Main
+status: pass
+reason: ""

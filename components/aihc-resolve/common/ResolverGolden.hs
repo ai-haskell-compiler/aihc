@@ -91,9 +91,9 @@ parseResolverCaseText path source = do
   status <- parseStatus path statusText
   reason <- validateReason path status (T.unpack reasonText)
   expected <- validateExpected path status (T.unpack expectedText)
+  annotated <- validateAnnotated path status (map (trim . T.unpack) annotatedTexts)
   let relPath = dropRootPrefix path
       category = categoryFromPath relPath
-      annotated = map (trim . T.unpack) annotatedTexts
   pure
     ResolverCase
       { caseId = relPath,
@@ -114,10 +114,10 @@ parseYamlFixture path value =
         exts <- obj .: "extensions"
         modules <- obj .: "modules" >>= parseModules
         expectedText <- (obj .:? "expected" >>= traverse parseExpectedValue) .!= ""
-        annotatedList <- (obj .:? "annotated" >>= traverse parseAnnotatedList) .!= []
+        annotatedTexts <- obj .: "annotated" >>= parseAnnotatedList
         statusText <- obj .: "status"
         reasonText <- obj .:? "reason" .!= ""
-        pure (exts, modules, expectedText, annotatedList, statusText, reasonText)
+        pure (exts, modules, expectedText, annotatedTexts, statusText, reasonText)
     )
     value of
     Left err -> Left ("Invalid resolver fixture schema in " <> path <> ": " <> err)
@@ -132,7 +132,7 @@ parseModules = withArray "modules" $ \arr ->
     parseModuleEntry _ = fail "each module must be a string"
 
 parseAnnotatedList :: Y.Value -> Y.Parser [Text]
-parseAnnotatedList = withArray "annotated" $ \arr ->
+parseAnnotatedList = withArray "annotated" $ \arr -> do
   mapM parseAnnotatedEntry (foldr (:) [] arr)
   where
     parseAnnotatedEntry (Y.String t) = pure t
@@ -189,11 +189,11 @@ classifySuccess meta actual actualAnnotated =
     StatusPass
       | actual /= caseExpected meta ->
           ( OutcomeFail,
-            "output mismatch (expected=" <> show (caseExpected meta) <> ", actual=" <> show actual <> ")"
+            "expected:\n" <> caseExpected meta <> "\nfound:\n" <> actual
           )
       | not (null (caseAnnotated meta)) && actualAnnotated /= caseAnnotated meta ->
           ( OutcomeFail,
-            "annotated mismatch (expected=" <> show (caseAnnotated meta) <> ", actual=" <> show actualAnnotated <> ")"
+            "annotated:\nexpected:\n" <> unlines (caseAnnotated meta) <> "\nfound:\n" <> unlines actualAnnotated
           )
       | otherwise -> (OutcomePass, "")
     StatusFail ->
@@ -282,6 +282,13 @@ validateExpected path status expected =
         StatusPass | null trimmed -> Left ("[expected] is required for pass status in " <> path)
         StatusXPass | null trimmed -> Left ("[expected] is required for xpass status in " <> path)
         _ -> Right trimmed
+
+validateAnnotated :: FilePath -> ExpectedStatus -> [String] -> Either String [String]
+validateAnnotated path status annotated =
+  case status of
+    StatusPass | null annotated || all null annotated -> Left ("[annotated] is required for pass status in " <> path)
+    StatusXPass | null annotated || all null annotated -> Left ("[annotated] is required for xpass status in " <> path)
+    _ -> Right (map trim annotated)
 
 dropRootPrefix :: FilePath -> FilePath
 dropRootPrefix path =
