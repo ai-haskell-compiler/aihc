@@ -11,7 +11,7 @@ where
 import Aihc.Parser.Syntax
 import Data.Text (Text)
 import Data.Text qualified as T
-import Test.Properties.Arb.Expr (genExpr, isValidGeneratedOperator, shrinkExpr, span0)
+import Test.Properties.Arb.Expr (genExpr, genOperator, isValidGeneratedOperator, shrinkExpr, span0)
 import Test.Properties.Arb.Identifiers (genIdent, shrinkIdent)
 import Test.QuickCheck
 
@@ -107,7 +107,7 @@ genTypeSigBinderName :: Gen BinderName
 genTypeSigBinderName =
   oneof
     [ mkUnqualifiedName NameVarId <$> genIdent,
-      mkUnqualifiedName NameVarSym <$> genSymbolicOp
+      mkUnqualifiedName NameVarSym <$> genOperator
     ]
 
 genDeclFixity :: Gen Decl

@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail Unicode operator ⁂ (U+2042 ASTERISM) not recognized as varsym -}
+{- ORACLE_TEST pass -}
 module UnicodeOperatorAsterism where
 
 (⁂) :: Int -> Int -> Int

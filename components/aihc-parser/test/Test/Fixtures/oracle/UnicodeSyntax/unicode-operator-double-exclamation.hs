@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail Unicode operator ‼ (U+203C DOUBLE EXCLAMATION MARK) not recognized as varsym -}
+{- ORACLE_TEST pass -}
 module UnicodeOperatorDoubleExclamation where
 
 (‼) :: [a] -> Int -> a

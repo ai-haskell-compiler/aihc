@@ -220,6 +220,7 @@ asciiOperatorChars = "!$%&*+./<=>?\\^|-~"
 curatedUnicodeOperatorChars :: [Char]
 curatedUnicodeOperatorChars =
   [ '⁂',
+    '‼',
     '∘',
     '⊕',
     '⋆',
@@ -227,13 +228,41 @@ curatedUnicodeOperatorChars =
     '₿',
     'ˆ',
     'ˇ',
-    '©',
-    '※'
+    '©'
   ]
 
 unicodeOperatorChars :: [Char]
 unicodeOperatorChars =
-  filter isAllowedUnicodeOperatorChar [minBound .. maxBound]
+  extraUnicodeOperatorChars <> concatMap (filter isAllowedUnicodeOperatorChar . expandRange) unicodeOperatorRanges
+
+extraUnicodeOperatorChars :: [Char]
+extraUnicodeOperatorChars =
+  ['⁂', '‼']
+
+unicodeOperatorRanges :: [(Char, Char)]
+unicodeOperatorRanges =
+  [ ('\x00A2', '\x00A9'),
+    ('\x02C2', '\x02DF'),
+    ('\x20A0', '\x20CF'),
+    ('\x2100', '\x214F'),
+    ('\x2190', '\x21FF'),
+    ('\x2200', '\x22FF'),
+    ('\x2300', '\x23FF'),
+    ('\x2460', '\x24FF'),
+    ('\x2500', '\x257F'),
+    ('\x2580', '\x259F'),
+    ('\x25A0', '\x25FF'),
+    ('\x2600', '\x26FF'),
+    ('\x27C0', '\x27EF'),
+    ('\x27F0', '\x27FF'),
+    ('\x2900', '\x297F'),
+    ('\x2980', '\x29FF'),
+    ('\x2A00', '\x2AFF'),
+    ('\x2B00', '\x2BFF')
+  ]
+
+expandRange :: (Char, Char) -> [Char]
+expandRange (lo, hi) = [lo .. hi]
 
 isAllowedUnicodeOperatorChar :: Char -> Bool
 isAllowedUnicodeOperatorChar c =

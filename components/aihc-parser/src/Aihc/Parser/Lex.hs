@@ -956,6 +956,7 @@ startsWithSymOp t =
 isUnicodeSymbol :: Char -> Bool
 isUnicodeSymbol c =
   isUnicodeSymbolCategory c
+    || isUnicodeOperatorExtra c
     || c == '∷'
     || c == '⇒'
     || c == '→'
@@ -970,6 +971,11 @@ isUnicodeSymbol c =
     || c == '⟦'
     || c == '⟧'
     || c == '⊸'
+
+isUnicodeOperatorExtra :: Char -> Bool
+isUnicodeOperatorExtra c =
+  c == '⁂'
+    || c == '‼'
 
 isUnicodeSymbolCategory :: Char -> Bool
 isUnicodeSymbolCategory c =
