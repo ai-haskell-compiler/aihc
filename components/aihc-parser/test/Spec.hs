@@ -183,6 +183,7 @@ buildTests = do
           "pretty"
           [ testCase "guard lambda round-trips with parentheses" test_prettyGuardLambdaRoundTrip,
             testCase "guard let expression stays unparenthesized" test_prettyGuardLetFormatting,
+            testCase "function-head list view patterns stay bare" test_prettyFunctionHeadListViewPattern,
             testCase "unicode operator type signatures round-trip with parentheses" test_prettyUnicodeOperatorTypeSigRoundTrip,
             testCase "prefix function head record pattern stays bare" test_prettyPrefixFunctionHeadRecordPattern,
             testCase "infix function head constructor applications stay bare" test_prettyInfixFunctionHeadConstructorPatterns,
@@ -194,6 +195,7 @@ buildTests = do
             testCase "prefix no args: f = 5" test_funHeadPrefixNoArgs,
             testCase "prefix operator name: (+) x y = x" test_funHeadPrefixOp,
             testCase "prefix constructor application arg: f (Just x) y = y" test_funHeadPrefixConstructorArg,
+            testCase "prefix list view pattern arg: fn [id -> x] = x" test_funHeadPrefixListViewPattern,
             testCase "prefix singleton unboxed tuple arg: f (# x #) = x" test_funHeadPrefixUnboxedTupleSingletonArg,
             testCase "infix: x + y = x" test_funHeadInfix,
             testCase "infix backtick: x `add` y = x" test_funHeadInfixBacktick,
@@ -1176,6 +1178,31 @@ test_prettyGuardLetFormatting = do
       source = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
   assertBool ("expected guard let expression without extra parens, got:\n" <> T.unpack source) (not ("| (let" `T.isInfixOf` source))
 
+test_prettyFunctionHeadListViewPattern :: Assertion
+test_prettyFunctionHeadListViewPattern = do
+  let decl =
+        DeclValue
+          span0
+          ( FunctionBind
+              span0
+              "fn"
+              [ Match
+                  { matchSpan = span0,
+                    matchHeadForm = MatchHeadPrefix,
+                    matchPats = [PList span0 [PView span0 (EVar span0 "id") (PVar span0 "x")]],
+                    matchRhs = UnguardedRhs span0 (EVar span0 "x") Nothing
+                  }
+              ]
+          )
+      source = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
+      expected = normalizeDecl decl
+  assertBool ("expected bare view pattern inside list pattern, got:\n" <> T.unpack source) ("fn [id -> x] = x" == source)
+  case parseDecl defaultConfig {parserExtensions = [ViewPatterns]} source of
+    ParseOk parsed ->
+      normalizeDecl parsed @?= expected
+    ParseErr err ->
+      assertFailure ("expected pretty-printed list view pattern to parse, got:\n" <> MPE.errorBundlePretty err <> "\nsource:\n" <> T.unpack source)
+
 test_prettyUnicodeOperatorTypeSigRoundTrip :: Assertion
 test_prettyUnicodeOperatorTypeSigRoundTrip = do
   let intTy = TCon span0 (qualifyName Nothing (mkUnqualifiedName NameConId "Int")) Unpromoted
@@ -1530,6 +1557,12 @@ test_funHeadPrefixConstructorArg =
   case parseTopDecl "f (Just x) y = y" of
     Right (DeclValue _ (FunctionBind _ "f" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PParen _ (PCon _ "Just" [PVar _ "x"]), PVar _ "y"]}])) -> pure ()
     other -> assertFailure ("expected constructor application argument in prefix function head, got: " <> show other)
+
+test_funHeadPrefixListViewPattern :: Assertion
+test_funHeadPrefixListViewPattern =
+  case parseTopDeclWithExts [ViewPatterns] "fn [id -> x] = x" of
+    Right (DeclValue _ (FunctionBind _ "fn" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PList _ [PView _ (EVar _ "id") (PVar _ "x")]]}])) -> pure ()
+    other -> assertFailure ("expected list view-pattern argument in prefix function head, got: " <> show other)
 
 test_funHeadPrefixUnboxedTupleSingletonArg :: Assertion
 test_funHeadPrefixUnboxedTupleSingletonArg =
