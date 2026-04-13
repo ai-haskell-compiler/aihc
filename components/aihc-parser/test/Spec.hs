@@ -192,7 +192,8 @@ buildTests = do
             testCase "unicode operator type signatures round-trip with parentheses" test_prettyUnicodeOperatorTypeSigRoundTrip,
             testCase "prefix function head record pattern stays bare" test_prettyPrefixFunctionHeadRecordPattern,
             testCase "infix function head constructor applications stay bare" test_prettyInfixFunctionHeadConstructorPatterns,
-            testCase "infix function head irrefutable patterns stay bare" test_prettyInfixFunctionHeadIrrefutablePatterns
+            testCase "infix function head irrefutable patterns stay bare" test_prettyInfixFunctionHeadIrrefutablePatterns,
+            testCase "view pattern with let-typed expr gets parenthesized" test_prettyViewLetTypeSigParens
           ],
         testGroup
           "functionHeadParserWith dispatch"
@@ -1312,6 +1313,26 @@ test_prettyInfixFunctionHeadIrrefutablePatterns = do
           )
       source = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
   assertBool ("expected bare irrefutable pattern in infix function head, got:\n" <> T.unpack source) ("~x `combine` y = x" == source)
+
+-- | Regression test: a view pattern whose view expression is a let-expression
+-- ending with a type signature must parenthesize the let so the view-pattern
+-- arrow is not absorbed into the type.
+-- Without the fix, this would produce @(let {x = (#  #)} in (#  #) :: T -> [])@
+-- which GHC rejects because @:: T -> []@ is parsed as a single type signature.
+test_prettyViewLetTypeSigParens :: Assertion
+test_prettyViewLetTypeSigParens = do
+  let tyCon = TCon span0 (qualifyName Nothing (mkUnqualifiedName NameConId "T")) Unpromoted
+      unboxedUnit = ETuple span0 Unboxed []
+      viewExpr =
+        ELetDecls
+          span0
+          [DeclValue span0 (PatternBind span0 (PVar span0 (mkUnqualifiedName NameVarId "x")) (UnguardedRhs span0 unboxedUnit Nothing))]
+          (ETypeSig span0 unboxedUnit tyCon)
+      pat = PView span0 viewExpr (PList span0 [])
+      source = renderStrict (layoutPretty defaultLayoutOptions (pretty pat))
+  assertBool
+    ("expected parenthesized let-expression in view pattern, got:\n" <> T.unpack source)
+    ("((let {x = (#  #)} in (#  #) :: T) -> [])" == source)
 
 test_guardPatBind :: Assertion
 test_guardPatBind =

@@ -560,12 +560,14 @@ prettyPatternInDelimited pat =
     _ -> prettyPattern pat
 
 prettyViewExpr :: Expr -> Doc ann
-prettyViewExpr expr =
-  case expr of
-    -- Keep type signatures parenthesized so the view-pattern arrow cannot be
-    -- parsed as part of the signature's result type.
-    ETypeSig {} -> parens (prettyExprPrec 0 expr)
-    _ -> prettyExprPrec 0 expr
+prettyViewExpr expr
+  -- Keep expressions that end with a type signature parenthesized so the
+  -- view-pattern arrow cannot be parsed as part of the signature's result type.
+  -- For example, @let {x = y} in z :: T -> p@ must be printed as
+  -- @(let {x = y} in z :: T) -> p@ to prevent @->@ from being absorbed into
+  -- the type @T -> …@.
+  | endsWithTypeSig expr = parens (prettyExprPrec 0 expr)
+  | otherwise = prettyExprPrec 0 expr
 
 -- | Pretty print a pattern field binding.
 -- Supports NamedFieldPuns: if pattern is a variable with the same name as the field,
@@ -1279,6 +1281,16 @@ isOpenEnded = \case
   EProc {} -> True
   EInfix _ _ _ rhs -> isOpenEnded rhs
   EApp _ _ arg | isBlockExpr arg -> isOpenEnded arg
+  _ -> False
+
+-- | Does the pretty-printed form of an expression end with @:: Type@?
+-- Such expressions need parenthesization in contexts where a following @->@
+-- would be absorbed into the type (e.g. the view expression of a view pattern).
+endsWithTypeSig :: Expr -> Bool
+endsWithTypeSig = \case
+  ETypeSig {} -> True
+  ELetDecls _ _ body -> endsWithTypeSig body
+  ELambdaPats _ _ body -> endsWithTypeSig body
   _ -> False
 
 -- | Print an expression used as the function in an application.
