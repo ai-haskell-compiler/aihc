@@ -209,13 +209,17 @@ doStmtParser = do
   case lexTokenKind tok of
     TkKeywordLet -> MP.try doLetStmtParser <|> doBindOrExprStmtParser
     TkKeywordRec -> doRecStmtParser
-    TkPrefixBang -> doPatBindStmtParser
-    TkPrefixTilde -> doPatBindStmtParser
     _ -> do
-      isAs <- startsWithAsPattern
-      if isAs
+      isPatternBind <- startsWithPatternBind
+      if isPatternBind
         then doPatBindStmtParser
         else doBindOrExprStmtParser
+
+startsWithPatternBind :: TokParser Bool
+startsWithPatternBind =
+  fmap (either (const False) (const True)) . MP.observing . MP.try . MP.lookAhead $ do
+    _ <- patternParser
+    expectedTok TkReservedLeftArrow
 
 doBindOrExprStmtParser :: TokParser (DoStmt Expr)
 doBindOrExprStmtParser = withSpan $ do
@@ -579,11 +583,9 @@ guardQualifierParser = do
   tok <- lookAhead anySingle
   case lexTokenKind tok of
     TkKeywordLet -> MP.try guardLetParser <|> guardBindOrExprParser
-    TkPrefixBang -> guardPatBindParser
-    TkPrefixTilde -> guardPatBindParser
     _ -> do
-      isAs <- startsWithAsPattern
-      if isAs
+      isPatternBind <- startsWithPatternBind
+      if isPatternBind
         then guardPatBindParser
         else guardBindOrExprParser
 
@@ -865,11 +867,9 @@ compStmtParser = do
   tok <- lookAhead anySingle
   case lexTokenKind tok of
     TkKeywordLet -> MP.try compLetStmtParser <|> compGenOrGuardParser
-    TkPrefixBang -> compPatGenParser
-    TkPrefixTilde -> compPatGenParser
     _ -> do
-      isAs <- startsWithAsPattern
-      if isAs
+      isPatternBind <- startsWithPatternBind
+      if isPatternBind
         then compPatGenParser
         else compGenOrGuardParser
 

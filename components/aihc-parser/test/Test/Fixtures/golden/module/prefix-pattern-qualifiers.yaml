@@ -1,0 +1,19 @@
+extensions:
+  - BangPatterns
+  - ViewPatterns
+input: |
+  {-# LANGUAGE BangPatterns #-}
+  {-# LANGUAGE ViewPatterns #-}
+  module PrefixPatternQualifiers where
+
+  comp xs = [y | K !y ~(Just z) q@(Right _) ((negate -> n)) (-1) <- xs]
+
+  guardK xs
+    | K !y ~(Just z) q@(Right _) ((negate -> n)) (-1) <- xs = y
+  guardK _ = 0
+
+  doK xs = do
+    K !y ~(Just z) q@(Right _) ((negate -> n)) (-1) <- xs
+    pure y
+ast: Module {name = "PrefixPatternQualifiers", languagePragmas = [EnableExtension BangPatterns, EnableExtension ViewPatterns], decls = [DeclValue (FunctionBind "comp" [Match {headForm = Prefix, pats = [PVar "xs"], rhs = UnguardedRhs (EListComp (EVar "y") [CompGen (PCon "K" [PStrict (PVar "y"), PIrrefutable (PParen (PCon "Just" [PVar "z"])), PAs "q" (PParen (PCon "Right" [PWildcard])), PParen (PView (EVar "negate") (PVar "n")), PParen (PNegLit (LitInt 1))]) (EVar "xs")])}]), DeclValue (FunctionBind "guardK" [Match {headForm = Prefix, pats = [PVar "xs"], rhs = GuardedRhss [GuardedRhs {guards = [GuardPat (PCon "K" [PStrict (PVar "y"), PIrrefutable (PParen (PCon "Just" [PVar "z"])), PAs "q" (PParen (PCon "Right" [PWildcard])), PParen (PView (EVar "negate") (PVar "n")), PParen (PNegLit (LitInt 1))]) (EVar "xs")], body = EVar "y"}]}]), DeclValue (FunctionBind "guardK" [Match {headForm = Prefix, pats = [PWildcard], rhs = UnguardedRhs (EInt 0)}]), DeclValue (FunctionBind "doK" [Match {headForm = Prefix, pats = [PVar "xs"], rhs = UnguardedRhs (EDo [DoBind (PCon "K" [PStrict (PVar "y"), PIrrefutable (PParen (PCon "Just" [PVar "z"])), PAs "q" (PParen (PCon "Right" [PWildcard])), PParen (PView (EVar "negate") (PVar "n")), PParen (PNegLit (LitInt 1))]) (EVar "xs"), DoExpr (EApp (EVar "pure") (EVar "y"))])}])]}
+status: pass

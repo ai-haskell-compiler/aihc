@@ -29,7 +29,6 @@ import Test.Properties.Arb.Identifiers
     span0,
   )
 import Test.Properties.Arb.Pattern (genPattern)
-import Test.Properties.Arb.Pattern qualified as Pat
 import Test.QuickCheck
 
 -- | Generate a random expression. Uses QuickCheck's size parameter
@@ -303,11 +302,6 @@ genPatterns n = do
   count <- chooseInt (1, 3)
   vectorOf count (genPattern n)
 
--- | Generate a pattern safe for comprehension/guard contexts.
--- Excludes PView, PIrrefutable, PStrict, and PAs at all depths.
-genPatternNoView :: Int -> Gen Pattern
-genPatternNoView = Pat.genPatternNoView
-
 genCaseAltsWith :: Bool -> Int -> Gen [CaseAlt]
 genCaseAltsWith allowTHQuotes n = do
   count <- chooseInt (0, 3)
@@ -363,12 +357,9 @@ genGuardQualifierWith allowTHQuotes n =
       -- a function type rather than the guard's arrow.
       GuardExpr span0 . parenTypeSig <$> genExprSizedWith allowTHQuotes n,
       -- Pattern guard: | pat <- expr = ...
-      -- TODO: Restore genPattern here once the parser supports view patterns inside
-      -- guard qualifiers. Currently, the '->' in view patterns (PView) conflicts
-      -- with guard/case-alternative syntax and causes parse failures.
       -- The expression is also parenthesized if it's an ETypeSig, since
       -- `| pat <- expr :: Type -> body` has the same ambiguity.
-      GuardPat span0 <$> genPatternNoView half <*> (parenTypeSig <$> genExprSizedWith allowTHQuotes half),
+      GuardPat span0 <$> genPattern half <*> (parenTypeSig <$> genExprSizedWith allowTHQuotes half),
       -- Let guard: | let decls = ...
       GuardLet span0 <$> genValueDeclsWith allowTHQuotes n
     ]
@@ -441,11 +432,7 @@ genCompStmtsWith allowTHQuotes n = do
 genCompStmtWith :: Bool -> Int -> Gen CompStmt
 genCompStmtWith allowTHQuotes n =
   oneof
-    [ -- TODO: Restore genPattern here once the parser supports all pattern
-      -- constructors inside list comprehension generators. Currently, PView (->),
-      -- PIrrefutable (~), PStrict (!), and PAs (@) fail when nested inside
-      -- compound patterns (PList, PTuple, PCon args) in comprehension contexts.
-      CompGen span0 <$> genPatternNoView half <*> genExprSizedWith allowTHQuotes half,
+    [ CompGen span0 <$> genPattern half <*> genExprSizedWith allowTHQuotes half,
       CompGuard span0 <$> genExprSizedWith allowTHQuotes (n - 1),
       CompLetDecls span0 <$> genValueDeclsWith allowTHQuotes (n - 1)
     ]
