@@ -942,6 +942,13 @@ localDeclsParser = do
           tok <- lookAhead anySingle
           case lexTokenKind tok of
             TkImplicitParam {} -> pure <$> implicitParamDeclParser
+            -- Constructor identifiers must be parsed as pattern bindings,
+            -- not function bindings. A zero-argument function binding with a
+            -- constructor name (e.g. "True = ...") would be re-parsed as a
+            -- function bind instead of a pattern bind with PCon, breaking
+            -- AST round-trip fidelity.
+            TkConId {} -> pure <$> localPatternDeclParser
+            TkQConId {} -> pure <$> localPatternDeclParser
             _ -> pure <$> (MP.try localFunctionDeclParser <|> localPatternDeclParser)
 
 localTypeSigDeclsParser :: TokParser [Decl]
@@ -978,10 +985,8 @@ localFunctionDeclParser = withSpan $ do
 localPatternDeclParser :: TokParser Decl
 localPatternDeclParser = withSpan $ do
   pat <- patternParser
-  expectedTok TkReservedEquals
-  rhsExpr <- exprParser
-  whereDecls <- MP.optional whereClauseParser
-  pure (\span' -> DeclValue span' (PatternBind span' pat (UnguardedRhs span' rhsExpr whereDecls)))
+  rhs <- equationRhsParser
+  pure (\span' -> DeclValue span' (PatternBind span' pat rhs))
 
 implicitParamDeclParser :: TokParser Decl
 implicitParamDeclParser = withSpan $ do

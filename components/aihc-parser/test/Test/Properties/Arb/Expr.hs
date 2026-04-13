@@ -373,23 +373,52 @@ genGuardQualifierWith allowTHQuotes n =
     half = n `div` 2
 
 -- | Generate value declarations for let/where.
--- Zero-argument bindings are generated as PatternBind so they keep the same
--- AST shape after pretty-print/parser roundtrip.
+-- Uses a restricted pattern generator that excludes patterns that don't
+-- round-trip correctly in let/where bindings (e.g., PSplice, PView, PQuasiQuote).
+-- Still includes bang patterns, lazy patterns, and guarded RHS.
 genValueDeclsWith :: Bool -> Int -> Gen [Decl]
 genValueDeclsWith allowTHQuotes n = do
   count <- chooseInt (0, 3)
-  names <- vectorOf count (mkUnqualifiedName NameVarId <$> genIdent)
-  exprs <- vectorOf count (genBindingExprWith allowTHQuotes (n `div` max 1 count))
-  pure
-    [ DeclValue
-        span0
-        ( PatternBind
-            span0
-            (PVar span0 name)
-            (UnguardedRhs span0 expr Nothing)
-        )
-    | (name, expr) <- zip names exprs
-    ]
+  let perDecl = n `div` max 1 count
+  vectorOf count $ do
+    pat <- genLetBindingPattern perDecl
+    rhs <- genRhsWith allowTHQuotes perDecl
+    pure $ DeclValue span0 (PatternBind span0 pat rhs)
+
+-- | Generate patterns suitable for let/where bindings.
+-- Excludes patterns that don't round-trip correctly in this context.
+genLetBindingPattern :: Int -> Gen Pattern
+genLetBindingPattern size = genSuchPattern
+  where
+    isValidLetPattern pat =
+      case pat of
+        PSplice {} -> False
+        PView {} -> False
+        PQuasiQuote {} -> False
+        PNegLit {} -> False
+        -- Check nested patterns
+        PAs _ _ inner -> isValidLetPattern inner
+        PStrict _ inner -> isValidLetPattern inner
+        PIrrefutable _ inner -> isValidLetPattern inner
+        PParen _ inner -> isValidLetPattern inner
+        PList _ pats -> all isValidLetPattern pats
+        PTuple _ _ pats -> all isValidLetPattern pats
+        PUnboxedSum _ _ _ inner -> isValidLetPattern inner
+        PCon _ _ args -> all isValidLetPattern args
+        PInfix _ lhs _ rhs -> isValidLetPattern lhs && isValidLetPattern rhs
+        PRecord _ _ fields _ -> all (isValidLetPattern . snd) fields
+        PTypeSig _ inner _ -> isValidLetPattern inner
+        -- Base cases that are valid
+        PVar {} -> True
+        PWildcard {} -> True
+        PLit {} -> True
+        _ -> True
+
+    genSuchPattern = do
+      pat <- genPattern size
+      if isValidLetPattern pat
+        then pure pat
+        else genSuchPattern
 
 genBindingExprWith :: Bool -> Int -> Gen Expr
 genBindingExprWith = genExprSizedWith

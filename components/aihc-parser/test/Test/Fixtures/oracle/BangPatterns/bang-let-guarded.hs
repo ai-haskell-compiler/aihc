@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail bang pattern with guards in let binding -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE BangPatterns #-}
 module BangPatternsLetGuarded where
 
