@@ -1,0 +1,32 @@
+extensions: []
+modules:
+  - |
+    module Data.Config where
+    defaultConfig = 42
+    maxRetries = 3
+  - |
+    module Main where
+    import qualified Data.Config as Config
+    useConfig = Config.defaultConfig + Config.maxRetries
+expected:
+  Data.Config:
+    - "2:1-2:14 defaultConfig => (value) Data.Config.defaultConfig"
+    - "3:1-3:11 maxRetries => (value) Data.Config.maxRetries"
+  Main:
+    - "3:1-3:10 useConfig => (value) Main.useConfig"
+    - "3:13-3:33 defaultConfig => (value) Config.defaultConfig"
+    - "3:36-3:53 maxRetries => (value) Config.maxRetries"
+annotated:
+  - |
+    module Data.Config where
+    defaultConfig = 42
+    └─ v Data.Config
+    maxRetries = 3
+    └─ v Data.Config
+  - |
+    module Main where
+    import qualified Data.Config as Config
+    useConfig = Config.defaultConfig + Config.maxRetries
+    └─ v Main   └─ v Config            └─ v Config
+status: pass
+reason: ""
