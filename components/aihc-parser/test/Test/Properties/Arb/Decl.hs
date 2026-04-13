@@ -19,7 +19,7 @@ import Test.Properties.Arb.Identifiers
     shrinkIdent,
     span0,
   )
-import Test.Properties.Arb.Pattern (canonicalPatternAtomForComp, genPattern)
+import Test.Properties.Arb.Pattern (canonicalPatternAtom, genPattern)
 import Test.Properties.Arb.Type (canonicalFunLeft, canonicalTopLevelType, genType)
 import Test.QuickCheck
 
@@ -85,8 +85,8 @@ genFunctionDecl (name, expr) = do
             )
     MatchHeadInfix ->
       do
-        lhsPat <- canonicalPatternAtomForComp <$> sized (genPattern . min 3)
-        rhsPat <- canonicalPatternAtomForComp <$> sized (genPattern . min 3)
+        lhsPat <- canonicalPatternAtom <$> sized (genPattern . min 3)
+        rhsPat <- canonicalPatternAtom <$> sized (genPattern . min 3)
         pure $
           DeclValue
             span0

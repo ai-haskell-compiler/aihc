@@ -1,0 +1,40 @@
+extensions: []
+modules:
+  - |
+    module Main where
+    data Person = Person
+      { name :: String
+      , age :: Int
+      }
+    getAge :: Person -> Int
+    getAge (Person { name = n, age = a }) = a
+expected:
+  Main:
+    - "2:6-2:12 Person => (type) Main.Person"
+    - "2:15-2:21 Person => (value) Main.Person"
+    - "3:13-3:19 String => (type) Error unbound"
+    - "4:12-4:15 Int => (type) Error unbound"
+    - "6:1-6:7 getAge => (value) Main.getAge"
+    - "6:11-6:17 Person => (type) Main.Person"
+    - "6:21-6:24 Int => (type) Error unbound"
+    - "7:1-7:7 getAge => (value) Main.getAge"
+    - "7:25-7:26 n => (value) Local 0 n"
+    - "7:34-7:35 a => (value) Local 1 a"
+    - "7:41-7:42 a => (value) Local 1 a"
+annotated:
+  - |
+    module Main where
+    data Person = Person
+         │        └─ v Main
+         └─ t Main
+      { name :: String
+                └─ t Error unbound
+      , age :: Int
+               └─ t Error unbound
+      }
+    getAge :: Person -> Int
+    └─ v Main └─ t Main └─ t Error unbound
+    getAge (Person { name = n, age = a }) = a
+    └─ v Main               └─ v 0   └─ v 1 └─ v 1
+status: pass
+reason: ""

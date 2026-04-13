@@ -85,6 +85,7 @@ buildTests = do
             testCase "lexes quoted overloaded labels" test_quotedOverloadedLabelLexes,
             testCase "lexes string gaps before a closing quote" test_stringGapBeforeClosingQuoteLexes,
             testCase "parses overloaded label expressions" test_overloadedLabelExprParses,
+            testCase "pretty-prints overloaded labels with delimiter spacing" test_overloadedLabelPrettyPrintsWithDelimiterSpacing,
             testCase "applies LINE pragmas to subsequent tokens" test_linePragmaUpdatesSpan,
             testCase "applies COLUMN pragmas to subsequent tokens" test_columnPragmaUpdatesSpan,
             testCase "applies COLUMN pragmas in the middle of a line" test_inlineColumnPragmaUpdatesSpan,
@@ -131,6 +132,7 @@ buildTests = do
             testCase "bang pattern: !x <- expr" test_doBindBangPattern,
             testCase "irrefutable pattern: ~(a, b) <- expr" test_doBindIrrefutablePattern,
             testCase "as pattern: x@(Just _) <- expr" test_doBindAsPattern,
+            testCase "nested prefix patterns: K !y ~(Just z) q@(Right _) ((negate -> n)) (-1) <- expr" test_doBindNestedPrefixPattern,
             testCase "expression statement: expr" test_doExprStmt,
             testCase "let statement: let x = 5" test_doLetStmt,
             testCase "rejects if-then-else in pattern context" test_doBindRejectsIfExpr
@@ -147,7 +149,8 @@ buildTests = do
             testCase "guard bang pattern: f x | !y <- g x = y" test_guardBangBind,
             testCase "guard irrefutable pattern: f x | ~(a, b) <- g x = a" test_guardIrrefutableBind,
             testCase "guard as pattern: f x | y@(Just _) <- g x = y" test_guardAsBind,
-            testCase "guard infix pattern: f x | a : as <- g x = a" test_guardInfixBind
+            testCase "guard infix pattern: f x | a : as <- g x = a" test_guardInfixBind,
+            testCase "guard nested prefix patterns: f x | K !y ~(Just z) q@(Right _) ((negate -> n)) (-1) <- xs = y" test_guardNestedPrefixBind
           ],
         testGroup
           "checkPattern (list comprehension)"
@@ -160,7 +163,8 @@ buildTests = do
             testCase "comp bang gen: [y | !y <- xs]" test_compBangGen,
             testCase "comp irrefutable gen: [a | ~(a, b) <- xs]" test_compIrrefutableGen,
             testCase "comp as gen: [y | y@(Just _) <- xs]" test_compAsGen,
-            testCase "comp infix gen: [a | a : as <- xs]" test_compInfixGen
+            testCase "comp infix gen: [a | a : as <- xs]" test_compInfixGen,
+            testCase "comp nested prefix gen: [y | K !y ~(Just z) q@(Right _) ((negate -> n)) (-1) <- xs]" test_compNestedPrefixGen
           ],
         testGroup
           "localDeclParser dispatch"
@@ -820,6 +824,25 @@ test_overloadedLabelExprParses =
             ] -> pure ()
           other -> assertFailure ("expected overloaded label expressions in AST, got: " <> show other)
 
+test_overloadedLabelPrettyPrintsWithDelimiterSpacing :: Assertion
+test_overloadedLabelPrettyPrintsWithDelimiterSpacing = do
+  let config = defaultConfig {parserExtensions = [OverloadedLabels, UnboxedTuples]}
+      exprs =
+        [ ETuple span0 Boxed [Just (EOverloadedLabel span0 "a" "#a"), Nothing],
+          EList span0 [EOverloadedLabel span0 "a" "#a"],
+          EParen span0 (EOverloadedLabel span0 "a" "#a")
+        ]
+      rendered = map (renderStrict . layoutPretty defaultLayoutOptions . pretty) exprs
+      expected = ["( #a, )", "[ #a]", "( #a)"]
+  assertEqual "pretty-printed forms" expected rendered
+  mapM_
+    ( \source ->
+        case parseExpr config source of
+          ParseErr err -> assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> MPE.errorBundlePretty err)
+          ParseOk _ -> pure ()
+    )
+    rendered
+
 test_linePragmaUpdatesSpan :: Assertion
 test_linePragmaUpdatesSpan =
   case lexTokens "{-# LINE 17 #-}\nx" of
@@ -1006,6 +1029,12 @@ test_doBindAsPattern =
   case parseDoStmts "do { x@(Just _) <- return Nothing; return x }" of
     Right [DoBind _ (PAs _ "x" (PParen _ (PCon _ "Just" [PWildcard _]))) _, DoExpr _ _] -> pure ()
     other -> assertFailure ("expected as-pattern bind, got: " <> show other)
+
+test_doBindNestedPrefixPattern :: Assertion
+test_doBindNestedPrefixPattern =
+  case parseDoStmtsExt [BangPatterns, ViewPatterns] "do { K !y ~(Just z) q@(Right _) ((negate -> n)) (-1) <- xs; pure y }" of
+    Right [DoBind _ (PCon _ "K" [PStrict _ (PVar _ "y"), PIrrefutable _ (PParen _ (PCon _ "Just" [PVar _ "z"])), PAs _ "q" (PParen _ (PCon _ "Right" [PWildcard _])), PParen _ (PView _ _ (PVar _ "n")), PParen _ (PNegLit _ (LitInt _ 1 _))]) _, DoExpr _ _] -> pure ()
+    other -> assertFailure ("expected nested prefix-pattern bind, got: " <> show other)
 
 test_doExprStmt :: Assertion
 test_doExprStmt =
@@ -1275,6 +1304,12 @@ test_guardAsBind =
     Right [GuardPat _ (PAs _ "y" (PParen _ (PCon _ "Just" [PWildcard _]))) _] -> pure ()
     other -> assertFailure ("expected guard as-pattern bind, got: " <> show other)
 
+test_guardNestedPrefixBind :: Assertion
+test_guardNestedPrefixBind =
+  case parseGuardsExt [BangPatterns, ViewPatterns] "f xs | K !y ~(Just z) q@(Right _) ((negate -> n)) (-1) <- xs = y" of
+    Right [GuardPat _ (PCon _ "K" [PStrict _ (PVar _ "y"), PIrrefutable _ (PParen _ (PCon _ "Just" [PVar _ "z"])), PAs _ "q" (PParen _ (PCon _ "Right" [PWildcard _])), PParen _ (PView _ _ (PVar _ "n")), PParen _ (PNegLit _ (LitInt _ 1 _))]) _] -> pure ()
+    other -> assertFailure ("expected nested prefix-pattern guard, got: " <> show other)
+
 test_guardInfixBind :: Assertion
 test_guardInfixBind =
   case parseGuards "f x | a : as <- g x = a" of
@@ -1360,6 +1395,12 @@ test_compAsGen =
   case parseCompStmts "[y | y@(Just _) <- xs]" of
     Right [CompGen _ (PAs _ "y" (PParen _ (PCon _ "Just" [PWildcard _]))) _] -> pure ()
     other -> assertFailure ("expected comp as-pattern gen, got: " <> show other)
+
+test_compNestedPrefixGen :: Assertion
+test_compNestedPrefixGen =
+  case parseCompStmtsExt [BangPatterns, ViewPatterns] "[y | K !y ~(Just z) q@(Right _) ((negate -> n)) (-1) <- xs]" of
+    Right [CompGen _ (PCon _ "K" [PStrict _ (PVar _ "y"), PIrrefutable _ (PParen _ (PCon _ "Just" [PVar _ "z"])), PAs _ "q" (PParen _ (PCon _ "Right" [PWildcard _])), PParen _ (PView _ _ (PVar _ "n")), PParen _ (PNegLit _ (LitInt _ 1 _))]) _] -> pure ()
+    other -> assertFailure ("expected nested prefix-pattern generator, got: " <> show other)
 
 test_compInfixGen :: Assertion
 test_compInfixGen =

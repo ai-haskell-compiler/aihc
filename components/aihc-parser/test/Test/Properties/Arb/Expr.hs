@@ -29,7 +29,6 @@ import Test.Properties.Arb.Identifiers
     span0,
   )
 import Test.Properties.Arb.Pattern (genPattern)
-import Test.Properties.Arb.Pattern qualified as Pat
 import Test.QuickCheck
 
 -- | Generate a random expression. Uses QuickCheck's size parameter
@@ -108,6 +107,7 @@ genExprLeaf :: Gen Expr
 genExprLeaf =
   oneof
     [ EVar span0 <$> genVarName,
+      genOverloadedLabel,
       mkIntExpr <$> chooseInteger (0, 999),
       mkHexExpr <$> chooseInteger (0, 255),
       mkFloatExpr <$> genTenths,
@@ -118,10 +118,6 @@ genExprLeaf =
       (\v -> EFloatHash span0 v (T.pack (show v) <> "#")) <$> genTenths,
       (\v -> ECharHash span0 v (T.pack (show v) <> "#")) <$> genCharValue,
       (\v -> EStringHash span0 v (T.pack (show (T.unpack v)) <> "#")) <$> genStringValue,
-      -- TODO: Generate EOverloadedLabel once the pretty-printer handles the
-      -- (#label ambiguity. Currently, (#label is lexed as unboxed tuple opener
-      -- (# followed by identifier, so overloaded labels as the first element
-      -- of boxed tuples, lists, or after ( cause parse failures.
       EQuasiQuote span0 <$> genQuasiQuoteName <*> genStringValue,
       pure (EList span0 []),
       pure (ETuple span0 Boxed []),
@@ -129,6 +125,11 @@ genExprLeaf =
       (\n -> ETuple span0 Boxed (replicate n Nothing)) <$> chooseInt (2, 5),
       (\n -> ETuple span0 Unboxed (replicate n Nothing)) <$> chooseInt (2, 5)
     ]
+
+genOverloadedLabel :: Gen Expr
+genOverloadedLabel = do
+  labelName <- genIdent
+  pure (EOverloadedLabel span0 labelName ("#" <> labelName))
 
 -- | Generate a quasi-quote name, excluding TH bracket names (e, d, p, t) which
 -- would collide with Template Haskell bracket syntax ([e|...|], [d|...|], etc.).
@@ -303,11 +304,6 @@ genPatterns n = do
   count <- chooseInt (1, 3)
   vectorOf count (genPattern n)
 
--- | Generate a pattern safe for comprehension/guard contexts.
--- Excludes PView, PIrrefutable, PStrict, and PAs at all depths.
-genPatternNoView :: Int -> Gen Pattern
-genPatternNoView = Pat.genPatternNoView
-
 genCaseAltsWith :: Bool -> Int -> Gen [CaseAlt]
 genCaseAltsWith allowTHQuotes n = do
   count <- chooseInt (0, 3)
@@ -363,11 +359,11 @@ genGuardQualifierWith allowTHQuotes n =
       -- a function type rather than the guard's arrow.
       GuardExpr span0 . parenTypeSig <$> genExprSizedWith allowTHQuotes n,
       -- Pattern guard: | pat <- expr = ...
-      -- Guard qualifiers now support parenthesized top-level view patterns, but
-      -- still avoid other pattern forms that remain fragile in qualifier contexts.
+      -- The guarded-qualifier parser now accepts the full pattern generator,
+      -- which includes parenthesized view patterns such as `(view -> pat)`.
       -- The expression is also parenthesized if it's an ETypeSig, since
       -- `| pat <- expr :: Type -> body` has the same ambiguity.
-      GuardPat span0 <$> genGuardQualifierPattern half <*> (parenTypeSig <$> genExprSizedWith allowTHQuotes half),
+      GuardPat span0 <$> genPattern half <*> (parenTypeSig <$> genExprSizedWith allowTHQuotes half),
       -- Let guard: | let decls = ...
       GuardLet span0 <$> genValueDeclsWith allowTHQuotes n
     ]
@@ -376,19 +372,6 @@ genGuardQualifierWith allowTHQuotes n =
     -- Wrap ETypeSig in parens to avoid ambiguity with the guard arrow
     parenTypeSig e@(ETypeSig {}) = EParen span0 e
     parenTypeSig e = e
-
-genGuardQualifierPattern :: Int -> Gen Pattern
-genGuardQualifierPattern n =
-  frequency
-    [ (5, genPatternNoView n),
-      (1, genGuardQualifierViewPattern n)
-    ]
-
-genGuardQualifierViewPattern :: Int -> Gen Pattern
-genGuardQualifierViewPattern n = do
-  viewExpr <- resize 2 genExpr
-  inner <- Pat.genPattern (max 0 (n - 1))
-  pure (PView span0 viewExpr inner)
 
 -- | Generate value declarations for let/where.
 -- Zero-argument bindings are generated as PatternBind so they keep the same
@@ -453,11 +436,7 @@ genCompStmtsWith allowTHQuotes n = do
 genCompStmtWith :: Bool -> Int -> Gen CompStmt
 genCompStmtWith allowTHQuotes n =
   oneof
-    [ -- TODO: Restore genPattern here once the parser supports all pattern
-      -- constructors inside list comprehension generators. Currently, PView (->),
-      -- PIrrefutable (~), PStrict (!), and PAs (@) fail when nested inside
-      -- compound patterns (PList, PTuple, PCon args) in comprehension contexts.
-      CompGen span0 <$> genPatternNoView half <*> genExprSizedWith allowTHQuotes half,
+    [ CompGen span0 <$> genPattern half <*> genExprSizedWith allowTHQuotes half,
       CompGuard span0 <$> genExprSizedWith allowTHQuotes (n - 1),
       CompLetDecls span0 <$> genValueDeclsWith allowTHQuotes (n - 1)
     ]

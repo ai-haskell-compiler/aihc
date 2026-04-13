@@ -59,12 +59,13 @@ forallTypeParser = withSpan $ do
 forallBinderParser :: TokParser TyVarBinder
 forallBinderParser =
   withSpan $
-    -- Inferred binder: {k}
+    -- Inferred binder: {k} | {k :: Type}
     ( do
         expectedTok TkSpecialLBrace
         ident <- lowerIdentifierParser
+        mKind <- MP.optional (expectedTok TkReservedDoubleColon *> typeParser)
         expectedTok TkSpecialRBrace
-        pure (\span' -> TyVarBinder span' ident Nothing TyVarBInferred)
+        pure (\span' -> TyVarBinder span' ident mKind TyVarBInferred)
     )
       <|> ( do
               expectedTok TkSpecialLParen

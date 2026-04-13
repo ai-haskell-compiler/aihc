@@ -152,14 +152,17 @@ cmdStmtParser = do
     TkKeywordCase -> cmdBodyStmtParser
     TkReservedBackslash -> cmdBodyStmtParser
     TkSpecialLParen -> MP.try cmdBindOrBodyStmtParser <|> cmdBodyStmtParser
-    -- Pattern-only leading tokens: only valid in bind context.
-    TkPrefixBang -> cmdBindStmtParser
-    TkPrefixTilde -> cmdBindStmtParser
     _ -> do
-      isAs <- startsWithAsPattern
-      if isAs
+      isPatternBind <- startsWithPatternBind
+      if isPatternBind
         then cmdBindStmtParser
         else cmdBindOrBodyStmtParser
+
+startsWithPatternBind :: TokParser Bool
+startsWithPatternBind =
+  fmap (either (const False) (const True)) . MP.observing . MP.try . MP.lookAhead $ do
+    _ <- patternParser
+    expectedTok TkReservedLeftArrow
 
 -- | Parse a command do-statement: @cmd@ or @pat <- cmd@.
 -- Uses the expression-first approach: parse as expression, check for @<-@.

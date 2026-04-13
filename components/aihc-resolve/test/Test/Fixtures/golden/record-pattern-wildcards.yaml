@@ -1,0 +1,44 @@
+extensions:
+  - RecordWildCards
+modules:
+  - |
+    module Main where
+    data Person = Person
+      { name :: String
+      , age :: Int
+      , email :: String
+      }
+    getName :: Person -> String
+    getName (Person { name = n, .. }) = n
+expected:
+  Main:
+    - "2:6-2:12 Person => (type) Main.Person"
+    - "2:15-2:21 Person => (value) Main.Person"
+    - "3:13-3:19 String => (type) Error unbound"
+    - "4:12-4:15 Int => (type) Error unbound"
+    - "5:14-5:20 String => (type) Error unbound"
+    - "7:1-7:7 getName => (value) Main.getName"
+    - "7:12-7:18 Person => (type) Main.Person"
+    - "7:22-7:28 String => (type) Error unbound"
+    - "8:1-8:7 getName => (value) Main.getName"
+    - "8:25-8:26 n => (value) Local 0 n"
+    - "8:37-8:38 n => (value) Local 0 n"
+annotated:
+  - |
+    module Main where
+    data Person = Person
+         │        └─ v Main
+         └─ t Main
+      { name :: String
+                └─ t Error unbound
+      , age :: Int
+               └─ t Error unbound
+      , email :: String
+                 └─ t Error unbound
+      }
+    getName :: Person -> String
+    └─ v Main └─ t Main └─ t Error unbound
+    getName (Person { name = n, .. }) = n
+    └─ v Main               └─ v 0         └─ v 0
+status: xfail
+reason: "Record wildcard patterns (..) are not resolved - the resolver handles PRecord fields but does not expand wildcards to bring additional record field names into scope"
