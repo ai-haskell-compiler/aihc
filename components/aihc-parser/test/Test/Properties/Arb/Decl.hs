@@ -11,7 +11,7 @@ where
 import Aihc.Parser.Syntax
 import Data.Text (Text)
 import Data.Text qualified as T
-import Test.Properties.Arb.Expr (genExpr, shrinkExpr, span0)
+import Test.Properties.Arb.Expr (genExpr, isValidGeneratedOperator, shrinkExpr, span0)
 import Test.Properties.Arb.Identifiers (genIdent, shrinkIdent)
 import Test.QuickCheck
 
@@ -99,8 +99,16 @@ genFunctionDecl (name, expr) = do
 
 genDeclTypeSig :: Gen Decl
 genDeclTypeSig = do
-  name <- mkUnqualifiedName NameVarId <$> genIdent
-  DeclTypeSig span0 [name] <$> genSimpleType
+  nameCount <- chooseInt (1, 3)
+  names <- vectorOf nameCount genTypeSigBinderName
+  DeclTypeSig span0 names <$> genSimpleType
+
+genTypeSigBinderName :: Gen BinderName
+genTypeSigBinderName =
+  oneof
+    [ mkUnqualifiedName NameVarId <$> genIdent,
+      mkUnqualifiedName NameVarSym <$> genSymbolicOp
+    ]
 
 genDeclFixity :: Gen Decl
 genDeclFixity = do
@@ -632,7 +640,23 @@ shrinkDecl decl =
 
 shrinkUnqualifiedVarName :: UnqualifiedName -> [UnqualifiedName]
 shrinkUnqualifiedVarName name =
-  [mkUnqualifiedName NameVarId candidate | candidate <- shrinkIdent (renderUnqualifiedName name)]
+  [mkUnqualifiedName (unqualifiedNameType name) candidate | candidate <- shrinkBinderText name]
+
+shrinkBinderText :: UnqualifiedName -> [Text]
+shrinkBinderText name =
+  case unqualifiedNameType name of
+    NameVarId -> shrinkIdent (renderUnqualifiedName name)
+    NameVarSym -> shrinkSymbolicName (renderUnqualifiedName name)
+    _ -> []
+
+shrinkSymbolicName :: Text -> [Text]
+shrinkSymbolicName txt =
+  filter (not . T.null) $
+    shrinkList noShrink (T.unpack txt) >>= \chars ->
+      let candidate = T.pack chars
+       in [candidate | isValidGeneratedOperator candidate]
+  where
+    noShrink _ = []
 
 shrinkBinderName :: BinderName -> [BinderName]
 shrinkBinderName = shrinkUnqualifiedVarName
