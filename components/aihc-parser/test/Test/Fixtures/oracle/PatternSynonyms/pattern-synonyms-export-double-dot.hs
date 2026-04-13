@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail double-dot in export list with pattern synonyms -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE PatternSynonyms #-}
 module PatternSynonymsExportDoubleDot
   ( X

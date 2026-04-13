@@ -166,7 +166,8 @@ instance Arbitrary ExportSpec where
         ExportVar span0 <$> arbitrary <*> pure Nothing <*> genExportVarName,
         ExportAbs span0 <$> arbitrary <*> arbitrary <*> genExportTypeName,
         ExportAll span0 <$> arbitrary <*> arbitrary <*> genExportTypeName,
-        ExportWith span0 <$> arbitrary <*> arbitrary <*> genExportTypeName <*> genExportMembers
+        ExportWith span0 <$> arbitrary <*> arbitrary <*> genExportTypeName <*> genExportMembers,
+        ExportWithAll span0 <$> arbitrary <*> arbitrary <*> genExportTypeName <*> genExportMembers
       ]
 
   shrink spec =
@@ -188,6 +189,11 @@ instance Arbitrary ExportSpec where
           <> [ExportWith span0 Nothing namespace name members | Just _ <- [mWarning]]
           <> [ExportWith span0 mWarning namespace shrunk members | shrunk <- shrinkExportTypeName name]
           <> [ExportWith span0 mWarning namespace name shrunk | shrunk <- shrinkList shrink members, not (null shrunk)]
+      ExportWithAll _ mWarning namespace name members ->
+        [ExportWith span0 mWarning namespace name members]
+          <> [ExportWithAll span0 Nothing namespace name members | Just _ <- [mWarning]]
+          <> [ExportWithAll span0 mWarning namespace shrunk members | shrunk <- shrinkExportTypeName name]
+          <> [ExportWithAll span0 mWarning namespace name shrunk | shrunk <- shrinkList shrink members]
 
 instance Arbitrary IEEntityNamespace where
   arbitrary = elements [IEEntityNamespaceType, IEEntityNamespacePattern, IEEntityNamespaceData]
@@ -221,7 +227,8 @@ instance Arbitrary ImportItem where
       [ ImportItemVar span0 Nothing <$> genUnqualifiedVarName,
         ImportItemAbs span0 <$> genTypeNamespace <*> genTypeName,
         ImportItemAll span0 <$> genTypeNamespace <*> genTypeName,
-        ImportItemWith span0 <$> genBundledNamespace <*> genTypeName <*> genExportMembers
+        ImportItemWith span0 <$> genBundledNamespace <*> genTypeName <*> genExportMembers,
+        ImportItemAllWith span0 <$> genBundledNamespace <*> genTypeName <*> genExportMembers
       ]
 
   shrink item =
@@ -237,6 +244,10 @@ instance Arbitrary ImportItem where
         [ImportItemAbs span0 namespace name | not (null members)]
           <> [ImportItemWith span0 namespace shrunk members | shrunk <- shrinkTypeName name]
           <> [ImportItemWith span0 namespace name shrunk | shrunk <- shrinkList shrink members, not (null shrunk)]
+      ImportItemAllWith _ namespace name members ->
+        [ImportItemWith span0 namespace name members]
+          <> [ImportItemAllWith span0 namespace shrunk members | shrunk <- shrinkTypeName name]
+          <> [ImportItemAllWith span0 namespace name shrunk | shrunk <- shrinkList shrink members]
 
 instance Arbitrary IEBundledMember where
   arbitrary = do

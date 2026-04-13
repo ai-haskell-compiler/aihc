@@ -825,6 +825,7 @@ data ExportSpec
   | ExportAbs SourceSpan (Maybe WarningText) (Maybe IEEntityNamespace) Name
   | ExportAll SourceSpan (Maybe WarningText) (Maybe IEEntityNamespace) Name
   | ExportWith SourceSpan (Maybe WarningText) (Maybe IEEntityNamespace) Name [IEBundledMember]
+  | ExportWithAll SourceSpan (Maybe WarningText) (Maybe IEEntityNamespace) Name [IEBundledMember]
   deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan ExportSpec where
@@ -835,6 +836,7 @@ instance HasSourceSpan ExportSpec where
       ExportAbs span' _ _ _ -> span'
       ExportAll span' _ _ _ -> span'
       ExportWith span' _ _ _ _ -> span'
+      ExportWithAll span' _ _ _ _ -> span'
 
 data ImportDecl = ImportDecl
   { importDeclSpan :: SourceSpan,
@@ -873,6 +875,7 @@ data ImportItem
   | ImportItemAbs SourceSpan (Maybe IEEntityNamespace) UnqualifiedName
   | ImportItemAll SourceSpan (Maybe IEEntityNamespace) UnqualifiedName
   | ImportItemWith SourceSpan (Maybe IEEntityNamespace) UnqualifiedName [IEBundledMember]
+  | ImportItemAllWith SourceSpan (Maybe IEEntityNamespace) UnqualifiedName [IEBundledMember]
   deriving (Data, Eq, Show, Generic, NFData)
 
 data Decl
