@@ -99,6 +99,7 @@ normalizeLiteral lit =
 normalizeUnaryInner :: Pattern -> Pattern
 normalizeUnaryInner pat =
   case normalizePattern pat of
+    PParen _ inner@(PCon {}) -> inner
     PParen _ inner@(PNegLit {}) -> inner
     PParen _ inner@(PStrict {}) -> inner
     PParen _ inner@(PIrrefutable {}) -> inner
@@ -111,6 +112,7 @@ normalizeUnaryInner pat =
 normalizeAsInner :: Pattern -> Pattern
 normalizeAsInner pat =
   case normalizePattern pat of
+    PParen _ inner@(PCon {}) -> inner
     PParen _ inner@(PNegLit {}) -> inner
     PParen _ inner@(PStrict {}) -> inner
     PParen _ inner@(PIrrefutable {}) -> inner

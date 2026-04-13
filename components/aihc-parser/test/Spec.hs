@@ -178,15 +178,23 @@ buildTests = do
           "pretty"
           [ testCase "guard lambda round-trips with parentheses" test_prettyGuardLambdaRoundTrip,
             testCase "guard let expression stays unparenthesized" test_prettyGuardLetFormatting,
-            testCase "unicode operator type signatures round-trip with parentheses" test_prettyUnicodeOperatorTypeSigRoundTrip
+            testCase "unicode operator type signatures round-trip with parentheses" test_prettyUnicodeOperatorTypeSigRoundTrip,
+            testCase "prefix function head record pattern stays bare" test_prettyPrefixFunctionHeadRecordPattern,
+            testCase "infix function head constructor applications stay bare" test_prettyInfixFunctionHeadConstructorPatterns,
+            testCase "infix function head irrefutable patterns stay bare" test_prettyInfixFunctionHeadIrrefutablePatterns
           ],
         testGroup
           "functionHeadParserWith dispatch"
           [ testCase "prefix: f x y = x + y" test_funHeadPrefix,
             testCase "prefix no args: f = 5" test_funHeadPrefixNoArgs,
             testCase "prefix operator name: (+) x y = x" test_funHeadPrefixOp,
+            testCase "prefix constructor application arg: f (Just x) y = y" test_funHeadPrefixConstructorArg,
             testCase "infix: x + y = x" test_funHeadInfix,
             testCase "infix backtick: x `add` y = x" test_funHeadInfixBacktick,
+            testCase "infix record rhs: x `f` (R {}) = x" test_funHeadInfixRecordRhs,
+            testCase "infix tuple lhs and qualified record rhs" test_funHeadInfixTupleLhsQualifiedRecordRhs,
+            testCase "infix complex tuple lhs and qualified record rhs" test_funHeadInfixComplexTupleLhsQualifiedRecordRhs,
+            testCase "infix backtick with TH splice lhs: $splice `fn` () = ()" test_funHeadInfixThSpliceLhs,
             testCase "parenthesized infix: (x + y) = x" test_funHeadParenInfix,
             testCase "parenthesized infix with tail: (x + y) z = x" test_funHeadParenInfixTail,
             testCase "local prefix: let f x = x" test_funHeadLocalPrefix,
@@ -1153,6 +1161,64 @@ test_prettyUnicodeOperatorTypeSigRoundTrip = do
     ParseErr err ->
       assertFailure ("expected unicode operator type signature to parse, got:\n" <> MPE.errorBundlePretty err <> "\nsource:\n" <> T.unpack source)
 
+test_prettyPrefixFunctionHeadRecordPattern :: Assertion
+test_prettyPrefixFunctionHeadRecordPattern = do
+  let decl =
+        DeclValue
+          span0
+          ( FunctionBind
+              span0
+              "f"
+              [ Match
+                  { matchSpan = span0,
+                    matchHeadForm = MatchHeadPrefix,
+                    matchPats = [PRecord span0 (qualifyName Nothing (mkUnqualifiedName NameConId "Point")) [] True],
+                    matchRhs = UnguardedRhs span0 (EInt span0 0 "0") Nothing
+                  }
+              ]
+          )
+      source = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
+  assertBool ("expected bare record pattern in prefix function head, got:\n" <> T.unpack source) ("f Point {..} = 0" == source)
+
+test_prettyInfixFunctionHeadConstructorPatterns :: Assertion
+test_prettyInfixFunctionHeadConstructorPatterns = do
+  let box name = PCon span0 (qualifyName Nothing (mkUnqualifiedName NameConId "Box")) [PVar span0 name]
+      decl =
+        DeclValue
+          span0
+          ( FunctionBind
+              span0
+              "=="
+              [ Match
+                  { matchSpan = span0,
+                    matchHeadForm = MatchHeadInfix,
+                    matchPats = [box "x", box "y"],
+                    matchRhs = UnguardedRhs span0 (EVar span0 "x") Nothing
+                  }
+              ]
+          )
+      source = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
+  assertBool ("expected bare constructor applications in infix function head, got:\n" <> T.unpack source) ("Box x == Box y = x" == source)
+
+test_prettyInfixFunctionHeadIrrefutablePatterns :: Assertion
+test_prettyInfixFunctionHeadIrrefutablePatterns = do
+  let decl =
+        DeclValue
+          span0
+          ( FunctionBind
+              span0
+              "combine"
+              [ Match
+                  { matchSpan = span0,
+                    matchHeadForm = MatchHeadInfix,
+                    matchPats = [PIrrefutable span0 (PVar span0 "x"), PVar span0 "y"],
+                    matchRhs = UnguardedRhs span0 (EVar span0 "x") Nothing
+                  }
+              ]
+          )
+      source = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
+  assertBool ("expected bare irrefutable pattern in infix function head, got:\n" <> T.unpack source) ("~x `combine` y = x" == source)
+
 test_guardPatBind :: Assertion
 test_guardPatBind =
   case parseGuards "f x | Just y <- g x = y" of
@@ -1383,6 +1449,15 @@ parseTopDecl src =
           [decl] -> Right decl
           other -> Left ("expected one decl, got: " <> show (length other))
 
+parseTopDeclWithExts :: [Extension] -> T.Text -> Either String Decl
+parseTopDeclWithExts exts src =
+  let (errs, modu) = parseModule defaultConfig {parserExtensions = exts} src
+   in if not (null errs)
+        then Left ("parse errors: " <> show errs)
+        else case moduleDecls modu of
+          [decl] -> Right decl
+          other -> Left ("expected one decl, got: " <> show (length other))
+
 test_funHeadPrefix :: Assertion
 test_funHeadPrefix =
   case parseTopDecl "f x y = x + y" of
@@ -1401,6 +1476,12 @@ test_funHeadPrefixOp =
     Right (DeclValue _ (FunctionBind _ "+" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PVar _ "x", PVar _ "y"]}])) -> pure ()
     other -> assertFailure ("expected prefix operator function bind, got: " <> show other)
 
+test_funHeadPrefixConstructorArg :: Assertion
+test_funHeadPrefixConstructorArg =
+  case parseTopDecl "f (Just x) y = y" of
+    Right (DeclValue _ (FunctionBind _ "f" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PParen _ (PCon _ "Just" [PVar _ "x"]), PVar _ "y"]}])) -> pure ()
+    other -> assertFailure ("expected constructor application argument in prefix function head, got: " <> show other)
+
 test_funHeadInfix :: Assertion
 test_funHeadInfix =
   case parseTopDecl "x + y = x" of
@@ -1412,6 +1493,30 @@ test_funHeadInfixBacktick =
   case parseTopDecl "x `add` y = x" of
     Right (DeclValue _ (FunctionBind _ "add" [Match {matchHeadForm = MatchHeadInfix, matchPats = [PVar _ "x", PVar _ "y"]}])) -> pure ()
     other -> assertFailure ("expected backtick infix function bind, got: " <> show other)
+
+test_funHeadInfixRecordRhs :: Assertion
+test_funHeadInfixRecordRhs =
+  case parseTopDecl "x `f` (R {}) = x" of
+    Right (DeclValue _ (FunctionBind _ "f" [Match {matchHeadForm = MatchHeadInfix, matchPats = [PVar _ "x", PParen _ (PRecord _ "R" [] False)]}])) -> pure ()
+    other -> assertFailure ("expected infix function bind with record rhs pattern, got: " <> show other)
+
+test_funHeadInfixTupleLhsQualifiedRecordRhs :: Assertion
+test_funHeadInfixTupleLhsQualifiedRecordRhs =
+  case parseTopDecl "((x, _), K []) `f` (M.N.R {}) = x" of
+    Right (DeclValue _ (FunctionBind _ "f" [Match {matchHeadForm = MatchHeadInfix, matchPats = [PTuple _ Boxed _, PParen _ (PRecord _ "M.N.R" [] False)]}])) -> pure ()
+    other -> assertFailure ("expected infix function bind with tuple lhs and qualified record rhs pattern, got: " <> show other)
+
+test_funHeadInfixComplexTupleLhsQualifiedRecordRhs :: Assertion
+test_funHeadInfixComplexTupleLhsQualifiedRecordRhs =
+  case parseTopDeclWithExts [UnboxedTuples, UnboxedSums, QuasiQuotes] "((#  |  | -0xbe |  #), ([g|f|]), (# x, _ #), M.C [] []) `f` (N.R {}) = ()" of
+    Right (DeclValue _ (FunctionBind _ "f" [Match {matchHeadForm = MatchHeadInfix, matchPats = [PTuple _ Boxed _, PParen _ (PRecord _ "N.R" [] False)]}])) -> pure ()
+    other -> assertFailure ("expected infix function bind with complex tuple lhs and qualified record rhs pattern, got: " <> show other)
+
+test_funHeadInfixThSpliceLhs :: Assertion
+test_funHeadInfixThSpliceLhs =
+  case parseTopDecl "{-# LANGUAGE TemplateHaskell #-}\n$splice `fn` () = ()" of
+    Right (DeclValue _ (FunctionBind _ "fn" [Match {matchHeadForm = MatchHeadInfix, matchPats = [PSplice _ (EVar _ "splice"), PTuple _ Boxed []]}])) -> pure ()
+    other -> assertFailure ("expected TH splice lhs infix function bind, got: " <> show other)
 
 test_funHeadParenInfix :: Assertion
 test_funHeadParenInfix =

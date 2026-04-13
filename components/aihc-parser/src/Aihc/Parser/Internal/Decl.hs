@@ -82,7 +82,10 @@ ordinaryDeclParser = do
     TkSpecialLBracket -> typeSigOrPatternOrValueOrSpliceParser
     TkPrefixTilde -> typeSigOrPatternOrValueOrSpliceParser
     TkKeywordUnderscore -> typeSigOrPatternOrValueOrSpliceParser
-    TkTHSplice -> spliceDeclParser
+    TkTHSplice ->
+      if thFullEnabled
+        then MP.try valueDeclParser <|> spliceDeclParser
+        else spliceDeclParser
     _ -> typeSigOrValueOrSpliceParser
 
 -- | Parse a pragma declaration (e.g. {-# INLINE f #-}, {-# SPECIALIZE ... #-})
@@ -1388,7 +1391,7 @@ constructorOperatorParser =
 -- | Parse a pattern binding declaration like @(x, y) = (1, 2)@.
 -- This handles bindings where the LHS is a pattern rather than a function name.
 patternBindDeclParser :: TokParser Decl
-patternBindDeclParser = withSpan $ do
+patternBindDeclParser = MP.try $ withSpan $ do
   pat <- region "while parsing pattern binding" patternParser
   rhs <- equationRhsParser
   pure (\span' -> DeclValue span' (PatternBind span' pat rhs))

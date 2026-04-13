@@ -13,6 +13,7 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Test.Properties.Arb.Expr (genExpr, genOperator, isValidGeneratedOperator, shrinkExpr, span0)
 import Test.Properties.Arb.Identifiers (genIdent, shrinkIdent)
+import Test.Properties.Arb.Pattern (canonicalPatternAtomForComp, genPattern)
 import Test.Properties.Arb.Type (canonicalFunLeft, canonicalTopLevelType, genType)
 import Test.QuickCheck
 
@@ -60,12 +61,8 @@ genFunctionDecl (name, expr) = do
   case headForm of
     MatchHeadPrefix ->
       do
-        pats <-
-          case unqualifiedNameType name of
-            NameVarSym -> do
-              patCount <- chooseInt (1, 2)
-              vectorOf patCount (PVar span0 . mkUnqualifiedName NameVarId <$> genIdent)
-            _ -> pure []
+        patCount <- chooseInt (1, 3)
+        pats <- vectorOf patCount (sized (genPattern . min 3))
         pure $
           DeclValue
             span0
@@ -80,27 +77,24 @@ genFunctionDecl (name, expr) = do
                     }
                 ]
             )
-    MatchHeadInfix -> do
-      -- For infix bindings, generate an operator name and two PVar patterns.
-      -- Symbolic operators: x + y = ..., backtick identifiers: x `f` y = ...
-      opName <-
-        genVarBinderName
-      lhsPat <- PVar span0 . mkUnqualifiedName NameVarId <$> genIdent
-      rhsPat <- PVar span0 . mkUnqualifiedName NameVarId <$> genIdent
-      pure $
-        DeclValue
-          span0
-          ( FunctionBind
-              span0
-              opName
-              [ Match
-                  { matchSpan = span0,
-                    matchHeadForm = MatchHeadInfix,
-                    matchPats = [lhsPat, rhsPat],
-                    matchRhs = UnguardedRhs span0 expr Nothing
-                  }
-              ]
-          )
+    MatchHeadInfix ->
+      do
+        lhsPat <- canonicalPatternAtomForComp <$> sized (genPattern . min 3)
+        rhsPat <- canonicalPatternAtomForComp <$> sized (genPattern . min 3)
+        pure $
+          DeclValue
+            span0
+            ( FunctionBind
+                span0
+                name
+                [ Match
+                    { matchSpan = span0,
+                      matchHeadForm = MatchHeadInfix,
+                      matchPats = [lhsPat, rhsPat],
+                      matchRhs = UnguardedRhs span0 expr Nothing
+                    }
+                ]
+            )
 
 genDeclTypeSig :: Gen Decl
 genDeclTypeSig = do

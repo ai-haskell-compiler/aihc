@@ -386,8 +386,8 @@ genGuardQualifierWith allowTHQuotes n =
     parenTypeSig e = e
 
 -- | Generate value declarations for let/where.
--- We use FunctionBind format because that's what the parser produces for simple
--- variable bindings like `x = e`.
+-- Zero-argument bindings are generated as PatternBind so they keep the same
+-- AST shape after pretty-print/parser roundtrip.
 genValueDeclsWith :: Bool -> Int -> Gen [Decl]
 genValueDeclsWith allowTHQuotes n = do
   count <- chooseInt (0, 3)
@@ -396,16 +396,10 @@ genValueDeclsWith allowTHQuotes n = do
   pure
     [ DeclValue
         span0
-        ( FunctionBind
+        ( PatternBind
             span0
-            name
-            [ Match
-                { matchSpan = span0,
-                  matchHeadForm = MatchHeadPrefix,
-                  matchPats = [],
-                  matchRhs = UnguardedRhs span0 expr Nothing
-                }
-            ]
+            (PVar span0 name)
+            (UnguardedRhs span0 expr Nothing)
         )
     | (name, expr) <- zip names exprs
     ]

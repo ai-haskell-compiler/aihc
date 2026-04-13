@@ -327,16 +327,16 @@ prettyFunctionHead :: UnqualifiedName -> MatchHeadForm -> [Pattern] -> Doc ann
 prettyFunctionHead name headForm pats =
   case headForm of
     MatchHeadPrefix ->
-      hsep (prettyBinderUName name : map prettyPattern pats)
+      hsep (prettyBinderUName name : map prettyFunctionHeadPatternAtom pats)
     MatchHeadInfix ->
       case pats of
         lhs : rhsPat : tailPats ->
-          let infixHead = prettyPattern lhs <+> prettyInfixOp (renderUnqualifiedName name) <+> prettyPattern rhsPat
+          let infixHead = prettyInfixFunctionHeadPatternAtom lhs <+> prettyInfixOp (renderUnqualifiedName name) <+> prettyInfixFunctionHeadPatternAtom rhsPat
            in case tailPats of
                 [] -> infixHead
-                _ -> hsep (parens infixHead : map prettyPattern tailPats)
+                _ -> hsep (parens infixHead : map prettyFunctionHeadPatternAtom tailPats)
         _ ->
-          hsep (prettyBinderUName name : map prettyPattern pats)
+          hsep (prettyBinderUName name : map prettyFunctionHeadPatternAtom pats)
 
 prettyRhs :: Rhs -> Doc ann
 prettyRhs rhs =
@@ -558,6 +558,9 @@ prettyPatternInDelimited :: Pattern -> Doc ann
 prettyPatternInDelimited pat =
   case pat of
     PView _ viewExpr inner -> prettyExprPrec 2 viewExpr <+> "->" <+> prettyPattern inner
+    PAs _ name inner -> pretty name <> "@" <> prettyPatternAtomStrict inner
+    PStrict _ inner -> "!" <> prettyPatternAtomStrict inner
+    PIrrefutable _ inner -> "~" <> prettyPatternAtomStrict inner
     _ -> prettyPattern pat
 
 -- | Pretty print a pattern field binding.
@@ -601,12 +604,35 @@ prettyLambdaPatternAtom pat =
     PCon _ _ [] -> parens (prettyPattern pat)
     _ -> prettyPatternAtom pat
 
+-- | Pretty print a pattern in function-head argument position.
+-- Function heads need the same nullary-constructor protection as lambda
+-- patterns, and also need constructor applications parenthesized so they do not
+-- get split into multiple head arguments by the parser.
+prettyFunctionHeadPatternAtom :: Pattern -> Doc ann
+prettyFunctionHeadPatternAtom pat =
+  case pat of
+    PNegLit {} -> parens (prettyPattern pat)
+    PCon _ _ (_ : _) -> parens (prettyPattern pat)
+    PRecord {} -> prettyPattern pat
+    _ -> prettyPatternAtom pat
+
+-- | Pretty print a pattern as an infix function-head operand.
+-- Infix operands are already delimited by the operator, so constructor
+-- applications and unary-pattern forms can stay bare. Only negative literals
+-- still need parens to avoid being read as subtraction.
+prettyInfixFunctionHeadPatternAtom :: Pattern -> Doc ann
+prettyInfixFunctionHeadPatternAtom pat =
+  case pat of
+    PNegLit {} -> parens (prettyPattern pat)
+    _ -> prettyPattern pat
+
 -- | Pretty print a pattern atom after @ or as the operand of ! or ~.
 -- Negative literals and nested strictness/irrefutability need parens.
 prettyPatternAtomStrict :: Pattern -> Doc ann
 prettyPatternAtomStrict pat =
   case pat of
     PNegLit {} -> parens (prettyPattern pat)
+    PCon _ _ [] -> parens (prettyPattern pat)
     PStrict {} -> parens (prettyPattern pat)
     PIrrefutable {} -> parens (prettyPattern pat)
     PRecord {} -> prettyPattern pat

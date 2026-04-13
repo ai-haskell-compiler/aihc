@@ -141,6 +141,7 @@ normalizeLambdaPat pat =
 normalizeUnaryPatInner :: Pattern -> Pattern
 normalizeUnaryPatInner pat =
   case normalizePattern pat of
+    PParen _ inner@(PCon {}) -> inner
     PParen _ inner@(PNegLit {}) -> inner
     PParen _ inner@(PStrict {}) -> inner
     PParen _ inner@(PIrrefutable {}) -> inner
@@ -191,6 +192,8 @@ normalizeValueDecl :: ValueDecl -> ValueDecl
 normalizeValueDecl vdecl =
   case vdecl of
     PatternBind _ pat rhs -> PatternBind span0 (normalizePattern pat) (normalizeRhs rhs)
+    FunctionBind _ name [Match {matchHeadForm = MatchHeadPrefix, matchPats = [], matchRhs = rhs}] ->
+      PatternBind span0 (PVar span0 name) (normalizeRhs rhs)
     FunctionBind _ name matches -> FunctionBind span0 name (map normalizeMatch matches)
 
 normalizeMatch :: Match -> Match
@@ -198,9 +201,23 @@ normalizeMatch m =
   Match
     { matchSpan = span0,
       matchHeadForm = matchHeadForm m,
-      matchPats = map normalizePattern (matchPats m),
+      matchPats = map normalizeFunctionHeadPat (matchPats m),
       matchRhs = normalizeRhs (matchRhs m)
     }
+
+-- | Normalize a pattern in function-head argument position.
+-- The pretty-printer wraps constructor applications, infix patterns, type
+-- signatures, records, and negative literals in parens when they appear as
+-- head arguments so the parser does not split them into multiple patterns.
+normalizeFunctionHeadPat :: Pattern -> Pattern
+normalizeFunctionHeadPat pat =
+  case normalizePattern pat of
+    PParen _ inner@(PNegLit {}) -> inner
+    PParen _ inner@(PCon {}) -> inner
+    PParen _ inner@(PInfix {}) -> inner
+    PParen _ inner@(PTypeSig {}) -> inner
+    PParen _ inner@(PRecord {}) -> inner
+    other -> other
 
 normalizeDoStmt :: DoStmt Expr -> DoStmt Expr
 normalizeDoStmt stmt =
