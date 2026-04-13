@@ -16,7 +16,8 @@ library
     , Aihc.Parser.Lex
     , Aihc.Parser.Shorthand
   other-modules:
-      Aihc.Parser.Pretty
+      Aihc.Parser.Parens
+    , Aihc.Parser.Pretty
     , Aihc.Parser.Types
     , Aihc.Parser.Lex.Header
     , Aihc.Parser.Lex.Layout
@@ -60,6 +61,7 @@ test-suite spec
     , Aihc.Parser.Syntax
     , Aihc.Parser.Lex
     , Aihc.Parser.Shorthand
+    , Aihc.Parser.Parens
     , Aihc.Parser.Pretty
     , Aihc.Parser.Types
     , Aihc.Parser.Lex.Header
