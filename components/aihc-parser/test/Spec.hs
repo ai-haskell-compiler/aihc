@@ -113,7 +113,8 @@ buildTests = do
             testCase "parses infix class heads" test_infixClassHeadParses,
             testCase "roundtrips else branches with local where clauses" test_ifElseWhereBranchRoundtrip,
             testCase "parses and roundtrips infix type family heads" test_infixTypeFamilyHeadRoundtrip,
-            QC.testProperty "generated operators reject dash-only comment starters" prop_generatedOperatorsRejectDashOnlyCommentStarters
+            QC.testProperty "generated operators reject dash-only comment starters" prop_generatedOperatorsRejectDashOnlyCommentStarters,
+            QC.testProperty "generated operators can produce unicode asterism" prop_generatedOperatorsCanProduceUnicodeAsterism
           ],
         testGroup
           "checkPattern (do-bind)"
@@ -165,6 +166,7 @@ buildTests = do
           [ testCase "type sig: f :: Int" test_localDeclTypeSig,
             testCase "type sig multi: f, g :: Int" test_localDeclTypeSigMulti,
             testCase "type sig operator: (+) :: Int -> Int -> Int" test_localDeclTypeSigOp,
+            testCase "type sig unicode operator: (⁂) :: Int -> Int -> Int" test_localDeclTypeSigUnicodeOp,
             testCase "function bind prefix: f x = x" test_localDeclFunPrefix,
             testCase "function bind no args: f = 5" test_localDeclFunNoArgs,
             testCase "pattern bind tuple: (x, y) = expr" test_localDeclPatTuple,
@@ -175,7 +177,8 @@ buildTests = do
         testGroup
           "pretty"
           [ testCase "guard lambda round-trips with parentheses" test_prettyGuardLambdaRoundTrip,
-            testCase "guard let expression stays unparenthesized" test_prettyGuardLetFormatting
+            testCase "guard let expression stays unparenthesized" test_prettyGuardLetFormatting,
+            testCase "unicode operator type signatures round-trip with parentheses" test_prettyUnicodeOperatorTypeSigRoundTrip
           ],
         testGroup
           "functionHeadParserWith dispatch"
@@ -883,6 +886,13 @@ prop_generatedOperatorsRejectDashOnlyCommentStarters =
     let invalid = filter (not . isValidGeneratedOperator) ops
      in QC.counterexample ("invalid generated operators: " <> show invalid) (null invalid)
 
+prop_generatedOperatorsCanProduceUnicodeAsterism :: QC.Property
+prop_generatedOperatorsCanProduceUnicodeAsterism =
+  QC.withMaxSuccess 25 $
+    QC.forAll (QC.vectorOf 2000 genOperator) $ \ops ->
+      QC.counterexample "expected generator to include ⁂ in sampled operators" $
+        "⁂" `elem` ops
+
 -- Helper: parse a do-expression and extract the do-statements.
 parseDoStmts :: T.Text -> Either String [DoStmt Expr]
 parseDoStmts src =
@@ -1127,6 +1137,22 @@ test_prettyGuardLetFormatting = do
       source = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
   assertBool ("expected guard let expression without extra parens, got:\n" <> T.unpack source) (not ("| (let" `T.isInfixOf` source))
 
+test_prettyUnicodeOperatorTypeSigRoundTrip :: Assertion
+test_prettyUnicodeOperatorTypeSigRoundTrip = do
+  let intTy = TCon span0 (qualifyName Nothing (mkUnqualifiedName NameConId "Int")) Unpromoted
+      decl =
+        DeclTypeSig
+          span0
+          [mkUnqualifiedName NameVarSym "⁂"]
+          (TFun span0 intTy (TFun span0 intTy intTy))
+      source = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
+  assertBool ("expected unicode operator binder to be parenthesized, got:\n" <> T.unpack source) ("(⁂) ::" `T.isPrefixOf` source)
+  case parseDecl defaultConfig source of
+    ParseOk parsed ->
+      normalizeDecl parsed @?= normalizeDecl decl
+    ParseErr err ->
+      assertFailure ("expected unicode operator type signature to parse, got:\n" <> MPE.errorBundlePretty err <> "\nsource:\n" <> T.unpack source)
+
 test_guardPatBind :: Assertion
 test_guardPatBind =
   case parseGuards "f x | Just y <- g x = y" of
@@ -1298,6 +1324,13 @@ test_localDeclTypeSigOp =
   case parseLetDecls "let { (+) :: Int -> Int -> Int } in 1 + 2" of
     Right [DeclTypeSig _ ["+"] _] -> pure ()
     other -> assertFailure ("expected operator type sig, got: " <> show other)
+
+test_localDeclTypeSigUnicodeOp :: Assertion
+test_localDeclTypeSigUnicodeOp =
+  case parseLetDecls "let { (⁂) :: Int -> Int -> Int } in 1 ⁂ 2" of
+    Right [DeclTypeSig _ [name] _]
+      | unqualifiedNameType name == NameVarSym && renderUnqualifiedName name == "⁂" -> pure ()
+    other -> assertFailure ("expected unicode operator type sig, got: " <> show other)
 
 test_localDeclFunPrefix :: Assertion
 test_localDeclFunPrefix =

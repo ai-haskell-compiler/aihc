@@ -13,7 +13,7 @@ where
 
 import Aihc.Parser.Lex (isReservedIdentifier)
 import Aihc.Parser.Syntax
-import Data.Char (isSpace)
+import Data.Char (GeneralCategory (..), generalCategory, isAscii, isSpace)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Test.Properties.Arb.Identifiers (extensionReservedIdentifiers, genIdent, shrinkIdent)
@@ -183,15 +183,104 @@ genOperatorName = do
 genCustomOperator :: Gen Text
 genCustomOperator = do
   len <- chooseInt (1, 3)
-  -- Note: matches ":!#$%&*+./<=>?\\^|-~" from Pretty.hs isOperatorToken
-  -- Excluding ':' since that's for constructor operators
-  -- Excluding '#' because it conflicts with (# and #) tokens when UnboxedTuples/UnboxedSums is enabled
-  chars <- vectorOf len (elements "!$%&*+./<=>?\\^|-~")
+  chars <- vectorOf len genOperatorChar
   let candidate = T.pack chars
   -- Avoid reserved operators and symbols that lex as comments.
   if isValidGeneratedOperator candidate
     then pure candidate
     else genCustomOperator
+
+genOperatorChar :: Gen Char
+genOperatorChar =
+  frequency
+    [ (5, elements asciiOperatorChars),
+      (3, elements curatedUnicodeOperatorChars),
+      (2, elements unicodeOperatorChars)
+    ]
+
+asciiOperatorChars :: [Char]
+asciiOperatorChars = "!$%&*+./<=>?\\^|-~"
+
+curatedUnicodeOperatorChars :: [Char]
+curatedUnicodeOperatorChars =
+  [ '⁂',
+    '‼',
+    '∘',
+    '⊕',
+    '⋆',
+    '¤',
+    '₿',
+    '¨',
+    '¯',
+    '©'
+  ]
+
+unicodeOperatorChars :: [Char]
+unicodeOperatorChars =
+  extraUnicodeOperatorChars <> concatMap (filter isAllowedUnicodeOperatorChar . expandRange) unicodeOperatorRanges
+
+extraUnicodeOperatorChars :: [Char]
+extraUnicodeOperatorChars =
+  ['⁂', '‼']
+
+unicodeOperatorRanges :: [(Char, Char)]
+unicodeOperatorRanges =
+  [ ('\x00A2', '\x00A9'),
+    ('\x2000', '\x206F'),
+    ('\x02C2', '\x02DF'),
+    ('\x20A0', '\x20CF'),
+    ('\x2100', '\x214F'),
+    ('\x2190', '\x21FF'),
+    ('\x2200', '\x22FF'),
+    ('\x2300', '\x23FF'),
+    ('\x2460', '\x24FF'),
+    ('\x2500', '\x257F'),
+    ('\x2580', '\x259F'),
+    ('\x25A0', '\x25FF'),
+    ('\x2600', '\x26FF'),
+    ('\x27C0', '\x27EF'),
+    ('\x27F0', '\x27FF'),
+    ('\x2900', '\x297F'),
+    ('\x2980', '\x29FF'),
+    ('\x2A00', '\x2AFF'),
+    ('\x2B00', '\x2BFF')
+  ]
+
+expandRange :: (Char, Char) -> [Char]
+expandRange (lo, hi) = [lo .. hi]
+
+isAllowedUnicodeOperatorChar :: Char -> Bool
+isAllowedUnicodeOperatorChar c =
+  isTargetUnicodeOperatorCategory c
+    && c `notElem` bannedUnicodeOperatorChars
+
+isTargetUnicodeOperatorCategory :: Char -> Bool
+isTargetUnicodeOperatorCategory c =
+  case generalCategory c of
+    MathSymbol -> True
+    CurrencySymbol -> True
+    ModifierSymbol -> True
+    OtherSymbol -> True
+    OtherPunctuation -> not (isAscii c)
+    _ -> False
+
+bannedUnicodeOperatorChars :: [Char]
+bannedUnicodeOperatorChars =
+  [ '→',
+    '←',
+    '⇒',
+    '∷',
+    '∀',
+    '⤙',
+    '⤚',
+    '⤛',
+    '⤜',
+    '⦇',
+    '⦈',
+    '⟦',
+    '⟧',
+    '⊸'
+  ]
 
 isValidGeneratedOperator :: Text -> Bool
 isValidGeneratedOperator candidate =

@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail reason="Unicode bullet operator not recognized by lexer" -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE UnicodeSyntax #-}
 
 module UnicodeCompositionOperator where

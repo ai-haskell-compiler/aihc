@@ -22,7 +22,7 @@ module Aihc.Parser.Pretty
 where
 
 import Aihc.Parser.Syntax
-import Data.Char (GeneralCategory (..), generalCategory)
+import Data.Char (GeneralCategory (..), generalCategory, isAscii)
 import Data.Maybe (catMaybes, isJust)
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -1093,16 +1093,16 @@ isArrowTailOp "-<" = True
 isArrowTailOp "-<<" = True
 isArrowTailOp _ = False
 
-prettyFunctionBinder :: Text -> Doc ann
+prettyFunctionBinder :: UnqualifiedName -> Doc ann
 prettyFunctionBinder name
-  | isOperatorToken name = parens (pretty name)
-  | otherwise = pretty name
+  | unqualifiedNameType name == NameVarSym || unqualifiedNameType name == NameConSym = parens (pretty (renderUnqualifiedName name))
+  | otherwise = pretty (renderUnqualifiedName name)
 
 prettyBinderName :: UnqualifiedName -> Doc ann
-prettyBinderName = prettyFunctionBinder . renderUnqualifiedName
+prettyBinderName = prettyFunctionBinder
 
 prettyBinderUName :: UnqualifiedName -> Doc ann
-prettyBinderUName = prettyFunctionBinder . renderUnqualifiedName
+prettyBinderUName = prettyFunctionBinder
 
 -- | Pretty-print a Name, wrapping operators in parentheses regardless of qualification.
 prettyName :: Name -> Doc ann
@@ -1634,6 +1634,7 @@ isUnicodeSymbolCategory c = case generalCategory c of
   CurrencySymbol -> True
   ModifierSymbol -> True
   OtherSymbol -> True
+  OtherPunctuation -> not (isAscii c)
   _ -> False
 
 -- | Pretty-print a TH splice with the given prefix ("$" or "$$").

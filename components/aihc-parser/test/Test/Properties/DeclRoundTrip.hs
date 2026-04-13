@@ -19,7 +19,7 @@ import Text.Megaparsec.Error qualified as MPE
 declConfig :: ParserConfig
 declConfig =
   defaultConfig
-    { parserExtensions = [BlockArguments, UnboxedTuples, UnboxedSums, TemplateHaskell]
+    { parserExtensions = [BlockArguments, UnboxedTuples, UnboxedSums, TemplateHaskell, UnicodeSyntax]
     }
 
 prop_declPrettyRoundTrip :: Decl -> Property

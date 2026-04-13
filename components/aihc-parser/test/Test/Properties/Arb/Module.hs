@@ -17,7 +17,7 @@ import Data.Char (isUpper)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Test.Properties.Arb.Decl ()
-import Test.Properties.Arb.Expr (span0)
+import Test.Properties.Arb.Expr (genOperator, isValidGeneratedOperator, span0)
 import Test.Properties.Arb.Identifiers (genIdent, shrinkIdent)
 import Test.QuickCheck
 
@@ -55,6 +55,7 @@ baseModuleLanguagePragmas =
     EnableExtension UnboxedTuples,
     EnableExtension UnboxedSums,
     EnableExtension TemplateHaskell,
+    EnableExtension UnicodeSyntax,
     EnableExtension LambdaCase,
     EnableExtension QuasiQuotes,
     EnableExtension ExplicitNamespaces,
@@ -261,7 +262,7 @@ genUnqualifiedMemberName =
 genQualifiedMemberName :: Gen Name
 genQualifiedMemberName = do
   modName <- genModuleName
-  qualifyName (Just modName) <$> genTypeName
+  qualifyName (Just modName) <$> oneof [genUnqualifiedVarName, genTypeName]
 
 genMemberNameFor :: Maybe IEBundledNamespace -> Gen Name
 genMemberNameFor namespace =
@@ -276,9 +277,9 @@ shrinkMemberNameFor namespace name =
     Just _ -> shrinkTypeNameFor name
   where
     shrinkUnqualifiedVarNameFor n =
-      [ qualifyName (nameQualifier n) (mkUnqualifiedName NameVarId candidate)
-      | nameType n == NameVarId,
-        candidate <- shrinkIdent (nameText n)
+      [ qualifyName (nameQualifier n) (mkUnqualifiedName (nameType n) candidate)
+      | nameType n `elem` [NameVarId, NameVarSym],
+        candidate <- shrinkVarText n
       ]
     shrinkTypeNameFor n =
       [ qualifyName (nameQualifier n) (mkUnqualifiedName NameConId candidate)
@@ -287,6 +288,11 @@ shrinkMemberNameFor namespace name =
         not (T.null candidate),
         isUpper (T.head candidate)
       ]
+    shrinkVarText n =
+      case nameType n of
+        NameVarId -> shrinkIdent (nameText n)
+        NameVarSym -> shrinkSymbolicName (nameText n)
+        _ -> []
 
 instance Arbitrary ImportDecl where
   arbitrary = do
@@ -394,13 +400,33 @@ genMemberNamespace =
     ]
 
 genUnqualifiedVarName :: Gen UnqualifiedName
-genUnqualifiedVarName = mkUnqualifiedName NameVarId <$> genIdent
+genUnqualifiedVarName =
+  oneof
+    [ mkUnqualifiedName NameVarId <$> genIdent,
+      mkUnqualifiedName NameVarSym <$> genOperator
+    ]
 
 shrinkUnqualifiedVarName :: UnqualifiedName -> [UnqualifiedName]
 shrinkUnqualifiedVarName name =
-  [ mkUnqualifiedName NameVarId candidate
-  | candidate <- shrinkIdent (renderUnqualifiedName name)
+  [ mkUnqualifiedName (unqualifiedNameType name) candidate
+  | candidate <- shrinkUnqualifiedVarText name
   ]
+
+shrinkUnqualifiedVarText :: UnqualifiedName -> [Text]
+shrinkUnqualifiedVarText name =
+  case unqualifiedNameType name of
+    NameVarId -> shrinkIdent (renderUnqualifiedName name)
+    NameVarSym -> shrinkSymbolicName (renderUnqualifiedName name)
+    _ -> []
+
+shrinkSymbolicName :: Text -> [Text]
+shrinkSymbolicName txt =
+  filter (not . T.null) $
+    shrinkList noShrink (T.unpack txt) >>= \chars ->
+      let candidate = T.pack chars
+       in [candidate | isValidGeneratedOperator candidate]
+  where
+    noShrink _ = []
 
 genImportItems :: Gen [ImportItem]
 genImportItems = do
