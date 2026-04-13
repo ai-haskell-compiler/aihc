@@ -95,8 +95,9 @@ parseConstraint entry
           let ws = words entry
            in case ws of
                 -- Snapshot constraints like "base installed" refer to compiler-provided
-                -- packages and do not map to downloadable Hackage tarballs.
-                [_, "installed"] -> Nothing
+                -- packages. We return a PackageSpec with version "installed" so that
+                -- downstream code can fetch the latest version from Hackage.
+                [name, "installed"] -> Just (PackageSpec (trim name) "installed")
                 _ -> Nothing
 
 breakOn :: String -> String -> Maybe (String, String)
