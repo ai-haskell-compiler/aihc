@@ -108,6 +108,7 @@ genExprLeaf :: Gen Expr
 genExprLeaf =
   oneof
     [ EVar span0 <$> genVarName,
+      genOverloadedLabel,
       mkIntExpr <$> chooseInteger (0, 999),
       mkHexExpr <$> chooseInteger (0, 255),
       mkFloatExpr <$> genTenths,
@@ -118,10 +119,6 @@ genExprLeaf =
       (\v -> EFloatHash span0 v (T.pack (show v) <> "#")) <$> genTenths,
       (\v -> ECharHash span0 v (T.pack (show v) <> "#")) <$> genCharValue,
       (\v -> EStringHash span0 v (T.pack (show (T.unpack v)) <> "#")) <$> genStringValue,
-      -- TODO: Generate EOverloadedLabel once the pretty-printer handles the
-      -- (#label ambiguity. Currently, (#label is lexed as unboxed tuple opener
-      -- (# followed by identifier, so overloaded labels as the first element
-      -- of boxed tuples, lists, or after ( cause parse failures.
       EQuasiQuote span0 <$> genQuasiQuoteName <*> genStringValue,
       pure (EList span0 []),
       pure (ETuple span0 Boxed []),
@@ -129,6 +126,11 @@ genExprLeaf =
       (\n -> ETuple span0 Boxed (replicate n Nothing)) <$> chooseInt (2, 5),
       (\n -> ETuple span0 Unboxed (replicate n Nothing)) <$> chooseInt (2, 5)
     ]
+
+genOverloadedLabel :: Gen Expr
+genOverloadedLabel = do
+  labelName <- genIdent
+  pure (EOverloadedLabel span0 labelName ("#" <> labelName))
 
 -- | Generate a quasi-quote name, excluding TH bracket names (e, d, p, t) which
 -- would collide with Template Haskell bracket syntax ([e|...|], [d|...|], etc.).

@@ -85,6 +85,7 @@ buildTests = do
             testCase "lexes quoted overloaded labels" test_quotedOverloadedLabelLexes,
             testCase "lexes string gaps before a closing quote" test_stringGapBeforeClosingQuoteLexes,
             testCase "parses overloaded label expressions" test_overloadedLabelExprParses,
+            testCase "pretty-prints overloaded labels with delimiter spacing" test_overloadedLabelPrettyPrintsWithDelimiterSpacing,
             testCase "applies LINE pragmas to subsequent tokens" test_linePragmaUpdatesSpan,
             testCase "applies COLUMN pragmas to subsequent tokens" test_columnPragmaUpdatesSpan,
             testCase "applies COLUMN pragmas in the middle of a line" test_inlineColumnPragmaUpdatesSpan,
@@ -818,6 +819,25 @@ test_overloadedLabelExprParses =
             DeclValue _ (FunctionBind _ _ [Match {matchRhs = UnguardedRhs _ (EOverloadedLabel _ "The quick brown fox" "#\"The quick brown fox\"") _}])
             ] -> pure ()
           other -> assertFailure ("expected overloaded label expressions in AST, got: " <> show other)
+
+test_overloadedLabelPrettyPrintsWithDelimiterSpacing :: Assertion
+test_overloadedLabelPrettyPrintsWithDelimiterSpacing = do
+  let config = defaultConfig {parserExtensions = [OverloadedLabels, UnboxedTuples]}
+      exprs =
+        [ ETuple span0 Boxed [Just (EOverloadedLabel span0 "a" "#a"), Nothing],
+          EList span0 [EOverloadedLabel span0 "a" "#a"],
+          EParen span0 (EOverloadedLabel span0 "a" "#a")
+        ]
+      rendered = map (renderStrict . layoutPretty defaultLayoutOptions . pretty) exprs
+      expected = ["( #a, )", "[ #a]", "( #a)"]
+  assertEqual "pretty-printed forms" expected rendered
+  mapM_
+    ( \source ->
+        case parseExpr config source of
+          ParseErr err -> assertFailure ("expected parse success for " <> T.unpack source <> "\n" <> MPE.errorBundlePretty err)
+          ParseOk _ -> pure ()
+    )
+    rendered
 
 test_linePragmaUpdatesSpan :: Assertion
 test_linePragmaUpdatesSpan =

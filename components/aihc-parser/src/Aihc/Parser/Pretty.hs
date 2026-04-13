@@ -1247,6 +1247,17 @@ isGreedyExpr = \case
 prettyExprGuarded :: Expr -> Doc ann
 prettyExprGuarded = prettyExprIn CtxGuarded
 
+startsWithOverloadedLabel :: Expr -> Bool
+startsWithOverloadedLabel = \case
+  EOverloadedLabel {} -> True
+  EAnn _ sub -> startsWithOverloadedLabel sub
+  EApp _ fn _ -> startsWithOverloadedLabel fn
+  EInfix _ lhs _ _ -> startsWithOverloadedLabel lhs
+  ERecordUpd _ base _ -> startsWithOverloadedLabel base
+  ETypeSig _ inner _ -> startsWithOverloadedLabel inner
+  ETypeApp _ fn _ -> startsWithOverloadedLabel fn
+  _ -> False
+
 -- | Check if an expression is "open-ended" - its rightmost component can
 -- capture a trailing where clause. This includes:
 -- - Directly open-ended expressions (if, lambda, let)
@@ -1287,7 +1298,7 @@ prettyNegate inner =
   -- Without parens, -$x lexes as the operator -$ followed by x,
   -- and - $x lexes as a right section. The same applies when a splice
   -- is the leading subexpression of a record update or application.
-  if startsWithDollar inner
+  if startsWithDollar inner || startsWithOverloadedLabel inner
     then "-" <> parens (prettyExprPrec 0 inner)
     else "-" <> prettyExprPrec 3 inner
 
@@ -1350,7 +1361,7 @@ prettyExprPrec prec expr =
     ECharHash _ _ repr -> pretty repr
     EString _ _ repr -> pretty repr
     EStringHash _ _ repr -> pretty repr
-    EOverloadedLabel _ _ raw -> pretty raw
+    EOverloadedLabel _ _ raw -> pretty (" " <> raw)
     EQuasiQuote _ quoter body -> prettyQuasiQuote quoter body
     ETHExpQuote _ body -> "[|" <+> prettyExprPrec 0 body <+> "|]"
     ETHTypedQuote _ body -> "[||" <+> prettyExprPrec 0 body <+> "||]"
