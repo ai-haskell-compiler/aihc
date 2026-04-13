@@ -26,8 +26,7 @@ data ExtensionResult = ExtensionResult
 main :: IO ()
 main = do
   args <- getArgs
-  let strict = "--strict" `elem` args
-      markdown = "--markdown" `elem` args
+  let markdown = "--markdown" `elem` args
 
   -- Load and evaluate oracle cases
   oracleCases <- loadOracleCases
