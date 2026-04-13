@@ -189,6 +189,7 @@ buildTests = do
             testCase "prefix no args: f = 5" test_funHeadPrefixNoArgs,
             testCase "prefix operator name: (+) x y = x" test_funHeadPrefixOp,
             testCase "prefix constructor application arg: f (Just x) y = y" test_funHeadPrefixConstructorArg,
+            testCase "prefix singleton unboxed tuple arg: f (# x #) = x" test_funHeadPrefixUnboxedTupleSingletonArg,
             testCase "infix: x + y = x" test_funHeadInfix,
             testCase "infix backtick: x `add` y = x" test_funHeadInfixBacktick,
             testCase "infix record rhs: x `f` (R {}) = x" test_funHeadInfixRecordRhs,
@@ -1481,6 +1482,12 @@ test_funHeadPrefixConstructorArg =
   case parseTopDecl "f (Just x) y = y" of
     Right (DeclValue _ (FunctionBind _ "f" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PParen _ (PCon _ "Just" [PVar _ "x"]), PVar _ "y"]}])) -> pure ()
     other -> assertFailure ("expected constructor application argument in prefix function head, got: " <> show other)
+
+test_funHeadPrefixUnboxedTupleSingletonArg :: Assertion
+test_funHeadPrefixUnboxedTupleSingletonArg =
+  case parseTopDeclWithExts [UnboxedTuples] "f (# x #) = x" of
+    Right (DeclValue _ (FunctionBind _ "f" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PTuple _ Unboxed [PVar _ "x"]]}])) -> pure ()
+    other -> assertFailure ("expected singleton unboxed tuple argument in prefix function head, got: " <> show other)
 
 test_funHeadInfix :: Assertion
 test_funHeadInfix =

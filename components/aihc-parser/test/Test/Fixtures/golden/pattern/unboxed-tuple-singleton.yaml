@@ -1,0 +1,5 @@
+extensions: [UnboxedTuples]
+input: |
+  (# x #)
+ast: PTupleUnboxed [PVar "x"]
+status: pass
