@@ -55,6 +55,7 @@ baseModuleLanguagePragmas =
     EnableExtension UnboxedTuples,
     EnableExtension UnboxedSums,
     EnableExtension TemplateHaskell,
+    EnableExtension UnicodeSyntax,
     EnableExtension LambdaCase,
     EnableExtension QuasiQuotes,
     EnableExtension ExplicitNamespaces,
