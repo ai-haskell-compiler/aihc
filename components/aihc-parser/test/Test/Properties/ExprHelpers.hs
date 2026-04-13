@@ -198,9 +198,23 @@ normalizeMatch m =
   Match
     { matchSpan = span0,
       matchHeadForm = matchHeadForm m,
-      matchPats = map normalizePattern (matchPats m),
+      matchPats = map normalizeFunctionHeadPat (matchPats m),
       matchRhs = normalizeRhs (matchRhs m)
     }
+
+-- | Normalize a pattern in function-head argument position.
+-- The pretty-printer wraps constructor applications, infix patterns, type
+-- signatures, records, and negative literals in parens when they appear as
+-- head arguments so the parser does not split them into multiple patterns.
+normalizeFunctionHeadPat :: Pattern -> Pattern
+normalizeFunctionHeadPat pat =
+  case normalizePattern pat of
+    PParen _ inner@(PNegLit {}) -> inner
+    PParen _ inner@(PCon {}) -> inner
+    PParen _ inner@(PInfix {}) -> inner
+    PParen _ inner@(PTypeSig {}) -> inner
+    PParen _ inner@(PRecord {}) -> inner
+    other -> other
 
 normalizeDoStmt :: DoStmt Expr -> DoStmt Expr
 normalizeDoStmt stmt =

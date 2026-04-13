@@ -327,16 +327,16 @@ prettyFunctionHead :: UnqualifiedName -> MatchHeadForm -> [Pattern] -> Doc ann
 prettyFunctionHead name headForm pats =
   case headForm of
     MatchHeadPrefix ->
-      hsep (prettyBinderUName name : map prettyPattern pats)
+      hsep (prettyBinderUName name : map prettyFunctionHeadPatternAtom pats)
     MatchHeadInfix ->
       case pats of
         lhs : rhsPat : tailPats ->
           let infixHead = prettyPattern lhs <+> prettyInfixOp (renderUnqualifiedName name) <+> prettyPattern rhsPat
            in case tailPats of
                 [] -> infixHead
-                _ -> hsep (parens infixHead : map prettyPattern tailPats)
+                _ -> hsep (parens infixHead : map prettyFunctionHeadPatternAtom tailPats)
         _ ->
-          hsep (prettyBinderUName name : map prettyPattern pats)
+          hsep (prettyBinderUName name : map prettyFunctionHeadPatternAtom pats)
 
 prettyRhs :: Rhs -> Doc ann
 prettyRhs rhs =
@@ -599,6 +599,17 @@ prettyLambdaPatternAtom pat =
   case pat of
     PNegLit {} -> parens (prettyPattern pat)
     PCon _ _ [] -> parens (prettyPattern pat)
+    _ -> prettyPatternAtom pat
+
+-- | Pretty print a pattern in function-head argument position.
+-- Function heads need the same nullary-constructor protection as lambda
+-- patterns, and also need constructor applications parenthesized so they do not
+-- get split into multiple head arguments by the parser.
+prettyFunctionHeadPatternAtom :: Pattern -> Doc ann
+prettyFunctionHeadPatternAtom pat =
+  case pat of
+    PNegLit {} -> parens (prettyPattern pat)
+    PCon {} -> parens (prettyPattern pat)
     _ -> prettyPatternAtom pat
 
 -- | Pretty print a pattern atom after @ or as the operand of ! or ~.

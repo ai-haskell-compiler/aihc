@@ -185,8 +185,10 @@ buildTests = do
           [ testCase "prefix: f x y = x + y" test_funHeadPrefix,
             testCase "prefix no args: f = 5" test_funHeadPrefixNoArgs,
             testCase "prefix operator name: (+) x y = x" test_funHeadPrefixOp,
+            testCase "prefix constructor application arg: f (Just x) y = y" test_funHeadPrefixConstructorArg,
             testCase "infix: x + y = x" test_funHeadInfix,
             testCase "infix backtick: x `add` y = x" test_funHeadInfixBacktick,
+            testCase "infix backtick with TH splice lhs: $splice `fn` () = ()" test_funHeadInfixThSpliceLhs,
             testCase "parenthesized infix: (x + y) = x" test_funHeadParenInfix,
             testCase "parenthesized infix with tail: (x + y) z = x" test_funHeadParenInfixTail,
             testCase "local prefix: let f x = x" test_funHeadLocalPrefix,
@@ -1401,6 +1403,12 @@ test_funHeadPrefixOp =
     Right (DeclValue _ (FunctionBind _ "+" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PVar _ "x", PVar _ "y"]}])) -> pure ()
     other -> assertFailure ("expected prefix operator function bind, got: " <> show other)
 
+test_funHeadPrefixConstructorArg :: Assertion
+test_funHeadPrefixConstructorArg =
+  case parseTopDecl "f (Just x) y = y" of
+    Right (DeclValue _ (FunctionBind _ "f" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PParen _ (PCon _ "Just" [PVar _ "x"]), PVar _ "y"]}])) -> pure ()
+    other -> assertFailure ("expected constructor application argument in prefix function head, got: " <> show other)
+
 test_funHeadInfix :: Assertion
 test_funHeadInfix =
   case parseTopDecl "x + y = x" of
@@ -1412,6 +1420,12 @@ test_funHeadInfixBacktick =
   case parseTopDecl "x `add` y = x" of
     Right (DeclValue _ (FunctionBind _ "add" [Match {matchHeadForm = MatchHeadInfix, matchPats = [PVar _ "x", PVar _ "y"]}])) -> pure ()
     other -> assertFailure ("expected backtick infix function bind, got: " <> show other)
+
+test_funHeadInfixThSpliceLhs :: Assertion
+test_funHeadInfixThSpliceLhs =
+  case parseTopDecl "{-# LANGUAGE TemplateHaskell #-}\n$splice `fn` () = ()" of
+    Right (DeclValue _ (FunctionBind _ "fn" [Match {matchHeadForm = MatchHeadInfix, matchPats = [PSplice _ (EVar _ "splice"), PTuple _ Boxed []]}])) -> pure ()
+    other -> assertFailure ("expected TH splice lhs infix function bind, got: " <> show other)
 
 test_funHeadParenInfix :: Assertion
 test_funHeadParenInfix =

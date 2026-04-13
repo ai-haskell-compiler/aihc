@@ -82,7 +82,10 @@ ordinaryDeclParser = do
     TkSpecialLBracket -> typeSigOrPatternOrValueOrSpliceParser
     TkPrefixTilde -> typeSigOrPatternOrValueOrSpliceParser
     TkKeywordUnderscore -> typeSigOrPatternOrValueOrSpliceParser
-    TkTHSplice -> spliceDeclParser
+    TkTHSplice ->
+      if thFullEnabled
+        then MP.try valueDeclParser <|> spliceDeclParser
+        else spliceDeclParser
     _ -> typeSigOrValueOrSpliceParser
 
 -- | Parse a pragma declaration (e.g. {-# INLINE f #-}, {-# SPECIALIZE ... #-})
