@@ -915,6 +915,11 @@ addViewExprParens expr =
     then wrapExpr True (addExprParens expr)
     else addExprParens expr
 
+-- | Check if an operator is the cons operator ':'.
+isConsOperator :: Name -> Bool
+isConsOperator name =
+  renderName name == ":"
+
 addPatternAtomParens :: Pattern -> Pattern
 addPatternAtomParens pat =
   case pat of
@@ -933,6 +938,11 @@ addPatternAtomParens pat =
     PAs {} -> addPatternParens pat
     PSplice {} -> addPatternParens pat
     PCon _ _ [] -> addPatternParens pat
+    PInfix _ _ op _
+      | isConsOperator op ->
+          -- Cons operator (:) is right-associative, so nested cons patterns
+          -- don't need parentheses: x1:x2:xs parses as x1:(x2:xs)
+          addPatternParens pat
     _ -> wrapPat True (addPatternParens pat)
 
 -- | Add parens for a pattern in lambda argument position.
