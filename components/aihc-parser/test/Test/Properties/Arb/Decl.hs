@@ -104,11 +104,8 @@ genFunctionDecl (name, expr) = do
 genDeclTypeSig :: Gen Decl
 genDeclTypeSig = do
   nameCount <- chooseInt (1, 3)
-  names <- vectorOf nameCount genTypeSigBinderName
+  names <- vectorOf nameCount genVarBinderName
   DeclTypeSig span0 names <$> genSimpleType
-
-genTypeSigBinderName :: Gen BinderName
-genTypeSigBinderName = genVarBinderName
 
 genVarBinderName :: Gen UnqualifiedName
 genVarBinderName =

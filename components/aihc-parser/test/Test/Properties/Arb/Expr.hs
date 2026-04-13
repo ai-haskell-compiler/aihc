@@ -175,15 +175,8 @@ genModuleSegment = do
 genOperatorName :: Gen Name
 genOperatorName = do
   qual <- genOptionalQualifier
-  op <- mkUnqualifiedName NameVarSym <$> genRoundTripOperator
+  op <- mkUnqualifiedName NameVarSym <$> genOperator
   pure (qualifyName qual op)
-
-genRoundTripOperator :: Gen Text
-genRoundTripOperator =
-  oneof
-    [ elements ["+", "-", "*", "/", "<", ">", "<=", ">=", "==", "/=", "&&", "||", "++", ">>", ">>=", "."],
-      genAsciiCustomOperator
-    ]
 
 -- | Generate a custom operator
 -- Only uses valid operator characters (matching isOperatorToken in Pretty.hs)
@@ -196,15 +189,6 @@ genCustomOperator = do
   if isValidGeneratedOperator candidate
     then pure candidate
     else genCustomOperator
-
-genAsciiCustomOperator :: Gen Text
-genAsciiCustomOperator = do
-  len <- chooseInt (1, 3)
-  chars <- vectorOf len (elements asciiOperatorChars)
-  let candidate = T.pack chars
-  if isValidGeneratedOperator candidate
-    then pure candidate
-    else genAsciiCustomOperator
 
 genOperatorChar :: Gen Char
 genOperatorChar =
