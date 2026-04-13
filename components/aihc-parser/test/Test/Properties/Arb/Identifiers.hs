@@ -10,7 +10,6 @@ module Test.Properties.Arb.Identifiers
     genIdent,
     shrinkIdent,
     isValidGeneratedIdent,
-    extensionReservedIdentifiers,
 
     -- * Constructor identifiers
     genConIdent,
@@ -45,10 +44,15 @@ module Test.Properties.Arb.Identifiers
 where
 
 import Aihc.Parser.Lex (isReservedIdentifier)
-import Aihc.Parser.Syntax (SourceSpan, noSourceSpan)
+import Aihc.Parser.Syntax (Extension, SourceSpan, allKnownExtensions, noSourceSpan)
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
 import Test.QuickCheck (Gen, chooseInt, chooseInteger, elements, shrink, shrinkIntegral, vectorOf)
+
+-- | All extensions enabled for maximum keyword coverage in testing.
+allExtensions :: Set.Set Extension
+allExtensions = Set.fromList allKnownExtensions
 
 -- | Canonical empty source span for normalization.
 span0 :: SourceSpan
@@ -83,12 +87,8 @@ isValidGeneratedIdent ident =
       ident /= "_"
         && (first `elem` (['a' .. 'z'] <> ['_']))
         && T.all (`elem` (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> "_'")) rest
-        && ident `notElem` extensionReservedIdentifiers
-        && not (isReservedIdentifier ident)
+        && not (isReservedIdentifier allExtensions ident)
     Nothing -> False
-
-extensionReservedIdentifiers :: [Text]
-extensionReservedIdentifiers = ["mdo", "proc", "rec"]
 
 -------------------------------------------------------------------------------
 -- Constructor identifiers (uppercase-starting names)
@@ -174,7 +174,7 @@ genFieldName = do
   restLen <- chooseInt (0, 5)
   rest <- vectorOf restLen (elements (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> "_'"))
   let candidate = T.pack (first : rest)
-  if isReservedIdentifier candidate || candidate `elem` extensionReservedIdentifiers
+  if isReservedIdentifier allExtensions candidate
     then genFieldName
     else pure candidate
 
