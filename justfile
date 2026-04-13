@@ -14,6 +14,10 @@ replay ARGUMENT:
 qc:
   while true; do cabal test aihc-parser:spec -v0 --test-options="--pattern properties --quickcheck-tests 10000" || break; done
 
+# Auto-format all Haskell files (excludes dist-newstyle and test fixtures)
+fmt:
+  nix develop --quiet --command bash -c 'ormolu --mode inplace $(find components -name "*.hs" -not -path "*/dist-newstyle/*" -not -path "*/test/Test/Fixtures/*")'
+
 # Run full CI check: format, lint, then tests
 check:
   nix develop --quiet --command bash -c 'ormolu --mode check $(find components -name "*.hs" -not -path "*/dist-newstyle/*" -not -path "*/test/Test/Fixtures/*")'

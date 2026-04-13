@@ -7,6 +7,23 @@
 - Deep fuzzy testing: `cabal test aihc-parser:spec -v0 --test-options="--pattern properties --quickcheck-tests 10000"`
 - Run full test suite (fast): `just check`
 - Run full test suite (slow, isolated sandbox): `nix flake check`
+
+## Mandatory Pre-Commit Workflow
+
+**These steps MUST be completed before every commit. No exceptions.**
+
+1. **Run `just fmt`** — Auto-formats all Haskell files with ormolu. Always run this before committing to ensure correct formatting.
+2. **Run `just check`** — MUST pass. This runs:
+   - `ormolu` format check (verifies step 1 was done)
+   - `hlint` linting (no linting errors allowed)
+   - Full test suite (`just test`)
+
+If `just check` fails, do NOT commit. Fix the issues first.
+
+> **Rule of thumb:** Write code → `just fmt` → `just check` → if it passes, commit.
+
+## PR Workflow
+
 - Include changes to progress counts in PR descriptions. Do not update the READMEs, though. They are updated by a cron workflow.
 - Create PRs: `gh pr create --base main --head <branch> --title "<title>" --body $(cat <file>)`
 - PR titles should follow the same Conventional Commits format as commit messages (see below)
@@ -15,10 +32,11 @@
 
 This project uses [Just](https://just.systems) as a command runner. Common commands:
 
+- `just fmt` — **Auto-format all Haskell files with ormolu. Run this before committing.**
 - `just test` — Run all tests with hidden successes
 - `just replay "<seed>"` — Replay a specific QuickCheck test case (e.g., `just replay "(SMGen 6995563131902519991 12189532712049121349,3)"`)
 - `just qc` — Run QuickCheck with 10,000 tests in an infinite loop until failure
-- `just check` — Run ormolu format check, hlint, then full test suite (useful before opening a PR)
+- `just check` — Run ormolu format check, hlint, then full test suite
 
 ## Branch Policy
 
