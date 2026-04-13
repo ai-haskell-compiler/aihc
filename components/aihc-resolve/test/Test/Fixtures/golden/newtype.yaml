@@ -1,0 +1,33 @@
+extensions: []
+modules:
+  - |
+    module Main where
+    newtype Age = MkAge Int
+    getAge :: Age -> Int
+    getAge (MkAge a) = a
+expected:
+  Main:
+    - "2:9-2:12 Age => (type) Main.Age"
+    - "2:15-2:20 MkAge => (value) Main.MkAge"
+    - "2:21-2:24 Int => (type) Error unbound"
+    - "3:1-3:7 getAge => (value) Main.getAge"
+    - "3:11-3:14 Age => (type) Main.Age"
+    - "3:18-3:21 Int => (type) Error unbound"
+    - "4:1-4:7 getAge => (value) Main.getAge"
+    - "4:15-4:16 a => (value) Local 0 a"
+    - "4:20-4:21 a => (value) Local 0 a"
+annotated:
+  - |
+    module Main where
+    newtype Age = MkAge Int
+            │     │     └─ t Error unbound
+            │     └─ v Main
+            └─ t Main
+    getAge :: Age -> Int
+    └─ v Main │      └─ t Error unbound
+              └─ t Main
+    getAge (MkAge a) = a
+    └─ v Main     │    └─ v 0
+                  └─ v 0
+status: pass
+reason: ""
