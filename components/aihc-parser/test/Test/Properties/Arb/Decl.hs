@@ -13,7 +13,7 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Test.Properties.Arb.Expr (genExpr, shrinkExpr, span0)
 import Test.Properties.Arb.Identifiers (genIdent, shrinkIdent)
-import Test.Properties.Arb.Type (canonicalTopLevelType, genType)
+import Test.Properties.Arb.Type (canonicalFunLeft, canonicalTopLevelType, genType)
 import Test.QuickCheck
 
 instance Arbitrary Decl where
@@ -291,26 +291,16 @@ genGadtBody =
 genGadtPrefixBody :: Gen GadtBody
 genGadtPrefixBody = do
   n <- chooseInt (0, 2)
-  args <- vectorOf n (oneof [genSimpleBangType, genInfixBangType])
-  -- Result type should not be a function type to avoid parsing ambiguity
-  GadtPrefixBody args <$> genSimpleTypeWithoutFun
+  args <- vectorOf n genGadtBangType
+  result <- (canonicalFunLeft . canonicalTopLevelType) <$> sized (genType . min 6)
+  pure $ GadtPrefixBody args result
 
--- | Generate an infix type operator application as a bang type,
--- e.g. @a :+: b@ or @a :== b@.
-genInfixBangType :: Gen BangType
-genInfixBangType = do
-  lhs <- genSimpleTypeWithoutFun
-  op <- genConSymName
-  rhs <- genSimpleTypeWithoutFun
-  let ty =
-        TApp
-          span0
-          ( TApp
-              span0
-              (TCon span0 (qualifyName Nothing (mkUnqualifiedName NameConSym op)) Unpromoted)
-              lhs
-          )
-          rhs
+-- | Generate a BangType for GADT prefix body arg position.
+-- Uses the full type generator with canonicalFunLeft applied, since the parser
+-- uses typeInfixParser (which cannot parse bare forall/->/(=>) without parens).
+genGadtBangType :: Gen BangType
+genGadtBangType = do
+  ty <- (canonicalFunLeft . canonicalTopLevelType) <$> sized (genType . min 6)
   pure $ BangType span0 NoSourceUnpackedness False ty
 
 -- | Generate a BangType without function types at the top level.
@@ -336,9 +326,17 @@ genSimpleTypeWithoutFun =
 genGadtRecordBody :: Gen GadtBody
 genGadtRecordBody = do
   n <- chooseInt (1, 3)
-  fields <- vectorOf n genFieldDecl
-  -- Result type should not be a function type to avoid parsing ambiguity
-  GadtRecordBody fields <$> genSimpleTypeWithoutFun
+  fields <- vectorOf n genGadtFieldDecl
+  result <- canonicalTopLevelType <$> sized (genType . min 6)
+  pure $ GadtRecordBody fields result
+
+-- | Generate a field declaration for GADT record body position.
+-- Uses the full type generator since record field types are parsed by typeParser.
+genGadtFieldDecl :: Gen FieldDecl
+genGadtFieldDecl = do
+  fieldName <- mkUnqualifiedName NameVarId <$> genIdent
+  ty <- canonicalTopLevelType <$> sized (genType . min 6)
+  pure $ FieldDecl span0 [fieldName] (BangType span0 NoSourceUnpackedness False ty)
 
 genSimpleBangType :: Gen BangType
 genSimpleBangType = do
