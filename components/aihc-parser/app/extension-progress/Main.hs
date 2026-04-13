@@ -78,7 +78,6 @@ convertGoldenOutcome pgOutcome =
   case pgOutcome of
     PG.OutcomePass -> OutcomePass
     PG.OutcomeXFail -> OutcomeXFail
-    PG.OutcomeXPass -> OutcomeXPass
     PG.OutcomeFail -> OutcomeFail
 
 -- | Convert a golden ParserCase to a CaseMeta for unified reporting
@@ -90,7 +89,7 @@ goldenCaseToCaseMeta goldenCase =
       casePath = PG.casePath goldenCase,
       caseExpected = convertGoldenStatus (PG.caseStatus goldenCase),
       caseReason = PG.caseReason goldenCase,
-      caseExtensions = map Syntax.EnableExtension (PG.caseExtensions goldenCase)
+      caseExtensions = PG.caseExtensions goldenCase
     }
 
 -- | Convert ParserGolden.ExpectedStatus to ExtensionSupport.Expected
