@@ -72,20 +72,31 @@ exportNameParser mWarning = do
   members <- MP.optional exportMembersParser
   pure $ \span' ->
     case members of
-      Just Nothing -> ExportAll span' mWarning namespace name
-      Just (Just names) -> ExportWith span' mWarning namespace name names
+      Just MembersAll -> ExportAll span' mWarning namespace name
+      Just (MembersList names) -> ExportWith span' mWarning namespace name names
+      Just (MembersListAll names) -> ExportWithAll span' mWarning namespace name names
       Nothing
         | namespace == Just IEEntityNamespaceType || isTypeName name ->
             ExportAbs span' mWarning namespace name
         | otherwise ->
             ExportVar span' mWarning namespace name
 
-exportMembersParser :: TokParser (Maybe [IEBundledMember])
+data MembersResult
+  = MembersAll
+  | MembersList [IEBundledMember]
+  | MembersListAll [IEBundledMember]
+
+exportMembersParser :: TokParser MembersResult
 exportMembersParser =
   parens $
-    (expectedTok TkReservedDotDot >> pure Nothing)
-      <|> (Just <$> (memberNameParser `MP.sepEndBy` expectedTok TkSpecialComma))
+    (expectedTok TkReservedDotDot >> pure MembersAll)
+      <|> parseMemberList
   where
+    parseMemberList = do
+      members <- memberNameParser `MP.sepEndBy` expectedTok TkSpecialComma
+      hasTrailingDotDot <-
+        MP.option False (expectedTok TkReservedDotDot >> MP.optional (expectedTok TkSpecialComma) >> pure True)
+      pure $ if hasTrailingDotDot then MembersListAll members else MembersList members
     memberNameParser = do
       namespace <- MP.optional bundledNamespaceParser
       name <- identifierNameParser <|> parens operatorNameParser
@@ -178,8 +189,9 @@ importItemParser = withSpan $ do
   let effectiveNamespace = namespace
   pure $ \span' ->
     case members of
-      Just Nothing -> ImportItemAll span' effectiveNamespace itemName
-      Just (Just names) -> ImportItemWith span' effectiveNamespace itemName names
+      Just MembersAll -> ImportItemAll span' effectiveNamespace itemName
+      Just (MembersList names) -> ImportItemWith span' effectiveNamespace itemName names
+      Just (MembersListAll names) -> ImportItemAllWith span' effectiveNamespace itemName names
       Nothing
         | effectiveNamespace == Just IEEntityNamespaceType || isTypeName (qualifyName Nothing itemName) -> ImportItemAbs span' effectiveNamespace itemName
         | otherwise -> ImportItemVar span' effectiveNamespace itemName
