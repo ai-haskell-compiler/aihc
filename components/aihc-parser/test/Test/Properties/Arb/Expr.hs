@@ -94,7 +94,7 @@ genExprSizedWith allowTHQuotes n
             ETHPatQuote span0 <$> genPattern (n - 1),
             ETHTypeQuote span0 <$> genTypeWith False (n - 1),
             ETHNameQuote span0 <$> genNameQuoteIdent,
-            ETHTypeNameQuote span0 <$> genConName
+            ETHTypeNameQuote span0 <$> genTypeNameQuote
           ]
       | otherwise =
           []
@@ -289,6 +289,16 @@ isValidGeneratedOperator candidate =
 -- | Generate a data constructor name
 genConName :: Gen Text
 genConName = genConIdent
+
+-- | Generate a type name for TH type quotes (''Name).
+-- Can produce either a constructor name (e.g., ''Maybe) or an operator name (e.g., ''(:>)).
+genTypeNameQuote :: Gen Name
+genTypeNameQuote =
+  oneof
+    [ qualifyName Nothing . mkUnqualifiedName NameConId <$> genConIdent,
+      -- Generate operator name for type quotes (use NameVarSym to match lexer behavior)
+      qualifyName Nothing . mkUnqualifiedName NameVarSym <$> genOperator
+    ]
 
 genVarName :: Gen Name
 genVarName = qualifyName <$> genOptionalQualifier <*> (mkUnqualifiedName NameVarId <$> genIdent)

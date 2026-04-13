@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail reason="TemplateHaskell quote tick for type operator not handled" -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE TemplateHaskellQuotes #-}
 {-# LANGUAGE DataKinds #-}
 

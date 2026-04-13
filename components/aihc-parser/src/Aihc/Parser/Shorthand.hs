@@ -662,7 +662,7 @@ docExpr expr =
     ETHTypeQuote _ ty -> "ETHTypeQuote" <+> parens (docType ty)
     ETHPatQuote _ pat -> "ETHPatQuote" <+> parens (docPattern pat)
     ETHNameQuote _ name -> "ETHNameQuote" <+> docText name
-    ETHTypeNameQuote _ name -> "ETHTypeNameQuote" <+> docText name
+    ETHTypeNameQuote _ name -> "ETHTypeNameQuote" <+> docName name
     ETHSplice _ body -> "ETHSplice" <+> parens (docExpr body)
     ETHTypedSplice _ body -> "ETHTypedSplice" <+> parens (docExpr body)
     EIf _ cond yes no -> "EIf" <+> parens (docExpr cond) <+> parens (docExpr yes) <+> parens (docExpr no)
