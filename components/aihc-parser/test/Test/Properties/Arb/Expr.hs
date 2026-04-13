@@ -274,7 +274,8 @@ bannedUnicodeOperatorChars =
     '⦈',
     '⟦',
     '⟧',
-    '⊸'
+    '⊸',
+    '★'
   ]
 
 isValidGeneratedOperator :: Text -> Bool
