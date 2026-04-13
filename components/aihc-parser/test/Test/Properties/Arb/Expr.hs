@@ -13,7 +13,7 @@ where
 
 import Aihc.Parser.Lex (isReservedIdentifier)
 import Aihc.Parser.Syntax
-import Data.Char (GeneralCategory (..), generalCategory, isSpace)
+import Data.Char (GeneralCategory (..), generalCategory, isAscii, isSpace)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Test.Properties.Arb.Identifiers (extensionReservedIdentifiers, genIdent, shrinkIdent)
@@ -276,6 +276,7 @@ isTargetUnicodeOperatorCategory c =
     CurrencySymbol -> True
     ModifierSymbol -> True
     OtherSymbol -> True
+    OtherPunctuation -> not (isAscii c)
     _ -> False
 
 bannedUnicodeOperatorChars :: [Char]

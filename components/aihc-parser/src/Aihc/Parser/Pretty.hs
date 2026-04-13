@@ -22,7 +22,7 @@ module Aihc.Parser.Pretty
 where
 
 import Aihc.Parser.Syntax
-import Data.Char (GeneralCategory (..), generalCategory)
+import Data.Char (GeneralCategory (..), generalCategory, isAscii)
 import Data.Maybe (catMaybes, isJust)
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -1634,6 +1634,7 @@ isUnicodeSymbolCategory c = case generalCategory c of
   CurrencySymbol -> True
   ModifierSymbol -> True
   OtherSymbol -> True
+  OtherPunctuation -> not (isAscii c)
   _ -> False
 
 isUnicodeOperatorExtra :: Char -> Bool
