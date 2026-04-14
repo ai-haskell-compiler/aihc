@@ -282,10 +282,11 @@ collectDelimitedRaw openKind closeKind = do
 typeParenOperatorParser :: TokParser Type
 typeParenOperatorParser = withSpan $ do
   expectedTok TkSpecialLParen
+  starIsType <- isExtensionEnabled StarIsType
   op <- tokenSatisfy "type operator" $ \tok ->
     case lexTokenKind tok of
-      TkVarSym sym | sym /= "*" -> Just (qualifyName Nothing (mkUnqualifiedName NameVarSym sym))
-      TkConSym sym | sym /= "*" -> Just (qualifyName Nothing (mkUnqualifiedName NameConSym sym))
+      TkVarSym sym | not starIsType || sym /= "*" -> Just (qualifyName Nothing (mkUnqualifiedName NameVarSym sym))
+      TkConSym sym | not starIsType || sym /= "*" -> Just (qualifyName Nothing (mkUnqualifiedName NameConSym sym))
       TkQVarSym modQual sym -> Just (mkName (Just modQual) NameVarSym sym)
       TkQConSym modQual sym -> Just (mkName (Just modQual) NameConSym sym)
       -- Handle reserved operators that can be used as type constructors
@@ -312,8 +313,12 @@ typeIdentifierParser = withSpan $ do
 
 typeStarParser :: TokParser Type
 typeStarParser = withSpan $ do
-  expectedTok (TkVarSym "*")
-  pure TStar
+  starIsType <- isExtensionEnabled StarIsType
+  if starIsType
+    then do
+      expectedTok (TkVarSym "*")
+      pure TStar
+    else MP.empty
 
 typeListParser :: TokParser Type
 typeListParser = withSpan $ do
