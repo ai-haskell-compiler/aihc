@@ -32,6 +32,10 @@ instanceOverlapPragmaParser =
 anyPragmaParser :: String -> TokParser Pragma
 anyPragmaParser expectedLabel = hiddenPragma expectedLabel Just
 
+withDeclSpanAnn :: TokParser (SourceSpan -> Decl) -> TokParser Decl
+withDeclSpanAnn parser =
+  withSpan (parser >>= \g -> pure (\sp -> declAnnSpan sp (g NoSourceSpan)))
+
 declParser :: TokParser Decl
 declParser = do
   mPragmaDecl <- MP.optional pragmaDeclParser
@@ -108,21 +112,21 @@ nonBareVarPatternBindDeclParser = MP.try $ withSpan $ do
     PVar {} -> fail "bare variable bindings are parsed as function declarations"
     _ -> do
       rhs <- equationRhsParser
-      pure (\span' -> DeclValue span' (PatternBind span' pat rhs))
+      pure (\span' -> DeclValue (PatternBind span' pat rhs))
 
 -- | Parse a pragma declaration (e.g. {-# INLINE f #-}, {-# SPECIALIZE ... #-})
 pragmaDeclParser :: TokParser Decl
-pragmaDeclParser = withSpan $ do
+pragmaDeclParser = do
   pragma <- anyPragmaParser "pragma declaration"
-  pure (`DeclPragma` pragma)
+  pure (DeclPragma pragma)
 
 -- | Parse a top-level Template Haskell declaration splice: $expr or $(expr)
 spliceDeclParser :: TokParser Decl
-spliceDeclParser = withSpan $ do
+spliceDeclParser = do
   expectedTok TkTHSplice
   body <-
     parenSpliceBody <|> bareSpliceBody
-  pure (`DeclSplice` body)
+  pure (DeclSplice body)
   where
     parenSpliceBody = withSpan $ do
       body <- parens exprParser
@@ -135,9 +139,7 @@ spliceDeclParser = withSpan $ do
 -- GHC accepts bare declaration splices under TemplateHaskell and also pretty-prints
 -- them as explicit @$...@ splices, so we parse the expression body directly here.
 implicitSpliceDeclParser :: TokParser Decl
-implicitSpliceDeclParser = withSpan $ do
-  body <- exprParser
-  pure (`DeclSplice` body)
+implicitSpliceDeclParser = DeclSplice <$> exprParser
 
 -- | Parse a @type@ declaration after the @type@ keyword has been consumed.
 -- Uses 'typeDeclHeadParser' to handle both prefix and infix type heads,
@@ -145,7 +147,7 @@ implicitSpliceDeclParser = withSpan $ do
 -- - @::@ → standalone kind signature (must have zero type parameters)
 -- - @=@ → type synonym
 typeDeclarationParser :: TokParser Decl
-typeDeclarationParser = withSpan $ do
+typeDeclarationParser = do
   expectedTok TkKeywordType
   (headForm, typeName, typeParams) <- typeDeclHeadParser
   nextTok <- anySingle
@@ -153,18 +155,16 @@ typeDeclarationParser = withSpan $ do
     TkReservedDoubleColon -> do
       -- Standalone kind signature: cannot have type parameters
       if null typeParams
-        then do
-          kind <- typeParser
-          pure (\span' -> DeclStandaloneKindSig span' typeName kind)
+        then
+          DeclStandaloneKindSig typeName <$> typeParser
         else
           fail "Standalone kind signatures cannot have type parameters."
     TkReservedEquals -> do
       body <- typeParser
-      pure $ \span' ->
+      pure $
         DeclTypeSyn
-          span'
           TypeSynDecl
-            { typeSynSpan = span',
+            { typeSynSpan = NoSourceSpan,
               typeSynHeadForm = headForm,
               typeSynName = renderUnqualifiedName typeName,
               typeSynParams = typeParams,
@@ -179,14 +179,14 @@ roleAnnotationDeclParser = withSpan $ do
   expectedTok TkVarRole
   typeName <- constructorIdentifierParser <|> (renderName <$> parens constructorOperatorParser)
   roles <- MP.many roleParser
-  pure $ \span' ->
-    DeclRoleAnnotation
-      span'
-      RoleAnnotation
-        { roleAnnotationSpan = span',
-          roleAnnotationName = typeName,
-          roleAnnotationRoles = roles
-        }
+  pure $
+    const $
+      DeclRoleAnnotation
+        RoleAnnotation
+          { roleAnnotationSpan = NoSourceSpan,
+            roleAnnotationName = typeName,
+            roleAnnotationRoles = roles
+          }
 
 roleParser :: TokParser Role
 roleParser =
@@ -258,7 +258,6 @@ typeFamilyDeclParser = withSpan $ do
   equations <- MP.optional (MP.try closedTypeFamilyWhereParser)
   pure $ \span' ->
     DeclTypeFamilyDecl
-      span'
       TypeFamilyDecl
         { typeFamilyDeclSpan = span',
           typeFamilyDeclHeadForm = headForm,
@@ -304,7 +303,6 @@ dataFamilyDeclParser = withSpan $ do
   kind <- familyResultKindParser
   pure $ \span' ->
     DeclDataFamilyDecl
-      span'
       DataFamilyDecl
         { dataFamilyDeclSpan = span',
           dataFamilyDeclName = name,
@@ -326,7 +324,6 @@ typeFamilyInstParser = withSpan $ do
   rhs <- typeParser
   pure $ \span' ->
     DeclTypeFamilyInst
-      span'
       TypeFamilyInst
         { typeFamilyInstSpan = span',
           typeFamilyInstForall = forallBinders,
@@ -345,7 +342,6 @@ dataFamilyInstParser = withSpan $ do
   (constructors, derivingClauses) <- gadtStyleDataDecl <|> traditionalStyleDataDecl
   pure $ \span' ->
     DeclDataFamilyInst
-      span'
       DataFamilyInst
         { dataFamilyInstSpan = span',
           dataFamilyInstIsNewtype = False,
@@ -376,7 +372,6 @@ newtypeFamilyInstParser = withSpan $ do
   derivingClauses <- MP.many derivingClauseParser
   pure $ \span' ->
     DeclDataFamilyInst
-      span'
       DataFamilyInst
         { dataFamilyInstSpan = span',
           dataFamilyInstIsNewtype = True,
@@ -519,24 +514,23 @@ instanceNewtypeFamilyInstParser = withSpan $ do
 -- ---------------------------------------------------------------------------
 
 typeSigDeclParser :: TokParser Decl
-typeSigDeclParser = withSpan $ do
+typeSigDeclParser = withDeclSpanAnn $ do
   names <- binderNameParser `MP.sepBy1` expectedTok TkSpecialComma
   expectedTok TkReservedDoubleColon
   ty <- typeParser
-  pure (\span' -> DeclTypeSig span' names ty)
+  pure $ \_ -> DeclTypeSig names ty
 
 defaultDeclParser :: TokParser Decl
-defaultDeclParser = withSpan $ do
+defaultDeclParser = do
   expectedTok TkKeywordDefault
-  tys <- parens (typeParser `MP.sepEndBy` expectedTok TkSpecialComma)
-  pure (`DeclDefault` tys)
+  DeclDefault <$> parens (typeParser `MP.sepEndBy` expectedTok TkSpecialComma)
 
 fixityDeclParser :: FixityAssoc -> TokParser Decl
 fixityDeclParser assoc = withSpan $ do
   (parsedAssoc, prec, mNamespace, ops) <- fixityDeclPartsParser
   when (assoc /= parsedAssoc) $
     fail "internal fixity dispatch mismatch"
-  pure (\span' -> DeclFixity span' parsedAssoc mNamespace prec ops)
+  pure (const $ DeclFixity parsedAssoc mNamespace prec ops)
 
 fixityDeclPartsParser :: TokParser (FixityAssoc, Maybe Int, Maybe IEEntityNamespace, [UnqualifiedName])
 fixityDeclPartsParser = do
@@ -590,7 +584,6 @@ classDeclParser = withSpan $ do
   items <- MP.option [] classWhereClauseParser
   pure $ \span' ->
     DeclClass
-      span'
       ClassDecl
         { classDeclSpan = span',
           classDeclContext = context,
@@ -682,7 +675,7 @@ classDefaultItemParser :: TokParser ClassDeclItem
 classDefaultItemParser = withSpan $ do
   (headForm, name, pats) <- functionHeadParserWith patternParser simplePatternParser
   rhs <- equationRhsParser
-  pure (\span' -> ClassItemDefault span' (functionBindValue span' headForm name pats rhs))
+  pure (\span' -> ClassItemDefault span' (functionBindValue headForm name pats rhs))
 
 instanceDeclParser :: TokParser Decl
 instanceDeclParser = withSpan $ do
@@ -695,7 +688,6 @@ instanceDeclParser = withSpan $ do
   items <- MP.option [] instanceWhereClauseParser
   pure $ \span' ->
     DeclInstance
-      span'
       InstanceDecl
         { instanceDeclSpan = span',
           instanceDeclOverlapPragma = overlapPragma,
@@ -721,7 +713,6 @@ standaloneDerivingDeclParser = withSpan $ do
   (parenthesizedHead, className, instanceTypes) <- instanceHeadParser
   pure $ \span' ->
     DeclStandaloneDeriving
-      span'
       StandaloneDerivingDecl
         { standaloneDerivingSpan = span',
           standaloneDerivingStrategy = strategy,
@@ -796,7 +787,7 @@ instanceValueItemParser :: TokParser InstanceDeclItem
 instanceValueItemParser = withSpan $ do
   (headForm, name, pats) <- functionHeadParserWith patternParser simplePatternParser
   rhs <- equationRhsParser
-  pure (\span' -> InstanceItemBind span' (functionBindValue span' headForm name pats rhs))
+  pure (\span' -> InstanceItemBind span' (functionBindValue headForm name pats rhs))
 
 foreignDeclParser :: TokParser Decl
 foreignDeclParser = withSpan $ do
@@ -813,7 +804,6 @@ foreignDeclParser = withSpan $ do
   ty <- typeParser
   pure $ \span' ->
     DeclForeign
-      span'
       ForeignDecl
         { foreignDeclSpan = span',
           foreignDirection = direction,
@@ -864,7 +854,6 @@ dataDeclParser = withSpan $ do
   (constructors, derivingClauses) <- gadtStyleDataDecl <|> traditionalStyleDataDecl
   pure $ \span' ->
     DeclData
-      span'
       DataDecl
         { dataDeclSpan = span',
           dataDeclHeadForm = headForm,
@@ -905,7 +894,6 @@ typeDataDeclParser = withSpan $ do
   -- type data may not have a deriving clause
   pure $ \span' ->
     DeclTypeData
-      span'
       DataDecl
         { dataDeclSpan = span',
           dataDeclHeadForm = headForm,
@@ -996,7 +984,6 @@ newtypeDeclParser = withSpan $ do
   (constructor, derivingClauses) <- gadtStyleNewtypeDecl <|> traditionalStyleNewtypeDecl
   pure $ \span' ->
     DeclNewtype
-      span'
       NewtypeDecl
         { newtypeDeclSpan = span',
           newtypeDeclHeadForm = headForm,
@@ -1434,16 +1421,16 @@ constructorOperatorParser =
 -- | Parse a pattern binding declaration like @(x, y) = (1, 2)@.
 -- This handles bindings where the LHS is a pattern rather than a function name.
 patternBindDeclParser :: TokParser Decl
-patternBindDeclParser = MP.try $ withSpan $ do
+patternBindDeclParser = MP.try $ withDeclSpanAnn $ do
   pat <- region "while parsing pattern binding" patternParser
   rhs <- equationRhsParser
-  pure (\span' -> DeclValue span' (PatternBind span' pat rhs))
+  pure $ \_ -> DeclValue (PatternBind NoSourceSpan pat rhs)
 
 valueDeclParser :: TokParser Decl
-valueDeclParser = withSpan $ do
+valueDeclParser = withDeclSpanAnn $ do
   (headForm, name, pats) <- functionHeadParserWith patternParser simplePatternParser
   rhs <- equationRhsParser
-  pure (\span' -> functionBindDecl span' headForm name pats rhs)
+  pure $ \_ -> functionBindDecl headForm name pats rhs
 
 -- ---------------------------------------------------------------------------
 -- Pattern synonyms
@@ -1457,12 +1444,11 @@ patternSynonymParser =
 
 -- | Parse a pattern synonym type signature: @pattern Name1, Name2 :: Type@
 patternSynonymSigDeclParser :: TokParser Decl
-patternSynonymSigDeclParser = withSpan $ do
+patternSynonymSigDeclParser = do
   expectedTok TkKeywordPattern
   names <- patSynNameParser `MP.sepBy1` expectedTok TkSpecialComma
   expectedTok TkReservedDoubleColon
-  ty <- typeParser
-  pure (\span' -> DeclPatSynSig span' names ty)
+  DeclPatSynSig names <$> typeParser
 
 patSynNameParser :: TokParser UnqualifiedName
 patSynNameParser =
@@ -1480,7 +1466,6 @@ patternSynonymDeclParser = withSpan $ do
   (dir, pat) <- patSynDirAndPatParser name
   pure $ \span' ->
     DeclPatSyn
-      span'
       PatSynDecl
         { patSynDeclSpan = span',
           patSynDeclName = name,

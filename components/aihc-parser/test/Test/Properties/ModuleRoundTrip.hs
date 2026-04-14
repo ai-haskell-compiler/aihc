@@ -57,12 +57,13 @@ normalizeModuleHead head' =
 normalizeExportSpec :: ExportSpec -> ExportSpec
 normalizeExportSpec spec =
   case spec of
-    ExportModule _ mWarning modName -> ExportModule span0 (normalizeWarningText <$> mWarning) modName
-    ExportVar _ mWarning namespace name -> ExportVar span0 (normalizeWarningText <$> mWarning) namespace name
-    ExportAbs _ mWarning namespace name -> ExportAbs span0 (normalizeWarningText <$> mWarning) namespace name
-    ExportAll _ mWarning namespace name -> ExportAll span0 (normalizeWarningText <$> mWarning) namespace name
-    ExportWith _ mWarning namespace name members -> ExportWith span0 (normalizeWarningText <$> mWarning) namespace name (map normalizeExportMember members)
-    ExportWithAll _ mWarning namespace name members -> ExportWithAll span0 (normalizeWarningText <$> mWarning) namespace name (map normalizeExportMember members)
+    ExportAnn _ sub -> normalizeExportSpec sub
+    ExportModule mWarning modName -> ExportModule (normalizeWarningText <$> mWarning) modName
+    ExportVar mWarning namespace name -> ExportVar (normalizeWarningText <$> mWarning) namespace name
+    ExportAbs mWarning namespace name -> ExportAbs (normalizeWarningText <$> mWarning) namespace name
+    ExportAll mWarning namespace name -> ExportAll (normalizeWarningText <$> mWarning) namespace name
+    ExportWith mWarning namespace name members -> ExportWith (normalizeWarningText <$> mWarning) namespace name (map normalizeExportMember members)
+    ExportWithAll mWarning namespace name members -> ExportWithAll (normalizeWarningText <$> mWarning) namespace name (map normalizeExportMember members)
 
 normalizeExportMember :: IEBundledMember -> IEBundledMember
 normalizeExportMember (IEBundledMember namespace name) = IEBundledMember namespace name
@@ -70,8 +71,9 @@ normalizeExportMember (IEBundledMember namespace name) = IEBundledMember namespa
 normalizeWarningText :: WarningText -> WarningText
 normalizeWarningText warningText =
   case warningText of
-    DeprText _ msg -> DeprText span0 msg
-    WarnText _ msg -> WarnText span0 msg
+    DeprText msg -> DeprText msg
+    WarnText msg -> WarnText msg
+    WarningTextAnn _ sub -> normalizeWarningText sub
 
 normalizeImportDecl :: ImportDecl -> ImportDecl
 normalizeImportDecl decl =
@@ -99,8 +101,9 @@ normalizeImportSpec spec =
 normalizeImportItem :: ImportItem -> ImportItem
 normalizeImportItem item =
   case item of
-    ImportItemVar _ namespace name -> ImportItemVar span0 namespace name
-    ImportItemAbs _ namespace name -> ImportItemAbs span0 namespace name
-    ImportItemAll _ namespace name -> ImportItemAll span0 namespace name
-    ImportItemWith _ namespace name members -> ImportItemWith span0 namespace name (map normalizeExportMember members)
-    ImportItemAllWith _ namespace name members -> ImportItemAllWith span0 namespace name (map normalizeExportMember members)
+    ImportAnn _ sub -> normalizeImportItem sub
+    ImportItemVar namespace name -> ImportItemVar namespace name
+    ImportItemAbs namespace name -> ImportItemAbs namespace name
+    ImportItemAll namespace name -> ImportItemAll namespace name
+    ImportItemWith namespace name members -> ImportItemWith namespace name (map normalizeExportMember members)
+    ImportItemAllWith namespace name members -> ImportItemAllWith namespace name (map normalizeExportMember members)

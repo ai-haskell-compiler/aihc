@@ -27,6 +27,7 @@ module Aihc.Parser.Internal.Common
     infixOperatorNameParser,
     stringTextParser,
     withSpan,
+    withSpanAnn,
     sourceSpanFromPositions,
     parens,
     braces,
@@ -375,6 +376,20 @@ stringTextParser =
       TkString txt -> Just txt
       _ -> Nothing
 
+withSpanAnn :: (SourceSpan -> a -> a) -> TokParser a -> TokParser a
+withSpanAnn f parser = do
+  ts <- fmap MP.stateInput MP.getParserState
+  let startSpan
+        | tokStreamEOFEmitted ts = noSourceSpan
+        | tok : _ <- layoutBuffer (tokStreamLayoutState ts) = lexTokenSpan tok
+        | rawTok : _ <- tokStreamRawTokens ts = lexTokenSpan rawTok
+        | otherwise = noSourceSpan
+  out <- parser
+  lastToken <- fmap (tokStreamPrevToken . MP.stateInput) MP.getParserState
+  let endSpan = maybe noSourceSpan lexTokenSpan lastToken
+      parserSpan = mergeSourceSpans startSpan endSpan
+  pure $ f parserSpan out
+
 withSpan :: TokParser (SourceSpan -> a) -> TokParser a
 withSpan parser = do
   ts <- fmap MP.stateInput MP.getParserState
@@ -642,22 +657,22 @@ functionBinderNameParser =
           TkVarSym ident -> Just (mkUnqualifiedName NameVarSym ident)
           _ -> Nothing
 
-functionBindValue :: SourceSpan -> MatchHeadForm -> UnqualifiedName -> [Pattern] -> Rhs -> ValueDecl
-functionBindValue span' headForm name pats rhs =
+functionBindValue :: MatchHeadForm -> UnqualifiedName -> [Pattern] -> Rhs -> ValueDecl
+functionBindValue headForm name pats rhs =
   FunctionBind
-    span'
+    NoSourceSpan
     name
     [ Match
-        { matchSpan = span',
+        { matchSpan = NoSourceSpan,
           matchHeadForm = headForm,
           matchPats = pats,
           matchRhs = rhs
         }
     ]
 
-functionBindDecl :: SourceSpan -> MatchHeadForm -> UnqualifiedName -> [Pattern] -> Rhs -> Decl
-functionBindDecl span' headForm name pats rhs =
-  DeclValue span' (functionBindValue span' headForm name pats rhs)
+functionBindDecl :: MatchHeadForm -> UnqualifiedName -> [Pattern] -> Rhs -> Decl
+functionBindDecl headForm name pats rhs =
+  DeclValue (functionBindValue headForm name pats rhs)
 
 isModuleName :: Text -> Bool
 isModuleName name =

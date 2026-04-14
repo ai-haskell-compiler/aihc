@@ -13,15 +13,17 @@ import Aihc.Parser.Syntax
   ( DataConDecl (..),
     DataDecl (..),
     Decl (..),
+    HasSourceSpan (getSourceSpan),
     Match (..),
     Module (..),
     Name (..),
     NameType (..),
     Pattern (..),
     Rhs (..),
-    SourceSpan,
+    SourceSpan (..),
     UnqualifiedName (..),
     ValueDecl (..),
+    peelDeclAnn,
   )
 import Aihc.Tc.Constraint
 import Aihc.Tc.Generalize (generalize)
@@ -73,9 +75,12 @@ groupValueDecls (d : ds) = case extractFunctionBind d of
 
 -- | Extract function bind info from a declaration.
 extractFunctionBind :: Decl -> Maybe (SourceSpan, UnqualifiedName, [Match])
-extractFunctionBind (DeclValue sp (FunctionBind _fsp name matches)) = Just (sp, name, matches)
-extractFunctionBind (DeclAnn _ inner) = extractFunctionBind inner
-extractFunctionBind _ = Nothing
+extractFunctionBind decl =
+  case peelDeclAnn decl of
+    DeclValue (FunctionBind fsp name matches) ->
+      let sp = case fsp of NoSourceSpan -> getSourceSpan decl; _ -> fsp
+       in Just (sp, name, matches)
+    _ -> Nothing
 
 -- | Check if a declaration is a FunctionBind with the given name.
 hasSameName :: UnqualifiedName -> Decl -> Bool
@@ -102,7 +107,7 @@ tcDeclGroup (MergedFunctionBind _sp binder matches) = do
 -- | Register a declaration in the environment (data types, etc.).
 -- Returns binding results for the declared names.
 registerDecl :: Decl -> TcM [TcBindingResult]
-registerDecl (DeclData _sp dd) = registerDataDecl dd
+registerDecl (DeclData dd) = registerDataDecl dd
 registerDecl (DeclAnn _ inner) = registerDecl inner
 registerDecl _ = pure []
 
@@ -153,13 +158,13 @@ registerDataCon resTy con = case con of
 
 -- | Type-check a declaration, returning binding results for value bindings.
 tcDecl :: Decl -> TcM [TcBindingResult]
-tcDecl (DeclValue sp vd) = tcValueDecl sp vd
+tcDecl (DeclValue vd) = tcValueDecl vd
 tcDecl (DeclAnn _ inner) = tcDecl inner
 tcDecl _ = pure []
 
 -- | Type-check a value declaration.
-tcValueDecl :: SourceSpan -> ValueDecl -> TcM [TcBindingResult]
-tcValueDecl _sp (FunctionBind _fsp binder matches) = do
+tcValueDecl :: ValueDecl -> TcM [TcBindingResult]
+tcValueDecl (FunctionBind _fsp binder matches) = do
   let name = unqualifiedNameText binder
       displayName = renderBinderName binder
   (ty, cts) <- tcMatches matches
@@ -171,7 +176,7 @@ tcValueDecl _sp (FunctionBind _fsp binder matches) = do
   -- Register the binding so later bindings can reference it.
   extendTermEnvPermanent name (TcIdBinder name scheme)
   pure [TcBindingResult displayName zonkedTy]
-tcValueDecl _sp (PatternBind _psp _pat rhs) = do
+tcValueDecl (PatternBind _psp _pat rhs) = do
   ty <- tcRhs rhs
   zonkedTy <- zonkType ty
   pure [TcBindingResult "<pattern>" zonkedTy]

@@ -135,50 +135,59 @@ shrinkWarningMessage msg =
 instance Arbitrary WarningText where
   arbitrary =
     oneof
-      [ DeprText span0 <$> genWarningMessage,
-        WarnText span0 <$> genWarningMessage
+      [ DeprText <$> genWarningMessage,
+        WarnText <$> genWarningMessage,
+        WarningTextAnn (mkAnnotation ()) <$> leafWarningText
       ]
+    where
+      leafWarningText =
+        oneof
+          [ DeprText <$> genWarningMessage,
+            WarnText <$> genWarningMessage
+          ]
 
   shrink wt =
     case wt of
-      DeprText _ msg -> [DeprText span0 msg' | msg' <- shrinkWarningMessage msg]
-      WarnText _ msg -> [WarnText span0 msg' | msg' <- shrinkWarningMessage msg]
+      DeprText msg -> [DeprText msg' | msg' <- shrinkWarningMessage msg]
+      WarnText msg -> [WarnText msg' | msg' <- shrinkWarningMessage msg]
+      WarningTextAnn _ sub -> shrink sub
 
 instance Arbitrary ExportSpec where
   arbitrary =
     oneof
-      [ ExportModule span0 <$> arbitrary <*> genModuleName,
-        ExportVar span0 <$> arbitrary <*> pure Nothing <*> genExportVarName,
-        ExportAbs span0 <$> arbitrary <*> arbitrary <*> genExportTypeName,
-        ExportAll span0 <$> arbitrary <*> arbitrary <*> genExportTypeName,
-        ExportWith span0 <$> arbitrary <*> arbitrary <*> genExportTypeName <*> genExportMembers,
-        ExportWithAll span0 <$> arbitrary <*> arbitrary <*> genExportTypeName <*> genExportMembers
+      [ ExportModule <$> arbitrary <*> genModuleName,
+        ExportVar <$> arbitrary <*> pure Nothing <*> genExportVarName,
+        ExportAbs <$> arbitrary <*> arbitrary <*> genExportTypeName,
+        ExportAll <$> arbitrary <*> arbitrary <*> genExportTypeName,
+        ExportWith <$> arbitrary <*> arbitrary <*> genExportTypeName <*> genExportMembers,
+        ExportWithAll <$> arbitrary <*> arbitrary <*> genExportTypeName <*> genExportMembers
       ]
 
   shrink spec =
     case spec of
-      ExportModule _ _ modName ->
-        [ExportModule span0 Nothing shrunk | shrunk <- shrinkModuleName modName]
-      ExportVar _ mWarning namespace name ->
-        [ExportVar span0 Nothing namespace name | Just _ <- [mWarning]]
-          <> [ExportVar span0 mWarning namespace shrunk | shrunk <- shrinkExportVarName name]
-      ExportAbs _ mWarning namespace name ->
-        [ExportAbs span0 Nothing namespace name | Just _ <- [mWarning]]
-          <> [ExportAbs span0 mWarning namespace shrunk | shrunk <- shrinkExportTypeName name]
-      ExportAll _ mWarning namespace name ->
-        [ExportAbs span0 mWarning namespace name]
-          <> [ExportAll span0 Nothing namespace name | Just _ <- [mWarning]]
-          <> [ExportAll span0 mWarning namespace shrunk | shrunk <- shrinkExportTypeName name]
-      ExportWith _ mWarning namespace name members ->
-        [ExportAbs span0 mWarning namespace name | not (null members)]
-          <> [ExportWith span0 Nothing namespace name members | Just _ <- [mWarning]]
-          <> [ExportWith span0 mWarning namespace shrunk members | shrunk <- shrinkExportTypeName name]
-          <> [ExportWith span0 mWarning namespace name shrunk | shrunk <- shrinkList shrink members, not (null shrunk)]
-      ExportWithAll _ mWarning namespace name members ->
-        [ExportWith span0 mWarning namespace name members]
-          <> [ExportWithAll span0 Nothing namespace name members | Just _ <- [mWarning]]
-          <> [ExportWithAll span0 mWarning namespace shrunk members | shrunk <- shrinkExportTypeName name]
-          <> [ExportWithAll span0 mWarning namespace name shrunk | shrunk <- shrinkList shrink members]
+      ExportAnn _ sub -> sub : shrink sub
+      ExportModule _ modName ->
+        [ExportModule Nothing shrunk | shrunk <- shrinkModuleName modName]
+      ExportVar mWarning namespace name ->
+        [ExportVar Nothing namespace name | Just _ <- [mWarning]]
+          <> [ExportVar mWarning namespace shrunk | shrunk <- shrinkExportVarName name]
+      ExportAbs mWarning namespace name ->
+        [ExportAbs Nothing namespace name | Just _ <- [mWarning]]
+          <> [ExportAbs mWarning namespace shrunk | shrunk <- shrinkExportTypeName name]
+      ExportAll mWarning namespace name ->
+        [ExportAbs mWarning namespace name]
+          <> [ExportAll Nothing namespace name | Just _ <- [mWarning]]
+          <> [ExportAll mWarning namespace shrunk | shrunk <- shrinkExportTypeName name]
+      ExportWith mWarning namespace name members ->
+        [ExportAbs mWarning namespace name | not (null members)]
+          <> [ExportWith Nothing namespace name members | Just _ <- [mWarning]]
+          <> [ExportWith mWarning namespace shrunk members | shrunk <- shrinkExportTypeName name]
+          <> [ExportWith mWarning namespace name shrunk | shrunk <- shrinkList shrink members, not (null shrunk)]
+      ExportWithAll mWarning namespace name members ->
+        [ExportWith mWarning namespace name members]
+          <> [ExportWithAll Nothing namespace name members | Just _ <- [mWarning]]
+          <> [ExportWithAll mWarning namespace shrunk members | shrunk <- shrinkExportTypeName name]
+          <> [ExportWithAll mWarning namespace name shrunk | shrunk <- shrinkList shrink members]
 
 instance Arbitrary IEEntityNamespace where
   arbitrary = elements [IEEntityNamespaceType, IEEntityNamespacePattern, IEEntityNamespaceData]
@@ -209,30 +218,31 @@ instance Arbitrary ImportSpec where
 instance Arbitrary ImportItem where
   arbitrary =
     oneof
-      [ ImportItemVar span0 Nothing <$> genUnqualifiedVarName,
-        ImportItemAbs span0 <$> genTypeNamespace <*> genTypeName,
-        ImportItemAll span0 <$> genTypeNamespace <*> genTypeName,
-        ImportItemWith span0 <$> genBundledNamespace <*> genTypeName <*> genExportMembers,
-        ImportItemAllWith span0 <$> genBundledNamespace <*> genTypeName <*> genExportMembers
+      [ ImportItemVar Nothing <$> genUnqualifiedVarName,
+        ImportItemAbs <$> genTypeNamespace <*> genTypeName,
+        ImportItemAll <$> genTypeNamespace <*> genTypeName,
+        ImportItemWith <$> genBundledNamespace <*> genTypeName <*> genExportMembers,
+        ImportItemAllWith <$> genBundledNamespace <*> genTypeName <*> genExportMembers
       ]
 
   shrink item =
     case item of
-      ImportItemVar _ namespace name ->
-        [ImportItemVar span0 namespace shrunk | shrunk <- shrinkUnqualifiedVarName name]
-      ImportItemAbs _ namespace name ->
-        [ImportItemAbs span0 namespace shrunk | shrunk <- shrinkTypeName name]
-      ImportItemAll _ namespace name ->
-        [ImportItemAbs span0 namespace name]
-          <> [ImportItemAll span0 namespace shrunk | shrunk <- shrinkTypeName name]
-      ImportItemWith _ namespace name members ->
-        [ImportItemAbs span0 namespace name | not (null members)]
-          <> [ImportItemWith span0 namespace shrunk members | shrunk <- shrinkTypeName name]
-          <> [ImportItemWith span0 namespace name shrunk | shrunk <- shrinkList shrink members, not (null shrunk)]
-      ImportItemAllWith _ namespace name members ->
-        [ImportItemWith span0 namespace name members]
-          <> [ImportItemAllWith span0 namespace shrunk members | shrunk <- shrinkTypeName name]
-          <> [ImportItemAllWith span0 namespace name shrunk | shrunk <- shrinkList shrink members]
+      ImportAnn _ sub -> sub : shrink sub
+      ImportItemVar namespace name ->
+        [ImportItemVar namespace shrunk | shrunk <- shrinkUnqualifiedVarName name]
+      ImportItemAbs namespace name ->
+        [ImportItemAbs namespace shrunk | shrunk <- shrinkTypeName name]
+      ImportItemAll namespace name ->
+        [ImportItemAbs namespace name]
+          <> [ImportItemAll namespace shrunk | shrunk <- shrinkTypeName name]
+      ImportItemWith namespace name members ->
+        [ImportItemAbs namespace name | not (null members)]
+          <> [ImportItemWith namespace shrunk members | shrunk <- shrinkTypeName name]
+          <> [ImportItemWith namespace name shrunk | shrunk <- shrinkList shrink members, not (null shrunk)]
+      ImportItemAllWith namespace name members ->
+        [ImportItemWith namespace name members]
+          <> [ImportItemAllWith namespace shrunk members | shrunk <- shrinkTypeName name]
+          <> [ImportItemAllWith namespace name shrunk | shrunk <- shrinkList shrink members]
 
 instance Arbitrary IEBundledMember where
   arbitrary = do

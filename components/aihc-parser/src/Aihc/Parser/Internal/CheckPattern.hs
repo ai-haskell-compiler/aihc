@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- |
 --
@@ -20,7 +21,7 @@ module Aihc.Parser.Internal.CheckPattern
   )
 where
 
-import Aihc.Parser.Internal.Common (isConLikeName)
+import Aihc.Parser.Internal.Common (isConLikeName, isConLikeNameType)
 import Aihc.Parser.Syntax
 import Data.Maybe (isJust)
 import Data.Text (Text)
@@ -30,7 +31,10 @@ import Data.Text (Text)
 -- interpreted as a valid pattern.
 checkPattern :: Expr -> Either Text Pattern
 checkPattern expr = case expr of
-  EAnn _ sub -> checkPattern sub
+  EAnn ann sub ->
+    case fromAnnotation @SourceSpan ann of
+      Just sp -> fmap (patternAnnSpan sp) (checkPattern sub)
+      Nothing -> checkPattern sub
   -- Variables and constructors
   EVar sp name
     | nameText name == "_" -> Right (PWildcard sp)
@@ -73,8 +77,9 @@ checkPattern expr = case expr of
   EApp sp f x -> do
     fPat <- checkPattern f
     xPat <- checkPattern x
-    case fPat of
+    case peelPatternAnn fPat of
       PCon _csp name args -> Right (PCon sp name (args ++ [xPat]))
+      PVar _ name | isConLikeNameType (unqualifiedNameType name) -> Right (PCon sp (qualifyName Nothing name) [xPat])
       _ -> Left "invalid pattern: application of non-constructor"
   -- Record construction -> record pattern
   ERecordCon sp name fields wc -> do

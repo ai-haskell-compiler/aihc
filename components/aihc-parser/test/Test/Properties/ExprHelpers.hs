@@ -1,3 +1,5 @@
+{-# LANGUAGE TypeApplications #-}
+
 -- | Shared normalization helpers used by multiple round-trip test modules.
 module Test.Properties.ExprHelpers
   ( normalizeExpr,
@@ -64,7 +66,9 @@ normalizeExpr expr =
     ETHSplice _ body -> ETHSplice span0 (normalizeExpr body)
     ETHTypedSplice _ body -> ETHTypedSplice span0 (normalizeExpr body)
     EProc _ pat body -> EProc span0 (normalizePattern pat) body
-    EAnn ann sub -> EAnn ann (normalizeExpr sub)
+    EAnn ann sub
+      | Just _ <- fromAnnotation @SourceSpan ann -> normalizeExpr sub
+      | otherwise -> EAnn ann (normalizeExpr sub)
 
 normalizeCaseAlt :: CaseAlt -> CaseAlt
 normalizeCaseAlt alt =
@@ -164,29 +168,29 @@ normalizeLiteral lit =
 normalizeDecl :: Decl -> Decl
 normalizeDecl decl =
   case decl of
-    DeclAnn ann sub -> DeclAnn ann (normalizeDecl sub)
-    DeclValue _ vdecl -> DeclValue span0 (normalizeValueDecl vdecl)
-    DeclTypeSig _ names ty -> DeclTypeSig span0 names (normalizeType ty)
-    DeclPatSyn _ ps -> DeclPatSyn span0 (normalizePatSynDecl ps)
-    DeclPatSynSig _ names ty -> DeclPatSynSig span0 names (normalizeType ty)
-    DeclStandaloneKindSig _ name kind -> DeclStandaloneKindSig span0 name (normalizeType kind)
-    DeclFixity _ assoc mNs prec ops -> DeclFixity span0 assoc mNs prec ops
-    DeclRoleAnnotation _ ann -> DeclRoleAnnotation span0 (normalizeRoleAnnotation ann)
-    DeclTypeSyn _ synDecl -> DeclTypeSyn span0 (normalizeTypeSynDecl synDecl)
-    DeclTypeData _ dataDecl -> DeclTypeData span0 (normalizeDataDecl dataDecl)
-    DeclData _ dataDecl -> DeclData span0 (normalizeDataDecl dataDecl)
-    DeclNewtype _ newtypeDecl -> DeclNewtype span0 (normalizeNewtypeDecl newtypeDecl)
-    DeclClass _ classDecl -> DeclClass span0 (normalizeClassDecl classDecl)
-    DeclInstance _ instanceDecl -> DeclInstance span0 (normalizeInstanceDecl instanceDecl)
-    DeclStandaloneDeriving _ derivingDecl -> DeclStandaloneDeriving span0 (normalizeStandaloneDerivingDecl derivingDecl)
-    DeclDefault _ tys -> DeclDefault span0 (map normalizeType tys)
-    DeclForeign _ foreignDecl -> DeclForeign span0 (normalizeForeignDecl foreignDecl)
-    DeclSplice _ body -> DeclSplice span0 (normalizeExpr body)
-    DeclTypeFamilyDecl _ tf -> DeclTypeFamilyDecl span0 (normalizeTypeFamilyDecl tf)
-    DeclDataFamilyDecl _ df -> DeclDataFamilyDecl span0 (normalizeDataFamilyDecl df)
-    DeclTypeFamilyInst _ tfi -> DeclTypeFamilyInst span0 (normalizeTypeFamilyInst tfi)
-    DeclDataFamilyInst _ dfi -> DeclDataFamilyInst span0 (normalizeDataFamilyInst dfi)
-    DeclPragma _ pragma -> DeclPragma span0 pragma
+    DeclAnn _ sub -> normalizeDecl sub
+    DeclValue vdecl -> DeclValue (normalizeValueDecl vdecl)
+    DeclTypeSig names ty -> DeclTypeSig names (normalizeType ty)
+    DeclPatSyn ps -> DeclPatSyn (normalizePatSynDecl ps)
+    DeclPatSynSig names ty -> DeclPatSynSig names (normalizeType ty)
+    DeclStandaloneKindSig name kind -> DeclStandaloneKindSig name (normalizeType kind)
+    DeclFixity assoc mNs prec ops -> DeclFixity assoc mNs prec ops
+    DeclRoleAnnotation ann -> DeclRoleAnnotation (normalizeRoleAnnotation ann)
+    DeclTypeSyn synDecl -> DeclTypeSyn (normalizeTypeSynDecl synDecl)
+    DeclTypeData dataDecl -> DeclTypeData (normalizeDataDecl dataDecl)
+    DeclData dataDecl -> DeclData (normalizeDataDecl dataDecl)
+    DeclNewtype newtypeDecl -> DeclNewtype (normalizeNewtypeDecl newtypeDecl)
+    DeclClass classDecl -> DeclClass (normalizeClassDecl classDecl)
+    DeclInstance instanceDecl -> DeclInstance (normalizeInstanceDecl instanceDecl)
+    DeclStandaloneDeriving derivingDecl -> DeclStandaloneDeriving (normalizeStandaloneDerivingDecl derivingDecl)
+    DeclDefault tys -> DeclDefault (map normalizeType tys)
+    DeclForeign foreignDecl -> DeclForeign (normalizeForeignDecl foreignDecl)
+    DeclSplice body -> DeclSplice (normalizeExpr body)
+    DeclTypeFamilyDecl tf -> DeclTypeFamilyDecl (normalizeTypeFamilyDecl tf)
+    DeclDataFamilyDecl df -> DeclDataFamilyDecl (normalizeDataFamilyDecl df)
+    DeclTypeFamilyInst tfi -> DeclTypeFamilyInst (normalizeTypeFamilyInst tfi)
+    DeclDataFamilyInst dfi -> DeclDataFamilyInst (normalizeDataFamilyInst dfi)
+    DeclPragma pragma -> DeclPragma pragma
 
 normalizeValueDecl :: ValueDecl -> ValueDecl
 normalizeValueDecl vdecl =
@@ -264,7 +268,9 @@ normalizeType ty =
     TContext _ constraints inner -> TContext span0 (map normalizeType constraints) (normalizeType inner)
     TSplice _ body -> TSplice span0 (normalizeExpr body)
     TWildcard _ -> TWildcard span0
-    TAnn ann sub -> TAnn ann (normalizeType sub)
+    TAnn ann sub
+      | Just _ <- fromAnnotation @SourceSpan ann -> normalizeType sub
+      | otherwise -> TAnn ann (normalizeType sub)
 
 normalizeTyVarBinder :: TyVarBinder -> TyVarBinder
 normalizeTyVarBinder tvb =
@@ -276,8 +282,9 @@ normalizeTyVarBinder tvb =
 normalizeWarningText :: WarningText -> WarningText
 normalizeWarningText wt =
   case wt of
-    DeprText _ msg -> DeprText span0 msg
-    WarnText _ msg -> WarnText span0 msg
+    DeprText msg -> DeprText msg
+    WarnText msg -> WarnText msg
+    WarningTextAnn _ sub -> normalizeWarningText sub
 
 normalizePatSynDecl :: PatSynDecl -> PatSynDecl
 normalizePatSynDecl ps =

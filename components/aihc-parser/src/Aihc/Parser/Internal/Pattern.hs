@@ -18,6 +18,10 @@ import Data.Functor (($>))
 import Text.Megaparsec (anySingle, lookAhead, (<|>))
 import Text.Megaparsec qualified as MP
 
+withPatSpanAnn :: TokParser (SourceSpan -> Pattern) -> TokParser Pattern
+withPatSpanAnn parser =
+  withSpan (parser >>= \g -> pure (\sp -> patternAnnSpan sp (g NoSourceSpan)))
+
 patternParser :: TokParser Pattern
 patternParser = label "pattern" $ do
   pat <- infixPatternParser
@@ -94,7 +98,7 @@ appPatternParser =
 
 buildPatternApp :: Pattern -> Pattern -> Pattern
 buildPatternApp lhs rhs =
-  case lhs of
+  case peelPatternAnn lhs of
     PCon lSpan name args -> PCon (mergeSourceSpans lSpan (getSourceSpan rhs)) name (args <> [rhs])
     _ -> lhs
 
@@ -254,7 +258,7 @@ simplePatternParser =
     <|> patternAtomParser
 
 varOrConPatternParser :: TokParser Pattern
-varOrConPatternParser = withSpan $ do
+varOrConPatternParser = withPatSpanAnn $ do
   name <- identifierNameParser
   mNextTok <- MP.optional (lookAhead anySingle)
   case mNextTok of
@@ -478,7 +482,7 @@ parenOrTuplePatternParser = withSpan $ do
 
 isPatternAppHead :: Pattern -> Bool
 isPatternAppHead pat =
-  case pat of
+  case peelPatternAnn pat of
     PCon {} -> True
     PVar _ name -> isConLikeNameType (unqualifiedNameType name)
     _ -> False

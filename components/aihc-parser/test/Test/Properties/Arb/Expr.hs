@@ -382,7 +382,6 @@ genValueDeclsWith allowTHQuotes n = do
   exprs <- vectorOf count (genBindingExprWith allowTHQuotes (n `div` max 1 count))
   pure
     [ DeclValue
-        span0
         ( PatternBind
             span0
             (PVar span0 name)
@@ -741,11 +740,10 @@ shrinkDecls = shrinkList shrinkLetDecl
 shrinkLetDecl :: Decl -> [Decl]
 shrinkLetDecl decl =
   case decl of
-    DeclValue _ (PatternBind _ pat (UnguardedRhs _ expr _)) ->
-      [DeclValue span0 (PatternBind span0 pat (UnguardedRhs span0 expr' Nothing)) | expr' <- shrinkExpr expr]
-    DeclValue _ (FunctionBind _ name [match@Match {matchRhs = UnguardedRhs _ expr _}]) ->
+    DeclValue (PatternBind _ pat (UnguardedRhs _ expr _)) ->
+      [DeclValue (PatternBind span0 pat (UnguardedRhs span0 expr' Nothing)) | expr' <- shrinkExpr expr]
+    DeclValue (FunctionBind _ name [match@Match {matchRhs = UnguardedRhs _ expr _}]) ->
       [ DeclValue
-          span0
           ( FunctionBind
               span0
               name

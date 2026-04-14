@@ -97,8 +97,9 @@ instance Shorthand LexTokenKind where
 docWarningText :: WarningText -> Doc ann
 docWarningText wt =
   case wt of
-    DeprText _ msg -> "DeprText" <+> docText msg
-    WarnText _ msg -> "WarnText" <+> docText msg
+    DeprText msg -> "DeprText" <+> docText msg
+    WarnText msg -> "WarnText" <+> docText msg
+    WarningTextAnn _ sub -> docWarningText sub
 
 docExtensionSetting :: ExtensionSetting -> Doc ann
 docExtensionSetting setting =
@@ -109,22 +110,23 @@ docExtensionSetting setting =
 docExportSpec :: ExportSpec -> Doc ann
 docExportSpec spec =
   case spec of
-    ExportModule _ mWarning name ->
+    ExportAnn _ sub -> docExportSpec sub
+    ExportModule mWarning name ->
       "ExportModule" <> braces (hsep (punctuate comma (optionalField "warningText" docWarningText mWarning <> [field "name" (docText name)])))
-    ExportVar _ mWarning mNamespace name ->
+    ExportVar mWarning mNamespace name ->
       "ExportVar" <> braces (hsep (punctuate comma (optionalField "warningText" docWarningText mWarning <> optionalField "namespace" docIENamespace mNamespace <> [field "name" (docName name)])))
-    ExportAbs _ mWarning mNamespace name ->
+    ExportAbs mWarning mNamespace name ->
       "ExportAbs" <> braces (hsep (punctuate comma (optionalField "warningText" docWarningText mWarning <> optionalField "namespace" docIENamespace mNamespace <> [field "name" (docName name)])))
-    ExportAll _ mWarning mNamespace name ->
+    ExportAll mWarning mNamespace name ->
       "ExportAll" <> braces (hsep (punctuate comma (optionalField "warningText" docWarningText mWarning <> optionalField "namespace" docIENamespace mNamespace <> [field "name" (docName name)])))
-    ExportWith _ mWarning mNamespace name members ->
+    ExportWith mWarning mNamespace name members ->
       "ExportWith" <> braces (hsep (punctuate comma fields))
       where
         fields =
           optionalField "warningText" docWarningText mWarning
             <> optionalField "namespace" docIENamespace mNamespace
             <> [field "name" (docName name), field "members" (brackets (hsep (punctuate comma (map docExportMember members))))]
-    ExportWithAll _ mWarning mNamespace name members ->
+    ExportWithAll mWarning mNamespace name members ->
       "ExportWithAll" <> braces (hsep (punctuate comma fields))
       where
         fields =
@@ -164,19 +166,20 @@ docImportSpec spec =
 docImportItem :: ImportItem -> Doc ann
 docImportItem item =
   case item of
-    ImportItemVar _ mNamespace name ->
+    ImportAnn _ sub -> docImportItem sub
+    ImportItemVar mNamespace name ->
       "ImportItemVar" <> braces (hsep (punctuate comma (optionalField "namespace" docIENamespace mNamespace <> [field "name" (docUnqualifiedName name)])))
-    ImportItemAbs _ mNamespace name ->
+    ImportItemAbs mNamespace name ->
       "ImportItemAbs" <> braces (hsep (punctuate comma (optionalField "namespace" docIENamespace mNamespace <> [field "name" (docUnqualifiedName name)])))
-    ImportItemAll _ mNamespace name ->
+    ImportItemAll mNamespace name ->
       "ImportItemAll" <> braces (hsep (punctuate comma (optionalField "namespace" docIENamespace mNamespace <> [field "name" (docUnqualifiedName name)])))
-    ImportItemWith _ mNamespace name members ->
+    ImportItemWith mNamespace name members ->
       "ImportItemWith" <> braces (hsep (punctuate comma fields))
       where
         fields =
           optionalField "namespace" docIENamespace mNamespace
             <> [field "name" (docUnqualifiedName name), field "members" (brackets (hsep (punctuate comma (map docExportMember members))))]
-    ImportItemAllWith _ mNamespace name members ->
+    ImportItemAllWith mNamespace name members ->
       "ImportItemAllWith" <> braces (hsep (punctuate comma fields))
       where
         fields =
@@ -205,28 +208,28 @@ docDecl :: Decl -> Doc ann
 docDecl decl =
   case decl of
     DeclAnn _ sub -> docDecl sub
-    DeclValue _ vdecl -> "DeclValue" <+> parens (docValueDecl vdecl)
-    DeclTypeSig _ names ty -> "DeclTypeSig" <+> braces (hsep (punctuate comma [field "names" (brackets (hsep (punctuate comma (map docUnqualifiedName names)))), field "type" (docType ty)]))
-    DeclPatSyn _ ps -> "DeclPatSyn" <+> parens (docPatSynDecl ps)
-    DeclPatSynSig _ names ty -> "DeclPatSynSig" <+> braces (hsep (punctuate comma [field "names" (brackets (hsep (punctuate comma (map docUnqualifiedName names)))), field "type" (docType ty)]))
-    DeclStandaloneKindSig _ name kind -> "DeclStandaloneKindSig" <+> braces (hsep (punctuate comma [field "name" (docUnqualifiedName name), field "kind" (docType kind)]))
-    DeclFixity _ assoc mNamespace mPrec ops -> "DeclFixity" <+> braces (hsep (punctuate comma ([field "assoc" (docFixityAssoc assoc)] <> optionalField "namespace" docIENamespace mNamespace <> optionalField "prec" pretty mPrec <> [field "ops" (brackets (hsep (punctuate comma (map docUnqualifiedName ops))))])))
-    DeclRoleAnnotation _ ann -> "DeclRoleAnnotation" <+> parens (docRoleAnnotation ann)
-    DeclTypeSyn _ syn -> "DeclTypeSyn" <+> parens (docTypeSynDecl syn)
-    DeclData _ dd -> "DeclData" <+> parens (docDataDecl dd)
-    DeclTypeData _ dd -> "DeclTypeData" <+> parens (docDataDecl dd)
-    DeclNewtype _ nd -> "DeclNewtype" <+> parens (docNewtypeDecl nd)
-    DeclClass _ cd -> "DeclClass" <+> parens (docClassDecl cd)
-    DeclInstance _ inst -> "DeclInstance" <+> parens (docInstanceDecl inst)
-    DeclStandaloneDeriving _ sd -> "DeclStandaloneDeriving" <+> parens (docStandaloneDerivingDecl sd)
-    DeclDefault _ tys -> "DeclDefault" <+> brackets (hsep (punctuate comma (map docType tys)))
-    DeclForeign _ fd -> "DeclForeign" <+> parens (docForeignDecl fd)
-    DeclSplice _ body -> "DeclSplice" <+> parens (docExpr body)
-    DeclTypeFamilyDecl _ tf -> "DeclTypeFamilyDecl" <+> parens (docTypeFamilyDecl tf)
-    DeclDataFamilyDecl _ df -> "DeclDataFamilyDecl" <+> parens (docDataFamilyDecl df)
-    DeclTypeFamilyInst _ tfi -> "DeclTypeFamilyInst" <+> parens (docTypeFamilyInst tfi)
-    DeclDataFamilyInst _ dfi -> "DeclDataFamilyInst" <+> parens (docDataFamilyInst dfi)
-    DeclPragma _ pragma -> "DeclPragma" <+> docPragma pragma
+    DeclValue vdecl -> "DeclValue" <+> parens (docValueDecl vdecl)
+    DeclTypeSig names ty -> "DeclTypeSig" <+> braces (hsep (punctuate comma [field "names" (brackets (hsep (punctuate comma (map docUnqualifiedName names)))), field "type" (docType ty)]))
+    DeclPatSyn ps -> "DeclPatSyn" <+> parens (docPatSynDecl ps)
+    DeclPatSynSig names ty -> "DeclPatSynSig" <+> braces (hsep (punctuate comma [field "names" (brackets (hsep (punctuate comma (map docUnqualifiedName names)))), field "type" (docType ty)]))
+    DeclStandaloneKindSig name kind -> "DeclStandaloneKindSig" <+> braces (hsep (punctuate comma [field "name" (docUnqualifiedName name), field "kind" (docType kind)]))
+    DeclFixity assoc mNamespace mPrec ops -> "DeclFixity" <+> braces (hsep (punctuate comma ([field "assoc" (docFixityAssoc assoc)] <> optionalField "namespace" docIENamespace mNamespace <> optionalField "prec" pretty mPrec <> [field "ops" (brackets (hsep (punctuate comma (map docUnqualifiedName ops))))])))
+    DeclRoleAnnotation ann -> "DeclRoleAnnotation" <+> parens (docRoleAnnotation ann)
+    DeclTypeSyn syn -> "DeclTypeSyn" <+> parens (docTypeSynDecl syn)
+    DeclData dd -> "DeclData" <+> parens (docDataDecl dd)
+    DeclTypeData dd -> "DeclTypeData" <+> parens (docDataDecl dd)
+    DeclNewtype nd -> "DeclNewtype" <+> parens (docNewtypeDecl nd)
+    DeclClass cd -> "DeclClass" <+> parens (docClassDecl cd)
+    DeclInstance inst -> "DeclInstance" <+> parens (docInstanceDecl inst)
+    DeclStandaloneDeriving sd -> "DeclStandaloneDeriving" <+> parens (docStandaloneDerivingDecl sd)
+    DeclDefault tys -> "DeclDefault" <+> brackets (hsep (punctuate comma (map docType tys)))
+    DeclForeign fd -> "DeclForeign" <+> parens (docForeignDecl fd)
+    DeclSplice body -> "DeclSplice" <+> parens (docExpr body)
+    DeclTypeFamilyDecl tf -> "DeclTypeFamilyDecl" <+> parens (docTypeFamilyDecl tf)
+    DeclDataFamilyDecl df -> "DeclDataFamilyDecl" <+> parens (docDataFamilyDecl df)
+    DeclTypeFamilyInst tfi -> "DeclTypeFamilyInst" <+> parens (docTypeFamilyInst tfi)
+    DeclDataFamilyInst dfi -> "DeclDataFamilyInst" <+> parens (docDataFamilyInst dfi)
+    DeclPragma pragma -> "DeclPragma" <+> docPragma pragma
 
 docValueDecl :: ValueDecl -> Doc ann
 docValueDecl vdecl =

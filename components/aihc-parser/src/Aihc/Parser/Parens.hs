@@ -78,7 +78,10 @@ isArrowTailOp _ = False
 -- | Check if an expression is a "block expression" that can appear without
 -- parentheses as a function argument when BlockArguments is enabled.
 isBlockExpr :: Expr -> Bool
-isBlockExpr = \case
+isBlockExpr = isBlockExprRaw . peelExprAnn
+
+isBlockExprRaw :: Expr -> Bool
+isBlockExprRaw = \case
   EIf {} -> True
   EMultiWayIf {} -> True
   ECase {} -> True
@@ -90,7 +93,10 @@ isBlockExpr = \case
 
 -- | Check if an expression is "greedy" - i.e., it could consume trailing syntax.
 isGreedyExpr :: Expr -> Bool
-isGreedyExpr = \case
+isGreedyExpr = isGreedyExprRaw . peelExprAnn
+
+isGreedyExprRaw :: Expr -> Bool
+isGreedyExprRaw = \case
   ECase {} -> True
   EIf {} -> True
   ELambdaPats {} -> True
@@ -104,7 +110,10 @@ isGreedyExpr = \case
 -- | Check if an expression is "open-ended" - its rightmost component can
 -- capture a trailing where clause.
 isOpenEnded :: Expr -> Bool
-isOpenEnded = \case
+isOpenEnded = isOpenEndedRaw . peelExprAnn
+
+isOpenEndedRaw :: Expr -> Bool
+isOpenEndedRaw = \case
   EIf {} -> True
   ELambdaPats {} -> True
   ELetDecls {} -> True
@@ -116,6 +125,7 @@ isOpenEnded = \case
 -- | Does the pretty-printed form of an expression end with @:: Type@?
 endsWithTypeSig :: Expr -> Bool
 endsWithTypeSig = \case
+  EAnn _ sub -> endsWithTypeSig sub
   ETypeSig {} -> True
   ELetDecls _ _ body -> endsWithTypeSig body
   ELambdaPats _ _ body -> endsWithTypeSig body
@@ -124,6 +134,7 @@ endsWithTypeSig = \case
 
 -- | Check whether an expression's pretty-printed form starts with '$'.
 startsWithDollar :: Expr -> Bool
+startsWithDollar (EAnn _ sub) = startsWithDollar sub
 startsWithDollar (ETHSplice {}) = True
 startsWithDollar (ETHTypedSplice {}) = True
 startsWithDollar (ERecordUpd _ base _) = startsWithDollar base
@@ -156,36 +167,37 @@ data ExprCtx
 
 needsExprParens :: ExprCtx -> Expr -> Bool
 needsExprParens ctx expr =
-  case ctx of
-    CtxInfixRhs protectOpenEnded ->
-      case expr of
-        EInfix {} -> True
-        ETypeSig {} -> True
-        ENegate {} -> True
-        _ | protectOpenEnded && isOpenEnded expr -> True
-        _ -> False
-    CtxInfixLhs ->
-      case expr of
-        ETypeSig {} -> True
-        ENegate {} -> True
-        _ -> isOpenEnded expr
-    CtxAppFun ->
-      case expr of
-        ENegate {} -> True
-        _ -> False
-    CtxAppArg ->
-      case expr of
-        _ | isBlockExpr expr -> False
-        _ -> False
-    CtxAppArgNoParens ->
-      False
-    CtxTypeSigBody ->
-      case expr of
-        ENegate {} -> True
-        ETypeSig {} -> True
-        ELambdaPats {} -> True
-        _ -> isOpenEnded expr
-    CtxGuarded -> isGreedyExpr expr
+  let e = peelExprAnn expr
+   in case ctx of
+        CtxInfixRhs protectOpenEnded ->
+          case e of
+            EInfix {} -> True
+            ETypeSig {} -> True
+            ENegate {} -> True
+            _ | protectOpenEnded && isOpenEnded expr -> True
+            _ -> False
+        CtxInfixLhs ->
+          case e of
+            ETypeSig {} -> True
+            ENegate {} -> True
+            _ -> isOpenEnded expr
+        CtxAppFun ->
+          case e of
+            ENegate {} -> True
+            _ -> False
+        CtxAppArg ->
+          case e of
+            _ | isBlockExpr expr -> False
+            _ -> False
+        CtxAppArgNoParens ->
+          False
+        CtxTypeSigBody ->
+          case e of
+            ENegate {} -> True
+            ETypeSig {} -> True
+            ELambdaPats {} -> True
+            _ -> isOpenEnded expr
+        CtxGuarded -> isGreedyExpr expr
 
 exprCtxPrec :: ExprCtx -> Expr -> Int
 exprCtxPrec ctx expr =
@@ -280,28 +292,28 @@ addDeclParens :: Decl -> Decl
 addDeclParens decl =
   case decl of
     DeclAnn ann sub -> DeclAnn ann (addDeclParens sub)
-    DeclValue sp vdecl -> DeclValue sp (addValueDeclParens vdecl)
-    DeclTypeSig sp names ty -> DeclTypeSig sp names (addTypeParens ty)
-    DeclPatSyn sp ps -> DeclPatSyn sp (addPatSynDeclParens ps)
-    DeclPatSynSig sp names ty -> DeclPatSynSig sp names (addTypeParens ty)
-    DeclStandaloneKindSig sp name kind -> DeclStandaloneKindSig sp name (addTypeParens kind)
+    DeclValue vdecl -> DeclValue (addValueDeclParens vdecl)
+    DeclTypeSig names ty -> DeclTypeSig names (addTypeParens ty)
+    DeclPatSyn ps -> DeclPatSyn (addPatSynDeclParens ps)
+    DeclPatSynSig names ty -> DeclPatSynSig names (addTypeParens ty)
+    DeclStandaloneKindSig name kind -> DeclStandaloneKindSig name (addTypeParens kind)
     DeclFixity {} -> decl
     DeclRoleAnnotation {} -> decl
-    DeclTypeSyn sp synDecl ->
-      DeclTypeSyn sp synDecl {typeSynBody = addTypeParens (typeSynBody synDecl)}
-    DeclData sp dataDecl -> DeclData sp (addDataDeclParens dataDecl)
-    DeclTypeData sp dataDecl -> DeclTypeData sp (addDataDeclParens dataDecl)
-    DeclNewtype sp newtypeDecl -> DeclNewtype sp (addNewtypeDeclParens newtypeDecl)
-    DeclClass sp classDecl -> DeclClass sp (addClassDeclParens classDecl)
-    DeclInstance sp instanceDecl -> DeclInstance sp (addInstanceDeclParens instanceDecl)
-    DeclStandaloneDeriving sp derivingDecl -> DeclStandaloneDeriving sp (addStandaloneDerivingParens derivingDecl)
-    DeclDefault sp tys -> DeclDefault sp (map addTypeParens tys)
-    DeclForeign sp foreignDecl -> DeclForeign sp (addForeignDeclParens foreignDecl)
-    DeclSplice sp body -> DeclSplice sp (addDeclSpliceParens body)
-    DeclTypeFamilyDecl sp tf -> DeclTypeFamilyDecl sp (addTypeFamilyDeclParens tf)
-    DeclDataFamilyDecl sp df -> DeclDataFamilyDecl sp (addDataFamilyDeclParens df)
-    DeclTypeFamilyInst sp tfi -> DeclTypeFamilyInst sp (addTypeFamilyInstParens tfi)
-    DeclDataFamilyInst sp dfi -> DeclDataFamilyInst sp (addDataFamilyInstParens dfi)
+    DeclTypeSyn synDecl ->
+      DeclTypeSyn (synDecl {typeSynBody = addTypeParens (typeSynBody synDecl)})
+    DeclData dataDecl -> DeclData (addDataDeclParens dataDecl)
+    DeclTypeData dataDecl -> DeclTypeData (addDataDeclParens dataDecl)
+    DeclNewtype newtypeDecl -> DeclNewtype (addNewtypeDeclParens newtypeDecl)
+    DeclClass classDecl -> DeclClass (addClassDeclParens classDecl)
+    DeclInstance instanceDecl -> DeclInstance (addInstanceDeclParens instanceDecl)
+    DeclStandaloneDeriving derivingDecl -> DeclStandaloneDeriving (addStandaloneDerivingParens derivingDecl)
+    DeclDefault tys -> DeclDefault (map addTypeParens tys)
+    DeclForeign foreignDecl -> DeclForeign (addForeignDeclParens foreignDecl)
+    DeclSplice body -> DeclSplice (addDeclSpliceParens body)
+    DeclTypeFamilyDecl tf -> DeclTypeFamilyDecl (addTypeFamilyDeclParens tf)
+    DeclDataFamilyDecl df -> DeclDataFamilyDecl (addDataFamilyDeclParens df)
+    DeclTypeFamilyInst tfi -> DeclTypeFamilyInst (addTypeFamilyInstParens tfi)
+    DeclDataFamilyInst dfi -> DeclDataFamilyInst (addDataFamilyInstParens dfi)
     DeclPragma {} -> decl
 
 addDeclSpliceParens :: Expr -> Expr
@@ -557,6 +569,7 @@ addExprParensIn ctx expr =
 flattenApps :: Expr -> (Expr, [Expr])
 flattenApps = go []
   where
+    go args (EAnn _ x) = go args x
     go args (EApp _ fn arg) = go (arg : args) fn
     go args root = (root, args)
 
@@ -662,6 +675,7 @@ addExprParensPrec prec expr =
     EAnn ann sub -> EAnn ann (addExprParensPrec prec sub)
   where
     isTypeSig :: Expr -> Bool
+    isTypeSig (EAnn _ sub) = isTypeSig sub
     isTypeSig (ETypeSig {}) = True
     isTypeSig _ = False
 
@@ -691,12 +705,14 @@ addAppsChainPrec prec expr =
 getAppSpans :: Expr -> [SourceSpan]
 getAppSpans = reverse . go
   where
+    go (EAnn _ x) = go x
     go (EApp sp fn _) = sp : go fn
     go _ = []
 
 addSpliceBodyParens :: Expr -> Expr
 addSpliceBodyParens body =
   case body of
+    EAnn ann sub -> EAnn ann (addSpliceBodyParens sub)
     -- EParen around a section: the pretty-printer's EParen transparency
     -- means this would print as just the section's parens. We need an
     -- extra EParen so the splice delimiter parens are not swallowed.
@@ -922,7 +938,7 @@ isConsOperator name =
 
 addPatternAtomParens :: Pattern -> Pattern
 addPatternAtomParens pat =
-  case pat of
+  case peelPatternAnn pat of
     PVar {} -> addPatternParens pat
     PWildcard {} -> addPatternParens pat
     PLit {} -> addPatternParens pat
@@ -956,7 +972,7 @@ addLambdaPatternAtomParens pat =
 -- | Add parens for a pattern in function-head argument position.
 addFunctionHeadPatternAtomParens :: Pattern -> Pattern
 addFunctionHeadPatternAtomParens pat =
-  case pat of
+  case peelPatternAnn pat of
     PNegLit {} -> wrapPat True (addPatternParens pat)
     PCon _ _ (_ : _) -> wrapPat True (addPatternParens pat)
     PRecord {} -> addPatternParens pat
@@ -965,14 +981,14 @@ addFunctionHeadPatternAtomParens pat =
 -- | Add parens for infix function-head operands.
 addInfixFunctionHeadPatternAtomParens :: Pattern -> Pattern
 addInfixFunctionHeadPatternAtomParens pat =
-  case pat of
+  case peelPatternAnn pat of
     PNegLit {} -> wrapPat True (addPatternParens pat)
     _ -> addPatternParens pat
 
 -- | Add parens for the inner pattern of @, !, ~.
 addPatternAtomStrictParens :: Pattern -> Pattern
 addPatternAtomStrictParens pat =
-  case pat of
+  case peelPatternAnn pat of
     PNegLit {} -> wrapPat True (addPatternParens pat)
     PCon _ _ [] -> wrapPat True (addPatternParens pat)
     PStrict {} -> wrapPat True (addPatternParens pat)

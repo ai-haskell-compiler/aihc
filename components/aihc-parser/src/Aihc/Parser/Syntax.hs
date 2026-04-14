@@ -1,5 +1,6 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- |
 --
@@ -121,6 +122,13 @@ module Aihc.Parser.Syntax
     moduleExports,
     mkAnnotation,
     fromAnnotation,
+    declAnnSpan,
+    exprAnnSpan,
+    patternAnnSpan,
+    peelDeclAnn,
+    peelExprAnn,
+    peelPatternAnn,
+    typeAnnSpan,
   )
 where
 
@@ -745,8 +753,9 @@ type BinderName = UnqualifiedName
 type OperatorName = UnqualifiedName
 
 data WarningText
-  = DeprText SourceSpan Text
-  | WarnText SourceSpan Text
+  = DeprText Text
+  | WarnText Text
+  | WarningTextAnn Annotation WarningText
   deriving (Data, Eq, Show, Generic, NFData)
 
 data PragmaUnpackKind
@@ -768,8 +777,11 @@ data Pragma
 instance HasSourceSpan WarningText where
   getSourceSpan warningText =
     case warningText of
-      DeprText span' _ -> span'
-      WarnText span' _ -> span'
+      DeprText _ -> NoSourceSpan
+      WarnText _ -> NoSourceSpan
+      WarningTextAnn ann sub
+        | Just srcSpan <- fromAnnotation ann -> srcSpan
+        | otherwise -> getSourceSpan sub
 
 data Module = Module
   { moduleSpan :: SourceSpan,
@@ -820,23 +832,27 @@ data IEBundledMember = IEBundledMember
   deriving (Data, Eq, Show, Generic, NFData)
 
 data ExportSpec
-  = ExportModule SourceSpan (Maybe WarningText) Text
-  | ExportVar SourceSpan (Maybe WarningText) (Maybe IEEntityNamespace) Name
-  | ExportAbs SourceSpan (Maybe WarningText) (Maybe IEEntityNamespace) Name
-  | ExportAll SourceSpan (Maybe WarningText) (Maybe IEEntityNamespace) Name
-  | ExportWith SourceSpan (Maybe WarningText) (Maybe IEEntityNamespace) Name [IEBundledMember]
-  | ExportWithAll SourceSpan (Maybe WarningText) (Maybe IEEntityNamespace) Name [IEBundledMember]
+  = ExportModule (Maybe WarningText) Text
+  | ExportVar (Maybe WarningText) (Maybe IEEntityNamespace) Name
+  | ExportAbs (Maybe WarningText) (Maybe IEEntityNamespace) Name
+  | ExportAll (Maybe WarningText) (Maybe IEEntityNamespace) Name
+  | ExportWith (Maybe WarningText) (Maybe IEEntityNamespace) Name [IEBundledMember]
+  | ExportWithAll (Maybe WarningText) (Maybe IEEntityNamespace) Name [IEBundledMember]
+  | ExportAnn Annotation ExportSpec
   deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan ExportSpec where
   getSourceSpan spec =
     case spec of
-      ExportModule span' _ _ -> span'
-      ExportVar span' _ _ _ -> span'
-      ExportAbs span' _ _ _ -> span'
-      ExportAll span' _ _ _ -> span'
-      ExportWith span' _ _ _ _ -> span'
-      ExportWithAll span' _ _ _ _ -> span'
+      ExportModule {} -> NoSourceSpan
+      ExportVar {} -> NoSourceSpan
+      ExportAbs {} -> NoSourceSpan
+      ExportAll {} -> NoSourceSpan
+      ExportWith {} -> NoSourceSpan
+      ExportWithAll {} -> NoSourceSpan
+      ExportAnn ann sub
+        | Just srcSpan <- fromAnnotation ann -> srcSpan
+        | otherwise -> getSourceSpan sub
 
 data ImportDecl = ImportDecl
   { importDeclSpan :: SourceSpan,
@@ -871,67 +887,91 @@ instance HasSourceSpan ImportSpec where
   getSourceSpan = importSpecSpan
 
 data ImportItem
-  = ImportItemVar SourceSpan (Maybe IEEntityNamespace) UnqualifiedName
-  | ImportItemAbs SourceSpan (Maybe IEEntityNamespace) UnqualifiedName
-  | ImportItemAll SourceSpan (Maybe IEEntityNamespace) UnqualifiedName
-  | ImportItemWith SourceSpan (Maybe IEEntityNamespace) UnqualifiedName [IEBundledMember]
-  | ImportItemAllWith SourceSpan (Maybe IEEntityNamespace) UnqualifiedName [IEBundledMember]
+  = ImportItemVar (Maybe IEEntityNamespace) UnqualifiedName
+  | ImportItemAbs (Maybe IEEntityNamespace) UnqualifiedName
+  | ImportItemAll (Maybe IEEntityNamespace) UnqualifiedName
+  | ImportItemWith (Maybe IEEntityNamespace) UnqualifiedName [IEBundledMember]
+  | ImportItemAllWith (Maybe IEEntityNamespace) UnqualifiedName [IEBundledMember]
+  | ImportAnn Annotation ImportItem
   deriving (Data, Eq, Show, Generic, NFData)
+
+instance HasSourceSpan ImportItem where
+  getSourceSpan item =
+    case item of
+      ImportItemVar {} -> NoSourceSpan
+      ImportItemAbs {} -> NoSourceSpan
+      ImportItemAll {} -> NoSourceSpan
+      ImportItemWith {} -> NoSourceSpan
+      ImportItemAllWith {} -> NoSourceSpan
+      ImportAnn ann sub
+        | Just srcSpan <- fromAnnotation ann -> srcSpan
+        | otherwise -> getSourceSpan sub
 
 data Decl
   = DeclAnn Annotation Decl
-  | DeclValue SourceSpan ValueDecl
-  | DeclTypeSig SourceSpan [BinderName] Type
-  | DeclPatSyn SourceSpan PatSynDecl
-  | DeclPatSynSig SourceSpan [BinderName] Type
-  | DeclStandaloneKindSig SourceSpan BinderName Type
-  | DeclFixity SourceSpan FixityAssoc (Maybe IEEntityNamespace) (Maybe Int) [OperatorName]
-  | DeclRoleAnnotation SourceSpan RoleAnnotation
-  | DeclTypeSyn SourceSpan TypeSynDecl
-  | DeclTypeData SourceSpan DataDecl
-  | DeclData SourceSpan DataDecl
-  | DeclNewtype SourceSpan NewtypeDecl
-  | DeclClass SourceSpan ClassDecl
-  | DeclInstance SourceSpan InstanceDecl
-  | DeclStandaloneDeriving SourceSpan StandaloneDerivingDecl
-  | DeclDefault SourceSpan [Type]
+  | DeclValue ValueDecl
+  | DeclTypeSig [BinderName] Type
+  | DeclPatSyn PatSynDecl
+  | DeclPatSynSig [BinderName] Type
+  | DeclStandaloneKindSig BinderName Type
+  | DeclFixity FixityAssoc (Maybe IEEntityNamespace) (Maybe Int) [OperatorName]
+  | DeclRoleAnnotation RoleAnnotation
+  | DeclTypeSyn TypeSynDecl
+  | DeclTypeData DataDecl
+  | DeclData DataDecl
+  | DeclNewtype NewtypeDecl
+  | DeclClass ClassDecl
+  | DeclInstance InstanceDecl
+  | DeclStandaloneDeriving StandaloneDerivingDecl
+  | DeclDefault [Type]
   | -- \$decl or $(decl) (TH top-level splice)
-    DeclSplice SourceSpan Expr
-  | DeclForeign SourceSpan ForeignDecl
-  | DeclTypeFamilyDecl SourceSpan TypeFamilyDecl
-  | DeclDataFamilyDecl SourceSpan DataFamilyDecl
-  | DeclTypeFamilyInst SourceSpan TypeFamilyInst
-  | DeclDataFamilyInst SourceSpan DataFamilyInst
+    DeclSplice Expr
+  | DeclForeign ForeignDecl
+  | DeclTypeFamilyDecl TypeFamilyDecl
+  | DeclDataFamilyDecl DataFamilyDecl
+  | DeclTypeFamilyInst TypeFamilyInst
+  | DeclDataFamilyInst DataFamilyInst
   | -- pragma declaration (e.g. {-# INLINE f #-}, {-# SPECIALIZE ... #-})
-    DeclPragma SourceSpan Pragma
+    DeclPragma Pragma
   deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan Decl where
   getSourceSpan decl =
     case decl of
-      DeclAnn _ sub -> getSourceSpan sub
-      DeclValue span' _ -> span'
-      DeclTypeSig span' _ _ -> span'
-      DeclPatSyn span' _ -> span'
-      DeclPatSynSig span' _ _ -> span'
-      DeclStandaloneKindSig span' _ _ -> span'
-      DeclFixity span' _ _ _ _ -> span'
-      DeclRoleAnnotation span' _ -> span'
-      DeclTypeSyn span' _ -> span'
-      DeclTypeData span' _ -> span'
-      DeclData span' _ -> span'
-      DeclNewtype span' _ -> span'
-      DeclClass span' _ -> span'
-      DeclInstance span' _ -> span'
-      DeclStandaloneDeriving span' _ -> span'
-      DeclDefault span' _ -> span'
-      DeclForeign span' _ -> span'
-      DeclSplice span' _ -> span'
-      DeclTypeFamilyDecl span' _ -> span'
-      DeclDataFamilyDecl span' _ -> span'
-      DeclTypeFamilyInst span' _ -> span'
-      DeclDataFamilyInst span' _ -> span'
-      DeclPragma span' _ -> span'
+      DeclAnn ann sub
+        | Just srcSpan <- fromAnnotation ann -> srcSpan
+        | otherwise -> getSourceSpan sub
+      DeclValue vd -> getSourceSpan vd
+      DeclTypeSig {} -> NoSourceSpan
+      DeclPatSyn {} -> NoSourceSpan
+      DeclPatSynSig {} -> NoSourceSpan
+      DeclStandaloneKindSig {} -> NoSourceSpan
+      DeclFixity {} -> NoSourceSpan
+      DeclRoleAnnotation {} -> NoSourceSpan
+      DeclTypeSyn {} -> NoSourceSpan
+      DeclTypeData {} -> NoSourceSpan
+      DeclData {} -> NoSourceSpan
+      DeclNewtype {} -> NoSourceSpan
+      DeclClass {} -> NoSourceSpan
+      DeclInstance {} -> NoSourceSpan
+      DeclStandaloneDeriving {} -> NoSourceSpan
+      DeclDefault {} -> NoSourceSpan
+      DeclForeign {} -> NoSourceSpan
+      DeclSplice {} -> NoSourceSpan
+      DeclTypeFamilyDecl {} -> NoSourceSpan
+      DeclDataFamilyDecl {} -> NoSourceSpan
+      DeclTypeFamilyInst {} -> NoSourceSpan
+      DeclDataFamilyInst {} -> NoSourceSpan
+      DeclPragma {} -> NoSourceSpan
+
+-- | Peel nested 'DeclAnn' wrappers.
+peelDeclAnn :: Decl -> Decl
+peelDeclAnn (DeclAnn _ inner) = peelDeclAnn inner
+peelDeclAnn d = d
+
+-- | Attach a source span as a dynamic annotation (see 'fromAnnotation' / 'HasSourceSpan').
+declAnnSpan :: SourceSpan -> Decl -> Decl
+declAnnSpan sp = DeclAnn (mkAnnotation sp)
 
 data ValueDecl
   = FunctionBind SourceSpan BinderName [Match]
@@ -1085,7 +1125,9 @@ data Pattern
 instance HasSourceSpan Pattern where
   getSourceSpan pat =
     case pat of
-      PAnn _ sub -> getSourceSpan sub
+      PAnn ann sub
+        | Just srcSpan <- fromAnnotation @SourceSpan ann -> srcSpan
+        | otherwise -> getSourceSpan sub
       PVar span' _ -> span'
       PWildcard span' -> span'
       PLit span' _ -> span'
@@ -1104,6 +1146,14 @@ instance HasSourceSpan Pattern where
       PRecord span' _ _ _ -> span'
       PTypeSig span' _ _ -> span'
       PSplice span' _ -> span'
+
+-- | Peel nested 'PAnn' wrappers.
+peelPatternAnn :: Pattern -> Pattern
+peelPatternAnn (PAnn _ inner) = peelPatternAnn inner
+peelPatternAnn p = p
+
+patternAnnSpan :: SourceSpan -> Pattern -> Pattern
+patternAnnSpan sp = PAnn (mkAnnotation sp)
 
 data Type
   = TAnn Annotation Type
@@ -1131,7 +1181,9 @@ data Type
 instance HasSourceSpan Type where
   getSourceSpan ty =
     case ty of
-      TAnn _ sub -> getSourceSpan sub
+      TAnn ann sub
+        | Just srcSpan <- fromAnnotation @SourceSpan ann -> srcSpan
+        | otherwise -> getSourceSpan sub
       TVar span' _ -> span'
       TCon span' _ _ -> span'
       TImplicitParam span' _ _ -> span'
@@ -1149,6 +1201,9 @@ instance HasSourceSpan Type where
       TContext span' _ _ -> span'
       TSplice span' _ -> span'
       TWildcard span' -> span'
+
+typeAnnSpan :: SourceSpan -> Type -> Type
+typeAnnSpan sp = TAnn (mkAnnotation sp)
 
 data TypeLiteral
   = TypeLitInteger Integer Text
@@ -1631,6 +1686,9 @@ data Expr
 instance HasSourceSpan Expr where
   getSourceSpan expr =
     case expr of
+      EAnn ann sub
+        | Just srcSpan <- fromAnnotation @SourceSpan ann -> srcSpan
+        | otherwise -> getSourceSpan sub
       EVar span' _ -> span'
       EInt span' _ _ -> span'
       EIntHash span' _ _ -> span'
@@ -1677,7 +1735,14 @@ instance HasSourceSpan Expr where
       ETHSplice span' _ -> span'
       ETHTypedSplice span' _ -> span'
       EProc span' _ _ -> span'
-      EAnn _ sub -> getSourceSpan sub
+
+exprAnnSpan :: SourceSpan -> Expr -> Expr
+exprAnnSpan sp = EAnn (mkAnnotation sp)
+
+-- | Peel nested 'EAnn' layers (e.g. span-only dynamic annotations).
+peelExprAnn :: Expr -> Expr
+peelExprAnn (EAnn _ x) = peelExprAnn x
+peelExprAnn x = x
 
 data CaseAlt = CaseAlt
   { caseAltSpan :: SourceSpan,
@@ -1798,7 +1863,7 @@ valueDeclBinderName vdecl =
 declValueBinderNames :: Decl -> [UnqualifiedName]
 declValueBinderNames decl =
   case decl of
-    DeclValue _ vdecl ->
+    DeclValue vdecl ->
       case valueDeclBinderName vdecl of
         Just name -> [name]
         Nothing -> []

@@ -93,8 +93,9 @@ prettyModuleDoc modu =
               )
           ]
         Nothing -> []
-    prettyWarningText (DeprText _ msg) = ["{-# DEPRECATED", pretty (show msg), "#-}"]
-    prettyWarningText (WarnText _ msg) = ["{-# WARNING", pretty (show msg), "#-}"]
+    prettyWarningText (DeprText msg) = ["{-# DEPRECATED", pretty (show msg), "#-}"]
+    prettyWarningText (WarnText msg) = ["{-# WARNING", pretty (show msg), "#-}"]
+    prettyWarningText (WarningTextAnn _ sub) = prettyWarningText sub
     importLines = map prettyImportDecl (moduleImports modu)
     declLines = concatMap prettyDeclLines (moduleDecls modu)
 
@@ -105,18 +106,19 @@ prettyExportSpecList specs =
 prettyExportSpec :: ExportSpec -> Doc ann
 prettyExportSpec spec =
   case spec of
-    ExportModule _ mWarning modName -> prettyExportWarning mWarning ("module" <+> pretty modName)
-    ExportVar _ mWarning namespace name ->
+    ExportAnn _ sub -> prettyExportSpec sub
+    ExportModule mWarning modName -> prettyExportWarning mWarning ("module" <+> pretty modName)
+    ExportVar mWarning namespace name ->
       prettyExportWarning mWarning (prettyNamespacePrefix namespace <> prettyName name)
-    ExportAbs _ mWarning namespace name ->
+    ExportAbs mWarning namespace name ->
       prettyExportWarning mWarning (prettyNamespacePrefix namespace <> prettyName name)
-    ExportAll _ mWarning namespace name ->
+    ExportAll mWarning namespace name ->
       prettyExportWarning mWarning (prettyNamespacePrefix namespace <> prettyName name <> "(..)")
-    ExportWith _ mWarning namespace name members ->
+    ExportWith mWarning namespace name members ->
       prettyExportWarning
         mWarning
         (prettyNamespacePrefix namespace <> prettyName name <> parens (hsep (punctuate comma (map prettyExportMember members))))
-    ExportWithAll _ mWarning namespace name members ->
+    ExportWithAll mWarning namespace name members ->
       prettyExportWarning
         mWarning
         (prettyNamespacePrefix namespace <> prettyName name <> parens (hsep (punctuate comma (map prettyExportMember members <> [".."]))))
@@ -125,8 +127,9 @@ prettyExportWarning :: Maybe WarningText -> Doc ann -> Doc ann
 prettyExportWarning mWarning doc =
   case mWarning of
     Nothing -> doc
-    Just (DeprText _ msg) -> hsep ["{-# DEPRECATED", pretty (show msg), "#-}", doc]
-    Just (WarnText _ msg) -> hsep ["{-# WARNING", pretty (show msg), "#-}", doc]
+    Just (DeprText msg) -> hsep ["{-# DEPRECATED", pretty (show msg), "#-}", doc]
+    Just (WarnText msg) -> hsep ["{-# WARNING", pretty (show msg), "#-}", doc]
+    Just (WarningTextAnn _ sub) -> prettyExportWarning (Just sub) doc
 
 prettyImportDecl :: ImportDecl -> Doc ann
 prettyImportDecl decl =
@@ -174,12 +177,13 @@ prettyImportSpec spec =
 prettyImportItem :: ImportItem -> Doc ann
 prettyImportItem item =
   case item of
-    ImportItemVar _ namespace name -> prettyNamespacePrefix namespace <> prettyBinderUName name
-    ImportItemAbs _ namespace name -> prettyNamespacePrefix namespace <> prettyConstructorUName name
-    ImportItemAll _ namespace name -> prettyNamespacePrefix namespace <> prettyConstructorUName name <> "(..)"
-    ImportItemWith _ namespace name members ->
+    ImportAnn _ sub -> prettyImportItem sub
+    ImportItemVar namespace name -> prettyNamespacePrefix namespace <> prettyBinderUName name
+    ImportItemAbs namespace name -> prettyNamespacePrefix namespace <> prettyConstructorUName name
+    ImportItemAll namespace name -> prettyNamespacePrefix namespace <> prettyConstructorUName name <> "(..)"
+    ImportItemWith namespace name members ->
       prettyNamespacePrefix namespace <> prettyConstructorUName name <> parens (hsep (punctuate comma (map prettyExportMember members)))
-    ImportItemAllWith _ namespace name members ->
+    ImportItemAllWith namespace name members ->
       prettyNamespacePrefix namespace <> prettyConstructorUName name <> parens (hsep (punctuate comma (map prettyExportMember members <> [".."])))
 
 prettyExportMember :: IEBundledMember -> Doc ann
@@ -214,12 +218,12 @@ prettyDeclLines :: Decl -> [Doc ann]
 prettyDeclLines decl =
   case decl of
     DeclAnn _ sub -> prettyDeclLines sub
-    DeclValue _ valueDecl -> prettyValueDeclLines valueDecl
-    DeclTypeSig _ names ty -> [hsep [hsep (punctuate comma (map prettyBinderName names)), "::", prettyType ty]]
-    DeclPatSyn _ patSynDecl -> [prettyPatSynDecl patSynDecl]
-    DeclPatSynSig _ names ty -> [hsep ["pattern", hsep (punctuate comma (map prettyConstructorUName names)), "::", prettyType ty]]
-    DeclStandaloneKindSig _ name kind -> [hsep ["type", prettyConstructorUName name, "::", prettyType kind]]
-    DeclFixity _ assoc mNamespace prec ops ->
+    DeclValue valueDecl -> prettyValueDeclLines valueDecl
+    DeclTypeSig names ty -> [hsep [hsep (punctuate comma (map prettyBinderName names)), "::", prettyType ty]]
+    DeclPatSyn patSynDecl -> [prettyPatSynDecl patSynDecl]
+    DeclPatSynSig names ty -> [hsep ["pattern", hsep (punctuate comma (map prettyConstructorUName names)), "::", prettyType ty]]
+    DeclStandaloneKindSig name kind -> [hsep ["type", prettyConstructorUName name, "::", prettyType kind]]
+    DeclFixity assoc mNamespace prec ops ->
       [ hsep
           ( [prettyFixityAssoc assoc]
               <> maybe [] (pure . pretty . show) prec
@@ -227,8 +231,8 @@ prettyDeclLines decl =
               <> punctuate comma (map (prettyInfixOp . renderUnqualifiedName) ops)
           )
       ]
-    DeclRoleAnnotation _ ann -> [prettyRoleAnnotation ann]
-    DeclTypeSyn _ synDecl ->
+    DeclRoleAnnotation ann -> [prettyRoleAnnotation ann]
+    DeclTypeSyn synDecl ->
       let headDocs = case (typeSynHeadForm synDecl, typeSynParams synDecl) of
             (TypeHeadInfix, [lhs, rhs]) ->
               let name = typeSynName synDecl
@@ -237,20 +241,20 @@ prettyDeclLines decl =
                     else [pretty (tyVarBinderName lhs), "`" <> pretty name <> "`", pretty (tyVarBinderName rhs)]
             _ -> [prettyDeclHead TypeHeadPrefix [] (unqualifiedNameFromText (typeSynName synDecl)) (typeSynParams synDecl)]
        in [hsep (["type"] <> headDocs <> ["=", prettyType (typeSynBody synDecl)])]
-    DeclData _ dataDecl -> [prettyDataDecl dataDecl]
-    DeclTypeData _ dataDecl -> [prettyTypeDataDecl dataDecl]
-    DeclNewtype _ newtypeDecl -> [prettyNewtypeDecl newtypeDecl]
-    DeclClass _ classDecl -> [prettyClassDecl classDecl]
-    DeclInstance _ instanceDecl -> [prettyInstanceDecl instanceDecl]
-    DeclStandaloneDeriving _ derivingDecl -> [prettyStandaloneDeriving derivingDecl]
-    DeclDefault _ tys -> ["default" <+> parens (hsep (punctuate comma (map prettyType tys)))]
-    DeclForeign _ foreignDecl -> [prettyForeignDecl foreignDecl]
-    DeclSplice _ body -> [prettyDeclSpliceExpr body]
-    DeclTypeFamilyDecl _ tf -> [prettyTypeFamilyDecl tf]
-    DeclDataFamilyDecl _ df -> [prettyDataFamilyDecl df]
-    DeclTypeFamilyInst _ tfi -> [prettyTopTypeFamilyInst tfi]
-    DeclDataFamilyInst _ dfi -> [prettyTopDataFamilyInst dfi]
-    DeclPragma _ pragma -> [prettyPragma pragma]
+    DeclData dataDecl -> [prettyDataDecl dataDecl]
+    DeclTypeData dataDecl -> [prettyTypeDataDecl dataDecl]
+    DeclNewtype newtypeDecl -> [prettyNewtypeDecl newtypeDecl]
+    DeclClass classDecl -> [prettyClassDecl classDecl]
+    DeclInstance instanceDecl -> [prettyInstanceDecl instanceDecl]
+    DeclStandaloneDeriving derivingDecl -> [prettyStandaloneDeriving derivingDecl]
+    DeclDefault tys -> ["default" <+> parens (hsep (punctuate comma (map prettyType tys)))]
+    DeclForeign foreignDecl -> [prettyForeignDecl foreignDecl]
+    DeclSplice body -> [prettyDeclSpliceExpr body]
+    DeclTypeFamilyDecl tf -> [prettyTypeFamilyDecl tf]
+    DeclDataFamilyDecl df -> [prettyDataFamilyDecl df]
+    DeclTypeFamilyInst tfi -> [prettyTopTypeFamilyInst tfi]
+    DeclDataFamilyInst dfi -> [prettyTopDataFamilyInst dfi]
+    DeclPragma pragma -> [prettyPragma pragma]
 
 prettyRoleAnnotation :: RoleAnnotation -> Doc ann
 prettyRoleAnnotation ann =
@@ -777,8 +781,9 @@ prettyInstanceDecl decl =
         items -> vsep [headDoc <+> "where", nest 2 (braces (vsep (punctuate semi (map prettyInstanceItem items))))]
 
 prettyInstanceWarning :: WarningText -> Doc ann
-prettyInstanceWarning (DeprText _ msg) = "{-# DEPRECATED " <> pretty (show msg) <> " #-}"
-prettyInstanceWarning (WarnText _ msg) = "{-# WARNING " <> pretty (show msg) <> " #-}"
+prettyInstanceWarning (DeprText msg) = "{-# DEPRECATED " <> pretty (show msg) <> " #-}"
+prettyInstanceWarning (WarnText msg) = "{-# WARNING " <> pretty (show msg) <> " #-}"
+prettyInstanceWarning (WarningTextAnn _ sub) = prettyInstanceWarning sub
 
 prettyStandaloneDeriving :: StandaloneDerivingDecl -> Doc ann
 prettyStandaloneDeriving decl =
@@ -1180,7 +1185,7 @@ prettyInlineDecls decls =
   hsep (punctuate semi (map prettyInlineDecl decls))
   where
     prettyInlineDecl decl = case decl of
-      DeclValue _ valueDecl -> prettyValueDeclSingleLine valueDecl
+      DeclValue valueDecl -> prettyValueDeclSingleLine valueDecl
       _ -> hsep (prettyDeclLines decl)
 
 prettyArithSeq :: ArithSeq -> Doc ann
