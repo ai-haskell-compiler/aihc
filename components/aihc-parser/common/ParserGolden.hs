@@ -33,6 +33,7 @@ import Aihc.Parser.Shorthand (Shorthand (..))
 import Aihc.Parser.Syntax
   ( ExtensionSetting,
     LanguageEdition (Haskell2010Edition),
+    editionFromExtensionSettings,
     effectiveExtensions,
     parseExtensionSettingName,
   )
@@ -40,6 +41,7 @@ import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withObject)
 import Data.Char (isSpace, toLower)
 import Data.List (dropWhileEnd, sort)
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding (encodeUtf8)
@@ -161,10 +163,11 @@ evaluateExprCase meta =
     ParseOk ast -> classifySuccess meta (show (shorthand ast))
     ParseErr err -> classifyFailure meta (MPE.errorBundlePretty err)
   where
+    edition = fromMaybe Haskell2010Edition (editionFromExtensionSettings (caseExtensions meta))
     parserConfig =
       ( defaultConfig
           { parserSourceName = casePath meta,
-            parserExtensions = effectiveExtensions Haskell2010Edition (caseExtensions meta)
+            parserExtensions = effectiveExtensions edition (caseExtensions meta)
           }
       )
 
@@ -175,10 +178,11 @@ evaluateModuleCase meta =
         then classifySuccess meta (show (shorthand ast))
         else classifyFailure meta (formatParseErrors (casePath meta) (Just (caseInput meta)) errs)
   where
+    edition = fromMaybe Haskell2010Edition (editionFromExtensionSettings (caseExtensions meta))
     parserConfig =
       ( defaultConfig
           { parserSourceName = casePath meta,
-            parserExtensions = effectiveExtensions Haskell2010Edition (caseExtensions meta)
+            parserExtensions = effectiveExtensions edition (caseExtensions meta)
           }
       )
 
@@ -188,10 +192,11 @@ evaluatePatternCase meta =
     ParseOk ast -> classifySuccess meta (show (shorthand ast))
     ParseErr err -> classifyFailure meta (MPE.errorBundlePretty err)
   where
+    edition = fromMaybe Haskell2010Edition (editionFromExtensionSettings (caseExtensions meta))
     parserConfig =
       ( defaultConfig
           { parserSourceName = casePath meta,
-            parserExtensions = effectiveExtensions Haskell2010Edition (caseExtensions meta)
+            parserExtensions = effectiveExtensions edition (caseExtensions meta)
           }
       )
 
