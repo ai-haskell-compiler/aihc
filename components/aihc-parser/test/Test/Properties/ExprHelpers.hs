@@ -105,8 +105,8 @@ normalizePattern pat =
     PQuasiQuote _ quoter body -> PQuasiQuote span0 quoter body
     PTuple _ tupleFlavor elems -> PTuple span0 tupleFlavor (map normalizePattern elems)
     PList _ elems -> PList span0 (map normalizePattern elems)
-    PCon _ con args -> PCon span0 con (map normalizePattern args)
-    PInfix _ lhs op rhs -> PInfix span0 (normalizePattern lhs) op (normalizePattern rhs)
+    PCon _ con args -> PCon span0 con (map normalizePatternAtom args)
+    PInfix _ lhs op rhs -> PInfix span0 (normalizePatternAtom lhs) op (normalizePatternAtom rhs)
     PView _ e inner -> PView span0 (normalizeExpr e) (normalizePattern inner)
     PAs _ name inner -> PAs span0 name (normalizeUnaryPatInner inner)
     PStrict _ inner -> PStrict span0 (normalizeUnaryPatInner inner)
@@ -117,6 +117,22 @@ normalizePattern pat =
     PRecord _ con fields rwc -> PRecord span0 con [(name, normalizePattern p) | (name, p) <- fields] rwc
     PTypeSig _ inner ty -> PTypeSig span0 (normalizePattern inner) (normalizeType ty)
     PSplice _ body -> PSplice span0 (normalizeExpr body)
+
+-- | Normalize a pattern that appears as an argument to a constructor.
+-- The pretty-printer's addPatternAtomParens wraps certain patterns in PParen
+-- when they appear in atom context (constructor arguments, infix operands).
+-- Strip that added PParen so generated and parsed forms match.
+normalizePatternAtom :: Pattern -> Pattern
+normalizePatternAtom pat =
+  case normalizePattern pat of
+    PParen _ inner@(PCon {}) -> inner
+    PParen _ inner@(PInfix {}) -> inner
+    PParen _ inner@(PView {}) -> inner
+    PParen _ inner@(PAs {}) -> inner
+    PParen _ inner@(PStrict {}) -> inner
+    PParen _ inner@(PIrrefutable {}) -> inner
+    PParen _ inner@(PSplice {}) -> inner
+    other -> other
 
 -- | Normalize a pattern in lambda argument position.
 -- The pretty-printer uses prettyLambdaPatternAtom for lambda patterns, which
@@ -145,6 +161,9 @@ normalizeUnaryPatInner pat =
     PParen _ inner@(PNegLit {}) -> inner
     PParen _ inner@(PStrict {}) -> inner
     PParen _ inner@(PIrrefutable {}) -> inner
+    PParen _ inner@(PAs {}) -> inner
+    PParen _ inner@(PInfix {}) -> inner
+    PParen _ inner@(PSplice {}) -> inner
     other -> other
 
 normalizeLiteral :: Literal -> Literal

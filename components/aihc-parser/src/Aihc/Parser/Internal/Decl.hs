@@ -81,6 +81,7 @@ ordinaryDeclParser = do
     TkSpecialLParen -> typeSigOrPatternOrValueOrSpliceParser
     TkSpecialLBracket -> typeSigOrPatternOrValueOrSpliceParser
     TkQuasiQuote {} -> typeSigOrPatternOrValueOrSpliceParser
+    TkPrefixBang -> typeSigOrPatternOrValueOrSpliceParser
     TkPrefixTilde -> typeSigOrPatternOrValueOrSpliceParser
     TkKeywordUnderscore -> typeSigOrPatternOrValueOrSpliceParser
     TkTHSplice ->

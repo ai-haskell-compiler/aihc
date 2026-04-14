@@ -46,8 +46,8 @@ normalizePattern pat =
     PQuasiQuote _ quoter body -> PQuasiQuote span0 quoter body
     PTuple _ tupleFlavor elems -> PTuple span0 tupleFlavor (map normalizePattern elems)
     PList _ elems -> PList span0 (map normalizePattern elems)
-    PCon _ con args -> PCon span0 con (map normalizePattern args)
-    PInfix _ lhs op rhs -> PInfix span0 (normalizePattern lhs) op (normalizePattern rhs)
+    PCon _ con args -> PCon span0 con (map normalizePatternAtom args)
+    PInfix _ lhs op rhs -> PInfix span0 (normalizePatternAtom lhs) op (normalizePatternAtom rhs)
     PView _ expr inner -> PView span0 (normalizeExpr expr) (normalizePattern inner)
     PAs _ name inner -> PAs span0 name (normalizeAsInner inner)
     PStrict _ inner -> PStrict span0 (normalizeUnaryInner inner)
@@ -58,6 +58,21 @@ normalizePattern pat =
     PRecord _ con fields rwc -> PRecord span0 con [(fieldName, normalizePattern fieldPat) | (fieldName, fieldPat) <- fields] rwc
     PTypeSig _ inner ty -> PTypeSig span0 (normalizePattern inner) (normalizeTypeSpan ty)
     PSplice _ body -> PSplice span0 (normalizeExpr body)
+
+-- | Normalize a pattern that appears as an argument to a constructor or infix operand.
+-- The pretty-printer's addPatternAtomParens wraps certain patterns in PParen
+-- when they appear in atom context. Strip that added PParen.
+normalizePatternAtom :: Pattern -> Pattern
+normalizePatternAtom pat =
+  case normalizePattern pat of
+    PParen _ inner@(PCon {}) -> inner
+    PParen _ inner@(PInfix {}) -> inner
+    PParen _ inner@(PView {}) -> inner
+    PParen _ inner@(PAs {}) -> inner
+    PParen _ inner@(PStrict {}) -> inner
+    PParen _ inner@(PIrrefutable {}) -> inner
+    PParen _ inner@(PSplice {}) -> inner
+    other -> other
 
 -- | Normalize source spans in a type (reset to noSourceSpan).
 normalizeTypeSpan :: Type -> Type
@@ -103,6 +118,9 @@ normalizeUnaryInner pat =
     PParen _ inner@(PNegLit {}) -> inner
     PParen _ inner@(PStrict {}) -> inner
     PParen _ inner@(PIrrefutable {}) -> inner
+    PParen _ inner@(PAs {}) -> inner
+    PParen _ inner@(PInfix {}) -> inner
+    PParen _ inner@(PSplice {}) -> inner
     other -> other
 
 -- | Normalize the inner pattern of an as-pattern.
@@ -116,6 +134,9 @@ normalizeAsInner pat =
     PParen _ inner@(PNegLit {}) -> inner
     PParen _ inner@(PStrict {}) -> inner
     PParen _ inner@(PIrrefutable {}) -> inner
+    PParen _ inner@(PAs {}) -> inner
+    PParen _ inner@(PInfix {}) -> inner
+    PParen _ inner@(PSplice {}) -> inner
     other -> other
 
 normalizeTyVarBinderSpan :: TyVarBinder -> TyVarBinder
