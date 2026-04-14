@@ -1,0 +1,5 @@
+extensions: [NoStarIsType]
+input: |
+  fn :: a * b
+ast: "Module {decls = [DeclTypeSig {names = [\"fn\"], type = TApp (TApp (TCon \"*\") (TVar \"a\")) (TVar \"b\")}]}"
+status: pass
