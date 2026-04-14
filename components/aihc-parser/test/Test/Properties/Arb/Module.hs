@@ -150,7 +150,7 @@ instance Arbitrary WarningText where
     case wt of
       DeprText msg -> [DeprText msg' | msg' <- shrinkWarningMessage msg]
       WarnText msg -> [WarnText msg' | msg' <- shrinkWarningMessage msg]
-      WarningTextAnn _ sub -> shrink sub
+      WarningTextAnn _ sub -> sub : shrink sub
 
 instance Arbitrary ExportSpec where
   arbitrary =

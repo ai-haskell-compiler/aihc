@@ -99,7 +99,7 @@ appPatternParser =
 buildPatternApp :: Pattern -> Pattern -> Pattern
 buildPatternApp lhs rhs =
   case peelPatternAnn lhs of
-    PCon lSpan name args -> PCon (mergeSourceSpans lSpan (getSourceSpan rhs)) name (args <> [rhs])
+    PCon _ name args -> PCon (mergeSourceSpans (getSourceSpan lhs) (getSourceSpan rhs)) name (args <> [rhs])
     _ -> lhs
 
 -- | Parse an atomic pattern (@apat@ in the Haskell Report).
