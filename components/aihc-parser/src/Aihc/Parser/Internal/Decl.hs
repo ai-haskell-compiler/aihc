@@ -41,21 +41,27 @@ ordinaryDeclParser :: TokParser Decl
 ordinaryDeclParser = do
   (tok, nextTok) <- lookAhead ((,) <$> anySingle <*> anySingle)
   thFullEnabled <- isExtensionEnabled TemplateHaskell
-  let valueOrSpliceParser =
+  let tokKind = lexTokenKind tok
+      nextTokKind = lexTokenKind nextTok
+      valueOrSpliceParser =
         if thFullEnabled
           then MP.try valueDeclParser <|> implicitSpliceDeclParser
           else valueDeclParser
-      patternOrSpliceParser =
+      patternOrValueOrSpliceParser =
         if thFullEnabled
           then MP.try patternBindDeclParser <|> MP.try valueDeclParser <|> implicitSpliceDeclParser
-          else MP.try patternBindDeclParser
+          else MP.try patternBindDeclParser <|> valueDeclParser
+      nonBareVarPatternOrValueOrSpliceParser =
+        if thFullEnabled
+          then MP.try nonBareVarPatternBindDeclParser <|> MP.try valueDeclParser <|> implicitSpliceDeclParser
+          else MP.try nonBareVarPatternBindDeclParser <|> valueDeclParser
       typeSigOrValueOrSpliceParser =
         MP.try typeSigDeclParser <|> valueOrSpliceParser
       typeSigOrPatternOrValueOrSpliceParser =
-        MP.try typeSigDeclParser <|> patternOrSpliceParser <|> valueOrSpliceParser
-  case lexTokenKind tok of
+        MP.try typeSigDeclParser <|> patternOrValueOrSpliceParser
+  case tokKind of
     TkKeywordData ->
-      case lexTokenKind nextTok of
+      case nextTokKind of
         TkVarFamily -> dataFamilyDeclParser
         TkKeywordInstance -> dataFamilyInstParser
         _ -> dataDeclParser
@@ -68,25 +74,41 @@ ordinaryDeclParser = do
     TkKeywordInfixr -> fixityDeclParser InfixR
     TkKeywordInstance -> instanceDeclParser
     TkKeywordNewtype
-      | lexTokenKind nextTok == TkKeywordInstance -> newtypeFamilyInstParser
+      | nextTokKind == TkKeywordInstance -> newtypeFamilyInstParser
     TkKeywordNewtype -> newtypeDeclParser
     TkKeywordType ->
-      case lexTokenKind nextTok of
+      case nextTokKind of
         TkVarRole -> roleAnnotationDeclParser
         TkVarFamily -> typeFamilyDeclParser
         TkKeywordData -> typeDataDeclParser
         TkKeywordInstance -> typeFamilyInstParser
         _ -> typeDeclarationParser
     TkKeywordPattern -> patternSynonymParser
-    TkSpecialLParen -> typeSigOrPatternOrValueOrSpliceParser
-    TkSpecialLBracket -> typeSigOrPatternOrValueOrSpliceParser
-    TkPrefixTilde -> typeSigOrPatternOrValueOrSpliceParser
-    TkKeywordUnderscore -> typeSigOrPatternOrValueOrSpliceParser
+    TkVarId {} ->
+      case nextTokKind of
+        TkReservedDoubleColon -> typeSigOrValueOrSpliceParser
+        TkSpecialComma -> typeSigOrValueOrSpliceParser
+        TkReservedEquals -> valueOrSpliceParser
+        _ -> nonBareVarPatternOrValueOrSpliceParser
     TkTHSplice ->
       if thFullEnabled
-        then MP.try valueDeclParser <|> spliceDeclParser
+        then MP.try patternBindDeclParser <|> MP.try valueDeclParser <|> spliceDeclParser
         else spliceDeclParser
-    _ -> typeSigOrValueOrSpliceParser
+    _ -> typeSigOrPatternOrValueOrSpliceParser
+
+-- | Like 'patternBindDeclParser' but rejects bare variable patterns.
+-- When the leading token is a variable identifier, a bare @x = 5@ must be
+-- parsed as a zero-argument function bind, not a pattern bind.  This parser
+-- detects that case early (after parsing the pattern) and fails, letting
+-- 'valueDeclParser' handle it instead.
+nonBareVarPatternBindDeclParser :: TokParser Decl
+nonBareVarPatternBindDeclParser = MP.try $ withSpan $ do
+  pat <- region "while parsing pattern binding" patternParser
+  case pat of
+    PVar {} -> fail "bare variable bindings are parsed as function declarations"
+    _ -> do
+      rhs <- equationRhsParser
+      pure (\span' -> DeclValue span' (PatternBind span' pat rhs))
 
 -- | Parse a pragma declaration (e.g. {-# INLINE f #-}, {-# SPECIALIZE ... #-})
 pragmaDeclParser :: TokParser Decl

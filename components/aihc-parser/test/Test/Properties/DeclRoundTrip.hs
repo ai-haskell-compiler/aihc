@@ -27,11 +27,17 @@ prop_declPrettyRoundTrip :: Decl -> Property
 prop_declPrettyRoundTrip decl =
   let source = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
       expected = normalizeDecl (addDeclParens decl)
-   in assertCtorCoverage ["DeclAnn"] decl $
-        counterexample (T.unpack source) $
-          case parseDecl declConfig source of
-            ParseErr err ->
-              counterexample (MPE.errorBundlePretty err) False
-            ParseOk parsed ->
-              let actual = normalizeDecl parsed
-               in counterexample ("expected: " <> show expected <> "\nactual: " <> show actual) (expected == actual)
+      addValueDeclCoverage prop =
+        case decl of
+          DeclValue _ valueDecl -> assertCtorCoverage [] valueDecl prop
+          _ -> prop
+   in checkCoverage $
+        addValueDeclCoverage $
+          assertCtorCoverage ["DeclAnn"] decl $
+            counterexample (T.unpack source) $
+              case parseDecl declConfig source of
+                ParseErr err ->
+                  counterexample (MPE.errorBundlePretty err) False
+                ParseOk parsed ->
+                  let actual = normalizeDecl parsed
+                   in counterexample ("expected: " <> show expected <> "\nactual: " <> show actual) (expected == actual)

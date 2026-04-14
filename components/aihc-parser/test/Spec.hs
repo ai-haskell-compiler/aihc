@@ -182,7 +182,9 @@ buildTests = do
             testCase "pattern bind tuple: (x, y) = expr" test_localDeclPatTuple,
             testCase "pattern bind constructor: Just x = expr" test_localDeclPatCon,
             testCase "pattern bind wildcard: _ = expr" test_localDeclPatWild,
-            testCase "function bind guarded: f x | x > 0 = x" test_localDeclFunGuarded
+            testCase "function bind guarded: f x | x > 0 = x" test_localDeclFunGuarded,
+            testCase "pattern bind record constructor: R {} = expr" test_localDeclPatRecordCon,
+            testCase "pattern bind unboxed sum: (# | | | x #) = expr" test_localDeclPatUnboxedSum
           ],
         testGroup
           "pretty"
@@ -1588,6 +1590,18 @@ test_localDeclFunGuarded =
   case parseLetDecls "let { f x | x > 0 = x } in f 1" of
     Right [DeclValue _ (FunctionBind _ "f" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PVar _ "x"], matchRhs = GuardedRhss {}}])] -> pure ()
     other -> assertFailure ("expected guarded function bind, got: " <> show other)
+
+test_localDeclPatRecordCon :: Assertion
+test_localDeclPatRecordCon =
+  case parseTopDecl "BYys {} = ()" of
+    Right (DeclValue _ (PatternBind _ (PRecord _ "BYys" [] False) _)) -> pure ()
+    other -> assertFailure ("expected record constructor pattern bind, got: " <> show other)
+
+test_localDeclPatUnboxedSum :: Assertion
+test_localDeclPatUnboxedSum =
+  case parseTopDeclWithExts [UnboxedSums] "(#  |  |  | a #) = ()" of
+    Right (DeclValue _ (PatternBind _ (PUnboxedSum _ 3 4 (PVar _ "a")) _)) -> pure ()
+    other -> assertFailure ("expected unboxed sum pattern bind, got: " <> show other)
 
 -- Helper: parse a top-level declaration and extract the ValueDecl.
 parseTopDecl :: T.Text -> Either String Decl
