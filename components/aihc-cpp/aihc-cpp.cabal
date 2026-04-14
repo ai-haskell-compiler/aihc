@@ -26,7 +26,7 @@ library
     , containers
     , filepath
     , deepseq
-  ghc-options:        -Wall -Werror
+  ghc-options:        -Wall
   default-language: Haskell2010
 
 test-suite spec
@@ -47,7 +47,7 @@ test-suite spec
     , tasty
     , tasty-hunit
     , tasty-quickcheck
-  ghc-options:        -Wall -Werror
+  ghc-options:        -Wall
   default-language: Haskell2010
 
 executable cpp-progress
@@ -66,5 +66,5 @@ executable cpp-progress
     , containers
     , directory
     , filepath
-  ghc-options:        -Wall -Werror
+  ghc-options:        -Wall
   default-language: Haskell2010

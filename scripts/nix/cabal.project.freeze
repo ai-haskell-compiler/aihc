@@ -1,6 +1,6 @@
 active-repositories: hackage.haskell.org:merge
-constraints: any.Cabal ==3.12.1.0,
-             any.Cabal-syntax ==3.12.1.0,
+constraints: any.Cabal ==3.14.2.0,
+             any.Cabal-syntax ==3.14.2.0,
              any.OneTuple ==0.4.2.1,
              any.QuickCheck ==2.16.0.0,
              QuickCheck -old-random +templatehaskell,

@@ -1,4 +1,3 @@
-{-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE ViewPatterns #-}
 
@@ -36,7 +35,6 @@ import Aihc.Parser.Syntax
   )
 import Aihc.Tc.Types (Pred (..), TcType (..), TyCon (..), TyVarId (..), Unique (..))
 import Data.Text qualified as T
-import Data.Typeable (Typeable)
 
 -- | Annotation attached to AST nodes by the type checker.
 --
@@ -46,7 +44,7 @@ newtype TcAnnotation = TcAnnotation
   { -- | The inferred/checked type of this node.
     tcAnnType :: TcType
   }
-  deriving (Eq, Show, Typeable)
+  deriving (Eq, Show)
 
 -- | Extract a 'TcAnnotation' from an 'Expr'.
 pattern ETcAnn :: TcAnnotation -> Expr -> Expr
