@@ -103,7 +103,6 @@ convertGoldenStatus status =
     PG.StatusPass -> ExpectPass
     PG.StatusFail -> ExpectPass -- StatusFail means we expect a parse failure (which is a "pass" for the test)
     PG.StatusXFail -> ExpectXFail
-    PG.StatusXPass -> ExpectXPass
 
 groupByExtension ::
   [(CaseMeta, Outcome, String)] ->

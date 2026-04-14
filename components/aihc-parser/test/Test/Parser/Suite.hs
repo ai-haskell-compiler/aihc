@@ -150,13 +150,10 @@ fixtureValidationTests =
         case PG.parseParserCaseText PG.CaseExpr "pass.yaml" validPassMissingAst of
           Left _ -> pure ()
           Right _ -> assertFailure "expected parse failure when pass ast is missing",
-      testCase "accepts xpass with reason and ast" $
+      testCase "rejects xpass status" $
         case PG.parseParserCaseText PG.CaseExpr "xpass.yaml" validXPassFixture of
-          Left err -> assertFailure ("expected parse success, got: " <> err)
-          Right parsed ->
-            if PG.caseStatus parsed == PG.StatusXPass
-              then pure ()
-              else assertFailure "expected xpass status",
+          Left _ -> pure ()
+          Right _ -> assertFailure "expected parse failure for xpass status",
       testCase "accepts xfail without ast" $
         case PG.parseParserCaseText PG.CaseExpr "xfail-no-ast.yaml" validXFailNoAst of
           Left err -> assertFailure ("expected parse success, got: " <> err)
