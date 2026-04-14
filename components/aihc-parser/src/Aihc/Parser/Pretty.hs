@@ -48,6 +48,13 @@ import Prettyprinter
     (<+>),
   )
 
+-- | Wrap a document in braces with interior spaces: @{ content }@.
+-- Unlike 'braces' which produces @{content}@, this version avoids the
+-- @{-@ block-comment ambiguity that occurs when the content starts with a
+-- minus sign (e.g. a negated literal pattern in a let binding).
+spacedBraces :: Doc ann -> Doc ann
+spacedBraces d = "{" <+> d <+> "}"
+
 -- | Pretty instance for Module - renders to valid Haskell source code.
 instance Pretty Module where
   pretty = prettyModuleDoc . addModuleParens
@@ -368,8 +375,8 @@ prettyRhs rhs =
 
 prettyWhereClause :: Maybe [Decl] -> Doc ann
 prettyWhereClause Nothing = mempty
-prettyWhereClause (Just []) = " where" <+> braces mempty
-prettyWhereClause (Just decls) = " where" <+> braces (prettyInlineDecls decls)
+prettyWhereClause (Just []) = " where" <+> spacedBraces mempty
+prettyWhereClause (Just decls) = " where" <+> spacedBraces (prettyInlineDecls decls)
 
 -- | Pretty-print a type. The AST is assumed to already have TParen nodes
 -- in the correct positions (inserted by 'addTypeParens').
@@ -1017,7 +1024,7 @@ prettyExpr expr =
     ESectionR _ op rhs -> parens (prettyNameInfixOp op <+> prettyExpr rhs)
     ELetDecls _ decls body ->
       "let"
-        <+> braces (prettyInlineDecls decls)
+        <+> spacedBraces (prettyInlineDecls decls)
         <+> "in"
         <+> prettyExpr body
     ECase _ scrutinee alts ->
@@ -1120,13 +1127,13 @@ prettyGuardQualifier qualifier =
   case qualifier of
     GuardExpr _ expr -> prettyExpr expr
     GuardPat _ pat expr -> prettyPattern pat <+> "<-" <+> prettyExpr expr
-    GuardLet _ decls -> "let" <+> braces (prettyInlineDecls decls)
+    GuardLet _ decls -> "let" <+> spacedBraces (prettyInlineDecls decls)
 
 prettyDoStmt :: DoStmt Expr -> Doc ann
 prettyDoStmt stmt =
   case stmt of
     DoBind _ pat expr -> prettyPattern pat <+> "<-" <+> prettyExpr expr
-    DoLetDecls _ decls -> "let" <+> braces (prettyInlineDecls decls)
+    DoLetDecls _ decls -> "let" <+> spacedBraces (prettyInlineDecls decls)
     DoExpr _ expr -> prettyExpr expr
     DoRecStmt _ stmts -> "rec" <+> "{" <+> hsep (punctuate semi (map prettyDoStmt stmts)) <+> "}"
 
@@ -1147,7 +1154,7 @@ prettyCmd cmd =
     CmdCase _ scrut alts ->
       "case" <+> prettyExpr scrut <+> "of" <+> "{" <+> hsep (punctuate semi (map prettyCmdCaseAlt alts)) <+> "}"
     CmdLet _ decls body ->
-      "let" <+> braces (prettyInlineDecls decls) <+> "in" <+> prettyCmd body
+      "let" <+> spacedBraces (prettyInlineDecls decls) <+> "in" <+> prettyCmd body
     CmdLam _ pats body ->
       "\\" <+> hsep (map prettyPattern pats) <+> "->" <+> prettyCmd body
     CmdApp _ c e ->
@@ -1159,7 +1166,7 @@ prettyCmdStmt :: DoStmt Cmd -> Doc ann
 prettyCmdStmt stmt =
   case stmt of
     DoBind _ pat cmd' -> prettyPattern pat <+> "<-" <+> prettyCmd cmd'
-    DoLetDecls _ decls -> "let" <+> braces (prettyInlineDecls decls)
+    DoLetDecls _ decls -> "let" <+> spacedBraces (prettyInlineDecls decls)
     DoExpr _ cmd' -> prettyCmd cmd'
     DoRecStmt _ stmts -> "rec" <+> "{" <+> hsep (punctuate semi (map prettyCmdStmt stmts)) <+> "}"
 
@@ -1173,7 +1180,7 @@ prettyCompStmt stmt =
     CompGen _ pat expr -> prettyPattern pat <+> "<-" <+> prettyExpr expr
     CompGuard _ expr -> prettyExpr expr
     CompLet _ bindings -> "let" <+> hsep (punctuate semi (map prettyBinding bindings))
-    CompLetDecls _ decls -> "let" <+> braces (prettyInlineDecls decls)
+    CompLetDecls _ decls -> "let" <+> spacedBraces (prettyInlineDecls decls)
 
 prettyInlineDecls :: [Decl] -> Doc ann
 prettyInlineDecls decls =

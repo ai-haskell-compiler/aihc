@@ -978,10 +978,8 @@ localFunctionDeclParser = withSpan $ do
 localPatternDeclParser :: TokParser Decl
 localPatternDeclParser = withSpan $ do
   pat <- patternParser
-  expectedTok TkReservedEquals
-  rhsExpr <- exprParser
-  whereDecls <- MP.optional whereClauseParser
-  pure (\span' -> DeclValue span' (PatternBind span' pat (UnguardedRhs span' rhsExpr whereDecls)))
+  rhs <- equationRhsParser
+  pure (\span' -> DeclValue span' (PatternBind span' pat rhs))
 
 implicitParamDeclParser :: TokParser Decl
 implicitParamDeclParser = withSpan $ do

@@ -1320,7 +1320,7 @@ test_prettyInfixFunctionHeadIrrefutablePatterns = do
 -- | Regression test: a view pattern whose view expression is a let-expression
 -- ending with a type signature must parenthesize the let so the view-pattern
 -- arrow is not absorbed into the type.
--- Without the fix, this would produce @(let {x = (#  #)} in (#  #) :: T -> [])@
+-- Without the fix, this would produce @(let { x = (#  #) } in (#  #) :: T -> [])@
 -- which GHC rejects because @:: T -> []@ is parsed as a single type signature.
 test_prettyViewLetTypeSigParens :: Assertion
 test_prettyViewLetTypeSigParens = do
@@ -1335,7 +1335,7 @@ test_prettyViewLetTypeSigParens = do
       source = renderStrict (layoutPretty defaultLayoutOptions (pretty pat))
   assertBool
     ("expected parenthesized let-expression in view pattern, got:\n" <> T.unpack source)
-    ("((let {x = (#  #)} in (#  #) :: T) -> [])" == source)
+    ("((let { x = (#  #) } in (#  #) :: T) -> [])" == source)
 
 -- | Regression test: a guard pattern whose expression ends with a type
 -- signature must parenthesize the expression so the multi-way if arrow @->@
