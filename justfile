@@ -18,8 +18,8 @@ qc:
 fmt:
   nix develop --quiet --command bash -c 'ormolu --mode inplace $(find components -name "*.hs" -not -path "*/dist-newstyle/*" -not -path "*/test/Test/Fixtures/*")'
 
-# Run full CI check: format, lint, then tests
+# Run full CI check: format, lint, then tests (warnings are errors only here, not in plain `cabal` / `just test`)
 check:
   nix develop --quiet --command bash -c 'ormolu --mode check $(find components -name "*.hs" -not -path "*/dist-newstyle/*" -not -path "*/test/Test/Fixtures/*")'
   nix develop --quiet --command bash -c 'hlint $(find components -name "*.hs" -not -path "*/dist-newstyle/*" -not -path "*/test/Test/Fixtures/*")'
-  just test
+  cabal test -v0 all --ghc-options=-Werror --test-options='--hide-successes --quickcheck-tests 1000' --test-show-details=failures

@@ -1,4 +1,3 @@
-{-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE ViewPatterns #-}
 
@@ -39,18 +38,17 @@ import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as T
-import Data.Typeable (Typeable)
 
 data ResolvedName
   = ResolvedTopLevel Name
   | ResolvedLocal Int UnqualifiedName
   | ResolvedError String
-  deriving (Eq, Show, Typeable)
+  deriving (Eq, Show)
 
 data ResolutionNamespace
   = ResolutionNamespaceTerm
   | ResolutionNamespaceType
-  deriving (Eq, Show, Typeable)
+  deriving (Eq, Show)
 
 data ResolutionAnnotation = ResolutionAnnotation
   { resolutionSpan :: !SourceSpan,
@@ -58,7 +56,7 @@ data ResolutionAnnotation = ResolutionAnnotation
     resolutionNamespace :: !ResolutionNamespace,
     resolutionTarget :: !ResolvedName
   }
-  deriving (Eq, Show, Typeable)
+  deriving (Eq, Show)
 
 newtype ResolveError
   = ResolveNotImplemented String
