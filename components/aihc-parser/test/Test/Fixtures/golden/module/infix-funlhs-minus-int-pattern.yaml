@@ -1,0 +1,5 @@
+extensions: []
+input: |
+  M.XnIFig - 0 = x
+ast: Module {decls = [DeclValue (FunctionBind "-" [Match {headForm = Infix, pats = [PCon "M.XnIFig" [], PLit (LitInt 0)], rhs = UnguardedRhs (EVar "x")}])]}
+status: pass

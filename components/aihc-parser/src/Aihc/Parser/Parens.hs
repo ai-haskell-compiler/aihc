@@ -892,7 +892,7 @@ addPatternParens pat =
     PStrict sp inner -> PStrict sp (addPatternAtomStrictParens inner)
     PIrrefutable sp inner -> PIrrefutable sp (addPatternAtomStrictParens inner)
     PNegLit sp lit -> PNegLit sp lit
-    PParen sp inner -> PParen sp (addPatternParens inner)
+    PParen sp inner -> PParen sp (addPatternInDelimited inner)
     PRecord sp con fields hasWildcard ->
       PRecord sp con [(fieldName, addPatternParens fieldPat) | (fieldName, fieldPat) <- fields] hasWildcard
     PTypeSig sp inner ty -> PTypeSig sp (addPatternParens inner) (addTypeParens ty)
@@ -927,7 +927,7 @@ addPatternAtomParens pat =
     PWildcard {} -> addPatternParens pat
     PLit {} -> addPatternParens pat
     PQuasiQuote {} -> addPatternParens pat
-    PNegLit {} -> addPatternParens pat
+    PNegLit {} -> wrapPat True (addPatternParens pat)
     PList {} -> addPatternParens pat
     PTuple {} -> addPatternParens pat
     PUnboxedSum {} -> addPatternParens pat

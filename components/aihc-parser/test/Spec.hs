@@ -512,7 +512,7 @@ test_mdoViewPatternParses =
    in do
         assertBool ("expected no parse errors, got: " <> show errs) (null errs)
         case moduleDecls modu of
-          [DeclValue _ (FunctionBind _ "f" [Match {matchPats = [PView _ (EDo _ [DoExpr _ (EApp _ (EVar _ "pure") (EVar _ "x"))] True) (PVar _ "y")], matchRhs = UnguardedRhs _ (EVar _ "y") _}])] -> pure ()
+          [DeclValue _ (FunctionBind _ "f" [Match {matchPats = [PParen _ (PView _ (EDo _ [DoExpr _ (EApp _ (EVar _ "pure") (EVar _ "x"))] True) (PVar _ "y"))], matchRhs = UnguardedRhs _ (EVar _ "y") _}])] -> pure ()
           other -> assertFailure ("unexpected parsed declarations: " <> show other)
 
 test_infixTypeFamilyHeadRoundtrip :: Assertion
@@ -1073,7 +1073,7 @@ test_doBindAsPattern =
 test_doBindNestedPrefixPattern :: Assertion
 test_doBindNestedPrefixPattern =
   case parseDoStmtsExt [BangPatterns, ViewPatterns] "do { K !y ~(Just z) q@(Right _) ((negate -> n)) (-1) <- xs; pure y }" of
-    Right [DoBind _ (PCon _ "K" [PStrict _ (PVar _ "y"), PIrrefutable _ (PParen _ (PCon _ "Just" [PVar _ "z"])), PAs _ "q" (PParen _ (PCon _ "Right" [PWildcard _])), PParen _ (PView _ _ (PVar _ "n")), PParen _ (PNegLit _ (LitInt _ 1 _))]) _, DoExpr _ _] -> pure ()
+    Right [DoBind _ (PCon _ "K" [PStrict _ (PVar _ "y"), PIrrefutable _ (PParen _ (PCon _ "Just" [PVar _ "z"])), PAs _ "q" (PParen _ (PCon _ "Right" [PWildcard _])), PParen _ (PParen _ (PView _ _ (PVar _ "n"))), PParen _ (PNegLit _ (LitInt _ 1 _))]) _, DoExpr _ _] -> pure ()
     other -> assertFailure ("expected nested prefix-pattern bind, got: " <> show other)
 
 test_doExprStmt :: Assertion
@@ -1365,7 +1365,7 @@ test_guardPatBind =
 test_guardViewPatternBind :: Assertion
 test_guardViewPatternBind =
   case parseGuardsExt [PatternGuards, ViewPatterns] "f x | (view -> Just y) <- x = y" of
-    Right [GuardPat _ (PView _ (EVar _ "view") (PCon _ "Just" [PVar _ "y"])) (EVar _ "x")] -> pure ()
+    Right [GuardPat _ (PParen _ (PView _ (EVar _ "view") (PCon _ "Just" [PVar _ "y"]))) (EVar _ "x")] -> pure ()
     other -> assertFailure ("expected guard view-pattern bind, got: " <> show other)
 
 test_guardLet :: Assertion
@@ -1413,7 +1413,7 @@ test_guardAsBind =
 test_guardNestedPrefixBind :: Assertion
 test_guardNestedPrefixBind =
   case parseGuardsExt [BangPatterns, ViewPatterns] "f xs | K !y ~(Just z) q@(Right _) ((negate -> n)) (-1) <- xs = y" of
-    Right [GuardPat _ (PCon _ "K" [PStrict _ (PVar _ "y"), PIrrefutable _ (PParen _ (PCon _ "Just" [PVar _ "z"])), PAs _ "q" (PParen _ (PCon _ "Right" [PWildcard _])), PParen _ (PView _ _ (PVar _ "n")), PParen _ (PNegLit _ (LitInt _ 1 _))]) _] -> pure ()
+    Right [GuardPat _ (PCon _ "K" [PStrict _ (PVar _ "y"), PIrrefutable _ (PParen _ (PCon _ "Just" [PVar _ "z"])), PAs _ "q" (PParen _ (PCon _ "Right" [PWildcard _])), PParen _ (PParen _ (PView _ _ (PVar _ "n"))), PParen _ (PNegLit _ (LitInt _ 1 _))]) _] -> pure ()
     other -> assertFailure ("expected nested prefix-pattern guard, got: " <> show other)
 
 test_guardInfixBind :: Assertion
@@ -1505,7 +1505,7 @@ test_compAsGen =
 test_compNestedPrefixGen :: Assertion
 test_compNestedPrefixGen =
   case parseCompStmtsExt [BangPatterns, ViewPatterns] "[y | K !y ~(Just z) q@(Right _) ((negate -> n)) (-1) <- xs]" of
-    Right [CompGen _ (PCon _ "K" [PStrict _ (PVar _ "y"), PIrrefutable _ (PParen _ (PCon _ "Just" [PVar _ "z"])), PAs _ "q" (PParen _ (PCon _ "Right" [PWildcard _])), PParen _ (PView _ _ (PVar _ "n")), PParen _ (PNegLit _ (LitInt _ 1 _))]) _] -> pure ()
+    Right [CompGen _ (PCon _ "K" [PStrict _ (PVar _ "y"), PIrrefutable _ (PParen _ (PCon _ "Just" [PVar _ "z"])), PAs _ "q" (PParen _ (PCon _ "Right" [PWildcard _])), PParen _ (PParen _ (PView _ _ (PVar _ "n"))), PParen _ (PNegLit _ (LitInt _ 1 _))]) _] -> pure ()
     other -> assertFailure ("expected nested prefix-pattern generator, got: " <> show other)
 
 test_compInfixGen :: Assertion

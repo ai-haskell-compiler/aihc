@@ -6,6 +6,7 @@ module Test.Properties.PatternRoundTrip
 where
 
 import Aihc.Parser (ParseResult (..), ParserConfig (..), defaultConfig, parsePattern)
+import Aihc.Parser.Parens (addPatternParens)
 import Aihc.Parser.Syntax
 import Data.Text qualified as T
 import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
@@ -25,7 +26,7 @@ patternConfig =
 prop_patternPrettyRoundTrip :: Pattern -> Property
 prop_patternPrettyRoundTrip pat =
   let source = renderStrict (layoutPretty defaultLayoutOptions (pretty pat))
-      expected = normalizePattern pat
+      expected = normalizePattern (addPatternParens pat)
    in checkCoverage $
         assertCtorCoverage ["PAnn"] pat $
           counterexample (T.unpack source) $
@@ -53,6 +54,7 @@ normalizePattern pat =
     PStrict _ inner -> PStrict span0 (normalizeUnaryInner inner)
     PIrrefutable _ inner -> PIrrefutable span0 (normalizeUnaryInner inner)
     PNegLit _ lit -> PNegLit span0 (normalizeLiteral lit)
+    PParen _ (PNegLit _ lit) -> PNegLit span0 (normalizeLiteral lit)
     PParen _ inner -> PParen span0 (normalizePattern inner)
     PUnboxedSum _ altIdx arity inner -> PUnboxedSum span0 altIdx arity (normalizePattern inner)
     PRecord _ con fields rwc -> PRecord span0 con [(fieldName, normalizePattern fieldPat) | (fieldName, fieldPat) <- fields] rwc

@@ -1,5 +1,9 @@
 extensions: []
 input: |
   (Con -5)
-ast: PParen (PCon "Con" [PNegLit (LitInt 5)])
-status: pass
+ast: ""
+status: fail
+reason: >
+  Negative literals are lpat (not apat) per Haskell Report, so they
+  cannot appear as constructor arguments without parentheses.
+  GHC also rejects this: "Parse error in pattern: Con - 5".

@@ -38,11 +38,11 @@ checkPattern expr = case expr of
     | isJust (nameQualifier name) -> Left "unexpected qualified name in pattern"
     | otherwise -> Right (PVar sp (mkUnqualifiedName (nameType name) (nameText name)))
   -- Parenthesized expression
-  -- When the inner expression is a view-pattern arrow (@expr -> expr@), strip
-  -- the EParen wrapper so that @(f -> pat)@ maps to @PView f pat@ directly,
-  -- matching the AST shape produced by the dedicated pattern parser.
+  -- When the inner expression is a view-pattern arrow (@expr -> expr@),
+  -- produce @PParen (PView f pat)@ to preserve the explicit parens in
+  -- the AST, matching the shape produced by the dedicated pattern parser.
   EParen _sp inner
-    | Just vp <- asViewPat inner -> Right vp
+    | Just vp <- asViewPat inner -> Right (PParen _sp vp)
     | otherwise -> PParen _sp <$> checkPattern inner
   -- Tuple
   ETuple sp fl elems -> do
