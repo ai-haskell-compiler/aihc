@@ -3,6 +3,7 @@
 
 module Test.Properties.Arb.Pattern
   ( genPattern,
+    genPatternConAstName,
     shrinkPattern,
     canonicalPatternAtom,
   )

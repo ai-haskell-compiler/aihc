@@ -28,7 +28,10 @@ import Test.Properties.Arb.Identifiers
     shrinkIdent,
     span0,
   )
-import Test.Properties.Arb.Pattern (genPattern)
+import Test.Properties.Arb.Pattern
+  ( genPattern,
+    genPatternConAstName,
+  )
 import Test.QuickCheck
 
 -- | Generate a random expression. Uses QuickCheck's size parameter
@@ -373,52 +376,112 @@ genGuardQualifierWith allowTHQuotes n =
     half = n `div` 2
 
 -- | Generate value declarations for let/where.
--- Uses a restricted pattern generator that excludes patterns that don't
--- round-trip correctly in let/where bindings (e.g., PSplice, PView, PQuasiQuote).
--- Still includes bang patterns, lazy patterns, and guarded RHS.
+-- Generates bang patterns and guarded RHS, but avoids complex nested patterns
+-- that don't round-trip correctly.
 genValueDeclsWith :: Bool -> Int -> Gen [Decl]
 genValueDeclsWith allowTHQuotes n = do
   count <- chooseInt (0, 3)
   let perDecl = n `div` max 1 count
   vectorOf count $ do
-    pat <- genLetBindingPattern perDecl
-    rhs <- genRhsWith allowTHQuotes perDecl
+    -- Generate simple patterns that work in let bindings
+    pat <- genLetBindingPatternSimple perDecl
+    -- Generate RHS that can include guards, but with simple let patterns in guards
+    rhs <- genLetRhsWith allowTHQuotes perDecl
     pure $ DeclValue span0 (PatternBind span0 pat rhs)
 
--- | Generate patterns suitable for let/where bindings.
--- Excludes patterns that don't round-trip correctly in this context.
-genLetBindingPattern :: Int -> Gen Pattern
-genLetBindingPattern size = genSuchPattern
+-- | Generate simple patterns suitable for let/where bindings.
+-- Only generates: PVar, PWildcard, PTuple, PList, PCon (with simple args)
+-- Includes bang and lazy wrappers around simple patterns.
+genLetBindingPatternSimple :: Int -> Gen Pattern
+genLetBindingPatternSimple size =
+  frequency
+    [ (10, PVar span0 . mkUnqualifiedName NameVarId <$> genIdent),
+      (5, pure (PWildcard span0)),
+      (3, PTuple span0 Boxed <$> genSimpleTuplePatterns size),
+      ( 2,
+        do
+          count <- chooseInt (0, 3)
+          PList span0 <$> vectorOf count (genLetBindingPatternSimple size)
+      ),
+      ( 5,
+        do
+          count <- chooseInt (0, 3)
+          PCon span0 <$> genPatternConAstName <*> vectorOf count (genLetBindingPatternSimple size)
+      ),
+      -- Bang and lazy patterns wrap simple patterns
+      (3, PStrict span0 <$> genLetBindingPatternSimpleWrapped size),
+      (3, PIrrefutable span0 <$> genLetBindingPatternSimpleWrapped size),
+      (2, PAs span0 <$> genIdent <*> genLetBindingPatternSimpleWrapped size)
+    ]
   where
-    isValidLetPattern pat =
-      case pat of
-        PSplice {} -> False
-        PView {} -> False
-        PQuasiQuote {} -> False
-        PNegLit {} -> False
-        -- Check nested patterns
-        PAs _ _ inner -> isValidLetPattern inner
-        PStrict _ inner -> isValidLetPattern inner
-        PIrrefutable _ inner -> isValidLetPattern inner
-        PParen _ inner -> isValidLetPattern inner
-        PList _ pats -> all isValidLetPattern pats
-        PTuple _ _ pats -> all isValidLetPattern pats
-        PUnboxedSum _ _ _ inner -> isValidLetPattern inner
-        PCon _ _ args -> all isValidLetPattern args
-        PInfix _ lhs _ rhs -> isValidLetPattern lhs && isValidLetPattern rhs
-        PRecord _ _ fields _ -> all (isValidLetPattern . snd) fields
-        PTypeSig _ inner _ -> isValidLetPattern inner
-        -- Base cases that are valid
-        PVar {} -> True
-        PWildcard {} -> True
-        PLit {} -> True
-        _ -> True
+    -- Generate a pattern wrapped for use with bang/lazy/as patterns
+    genLetBindingPatternSimpleWrapped sz = do
+      -- Generate one of the simple patterns, not wrapped again
+      oneof
+        [ PVar span0 . mkUnqualifiedName NameVarId <$> genIdent,
+          pure (PWildcard span0),
+          PTuple span0 Boxed <$> genSimpleTuplePatterns sz,
+          do
+            count <- chooseInt (0, 2)
+            PCon span0 <$> genPatternConAstName <*> vectorOf count (genLetBindingPatternSimple (sz `div` 2))
+        ]
 
-    genSuchPattern = do
-      pat <- genPattern size
-      if isValidLetPattern pat
-        then pure pat
-        else genSuchPattern
+-- | Generate tuple elements for let binding patterns (no sections)
+genSimpleTuplePatterns :: Int -> Gen [Pattern]
+genSimpleTuplePatterns size = do
+  count <- chooseInt (0, 3)
+  vectorOf count (genLetBindingPatternSimple size)
+
+-- | Generate RHS for let/where bindings.
+-- Similar to genRhsWith but GuardLet uses simple patterns only.
+genLetRhsWith :: Bool -> Int -> Gen Rhs
+genLetRhsWith allowTHQuotes n =
+  oneof
+    [ (\e -> UnguardedRhs span0 e Nothing) <$> genBindingExprWith allowTHQuotes n,
+      (\gs -> GuardedRhss span0 gs Nothing) <$> genLetGuardedRhsListWith allowTHQuotes n
+    ]
+
+-- | Generate guarded RHS list for let/where bindings.
+genLetGuardedRhsListWith :: Bool -> Int -> Gen [GuardedRhs]
+genLetGuardedRhsListWith allowTHQuotes n = do
+  count <- chooseInt (1, 3)
+  vectorOf count (genLetGuardedRhsWith allowTHQuotes (n `div` max 1 count))
+
+-- | Generate a single guarded RHS for let/where bindings.
+genLetGuardedRhsWith :: Bool -> Int -> Gen GuardedRhs
+genLetGuardedRhsWith allowTHQuotes n = do
+  count <- chooseInt (1, 3)
+  guards <- vectorOf count (genLetGuardQualifierWith allowTHQuotes (n `div` max 1 count))
+  body <- genBindingExprWith allowTHQuotes (n `div` 2)
+  pure GuardedRhs {guardedRhsSpan = span0, guardedRhsGuards = guards, guardedRhsBody = body}
+
+-- | Generate guard qualifiers for let/where bindings.
+-- GuardLet uses simple patterns only.
+genLetGuardQualifierWith :: Bool -> Int -> Gen GuardQualifier
+genLetGuardQualifierWith allowTHQuotes n =
+  oneof
+    [ GuardExpr span0 <$> genExprSizedWith allowTHQuotes n,
+      GuardPat span0 <$> genLetBindingPatternSimple (n `div` 2) <*> genExprSizedWith allowTHQuotes (n `div` 2),
+      GuardLet span0 <$> genLetValueDeclsWithSimple allowTHQuotes n
+    ]
+
+-- | Generate value declarations for GuardLet in guards.
+-- Uses only simple patterns to avoid round-trip issues.
+genLetValueDeclsWithSimple :: Bool -> Int -> Gen [Decl]
+genLetValueDeclsWithSimple allowTHQuotes n = do
+  count <- chooseInt (0, 2)
+  names <- vectorOf count (mkUnqualifiedName NameVarId <$> genIdent)
+  exprs <- vectorOf count (genBindingExprWith allowTHQuotes (n `div` max 1 count))
+  pure
+    [ DeclValue
+        span0
+        ( PatternBind
+            span0
+            (PVar span0 name)
+            (UnguardedRhs span0 expr Nothing)
+        )
+    | (name, expr) <- zip names exprs
+    ]
 
 genBindingExprWith :: Bool -> Int -> Gen Expr
 genBindingExprWith = genExprSizedWith
