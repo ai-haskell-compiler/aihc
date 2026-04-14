@@ -1306,7 +1306,38 @@ prettyTypeFamilyHead :: TypeHeadForm -> Type -> [TyVarBinder] -> [Doc ann]
 prettyTypeFamilyHead headForm headType params =
   case headForm of
     TypeHeadPrefix -> [prettyType headType] <> map prettyTyVarBinder params
-    TypeHeadInfix -> [prettyTypeFamilyInfix headType]
+    TypeHeadInfix -> prettyTypeFamilyInfixHead headType params
+
+-- | Pretty-print an infix type family head with kind annotations from params.
+prettyTypeFamilyInfixHead :: Type -> [TyVarBinder] -> [Doc ann]
+prettyTypeFamilyInfixHead headType params =
+  case headType of
+    TApp _ (TApp _ (TCon _ op promoted) lhs) rhs ->
+      let lhsDoc = prettyTypeWithParamKinds lhs params
+          rhsDoc = prettyTypeWithParamKinds rhs (drop 1 params)
+          opDoc = (if promoted == Promoted then "'" else mempty) <> prettyNameInfixOp op
+       in [lhsDoc <+> opDoc <+> rhsDoc]
+    _ -> [prettyType headType]
+
+-- | Pretty-print a type, but if it's a type variable that matches a param, include its kind annotation.
+prettyTypeWithParamKinds :: Type -> [TyVarBinder] -> Doc ann
+prettyTypeWithParamKinds ty params =
+  case ty of
+    TVar _ varName ->
+      case findParamByName varName params of
+        Just param -> prettyTyVarBinder param
+        Nothing -> prettyType ty
+    _ -> prettyType ty
+
+-- | Find a TyVarBinder by matching its name to a TVar's UnqualifiedName.
+findParamByName :: UnqualifiedName -> [TyVarBinder] -> Maybe TyVarBinder
+findParamByName varName =
+  find (\param -> mkUnqualifiedName NameVarId (tyVarBinderName param) == varName)
+  where
+    find _ [] = Nothing
+    find predicate (x : xs)
+      | predicate x = Just x
+      | otherwise = find predicate xs
 
 prettyTypeFamilyLhs :: TypeHeadForm -> Type -> [Doc ann]
 prettyTypeFamilyLhs headForm lhs =

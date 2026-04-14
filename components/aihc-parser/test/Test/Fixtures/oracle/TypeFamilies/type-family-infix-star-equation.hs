@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail reason="type family equations with infix operator * not parsed correctly" -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE GHC2021, DataKinds, TypeFamilies, TypeOperators, NoStarIsType #-}
 
 type family (a :: ExactPi') * (b :: ExactPi') :: ExactPi' where

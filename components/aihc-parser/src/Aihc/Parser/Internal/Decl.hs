@@ -1191,31 +1191,34 @@ typeFamilyOperatorParser =
       expectedTok TkSpecialBacktick
       pure op
 
+-- | Parse the LHS of a type family equation or instance.
+-- Uses full type infix parsing to handle operators like @*@ in equations.
 typeFamilyLhsParser :: TokParser (TypeHeadForm, Type)
-typeFamilyLhsParser = do
-  lhs <- typeAtomParser
-  hasInfixTail <- MP.optional (lookAhead typeInfixOperatorParser)
-  case hasInfixTail of
-    Just _ -> do
-      rest <- typeHeadInfixTailParser
-      pure (TypeHeadInfix, foldl buildInfixType lhs rest)
-    Nothing -> do
-      rest <- MP.many typeAtomParser
-      pure (TypeHeadPrefix, foldl buildTypeApp lhs rest)
+typeFamilyLhsParser = typeFamilyInfixParserWith typeInfixParser
+
+-- | Parse a type family LHS using a given type parser, detecting infix form.
+typeFamilyInfixParserWith :: TokParser Type -> TokParser (TypeHeadForm, Type)
+typeFamilyInfixParserWith fullTypeParser = do
+  -- Try infix form first: typeApp `op` typeApp (with possible additional infix ops)
+  MP.try
+    ( do
+        lhs <- typeAppParser
+        opsAndRhs <- MP.many ((,) <$> typeInfixOperatorParser <*> typeAppParser)
+        case opsAndRhs of
+          [] -> fail "expected at least one infix operator"
+          (op, rhs) : rest ->
+            let baseType = foldl buildInfixType (buildInfixType lhs (op, rhs)) rest
+             in pure (TypeHeadInfix, baseType)
+    )
+    <|> ( do
+            ty <- fullTypeParser
+            pure (TypeHeadPrefix, ty)
+        )
   where
-    typeHeadInfixTailParser :: TokParser [((Name, TypePromotion), Type)]
-    typeHeadInfixTailParser = MP.many $ MP.try $ do
-      op <- typeInfixOperatorParser
-      atom <- typeAtomParser
-      pure (op, atom)
-
-    buildInfixType left ((op, promoted), right) =
+    buildInfixType left (op, right) =
       let span' = mergeSourceSpans (getSourceSpan left) (getSourceSpan right)
-          opType = TCon span' op promoted
+          opType = uncurry (TCon span') op
        in TApp span' (TApp span' opType left) right
-
-    buildTypeApp left right =
-      TApp (mergeSourceSpans (getSourceSpan left) (getSourceSpan right)) left right
 
 classHeadParser :: TokParser (TypeHeadForm, Text, [TyVarBinder])
 classHeadParser =
