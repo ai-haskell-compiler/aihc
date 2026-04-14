@@ -20,7 +20,7 @@ import Test.Properties.Arb.Identifiers
     shrinkIdent,
     span0,
   )
-import Test.Properties.Arb.Pattern (canonicalPatternAtom, genPattern)
+import Test.Properties.Arb.Pattern (canonicalPatternAtom, genPattern, shrinkPattern)
 import Test.Properties.Arb.Type (canonicalFunLeft, canonicalTopLevelType, genType)
 import Test.QuickCheck
 
@@ -91,7 +91,7 @@ genFunctionDecl name = do
             )
     MatchHeadInfix ->
       do
-        lhsPat <- canonicalPatternAtom <$> sized (genPattern . min 3)
+        lhsPat <- genInfixLhsPattern
         rhsPat <- canonicalPatternAtom <$> sized (genPattern . min 3)
         rhs <- sized (\n -> genRhsWith False (min n 4))
         pure $
@@ -108,6 +108,21 @@ genFunctionDecl name = do
                     }
                 ]
             )
+
+genInfixLhsPattern :: Gen Pattern
+genInfixLhsPattern =
+  canonicalPatternAtom <$> sized (genPatternWithoutLeadingNegArg . min 3)
+
+genPatternWithoutLeadingNegArg :: Int -> Gen Pattern
+genPatternWithoutLeadingNegArg n =
+  suchThat (genPattern n) (not . startsWithConstructorNegativeLiteral)
+
+startsWithConstructorNegativeLiteral :: Pattern -> Bool
+startsWithConstructorNegativeLiteral pat =
+  case pat of
+    PCon _ _ (PNegLit {} : _) -> True
+    PParen _ inner -> startsWithConstructorNegativeLiteral inner
+    _ -> False
 
 genDeclTypeSig :: Gen Decl
 genDeclTypeSig = do
@@ -791,6 +806,15 @@ shrinkDecl decl =
           )
       | expr' <- shrinkExpr expr
       ]
+        <> [ DeclValue
+               span0
+               ( FunctionBind
+                   span0
+                   name
+                   [match {matchSpan = span0, matchPats = pats'}]
+               )
+           | pats' <- shrinkFunctionHeadPats (matchHeadForm match) (matchPats match)
+           ]
         <> [DeclValue span0 (FunctionBind span0 name' [match {matchSpan = span0, matchRhs = UnguardedRhs span0 expr Nothing}]) | name' <- shrinkUnqualifiedVarName name]
     DeclTypeSig _ names ty ->
       [DeclTypeSig span0 names' ty | names' <- shrinkList shrinkBinderName names, not (null names')]
@@ -818,3 +842,25 @@ shrinkSymbolicName txt =
 
 shrinkBinderName :: BinderName -> [BinderName]
 shrinkBinderName = shrinkUnqualifiedVarName
+
+shrinkFunctionHeadPats :: MatchHeadForm -> [Pattern] -> [[Pattern]]
+shrinkFunctionHeadPats headForm pats =
+  case headForm of
+    MatchHeadPrefix ->
+      [ shrunk
+      | shrunk <- shrinkList shrinkPattern pats,
+        not (null shrunk)
+      ]
+    MatchHeadInfix ->
+      [ canonicalPatternAtom lhs' : canonicalPatternAtom rhs : tailPats
+      | lhs : rhs : tailPats <- [pats],
+        lhs' <- shrinkPattern lhs
+      ]
+        <> [ canonicalPatternAtom lhs : canonicalPatternAtom rhs' : tailPats
+           | lhs : rhs : tailPats <- [pats],
+             rhs' <- shrinkPattern rhs
+           ]
+        <> [ canonicalPatternAtom lhs : canonicalPatternAtom rhs : shrunkTail
+           | lhs : rhs : tailPats <- [pats],
+             shrunkTail <- shrinkList shrinkPattern tailPats
+           ]

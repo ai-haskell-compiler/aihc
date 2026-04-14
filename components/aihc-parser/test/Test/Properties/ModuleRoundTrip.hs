@@ -39,7 +39,7 @@ normalizeModule modu =
   Module
     { moduleSpan = span0,
       moduleHead = fmap normalizeModuleHead (moduleHead modu),
-      moduleLanguagePragmas = moduleLanguagePragmas modu,
+      moduleLanguagePragmas = [],
       moduleImports = map normalizeImportDecl (moduleImports modu),
       moduleDecls = map normalizeDecl (moduleDecls modu)
     }

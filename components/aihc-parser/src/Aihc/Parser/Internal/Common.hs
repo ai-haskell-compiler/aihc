@@ -39,6 +39,7 @@ module Aihc.Parser.Internal.Common
     contextItemsParserWith,
     contextParserWith,
     functionHeadParserWith,
+    functionHeadParserWithBinder,
     functionBindValue,
     functionBindDecl,
     isExtensionEnabled,
@@ -595,13 +596,16 @@ contextParserWith :: TokParser Type -> TokParser Type -> TokParser [Type]
 contextParserWith = contextItemsParserWith
 
 functionHeadParserWith :: TokParser Pattern -> TokParser Pattern -> TokParser (MatchHeadForm, UnqualifiedName, [Pattern])
-functionHeadParserWith fullPatternParser prefixPatternParser =
+functionHeadParserWith = functionHeadParserWithBinder functionBinderNameParser
+
+functionHeadParserWithBinder :: TokParser UnqualifiedName -> TokParser Pattern -> TokParser Pattern -> TokParser (MatchHeadForm, UnqualifiedName, [Pattern])
+functionHeadParserWithBinder binderParser fullPatternParser prefixPatternParser =
   MP.try parenthesizedInfixHeadParser
     <|> MP.try infixHeadParser
     <|> prefixHeadParser
   where
     prefixHeadParser = do
-      name <- binderNameParser
+      name <- binderParser
       pats <- MP.many prefixPatternParser
       pure (MatchHeadPrefix, name, pats)
 
@@ -619,6 +623,21 @@ functionHeadParserWith fullPatternParser prefixPatternParser =
       expectedTok TkSpecialRParen
       tailPats <- MP.many prefixPatternParser
       pure (MatchHeadInfix, op, [lhsPat, rhsPat] <> tailPats)
+
+functionBinderNameParser :: TokParser UnqualifiedName
+functionBinderNameParser =
+  variableIdentifierParser <|> parens variableOperatorParser
+  where
+    variableIdentifierParser =
+      tokenSatisfy "function binder" $ \tok ->
+        case lexTokenKind tok of
+          TkVarId ident -> Just (mkUnqualifiedName NameVarId ident)
+          _ -> Nothing
+    variableOperatorParser =
+      tokenSatisfy "variable operator" $ \tok ->
+        case lexTokenKind tok of
+          TkVarSym ident -> Just (mkUnqualifiedName NameVarSym ident)
+          _ -> Nothing
 
 functionBindValue :: SourceSpan -> MatchHeadForm -> UnqualifiedName -> [Pattern] -> Rhs -> ValueDecl
 functionBindValue span' headForm name pats rhs =
