@@ -438,7 +438,10 @@ bracedSemiSep1 :: TokParser a -> TokParser [a]
 bracedSemiSep1 parser =
   braces $ do
     skipSemicolons
-    parser `MP.sepEndBy1` expectedTok TkSpecialSemicolon
+    x <- parser
+    skipSemicolons
+    rest <- MP.many (parser <* skipSemicolons)
+    pure (x : rest)
 
 -- | Zero-or-more variant of 'plainSemiSep1'.
 -- Parses zero or more items separated by semicolons (no surrounding braces).
