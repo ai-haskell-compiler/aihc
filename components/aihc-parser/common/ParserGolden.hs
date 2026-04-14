@@ -17,7 +17,6 @@ module ParserGolden
     evaluateModuleCase,
     evaluatePatternCase,
     progressSummary,
-    ExtensionSetting (..),
   )
 where
 
@@ -31,7 +30,12 @@ import Aihc.Parser
     parsePattern,
   )
 import Aihc.Parser.Shorthand (Shorthand (..))
-import Aihc.Parser.Syntax (Extension, ExtensionSetting (DisableExtension, EnableExtension), parseExtensionSettingName)
+import Aihc.Parser.Syntax
+  ( ExtensionSetting,
+    LanguageEdition (Haskell2010Edition),
+    effectiveExtensions,
+    parseExtensionSettingName,
+  )
 import Data.Aeson ((.!=), (.:), (.:?))
 import Data.Aeson.Types (parseEither, withObject)
 import Data.Char (isSpace, toLower)
@@ -160,7 +164,7 @@ evaluateExprCase meta =
     parserConfig =
       ( defaultConfig
           { parserSourceName = casePath meta,
-            parserExtensions = extensionsToEnabled (caseExtensions meta)
+            parserExtensions = effectiveExtensions Haskell2010Edition (caseExtensions meta)
           }
       )
 
@@ -174,7 +178,7 @@ evaluateModuleCase meta =
     parserConfig =
       ( defaultConfig
           { parserSourceName = casePath meta,
-            parserExtensions = extensionsToEnabled (caseExtensions meta)
+            parserExtensions = effectiveExtensions Haskell2010Edition (caseExtensions meta)
           }
       )
 
@@ -187,17 +191,9 @@ evaluatePatternCase meta =
     parserConfig =
       ( defaultConfig
           { parserSourceName = casePath meta,
-            parserExtensions = extensionsToEnabled (caseExtensions meta)
+            parserExtensions = effectiveExtensions Haskell2010Edition (caseExtensions meta)
           }
       )
-
-extensionsToEnabled :: [ExtensionSetting] -> [Extension]
-extensionsToEnabled = foldr applySetting (parserExtensions defaultConfig)
-  where
-    applySetting setting exts =
-      case setting of
-        EnableExtension ext -> ext : filter (/= ext) exts
-        DisableExtension ext -> filter (/= ext) exts
 
 classifySuccess :: ParserCase -> String -> (Outcome, String)
 classifySuccess meta actualAst =
