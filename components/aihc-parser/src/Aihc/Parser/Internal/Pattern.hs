@@ -135,8 +135,13 @@ irrefutablePatternParser = withSpan $ do
 negativeLiteralPatternParser :: TokParser Pattern
 negativeLiteralPatternParser = MP.try $ withSpan $ do
   expectedTok (TkVarSym "-")
-  lit <- literalParser
+  lit <- numericLiteralParser
   pure (`PNegLit` lit)
+
+-- | Parse only numeric literals (integer or float), used for negative literal
+-- patterns where GHC only allows @-@ before numeric literals, not strings or chars.
+numericLiteralParser :: TokParser Literal
+numericLiteralParser = intLiteralParser <|> intBaseLiteralParser <|> floatLiteralParser
 
 wildcardPatternParser :: TokParser Pattern
 wildcardPatternParser = withSpan $ do
