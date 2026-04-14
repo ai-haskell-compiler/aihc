@@ -201,24 +201,10 @@ typeAtomParser = do
     <|> (if ipEnabled then typeImplicitParamParser else MP.empty)
     <|> typeListParser
     <|> MP.try typeParenOperatorParser
-    <|> MP.try typeParenStarParser
     <|> typeParenOrTupleParser
     <|> typeStarParser
     <|> typeWildcardParser
     <|> typeIdentifierParser
-
--- | Parse parenthesized star operator (*) when NoStarIsType is enabled.
--- When StarIsType is disabled, (*) should parse as TParen (TCon "*"), not TParen TStar.
-typeParenStarParser :: TokParser Type
-typeParenStarParser = withSpan $ do
-  starIsType <- isExtensionEnabled StarIsType
-  if starIsType
-    then MP.empty
-    else do
-      expectedTok TkSpecialLParen
-      expectedTok (TkVarSym "*")
-      expectedTok TkSpecialRParen
-      pure (\span' -> TParen span' (TCon span' (qualifyName Nothing (mkUnqualifiedName NameVarSym "*")) Unpromoted))
 
 -- | Parse an implicit parameter type: @?name :: Type@
 typeImplicitParamParser :: TokParser Type
@@ -296,10 +282,11 @@ collectDelimitedRaw openKind closeKind = do
 typeParenOperatorParser :: TokParser Type
 typeParenOperatorParser = withSpan $ do
   expectedTok TkSpecialLParen
+  starIsType <- isExtensionEnabled StarIsType
   op <- tokenSatisfy "type operator" $ \tok ->
     case lexTokenKind tok of
-      TkVarSym sym | sym /= "*" -> Just (qualifyName Nothing (mkUnqualifiedName NameVarSym sym))
-      TkConSym sym | sym /= "*" -> Just (qualifyName Nothing (mkUnqualifiedName NameConSym sym))
+      TkVarSym sym | not starIsType || sym /= "*" -> Just (qualifyName Nothing (mkUnqualifiedName NameVarSym sym))
+      TkConSym sym | not starIsType || sym /= "*" -> Just (qualifyName Nothing (mkUnqualifiedName NameConSym sym))
       TkQVarSym modQual sym -> Just (mkName (Just modQual) NameVarSym sym)
       TkQConSym modQual sym -> Just (mkName (Just modQual) NameConSym sym)
       -- Handle reserved operators that can be used as type constructors
