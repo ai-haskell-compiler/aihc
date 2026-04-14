@@ -62,10 +62,40 @@ genDecl = sized $ \n ->
     ]
 
 genDeclValue :: Int -> Gen Decl
-genDeclValue n = do
+genDeclValue n =
+  oneof
+    [ genFunctionValueDecl n,
+      genPatternValueDecl n
+    ]
+
+genFunctionValueDecl :: Int -> Gen Decl
+genFunctionValueDecl n = do
   name <- genVarBinderName
   expr <- resize n genExpr
   genFunctionDecl (name, expr)
+
+genPatternValueDecl :: Int -> Gen Decl
+genPatternValueDecl n = do
+  pat <- genPatternBindPattern n
+  expr <- resize n genExpr
+  pure $ DeclValue span0 (PatternBind span0 pat (UnguardedRhs span0 expr Nothing))
+
+genPatternBindPattern :: Int -> Gen Pattern
+genPatternBindPattern n =
+  frequency
+    [ (1, PVar span0 . mkUnqualifiedName NameVarId <$> genIdent),
+      (4, sized (genGeneralPatternBindPattern . min 3 . min n))
+    ]
+
+genGeneralPatternBindPattern :: Int -> Gen Pattern
+genGeneralPatternBindPattern n =
+  suchThat (genPattern n) isGeneralPatternBindPattern
+
+isGeneralPatternBindPattern :: Pattern -> Bool
+isGeneralPatternBindPattern pat =
+  case pat of
+    PVar {} -> False
+    _ -> True
 
 genFunctionDecl :: (UnqualifiedName, Expr) -> Gen Decl
 genFunctionDecl (name, expr) = do
@@ -795,6 +825,7 @@ shrinkDecl decl =
   case decl of
     DeclValue _ (PatternBind _ pat (UnguardedRhs _ expr _)) ->
       [DeclValue span0 (PatternBind span0 pat (UnguardedRhs span0 expr' Nothing)) | expr' <- shrinkExpr expr]
+        <> [DeclValue span0 (PatternBind span0 pat' (UnguardedRhs span0 expr Nothing)) | pat' <- shrinkPatternBindPat pat]
     DeclValue _ (FunctionBind _ name [match@Match {matchRhs = UnguardedRhs _ expr _}]) ->
       [ DeclValue
           span0
@@ -818,6 +849,9 @@ shrinkDecl decl =
     DeclTypeSig _ names ty ->
       [DeclTypeSig span0 names' ty | names' <- shrinkList shrinkBinderName names, not (null names')]
     _ -> []
+
+shrinkPatternBindPat :: Pattern -> [Pattern]
+shrinkPatternBindPat = shrinkPattern
 
 shrinkUnqualifiedVarName :: UnqualifiedName -> [UnqualifiedName]
 shrinkUnqualifiedVarName name =
