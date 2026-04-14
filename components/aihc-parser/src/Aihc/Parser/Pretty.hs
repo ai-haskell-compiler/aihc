@@ -116,6 +116,10 @@ prettyExportSpec spec =
       prettyExportWarning
         mWarning
         (prettyNamespacePrefix namespace <> prettyName name <> parens (hsep (punctuate comma (map prettyExportMember members))))
+    ExportWithAll _ mWarning namespace name members ->
+      prettyExportWarning
+        mWarning
+        (prettyNamespacePrefix namespace <> prettyName name <> parens (hsep (punctuate comma (map prettyExportMember members <> [".."]))))
 
 prettyExportWarning :: Maybe WarningText -> Doc ann -> Doc ann
 prettyExportWarning mWarning doc =
@@ -175,6 +179,8 @@ prettyImportItem item =
     ImportItemAll _ namespace name -> prettyNamespacePrefix namespace <> prettyConstructorUName name <> "(..)"
     ImportItemWith _ namespace name members ->
       prettyNamespacePrefix namespace <> prettyConstructorUName name <> parens (hsep (punctuate comma (map prettyExportMember members)))
+    ImportItemAllWith _ namespace name members ->
+      prettyNamespacePrefix namespace <> prettyConstructorUName name <> parens (hsep (punctuate comma (map prettyExportMember members <> [".."])))
 
 prettyExportMember :: IEBundledMember -> Doc ann
 prettyExportMember (IEBundledMember namespace name) =

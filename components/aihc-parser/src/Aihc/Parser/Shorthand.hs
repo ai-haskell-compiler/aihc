@@ -124,6 +124,13 @@ docExportSpec spec =
           optionalField "warningText" docWarningText mWarning
             <> optionalField "namespace" docIENamespace mNamespace
             <> [field "name" (docName name), field "members" (brackets (hsep (punctuate comma (map docExportMember members))))]
+    ExportWithAll _ mWarning mNamespace name members ->
+      "ExportWithAll" <> braces (hsep (punctuate comma fields))
+      where
+        fields =
+          optionalField "warningText" docWarningText mWarning
+            <> optionalField "namespace" docIENamespace mNamespace
+            <> [field "name" (docName name), field "members" (brackets (hsep (punctuate comma (map docExportMember members))))]
 
 docImportDecl :: ImportDecl -> Doc ann
 docImportDecl decl =
@@ -165,6 +172,12 @@ docImportItem item =
       "ImportItemAll" <> braces (hsep (punctuate comma (optionalField "namespace" docIENamespace mNamespace <> [field "name" (docUnqualifiedName name)])))
     ImportItemWith _ mNamespace name members ->
       "ImportItemWith" <> braces (hsep (punctuate comma fields))
+      where
+        fields =
+          optionalField "namespace" docIENamespace mNamespace
+            <> [field "name" (docUnqualifiedName name), field "members" (brackets (hsep (punctuate comma (map docExportMember members))))]
+    ImportItemAllWith _ mNamespace name members ->
+      "ImportItemAllWith" <> braces (hsep (punctuate comma fields))
       where
         fields =
           optionalField "namespace" docIENamespace mNamespace

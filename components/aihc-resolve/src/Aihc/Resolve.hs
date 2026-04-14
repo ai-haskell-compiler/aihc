@@ -661,6 +661,7 @@ allowedNames items =
       ImportItemAbs _ _ itemName -> [renderUnqualifiedName itemName]
       ImportItemAll _ _ itemName -> [renderUnqualifiedName itemName]
       ImportItemWith _ _ itemName _ -> [renderUnqualifiedName itemName]
+      ImportItemAllWith _ _ itemName _ -> [renderUnqualifiedName itemName]
   ]
 
 resolveTermName :: Scope -> Name -> ResolvedName

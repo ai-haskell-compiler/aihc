@@ -1528,7 +1528,7 @@ patSynWhereClauseParser _name =
 -- | Parse one equation in a pattern synonym where clause.
 patSynWhereMatch :: TokParser Match
 patSynWhereMatch = withSpan $ do
-  (headForm, _name, pats) <- functionHeadParserWith patternParser simplePatternParser
+  (headForm, _name, pats) <- functionHeadParserWithBinder patSynNameParser patternParser simplePatternParser
   rhs <- equationRhsParser
   pure $ \span' ->
     Match

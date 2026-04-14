@@ -39,7 +39,7 @@ normalizeModule modu =
   Module
     { moduleSpan = span0,
       moduleHead = fmap normalizeModuleHead (moduleHead modu),
-      moduleLanguagePragmas = moduleLanguagePragmas modu,
+      moduleLanguagePragmas = [],
       moduleImports = map normalizeImportDecl (moduleImports modu),
       moduleDecls = map normalizeDecl (moduleDecls modu)
     }
@@ -61,6 +61,7 @@ normalizeExportSpec spec =
     ExportAbs _ mWarning namespace name -> ExportAbs span0 (normalizeWarningText <$> mWarning) namespace name
     ExportAll _ mWarning namespace name -> ExportAll span0 (normalizeWarningText <$> mWarning) namespace name
     ExportWith _ mWarning namespace name members -> ExportWith span0 (normalizeWarningText <$> mWarning) namespace name (map normalizeExportMember members)
+    ExportWithAll _ mWarning namespace name members -> ExportWithAll span0 (normalizeWarningText <$> mWarning) namespace name (map normalizeExportMember members)
 
 normalizeExportMember :: IEBundledMember -> IEBundledMember
 normalizeExportMember (IEBundledMember namespace name) = IEBundledMember namespace name
@@ -101,3 +102,4 @@ normalizeImportItem item =
     ImportItemAbs _ namespace name -> ImportItemAbs span0 namespace name
     ImportItemAll _ namespace name -> ImportItemAll span0 namespace name
     ImportItemWith _ namespace name members -> ImportItemWith span0 namespace name (map normalizeExportMember members)
+    ImportItemAllWith _ namespace name members -> ImportItemAllWith span0 namespace name (map normalizeExportMember members)

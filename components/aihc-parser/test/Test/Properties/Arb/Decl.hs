@@ -9,6 +9,7 @@ module Test.Properties.Arb.Decl
 where
 
 import Aihc.Parser.Syntax
+import Data.Char (isAlpha)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Test.Properties.Arb.Expr (genExpr, genOperator, isValidGeneratedOperator, shrinkExpr)
@@ -19,7 +20,7 @@ import Test.Properties.Arb.Identifiers
     shrinkIdent,
     span0,
   )
-import Test.Properties.Arb.Pattern (canonicalPatternAtom, genPattern)
+import Test.Properties.Arb.Pattern (canonicalPatternAtom, genPattern, shrinkPattern)
 import Test.Properties.Arb.Type (canonicalFunLeft, canonicalTopLevelType, genType)
 import Test.QuickCheck
 
@@ -90,7 +91,7 @@ genFunctionDecl (name, expr) = do
             )
     MatchHeadInfix ->
       do
-        lhsPat <- canonicalPatternAtom <$> sized (genPattern . min 3)
+        lhsPat <- genInfixLhsPattern
         rhsPat <- canonicalPatternAtom <$> sized (genPattern . min 3)
         pure $
           DeclValue
@@ -106,6 +107,21 @@ genFunctionDecl (name, expr) = do
                     }
                 ]
             )
+
+genInfixLhsPattern :: Gen Pattern
+genInfixLhsPattern =
+  canonicalPatternAtom <$> sized (genPatternWithoutLeadingNegArg . min 3)
+
+genPatternWithoutLeadingNegArg :: Int -> Gen Pattern
+genPatternWithoutLeadingNegArg n =
+  suchThat (genPattern n) (not . startsWithConstructorNegativeLiteral)
+
+startsWithConstructorNegativeLiteral :: Pattern -> Bool
+startsWithConstructorNegativeLiteral pat =
+  case pat of
+    PCon _ _ (PNegLit {} : _) -> True
+    PParen _ inner -> startsWithConstructorNegativeLiteral inner
+    _ -> False
 
 genDeclTypeSig :: Gen Decl
 genDeclTypeSig = do
@@ -323,21 +339,25 @@ genGadtPrefixBody = do
 -- | Generate a BangType for GADT prefix body arg position.
 -- Uses the full type generator with canonicalFunLeft applied, since the parser
 -- uses typeInfixParser (which cannot parse bare forall/->/(=>) without parens).
--- Does not generate lazy/strict annotations on kind-like types (TStar, etc.) since
--- GHC rejects those (e.g., ~* or !* are treated as operators).
+-- Does not generate lazy/strict annotations on types that start with symbolic
+-- characters (TStar, TTHSplice, TTuple, etc.) since the lexer treats ~! or !*
+-- as single operator tokens.
 genGadtBangType :: Gen BangType
 genGadtBangType = do
   ty <- canonicalFunLeft . canonicalTopLevelType <$> sized (genType . min 6)
-  -- Only generate lazy/strict annotations on non-kind types
-  let canAnnotate = case ty of
-        TStar {} -> False
-        TKindSig {} -> False
-        _ -> True
+  -- Only generate lazy/strict annotations on types that start with alphabetic characters
+  let canAnnotate = typeStartsWithAlpha ty
   annotation <- if canAnnotate then elements [NoAnnotation, StrictAnnotation, LazyAnnotation] else pure NoAnnotation
   case annotation of
     NoAnnotation -> pure $ BangType span0 NoSourceUnpackedness False False ty
     StrictAnnotation -> pure $ BangType span0 NoSourceUnpackedness True False ty
     LazyAnnotation -> pure $ BangType span0 NoSourceUnpackedness False True ty
+  where
+    typeStartsWithAlpha :: Type -> Bool
+    typeStartsWithAlpha (TVar _ _) = True
+    typeStartsWithAlpha (TCon _ n _) = let txt = nameText n in not (T.null txt) && isAlpha (T.head txt)
+    typeStartsWithAlpha (TParen _ inner) = typeStartsWithAlpha inner
+    typeStartsWithAlpha _ = False
 
 -- | Generate a BangType without function types at the top level.
 -- Does not generate lazy/strict annotations on kind-like types (TStar, etc.) since
@@ -785,6 +805,15 @@ shrinkDecl decl =
           )
       | expr' <- shrinkExpr expr
       ]
+        <> [ DeclValue
+               span0
+               ( FunctionBind
+                   span0
+                   name
+                   [match {matchSpan = span0, matchPats = pats'}]
+               )
+           | pats' <- shrinkFunctionHeadPats (matchHeadForm match) (matchPats match)
+           ]
         <> [DeclValue span0 (FunctionBind span0 name' [match {matchSpan = span0, matchRhs = UnguardedRhs span0 expr Nothing}]) | name' <- shrinkUnqualifiedVarName name]
     DeclTypeSig _ names ty ->
       [DeclTypeSig span0 names' ty | names' <- shrinkList shrinkBinderName names, not (null names')]
@@ -812,3 +841,25 @@ shrinkSymbolicName txt =
 
 shrinkBinderName :: BinderName -> [BinderName]
 shrinkBinderName = shrinkUnqualifiedVarName
+
+shrinkFunctionHeadPats :: MatchHeadForm -> [Pattern] -> [[Pattern]]
+shrinkFunctionHeadPats headForm pats =
+  case headForm of
+    MatchHeadPrefix ->
+      [ shrunk
+      | shrunk <- shrinkList shrinkPattern pats,
+        not (null shrunk)
+      ]
+    MatchHeadInfix ->
+      [ canonicalPatternAtom lhs' : canonicalPatternAtom rhs : tailPats
+      | lhs : rhs : tailPats <- [pats],
+        lhs' <- shrinkPattern lhs
+      ]
+        <> [ canonicalPatternAtom lhs : canonicalPatternAtom rhs' : tailPats
+           | lhs : rhs : tailPats <- [pats],
+             rhs' <- shrinkPattern rhs
+           ]
+        <> [ canonicalPatternAtom lhs : canonicalPatternAtom rhs : shrunkTail
+           | lhs : rhs : tailPats <- [pats],
+             shrunkTail <- shrinkList shrinkPattern tailPats
+           ]

@@ -1576,8 +1576,7 @@ test_localDeclPatCon =
   -- Constructor patterns like 'Just x = Nothing' in a let-binding should be
   -- parsed as PatternBind with PCon, matching GHC's behavior.
   case parseLetDecls "let { Just x = Nothing } in x" of
-    Right [DeclValue _ (PatternBind _ (PCon _ conName [PVar _ "x"]) _)]
-      | nameText conName == "Just" -> pure ()
+    Right [DeclValue _ (PatternBind _ (PCon _ "Just" [PVar _ "x"]) _)] -> pure ()
     other -> assertFailure ("expected constructor pattern bind, got: " <> show other)
 
 test_localDeclPatWild :: Assertion
