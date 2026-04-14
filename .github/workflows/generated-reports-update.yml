@@ -78,7 +78,7 @@ jobs:
           commit-message: "chore(reports): update generated reports"
           add-paths: |
             README.md
-            docs/haskell-parser-extension-support.md
+            docs/*-supported-extensions.md
             components/aihc-parser/README.md
             components/aihc-cpp/README.md
           branch: "automation/generated-reports-update"
