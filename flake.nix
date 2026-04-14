@@ -20,7 +20,7 @@
     };
     docs = import ./scripts/nix/docs.nix {
       inherit (core) projectHsPackages;
-      inherit (haskell) mkHsPkgsWithHaddock mkHsPkgsWithHaddockForChecks;
+      inherit (haskell) mkHsPkgsWithHaddock;
     };
     coverage = import ./scripts/nix/coverage.nix {
       inherit (core) projectHsPackages;
@@ -43,8 +43,7 @@
     mkChecks = import ./scripts/nix/checks.nix {
       inherit (core) projectHsPackages;
       inherit sources;
-      inherit (haskell) mkHsPkgsForChecks mkHsPkgsWithTestsForChecks;
-      inherit (docs) mkCombinedDocsForChecks;
+      inherit (haskell) mkHsPkgsForChecks;
     };
     mkDevShells = import ./scripts/nix/dev-shells.nix {
       inherit (haskell) mkHsPkgs;

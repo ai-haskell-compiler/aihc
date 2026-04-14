@@ -1,7 +1,6 @@
 {
   projectHsPackages,
   mkHsPkgsWithHaddock,
-  mkHsPkgsWithHaddockForChecks,
 }: let
   mkCombinedDocsFrom = mkHsPkgsBuilder: pkgs: let
     hsPkgsHaddock = mkHsPkgsBuilder pkgs;
@@ -40,5 +39,4 @@
     '';
 in {
   mkCombinedDocs = mkCombinedDocsFrom mkHsPkgsWithHaddock;
-  mkCombinedDocsForChecks = mkCombinedDocsFrom mkHsPkgsWithHaddockForChecks;
 }
