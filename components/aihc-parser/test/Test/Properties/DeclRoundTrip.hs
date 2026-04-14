@@ -6,6 +6,7 @@ module Test.Properties.DeclRoundTrip
 where
 
 import Aihc.Parser (ParseResult (..), ParserConfig (..), defaultConfig, parseDecl)
+import Aihc.Parser.Parens (addDeclParens)
 import Aihc.Parser.Pretty ()
 import Aihc.Parser.Syntax
 import Data.Text qualified as T
@@ -25,7 +26,7 @@ declConfig =
 prop_declPrettyRoundTrip :: Decl -> Property
 prop_declPrettyRoundTrip decl =
   let source = renderStrict (layoutPretty defaultLayoutOptions (pretty decl))
-      expected = normalizeDecl decl
+      expected = normalizeDecl (addDeclParens decl)
    in assertCtorCoverage ["DeclAnn"] decl $
         counterexample (T.unpack source) $
           case parseDecl declConfig source of

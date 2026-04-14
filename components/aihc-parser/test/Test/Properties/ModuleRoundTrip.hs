@@ -6,6 +6,7 @@ module Test.Properties.ModuleRoundTrip
 where
 
 import Aihc.Parser
+import Aihc.Parser.Parens (addModuleParens)
 import Aihc.Parser.Syntax
 import Data.Text qualified as T
 import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
@@ -21,7 +22,7 @@ prop_modulePrettyRoundTrip modu =
    in counterexample (T.unpack source) $
         case errs of
           [] ->
-            let expected = normalizeModule modu
+            let expected = normalizeModule (addModuleParens modu)
                 actual = normalizeModule reparsed
              in counterexample ("expected: " <> show expected <> "\nactual: " <> show actual) (expected == actual)
           _ ->

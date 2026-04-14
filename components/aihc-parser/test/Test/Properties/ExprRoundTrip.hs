@@ -6,6 +6,7 @@ module Test.Properties.ExprRoundTrip
 where
 
 import Aihc.Parser
+import Aihc.Parser.Parens (addExprParens)
 import Aihc.Parser.Syntax
 import Data.Text qualified as T
 import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
@@ -25,7 +26,7 @@ exprConfig =
 prop_exprPrettyRoundTrip :: Expr -> Property
 prop_exprPrettyRoundTrip expr =
   let source = renderStrict (layoutPretty defaultLayoutOptions (pretty expr))
-      expected = normalizeExpr expr
+      expected = normalizeExpr (addExprParens expr)
    in assertCtorCoverage ["EAnn"] expr $
         counterexample (T.unpack source) $
           case parseExpr exprConfig source of

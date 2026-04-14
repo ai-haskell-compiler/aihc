@@ -326,9 +326,8 @@ parenOrTuplePatternParser = withSpan $ do
       | tupleFlavor == Unboxed && nextKind == TkReservedPipe -> parseUnboxedSumPatLeadingBars closeTok
     _ -> do
       -- For boxed parens, try parsing as a top-level view pattern first.
-      -- View patterns like (expr -> pat) produce PView without PParen wrapping,
-      -- matching the original parser behavior and the pretty-printer which
-      -- adds its own parens for PView.
+      -- View patterns like (expr -> pat) produce PParen(PView(...)) so that
+      -- the explicit source parens are faithfully represented in the AST.
       mView <-
         if tupleFlavor == Boxed
           then viewPatternParser closeTok
@@ -351,7 +350,7 @@ parenOrTuplePatternParser = withSpan $ do
       inner <- patternParser
       expectedTok closeTok
       let sp = mergeSourceSpans (getSourceSpan expr) (getSourceSpan inner)
-      pure (const (PView sp expr inner))
+      pure (\outerSpan -> PParen outerSpan (PView sp expr inner))
 
     -- Parse a single element inside a paren/tuple/unboxed-sum pattern.
     -- Uses "parse as expression, then reclassify" to avoid backtracking

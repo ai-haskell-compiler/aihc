@@ -6,6 +6,7 @@ module Test.Properties.PatternRoundTrip
 where
 
 import Aihc.Parser (ParseResult (..), ParserConfig (..), defaultConfig, parsePattern)
+import Aihc.Parser.Parens (addPatternParens)
 import Aihc.Parser.Syntax
 import Data.Text qualified as T
 import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
@@ -25,7 +26,7 @@ patternConfig =
 prop_patternPrettyRoundTrip :: Pattern -> Property
 prop_patternPrettyRoundTrip pat =
   let source = renderStrict (layoutPretty defaultLayoutOptions (pretty pat))
-      expected = normalizePattern pat
+      expected = normalizePattern (addPatternParens pat)
    in checkCoverage $
         assertCtorCoverage ["PAnn"] pat $
           counterexample (T.unpack source) $

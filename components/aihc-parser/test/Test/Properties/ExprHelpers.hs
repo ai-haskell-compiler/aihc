@@ -112,10 +112,6 @@ normalizePattern pat =
     PStrict _ inner -> PStrict span0 (normalizeUnaryPatInner inner)
     PIrrefutable _ inner -> PIrrefutable span0 (normalizeUnaryPatInner inner)
     PNegLit _ lit -> PNegLit span0 (normalizeLiteral lit)
-    -- PParen around PNegLit is added by the parens pass because negative
-    -- literals are lpat (not apat).  Strip it so the generated AST
-    -- (which has bare PNegLit) matches the round-tripped one.
-    PParen _ (PNegLit _ lit) -> PNegLit span0 (normalizeLiteral lit)
     PParen _ inner -> PParen span0 (normalizePattern inner)
     PUnboxedSum _ altIdx arity inner -> PUnboxedSum span0 altIdx arity (normalizePattern inner)
     PRecord _ con fields rwc -> PRecord span0 con [(name, normalizePattern p) | (name, p) <- fields] rwc
