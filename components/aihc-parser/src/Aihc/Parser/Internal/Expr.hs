@@ -1111,6 +1111,7 @@ parenOperatorNameParser = do
       TkVarSym sym -> Just (qualifyName Nothing (mkUnqualifiedName NameVarSym sym))
       TkConSym sym -> Just (qualifyName Nothing (mkUnqualifiedName NameConSym sym))
       TkReservedColon -> Just (qualifyName Nothing (mkUnqualifiedName NameConSym ":"))
+      TkReservedRightArrow -> Just (qualifyName Nothing (mkUnqualifiedName NameVarSym "->"))
       _ -> Nothing
   expectedTok TkSpecialRParen
   pure op

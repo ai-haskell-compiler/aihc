@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail reason="TemplateHaskell type quote with parenthesized arrow ''(->) not parsed" -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE TemplateHaskell #-}
 
 module THQuotePromotedArrow where
