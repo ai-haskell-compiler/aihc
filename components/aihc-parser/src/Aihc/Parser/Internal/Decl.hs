@@ -41,20 +41,22 @@ ordinaryDeclParser :: TokParser Decl
 ordinaryDeclParser = do
   (tok, nextTok) <- lookAhead ((,) <$> anySingle <*> anySingle)
   thFullEnabled <- isExtensionEnabled TemplateHaskell
-  startsWithPatternBind <- startsWithTopLevelPatternBind
-  startsWithBareVarPatternBind <- startsWithBareVarPatternBindHead
   let valueOrSpliceParser =
         if thFullEnabled
           then MP.try valueDeclParser <|> implicitSpliceDeclParser
           else valueDeclParser
-      patternOrSpliceParser =
+      patternOrValueOrSpliceParser =
         if thFullEnabled
           then MP.try patternBindDeclParser <|> MP.try valueDeclParser <|> implicitSpliceDeclParser
-          else MP.try patternBindDeclParser
+          else MP.try patternBindDeclParser <|> valueDeclParser
+      nonBareVarPatternOrValueOrSpliceParser =
+        if thFullEnabled
+          then MP.try nonBareVarPatternBindDeclParser <|> MP.try valueDeclParser <|> implicitSpliceDeclParser
+          else MP.try nonBareVarPatternBindDeclParser <|> valueDeclParser
       typeSigOrValueOrSpliceParser =
         MP.try typeSigDeclParser <|> valueOrSpliceParser
       typeSigOrPatternOrValueOrSpliceParser =
-        MP.try typeSigDeclParser <|> patternOrSpliceParser <|> valueOrSpliceParser
+        MP.try typeSigDeclParser <|> patternOrValueOrSpliceParser
   case lexTokenKind tok of
     TkKeywordData ->
       case lexTokenKind nextTok of
@@ -82,69 +84,47 @@ ordinaryDeclParser = do
     TkKeywordPattern -> patternSynonymParser
     TkSpecialLParen -> typeSigOrPatternOrValueOrSpliceParser
     TkSpecialLBracket -> typeSigOrPatternOrValueOrSpliceParser
-    TkSpecialUnboxedLParen
-      | startsWithPatternBind -> patternOrSpliceParser
-    TkSpecialUnboxedLParen -> valueOrSpliceParser
+    TkSpecialUnboxedLParen -> patternOrValueOrSpliceParser
     TkPrefixTilde -> typeSigOrPatternOrValueOrSpliceParser
-    TkPrefixBang
-      | startsWithPatternBind -> patternOrSpliceParser
-    TkPrefixBang -> valueOrSpliceParser
+    TkPrefixBang -> patternOrValueOrSpliceParser
     TkKeywordUnderscore -> typeSigOrPatternOrValueOrSpliceParser
-    TkVarId {}
-      | startsWithPatternBind && not startsWithBareVarPatternBind -> patternOrSpliceParser
-    TkVarSym "-"
-      | startsWithPatternBind -> patternOrSpliceParser
-    TkConId {}
-      | startsWithPatternBind -> patternOrSpliceParser
-    TkQConId {}
-      | startsWithPatternBind -> patternOrSpliceParser
-    TkConSym {}
-      | startsWithPatternBind -> patternOrSpliceParser
-    TkQConSym {}
-      | startsWithPatternBind -> patternOrSpliceParser
-    TkReservedColon
-      | startsWithPatternBind -> patternOrSpliceParser
-    TkInteger {}
-      | startsWithPatternBind -> patternOrSpliceParser
-    TkIntegerHash {}
-      | startsWithPatternBind -> patternOrSpliceParser
-    TkIntegerBase {}
-      | startsWithPatternBind -> patternOrSpliceParser
-    TkIntegerBaseHash {}
-      | startsWithPatternBind -> patternOrSpliceParser
-    TkFloat {}
-      | startsWithPatternBind -> patternOrSpliceParser
-    TkFloatHash {}
-      | startsWithPatternBind -> patternOrSpliceParser
-    TkChar {}
-      | startsWithPatternBind -> patternOrSpliceParser
-    TkCharHash {}
-      | startsWithPatternBind -> patternOrSpliceParser
-    TkString {}
-      | startsWithPatternBind -> patternOrSpliceParser
-    TkStringHash {}
-      | startsWithPatternBind -> patternOrSpliceParser
-    TkQuasiQuote {}
-      | startsWithPatternBind -> patternOrSpliceParser
-    TkTHSplice
-      | startsWithPatternBind -> patternOrSpliceParser
+    TkVarId {} ->
+      case lexTokenKind nextTok of
+        TkReservedDoubleColon -> typeSigOrValueOrSpliceParser
+        TkSpecialComma -> typeSigOrValueOrSpliceParser
+        TkReservedEquals -> valueOrSpliceParser
+        _ -> nonBareVarPatternOrValueOrSpliceParser
+    TkVarSym "-" -> patternOrValueOrSpliceParser
+    TkConId {} -> patternOrValueOrSpliceParser
+    TkQConId {} -> patternOrValueOrSpliceParser
+    TkConSym {} -> patternOrValueOrSpliceParser
+    TkQConSym {} -> patternOrValueOrSpliceParser
+    TkReservedColon -> patternOrValueOrSpliceParser
+    TkInteger {} -> patternOrValueOrSpliceParser
+    TkIntegerHash {} -> patternOrValueOrSpliceParser
+    TkIntegerBase {} -> patternOrValueOrSpliceParser
+    TkIntegerBaseHash {} -> patternOrValueOrSpliceParser
+    TkFloat {} -> patternOrValueOrSpliceParser
+    TkFloatHash {} -> patternOrValueOrSpliceParser
+    TkChar {} -> patternOrValueOrSpliceParser
+    TkCharHash {} -> patternOrValueOrSpliceParser
+    TkString {} -> patternOrValueOrSpliceParser
+    TkStringHash {} -> patternOrValueOrSpliceParser
+    TkQuasiQuote {} -> patternOrValueOrSpliceParser
     TkTHSplice ->
       if thFullEnabled
-        then MP.try valueDeclParser <|> spliceDeclParser
+        then MP.try patternBindDeclParser <|> MP.try valueDeclParser <|> spliceDeclParser
         else spliceDeclParser
     _ -> typeSigOrValueOrSpliceParser
 
-startsWithTopLevelPatternBind :: TokParser Bool
-startsWithTopLevelPatternBind =
-  fmap (either (const False) (const True)) . MP.observing . MP.try . MP.lookAhead $ do
-    _ <- patternParser
-    expectedTok TkReservedEquals
-
-startsWithBareVarPatternBindHead :: TokParser Bool
-startsWithBareVarPatternBindHead =
-  fmap (either (const False) (const True)) . MP.observing . MP.try . MP.lookAhead $ do
-    _ <- identifierTextParser
-    expectedTok TkReservedEquals
+nonBareVarPatternBindDeclParser :: TokParser Decl
+nonBareVarPatternBindDeclParser = MP.try $ withSpan $ do
+  pat <- region "while parsing pattern binding" patternParser
+  case pat of
+    PVar {} -> fail "bare variable bindings are parsed as function declarations"
+    _ -> do
+      rhs <- equationRhsParser
+      pure (\span' -> DeclValue span' (PatternBind span' pat rhs))
 
 -- | Parse a pragma declaration (e.g. {-# INLINE f #-}, {-# SPECIALIZE ... #-})
 pragmaDeclParser :: TokParser Decl
