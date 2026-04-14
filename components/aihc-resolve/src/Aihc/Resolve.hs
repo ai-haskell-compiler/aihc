@@ -59,7 +59,8 @@ import Data.Text qualified as T
 
 data Scope = Scope
   { scopeTerms :: Map.Map Text ResolvedName,
-    scopeTypes :: Map.Map Text ResolvedName
+    scopeTypes :: Map.Map Text ResolvedName,
+    scopeQualifiedModules :: Map.Map Text Scope
   }
 
 type ModuleExports = Map.Map Text Scope
@@ -306,7 +307,7 @@ declSignatureScope decl signatureScopes =
 bindPatterns :: Scope -> Int -> [Pattern] -> (Int, Scope, [Pattern])
 bindPatterns typeScope nextLocal pats =
   let (nextLocal', scopedEntries, pats') = foldl' step (nextLocal, [], []) pats
-   in (nextLocal', Scope (Map.fromList scopedEntries) Map.empty, reverse pats')
+   in (nextLocal', Scope (Map.fromList scopedEntries) Map.empty Map.empty, reverse pats')
   where
     step (currentId, entries, acc) pat =
       let (nextId, scope, pat') = bindPattern typeScope currentId pat
@@ -319,7 +320,7 @@ bindPattern typeScope nextLocal pat =
     PVar span' name ->
       let resolvedName = ResolvedLocal nextLocal name
           annotation = ResolutionAnnotation span' (renderUnqualifiedName name) ResolutionNamespaceTerm resolvedName
-       in (nextLocal + 1, Scope (Map.singleton (renderUnqualifiedName name) resolvedName) Map.empty, annotatePattern annotation (PVar span' name))
+       in (nextLocal + 1, Scope (Map.singleton (renderUnqualifiedName name) resolvedName) Map.empty Map.empty, annotatePattern annotation (PVar span' name))
     PTuple span' flavor pats ->
       let (nextLocal', scope, pats') = bindPatterns typeScope nextLocal pats
        in (nextLocal', scope, PTuple span' flavor pats')
@@ -341,7 +342,7 @@ bindPattern typeScope nextLocal pat =
           aliasResolved = ResolvedLocal nextLocal aliasName
           aliasAnnotation = ResolutionAnnotation (spanStartNameSpan span' alias) alias ResolutionNamespaceTerm aliasResolved
           (nextLocal', innerScope, inner') = bindPattern typeScope (nextLocal + 1) inner
-          aliasScope = Scope (Map.singleton alias aliasResolved) Map.empty
+          aliasScope = Scope (Map.singleton alias aliasResolved) Map.empty Map.empty
        in (nextLocal', unionScope innerScope aliasScope, annotatePattern aliasAnnotation (PAs span' alias inner'))
     PStrict span' inner ->
       let (nextLocal', scope, inner') = bindPattern typeScope nextLocal inner
@@ -361,7 +362,7 @@ bindPattern typeScope nextLocal pat =
               )
               (nextLocal, [], [])
               fields
-       in (nextLocal', Scope (Map.fromList entries) Map.empty, PRecord span' name (reverse fields') wildcard)
+       in (nextLocal', Scope (Map.fromList entries) Map.empty Map.empty, PRecord span' name (reverse fields') wildcard)
     PTypeSig span' inner ty ->
       let (nextLocal', scope, inner') = bindPattern typeScope nextLocal inner
        in (nextLocal', scope, PTypeSig span' inner' (resolveType typeScope ty))
@@ -638,10 +639,15 @@ importedScope exports modu =
   foldl' addImport emptyScope (moduleImports modu)
   where
     addImport acc importDecl
-      | importDeclQualified importDecl || importDeclQualifiedPost importDecl = acc
+      | importDeclQualified importDecl || importDeclQualifiedPost importDecl =
+          insertQualifiedModule qualifier imported acc
       | otherwise =
-          let imported = Map.findWithDefault emptyScope (importDeclModule importDecl) exports
-           in unionScope acc (filterImportSpec (importDeclSpec importDecl) imported)
+          let qualifiedAcc = insertQualifiedModule qualifier imported acc
+           in unionScope qualifiedAcc imported
+      where
+        originModule = importDeclModule importDecl
+        qualifier = fromMaybe originModule (importDeclAs importDecl)
+        imported = filterImportSpec (importDeclSpec importDecl) (Map.findWithDefault emptyScope originModule exports)
 
 filterImportSpec :: Maybe ImportSpec -> Scope -> Scope
 filterImportSpec maybeSpec scope =
@@ -668,7 +674,7 @@ resolveTermName :: Scope -> Name -> ResolvedName
 resolveTermName scope name =
   case nameQualifier name of
     Just qualifier ->
-      ResolvedTopLevel (name {nameQualifier = Just qualifier})
+      resolveQualifiedName scope lookupTerm qualifier name
     Nothing ->
       lookupTerm (nameText name) scope
 
@@ -676,21 +682,31 @@ resolveTypeName :: Scope -> Name -> ResolvedName
 resolveTypeName scope name =
   case nameQualifier name of
     Just qualifier ->
-      ResolvedTopLevel (name {nameQualifier = Just qualifier})
+      resolveQualifiedName scope lookupType qualifier name
     Nothing ->
       lookupType (nameText name) scope
+
+resolveQualifiedName :: Scope -> (Text -> Scope -> ResolvedName) -> Text -> Name -> ResolvedName
+resolveQualifiedName scope lookupName qualifier name =
+  case Map.lookup qualifier (scopeQualifiedModules scope) of
+    Nothing -> ResolvedError ("unknown qualified import: " <> T.unpack qualifier)
+    Just qualifiedScope ->
+      case lookupName (nameText name) qualifiedScope of
+        ResolvedTopLevel resolved -> ResolvedTopLevel resolved
+        other -> other
 
 moduleKey :: Module -> Text
 moduleKey modu = fromMaybe (T.pack "Main") (moduleName modu)
 
 emptyScope :: Scope
-emptyScope = Scope Map.empty Map.empty
+emptyScope = Scope Map.empty Map.empty Map.empty
 
 unionScope :: Scope -> Scope -> Scope
 unionScope left right =
   Scope
     { scopeTerms = scopeTerms left `Map.union` scopeTerms right,
-      scopeTypes = scopeTypes left `Map.union` scopeTypes right
+      scopeTypes = scopeTypes left `Map.union` scopeTypes right,
+      scopeQualifiedModules = scopeQualifiedModules left `Map.union` scopeQualifiedModules right
     }
 
 insertTerm :: Text -> ResolvedName -> Scope -> Scope
@@ -698,6 +714,10 @@ insertTerm name resolved scope = scope {scopeTerms = Map.insert name resolved (s
 
 insertType :: Text -> ResolvedName -> Scope -> Scope
 insertType name resolved scope = scope {scopeTypes = Map.insert name resolved (scopeTypes scope)}
+
+insertQualifiedModule :: Text -> Scope -> Scope -> Scope
+insertQualifiedModule qualifier imported scope =
+  scope {scopeQualifiedModules = Map.insert qualifier imported (scopeQualifiedModules scope)}
 
 lookupTerm :: Text -> Scope -> ResolvedName
 lookupTerm name scope =
@@ -717,7 +737,8 @@ filterScopeByNames :: (Text -> Bool) -> Scope -> Scope
 filterScopeByNames keep scope =
   Scope
     { scopeTerms = Map.filterWithKey (\name _ -> keep name) (scopeTerms scope),
-      scopeTypes = Map.filterWithKey (\name _ -> keep name) (scopeTypes scope)
+      scopeTypes = Map.filterWithKey (\name _ -> keep name) (scopeTypes scope),
+      scopeQualifiedModules = scopeQualifiedModules scope
     }
 
 spanStartNameSpan :: SourceSpan -> Text -> SourceSpan

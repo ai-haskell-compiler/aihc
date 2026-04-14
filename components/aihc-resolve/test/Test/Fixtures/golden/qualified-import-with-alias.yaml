@@ -27,6 +27,5 @@ annotated:
     module Main where
     import qualified Data.Config as Config
     useConfig = Config.defaultConfig + Config.maxRetries
-    └─ v Main   └─ v Data.Config        └─ v Data.Config
-status: xfail
-reason: "Qualified import references resolve using the alias name (Config) instead of the original module name (Data.Config)"
+    └─ v Main   └─ v Data.Config       └─ v Data.Config
+status: pass
