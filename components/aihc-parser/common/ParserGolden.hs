@@ -17,6 +17,7 @@ module ParserGolden
     evaluateModuleCase,
     evaluatePatternCase,
     progressSummary,
+    ExtensionSetting (..),
   )
 where
 
@@ -49,12 +50,14 @@ data CaseKind = CaseExpr | CaseModule | CasePattern deriving (Eq, Show)
 data ExpectedStatus
   = StatusPass
   | StatusFail
+  | StatusXPass
   | StatusXFail
   deriving (Eq, Show)
 
 data Outcome
   = OutcomePass
   | OutcomeXFail
+  | OutcomeXPass
   | OutcomeFail
   deriving (Eq, Show)
 
@@ -212,12 +215,18 @@ classifySuccess meta actualAst =
       )
     StatusXFail
       | null (caseAst meta) ->
-          ( OutcomeFail,
+          ( OutcomeXPass,
             "expected xfail (known failing bug), but parser succeeded"
           )
-      | actualAst == caseAst meta -> (OutcomeFail, "expected xfail (known failing bug), but parser now produces correct AST")
+      | actualAst == caseAst meta -> (OutcomeXPass, "expected xfail (known failing bug), but parser now produces correct AST")
       | otherwise ->
           ( OutcomeXFail,
+            "known bug still present: AST mismatch (expected=" <> show (caseAst meta) <> ", actual=" <> show actualAst <> ")"
+          )
+    StatusXPass
+      | actualAst == caseAst meta -> (OutcomeFail, "expected xpass (known passing bug) to have wrong AST, but now AST matches")
+      | otherwise ->
+          ( OutcomeXPass,
             "known bug still present: AST mismatch (expected=" <> show (caseAst meta) <> ", actual=" <> show actualAst <> ")"
           )
 
@@ -230,11 +239,16 @@ classifyFailure meta errDetails =
       )
     StatusFail -> (OutcomePass, "")
     StatusXFail -> (OutcomeXFail, "")
+    StatusXPass ->
+      ( OutcomeFail,
+        "expected xpass (known passing bug), got parse error: " <> errDetails
+      )
 
-progressSummary :: [(ParserCase, Outcome, String)] -> (Int, Int, Int)
+progressSummary :: [(ParserCase, Outcome, String)] -> (Int, Int, Int, Int)
 progressSummary outcomes =
   ( count OutcomePass,
     count OutcomeXFail,
+    count OutcomeXPass,
     count OutcomeFail
   )
   where
@@ -270,8 +284,8 @@ parseStatus path raw =
   case map toLower (trim (T.unpack raw)) of
     "pass" -> Right StatusPass
     "fail" -> Right StatusFail
+    "xpass" -> Right StatusXPass
     "xfail" -> Right StatusXFail
-    "xpass" -> Left ("xpass is not allowed in " <> path <> ": use xfail instead")
     _ -> Left ("Invalid [status] in " <> path <> ": " <> T.unpack raw)
 
 validateReason :: FilePath -> ExpectedStatus -> String -> Either String String
@@ -279,6 +293,7 @@ validateReason path status reason =
   let trimmed = trim reason
    in case status of
         StatusXFail | null trimmed -> Left ("[reason] is required for xfail status in " <> path)
+        StatusXPass | null trimmed -> Left ("[reason] is required for xpass status in " <> path)
         _ -> Right trimmed
 
 validateAst :: FilePath -> ExpectedStatus -> String -> Either String String
@@ -286,6 +301,7 @@ validateAst path status ast =
   let trimmed = trim ast
    in case status of
         StatusPass | null trimmed -> Left ("[ast] is required for pass status in " <> path)
+        StatusXPass | null trimmed -> Left ("[ast] is required for xpass status in " <> path)
         _ -> Right trimmed
 
 dropRootPrefix :: FilePath -> FilePath

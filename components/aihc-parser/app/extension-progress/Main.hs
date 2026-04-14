@@ -18,6 +18,7 @@ data ExtensionResult = ExtensionResult
     erStatus :: !SupportStatus,
     erPassN :: !Int,
     erXFailN :: !Int,
+    erXPassN :: !Int,
     erFailN :: !Int,
     erTotalN :: !Int,
     erOutcomes :: ![(CaseMeta, Outcome, String)]
@@ -26,7 +27,8 @@ data ExtensionResult = ExtensionResult
 main :: IO ()
 main = do
   args <- getArgs
-  let markdown = "--markdown" `elem` args
+  let strict = "--strict" `elem` args
+      markdown = "--markdown" `elem` args
 
   -- Load and evaluate oracle cases
   oracleCases <- loadOracleCases
@@ -46,7 +48,8 @@ main = do
     else printTextSummary results
 
   let failN = sum [erFailN result | result <- results]
-  if failN == 0
+      xpassN = sum [erXPassN result | result <- results]
+  if failN == 0 && (not strict || xpassN == 0)
     then exitSuccess
     else exitFailure
 
@@ -75,6 +78,7 @@ convertGoldenOutcome pgOutcome =
   case pgOutcome of
     PG.OutcomePass -> OutcomePass
     PG.OutcomeXFail -> OutcomeXFail
+    PG.OutcomeXPass -> OutcomeXPass
     PG.OutcomeFail -> OutcomeFail
 
 -- | Convert a golden ParserCase to a CaseMeta for unified reporting
@@ -86,8 +90,11 @@ goldenCaseToCaseMeta goldenCase =
       casePath = PG.casePath goldenCase,
       caseExpected = convertGoldenStatus (PG.caseStatus goldenCase),
       caseReason = PG.caseReason goldenCase,
-      caseExtensions = PG.caseExtensions goldenCase
+      caseExtensions = map toExtensionSetting (PG.caseExtensions goldenCase)
     }
+  where
+    toExtensionSetting (PG.EnableExtension ext) = Syntax.EnableExtension ext
+    toExtensionSetting (PG.DisableExtension ext) = Syntax.DisableExtension ext
 
 -- | Convert ParserGolden.ExpectedStatus to ExtensionSupport.Expected
 convertGoldenStatus :: PG.ExpectedStatus -> Expected
@@ -96,6 +103,7 @@ convertGoldenStatus status =
     PG.StatusPass -> ExpectPass
     PG.StatusFail -> ExpectPass -- StatusFail means we expect a parse failure (which is a "pass" for the test)
     PG.StatusXFail -> ExpectXFail
+    PG.StatusXPass -> ExpectXPass
 
 groupByExtension ::
   [(CaseMeta, Outcome, String)] ->
@@ -113,16 +121,18 @@ mkExtensionResult :: (Syntax.Extension, [(CaseMeta, Outcome, String)]) -> Extens
 mkExtensionResult (name, outcomes) =
   let passN = countOutcome OutcomePass outcomes
       xfailN = countOutcome OutcomeXFail outcomes
+      xpassN = countOutcome OutcomeXPass outcomes
       failN = countOutcome OutcomeFail outcomes
-      totalN = passN + xfailN + failN
+      totalN = passN + xfailN + xpassN + failN
       status
-        | failN == 0 && xfailN == 0 = Supported
+        | failN == 0 && xfailN == 0 && xpassN == 0 = Supported
         | otherwise = InProgress
    in ExtensionResult
         { erName = T.unpack (Syntax.extensionName name),
           erStatus = status,
           erPassN = passN,
           erXFailN = xfailN,
+          erXPassN = xpassN,
           erFailN = failN,
           erTotalN = totalN,
           erOutcomes = outcomes
@@ -149,8 +159,14 @@ printTextSummary results = do
         | result <- results,
           (meta, OutcomeFail, details) <- erOutcomes result
         ]
+      xpasses =
+        [ (erName result, meta, details)
+        | result <- results,
+          (meta, OutcomeXPass, details) <- erOutcomes result
+        ]
 
   mapM_ printRegression regressions
+  mapM_ printXPass xpasses
 
 printExtensionLine :: ExtensionResult -> IO ()
 printExtensionLine result =
@@ -162,6 +178,8 @@ printExtensionLine result =
         <> show (erPassN result)
         <> " XFAIL="
         <> show (erXFailN result)
+        <> " XPASS="
+        <> show (erXPassN result)
         <> " FAIL="
         <> show (erFailN result)
     )
@@ -170,6 +188,19 @@ printRegression :: (String, CaseMeta, String) -> IO ()
 printRegression (ext, meta, details) =
   putStrLn
     ( "FAIL "
+        <> ext
+        <> "/"
+        <> caseId meta
+        <> " ["
+        <> caseCategory meta
+        <> "] "
+        <> details
+    )
+
+printXPass :: (String, CaseMeta, String) -> IO ()
+printXPass (ext, meta, details) =
+  putStrLn
+    ( "XPASS "
         <> ext
         <> "/"
         <> caseId meta

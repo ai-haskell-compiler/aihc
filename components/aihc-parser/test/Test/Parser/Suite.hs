@@ -91,14 +91,23 @@ assertCaseWith evaluateCase meta =
             <> " details="
             <> details
         )
+    (PG.OutcomeXPass, details) ->
+      assertFailure
+        ( "Unexpected pass in xfail parser case "
+            <> PG.caseId meta
+            <> " reason="
+            <> PG.caseReason meta
+            <> " details="
+            <> details
+        )
     _ -> pure ()
 
 assertNoRegressions :: String -> [(PG.ParserCase, PG.Outcome, String)] -> Assertion
 assertNoRegressions label outcomes = do
-  let (passN, xfailN, failN) = PG.progressSummary outcomes
-      totalN = passN + xfailN + failN
+  let (passN, xfailN, xpassN, failN) = PG.progressSummary outcomes
+      totalN = passN + xfailN + xpassN + failN
       completion = pct passN totalN
-  when (failN > 0) $
+  when (failN > 0 || xpassN > 0) $
     assertFailure
       ( label
           <> " regressions found. "
@@ -106,6 +115,8 @@ assertNoRegressions label outcomes = do
           <> show passN
           <> " xfail="
           <> show xfailN
+          <> " xpass="
+          <> show xpassN
           <> " fail="
           <> show failN
           <> " completion="
@@ -139,10 +150,13 @@ fixtureValidationTests =
         case PG.parseParserCaseText PG.CaseExpr "pass.yaml" validPassMissingAst of
           Left _ -> pure ()
           Right _ -> assertFailure "expected parse failure when pass ast is missing",
-      testCase "rejects xpass status" $
+      testCase "accepts xpass with reason and ast" $
         case PG.parseParserCaseText PG.CaseExpr "xpass.yaml" validXPassFixture of
-          Left _ -> pure ()
-          Right _ -> assertFailure "expected parse failure for xpass status",
+          Left err -> assertFailure ("expected parse success, got: " <> err)
+          Right parsed ->
+            if PG.caseStatus parsed == PG.StatusXPass
+              then pure ()
+              else assertFailure "expected xpass status",
       testCase "accepts xfail without ast" $
         case PG.parseParserCaseText PG.CaseExpr "xfail-no-ast.yaml" validXFailNoAst of
           Left err -> assertFailure ("expected parse success, got: " <> err)
