@@ -270,7 +270,7 @@ test_moduleParsesNullaryClassDeclWithWhere =
 
 test_typeParsesParenthesizedKindSignature :: Assertion
 test_typeParsesParenthesizedKindSignature =
-  case parseType defaultConfig {parserExtensions = [KindSignatures]} "(x :: *)" of
+  case parseType defaultConfig {parserExtensions = [KindSignatures, StarIsType]} "(x :: *)" of
     ParseOk (TKindSig _ (TVar _ "x") (TStar _)) -> pure ()
     other -> assertFailure ("expected parenthesized kind signature type, got: " <> show other)
 
@@ -313,7 +313,7 @@ test_instanceParsesParenthesizedEmptyListType =
 test_gadtConstructorParsesKindAnnotatedArgument :: Assertion
 test_gadtConstructorParsesKindAnnotatedArgument =
   let src = T.unlines ["data T where", "  C :: (x :: *) -> T"]
-      (errs, modu) = parseModule defaultConfig {parserExtensions = [GADTs, KindSignatures]} src
+      (errs, modu) = parseModule defaultConfig {parserExtensions = [GADTs, KindSignatures, StarIsType]} src
    in do
         assertBool ("expected no parse errors, got: " <> show errs) (null errs)
         case moduleDecls modu of

@@ -2,5 +2,4 @@ extensions: [NoStarIsType]
 input: |
   type X = (*)
 ast: "Module {decls = [DeclTypeSyn (TypeSynDecl {name = \"X\", body = TParen (TCon \"*\")})]}"
-status: xfail
-reason: "With NoStarIsType, (*) should parse as TCon \"*\" but incorrectly parses as TStar"
+status: pass

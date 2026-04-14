@@ -201,10 +201,24 @@ typeAtomParser = do
     <|> (if ipEnabled then typeImplicitParamParser else MP.empty)
     <|> typeListParser
     <|> MP.try typeParenOperatorParser
+    <|> MP.try typeParenStarParser
     <|> typeParenOrTupleParser
     <|> typeStarParser
     <|> typeWildcardParser
     <|> typeIdentifierParser
+
+-- | Parse parenthesized star operator (*) when NoStarIsType is enabled.
+-- When StarIsType is disabled, (*) should parse as TParen (TCon "*"), not TParen TStar.
+typeParenStarParser :: TokParser Type
+typeParenStarParser = withSpan $ do
+  starIsType <- isExtensionEnabled StarIsType
+  if starIsType
+    then MP.empty
+    else do
+      expectedTok TkSpecialLParen
+      expectedTok (TkVarSym "*")
+      expectedTok TkSpecialRParen
+      pure (\span' -> TParen span' (TCon span' (qualifyName Nothing (mkUnqualifiedName NameVarSym "*")) Unpromoted))
 
 -- | Parse an implicit parameter type: @?name :: Type@
 typeImplicitParamParser :: TokParser Type
@@ -312,8 +326,12 @@ typeIdentifierParser = withSpan $ do
 
 typeStarParser :: TokParser Type
 typeStarParser = withSpan $ do
-  expectedTok (TkVarSym "*")
-  pure TStar
+  starIsType <- isExtensionEnabled StarIsType
+  if starIsType
+    then do
+      expectedTok (TkVarSym "*")
+      pure TStar
+    else MP.empty
 
 typeListParser :: TokParser Type
 typeListParser = withSpan $ do
