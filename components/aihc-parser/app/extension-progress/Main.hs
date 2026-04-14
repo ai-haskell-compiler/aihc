@@ -90,7 +90,7 @@ goldenCaseToCaseMeta goldenCase =
       casePath = PG.casePath goldenCase,
       caseExpected = convertGoldenStatus (PG.caseStatus goldenCase),
       caseReason = PG.caseReason goldenCase,
-      caseExtensions = map Syntax.EnableExtension (PG.caseExtensions goldenCase)
+      caseExtensions = PG.caseExtensions goldenCase
     }
 
 -- | Convert ParserGolden.ExpectedStatus to ExtensionSupport.Expected
@@ -100,7 +100,6 @@ convertGoldenStatus status =
     PG.StatusPass -> ExpectPass
     PG.StatusFail -> ExpectPass -- StatusFail means we expect a parse failure (which is a "pass" for the test)
     PG.StatusXFail -> ExpectXFail
-    PG.StatusXPass -> ExpectXFail -- StatusXPass is similar to XFail (known issue)
 
 groupByExtension ::
   [(CaseMeta, Outcome, String)] ->
