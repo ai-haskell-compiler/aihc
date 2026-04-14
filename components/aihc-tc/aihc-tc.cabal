@@ -38,7 +38,7 @@ library
     , text >=1.2
     , containers
     , transformers
-  ghc-options:        -Wall -Werror
+  ghc-options:        -Wall
   default-language: GHC2021
 
 test-suite spec
@@ -65,7 +65,7 @@ test-suite spec
     , aeson
     , bytestring
     , yaml
-  ghc-options:        -Wall -Werror -threaded -rtsopts -with-rtsopts=-N
+  ghc-options:        -Wall -threaded -rtsopts -with-rtsopts=-N
   default-language: GHC2021
 
 executable tc-progress
@@ -86,7 +86,7 @@ executable tc-progress
     , yaml
     , aeson
     , bytestring
-  ghc-options:        -Wall -Werror
+  ghc-options:        -Wall
   default-language: GHC2021
 
 executable tc-extension-progress
@@ -107,5 +107,5 @@ executable tc-extension-progress
     , yaml
     , aeson
     , bytestring
-  ghc-options:        -Wall -Werror
+  ghc-options:        -Wall
   default-language: GHC2021

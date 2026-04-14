@@ -19,6 +19,15 @@
     ];
     forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f (import nixpkgs {inherit system;}));
 
+    # GHC / Stackage package set for Nix-built Haskell derivations (matches nixpkgs haskell.packages.ghc9124).
+    projectHsPackages = pkgs: pkgs.haskell.packages.ghc9124;
+
+    # Hackage dependencies whose test suites are unsuitable for the Nix build sandbox (e.g. need real
+    # networking or are flaky on some platforms). Merged into every project Haskell package override.
+    hackageDepTestFixes = pkgs: _final: prev: {
+      network = pkgs.haskell.lib.dontCheck prev.network;
+    };
+
     # Source filtering: only include relevant files for each component
     # This prevents rebuilds when unrelated files change
     parserSrc = pkgs:
@@ -182,260 +191,272 @@
       };
 
     mkHsPkgs = pkgs:
-      pkgs.haskellPackages.override {
-        overrides = final: prev: {
-          ghc-lib-parser = pkgs.haskell.lib.dontHaddock final.ghc-lib-parser_9_14_1_20251220;
-          aihc-hackage = pkgs.haskell.lib.dontCheck (pkgs.haskell.lib.dontHaddock (final.callCabal2nix "aihc-hackage" (hackageSrc pkgs) {}));
-          # Disable tests by default - tests are run explicitly via the checks
-          aihc-parser = pkgs.haskell.lib.dontCheck (
-            pkgs.haskell.lib.disableExecutableProfiling (
-              pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-parser" (parserSrc pkgs) {})
-            )
-          );
-          aihc-parser-cli = pkgs.haskell.lib.dontCheck (
-            pkgs.haskell.lib.disableExecutableProfiling (
-              pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-parser-cli" (parserCliSrc pkgs) {})
-            )
-          );
-          aihc-cpp = pkgs.haskell.lib.dontCheck (final.callCabal2nix "aihc-cpp" (cppSrc pkgs) {});
-          aihc-resolve = pkgs.haskell.lib.dontCheck (
-            pkgs.haskell.lib.disableExecutableProfiling (
-              pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-resolve" (resolveSrc pkgs) {})
-            )
-          );
-          aihc-tc = pkgs.haskell.lib.dontCheck (
-            pkgs.haskell.lib.disableExecutableProfiling (
-              pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-tc" (tcSrc pkgs) {})
-            )
-          );
-        };
+      (projectHsPackages pkgs).override {
+        overrides = final: prev:
+          hackageDepTestFixes pkgs final prev
+          // {
+            ghc-lib-parser = pkgs.haskell.lib.dontHaddock final.ghc-lib-parser_9_14_1_20251220;
+            aihc-hackage = pkgs.haskell.lib.dontCheck (pkgs.haskell.lib.dontHaddock (final.callCabal2nix "aihc-hackage" (hackageSrc pkgs) {}));
+            # Disable tests by default - tests are run explicitly via the checks
+            aihc-parser = pkgs.haskell.lib.dontCheck (
+              pkgs.haskell.lib.disableExecutableProfiling (
+                pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-parser" (parserSrc pkgs) {})
+              )
+            );
+            aihc-parser-cli = pkgs.haskell.lib.dontCheck (
+              pkgs.haskell.lib.disableExecutableProfiling (
+                pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-parser-cli" (parserCliSrc pkgs) {})
+              )
+            );
+            aihc-cpp = pkgs.haskell.lib.dontCheck (final.callCabal2nix "aihc-cpp" (cppSrc pkgs) {});
+            aihc-resolve = pkgs.haskell.lib.dontCheck (
+              pkgs.haskell.lib.disableExecutableProfiling (
+                pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-resolve" (resolveSrc pkgs) {})
+              )
+            );
+            aihc-tc = pkgs.haskell.lib.dontCheck (
+              pkgs.haskell.lib.disableExecutableProfiling (
+                pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-tc" (tcSrc pkgs) {})
+              )
+            );
+          };
       };
     mkHsPkgsForChecks = pkgs:
-      pkgs.haskellPackages.override {
-        overrides = final: prev: {
-          ghc-lib-parser = pkgs.haskell.lib.dontHaddock final.ghc-lib-parser_9_14_1_20251220;
-          aihc-hackage = pkgs.haskell.lib.dontCheck (pkgs.haskell.lib.dontHaddock (final.callCabal2nix "aihc-hackage" (hackageSrc pkgs) {}));
-          # Checks should compile quickly; keep profiling disabled and optimization off.
-          aihc-parser = pkgs.haskell.lib.dontCheck (
-            pkgs.haskell.lib.disableOptimization (
-              pkgs.haskell.lib.disableExecutableProfiling (
-                pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-parser" (parserSrc pkgs) {})
-              )
-            )
-          );
-          aihc-parser-cli = pkgs.haskell.lib.dontCheck (
-            pkgs.haskell.lib.disableOptimization (
-              pkgs.haskell.lib.disableExecutableProfiling (
-                pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-parser-cli" (parserCliSrc pkgs) {})
-              )
-            )
-          );
-          aihc-cpp = pkgs.haskell.lib.dontCheck (final.callCabal2nix "aihc-cpp" (cppSrc pkgs) {});
-          aihc-resolve = pkgs.haskell.lib.dontCheck (
-            pkgs.haskell.lib.disableOptimization (
-              pkgs.haskell.lib.disableExecutableProfiling (
-                pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-resolve" (resolveSrc pkgs) {})
-              )
-            )
-          );
-          aihc-tc = pkgs.haskell.lib.dontCheck (
-            pkgs.haskell.lib.disableOptimization (
-              pkgs.haskell.lib.disableExecutableProfiling (
-                pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-tc" (tcSrc pkgs) {})
-              )
-            )
-          );
-        };
-      };
-    # Haskell packages with tests enabled
-    mkHsPkgsWithTests = pkgs:
-      pkgs.haskellPackages.override {
-        overrides = final: prev: {
-          ghc-lib-parser = pkgs.haskell.lib.dontHaddock final.ghc-lib-parser_9_14_1_20251220;
-          aihc-hackage = pkgs.haskell.lib.dontCheck (pkgs.haskell.lib.dontHaddock (final.callCabal2nix "aihc-hackage" (hackageSrc pkgs) {}));
-          aihc-parser =
-            pkgs.haskell.lib.overrideCabal
-            (pkgs.haskell.lib.disableExecutableProfiling (
-              pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-parser" (parserSrc pkgs) {})
-            ))
-            (old: {
-              # Hide passing tests so failures are visible in Nix's truncated output
-              testFlags = (old.testFlags or []) ++ ["--hide-successes"];
-            });
-          aihc-parser-cli =
-            pkgs.haskell.lib.overrideCabal
-            (pkgs.haskell.lib.disableExecutableProfiling (
-              pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-parser-cli" (parserCliSrc pkgs) {})
-            ))
-            (old: {
-              # Hide passing tests so failures are visible in Nix's truncated output
-              testFlags = (old.testFlags or []) ++ ["--hide-successes"];
-            });
-          aihc-cpp =
-            pkgs.haskell.lib.overrideCabal
-            (final.callCabal2nix "aihc-cpp" (cppSrc pkgs) {})
-            (old: {
-              # Hide passing tests so failures are visible in Nix's truncated output
-              testFlags = (old.testFlags or []) ++ ["--hide-successes"];
-            });
-          aihc-resolve =
-            pkgs.haskell.lib.overrideCabal
-            (pkgs.haskell.lib.disableExecutableProfiling (
-              pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-resolve" (resolveSrc pkgs) {})
-            ))
-            (old: {
-              # Hide passing tests so failures are visible in Nix's truncated output
-              testFlags = (old.testFlags or []) ++ ["--hide-successes"];
-            });
-          aihc-tc =
-            pkgs.haskell.lib.overrideCabal
-            (pkgs.haskell.lib.disableExecutableProfiling (
-              pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-tc" (tcSrc pkgs) {})
-            ))
-            (old: {
-              # Hide passing tests so failures are visible in Nix's truncated output
-              testFlags = (old.testFlags or []) ++ ["--hide-successes"];
-            });
-        };
-      };
-    mkHsPkgsWithTestsForChecks = pkgs:
-      pkgs.haskellPackages.override {
-        overrides = final: prev: {
-          ghc-lib-parser = pkgs.haskell.lib.dontHaddock final.ghc-lib-parser_9_14_1_20251220;
-          aihc-hackage = pkgs.haskell.lib.dontCheck (pkgs.haskell.lib.dontHaddock (final.callCabal2nix "aihc-hackage" (hackageSrc pkgs) {}));
-          aihc-parser =
-            pkgs.haskell.lib.overrideCabal
-            (pkgs.haskell.lib.disableOptimization (
-              pkgs.haskell.lib.disableExecutableProfiling (
-                pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-parser" (parserSrc pkgs) {})
-              )
-            ))
-            (old: {
-              # Hide passing tests so failures are visible in Nix's truncated output
-              testFlags = (old.testFlags or []) ++ ["--hide-successes"];
-            });
-          aihc-parser-cli =
-            pkgs.haskell.lib.overrideCabal
-            (pkgs.haskell.lib.disableOptimization (
-              pkgs.haskell.lib.disableExecutableProfiling (
-                pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-parser-cli" (parserCliSrc pkgs) {})
-              )
-            ))
-            (old: {
-              # Hide passing tests so failures are visible in Nix's truncated output
-              testFlags = (old.testFlags or []) ++ ["--hide-successes"];
-            });
-          aihc-cpp =
-            pkgs.haskell.lib.overrideCabal
-            (final.callCabal2nix "aihc-cpp" (cppSrc pkgs) {})
-            (old: {
-              # Hide passing tests so failures are visible in Nix's truncated output
-              testFlags = (old.testFlags or []) ++ ["--hide-successes"];
-            });
-          aihc-resolve =
-            pkgs.haskell.lib.overrideCabal
-            (pkgs.haskell.lib.disableOptimization (
-              pkgs.haskell.lib.disableExecutableProfiling (
-                pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-resolve" (resolveSrc pkgs) {})
-              )
-            ))
-            (old: {
-              # Hide passing tests so failures are visible in Nix's truncated output
-              testFlags = (old.testFlags or []) ++ ["--hide-successes"];
-            });
-          aihc-tc =
-            pkgs.haskell.lib.overrideCabal
-            (pkgs.haskell.lib.disableOptimization (
-              pkgs.haskell.lib.disableExecutableProfiling (
-                pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-tc" (tcSrc pkgs) {})
-              )
-            ))
-            (old: {
-              # Hide passing tests so failures are visible in Nix's truncated output
-              testFlags = (old.testFlags or []) ++ ["--hide-successes"];
-            });
-        };
-      };
-    # Haskell packages with Haddock enabled for documentation generation
-    mkHsPkgsWithHaddock = pkgs:
-      pkgs.haskellPackages.override {
-        overrides = final: prev: {
-          ghc-lib-parser = pkgs.haskell.lib.dontHaddock final.ghc-lib-parser_9_14_1_20251220;
-          aihc-hackage = pkgs.haskell.lib.dontCheck (pkgs.haskell.lib.dontHaddock (final.callCabal2nix "aihc-hackage" (hackageSrc pkgs) {}));
-          aihc-parser = pkgs.haskell.lib.dontCheck (
-            pkgs.haskell.lib.doHaddock (
-              pkgs.haskell.lib.disableExecutableProfiling (
-                pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-parser" (parserSrc pkgs) {})
-              )
-            )
-          );
-          aihc-parser-cli = pkgs.haskell.lib.dontCheck (
-            pkgs.haskell.lib.dontHaddock (
-              pkgs.haskell.lib.disableExecutableProfiling (
-                pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-parser-cli" (parserCliSrc pkgs) {})
-              )
-            )
-          );
-          aihc-cpp = pkgs.haskell.lib.dontCheck (pkgs.haskell.lib.doHaddock (final.callCabal2nix "aihc-cpp" (cppSrc pkgs) {}));
-          aihc-resolve = pkgs.haskell.lib.dontCheck (
-            pkgs.haskell.lib.dontHaddock (
-              pkgs.haskell.lib.disableExecutableProfiling (
-                pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-resolve" (resolveSrc pkgs) {})
-              )
-            )
-          );
-          aihc-tc = pkgs.haskell.lib.dontCheck (
-            pkgs.haskell.lib.dontHaddock (
-              pkgs.haskell.lib.disableExecutableProfiling (
-                pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-tc" (tcSrc pkgs) {})
-              )
-            )
-          );
-        };
-      };
-    mkHsPkgsWithHaddockForChecks = pkgs:
-      pkgs.haskellPackages.override {
-        overrides = final: prev: {
-          ghc-lib-parser = pkgs.haskell.lib.dontHaddock final.ghc-lib-parser_9_14_1_20251220;
-          aihc-hackage = pkgs.haskell.lib.dontCheck (pkgs.haskell.lib.dontHaddock (final.callCabal2nix "aihc-hackage" (hackageSrc pkgs) {}));
-          aihc-parser = pkgs.haskell.lib.dontCheck (
-            pkgs.haskell.lib.doHaddock (
+      (projectHsPackages pkgs).override {
+        overrides = final: prev:
+          hackageDepTestFixes pkgs final prev
+          // {
+            ghc-lib-parser = pkgs.haskell.lib.dontHaddock final.ghc-lib-parser_9_14_1_20251220;
+            aihc-hackage = pkgs.haskell.lib.dontCheck (pkgs.haskell.lib.dontHaddock (final.callCabal2nix "aihc-hackage" (hackageSrc pkgs) {}));
+            # Checks should compile quickly; keep profiling disabled and optimization off.
+            aihc-parser = pkgs.haskell.lib.dontCheck (
               pkgs.haskell.lib.disableOptimization (
                 pkgs.haskell.lib.disableExecutableProfiling (
                   pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-parser" (parserSrc pkgs) {})
                 )
               )
-            )
-          );
-          aihc-parser-cli = pkgs.haskell.lib.dontCheck (
-            pkgs.haskell.lib.dontHaddock (
+            );
+            aihc-parser-cli = pkgs.haskell.lib.dontCheck (
               pkgs.haskell.lib.disableOptimization (
                 pkgs.haskell.lib.disableExecutableProfiling (
                   pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-parser-cli" (parserCliSrc pkgs) {})
                 )
               )
-            )
-          );
-          aihc-cpp = pkgs.haskell.lib.dontCheck (pkgs.haskell.lib.doHaddock (final.callCabal2nix "aihc-cpp" (cppSrc pkgs) {}));
-          aihc-resolve = pkgs.haskell.lib.dontCheck (
-            pkgs.haskell.lib.dontHaddock (
+            );
+            aihc-cpp = pkgs.haskell.lib.dontCheck (final.callCabal2nix "aihc-cpp" (cppSrc pkgs) {});
+            aihc-resolve = pkgs.haskell.lib.dontCheck (
               pkgs.haskell.lib.disableOptimization (
                 pkgs.haskell.lib.disableExecutableProfiling (
                   pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-resolve" (resolveSrc pkgs) {})
                 )
               )
-            )
-          );
-          aihc-tc = pkgs.haskell.lib.dontCheck (
-            pkgs.haskell.lib.dontHaddock (
+            );
+            aihc-tc = pkgs.haskell.lib.dontCheck (
               pkgs.haskell.lib.disableOptimization (
                 pkgs.haskell.lib.disableExecutableProfiling (
                   pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-tc" (tcSrc pkgs) {})
                 )
               )
-            )
-          );
-        };
+            );
+          };
+      };
+    # Haskell packages with tests enabled
+    mkHsPkgsWithTests = pkgs:
+      (projectHsPackages pkgs).override {
+        overrides = final: prev:
+          hackageDepTestFixes pkgs final prev
+          // {
+            ghc-lib-parser = pkgs.haskell.lib.dontHaddock final.ghc-lib-parser_9_14_1_20251220;
+            aihc-hackage = pkgs.haskell.lib.dontCheck (pkgs.haskell.lib.dontHaddock (final.callCabal2nix "aihc-hackage" (hackageSrc pkgs) {}));
+            aihc-parser =
+              pkgs.haskell.lib.overrideCabal
+              (pkgs.haskell.lib.disableExecutableProfiling (
+                pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-parser" (parserSrc pkgs) {})
+              ))
+              (old: {
+                # Hide passing tests so failures are visible in Nix's truncated output
+                testFlags = (old.testFlags or []) ++ ["--hide-successes"];
+              });
+            aihc-parser-cli =
+              pkgs.haskell.lib.overrideCabal
+              (pkgs.haskell.lib.disableExecutableProfiling (
+                pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-parser-cli" (parserCliSrc pkgs) {})
+              ))
+              (old: {
+                # Hide passing tests so failures are visible in Nix's truncated output
+                testFlags = (old.testFlags or []) ++ ["--hide-successes"];
+              });
+            aihc-cpp =
+              pkgs.haskell.lib.overrideCabal
+              (final.callCabal2nix "aihc-cpp" (cppSrc pkgs) {})
+              (old: {
+                # Hide passing tests so failures are visible in Nix's truncated output
+                testFlags = (old.testFlags or []) ++ ["--hide-successes"];
+              });
+            aihc-resolve =
+              pkgs.haskell.lib.overrideCabal
+              (pkgs.haskell.lib.disableExecutableProfiling (
+                pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-resolve" (resolveSrc pkgs) {})
+              ))
+              (old: {
+                # Hide passing tests so failures are visible in Nix's truncated output
+                testFlags = (old.testFlags or []) ++ ["--hide-successes"];
+              });
+            aihc-tc =
+              pkgs.haskell.lib.overrideCabal
+              (pkgs.haskell.lib.disableExecutableProfiling (
+                pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-tc" (tcSrc pkgs) {})
+              ))
+              (old: {
+                # Hide passing tests so failures are visible in Nix's truncated output
+                testFlags = (old.testFlags or []) ++ ["--hide-successes"];
+              });
+          };
+      };
+    mkHsPkgsWithTestsForChecks = pkgs:
+      (projectHsPackages pkgs).override {
+        overrides = final: prev:
+          hackageDepTestFixes pkgs final prev
+          // {
+            ghc-lib-parser = pkgs.haskell.lib.dontHaddock final.ghc-lib-parser_9_14_1_20251220;
+            aihc-hackage = pkgs.haskell.lib.dontCheck (pkgs.haskell.lib.dontHaddock (final.callCabal2nix "aihc-hackage" (hackageSrc pkgs) {}));
+            aihc-parser =
+              pkgs.haskell.lib.overrideCabal
+              (pkgs.haskell.lib.disableOptimization (
+                pkgs.haskell.lib.disableExecutableProfiling (
+                  pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-parser" (parserSrc pkgs) {})
+                )
+              ))
+              (old: {
+                # Hide passing tests so failures are visible in Nix's truncated output
+                testFlags = (old.testFlags or []) ++ ["--hide-successes"];
+              });
+            aihc-parser-cli =
+              pkgs.haskell.lib.overrideCabal
+              (pkgs.haskell.lib.disableOptimization (
+                pkgs.haskell.lib.disableExecutableProfiling (
+                  pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-parser-cli" (parserCliSrc pkgs) {})
+                )
+              ))
+              (old: {
+                # Hide passing tests so failures are visible in Nix's truncated output
+                testFlags = (old.testFlags or []) ++ ["--hide-successes"];
+              });
+            aihc-cpp =
+              pkgs.haskell.lib.overrideCabal
+              (final.callCabal2nix "aihc-cpp" (cppSrc pkgs) {})
+              (old: {
+                # Hide passing tests so failures are visible in Nix's truncated output
+                testFlags = (old.testFlags or []) ++ ["--hide-successes"];
+              });
+            aihc-resolve =
+              pkgs.haskell.lib.overrideCabal
+              (pkgs.haskell.lib.disableOptimization (
+                pkgs.haskell.lib.disableExecutableProfiling (
+                  pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-resolve" (resolveSrc pkgs) {})
+                )
+              ))
+              (old: {
+                # Hide passing tests so failures are visible in Nix's truncated output
+                testFlags = (old.testFlags or []) ++ ["--hide-successes"];
+              });
+            aihc-tc =
+              pkgs.haskell.lib.overrideCabal
+              (pkgs.haskell.lib.disableOptimization (
+                pkgs.haskell.lib.disableExecutableProfiling (
+                  pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-tc" (tcSrc pkgs) {})
+                )
+              ))
+              (old: {
+                # Hide passing tests so failures are visible in Nix's truncated output
+                testFlags = (old.testFlags or []) ++ ["--hide-successes"];
+              });
+          };
+      };
+    # Haskell packages with Haddock enabled for documentation generation
+    mkHsPkgsWithHaddock = pkgs:
+      (projectHsPackages pkgs).override {
+        overrides = final: prev:
+          hackageDepTestFixes pkgs final prev
+          // {
+            ghc-lib-parser = pkgs.haskell.lib.dontHaddock final.ghc-lib-parser_9_14_1_20251220;
+            aihc-hackage = pkgs.haskell.lib.dontCheck (pkgs.haskell.lib.dontHaddock (final.callCabal2nix "aihc-hackage" (hackageSrc pkgs) {}));
+            aihc-parser = pkgs.haskell.lib.dontCheck (
+              pkgs.haskell.lib.doHaddock (
+                pkgs.haskell.lib.disableExecutableProfiling (
+                  pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-parser" (parserSrc pkgs) {})
+                )
+              )
+            );
+            aihc-parser-cli = pkgs.haskell.lib.dontCheck (
+              pkgs.haskell.lib.dontHaddock (
+                pkgs.haskell.lib.disableExecutableProfiling (
+                  pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-parser-cli" (parserCliSrc pkgs) {})
+                )
+              )
+            );
+            aihc-cpp = pkgs.haskell.lib.dontCheck (pkgs.haskell.lib.doHaddock (final.callCabal2nix "aihc-cpp" (cppSrc pkgs) {}));
+            aihc-resolve = pkgs.haskell.lib.dontCheck (
+              pkgs.haskell.lib.dontHaddock (
+                pkgs.haskell.lib.disableExecutableProfiling (
+                  pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-resolve" (resolveSrc pkgs) {})
+                )
+              )
+            );
+            aihc-tc = pkgs.haskell.lib.dontCheck (
+              pkgs.haskell.lib.dontHaddock (
+                pkgs.haskell.lib.disableExecutableProfiling (
+                  pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-tc" (tcSrc pkgs) {})
+                )
+              )
+            );
+          };
+      };
+    mkHsPkgsWithHaddockForChecks = pkgs:
+      (projectHsPackages pkgs).override {
+        overrides = final: prev:
+          hackageDepTestFixes pkgs final prev
+          // {
+            ghc-lib-parser = pkgs.haskell.lib.dontHaddock final.ghc-lib-parser_9_14_1_20251220;
+            aihc-hackage = pkgs.haskell.lib.dontCheck (pkgs.haskell.lib.dontHaddock (final.callCabal2nix "aihc-hackage" (hackageSrc pkgs) {}));
+            aihc-parser = pkgs.haskell.lib.dontCheck (
+              pkgs.haskell.lib.doHaddock (
+                pkgs.haskell.lib.disableOptimization (
+                  pkgs.haskell.lib.disableExecutableProfiling (
+                    pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-parser" (parserSrc pkgs) {})
+                  )
+                )
+              )
+            );
+            aihc-parser-cli = pkgs.haskell.lib.dontCheck (
+              pkgs.haskell.lib.dontHaddock (
+                pkgs.haskell.lib.disableOptimization (
+                  pkgs.haskell.lib.disableExecutableProfiling (
+                    pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-parser-cli" (parserCliSrc pkgs) {})
+                  )
+                )
+              )
+            );
+            aihc-cpp = pkgs.haskell.lib.dontCheck (pkgs.haskell.lib.doHaddock (final.callCabal2nix "aihc-cpp" (cppSrc pkgs) {}));
+            aihc-resolve = pkgs.haskell.lib.dontCheck (
+              pkgs.haskell.lib.dontHaddock (
+                pkgs.haskell.lib.disableOptimization (
+                  pkgs.haskell.lib.disableExecutableProfiling (
+                    pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-resolve" (resolveSrc pkgs) {})
+                  )
+                )
+              )
+            );
+            aihc-tc = pkgs.haskell.lib.dontCheck (
+              pkgs.haskell.lib.dontHaddock (
+                pkgs.haskell.lib.disableOptimization (
+                  pkgs.haskell.lib.disableExecutableProfiling (
+                    pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-tc" (tcSrc pkgs) {})
+                  )
+                )
+              )
+            );
+          };
       };
     # Combined Haddock documentation derivation
     mkCombinedDocs = pkgs: let
@@ -443,7 +464,7 @@
       parserDoc = hsPkgsHaddock.aihc-parser.doc;
       cppDoc = hsPkgsHaddock.aihc-cpp.doc;
       # Use haddock from ghc package (bundled with GHC)
-      haddock = pkgs.haskellPackages.ghc;
+      haddock = (projectHsPackages pkgs).ghc;
     in
       pkgs.runCommand "aihc-docs" {
         nativeBuildInputs = [haddock];
@@ -470,7 +491,7 @@
       parserDoc = hsPkgsHaddock.aihc-parser.doc;
       cppDoc = hsPkgsHaddock.aihc-cpp.doc;
       # Use haddock from ghc package (bundled with GHC)
-      haddock = pkgs.haskellPackages.ghc;
+      haddock = (projectHsPackages pkgs).ghc;
     in
       pkgs.runCommand "aihc-docs" {
         nativeBuildInputs = [haddock];
@@ -511,37 +532,39 @@
             '';
         });
     in
-      pkgs.haskellPackages.override {
-        overrides = final: prev: {
-          ghc-lib-parser = pkgs.haskell.lib.dontHaddock final.ghc-lib-parser_9_14_1_20251220;
-          aihc-hackage = pkgs.haskell.lib.dontCheck (pkgs.haskell.lib.dontHaddock (final.callCabal2nix "aihc-hackage" (hackageSrc pkgs) {}));
-          # Parser with coverage enabled
-          aihc-parser = enableCoverageWithExport (
-            pkgs.haskell.lib.disableExecutableProfiling (
-              pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-parser" (parserSrc pkgs) {})
-            )
-          );
-          # Parser CLI - no coverage needed, just make it available
-          aihc-parser-cli = pkgs.haskell.lib.dontCheck (
-            pkgs.haskell.lib.disableExecutableProfiling (
-              pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-parser-cli" (parserCliSrc pkgs) {})
-            )
-          );
-          # CPP with coverage enabled
-          aihc-cpp = enableCoverageWithExport (final.callCabal2nix "aihc-cpp" (cppSrc pkgs) {});
-          # Resolve - no coverage needed yet, just make it available
-          aihc-resolve = pkgs.haskell.lib.dontCheck (
-            pkgs.haskell.lib.disableExecutableProfiling (
-              pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-resolve" (resolveSrc pkgs) {})
-            )
-          );
-          # TC - no coverage needed yet, just make it available
-          aihc-tc = pkgs.haskell.lib.dontCheck (
-            pkgs.haskell.lib.disableExecutableProfiling (
-              pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-tc" (tcSrc pkgs) {})
-            )
-          );
-        };
+      (projectHsPackages pkgs).override {
+        overrides = final: prev:
+          hackageDepTestFixes pkgs final prev
+          // {
+            ghc-lib-parser = pkgs.haskell.lib.dontHaddock final.ghc-lib-parser_9_14_1_20251220;
+            aihc-hackage = pkgs.haskell.lib.dontCheck (pkgs.haskell.lib.dontHaddock (final.callCabal2nix "aihc-hackage" (hackageSrc pkgs) {}));
+            # Parser with coverage enabled
+            aihc-parser = enableCoverageWithExport (
+              pkgs.haskell.lib.disableExecutableProfiling (
+                pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-parser" (parserSrc pkgs) {})
+              )
+            );
+            # Parser CLI - no coverage needed, just make it available
+            aihc-parser-cli = pkgs.haskell.lib.dontCheck (
+              pkgs.haskell.lib.disableExecutableProfiling (
+                pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-parser-cli" (parserCliSrc pkgs) {})
+              )
+            );
+            # CPP with coverage enabled
+            aihc-cpp = enableCoverageWithExport (final.callCabal2nix "aihc-cpp" (cppSrc pkgs) {});
+            # Resolve - no coverage needed yet, just make it available
+            aihc-resolve = pkgs.haskell.lib.dontCheck (
+              pkgs.haskell.lib.disableExecutableProfiling (
+                pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-resolve" (resolveSrc pkgs) {})
+              )
+            );
+            # TC - no coverage needed yet, just make it available
+            aihc-tc = pkgs.haskell.lib.dontCheck (
+              pkgs.haskell.lib.disableExecutableProfiling (
+                pkgs.haskell.lib.disableLibraryProfiling (final.callCabal2nix "aihc-tc" (tcSrc pkgs) {})
+              )
+            );
+          };
       };
     # Combined coverage report derivation
     mkCoverageReport = pkgs: let
@@ -550,7 +573,7 @@
       cppWithCoverage = pkgs.haskell.lib.doCheck hsPkgsCoverage.aihc-cpp;
     in
       pkgs.runCommand "aihc-coverage" {
-        nativeBuildInputs = [pkgs.haskellPackages.ghc pkgs.gnused pkgs.gnugrep];
+        nativeBuildInputs = [(projectHsPackages pkgs).ghc pkgs.gnused pkgs.gnugrep];
         inherit parserWithCoverage cppWithCoverage;
       } ''
         mkdir -p "$out"
@@ -743,8 +766,8 @@
         }}/bin/${name}";
         meta.description = "aihc app: ${name}";
       };
-      mkApp = name: text: mkAppWithInputs name [pkgs.bash pkgs.cabal-install pkgs.ghc] text;
-      mkFmtApp = name: text: mkAppWithInputs name [pkgs.bash pkgs.git pkgs.findutils pkgs.alejandra pkgs.haskellPackages.ormolu] text;
+      mkApp = name: text: mkAppWithInputs name [pkgs.bash pkgs.cabal-install hsPkgs.ghc] text;
+      mkFmtApp = name: text: mkAppWithInputs name [pkgs.bash pkgs.git pkgs.findutils pkgs.alejandra (projectHsPackages pkgs).ormolu] text;
       mkReportsApp = name: text: {
         type = "app";
         program = "${pkgs.writeShellApplication {
@@ -1115,7 +1138,7 @@
       haskellLint =
         pkgs.runCommand "aihc-haskell-lint" {
           src = haskellSrc pkgs;
-          nativeBuildInputs = [pkgs.haskellPackages.hlint pkgs.findutils];
+          nativeBuildInputs = [(projectHsPackages pkgs).hlint pkgs.findutils];
         } ''
           cd "$src"
           find . -type f -name '*.hs' -print0 \
@@ -1125,7 +1148,7 @@
       haskellFormat =
         pkgs.runCommand "aihc-haskell-format" {
           src = haskellSrc pkgs;
-          nativeBuildInputs = [pkgs.haskellPackages.ormolu pkgs.findutils];
+          nativeBuildInputs = [(projectHsPackages pkgs).ormolu pkgs.findutils];
         } ''
           cd "$src"
           find . -type f -name '*.hs' -print0 \
@@ -1175,8 +1198,8 @@
         pkgs.runCommand "aihc-cpp-doctest" {
           src = cppSrc pkgs;
           nativeBuildInputs = [
-            pkgs.haskellPackages.doctest
-            pkgs.haskellPackages.ghc
+            (projectHsPackages pkgs).doctest
+            (projectHsPackages pkgs).ghc
             hsPkgs.aihc-cpp
           ];
         } ''

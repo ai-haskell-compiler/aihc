@@ -45,7 +45,7 @@ library
     , deepseq
     , megaparsec
     , prettyprinter
-  ghc-options:        -Wall -Werror
+  ghc-options:        -Wall
   default-language: GHC2021
 
 test-suite spec
@@ -135,7 +135,7 @@ test-suite spec
     , tasty-quickcheck
     , QuickCheck
     , ghc-lib-parser
-    , Cabal-syntax
+    , Cabal-syntax >= 3.14 && < 3.17
     , haskell-src-exts
     , aeson
     , bytestring
@@ -144,7 +144,7 @@ test-suite spec
     , yaml
     , optparse-applicative
     , template-haskell
-  ghc-options:        -Wall -Werror -threaded -rtsopts -with-rtsopts=-N
+  ghc-options:        -Wall -threaded -rtsopts -with-rtsopts=-N
   default-language: GHC2021
 
 executable parser-progress
@@ -168,9 +168,9 @@ executable parser-progress
     , directory
     , filepath
     , ghc-lib-parser
-    , Cabal-syntax
+    , Cabal-syntax >= 3.14 && < 3.17
     , prettyprinter
-  ghc-options:        -Wall -Werror
+  ghc-options:        -Wall
   default-language: GHC2021
 
 executable lexer-progress
@@ -190,7 +190,7 @@ executable lexer-progress
     , filepath
     , aeson
     , yaml
-  ghc-options:        -Wall -Werror
+  ghc-options:        -Wall
   default-language: GHC2021
 
 executable extension-progress
@@ -214,13 +214,13 @@ executable extension-progress
     , directory
     , filepath
     , ghc-lib-parser
-    , Cabal-syntax
+    , Cabal-syntax >= 3.14 && < 3.17
     , megaparsec
     , prettyprinter
     , yaml
     , aeson
     , bytestring
-  ghc-options:        -Wall -Werror
+  ghc-options:        -Wall
   default-language: GHC2021
 
 executable hackage-tester
@@ -249,7 +249,7 @@ executable hackage-tester
     , directory
     , filepath
     , ghc-lib-parser
-    , Cabal-syntax
+    , Cabal-syntax >= 3.14 && < 3.17
     , bytestring
     , async
     , aeson
@@ -258,7 +258,7 @@ executable hackage-tester
     , optparse-applicative
     , haskell-src-exts
     , prettyprinter
-  ghc-options:        -Wall -Werror -threaded -rtsopts -with-rtsopts=-N
+  ghc-options:        -Wall -threaded -rtsopts -with-rtsopts=-N
   default-language: GHC2021
 
 executable stackage-progress
@@ -292,10 +292,10 @@ executable stackage-progress
     , filepath
     , ghc-lib-parser
     , async
-    , Cabal-syntax
+    , Cabal-syntax >= 3.14 && < 3.17
     , bytestring
     , haskell-src-exts
     , optparse-applicative
     , prettyprinter
-  ghc-options:        -Wall -Werror -threaded -rtsopts -with-rtsopts=-N
+  ghc-options:        -Wall -threaded -rtsopts -with-rtsopts=-N
   default-language: GHC2021

@@ -60,6 +60,7 @@ import Distribution.Types.Condition (Condition (..))
 import Distribution.Types.ConfVar (ConfVar (..))
 import Distribution.Types.Dependency (depPkgName)
 import Distribution.Types.GenericPackageDescription (GenericPackageDescription, genPackageFlags)
+import Distribution.Utils.Path (getSymbolicPath)
 import Distribution.Version (mkVersion, withinRange)
 import System.FilePath ((</>))
 import System.Info (compilerName, compilerVersion)
@@ -118,7 +119,7 @@ executableFilesFor evalCond packageRoot tree = do
   let executable = condTreeData tree
       build = collectMergedBuildInfo evalCond buildInfo tree
       moduleNames = otherModules build <> exeModules executable <> autogenModules build
-      mainPath = modulePath executable
+      mainPath = getSymbolicPath (modulePath executable)
       exts = extractExtensions build
       cppOpts = cppOptions build
       lang = extractLanguage build
