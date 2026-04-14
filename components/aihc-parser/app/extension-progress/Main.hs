@@ -90,11 +90,8 @@ goldenCaseToCaseMeta goldenCase =
       casePath = PG.casePath goldenCase,
       caseExpected = convertGoldenStatus (PG.caseStatus goldenCase),
       caseReason = PG.caseReason goldenCase,
-      caseExtensions = map toExtensionSetting (PG.caseExtensions goldenCase)
+      caseExtensions = PG.caseExtensions goldenCase
     }
-  where
-    toExtensionSetting (PG.EnableExtension ext) = Syntax.EnableExtension ext
-    toExtensionSetting (PG.DisableExtension ext) = Syntax.DisableExtension ext
 
 -- | Convert ParserGolden.ExpectedStatus to ExtensionSupport.Expected
 convertGoldenStatus :: PG.ExpectedStatus -> Expected
