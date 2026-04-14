@@ -53,6 +53,7 @@ normalizePattern pat =
     PStrict _ inner -> PStrict span0 (normalizeUnaryInner inner)
     PIrrefutable _ inner -> PIrrefutable span0 (normalizeUnaryInner inner)
     PNegLit _ lit -> PNegLit span0 (normalizeLiteral lit)
+    PParen _ inner@(PNegLit {}) -> normalizePattern inner
     PParen _ inner -> PParen span0 (normalizePattern inner)
     PUnboxedSum _ altIdx arity inner -> PUnboxedSum span0 altIdx arity (normalizePattern inner)
     PRecord _ con fields rwc -> PRecord span0 con [(fieldName, normalizePattern fieldPat) | (fieldName, fieldPat) <- fields] rwc

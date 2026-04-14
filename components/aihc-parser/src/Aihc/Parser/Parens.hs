@@ -927,7 +927,7 @@ addPatternAtomParens pat =
     PWildcard {} -> addPatternParens pat
     PLit {} -> addPatternParens pat
     PQuasiQuote {} -> addPatternParens pat
-    PNegLit {} -> addPatternParens pat
+    PNegLit {} -> wrapPat True (addPatternParens pat)
     PList {} -> addPatternParens pat
     PTuple {} -> addPatternParens pat
     PUnboxedSum {} -> addPatternParens pat

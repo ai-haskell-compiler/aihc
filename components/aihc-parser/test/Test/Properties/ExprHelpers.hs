@@ -112,6 +112,10 @@ normalizePattern pat =
     PStrict _ inner -> PStrict span0 (normalizeUnaryPatInner inner)
     PIrrefutable _ inner -> PIrrefutable span0 (normalizeUnaryPatInner inner)
     PNegLit _ lit -> PNegLit span0 (normalizeLiteral lit)
+    -- PParen around PNegLit is semantically transparent: negative literals
+    -- are lpat (not apat), so the pretty-printer wraps them in parens
+    -- wherever an apat is expected.  Strip the PParen so round-trips match.
+    PParen _ inner@(PNegLit {}) -> normalizePattern inner
     PParen _ inner -> PParen span0 (normalizePattern inner)
     PUnboxedSum _ altIdx arity inner -> PUnboxedSum span0 altIdx arity (normalizePattern inner)
     PRecord _ con fields rwc -> PRecord span0 con [(name, normalizePattern p) | (name, p) <- fields] rwc

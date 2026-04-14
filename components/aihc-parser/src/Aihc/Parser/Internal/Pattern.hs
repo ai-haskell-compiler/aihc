@@ -67,14 +67,30 @@ conOperatorParser =
       expectedTok TkSpecialBacktick
       pure name
 
+-- | Parse a left pattern (@lpat@ in the Haskell Report).
+--
+-- @
+-- lpat → apat
+--      | - (integer | float)       (negative literal)
+--      | gcon apat₁ … apatₖ       (arity gcon = k, k ≥ 1)
+-- @
+--
+-- Negative literals and constructor application live here, not in
+-- 'patternAtomParser' (@apat@).  This distinction is critical: since
+-- constructor arguments are @apat@s, @Con - 0@ cannot be misparsed as
+-- @Con (-0)@ — the @-@ is not valid inside an @apat@.
 appPatternParser :: TokParser Pattern
-appPatternParser = do
-  first <- patternAtomParser
-  if isPatternAppHead first
-    then do
-      rest <- MP.many patternAtomParser
-      pure (foldl buildPatternApp first rest)
-    else pure first
+appPatternParser =
+  negativeLiteralPatternParser
+    <|> conAppOrAtomParser
+  where
+    conAppOrAtomParser = do
+      first <- patternAtomParser
+      if isPatternAppHead first
+        then do
+          rest <- MP.many patternAtomParser
+          pure (foldl buildPatternApp first rest)
+        else pure first
 
 buildPatternApp :: Pattern -> Pattern -> Pattern
 buildPatternApp lhs rhs =
@@ -82,6 +98,10 @@ buildPatternApp lhs rhs =
     PCon lSpan name args -> PCon (mergeSourceSpans lSpan (getSourceSpan rhs)) name (args <> [rhs])
     _ -> lhs
 
+-- | Parse an atomic pattern (@apat@ in the Haskell Report).
+--
+-- This intentionally does NOT handle negative literals (@- integer@),
+-- which belong to the @lpat@ level ('appPatternParser').
 patternAtomParser :: TokParser Pattern
 patternAtomParser = do
   thFullEnabled <- isExtensionEnabled TemplateHaskell
@@ -89,7 +109,6 @@ patternAtomParser = do
   case lexTokenKind tok of
     TkPrefixBang -> strictPatternParser
     TkPrefixTilde -> irrefutablePatternParser
-    TkVarSym "-" -> negativeLiteralPatternParser
     TkQuasiQuote {} -> quasiQuotePatternParser
     TkTHSplice | thFullEnabled -> thSplicePatternParser
     TkKeywordUnderscore -> wildcardPatternParser
