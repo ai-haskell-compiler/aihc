@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail TemplateHaskell type quote with parenthesized arrow ''(->) not parsed -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE LambdaCase, TemplateHaskellQuotes #-}
 
 module THQuoteArrowType where
