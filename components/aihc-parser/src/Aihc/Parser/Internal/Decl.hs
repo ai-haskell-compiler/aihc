@@ -84,47 +84,23 @@ ordinaryDeclParser = do
         TkKeywordInstance -> typeFamilyInstParser
         _ -> typeDeclarationParser
     TkKeywordPattern -> patternSynonymParser
-    TkSpecialLParen -> typeSigOrPatternOrValueOrSpliceParser
-    TkSpecialLBracket -> typeSigOrPatternOrValueOrSpliceParser
-    TkSpecialUnboxedLParen -> patternOrValueOrSpliceParser
-    TkPrefixTilde -> typeSigOrPatternOrValueOrSpliceParser
-    TkPrefixBang -> patternOrValueOrSpliceParser
-    TkKeywordUnderscore -> typeSigOrPatternOrValueOrSpliceParser
     TkVarId {} ->
       case nextTokKind of
         TkReservedDoubleColon -> typeSigOrValueOrSpliceParser
         TkSpecialComma -> typeSigOrValueOrSpliceParser
         TkReservedEquals -> valueOrSpliceParser
         _ -> nonBareVarPatternOrValueOrSpliceParser
-    _
-      | startsLikePatternBindHead tokKind -> patternOrValueOrSpliceParser
     TkTHSplice ->
       if thFullEnabled
         then MP.try patternBindDeclParser <|> MP.try valueDeclParser <|> spliceDeclParser
         else spliceDeclParser
-    _ -> typeSigOrValueOrSpliceParser
+    _ -> typeSigOrPatternOrValueOrSpliceParser
 
-startsLikePatternBindHead :: LexTokenKind -> Bool
-startsLikePatternBindHead = \case
-  TkVarSym "-" -> True
-  TkConId {} -> True
-  TkQConId {} -> True
-  TkConSym {} -> True
-  TkQConSym {} -> True
-  TkReservedColon -> True
-  TkInteger {} -> True
-  TkIntegerHash {} -> True
-  TkIntegerBase {} -> True
-  TkIntegerBaseHash {} -> True
-  TkFloat {} -> True
-  TkFloatHash {} -> True
-  TkChar {} -> True
-  TkCharHash {} -> True
-  TkString {} -> True
-  TkStringHash {} -> True
-  TkQuasiQuote {} -> True
-  _ -> False
-
+-- | Like 'patternBindDeclParser' but rejects bare variable patterns.
+-- When the leading token is a variable identifier, a bare @x = 5@ must be
+-- parsed as a zero-argument function bind, not a pattern bind.  This parser
+-- detects that case early (after parsing the pattern) and fails, letting
+-- 'valueDeclParser' handle it instead.
 nonBareVarPatternBindDeclParser :: TokParser Decl
 nonBareVarPatternBindDeclParser = MP.try $ withSpan $ do
   pat <- region "while parsing pattern binding" patternParser
