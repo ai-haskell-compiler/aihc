@@ -390,19 +390,14 @@ genValueDeclsWith allowTHQuotes n = do
     pure $ DeclValue span0 (PatternBind span0 pat rhs)
 
 -- | Generate simple patterns suitable for let/where bindings.
--- Only generates: PVar, PWildcard, PTuple, PList, PCon (with simple args)
+-- Only generates: PVar, PWildcard, PCon (with simple args)
 -- Includes bang and lazy wrappers around simple patterns.
+-- Avoids PTuple and PList to prevent PParen wrapping issues in the parser.
 genLetBindingPatternSimple :: Int -> Gen Pattern
 genLetBindingPatternSimple size =
   frequency
     [ (10, PVar span0 . mkUnqualifiedName NameVarId <$> genIdent),
       (5, pure (PWildcard span0)),
-      (3, PTuple span0 Boxed <$> genSimpleTuplePatterns size),
-      ( 2,
-        do
-          count <- chooseInt (0, 3)
-          PList span0 <$> vectorOf count (genLetBindingPatternSimple size)
-      ),
       ( 5,
         do
           count <- chooseInt (0, 3)
@@ -420,17 +415,10 @@ genLetBindingPatternSimple size =
       oneof
         [ PVar span0 . mkUnqualifiedName NameVarId <$> genIdent,
           pure (PWildcard span0),
-          PTuple span0 Boxed <$> genSimpleTuplePatterns sz,
           do
             count <- chooseInt (0, 2)
             PCon span0 <$> genPatternConAstName <*> vectorOf count (genLetBindingPatternSimple (sz `div` 2))
         ]
-
--- | Generate tuple elements for let binding patterns (no sections)
-genSimpleTuplePatterns :: Int -> Gen [Pattern]
-genSimpleTuplePatterns size = do
-  count <- chooseInt (0, 3)
-  vectorOf count (genLetBindingPatternSimple size)
 
 -- | Generate RHS for let/where bindings.
 -- Similar to genRhsWith but GuardLet uses simple patterns only.
