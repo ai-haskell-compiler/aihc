@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail reason="guarded patterns with tuple patterns in where clauses not parsed" -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE Haskell2010 #-}
 
 module GuardedWhereTuplePattern where

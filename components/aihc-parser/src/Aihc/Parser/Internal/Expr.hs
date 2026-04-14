@@ -947,20 +947,23 @@ localDeclsParser = do
 localTypeSigDeclsParser :: TokParser [Decl]
 localTypeSigDeclsParser = do
   sig@(DeclTypeSig sigSpan names ty) <- localTypeSigDeclParser
-  mEq <- MP.optional (expectedTok TkReservedEquals)
-  case mEq of
-    Nothing -> pure [sig]
-    Just () ->
-      case names of
-        [name] -> do
-          rhsExpr <- exprParser
-          whereDecls <- MP.optional whereClauseParser
-          let bindSpan = mergeSourceSpans sigSpan (getSourceSpan rhsExpr)
-              pat = PTypeSig sigSpan (PVar sigSpan name) ty
-              rhs = UnguardedRhs bindSpan rhsExpr whereDecls
-          pure [DeclValue bindSpan (PatternBind bindSpan pat rhs)]
-        _ ->
-          fail "local typed bindings with '=' require exactly one binder"
+  hasRhs <-
+    MP.lookAhead anySingle >>= \tok ->
+      pure $
+        case lexTokenKind tok of
+          TkReservedEquals -> True
+          TkReservedPipe -> True
+          _ -> False
+  if hasRhs
+    then case names of
+      [name] -> do
+        rhs <- equationRhsParser
+        let bindSpan = mergeSourceSpans sigSpan (getSourceSpan rhs)
+            pat = PTypeSig sigSpan (PVar sigSpan name) ty
+        pure [DeclValue bindSpan (PatternBind bindSpan pat rhs)]
+      _ ->
+        fail "local typed bindings with '=' require exactly one binder"
+    else pure [sig]
 
 localTypeSigDeclParser :: TokParser Decl
 localTypeSigDeclParser = withSpan $ do
@@ -978,18 +981,14 @@ localFunctionDeclParser = withSpan $ do
 localPatternDeclParser :: TokParser Decl
 localPatternDeclParser = withSpan $ do
   pat <- patternParser
-  expectedTok TkReservedEquals
-  rhsExpr <- exprParser
-  whereDecls <- MP.optional whereClauseParser
-  pure (\span' -> DeclValue span' (PatternBind span' pat (UnguardedRhs span' rhsExpr whereDecls)))
+  rhs <- equationRhsParser
+  pure (\span' -> DeclValue span' (PatternBind span' pat rhs))
 
 implicitParamDeclParser :: TokParser Decl
 implicitParamDeclParser = withSpan $ do
   name <- implicitParamNameParser
-  expectedTok TkReservedEquals
-  rhsExpr <- exprParser
-  whereDecls <- MP.optional whereClauseParser
-  pure (\span' -> DeclValue span' (PatternBind span' (PVar span' (mkUnqualifiedName NameVarId name)) (UnguardedRhs span' rhsExpr whereDecls)))
+  rhs <- equationRhsParser
+  pure (\span' -> DeclValue span' (PatternBind span' (PVar span' (mkUnqualifiedName NameVarId name)) rhs))
 
 varExprParser :: TokParser Expr
 varExprParser = withSpan $ do
