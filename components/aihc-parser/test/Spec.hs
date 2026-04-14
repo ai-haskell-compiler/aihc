@@ -1573,14 +1573,9 @@ test_localDeclPatTuple =
 
 test_localDeclPatCon :: Assertion
 test_localDeclPatCon =
-  -- NOTE: GHC parses 'Just x = Nothing' in a let-binding as a PatBind with
-  -- a constructor pattern. Our parser currently treats it as a FunctionBind
-  -- for 'Just' because localFunctionDeclParser is tried before
-  -- localPatternDeclParser. This is a pre-existing issue unrelated to the
-  -- Phase 3 refactoring; fixing it is deferred to Phase 4.
   case parseLetDecls "let { Just x = Nothing } in x" of
-    Right [DeclValue _ (FunctionBind _ "Just" [Match {matchHeadForm = MatchHeadPrefix, matchPats = [PVar _ "x"]}])] -> pure ()
-    other -> assertFailure ("expected function bind for constructor name (pre-existing behaviour), got: " <> show other)
+    Right [DeclValue _ (PatternBind _ (PCon _ "Just" [PVar _ "x"]) _)] -> pure ()
+    other -> assertFailure ("expected constructor pattern bind, got: " <> show other)
 
 test_localDeclPatWild :: Assertion
 test_localDeclPatWild =

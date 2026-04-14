@@ -8,7 +8,6 @@ module Test.Properties.Arb.Module
     shrinkUnqualifiedVarName,
     genTypeName,
     shrinkTypeName,
-    baseModuleLanguagePragmas,
   )
 where
 
@@ -31,7 +30,7 @@ instance Arbitrary Module where
       Module
         { moduleSpan = span0,
           moduleHead = mHead,
-          moduleLanguagePragmas = baseModuleLanguagePragmas,
+          moduleLanguagePragmas = [],
           moduleImports = imports,
           moduleDecls = decls
         }
@@ -47,20 +46,6 @@ instance Arbitrary Module where
       <> [ modu {moduleHead = shrunk}
          | shrunk <- shrinkMaybeModuleHead (moduleHead modu)
          ]
-
-baseModuleLanguagePragmas :: [ExtensionSetting]
-baseModuleLanguagePragmas =
-  [ EnableExtension BlockArguments,
-    EnableExtension Arrows,
-    EnableExtension UnboxedTuples,
-    EnableExtension UnboxedSums,
-    EnableExtension TemplateHaskell,
-    EnableExtension UnicodeSyntax,
-    EnableExtension LambdaCase,
-    EnableExtension QuasiQuotes,
-    EnableExtension ExplicitNamespaces,
-    EnableExtension PatternSynonyms
-  ]
 
 -- | Generate an optional module head.
 -- Most modules have explicit headers, but implicit modules (Nothing) are also valid.
