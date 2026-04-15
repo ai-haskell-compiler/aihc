@@ -859,6 +859,7 @@ foreignSafetyParser :: TokParser ForeignSafety
 foreignSafetyParser =
   (varIdTok "safe" >> pure Safe)
     <|> (varIdTok "unsafe" >> pure Unsafe)
+    <|> (varIdTok "interruptible" >> pure Interruptible)
 
 foreignEntityParser :: TokParser ForeignEntitySpec
 foreignEntityParser = foreignEntityFromString <$> stringTextParser

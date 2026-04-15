@@ -900,6 +900,7 @@ prettySafety safety =
   case safety of
     Safe -> "safe"
     Unsafe -> "unsafe"
+    Interruptible -> "interruptible"
 
 prettyForeignEntity :: ForeignEntitySpec -> Maybe (Doc ann)
 prettyForeignEntity spec =

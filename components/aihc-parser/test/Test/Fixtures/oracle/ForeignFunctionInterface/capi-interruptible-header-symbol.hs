@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail reason="interruptible capi imports with a combined header and symbol string are parsed as if the string started a type signature" -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE GHC2021 #-}
 {-# LANGUAGE CApiFFI #-}
 {-# LANGUAGE InterruptibleFFI #-}
