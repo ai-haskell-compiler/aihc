@@ -27,7 +27,7 @@ import Test.Performance.Suite (parserPerformanceTests)
 import Test.Properties.Arb.Expr (genOperator, isValidGeneratedOperator)
 import Test.Properties.DeclRoundTrip (prop_declPrettyRoundTrip)
 import Test.Properties.ExprHelpers (normalizeDecl, normalizeExpr, span0, stripTypeAnnotations)
-import Test.Properties.ExprRoundTrip (prop_exprPrettyRoundTrip)
+import Test.Properties.ExprRoundTrip (prop_exprPrettyRoundTrip, test_exprPrettyRoundTrip_qualifiedUnicodeOperatorNameQuote)
 import Test.Properties.Identifiers (isValidGeneratedIdent, shrinkIdent)
 import Test.Properties.ModuleRoundTrip (prop_modulePrettyRoundTrip)
 import Test.Properties.PatternRoundTrip (prop_patternPrettyRoundTrip)
@@ -339,7 +339,8 @@ buildTests = do
         adjustOption (const tenMinutes) $
           testGroup
             "properties"
-            [ QC.testProperty "generated expr AST pretty-printer round-trip" prop_exprPrettyRoundTrip,
+            [ testCase "qualified Unicode TH name quote round-trips" test_exprPrettyRoundTrip_qualifiedUnicodeOperatorNameQuote,
+              QC.testProperty "generated expr AST pretty-printer round-trip" prop_exprPrettyRoundTrip,
               QC.testProperty "generated decl AST pretty-printer round-trip" prop_declPrettyRoundTrip,
               QC.testProperty "generated module AST pretty-printer round-trip" prop_modulePrettyRoundTrip,
               QC.testProperty "generated pattern AST pretty-printer round-trip" prop_patternPrettyRoundTrip,
