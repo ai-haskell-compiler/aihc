@@ -527,6 +527,7 @@ docForeignSafety fs =
   case fs of
     Safe -> "Safe"
     Unsafe -> "Unsafe"
+    Interruptible -> "Interruptible"
 
 docForeignEntitySpec :: ForeignEntitySpec -> Doc ann
 docForeignEntitySpec spec =
