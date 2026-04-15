@@ -3,7 +3,7 @@
 
 # Run all tests with hidden successes (1000 QuickCheck tests per property)
 test:
-  cabal test -v0 all --test-options='--hide-successes --quickcheck-tests 1000' --test-show-details=failures
+  cabal test -v0 all --test-options='--hide-successes --quickcheck-tests 1000'
 
 # Replay a specific QuickCheck test case
 # Usage: just replay "<replay-string>"
@@ -32,4 +32,4 @@ hlint-refactor:
 check:
   nix develop --quiet --command bash -c 'ormolu --mode check $(find components -name "*.hs" -not -path "*/dist-newstyle/*" -not -path "*/test/Test/Fixtures/*")'
   nix develop --quiet --command bash -c 'hlint $(find components -name "*.hs" -not -path "*/dist-newstyle/*" -not -path "*/test/Test/Fixtures/*")'
-  cabal test -v0 all --ghc-options=-Werror --test-options='--hide-successes --quickcheck-tests 1000' --test-show-details=failures
+  cabal test -v0 all --ghc-options=-Werror --test-options='--hide-successes --quickcheck-tests 1000'
