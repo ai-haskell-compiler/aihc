@@ -1055,7 +1055,7 @@ prettyExpr expr =
     ETHTypeQuote ty -> "[t|" <+> prettyType ty <+> "|]"
     ETHPatQuote pat -> "[p|" <+> prettyPattern pat <+> "|]"
     ETHNameQuote name
-      | isOperatorToken name -> "'" <> parens (pretty name)
+      | thNameQuoteTextNeedsParens name -> "'" <> parens (pretty name)
       | otherwise -> "'" <> pretty name
     ETHTypeNameQuote name
       | isOperatorName name -> "''" <> parens (pretty name)
@@ -1277,6 +1277,21 @@ isOperatorName :: Name -> Bool
 isOperatorName name =
   let ty = nameType name
    in ty == NameVarSym || ty == NameConSym
+
+-- | Whether a TH value name quote @'...@ must wrap its payload in parentheses.
+--
+-- Unqualified operators need @'(+), ...@. Qualified operators such as @P.+@
+-- must be written @'(P.+), ...@ because @'P.+@ is not a single lexeme.
+thNameQuoteTextNeedsParens :: Text -> Bool
+thNameQuoteTextNeedsParens name
+  | isOperatorToken name = True
+  | not (T.any (== '.') name) = False
+  | otherwise =
+      case T.split (== '.') name of
+        [] -> False
+        parts ->
+          let suffix = last parts
+           in not (T.null suffix) && isOperatorToken suffix
 
 isOperatorToken :: Text -> Bool
 isOperatorToken tok =

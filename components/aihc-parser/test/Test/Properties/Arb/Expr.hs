@@ -20,6 +20,7 @@ import Test.Properties.Arb.Identifiers
     genConIdent,
     genFieldName,
     genIdent,
+    genModuleQualifier,
     genOptionalQualifier,
     genStringValue,
     genTenths,
@@ -93,7 +94,7 @@ genExprSizedWith allowTHQuotes n
             ETHDeclQuote <$> genValueDeclsWith False (n - 1),
             ETHPatQuote <$> genPattern (n - 1),
             ETHTypeQuote <$> genTypeWith False (n - 1),
-            ETHNameQuote <$> genNameQuoteIdent,
+            ETHNameQuote . renderName <$> genNameQuoteName,
             ETHTypeNameQuote <$> genTypeNameQuote
           ]
       | otherwise =
@@ -147,6 +148,28 @@ genSpliceBody n =
 genTypedSpliceBody :: Int -> Gen Expr
 genTypedSpliceBody n =
   EParen <$> genExprSized (max 0 (n - 1))
+
+-- | Generate a TH value name quote target.
+-- Produces unqualified identifiers plus qualified identifiers and operators
+-- such as @M.v@ and @M.+@.
+genNameQuoteName :: Gen Name
+genNameQuoteName =
+  oneof
+    [ qualifyName Nothing . mkUnqualifiedName NameVarId <$> genNameQuoteIdent,
+      do
+        qual <- genModuleQualifier
+        mkName (Just qual) NameVarId <$> genNameQuoteIdent,
+      do
+        qual <- genModuleQualifier
+        op <- genOperator `suchThat` notDotLikeForQualifiedOp
+        pure (mkName (Just qual) NameVarSym op)
+    ]
+  where
+    -- \| @renderName (mkName (Just q) NameVarSym op) == q <> "." <> op@ must not
+    -- insert an extra dot before @op@ (e.g. @op == ".+"@ would yield @q..+@).
+    notDotLikeForQualifiedOp :: Text -> Bool
+    notDotLikeForQualifiedOp op =
+      not (T.null op) && not (".." `T.isInfixOf` op) && not ("." `T.isPrefixOf` op)
 
 -- | Generate an identifier safe for TH name quotes ('name).
 -- Avoids identifiers where the second character is a single quote,

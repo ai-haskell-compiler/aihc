@@ -1076,26 +1076,14 @@ thNameQuoteExprParser = thValueNameQuoteParser <|> thTypeNameQuoteParser
 thValueNameQuoteParser :: TokParser Expr
 thValueNameQuoteParser = withSpanAnn (EAnn . mkAnnotation) $ do
   expectedTok TkTHQuoteTick
-  name <- identifierTextParser <|> parenOperatorTextParser
-  pure (ETHNameQuote name)
+  name <- identifierNameParser <|> parenOperatorNameParser <|> bracketConstructorNameParser
+  pure (ETHNameQuote (renderName name))
 
 thTypeNameQuoteParser :: TokParser Expr
 thTypeNameQuoteParser = withSpanAnn (EAnn . mkAnnotation) $ do
   expectedTok TkTHTypeQuoteTick
-  name <- identifierNameParser <|> parenOperatorNameParser
+  name <- identifierNameParser <|> parenOperatorNameParser <|> bracketConstructorNameParser
   pure (ETHTypeNameQuote name)
-
-parenOperatorTextParser :: TokParser Text
-parenOperatorTextParser = do
-  expectedTok TkSpecialLParen
-  op <- tokenSatisfy "operator" $ \tok ->
-    case lexTokenKind tok of
-      TkVarSym sym -> Just sym
-      TkConSym sym -> Just sym
-      TkReservedColon -> Just ":"
-      _ -> Nothing
-  expectedTok TkSpecialRParen
-  pure ("(" <> op <> ")")
 
 parenOperatorNameParser :: TokParser Name
 parenOperatorNameParser = do
@@ -1104,11 +1092,19 @@ parenOperatorNameParser = do
     case lexTokenKind tok of
       TkVarSym sym -> Just (qualifyName Nothing (mkUnqualifiedName NameVarSym sym))
       TkConSym sym -> Just (qualifyName Nothing (mkUnqualifiedName NameConSym sym))
+      TkQVarSym modName sym -> Just (mkName (Just modName) NameVarSym sym)
+      TkQConSym modName sym -> Just (mkName (Just modName) NameConSym sym)
       TkReservedColon -> Just (qualifyName Nothing (mkUnqualifiedName NameConSym ":"))
       TkReservedRightArrow -> Just (qualifyName Nothing (mkUnqualifiedName NameVarSym "->"))
       _ -> Nothing
   expectedTok TkSpecialRParen
   pure op
+
+bracketConstructorNameParser :: TokParser Name
+bracketConstructorNameParser = do
+  expectedTok TkSpecialLBracket
+  expectedTok TkSpecialRBracket
+  pure (qualifyName Nothing (mkUnqualifiedName NameConId "[]"))
 
 quasiQuoteExprParser :: TokParser Expr
 quasiQuoteExprParser =

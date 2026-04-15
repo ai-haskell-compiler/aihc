@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail reason="qualified operator name quotes in Template Haskell are not parsed" -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE TemplateHaskell #-}
 
 module DomainAesonQualifiedOperatorNameQuote where
