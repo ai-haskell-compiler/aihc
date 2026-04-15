@@ -170,20 +170,13 @@ cmdBindOrBodyStmtParser = withSpanAnn (DoAnn . mkAnnotation) $ do
   expr <- exprParserNoArrowTail
   mArrow <- MP.optional (expectedTok TkReservedLeftArrow)
   case mArrow of
-    Just () -> do
-      pat <- liftCheck (checkPattern expr)
-      rhs <- region "while parsing '<-' binding" cmdParser
-      pure (DoBind pat rhs)
+    Just () -> DoBind <$> liftCheck (checkPattern expr) <*> cmdParser
     Nothing -> do
       -- No bind arrow: this is a body statement.  Check for arrow tail.
       mArrTail <- MP.optional cmdArrTailParser
       case mArrTail of
         Just (appType, rhs) ->
-          let cmd =
-                cmdAnnSpan
-                  (mergeSourceSpans (getSourceSpan expr) (getSourceSpan rhs))
-                  (CmdArrApp expr appType rhs)
-           in pure (DoExpr cmd)
+          pure (DoExpr (CmdArrApp expr appType rhs))
         Nothing ->
           fail "expected arrow command (-< or -<<) in do statement"
 
