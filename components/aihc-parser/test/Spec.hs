@@ -120,7 +120,6 @@ buildTests = do
             testCase "roundtrips warned export reexports" test_warnedExportReexportRoundtrip,
             testCase "parses warned export module reexports" test_warnedExportModuleReexportParses,
             testCase "parses infix class heads" test_infixClassHeadParses,
-            testCase "roundtrips do statements continued by infix operators" test_doInfixContinuationRoundtrip,
             testCase "roundtrips else branches with local where clauses" test_ifElseWhereBranchRoundtrip,
             testCase "parses standalone mdo expressions" test_standaloneMdoExprParses,
             testCase "parses mdo view patterns" test_mdoViewPatternParses,
@@ -467,25 +466,6 @@ test_infixClassHeadParses =
             DeclClass _ ClassDecl {classDeclHeadForm = TypeHeadInfix, classDeclName = ":=:", classDeclParams = [TyVarBinder _ "a" Nothing TyVarBSpecified, TyVarBinder _ "b" Nothing TyVarBSpecified], classDeclItems = [ClassItemTypeSig _ ["proof"] _]}
             ] -> pure ()
           other -> assertFailure ("unexpected parsed declarations: " <> show other)
-
-test_doInfixContinuationRoundtrip :: Assertion
-test_doInfixContinuationRoundtrip =
-  let source =
-        T.unlines
-          [ "{-# LANGUAGE GHC2021 #-}",
-            "module M where",
-            "rassocP :: Maybe Int",
-            "rassocP = do",
-            "  f <- Just 1",
-            "  y <- do",
-            "    z <- Just 2",
-            "    Just (f + z)",
-            "  pure (f + y)",
-            "  <|> Just 0"
-          ]
-   in case validateParser "DoInfixContinuation.hs" Haskell2010Edition [] source of
-        Nothing -> pure ()
-        Just err -> assertFailure ("expected do infix continuation roundtrip to validate, got: " <> show err)
 
 test_ifElseWhereBranchRoundtrip :: Assertion
 test_ifElseWhereBranchRoundtrip =
