@@ -1363,12 +1363,15 @@ prettyTopDataFamilyInst dfi =
     [keyword, "instance"]
       <> forallPart (dataFamilyInstForall dfi)
       <> [prettyType (dataFamilyInstHead dfi)]
+      <> kindPart (dataFamilyInstKind dfi)
       <> ctorPart (dataFamilyInstConstructors dfi)
       <> derivingParts (dataFamilyInstDeriving dfi)
   where
     keyword = if dataFamilyInstIsNewtype dfi then "newtype" else "data"
     forallPart [] = []
     forallPart binders = ["forall", hsep (map prettyTyVarBinder binders) <> "."]
+    kindPart Nothing = []
+    kindPart (Just k) = ["::", prettyType k]
     ctorPart [] = []
     ctorPart ctors@(c : _)
       | any isGadtCon ctors = ["where", braces (hsep (punctuate semi (map prettyDataCon ctors)))]
@@ -1459,10 +1462,13 @@ prettyInstDataFamilyInst :: DataFamilyInst -> Doc ann
 prettyInstDataFamilyInst dfi =
   hsep $
     [keyword, prettyType (dataFamilyInstHead dfi)]
+      <> kindPart (dataFamilyInstKind dfi)
       <> ctorPart (dataFamilyInstConstructors dfi)
       <> derivingParts (dataFamilyInstDeriving dfi)
   where
     keyword = if dataFamilyInstIsNewtype dfi then "newtype" else "data"
+    kindPart Nothing = []
+    kindPart (Just k) = ["::", prettyType k]
     ctorPart [] = []
     ctorPart ctors@(c : _)
       | any isGadtCon ctors = ["where", braces (hsep (punctuate semi (map prettyDataCon ctors)))]
