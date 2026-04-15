@@ -65,7 +65,6 @@ exprCoreParserWithoutTypeSigExcept forbiddenInfix = do
     TkKeywordDo -> doExprParser
     TkKeywordMdo -> mdoExprParser
     TkKeywordIf -> ifExprParser
-    TkKeywordCase -> caseExprParser
     TkKeywordLet -> letExprParser
     TkKeywordProc -> procExprParser
     TkReservedBackslash -> lambdaExprParser
@@ -192,7 +191,6 @@ exprCoreParserNoArrowTail = do
     TkKeywordDo -> doExprParser
     TkKeywordMdo -> mdoExprParser
     TkKeywordIf -> ifExprParser
-    TkKeywordCase -> caseExprParser
     TkKeywordLet -> letExprParser
     TkKeywordProc -> procExprParser
     TkReservedBackslash -> lambdaExprParser

@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail reason="character literals like '\^\\' in case alternative right-hand sides are rejected after escaped-backslash cons patterns" -}
+{- ORACLE_TEST pass -}
 module X where
 
 go xs = case xs of

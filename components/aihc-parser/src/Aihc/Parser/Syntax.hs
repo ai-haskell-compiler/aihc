@@ -1547,6 +1547,7 @@ data CallConv
 data ForeignSafety
   = Safe
   | Unsafe
+  | Interruptible
   deriving (Data, Eq, Show, Generic, NFData)
 
 newtype Annotation = Annotation Dynamic
