@@ -427,14 +427,15 @@ docFunctionalDependency dep =
 docClassDeclItem :: ClassDeclItem -> Doc ann
 docClassDeclItem item =
   case item of
-    ClassItemTypeSig _ names ty -> "ClassItemTypeSig" <+> braces (hsep (punctuate comma [field "names" (brackets (hsep (punctuate comma (map docUnqualifiedName names)))), field "type" (docType ty)]))
-    ClassItemDefaultSig _ name ty -> "ClassItemDefaultSig" <+> braces (hsep (punctuate comma [field "name" (docUnqualifiedName name), field "type" (docType ty)]))
-    ClassItemFixity _ assoc mNamespace mPrec ops -> "ClassItemFixity" <+> braces (hsep (punctuate comma ([field "assoc" (docFixityAssoc assoc)] <> optionalField "namespace" docIENamespace mNamespace <> optionalField "prec" pretty mPrec <> [field "ops" (brackets (hsep (punctuate comma (map docUnqualifiedName ops))))])))
-    ClassItemDefault _ vdecl -> "ClassItemDefault" <+> parens (docValueDecl vdecl)
-    ClassItemTypeFamilyDecl _ tf -> "ClassItemTypeFamilyDecl" <+> parens (docTypeFamilyDecl tf)
-    ClassItemDataFamilyDecl _ df -> "ClassItemDataFamilyDecl" <+> parens (docDataFamilyDecl df)
-    ClassItemDefaultTypeInst _ tfi -> "ClassItemDefaultTypeInst" <+> parens (docTypeFamilyInst tfi)
-    ClassItemPragma _ pragma -> "ClassItemPragma" <+> docPragma pragma
+    ClassItemAnn _ sub -> docClassDeclItem sub
+    ClassItemTypeSig names ty -> "ClassItemTypeSig" <+> braces (hsep (punctuate comma [field "names" (brackets (hsep (punctuate comma (map docUnqualifiedName names)))), field "type" (docType ty)]))
+    ClassItemDefaultSig name ty -> "ClassItemDefaultSig" <+> braces (hsep (punctuate comma [field "name" (docUnqualifiedName name), field "type" (docType ty)]))
+    ClassItemFixity assoc mNamespace mPrec ops -> "ClassItemFixity" <+> braces (hsep (punctuate comma ([field "assoc" (docFixityAssoc assoc)] <> optionalField "namespace" docIENamespace mNamespace <> optionalField "prec" pretty mPrec <> [field "ops" (brackets (hsep (punctuate comma (map docUnqualifiedName ops))))])))
+    ClassItemDefault vdecl -> "ClassItemDefault" <+> parens (docValueDecl vdecl)
+    ClassItemTypeFamilyDecl tf -> "ClassItemTypeFamilyDecl" <+> parens (docTypeFamilyDecl tf)
+    ClassItemDataFamilyDecl df -> "ClassItemDataFamilyDecl" <+> parens (docDataFamilyDecl df)
+    ClassItemDefaultTypeInst tfi -> "ClassItemDefaultTypeInst" <+> parens (docTypeFamilyInst tfi)
+    ClassItemPragma pragma -> "ClassItemPragma" <+> docPragma pragma
 
 docInstanceDecl :: InstanceDecl -> Doc ann
 docInstanceDecl inst =
@@ -619,96 +620,97 @@ docPattern :: Pattern -> Doc ann
 docPattern pat =
   case pat of
     PAnn _ sub -> docPattern sub
-    PVar _ name -> "PVar" <+> docUnqualifiedName name
-    PWildcard _ -> "PWildcard"
-    PLit _ lit -> "PLit" <+> parens (docLiteral lit)
-    PQuasiQuote _ quoter body -> "PQuasiQuote" <+> docText quoter <+> docText body
-    PTuple _ tupleFlavor elems ->
+    PVar name -> "PVar" <+> docUnqualifiedName name
+    PWildcard -> "PWildcard"
+    PLit lit -> "PLit" <+> parens (docLiteral lit)
+    PQuasiQuote quoter body -> "PQuasiQuote" <+> docText quoter <+> docText body
+    PTuple tupleFlavor elems ->
       (if tupleFlavor == Boxed then "PTuple" else "PTupleUnboxed")
         <+> brackets (hsep (punctuate comma (map docPattern elems)))
-    PUnboxedSum _ altIdx arity inner ->
+    PUnboxedSum altIdx arity inner ->
       "PUnboxedSum" <+> pretty altIdx <+> pretty arity <+> docPattern inner
-    PList _ elems -> "PList" <+> brackets (hsep (punctuate comma (map docPattern elems)))
-    PCon _ name args -> "PCon" <+> docName name <+> brackets (hsep (punctuate comma (map docPattern args)))
-    PInfix _ lhs op rhs -> "PInfix" <+> parens (docPattern lhs) <+> docName op <+> parens (docPattern rhs)
-    PView _ expr inner -> "PView" <+> parens (docExpr expr) <+> parens (docPattern inner)
-    PAs _ name inner -> "PAs" <+> docText name <+> parens (docPattern inner)
-    PStrict _ inner -> "PStrict" <+> parens (docPattern inner)
-    PIrrefutable _ inner -> "PIrrefutable" <+> parens (docPattern inner)
-    PNegLit _ lit -> "PNegLit" <+> parens (docLiteral lit)
-    PParen _ inner -> "PParen" <+> parens (docPattern inner)
-    PRecord _ name fields' hasWildcard -> "PRecord" <+> docName name <+> braces (hsep (punctuate comma ([docName fn <+> "=" <+> docPattern fp | (fn, fp) <- fields'] ++ [".." | hasWildcard])))
-    PTypeSig _ inner ty -> "PTypeSig" <+> parens (docPattern inner) <+> parens (docType ty)
-    PSplice _ body -> "PSplice" <+> parens (docExpr body)
+    PList elems -> "PList" <+> brackets (hsep (punctuate comma (map docPattern elems)))
+    PCon name args -> "PCon" <+> docName name <+> brackets (hsep (punctuate comma (map docPattern args)))
+    PInfix lhs op rhs -> "PInfix" <+> parens (docPattern lhs) <+> docName op <+> parens (docPattern rhs)
+    PView expr inner -> "PView" <+> parens (docExpr expr) <+> parens (docPattern inner)
+    PAs name inner -> "PAs" <+> docText name <+> parens (docPattern inner)
+    PStrict inner -> "PStrict" <+> parens (docPattern inner)
+    PIrrefutable inner -> "PIrrefutable" <+> parens (docPattern inner)
+    PNegLit lit -> "PNegLit" <+> parens (docLiteral lit)
+    PParen inner -> "PParen" <+> parens (docPattern inner)
+    PRecord name fields' hasWildcard -> "PRecord" <+> docName name <+> braces (hsep (punctuate comma ([docName fn <+> "=" <+> docPattern fp | (fn, fp) <- fields'] ++ [".." | hasWildcard])))
+    PTypeSig inner ty -> "PTypeSig" <+> parens (docPattern inner) <+> parens (docType ty)
+    PSplice body -> "PSplice" <+> parens (docExpr body)
 
 docLiteral :: Literal -> Doc ann
 docLiteral lit =
-  case lit of
-    LitInt _ n _ -> "LitInt" <+> pretty n
-    LitIntHash _ n repr -> "LitIntHash" <+> pretty n <+> docText repr
-    LitIntBase _ n repr -> "LitIntBase" <+> pretty n <+> docText repr
-    LitIntBaseHash _ n repr -> "LitIntBaseHash" <+> pretty n <+> docText repr
-    LitFloat _ n _ -> "LitFloat" <+> pretty n
-    LitFloatHash _ n repr -> "LitFloatHash" <+> pretty n <+> docText repr
-    LitChar _ c _ -> "LitChar" <+> pretty (show c)
-    LitCharHash _ c repr -> "LitCharHash" <+> pretty (show c) <+> docText repr
-    LitString _ s _ -> "LitString" <+> docText s
-    LitStringHash _ s repr -> "LitStringHash" <+> docText s <+> docText repr
+  case peelLiteralAnn lit of
+    LitInt n _ -> "LitInt" <+> pretty n
+    LitIntHash n repr -> "LitIntHash" <+> pretty n <+> docText repr
+    LitIntBase n repr -> "LitIntBase" <+> pretty n <+> docText repr
+    LitIntBaseHash n repr -> "LitIntBaseHash" <+> pretty n <+> docText repr
+    LitFloat n _ -> "LitFloat" <+> pretty n
+    LitFloatHash n repr -> "LitFloatHash" <+> pretty n <+> docText repr
+    LitChar c _ -> "LitChar" <+> pretty (show c)
+    LitCharHash c repr -> "LitCharHash" <+> pretty (show c) <+> docText repr
+    LitString s _ -> "LitString" <+> docText s
+    LitStringHash s repr -> "LitStringHash" <+> docText s <+> docText repr
+    LitAnn {} -> error "unreachable"
 
 -- Expressions
 
 docExpr :: Expr -> Doc ann
 docExpr expr =
   case expr of
-    EVar _ name -> "EVar" <+> docName name
-    EInt _ n _ -> "EInt" <+> pretty n
-    EIntHash _ n repr -> "EIntHash" <+> pretty n <+> docText repr
-    EIntBase _ n repr -> "EIntBase" <+> pretty n <+> docText repr
-    EIntBaseHash _ n repr -> "EIntBaseHash" <+> pretty n <+> docText repr
-    EFloat _ n _ -> "EFloat" <+> pretty n
-    EFloatHash _ n repr -> "EFloatHash" <+> pretty n <+> docText repr
-    EChar _ c _ -> "EChar" <+> pretty (show c)
-    ECharHash _ c repr -> "ECharHash" <+> pretty (show c) <+> docText repr
-    EString _ s _ -> "EString" <+> docText s
-    EStringHash _ s repr -> "EStringHash" <+> docText s <+> docText repr
-    EOverloadedLabel _ label raw -> "EOverloadedLabel" <+> docText label <+> docText raw
-    EQuasiQuote _ quoter body -> "EQuasiQuote" <+> docText quoter <+> docText body
-    ETHExpQuote _ body -> "ETHExpQuote" <+> parens (docExpr body)
-    ETHTypedQuote _ body -> "ETHTypedQuote" <+> parens (docExpr body)
-    ETHDeclQuote _ decls -> "ETHDeclQuote" <+> brackets (hsep (punctuate comma (map docDecl decls)))
-    ETHTypeQuote _ ty -> "ETHTypeQuote" <+> parens (docType ty)
-    ETHPatQuote _ pat -> "ETHPatQuote" <+> parens (docPattern pat)
-    ETHNameQuote _ name -> "ETHNameQuote" <+> docText name
-    ETHTypeNameQuote _ name -> "ETHTypeNameQuote" <+> docName name
-    ETHSplice _ body -> "ETHSplice" <+> parens (docExpr body)
-    ETHTypedSplice _ body -> "ETHTypedSplice" <+> parens (docExpr body)
-    EIf _ cond yes no -> "EIf" <+> parens (docExpr cond) <+> parens (docExpr yes) <+> parens (docExpr no)
-    EMultiWayIf _ rhss -> "EMultiWayIf" <+> brackets (hsep (punctuate comma (map docGuardedRhs rhss)))
-    ELambdaPats _ pats body -> "ELambdaPats" <+> brackets (hsep (punctuate comma (map docPattern pats))) <+> parens (docExpr body)
-    ELambdaCase _ alts -> "ELambdaCase" <+> brackets (hsep (punctuate comma (map docCaseAlt alts)))
-    EInfix _ lhs op rhs -> "EInfix" <+> parens (docExpr lhs) <+> docName op <+> parens (docExpr rhs)
-    ENegate _ inner -> "ENegate" <+> parens (docExpr inner)
-    ESectionL _ lhs op -> "ESectionL" <+> parens (docExpr lhs) <+> docName op
-    ESectionR _ op rhs -> "ESectionR" <+> docName op <+> parens (docExpr rhs)
-    ELetDecls _ decls body -> "ELetDecls" <+> brackets (hsep (punctuate comma (map docDecl decls))) <+> parens (docExpr body)
-    ECase _ scrutinee alts -> "ECase" <+> parens (docExpr scrutinee) <+> brackets (hsep (punctuate comma (map docCaseAlt alts)))
-    EDo _ stmts isMdo -> (if isMdo then "EMdo" else "EDo") <+> brackets (hsep (punctuate comma (map docDoStmt stmts)))
-    EListComp _ body quals -> "EListComp" <+> parens (docExpr body) <+> brackets (hsep (punctuate comma (map docCompStmt quals)))
-    EListCompParallel _ body qualGroups -> "EListCompParallel" <+> parens (docExpr body) <+> brackets (hsep (punctuate "|" [brackets (hsep (punctuate comma (map docCompStmt qs))) | qs <- qualGroups]))
-    EArithSeq _ seqInfo -> "EArithSeq" <+> parens (docArithSeq seqInfo)
-    ERecordCon _ name fields' hasWildcard -> "ERecordCon" <+> docText name <+> braces (hsep (punctuate comma ([docText fn <+> "=" <+> docExpr fv | (fn, fv) <- fields'] ++ [".." | hasWildcard])))
-    ERecordUpd _ base fields' -> "ERecordUpd" <+> parens (docExpr base) <+> braces (hsep (punctuate comma [docText fn <+> "=" <+> docExpr fv | (fn, fv) <- fields']))
-    ETypeSig _ inner ty -> "ETypeSig" <+> parens (docExpr inner) <+> parens (docType ty)
-    EParen _ inner -> "EParen" <+> parens (docExpr inner)
-    EList _ elems -> "EList" <+> brackets (hsep (punctuate comma (map docExpr elems)))
-    ETuple _ tupleFlavor elems ->
+    EVar name -> "EVar" <+> docName name
+    EInt n _ -> "EInt" <+> pretty n
+    EIntHash n repr -> "EIntHash" <+> pretty n <+> docText repr
+    EIntBase n repr -> "EIntBase" <+> pretty n <+> docText repr
+    EIntBaseHash n repr -> "EIntBaseHash" <+> pretty n <+> docText repr
+    EFloat n _ -> "EFloat" <+> pretty n
+    EFloatHash n repr -> "EFloatHash" <+> pretty n <+> docText repr
+    EChar c _ -> "EChar" <+> pretty (show c)
+    ECharHash c repr -> "ECharHash" <+> pretty (show c) <+> docText repr
+    EString s _ -> "EString" <+> docText s
+    EStringHash s repr -> "EStringHash" <+> docText s <+> docText repr
+    EOverloadedLabel label raw -> "EOverloadedLabel" <+> docText label <+> docText raw
+    EQuasiQuote quoter body -> "EQuasiQuote" <+> docText quoter <+> docText body
+    ETHExpQuote body -> "ETHExpQuote" <+> parens (docExpr body)
+    ETHTypedQuote body -> "ETHTypedQuote" <+> parens (docExpr body)
+    ETHDeclQuote decls -> "ETHDeclQuote" <+> brackets (hsep (punctuate comma (map docDecl decls)))
+    ETHTypeQuote ty -> "ETHTypeQuote" <+> parens (docType ty)
+    ETHPatQuote pat -> "ETHPatQuote" <+> parens (docPattern pat)
+    ETHNameQuote name -> "ETHNameQuote" <+> docText name
+    ETHTypeNameQuote name -> "ETHTypeNameQuote" <+> docName name
+    ETHSplice body -> "ETHSplice" <+> parens (docExpr body)
+    ETHTypedSplice body -> "ETHTypedSplice" <+> parens (docExpr body)
+    EIf cond yes no -> "EIf" <+> parens (docExpr cond) <+> parens (docExpr yes) <+> parens (docExpr no)
+    EMultiWayIf rhss -> "EMultiWayIf" <+> brackets (hsep (punctuate comma (map docGuardedRhs rhss)))
+    ELambdaPats pats body -> "ELambdaPats" <+> brackets (hsep (punctuate comma (map docPattern pats))) <+> parens (docExpr body)
+    ELambdaCase alts -> "ELambdaCase" <+> brackets (hsep (punctuate comma (map docCaseAlt alts)))
+    EInfix lhs op rhs -> "EInfix" <+> parens (docExpr lhs) <+> docName op <+> parens (docExpr rhs)
+    ENegate inner -> "ENegate" <+> parens (docExpr inner)
+    ESectionL lhs op -> "ESectionL" <+> parens (docExpr lhs) <+> docName op
+    ESectionR op rhs -> "ESectionR" <+> docName op <+> parens (docExpr rhs)
+    ELetDecls decls body -> "ELetDecls" <+> brackets (hsep (punctuate comma (map docDecl decls))) <+> parens (docExpr body)
+    ECase scrutinee alts -> "ECase" <+> parens (docExpr scrutinee) <+> brackets (hsep (punctuate comma (map docCaseAlt alts)))
+    EDo stmts isMdo -> (if isMdo then "EMdo" else "EDo") <+> brackets (hsep (punctuate comma (map docDoStmt stmts)))
+    EListComp body quals -> "EListComp" <+> parens (docExpr body) <+> brackets (hsep (punctuate comma (map docCompStmt quals)))
+    EListCompParallel body qualGroups -> "EListCompParallel" <+> parens (docExpr body) <+> brackets (hsep (punctuate "|" [brackets (hsep (punctuate comma (map docCompStmt qs))) | qs <- qualGroups]))
+    EArithSeq seqInfo -> "EArithSeq" <+> parens (docArithSeq seqInfo)
+    ERecordCon name fields' hasWildcard -> "ERecordCon" <+> docText name <+> braces (hsep (punctuate comma ([docText fn <+> "=" <+> docExpr fv | (fn, fv) <- fields'] ++ [".." | hasWildcard])))
+    ERecordUpd base fields' -> "ERecordUpd" <+> parens (docExpr base) <+> braces (hsep (punctuate comma [docText fn <+> "=" <+> docExpr fv | (fn, fv) <- fields']))
+    ETypeSig inner ty -> "ETypeSig" <+> parens (docExpr inner) <+> parens (docType ty)
+    EParen inner -> "EParen" <+> parens (docExpr inner)
+    EList elems -> "EList" <+> brackets (hsep (punctuate comma (map docExpr elems)))
+    ETuple tupleFlavor elems ->
       (if tupleFlavor == Boxed then "ETuple" else "ETupleUnboxed")
         <+> brackets (hsep (punctuate comma (map (maybe "_" docExpr) elems)))
-    EUnboxedSum _ altIdx arity inner ->
+    EUnboxedSum altIdx arity inner ->
       "EUnboxedSum" <+> pretty altIdx <+> pretty arity <+> docExpr inner
-    ETypeApp _ inner ty -> "ETypeApp" <+> parens (docExpr inner) <+> parens (docType ty)
-    EApp _ f x -> "EApp" <+> parens (docExpr f) <+> parens (docExpr x)
-    EProc _ pat body -> "EProc" <+> parens (docPattern pat) <+> parens (docCmd body)
+    ETypeApp inner ty -> "ETypeApp" <+> parens (docExpr inner) <+> parens (docType ty)
+    EApp f x -> "EApp" <+> parens (docExpr f) <+> parens (docExpr x)
+    EProc pat body -> "EProc" <+> parens (docPattern pat) <+> parens (docCmd body)
     EAnn _ sub -> docExpr sub
 
 docCaseAlt :: CaseAlt -> Doc ann

@@ -122,12 +122,16 @@ module Aihc.Parser.Syntax
     moduleExports,
     mkAnnotation,
     fromAnnotation,
+    classItemAnnSpan,
     declAnnSpan,
     exprAnnSpan,
     patternAnnSpan,
+    peelClassDeclItemAnn,
     peelDeclAnn,
     peelExprAnn,
     peelPatternAnn,
+    literalAnnSpan,
+    peelLiteralAnn,
     typeAnnSpan,
   )
 where
@@ -1068,31 +1072,42 @@ instance HasSourceSpan GuardQualifier where
       GuardLet span' _ -> span'
 
 data Literal
-  = LitInt SourceSpan Integer Text
-  | LitIntHash SourceSpan Integer Text
-  | LitIntBase SourceSpan Integer Text
-  | LitIntBaseHash SourceSpan Integer Text
-  | LitFloat SourceSpan Double Text
-  | LitFloatHash SourceSpan Double Text
-  | LitChar SourceSpan Char Text
-  | LitCharHash SourceSpan Char Text
-  | LitString SourceSpan Text Text
-  | LitStringHash SourceSpan Text Text
+  = LitAnn Annotation Literal
+  | LitInt Integer Text
+  | LitIntHash Integer Text
+  | LitIntBase Integer Text
+  | LitIntBaseHash Integer Text
+  | LitFloat Double Text
+  | LitFloatHash Double Text
+  | LitChar Char Text
+  | LitCharHash Char Text
+  | LitString Text Text
+  | LitStringHash Text Text
   deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan Literal where
   getSourceSpan literal =
     case literal of
-      LitInt span' _ _ -> span'
-      LitIntHash span' _ _ -> span'
-      LitIntBase span' _ _ -> span'
-      LitIntBaseHash span' _ _ -> span'
-      LitFloat span' _ _ -> span'
-      LitFloatHash span' _ _ -> span'
-      LitChar span' _ _ -> span'
-      LitCharHash span' _ _ -> span'
-      LitString span' _ _ -> span'
-      LitStringHash span' _ _ -> span'
+      LitAnn ann sub
+        | Just srcSpan <- fromAnnotation @SourceSpan ann -> srcSpan
+        | otherwise -> getSourceSpan sub
+      LitInt {} -> NoSourceSpan
+      LitIntHash {} -> NoSourceSpan
+      LitIntBase {} -> NoSourceSpan
+      LitIntBaseHash {} -> NoSourceSpan
+      LitFloat {} -> NoSourceSpan
+      LitFloatHash {} -> NoSourceSpan
+      LitChar {} -> NoSourceSpan
+      LitCharHash {} -> NoSourceSpan
+      LitString {} -> NoSourceSpan
+      LitStringHash {} -> NoSourceSpan
+
+literalAnnSpan :: SourceSpan -> Literal -> Literal
+literalAnnSpan sp = LitAnn (mkAnnotation sp)
+
+peelLiteralAnn :: Literal -> Literal
+peelLiteralAnn (LitAnn _ inner) = peelLiteralAnn inner
+peelLiteralAnn lit = lit
 
 data TupleFlavor
   = Boxed
@@ -1101,24 +1116,24 @@ data TupleFlavor
 
 data Pattern
   = PAnn Annotation Pattern
-  | PVar SourceSpan UnqualifiedName
-  | PWildcard SourceSpan
-  | PLit SourceSpan Literal
-  | PQuasiQuote SourceSpan Text Text
-  | PTuple SourceSpan TupleFlavor [Pattern]
-  | PUnboxedSum SourceSpan Int Int Pattern
-  | PList SourceSpan [Pattern]
-  | PCon SourceSpan Name [Pattern]
-  | PInfix SourceSpan Pattern Name Pattern
-  | PView SourceSpan Expr Pattern
-  | PAs SourceSpan Text Pattern
-  | PStrict SourceSpan Pattern
-  | PIrrefutable SourceSpan Pattern
-  | PNegLit SourceSpan Literal
-  | PParen SourceSpan Pattern
-  | PRecord SourceSpan Name [(Name, Pattern)] Bool -- Bool: wildcard present
-  | PTypeSig SourceSpan Pattern Type
-  | PSplice SourceSpan Expr
+  | PVar UnqualifiedName
+  | PWildcard
+  | PLit Literal
+  | PQuasiQuote Text Text
+  | PTuple TupleFlavor [Pattern]
+  | PUnboxedSum Int Int Pattern
+  | PList [Pattern]
+  | PCon Name [Pattern]
+  | PInfix Pattern Name Pattern
+  | PView Expr Pattern
+  | PAs Text Pattern
+  | PStrict Pattern
+  | PIrrefutable Pattern
+  | PNegLit Literal
+  | PParen Pattern
+  | PRecord Name [(Name, Pattern)] Bool -- Bool: wildcard present
+  | PTypeSig Pattern Type
+  | PSplice Expr
   -- \$pat or $(pat) (TH pattern splice)
   deriving (Data, Eq, Show, Generic, NFData)
 
@@ -1128,24 +1143,24 @@ instance HasSourceSpan Pattern where
       PAnn ann sub
         | Just srcSpan <- fromAnnotation @SourceSpan ann -> srcSpan
         | otherwise -> getSourceSpan sub
-      PVar span' _ -> span'
-      PWildcard span' -> span'
-      PLit span' _ -> span'
-      PQuasiQuote span' _ _ -> span'
-      PTuple span' _ _ -> span'
-      PUnboxedSum span' _ _ _ -> span'
-      PList span' _ -> span'
-      PCon span' _ _ -> span'
-      PInfix span' _ _ _ -> span'
-      PView span' _ _ -> span'
-      PAs span' _ _ -> span'
-      PStrict span' _ -> span'
-      PIrrefutable span' _ -> span'
-      PNegLit span' _ -> span'
-      PParen span' _ -> span'
-      PRecord span' _ _ _ -> span'
-      PTypeSig span' _ _ -> span'
-      PSplice span' _ -> span'
+      PVar {} -> NoSourceSpan
+      PWildcard {} -> NoSourceSpan
+      PLit {} -> NoSourceSpan
+      PQuasiQuote {} -> NoSourceSpan
+      PTuple {} -> NoSourceSpan
+      PUnboxedSum {} -> NoSourceSpan
+      PList {} -> NoSourceSpan
+      PCon {} -> NoSourceSpan
+      PInfix {} -> NoSourceSpan
+      PView {} -> NoSourceSpan
+      PAs {} -> NoSourceSpan
+      PStrict {} -> NoSourceSpan
+      PIrrefutable {} -> NoSourceSpan
+      PNegLit {} -> NoSourceSpan
+      PParen {} -> NoSourceSpan
+      PRecord {} -> NoSourceSpan
+      PTypeSig {} -> NoSourceSpan
+      PSplice {} -> NoSourceSpan
 
 -- | Peel nested 'PAnn' wrappers.
 peelPatternAnn :: Pattern -> Pattern
@@ -1491,28 +1506,39 @@ instance HasSourceSpan FunctionalDependency where
   getSourceSpan = functionalDependencySpan
 
 data ClassDeclItem
-  = ClassItemTypeSig SourceSpan [BinderName] Type
-  | ClassItemDefaultSig SourceSpan BinderName Type
-  | ClassItemFixity SourceSpan FixityAssoc (Maybe IEEntityNamespace) (Maybe Int) [OperatorName]
-  | ClassItemDefault SourceSpan ValueDecl
-  | ClassItemTypeFamilyDecl SourceSpan TypeFamilyDecl
-  | ClassItemDataFamilyDecl SourceSpan DataFamilyDecl
-  | ClassItemDefaultTypeInst SourceSpan TypeFamilyInst
+  = ClassItemAnn Annotation ClassDeclItem
+  | ClassItemTypeSig [BinderName] Type
+  | ClassItemDefaultSig BinderName Type
+  | ClassItemFixity FixityAssoc (Maybe IEEntityNamespace) (Maybe Int) [OperatorName]
+  | ClassItemDefault ValueDecl
+  | ClassItemTypeFamilyDecl TypeFamilyDecl
+  | ClassItemDataFamilyDecl DataFamilyDecl
+  | ClassItemDefaultTypeInst TypeFamilyInst
   | -- pragma inside class body
-    ClassItemPragma SourceSpan Pragma
+    ClassItemPragma Pragma
   deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan ClassDeclItem where
   getSourceSpan classDeclItem =
     case classDeclItem of
-      ClassItemTypeSig span' _ _ -> span'
-      ClassItemDefaultSig span' _ _ -> span'
-      ClassItemFixity span' _ _ _ _ -> span'
-      ClassItemDefault span' _ -> span'
-      ClassItemTypeFamilyDecl span' _ -> span'
-      ClassItemDataFamilyDecl span' _ -> span'
-      ClassItemDefaultTypeInst span' _ -> span'
-      ClassItemPragma span' _ -> span'
+      ClassItemAnn ann sub
+        | Just srcSpan <- fromAnnotation @SourceSpan ann -> srcSpan
+        | otherwise -> getSourceSpan sub
+      ClassItemTypeSig {} -> NoSourceSpan
+      ClassItemDefaultSig {} -> NoSourceSpan
+      ClassItemFixity {} -> NoSourceSpan
+      ClassItemDefault {} -> NoSourceSpan
+      ClassItemTypeFamilyDecl {} -> NoSourceSpan
+      ClassItemDataFamilyDecl {} -> NoSourceSpan
+      ClassItemDefaultTypeInst {} -> NoSourceSpan
+      ClassItemPragma {} -> NoSourceSpan
+
+peelClassDeclItemAnn :: ClassDeclItem -> ClassDeclItem
+peelClassDeclItemAnn (ClassItemAnn _ inner) = peelClassDeclItemAnn inner
+peelClassDeclItemAnn item = item
+
+classItemAnnSpan :: SourceSpan -> ClassDeclItem -> ClassDeclItem
+classItemAnnSpan sp = ClassItemAnn (mkAnnotation sp)
 
 data InstanceDecl = InstanceDecl
   { instanceDeclSpan :: SourceSpan,
@@ -1631,56 +1657,56 @@ instance NFData Annotation where
 
 data Expr
   = EAnn Annotation Expr
-  | EVar SourceSpan Name
-  | EInt SourceSpan Integer Text
-  | EIntHash SourceSpan Integer Text
-  | EIntBase SourceSpan Integer Text
-  | EIntBaseHash SourceSpan Integer Text
-  | EFloat SourceSpan Double Text
-  | EFloatHash SourceSpan Double Text
-  | EChar SourceSpan Char Text
-  | ECharHash SourceSpan Char Text
-  | EString SourceSpan Text Text
-  | EStringHash SourceSpan Text Text
-  | EOverloadedLabel SourceSpan Text Text
-  | EQuasiQuote SourceSpan Text Text
-  | EIf SourceSpan Expr Expr Expr
-  | EMultiWayIf SourceSpan [GuardedRhs]
-  | ELambdaPats SourceSpan [Pattern] Expr
-  | ELambdaCase SourceSpan [CaseAlt]
-  | EInfix SourceSpan Expr Name Expr
-  | ENegate SourceSpan Expr
-  | ESectionL SourceSpan Expr Name
-  | ESectionR SourceSpan Name Expr
-  | ELetDecls SourceSpan [Decl] Expr
-  | ECase SourceSpan Expr [CaseAlt]
-  | EDo SourceSpan [DoStmt Expr] Bool -- Bool: True = mdo, False = do
-  | EListComp SourceSpan Expr [CompStmt]
-  | EListCompParallel SourceSpan Expr [[CompStmt]]
-  | EArithSeq SourceSpan ArithSeq
-  | ERecordCon SourceSpan Text [(Text, Expr)] Bool -- Bool: wildcard present
-  | ERecordUpd SourceSpan Expr [(Text, Expr)]
-  | ETypeSig SourceSpan Expr Type
-  | EParen SourceSpan Expr
-  | EList SourceSpan [Expr]
-  | ETuple SourceSpan TupleFlavor [Maybe Expr]
-  | EUnboxedSum SourceSpan Int Int Expr
-  | ETypeApp SourceSpan Expr Type
-  | EApp SourceSpan Expr Expr
+  | EVar Name
+  | EInt Integer Text
+  | EIntHash Integer Text
+  | EIntBase Integer Text
+  | EIntBaseHash Integer Text
+  | EFloat Double Text
+  | EFloatHash Double Text
+  | EChar Char Text
+  | ECharHash Char Text
+  | EString Text Text
+  | EStringHash Text Text
+  | EOverloadedLabel Text Text
+  | EQuasiQuote Text Text
+  | EIf Expr Expr Expr
+  | EMultiWayIf [GuardedRhs]
+  | ELambdaPats [Pattern] Expr
+  | ELambdaCase [CaseAlt]
+  | EInfix Expr Name Expr
+  | ENegate Expr
+  | ESectionL Expr Name
+  | ESectionR Name Expr
+  | ELetDecls [Decl] Expr
+  | ECase Expr [CaseAlt]
+  | EDo [DoStmt Expr] Bool -- Bool: True = mdo, False = do
+  | EListComp Expr [CompStmt]
+  | EListCompParallel Expr [[CompStmt]]
+  | EArithSeq ArithSeq
+  | ERecordCon Text [(Text, Expr)] Bool -- Bool: wildcard present
+  | ERecordUpd Expr [(Text, Expr)]
+  | ETypeSig Expr Type
+  | EParen Expr
+  | EList [Expr]
+  | ETuple TupleFlavor [Maybe Expr]
+  | EUnboxedSum Int Int Expr
+  | ETypeApp Expr Type
+  | EApp Expr Expr
   | -- Template Haskell quotes
-    ETHExpQuote SourceSpan Expr -- [| expr |] or [e| expr |]
-  | ETHTypedQuote SourceSpan Expr -- [|| expr ||] or [e|| expr ||]
-  | ETHDeclQuote SourceSpan [Decl] -- [d| decls |]
-  | ETHTypeQuote SourceSpan Type -- [t| type |]
-  | ETHPatQuote SourceSpan Pattern -- [p| pat |]
-  | ETHNameQuote SourceSpan Text -- 'name
-  | ETHTypeNameQuote SourceSpan Name -- ''Name
+    ETHExpQuote Expr -- [| expr |] or [e| expr |]
+  | ETHTypedQuote Expr -- [|| expr ||] or [e|| expr ||]
+  | ETHDeclQuote [Decl] -- [d| decls |]
+  | ETHTypeQuote Type -- [t| type |]
+  | ETHPatQuote Pattern -- [p| pat |]
+  | ETHNameQuote Text -- 'name
+  | ETHTypeNameQuote Name -- ''Name
   | -- Template Haskell splices
-    ETHSplice SourceSpan Expr
+    ETHSplice Expr
   | -- \$expr or $(expr)
-    ETHTypedSplice SourceSpan Expr -- \$$expr or $$(expr)
+    ETHTypedSplice Expr -- \$$expr or $$(expr)
   | -- Arrow notation (Arrows extension)
-    EProc SourceSpan Pattern Cmd -- proc pat -> cmd
+    EProc Pattern Cmd -- proc pat -> cmd
   deriving (Data, Eq, Show, Generic, NFData)
 
 instance HasSourceSpan Expr where
@@ -1689,52 +1715,52 @@ instance HasSourceSpan Expr where
       EAnn ann sub
         | Just srcSpan <- fromAnnotation @SourceSpan ann -> srcSpan
         | otherwise -> getSourceSpan sub
-      EVar span' _ -> span'
-      EInt span' _ _ -> span'
-      EIntHash span' _ _ -> span'
-      EIntBase span' _ _ -> span'
-      EIntBaseHash span' _ _ -> span'
-      EFloat span' _ _ -> span'
-      EFloatHash span' _ _ -> span'
-      EChar span' _ _ -> span'
-      ECharHash span' _ _ -> span'
-      EString span' _ _ -> span'
-      EStringHash span' _ _ -> span'
-      EOverloadedLabel span' _ _ -> span'
-      EQuasiQuote span' _ _ -> span'
-      EIf span' _ _ _ -> span'
-      EMultiWayIf span' _ -> span'
-      ELambdaPats span' _ _ -> span'
-      ELambdaCase span' _ -> span'
-      EInfix span' _ _ _ -> span'
-      ENegate span' _ -> span'
-      ESectionL span' _ _ -> span'
-      ESectionR span' _ _ -> span'
-      ELetDecls span' _ _ -> span'
-      ECase span' _ _ -> span'
-      EDo span' _ _ -> span'
-      EListComp span' _ _ -> span'
-      EListCompParallel span' _ _ -> span'
-      EArithSeq span' _ -> span'
-      ERecordCon span' _ _ _ -> span'
-      ERecordUpd span' _ _ -> span'
-      ETypeSig span' _ _ -> span'
-      EParen span' _ -> span'
-      EList span' _ -> span'
-      ETuple span' _ _ -> span'
-      EUnboxedSum span' _ _ _ -> span'
-      ETypeApp span' _ _ -> span'
-      EApp span' _ _ -> span'
-      ETHExpQuote span' _ -> span'
-      ETHTypedQuote span' _ -> span'
-      ETHDeclQuote span' _ -> span'
-      ETHTypeQuote span' _ -> span'
-      ETHPatQuote span' _ -> span'
-      ETHNameQuote span' _ -> span'
-      ETHTypeNameQuote span' _ -> span'
-      ETHSplice span' _ -> span'
-      ETHTypedSplice span' _ -> span'
-      EProc span' _ _ -> span'
+      EVar {} -> NoSourceSpan
+      EInt {} -> NoSourceSpan
+      EIntHash {} -> NoSourceSpan
+      EIntBase {} -> NoSourceSpan
+      EIntBaseHash {} -> NoSourceSpan
+      EFloat {} -> NoSourceSpan
+      EFloatHash {} -> NoSourceSpan
+      EChar {} -> NoSourceSpan
+      ECharHash {} -> NoSourceSpan
+      EString {} -> NoSourceSpan
+      EStringHash {} -> NoSourceSpan
+      EOverloadedLabel {} -> NoSourceSpan
+      EQuasiQuote {} -> NoSourceSpan
+      EIf {} -> NoSourceSpan
+      EMultiWayIf {} -> NoSourceSpan
+      ELambdaPats {} -> NoSourceSpan
+      ELambdaCase {} -> NoSourceSpan
+      EInfix {} -> NoSourceSpan
+      ENegate {} -> NoSourceSpan
+      ESectionL {} -> NoSourceSpan
+      ESectionR {} -> NoSourceSpan
+      ELetDecls {} -> NoSourceSpan
+      ECase {} -> NoSourceSpan
+      EDo {} -> NoSourceSpan
+      EListComp {} -> NoSourceSpan
+      EListCompParallel {} -> NoSourceSpan
+      EArithSeq {} -> NoSourceSpan
+      ERecordCon {} -> NoSourceSpan
+      ERecordUpd {} -> NoSourceSpan
+      ETypeSig {} -> NoSourceSpan
+      EParen {} -> NoSourceSpan
+      EList {} -> NoSourceSpan
+      ETuple {} -> NoSourceSpan
+      EUnboxedSum {} -> NoSourceSpan
+      ETypeApp {} -> NoSourceSpan
+      EApp {} -> NoSourceSpan
+      ETHExpQuote {} -> NoSourceSpan
+      ETHTypedQuote {} -> NoSourceSpan
+      ETHDeclQuote {} -> NoSourceSpan
+      ETHTypeQuote {} -> NoSourceSpan
+      ETHPatQuote {} -> NoSourceSpan
+      ETHNameQuote {} -> NoSourceSpan
+      ETHTypeNameQuote {} -> NoSourceSpan
+      ETHSplice {} -> NoSourceSpan
+      ETHTypedSplice {} -> NoSourceSpan
+      EProc {} -> NoSourceSpan
 
 exprAnnSpan :: SourceSpan -> Expr -> Expr
 exprAnnSpan sp = EAnn (mkAnnotation sp)
@@ -1857,7 +1883,7 @@ valueDeclBinderName vdecl =
     FunctionBind _ name _ -> Just name
     PatternBind _ pat _ ->
       case pat of
-        PVar _ name -> Just name
+        PVar name -> Just name
         _ -> Nothing
 
 declValueBinderNames :: Decl -> [UnqualifiedName]

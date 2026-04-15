@@ -34,10 +34,9 @@ thSpliceTypeParser = withSpan $ do
   where
     parenSpliceBody = withSpan $ do
       body <- parens exprParser
-      pure (`EParen` body)
+      pure (const (EParen body))
     bareSpliceBody = withSpan $ do
-      name <- identifierNameParser
-      pure (`EVar` name)
+      const . EVar <$> identifierNameParser
 
 typeParser :: TokParser Type
 typeParser = label "type" $ forallTypeParser <|> contextOrFunTypeParser

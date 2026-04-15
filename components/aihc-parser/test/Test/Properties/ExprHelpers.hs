@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TypeApplications #-}
 
 -- | Shared normalization helpers used by multiple round-trip test modules.
@@ -20,52 +21,52 @@ span0 = noSourceSpan
 normalizeExpr :: Expr -> Expr
 normalizeExpr expr =
   case expr of
-    EVar _ name -> EVar span0 name
-    EInt _ value _ -> EInt span0 value (T.pack (show value))
-    EIntHash _ value repr -> EIntHash span0 value repr
-    EIntBase _ value repr -> EIntBase span0 value repr
-    EIntBaseHash _ value repr -> EIntBaseHash span0 value repr
-    EFloat _ value repr -> EFloat span0 value repr
-    EFloatHash _ value repr -> EFloatHash span0 value repr
-    EChar _ value repr -> EChar span0 value repr
-    ECharHash _ value repr -> ECharHash span0 value repr
-    EString _ value repr -> EString span0 value repr
-    EStringHash _ value repr -> EStringHash span0 value repr
-    EOverloadedLabel _ value repr -> EOverloadedLabel span0 value repr
-    EQuasiQuote _ quoter body -> EQuasiQuote span0 quoter body
-    EApp _ fn arg -> EApp span0 (normalizeExpr fn) (normalizeExpr arg)
-    EInfix _ lhs op rhs -> EInfix span0 (normalizeExpr lhs) op (normalizeExpr rhs)
-    ENegate _ inner -> ENegate span0 (normalizeExpr inner)
-    ESectionL _ inner op -> ESectionL span0 (normalizeExpr inner) op
-    ESectionR _ op inner -> ESectionR span0 op (normalizeExpr inner)
-    EIf _ cond thenE elseE -> EIf span0 (normalizeExpr cond) (normalizeExpr thenE) (normalizeExpr elseE)
-    EMultiWayIf _ rhss -> EMultiWayIf span0 (map normalizeGuardedRhs rhss)
-    ECase _ scrutinee alts -> ECase span0 (normalizeExpr scrutinee) (map normalizeCaseAlt alts)
-    ELambdaPats _ pats body -> ELambdaPats span0 (map normalizeLambdaPat pats) (normalizeExpr body)
-    ELambdaCase _ alts -> ELambdaCase span0 (map normalizeCaseAlt alts)
-    ELetDecls _ decls body -> ELetDecls span0 (map normalizeDecl decls) (normalizeExpr body)
-    EDo _ stmts isMdo -> EDo span0 (map normalizeDoStmt stmts) isMdo
-    EListComp _ body stmts -> EListComp span0 (normalizeExpr body) (map normalizeCompStmt stmts)
-    EListCompParallel _ body stmtss -> EListCompParallel span0 (normalizeExpr body) (map (map normalizeCompStmt) stmtss)
-    EList _ elems -> EList span0 (map normalizeExpr elems)
-    ETuple _ tupleFlavor elems -> ETuple span0 tupleFlavor (map (fmap normalizeExpr) elems)
-    EArithSeq _ seq' -> EArithSeq span0 (normalizeArithSeq seq')
-    ERecordCon _ con fields rwc -> ERecordCon span0 con [(name, normalizeExpr e) | (name, e) <- fields] rwc
-    ERecordUpd _ target fields -> ERecordUpd span0 (normalizeExpr target) [(name, normalizeExpr e) | (name, e) <- fields]
-    ETypeSig _ inner ty -> ETypeSig span0 (normalizeExpr inner) (normalizeType ty)
-    ETypeApp _ inner ty -> ETypeApp span0 (normalizeExpr inner) (normalizeType ty)
-    EUnboxedSum _ altIdx arity inner -> EUnboxedSum span0 altIdx arity (normalizeExpr inner)
-    EParen _ inner -> normalizeExpr inner
-    ETHExpQuote _ body -> ETHExpQuote span0 (normalizeExpr body)
-    ETHTypedQuote _ body -> ETHTypedQuote span0 (normalizeExpr body)
-    ETHDeclQuote _ decls -> ETHDeclQuote span0 (map normalizeDecl decls)
-    ETHTypeQuote _ ty -> ETHTypeQuote span0 (normalizeType ty)
-    ETHPatQuote _ pat -> ETHPatQuote span0 (normalizePattern pat)
-    ETHNameQuote _ name -> ETHNameQuote span0 name
-    ETHTypeNameQuote _ name -> ETHTypeNameQuote span0 name
-    ETHSplice _ body -> ETHSplice span0 (normalizeExpr body)
-    ETHTypedSplice _ body -> ETHTypedSplice span0 (normalizeExpr body)
-    EProc _ pat body -> EProc span0 (normalizePattern pat) body
+    EVar name -> exprAnnSpan span0 (EVar name)
+    EInt value _ -> exprAnnSpan span0 (EInt value (T.pack (show value)))
+    EIntHash value repr -> exprAnnSpan span0 (EIntHash value repr)
+    EIntBase value repr -> exprAnnSpan span0 (EIntBase value repr)
+    EIntBaseHash value repr -> exprAnnSpan span0 (EIntBaseHash value repr)
+    EFloat value repr -> exprAnnSpan span0 (EFloat value repr)
+    EFloatHash value repr -> exprAnnSpan span0 (EFloatHash value repr)
+    EChar value repr -> exprAnnSpan span0 (EChar value repr)
+    ECharHash value repr -> exprAnnSpan span0 (ECharHash value repr)
+    EString value repr -> exprAnnSpan span0 (EString value repr)
+    EStringHash value repr -> exprAnnSpan span0 (EStringHash value repr)
+    EOverloadedLabel value repr -> exprAnnSpan span0 (EOverloadedLabel value repr)
+    EQuasiQuote quoter body -> exprAnnSpan span0 (EQuasiQuote quoter body)
+    EApp fn arg -> exprAnnSpan span0 (EApp (normalizeExpr fn) (normalizeExpr arg))
+    EInfix lhs op rhs -> exprAnnSpan span0 (EInfix (normalizeExpr lhs) op (normalizeExpr rhs))
+    ENegate inner -> exprAnnSpan span0 (ENegate (normalizeExpr inner))
+    ESectionL inner op -> exprAnnSpan span0 (ESectionL (normalizeExpr inner) op)
+    ESectionR op inner -> exprAnnSpan span0 (ESectionR op (normalizeExpr inner))
+    EIf cond thenE elseE -> exprAnnSpan span0 (EIf (normalizeExpr cond) (normalizeExpr thenE) (normalizeExpr elseE))
+    EMultiWayIf rhss -> exprAnnSpan span0 (EMultiWayIf (map normalizeGuardedRhs rhss))
+    ECase scrutinee alts -> exprAnnSpan span0 (ECase (normalizeExpr scrutinee) (map normalizeCaseAlt alts))
+    ELambdaPats pats body -> exprAnnSpan span0 (ELambdaPats (map normalizeLambdaPat pats) (normalizeExpr body))
+    ELambdaCase alts -> exprAnnSpan span0 (ELambdaCase (map normalizeCaseAlt alts))
+    ELetDecls decls body -> exprAnnSpan span0 (ELetDecls (map normalizeDecl decls) (normalizeExpr body))
+    EDo stmts isMdo -> exprAnnSpan span0 (EDo (map normalizeDoStmt stmts) isMdo)
+    EListComp body stmts -> exprAnnSpan span0 (EListComp (normalizeExpr body) (map normalizeCompStmt stmts))
+    EListCompParallel body stmtss -> exprAnnSpan span0 (EListCompParallel (normalizeExpr body) (map (map normalizeCompStmt) stmtss))
+    EList elems -> exprAnnSpan span0 (EList (map normalizeExpr elems))
+    ETuple tupleFlavor elems -> exprAnnSpan span0 (ETuple tupleFlavor (map (fmap normalizeExpr) elems))
+    EArithSeq seq' -> exprAnnSpan span0 (EArithSeq (normalizeArithSeq seq'))
+    ERecordCon con fields rwc -> exprAnnSpan span0 (ERecordCon con [(name, normalizeExpr e) | (name, e) <- fields] rwc)
+    ERecordUpd target fields -> exprAnnSpan span0 (ERecordUpd (normalizeExpr target) [(name, normalizeExpr e) | (name, e) <- fields])
+    ETypeSig inner ty -> exprAnnSpan span0 (ETypeSig (normalizeExpr inner) (normalizeType ty))
+    ETypeApp inner ty -> exprAnnSpan span0 (ETypeApp (normalizeExpr inner) (normalizeType ty))
+    EUnboxedSum altIdx arity inner -> exprAnnSpan span0 (EUnboxedSum altIdx arity (normalizeExpr inner))
+    EParen inner -> normalizeExpr inner
+    ETHExpQuote body -> exprAnnSpan span0 (ETHExpQuote (normalizeExpr body))
+    ETHTypedQuote body -> exprAnnSpan span0 (ETHTypedQuote (normalizeExpr body))
+    ETHDeclQuote decls -> exprAnnSpan span0 (ETHDeclQuote (map normalizeDecl decls))
+    ETHTypeQuote ty -> exprAnnSpan span0 (ETHTypeQuote (normalizeType ty))
+    ETHPatQuote pat -> exprAnnSpan span0 (ETHPatQuote (normalizePattern pat))
+    ETHNameQuote name -> exprAnnSpan span0 (ETHNameQuote name)
+    ETHTypeNameQuote name -> exprAnnSpan span0 (ETHTypeNameQuote name)
+    ETHSplice body -> exprAnnSpan span0 (ETHSplice (normalizeExpr body))
+    ETHTypedSplice body -> exprAnnSpan span0 (ETHTypedSplice (normalizeExpr body))
+    EProc pat body -> exprAnnSpan span0 (EProc (normalizePattern pat) body)
     EAnn ann sub
       | Just _ <- fromAnnotation @SourceSpan ann -> normalizeExpr sub
       | otherwise -> EAnn ann (normalizeExpr sub)
@@ -103,24 +104,24 @@ normalizePattern :: Pattern -> Pattern
 normalizePattern pat =
   case pat of
     PAnn _ sub -> normalizePattern sub
-    PVar _ name -> PVar span0 name
-    PWildcard _ -> PWildcard span0
-    PLit _ lit -> PLit span0 (normalizeLiteral lit)
-    PQuasiQuote _ quoter body -> PQuasiQuote span0 quoter body
-    PTuple _ tupleFlavor elems -> PTuple span0 tupleFlavor (map normalizePattern elems)
-    PList _ elems -> PList span0 (map normalizePattern elems)
-    PCon _ con args -> PCon span0 con (map normalizePattern args)
-    PInfix _ lhs op rhs -> PInfix span0 (normalizePattern lhs) op (normalizePattern rhs)
-    PView _ e inner -> PView span0 (normalizeExpr e) (normalizePattern inner)
-    PAs _ name inner -> PAs span0 name (normalizeUnaryPatInner inner)
-    PStrict _ inner -> PStrict span0 (normalizeUnaryPatInner inner)
-    PIrrefutable _ inner -> PIrrefutable span0 (normalizeUnaryPatInner inner)
-    PNegLit _ lit -> PNegLit span0 (normalizeLiteral lit)
-    PParen _ inner -> PParen span0 (normalizePattern inner)
-    PUnboxedSum _ altIdx arity inner -> PUnboxedSum span0 altIdx arity (normalizePattern inner)
-    PRecord _ con fields rwc -> PRecord span0 con [(name, normalizePattern p) | (name, p) <- fields] rwc
-    PTypeSig _ inner ty -> PTypeSig span0 (normalizePattern inner) (normalizeType ty)
-    PSplice _ body -> PSplice span0 (normalizeExpr body)
+    PVar name -> patternAnnSpan span0 (PVar name)
+    PWildcard -> patternAnnSpan span0 PWildcard
+    PLit lit -> patternAnnSpan span0 (PLit (normalizeLiteral lit))
+    PQuasiQuote quoter body -> patternAnnSpan span0 (PQuasiQuote quoter body)
+    PTuple tupleFlavor elems -> patternAnnSpan span0 (PTuple tupleFlavor (map normalizePattern elems))
+    PList elems -> patternAnnSpan span0 (PList (map normalizePattern elems))
+    PCon con args -> patternAnnSpan span0 (PCon con (map normalizePattern args))
+    PInfix lhs op rhs -> patternAnnSpan span0 (PInfix (normalizePattern lhs) op (normalizePattern rhs))
+    PView e inner -> patternAnnSpan span0 (PView (normalizeExpr e) (normalizePattern inner))
+    PAs name inner -> patternAnnSpan span0 (PAs name (normalizeUnaryPatInner inner))
+    PStrict inner -> patternAnnSpan span0 (PStrict (normalizeUnaryPatInner inner))
+    PIrrefutable inner -> patternAnnSpan span0 (PIrrefutable (normalizeUnaryPatInner inner))
+    PNegLit lit -> patternAnnSpan span0 (PNegLit (normalizeLiteral lit))
+    PParen inner -> patternAnnSpan span0 (PParen (normalizePattern inner))
+    PUnboxedSum altIdx arity inner -> patternAnnSpan span0 (PUnboxedSum altIdx arity (normalizePattern inner))
+    PRecord con fields rwc -> patternAnnSpan span0 (PRecord con [(name, normalizePattern p) | (name, p) <- fields] rwc)
+    PTypeSig inner ty -> patternAnnSpan span0 (PTypeSig (normalizePattern inner) (normalizeType ty))
+    PSplice body -> patternAnnSpan span0 (PSplice (normalizeExpr body))
 
 -- | Normalize a pattern in lambda argument position.
 -- The pretty-printer uses prettyLambdaPatternAtom for lambda patterns, which
@@ -130,40 +131,28 @@ normalizePattern pat =
 -- non-atomic patterns like PCon with args, PInfix, PTypeSig, PRecord.
 -- Strip that added PParen so generated and parsed forms match.
 normalizeLambdaPat :: Pattern -> Pattern
-normalizeLambdaPat pat =
-  case normalizePattern pat of
-    PParen _ inner@(PNegLit {}) -> inner
-    PParen _ inner@(PCon {}) -> inner
-    PParen _ inner@(PInfix {}) -> inner
-    PParen _ inner@(PTypeSig {}) -> inner
-    PParen _ inner@(PRecord {}) -> inner
-    other -> other
+normalizeLambdaPat = stripWrappedParenIf isLambdaWrappedPattern
 
 -- | Normalize the inner pattern of a strict (!) or irrefutable (~) pattern.
 -- The pretty-printer's prettyPatternAtomStrict adds PParen around PNegLit,
 -- PStrict, and PIrrefutable to avoid ambiguity. Strip those added parens.
 normalizeUnaryPatInner :: Pattern -> Pattern
-normalizeUnaryPatInner pat =
-  case normalizePattern pat of
-    PParen _ inner@(PCon {}) -> inner
-    PParen _ inner@(PNegLit {}) -> inner
-    PParen _ inner@(PStrict {}) -> inner
-    PParen _ inner@(PIrrefutable {}) -> inner
-    other -> other
+normalizeUnaryPatInner = stripWrappedParenIf isUnaryWrappedPattern
 
 normalizeLiteral :: Literal -> Literal
 normalizeLiteral lit =
-  case lit of
-    LitInt _ value repr -> LitInt span0 value repr
-    LitIntHash _ value repr -> LitIntHash span0 value repr
-    LitIntBase _ value repr -> LitIntBase span0 value repr
-    LitIntBaseHash _ value repr -> LitIntBaseHash span0 value repr
-    LitFloat _ value repr -> LitFloat span0 value repr
-    LitFloatHash _ value repr -> LitFloatHash span0 value repr
-    LitChar _ value repr -> LitChar span0 value repr
-    LitCharHash _ value repr -> LitCharHash span0 value repr
-    LitString _ value repr -> LitString span0 value repr
-    LitStringHash _ value repr -> LitStringHash span0 value repr
+  case peelLiteralAnn lit of
+    LitInt value repr -> literalAnnSpan span0 (LitInt value repr)
+    LitIntHash value repr -> literalAnnSpan span0 (LitIntHash value repr)
+    LitIntBase value repr -> literalAnnSpan span0 (LitIntBase value repr)
+    LitIntBaseHash value repr -> literalAnnSpan span0 (LitIntBaseHash value repr)
+    LitFloat value repr -> literalAnnSpan span0 (LitFloat value repr)
+    LitFloatHash value repr -> literalAnnSpan span0 (LitFloatHash value repr)
+    LitChar value repr -> literalAnnSpan span0 (LitChar value repr)
+    LitCharHash value repr -> literalAnnSpan span0 (LitCharHash value repr)
+    LitString value repr -> literalAnnSpan span0 (LitString value repr)
+    LitStringHash value repr -> literalAnnSpan span0 (LitStringHash value repr)
+    LitAnn {} -> error "unreachable"
 
 normalizeDecl :: Decl -> Decl
 normalizeDecl decl =
@@ -197,7 +186,7 @@ normalizeValueDecl vdecl =
   case vdecl of
     PatternBind _ pat rhs -> PatternBind span0 (normalizePattern pat) (normalizeRhs rhs)
     FunctionBind _ name [Match {matchHeadForm = MatchHeadPrefix, matchPats = [], matchRhs = rhs}] ->
-      PatternBind span0 (PVar span0 name) (normalizeRhs rhs)
+      PatternBind span0 (patternAnnSpan span0 (PVar name)) (normalizeRhs rhs)
     FunctionBind _ name matches -> FunctionBind span0 name (map normalizeMatch matches)
 
 normalizeMatch :: Match -> Match
@@ -214,14 +203,45 @@ normalizeMatch m =
 -- signatures, records, and negative literals in parens when they appear as
 -- head arguments so the parser does not split them into multiple patterns.
 normalizeFunctionHeadPat :: Pattern -> Pattern
-normalizeFunctionHeadPat pat =
-  case normalizePattern pat of
-    PParen _ inner@(PNegLit {}) -> inner
-    PParen _ inner@(PCon {}) -> inner
-    PParen _ inner@(PInfix {}) -> inner
-    PParen _ inner@(PTypeSig {}) -> inner
-    PParen _ inner@(PRecord {}) -> inner
-    other -> other
+normalizeFunctionHeadPat = stripWrappedParenIf isFunctionHeadWrappedPattern
+
+stripWrappedParenIf :: (Pattern -> Bool) -> Pattern -> Pattern
+stripWrappedParenIf predicate pat =
+  let normalized = normalizePattern pat
+   in case peelPatternAnn normalized of
+        PParen inner
+          | predicate (peelPatternAnn inner) -> inner
+        _ -> normalized
+
+isLambdaWrappedPattern :: Pattern -> Bool
+isLambdaWrappedPattern = \case
+  PNegLit {} -> True
+  PCon {} -> True
+  PInfix {} -> True
+  PTypeSig {} -> True
+  PRecord {} -> True
+  PView {} -> True
+  _ -> False
+
+isUnaryWrappedPattern :: Pattern -> Bool
+isUnaryWrappedPattern = \case
+  PCon {} -> True
+  PNegLit {} -> True
+  PStrict {} -> True
+  PIrrefutable {} -> True
+  PView {} -> True
+  PAs {} -> True
+  _ -> False
+
+isFunctionHeadWrappedPattern :: Pattern -> Bool
+isFunctionHeadWrappedPattern = \case
+  PNegLit {} -> True
+  PCon {} -> True
+  PInfix {} -> True
+  PTypeSig {} -> True
+  PRecord {} -> True
+  PView {} -> True
+  _ -> False
 
 normalizeDoStmt :: DoStmt Expr -> DoStmt Expr
 normalizeDoStmt stmt =
@@ -405,14 +425,15 @@ normalizeFunctionalDependency dep = dep {functionalDependencySpan = span0}
 normalizeClassDeclItem :: ClassDeclItem -> ClassDeclItem
 normalizeClassDeclItem item =
   case item of
-    ClassItemTypeSig _ names ty -> ClassItemTypeSig span0 names (normalizeType ty)
-    ClassItemDefaultSig _ name ty -> ClassItemDefaultSig span0 name (normalizeType ty)
-    ClassItemFixity _ assoc mNs prec ops -> ClassItemFixity span0 assoc mNs prec ops
-    ClassItemDefault _ vdecl -> ClassItemDefault span0 (normalizeValueDecl vdecl)
-    ClassItemTypeFamilyDecl _ tf -> ClassItemTypeFamilyDecl span0 (normalizeTypeFamilyDecl tf)
-    ClassItemDataFamilyDecl _ df -> ClassItemDataFamilyDecl span0 (normalizeDataFamilyDecl df)
-    ClassItemDefaultTypeInst _ tfi -> ClassItemDefaultTypeInst span0 (normalizeTypeFamilyInst tfi)
-    ClassItemPragma _ pragma -> ClassItemPragma span0 pragma
+    ClassItemAnn _ sub -> normalizeClassDeclItem sub
+    ClassItemTypeSig names ty -> classItemAnnSpan span0 (ClassItemTypeSig names (normalizeType ty))
+    ClassItemDefaultSig name ty -> classItemAnnSpan span0 (ClassItemDefaultSig name (normalizeType ty))
+    ClassItemFixity assoc mNs prec ops -> classItemAnnSpan span0 (ClassItemFixity assoc mNs prec ops)
+    ClassItemDefault vdecl -> classItemAnnSpan span0 (ClassItemDefault (normalizeValueDecl vdecl))
+    ClassItemTypeFamilyDecl tf -> classItemAnnSpan span0 (ClassItemTypeFamilyDecl (normalizeTypeFamilyDecl tf))
+    ClassItemDataFamilyDecl df -> classItemAnnSpan span0 (ClassItemDataFamilyDecl (normalizeDataFamilyDecl df))
+    ClassItemDefaultTypeInst tfi -> classItemAnnSpan span0 (ClassItemDefaultTypeInst (normalizeTypeFamilyInst tfi))
+    ClassItemPragma pragma -> classItemAnnSpan span0 (ClassItemPragma pragma)
 
 normalizeInstanceDecl :: InstanceDecl -> InstanceDecl
 normalizeInstanceDecl decl =

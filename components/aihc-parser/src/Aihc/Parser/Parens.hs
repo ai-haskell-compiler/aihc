@@ -39,14 +39,14 @@ import Data.Text (Text)
 -- | Wrap an expression in 'EParen' if the predicate holds, unless it is
 -- already parenthesised.
 wrapExpr :: Bool -> Expr -> Expr
-wrapExpr True e@(EParen {}) = e
-wrapExpr True e = EParen noSourceSpan e
+wrapExpr True e | EParen {} <- peelExprAnn e = e
+wrapExpr True e = EParen e
 wrapExpr False e = e
 
 -- | Wrap a pattern in 'PParen' if the predicate holds, unless already wrapped.
 wrapPat :: Bool -> Pattern -> Pattern
-wrapPat True p@(PParen {}) = p
-wrapPat True p = PParen noSourceSpan p
+wrapPat True p | PParen {} <- peelPatternAnn p = p
+wrapPat True p = PParen p
 wrapPat False p = p
 
 -- | Wrap a type in 'TParen' if the predicate holds, unless already wrapped.
@@ -104,7 +104,7 @@ isGreedyExprRaw = \case
   ELetDecls {} -> True
   EDo {} -> True
   EProc {} -> True
-  EApp _ _ arg | isBlockExpr arg -> isOpenEnded arg
+  EApp _ arg | isBlockExpr arg -> isOpenEnded arg
   _ -> False
 
 -- | Check if an expression is "open-ended" - its rightmost component can
@@ -118,8 +118,8 @@ isOpenEndedRaw = \case
   ELambdaPats {} -> True
   ELetDecls {} -> True
   EProc {} -> True
-  EInfix _ _ _ rhs -> isOpenEnded rhs
-  EApp _ _ arg | isBlockExpr arg -> isOpenEnded arg
+  EInfix _ _ rhs -> isOpenEnded rhs
+  EApp _ arg | isBlockExpr arg -> isOpenEnded arg
   _ -> False
 
 -- | Does the pretty-printed form of an expression end with @:: Type@?
@@ -127,9 +127,9 @@ endsWithTypeSig :: Expr -> Bool
 endsWithTypeSig = \case
   EAnn _ sub -> endsWithTypeSig sub
   ETypeSig {} -> True
-  ELetDecls _ _ body -> endsWithTypeSig body
-  ELambdaPats _ _ body -> endsWithTypeSig body
-  EInfix _ _ _ rhs -> endsWithTypeSig rhs
+  ELetDecls _ body -> endsWithTypeSig body
+  ELambdaPats _ body -> endsWithTypeSig body
+  EInfix _ _ rhs -> endsWithTypeSig rhs
   _ -> False
 
 -- | Check whether an expression's pretty-printed form starts with '$'.
@@ -137,19 +137,19 @@ startsWithDollar :: Expr -> Bool
 startsWithDollar (EAnn _ sub) = startsWithDollar sub
 startsWithDollar (ETHSplice {}) = True
 startsWithDollar (ETHTypedSplice {}) = True
-startsWithDollar (ERecordUpd _ base _) = startsWithDollar base
-startsWithDollar (EApp _ fn _) = startsWithDollar fn
+startsWithDollar (ERecordUpd base _) = startsWithDollar base
+startsWithDollar (EApp fn _) = startsWithDollar fn
 startsWithDollar _ = False
 
 startsWithOverloadedLabel :: Expr -> Bool
 startsWithOverloadedLabel = \case
   EOverloadedLabel {} -> True
   EAnn _ sub -> startsWithOverloadedLabel sub
-  EApp _ fn _ -> startsWithOverloadedLabel fn
-  EInfix _ lhs _ _ -> startsWithOverloadedLabel lhs
-  ERecordUpd _ base _ -> startsWithOverloadedLabel base
-  ETypeSig _ inner _ -> startsWithOverloadedLabel inner
-  ETypeApp _ fn _ -> startsWithOverloadedLabel fn
+  EApp fn _ -> startsWithOverloadedLabel fn
+  EInfix lhs _ _ -> startsWithOverloadedLabel lhs
+  ERecordUpd base _ -> startsWithOverloadedLabel base
+  ETypeSig inner _ -> startsWithOverloadedLabel inner
+  ETypeApp fn _ -> startsWithOverloadedLabel fn
   _ -> False
 
 -- ---------------------------------------------------------------------------
@@ -269,7 +269,7 @@ guardExprNeedsParens :: GuardArrow -> Expr -> Bool
 guardExprNeedsParens arrow = \case
   ELambdaPats {} -> True
   EProc {} -> True
-  EApp _ _ arg | isBlockExpr arg -> guardExprNeedsParens arrow arg
+  EApp _ arg | isBlockExpr arg -> guardExprNeedsParens arrow arg
   expr -> case arrow of
     GuardArrow -> endsWithTypeSig expr
     GuardEquals -> False
@@ -320,7 +320,7 @@ addDeclSpliceParens :: Expr -> Expr
 addDeclSpliceParens body =
   case body of
     EVar {} -> body
-    EParen sp inner -> EParen sp (addExprParens inner)
+    EParen inner -> EParen (addExprParens inner)
     _ -> addExprParens body
 
 addValueDeclParens :: ValueDecl -> ValueDecl
@@ -476,13 +476,14 @@ addClassDeclParens decl =
 addClassItemParens :: ClassDeclItem -> ClassDeclItem
 addClassItemParens item =
   case item of
-    ClassItemTypeSig sp names ty -> ClassItemTypeSig sp names (addTypeParens ty)
-    ClassItemDefaultSig sp name ty -> ClassItemDefaultSig sp name (addTypeParens ty)
+    ClassItemAnn ann sub -> ClassItemAnn ann (addClassItemParens sub)
+    ClassItemTypeSig names ty -> ClassItemTypeSig names (addTypeParens ty)
+    ClassItemDefaultSig name ty -> ClassItemDefaultSig name (addTypeParens ty)
     ClassItemFixity {} -> item
-    ClassItemDefault sp vdecl -> ClassItemDefault sp (addValueDeclParens vdecl)
-    ClassItemTypeFamilyDecl sp tf -> ClassItemTypeFamilyDecl sp (addTypeFamilyDeclParens tf)
-    ClassItemDataFamilyDecl sp df -> ClassItemDataFamilyDecl sp (addDataFamilyDeclParens df)
-    ClassItemDefaultTypeInst sp tfi -> ClassItemDefaultTypeInst sp (addTypeFamilyInstParens tfi)
+    ClassItemDefault vdecl -> ClassItemDefault (addValueDeclParens vdecl)
+    ClassItemTypeFamilyDecl tf -> ClassItemTypeFamilyDecl (addTypeFamilyDeclParens tf)
+    ClassItemDataFamilyDecl df -> ClassItemDataFamilyDecl (addDataFamilyDeclParens df)
+    ClassItemDefaultTypeInst tfi -> ClassItemDefaultTypeInst (addTypeFamilyInstParens tfi)
     ClassItemPragma {} -> item
 
 addInstanceDeclParens :: InstanceDecl -> InstanceDecl
@@ -570,15 +571,15 @@ flattenApps :: Expr -> (Expr, [Expr])
 flattenApps = go []
   where
     go args (EAnn _ x) = go args x
-    go args (EApp _ fn arg) = go (arg : args) fn
+    go args (EApp fn arg) = go (arg : args) fn
     go args root = (root, args)
 
 addExprParensPrec :: Int -> Expr -> Expr
 addExprParensPrec prec expr =
   case expr of
     EApp {} -> addAppsChainPrec prec expr
-    ETypeApp sp fn ty ->
-      wrapExpr (prec > 2) (ETypeApp sp (addExprParensIn CtxAppFun fn) (addTypeIn CtxTypeAtom ty))
+    ETypeApp fn ty ->
+      wrapExpr (prec > 2) (ETypeApp (addExprParensIn CtxAppFun fn) (addTypeIn CtxTypeAtom ty))
     EVar {} -> expr
     EInt {} -> expr
     EIntHash {} -> expr
@@ -592,32 +593,31 @@ addExprParensPrec prec expr =
     EStringHash {} -> expr
     EOverloadedLabel {} -> expr
     EQuasiQuote {} -> expr
-    ETHExpQuote sp body -> ETHExpQuote sp (addExprParens body)
-    ETHTypedQuote sp body -> ETHTypedQuote sp (addExprParens body)
-    ETHDeclQuote sp decls -> ETHDeclQuote sp (map addDeclParens decls)
-    ETHTypeQuote sp ty -> ETHTypeQuote sp (addTypeParens ty)
-    ETHPatQuote sp pat -> ETHPatQuote sp (addPatternParens pat)
+    ETHExpQuote body -> ETHExpQuote (addExprParens body)
+    ETHTypedQuote body -> ETHTypedQuote (addExprParens body)
+    ETHDeclQuote decls -> ETHDeclQuote (map addDeclParens decls)
+    ETHTypeQuote ty -> ETHTypeQuote (addTypeParens ty)
+    ETHPatQuote pat -> ETHPatQuote (addPatternParens pat)
     ETHNameQuote {} -> expr
     ETHTypeNameQuote {} -> expr
-    ETHSplice sp body -> ETHSplice sp (addSpliceBodyParens body)
-    ETHTypedSplice sp body -> ETHTypedSplice sp (addSpliceBodyParens body)
-    EIf sp cond yes no ->
+    ETHSplice body -> ETHSplice (addSpliceBodyParens body)
+    ETHTypedSplice body -> ETHTypedSplice (addSpliceBodyParens body)
+    EIf cond yes no ->
       wrapExpr
         (prec > 0)
-        (EIf sp (addExprParens cond) (addIfBranchParens yes) (addIfBranchParens no))
-    EMultiWayIf sp rhss ->
-      wrapExpr (prec > 0) (EMultiWayIf sp (map (addGuardedRhsParens GuardArrow) rhss))
-    ELambdaPats sp pats body ->
-      wrapExpr (prec > 0) (ELambdaPats sp (map addLambdaPatternAtomParens pats) (addExprParens body))
-    ELambdaCase sp alts ->
-      wrapExpr (prec > 0) (ELambdaCase sp (map addCaseAltParens alts))
-    EInfix sp lhs op rhs
+        (EIf (addExprParens cond) (addIfBranchParens yes) (addIfBranchParens no))
+    EMultiWayIf rhss ->
+      wrapExpr (prec > 0) (EMultiWayIf (map (addGuardedRhsParens GuardArrow) rhss))
+    ELambdaPats pats body ->
+      wrapExpr (prec > 0) (ELambdaPats (map addLambdaPatternAtomParens pats) (addExprParens body))
+    ELambdaCase alts ->
+      wrapExpr (prec > 0) (ELambdaCase (map addCaseAltParens alts))
+    EInfix lhs op rhs
       | isArrowTailOp (renderName op) ->
           -- Arrow tail operators always parenthesized, LHS also parenthesized
           wrapExpr
             True
             ( EInfix
-                sp
                 (wrapExpr True (addExprParens lhs))
                 op
                 (addExprParens rhs)
@@ -626,52 +626,55 @@ addExprParensPrec prec expr =
           wrapExpr
             (prec > 1)
             ( EInfix
-                sp
                 (addExprParensIn CtxInfixLhs lhs)
                 op
                 (addExprParensIn (CtxInfixRhs (prec == 1)) rhs)
             )
-    ENegate sp inner ->
-      wrapExpr (prec > 2) (ENegate sp (addNegateParens inner))
-    ESectionL sp lhs op ->
+    ENegate inner ->
+      wrapExpr (prec > 2) (ENegate (addNegateParens inner))
+    ESectionL lhs op ->
       -- Sections are always in parens (printed with parens in Pretty.hs)
       -- The LHS needs special handling for greedy/typesig expressions
       let lhs' =
             if isGreedyExpr lhs || isTypeSig lhs
               then wrapExpr True (addExprParens lhs)
               else addExprParensPrec 1 lhs
-       in ESectionL sp lhs' op
-    ESectionR sp op rhs ->
-      ESectionR sp op (addExprParens rhs)
-    ELetDecls sp decls body ->
-      wrapExpr (prec > 0) (ELetDecls sp (map addDeclParens decls) (addExprParens body))
-    ECase sp scrutinee alts ->
-      wrapExpr (prec > 0) (ECase sp (addExprParens scrutinee) (map addCaseAltParens alts))
-    EDo sp stmts isMdo ->
-      wrapExpr (prec > 0) (EDo sp (map addDoStmtParens stmts) isMdo)
-    EListComp sp body quals ->
-      EListComp sp (addExprParens body) (map addCompStmtParens quals)
-    EListCompParallel sp body qualifierGroups ->
-      EListCompParallel sp (addExprParens body) (map (map addCompStmtParens) qualifierGroups)
-    EArithSeq sp seqInfo -> EArithSeq sp (addArithSeqParens seqInfo)
-    ERecordCon sp name fields hasWildcard ->
-      ERecordCon sp name [(n, addExprParens e) | (n, e) <- fields] hasWildcard
-    ERecordUpd sp base fields ->
-      ERecordUpd sp (addExprParensPrec 3 base) [(n, addExprParens e) | (n, e) <- fields]
-    ETypeSig sp inner ty ->
-      wrapExpr (prec > 1) (ETypeSig sp (addExprParensIn CtxTypeSigBody inner) (addTypeParens ty))
-    EParen sp inner ->
+       in ESectionL lhs' op
+    ESectionR op rhs ->
+      let rhs' =
+            if isGreedyExpr rhs || isTypeSig rhs
+              then wrapExpr True (addExprParens rhs)
+              else addExprParensPrec 1 rhs
+       in ESectionR op rhs'
+    ELetDecls decls body ->
+      wrapExpr (prec > 0) (ELetDecls (map addDeclParens decls) (addExprParens body))
+    ECase scrutinee alts ->
+      wrapExpr (prec > 0) (ECase (addExprParens scrutinee) (map addCaseAltParens alts))
+    EDo stmts isMdo ->
+      wrapExpr (prec > 0) (EDo (map addDoStmtParens stmts) isMdo)
+    EListComp body quals ->
+      EListComp (addExprParens body) (map addCompStmtParens quals)
+    EListCompParallel body qualifierGroups ->
+      EListCompParallel (addExprParens body) (map (map addCompStmtParens) qualifierGroups)
+    EArithSeq seqInfo -> EArithSeq (addArithSeqParens seqInfo)
+    ERecordCon name fields hasWildcard ->
+      ERecordCon name [(n, addExprParens e) | (n, e) <- fields] hasWildcard
+    ERecordUpd base fields ->
+      ERecordUpd (addExprParensPrec 3 base) [(n, addExprParens e) | (n, e) <- fields]
+    ETypeSig inner ty ->
+      wrapExpr (prec > 1) (ETypeSig (addExprParensIn CtxTypeSigBody inner) (addTypeParens ty))
+    EParen inner ->
       case inner of
         -- Sections are already "in parens" via their EParen wrapper,
         -- don't add double parens
-        ESectionL {} -> EParen sp (addExprParens inner)
-        ESectionR {} -> EParen sp (addExprParens inner)
-        _ -> EParen sp (addExprParens inner)
-    EList sp values -> EList sp (map addExprParens values)
-    ETuple sp tupleFlavor values -> ETuple sp tupleFlavor (map (fmap addExprParens) values)
-    EUnboxedSum sp altIdx arity inner -> EUnboxedSum sp altIdx arity (addExprParens inner)
-    EProc sp pat body ->
-      wrapExpr (prec > 0) (EProc sp (addPatternParens pat) (addCmdParens body))
+        ESectionL {} -> EParen (addExprParens inner)
+        ESectionR {} -> EParen (addExprParens inner)
+        _ -> EParen (addExprParens inner)
+    EList values -> EList (map addExprParens values)
+    ETuple tupleFlavor values -> ETuple tupleFlavor (map (fmap addExprParens) values)
+    EUnboxedSum altIdx arity inner -> EUnboxedSum altIdx arity (addExprParens inner)
+    EProc pat body ->
+      wrapExpr (prec > 0) (EProc (addPatternParens pat) (addCmdParens body))
     EAnn ann sub -> EAnn ann (addExprParensPrec prec sub)
   where
     isTypeSig :: Expr -> Bool
@@ -683,8 +686,6 @@ addExprParensPrec prec expr =
 addAppsChainPrec :: Int -> Expr -> Expr
 addAppsChainPrec prec expr =
   let (root, args) = flattenApps expr
-      -- Get the spans from the original EApp chain
-      appSpans = getAppSpans expr
       root' = addExprParensIn CtxAppFun root
       nArgs = length args
       args' =
@@ -696,18 +697,8 @@ addAppsChainPrec prec expr =
            in addExprParensIn ctx a
         | (i, a) <- Prelude.zip [0 :: Int ..] args
         ]
-      -- Reconstruct the EApp chain with original spans
-      rebuilt = case Prelude.zip appSpans args' of
-        [] -> root'
-        pairs -> foldl (\fn (sp, arg) -> EApp sp fn arg) root' pairs
+      rebuilt = foldl EApp root' args'
    in wrapExpr (prec > 2) rebuilt
-
-getAppSpans :: Expr -> [SourceSpan]
-getAppSpans = reverse . go
-  where
-    go (EAnn _ x) = go x
-    go (EApp sp fn _) = sp : go fn
-    go _ = []
 
 addSpliceBodyParens :: Expr -> Expr
 addSpliceBodyParens body =
@@ -716,18 +707,20 @@ addSpliceBodyParens body =
     -- EParen around a section: the pretty-printer's EParen transparency
     -- means this would print as just the section's parens. We need an
     -- extra EParen so the splice delimiter parens are not swallowed.
-    EParen sp inner@(ESectionL {}) -> EParen sp (EParen noSourceSpan (addExprParens inner))
-    EParen sp inner@(ESectionR {}) -> EParen sp (EParen noSourceSpan (addExprParens inner))
-    EParen sp inner -> EParen sp (addExprParens inner)
+    EParen inner
+      | ESectionL {} <- peelExprAnn inner -> EParen (EParen (addExprParens inner))
+      | ESectionR {} <- peelExprAnn inner -> EParen (EParen (addExprParens inner))
+    EParen inner -> EParen (addExprParens inner)
     EVar {} -> body
     -- Sections print their own parens via prettyExpr, and EParen is
     -- transparent around them in the pretty-printer (to avoid double parens
     -- in normal code like `x = (+1)`). For splices, we need the EParen to
     -- actually produce parens, so we double-wrap.
-    ESectionL {} -> EParen noSourceSpan (EParen noSourceSpan (addExprParens body))
-    ESectionR {} -> EParen noSourceSpan (EParen noSourceSpan (addExprParens body))
+    _
+      | ESectionL {} <- peelExprAnn body -> EParen (EParen (addExprParens body))
+      | ESectionR {} <- peelExprAnn body -> EParen (EParen (addExprParens body))
     -- Any other body needs to be wrapped in EParen so it prints as $(expr).
-    _ -> EParen noSourceSpan (addExprParens body)
+    _ -> EParen (addExprParens body)
 
 addNegateParens :: Expr -> Expr
 addNegateParens inner =
@@ -895,34 +888,34 @@ addPatternParens pat =
     PAnn sp sub -> PAnn sp (addPatternParens sub)
     PVar {} -> pat
     PWildcard {} -> pat
-    PLit sp lit -> PLit sp lit
+    PLit lit -> PLit lit
     PQuasiQuote {} -> pat
-    PTuple sp tupleFlavor elems -> PTuple sp tupleFlavor (map addPatternInDelimited elems)
-    PUnboxedSum sp altIdx arity inner -> PUnboxedSum sp altIdx arity (addPatternInDelimited inner)
-    PList sp elems -> PList sp (map addPatternInDelimited elems)
-    PCon sp con args -> PCon sp con (map addPatternAtomParens args)
-    PInfix sp lhs op rhs -> PInfix sp (addPatternAtomParens lhs) op (addPatternAtomParens rhs)
-    PView sp viewExpr inner ->
-      wrapPat True (PView sp (addViewExprParens viewExpr) (addPatternParens inner))
-    PAs sp name inner -> PAs sp name (addPatternAtomStrictParens inner)
-    PStrict sp inner -> PStrict sp (addPatternAtomStrictParens inner)
-    PIrrefutable sp inner -> PIrrefutable sp (addPatternAtomStrictParens inner)
-    PNegLit sp lit -> PNegLit sp lit
-    PParen sp inner -> PParen sp (addPatternInDelimited inner)
-    PRecord sp con fields hasWildcard ->
-      PRecord sp con [(fieldName, addPatternParens fieldPat) | (fieldName, fieldPat) <- fields] hasWildcard
-    PTypeSig sp inner ty -> PTypeSig sp (addPatternParens inner) (addTypeParens ty)
-    PSplice sp body -> PSplice sp (addSpliceBodyParens body)
+    PTuple tupleFlavor elems -> PTuple tupleFlavor (map addPatternInDelimited elems)
+    PUnboxedSum altIdx arity inner -> PUnboxedSum altIdx arity (addPatternInDelimited inner)
+    PList elems -> PList (map addPatternInDelimited elems)
+    PCon con args -> PCon con (map addPatternAtomParens args)
+    PInfix lhs op rhs -> PInfix (addPatternAtomParens lhs) op (addPatternAtomParens rhs)
+    PView viewExpr inner ->
+      wrapPat True (PView (addViewExprParens viewExpr) (addPatternParens inner))
+    PAs name inner -> PAs name (addPatternAtomStrictParens inner)
+    PStrict inner -> PStrict (addPatternAtomStrictParens inner)
+    PIrrefutable inner -> PIrrefutable (addPatternAtomStrictParens inner)
+    PNegLit lit -> PNegLit lit
+    PParen inner -> PParen (addPatternInDelimited inner)
+    PRecord con fields hasWildcard ->
+      PRecord con [(fieldName, addPatternParens fieldPat) | (fieldName, fieldPat) <- fields] hasWildcard
+    PTypeSig inner ty -> PTypeSig (addPatternParens inner) (addTypeParens ty)
+    PSplice body -> PSplice (addSpliceBodyParens body)
 
 -- | Add parens for a pattern inside a delimited context (tuples, lists, etc.).
 -- View patterns don't need extra parens there.
 addPatternInDelimited :: Pattern -> Pattern
 addPatternInDelimited pat =
-  case pat of
-    PView sp viewExpr inner -> PView sp (addViewExprParens viewExpr) (addPatternParens inner)
-    PAs sp name inner -> PAs sp name (addPatternAtomStrictParens inner)
-    PStrict sp inner -> PStrict sp (addPatternAtomStrictParens inner)
-    PIrrefutable sp inner -> PIrrefutable sp (addPatternAtomStrictParens inner)
+  case peelPatternAnn pat of
+    PView viewExpr inner -> PView (addViewExprParens viewExpr) (addPatternParens inner)
+    PAs name inner -> PAs name (addPatternAtomStrictParens inner)
+    PStrict inner -> PStrict (addPatternAtomStrictParens inner)
+    PIrrefutable inner -> PIrrefutable (addPatternAtomStrictParens inner)
     _ -> addPatternParens pat
 
 addViewExprParens :: Expr -> Expr
@@ -953,8 +946,8 @@ addPatternAtomParens pat =
     PView {} -> addPatternParens pat
     PAs {} -> addPatternParens pat
     PSplice {} -> addPatternParens pat
-    PCon _ _ [] -> addPatternParens pat
-    PInfix _ _ op _
+    PCon _ [] -> addPatternParens pat
+    PInfix _ op _
       | isConsOperator op ->
           -- Cons operator (:) is right-associative, so nested cons patterns
           -- don't need parentheses: x1:x2:xs parses as x1:(x2:xs)
@@ -964,9 +957,9 @@ addPatternAtomParens pat =
 -- | Add parens for a pattern in lambda argument position.
 addLambdaPatternAtomParens :: Pattern -> Pattern
 addLambdaPatternAtomParens pat =
-  case pat of
+  case peelPatternAnn pat of
     PNegLit {} -> wrapPat True (addPatternParens pat)
-    PCon _ _ [] -> wrapPat True (addPatternParens pat)
+    PCon _ [] -> wrapPat True (addPatternParens pat)
     _ -> addPatternAtomParens pat
 
 -- | Add parens for a pattern in function-head argument position.
@@ -974,7 +967,7 @@ addFunctionHeadPatternAtomParens :: Pattern -> Pattern
 addFunctionHeadPatternAtomParens pat =
   case peelPatternAnn pat of
     PNegLit {} -> wrapPat True (addPatternParens pat)
-    PCon _ _ (_ : _) -> wrapPat True (addPatternParens pat)
+    PCon _ (_ : _) -> wrapPat True (addPatternParens pat)
     PRecord {} -> addPatternParens pat
     _ -> addPatternAtomParens pat
 
@@ -990,7 +983,7 @@ addPatternAtomStrictParens :: Pattern -> Pattern
 addPatternAtomStrictParens pat =
   case peelPatternAnn pat of
     PNegLit {} -> wrapPat True (addPatternParens pat)
-    PCon _ _ [] -> wrapPat True (addPatternParens pat)
+    PCon _ [] -> wrapPat True (addPatternParens pat)
     PStrict {} -> wrapPat True (addPatternParens pat)
     PIrrefutable {} -> wrapPat True (addPatternParens pat)
     PRecord {} -> addPatternParens pat

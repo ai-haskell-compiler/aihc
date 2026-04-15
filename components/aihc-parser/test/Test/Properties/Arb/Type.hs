@@ -108,8 +108,8 @@ genForallInner depth = do
 genTypeSpliceBody :: Gen Expr
 genTypeSpliceBody =
   oneof
-    [ EVar span0 <$> genTypeVarExprName,
-      EParen span0 . EVar span0 <$> genTypeVarExprName
+    [ exprAnnSpan span0 . EVar <$> genTypeVarExprName,
+      exprAnnSpan span0 . EParen . exprAnnSpan span0 . EVar <$> genTypeVarExprName
     ]
 
 -- | Generate a type with a context (constraints => type).
@@ -331,7 +331,7 @@ canonicalContextItem ty =
 canonicalTypeSplice :: Type -> Type
 canonicalTypeSplice ty =
   case ty of
-    TSplice _ (EVar _ name) -> TSplice span0 (EParen span0 (EVar span0 name))
+    TSplice _ (EVar name) -> TSplice span0 (exprAnnSpan span0 (EParen (exprAnnSpan span0 (EVar name))))
     _ -> ty
 
 canonicalForallInner :: Type -> Type

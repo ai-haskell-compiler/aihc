@@ -130,10 +130,9 @@ spliceDeclParser = do
   where
     parenSpliceBody = withSpan $ do
       body <- parens exprParser
-      pure (`EParen` body)
+      pure (const (EParen body))
     bareSpliceBody = withSpan $ do
-      name <- identifierNameParser
-      pure (`EVar` name)
+      const . EVar <$> identifierNameParser
 
 -- | Parse an implicit top-level Template Haskell declaration splice: @expr@.
 -- GHC accepts bare declaration splices under TemplateHaskell and also pretty-prints
@@ -394,16 +393,18 @@ classTypeFamilyDeclParser = withSpan $ do
   (headForm, headType, params) <- typeFamilyHeadParser
   kind <- familyResultKindParser
   pure $ \span' ->
-    ClassItemTypeFamilyDecl
+    classItemAnnSpan
       span'
-      TypeFamilyDecl
-        { typeFamilyDeclSpan = span',
-          typeFamilyDeclHeadForm = headForm,
-          typeFamilyDeclHead = headType,
-          typeFamilyDeclParams = params,
-          typeFamilyDeclKind = kind,
-          typeFamilyDeclEquations = Nothing
-        }
+      ( ClassItemTypeFamilyDecl
+          TypeFamilyDecl
+            { typeFamilyDeclSpan = span',
+              typeFamilyDeclHeadForm = headForm,
+              typeFamilyDeclHead = headType,
+              typeFamilyDeclParams = params,
+              typeFamilyDeclKind = kind,
+              typeFamilyDeclEquations = Nothing
+            }
+      )
 
 -- | Parse @data Name params [:: Kind]@ as an associated data family in a class.
 classDataFamilyDeclParser :: TokParser ClassDeclItem
@@ -413,14 +414,16 @@ classDataFamilyDeclParser = withSpan $ do
   params <- MP.many typeParamParser
   kind <- familyResultKindParser
   pure $ \span' ->
-    ClassItemDataFamilyDecl
+    classItemAnnSpan
       span'
-      DataFamilyDecl
-        { dataFamilyDeclSpan = span',
-          dataFamilyDeclName = name,
-          dataFamilyDeclParams = params,
-          dataFamilyDeclKind = kind
-        }
+      ( ClassItemDataFamilyDecl
+          DataFamilyDecl
+            { dataFamilyDeclSpan = span',
+              dataFamilyDeclName = name,
+              dataFamilyDeclParams = params,
+              dataFamilyDeclKind = kind
+            }
+      )
 
 -- | Parse @type instance LhsType = RhsType@ as a default type family instance in a class.
 classDefaultTypeInstParser :: TokParser ClassDeclItem
@@ -432,15 +435,17 @@ classDefaultTypeInstParser = withSpan $ do
   expectedTok TkReservedEquals
   rhs <- typeParser
   pure $ \span' ->
-    ClassItemDefaultTypeInst
+    classItemAnnSpan
       span'
-      TypeFamilyInst
-        { typeFamilyInstSpan = span',
-          typeFamilyInstForall = forallBinders,
-          typeFamilyInstHeadForm = headForm,
-          typeFamilyInstLhs = lhs,
-          typeFamilyInstRhs = rhs
-        }
+      ( ClassItemDefaultTypeInst
+          TypeFamilyInst
+            { typeFamilyInstSpan = span',
+              typeFamilyInstForall = forallBinders,
+              typeFamilyInstHeadForm = headForm,
+              typeFamilyInstLhs = lhs,
+              typeFamilyInstRhs = rhs
+            }
+      )
 
 -- ---------------------------------------------------------------------------
 -- TypeFamilies: instance body items
@@ -649,14 +654,14 @@ ordinaryClassDeclItemParser = do
 classPragmaItemParser :: TokParser ClassDeclItem
 classPragmaItemParser = withSpan $ do
   pragma <- anyPragmaParser "pragma declaration"
-  pure (`ClassItemPragma` pragma)
+  pure (\span' -> classItemAnnSpan span' (ClassItemPragma pragma))
 
 classTypeSigItemParser :: TokParser ClassDeclItem
 classTypeSigItemParser = withSpan $ do
   names <- binderNameParser `MP.sepBy1` expectedTok TkSpecialComma
   expectedTok TkReservedDoubleColon
   ty <- typeParser
-  pure (\span' -> ClassItemTypeSig span' names ty)
+  pure (\span' -> classItemAnnSpan span' (ClassItemTypeSig names ty))
 
 classDefaultSigItemParser :: TokParser ClassDeclItem
 classDefaultSigItemParser = withSpan $ do
@@ -664,18 +669,18 @@ classDefaultSigItemParser = withSpan $ do
   name <- binderNameParser
   expectedTok TkReservedDoubleColon
   ty <- typeParser
-  pure (\span' -> ClassItemDefaultSig span' name ty)
+  pure (\span' -> classItemAnnSpan span' (ClassItemDefaultSig name ty))
 
 classFixityItemParser :: TokParser ClassDeclItem
 classFixityItemParser = withSpan $ do
   (assoc, prec, mNamespace, ops) <- fixityDeclPartsParser
-  pure (\span' -> ClassItemFixity span' assoc mNamespace prec ops)
+  pure (\span' -> classItemAnnSpan span' (ClassItemFixity assoc mNamespace prec ops))
 
 classDefaultItemParser :: TokParser ClassDeclItem
 classDefaultItemParser = withSpan $ do
   (headForm, name, pats) <- functionHeadParserWith patternParser simplePatternParser
   rhs <- equationRhsParser
-  pure (\span' -> ClassItemDefault span' (functionBindValue headForm name pats rhs))
+  pure (\span' -> classItemAnnSpan span' (ClassItemDefault (functionBindValue headForm name pats rhs)))
 
 instanceDeclParser :: TokParser Decl
 instanceDeclParser = withSpan $ do

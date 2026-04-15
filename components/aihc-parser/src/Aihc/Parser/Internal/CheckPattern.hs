@@ -36,71 +36,71 @@ checkPattern expr = case expr of
       Just sp -> fmap (patternAnnSpan sp) (checkPattern sub)
       Nothing -> checkPattern sub
   -- Variables and constructors
-  EVar sp name
-    | nameText name == "_" -> Right (PWildcard sp)
-    | isConLikeName name -> Right (PCon sp name [])
+  EVar name
+    | nameText name == "_" -> Right PWildcard
+    | isConLikeName name -> Right (PCon name [])
     | isJust (nameQualifier name) -> Left "unexpected qualified name in pattern"
-    | otherwise -> Right (PVar sp (mkUnqualifiedName (nameType name) (nameText name)))
+    | otherwise -> Right (PVar (mkUnqualifiedName (nameType name) (nameText name)))
   -- Parenthesized expression
   -- When the inner expression is a view-pattern arrow (@expr -> expr@),
   -- produce @PParen (PView f pat)@ to preserve the explicit parens in
   -- the AST, matching the shape produced by the dedicated pattern parser.
-  EParen _sp inner
-    | Just vp <- asViewPat inner -> Right (PParen _sp vp)
-    | otherwise -> PParen _sp <$> checkPattern inner
+  EParen inner
+    | Just vp <- asViewPat inner -> Right (PParen vp)
+    | otherwise -> PParen <$> checkPattern inner
   -- Tuple
-  ETuple sp fl elems -> do
+  ETuple fl elems -> do
     pats <- traverse checkTupleElement elems
-    Right (PTuple sp fl pats)
+    Right (PTuple fl pats)
   -- List
-  EList sp elems -> PList sp <$> traverse checkPattern elems
+  EList elems -> PList <$> traverse checkPattern elems
   -- Unboxed sum
-  EUnboxedSum sp i n e -> PUnboxedSum sp i n <$> checkPattern e
+  EUnboxedSum i n e -> PUnboxedSum i n <$> checkPattern e
   -- Infix: only constructor operators (starting with ':') or the view-pattern
   -- arrow @->@ are valid in patterns.
-  EInfix sp l op r
+  EInfix l op r
     | renderName op == "->" -> do
         rPat <- checkPattern r
-        Right (PView sp l rPat)
+        Right (PView l rPat)
     | isConLikeOp op -> do
         lPat <- checkPattern l
         rPat <- checkPattern r
-        Right (PInfix sp lPat op rPat)
+        Right (PInfix lPat op rPat)
     | otherwise -> Left ("unexpected variable operator '" <> renderName op <> "' in pattern")
   -- Type signature
-  ETypeSig sp e ty -> do
+  ETypeSig e ty -> do
     pat <- checkPattern e
-    Right (PTypeSig sp pat ty)
+    Right (PTypeSig pat ty)
   -- Negation (must be a literal)
-  ENegate sp inner -> checkNegLitPattern sp inner
+  ENegate inner -> checkNegLitPattern (getSourceSpan expr) inner
   -- Application: accumulate arguments into PCon
-  EApp sp f x -> do
+  EApp f x -> do
     fPat <- checkPattern f
     xPat <- checkPattern x
     case peelPatternAnn fPat of
-      PCon _csp name args -> Right (PCon sp name (args ++ [xPat]))
-      PVar _ name | isConLikeNameType (unqualifiedNameType name) -> Right (PCon sp (qualifyName Nothing name) [xPat])
+      PCon name args -> Right (PCon name (args ++ [xPat]))
+      PVar name | isConLikeNameType (unqualifiedNameType name) -> Right (PCon (qualifyName Nothing name) [xPat])
       _ -> Left "invalid pattern: application of non-constructor"
   -- Record construction -> record pattern
-  ERecordCon sp name fields wc -> do
+  ERecordCon name fields wc -> do
     patFields <- traverse (\(n, e) -> (nameFromText n,) <$> checkPattern e) fields
-    Right (PRecord sp (nameFromText name) patFields wc)
+    Right (PRecord (nameFromText name) patFields wc)
   -- Literals
-  EInt sp n repr -> Right (PLit sp (LitInt sp n repr))
-  EIntHash sp n repr -> Right (PLit sp (LitIntHash sp n repr))
-  EIntBase sp n repr -> Right (PLit sp (LitIntBase sp n repr))
-  EIntBaseHash sp n repr -> Right (PLit sp (LitIntBaseHash sp n repr))
-  EFloat sp x repr -> Right (PLit sp (LitFloat sp x repr))
-  EFloatHash sp x repr -> Right (PLit sp (LitFloatHash sp x repr))
-  EChar sp c repr -> Right (PLit sp (LitChar sp c repr))
-  ECharHash sp c repr -> Right (PLit sp (LitCharHash sp c repr))
-  EString sp s repr -> Right (PLit sp (LitString sp s repr))
-  EStringHash sp s repr -> Right (PLit sp (LitStringHash sp s repr))
+  EInt n repr -> Right (PLit (LitInt n repr))
+  EIntHash n repr -> Right (PLit (LitIntHash n repr))
+  EIntBase n repr -> Right (PLit (LitIntBase n repr))
+  EIntBaseHash n repr -> Right (PLit (LitIntBaseHash n repr))
+  EFloat x repr -> Right (PLit (LitFloat x repr))
+  EFloatHash x repr -> Right (PLit (LitFloatHash x repr))
+  EChar c repr -> Right (PLit (LitChar c repr))
+  ECharHash c repr -> Right (PLit (LitCharHash c repr))
+  EString s repr -> Right (PLit (LitString s repr))
+  EStringHash s repr -> Right (PLit (LitStringHash s repr))
   EOverloadedLabel {} -> Left "unexpected overloaded label in pattern"
   -- TH splice
-  ETHSplice sp body -> Right (PSplice sp body)
+  ETHSplice body -> Right (PSplice body)
   -- Quasi-quote
-  EQuasiQuote sp q b -> Right (PQuasiQuote sp q b)
+  EQuasiQuote q b -> Right (PQuasiQuote q b)
   -- Expression-only constructs: clear errors
   EIf {} -> Left "unexpected if-then-else in pattern"
   EMultiWayIf {} -> Left "unexpected multi-way if in pattern"
@@ -138,12 +138,12 @@ checkTupleElement (Just e) = checkPattern e
 -- | Check that a negated expression is a literal (for PNegLit patterns).
 checkNegLitPattern :: SourceSpan -> Expr -> Either Text Pattern
 checkNegLitPattern sp inner = case inner of
-  EInt _ n repr -> Right (PNegLit sp (LitInt sp n repr))
-  EIntHash _ n repr -> Right (PNegLit sp (LitIntHash sp n repr))
-  EIntBase _ n repr -> Right (PNegLit sp (LitIntBase sp n repr))
-  EIntBaseHash _ n repr -> Right (PNegLit sp (LitIntBaseHash sp n repr))
-  EFloat _ x repr -> Right (PNegLit sp (LitFloat sp x repr))
-  EFloatHash _ x repr -> Right (PNegLit sp (LitFloatHash sp x repr))
+  EInt n repr -> Right (patternAnnSpan sp (PNegLit (literalAnnSpan sp (LitInt n repr))))
+  EIntHash n repr -> Right (patternAnnSpan sp (PNegLit (literalAnnSpan sp (LitIntHash n repr))))
+  EIntBase n repr -> Right (patternAnnSpan sp (PNegLit (literalAnnSpan sp (LitIntBase n repr))))
+  EIntBaseHash n repr -> Right (patternAnnSpan sp (PNegLit (literalAnnSpan sp (LitIntBaseHash n repr))))
+  EFloat x repr -> Right (patternAnnSpan sp (PNegLit (literalAnnSpan sp (LitFloat x repr))))
+  EFloatHash x repr -> Right (patternAnnSpan sp (PNegLit (literalAnnSpan sp (LitFloatHash x repr))))
   _ -> Left "negation in pattern requires a numeric literal"
 
 -- | Check whether an operator is a constructor operator (starts with ':').
@@ -159,8 +159,8 @@ isConLikeOp = isConLikeName
 -- directly (matching the AST shape that the dedicated pattern parser
 -- produces).
 asViewPat :: Expr -> Maybe Pattern
-asViewPat (EInfix sp l op r)
+asViewPat (EInfix l op r)
   | renderName op == "->" = case checkPattern r of
-      Right rPat -> Just (PView sp l rPat)
+      Right rPat -> Just (PView l rPat)
       Left _ -> Nothing
 asViewPat _ = Nothing

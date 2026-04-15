@@ -83,7 +83,7 @@ genPatternValueDecl n = do
 genPatternBindPattern :: Int -> Gen Pattern
 genPatternBindPattern n =
   frequency
-    [ (1, PVar span0 . mkUnqualifiedName NameVarId <$> genIdent),
+    [ (1, patternAnnSpan span0 . PVar . mkUnqualifiedName NameVarId <$> genIdent),
       (4, sized (genGeneralPatternBindPattern . min 3 . min n))
     ]
 
@@ -147,8 +147,8 @@ genPatternWithoutLeadingNegArg n =
 startsWithConstructorNegativeLiteral :: Pattern -> Bool
 startsWithConstructorNegativeLiteral pat =
   case pat of
-    PCon _ _ (PNegLit {} : _) -> True
-    PParen _ inner -> startsWithConstructorNegativeLiteral inner
+    PCon _ (PNegLit {} : _) -> True
+    PParen inner -> startsWithConstructorNegativeLiteral inner
     _ -> False
 
 genDeclTypeSig :: Gen Decl
@@ -588,7 +588,7 @@ genDeclDefault = do
 genDeclSplice :: Gen Decl
 genDeclSplice = do
   name <- qualifyName Nothing . mkUnqualifiedName NameVarId <$> genIdent
-  pure $ DeclSplice (EVar span0 name)
+  pure $ DeclSplice (exprAnnSpan span0 (EVar name))
 
 genDeclForeign :: Gen Decl
 genDeclForeign = do
@@ -737,7 +737,7 @@ genDeclPatSyn = do
   argName <- genIdent
   conName <- qualifyName Nothing . mkUnqualifiedName NameConId <$> genConIdent
   let args = PatSynPrefixArgs [argName]
-      pat = PCon span0 conName [PVar span0 (mkUnqualifiedName NameVarId argName)]
+      pat = patternAnnSpan span0 (PCon conName [patternAnnSpan span0 (PVar (mkUnqualifiedName NameVarId argName))])
   dir <- elements [PatSynBidirectional, PatSynUnidirectional]
   pure $ DeclPatSyn (PatSynDecl span0 synName args pat dir)
 

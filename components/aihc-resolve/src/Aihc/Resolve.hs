@@ -258,60 +258,60 @@ resolveExprAt scope nextLocal lastSeen expr =
   case expr of
     EAnn ann inner ->
       resolveExprAt scope nextLocal (pushSpanFromAnn lastSeen ann) inner
-    EVar span' name ->
-      let sp = effectiveResolutionSpan lastSeen span'
+    EVar name ->
+      let sp = effectiveResolutionSpan lastSeen (getSourceSpan expr)
        in ( nextLocal,
             annotateExpr
               (ResolutionAnnotation sp (nameText name) ResolutionNamespaceTerm (resolveTermName scope name))
-              (EVar span' name)
+              (EVar name)
           )
-    EIf span' cond trueBranch falseBranch ->
-      let here = effectiveResolutionSpan lastSeen span'
+    EIf cond trueBranch falseBranch ->
+      let here = effectiveResolutionSpan lastSeen (getSourceSpan expr)
           (nextLocal', cond') = resolveExprAt scope nextLocal here cond
           (nextLocal'', trueBranch') = resolveExprAt scope nextLocal' here trueBranch
           (nextLocal''', falseBranch') = resolveExprAt scope nextLocal'' here falseBranch
-       in (nextLocal''', EIf span' cond' trueBranch' falseBranch')
-    EInfix span' left op right ->
-      let here = effectiveResolutionSpan lastSeen span'
+       in (nextLocal''', EIf cond' trueBranch' falseBranch')
+    EInfix left op right ->
+      let here = effectiveResolutionSpan lastSeen (getSourceSpan expr)
           (nextLocal', left') = resolveExprAt scope nextLocal here left
           (nextLocal'', right') = resolveExprAt scope nextLocal' here right
-       in (nextLocal'', EInfix span' left' op right')
-    ENegate span' inner ->
-      let here = effectiveResolutionSpan lastSeen span'
+       in (nextLocal'', EInfix left' op right')
+    ENegate inner ->
+      let here = effectiveResolutionSpan lastSeen (getSourceSpan expr)
           (nextLocal', inner') = resolveExprAt scope nextLocal here inner
-       in (nextLocal', ENegate span' inner')
-    ESectionL span' inner op ->
-      let here = effectiveResolutionSpan lastSeen span'
+       in (nextLocal', ENegate inner')
+    ESectionL inner op ->
+      let here = effectiveResolutionSpan lastSeen (getSourceSpan expr)
           (nextLocal', inner') = resolveExprAt scope nextLocal here inner
-       in (nextLocal', ESectionL span' inner' op)
-    ESectionR span' op inner ->
-      let here = effectiveResolutionSpan lastSeen span'
+       in (nextLocal', ESectionL inner' op)
+    ESectionR op inner ->
+      let here = effectiveResolutionSpan lastSeen (getSourceSpan expr)
           (nextLocal', inner') = resolveExprAt scope nextLocal here inner
-       in (nextLocal', ESectionR span' op inner')
-    ELetDecls span' decls body ->
-      let here = effectiveResolutionSpan lastSeen span'
+       in (nextLocal', ESectionR op inner')
+    ELetDecls decls body ->
+      let here = effectiveResolutionSpan lastSeen (getSourceSpan expr)
           (nextLocal', binderAnnotations, localScope) = allocateLocalDeclBinders nextLocal decls
           scoped = unionScope localScope scope
           (nextLocal'', decls') = resolveBoundDecls scoped binderAnnotations nextLocal' Map.empty decls
           (nextLocal''', body') = resolveExprAt scoped nextLocal'' here body
-       in (nextLocal''', ELetDecls span' decls' body')
-    ETypeSig span' inner ty ->
-      let here = effectiveResolutionSpan lastSeen span'
+       in (nextLocal''', ELetDecls decls' body')
+    ETypeSig inner ty ->
+      let here = effectiveResolutionSpan lastSeen (getSourceSpan expr)
           (nextLocal', inner') = resolveExprAt scope nextLocal here inner
-       in (nextLocal', ETypeSig span' inner' (resolveTypeAt scope here ty))
-    EParen span' inner ->
-      let here = effectiveResolutionSpan lastSeen span'
+       in (nextLocal', ETypeSig inner' (resolveTypeAt scope here ty))
+    EParen inner ->
+      let here = effectiveResolutionSpan lastSeen (getSourceSpan expr)
           (nextLocal', inner') = resolveExprAt scope nextLocal here inner
-       in (nextLocal', EParen span' inner')
-    ETypeApp span' fun ty ->
-      let here = effectiveResolutionSpan lastSeen span'
+       in (nextLocal', EParen inner')
+    ETypeApp fun ty ->
+      let here = effectiveResolutionSpan lastSeen (getSourceSpan expr)
           (nextLocal', fun') = resolveExprAt scope nextLocal here fun
-       in (nextLocal', ETypeApp span' fun' ty)
-    EApp span' fun arg ->
-      let here = effectiveResolutionSpan lastSeen span'
+       in (nextLocal', ETypeApp fun' ty)
+    EApp fun arg ->
+      let here = effectiveResolutionSpan lastSeen (getSourceSpan expr)
           (nextLocal', fun') = resolveExprAt scope nextLocal here fun
           (nextLocal'', arg') = resolveExprAt scope nextLocal' here arg
-       in (nextLocal'', EApp span' fun' arg')
+       in (nextLocal'', EApp fun' arg')
     _ -> (nextLocal, expr)
 
 resolveBoundDecl :: Scope -> Map.Map Text ResolutionAnnotation -> Int -> Decl -> (Int, Decl)
@@ -368,55 +368,55 @@ bindPattern typeScope lastSeen nextLocal pat =
   case pat of
     PAnn ann inner ->
       bindPattern typeScope (pushSpanFromAnn lastSeen ann) nextLocal inner
-    PVar span' name ->
-      let sp = effectiveResolutionSpan lastSeen span'
+    PVar name ->
+      let sp = effectiveResolutionSpan lastSeen (getSourceSpan pat)
           resolvedName = ResolvedLocal nextLocal name
           annotation = ResolutionAnnotation sp (renderUnqualifiedName name) ResolutionNamespaceTerm resolvedName
-       in (nextLocal + 1, Scope (Map.singleton (renderUnqualifiedName name) resolvedName) Map.empty Map.empty, annotatePattern annotation (PVar span' name))
-    PTuple span' flavor pats ->
-      let here = effectiveResolutionSpan lastSeen span'
+       in (nextLocal + 1, Scope (Map.singleton (renderUnqualifiedName name) resolvedName) Map.empty Map.empty, annotatePattern annotation (PVar name))
+    PTuple flavor pats ->
+      let here = effectiveResolutionSpan lastSeen (getSourceSpan pat)
           (nextLocal', scope, pats') = bindPatterns typeScope here nextLocal pats
-       in (nextLocal', scope, PTuple span' flavor pats')
-    PList span' pats ->
-      let here = effectiveResolutionSpan lastSeen span'
+       in (nextLocal', scope, PTuple flavor pats')
+    PList pats ->
+      let here = effectiveResolutionSpan lastSeen (getSourceSpan pat)
           (nextLocal', scope, pats') = bindPatterns typeScope here nextLocal pats
-       in (nextLocal', scope, PList span' pats')
-    PCon span' name pats ->
-      let here = effectiveResolutionSpan lastSeen span'
+       in (nextLocal', scope, PList pats')
+    PCon name pats ->
+      let here = effectiveResolutionSpan lastSeen (getSourceSpan pat)
           (nextLocal', scope, pats') = bindPatterns typeScope here nextLocal pats
-       in (nextLocal', scope, PCon span' name pats')
-    PInfix span' left name right ->
-      let here = effectiveResolutionSpan lastSeen span'
+       in (nextLocal', scope, PCon name pats')
+    PInfix left name right ->
+      let here = effectiveResolutionSpan lastSeen (getSourceSpan pat)
           (nextLocal', leftScope, left') = bindPattern typeScope here nextLocal left
           (nextLocal'', rightScope, right') = bindPattern typeScope here nextLocal' right
-       in (nextLocal'', unionScope rightScope leftScope, PInfix span' left' name right')
-    PView span' expr inner ->
-      let here = effectiveResolutionSpan lastSeen span'
+       in (nextLocal'', unionScope rightScope leftScope, PInfix left' name right')
+    PView expr inner ->
+      let here = effectiveResolutionSpan lastSeen (getSourceSpan pat)
           (nextLocal', scope, inner') = bindPattern typeScope here nextLocal inner
-       in (nextLocal', scope, PView span' expr inner')
-    PAs span' alias inner ->
-      let here = effectiveResolutionSpan lastSeen span'
+       in (nextLocal', scope, PView expr inner')
+    PAs alias inner ->
+      let here = effectiveResolutionSpan lastSeen (getSourceSpan pat)
           aliasName = mkUnqualifiedName NameVarId alias
           aliasResolved = ResolvedLocal nextLocal aliasName
           aliasAnnotation =
             ResolutionAnnotation (spanStartNameSpan here alias) alias ResolutionNamespaceTerm aliasResolved
           (nextLocal', innerScope, inner') = bindPattern typeScope here (nextLocal + 1) inner
           aliasScope = Scope (Map.singleton alias aliasResolved) Map.empty Map.empty
-       in (nextLocal', unionScope innerScope aliasScope, annotatePattern aliasAnnotation (PAs span' alias inner'))
-    PStrict span' inner ->
-      let here = effectiveResolutionSpan lastSeen span'
+       in (nextLocal', unionScope innerScope aliasScope, annotatePattern aliasAnnotation (PAs alias inner'))
+    PStrict inner ->
+      let here = effectiveResolutionSpan lastSeen (getSourceSpan pat)
           (nextLocal', scope, inner') = bindPattern typeScope here nextLocal inner
-       in (nextLocal', scope, PStrict span' inner')
-    PIrrefutable span' inner ->
-      let here = effectiveResolutionSpan lastSeen span'
+       in (nextLocal', scope, PStrict inner')
+    PIrrefutable inner ->
+      let here = effectiveResolutionSpan lastSeen (getSourceSpan pat)
           (nextLocal', scope, inner') = bindPattern typeScope here nextLocal inner
-       in (nextLocal', scope, PIrrefutable span' inner')
-    PParen span' inner ->
-      let here = effectiveResolutionSpan lastSeen span'
+       in (nextLocal', scope, PIrrefutable inner')
+    PParen inner ->
+      let here = effectiveResolutionSpan lastSeen (getSourceSpan pat)
           (nextLocal', scope, inner') = bindPattern typeScope here nextLocal inner
-       in (nextLocal', scope, PParen span' inner')
-    PRecord span' name fields wildcard ->
-      let here = effectiveResolutionSpan lastSeen span'
+       in (nextLocal', scope, PParen inner')
+    PRecord name fields wildcard ->
+      let here = effectiveResolutionSpan lastSeen (getSourceSpan pat)
           (nextLocal', entries, fields') =
             foldl'
               ( \(currentId, currentEntries, acc) (fieldName, fieldPat) ->
@@ -425,11 +425,11 @@ bindPattern typeScope lastSeen nextLocal pat =
               )
               (nextLocal, [], [])
               fields
-       in (nextLocal', Scope (Map.fromList entries) Map.empty Map.empty, PRecord span' name (reverse fields') wildcard)
-    PTypeSig span' inner ty ->
-      let here = effectiveResolutionSpan lastSeen span'
+       in (nextLocal', Scope (Map.fromList entries) Map.empty Map.empty, PRecord name (reverse fields') wildcard)
+    PTypeSig inner ty ->
+      let here = effectiveResolutionSpan lastSeen (getSourceSpan pat)
           (nextLocal', scope, inner') = bindPattern typeScope here nextLocal inner
-       in (nextLocal', scope, PTypeSig span' inner' (resolveTypeAt typeScope here ty))
+       in (nextLocal', scope, PTypeSig inner' (resolveTypeAt typeScope here ty))
     _ -> (nextLocal, emptyScope, pat)
 
 resolveDataDecl :: Scope -> DataDecl -> DataDecl
@@ -598,7 +598,7 @@ declBinderCandidate decl =
                in Just (spanStartNameSpan loc (renderUnqualifiedName name), name)
             PatternBind bindSp pat _ ->
               case peelPatternAnn pat of
-                PVar _ name ->
+                PVar name ->
                   let loc =
                         effectiveResolutionSpan
                           (effectiveResolutionSpan outerSp bindSp)
@@ -700,7 +700,7 @@ declExportedNames decl =
         FunctionBind _ name _ -> ([name], [])
         PatternBind _ pat _ ->
           case peelPatternAnn pat of
-            PVar _ name -> ([name], [])
+            PVar name -> ([name], [])
             _ -> ([], [])
     DeclTypeSig names _ -> (names, [])
     DeclClass classDecl -> ([], [mkUnqualifiedName NameConId (classDeclName classDecl)])

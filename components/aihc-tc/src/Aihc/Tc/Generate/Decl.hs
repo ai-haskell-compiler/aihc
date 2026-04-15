@@ -247,7 +247,7 @@ unifyMatchRhs expectedTy match = do
 -- extra constraints are needed.
 inferPatCts :: Pattern -> TcType -> TcM [Ct]
 inferPatCts pat scrutTy = case pat of
-  PCon sp name _subPats -> do
+  PCon name _subPats -> do
     let conName = patNameToText name
     mBinder <- lookupTerm conName
     case mBinder of
@@ -255,12 +255,13 @@ inferPatCts pat scrutTy = case pat of
         (conTy, _preds) <- instantiateSch scheme
         let conResTy = resultType conTy
         ev <- freshEvVar
+        let sp = getSourceSpan pat
         pure [mkWantedCt (EqPred scrutTy conResTy) ev (AppOrigin sp) sp]
       _ -> pure []
   PAnn _ann inner -> inferPatCts inner scrutTy
-  PParen _sp inner -> inferPatCts inner scrutTy
-  PStrict _sp inner -> inferPatCts inner scrutTy
-  PIrrefutable _sp inner -> inferPatCts inner scrutTy
+  PParen inner -> inferPatCts inner scrutTy
+  PStrict inner -> inferPatCts inner scrutTy
+  PIrrefutable inner -> inferPatCts inner scrutTy
   _ -> pure []
 
 -- | Convert a Name to Text for lookup.
@@ -281,18 +282,18 @@ instantiateSch = Aihc.Tc.Instantiate.instantiate
 -- | Extract variable bindings from a pattern paired with its expected type.
 extractPatternBindings :: (Pattern, TcType) -> [(Text, TcType)]
 extractPatternBindings (pat, ty) = case pat of
-  PVar _sp uname -> [(unqualifiedNameText uname, ty)]
+  PVar uname -> [(unqualifiedNameText uname, ty)]
   PAnn _ann inner -> extractPatternBindings (inner, ty)
-  PParen _sp inner -> extractPatternBindings (inner, ty)
+  PParen inner -> extractPatternBindings (inner, ty)
   PWildcard {} -> []
   PLit {} -> []
   PNegLit {} -> []
-  PAs _sp name inner -> (name, ty) : extractPatternBindings (inner, ty)
-  PStrict _sp inner -> extractPatternBindings (inner, ty)
-  PIrrefutable _sp inner -> extractPatternBindings (inner, ty)
-  PCon _sp _name subPats ->
+  PAs name inner -> (name, ty) : extractPatternBindings (inner, ty)
+  PStrict inner -> extractPatternBindings (inner, ty)
+  PIrrefutable inner -> extractPatternBindings (inner, ty)
+  PCon _name subPats ->
     concatMap (\p -> extractPatternBindings (p, ty)) subPats
-  PInfix _sp lhs _name rhs ->
+  PInfix lhs _name rhs ->
     extractPatternBindings (lhs, ty) ++ extractPatternBindings (rhs, ty)
   _ -> []
 

@@ -31,6 +31,9 @@ import Test.Properties.Arb.Identifiers
 import Test.Properties.Arb.Pattern (genPattern)
 import Test.QuickCheck
 
+expr0 :: Expr -> Expr
+expr0 = exprAnnSpan span0
+
 -- | Generate a random expression. Uses QuickCheck's size parameter
 -- to control recursion depth.
 genExpr :: Gen Expr
@@ -56,45 +59,45 @@ genExprSizedWith allowTHQuotes n
       [ -- Leaf expressions
         genExprLeaf,
         -- Recursive expressions (reduce size for subexpressions)
-        EApp span0 <$> genExprSizedWith allowTHQuotes half <*> genExprSizedWith allowTHQuotes half,
-        EInfix span0 <$> genExprSizedWith allowTHQuotes half <*> genOperatorName <*> genExprSizedWith allowTHQuotes half,
-        ENegate span0 <$> genExprSizedWith allowTHQuotes (n - 1),
-        ESectionL span0 <$> genExprSizedWith allowTHQuotes (n - 1) <*> genOperatorName,
-        ESectionR span0 <$> genOperatorName <*> genExprSizedWith allowTHQuotes (n - 1),
-        EIf span0 <$> genExprSizedWith allowTHQuotes third <*> genExprSizedWith allowTHQuotes third <*> genExprSizedWith allowTHQuotes third,
-        EMultiWayIf span0 <$> genGuardedRhsListWith allowTHQuotes (n - 1),
-        ECase span0 <$> genExprSizedWith allowTHQuotes half <*> genCaseAltsWith allowTHQuotes half,
-        ELambdaPats span0 <$> genPatterns half <*> genExprSizedWith allowTHQuotes half,
-        ELambdaCase span0 <$> genCaseAltsWith allowTHQuotes (n - 1),
-        ELetDecls span0 <$> genValueDeclsWith allowTHQuotes half <*> genExprSizedWith allowTHQuotes half,
-        EDo span0 <$> genDoStmtsWith allowTHQuotes (n - 1) <*> arbitrary,
-        EListComp span0 <$> genExprSizedWith allowTHQuotes half <*> genCompStmtsWith allowTHQuotes half,
-        EListCompParallel span0 <$> genExprSizedWith allowTHQuotes half <*> genParallelCompStmtsWith allowTHQuotes half,
-        EList span0 <$> genListElemsWith allowTHQuotes (n - 1),
-        ETuple span0 Boxed . map Just <$> genTupleElemsWith allowTHQuotes (n - 1),
-        ETuple span0 Unboxed . map Just <$> genUnboxedTupleElemsWith allowTHQuotes (n - 1),
-        ETuple span0 Boxed <$> genTupleSectionElemsWith allowTHQuotes (n - 1),
-        ETuple span0 Unboxed <$> genTupleSectionElemsWith allowTHQuotes (n - 1),
+        expr0 . uncurry EApp <$> ((,) <$> genExprSizedWith allowTHQuotes half <*> genExprSizedWith allowTHQuotes half),
+        (\lhs op rhs -> expr0 (EInfix lhs op rhs)) <$> genExprSizedWith allowTHQuotes half <*> genOperatorName <*> genExprSizedWith allowTHQuotes half,
+        expr0 . ENegate <$> genExprSizedWith allowTHQuotes (n - 1),
+        (\lhs op -> expr0 (ESectionL lhs op)) <$> genExprSizedWith allowTHQuotes (n - 1) <*> genOperatorName,
+        (\op rhs -> expr0 (ESectionR op rhs)) <$> genOperatorName <*> genExprSizedWith allowTHQuotes (n - 1),
+        (\a b c -> expr0 (EIf a b c)) <$> genExprSizedWith allowTHQuotes third <*> genExprSizedWith allowTHQuotes third <*> genExprSizedWith allowTHQuotes third,
+        expr0 . EMultiWayIf <$> genGuardedRhsListWith allowTHQuotes (n - 1),
+        (\scrut alts -> expr0 (ECase scrut alts)) <$> genExprSizedWith allowTHQuotes half <*> genCaseAltsWith allowTHQuotes half,
+        (\pats body -> expr0 (ELambdaPats pats body)) <$> genPatterns half <*> genExprSizedWith allowTHQuotes half,
+        expr0 . ELambdaCase <$> genCaseAltsWith allowTHQuotes (n - 1),
+        (\decls body -> expr0 (ELetDecls decls body)) <$> genValueDeclsWith allowTHQuotes half <*> genExprSizedWith allowTHQuotes half,
+        (\stmts isMdo -> expr0 (EDo stmts isMdo)) <$> genDoStmtsWith allowTHQuotes (n - 1) <*> arbitrary,
+        (\body stmts -> expr0 (EListComp body stmts)) <$> genExprSizedWith allowTHQuotes half <*> genCompStmtsWith allowTHQuotes half,
+        (\body groups -> expr0 (EListCompParallel body groups)) <$> genExprSizedWith allowTHQuotes half <*> genParallelCompStmtsWith allowTHQuotes half,
+        expr0 . EList <$> genListElemsWith allowTHQuotes (n - 1),
+        expr0 . ETuple Boxed . map Just <$> genTupleElemsWith allowTHQuotes (n - 1),
+        expr0 . ETuple Unboxed . map Just <$> genUnboxedTupleElemsWith allowTHQuotes (n - 1),
+        expr0 . ETuple Boxed <$> genTupleSectionElemsWith allowTHQuotes (n - 1),
+        expr0 . ETuple Unboxed <$> genTupleSectionElemsWith allowTHQuotes (n - 1),
         genUnboxedSumExprWith allowTHQuotes (n - 1),
-        EArithSeq span0 <$> genArithSeqWith allowTHQuotes (n - 1),
-        ERecordCon span0 <$> genConName <*> genRecordFieldsWith allowTHQuotes (n - 1) <*> pure False,
-        ERecordUpd span0 <$> genExprSizedWith allowTHQuotes half <*> genRecordFieldsWith allowTHQuotes half,
-        ETypeSig span0 <$> genExprSizedWith allowTHQuotes half <*> genTypeWith allowTHQuotes half,
-        ETypeApp span0 . canonicalTypeAppExpr <$> genExprSizedWith allowTHQuotes half <*> genTypeWith allowTHQuotes half,
-        EParen span0 <$> genExprSizedWith allowTHQuotes (n - 1),
+        expr0 . EArithSeq <$> genArithSeqWith allowTHQuotes (n - 1),
+        (\name fields -> expr0 (ERecordCon name fields False)) <$> genConName <*> genRecordFieldsWith allowTHQuotes (n - 1),
+        (\target fields -> expr0 (ERecordUpd target fields)) <$> genExprSizedWith allowTHQuotes half <*> genRecordFieldsWith allowTHQuotes half,
+        (\e ty -> expr0 (ETypeSig e ty)) <$> genExprSizedWith allowTHQuotes half <*> genTypeWith allowTHQuotes half,
+        (\e ty -> expr0 (ETypeApp (canonicalTypeAppExpr e) ty)) <$> genExprSizedWith allowTHQuotes half <*> genTypeWith allowTHQuotes half,
+        expr0 . EParen <$> genExprSizedWith allowTHQuotes (n - 1),
         -- Template Haskell splices are valid inside quote bodies.
-        ETHSplice span0 <$> genSpliceBody (n - 1),
-        ETHTypedSplice span0 <$> genTypedSpliceBody (n - 1)
+        expr0 . ETHSplice <$> genSpliceBody (n - 1),
+        expr0 . ETHTypedSplice <$> genTypedSpliceBody (n - 1)
       ]
     quoteGenerators
       | allowTHQuotes =
-          [ ETHExpQuote span0 <$> genExprSizedWith False (n - 1),
-            ETHTypedQuote span0 <$> genExprSizedWith False (n - 1),
-            ETHDeclQuote span0 <$> genValueDeclsWith False (n - 1),
-            ETHPatQuote span0 <$> genPattern (n - 1),
-            ETHTypeQuote span0 <$> genTypeWith False (n - 1),
-            ETHNameQuote span0 <$> genNameQuoteIdent,
-            ETHTypeNameQuote span0 <$> genTypeNameQuote
+          [ expr0 . ETHExpQuote <$> genExprSizedWith False (n - 1),
+            expr0 . ETHTypedQuote <$> genExprSizedWith False (n - 1),
+            expr0 . ETHDeclQuote <$> genValueDeclsWith False (n - 1),
+            expr0 . ETHPatQuote <$> genPattern (n - 1),
+            expr0 . ETHTypeQuote <$> genTypeWith False (n - 1),
+            expr0 . ETHNameQuote <$> genNameQuoteIdent,
+            expr0 . ETHTypeNameQuote <$> genTypeNameQuote
           ]
       | otherwise =
           []
@@ -103,7 +106,7 @@ genExprSizedWith allowTHQuotes n
 genExprLeaf :: Gen Expr
 genExprLeaf =
   oneof
-    [ EVar span0 <$> genVarName,
+    [ expr0 . EVar <$> genVarName,
       genOverloadedLabel,
       mkIntExpr <$> chooseInteger (0, 999),
       mkHexExpr <$> chooseInteger (0, 255),
@@ -111,22 +114,22 @@ genExprLeaf =
       mkCharExpr <$> genCharValue,
       mkStringExpr <$> genStringValue,
       -- MagicHash literals
-      (\v -> EIntHash span0 v (T.pack (show v) <> "#")) <$> chooseInteger (0, 999),
-      (\v -> EFloatHash span0 v (T.pack (show v) <> "#")) <$> genTenths,
-      (\v -> ECharHash span0 v (T.pack (show v) <> "#")) <$> genCharValue,
-      (\v -> EStringHash span0 v (T.pack (show (T.unpack v)) <> "#")) <$> genStringValue,
-      EQuasiQuote span0 <$> genQuasiQuoteName <*> genStringValue,
-      pure (EList span0 []),
-      pure (ETuple span0 Boxed []),
-      pure (ETuple span0 Unboxed []),
-      (\n -> ETuple span0 Boxed (replicate n Nothing)) <$> chooseInt (2, 5),
-      (\n -> ETuple span0 Unboxed (replicate n Nothing)) <$> chooseInt (2, 5)
+      (\v -> expr0 (EIntHash v (T.pack (show v) <> "#"))) <$> chooseInteger (0, 999),
+      (\v -> expr0 (EFloatHash v (T.pack (show v) <> "#"))) <$> genTenths,
+      (\v -> expr0 (ECharHash v (T.pack (show v) <> "#"))) <$> genCharValue,
+      (\v -> expr0 (EStringHash v (T.pack (show (T.unpack v)) <> "#"))) <$> genStringValue,
+      (\q b -> expr0 (EQuasiQuote q b)) <$> genQuasiQuoteName <*> genStringValue,
+      pure (expr0 (EList [])),
+      pure (expr0 (ETuple Boxed [])),
+      pure (expr0 (ETuple Unboxed [])),
+      (\n -> expr0 (ETuple Boxed (replicate n Nothing))) <$> chooseInt (2, 5),
+      (\n -> expr0 (ETuple Unboxed (replicate n Nothing))) <$> chooseInt (2, 5)
     ]
 
 genOverloadedLabel :: Gen Expr
 genOverloadedLabel = do
   labelName <- genIdent
-  pure (EOverloadedLabel span0 labelName ("#" <> labelName))
+  pure (expr0 (EOverloadedLabel labelName ("#" <> labelName)))
 
 -- | Generate a quasi-quote name, excluding TH bracket names (e, d, p, t) which
 -- would collide with Template Haskell bracket syntax ([e|...|], [d|...|], etc.).
@@ -138,15 +141,15 @@ genQuasiQuoteName = suchThat genIdent (`notElem` ["e", "d", "p", "t"])
 genSpliceBody :: Int -> Gen Expr
 genSpliceBody n =
   oneof
-    [ EVar span0 <$> genVarName,
-      EParen span0 <$> genExprSized (max 0 (n - 1))
+    [ expr0 . EVar <$> genVarName,
+      expr0 . EParen <$> genExprSized (max 0 (n - 1))
     ]
 
 -- | Generate the body of a TH typed splice: always parenthesized.
 -- Typed splices require parentheses: $$(expr) is valid, $$expr is invalid.
 genTypedSpliceBody :: Int -> Gen Expr
 genTypedSpliceBody n =
-  EParen span0 <$> genExprSized (max 0 (n - 1))
+  expr0 . EParen <$> genExprSized (max 0 (n - 1))
 
 -- | Generate an identifier safe for TH name quotes ('name).
 -- Avoids identifiers where the second character is a single quote,
@@ -384,7 +387,7 @@ genValueDeclsWith allowTHQuotes n = do
     [ DeclValue
         ( PatternBind
             span0
-            (PVar span0 name)
+            (patternAnnSpan span0 (PVar name))
             (UnguardedRhs span0 expr Nothing)
         )
     | (name, expr) <- zip names exprs
@@ -473,7 +476,7 @@ genUnboxedSumExprWith allowTHQuotes n = do
   arity <- chooseInt (2, 4)
   altIdx <- chooseInt (0, arity - 1)
   inner <- genExprSizedWith allowTHQuotes n
-  pure (EUnboxedSum span0 altIdx arity inner)
+  pure (expr0 (EUnboxedSum altIdx arity inner))
 
 genTupleSectionElemsWith :: Bool -> Int -> Gen [Maybe Expr]
 genTupleSectionElemsWith allowTHQuotes n = do
@@ -586,24 +589,24 @@ canonicalTypeAppExpr e = case e of
   ETHTypeNameQuote {} -> e
   ETHSplice {} -> e
   ETHTypedSplice {} -> e
-  _ -> EParen span0 e
+  _ -> expr0 (EParen e)
 
 -- | Literal expression constructors
 mkHexExpr :: Integer -> Expr
-mkHexExpr value = EIntBase span0 value ("0x" <> T.pack (showHex value))
+mkHexExpr value = expr0 (EIntBase value ("0x" <> T.pack (showHex value)))
 
 mkFloatExpr :: Double -> Expr
-mkFloatExpr value = EFloat span0 value (T.pack (show value))
+mkFloatExpr value = expr0 (EFloat value (T.pack (show value)))
 
 mkCharExpr :: Char -> Expr
-mkCharExpr value = EChar span0 value (T.pack (show value))
+mkCharExpr value = expr0 (EChar value (T.pack (show value)))
 
 mkStringExpr :: Text -> Expr
-mkStringExpr value = EString span0 value (T.pack (show (T.unpack value)))
+mkStringExpr value = expr0 (EString value (T.pack (show (T.unpack value))))
 
 -- | Create an integer expression with canonical representation.
 mkIntExpr :: Integer -> Expr
-mkIntExpr value = EInt span0 value (T.pack (show value))
+mkIntExpr value = expr0 (EInt value (T.pack (show value)))
 
 renderIntBaseHash :: Integer -> Text
 renderIntBaseHash value
@@ -630,90 +633,90 @@ shrinkOverloadedLabel value raw
 shrinkExpr :: Expr -> [Expr]
 shrinkExpr expr =
   case expr of
-    EVar _ name -> [EVar span0 (name {nameText = shrunk}) | shrunk <- shrinkIdent (nameText name)]
-    EInt _ value _ -> [mkIntExpr shrunk | shrunk <- shrinkIntegral value]
-    EIntHash _ value _ -> [EIntHash span0 shrunk (T.pack (show shrunk) <> "#") | shrunk <- shrinkIntegral value]
-    EIntBase _ value _ -> [mkIntExpr shrunk | shrunk <- shrinkIntegral value]
-    EIntBaseHash _ value _ -> [EIntBaseHash span0 shrunk (renderIntBaseHash shrunk) | shrunk <- shrinkIntegral value]
-    EFloat _ value _ -> [mkFloatExpr shrunk | shrunk <- shrinkFloat value]
-    EFloatHash _ value _ -> [EFloatHash span0 shrunk (T.pack (show shrunk) <> "#") | shrunk <- shrinkFloat value]
+    EVar name -> [expr0 (EVar (name {nameText = shrunk})) | shrunk <- shrinkIdent (nameText name)]
+    EInt value _ -> [mkIntExpr shrunk | shrunk <- shrinkIntegral value]
+    EIntHash value _ -> [expr0 (EIntHash shrunk (T.pack (show shrunk) <> "#")) | shrunk <- shrinkIntegral value]
+    EIntBase value _ -> [mkIntExpr shrunk | shrunk <- shrinkIntegral value]
+    EIntBaseHash value _ -> [expr0 (EIntBaseHash shrunk (renderIntBaseHash shrunk)) | shrunk <- shrinkIntegral value]
+    EFloat value _ -> [mkFloatExpr shrunk | shrunk <- shrinkFloat value]
+    EFloatHash value _ -> [expr0 (EFloatHash shrunk (T.pack (show shrunk) <> "#")) | shrunk <- shrinkFloat value]
     EChar {} -> []
     ECharHash {} -> []
-    EString _ value _ -> [mkStringExpr (T.pack shrunk) | shrunk <- shrink (T.unpack value)]
-    EStringHash _ value _ -> [EStringHash span0 (T.pack shrunk) (T.pack (show shrunk) <> "#") | shrunk <- shrink (T.unpack value)]
-    EOverloadedLabel _ value raw ->
-      [EOverloadedLabel span0 (T.pack shrunk) ("#" <> T.pack shrunk) | shrunk <- shrinkOverloadedLabel value raw]
-    EQuasiQuote _ quoter body ->
-      [EQuasiQuote span0 quoter (T.pack shrunk) | shrunk <- shrink (T.unpack body)]
-    EApp _ fn arg ->
+    EString value _ -> [mkStringExpr (T.pack shrunk) | shrunk <- shrink (T.unpack value)]
+    EStringHash value _ -> [expr0 (EStringHash (T.pack shrunk) (T.pack (show shrunk) <> "#")) | shrunk <- shrink (T.unpack value)]
+    EOverloadedLabel value raw ->
+      [expr0 (EOverloadedLabel (T.pack shrunk) ("#" <> T.pack shrunk)) | shrunk <- shrinkOverloadedLabel value raw]
+    EQuasiQuote quoter body ->
+      [expr0 (EQuasiQuote quoter (T.pack shrunk)) | shrunk <- shrink (T.unpack body)]
+    EApp fn arg ->
       [fn, arg]
-        <> [EApp span0 fn' arg | fn' <- shrinkExpr fn]
-        <> [EApp span0 fn arg' | arg' <- shrinkExpr arg]
-    EInfix _ lhs op rhs ->
+        <> [expr0 (EApp fn' arg) | fn' <- shrinkExpr fn]
+        <> [expr0 (EApp fn arg') | arg' <- shrinkExpr arg]
+    EInfix lhs op rhs ->
       [lhs, rhs]
-        <> [EInfix span0 lhs' op rhs | lhs' <- shrinkExpr lhs]
-        <> [EInfix span0 lhs op rhs' | rhs' <- shrinkExpr rhs]
-    ENegate _ inner -> inner : [ENegate span0 inner' | inner' <- shrinkExpr inner]
-    ESectionL _ inner op -> inner : [ESectionL span0 inner' op | inner' <- shrinkExpr inner]
-    ESectionR _ op inner -> inner : [ESectionR span0 op inner' | inner' <- shrinkExpr inner]
-    EIf _ cond thenE elseE ->
+        <> [expr0 (EInfix lhs' op rhs) | lhs' <- shrinkExpr lhs]
+        <> [expr0 (EInfix lhs op rhs') | rhs' <- shrinkExpr rhs]
+    ENegate inner -> inner : [expr0 (ENegate inner') | inner' <- shrinkExpr inner]
+    ESectionL inner op -> inner : [expr0 (ESectionL inner' op) | inner' <- shrinkExpr inner]
+    ESectionR op inner -> inner : [expr0 (ESectionR op inner') | inner' <- shrinkExpr inner]
+    EIf cond thenE elseE ->
       [thenE, elseE]
-        <> [EIf span0 cond' thenE elseE | cond' <- shrinkExpr cond]
-        <> [EIf span0 cond thenE' elseE | thenE' <- shrinkExpr thenE]
-        <> [EIf span0 cond thenE elseE' | elseE' <- shrinkExpr elseE]
-    EMultiWayIf _ rhss ->
-      [EMultiWayIf span0 rhss' | rhss' <- shrinkList shrinkGuardedRhs rhss, not (null rhss')]
-    ECase _ scrutinee alts ->
+        <> [expr0 (EIf cond' thenE elseE) | cond' <- shrinkExpr cond]
+        <> [expr0 (EIf cond thenE' elseE) | thenE' <- shrinkExpr thenE]
+        <> [expr0 (EIf cond thenE elseE') | elseE' <- shrinkExpr elseE]
+    EMultiWayIf rhss ->
+      [expr0 (EMultiWayIf rhss') | rhss' <- shrinkList shrinkGuardedRhs rhss, not (null rhss')]
+    ECase scrutinee alts ->
       scrutinee
-        : [ECase span0 scrutinee' alts | scrutinee' <- shrinkExpr scrutinee]
-          <> [ECase span0 scrutinee alts' | alts' <- shrinkCaseAlts alts, not (null alts')]
-    ELambdaPats _ pats body ->
-      body : [ELambdaPats span0 pats body' | body' <- shrinkExpr body]
-    ELambdaCase _ alts ->
-      [ELambdaCase span0 alts' | alts' <- shrinkCaseAlts alts, not (null alts')]
-    ELetDecls _ decls body ->
+        : [expr0 (ECase scrutinee' alts) | scrutinee' <- shrinkExpr scrutinee]
+          <> [expr0 (ECase scrutinee alts') | alts' <- shrinkCaseAlts alts, not (null alts')]
+    ELambdaPats pats body ->
+      body : [expr0 (ELambdaPats pats body') | body' <- shrinkExpr body]
+    ELambdaCase alts ->
+      [expr0 (ELambdaCase alts') | alts' <- shrinkCaseAlts alts, not (null alts')]
+    ELetDecls decls body ->
       body
-        : [ELetDecls span0 decls body' | body' <- shrinkExpr body]
-          <> [ELetDecls span0 decls' body | decls' <- shrinkDecls decls, not (null decls')]
-    EDo _ stmts isMdo ->
-      [EDo span0 stmts' isMdo | stmts' <- shrinkDoStmts stmts, not (null stmts')]
-    EListComp _ body stmts ->
+        : [expr0 (ELetDecls decls body') | body' <- shrinkExpr body]
+          <> [expr0 (ELetDecls decls' body) | decls' <- shrinkDecls decls, not (null decls')]
+    EDo stmts isMdo ->
+      [expr0 (EDo stmts' isMdo) | stmts' <- shrinkDoStmts stmts, not (null stmts')]
+    EListComp body stmts ->
       body
-        : [EListComp span0 body' stmts | body' <- shrinkExpr body]
-          <> [EListComp span0 body stmts' | stmts' <- shrinkCompStmts stmts, not (null stmts')]
-    EListCompParallel _ body stmtss ->
+        : [expr0 (EListComp body' stmts) | body' <- shrinkExpr body]
+          <> [expr0 (EListComp body stmts') | stmts' <- shrinkCompStmts stmts, not (null stmts')]
+    EListCompParallel body stmtss ->
       body
-        : [EListCompParallel span0 body' stmtss | body' <- shrinkExpr body]
+        : [expr0 (EListCompParallel body' stmtss) | body' <- shrinkExpr body]
           -- Each branch needs at least one statement, so filter out empty branches
-          <> [EListCompParallel span0 body stmtss' | stmtss' <- shrinkParallelCompStmts stmtss, length stmtss' >= 2]
-    EList _ elems ->
-      [EList span0 elems' | elems' <- shrinkList shrinkExpr elems]
-    ETuple _ tupleFlavor elems ->
-      [ETuple span0 tupleFlavor elems' | elems' <- shrinkTupleMaybeElems shrinkMaybeExpr elems]
-    EArithSeq _ seq' ->
-      [EArithSeq span0 seq'' | seq'' <- shrinkArithSeq seq']
-    ERecordCon _ con fields _ ->
-      [ERecordCon span0 con fields' False | fields' <- shrinkRecordFields fields]
-    ERecordUpd _ target fields ->
+          <> [expr0 (EListCompParallel body stmtss') | stmtss' <- shrinkParallelCompStmts stmtss, length stmtss' >= 2]
+    EList elems ->
+      [expr0 (EList elems') | elems' <- shrinkList shrinkExpr elems]
+    ETuple tupleFlavor elems ->
+      [expr0 (ETuple tupleFlavor elems') | elems' <- shrinkTupleMaybeElems shrinkMaybeExpr elems]
+    EArithSeq seq' ->
+      [expr0 (EArithSeq seq'') | seq'' <- shrinkArithSeq seq']
+    ERecordCon con fields _ ->
+      [expr0 (ERecordCon con fields' False) | fields' <- shrinkRecordFields fields]
+    ERecordUpd target fields ->
       target
-        : [ERecordUpd span0 target' fields | target' <- shrinkExpr target]
-          <> [ERecordUpd span0 target fields' | fields' <- shrinkRecordFields fields]
-    ETypeSig _ inner _ ->
-      inner : [ETypeSig span0 inner' (TCon span0 (qualifyName Nothing (mkUnqualifiedName NameConId "T")) Unpromoted) | inner' <- shrinkExpr inner]
-    ETypeApp _ inner _ ->
-      inner : [ETypeApp span0 inner' (TCon span0 (qualifyName Nothing (mkUnqualifiedName NameConId "T")) Unpromoted) | inner' <- shrinkExpr inner]
-    EUnboxedSum _ altIdx arity inner ->
-      [EUnboxedSum span0 altIdx arity inner' | inner' <- shrinkExpr inner]
-    EParen _ inner -> inner : [EParen span0 inner' | inner' <- shrinkExpr inner]
-    ETHExpQuote _ body -> body : [ETHExpQuote span0 body' | body' <- shrinkExpr body]
-    ETHTypedQuote _ body -> body : [ETHTypedQuote span0 body' | body' <- shrinkExpr body]
+        : [expr0 (ERecordUpd target' fields) | target' <- shrinkExpr target]
+          <> [expr0 (ERecordUpd target fields') | fields' <- shrinkRecordFields fields]
+    ETypeSig inner _ ->
+      inner : [expr0 (ETypeSig inner' (TCon span0 (qualifyName Nothing (mkUnqualifiedName NameConId "T")) Unpromoted)) | inner' <- shrinkExpr inner]
+    ETypeApp inner _ ->
+      inner : [expr0 (ETypeApp inner' (TCon span0 (qualifyName Nothing (mkUnqualifiedName NameConId "T")) Unpromoted)) | inner' <- shrinkExpr inner]
+    EUnboxedSum altIdx arity inner ->
+      [expr0 (EUnboxedSum altIdx arity inner') | inner' <- shrinkExpr inner]
+    EParen inner -> inner : [expr0 (EParen inner') | inner' <- shrinkExpr inner]
+    ETHExpQuote body -> body : [expr0 (ETHExpQuote body') | body' <- shrinkExpr body]
+    ETHTypedQuote body -> body : [expr0 (ETHTypedQuote body') | body' <- shrinkExpr body]
     ETHDeclQuote {} -> []
     ETHTypeQuote {} -> []
     ETHPatQuote {} -> []
     ETHNameQuote {} -> []
     ETHTypeNameQuote {} -> []
-    ETHSplice _ body -> body : [ETHSplice span0 body' | body' <- shrinkExpr body]
-    ETHTypedSplice _ body -> body : [ETHTypedSplice span0 body' | body' <- shrinkExpr body]
+    ETHSplice body -> body : [expr0 (ETHSplice body') | body' <- shrinkExpr body]
+    ETHTypedSplice body -> body : [expr0 (ETHTypedSplice body') | body' <- shrinkExpr body]
     EProc {} -> []
     EAnn _ sub -> shrinkExpr sub
 
