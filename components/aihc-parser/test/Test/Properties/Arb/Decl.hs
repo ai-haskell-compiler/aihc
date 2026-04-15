@@ -543,7 +543,7 @@ genDeclInstance :: Gen Decl
 genDeclInstance = do
   className <- genConIdent
   n <- chooseInt (0, 2)
-  types <- vectorOf n genSimpleType
+  types <- vectorOf n genInstanceHeadType
   ctx <- genSimpleContext
   pure $
     DeclInstance span0 $
@@ -563,7 +563,7 @@ genDeclStandaloneDeriving :: Gen Decl
 genDeclStandaloneDeriving = do
   className <- mkUnqualifiedName NameConId <$> genConIdent
   n <- chooseInt (0, 2)
-  types <- vectorOf n genSimpleType
+  types <- vectorOf n genInstanceHeadType
   strategy <- elements [Nothing, Just DerivingStock, Just DerivingNewtype, Just DerivingAnyclass]
   ctx <- genSimpleContext
   pure $
@@ -580,6 +580,19 @@ genDeclStandaloneDeriving = do
           standaloneDerivingClassName = className,
           standaloneDerivingTypes = types
         }
+
+genInstanceHeadType :: Gen Type
+genInstanceHeadType = suchThat (sized (genType . min 4)) isValidInstanceHeadType
+
+isValidInstanceHeadType :: Type -> Bool
+isValidInstanceHeadType ty =
+  case ty of
+    TStar {} -> False
+    TForall {} -> False
+    TContext {} -> False
+    TImplicitParam {} -> False
+    TAnn _ inner -> isValidInstanceHeadType inner
+    _ -> True
 
 genDeclDefault :: Gen Decl
 genDeclDefault = do

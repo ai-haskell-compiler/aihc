@@ -744,9 +744,35 @@ instanceHeadParser =
         )
   where
     bareInstanceHeadParser = do
-      className <- constructorIdentifierParser
-      instanceTypes <- MP.many typeAtomParser
-      pure (className, instanceTypes)
+      headTy <- typeInfixParser
+      maybe (fail "instance head") pure (splitInstanceHead headTy)
+
+    splitInstanceHead :: Type -> Maybe (Text, [Type])
+    splitInstanceHead ty =
+      case ty of
+        TCon _ name Unpromoted
+          | isInstanceClassHeadName name ->
+              Just (renderName name, [])
+        TApp _ fn arg -> do
+          (className, argsRev) <- gatherApps [arg] fn
+          Just (className, argsRev)
+        _ -> Nothing
+
+    gatherApps :: [Type] -> Type -> Maybe (Text, [Type])
+    gatherApps args ty =
+      case ty of
+        TApp _ fn arg -> gatherApps (arg : args) fn
+        TCon _ name Unpromoted
+          | isInstanceClassHeadName name ->
+              Just (renderName name, args)
+        _ -> Nothing
+
+    isInstanceClassHeadName :: Name -> Bool
+    isInstanceClassHeadName name =
+      case nameType name of
+        NameConId -> True
+        NameConSym -> True
+        _ -> False
 
 instanceWhereClauseParser :: TokParser [InstanceDeclItem]
 instanceWhereClauseParser = whereClauseItemsParser instanceItemsBracedParser instanceItemsPlainParser
