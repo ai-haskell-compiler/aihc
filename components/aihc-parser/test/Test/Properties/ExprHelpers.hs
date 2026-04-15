@@ -6,7 +6,7 @@ module Test.Properties.ExprHelpers
   ( normalizeExpr,
     normalizeDecl,
     span0,
-    stripTypeSourceSpanAnnotations,
+    stripTypeAnnotations,
   )
 where
 
@@ -18,59 +18,57 @@ span0 :: SourceSpan
 span0 = noSourceSpan
 
 -- | Normalize an expression to canonical form for comparison.
--- Removes source spans and simplifies parentheses.
+-- Removes annotations.
 normalizeExpr :: Expr -> Expr
 normalizeExpr expr =
   case expr of
-    EVar name -> EAnn (mkAnnotation span0) (EVar name)
-    EInt value _ -> EAnn (mkAnnotation span0) (EInt value (T.pack (show value)))
-    EIntHash value repr -> EAnn (mkAnnotation span0) (EIntHash value repr)
-    EIntBase value repr -> EAnn (mkAnnotation span0) (EIntBase value repr)
-    EIntBaseHash value repr -> EAnn (mkAnnotation span0) (EIntBaseHash value repr)
-    EFloat value repr -> EAnn (mkAnnotation span0) (EFloat value repr)
-    EFloatHash value repr -> EAnn (mkAnnotation span0) (EFloatHash value repr)
-    EChar value repr -> EAnn (mkAnnotation span0) (EChar value repr)
-    ECharHash value repr -> EAnn (mkAnnotation span0) (ECharHash value repr)
-    EString value repr -> EAnn (mkAnnotation span0) (EString value repr)
-    EStringHash value repr -> EAnn (mkAnnotation span0) (EStringHash value repr)
-    EOverloadedLabel value repr -> EAnn (mkAnnotation span0) (EOverloadedLabel value repr)
-    EQuasiQuote quoter body -> EAnn (mkAnnotation span0) (EQuasiQuote quoter body)
-    EApp fn arg -> EAnn (mkAnnotation span0) (EApp (normalizeExpr fn) (normalizeExpr arg))
-    EInfix lhs op rhs -> EAnn (mkAnnotation span0) (EInfix (normalizeExpr lhs) op (normalizeExpr rhs))
-    ENegate inner -> EAnn (mkAnnotation span0) (ENegate (normalizeExpr inner))
-    ESectionL inner op -> EAnn (mkAnnotation span0) (ESectionL (normalizeExpr inner) op)
-    ESectionR op inner -> EAnn (mkAnnotation span0) (ESectionR op (normalizeExpr inner))
-    EIf cond thenE elseE -> EAnn (mkAnnotation span0) (EIf (normalizeExpr cond) (normalizeExpr thenE) (normalizeExpr elseE))
-    EMultiWayIf rhss -> EAnn (mkAnnotation span0) (EMultiWayIf (map normalizeGuardedRhs rhss))
-    ECase scrutinee alts -> EAnn (mkAnnotation span0) (ECase (normalizeExpr scrutinee) (map normalizeCaseAlt alts))
-    ELambdaPats pats body -> EAnn (mkAnnotation span0) (ELambdaPats (map normalizeLambdaPat pats) (normalizeExpr body))
-    ELambdaCase alts -> EAnn (mkAnnotation span0) (ELambdaCase (map normalizeCaseAlt alts))
-    ELetDecls decls body -> EAnn (mkAnnotation span0) (ELetDecls (map normalizeDecl decls) (normalizeExpr body))
-    EDo stmts isMdo -> EAnn (mkAnnotation span0) (EDo (map normalizeDoStmt stmts) isMdo)
-    EListComp body stmts -> EAnn (mkAnnotation span0) (EListComp (normalizeExpr body) (map normalizeCompStmt stmts))
-    EListCompParallel body stmtss -> EAnn (mkAnnotation span0) (EListCompParallel (normalizeExpr body) (map (map normalizeCompStmt) stmtss))
-    EList elems -> EAnn (mkAnnotation span0) (EList (map normalizeExpr elems))
-    ETuple tupleFlavor elems -> EAnn (mkAnnotation span0) (ETuple tupleFlavor (map (fmap normalizeExpr) elems))
-    EArithSeq seq' -> EAnn (mkAnnotation span0) (EArithSeq (normalizeArithSeq seq'))
-    ERecordCon con fields rwc -> EAnn (mkAnnotation span0) (ERecordCon con [(name, normalizeExpr e) | (name, e) <- fields] rwc)
-    ERecordUpd target fields -> EAnn (mkAnnotation span0) (ERecordUpd (normalizeExpr target) [(name, normalizeExpr e) | (name, e) <- fields])
-    ETypeSig inner ty -> EAnn (mkAnnotation span0) (ETypeSig (normalizeExpr inner) (normalizeType ty))
-    ETypeApp inner ty -> EAnn (mkAnnotation span0) (ETypeApp (normalizeExpr inner) (normalizeType ty))
-    EUnboxedSum altIdx arity inner -> EAnn (mkAnnotation span0) (EUnboxedSum altIdx arity (normalizeExpr inner))
+    EVar name -> EVar name
+    EInt value _ -> EInt value (T.pack (show value))
+    EIntHash value repr -> EIntHash value repr
+    EIntBase value repr -> EIntBase value repr
+    EIntBaseHash value repr -> EIntBaseHash value repr
+    EFloat value repr -> EFloat value repr
+    EFloatHash value repr -> EFloatHash value repr
+    EChar value repr -> EChar value repr
+    ECharHash value repr -> ECharHash value repr
+    EString value repr -> EString value repr
+    EStringHash value repr -> EStringHash value repr
+    EOverloadedLabel value repr -> EOverloadedLabel value repr
+    EQuasiQuote quoter body -> EQuasiQuote quoter body
+    EApp fn arg -> EApp (normalizeExpr fn) (normalizeExpr arg)
+    EInfix lhs op rhs -> EInfix (normalizeExpr lhs) op (normalizeExpr rhs)
+    ENegate inner -> ENegate (normalizeExpr inner)
+    ESectionL inner op -> ESectionL (normalizeExpr inner) op
+    ESectionR op inner -> ESectionR op (normalizeExpr inner)
+    EIf cond thenE elseE -> EIf (normalizeExpr cond) (normalizeExpr thenE) (normalizeExpr elseE)
+    EMultiWayIf rhss -> EMultiWayIf (map normalizeGuardedRhs rhss)
+    ECase scrutinee alts -> ECase (normalizeExpr scrutinee) (map normalizeCaseAlt alts)
+    ELambdaPats pats body -> ELambdaPats (map normalizeLambdaPat pats) (normalizeExpr body)
+    ELambdaCase alts -> ELambdaCase (map normalizeCaseAlt alts)
+    ELetDecls decls body -> ELetDecls (map normalizeDecl decls) (normalizeExpr body)
+    EDo stmts isMdo -> EDo (map normalizeDoStmt stmts) isMdo
+    EListComp body stmts -> EListComp (normalizeExpr body) (map normalizeCompStmt stmts)
+    EListCompParallel body stmtss -> EListCompParallel (normalizeExpr body) (map (map normalizeCompStmt) stmtss)
+    EList elems -> EList (map normalizeExpr elems)
+    ETuple tupleFlavor elems -> ETuple tupleFlavor (map (fmap normalizeExpr) elems)
+    EArithSeq seq' -> EArithSeq (normalizeArithSeq seq')
+    ERecordCon con fields rwc -> ERecordCon con [(name, normalizeExpr e) | (name, e) <- fields] rwc
+    ERecordUpd target fields -> ERecordUpd (normalizeExpr target) [(name, normalizeExpr e) | (name, e) <- fields]
+    ETypeSig inner ty -> ETypeSig (normalizeExpr inner) (normalizeType ty)
+    ETypeApp inner ty -> ETypeApp (normalizeExpr inner) (normalizeType ty)
+    EUnboxedSum altIdx arity inner -> EUnboxedSum altIdx arity (normalizeExpr inner)
     EParen inner -> normalizeExpr inner
-    ETHExpQuote body -> EAnn (mkAnnotation span0) (ETHExpQuote (normalizeExpr body))
-    ETHTypedQuote body -> EAnn (mkAnnotation span0) (ETHTypedQuote (normalizeExpr body))
-    ETHDeclQuote decls -> EAnn (mkAnnotation span0) (ETHDeclQuote (map normalizeDecl decls))
-    ETHTypeQuote ty -> EAnn (mkAnnotation span0) (ETHTypeQuote (normalizeType ty))
-    ETHPatQuote pat -> EAnn (mkAnnotation span0) (ETHPatQuote (normalizePattern pat))
-    ETHNameQuote name -> EAnn (mkAnnotation span0) (ETHNameQuote name)
-    ETHTypeNameQuote name -> EAnn (mkAnnotation span0) (ETHTypeNameQuote name)
-    ETHSplice body -> EAnn (mkAnnotation span0) (ETHSplice (normalizeExpr body))
-    ETHTypedSplice body -> EAnn (mkAnnotation span0) (ETHTypedSplice (normalizeExpr body))
-    EProc pat body -> EAnn (mkAnnotation span0) (EProc (normalizePattern pat) (normalizeCmd body))
-    EAnn ann sub
-      | Just _ <- fromAnnotation @SourceSpan ann -> normalizeExpr sub
-      | otherwise -> EAnn ann (normalizeExpr sub)
+    ETHExpQuote body -> ETHExpQuote (normalizeExpr body)
+    ETHTypedQuote body -> ETHTypedQuote (normalizeExpr body)
+    ETHDeclQuote decls -> ETHDeclQuote (map normalizeDecl decls)
+    ETHTypeQuote ty -> ETHTypeQuote (normalizeType ty)
+    ETHPatQuote pat -> ETHPatQuote (normalizePattern pat)
+    ETHNameQuote name -> ETHNameQuote name
+    ETHTypeNameQuote name -> ETHTypeNameQuote name
+    ETHSplice body -> ETHSplice (normalizeExpr body)
+    ETHTypedSplice body -> ETHTypedSplice (normalizeExpr body)
+    EProc pat body -> EProc (normalizePattern pat) (normalizeCmd body)
+    EAnn _ sub -> normalizeExpr sub
 
 normalizeCaseAlt :: CaseAlt -> CaseAlt
 normalizeCaseAlt alt =
@@ -145,7 +143,8 @@ normalizeUnaryPatInner = stripWrappedParenIf isUnaryWrappedPattern
 
 normalizeLiteral :: Literal -> Literal
 normalizeLiteral lit =
-  case peelLiteralAnn lit of
+  case lit of
+    LitAnn _ sub -> normalizeLiteral sub
     LitInt value repr -> LitInt value repr
     LitIntHash value repr -> LitIntHash value repr
     LitIntBase value repr -> LitIntBase value repr
@@ -156,7 +155,6 @@ normalizeLiteral lit =
     LitCharHash value repr -> LitCharHash value repr
     LitString value repr -> LitString value repr
     LitStringHash value repr -> LitStringHash value repr
-    LitAnn {} -> error "unreachable"
 
 normalizeDecl :: Decl -> Decl
 normalizeDecl decl =
@@ -314,29 +312,26 @@ normalizeArithSeqInner (ArithSeqFromThen from thenE) = ArithSeqFromThen (normali
 normalizeArithSeqInner (ArithSeqFromTo from to) = ArithSeqFromTo (normalizeExpr from) (normalizeExpr to)
 normalizeArithSeqInner (ArithSeqFromThenTo from thenE to) = ArithSeqFromThenTo (normalizeExpr from) (normalizeExpr thenE) (normalizeExpr to)
 
--- | Recursively remove span-only 'TAnn' wrappers (see 'typeAnnSpan') so tests
--- can pattern-match on structural 'Type' shape.
-stripTypeSourceSpanAnnotations :: Type -> Type
-stripTypeSourceSpanAnnotations ty =
+-- | Recursively remove annotations.
+stripTypeAnnotations :: Type -> Type
+stripTypeAnnotations ty =
   case ty of
-    TAnn ann sub
-      | Just _ <- fromAnnotation @SourceSpan ann -> stripTypeSourceSpanAnnotations sub
-      | otherwise -> TAnn ann (stripTypeSourceSpanAnnotations sub)
+    TAnn _ sub -> stripTypeAnnotations sub
     TVar x -> TVar x
     TCon n p -> TCon n p
-    TImplicitParam nm t -> TImplicitParam nm (stripTypeSourceSpanAnnotations t)
+    TImplicitParam nm t -> TImplicitParam nm (stripTypeAnnotations t)
     TTypeLit l -> TTypeLit l
     TStar -> TStar
     TQuasiQuote q b -> TQuasiQuote q b
-    TForall bs t -> TForall bs (stripTypeSourceSpanAnnotations t)
-    TApp a b -> TApp (stripTypeSourceSpanAnnotations a) (stripTypeSourceSpanAnnotations b)
-    TFun a b -> TFun (stripTypeSourceSpanAnnotations a) (stripTypeSourceSpanAnnotations b)
-    TTuple fl pr es -> TTuple fl pr (map stripTypeSourceSpanAnnotations es)
-    TUnboxedSum es -> TUnboxedSum (map stripTypeSourceSpanAnnotations es)
-    TList pr es -> TList pr (map stripTypeSourceSpanAnnotations es)
-    TParen t -> TParen (stripTypeSourceSpanAnnotations t)
-    TKindSig a b -> TKindSig (stripTypeSourceSpanAnnotations a) (stripTypeSourceSpanAnnotations b)
-    TContext cs t -> TContext (map stripTypeSourceSpanAnnotations cs) (stripTypeSourceSpanAnnotations t)
+    TForall bs t -> TForall bs (stripTypeAnnotations t)
+    TApp a b -> TApp (stripTypeAnnotations a) (stripTypeAnnotations b)
+    TFun a b -> TFun (stripTypeAnnotations a) (stripTypeAnnotations b)
+    TTuple fl pr es -> TTuple fl pr (map stripTypeAnnotations es)
+    TUnboxedSum es -> TUnboxedSum (map stripTypeAnnotations es)
+    TList pr es -> TList pr (map stripTypeAnnotations es)
+    TParen t -> TParen (stripTypeAnnotations t)
+    TKindSig a b -> TKindSig (stripTypeAnnotations a) (stripTypeAnnotations b)
+    TContext cs t -> TContext (map stripTypeAnnotations cs) (stripTypeAnnotations t)
     TSplice e -> TSplice e
     TWildcard -> TWildcard
 
@@ -361,9 +356,7 @@ normalizeType ty =
     TContext constraints inner -> TContext (map normalizeType constraints) (normalizeType inner)
     TSplice body -> TSplice (normalizeExpr body)
     TWildcard -> TWildcard
-    TAnn ann sub
-      | Just _ <- fromAnnotation @SourceSpan ann -> normalizeType sub
-      | otherwise -> TAnn ann (normalizeType sub)
+    TAnn _ sub -> normalizeType sub
 
 normalizeTyVarBinder :: TyVarBinder -> TyVarBinder
 normalizeTyVarBinder tvb =

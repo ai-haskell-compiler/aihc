@@ -26,7 +26,7 @@ import Test.Parser.Suite (parserGoldenTests)
 import Test.Performance.Suite (parserPerformanceTests)
 import Test.Properties.Arb.Expr (genOperator, isValidGeneratedOperator)
 import Test.Properties.DeclRoundTrip (prop_declPrettyRoundTrip)
-import Test.Properties.ExprHelpers (normalizeDecl, normalizeExpr, span0, stripTypeSourceSpanAnnotations)
+import Test.Properties.ExprHelpers (normalizeDecl, normalizeExpr, span0, stripTypeAnnotations)
 import Test.Properties.ExprRoundTrip (prop_exprPrettyRoundTrip)
 import Test.Properties.Identifiers (isValidGeneratedIdent, shrinkIdent)
 import Test.Properties.ModuleRoundTrip (prop_modulePrettyRoundTrip)
@@ -384,7 +384,7 @@ test_moduleParsesNullaryClassDeclWithWhere =
         assertBool ("expected no parse errors, got: " <> show errs) (null errs)
         case map normalizeDecl (moduleDecls modu) of
           [DeclClass ClassDecl {classDeclName = "C", classDeclParams = [], classDeclItems = [ClassItemTypeSig_ ["method"] ty]}]
-            | TCon "Int" Unpromoted <- stripTypeSourceSpanAnnotations ty ->
+            | TCon "Int" Unpromoted <- stripTypeAnnotations ty ->
                 pure ()
           other ->
             assertFailure ("unexpected parsed declarations: " <> show other)
@@ -393,7 +393,7 @@ test_typeParsesParenthesizedKindSignature :: Assertion
 test_typeParsesParenthesizedKindSignature =
   case parseType defaultConfig {parserExtensions = [KindSignatures, StarIsType]} "(x :: *)" of
     ParseOk ty
-      | TKindSig (TVar "x") TStar <- stripTypeSourceSpanAnnotations ty ->
+      | TKindSig (TVar "x") TStar <- stripTypeAnnotations ty ->
           pure ()
     other -> assertFailure ("expected parenthesized kind signature type, got: " <> show other)
 
@@ -402,7 +402,7 @@ test_typeParsesKindSignatureApplicationHead =
   case parseType defaultConfig {parserExtensions = [KindSignatures]} "(f :: Type -> Type) a" of
     ParseOk ty
       | TApp (TKindSig (TVar "f") (TFun (TCon "Type" Unpromoted) (TCon "Type" Unpromoted))) (TVar "a") <-
-          stripTypeSourceSpanAnnotations ty ->
+          stripTypeAnnotations ty ->
           pure ()
     other -> assertFailure ("expected kind-signature application head, got: " <> show other)
 
@@ -410,7 +410,7 @@ test_typeParsesEmptyListConstructor :: Assertion
 test_typeParsesEmptyListConstructor =
   case parseType defaultConfig "[]" of
     ParseOk ty
-      | TCon "[]" Unpromoted <- stripTypeSourceSpanAnnotations ty ->
+      | TCon "[]" Unpromoted <- stripTypeAnnotations ty ->
           pure ()
     other -> assertFailure ("expected empty list type constructor, got: " <> show other)
 
@@ -418,7 +418,7 @@ test_typeParsesPromotedEmptyListConstructor :: Assertion
 test_typeParsesPromotedEmptyListConstructor =
   case parseType defaultConfig {parserExtensions = [DataKinds]} "'[]" of
     ParseOk ty
-      | TCon "[]" Promoted <- stripTypeSourceSpanAnnotations ty ->
+      | TCon "[]" Promoted <- stripTypeAnnotations ty ->
           pure ()
     other -> assertFailure ("expected promoted empty list type constructor, got: " <> show other)
 
@@ -440,7 +440,7 @@ test_instanceParsesParenthesizedEmptyListType =
             ]
               | instanceDeclClassName inst == "C",
                 [ity] <- instanceDeclTypes inst,
-                TCon "[]" Unpromoted <- stripTypeSourceSpanAnnotations ity ->
+                TCon "[]" Unpromoted <- stripTypeAnnotations ity ->
                   pure ()
           other -> assertFailure ("unexpected parsed declarations: " <> show other)
 
@@ -452,8 +452,8 @@ test_gadtConstructorParsesKindAnnotatedArgument =
         assertBool ("expected no parse errors, got: " <> show errs) (null errs)
         case map normalizeDecl (moduleDecls modu) of
           [DeclData DataDecl {dataDeclConstructors = [DataConAnn _ (GadtCon [] [] ["C"] (GadtPrefixBody [BangType {bangType = kb}] rb))]}]
-            | TKindSig (TVar "x") TStar <- stripTypeSourceSpanAnnotations kb,
-              TCon "T" Unpromoted <- stripTypeSourceSpanAnnotations rb ->
+            | TKindSig (TVar "x") TStar <- stripTypeAnnotations kb,
+              TCon "T" Unpromoted <- stripTypeAnnotations rb ->
                 pure ()
           other ->
             assertFailure ("unexpected parsed declarations: " <> show other)
@@ -479,13 +479,13 @@ test_constructorFieldsPreserveSourceUnpackedness =
             DeclData DataDecl {dataDeclConstructors = [DataConAnn _ (RecordCon [] [] "Record" [FieldDecl {fieldType = BangType {bangSourceUnpackedness = SourceUnpack, bangStrict = True, bangType = bt4}}])]},
             DeclData DataDecl {dataDeclConstructors = [DataConAnn _ (GadtCon [] [] ["G"] (GadtPrefixBody [BangType {bangSourceUnpackedness = SourceUnpack, bangStrict = True, bangType = bt5}] bt6))]}
             ]
-              | TCon "Int" Unpromoted <- stripTypeSourceSpanAnnotations bt1,
+              | TCon "Int" Unpromoted <- stripTypeAnnotations bt1,
                 TTuple Boxed Unpromoted [TCon "Int" Unpromoted, TCon "Int" Unpromoted] <-
-                  stripTypeSourceSpanAnnotations bt2,
-                TCon "Int" Unpromoted <- stripTypeSourceSpanAnnotations bt3,
-                TCon "Int" Unpromoted <- stripTypeSourceSpanAnnotations bt4,
-                TCon "Int" Unpromoted <- stripTypeSourceSpanAnnotations bt5,
-                TCon "G" Unpromoted <- stripTypeSourceSpanAnnotations bt6 ->
+                  stripTypeAnnotations bt2,
+                TCon "Int" Unpromoted <- stripTypeAnnotations bt3,
+                TCon "Int" Unpromoted <- stripTypeAnnotations bt4,
+                TCon "Int" Unpromoted <- stripTypeAnnotations bt5,
+                TCon "G" Unpromoted <- stripTypeAnnotations bt6 ->
                   pure ()
           other ->
             assertFailure ("unexpected parsed declarations: " <> show other)
@@ -518,7 +518,7 @@ test_knownPragmaStillParsesAfterIgnoredUnknownPragma =
         assertBool ("expected no parse errors, got: " <> show errs) (null errs)
         case map normalizeDecl (moduleDecls modu) of
           [DeclData DataDecl {dataDeclConstructors = [DataConAnn _ (PrefixCon [] [] "T" [BangType {bangSourceUnpackedness = SourceUnpack, bangStrict = True, bangType = bt}])]}]
-            | TCon "Int" Unpromoted <- stripTypeSourceSpanAnnotations bt ->
+            | TCon "Int" Unpromoted <- stripTypeAnnotations bt ->
                 pure ()
           other -> assertFailure ("unexpected parsed declarations: " <> show other)
 
@@ -649,9 +649,9 @@ test_infixTypeFamilyHeadRoundtrip =
                   typeFamilyDeclEquations = Just [TypeFamilyEq {typeFamilyEqHeadForm = TypeHeadInfix, typeFamilyEqLhs = lhs, typeFamilyEqRhs = rhs}]
                 }
             ]
-              | TApp (TApp (TCon "And" Unpromoted) (TVar "l")) (TVar "r") <- stripTypeSourceSpanAnnotations h,
-                TApp (TApp (TCon "And" Unpromoted) (TVar "l")) (TVar "r") <- stripTypeSourceSpanAnnotations lhs,
-                TVar "l" <- stripTypeSourceSpanAnnotations rhs ->
+              | TApp (TApp (TCon "And" Unpromoted) (TVar "l")) (TVar "r") <- stripTypeAnnotations h,
+                TApp (TApp (TCon "And" Unpromoted) (TVar "l")) (TVar "r") <- stripTypeAnnotations lhs,
+                TVar "l" <- stripTypeAnnotations rhs ->
                   pure ()
           other -> assertFailure ("unexpected parsed declarations: " <> show other)
         case validateParser "InfixTypeFamilyHead.hs" Haskell2010Edition [EnableExtension TypeFamilies, EnableExtension TypeOperators] source of
