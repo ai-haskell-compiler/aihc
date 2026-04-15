@@ -382,6 +382,8 @@ prettyWhereClause Nothing = mempty
 prettyWhereClause (Just []) = " where" <+> spacedBraces mempty
 prettyWhereClause (Just decls) = " where" <+> spacedBraces (prettyInlineDecls decls)
 
+-- FIXME: If we strip the annotations before pretty-printing, we can get rid of these two functions.
+
 -- | Recognize @lhs \`op\` rhs@ / @lhs op rhs@ after peeling span-only 'TAnn'
 -- on each 'TApp' spine step. Do not peel 'TParen' here: explicit parentheses
 -- must be handled by the 'TParen' case in 'prettyType' first (see
@@ -579,10 +581,9 @@ prettyTypeDataDecl decl =
           | otherwise -> ["=", hsep (punctuate " |" (map prettyDataCon ctors))]
 
 isGadtCon :: DataConDecl -> Bool
-isGadtCon dcd =
-  case peelDataConAnn dcd of
-    GadtCon {} -> True
-    _ -> False
+isGadtCon (DataConAnn _ inner) = isGadtCon inner
+isGadtCon (GadtCon {}) = True
+isGadtCon _ = False
 
 prettyNewtypeDecl :: NewtypeDecl -> Doc ann
 prettyNewtypeDecl decl =
