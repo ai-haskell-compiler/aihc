@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail cons operator at start of line after case expression not parsed -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE LambdaCase #-}
 
 module CaseConsContinuation where

@@ -101,6 +101,20 @@ isGreedyExpr = \case
   EApp _ _ arg | isBlockExpr arg -> isOpenEnded arg
   _ -> False
 
+-- | Check if an expression is "braced" - i.e., the pretty-printer always
+-- wraps it in explicit @{ }@ braces, making it self-delimiting, AND the parser
+-- can parse the resulting @expr { ... } op rhs@ without parentheses.
+-- Self-delimiting expressions do not need parentheses on the left-hand side of
+-- an infix operator, because the closing @}@ unambiguously ends the expression.
+--
+-- Note: 'EDo' and 'ELambdaCase' also use explicit braces in the pretty-printer,
+-- but their parsers still use a dedicated dispatch that does not handle trailing
+-- infix operators. They are excluded here until those parsers are fixed.
+isBracedExpr :: Expr -> Bool
+isBracedExpr = \case
+  ECase {} -> True
+  _ -> False
+
 -- | Check if an expression is "open-ended" - its rightmost component can
 -- capture a trailing where clause.
 isOpenEnded :: Expr -> Bool
@@ -193,7 +207,9 @@ exprCtxPrec ctx expr =
     CtxInfixRhs _
       | isGreedyExpr expr -> 0
       | otherwise -> 1
-    CtxInfixLhs -> 1
+    CtxInfixLhs
+      | isBracedExpr expr -> 0
+      | otherwise -> 1
     CtxAppFun -> 2
     CtxAppArg -> 3
     CtxAppArgNoParens -> 0

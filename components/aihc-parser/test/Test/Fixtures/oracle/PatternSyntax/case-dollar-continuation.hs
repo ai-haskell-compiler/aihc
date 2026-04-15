@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail reason="operator continuation after case expression is not parsed" -}
+{- ORACLE_TEST pass -}
 module CaseDollarContinuation where
 
 f x y =

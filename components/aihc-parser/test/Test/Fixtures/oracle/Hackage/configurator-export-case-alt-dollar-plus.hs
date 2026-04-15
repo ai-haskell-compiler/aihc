@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail reason="configurator-export uses a case alternative continuation line beginning with infix operator $+$ that the parser rejects" -}
+{- ORACLE_TEST pass -}
 
 module M where
 
