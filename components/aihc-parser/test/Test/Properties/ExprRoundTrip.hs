@@ -2,7 +2,6 @@
 
 module Test.Properties.ExprRoundTrip
   ( prop_exprPrettyRoundTrip,
-    prop_exprQualifiedNameQuoteRoundTrip,
   )
 where
 
@@ -14,7 +13,7 @@ import Prettyprinter (Pretty (..), defaultLayoutOptions, layoutPretty)
 import Prettyprinter.Render.Text (renderStrict)
 import Test.Properties.Arb.Expr ()
 import Test.Properties.Coverage (assertCtorCoverage)
-import Test.Properties.ExprHelpers (normalizeExpr, span0)
+import Test.Properties.ExprHelpers (normalizeExpr)
 import Test.QuickCheck
 import Text.Megaparsec.Error qualified as MPE
 
@@ -36,19 +35,3 @@ prop_exprPrettyRoundTrip expr =
             ParseOk parsed ->
               let actual = normalizeExpr parsed
                in counterexample ("expected: " <> show expected <> "\nactual: " <> show actual) (expected == actual)
-
-prop_exprQualifiedNameQuoteRoundTrip :: Property
-prop_exprQualifiedNameQuoteRoundTrip =
-  conjoin
-    [ roundTrips "'M.v" (ETHNameQuote span0 "M.v"),
-      roundTrips "'(M.+)" (ETHNameQuote span0 "(M.+)")
-    ]
-  where
-    roundTrips source expected =
-      counterexample (T.unpack source) $
-        case parseExpr exprConfig source of
-          ParseErr err ->
-            counterexample (MPE.errorBundlePretty err) False
-          ParseOk parsed ->
-            let actual = normalizeExpr parsed
-             in counterexample ("expected: " <> show expected <> "\nactual: " <> show actual) (actual == expected)

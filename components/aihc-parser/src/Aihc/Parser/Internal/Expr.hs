@@ -1080,7 +1080,7 @@ thNameQuoteExprParser = thValueNameQuoteParser <|> thTypeNameQuoteParser
 thValueNameQuoteParser :: TokParser Expr
 thValueNameQuoteParser = withSpan $ do
   expectedTok TkTHQuoteTick
-  name <- identifierTextParser <|> parenOperatorTextParser
+  name <- identifierNameParser <|> parenOperatorNameParser
   pure (`ETHNameQuote` name)
 
 thTypeNameQuoteParser :: TokParser Expr
@@ -1088,20 +1088,6 @@ thTypeNameQuoteParser = withSpan $ do
   expectedTok TkTHTypeQuoteTick
   name <- identifierNameParser <|> parenOperatorNameParser
   pure (`ETHTypeNameQuote` name)
-
-parenOperatorTextParser :: TokParser Text
-parenOperatorTextParser = do
-  expectedTok TkSpecialLParen
-  op <- tokenSatisfy "operator" $ \tok ->
-    case lexTokenKind tok of
-      TkVarSym sym -> Just sym
-      TkConSym sym -> Just sym
-      TkQVarSym modName sym -> Just (modName <> "." <> sym)
-      TkQConSym modName sym -> Just (modName <> "." <> sym)
-      TkReservedColon -> Just ":"
-      _ -> Nothing
-  expectedTok TkSpecialRParen
-  pure ("(" <> op <> ")")
 
 parenOperatorNameParser :: TokParser Name
 parenOperatorNameParser = do

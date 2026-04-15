@@ -1,0 +1,6 @@
+extensions:
+  - TemplateHaskell
+input: |
+  ('M.v, '(M.+))
+ast: ETuple [ETHNameQuote "M.v", ETHNameQuote "M.+"]
+status: pass

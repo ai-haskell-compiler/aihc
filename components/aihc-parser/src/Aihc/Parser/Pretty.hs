@@ -1002,7 +1002,7 @@ prettyExpr expr =
     ETHTypeQuote _ ty -> "[t|" <+> prettyType ty <+> "|]"
     ETHPatQuote _ pat -> "[p|" <+> prettyPattern pat <+> "|]"
     ETHNameQuote _ name
-      | isQuotedOperatorToken name -> "'" <> parens (pretty name)
+      | isOperatorName name -> "'" <> parens (pretty name)
       | otherwise -> "'" <> pretty name
     ETHTypeNameQuote _ name
       | isOperatorName name -> "''" <> parens (pretty name)
@@ -1223,13 +1223,6 @@ isOperatorName name =
 isOperatorToken :: Text -> Bool
 isOperatorToken tok =
   not (T.null tok) && T.all isSymbolicOpChar tok
-
-isQuotedOperatorToken :: Text -> Bool
-isQuotedOperatorToken tok =
-  case T.breakOnEnd "." tok of
-    (prefix, suffix)
-      | T.null suffix -> isOperatorToken tok
-      | otherwise -> not (T.null prefix) && isOperatorToken suffix
 
 isSymbolicOpChar :: Char -> Bool
 isSymbolicOpChar c =

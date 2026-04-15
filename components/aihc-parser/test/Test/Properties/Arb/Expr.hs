@@ -94,7 +94,7 @@ genExprSizedWith allowTHQuotes n
             ETHDeclQuote span0 <$> genValueDeclsWith False (n - 1),
             ETHPatQuote span0 <$> genPattern (n - 1),
             ETHTypeQuote span0 <$> genTypeWith False (n - 1),
-            ETHNameQuote span0 <$> genNameQuote,
+            ETHNameQuote span0 <$> genNameQuoteName,
             ETHTypeNameQuote span0 <$> genTypeNameQuote
           ]
       | otherwise =
@@ -149,21 +149,19 @@ genTypedSpliceBody :: Int -> Gen Expr
 genTypedSpliceBody n =
   EParen span0 <$> genExprSized (max 0 (n - 1))
 
--- | Generate a TH value name quote body.
+-- | Generate a TH value name quote target.
 -- Produces unqualified identifiers plus qualified identifiers and operators
--- such as @M.v@ and @(M.+)@.
-genNameQuote :: Gen Text
-genNameQuote =
+-- such as @M.v@ and @M.+@.
+genNameQuoteName :: Gen Name
+genNameQuoteName =
   oneof
-    [ genNameQuoteIdent,
+    [ qualifyName Nothing . mkUnqualifiedName NameVarId <$> genNameQuoteIdent,
       do
         qual <- genModuleQualifier
-        ident <- genNameQuoteIdent
-        pure (qual <> "." <> ident),
+        mkName (Just qual) NameVarId <$> genNameQuoteIdent,
       do
         qual <- genModuleQualifier
-        op <- genOperator
-        pure ("(" <> qual <> "." <> op <> ")")
+        mkName (Just qual) NameVarSym <$> genOperator
     ]
 
 -- | Generate an identifier safe for TH name quotes ('name).

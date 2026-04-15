@@ -1621,7 +1621,7 @@ data Expr
   | ETHDeclQuote SourceSpan [Decl] -- [d| decls |]
   | ETHTypeQuote SourceSpan Type -- [t| type |]
   | ETHPatQuote SourceSpan Pattern -- [p| pat |]
-  | ETHNameQuote SourceSpan Text -- 'name
+  | ETHNameQuote SourceSpan Name -- 'name
   | ETHTypeNameQuote SourceSpan Name -- ''Name
   | -- Template Haskell splices
     ETHSplice SourceSpan Expr

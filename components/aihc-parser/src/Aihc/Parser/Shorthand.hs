@@ -678,7 +678,7 @@ docExpr expr =
     ETHDeclQuote _ decls -> "ETHDeclQuote" <+> brackets (hsep (punctuate comma (map docDecl decls)))
     ETHTypeQuote _ ty -> "ETHTypeQuote" <+> parens (docType ty)
     ETHPatQuote _ pat -> "ETHPatQuote" <+> parens (docPattern pat)
-    ETHNameQuote _ name -> "ETHNameQuote" <+> docText name
+    ETHNameQuote _ name -> "ETHNameQuote" <+> docName name
     ETHTypeNameQuote _ name -> "ETHTypeNameQuote" <+> docName name
     ETHSplice _ body -> "ETHSplice" <+> parens (docExpr body)
     ETHTypedSplice _ body -> "ETHTypedSplice" <+> parens (docExpr body)
