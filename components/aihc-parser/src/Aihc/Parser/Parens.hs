@@ -244,13 +244,13 @@ typeTConView t =
 
 -- | @ty@ has shape @lhs \`op\` rhs@ with a symbolic type operator (modulo span
 -- and 'TParen' wrappers).
-matchSymbolicInfixTypeApp :: Type -> Maybe (Type, Type, Type, Type)
+matchSymbolicInfixTypeApp :: Type -> Maybe (Type, Type, Type)
 matchSymbolicInfixTypeApp ty = do
   (l, r) <- typeTAppView ty
   (opAst, lhsAst) <- typeTAppView l
   (opName, _) <- typeTConView opAst
   guard (isSymbolicName opName && renderName opName /= "->")
-  pure (ty, opAst, lhsAst, r)
+  pure (opAst, lhsAst, r)
 
 data TypeCtx
   = CtxTypeFunArg
@@ -839,7 +839,7 @@ addTypeParensShared ctx prec ty =
         TForall binders inner ->
           wrapTy (prec > 0) (TForall (map addTyVarBinderParens binders) (atom 0 inner))
         tyInfix
-          | Just (_whole, op, lhs, rhs) <- matchSymbolicInfixTypeApp tyInfix ->
+          | Just (op, lhs, rhs) <- matchSymbolicInfixTypeApp tyInfix ->
               -- Infix type operator: args are treated as atoms
               TApp (TApp op (atom 0 lhs)) (atom 0 rhs)
         TApp f x ->
@@ -872,14 +872,11 @@ addTyVarBinderParens tvb =
 -- TKindSig does not need wrapping here because the enclosing delimiter
 -- already provides the necessary parenthesization.
 addTypeParensInner :: Type -> Type
+addTypeParensInner (TAnn _ sub) = addTypeParensInner sub
 addTypeParensInner ty =
   case ty of
     TKindSig ty' kind ->
       TKindSig (addTypeParensShared CtxTypeAtom 0 ty') (addTypeParensShared CtxTypeAtom 0 kind)
-    TAnn ann sub ->
-      -- An outer 'TParen' already supplies grouping; do not run 'TKindSig' through
-      -- 'wrapTy' in 'addTypeParensShared' (which would nest a second 'TParen').
-      TAnn ann (addTypeParensInner sub)
     _ -> addTypeParensShared CtxTypeAtom 0 ty
 
 -- | Process constraint types in a TContext.
@@ -966,7 +963,8 @@ isConsOperator name =
 
 addPatternAtomParens :: Pattern -> Pattern
 addPatternAtomParens pat =
-  case peelPatternAnn pat of
+  case pat of
+    PAnn ann sub -> PAnn ann (addPatternAtomParens sub)
     PVar {} -> addPatternParens pat
     PWildcard {} -> addPatternParens pat
     PLit {} -> addPatternParens pat
@@ -992,7 +990,8 @@ addPatternAtomParens pat =
 -- | Add parens for a pattern in lambda argument position.
 addLambdaPatternAtomParens :: Pattern -> Pattern
 addLambdaPatternAtomParens pat =
-  case peelPatternAnn pat of
+  case pat of
+    PAnn ann sub -> PAnn ann (addLambdaPatternAtomParens sub)
     PNegLit {} -> wrapPat True (addPatternParens pat)
     PCon _ [] -> wrapPat True (addPatternParens pat)
     _ -> addPatternAtomParens pat
@@ -1000,7 +999,8 @@ addLambdaPatternAtomParens pat =
 -- | Add parens for a pattern in function-head argument position.
 addFunctionHeadPatternAtomParens :: Pattern -> Pattern
 addFunctionHeadPatternAtomParens pat =
-  case peelPatternAnn pat of
+  case pat of
+    PAnn ann sub -> PAnn ann (addFunctionHeadPatternAtomParens sub)
     PNegLit {} -> wrapPat True (addPatternParens pat)
     PCon _ (_ : _) -> wrapPat True (addPatternParens pat)
     PRecord {} -> addPatternParens pat
@@ -1009,14 +1009,16 @@ addFunctionHeadPatternAtomParens pat =
 -- | Add parens for infix function-head operands.
 addInfixFunctionHeadPatternAtomParens :: Pattern -> Pattern
 addInfixFunctionHeadPatternAtomParens pat =
-  case peelPatternAnn pat of
+  case pat of
+    PAnn ann sub -> PAnn ann (addInfixFunctionHeadPatternAtomParens sub)
     PNegLit {} -> wrapPat True (addPatternParens pat)
     _ -> addPatternParens pat
 
 -- | Add parens for the inner pattern of @, !, ~.
 addPatternAtomStrictParens :: Pattern -> Pattern
 addPatternAtomStrictParens pat =
-  case peelPatternAnn pat of
+  case pat of
+    PAnn ann sub -> PAnn ann (addPatternAtomStrictParens sub)
     PNegLit {} -> wrapPat True (addPatternParens pat)
     PCon _ [] -> wrapPat True (addPatternParens pat)
     PStrict {} -> wrapPat True (addPatternParens pat)
