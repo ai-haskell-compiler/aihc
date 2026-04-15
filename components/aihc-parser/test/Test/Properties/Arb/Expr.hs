@@ -20,6 +20,7 @@ import Test.Properties.Arb.Identifiers
     genConIdent,
     genFieldName,
     genIdent,
+    genModuleQualifier,
     genOptionalQualifier,
     genStringValue,
     genTenths,
@@ -93,7 +94,7 @@ genExprSizedWith allowTHQuotes n
             ETHDeclQuote span0 <$> genValueDeclsWith False (n - 1),
             ETHPatQuote span0 <$> genPattern (n - 1),
             ETHTypeQuote span0 <$> genTypeWith False (n - 1),
-            ETHNameQuote span0 <$> genNameQuoteIdent,
+            ETHNameQuote span0 <$> genNameQuote,
             ETHTypeNameQuote span0 <$> genTypeNameQuote
           ]
       | otherwise =
@@ -147,6 +148,23 @@ genSpliceBody n =
 genTypedSpliceBody :: Int -> Gen Expr
 genTypedSpliceBody n =
   EParen span0 <$> genExprSized (max 0 (n - 1))
+
+-- | Generate a TH value name quote body.
+-- Produces unqualified identifiers plus qualified identifiers and operators
+-- such as @M.v@ and @(M.+)@.
+genNameQuote :: Gen Text
+genNameQuote =
+  oneof
+    [ genNameQuoteIdent,
+      do
+        qual <- genModuleQualifier
+        ident <- genNameQuoteIdent
+        pure (qual <> "." <> ident),
+      do
+        qual <- genModuleQualifier
+        op <- genOperator
+        pure ("(" <> qual <> "." <> op <> ")")
+    ]
 
 -- | Generate an identifier safe for TH name quotes ('name).
 -- Avoids identifiers where the second character is a single quote,

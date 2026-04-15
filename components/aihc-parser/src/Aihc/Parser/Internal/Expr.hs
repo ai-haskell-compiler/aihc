@@ -1096,6 +1096,8 @@ parenOperatorTextParser = do
     case lexTokenKind tok of
       TkVarSym sym -> Just sym
       TkConSym sym -> Just sym
+      TkQVarSym modName sym -> Just (modName <> "." <> sym)
+      TkQConSym modName sym -> Just (modName <> "." <> sym)
       TkReservedColon -> Just ":"
       _ -> Nothing
   expectedTok TkSpecialRParen
@@ -1108,6 +1110,8 @@ parenOperatorNameParser = do
     case lexTokenKind tok of
       TkVarSym sym -> Just (qualifyName Nothing (mkUnqualifiedName NameVarSym sym))
       TkConSym sym -> Just (qualifyName Nothing (mkUnqualifiedName NameConSym sym))
+      TkQVarSym modName sym -> Just (mkName (Just modName) NameVarSym sym)
+      TkQConSym modName sym -> Just (mkName (Just modName) NameConSym sym)
       TkReservedColon -> Just (qualifyName Nothing (mkUnqualifiedName NameConSym ":"))
       TkReservedRightArrow -> Just (qualifyName Nothing (mkUnqualifiedName NameVarSym "->"))
       _ -> Nothing

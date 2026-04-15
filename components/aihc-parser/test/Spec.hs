@@ -24,7 +24,7 @@ import Test.Performance.Suite (parserPerformanceTests)
 import Test.Properties.Arb.Expr (genOperator, isValidGeneratedOperator)
 import Test.Properties.DeclRoundTrip (prop_declPrettyRoundTrip)
 import Test.Properties.ExprHelpers (normalizeDecl, span0)
-import Test.Properties.ExprRoundTrip (prop_exprPrettyRoundTrip)
+import Test.Properties.ExprRoundTrip (prop_exprPrettyRoundTrip, prop_exprQualifiedNameQuoteRoundTrip)
 import Test.Properties.Identifiers (isValidGeneratedIdent, shrinkIdent)
 import Test.Properties.ModuleRoundTrip (prop_modulePrettyRoundTrip)
 import Test.Properties.PatternRoundTrip (prop_patternPrettyRoundTrip)
@@ -124,6 +124,7 @@ buildTests = do
             testCase "parses standalone mdo expressions" test_standaloneMdoExprParses,
             testCase "parses mdo view patterns" test_mdoViewPatternParses,
             testCase "parses and roundtrips infix type family heads" test_infixTypeFamilyHeadRoundtrip,
+            QC.testProperty "qualified TH name quotes round-trip" prop_exprQualifiedNameQuoteRoundTrip,
             QC.testProperty "generated valid char literal spellings lex like GHC" prop_validGeneratedCharLiteralSpellingsLexLikeGhc,
             QC.testProperty "generated operators reject dash-only comment starters" prop_generatedOperatorsRejectDashOnlyCommentStarters,
             QC.testProperty "generated operators can produce unicode asterism" prop_generatedOperatorsCanProduceUnicodeAsterism
