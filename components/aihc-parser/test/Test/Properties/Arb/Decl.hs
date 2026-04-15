@@ -563,7 +563,10 @@ genDeclClassInfix = do
         }
 
 genDeclInstance :: Gen Decl
-genDeclInstance = do
+genDeclInstance = oneof [genDeclInstancePrefix, genDeclInstanceInfix]
+
+genDeclInstancePrefix :: Gen Decl
+genDeclInstancePrefix = do
   className <- genConIdent
   n <- chooseInt (0, 2)
   types <- vectorOf n genInstanceHeadType
@@ -577,13 +580,38 @@ genDeclInstance = do
           instanceDeclForall = [],
           instanceDeclContext = ctx,
           instanceDeclParenthesizedHead = False,
+          instanceDeclHeadForm = TypeHeadPrefix,
           instanceDeclClassName = className,
           instanceDeclTypes = types,
           instanceDeclItems = []
         }
 
+genDeclInstanceInfix :: Gen Decl
+genDeclInstanceInfix = do
+  className <- genConIdent
+  lhs <- genInfixInstanceHeadType
+  rhs <- genInfixInstanceHeadType
+  ctx <- genSimpleContext
+  pure $
+    DeclInstance span0 $
+      InstanceDecl
+        { instanceDeclSpan = span0,
+          instanceDeclOverlapPragma = Nothing,
+          instanceDeclWarning = Nothing,
+          instanceDeclForall = [],
+          instanceDeclContext = ctx,
+          instanceDeclParenthesizedHead = False,
+          instanceDeclHeadForm = TypeHeadInfix,
+          instanceDeclClassName = className,
+          instanceDeclTypes = [lhs, rhs],
+          instanceDeclItems = []
+        }
+
 genDeclStandaloneDeriving :: Gen Decl
-genDeclStandaloneDeriving = do
+genDeclStandaloneDeriving = oneof [genDeclStandaloneDerivingPrefix, genDeclStandaloneDerivingInfix]
+
+genDeclStandaloneDerivingPrefix :: Gen Decl
+genDeclStandaloneDerivingPrefix = do
   className <- mkUnqualifiedName NameConId <$> genConIdent
   n <- chooseInt (0, 2)
   types <- vectorOf n genInstanceHeadType
@@ -600,8 +628,32 @@ genDeclStandaloneDeriving = do
           standaloneDerivingForall = [],
           standaloneDerivingContext = ctx,
           standaloneDerivingParenthesizedHead = False,
+          standaloneDerivingHeadForm = TypeHeadPrefix,
           standaloneDerivingClassName = className,
           standaloneDerivingTypes = types
+        }
+
+genDeclStandaloneDerivingInfix :: Gen Decl
+genDeclStandaloneDerivingInfix = do
+  className <- mkUnqualifiedName NameConId <$> genConIdent
+  lhs <- genInfixInstanceHeadType
+  rhs <- genInfixInstanceHeadType
+  strategy <- elements [Nothing, Just DerivingStock, Just DerivingNewtype, Just DerivingAnyclass]
+  ctx <- genSimpleContext
+  pure $
+    DeclStandaloneDeriving span0 $
+      StandaloneDerivingDecl
+        { standaloneDerivingSpan = span0,
+          standaloneDerivingStrategy = strategy,
+          standaloneDerivingViaType = Nothing,
+          standaloneDerivingOverlapPragma = Nothing,
+          standaloneDerivingWarning = Nothing,
+          standaloneDerivingForall = [],
+          standaloneDerivingContext = ctx,
+          standaloneDerivingParenthesizedHead = False,
+          standaloneDerivingHeadForm = TypeHeadInfix,
+          standaloneDerivingClassName = className,
+          standaloneDerivingTypes = [lhs, rhs]
         }
 
 genInstanceHeadType :: Gen Type
@@ -616,6 +668,21 @@ isValidInstanceHeadType ty =
     TImplicitParam {} -> False
     TAnn _ inner -> isValidInstanceHeadType inner
     _ -> True
+
+isInfixInstanceHeadType :: Type -> Bool
+isInfixInstanceHeadType ty =
+  case ty of
+    TVar {} -> True
+    TCon {} -> True
+    TTypeLit {} -> True
+    TStar {} -> True
+    TTuple {} -> True
+    TList {} -> True
+    TParen _ inner -> isInfixInstanceHeadType inner
+    _ -> False
+
+genInfixInstanceHeadType :: Gen Type
+genInfixInstanceHeadType = suchThat genInstanceHeadType isInfixInstanceHeadType
 
 genDeclDefault :: Gen Decl
 genDeclDefault = do

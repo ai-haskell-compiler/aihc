@@ -804,12 +804,21 @@ prettyStandaloneDeriving decl =
 instanceHeadDoc :: InstanceDecl -> Doc ann
 instanceHeadDoc decl =
   maybeParenthesize (instanceDeclParenthesizedHead decl) $
-    hsep ([pretty (instanceDeclClassName decl)] <> map prettyType (instanceDeclTypes decl))
+    prettyInstanceLikeHead (instanceDeclHeadForm decl) (instanceDeclClassName decl) (instanceDeclTypes decl)
 
 standaloneDerivingHeadDoc :: StandaloneDerivingDecl -> Doc ann
 standaloneDerivingHeadDoc decl =
   maybeParenthesize (standaloneDerivingParenthesizedHead decl) $
-    hsep ([pretty (standaloneDerivingClassName decl)] <> map prettyType (standaloneDerivingTypes decl))
+    prettyInstanceLikeHead
+      (standaloneDerivingHeadForm decl)
+      (renderUnqualifiedName (standaloneDerivingClassName decl))
+      (standaloneDerivingTypes decl)
+
+prettyInstanceLikeHead :: TypeHeadForm -> Text -> [Type] -> Doc ann
+prettyInstanceLikeHead headForm className tys =
+  case (headForm, tys) of
+    (TypeHeadInfix, [lhs, rhs]) -> prettyType lhs <+> prettyInfixOp className <+> prettyType rhs
+    _ -> hsep (pretty className : map prettyType tys)
 
 maybeParenthesize :: Bool -> Doc ann -> Doc ann
 maybeParenthesize shouldParen doc
