@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail reason="data declaration with type operator symbol :+: in parentheses not parsed correctly" -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE GHC2021 #-}
 
 module TypeOperatorData where
