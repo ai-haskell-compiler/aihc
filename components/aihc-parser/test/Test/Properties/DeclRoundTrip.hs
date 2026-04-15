@@ -29,7 +29,7 @@ prop_declPrettyRoundTrip decl =
       expected = normalizeDecl (addDeclParens decl)
       addValueDeclCoverage prop =
         case decl of
-          DeclValue _ valueDecl -> assertCtorCoverage [] valueDecl prop
+          DeclValue valueDecl -> assertCtorCoverage [] valueDecl prop
           _ -> prop
    in checkCoverage $
         addValueDeclCoverage $

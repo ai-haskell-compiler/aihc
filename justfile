@@ -3,7 +3,7 @@
 
 # Run all tests with hidden successes (1000 QuickCheck tests per property)
 test:
-  cabal test -v0 all --test-options='--hide-successes --quickcheck-tests 1000' --test-show-details=failures
+  cabal test -v0 all --test-options='--hide-successes --quickcheck-tests 1000'
 
 # Replay a specific QuickCheck test case
 # Usage: just replay "<replay-string>"
@@ -18,8 +18,18 @@ qc:
 fmt:
   nix develop --quiet --command bash -c 'ormolu --mode inplace $(find components -name "*.hs" -not -path "*/dist-newstyle/*" -not -path "*/test/Test/Fixtures/*")'
 
+# Apply HLint hints in place via apply-refact (HLint --refactor accepts one file at a time; same file set as fmt/check)
+hlint-refactor:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  exec nix develop --quiet --command bash -c \
+    'set -euo pipefail
+     while IFS= read -r -d "" f; do
+       hlint --refactor --refactor-options="--inplace" "$f"
+     done < <(find components -name "*.hs" -not -path "*/dist-newstyle/*" -not -path "*/test/Test/Fixtures/*" -print0)'
+
 # Run full CI check: format, lint, then tests (warnings are errors only here, not in plain `cabal` / `just test`)
 check:
   nix develop --quiet --command bash -c 'ormolu --mode check $(find components -name "*.hs" -not -path "*/dist-newstyle/*" -not -path "*/test/Test/Fixtures/*")'
   nix develop --quiet --command bash -c 'hlint $(find components -name "*.hs" -not -path "*/dist-newstyle/*" -not -path "*/test/Test/Fixtures/*")'
-  cabal test -v0 all --ghc-options=-Werror --test-options='--hide-successes --quickcheck-tests 1000' --test-show-details=failures
+  cabal test -v0 all --ghc-options=-Werror --test-options='--hide-successes --quickcheck-tests 1000'

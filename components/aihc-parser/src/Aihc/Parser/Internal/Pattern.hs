@@ -23,7 +23,7 @@ patternParser = label "pattern" $ do
   pat <- infixPatternParser
   mTypeSig <- MP.optional (expectedTok TkReservedDoubleColon *> typeParser)
   case mTypeSig of
-    Just ty -> pure (PTypeSig (mergeSourceSpans (getSourceSpan pat) (getSourceSpan ty)) pat ty)
+    Just ty -> pure (PAnn (mkAnnotation (mergeSourceSpans (getSourceSpan pat) (getSourceSpan ty))) (PTypeSig pat ty))
     Nothing -> pure pat
 
 infixPatternParser :: TokParser Pattern
@@ -39,16 +39,15 @@ asOrAppPatternParser :: TokParser Pattern
 asOrAppPatternParser = do
   isAsPattern <- startsWithAsPattern
   if isAsPattern
-    then withSpan $ do
+    then withSpanAnn (PAnn . mkAnnotation) $ do
       name <- identifierTextParser
       expectedTok TkReservedAt
-      inner <- patternAtomParser
-      pure (\span' -> PAs span' name inner)
+      PAs name <$> patternAtomParser
     else appPatternParser
 
 buildInfixPattern :: Pattern -> (Name, Pattern) -> Pattern
 buildInfixPattern lhs (op, rhs) =
-  PInfix (mergeSourceSpans (getSourceSpan lhs) (getSourceSpan rhs)) lhs op rhs
+  PAnn (mkAnnotation (mergeSourceSpans (getSourceSpan lhs) (getSourceSpan rhs))) (PInfix lhs op rhs)
 
 conOperatorParser :: TokParser Name
 conOperatorParser =
@@ -94,8 +93,8 @@ appPatternParser =
 
 buildPatternApp :: Pattern -> Pattern -> Pattern
 buildPatternApp lhs rhs =
-  case lhs of
-    PCon lSpan name args -> PCon (mergeSourceSpans lSpan (getSourceSpan rhs)) name (args <> [rhs])
+  case peelPatternAnn lhs of
+    PCon name args -> PAnn (mkAnnotation (mergeSourceSpans (getSourceSpan lhs) (getSourceSpan rhs))) (PCon name (args <> [rhs]))
     _ -> lhs
 
 -- | Parse an atomic pattern (@apat@ in the Haskell Report).
@@ -133,29 +132,25 @@ patternAtomParser = do
     -- This allows as-patterns within constructor application patterns
     -- (e.g., Con x@(Con' y z)).
     atomAsPatternParser :: TokParser Pattern
-    atomAsPatternParser = withSpan $ do
+    atomAsPatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
       name <- identifierTextParser
       expectedTok TkReservedAt
-      inner <- patternAtomParser
-      pure (\span' -> PAs span' name inner)
+      PAs name <$> patternAtomParser
 
 strictPatternParser :: TokParser Pattern
-strictPatternParser = withSpan $ do
+strictPatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
   expectedTok TkPrefixBang
-  inner <- patternAtomParser
-  pure (`PStrict` inner)
+  PStrict <$> patternAtomParser
 
 irrefutablePatternParser :: TokParser Pattern
-irrefutablePatternParser = withSpan $ do
+irrefutablePatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
   expectedTok TkPrefixTilde
-  inner <- patternAtomParser
-  pure (`PIrrefutable` inner)
+  PIrrefutable <$> patternAtomParser
 
 negativeLiteralPatternParser :: TokParser Pattern
-negativeLiteralPatternParser = MP.try $ withSpan $ do
+negativeLiteralPatternParser = MP.try $ withSpanAnn (PAnn . mkAnnotation) $ do
   expectedTok (TkVarSym "-")
-  lit <- numericLiteralParser
-  pure (`PNegLit` lit)
+  PNegLit <$> numericLiteralParser
 
 -- | Parse only numeric literals (integer or float), used for negative literal
 -- patterns where GHC only allows @-@ before numeric literals, not strings or chars.
@@ -163,122 +158,119 @@ numericLiteralParser :: TokParser Literal
 numericLiteralParser = intLiteralParser <|> intBaseLiteralParser <|> floatLiteralParser
 
 wildcardPatternParser :: TokParser Pattern
-wildcardPatternParser = withSpan $ do
+wildcardPatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
   expectedTok TkKeywordUnderscore
   pure PWildcard
 
 literalPatternParser :: TokParser Pattern
-literalPatternParser = withSpan $ do
-  lit <- literalParser
-  pure (`PLit` lit)
+literalPatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
+  PLit <$> literalParser
 
 quasiQuotePatternParser :: TokParser Pattern
-quasiQuotePatternParser = withSpan $ do
+quasiQuotePatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
   (quoter, body) <- tokenSatisfy "quasi quote" $ \tok ->
     case lexTokenKind tok of
       TkQuasiQuote q b -> Just (q, b)
       _ -> Nothing
-  pure (\span' -> PQuasiQuote span' quoter body)
+  pure (PQuasiQuote quoter body)
 
 literalParser :: TokParser Literal
 literalParser = intLiteralParser <|> intBaseLiteralParser <|> floatLiteralParser <|> charLiteralParser <|> stringLiteralParser
 
 intLiteralParser :: TokParser Literal
-intLiteralParser = withSpan $ do
+intLiteralParser = withSpanAnn (LitAnn . mkAnnotation) $ do
   (ctor, n, repr) <- tokenSatisfy "integer literal" $ \tok ->
     case lexTokenKind tok of
       TkInteger i -> Just (LitInt, i, lexTokenText tok)
       TkIntegerHash i txt -> Just (LitIntHash, i, txt)
       _ -> Nothing
-  pure (\span' -> ctor span' n repr)
+  pure (ctor n repr)
 
 intBaseLiteralParser :: TokParser Literal
-intBaseLiteralParser = withSpan $ do
+intBaseLiteralParser = withSpanAnn (LitAnn . mkAnnotation) $ do
   (ctor, n, repr) <- tokenSatisfy "based integer literal" $ \tok ->
     case lexTokenKind tok of
       TkIntegerBase i txt -> Just (LitIntBase, i, txt)
       TkIntegerBaseHash i txt -> Just (LitIntBaseHash, i, txt)
       _ -> Nothing
-  pure (\span' -> ctor span' n repr)
+  pure (ctor n repr)
 
 floatLiteralParser :: TokParser Literal
-floatLiteralParser = withSpan $ do
+floatLiteralParser = withSpanAnn (LitAnn . mkAnnotation) $ do
   (ctor, n, repr) <- tokenSatisfy "floating literal" $ \tok ->
     case lexTokenKind tok of
       TkFloat x txt -> Just (LitFloat, x, txt)
       TkFloatHash x txt -> Just (LitFloatHash, x, txt)
       _ -> Nothing
-  pure (\span' -> ctor span' n repr)
+  pure (ctor n repr)
 
 charLiteralParser :: TokParser Literal
-charLiteralParser = withSpan $ do
+charLiteralParser = withSpanAnn (LitAnn . mkAnnotation) $ do
   (ctor, c, repr) <- tokenSatisfy "character literal" $ \tok ->
     case lexTokenKind tok of
       TkChar x -> Just (LitChar, x, lexTokenText tok)
       TkCharHash x txt -> Just (LitCharHash, x, txt)
       _ -> Nothing
-  pure (\span' -> ctor span' c repr)
+  pure (ctor c repr)
 
 stringLiteralParser :: TokParser Literal
-stringLiteralParser = withSpan $ do
+stringLiteralParser = withSpanAnn (LitAnn . mkAnnotation) $ do
   (ctor, s, repr) <- tokenSatisfy "string literal" $ \tok ->
     case lexTokenKind tok of
       TkString x -> Just (LitString, x, lexTokenText tok)
       TkStringHash x txt -> Just (LitStringHash, x, txt)
       _ -> Nothing
-  pure (\span' -> ctor span' s repr)
+  pure (ctor s repr)
 
 -- | Parse Template Haskell pattern splice: $pat or $(pat)
 thSplicePatternParser :: TokParser Pattern
-thSplicePatternParser = withSpan $ do
+thSplicePatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
   expectedTok TkTHSplice
   body <- parenSpliceBody <|> bareSpliceBody
-  pure (`PSplice` body)
+  pure (PSplice body)
   where
-    parenSpliceBody = withSpan $ do
+    parenSpliceBody = withSpanAnn (EAnn . mkAnnotation) $ do
       body <- parens exprParser
-      pure (`EParen` body)
-    bareSpliceBody = withSpan $ do
-      name <- identifierNameParser
-      pure (`EVar` name)
+      pure (EParen body)
+    bareSpliceBody = withSpanAnn (EAnn . mkAnnotation) $ do
+      EVar <$> identifierNameParser
 
 simplePatternParser :: TokParser Pattern
 simplePatternParser =
   MP.try
-    ( withSpan $ do
+    ( withSpanAnn (PAnn . mkAnnotation) $ do
         name <- identifierTextParser
         expectedTok TkReservedAt
-        inner <- patternAtomParser
-        pure (\span' -> PAs span' name inner)
+        PAs name <$> patternAtomParser
     )
     <|> patternAtomParser
 
 varOrConPatternParser :: TokParser Pattern
-varOrConPatternParser = withSpan $ do
+varOrConPatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
   name <- identifierNameParser
   mNextTok <- MP.optional (lookAhead anySingle)
   case mNextTok of
     Just nextTok
       | isConLikeName name && lexTokenKind nextTok == TkSpecialLBrace -> do
           (fields, hasWildcard) <- braces recordPatternFieldListParser
-          pure (\span' -> PRecord span' name fields hasWildcard)
+          pure (PRecord name fields hasWildcard)
     _ ->
-      pure $ \span' ->
+      pure $
         if isConLikeName name
-          then PCon span' name []
-          else PVar span' (mkUnqualifiedName (nameType name) (nameText name))
+          then PCon name []
+          else PVar (mkUnqualifiedName (nameType name) (nameText name))
 
 recordFieldPatternParser :: TokParser (Name, Pattern)
-recordFieldPatternParser = withSpan $ do
+recordFieldPatternParser = do
   field <- identifierNameParser
   mEq <- MP.optional (expectedTok TkReservedEquals)
   case mEq of
     Just () -> do
       pat <- patternParser
-      pure $ const (field, pat)
+      pure (field, pat)
     Nothing -> do
       -- NamedFieldPuns: just "field" means "field = field"
-      pure $ \srcSpan -> (field, PVar srcSpan (mkUnqualifiedName (nameType field) (nameText field)))
+      pure (field, PVar (mkUnqualifiedName (nameType field) (nameText field)))
 
 -- | Parse the contents of record pattern braces, supporting RecordWildCards ".."
 recordPatternFieldListParser :: TokParser ([(Name, Pattern)], Bool)
@@ -296,11 +288,11 @@ recordPatternFieldListParser = do
     else pure (fields, False)
 
 listPatternParser :: TokParser Pattern
-listPatternParser = withSpan $ do
+listPatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
   expectedTok TkSpecialLBracket
   elems <- listPatternElementParser `MP.sepBy` expectedTok TkSpecialComma
   expectedTok TkSpecialRBracket
-  pure (`PList` elems)
+  pure (PList elems)
   where
     -- List elements can contain bare view patterns such as [id -> x].
     -- Try the expr -> pattern form first, then fall back to normal patterns.
@@ -311,11 +303,11 @@ listPatternParser = withSpan $ do
         expectedTok TkReservedRightArrow
         inner <- patternParser
         let sp = mergeSourceSpans (getSourceSpan expr) (getSourceSpan inner)
-        pure (PView sp expr inner)
+        pure (PAnn (mkAnnotation sp) (PView expr inner))
       maybe patternParser pure mView
 
 parenOrTuplePatternParser :: TokParser Pattern
-parenOrTuplePatternParser = withSpan $ do
+parenOrTuplePatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
   (tupleFlavor, closeTok) <-
     (expectedTok TkSpecialLParen $> (Boxed, TkSpecialRParen))
       <|> (expectedTok TkSpecialUnboxedLParen $> (Unboxed, TkSpecialUnboxedRParen))
@@ -338,19 +330,19 @@ parenOrTuplePatternParser = withSpan $ do
   where
     unitPatternParser tupleFlavor closeTok = do
       expectedTok closeTok
-      pure (\span' -> PTuple span' tupleFlavor [])
+      pure (PTuple tupleFlavor [])
 
     -- Try to parse the paren content as a view pattern: expr -> pat.
     -- Uses exprParser which stops before '->', then checks for the arrow.
     -- Returns Nothing if the content is not a view pattern.
-    viewPatternParser :: LexTokenKind -> TokParser (Maybe (SourceSpan -> Pattern))
+    viewPatternParser :: LexTokenKind -> TokParser (Maybe Pattern)
     viewPatternParser closeTok = MP.optional . MP.try $ do
       expr <- exprParser
       expectedTok TkReservedRightArrow
       inner <- patternParser
       expectedTok closeTok
       let sp = mergeSourceSpans (getSourceSpan expr) (getSourceSpan inner)
-      pure (\outerSpan -> PParen outerSpan (PView sp expr inner))
+      pure (PParen (PAnn (mkAnnotation sp) (PView expr inner)))
 
     -- Parse a single element inside a paren/tuple/unboxed-sum pattern.
     -- Uses "parse as expression, then reclassify" to avoid backtracking
@@ -398,11 +390,11 @@ parenOrTuplePatternParser = withSpan $ do
 
         -- Parse an operator token as a variable or constructor pattern.
         operatorPatternParser :: TokParser Pattern
-        operatorPatternParser = withSpan $ do
+        operatorPatternParser = withSpanAnn (PAnn . mkAnnotation) $ do
           tok' <- anySingle
           case lexTokenKind tok' of
-            TkVarSym op -> pure (\span' -> PVar span' (mkUnqualifiedName NameVarSym op))
-            TkConSym op -> pure (\span' -> PCon span' (qualifyName Nothing (mkUnqualifiedName NameConSym op)) [])
+            TkVarSym op -> pure (PVar (mkUnqualifiedName NameVarSym op))
+            TkConSym op -> pure (PCon (qualifyName Nothing (mkUnqualifiedName NameConSym op)) [])
             _ -> fail "expected operator token"
 
     -- Try to parse as expression, then reclassify via checkPattern.
@@ -434,7 +426,7 @@ parenOrTuplePatternParser = withSpan $ do
           expectedTok TkReservedRightArrow
           inner <- patternParser
           let sp = mergeSourceSpans (getSourceSpan expr) (getSourceSpan inner)
-          pure (PView sp expr inner)
+          pure (PAnn (mkAnnotation sp) (PView expr inner))
         Just (Right pat) ->
           pure pat
         Nothing ->
@@ -453,17 +445,17 @@ parenOrTuplePatternParser = withSpan $ do
               trailingBars <- MP.many (expectedTok TkReservedPipe)
               expectedTok closeTok
               let arity = 2 + length trailingBars
-              pure (\span' -> PUnboxedSum span' 0 arity first)
+              pure (PUnboxedSum 0 arity first)
             Nothing -> do
               expectedTok closeTok
               if tupleFlavor == Boxed
-                then pure (`PParen` first)
-                else pure (\span' -> PTuple span' Unboxed [first])
+                then pure (PParen first)
+                else pure (PTuple Unboxed [first])
         Just () -> do
           second <- parenPatElementParser
           more <- MP.many (expectedTok TkSpecialComma *> parenPatElementParser)
           expectedTok closeTok
-          pure (\span' -> PTuple span' tupleFlavor (first : second : more))
+          pure (PTuple tupleFlavor (first : second : more))
 
     parseUnboxedSumPatLeadingBars closeTok = do
       -- Parse (# | | ... | pat | ... | #) where pattern is not in first slot
@@ -474,11 +466,11 @@ parenOrTuplePatternParser = withSpan $ do
       trailingBars <- MP.many (expectedTok TkReservedPipe)
       expectedTok closeTok
       let arity = altIdx + 1 + length trailingBars
-      pure (\span' -> PUnboxedSum span' altIdx arity inner)
+      pure (PUnboxedSum altIdx arity inner)
 
 isPatternAppHead :: Pattern -> Bool
 isPatternAppHead pat =
-  case pat of
+  case peelPatternAnn pat of
     PCon {} -> True
-    PVar _ name -> isConLikeNameType (unqualifiedNameType name)
+    PVar name -> isConLikeNameType (unqualifiedNameType name)
     _ -> False

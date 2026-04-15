@@ -27,6 +27,7 @@ module Aihc.Parser.Internal.Common
     infixOperatorNameParser,
     stringTextParser,
     withSpan,
+    withSpanAnn,
     sourceSpanFromPositions,
     parens,
     braces,
@@ -375,6 +376,21 @@ stringTextParser =
       TkString txt -> Just txt
       _ -> Nothing
 
+withSpanAnn :: (SourceSpan -> a -> a) -> TokParser a -> TokParser a
+withSpanAnn f parser = do
+  ts <- fmap MP.stateInput MP.getParserState
+  let startSpan
+        | tokStreamEOFEmitted ts = noSourceSpan
+        | tok : _ <- layoutBuffer (tokStreamLayoutState ts) = lexTokenSpan tok
+        | rawTok : _ <- tokStreamRawTokens ts = lexTokenSpan rawTok
+        | otherwise = noSourceSpan
+  out <- parser
+  lastToken <- fmap (tokStreamPrevToken . MP.stateInput) MP.getParserState
+  let endSpan = maybe noSourceSpan lexTokenSpan lastToken
+      parserSpan = mergeSourceSpans startSpan endSpan
+  pure $ f parserSpan out
+
+-- FIXME: Remove.
 withSpan :: TokParser (SourceSpan -> a) -> TokParser a
 withSpan parser = do
   ts <- fmap MP.stateInput MP.getParserState
@@ -453,27 +469,23 @@ plainSemiSep1 parser = MP.some (parser <* skipSemicolons)
 
 contextItemParserWith :: TokParser Type -> TokParser Type -> TokParser Type
 contextItemParserWith typeParser typeAtomParser =
-  MP.try parenthesizedContextItemParser <|> MP.try kindSigContextItemParser <|> bareContextItemParser
+  withSpanAnn (TAnn . mkAnnotation) $
+    MP.try parenthesizedContextItemParser <|> MP.try kindSigContextItemParser <|> bareContextItemParser
   where
-    bareContextItemParser = withSpan $ do
-      tok <- lookAhead anySingle
-      case lexTokenKind tok of
-        TkImplicitParam {} -> do
-          name <- implicitParamNameParser
-          expectedTok TkReservedDoubleColon
-          ty <- typeParser
-          pure $ \span' -> TImplicitParam span' name ty
-        TkKeywordUnderscore -> do
-          _ <- anySingle
+    bareContextItemParser =
+      do
+        name <- implicitParamNameParser
+        expectedTok TkReservedDoubleColon
+        TImplicitParam name <$> typeParser
+        <|> do
+          expectedTok TkKeywordUnderscore
           pure TWildcard
-        _ -> do
-          headTy <- constraintTypeParser
-          pure $ \span' -> setContextItemSpan span' headTy
-    parenthesizedContextItemParser = withSpan $ do
+        <|> constraintTypeParser
+    parenthesizedContextItemParser = do
       expectedTok TkSpecialLParen
       item <- contextItemParserWith typeParser typeAtomParser
       expectedTok TkSpecialRParen
-      pure (`TParen` item)
+      pure (TParen item)
     -- \| Parse a type followed by `::` and another type (kind annotation).
     -- This handles cases like `(c :: Type -> Constraint)` in superclass contexts,
     -- both as standalone parenthesized constraints and as items in comma-separated lists.
@@ -482,12 +494,11 @@ contextItemParserWith typeParser typeAtomParser =
     -- to avoid a parsing cycle: typeParser -> contextTypeParser -> constraintsParserWith
     -- -> constraintParserWith -> kindSigConstraintParser -> typeParser.
     kindSigContextItemParser :: TokParser Type
-    kindSigContextItemParser = withSpan $ do
+    kindSigContextItemParser = do
       guard =<< hasKindSignatureAtTopLevel
       ty <- constraintTypeAppParser
       expectedTok TkReservedDoubleColon
-      kind <- kindTypeParser
-      pure $ \span' -> TKindSig span' ty kind
+      TKindSig ty <$> kindTypeParser
 
     -- \| Lookahead: check if there's a `::` at the top bracket depth.
     -- This avoids ambiguity with the bare constraint parser.
@@ -524,7 +535,7 @@ contextItemParserWith typeParser typeAtomParser =
       rest <- MP.many typeAtomParser
       pure (foldl buildTypeApp first rest)
     buildTypeApp lhs rhs =
-      TApp (mergeSourceSpans (getSourceSpan lhs) (getSourceSpan rhs)) lhs rhs
+      typeAnnSpan (mergeSourceSpans (getSourceSpan lhs) (getSourceSpan rhs)) (TApp lhs rhs)
     -- \| Parse a type expression that can appear as a kind annotation.
     -- Handles function types (e.g., Type -> Constraint) and type applications,
     -- but NOT context types (C a => ...) to avoid parsing cycles.
@@ -534,12 +545,17 @@ contextItemParserWith typeParser typeAtomParser =
       let baseType = foldl buildInfixType first rest
       mRhs <- MP.optional (expectedTok TkReservedRightArrow *> kindTypeParser)
       case mRhs of
-        Just rhs -> pure (TFun (mergeSourceSpans (getSourceSpan baseType) (getSourceSpan rhs)) baseType rhs)
+        Just rhs ->
+          pure
+            ( typeAnnSpan
+                (mergeSourceSpans (getSourceSpan baseType) (getSourceSpan rhs))
+                (TFun baseType rhs)
+            )
         Nothing -> pure baseType
     buildInfixType lhs ((op, promoted), rhs) =
       let span' = mergeSourceSpans (getSourceSpan lhs) (getSourceSpan rhs)
-          opType = TCon span' op promoted
-       in TApp span' (TApp span' opType lhs) rhs
+          opType = typeAnnSpan span' (TCon op promoted)
+       in typeAnnSpan span' (TApp (typeAnnSpan span' (TApp opType lhs)) rhs)
     constraintTypeInfixOperatorParser =
       MP.try promotedInfixOperatorParser <|> unpromotedInfixOperatorParser
     unpromotedInfixOperatorParser =
@@ -559,27 +575,6 @@ contextItemParserWith typeParser typeAtomParser =
       expectedTok TkReservedColon
       pure (qualifyName Nothing (mkUnqualifiedName NameConSym ":"), Promoted)
 
-    setContextItemSpan span' ty =
-      case ty of
-        TVar _ name -> TVar span' name
-        TCon _ name promoted -> TCon span' name promoted
-        TImplicitParam _ name inner -> TImplicitParam span' name inner
-        TTypeLit _ lit -> TTypeLit span' lit
-        TStar _ -> TStar span'
-        TQuasiQuote _ quoter body -> TQuasiQuote span' quoter body
-        TForall _ binders inner -> TForall span' binders inner
-        TApp _ lhs rhs -> TApp span' lhs rhs
-        TFun _ lhs rhs -> TFun span' lhs rhs
-        TTuple _ tupleFlavor promoted elems -> TTuple span' tupleFlavor promoted elems
-        TUnboxedSum _ elems -> TUnboxedSum span' elems
-        TList _ promoted elems -> TList span' promoted elems
-        TParen _ inner -> TParen span' inner
-        TKindSig _ inner kind -> TKindSig span' inner kind
-        TContext _ constraints inner -> TContext span' constraints inner
-        TSplice _ body -> TSplice span' body
-        TWildcard _ -> TWildcard span'
-        TAnn ann sub -> TAnn ann (setContextItemSpan span' sub)
-
 contextItemsParserWith :: TokParser Type -> TokParser Type -> TokParser [Type]
 contextItemsParserWith typeParser typeAtomParser =
   MP.try parenthesizedContextItemsParser <|> fmap pure (contextItemParserWith typeParser typeAtomParser)
@@ -592,7 +587,7 @@ contextItemsParserWith typeParser typeAtomParser =
       -- correctly, where () ~ () is a single type-equality constraint.
       case items of
         [] -> fail "empty constraint list in parens"
-        [item] -> pure [TParen (getSourceSpan item) item]
+        [item] -> pure [typeAnnSpan (getSourceSpan item) (TParen item)]
         _ -> pure items
 
 contextParserWith :: TokParser Type -> TokParser Type -> TokParser [Type]
@@ -642,22 +637,22 @@ functionBinderNameParser =
           TkVarSym ident -> Just (mkUnqualifiedName NameVarSym ident)
           _ -> Nothing
 
-functionBindValue :: SourceSpan -> MatchHeadForm -> UnqualifiedName -> [Pattern] -> Rhs -> ValueDecl
-functionBindValue span' headForm name pats rhs =
+functionBindValue :: MatchHeadForm -> UnqualifiedName -> [Pattern] -> Rhs -> ValueDecl
+functionBindValue headForm name pats rhs =
   FunctionBind
-    span'
+    NoSourceSpan
     name
     [ Match
-        { matchSpan = span',
+        { matchSpan = NoSourceSpan,
           matchHeadForm = headForm,
           matchPats = pats,
           matchRhs = rhs
         }
     ]
 
-functionBindDecl :: SourceSpan -> MatchHeadForm -> UnqualifiedName -> [Pattern] -> Rhs -> Decl
-functionBindDecl span' headForm name pats rhs =
-  DeclValue span' (functionBindValue span' headForm name pats rhs)
+functionBindDecl :: MatchHeadForm -> UnqualifiedName -> [Pattern] -> Rhs -> Decl
+functionBindDecl headForm name pats rhs =
+  DeclValue (functionBindValue headForm name pats rhs)
 
 isModuleName :: Text -> Bool
 isModuleName name =

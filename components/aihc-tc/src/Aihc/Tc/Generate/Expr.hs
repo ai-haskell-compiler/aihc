@@ -38,64 +38,48 @@ import Data.Text qualified as T
 inferExpr :: Expr -> TcM (TcType, [Ct])
 inferExpr expr = case expr of
   -- Variables: look up in environment, instantiate if polymorphic.
-  EVar sp name -> inferVar sp (nameToText name)
+  EVar name -> inferVar (getSourceSpan expr) (nameToText name)
   -- Integer literals: monomorphic Int for MVP.
   -- (Full version would use Num constraint.)
-  EInt sp _ _ -> pure (intTyCon, [])
-    where
-      _ = sp
-  EIntBase sp _ _ -> pure (intTyCon, [])
-    where
-      _ = sp
+  EInt _ _ -> pure (intTyCon, [])
+  EIntBase _ _ -> pure (intTyCon, [])
   -- Float literals.
-  EFloat sp _ _ -> pure (doubleTyCon, [])
-    where
-      _ = sp
+  EFloat _ _ -> pure (doubleTyCon, [])
   -- Char literals.
-  EChar sp _ _ -> pure (charTyCon, [])
-    where
-      _ = sp
+  EChar _ _ -> pure (charTyCon, [])
   -- String literals.
-  EString sp _ _ -> pure (stringTyCon, [])
-    where
-      _ = sp
+  EString _ _ -> pure (stringTyCon, [])
   -- Lambda: \x -> body
-  ELambdaPats sp pats body -> inferLambda sp pats body
+  ELambdaPats pats body -> inferLambda (getSourceSpan expr) pats body
   -- Lambda case: \case { pat -> body; ... }
-  ELambdaCase sp alts -> inferLambdaCase sp alts
+  ELambdaCase alts -> inferLambdaCase (getSourceSpan expr) alts
   -- Application: f x
-  EApp sp fun arg -> inferApp sp fun arg
+  EApp fun arg -> inferApp (getSourceSpan expr) fun arg
   -- If-then-else
-  EIf sp cond thenE elseE -> inferIf sp cond thenE elseE
+  EIf cond thenE elseE -> inferIf (getSourceSpan expr) cond thenE elseE
   -- Let expression
-  ELetDecls sp _decls body -> do
+  ELetDecls _decls body -> do
     -- MVP: infer body only (let bindings not yet processed).
     -- Full version would typecheck declarations and extend env.
     inferExpr body
-    where
-      _ = sp
   -- Parenthesized expression
-  EParen _sp inner -> inferExpr inner
+  EParen inner -> inferExpr inner
   -- Type signature: (e :: T)
-  ETypeSig sp inner _ty -> do
+  ETypeSig inner _ty -> do
     -- MVP: just infer the inner expression.
     -- Full version would check against the given type.
     inferExpr inner
-    where
-      _ = sp
   -- Negation
-  ENegate sp inner -> do
+  ENegate inner -> do
     (innerTy, cs) <- inferExpr inner
     -- For MVP, just return the inner type.
     pure (innerTy, cs)
-    where
-      _ = sp
   -- Annotated expression (from other passes, e.g. resolve).
   EAnn _ann inner -> inferExpr inner
   -- Tuple
-  ETuple sp _flavor elems -> inferTuple sp elems
+  ETuple _flavor elems -> inferTuple (getSourceSpan expr) elems
   -- List
-  EList sp elems -> inferList sp elems
+  EList elems -> inferList (getSourceSpan expr) elems
   -- Unsupported expression forms for MVP.
   other -> do
     let sp = getSourceSpan other
@@ -175,7 +159,7 @@ inferCaseAlts sp scrutTy resTy alts = concat <$> mapM inferAlt alts
 -- no extra constraints are needed (the variable just gets the scrutinee type).
 inferPatternConstraints :: SourceSpan -> TcType -> Pattern -> TcM [Ct]
 inferPatternConstraints sp scrutTy pat = case pat of
-  PCon _patSp name _subPats -> do
+  PCon name _subPats -> do
     -- Look up the constructor; if found, emit scrutTy ~ constructor result type.
     let conName = nameToText name
     mBinder <- lookupTerm conName
@@ -190,9 +174,9 @@ inferPatternConstraints sp scrutTy pat = case pat of
         pure [mkWantedCt (EqPred scrutTy conResTy) ev (AppOrigin sp) sp]
       _ -> pure []
   PAnn _ann inner -> inferPatternConstraints sp scrutTy inner
-  PParen _patSp inner -> inferPatternConstraints sp scrutTy inner
-  PStrict _patSp inner -> inferPatternConstraints sp scrutTy inner
-  PIrrefutable _patSp inner -> inferPatternConstraints sp scrutTy inner
+  PParen inner -> inferPatternConstraints sp scrutTy inner
+  PStrict inner -> inferPatternConstraints sp scrutTy inner
+  PIrrefutable inner -> inferPatternConstraints sp scrutTy inner
   _ -> pure []
 
 -- | Extract the result type from a (possibly nested) function type.
@@ -298,24 +282,24 @@ boolTyCon = TcTyCon (TyCon "Bool" 0) []
 -- Other patterns are handled minimally for the MVP.
 extractPatternBindings :: (Pattern, TcType) -> [(Text, TcType)]
 extractPatternBindings (pat, ty) = case pat of
-  PVar _sp uname -> [(unqualifiedNameText uname, ty)]
+  PVar uname -> [(unqualifiedNameText uname, ty)]
   PAnn _ann inner -> extractPatternBindings (inner, ty)
-  PParen _sp inner -> extractPatternBindings (inner, ty)
+  PParen inner -> extractPatternBindings (inner, ty)
   PWildcard {} -> []
   PLit {} -> []
   PNegLit {} -> []
-  PAs _sp name inner -> (name, ty) : extractPatternBindings (inner, ty)
-  PStrict _sp inner -> extractPatternBindings (inner, ty)
-  PIrrefutable _sp inner -> extractPatternBindings (inner, ty)
+  PAs name inner -> (name, ty) : extractPatternBindings (inner, ty)
+  PStrict inner -> extractPatternBindings (inner, ty)
+  PIrrefutable inner -> extractPatternBindings (inner, ty)
   -- For constructor patterns like (True), (Just x), etc. the overall
   -- pattern type doesn't directly give us the sub-pattern types. But
   -- we can still extract the variable names for binding purposes.
-  PCon _sp _name subPats ->
+  PCon _name subPats ->
     -- Each sub-pattern gets an unknown type (we'd need constructor info
     -- to assign proper types). For the MVP, they're not needed since
     -- constructor pattern matching in function heads is handled by tcMatches.
     concatMap (\p -> extractPatternBindings (p, ty)) subPats
-  PInfix _sp lhs _name rhs ->
+  PInfix lhs _name rhs ->
     extractPatternBindings (lhs, ty) ++ extractPatternBindings (rhs, ty)
   _ -> []
 

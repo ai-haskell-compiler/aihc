@@ -45,41 +45,40 @@ moduleHeaderParser = withSpan $ do
 
 warningTextParser :: TokParser WarningText
 warningTextParser =
-  withSpan $
+  withSpanAnn (WarningTextAnn . mkAnnotation) $
     hiddenPragma "warning pragma" $ \case
-      PragmaWarning msg -> Just (`WarnText` msg)
-      PragmaDeprecated msg -> Just (`DeprText` msg)
+      PragmaWarning msg -> Just (WarnText msg)
+      PragmaDeprecated msg -> Just (DeprText msg)
       _ -> Nothing
 
 exportSpecListParser :: TokParser [ExportSpec]
 exportSpecListParser = parens $ exportSpecParser `MP.sepEndBy` expectedTok TkSpecialComma
 
 exportSpecParser :: TokParser ExportSpec
-exportSpecParser = withSpan $ do
+exportSpecParser = withSpanAnn (ExportAnn . mkAnnotation) $ do
   mWarning <- MP.optional warningTextParser
   exportModuleParser mWarning <|> exportNameParser mWarning
 
-exportModuleParser :: Maybe WarningText -> TokParser (SourceSpan -> ExportSpec)
+exportModuleParser :: Maybe WarningText -> TokParser ExportSpec
 exportModuleParser mWarning = do
   expectedTok TkKeywordModule
-  modName <- moduleNameParser
-  pure $ \span' -> ExportModule span' mWarning modName
+  ExportModule mWarning <$> moduleNameParser
 
-exportNameParser :: Maybe WarningText -> TokParser (SourceSpan -> ExportSpec)
+exportNameParser :: Maybe WarningText -> TokParser ExportSpec
 exportNameParser mWarning = do
   namespace <- MP.optional exportImportNamespaceParser
   name <- identifierNameParser <|> parens operatorNameParser
   members <- MP.optional exportMembersParser
-  pure $ \span' ->
+  pure $
     case members of
-      Just MembersAll -> ExportAll span' mWarning namespace name
-      Just (MembersList names) -> ExportWith span' mWarning namespace name names
-      Just (MembersListAll names) -> ExportWithAll span' mWarning namespace name names
+      Just MembersAll -> ExportAll mWarning namespace name
+      Just (MembersList names) -> ExportWith mWarning namespace name names
+      Just (MembersListAll names) -> ExportWithAll mWarning namespace name names
       Nothing
         | namespace == Just IEEntityNamespaceType || isTypeName name ->
-            ExportAbs span' mWarning namespace name
+            ExportAbs mWarning namespace name
         | otherwise ->
-            ExportVar span' mWarning namespace name
+            ExportVar mWarning namespace name
 
 data MembersResult
   = MembersAll
@@ -177,7 +176,7 @@ importSpecParser = withSpan $ do
       }
 
 importItemParser :: TokParser ImportItem
-importItemParser = withSpan $ do
+importItemParser = withSpanAnn (ImportAnn . mkAnnotation) $ do
   namespace <- MP.optional exportImportNamespaceParser
   itemName <- identifierUnqualifiedNameParser <|> parens importOperatorParser
   -- When there's no explicit namespace, we still need to try parsing members
@@ -187,14 +186,14 @@ importItemParser = withSpan $ do
         Nothing -> isTypeName (qualifyName Nothing itemName)
   members <- if shouldTryMembers then MP.optional exportMembersParser else pure Nothing
   let effectiveNamespace = namespace
-  pure $ \span' ->
+  pure $
     case members of
-      Just MembersAll -> ImportItemAll span' effectiveNamespace itemName
-      Just (MembersList names) -> ImportItemWith span' effectiveNamespace itemName names
-      Just (MembersListAll names) -> ImportItemAllWith span' effectiveNamespace itemName names
+      Just MembersAll -> ImportItemAll effectiveNamespace itemName
+      Just (MembersList names) -> ImportItemWith effectiveNamespace itemName names
+      Just (MembersListAll names) -> ImportItemAllWith effectiveNamespace itemName names
       Nothing
-        | effectiveNamespace == Just IEEntityNamespaceType || isTypeName (qualifyName Nothing itemName) -> ImportItemAbs span' effectiveNamespace itemName
-        | otherwise -> ImportItemVar span' effectiveNamespace itemName
+        | effectiveNamespace == Just IEEntityNamespaceType || isTypeName (qualifyName Nothing itemName) -> ImportItemAbs effectiveNamespace itemName
+        | otherwise -> ImportItemVar effectiveNamespace itemName
 
 importOperatorParser :: TokParser UnqualifiedName
 importOperatorParser = operatorUnqualifiedNameParser

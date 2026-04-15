@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
 
 module Test.Properties.TypeRoundTrip
   ( prop_typePrettyRoundTrip,
@@ -47,30 +48,34 @@ prop_typePrettyRoundTrip ty =
 normalizeType :: Type -> Type
 normalizeType ty =
   case ty of
-    TVar _ name -> TVar span0 name
-    TCon _ name promoted -> TCon span0 name promoted
-    TImplicitParam _ name inner -> TImplicitParam span0 name (normalizeType inner)
-    TTypeLit _ lit -> TTypeLit span0 lit
-    TStar _ -> TStar span0
-    TWildcard _ -> TWildcard span0
-    TQuasiQuote _ quoter body -> TQuasiQuote span0 quoter body
-    TForall _ binders inner -> TForall span0 (map normalizeTyVarBinder binders) (normalizeType inner)
-    TApp _ f x -> TApp span0 (normalizeType f) (normalizeType x)
-    TFun _ a b -> TFun span0 (normalizeType a) (normalizeType b)
-    TTuple _ tupleFlavor promoted elems -> TTuple span0 tupleFlavor promoted (map normalizeType elems)
-    TList _ promoted elems -> TList span0 promoted (map normalizeType elems)
+    TVar name -> TVar name
+    TCon name promoted -> TCon name promoted
+    TImplicitParam name inner -> TImplicitParam name (normalizeType inner)
+    TTypeLit lit -> TTypeLit lit
+    TStar -> TStar
+    TWildcard -> TWildcard
+    TQuasiQuote quoter body -> TQuasiQuote quoter body
+    TForall binders inner -> TForall (map normalizeTyVarBinder binders) (normalizeType inner)
+    TApp f x -> TApp (normalizeType f) (normalizeType x)
+    TFun a b -> TFun (normalizeType a) (normalizeType b)
+    TTuple tupleFlavor promoted elems -> TTuple tupleFlavor promoted (map normalizeType elems)
+    TList promoted elems -> TList promoted (map normalizeType elems)
     -- Strip TParen around TKindSig: the parser absorbs (ty :: kind) parens
     -- into the TKindSig node itself. Normalize the inner first to collapse
-    -- any chain of TParens, then strip if TKindSig is underneath.
-    TParen _ inner ->
-      case normalizeType inner of
-        result@(TKindSig {}) -> result
-        result -> TParen span0 result
-    TKindSig _ ty' kind -> TKindSig span0 (normalizeType ty') (normalizeType kind)
-    TUnboxedSum _ elems -> TUnboxedSum span0 (map normalizeType elems)
-    TContext _ constraints inner -> TContext span0 (map normalizeType constraints) (normalizeType inner)
-    TSplice _ body -> TSplice span0 (normalizeExpr body)
-    TAnn ann sub -> TAnn ann (normalizeType sub)
+    -- any chain of TParens, then strip if TKindSig is underneath (possibly
+    -- behind span-only 'TAnn' from 'typeAnnSpan span0').
+    TParen inner ->
+      let ni = normalizeType inner
+       in case peelTypeAnn ni of
+            result@(TKindSig {}) -> result
+            _ -> TParen ni
+    TKindSig ty' kind -> TKindSig (normalizeType ty') (normalizeType kind)
+    TUnboxedSum elems -> TUnboxedSum (map normalizeType elems)
+    TContext constraints inner -> TContext (map normalizeType constraints) (normalizeType inner)
+    TSplice body -> TSplice (normalizeExpr body)
+    TAnn ann sub
+      | Just _ <- fromAnnotation @SourceSpan ann -> normalizeType sub
+      | otherwise -> TAnn ann (normalizeType sub)
 
 normalizeTyVarBinder :: TyVarBinder -> TyVarBinder
 normalizeTyVarBinder tvb =
@@ -82,17 +87,17 @@ normalizeTyVarBinder tvb =
 containsKindedInferredBinder :: Type -> Bool
 containsKindedInferredBinder ty =
   case ty of
-    TForall _ binders inner -> any isKindedInferredBinder binders || containsKindedInferredBinder inner
-    TImplicitParam _ _ inner -> containsKindedInferredBinder inner
-    TApp _ f x -> containsKindedInferredBinder f || containsKindedInferredBinder x
-    TFun _ a b -> containsKindedInferredBinder a || containsKindedInferredBinder b
-    TTuple _ _ _ elems -> any containsKindedInferredBinder elems
-    TList _ _ elems -> any containsKindedInferredBinder elems
-    TParen _ inner -> containsKindedInferredBinder inner
-    TKindSig _ ty' kind -> containsKindedInferredBinder ty' || containsKindedInferredBinder kind
-    TUnboxedSum _ elems -> any containsKindedInferredBinder elems
-    TContext _ constraints inner -> any containsKindedInferredBinder constraints || containsKindedInferredBinder inner
-    TSplice _ _ -> False
+    TForall binders inner -> any isKindedInferredBinder binders || containsKindedInferredBinder inner
+    TImplicitParam _name inner -> containsKindedInferredBinder inner
+    TApp f x -> containsKindedInferredBinder f || containsKindedInferredBinder x
+    TFun a b -> containsKindedInferredBinder a || containsKindedInferredBinder b
+    TTuple _tupleFlavor _promoted elems -> any containsKindedInferredBinder elems
+    TList _promoted elems -> any containsKindedInferredBinder elems
+    TParen inner -> containsKindedInferredBinder inner
+    TKindSig ty' kind -> containsKindedInferredBinder ty' || containsKindedInferredBinder kind
+    TUnboxedSum elems -> any containsKindedInferredBinder elems
+    TContext constraints inner -> any containsKindedInferredBinder constraints || containsKindedInferredBinder inner
+    TSplice _body -> False
     TAnn _ sub -> containsKindedInferredBinder sub
     _ -> False
 

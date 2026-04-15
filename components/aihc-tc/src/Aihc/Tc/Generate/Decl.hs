@@ -13,15 +13,17 @@ import Aihc.Parser.Syntax
   ( DataConDecl (..),
     DataDecl (..),
     Decl (..),
+    HasSourceSpan (getSourceSpan),
     Match (..),
     Module (..),
     Name (..),
     NameType (..),
     Pattern (..),
     Rhs (..),
-    SourceSpan,
+    SourceSpan (..),
     UnqualifiedName (..),
     ValueDecl (..),
+    peelDeclAnn,
   )
 import Aihc.Tc.Constraint
 import Aihc.Tc.Generalize (generalize)
@@ -73,9 +75,12 @@ groupValueDecls (d : ds) = case extractFunctionBind d of
 
 -- | Extract function bind info from a declaration.
 extractFunctionBind :: Decl -> Maybe (SourceSpan, UnqualifiedName, [Match])
-extractFunctionBind (DeclValue sp (FunctionBind _fsp name matches)) = Just (sp, name, matches)
-extractFunctionBind (DeclAnn _ inner) = extractFunctionBind inner
-extractFunctionBind _ = Nothing
+extractFunctionBind decl =
+  case peelDeclAnn decl of
+    DeclValue (FunctionBind fsp name matches) ->
+      let sp = case fsp of NoSourceSpan -> getSourceSpan decl; _ -> fsp
+       in Just (sp, name, matches)
+    _ -> Nothing
 
 -- | Check if a declaration is a FunctionBind with the given name.
 hasSameName :: UnqualifiedName -> Decl -> Bool
@@ -102,7 +107,7 @@ tcDeclGroup (MergedFunctionBind _sp binder matches) = do
 -- | Register a declaration in the environment (data types, etc.).
 -- Returns binding results for the declared names.
 registerDecl :: Decl -> TcM [TcBindingResult]
-registerDecl (DeclData _sp dd) = registerDataDecl dd
+registerDecl (DeclData dd) = registerDataDecl dd
 registerDecl (DeclAnn _ inner) = registerDecl inner
 registerDecl _ = pure []
 
@@ -125,7 +130,8 @@ registerDataDecl dd = do
 -- Returns the binding result for the constructor.
 registerDataCon :: TcType -> DataConDecl -> TcM TcBindingResult
 registerDataCon resTy con = case con of
-  PrefixCon _sp _docs _ctx conName args ->
+  DataConAnn _ inner -> registerDataCon resTy inner
+  PrefixCon _docs _ctx conName args ->
     let name = unqualifiedNameText conName
         -- For each argument type, create a function type.
         -- For MVP, we ignore the actual types and treat nullary
@@ -137,12 +143,12 @@ registerDataCon resTy con = case con of
      in do
           extendTermEnvPermanent name (TcIdBinder name scheme)
           pure (TcBindingResult name resTy)
-  InfixCon _sp _docs _ctx _lhs conName _rhs ->
+  InfixCon _docs _ctx _lhs conName _rhs ->
     let name = unqualifiedNameText conName
      in do
           extendTermEnvPermanent name (TcIdBinder name (ForAll [] [] resTy))
           pure (TcBindingResult name resTy)
-  RecordCon _sp _docs _ctx conName _fields ->
+  RecordCon _docs _ctx conName _fields ->
     let name = unqualifiedNameText conName
      in do
           extendTermEnvPermanent name (TcIdBinder name (ForAll [] [] resTy))
@@ -153,13 +159,13 @@ registerDataCon resTy con = case con of
 
 -- | Type-check a declaration, returning binding results for value bindings.
 tcDecl :: Decl -> TcM [TcBindingResult]
-tcDecl (DeclValue sp vd) = tcValueDecl sp vd
+tcDecl (DeclValue vd) = tcValueDecl vd
 tcDecl (DeclAnn _ inner) = tcDecl inner
 tcDecl _ = pure []
 
 -- | Type-check a value declaration.
-tcValueDecl :: SourceSpan -> ValueDecl -> TcM [TcBindingResult]
-tcValueDecl _sp (FunctionBind _fsp binder matches) = do
+tcValueDecl :: ValueDecl -> TcM [TcBindingResult]
+tcValueDecl (FunctionBind _fsp binder matches) = do
   let name = unqualifiedNameText binder
       displayName = renderBinderName binder
   (ty, cts) <- tcMatches matches
@@ -171,7 +177,7 @@ tcValueDecl _sp (FunctionBind _fsp binder matches) = do
   -- Register the binding so later bindings can reference it.
   extendTermEnvPermanent name (TcIdBinder name scheme)
   pure [TcBindingResult displayName zonkedTy]
-tcValueDecl _sp (PatternBind _psp _pat rhs) = do
+tcValueDecl (PatternBind _psp _pat rhs) = do
   ty <- tcRhs rhs
   zonkedTy <- zonkType ty
   pure [TcBindingResult "<pattern>" zonkedTy]
@@ -242,7 +248,7 @@ unifyMatchRhs expectedTy match = do
 -- extra constraints are needed.
 inferPatCts :: Pattern -> TcType -> TcM [Ct]
 inferPatCts pat scrutTy = case pat of
-  PCon sp name _subPats -> do
+  PCon name _subPats -> do
     let conName = patNameToText name
     mBinder <- lookupTerm conName
     case mBinder of
@@ -250,12 +256,13 @@ inferPatCts pat scrutTy = case pat of
         (conTy, _preds) <- instantiateSch scheme
         let conResTy = resultType conTy
         ev <- freshEvVar
+        let sp = getSourceSpan pat
         pure [mkWantedCt (EqPred scrutTy conResTy) ev (AppOrigin sp) sp]
       _ -> pure []
   PAnn _ann inner -> inferPatCts inner scrutTy
-  PParen _sp inner -> inferPatCts inner scrutTy
-  PStrict _sp inner -> inferPatCts inner scrutTy
-  PIrrefutable _sp inner -> inferPatCts inner scrutTy
+  PParen inner -> inferPatCts inner scrutTy
+  PStrict inner -> inferPatCts inner scrutTy
+  PIrrefutable inner -> inferPatCts inner scrutTy
   _ -> pure []
 
 -- | Convert a Name to Text for lookup.
@@ -276,18 +283,18 @@ instantiateSch = Aihc.Tc.Instantiate.instantiate
 -- | Extract variable bindings from a pattern paired with its expected type.
 extractPatternBindings :: (Pattern, TcType) -> [(Text, TcType)]
 extractPatternBindings (pat, ty) = case pat of
-  PVar _sp uname -> [(unqualifiedNameText uname, ty)]
+  PVar uname -> [(unqualifiedNameText uname, ty)]
   PAnn _ann inner -> extractPatternBindings (inner, ty)
-  PParen _sp inner -> extractPatternBindings (inner, ty)
+  PParen inner -> extractPatternBindings (inner, ty)
   PWildcard {} -> []
   PLit {} -> []
   PNegLit {} -> []
-  PAs _sp name inner -> (name, ty) : extractPatternBindings (inner, ty)
-  PStrict _sp inner -> extractPatternBindings (inner, ty)
-  PIrrefutable _sp inner -> extractPatternBindings (inner, ty)
-  PCon _sp _name subPats ->
+  PAs name inner -> (name, ty) : extractPatternBindings (inner, ty)
+  PStrict inner -> extractPatternBindings (inner, ty)
+  PIrrefutable inner -> extractPatternBindings (inner, ty)
+  PCon _name subPats ->
     concatMap (\p -> extractPatternBindings (p, ty)) subPats
-  PInfix _sp lhs _name rhs ->
+  PInfix lhs _name rhs ->
     extractPatternBindings (lhs, ty) ++ extractPatternBindings (rhs, ty)
   _ -> []
 

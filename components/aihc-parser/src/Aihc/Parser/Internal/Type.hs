@@ -27,17 +27,16 @@ import Text.Megaparsec qualified as MP
 
 -- | Parse a Template Haskell type splice: $typ or $(typ)
 thSpliceTypeParser :: TokParser Type
-thSpliceTypeParser = withSpan $ do
+thSpliceTypeParser = withSpanAnn (TAnn . mkAnnotation) $ do
   expectedTok TkTHSplice
   body <- parenSpliceBody <|> bareSpliceBody
-  pure (`TSplice` body)
+  pure (TSplice body)
   where
-    parenSpliceBody = withSpan $ do
+    parenSpliceBody = withSpanAnn (EAnn . mkAnnotation) $ do
       body <- parens exprParser
-      pure (`EParen` body)
-    bareSpliceBody = withSpan $ do
-      name <- identifierNameParser
-      pure (`EVar` name)
+      pure (EParen body)
+    bareSpliceBody = withSpanAnn (EAnn . mkAnnotation) $ do
+      EVar <$> identifierNameParser
 
 typeParser :: TokParser Type
 typeParser = label "type" $ forallTypeParser <|> contextOrFunTypeParser
@@ -48,12 +47,11 @@ contextOrFunTypeParser = do
   if isContextType then contextTypeParser else typeFunParser
 
 forallTypeParser :: TokParser Type
-forallTypeParser = withSpan $ do
+forallTypeParser = withSpanAnn (TAnn . mkAnnotation) $ do
   expectedTok TkKeywordForall
   binders <- MP.some forallBinderParser
   expectedTok (TkVarSym ".")
-  inner <- contextOrFunTypeParser
-  pure (\span' -> TForall span' binders inner)
+  TForall binders <$> contextOrFunTypeParser
 
 -- | Parse a single forall binder: {k} | (k :: *) | k
 forallBinderParser :: TokParser TyVarBinder
@@ -85,7 +83,11 @@ contextTypeParser = do
   constraints <- contextItemsParser
   expectedTok TkReservedDoubleArrow
   inner <- typeParser
-  pure (TContext (mergeSourceSpans (constraintHeadSpan constraints) (getSourceSpan inner)) constraints inner)
+  pure
+    ( typeAnnSpan
+        (mergeSourceSpans (constraintHeadSpan constraints) (getSourceSpan inner))
+        (TContext constraints inner)
+    )
 
 constraintHeadSpan :: [Type] -> SourceSpan
 constraintHeadSpan constraints =
@@ -102,7 +104,10 @@ typeFunParser = do
   mRhs <- MP.optional (expectedTok TkReservedRightArrow *> typeParser)
   pure $
     case mRhs of
-      Just rhs -> TFun (mergeSourceSpans (getSourceSpan lhs) (getSourceSpan rhs)) lhs rhs
+      Just rhs ->
+        typeAnnSpan
+          (mergeSourceSpans (getSourceSpan lhs) (getSourceSpan rhs))
+          (TFun lhs rhs)
       Nothing -> lhs
 
 typeInfixParser :: TokParser Type
@@ -128,8 +133,8 @@ typeHeadInfixLoopParser = MP.many $ MP.try $ do
 buildInfixType :: Type -> ((Name, TypePromotion), Type) -> Type
 buildInfixType lhs ((op, promoted), rhs) =
   let span' = mergeSourceSpans (getSourceSpan lhs) (getSourceSpan rhs)
-      opType = TCon span' op promoted
-   in TApp span' (TApp span' opType lhs) rhs
+      opType = typeAnnSpan span' (TCon op promoted)
+   in typeAnnSpan span' (TApp (typeAnnSpan span' (TApp opType lhs)) rhs)
 
 typeInfixOperatorParser :: TokParser (Name, TypePromotion)
 typeInfixOperatorParser =
@@ -188,7 +193,7 @@ typeAppParser = do
 
 buildTypeApp :: Type -> Type -> Type
 buildTypeApp lhs rhs =
-  TApp (mergeSourceSpans (getSourceSpan lhs) (getSourceSpan rhs)) lhs rhs
+  typeAnnSpan (mergeSourceSpans (getSourceSpan lhs) (getSourceSpan rhs)) (TApp lhs rhs)
 
 typeAtomParser :: TokParser Type
 typeAtomParser = do
@@ -208,19 +213,18 @@ typeAtomParser = do
 
 -- | Parse an implicit parameter type: @?name :: Type@
 typeImplicitParamParser :: TokParser Type
-typeImplicitParamParser = withSpan $ do
+typeImplicitParamParser = withSpanAnn (TAnn . mkAnnotation) $ do
   name <- implicitParamNameParser
   expectedTok TkReservedDoubleColon
-  ty <- typeParser
-  pure $ \span' -> TImplicitParam span' name ty
+  TImplicitParam name <$> typeParser
 
 typeWildcardParser :: TokParser Type
-typeWildcardParser = withSpan $ do
+typeWildcardParser = withSpanAnn (TAnn . mkAnnotation) $ do
   expectedTok TkKeywordUnderscore
   pure TWildcard
 
 typeLiteralTypeParser :: TokParser Type
-typeLiteralTypeParser = withSpan $ do
+typeLiteralTypeParser = withSpanAnn (TAnn . mkAnnotation) $ do
   lit <- tokenSatisfy "type literal" $ \tok ->
     case lexTokenKind tok of
       TkInteger n -> Just (TypeLitInteger n (lexTokenText tok))
@@ -228,15 +232,14 @@ typeLiteralTypeParser = withSpan $ do
       TkString s -> Just (TypeLitSymbol s (lexTokenText tok))
       TkChar c -> Just (TypeLitChar c (lexTokenText tok))
       _ -> Nothing
-  pure (`TTypeLit` lit)
+  pure (TTypeLit lit)
 
 promotedTypeParser :: TokParser Type
-promotedTypeParser = withSpan $ do
+promotedTypeParser = withSpanAnn (TAnn . mkAnnotation) $ do
   -- Accept both TkVarSym "'" and TkTHQuoteTick for promoted types
   -- This handles ambiguity between TH value quotes and promoted types
   expectedTok (TkVarSym "'") <|> expectedTok TkTHQuoteTick
-  promotedTy <- MP.try promotedStructuredTypeParser <|> promotedRawTypeParser
-  pure (`setTypeSpan` promotedTy)
+  MP.try promotedStructuredTypeParser <|> promotedRawTypeParser
 
 promotedStructuredTypeParser :: TokParser Type
 promotedStructuredTypeParser = do
@@ -248,9 +251,9 @@ promotedStructuredTypeParser = do
   maybe (fail "promoted type") pure (markTypePromoted ty)
 
 promotedRawTypeParser :: TokParser Type
-promotedRawTypeParser = withSpan $ do
+promotedRawTypeParser = withSpanAnn (TAnn . mkAnnotation) $ do
   suffix <- promotedBracketedSuffixParser <|> promotedParenthesizedSuffixParser
-  pure (\span' -> TCon span' (qualifyName Nothing (mkUnqualifiedName NameConId suffix)) Promoted)
+  pure (TCon (qualifyName Nothing (mkUnqualifiedName NameConId suffix)) Promoted)
 
 promotedBracketedSuffixParser :: TokParser Text
 promotedBracketedSuffixParser = collectDelimitedRaw TkSpecialLBracket TkSpecialRBracket
@@ -280,7 +283,7 @@ collectDelimitedRaw openKind closeKind = do
           | otherwise -> go depth acc'
 
 typeParenOperatorParser :: TokParser Type
-typeParenOperatorParser = withSpan $ do
+typeParenOperatorParser = withSpanAnn (TAnn . mkAnnotation) $ do
   expectedTok TkSpecialLParen
   starIsType <- isExtensionEnabled StarIsType
   op <- tokenSatisfy "type operator" $ \tok ->
@@ -294,25 +297,27 @@ typeParenOperatorParser = withSpan $ do
       -- Note: ~ is now lexed as TkVarSym "~" so TkVarSym case handles it
       _ -> Nothing
   expectedTok TkSpecialRParen
-  pure (\span' -> TCon span' op Unpromoted)
+  pure (TCon op Unpromoted)
 
 typeQuasiQuoteParser :: TokParser Type
 typeQuasiQuoteParser =
   tokenSatisfy "type quasi quote" $ \tok ->
     case lexTokenKind tok of
-      TkQuasiQuote quoter body -> Just (TQuasiQuote (lexTokenSpan tok) quoter body)
+      TkQuasiQuote quoter body -> Just (typeAnnSpan (lexTokenSpan tok) (TQuasiQuote quoter body))
       _ -> Nothing
 
 typeIdentifierParser :: TokParser Type
-typeIdentifierParser = withSpan $ do
+typeIdentifierParser = withSpanAnn (TAnn . mkAnnotation) $ do
   name <- identifierNameParser
-  pure $ \span' ->
+  pure $
     case (nameQualifier name, nameType name, T.uncons (nameText name)) of
-      (Nothing, NameVarId, Just (c, _)) | isLower c || c == '_' -> TVar span' (mkUnqualifiedName NameVarId (nameText name))
-      _ -> TCon span' name Unpromoted
+      (Nothing, NameVarId, Just (c, _))
+        | isLower c || c == '_' ->
+            TVar (mkUnqualifiedName NameVarId (nameText name))
+      _ -> TCon name Unpromoted
 
 typeStarParser :: TokParser Type
-typeStarParser = withSpan $ do
+typeStarParser = withSpanAnn (TAnn . mkAnnotation) $ do
   starIsType <- isExtensionEnabled StarIsType
   if starIsType
     then do
@@ -321,24 +326,24 @@ typeStarParser = withSpan $ do
     else MP.empty
 
 typeListParser :: TokParser Type
-typeListParser = withSpan $ do
+typeListParser = withSpanAnn (TAnn . mkAnnotation) $ do
   expectedTok TkSpecialLBracket
   mClosed <- MP.optional (expectedTok TkSpecialRBracket)
   case mClosed of
-    Just () -> pure (\span' -> TCon span' (qualifyName Nothing (mkUnqualifiedName NameConId "[]")) Unpromoted)
+    Just () -> pure (TCon (qualifyName Nothing (mkUnqualifiedName NameConId "[]")) Unpromoted)
     Nothing -> do
       elems <- typeParser `MP.sepBy1` expectedTok TkSpecialComma
       expectedTok TkSpecialRBracket
-      pure (\span' -> TList span' Unpromoted elems)
+      pure (TList Unpromoted elems)
 
 typeParenOrTupleParser :: TokParser Type
-typeParenOrTupleParser = withSpan $ do
+typeParenOrTupleParser = withSpanAnn (TAnn . mkAnnotation) $ do
   (tupleFlavor, closeTok) <-
     (expectedTok TkSpecialLParen $> (Boxed, TkSpecialRParen))
       <|> (expectedTok TkSpecialUnboxedLParen $> (Unboxed, TkSpecialUnboxedRParen))
   mClosed <- MP.optional (expectedTok closeTok)
   case mClosed of
-    Just () -> pure (\span' -> TTuple span' tupleFlavor Unpromoted [])
+    Just () -> pure (TTuple tupleFlavor Unpromoted [])
     Nothing -> do
       MP.try (tupleConstructorParser tupleFlavor closeTok) <|> parenthesizedTypeOrTupleParser tupleFlavor closeTok
   where
@@ -351,7 +356,7 @@ typeParenOrTupleParser = withSpan $ do
             case tupleFlavor of
               Boxed -> "(" <> T.replicate (arity - 1) "," <> ")"
               Unboxed -> "(#" <> T.replicate (arity - 1) "," <> "#)"
-      pure (\span' -> TCon span' (qualifyName Nothing (mkUnqualifiedName NameConId tupleConName)) Unpromoted)
+      pure (TCon (qualifyName Nothing (mkUnqualifiedName NameConId tupleConName)) Unpromoted)
 
     parenthesizedTypeOrTupleParser tupleFlavor closeTok = do
       first <- typeParser
@@ -359,7 +364,7 @@ typeParenOrTupleParser = withSpan $ do
       case mKind of
         Just kind -> do
           expectedTok closeTok
-          pure (\span' -> TKindSig span' first kind)
+          pure (TKindSig first kind)
         Nothing -> do
           mComma <- MP.optional (expectedTok TkSpecialComma)
           case mComma of
@@ -371,44 +376,25 @@ typeParenOrTupleParser = withSpan $ do
                   -- (# Type1 | Type2 | ... #) - unboxed sum type
                   rest <- typeParser `MP.sepBy1` expectedTok TkReservedPipe
                   expectedTok closeTok
-                  pure (\span' -> TUnboxedSum span' (first : rest))
+                  pure (TUnboxedSum (first : rest))
                 Nothing -> do
                   expectedTok closeTok
                   if tupleFlavor == Boxed
-                    then pure (`TParen` first)
+                    then pure (TParen first)
                     else fail "not an unboxed tuple type"
             Just () -> do
               second <- typeParser
               more <- MP.many (expectedTok TkSpecialComma *> typeParser)
               expectedTok closeTok
-              pure (\span' -> TTuple span' tupleFlavor Unpromoted (first : second : more))
+              pure (TTuple tupleFlavor Unpromoted (first : second : more))
 
 markTypePromoted :: Type -> Maybe Type
 markTypePromoted ty =
   case ty of
-    TCon span' name _ -> Just (TCon span' name Promoted)
-    TList span' _ elems -> Just (TList span' Promoted elems)
-    TTuple span' tupleFlavor _ elems -> Just (TTuple span' tupleFlavor Promoted elems)
+    TAnn ann sub
+      | Just inner <- markTypePromoted sub ->
+          Just (TAnn ann inner)
+    TCon name _ -> Just (TCon name Promoted)
+    TList _ elems -> Just (TList Promoted elems)
+    TTuple tupleFlavor _ elems -> Just (TTuple tupleFlavor Promoted elems)
     _ -> Nothing
-
-setTypeSpan :: SourceSpan -> Type -> Type
-setTypeSpan span' ty =
-  case ty of
-    TVar _ name -> TVar span' name
-    TCon _ name promoted -> TCon span' name promoted
-    TImplicitParam _ name inner -> TImplicitParam span' name inner
-    TTypeLit _ lit -> TTypeLit span' lit
-    TStar _ -> TStar span'
-    TQuasiQuote _ quoter body -> TQuasiQuote span' quoter body
-    TForall _ binders inner -> TForall span' binders inner
-    TApp _ lhs rhs -> TApp span' lhs rhs
-    TFun _ lhs rhs -> TFun span' lhs rhs
-    TTuple _ tupleFlavor promoted elems -> TTuple span' tupleFlavor promoted elems
-    TUnboxedSum _ elems -> TUnboxedSum span' elems
-    TList _ promoted elems -> TList span' promoted elems
-    TParen _ inner -> TParen span' inner
-    TKindSig _ inner kind -> TKindSig span' inner kind
-    TContext _ constraints inner -> TContext span' constraints inner
-    TSplice _ body -> TSplice span' body
-    TWildcard _ -> TWildcard span'
-    TAnn ann sub -> TAnn ann (setTypeSpan span' sub)

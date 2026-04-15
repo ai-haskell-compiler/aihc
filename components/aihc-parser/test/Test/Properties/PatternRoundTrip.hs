@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
 
 module Test.Properties.PatternRoundTrip
   ( prop_patternPrettyRoundTrip,
@@ -41,70 +42,72 @@ normalizePattern :: Pattern -> Pattern
 normalizePattern pat =
   case pat of
     PAnn _ sub -> normalizePattern sub
-    PVar _ name -> PVar span0 name
-    PWildcard _ -> PWildcard span0
-    PLit _ lit -> PLit span0 (normalizeLiteral lit)
-    PQuasiQuote _ quoter body -> PQuasiQuote span0 quoter body
-    PTuple _ tupleFlavor elems -> PTuple span0 tupleFlavor (map normalizePattern elems)
-    PList _ elems -> PList span0 (map normalizePattern elems)
-    PCon _ con args -> PCon span0 con (map normalizePattern args)
-    PInfix _ lhs op rhs -> PInfix span0 (normalizePattern lhs) op (normalizePattern rhs)
-    PView _ expr inner -> PView span0 (normalizeExpr expr) (normalizePattern inner)
-    PAs _ name inner -> PAs span0 name (normalizeAsInner inner)
-    PStrict _ inner -> PStrict span0 (normalizeUnaryInner inner)
-    PIrrefutable _ inner -> PIrrefutable span0 (normalizeUnaryInner inner)
-    PNegLit _ lit -> PNegLit span0 (normalizeLiteral lit)
-    PParen _ (PNegLit _ lit) -> PNegLit span0 (normalizeLiteral lit)
-    PParen _ inner -> PParen span0 (normalizePattern inner)
-    PUnboxedSum _ altIdx arity inner -> PUnboxedSum span0 altIdx arity (normalizePattern inner)
-    PRecord _ con fields rwc -> PRecord span0 con [(fieldName, normalizePattern fieldPat) | (fieldName, fieldPat) <- fields] rwc
-    PTypeSig _ inner ty -> PTypeSig span0 (normalizePattern inner) (normalizeTypeSpan ty)
-    PSplice _ body -> PSplice span0 (normalizeExpr body)
+    PVar name -> PVar name
+    PWildcard -> PWildcard
+    PLit lit -> PLit (normalizeLiteral lit)
+    PQuasiQuote quoter body -> PQuasiQuote quoter body
+    PTuple tupleFlavor elems -> PTuple tupleFlavor (map normalizePattern elems)
+    PList elems -> PList (map normalizePattern elems)
+    PCon con args -> PCon con (map normalizePattern args)
+    PInfix lhs op rhs -> PInfix (normalizePattern lhs) op (normalizePattern rhs)
+    PView expr inner -> PView (normalizeExpr expr) (normalizePattern inner)
+    PAs name inner -> PAs name (normalizeAsInner inner)
+    PStrict inner -> PStrict (normalizeUnaryInner inner)
+    PIrrefutable inner -> PIrrefutable (normalizeUnaryInner inner)
+    PNegLit lit -> PNegLit (normalizeLiteral lit)
+    PParen inner -> PParen (normalizePattern inner)
+    PUnboxedSum altIdx arity inner -> PUnboxedSum altIdx arity (normalizePattern inner)
+    PRecord con fields rwc -> PRecord con [(fieldName, normalizePattern fieldPat) | (fieldName, fieldPat) <- fields] rwc
+    PTypeSig inner ty -> PTypeSig (normalizePattern inner) (normalizeTypeSpan ty)
+    PSplice body -> PSplice (normalizeExpr body)
 
 -- | Normalize source spans in a type (reset to noSourceSpan).
 normalizeTypeSpan :: Type -> Type
 normalizeTypeSpan ty =
   case ty of
-    TVar _ name -> TVar span0 name
-    TCon _ name promoted -> TCon span0 name promoted
-    TImplicitParam _ name inner -> TImplicitParam span0 name (normalizeTypeSpan inner)
-    TTypeLit _ lit -> TTypeLit span0 lit
-    TStar _ -> TStar span0
-    TQuasiQuote _ quoter body -> TQuasiQuote span0 quoter body
-    TForall _ binders inner -> TForall span0 (map normalizeTyVarBinderSpan binders) (normalizeTypeSpan inner)
-    TApp _ lhs rhs -> TApp span0 (normalizeTypeSpan lhs) (normalizeTypeSpan rhs)
-    TFun _ lhs rhs -> TFun span0 (normalizeTypeSpan lhs) (normalizeTypeSpan rhs)
-    TTuple _ tupleFlavor promoted elems -> TTuple span0 tupleFlavor promoted (map normalizeTypeSpan elems)
-    TList _ promoted elems -> TList span0 promoted (map normalizeTypeSpan elems)
-    TParen _ inner -> TParen span0 (normalizeTypeSpan inner)
-    TKindSig _ inner kind -> TKindSig span0 (normalizeTypeSpan inner) (normalizeTypeSpan kind)
-    TContext _ constraints inner -> TContext span0 (map normalizeTypeSpan constraints) (normalizeTypeSpan inner)
-    TUnboxedSum _ elems -> TUnboxedSum span0 (map normalizeTypeSpan elems)
-    TSplice _ body -> TSplice span0 (normalizeExpr body)
-    TWildcard _ -> TWildcard span0
-    TAnn ann sub -> TAnn ann (normalizeTypeSpan sub)
+    TVar name -> TVar name
+    TCon name promoted -> TCon name promoted
+    TImplicitParam name inner -> TImplicitParam name (normalizeTypeSpan inner)
+    TTypeLit lit -> TTypeLit lit
+    TStar -> TStar
+    TQuasiQuote quoter body -> TQuasiQuote quoter body
+    TForall binders inner -> TForall (map normalizeTyVarBinderSpan binders) (normalizeTypeSpan inner)
+    TApp lhs rhs -> TApp (normalizeTypeSpan lhs) (normalizeTypeSpan rhs)
+    TFun lhs rhs -> TFun (normalizeTypeSpan lhs) (normalizeTypeSpan rhs)
+    TTuple tupleFlavor promoted elems -> TTuple tupleFlavor promoted (map normalizeTypeSpan elems)
+    TList promoted elems -> TList promoted (map normalizeTypeSpan elems)
+    TParen inner -> TParen (normalizeTypeSpan inner)
+    TKindSig inner kind -> TKindSig (normalizeTypeSpan inner) (normalizeTypeSpan kind)
+    TContext constraints inner -> TContext (map normalizeTypeSpan constraints) (normalizeTypeSpan inner)
+    TUnboxedSum elems -> TUnboxedSum (map normalizeTypeSpan elems)
+    TSplice body -> TSplice (normalizeExpr body)
+    TWildcard -> TWildcard
+    TAnn ann sub
+      | Just _ <- fromAnnotation @SourceSpan ann -> normalizeTypeSpan sub
+      | otherwise -> TAnn ann (normalizeTypeSpan sub)
 
 normalizeLiteral :: Literal -> Literal
 normalizeLiteral lit =
-  case lit of
-    LitInt _ value repr -> LitInt span0 value repr
-    LitIntHash _ value repr -> LitIntHash span0 value repr
-    LitIntBase _ value repr -> LitIntBase span0 value repr
-    LitIntBaseHash _ value repr -> LitIntBaseHash span0 value repr
-    LitFloat _ value repr -> LitFloat span0 value repr
-    LitFloatHash _ value repr -> LitFloatHash span0 value repr
-    LitChar _ value repr -> LitChar span0 value repr
-    LitCharHash _ value repr -> LitCharHash span0 value repr
-    LitString _ value repr -> LitString span0 value repr
-    LitStringHash _ value repr -> LitStringHash span0 value repr
+  case peelLiteralAnn lit of
+    LitInt value repr -> LitInt value repr
+    LitIntHash value repr -> LitIntHash value repr
+    LitIntBase value repr -> LitIntBase value repr
+    LitIntBaseHash value repr -> LitIntBaseHash value repr
+    LitFloat value repr -> LitFloat value repr
+    LitFloatHash value repr -> LitFloatHash value repr
+    LitChar value repr -> LitChar value repr
+    LitCharHash value repr -> LitCharHash value repr
+    LitString value repr -> LitString value repr
+    LitStringHash value repr -> LitStringHash value repr
+    LitAnn {} -> error "unreachable"
 
 normalizeUnaryInner :: Pattern -> Pattern
 normalizeUnaryInner pat =
   case normalizePattern pat of
-    PParen _ inner@(PCon {}) -> inner
-    PParen _ inner@(PNegLit {}) -> inner
-    PParen _ inner@(PStrict {}) -> inner
-    PParen _ inner@(PIrrefutable {}) -> inner
+    PParen inner@(PCon {}) -> inner
+    PParen inner@(PNegLit {}) -> inner
+    PParen inner@(PStrict {}) -> inner
+    PParen inner@(PIrrefutable {}) -> inner
     other -> other
 
 -- | Normalize the inner pattern of an as-pattern.
@@ -114,10 +117,10 @@ normalizeUnaryInner pat =
 normalizeAsInner :: Pattern -> Pattern
 normalizeAsInner pat =
   case normalizePattern pat of
-    PParen _ inner@(PCon {}) -> inner
-    PParen _ inner@(PNegLit {}) -> inner
-    PParen _ inner@(PStrict {}) -> inner
-    PParen _ inner@(PIrrefutable {}) -> inner
+    PParen inner@(PCon {}) -> inner
+    PParen inner@(PNegLit {}) -> inner
+    PParen inner@(PStrict {}) -> inner
+    PParen inner@(PIrrefutable {}) -> inner
     other -> other
 
 normalizeTyVarBinderSpan :: TyVarBinder -> TyVarBinder
