@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail reason="a following equation with a quoted empty-list TH name is rejected after a quoted arrow-name equation" -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE TemplateHaskell #-}
 
 module X where

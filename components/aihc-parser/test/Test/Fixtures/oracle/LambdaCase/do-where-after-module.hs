@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail reason="TH name quote of empty list constructor in where clause causes layout parser to reject subsequent function definition" -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TemplateHaskell #-}
 

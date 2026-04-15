@@ -858,7 +858,7 @@ lexTHNameQuote env st
   | otherwise =
       case lexerInput st of
         '\'' :< ('\'' :< (c :< _))
-          | isIdentStart c || c == '(' ->
+          | isIdentStart c || c == '(' || c == '[' ->
               let raw = "''"
                   st' = advanceChars raw st
                in Just (mkToken st st' raw TkTHTypeQuoteTick, st')
