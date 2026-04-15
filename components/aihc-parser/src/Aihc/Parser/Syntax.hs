@@ -1236,10 +1236,9 @@ peelTypeAnn t = t
 -- | Peel 'TAnn' then 'TParen' (used when matching on type shape under annotations
 -- and explicit parentheses).
 peelTypeHead :: Type -> Type
-peelTypeHead ty =
-  case peelTypeAnn ty of
-    TParen inner -> peelTypeHead inner
-    t -> t
+peelTypeHead (TAnn _ inner) = peelTypeHead inner
+peelTypeHead (TParen inner) = peelTypeHead inner
+peelTypeHead ty = ty
 
 data TypeLiteral
   = TypeLitInteger Integer Text

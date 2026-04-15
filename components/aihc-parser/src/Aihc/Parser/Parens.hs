@@ -178,38 +178,38 @@ data ExprCtx
   | CtxGuarded
 
 needsExprParens :: ExprCtx -> Expr -> Bool
+needsExprParens ctx (EAnn _ sub) = needsExprParens ctx sub
 needsExprParens ctx expr =
-  let e = peelExprAnn expr
-   in case ctx of
-        CtxInfixRhs protectOpenEnded ->
-          case e of
-            EInfix {} -> True
-            ETypeSig {} -> True
-            ENegate {} -> True
-            _ | protectOpenEnded && isOpenEnded expr -> True
-            _ -> False
-        CtxInfixLhs ->
-          case e of
-            ETypeSig {} -> True
-            ENegate {} -> True
-            _ -> isOpenEnded expr
-        CtxAppFun ->
-          case e of
-            ENegate {} -> True
-            _ -> False
-        CtxAppArg ->
-          case e of
-            _ | isBlockExpr expr -> False
-            _ -> False
-        CtxAppArgNoParens ->
-          False
-        CtxTypeSigBody ->
-          case e of
-            ENegate {} -> True
-            ETypeSig {} -> True
-            ELambdaPats {} -> True
-            _ -> isOpenEnded expr
-        CtxGuarded -> isGreedyExpr expr
+  case ctx of
+    CtxInfixRhs protectOpenEnded ->
+      case expr of
+        EInfix {} -> True
+        ETypeSig {} -> True
+        ENegate {} -> True
+        _ | protectOpenEnded && isOpenEnded expr -> True
+        _ -> False
+    CtxInfixLhs ->
+      case expr of
+        ETypeSig {} -> True
+        ENegate {} -> True
+        _ -> isOpenEnded expr
+    CtxAppFun ->
+      case expr of
+        ENegate {} -> True
+        _ -> False
+    CtxAppArg ->
+      case expr of
+        _ | isBlockExpr expr -> False
+        _ -> False
+    CtxAppArgNoParens ->
+      False
+    CtxTypeSigBody ->
+      case expr of
+        ENegate {} -> True
+        ETypeSig {} -> True
+        ELambdaPats {} -> True
+        _ -> isOpenEnded expr
+    CtxGuarded -> isGreedyExpr expr
 
 exprCtxPrec :: ExprCtx -> Expr -> Int
 exprCtxPrec ctx expr =
@@ -232,10 +232,9 @@ exprCtxPrec ctx expr =
 
 -- | @TApp@ view after peeling 'TAnn' / 'TParen' to the application head.
 typeTAppView :: Type -> Maybe (Type, Type)
-typeTAppView t =
-  case peelTypeHead t of
-    TApp a b -> Just (a, b)
-    _ -> Nothing
+typeTAppView (TAnn _ sub) = typeTAppView sub
+typeTAppView (TApp a b) = Just (a, b)
+typeTAppView _ = Nothing
 
 typeTConView :: Type -> Maybe (Name, TypePromotion)
 typeTConView t =
@@ -260,18 +259,17 @@ data TypeCtx
   | CtxKindSig
 
 needsTypeParens :: TypeCtx -> Type -> Bool
+needsTypeParens ctx (TAnn _ sub) = needsTypeParens ctx sub
 needsTypeParens ctx ty =
   case ctx of
     CtxTypeFunArg ->
       case ty of
-        TAnn _ sub -> needsTypeParens ctx sub
         TForall {} -> True
         TFun {} -> True
         TContext {} -> True
         _ -> False
     CtxTypeAppArg ->
       case ty of
-        TAnn _ sub -> needsTypeParens ctx sub
         TQuasiQuote {} -> False
         TApp {} -> True
         TForall {} -> True
@@ -280,7 +278,6 @@ needsTypeParens ctx ty =
         _ -> False
     CtxTypeAtom ->
       case ty of
-        TAnn _ sub -> needsTypeParens ctx sub
         TVar {} -> False
         TCon {} -> False
         TImplicitParam {} -> False
@@ -296,7 +293,6 @@ needsTypeParens ctx ty =
         _ -> True
     CtxKindSig ->
       case ty of
-        TAnn _ sub -> needsTypeParens ctx sub
         TKindSig {} -> False
         _ -> True
 
@@ -685,11 +681,7 @@ addExprParensPrec prec expr =
               else addExprParensPrec 1 lhs
        in ESectionL lhs' op
     ESectionR op rhs ->
-      let rhs' =
-            if isGreedyExpr rhs || isTypeSig rhs
-              then wrapExpr True (addExprParens rhs)
-              else addExprParensPrec 1 rhs
-       in ESectionR op rhs'
+      ESectionR op (addExprParens rhs)
     ELetDecls decls body ->
       wrapExpr (prec > 0) (ELetDecls (map addDeclParens decls) (addExprParens body))
     ECase scrutinee alts ->
@@ -846,10 +838,6 @@ addTypeParensShared ctx prec ty =
         TQuasiQuote {} -> ty
         TForall binders inner ->
           wrapTy (prec > 0) (TForall (map addTyVarBinderParens binders) (atom 0 inner))
-        -- Before infix detection: 'matchSymbolicInfixTypeApp' peels through 'TParen'
-        -- via 'peelTypeHead'; handle explicit 'TParen' first so grouping is preserved
-        -- (constraints, @(a :+: b) -> c@, nested @(c => t)@).
-        TParen inner -> TParen (addTypeParensInner inner)
         tyInfix
           | Just (_whole, op, lhs, rhs) <- matchSymbolicInfixTypeApp tyInfix ->
               -- Infix type operator: args are treated as atoms
@@ -862,6 +850,9 @@ addTypeParensShared ctx prec ty =
           TTuple tupleFlavor promoted (map (atom 0) elems)
         TUnboxedSum elems -> TUnboxedSum (map (atom 0) elems)
         TList promoted elems -> TList promoted (map (atom 0) elems)
+        -- Inside an explicit TParen, TKindSig does not need an additional
+        -- TParen wrapper since the enclosing delimiter already provides it.
+        TParen inner -> TParen (addTypeParensInner inner)
         -- TKindSig always needs parens in most contexts. The parser absorbs
         -- (ty :: kind) as TKindSig directly, so the TParen is not preserved
         -- through roundtrips. The pretty-printer relies on the TParen wrapper
