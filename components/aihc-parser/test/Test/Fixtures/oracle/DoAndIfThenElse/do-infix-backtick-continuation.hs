@@ -7,8 +7,7 @@ catch :: IO a -> (String -> IO a) -> IO a
 catch = undefined
 
 test :: IO (Maybe Int)
-test =
-  do
+test = do
     x <- return 42
     return (Just x)
     `catch` (\e -> return Nothing)
