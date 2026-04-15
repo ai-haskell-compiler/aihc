@@ -447,6 +447,26 @@ classDefaultTypeInstParser = withSpan $ do
           typeFamilyInstRhs = rhs
         }
 
+-- | Parse @type [forall binders.] LhsType = RhsType@ as a shorthand default
+-- associated type instance in a class body.
+classDefaultTypeInstShorthandParser :: TokParser ClassDeclItem
+classDefaultTypeInstShorthandParser = withSpan $ do
+  expectedTok TkKeywordType
+  forallBinders <- forallPrefixDispatch typeFamilyForallParser
+  (headForm, lhs) <- typeFamilyLhsParser
+  expectedTok TkReservedEquals
+  rhs <- typeParser
+  pure $ \span' ->
+    ClassItemDefaultTypeInst
+      span'
+      TypeFamilyInst
+        { typeFamilyInstSpan = span',
+          typeFamilyInstForall = forallBinders,
+          typeFamilyInstHeadForm = headForm,
+          typeFamilyInstLhs = lhs,
+          typeFamilyInstRhs = rhs
+        }
+
 -- ---------------------------------------------------------------------------
 -- TypeFamilies: instance body items
 
@@ -648,7 +668,7 @@ ordinaryClassDeclItemParser = do
     TkKeywordDefault -> classDefaultSigItemParser
     TkKeywordType
       | lexTokenKind nextTok == TkKeywordInstance -> classDefaultTypeInstParser
-    TkKeywordType -> classTypeFamilyDeclParser
+    TkKeywordType -> MP.try classDefaultTypeInstShorthandParser <|> classTypeFamilyDeclParser
     _ -> do
       isSig <- startsWithTypeSig
       if isSig then classTypeSigItemParser else classDefaultItemParser
