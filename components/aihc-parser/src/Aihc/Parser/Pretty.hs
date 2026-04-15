@@ -1002,7 +1002,7 @@ prettyExpr expr =
     ETHTypeQuote _ ty -> "[t|" <+> prettyType ty <+> "|]"
     ETHPatQuote _ pat -> "[p|" <+> prettyPattern pat <+> "|]"
     ETHNameQuote _ name
-      | isOperatorToken name -> "'" <> parens (pretty name)
+      | isOperatorName name -> "'" <> parens (pretty name)
       | otherwise -> "'" <> pretty name
     ETHTypeNameQuote _ name
       | isOperatorName name -> "''" <> parens (pretty name)

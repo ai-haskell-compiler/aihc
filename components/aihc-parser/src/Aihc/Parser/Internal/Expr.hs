@@ -1080,7 +1080,7 @@ thNameQuoteExprParser = thValueNameQuoteParser <|> thTypeNameQuoteParser
 thValueNameQuoteParser :: TokParser Expr
 thValueNameQuoteParser = withSpan $ do
   expectedTok TkTHQuoteTick
-  name <- identifierTextParser <|> parenOperatorTextParser <|> bracketConstructorTextParser
+  name <- identifierNameParser <|> parenOperatorNameParser <|> bracketConstructorNameParser
   pure (`ETHNameQuote` name)
 
 thTypeNameQuoteParser :: TokParser Expr
@@ -1089,18 +1089,6 @@ thTypeNameQuoteParser = withSpan $ do
   name <- identifierNameParser <|> parenOperatorNameParser <|> bracketConstructorNameParser
   pure (`ETHTypeNameQuote` name)
 
-parenOperatorTextParser :: TokParser Text
-parenOperatorTextParser = do
-  expectedTok TkSpecialLParen
-  op <- tokenSatisfy "operator" $ \tok ->
-    case lexTokenKind tok of
-      TkVarSym sym -> Just sym
-      TkConSym sym -> Just sym
-      TkReservedColon -> Just ":"
-      _ -> Nothing
-  expectedTok TkSpecialRParen
-  pure ("(" <> op <> ")")
-
 parenOperatorNameParser :: TokParser Name
 parenOperatorNameParser = do
   expectedTok TkSpecialLParen
@@ -1108,19 +1096,13 @@ parenOperatorNameParser = do
     case lexTokenKind tok of
       TkVarSym sym -> Just (qualifyName Nothing (mkUnqualifiedName NameVarSym sym))
       TkConSym sym -> Just (qualifyName Nothing (mkUnqualifiedName NameConSym sym))
+      TkQVarSym modName sym -> Just (mkName (Just modName) NameVarSym sym)
+      TkQConSym modName sym -> Just (mkName (Just modName) NameConSym sym)
       TkReservedColon -> Just (qualifyName Nothing (mkUnqualifiedName NameConSym ":"))
       TkReservedRightArrow -> Just (qualifyName Nothing (mkUnqualifiedName NameVarSym "->"))
       _ -> Nothing
   expectedTok TkSpecialRParen
   pure op
-
--- | Parse the empty-list constructor name @[]@ in a TH name quote context,
--- i.e. the @[]@ in @'[]@ or the type-level @''[]@.
-bracketConstructorTextParser :: TokParser Text
-bracketConstructorTextParser = do
-  expectedTok TkSpecialLBracket
-  expectedTok TkSpecialRBracket
-  pure "[]"
 
 bracketConstructorNameParser :: TokParser Name
 bracketConstructorNameParser = do
