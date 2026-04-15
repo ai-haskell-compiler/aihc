@@ -2,9 +2,9 @@
 
 ## Summary
 
-- Total Extensions: 81
-- Supported: 71
-- In Progress: 10
+- Total Extensions: 83
+- Supported: 66
+- In Progress: 17
 
 ## Extension Status
 
@@ -12,14 +12,14 @@
 |----------------------------|:------:|---------------|
 | AllowAmbiguousTypes        |   🟢    | 1/1           |
 | Arrows                     |   🟢    | 17/17         |
-| BangPatterns               |   🟡    | 10/11         |
+| BangPatterns               |   🟢    | 11/11         |
 | BinaryLiterals             |   🟢    | 3/3           |
 | BlockArguments             |   🟢    | 6/6           |
-| CApiFFI                    |   🟢    | 1/1           |
+| CApiFFI                    |   🔴    | 1/2           |
 | ConstrainedClassMethods    |   🟢    | 1/1           |
 | ConstraintKinds            |   🟢    | 4/4           |
 | CPP                        |   🟢    | 7/7           |
-| DataKinds                  |   🟡    | 30/31         |
+| DataKinds                  |   🟡    | 30/33         |
 | DefaultSignatures          |   🟢    | 3/3           |
 | DeriveAnyClass             |   🟢    | 1/1           |
 | DerivingStrategies         |   🟢    | 8/8           |
@@ -29,29 +29,30 @@
 | EmptyDataDecls             |   🟢    | 7/7           |
 | EmptyDataDeriving          |   🟢    | 3/3           |
 | ExistentialQuantification  |   🟢    | 7/7           |
-| ExplicitForAll             |   🟢    | 19/19         |
+| ExplicitForAll             |   🟡    | 19/20         |
 | ExplicitLevelImports       |   🟢    | 4/4           |
 | ExplicitNamespaces         |   🟢    | 23/23         |
 | ExtendedLiterals           |   🟢    | 2/2           |
 | FlexibleContexts           |   🟢    | 4/4           |
-| FlexibleInstances          |   🟢    | 14/14         |
+| FlexibleInstances          |   🟡    | 14/15         |
 | ForeignFunctionInterface   |   🟢    | 40/40         |
 | FunctionalDependencies     |   🟢    | 7/7           |
 | GADTs                      |   🟢    | 10/10         |
 | GADTSyntax                 |   🟢    | 10/10         |
 | GeneralizedNewtypeDeriving |   🟢    | 1/1           |
-| GHC2021                    |   🔴    | 20/24         |
-| Haskell2010                |   🟡    | 12/13         |
+| GHC2021                    |   🔴    | 20/25         |
+| Haskell2010                |   🟢    | 13/13         |
 | HexFloatLiterals           |   🟢    | 3/3           |
 | ImplicitParams             |   🟢    | 10/10         |
 | ImportQualifiedPost        |   🟢    | 4/4           |
 | IncoherentInstances        |   🟢    | 1/1           |
 | InstanceSigs               |   🟢    | 5/5           |
-| KindSignatures             |   🟢    | 16/16         |
+| InterruptibleFFI           |   🔴    | 0/1           |
+| KindSignatures             |   🟡    | 16/17         |
 | LambdaCase                 |   🔴    | 8/10          |
 | MagicHash                  |   🟢    | 6/6           |
 | MultilineStrings           |   🟢    | 6/6           |
-| MultiParamTypeClasses      |   🟢    | 19/19         |
+| MultiParamTypeClasses      |   🟡    | 19/20         |
 | MultiWayIf                 |   🟢    | 5/5           |
 | NamedFieldPuns             |   🟢    | 6/6           |
 | NamedWildCards             |   🟢    | 5/5           |
@@ -65,7 +66,7 @@
 | PartialTypeSignatures      |   🟢    | 11/11         |
 | PatternGuards              |   🟢    | 7/7           |
 | PatternSynonyms            |   🟢    | 25/25         |
-| PolyKinds                  |   🟢    | 6/6           |
+| PolyKinds                  |   🔴    | 6/8           |
 | QualifiedDo                |   🟢    | 1/1           |
 | QuasiQuotes                |   🟢    | 6/6           |
 | RankNTypes                 |   🟢    | 3/3           |
@@ -79,13 +80,14 @@
 | StandaloneKindSignatures   |   🟢    | 10/10         |
 | StarIsType                 |   🟢    | 1/1           |
 | StrictData                 |   🟢    | 1/1           |
-| TemplateHaskell            |   🟡    | 33/34         |
-| TemplateHaskellQuotes      |   🟢    | 10/10         |
+| TemplateHaskell            |   🔴    | 33/37         |
+| TemplateHaskellQuotes      |   🟡    | 10/11         |
 | TupleSections              |   🟢    | 4/4           |
+| TypeAbstractions           |   🔴    | 0/1           |
 | TypeApplications           |   🟢    | 8/8           |
 | TypeData                   |   🟢    | 1/1           |
-| TypeFamilies               |   🟡    | 30/31         |
-| TypeOperators              |   🟡    | 33/34         |
+| TypeFamilies               |   🔴    | 30/34         |
+| TypeOperators              |   🔴    | 33/37         |
 | TypeSynonymInstances       |   🟢    | 1/1           |
 | UnboxedSums                |   🟢    | 5/5           |
 | UnboxedTuples              |   🟢    | 10/10         |
