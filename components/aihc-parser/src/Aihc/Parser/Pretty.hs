@@ -29,7 +29,7 @@ where
 
 import Aihc.Parser.Parens (addDeclParens, addExprParens, addModuleParens, addPatternParens, addTypeParens)
 import Aihc.Parser.Syntax
-import Data.Char (GeneralCategory (..), generalCategory, isAscii)
+import Data.Char (GeneralCategory (..), generalCategory, isAscii, isAsciiLower, isAsciiUpper, isDigit, isUpper)
 import Data.Maybe (catMaybes, isJust)
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -1287,11 +1287,18 @@ thNameQuoteTextNeedsParens name
   | isOperatorToken name = True
   | not (T.any (== '.') name) = False
   | otherwise =
-      case T.split (== '.') name of
-        [] -> False
-        parts ->
-          let suffix = last parts
-           in not (T.null suffix) && isOperatorToken suffix
+      case span isModuleSegment (T.split (== '.') name) of
+        ([], _) -> False
+        (_, []) -> False
+        (qualifiers, remainder) -> not (all T.null qualifiers) && isOperatorToken (T.intercalate "." remainder)
+  where
+    isModuleSegment segment =
+      case T.uncons segment of
+        Just (c, rest) -> isUpper c && T.all isModuleSegmentChar rest
+        Nothing -> False
+
+    isModuleSegmentChar c =
+      isAsciiLower c || isAsciiUpper c || isDigit c
 
 isOperatorToken :: Text -> Bool
 isOperatorToken tok =
@@ -1363,12 +1370,15 @@ prettyTopDataFamilyInst dfi =
     [keyword, "instance"]
       <> forallPart (dataFamilyInstForall dfi)
       <> [prettyType (dataFamilyInstHead dfi)]
+      <> kindPart (dataFamilyInstKind dfi)
       <> ctorPart (dataFamilyInstConstructors dfi)
       <> derivingParts (dataFamilyInstDeriving dfi)
   where
     keyword = if dataFamilyInstIsNewtype dfi then "newtype" else "data"
     forallPart [] = []
     forallPart binders = ["forall", hsep (map prettyTyVarBinder binders) <> "."]
+    kindPart Nothing = []
+    kindPart (Just k) = ["::", prettyType k]
     ctorPart [] = []
     ctorPart ctors@(c : _)
       | any isGadtCon ctors = ["where", braces (hsep (punctuate semi (map prettyDataCon ctors)))]
@@ -1459,10 +1469,13 @@ prettyInstDataFamilyInst :: DataFamilyInst -> Doc ann
 prettyInstDataFamilyInst dfi =
   hsep $
     [keyword, prettyType (dataFamilyInstHead dfi)]
+      <> kindPart (dataFamilyInstKind dfi)
       <> ctorPart (dataFamilyInstConstructors dfi)
       <> derivingParts (dataFamilyInstDeriving dfi)
   where
     keyword = if dataFamilyInstIsNewtype dfi then "newtype" else "data"
+    kindPart Nothing = []
+    kindPart (Just k) = ["::", prettyType k]
     ctorPart [] = []
     ctorPart ctors@(c : _)
       | any isGadtCon ctors = ["where", braces (hsep (punctuate semi (map prettyDataCon ctors)))]
