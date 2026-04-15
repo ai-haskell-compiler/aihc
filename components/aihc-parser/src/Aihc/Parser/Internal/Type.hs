@@ -51,8 +51,7 @@ forallTypeParser = withSpanAnn (TAnn . mkAnnotation) $ do
   expectedTok TkKeywordForall
   binders <- MP.some forallBinderParser
   expectedTok (TkVarSym ".")
-  inner <- contextOrFunTypeParser
-  pure (TForall binders inner)
+  TForall binders <$> contextOrFunTypeParser
 
 -- | Parse a single forall binder: {k} | (k :: *) | k
 forallBinderParser :: TokParser TyVarBinder
@@ -217,8 +216,7 @@ typeImplicitParamParser :: TokParser Type
 typeImplicitParamParser = withSpanAnn (TAnn . mkAnnotation) $ do
   name <- implicitParamNameParser
   expectedTok TkReservedDoubleColon
-  ty <- typeParser
-  pure (TImplicitParam name ty)
+  TImplicitParam name <$> typeParser
 
 typeWildcardParser :: TokParser Type
 typeWildcardParser = withSpanAnn (TAnn . mkAnnotation) $ do

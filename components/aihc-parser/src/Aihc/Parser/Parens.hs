@@ -40,19 +40,22 @@ import Data.Text (Text)
 -- | Wrap an expression in 'EParen' if the predicate holds, unless it is
 -- already parenthesised.
 wrapExpr :: Bool -> Expr -> Expr
-wrapExpr True e | EParen {} <- peelExprAnn e = e
+wrapExpr True (EAnn ann sub) = EAnn ann (wrapExpr True sub)
+wrapExpr True e@EParen {} = e
 wrapExpr True e = EParen e
 wrapExpr False e = e
 
 -- | Wrap a pattern in 'PParen' if the predicate holds, unless already wrapped.
 wrapPat :: Bool -> Pattern -> Pattern
-wrapPat True p | PParen {} <- peelPatternAnn p = p
+wrapPat True (PAnn ann sub) = PAnn ann (wrapPat True sub)
+wrapPat True p@PParen {} = p
 wrapPat True p = PParen p
 wrapPat False p = p
 
 -- | Wrap a type in 'TParen' if the predicate holds, unless already wrapped.
 wrapTy :: Bool -> Type -> Type
-wrapTy True t@(TParen {}) = t
+wrapTy True (TAnn ann sub) = TAnn ann (wrapTy True sub)
+wrapTy True t@TParen {} = t
 wrapTy True t = TParen t
 wrapTy False t = t
 
@@ -79,10 +82,8 @@ isArrowTailOp _ = False
 -- | Check if an expression is a "block expression" that can appear without
 -- parentheses as a function argument when BlockArguments is enabled.
 isBlockExpr :: Expr -> Bool
-isBlockExpr = isBlockExprRaw . peelExprAnn
-
-isBlockExprRaw :: Expr -> Bool
-isBlockExprRaw = \case
+isBlockExpr = \case
+  EAnn _ sub -> isBlockExpr sub
   EIf {} -> True
   EMultiWayIf {} -> True
   ECase {} -> True
@@ -94,10 +95,8 @@ isBlockExprRaw = \case
 
 -- | Check if an expression is "greedy" - i.e., it could consume trailing syntax.
 isGreedyExpr :: Expr -> Bool
-isGreedyExpr = isGreedyExprRaw . peelExprAnn
-
-isGreedyExprRaw :: Expr -> Bool
-isGreedyExprRaw = \case
+isGreedyExpr = \case
+  EAnn _ sub -> isGreedyExpr sub
   ECase {} -> True
   EIf {} -> True
   ELambdaPats {} -> True
@@ -115,10 +114,8 @@ isGreedyExprRaw = \case
 -- an infix operator, because the closing @}@ unambiguously ends the expression.
 -- Peel span-only 'EAnn' so @do@ / @case@ / @\\case@ under 'exprAnnSpan' still count.
 isBracedExpr :: Expr -> Bool
-isBracedExpr = isBracedExprRaw . peelExprAnn
-
-isBracedExprRaw :: Expr -> Bool
-isBracedExprRaw = \case
+isBracedExpr = \case
+  EAnn _ sub -> isBracedExpr sub
   ECase {} -> True
   EDo {} -> True
   ELambdaCase {} -> True
@@ -127,10 +124,8 @@ isBracedExprRaw = \case
 -- | Check if an expression is "open-ended" - its rightmost component can
 -- capture a trailing where clause.
 isOpenEnded :: Expr -> Bool
-isOpenEnded = isOpenEndedRaw . peelExprAnn
-
-isOpenEndedRaw :: Expr -> Bool
-isOpenEndedRaw = \case
+isOpenEnded = \case
+  EAnn _ sub -> isOpenEnded sub
   EIf {} -> True
   ELambdaPats {} -> True
   ELetDecls {} -> True
@@ -270,8 +265,6 @@ needsTypeParens ctx ty =
     CtxTypeFunArg ->
       case ty of
         TAnn _ sub -> needsTypeParens ctx sub
-        -- Source or 'TParen' already groups this type to the left of @->@.
-        TParen {} -> False
         TForall {} -> True
         TFun {} -> True
         TContext {} -> True
@@ -852,7 +845,7 @@ addTypeParensShared ctx prec ty =
         TStar {} -> ty
         TQuasiQuote {} -> ty
         TForall binders inner ->
-          wrapTy (prec > 0) (typeAnnSpan (getSourceSpan ty) (TForall (map addTyVarBinderParens binders) (atom 0 inner)))
+          wrapTy (prec > 0) (TForall (map addTyVarBinderParens binders) (atom 0 inner))
         -- Before infix detection: 'matchSymbolicInfixTypeApp' peels through 'TParen'
         -- via 'peelTypeHead'; handle explicit 'TParen' first so grouping is preserved
         -- (constraints, @(a :+: b) -> c@, nested @(c => t)@).
@@ -860,26 +853,11 @@ addTypeParensShared ctx prec ty =
         tyInfix
           | Just (_whole, op, lhs, rhs) <- matchSymbolicInfixTypeApp tyInfix ->
               -- Infix type operator: args are treated as atoms
-              let innerSp = mergeSourceSpans (getSourceSpan op) (getSourceSpan lhs)
-               in typeAnnSpan
-                    (getSourceSpan tyInfix)
-                    (TApp (typeAnnSpan innerSp (TApp op (atom 0 lhs))) (atom 0 rhs))
+              TApp (TApp op (atom 0 lhs)) (atom 0 rhs)
         TApp f x ->
-          let f' = addTypeIn CtxTypeFunArg f
-              x' = addTypeIn CtxTypeAppArg x
-           in wrapTy
-                (prec > 2)
-                ( typeAnnSpan
-                    (mergeSourceSpans (getSourceSpan f) (getSourceSpan x))
-                    (TApp f' x')
-                )
+          wrapTy (prec > 2) (TApp (addTypeIn CtxTypeFunArg f) (addTypeIn CtxTypeAppArg x))
         TFun a b ->
-          wrapTy
-            (prec > 0)
-            ( typeAnnSpan
-                (mergeSourceSpans (getSourceSpan a) (getSourceSpan b))
-                (TFun (addTypeIn CtxTypeFunArg a) (atom 0 b))
-            )
+          wrapTy (prec > 0) (TFun (addTypeIn CtxTypeFunArg a) (atom 0 b))
         TTuple tupleFlavor promoted elems ->
           TTuple tupleFlavor promoted (map (atom 0) elems)
         TUnboxedSum elems -> TUnboxedSum (map (atom 0) elems)
@@ -889,17 +867,10 @@ addTypeParensShared ctx prec ty =
         -- through roundtrips. The pretty-printer relies on the TParen wrapper
         -- to produce the required parentheses.
         TKindSig ty' kind ->
-          wrapTy
-            True
-            ( typeAnnSpan
-                (mergeSourceSpans (getSourceSpan ty') (getSourceSpan kind))
-                (TKindSig (atom 0 ty') (atom 0 kind))
-            )
+          wrapTy True (TKindSig (atom 0 ty') (atom 0 kind))
         TContext constraints inner ->
-          wrapTy
-            (prec > 0)
-            (typeAnnSpan (getSourceSpan ty) (TContext (addContextConstraints constraints) (atom 0 inner)))
-        TSplice body -> typeAnnSpan (getSourceSpan ty) (TSplice (addSpliceBodyParens body))
+          wrapTy (prec > 0) (TContext (addContextConstraints constraints) (atom 0 inner))
+        TSplice body -> TSplice (addSpliceBodyParens body)
         TWildcard {} -> ty
 
 addTyVarBinderParens :: TyVarBinder -> TyVarBinder
