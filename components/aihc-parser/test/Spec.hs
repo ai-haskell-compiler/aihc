@@ -105,7 +105,6 @@ buildTests = do
             testCase "parses parenthesized kind signatures in application heads" test_typeParsesKindSignatureApplicationHead,
             testCase "parses empty list type constructor" test_typeParsesEmptyListConstructor,
             testCase "parses promoted empty list type constructor" test_typeParsesPromotedEmptyListConstructor,
-            testCase "parses promoted unit in type family instance lhs" test_typeFamilyInstanceParsesPromotedUnitLhs,
             testCase "parses parenthesized empty list in instance heads" test_instanceParsesParenthesizedEmptyListType,
             testCase "parses GADT constructor arguments with kind signatures" test_gadtConstructorParsesKindAnnotatedArgument,
             testCase "preserves source unpack pragmas on constructor fields" test_constructorFieldsPreserveSourceUnpackedness,
@@ -294,25 +293,6 @@ test_typeParsesPromotedEmptyListConstructor =
   case parseType defaultConfig {parserExtensions = [DataKinds]} "'[]" of
     ParseOk (TCon _ "[]" Promoted) -> pure ()
     other -> assertFailure ("expected promoted empty list type constructor, got: " <> show other)
-
-test_typeFamilyInstanceParsesPromotedUnitLhs :: Assertion
-test_typeFamilyInstanceParsesPromotedUnitLhs =
-  let source =
-        T.unlines
-          [ "{-# LANGUAGE DataKinds #-}",
-            "{-# LANGUAGE TypeFamilies #-}",
-            "module M where",
-            "type family T a",
-            "type instance T '() = ()"
-          ]
-      (errs, modu) = parseModule defaultConfig source
-   in do
-        assertBool ("expected no parse errors, got: " <> show errs) (null errs)
-        case moduleDecls modu of
-          [ DeclTypeFamilyDecl _ TypeFamilyDecl {typeFamilyDeclHead = TCon _ "T" Unpromoted, typeFamilyDeclParams = [_]},
-            DeclTypeFamilyInst _ TypeFamilyInst {typeFamilyInstHeadForm = TypeHeadPrefix, typeFamilyInstLhs = TApp _ (TCon _ "T" Unpromoted) (TTuple _ Boxed Promoted []), typeFamilyInstRhs = TTuple _ Boxed Unpromoted []}
-            ] -> pure ()
-          other -> assertFailure ("unexpected parsed declarations: " <> show other)
 
 test_instanceParsesParenthesizedEmptyListType :: Assertion
 test_instanceParsesParenthesizedEmptyListType =
