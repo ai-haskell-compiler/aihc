@@ -3,6 +3,7 @@
 
 module Test.Properties.Arb.Decl
   ( genDecl,
+    genDeclDataFamilyInst,
     genFunctionDecl,
     shrinkDecl,
   )
@@ -21,7 +22,7 @@ import Test.Properties.Arb.Identifiers
     span0,
   )
 import Test.Properties.Arb.Pattern (canonicalPatternAtom, genPattern, shrinkPattern)
-import Test.Properties.Arb.Type (canonicalAppArg, canonicalFunLeft, canonicalTopLevelType, genType)
+import Test.Properties.Arb.Type (canonicalAppArg, canonicalFunLeft, canonicalKindSigKind, canonicalTopLevelType, genType)
 import Test.QuickCheck
 
 -- | Annotation choices for BangType
@@ -887,6 +888,7 @@ genDeclDataFamilyInst =
 genDeclDataFamilyInstPrefix :: Gen Decl
 genDeclDataFamilyInstPrefix = do
   head' <- genFamilyLhsType
+  kind <- genOptionalDataFamilyInstKind
   ctors <- genSimpleDataCons
   pure $
     DeclDataFamilyInst $
@@ -895,6 +897,7 @@ genDeclDataFamilyInstPrefix = do
           dataFamilyInstIsNewtype = False,
           dataFamilyInstForall = [],
           dataFamilyInstHead = head',
+          dataFamilyInstKind = kind,
           dataFamilyInstConstructors = ctors,
           dataFamilyInstDeriving = []
         }
@@ -902,6 +905,7 @@ genDeclDataFamilyInstPrefix = do
 genDeclDataFamilyInstGadt :: Gen Decl
 genDeclDataFamilyInstGadt = do
   head' <- genFamilyLhsType
+  kind <- genOptionalDataFamilyInstKind
   ctors <- genGadtDataCons
   pure $
     DeclDataFamilyInst $
@@ -910,9 +914,21 @@ genDeclDataFamilyInstGadt = do
           dataFamilyInstIsNewtype = False,
           dataFamilyInstForall = [],
           dataFamilyInstHead = head',
+          dataFamilyInstKind = kind,
           dataFamilyInstConstructors = ctors,
           dataFamilyInstDeriving = []
         }
+
+genOptionalDataFamilyInstKind :: Gen (Maybe Type)
+genOptionalDataFamilyInstKind =
+  frequency
+    [ (3, pure Nothing),
+      (1, Just <$> genDataFamilyInstKind)
+    ]
+
+genDataFamilyInstKind :: Gen Type
+genDataFamilyInstKind =
+  canonicalKindSigKind . canonicalTopLevelType <$> sized (genType . min 6)
 
 -- | Generate a type family LHS: a type constructor applied to an arbitrary type argument.
 genFamilyLhsType :: Gen Type

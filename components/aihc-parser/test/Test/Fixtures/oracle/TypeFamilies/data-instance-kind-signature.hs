@@ -1,4 +1,4 @@
-{- ORACLE_TEST xfail reason="data family instances with inline result kind signatures are not parsed" -}
+{- ORACLE_TEST pass -}
 {-# LANGUAGE TypeFamilies #-}
 
 module DataInstanceKindSignature where

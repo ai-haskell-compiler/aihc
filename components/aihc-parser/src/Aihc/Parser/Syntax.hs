@@ -1293,6 +1293,8 @@ data DataFamilyInst = DataFamilyInst
     dataFamilyInstForall :: [TyVarBinder],
     -- | The LHS type-application pattern (e.g. @GMap (Either a b) v@)
     dataFamilyInstHead :: Type,
+    -- | Optional inline result kind annotation (@:: Kind@) before @=@ or @where@
+    dataFamilyInstKind :: Maybe Type,
     dataFamilyInstConstructors :: [DataConDecl],
     dataFamilyInstDeriving :: [DerivingClause]
   }
