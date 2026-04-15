@@ -281,16 +281,15 @@ plainDeclsMaybeEmpty :: TokParser [Decl]
 plainDeclsMaybeEmpty = concat <$> plainSemiSep localDeclsParser
 
 doLetStmtParser :: TokParser (DoStmt Expr)
-doLetStmtParser = withSpan $ do
-  decls <- parseLetDeclsStmtParser
-  pure (\span' -> doStmtAnnSpan span' (DoLetDecls decls))
+doLetStmtParser = withSpanAnn (DoAnn . mkAnnotation) $ do
+  DoLetDecls <$> parseLetDeclsStmtParser
 
 -- | Parse a @rec@ statement inside a do-block.
 doRecStmtParser :: TokParser (DoStmt Expr)
-doRecStmtParser = withSpan $ do
+doRecStmtParser = withSpanAnn (DoAnn . mkAnnotation) $ do
   expectedTok TkKeywordRec
   stmts <- bracedSemiSep1 doStmtParser
-  pure (\span' -> doStmtAnnSpan span' (DoRecStmt stmts))
+  pure (DoRecStmt stmts)
 
 infixExprParserExcept :: [Text] -> TokParser Expr
 infixExprParserExcept forbidden = do
@@ -593,28 +592,25 @@ guardQualifierParser = do
         else guardBindOrExprParser
 
 guardBindOrExprParser :: TokParser GuardQualifier
-guardBindOrExprParser = withSpan $ do
+guardBindOrExprParser = withSpanAnn (GuardAnn . mkAnnotation) $ do
   expr <- exprParserWithTypeSigParser typeInfixParser
   mArrow <- MP.optional (expectedTok TkReservedLeftArrow)
   case mArrow of
     Just () -> do
       pat <- liftCheck (checkPattern expr)
-      rhs <- exprParser
-      pure (\span' -> guardAnnSpan span' (GuardPat pat rhs))
+      GuardPat pat <$> exprParser
     Nothing ->
-      pure (\span' -> guardAnnSpan span' (GuardExpr expr))
+      pure (GuardExpr expr)
 
 guardPatBindParser :: TokParser GuardQualifier
-guardPatBindParser = withSpan $ do
+guardPatBindParser = withSpanAnn (GuardAnn . mkAnnotation) $ do
   pat <- patternParser
   expectedTok TkReservedLeftArrow
-  expr <- exprParser
-  pure (\span' -> guardAnnSpan span' (GuardPat pat expr))
+  GuardPat pat <$> exprParser
 
 guardLetParser :: TokParser GuardQualifier
-guardLetParser = withSpan $ do
-  decls <- parseLetDeclsStmtParser
-  pure (\span' -> guardAnnSpan span' (GuardLet decls))
+guardLetParser = withSpanAnn (GuardAnn . mkAnnotation) $ do
+  GuardLet <$> parseLetDeclsStmtParser
 
 caseAltParser :: TokParser CaseAlt
 caseAltParser = withSpan $ do
