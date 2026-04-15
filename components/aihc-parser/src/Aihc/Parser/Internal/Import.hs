@@ -45,17 +45,17 @@ moduleHeaderParser = withSpan $ do
 
 warningTextParser :: TokParser WarningText
 warningTextParser =
-  withSpan $
+  withSpanAnn (WarningTextAnn . mkAnnotation) $
     hiddenPragma "warning pragma" $ \case
-      PragmaWarning msg -> Just (const $ WarnText msg)
-      PragmaDeprecated msg -> Just (const $ DeprText msg)
+      PragmaWarning msg -> Just (WarnText msg)
+      PragmaDeprecated msg -> Just (DeprText msg)
       _ -> Nothing
 
 exportSpecListParser :: TokParser [ExportSpec]
 exportSpecListParser = parens $ exportSpecParser `MP.sepEndBy` expectedTok TkSpecialComma
 
 exportSpecParser :: TokParser ExportSpec
-exportSpecParser = do
+exportSpecParser = withSpanAnn (ExportAnn . mkAnnotation) $ do
   mWarning <- MP.optional warningTextParser
   exportModuleParser mWarning <|> exportNameParser mWarning
 
@@ -176,7 +176,7 @@ importSpecParser = withSpan $ do
       }
 
 importItemParser :: TokParser ImportItem
-importItemParser = do
+importItemParser = withSpanAnn (ImportAnn . mkAnnotation) $ do
   namespace <- MP.optional exportImportNamespaceParser
   itemName <- identifierUnqualifiedNameParser <|> parens importOperatorParser
   -- When there's no explicit namespace, we still need to try parsing members
